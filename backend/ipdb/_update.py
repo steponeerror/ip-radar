@@ -93,7 +93,8 @@ def _git_ok(repo_dir: str) -> bool:
     if not repo_dir:  # M1: 未配置不得退化到 CWD(容器 WORKDIR 可能恰是 git 仓库)
         return False
     try:
-        return sp.run(["git", "-C", repo_dir, "rev-parse", "--git-dir"],
+        # B1: 容器 root vs 宿主用户属主 → git≥2.35.2 dubious ownership 拒绝;repo 路径来自运维配置 env,容器内放开可接受
+        return sp.run(["git", "-c", "safe.directory=*", "-C", repo_dir, "rev-parse", "--git-dir"],
                       capture_output=True, timeout=10).returncode == 0
     except (OSError, sp.TimeoutExpired):
         return False
@@ -153,7 +154,7 @@ def run_update() -> None:
     compose_file = os.environ.get("IP_RADAR_COMPOSE_FILE",
                                   os.path.join(repo, "docker-compose.yml"))
     try:
-        r = sp.run(["git", "-C", repo, "pull", "--ff-only"],
+        r = sp.run(["git", "-c", "safe.directory=*", "-C", repo, "pull", "--ff-only"],
                    capture_output=True, text=True, timeout=_TIMEOUT)
         if r.returncode != 0:
             mark_failed(f"git pull --ff-only 失败(本地有修改?): {r.stderr.strip()[:300]}")

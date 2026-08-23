@@ -85,8 +85,9 @@ def test_run_update_success_sequence(tmp_path):
          patch.object(_update.sp, "run", side_effect=fake_run), \
          patch.dict("os.environ", {"IP_RADAR_REPO_DIR": "/repo", "IP_RADAR_COMPOSE_FILE": "/repo/docker-compose.yml"}):
         _update.run_update()
-    assert calls[0][:4] == ["git", "-C", "/repo", "pull"]
-    assert "--ff-only" in calls[0]
+    assert calls[0][:4] == ["git", "-c", "safe.directory=*", "-C"]  # B1: dubious ownership 豁免
+    assert calls[0][4] == "/repo"
+    assert "pull" in calls[0] and "--ff-only" in calls[0]
     assert calls[1][:3] == ["docker", "compose", "-p"]
     assert calls[1][3] == "ip-radar"
     assert "ipradar" == calls[1][-1]  # service 定向,不起分身(F1)

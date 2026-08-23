@@ -14,7 +14,7 @@ services:
       # ── 一键更新(可选):取消注释并补 token 才解锁 /api/update ──
       # 挂 docker.sock = 容器获得宿主机 root 级控制,仅限内网自托管
       # - /var/run/docker.sock:/var/run/docker.sock
-      # - ./:/app/repo
+      # - /宿主机上的/ip-radar/绝对路径:/app/repo
       # ↓ environment 是 service 层键(与 volumes/env_file 平级),取消注释时移到 service 缩进层
       # environment:
       #   IP_RADAR_SELF_UPDATE: "1"

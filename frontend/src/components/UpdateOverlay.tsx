@@ -5,7 +5,7 @@ import { getVersion, getUpdateStatus } from "../api";
 export const TOKEN_KEY = "update_token";
 
 const POLL_MS = 3000;
-const GIVE_UP_MS = 5 * 60 * 1000; // 5 分钟仍无进展 → 失败态(spec 前端流 Step 5)
+const GIVE_UP_MS = 660_000; // 11 分钟兜底:后端 subprocess 上限 600s+余量,仍无进展 → 失败态(N1 对齐)
 
 /**
  * 全屏"更新中"态:容器重建期间服务不可达,前端只能靠轮询感知。

@@ -766,7 +766,7 @@ async def api_update(authorization: str = Header(default="")):
     import hmac
     token = os.environ.get("IP_RADAR_UPDATE_TOKEN", "")
     if not token or not authorization.startswith("Bearer ") or \
-       not hmac.compare_digest(authorization[7:], token):
+       not hmac.compare_digest(authorization[7:].encode(), token.encode()):
         raise HTTPException(403, detail="update token missing or invalid")
     if not _ipdb_update.self_update_enabled():
         raise HTTPException(403, detail="self-update not enabled")

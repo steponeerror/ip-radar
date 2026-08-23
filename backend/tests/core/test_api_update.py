@@ -52,6 +52,15 @@ def test_update_rejects_wrong_token(client):
     assert r.status_code == 403
 
 
+def test_update_non_ascii_token_rejects_not_500(client):
+    # H1: 双 str compare_digest 遇非 ASCII 抛 TypeError→500;bytes 版须稳回 403
+    # httpx 客户端拒绝非 ASCII str 头,但原始客户端(curl/netcat)可发任意字节,uvicorn 以 latin-1 解码可达端点
+    import os
+    with patch.dict(os.environ, {"IP_RADAR_UPDATE_TOKEN": "sekrit"}):
+        r = client.post("/api/update", headers={"Authorization": b"Bearer \xf1\xe9"})
+    assert r.status_code == 403
+
+
 def test_update_conflict_when_updating(client):
     import os
     with patch.dict(os.environ, {"IP_RADAR_UPDATE_TOKEN": "sekrit"}), \
