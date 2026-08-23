@@ -18,7 +18,8 @@ class LazyExpansion:
     Attributes:
         total: total address count (sum of CIDR num_addresses + bare IPs).
         invalid: count of malformed lines (neither valid IPv4 nor IPv6).
-        ipv6: count of IPv6 lines (contain ':'); not expanded (IPv4-only data).
+        ipv6: 恒 0；保留为 SSE done 事件 `ipv6_unsupported` 字段的兼容来源
+            （Q4，spec §4.1）——v6 行现已进展开计划。
     """
 
     __slots__ = ("total", "invalid", "ipv6", "_plan")
@@ -27,13 +28,24 @@ class LazyExpansion:
         self.total = 0
         self.invalid = 0
         self.ipv6 = 0
-        self._plan = []  # list of ("ip", str) | ("cidr", IPv4Network)
+        self._plan = []  # list of ("ip", str) | ("cidr", IPv4Network | IPv6Network)
         for raw in lines:
             line = raw.strip()
             if not line:
                 continue
-            if ":" in line:  # IPv6 hint — don't attempt parse
-                self.ipv6 += 1
+            if ":" in line:  # IPv6 hint — parse v6 ip / cidr
+                try:
+                    if "/" in line:
+                        net = ipaddress.IPv6Network(line, strict=False)
+                        self.total += net.num_addresses
+                        self._plan.append(("cidr", net))
+                    else:
+                        addr = ipaddress.IPv6Address(line)
+                        self.total += 1
+                        self._plan.append(("ip", str(addr)))
+                except (ipaddress.AddressValueError,
+                        ipaddress.NetmaskValueError, ValueError):
+                    self.invalid += 1
                 continue
             try:
                 if "/" in line:

@@ -38,13 +38,30 @@ def test_invalid_line_counted_not_raised():
     assert list(e) == [(0, "8.8.8.8")]
 
 
-def test_ipv6_counted_separately():
-    """M2: ':' in line → ipv6 bucket, distinct from invalid."""
-    e = expand_inputs(["2001:db8::/32", "::1", "8.8.8.8"])
-    assert e.ipv6 == 2
+def test_ipv6_lines_now_expand():
+    """v6 支持后:':' 行进展开计划而非跳过桶(ipv6 恒 0,Q4 兼容字段)。"""
+    e = expand_inputs(["2001:db8::1", "::1", "8.8.8.8"])
+    assert e.ipv6 == 0
+    assert e.total == 3
     assert e.invalid == 0
-    assert e.total == 1
-    assert list(e) == [(0, "8.8.8.8")]
+
+
+def test_ipv6_cidr_counts_addresses():
+    e = expand_inputs(["2001:db8::/120"])           # 256 地址
+    assert e.total == 256
+    assert list(iter(expand_inputs(["2001:db8::/126"]))) == [
+        (0, "2001:db8::"), (1, "2001:db8::1"),
+        (2, "2001:db8::2"), (3, "2001:db8::3")]
+
+
+def test_malformed_v6_is_invalid():
+    e = expand_inputs(["2001:db8::zz", "1.2.3.999"])
+    assert e.invalid == 2 and e.total == 0
+
+
+def test_huge_v6_cidr_total_only_never_materializes():
+    e = expand_inputs(["2001:db8::/64"])            # 2^64 — 只计数不迭代
+    assert e.total == 2 ** 64
 
 
 def test_strict_false_normalizes_host_bits():
