@@ -1,5 +1,6 @@
 """L2 解锁四条件 + docker.sock 项目名自发现(F1)。"""
 import socket
+import subprocess as sp
 from unittest.mock import patch
 
 import httpx
@@ -69,3 +70,62 @@ def test_git_ok_empty_dir_short_circuits():
     """M1: repo_dir 未配置不得退化到 CWD(容器 WORKDIR 可能恰是 git 仓库)。"""
     with patch.object(_update.sp, "run", side_effect=AssertionError("must not run git")):
         assert _update._git_ok("") is False
+
+
+def test_run_update_success_sequence(tmp_path):
+    calls = []
+
+    def fake_run(cmd, **kw):
+        calls.append(cmd)
+        return sp.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    labels = {"com.docker.compose.project": "ip-radar", "com.docker.compose.service": "ipradar"}
+    with patch.object(_update, "STATE_PATH", tmp_path / "s.json"), \
+         patch.object(_update, "_compose_labels", lambda: labels), \
+         patch.object(_update.sp, "run", side_effect=fake_run), \
+         patch.dict("os.environ", {"IP_RADAR_REPO_DIR": "/repo", "IP_RADAR_COMPOSE_FILE": "/repo/docker-compose.yml"}):
+        _update.run_update()
+    assert calls[0][:4] == ["git", "-C", "/repo", "pull"]
+    assert "--ff-only" in calls[0]
+    assert calls[1][:3] == ["docker", "compose", "-p"]
+    assert calls[1][3] == "ip-radar"
+    assert "ipradar" == calls[1][-1]  # service 定向,不起分身(F1)
+    assert _update.state()["state"] == "updating"  # 成功路径:进程将死,状态留 updating 由对账收尾
+
+
+def test_run_update_git_conflict_marks_failed(tmp_path):
+    labels = {"com.docker.compose.project": "p", "com.docker.compose.service": "s"}
+    conflict = sp.CompletedProcess(["git"], 1, stdout="", stderr="fatal: Not possible to fast-forward")
+
+    def fake_run(cmd, **kw):
+        return conflict
+
+    with patch.object(_update, "STATE_PATH", tmp_path / "s.json"), \
+         patch.object(_update, "_compose_labels", lambda: labels), \
+         patch.object(_update.sp, "run", side_effect=fake_run), \
+         patch.dict("os.environ", {"IP_RADAR_REPO_DIR": "/repo", "IP_RADAR_COMPOSE_FILE": "/repo/docker-compose.yml"}):
+        _update.run_update()
+    s = _update.state()
+    assert s["state"] == "failed"
+    assert "fast-forward" in s["error"]
+
+
+def test_run_update_subprocess_timeout(tmp_path):
+    labels = {"com.docker.compose.project": "p", "com.docker.compose.service": "s"}
+
+    def fake_run(cmd, **kw):
+        raise sp.TimeoutExpired(cmd, 600)
+
+    with patch.object(_update, "STATE_PATH", tmp_path / "s.json"), \
+         patch.object(_update, "_compose_labels", lambda: labels), \
+         patch.object(_update.sp, "run", side_effect=fake_run), \
+         patch.dict("os.environ", {"IP_RADAR_REPO_DIR": "/repo", "IP_RADAR_COMPOSE_FILE": "/repo/docker-compose.yml"}):
+        _update.run_update()
+    assert _update.state()["state"] == "failed"
+
+
+def test_run_update_no_labels_fails_cleanly(tmp_path):
+    with patch.object(_update, "STATE_PATH", tmp_path / "s.json"), \
+         patch.object(_update, "_compose_labels", lambda: None):
+        _update.run_update()
+    assert _update.state()["state"] == "failed"

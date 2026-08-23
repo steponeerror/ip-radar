@@ -136,3 +136,38 @@ def _compose_labels() -> dict | None:
         return json.loads(body).get("Config", {}).get("Labels") or None
     except ValueError:
         return None
+
+_TIMEOUT = 600  # F5
+
+
+def run_update() -> None:
+    """阻塞执行 git pull --ff-only + compose 定向重建;失败 mark_failed(D4/F1/F5)。"""
+    mark_updating()
+    labels = _compose_labels()
+    if not labels:
+        mark_failed("无法确定 compose 项目名(docker.sock 不可用或非 compose 部署)")
+        return
+    project = labels.get("com.docker.compose.project")
+    service = labels.get("com.docker.compose.service")
+    repo = os.environ.get("IP_RADAR_REPO_DIR", "")
+    compose_file = os.environ.get("IP_RADAR_COMPOSE_FILE",
+                                  os.path.join(repo, "docker-compose.yml"))
+    try:
+        r = sp.run(["git", "-C", repo, "pull", "--ff-only"],
+                   capture_output=True, text=True, timeout=_TIMEOUT)
+        if r.returncode != 0:
+            mark_failed(f"git pull --ff-only 失败(本地有修改?): {r.stderr.strip()[:300]}")
+            return
+        cmd = ["docker", "compose", "-p", project, "-f", compose_file,
+               "up", "-d", "--build"]
+        if service:
+            cmd.append(service)
+        r = sp.run(cmd, capture_output=True, text=True, timeout=_TIMEOUT)
+        if r.returncode != 0:
+            mark_failed(f"docker compose up 失败: {r.stderr.strip()[:300]}")
+            return
+        # 成功:本进程即将被 compose recreate 杀死;state 留 updating,新容器对账收尾(F2)
+    except sp.TimeoutExpired:
+        mark_failed("更新超时(git/compose 超过 10 分钟)")
+    except OSError as e:
+        mark_failed(f"更新执行异常: {e}")
