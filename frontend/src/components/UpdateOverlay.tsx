@@ -11,7 +11,7 @@ const GIVE_UP_MS = 660_000; // 11 分钟兜底:后端 subprocess 上限 600s+余
  * 全屏"更新中"态:容器重建期间服务不可达,前端只能靠轮询感知。
  * 成功判据:getVersion().current !== startedVersion(新容器新版本)→ reload。
  * 失败早浮现:每轮顺带查 /api/update/status,state=failed 立即显示错误
- * (git 冲突等快速失败 ~3-6s 可见,不必等 5 分钟兜底超时)。
+ * (git 冲突等快速失败 ~3-6s 可见,不必等 11 分钟兜底超时)。
  */
 export function UpdateOverlay({ active, startedVersion, reload }: {
   active: boolean;

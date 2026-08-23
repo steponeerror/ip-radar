@@ -40,7 +40,7 @@ describe("UpdateOverlay flow", () => {
   });
 
   it("shows failure + retry after backend reports failed", async () => {
-    // 服务死了(getVersion 拒绝)且后端状态 failed → 失败早浮现(~3-6s),不等 5 分钟超时
+    // 服务死了(getVersion 拒绝)且后端状态 failed → 失败早浮现(~3-6s),不等 11 分钟超时
     vi.mocked(api.getVersion).mockRejectedValue(new Error("down"));
     vi.mocked(api.getUpdateStatus).mockResolvedValue({ state: "failed", error: "git conflict", at: "T" });
     renderWithI18n(<UpdateOverlay active startedVersion="v1.1.0" reload={vi.fn()} />);
