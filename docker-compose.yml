@@ -11,6 +11,16 @@ services:
         required: false
     volumes:
       - ipradar-data:/app/data
+      # ── 一键更新(可选):取消注释并补 token 才解锁 /api/update ──
+      # 挂 docker.sock = 容器获得宿主机 root 级控制,仅限内网自托管
+      # - /var/run/docker.sock:/var/run/docker.sock
+      # - ./:/app/repo:ro
+      # ↓ environment 是 service 层键(与 volumes/env_file 平级),取消注释时移到 service 缩进层
+      # environment:
+      #   IP_RADAR_SELF_UPDATE: "1"
+      #   IP_RADAR_UPDATE_TOKEN: "改成随机串"
+      #   IP_RADAR_REPO_DIR: /app/repo
+      #   IP_RADAR_COMPOSE_FILE: /app/repo/docker-compose.yml
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/api/db-status', timeout=5)"]
