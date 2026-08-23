@@ -8,8 +8,8 @@ collapsed into one `service="cdn"` asset stream; the provider identity rides
 surfaces `attributes["service"] = (cdn, "CloudFront")`.
 
 The tool is dual-family (spec 2026-08-23): AWS `ipv6_prefixes` and Fastly's
-mixed-family `addresses` are harvested; the Cloudflare v6 sibling feed
-(`ips-v6`) lands in PR2. download() fetches the feeds and writes a combined
+`ipv6_addresses` are harvested; the Cloudflare v6 sibling feed (`ips-v6`)
+lands in PR2. download() fetches the feeds and writes a combined
 `cdn_edges.csv` (cidr,provider) intermediate; harvest() maps it to Evidence.
 """
 import json
@@ -60,7 +60,9 @@ def _parse(data: bytes, fmt: str):
     """Yield CIDR strings from one provider's raw bytes (both families).
 
     v4 走 _V4_CIDR_RE 正则(形态护栏),v6 以 ':' 判定并按 provider 各自的
-    v6 键(ipv6_prefixes / addresses 混排)读取;Cloudflare v4-only 是 PR2。
+    v6 键读取(aws=ipv6_prefixes[service=CLOUDFRONT],fastly=ipv6_addresses;
+    fastly 的 addresses 对 v4 而言是纯 v4 列表,':' 放行仅 belt-and-braces);
+    Cloudflare v4-only 是 PR2。
     """
     if fmt == "aws":
         d = json.loads(data)
@@ -79,6 +81,9 @@ def _parse(data: bytes, fmt: str):
                 yield line
     elif fmt == "fastly":
         d = json.loads(data)
-        for a in d.get("addresses", []):          # single list, mixed families
+        for a in d.get("addresses", []):          # v4 list; ':' 放行 = belt-and-braces
             if a and (":" in a or _V4_CIDR_RE.match(a)):
+                yield a
+        for a in d.get("ipv6_addresses", []):     # v6 sibling list (实测 feed 形态)
+            if a and ":" in a:
                 yield a

@@ -116,9 +116,16 @@ def test_cdn_parse_yields_v6():
         "prefixes": [],
         "ipv6_prefixes": [{"ipv6_prefix": "2600:9000::/28", "service": "EC2"}]})
     assert list(_parse(aws2.encode(), "aws")) == []
-    fastly = json.dumps({"addresses": ["23.235.32.0/20", "2a04:4e40::/32"]})
+    fastly = json.dumps({"addresses": ["23.235.32.0/20"],
+                          "ipv6_addresses": ["2a04:4e40::/32"]})
     got = list(_parse(fastly.encode(), "fastly"))
     assert "2a04:4e40::/32" in got and "23.235.32.0/20" in got
+    # 实测 feed 形态钉死:v6 在独立 ipv6_addresses 数组,addresses 纯 v4
+    # (curl 2026-08-23: 19 v4 + 2 v6);混排 ':' 放行仅 belt-and-braces
+    mixed = json.dumps({"addresses": ["23.235.32.0/20", "2a04:4e42::/32"],
+                        "ipv6_addresses": []})
+    got = list(_parse(mixed.encode(), "fastly"))
+    assert "2a04:4e42::/32" in got and "23.235.32.0/20" in got
 
 
 def test_cdn_harvest_yields_v6(tmp_path):

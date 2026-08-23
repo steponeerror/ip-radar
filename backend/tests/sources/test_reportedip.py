@@ -1,6 +1,7 @@
 """ReportedIP (Source subclass) — per-row multi-code classification + N-evidence.
 
-Covers: IPv6 drop, codes grouped by canonical type (one evidence per group),
+Covers: IPv6 行采入 v6 族(rebuild() 返回 n4,计数不变), codes grouped by
+canonical type (one evidence per group),
 official category names in native_categories (codes 1-58 all documented per
 reportedip.com v2/categories API), confidence → Evidence.confidence,
 last_reported → first_seen parse. Native sub-categories ride first-class in
@@ -15,7 +16,7 @@ SAMPLE = (
     '1.4.221.22,100,"18;31;55","2026-07-02 11:18:40"\n'        # 18,31→brute-force; 55→scanner → 2 evidence
     '1.12.55.42,86,"15;18;31;55","2026-08-07 04:08:01"\n'      # 15→exploit, 18,31→brute-force, 55→scanner → 3 evidence
     '2.56.248.212,90,"31","2026-08-01 10:00:00"\n'             # 31→brute-force → 1 evidence
-    '2a06:6440:0:2c94::1,100,"14;15;33;18;31;4","2026-07-07 05:08:37"\n'  # IPv6 → dropped
+    '2a06:6440:0:2c94::1,100,"14;15;33;18;31;4","2026-07-07 05:08:37"\n'  # IPv6 → v6 族(不在 n4 计数)
     '9.10.11.12,75,"4;6","2026-08-09 12:00:00"\n'              # 4,6→ddos → 1 ddos evidence
 )
 
@@ -23,7 +24,7 @@ SAMPLE = (
 def test_reportedip_grouped_by_canonical_with_official_names(tmp_path: Path):
     (tmp_path / "reportedip.csv").write_text(SAMPLE)
     s = ReportedIPSource(data_dir=tmp_path)
-    assert s.rebuild() == 4                        # 4 IPv4 IPs (IPv6 row dropped); CIDR count unchanged
+    assert s.rebuild() == 4                        # 4 IPv4 IPs;IPv6 行入 v6 族,n4 计数不变
 
     # 1.4.221.22: 18,31→brute-force, 55→scanner
     one = s.query("1.4.221.22")
