@@ -28,7 +28,7 @@ def test_ipinfo_v6_shaped_result_has_ip_range(tmp_path):
     r4 = src.query("8.8.8.1")
     r6 = src.query("2001:200::1")
     assert r6["ip_range"] == "2001:200::/37"
-    assert set(r6) == set(r4) | {"asn", "as_name"} - set() or True  # 结构同族即可
+    assert set(r6) == set(r4)                     # 结构同族(两行都带 ASN)
     assert "_net" not in r6 and "has_asn" not in r6
     assert r4["ip_range"] == "8.8.8.0/24"
 

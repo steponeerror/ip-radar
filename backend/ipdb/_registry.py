@@ -258,26 +258,16 @@ def stale_source_names() -> list[str]:
 
 
 def sources_needing_rebuild() -> list[str]:
-    """Enabled offline sources whose MMDB is missing or older than raw data.
+    """Enabled offline sources whose MMDB is missing or older than raw data,
+    or whose v6 ptr sidecar is missing (warm-restart upgrade ignition, spec §8).
 
     Distinct from stale_source_names (which is download-freshness based):
-    this keys off needs_convert, so a freshly-downloaded file whose MMDB
-    has not been rebuilt yet is flagged here.
-    """
-    from ._sources._lmdb import needs_convert
-    out = []
-    for s in _enabled_sources():
-        if _archetype(s) != "offline":
-            continue
-        raw_path = getattr(s, "_path", None)
-        mmdb_path = getattr(s, "_mmdb_path", None)
-        if raw_path is None or mmdb_path is None:
-            continue
-        raw = Path(raw_path)
-        mmdb = Path(mmdb_path)
-        if raw.exists() and needs_convert(raw, mmdb):
-            out.append(s.name)
-    return out
+    this keys off needs_convert via _needs_rebuild_of (shared with the
+    scheduler), so a freshly-downloaded file whose MMDB has not been rebuilt
+    yet — or a v6-aware-code rebuild that never ran on this data dir — is
+    flagged here."""
+    return [s.name for s in _enabled_sources()
+            if _archetype(s) == "offline" and _needs_rebuild_of(s)]
 
 
 def enabled_offline_sources() -> list:
@@ -291,7 +281,8 @@ def enabled_offline_sources() -> list:
 
 
 def _needs_rebuild_of(source) -> bool:
-    """Per-source: True if the MMDB is missing or older than the raw file.
+    """Per-source: True if the MMDB (or its v6 ptr sidecar) is missing or
+    older than the raw file.
 
     Single-source form of sources_needing_rebuild, using the same
     needs_convert check. Returns False for sources lacking _path/_mmdb_path

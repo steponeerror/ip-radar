@@ -153,3 +153,37 @@ def test_needs_rebuild_triggers_on_missing_v6_ptr(tmp_path):
     assert reg._needs_rebuild_of(src) is True
     src.rebuild()                                   # 重建后 v6 ptr 回来
     assert reg._needs_rebuild_of(src) is False
+
+
+def test_sources_needing_rebuild_plural_ignites_on_missing_v6_ptr(
+        tmp_path, monkeypatch):
+    """final-review I1:复数版必须同样纳入 v6 ptr 检查(温启动升级点燃)。
+
+    v4 ptr 新鲜 + v6 sidecar 缺失(旧目录原地升级)⇒ sources_needing_rebuild()
+    必须返回该源——否则 v6 只能等 scheduler 首扫(默认 1800s 后)或
+    IPRADAR_AUTO_REFRESH=0 时永不点燃(spec §8 当天点亮)。"""
+    import os
+    import shutil
+
+    from ipdb._source_base import Source
+    from ipdb._evidence import Evidence
+
+    class _S(Source):
+        name = "q3p"; fields = ("country_code",); filename = "q3p.csv"
+        single_evidence = True
+        def harvest(self):
+            yield "10.0.0.0/24", Evidence(country_code="XX")
+
+    src = _S(tmp_path)
+    (tmp_path / "q3p.csv").write_text("x\n")
+    src.rebuild()
+    for p in tmp_path.glob("q3p.csv.v6.lmdb*"):
+        (shutil.rmtree if p.is_dir() else os.unlink)(p)
+    # 模拟重启(同 :146 注:避免同进程双开)
+    src._reader.close()
+    src._reader = None
+    src.load()
+    monkeypatch.setattr(reg, "_sources", [src])
+    assert reg.sources_needing_rebuild() == ["q3p"]   # I1:复数版点燃
+    src.rebuild()
+    assert reg.sources_needing_rebuild() == []        # 重建后安静
