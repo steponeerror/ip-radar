@@ -411,6 +411,37 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
     return n
 
 
+def rebuild_dual_family(records, v4_base: Path, v6_base: Path, *,
+                        reader_setter4: Callable, reader_setter6: Callable,
+                        flag_setter4: Callable[[bool], None] | None = None,
+                        flag_setter6: Callable[[bool], None] | None = None,
+                        covered4: int | None = None,
+                        covered6: int | None = None,
+                        progress: Callable[[int, int], None] | None = None
+                        ) -> tuple[int, int]:
+    """One records source → both family envs (spec §3).
+
+    records: list[(cidr, evidence)] 或零参 callable 返回 iterable(流式源用,
+    callable 形式会被调用两次、各自按族过滤——partition 不物化,OOM 安全)。
+    分区规则: cidr 字符串含 ':' → v6(str(IPv4Network) 不可能含 ':')。
+    v6 env 总是被建(空则空 env): Q3 不变量——v6 ptr 存在 ⇒ v6-aware 代码
+    已重建过此源。progress 只挂 v4 pass(UI 进度语义跟主数据面)。
+    """
+    if callable(records):
+        rec4 = ((c, e) for c, e in records() if ":" not in c)
+        rec6 = ((c, e) for c, e in records() if ":" in c)
+    else:
+        rec4 = [(c, e) for c, e in records if ":" not in c]
+        rec6 = [(c, e) for c, e in records if ":" in c]
+    n4 = rebuild_lmdb(rec4, v4_base, reader_setter4,
+                      covered=covered4, flag_setter=flag_setter4,
+                      progress=progress)
+    n6 = rebuild_lmdb(rec6, v6_base, reader_setter6,
+                      covered=covered6, flag_setter=flag_setter6,
+                      ip_version=6)
+    return n4, n6
+
+
 def covered_ip_count(cidr_strs, *, ip_version: int = 4) -> int:
     """Σ 2^(host_bits) over the given CIDR strings.
 

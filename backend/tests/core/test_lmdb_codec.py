@@ -107,3 +107,45 @@ def test_rebuild_lmdb_v4_rejects_v6_cidr_unchanged(tmp_path):
                      tmp_path / "t.lmdb", envs.append)
     assert n == 1
     envs[0].close()
+
+def test_rebuild_dual_family_list_form(tmp_path):
+    from ipdb._sources._lmdb import rebuild_dual_family, lookup, ip_to_int
+    envs = []
+    n4, n6 = rebuild_dual_family(
+        [("10.0.0.0/24", [{"v": 4}]), ("2001:db8::/32", [{"v": 6}])],
+        tmp_path / "a.lmdb", tmp_path / "a.v6.lmdb",
+        reader_setter4=envs.append, reader_setter6=envs.append,
+        covered4=256, covered6=1)
+    assert (n4, n6) == (1, 1)
+    v4env, v6env = envs
+    assert lookup(v4env, ip_to_int("10.0.0.5")) is not None
+    v4env.close(); v6env.close()
+    # v6 侧在 v6env 里(换个方式验:count sidecar)
+    assert (tmp_path / "a.v6.lmdb.count").read_text() == "1"
+    assert (tmp_path / "a.v6.lmdb.cov").read_text() == "1"
+
+def test_rebuild_dual_family_factory_form_streams(tmp_path):
+    """callable 形式:两次独立遍历,不物化(流式源用)。"""
+    from ipdb._sources._lmdb import rebuild_dual_family
+    envs = []
+    made = []
+    def factory():
+        made.append(1)
+        return iter([("192.0.2.0/24", [{}]), ("2001:db8::/64", [{}])])
+    n4, n6 = rebuild_dual_family(
+        factory, tmp_path / "b.lmdb", tmp_path / "b.v6.lmdb",
+        reader_setter4=envs.append, reader_setter6=envs.append)
+    assert (n4, n6) == (1, 1)
+    assert len(made) == 2          # 调了两次,各自过滤
+    for e in envs: e.close()
+
+def test_rebuild_dual_family_empty_v6_writes_ptr(tmp_path):
+    from ipdb._sources._lmdb import rebuild_dual_family, read_ptr
+    envs = []
+    n4, n6 = rebuild_dual_family(
+        [("10.0.0.0/24", [{}])],
+        tmp_path / "c.lmdb", tmp_path / "c.v6.lmdb",
+        reader_setter4=envs.append, reader_setter6=envs.append)
+    assert (n4, n6) == (1, 0)
+    assert read_ptr(tmp_path / "c.v6.lmdb") is not None   # Q3 不变量
+    for e in envs: e.close()
