@@ -42,7 +42,7 @@ def to_stix_bundle(lr: LookupResult) -> dict | None:
         logger.debug("stix2 not installed, STIX export unavailable")
         return None
 
-    from stix2 import (Bundle, IPv4Address, AutonomousSystem,
+    from stix2 import (Bundle, IPv4Address, IPv6Address, AutonomousSystem,
                        Location, Indicator, Identity, Relationship)
 
     # 1. Identity SCOs — one per participating source
@@ -64,11 +64,18 @@ def to_stix_bundle(lr: LookupResult) -> dict | None:
             allow_custom=True,
         )
 
-    # 2. IPv4 Address SCO
-    ipv4 = IPv4Address(value=lr.ip, id=f"ipv4-addr--{uuid5(_NS, lr.ip)}")
+    # 2. Address SCO — family-dispatched (PR2 spec §5.2); lr.ip is the
+    # compressed canonical form end-to-end (PR1 Q5).
+    is_v6 = ":" in lr.ip
+    if is_v6:
+        addr_sco = IPv6Address(value=lr.ip,
+                               id=f"ipv6-addr--{uuid5(_NS, lr.ip)}")
+    else:
+        addr_sco = IPv4Address(value=lr.ip,
+                               id=f"ipv4-addr--{uuid5(_NS, lr.ip)}")
 
     # 3. Location SDO (from country) and related-to relationship
-    objs = [ipv4]
+    objs = [addr_sco]
     if lr.country.value and lr.country.value != "N/A":
         loc_id = f"location--{uuid5(_NS, f'country-{lr.country.value}')}"
         location = Location(
@@ -80,7 +87,7 @@ def to_stix_bundle(lr: LookupResult) -> dict | None:
         objs.append(location)
         objs.append(Relationship(
             relationship_type="related-to",
-            source_ref=ipv4.id,
+            source_ref=addr_sco.id,
             target_ref=location.id,
         ))
 
@@ -96,7 +103,7 @@ def to_stix_bundle(lr: LookupResult) -> dict | None:
         objs.append(as_obj)
         objs.append(Relationship(
             relationship_type="belongs-to",
-            source_ref=ipv4.id,
+            source_ref=addr_sco.id,
             target_ref=as_obj.id,
         ))
 
@@ -107,7 +114,7 @@ def to_stix_bundle(lr: LookupResult) -> dict | None:
         indicator_type = _CLASSIFICATION_INDICATOR_TYPES.get(ctype, "unknown")
         ind = Indicator(
             name=f"IP {lr.ip} — {ctype}/{ca.verdict} ({ca.algorithm})",
-            pattern=f"[ipv4-addr:value = '{lr.ip}']",
+            pattern=f"[{'ipv6' if is_v6 else 'ipv4'}-addr:value = '{lr.ip}']",
             pattern_type="stix",
             indicator_types=[indicator_type],
             confidence=ca.confidence,

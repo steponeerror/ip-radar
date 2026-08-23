@@ -99,3 +99,22 @@ def test_stix_bundle_with_real_country_and_asn():
     assert uuid_re.match(asns[0]["id"].split("--", 1)[1]), asns[0]["id"]
     assert locs[0]["country"] == "US"
     assert asns[0]["number"] == 15169
+
+
+@pytest.mark.skipif(not _HAS_STIX2, reason="stix2 not installed")
+def test_stix_v6_bundle_uses_ipv6_addr_sco():
+    lr = _result()
+    lr.ip = "2a00:1450:4001::42"
+    # 需要至少一个 detected classification 才会产 Indicator(含 pattern)
+    lr.classifications["blacklist"] = ClassificationAssessment(
+        "blacklist", "malicious", True, 90, "corroboration",
+        [SourceAttribution("spamhaus", True, 0.9, True)],
+        corroborated=False, reporter_total=1,
+    )
+    bundle = to_stix_bundle(lr)
+    assert bundle is not None
+    blob = str(bundle)
+    assert "ipv6-addr--" in blob        # SCO id 前缀
+    assert "'ipv6-addr:value'" not in blob  # pattern 是 [ipv6-addr:value = '…'] 非键名引号
+    assert "[ipv6-addr:value = '2a00:1450:4001::42']" in blob
+    assert "ipv4-addr--" not in blob    # 不再产 v4 SCO
