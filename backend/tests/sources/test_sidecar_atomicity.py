@@ -79,6 +79,7 @@ def test_rebuild_recovers_when_sidecars_missing(tmp_path):
     s = _List(data_dir=tmp_path)
     s.rebuild()
     s._reader.close()               # 同进程双开同 epoch 会报错;先关再 load
+    s._reader6.close()              # dual-family: v6 env 同样先关
     # simulate a crash that lost the sidecars but left the MMDB
     s._mmdb_path.with_suffix(".count").unlink()
     s._mmdb_path.with_suffix(".cov").unlink()

@@ -28,35 +28,39 @@ def _tmp_csv(tmp_path, body: str):
 
 
 def test_iplist_rebuild_calls_covered_ip_count_once(tmp_path, monkeypatch):
-    """#6 IpListSource: covered_ip_count must be invoked exactly once per
-    rebuild (pre-refactor called it twice — once for the .cov sidecar, once
-    for self._covered_ips — re-parsing every CIDR through netaddr twice)."""
-    calls = {"n": 0}
+    """#6 IpListSource: covered_ip_count 恰好每族一次 — dual-family (v6 PR1)
+    后为 2 次:v4 一次、v6 一次,各自只解析本族 CIDR(旧回归锁的是同一份数
+    据被 netaddr 重复解析两次;分族后每族恰好一次,同一 CIDR 仍只解析一次)。"""
+    calls = {"n": 0, "vers": []}
     real = lmdb_mod.covered_ip_count
 
     def spy(cidrs, **kw):
         calls["n"] += 1
+        calls["vers"].append(kw.get("ip_version", 4))
         return real(cidrs, **kw)
 
     monkeypatch.setattr(lmdb_mod, "covered_ip_count", spy)
     s = _tmp_iplist(tmp_path, "8.8.8.8\n1.2.3.0/24\n10.0.0.0/16\n")
     s.rebuild()
-    assert calls["n"] == 1
+    assert calls["n"] == 2
+    assert sorted(calls["vers"]) == [4, 6]
 
 
 def test_csv_rebuild_calls_covered_ip_count_once(tmp_path, monkeypatch):
-    """#6 CsvSource: same invariant — covered_ip_count invoked once per rebuild."""
-    calls = {"n": 0}
+    """#6 CsvSource: same invariant — covered_ip_count 恰好每族一次(dual-family)。"""
+    calls = {"n": 0, "vers": []}
     real = lmdb_mod.covered_ip_count
 
     def spy(cidrs, **kw):
         calls["n"] += 1
+        calls["vers"].append(kw.get("ip_version", 4))
         return real(cidrs, **kw)
 
     monkeypatch.setattr(lmdb_mod, "covered_ip_count", spy)
     s = _tmp_csv(tmp_path, "1.2.3.0/24,botnet\n1.2.3.0/24,malware\n")
     s.rebuild()
-    assert calls["n"] == 1
+    assert calls["n"] == 2
+    assert sorted(calls["vers"]) == [4, 6]
 
 
 def test_source_base_rebuild_calls_covered_ip_count_once(tmp_path, monkeypatch):
@@ -114,6 +118,7 @@ def test_csvsource_load_reads_sidecars_through_inherited_method(tmp_path):
     n = s.rebuild()                      # writes lmdb epoch + .count + .cov
     assert n > 0
     s._reader.close()                    # 同进程双开同 epoch 会报错;先关再 load
+    s._reader6.close()                   # dual-family: v6 env 同样先关
     loaded = _S(data_dir=tmp_path)       # fresh instance: must reload via inherited load
     assert loaded.load() == n            # count sidecar round-trips
     assert loaded._covered_ips == 256    # cov sidecar round-trips
