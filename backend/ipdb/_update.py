@@ -90,6 +90,8 @@ def _sock_writable() -> bool:
 
 
 def _git_ok(repo_dir: str) -> bool:
+    if not repo_dir:  # M1: 未配置不得退化到 CWD(容器 WORKDIR 可能恰是 git 仓库)
+        return False
     try:
         return sp.run(["git", "-C", repo_dir, "rev-parse", "--git-dir"],
                       capture_output=True, timeout=10).returncode == 0
@@ -110,10 +112,16 @@ def self_update_enabled() -> bool:
 
 
 def _http_unix_get(path: str) -> bytes | None:
-    """极简 unix-socket HTTP GET(只为读自身 label,不引 docker SDK)。"""
+    """极简 unix-socket HTTP GET(只为读自身 label,不引 docker SDK)。
+
+    httpx 0.28 不支持 http+unix scheme,须走 uds transport(B1);
+    localhost 只是占位 host,实际由 uds 指定 socket 路径。
+    """
     import httpx
     try:
-        r = httpx.get(f"http+unix://{DOCKER_SOCK}{path}", timeout=5.0)
+        transport = httpx.HTTPTransport(uds=DOCKER_SOCK)
+        with httpx.Client(transport=transport) as client:
+            r = client.get(f"http://localhost{path}", timeout=5.0)
         return r.content if r.status_code == 200 else None
     except Exception:
         return None

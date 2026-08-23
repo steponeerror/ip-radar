@@ -2,6 +2,7 @@
 import socket
 from unittest.mock import patch
 
+import httpx
 import pytest
 
 from ipdb import _update
@@ -50,3 +51,21 @@ def test_compose_labels_parses_response():
 def test_compose_labels_failure_returns_none():
     with patch.object(_update, "_http_unix_get", lambda path: None):
         assert _update._compose_labels() is None
+
+
+def test_http_unix_get_uses_uds_transport():
+    """B1: httpx 0.28.1 不支持 http+unix scheme,必须走 uds transport。"""
+    with patch("httpx.HTTPTransport") as mt, patch("httpx.Client") as mc:
+        mc.return_value.__enter__.return_value.get.return_value = httpx.Response(200, content=b"ok")
+        r = _update._http_unix_get("/containers/abc/json")
+    mt.assert_called_once_with(uds=_update.DOCKER_SOCK)
+    mc.assert_called_once_with(transport=mt.return_value)
+    called_url = mc.return_value.__enter__.return_value.get.call_args[0][0]
+    assert called_url.startswith("http://localhost")
+    assert r == b"ok"
+
+
+def test_git_ok_empty_dir_short_circuits():
+    """M1: repo_dir 未配置不得退化到 CWD(容器 WORKDIR 可能恰是 git 仓库)。"""
+    with patch.object(_update.sp, "run", side_effect=AssertionError("must not run git")):
+        assert _update._git_ok("") is False
