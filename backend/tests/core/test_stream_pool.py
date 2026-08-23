@@ -10,6 +10,14 @@ import ipdb._batch_pool as bp
 
 
 @pytest.fixture(autouse=True)
+def _tiny_db(tiny_db):
+    """CI 逐文件跑序里 test_scheduler 先 import main 触发冷启动线程
+    往 backend/data 写入部分源文件—— _is_cold_start() 随之翻 False 但
+    LMDB 未建完， stream 测试拿到 warming 503（时序 flake，见 8/23
+    master run 32612923036）。tmp 最小库打开查询门， 不碰真 data/。"""
+
+
+@pytest.fixture(autouse=True)
 def _hermetic_gate(monkeypatch):
     """密闭积分门:_coverage_building 走真 manager/registry — 全量套件里
     早期 lifespan 测试会往单例 manager 塞真实重建任务,而测试环境重复

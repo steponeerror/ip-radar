@@ -1,11 +1,79 @@
+import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import { DbStatusBar } from "./components/DbStatusBar";
 import { LocaleSwitcher } from "./components/LocaleSwitcher";
+import { Modal } from "./components/Modal";
+import { UpdateOverlay, TOKEN_KEY } from "./components/UpdateOverlay";
+import { VersionBanner } from "./components/VersionBanner";
+import { getDbStatus, getVersion, postUpdate } from "./api";
 import { useI18n } from "./i18n";
 import { TaskProvider } from "./tasks/TaskProvider";
 
+// ponytail: 开闸后不再重臂——中途 backend 重启进新冷启动时横幅可能与 warmup 横幅
+// 短暂并存(罕见;更新触发的重启由 UpdateOverlay 全屏盖住)。要严格 D9 再加轮询重臂。
+function useWarmupGate(): boolean {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    let timer: number | undefined;
+    const poll = async () => {
+      // WarmingProvider 挂在 LookupView(Layout 之下),这里够不到 context——
+      // D9 让位只能自带最小轮询:见首个非 warming 即永久开闸(api 挂了也开,
+      // 横幅自身的 getVersion 失败会静默不渲染)。
+      const s = await getDbStatus().catch(() => null);
+      if (!alive) return;
+      if (!s || !s.warming_up) { setOpen(true); return; }
+      timer = window.setTimeout(poll, 5000);
+    };
+    poll();
+    return () => { alive = false; if (timer !== undefined) clearTimeout(timer); };
+  }, []);
+  return open;
+}
+
 export default function Layout() {
   const { t } = useI18n();
+  const warmGate = useWarmupGate();
+  const [selfUpdateEnabled, setSelfUpdateEnabled] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [token, setToken] = useState("");
+  const [tokenError, setTokenError] = useState<string | null>(null);
+  const [overlayActive, setOverlayActive] = useState(false);
+  const versionSnapshot = useRef("");
+
+  useEffect(() => {
+    // 横幅按钮可见性所需的 self_update_enabled;L2 解锁需改 compose+重启(整页重载),挂载拉一次即够
+    getVersion().then((v) => setSelfUpdateEnabled(v.self_update_enabled)).catch(() => {});
+  }, []);
+
+  const openConfirm = () => {
+    setToken(localStorage.getItem(TOKEN_KEY) ?? "");
+    setTokenError(null);
+    setConfirmOpen(true);
+  };
+
+  const beginOverlay = async () => {
+    setConfirmOpen(false);
+    try { versionSnapshot.current = (await getVersion()).current; } catch { /* 快照失败置空:首个成功的 current !== "" 即判成功 */ }
+    setOverlayActive(true);
+  };
+
+  const startUpdate = async () => {
+    const tk = token.trim();
+    if (!tk) { setTokenError(t("update.tokenMissing")); return; }
+    try {
+      const r = await postUpdate(tk);
+      if (r.status === 202 || r.status === 409) {  // 已接受 / 已在更新中,都进全屏态
+        localStorage.setItem(TOKEN_KEY, tk);
+        await beginOverlay();
+      } else {
+        setTokenError(t("update.tokenInvalid"));  // 403:令牌错(未配 token 时后端恒 403,同文案覆盖)
+      }
+    } catch {
+      setTokenError(t("update.failed"));
+    }
+  };
+
   const linkClass = ({ isActive }: { isActive: boolean }) =>
     `rounded-md px-4 py-2 text-sm font-medium transition-colors ${
       isActive ? "bg-zinc-800 text-emerald-400" : "text-zinc-500 hover:text-zinc-300"
@@ -32,6 +100,12 @@ export default function Layout() {
               </div>
             </nav>
           </header>
+          {warmGate && (
+            <VersionBanner
+              selfUpdateEnabled={selfUpdateEnabled}
+              onStartUpdate={openConfirm}
+            />
+          )}
           <Outlet />
           <footer className="mt-10 flex items-center justify-center gap-2 text-xs text-zinc-600">
             <span>© 2026 steponeerror</span>
@@ -50,6 +124,37 @@ export default function Layout() {
         </div>
         <DbStatusBar />
       </div>
+
+      <Modal
+        open={confirmOpen}
+        title={t("update.confirmTitle")}
+        onClose={() => setConfirmOpen(false)}
+      >
+        <label className="block text-xs text-zinc-500" htmlFor="update-token">
+          {t("update.tokenLabel")}
+        </label>
+        <input
+          id="update-token"
+          type="password"
+          value={token}
+          onChange={(e) => { setToken(e.target.value); setTokenError(null); }}
+          className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-200 focus:border-emerald-600 focus:outline-none"
+        />
+        {tokenError && <p className="mt-2 text-xs text-red-400">{tokenError}</p>}
+        <button
+          type="button"
+          onClick={startUpdate}
+          className="mt-3 rounded-lg bg-emerald-500 px-5 py-2 text-sm font-semibold text-zinc-950 transition-transform hover:scale-[1.02] active:scale-[0.98]"
+        >
+          {t("update.start")}
+        </button>
+      </Modal>
+
+      <UpdateOverlay
+        active={overlayActive}
+        startedVersion={versionSnapshot.current}
+        reload={() => location.reload()}
+      />
     </TaskProvider>
   );
 }
