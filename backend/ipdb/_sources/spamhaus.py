@@ -18,11 +18,12 @@ class SpamhausSource(IpListSource):
         （基类直接截断丢弃）。"""
         import ipaddress as _ipa
         import time
-        from ._lmdb import covered_ip_count, rebuild_lmdb
+        from ._lmdb import covered_ip_count, rebuild_dual_family
         from .._evidence import Evidence
         if not self._path.exists():
             return 0
         old_reader = self._reader
+        old_reader6 = self._reader6
         records = []
         covered = []
         with open(self._path, "r", encoding="utf-8") as f:
@@ -40,8 +41,9 @@ class SpamhausSource(IpListSource):
                 if not line:
                     continue
                 try:
-                    net = _ipa.IPv4Network(line, strict=False)
-                except (_ipa.AddressValueError, ValueError):
+                    net = _ipa.ip_network(line, strict=False)
+                except (ValueError, _ipa.AddressValueError,
+                        _ipa.NetmaskValueError):
                     continue
                 ev = Evidence(
                     classification_type=self.classification_type,
@@ -52,18 +54,26 @@ class SpamhausSource(IpListSource):
                 records.append((str(net), [ev]))
                 covered.append(str(net))
         try:
-            cov = covered_ip_count(covered)
-            n = rebuild_lmdb(records, self._lmdb_base,
-                             reader_setter=lambda e: setattr(self, "_reader", e),
-                             flag_setter=lambda v: setattr(self, "_disjoint", v),
-                             covered=cov, progress=progress)
-            self._count = n
-            self._covered_ips = cov
+            cov4 = covered_ip_count(c for c in covered if ":" not in c)
+            cov6 = covered_ip_count(
+                (c for c in covered if ":" in c), ip_version=6)
+            n4, n6 = rebuild_dual_family(
+                records, self._lmdb_base, self._lmdb6_base,
+                reader_setter4=lambda e: setattr(self, "_reader", e),
+                reader_setter6=lambda e: setattr(self, "_reader6", e),
+                flag_setter4=lambda v: setattr(self, "_disjoint", v),
+                flag_setter6=lambda v: setattr(self, "_disjoint6", v),
+                covered4=cov4, covered6=cov6, progress=progress)
+            self._count = n4
+            self._count6 = n6
+            self._covered_ips = cov4
+            self._covered_v6_nets = cov6
             self._loaded_at = time.time()
-            return n
+            return n4
         finally:
-            if old_reader is not None:
-                try:
-                    old_reader.close()
-                except Exception:
-                    pass
+            for old in (old_reader, old_reader6):
+                if old is not None:
+                    try:
+                        old.close()
+                    except Exception:
+                        pass

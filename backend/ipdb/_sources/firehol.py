@@ -61,6 +61,7 @@ class FireholBlocklistSource(IpListSource):
         if epoch is None:
             self._reader = None
             self._disjoint = False
+            self._load_v6_side()                  # v6 状态照常解析(v4 缺 ≠ v6 缺)
             return 0
         self._disjoint = read_disjoint_flag(self._lmdb_base, epoch)
         self._reader = open_env_read(
@@ -68,6 +69,7 @@ class FireholBlocklistSource(IpListSource):
         cp, vp = count_path(self._lmdb_base), cov_path(self._lmdb_base)
         self._count = int(cp.read_text().strip()) if cp.exists() else 0
         self._covered_ips = int(vp.read_text().strip()) if vp.exists() else 0
+        self._load_v6_side()
         self._loaded_at = time.time()
         return self._count
 
@@ -85,11 +87,12 @@ class FireholBlocklistSource(IpListSource):
         零冲突（scripts/audit_lmdb_invariants.py）。
         """
         import ipaddress as _ipa
-        from ._lmdb import covered_ip_count, rebuild_lmdb
+        from ._lmdb import covered_ip_count, rebuild_dual_family
         from .._evidence import Evidence
         if not self._path.exists():
             return 0
         old_reader = self._reader
+        old_reader6 = self._reader6
 
         acc: dict[str, dict] = {}
         for list_name in self._lists:
@@ -102,8 +105,9 @@ class FireholBlocklistSource(IpListSource):
                     if not line or line.startswith("#"):
                         continue
                     try:
-                        net = str(_ipa.IPv4Network(line, strict=False))
-                    except (_ipa.AddressValueError, ValueError):
+                        net = str(_ipa.ip_network(line, strict=False))
+                    except (ValueError, _ipa.AddressValueError,
+                            _ipa.NetmaskValueError):
                         continue
                     if net in acc:
                         for t in (list_name,):
@@ -118,27 +122,34 @@ class FireholBlocklistSource(IpListSource):
                         ).to_dict()
         records = [(cidr, [ev]) for cidr, ev in acc.items()]
 
-        def _enum():
-            return iter(acc.keys())
-
         try:
-            cov = covered_ip_count(_enum())
-            n = rebuild_lmdb(records, self._lmdb_base,
-                             reader_setter=lambda e: setattr(self, "_reader", e),
-                             flag_setter=lambda v: setattr(self, "_disjoint", v),
-                             covered=cov, progress=progress)
-            self._covered_ips = cov
-            self._count = n
+            cov4 = covered_ip_count(c for c in acc.keys() if ":" not in c)
+            cov6 = covered_ip_count(
+                (c for c in acc.keys() if ":" in c), ip_version=6)
+            n4, n6 = rebuild_dual_family(
+                records, self._lmdb_base, self._lmdb6_base,
+                reader_setter4=lambda e: setattr(self, "_reader", e),
+                reader_setter6=lambda e: setattr(self, "_reader6", e),
+                flag_setter4=lambda v: setattr(self, "_disjoint", v),
+                flag_setter6=lambda v: setattr(self, "_disjoint6", v),
+                covered4=cov4, covered6=cov6, progress=progress)
+            self._covered_ips = cov4
+            self._count = n4
+            self._count6 = n6
+            self._covered_v6_nets = cov6
             self._loaded_at = time.time()
-            return n
+            return n4
         finally:
-            if old_reader is not None:
-                try:
-                    old_reader.close()
-                except Exception:
-                    pass          # lmdb env 二次 close/已失效:容忍
+            for old in (old_reader, old_reader6):
+                if old is not None:
+                    try:
+                        old.close()
+                    except Exception:
+                        pass          # lmdb env 二次 close/已失效:容忍
 
     def query(self, ip: str):
+        if ":" in ip:                      # v6 查询走并行族 reader(spec §3.2)
+            return self._query6(ip)
         if self._reader is None:
             return {}
         import lmdb as _lmdb
