@@ -146,5 +146,12 @@
   "sources.timeAgo.justNow": "just now",
   "sources.timeAgo.minutes": "{n}m ago",
   "sources.timeAgo.hours": "{n}h ago",
-  "sources.timeAgo.days": "{n}d ago"
+  "sources.timeAgo.days": "{n}d ago",
+  "update.bannerTitle": "New version {latest} available (current {current})",
+  "update.copyCmd": "Copy update command",
+  "update.copied": "Copied ✓",
+  "update.changelog": "Release notes",
+  "update.check": "Check for updates",
+  "update.now": "Update now",
+  "update.dismiss": "Dismiss this version"
 }

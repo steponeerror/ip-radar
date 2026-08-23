@@ -146,5 +146,12 @@
   "sources.timeAgo.justNow": "刚刚",
   "sources.timeAgo.minutes": "{n}分钟前",
   "sources.timeAgo.hours": "{n}小时前",
-  "sources.timeAgo.days": "{n}天前"
+  "sources.timeAgo.days": "{n}天前",
+  "update.bannerTitle": "有新版本 {latest} 可用（当前 {current}）",
+  "update.copyCmd": "复制更新命令",
+  "update.copied": "已复制 ✓",
+  "update.changelog": "查看更新日志",
+  "update.check": "检查更新",
+  "update.now": "立即更新",
+  "update.dismiss": "不再提示此版本"
 }

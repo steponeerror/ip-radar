@@ -397,3 +397,21 @@ export function subscribeTasks(
   return () => es.close();
 }
 
+// --- Version / self-update (in-app update spec) ---
+
+export interface VersionInfo {
+  current: string;
+  latest: string | null;
+  update_available: boolean;
+  summary: string | null;
+  release_url: string;
+  self_update_enabled: boolean;
+}
+
+export async function getVersion(refresh = false): Promise<VersionInfo> {
+  return jsonOrThrow(
+    await fetch(`/api/version${refresh ? "?refresh=1" : ""}`),
+    "Failed to check version",
+  );
+}
+
