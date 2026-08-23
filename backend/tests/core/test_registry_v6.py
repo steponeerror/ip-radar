@@ -121,3 +121,35 @@ def test_v6_invalid_format_is_error(monkeypatch):
     r = reg.lookup("2001:db8::zz")
     assert r.error == "invalid IP format"
     assert r.is_reserved is False
+
+
+def test_needs_rebuild_triggers_on_missing_v6_ptr(tmp_path):
+    """Q3:v6 ptr 缺失 ⇒ 需要重建(即使 v4 ptr 新鲜)。"""
+    import os
+    import shutil
+
+    from ipdb._source_base import Source
+    from ipdb._evidence import Evidence
+
+    class _S(Source):
+        name = "q3"; fields = ("country_code",); filename = "q.csv"
+        single_evidence = True
+        def harvest(self):
+            yield "10.0.0.0/24", Evidence(country_code="XX")
+
+    src = _S(tmp_path)
+    (tmp_path / "q.csv").write_text("x\n")
+    src.rebuild()
+    # 删 v6 sidecar 模拟旧目录升级
+    for p in tmp_path.glob("q.csv.v6.lmdb*"):
+        (shutil.rmtree if p.is_dir() else os.unlink)(p)
+    # 模拟重启:关句柄 + load(v6 ptr 缺失 → _reader6=None)。
+    # 不关则 py-lmdb 同进程双开同路径 env(epoch 回卷到 1)拒绝;
+    # 生产升级流(重启→load→触发)无此双开。brief 测试压缩两步为一步的缺陷。
+    src._reader.close()
+    src._reader = None
+    src.load()
+    assert src._reader6 is None                 # 重启后无 v6 侧
+    assert reg._needs_rebuild_of(src) is True
+    src.rebuild()                                   # 重建后 v6 ptr 回来
+    assert reg._needs_rebuild_of(src) is False

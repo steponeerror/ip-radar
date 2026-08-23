@@ -305,6 +305,12 @@ def _needs_rebuild_of(source) -> bool:
     mmdb = Path(mmdb_path)
     if not raw.exists():
         return False
+    v6_ptr = getattr(source, "_mmdb6_path", None)
+    if v6_ptr is not None:
+        # Q3(spec §8): v6 ptr 缺失 ⇒ v6-aware 代码从未重建过此源 → 触发。
+        # rebuild 必写 v6 ptr(空数据=空 env),故不会对 C 类源反复触发。
+        if needs_convert(raw, Path(v6_ptr)):
+            return True
     return needs_convert(raw, mmdb)
 
 
