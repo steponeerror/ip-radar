@@ -277,9 +277,13 @@ cd frontend && npm test
 
 ## 许可证 | License
 
-AGPL-3.0，见 [LICENSE](LICENSE)；各情报源有自己的使用条款。
+© 2026 steponeerror，采用 [AGPL-3.0](LICENSE) 授权；各情报源有自己的使用条款。
 
-> AGPL-3.0, see [LICENSE](LICENSE); each intelligence feed keeps its own terms.
+引用、魔改或 fork 本项目时，请遵守 AGPL-3.0：保留本许可与版权声明、标明你修改过的部分；基于本项目的衍生作品对外提供网络服务时，也须以 AGPL-3.0 开源。如果这个项目对你的研究、文章或产品有帮助，欢迎引用：`https://github.com/steponeerror/ip-radar`。
+
+> © 2026 steponeerror, licensed under [AGPL-3.0](LICENSE); each intelligence feed keeps its own terms.
+>
+> If you cite, build on, or fork this project, please follow AGPL-3.0: keep this license and the copyright notice, and mark what you changed; if you offer a network service built on it, its source must also be released under AGPL-3.0. If this project helps your research, writing, or product, a citation is appreciated: `https://github.com/steponeerror/ip-radar`.
 
 ## 关于这份代码 | About This Code
 
