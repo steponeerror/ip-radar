@@ -349,10 +349,16 @@ def lookup(ip: str) -> LookupResult:
     if not _db_loaded():
         raise RuntimeError("Database not loaded")
     try:
-        addr = ipaddress.IPv4Address(ip)
+        addr = ipaddress.ip_address(ip)
     except (ipaddress.AddressValueError, ValueError):
         return _error_result(ip)
-    if is_reserved_addr(addr):
+    if addr.version == 6:
+        # v6 bogon 纯 stdlib(spec Q6):IANA 特殊用途表驱动,与 v4 同构。
+        # quirk(spec A4):v4-mapped(::ffff:x)is_global=True→当公网 v6 查,
+        # 各源 miss 显示 clean;6to4(2002::/16)is_global=False→reserved。
+        if not addr.is_global or addr.is_multicast:
+            return _reserved_result(ip)
+    elif is_reserved_addr(addr):
         return _reserved_result(ip)
 
     # Collect scalar fields + evidence observations from all sources.
