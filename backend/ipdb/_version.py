@@ -48,3 +48,52 @@ def update_available(current: str, latest: str | None) -> bool:
     if cur is None or lst is None:
         return False
     return cur < lst
+
+
+# ── GitHub Releases 惰性缓存查询(D2/ETag) ──────────────────────────────
+import time
+
+_RELEASES_URL = "https://api.github.com/repos/steponeerror/ip-radar/releases/latest"
+_CACHE_TTL = 3600.0  # 1h 惰性缓存(D2)
+_cache: dict | None = None          # {"tag","summary","url"}
+_cache_at: float = 0.0
+_etag: str | None = None
+
+
+def reset_cache() -> None:
+    global _cache, _cache_at, _etag
+    _cache, _cache_at, _etag = None, 0.0, None
+
+
+def _client_factory() -> "httpx.AsyncClient":
+    import httpx
+    return httpx.AsyncClient(timeout=10.0, follow_redirects=True)
+
+
+async def fetch_latest(force: bool = False) -> dict | None:
+    """查 GitHub latest release;缓存 1h,失败降级旧缓存,从未成功 → None。"""
+    global _cache, _cache_at, _etag
+    import httpx
+    if _cache is not None and not force and (time.monotonic() - _cache_at) < _CACHE_TTL:
+        return _cache
+    headers = {"Accept": "application/vnd.github+json", "User-Agent": "ip-radar"}
+    if _etag:
+        headers["If-None-Match"] = _etag
+    try:
+        async with _client_factory() as client:
+            resp = await client.get(_RELEASES_URL, headers=headers)
+        if resp.status_code == 304 and _cache is not None:
+            _cache_at = time.monotonic()
+            return _cache
+        resp.raise_for_status()
+        data = resp.json()
+        _etag = resp.headers.get("ETag")
+        _cache = {
+            "tag": data["tag_name"],
+            "summary": (data.get("body") or "")[:200] or None,
+            "url": data.get("html_url") or _RELEASES_URL,
+        }
+        _cache_at = time.monotonic()
+        return _cache
+    except Exception:
+        return _cache  # 离线降级:有旧缓存吐旧的,没有 → None

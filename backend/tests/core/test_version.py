@@ -59,3 +59,82 @@ class TestUpdateAvailable:
     def test_bare_sha_never_updates(self):
         # 无法解析 tag → 保守不弹
         assert _version.update_available("abc1234", "v1.2.0") is False
+
+
+# ── Task 2: GitHub Releases 惰性缓存查询(ETag) ──────────────────────────
+# anyio pytest 插件(venv 已装 4.13,自带默认 anyio_backend fixture);
+# 类级 marker 覆盖全部 async 方法。
+import httpx
+import pytest
+
+
+@pytest.mark.anyio
+class TestFetchLatest:
+    async def test_success_caches(self):
+        _version.reset_cache()
+        calls = []
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            calls.append(request.headers.get("if-none-match"))
+            return httpx.Response(200, json={"tag_name": "v1.2.0", "body": "修复若干", "html_url": "http://x"})
+
+        transport = httpx.MockTransport(handler)
+        with patch.object(_version, "_client_factory", lambda: httpx.AsyncClient(transport=transport)):
+            r1 = await _version.fetch_latest()
+            r2 = await _version.fetch_latest()  # 命中缓存,不再请求
+        assert r1 == {"tag": "v1.2.0", "summary": "修复若干", "url": "http://x"}
+        assert r2 == r1
+        assert len(calls) == 1
+
+    async def test_304_uses_cache(self):
+        _version.reset_cache()
+        state = {"etag": None, "n": 0}
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            state["n"] += 1
+            etag = request.headers.get("if-none-match")
+            if etag:
+                return httpx.Response(304, headers={"ETag": etag})
+            state["etag"] = '"abc"'
+            return httpx.Response(200, json={"tag_name": "v1.3.0", "body": "", "html_url": "http://x"}, headers={"ETag": '"abc"'})
+
+        transport = httpx.MockTransport(handler)
+        with patch.object(_version, "_client_factory", lambda: httpx.AsyncClient(transport=transport)):
+            await _version.fetch_latest()
+            r2 = await _version.fetch_latest(force=True)  # 回源但 304 → 缓存续命
+        assert r2["tag"] == "v1.3.0"
+        assert state["n"] == 2
+
+    async def test_network_error_returns_none_and_keeps_cache(self):
+        _version.reset_cache()
+
+        async def ok(request):
+            return httpx.Response(200, json={"tag_name": "v1.2.0", "body": "b", "html_url": "u"})
+
+        async def dead(request):
+            raise httpx.ConnectError("no network")
+
+        with patch.object(_version, "_client_factory", lambda: httpx.AsyncClient(transport=httpx.MockTransport(ok))):
+            await _version.fetch_latest()
+        with patch.object(_version, "_client_factory", lambda: httpx.AsyncClient(transport=httpx.MockTransport(dead))):
+            r = await _version.fetch_latest(force=True)
+        assert r == {"tag": "v1.2.0", "summary": "b", "url": "u"}  # 降级吐旧缓存
+
+    async def test_never_succeeded_returns_none(self):
+        _version.reset_cache()
+
+        async def dead(request):
+            raise httpx.ConnectError("no network")
+
+        with patch.object(_version, "_client_factory", lambda: httpx.AsyncClient(transport=httpx.MockTransport(dead))):
+            assert await _version.fetch_latest() is None
+
+    async def test_summary_truncated_200(self):
+        _version.reset_cache()
+
+        async def handler(request):
+            return httpx.Response(200, json={"tag_name": "v1.2.0", "body": "字" * 300, "html_url": "u"})
+
+        with patch.object(_version, "_client_factory", lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler))):
+            r = await _version.fetch_latest()
+        assert len(r["summary"]) == 200

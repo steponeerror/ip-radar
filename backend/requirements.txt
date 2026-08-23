@@ -11,3 +11,4 @@ orjson==3.11.9           # fast JSON for NDJSON stream serialization
 psutil==6.1.0            # cross-platform memory stats for rebuild valve
 # Optional: STIX 2.1 export support
 # stix2>=3.0.1
+httpx==0.28.1              # GitHub Releases 版本查询(更新通知,L1)
