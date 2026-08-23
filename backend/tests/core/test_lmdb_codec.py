@@ -64,12 +64,32 @@ def test_rebuild_lmdb_v6_roundtrip(tmp_path):
     assert n == 2
     env = envs[0]
     # 段内命中
-    assert lookup(env, ip_to_int6("2001:db8::1234"), disjoint=True) is not None
+    assert lookup(env, ip_to_int6("2001:db8::1234"), disjoint=True, ip_version=6) is not None
     # 非精确起点命中(回退 prev)
-    assert lookup(env, ip_to_int6("2001:db8::ffff"), disjoint=False) is not None
+    assert lookup(env, ip_to_int6("2001:db8::ffff"), disjoint=False, ip_version=6) is not None
     # miss
-    assert lookup(env, ip_to_int6("2600::1"), disjoint=True) is None
+    assert lookup(env, ip_to_int6("2600::1"), disjoint=True, ip_version=6) is None
     env.close()
+
+def test_lookup_small_v6_int_dispatch(tmp_path):
+    """F1 回归:小 v6 整数(::,::1,::2)不得走 4 字节 key(曾致假命中/假漏)。"""
+    from ipdb._sources._lmdb import rebuild_lmdb, lookup, ip_to_int6
+    envs = []
+    rebuild_lmdb([("::/128", [{"classification_type": "bogon"}]),
+                  ("::5/128", [{"classification_type": "scanner"}])],
+                 tmp_path / "f.v6.lmdb", envs.append, ip_version=6)
+    env = envs[0]
+    assert lookup(env, ip_to_int6("::2"), disjoint=True, ip_version=6) is None
+    assert lookup(env, ip_to_int6("::2"), disjoint=False, ip_version=6) is None
+    assert lookup(env, ip_to_int6("::"), disjoint=True, ip_version=6) is not None
+    env.close()
+
+def test_rebuild_lmdb_v4_rejects_bad_ip_version(tmp_path):
+    """F3:rebuild_lmdb 拒绝未知 ip_version(不静默建 v4 env)。"""
+    import pytest
+    from ipdb._sources._lmdb import rebuild_lmdb
+    with pytest.raises(ValueError):
+        rebuild_lmdb([], tmp_path / "bad.lmdb", lambda e: None, ip_version=5)
 
 def test_rebuild_lmdb_v6_empty_writes_ptr(tmp_path):
     from ipdb._sources._lmdb import rebuild_lmdb, read_ptr

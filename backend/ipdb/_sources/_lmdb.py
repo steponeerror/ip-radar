@@ -10,6 +10,9 @@ never Path.with_suffix: it would eat the ``.lmdb`` segment):
     <base>.disjoint        epoch-bound disjoint flag (<epoch> <0|1>)
 
 key = start_ip 4-byte big-endian; value = JSON [end_ip_int, evidence].
+v6 sidecar env (rebuild_lmdb(ip_version=6)): key = 16-byte big-endian;
+ends >2⁶⁴−1 are stored as JSON strings (orjson int ceiling), and
+lookup() requires the explicit ip_version=6 argument.
 
 Invariant (same-start collision): two CIDRs sharing the same start with
 different lengths (e.g. 1.0.0.0/24 vs 1.0.0.0/16) collide on the same key;
@@ -91,7 +94,8 @@ def _end_int(raw: bytes) -> int:
     return int(s)
 
 
-def lookup(env, ip_int: int, *, disjoint: bool = False) -> Any:
+def lookup(env, ip_int: int, *, disjoint: bool = False,
+          ip_version: int = 4) -> Any:
     """Per-query read txn (LMDB read txns are not thread-safe to share).
 
     Three paths unified: exact start hit, fallback to greatest start ≤ ip,
@@ -103,8 +107,9 @@ def lookup(env, ip_int: int, *, disjoint: bool = False) -> Any:
     epoch 绑定背书)时首候选不覆盖即真 miss:排序不相交区间,更早的区间
     end < start_候选 ≤ ip,不可能覆盖(等价性见 tests/core/test_lmdb_fastpath.py)。
     """
-    # 宽度感知:v6 查询整数(>2^32-1)用 16 字节 key——比较/回退算法本身宽度无关
-    key = (encode_key6 if ip_int > 0xFFFFFFFF else encode_key)(ip_int)
+    # 族必须显式声明:小 v6 整数(::,::1,::2)数值上落在 v4 范围,按数值
+    # 分派会错编 4 字节 key(16 字节 key 环境下排序错乱→假命中/假漏,F1)
+    key = (encode_key6 if ip_version == 6 else encode_key)(ip_int)
     with env.begin() as txn:
         cur = txn.cursor()
         found = cur.set_range(key)
@@ -317,6 +322,8 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
     ip_version=6 时 CIDR 按 IPv6Network 解析、key 用 16 字节大端编码（v6 sidecar 专用）。
     """
     import shutil
+    if ip_version not in (4, 6):
+        raise ValueError(f"ip_version must be 4 or 6, got {ip_version!r}")
     epoch = next_epoch(base)
     target = env_dir(base, epoch)
     staging = base.parent / f"{target.name}.new.{os.getpid()}"
