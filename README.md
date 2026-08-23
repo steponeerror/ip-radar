@@ -275,6 +275,18 @@ cd backend
 cd frontend && npm test
 ```
 
+## 版本通知与一键更新 | Update
+
+页面顶部的版本横幅会提示新版本（点击「检查更新」手动查询），并给出复制即用的更新命令：
+
+```
+git pull && docker compose up -d --build
+```
+
+想省去 SSH：在 `docker-compose.yml` 取消注释自更新挂载模板（docker.sock + 仓库目录 + token 三件套）后 `docker compose up -d`，横幅上会出现「立即更新」。注意：挂载 docker.sock 等于赋予容器宿主机 root 级控制权，仅建议内网自托管使用；页面首次更新时需粘贴一次部署时配置的 `IP_RADAR_UPDATE_TOKEN`。已知事项：容器内 git pull 写入的文件归 root，若之后在宿主机上直接操作仓库可能遇到权限提示（`sudo` 或 `git config --global --add safe.directory` 即可）。
+
+> The banner at the top tells you when a new release lands (hit "Check for updates" to refresh), with a copy-paste command. To update from the page itself, uncomment the self-update mounts in `docker-compose.yml` (docker.sock + repo dir + token), restart, and an "Update now" button appears. Note: mounting docker.sock grants the container host-level root control — recommended for LAN self-hosting only; you'll paste your `IP_RADAR_UPDATE_TOKEN` once on first update. Known quirk: files written by in-container git pull are owned by root — host-side repo operations may need sudo or `git safe.directory`.
+
 ## 许可证 | License
 
 © 2026 steponeerror，采用 [AGPL-3.0](LICENSE) 授权；各情报源有自己的使用条款。
