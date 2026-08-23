@@ -273,3 +273,22 @@ class TestCityMerge:
         strategy = FactualVoting(default="N/A")
         merged = strategy.merge({}, {"ip": "1.2.3.4"})
         assert merged.value == "N/A"
+
+
+def test_range_specificity_v6():
+    from ipdb._merge import RangeSpecificity
+    import ipaddress
+    rs = RangeSpecificity()
+    ctx = {"ip": "2001:db8::1", "addr": ipaddress.IPv6Address("2001:db8::1")}
+    m = rs.merge({"a": "2001:db8::/32", "b": "2001:db8::/48"}, ctx)
+    assert m.value == "2001:db8::/48"           # 最具体
+
+
+def test_range_specificity_cross_family_excluded():
+    """v4 范围对 v6 查询地址:addr not in net → 过滤(stdlib 跨族 False)。"""
+    from ipdb._merge import RangeSpecificity
+    import ipaddress
+    rs = RangeSpecificity()
+    ctx = {"ip": "2001:db8::1", "addr": ipaddress.IPv6Address("2001:db8::1")}
+    m = rs.merge({"a": "10.0.0.0/8"}, ctx)
+    assert m.value == "N/A"
