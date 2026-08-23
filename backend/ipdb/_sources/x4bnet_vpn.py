@@ -1,4 +1,5 @@
 """X4BNet VPN list source — IpListSource subclass."""
+from .._source_base import Source
 from ._base import IpListSource
 
 
@@ -18,20 +19,19 @@ class X4BNetVPNSource(IpListSource):
     def download(self, token=None) -> None:
         """双 URL 拼接单文件(spamhaus 同型);v6 兄弟失败容忍。"""
         import logging
-        import urllib.request
         self._data_dir.mkdir(parents=True, exist_ok=True)
-        v4 = urllib.request.urlopen(
-            urllib.request.Request(self.url,
-                                   headers={"User-Agent": "ip-lookup-tool/1.0"})
-        ).read()
+        v4 = Source._http_get(self.url)
+        if not v4.strip():
+            raise RuntimeError(f"empty response from {self.url}")
         try:
-            v6 = urllib.request.urlopen(
-                urllib.request.Request(self._V6_URL,
-                                       headers={"User-Agent": "ip-lookup-tool/1.0"})
-            ).read()
+            v6 = Source._http_get(self._V6_URL)
+            if not v6.strip():
+                raise RuntimeError(f"empty v6 sibling from {self._V6_URL}")
         except Exception as e:
             logging.getLogger(__name__).warning(f"x4bnet ipv6 fetch failed: {e}")
             v6 = b""
+        if v4 and not v4.endswith(b"\n"):
+            v4 += b"\n"
         self._path.write_bytes(v4 + v6)
 
     def get_insert_data(self) -> dict:
