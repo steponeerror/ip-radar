@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import json
 import os
+import socket
+import subprocess as sp
 from datetime import datetime, timedelta, timezone
 
 from ._version import VERSION
@@ -70,3 +72,59 @@ def reconcile_on_startup() -> None:
         _inmem.update(state="idle", error=None, at=None)  # 版本已变 → 上次成功
     else:
         _persist("failed", "更新中断(版本未变化,subprocess 未完成)")
+
+
+# ── L2 解锁检测 + compose 项目名自发现(F1) ──
+
+DOCKER_SOCK = "/var/run/docker.sock"
+_enabled_cache: bool | None = None
+
+
+def reset_checks() -> None:
+    global _enabled_cache
+    _enabled_cache = None
+
+
+def _sock_writable() -> bool:
+    return os.path.exists(DOCKER_SOCK) and os.access(DOCKER_SOCK, os.W_OK)
+
+
+def _git_ok(repo_dir: str) -> bool:
+    try:
+        return sp.run(["git", "-C", repo_dir, "rev-parse", "--git-dir"],
+                      capture_output=True, timeout=10).returncode == 0
+    except (OSError, sp.TimeoutExpired):
+        return False
+
+
+def self_update_enabled() -> bool:
+    global _enabled_cache
+    if _enabled_cache is None:
+        _enabled_cache = (
+            os.environ.get("IP_RADAR_SELF_UPDATE") == "1"
+            and bool(os.environ.get("IP_RADAR_UPDATE_TOKEN"))
+            and _sock_writable()
+            and _git_ok(os.environ.get("IP_RADAR_REPO_DIR", ""))
+        )
+    return _enabled_cache
+
+
+def _http_unix_get(path: str) -> bytes | None:
+    """极简 unix-socket HTTP GET(只为读自身 label,不引 docker SDK)。"""
+    import httpx
+    try:
+        r = httpx.get(f"http+unix://{DOCKER_SOCK}{path}", timeout=5.0)
+        return r.content if r.status_code == 200 else None
+    except Exception:
+        return None
+
+
+def _compose_labels() -> dict | None:
+    container = socket.gethostname()  # 容器内 hostname 即容器 ID
+    body = _http_unix_get(f"/containers/{container}/json")
+    if body is None:
+        return None
+    try:
+        return json.loads(body).get("Config", {}).get("Labels") or None
+    except ValueError:
+        return None
