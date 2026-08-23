@@ -415,3 +415,22 @@ export async function getVersion(refresh = false): Promise<VersionInfo> {
   );
 }
 
+export interface UpdateStatus {
+  state: "idle" | "updating" | "failed";
+  error?: string | null;
+  at?: string | null;
+}
+
+// 不走 jsonOrThrow:202/409 都算"已接受",调用方按 status 分支;网络层错误才 reject
+export async function postUpdate(token: string): Promise<{ ok: boolean; status: number; body: any }> {
+  const res = await fetch("/api/update", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return { ok: res.ok, status: res.status, body: await res.json().catch(() => null) };
+}
+
+export async function getUpdateStatus(): Promise<UpdateStatus> {
+  return jsonOrThrow(await fetch("/api/update/status"), "Failed to get update status");
+}
+

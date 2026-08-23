@@ -153,5 +153,15 @@
   "update.changelog": "Release notes",
   "update.check": "Check for updates",
   "update.now": "Update now",
-  "update.dismiss": "Dismiss this version"
+  "update.dismiss": "Dismiss this version",
+  "update.confirmTitle": "Update will interrupt service for ~1 minute (container rebuild). Continue?",
+  "update.tokenLabel": "Update token (IP_RADAR_UPDATE_TOKEN from your deployment)",
+  "update.tokenInvalid": "Wrong token — check and retry",
+  "update.start": "Start update",
+  "update.overlayTitle": "Updating IP Radar",
+  "update.overlayBody": "Pulling code · Rebuilding image · Restarting · ~1-3 min",
+  "update.overlayHint": "Keep this page open; it will refresh automatically",
+  "update.failed": "Update may have failed",
+  "update.retry": "Retry",
+  "update.tokenMissing": "Update token not set"
 }
