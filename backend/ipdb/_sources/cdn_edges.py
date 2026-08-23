@@ -1,6 +1,6 @@
 """Live CDN edge ranges from the three publishers that emit clean public feeds.
 
-AWS CloudFront (ip-ranges.json, filter service=CLOUDFRONT), Cloudflare (ips-v4),
+AWS CloudFront (ip-ranges.json, filter service=CLOUDFRONT), Cloudflare (ips-v4 + ips-v6),
 and Fastly (public-ip-list) each publish their own edge ranges — publisher-
 authoritative, so reliability is high. All three are fetched each refresh and
 collapsed into one `service="cdn"` asset stream; the provider identity rides
@@ -24,6 +24,7 @@ _V4_CIDR_RE = re.compile(r"^\d{1,3}(\.\d{1,3}){3}/\d{1,2}$")
 _FEEDS = (
     ("CloudFront", "https://ip-ranges.amazonaws.com/ip-ranges.json", "aws"),
     ("Cloudflare", "https://www.cloudflare.com/ips-v4", "cloudflare"),
+    ("Cloudflare", "https://www.cloudflare.com/ips-v6", "cloudflare"),
     ("Fastly", "https://api.fastly.com/public-ip-list", "fastly"),
 )
 
@@ -77,7 +78,7 @@ def _parse(data: bytes, fmt: str):
     elif fmt == "cloudflare":
         for line in data.decode("ascii", errors="ignore").splitlines():
             line = line.strip()
-            if line and _V4_CIDR_RE.match(line):
+            if line and (":" in line or _V4_CIDR_RE.match(line)):
                 yield line
     elif fmt == "fastly":
         d = json.loads(data)

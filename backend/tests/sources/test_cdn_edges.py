@@ -1,6 +1,6 @@
 import json
 
-from ipdb._sources.cdn_edges import CdnEdgesSource, _parse
+from ipdb._sources.cdn_edges import CdnEdgesSource, _FEEDS, _parse
 
 # Combined-intermediate fixture (cidr,provider) — exactly what download() writes.
 _FIXTURE = """\
@@ -75,3 +75,16 @@ def test_parse_fastly_missing_ipv6_array_ok():
     # ipv6_addresses 缺席或空:纯 v4,不炸不漏
     data = json.dumps({"addresses": ["151.101.0.0/16"]}).encode()
     assert list(_parse(data, "fastly")) == ["151.101.0.0/16"]
+
+
+def test_parse_cloudflare_accepts_v6():
+    raw = b"1.2.3.0/24\n2400:cb00::/32\n2606:4700::/32\n"
+    got = list(_parse(raw, "cloudflare"))
+    assert got == ["1.2.3.0/24", "2400:cb00::/32", "2606:4700::/32"]
+
+
+def test_feeds_include_cloudflare_v6():
+    urls = [u for _, u, _ in _FEEDS]
+    assert "https://www.cloudflare.com/ips-v4" in urls
+    assert "https://www.cloudflare.com/ips-v6" in urls
+
