@@ -4,7 +4,19 @@
 
 ## Unreleased
 
-（暂无）
+### 新增 Added
+
+- 页内版本通知：顶部横幅提示新版本（当前/最新版本号 + 变更摘要），复制更新命令、查看 Release Notes、手动检查更新；版本号由镜像内 `git describe` 自描述，最新版由后端代理查 GitHub Releases（1h 惰性缓存 + ETag，离线静默不弹）
+  - In-app version banner: current/latest + release summary, copy-paste update command, release-notes link, manual check; version self-described by in-image `git describe`, latest proxied from GitHub Releases (1h lazy cache + ETag, silent offline)
+- 页内一键自更新（可选）：`docker-compose.yml` 取消注释挂载模板（docker.sock + 仓库目录 + `IP_RADAR_UPDATE_TOKEN`）后，横幅出现「立即更新」——确认框 → 全屏更新态 → 容器内 `git pull --ff-only` + 定向重建（compose 项目名经 docker.sock 自发现）；四条件齐备才解锁，未配 token 恒 403
+  - One-click self-update (opt-in): uncomment the mounts in `docker-compose.yml` (docker.sock + repo dir + token) to light up the Update-now button — confirm dialog → full-screen overlay → in-container `git pull --ff-only` + targeted rebuild (compose project self-discovered via docker.sock); gated on four conditions, always 403 without a token
+- 跨容器更新状态机：发起更新落盘 `from_version`，新容器启动对账（版本已变→上次成功；未变→中断；超 15 分钟→超时），失败原因落盘可在页面查看
+  - Cross-container update state machine: `from_version` persisted on start, reconciled on next boot (version changed → success; unchanged → interrupted; >15 min → timed out), failure reason persisted and surfaced in the UI
+
+### 修复 Fixed
+
+- CI flake：`test_stream_pool` 在逐文件跑序中被 `test_scheduler` 触发的冷启动后台线程污染 `backend/data`（部分源文件落盘使 `_is_cold_start` 误判非冷启，LMDB 未建完 → 503 warming）。加 `tiny_db` 隔离（`test_main_routes` 同款）
+  - CI flake: `test_stream_pool` got 503s in per-file CI order after `test_scheduler`'s cold-start thread polluted `backend/data`; isolated with the same `tiny_db` fixture `test_main_routes` uses
 
 ## v1.1.0 — 2026-08-21
 
