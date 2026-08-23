@@ -8,9 +8,9 @@ from concurrent.futures.process import BrokenProcessPool
 from contextlib import asynccontextmanager
 import orjson
 
-from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
+from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from pydantic import BaseModel
@@ -34,6 +34,8 @@ from ipdb import (
 from ipdb import _batch_pool
 from ipdb._cidr import expand_inputs
 from ipdb import _registry as _ipdb_registry
+from ipdb import _update as _ipdb_update
+from ipdb import _version as _ipdb_version
 
 import os
 from pathlib import Path
@@ -429,6 +431,7 @@ def _startup_warm():
 
 def _startup():
     global _BUILD_DEADLINE
+    _ipdb_update.reconcile_on_startup()  # F2:启动对账上次更新结果
     if _is_cold_start():
         _BUILD_DEADLINE = time.time() + _window_sec()
         threading.Thread(daemon=True, target=_cold_start_background,
@@ -730,6 +733,54 @@ class SpaStaticFiles(StaticFiles):
 # In development: run `npm run dev` separately (port 5173) for hot-reload.
 # In production: build first — cd frontend && npm run build — then access :8000.
 _static_dir = Path(__file__).parent.parent / "frontend" / "dist"
+
+
+# ── In-app update endpoints (spec: 2026-08-23-in-app-update-design.md) ──
+
+_UPDATE_BG_TASKS: set = set()  # 持引用防 create_task 被 GC 中途回收
+
+
+def _spawn_update() -> None:
+    """触发即忘:更新成功时本进程会被 compose recreate 杀死(F2 对账收尾)。"""
+    task = asyncio.create_task(asyncio.to_thread(_ipdb_update.run_update))
+    _UPDATE_BG_TASKS.add(task)
+    task.add_done_callback(_UPDATE_BG_TASKS.discard)
+
+
+@app.get("/api/version")
+async def api_version(refresh: bool = False):
+    latest = await _ipdb_version.fetch_latest(force=refresh)
+    tag = latest["tag"] if latest else None
+    return {
+        "current": _ipdb_version.VERSION,
+        "latest": tag,
+        "update_available": _ipdb_version.update_available(_ipdb_version.VERSION, tag),
+        "summary": latest["summary"] if latest else None,
+        "release_url": latest["url"] if latest else "https://github.com/steponeerror/ip-radar/releases/latest",
+        "self_update_enabled": _ipdb_update.self_update_enabled(),
+    }
+
+
+@app.post("/api/update")
+async def api_update(authorization: str = Header(default="")):
+    import hmac
+    token = os.environ.get("IP_RADAR_UPDATE_TOKEN", "")
+    if not token or not authorization.startswith("Bearer ") or \
+       not hmac.compare_digest(authorization[7:], token):
+        raise HTTPException(403, detail="update token missing or invalid")
+    if not _ipdb_update.self_update_enabled():
+        raise HTTPException(403, detail="self-update not enabled")
+    if _ipdb_update.state()["state"] == "updating":
+        raise HTTPException(409, detail="update already in progress")
+    _ipdb_update.mark_updating()
+    _spawn_update()
+    return JSONResponse(status_code=202, content={"status": "accepted"})
+
+
+@app.get("/api/update/status")
+async def api_update_status():
+    return _ipdb_update.state()
+
 _env_static = os.environ.get("IP_RADAR_STATIC_DIR")
 if _env_static:
     _static_dir = Path(_env_static)
@@ -738,3 +789,4 @@ if _static_dir.exists():
     logging.info("Serving frontend from %s", _static_dir)
 else:
     logging.info("No frontend build at %s — API only", _static_dir)
+
