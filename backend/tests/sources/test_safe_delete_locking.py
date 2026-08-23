@@ -60,15 +60,17 @@ def test_csv_rebuild_calls_covered_ip_count_once(tmp_path, monkeypatch):
 
 
 def test_source_base_rebuild_calls_covered_ip_count_once(tmp_path, monkeypatch):
-    """#6 Source (single_evidence path): covered_ip_count invoked once per rebuild."""
+    """#6 Source (single_evidence path): covered per rebuild exactly once per
+    family — dual-family (v6 PR1) 后为 2 次:v4 一次、v6 一次,不许多不少。"""
     from ipdb._source_base import Source
     from ipdb._evidence import Evidence
 
-    calls = {"n": 0}
+    calls = {"n": 0, "vers": []}
     real = lmdb_mod.covered_ip_count
 
     def spy(cidrs, **kw):
         calls["n"] += 1
+        calls["vers"].append(kw.get("ip_version", 4))
         return real(cidrs, **kw)
 
     monkeypatch.setattr(lmdb_mod, "covered_ip_count", spy)
@@ -82,7 +84,8 @@ def test_source_base_rebuild_calls_covered_ip_count_once(tmp_path, monkeypatch):
 
     (tmp_path / "t.txt").write_text("marker\n")
     _S(data_dir=tmp_path).rebuild()
-    assert calls["n"] == 1
+    assert calls["n"] == 2
+    assert sorted(calls["vers"]) == [4, 6]
 
 
 def test_csvsource_load_resolves_to_iplist_source_load():

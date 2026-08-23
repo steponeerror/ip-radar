@@ -105,13 +105,14 @@ def test_lmdb_lifecycle_build_load_query_rebuild(tmp_path: Path):
         assert (tmp_path / f"{cls.filename}.lmdb.cov").read_text().strip() == "256"
 
         # load:全新实例,纯 mmap,绝不触发 harvest
-        # (先关 s1 的 env:LMDB 同进程禁止双开同一 epoch 目录)
-        s1._reader.close()
+        # (先关 s1 的 env:LMDB 同进程禁止双开同一 epoch 目录;
+        #  v6 双族后源持有两个 env 句柄,重开前两族都要关)
+        s1._reader.close(); s1._reader6.close()
         cls.rows = []          # harvest 若被调用将产出空 → count 会撒谎
         s2 = cls(data_dir=tmp_path)
         assert s2.load() == 1
         assert s2.query("10.0.0.5")[0]["verdict"] == "old"
-        s2._reader.close()
+        s2._reader.close(); s2._reader6.close()
 
         # rebuild 新值:旧 range 退位,新 range 上位,sidecar 刷新
         cls.rows = [("10.0.0.0/24", _ev("new")), ("10.0.1.0/24", _ev("new"))]
@@ -122,7 +123,7 @@ def test_lmdb_lifecycle_build_load_query_rebuild(tmp_path: Path):
         assert s1.query("10.0.1.5")[0]["verdict"] == "new"
         assert (tmp_path / f"{cls.filename}.lmdb.count").read_text().strip() == "2"
         assert (tmp_path / f"{cls.filename}.lmdb.cov").read_text().strip() == "512"
-        s1._reader.close()
+        s1._reader.close(); s1._reader6.close()
 
 
 def test_lmdb_load_of_inline_built_store(tmp_path: Path):
