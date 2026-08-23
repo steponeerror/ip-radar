@@ -134,15 +134,19 @@ class TestLookupResponseShape:
         assert ips == ["1.2.3.0", "1.2.3.1", "1.2.3.2", "1.2.3.3"]
 
     def test_stream_ipv6_counted_separately(self):
+        """v6 支持后语义反转:裸 v6 行正常产出,ipv6_unsupported 恒 0(Q4)。
+        原 /32 输入的 400 上限拒绝由 TestIPv6Routes.test_stream_huge_v6_cidr_400 覆盖。
+        2001:db8::1 是文档段(reserved)——reserved 是结果不是跳过,照常出 row。"""
         resp = self.client.post(
             "/api/query/stream",
-            json={"ips": ["2001:db8::/32", "8.8.8.8"]},
+            json={"ips": ["2001:db8::1", "8.8.8.8"]},
         )
         assert resp.status_code == 200
         events = [json.loads(l) for l in resp.iter_lines() if l.strip()]
+        rows = [e for e in events if e["type"] == "row"]
+        assert len(rows) == 2
         done = next(e for e in events if e["type"] == "done")
-        assert done["ipv6_unsupported"] == 1
-        assert done["invalid_lines"] == 0
+        assert done["ipv6_unsupported"] == 0
 
 
 class TestIPv6Routes:
