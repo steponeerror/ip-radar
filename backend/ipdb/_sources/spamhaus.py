@@ -13,6 +13,28 @@ class SpamhausSource(IpListSource):
     reliability = 0.90
     authoritative_for = ["is_malicious"]
 
+    _V6_URL = "https://www.spamhaus.org/drop/dropv6.txt"
+
+    def download(self, token=None) -> None:
+        """双 URL 拉取拼接单文件(spec §5.1)。v6 兄弟失败容忍(dataplane 先例),
+        v4 主文件失败 raise 走既有退避。"""
+        import logging
+        import urllib.request
+        self._data_dir.mkdir(parents=True, exist_ok=True)
+        v4 = urllib.request.urlopen(
+            urllib.request.Request(self.url,
+                                   headers={"User-Agent": "ip-lookup-tool/1.0"})
+        ).read()
+        try:
+            v6 = urllib.request.urlopen(
+                urllib.request.Request(self._V6_URL,
+                                       headers={"User-Agent": "ip-lookup-tool/1.0"})
+            ).read()
+        except Exception as e:
+            logging.getLogger(__name__).warning(f"spamhaus dropv6 fetch failed: {e}")
+            v6 = b""
+        self._path.write_bytes(v4 + v6)
+
     def rebuild(self, progress=None) -> int:
         """重建 LMDB。覆写基类：保留 `;` 后的 SBL 案件编号 → extra.sbl_id
         （基类直接截断丢弃）。"""
