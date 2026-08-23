@@ -10,7 +10,7 @@ from ._types import LookupResult
 
 logger = logging.getLogger(__name__)
 
-# UUIDv5 namespace for deterministic ipv4-addr IDs
+# UUIDv5 namespace for deterministic addr SCO IDs (v4/v6)
 _NS = UUID("6ba7b810-9dad-11d1-80b4-00c04fd430c8")
 # Deterministic extension-definition ID (must be <object-type>--<UUID>; a bare
 # slug like "ip-radar-threat" is rejected by stix2's identifier validation).
