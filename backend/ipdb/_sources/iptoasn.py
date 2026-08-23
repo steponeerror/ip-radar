@@ -60,16 +60,16 @@ class IPtoASNSource(Source):
                 if len(parts) < 5:
                     continue
                 try:
-                    start = _ipa.IPv4Address(parts[0])
-                    end = _ipa.IPv4Address(parts[1])
+                    start = _ipa.ip_address(parts[0])
+                    end = _ipa.ip_address(parts[1])
                     asn = int(parts[2])
                 except (_ipa.AddressValueError, ValueError):
                     continue
                 if asn == 0:
                     continue
-                for cidr in _ipa.summarize_address_range(
-                        _ipa.IPv4Network(f"{start}/32").network_address,
-                        _ipa.IPv4Network(f"{end}/32").network_address):
+                if start.version != end.version:
+                    continue
+                for cidr in _ipa.summarize_address_range(start, end):
                     yield str(cidr), Evidence(
                         asn=asn,
                         country_code=parts[3] or None,

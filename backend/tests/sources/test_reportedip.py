@@ -71,13 +71,13 @@ def test_reportedip_same_type_codes_collected(tmp_path: Path):
     assert ddos[0]["native_categories"] == ["DDoS Attack", "Ping of Death"]  # 4,6 distinct names, same canonical
 
 
-def test_reportedip_ipv6_dropped(tmp_path: Path):
-    """IPv6 rows must not enter the IPv4 MMDB (system is IPv4-only)."""
+def test_reportedip_ipv6_harvested(tmp_path: Path):
+    """IPv6 rows are harvested too (dual-family; bare address → v6 env)."""
     (tmp_path / "reportedip.csv").write_text(SAMPLE)
     s = ReportedIPSource(data_dir=tmp_path)
     ips = [ip for ip, _ in s.harvest()]
-    assert "2a06:6440:0:2c94::1" not in ips                 # dropped at harvest
-    assert "1.4.221.22" in ips                               # IPv4 kept
+    assert "2a06:6440:0:2c94::1" in ips                  # yielded at harvest
+    assert "1.4.221.22" in ips                           # IPv4 kept
 
 
 def test_reportedip_last_reported_fills_last_seen(tmp_path):

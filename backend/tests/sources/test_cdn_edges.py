@@ -47,10 +47,11 @@ def test_parse_aws_cloudfront_only():
             {"ip_prefix": "52.94.0.0/20", "service": "EC2"},   # not CloudFront → drop
         ],
         "ipv6_prefixes": [
-            {"ipv6_prefix": "2600:1f18:4000::/40", "service": "CLOUDFRONT"},  # v6 list → never read
+            {"ipv6_prefix": "2600:1f18:4000::/40", "service": "CLOUDFRONT"},  # v6 CLOUDFRONT → kept
+            {"ipv6_prefix": "2600:9000:100::/40", "service": "EC2"},  # not CloudFront → drop
         ],
     }).encode()
-    assert list(_parse(data, "aws")) == ["13.32.0.0/15"]
+    assert list(_parse(data, "aws")) == ["13.32.0.0/15", "2600:1f18:4000::/40"]
 
 
 def test_parse_cloudflare_strips_blanks_and_garbage():
