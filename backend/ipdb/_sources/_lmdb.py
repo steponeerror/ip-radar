@@ -50,11 +50,28 @@ def ip_to_int(ip: str) -> int:
     return int(ipaddress.IPv4Address(ip))
 
 
+@functools.lru_cache(maxsize=4096)
+def ip_to_int6(ip: str) -> int:
+    """Query-path shared parse for IPv6 (mirror of ip_to_int)."""
+    return int(ipaddress.IPv6Address(ip))
+
+
 def encode_key(start_int: int) -> bytes:
     return start_int.to_bytes(4, "big")
 
 
+def encode_key6(start_int: int) -> bytes:
+    return start_int.to_bytes(16, "big")
+
+
+_JSON_INT_MAX = 2**64 - 1   # orjson 整数上限:v6 区间端点(128-bit)超限需字符串编码
+
+
 def encode_value(end_int: int, evidence: Any) -> bytes:
+    # orjson 拒绝 >64-bit 整数:v6 端点以字符串落盘,_end_int/decode_value
+    # 对带引号形式透明兼容;v4 数值形式字节不变(位元一致)
+    if end_int > _JSON_INT_MAX:
+        end_int = str(end_int)
     return orjson.dumps([end_int, evidence])
 
 
@@ -65,9 +82,13 @@ def decode_value(raw: bytes) -> tuple[int, Any]:
 
 def _end_int(raw: bytes) -> int:
     """Backscan 快路径:value 布局固定为 ``[end, evidence]`` 且 end 是无符号
-    整数,首个 ``,`` 前的数字即 end — 免去每步 JSON 解码(嵌套回退时一步
-    一解码曾把 miss p50 从 ~3µs 拖到 ~40µs)。"""
-    return int(raw[1:raw.index(b",")])
+    整数或其字符串形式(>64-bit 的 v6 端点),首个 ``,`` 前的内容即 end —
+    免去每步 JSON 解码(嵌套回退时一步步解码曾把 miss p50 从 ~3µs 拖到
+    ~40µs)。"""
+    s = raw[1:raw.index(b",")]
+    if s[:1] == b'"':
+        s = s[1:-1]
+    return int(s)
 
 
 def lookup(env, ip_int: int, *, disjoint: bool = False) -> Any:
@@ -82,7 +103,8 @@ def lookup(env, ip_int: int, *, disjoint: bool = False) -> Any:
     epoch 绑定背书)时首候选不覆盖即真 miss:排序不相交区间,更早的区间
     end < start_候选 ≤ ip,不可能覆盖(等价性见 tests/core/test_lmdb_fastpath.py)。
     """
-    key = encode_key(ip_int)
+    # 宽度感知:v6 查询整数(>2^32-1)用 16 字节 key——比较/回退算法本身宽度无关
+    key = (encode_key6 if ip_int > 0xFFFFFFFF else encode_key)(ip_int)
     with env.begin() as txn:
         cur = txn.cursor()
         found = cur.set_range(key)
@@ -273,7 +295,8 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
                  count: int | None = None, covered: int | None = None,
                  map_size: int | None = None,
                  flag_setter: Callable[[bool], None] | None = None,
-                 progress: Callable[[int, int], None] | None = None) -> int:
+                 progress: Callable[[int, int], None] | None = None,
+                 ip_version: int = 4) -> int:
     """Stream-build a fresh epoch env, then atomically swap via ptr.
 
     Commit order (crash invariant): rename closed env dir → sidecars (staged
@@ -290,6 +313,8 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
     可知,生成器为 0);已知 total 时循环前首发 (0, total) 保证前端 0.5 无缝
     衔接,此后每 BATCH_SIZE flush 后一次、循环结束终值一次。回调异常不加
     保护(与下载路径同剖面)。
+
+    ip_version=6 时 CIDR 按 IPv6Network 解析、key 用 16 字节大端编码（v6 sidecar 专用）。
     """
     import shutil
     epoch = next_epoch(base)
@@ -320,12 +345,15 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
                 env.set_mapsize(env.info()["map_size"] * 2)
                 # retry same batch after growth
 
+    net_cls = (ipaddress.IPv6Network if ip_version == 6
+               else ipaddress.IPv4Network)
+    key_enc = encode_key6 if ip_version == 6 else encode_key
     for cidr, evidence in records:
         try:
-            net = ipaddress.IPv4Network(cidr, strict=False)
+            net = net_cls(cidr, strict=False)
         except (ipaddress.AddressValueError, ValueError):
             continue
-        batch.append((encode_key(int(net.network_address)),
+        batch.append((key_enc(int(net.network_address)),
                       encode_value(int(net.broadcast_address), evidence)))
         n += 1
         if len(batch) >= BATCH_SIZE:
