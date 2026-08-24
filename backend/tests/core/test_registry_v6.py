@@ -187,3 +187,42 @@ def test_sources_needing_rebuild_plural_ignites_on_missing_v6_ptr(
     assert reg.sources_needing_rebuild() == ["q3p"]   # I1:复数版点燃
     src.rebuild()
     assert reg.sources_needing_rebuild() == []        # 重建后安静
+
+def test_health_exposes_covered_v6_nets(tmp_path):
+    from ipdb._source_base import Source
+    from ipdb._evidence import Evidence
+
+    class _S(Source):
+        name = "h6"; fields = ("country_code",); filename = "h.csv"
+        single_evidence = True
+        def harvest(self):
+            yield "10.0.0.0/24", Evidence(country_code="XX")
+            yield "2a00:1450:4001::/48", Evidence(country_code="DE")
+
+    src = _S(tmp_path)
+    (tmp_path / "h.csv").write_text("x\n")
+    src.rebuild()
+    h = src.health()
+    assert h.covered_v6_nets == 1
+    assert h.covered_ips == 256          # v4 语义不变(Q7)
+
+
+def test_get_status_has_covered_v6_nets_key(tmp_path, monkeypatch):
+    from ipdb import _registry
+    from ipdb._source_base import Source
+    from ipdb._evidence import Evidence
+
+    class _S(Source):
+        name = "g6"; fields = ("country_code",); filename = "g.csv"
+        single_evidence = True
+        def harvest(self):
+            yield "2a00:1450:4001::/48", Evidence(country_code="DE")
+
+    src = _S(tmp_path)
+    (tmp_path / "g.csv").write_text("x\n")
+    src.rebuild()
+    monkeypatch.setattr(_registry, "_sources", [src])
+    monkeypatch.setattr(_registry, "_disabled", set())
+    st = _registry.get_status()
+    assert "covered_v6_nets" in st and st["covered_v6_nets"] == 1
+    assert st["total_records"] == src._count      # v4 计数语义不变

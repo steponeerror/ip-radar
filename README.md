@@ -21,6 +21,7 @@
 - **一份裁决，不是一堆列表** —— 单 IP 一句话结论，逐源证据摆给你看，0-100 置信度（源可靠性加权、交叉佐证、随时间衰减）。
 - **地理 · 城市 · ASN** —— GeoLite2 给城市，iptoasn 给自治域，CN ISP 归属（含港澳台）也认得。
 - **代理 · VPN · Tor · CDN，一眼认出来** —— 开放代理、VPN 网段、Tor 出口、三大 CDN 边缘，都标得清清楚楚。
+- **IPv6 也能查** —— 裸 v6 / 小段 v6 CIDR 直接查，地理·城市·ASN·VPN·CDN·封禁段对 v6 生效；威胁证据约 10 个源覆盖 v6（ipinfo/GeoLite/iptoasn、spamhaus DROPv6、x4bnet、Cloudflare/Fastly/AWS 边缘等），其余源上游本就无 v6 数据，如实显示无记录。
 - **一个容器跑全栈，内存自己看着办** —— `docker compose up -d --build` 就有；并发按宿主机内存自动收敛，后台自动刷新按源错峰：日更源每天 2 次、周更源每周 1 次，各源固定时刻错开。
 - **STIX 2.1 导出（可选）** —— `/api/lookup/{ip}/stix` 一键导出；Docker 镜像默认不带 `stix2`，`pip install stix2` 装上即开。
 
@@ -29,6 +30,7 @@
 > - **A verdict, not a pile of lists** — one line of conclusion per IP, per-source evidence on the table, 0-100 confidence (reliability-weighted, corroborated, time-decayed).
 > - **Geo · City · ASN** — GeoLite2 for the city, iptoasn for the ASN, plus CN ISP classification incl. HK/MO/TW.
 > - **Proxy · VPN · Tor · CDN, spotted at a glance** — open proxies, VPN ranges, Tor exits, and the big three CDNs' edges, all labeled.
+> - **IPv6 lookups too** — bare v6 and small v6 CIDRs resolve with geo · city · ASN · VPN · CDN · DROP ranges; ~10 of the feeds carry v6 data (ipinfo/GeoLite/iptoasn, spamhaus DROPv6, x4bnet, Cloudflare/Fastly/AWS edges), the rest have no v6 upstream — shown honestly as no-records.
 > - **One container, memory that behaves** — `docker compose up -d --build` and you're serving; concurrency bends to host RAM, background refresh staggered per source: daily feeds 2×/day, weekly 1×/week, each at a fixed offset time.
 > - **STIX 2.1 export (optional)** — `/api/lookup/{ip}/stix`; the Docker image ships without `stix2` — `pip install stix2` to switch it on.
 

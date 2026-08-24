@@ -1,4 +1,5 @@
 """Spamhaus DROP list — IpListSource subclass."""
+from .._source_base import Source
 from ._base import IpListSource
 
 
@@ -12,6 +13,27 @@ class SpamhausSource(IpListSource):
     stale_days = 1
     reliability = 0.90
     authoritative_for = ["is_malicious"]
+
+    _V6_URL = "https://www.spamhaus.org/drop/dropv6.txt"
+
+    def download(self, token=None) -> None:
+        """双 URL 拉取拼接单文件(spec §5.1)。v6 兄弟失败容忍(dataplane 先例),
+        v4 主文件失败 raise 走既有退避。"""
+        import logging
+        self._data_dir.mkdir(parents=True, exist_ok=True)
+        v4 = Source._http_get(self.url)
+        if not v4.strip():
+            raise RuntimeError(f"empty response from {self.url}")
+        try:
+            v6 = Source._http_get(self._V6_URL)
+            if not v6.strip():
+                raise RuntimeError(f"empty v6 sibling from {self._V6_URL}")
+        except Exception as e:
+            logging.getLogger(__name__).warning(f"spamhaus dropv6 fetch failed: {e}")
+            v6 = b""
+        if v4 and not v4.endswith(b"\n"):
+            v4 += b"\n"
+        self._path.write_bytes(v4 + v6)
 
     def rebuild(self, progress=None) -> int:
         """重建 LMDB。覆写基类：保留 `;` 后的 SBL 案件编号 → extra.sbl_id

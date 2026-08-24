@@ -498,6 +498,7 @@ def get_status() -> dict:
         "threat_records": threat_total,
         "asset_records": asset_total,
         "is_stale": any(h.is_stale for h in healths),
+        "covered_v6_nets": sum(h.covered_v6_nets for h in healths),
     }
 
 

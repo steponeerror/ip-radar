@@ -291,4 +291,5 @@ class IPinfoLiteSource:
             last_updated=last_updated,
             is_stale=is_stale,
             covered_ips=self._covered_ips,
+            covered_v6_nets=self._covered_v6_nets,
         )

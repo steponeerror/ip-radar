@@ -6,6 +6,8 @@
 
 ### 新增 Added
 
+- IPv6 查询支持：双族 LMDB 存储（v4 数据零迁移）、裸 v6 / 小段 v6 CIDR 查询、v6 bogon 判定（纯 stdlib）；spamhaus DROPv6、x4bnet、Cloudflare ips-v6 等兄弟源接入，geo/ASN（ipinfo 61% 行、GeoLite 35%、iptoasn 25%）v6 全量入库；STIX 导出产 `ipv6-addr` SCO；`/api/db-status` 新增 `covered_v6_nets` 键
+  - IPv6 lookup support: dual-family LMDB storage (zero v4 migration), bare-v6 / small-CIDR queries, stdlib-driven v6 bogon detection; sibling feeds wired in (spamhaus DROPv6, x4bnet, Cloudflare ips-v6) with geo/ASN fully indexed for v6 (61% of ipinfo rows, 35% of GeoLite, 25% of iptoasn); STIX export emits `ipv6-addr` SCOs; `/api/db-status` gains a `covered_v6_nets` key
 - 页内版本通知：顶部横幅提示新版本（当前/最新版本号 + 变更摘要），复制更新命令、查看 Release Notes、手动检查更新；版本号由镜像内 `git describe` 自描述，最新版由后端代理查 GitHub Releases（1h 惰性缓存 + ETag，离线静默不弹）
   - In-app version banner: current/latest + release summary, copy-paste update command, release-notes link, manual check; version self-described by in-image `git describe`, latest proxied from GitHub Releases (1h lazy cache + ETag, silent offline)
 - 页内一键自更新（可选）：`docker-compose.yml` 取消注释挂载模板（docker.sock + 仓库目录 + `IP_RADAR_UPDATE_TOKEN`）后，横幅出现「立即更新」——确认框 → 全屏更新态 → 容器内 `git pull --ff-only` + 定向重建（compose 项目名经 docker.sock 自发现）；四条件齐备才解锁，未配 token 恒 403

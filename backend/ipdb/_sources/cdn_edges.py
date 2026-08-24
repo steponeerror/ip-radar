@@ -1,6 +1,6 @@
 """Live CDN edge ranges from the three publishers that emit clean public feeds.
 
-AWS CloudFront (ip-ranges.json, filter service=CLOUDFRONT), Cloudflare (ips-v4),
+AWS CloudFront (ip-ranges.json, filter service=CLOUDFRONT), Cloudflare (ips-v4 + ips-v6),
 and Fastly (public-ip-list) each publish their own edge ranges — publisher-
 authoritative, so reliability is high. All three are fetched each refresh and
 collapsed into one `service="cdn"` asset stream; the provider identity rides
@@ -8,8 +8,8 @@ collapsed into one `service="cdn"` asset stream; the provider identity rides
 surfaces `attributes["service"] = (cdn, "CloudFront")`.
 
 The tool is dual-family (spec 2026-08-23): AWS `ipv6_prefixes` and Fastly's
-`ipv6_addresses` are harvested; the Cloudflare v6 sibling feed (`ips-v6`)
-lands in PR2. download() fetches the feeds and writes a combined
+`ipv6_addresses` are harvested; the Cloudflare v6 sibling feed (`ips-v6`) are harvested.
+download() fetches the feeds and writes a combined
 `cdn_edges.csv` (cidr,provider) intermediate; harvest() maps it to Evidence.
 """
 import json
@@ -24,6 +24,7 @@ _V4_CIDR_RE = re.compile(r"^\d{1,3}(\.\d{1,3}){3}/\d{1,2}$")
 _FEEDS = (
     ("CloudFront", "https://ip-ranges.amazonaws.com/ip-ranges.json", "aws"),
     ("Cloudflare", "https://www.cloudflare.com/ips-v4", "cloudflare"),
+    ("Cloudflare", "https://www.cloudflare.com/ips-v6", "cloudflare"),
     ("Fastly", "https://api.fastly.com/public-ip-list", "fastly"),
 )
 
@@ -62,7 +63,6 @@ def _parse(data: bytes, fmt: str):
     v4 走 _V4_CIDR_RE 正则(形态护栏),v6 以 ':' 判定并按 provider 各自的
     v6 键读取(aws=ipv6_prefixes[service=CLOUDFRONT],fastly=ipv6_addresses;
     fastly 的 addresses 对 v4 而言是纯 v4 列表,':' 放行仅 belt-and-braces);
-    Cloudflare v4-only 是 PR2。
     """
     if fmt == "aws":
         d = json.loads(data)
@@ -77,7 +77,7 @@ def _parse(data: bytes, fmt: str):
     elif fmt == "cloudflare":
         for line in data.decode("ascii", errors="ignore").splitlines():
             line = line.strip()
-            if line and _V4_CIDR_RE.match(line):
+            if line and (":" in line or _V4_CIDR_RE.match(line)):
                 yield line
     elif fmt == "fastly":
         d = json.loads(data)
