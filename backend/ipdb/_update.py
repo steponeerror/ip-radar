@@ -129,12 +129,17 @@ def _http_unix_get(path: str) -> bytes | None:
 
 
 def _compose_labels() -> dict | None:
+    info = _self_inspect()
+    return info.get("Config", {}).get("Labels") if info else None
+
+
+def _self_inspect() -> dict | None:
     container = socket.gethostname()  # 容器内 hostname 即容器 ID
     body = _http_unix_get(f"/containers/{container}/json")
     if body is None:
         return None
     try:
-        return json.loads(body).get("Config", {}).get("Labels") or None
+        return json.loads(body)
     except ValueError:
         return None
 
@@ -159,15 +164,29 @@ def run_update() -> None:
         if r.returncode != 0:
             mark_failed(f"git pull --ff-only 失败(本地有修改?): {r.stderr.strip()[:300]}")
             return
-        cmd = ["docker", "compose", "-p", project, "-f", compose_file,
+        # 自毁竞态修复(F6):compose 不能在本容器内跑——recreate 停掉旧容器时会把
+        # 作为其子进程的 compose CLI 一并杀掉,新容器停在 Created、站点 502(实测)。
+        # 改为经 docker.sock 起一次性 helper 容器(同镜像,自带 docker CLI)执行,
+        # 与本容器生死解耦;state 留 updating,新容器对账收尾(F2)不变。
+        info = _self_inspect() or {}
+        host_repo = next((m.get("Source", "") for m in info.get("Mounts", [])
+                          if m.get("Destination") == repo), "")
+        image = info.get("Config", {}).get("Image", "")
+        if not host_repo or not image:
+            mark_failed("无法解析 repo 宿主机路径/镜像(docker.sock inspect 失败)")
+            return
+        compose_host = os.path.join(host_repo, os.path.basename(compose_file))
+        cmd = ["docker", "run", "-d", "--rm", "--name", f"{project}-updater",
+               "-v", "/var/run/docker.sock:/var/run/docker.sock",
+               "-v", f"{host_repo}:{host_repo}", "-w", host_repo, image,
+               "docker", "compose", "-p", project, "-f", compose_host,
                "up", "-d", "--build"]
         if service:
             cmd.append(service)
-        r = sp.run(cmd, capture_output=True, text=True, timeout=_TIMEOUT)
+        r = sp.run(cmd, capture_output=True, text=True, timeout=120)
         if r.returncode != 0:
-            mark_failed(f"docker compose up 失败: {r.stderr.strip()[:300]}")
+            mark_failed(f"updater 容器启动失败: {r.stderr.strip()[:300]}")
             return
-        # 成功:本进程即将被 compose recreate 杀死;state 留 updating,新容器对账收尾(F2)
     except sp.TimeoutExpired:
         mark_failed("更新超时(git/compose 超过 10 分钟)")
     except OSError as e:
