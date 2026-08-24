@@ -8,7 +8,7 @@ from concurrent.futures.process import BrokenProcessPool
 from contextlib import asynccontextmanager
 import orjson
 
-from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, Header
+from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -508,9 +508,26 @@ def public_demo_enabled() -> bool:
     return os.environ.get("IP_RADAR_PUBLIC_DEMO") == "1"
 
 
+def _demo_admin_ips() -> set[str]:
+    # 便利级白名单：命中则旁路全部 demo 限制（含前端探测 public_demo=false → 完整 UI）。
+    # 匹配直连 peer 与 X-Forwarded-For 全部跳（适配 CF→Caddy→app 链）；可伪造，
+    # 不是安全边界——写接口在自部署下本就无鉴权，真正防护靠 WAF/防火墙。
+    return {s.strip() for s in
+            os.environ.get("IP_RADAR_DEMO_ADMIN_IPS", "").split(",") if s.strip()}
+
+
+def _is_demo_admin(request) -> bool:
+    ips = _demo_admin_ips()
+    if not ips:
+        return False
+    hops = ([request.client.host] if request.client else []) + \
+        [h.strip() for h in request.headers.get("x-forwarded-for", "").split(",")]
+    return any(h in ips for h in hops)
+
+
 @app.middleware("http")
 async def public_demo_guard(request, call_next):
-    if not public_demo_enabled():
+    if not public_demo_enabled() or _is_demo_admin(request):
         return await call_next(request)
     path = request.url.path
     # 预检不带业务 header 且非 /api 也全放行;本中间件在 CORS 外层
@@ -787,9 +804,10 @@ def _spawn_update() -> None:
 
 
 @app.get("/api/version")
-async def api_version(refresh: bool = False):
+async def api_version(request: Request, refresh: bool = False):
     latest = await _ipdb_version.fetch_latest(force=refresh)
     tag = latest["tag"] if latest else None
+    demo = public_demo_enabled() and not _is_demo_admin(request)
     return {
         "current": _ipdb_version.VERSION,
         "latest": tag,
@@ -797,7 +815,7 @@ async def api_version(refresh: bool = False):
         "summary": latest["summary"] if latest else None,
         "release_url": latest["url"] if latest else "https://github.com/steponeerror/ip-radar/releases/latest",
         "self_update_enabled": _ipdb_update.self_update_enabled(),
-        "public_demo": public_demo_enabled(),
+        "public_demo": demo,
     }
 
 
