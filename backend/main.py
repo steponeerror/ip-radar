@@ -8,7 +8,7 @@ from concurrent.futures.process import BrokenProcessPool
 from contextlib import asynccontextmanager
 import orjson
 
-from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, Header, Request
+from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -492,68 +492,6 @@ app.add_middleware(
 )
 
 
-# ---- 公共 demo 模式（docs/superpowers/specs/2026-08-23-public-demo-mode-design.md）----
-# 开启后: 写/内部接口 404(当作不存在);查询读接口需 x-ipradar-client: web;
-# STIX/OPTIONS/回环/version 豁免。env 每请求动态读(测试 monkeypatch 依赖)。
-_DEMO_HIDDEN_PREFIXES = (
-    "/api/update-db", "/api/sources", "/api/tasks", "/api/events",
-    "/api/scheduler/status", "/api/update", "/api/perf/layout",
-)
-_DEMO_HEADER_PREFIXES = (
-    "/api/lookup", "/api/query/stream", "/api/upload/stream", "/api/db-status",
-)
-
-
-def public_demo_enabled() -> bool:
-    return os.environ.get("IP_RADAR_PUBLIC_DEMO") == "1"
-
-
-def _demo_admin_ips() -> set[str]:
-    # 直连 peer 白名单：仅适用于应用端口直接暴露的部署。反代后 peer 恒为代理 IP，
-    # 而 X-Forwarded-For 客户端可伪造且 CF/Caddy 链会透传（实测可穿透），勿恢复 XFF 匹配。
-    return {s.strip() for s in
-            os.environ.get("IP_RADAR_DEMO_ADMIN_IPS", "").split(",") if s.strip()}
-
-
-def _is_demo_admin(request) -> bool:
-    # 维护者旁路:直连 peer 命中,或(显式声明信任反代后)首跳 XFF 命中。
-    # XFF 信任必须配套网关保证(见部署文档:Caddy 剥非 CF 直连的 Cf-Connecting-Ip
-    # 并 header_up 覆写;否则客户端可伪造)。默认不信任任何头。
-    ips = _demo_admin_ips()
-    if not ips:
-        return False
-    if request.client and request.client.host in ips:
-        return True
-    if os.environ.get("IP_RADAR_DEMO_TRUST_XFF") == "1":
-        first = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
-        if first in ips:
-            return True
-    return False
-
-
-@app.middleware("http")
-async def public_demo_guard(request, call_next):
-    if not public_demo_enabled() or _is_demo_admin(request):
-        return await call_next(request)
-    path = request.url.path
-    # 预检不带业务 header 且非 /api 也全放行;本中间件在 CORS 外层
-    if request.method == "OPTIONS" or not path.startswith("/api/"):
-        return await call_next(request)
-    if path.startswith(_DEMO_HIDDEN_PREFIXES):
-        return JSONResponse({"detail": "Not Found"}, status_code=404)
-    if path == "/api/version":
-        return await call_next(request)
-    if path.startswith(_DEMO_HEADER_PREFIXES):
-        if path.endswith("/stix"):  # window.open 无法带 header
-            return await call_next(request)
-        client_host = request.client.host if request.client else ""
-        if client_host in ("127.0.0.1", "::1"):  # docker healthcheck 豁免
-            return await call_next(request)
-        if request.headers.get("x-ipradar-client") != "web":
-            return JSONResponse({"detail": "Forbidden"}, status_code=403)
-    return await call_next(request)
-
-
 @app.post("/api/query/stream", dependencies=[Depends(require_ready)])
 async def query_ips_stream(body: dict):
     raw = body.get("ips", [])
@@ -810,10 +748,9 @@ def _spawn_update() -> None:
 
 
 @app.get("/api/version")
-async def api_version(request: Request, refresh: bool = False):
+async def api_version(refresh: bool = False):
     latest = await _ipdb_version.fetch_latest(force=refresh)
     tag = latest["tag"] if latest else None
-    demo = public_demo_enabled() and not _is_demo_admin(request)
     return {
         "current": _ipdb_version.VERSION,
         "latest": tag,
@@ -821,7 +758,6 @@ async def api_version(request: Request, refresh: bool = False):
         "summary": latest["summary"] if latest else None,
         "release_url": latest["url"] if latest else "https://github.com/steponeerror/ip-radar/releases/latest",
         "self_update_enabled": _ipdb_update.self_update_enabled(),
-        "public_demo": demo,
     }
 
 

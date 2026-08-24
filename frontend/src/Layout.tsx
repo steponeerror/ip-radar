@@ -5,8 +5,7 @@ import { LocaleSwitcher } from "./components/LocaleSwitcher";
 import { Modal } from "./components/Modal";
 import { UpdateOverlay, TOKEN_KEY } from "./components/UpdateOverlay";
 import { VersionBanner } from "./components/VersionBanner";
-import { DemoBanner } from "./components/DemoBanner";
-import { getDbStatus, getVersion, getPublicDemo, postUpdate } from "./api";
+import { getDbStatus, getVersion, postUpdate } from "./api";
 import { useI18n } from "./i18n";
 import { TaskProvider } from "./tasks/TaskProvider";
 
@@ -35,7 +34,6 @@ function useWarmupGate(): boolean {
 export default function Layout() {
   const { t } = useI18n();
   const warmGate = useWarmupGate();
-  const [demo, setDemo] = useState(false);
   const [selfUpdateEnabled, setSelfUpdateEnabled] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [token, setToken] = useState("");
@@ -46,11 +44,6 @@ export default function Layout() {
   useEffect(() => {
     // 横幅按钮可见性所需的 self_update_enabled;L2 解锁需改 compose+重启(整页重载),挂载拉一次即够
     getVersion().then((v) => setSelfUpdateEnabled(v.self_update_enabled)).catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    // demo 模式探测(getPublicDemo 缓存/失败=false):藏数据源导航、页内更新入口,挂演示横幅
-    getPublicDemo().then(setDemo).catch(() => {});
   }, []);
 
   const openConfirm = () => {
@@ -103,12 +96,11 @@ export default function Layout() {
             <nav className="mt-4">
               <div className="flex gap-1 rounded-lg bg-zinc-900 p-1 sm:inline-flex">
                 <NavLink to="/" end className={linkClass}>{t("layout.nav.lookup")}</NavLink>
-                {!demo && <NavLink to="/sources" className={linkClass}>{t("layout.nav.sources")}</NavLink>}
+                <NavLink to="/sources" className={linkClass}>{t("layout.nav.sources")}</NavLink>
               </div>
             </nav>
           </header>
-          {demo && <DemoBanner />}
-          {warmGate && !demo && (
+          {warmGate && (
             <VersionBanner
               selfUpdateEnabled={selfUpdateEnabled}
               onStartUpdate={openConfirm}

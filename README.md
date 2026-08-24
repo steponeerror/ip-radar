@@ -12,10 +12,6 @@
 ![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
 ![React 19](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white)
 
-[![Live Demo](https://img.shields.io/badge/Live_Demo-ipradar.huxiao0207.dpdns.org-2ea44f?logo=cloudflare&logoColor=white)](https://ipradar.huxiao0207.dpdns.org/)
-
-**[在线演示 →](https://ipradar.huxiao0207.dpdns.org/)** —— 演示模式下数据源管理与更新已禁用，查询功能完整可用；自部署解锁全部能力。Live demo (read-only: sources & updates disabled; self-host for everything).
-
 ![恶意 IP 查询结果](assets/hero-malicious.png)
 
 ## 特性 | Features

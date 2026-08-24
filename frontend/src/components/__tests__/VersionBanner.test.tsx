@@ -6,7 +6,7 @@ import * as api from "../../api";
 
 const base: api.VersionInfo = {
   current: "v1.1.0", latest: "v1.2.0", update_available: true,
-  summary: "new features", release_url: "https://x", self_update_enabled: false, public_demo: false,
+  summary: "new features", release_url: "https://x", self_update_enabled: false,
 };
 
 // renderWithI18n 默认 en locale;沿用 WarmupBanner.test 的 importActual mock 风格
