@@ -178,8 +178,9 @@ def run_update() -> None:
         compose_host = os.path.join(host_repo, os.path.basename(compose_file))
         cmd = ["docker", "run", "-d", "--rm", "--name", f"{project}-updater",
                "-v", "/var/run/docker.sock:/var/run/docker.sock",
-               "-v", f"{host_repo}:{host_repo}", "-w", host_repo, image,
-               "docker", "compose", "-p", project, "-f", compose_host,
+               "-v", f"{host_repo}:{host_repo}", "-w", host_repo,
+               "--entrypoint", "docker",   # 镜像 entrypoint 无条件 exec uvicorn,CMD 会被忽略
+               image, "compose", "-p", project, "-f", compose_host,
                "up", "-d", "--build"]
         if service:
             cmd.append(service)
