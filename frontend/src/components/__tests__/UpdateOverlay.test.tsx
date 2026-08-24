@@ -17,7 +17,7 @@ vi.mock("../../api", async () => {
 
 const info = (current: string): api.VersionInfo => ({
   current, latest: "v1.2.0", update_available: true,
-  summary: null, release_url: "u", self_update_enabled: true,
+  summary: null, release_url: "u", self_update_enabled: true, public_demo: false,
 });
 
 describe("UpdateOverlay flow", () => {

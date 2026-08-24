@@ -17,7 +17,7 @@ import { getPublicDemo, subscribeTasks, getTasks } from "../../api";
 describe("TaskProvider in demo mode", () => {
   it("does not subscribe to SSE or fetch snapshot when demo", async () => {
     (getPublicDemo as any).mockResolvedValue(true);
-    render(<TaskProvider />);
+    render(<TaskProvider>{null}</TaskProvider>);
     await waitFor(() => expect(getPublicDemo).toHaveBeenCalled());
     // 给 Promise 微任务一轮落地
     await new Promise((r) => setTimeout(r, 0));
@@ -27,7 +27,7 @@ describe("TaskProvider in demo mode", () => {
 
   it("subscribes normally when not demo", async () => {
     (getPublicDemo as any).mockResolvedValue(false);
-    render(<TaskProvider />);
+    render(<TaskProvider>{null}</TaskProvider>);
     await waitFor(() => expect(subscribeTasks).toHaveBeenCalled());
     expect(getTasks).toHaveBeenCalled();
   });
