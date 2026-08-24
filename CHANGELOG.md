@@ -6,6 +6,10 @@
 
 ### 新增 Added
 
+- 公共 demo 模式（`IP_RADAR_PUBLIC_DEMO=1`）：写接口与内部接口返回 404，查询读接口要求 `x-ipradar-client: web` 头（STIX/OPTIONS/回环/version 豁免）；前端探测 `public_demo` 字段后隐藏数据源管理与更新入口，页顶常驻演示横幅指路 GitHub。自部署默认关闭，行为零变化
+  - Public demo mode (`IP_RADAR_PUBLIC_DEMO=1`): write/internal endpoints return 404, query endpoints require the `x-ipradar-client: web` header (STIX/OPTIONS/loopback/version exempt); the frontend probes `public_demo` and hides source-management/update affordances behind a persistent demo banner linking to GitHub. Off by default — self-hosted deployments unchanged
+- 版权与引用声明：仓库添加 AGPL-3.0 许可证标识与引用格式（`https://github.com/steponeerror/ip-radar`）
+  - License & citation notice: AGPL-3.0 identifiers and citation format added (`https://github.com/steponeerror/ip-radar`)
 - IPv6 查询支持：双族 LMDB 存储（v4 数据零迁移）、裸 v6 / 小段 v6 CIDR 查询、v6 bogon 判定（纯 stdlib）；spamhaus DROPv6、x4bnet、Cloudflare ips-v6 等兄弟源接入，geo/ASN（ipinfo 61% 行、GeoLite 35%、iptoasn 25%）v6 全量入库；STIX 导出产 `ipv6-addr` SCO；`/api/db-status` 新增 `covered_v6_nets` 键
   - IPv6 lookup support: dual-family LMDB storage (zero v4 migration), bare-v6 / small-CIDR queries, stdlib-driven v6 bogon detection; sibling feeds wired in (spamhaus DROPv6, x4bnet, Cloudflare ips-v6) with geo/ASN fully indexed for v6 (61% of ipinfo rows, 35% of GeoLite, 25% of iptoasn); STIX export emits `ipv6-addr` SCOs; `/api/db-status` gains a `covered_v6_nets` key
 - 页内版本通知：顶部横幅提示新版本（当前/最新版本号 + 变更摘要），复制更新命令、查看 Release Notes、手动检查更新；版本号由镜像内 `git describe` 自描述，最新版由后端代理查 GitHub Releases（1h 惰性缓存 + ETag，离线静默不弹）
