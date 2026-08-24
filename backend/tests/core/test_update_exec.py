@@ -80,17 +80,25 @@ def test_run_update_success_sequence(tmp_path):
         return sp.CompletedProcess(cmd, 0, stdout="", stderr="")
 
     labels = {"com.docker.compose.project": "ip-radar", "com.docker.compose.service": "ipradar"}
+    inspect = {"Config": {"Labels": labels, "Image": "ipradar:latest"},
+               "Mounts": [{"Source": "/opt/ip-radar", "Destination": "/repo"}]}
     with patch.object(_update, "STATE_PATH", tmp_path / "s.json"), \
          patch.object(_update, "_compose_labels", lambda: labels), \
+         patch.object(_update, "_self_inspect", lambda: inspect), \
          patch.object(_update.sp, "run", side_effect=fake_run), \
          patch.dict("os.environ", {"IP_RADAR_REPO_DIR": "/repo", "IP_RADAR_COMPOSE_FILE": "/repo/docker-compose.yml"}):
         _update.run_update()
     assert calls[0][:4] == ["git", "-c", "safe.directory=*", "-C"]  # B1: dubious ownership 豁免
     assert calls[0][4] == "/repo"
     assert "pull" in calls[0] and "--ff-only" in calls[0]
-    assert calls[1][:3] == ["docker", "compose", "-p"]
-    assert calls[1][3] == "ip-radar"
-    assert "ipradar" == calls[1][-1]  # service 定向,不起分身(F1)
+    # F6:compose 改由一次性 helper 容器执行(与旧容器生死解耦,修复自毁竞态)
+    assert calls[1][:3] == ["docker", "run", "-d"]
+    assert calls[1][3] == "--rm"
+    assert "ip-radar-updater" in calls[1]
+    inner = calls[1][calls[1].index("docker", 1):]   # helper 内层命令
+    assert inner[:3] == ["docker", "compose", "-p"] and inner[3] == "ip-radar"
+    assert "ipradar" == inner[-1]  # service 定向,不起分身(F1)
+    assert "/opt/ip-radar/docker-compose.yml" in calls[1]  # 宿主机路径重建 compose 文件位置
     assert _update.state()["state"] == "updating"  # 成功路径:进程将死,状态留 updating 由对账收尾
 
 

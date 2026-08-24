@@ -17,7 +17,6 @@ vi.mock("../../api", async () => {
     ...real,
     getDbStatus: vi.fn(),
     getTasks: vi.fn().mockResolvedValue({ tasks: [], batch: null }),
-    getPublicDemo: vi.fn().mockResolvedValue(false),
     subscribeTasks: vi.fn((onEvent: (e: any) => void) => {
       sse.onEvent = onEvent;
       return () => {};
@@ -45,8 +44,6 @@ describe("WarmupBanner", () => {
     (getDbStatus as any).mockResolvedValue({ warming_up: true, total_records: 0 });
     // 通过 SSE 注入 batch + downloading task
     render(<WarmupBanner />);
-    // 订阅经 getPublicDemo 微任务后建立,先等它落地再注入事件
-    await waitFor(() => expect(sse.onEvent).not.toBeNull());
     act(() => {
       sse.onEvent?.({ type: "snapshot", data: {
         tasks: [{ id: "t1", source: "firehol_level2", host: null,
@@ -85,8 +82,6 @@ describe("WarmupBanner", () => {
       warming_up: warming, total_records: 100,
     }));
     const { container } = render(<WarmupBanner />);
-    // 订阅经 getPublicDemo 微任务后建立,先等它落地再注入事件
-    await waitFor(() => expect(sse.onEvent).not.toBeNull());
     act(() => {
       sse.onEvent?.({ type: "batch", batch: { id: "b1", state: "running", done: 1, total: 2 }});
     });
