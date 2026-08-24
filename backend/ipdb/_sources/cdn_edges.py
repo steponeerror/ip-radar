@@ -7,9 +7,9 @@ collapsed into one `service="cdn"` asset stream; the provider identity rides
 `native_types` (-> AssetStatement.native_type), so a lookup of an edge IP
 surfaces `attributes["service"] = (cdn, "CloudFront")`.
 
-The tool is IPv4-only; v6 is excluded
-structurally (only each feed's v4 list is read) plus a v4-CIDR regex guard at
-this system boundary. download() fetches all three and writes a combined
+The tool is dual-family (spec 2026-08-23): AWS `ipv6_prefixes` and Fastly's
+`ipv6_addresses` are harvested; the Cloudflare v6 sibling feed (`ips-v6`)
+lands in PR2. download() fetches the feeds and writes a combined
 `cdn_edges.csv` (cidr,provider) intermediate; harvest() maps it to Evidence.
 """
 import json
@@ -57,13 +57,22 @@ class CdnEdgesSource(Source):
 
 
 def _parse(data: bytes, fmt: str):
-    """Yield v4 CIDR strings from one provider's raw bytes. v6 is rejected by
-    the v4-CIDR regex (and never read from the v6 lists)."""
+    """Yield CIDR strings from one provider's raw bytes (both families).
+
+    v4 走 _V4_CIDR_RE 正则(形态护栏),v6 以 ':' 判定并按 provider 各自的
+    v6 键读取(aws=ipv6_prefixes[service=CLOUDFRONT],fastly=ipv6_addresses;
+    fastly 的 addresses 对 v4 而言是纯 v4 列表,':' 放行仅 belt-and-braces);
+    Cloudflare v4-only 是 PR2。
+    """
     if fmt == "aws":
         d = json.loads(data)
-        for p in d.get("prefixes", []):           # v4 list; v6 lives in ipv6_prefixes
+        for p in d.get("prefixes", []):           # v4 list
             prefix = p.get("ip_prefix")
             if p.get("service") == "CLOUDFRONT" and _V4_CIDR_RE.match(prefix or ""):
+                yield prefix
+        for p in d.get("ipv6_prefixes", []):       # v6 sibling list
+            prefix = p.get("ipv6_prefix")
+            if p.get("service") == "CLOUDFRONT" and prefix and ":" in prefix:
                 yield prefix
     elif fmt == "cloudflare":
         for line in data.decode("ascii", errors="ignore").splitlines():
@@ -72,6 +81,9 @@ def _parse(data: bytes, fmt: str):
                 yield line
     elif fmt == "fastly":
         d = json.loads(data)
-        for a in d.get("addresses", []):          # v4 list; v6 lives in ipv6_addresses
-            if _V4_CIDR_RE.match(a or ""):
+        for a in d.get("addresses", []):          # v4 list; ':' 放行 = belt-and-braces
+            if a and (":" in a or _V4_CIDR_RE.match(a)):
+                yield a
+        for a in d.get("ipv6_addresses", []):     # v6 sibling list (实测 feed 形态)
+            if a and ":" in a:
                 yield a

@@ -134,15 +134,78 @@ class TestLookupResponseShape:
         assert ips == ["1.2.3.0", "1.2.3.1", "1.2.3.2", "1.2.3.3"]
 
     def test_stream_ipv6_counted_separately(self):
+        """v6 支持后语义反转:裸 v6 行正常产出,ipv6_unsupported 恒 0(Q4)。
+        原 /32 输入的 400 上限拒绝由 TestIPv6Routes.test_stream_huge_v6_cidr_400 覆盖。
+        2001:db8::1 是文档段(reserved)——reserved 是结果不是跳过,照常出 row。"""
         resp = self.client.post(
             "/api/query/stream",
-            json={"ips": ["2001:db8::/32", "8.8.8.8"]},
+            json={"ips": ["2001:db8::1", "8.8.8.8"]},
         )
         assert resp.status_code == 200
         events = [json.loads(l) for l in resp.iter_lines() if l.strip()]
+        rows = [e for e in events if e["type"] == "row"]
+        assert len(rows) == 2
         done = next(e for e in events if e["type"] == "done")
-        assert done["ipv6_unsupported"] == 1
-        assert done["invalid_lines"] == 0
+        assert done["ipv6_unsupported"] == 0
+
+
+class TestIPv6Routes:
+    """v6 e2e:裸 v6 点查/CIDR 展开/400 上限/reserved stix(spec §4.4、Q4/Q5)。
+
+    响应形状断言按 to_dict() 实际 schema 固化:country 是 MergedField dict
+    (value/confidence/algorithm/sources),不是 geo.country_code;row 的
+    result.ip 是压缩规范形 str(IPv6Address)(T9 ruling)。"""
+
+    @pytest.fixture(autouse=True)
+    def _db(self, tiny_db_v6):
+        import main
+        self.client = TestClient(main.app)
+
+    def test_single_v6_lookup_200(self):
+        resp = self.client.get("/api/lookup/2a00:1450:4001::42")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["ip"] == "2a00:1450:4001::42"   # Q5 压缩规范形
+        assert body["country"]["value"] == "DE"
+        assert body["threat"]["verdict"] == "benign"
+        assert body["is_reserved"] is False
+
+    def test_stream_bare_v6_flows(self):
+        resp = self.client.post("/api/query/stream",
+                                json={"ips": ["2a00:1450:4001::5", "8.8.8.8"]})
+        assert resp.status_code == 200
+        events = [json.loads(l) for l in resp.iter_lines() if l.strip()]
+        rows = sorted((e for e in events if e["type"] == "row"),
+                      key=lambda r: r["idx"])   # row 按完成序发,按 idx 复原
+        assert len(rows) == 2
+        assert rows[0]["result"]["ip"] == "2a00:1450:4001::5"
+        assert rows[0]["result"]["country"]["value"] == "DE"
+        assert rows[1]["result"]["country"]["value"] == "US"
+        done = events[-1]
+        assert done["ipv6_unsupported"] == 0                    # Q4 恒 0
+
+    def test_stream_v6_cidr_expands(self):
+        resp = self.client.post("/api/query/stream",
+                                json={"ips": ["2a00:1450:4001::/120"]})  # 256 地址
+        assert resp.status_code == 200
+        events = [json.loads(l) for l in resp.iter_lines() if l.strip()]
+        rows = [e for e in events if e["type"] == "row"]
+        assert len(rows) == 256
+        assert rows[0]["idx"] == 0 and rows[255]["idx"] == 255
+        assert rows[0]["result"]["ip"] == "2a00:1450:4001::"    # T9: 压缩规范形
+        assert rows[255]["result"]["ip"] == "2a00:1450:4001::ff"
+        assert rows[0]["result"]["country"]["value"] == "DE"   # 段内全覆盖
+
+    def test_stream_huge_v6_cidr_400(self):
+        resp = self.client.post("/api/query/stream",
+                                json={"ips": ["2a00:1450:4001::/64"]})
+        assert resp.status_code == 400
+        assert "500,000" in resp.json()["detail"]               # 上限拒绝,非其他 400
+
+    def test_v6_reserved_stix_400(self):
+        resp = self.client.get("/api/lookup/::1/stix")
+        assert resp.status_code == 400
+        assert "reserved" in resp.json()["detail"].lower()
 
 
 def test_perf_layout_route():

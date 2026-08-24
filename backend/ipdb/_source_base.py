@@ -55,6 +55,13 @@ class Source:
         self._count = 0
         self._covered_ips = 0
         self._loaded_at = 0.0
+        # v6 并行族(spec §3.2):base/ptr/reader/disjoint 全套独立 sidecar
+        self._lmdb6_base = data_dir / f"{self.filename}.v6.lmdb"
+        self._mmdb6_path = _ptr_path(self._lmdb6_base)
+        self._reader6 = None
+        self._disjoint6 = False
+        self._count6 = 0
+        self._covered_v6_nets = 0
 
     # ── hooks ──
     def download(self, token=None) -> None:
@@ -91,6 +98,7 @@ class Source:
         if epoch is None:
             self._reader = None
             self._disjoint = False
+            self._load_v6_side()                  # v6 状态照常解析(v4 缺 ≠ v6 缺)
             return 0
         self._disjoint = read_disjoint_flag(self._lmdb_base, epoch)
         self._reader = open_env_read(
@@ -99,23 +107,46 @@ class Source:
         self._count = int(cp.read_text().strip()) if cp.exists() else 0
         # cov 只读,缺失则 0,不触发 harvest(rebuild 负责)
         self._covered_ips = int(vp.read_text().strip()) if vp.exists() else 0
+        self._load_v6_side()
         self._loaded_at = time.time()
         return self._count
 
+    def _load_v6_side(self) -> None:
+        """v6 族 sidecar 解析(additive):ptr 缺失 = 无 v6 数据,不是错误。
+        早退/正常两条 v4 路径共用;旧数据目录(无 v6 sidecar)静默零态。"""
+        from ._sources._lmdb import (
+            read_ptr, open_env_read, cleanup_stale, count_path, cov_path,
+            read_disjoint_flag)
+        cleanup_stale(self._lmdb6_base)
+        e6 = read_ptr(self._lmdb6_base)
+        if e6 is None:
+            self._reader6 = None
+            self._disjoint6 = False
+            self._count6 = 0
+            self._covered_v6_nets = 0
+        else:
+            self._disjoint6 = read_disjoint_flag(self._lmdb6_base, e6)
+            self._reader6 = open_env_read(
+                self._lmdb6_base.parent / f"{self._lmdb6_base.name}.{e6}")
+            cp6, vp6 = count_path(self._lmdb6_base), cov_path(self._lmdb6_base)
+            self._count6 = int(cp6.read_text().strip()) if cp6.exists() else 0
+            self._covered_v6_nets = (
+                int(vp6.read_text().strip()) if vp6.exists() else 0)
+
     def rebuild(self, progress=None) -> int:
         """重建 LMDB(唯一入口,经 manager 队列调用)。新 epoch + ptr swap。"""
-        from ._sources._lmdb import covered_ip_count, rebuild_lmdb
+        from ._sources._lmdb import covered_ip_count, rebuild_dual_family
         if not self._path.exists():
             return 0
         old_reader = self._reader
+        old_reader6 = self._reader6
         if self.single_evidence:
-            def _records():
+            # factory 零参 callable,每次调用返回新迭代器(rebuild_dual_family
+            # 会调用两次;严禁传裸生成器对象)。harvest 重复解析是既有模式
+            # (CPU 换内存,OOM 纪律见旧注释),cov4/cov6 各再调一次共 4 次。
+            def factory():
                 for cidr, ev in self.harvest():
                     yield cidr, [self.normalize(ev).to_dict()]
-            records = _records()
-            # 生成器而非 list:covered_ip_count 是 O(1) 内存流式求和,
-            # 物化 3M CIDR 字符串(~250MB)曾把 ip2proxy 峰值 RSS 推到 686MB
-            covered_cidrs = (c for c, _ in self.harvest())
         else:
             acc: dict[str, list[dict]] = {}
             for cidr, ev in self.harvest():
@@ -124,26 +155,35 @@ class Source:
                 bucket = acc.setdefault(cidr, [])
                 if d not in bucket:
                     bucket.append(d)
-            records = acc.items()
-            covered_cidrs = acc.keys()   # dict view,无拷贝
+            factory = lambda: iter(acc.items())   # 已物化;统一 callable 形态
         try:
-            cov = covered_ip_count(covered_cidrs)
-            n = rebuild_lmdb(records, self._lmdb_base,
-                             reader_setter=lambda e: setattr(self, "_reader", e),
-                             flag_setter=lambda v: setattr(self, "_disjoint", v),
-                             covered=cov, progress=progress)
-            self._count = n
-            self._covered_ips = cov
+            cov4 = covered_ip_count(c for c, _ in factory() if ":" not in c)
+            cov6 = covered_ip_count(
+                (c for c, _ in factory() if ":" in c), ip_version=6)
+            n4, n6 = rebuild_dual_family(
+                factory, self._lmdb_base, self._lmdb6_base,
+                reader_setter4=lambda e: setattr(self, "_reader", e),
+                reader_setter6=lambda e: setattr(self, "_reader6", e),
+                flag_setter4=lambda v: setattr(self, "_disjoint", v),
+                flag_setter6=lambda v: setattr(self, "_disjoint6", v),
+                covered4=cov4, covered6=cov6, progress=progress)
+            self._count = n4
+            self._count6 = n6
+            self._covered_ips = cov4
+            self._covered_v6_nets = cov6
             self._loaded_at = time.time()
-            return n
+            return n4
         finally:
-            if old_reader is not None:
-                try:
-                    old_reader.close()
-                except Exception:
-                    pass          # lmdb env 二次 close/已失效:容忍
+            for old in (old_reader, old_reader6):
+                if old is not None:
+                    try:
+                        old.close()
+                    except Exception:
+                        pass      # lmdb env 二次 close/已失效:容忍
 
     def query(self, ip: str) -> Any:
+        if ":" in ip:                      # v6 查询走并行族 reader(spec §3.2)
+            return self._query6(ip)
         if self._reader is None:
             return {}
         import lmdb as _lmdb
@@ -162,6 +202,31 @@ class Source:
                 return {}
             self._disjoint = read_disjoint_flag(self._lmdb_base, epoch)
             result = lookup(self._reader, ip_int, disjoint=self._disjoint)
+        return result if result is not None else {}
+
+    def _query6(self, ip: str) -> Any:
+        """v6 版 query():与 v4 同构(ptr 重开重试),独立族状态。
+        无 v6 env(源无 v6 数据/旧目录)安静返回 {}——与该源不存在同体验。"""
+        if self._reader6 is None:
+            return {}
+        import lmdb as _lmdb
+        from ._sources._lmdb import (
+            ip_to_int6, lookup, read_ptr, open_env_read, read_disjoint_flag)
+        ip_int = ip_to_int6(ip)
+        try:
+            result = lookup(self._reader6, ip_int, disjoint=self._disjoint6,
+                            ip_version=6)
+        except (_lmdb.Error, OSError):
+            # 撞上刚 close 的旧 env:读 ptr 重开重试一次(与 v4 同模式)
+            epoch = read_ptr(self._lmdb6_base)
+            self._reader6 = (open_env_read(
+                self._lmdb6_base.parent / f"{self._lmdb6_base.name}.{epoch}")
+                if epoch is not None else None)
+            if self._reader6 is None:
+                return {}
+            self._disjoint6 = read_disjoint_flag(self._lmdb6_base, epoch)
+            result = lookup(self._reader6, ip_int, disjoint=self._disjoint6,
+                            ip_version=6)
         return result if result is not None else {}
 
     def health(self) -> SourceHealth:

@@ -45,3 +45,60 @@ def test_read_ptr_returns_none_on_read_race(monkeypatch, tmp_path):
 
     monkeypatch.setattr(Path, "read_text", _raise_fnoe)
     assert read_ptr(tmp_path / "race.lmdb") is None
+
+
+class TestV6FastpathEquivalence:
+    """v4 fastpath 五情形平移到 16 字节 key:证明 lookup() 零改动覆盖 v6。
+
+    lookup 的 v6 调用契约(自 Task 1 fix 后):显式传 ip_version=6,
+    大整数不传会 OverflowError、小整数会误路由 4 字节 key(F1)。"""
+
+    def _build(self, tmp_path):
+        from ipdb._sources._lmdb import rebuild_lmdb
+        envs = []
+        # 嵌套区间: /32 包 /48(检测 disjoint=False 回退) + 前后独立段
+        rebuild_lmdb([
+            ("2001:db8::/32", [{"v": "parent"}]),
+            ("2001:db8:1::/48", [{"v": "nested"}]),     # 嵌套 → disjoint=False
+            ("2600:1f18::/32", [{"v": "aws"}]),
+            ("2a00:1450:4001::/48", [{"v": "ggl"}]),
+        ], tmp_path / "f.v6.lmdb", envs.append, ip_version=6)
+        return envs[0]
+
+    def test_exact_start_hit(self, tmp_path):
+        from ipdb._sources._lmdb import lookup, ip_to_int6
+        env = self._build(tmp_path)
+        assert lookup(env, ip_to_int6("2001:db8::"), ip_version=6)[0]["v"] == "parent"
+        env.close()
+
+    def test_interior_falls_back_to_prev(self, tmp_path):
+        from ipdb._sources._lmdb import lookup, ip_to_int6
+        env = self._build(tmp_path)
+        # 非精确起点: greatest start ≤ ip 回退
+        assert lookup(env, ip_to_int6("2001:db8::beef"), disjoint=False,
+                      ip_version=6)[0]["v"] == "parent"
+        env.close()
+
+    def test_ip_below_all_ranges_misses(self, tmp_path):
+        from ipdb._sources._lmdb import lookup, ip_to_int6
+        env = self._build(tmp_path)
+        assert lookup(env, ip_to_int6("2001:db7::1"), disjoint=False,
+                      ip_version=6) is None
+        env.close()
+
+    def test_ip_inside_last_range(self, tmp_path):
+        """bench bug 平移:最后一个区间内无 key ≥ ip,必须 prev。"""
+        from ipdb._sources._lmdb import lookup, ip_to_int6
+        env = self._build(tmp_path)
+        assert lookup(env, ip_to_int6("2a00:1450:4001:dead::1"), disjoint=False,
+                      ip_version=6)[0]["v"] == "ggl"
+        env.close()
+
+    def test_nested_backscan_finds_parent(self, tmp_path):
+        """嵌套数据 disjoint=False:回退 backscan 找到覆盖父段。"""
+        from ipdb._sources._lmdb import lookup, ip_to_int6
+        env = self._build(tmp_path)
+        # 2001:db8:2:: 在 /48(nested) 之后、不在 /48 内 → backscan 到 parent
+        assert lookup(env, ip_to_int6("2001:db8:2::1"), disjoint=False,
+                      ip_version=6)[0]["v"] == "parent"
+        env.close()

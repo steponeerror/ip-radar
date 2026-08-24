@@ -81,14 +81,14 @@ class DataplaneSource(Source):
                 asn_raw, as_name, ip, last_seen, category = (
                     parts[0], parts[1], parts[2], parts[3], parts[4])
                 try:
-                    ipaddress.IPv4Address(ip)
+                    ipaddress.ip_address(ip)
                 except ValueError:
                     continue
                 try:
                     asn = int(asn_raw)
                 except ValueError:
                     asn = None
-                yield f"{ip}/32", Evidence(
+                yield f"{ip}/{128 if ':' in ip else 32}", Evidence(
                     classification_type=normalize(category, DATAPLANE_MAP),
                     verdict=self.verdict,
                     first_seen=last_seen,

@@ -31,6 +31,7 @@ def test_cn_isp_specific_isp_wins_over_other(tmp_path: Path):
 
     # rebuild→load roundtrip: fresh instance must serve identical answers
     s._reader.close()   # LMDB 同进程禁止双开同一 epoch 目录
+    s._reader6.close()  # v6 族同约定(T6):重建打开的 reader6 也要关
     s2 = ChineseISPSource(data_dir=tmp_path)
     assert s2.load() == 1
     assert s2.query("1.0.0.5") == rec

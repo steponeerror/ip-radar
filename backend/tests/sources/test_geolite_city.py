@@ -16,7 +16,7 @@ def src(tmp_path):
 
 
 def test_rebuild_counts_distinct_cidrs(src):
-    # 3 个有信号 IPv4 网络；空记录与 IPv6 不入计数（Source 子类语义 = distinct CIDR 键数）
+    # 3 个有信号 IPv4 网络；空记录不入计数;IPv6 网络采入 v6 族(rebuild() 返回 n4)
     assert src.rebuild() == 3
     assert src.health().record_count == 3
 

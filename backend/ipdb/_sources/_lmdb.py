@@ -10,6 +10,9 @@ never Path.with_suffix: it would eat the ``.lmdb`` segment):
     <base>.disjoint        epoch-bound disjoint flag (<epoch> <0|1>)
 
 key = start_ip 4-byte big-endian; value = JSON [end_ip_int, evidence].
+v6 sidecar env (rebuild_lmdb(ip_version=6)): key = 16-byte big-endian;
+ends >2⁶⁴−1 are stored as JSON strings (orjson int ceiling), and
+lookup() requires the explicit ip_version=6 argument.
 
 Invariant (same-start collision): two CIDRs sharing the same start with
 different lengths (e.g. 1.0.0.0/24 vs 1.0.0.0/16) collide on the same key;
@@ -50,11 +53,28 @@ def ip_to_int(ip: str) -> int:
     return int(ipaddress.IPv4Address(ip))
 
 
+@functools.lru_cache(maxsize=4096)
+def ip_to_int6(ip: str) -> int:
+    """Query-path shared parse for IPv6 (mirror of ip_to_int)."""
+    return int(ipaddress.IPv6Address(ip))
+
+
 def encode_key(start_int: int) -> bytes:
     return start_int.to_bytes(4, "big")
 
 
+def encode_key6(start_int: int) -> bytes:
+    return start_int.to_bytes(16, "big")
+
+
+_JSON_INT_MAX = 2**64 - 1   # orjson 整数上限:v6 区间端点(128-bit)超限需字符串编码
+
+
 def encode_value(end_int: int, evidence: Any) -> bytes:
+    # orjson 拒绝 >64-bit 整数:v6 端点以字符串落盘,_end_int/decode_value
+    # 对带引号形式透明兼容;v4 数值形式字节不变(位元一致)
+    if end_int > _JSON_INT_MAX:
+        end_int = str(end_int)
     return orjson.dumps([end_int, evidence])
 
 
@@ -65,12 +85,17 @@ def decode_value(raw: bytes) -> tuple[int, Any]:
 
 def _end_int(raw: bytes) -> int:
     """Backscan 快路径:value 布局固定为 ``[end, evidence]`` 且 end 是无符号
-    整数,首个 ``,`` 前的数字即 end — 免去每步 JSON 解码(嵌套回退时一步
-    一解码曾把 miss p50 从 ~3µs 拖到 ~40µs)。"""
-    return int(raw[1:raw.index(b",")])
+    整数或其字符串形式(>64-bit 的 v6 端点),首个 ``,`` 前的内容即 end —
+    免去每步 JSON 解码(嵌套回退时一步步解码曾把 miss p50 从 ~3µs 拖到
+    ~40µs)。"""
+    s = raw[1:raw.index(b",")]
+    if s[:1] == b'"':
+        s = s[1:-1]
+    return int(s)
 
 
-def lookup(env, ip_int: int, *, disjoint: bool = False) -> Any:
+def lookup(env, ip_int: int, *, disjoint: bool = False,
+          ip_version: int = 4) -> Any:
     """Per-query read txn (LMDB read txns are not thread-safe to share).
 
     Three paths unified: exact start hit, fallback to greatest start ≤ ip,
@@ -82,7 +107,9 @@ def lookup(env, ip_int: int, *, disjoint: bool = False) -> Any:
     epoch 绑定背书)时首候选不覆盖即真 miss:排序不相交区间,更早的区间
     end < start_候选 ≤ ip,不可能覆盖(等价性见 tests/core/test_lmdb_fastpath.py)。
     """
-    key = encode_key(ip_int)
+    # 族必须显式声明:小 v6 整数(::,::1,::2)数值上落在 v4 范围,按数值
+    # 分派会错编 4 字节 key(16 字节 key 环境下排序错乱→假命中/假漏,F1)
+    key = (encode_key6 if ip_version == 6 else encode_key)(ip_int)
     with env.begin() as txn:
         cur = txn.cursor()
         found = cur.set_range(key)
@@ -273,7 +300,8 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
                  count: int | None = None, covered: int | None = None,
                  map_size: int | None = None,
                  flag_setter: Callable[[bool], None] | None = None,
-                 progress: Callable[[int, int], None] | None = None) -> int:
+                 progress: Callable[[int, int], None] | None = None,
+                 ip_version: int = 4) -> int:
     """Stream-build a fresh epoch env, then atomically swap via ptr.
 
     Commit order (crash invariant): rename closed env dir → sidecars (staged
@@ -290,8 +318,12 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
     可知,生成器为 0);已知 total 时循环前首发 (0, total) 保证前端 0.5 无缝
     衔接,此后每 BATCH_SIZE flush 后一次、循环结束终值一次。回调异常不加
     保护(与下载路径同剖面)。
+
+    ip_version=6 时 CIDR 按 IPv6Network 解析、key 用 16 字节大端编码（v6 sidecar 专用）。
     """
     import shutil
+    if ip_version not in (4, 6):
+        raise ValueError(f"ip_version must be 4 or 6, got {ip_version!r}")
     epoch = next_epoch(base)
     target = env_dir(base, epoch)
     staging = base.parent / f"{target.name}.new.{os.getpid()}"
@@ -320,12 +352,15 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
                 env.set_mapsize(env.info()["map_size"] * 2)
                 # retry same batch after growth
 
+    net_cls = (ipaddress.IPv6Network if ip_version == 6
+               else ipaddress.IPv4Network)
+    key_enc = encode_key6 if ip_version == 6 else encode_key
     for cidr, evidence in records:
         try:
-            net = ipaddress.IPv4Network(cidr, strict=False)
+            net = net_cls(cidr, strict=False)
         except (ipaddress.AddressValueError, ValueError):
             continue
-        batch.append((encode_key(int(net.network_address)),
+        batch.append((key_enc(int(net.network_address)),
                       encode_value(int(net.broadcast_address), evidence)))
         n += 1
         if len(batch) >= BATCH_SIZE:
@@ -374,6 +409,41 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
                 if head.isdigit() and int(head) < epoch:
                     shutil.rmtree(child, ignore_errors=True)
     return n
+
+
+def rebuild_dual_family(records, v4_base: Path, v6_base: Path, *,
+                        reader_setter4: Callable, reader_setter6: Callable,
+                        flag_setter4: Callable[[bool], None] | None = None,
+                        flag_setter6: Callable[[bool], None] | None = None,
+                        covered4: int | None = None,
+                        covered6: int | None = None,
+                        count4: int | None = None,
+                        count6: int | None = None,
+                        progress: Callable[[int, int], None] | None = None
+                        ) -> tuple[int, int]:
+    """One records source → both family envs (spec §3).
+
+    records: list[(cidr, evidence)] 或零参 callable 返回 iterable(流式源用,
+    callable 形式会被调用两次、各自按族过滤——partition 不物化,OOM 安全)。
+    分区规则: cidr 字符串含 ':' → v6(str(IPv4Network) 不可能含 ':')。
+    v6 env 总是被建(空则空 env): Q3 不变量——v6 ptr 存在 ⇒ v6-aware 代码
+    已重建过此源。progress 只挂 v4 pass(UI 进度语义跟主数据面)。
+    count4/count6: 各族 .count sidecar 覆盖——CsvSource 的 count 语义是
+    证据数而非 CIDR 数(rebuild_lmdb 默认取 n),透传保语义不变。
+    """
+    if callable(records):
+        rec4 = ((c, e) for c, e in records() if ":" not in c)
+        rec6 = ((c, e) for c, e in records() if ":" in c)
+    else:
+        rec4 = [(c, e) for c, e in records if ":" not in c]
+        rec6 = [(c, e) for c, e in records if ":" in c]
+    n4 = rebuild_lmdb(rec4, v4_base, reader_setter4,
+                      count=count4, covered=covered4, flag_setter=flag_setter4,
+                      progress=progress)
+    n6 = rebuild_lmdb(rec6, v6_base, reader_setter6,
+                      count=count6, covered=covered6, flag_setter=flag_setter6,
+                      ip_version=6)
+    return n4, n6
 
 
 def covered_ip_count(cidr_strs, *, ip_version: int = 4) -> int:

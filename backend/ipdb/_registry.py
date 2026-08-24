@@ -258,26 +258,16 @@ def stale_source_names() -> list[str]:
 
 
 def sources_needing_rebuild() -> list[str]:
-    """Enabled offline sources whose MMDB is missing or older than raw data.
+    """Enabled offline sources whose MMDB is missing or older than raw data,
+    or whose v6 ptr sidecar is missing (warm-restart upgrade ignition, spec §8).
 
     Distinct from stale_source_names (which is download-freshness based):
-    this keys off needs_convert, so a freshly-downloaded file whose MMDB
-    has not been rebuilt yet is flagged here.
-    """
-    from ._sources._lmdb import needs_convert
-    out = []
-    for s in _enabled_sources():
-        if _archetype(s) != "offline":
-            continue
-        raw_path = getattr(s, "_path", None)
-        mmdb_path = getattr(s, "_mmdb_path", None)
-        if raw_path is None or mmdb_path is None:
-            continue
-        raw = Path(raw_path)
-        mmdb = Path(mmdb_path)
-        if raw.exists() and needs_convert(raw, mmdb):
-            out.append(s.name)
-    return out
+    this keys off needs_convert via _needs_rebuild_of (shared with the
+    scheduler), so a freshly-downloaded file whose MMDB has not been rebuilt
+    yet — or a v6-aware-code rebuild that never ran on this data dir — is
+    flagged here."""
+    return [s.name for s in _enabled_sources()
+            if _archetype(s) == "offline" and _needs_rebuild_of(s)]
 
 
 def enabled_offline_sources() -> list:
@@ -291,7 +281,8 @@ def enabled_offline_sources() -> list:
 
 
 def _needs_rebuild_of(source) -> bool:
-    """Per-source: True if the MMDB is missing or older than the raw file.
+    """Per-source: True if the MMDB (or its v6 ptr sidecar) is missing or
+    older than the raw file.
 
     Single-source form of sources_needing_rebuild, using the same
     needs_convert check. Returns False for sources lacking _path/_mmdb_path
@@ -305,6 +296,12 @@ def _needs_rebuild_of(source) -> bool:
     mmdb = Path(mmdb_path)
     if not raw.exists():
         return False
+    v6_ptr = getattr(source, "_mmdb6_path", None)
+    if v6_ptr is not None:
+        # Q3(spec §8): v6 ptr 缺失 ⇒ v6-aware 代码从未重建过此源 → 触发。
+        # rebuild 必写 v6 ptr(空数据=空 env),故不会对 C 类源反复触发。
+        if needs_convert(raw, Path(v6_ptr)):
+            return True
     return needs_convert(raw, mmdb)
 
 
@@ -349,10 +346,16 @@ def lookup(ip: str) -> LookupResult:
     if not _db_loaded():
         raise RuntimeError("Database not loaded")
     try:
-        addr = ipaddress.IPv4Address(ip)
+        addr = ipaddress.ip_address(ip)
     except (ipaddress.AddressValueError, ValueError):
         return _error_result(ip)
-    if is_reserved_addr(addr):
+    if addr.version == 6:
+        # v6 bogon 纯 stdlib(spec Q6):IANA 特殊用途表驱动,与 v4 同构。
+        # quirk(spec A4):v4-mapped(::ffff:x)is_global=True→当公网 v6 查,
+        # 各源 miss 显示 clean;6to4(2002::/16)is_global=False→reserved。
+        if not addr.is_global or addr.is_multicast:
+            return _reserved_result(ip)
+    elif is_reserved_addr(addr):
         return _reserved_result(ip)
 
     # Collect scalar fields + evidence observations from all sources.

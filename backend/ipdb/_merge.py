@@ -8,10 +8,11 @@ from functools import lru_cache
 
 
 @lru_cache(maxsize=200_000)
-def _parse_net(cidr: str) -> ipaddress.IPv4Network:
-    """Cached IPv4Network parse. Range strings (e.g. '10.0.0.0/24') repeat
-    heavily across queries, so parse each distinct string once."""
-    return ipaddress.IPv4Network(cidr, strict=False)
+def _parse_net(cidr: str) -> ipaddress.IPv4Network | ipaddress.IPv6Network:
+    """Cached version-aware network parse. Range strings (e.g. '10.0.0.0/24',
+    '2001:db8::/32') repeat heavily across queries, so parse each distinct
+    string once. Family is carried by the returned network object."""
+    return ipaddress.ip_network(cidr, strict=False)
 
 from ._types import (
     SourceAttribution, MergedField, LookupResult,
@@ -199,7 +200,13 @@ class NamingAuthority:
 
 
 class RangeSpecificity:
-    """Specificity model for CIDR ranges."""
+    """Specificity model for CIDR ranges (both address families).
+
+    Cross-family attributions are dropped: ``ip_addr not in net`` is True
+    for a v4 network vs v6 address (stdlib ``in`` returns False, never
+    raises), so only same-family candidates reach the prefixlen max —
+    prefixlen stays comparable because survivors share the query's family.
+    """
 
     def __init__(self):
         self.field = "ip_range"
@@ -212,11 +219,13 @@ class RangeSpecificity:
         ip_addr = context.get("addr")
         if ip_addr is None and context.get("ip"):
             try:
-                ip_addr = ipaddress.IPv4Address(context["ip"])
+                ip_addr = ipaddress.ip_address(context["ip"])
             except (ipaddress.AddressValueError, ValueError):
                 ip_addr = None
 
-        valid: list[tuple[ipaddress.IPv4Network, SourceAttribution]] = []
+        valid: list[tuple[
+            ipaddress.IPv4Network | ipaddress.IPv6Network,
+            SourceAttribution]] = []
         for a in attributions:
             if not a.value or a.value == "N/A":
                 continue

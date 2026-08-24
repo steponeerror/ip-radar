@@ -22,3 +22,130 @@ def test_codec_stdlib_written_value_still_decodes():
 
 def test_end_int_prefix_parses_orjson_bytes():
     assert _end_int(encode_value(134744075, {"x": 1})) == 134744075
+
+
+def test_encode_value_v6_end_string_roundtrip():
+    """>64-bit 端点以字符串落盘(orjson 拒绝超限整数);三层读路径兼容。"""
+    import orjson
+    end = 0x20010db8ffffffffffffffffffffffff
+    raw = encode_value(end, {"k": 1})
+    assert _end_int(raw) == end
+    d, ev = decode_value(raw)
+    assert d == end and ev == {"k": 1}
+    # v4 数值形式字节不变(位元一致)
+    assert encode_value(134744075, {}) == orjson.dumps([134744075, {}])
+
+
+def test_ip_to_int6_roundtrip():
+    from ipdb._sources._lmdb import ip_to_int6
+    assert ip_to_int6("::") == 0
+    assert ip_to_int6("2001:db8::1") == 0x20010db8000000000000000000000001
+
+def test_ip_to_int6_invalid_raises():
+    import pytest
+    from ipdb._sources._lmdb import ip_to_int6
+    with pytest.raises(ValueError):
+        ip_to_int6("8.8.8.8")          # v4 串必须拒绝,防族混用
+
+def test_encode_key6_width():
+    from ipdb._sources._lmdb import encode_key6
+    assert len(encode_key6(1)) == 16
+    assert encode_key6(0x20010db8000000000000000000000000) == bytes.fromhex(
+        "20010db8000000000000000000000000")
+
+def test_rebuild_lmdb_v6_roundtrip(tmp_path):
+    import lmdb
+    from ipdb._sources._lmdb import rebuild_lmdb, lookup, ip_to_int6
+    envs = []
+    n = rebuild_lmdb(
+        [("2001:db8::/32", [{"classification_type": "scanner"}]),
+         ("2001:db9::/48", [{"classification_type": "scanner"}])],
+        tmp_path / "t.v6.lmdb", envs.append, ip_version=6)
+    assert n == 2
+    env = envs[0]
+    # 段内命中
+    assert lookup(env, ip_to_int6("2001:db8::1234"), disjoint=True, ip_version=6) is not None
+    # 非精确起点命中(回退 prev)
+    assert lookup(env, ip_to_int6("2001:db8::ffff"), disjoint=False, ip_version=6) is not None
+    # miss
+    assert lookup(env, ip_to_int6("2600::1"), disjoint=True, ip_version=6) is None
+    env.close()
+
+def test_lookup_small_v6_int_dispatch(tmp_path):
+    """F1 回归:小 v6 整数(::,::1,::2)不得走 4 字节 key(曾致假命中/假漏)。"""
+    from ipdb._sources._lmdb import rebuild_lmdb, lookup, ip_to_int6
+    envs = []
+    rebuild_lmdb([("::/128", [{"classification_type": "bogon"}]),
+                  ("::5/128", [{"classification_type": "scanner"}])],
+                 tmp_path / "f.v6.lmdb", envs.append, ip_version=6)
+    env = envs[0]
+    assert lookup(env, ip_to_int6("::2"), disjoint=True, ip_version=6) is None
+    assert lookup(env, ip_to_int6("::2"), disjoint=False, ip_version=6) is None
+    assert lookup(env, ip_to_int6("::"), disjoint=True, ip_version=6) is not None
+    env.close()
+
+def test_rebuild_lmdb_v4_rejects_bad_ip_version(tmp_path):
+    """F3:rebuild_lmdb 拒绝未知 ip_version(不静默建 v4 env)。"""
+    import pytest
+    from ipdb._sources._lmdb import rebuild_lmdb
+    with pytest.raises(ValueError):
+        rebuild_lmdb([], tmp_path / "bad.lmdb", lambda e: None, ip_version=5)
+
+def test_rebuild_lmdb_v6_empty_writes_ptr(tmp_path):
+    from ipdb._sources._lmdb import rebuild_lmdb, read_ptr
+    envs = []
+    n = rebuild_lmdb([], tmp_path / "e.v6.lmdb", envs.append, ip_version=6)
+    assert n == 0
+    assert read_ptr(tmp_path / "e.v6.lmdb") is not None   # Q3 不变量:空也写 ptr
+    envs[0].close()
+
+def test_rebuild_lmdb_v4_rejects_v6_cidr_unchanged(tmp_path):
+    """v4 路径对 v6 CIDR 的静默跳过是既有行为,本任务不改。"""
+    from ipdb._sources._lmdb import rebuild_lmdb
+    envs = []
+    n = rebuild_lmdb([("2001:db8::/32", [{}]), ("10.0.0.0/24", [{}])],
+                     tmp_path / "t.lmdb", envs.append)
+    assert n == 1
+    envs[0].close()
+
+def test_rebuild_dual_family_list_form(tmp_path):
+    from ipdb._sources._lmdb import rebuild_dual_family, lookup, ip_to_int
+    envs = []
+    n4, n6 = rebuild_dual_family(
+        [("10.0.0.0/24", [{"v": 4}]), ("2001:db8::/32", [{"v": 6}])],
+        tmp_path / "a.lmdb", tmp_path / "a.v6.lmdb",
+        reader_setter4=envs.append, reader_setter6=envs.append,
+        covered4=256, covered6=1)
+    assert (n4, n6) == (1, 1)
+    v4env, v6env = envs
+    assert lookup(v4env, ip_to_int("10.0.0.5")) is not None
+    v4env.close(); v6env.close()
+    # v6 侧在 v6env 里(换个方式验:count sidecar)
+    assert (tmp_path / "a.v6.lmdb.count").read_text() == "1"
+    assert (tmp_path / "a.v6.lmdb.cov").read_text() == "1"
+
+def test_rebuild_dual_family_factory_form_streams(tmp_path):
+    """callable 形式:两次独立遍历,不物化(流式源用)。"""
+    from ipdb._sources._lmdb import rebuild_dual_family
+    envs = []
+    made = []
+    def factory():
+        made.append(1)
+        return iter([("192.0.2.0/24", [{}]), ("2001:db8::/64", [{}])])
+    n4, n6 = rebuild_dual_family(
+        factory, tmp_path / "b.lmdb", tmp_path / "b.v6.lmdb",
+        reader_setter4=envs.append, reader_setter6=envs.append)
+    assert (n4, n6) == (1, 1)
+    assert len(made) == 2          # 调了两次,各自过滤
+    for e in envs: e.close()
+
+def test_rebuild_dual_family_empty_v6_writes_ptr(tmp_path):
+    from ipdb._sources._lmdb import rebuild_dual_family, read_ptr
+    envs = []
+    n4, n6 = rebuild_dual_family(
+        [("10.0.0.0/24", [{}])],
+        tmp_path / "c.lmdb", tmp_path / "c.v6.lmdb",
+        reader_setter4=envs.append, reader_setter6=envs.append)
+    assert (n4, n6) == (1, 0)
+    assert read_ptr(tmp_path / "c.v6.lmdb") is not None   # Q3 不变量
+    for e in envs: e.close()

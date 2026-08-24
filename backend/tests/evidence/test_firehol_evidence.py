@@ -52,6 +52,7 @@ def test_firehol_rebuild_then_load_roundtrip(tmp_path: Path):
     n = s.rebuild()
     assert n >= 2
     s._reader.close()   # LMDB 同进程禁止双开同一 epoch 目录
+    s._reader6.close()  # v6 族同约定(T6):重建打开的 reader6 也要关
     # fresh instance simulates process restart: load() only
     s2 = FireholBlocklistSource(data_dir=tmp_path)
     loaded = s2.load()

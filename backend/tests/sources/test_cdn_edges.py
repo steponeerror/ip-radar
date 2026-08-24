@@ -47,10 +47,11 @@ def test_parse_aws_cloudfront_only():
             {"ip_prefix": "52.94.0.0/20", "service": "EC2"},   # not CloudFront → drop
         ],
         "ipv6_prefixes": [
-            {"ipv6_prefix": "2600:1f18:4000::/40", "service": "CLOUDFRONT"},  # v6 list → never read
+            {"ipv6_prefix": "2600:1f18:4000::/40", "service": "CLOUDFRONT"},  # v6 CLOUDFRONT → kept
+            {"ipv6_prefix": "2600:9000:100::/40", "service": "EC2"},  # not CloudFront → drop
         ],
     }).encode()
-    assert list(_parse(data, "aws")) == ["13.32.0.0/15"]
+    assert list(_parse(data, "aws")) == ["13.32.0.0/15", "2600:1f18:4000::/40"]
 
 
 def test_parse_cloudflare_strips_blanks_and_garbage():
@@ -58,9 +59,19 @@ def test_parse_cloudflare_strips_blanks_and_garbage():
     assert list(_parse(data, "cloudflare")) == ["173.245.48.0/20", "103.21.244.0/22"]
 
 
-def test_parse_fastly_v4_only():
+def test_parse_fastly_reads_both_arrays():
+    """实测 feed 形态(2026-08-23 curl):v4 在 addresses,v6 在独立 ipv6_addresses。"""
     data = json.dumps({
         "addresses": ["151.101.0.0/16", "199.232.0.0/16"],
-        "ipv6_addresses": ["::/0"],   # v6 list → never read
+        "ipv6_addresses": ["2a04:4e40::/32", "2a04:4e42::/32"],
     }).encode()
-    assert list(_parse(data, "fastly")) == ["151.101.0.0/16", "199.232.0.0/16"]
+    assert list(_parse(data, "fastly")) == [
+        "151.101.0.0/16", "199.232.0.0/16",
+        "2a04:4e40::/32", "2a04:4e42::/32",
+    ]
+
+
+def test_parse_fastly_missing_ipv6_array_ok():
+    # ipv6_addresses 缺席或空:纯 v4,不炸不漏
+    data = json.dumps({"addresses": ["151.101.0.0/16"]}).encode()
+    assert list(_parse(data, "fastly")) == ["151.101.0.0/16"]

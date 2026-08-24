@@ -15,7 +15,8 @@ official per-code NAME for display. Codes are GROUPED by derived canonical type:
 one ``Evidence`` per distinct type, each carrying ``native_categories`` = the
 official names of its codes (deduped). Future codes absent from the tables
 (59+) fall back to their raw numeric string. The canonical type is a derived
-tag. IPv6 rows are dropped (the system is IPv4-only).
+tag. IPv6 rows are harvested too (bare address, dual-family storage,
+spec 2026-08-23).
 
 License: CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/). Attribution
 to ReportedIP (reportedip.com) is required.
@@ -63,12 +64,13 @@ class ReportedIPSource(Source):
         their own group's ``native_categories``. ``confidence`` →
         ``Evidence.confidence`` (kept as ``native_confidence`` by fusion);
         ``last_reported`` → ``first_seen``/``last_seen`` (same value; first_seen
-        drives decay). IPv6 rows are dropped (system is IPv4-only).
+        drives decay). IPv6 rows are harvested too (bare address yields
+        naturally as /128 under dual-family rebuild, spec 2026-08-23).
         """
         with open(self._path, "r", encoding="utf-8") as f:
             for row in csv.DictReader(f):
                 ip = (row.get("ip") or "").strip()
-                if not ip or ":" in ip:            # IPv6 drop — system is IPv4-only
+                if not ip:
                     continue
                 raw_cats = (row.get("categories") or "").strip()
                 groups: dict[str, list[str]] = {}

@@ -7,7 +7,8 @@ queries go through the same LMDB mmap as every other source.
 Routing (spec 2026-08-16): city.names.en → canonical `city` (English keeps
 FactualVoting vote-coherent with proxyscrape); zh-CN → extra.city_zh;
 country.iso_code → canonical `country_code` (6th vote). Networks carrying
-neither signal are skipped; IPv6 networks skipped (pipeline is IPv4-only);
+neither signal are skipped; IPv6 networks are harvested too (dual-family
+storage, spec 2026-08-23);
 registered_country is deliberately never read (registration ≠ location).
 
 Data: MaxMind GeoLite2 (GeoLite2 EULA / CC BY 4.0), rehosted by
@@ -46,8 +47,6 @@ class GeoLiteCitySource(Source):
         import maxminddb
         with maxminddb.open_database(self._path) as reader:
             for network, record in reader:
-                if network.version != 4:
-                    continue
                 names = (record.get("city") or {}).get("names") or {}
                 city_en = names.get("en")
                 city_zh = names.get("zh-CN")
