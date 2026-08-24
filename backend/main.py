@@ -509,20 +509,26 @@ def public_demo_enabled() -> bool:
 
 
 def _demo_admin_ips() -> set[str]:
-    # 便利级白名单：命中则旁路全部 demo 限制（含前端探测 public_demo=false → 完整 UI）。
-    # 匹配直连 peer 与 X-Forwarded-For 全部跳（适配 CF→Caddy→app 链）；可伪造，
-    # 不是安全边界——写接口在自部署下本就无鉴权，真正防护靠 WAF/防火墙。
+    # 直连 peer 白名单：仅适用于应用端口直接暴露的部署。反代后 peer 恒为代理 IP，
+    # 而 X-Forwarded-For 客户端可伪造且 CF/Caddy 链会透传（实测可穿透），勿恢复 XFF 匹配。
     return {s.strip() for s in
             os.environ.get("IP_RADAR_DEMO_ADMIN_IPS", "").split(",") if s.strip()}
 
 
 def _is_demo_admin(request) -> bool:
+    # 维护者旁路:直连 peer 命中,或(显式声明信任反代后)首跳 XFF 命中。
+    # XFF 信任必须配套网关保证(见部署文档:Caddy 剥非 CF 直连的 Cf-Connecting-Ip
+    # 并 header_up 覆写;否则客户端可伪造)。默认不信任任何头。
     ips = _demo_admin_ips()
     if not ips:
         return False
-    hops = ([request.client.host] if request.client else []) + \
-        [h.strip() for h in request.headers.get("x-forwarded-for", "").split(",")]
-    return any(h in ips for h in hops)
+    if request.client and request.client.host in ips:
+        return True
+    if os.environ.get("IP_RADAR_DEMO_TRUST_XFF") == "1":
+        first = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+        if first in ips:
+            return True
+    return False
 
 
 @app.middleware("http")

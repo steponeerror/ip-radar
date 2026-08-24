@@ -15,13 +15,16 @@ HEADER = {"x-ipradar-client": "web"}
 
 
 @contextmanager
-def _client(env_value: str | None, admin: str | None = None):
+def _client(env_value: str | None, admin: str | None = None,
+            trust_xff: bool = False):
     """TestClient with ``_startup`` patched out (no cold-start downloads)."""
     import main
     with patch.object(main, "_startup"):
         import os
         if admin is not None:
             os.environ["IP_RADAR_DEMO_ADMIN_IPS"] = admin
+        if trust_xff:
+            os.environ["IP_RADAR_DEMO_TRUST_XFF"] = "1"
         if env_value is None:
             os.environ.pop("IP_RADAR_PUBLIC_DEMO", None)
         else:
@@ -36,6 +39,7 @@ def _restore_env():
     yield
     os.environ.pop("IP_RADAR_PUBLIC_DEMO", None)
     os.environ.pop("IP_RADAR_DEMO_ADMIN_IPS", None)
+    os.environ.pop("IP_RADAR_DEMO_TRUST_XFF", None)
 
 
 def test_demo_hidden_endpoints_404():
@@ -117,33 +121,37 @@ def test_version_reports_demo_flag():
             assert res.json()["public_demo"] is expected
 
 
-def test_demo_admin_ip_bypasses_all():
-    # 管理白名单:client IP 命中 → 隐藏组可达、无 header 放行、version 报非 demo
+def test_demo_admin_direct_peer_bypasses_all():
+    # 直连 peer 命中(应用端口直接暴露的部署)
     import main
-    with _client("1", admin="10.9.8.7") as c:
+    with _client("1", admin="testclient") as c:  # starlette TestClient peer host 是字面量 testclient
         monkey_target = main._ipdb_version
         with patch.object(
             monkey_target, "fetch_latest", AsyncMock(return_value=None)
         ):
-            res = c.get("/api/version", headers={"x-forwarded-for": "10.9.8.7"})
+            res = c.get("/api/version")
             assert res.status_code == 200
             assert res.json()["public_demo"] is False   # 前端据此显示完整 UI
+        assert c.get("/api/perf/layout").status_code == 200
+        assert c.get("/api/db-status").status_code == 200
+
+
+def test_demo_admin_trust_xff_first_hop():
+    # 显式声明信任反代后,首跳 XFF 命中即旁路(配套网关保证,见 main.py 注释)
+    with _client("1", admin="10.9.8.7", trust_xff=True) as c:
         assert c.get("/api/perf/layout",
-                     headers={"x-forwarded-for": "10.9.8.7"}).status_code == 200
-        assert c.get("/api/db-status",
-                     headers={"x-forwarded-for": "10.9.8.7"}).status_code == 200
+                     headers={"x-forwarded-for": "10.9.8.7, 172.64.1.1"}
+                     ).status_code == 200
 
 
-def test_demo_admin_ip_xff_any_hop():
-    # CF→Caddy→app 链:真实客户端在 XFF 首跳,edge IP 在末跳——任一跳命中即旁路
+def test_demo_admin_xff_ignored_without_trust_flag():
+    # 回归:默认不信任任何 XFF(可伪造,实测可穿透 CF→Caddy 链)
     with _client("1", admin="10.9.8.7") as c:
-        res = c.get("/api/db-status",
-                    headers={"x-forwarded-for": "10.9.8.7, 172.64.1.1"})
-        assert res.status_code == 200
+        assert c.get("/api/perf/layout",
+                     headers={"x-forwarded-for": "10.9.8.7"}).status_code == 404
 
 
-def test_demo_admin_ip_mismatch_still_guarded():
-    with _client("1", admin="10.9.8.7") as c:
-        # 非 admin XFF → 隐藏组仍然 404(TestClient 回环本身豁免 header 组,不新言 403)
+def test_demo_admin_mismatch_still_guarded():
+    with _client("1", admin="10.9.8.7", trust_xff=True) as c:
         assert c.get("/api/perf/layout",
                      headers={"x-forwarded-for": "1.2.3.4"}).status_code == 404
