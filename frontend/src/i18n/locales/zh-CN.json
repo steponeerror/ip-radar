@@ -3,6 +3,7 @@
   "layout.subtitle": "面向威胁分析的批量 IP → ASN 查询",
   "layout.nav.lookup": "查询",
   "layout.nav.sources": "数据源",
+  "demo.banner": "🛰️ 演示模式 — 数据源管理与更新已禁用，自部署解锁完整体验 →",
   "lookup.tab.text": "文本输入",
   "lookup.tab.file": "文件上传",
   "lookup.results": "结果",
