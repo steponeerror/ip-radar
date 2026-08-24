@@ -95,8 +95,9 @@ def test_run_update_success_sequence(tmp_path):
     assert calls[1][:3] == ["docker", "run", "-d"]
     assert calls[1][3] == "--rm"
     assert "ip-radar-updater" in calls[1]
-    inner = calls[1][calls[1].index("docker", 1):]   # helper 内层命令
-    assert inner[:3] == ["docker", "compose", "-p"] and inner[3] == "ip-radar"
+    assert "--entrypoint" in calls[1]   # 镜像 entrypoint 会吞 CMD,必须显式覆盖
+    inner = calls[1][calls[1].index("ipradar:latest") + 1:]  # helper 内层命令
+    assert inner[:2] == ["compose", "-p"] and inner[2] == "ip-radar"
     assert "ipradar" == inner[-1]  # service 定向,不起分身(F1)
     assert "/opt/ip-radar/docker-compose.yml" in calls[1]  # 宿主机路径重建 compose 文件位置
     assert _update.state()["state"] == "updating"  # 成功路径:进程将死,状态留 updating 由对账收尾
