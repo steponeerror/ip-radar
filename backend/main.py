@@ -492,6 +492,45 @@ app.add_middleware(
 )
 
 
+# ---- 公共 demo 模式（docs/superpowers/specs/2026-08-23-public-demo-mode-design.md）----
+# 开启后: 写/内部接口 404(当作不存在);查询读接口需 x-ipradar-client: web;
+# STIX/OPTIONS/回环/version 豁免。env 每请求动态读(测试 monkeypatch 依赖)。
+_DEMO_HIDDEN_PREFIXES = (
+    "/api/update-db", "/api/sources", "/api/tasks", "/api/events",
+    "/api/scheduler/status", "/api/update", "/api/perf/layout",
+)
+_DEMO_HEADER_PREFIXES = (
+    "/api/lookup", "/api/query/stream", "/api/upload/stream", "/api/db-status",
+)
+
+
+def public_demo_enabled() -> bool:
+    return os.environ.get("IP_RADAR_PUBLIC_DEMO") == "1"
+
+
+@app.middleware("http")
+async def public_demo_guard(request, call_next):
+    if not public_demo_enabled():
+        return await call_next(request)
+    path = request.url.path
+    # 预检不带业务 header 且非 /api 也全放行;本中间件在 CORS 外层
+    if request.method == "OPTIONS" or not path.startswith("/api/"):
+        return await call_next(request)
+    if path.startswith(_DEMO_HIDDEN_PREFIXES):
+        return JSONResponse({"detail": "Not Found"}, status_code=404)
+    if path == "/api/version":
+        return await call_next(request)
+    if path.startswith(_DEMO_HEADER_PREFIXES):
+        if path.endswith("/stix"):  # window.open 无法带 header
+            return await call_next(request)
+        client_host = request.client.host if request.client else ""
+        if client_host in ("127.0.0.1", "::1"):  # docker healthcheck 豁免
+            return await call_next(request)
+        if request.headers.get("x-ipradar-client") != "web":
+            return JSONResponse({"detail": "Forbidden"}, status_code=403)
+    return await call_next(request)
+
+
 @app.post("/api/query/stream", dependencies=[Depends(require_ready)])
 async def query_ips_stream(body: dict):
     raw = body.get("ips", [])
@@ -758,6 +797,7 @@ async def api_version(refresh: bool = False):
         "summary": latest["summary"] if latest else None,
         "release_url": latest["url"] if latest else "https://github.com/steponeerror/ip-radar/releases/latest",
         "self_update_enabled": _ipdb_update.self_update_enabled(),
+        "public_demo": public_demo_enabled(),
     }
 
 
