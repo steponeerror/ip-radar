@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { getDbStatus, type DbStatus } from "../api";
+import { getDbStatus, getPublicDemo, type DbStatus } from "../api";
 import { useTasks } from "../tasks/TaskProvider";
 import { useI18n } from "../i18n";
 import { stagedFrac, isIndeterminate } from "../tasks/progress";
@@ -36,6 +36,7 @@ export function DbStatusBar() {
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(true);
   const [updating, setUpdating] = useState(false);
+  const [demo, setDemo] = useState(false);
   // Keep the active panel mounted for ~5s after the batch finishes so the
   // user sees the final state before the bar collapses back to idle.
   const [recentlyDone, setRecentlyDone] = useState(false);
@@ -66,6 +67,11 @@ export function DbStatusBar() {
     }
   }, [batch?.state]);
 
+  useEffect(() => {
+    // demo 模式探测(缓存/失败=false):藏所有触发更新的按钮(它们在 demo 下都是死按钮)
+    getPublicDemo().then(setDemo).catch(() => {});
+  }, []);
+
   const handleUpdate = async () => {
     setUpdating(true);
     try {
@@ -89,6 +95,7 @@ export function DbStatusBar() {
         error={error}
         updating={updating}
         onUpdate={handleUpdate}
+        demo={demo}
       />
     );
   }
@@ -240,11 +247,13 @@ function IdleBar({
   error,
   updating,
   onUpdate,
+  demo,
 }: {
   status: DbStatus | null;
   error: string | null;
   updating: boolean;
   onUpdate: () => void;
+  demo: boolean;
 }) {
   const { t } = useI18n();
 
@@ -261,13 +270,15 @@ function IdleBar({
             <span className="inline-flex h-2 w-2 rounded-full bg-red-500" />
             <span>{error}</span>
           </div>
-          <button
-            onClick={onUpdate}
-            disabled={updating}
-            className="rounded px-3 py-1 text-red-400 transition-colors hover:bg-zinc-800 hover:text-red-300 disabled:opacity-50"
-          >
-            {updating ? t("dbStatus.retrying") : t("dbStatus.retry")}
-          </button>
+          {!demo && (
+            <button
+              onClick={onUpdate}
+              disabled={updating}
+              className="rounded px-3 py-1 text-red-400 transition-colors hover:bg-zinc-800 hover:text-red-300 disabled:opacity-50"
+            >
+              {updating ? t("dbStatus.retrying") : t("dbStatus.retry")}
+            </button>
+          )}
         </div>
       </div>
     );
@@ -286,13 +297,15 @@ function IdleBar({
               {t("dbStatus.records", { n: status.total_records.toLocaleString() })}
             </span>
           </div>
-          <button
-            onClick={onUpdate}
-            disabled={updating}
-            className="rounded px-3 py-1 text-amber-400 transition-colors hover:bg-zinc-800 hover:text-amber-300 disabled:opacity-50"
-          >
-            {updating ? t("dbStatus.updating") : t("dbStatus.retry")}
-          </button>
+          {!demo && (
+            <button
+              onClick={onUpdate}
+              disabled={updating}
+              className="rounded px-3 py-1 text-amber-400 transition-colors hover:bg-zinc-800 hover:text-amber-300 disabled:opacity-50"
+            >
+              {updating ? t("dbStatus.updating") : t("dbStatus.retry")}
+            </button>
+          )}
         </div>
       </div>
     );
@@ -326,13 +339,15 @@ function IdleBar({
             <span className="text-yellow-500">({t("dbStatus.stale")})</span>
           )}
         </div>
-        <button
-          onClick={onUpdate}
-          disabled={updating}
-          className="rounded px-3 py-1 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-emerald-400 disabled:opacity-50"
-        >
-          {updating ? t("dbStatus.updating") : t("dbStatus.update")}
-        </button>
+        {!demo && (
+          <button
+            onClick={onUpdate}
+            disabled={updating}
+            className="rounded px-3 py-1 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-emerald-400 disabled:opacity-50"
+          >
+            {updating ? t("dbStatus.updating") : t("dbStatus.update")}
+          </button>
+        )}
       </div>
     </div>
   );
