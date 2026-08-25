@@ -158,6 +158,24 @@ def test_rebuild_dual_family_progress_covers_v6(tmp_path):
     assert events[-1] == (2, 2)  # 列表形态 len 已知:终值 (n4+n6, n4+n6)
     for e in envs: e.close()
 
+def test_rebuild_dual_family_auto_covered_both_families(tmp_path):
+    """covered4/6=Auto: 双族 sidecar 循环内统计,setter 各自回调正确值。"""
+    from ipdb._sources._lmdb import rebuild_dual_family, Auto
+    envs = []
+    got4, got6 = [], []
+    n4, n6 = rebuild_dual_family(
+        [("10.0.0.0/24", [{}]), ("1.2.3.4", [{}]),
+         ("2001:db8::/32", [{}]), ("2a00::/32", [{}])],
+        tmp_path / "d.lmdb", tmp_path / "d.v6.lmdb",
+        reader_setter4=envs.append, reader_setter6=envs.append,
+        covered4=Auto, covered6=Auto,
+        covered_setter4=got4.append, covered_setter6=got6.append)
+    assert (n4, n6) == (2, 2)
+    assert got4 == [257] and got6 == [2]
+    assert (tmp_path / "d.lmdb.cov").read_text() == "257"
+    assert (tmp_path / "d.v6.lmdb.cov").read_text() == "2"
+    for e in envs: e.close()
+
 def test_rebuild_dual_family_empty_v6_writes_ptr(tmp_path):
     from ipdb._sources._lmdb import rebuild_dual_family, read_ptr
     envs = []

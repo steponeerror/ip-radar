@@ -434,11 +434,13 @@ def rebuild_dual_family(records, v4_base: Path, v6_base: Path, *,
                         reader_setter4: Callable, reader_setter6: Callable,
                         flag_setter4: Callable[[bool], None] | None = None,
                         flag_setter6: Callable[[bool], None] | None = None,
-                        covered4: int | None = None,
-                        covered6: int | None = None,
+                        covered4: "int | Auto | None" = None,
+                        covered6: "int | Auto | None" = None,
                         count4: int | None = None,
                         count6: int | None = None,
-                        progress: Callable[[int, int], None] | None = None
+                        progress: Callable[[int, int], None] | None = None,
+                        covered_setter4: Callable[[int], None] | None = None,
+                        covered_setter6: Callable[[int], None] | None = None
                         ) -> tuple[int, int]:
     """One records source → both family envs (spec §3).
 
@@ -448,6 +450,8 @@ def rebuild_dual_family(records, v4_base: Path, v6_base: Path, *,
     v6 env 总是被建(空则空 env): Q3 不变量——v6 ptr 存在 ⇒ v6-aware 代码
     已重建过此源。progress 挂两 pass:v4 原样;v6 经偏移包装上报
     (n4 + done),received 全程单调不归零(UI 行数不回跳)。
+    covered4/covered6: 三态同 rebuild_lmdb——None=不写 .cov;int=照写
+    调用方预计算值;Auto=写库循环内统计(流式位点用,免预扫描)。
     count4/count6: 各族 .count sidecar 覆盖——CsvSource 的 count 语义是
     证据数而非 CIDR 数(rebuild_lmdb 默认取 n),透传保语义不变。
     """
@@ -459,7 +463,7 @@ def rebuild_dual_family(records, v4_base: Path, v6_base: Path, *,
         rec6 = [(c, e) for c, e in records if ":" in c]
     n4 = rebuild_lmdb(rec4, v4_base, reader_setter4,
                       count=count4, covered=covered4, flag_setter=flag_setter4,
-                      progress=progress)
+                      progress=progress, covered_setter=covered_setter4)
     progress6 = None
     if progress is not None:
         def progress6(done, total):           # 闭包捕 n4(v4 pass 已返回)
@@ -468,7 +472,8 @@ def rebuild_dual_family(records, v4_base: Path, v6_base: Path, *,
             progress(n4 + done, (n4 + total) if total > 0 else 0)
     n6 = rebuild_lmdb(rec6, v6_base, reader_setter6,
                       count=count6, covered=covered6, flag_setter=flag_setter6,
-                      progress=progress6, ip_version=6)
+                      progress=progress6, ip_version=6,
+                      covered_setter=covered_setter6)
     return n4, n6
 
 
