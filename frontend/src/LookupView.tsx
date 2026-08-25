@@ -32,13 +32,12 @@ function LookupViewInner() {
   const [results, setResults] = useState<LookupResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [skipped, setSkipped] = useState<{ invalid: number; ipv6: number } | null>(null);
+  const [skipped, setSkipped] = useState<{ invalid: number } | null>(null);
   const [progress, setProgress] = useState<Progress | null>(null);
   const [csvModal, setCsvModal] = useState<{
     open: boolean;
     count: number;
     invalid: number;
-    ipv6: number;
   } | null>(null);
   const reduce = useReducedMotion();
   const { warming, recheck } = useWarming();
@@ -57,8 +56,8 @@ function LookupViewInner() {
   }, []);
 
   const applyOutcome = (r: StreamOutcome) => {
-    if (r.invalidLines > 0 || r.ipv6Unsupported > 0) {
-      setSkipped({ invalid: r.invalidLines, ipv6: r.ipv6Unsupported });
+    if (r.invalidLines > 0) {
+      setSkipped({ invalid: r.invalidLines });
     }
     if (r.csvDownloaded) {
       setResults([]);
@@ -66,7 +65,6 @@ function LookupViewInner() {
         open: true,
         count: r.total,
         invalid: r.invalidLines,
-        ipv6: r.ipv6Unsupported,
       });
       if (r.error != null) setError(r.error);
     } else {
@@ -227,10 +225,9 @@ function LookupViewInner() {
           </div>
         )}
 
-        {skipped && (skipped.invalid > 0 || skipped.ipv6 > 0) && (
+        {skipped && skipped.invalid > 0 && (
           <div className="mb-3 rounded-lg border border-amber-400/30 bg-amber-400/10 px-4 py-2 text-sm text-amber-400">
-            {skipped.invalid > 0 && <div>{t("csvExport.invalidLines", { n: skipped.invalid })}</div>}
-            {skipped.ipv6 > 0 && <div>{t("csvExport.ipv6Unsupported", { n: skipped.ipv6 })}</div>}
+            {t("csvExport.invalidLines", { n: skipped.invalid })}
           </div>
         )}
 
@@ -257,11 +254,6 @@ function LookupViewInner() {
         {csvModal && csvModal.invalid > 0 && (
           <p className="mt-2 text-xs text-amber-400">
             {t("csvExport.invalidLines", { n: csvModal.invalid })}
-          </p>
-        )}
-        {csvModal && csvModal.ipv6 > 0 && (
-          <p className="mt-1 text-xs text-amber-400">
-            {t("csvExport.ipv6Unsupported", { n: csvModal.ipv6 })}
           </p>
         )}
       </Modal>

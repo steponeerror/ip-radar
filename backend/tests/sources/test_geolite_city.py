@@ -26,14 +26,14 @@ def test_query_routes_city_country_zh(src):
     rec = src.query("1.0.0.5")[0]   # 单证据源 query 返回 list[dict]（同 iptoasn 约定）
     assert rec["city"] == "Hangzhou"
     assert rec["country_code"] == "CN"
-    assert rec["extra"] == {"city_zh": "杭州"}
+    assert rec["extra"]["city_zh"] == "杭州"
 
 
 def test_city_without_zh_has_no_extra(src):
     src.rebuild()
     rec = src.query("2.0.0.7")[0]
     assert rec["city"] == "Lyon"
-    assert "extra" not in rec
+    assert "city_zh" not in (rec.get("extra") or {})
 
 
 def test_country_only_network_keeps_vote_without_city(src):
@@ -52,3 +52,20 @@ def test_no_native_type_dead_convention(src):
     src.rebuild()
     for ip in ("1.0.0.5", "2.0.0.7", "3.0.0.9"):
         assert "native_type" not in (src.query(ip)[0].get("extra") or {})
+
+
+def test_query_routes_location_into_extra(src):
+    src.rebuild()
+    rec = src.query("1.0.0.5")[0]
+    assert rec["extra"]["city_zh"] == "杭州"
+    assert rec["extra"]["lat"] == 30.25
+    assert rec["extra"]["lon"] == 120.17
+    assert rec["extra"]["accuracy_radius"] == 50
+
+
+def test_query_location_without_accuracy_radius(src):
+    src.rebuild()
+    rec = src.query("2.0.0.7")[0]
+    assert rec["extra"]["lat"] == 45.76
+    assert rec["extra"]["lon"] == 4.84
+    assert "accuracy_radius" not in rec["extra"]

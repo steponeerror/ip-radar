@@ -48,6 +48,13 @@ export interface ClassificationAssessment {
   sources: SourceAttribution[];
 }
 
+export interface ThreatSummary {
+  verdict: string;
+  confidence: number;
+  types: string[];
+  is_cdn: boolean;
+}
+
 export interface LookupResult {
   ip: string;
   country: MergedField<string>;
@@ -61,6 +68,8 @@ export interface LookupResult {
   attributes?: Record<string, AssetStatement[]>;
   error?: string;
   is_reserved?: boolean;
+  threat?: ThreatSummary;
+  location?: { lat: number; lon: number; accuracy_radius?: number } | null;
 }
 
 export interface DbStatus {
@@ -86,7 +95,6 @@ export interface StreamOutcome {
   results: LookupResult[];   // table mode: populated; csv mode: []
   csvDownloaded: boolean;
   invalidLines: number;
-  ipv6Unsupported: number;
   error?: string | null;   // backend done.error (spec §4)
   total: number;
 }
@@ -139,7 +147,6 @@ async function readStream(
   const csvParts: string[] = [CSV_HEADER];
   let rowBuffer: string[] = [];
   let invalidLines = 0;
-  let ipv6Unsupported = 0;
   let error: string | null = null;
   let sawDone = false;
 
@@ -177,7 +184,6 @@ async function readStream(
       } else if (evt.type === "done") {
         sawDone = true;
         invalidLines = evt.invalid_lines ?? 0;
-        ipv6Unsupported = evt.ipv6_unsupported ?? 0;
         error = evt.error ?? null;
       }
     }
@@ -190,16 +196,16 @@ async function readStream(
     flushRows();
     if (csvParts.length > 1) {  // more than just the header → has rows
       downloadCsv(csvParts);
-      return { results: [], csvDownloaded: true, invalidLines, ipv6Unsupported, error, total };
+      return { results: [], csvDownloaded: true, invalidLines, error, total };
     }
-    return { results: [], csvDownloaded: false, invalidLines, ipv6Unsupported, error, total };
+    return { results: [], csvDownloaded: false, invalidLines, error, total };
   }
 
   // table mode — reassemble in idx order
   const results = Array.from({ length: total }, (_, i) => resultsByIdx.get(i)).filter(
     (x): x is LookupResult => x !== undefined,
   );
-  return { results, csvDownloaded: false, invalidLines, ipv6Unsupported, error, total };
+  return { results, csvDownloaded: false, invalidLines, error, total };
 }
 
 function streamFetchTimeout(controller: AbortController, connectMs = 30_000, idleMs = 120_000) {

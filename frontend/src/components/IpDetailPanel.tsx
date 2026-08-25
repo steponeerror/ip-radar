@@ -95,6 +95,12 @@ export function IpDetailPanel({ r }: { r: LookupResult }) {
         grouped
         suffix={r.city_zh ?? undefined}
       />
+      {r.location && (
+        <div className="text-[10px] text-zinc-600"
+          title={r.location.accuracy_radius ? `±${r.location.accuracy_radius} km` : undefined}>
+          📍 {r.location.lat.toFixed(2)}, {r.location.lon.toFixed(2)}
+        </div>
+      )}
       <FieldDetail label="ASN" field={r.asn} format={(v) => String(v)} grouped />
       <FieldDetail
         label={t("ipDetail.org")}

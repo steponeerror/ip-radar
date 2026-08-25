@@ -126,6 +126,9 @@ DATAPLANE_MAP = {
     "sshpwauth": "brute-force",
     "telnetlogin": "brute-force",
     "dnsrd": "scanner",
+    "sipquery": "brute-force",          # SIP 探测(telnetlogin 先例)
+    "sipregistration": "brute-force",   # SIP 注册尝试
+    "smtpgreet": "scanner",             # SMTP 问候连接(dnsrd 先例)
 }
 
 # reportedip (reportedip.de) — CSV `categories` 字段是 ;-分隔数字码。1-58 全码
