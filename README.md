@@ -24,7 +24,8 @@
 </p>
 
 <p align="center">
-<a href="https://ipradar.huxiao0207.dpdns.org/?ip=45.148.10.72">☠️ 恶意 IP</a> · <a href="https://ipradar.huxiao0207.dpdns.org/?ip=45.83.91.1">🕵️ 代理/VPN</a> · <a href="https://ipradar.huxiao0207.dpdns.org/?ip=1.12.0.72">🌱 干净 IP</a>
+<sub>🚀 在线演示 <a href="https://ipradar.huxiao0207.dpdns.org"><b>ipradar.huxiao0207.dpdns.org</b></a> —— 点下面的示例，直接在 Demo 里看结果 · Live demo, click a sample to query:</sub><br>
+<b><a href="https://ipradar.huxiao0207.dpdns.org/?ip=80.82.77.139">☠️ 恶意 IP</a> · <a href="https://ipradar.huxiao0207.dpdns.org/?ip=185.220.101.1">🕵️ Tor/VPN 出口</a> · <a href="https://ipradar.huxiao0207.dpdns.org/?ip=1.12.0.72">🌱 干净 IP</a></b>
 </p>
 
 ## 快速开始 | Quick Start
