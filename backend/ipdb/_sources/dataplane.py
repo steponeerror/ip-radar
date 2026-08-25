@@ -1,11 +1,14 @@
 """Dataplane.org sensor signals — Source subclass (multi-signal, per-row class).
 
 dataplane.org (an NFP) publishes per-signal rolling 7-day lists of source IPs
-that contacted its sensors. This source merges three of them into one feed:
+that contacted its sensors. This source merges six of them into one feed:
 
   sshpwauth    — IPs attempting SSH password auth        → brute-force
   telnetlogin  — IPs attempting Telnet login             → brute-force
   dnsrd        — IPs sending recursive DNS queries       → scanner
+  sipquery     — SIP probe / enumeration attempts        → brute-force
+  sipregistration — SIP registration attempts            → brute-force
+  smtpgreet    — IPs greeting SMTP servers (connection)  → scanner
 
 Each file is pipe-delimited with a fixed shape:
 
@@ -45,6 +48,9 @@ class DataplaneSource(Source):
         "sshpwauth": "https://dataplane.org/signals/sshpwauth.txt",
         "telnetlogin": "https://dataplane.org/signals/telnetlogin.txt",
         "dnsrd": "https://dataplane.org/signals/dnsrd.txt",
+        "sipquery": "https://dataplane.org/signals/sipquery.txt",
+        "sipregistration": "https://dataplane.org/signals/sipregistration.txt",
+        "smtpgreet": "https://dataplane.org/signals/smtpgreet.txt",
     }
 
     @property
