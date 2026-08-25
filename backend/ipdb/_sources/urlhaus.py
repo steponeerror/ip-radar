@@ -124,5 +124,7 @@ class URLhausSource(Source):
                     extra={
                         "reporter": row[8].strip().strip('"'),
                         "url_status": row[3].strip().strip('"'),
+                        **({"urlhaus_link": row[7].strip().strip('"')}
+                           if len(row) > 7 and row[7].strip().strip('"') else {}),
                     },
                 )
