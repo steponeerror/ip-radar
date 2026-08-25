@@ -2,7 +2,7 @@
 
 AbuseIPDB's `/api/v2/blacklist` endpoint (https://docs.abuseipdb.com/) returns
 the most-reported IPs. With `Accept: application/json` it yields
-`{"data": [{"ipAddress": ..., "lastReportedAt": ...}, ...]}`, filtered to
+`{"data": [{"ipAddress": ..., "lastReportedAt": ..., "totalReports": ...}, ...]}`, filtered to
 `abuseConfidenceScore >= confidenceMinimum` (default 100, i.e. confirmed
 abusers). Requires an API key — register at abuseipdb.com and set
 ABUSEIPDB_API_KEY in .env.
@@ -68,7 +68,7 @@ class AbuseIPDBSource(IpListSource):
         self._data_dir.mkdir(parents=True, exist_ok=True)
         url = (
             f"{_API_BASE}?confidenceMinimum={self._confidence_minimum}"
-            f"&limit={self._limit}&fields=totalReports"
+            f"&limit={self._limit}&fields=lastReportedAt,totalReports"
         )
         logger.info(
             f"Downloading {self.name} (confidenceMinimum>={self._confidence_minimum})...")
