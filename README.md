@@ -12,49 +12,22 @@
 ![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
 ![React 19](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white)
 
-[![Live Demo](https://img.shields.io/badge/Live_Demo-ipradar.huxiao0207.dpdns.org-2ea44f?logo=cloudflare&logoColor=white)](https://ipradar.huxiao0207.dpdns.org/)
+[![Live Demo](https://img.shields.io/badge/%F0%9F%93%A1_Live_Demo-ipradar.huxiao0207.dpdns.org-FF6B35?style=for-the-badge)](https://ipradar.huxiao0207.dpdns.org)
 
-**[在线演示 →](https://ipradar.huxiao0207.dpdns.org/)** —— 演示模式下数据源管理与更新已禁用，查询功能完整可用；自部署解锁全部能力。Live demo (read-only: sources & updates disabled; self-host for everything).
+> **演示模式** —— 数据源管理与更新已禁用，查询功能完整可用；自部署解锁全部能力。Live demo (read-only: sources & updates disabled; self-host for everything).
 
-![恶意 IP 查询结果](assets/hero-malicious.png)
+<p align="center">
+<table>
+  <tr>
+    <td width="50%" align="center"><img src="assets/hero-malicious.png" alt="恶意 IP 查询结果"><br><sub>☠️ 恶意 IP：逐源证据 + 置信度裁决</sub></td>
+    <td width="50%" align="center"><img src="assets/feature-geo.png" alt="干净 IP 的地理富化"><br><sub>🌱 干净 IP：地理 · 城市 · ASN 富化</sub></td>
+  </tr>
+</table>
+</p>
 
-## 特性 | Features
-
-- **开箱即用，25/29 源不需要密钥** —— 首次启动自动下载构建，数百万条记录入库（确切数量以 `/api/db-status` 实测为准）；剩下 4 个 🔑 源想开的话，密钥填法见[快速开始](#快速开始--quick-start)。
-- **冷启动不挡路** —— 容器数秒就能打开，免密钥源的下载/构建进度在页面顶部横幅实时滚动，建完查询自动解锁——绝不拿着半份数据先给结论。
-- **一份裁决，不是一堆列表** —— 单 IP 一句话结论，逐源证据摆给你看，0-100 置信度（源可靠性加权、交叉佐证、随时间衰减）。
-- **地理 · 城市 · ASN** —— GeoLite2 给城市，iptoasn 给自治域，CN ISP 归属（含港澳台）也认得。
-- **代理 · VPN · Tor · CDN，一眼认出来** —— 开放代理、VPN 网段、Tor 出口、三大 CDN 边缘，都标得清清楚楚。
-- **IPv6 也能查** —— 裸 v6 / 小段 v6 CIDR 直接查，地理·城市·ASN·VPN·CDN·封禁段对 v6 生效；威胁证据约 10 个源覆盖 v6（ipinfo/GeoLite/iptoasn、spamhaus DROPv6、x4bnet、Cloudflare/Fastly/AWS 边缘等），其余源上游本就无 v6 数据，如实显示无记录。
-- **一个容器跑全栈，内存自己看着办** —— `docker compose up -d --build` 就有；并发按宿主机内存自动收敛，后台自动刷新按源错峰：日更源每天 2 次、周更源每周 1 次，各源固定时刻错开。
-- **STIX 2.1 导出（可选）** —— `/api/lookup/{ip}/stix` 一键导出；Docker 镜像默认不带 `stix2`，`pip install stix2` 装上即开。
-
-> - **25 of 29 feeds need zero API keys** — first start downloads and builds them all into millions of records (live count: `/api/db-status`); to light up the other 4 🔑 sources, see [Quick Start](#快速开始--quick-start).
-> - **Cold start doesn't block** — the container opens within seconds, a top banner tracks the keyless feeds' download/build progress live, and queries unlock themselves once the build settles — never a verdict on half a dataset.
-> - **A verdict, not a pile of lists** — one line of conclusion per IP, per-source evidence on the table, 0-100 confidence (reliability-weighted, corroborated, time-decayed).
-> - **Geo · City · ASN** — GeoLite2 for the city, iptoasn for the ASN, plus CN ISP classification incl. HK/MO/TW.
-> - **Proxy · VPN · Tor · CDN, spotted at a glance** — open proxies, VPN ranges, Tor exits, and the big three CDNs' edges, all labeled.
-> - **IPv6 lookups too** — bare v6 and small v6 CIDRs resolve with geo · city · ASN · VPN · CDN · DROP ranges; ~10 of the feeds carry v6 data (ipinfo/GeoLite/iptoasn, spamhaus DROPv6, x4bnet, Cloudflare/Fastly/AWS edges), the rest have no v6 upstream — shown honestly as no-records.
-> - **One container, memory that behaves** — `docker compose up -d --build` and you're serving; concurrency bends to host RAM, background refresh staggered per source: daily feeds 2×/day, weekly 1×/week, each at a fixed offset time.
-> - **STIX 2.1 export (optional)** — `/api/lookup/{ip}/stix`; the Docker image ships without `stix2` — `pip install stix2` to switch it on.
-
-![干净 IP 的地理富化](assets/feature-geo.png)
-
-## 架构 | Architecture
-
-```mermaid
-flowchart TD
-    A["29 feeds<br/>(25 keyless auto + 4 keyed)"] --> B["Cold-start download /<br/>30-min refresh scheduler"]
-    B --> C["Per-source parsers<br/>(classification pipeline)"]
-    C --> D["Fusion<br/>(reliability weighting · corroboration · decay)"]
-    D --> E["LMDB store<br/>(named volume · mmap)"]
-    E --> F["FastAPI"]
-    F --> G["React UI"]
-```
-
-融合、存储、查询，全在你本地——你的查询不发给任何第三方。
-
-> Fused, stored, and queried on your own machine — your lookups never leave it.
+<p align="center">
+<a href="https://ipradar.huxiao0207.dpdns.org/?ip=45.148.10.72">☠️ 恶意 IP</a> · <a href="https://ipradar.huxiao0207.dpdns.org/?ip=45.83.91.1">🕵️ 代理/VPN</a> · <a href="https://ipradar.huxiao0207.dpdns.org/?ip=1.12.0.72">🌱 干净 IP</a>
+</p>
 
 ## 快速开始 | Quick Start
 
@@ -147,6 +120,42 @@ cd frontend && npm run dev
 ```bash
 ./start.sh
 ```
+
+## 特性 | Features
+
+- **开箱即用，25/29 源不需要密钥** —— 首次启动自动下载构建，数百万条记录入库（确切数量以 `/api/db-status` 实测为准）；剩下 4 个 🔑 源想开的话，密钥填法见[快速开始](#快速开始--quick-start)。
+- **冷启动不挡路** —— 容器数秒就能打开，免密钥源的下载/构建进度在页面顶部横幅实时滚动，建完查询自动解锁——绝不拿着半份数据先给结论。
+- **一份裁决，不是一堆列表** —— 单 IP 一句话结论，逐源证据摆给你看，0-100 置信度（源可靠性加权、交叉佐证、随时间衰减）。
+- **地理 · 城市 · ASN** —— GeoLite2 给城市，iptoasn 给自治域，CN ISP 归属（含港澳台）也认得。
+- **代理 · VPN · Tor · CDN，一眼认出来** —— 开放代理、VPN 网段、Tor 出口、三大 CDN 边缘，都标得清清楚楚。
+- **IPv6 也能查** —— 裸 v6 / 小段 v6 CIDR 直接查，地理·城市·ASN·VPN·CDN·封禁段对 v6 生效；威胁证据约 10 个源覆盖 v6（ipinfo/GeoLite/iptoasn、spamhaus DROPv6、x4bnet、Cloudflare/Fastly/AWS 边缘等），其余源上游本就无 v6 数据，如实显示无记录。
+- **一个容器跑全栈，内存自己看着办** —— `docker compose up -d --build` 就有；并发按宿主机内存自动收敛，后台自动刷新按源错峰：日更源每天 2 次、周更源每周 1 次，各源固定时刻错开。
+- **STIX 2.1 导出（可选）** —— `/api/lookup/{ip}/stix` 一键导出；Docker 镜像默认不带 `stix2`，`pip install stix2` 装上即开。
+
+> - **25 of 29 feeds need zero API keys** — first start downloads and builds them all into millions of records (live count: `/api/db-status`); to light up the other 4 🔑 sources, see [Quick Start](#快速开始--quick-start).
+> - **Cold start doesn't block** — the container opens within seconds, a top banner tracks the keyless feeds' download/build progress live, and queries unlock themselves once the build settles — never a verdict on half a dataset.
+> - **A verdict, not a pile of lists** — one line of conclusion per IP, per-source evidence on the table, 0-100 confidence (reliability-weighted, corroborated, time-decayed).
+> - **Geo · City · ASN** — GeoLite2 for the city, iptoasn for the ASN, plus CN ISP classification incl. HK/MO/TW.
+> - **Proxy · VPN · Tor · CDN, spotted at a glance** — open proxies, VPN ranges, Tor exits, and the big three CDNs' edges, all labeled.
+> - **IPv6 lookups too** — bare v6 and small v6 CIDRs resolve with geo · city · ASN · VPN · CDN · DROP ranges; ~10 of the feeds carry v6 data (ipinfo/GeoLite/iptoasn, spamhaus DROPv6, x4bnet, Cloudflare/Fastly/AWS edges), the rest have no v6 upstream — shown honestly as no-records.
+> - **One container, memory that behaves** — `docker compose up -d --build` and you're serving; concurrency bends to host RAM, background refresh staggered per source: daily feeds 2×/day, weekly 1×/week, each at a fixed offset time.
+> - **STIX 2.1 export (optional)** — `/api/lookup/{ip}/stix`; the Docker image ships without `stix2` — `pip install stix2` to switch it on.
+
+## 架构 | Architecture
+
+```mermaid
+flowchart TD
+    A["29 feeds<br/>(25 keyless auto + 4 keyed)"] --> B["Cold-start download /<br/>30-min refresh scheduler"]
+    B --> C["Per-source parsers<br/>(classification pipeline)"]
+    C --> D["Fusion<br/>(reliability weighting · corroboration · decay)"]
+    D --> E["LMDB store<br/>(named volume · mmap)"]
+    E --> F["FastAPI"]
+    F --> G["React UI"]
+```
+
+融合、存储、查询，全在你本地——你的查询不发给任何第三方。
+
+> Fused, stored, and queried on your own machine — your lookups never leave it.
 
 ## 使用 | Usage
 

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { IpInput } from "./components/IpInput";
 import { FileUpload } from "./components/FileUpload";
@@ -42,6 +42,19 @@ function LookupViewInner() {
   } | null>(null);
   const reduce = useReducedMotion();
   const { warming, recheck } = useWarming();
+  const [pendingIp, setPendingIp] = useState<string | null>(() => {
+    const q = new URLSearchParams(window.location.search).get("ip");
+    return q && q.trim() ? q.trim() : null;
+  });
+
+  // ?ip= 深链:挂载时自动查询一次。仅读一次参数,不随路由变化重复触发。
+  useEffect(() => {
+    if (pendingIp == null) return;
+    const ip = pendingIp;
+    setPendingIp(null);
+    handleQueryRef.current([ip]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const applyOutcome = (r: StreamOutcome) => {
     if (r.invalidLines > 0 || r.ipv6Unsupported > 0) {
@@ -108,6 +121,9 @@ function LookupViewInner() {
 
   const handleQuery = (ips: string[]) =>
     runLookup(() => queryIpsStream(ips, setProgress), t("lookup.queryFailed"));
+
+  const handleQueryRef = useRef(handleQuery);
+  handleQueryRef.current = handleQuery;
 
   const handleUpload = (file: File) =>
     runLookup(() => uploadFileStream(file, setProgress), t("lookup.uploadFailed"));
