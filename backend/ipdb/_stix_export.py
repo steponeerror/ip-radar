@@ -65,14 +65,24 @@ def to_stix_bundle(lr: LookupResult) -> dict | None:
         )
 
     # 2. Address SCO — family-dispatched (PR2 spec §5.2); lr.ip is the
-    # compressed canonical form end-to-end (PR1 Q5).
+    # compressed canonical form end-to-end (PR1 Q5). Custom props (richness
+    # spec §4.5): CDN flag always, asset-attribute bag only when non-empty.
     is_v6 = ":" in lr.ip
+    _x_attrs = {
+        k: [{"source": s.source, "value": s.value,
+             "native_type": s.native_type} for s in stmts]
+        for k, stmts in lr.attributes.items()
+    } or None
+    _x_cdn = lr.threat_summary()["is_cdn"]
+    _sco_kw = dict(value=lr.ip, allow_custom=True,
+                   x_ipradar_is_cdn=_x_cdn,
+                   **({"x_ipradar_attributes": _x_attrs} if _x_attrs else {}))
     if is_v6:
-        addr_sco = IPv6Address(value=lr.ip,
-                               id=f"ipv6-addr--{uuid5(_NS, lr.ip)}")
+        _sco_kw["id"] = f"ipv6-addr--{uuid5(_NS, lr.ip)}"
+        addr_sco = IPv6Address(**_sco_kw)
     else:
-        addr_sco = IPv4Address(value=lr.ip,
-                               id=f"ipv4-addr--{uuid5(_NS, lr.ip)}")
+        _sco_kw["id"] = f"ipv4-addr--{uuid5(_NS, lr.ip)}"
+        addr_sco = IPv4Address(**_sco_kw)
 
     # 3. Location SDO (from country) and related-to relationship
     objs = [addr_sco]
