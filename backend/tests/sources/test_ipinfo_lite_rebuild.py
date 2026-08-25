@@ -1,4 +1,5 @@
 """ipinfo_lite load/rebuild 分离:load 纯 mmap,rebuild 重建(LMDB 试点)。"""
+import builtins
 from pathlib import Path
 
 from ipdb._sources._lmdb import rebuild_lmdb, ptr_path
@@ -79,3 +80,25 @@ def test_ipinfo_lite_empty_geo_columns_omit_keys(tmp_path):
     for k in ("continent_code", "country_name", "as_domain"):
         assert k not in r
     s._reader.close()
+
+
+def test_ipinfo_rebuild_parses_csv_twice_not_four(tmp_path, monkeypatch):
+    """预扫描(_cidrs)删除后,CSV 只被 _records 解析两次(族分区)。"""
+    from ipdb._sources import ipinfo_lite as mod
+    (tmp_path / "ipinfo_lite.csv").write_text(
+        "ip,network_start,network_end,country,continent,asn,as_name,as_domain\n"
+        "1.2.3.0/24,,,US,NA,AS65530,Test AS,test.example\n"
+        "2001:db8::/32,,,JP,AS,AS65531,V6 AS,v6.example\n"
+    )
+    opened = {"n": 0}
+    real_open = builtins.open
+    def counting_open(file, *a, **k):
+        if str(file).endswith("ipinfo_lite.csv"):
+            opened["n"] += 1
+        return real_open(file, *a, **k)
+    monkeypatch.setattr(builtins, "open", counting_open)
+    src = mod.IPinfoLiteSource(tmp_path)
+    src.rebuild()
+    assert opened["n"] == 2                  # 旧行为 4:_cidrs 2 + _records 2
+    assert src._covered_ips == 256
+    assert src._covered_v6_nets == 1

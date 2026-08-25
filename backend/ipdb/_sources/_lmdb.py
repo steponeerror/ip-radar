@@ -483,7 +483,8 @@ def covered_ip_count(cidr_strs, *, ip_version: int = 4) -> int:
     IPv4 by default: /32→1, /24→256, /16→65536. Bare IPs count as /32.
     O(1) memory — a running integer sum, no IPSet, no list — so it is safe
     to run over a million-row source. Invalid entries are skipped. A v6 CIDR
-    (ip_version=6) is count-as-1 (no v6 sources today; placeholder only).
+    (ip_version=6) is count-as-1 (v6 dual-family sources exist; streaming
+    sources count in-loop via covered=Auto instead).
     """
     bits = 32 if ip_version == 4 else 128
     total = 0
