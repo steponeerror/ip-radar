@@ -63,19 +63,18 @@ def test_csv_rebuild_calls_covered_ip_count_once(tmp_path, monkeypatch):
     assert sorted(calls["vers"]) == [4, 6]
 
 
-def test_source_base_rebuild_calls_covered_ip_count_once(tmp_path, monkeypatch):
-    """#6 Source (single_evidence path): covered per rebuild exactly once per
-    family — dual-family (v6 PR1) 后为 2 次:v4 一次、v6 一次,不许多不少。"""
+def test_source_base_rebuild_does_not_call_covered_ip_count(tmp_path, monkeypatch):
+    """#6 Source (single_evidence path): covered=Auto 迁移后重建不再调
+    covered_ip_count — 覆盖数在写库循环内统计(预扫描已删,harvest 4→2 次)。
+    IpListSource/CsvSource 物化位点仍走预扫描,见同文件前两测。"""
     from ipdb._source_base import Source
     from ipdb._evidence import Evidence
 
-    calls = {"n": 0, "vers": []}
-    real = lmdb_mod.covered_ip_count
+    calls = {"n": 0}
 
     def spy(cidrs, **kw):
         calls["n"] += 1
-        calls["vers"].append(kw.get("ip_version", 4))
-        return real(cidrs, **kw)
+        return 0
 
     monkeypatch.setattr(lmdb_mod, "covered_ip_count", spy)
 
@@ -87,9 +86,10 @@ def test_source_base_rebuild_calls_covered_ip_count_once(tmp_path, monkeypatch):
             yield "8.8.8.8", Evidence(classification_type="x", verdict="m")
 
     (tmp_path / "t.txt").write_text("marker\n")
-    _S(data_dir=tmp_path).rebuild()
-    assert calls["n"] == 2
-    assert sorted(calls["vers"]) == [4, 6]
+    src = _S(data_dir=tmp_path)
+    src.rebuild()
+    assert calls["n"] == 0
+    assert src.health().covered_ips == 1            # Auto 循环内统计照常落值
 
 
 def test_csvsource_load_resolves_to_iplist_source_load():
