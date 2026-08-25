@@ -139,6 +139,25 @@ def test_rebuild_dual_family_factory_form_streams(tmp_path):
     assert len(made) == 2          # 调了两次,各自过滤
     for e in envs: e.close()
 
+def test_rebuild_dual_family_progress_covers_v6(tmp_path):
+    """progress 跨 v4+v6 两 pass 单调递增:received 终值 == n4+n6,
+    不允许 v6 pass 从 0 重新计数(倒退会让 UI 行数回跳)。"""
+    from ipdb._sources._lmdb import rebuild_dual_family
+    envs = []
+    events = []
+    n4, n6 = rebuild_dual_family(
+        [("10.0.0.0/24", [{}]), ("2001:db8::/32", [{}])],
+        tmp_path / "p.lmdb", tmp_path / "p.v6.lmdb",
+        reader_setter4=envs.append, reader_setter6=envs.append,
+        progress=lambda done, total: events.append((done, total)))
+    assert (n4, n6) == (1, 1)
+    received = [d for d, _ in events]
+    assert received == sorted(received), f"progress 倒退: {events}"
+    totals = [tt for _, tt in events]
+    assert totals == sorted(totals), f"total 倒退: {events}"
+    assert events[-1] == (2, 2)  # 列表形态 len 已知:终值 (n4+n6, n4+n6)
+    for e in envs: e.close()
+
 def test_rebuild_dual_family_empty_v6_writes_ptr(tmp_path):
     from ipdb._sources._lmdb import rebuild_dual_family, read_ptr
     envs = []

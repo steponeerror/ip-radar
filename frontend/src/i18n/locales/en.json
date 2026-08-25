@@ -112,6 +112,8 @@
   "warmup.progress": "{done}/{total} sources",
   "warmup.current": "Current: {source} ↓ {pct}",
   "warmup.currentBytes": "Current: {source} ↓ {bytes}",
+  "warmup.currentRows": "Current: {source} ⋯ {rows} rows",
+  "warmup.throttled": "Memory pressure — rebuild paused, resumes automatically",
   "warmup.hint": "Queries unlock once the build completes — please keep this page open",
   "warmup.failed": "Build failed — please check your network connection",
   "warmup.retry": "Retry build",

@@ -427,7 +427,8 @@ def rebuild_dual_family(records, v4_base: Path, v6_base: Path, *,
     callable 形式会被调用两次、各自按族过滤——partition 不物化,OOM 安全)。
     分区规则: cidr 字符串含 ':' → v6(str(IPv4Network) 不可能含 ':')。
     v6 env 总是被建(空则空 env): Q3 不变量——v6 ptr 存在 ⇒ v6-aware 代码
-    已重建过此源。progress 只挂 v4 pass(UI 进度语义跟主数据面)。
+    已重建过此源。progress 挂两 pass:v4 原样;v6 经偏移包装上报
+    (n4 + done),received 全程单调不归零(UI 行数不回跳)。
     count4/count6: 各族 .count sidecar 覆盖——CsvSource 的 count 语义是
     证据数而非 CIDR 数(rebuild_lmdb 默认取 n),透传保语义不变。
     """
@@ -440,9 +441,15 @@ def rebuild_dual_family(records, v4_base: Path, v6_base: Path, *,
     n4 = rebuild_lmdb(rec4, v4_base, reader_setter4,
                       count=count4, covered=covered4, flag_setter=flag_setter4,
                       progress=progress)
+    progress6 = None
+    if progress is not None:
+        def progress6(done, total):           # 闭包捕 n4(v4 pass 已返回)
+            if done == 0 and total == 0:
+                return                          # 空 pass:v4 已报终值,不复发
+            progress(n4 + done, (n4 + total) if total > 0 else 0)
     n6 = rebuild_lmdb(rec6, v6_base, reader_setter6,
                       count=count6, covered=covered6, flag_setter=flag_setter6,
-                      ip_version=6)
+                      progress=progress6, ip_version=6)
     return n4, n6
 
 

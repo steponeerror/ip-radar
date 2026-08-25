@@ -112,6 +112,8 @@
   "warmup.progress": "{done}/{total} 源",
   "warmup.current": "当前: {source} ↓ {pct}",
   "warmup.currentBytes": "当前: {source} ↓ {bytes}",
+  "warmup.currentRows": "当前: {source} ⋯ {rows} 行",
+  "warmup.throttled": "内存压力 — 重建暂停，将自动恢复",
   "warmup.hint": "构建完成后即可查询,请勿关闭页面",
   "warmup.failed": "构建失败,请检查网络连接",
   "warmup.retry": "重试构建",

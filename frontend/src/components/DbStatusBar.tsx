@@ -28,6 +28,7 @@ const fmtRows = (n: number): string => {
   if (k >= 1) return `${k}K`;
   return `${n}`;
 };
+export { fmtRows };
 
 export function DbStatusBar() {
   const { t } = useI18n();
