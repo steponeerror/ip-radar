@@ -48,6 +48,13 @@ export interface ClassificationAssessment {
   sources: SourceAttribution[];
 }
 
+export interface ThreatSummary {
+  verdict: string;
+  confidence: number;
+  types: string[];
+  is_cdn: boolean;
+}
+
 export interface LookupResult {
   ip: string;
   country: MergedField<string>;
@@ -61,6 +68,8 @@ export interface LookupResult {
   attributes?: Record<string, AssetStatement[]>;
   error?: string;
   is_reserved?: boolean;
+  threat?: ThreatSummary;
+  location?: { lat: number; lon: number; accuracy_radius?: number } | null;
 }
 
 export interface DbStatus {

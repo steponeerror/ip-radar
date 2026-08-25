@@ -14,6 +14,8 @@ function extraHref(key: string, v: unknown): string | null {
   if (typeof v === "string" && /^https?:\/\//.test(v)) return v;
   if (key === "sbl_id" && typeof v === "string" && /^SBL\d+$/.test(v))
     return `https://check.spamhaus.org/sbl/query/${v}`;
+  if (key === "threatfox_ioc" && typeof v === "string" && /^\d+$/.test(v))
+    return `https://threatfox.abuse.ch/ioc/${v}/`;
   return null;
 }
 
