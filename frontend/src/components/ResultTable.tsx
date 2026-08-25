@@ -261,7 +261,10 @@ function ScoredCell({
 }) {
   return (
     <td className="px-3 py-2 whitespace-nowrap">
-      <span className={valueClass}>{value}</span>
+      <span
+        title={typeof value === "string" ? value : String(value)}
+        className={`inline-block max-w-[12rem] truncate align-bottom ${valueClass}`}
+      >{value}</span>
       <span className={`ml-1 text-[10px] ${confTextColor(confidence)}`}>({confidence})</span>
     </td>
   );
@@ -544,7 +547,7 @@ export function ResultTable({ results }: ResultTableProps) {
                     <td className="px-3 py-2 text-zinc-600">-</td>
                   )}
                   <td className="px-3 py-2 whitespace-nowrap">
-                    <span className="text-zinc-300">{r.as_name.value}</span>
+                    <span title={r.as_name.value} className="inline-block max-w-[16rem] truncate align-middle text-zinc-300">{r.as_name.value}</span>
                     <span className={`ml-1 text-[10px] ${confTextColor(r.as_name.confidence)}`}>({r.as_name.confidence})</span>
                     {r.is_isp && (
                       <span className="ml-1.5 rounded bg-emerald-500/15 px-1 py-0.5 text-[10px] text-emerald-400 ring-1 ring-emerald-500/25">
