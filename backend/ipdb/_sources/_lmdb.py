@@ -296,12 +296,17 @@ def _write_staged(path: Path, text: str) -> Path:
     return staged
 
 
+Auto = object()  # covered=Auto 哨兵:写库循环内统计覆盖数(见 rebuild_lmdb docstring)
+
+
 def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
-                 count: int | None = None, covered: int | None = None,
+                 count: int | None = None,
+                 covered: "int | Auto | None" = None,
                  map_size: int | None = None,
                  flag_setter: Callable[[bool], None] | None = None,
                  progress: Callable[[int, int], None] | None = None,
-                 ip_version: int = 4) -> int:
+                 ip_version: int = 4,
+                 covered_setter: Callable[[int], None] | None = None) -> int:
     """Stream-build a fresh epoch env, then atomically swap via ptr.
 
     Commit order (crash invariant): rename closed env dir → sidecars (staged
@@ -320,6 +325,10 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
     保护(与下载路径同剖面)。
 
     ip_version=6 时 CIDR 按 IPv6Network 解析、key 用 16 字节大端编码（v6 sidecar 专用）。
+
+    covered 三态:None=不写 .cov sidecar;int=照写调用方预计算值;Auto=写库
+    循环内统计实际入库记录的覆盖数(v4 Σ2^host_bits,v6 每网段计 1)。covered_setter
+    可选,与 flag_setter 同点(ptr+sidecar 提交后 race-free)回调统计值。
     """
     import shutil
     if ip_version not in (4, 6):
@@ -355,11 +364,17 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
     net_cls = (ipaddress.IPv6Network if ip_version == 6
                else ipaddress.IPv4Network)
     key_enc = encode_key6 if ip_version == 6 else encode_key
+    cov = 0
     for cidr, evidence in records:
         try:
             net = net_cls(cidr, strict=False)
         except (ipaddress.AddressValueError, ValueError):
             continue
+        if covered is Auto:            # net 已解析,零额外成本;统计=实际入库
+            if ip_version == 6:
+                cov += 1               # count-as-1 (与 covered_ip_count(v6) 同构)
+            else:
+                cov += 1 << (net.max_prefixlen - net.prefixlen)
         batch.append((key_enc(int(net.network_address)),
                       encode_value(int(net.broadcast_address), evidence)))
         n += 1
@@ -376,6 +391,8 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
     os.rename(staging, target)
 
     staged = []
+    if covered is Auto:
+        covered = cov                  # 归一:此后 covered 恒为 int
     try:
         if count is None:
             count = n
@@ -400,6 +417,8 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
     reader_setter(new_env)
     if flag_setter is not None:                 # ptr+sidecar 已提交 → race-free
         flag_setter(disjoint)
+    if covered_setter is not None:              # 同上不变量;covered 已归一为 int
+        covered_setter(covered)
     # best-effort prune older epochs
     if base.parent.exists():
         for child in base.parent.iterdir():
