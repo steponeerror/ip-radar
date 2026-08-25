@@ -92,3 +92,27 @@ def test_cn_isp_covered_ips(tmp_path):
     (src._isp_dir / "chinatelecom.txt").write_text("1.2.3.0/24\n10.0.0.0/16\n")
     src.rebuild()
     assert src.health().covered_ips == 256 + 65536
+
+
+def test_source_rebuild_harvests_twice_not_four(tmp_path):
+    """预扫描删除后,factory(内含 harvest)全程只被 dual 的两次 partition 调用。"""
+    calls = {"n": 0}
+
+    class _S(Source):
+        name = "hc"; filename = "hc.txt"; fields = ("is_malicious",)
+        single_evidence = True
+
+        def harvest(self):
+            calls["n"] += 1
+            yield "10.0.0.0/24", Evidence(
+                classification_type="x", verdict="malicious")
+            yield "2a00::/32", Evidence(
+                classification_type="x", verdict="malicious")
+
+    (tmp_path / "hc.txt").write_text("marker\n")
+    s = _S(data_dir=tmp_path)
+    n4 = s.rebuild()
+    assert n4 == 1
+    assert calls["n"] == 2                    # 现状是 4:预扫描 2 + partition 2
+    assert s.health().covered_ips == 256
+    assert s.health().covered_v6_nets == 1

@@ -125,7 +125,7 @@ class IPinfoLiteSource:
     def rebuild(self, progress=None) -> int:
         import ipaddress as _ipa
         import csv as _csv
-        from ._lmdb import rebuild_dual_family, covered_ip_count
+        from ._lmdb import rebuild_dual_family, Auto
         if not self._path.exists():
             return 0
         old_reader = self._reader
@@ -174,28 +174,19 @@ class IPinfoLiteSource:
                         val["as_domain"] = as_domain
                     yield network, val
 
-        def _cidrs():
-            with open(self._path, "r", encoding="utf-8") as f:
-                reader = _csv.reader(f)
-                next(reader, None)
-                for row in reader:
-                    if len(row) >= 1:
-                        yield row[0]
         try:
-            # 流式双族(3.4M 行 OOM 纪律):_records/_cidrs 均为生成器函数,
-            # 每次调用返回新迭代器,partition 不物化。
-            cov4 = covered_ip_count(c for c in _cidrs() if ":" not in c)
-            cov6 = covered_ip_count(
-                (c for c in _cidrs() if ":" in c), ip_version=6)
+            # 流式双族(3.4M 行 OOM 纪律):_records 为生成器函数,每次调用
+            # 返回新迭代器,partition 不物化。覆盖数经 Auto 循环内统计。
             n4, n6 = rebuild_dual_family(
                 _records, self._lmdb_base, self._lmdb6_base,
                 reader_setter4=lambda e: setattr(self, "_reader", e),
                 reader_setter6=lambda e: setattr(self, "_reader6", e),
                 flag_setter4=lambda v: setattr(self, "_disjoint", v),
                 flag_setter6=lambda v: setattr(self, "_disjoint6", v),
-                covered4=cov4, covered6=cov6, progress=progress)
-            self._covered_ips = cov4
-            self._covered_v6_nets = cov6
+                covered4=Auto, covered6=Auto,
+                covered_setter4=lambda v: setattr(self, "_covered_ips", v),
+                covered_setter6=lambda v: setattr(self, "_covered_v6_nets", v),
+                progress=progress)
             self._count = n4
             self._count6 = n6
             self._loaded_at = time.time()
