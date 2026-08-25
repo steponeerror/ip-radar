@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTasks } from "../tasks/TaskProvider";
 import { useWarming } from "../warming";
 import { useI18n } from "../i18n";
-import { fmtBytes } from "./DbStatusBar";
+import { fmtBytes, fmtRows } from "./DbStatusBar";
 
 export function WarmupBanner() {
   const { t } = useI18n();
@@ -38,7 +38,10 @@ export function WarmupBanner() {
 
   if (!warming) return null;
 
-  const currentTask = tasks.find(tk => tk.state === "downloading");
+  // downloading 优先;无下载中任务时退到 loading(流式源 total=0 重建阶段,
+  // 否则长重建期横幅对当前源零反馈 — geolite_city 15min 静默问题)
+  const currentTask = tasks.find(tk => tk.state === "downloading")
+    ?? tasks.find(tk => tk.state === "loading");
   const retry = async () => { await enqueueBatch(); };
 
   return (
@@ -64,7 +67,12 @@ export function WarmupBanner() {
           </div>
           {currentTask && (
             <div className="mt-2 text-sm text-zinc-400">
-              {currentTask.total && currentTask.total > 0
+              {currentTask.state === "loading"
+                ? t("warmup.currentRows", {
+                    source: currentTask.source,
+                    rows: fmtRows(currentTask.received ?? 0),
+                  })
+                : currentTask.total && currentTask.total > 0
                 ? t("warmup.current", {
                     source: currentTask.source,
                     pct: `${Math.round(((currentTask.received ?? 0) * 100) / currentTask.total)}%`,
@@ -73,6 +81,11 @@ export function WarmupBanner() {
                     source: currentTask.source,
                     bytes: fmtBytes(currentTask.received ?? 0),
                   })}
+            </div>
+          )}
+          {tasks.some((tk) => tk.state === "throttled") && (
+            <div className="mt-1 text-xs text-amber-400/80">
+              {t("warmup.throttled")}
             </div>
           )}
           <div className="mt-2 text-xs text-zinc-500">{t("warmup.hint")}</div>

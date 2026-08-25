@@ -296,12 +296,17 @@ def _write_staged(path: Path, text: str) -> Path:
     return staged
 
 
+Auto = object()  # covered=Auto 哨兵:写库循环内统计覆盖数(见 rebuild_lmdb docstring)
+
+
 def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
-                 count: int | None = None, covered: int | None = None,
+                 count: int | None = None,
+                 covered: "int | Auto | None" = None,
                  map_size: int | None = None,
                  flag_setter: Callable[[bool], None] | None = None,
                  progress: Callable[[int, int], None] | None = None,
-                 ip_version: int = 4) -> int:
+                 ip_version: int = 4,
+                 covered_setter: Callable[[int], None] | None = None) -> int:
     """Stream-build a fresh epoch env, then atomically swap via ptr.
 
     Commit order (crash invariant): rename closed env dir → sidecars (staged
@@ -320,6 +325,10 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
     保护(与下载路径同剖面)。
 
     ip_version=6 时 CIDR 按 IPv6Network 解析、key 用 16 字节大端编码（v6 sidecar 专用）。
+
+    covered 三态:None=不写 .cov sidecar;int=照写调用方预计算值;Auto=写库
+    循环内统计实际入库记录的覆盖数(v4 Σ2^host_bits,v6 每网段计 1)。covered_setter
+    可选,与 flag_setter 同点(ptr+sidecar 提交后 race-free)回调统计值。
     """
     import shutil
     if ip_version not in (4, 6):
@@ -355,11 +364,17 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
     net_cls = (ipaddress.IPv6Network if ip_version == 6
                else ipaddress.IPv4Network)
     key_enc = encode_key6 if ip_version == 6 else encode_key
+    cov = 0
     for cidr, evidence in records:
         try:
             net = net_cls(cidr, strict=False)
         except (ipaddress.AddressValueError, ValueError):
             continue
+        if covered is Auto:            # net 已解析,零额外成本;统计=实际入库
+            if ip_version == 6:
+                cov += 1               # count-as-1 (与 covered_ip_count(v6) 同构)
+            else:
+                cov += 1 << (net.max_prefixlen - net.prefixlen)
         batch.append((key_enc(int(net.network_address)),
                       encode_value(int(net.broadcast_address), evidence)))
         n += 1
@@ -376,6 +391,8 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
     os.rename(staging, target)
 
     staged = []
+    if covered is Auto:
+        covered = cov                  # 归一:此后 covered 恒为 int
     try:
         if count is None:
             count = n
@@ -400,6 +417,8 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
     reader_setter(new_env)
     if flag_setter is not None:                 # ptr+sidecar 已提交 → race-free
         flag_setter(disjoint)
+    if covered_setter is not None:              # 同上不变量;covered 已归一为 int
+        covered_setter(covered)
     # best-effort prune older epochs
     if base.parent.exists():
         for child in base.parent.iterdir():
@@ -415,11 +434,13 @@ def rebuild_dual_family(records, v4_base: Path, v6_base: Path, *,
                         reader_setter4: Callable, reader_setter6: Callable,
                         flag_setter4: Callable[[bool], None] | None = None,
                         flag_setter6: Callable[[bool], None] | None = None,
-                        covered4: int | None = None,
-                        covered6: int | None = None,
+                        covered4: "int | Auto | None" = None,
+                        covered6: "int | Auto | None" = None,
                         count4: int | None = None,
                         count6: int | None = None,
-                        progress: Callable[[int, int], None] | None = None
+                        progress: Callable[[int, int], None] | None = None,
+                        covered_setter4: Callable[[int], None] | None = None,
+                        covered_setter6: Callable[[int], None] | None = None
                         ) -> tuple[int, int]:
     """One records source → both family envs (spec §3).
 
@@ -427,7 +448,10 @@ def rebuild_dual_family(records, v4_base: Path, v6_base: Path, *,
     callable 形式会被调用两次、各自按族过滤——partition 不物化,OOM 安全)。
     分区规则: cidr 字符串含 ':' → v6(str(IPv4Network) 不可能含 ':')。
     v6 env 总是被建(空则空 env): Q3 不变量——v6 ptr 存在 ⇒ v6-aware 代码
-    已重建过此源。progress 只挂 v4 pass(UI 进度语义跟主数据面)。
+    已重建过此源。progress 挂两 pass:v4 原样;v6 经偏移包装上报
+    (n4 + done),received 全程单调不归零(UI 行数不回跳)。
+    covered4/covered6: 三态同 rebuild_lmdb——None=不写 .cov;int=照写
+    调用方预计算值;Auto=写库循环内统计(流式位点用,免预扫描)。
     count4/count6: 各族 .count sidecar 覆盖——CsvSource 的 count 语义是
     证据数而非 CIDR 数(rebuild_lmdb 默认取 n),透传保语义不变。
     """
@@ -439,10 +463,17 @@ def rebuild_dual_family(records, v4_base: Path, v6_base: Path, *,
         rec6 = [(c, e) for c, e in records if ":" in c]
     n4 = rebuild_lmdb(rec4, v4_base, reader_setter4,
                       count=count4, covered=covered4, flag_setter=flag_setter4,
-                      progress=progress)
+                      progress=progress, covered_setter=covered_setter4)
+    progress6 = None
+    if progress is not None:
+        def progress6(done, total):           # 闭包捕 n4(v4 pass 已返回)
+            if done == 0 and total == 0:
+                return                          # 空 pass:v4 已报终值,不复发
+            progress(n4 + done, (n4 + total) if total > 0 else 0)
     n6 = rebuild_lmdb(rec6, v6_base, reader_setter6,
                       count=count6, covered=covered6, flag_setter=flag_setter6,
-                      ip_version=6)
+                      progress=progress6, ip_version=6,
+                      covered_setter=covered_setter6)
     return n4, n6
 
 
@@ -452,7 +483,8 @@ def covered_ip_count(cidr_strs, *, ip_version: int = 4) -> int:
     IPv4 by default: /32→1, /24→256, /16→65536. Bare IPs count as /32.
     O(1) memory — a running integer sum, no IPSet, no list — so it is safe
     to run over a million-row source. Invalid entries are skipped. A v6 CIDR
-    (ip_version=6) is count-as-1 (no v6 sources today; placeholder only).
+    (ip_version=6) is count-as-1 (v6 dual-family sources exist; streaming
+    sources count in-loop via covered=Auto instead).
     """
     bits = 32 if ip_version == 4 else 128
     total = 0

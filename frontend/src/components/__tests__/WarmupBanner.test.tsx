@@ -59,6 +59,35 @@ describe("WarmupBanner", () => {
     expect(screen.getByText(/firehol_level2/)).toBeInTheDocument();
   });
 
+  it("shows loading task row count when total unknown (streaming source)", async () => {
+    (getDbStatus as any).mockResolvedValue({ warming_up: true, total_records: 0 });
+    render(<WarmupBanner />);
+    act(() => {
+      sse.onEvent?.({ type: "snapshot", data: {
+        tasks: [{ id: "t1", source: "geolite_city", host: null,
+                  state: "loading", error: null, batch_id: "b1",
+                  received: 2280000, total: 0 }],
+        batch: { id: "b1", state: "running", done: 14, total: 28 },
+      }});
+    });
+    expect(await screen.findByText(/geolite_city/)).toBeInTheDocument();
+    expect(screen.getByText(/2\.3M/)).toBeInTheDocument();
+  });
+
+  it("shows memory-pressure hint when all tasks throttled", async () => {
+    (getDbStatus as any).mockResolvedValue({ warming_up: true, total_records: 0 });
+    render(<WarmupBanner />);
+    act(() => {
+      sse.onEvent?.({ type: "snapshot", data: {
+        tasks: [{ id: "t1", source: "binarydefense", host: null,
+                  state: "throttled", error: null, batch_id: "b1",
+                  received: 0, total: 0 }],
+        batch: { id: "b1", state: "running", done: 0, total: 28 },
+      }});
+    });
+    expect(await screen.findByText(/内存压力|memory pressure/i)).toBeInTheDocument();
+  });
+
   it("shows failure + retry when warming + batch settled with zero sources (after 3s debounce)", async () => {
     vi.useFakeTimers();
     (getDbStatus as any).mockResolvedValue({ warming_up: true, total_records: 0 });

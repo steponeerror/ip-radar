@@ -296,3 +296,46 @@ def test_covered_ip_count_prefix_math_and_invalid_skipped():
     assert covered_ip_count(["8.8.8.8/32", "1.2.3.0/24", "10.0.0.0/16",
                              "8.8.8.8", "not-a-cidr", ""]) == 1 + 256 + 65536 + 1
     assert covered_ip_count([]) == 0
+
+
+# ── covered=Auto 循环内统计 (spec: 覆盖数并入写库循环) ──
+def test_rebuild_lmdb_auto_covered_counts_in_loop(tmp_path):
+    """covered=Auto: 循环内统计实际入库记录的覆盖数,v4=Σ2^host_bits。"""
+    from ipdb._sources._lmdb import rebuild_lmdb, Auto
+    envs = []
+    n = rebuild_lmdb(
+        [("10.0.0.0/24", [{}]), ("1.2.3.4", [{}]), ("bad-input", [{}])],
+        tmp_path / "t.lmdb", envs.append, covered=Auto)
+    assert n == 2
+    got = []
+    n2 = rebuild_lmdb(
+        [("192.168.0.0/16", [{}])],
+        tmp_path / "t2.lmdb", envs.append, covered=Auto,
+        covered_setter=got.append)
+    assert n2 == 1
+    assert got == [65536]                       # setter 在提交后以循环内累加值调用
+    assert (tmp_path / "t2.lmdb.cov").read_text() == "65536"
+    assert (tmp_path / "t.lmdb.cov").read_text() == str(256 + 1)  # 257,坏行不计
+    for e in envs: e.close()
+
+def test_rebuild_lmdb_auto_v6_counts_each_net_once(tmp_path):
+    """v6 pass: Auto 每条 +1 (count-as-1),与 covered_ip_count(v6) 同构。"""
+    from ipdb._sources._lmdb import rebuild_lmdb, Auto
+    envs = []
+    got = []
+    n = rebuild_lmdb(
+        [("2001:db8::/32", [{}]), ("2a00:1450:4001::/48", [{}])],
+        tmp_path / "t6.lmdb", envs.append, covered=Auto,
+        covered_setter=got.append, ip_version=6)
+    assert n == 2
+    assert got == [2]
+    assert (tmp_path / "t6.lmdb.cov").read_text() == "2"
+    envs[0].close()
+
+def test_rebuild_lmdb_none_still_writes_no_cov(tmp_path):
+    """回归锚: covered=None 依旧不写 .cov (bench/既有调用点零变化)。"""
+    from ipdb._sources._lmdb import rebuild_lmdb
+    envs = []
+    rebuild_lmdb([("10.0.0.0/24", [{}])], tmp_path / "t.lmdb", envs.append)
+    assert not (tmp_path / "t.lmdb.cov").exists()
+    envs[0].close()
