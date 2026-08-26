@@ -428,6 +428,12 @@ class UpdateManager:
                 self._set_state(task, "failed", str(e)); return
             finally:
                 task.token.on_progress = None
+            # host 锁语义收窄为「同 host 不并发下载」(spec 2026-08-26 §1):
+            # rebuild 是纯本地 CPU/磁盘,与远端限流无关,尽早释放让同 host
+            # 源的下载不再空等。置 None 使 finally 的判空释放天然安全。
+            if host_lock:
+                host_lock.release()
+                host_lock = None
             if task.token.is_cancelled():
                 self._set_state(task, "cancelled"); return
             task.received = task.total = 0
