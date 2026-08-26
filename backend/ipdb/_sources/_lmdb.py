@@ -24,6 +24,8 @@ import functools
 import ipaddress
 import logging
 import os
+import threading
+import weakref
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
@@ -229,18 +231,46 @@ def next_epoch(base: Path) -> int:
     return best + 1
 
 
+# 同进程同路径的只读 env 复用表(弱值):py-lmdb 禁止同路径双 handle,
+# 而旧 env 已改为 refcount 释放(不显式 close,见 Source.rebuild docstring),
+# 二次 load()/query 重试重开同一路径时会撞 "already open"。弱值保证不钉住
+# 旧 epoch — 末个引用消失即随 refcount 一起回收。
+# fork 语义:子进程继承本表的拷贝,但 handle 不跨进程共享 — pool 子进程
+# 各自调 open_env_read,在自己的地址空间里建 handle/表项。
+_OPEN_ENVS: "weakref.WeakValueDictionary[str, Any]" = weakref.WeakValueDictionary()
+_OPEN_ENVS_LOCK = threading.Lock()
+
+
 def open_env_read(path: Path):
     """Query-side env: readonly + lock=False — the env is never written
     in place (rebuilds write a fresh epoch dir), so readers need no
-    lock-file registration; safe across processes."""
-    return lmdb.open(str(path), readonly=True, lock=False, subdir=True)
+    lock-file registration; safe across processes. Idempotent per path,
+    but never resurrects an explicitly closed env."""
+    key = str(path)
+    with _OPEN_ENVS_LOCK:
+        env = _OPEN_ENVS.get(key)
+        if env is not None:
+            try:
+                env.info()                     # closed env 在此报错
+                return env
+            except lmdb.Error:
+                pass                            # 已显式 close:重开新 handle
+        env = lmdb.open(key, readonly=True, lock=False, subdir=True)
+        _OPEN_ENVS[key] = env
+        return env
 
 
 def cleanup_stale(base: Path) -> None:
     """Startup cleanup: drop crash-leftover ``.new.*`` dirs and epoch dirs
     not referenced by ptr. With no ptr (never built / first boot after
     wipe) leave epoch dirs alone — next rebuild continues from max+1."""
+    import os
     import shutil
+    if os.environ.get("IP_RADAR_POOL_CHILD"):
+        # pool 子进程(_batch_pool._init_worker 设此旗标):staging 目录
+        # 属主是主进程的在途 rebuild,懒孵化的 worker 首次批查询即会走到
+        # 这里 — rmtree 等于杀掉在途重建。启动清理只由主进程负责。
+        return
     parent = base.parent
     if not parent.exists():
         return
@@ -386,6 +416,21 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
             if progress is not None:
                 progress(n, max(total, n))   # feed 增长时跟随 received,防 >100%
     _flush()
+    if n == 0:
+        # 零记录守卫:历史 count>0 的空 rebuild 是 feed 异常(改格式/上游清
+        # 空),不得提交 — 旧 epoch + ptr 原样保留,任务显式失败走退避。
+        cp = count_path(base)
+        if cp.exists():
+            try:
+                prev = int(cp.read_text().strip())
+            except ValueError:
+                prev = 0
+            if prev > 0:
+                env.close()
+                shutil.rmtree(staging, ignore_errors=True)
+                raise RuntimeError(
+                    f"zero records parsed but previous count was {prev}; "
+                    "keeping old epoch")
     if progress is not None:
         progress(n, max(total, n))
     env.sync(True)
@@ -477,7 +522,8 @@ def rebuild_dual_family(records, v4_base: Path, v6_base: Path, *,
     n6 = rebuild_lmdb(rec6, v6_base, reader_setter6,
                       count=count6, covered=covered6, flag_setter=flag_setter6,
                       progress=progress6, ip_version=6,
-                      covered_setter=covered_setter6)
+                      covered_setter=covered_setter6,
+                      total_est=max(0, total_est - n4))
     return n4, n6
 
 

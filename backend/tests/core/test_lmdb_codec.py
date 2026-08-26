@@ -186,3 +186,55 @@ def test_rebuild_dual_family_empty_v6_writes_ptr(tmp_path):
     assert (n4, n6) == (1, 0)
     assert read_ptr(tmp_path / "c.v6.lmdb") is not None   # Q3 不变量
     for e in envs: e.close()
+
+
+def test_dual_family_streaming_v6_progress_uses_total_est(tmp_path):
+    """流式 factory(无 __len__)+ total_est:v6 pass 的进度事件必须携带
+    换算后的 total。断言 mid-flush 分数:终值事件经 max(total, n) 自适应
+    会空洞通过,故只认 BATCH_SIZE 边界前的未完成分数(修复前 v6 段
+    total 恒 0,事件形如 (d, 0),分数恒满)。"""
+    from ipdb._sources._lmdb import BATCH_SIZE, rebuild_dual_family
+
+    events = []
+
+    def records():
+        yield ("1.2.3.4/32", [{}])
+        yield ("1.2.3.5/32", [{}])
+        for i in range(BATCH_SIZE + 1):          # 触发一次 mid-flush + 终值
+            yield (f"2001:db8:{i:x}::/48", [{}])
+
+    n4, n6 = rebuild_dual_family(
+        records, tmp_path / "v4.lmdb", tmp_path / "v6.lmdb",
+        reader_setter4=lambda e: None, reader_setter6=lambda e: None,
+        progress=lambda done, total: events.append((done, total)),
+        total_est=BATCH_SIZE + 3)
+    assert (n4, n6) == (2, BATCH_SIZE + 1)
+    # v6 阶段(d 已越过 v4 计数)必须出现未完成分数:received < total
+    assert any(d < t for d, t in events if d > 2)
+
+
+def test_rebuild_lmdb_zero_records_with_history_raises_keeps_ptr(tmp_path):
+    """空记录 + 历史 count>0 → raise,ptr/sidecars 不动(旧 epoch 保留,
+    任务显式失败;防 feed 改格式后空 rebuild 清库)。"""
+    import pytest
+    from ipdb._sources._lmdb import rebuild_lmdb, count_path, ptr_path
+
+    base = tmp_path / "guard.lmdb"
+    # 预置历史:一次正常 rebuild 建库 + count sidecar
+    rebuild_lmdb([("10.0.0.0/24", [{}])], base, lambda e: None)
+    old_ptr = ptr_path(base).read_text().strip()
+    assert count_path(base).read_text().strip() == "1"
+
+    with pytest.raises(RuntimeError):
+        rebuild_lmdb([], base, lambda e: None)
+    # 提交未发生:ptr 仍指向旧 epoch,count sidecar 未被改写
+    assert ptr_path(base).read_text().strip() == old_ptr
+    assert count_path(base).read_text().strip() == "1"
+
+
+def test_rebuild_lmdb_zero_records_first_build_succeeds(tmp_path):
+    """首建(无 count sidecar)零记录仍成功 — 全新源空 feed 不是错误。"""
+    from ipdb._sources._lmdb import rebuild_lmdb, read_ptr
+    n = rebuild_lmdb([], tmp_path / "fresh.lmdb", lambda e: None)
+    assert n == 0
+    assert read_ptr(tmp_path / "fresh.lmdb") is not None

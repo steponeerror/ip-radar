@@ -44,8 +44,6 @@ class TorExitSource(IpListSource):
         from .._evidence import Evidence
         if not self._path.exists():
             return 0
-        old_reader = self._reader
-        old_reader6 = self._reader6
         records = []
         covered = []
         with open(self._path, "r", encoding="utf-8") as f:
@@ -71,31 +69,22 @@ class TorExitSource(IpListSource):
                 ).to_dict()
                 records.append((str(net), [ev]))
                 covered.append(str(net))
-        try:
-            cov4 = covered_ip_count(c for c in covered if ":" not in c)
-            cov6 = covered_ip_count(
-                (c for c in covered if ":" in c), ip_version=6)
-            n4, n6 = rebuild_dual_family(
-                records, self._lmdb_base, self._lmdb6_base,
-                reader_setter4=lambda e: setattr(self, "_reader", e),
-                reader_setter6=lambda e: setattr(self, "_reader6", e),
-                flag_setter4=lambda v: setattr(self, "_disjoint", v),
-                flag_setter6=lambda v: setattr(self, "_disjoint6", v),
-                covered4=cov4, covered6=cov6, progress=progress)
-            self._count = n4
-            self._count6 = n6
-            self._covered_ips = cov4
-            self._covered_v6_nets = cov6
-            self._loaded_at = time.time()
-            return n4
-        finally:
-            for old in (old_reader, old_reader6):
-                if old is not None:
-                    try:
-                        old.close()
-                    except Exception:
-                        pass
-
+        cov4 = covered_ip_count(c for c in covered if ":" not in c)
+        cov6 = covered_ip_count(
+            (c for c in covered if ":" in c), ip_version=6)
+        n4, n6 = rebuild_dual_family(
+            records, self._lmdb_base, self._lmdb6_base,
+            reader_setter4=lambda e: setattr(self, "_reader", e),
+            reader_setter6=lambda e: setattr(self, "_reader6", e),
+            flag_setter4=lambda v: setattr(self, "_disjoint", v),
+            flag_setter6=lambda v: setattr(self, "_disjoint6", v),
+            covered4=cov4, covered6=cov6, progress=progress)
+        self._count = n4
+        self._count6 = n6
+        self._covered_ips = cov4
+        self._covered_v6_nets = cov6
+        self._loaded_at = time.time()
+        return n4
     def get_insert_data(self) -> dict:
         from .._evidence import Evidence
         return Evidence(
