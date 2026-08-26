@@ -24,11 +24,12 @@ def test_needs_convert_respects_mtime(tmp_path):
     assert needs_convert(raw, ptr) is True
 
 
-def test_reload_closes_prior_reader(tmp_path, monkeypatch):
-    """rebuild() must close the prior mmap reader via double-buffer swap.
-
-    Without this, rebuild leaks an mmap + fd per source per rebuild, and on
-    Windows the prior reader locks the .mmdb so the rewrite fails.
+def test_reload_leaves_prior_reader_to_refcount(tmp_path, monkeypatch):
+    """rebuild() 不得显式 close 旧 reader(平行副本同此约定,见
+    _source_base.Source.rebuild docstring):查询线程可能正握着旧 env 的
+    在途 txn,close 是文档化段错误路径;rebuild 失败时 finally 里 close 的
+    其实是现役 reader。旧 env 由 CPython 引用计数在末个 txn 结束后释放,
+    旧 epoch 目录由 rebuild_lmdb 的 prune rmtree 清理(Linux fd 无碍)。
     """
     from ipdb._sources.ipinfo_lite import IPinfoLiteSource
 
@@ -39,15 +40,15 @@ def test_reload_closes_prior_reader(tmp_path, monkeypatch):
     src = IPinfoLiteSource(data_dir=tmp_path)
     src.rebuild()
     assert src._reader is not None
-    # The reader may be a C-extension object whose instance attrs are read-only,
-    # so swap in a plain close-spy to observe the close() call on rebuild.
     from types import SimpleNamespace
     closed = []
-    src._reader = SimpleNamespace(close=lambda: closed.append(1))
+    prior = SimpleNamespace(close=lambda: closed.append(1))
+    src._reader = prior
 
-    src.rebuild()                                          # triggers double-buffer swap
+    src.rebuild()                                          # double-buffer swap
 
-    assert closed == [1], "prior reader must be closed before reconversion"
+    assert closed == [], "rebuild must not close the prior reader"
+    assert src._reader is not prior, "new epoch reader must be swapped in"
 
 
 def test_ip_range_uses_stored_cidr_not_tree_depth(tmp_path):

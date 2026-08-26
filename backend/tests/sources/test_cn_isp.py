@@ -48,3 +48,14 @@ def test_cn_isp_hk_no_isp_badge(tmp_path: Path):
     assert rec["is_isp"] is False        # D6: HK/MO/TW hosting IPs are not ISPs
     assert rec["carrier"] == "香港"
     assert "as_name" not in rec
+
+
+def test_all_isp_files_failed_raises(tmp_path):
+    """全部 ISP 文件下载失败必须 raise(防空 rebuild 清库)。"""
+    import pytest
+    from unittest.mock import patch
+    from ipdb._sources.cn_isp import ChineseISPSource
+    src = ChineseISPSource(tmp_path)
+    with patch("urllib.request.urlopen", side_effect=RuntimeError("net down")):
+        with pytest.raises(RuntimeError):
+            src.download()

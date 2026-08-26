@@ -157,8 +157,6 @@ class IpListSource:
         from ._lmdb import covered_ip_count, rebuild_dual_family
         if not self._path.exists():
             return 0
-        old_reader = self._reader
-        old_reader6 = self._reader6
         insert_data = self.get_insert_data()
         records = []
         covered = []
@@ -179,31 +177,22 @@ class IpListSource:
                     continue
                 records.append((str(net), [insert_data]))
                 covered.append(str(net))
-        try:
-            cov4 = covered_ip_count(c for c in covered if ":" not in c)
-            cov6 = covered_ip_count(
-                (c for c in covered if ":" in c), ip_version=6)
-            n4, n6 = rebuild_dual_family(
-                records, self._lmdb_base, self._lmdb6_base,
-                reader_setter4=lambda e: setattr(self, "_reader", e),
-                reader_setter6=lambda e: setattr(self, "_reader6", e),
-                flag_setter4=lambda v: setattr(self, "_disjoint", v),
-                flag_setter6=lambda v: setattr(self, "_disjoint6", v),
-                covered4=cov4, covered6=cov6, progress=progress)
-            self._count = n4
-            self._count6 = n6
-            self._covered_ips = cov4
-            self._covered_v6_nets = cov6
-            self._loaded_at = time.time()
-            return n4
-        finally:
-            for old in (old_reader, old_reader6):
-                if old is not None:
-                    try:
-                        old.close()
-                    except Exception:
-                        pass      # lmdb env 二次 close/已失效:容忍
-
+        cov4 = covered_ip_count(c for c in covered if ":" not in c)
+        cov6 = covered_ip_count(
+            (c for c in covered if ":" in c), ip_version=6)
+        n4, n6 = rebuild_dual_family(
+            records, self._lmdb_base, self._lmdb6_base,
+            reader_setter4=lambda e: setattr(self, "_reader", e),
+            reader_setter6=lambda e: setattr(self, "_reader6", e),
+            flag_setter4=lambda v: setattr(self, "_disjoint", v),
+            flag_setter6=lambda v: setattr(self, "_disjoint6", v),
+            covered4=cov4, covered6=cov6, progress=progress)
+        self._count = n4
+        self._count6 = n6
+        self._covered_ips = cov4
+        self._covered_v6_nets = cov6
+        self._loaded_at = time.time()
+        return n4
     def query(self, ip: str) -> Any:
         if ":" in ip:                      # v6 查询走并行族 reader(spec §3.2)
             return self._query6(ip)
@@ -300,8 +289,6 @@ class CsvSource(IpListSource):
         from ._lmdb import covered_ip_count, rebuild_dual_family
         if not self._path.exists():
             return 0
-        old_reader = self._reader
-        old_reader6 = self._reader6
         # cidr_str -> list[evidence dict], deduped by full-evidence equality
         acc: dict[str, list[dict]] = {}
         with open(self._path, "r", encoding="utf-8") as f:
@@ -338,33 +325,24 @@ class CsvSource(IpListSource):
                 if any(parsed == o for o in bucket):
                     continue
                 bucket.append(parsed)
-        try:
-            v4_keys = (c for c in acc if ":" not in c)
-            v6_keys = (c for c in acc if ":" in c)
-            cov4 = covered_ip_count(v4_keys)
-            cov6 = covered_ip_count(v6_keys, ip_version=6)
-            # count 语义保持证据数(而非 CIDR 数)——与单族时代一致
-            cnt4 = sum(len(acc[c]) for c in acc if ":" not in c)
-            cnt6 = sum(len(acc[c]) for c in acc if ":" in c)
-            n4, n6 = rebuild_dual_family(
-                acc.items(), self._lmdb_base, self._lmdb6_base,
-                reader_setter4=lambda e: setattr(self, "_reader", e),
-                reader_setter6=lambda e: setattr(self, "_reader6", e),
-                flag_setter4=lambda v: setattr(self, "_disjoint", v),
-                flag_setter6=lambda v: setattr(self, "_disjoint6", v),
-                covered4=cov4, covered6=cov6,
-                count4=cnt4, count6=cnt6, progress=progress)
-            self._count = cnt4
-            self._count6 = cnt6
-            self._covered_ips = cov4
-            self._covered_v6_nets = cov6
-            self._loaded_at = time.time()
-            return n4
-        finally:
-            for old in (old_reader, old_reader6):
-                if old is not None:
-                    try:
-                        old.close()
-                    except Exception:
-                        pass      # lmdb env 二次 close/已失效:容忍
-
+        v4_keys = (c for c in acc if ":" not in c)
+        v6_keys = (c for c in acc if ":" in c)
+        cov4 = covered_ip_count(v4_keys)
+        cov6 = covered_ip_count(v6_keys, ip_version=6)
+        # count 语义保持证据数(而非 CIDR 数)——与单族时代一致
+        cnt4 = sum(len(acc[c]) for c in acc if ":" not in c)
+        cnt6 = sum(len(acc[c]) for c in acc if ":" in c)
+        n4, n6 = rebuild_dual_family(
+            acc.items(), self._lmdb_base, self._lmdb6_base,
+            reader_setter4=lambda e: setattr(self, "_reader", e),
+            reader_setter6=lambda e: setattr(self, "_reader6", e),
+            flag_setter4=lambda v: setattr(self, "_disjoint", v),
+            flag_setter6=lambda v: setattr(self, "_disjoint6", v),
+            covered4=cov4, covered6=cov6,
+            count4=cnt4, count6=cnt6, progress=progress)
+        self._count = cnt4
+        self._count6 = cnt6
+        self._covered_ips = cov4
+        self._covered_v6_nets = cov6
+        self._loaded_at = time.time()
+        return n4

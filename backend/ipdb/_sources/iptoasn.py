@@ -39,11 +39,12 @@ class IPtoASNSource(Source):
             with gzip.open(gz_path, "rb") as f_in:
                 with open(tmp, "wb") as f_out:
                     shutil.copyfileobj(f_in, f_out)
-            tmp.replace(self._path)
-            with open(self._path, "r", encoding="utf-8") as f:
+            # 空检在换位之前:空文件落地 _path 会被下次 rebuild 吃掉(清库族)
+            with open(tmp, "r", encoding="utf-8") as f:
                 line_count = sum(1 for _ in f)
             if line_count == 0:
                 raise RuntimeError("Downloaded file is empty")
+            tmp.replace(self._path)
             logger.info(f"Downloaded IPtoASN ({line_count} lines)")
         finally:
             gz_path.unlink(missing_ok=True)

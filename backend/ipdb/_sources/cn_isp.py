@@ -66,6 +66,8 @@ class ChineseISPSource(Source):
             except Exception as e:
                 logger.error(f"Failed to download {isp_name}.txt: {e}")
                 dest.unlink(missing_ok=True)       # don't leave stale to be mixed in
+        if not any((self._isp_dir / f"{n}.txt").exists() for n in _ISP_FILES):
+            raise RuntimeError("all CN ISP files failed to download")
 
     def load(self) -> int:
         from ._lmdb import (read_ptr, open_env_read, cleanup_stale, count_path,
@@ -90,8 +92,6 @@ class ChineseISPSource(Source):
     def rebuild(self, progress=None) -> int:
         import ipaddress as _ipa
         from ._lmdb import covered_ip_count, rebuild_dual_family
-        old_reader = self._reader
-        old_reader6 = self._reader6
 
         best: dict[str, dict] = {}
         for isp_name, (country, label) in _ISP_FILES.items():
@@ -113,32 +113,23 @@ class ChineseISPSource(Source):
                     if existing and existing["isp"] != "其他" and label == "其他":
                         continue
                     best[line] = {"country_code": country, "isp": label, "_net": line}
-        try:
-            cov4 = covered_ip_count(c for c in best.keys() if ":" not in c)
-            cov6 = covered_ip_count(
-                (c for c in best.keys() if ":" in c), ip_version=6)
-            n4, n6 = rebuild_dual_family(
-                best.items(), self._lmdb_base, self._lmdb6_base,
-                reader_setter4=lambda e: setattr(self, "_reader", e),
-                reader_setter6=lambda e: setattr(self, "_reader6", e),
-                flag_setter4=lambda v: setattr(self, "_disjoint", v),
-                flag_setter6=lambda v: setattr(self, "_disjoint6", v),
-                covered4=cov4, covered6=cov6, progress=progress,
-            )
-            self._covered_ips = cov4
-            self._count = n4
-            self._count6 = n6
-            self._covered_v6_nets = cov6
-            self._loaded_at = time.time()
-            return n4
-        finally:
-            for old in (old_reader, old_reader6):
-                if old is not None:
-                    try:
-                        old.close()
-                    except Exception:
-                        pass          # lmdb env 二次 close/已失效:容忍
-
+        cov4 = covered_ip_count(c for c in best.keys() if ":" not in c)
+        cov6 = covered_ip_count(
+            (c for c in best.keys() if ":" in c), ip_version=6)
+        n4, n6 = rebuild_dual_family(
+            best.items(), self._lmdb_base, self._lmdb6_base,
+            reader_setter4=lambda e: setattr(self, "_reader", e),
+            reader_setter6=lambda e: setattr(self, "_reader6", e),
+            flag_setter4=lambda v: setattr(self, "_disjoint", v),
+            flag_setter6=lambda v: setattr(self, "_disjoint6", v),
+            covered4=cov4, covered6=cov6, progress=progress,
+        )
+        self._covered_ips = cov4
+        self._count = n4
+        self._count6 = n6
+        self._covered_v6_nets = cov6
+        self._loaded_at = time.time()
+        return n4
     def query(self, ip: str) -> dict:
         if ":" in ip:
             # v6 走并行族 reader(Source._query6)。上游无 v6 文件(C 类),

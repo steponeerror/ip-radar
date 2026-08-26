@@ -109,3 +109,24 @@ def test_harvest_drops_empty_country_and_as_name(tmp_path: Path):
     assert "country_code" not in d
     assert d["as_name"] == "Cloudflare"
     assert d["asn"] == 13335
+
+
+def test_empty_download_does_not_replace_path(tmp_path):
+    """空 gzip 不得落地为 _path:换位在空检之后,防下次 rebuild 吃空文件。"""
+    import gzip as _gzip
+    from unittest.mock import patch
+    from ipdb._sources.iptoasn import IPtoASNSource
+    prior = tmp_path / "ip-to-asn.tsv"
+    prior.write_text("1.0.0.0\t1.0.0.255\t13335\tAU\tCloudflare\n")
+    src = IPtoASNSource(data_dir=tmp_path)
+
+    def fake_dl(url, dest, token=None, headers=None, **kw):
+        with open(dest, "wb") as f:
+            with _gzip.GzipFile(fileobj=f, mode="wb"):
+                pass                      # 空 gzip
+
+    with patch("ipdb._sources.iptoasn.download_file", side_effect=fake_dl):
+        import pytest
+        with pytest.raises(RuntimeError):
+            src.download()
+    assert "1.0.0.0" in prior.read_text()   # 旧数据保留,未被空文件顶掉

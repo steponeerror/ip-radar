@@ -41,3 +41,15 @@ def test_health_uses_max_mtime(tmp_path: Path):
     h = s.health()
     assert h.loaded is False
     assert h.last_updated is not None
+
+
+def test_all_lists_failed_raises(tmp_path):
+    """全部 list 下载失败必须 raise(防空 rebuild 清库);见 firehol 同名测试。"""
+    import pytest
+    from unittest.mock import patch
+    from ipdb._sources.blocklist_de import BlocklistDeSource
+    src = BlocklistDeSource(tmp_path)
+    with patch("ipdb._sources.blocklist_de.download_file",
+               side_effect=RuntimeError("boom")):
+        with pytest.raises(RuntimeError):
+            src.download()

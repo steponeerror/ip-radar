@@ -69,3 +69,15 @@ describe("threatDisplay", () => {
     expect(s.hasThreats).toBe(false);
   });
 });
+
+  it("classLabel covers every classification type the backend can emit", async () => {
+    // 後端 normalize+源聲明的實際輸出全集(backend/ipdb/_classification.py 各 _MAP 值 ∪ 源 classification_type);缺鍵 = 界面顯示原始字串(本次 bug)
+    const emitted = ["abuse-reports", "blacklist", "botnet", "brute-force",
+      "c2-server", "ddos", "exploit", "malware", "malware-distribution",
+      "other", "phishing", "proxy", "scanner", "spam", "tor"];
+    const enT = (k: string) => translate("en", k);
+    for (const ty of emitted) {
+      expect(classLabel(ty, enT), `missing class label for ${ty}`)
+        .not.toBe(ty.replace(/-/g, " "));
+    }
+  });
