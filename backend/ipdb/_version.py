@@ -70,6 +70,16 @@ def _client_factory() -> "httpx.AsyncClient":
     return httpx.AsyncClient(timeout=10.0, follow_redirects=True)
 
 
+def _release_summary(body: str | None) -> str | None:
+    """release markdown → 单行纯文本(横幅小字用):去链接/标记,压空白,截 200。"""
+    if not body:
+        return None
+    s = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", body)   # [text](url) → text
+    s = re.sub(r"[#*_`>]", "", s)                             # md 标记
+    s = re.sub(r"\s+", " ", s).strip()
+    return s[:200] or None
+
+
 async def fetch_latest(force: bool = False) -> dict | None:
     """查 GitHub latest release;缓存 1h,失败降级旧缓存,从未成功 → None。"""
     global _cache, _cache_at, _etag
@@ -90,7 +100,7 @@ async def fetch_latest(force: bool = False) -> dict | None:
         _etag = resp.headers.get("ETag")
         _cache = {
             "tag": data["tag_name"],
-            "summary": (data.get("body") or "")[:200] or None,
+            "summary": _release_summary(data.get("body")),
             "url": data.get("html_url") or _RELEASES_URL,
         }
         _cache_at = time.monotonic()

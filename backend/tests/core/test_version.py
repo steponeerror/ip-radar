@@ -138,3 +138,14 @@ class TestFetchLatest:
         with patch.object(_version, "_client_factory", lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler))):
             r = await _version.fetch_latest()
         assert len(r["summary"]) == 200
+
+
+def test_release_summary_strips_markdown():
+    body = ("## 亮点 Highlights\n\n- **运营方列** + [CDN 防误判](http://x)"
+            " —— 表格列升级\n  - **Operator column** `badge`\n\n```bash\ngit pull\n```")
+    out = _version._release_summary(body)
+    assert out == ("亮点 Highlights - 运营方列 + CDN 防误判 —— 表格列升级"
+                   " - Operator column badge bash git pull")
+    assert "[" not in out and "**" not in out and "#" not in out
+    assert _version._release_summary(None) is None
+    assert _version._release_summary("") is None
