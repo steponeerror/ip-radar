@@ -159,7 +159,7 @@ class FakeManager:
         self._states = {}         # task_id -> state (scripted)
         self._next_task_id = 0
 
-    def enqueue_one_detached(self, name):
+    def enqueue_one_detached(self, name, skip_download_if_fresh=False):
         tid = f"t{self._next_task_id}"
         self._next_task_id += 1
         self.enqueued.append(name)

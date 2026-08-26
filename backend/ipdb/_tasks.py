@@ -1,6 +1,7 @@
 """UpdateManager — unified trackable/abortable source-update task runner."""
 import asyncio
 import inspect
+import logging
 import threading
 import time
 import uuid
@@ -9,6 +10,8 @@ from dataclasses import dataclass, field
 from typing import Callable, Optional
 
 from ._sources._download import CancelledError, CancelToken
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -24,6 +27,10 @@ class Task:
     received: int = 0
     total: int = 0
     token: CancelToken = field(default_factory=CancelToken)
+    # ④(spec 2026-08-26 §3):调度器重试路径专用 —— raw 文件 mtime > ptr mtime
+    # (下载已成功、rebuild 失败)时跳过下载段,直接重建,不烧配额源日限额。
+    # 手动「立即更新」(enqueue_one/批量)永不置位:强制拉新。
+    skip_download_if_fresh: bool = False
     # Idempotency guard for _settle: a terminal task can be settled from two
     # places (cancel()'s _settle and _run_task's finally _settle) when cancel
     # races dispatch. Without this flag, both calls increment batch.done (#1).
@@ -92,15 +99,18 @@ class UpdateManager:
     def enqueue_one(self, name: str) -> Task:
         return self._enqueue_one(name, self._active_batch)
 
-    def enqueue_one_detached(self, name: str) -> Task:
+    def enqueue_one_detached(self, name: str, skip_download_if_fresh: bool = False) -> Task:
         """Enqueue a task with batch_id=None, so scheduler-triggered refreshes
         are never absorbed into an in-flight manual batch (which would corrupt
         that batch's done/total via _settle). Shares dedup with enqueue_one:
         if the source already has an in-flight task, that task is returned
-        unchanged — no new task, no new pollution."""
-        return self._enqueue_one(name, None)
+        unchanged — no new task, no new pollution.
 
-    def _enqueue_one(self, name: str, batch_id: Optional[str]) -> Task:
+        skip_download_if_fresh: ④ 重试免重下标志(默认 False 兼容)。"""
+        return self._enqueue_one(name, None, skip_download_if_fresh=skip_download_if_fresh)
+
+    def _enqueue_one(self, name: str, batch_id: Optional[str],
+                     skip_download_if_fresh: bool = False) -> Task:
         source = self._resolve(name)
         if source is None:
             raise ValueError(f"unknown source: {name}")
@@ -124,7 +134,8 @@ class UpdateManager:
                 self._prog.pop(tid, None)
             task = Task(id=uuid.uuid4().hex[:12], source_name=name,
                         host=getattr(source, "download_host", None),
-                        batch_id=batch_id)
+                        batch_id=batch_id,
+                        skip_download_if_fresh=skip_download_if_fresh)
             self._tasks[task.id] = task
             self._by_source[name] = task.id
             # A task attaching to the active batch AFTER populate (re-enable
@@ -416,18 +427,32 @@ class UpdateManager:
             host_lock.acquire()
         src_lock.acquire()
         try:
-            task.received = task.total = 0
-            self._set_state(task, "downloading")
-            self._prog[task.id] = (0.0, -1)
-            task.token.on_progress = lambda r, t: self._emit_progress(task, r, t)
-            try:
-                source.download(token=task.token)
-            except CancelledError:
-                self._set_state(task, "cancelled"); return
-            except Exception as e:
-                self._set_state(task, "failed", str(e)); return
-            finally:
-                task.token.on_progress = None
+            # ④:调度重试路径,raw 比 ptr 新(下载已成功、重建未提交)→ 跳过
+            # 下载段免烧配额。不变量链见 spec §3;stat 失败保守回退下载。
+            skip_dl = False
+            if task.skip_download_if_fresh:
+                try:
+                    ptr_p = getattr(source, "_mmdb_path", None)   # 即 ptr 文件(名保留)
+                    if ptr_p is not None and ptr_p.exists() and source._path.exists():
+                        skip_dl = source._path.stat().st_mtime > ptr_p.stat().st_mtime
+                except OSError:
+                    skip_dl = False
+            if not skip_dl:
+                task.received = task.total = 0
+                self._set_state(task, "downloading")
+                self._prog[task.id] = (0.0, -1)
+                task.token.on_progress = lambda r, t: self._emit_progress(task, r, t)
+                try:
+                    source.download(token=task.token)
+                except CancelledError:
+                    self._set_state(task, "cancelled"); return
+                except Exception as e:
+                    self._set_state(task, "failed", str(e)); return
+                finally:
+                    task.token.on_progress = None
+            else:
+                logger.info("scheduler retry: raw newer than ptr, skip download (%s)",
+                            task.source_name)
             # host 锁语义收窄为「同 host 不并发下载」(spec 2026-08-26 §1):
             # rebuild 是纯本地 CPU/磁盘,与远端限流无关,尽早释放让同 host
             # 源的下载不再空等。置 None 使 finally 的判空释放天然安全。

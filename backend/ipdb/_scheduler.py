@@ -105,7 +105,11 @@ class RefreshScheduler:
                     if mtime is not None and now < _due_at(
                             name, mtime, source.stale_days):
                         continue
-                task = self._manager.enqueue_one_detached(name)
+                # ④(spec 2026-08-26 §3):重试免重下 —— 上一轮 download 已
+                # 成功(rebuild 失败)时,raw mtime > ptr mtime,由 _run_task
+                # 跳过下载段,配额源(3/日)不再被重试烧掉。
+                task = self._manager.enqueue_one_detached(
+                    name, skip_download_if_fresh=True)
                 self._last_task[name] = task.id
                 self._last_attempt[name] = now
                 self._baseline_mtime[name] = self._read_mtime(source)
