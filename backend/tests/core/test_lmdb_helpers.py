@@ -339,3 +339,39 @@ def test_rebuild_lmdb_none_still_writes_no_cov(tmp_path):
     rebuild_lmdb([("10.0.0.0/24", [{}])], tmp_path / "t.lmdb", envs.append)
     assert not (tmp_path / "t.lmdb.cov").exists()
     envs[0].close()
+
+
+def test_cleanup_stale_skipped_in_pool_child(tmp_path, monkeypatch):
+    """pool 子进程不得 rmtree 主进程在途的 .new.<pid> staging 目录
+    (lazy ProcessPoolExecutor spawn 使常规批查询即可触达)。"""
+    from ipdb._sources._lmdb import cleanup_stale
+    base = tmp_path / "s.lmdb"
+    staging = tmp_path / "s.lmdb.7.new.4242"
+    staging.mkdir()
+    (staging / "data.mdb").write_text("x")
+
+    monkeypatch.setenv("IP_RADAR_POOL_CHILD", "1")
+    cleanup_stale(base)
+    assert staging.exists()          # 子进程:在途目录保留
+
+    monkeypatch.delenv("IP_RADAR_POOL_CHILD")
+    cleanup_stale(base)
+    assert not staging.exists()      # 主进程:照常清理
+
+
+def test_open_env_read_interns_per_path_and_reopens_after_close(tmp_path):
+    """同路径只读 env 复用表(0b477330 后 FIX7 的伴随机制):
+    1) 同路径二次 open_env_read 返回同一 handle(弱值 intern);
+    2) 显式 close 后不得复活 —— 重开必须是可用的新 handle。"""
+    ro_path = tmp_path / "ro2"
+    e = lmdb.open(str(ro_path), map_size=1024 * 1024)
+    with e.begin(write=True) as txn:
+        txn.put(encode_key(1), encode_value(1, {"v": 1}))
+    e.close()
+    a = open_env_read(ro_path)
+    assert open_env_read(ro_path) is a          # intern:同 handle
+    a.close()
+    b = open_env_read(ro_path)                  # 不得复活已 close 的 env
+    assert b is not a
+    assert lookup(b, 1) == {"v": 1}             # 新 handle 可用
+    b.close()

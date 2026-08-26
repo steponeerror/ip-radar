@@ -203,3 +203,22 @@ def test_n_workers_cli_prints_int(monkeypatch, capsys):
     _batch_pool._cli(["n-workers"])
     out = capsys.readouterr().out.strip()
     assert out == "2"
+
+
+def test_init_worker_sets_pool_child_flag(monkeypatch):
+    """FIX6 接线钉死:_init_worker 必须设 IP_RADAR_POOL_CHILD(cleanup_stale
+    见旗标即退)。删掉那行生产代码本测试必红 —— 无此接线,懒孵化子进程
+    会 rmtree 主进程在途的 .new.<pid> staging。"""
+    import os
+    from unittest.mock import patch
+    from ipdb import _batch_pool, _registry
+    os.environ.pop("IP_RADAR_POOL_CHILD", None)
+    try:
+        # load_db 重:registry 全源装载,单元测试只需接线行为 —— 打桩。
+        with patch.object(_registry, "load_db"):
+            _batch_pool._init_worker()
+        assert os.environ.get("IP_RADAR_POOL_CHILD") == "1"
+    finally:
+        # 生产代码直接 set(非 monkeypatch 通道),必须手工回收 ——
+        # 泄漏会让同进程后续 cleanup_stale 测试全部静默 skip。
+        os.environ.pop("IP_RADAR_POOL_CHILD", None)
