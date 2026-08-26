@@ -137,6 +137,9 @@ def _init_worker():
     Spawn-safe: this module is imported as ipdb._batch_pool in the child."""
     global _IN_POOL_WORKER
     _IN_POOL_WORKER = True
+    # 子进程永不跑启动清理(cleanup_stale 见此旗标即退):懒孵化的 worker
+    # 首次批查询就会 load_db,不得 rmtree 主进程在途的 .new.<pid> staging。
+    os.environ["IP_RADAR_POOL_CHILD"] = "1"
     from ipdb import _registry
     _registry.load_db()
 

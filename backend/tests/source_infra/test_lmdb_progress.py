@@ -22,12 +22,15 @@ def test_progress_known_total_initial_then_flush_ticks(tmp_path):
 
 
 def test_progress_generator_total_unknown_no_initial(tmp_path):
+    """无 __len__ 且无 total_est:不发初始(0,total);但终值 total 跟随
+    received(否则 UI 永远 --%,spec 2026-08-26 进度修复)。"""
     calls = []
     gen = (r for r in _records(25_000))
     rebuild_lmdb(gen, _base(tmp_path),
                  reader_setter=lambda e: None,
                  progress=lambda n, t: calls.append((n, t)))
-    assert calls == [(10_000, 0), (20_000, 0), (25_000, 0)]
+    assert calls[0] == (10_000, 10_000)
+    assert calls == [(10_000, 10_000), (20_000, 20_000), (25_000, 25_000)]
 
 
 def test_progress_none_smoke(tmp_path):

@@ -2,7 +2,7 @@
 
 AbuseIPDB's `/api/v2/blacklist` endpoint (https://docs.abuseipdb.com/) returns
 the most-reported IPs. With `Accept: application/json` it yields
-`{"data": [{"ipAddress": ..., "lastReportedAt": ...}, ...]}`, filtered to
+`{"data": [{"ipAddress": ..., "lastReportedAt": ..., "totalReports": ...}, ...]}`, filtered to
 `abuseConfidenceScore >= confidenceMinimum` (default 100, i.e. confirmed
 abusers). Requires an API key — register at abuseipdb.com and set
 ABUSEIPDB_API_KEY in .env.
@@ -68,7 +68,7 @@ class AbuseIPDBSource(IpListSource):
         self._data_dir.mkdir(parents=True, exist_ok=True)
         url = (
             f"{_API_BASE}?confidenceMinimum={self._confidence_minimum}"
-            f"&limit={self._limit}"
+            f"&limit={self._limit}&fields=lastReportedAt,totalReports"
         )
         logger.info(
             f"Downloading {self.name} (confidenceMinimum>={self._confidence_minimum})...")
@@ -100,8 +100,6 @@ class AbuseIPDBSource(IpListSource):
         from .._evidence import Evidence
         if not self._path.exists():
             return 0
-        old_reader = self._reader
-        old_reader6 = self._reader6
         try:
             data = json.loads(self._path.read_bytes())
         except ValueError:
@@ -121,35 +119,29 @@ class AbuseIPDBSource(IpListSource):
             except (ValueError, _ipa.AddressValueError,
                     _ipa.NetmaskValueError):
                 continue
+            total = item.get("totalReports")
             ev = Evidence(
                 classification_type=self.classification_type,
                 verdict=self.verdict,
                 reliability=self.reliability,
                 last_seen=last or None,
+                reporter_count=total or None,
             ).to_dict()
             records.append((str(net), [ev]))
             covered.append(str(net))
-        try:
-            cov4 = covered_ip_count(c for c in covered if ":" not in c)
-            cov6 = covered_ip_count(
-                (c for c in covered if ":" in c), ip_version=6)
-            n4, n6 = rebuild_dual_family(
-                records, self._lmdb_base, self._lmdb6_base,
-                reader_setter4=lambda e: setattr(self, "_reader", e),
-                reader_setter6=lambda e: setattr(self, "_reader6", e),
-                flag_setter4=lambda v: setattr(self, "_disjoint", v),
-                flag_setter6=lambda v: setattr(self, "_disjoint6", v),
-                covered4=cov4, covered6=cov6, progress=progress)
-            self._count = n4
-            self._count6 = n6
-            self._covered_ips = cov4
-            self._covered_v6_nets = cov6
-            self._loaded_at = time.time()
-            return n4
-        finally:
-            for old in (old_reader, old_reader6):
-                if old is not None:
-                    try:
-                        old.close()
-                    except Exception:
-                        pass          # lmdb env 二次 close/已失效:容忍
+        cov4 = covered_ip_count(c for c in covered if ":" not in c)
+        cov6 = covered_ip_count(
+            (c for c in covered if ":" in c), ip_version=6)
+        n4, n6 = rebuild_dual_family(
+            records, self._lmdb_base, self._lmdb6_base,
+            reader_setter4=lambda e: setattr(self, "_reader", e),
+            reader_setter6=lambda e: setattr(self, "_reader6", e),
+            flag_setter4=lambda v: setattr(self, "_disjoint", v),
+            flag_setter6=lambda v: setattr(self, "_disjoint6", v),
+            covered4=cov4, covered6=cov6, progress=progress)
+        self._count = n4
+        self._count6 = n6
+        self._covered_ips = cov4
+        self._covered_v6_nets = cov6
+        self._loaded_at = time.time()
+        return n4

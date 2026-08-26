@@ -78,6 +78,9 @@ class BlocklistDeSource(IpListSource):
             except Exception as e:
                 logger.error(f"Failed to download blocklist_de/{list_name}: {e}")
                 dest.unlink(missing_ok=True)       # don't leave stale to be mixed in
+        if not any((self._path / f"{l}.txt").exists() for l in self._lists):
+            raise RuntimeError(
+                f"all blocklist_de lists failed to download: {self._lists}")
 
     def load(self) -> int:
         """纯 mmap:打开已有 LMDB env,读 sidecar,不重建。"""
@@ -108,8 +111,6 @@ class BlocklistDeSource(IpListSource):
         from .._evidence import Evidence
         if not self._path.exists():
             return 0
-        old_reader = self._reader
-        old_reader6 = self._reader6
 
         # cidr -> {"classification_type": ..., "native_categories": [...]}
         acc: dict[str, dict] = {}
@@ -148,31 +149,22 @@ class BlocklistDeSource(IpListSource):
             for cidr, info in acc.items()
         ]
 
-        try:
-            cov4 = covered_ip_count(c for c in acc.keys() if ":" not in c)
-            cov6 = covered_ip_count(
-                (c for c in acc.keys() if ":" in c), ip_version=6)
-            n4, n6 = rebuild_dual_family(
-                records, self._lmdb_base, self._lmdb6_base,
-                reader_setter4=lambda e: setattr(self, "_reader", e),
-                reader_setter6=lambda e: setattr(self, "_reader6", e),
-                flag_setter4=lambda v: setattr(self, "_disjoint", v),
-                flag_setter6=lambda v: setattr(self, "_disjoint6", v),
-                covered4=cov4, covered6=cov6, progress=progress)
-            self._covered_ips = cov4
-            self._count = n4
-            self._count6 = n6
-            self._covered_v6_nets = cov6
-            self._loaded_at = time.time()
-            return n4
-        finally:
-            for old in (old_reader, old_reader6):
-                if old is not None:
-                    try:
-                        old.close()
-                    except Exception:
-                        pass          # lmdb env 二次 close/已失效:容忍
-
+        cov4 = covered_ip_count(c for c in acc.keys() if ":" not in c)
+        cov6 = covered_ip_count(
+            (c for c in acc.keys() if ":" in c), ip_version=6)
+        n4, n6 = rebuild_dual_family(
+            records, self._lmdb_base, self._lmdb6_base,
+            reader_setter4=lambda e: setattr(self, "_reader", e),
+            reader_setter6=lambda e: setattr(self, "_reader6", e),
+            flag_setter4=lambda v: setattr(self, "_disjoint", v),
+            flag_setter6=lambda v: setattr(self, "_disjoint6", v),
+            covered4=cov4, covered6=cov6, progress=progress)
+        self._covered_ips = cov4
+        self._count = n4
+        self._count6 = n6
+        self._covered_v6_nets = cov6
+        self._loaded_at = time.time()
+        return n4
     def query(self, ip: str):
         if ":" in ip:                      # v6 查询走并行族 reader(spec §3.2)
             return self._query6(ip)

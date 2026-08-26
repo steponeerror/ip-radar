@@ -146,3 +146,32 @@ def test_cancel_queued_task_does_not_run_and_does_not_overshoot_batch_done():
     assert b.done <= b.total, (
         f"batch.done={b.done} > total={b.total} — cancel/_run_task double-settled"
     )
+
+
+# ── pause/abort without active batch (batchless single-source updates) ──────
+
+def test_pause_without_active_batch_does_not_wedge_workers():
+    """pause() 在无 active batch(batchless 单源更新在飞)时不得清 _go:
+    否则 worker 全体 cv-wait,新任务永远 queued,且无任何 batch 事件可
+    供前端渲染 Resume — 永久卡死,只能重启后端恢复。"""
+    src = _Src("solo")
+    mgr, by_name = _mgr([src], concurrency=1)
+    mgr.pause()                                  # batchless 状态下 pause
+    mgr.enqueue_one("solo")
+    ran = _wait(mgr, lambda: by_name["solo"].rebuild_calls >= 1, timeout=3)
+    assert ran, "pause() without an active batch must not block workers"
+
+
+def test_cancel_batch_none_without_active_batch_cancels_batchless_task():
+    """cancel_batch(None) 在无 active batch 时应清掉在飞的 batchless 任务
+    (前端 Abort 按钮对单源更新是真实按钮,不是摆设)。"""
+    src = _Src("slow", slow=2.0)
+    mgr, by_name = _mgr([src], concurrency=1)
+    task = mgr.enqueue_one("slow")
+    started = _wait(mgr, lambda: by_name["slow"].download_calls >= 1, timeout=3)
+    assert started
+    mgr.cancel_batch(None)                       # 无 active batch 的 abort
+    done = _wait(mgr, lambda: mgr.task_state(task.id) in
+                 ("cancelled", "failed", "done"), timeout=3)
+    assert done and mgr.task_state(task.id) != "done", \
+        "batchless task must be cancelled, not run to completion"

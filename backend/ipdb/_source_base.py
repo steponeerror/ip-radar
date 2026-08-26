@@ -134,12 +134,16 @@ class Source:
                 int(vp6.read_text().strip()) if vp6.exists() else 0)
 
     def rebuild(self, progress=None) -> int:
-        """重建 LMDB(唯一入口,经 manager 队列调用)。新 epoch + ptr swap。"""
+        """重建 LMDB(唯一入口,经 manager 队列调用)。新 epoch + ptr swap。
+
+        旧 env 不显式 close(各平行副本同此约定):依赖 CPython 引用计数
+        在在途读 txn 结束后自然释放 — 查询线程在 reader swap 瞬间正握着旧
+        env 时,显式 close 是文档化的段错误路径;而 rebuild 失败时 finally
+        里 close 掉的其实是现役 reader(自残)。旧 epoch 目录的磁盘清理由
+        rebuild_lmdb 的 prune rmtree 负责(Linux 上 fd 未关亦可删)。"""
         from ._sources._lmdb import Auto, rebuild_dual_family
         if not self._path.exists():
             return 0
-        old_reader = self._reader
-        old_reader6 = self._reader6
         if self.single_evidence:
             # factory 零参 callable,每次调用返回新迭代器(rebuild_dual_family
             # 调用两次做族分区;严禁传裸生成器对象)。harvest 重复解析是既有
@@ -156,31 +160,25 @@ class Source:
                 if d not in bucket:
                     bucket.append(d)
             factory = lambda: iter(acc.items())   # 已物化;统一 callable 形态
-        try:
-            # 覆盖数不再预扫描(省两次全量 harvest):covered=Auto 在写库循环内
-            # 统计实际入库记录,ptr 提交后经 setter 落内存。
-            n4, n6 = rebuild_dual_family(
-                factory, self._lmdb_base, self._lmdb6_base,
-                reader_setter4=lambda e: setattr(self, "_reader", e),
-                reader_setter6=lambda e: setattr(self, "_reader6", e),
-                flag_setter4=lambda v: setattr(self, "_disjoint", v),
-                flag_setter6=lambda v: setattr(self, "_disjoint6", v),
-                covered4=Auto, covered6=Auto,
-                covered_setter4=lambda v: setattr(self, "_covered_ips", v),
-                covered_setter6=lambda v: setattr(self, "_covered_v6_nets", v),
-                progress=progress)
-            self._count = n4
-            self._count6 = n6
-            self._loaded_at = time.time()
-            return n4
-        finally:
-            for old in (old_reader, old_reader6):
-                if old is not None:
-                    try:
-                        old.close()
-                    except Exception:
-                        pass      # lmdb env 二次 close/已失效:容忍
-
+        # 覆盖数不再预扫描(省两次全量 harvest):covered=Auto 在写库循环内
+        # 统计实际入库记录,ptr 提交后经 setter 落内存。
+        # 流式 factory 无 __len__:total 用上一轮计数估计(刷新场景极准);
+        # 首次重建无历史 → 0,UI --% 不变。
+        n4, n6 = rebuild_dual_family(
+            factory, self._lmdb_base, self._lmdb6_base,
+            reader_setter4=lambda e: setattr(self, "_reader", e),
+            reader_setter6=lambda e: setattr(self, "_reader6", e),
+            flag_setter4=lambda v: setattr(self, "_disjoint", v),
+            flag_setter6=lambda v: setattr(self, "_disjoint6", v),
+            covered4=Auto, covered6=Auto,
+            covered_setter4=lambda v: setattr(self, "_covered_ips", v),
+            covered_setter6=lambda v: setattr(self, "_covered_v6_nets", v),
+            progress=progress,
+            total_est=self._count + self._count6)
+        self._count = n4
+        self._count6 = n6
+        self._loaded_at = time.time()
+        return n4
     def query(self, ip: str) -> Any:
         if ":" in ip:                      # v6 查询走并行族 reader(spec §3.2)
             return self._query6(ip)

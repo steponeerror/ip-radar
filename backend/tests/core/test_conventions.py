@@ -63,3 +63,23 @@ def test_unmappable_falls_to_other():
     from ipdb._classification import normalize
     assert normalize("totally_bogus_value_xyz", {}) == "other"
     assert normalize("", {}) == "other"
+
+def test_sources_never_close_readers_in_rebuild():
+    """FIX7 回归守卫:rebuild 路径禁止重引入 old_reader 显式 close ——
+    查询线程在途 txn 下的 close 是段错误,且失败路径会误杀现役 reader
+    (释放交给 CPython refcount,见 Source.rebuild docstring)。
+    geolite_city 除外:其 maxminddb 探测 close 是合法的下载期校验。"""
+    import ipdb._source_base as sb
+    import ipdb._sources._base as b
+    src_dir = Path(b.__file__).parent
+    offenders = []
+    for py in [Path(sb.__file__), Path(b.__file__)] + list(src_dir.glob("*.py")):
+        if py.name == "geolite_city.py":
+            continue
+        text = py.read_text(encoding="utf-8")
+        for marker in ("old_reader", "old_reader6"):
+            if marker in text:
+                offenders.append(f"{py.name}: {marker}")
+        if py in (Path(sb.__file__), Path(b.__file__)) and "_reader.close()" in text:
+            offenders.append(f"{py.name}: _reader.close()")
+    assert not offenders, f"rebuild 路径不得显式 close reader: {offenders}"

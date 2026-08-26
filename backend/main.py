@@ -43,6 +43,39 @@ from pathlib import Path
 logging.basicConfig(level=logging.INFO)
 
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50MB
+
+
+async def _read_upload_capped(file: UploadFile, cap: int) -> bytes:
+    """分块读上传体,累计超 cap 立即 400(chunked 传输不带 Content-Length,
+    中间件挡不到这条路)。"""
+    chunks = []
+    size = 0
+    while True:
+        chunk = await file.read(8 * 1024 * 1024)
+        if not chunk:
+            break
+        size += len(chunk)
+        if size > cap:
+            raise HTTPException(
+                400, f"File exceeds {cap // (1024*1024)}MB limit")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+async def _read_body_capped(request: Request, cap: int) -> bytes:
+    """流式读 JSON body 并封顶:chunked 传输无 Content-Length,中间件挡不到,
+    这里逐块累计、超 cap 即 400(与 _read_upload_capped 同剖面)。"""
+    chunks = []
+    size = 0
+    async for chunk in request.stream():
+        if not chunk:
+            continue
+        size += len(chunk)
+        if size > cap:
+            raise HTTPException(
+                400, f"Request body exceeds {cap // (1024*1024)}MB limit")
+        chunks.append(chunk)
+    return b"".join(chunks)
 ENRICH_CHUNK = 100
 
 # Integral build-gate state. The gate itself is state-driven (see _db_ready):
@@ -554,9 +587,34 @@ async def public_demo_guard(request, call_next):
     return await call_next(request)
 
 
+@app.middleware("http")
+async def reject_oversized_bodies(request, call_next):
+    """信任边界:大 body 在被读进内存之前拒绝(未认证可打的 OOM 面)。
+    挡 Content-Length 声明的超限;chunked 传输的洞由路由内分块读再堵。"""
+    if request.method == "POST" and request.url.path in (
+            "/api/upload/stream", "/api/query/stream"):
+        cl = request.headers.get("content-length")
+        if cl and cl.isdigit() and int(cl) > MAX_UPLOAD_BYTES:
+            return JSONResponse(
+                status_code=400,
+                content={"detail": f"Request body exceeds {MAX_UPLOAD_BYTES // (1024*1024)}MB limit"})
+    return await call_next(request)
+
+
 @app.post("/api/query/stream", dependencies=[Depends(require_ready)])
-async def query_ips_stream(body: dict):
-    raw = body.get("ips", [])
+async def query_ips_stream(request: Request):
+    # body 不走 FastAPI 自动解析(dict 形参会整包缓冲,chunked 无 CL 时
+    # 中间件也挡不到)——流式封顶读完后自行解析,语义与原 body:dict 一致。
+    body = await _read_body_capped(request, MAX_UPLOAD_BYTES)
+    try:
+        parsed = orjson.loads(body)
+    except orjson.JSONDecodeError:
+        raise HTTPException(400, "Request body must be valid JSON")
+    if not isinstance(parsed, dict):
+        raise HTTPException(400, "Request body must be a JSON object")
+    raw = parsed.get("ips", [])
+    if not isinstance(raw, list):
+        raise HTTPException(400, "'ips' must be a list")
     if not raw:
         raise HTTPException(400, "No IPs provided")
     if len(raw) > 100000:
@@ -573,9 +631,7 @@ async def query_ips_stream(body: dict):
 
 @app.post("/api/upload/stream", dependencies=[Depends(require_ready)])
 async def upload_file_stream(file: UploadFile = File(...)):
-    content = await file.read()
-    if len(content) > MAX_UPLOAD_BYTES:
-        raise HTTPException(400, "File exceeds 50MB limit")
+    content = await _read_upload_capped(file, MAX_UPLOAD_BYTES)
     content = content.decode("utf-8", errors="ignore")
     lines = content.strip().splitlines()
     if len(lines) > 100000:

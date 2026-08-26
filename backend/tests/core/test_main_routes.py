@@ -611,3 +611,109 @@ class TestLifespanColdStartNonBlocking:
                 r = client.get("/api/db-status")
                 assert r.status_code == 200
                 assert r.json()["warming_up"] is False
+
+
+# ── request body limits(防未认证 OOM:body 必须在进内存前被拒)──
+
+
+def _client_ready():
+    import main
+    from ipdb import load_db
+    load_db()                              # 前序测试可能动过库状态,重开
+    return TestClient(main.app)
+
+
+def test_query_stream_oversized_content_length_rejected_before_body():
+    client = _client_ready()
+    r = client.post("/api/query/stream",
+                    content=b"",
+                    headers={"Content-Length": str(60 * 1024 * 1024)})
+    assert r.status_code == 400
+    assert "50" in r.json()["detail"] or "exceed" in r.json()["detail"].lower()
+
+
+def test_upload_stream_oversized_content_length_rejected_before_body():
+    client = _client_ready()
+    r = client.post("/api/upload/stream",
+                    content=b"",
+                    headers={"Content-Length": str(60 * 1024 * 1024)})
+    assert r.status_code == 400
+
+
+def test_query_stream_non_list_ips_returns_400_not_500():
+    import main
+    from ipdb import load_db
+    load_db()
+    with patch("ipdb._registry._db_loaded", return_value=True), \
+         patch.object(main, "_coverage_building", return_value=False):
+        client = TestClient(main.app)
+        r = client.post("/api/query/stream", json={"ips": 5})
+        assert r.status_code == 400
+
+
+def test_read_upload_capped_aborts_mid_stream():
+    """分块累计读取:超 cap 在读到第 N 块时立即 400(chunked 传输绕过
+    Content-Length 的洞由这条路堵住)。"""
+    import asyncio
+    import pytest
+    from fastapi import HTTPException
+    from main import _read_upload_capped
+
+    class _FakeFile:
+        def __init__(self, chunks):
+            self._chunks = list(chunks)
+        async def read(self, n=-1):
+            return self._chunks.pop(0) if self._chunks else b""
+
+    f = _FakeFile([b"a" * 6, b"b" * 6])       # 12B 总量,cap=10
+    with pytest.raises(HTTPException) as ei:
+        asyncio.run(_read_upload_capped(f, cap=10))
+    assert ei.value.status_code == 400
+    # 未超限:全部块拼回
+    f2 = _FakeFile([b"a" * 6, b"b" * 3])
+    assert asyncio.run(_read_upload_capped(f2, cap=10)) == b"a" * 6 + b"b" * 3
+
+
+# ── chunked body 封顶(无 Content-Length 的流,body 进内存前必须被拒)──
+
+
+class _FakeStreamRequest:
+    """starlette Request 的最小替身:只提供 stream() 异步分块。"""
+
+    def __init__(self, chunks):
+        self._chunks = chunks
+
+    async def stream(self):
+        for c in self._chunks:
+            yield c
+
+
+def test_read_body_capped_allows_under_and_rejects_over():
+    """_read_body_capped:cap 内拼回完整 body;超 cap 立即 400,不落剩余块。"""
+    import asyncio
+    import pytest
+    from fastapi import HTTPException
+    import main
+
+    got = asyncio.run(
+        main._read_body_capped(_FakeStreamRequest([b'{"a":', b' 1}']), 100))
+    assert got == b'{"a": 1}'
+    with pytest.raises(HTTPException) as ei:
+        asyncio.run(main._read_body_capped(
+            _FakeStreamRequest([b"x" * 60]), 50))
+    assert ei.value.status_code == 400
+
+
+def test_query_stream_chunked_json_over_cap_rejected():
+    """集成:query body 超过路由内封顶即 400(模拟 chunked 绕过 CL 中间件:
+    TestClient 一定带 Content-Length,故缩小 cap 触发路由内同一条封顶路径)。"""
+    import main as m
+    client = _client_ready()
+    old_cap = m.MAX_UPLOAD_BYTES
+    m.MAX_UPLOAD_BYTES = 16
+    try:
+        r = client.post("/api/query/stream", json={"ips": ["8.8.8.8"]})
+        assert r.status_code == 400
+        assert "exceed" in r.json()["detail"].lower()
+    finally:
+        m.MAX_UPLOAD_BYTES = old_cap

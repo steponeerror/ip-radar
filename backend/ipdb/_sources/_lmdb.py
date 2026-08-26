@@ -24,6 +24,8 @@ import functools
 import ipaddress
 import logging
 import os
+import threading
+import weakref
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
@@ -229,18 +231,46 @@ def next_epoch(base: Path) -> int:
     return best + 1
 
 
+# 同进程同路径的只读 env 复用表(弱值):py-lmdb 禁止同路径双 handle,
+# 而旧 env 已改为 refcount 释放(不显式 close,见 Source.rebuild docstring),
+# 二次 load()/query 重试重开同一路径时会撞 "already open"。弱值保证不钉住
+# 旧 epoch — 末个引用消失即随 refcount 一起回收。
+# fork 语义:子进程继承本表的拷贝,但 handle 不跨进程共享 — pool 子进程
+# 各自调 open_env_read,在自己的地址空间里建 handle/表项。
+_OPEN_ENVS: "weakref.WeakValueDictionary[str, Any]" = weakref.WeakValueDictionary()
+_OPEN_ENVS_LOCK = threading.Lock()
+
+
 def open_env_read(path: Path):
     """Query-side env: readonly + lock=False — the env is never written
     in place (rebuilds write a fresh epoch dir), so readers need no
-    lock-file registration; safe across processes."""
-    return lmdb.open(str(path), readonly=True, lock=False, subdir=True)
+    lock-file registration; safe across processes. Idempotent per path,
+    but never resurrects an explicitly closed env."""
+    key = str(path)
+    with _OPEN_ENVS_LOCK:
+        env = _OPEN_ENVS.get(key)
+        if env is not None:
+            try:
+                env.info()                     # closed env 在此报错
+                return env
+            except lmdb.Error:
+                pass                            # 已显式 close:重开新 handle
+        env = lmdb.open(key, readonly=True, lock=False, subdir=True)
+        _OPEN_ENVS[key] = env
+        return env
 
 
 def cleanup_stale(base: Path) -> None:
     """Startup cleanup: drop crash-leftover ``.new.*`` dirs and epoch dirs
     not referenced by ptr. With no ptr (never built / first boot after
     wipe) leave epoch dirs alone — next rebuild continues from max+1."""
+    import os
     import shutil
+    if os.environ.get("IP_RADAR_POOL_CHILD"):
+        # pool 子进程(_batch_pool._init_worker 设此旗标):staging 目录
+        # 属主是主进程的在途 rebuild,懒孵化的 worker 首次批查询即会走到
+        # 这里 — rmtree 等于杀掉在途重建。启动清理只由主进程负责。
+        return
     parent = base.parent
     if not parent.exists():
         return
@@ -306,7 +336,8 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
                  flag_setter: Callable[[bool], None] | None = None,
                  progress: Callable[[int, int], None] | None = None,
                  ip_version: int = 4,
-                 covered_setter: Callable[[int], None] | None = None) -> int:
+                 covered_setter: Callable[[int], None] | None = None,
+                 total_est: int = 0) -> int:
     """Stream-build a fresh epoch env, then atomically swap via ptr.
 
     Commit order (crash invariant): rename closed env dir → sidecars (staged
@@ -345,7 +376,9 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
     env = lmdb.open(str(staging), map_size=size, writemap=True, subdir=True)
     n = 0
     batch: list[tuple[bytes, bytes]] = []
-    total = len(records) if hasattr(records, "__len__") else 0
+    # 无 __len__ 的流式 records(mmdb 迭代等):total 未知时用调用方的
+    # 上一轮计数估计(total_est,刷新场景下极准);仍无则 0(UI --%)。
+    total = len(records) if hasattr(records, "__len__") else total_est
     if progress is not None and total > 0:
         progress(0, total)
 
@@ -381,10 +414,25 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
         if len(batch) >= BATCH_SIZE:
             _flush()
             if progress is not None:
-                progress(n, total)
+                progress(n, max(total, n))   # feed 增长时跟随 received,防 >100%
     _flush()
+    if n == 0:
+        # 零记录守卫:历史 count>0 的空 rebuild 是 feed 异常(改格式/上游清
+        # 空),不得提交 — 旧 epoch + ptr 原样保留,任务显式失败走退避。
+        cp = count_path(base)
+        if cp.exists():
+            try:
+                prev = int(cp.read_text().strip())
+            except ValueError:
+                prev = 0
+            if prev > 0:
+                env.close()
+                shutil.rmtree(staging, ignore_errors=True)
+                raise RuntimeError(
+                    f"zero records parsed but previous count was {prev}; "
+                    "keeping old epoch")
     if progress is not None:
-        progress(n, total)
+        progress(n, max(total, n))
     env.sync(True)
     disjoint = detect_disjoint(env)    # sync 后 close 前判定:句柄在手免重开
     env.close()                        # closed BEFORE rename — Windows-safe
@@ -440,8 +488,8 @@ def rebuild_dual_family(records, v4_base: Path, v6_base: Path, *,
                         count6: int | None = None,
                         progress: Callable[[int, int], None] | None = None,
                         covered_setter4: Callable[[int], None] | None = None,
-                        covered_setter6: Callable[[int], None] | None = None
-                        ) -> tuple[int, int]:
+                        covered_setter6: Callable[[int], None] | None = None,
+                        total_est: int = 0) -> tuple[int, int]:
     """One records source → both family envs (spec §3).
 
     records: list[(cidr, evidence)] 或零参 callable 返回 iterable(流式源用,
@@ -463,7 +511,8 @@ def rebuild_dual_family(records, v4_base: Path, v6_base: Path, *,
         rec6 = [(c, e) for c, e in records if ":" in c]
     n4 = rebuild_lmdb(rec4, v4_base, reader_setter4,
                       count=count4, covered=covered4, flag_setter=flag_setter4,
-                      progress=progress, covered_setter=covered_setter4)
+                      progress=progress, covered_setter=covered_setter4,
+                      total_est=total_est)
     progress6 = None
     if progress is not None:
         def progress6(done, total):           # 闭包捕 n4(v4 pass 已返回)
@@ -473,7 +522,8 @@ def rebuild_dual_family(records, v4_base: Path, v6_base: Path, *,
     n6 = rebuild_lmdb(rec6, v6_base, reader_setter6,
                       count=count6, covered=covered6, flag_setter=flag_setter6,
                       progress=progress6, ip_version=6,
-                      covered_setter=covered_setter6)
+                      covered_setter=covered_setter6,
+                      total_est=max(0, total_est - n4))
     return n4, n6
 
 

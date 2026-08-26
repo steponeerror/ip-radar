@@ -33,6 +33,10 @@ export function VersionBanner({ selfUpdateEnabled, onStartUpdate }: {
   const { t } = useI18n();
   const [info, setInfo] = useState<VersionInfo | null>(null);
   const [copied, setCopied] = useState(false);
+  // dismiss 必须进 state:只写 localStorage 不触发 re-render,横幅不会消失
+  const [dismissed, setDismissed] = useState<string | null>(
+    () => localStorage.getItem(DISMISS_KEY),
+  );
 
   const load = async (refresh = false) => {
     try { setInfo(await getVersion(refresh)); } catch { /* 静默:版本检查失败不打扰 */ }
@@ -40,7 +44,7 @@ export function VersionBanner({ selfUpdateEnabled, onStartUpdate }: {
   useEffect(() => { load(); }, []);
 
   if (!info?.update_available) return null;
-  if (localStorage.getItem(DISMISS_KEY) === info.latest) return null;
+  if (dismissed === info.latest) return null;
 
   const copyCmd = async () => {
     if (await copyText(UPDATE_CMD)) {
@@ -57,6 +61,7 @@ export function VersionBanner({ selfUpdateEnabled, onStartUpdate }: {
           {t("update.bannerTitle", { latest: info.latest!, current: info.current })}
         </span>
         {info.summary && <p className="truncate text-xs text-zinc-500">{info.summary}</p>}
+        <p className="text-xs text-zinc-600">{t("update.cmdHint")}</p>
       </div>
       {selfUpdateEnabled ? (
         <button onClick={onStartUpdate}
@@ -76,7 +81,10 @@ export function VersionBanner({ selfUpdateEnabled, onStartUpdate }: {
         className="rounded-md border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800">
         {t("update.check")}
       </button>
-      <button onClick={() => localStorage.setItem(DISMISS_KEY, info.latest!)}
+      <button onClick={() => {
+          localStorage.setItem(DISMISS_KEY, info.latest!);
+          setDismissed(info.latest!);
+        }}
         aria-label={t("update.dismiss")}
         className="px-2 text-zinc-500 hover:text-zinc-300">✕</button>
     </div>

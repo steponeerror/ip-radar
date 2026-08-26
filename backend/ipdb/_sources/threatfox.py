@@ -139,5 +139,8 @@ class ThreatFoxSource(Source):
         printable = _cell(7)
         if printable and printable.lower() != "none":
             extra["malware_printable"] = printable
+        ioc_id = _clean(row[1])
+        if ioc_id:
+            extra["threatfox_ioc"] = ioc_id
         out["extra"] = extra
         return out

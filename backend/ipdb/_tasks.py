@@ -90,7 +90,10 @@ class UpdateManager:
 
     # --- public ---
     def enqueue_one(self, name: str) -> Task:
-        return self._enqueue_one(name, self._active_batch)
+        # _active_batch 必须在锁内读:锁外求值拿到 stale batch_id 会把任务
+        # 挂上已完成 batch,后续 _settle 把 done 推过 total(3/2 · 150%)。
+        with self._lock:
+            return self._enqueue_one(name, self._active_batch)
 
     def enqueue_one_detached(self, name: str) -> Task:
         """Enqueue a task with batch_id=None, so scheduler-triggered refreshes
@@ -262,18 +265,26 @@ class UpdateManager:
 
     # --- pause / resume / cancel (Task 5) ---
     def pause(self):
-        self._go.clear()
-        if self._active_batch:
+        with self._lock:
+            if not self._active_batch:
+                # batchless(单源更新)时 no-op:清 _go 会永久卡死 worker
+                # 队列且无 batch 事件可供前端渲染 Resume,只能重启恢复。
+                return
             b = self._batches[self._active_batch]
+            # 状态写与 _go.clear 都在锁内:只保状态写的话,_maybe_finish_batch
+            # 可在锁释放后、clear 前置 done 并清 active —— 清完的 batch 无 Resume
+            # 入口,_go 已清 = 同一个永久卡死窗口。
             b.state = "paused"
             self._emit({"type": "batch", "batch": b.to_dict()})
+            self._go.clear()
 
     def resume(self):
-        if self._active_batch:
-            b = self._batches[self._active_batch]
-            if b.state == "paused":
-                b.state = "running"
-                self._emit({"type": "batch", "batch": b.to_dict()})
+        with self._lock:
+            if self._active_batch:
+                b = self._batches[self._active_batch]
+                if b.state == "paused":
+                    b.state = "running"
+                    self._emit({"type": "batch", "batch": b.to_dict()})
         self._go.set()
         with self._queue_cv:
             self._queue_cv.notify_all()
@@ -300,16 +311,24 @@ class UpdateManager:
     def cancel_batch(self, batch_id: str | None = None):
         with self._lock:
             if batch_id is None:
-                if not self._active_batch:
-                    return
-                target = self._active_batch
+                if self._active_batch:
+                    target = self._active_batch
+                else:
+                    # 无 active batch 的 abort:清所有在飞的 batchless 任务
+                    # (单源更新路径 — 前端 Abort 对它们同样是真实按钮)。
+                    ids = [tid for tid, t in self._tasks.items()
+                           if t.batch_id is None
+                           and t.state in ("queued", "downloading", "loading",
+                                           "throttled")]
+                    target = None
             else:
                 if batch_id not in self._batches:
                     return
                 target = batch_id
-            ids = [tid for tid, t in self._tasks.items()
-                   if t.batch_id == target
-                   and t.state in ("queued", "downloading", "loading", "throttled")]
+            if target is not None:
+                ids = [tid for tid, t in self._tasks.items()
+                       if t.batch_id == target
+                       and t.state in ("queued", "downloading", "loading", "throttled")]
         for tid in ids:
             self.cancel(tid)
 
