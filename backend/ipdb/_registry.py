@@ -363,6 +363,7 @@ def lookup(ip: str) -> LookupResult:
     observations = []
     attributes: dict[str, list] = defaultdict(list)
     city_zh_map: dict[str, str] = {}
+    geolite_extras: dict[str, dict] = {}
     for source in _enabled_sources():
         try:
             raw = source.query(ip)
@@ -377,10 +378,14 @@ def lookup(ip: str) -> LookupResult:
             for key in _LOOKUP_SLOTS:
                 if key in item:
                     field_values[key][source.name] = item[key]
+            extra = item.get("extra") or {}
             if "city" in item:
-                zh = (item.get("extra") or {}).get("city_zh")
+                zh = extra.get("city_zh")
                 if zh:
                     city_zh_map[source.name] = zh
+            # 坐标仅 geolite 产;按源名收集,胜者匹配时读出(同 city_zh 旁路点)
+            if source.name == "geolite_city" and extra:
+                geolite_extras[source.name] = extra
             if "classification_type" in item:
                 observations.append(to_observation(
                     source.name, item,
@@ -432,11 +437,23 @@ def lookup(ip: str) -> LookupResult:
             best = sorted(winners, key=lambda s: (-s.reliability, s.source))[0]
             city_zh = city_zh_map[best.source]
 
+    # geolite lat/lon 旁路(同 city_zh;display-only,无合并语义)
+    location = None
+    for s in city.sources:
+        if s.source == "geolite_city" and s.value == city.value:
+            ex = (geolite_extras.get(s.source) or {})
+            if ex.get("lat") is not None and ex.get("lon") is not None:
+                location = {"lat": ex["lat"], "lon": ex["lon"]}
+                if ex.get("accuracy_radius") is not None:
+                    location["accuracy_radius"] = ex["accuracy_radius"]
+            break
+
     return LookupResult(
         ip=ip,
         country=country,
         city=city,
         city_zh=city_zh,
+        location=location,
         asn=asn,
         as_name=as_name,
         ip_range=ip_range,

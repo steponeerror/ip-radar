@@ -36,7 +36,8 @@ class TestThreatFoxParseRow:
         assert parsed["malware_name"] == "win.vidar"
         assert parsed["confidence"] == 75
         assert parsed["native_categories"] == ["payload_delivery"]
-        assert parsed["extra"] == {"port": "80", "malware_printable": "Vidar"}
+        assert parsed["extra"] == {"port": "80", "malware_printable": "Vidar",
+                                  "threatfox_ioc": "1831757"}
 
     def test_parse_row_preserves_native_type(self, tmp_path):
         src = _make_source(tmp_path)
@@ -199,7 +200,7 @@ def test_parse_row_optional_fields_absent_when_empty(tmp_path):
     parsed = src.parse_row(row)
     assert "last_seen" not in parsed
     assert "tags" not in parsed
-    assert parsed["extra"] == {}
+    assert parsed["extra"] == {"threatfox_ioc": "2"}  # ioc_id 必存,其余可选键缺席
 
 
 def test_harvest_routes_new_fields_to_evidence(tmp_path):
@@ -213,3 +214,13 @@ def test_harvest_routes_new_fields_to_evidence(tmp_path):
     assert rec["extra"]["port"] == "8080"
     assert rec["extra"]["malware_printable"] == "Vidar"
     assert rec["native_categories"] == ["botnet_cc"]        # 不动（F2）
+
+
+def test_parse_row_stores_ioc_id(tmp_path):
+    """row[1] ioc_id → extra.threatfox_ioc 溯源（URLhaus urlhaus_link 同槽位）。"""
+    src = ThreatFoxSource(data_dir=tmp_path)
+    row = ["2026-08-24 20:05:08", "1886405", "193.112.28.215:15443", "ip:port",
+           "botnet_cc", "win.vshell", "None", "VShell", "", "100", "True",
+           "None", "vshell", "1", "anonymous"]
+    parsed = src.parse_row(row)
+    assert parsed["extra"]["threatfox_ioc"] == "1886405"

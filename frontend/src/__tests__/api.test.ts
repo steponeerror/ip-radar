@@ -242,7 +242,7 @@ describe("queryIpsStream (row protocol v2)", () => {
     clickSpy.mockRestore();
   });
 
-  it("done surfaces invalid_lines and ipv6_unsupported counts", async () => {
+  it("done surfaces invalid_lines and ignores ipv6_unsupported (v6 supported)", async () => {
     const ndjson = [
       `{"type":"start","total":1}`,
       `{"type":"row","idx":0,"result":{"ip":"8.8.8.8"}}`,
@@ -257,7 +257,7 @@ describe("queryIpsStream (row protocol v2)", () => {
     });
     const out = await queryIpsStream(["8.8.8.8"], () => {});
     expect(out.invalidLines).toBe(2);
-    expect(out.ipv6Unsupported).toBe(1);
+    expect(out).not.toHaveProperty("ipv6Unsupported");
   });
 
   it("done surfaces error into outcome", async () => {

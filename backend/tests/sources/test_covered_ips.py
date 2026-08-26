@@ -116,3 +116,22 @@ def test_source_rebuild_harvests_twice_not_four(tmp_path):
     assert calls["n"] == 2                    # 现状是 4:预扫描 2 + partition 2
     assert s.health().covered_ips == 256
     assert s.health().covered_v6_nets == 1
+
+
+def test_rebuild_lmdb_total_est_drives_streaming_progress(tmp_path):
+    """流式 records(无 __len__)无 total 时用 total_est 估计;feed 增长跟随。"""
+    from ipdb._sources._lmdb import rebuild_lmdb
+    calls = []
+    def progress(n, total):
+        calls.append((n, total))
+    def reader_setter(e): pass
+    # 5 条记录,估计 3 条 → total 跟随 received 增长到 5,不超 100%
+    recs = iter([("10.0.0.0/24", {"x": 1}), ("10.0.1.0/24", {"x": 1}),
+                 ("10.0.2.0/24", {"x": 1}), ("10.0.3.0/24", {"x": 1}),
+                 ("10.0.4.0/24", {"x": 1})])
+    n = rebuild_lmdb(recs, tmp_path / "t.lmdb", reader_setter,
+                     progress=progress, total_est=3)
+    assert n == 5
+    assert calls[0] == (0, 3)              # 初始:估计值
+    assert calls[-1] == (5, 5)             # 终值:received 追上并顶替估计
+    assert all(t >= c[0] for c in calls for t in [c[1]])  # total ≥ received 恒成立

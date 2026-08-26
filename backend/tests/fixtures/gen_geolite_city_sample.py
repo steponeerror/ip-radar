@@ -6,8 +6,8 @@ Run in a throwaway venv (never the project's):
     /tmp/mmdbgen/bin/python gen_geolite_city_sample.py
 
 Fixture semantics (must not drift — tests assert on them):
-  1.0.0.0/24    city Hangzhou(en)+杭州(zh-CN), country CN
-  2.0.0.0/24    city Lyon(en, no zh), country FR
+  1.0.0.0/24    city Hangzhou(en)+杭州(zh-CN), country CN, location lat/lon/accuracy_radius
+  2.0.0.0/24    city Lyon(en, no zh), country FR, location lat/lon (no accuracy_radius)
   3.0.0.0/24    country US only
   4.0.0.0/24    empty record {} (skip branch)
   2001:db8::/32 city Testville, country US (IPv6 skip branch)
@@ -19,9 +19,12 @@ from netaddr import IPSet
 
 RECORDS = [
     ("1.0.0.0/24", {"city": {"names": {"en": "Hangzhou", "zh-CN": "杭州"}},
-                    "country": {"iso_code": "CN"}}),
+                    "country": {"iso_code": "CN"},
+                    "location": {"latitude": 30.25, "longitude": 120.17,
+                                 "accuracy_radius": 50}}),
     ("2.0.0.0/24", {"city": {"names": {"en": "Lyon"}},
-                    "country": {"iso_code": "FR"}}),
+                    "country": {"iso_code": "FR"},
+                    "location": {"latitude": 45.76, "longitude": 4.84}}),
     ("3.0.0.0/24", {"country": {"iso_code": "US"}}),
     ("4.0.0.0/24", {}),
     ("2001:db8::/32", {"city": {"names": {"en": "Testville"}},

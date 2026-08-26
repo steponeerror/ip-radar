@@ -306,7 +306,8 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
                  flag_setter: Callable[[bool], None] | None = None,
                  progress: Callable[[int, int], None] | None = None,
                  ip_version: int = 4,
-                 covered_setter: Callable[[int], None] | None = None) -> int:
+                 covered_setter: Callable[[int], None] | None = None,
+                 total_est: int = 0) -> int:
     """Stream-build a fresh epoch env, then atomically swap via ptr.
 
     Commit order (crash invariant): rename closed env dir → sidecars (staged
@@ -345,7 +346,9 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
     env = lmdb.open(str(staging), map_size=size, writemap=True, subdir=True)
     n = 0
     batch: list[tuple[bytes, bytes]] = []
-    total = len(records) if hasattr(records, "__len__") else 0
+    # 无 __len__ 的流式 records(mmdb 迭代等):total 未知时用调用方的
+    # 上一轮计数估计(total_est,刷新场景下极准);仍无则 0(UI --%)。
+    total = len(records) if hasattr(records, "__len__") else total_est
     if progress is not None and total > 0:
         progress(0, total)
 
@@ -381,10 +384,10 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
         if len(batch) >= BATCH_SIZE:
             _flush()
             if progress is not None:
-                progress(n, total)
+                progress(n, max(total, n))   # feed 增长时跟随 received,防 >100%
     _flush()
     if progress is not None:
-        progress(n, total)
+        progress(n, max(total, n))
     env.sync(True)
     disjoint = detect_disjoint(env)    # sync 后 close 前判定:句柄在手免重开
     env.close()                        # closed BEFORE rename — Windows-safe
@@ -440,8 +443,8 @@ def rebuild_dual_family(records, v4_base: Path, v6_base: Path, *,
                         count6: int | None = None,
                         progress: Callable[[int, int], None] | None = None,
                         covered_setter4: Callable[[int], None] | None = None,
-                        covered_setter6: Callable[[int], None] | None = None
-                        ) -> tuple[int, int]:
+                        covered_setter6: Callable[[int], None] | None = None,
+                        total_est: int = 0) -> tuple[int, int]:
     """One records source → both family envs (spec §3).
 
     records: list[(cidr, evidence)] 或零参 callable 返回 iterable(流式源用,
@@ -463,7 +466,8 @@ def rebuild_dual_family(records, v4_base: Path, v6_base: Path, *,
         rec6 = [(c, e) for c, e in records if ":" in c]
     n4 = rebuild_lmdb(rec4, v4_base, reader_setter4,
                       count=count4, covered=covered4, flag_setter=flag_setter4,
-                      progress=progress, covered_setter=covered_setter4)
+                      progress=progress, covered_setter=covered_setter4,
+                      total_est=total_est)
     progress6 = None
     if progress is not None:
         def progress6(done, total):           # 闭包捕 n4(v4 pass 已返回)

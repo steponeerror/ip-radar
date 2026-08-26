@@ -107,7 +107,7 @@ describe("LookupView 503 self-correction", () => {
         as_name: mf("Cloudflare", 90), ip_range: mf("1.1.1.0/24", 90),
         is_isp: false, classifications: {},
       }],
-      csvDownloaded: false, invalidLines: 0, ipv6Unsupported: 0, total: 1,
+      csvDownloaded: false, invalidLines: 0, total: 1,
     };
     (queryIpsStream as any).mockRejectedValueOnce(err503).mockResolvedValueOnce(outcome);
 
@@ -195,7 +195,7 @@ describe("LookupView stream done.error", () => {
     (getDbStatus as any).mockResolvedValue({ warming_up: false, total_records: 100 });
     (queryIpsStream as any).mockResolvedValue({
       results: [], csvDownloaded: false, invalidLines: 0,
-      ipv6Unsupported: 0, total: 1, error: "boom",
+      total: 1, error: "boom",
     });
     renderLookup();
 
@@ -212,7 +212,7 @@ describe("LookupView stream done.error", () => {
     (getDbStatus as any).mockResolvedValue({ warming_up: false, total_records: 100 });
     (queryIpsStream as any).mockResolvedValue({
       results: [], csvDownloaded: true, invalidLines: 0,
-      ipv6Unsupported: 0, total: 60000, error: "boom",
+      total: 60000, error: "boom",
     });
     renderLookup();
 

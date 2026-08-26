@@ -36,7 +36,7 @@ describe("IpDetailPanel", () => {
     // the mf() fixture reuses the same value for both, so use getAllByText here.
     expect(screen.getAllByText("US")[0]).toBeInTheDocument();
     expect(screen.getByText("ASN")).toBeInTheDocument();
-    expect(screen.getByText("Org / ISP")).toBeInTheDocument();
+    expect(screen.getByText("Operator")).toBeInTheDocument();
     expect(screen.getByText("Range")).toBeInTheDocument();
   });
 

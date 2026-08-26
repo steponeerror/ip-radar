@@ -118,3 +118,17 @@ def test_urlhaus_threat_unmappable_falls_back_to_tags(tmp_path):
     two = s.query("5.6.7.8")[0]
     assert two["classification_type"] == "malware-distribution"  # tags 也无可映射 → 本底
     assert two["native_categories"] == ["malware_download"]
+
+
+def test_urlhaus_stores_case_link(tmp_path):
+    """row[7] urlhaus_link 列 → extra.urlhaus_link 溯源链接。"""
+    (tmp_path / "urlhaus.csv").write_text(
+        '# id,dateadded,url,url_status,last_online,threat,tags,urlhaus_link,reporter\n'
+        '"1","2026-08-01","http://1.2.3.4/x","online","2026-08-05","malware_download","None",'
+        '"https://urlhaus.abuse.ch/url/3907816/","rep"\n'
+    )
+    s = URLhausSource(data_dir=tmp_path)
+    s.rebuild()
+    rec = s.query("1.2.3.4")[0]
+    assert rec["extra"]["urlhaus_link"] == "https://urlhaus.abuse.ch/url/3907816/"
+    assert rec["extra"]["reporter"] == "rep"          # 既有键不受影响

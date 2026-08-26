@@ -41,3 +41,26 @@ def test_dataplane_loads_three_signals_with_per_row_classification(tmp_path):
     assert "native_type" not in dns.get("extra", {})
 
     assert s.query("203.0.113.42") == {}   # not in feed
+
+
+def test_dataplane_new_signal_categories_map(tmp_path):
+    lines = "\n".join([
+        "# test",
+        "174 |  COGENT-174 - Cogent  |  154.3.40.77  |  2026-08-22 00:31:31  |  sipquery",
+        "174 |  COGENT-174 - Cogent  |  154.3.40.78  |  2026-08-22 00:31:31  |  sipregistration",
+        "174 |  COGENT-174 - Cogent  |  207.90.244.10  |  2026-08-22 14:39:14  |  smtpgreet",
+    ])
+    (tmp_path / "dataplane.txt").write_text(lines)
+    s = DataplaneSource(data_dir=tmp_path)
+    s.rebuild()
+    assert s.query("154.3.40.77")[0]["classification_type"] == "brute-force"
+    assert s.query("154.3.40.78")[0]["classification_type"] == "brute-force"
+    assert s.query("207.90.244.10")[0]["classification_type"] == "scanner"
+    assert s.query("154.3.40.77")[0]["native_categories"] == ["sipquery"]
+
+
+def test_dataplane_signals_dict_has_six_feeds():
+    from ipdb._sources.dataplane import DataplaneSource
+    assert set(DataplaneSource.SIGNALS) == {
+        "sshpwauth", "telnetlogin", "dnsrd",
+        "sipquery", "sipregistration", "smtpgreet"}

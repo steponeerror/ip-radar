@@ -102,6 +102,28 @@ def test_stix_bundle_with_real_country_and_asn():
 
 
 @pytest.mark.skipif(not _HAS_STIX2, reason="stix2 not installed")
+def test_stix_addr_sco_carries_cdn_and_attributes():
+    from ipdb._types import AssetStatement
+    ca = ClassificationAssessment(
+        type="proxy", verdict="suspicious", detected=True, confidence=60,
+        algorithm="corroboration",
+        sources=[SourceAttribution("x4bnet_vpn", True, 0.7, False)],
+        corroborated=False,
+    )
+    lr = _result()
+    lr.attributes = {
+        "is_vpn": [AssetStatement("x4bnet_vpn", True, "VPN")],
+        "service": [AssetStatement("cdn_edges", "cdn", "Cloudflare")],
+    }
+    bundle = to_stix_bundle(lr)
+    assert bundle is not None
+    blob = str(bundle)
+    assert "x_ipradar_is_cdn" in blob
+    assert "x_ipradar_attributes" in blob
+    assert "Cloudflare" in blob and "VPN" in blob
+
+
+@pytest.mark.skipif(not _HAS_STIX2, reason="stix2 not installed")
 def test_stix_v6_bundle_uses_ipv6_addr_sco():
     lr = _result()
     lr.ip = "2a00:1450:4001::42"

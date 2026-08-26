@@ -21,7 +21,7 @@ const INFRA_TYPES = new Set(["tor", "proxy", "vpn", "hosting", "scanner_hosting"
 
 // Classification types that ALSO appear as asset keys — when a classification
 // of this type exists, the asset badge is suppressed to avoid duplication.
-const ASSET_DUPLICATES_CLASSIFICATION = new Set(["is_tor", "is_vpn", "is_proxy"]);
+const ASSET_DUPLICATES_CLASSIFICATION = new Set(["is_tor", "is_proxy"]);
 
 function assetBadges(r: LookupResult, t: TFn): { label: string; detail: string; key: string }[] {
   const out: { label: string; detail: string; key: string }[] = [];
@@ -38,7 +38,7 @@ function assetBadges(r: LookupResult, t: TFn): { label: string; detail: string; 
     if (!assetKey) continue;
     // De-dup: if classification already covers this, skip
     if (ASSET_DUPLICATES_CLASSIFICATION.has(key)) {
-      const ctype: Record<string, string> = { is_tor: "tor", is_proxy: "proxy", is_vpn: "proxy" };
+      const ctype: Record<string, string> = { is_tor: "tor", is_proxy: "proxy" };
       if (classTypes.has(ctype[key])) continue;
     }
     const first = stmts[0];
@@ -261,7 +261,10 @@ function ScoredCell({
 }) {
   return (
     <td className="px-3 py-2 whitespace-nowrap">
-      <span className={valueClass}>{value}</span>
+      <span
+        title={typeof value === "string" ? value : String(value)}
+        className={`inline-block max-w-[12rem] truncate align-bottom ${valueClass}`}
+      >{value}</span>
       <span className={`ml-1 text-[10px] ${confTextColor(confidence)}`}>({confidence})</span>
     </td>
   );
@@ -442,7 +445,7 @@ export function ResultTable({ results }: ResultTableProps) {
     { key: "asn", label: "ASN", className: "w-24" },
     { key: "country", label: t("column.country"), className: "w-24" },
     { key: "city", label: t("column.city"), className: "w-28" },
-    { key: "as_name", label: t("ipDetail.org") },
+    { key: "as_name", label: t("column.operator") },
     { key: "verdict", label: t("column.verdict"), className: "w-20 text-center" },
     { key: "threat", label: t("column.threat"), className: "min-w-[180px]" },
     { key: "ip_range", label: t("ipDetail.range"), className: "w-44" },
@@ -543,29 +546,42 @@ export function ResultTable({ results }: ResultTableProps) {
                   ) : (
                     <td className="px-3 py-2 text-zinc-600">-</td>
                   )}
-                  <td className="px-3 py-2 whitespace-nowrap">
-                    <span className="text-zinc-300">{r.as_name.value}</span>
-                    <span className={`ml-1 text-[10px] ${confTextColor(r.as_name.confidence)}`}>({r.as_name.confidence})</span>
-                    {r.is_isp && (
-                      <span className="ml-1.5 rounded bg-emerald-500/15 px-1 py-0.5 text-[10px] text-emerald-400 ring-1 ring-emerald-500/25">
-                        ISP
-                      </span>
-                    )}
+                  <td className="px-3 py-2">
+                    <div className="whitespace-nowrap">
+                      <span title={r.as_name.value} className="inline-block max-w-[16rem] truncate align-middle text-zinc-300">{r.as_name.value}</span>
+                      <span className={`ml-1 text-[10px] ${confTextColor(r.as_name.confidence)}`}>({r.as_name.confidence})</span>
+                      {r.is_isp && <span className="ml-1.5 rounded bg-emerald-500/15 px-1 py-0.5 text-[10px] text-emerald-400 ring-1 ring-emerald-500/25">ISP</span>}
+                      {badges.map((a) => (
+                        <span key={`asset-${a.key}`} className={`ml-1.5 rounded px-1.5 py-0.5 text-[11px] bg-sky-500/12 text-sky-400 ring-1 ring-sky-500/20`} title={a.detail}>
+                          {a.label}{(a.key === "carrier" || a.key === "service") ? `: ${a.detail}` : ""}
+                        </span>
+                      ))}
+                      {r.attributes?.as_domain?.[0]?.value && (
+                        <span title={String(r.attributes.as_domain[0].value)}
+                          className="block max-w-[16rem] truncate text-[10px] text-zinc-600">
+                          {String(r.attributes.as_domain[0].value)}
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-3 py-2 text-center">
-                    <VerdictCell summary={summary} />
+                    {r.error ? (
+                      <span title={r.error} className="inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-semibold bg-zinc-700/40 text-zinc-500 ring-1 ring-zinc-600/40">
+                        {t("verdict.invalid")}
+                      </span>
+                    ) : (
+                      <>
+                        <VerdictCell summary={summary} />
+                        {r.threat?.is_cdn && (
+                          <span title={t("cdn.notice")} className="ml-1 inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-semibold bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30">
+                            {t("verdict.cdn")}
+                          </span>
+                        )}
+                      </>
+                    )}
                   </td>
                   <td className="px-3 py-2">
                     <ThreatTags r={r} summary={summary} />
-                    {badges.length > 0 && (
-                      <span className="inline-flex flex-wrap items-center gap-1 ml-1">
-                        {badges.map((a) => (
-                          <span key={`asset-${a.key}`} className="inline-flex items-center rounded px-1.5 py-0.5 text-[11px] bg-sky-500/12 text-sky-400 ring-1 ring-sky-500/20" title={a.detail}>
-                            {a.label}{a.key !== "carrier" && a.key !== "service" ? "" : `: ${a.detail}`}
-                          </span>
-                        ))}
-                      </span>
-                    )}
                   </td>
                   <ScoredCell value={r.ip_range.value} confidence={r.ip_range.confidence} valueClass="text-zinc-500" />
                 </motion.tr>

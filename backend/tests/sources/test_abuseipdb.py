@@ -102,6 +102,21 @@ def test_abuseipdb_json_rebuild_stores_last_seen(tmp_path):
     assert "last_seen" not in rec          # 空值键缺席
 
 
+def test_abuseipdb_rebuild_stores_reporter_count(tmp_path):
+    """fields=totalReports 后 rebuild 把 totalReports 接进 reporter_count。"""
+    payload = json.dumps({"meta": {}, "data": [
+        {"ipAddress": "1.2.3.4", "abuseConfidenceScore": 100,
+         "lastReportedAt": "2026-08-14T10:00:00+00:00", "totalReports": 37},
+        {"ipAddress": "5.6.7.8", "abuseConfidenceScore": 100,
+         "lastReportedAt": None, "totalReports": 0},
+    ]})
+    (tmp_path / "abuseipdb.txt").write_text(payload)
+    s = AbuseIPDBSource(data_dir=tmp_path)
+    assert s.rebuild() == 2
+    assert s.query("1.2.3.4")[0]["reporter_count"] == 37
+    assert "reporter_count" not in s.query("5.6.7.8")[0]   # 0/None → 键缺席
+
+
 def test_abuseipdb_download_rejects_malformed_json(tmp_path, monkeypatch):
     """download 校验 JSON 可解析，失败清理半写文件并抛错。"""
     monkeypatch.setattr("ipdb._sources._download.urllib.request.urlopen",

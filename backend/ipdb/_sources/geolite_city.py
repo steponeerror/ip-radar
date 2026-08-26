@@ -6,6 +6,8 @@ queries go through the same LMDB mmap as every other source.
 
 Routing (spec 2026-08-16): city.names.en → canonical `city` (English keeps
 FactualVoting vote-coherent with proxyscrape); zh-CN → extra.city_zh;
+location.latitude/longitude[/accuracy_radius] → extra.lat/lon/accuracy_radius
+(spec 2026-08-25 §4.2, display-only);
 country.iso_code → canonical `country_code` (6th vote). Networks carrying
 neither signal are skipped; IPv6 networks are harvested too (dual-family
 storage, spec 2026-08-23);
@@ -54,6 +56,13 @@ class GeoLiteCitySource(Source):
                 if not city_en and not cc:
                     continue
                 extra = {"city_zh": city_zh} if city_zh else {}
+                loc = record.get("location") or {}
+                lat, lon = loc.get("latitude"), loc.get("longitude")
+                if lat is not None and lon is not None:
+                    extra["lat"] = lat
+                    extra["lon"] = lon
+                    if loc.get("accuracy_radius") is not None:
+                        extra["accuracy_radius"] = loc["accuracy_radius"]
                 yield str(network), Evidence(
                     city=city_en or None,
                     country_code=cc or None,
