@@ -33,7 +33,7 @@
   "verdict.malicious": "Malicious",
   "verdict.suspicious": "Suspicious",
   "verdict.benign": "Benign",
-  "verdict.informational": "Unknown",
+  "verdict.informational": "Informational",
   "verdict.clean": "—",
   "verdict.reserved": "Reserved",
   "verdict.cdn": "CDN edge",
@@ -169,5 +169,13 @@
   "update.overlayHint": "Keep this page open; it will refresh automatically",
   "update.failed": "Update may have failed",
   "update.retry": "Retry",
-  "update.tokenMissing": "Update token not set"
+  "update.tokenMissing": "Update token not set",
+  "class.spam": "Spam",
+  "class.abuse_reports": "Abuse reports",
+  "class.botnet": "Botnet",
+  "class.ddos": "DDoS",
+  "class.exploit": "Exploit",
+  "class.malware_distribution": "Malware distribution",
+  "class.phishing": "Phishing",
+  "class.other": "Other"
 }
