@@ -159,6 +159,8 @@ class Source:
         try:
             # 覆盖数不再预扫描(省两次全量 harvest):covered=Auto 在写库循环内
             # 统计实际入库记录,ptr 提交后经 setter 落内存。
+            # 流式 factory 无 __len__:total 用上一轮计数估计(刷新场景极准);
+            # 首次重建无历史 → 0,UI --% 不变。
             n4, n6 = rebuild_dual_family(
                 factory, self._lmdb_base, self._lmdb6_base,
                 reader_setter4=lambda e: setattr(self, "_reader", e),
@@ -168,7 +170,8 @@ class Source:
                 covered4=Auto, covered6=Auto,
                 covered_setter4=lambda v: setattr(self, "_covered_ips", v),
                 covered_setter6=lambda v: setattr(self, "_covered_v6_nets", v),
-                progress=progress)
+                progress=progress,
+                total_est=self._count + self._count6)
             self._count = n4
             self._count6 = n6
             self._loaded_at = time.time()
