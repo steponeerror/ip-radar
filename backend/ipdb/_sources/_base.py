@@ -1,4 +1,5 @@
 """Base classes for IP data sources — eliminate ~70% boilerplate across sources."""
+import json
 import logging
 import time
 import urllib.request
@@ -304,6 +305,7 @@ class CsvSource(IpListSource):
         old_reader6 = self._reader6
         # cidr_str -> list[evidence dict], deduped by full-evidence equality
         acc: dict[str, list[dict]] = {}
+        seen: set[str] = set()
         with open(self._path, "r", encoding="utf-8") as f:
             for _ in range(self.skip_lines):
                 next(f, None)
@@ -335,8 +337,12 @@ class CsvSource(IpListSource):
                 # with same classification/verdict/malware but different
                 # native_categories/confidence/first_seen/comment are distinct
                 # evidence and must both survive (field-loss fix #6).
-                if any(parsed == o for o in bucket):
+                # 旁路 set 实现(spec 2026-08-26 §3):json key 与 dict 全等等价,
+                # 避免 any(parsed == o for o in bucket) 的 O(n²)。
+                jkey = f"{key}\x00{json.dumps(parsed, sort_keys=True)}"
+                if jkey in seen:
                     continue
+                seen.add(jkey)
                 bucket.append(parsed)
         try:
             v4_keys = (c for c in acc if ":" not in c)

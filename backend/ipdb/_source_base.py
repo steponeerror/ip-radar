@@ -148,13 +148,19 @@ class Source:
                 for cidr, ev in self.harvest():
                     yield cidr, [self.normalize(ev).to_dict()]
         else:
+            # 旁路 set 去重(spec 2026-08-26 §3):json.dumps(sort_keys) 与
+            # dict 全等语义一致,免去 list 线性扫的 O(n²)。
+            import json as _json
             acc: dict[str, list[dict]] = {}
+            seen: set[str] = set()
             for cidr, ev in self.harvest():
                 ev = self.normalize(ev)
                 d = ev.to_dict()
-                bucket = acc.setdefault(cidr, [])
-                if d not in bucket:
-                    bucket.append(d)
+                key = f"{cidr}\x00{_json.dumps(d, sort_keys=True)}"
+                if key in seen:
+                    continue
+                seen.add(key)
+                acc.setdefault(cidr, []).append(d)
             factory = lambda: iter(acc.items())   # 已物化;统一 callable 形态
         try:
             # 覆盖数不再预扫描(省两次全量 harvest):covered=Auto 在写库循环内
