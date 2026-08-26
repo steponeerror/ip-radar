@@ -33,7 +33,7 @@
   "verdict.malicious": "恶意",
   "verdict.suspicious": "可疑",
   "verdict.benign": "可信",
-  "verdict.informational": "未知",
+  "verdict.informational": "信息性",
   "verdict.clean": "—",
   "verdict.reserved": "保留地址",
   "verdict.cdn": "CDN 边缘",
@@ -169,5 +169,13 @@
   "update.overlayHint": "请勿关闭页面，服务恢复后将自动刷新",
   "update.failed": "更新可能失败",
   "update.retry": "重试",
-  "update.tokenMissing": "未设置更新令牌"
+  "update.tokenMissing": "未设置更新令牌",
+  "class.spam": "垃圾邮件",
+  "class.abuse_reports": "滥用举报",
+  "class.botnet": "僵尸网络",
+  "class.ddos": "DDoS 攻击",
+  "class.exploit": "漏洞利用",
+  "class.malware_distribution": "恶意软件分发",
+  "class.phishing": "钓鱼",
+  "class.other": "其他"
 }
