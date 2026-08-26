@@ -57,6 +57,7 @@ export function VersionBanner({ selfUpdateEnabled, onStartUpdate }: {
           {t("update.bannerTitle", { latest: info.latest!, current: info.current })}
         </span>
         {info.summary && <p className="truncate text-xs text-zinc-500">{info.summary}</p>}
+        <p className="text-xs text-zinc-600">{t("update.cmdHint")}</p>
       </div>
       {selfUpdateEnabled ? (
         <button onClick={onStartUpdate}

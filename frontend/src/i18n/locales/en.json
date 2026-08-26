@@ -155,6 +155,7 @@
   "update.bannerTitle": "New version {latest} available (current {current})",
   "update.copyCmd": "Copy update command",
   "update.copied": "Copied ✓",
+  "update.cmdHint": "Run the command from the project root (where docker-compose.yml lives)",
   "update.changelog": "Release notes",
   "update.check": "Check for updates",
   "update.now": "Update now",
