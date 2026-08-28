@@ -221,6 +221,24 @@ export default function SourcesPage() {
                     <span className={`w-24 shrink-0 rounded-md border px-2 py-0.5 text-center text-xs ${st.className}`}>
                       {t(st.key)}
                     </span>
+                    {s.eval ? (
+                      <span
+                        className={`w-28 shrink-0 rounded-md border px-2 py-0.5 text-center text-xs ${
+                          s.eval.verdict.startsWith("POSITIVE-VERIFIED")
+                            ? "text-emerald-400 border-emerald-400/30 bg-emerald-400/10"
+                            : s.eval.verdict.startsWith("POSITIVE")
+                              ? "text-sky-400 border-sky-400/30 bg-sky-400/10"
+                              : s.eval.verdict.startsWith("NEGATIVE")
+                                ? "text-red-400 border-red-400/30 bg-red-400/10"
+                                : "text-zinc-500 border-zinc-700 bg-zinc-800/50"
+                        }`}
+                        title={s.eval.at}
+                      >
+                        {t("sources.eval." + s.eval.verdict.toLowerCase().replace(/-/g, "_"))}
+                      </span>
+                    ) : (
+                      <span className="w-28 shrink-0 text-center text-xs text-zinc-600">-</span>
+                    )}
                     <div className="ml-auto flex items-center gap-3">
                       <Toggle
                         on={s.enabled}

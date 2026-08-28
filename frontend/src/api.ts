@@ -284,6 +284,8 @@ export interface SourceHealth {
   error: string | null;
 }
 
+export interface EvalInfo { verdict: string; at: string }
+
 export interface SourceInfo {
   name: string;
   enabled: boolean;
@@ -295,6 +297,7 @@ export interface SourceInfo {
   classification_type: string | null;
   url: string | null;
   stale_days: number | null;
+  eval: EvalInfo | null;
   health: SourceHealth;
 }
 
@@ -305,6 +308,10 @@ async function jsonOrThrow(res: Response, fallback: string) {
 
 export async function getSources(): Promise<SourceInfo[]> {
   return jsonOrThrow(await fetch("/api/sources"), "Failed to load sources");
+}
+
+export async function getEvalOverview(): Promise<{ current_job: unknown; verdicts: unknown[] }> {
+  return jsonOrThrow(await fetch("/api/eval"), "Failed to load eval");
 }
 
 export async function setSourceEnabled(name: string, enabled: boolean): Promise<SourceInfo> {
