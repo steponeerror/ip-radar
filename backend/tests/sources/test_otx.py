@@ -67,7 +67,7 @@ class TestOtxSourceConfig:
         assert OtxSource.fields == ("is_malicious",)
         assert OtxSource.reliability == 0.55
         # OTX is correlation/pulse-based — not authoritative.
-        assert OtxSource.authoritative_for == []
+        assert OtxSource.authoritative_for == ()
 
     def test_classification_type(self):
         # Scanner is the class-level default; harvest sets per-row classification.

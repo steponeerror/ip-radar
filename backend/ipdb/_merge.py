@@ -56,50 +56,11 @@ def to_observation(
 
 
 # ── Source reliability and authority maps ──
-
-SOURCE_RELIABILITY: dict[str, float] = {
-    "ipinfo_lite": 0.95,
-    "iptoasn":     0.90,
-    "cn_isp":      0.85,
-    "geolite_city": 0.85,
-    "ip2proxy":    0.80,
-    "tor_exits":   0.95,
-    "x4bnet_vpn":  0.70,
-    "ipsum":       0.55,
-    "firehol":     0.50,
-    # Phase 4 new sources
-    "spamhaus":    0.90,
-    "threatfox":   0.85,
-    "blocklist_de":0.65,
-    "emerging_threats":0.85,
-    "otx":         0.55,
-    # threat sources also consumed by STIX export x_reliability (_stix_export._get_src_reliability)
-    "abuseipdb":   0.65,
-    "stopforumspam": 0.70,
-    "binarydefense": 0.65,
-    "tweetfeed": 0.45,
-    "urlhaus": 0.55,
-    "ciarm": 0.60,
-    "bruteforce": 0.60,
-    "greensnow": 0.60,
-    "dataplane": 0.70,
-    "dshield": 0.70,     # DShield sensor reputation — same tier as dataplane
-    "f3csystems": 0.60,
-    "reportedip": 0.65,
-    "proxyscrape": 0.45,
-    "infra_services": 0.95,   # curated authoritative (DNS/root/NTP)
-    "cdn_edges": 0.95,        # publisher-self-published CDN edge ranges
-}
-
-AUTHORITATIVE_SOURCES: dict[str, list[str]] = {
-    "is_proxy":     ["ip2proxy"],
-    "is_tor":       ["tor_exits"],
-    "is_vpn":       ["x4bnet_vpn"],
-    "is_malicious": ["threatfox", "emerging_threats", "spamhaus"],
-    "is_hosting":   ["ipinfo_lite"],
-    "is_mobile":    ["ipinfo_lite"],
-    "service":      ["infra_services", "cdn_edges"],
-}
+# 运行时由 _registry 从源 attr 派生填充(spec 2026-08-28 §5.1)。
+# 对象身份不变:__init__/_stix_export/_to_attributions 的既有 import 靠它,
+# 严禁重新赋值——只允许 clear()+update()。
+SOURCE_RELIABILITY: dict[str, float] = {}
+AUTHORITATIVE_SOURCES: dict[str, list[str]] = {}
 
 
 # ── Attribution builder ──

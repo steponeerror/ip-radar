@@ -11,6 +11,7 @@ from ._base import IpListSource
 
 class GreensnowSource(IpListSource):
     name = "greensnow"
+    category = "threat"
     url = "https://blocklist.greensnow.co/greensnow.txt"
     filename = "greensnow.txt"
     fields = ("is_malicious",)
@@ -18,4 +19,4 @@ class GreensnowSource(IpListSource):
     verdict = "malicious"
     stale_days = 1
     reliability = 0.60
-    authoritative_for = []
+    authoritative_for = ()

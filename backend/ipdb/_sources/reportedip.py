@@ -48,6 +48,7 @@ logger = logging.getLogger(__name__)
 
 class ReportedIPSource(Source):
     name = "reportedip"
+    category = "threat"
     url = "https://raw.githubusercontent.com/reportedip/reportedip-blacklist/main/blacklist-all.csv"
     filename = "reportedip.csv"
     fields = ("is_malicious",)
@@ -55,7 +56,7 @@ class ReportedIPSource(Source):
     verdict = "malicious"
     stale_days = 1                  # daily auto-commit at ~04:05 UTC
     reliability = 0.65              # honeypot + community reports (cf. binarydefense, blocklist_de)
-    authoritative_for = []
+    authoritative_for = ()
 
     def harvest(self):
         """Yield (ip, Evidence) per IPv4 row, one Evidence per distinct canonical

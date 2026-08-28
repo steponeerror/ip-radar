@@ -60,3 +60,25 @@ def test_reliability_range():
 def test_authoritative_for_known_fields():
     class Bad(_Fake): authoritative_for = ("not_a_field",)
     assert any("authoritative_for" in p for p in validate_source(Bad()))
+
+
+# ── metadata_problems 独立函数(Controller 修正 #2:registry 启动 raise 用它)──
+from ipdb._validate import metadata_problems
+
+def test_metadata_problems_clean_stub():
+    assert metadata_problems(_Fake()) == []
+
+def test_metadata_problems_three_states():
+    class BadCat(_Fake): category = "bogus"
+    class BadRel(_Fake): reliability = 1.5
+    class BadAuth(_Fake): authoritative_for = ("not_a_field",)
+    assert any("category" in p for p in metadata_problems(BadCat()))
+    assert any("reliability" in p for p in metadata_problems(BadRel()))
+    assert any("authoritative_for" in p for p in metadata_problems(BadAuth()))
+
+def test_metadata_problems_independent_of_legacy_checks():
+    # legacy 语法类问题不影响 metadata_problems(它只看元数据契约)
+    class LegacyMess(_Fake):
+        classification_type = "not-a-real-type"
+        field_map = {"a": "nowhere_slot"}
+    assert metadata_problems(LegacyMess()) == []

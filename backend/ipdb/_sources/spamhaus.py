@@ -5,6 +5,7 @@ from ._base import IpListSource
 
 class SpamhausSource(IpListSource):
     name = "spamhaus"
+    category = "threat"
     url = "https://www.spamhaus.org/drop/drop.txt"
     filename = "spamhaus_drop.txt"
     fields = ("is_malicious",)
@@ -12,7 +13,7 @@ class SpamhausSource(IpListSource):
     verdict = "malicious"
     stale_days = 1
     reliability = 0.90
-    authoritative_for = ["is_malicious"]
+    authoritative_for = ("is_malicious",)
 
     _V6_URL = "https://www.spamhaus.org/drop/dropv6.txt"
 

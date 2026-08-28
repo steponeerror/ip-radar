@@ -12,6 +12,7 @@ from ._base import IpListSource
 
 class CiarmSource(IpListSource):
     name = "ciarm"
+    category = "threat"
     url = "https://cinsscore.com/list/ci-badguys.txt"
     filename = "ciarm_badguys.txt"
     fields = ("is_malicious",)
@@ -19,4 +20,4 @@ class CiarmSource(IpListSource):
     verdict = "malicious"
     stale_days = 1
     reliability = 0.60
-    authoritative_for = []
+    authoritative_for = ()

@@ -4,6 +4,7 @@ from ._base import CsvSource
 
 class IPsumSource(CsvSource):
     name = "ipsum"
+    category = "threat"
     url = "https://raw.githubusercontent.com/stamparm/ipsum/master/ipsum.txt"
     filename = "ipsum.txt"
     fields = ("is_malicious",)
@@ -11,7 +12,7 @@ class IPsumSource(CsvSource):
     verdict = "malicious"
     stale_days = 1
     reliability = 0.55
-    authoritative_for = []
+    authoritative_for = ()
     delimiter = "\t"          # IPsum is tab-separated: "<ip>\t<count>"
     _min_count: int = 3
 
