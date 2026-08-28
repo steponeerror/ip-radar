@@ -189,7 +189,8 @@ def test_get_sources_route_returns_list(monkeypatch):
     client = TestClient(main.app)
     resp = client.get("/api/sources")
     assert resp.status_code == 200
-    assert resp.json() == [{"name": "ipinfo_lite", "enabled": True}]
+    # 聚合层给每项追加 eval 字段(无报告 → None,spec §5.2)
+    assert resp.json() == [{"name": "ipinfo_lite", "enabled": True, "eval": None}]
 
 
 def test_patch_source_route_calls_set_enabled(monkeypatch):

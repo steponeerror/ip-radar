@@ -36,6 +36,8 @@ from ipdb._cidr import expand_inputs
 from ipdb import _registry as _ipdb_registry
 from ipdb import _update as _ipdb_update
 from ipdb import _version as _ipdb_version
+from ipdb._eval_manager import EvalManager, EvalBusyError
+from ipdb._eval_reader import read_overview, read_source
 
 import os
 from pathlib import Path
@@ -43,6 +45,9 @@ from pathlib import Path
 logging.basicConfig(level=logging.INFO)
 
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50MB
+
+# eval 单槽任务管理(spec §5.2):子进程隔离,消融不碰主进程 _disabled
+eval_manager = EvalManager()
 
 
 async def _read_upload_capped(file: UploadFile, cap: int) -> bytes:
@@ -681,7 +686,14 @@ async def lookup_stix(ip: str):
 
 @app.get("/api/sources")
 async def list_sources_route():
-    return list_sources()
+    items = list_sources()
+    # eval verdict 聚合(spec §5.2):agent 查目录一次拿到 健康+类别+权重+
+    # 最近考分;无报告 → null。不加缓存,29 源量级可接受。
+    _ev = {v["source"]: v for v in read_overview()}
+    for it in items:
+        v = _ev.get(it["name"])
+        it["eval"] = {"verdict": v["verdict"], "at": v["at"]} if v else None
+    return items
 
 
 @app.patch("/api/sources/{name}")
@@ -699,6 +711,38 @@ async def update_source_route(name: str):
     except ValueError:
         raise HTTPException(404, f"unknown source: {name}")
     return {"task_id": t.id}
+
+
+# ── eval 端点(spec 2026-08-28 §5.2:成绩单上墙)──
+# 两个 GET 是纯文件读(历史报告),不碰 LMDB → 不挂 require_ready
+# (warming 期仍能诚实报告过往 verdict);POST run 会起子进程对当前
+# DB 做消融评估,warming 期评估无意义 → 与 lookup 同门。PR③ 统一错误信封。
+
+@app.get("/api/eval")
+async def eval_overview_route():
+    """全源最新 eval verdict 摘要 + 当前 eval 任务状态(current_job)。"""
+    return {"current_job": eval_manager.current, "verdicts": read_overview()}
+
+
+@app.get("/api/eval/{source}")
+async def eval_detail_route(source: str):
+    """单源 eval 历史 + 最新详情;源存在但无报告 → latest null。"""
+    if _ipdb_registry._find_source(source) is None:
+        raise HTTPException(404, f"unknown source: {source}")
+    return read_source(source)
+
+
+@app.post("/api/eval/{source}/run", status_code=202,
+          dependencies=[Depends(require_ready)])
+async def eval_run_route(source: str):
+    """触发单源 eval(子进程 CLI --json);单槽,busy → 409。"""
+    if _ipdb_registry._find_source(source) is None:
+        raise HTTPException(404, f"unknown source: {source}")
+    try:
+        job = eval_manager.run(source)
+    except EvalBusyError as e:
+        raise HTTPException(409, str(e))
+    return {"job_id": job["job_id"]}
 
 
 @app.post("/api/tasks/{task_id}/cancel")
