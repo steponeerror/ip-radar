@@ -41,4 +41,15 @@ def validate_source(source) -> list[str]:
             problems.append(
                 f"reliability drift: class attr={attr_val} but "
                 f"SOURCE_RELIABILITY[{source.name!r}]={dict_val}")
+
+    # 元数据契约护栏(spec §5.1):缺 attr / 越界 / 未知字段 → 启动炸，不静默
+    cat = getattr(source, "category", None)
+    if cat not in ("geo_asn", "threat", "asset", "other"):
+        problems.append(f"category {cat!r} invalid (need geo_asn|threat|asset|other)")
+    rel = getattr(source, "reliability", 0.5)
+    if not (0.0 <= rel <= 1.0):
+        problems.append(f"reliability {rel!r} out of range [0,1]")
+    for f in getattr(source, "authoritative_for", ()) or ():
+        if f not in ALL_KNOWN and not str(f).startswith("extra"):
+            problems.append(f"authoritative_for names unknown field {f!r}")
     return problems
