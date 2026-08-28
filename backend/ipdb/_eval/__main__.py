@@ -5,6 +5,8 @@
   python -m ipdb._eval --all         # per-source verdict table (no ranking in v1)
 """
 import argparse
+import json
+import os
 import random
 import sys
 from pathlib import Path
@@ -22,8 +24,20 @@ from .verdict import assess
 
 _PKG_DIR = Path(__file__).resolve().parent              # backend/ipdb/_eval
 _REPO_ROOT = _PKG_DIR.parents[2]                        # _eval -> ipdb -> backend -> repo root
-REPORT_DIR = _REPO_ROOT / "docs" / "eval"               # tracked findings (spec §11)
+# 报告目录(spec 2026-08-28 §5.2):运行时状态区,env 可覆盖;write_report 自带 mkdir
+REPORT_DIR = Path(os.environ.get(
+    "IP_RADAR_EVAL_DIR",
+    str(_REPO_ROOT / "backend" / "data" / "eval")))
 CORPUS_PATH = _PKG_DIR / "corpus.json"                  # curated in-package asset (spec §5)
+
+_JSON_HINT = "确认 DB 已 load / corpus 存在(--rebuild)"
+
+
+def _json_error(code: str, message: str, hint: str) -> None:
+    """--json 模式统一错误出口:stdout 合法 JSON + 非零退出(spec §5.2)。"""
+    print(json.dumps({"error": {"code": code, "message": message, "hint": hint}},
+                     ensure_ascii=False))
+    sys.exit(1)
 
 
 def _real_registry():
@@ -100,6 +114,7 @@ def main(argv=None):
     p.add_argument("source", nargs="?", help="source name to evaluate")
     p.add_argument("--rebuild", action="store_true", help="rebuild frozen benchmark corpus")
     p.add_argument("--all", action="store_true", help="evaluate every source (no ranking in v1)")
+    p.add_argument("--json", action="store_true", help="机器可读 JSON 到 stdout")
     args = p.parse_args(argv)
 
     registry = _real_registry()
@@ -112,12 +127,34 @@ def main(argv=None):
         print(f"rebuilt corpus -> {CORPUS_PATH}")
         return
     if args.all:
+        if args.json:
+            results = []
+            for s in registry.sources:
+                try:
+                    _, js, _ = run_for_source(s.name, registry=registry)
+                    results.append(json.loads(Path(js).read_text()))
+                except Exception as e:
+                    results.append({"source": s.name, "error": {
+                        "code": "internal", "message": str(e), "hint": _JSON_HINT}})
+            print(json.dumps(results, ensure_ascii=False))
+            return
         for s in registry.sources:
             _, _, v = run_for_source(s.name, registry=registry)
             print(f"{s.name:<20} {v.state}")
         return
     if not args.source:
         p.error("source required (or pass --all / --rebuild)")
+    if args.json:
+        if next((s for s in registry.sources if s.name == args.source), None) is None:
+            _json_error("source_not_found", f"no source named {args.source!r}",
+                        "GET /api/sources 或查 backend/ipdb/_sources/ 确认源名")
+        try:
+            md, js, v = run_for_source(args.source, registry=registry)
+        except Exception as e:
+            _json_error("internal", str(e), _JSON_HINT)
+        # 复用 write_report 的 render_json 序列化(顶层已含 source/generated_at)
+        print(json.dumps(json.loads(Path(js).read_text()), ensure_ascii=False))
+        return
     md, _, v = run_for_source(args.source, registry=registry)
     print(f"{args.source}: {v.state}\n  report: {md}")
 
