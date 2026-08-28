@@ -14,7 +14,7 @@ from pathlib import Path
 
 def _dir() -> Path:
     return Path(os.environ.get("IP_RADAR_EVAL_DIR")
-                or Path(__file__).resolve().parents[2] / "data" / "eval")
+                or Path(__file__).resolve().parents[1] / "data" / "eval")
 
 
 def _runs() -> list[dict]:
@@ -39,8 +39,13 @@ def _runs() -> list[dict]:
 
 
 def _metric(r: dict, k: str):
-    """实测 schema:metrics 是 {k: {value, n}} 嵌套(report.py _metric_to_json)。"""
-    m = (r.get("metrics") or {}).get(k)
+    """实测 schema:metrics 是 {k: {value, n}} 嵌套(report.py _metric_to_json)。
+    键名大小写回退:__main__.py 的 metrics dict 里 MC/CG 是大写、oc 是小写
+    (演练实测 OC 查成 null 的根因)。"""
+    ms = r.get("metrics") or {}
+    m = ms.get(k)
+    if m is None and k.isupper():
+        m = ms.get(k.lower())
     return m.get("value") if isinstance(m, dict) else m
 
 

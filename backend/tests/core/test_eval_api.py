@@ -75,6 +75,22 @@ class TestEvalRoutes:
         assert vs["spamhaus"]["oc"] == 0.03
         assert vs["otx"]["verdict"] == "NEGATIVE-DEPRIORITIZE"
 
+    def test_overview_oc_lowercase_key_not_null(self, tmp_path, monkeypatch):
+        """真实报告 metrics 键 oc 是小写(__main__ metrics dict 实测);
+        大写 OC 查询必须回退命中——演练发现 overview oc=null 的回归锁。"""
+        monkeypatch.setenv("IP_RADAR_EVAL_DIR", str(tmp_path))
+        (tmp_path / "toysource-20260828-120000.json").write_text(json.dumps({
+            "source": "toysource", "generated_at": "2026-08-28",
+            "verdict": {"state": "POSITIVE-UNVERIFIED", "action": "keep"},
+            "metrics": {"MC": {"value": 0.063, "n": 443},
+                        "CG": {"value": 0, "n": 9},
+                        "oc": {"value": 0.0, "n": 9}},
+        }))
+        body = self.client.get("/api/eval").json()
+        v = next(v for v in body["verdicts"] if v["source"] == "toysource")
+        assert v["oc"] is not None
+        assert v["oc"] == 0.0
+
     def test_overview_same_day_tiebreak_by_filename_ts(self, tmp_path, monkeypatch):
         """generated_at 日粒度 → 同日多报告靠文件名秒级时间戳分先后。"""
         monkeypatch.setenv("IP_RADAR_EVAL_DIR", str(tmp_path))
@@ -150,3 +166,10 @@ class TestEvalRoutes:
                                           "at": "2026-08-29"}
         # 无报告的源 → null(tiny_db 里 ipinfo_lite 有数据必在)
         assert by["ipinfo_lite"]["eval"] is None
+
+    def test_reader_default_dir_is_backend_data_eval(self, monkeypatch):
+        """默认路径回归(演练实抓):_eval_reader 无环境变量时必须指向
+        backend/data/eval;修复前 parents[2] 指向 repo/data/eval,端点恒空。"""
+        monkeypatch.delenv("IP_RADAR_EVAL_DIR", raising=False)
+        from ipdb._eval_reader import _dir
+        assert _dir().parts[-3:] == ("backend", "data", "eval")
