@@ -56,9 +56,38 @@ def test_report_dir_default_is_backend_data_eval():
         [sys.executable, "-c", "import ipdb._eval.__main__ as m; print(m.REPORT_DIR)"],
         cwd=str(BACKEND), capture_output=True, text=True, timeout=120)
     assert Path(p.stdout.strip()) == (BACKEND / "data" / "eval").resolve()
-
-
 _BD_PTR = BACKEND / "data" / "binarydefense_banlist.txt.lmdb.ptr"
+
+
+def test_json_load_db_failure_is_envelope(monkeypatch, capsys):
+    """P2 修正:--json 下 load_db 失败走 stdout JSON 信封,不许 stderr 裸栈。"""
+    import ipdb._registry as reg
+    from ipdb._eval.__main__ import main
+
+    def _boom():
+        raise RuntimeError("db not built")
+
+    monkeypatch.setattr(reg, "load_db", _boom)
+    with pytest.raises(SystemExit) as ei:
+        main(["spamhaus", "--json"])
+    assert ei.value.code == 1
+    out = json.loads(capsys.readouterr().out)
+    assert out["error"]["code"] == "internal"
+    assert "hint" in out["error"]
+
+
+def test_json_missing_source_arg_is_envelope(monkeypatch, capsys):
+    """P2 修正:--json 且缺 source → JSON bad_request,替代 argparse p.error 裸退出。"""
+    import ipdb._registry as reg
+    from ipdb._eval.__main__ import main
+
+    monkeypatch.setattr(reg, "load_db", lambda: None)   # 不依赖本地数据
+    with pytest.raises(SystemExit) as ei:
+        main(["--json"])
+    assert ei.value.code == 1
+    out = json.loads(capsys.readouterr().out)
+    assert out["error"]["code"] == "bad_request"
+    assert "hint" in out["error"]
 
 
 @pytest.mark.skipif(

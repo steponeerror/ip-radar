@@ -118,7 +118,14 @@ def main(argv=None):
     args = p.parse_args(argv)
 
     registry = _real_registry()
-    registry.load_db()
+    if args.json:
+        # --json 下前置失败也必须走 stdout JSON 信封,不许 stderr 裸栈(spec §5.2)
+        try:
+            registry.load_db()
+        except Exception as e:
+            _json_error("internal", f"load_db failed: {e}", _JSON_HINT)
+    else:
+        registry.load_db()
 
     if args.rebuild:
         bench = build_benchmark(registry.sources, config.CORPUS_PER_TYPE_N,
@@ -143,6 +150,9 @@ def main(argv=None):
             print(f"{s.name:<20} {v.state}")
         return
     if not args.source:
+        if args.json:
+            _json_error("bad_request", "source required (or pass --all / --rebuild)",
+                        "用法:python -m ipdb._eval <source> [--all|--rebuild] --json")
         p.error("source required (or pass --all / --rebuild)")
     if args.json:
         if next((s for s in registry.sources if s.name == args.source), None) is None:
