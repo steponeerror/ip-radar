@@ -2,7 +2,7 @@
 
 ## weight-invariant 警告(先读)
 
-降 SOURCE_RELIABILITY **不改 verdict、不改该源贡献的 IP**,只改 fusion 数值话语权 + STIX `x_reliability`。
+降源文件 `reliability` attr(中央 `SOURCE_RELIABILITY` dict 由其派生,勿手编)**不改 verdict、不改该源贡献的 IP**,只改 fusion 数值话语权 + STIX `x_reliability`。
 想真正改变采用状态(问题源别贡献 / 某源别报 fp)必须 **disable / tighten noise filter / 精简数据**,光降权对 MIXED/NEGATIVE 无效。
 
 ## 全 lever 表
@@ -15,7 +15,7 @@
 | MARGINAL | 非权威→降权/精简;权威(is_malicious 等)→不动 |
 | NEGATIVE | disable |
 | INSUFFICIENT-SAMPLE | 补样本/换 corpus(别误判源差;多为 corpus 偏向,geo 源 IP 不在威胁 corpus) |
-| N/A-ASSET | asset 源(is_tor/is_vpn/...)——不走 corroboration,按 AUTHORITATIVE_SOURCES 权威加权,不降 |
+| N/A-ASSET | asset 源(is_tor/is_vpn/...)——不走 corroboration,按 `authoritative_for` 权威加权(派生为 AUTHORITATIVE_SOURCES),不降 |
 
 ## 数值分档表(混合依据:分档 + 权威源第三方校准)
 

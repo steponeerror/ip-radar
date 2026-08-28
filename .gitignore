@@ -65,3 +65,6 @@ baseline-pytest.txt
 
 # Nested separate repository (has its own .git)
 misp-docker/
+
+# 根目录 AGENTS.md 含服务器部署细节,不入库(留磁盘)
+AGENTS.md
