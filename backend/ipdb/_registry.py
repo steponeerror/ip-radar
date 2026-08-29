@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 from ipdb._source_state import load_disabled, save_disabled
 from ._evidence import route_record, SCALAR_SLOTS, ASSET_SLOTS
 from ._reserved import is_reserved_addr
+from . import _logodds as _lo
 from ._types import SourceHealth, LookupResult, MergedField, ClassificationAssessment, AssetStatement
 from ._merge import (
     FactualVoting,
@@ -361,6 +362,25 @@ def load_db() -> None:
     logger.info(f"Loaded {counts} records")
 
 
+def _order_asset_stmts(stmts: list) -> list:
+    """asset 布林后验排序(spec 2026-08-29 §4):True 源 +logit(r)、False 源
+    −logit(r),MAP 方向前置,同方向按 r 降序;非全布尔键原序返回。
+    conf 本期不输出(仅排序语义),CSV/STIX/前端零改动。"""
+    if not stmts or not all(isinstance(s.value, bool) for s in stmts):
+        return stmts
+
+    def _coeff(s):
+        sign = 1 if s.value else -1
+        return sign * _lo.logit(SOURCE_RELIABILITY.get(s.source, 0.5))
+
+    p_true = _lo.assertion_confidence([_coeff(s) for s in stmts])
+    map_value = p_true >= 50
+    return sorted(stmts, key=lambda s: (
+        0 if s.value is map_value else 1,
+        -SOURCE_RELIABILITY.get(s.source, 0.5),
+    ))
+
+
 def lookup(ip: str) -> LookupResult:
     """Look up an IP address and return a typed LookupResult."""
     if not _db_loaded():
@@ -423,6 +443,9 @@ def lookup(ip: str) -> LookupResult:
                                and s.native_type == stmt.native_type
                                for s in attributes[akey]):
                         attributes[akey].append(stmt)
+
+    for akey in list(attributes.keys()):
+        attributes[akey] = _order_asset_stmts(attributes[akey])
 
     context = {"ip": ip, "addr": addr, "country": field_values.get("country_code", {})}
 
