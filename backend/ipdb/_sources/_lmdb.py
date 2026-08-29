@@ -527,6 +527,32 @@ def rebuild_dual_family(records, v4_base: Path, v6_base: Path, *,
     return n4, n6
 
 
+def commit_dual_family(owner, records, *, cov4, cov6,
+                       count4=None, count6=None, progress=None) -> int:
+    """rebuild_dual_family 提交 + owner 六态回写(9 个覆写 rebuild 的共同尾巴)。
+
+    owner: 任一 Source/IpListSource 实例(_lmdb_base/_lmdb6_base + 六个
+    状态槽)。count4/count6:Csv 类证据数语义覆写(默认 None = 行数即 count)。
+    返回 n4(rebuild 的返回值,与各覆写点的 return n4 契约一致)。
+    """
+    import time
+    n4, n6 = rebuild_dual_family(
+        records, owner._lmdb_base, owner._lmdb6_base,
+        reader_setter4=lambda e: setattr(owner, "_reader", e),
+        reader_setter6=lambda e: setattr(owner, "_reader6", e),
+        flag_setter4=lambda v: setattr(owner, "_disjoint", v),
+        flag_setter6=lambda v: setattr(owner, "_disjoint6", v),
+        covered4=cov4, covered6=cov6,
+        count4=count4, count6=count6, progress=progress)
+    owner._count = count4 if count4 is not None else n4
+    owner._count6 = count6 if count6 is not None else n6
+    owner._covered_ips = cov4
+    owner._covered_v6_nets = cov6
+    owner._loaded_at = time.time()
+    return n4
+
+
+
 def covered_ip_count(cidr_strs, *, ip_version: int = 4) -> int:
     """Σ 2^(host_bits) over the given CIDR strings.
 

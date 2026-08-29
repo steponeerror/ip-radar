@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { IpInput } from "./components/IpInput";
 import { FileUpload } from "./components/FileUpload";
 import { ResultTable } from "./components/ResultTable";
@@ -13,10 +12,10 @@ import { useI18n } from "./i18n";
 
 type InputTab = "text" | "file";
 
-// api 层非 2xx 抛错统一带 e.status + e.reason(见 api.ts throwApiError);
-// 503 且 reason==="warming" 才是 warming 门(no-sources 是另一种 503)。
+// api 层非 2xx 抛错统一带 e.status + e.code(信封语义码,见 api.ts throwApiError);
+// code==="warming" 才是 warming 门(no_sources 是另一种 503)。
 const isWarming503 = (e: unknown) =>
-  (e as any)?.status === 503 && (e as any)?.reason === "warming";
+  (e as any)?.code === "warming";
 
 export default function LookupView() {
   return (
@@ -39,7 +38,6 @@ function LookupViewInner() {
     count: number;
     invalid: number;
   } | null>(null);
-  const reduce = useReducedMotion();
   const { warming, recheck } = useWarming();
   const [pendingIp, setPendingIp] = useState<string | null>(() => {
     const q = new URLSearchParams(window.location.search).get("ip");
@@ -93,7 +91,7 @@ function LookupViewInner() {
             setError(t("lookup.cancelled"));
             break;
           }
-          if ((e as any)?.status === 503 && (e as any)?.reason === "no-sources") {
+          if ((e as any)?.code === "no_sources") {
             setError(t("lookup.noSources"));
             break;
           }
@@ -150,29 +148,15 @@ function LookupViewInner() {
         </div>
 
         <div className="mt-3">
-          <AnimatePresence mode="wait">
-            {tab === "text" ? (
-              <motion.div
-                key="text"
-                initial={reduce ? false : { opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.15 }}
-              >
-                <IpInput onQuery={handleQuery} loading={loading} progress={progress} disabled={warming} />
-              </motion.div>
-            ) : (
-              <motion.div
-                key="file"
-                initial={reduce ? false : { opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.15 }}
-              >
-                <FileUpload onUpload={handleUpload} loading={loading} progress={progress} disabled={warming} />
-              </motion.div>
-            )}
-          </AnimatePresence>
+          {tab === "text" ? (
+            <div className="fade-in">
+              <IpInput onQuery={handleQuery} loading={loading} progress={progress} disabled={warming} />
+            </div>
+          ) : (
+            <div className="fade-in">
+              <FileUpload onUpload={handleUpload} loading={loading} progress={progress} disabled={warming} />
+            </div>
+          )}
         </div>
       </section>
 

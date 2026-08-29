@@ -70,6 +70,7 @@ def _classify(protocol: str | None) -> str:
 
 class OtxSource(Source):
     name = "otx"
+    category = "threat"
     url = "https://otx.alienvault.com/api/v1/pulses/activity"
     filename = "otx_ips.csv"
     fields = ("is_malicious",)
@@ -77,7 +78,8 @@ class OtxSource(Source):
     verdict = "malicious"
     stale_days = 1
     reliability = 0.55
-    authoritative_for = []
+    derived = True                        # 聚合器:谱系去重用(spec 2026-08-29 §3.3)
+    authoritative_for = ()
 
     def __init__(self, data_dir):
         super().__init__(data_dir)

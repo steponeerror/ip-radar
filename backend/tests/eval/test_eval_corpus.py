@@ -38,10 +38,11 @@ def test_build_benchmark_partitions_by_type(tmp_path):
         raw = tmp_path / f"{t}.txt"
         raw.write_text("\n".join(f"10.{i}.{i}.{i}" for i in range(1,6)))
         sources.append(_FakeSource(t, raw, classification_type=t))
-    bench = build_benchmark(sources, per_type_n=3, benign_n=0, reserved_n=0,
-                            rng=random.Random(0))
+    bench = build_benchmark(sources, per_type_n=3, rng=random.Random(0))
     assert set(bench.benchmark.keys()) == {"c2-server", "phishing"}
     assert all(len(v) <= 3 for v in bench.benchmark.values())
+    # 固定小名单:strata 恒满(曾为旋钮,现硬编码)
+    assert len(bench.benign) == 4 and len(bench.reserved) == 4
 
 def test_sample_source_ips_skips_directory(tmp_path):
     d = tmp_path / "firehol"

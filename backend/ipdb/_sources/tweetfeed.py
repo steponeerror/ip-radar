@@ -35,14 +35,15 @@ def _classify_tag(raw_tag: str) -> str:
 
 class TweetFeedSource(Source):
     name = "tweetfeed"
+    category = "threat"
     url = "https://raw.githubusercontent.com/0xDanielLopez/TweetFeed/master/year.csv"
     filename = "tweetfeed.csv"
     fields = ("is_malicious",)
     classification_type = "other"   # default; overridden per-row in harvest
     verdict = "malicious"
     stale_days = 1
-    reliability = 0.45              # crowd-sourced researcher reports — not authoritative
-    authoritative_for = []
+    reliability = 0.50              # 收源红线 r≥0.5(spec §3.4);校准阶段重估 — crowd-sourced researcher reports
+    authoritative_for = ()
 
     def harvest(self):
         """Yield (ip, Evidence) per IP-type row. Non-IP rows (domain/url/hash)

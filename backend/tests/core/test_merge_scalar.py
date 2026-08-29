@@ -5,8 +5,8 @@ monkeypatched in each test.
 """
 import pytest
 from ipdb._merge import (
-    _to_attributions, _weighted_confidence, _apply_coverage_penalty,
-    FactualVoting, NamingAuthority, RangeSpecificity,
+    _to_attributions,
+    FactualVoting, NamingAuthority, RangeSpecificity, LogOddsVoting,
 )
 from ipdb._types import SourceAttribution, MergedField
 import ipdb._merge as _merge
@@ -46,40 +46,6 @@ def test_to_attributions_unknown_source_defaults(monkeypatch):
     result = _to_attributions({"unknown_src": True}, "is_proxy")
     assert result[0].reliability == 0.5
     assert result[0].authoritative is False
-
-
-def test_weighted_confidence():
-    """tw=0.80, total=1.00 → conf = round(0.80/1.00*100) = 80"""
-    true_src = [SourceAttribution("ip2proxy", True, 0.80, True)]
-    all_src = [
-        SourceAttribution("ip2proxy", True, 0.80, True),
-        SourceAttribution("ipsum", False, 0.20, False),
-    ]
-    conf = _weighted_confidence(true_src, all_src)
-    assert conf == 80
-
-
-def test_weighted_confidence_zero_total():
-    conf = _weighted_confidence([], [])
-    assert conf == 0
-
-
-def test_apply_coverage_penalty_applied():
-    """1/4 = 25% < 50% → penalty: round(80*0.7) = 56"""
-    result = _apply_coverage_penalty(80, 1, 4)
-    assert result == 56
-
-
-def test_apply_coverage_penalty_not_applied():
-    """4/4 = 100% ≥ 50% → no penalty"""
-    result = _apply_coverage_penalty(80, 4, 4)
-    assert result == 80
-
-
-def test_apply_coverage_penalty_zero_expected():
-    """expected=0 → no penalty"""
-    result = _apply_coverage_penalty(80, 2, 0)
-    assert result == 80
 
 
 class TestFactualVoting:
@@ -189,8 +155,59 @@ class TestFactualVoting:
         assert result.confidence == 50
 
 
+class TestLogOddsVoting:
+    """country/ASN 融合的源名场景(spec 2026-08-29 §3.2/§4)。
+
+    conf = round(P(MAP)·100);P(v)=exp(Σ logit r)/(Σ exp + 1)。"""
+
+    def test_single_source_conf_equals_r(self, monkeypatch):
+        monkeypatch.setattr(_merge, "SOURCE_RELIABILITY", {"ipinfo_lite": 0.95})
+        monkeypatch.setattr(_merge, "AUTHORITATIVE_SOURCES", {})
+        lv = LogOddsVoting(default="N/A")
+        result = lv.merge({"ipinfo_lite": "CN"}, {"ip": "1.2.3.4"})
+        assert result.value == "CN"
+        assert result.confidence == 95
+        assert result.algorithm == "logodds"
+
+    def test_two_sources_agree_compound(self, monkeypatch):
+        monkeypatch.setattr(_merge, "SOURCE_RELIABILITY",
+                            {"ipinfo_lite": 0.95, "iptoasn": 0.90})
+        monkeypatch.setattr(_merge, "AUTHORITATIVE_SOURCES", {})
+        lv = LogOddsVoting(default="N/A")
+        result = lv.merge({"ipinfo_lite": "CN", "iptoasn": "CN"}, {})
+        assert result.confidence == 99          # Σ=5.142 → P=0.994
+
+    def test_weight_beats_headcount(self, monkeypatch):
+        """US 0.95 一票 vs CN 两票 0.45:r<0.5 logit 为负,两人头反拖后腿。"""
+        monkeypatch.setattr(_merge, "SOURCE_RELIABILITY",
+                            {"heavy": 0.95, "light1": 0.45, "light2": 0.45})
+        monkeypatch.setattr(_merge, "AUTHORITATIVE_SOURCES", {})
+        lv = LogOddsVoting(default="N/A")
+        result = lv.merge(
+            {"heavy": "US", "light1": "CN", "light2": "CN"}, {})
+        assert result.value == "US"
+        assert result.confidence == 92          # 19.0/(19.0+0.669+1)
+
+    def test_tie_breaks_by_value_string(self, monkeypatch):
+        monkeypatch.setattr(_merge, "SOURCE_RELIABILITY",
+                            {"aaa": 0.80, "zzz": 0.80})
+        monkeypatch.setattr(_merge, "AUTHORITATIVE_SOURCES", {})
+        lv = LogOddsVoting(default="N/A")
+        result = lv.merge({"zzz": "US", "aaa": "CN"}, {})
+        assert result.value == "CN"          # 等率 → 值字典序(不再看源名)
+        assert result.confidence == 44        # 4.0/(4.0+4.0+1)
+
+    def test_asn_zero_filtered_single_valid(self, monkeypatch):
+        monkeypatch.setattr(_merge, "SOURCE_RELIABILITY", {"s1": 0.80, "s2": 0.80})
+        monkeypatch.setattr(_merge, "AUTHORITATIVE_SOURCES", {})
+        lv = LogOddsVoting(default=0)
+        result = lv.merge({"s1": 0, "s2": 4134}, {})
+        assert result.value == 4134
+        assert result.confidence == 80
+
+
 class TestNamingAuthority:
-    """Returns MergedField with 'authority' algorithm."""
+    """Returns MergedField with 'authority' algorithm; conf = r×100 (spec §4)."""
 
     def test_no_sources(self, monkeypatch):
         monkeypatch.setattr(_merge, "SOURCE_RELIABILITY", {})
@@ -203,13 +220,13 @@ class TestNamingAuthority:
 
     def test_single_source(self, monkeypatch):
         monkeypatch.setattr(_merge, "SOURCE_RELIABILITY",
-                            {"ipinfo_lite": 0.95})
+                            {"ipinfo_lite": 0.85})
         monkeypatch.setattr(_merge, "AUTHORITATIVE_SOURCES", {})
         na = NamingAuthority()
         result = na.merge(
             {"ipinfo_lite": "Cloudflare"}, {"country": {}, "ip": "1.2.3.4"})
         assert result.value == "Cloudflare"
-        assert result.confidence == 50
+        assert result.confidence == 85          # r×100(was 50)
 
     def test_no_authoritative_falls_back(self, monkeypatch):
         monkeypatch.setattr(_merge, "SOURCE_RELIABILITY",
@@ -219,8 +236,8 @@ class TestNamingAuthority:
         result = na.merge(
             {"ipinfo_lite": "Cloudflare", "iptoasn": "CLOUDFLARENET"},
             {"country": {}, "ip": "1.2.3.4"})
-        assert result.value in ("Cloudflare", "CLOUDFLARENET")
-        assert result.confidence == 50
+        assert result.value == "Cloudflare"     # 最高 r 胜(与 docstring 一致)
+        assert result.confidence == 95
 
 
 class TestRangeSpecificity:

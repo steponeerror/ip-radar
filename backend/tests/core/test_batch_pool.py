@@ -37,35 +37,19 @@ def test_detect_host_returns_positive_ints():
     assert isinstance(ram, int) and ram > 0
 
 
-def test_perf_config_roundtrip(tmp_path):
-    p = tmp_path / "perf.json"
-    _batch_pool.save_perf_config({"n_workers": 4, "m_pool": 2}, p)
-    assert _batch_pool.load_perf_config(p) == {"n_workers": 4, "m_pool": 2}
-
-
-def test_load_perf_config_missing_returns_none(tmp_path):
-    assert _batch_pool.load_perf_config(tmp_path / "nope.json") is None
-
-
 def test_resolve_layout_formula_when_no_overrides():
-    assert _batch_pool.resolve_layout(16, 3900, {}, None) == (2, 6)
+    assert _batch_pool.resolve_layout(16, 3900, {}) == (2, 6)
 
 
-def test_resolve_layout_config_overrides_formula():
-    cfg = {"n_workers": 1, "m_pool": 1}
-    assert _batch_pool.resolve_layout(16, 3900, {}, cfg) == (1, 1)
-
-
-def test_resolve_layout_env_overrides_config():
-    cfg = {"n_workers": 1, "m_pool": 1}
+def test_resolve_layout_env_overrides_formula():
     env = {"IPRADAR_WORKERS": "4", "IPRADAR_BATCH_POOL": "3"}
-    assert _batch_pool.resolve_layout(16, 3900, env, cfg) == (4, 3)
+    assert _batch_pool.resolve_layout(16, 3900, env) == (4, 3)
 
 
 def test_resolve_layout_total_procs_env_resplits():
     # IPRADAR_TOTAL_PROCS overrides the budget P, then split
     env = {"IPRADAR_TOTAL_PROCS": "8"}
-    N, M = _batch_pool.resolve_layout(2, 2048, env, None)  # tiny host, but forced P=8
+    N, M = _batch_pool.resolve_layout(2, 2048, env)  # tiny host, but forced P=8
     assert (N, M) == _batch_pool._split_budget(8) == (2, 3)
 
 
@@ -75,7 +59,7 @@ def test_resolve_layout_non_numeric_env_falls_back(caplog):
     # Formula on (16, 3900) -> (2, 6); typos must not change that.
     env = {"IPRADAR_WORKERS": "foo", "IPRADAR_BATCH_POOL": "bar"}
     with caplog.at_level("WARNING", logger="ipdb._batch_pool"):
-        N, M = _batch_pool.resolve_layout(16, 3900, env, None)
+        N, M = _batch_pool.resolve_layout(16, 3900, env)
     assert (N, M) == (2, 6)
     # Both typos are surfaced (one warning per key).
     msgs = " ".join(r.message for r in caplog.records)
@@ -85,7 +69,7 @@ def test_resolve_layout_non_numeric_env_falls_back(caplog):
 def test_resolve_layout_non_numeric_total_procs_falls_back():
     """M3: IPRADAR_TOTAL_PROCS=foo also falls back to the auto formula."""
     env = {"IPRADAR_TOTAL_PROCS": "foo"}
-    N, M = _batch_pool.resolve_layout(16, 3900, env, None)
+    N, M = _batch_pool.resolve_layout(16, 3900, env)
     # auto formula on (16, 3900) -> (2, 6)
     assert (N, M) == (2, 6)
 
@@ -175,31 +159,9 @@ def test_fan_out_lookup_preserves_order_and_count(tiny_db):
     assert out == expected
 
 
-def test_predict_layout_shapes_and_math():
-    out = _batch_pool.predict_layout(16, 3900, {"n_workers": 2, "m_pool": 6, "source": "auto"})
-    assert set(out) == {"priv_rss_mb", "batch_10k_ms", "single_ip_qps"}
-    # priv_rss = (N + N*M)*PER_PROC_MB + shared mmap 205
-    assert out["priv_rss_mb"] == (2 + 2 * 6) * 90 + 205
-    # batch_10k_ms = 270 * (6/M)
-    assert out["batch_10k_ms"] == round(270 * 6 / 6)
-    # single_ip_qps = N * 750
-    assert out["single_ip_qps"] == 2 * 750
-
-
-def test_predict_layout_oom_warning():
-    # tiny RAM, forced large layout -> warning non-empty
-    out = _batch_pool.predict_layout(2, 600, {"n_workers": 1, "m_pool": 6, "source": "env"})
-    assert out["priv_rss_mb"] > 600
-    # Strengthen (M2): the predictor must actually flag this layout as unsafe,
-    # and a safe layout must produce no warning.
-    assert _batch_pool.predict_warnings(out["priv_rss_mb"], 600) != []
-    assert _batch_pool.predict_warnings(500, 4096) == []
-
-
 def test_n_workers_cli_prints_int(monkeypatch, capsys):
-    """`python -m ipdb._batch_pool n-workers` resolves N from host+env+config."""
+    """`python -m ipdb._batch_pool n-workers` resolves N from host+env."""
     monkeypatch.setattr(_batch_pool, "detect_host", lambda: (8, 8192))  # -> N=2
-    monkeypatch.setattr(_batch_pool, "load_perf_config", lambda *a, **k: None)
     _batch_pool._cli(["n-workers"])
     out = capsys.readouterr().out.strip()
     assert out == "2"

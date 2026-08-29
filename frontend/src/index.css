@@ -20,3 +20,27 @@ body {
   0% { transform: translateX(-100%); }
   100% { transform: translateX(400%); }
 }
+
+/* 入场淡入(motion 移除后由 CSS 承担;旧行为:0.15-0.25s opacity) */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.fade-in {
+  animation: fade-in 0.15s ease-out both;
+}
+
+/* 表格行入场(旧行为:opacity+y,逐行 delay i*0.02 封顶 0.4s) */
+@keyframes row-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+.row-in {
+  animation: row-in 0.25s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fade-in, .row-in { animation: none; }
+}

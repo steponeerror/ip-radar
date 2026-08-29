@@ -23,7 +23,6 @@ insert_data cannot express this).
 import json
 import logging
 import os
-import time
 
 from ._base import IpListSource
 from ._download import download_file, CancelToken
@@ -36,6 +35,7 @@ _API_BASE = "https://api.abuseipdb.com/api/v2/blacklist"
 class AbuseIPDBSource(IpListSource):
     # ── required for discovery + lifecycle ──
     name = "abuseipdb"
+    category = "threat"
     url = _API_BASE                 # informational; download() builds the real URL
     filename = "abuseipdb.txt"
     fields = ("is_malicious",)
@@ -47,7 +47,7 @@ class AbuseIPDBSource(IpListSource):
     # ── tuning ──
     stale_days = 1                  # daily refresh; free-tier quota = 5/day
     reliability = 0.65
-    authoritative_for = ["is_malicious"]
+    authoritative_for = ()               # dict 真相:is_malicious 权威属 threatfox/emerging_threats/spamhaus
 
     def __init__(self, data_dir, confidence_minimum=None, limit=10000):
         # convention: a source reads its OWN env vars; the registry passes only data_dir
@@ -96,7 +96,7 @@ class AbuseIPDBSource(IpListSource):
         """重建 LMDB。JSON 内容 → per-row Evidence（last_seen 逐 IP 不同，
         基类单一 insert_data 不支持，故覆写）。"""
         import ipaddress as _ipa
-        from ._lmdb import covered_ip_count, rebuild_dual_family
+        from ._lmdb import covered_ip_count, rebuild_dual_family, commit_dual_family
         from .._evidence import Evidence
         if not self._path.exists():
             return 0
@@ -124,6 +124,7 @@ class AbuseIPDBSource(IpListSource):
                 classification_type=self.classification_type,
                 verdict=self.verdict,
                 reliability=self.reliability,
+                first_seen=last or None,   # single-timestamp double-fill → 衰减
                 last_seen=last or None,
                 reporter_count=total or None,
             ).to_dict()
@@ -132,16 +133,5 @@ class AbuseIPDBSource(IpListSource):
         cov4 = covered_ip_count(c for c in covered if ":" not in c)
         cov6 = covered_ip_count(
             (c for c in covered if ":" in c), ip_version=6)
-        n4, n6 = rebuild_dual_family(
-            records, self._lmdb_base, self._lmdb6_base,
-            reader_setter4=lambda e: setattr(self, "_reader", e),
-            reader_setter6=lambda e: setattr(self, "_reader6", e),
-            flag_setter4=lambda v: setattr(self, "_disjoint", v),
-            flag_setter6=lambda v: setattr(self, "_disjoint6", v),
-            covered4=cov4, covered6=cov6, progress=progress)
-        self._count = n4
-        self._count6 = n6
-        self._covered_ips = cov4
-        self._covered_v6_nets = cov6
-        self._loaded_at = time.time()
-        return n4
+        return commit_dual_family(
+            self, records, cov4=cov4, cov6=cov6, progress=progress)

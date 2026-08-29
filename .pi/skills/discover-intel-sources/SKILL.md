@@ -15,7 +15,7 @@ companion to **add-intel-source** (which does the implementation):
 
 Read these once before scoring — they define the contract every dossier must satisfy:
 - `.pi/skills/add-intel-source/SKILL.md` — the Phase-1 input table this skill's dossier mirrors.
-- `backend/ipdb/_registry.py` `SOURCE_CATEGORIES` — the coverage axes.
+- `backend/ipdb/_registry.py` 源 `category` attr(registry 聚合为 `SOURCE_CATEGORIES`)— the coverage axes.
 - `backend/ipdb/_classification.py` — the controlled vocabulary + per-source `_MAP`s.
 
 ## Core principle
@@ -31,7 +31,7 @@ Two rules, and everything else follows:
 
 ## The workflow
 
-1. **Map the coverage gap.** Read `SOURCE_CATEGORIES`; count sources per axis
+1. **Map the coverage gap.** Read `SOURCE_CATEGORIES`(由源文件 `category` attr 派生); count sources per axis
    (`threat` / `geo_asn` / `asset`). Then read `CLASSIFICATION_TYPES` and find
    **dead slots** — vocab terms no source actually emits (verify by grepping the
    `_sources/` for each `classification_type`). Dead slots + thin axes are the
@@ -176,4 +176,4 @@ The `Data freshness verified` slot is mandatory: a candidate whose data is stale
 For the top-ranked surviving candidate, the completed dossier is ready for
 implementation — invoke **add-intel-source** with it. That skill picks up at
 Phase 1 (the same fields, now filled) and walks through archetype → parse hook →
-central-dict registration → test.
+in-file metadata declaration (category / reliability / authoritative_for) → test.
