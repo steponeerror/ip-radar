@@ -52,6 +52,7 @@ def snapshot_entry(result: dict) -> dict:
             "verdict": ca.get("verdict"),
             "n_sources": len({d["source"] for d in details if d.get("source")}),
             "min_first_seen": min(firsts) if firsts else None,
+            "max_first_seen": max(firsts) if firsts else None,
         }
     return {"scalars": scalars, "classifications": classes}
 
@@ -70,7 +71,9 @@ def _age_days(iso):
 
 
 def check_directional(old: dict, new: dict) -> list[str]:
-    """A2 限定:单源新鲜±2;多源新鲜不降;>180d 收敛 [45,55];
+    """A2 限定(裁决 2026-08-29 精确化后):单源新鲜±2;多源新鲜不降
+    (仅 old<80——旧实现的 Admiralty Confirmed floor 区不充任参照);
+    组内最新 obs >180d 才算陈旧(用当前侧 max_first_seen),收敛 [45,55];
     as_name 单源 50→r×100 只查方向(新值 > 50)。返回违规描述列表。"""
     problems = []
     for field, old_conf in old["scalars"].items():
@@ -89,11 +92,14 @@ def check_directional(old: dict, new: dict) -> list[str]:
         if n == 1 and age is not None and age <= 7:
             if abs(nc["conf"] - oc["conf"]) > 2:
                 problems.append(f"{ctype}: 单源新鲜漂移 {oc['conf']}->{nc['conf']}")
-        elif n >= 2 and age is not None and age <= 30:
+        elif n >= 2 and age is not None and age <= 30 and oc["conf"] < 80:
             if nc["conf"] < oc["conf"]:
                 problems.append(f"{ctype}: 多源新鲜下降 {oc['conf']}->{nc['conf']}")
-        elif age is not None and age > 180:
-            if not (45 <= nc["conf"] <= 55):
+        else:
+            # 陈旧判定用当前侧组内最新 obs:任一新鲜观测在,组即不陈旧
+            newest_age = _age_days(nc.get("max_first_seen"))
+            if newest_age is not None and newest_age > 180 \
+                    and not (45 <= nc["conf"] <= 55):
                 problems.append(f"{ctype}: 陈旧未收敛中立 {nc['conf']}")
     return problems
 

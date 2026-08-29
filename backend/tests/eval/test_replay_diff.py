@@ -41,6 +41,7 @@ def test_snapshot_entry_classifications_counts_distinct_sources():
     assert c["verdict"] == "malicious"
     assert c["n_sources"] == 3                                   # {a, b, c}
     assert c["min_first_seen"] == "2026-01-02T00:00:00+00:00"
+    assert c["max_first_seen"] == "2026-03-04T00:00:00+00:00"
 
 
 def test_snapshot_entry_no_first_seen_gives_none():
@@ -131,11 +132,43 @@ def test_multi_fresh_must_not_drop():
     assert len(check_directional(old, new)) == 1
 
 
+def test_multi_fresh_floor_band_skipped():
+    # 裁决 2026-08-29:old=80 是旧 Admiralty Confirmed floor(max(mean,80))的产物,
+    # 诚实均值 65–67 不是 not-drop 的合法参照 → 该断言族跳过 old≥80 的组
+    old = {"scalars": {}, "classifications": {"spam": {"conf": 80,
+        "n_sources": 3, "min_first_seen": _days_ago(10)}}}
+    new = {"scalars": {}, "classifications": {"spam": {"conf": 76,
+        "n_sources": 3, "min_first_seen": _days_ago(10)}}}
+    assert check_directional(old, new) == []
+
+
 def test_stale_converges_neutral():
     old = {"scalars": {}, "classifications": {"c2-server": {"conf": 20,
         "n_sources": 2, "min_first_seen": _days_ago(400)}}}
     new = {"scalars": {}, "classifications": {"c2-server": {"conf": 52,
+        "n_sources": 2, "min_first_seen": _days_ago(400),
+        "max_first_seen": _days_ago(390)}}}
+    assert check_directional(old, new) == []
+
+
+def test_stale_by_freshest_still_enforced():
+    # 组内最新 obs(当前侧 max)也已陈旧 → 收敛中立仍强制执行
+    old = {"scalars": {}, "classifications": {"c2-server": {"conf": 20,
         "n_sources": 2, "min_first_seen": _days_ago(400)}}}
+    new = {"scalars": {}, "classifications": {"c2-server": {"conf": 70,
+        "n_sources": 2, "min_first_seen": _days_ago(400),
+        "max_first_seen": _days_ago(390)}}}
+    assert len(check_directional(old, new)) == 1
+
+
+def test_stale_mixed_age_with_fresh_obs_skipped():
+    # 裁决 2026-08-29:陈旧触发改用组内最新 obs;任一新鲜观测在(当前侧 max=3d),
+    # 组即不陈旧,不得断言收敛(旧侧 min=400d 是最老 obs,不充任陈旧证据)
+    old = {"scalars": {}, "classifications": {"c2-server": {"conf": 85,
+        "n_sources": 1, "min_first_seen": _days_ago(400)}}}
+    new = {"scalars": {}, "classifications": {"c2-server": {"conf": 70,
+        "n_sources": 1, "min_first_seen": _days_ago(400),
+        "max_first_seen": _days_ago(3)}}}
     assert check_directional(old, new) == []
 
 
