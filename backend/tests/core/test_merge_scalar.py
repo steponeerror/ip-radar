@@ -5,7 +5,7 @@ monkeypatched in each test.
 """
 import pytest
 from ipdb._merge import (
-    _to_attributions, _weighted_confidence, _apply_coverage_penalty,
+    _to_attributions,
     FactualVoting, NamingAuthority, RangeSpecificity,
 )
 from ipdb._types import SourceAttribution, MergedField
@@ -46,40 +46,6 @@ def test_to_attributions_unknown_source_defaults(monkeypatch):
     result = _to_attributions({"unknown_src": True}, "is_proxy")
     assert result[0].reliability == 0.5
     assert result[0].authoritative is False
-
-
-def test_weighted_confidence():
-    """tw=0.80, total=1.00 → conf = round(0.80/1.00*100) = 80"""
-    true_src = [SourceAttribution("ip2proxy", True, 0.80, True)]
-    all_src = [
-        SourceAttribution("ip2proxy", True, 0.80, True),
-        SourceAttribution("ipsum", False, 0.20, False),
-    ]
-    conf = _weighted_confidence(true_src, all_src)
-    assert conf == 80
-
-
-def test_weighted_confidence_zero_total():
-    conf = _weighted_confidence([], [])
-    assert conf == 0
-
-
-def test_apply_coverage_penalty_applied():
-    """1/4 = 25% < 50% → penalty: round(80*0.7) = 56"""
-    result = _apply_coverage_penalty(80, 1, 4)
-    assert result == 56
-
-
-def test_apply_coverage_penalty_not_applied():
-    """4/4 = 100% ≥ 50% → no penalty"""
-    result = _apply_coverage_penalty(80, 4, 4)
-    assert result == 80
-
-
-def test_apply_coverage_penalty_zero_expected():
-    """expected=0 → no penalty"""
-    result = _apply_coverage_penalty(80, 2, 0)
-    assert result == 80
 
 
 class TestFactualVoting:

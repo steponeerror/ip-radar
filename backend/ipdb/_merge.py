@@ -80,25 +80,6 @@ def _to_attributions(
 
 # ── Confidence helpers ──
 
-def _weighted_confidence(
-    true_sources: list[SourceAttribution],
-    all_sources: list[SourceAttribution],
-) -> int:
-    """Authoritative veto confidence = Σ reliability of true-auth sources / Σ all reliability."""
-    tw = sum(s.reliability for s in true_sources)
-    total = sum(s.reliability for s in all_sources if s.value is not None)
-    if total == 0:
-        return 0
-    return min(100, round(tw / total * 100))
-
-
-def _apply_coverage_penalty(confidence: int, participating: int, expected: int) -> int:
-    """Reduce confidence when too few sources participate (< 50% of expected)."""
-    if expected > 0 and participating / expected < 0.5:
-        return round(confidence * 0.7)
-    return confidence
-
-
 # ── Scalar merge strategies (return MergedField) ──
 
 class FactualVoting:
