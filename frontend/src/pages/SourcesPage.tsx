@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from "react";
-import { motion, useReducedMotion } from "motion/react";
 import {
   enqueueBatch,
   enqueueSingle,
@@ -69,7 +68,6 @@ export default function SourcesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
-  const reduce = useReducedMotion();
 
   const fmtTime = (s: SourceInfo) => {
     const ta = timeAgo(s.health.last_updated);
@@ -195,10 +193,8 @@ export default function SourcesPage() {
             <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-600">
               {t(`sources.cat.${cat}`)}
             </h3>
-            <motion.ul
-              initial={reduce ? false : { opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="divide-y divide-zinc-900 overflow-hidden rounded-lg border border-zinc-800"
+            <ul
+              className="fade-in divide-y divide-zinc-900 overflow-hidden rounded-lg border border-zinc-800"
             >
               {items.map((s) => {
                 const st = statusOf(s);
@@ -261,7 +257,7 @@ export default function SourcesPage() {
                   </li>
                 );
               })}
-            </motion.ul>
+            </ul>
           </div>
         ))
       )}

@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { IpInput } from "./components/IpInput";
 import { FileUpload } from "./components/FileUpload";
 import { ResultTable } from "./components/ResultTable";
@@ -39,7 +38,6 @@ function LookupViewInner() {
     count: number;
     invalid: number;
   } | null>(null);
-  const reduce = useReducedMotion();
   const { warming, recheck } = useWarming();
   const [pendingIp, setPendingIp] = useState<string | null>(() => {
     const q = new URLSearchParams(window.location.search).get("ip");
@@ -150,29 +148,15 @@ function LookupViewInner() {
         </div>
 
         <div className="mt-3">
-          <AnimatePresence mode="wait">
-            {tab === "text" ? (
-              <motion.div
-                key="text"
-                initial={reduce ? false : { opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.15 }}
-              >
-                <IpInput onQuery={handleQuery} loading={loading} progress={progress} disabled={warming} />
-              </motion.div>
-            ) : (
-              <motion.div
-                key="file"
-                initial={reduce ? false : { opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.15 }}
-              >
-                <FileUpload onUpload={handleUpload} loading={loading} progress={progress} disabled={warming} />
-              </motion.div>
-            )}
-          </AnimatePresence>
+          {tab === "text" ? (
+            <div className="fade-in">
+              <IpInput onQuery={handleQuery} loading={loading} progress={progress} disabled={warming} />
+            </div>
+          ) : (
+            <div className="fade-in">
+              <FileUpload onUpload={handleUpload} loading={loading} progress={progress} disabled={warming} />
+            </div>
+          )}
         </div>
       </section>
 
