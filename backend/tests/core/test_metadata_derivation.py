@@ -22,10 +22,10 @@ OLD_RELIABILITY = {
     "ip2proxy": 0.80, "tor_exits": 0.95, "x4bnet_vpn": 0.70, "ipsum": 0.55,
     "firehol": 0.50, "spamhaus": 0.90, "threatfox": 0.85, "blocklist_de": 0.65,
     "emerging_threats": 0.85, "otx": 0.55, "abuseipdb": 0.65,
-    "stopforumspam": 0.70, "binarydefense": 0.65, "tweetfeed": 0.45,
+    "stopforumspam": 0.70, "binarydefense": 0.65, "tweetfeed": 0.50,
     "urlhaus": 0.55, "ciarm": 0.60, "bruteforce": 0.60, "greensnow": 0.60,
     "dataplane": 0.70, "dshield": 0.70, "f3csystems": 0.60, "reportedip": 0.65,
-    "proxyscrape": 0.45, "infra_services": 0.95, "cdn_edges": 0.95,
+    "proxyscrape": 0.50, "infra_services": 0.95, "cdn_edges": 0.95,
 }
 OLD_AUTHORITATIVE = {
     "is_proxy": ["ip2proxy"], "is_tor": ["tor_exits"], "is_vpn": ["x4bnet_vpn"],

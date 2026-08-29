@@ -23,6 +23,7 @@ class FireholBlocklistSource(IpListSource):
     verdict = "malicious"
     stale_days = 1
     reliability = 0.50
+    derived = True                        # 聚合器:谱系去重用(spec 2026-08-29 §3.3)
     authoritative_for = ()
 
     def __init__(self, data_dir: Path, selected_lists: list[str] | None = None):
