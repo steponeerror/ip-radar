@@ -46,6 +46,9 @@ def test_dedup_lineage_scenarios():
     # 场景2:derived 是最强 → 保留,非 derived 照常
     out = dedup_lineage([("firehol", 0.90), ("a", 0.40), ("b", 0.30)])
     assert sorted(s for s, _ in out) == ["a", "b", "firehol"]
+    # 场景2b:derived 恰好相等 → 也剔除(spec §3.3「≥ 即剔」)
+    out = dedup_lineage([("firehol", 0.62), ("blocklist_de", 0.62)])
+    assert [s for s, _ in out] == ["blocklist_de"]
     # 场景3:全是 derived → 全保留
     out = dedup_lineage([("firehol", 0.5), ("ipsum", 0.4)])
     assert len(out) == 2

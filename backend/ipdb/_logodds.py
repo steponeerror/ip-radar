@@ -52,13 +52,14 @@ def coefficient(r: float, first_seen: str | None, ctype: str | None = None,
 
 def dedup_lineage(coeffs: list[tuple[str, float]]) -> list[tuple[str, float]]:
     """谱系去重(保守近似,spec §3.3):存在非 derived 源时,剔除系数
-    低于最强非 derived 的 derived 源;全 derived 则全保留。"""
+    不高于最强非 derived 的 derived 源(相等也剔——宁少算勿重算);
+    全 derived 则全保留。"""
     non_derived_max = max((c for s, c in coeffs if s not in DERIVED_SOURCES),
                           default=None)
     if non_derived_max is None:
         return list(coeffs)
     return [(s, c) for s, c in coeffs
-            if s not in DERIVED_SOURCES or c >= non_derived_max]
+            if s not in DERIVED_SOURCES or c > non_derived_max]
 
 
 def assertion_confidence(coeffs: list[float]) -> int:
