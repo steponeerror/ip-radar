@@ -153,7 +153,7 @@ class TestEvalRoutes:
                           side_effect=EvalBusyError("otx")):
             r = self.client.post("/api/eval/spamhaus/run")
         assert r.status_code == 409
-        assert "otx" in r.json()["detail"]
+        assert "otx" in r.json()["error"]["message"]
 
     # ── /api/sources 聚合 eval 字段 ──
 

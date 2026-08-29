@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 import orjson
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, Header, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -38,6 +39,9 @@ from ipdb import _update as _ipdb_update
 from ipdb import _version as _ipdb_version
 from ipdb._eval_manager import EvalManager, EvalBusyError
 from ipdb._eval_reader import read_overview, read_source
+from ipdb._errors import (
+    ApiError, ErrorCode, RETRY_AFTER_WARMING, envelope,
+)
 
 import os
 from pathlib import Path
@@ -522,6 +526,79 @@ def get_active_layout() -> dict:
 
 app = FastAPI(title="IP Lookup Tool", lifespan=lifespan)
 
+# ── 全局错误信封(spec 2026-08-28 §5.3)──
+# 所有 HTTP 错误统一 {"error":{code,message,detail?,retry_after?}},status 透传。
+# 普通 HTTPException 按状态映射通用码;require_ready 的 X-IPRadar-Reason
+# 头映射语义码(warming 带 retry_after)。
+_HTTP_FALLBACK_CODE = {
+    400: "bad_request", 401: "unauthorized", 403: "forbidden",
+    404: "not_found", 405: "method_not_allowed", 409: "conflict",
+    413: "payload_too_large", 415: "unsupported_media_type",
+    422: "validation_error", 429: "rate_limited",
+    501: "not_implemented", 503: "not_ready",
+}
+
+
+def _reason_code(headers: dict | None):
+    """X-IPRadar-Reason 头 → (语义码, retry_after);无头返回 None。"""
+    reason = (headers or {}).get("X-IPRadar-Reason")
+    if reason == "warming":
+        return "warming", RETRY_AFTER_WARMING
+    if reason == "no-sources":
+        return "no_sources", None
+    return None
+
+
+@app.exception_handler(ApiError)
+async def _api_error_handler(request, exc: ApiError):
+    return JSONResponse(status_code=exc.status, content=exc.envelope())
+
+
+@app.exception_handler(StarletteHTTPException)
+async def _http_error_handler(request, exc: StarletteHTTPException):
+    from http import HTTPStatus
+    headers = dict(exc.headers) if exc.headers else None
+    retry_after = None
+    mapped = _reason_code(headers)
+    if mapped is not None:
+        code, retry_after = mapped
+    else:
+        code = _HTTP_FALLBACK_CODE.get(exc.status_code, "internal")
+        ra = (headers or {}).get("Retry-After")
+        if exc.status_code == 429 and ra is not None:
+            try:
+                retry_after = int(ra)
+            except ValueError:
+                retry_after = None  # HTTP-date 形式不解析,只留头
+    message = str(exc.detail) if exc.detail else \
+        HTTPStatus(exc.status_code).phrase
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=envelope(code, message, retry_after=retry_after),
+        headers=headers,
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_error_handler(request, exc: RequestValidationError):
+    from fastapi.encoders import jsonable_encoder
+    return JSONResponse(
+        status_code=422,
+        content=envelope("validation_error", "request validation failed",
+                         detail=jsonable_encoder(exc.errors())),
+    )
+
+
+@app.exception_handler(Exception)
+async def _unhandled_error_handler(request, exc: Exception):
+    logging.exception("unhandled error on %s %s",
+                      request.method, request.url.path)
+    return JSONResponse(
+        status_code=500,
+        content=envelope("internal", "internal server error"),
+    )
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -538,9 +615,12 @@ async def reject_oversized_bodies(request, call_next):
             "/api/upload/stream", "/api/query/stream"):
         cl = request.headers.get("content-length")
         if cl and cl.isdigit() and int(cl) > MAX_UPLOAD_BYTES:
+            # 直接响应不走 exception handler → 手写信封(与全局信封同形状)
             return JSONResponse(
                 status_code=400,
-                content={"detail": f"Request body exceeds {MAX_UPLOAD_BYTES // (1024*1024)}MB limit"})
+                content=envelope(
+                    "bad_request",
+                    f"Request body exceeds {MAX_UPLOAD_BYTES // (1024*1024)}MB limit"))
     return await call_next(request)
 
 
