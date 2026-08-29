@@ -796,7 +796,9 @@ async def lookup_single(ip: str):
     fuse additively within each classification_type group
     (design: docs/superpowers/specs/2026-08-29-scoring-fusion-design.md §3).
     confidence == 0 on a field means no source reported it — absence of
-    evidence, not proof of innocence.
+    evidence, not proof of innocence. Qualifiers: scalar fields (country/asn)
+    have no first_seen → no decay and fuse per candidate value with a
+    background mass; city/ip_range keep legacy semantics.
     """
     try:
         ipaddress.ip_address(ip)
