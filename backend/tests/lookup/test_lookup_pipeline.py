@@ -2,7 +2,7 @@
 to_observation → grouping → _assess_classification pipeline.
 
 Only sources and scalar strategies are replaced; the merge/fusion code
-(to_observation, _assess_classification, _decay_confidence) runs for real.
+(to_observation, _assess_classification) runs for real.
 """
 import pytest
 from datetime import datetime, timezone, timedelta
@@ -107,10 +107,12 @@ class TestLookupPipelineIntegration:
                               first_seen=(datetime.now(timezone.utc) -
                                           timedelta(days=10)).isoformat(),
                               malware_name="trickbot")
-        otx = FakeThreatSource("otx", "c2-server", verdict="malicious",
+        otx = FakeThreatSource("abuseipdb", "c2-server", verdict="malicious",
                                reliability=0.75,
                                first_seen=(datetime.now(timezone.utc) -
                                            timedelta(days=5)).isoformat())
+        # (非 derived 源:otx 属 DERIVED_SOURCES,弱于 threatfox 会被谱系去重,
+        #  去重语义在 test_corroboration.py 单测覆盖)
 
         sources = [scalar, tf, otx]
         monkeypatch.setattr(reg, "_sources", sources)
@@ -140,10 +142,10 @@ class TestLookupPipelineIntegration:
         assert ca.type == "c2-server"
         assert ca.verdict == "malicious"
         assert ca.detected is True
-        assert ca.corroborated is True       # 2 independent sources
-        assert ca.confidence >= 80           # corroboration floor
+        assert ca.corroborated is True       # 2 independent (non-derived) sources
+        assert ca.confidence >= 80           # log-odds posterior (2 fresh sources)
         assert len(ca.sources) == 2
-        assert ca.sources[0].source in ("threatfox", "otx")
+        assert ca.sources[0].source in ("threatfox", "abuseipdb")
 
     def test_single_source_not_corroborated(self):
         """With only one threat source, corroboration is False."""

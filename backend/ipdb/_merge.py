@@ -1,6 +1,5 @@
 """Merge strategies, PCR6 evidence fusion, source attribution, and enrichment."""
 
-from datetime import datetime, timezone
 from typing import Any
 
 import ipaddress
@@ -222,27 +221,6 @@ class RangeSpecificity:
         return MergedField(most_specific[1].value, 85, "specificity", attributions)
 
 
-def _decay_confidence(base: int, first_seen) -> int:
-    """Linear time decay on evidence age. None first_seen => no decay.
-
-    <=90d: unchanged. 90-365d: linear down to 50% of base. >365d: 20% floor.
-    """
-    if not first_seen:
-        return base
-    try:
-        ts = datetime.fromisoformat(str(first_seen).replace("Z", "+00:00"))
-    except ValueError:
-        return base
-    if ts.tzinfo is None:
-        ts = ts.replace(tzinfo=timezone.utc)
-    age_days = (datetime.now(timezone.utc) - ts).days
-    if age_days <= 90:
-        return base
-    if age_days <= 365:
-        return round(base * (1 - 0.5 * (age_days - 90) / 275))
-    return round(base * 0.20)
-
-
 def _assess_classification(group: list) -> ClassificationAssessment:
     """Assess one classification.type group of observations."""
     obs = group
@@ -259,27 +237,18 @@ def _assess_classification(group: list) -> ClassificationAssessment:
         verdict = sorted(distinct_verdicts)[0]
     verdict_conflict = len(distinct_verdicts) > 1
 
-    n = len(obs)
-    # Corroboration = ≥2 INDEPENDENT sources, not ≥2 observations. A single
-    # source can emit multiple observations (e.g. threatfox lists one IP under
-    # two malware families); those share a source and must not count as
-    # independent corroboration.
+    # log-odds 后验(spec 2026-08-29 §3.1/§3.2):每源独立按自己的
+    # first_seen 衰减;谱系去重后求和;σ → conf。
+    coeffs = [(o.source, _lo.coefficient(o.reliability, o.first_seen, ctype))
+              for o in obs]
+    deduped = _lo.dedup_lineage(coeffs)
+    confidence = _lo.assertion_confidence([c for _, c in deduped])
+    # Corroboration = ≥2 INDEPENDENT (lineage-deduped) sources, not ≥2
+    # observations. A single source can emit multiple observations (e.g.
+    # threatfox lists one IP under two malware families); those share a source
+    # and must not count as independent corroboration.
     distinct_sources = {o.source for o in obs}
-    corroborated = len(distinct_sources) >= 2
-
-    # Weighted base confidence from reliabilities (mean reliability * 100).
-    rels = [o.reliability for o in obs]
-    base = round(100 * sum(rels) / len(rels)) if rels else 0
-    base = min(100, max(0, base))
-    if corroborated:
-        base = max(base, 80)                       # Admiralty "Confirmed" band floor
-
-    # Decay by the NEWEST first_seen in the group (max — ISO date strings sort
-    # chronologically, so min would be the OLDEST and over-decay). Anchoring on
-    # the freshest evidence keeps corroborated confidence high.
-    first_seens = [o.first_seen for o in obs if o.first_seen]
-    newest = max(first_seens) if first_seens else None
-    confidence = _decay_confidence(base, newest)
+    corroborated = len({s for s, _ in deduped}) >= 2
 
     # Dedupe sources by name: one source emitting multiple observations in a
     # group yields a single attribution (reliability is source-level, identical
@@ -321,7 +290,7 @@ def _assess_classification(group: list) -> ClassificationAssessment:
 
     return ClassificationAssessment(
         type=ctype, verdict=verdict, detected=True, confidence=confidence,
-        algorithm="corroboration", sources=sources, corroborated=corroborated,
+        algorithm="logodds", sources=sources, corroborated=corroborated,
         reporter_total=reporter_total, verdict_conflict=verdict_conflict,
         malware_names=malware_names, details=details,
     )
