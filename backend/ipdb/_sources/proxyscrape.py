@@ -14,6 +14,7 @@ from ._base import CsvSource
 
 class ProxyScrapeSource(CsvSource):
     name = "proxyscrape"
+    category = "asset"
     url = "https://cdn.jsdelivr.net/gh/proxyscrape/free-proxy-list@main/proxies/all/data.csv"
     filename = "proxyscrape.csv"
     fields = ("is_proxy",)
@@ -21,7 +22,7 @@ class ProxyScrapeSource(CsvSource):
     verdict = "suspicious"
     stale_days = 1
     reliability = 0.45
-    authoritative_for = ["is_proxy"]
+    authoritative_for = ()               # dict 真相:is_proxy 权威属 ip2proxy
     skip_lines = 1  # header row
 
     def parse_row(self, row: list[str]) -> dict | None:

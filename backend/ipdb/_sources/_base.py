@@ -22,9 +22,10 @@ class IpListSource:
     url: str
     filename: str
     fields: tuple[str, ...]
+    category: str = "other"            # 元数据契约(spec 2026-08-28 §5.1)
     stale_days: int = 7
     reliability: float = 0.5
-    authoritative_for: list[str] = []
+    authoritative_for: tuple = ()      # tuple,与 _source_base.Source 同契约
 
     def __init__(self, data_dir: Path):
         self._data_dir = data_dir

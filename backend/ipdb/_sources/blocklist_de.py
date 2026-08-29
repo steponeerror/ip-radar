@@ -29,6 +29,7 @@ _PRIORITY = {"brute-force": 0, "botnet": 1, "spam": 2, "scanner": 3, "blacklist"
 
 class BlocklistDeSource(IpListSource):
     name = "blocklist_de"
+    category = "threat"
     url = ""  # unused — custom download() handles multiple URLs
     filename = "blocklist_de"  # directory name
     fields = ("is_malicious",)
@@ -36,7 +37,7 @@ class BlocklistDeSource(IpListSource):
     verdict = "malicious"
     stale_days = 1
     reliability = 0.65
-    authoritative_for = []
+    authoritative_for = ()
 
     def __init__(self, data_dir: Path, selected_lists: list[str] | None = None):
         self._lists = selected_lists or list(_LISTS)

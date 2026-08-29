@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 class FireholBlocklistSource(IpListSource):
     name = "firehol"
+    category = "threat"
     url = ""  # unused — custom download() handles multiple URLs
     filename = "firehol"  # directory name
     fields = ("is_malicious",)
@@ -22,7 +23,7 @@ class FireholBlocklistSource(IpListSource):
     verdict = "malicious"
     stale_days = 1
     reliability = 0.50
-    authoritative_for = []
+    authoritative_for = ()
 
     def __init__(self, data_dir: Path, selected_lists: list[str] | None = None):
         self._lists = selected_lists or ["firehol_level1", "firehol_level2"]

@@ -17,6 +17,7 @@ from ._base import CsvSource
 
 class F3cSystemsSource(CsvSource):
     name = "f3csystems"
+    category = "threat"
     url = ("https://raw.githubusercontent.com/f3cSystems/BlockList_IP/"
            "main/blacklist.csv")
     filename = "f3csystems.csv"
@@ -25,7 +26,7 @@ class F3cSystemsSource(CsvSource):
     verdict = "malicious"
     stale_days = 1
     reliability = 0.60
-    authoritative_for = []
+    authoritative_for = ()
     delimiter = ","
     skip_lines = 1   # header: ip,first_seen,last_seen,scan_count,country,scanner_types
 

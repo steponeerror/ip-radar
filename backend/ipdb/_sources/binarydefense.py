@@ -10,6 +10,7 @@ from ._base import IpListSource
 
 class BinaryDefenseSource(IpListSource):
     name = "binarydefense"
+    category = "threat"
     url = "https://www.binarydefense.com/banlist.txt"
     filename = "binarydefense_banlist.txt"
     fields = ("is_malicious",)          # decorative for typed sources; base uses classification_type
@@ -17,4 +18,4 @@ class BinaryDefenseSource(IpListSource):
     verdict = "malicious"
     stale_days = 1                       # continuously refreshed banlist
     reliability = 0.65                   # honeypot-sourced: automated but evidence-based
-    authoritative_for = []               # contributes to corroboration, no veto (0.65 reliability)
+    authoritative_for = ()               # contributes to corroboration, no veto (0.65 reliability)

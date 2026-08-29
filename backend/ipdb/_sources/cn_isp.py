@@ -25,6 +25,7 @@ _ISP_FILES = {
 
 class ChineseISPSource(Source):
     name = "cn_isp"
+    category = "geo_asn"
     fields = ("country_code", "carrier", "is_isp", "ip_range")
     stale_days = 7
     reliability = 0.85

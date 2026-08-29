@@ -13,6 +13,7 @@ _EXIT_ADDR_RE = re.compile(r"^ExitAddress\s+(\S+)(?:\s+(\S+ \S+))?")
 
 class TorExitSource(IpListSource):
     name = "tor_exits"
+    category = "asset"
     url = "https://check.torproject.org/exit-addresses"
     filename = "tor-exit-addresses.txt"
     fields = ("is_tor",)
@@ -20,7 +21,7 @@ class TorExitSource(IpListSource):
     verdict = "suspicious"
     stale_days = 1
     reliability = 0.95
-    authoritative_for = ["is_tor"]
+    authoritative_for = ("is_tor",)
 
     def parse_raw(self, raw: bytes) -> list[str]:
         ips = []

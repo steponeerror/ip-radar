@@ -36,6 +36,7 @@ _API_BASE = "https://api.abuseipdb.com/api/v2/blacklist"
 class AbuseIPDBSource(IpListSource):
     # ── required for discovery + lifecycle ──
     name = "abuseipdb"
+    category = "threat"
     url = _API_BASE                 # informational; download() builds the real URL
     filename = "abuseipdb.txt"
     fields = ("is_malicious",)
@@ -47,7 +48,7 @@ class AbuseIPDBSource(IpListSource):
     # ── tuning ──
     stale_days = 1                  # daily refresh; free-tier quota = 5/day
     reliability = 0.65
-    authoritative_for = ["is_malicious"]
+    authoritative_for = ()               # dict 真相:is_malicious 权威属 threatfox/emerging_threats/spamhaus
 
     def __init__(self, data_dir, confidence_minimum=None, limit=10000):
         # convention: a source reads its OWN env vars; the registry passes only data_dir

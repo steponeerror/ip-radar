@@ -59,14 +59,22 @@ def _discover_sources(data_dir: Path) -> list:
                     and obj.__module__ == mod.__name__):
                 try:
                     instances = _instantiate_source(obj, data_dir)
-                    from ._validate import validate_source
-                    for inst in instances:
-                        for prob in validate_source(inst):
-                            logger.warning(f"source {inst.name}: {prob}")
-                    sources.extend(instances)
                 except Exception as e:
                     logger.warning(
                         f"Failed to instantiate {obj.__name__}: {e}")
+                    continue
+                from ._validate import validate_source, metadata_problems
+                for inst in instances:
+                    # 元数据契约违规 = 启动即炸(spec §5.1,SWE-agent 式护栏);
+                    # 语法类检查(classification/field_map)维持 warning。
+                    probs = metadata_problems(inst)
+                    if probs:
+                        raise RuntimeError(
+                            f"元数据契约违规(source {inst.name}): {probs} —— "
+                            f"修复源文件的 category/reliability/authoritative_for")
+                    for prob in validate_source(inst):
+                        logger.warning(f"source {inst.name}: {prob}")
+                sources.extend(instances)
     return sources
 
 
@@ -80,6 +88,22 @@ def _instantiate_source(cls, data_dir: Path) -> list:
 
 
 _sources = _discover_sources(DATA_DIR)
+
+# ── 元数据唯一真相(spec 2026-08-28 §5.1):源 class attr。──
+# 中央名保留兼容(下游零改);_merge 两 dict 为 fill-in-place(对象身份
+# 不变,严禁重新赋值——ipdb/__init__ 的 re-export 靠同对象)。
+SOURCE_CATEGORIES = {s.name: s.category for s in _sources}
+
+import ipdb._merge as _merge_mod
+_merge_mod.SOURCE_RELIABILITY.clear()
+_merge_mod.SOURCE_RELIABILITY.update(
+    {s.name: s.reliability for s in _sources})
+_inv: dict[str, list[str]] = {}
+for s in _sources:
+    for f in (s.authoritative_for or ()):
+        _inv.setdefault(f, []).append(s.name)
+_merge_mod.AUTHORITATIVE_SOURCES.clear()
+_merge_mod.AUTHORITATIVE_SOURCES.update(_inv)
 _disabled = load_disabled(_STATE_PATH)
 _state_lock = threading.Lock()
 # Cache of lookup()'s "is DB loaded" guard, keyed by the identities of _sources
@@ -121,39 +145,7 @@ _LOOKUP_SLOTS = SCALAR_SLOTS | {"is_isp"}
 # keys not in ASSET_SLOTS fold into `extra` via route_record.
 
 
-# --- Source categories (single source of truth; used by get_status + list_sources) ---
-
-SOURCE_CATEGORIES = {
-    "ipinfo_lite": "geo_asn",
-    "iptoasn": "geo_asn",
-    "cn_isp": "geo_asn",
-    "geolite_city": "geo_asn",
-    "threatfox": "threat",
-    "otx": "threat",
-    "spamhaus": "threat",
-    "blocklist_de": "threat",
-    "emerging_threats": "threat",
-    "ipsum": "threat",
-    "firehol": "threat",
-    "abuseipdb": "threat",
-    "stopforumspam": "threat",
-    "binarydefense": "threat",
-    "tweetfeed": "threat",
-    "urlhaus": "threat",
-    "ciarm": "threat",
-    "bruteforce": "threat",
-    "greensnow": "threat",
-    "dataplane": "threat",
-    "dshield": "threat",
-    "f3csystems": "threat",
-    "reportedip": "threat",
-    "ip2proxy": "asset",
-    "tor_exits": "asset",
-    "x4bnet_vpn": "asset",
-    "proxyscrape": "asset",
-    "infra_services": "asset",
-    "cdn_edges": "asset",
-}
+# --- Source categories(运行时从源 attr 派生,见上方元数据唯一真相块)---
 
 
 def _category(name: str) -> str:
