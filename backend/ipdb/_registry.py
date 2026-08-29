@@ -98,6 +98,33 @@ import ipdb._merge as _merge_mod
 _merge_mod.SOURCE_RELIABILITY.clear()
 _merge_mod.SOURCE_RELIABILITY.update(
     {s.name: s.reliability for s in _sources})
+
+
+def _apply_calibrated(path=None):
+    """校准覆盖(spec 2026-08-29 §8):data/_calibrated.json 的 default 域
+    覆盖 class attr 先验;其余域(country/asset key/classification type)
+    为 Phase-2 Dawid-Skene 校准预留,本期不消费。"""
+    import json as _json
+    p = Path(path) if path else (DATA_DIR / "_calibrated.json")
+    if not p.exists():
+        return
+    try:
+        data = _json.loads(p.read_text())
+    except ValueError:
+        logger.warning(f"malformed {p.name}, ignored")
+        return
+    for src, domains in data.items():
+        r = domains.get("default") if isinstance(domains, dict) else None
+        # 信任边界:仅接受 (0,1] 的有限数值(1.0 钳到 0.98 与 logit 钳一致);
+        # 越界/非法(含 NaN/Inf/bool)跳过并告警,绝不写入、绝不抛出。
+        if isinstance(r, bool) or not isinstance(r, (int, float)) or not (0 < r <= 1):
+            if r is not None:
+                logger.warning(f"calibrated {src}.default={r!r} out of (0,1], skipped")
+            continue
+        _merge_mod.SOURCE_RELIABILITY[src] = min(float(r), 0.98)
+
+
+_apply_calibrated()  # 模块导入时跑一次:文件存在则套用,缺省 noop
 _inv: dict[str, list[str]] = {}
 for s in _sources:
     for f in (s.authoritative_for or ()):
