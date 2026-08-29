@@ -1,7 +1,6 @@
 """Base classes for IP data sources — eliminate ~70% boilerplate across sources."""
 import logging
 import time
-import urllib.request
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse

@@ -198,9 +198,8 @@ def main(argv=None):
 
 
 def _bind(reg):
-    class _R:
-        sources = reg._sources
-    return _R
+    from types import SimpleNamespace
+    return SimpleNamespace(sources=reg._sources)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,5 @@
 """eval 子进程单槽管理器(spec 2026-08-28 §5.2)。
 eval 消融会改内存 _disabled——必须子进程隔离,永不触碰主进程状态。"""
-import os
 import subprocess
 import sys
 import threading
@@ -45,7 +44,7 @@ class EvalManager:
         try:
             p = subprocess.Popen(
                 [sys.executable, "-m", "ipdb._eval", job["source"], "--json"],
-                cwd=str(_BACKEND_DIR), env=dict(os.environ),
+                cwd=str(_BACKEND_DIR),
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             try:
                 out, err = p.communicate(timeout=self._timeout)

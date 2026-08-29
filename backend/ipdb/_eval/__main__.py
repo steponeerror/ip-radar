@@ -12,11 +12,11 @@ import sys
 from pathlib import Path
 
 from . import config
-from .ablation import run_ablation, take_snapshot
+from .ablation import run_ablation
 from .benign import BenignChecker
 from .corpus import Corpus, build_benchmark, sample_source_ips, stable_seed
 from .independence import oc_suspicion_pairs
-from .metrics import (Metric, compute_other_distribution, mc, cg, conflict, oc,
+from .metrics import (compute_other_distribution, mc, cg, conflict, oc,
                       fp_proxy, other_pct, confidence_uplift, dead_slot_fill,
                       pairs)
 from .report import write_report
@@ -53,12 +53,13 @@ def _real_registry():
         else:
             reg._disabled.add(name)
 
-    class _R:
-        sources = reg._sources
-        load_db = staticmethod(reg.load_db)
-    _R.lookup = staticmethod(lookup)
-    _R.toggle = staticmethod(toggle)
-    return _R
+    from types import SimpleNamespace
+    return SimpleNamespace(
+        sources=reg._sources,
+        load_db=reg.load_db,
+        lookup=lookup,
+        toggle=toggle,
+    )
 
 
 def run_for_source(source_name: str, registry=None, corpus_path=CORPUS_PATH,
@@ -93,20 +94,12 @@ def run_for_source(source_name: str, registry=None, corpus_path=CORPUS_PATH,
     # (counting any-source classifications would always exceed the floor).
     candidate_touched = len(pairs(candidate_snap, source_name))
     # OC suspicion across all source pairs (advisory).
-    pair_oc = _pair_oc_all_sources(registry, benign) if hasattr(registry, "sources") else {}
-    flags = oc_suspicion_pairs(pair_oc)
+    flags = oc_suspicion_pairs({})   # v1: 无全源 OC 基线(advisory 恒空)
     from ipdb._registry import SOURCE_CATEGORIES
     category = SOURCE_CATEGORIES.get(source_name, "other")
     verdict = assess(metrics, candidate_touched, flags, source_category=category)
     md, js = write_report(source_name, verdict, metrics, corpus, out_dir)
     return md, js, verdict
-
-
-def _pair_oc_all_sources(registry, benign):
-    """Compute pairwise OC over a small per-source pair sample (advisory flag).
-    v1: returns {} (deferred detail) — the single-source path surfaces no flags
-    unless a precomputed baseline exists. Kept as a hook for --all."""
-    return {}
 
 
 def main(argv=None):
@@ -128,8 +121,7 @@ def main(argv=None):
         registry.load_db()
 
     if args.rebuild:
-        bench = build_benchmark(registry.sources, config.CORPUS_PER_TYPE_N,
-                                config.CORPUS_BENIGN_N, config.CORPUS_RESERVED_N)
+        bench = build_benchmark(registry.sources, config.CORPUS_PER_TYPE_N)
         bench.save(CORPUS_PATH)
         print(f"rebuilt corpus -> {CORPUS_PATH}")
         return
