@@ -55,7 +55,9 @@ def test_verdict_still_worst_first_and_conflict_flag():
 def test_single_source_multiple_observations_not_corroborated():
     # Same source produces 2 observations (different malware_name, e.g.
     # threatfox lists one IP under both win.vidar and agenttesla). These
-    # share a single source and must NOT count as independent corroboration.
+    # share a single source and must NOT count as independent corroboration,
+    # and must NOT compound: per-source coefficients aggregate keeping the max
+    # (spec §3.3 宁少算不多算 — 重复广播只计最强单条断言)。
     grp = [
         _obs("threatfox", reliability=0.85, malware_name="win.vidar"),
         _obs("threatfox", reliability=0.85, malware_name="agenttesla"),
@@ -63,6 +65,7 @@ def test_single_source_multiple_observations_not_corroborated():
     a = _assess_classification(grp)
     assert a.detected is True
     assert a.corroborated is False
+    assert a.confidence == 85            # max(logit(0.85)), NOT 2×logit(0.85)=97
     assert len(a.sources) == 1
 
 

@@ -238,10 +238,14 @@ def _assess_classification(group: list) -> ClassificationAssessment:
     verdict_conflict = len(distinct_verdicts) > 1
 
     # log-odds 后验(spec 2026-08-29 §3.1/§3.2):每源独立按自己的
-    # first_seen 衰减;谱系去重后求和;σ → conf。
-    coeffs = [(o.source, _lo.coefficient(o.reliability, o.first_seen, ctype))
-              for o in obs]
-    deduped = _lo.dedup_lineage(coeffs)
+    # first_seen 衰减;同源多观测不复合(重复广播只计最强单条断言,
+    # §3.3 宁少算不多算);谱系去重后求和;σ → conf。
+    by_source: dict[str, float] = {}
+    for o in obs:
+        c = _lo.coefficient(o.reliability, o.first_seen, ctype)
+        if o.source not in by_source or c > by_source[o.source]:
+            by_source[o.source] = c
+    deduped = _lo.dedup_lineage(list(by_source.items()))
     confidence = _lo.assertion_confidence([c for _, c in deduped])
     # Corroboration = ≥2 INDEPENDENT (lineage-deduped) sources, not ≥2
     # observations. A single source can emit multiple observations (e.g.
