@@ -93,3 +93,53 @@ def test_main_requires_a_mode():
     with pytest.raises(SystemExit) as e:
         main([])
     assert e.value.code == 2
+
+
+# ── check_directional:方向断言(spec §9,审计修正 A2 的限定条件)──
+
+from datetime import datetime, timedelta, timezone
+
+from ipdb._eval.replay_diff import check_directional
+
+
+def _days_ago(n):
+    return (datetime.now(timezone.utc) - timedelta(days=n)).strftime(
+        "%Y-%m-%dT%H:%M:%S+00:00")
+
+
+def test_single_fresh_within_two_points():
+    old = {"scalars": {}, "classifications": {"spam": {"conf": 85,
+        "n_sources": 1, "min_first_seen": _days_ago(3)}}}
+    new = {"scalars": {}, "classifications": {"spam": {"conf": 85,
+        "n_sources": 1, "min_first_seen": _days_ago(3)}}}
+    assert check_directional(old, new) == []
+
+
+def test_single_fresh_violation_flagged():
+    old = {"scalars": {}, "classifications": {"spam": {"conf": 85,
+        "n_sources": 1, "min_first_seen": _days_ago(3)}}}
+    new = {"scalars": {}, "classifications": {"spam": {"conf": 70,
+        "n_sources": 1, "min_first_seen": _days_ago(3)}}}
+    assert len(check_directional(old, new)) == 1
+
+
+def test_multi_fresh_must_not_drop():
+    old = {"scalars": {}, "classifications": {"spam": {"conf": 70,
+        "n_sources": 3, "min_first_seen": _days_ago(10)}}}
+    new = {"scalars": {}, "classifications": {"spam": {"conf": 69,
+        "n_sources": 3, "min_first_seen": _days_ago(10)}}}
+    assert len(check_directional(old, new)) == 1
+
+
+def test_stale_converges_neutral():
+    old = {"scalars": {}, "classifications": {"c2-server": {"conf": 20,
+        "n_sources": 2, "min_first_seen": _days_ago(400)}}}
+    new = {"scalars": {}, "classifications": {"c2-server": {"conf": 52,
+        "n_sources": 2, "min_first_seen": _days_ago(400)}}}
+    assert check_directional(old, new) == []
+
+
+def test_as_name_single_source_direction():
+    old = {"scalars": {"as_name": 50}, "classifications": {}}
+    new = {"scalars": {"as_name": 85}, "classifications": {}}
+    assert check_directional(old, new) == []
