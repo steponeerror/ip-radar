@@ -37,7 +37,7 @@ def test_sources_read_own_env_not_registry_args():
     """Convention 5: registry instantiates as cls(data_dir=data_dir) only."""
     import inspect
     from ipdb import _registry
-    src = inspect.getsource(_registry._instantiate_source)
+    src = inspect.getsource(_registry._discover_sources)
     assert "data_dir=data_dir" in src
     assert "api_key" not in src.lower() and "key=" not in src.replace("data_dir=", "")
 

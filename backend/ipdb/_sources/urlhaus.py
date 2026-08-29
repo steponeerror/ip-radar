@@ -72,6 +72,7 @@ def _classify(tags_raw: str) -> tuple[str, str | None]:
 
 class URLhausSource(Source):
     name = "urlhaus"
+    category = "threat"
     url = "https://urlhaus.abuse.ch/downloads/csv_online/"
     filename = "urlhaus.csv"
     fields = ("is_malicious",)
@@ -79,7 +80,7 @@ class URLhausSource(Source):
     verdict = "malicious"
     stale_days = 1
     reliability = 0.55            # abuse.ch — curated/confirmed malware URLs
-    authoritative_for = []
+    authoritative_for = ()
 
     def harvest(self):
         """Yield (ip, Evidence) per IP-host row. Domain-host rows are dropped

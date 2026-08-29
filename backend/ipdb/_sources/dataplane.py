@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 
 class DataplaneSource(Source):
     name = "dataplane"
+    category = "threat"
     url = "https://dataplane.org/"
     filename = "dataplane.txt"
     fields = ("is_malicious",)
@@ -42,7 +43,7 @@ class DataplaneSource(Source):
     verdict = "malicious"
     stale_days = 1                        # hourly refresh
     reliability = 0.70
-    authoritative_for = []
+    authoritative_for = ()
 
     SIGNALS = {
         "sshpwauth": "https://dataplane.org/signals/sshpwauth.txt",

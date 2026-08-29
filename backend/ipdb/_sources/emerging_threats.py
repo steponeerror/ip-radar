@@ -10,6 +10,7 @@ from ._base import IpListSource
 
 class EmergingThreatsSource(IpListSource):
     name = "emerging_threats"
+    category = "threat"
     url = ("https://rules.emergingthreats.net/"
            "fwrules/emerging-Block-IPs.txt")
     filename = "emerging-block-ips.txt"
@@ -18,4 +19,4 @@ class EmergingThreatsSource(IpListSource):
     verdict = "malicious"
     stale_days = 1
     reliability = 0.85
-    authoritative_for = ["is_malicious"]
+    authoritative_for = ("is_malicious",)

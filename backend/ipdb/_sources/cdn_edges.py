@@ -31,9 +31,10 @@ _FEEDS = (
 
 class CdnEdgesSource(Source):
     name = "cdn_edges"
+    category = "asset"
     filename = "cdn_edges.csv"          # combined intermediate written by download()
     fields = ("service",)
-    authoritative_for = ["service"]
+    authoritative_for = ("service",)
     stale_days = 7                      # bulky, slow-changing range lists (cf. ip2proxy/iptoasn)
     reliability = 0.95                  # publisher-self-published edge ranges (cf. tor_exits)
 

@@ -43,6 +43,7 @@ def _clean(cell: str) -> str:
 
 class ThreatFoxSource(Source):
     name = "threatfox"
+    category = "threat"
     url = "https://threatfox.abuse.ch/export/csv/full/"
     filename = "threatfox.csv"
     fields = ("is_malicious",)
@@ -50,7 +51,7 @@ class ThreatFoxSource(Source):
     verdict = "malicious"
     stale_days = 1
     reliability = 0.85
-    authoritative_for = ["is_malicious"]
+    authoritative_for = ("is_malicious",)
     skip_lines = 9
 
     @property

@@ -14,9 +14,11 @@ logger = logging.getLogger(__name__)
 
 class IPinfoLiteSource:
     name = "ipinfo_lite"
+    category = "geo_asn"
     fields = ("country_code", "asn", "as_name", "ip_range")
     stale_days = 7
     reliability = 0.95
+    authoritative_for = ("is_hosting", "is_mobile")
 
     def __init__(self, data_dir: Path):
         self._token = os.environ.get("IPINFO_TOKEN", "").strip()

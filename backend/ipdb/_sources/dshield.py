@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 class DshieldSource(Source):
     name = "dshield"
+    category = "threat"
     url = "https://feeds.dshield.org/block.txt"
     filename = "dshield.txt"
     fields = ("is_malicious",)

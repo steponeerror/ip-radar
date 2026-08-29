@@ -5,16 +5,18 @@
   python -m ipdb._eval --all         # per-source verdict table (no ranking in v1)
 """
 import argparse
+import json
+import os
 import random
 import sys
 from pathlib import Path
 
 from . import config
-from .ablation import run_ablation, take_snapshot
+from .ablation import run_ablation
 from .benign import BenignChecker
 from .corpus import Corpus, build_benchmark, sample_source_ips, stable_seed
 from .independence import oc_suspicion_pairs
-from .metrics import (Metric, compute_other_distribution, mc, cg, conflict, oc,
+from .metrics import (compute_other_distribution, mc, cg, conflict, oc,
                       fp_proxy, other_pct, confidence_uplift, dead_slot_fill,
                       pairs)
 from .report import write_report
@@ -22,8 +24,20 @@ from .verdict import assess
 
 _PKG_DIR = Path(__file__).resolve().parent              # backend/ipdb/_eval
 _REPO_ROOT = _PKG_DIR.parents[2]                        # _eval -> ipdb -> backend -> repo root
-REPORT_DIR = _REPO_ROOT / "docs" / "eval"               # tracked findings (spec §11)
+# 报告目录(spec 2026-08-28 §5.2):运行时状态区,env 可覆盖;write_report 自带 mkdir
+REPORT_DIR = Path(os.environ.get(
+    "IP_RADAR_EVAL_DIR",
+    str(_REPO_ROOT / "backend" / "data" / "eval")))
 CORPUS_PATH = _PKG_DIR / "corpus.json"                  # curated in-package asset (spec §5)
+
+_JSON_HINT = "确认 DB 已 load / corpus 存在(--rebuild)"
+
+
+def _json_error(code: str, message: str, hint: str) -> None:
+    """--json 模式统一错误出口:stdout 合法 JSON + 非零退出(spec §5.2)。"""
+    print(json.dumps({"error": {"code": code, "message": message, "hint": hint}},
+                     ensure_ascii=False))
+    sys.exit(1)
 
 
 def _real_registry():
@@ -39,12 +53,13 @@ def _real_registry():
         else:
             reg._disabled.add(name)
 
-    class _R:
-        sources = reg._sources
-        load_db = staticmethod(reg.load_db)
-    _R.lookup = staticmethod(lookup)
-    _R.toggle = staticmethod(toggle)
-    return _R
+    from types import SimpleNamespace
+    return SimpleNamespace(
+        sources=reg._sources,
+        load_db=reg.load_db,
+        lookup=lookup,
+        toggle=toggle,
+    )
 
 
 def run_for_source(source_name: str, registry=None, corpus_path=CORPUS_PATH,
@@ -79,8 +94,7 @@ def run_for_source(source_name: str, registry=None, corpus_path=CORPUS_PATH,
     # (counting any-source classifications would always exceed the floor).
     candidate_touched = len(pairs(candidate_snap, source_name))
     # OC suspicion across all source pairs (advisory).
-    pair_oc = _pair_oc_all_sources(registry, benign) if hasattr(registry, "sources") else {}
-    flags = oc_suspicion_pairs(pair_oc)
+    flags = oc_suspicion_pairs({})   # v1: 无全源 OC 基线(advisory 恒空)
     from ipdb._registry import SOURCE_CATEGORIES
     category = SOURCE_CATEGORIES.get(source_name, "other")
     verdict = assess(metrics, candidate_touched, flags, source_category=category)
@@ -88,36 +102,61 @@ def run_for_source(source_name: str, registry=None, corpus_path=CORPUS_PATH,
     return md, js, verdict
 
 
-def _pair_oc_all_sources(registry, benign):
-    """Compute pairwise OC over a small per-source pair sample (advisory flag).
-    v1: returns {} (deferred detail) — the single-source path surfaces no flags
-    unless a precomputed baseline exists. Kept as a hook for --all."""
-    return {}
-
-
 def main(argv=None):
     p = argparse.ArgumentParser(prog="python -m ipdb._eval")
     p.add_argument("source", nargs="?", help="source name to evaluate")
     p.add_argument("--rebuild", action="store_true", help="rebuild frozen benchmark corpus")
     p.add_argument("--all", action="store_true", help="evaluate every source (no ranking in v1)")
+    p.add_argument("--json", action="store_true", help="机器可读 JSON 到 stdout")
     args = p.parse_args(argv)
 
     registry = _real_registry()
-    registry.load_db()
+    if args.json:
+        # --json 下前置失败也必须走 stdout JSON 信封,不许 stderr 裸栈(spec §5.2)
+        try:
+            registry.load_db()
+        except Exception as e:
+            _json_error("internal", f"load_db failed: {e}", _JSON_HINT)
+    else:
+        registry.load_db()
 
     if args.rebuild:
-        bench = build_benchmark(registry.sources, config.CORPUS_PER_TYPE_N,
-                                config.CORPUS_BENIGN_N, config.CORPUS_RESERVED_N)
+        bench = build_benchmark(registry.sources, config.CORPUS_PER_TYPE_N)
         bench.save(CORPUS_PATH)
         print(f"rebuilt corpus -> {CORPUS_PATH}")
         return
     if args.all:
+        if args.json:
+            results = []
+            for s in registry.sources:
+                try:
+                    _, js, _ = run_for_source(s.name, registry=registry)
+                    results.append(json.loads(Path(js).read_text()))
+                except Exception as e:
+                    results.append({"source": s.name, "error": {
+                        "code": "internal", "message": str(e), "hint": _JSON_HINT}})
+            print(json.dumps(results, ensure_ascii=False))
+            return
         for s in registry.sources:
             _, _, v = run_for_source(s.name, registry=registry)
             print(f"{s.name:<20} {v.state}")
         return
     if not args.source:
+        if args.json:
+            _json_error("bad_request", "source required (or pass --all / --rebuild)",
+                        "用法:python -m ipdb._eval <source> [--all|--rebuild] --json")
         p.error("source required (or pass --all / --rebuild)")
+    if args.json:
+        if next((s for s in registry.sources if s.name == args.source), None) is None:
+            _json_error("source_not_found", f"no source named {args.source!r}",
+                        "GET /api/sources 或查 backend/ipdb/_sources/ 确认源名")
+        try:
+            md, js, v = run_for_source(args.source, registry=registry)
+        except Exception as e:
+            _json_error("internal", str(e), _JSON_HINT)
+        # 复用 write_report 的 render_json 序列化(顶层已含 source/generated_at)
+        print(json.dumps(json.loads(Path(js).read_text()), ensure_ascii=False))
+        return
     md, _, v = run_for_source(args.source, registry=registry)
     print(f"{args.source}: {v.state}\n  report: {md}")
 

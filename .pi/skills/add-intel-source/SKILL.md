@@ -18,8 +18,8 @@ contract, and the merge maps — read them alongside this skill when implementin
   `grep "^class" backend/ipdb/_sources/_base.py backend/ipdb/_source_base.py`
   and `grep "def " <file>` for overridable hooks.
 - `backend/ipdb/_evidence.py` — the `Evidence` record, the tier sets (`CORE_FIELDS` / `SCALAR_SLOTS` / `RICH_SLOTS` / `ASSET_SLOTS` / `ALL_KNOWN`), and `route_record()` (the query-path router).
-- `backend/ipdb/_registry.py` — auto-discovery + the `SOURCE_CATEGORIES` dict.
-- `backend/ipdb/_merge.py` — fusion + the `SOURCE_RELIABILITY` / `AUTHORITATIVE_SOURCES` dicts.
+- `backend/ipdb/_registry.py` — auto-discovery + the `SOURCE_CATEGORIES` dict (**derived** from each source's `category` attr at startup — don't edit it).
+- `backend/ipdb/_merge.py` — fusion + `SOURCE_RELIABILITY` / `AUTHORITATIVE_SOURCES` (**derived** from each source's `reliability` / `authoritative_for` attrs — don't edit them).
 - `backend/ipdb/_classification.py` — the controlled vocabulary + `normalize()` + per-source `_MAP`s.
 - `backend/ipdb/_validate.py` — load-time validator (classification_type + `field_map` checks).
 
@@ -27,8 +27,9 @@ contract, and the merge maps — read them alongside this skill when implementin
 
 1. **A source is one Python file** in `backend/ipdb/_sources/`. Drop it in, it's
    live — discovery needs no registry list, no decorator, no import. **But correct
-   fusion/category behavior still needs 3 central-dict edits (see Phase 3 step 6);
-   discovery alone leaves a source silently miscategorized.**
+   fusion/category behavior still needs in-file metadata declaration (category /
+   reliability / authoritative_for, see Phase 3 step 6); discovery alone leaves a
+   source silently miscategorized.**
 2. **Auto-discovery** (`_registry._discover_sources`) imports every `.py` in
    `_sources/` (skipping `_`-prefixed), finds classes that have both a `name`
    and a `fields` attribute AND are defined in that module, and instantiates each
@@ -192,11 +193,14 @@ Before writing any code, take a full-suite baseline (Phase 4 explains the drift-
 5. **If the feed has its own category vocabulary**, add a `{native: intelmq}`
    map in `_classification.py` next to the existing `THREATFOX_MAP` /
    `BLOCKLIST_DE_MAP` / `PROXY_MAP` / `URLHAUS_THREAT_MAP`.
-6. **Register in the central dicts** (discovery is NOT enough — `_validate.py`
-   doesn't check these, so an omission fails silently). Edit:
-   - `backend/ipdb/_registry.py` → `SOURCE_CATEGORIES`: add `"<name>": "threat" | "geo_asn" | "asset"`. Required for EVERY source — omit and the UI shows category `other`.
-   - `backend/ipdb/_merge.py` → `SOURCE_RELIABILITY`: add `"<name>": <0–1>` for **every** source — feeds two consumers: (1) the scalar merge path (`_to_attributions`) and (2) STIX export's source-identity `x_reliability`. An omission silently yields `0.5` on both. Set the entry to match the source's class-level `reliability`.
-   - `backend/ipdb/_merge.py` → `AUTHORITATIVE_SOURCES`: if your source should have authoritative veto on `is_proxy`/`is_tor`/`is_vpn`/`is_malicious`/`is_hosting`/`is_mobile`/`service`, add it to that field's list. (The class-level `authoritative_for` attr is decorative — fusion only reads this dict.)
+6. **Declare metadata in the source file itself** — the central dicts
+   (`SOURCE_CATEGORIES` / `SOURCE_RELIABILITY` / `AUTHORITATIVE_SOURCES`) are now
+   **derived** from source class attrs at registry load; hand edits are
+   overwritten on next startup. In your source file declare:
+   - `category = "threat" | "geo_asn" | "asset"` — required for EVERY source; omit (or leave the `"other"` default) and the UI groups it under `other`. **Startup fails loudly** if the value is not one of the four enum values.
+   - `reliability = <0–1>` — feeds two consumers: (1) the scalar merge path (`_to_attributions`) and (2) STIX export's source-identity `x_reliability`. Default `0.5` on both if omitted.
+   - `authoritative_for = ("is_proxy", ...)` — tuple of fields your source has authoritative veto on (`is_proxy`/`is_tor`/`is_vpn`/`is_malicious`/`is_hosting`/`is_mobile`/`service`); registry inverts it into `AUTHORITATIVE_SOURCES`. Empty by default.
+   `_validate.py` enforces this contract at startup: unknown `category`, out-of-range `reliability`, or unknown `authoritative_for` field → `RuntimeError` naming the source.
 7. **Per-row evidence — pick the right path:**
    - **New source** → `Source` subclass: `harvest()` yields per-row
      `Evidence(last_seen=..., reporter_count=..., ...)`; the base `rebuild()`
@@ -233,7 +237,7 @@ set — discovery will pick it up automatically on next load.
   you declared in Phase 1 (`native_categories` present for typed feeds; **no
   `extra.native_type`**)
 - assert a row you intend to drop is dropped (below threshold, wrong type)
-- ☐ **Central-dict registration** (Phase 3 step 6): `grep "<name>" backend/ipdb/_registry.py backend/ipdb/_merge.py` shows a hit in `SOURCE_CATEGORIES` (all sources) and `SOURCE_RELIABILITY`.
+- ☐ **Metadata declared in-file** (Phase 3 step 6): your source file carries `category` / `reliability` / (if authoritative) `authoritative_for` class attrs; startup passes (no `RuntimeError` from the metadata contract).
 - ☐ **Directory sources must also run** `python scripts/audit_lmdb_invariants.py` **from the repo root** (it lives in `scripts/`, not `backend/`; same-start/nesting CIDR conflicts).
 - ☐ **LMDB test hygiene (convention 7):** never hold two source instances open
   on the same LMDB base in one process — close the old reader

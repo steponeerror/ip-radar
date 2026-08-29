@@ -302,18 +302,32 @@ describe("apiError status attachment (review #10)", () => {
     globalThis.fetch = vi.fn() as any;
   });
 
-  it("getDbStatus throws an error carrying the HTTP status and reason", async () => {
+  it("getDbStatus throws an error carrying status + envelope code (信封即真相,无 reason 头)", async () => {
     (globalThis.fetch as any).mockResolvedValue(
-      new Response(JSON.stringify({ detail: "database is warming up" }), {
-        status: 503,
-        headers: { "Content-Type": "application/json", "X-IPRadar-Reason": "warming" },
-      }),
+      new Response(
+        JSON.stringify({ error: { code: "warming", message: "database is warming up", retry_after: 30 } }),
+        { status: 503, headers: { "Content-Type": "application/json" } },
+      ),
     );
     const err: any = await getDbStatus().then(() => null, (e: unknown) => e);
     expect(err).toBeInstanceOf(Error);
     expect(err.status).toBe(503);
-    expect(err.reason).toBe("warming");
+    expect(err.code).toBe("warming");
+    expect(err.reason).toBe("warming");   // 过渡兼容:reason 同 code
     expect(err.message).toBe("database is warming up");
+  });
+
+  it("400 invalid_ip envelope → code/status/message 齐上", async () => {
+    (globalThis.fetch as any).mockResolvedValue(
+      new Response(
+        JSON.stringify({ error: { code: "invalid_ip", message: "not a valid IP: foo" } }),
+        { status: 400, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    const err: any = await getDbStatus().then(() => null, (e: unknown) => e);
+    expect(err.status).toBe(400);
+    expect(err.code).toBe("invalid_ip");
+    expect(err.message).toBe("not a valid IP: foo");
   });
 
   it("falls back and still carries status when the body is not JSON", async () => {

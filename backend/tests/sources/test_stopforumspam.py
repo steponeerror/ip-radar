@@ -91,8 +91,8 @@ def test_load_cleans_legacy_txt_artifacts(tmp_path):
 
 def test_harvest_fills_first_seen_for_decay(tmp_path):
     """Single-timestamp sources double-fill first_seen (dataplane/reportedip
-    precedent) — first_seen drives _decay_confidence; without it a 365-day
-    list never ages."""
+    precedent) — first_seen drives per-source decay in the log-odds posterior;
+    without it a 365-day list never ages."""
     zp = _write(tmp_path, ['"1.2.3.4","71","2026-03-27 01:53:34"'])
     import zipfile
     s = StopForumSpamSource(data_dir=tmp_path)

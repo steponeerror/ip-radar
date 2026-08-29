@@ -41,18 +41,18 @@ def test_all_unknown_verdicts_deterministic():
     assert a.verdict_conflict is True
 
 
-def test_decay_anchors_on_newest_not_oldest():
-    # Regression: decay must use the NEWEST first_seen (max), not oldest (min).
-    # An old + a fresh observation: confidence should reflect the fresh one
-    # (>90d old would decay; fresh should not).
+def test_stale_observation_decays_only_itself():
+    # Regression: decay is per-source on each observation's own first_seen.
+    # An ancient obs decays to ~0; an obs with no first_seen keeps its full
+    # coefficient. Σ ≈ logit(0.8) = 1.386 → P = 0.800 → 80. If decay were
+    # wrongly shared across the group (e.g. anchored on the oldest), the
+    # fresh coeff would also collapse and conf would fall toward 50.
     old = EvidenceObservation(
         source="src_old", classification_type="c2-server", verdict="malicious",
-        reliability=0.8, first_seen="2010-01-01T00:00:00")    # 16y old -> heavy decay
+        reliability=0.8, first_seen="2010-01-01T00:00:00")    # 16y old -> coeff ~ 0
     fresh = EvidenceObservation(
         source="src_fresh", classification_type="c2-server", verdict="malicious",
-        reliability=0.8, first_seen="2026-06-01T00:00:00")    # recent -> no decay
+        reliability=0.8)                                      # no first_seen -> full coeff
     a = _assess_classification([old, fresh])
-    # corroborated (>=2) floors base at 80; fresh anchor keeps it at 80 (no decay).
-    # If min (oldest) were used, confidence would drop to ~16% of base.
     assert a.confidence == 80
 

@@ -1,4 +1,3 @@
-import { useMemo } from "react";
 import type { LookupResult } from "../api";
 import { buildCsvContent } from "./csvExport";
 import { useI18n } from "../i18n";
@@ -10,11 +9,11 @@ interface ExportCsvProps {
 export function ExportCsv({ results }: ExportCsvProps) {
   const { t } = useI18n();
   const disabled = results.length === 0;
-  const csv = useMemo(() => (disabled ? "" : buildCsvContent(results)), [results, disabled]);
 
+  // 点击时才构建全量 CSV(几十 MB 级),不再随 results 变化预构建
   const handleExport = () => {
-    if (!csv) return;
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    if (disabled) return;
+    const blob = new Blob([buildCsvContent(results)], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;

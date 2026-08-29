@@ -25,6 +25,7 @@ class StopForumSpamSource(Source):
     # real feed ≈15 MB; cap leaves headroom while stopping zip bombs.
     MAX_INNER_BYTES = 256 * 1024 * 1024
     name = "stopforumspam"
+    category = "threat"
     url = "https://www.stopforumspam.com/downloads/listed_ip_365_all.zip"
     filename = "stopforumspam.csv"
     fields = ("spam",)

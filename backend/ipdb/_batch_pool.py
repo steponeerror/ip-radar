@@ -44,44 +44,10 @@ def compute_layout(cpu: int, ram_avail_mb: int) -> tuple[int, int]:
 
 
 def detect_host() -> tuple[int, int]:
-    """Return (cpu_count, ram_available_mb). Portable: psutil if present, else
-    /proc/meminfo (Linux), else a conservative default."""
+    """Return (cpu_count, ram_available_mb). psutil 是硬依赖(requirements)."""
     cpu = os.cpu_count() or 2
-    try:
-        import psutil
-        return cpu, psutil.virtual_memory().available // (1024 * 1024)
-    except Exception:
-        pass
-    # Linux fallback
-    try:
-        with open("/proc/meminfo") as f:
-            for line in f:
-                if line.startswith("MemAvailable:"):
-                    return cpu, int(line.split()[1]) // 1024
-    except OSError:
-        pass
-    return cpu, 4096  # conservative default when detection impossible
-
-
-# ── Path to persisted perf override (mirrors source_state.json pattern) ──
-_APP_DIR = Path(__file__).parent.parent
-_DATA_DIR = Path(os.environ.get("IP_RADAR_DATA_DIR", str(_APP_DIR / "data")))
-PERF_CONFIG_PATH = Path(os.environ.get(
-    "PERF_CONFIG_PATH", str(_DATA_DIR / "perf_config.json")))
-
-
-def load_perf_config(path: Path = PERF_CONFIG_PATH) -> dict | None:
-    """Load persisted performance config from JSON file. Returns None if file missing or invalid."""
-    try:
-        return json.loads(path.read_text())
-    except (OSError, ValueError):
-        return None
-
-
-def save_perf_config(data: dict, path: Path = PERF_CONFIG_PATH) -> None:
-    """Persist performance config to JSON file. Creates parent dirs if needed."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data))
+    import psutil
+    return cpu, psutil.virtual_memory().available // (1024 * 1024)
 
 
 def _env_int(env: dict, key: str, default: int) -> int:
@@ -98,17 +64,16 @@ def _env_int(env: dict, key: str, default: int) -> int:
         return default
 
 
-def resolve_layout(cpu: int, ram_avail_mb: int, env: dict, perf_config: dict | None) -> tuple[int, int]:
+def resolve_layout(cpu: int, ram_avail_mb: int, env: dict) -> tuple[int, int]:
     """Compute (N, M) layout with precedence: env var > perf_config > auto formula.
 
     Precedence order:
     1. IPRADAR_TOTAL_PROCS env var (re-splits budget via _split_budget)
     2. Otherwise compute_layout(cpu, ram_avail_mb) formula
-    3. perf_config n_workers/m_pool overrides (if present)
-    4. IPRADAR_WORKERS/IPRADAR_BATCH_POOL env overrides (if present)
-    5. Final values floored at 1 (minimum 1 worker, 1 pool per worker)
+    3. IPRADAR_WORKERS/IPRADAR_BATCH_POOL env overrides (if present)
+    4. Final values floored at 1 (minimum 1 worker, 1 pool per worker)
 
-    All three env overrides tolerate non-numeric values (e.g. IPRADAR_WORKERS=foo)
+    Env overrides tolerate non-numeric values (e.g. IPRADAR_WORKERS=foo)
     by falling back to the value that would have been used without the override;
     a warning is logged so typos are visible. Missing/empty values are ignored.
     """
@@ -121,9 +86,6 @@ def resolve_layout(cpu: int, ram_avail_mb: int, env: dict, perf_config: dict | N
             N, M = auto_n, auto_m
     else:
         N, M = auto_n, auto_m
-    if perf_config:
-        N = int(perf_config.get("n_workers", N))
-        M = int(perf_config.get("m_pool", M))
     if env.get("IPRADAR_WORKERS"):
         N = _env_int(env, "IPRADAR_WORKERS", N)
     if env.get("IPRADAR_BATCH_POOL"):
@@ -209,16 +171,12 @@ def get_pool() -> ProcessPoolExecutor | None:
     return _POOL
 
 
-def _inline(ips: list[str]) -> list[dict]:
-    return _dedup_lookup(ips)
-
-
 def fan_out_lookup(ips: list[str]) -> list[dict]:
     """Lookup+to_dict for a list of IPs. Inline for small batches or when no
     pool / broken pool; otherwise fan out across the process pool. Output is in
     input order, one dict per IP."""
     if len(ips) <= INLINE_THRESHOLD or _POOL is None:
-        return _inline(ips)
+        return _dedup_lookup(ips)
     chunks = [ips[i:i + CHUNK] for i in range(0, len(ips), CHUNK)]
     try:
         chunk_results = list(_POOL.map(_work_chunk, chunks))
@@ -226,39 +184,14 @@ def fan_out_lookup(ips: list[str]) -> list[dict]:
         import logging
         logging.getLogger(__name__).warning(
             "batch pool broken; falling back to inline")
-        return _inline(ips)
+        return _dedup_lookup(ips)
     return [d for chunk in chunk_results for d in chunk]
-
-
-# ── Predictor (GET /api/perf/layout) ──
-_SHARED_MMAP_MB = 205  # MMDB working set, shared across workers via page cache
-
-
-def predict_layout(cpu: int, ram_avail_mb: int, layout: dict) -> dict:
-    """Predict resource use and throughput for a candidate layout."""
-    N = layout["n_workers"]
-    M = layout["m_pool"]
-    priv_rss = (N + N * M) * PER_PROC_MB + _SHARED_MMAP_MB
-    return {
-        "priv_rss_mb": priv_rss,
-        "batch_10k_ms": round(270 * 6 / M) if M > 0 else None,
-        "single_ip_qps": N * 750,
-    }
-
-
-def predict_warnings(priv_rss_mb: int, ram_avail_mb: int) -> list[str]:
-    if priv_rss_mb > ram_avail_mb - RESERVE_MB:
-        return [f"predicted RSS {priv_rss_mb} MB exceeds headroom "
-                f"{ram_avail_mb - RESERVE_MB} MB; reduce N or M"]
-    return []
 
 
 def _cli(argv: list[str]) -> None:
     """CLI entry for start scripts: `python -m ipdb._batch_pool n-workers`."""
     cpu, ram = detect_host()
-    env = dict(os.environ)
-    cfg = load_perf_config()
-    N, M = resolve_layout(cpu, ram, env, cfg)
+    N, M = resolve_layout(cpu, ram, os.environ)
     if argv and argv[0] == "n-workers":
         print(N)
     elif argv and argv[0] == "m-pool":

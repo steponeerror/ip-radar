@@ -132,8 +132,7 @@ def test_is_cold_start_true_when_no_offline_source_has_data(tmp_path):
     # both offline sources point at non-existent files
     offline = [_FakeSrc("a", tmp_path / "nope1.bin"),
                _FakeSrc("b", tmp_path / "nope2.bin")]
-    with patch("ipdb._registry._enabled_sources", return_value=offline), \
-         patch("ipdb._registry._archetype", return_value="offline"):
+    with patch("ipdb._registry._enabled_sources", return_value=offline):
         assert main._is_cold_start() is True
 
 
@@ -143,8 +142,7 @@ def test_is_cold_start_false_when_any_offline_source_has_data(tmp_path):
     warm.write_text("x")
     srcs = [_FakeSrc("a", tmp_path / "missing.bin"),  # missing
             _FakeSrc("b", warm)]                       # exists → warm
-    with patch("ipdb._registry._enabled_sources", return_value=srcs), \
-         patch("ipdb._registry._archetype", return_value="offline"):
+    with patch("ipdb._registry._enabled_sources", return_value=srcs):
         assert main._is_cold_start() is False
 
 
@@ -165,8 +163,7 @@ def test_is_cold_start_true_when_only_online_sources():
     """No offline sources at all → cold (nothing to load from disk)."""
     import main
     online_only = type("S", (), {"name": "online"})()
-    with patch("ipdb._registry._enabled_sources", return_value=[online_only]), \
-         patch("ipdb._registry._archetype", return_value="online"):
+    with patch("ipdb._registry._enabled_sources", return_value=[online_only]):
         assert main._is_cold_start() is True
 
 

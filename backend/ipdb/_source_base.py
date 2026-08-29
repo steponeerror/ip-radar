@@ -33,7 +33,9 @@ class Source:
     filename: str = ""
     stale_days: int = 7
     reliability: float = 0.5
-    authoritative_for: list = []
+    # ── 元数据契约(spec 2026-08-28 §5.1):源文件是唯一真相 ──
+    category: str = "other"            # geo_asn | threat | asset | other
+    authoritative_for: tuple = ()      # 本源权威的字段名(反转成 AUTHORITATIVE_SOURCES)
     # When True, rebuild() streams one (cidr, [evidence]) per harvest yield
     # straight into rebuild_lmdb instead of accumulating a full acc dict. Safe
     # only for sources whose harvest yields each CIDR at most once (geo/asset

@@ -9,12 +9,12 @@ import { stagedFrac } from "./progress";
 type Ctx = {
   tasks: TaskState[];
   batch: BatchState | null;
-  enqueueSingle: (name: string) => Promise<void>;
-  enqueueBatch: () => Promise<{ batch_id: string | null; refreshed?: number }>;
-  cancelTask: (id: string) => Promise<void>;
-  cancelBatch: () => Promise<void>;
-  pause: () => Promise<void>;
-  resume: () => Promise<void>;
+  enqueueSingle: typeof apiEnqueueSingle;
+  enqueueBatch: typeof apiEnqueueBatch;
+  cancelTask: typeof apiCancelTask;
+  cancelBatch: typeof apiCancelBatch;
+  pause: typeof pauseBatch;
+  resume: typeof resumeBatch;
 };
 
 const TasksContext = createContext<Ctx | null>(null);
@@ -89,12 +89,12 @@ export function TaskProvider({ children }: { children: ReactNode }) {
 
   const value: Ctx = {
     tasks, batch,
-    enqueueSingle: async (n) => { await apiEnqueueSingle(n); },
-    enqueueBatch: async () => { return apiEnqueueBatch(); },
-    cancelTask: async (id) => { await apiCancelTask(id); },
-    cancelBatch: async () => { await apiCancelBatch(); },
-    pause: async () => { await pauseBatch(); },
-    resume: async () => { await resumeBatch(); },
+    enqueueSingle: apiEnqueueSingle,
+    enqueueBatch: apiEnqueueBatch,
+    cancelTask: apiCancelTask,
+    cancelBatch: apiCancelBatch,
+    pause: pauseBatch,
+    resume: resumeBatch,
   };
 
   return <TasksContext.Provider value={value}>{children}</TasksContext.Provider>;

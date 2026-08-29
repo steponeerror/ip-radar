@@ -33,7 +33,7 @@ class TestLookupResponseShape:
     def test_stix_reserved_ip_returns_400(self):
         resp = self.client.get("/api/lookup/10.0.0.1/stix")
         assert resp.status_code == 400
-        assert "reserved" in resp.json()["detail"].lower()
+        assert "reserved" in resp.json()["error"]["message"].lower()
 
     def test_stream_row_protocol_shape(self):
         """v2: start → row{idx,result} → done. No complete event."""
@@ -117,7 +117,7 @@ class TestLookupResponseShape:
             json={"ips": ["10.0.0.0/12"]},  # 1,048,576 > 500,000
         )
         assert resp.status_code == 400
-        assert "500,000" in resp.json()["detail"]
+        assert "500,000" in resp.json()["error"]["message"]
 
     def test_stream_cidr_expands_to_rows(self):
         """CIDR input expands: /30 → 4 rows with contiguous idx, incl network+broadcast."""
@@ -200,24 +200,12 @@ class TestIPv6Routes:
         resp = self.client.post("/api/query/stream",
                                 json={"ips": ["2a00:1450:4001::/64"]})
         assert resp.status_code == 400
-        assert "500,000" in resp.json()["detail"]               # 上限拒绝,非其他 400
+        assert "500,000" in resp.json()["error"]["message"]               # 上限拒绝,非其他 400
 
     def test_v6_reserved_stix_400(self):
         resp = self.client.get("/api/lookup/::1/stix")
         assert resp.status_code == 400
-        assert "reserved" in resp.json()["detail"].lower()
-
-
-def test_perf_layout_route():
-    from fastapi.testclient import TestClient
-    import main
-    with TestClient(main.app) as client:
-        r = client.get("/api/perf/layout")
-    assert r.status_code == 200
-    body = r.json()
-    assert set(body) >= {"host", "current", "predicted", "tunables", "warnings"}
-    assert "cores" in body["host"] and "ram_avail_mb" in body["host"]
-    assert set(body["current"]) >= {"n_workers", "m_pool", "source"}
+        assert "reserved" in resp.json()["error"]["message"].lower()
 
 
 def test_lookup_single_runs_via_to_thread(monkeypatch):
@@ -336,7 +324,7 @@ class TestWarmingUpGate:
             # /api/query/stream
             r1 = self.client.post("/api/query/stream", json={"ips": ["8.8.8.8"]})
             assert r1.status_code == 503
-            assert "warming up" in r1.json()["detail"].lower()
+            assert "warming up" in r1.json()["error"]["message"].lower()
             assert r1.headers["x-ipradar-reason"] == "warming"
             # /api/upload/stream
             r2 = self.client.post("/api/upload/stream",
@@ -487,7 +475,7 @@ class TestWarmingUpGate:
         with patch("ipdb._registry._enabled_sources", return_value=[]):
             r = self.client.post("/api/query/stream", json={"ips": ["8.8.8.8"]})
             assert r.status_code == 503
-            assert "no data sources enabled" in r.json()["detail"]
+            assert "no data sources enabled" in r.json()["error"]["message"]
             assert r.headers["x-ipradar-reason"] == "no-sources"
             resp = self.client.get("/api/db-status")
             assert resp.status_code == 200
@@ -629,7 +617,7 @@ def test_query_stream_oversized_content_length_rejected_before_body():
                     content=b"",
                     headers={"Content-Length": str(60 * 1024 * 1024)})
     assert r.status_code == 400
-    assert "50" in r.json()["detail"] or "exceed" in r.json()["detail"].lower()
+    assert "50" in r.json()["error"]["message"] or "exceed" in r.json()["error"]["message"].lower()
 
 
 def test_upload_stream_oversized_content_length_rejected_before_body():
@@ -714,6 +702,6 @@ def test_query_stream_chunked_json_over_cap_rejected():
     try:
         r = client.post("/api/query/stream", json={"ips": ["8.8.8.8"]})
         assert r.status_code == 400
-        assert "exceed" in r.json()["detail"].lower()
+        assert "exceed" in r.json()["error"]["message"].lower()
     finally:
         m.MAX_UPLOAD_BYTES = old_cap

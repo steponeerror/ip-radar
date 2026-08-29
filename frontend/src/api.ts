@@ -16,8 +16,9 @@ export interface AssetStatement {
 export interface MergedField<T = any> {
   value: T;
   confidence: number;           // 0-100 integer
-  algorithm: string;            // "cascade" | "voting" | "pcr6" | "authority" | "specificity"
+  algorithm: string;            // "cascade" | "voting" | "logodds" | "pcr6" | "authority" | "specificity"
   sources: SourceAttribution[];
+  alternatives?: { value: any; probability: number }[];   // logodds 多类别后验(spec 2026-08-29 §6)
 }
 
 export interface ClassificationDetail {
@@ -74,8 +75,6 @@ export interface LookupResult {
 
 export interface DbStatus {
   last_updated: string;
-  record_count: number;
-  cn_record_count: number;
   total_records: number;
   scalar_records: number;
   threat_records: number;
@@ -112,21 +111,35 @@ export function apiFetch(url: string, init: RequestInit = {}): Promise<Response>
 // 调用方按状态码+reason 分支,不靠文案猜。
 function apiError(detail: string, res: Response, fallback: string, cause?: unknown): Error {
   const err = new Error(detail || fallback);
+
+// 所有非 2xx 抛错统一走这里:错误对象带 HTTP status 与后端错误信封的
+// error.code(机器可读语义码:"warming" / "no_sources" / "invalid_ip" / ...),
+// message 取信封 error.message;非 JSON body(代理 502 HTML 等)退回
+// statusText/fallback。调用方按 status+code 分支,不靠文案猜。
+function apiError(
+  res: Response,
+  fallback: string,
+  env: { code?: string; message?: string } | null,
+  cause?: unknown,
+): Error {
+  const err = new Error(env?.message || res.statusText || fallback);
   (err as any).status = res.status;
-  (err as any).reason = res.headers.get("x-ipradar-reason");
+  (err as any).code = env?.code;
+  // 过渡兼容:旧读方读 e.reason(曾是 X-IPRadar-Reason 头);信封化后 code 即唯一真相
+  (err as any).reason = env?.code ?? res.headers.get("x-ipradar-reason");
   if (cause !== undefined) (err as any).cause = cause;
   return err;
 }
 
 async function throwApiError(res: Response, fallback: string): Promise<never> {
-  let detail = res.statusText;
   try {
     const body = await res.json();
-    detail = body.detail || detail;
+    throw apiError(res, fallback, body?.error ?? null);
   } catch (e) {
-    throw apiError(detail, res, fallback, e);
+    if (e instanceof Error && (e as any).status === res.status) throw e;
+    // body 非 JSON:statusText/fallback 兑底
+    throw apiError(res, fallback, null, e);
   }
-  throw apiError(detail, res, fallback);
 }
 
 export async function getDbStatus(): Promise<DbStatus> {
@@ -292,6 +305,8 @@ export interface SourceHealth {
   error: string | null;
 }
 
+export interface EvalInfo { verdict: string; at: string }
+
 export interface SourceInfo {
   name: string;
   enabled: boolean;
@@ -303,6 +318,7 @@ export interface SourceInfo {
   classification_type: string | null;
   url: string | null;
   stale_days: number | null;
+  eval: EvalInfo | null;
   health: SourceHealth;
 }
 
@@ -322,11 +338,6 @@ export async function setSourceEnabled(name: string, enabled: boolean): Promise<
     body: JSON.stringify({ enabled }),
   });
   return jsonOrThrow(res, "Failed to update source");
-}
-
-export async function updateSource(name: string): Promise<SourceInfo> {
-  const res = await fetch(`/api/sources/${encodeURIComponent(name)}/update`, { method: "POST" });
-  return jsonOrThrow(res, "Failed to refresh source");
 }
 
 // --- Task client: enqueue / control / subscribe (SSE) ---

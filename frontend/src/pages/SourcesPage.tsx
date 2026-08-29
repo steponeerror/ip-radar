@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from "react";
-import { motion, useReducedMotion } from "motion/react";
 import {
   enqueueBatch,
   enqueueSingle,
@@ -69,7 +68,6 @@ export default function SourcesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
-  const reduce = useReducedMotion();
 
   const fmtTime = (s: SourceInfo) => {
     const ta = timeAgo(s.health.last_updated);
@@ -195,10 +193,8 @@ export default function SourcesPage() {
             <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-600">
               {t(`sources.cat.${cat}`)}
             </h3>
-            <motion.ul
-              initial={reduce ? false : { opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="divide-y divide-zinc-900 overflow-hidden rounded-lg border border-zinc-800"
+            <ul
+              className="fade-in divide-y divide-zinc-900 overflow-hidden rounded-lg border border-zinc-800"
             >
               {items.map((s) => {
                 const st = statusOf(s);
@@ -221,6 +217,24 @@ export default function SourcesPage() {
                     <span className={`w-24 shrink-0 rounded-md border px-2 py-0.5 text-center text-xs ${st.className}`}>
                       {t(st.key)}
                     </span>
+                    {s.eval ? (
+                      <span
+                        className={`w-28 shrink-0 rounded-md border px-2 py-0.5 text-center text-xs ${
+                          s.eval.verdict.startsWith("POSITIVE-VERIFIED")
+                            ? "text-emerald-400 border-emerald-400/30 bg-emerald-400/10"
+                            : s.eval.verdict.startsWith("POSITIVE")
+                              ? "text-sky-400 border-sky-400/30 bg-sky-400/10"
+                              : s.eval.verdict.startsWith("NEGATIVE")
+                                ? "text-red-400 border-red-400/30 bg-red-400/10"
+                                : "text-zinc-500 border-zinc-700 bg-zinc-800/50"
+                        }`}
+                        title={s.eval.at}
+                      >
+                        {t("sources.eval." + s.eval.verdict.toLowerCase().replace(/-/g, "_"))}
+                      </span>
+                    ) : (
+                      <span className="w-28 shrink-0 text-center text-xs text-zinc-600">-</span>
+                    )}
                     <div className="ml-auto flex items-center gap-3">
                       <Toggle
                         on={s.enabled}
@@ -243,7 +257,7 @@ export default function SourcesPage() {
                   </li>
                 );
               })}
-            </motion.ul>
+            </ul>
           </div>
         ))
       )}

@@ -58,13 +58,13 @@ def sample_source_ips(source, n: int, rng: random.Random | None = None) -> list[
     return uniq[:n]
 
 
-def build_benchmark(sources, per_type_n: int, benign_n: int, reserved_n: int,
+def build_benchmark(sources, per_type_n: int,
                     rng: random.Random | None = None) -> Corpus:
     """Seed the frozen benchmark by sampling per-type IPs from threat sources.
 
     `sources` are baseline sources (candidate excluded). Each threat source
     contributes IPs bucketed by its classification_type. benign/reserved
-    strata are filled from a small known list (callers may override).
+    strata are the small known lists below (fixed; grow the lists, not knobs).
     """
     rng = rng or random.Random()
     bench: dict[str, list[str]] = {}
@@ -78,10 +78,8 @@ def build_benchmark(sources, per_type_n: int, benign_n: int, reserved_n: int,
     for k in list(bench.keys()):
         rng.shuffle(bench[k])
         bench[k] = bench[k][:per_type_n]
-    _BENIGN = ["8.8.8.8", "1.1.1.1", "9.9.9.9", "208.67.222.222"]
-    _RESERVED = ["10.0.0.1", "127.0.0.1", "192.168.1.1", "172.16.0.1"]
     return Corpus(
         benchmark=bench,
-        benign=_BENIGN[:benign_n],
-        reserved=_RESERVED[:reserved_n],
+        benign=["8.8.8.8", "1.1.1.1", "9.9.9.9", "208.67.222.222"],
+        reserved=["10.0.0.1", "127.0.0.1", "192.168.1.1", "172.16.0.1"],
     )

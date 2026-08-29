@@ -64,9 +64,10 @@ _DATA = """\
 
 class InfraServicesSource(Source):
     name = "infra_services"
+    category = "asset"
     filename = "infra_services.csv"
     fields = ("service",)
-    authoritative_for = ["service"]
+    authoritative_for = ("service",)
     stale_days = 36500            # curated static; never stale
     reliability = 0.95
     # no `url` — download() materializes the embedded CSV locally, not a fetch

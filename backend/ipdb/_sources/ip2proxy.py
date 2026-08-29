@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 class IP2ProxySource(Source):
     name = "ip2proxy"
+    category = "asset"
     filename = "ip2proxy_px2.csv"  # post-extraction
     fields = ("is_proxy", "is_hosting")
     classification_type = "proxy"
@@ -35,7 +36,7 @@ class IP2ProxySource(Source):
     stale_days = 7
     reliability = 0.80
     single_evidence = True   # one evidence per CIDR → stream load() (OOM guard)
-    authoritative_for = ["is_proxy"]
+    authoritative_for = ("is_proxy",)
 
     def __init__(self, data_dir: Path):
         self._token = os.environ.get("IP2PROXY_TOKEN", "").strip()

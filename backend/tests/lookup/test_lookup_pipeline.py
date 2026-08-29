@@ -2,7 +2,7 @@
 to_observation → grouping → _assess_classification pipeline.
 
 Only sources and scalar strategies are replaced; the merge/fusion code
-(to_observation, _assess_classification, _decay_confidence) runs for real.
+(to_observation, _assess_classification) runs for real.
 """
 import pytest
 from datetime import datetime, timezone, timedelta
@@ -11,7 +11,7 @@ from ipdb._types import (
     LookupResult, MergedField, SourceAttribution, SourceHealth,
 )
 from ipdb._merge import (
-    FactualVoting, RangeSpecificity, _assess_classification, to_observation,
+    _assess_classification, to_observation,
 )
 
 
@@ -107,28 +107,24 @@ class TestLookupPipelineIntegration:
                               first_seen=(datetime.now(timezone.utc) -
                                           timedelta(days=10)).isoformat(),
                               malware_name="trickbot")
-        otx = FakeThreatSource("otx", "c2-server", verdict="malicious",
+        otx = FakeThreatSource("abuseipdb", "c2-server", verdict="malicious",
                                reliability=0.75,
                                first_seen=(datetime.now(timezone.utc) -
                                            timedelta(days=5)).isoformat())
+        # (非 derived 源:otx 属 DERIVED_SOURCES,弱于 threatfox 会被谱系去重,
+        #  去重语义在 test_corroboration.py 单测覆盖)
 
         sources = [scalar, tf, otx]
         monkeypatch.setattr(reg, "_sources", sources)
         # Use real strategies (not fakes) so merge code runs for real
-        monkeypatch.setattr(reg, "_strategies", {
-            "country_code": FactualVoting(default="N/A"),
-            "city": FactualVoting(default="N/A"),
-            "asn": FactualVoting(default=0),
-            "as_name": FactualVoting(default="N/A"),
-            "ip_range": RangeSpecificity(),
-        })
 
     def test_lookup_returns_full_pipeline_result(self):
         from ipdb._registry import lookup
         r = lookup("1.2.3.4")
 
-        # Scalar fields go through real FactualVoting
+        # Scalar fields go through real production strategies
         assert isinstance(r, LookupResult)
+        assert r.country.algorithm == "logodds"   # 生产注册表,非 FactualVoting 假体
         assert r.country.value == "CN"
         assert r.country.confidence > 0
         assert r.asn.value == 4134
@@ -140,10 +136,10 @@ class TestLookupPipelineIntegration:
         assert ca.type == "c2-server"
         assert ca.verdict == "malicious"
         assert ca.detected is True
-        assert ca.corroborated is True       # 2 independent sources
-        assert ca.confidence >= 80           # corroboration floor
+        assert ca.corroborated is True       # 2 independent (non-derived) sources
+        assert ca.confidence >= 80           # log-odds posterior (2 fresh sources)
         assert len(ca.sources) == 2
-        assert ca.sources[0].source in ("threatfox", "otx")
+        assert ca.sources[0].source in ("threatfox", "abuseipdb")
 
     def test_single_source_not_corroborated(self):
         """With only one threat source, corroboration is False."""
@@ -155,13 +151,6 @@ class TestLookupPipelineIntegration:
                               reliability=0.85)
         monkeypatch = pytest.MonkeyPatch()
         monkeypatch.setattr(reg, "_sources", [scalar, tf])
-        monkeypatch.setattr(reg, "_strategies", {
-            "country_code": FactualVoting(default="N/A"),
-            "city": FactualVoting(default="N/A"),
-            "asn": FactualVoting(default=0),
-            "as_name": FactualVoting(default="N/A"),
-            "ip_range": RangeSpecificity(),
-        })
 
         r = lookup("1.2.3.4")
         assert "scanner" in r.classifications
@@ -182,13 +171,6 @@ class TestLookupPipelineIntegration:
 
         monkeypatch = pytest.MonkeyPatch()
         monkeypatch.setattr(reg, "_sources", [scalar, tf, px])
-        monkeypatch.setattr(reg, "_strategies", {
-            "country_code": FactualVoting(default="N/A"),
-            "city": FactualVoting(default="N/A"),
-            "asn": FactualVoting(default=0),
-            "as_name": FactualVoting(default="N/A"),
-            "ip_range": RangeSpecificity(),
-        })
 
         r = lookup("1.2.3.4")
         assert "c2-server" in r.classifications
@@ -212,13 +194,6 @@ class TestLookupPipelineIntegration:
 
         monkeypatch = pytest.MonkeyPatch()
         monkeypatch.setattr(reg, "_sources", [scalar, tf, benign])
-        monkeypatch.setattr(reg, "_strategies", {
-            "country_code": FactualVoting(default="N/A"),
-            "city": FactualVoting(default="N/A"),
-            "asn": FactualVoting(default=0),
-            "as_name": FactualVoting(default="N/A"),
-            "ip_range": RangeSpecificity(),
-        })
 
         r = lookup("1.2.3.4")
         ca = r.classifications["c2-server"]
@@ -235,13 +210,6 @@ class TestLookupPipelineIntegration:
         asset = FakeAssetSource()
         monkeypatch = pytest.MonkeyPatch()
         monkeypatch.setattr(reg, "_sources", [scalar, asset])
-        monkeypatch.setattr(reg, "_strategies", {
-            "country_code": FactualVoting(default="N/A"),
-            "city": FactualVoting(default="N/A"),
-            "asn": FactualVoting(default=0),
-            "as_name": FactualVoting(default="N/A"),
-            "ip_range": RangeSpecificity(),
-        })
 
         r = lookup("1.2.3.4")
         # Asset collected

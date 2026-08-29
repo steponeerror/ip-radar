@@ -1,5 +1,4 @@
 import { useState, useMemo, useEffect, Fragment } from "react";
-import { motion, AnimatePresence, useReducedMotion } from "motion/react";
 import type { LookupResult } from "../api";
 import {
   confTextColor, VERDICT_STYLE, VERDICT_RANK, verdictLabelKey,
@@ -342,7 +341,6 @@ export function ResultTable({ results }: ResultTableProps) {
   const [filter, setFilter] = useState("");
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(50);
-  const reduce = useReducedMotion();
 
   // Reset to first page whenever the result set or view config changes.
   useEffect(() => {
@@ -525,18 +523,12 @@ export function ResultTable({ results }: ResultTableProps) {
               const badges = assetBadges(r, t);
               return (
               <Fragment key={r.ip + i}>
-                <motion.tr
-                  initial={reduce ? false : { opacity: 0, y: 6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{
-                    duration: 0.25,
-                    delay: reduce ? 0 : Math.min(i * 0.02, 0.4),
-                    ease: [0.16, 1, 0.3, 1],
-                  }}
-                  onClick={() => toggleRow(r.ip)}
-                  className={`cursor-pointer border-b border-zinc-800/40 font-mono text-xs transition-colors hover:bg-zinc-800/60 ${
+                <tr
+                  className={`row-in cursor-pointer border-b border-zinc-800/40 font-mono text-xs transition-colors hover:bg-zinc-800/60 ${
                     expanded.has(r.ip) ? "bg-zinc-800/40" : ""
                   }`}
+                  style={{ animationDelay: `${Math.min(i * 0.02, 0.4)}s` }}
+                  onClick={() => toggleRow(r.ip)}
                 >
                   <td className={`px-3 py-2 font-semibold ${r.is_reserved ? "text-zinc-500" : "text-zinc-100"}`}>{r.ip}</td>
                   <ScoredCell value={r.asn.value} confidence={r.asn.confidence} />
@@ -584,26 +576,18 @@ export function ResultTable({ results }: ResultTableProps) {
                     <ThreatTags r={r} summary={summary} />
                   </td>
                   <ScoredCell value={r.ip_range.value} confidence={r.ip_range.confidence} valueClass="text-zinc-500" />
-                </motion.tr>
-                <AnimatePresence>
-                  {expanded.has(r.ip) && (
-                    <motion.tr
-                      key={"detail-" + r.ip}
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      transition={{ duration: 0.15 }}
-                    >
-                      <td colSpan={8} className="px-5 py-3 bg-zinc-900/60 border-b border-zinc-800/40">
-                        {r.is_reserved ? (
-                          <div className="text-xs text-zinc-500">{t("reserved.notice")}</div>
-                        ) : (
-                          <IpDetailPanel r={r} />
-                        )}
-                      </td>
-                    </motion.tr>
-                  )}
-                </AnimatePresence>
+                </tr>
+                {expanded.has(r.ip) && (
+                  <tr className="fade-in">
+                    <td colSpan={8} className="px-5 py-3 bg-zinc-900/60 border-b border-zinc-800/40">
+                      {r.is_reserved ? (
+                        <div className="text-xs text-zinc-500">{t("reserved.notice")}</div>
+                      ) : (
+                        <IpDetailPanel r={r} />
+                      )}
+                    </td>
+                  </tr>
+                )}
               </Fragment>
               );
             })}

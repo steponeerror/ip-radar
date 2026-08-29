@@ -15,6 +15,7 @@ _TSV_URL = "https://iptoasn.com/data/ip2asn-combined.tsv.gz"
 
 class IPtoASNSource(Source):
     name = "iptoasn"
+    category = "geo_asn"
     filename = "ip-to-asn.tsv"
     url = _TSV_URL
     fields = ("country_code", "asn", "as_name", "ip_range")

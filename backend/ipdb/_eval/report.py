@@ -64,9 +64,10 @@ def render_md(source: str, verdict: Verdict, metrics: dict[str, Metric],
 def write_report(source: str, verdict: Verdict, metrics: dict[str, Metric],
                  corpus: Corpus, out_dir: Path) -> tuple[Path, Path]:
     out_dir = Path(out_dir); out_dir.mkdir(parents=True, exist_ok=True)
-    date = _dt.datetime.now(_dt.timezone.utc).date().isoformat()
-    md = out_dir / f"{source}-{date}.md"
-    js = out_dir / f"{source}-{date}.json"
+    # 秒级时间戳(spec §5.2 修正):同日重跑不再覆盖同名文件,历史自然累积
+    ts = _dt.datetime.now(_dt.timezone.utc).strftime("%Y%m%d-%H%M%S")
+    md = out_dir / f"{source}-{ts}.md"
+    js = out_dir / f"{source}-{ts}.json"
     md.write_text(render_md(source, verdict, metrics, corpus))
     js.write_text(__import__("json").dumps(render_json(source, verdict, metrics), indent=2))
     return md, js

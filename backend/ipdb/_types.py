@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Any, Optional, Protocol
+from typing import Any, Optional
 
 
 @dataclass
@@ -12,23 +12,6 @@ class SourceHealth:
     covered_ips: int = 0
     covered_v6_nets: int = 0
     error: Optional[str] = None
-
-
-class OfflineSource(Protocol):
-    name: str
-    fields: tuple[str, ...]
-    stale_days: int
-
-    def download(self) -> None: ...
-    def load(self) -> int: ...
-    def query(self, ip: str) -> dict[str, Any]: ...
-    def health(self) -> SourceHealth: ...
-
-
-class MergeStrategy(Protocol):
-    field: str
-
-    def merge(self, source_values: dict[str, Any], context: dict) -> "MergedField": ...
 
 
 # ── New typed internal model ──
@@ -47,8 +30,9 @@ class MergedField:
     """Merged result for a single scalar field."""
     value: Any
     confidence: int                     # 0-100
-    algorithm: str = "voting"           # "cascade" | "voting" | "pcr6" | "authority" | "specificity"
+    algorithm: str = "voting"           # "cascade" | "voting" | "logodds" | "pcr6" | "authority" | "specificity"
     sources: list[SourceAttribution] = field(default_factory=list)
+    alternatives: list = field(default_factory=list)   # [{value, probability 0-100}](仅 logodds 多类别,spec §6)
 
 
 @dataclass
@@ -84,7 +68,7 @@ class ClassificationAssessment:
     type: str
     verdict: str
     detected: bool
-    confidence: int                          # 0-100, post corroboration + decay
+    confidence: int                          # 0-100, log-odds 组后验(逐源取 max 后求和)
     algorithm: str
     sources: list  # list[SourceAttribution]
     corroborated: bool                       # >=2 independent sources
@@ -193,9 +177,12 @@ def _attribution_to_dict(s: SourceAttribution) -> dict:
 
 
 def _field_to_dict(f: MergedField) -> dict:
-    return {
+    d = {
         "value": f.value,
         "confidence": f.confidence,
         "algorithm": f.algorithm,
         "sources": [_attribution_to_dict(s) for s in f.sources],
     }
+    if f.alternatives:
+        d["alternatives"] = f.alternatives
+    return d

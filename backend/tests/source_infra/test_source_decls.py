@@ -80,3 +80,12 @@ def test_x4bnet_vpn_get_insert_data_has_is_vpn():
     d = src.get_insert_data()
     assert d["is_vpn"] is True
     assert d["_native_types"] == {"is_vpn": "VPN"}
+
+
+def test_reliability_floor_and_derived_flags():
+    """spec 2026-08-29 §3.4:r ≥ 0.5 红线;聚合器源带 derived 标记。"""
+    import ipdb._registry as reg
+    for s in reg._sources:
+        assert getattr(s, "reliability", 0.5) >= 0.5, f"{s.name} below r floor"
+    derived = {s.name for s in reg._sources if getattr(s, "derived", False)}
+    assert derived == {"firehol", "ipsum", "otx"}

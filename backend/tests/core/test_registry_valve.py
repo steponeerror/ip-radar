@@ -15,7 +15,6 @@ def test_sources_needing_rebuild_uses_needs_convert(tmp_path, monkeypatch):
         name = "t"; _path = tmp_path / "raw.txt"
         _mmdb_path = tmp_path / "raw.txt.mmdb"
     monkeypatch.setattr(reg, "_enabled_sources", lambda: [_S()])
-    monkeypatch.setattr(reg, "_archetype", lambda s: "offline")
     assert "t" in reg.sources_needing_rebuild()
 
 

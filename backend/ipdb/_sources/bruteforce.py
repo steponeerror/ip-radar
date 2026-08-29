@@ -21,6 +21,7 @@ from .._evidence import Evidence
 
 class BruteforceSource(Source):
     name = "bruteforce"
+    category = "threat"
     url = "https://danger.rulez.sk/projects/bruteforceblocker/blist.php"
     filename = "bruteforce_blocker.txt"
     fields = ("is_malicious",)
@@ -28,7 +29,7 @@ class BruteforceSource(Source):
     verdict = "malicious"
     stale_days = 1
     reliability = 0.60
-    authoritative_for = []
+    authoritative_for = ()
 
     def harvest(self):
         with open(self._path, "r", encoding="utf-8") as f:

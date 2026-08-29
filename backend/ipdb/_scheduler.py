@@ -112,43 +112,6 @@ class RefreshScheduler:
             except Exception:
                 logger.exception("scheduler: error processing source %s; skipping", name)
 
-    def status(self) -> dict:
-        sources = []
-        now = time.time()
-        for source in self._enabled_offline_sources():
-            name = source.name
-            b = self._backoff.get(name)
-            task_id = self._last_task.get(name)
-            state = None
-            if task_id is not None:
-                try:
-                    state = self._manager.task_state(task_id)
-                except Exception:
-                    state = None
-            if task_id is not None or (b is not None and now < b.next_attempt):
-                next_refresh = None   # outcome/backoff decides, not the slot
-            else:
-                mtime = self._read_mtime(source)
-                next_refresh = (_iso(_due_at(name, mtime, source.stale_days))
-                                if mtime is not None else None)
-            sources.append({
-                "name": name,
-                "stale": bool(source.health().is_stale),
-                "last_task_state": state,
-                "fail_count": b.fail_count if b else 0,
-                "last_attempt_at": _iso(self._last_attempt.get(name)),
-                "next_attempt_at": _iso(b.next_attempt if b else None),
-                "next_refresh_at": next_refresh,
-            })
-        return {
-            "enabled": True,
-            "interval_sec": self._interval,
-            "last_scan_at": _iso(self._last_scan_at),
-            "next_scan_at": _iso((self._last_scan_at or now) + self._interval),
-            "sources": sources,
-        }
-
-    # --- internals ---
     def _reconcile(self, name: str, source, now: float) -> None:
         """Infer the previous cycle's outcome. No-op if name not in _last_task."""
         task_id = self._last_task.get(name)

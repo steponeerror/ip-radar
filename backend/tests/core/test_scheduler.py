@@ -356,51 +356,6 @@ def test_shutdown_stops_thread(tmp_path):
     assert not t.is_alive(), "scheduler thread did not shut down"
 
 
-def test_status_shape(tmp_path):
-    """status() returns the documented dict shape."""
-    sch, _ = _make_scheduler([_make_src("x", tmp_path, is_stale=True)])
-    sch.scan(now=1000.0)
-    st = sch.status()
-    assert set(st.keys()) >= {"enabled", "interval_sec", "last_scan_at", "next_scan_at", "sources"}
-    assert st["enabled"] is True
-    assert st["interval_sec"] == 1800
-    assert isinstance(st["sources"], list)
-
-
-def test_status_endpoint_and_env_disable(monkeypatch):
-    """IPRADAR_AUTO_REFRESH=0 disables the scheduler; the status endpoint
-    still works and reports enabled=False. Uses FastAPI TestClient."""
-    monkeypatch.setenv("IPRADAR_AUTO_REFRESH", "0")
-    # Re-import main with the env set so module-level _ensure_refresh_scheduler
-    # sees it. main reads env at lifespan time, so we just need lifespan to run.
-    from fastapi.testclient import TestClient
-    import main as main_mod
-
-    with TestClient(main_mod.app) as client:
-        resp = client.get("/api/scheduler/status")
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["enabled"] is False
-        assert body["interval_sec"] == 1800
-
-
-def test_status_endpoint_enabled_default(monkeypatch):
-    """Default (no env or =1): scheduler enabled, status reports enabled=True."""
-    monkeypatch.delenv("IPRADAR_AUTO_REFRESH", raising=False)
-    monkeypatch.setenv("IPRADAR_REFRESH_INTERVAL_SEC", "60")
-    from fastapi.testclient import TestClient
-    import main as main_mod
-
-    with TestClient(main_mod.app) as client:
-        resp = client.get("/api/scheduler/status")
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["enabled"] is True
-        assert body["interval_sec"] == 60
-
-
-# ── Slot-era helpers (pure functions, no scheduler instance) ──
-
 def test_slot_of_deterministic_and_in_range():
     from ipdb._scheduler import _slot_of
     assert _slot_of("abuseipdb") == _slot_of("abuseipdb")
@@ -474,19 +429,3 @@ def test_due_at_lands_on_own_slot_after_deadline():
     assert due > deadline and due <= deadline + SLOT_GRID
     assert (due - 10 * SLOT_GRID) % SLOT_GRID == slot   # lands on its own slot
 
-
-def test_status_next_refresh_at(tmp_path):
-    """next_refresh_at: ISO string when idle; None when in flight or backing off."""
-    src = _make_src("abuseipdb", tmp_path, mtime=time.time() - 86400)
-    sch, _ = _make_scheduler([src])
-    st = sch.status()
-    s0 = st["sources"][0]
-    assert isinstance(s0["next_refresh_at"], str) and s0["next_refresh_at"].endswith("Z")
-
-    sch._last_task["abuseipdb"] = "t0"          # in flight
-    assert sch.status()["sources"][0]["next_refresh_at"] is None
-
-    sch._last_task.pop("abuseipdb")
-    sch._backoff["abuseipdb"] = type(
-        "B", (), {"fail_count": 1, "next_attempt": time.time() + 99999})()
-    assert sch.status()["sources"][0]["next_refresh_at"] is None

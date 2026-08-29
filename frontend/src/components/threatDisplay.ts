@@ -28,6 +28,7 @@ export const VERDICT_RANK: Record<string, number> = {
 export const ALGORITHM_ICONS: Record<string, string> = {
   cascade: "🔑",
   voting: "📊",
+  logodds: "σ",
   authority: "🏛️",
   specificity: "🎯",
   corroboration: "🤝",

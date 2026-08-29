@@ -22,13 +22,14 @@ from .._source_base import Source
 
 class GeoLiteCitySource(Source):
     name = "geolite_city"
+    category = "geo_asn"
     fields = ("city", "country_code")
     url = ("https://github.com/P3TERX/GeoLite.mmdb/releases/latest/download/"
            "GeoLite2-City.mmdb")
     filename = "geolite_city.mmdb"
     stale_days = 7
     reliability = 0.85
-    authoritative_for = []
+    authoritative_for = ()
     single_evidence = True
 
     def download(self, token=None) -> None:
