@@ -33,6 +33,21 @@ def _drain_stream(client, ips):
     return events
 
 
+def test_stream_done_error_carries_code(monkeypatch):
+    """follow-up:done-error 终态在裸 error 字符串之外携带语义 code(向后兼容)。"""
+    async def _boom(expansion, total):
+        yield b'{"type":"progress","done":0,"total":1}\n'
+        raise RuntimeError("kaboom")
+
+    monkeypatch.setattr(main, "_emit_chunks", _boom)
+    with TestClient(main.app) as client:
+        events = _drain_stream(client, ["8.8.8.8"])
+    done = events[-1]
+    assert done["type"] == "done"
+    assert "kaboom" in done["error"]
+    assert done["code"] == "internal"
+
+
 def test_stream_events_shape_and_results_order():
     """v2: start → progress(0) → row×N/progress → done (inline path)."""
     with TestClient(main.app) as client:

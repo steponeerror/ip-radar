@@ -544,6 +544,18 @@ def test_task_persists_counts_in_to_dict():
     assert d["received"] == 40 and d["total"] == 100
 
 
+def test_failed_state_carries_error_code():
+    """follow-up:失败终态经 _set_state 落 error_code,序列化进事件/SSE。"""
+    mgr, _ = _make_manager([])
+    t = Task(id="x", source_name="a", host=None)
+    mgr._set_state(t, "failed", "boom", error_code="internal")
+    assert t.error_code == "internal"
+    assert t.to_dict()["error_code"] == "internal"
+    t2 = Task(id="y", source_name="b", host=None)
+    mgr._set_state(t2, "done")
+    assert t2.to_dict()["error_code"] is None
+
+
 def test_emit_progress_persists_counts_even_when_throttled():
     mgr, _ = _make_manager([])
     t = Task(id="x", source_name="a", host=None)

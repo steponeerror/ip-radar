@@ -73,6 +73,18 @@ class TestErrorEnvelope:
         assert r.json()["error"]["code"] == "invalid_ip"
         assert "not-an-ip" in r.json()["error"]["message"]
 
+    def test_stix_invalid_ip_envelope(self):
+        """GET /api/lookup/{ip}/stix 畸形 IP → invalid_ip(与 lookup 守卫一致,follow-up)。"""
+        r = self.client.get("/api/lookup/not-an-ip/stix")
+        assert r.status_code == 400
+        assert r.json()["error"]["code"] == "invalid_ip"
+
+    def test_stix_reserved_ip_stays_fallback(self):
+        """reserved IP 维持原 400 fallback(bad_request)——本 follow-up 不改其码。"""
+        r = self.client.get("/api/lookup/10.0.0.1/stix")
+        assert r.status_code == 400
+        assert r.json()["error"]["code"] == "bad_request"
+
     def test_reserved_ip_still_200(self):
         """合法但保留的 IP 仍走 200 + is_reserved body(不被 invalid_ip 误伤)。"""
         r = self.client.get("/api/lookup/10.0.0.1")

@@ -261,7 +261,8 @@ async def _stream_lookup(expansion):
             yield (orjson.dumps({
                 "type": "done", "invalid_lines": expansion.invalid,
                 "ipv6_unsupported": expansion.ipv6,
-                "error": str(e) or type(e).__name__}) + b"\n")
+                "error": str(e) or type(e).__name__,
+                "code": ErrorCode.internal.value}) + b"\n")
             return
         yield (orjson.dumps({
             "type": "done", "invalid_lines": expansion.invalid,
@@ -297,7 +298,8 @@ async def _stream_lookup(expansion):
             yield (orjson.dumps({
                 "type": "done", "invalid_lines": expansion.invalid,
                 "ipv6_unsupported": expansion.ipv6,
-                "error": str(e) or type(e).__name__}) + b"\n")
+                "error": str(e) or type(e).__name__,
+                "code": ErrorCode.internal.value}) + b"\n")
             return
         yield (orjson.dumps({
             "type": "done", "invalid_lines": expansion.invalid,
@@ -351,14 +353,16 @@ async def _stream_lookup(expansion):
                 yield (orjson.dumps({
                     "type": "done", "invalid_lines": expansion.invalid,
                     "ipv6_unsupported": expansion.ipv6,
-                    "error": str(e) or type(e).__name__}) + b"\n")
+                    "error": str(e) or type(e).__name__,
+                    "code": ErrorCode.internal.value}) + b"\n")
                 return
     except Exception as e:            # 非 BPP 异常: done-error 终态, 不静默截断
         logging.getLogger(__name__).exception("stream lookup error")
         yield (orjson.dumps({
             "type": "done", "invalid_lines": expansion.invalid,
             "ipv6_unsupported": expansion.ipv6,
-            "error": str(e) or type(e).__name__}) + b"\n")
+            "error": str(e) or type(e).__name__,
+            "code": ErrorCode.internal.value}) + b"\n")
         return
 
     yield orjson.dumps({
@@ -651,7 +655,9 @@ async def reject_oversized_bodies(request, call_next):
           "merged fields carry value+confidence+algorithm+sources). Each line "
           "is a complete lookup event; malformed input lines count as error "
           "events (error field set). HTTP-level errors (400/503) return the "
-          "JSON error envelope instead of a stream.")
+          "JSON error envelope instead of a stream. Terminal done events that "
+          "carry an error string also carry a machine-readable code field "
+          "(e.g. \"internal\").")
 async def query_ips_stream(request: Request):
     # body 不走 FastAPI 自动解析(dict 形参会整包缓冲,chunked 无 CL 时
     # 中间件也挡不到)——流式封顶读完后自行解析,语义与原 body:dict 一致。
@@ -684,7 +690,9 @@ async def query_ips_stream(request: Request):
           summary="Batch IP lookup from uploaded file (NDJSON stream)",
           description="Streaming NDJSON: same per-line lookup event shape as "
           "POST /api/query/stream (one JSON object per extracted IP). "
-          "HTTP-level errors (400/503) return the JSON error envelope.")
+          "HTTP-level errors (400/503) return the JSON error envelope. "
+          "Terminal done events that carry an error string also carry a "
+          "machine-readable code field (e.g. \"internal\").")
 async def upload_file_stream(file: UploadFile = File(...)):
     content = await _read_upload_capped(file, MAX_UPLOAD_BYTES)
     content = content.decode("utf-8", errors="ignore")
@@ -799,6 +807,10 @@ async def lookup_single(ip: str):
                      **_ERRS_READY})
 async def lookup_stix(ip: str):
     """Single IP STIX 2.1 Bundle export."""
+    try:
+        ipaddress.ip_address(ip)
+    except ValueError:
+        raise ApiError(ErrorCode.invalid_ip, f"invalid IP address: {ip}")
     from ipdb._stix_export import to_stix_bundle
 
     result = await asyncio.to_thread(lookup, ip)
@@ -906,7 +918,9 @@ async def tasks_snapshot():
           summary="SSE task/batch event stream",
           description="Server-Sent Events: `data: <json>` per event. First "
           "event is {type:'snapshot', data:{tasks,batch}}; then task/batch "
-          "lifecycle events ({type:'task'|'batch', ...}). No response_model — "
+          "lifecycle events ({type:'task'|'batch', ...}). task events in the "
+          "failed state carry a machine-readable error_code (e.g. \"internal\", "
+          "\"source_not_found\"). No response_model — "
           "event payloads are documented here, not as a JSON schema.")
 async def events():
     """SSE stream of task/batch events. Yields an initial snapshot event on
