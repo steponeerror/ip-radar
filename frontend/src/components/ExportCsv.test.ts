@@ -26,7 +26,7 @@ describe("buildCsvContent", () => {
       as_name: { value: 'Acme "Q" Corp', confidence: 100, algorithm: "authority", sources: [] },
     };
     const content = buildCsvContent([r]);
-    expect(content).toContain('"US, Test"');
-    expect(content).toContain('"Acme ""Q"" Corp"');
+    expect(content).toContain('"US, Test(100)"');
+    expect(content).toContain('"Acme ""Q"" Corp(100)"');
   });
 });
