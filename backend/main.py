@@ -789,7 +789,15 @@ async def update_db_resume():
                             "description": "invalid IP address"},
                      **_ERRS_READY})
 async def lookup_single(ip: str):
-    """Single IP lookup — same shape as POST /api/query results[0]."""
+    """Single IP lookup — same shape as POST /api/query results[0].
+
+    confidence (0-100) is a log-odds posterior: per-source reliability becomes a
+    symmetric logit coefficient, decays with a 60-day half-life, and coefficients
+    fuse additively within each classification_type group
+    (design: docs/superpowers/specs/2026-08-29-scoring-fusion-design.md §3).
+    confidence == 0 on a field means no source reported it — absence of
+    evidence, not proof of innocence.
+    """
     try:
         ipaddress.ip_address(ip)
     except ValueError:

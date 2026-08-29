@@ -26,10 +26,11 @@ class AttributionOut(_Out):
 
 class FieldOut(_Out):
     value: Any = None
-    confidence: Any = None
+    confidence: Any = None   # 0-100;0 = 无源命中(无证据,非清白)
     algorithm: Optional[str] = None
     sources: list[AttributionOut] = []
-    alternatives: list[dict] = []   # logodds 多类别后验 [{value, probability 0-100}](spec 2026-08-29 §6)
+    # logodds 多类别后验 [{value, probability 0-100}],后验降序(spec 2026-08-29 §6)
+    alternatives: list[dict] = []
 
 
 class ThreatSummaryOut(_Out):
