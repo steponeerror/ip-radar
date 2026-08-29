@@ -26,6 +26,7 @@ vi.mock("../../api", async () => {
         classification_type: null,
         url: null,
         stale_days: null,
+        eval: null,
         health: {
           name: "feodo",
           loaded: true,
@@ -68,6 +69,7 @@ describe("SourcesPage", () => {
         classification_type: null,
         url: null,
         stale_days: null,
+        eval: null,
         health: {
           name: "abuseipdb",
           loaded: false,
@@ -176,6 +178,7 @@ describe("SourcesPage", () => {
         classification_type: null,
         url: null,
         stale_days: null,
+        eval: null,
         health: {
           name: "ipinfo_lite",
           loaded: true,
@@ -189,5 +192,42 @@ describe("SourcesPage", () => {
     ]);
     render(<SourcesPage />);
     expect(await screen.findByText("3.7B")).toBeInTheDocument();
+  });
+
+  it("renders eval verdict badge when source has an eval result", async () => {
+    vi.mocked(getSources).mockResolvedValueOnce([
+      {
+        name: "spamhaus",
+        enabled: true,
+        category: "threat",
+        archetype: "offline",
+        fields: ["is_malicious"],
+        reliability: 0.9,
+        authoritative_for: ["is_malicious"],
+        classification_type: "blacklist",
+        url: "https://www.spamhaus.org/drop/",
+        stale_days: 1,
+        eval: { verdict: "POSITIVE-VERIFIED", at: "2026-08-28" },
+        health: {
+          name: "spamhaus",
+          loaded: true,
+          record_count: 1000,
+          covered_ips: 1000,
+          last_updated: null,
+          is_stale: false,
+          error: null,
+        },
+      },
+    ]);
+    render(<SourcesPage />);
+    await screen.findByText("spamhaus");
+    const badge = screen.getByText("verified");
+    expect(badge).toHaveAttribute("title", "2026-08-28");
+  });
+
+  it("renders '-' when source has no eval result", async () => {
+    render(<SourcesPage />);
+    await screen.findByText("feodo");
+    expect(screen.getByText("-")).toBeInTheDocument();
   });
 });

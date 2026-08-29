@@ -18,6 +18,8 @@ class Task:
     host: Optional[str]
     state: str = "queued"  # queued|downloading|loading|throttled|done|failed|cancelled
     error: Optional[str] = None
+    # 失败终态的语义码(_errors ErrorCode 值;None=未失败)。SSE/快照消费。
+    error_code: Optional[str] = None
     batch_id: Optional[str] = None
     # 阶段内进度计数(事件/快照展示用):downloading=字节,loading=记录数。
     # 阶段切换由 _run_task 在 _set_state 之前清零(事件不得携带上一相位计数)。
@@ -31,7 +33,8 @@ class Task:
 
     def to_dict(self) -> dict:
         return {"id": self.id, "source": self.source_name, "host": self.host,
-                "state": self.state, "error": self.error, "batch_id": self.batch_id,
+                "state": self.state, "error": self.error,
+                "error_code": self.error_code, "batch_id": self.batch_id,
                 "received": self.received, "total": self.total}
 
 
@@ -404,9 +407,11 @@ class UpdateManager:
                     with self._queue_cv:
                         self._queue_cv.notify_all()
 
-    def _set_state(self, task: Task, state: str, error: str | None = None):
+    def _set_state(self, task: Task, state: str, error: str | None = None,
+                   error_code: str | None = None):
         task.state = state
         task.error = error
+        task.error_code = error_code
         self._emit({"type": "task", "task": task.to_dict()})
 
     def _emit_progress(self, task: Task, received: int, total: int) -> None:
@@ -428,7 +433,8 @@ class UpdateManager:
     def _run_task(self, task: Task):
         source = self._resolve(task.source_name)
         if source is None:
-            self._set_state(task, "failed", "source disappeared"); self._settle(task); return
+            self._set_state(task, "failed", "source disappeared",
+                            error_code="source_not_found"); self._settle(task); return
         host_lock = self._host_lock(task.host)
         src_lock = self._lock_for(task.source_name)
         if host_lock:
@@ -444,7 +450,8 @@ class UpdateManager:
             except CancelledError:
                 self._set_state(task, "cancelled"); return
             except Exception as e:
-                self._set_state(task, "failed", str(e)); return
+                self._set_state(task, "failed", str(e),
+                                error_code="internal"); return
             finally:
                 task.token.on_progress = None
             if task.token.is_cancelled():
@@ -461,7 +468,8 @@ class UpdateManager:
                 else:
                     source.rebuild()
             except Exception as e:
-                self._set_state(task, "failed", str(e)); return
+                self._set_state(task, "failed", str(e),
+                                error_code="internal"); return
             finally:
                 task.token.on_progress = None
             # 与 download→loading 边界检查对称:loading 期间点的取消在

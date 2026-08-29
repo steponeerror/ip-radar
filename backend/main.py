@@ -1,4 +1,5 @@
 import asyncio
+import ipaddress
 import json
 import logging
 import math
@@ -9,6 +10,7 @@ from contextlib import asynccontextmanager
 import orjson
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, Header, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -36,6 +38,17 @@ from ipdb._cidr import expand_inputs
 from ipdb import _registry as _ipdb_registry
 from ipdb import _update as _ipdb_update
 from ipdb import _version as _ipdb_version
+from ipdb._eval_manager import EvalManager, EvalBusyError
+from ipdb._eval_reader import read_overview, read_source
+from ipdb._api_models import (
+    AckOut, BatchOut, DbStatusOut, ErrorEnvelope, EvalDetailOut,
+    EvalJobAcceptedOut, EvalOverviewOut, LookupResultOut, PerfLayoutOut,
+    SchedulerStatusOut, SourceInfoOut, TaskAcceptedOut, TasksSnapshotOut,
+    UpdateAcceptedOut, UpdateDbOut, UpdateStateOut, VersionOut,
+)
+from ipdb._errors import (
+    ApiError, ErrorCode, RETRY_AFTER_WARMING, envelope,
+)
 
 import os
 from pathlib import Path
@@ -43,6 +56,20 @@ from pathlib import Path
 logging.basicConfig(level=logging.INFO)
 
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50MB
+
+# eval 单槽任务管理(spec §5.2):子进程隔离,消融不碰主进程 _disabled
+eval_manager = EvalManager()
+
+# OpenAPI 错误信封声明(实际响应体由全局 exception handler 统一产出)。
+# 按路由真实可达的状态码子集声明,不做全码大杂烩。
+_ERRS_422_500 = {
+    "422": {"model": ErrorEnvelope, "description": "request validation failed"},
+    "500": {"model": ErrorEnvelope, "description": "internal server error"},
+}
+_ERRS_READY = {**_ERRS_422_500,
+               "503": {"model": ErrorEnvelope, "description": "database warming up"}}
+_ERRS_SOURCE = {**_ERRS_422_500,
+                "404": {"model": ErrorEnvelope, "description": "unknown source"}}
 
 
 async def _read_upload_capped(file: UploadFile, cap: int) -> bytes:
@@ -234,7 +261,8 @@ async def _stream_lookup(expansion):
             yield (orjson.dumps({
                 "type": "done", "invalid_lines": expansion.invalid,
                 "ipv6_unsupported": expansion.ipv6,
-                "error": str(e) or type(e).__name__}) + b"\n")
+                "error": str(e) or type(e).__name__,
+                "code": ErrorCode.internal.value}) + b"\n")
             return
         yield (orjson.dumps({
             "type": "done", "invalid_lines": expansion.invalid,
@@ -270,7 +298,8 @@ async def _stream_lookup(expansion):
             yield (orjson.dumps({
                 "type": "done", "invalid_lines": expansion.invalid,
                 "ipv6_unsupported": expansion.ipv6,
-                "error": str(e) or type(e).__name__}) + b"\n")
+                "error": str(e) or type(e).__name__,
+                "code": ErrorCode.internal.value}) + b"\n")
             return
         yield (orjson.dumps({
             "type": "done", "invalid_lines": expansion.invalid,
@@ -324,14 +353,16 @@ async def _stream_lookup(expansion):
                 yield (orjson.dumps({
                     "type": "done", "invalid_lines": expansion.invalid,
                     "ipv6_unsupported": expansion.ipv6,
-                    "error": str(e) or type(e).__name__}) + b"\n")
+                    "error": str(e) or type(e).__name__,
+                    "code": ErrorCode.internal.value}) + b"\n")
                 return
     except Exception as e:            # 非 BPP 异常: done-error 终态, 不静默截断
         logging.getLogger(__name__).exception("stream lookup error")
         yield (orjson.dumps({
             "type": "done", "invalid_lines": expansion.invalid,
             "ipv6_unsupported": expansion.ipv6,
-            "error": str(e) or type(e).__name__}) + b"\n")
+            "error": str(e) or type(e).__name__,
+            "code": ErrorCode.internal.value}) + b"\n")
         return
 
     yield orjson.dumps({
@@ -517,6 +548,79 @@ def get_active_layout() -> dict:
 
 app = FastAPI(title="IP Lookup Tool", lifespan=lifespan)
 
+# ── 全局错误信封(spec 2026-08-28 §5.3)──
+# 所有 HTTP 错误统一 {"error":{code,message,detail?,retry_after?}},status 透传。
+# 普通 HTTPException 按状态映射通用码;require_ready 的 X-IPRadar-Reason
+# 头映射语义码(warming 带 retry_after)。
+_HTTP_FALLBACK_CODE = {
+    400: "bad_request", 401: "unauthorized", 403: "forbidden",
+    404: "not_found", 405: "method_not_allowed", 409: "conflict",
+    413: "payload_too_large", 415: "unsupported_media_type",
+    422: "validation_error", 429: "rate_limited",
+    501: "not_implemented", 503: "not_ready",
+}
+
+
+def _reason_code(headers: dict | None):
+    """X-IPRadar-Reason 头 → (语义码, retry_after);无头返回 None。"""
+    reason = (headers or {}).get("X-IPRadar-Reason")
+    if reason == "warming":
+        return "warming", RETRY_AFTER_WARMING
+    if reason == "no-sources":
+        return "no_sources", None
+    return None
+
+
+@app.exception_handler(ApiError)
+async def _api_error_handler(request, exc: ApiError):
+    return JSONResponse(status_code=exc.status, content=exc.envelope())
+
+
+@app.exception_handler(StarletteHTTPException)
+async def _http_error_handler(request, exc: StarletteHTTPException):
+    from http import HTTPStatus
+    headers = dict(exc.headers) if exc.headers else None
+    retry_after = None
+    mapped = _reason_code(headers)
+    if mapped is not None:
+        code, retry_after = mapped
+    else:
+        code = _HTTP_FALLBACK_CODE.get(exc.status_code, "internal")
+        ra = (headers or {}).get("Retry-After")
+        if exc.status_code == 429 and ra is not None:
+            try:
+                retry_after = int(ra)
+            except ValueError:
+                retry_after = None  # HTTP-date 形式不解析,只留头
+    message = str(exc.detail) if exc.detail else \
+        HTTPStatus(exc.status_code).phrase
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=envelope(code, message, retry_after=retry_after),
+        headers=headers,
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_error_handler(request, exc: RequestValidationError):
+    from fastapi.encoders import jsonable_encoder
+    return JSONResponse(
+        status_code=422,
+        content=envelope("validation_error", "request validation failed",
+                         detail=jsonable_encoder(exc.errors())),
+    )
+
+
+@app.exception_handler(Exception)
+async def _unhandled_error_handler(request, exc: Exception):
+    logging.exception("unhandled error on %s %s",
+                      request.method, request.url.path)
+    return JSONResponse(
+        status_code=500,
+        content=envelope("internal", "internal server error"),
+    )
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -533,13 +637,27 @@ async def reject_oversized_bodies(request, call_next):
             "/api/upload/stream", "/api/query/stream"):
         cl = request.headers.get("content-length")
         if cl and cl.isdigit() and int(cl) > MAX_UPLOAD_BYTES:
+            # 直接响应不走 exception handler → 手写信封(与全局信封同形状)
             return JSONResponse(
                 status_code=400,
-                content={"detail": f"Request body exceeds {MAX_UPLOAD_BYTES // (1024*1024)}MB limit"})
+                content=envelope(
+                    "bad_request",
+                    f"Request body exceeds {MAX_UPLOAD_BYTES // (1024*1024)}MB limit"))
     return await call_next(request)
 
 
-@app.post("/api/query/stream", dependencies=[Depends(require_ready)])
+@app.post("/api/query/stream", dependencies=[Depends(require_ready)],
+          responses=_ERRS_READY,
+          summary="Batch IP lookup (NDJSON stream)",
+          description="Streaming NDJSON: one JSON object per input IP, same "
+          "shape as GET /api/lookup/{ip} (fields: ip/country/city/asn/as_name/"
+          "ip_range/is_isp/threat/classifications/attributes/is_reserved,"
+          "merged fields carry value+confidence+algorithm+sources). Each line "
+          "is a complete lookup event; malformed input lines count as error "
+          "events (error field set). HTTP-level errors (400/503) return the "
+          "JSON error envelope instead of a stream. Terminal done events that "
+          "carry an error string also carry a machine-readable code field "
+          "(e.g. \"internal\").")
 async def query_ips_stream(request: Request):
     # body 不走 FastAPI 自动解析(dict 形参会整包缓冲,chunked 无 CL 时
     # 中间件也挡不到)——流式封顶读完后自行解析,语义与原 body:dict 一致。
@@ -567,7 +685,14 @@ async def query_ips_stream(request: Request):
     )
 
 
-@app.post("/api/upload/stream", dependencies=[Depends(require_ready)])
+@app.post("/api/upload/stream", dependencies=[Depends(require_ready)],
+          responses=_ERRS_READY,
+          summary="Batch IP lookup from uploaded file (NDJSON stream)",
+          description="Streaming NDJSON: same per-line lookup event shape as "
+          "POST /api/query/stream (one JSON object per extracted IP). "
+          "HTTP-level errors (400/503) return the JSON error envelope. "
+          "Terminal done events that carry an error string also carry a "
+          "machine-readable code field (e.g. \"internal\").")
 async def upload_file_stream(file: UploadFile = File(...)):
     content = await _read_upload_capped(file, MAX_UPLOAD_BYTES)
     content = content.decode("utf-8", errors="ignore")
@@ -594,7 +719,8 @@ async def upload_file_stream(file: UploadFile = File(...)):
     )
 
 
-@app.get("/api/db-status")
+@app.get("/api/db-status", response_model=DbStatusOut,
+          responses=_ERRS_422_500)
 async def db_status():
     status = get_status()
     # 全源禁用不是 warming:报 False 隐藏横幅,查询走 require_ready 的诚实报错
@@ -602,7 +728,8 @@ async def db_status():
     return status
 
 
-@app.get("/api/scheduler/status")
+@app.get("/api/scheduler/status", response_model=SchedulerStatusOut,
+          responses=_ERRS_422_500)
 async def scheduler_status():
     """Read-only snapshot of the auto-refresh scheduler."""
     if _refresh_scheduler is None:
@@ -618,7 +745,8 @@ def _offline_enabled_names():
     return [s.name for s in _enabled_sources() if _archetype(s) == "offline"]
 
 
-@app.post("/api/update-db")
+@app.post("/api/update-db", response_model=UpdateDbOut,
+           responses=_ERRS_422_500)
 async def update_db():
     """Refresh ALL enabled offline sources, regardless of staleness.
 
@@ -634,34 +762,55 @@ async def update_db():
     return {"batch_id": bid, "refreshed": len(names)}
 
 
-@app.post("/api/update-db/cancel")
+@app.post("/api/update-db/cancel", response_model=AckOut,
+           responses=_ERRS_422_500)
 async def update_db_cancel():
     manager.cancel_batch(manager._active_batch)
     return {"ok": True}
 
 
-@app.post("/api/update-db/pause")
+@app.post("/api/update-db/pause", response_model=AckOut,
+           responses=_ERRS_422_500)
 async def update_db_pause():
     manager.pause()
     return {"ok": True}
 
 
-@app.post("/api/update-db/resume")
+@app.post("/api/update-db/resume", response_model=AckOut,
+           responses=_ERRS_422_500)
 async def update_db_resume():
     manager.resume()
     return {"ok": True}
 
 
-@app.get("/api/lookup/{ip}", dependencies=[Depends(require_ready)])
+@app.get("/api/lookup/{ip}", response_model=LookupResultOut,
+          dependencies=[Depends(require_ready)],
+          responses={"400": {"model": ErrorEnvelope,
+                            "description": "invalid IP address"},
+                     **_ERRS_READY})
 async def lookup_single(ip: str):
     """Single IP lookup — same shape as POST /api/query results[0]."""
+    try:
+        ipaddress.ip_address(ip)
+    except ValueError:
+        raise ApiError(ErrorCode.invalid_ip, f"invalid IP address: {ip}")
     result = await asyncio.to_thread(lookup, ip)
     return result.to_dict()
 
 
-@app.get("/api/lookup/{ip}/stix", dependencies=[Depends(require_ready)])
+@app.get("/api/lookup/{ip}/stix", response_model=dict,
+          dependencies=[Depends(require_ready)],
+          responses={"400": {"model": ErrorEnvelope,
+                            "description": "invalid/reserved IP"},
+                     "501": {"model": ErrorEnvelope,
+                             "description": "stix2 package not installed"},
+                     **_ERRS_READY})
 async def lookup_stix(ip: str):
     """Single IP STIX 2.1 Bundle export."""
+    try:
+        ipaddress.ip_address(ip)
+    except ValueError:
+        raise ApiError(ErrorCode.invalid_ip, f"invalid IP address: {ip}")
     from ipdb._stix_export import to_stix_bundle
 
     result = await asyncio.to_thread(lookup, ip)
@@ -679,41 +828,100 @@ async def lookup_stix(ip: str):
     return bundle
 
 
-@app.get("/api/sources")
+@app.get("/api/sources", response_model=list[SourceInfoOut],
+          responses=_ERRS_422_500)
 async def list_sources_route():
-    return list_sources()
+    items = list_sources()
+    # eval verdict 聚合(spec §5.2):agent 查目录一次拿到 健康+类别+权重+
+    # 最近考分;无报告 → null。不加缓存,29 源量级可接受。
+    _ev = {v["source"]: v for v in read_overview()}
+    for it in items:
+        v = _ev.get(it["name"])
+        it["eval"] = {"verdict": v["verdict"], "at": v["at"]} if v else None
+    return items
 
 
-@app.patch("/api/sources/{name}")
+@app.patch("/api/sources/{name}", response_model=SourceInfoOut,
+           responses=_ERRS_SOURCE)
 async def set_source_enabled_route(name: str, patch: SourceEnabledPatch):
     try:
         return await asyncio.to_thread(set_source_enabled, name, patch.enabled)
     except ValueError:
-        raise HTTPException(404, f"unknown source: {name}")
+        raise ApiError(ErrorCode.source_not_found, f"unknown source: {name}")
 
 
-@app.post("/api/sources/{name}/update")
+@app.post("/api/sources/{name}/update", response_model=TaskAcceptedOut,
+           responses=_ERRS_SOURCE)
 async def update_source_route(name: str):
     try:
         t = manager.enqueue_one(name)
     except ValueError:
-        raise HTTPException(404, f"unknown source: {name}")
+        raise ApiError(ErrorCode.source_not_found, f"unknown source: {name}")
     return {"task_id": t.id}
 
 
-@app.post("/api/tasks/{task_id}/cancel")
+# ── eval 端点(spec 2026-08-28 §5.2:成绩单上墙)──
+# 两个 GET 是纯文件读(历史报告),不碰 LMDB → 不挂 require_ready
+# (warming 期仍能诚实报告过往 verdict);POST run 会起子进程对当前
+# DB 做消融评估,warming 期评估无意义 → 与 lookup 同门。PR③ 统一错误信封。
+
+@app.get("/api/eval", response_model=EvalOverviewOut,
+          responses=_ERRS_422_500)
+async def eval_overview_route():
+    """全源最新 eval verdict 摘要 + 当前 eval 任务状态(current_job)。"""
+    return {"current_job": eval_manager.current, "verdicts": read_overview()}
+
+
+@app.get("/api/eval/{source}", response_model=EvalDetailOut,
+          responses=_ERRS_SOURCE)
+async def eval_detail_route(source: str):
+    """单源 eval 历史 + 最新详情;源存在但无报告 → latest null。"""
+    if _ipdb_registry._find_source(source) is None:
+        raise ApiError(ErrorCode.source_not_found, f"unknown source: {source}")
+    return read_source(source)
+
+
+@app.post("/api/eval/{source}/run", status_code=202,
+          response_model=EvalJobAcceptedOut,
+          dependencies=[Depends(require_ready)],
+          responses={"404": {"model": ErrorEnvelope,
+                            "description": "unknown source"},
+                     "409": {"model": ErrorEnvelope,
+                             "description": "another eval job is running"},
+                     **_ERRS_READY})
+async def eval_run_route(source: str):
+    """触发单源 eval(子进程 CLI --json);单槽,busy → 409。"""
+    if _ipdb_registry._find_source(source) is None:
+        raise ApiError(ErrorCode.source_not_found, f"unknown source: {source}")
+    try:
+        job = eval_manager.run(source)
+    except EvalBusyError as e:
+        raise ApiError(ErrorCode.eval_busy, str(e))
+    return {"job_id": job["job_id"]}
+
+
+@app.post("/api/tasks/{task_id}/cancel", response_model=AckOut,
+           responses=_ERRS_422_500)
 async def cancel_task_route(task_id: str):
     manager.cancel(task_id)
     return {"ok": True}
 
 
-@app.get("/api/tasks")
+@app.get("/api/tasks", response_model=TasksSnapshotOut,
+          responses=_ERRS_422_500)
 async def tasks_snapshot():
     """Point-in-time snapshot of in-flight tasks + active batch."""
     return manager.snapshot()
 
 
-@app.get("/api/events")
+@app.get("/api/events",
+          summary="SSE task/batch event stream",
+          description="Server-Sent Events: `data: <json>` per event. First "
+          "event is {type:'snapshot', data:{tasks,batch}}; then task/batch "
+          "lifecycle events ({type:'task'|'batch', ...}). task events in the "
+          "failed state carry a machine-readable error_code (e.g. \"internal\", "
+          "\"source_not_found\"). No response_model — "
+          "event payloads are documented here, not as a JSON schema.")
 async def events():
     """SSE stream of task/batch events. Yields an initial snapshot event on
     connect so reconnects resync, then one `data: <json>` line per event."""
@@ -736,7 +944,8 @@ async def events():
     )
 
 
-@app.get("/api/perf/layout")
+@app.get("/api/perf/layout", response_model=PerfLayoutOut,
+          responses=_ERRS_422_500)
 async def perf_layout():
     import psutil
     from ipdb._registry import _valve
@@ -803,7 +1012,8 @@ def _spawn_update() -> None:
     task.add_done_callback(_UPDATE_BG_TASKS.discard)
 
 
-@app.get("/api/version")
+@app.get("/api/version", response_model=VersionOut,
+          responses=_ERRS_422_500)
 async def api_version(refresh: bool = False):
     latest = await _ipdb_version.fetch_latest(force=refresh)
     tag = latest["tag"] if latest else None
@@ -817,7 +1027,12 @@ async def api_version(refresh: bool = False):
     }
 
 
-@app.post("/api/update")
+@app.post("/api/update", status_code=202, response_model=UpdateAcceptedOut,
+           responses={"403": {"model": ErrorEnvelope,
+                             "description": "token missing/invalid or disabled"},
+                     "409": {"model": ErrorEnvelope,
+                             "description": "update already in progress"},
+                     **_ERRS_422_500})
 async def api_update(authorization: str = Header(default="")):
     import hmac
     token = os.environ.get("IP_RADAR_UPDATE_TOKEN", "")
@@ -833,7 +1048,8 @@ async def api_update(authorization: str = Header(default="")):
     return JSONResponse(status_code=202, content={"status": "accepted"})
 
 
-@app.get("/api/update/status")
+@app.get("/api/update/status", response_model=UpdateStateOut,
+          responses=_ERRS_422_500)
 async def api_update_status():
     return _ipdb_update.state()
 
