@@ -40,8 +40,7 @@ class TorExitSource(IpListSource):
         """重建 LMDB。覆写基类：文件行为 `ip[,ts]`（parse_raw 归一化产物），
         ts → last_seen（per-row，基类单一 insert_data 不支持）。"""
         import ipaddress as _ipa
-        import time
-        from ._lmdb import covered_ip_count, rebuild_dual_family
+        from ._lmdb import covered_ip_count, rebuild_dual_family, commit_dual_family
         from .._evidence import Evidence
         if not self._path.exists():
             return 0
@@ -74,19 +73,8 @@ class TorExitSource(IpListSource):
         cov4 = covered_ip_count(c for c in covered if ":" not in c)
         cov6 = covered_ip_count(
             (c for c in covered if ":" in c), ip_version=6)
-        n4, n6 = rebuild_dual_family(
-            records, self._lmdb_base, self._lmdb6_base,
-            reader_setter4=lambda e: setattr(self, "_reader", e),
-            reader_setter6=lambda e: setattr(self, "_reader6", e),
-            flag_setter4=lambda v: setattr(self, "_disjoint", v),
-            flag_setter6=lambda v: setattr(self, "_disjoint6", v),
-            covered4=cov4, covered6=cov6, progress=progress)
-        self._count = n4
-        self._count6 = n6
-        self._covered_ips = cov4
-        self._covered_v6_nets = cov6
-        self._loaded_at = time.time()
-        return n4
+        return commit_dual_family(
+            self, records, cov4=cov4, cov6=cov6, progress=progress)
     def get_insert_data(self) -> dict:
         from .._evidence import Evidence
         return Evidence(

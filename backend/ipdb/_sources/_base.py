@@ -154,7 +154,7 @@ class IpListSource:
     def rebuild(self, progress=None) -> int:
         """重建 LMDB(唯一入口,经 manager 队列调用)。新 epoch + ptr swap。"""
         import ipaddress as _ipa
-        from ._lmdb import covered_ip_count, rebuild_dual_family
+        from ._lmdb import covered_ip_count, rebuild_dual_family, commit_dual_family
         if not self._path.exists():
             return 0
         insert_data = self.get_insert_data()
@@ -180,19 +180,8 @@ class IpListSource:
         cov4 = covered_ip_count(c for c in covered if ":" not in c)
         cov6 = covered_ip_count(
             (c for c in covered if ":" in c), ip_version=6)
-        n4, n6 = rebuild_dual_family(
-            records, self._lmdb_base, self._lmdb6_base,
-            reader_setter4=lambda e: setattr(self, "_reader", e),
-            reader_setter6=lambda e: setattr(self, "_reader6", e),
-            flag_setter4=lambda v: setattr(self, "_disjoint", v),
-            flag_setter6=lambda v: setattr(self, "_disjoint6", v),
-            covered4=cov4, covered6=cov6, progress=progress)
-        self._count = n4
-        self._count6 = n6
-        self._covered_ips = cov4
-        self._covered_v6_nets = cov6
-        self._loaded_at = time.time()
-        return n4
+        return commit_dual_family(
+            self, records, cov4=cov4, cov6=cov6, progress=progress)
     def query(self, ip: str) -> Any:
         if ":" in ip:                      # v6 查询走并行族 reader(spec §3.2)
             return self._query6(ip)
@@ -286,7 +275,7 @@ class CsvSource(IpListSource):
         """重建 LMDB(唯一入口,经 manager 队列调用)。新 epoch + ptr swap。"""
         import csv as _csv
         import ipaddress as _ipa
-        from ._lmdb import covered_ip_count, rebuild_dual_family
+        from ._lmdb import covered_ip_count, rebuild_dual_family, commit_dual_family
         if not self._path.exists():
             return 0
         # cidr_str -> list[evidence dict], deduped by full-evidence equality
@@ -332,17 +321,6 @@ class CsvSource(IpListSource):
         # count 语义保持证据数(而非 CIDR 数)——与单族时代一致
         cnt4 = sum(len(acc[c]) for c in acc if ":" not in c)
         cnt6 = sum(len(acc[c]) for c in acc if ":" in c)
-        n4, n6 = rebuild_dual_family(
-            acc.items(), self._lmdb_base, self._lmdb6_base,
-            reader_setter4=lambda e: setattr(self, "_reader", e),
-            reader_setter6=lambda e: setattr(self, "_reader6", e),
-            flag_setter4=lambda v: setattr(self, "_disjoint", v),
-            flag_setter6=lambda v: setattr(self, "_disjoint6", v),
-            covered4=cov4, covered6=cov6,
+        return commit_dual_family(
+            self, acc.items(), cov4=cov4, cov6=cov6,
             count4=cnt4, count6=cnt6, progress=progress)
-        self._count = cnt4
-        self._count6 = cnt6
-        self._covered_ips = cov4
-        self._covered_v6_nets = cov6
-        self._loaded_at = time.time()
-        return n4
