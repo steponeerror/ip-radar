@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Any, Optional, Protocol
+from typing import Any, Optional
 
 
 @dataclass
@@ -12,23 +12,6 @@ class SourceHealth:
     covered_ips: int = 0
     covered_v6_nets: int = 0
     error: Optional[str] = None
-
-
-class OfflineSource(Protocol):
-    name: str
-    fields: tuple[str, ...]
-    stale_days: int
-
-    def download(self) -> None: ...
-    def load(self) -> int: ...
-    def query(self, ip: str) -> dict[str, Any]: ...
-    def health(self) -> SourceHealth: ...
-
-
-class MergeStrategy(Protocol):
-    field: str
-
-    def merge(self, source_values: dict[str, Any], context: dict) -> "MergedField": ...
 
 
 # ── New typed internal model ──
