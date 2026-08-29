@@ -106,11 +106,6 @@ export function apiFetch(url: string, init: RequestInit = {}): Promise<Response>
   });
 }
 
-// 所有非 2xx 抛错统一走这里:错误对象带 HTTP status 与后端的
-// X-IPRadar-Reason(机器可读的 503 归因:"warming" / "no-sources"),
-// 调用方按状态码+reason 分支,不靠文案猜。
-function apiError(detail: string, res: Response, fallback: string, cause?: unknown): Error {
-  const err = new Error(detail || fallback);
 
 // 所有非 2xx 抛错统一走这里:错误对象带 HTTP status 与后端错误信封的
 // error.code(机器可读语义码:"warming" / "no_sources" / "invalid_ip" / ...),
