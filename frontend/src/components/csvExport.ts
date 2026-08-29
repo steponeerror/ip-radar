@@ -3,7 +3,7 @@ import { threatSummary, classLabel, familyShort } from "./threatDisplay";
 import { translate } from "../i18n/translate";
 
 export const CSV_HEADER =
-  "ip,asn,country,as_name,is_isp,verdict,threat_tags," +
+  "ip,asn,country,as_name,is_isp,verdict,verdict_confidence,threat_tags," +
   "reporter_total,verdict_conflict,corroborated,malware_names,top_reliability," +
   "ip_range,error," +
   "is_proxy,proxy_subtype,is_hosting,is_tor,is_vpn,carrier,service,service_provider," +
@@ -91,7 +91,8 @@ export function buildCsvRow(r: LookupResult): string {
     csvEscape(confVal(r.country.value, r.country.confidence)),
     csvEscape(confVal(r.as_name.value, r.as_name.confidence)),
     String(r.is_isp),
-    csvEscape(confVal(summary.verdict, summary.confidence)),
+    csvEscape(summary.verdict),   // 恶意分数单独一列:机器按列过滤/排序的最常用信号
+    String(summary.confidence),
     csvEscape(threatTags(r)),
     String(depth.reporter_total),
     String(depth.verdict_conflict),
