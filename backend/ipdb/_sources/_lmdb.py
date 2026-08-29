@@ -30,7 +30,6 @@ from pathlib import Path
 from typing import Any, Callable, Iterator
 
 import lmdb
-import netaddr
 import orjson
 
 DEFAULT_MAP_SIZE = 512 * 1024 * 1024   # first-build default; grown on demand
@@ -566,8 +565,8 @@ def covered_ip_count(cidr_strs, *, ip_version: int = 4) -> int:
     total = 0
     for cidr in cidr_strs:
         try:
-            net = netaddr.IPNetwork(cidr)
-        except (netaddr.AddrFormatError, ValueError, TypeError):
+            net = ipaddress.ip_network(cidr, strict=False)
+        except (ValueError, TypeError):
             continue
         if ip_version == 6:
             total += 1                     # v6 space is astronomically large

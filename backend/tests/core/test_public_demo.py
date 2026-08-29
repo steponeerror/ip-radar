@@ -50,12 +50,10 @@ def test_demo_hidden_endpoints_404():
             ("post", "/api/update-db/pause"),
             ("post", "/api/update-db/resume"),
             ("get", "/api/sources"),
-            ("get", "/api/scheduler/status"),
             ("get", "/api/tasks"),
             ("get", "/api/events"),
             ("get", "/api/update/status"),
             ("post", "/api/update"),
-            ("get", "/api/perf/layout"),
         ]
         for method, path in cases:
             res = getattr(c, method)(path)
@@ -105,7 +103,7 @@ def test_demo_loopback_exempt():
 def test_normal_mode_unaffected():
     with _client(None) as c:
         assert c.get("/api/db-status").status_code == 200  # 无 header 也放行
-        assert c.get("/api/perf/layout").status_code == 200  # 隐藏组照常可达
+        assert c.get("/api/tasks").status_code == 200  # 隐藏组照常可达
 
 
 def test_version_reports_demo_flag():
@@ -132,14 +130,14 @@ def test_demo_admin_direct_peer_bypasses_all():
             res = c.get("/api/version")
             assert res.status_code == 200
             assert res.json()["public_demo"] is False   # 前端据此显示完整 UI
-        assert c.get("/api/perf/layout").status_code == 200
+        assert c.get("/api/tasks").status_code == 200
         assert c.get("/api/db-status").status_code == 200
 
 
 def test_demo_admin_trust_xff_first_hop():
     # 显式声明信任反代后,首跳 XFF 命中即旁路(配套网关保证,见 main.py 注释)
     with _client("1", admin="10.9.8.7", trust_xff=True) as c:
-        assert c.get("/api/perf/layout",
+        assert c.get("/api/tasks",
                      headers={"x-forwarded-for": "10.9.8.7, 172.64.1.1"}
                      ).status_code == 200
 
@@ -147,11 +145,11 @@ def test_demo_admin_trust_xff_first_hop():
 def test_demo_admin_xff_ignored_without_trust_flag():
     # 回归:默认不信任任何 XFF(可伪造,实测可穿透 CF→Caddy 链)
     with _client("1", admin="10.9.8.7") as c:
-        assert c.get("/api/perf/layout",
+        assert c.get("/api/tasks",
                      headers={"x-forwarded-for": "10.9.8.7"}).status_code == 404
 
 
 def test_demo_admin_mismatch_still_guarded():
     with _client("1", admin="10.9.8.7", trust_xff=True) as c:
-        assert c.get("/api/perf/layout",
+        assert c.get("/api/tasks",
                      headers={"x-forwarded-for": "1.2.3.4"}).status_code == 404
