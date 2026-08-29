@@ -99,26 +99,34 @@ export interface StreamOutcome {
   total: number;
 }
 
-// 所有非 2xx 抛错统一走这里:错误对象带 HTTP status 与后端的
-// X-IPRadar-Reason(机器可读的 503 归因:"warming" / "no-sources"),
-// 调用方按状态码+reason 分支,不靠文案猜。
-function apiError(detail: string, res: Response, fallback: string, cause?: unknown): Error {
-  const err = new Error(detail || fallback);
+// 所有非 2xx 抛错统一走这里:错误对象带 HTTP status 与后端错误信封的
+// error.code(机器可读语义码:"warming" / "no_sources" / "invalid_ip" / ...),
+// message 取信封 error.message;非 JSON body(代理 502 HTML 等)退回
+// statusText/fallback。调用方按 status+code 分支,不靠文案猜。
+function apiError(
+  res: Response,
+  fallback: string,
+  env: { code?: string; message?: string } | null,
+  cause?: unknown,
+): Error {
+  const err = new Error(env?.message || res.statusText || fallback);
   (err as any).status = res.status;
-  (err as any).reason = res.headers.get("x-ipradar-reason");
+  (err as any).code = env?.code;
+  // 过渡兼容:旧读方读 e.reason(曾是 X-IPRadar-Reason 头);信封化后 code 即唯一真相
+  (err as any).reason = env?.code ?? res.headers.get("x-ipradar-reason");
   if (cause !== undefined) (err as any).cause = cause;
   return err;
 }
 
 async function throwApiError(res: Response, fallback: string): Promise<never> {
-  let detail = res.statusText;
   try {
     const body = await res.json();
-    detail = body.detail || detail;
+    throw apiError(res, fallback, body?.error ?? null);
   } catch (e) {
-    throw apiError(detail, res, fallback, e);
+    if (e instanceof Error && (e as any).status === res.status) throw e;
+    // body 非 JSON:statusText/fallback 兑底
+    throw apiError(res, fallback, null, e);
   }
-  throw apiError(detail, res, fallback);
 }
 
 export async function getDbStatus(): Promise<DbStatus> {

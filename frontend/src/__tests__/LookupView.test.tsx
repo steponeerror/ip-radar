@@ -70,7 +70,7 @@ describe("LookupView 503 self-correction", () => {
     let resolveStatus!: (v: any) => void;
     const pending = new Promise<any>(r => { resolveStatus = r; });
     (getDbStatus as any).mockReturnValue(pending);
-    const err503 = Object.assign(new Error("database is warming up"), { status: 503, reason: "warming" });
+    const err503 = Object.assign(new Error("database is warming up"), { status: 503, code: "warming" });
     (queryIpsStream as any).mockRejectedValue(err503);
 
     const { container } = renderLookup();
@@ -96,7 +96,7 @@ describe("LookupView 503 self-correction", () => {
     // 旧实现只 setWarming(false) 静默丢弃查询;现在原样重试一次成功。
     (queryIpsStream as any).mockClear();
     (getDbStatus as any).mockResolvedValue({ warming_up: false, total_records: 100 });
-    const err503 = Object.assign(new Error("database is warming up"), { status: 503, reason: "warming" });
+    const err503 = Object.assign(new Error("database is warming up"), { status: 503, code: "warming" });
     const mf = <T,>(value: T, confidence = 95) => ({
       value, confidence, algorithm: "cascade", sources: [],
     });
@@ -129,7 +129,7 @@ describe("LookupView 503 self-correction", () => {
   it("gives up with the generic error when the retried attempt 503s again (no ping-pong)", async () => {
     (queryIpsStream as any).mockClear();
     (getDbStatus as any).mockResolvedValue({ warming_up: false, total_records: 100 });
-    const err503 = Object.assign(new Error("database is warming up"), { status: 503, reason: "warming" });
+    const err503 = Object.assign(new Error("database is warming up"), { status: 503, code: "warming" });
     (queryIpsStream as any).mockRejectedValue(err503);   // 每次都 503
 
     const { container } = renderLookup();
@@ -152,7 +152,7 @@ describe("LookupView 503 self-correction", () => {
     (queryIpsStream as any).mockClear();
     (getDbStatus as any).mockResolvedValue({ warming_up: false, total_records: 0 });
     const errNoSources = Object.assign(
-      new Error("no data sources enabled"), { status: 503, reason: "no-sources" });
+      new Error("no data sources enabled"), { status: 503, code: "no_sources" });
     (queryIpsStream as any).mockRejectedValue(errNoSources);
 
     const { container } = renderLookup();
@@ -186,6 +186,28 @@ describe("LookupView 503 self-correction", () => {
     await waitFor(() => expect(screen.getByText("boom")).not.toBeNull());
     expect(container.querySelector("[data-warmup]")).toBeNull();
     expect(screen.getByRole("button", { name: "Query" })).toBeEnabled();
+  });
+
+  it("a 400 invalid_ip from a single query surfaces the backend message (信封迁移)", async () => {
+    // 单查询无前端 IP 校验,非法 IP 直接打到后端:400 invalid_ip 走通用
+    // 错误分支展示后端 message,不触发 warming 自纠。
+    (queryIpsStream as any).mockClear();
+    (getDbStatus as any).mockResolvedValue({ warming_up: false, total_records: 100 });
+    (queryIpsStream as any).mockRejectedValue(
+      Object.assign(new Error("not a valid IP: 999.1.1.1"), { status: 400, code: "invalid_ip" }));
+
+    const { container } = renderLookup();
+    const textarea = await waitFor(() => {
+      const el = container.querySelector("textarea") as HTMLTextAreaElement;
+      expect(el).not.toBeNull();
+      return el;
+    });
+    fireEvent.change(textarea, { target: { value: "999.1.1.1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Query" }));
+
+    await waitFor(() => expect(screen.getByText("not a valid IP: 999.1.1.1")).not.toBeNull());
+    expect(container.querySelector("[data-warmup]")).toBeNull();
+    expect(queryIpsStream).toHaveBeenCalledTimes(1);   // 非瞬时门,不重试
   });
 });
 

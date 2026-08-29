@@ -13,10 +13,10 @@ import { useI18n } from "./i18n";
 
 type InputTab = "text" | "file";
 
-// api 层非 2xx 抛错统一带 e.status + e.reason(见 api.ts throwApiError);
-// 503 且 reason==="warming" 才是 warming 门(no-sources 是另一种 503)。
+// api 层非 2xx 抛错统一带 e.status + e.code(信封语义码,见 api.ts throwApiError);
+// code==="warming" 才是 warming 门(no_sources 是另一种 503)。
 const isWarming503 = (e: unknown) =>
-  (e as any)?.status === 503 && (e as any)?.reason === "warming";
+  (e as any)?.code === "warming";
 
 export default function LookupView() {
   return (
@@ -93,7 +93,7 @@ function LookupViewInner() {
             setError(t("lookup.cancelled"));
             break;
           }
-          if ((e as any)?.status === 503 && (e as any)?.reason === "no-sources") {
+          if ((e as any)?.code === "no_sources") {
             setError(t("lookup.noSources"));
             break;
           }
