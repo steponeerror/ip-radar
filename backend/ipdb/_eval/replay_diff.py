@@ -101,6 +101,14 @@ def check_directional(old: dict, new: dict) -> list[str]:
             if newest_age is not None and newest_age > 180 \
                     and not (45 <= nc["conf"] <= 55):
                 problems.append(f"{ctype}: 陈旧未收敛中立 {nc['conf']}")
+    # spec §9 断言5:旧侧全 clean 的 IP,新实现凭空出现威胁组 → 违规。
+    # 仅限旧侧零组(benign)才断言,避免旧侧已有组的 IP 因 DB 漂移新增组误报
+    # (那是数据变化非评分 bug;丢组同样只进 markdown 报告,不违规)。
+    if not old["classifications"]:
+        for ctype, nc in new["classifications"].items():
+            if nc.get("conf") is not None:
+                problems.append(
+                    f"{ctype}: 旧 clean IP 凭空出现威胁组 conf={nc['conf']}")
     return problems
 
 

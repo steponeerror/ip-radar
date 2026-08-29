@@ -29,8 +29,9 @@ class FieldOut(_Out):
     confidence: Any = None   # 0-100;0 = 无源命中(无证据,非清白)
     algorithm: Optional[str] = None
     sources: list[AttributionOut] = []
-    # logodds 多类别后验 [{value, probability 0-100}],后验降序(spec 2026-08-29 §6)
-    alternatives: list[dict] = []
+    # alternatives([{value, probability 0-100}] 后验降序, spec 2026-08-29 §6)
+    # 不声明字段:_field_to_dict 仅非空才写,声明默认值会给每个标量字段
+    # 恒补空数组(GET 与 NDJSON 流同形红线);真值经 extra=allow 透传。
 
 
 class ThreatSummaryOut(_Out):

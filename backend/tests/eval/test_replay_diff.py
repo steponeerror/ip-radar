@@ -186,3 +186,18 @@ def test_as_name_single_source_direction():
     old = {"scalars": {"as_name": 50}, "classifications": {}}
     new = {"scalars": {"as_name": 85}, "classifications": {}}
     assert check_directional(old, new) == []
+
+
+def test_clean_ip_phantom_group_violation():
+    """spec §9 断言5:旧侧全 clean 的 IP,新实现凭空出现威胁组 → 必须违规。
+    (gate 对存在性变化要有牙:幽灵组不该只出现在 markdown 表里。)"""
+    old = {"scalars": {"country": 60}, "classifications": {}}
+    new = {"scalars": {"country": 60},
+           "classifications": {"c2-server": {"conf": 50}}}
+    assert check_directional(old, new) != []
+
+
+def test_clean_ip_stays_clean_no_violation():
+    old = {"scalars": {"country": 60}, "classifications": {}}
+    new = {"scalars": {"country": 60}, "classifications": {}}
+    assert check_directional(old, new) == []
