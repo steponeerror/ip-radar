@@ -181,16 +181,31 @@ def test_enable_enqueues_rebuild_and_clears_disabled(tmp_path, monkeypatch):
     assert reg.is_enabled("ipinfo_lite") is True
 
 
+def _stub_source(name, enabled=True):
+    """与 _registry._source_info 同构的最小桩(响应契约校验不得因桩缺键炸)。"""
+    return {
+        "name": name, "enabled": enabled, "category": "geo_asn",
+        "archetype": "offline", "fields": ["country"], "reliability": 0.5,
+        "authoritative_for": [], "classification_type": None, "url": None,
+        "stale_days": 7,
+        "health": {"name": name, "loaded": True, "record_count": 1,
+                   "last_updated": None, "is_stale": False, "covered_ips": 0,
+                   "covered_v6_nets": 0, "error": None},
+    }
+
+
 def test_get_sources_route_returns_list(monkeypatch):
     from fastapi.testclient import TestClient
     import main
 
-    monkeypatch.setattr(main, "list_sources", lambda: [{"name": "ipinfo_lite", "enabled": True}])
+    stub = _stub_source("ipinfo_lite")
+    monkeypatch.setattr(main, "list_sources", lambda: [stub])
     client = TestClient(main.app)
     resp = client.get("/api/sources")
     assert resp.status_code == 200
-    # 聚合层给每项追加 eval 字段(无报告 → None,spec §5.2)
-    assert resp.json() == [{"name": "ipinfo_lite", "enabled": True, "eval": None}]
+    # 聚合层给每项追加 eval 字段(无报告 → None,spec §5.2);桩原样透传
+    body = resp.json()
+    assert body == [{**stub, "eval": None}]
 
 
 def test_patch_source_route_calls_set_enabled(monkeypatch):
@@ -200,7 +215,7 @@ def test_patch_source_route_calls_set_enabled(monkeypatch):
     captured = {}
     monkeypatch.setattr(main, "set_source_enabled",
                         lambda name, enabled: captured.update(name=name, enabled=enabled) or
-                        {"name": name, "enabled": enabled})
+                        _stub_source(name, enabled))
     client = TestClient(main.app)
     resp = client.patch("/api/sources/spamhaus", json={"enabled": False})
     assert resp.status_code == 200

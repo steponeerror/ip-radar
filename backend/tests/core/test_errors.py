@@ -60,11 +60,30 @@ class TestErrorEnvelope:
         assert r.json()["error"]["message"]
 
     def test_unknown_source_404_envelope(self):
-        """既有 404(未知源)不改 raise 方式,handler 兜底映射 not_found。"""
+        """未知源 404 走语义码 source_not_found(T11 交付)。"""
         r = self.client.get("/api/eval/nosuchsrc")
         assert r.status_code == 404
-        assert r.json()["error"]["code"] == "not_found"
+        assert r.json()["error"]["code"] == "source_not_found"
         assert "nosuchsrc" in r.json()["error"]["message"]
+
+    def test_invalid_ip_400_envelope(self):
+        """GET /api/lookup/{ip} 畸形 IP → 语义码 invalid_ip(T11 交付)。"""
+        r = self.client.get("/api/lookup/not-an-ip")
+        assert r.status_code == 400
+        assert r.json()["error"]["code"] == "invalid_ip"
+        assert "not-an-ip" in r.json()["error"]["message"]
+
+    def test_reserved_ip_still_200(self):
+        """合法但保留的 IP 仍走 200 + is_reserved body(不被 invalid_ip 误伤)。"""
+        r = self.client.get("/api/lookup/10.0.0.1")
+        assert r.status_code == 200
+        assert r.json()["is_reserved"] is True
+
+    def test_patch_unknown_source_semantic(self):
+        """PATCH 未知源 → source_not_found(原 not_found,T11 语义化)。"""
+        r = self.client.patch("/api/sources/nosuchsrc", json={"enabled": False})
+        assert r.status_code == 404
+        assert r.json()["error"]["code"] == "source_not_found"
 
     def test_lookup_200_unaffected(self):
         """成功路径不带 error 键(信封只管错误)。"""
@@ -113,7 +132,7 @@ class TestErrorEnvelope:
             r = self.client.post("/api/eval/otx/run")
         assert r.status_code == 409
         body = r.json()["error"]
-        assert body["code"] == "conflict"
+        assert body["code"] == "eval_busy"  # T11 语义化(原 conflict)
         assert "otx" in body["message"]
 
     def test_unhandled_500_envelope(self):
