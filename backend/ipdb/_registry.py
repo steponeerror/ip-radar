@@ -5,11 +5,10 @@ import ipaddress
 import logging
 import os
 import threading
-import time
 from collections import defaultdict
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from dotenv import load_dotenv
 from ipdb._source_state import load_disabled, save_disabled
@@ -60,7 +59,7 @@ def _discover_sources(data_dir: Path) -> list:
                     and hasattr(obj, "fields")
                     and obj.__module__ == mod.__name__):
                 try:
-                    instances = _instantiate_source(obj, data_dir)
+                    instances = [obj(data_dir=data_dir)]
                 except Exception as e:
                     logger.warning(
                         f"Failed to instantiate {obj.__name__}: {e}")
@@ -80,13 +79,6 @@ def _discover_sources(data_dir: Path) -> list:
     return sources
 
 
-def _instantiate_source(cls, data_dir: Path) -> list:
-    """Instantiate a source class.
-
-    Each source reads its own configuration from environment variables in
-    __init__.  The registry provides only the data directory.
-    """
-    return [cls(data_dir=data_dir)]
 
 
 _sources = _discover_sources(DATA_DIR)
@@ -213,18 +205,14 @@ def _db_loaded() -> bool:
     return value
 
 
-def _archetype(source) -> str:
-    """All sources are offline file-backed now (enrichers removed, spec D1)."""
-    return "offline"
-
-
 def _source_info(source) -> dict:
     health = source.health()
     return {
         "name": source.name,
         "enabled": is_enabled(source.name),
         "category": _category(source.name),
-        "archetype": _archetype(source),
+        # 全源 offline(enricher 已删, spec D1);前端 api.ts 类型为字面量 "offline"
+        "archetype": "offline",
         "fields": list(getattr(source, "fields", ())),
         "reliability": getattr(source, "reliability", 0.5),
         "authoritative_for": list(getattr(source, "authoritative_for", [])),
@@ -248,7 +236,7 @@ def _find_source(name: str):
 
 
 # --- UpdateManager (Task 7) ---
-# Placed after _find_source / _update_lock_for / _archetype / _enabled_sources
+# Placed after _find_source / _update_lock_for / _enabled_sources
 # so direct references resolve at import time. _tasks.py imports only from
 # _sources._download (not _registry), so no circular import.
 from ._tasks import UpdateManager
@@ -263,7 +251,6 @@ _concurrency = int(os.environ.get("IP_RADAR_UPDATE_CONCURRENCY", "3"))
 manager = UpdateManager(
     resolve_source=_find_source,
     lock_for=_update_lock_for,
-    archetype_of=_archetype,
     concurrency=max(1, _concurrency),
     valve=_valve,
 )
@@ -275,7 +262,7 @@ def stale_source_names() -> list[str]:
     Used by lifespan at startup to seed manager.enqueue_stale().
     """
     return [s.name for s in _enabled_sources()
-            if _archetype(s) == "offline" and s.health().is_stale]
+            if s.health().is_stale]
 
 
 def sources_needing_rebuild() -> list[str]:
@@ -288,7 +275,7 @@ def sources_needing_rebuild() -> list[str]:
     yet — or a v6-aware-code rebuild that never ran on this data dir — is
     flagged here."""
     return [s.name for s in _enabled_sources()
-            if _archetype(s) == "offline" and _needs_rebuild_of(s)]
+            if _needs_rebuild_of(s)]
 
 
 def enabled_offline_sources() -> list:
@@ -298,7 +285,7 @@ def enabled_offline_sources() -> list:
     _offline_enabled_names apply, but returns the Source objects so the
     scheduler can read _path/_mmdb_path and health() directly.
     """
-    return [s for s in _enabled_sources() if _archetype(s) == "offline"]
+    return [s for s in _enabled_sources()]
 
 
 def _needs_rebuild_of(source) -> bool:
@@ -541,18 +528,12 @@ def get_status() -> dict:
     healths = [s.health() for s in enabled]
     mtimes = [h.last_updated for h in healths if h.last_updated]
     last_updated = max(mtimes) if mtimes else "N/A"
-    by_name = {s.name: s for s in enabled}
-    lite_count = by_name["ipinfo_lite"].health().record_count if "ipinfo_lite" in by_name else 0
-    tsv_count = by_name["iptoasn"].health().record_count if "iptoasn" in by_name else 0
-    cn_count = by_name["cn_isp"].health().record_count if "cn_isp" in by_name else 0
     total_count = sum(h.record_count for h in healths)
     scalar_total = sum(h.record_count for h in healths if _category(h.name) == "geo_asn")
     threat_total = sum(h.record_count for h in healths if _category(h.name) == "threat")
     asset_total = sum(h.record_count for h in healths if _category(h.name) == "asset")
     return {
         "last_updated": last_updated,
-        "record_count": lite_count + tsv_count,
-        "cn_record_count": cn_count,
         "total_records": total_count,
         "scalar_records": scalar_total,
         "threat_records": threat_total,
@@ -560,9 +541,5 @@ def get_status() -> dict:
         "is_stale": any(h.is_stale for h in healths),
         "covered_v6_nets": sum(h.covered_v6_nets for h in healths),
     }
-
-
-def is_db_stale() -> bool:
-    return any(s.health().is_stale for s in _enabled_sources())
 
 

@@ -160,8 +160,6 @@ class UpdateDbOut(_Out):
 
 class DbStatusOut(_Out):
     last_updated: str
-    record_count: int
-    cn_record_count: int
     total_records: int
     scalar_records: int
     threat_records: int
@@ -169,24 +167,6 @@ class DbStatusOut(_Out):
     is_stale: bool
     covered_v6_nets: int
     warming_up: bool
-
-
-class SchedulerSourceOut(_Out):
-    name: str
-    stale: bool
-    last_task_state: Optional[str] = None
-    fail_count: int = 0
-    last_attempt_at: Optional[str] = None
-    next_attempt_at: Optional[str] = None
-    next_refresh_at: Optional[str] = None
-
-
-class SchedulerStatusOut(_Out):
-    enabled: bool
-    interval_sec: int
-    last_scan_at: Optional[str] = None
-    next_scan_at: Optional[str] = None
-    sources: list[SchedulerSourceOut]
 
 
 # ── eval 成绩单 ──
@@ -246,15 +226,6 @@ class UpdateStateOut(_Out):
 
 class UpdateAcceptedOut(_Out):
     status: str
-
-
-class PerfLayoutOut(_Out):
-    host: dict
-    current: dict
-    predicted: dict
-    tunables: dict
-    warnings: list
-    memory_valve: dict
 
 
 # ── 错误信封(所有 4xx/5xx 的统一 schema)──

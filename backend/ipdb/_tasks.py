@@ -51,12 +51,11 @@ class Batch:
 
 class UpdateManager:
     def __init__(self, resolve_source: Callable, lock_for: Callable,
-                 concurrency: int = 3, archetype_of: Callable = lambda s: "offline",
+                 concurrency: int = 3,
                  queue_cap: int = 256, valve=None):
         self._resolve = resolve_source
         self._lock_for = lock_for
         self._concurrency = concurrency
-        self._archetype_of = archetype_of
         self._queue_cap = queue_cap
         self._valve = valve
 
@@ -110,8 +109,6 @@ class UpdateManager:
         source = self._resolve(name)
         if source is None:
             raise ValueError(f"unknown source: {name}")
-        if self._archetype_of(source) != "offline":
-            raise ValueError(f"online source not updatable: {name}")
         with self._lock:
             existing = self._by_source.get(name)
             if existing and self._tasks[existing].state in ("queued", "downloading", "loading", "throttled"):
@@ -181,8 +178,7 @@ class UpdateManager:
             self._batches[batch.id] = batch
             self._active_batch = batch.id
             names = [n for n in source_names
-                     if self._resolve(n) is not None
-                     and self._archetype_of(self._resolve(n)) == "offline"]
+                     if self._resolve(n) is not None]
             batch.total = len(names)
             # Hold the populate guard across the enqueue loop so a fast-first
             # source finishing mid-loop cannot null _active_batch (via
@@ -232,7 +228,7 @@ class UpdateManager:
             for t in self._tasks.values():
                 if t.state in ("queued", "downloading", "loading", "throttled"):
                     src = self._resolve(t.source_name)
-                    if src is not None and self._archetype_of(src) == "offline" \
+                    if src is not None \
                             and (source_filter is None or source_filter(t.source_name)):
                         return True
             return False
