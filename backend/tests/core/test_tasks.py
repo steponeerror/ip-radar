@@ -121,30 +121,6 @@ def test_per_host_serial():
     assert probe["peak"] == 1   # at least one ran (sanity)
 
 
-def test_enqueue_batch_offline_only_tracks_done_total():
-    srcs = [FakeSource("a", host="h1"), FakeSource("b", host="h2"), FakeSource("x")]
-    mgr, _ = _make_manager(srcs)
-    mgr._archetype_of = lambda s: "online" if s.name == "x" else "offline"
-    bid = mgr.enqueue_batch(["a", "b", "x"])  # "x" is online → excluded
-    _wait_states(mgr, lambda s: all(t["state"] in ("done", "failed", "cancelled") for t in s["tasks"]), timeout=10)
-    b = mgr._batches[bid]
-    assert b.state == "done"
-    assert b.total == 2          # only a + b counted
-    assert b.done == 2
-    # terminal batch is no longer reported as active by snapshot
-    assert mgr.snapshot()["batch"] is None
-
-
-def test_online_sources_excluded():
-    mgr, _ = _make_manager([FakeSource("a"), FakeSource("x")])  # "x" exists now
-    mgr._archetype_of = lambda s: "online" if s.name == "x" else "offline"
-    try:
-        mgr.enqueue_one("x")
-        assert False, "should have rejected online source"
-    except ValueError as e:
-        assert "online source not updatable" in str(e), f"wrong error: {e}"
-
-
 def test_pause_stops_dispatch_then_resume():
     blocked = threading.Event()
     src = FakeSource("a", host="h")

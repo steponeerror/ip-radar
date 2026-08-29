@@ -21,7 +21,7 @@ class ProxyScrapeSource(CsvSource):
     classification_type = "proxy"
     verdict = "suspicious"
     stale_days = 1
-    reliability = 0.45
+    reliability = 0.50                   # 收源红线 r≥0.5(spec §3.4);校准阶段重估
     authoritative_for = ()               # dict 真相:is_proxy 权威属 ip2proxy
     skip_lines = 1  # header row
 

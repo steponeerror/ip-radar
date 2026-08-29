@@ -161,12 +161,12 @@ def test_batch_flows_through_manager_and_snapshot(monkeypatch):
          ``_emit → call_soon_threadsafe → subscriber queue`` path.
     """
     import main
-    from ipdb._registry import _sources, _archetype
+    from ipdb._registry import _sources
 
     # Stub every offline source: download = no-op, rebuild = return 0.
     # Instance-attribute assignment shadows the class method; the manager calls
     # source.download(token=...) / source.rebuild() without self.
-    offline = [s for s in _sources if _archetype(s) == "offline"]
+    offline = list(_sources)
     assert offline, "no offline sources discovered — registry misconfigured"
     for s in offline:
         monkeypatch.setattr(s, "download", lambda token=None: None)

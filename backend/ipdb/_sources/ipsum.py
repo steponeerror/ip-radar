@@ -12,6 +12,7 @@ class IPsumSource(CsvSource):
     verdict = "malicious"
     stale_days = 1
     reliability = 0.55
+    derived = True                        # 聚合器:谱系去重用(spec 2026-08-29 §3.3)
     authoritative_for = ()
     delimiter = "\t"          # IPsum is tab-separated: "<ip>\t<count>"
     _min_count: int = 3

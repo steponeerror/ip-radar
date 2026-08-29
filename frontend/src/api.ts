@@ -16,8 +16,9 @@ export interface AssetStatement {
 export interface MergedField<T = any> {
   value: T;
   confidence: number;           // 0-100 integer
-  algorithm: string;            // "cascade" | "voting" | "pcr6" | "authority" | "specificity"
+  algorithm: string;            // "cascade" | "voting" | "logodds" | "pcr6" | "authority" | "specificity"
   sources: SourceAttribution[];
+  alternatives?: { value: any; probability: number }[];   // logodds 多类别后验(spec 2026-08-29 §6)
 }
 
 export interface ClassificationDetail {
@@ -74,8 +75,6 @@ export interface LookupResult {
 
 export interface DbStatus {
   last_updated: string;
-  record_count: number;
-  cn_record_count: number;
   total_records: number;
   scalar_records: number;
   threat_records: number;
@@ -318,10 +317,6 @@ export async function getSources(): Promise<SourceInfo[]> {
   return jsonOrThrow(await fetch("/api/sources"), "Failed to load sources");
 }
 
-export async function getEvalOverview(): Promise<{ current_job: unknown; verdicts: unknown[] }> {
-  return jsonOrThrow(await fetch("/api/eval"), "Failed to load eval");
-}
-
 export async function setSourceEnabled(name: string, enabled: boolean): Promise<SourceInfo> {
   const res = await fetch(`/api/sources/${encodeURIComponent(name)}`, {
     method: "PATCH",
@@ -329,11 +324,6 @@ export async function setSourceEnabled(name: string, enabled: boolean): Promise<
     body: JSON.stringify({ enabled }),
   });
   return jsonOrThrow(res, "Failed to update source");
-}
-
-export async function updateSource(name: string): Promise<SourceInfo> {
-  const res = await fetch(`/api/sources/${encodeURIComponent(name)}/update`, { method: "POST" });
-  return jsonOrThrow(res, "Failed to refresh source");
 }
 
 // --- Task client: enqueue / control / subscribe (SSE) ---

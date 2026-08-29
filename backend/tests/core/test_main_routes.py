@@ -208,18 +208,6 @@ class TestIPv6Routes:
         assert "reserved" in resp.json()["error"]["message"].lower()
 
 
-def test_perf_layout_route():
-    from fastapi.testclient import TestClient
-    import main
-    with TestClient(main.app) as client:
-        r = client.get("/api/perf/layout")
-    assert r.status_code == 200
-    body = r.json()
-    assert set(body) >= {"host", "current", "predicted", "tunables", "warnings"}
-    assert "cores" in body["host"] and "ram_avail_mb" in body["host"]
-    assert set(body["current"]) >= {"n_workers", "m_pool", "source"}
-
-
 def test_lookup_single_runs_via_to_thread(monkeypatch):
     """to_thread 生效证明:lookup 调用确实经过 asyncio.to_thread 分发。
     (不能靠线程名判定:TestClient 的 portal 线程本身就非 pytest 主线程。)"""

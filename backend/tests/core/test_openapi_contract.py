@@ -11,7 +11,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 STREAM = {"/api/query/stream", "/api/upload/stream", "/api/events"}
-BUSINESS_ROUTES = 20
+BUSINESS_ROUTES = 18
 
 
 class TestOpenAPIContract:
@@ -36,7 +36,7 @@ class TestOpenAPIContract:
                         f"{method} {path} 成功响应无 schema"
 
     def test_paths_count_matches_routes(self):
-        """20 业务 + 3 流式;多/少挂一个立刻红(防漂移)。"""
+        """18 业务 + 3 流式;多/少挂一个立刻红(防漂移)。"""
         assert len(self.spec["paths"]) == BUSINESS_ROUTES + len(STREAM)
 
     def test_error_envelope_registered(self):
@@ -75,3 +75,19 @@ class TestOpenAPIContract:
                 assert "$ref" in s or "properties" in s or \
                     "additionalProperties" in s, \
                     f"{method} {path} 无具体响应模型"
+
+
+class TestFieldOutShape:
+    def test_alternatives_absent_when_not_provided(self):
+        """to_dict 仅在非空时写 alternatives;FieldOut 不得用默认 [] 把它
+        补进每个响应(GET 与 NDJSON 流同形红线)。extra=allow 透传真值。"""
+        from ipdb._api_models import FieldOut
+        out = FieldOut(value="CN", confidence=99, algorithm="logodds")
+        assert "alternatives" not in out.model_dump()
+
+    def test_alternatives_passthrough_when_present(self):
+        from ipdb._api_models import FieldOut
+        out = FieldOut(value="CN", confidence=99, algorithm="logodds",
+                       alternatives=[{"value": "US", "probability": 1.2}])
+        assert out.model_dump()["alternatives"] == [
+            {"value": "US", "probability": 1.2}]

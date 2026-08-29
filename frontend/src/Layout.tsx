@@ -1,5 +1,4 @@
-import { useEffect, useRef, useState } from "react";
-import { NavLink, Outlet } from "react-router-dom";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { DbStatusBar } from "./components/DbStatusBar";
 import { LocaleSwitcher } from "./components/LocaleSwitcher";
 import { Modal } from "./components/Modal";
@@ -31,7 +30,15 @@ function useWarmupGate(): boolean {
   return open;
 }
 
-export default function Layout() {
+export default function Layout({
+  page,
+  onNavigate,
+  children,
+}: {
+  page: "lookup" | "sources";
+  onNavigate: (p: "lookup" | "sources") => void;
+  children: ReactNode;
+}) {
   const { t } = useI18n();
   const warmGate = useWarmupGate();
   const [selfUpdateEnabled, setSelfUpdateEnabled] = useState(false);
@@ -74,9 +81,9 @@ export default function Layout() {
     }
   };
 
-  const linkClass = ({ isActive }: { isActive: boolean }) =>
+  const navBtn = (p: "lookup" | "sources") =>
     `rounded-md px-4 py-2 text-sm font-medium transition-colors ${
-      isActive ? "bg-zinc-800 text-emerald-400" : "text-zinc-500 hover:text-zinc-300"
+      page === p ? "bg-zinc-800 text-emerald-400" : "text-zinc-500 hover:text-zinc-300"
     }`;
 
   return (
@@ -95,8 +102,8 @@ export default function Layout() {
             </div>
             <nav className="mt-4">
               <div className="flex gap-1 rounded-lg bg-zinc-900 p-1 sm:inline-flex">
-                <NavLink to="/" end className={linkClass}>{t("layout.nav.lookup")}</NavLink>
-                <NavLink to="/sources" className={linkClass}>{t("layout.nav.sources")}</NavLink>
+                <button type="button" className={navBtn("lookup")} onClick={() => onNavigate("lookup")}>{t("layout.nav.lookup")}</button>
+                <button type="button" className={navBtn("sources")} onClick={() => onNavigate("sources")}>{t("layout.nav.sources")}</button>
               </div>
             </nav>
           </header>
@@ -106,7 +113,7 @@ export default function Layout() {
               onStartUpdate={openConfirm}
             />
           )}
-          <Outlet />
+          {children}
           <footer className="mt-10 flex items-center justify-center gap-2 text-xs text-zinc-600">
             <span>© 2026 steponeerror</span>
             <a

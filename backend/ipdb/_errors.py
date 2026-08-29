@@ -2,9 +2,9 @@
 
 所有 HTTP 错误响应统一为 {"error":{code,message,detail?,retry_after?}};
 status code 全部透传不变。两层码:
-- 语义码 ErrorCode(9 值):路由显式 raise ApiError 时使用,精确语义;
-- 通用兜底码:普通 HTTPException 按状态映射(not_found/conflict/...),
-  require_ready 的 X-IPRadar-Reason 头映射 warming/no_sources。
+- 语义码 ErrorCode(raise 用):仅收 ApiError 显式 raise 的码;
+- 通用兜底码:普通 HTTPException / require_ready 头按字符串映射
+  (warming/no_sources/bad_request 等),不经枚举直入 envelope。
 """
 from enum import Enum
 
@@ -13,26 +13,16 @@ RETRY_AFTER_WARMING = 30
 
 
 class ErrorCode(str, Enum):
-    warming = "warming"
-    no_sources = "no_sources"
-    not_ready = "not_ready"
     invalid_ip = "invalid_ip"
     source_not_found = "source_not_found"
     eval_busy = "eval_busy"
-    task_not_found = "task_not_found"
-    bad_request = "bad_request"
     internal = "internal"
 
 
 # 语义码 → HTTP 状态(ApiError.status 的唯一真相)
 _STATUS: dict = {
-    ErrorCode.warming: 503,
-    ErrorCode.no_sources: 503,
-    ErrorCode.not_ready: 503,
     ErrorCode.invalid_ip: 400,
-    ErrorCode.bad_request: 400,
     ErrorCode.source_not_found: 404,
-    ErrorCode.task_not_found: 404,
     ErrorCode.eval_busy: 409,
     ErrorCode.internal: 500,
 }
@@ -52,12 +42,8 @@ class ApiError(Exception):
         return _STATUS[self.code]
 
     def envelope(self) -> dict:
-        err = {"code": self.code.value, "message": self.message}
-        if self.detail is not None:
-            err["detail"] = self.detail
-        if self.retry_after is not None:
-            err["retry_after"] = self.retry_after
-        return {"error": err}
+        return envelope(self.code.value, self.message,
+                        self.detail, self.retry_after)
 
 
 def envelope(code: str, message: str, detail=None, retry_after=None) -> dict:

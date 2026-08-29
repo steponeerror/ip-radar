@@ -87,7 +87,6 @@ def test_get_status_counts_only_enabled(monkeypatch):
     # ipinfo_lite is geo_asn (scalar); iptoasn disabled so excluded everywhere
     assert status["total_records"] == 100
     assert status["scalar_records"] == 100
-    assert status["record_count"] == 100  # lite + tsv, tsv disabled
 
 
 def test_list_sources_includes_disabled_with_flag(tmp_path, monkeypatch):
@@ -235,14 +234,3 @@ def test_patch_source_unknown_returns_404(monkeypatch):
     assert resp.status_code == 404
 
 
-def test_is_db_stale_ignores_disabled_sources(monkeypatch):
-    from ipdb._types import SourceHealth
-    # A stale source that is DISABLED must NOT make is_db_stale() true.
-    stale_disabled = type("S", (), {
-        "name": "spamhaus",
-        "health": lambda self: SourceHealth(name="spamhaus", loaded=True, record_count=0,
-                                             last_updated="2026-06-01T00:00:00Z", is_stale=True),
-    })()
-    monkeypatch.setattr(reg, "_sources", [stale_disabled])
-    monkeypatch.setattr(reg, "_disabled", {"spamhaus"})
-    assert reg.is_db_stale() is False

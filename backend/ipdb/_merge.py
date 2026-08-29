@@ -1,6 +1,6 @@
-"""Merge strategies, PCR6 evidence fusion, source attribution, and enrichment."""
+"""Merge strategies, evidence fusion, and source attribution
+(log-odds 模型, spec 2026-08-29;纯本地情报源,无线上 enricher)。"""
 
-from datetime import datetime, timezone
 from typing import Any
 
 import ipaddress
@@ -15,9 +15,10 @@ def _parse_net(cidr: str) -> ipaddress.IPv4Network | ipaddress.IPv6Network:
     return ipaddress.ip_network(cidr, strict=False)
 
 from ._types import (
-    SourceAttribution, MergedField, LookupResult,
+    SourceAttribution, MergedField,
     EvidenceObservation, ClassificationAssessment,
 )
+from . import _logodds as _lo
 
 
 def to_observation(
@@ -78,27 +79,6 @@ def _to_attributions(
     return attributions
 
 
-# ── Confidence helpers ──
-
-def _weighted_confidence(
-    true_sources: list[SourceAttribution],
-    all_sources: list[SourceAttribution],
-) -> int:
-    """Authoritative veto confidence = Σ reliability of true-auth sources / Σ all reliability."""
-    tw = sum(s.reliability for s in true_sources)
-    total = sum(s.reliability for s in all_sources if s.value is not None)
-    if total == 0:
-        return 0
-    return min(100, round(tw / total * 100))
-
-
-def _apply_coverage_penalty(confidence: int, participating: int, expected: int) -> int:
-    """Reduce confidence when too few sources participate (< 50% of expected)."""
-    if expected > 0 and participating / expected < 0.5:
-        return round(confidence * 0.7)
-    return confidence
-
-
 # ── Scalar merge strategies (return MergedField) ──
 
 class FactualVoting:
@@ -141,6 +121,37 @@ class FactualVoting:
         return MergedField(best_val, conf, "voting", attributions)
 
 
+class LogOddsVoting:
+    """log-odds 多类别融合(spec 2026-08-29 §3.2/§4)。
+
+    每候选值 Σ logit(r)(标量字段无 first_seen → 不衰减),背景质量归一;
+    MAP 值 + conf = P(MAP);alternatives 输出后验降序(0-100)。"""
+
+    def __init__(self, field="country_code", default=None):
+        self.field = field
+        self.default = default
+
+    def merge(self, source_values: dict[str, Any], context: dict) -> MergedField:
+        attributions = _to_attributions(source_values, self.field)
+        valid = [a for a in attributions
+                 if a.value is not None and a.value != "" and a.value != "N/A" and a.value != 0]
+        if not valid:
+            return MergedField(self.default, 0, "logodds", attributions)
+        deduped = _lo.dedup_lineage(
+            [(a.source, _lo.logit(a.reliability)) for a in valid])
+        keep = {s for s, _ in deduped}
+        s_by_value: dict[Any, float] = {}
+        for a in valid:
+            if a.source in keep:
+                s_by_value[a.value] = s_by_value.get(a.value, 0.0) + _lo.logit(a.reliability)
+        probs = _lo.multicategory_posterior(s_by_value)
+        ranked = sorted(probs.items(), key=lambda kv: (-kv[1], str(kv[0])))
+        best_val, best_p = ranked[0]
+        alts = [{"value": v, "probability": round(p * 100, 1)} for v, p in ranked]
+        return MergedField(best_val, round(best_p * 100), "logodds",
+                           attributions, alts)
+
+
 class NamingAuthority:
     """Authority model for naming fields (as_name).
 
@@ -157,7 +168,9 @@ class NamingAuthority:
         valid = [a for a in attributions if a.value and a.value != "N/A"]
         if not valid:
             return MergedField("N/A", 0, "authority", attributions)
-        return MergedField(valid[0].value, 50, "authority", attributions)
+        best = sorted(valid, key=lambda a: (-a.reliability, a.source))[0]
+        return MergedField(best.value, round(best.reliability * 100),
+                           "authority", attributions)
 
 
 class RangeSpecificity:
@@ -207,27 +220,6 @@ class RangeSpecificity:
         return MergedField(most_specific[1].value, 85, "specificity", attributions)
 
 
-def _decay_confidence(base: int, first_seen) -> int:
-    """Linear time decay on evidence age. None first_seen => no decay.
-
-    <=90d: unchanged. 90-365d: linear down to 50% of base. >365d: 20% floor.
-    """
-    if not first_seen:
-        return base
-    try:
-        ts = datetime.fromisoformat(str(first_seen).replace("Z", "+00:00"))
-    except ValueError:
-        return base
-    if ts.tzinfo is None:
-        ts = ts.replace(tzinfo=timezone.utc)
-    age_days = (datetime.now(timezone.utc) - ts).days
-    if age_days <= 90:
-        return base
-    if age_days <= 365:
-        return round(base * (1 - 0.5 * (age_days - 90) / 275))
-    return round(base * 0.20)
-
-
 def _assess_classification(group: list) -> ClassificationAssessment:
     """Assess one classification.type group of observations."""
     obs = group
@@ -244,27 +236,22 @@ def _assess_classification(group: list) -> ClassificationAssessment:
         verdict = sorted(distinct_verdicts)[0]
     verdict_conflict = len(distinct_verdicts) > 1
 
-    n = len(obs)
-    # Corroboration = ≥2 INDEPENDENT sources, not ≥2 observations. A single
-    # source can emit multiple observations (e.g. threatfox lists one IP under
-    # two malware families); those share a source and must not count as
-    # independent corroboration.
+    # log-odds 后验(spec 2026-08-29 §3.1/§3.2):每源独立按自己的
+    # first_seen 衰减;同源多观测不复合(重复广播只计最强单条断言,
+    # §3.3 宁少算不多算);谱系去重后求和;σ → conf。
+    by_source: dict[str, float] = {}
+    for o in obs:
+        c = _lo.coefficient(o.reliability, o.first_seen, ctype)
+        if o.source not in by_source or c > by_source[o.source]:
+            by_source[o.source] = c
+    deduped = _lo.dedup_lineage(list(by_source.items()))
+    confidence = _lo.assertion_confidence([c for _, c in deduped])
+    # Corroboration = ≥2 INDEPENDENT (lineage-deduped) sources, not ≥2
+    # observations. A single source can emit multiple observations (e.g.
+    # threatfox lists one IP under two malware families); those share a source
+    # and must not count as independent corroboration.
     distinct_sources = {o.source for o in obs}
-    corroborated = len(distinct_sources) >= 2
-
-    # Weighted base confidence from reliabilities (mean reliability * 100).
-    rels = [o.reliability for o in obs]
-    base = round(100 * sum(rels) / len(rels)) if rels else 0
-    base = min(100, max(0, base))
-    if corroborated:
-        base = max(base, 80)                       # Admiralty "Confirmed" band floor
-
-    # Decay by the NEWEST first_seen in the group (max — ISO date strings sort
-    # chronologically, so min would be the OLDEST and over-decay). Anchoring on
-    # the freshest evidence keeps corroborated confidence high.
-    first_seens = [o.first_seen for o in obs if o.first_seen]
-    newest = max(first_seens) if first_seens else None
-    confidence = _decay_confidence(base, newest)
+    corroborated = len({s for s, _ in deduped}) >= 2
 
     # Dedupe sources by name: one source emitting multiple observations in a
     # group yields a single attribution (reliability is source-level, identical
@@ -306,7 +293,7 @@ def _assess_classification(group: list) -> ClassificationAssessment:
 
     return ClassificationAssessment(
         type=ctype, verdict=verdict, detected=True, confidence=confidence,
-        algorithm="corroboration", sources=sources, corroborated=corroborated,
+        algorithm="logodds", sources=sources, corroborated=corroborated,
         reporter_total=reporter_total, verdict_conflict=verdict_conflict,
         malware_names=malware_names, details=details,
     )

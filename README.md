@@ -124,7 +124,7 @@ cd frontend && npm run dev
 
 - **开箱即用，25/29 源不需要密钥** —— 首次启动自动下载构建，数百万条记录入库（确切数量以 `/api/db-status` 实测为准）；剩下 4 个 🔑 源想开的话，密钥填法见[快速开始](#快速开始--quick-start)。
 - **冷启动不挡路** —— 容器数秒就能打开，免密钥源的下载/构建进度在页面顶部横幅实时滚动，建完查询自动解锁——绝不拿着半份数据先给结论。
-- **一份裁决，不是一堆列表** —— 单 IP 一句话结论，逐源证据摆给你看，0-100 置信度（源可靠性加权、交叉佐证、随时间衰减）。
+- **一份裁决，不是一堆列表** —— 单 IP 一句话结论，逐源证据摆给你看，0-100 置信度（log-odds 贝叶斯融合：源可靠性转对数几率系数、威胁断言按 60 天半衰期衰减、交叉佐证；0 = 无证据，而非清白；标量字段不衰减，city/ip_range 保留原语义）。
 - **地理 · 城市 · ASN** —— GeoLite2 给城市，iptoasn 给自治域，CN ISP 归属（含港澳台）也认得。
 - **代理 · VPN · Tor · CDN，一眼认出来** —— 开放代理、VPN 网段、Tor 出口、三大 CDN 边缘，都标得清清楚楚。
 - **IPv6 也能查** —— 裸 v6 / 小段 v6 CIDR 直接查，地理·城市·ASN·VPN·CDN·封禁段对 v6 生效；威胁证据约 10 个源覆盖 v6（ipinfo/GeoLite/iptoasn、spamhaus DROPv6、x4bnet、Cloudflare/Fastly/AWS 边缘等），其余源上游本就无 v6 数据，如实显示无记录。
@@ -133,7 +133,7 @@ cd frontend && npm run dev
 
 > - **25 of 29 feeds need zero API keys** — first start downloads and builds them all into millions of records (live count: `/api/db-status`); to light up the other 4 🔑 sources, see [Quick Start](#快速开始--quick-start).
 > - **Cold start doesn't block** — the container opens within seconds, a top banner tracks the keyless feeds' download/build progress live, and queries unlock themselves once the build settles — never a verdict on half a dataset.
-> - **A verdict, not a pile of lists** — one line of conclusion per IP, per-source evidence on the table, 0-100 confidence (reliability-weighted, corroborated, time-decayed).
+> - **A verdict, not a pile of lists** — one line of conclusion per IP, per-source evidence on the table, 0-100 confidence (log-odds Bayesian fusion: reliability → logit coefficients, 60-day half-life decay on threat assertions, corroboration; 0 = no evidence, not innocence; scalar fields don't decay; city/ip_range keep legacy semantics).
 > - **Geo · City · ASN** — GeoLite2 for the city, iptoasn for the ASN, plus CN ISP classification incl. HK/MO/TW.
 > - **Proxy · VPN · Tor · CDN, spotted at a glance** — open proxies, VPN ranges, Tor exits, and the big three CDNs' edges, all labeled.
 > - **IPv6 lookups too** — bare v6 and small v6 CIDRs resolve with geo · city · ASN · VPN · CDN · DROP ranges; ~10 of the feeds carry v6 data (ipinfo/GeoLite/iptoasn, spamhaus DROPv6, x4bnet, Cloudflare/Fastly/AWS edges), the rest have no v6 upstream — shown honestly as no-records.
@@ -146,7 +146,7 @@ cd frontend && npm run dev
 flowchart TD
     A["29 feeds<br/>(25 keyless auto + 4 keyed)"] --> B["Cold-start download /<br/>30-min refresh scheduler"]
     B --> C["Per-source parsers<br/>(classification pipeline)"]
-    C --> D["Fusion<br/>(reliability weighting · corroboration · decay)"]
+    C --> D["Fusion<br/>(log-odds · corroboration · decay)"]
     D --> E["LMDB store<br/>(named volume · mmap)"]
     E --> F["FastAPI"]
     F --> G["React UI"]

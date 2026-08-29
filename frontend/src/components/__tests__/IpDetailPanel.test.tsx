@@ -89,6 +89,29 @@ describe("IpDetailPanel", () => {
     expect(screen.getByText("US (1)")).toBeInTheDocument();
   });
 
+  it("renders logodds alternatives posteriors next to each group", () => {
+    const logodds: LookupResult = {
+      ...r,
+      country: {
+        value: "HK", confidence: 46, algorithm: "logodds",
+        sources: [
+          { source: "s1", value: "HK", reliability: 0.66, authoritative: false },
+          { source: "s2", value: "HK", reliability: 0.66, authoritative: false },
+          { source: "s3", value: "US", reliability: 0.66, authoritative: false },
+          { source: "s4", value: "US", reliability: 0.66, authoritative: false },
+        ],
+        alternatives: [
+          { value: "HK", probability: 45.8 },
+          { value: "US", probability: 45.8 },
+        ],
+      },
+    };
+    renderWithI18n(<IpDetailPanel r={logodds} />);
+    expect(screen.getByText("HK (2)")).toBeInTheDocument();
+    expect(screen.getByText("US (2)")).toBeInTheDocument();
+    expect(screen.getAllByText("45.8%").length).toBe(2);
+  });
+
   it("does not group when single valid source", () => {
     renderWithI18n(<IpDetailPanel r={r} />);
     expect(screen.queryByText(/\(\d\)/)).toBeNull();

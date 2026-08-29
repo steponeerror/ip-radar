@@ -41,6 +41,8 @@ function FieldDetail<T>({
   if (entries.length === 0) return null;
   const groups = answerGroups(field);
   const showGroups = grouped && groups.length >= 2;
+  const prob = (g: { value: any }) =>
+    field.alternatives?.find((a) => a.value === g.value)?.probability;
   return (
     <div>
       <div className="flex items-center gap-2 mb-1">
@@ -53,6 +55,9 @@ function FieldDetail<T>({
                 <span className={g.value === field.value ? "text-zinc-500" : "text-zinc-600"}>
                   {format(g.value)} ({g.count})
                 </span>
+                {prob(g) !== undefined && (
+                  <span className="text-[10px] text-zinc-500" title="posterior">{prob(g)}%</span>
+                )}
               </span>
             ))}
           </span>

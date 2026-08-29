@@ -42,15 +42,13 @@ from ipdb._eval_manager import EvalManager, EvalBusyError
 from ipdb._eval_reader import read_overview, read_source
 from ipdb._api_models import (
     AckOut, BatchOut, DbStatusOut, ErrorEnvelope, EvalDetailOut,
-    EvalJobAcceptedOut, EvalOverviewOut, LookupResultOut, PerfLayoutOut,
-    SchedulerStatusOut, SourceInfoOut, TaskAcceptedOut, TasksSnapshotOut,
+    EvalJobAcceptedOut, EvalOverviewOut, LookupResultOut,
+    SourceInfoOut, TaskAcceptedOut, TasksSnapshotOut,
     UpdateAcceptedOut, UpdateDbOut, UpdateStateOut, VersionOut,
 )
 from ipdb._errors import (
     ApiError, ErrorCode, RETRY_AFTER_WARMING, envelope,
 )
-
-import os
 from pathlib import Path
 
 logging.basicConfig(level=logging.INFO)
@@ -457,10 +455,9 @@ def _is_cold_start() -> bool:
     A source missing the ``_path`` attribute entirely is treated as having no
     data (defensive; real offline sources always set it in IpListSource.__init__).
     """
-    from ipdb._registry import _enabled_sources, _archetype
-    offline = [s for s in _enabled_sources() if _archetype(s) == "offline"]
+    from ipdb._registry import _enabled_sources
     return not any(getattr(s, "_path", None) and Path(s._path).exists()
-                   for s in offline)
+                   for s in _enabled_sources())
 
 
 def _cold_start_background():
@@ -511,11 +508,10 @@ async def lifespan(app: FastAPI):
     _startup()
     _ensure_refresh_scheduler()
     cpu, ram = _batch_pool.detect_host()
-    env = dict(os.environ)
-    cfg = _batch_pool.load_perf_config()
-    N, M = _batch_pool.resolve_layout(cpu, ram, env, cfg)
+    env = os.environ
+    N, M = _batch_pool.resolve_layout(cpu, ram, env)
     source = "env" if (env.get("IPRADAR_WORKERS") or env.get("IPRADAR_BATCH_POOL")
-                       or env.get("IPRADAR_TOTAL_PROCS")) else ("config" if cfg else "auto")
+                       or env.get("IPRADAR_TOTAL_PROCS")) else "auto"
     _ACTIVE_LAYOUT.update(n_workers=N, m_pool=M, source=source)
     pool = None
     if M > 1:
@@ -728,21 +724,10 @@ async def db_status():
     return status
 
 
-@app.get("/api/scheduler/status", response_model=SchedulerStatusOut,
-          responses=_ERRS_422_500)
-async def scheduler_status():
-    """Read-only snapshot of the auto-refresh scheduler."""
-    if _refresh_scheduler is None:
-        return {"enabled": False,
-                "interval_sec": int(os.environ.get("IPRADAR_REFRESH_INTERVAL_SEC", "1800")),
-                "last_scan_at": None, "next_scan_at": None, "sources": []}
-    return _refresh_scheduler.status()
-
-
 def _offline_enabled_names():
     """Names of enabled offline sources (candidates for batch update)."""
-    from ipdb._registry import _enabled_sources, _archetype
-    return [s.name for s in _enabled_sources() if _archetype(s) == "offline"]
+    from ipdb._registry import _enabled_sources
+    return [s.name for s in _enabled_sources()]
 
 
 @app.post("/api/update-db", response_model=UpdateDbOut,
@@ -789,7 +774,17 @@ async def update_db_resume():
                             "description": "invalid IP address"},
                      **_ERRS_READY})
 async def lookup_single(ip: str):
-    """Single IP lookup — same shape as POST /api/query results[0]."""
+    """Single IP lookup — same shape as POST /api/query results[0].
+
+    confidence (0-100) is a log-odds posterior: per-source reliability becomes a
+    symmetric logit coefficient, decays with a 60-day half-life, and coefficients
+    fuse additively within each classification_type group
+    (design: docs/superpowers/specs/2026-08-29-scoring-fusion-design.md §3).
+    confidence == 0 on a field means no source reported it — absence of
+    evidence, not proof of innocence. Qualifiers: scalar fields (country/asn)
+    have no first_seen → no decay and fuse per candidate value with a
+    background mass; city/ip_range keep legacy semantics.
+    """
     try:
         ipaddress.ip_address(ip)
     except ValueError:
@@ -942,41 +937,6 @@ async def events():
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
-
-
-@app.get("/api/perf/layout", response_model=PerfLayoutOut,
-          responses=_ERRS_422_500)
-async def perf_layout():
-    import psutil
-    from ipdb._registry import _valve
-    cpu, ram = _batch_pool.detect_host()
-    layout = get_active_layout()
-    predicted = _batch_pool.predict_layout(cpu, ram, layout)
-    warnings = _batch_pool.predict_warnings(predicted["priv_rss_mb"], ram)
-    vmem = psutil.virtual_memory()
-    state = ("critical" if _valve.target_capacity == 0
-             else "throttled" if _valve.target_capacity < _valve.ceiling
-             else "normal")
-    return {
-        "host": {"cores": cpu, "ram_avail_mb": ram},
-        "current": layout,
-        "predicted": predicted,
-        "tunables": {
-            "m_cap": _batch_pool.M_CAP,
-            "per_proc_mb": _batch_pool.PER_PROC_MB,
-            "inline_threshold": _batch_pool.INLINE_THRESHOLD,
-        },
-        "warnings": warnings,
-        "memory_valve": {
-            "available_mb": int(vmem.available / 1e6),
-            "total_mb": int(vmem.total / 1e6),
-            "available_ratio": round(vmem.available / vmem.total, 3),
-            "target_capacity": _valve.target_capacity,
-            "ceiling": _valve.ceiling,
-            "active_rebuilds": _valve.active_rebuilds,
-            "state": state,
-        },
-    }
 
 
 class SpaStaticFiles(StaticFiles):

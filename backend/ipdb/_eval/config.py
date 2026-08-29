@@ -37,6 +37,4 @@ IP_WARNINGLISTS = [
 
 # Corpus sizing.
 CORPUS_PER_TYPE_N = 30     # malicious IPs sampled per classification_type
-CORPUS_BENIGN_N = 50
-CORPUS_RESERVED_N = 10
 CORPUS_CANDIDATE_N = 100
