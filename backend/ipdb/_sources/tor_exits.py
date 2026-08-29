@@ -66,6 +66,7 @@ class TorExitSource(IpListSource):
                     reliability=self.reliability,
                     is_tor=True,
                     native_types={"is_tor": "TOR"},
+                    first_seen=ts.strip() or None,   # double-fill → 衰减
                     last_seen=ts.strip() or None,
                 ).to_dict()
                 records.append((str(net), [ev]))

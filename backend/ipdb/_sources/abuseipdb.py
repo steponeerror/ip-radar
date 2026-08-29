@@ -125,6 +125,7 @@ class AbuseIPDBSource(IpListSource):
                 classification_type=self.classification_type,
                 verdict=self.verdict,
                 reliability=self.reliability,
+                first_seen=last or None,   # single-timestamp double-fill → 衰减
                 last_seen=last or None,
                 reporter_count=total or None,
             ).to_dict()
