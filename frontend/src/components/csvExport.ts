@@ -3,12 +3,11 @@ import { threatSummary, classLabel, familyShort } from "./threatDisplay";
 import { translate } from "../i18n/translate";
 
 export const CSV_HEADER =
-  "ip,asn,asn_confidence,country,country_confidence,as_name,as_name_confidence," +
-  "is_isp,verdict,verdict_confidence,threat_tags," +
+  "ip,asn,country,as_name,is_isp,verdict,verdict_confidence,threat_tags," +
   "reporter_total,verdict_conflict,corroborated,malware_names,top_reliability," +
-  "ip_range,range_confidence,error," +
+  "ip_range,error," +
   "is_proxy,proxy_subtype,is_hosting,is_tor,is_vpn,carrier,service,service_provider," +
-  "city,city_confidence,first_seen,last_seen,as_domain\n";
+  "city,first_seen,last_seen,as_domain\n";
 
 export function aggregateThreatDepth(r: LookupResult) {
   const cas = Object.values(r.classifications);
@@ -79,19 +78,20 @@ function assetNative(r: LookupResult, key: string): string {
   return stmts && stmts.length ? stmts[0].native_type ?? "" : "";
 }
 
+// 字段值与置信度合并为单列,如 `US(66)`(spec: 人看一眼懂,机器 /^(.*)\((\d+)\)$/ 可逆拆)
+const confVal = (v: string | number, c: number): string =>
+  String(v) === "" ? "" : `${v}(${c})`;
+
 export function buildCsvRow(r: LookupResult): string {
   const summary = threatSummary(r);
   const depth = aggregateThreatDepth(r);
   return [
     csvEscape(r.ip),
-    csvEscape(String(r.asn.value)),
-    String(r.asn.confidence),
-    csvEscape(r.country.value),
-    String(r.country.confidence),
-    csvEscape(r.as_name.value),
-    String(r.as_name.confidence),
+    csvEscape(confVal(r.asn.value, r.asn.confidence)),
+    csvEscape(confVal(r.country.value, r.country.confidence)),
+    csvEscape(confVal(r.as_name.value, r.as_name.confidence)),
     String(r.is_isp),
-    csvEscape(summary.verdict),
+    csvEscape(summary.verdict),   // 恶意分数单独一列:机器按列过滤/排序的最常用信号
     String(summary.confidence),
     csvEscape(threatTags(r)),
     String(depth.reporter_total),
@@ -99,8 +99,7 @@ export function buildCsvRow(r: LookupResult): string {
     String(depth.corroborated),
     csvEscape(depth.malware_names.join("|")),
     String(depth.top_reliability),
-    csvEscape(r.ip_range.value),
-    String(r.ip_range.confidence),
+    csvEscape(confVal(r.ip_range.value, r.ip_range.confidence)),
     csvEscape(r.error ?? ""),
     csvEscape(assetVal(r, "is_proxy")),
     csvEscape(assetNative(r, "is_proxy")),
@@ -110,8 +109,7 @@ export function buildCsvRow(r: LookupResult): string {
     csvEscape(assetVal(r, "carrier")),
     csvEscape(assetVal(r, "service")),
     csvEscape(assetNative(r, "service")),
-    csvEscape(String(r.city?.value ?? "")),
-    String(r.city?.confidence ?? 0),
+    csvEscape(confVal(r.city?.value ?? "", r.city?.confidence ?? 0)),
     csvEscape(depth.first_seen),
     csvEscape(depth.last_seen),
     csvEscape(assetVal(r, "as_domain")),

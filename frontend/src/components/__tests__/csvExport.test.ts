@@ -36,9 +36,9 @@ describe("aggregateThreatDepth", () => {
   it("top_reliability = max reliability among the dominant-verdict details", () => {
     expect(aggregateThreatDepth(r).top_reliability).toBe(0.9);
   });
-  it("header has 32 columns ending with first_seen,last_seen,as_domain", () => {
+  it("header has 27 columns ending with first_seen,last_seen,as_domain", () => {
     const cols = CSV_HEADER.trimEnd().split(",");
-    expect(cols).toHaveLength(32);
+    expect(cols).toHaveLength(27);
     expect(cols.slice(-3)).toEqual(["first_seen", "last_seen", "as_domain"]);
   });
   it("buildCsvRow appends min first_seen, max last_seen, as_domain", () => {
@@ -59,10 +59,10 @@ describe("aggregateThreatDepth", () => {
       attributes: { as_domain: [{ source: "ipinfo_lite", value: "amazon.com" }] },
     };
     const cols = buildCsvRow(timed).split(",");
-    expect(cols).toHaveLength(32);
-    expect(cols[29]).toBe("2025-12-01");   // min first_seen
-    expect(cols[30]).toBe("2026-07-12");   // max last_seen
-    expect(cols[31]).toBe("amazon.com");
+    expect(cols).toHaveLength(27);
+    expect(cols[24]).toBe("2025-12-01");   // min first_seen
+    expect(cols[25]).toBe("2026-07-12");   // max last_seen
+    expect(cols[26]).toBe("amazon.com");
   });
   it("top_reliability rounds to 2 decimal places", () => {
     const rounded: LookupResult = {
@@ -108,7 +108,7 @@ describe("buildCsvContent", () => {
   it("writes 'reserved' verdict for reserved IPs", () => {
     const reserved = { ...r, is_reserved: true, classifications: {} };
     const row = buildCsvContent([reserved]).split("\n")[1];
-    expect(row).toContain(",reserved,");
+    expect(row).toContain(",reserved,");   // verdict 单独列,后跟 verdict_confidence
   });
   it("pins threat_tags labels to English regardless of locale", () => {
     const scannerRow: LookupResult = {
@@ -157,10 +157,21 @@ describe("buildCsvRow", () => {
     expect(buildCsvRow(r)).toBe(buildCsvContent([r]).split("\n")[1]);
   });
 
-  it("appends city columns followed by the time/as_domain tail", () => {
-    expect(CSV_HEADER.trimEnd().endsWith("city,city_confidence,first_seen,last_seen,as_domain")).toBe(true);
+  it("appends city merged column followed by the time/as_domain tail", () => {
+    expect(CSV_HEADER.trimEnd().endsWith("city,first_seen,last_seen,as_domain")).toBe(true);
     const row = buildCsvRow(r);
-    expect(row.trimEnd().endsWith(",Mountain View,95,,,")).toBe(true);
+    expect(row.trimEnd().endsWith(",Mountain View(95),,,")).toBe(true);
+  });
+  it("merges value with confidence as value(conf), empty value stays empty", () => {
+    const row = buildCsvRow(r).split(",");
+    expect(row[1]).toBe("15169(95)");   // asn
+    expect(row[2]).toBe("US(95)");      // country
+    expect(row[3]).toBe("Google(95)");  // as_name
+    expect(row[5]).toBe("malicious");   // verdict 拆开:判定
+    expect(row[6]).toBe("92");          // 恶意分数单独列
+    const noCity = { ...r, city: { ...r.city, value: "" } };
+    const cols = buildCsvRow(noCity).split(",");
+    expect(cols[23]).toBe("");           // city 空 → 空单元格,不出 (0)
   });
 });
 
