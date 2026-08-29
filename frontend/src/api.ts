@@ -75,8 +75,6 @@ export interface LookupResult {
 
 export interface DbStatus {
   last_updated: string;
-  record_count: number;
-  cn_record_count: number;
   total_records: number;
   scalar_records: number;
   threat_records: number;
@@ -319,10 +317,6 @@ export async function getSources(): Promise<SourceInfo[]> {
   return jsonOrThrow(await fetch("/api/sources"), "Failed to load sources");
 }
 
-export async function getEvalOverview(): Promise<{ current_job: unknown; verdicts: unknown[] }> {
-  return jsonOrThrow(await fetch("/api/eval"), "Failed to load eval");
-}
-
 export async function setSourceEnabled(name: string, enabled: boolean): Promise<SourceInfo> {
   const res = await fetch(`/api/sources/${encodeURIComponent(name)}`, {
     method: "PATCH",
@@ -330,11 +324,6 @@ export async function setSourceEnabled(name: string, enabled: boolean): Promise<
     body: JSON.stringify({ enabled }),
   });
   return jsonOrThrow(res, "Failed to update source");
-}
-
-export async function updateSource(name: string): Promise<SourceInfo> {
-  const res = await fetch(`/api/sources/${encodeURIComponent(name)}/update`, { method: "POST" });
-  return jsonOrThrow(res, "Failed to refresh source");
 }
 
 // --- Task client: enqueue / control / subscribe (SSE) ---
