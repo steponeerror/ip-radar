@@ -18,6 +18,7 @@ from ._reserved import is_reserved_addr
 from ._types import SourceHealth, LookupResult, MergedField, ClassificationAssessment, AssetStatement
 from ._merge import (
     FactualVoting,
+    LogOddsVoting,
     NamingAuthority,
     RangeSpecificity,
     _to_attributions,
@@ -158,11 +159,11 @@ def _update_lock_for(name: str) -> threading.Lock:
 # --- Strategy map (scalar fields only; threats use _assess_boolean) ---
 
 _strategies = {
-    "country_code": FactualVoting(default="N/A"),
-    "asn": FactualVoting(default=0),
+    "country_code": LogOddsVoting(default="N/A"),
+    "asn": LogOddsVoting(default=0),
     "as_name": NamingAuthority(),
     "ip_range": RangeSpecificity(),
-    "city": FactualVoting(default="N/A"),
+    "city": FactualVoting(default="N/A"),   # 保留(spec §4:品质阶梯语义)
 }
 
 _LOOKUP_SLOTS = SCALAR_SLOTS | {"is_isp"}

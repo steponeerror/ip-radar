@@ -11,6 +11,7 @@ from ipdb._registry import (
 )
 from ipdb._merge import (
     FactualVoting,
+    LogOddsVoting,
     NamingAuthority,
     RangeSpecificity,
     SOURCE_RELIABILITY,

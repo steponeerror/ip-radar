@@ -29,6 +29,7 @@ class FieldOut(_Out):
     confidence: Any = None
     algorithm: Optional[str] = None
     sources: list[AttributionOut] = []
+    alternatives: list[dict] = []   # logodds 多类别后验 [{value, probability 0-100}](spec 2026-08-29 §6)
 
 
 class ThreatSummaryOut(_Out):

@@ -47,8 +47,9 @@ class MergedField:
     """Merged result for a single scalar field."""
     value: Any
     confidence: int                     # 0-100
-    algorithm: str = "voting"           # "cascade" | "voting" | "pcr6" | "authority" | "specificity"
+    algorithm: str = "voting"           # "cascade" | "voting" | "logodds" | "pcr6" | "authority" | "specificity"
     sources: list[SourceAttribution] = field(default_factory=list)
+    alternatives: list = field(default_factory=list)   # [{value, probability 0-100}](仅 logodds 多类别,spec §6)
 
 
 @dataclass
@@ -193,9 +194,12 @@ def _attribution_to_dict(s: SourceAttribution) -> dict:
 
 
 def _field_to_dict(f: MergedField) -> dict:
-    return {
+    d = {
         "value": f.value,
         "confidence": f.confidence,
         "algorithm": f.algorithm,
         "sources": [_attribution_to_dict(s) for s in f.sources],
     }
+    if f.alternatives:
+        d["alternatives"] = f.alternatives
+    return d

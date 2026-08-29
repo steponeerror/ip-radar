@@ -18,6 +18,7 @@ from ._types import (
     SourceAttribution, MergedField, LookupResult,
     EvidenceObservation, ClassificationAssessment,
 )
+from . import _logodds as _lo
 
 
 def to_observation(
@@ -122,6 +123,37 @@ class FactualVoting:
         return MergedField(best_val, conf, "voting", attributions)
 
 
+class LogOddsVoting:
+    """log-odds 多类别融合(spec 2026-08-29 §3.2/§4)。
+
+    每候选值 Σ logit(r)(标量字段无 first_seen → 不衰减),背景质量归一;
+    MAP 值 + conf = P(MAP);alternatives 输出后验降序(0-100)。"""
+
+    def __init__(self, field="country_code", default=None):
+        self.field = field
+        self.default = default
+
+    def merge(self, source_values: dict[str, Any], context: dict) -> MergedField:
+        attributions = _to_attributions(source_values, self.field)
+        valid = [a for a in attributions
+                 if a.value is not None and a.value != "" and a.value != "N/A" and a.value != 0]
+        if not valid:
+            return MergedField(self.default, 0, "logodds", attributions)
+        deduped = _lo.dedup_lineage(
+            [(a.source, _lo.logit(a.reliability)) for a in valid])
+        keep = {s for s, _ in deduped}
+        s_by_value: dict[Any, float] = {}
+        for a in valid:
+            if a.source in keep:
+                s_by_value[a.value] = s_by_value.get(a.value, 0.0) + _lo.logit(a.reliability)
+        probs = _lo.multicategory_posterior(s_by_value)
+        ranked = sorted(probs.items(), key=lambda kv: (-kv[1], str(kv[0])))
+        best_val, best_p = ranked[0]
+        alts = [{"value": v, "probability": round(p * 100, 1)} for v, p in ranked]
+        return MergedField(best_val, round(best_p * 100), "logodds",
+                           attributions, alts)
+
+
 class NamingAuthority:
     """Authority model for naming fields (as_name).
 
@@ -138,7 +170,9 @@ class NamingAuthority:
         valid = [a for a in attributions if a.value and a.value != "N/A"]
         if not valid:
             return MergedField("N/A", 0, "authority", attributions)
-        return MergedField(valid[0].value, 50, "authority", attributions)
+        best = sorted(valid, key=lambda a: (-a.reliability, a.source))[0]
+        return MergedField(best.value, round(best.reliability * 100),
+                           "authority", attributions)
 
 
 class RangeSpecificity:
