@@ -72,7 +72,7 @@ def _age_days(iso):
 
 def check_directional(old: dict, new: dict) -> list[str]:
     """A2 限定(裁决 2026-08-29 精确化后):单源新鲜±2;多源新鲜不降
-    (仅 old<80——旧实现的 Admiralty Confirmed floor 区不充任参照);
+    (old≠80——旧 Admiralty floor 把值恰好垫到 80,只有它是非法参照);
     组内最新 obs >180d 才算陈旧(用当前侧 max_first_seen),收敛 [45,55];
     as_name 单源 50→r×100 只查方向(新值 > 50)。返回违规描述列表。"""
     problems = []
@@ -92,7 +92,7 @@ def check_directional(old: dict, new: dict) -> list[str]:
         if n == 1 and age is not None and age <= 7:
             if abs(nc["conf"] - oc["conf"]) > 2:
                 problems.append(f"{ctype}: 单源新鲜漂移 {oc['conf']}->{nc['conf']}")
-        elif n >= 2 and age is not None and age <= 30 and oc["conf"] < 80:
+        elif n >= 2 and age is not None and age <= 30 and oc["conf"] != 80:
             if nc["conf"] < oc["conf"]:
                 problems.append(f"{ctype}: 多源新鲜下降 {oc['conf']}->{nc['conf']}")
         else:

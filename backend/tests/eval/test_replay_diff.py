@@ -134,12 +134,22 @@ def test_multi_fresh_must_not_drop():
 
 def test_multi_fresh_floor_band_skipped():
     # 裁决 2026-08-29:old=80 是旧 Admiralty Confirmed floor(max(mean,80))的产物,
-    # 诚实均值 65–67 不是 not-drop 的合法参照 → 该断言族跳过 old≥80 的组
+    # 诚实均值 65–67 不是 not-drop 的合法参照 → 该断言族跳过 old==80 的组
     old = {"scalars": {}, "classifications": {"spam": {"conf": 80,
         "n_sources": 3, "min_first_seen": _days_ago(10)}}}
     new = {"scalars": {}, "classifications": {"spam": {"conf": 76,
         "n_sources": 3, "min_first_seen": _days_ago(10)}}}
     assert check_directional(old, new) == []
+
+
+def test_multi_fresh_honest_mean_above_80_still_guards():
+    # 复审 2026-08-29:豁免仅限 ==80(floor 精确落点);81–100 是诚实
+    # corroborated mean,未来通缩(85→70)必须报违规
+    old = {"scalars": {}, "classifications": {"spam": {"conf": 85,
+        "n_sources": 3, "min_first_seen": _days_ago(10)}}}
+    new = {"scalars": {}, "classifications": {"spam": {"conf": 70,
+        "n_sources": 3, "min_first_seen": _days_ago(10)}}}
+    assert len(check_directional(old, new)) == 1
 
 
 def test_stale_converges_neutral():
