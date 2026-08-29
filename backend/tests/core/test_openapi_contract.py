@@ -11,7 +11,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 STREAM = {"/api/query/stream", "/api/upload/stream", "/api/events"}
-BUSINESS_ROUTES = 20
+BUSINESS_ROUTES = 18
 
 
 class TestOpenAPIContract:
@@ -36,7 +36,7 @@ class TestOpenAPIContract:
                         f"{method} {path} 成功响应无 schema"
 
     def test_paths_count_matches_routes(self):
-        """20 业务 + 3 流式;多/少挂一个立刻红(防漂移)。"""
+        """18 业务 + 3 流式;多/少挂一个立刻红(防漂移)。"""
         assert len(self.spec["paths"]) == BUSINESS_ROUTES + len(STREAM)
 
     def test_error_envelope_registered(self):
