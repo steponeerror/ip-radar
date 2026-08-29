@@ -1,4 +1,5 @@
-"""Merge strategies, PCR6 evidence fusion, source attribution, and enrichment."""
+"""Merge strategies, evidence fusion, and source attribution
+(log-odds 模型, spec 2026-08-29;纯本地情报源,无线上 enricher)。"""
 
 from typing import Any
 
@@ -14,7 +15,7 @@ def _parse_net(cidr: str) -> ipaddress.IPv4Network | ipaddress.IPv6Network:
     return ipaddress.ip_network(cidr, strict=False)
 
 from ._types import (
-    SourceAttribution, MergedField, LookupResult,
+    SourceAttribution, MergedField,
     EvidenceObservation, ClassificationAssessment,
 )
 from . import _logodds as _lo
@@ -77,8 +78,6 @@ def _to_attributions(
         attributions.append(SourceAttribution(src, value, rel, auth))
     return attributions
 
-
-# ── Confidence helpers ──
 
 # ── Scalar merge strategies (return MergedField) ──
 

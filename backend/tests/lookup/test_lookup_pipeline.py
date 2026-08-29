@@ -11,7 +11,7 @@ from ipdb._types import (
     LookupResult, MergedField, SourceAttribution, SourceHealth,
 )
 from ipdb._merge import (
-    FactualVoting, RangeSpecificity, _assess_classification, to_observation,
+    _assess_classification, to_observation,
 )
 
 
@@ -117,20 +117,14 @@ class TestLookupPipelineIntegration:
         sources = [scalar, tf, otx]
         monkeypatch.setattr(reg, "_sources", sources)
         # Use real strategies (not fakes) so merge code runs for real
-        monkeypatch.setattr(reg, "_strategies", {
-            "country_code": FactualVoting(default="N/A"),
-            "city": FactualVoting(default="N/A"),
-            "asn": FactualVoting(default=0),
-            "as_name": FactualVoting(default="N/A"),
-            "ip_range": RangeSpecificity(),
-        })
 
     def test_lookup_returns_full_pipeline_result(self):
         from ipdb._registry import lookup
         r = lookup("1.2.3.4")
 
-        # Scalar fields go through real FactualVoting
+        # Scalar fields go through real production strategies
         assert isinstance(r, LookupResult)
+        assert r.country.algorithm == "logodds"   # 生产注册表,非 FactualVoting 假体
         assert r.country.value == "CN"
         assert r.country.confidence > 0
         assert r.asn.value == 4134
@@ -157,13 +151,6 @@ class TestLookupPipelineIntegration:
                               reliability=0.85)
         monkeypatch = pytest.MonkeyPatch()
         monkeypatch.setattr(reg, "_sources", [scalar, tf])
-        monkeypatch.setattr(reg, "_strategies", {
-            "country_code": FactualVoting(default="N/A"),
-            "city": FactualVoting(default="N/A"),
-            "asn": FactualVoting(default=0),
-            "as_name": FactualVoting(default="N/A"),
-            "ip_range": RangeSpecificity(),
-        })
 
         r = lookup("1.2.3.4")
         assert "scanner" in r.classifications
@@ -184,13 +171,6 @@ class TestLookupPipelineIntegration:
 
         monkeypatch = pytest.MonkeyPatch()
         monkeypatch.setattr(reg, "_sources", [scalar, tf, px])
-        monkeypatch.setattr(reg, "_strategies", {
-            "country_code": FactualVoting(default="N/A"),
-            "city": FactualVoting(default="N/A"),
-            "asn": FactualVoting(default=0),
-            "as_name": FactualVoting(default="N/A"),
-            "ip_range": RangeSpecificity(),
-        })
 
         r = lookup("1.2.3.4")
         assert "c2-server" in r.classifications
@@ -214,13 +194,6 @@ class TestLookupPipelineIntegration:
 
         monkeypatch = pytest.MonkeyPatch()
         monkeypatch.setattr(reg, "_sources", [scalar, tf, benign])
-        monkeypatch.setattr(reg, "_strategies", {
-            "country_code": FactualVoting(default="N/A"),
-            "city": FactualVoting(default="N/A"),
-            "asn": FactualVoting(default=0),
-            "as_name": FactualVoting(default="N/A"),
-            "ip_range": RangeSpecificity(),
-        })
 
         r = lookup("1.2.3.4")
         ca = r.classifications["c2-server"]
@@ -237,13 +210,6 @@ class TestLookupPipelineIntegration:
         asset = FakeAssetSource()
         monkeypatch = pytest.MonkeyPatch()
         monkeypatch.setattr(reg, "_sources", [scalar, asset])
-        monkeypatch.setattr(reg, "_strategies", {
-            "country_code": FactualVoting(default="N/A"),
-            "city": FactualVoting(default="N/A"),
-            "asn": FactualVoting(default=0),
-            "as_name": FactualVoting(default="N/A"),
-            "ip_range": RangeSpecificity(),
-        })
 
         r = lookup("1.2.3.4")
         # Asset collected
