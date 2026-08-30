@@ -208,6 +208,12 @@ class EvalDetailOut(_Out):
     history: list[EvalHistoryItemOut]
 
 
+class EvalModelOut(_Out):
+    """GET /api/eval/model —— 最新舰队 corroboration-contrast 报告(advisory,
+    宽松 dict:kind/w/checks/scores/…,layout 见 _eval.suite.write_model_report)。"""
+    latest: Optional[dict] = None
+
+
 # ── 系统 ──
 class VersionOut(_Out):
     current: str

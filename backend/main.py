@@ -39,10 +39,10 @@ from ipdb import _registry as _ipdb_registry
 from ipdb import _update as _ipdb_update
 from ipdb import _version as _ipdb_version
 from ipdb._eval_manager import EvalManager, EvalBusyError
-from ipdb._eval_reader import read_overview, read_source
+from ipdb._eval_reader import read_model, read_overview, read_source
 from ipdb._api_models import (
     AckOut, BatchOut, DbStatusOut, ErrorEnvelope, EvalDetailOut,
-    EvalJobAcceptedOut, EvalOverviewOut, LookupResultOut,
+    EvalJobAcceptedOut, EvalModelOut, EvalOverviewOut, LookupResultOut,
     SourceInfoOut, TaskAcceptedOut, TasksSnapshotOut,
     UpdateAcceptedOut, UpdateDbOut, UpdateStateOut, VersionOut,
 )
@@ -865,6 +865,15 @@ async def update_source_route(name: str):
 async def eval_overview_route():
     """全源最新 eval verdict 摘要 + 当前 eval 任务状态(current_job)。"""
     return {"current_job": eval_manager.current, "verdicts": read_overview()}
+
+
+@app.get("/api/eval/model", response_model=EvalModelOut,
+          responses=_ERRS_422_500)
+async def eval_model_route():
+    """舰队 corroboration-contrast 模型报告(advisory 只读;θ̂/CI/below-market
+    永远是 corroboration 语义不是 accuracy;SOURCE_RELIABILITY 不由它派生)。
+    注册在 /api/eval/{source} 之前 —— 否则 "model" 被当源名吃掉。"""
+    return {"latest": read_model()}
 
 
 @app.get("/api/eval/{source}", response_model=EvalDetailOut,
