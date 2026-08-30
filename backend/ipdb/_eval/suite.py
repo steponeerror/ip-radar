@@ -38,6 +38,8 @@ def _ranks(xs):
 
 
 def spearman(xs, ys) -> float:
+    if not xs or not ys:
+        return 0.0
     rx, ry = _ranks(list(xs)), _ranks(list(ys))
     if len(set(rx)) == 1 or len(set(ry)) == 1:
         return 0.0
@@ -65,7 +67,7 @@ def _t1(events, declared_r, movers):
     return {"pass": ok, "detail": f"min pairwise Spearman vs w=10: {worst:.3f} (>=0.9)"}
 
 
-def _t2(lookup_fn, corpus, declared_r, events, movers):
+def _t2(lookup_fn, corpus, declared_r, events, movers, w):
     ips = corpus.all_ips()
     names = [s.source for s in movers]
     base = {s.source: s.theta for s in movers}
@@ -77,7 +79,7 @@ def _t2(lookup_fn, corpus, declared_r, events, movers):
         keep = [ip for ip in ips if ip not in drop]
         snap = take_snapshot(lookup_fn, keep)
         ev = extract_events(snap, oc_table)           # oc_table frozen
-        alt = {s.source: s.theta for s in estimate(ev, declared_r)
+        alt = {s.source: s.theta for s in estimate(ev, declared_r, w=w)
                if s.source in base}
         if len(alt) == len(base):
             vals.append(spearman([base[n] for n in names], [alt[n] for n in names]))
@@ -88,6 +90,7 @@ def _t2(lookup_fn, corpus, declared_r, events, movers):
 def _t3(events, movers, w):
     covered = 0
     tested = 0
+    oc_table = pairwise_oc(events.pair_sets)
     for s in movers:
         rho = s.rho or 0.5
         pairs = sorted(events.pair_sets[s.source])
@@ -97,7 +100,6 @@ def _t3(events, movers, w):
         rng.shuffle(pairs)
         half = len(pairs) // 2
         a_pairs, b_pairs = set(pairs[:half]), set(pairs[half:])
-        oc_table = pairwise_oc(events.pair_sets)
         # count events restricted to each half (same predicate, same oc table)
         def _count(sel):
             n = k = 0
@@ -179,7 +181,7 @@ def run_suite(lookup_fn, corpus: Corpus, declared_r=None, w=None) -> dict:
               if s.theta is None or s.n < config.MODEL_N_FLOOR]
     checks = {
         "T1": _t1(events, declared_r, movers),
-        "T2": _t2(lookup_fn, corpus, declared_r, events, movers),
+        "T2": _t2(lookup_fn, corpus, declared_r, events, movers, w),
         "T3": _t3(events, movers, w),
         "C1": _c1(scores),
         "C2": _c2(scores),

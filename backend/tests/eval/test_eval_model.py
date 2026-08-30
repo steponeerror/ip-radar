@@ -1,10 +1,7 @@
-import math
-
 import pytest
 
-from ipdb._eval import config
 from ipdb._eval.events import Events, SourceEvents
-from ipdb._eval.model import (SourceScore, beta_binomial_interval, beta_cdf,
+from ipdb._eval.model import (beta_binomial_interval, beta_cdf,
                               beta_ci, beta_ppf, estimate)
 
 

@@ -144,9 +144,9 @@ def estimate(events: Events, declared_r: dict[str, float] | None = None,
     w = w if w is not None else config.MODEL_W
     declared_r = declared_r or {}
     out: list[SourceScore] = []
+    rhos_full = market_rates(events)
     for src, se in sorted(events.per_source.items()):
         rhos_loo = market_rates(events, leave_out=src)
-        rhos_full = market_rates(events)
         rho = _prior_center(se, rhos_full, rhos_loo)
         asserted = events.pair_sets.get(src) or set()
         monopoly = (se.n == 0 and se.k == 0 and bool(asserted)
