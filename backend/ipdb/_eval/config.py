@@ -26,6 +26,20 @@ INDEPENDENCE_GROUPS = {
     "otx":     "aggregated-threat",   # 与生产 DERIVED_SOURCES 对齐(spec 2026-08-29 §3.3)
 }
 
+# ── source-eval model (brief v3.1) ──────────────────────────────
+# Hard-exclusion bar for the model's independence predicate. Over-exclusion is
+# safe (source falls back to market prior); OC_SUSPICION above stays
+# advisory-only flags and must NOT be reused as this bar.
+OC_EXCLUSION = 0.30
+
+# Static lineage clusters for the event layer (aligned with production
+# DERIVED_SOURCES; per-sublist prose lineage folds in here as confirmed).
+LINEAGE_CLUSTERS = {
+    "firehol": "aggregated-threat",
+    "ipsum":   "aggregated-threat",
+    "otx":     "aggregated-threat",
+}
+
 # PyMISPWarningLists provider substrings treated as benign infrastructure
 # (FP-proxy). Matched case-insensitively against each WarningList's .name
 # (a human description, e.g. "List of known Amazon AWS IP address ranges").
