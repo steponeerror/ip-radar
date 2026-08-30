@@ -3,6 +3,7 @@
   python -m ipdb._eval <source>      # single-source verdict + report
   python -m ipdb._eval --rebuild     # rebuild the frozen benchmark corpus
   python -m ipdb._eval --all         # per-source verdict table (no ranking in v1)
+  python -m ipdb._eval --model       # fleet corroboration-contrast model + acceptance suite
 """
 import argparse
 import json
@@ -20,6 +21,7 @@ from .metrics import (compute_other_distribution, mc, cg, conflict, oc,
                       fp_proxy, other_pct, confidence_uplift, dead_slot_fill,
                       pairs)
 from .report import write_report
+from .suite import run_suite, write_model_report
 from .verdict import assess
 
 _PKG_DIR = Path(__file__).resolve().parent              # backend/ipdb/_eval
@@ -107,6 +109,8 @@ def main(argv=None):
     p.add_argument("source", nargs="?", help="source name to evaluate")
     p.add_argument("--rebuild", action="store_true", help="rebuild frozen benchmark corpus")
     p.add_argument("--all", action="store_true", help="evaluate every source (no ranking in v1)")
+    p.add_argument("--model", action="store_true",
+                   help="fleet corroboration-contrast model + acceptance suite")
     p.add_argument("--json", action="store_true", help="机器可读 JSON 到 stdout")
     args = p.parse_args(argv)
 
@@ -124,6 +128,19 @@ def main(argv=None):
         bench = build_benchmark(registry.sources, config.CORPUS_PER_TYPE_N)
         bench.save(CORPUS_PATH)
         print(f"rebuilt corpus -> {CORPUS_PATH}")
+        return
+    if args.model:
+        from ipdb._merge import SOURCE_RELIABILITY
+        corpus = Corpus.load(CORPUS_PATH) if CORPUS_PATH.exists() else Corpus()
+        result = run_suite(registry.lookup, corpus,
+                           declared_r=dict(SOURCE_RELIABILITY))
+        md, js = write_model_report(result, REPORT_DIR)
+        if args.json:
+            print(Path(js).read_text())
+        else:
+            print(f"model suite: "
+                  f"{sum(1 for c in result['checks'].values() if c['pass'])}"
+                  f"/{len(result['checks'])} checks pass\n  report: {md}")
         return
     if args.all:
         if args.json:
