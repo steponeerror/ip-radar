@@ -72,7 +72,7 @@ Notes:
 
 ## Features
 
-- **25 of 29 feeds need zero API keys** — first start downloads and builds them all into millions of records (live count: `/api/db-status`).
+- **Works out of the box** — first start downloads and builds every keyless feed into millions of records (live count: `/api/db-status`).
 - **Cold start doesn't block** — the container opens within seconds; queries unlock only when the keyless feeds are fully built. Never a verdict on half a dataset.
 - **A verdict, not a pile of lists** — one line of conclusion per IP, per-source evidence on the table, 0-100 confidence (log-odds Bayesian fusion: source reliability → logit coefficients, 60-day half-life decay on threat assertions, cross-source corroboration; 0 = no evidence, not innocence; scalar fields don't decay).
 - **Geo · City · ASN** — GeoLite2 for the city, iptoasn for the ASN, plus CN ISP classification incl. HK/MO/TW.
@@ -134,10 +134,6 @@ The repo ships three AI agent skills (`.pi/skills/`) — with an agent that load
 | `discover-intel-sources` | No source picked yet; want an evaluated shortlist | "Find me a few threat-intel sources worth adding" |
 | `add-intel-source` | A specific source is chosen; wire it in end-to-end | "Add GreyNoise" |
 | `manage-intel-source` | Manage existing sources: health-check, update, replace | "Check the health of all sources" |
-
-- **discover-intel-sources** — state your constraints (free/keyed, data type, coverage); it does the research and comes back with an evaluated shortlist.
-- **add-intel-source** — wired in one go under the repo's established pattern: source file, auto-registration, classification map, fusion weight, regression tests.
-- **manage-intel-source** — owns the whole discover→add→evaluate lifecycle: health-checks existing sources, swaps out the low-signal ones.
 
 ## Data Sources & Acknowledgments
 
