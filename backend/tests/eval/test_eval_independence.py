@@ -8,6 +8,12 @@ def test_aggregators_share_group():
     assert independence_group("firehol") == "aggregated-threat"
     assert independence_group("ipsum") == "aggregated-threat"
 
+def test_otx_is_aggregator_group():
+    # 生产端 DERIVED_SOURCES = {firehol, ipsum, otx}(spec 2026-08-29 §3.3);
+    # 分组表曾漏抄 otx → otx×firehol 互证被 CG 算成两个独立组(虚高)。
+    assert independence_group("otx") == "aggregated-threat"
+    assert indep_count(["otx", "firehol"]) == 1
+
 def test_indep_count_collapses_same_group():
     # firehol + ipsum are same group -> counts as 1, not 2.
     assert indep_count(["firehol", "ipsum", "threatfox"]) == 2

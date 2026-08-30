@@ -23,6 +23,7 @@ OC_SUSPICION = 0.70
 INDEPENDENCE_GROUPS = {
     "firehol": "aggregated-threat",
     "ipsum":   "aggregated-threat",
+    "otx":     "aggregated-threat",   # 与生产 DERIVED_SOURCES 对齐(spec 2026-08-29 §3.3)
 }
 
 # PyMISPWarningLists provider substrings treated as benign infrastructure
