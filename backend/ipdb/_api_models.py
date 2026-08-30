@@ -51,7 +51,7 @@ class ClassificationOut(_Out):
     reporter_total: int = 0
     verdict_conflict: bool = False
     malware_names: list[str] = []
-    details: dict = {}
+    details: list[dict] = []   # per-source 富信息(_types.to_dict 产 list;#41 曾误声明 dict → GET 单查 500)
     sources: list[AttributionOut] = []
 
 

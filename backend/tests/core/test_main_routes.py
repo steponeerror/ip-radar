@@ -705,3 +705,38 @@ def test_query_stream_chunked_json_over_cap_rejected():
         assert "exceed" in r.json()["error"]["message"].lower()
     finally:
         m.MAX_UPLOAD_BYTES = old_cap
+
+
+def test_get_lookup_classified_ip_details_is_list(tmp_path, monkeypatch):
+    """回归(#41 response_model 埋雷):ClassificationOut.details 曾误声明 dict,
+    任何分类命中的 GET 单查都 ResponseValidationError 500(UI 走 stream 端点
+    绕过 response_model,故潜伏未爆)。契约 = list(前端 ClassificationDetail[])。"""
+    import main
+    from ipdb import _registry
+    from ipdb._sources._lmdb import rebuild_lmdb
+    envs = []
+    rebuild_lmdb(
+        [("9.9.9.0/24", [{"classification_type": "blacklist",
+                          "verdict": "malicious", "reliability": 0.5,
+                          "tags": ["binarydefense"]}])],
+        tmp_path / "binarydefense_banlist.txt.lmdb", envs.append)
+    envs[0].close()
+    monkeypatch.setenv("IP_RADAR_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(_registry, "_sources",
+                        _registry._discover_sources(tmp_path))
+    # tiny_db(autouse)已把 _registry.load_db 换成 lambda — 逐源直 load
+    for s in _registry._sources:
+        try:
+            s.load()
+        except Exception:
+            pass
+    monkeypatch.setattr(_registry, "load_db", lambda: None)
+    c = TestClient(main.app)   # 不用 with:避免 lifespan 重置(同类既有测试同款)
+    # 同文件早先测试可能在 manager 留在途任务并武装 build-window → 503 warming;
+    # 本测试目标是序列化契约非门控:掐断 coverage-building 恒 False
+    # (同时断掉 re-arm 与 hold 两个分支)
+    monkeypatch.setattr(main, "_coverage_building", lambda: False)
+    r = c.get("/api/lookup/9.9.9.9")
+    assert r.status_code == 200, r.text
+    det = r.json()["classifications"]["blacklist"]["details"]
+    assert isinstance(det, list) and det[0]["source"] == "binarydefense"
