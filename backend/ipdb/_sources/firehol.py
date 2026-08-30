@@ -1,4 +1,14 @@
-"""Firehol blocklist source — IpListSource subclass with multi-list download."""
+"""Firehol blocklist source — IpListSource subclass with multi-list download.
+
+子列表拆分(2026-08-30):level1/2 之外订阅 firehol 自有的三个语义净新增
+列表,per-list 分类(verdict 与同轴直接源对齐,详见 _LIST_SPEC 注释):
+- abusers_30d(7/7 上游为 spam 族追踪器)→ spam/informational(对齐 sfs,
+  ffae4caf 的 off-threat-axis 裁决);
+- proxies(iblocklist/socks/sslproxies 三个无直接源的代理上游)→
+  proxy/suspicious + is_proxy(对齐 proxyscrape/ip2proxy);
+- webserver(98% IP 为 sfs toxic 段)→ spam/informational(同 sfs 轴)。
+重叠部分由谱系去重兜底(derived=True);同 CIDR 异分类共存(convention 3)。
+"""
 import logging
 import time
 from pathlib import Path
@@ -12,6 +22,20 @@ _BASE_URL = "https://raw.githubusercontent.com/firehol/blocklist-ipsets/master"
 
 logger = logging.getLogger(__name__)
 
+# 列表 → (classification, verdict, Evidence 附加槽)。
+# 未列出的列表回退类属性 blacklist/malicious(兼容任意 selected_lists)。
+_LIST_SPEC = {
+    "firehol_level1":      ("blacklist", "malicious", {}),
+    "firehol_level2":      ("blacklist", "malicious", {}),
+    "firehol_abusers_30d": ("spam", "informational", {}),
+    "firehol_proxies":     ("proxy", "suspicious", {"is_proxy": True}),
+    "firehol_webserver":   ("spam", "informational", {}),
+}
+
+# 超大列表(2.8M 行)流式直读不落 acc:内存上界由非流式列表总量决定,
+# proxies 增长只影响重建时长。撞 acc 就地合并(实测跨列表同 CIDR ≈8.3k)。
+_STREAMED = frozenset({"firehol_proxies"})
+
 
 class FireholBlocklistSource(IpListSource):
     name = "firehol"
@@ -19,7 +43,7 @@ class FireholBlocklistSource(IpListSource):
     url = ""  # unused — custom download() handles multiple URLs
     filename = "firehol"  # directory name
     fields = ("is_malicious",)
-    classification_type = "blacklist"
+    classification_type = "blacklist"   # 类级回退(未列入 _LIST_SPEC 的列表)
     verdict = "malicious"
     stale_days = 1
     reliability = 0.50
@@ -27,7 +51,7 @@ class FireholBlocklistSource(IpListSource):
     authoritative_for = ()
 
     def __init__(self, data_dir: Path, selected_lists: list[str] | None = None):
-        self._lists = selected_lists or ["firehol_level1", "firehol_level2"]
+        self._lists = selected_lists or list(_LIST_SPEC)
         super().__init__(data_dir=data_dir)
         self._path = data_dir / "firehol"  # directory, not file
         self._files = [self._path / f"{name}.netset" for name in self._lists]
@@ -81,55 +105,89 @@ class FireholBlocklistSource(IpListSource):
     def rebuild(self, progress=None) -> int:
         """重建 LMDB(唯一重建入口)。新 epoch + ptr swap reader。
 
-        Multi-file mtime gating (like cn_isp): if the ptr is already newer
-        than the newest netset, the rebuild is a no-op but still opens the
-        reader and refreshes sidecars — so callers that enqueue firehol after
-        a partial state (env exists, sidecars missing) self-heal.
-
-        Per-list attribution (2026-08-15): 每列表独立 Evidence 带 tags=
-        [列表名]；同 CIDR 双列表命中合并 tags（dict 累积，消除旧实现
-        L2 put 覆盖 L1 的顺序问题）。同起止不同长度 CIDR 仍依赖审计脚本
-        零冲突（scripts/audit_lmdb_invariants.py）。
+        Per-list classification(2026-08-30):每列表按 _LIST_SPEC 各投分类;
+        同 CIDR 同分类命中合并 tags(2026-08-15 语义推广),异分类各成一条
+        证据(convention 3)。流式双族(ipinfo_lite 惯例):非流式列表先
+        build acc,流式列表(proxies)行级直吐、撞 acc 就地合并——保证同
+        CIDR 跨列表证据零丢失(先物化后流式的顺序是正确性要求)。
+        同起止不同长度 CIDR 仍依赖审计脚本零冲突
+        (scripts/audit_lmdb_invariants.py)。
         """
         import ipaddress as _ipa
-        from ._lmdb import covered_ip_count, rebuild_dual_family, commit_dual_family
+        from ._lmdb import rebuild_dual_family, Auto
         from .._evidence import Evidence
         if not self._path.exists():
             return 0
 
-        acc: dict[str, dict] = {}
-        for list_name in self._lists:
-            p = self._path / f"{list_name}.netset"
-            if not p.exists():
-                continue
-            with open(p, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line or line.startswith("#"):
-                        continue
-                    try:
-                        net = str(_ipa.ip_network(line, strict=False))
-                    except (ValueError, _ipa.AddressValueError,
-                            _ipa.NetmaskValueError):
-                        continue
-                    if net in acc:
-                        for t in (list_name,):
-                            if t not in acc[net]["tags"]:
-                                acc[net]["tags"].append(t)
-                    else:
-                        acc[net] = Evidence(
-                            classification_type=self.classification_type,
-                            verdict=self.verdict,
-                            reliability=self.reliability,
-                            tags=[list_name],
-                        ).to_dict()
-        records = [(cidr, [ev]) for cidr, ev in acc.items()]
+        def _ev(list_name: str) -> dict:
+            cls, verdict, extras = _LIST_SPEC.get(
+                list_name, (self.classification_type, self.verdict, {}))
+            return Evidence(
+                classification_type=cls,
+                verdict=verdict,
+                reliability=self.reliability,
+                tags=[list_name],
+                **extras,
+            ).to_dict()
 
-        cov4 = covered_ip_count(c for c in acc.keys() if ":" not in c)
-        cov6 = covered_ip_count(
-            (c for c in acc.keys() if ":" in c), ip_version=6)
-        return commit_dual_family(
-            self, records, cov4=cov4, cov6=cov6, progress=progress)
+        def _merge(bucket: list, d: dict) -> None:
+            """同 CIDR:sans-tags 等价则合并 tags,否则共存为独立证据。"""
+            for other in bucket:
+                if {k: v for k, v in other.items() if k != "tags"} == \
+                   {k: v for k, v in d.items() if k != "tags"}:
+                    for t in d["tags"]:
+                        if t not in other["tags"]:
+                            other["tags"].append(t)
+                    return
+            bucket.append(d)
+
+        def _factory():
+            acc: dict[str, list] = {}
+            ordered = ([n for n in self._lists if n not in _STREAMED]
+                       + [n for n in self._lists if n in _STREAMED])
+            for list_name in ordered:
+                p = self._path / f"{list_name}.netset"
+                if not p.exists():
+                    continue
+                with open(p, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line or line.startswith("#"):
+                            continue
+                        try:
+                            net = str(_ipa.ip_network(line, strict=False))
+                        except (ValueError, _ipa.AddressValueError,
+                                _ipa.NetmaskValueError):
+                            continue
+                        d = _ev(list_name)
+                        if list_name in _STREAMED and net not in acc:
+                            yield net, [d]   # 流式直吐,不落 acc
+                        else:
+                            _merge(acc.setdefault(net, []), d)
+            # ponytail: 两个已知天花板(均为保守方向,审计脚本可观测):
+            # ① 流式文件内部重复行未设防(实测 5 文件 internal dup=0);
+            # ② 同起点不同长度 CIDR 对(实测 1,948/3M≈0.065%,LMDB 键=start
+            #    只存其一):跨列表对中 acc 后 yield 恒胜 → 粒度粗化、无假
+            #    阳性。要无损消除需 start 集合(~200MB)或排序合并,不值;
+            #    升级路径 = _lmdb 键改 (start,prefixlen) 双分量。
+            yield from acc.items()
+
+        n4, n6 = rebuild_dual_family(
+            _factory, self._lmdb_base, self._lmdb6_base,
+            reader_setter4=lambda e: setattr(self, "_reader", e),
+            reader_setter6=lambda e: setattr(self, "_reader6", e),
+            flag_setter4=lambda v: setattr(self, "_disjoint", v),
+            flag_setter6=lambda v: setattr(self, "_disjoint6", v),
+            covered4=Auto, covered6=Auto,
+            covered_setter4=lambda v: setattr(self, "_covered_ips", v),
+            covered_setter6=lambda v: setattr(self, "_covered_v6_nets", v),
+            progress=progress,
+            total_est=self._count + self._count6)
+        self._count = n4
+        self._count6 = n6
+        self._loaded_at = time.time()
+        return n4
+
     def query(self, ip: str):
         if ":" in ip:                      # v6 查询走并行族 reader(spec §3.2)
             return self._query6(ip)
