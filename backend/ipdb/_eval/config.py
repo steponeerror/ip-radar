@@ -40,6 +40,9 @@ LINEAGE_CLUSTERS = {
     "otx":     "aggregated-threat",
 }
 
+MODEL_W = 10        # G1' prior strength
+MODEL_N_FLOOR = 10  # mover floor for suite checks
+
 # PyMISPWarningLists provider substrings treated as benign infrastructure
 # (FP-proxy). Matched case-insensitively against each WarningList's .name
 # (a human description, e.g. "List of known Amazon AWS IP address ranges").
