@@ -225,11 +225,13 @@ the drift-aware diff you'll need it for).
      `rebuild_lmdb` directly):
      - records materialized in memory (≤ a few hundred k) →
        `commit_dual_family(self, records, cov4=..., cov6=..., progress=...)`
-       — anchors: spamhaus / abuseipdb / blocklist_de / firehol.
+       — anchors: spamhaus / abuseipdb / blocklist_de.
      - millions of rows (OOM discipline; ip2proxy 686 MB RSS precedent) →
        zero-arg `factory` generator + `rebuild_dual_family(factory, ...,
        covered4=Auto, covered6=Auto, covered_setter4=..., covered_setter6=...)`
-       — anchor: ipinfo_lite. The factory is invoked twice (v4 + v6 pass);
+       — anchors: ipinfo_lite / firehol (per-list classification + streamed
+       big list merging into an in-memory acc for the small lists). The factory
+       is invoked twice (v4 + v6 pass);
        per-pass re-parsing is the accepted CPU-for-memory trade.
      The `flag_setter`-copy rule in Phase 4 applies ONLY to a direct
      `rebuild_lmdb(...)` call — both idioms above already bind it.
