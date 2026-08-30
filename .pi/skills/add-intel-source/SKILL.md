@@ -169,9 +169,19 @@ Minimal starting points: `binarydefense.py` (IpListSource, 20 lines),
 `ipsum.py` (CsvSource, 37 lines), `iptoasn.py` (Source subclass — the
 canonical harvest template).
 
-## Phase 3 — Implement
+## Phase 3 — Implement (TDD: test first, code second)
 
-Before writing any code, take a full-suite baseline (Phase 4 explains the drift-aware diff you'll need it for).
+**Hard order — write the source's test BEFORE the source file (RED → GREEN).**
+Phase 4's per-source test is not an afterthought: write it first in
+`backend/tests/sources/` (same `<name>` stem as the source file; sample
+file → `rebuild()` → `query()` assertions for the classification/routing
+you declared in Phase 1), run it, watch it fail for the right reason
+(module/class not found), THEN create the source file and make it pass. Tests-after encodes "what does this
+do?"; tests-first encodes "what SHOULD this do?" — this repo's contract is
+the latter.
+
+Before writing any code, also take a full-suite baseline (Phase 4 explains
+the drift-aware diff you'll need it for).
 
 1. **Create `backend/ipdb/_sources/<name>.py`** (filename stem matches the
    `name` attribute — house style; every existing source does).
@@ -201,7 +211,7 @@ Before writing any code, take a full-suite baseline (Phase 4 explains the drift-
    - `reliability = <0–1>` — feeds two consumers: (1) the scalar merge path (`_to_attributions`) and (2) STIX export's source-identity `x_reliability`. Default `0.5` on both if omitted.
    - `authoritative_for = ("is_proxy", ...)` — tuple of fields your source has authoritative veto on (`is_proxy`/`is_tor`/`is_vpn`/`is_malicious`/`is_hosting`/`is_mobile`/`service`); registry inverts it into `AUTHORITATIVE_SOURCES`. Empty by default.
    `_validate.py` enforces this contract at startup: unknown `category`, out-of-range `reliability`, or unknown `authoritative_for` field → `RuntimeError` naming the source.
-7. **Per-row evidence — pick the right path:**
+7. **Per-row evidence — pick the right path (commit idiom as of `f4db2169`):**
    - **New source** → `Source` subclass: `harvest()` yields per-row
      `Evidence(last_seen=..., reporter_count=..., ...)`; the base `rebuild()`
      groups evidence per CIDR with full-evidence dedup. This is the standard,
@@ -210,6 +220,19 @@ Before writing any code, take a full-suite baseline (Phase 4 explains the drift-
      spamhaus keeping its `;` tail) → override `rebuild()` (archetypes §3b).
      Don't reach for the override on a new source — it re-implements the base's
      parse loop by hand.
+   - **Commit tail inside an overridden `rebuild()` — two current idioms**
+     (do NOT hand-write the six reader/flag/covered setters, and do NOT call
+     `rebuild_lmdb` directly):
+     - records materialized in memory (≤ a few hundred k) →
+       `commit_dual_family(self, records, cov4=..., cov6=..., progress=...)`
+       — anchors: spamhaus / abuseipdb / blocklist_de / firehol.
+     - millions of rows (OOM discipline; ip2proxy 686 MB RSS precedent) →
+       zero-arg `factory` generator + `rebuild_dual_family(factory, ...,
+       covered4=Auto, covered6=Auto, covered_setter4=..., covered_setter6=...)`
+       — anchor: ipinfo_lite. The factory is invoked twice (v4 + v6 pass);
+       per-pass re-parsing is the accepted CPU-for-memory trade.
+     The `flag_setter`-copy rule in Phase 4 applies ONLY to a direct
+     `rebuild_lmdb(...)` call — both idioms above already bind it.
 8. **Scheduling & memory constraints:**
    - Never call `rebuild()` from `load()` or `__init__` — the UpdateManager
      queue owns rebuilds (parallelism governed by `IP_RADAR_UPDATE_CONCURRENCY`).
@@ -242,8 +265,10 @@ set — discovery will pick it up automatically on next load.
 - ☐ **LMDB test hygiene (convention 7):** never hold two source instances open
   on the same LMDB base in one process — close the old reader
   (`s._reader.close()`) or drop the instance before constructing the next.
-- if your source overrides `rebuild()`, grep your file for `flag_setter` —
-  the `rebuild_lmdb(...)` call must carry
+- if your source overrides `rebuild()` and calls `rebuild_lmdb(...)`
+  **directly** (rare — prefer `commit_dual_family` / `rebuild_dual_family`,
+  see Phase 3 step 7), grep your file for `flag_setter` —
+  the call must carry
   `flag_setter=lambda v: setattr(self, "_disjoint", v)` next to
   `reader_setter`; a missing line reproduces the stale-flag silent-miss
   defect on the first data-shape flip.
