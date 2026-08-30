@@ -135,7 +135,14 @@ def _c1(scores):
     rank = {s.source: i + 1 for i, s in enumerate(scored)}
     half = (len(scored) + 1) // 2
     fails = []
+    exemptions = []
+    present = {x.source for x in scores}
     for s in VERDICT_AUTHORITIES:
+        if s not in present:
+            # C-1 v1.1 (user-ratified 2026-08-31): zero corpus assertions =
+            # no evidence, exempt like the asset tier — not a ranking failure.
+            exemptions.append(f"{s}: exempt (absent on corpus)")
+            continue
         r = rank.get(s)
         if r is None:
             fails.append(f"{s}: unscored")
@@ -150,7 +157,8 @@ def _c1(scores):
         r = rank.get(s)
         if r is not None and r < 15:
             fails.append(f"{s}: rank {r} < 15/23")
-    return {"pass": not fails, "detail": "; ".join(fails) or
+    parts = fails + exemptions
+    return {"pass": not fails, "detail": "; ".join(parts) or
             f"verdict tier in top {half}, asset tier ok (ranked of {len(scored)})"}
 
 

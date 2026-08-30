@@ -2,7 +2,8 @@
 import pytest
 
 from ipdb._eval.corpus import Corpus
-from ipdb._eval.suite import run_suite, spearman, write_model_report
+from ipdb._eval.model import SourceScore
+from ipdb._eval.suite import _c1, run_suite, spearman, write_model_report
 
 
 def test_spearman_monotone_and_ties():
@@ -48,6 +49,34 @@ def test_run_suite_end_to_end_shape():
     lone = next(s for s in result["scores"] if s.source == "lone")
     assert lone.monopoly is True            # t2 sole assertor
     assert result["checks"]["T1"]["pass"]   # stable ranking on this toy fleet
+
+
+def test_c1_exempt_absent_authorities_but_not_low_ranked():
+    # C-1 v1.1: corpus-absent verdict authority -> exempt + visible note
+    def _score(source, theta, n=10, k=5):
+        return SourceScore(source=source, theta=theta, ci_lo=theta, ci_hi=theta,
+                           n=n, k=k, rho=0.3, below_market=False,
+                           monopoly=False, declared_r=None)
+
+    absent = [_score("a", 0.8), _score("b", 0.7), _score("c", 0.6)]
+    chk = _c1(absent)
+    assert chk["pass"] is True
+    assert "threatfox: exempt (absent on corpus)" in chk["detail"]
+    assert "spamhaus: exempt (absent on corpus)" in chk["detail"]
+
+    ranked = [_score("a", 0.8), _score("b", 0.7), _score("spamhaus", 0.1)]
+    chk = _c1(ranked)
+    assert chk["pass"] is False
+    assert "spamhaus: rank 3/3 > 2" in chk["detail"]
+
+    # present but unrankable (no-signal) is still a failure, not an exemption
+    nosig = absent + [SourceScore(source="threatfox", theta=None, ci_lo=None,
+                                  ci_hi=None, n=0, k=0, rho=None,
+                                  below_market=False, monopoly=False,
+                                  declared_r=None)]
+    chk = _c1(nosig)
+    assert chk["pass"] is False
+    assert "threatfox: unscored" in chk["detail"]
 
 
 def test_write_model_report_creates_subdir_files(tmp_path):
