@@ -82,3 +82,78 @@ def test_estimate_evidence_flag():
     assert scores["a"].evidence is True       # k=10 >= 1 -> independently corroborated
     assert scores["c"].evidence is False      # k=0 -> evidence-starved, not tested-weak
     assert scores["tor_exits"].evidence is False  # no-signal slot
+
+
+# ── fountain_suspect flag (spec 2026-09-01 Part 2) ───────────────
+
+from ipdb._eval.events import Events, SourceEvents
+from ipdb._eval.model import estimate
+
+
+def _events_from_pair_sets(pair_sets):
+    ev = Events(pair_sets=pair_sets, monopoly_ctypes=set(), per_source={})
+    for src, ps in pair_sets.items():
+        se = SourceEvents()
+        for ip, ctype in ps:
+            n, k = se.by_ctype.get(ctype, (0, 0))
+            se.by_ctype[ctype] = (n + 1, k)
+            se.n += 1
+        ev.per_source[src] = se
+    return ev
+
+
+def test_fountain_suspect_needs_two_qualifying_containees():
+    ips = [("10.0.0.%d" % i, "spam") for i in range(12)]
+    ps = {
+        "fount": set(ips),
+        "m1": set(ips[:10]),            # ⊆ fount, |m1| = 10 ≥ floor
+        "m2": set(ips[2:12]),           # ⊆ fount, |m2| = 10 ≥ floor
+        "m3": set(ips[:9]),             # ⊆ fount but |m3| = 9 < floor
+        "ind": {("10.9.9.9", "spam")},  # unique pair
+    }
+    sc = {s.source: s for s in estimate(_events_from_pair_sets(ps))}
+    assert sc["fount"].fountain_suspect is True      # m1 + m2 qualify
+    assert sc["m1"].fountain_suspect is False
+    assert sc["ind"].fountain_suspect is False
+
+
+def test_fountain_suspect_single_containee_is_not_enough():
+    ips = [("10.0.0.%d" % i, "spam") for i in range(12)]
+    ps = {"fount": set(ips), "m1": set(ips[:10])}
+    sc = {s.source: s for s in estimate(_events_from_pair_sets(ps))}
+    assert sc["fount"].fountain_suspect is False
+
+
+def test_fountain_suspect_partial_overlap_below_bar():
+    ips = [("10.0.0.%d" % i, "spam") for i in range(12)]
+    ps = {
+        "fount": set(ips),
+        "m1": set(ips[:10]) | {("10.9.9.9", "spam")},   # 10/11 inside ≈ 0.91 → ok
+        "m2": set(ips[:8]) | {("10.9.9.8", "spam"),
+                              ("10.9.9.7", "spam"),
+                              ("10.9.9.6", "spam")},    # 8/11 ≈ 0.73 < 0.9
+    }
+    sc = {s.source: s for s in estimate(_events_from_pair_sets(ps))}
+    assert sc["fount"].fountain_suspect is False      # only m1 qualifies
+
+
+# ── unique_share (spec 2026-09-01 Q4-B1) ─────────────────────────
+
+def test_unique_share_counts_solo_pairs_only():
+    ips = [("10.0.0.%d" % i, "spam") for i in range(4)]
+    ps = {
+        "a": set(ips) | {("10.9.9.9", "spam")},   # 4 shared + 1 unique
+        "b": set(ips),
+    }
+    sc = {s.source: s for s in estimate(_events_from_pair_sets(ps))}
+    assert sc["a"].unique_share == 0.2
+    assert sc["b"].unique_share == 0.0
+
+
+def test_unique_share_none_when_all_pairs_monopoly():
+    ps = {"solo": {("1.2.3.4", "tor")}}
+    ev = _events_from_pair_sets(ps)
+    ev.monopoly_ctypes = {"tor"}                  # sole asserter ctype
+    ev.per_source["solo"] = SourceEvents()        # n=k=0 → all-monopoly
+    sc = {s.source: s for s in estimate(ev)}
+    assert sc["solo"].unique_share is None

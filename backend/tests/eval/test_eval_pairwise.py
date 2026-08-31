@@ -34,3 +34,33 @@ def test_pairwise_oc_symmetric_and_formula():
 def test_pairwise_oc_full_overlap_is_one():
     ps = {"a": {("1", "t")}, "b": {("1", "t")}}
     assert pairwise_oc(ps)[frozenset({"a", "b"})] == 1.0
+
+
+from ipdb._eval.pairwise import containment
+
+
+def test_containment_asymmetric_subset():
+    ps = {
+        "big": {("1.1.1.1", "spam"), ("2.2.2.2", "spam"), ("3.3.3.3", "spam")},
+        "small": {("1.1.1.1", "spam")},
+    }
+    frac_big, frac_small = containment(ps)[frozenset(("big", "small"))]
+    assert frac_big == 1 / 3          # small sits inside big
+    assert frac_small == 1.0
+
+
+def test_containment_disjoint_is_zero_both_ways():
+    ps = {"a": {("1.1.1.1", "spam")}, "b": {("9.9.9.9", "proxy")}}
+    assert containment(ps)[frozenset(("a", "b"))] == (0.0, 0.0)
+
+
+def test_containment_skips_empty_sides():
+    assert containment({"a": set(), "b": {("1.1.1.1", "spam")}}) == {}
+
+
+def test_containment_tuple_ordered_by_sorted_name():
+    # key frozenset is unordered; tuple must be deterministic: a < b →
+    # (inter/|a|, inter/|b|)
+    ps = {"b_src": {("1.1.1.1", "spam"), ("2.2.2.2", "spam")},
+          "a_src": {("1.1.1.1", "spam")}}
+    assert containment(ps)[frozenset(("a_src", "b_src"))] == (1.0, 0.5)

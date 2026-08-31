@@ -20,6 +20,21 @@ def source_pair_sets(snap: dict) -> dict[str, set[tuple[str, str]]]:
     return out
 
 
+def assertion_records(snap: dict) -> dict[str, list[list]]:
+    """{source: [[ip, ctype, first_seen|None], ...]} over all classification
+    hits — the time-stamped assertion history payload (spec Part 1).
+    first_seen is source-self-reported; the run timestamp (report filename
+    + generated_at) is the reliable cross-run clock."""
+    out: dict[str, list[list]] = {}
+    for ip, res in snap.items():
+        for ctype, ca in (res.get("classifications") or {}).items():
+            for d in ca.get("details") or []:
+                src = d.get("source")
+                if src:
+                    out.setdefault(src, []).append([ip, ctype, d.get("first_seen")])
+    return out
+
+
 def pairwise_oc(pair_sets: dict[str, set]) -> dict[frozenset[str], float]:
     """OC = |A∩B| / min(|A|,|B|) for every pair with both sides non-empty."""
     names = sorted(pair_sets)
@@ -34,4 +49,24 @@ def pairwise_oc(pair_sets: dict[str, set]) -> dict[frozenset[str], float]:
                 out[frozenset((a, b))] = inter / min(len(sa), len(sb))
             else:
                 out[frozenset((a, b))] = 0.0
+    return out
+
+
+def containment(pair_sets: dict[str, set]) -> dict[frozenset[str], tuple[float, float]]:
+    """Directed containment per source pair (spec 2026-09-01 Part 2).
+
+    {frozenset({a,b}): (|A∩B|/|A|, |A∩B|/|B|)} with a < b lexicographically —
+    tuple order is deterministic despite the unordered key. (0.3, 1.0) on
+    (a, b) means b is fully contained in a. Pairs with an empty side are
+    omitted. Unlike pairwise_oc this is asymmetric: it carries direction.
+    """
+    names = sorted(pair_sets)
+    out: dict[frozenset[str], tuple[float, float]] = {}
+    for i, a in enumerate(names):
+        for b in names[i + 1:]:
+            sa, sb = pair_sets[a], pair_sets[b]
+            if not sa or not sb:
+                continue
+            inter = len(sa & sb)
+            out[frozenset((a, b))] = (inter / len(sa), inter / len(sb))
     return out
