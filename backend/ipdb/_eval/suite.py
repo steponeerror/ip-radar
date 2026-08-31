@@ -16,7 +16,7 @@ from .ablation import take_snapshot
 from .corpus import Corpus, stable_seed
 from .events import extract_events, independent
 from .model import SourceScore, beta_binomial_interval, estimate
-from .pairwise import pairwise_oc, source_pair_sets
+from .pairwise import assertion_records, pairwise_oc, source_pair_sets
 
 VERDICT_AUTHORITIES = ("spamhaus", "emerging_threats", "threatfox")
 ASSET_AUTHORITIES = ("tor_exits", "ip2proxy", "x4bnet_vpn")
@@ -185,6 +185,7 @@ def run_suite(lookup_fn, corpus: Corpus, declared_r=None, w=None) -> dict:
                  "sha8": hashlib.sha256("\n".join(sorted(ips)).encode()).hexdigest()[:8]}
     snap = take_snapshot(lookup_fn, ips)
     pair_sets = source_pair_sets(snap)
+    assertion_hist = assertion_records(snap)
     oc_table = pairwise_oc(pair_sets)
     events = extract_events(snap, oc_table)
     scores = estimate(events, declared_r, w=w)
@@ -199,7 +200,7 @@ def run_suite(lookup_fn, corpus: Corpus, declared_r=None, w=None) -> dict:
         "C2": _c2(scores),
     }
     return {"kind": "model", "w": w, "scores": scores, "checks": checks,
-            "corpus": corpus_fp,
+            "corpus": corpus_fp, "pairs": assertion_hist,
             "movers": [s.source for s in movers], "pinned": pinned,
             "monopoly_ctypes": sorted(events.monopoly_ctypes)}
 
@@ -221,6 +222,7 @@ def write_model_report(result: dict, out_dir: Path) -> tuple[Path, Path]:
         "generated_at": _dt.datetime.now(_dt.timezone.utc).date().isoformat(),
         "w": result["w"],
         "corpus": result["corpus"],
+        "pairs": result["pairs"],
         "checks": result["checks"],
         "movers": result["movers"],
         "pinned": result["pinned"],

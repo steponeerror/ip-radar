@@ -20,6 +20,21 @@ def source_pair_sets(snap: dict) -> dict[str, set[tuple[str, str]]]:
     return out
 
 
+def assertion_records(snap: dict) -> dict[str, list[list]]:
+    """{source: [[ip, ctype, first_seen|None], ...]} over all classification
+    hits — the time-stamped assertion history payload (spec Part 1).
+    first_seen is source-self-reported; the run timestamp (report filename
+    + generated_at) is the reliable cross-run clock."""
+    out: dict[str, list[list]] = {}
+    for ip, res in snap.items():
+        for ctype, ca in (res.get("classifications") or {}).items():
+            for d in ca.get("details") or []:
+                src = d.get("source")
+                if src:
+                    out.setdefault(src, []).append([ip, ctype, d.get("first_seen")])
+    return out
+
+
 def pairwise_oc(pair_sets: dict[str, set]) -> dict[frozenset[str], float]:
     """OC = |A∩B| / min(|A|,|B|) for every pair with both sides non-empty."""
     names = sorted(pair_sets)
