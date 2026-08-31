@@ -17,15 +17,6 @@ N_FLOOR = 20
 # FLAGGED "probable shared upstream". Advisory, not auto-downgrade.
 OC_SUSPICION = 0.70
 
-# source -> independence_group. Sources not listed default to their own name
-# (i.e. independent). Aggregators share a group so they don't corroborate each
-# other. Extend as new aggregator relationships are confirmed.
-INDEPENDENCE_GROUPS = {
-    "firehol": "aggregated-threat",
-    "ipsum":   "aggregated-threat",
-    "otx":     "aggregated-threat",   # 与生产 DERIVED_SOURCES 对齐(spec 2026-08-29 §3.3)
-}
-
 # ── source-eval model (brief v3.1) ──────────────────────────────
 # Hard-exclusion bar for the model's independence predicate. Over-exclusion is
 # safe (source falls back to market prior); OC_SUSPICION above stays

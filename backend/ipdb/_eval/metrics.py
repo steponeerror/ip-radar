@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .ablation import Snapshot
-from .independence import indep_count
+from .._logodds import coefficient, dedup_lineage
 
 
 @dataclass
@@ -50,16 +50,32 @@ def mc(baseline: Snapshot, candidate: Snapshot, candidate_src: str,
     return Metric(value=len(added) / denom, n=denom, detail=sorted(added))
 
 
+def _effective_votes(snapshot: Snapshot, ip: str, ctype: str) -> int:
+    """谱系去重后的有效源票数——生产同款数学(_assess_classification):
+    逐源取最强系数 coefficient(r, first_seen, ctype),再 dedup_lineage。"""
+    ca = (snapshot.get(ip, {}).get("classifications") or {}).get(ctype, {})
+    by_source: dict[str, float] = {}
+    for d in ca.get("details", []):
+        src = d.get("source")
+        if not src:
+            continue
+        c = coefficient(d.get("reliability", 0.5), d.get("first_seen"), ctype)
+        if src not in by_source or c > by_source[src]:
+            by_source[src] = c
+    return len(dedup_lineage(list(by_source.items())))
+
+
 def cg(baseline: Snapshot, candidate: Snapshot, candidate_src: str) -> Metric:
-    """Corroboration Gain: pairs where independent-source count went 1 -> >=2
-    because of the candidate."""
+    """Corroboration Gain: pairs where lineage-deduped effective votes went
+    1 -> >=2 because of the candidate (production dedup_lineage, D5/B3: a
+    shadowed derived source gains nothing)."""
     gained = []
     for ip, res in candidate.items():
         for ctype, ca in res.get("classifications", {}).items():
             if candidate_src not in {s.get("source") for s in ca.get("sources", [])}:
                 continue
-            before = indep_count(asserting_sources(baseline, ip, ctype))
-            after = indep_count(asserting_sources(candidate, ip, ctype))
+            before = _effective_votes(baseline, ip, ctype)
+            after = _effective_votes(candidate, ip, ctype)
             if before < 2 <= after:
                 gained.append((ip, ctype))
     return Metric(value=len(gained), n=len(gained), detail=gained)

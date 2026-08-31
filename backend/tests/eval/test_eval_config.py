@@ -12,10 +12,12 @@ def test_n_floor_and_oc_threshold():
     assert config.N_FLOOR == 20
     assert config.OC_SUSPICION == 0.70
 
-def test_independence_groups_default():
-    # firehol and ipsum share the aggregated-threat group; others default to self.
-    assert config.INDEPENDENCE_GROUPS["firehol"] == "aggregated-threat"
-    assert config.INDEPENDENCE_GROUPS["ipsum"] == "aggregated-threat"
+def test_lineage_clusters_cover_derived_sources():
+    # LINEAGE_CLUSTERS（模型事件层/告警过滤的声明谱系）与生产
+    # DERIVED_SOURCES 一致；计数器已改用生产 dedup_lineage(D5/B3)。
+    from ipdb._logodds import DERIVED_SOURCES
+    for s in DERIVED_SOURCES:
+        assert config.LINEAGE_CLUSTERS.get(s), f"{s} missing from LINEAGE_CLUSTERS"
 
 def test_warninglists_are_ip_relevant_only():
     # provider substrings (cloud/CDN + public DNS); no domain/top-site patterns.
