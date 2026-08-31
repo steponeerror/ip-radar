@@ -14,8 +14,12 @@ OLD_CATEGORIES = {
     "ciarm": "threat", "bruteforce": "threat", "greensnow": "threat",
     "dataplane": "threat", "dshield": "threat", "f3csystems": "threat",
     "reportedip": "threat",
+    "siberkapan": "threat", "turris_greylist": "threat",
+    "threatcluster": "threat", "drb_ra": "threat",
     "ip2proxy": "asset", "tor_exits": "asset", "x4bnet_vpn": "asset",
     "proxyscrape": "asset", "infra_services": "asset", "cdn_edges": "asset",
+    "hookzof": "asset", "thespeedx": "asset",
+    "protonvpn": "asset", "nordvpn": "asset",
 }
 OLD_RELIABILITY = {
     "ipinfo_lite": 0.95, "iptoasn": 0.90, "cn_isp": 0.85, "geolite_city": 0.85,
@@ -26,6 +30,9 @@ OLD_RELIABILITY = {
     "urlhaus": 0.55, "ciarm": 0.60, "bruteforce": 0.60, "greensnow": 0.60,
     "dataplane": 0.70, "dshield": 0.70, "f3csystems": 0.60, "reportedip": 0.65,
     "proxyscrape": 0.50, "infra_services": 0.95, "cdn_edges": 0.95,
+    "siberkapan": 0.60, "turris_greylist": 0.60, "threatcluster": 0.70,
+    "drb_ra": 0.50, "hookzof": 0.50, "thespeedx": 0.50,
+    "protonvpn": 0.75, "nordvpn": 0.75,
 }
 OLD_AUTHORITATIVE = {
     "is_proxy": ["ip2proxy"], "is_tor": ["tor_exits"], "is_vpn": ["x4bnet_vpn"],

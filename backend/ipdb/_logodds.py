@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 DEFAULT_HALF_LIFE_DAYS: float = 60.0
 # Phase 2 从数据估(MISP §VI 方法);本期空表 = 全类型统一 60d(spec §3.1)
 DECAY_OVERRIDES: dict[str, float] = {}
-DERIVED_SOURCES = frozenset({"firehol", "ipsum", "otx", "greensnow"})
+DERIVED_SOURCES = frozenset({"firehol", "ipsum", "otx", "greensnow", "drb_ra"})
 
 
 def logit(p: float) -> float:
