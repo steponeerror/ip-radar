@@ -413,7 +413,9 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
         if len(batch) >= BATCH_SIZE:
             _flush()
             if progress is not None:
-                progress(n, max(total, n))   # feed 增长时跟随 received,防 >100%
+                # total 已知时 feed 增长跟随 received(防 >100%);未知(0)时
+                # 诚实报 0 — UI --% 不定态,而非假 n/n=100%(首次构建修复)。
+                progress(n, max(total, n) if total > 0 else 0)
     _flush()
     if n == 0:
         # 零记录守卫:历史 count>0 的空 rebuild 是 feed 异常(改格式/上游清
@@ -431,7 +433,7 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
                     f"zero records parsed but previous count was {prev}; "
                     "keeping old epoch")
     if progress is not None:
-        progress(n, max(total, n))
+        progress(n, max(total, n) if total > 0 else 0)
     env.sync(True)
     disjoint = detect_disjoint(env)    # sync 后 close 前判定:句柄在手免重开
     env.close()                        # closed BEFORE rename — Windows-safe
