@@ -66,3 +66,19 @@ def test_estimate_contrast_direction_and_monopoly():
 def test_estimate_is_deterministic():
     ev = _make_events()
     assert estimate(ev) == estimate(ev)
+
+
+def test_estimate_evidence_flag():
+    ev = Events(
+        pair_sets={"a": {("p1", "t")}, "c": {("p9", "t")}},
+        monopoly_ctypes=set(),
+        per_source={
+            "a": SourceEvents(n=20, k=10, by_ctype={"t": (20, 10)}),
+            "c": SourceEvents(n=5, k=0, by_ctype={"t": (5, 0)}),
+            "tor_exits": SourceEvents(n=0, k=0, by_ctype={}),
+        },
+    )
+    scores = {s.source: s for s in estimate(ev)}
+    assert scores["a"].evidence is True       # k=10 >= 1 -> independently corroborated
+    assert scores["c"].evidence is False      # k=0 -> evidence-starved, not tested-weak
+    assert scores["tor_exits"].evidence is False  # no-signal slot

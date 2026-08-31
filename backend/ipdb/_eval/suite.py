@@ -6,6 +6,7 @@ Checks T-1/T-2/T-3/C-1/C-2; every string says corroboration (B2 red line).
 from __future__ import annotations
 
 import datetime as _dt
+import hashlib
 import json
 import random
 from pathlib import Path
@@ -179,7 +180,10 @@ def _c2(scores):
 
 def run_suite(lookup_fn, corpus: Corpus, declared_r=None, w=None) -> dict:
     w = w if w is not None else config.MODEL_W
-    snap = take_snapshot(lookup_fn, corpus.all_ips())
+    ips = corpus.all_ips()
+    corpus_fp = {"n_ips": len(ips),
+                 "sha8": hashlib.sha256("\n".join(sorted(ips)).encode()).hexdigest()[:8]}
+    snap = take_snapshot(lookup_fn, ips)
     pair_sets = source_pair_sets(snap)
     oc_table = pairwise_oc(pair_sets)
     events = extract_events(snap, oc_table)
@@ -195,6 +199,7 @@ def run_suite(lookup_fn, corpus: Corpus, declared_r=None, w=None) -> dict:
         "C2": _c2(scores),
     }
     return {"kind": "model", "w": w, "scores": scores, "checks": checks,
+            "corpus": corpus_fp,
             "movers": [s.source for s in movers], "pinned": pinned,
             "monopoly_ctypes": sorted(events.monopoly_ctypes)}
 
@@ -206,12 +211,14 @@ def write_model_report(result: dict, out_dir: Path) -> tuple[Path, Path]:
     def _score_dict(s: SourceScore):
         return {"source": s.source, "theta": s.theta, "ci_lo": s.ci_lo,
                 "ci_hi": s.ci_hi, "n": s.n, "k": s.k, "rho": s.rho,
+                "evidence": s.evidence,
                 "below_market": s.below_market, "monopoly": s.monopoly,
                 "declared_r": s.declared_r}
     payload = {
         "kind": "model",
         "generated_at": _dt.datetime.now(_dt.timezone.utc).date().isoformat(),
         "w": result["w"],
+        "corpus": result["corpus"],
         "checks": result["checks"],
         "movers": result["movers"],
         "pinned": result["pinned"],
@@ -221,8 +228,9 @@ def write_model_report(result: dict, out_dir: Path) -> tuple[Path, Path]:
     md = d / f"model-{ts}.md"
     js = d / f"model-{ts}.json"
     lines = ["# Source corroboration-contrast model (advisory)", "",
-             "| source | theta | 90% CI | n | k | rho | below-mkt | mono | declared_r |",
-             "|---|---|---|---|---|---|---|---|---|"]
+             f"corpus: {result['corpus']['n_ips']} ips @ {result['corpus']['sha8']}", "",
+             "| source | theta | 90% CI | n | k | rho | evidence | below-mkt | mono | declared_r |",
+             "|---|---|---|---|---|---|---|---|---|---|"]
     for s in result["scores"]:
         if s.theta is not None:
             cells = [s.source, f"{s.theta:.3f}",
@@ -231,6 +239,7 @@ def write_model_report(result: dict, out_dir: Path) -> tuple[Path, Path]:
             cells = [s.source, "—", "—"]
         cells += [str(s.n), str(s.k),
                   f"{s.rho:.3f}" if s.rho is not None else "—",
+                  "present" if s.evidence else "none",
                   str(s.below_market), str(s.monopoly),
                   "—" if s.declared_r is None else f"{s.declared_r:.2f}"]
         lines.append("| " + " | ".join(cells) + " |")

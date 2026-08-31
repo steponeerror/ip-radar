@@ -1,4 +1,6 @@
 # backend/tests/eval/test_eval_suite.py
+import json
+
 import pytest
 
 from ipdb._eval.corpus import Corpus
@@ -85,3 +87,20 @@ def test_write_model_report_creates_subdir_files(tmp_path):
     assert md.parent == tmp_path / "model"
     assert md.exists() and js.exists()
     assert "corroboration" in md.read_text()          # B2 naming red line
+
+
+def test_corpus_fingerprint_and_evidence_in_report(tmp_path):
+    result = run_suite(_lookup(), _corpus())
+    fp = result["corpus"]
+    assert fp["n_ips"] == 20
+    assert len(fp["sha8"]) == 8 and int(fp["sha8"], 16) >= 0   # 8 hex chars
+    good = next(s for s in result["scores"] if s.source == "good")
+    assert good.evidence is False        # toy fleet: OC 1.0 -> k=0 -> none
+    md, js = write_model_report(result, tmp_path)
+    text = md.read_text()
+    assert "20 ips @" in text            # fingerprint header line
+    assert "| evidence |" in text        # new column
+    assert "| none |" in text and "present" not in text
+    rows = {r["source"]: r for r in json.loads(js.read_text())["scores"]}
+    assert rows["good"]["evidence"] is False
+    assert json.loads(js.read_text())["corpus"]["n_ips"] == 20

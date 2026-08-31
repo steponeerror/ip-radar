@@ -124,6 +124,7 @@ class SourceScore:
     below_market: bool
     monopoly: bool
     declared_r: float | None
+    evidence: bool = False     # k >= 1: ever independently corroborated on this corpus
 
 
 def _prior_center(se, rhos_full: dict[str, float], rhos_loo: dict[str, float]) -> float | None:
@@ -154,12 +155,15 @@ def estimate(events: Events, declared_r: dict[str, float] | None = None,
         if rho is None or se.n == 0:
             # monopoly -> no-signal; n=0 non-monopoly -> market-prior slot
             out.append(SourceScore(src, None, None, None, se.n, se.k, rho,
-                                   False, monopoly, declared_r.get(src)))
+                                   False, monopoly, declared_r.get(src),
+                                   evidence=se.k >= 1))
             continue
         a = w * rho + se.k
         b = w * (1.0 - rho) + (se.n - se.k)
         theta = a / (a + b)
         lo, hi = beta_ci(a, b, level=0.90)
-        out.append(SourceScore(src, theta, lo, hi, se.n, se.k, rho,
-                               hi < rho, monopoly, declared_r.get(src)))
+        out.append(SourceScore(theta=theta, ci_lo=lo, ci_hi=hi, source=src,
+                               n=se.n, k=se.k, rho=rho, below_market=hi < rho,
+                               monopoly=monopoly, declared_r=declared_r.get(src),
+                               evidence=se.k >= 1))
     return out
