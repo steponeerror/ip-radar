@@ -213,6 +213,7 @@ def write_model_report(result: dict, out_dir: Path) -> tuple[Path, Path]:
                 "ci_hi": s.ci_hi, "n": s.n, "k": s.k, "rho": s.rho,
                 "evidence": s.evidence,
                 "fountain_suspect": s.fountain_suspect,
+                "unique_share": s.unique_share,
                 "below_market": s.below_market, "monopoly": s.monopoly,
                 "declared_r": s.declared_r}
     payload = {

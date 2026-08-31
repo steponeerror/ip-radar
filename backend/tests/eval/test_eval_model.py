@@ -135,3 +135,25 @@ def test_fountain_suspect_partial_overlap_below_bar():
     }
     sc = {s.source: s for s in estimate(_events_from_pair_sets(ps))}
     assert sc["fount"].fountain_suspect is False      # only m1 qualifies
+
+
+# ── unique_share (spec 2026-09-01 Q4-B1) ─────────────────────────
+
+def test_unique_share_counts_solo_pairs_only():
+    ips = [("10.0.0.%d" % i, "spam") for i in range(4)]
+    ps = {
+        "a": set(ips) | {("10.9.9.9", "spam")},   # 4 shared + 1 unique
+        "b": set(ips),
+    }
+    sc = {s.source: s for s in estimate(_events_from_pair_sets(ps))}
+    assert sc["a"].unique_share == 0.2
+    assert sc["b"].unique_share == 0.0
+
+
+def test_unique_share_none_when_all_pairs_monopoly():
+    ps = {"solo": {("1.2.3.4", "tor")}}
+    ev = _events_from_pair_sets(ps)
+    ev.monopoly_ctypes = {"tor"}                  # sole asserter ctype
+    ev.per_source["solo"] = SourceEvents()        # n=k=0 → all-monopoly
+    sc = {s.source: s for s in estimate(ev)}
+    assert sc["solo"].unique_share is None
