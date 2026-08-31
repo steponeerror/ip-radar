@@ -71,3 +71,10 @@ def test_multicategory_background_mass():
     assert abs(p["HK"] - p["US"]) < 1e-9
     assert 0.43 < p["HK"] < 0.45
     assert abs(sum(p.values()) - (1 - 1 / (math.exp(s) * 2 + 1))) < 1e-9  # 概率和 < 1
+
+
+def test_dedup_lineage_greensnow_mirror_dropped():
+    # greensnow mirrors firehol (containment ≥0.9, spec Part 6): as a derived
+    # source it must never out-vote its non-derived competitor's ceiling.
+    coeffs = [("firehol", 2.0), ("spamhaus", 1.5), ("greensnow", 1.4)]
+    assert dedup_lineage(coeffs) == [("firehol", 2.0), ("spamhaus", 1.5)]

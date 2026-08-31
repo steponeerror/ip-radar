@@ -81,3 +81,9 @@ def test_market_rates_leave_one_out_and_smoothing():
     loo_x = market_rates(ev, leave_out="x")
     # without x: N=9 (y 4 + z 5), K=3
     assert loo_x["t"] == pytest.approx((3 + 0.5) / (9 + 1))
+
+
+def test_independent_greensnow_clusters_with_firehol():
+    # greensnow joined the aggregated-threat lineage (spec Part 6): same
+    # cluster ⇒ not independent, even at zero overlap.
+    assert not independent("firehol", "greensnow", {})

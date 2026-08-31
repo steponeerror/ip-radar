@@ -11,6 +11,7 @@ from dataclasses import dataclass
 
 from . import config
 from .events import Events, market_rates
+from .pairwise import containment
 
 
 # ── stdlib incomplete beta (NR §6.4 continued fraction) ─────────
@@ -125,6 +126,8 @@ class SourceScore:
     monopoly: bool
     declared_r: float | None
     evidence: bool = False     # k >= 1: ever independently corroborated on this corpus
+    fountain_suspect: bool = False  # >=2 sources ~fully contained in it (directed)
+    unique_share: float | None = None  # share of own non-monopoly pairs no one else asserts
 
 
 def _prior_center(se, rhos_full: dict[str, float], rhos_loo: dict[str, float]) -> float | None:
@@ -140,23 +143,46 @@ def _prior_center(se, rhos_full: dict[str, float], rhos_loo: dict[str, float]) -
                for c, (n, _) in se.by_ctype.items()) / n_tot
 
 
+def _fountain_suspect(src: str, pair_sets: dict, cont: dict) -> bool:
+    """≥ FOUNTAIN_MIN_CONTAINEES other sources ≥0.9-contained in src,
+    each with ≥ FOUNTAIN_MIN_PAIRS assertions (spec Part 2)."""
+    qualify = 0
+    for other, ps in pair_sets.items():
+        if other == src or len(ps) < config.FOUNTAIN_MIN_PAIRS:
+            continue
+        fr = cont.get(frozenset((src, other)))
+        if fr is None:
+            continue
+        frac_other_inside_src = fr[1] if src < other else fr[0]
+        if frac_other_inside_src >= config.FOUNTAIN_CONTAINMENT:
+            qualify += 1
+    return qualify >= config.FOUNTAIN_MIN_CONTAINEES
+
+
 def estimate(events: Events, declared_r: dict[str, float] | None = None,
              w: int | None = None) -> list[SourceScore]:
     w = w if w is not None else config.MODEL_W
     declared_r = declared_r or {}
     out: list[SourceScore] = []
     rhos_full = market_rates(events)
+    cont = containment(events.pair_sets)
     for src, se in sorted(events.per_source.items()):
         rhos_loo = market_rates(events, leave_out=src)
         rho = _prior_center(se, rhos_full, rhos_loo)
         asserted = events.pair_sets.get(src) or set()
+        fount = _fountain_suspect(src, events.pair_sets, cont)
+        nonmono = [p for p in asserted if p[1] not in events.monopoly_ctypes]
+        uniq = sum(1 for p in nonmono if not any(
+            p in events.pair_sets.get(o, ()) for o in events.pair_sets if o != src))
+        unique_share = (uniq / len(nonmono)) if nonmono else None
         monopoly = (se.n == 0 and se.k == 0 and bool(asserted)
                     and all(p[1] in events.monopoly_ctypes for p in asserted))
         if rho is None or se.n == 0:
             # monopoly -> no-signal; n=0 non-monopoly -> market-prior slot
             out.append(SourceScore(src, None, None, None, se.n, se.k, rho,
                                    False, monopoly, declared_r.get(src),
-                                   evidence=se.k >= 1))
+                                   evidence=se.k >= 1, fountain_suspect=fount,
+                                   unique_share=unique_share))
             continue
         a = w * rho + se.k
         b = w * (1.0 - rho) + (se.n - se.k)
@@ -165,5 +191,6 @@ def estimate(events: Events, declared_r: dict[str, float] | None = None,
         out.append(SourceScore(theta=theta, ci_lo=lo, ci_hi=hi, source=src,
                                n=se.n, k=se.k, rho=rho, below_market=hi < rho,
                                monopoly=monopoly, declared_r=declared_r.get(src),
-                               evidence=se.k >= 1))
+                               evidence=se.k >= 1, fountain_suspect=fount,
+                               unique_share=unique_share))
     return out

@@ -29,10 +29,21 @@ LINEAGE_CLUSTERS = {
     "firehol": "aggregated-threat",
     "ipsum":   "aggregated-threat",
     "otx":     "aggregated-threat",
+    "greensnow": "aggregated-threat",  # OC=1.0 w/ firehol, containment ≥0.9 (2026-09-01)
 }
 
 MODEL_W = 10        # G1' prior strength
 MODEL_N_FLOOR = 10  # mover floor for suite checks
+
+# Fountainhead heuristic (spec 2026-09-01 Part 2): a source is "suspected
+# fountain" when >= FOUNTAIN_MIN_CONTAINEES other sources, each holding
+# >= FOUNTAIN_MIN_PAIRS assertions, are >= FOUNTAIN_CONTAINMENT contained
+# in it (directed). Presentation-only metadata — never alters theta or
+# below_market, never auto-exempts (aggregator vs fountainhead is
+# indistinguishable without temporal data).
+FOUNTAIN_CONTAINMENT = 0.9
+FOUNTAIN_MIN_PAIRS = 10
+FOUNTAIN_MIN_CONTAINEES = 2
 
 # PyMISPWarningLists provider substrings treated as benign infrastructure
 # (FP-proxy). Matched case-insensitively against each WarningList's .name
@@ -45,5 +56,8 @@ IP_WARNINGLISTS = [
 ]
 
 # Corpus sizing.
-CORPUS_PER_TYPE_N = 30     # malicious IPs sampled per classification_type
+# Epoch 2026-09-01 (spec Part 5): per_type_n 30→60, corpus.json frozen.
+# Any --rebuild from here on starts a NEW epoch — record old/new
+# fingerprints in superpowers/runbooks/eval-model-monthly.md first.
+CORPUS_PER_TYPE_N = 60     # malicious IPs sampled per classification_type
 CORPUS_CANDIDATE_N = 100
