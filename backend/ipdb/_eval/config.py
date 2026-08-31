@@ -17,14 +17,22 @@ N_FLOOR = 20
 # FLAGGED "probable shared upstream". Advisory, not auto-downgrade.
 OC_SUSPICION = 0.70
 
-# source -> independence_group. Sources not listed default to their own name
-# (i.e. independent). Aggregators share a group so they don't corroborate each
-# other. Extend as new aggregator relationships are confirmed.
-INDEPENDENCE_GROUPS = {
+# ── source-eval model (brief v3.1) ──────────────────────────────
+# Hard-exclusion bar for the model's independence predicate. Over-exclusion is
+# safe (source falls back to market prior); OC_SUSPICION above stays
+# advisory-only flags and must NOT be reused as this bar.
+OC_EXCLUSION = 0.30
+
+# Static lineage clusters for the event layer (aligned with production
+# DERIVED_SOURCES; per-sublist prose lineage folds in here as confirmed).
+LINEAGE_CLUSTERS = {
     "firehol": "aggregated-threat",
     "ipsum":   "aggregated-threat",
-    "otx":     "aggregated-threat",   # 与生产 DERIVED_SOURCES 对齐(spec 2026-08-29 §3.3)
+    "otx":     "aggregated-threat",
 }
+
+MODEL_W = 10        # G1' prior strength
+MODEL_N_FLOOR = 10  # mover floor for suite checks
 
 # PyMISPWarningLists provider substrings treated as benign infrastructure
 # (FP-proxy). Matched case-insensitively against each WarningList's .name

@@ -78,3 +78,23 @@ def read_source(source: str) -> dict:
     return {"latest": _clean(runs[-1]) if runs else None,
             "history": [{"at": r.get("generated_at"),
                          "verdict": _verdict_state(r)} for r in runs]}
+
+
+def read_model() -> dict | None:
+    """最新舰队 corroboration-contrast 模型报告(model/ 子目录;
+    source-eval model 任务)。顶层 *.json 仍是逐源 verdict —— 两者不混。
+    排序键与 _runs 同式:(generated_at, 文件名)。"""
+    d = _dir() / "model"
+    if not d.exists():
+        return None
+    best, best_key = None, ("", "")
+    for f in sorted(d.glob("model-*.json")):
+        try:
+            r = json.loads(f.read_text())
+        except ValueError:
+            continue
+        if isinstance(r, dict):
+            key = (str(r.get("generated_at") or ""), f.stem)
+            if key > best_key:
+                best, best_key = r, key
+    return best

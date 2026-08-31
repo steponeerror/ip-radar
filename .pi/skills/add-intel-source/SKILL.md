@@ -304,6 +304,8 @@ s = next(s for s in _sources if s.name == "<name>")   # discovery found it?
 print(s.health())                                      # loaded/stale sane?
 ```
 
+若跑模型套件(`python -m ipdb._eval --model`):模型的冷启动语义 = 市场先验(新源无独立印证记录属预期,不降分)。
+
 ## How your Evidence is consumed (read path)
 
 `source.query(ip)` → `route_record()` (unknown keys fold into `extra`) → three paths:
