@@ -88,4 +88,4 @@ def test_reliability_floor_and_derived_flags():
     for s in reg._sources:
         assert getattr(s, "reliability", 0.5) >= 0.5, f"{s.name} below r floor"
     derived = {s.name for s in reg._sources if getattr(s, "derived", False)}
-    assert derived == {"firehol", "ipsum", "otx"}
+    assert derived == {"firehol", "ipsum", "otx", "drb_ra"}
