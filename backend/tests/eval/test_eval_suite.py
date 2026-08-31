@@ -130,3 +130,23 @@ def test_model_report_persists_pairs_history(tmp_path):
     payload = json.loads(js.read_text())
     assert payload["pairs"]["c"] == [["2.2.2.2", "proxy", "2026-07-15"]]
     assert '"pairs"' not in md.read_text()   # md stays human-sized
+
+
+def test_model_md_report_has_new_columns_and_footnotes(tmp_path):
+    from ipdb._eval.corpus import Corpus
+    from ipdb._eval.suite import run_suite, write_model_report
+
+    def lookup(ip):
+        if ip != "1.1.1.1":
+            return {}
+        return {"classifications": {"spam": {
+            "sources": [{"source": "a"}, {"source": "b"}],
+            "details": [{"source": "a", "first_seen": "2026-08-01"},
+                        {"source": "b"}]}}}
+
+    md, _ = write_model_report(
+        run_suite(lookup, Corpus(benchmark={"spam": ["1.1.1.1"]})), tmp_path)
+    text = md.read_text()
+    assert "| source | theta | 90% CI | n | k | rho | evidence | below-mkt | mono | fountain | unique | declared_r |" in text
+    assert "specialist / uncovered niche, not necessarily weak" in text
+    assert "information-theoretically uncorroboratable" in text

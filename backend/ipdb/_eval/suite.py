@@ -233,8 +233,8 @@ def write_model_report(result: dict, out_dir: Path) -> tuple[Path, Path]:
     js = d / f"model-{ts}.json"
     lines = ["# Source corroboration-contrast model (advisory)", "",
              f"corpus: {result['corpus']['n_ips']} ips @ {result['corpus']['sha8']}", "",
-             "| source | theta | 90% CI | n | k | rho | evidence | below-mkt | mono | declared_r |",
-             "|---|---|---|---|---|---|---|---|---|---|"]
+             "| source | theta | 90% CI | n | k | rho | evidence | below-mkt | mono | fountain | unique | declared_r |",
+             "|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for s in result["scores"]:
         if s.theta is not None:
             cells = [s.source, f"{s.theta:.3f}",
@@ -245,11 +245,19 @@ def write_model_report(result: dict, out_dir: Path) -> tuple[Path, Path]:
                   f"{s.rho:.3f}" if s.rho is not None else "—",
                   "present" if s.evidence else "none",
                   str(s.below_market), str(s.monopoly),
+                  "suspect" if s.fountain_suspect else "—",
+                  "—" if s.unique_share is None else f"{s.unique_share:.2f}",
                   "—" if s.declared_r is None else f"{s.declared_r:.2f}"]
         lines.append("| " + " | ".join(cells) + " |")
     lines += ["", "## Checks", ""]
     for name, chk in result["checks"].items():
         lines.append(f"- **{name}: {'PASS' if chk['pass'] else 'FAIL'}** — {chk['detail']}")
+    lines += ["",
+              "_High unique share with no evidence = specialist / uncovered niche, "
+              "not necessarily weak (coverage is orthogonal to corroboration)._",
+              "_Monopoly types are information-theoretically uncorroboratable; "
+              "asserters are unscored by design and route through the authority "
+              "tier in any future D2 loop._"]
     lines += ["", "_Corroboration semantics (audit B2): never read theta as accuracy; "
                "advisory only — declared_r stays authoritative until Q4 graduation._"]
     md.write_text("\n".join(lines) + "\n", encoding="utf-8")
