@@ -20,6 +20,9 @@ OLD_CATEGORIES = {
     "proxyscrape": "asset", "infra_services": "asset", "cdn_edges": "asset",
     "hookzof": "asset", "thespeedx": "asset",
     "protonvpn": "asset", "nordvpn": "asset",
+    "aws_ranges": "asset", "gcp_ranges": "asset",
+    "azure_ranges": "asset", "oracle_ranges": "asset",
+    "dbip_city": "geo_asn",
 }
 OLD_RELIABILITY = {
     "ipinfo_lite": 0.95, "iptoasn": 0.90, "cn_isp": 0.85, "geolite_city": 0.85,
@@ -33,6 +36,9 @@ OLD_RELIABILITY = {
     "siberkapan": 0.60, "turris_greylist": 0.60, "threatcluster": 0.70,
     "drb_ra": 0.50, "hookzof": 0.50, "thespeedx": 0.50,
     "protonvpn": 0.75, "nordvpn": 0.75,
+    "aws_ranges": 0.95, "gcp_ranges": 0.95,
+    "azure_ranges": 0.95, "oracle_ranges": 0.95,
+    "dbip_city": 0.80,
 }
 OLD_AUTHORITATIVE = {
     "is_proxy": ["ip2proxy"], "is_tor": ["tor_exits"], "is_vpn": ["x4bnet_vpn"],

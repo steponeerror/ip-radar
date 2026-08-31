@@ -200,7 +200,9 @@ def test_batch_flows_through_manager_and_snapshot(monkeypatch):
             # active slot, so snapshot stops reporting it; completion is confirmed
             # via tasks reaching terminal plus the SSE `done` event (asserted below).
             terminal = {"done", "failed", "cancelled"}
-            deadline = time.monotonic() + 10
+            # Real-network e2e: dbip_city's ~83MB monthly dump needs >10s on a
+            # slow pipe — the poll must absorb the slowest real download.
+            deadline = time.monotonic() + 150
             snap = before
             while time.monotonic() < deadline:
                 snap = c.get("/api/tasks").json()

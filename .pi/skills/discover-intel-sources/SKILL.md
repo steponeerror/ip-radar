@@ -22,9 +22,18 @@ Read these once before scoring — they define the contract every dossier must s
 
 Two rules, and everything else follows:
 
-1. **Gap-first, not feed-first.** Start from *what coverage is missing*, not from
-   *what feeds exist*. A source that opens a dead classification slot beats one
-   that reinforces a saturated axis, even if the latter is bigger.
+1. **Gap-first across the whole answer surface, not feed-first.** Start from
+   *what the lookup cannot answer yet*, not from *what feeds exist*. The gap
+   spans three field families with equal standing — classification types
+   (threat intel), scalar slots (geo/ASN/range/city), asset slots
+   (proxy/vpn/hosting/tor/mobile/carrier/service) — plus askable-but-absent
+   info (e.g. rDNS hostname, abuse contact, cloud-provider range labels).
+   The tool's product is a comprehensive IP profile; threat intel is one
+   axis, and in practice the most saturated one (2026-09-01: 22 of 37
+   sources feed `is_malicious` while `city`/`carrier`/`is_isp` sit at one
+   witness each). A source that gives a 1-witness field its second vote, or
+   opens a missing field, beats one that reinforces a saturated axis, even
+   if the latter is bigger.
 2. **Every candidate gets the same dossier.** A shortlist you can't compare
    side-by-side is a list of essays, not a decision. One template, filled
    identically, scored on a fixed rubric.
@@ -32,10 +41,14 @@ Two rules, and everything else follows:
 ## The workflow
 
 1. **Map the coverage gap.** Read `SOURCE_CATEGORIES`(由源文件 `category` attr 派生); count sources per axis
-   (`threat` / `geo_asn` / `asset`). Then read `CLASSIFICATION_TYPES` and find
+   (`threat` / `geo_asn` / `asset`). Then count **witnesses per answer field**
+   (union of each source's `fields` attr — a x1 field is a single point of
+   failure; sanctioned example: `city` has awaited its second voting source
+   since 2026-08-15). Then read `CLASSIFICATION_TYPES` and find
    **dead slots** — vocab terms no source actually emits (verify by grepping the
-   `_sources/` for each `classification_type`). Dead slots + thin axes are the
-   highest-value targets. State the gap in one sentence before looking at any feed.
+   `_sources/` for each `classification_type`). x1 fields, dead slots + thin
+   axes are the highest-value targets. State the gap in one sentence before
+   looking at any feed.
 2. **Search hard for candidates (maximize discovery).** Use `agent-reach`
    (Exa search + GitHub) and cast a **wide, multi-angle** net — a single query
    always misses something. Sweep these angles:
