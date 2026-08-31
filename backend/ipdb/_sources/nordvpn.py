@@ -13,7 +13,7 @@ class NordVPNSource(IpListSource):
     name = "nordvpn"
     category = "asset"
     url = ("https://raw.githubusercontent.com/mthcht/awesome-lists/main/"
-           "Lists/VPN/NordVPN/nordvpn_ip_list.csv")
+           "Lists/VPN/NordVPN/nordvpn_ips_list.csv")
     filename = "nordvpn.csv"
     fields = ("is_vpn",)
     classification_type = "proxy"        # no vpn vocab slot; x4bnet_vpn precedent
