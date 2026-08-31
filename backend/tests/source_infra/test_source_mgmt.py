@@ -199,6 +199,9 @@ def test_get_sources_route_returns_list(monkeypatch):
 
     stub = _stub_source("ipinfo_lite")
     monkeypatch.setattr(main, "list_sources", lambda: [stub])
+    # eval 报告目录是本机运行时状态(跑过 eval 就非空)——隔离掉,别让
+    # 无报告假设依赖环境(隔离修复 2026-08-31:基线跑挂了它)。
+    monkeypatch.setattr(main, "read_overview", lambda: [])
     client = TestClient(main.app)
     resp = client.get("/api/sources")
     assert resp.status_code == 200

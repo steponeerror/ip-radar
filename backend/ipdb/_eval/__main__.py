@@ -20,6 +20,7 @@ from .independence import oc_suspicion_pairs
 from .metrics import (compute_other_distribution, mc, cg, conflict, oc,
                       fp_proxy, other_pct, confidence_uplift, dead_slot_fill,
                       pairs)
+from .pairwise import pairwise_oc, source_pair_sets
 from .report import write_report
 from .suite import run_suite, write_model_report
 from .verdict import assess
@@ -95,8 +96,10 @@ def run_for_source(source_name: str, registry=None, corpus_path=CORPUS_PATH,
     # candidate's contribution so the floor actually protects niche sources
     # (counting any-source classifications would always exceed the floor).
     candidate_touched = len(pairs(candidate_snap, source_name))
-    # OC suspicion across all source pairs (advisory).
-    flags = oc_suspicion_pairs({})   # v1: 无全源 OC 基线(advisory 恒空)
+    # OC suspicion across all source pairs (advisory), fed by the D4 pairwise
+    # OC table over the baseline snapshot (= full fleet minus the candidate).
+    # Same-declared-cluster pairs (firehol x ipsum) are pre-filtered inside.
+    flags = oc_suspicion_pairs(pairwise_oc(source_pair_sets(baseline)))
     from ipdb._registry import SOURCE_CATEGORIES
     category = SOURCE_CATEGORIES.get(source_name, "other")
     verdict = assess(metrics, candidate_touched, flags, source_category=category)
