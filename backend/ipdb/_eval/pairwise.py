@@ -35,3 +35,23 @@ def pairwise_oc(pair_sets: dict[str, set]) -> dict[frozenset[str], float]:
             else:
                 out[frozenset((a, b))] = 0.0
     return out
+
+
+def containment(pair_sets: dict[str, set]) -> dict[frozenset[str], tuple[float, float]]:
+    """Directed containment per source pair (spec 2026-09-01 Part 2).
+
+    {frozenset({a,b}): (|A∩B|/|A|, |A∩B|/|B|)} with a < b lexicographically —
+    tuple order is deterministic despite the unordered key. (0.3, 1.0) on
+    (a, b) means b is fully contained in a. Pairs with an empty side are
+    omitted. Unlike pairwise_oc this is asymmetric: it carries direction.
+    """
+    names = sorted(pair_sets)
+    out: dict[frozenset[str], tuple[float, float]] = {}
+    for i, a in enumerate(names):
+        for b in names[i + 1:]:
+            sa, sb = pair_sets[a], pair_sets[b]
+            if not sa or not sb:
+                continue
+            inter = len(sa & sb)
+            out[frozenset((a, b))] = (inter / len(sa), inter / len(sb))
+    return out
