@@ -33,12 +33,6 @@ def pairs(snapshot: Snapshot, candidate_src: str | None = None) -> set[tuple[str
     return out
 
 
-def asserting_sources(snapshot: Snapshot, ip: str, ctype: str) -> set[str]:
-    res = snapshot.get(ip, {})
-    ca = res.get("classifications", {}).get(ctype, {})
-    return {s.get("source") for s in ca.get("sources", [])}
-
-
 def mc(baseline: Snapshot, candidate: Snapshot, candidate_src: str,
        total_corpus_pairs: int) -> Metric:
     """Marginal Coverage = pairs present with candidate, absent in baseline

@@ -1,5 +1,5 @@
 # backend/test_eval_metrics.py
-from ipdb._eval.metrics import (Metric, pairs, asserting_sources, mc, cg,
+from ipdb._eval.metrics import (Metric, pairs, mc, cg,
     conflict, oc, dead_slot_fill)
 from ipdb._eval.ablation import Snapshot
 
@@ -29,9 +29,6 @@ def test_pairs_extracts_ip_type():
     p = pairs(CANDIDATE)
     assert ("1.1.1.1", "c2-server") in p
     assert ("2.2.2.2", "phishing") in p
-
-def test_asserting_sources_reads_sources_list():
-    assert asserting_sources(CANDIDATE, "1.1.1.1", "c2-server") == {"threatfox", "cand"}
 
 def test_mc_counts_pairs_in_candidate_not_baseline():
     # candidate adds (2.2.2.2, phishing) which baseline lacks -> MC=1 pair.
