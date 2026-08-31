@@ -95,6 +95,10 @@ def test_json_missing_source_arg_is_envelope(monkeypatch, capsys):
     reason="本机缺 binarydefense 已构建库 / corpus / pymispwarninglists,happy-path 无法实跑")
 def test_cli_json_happy_path_binarydefense(tmp_path):
     """真实源 --json:stdout 为 write_report 同 schema + source,报告落 env 目录。"""
+    # 默认目录是本机运行时状态(跑过 eval 即非空)——只断言「没有新掉落」,
+    # 不得假设其始终于净(隔离修复 2026-08-31:全量数据本地跑挂过它)。
+    _default = BACKEND / "data" / "eval"
+    _before = set(_default.glob("binarydefense-*.json")) if _default.exists() else set()
     p = _run_cli(["binarydefense", "--json"], {"IP_RADAR_EVAL_DIR": str(tmp_path)})
     assert p.returncode == 0, p.stderr[-500:]
     out = json.loads(p.stdout)
@@ -104,5 +108,5 @@ def test_cli_json_happy_path_binarydefense(tmp_path):
     assert isinstance(out["metrics"], dict) and out["metrics"]
     assert out["generated_at"]                          # date 串
     assert list(tmp_path.glob("binarydefense-*.json")), "报告应落 IP_RADAR_EVAL_DIR"
-    assert not (BACKEND / "data" / "eval").exists() or not any(
-        (BACKEND / "data" / "eval").glob("binarydefense-*.json")), "不得回落默认目录"
+    _after = set(_default.glob("binarydefense-*.json")) if _default.exists() else set()
+    assert not (_after - _before), "不得回落默认目录"

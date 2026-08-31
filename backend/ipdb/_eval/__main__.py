@@ -3,6 +3,7 @@
   python -m ipdb._eval <source>      # single-source verdict + report
   python -m ipdb._eval --rebuild     # rebuild the frozen benchmark corpus
   python -m ipdb._eval --all         # per-source verdict table (no ranking in v1)
+  python -m ipdb._eval --model       # fleet corroboration-contrast model + acceptance suite
 """
 import argparse
 import json
@@ -19,7 +20,9 @@ from .independence import oc_suspicion_pairs
 from .metrics import (compute_other_distribution, mc, cg, conflict, oc,
                       fp_proxy, other_pct, confidence_uplift, dead_slot_fill,
                       pairs)
+from .pairwise import pairwise_oc, source_pair_sets
 from .report import write_report
+from .suite import run_suite, write_model_report
 from .verdict import assess
 
 _PKG_DIR = Path(__file__).resolve().parent              # backend/ipdb/_eval
@@ -93,8 +96,10 @@ def run_for_source(source_name: str, registry=None, corpus_path=CORPUS_PATH,
     # candidate's contribution so the floor actually protects niche sources
     # (counting any-source classifications would always exceed the floor).
     candidate_touched = len(pairs(candidate_snap, source_name))
-    # OC suspicion across all source pairs (advisory).
-    flags = oc_suspicion_pairs({})   # v1: 无全源 OC 基线(advisory 恒空)
+    # OC suspicion across all source pairs (advisory), fed by the D4 pairwise
+    # OC table over the baseline snapshot (= full fleet minus the candidate).
+    # Same-declared-cluster pairs (firehol x ipsum) are pre-filtered inside.
+    flags = oc_suspicion_pairs(pairwise_oc(source_pair_sets(baseline)))
     from ipdb._registry import SOURCE_CATEGORIES
     category = SOURCE_CATEGORIES.get(source_name, "other")
     verdict = assess(metrics, candidate_touched, flags, source_category=category)
@@ -107,6 +112,8 @@ def main(argv=None):
     p.add_argument("source", nargs="?", help="source name to evaluate")
     p.add_argument("--rebuild", action="store_true", help="rebuild frozen benchmark corpus")
     p.add_argument("--all", action="store_true", help="evaluate every source (no ranking in v1)")
+    p.add_argument("--model", action="store_true",
+                   help="fleet corroboration-contrast model + acceptance suite")
     p.add_argument("--json", action="store_true", help="机器可读 JSON 到 stdout")
     args = p.parse_args(argv)
 
@@ -124,6 +131,19 @@ def main(argv=None):
         bench = build_benchmark(registry.sources, config.CORPUS_PER_TYPE_N)
         bench.save(CORPUS_PATH)
         print(f"rebuilt corpus -> {CORPUS_PATH}")
+        return
+    if args.model:
+        from ipdb._merge import SOURCE_RELIABILITY
+        corpus = Corpus.load(CORPUS_PATH) if CORPUS_PATH.exists() else Corpus()
+        result = run_suite(registry.lookup, corpus,
+                           declared_r=dict(SOURCE_RELIABILITY))
+        md, js = write_model_report(result, REPORT_DIR)
+        if args.json:
+            print(Path(js).read_text())
+        else:
+            print(f"model suite: "
+                  f"{sum(1 for c in result['checks'].values() if c['pass'])}"
+                  f"/{len(result['checks'])} checks pass\n  report: {md}")
         return
     if args.all:
         if args.json:
