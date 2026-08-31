@@ -16,7 +16,7 @@ from .ablation import take_snapshot
 from .corpus import Corpus, stable_seed
 from .events import extract_events, independent
 from .model import SourceScore, beta_binomial_interval, estimate
-from .pairwise import pairwise_oc, source_pair_sets
+from .pairwise import assertion_records, pairwise_oc, source_pair_sets
 
 VERDICT_AUTHORITIES = ("spamhaus", "emerging_threats", "threatfox")
 ASSET_AUTHORITIES = ("tor_exits", "ip2proxy", "x4bnet_vpn")
@@ -185,6 +185,7 @@ def run_suite(lookup_fn, corpus: Corpus, declared_r=None, w=None) -> dict:
                  "sha8": hashlib.sha256("\n".join(sorted(ips)).encode()).hexdigest()[:8]}
     snap = take_snapshot(lookup_fn, ips)
     pair_sets = source_pair_sets(snap)
+    assertion_hist = assertion_records(snap)
     oc_table = pairwise_oc(pair_sets)
     events = extract_events(snap, oc_table)
     scores = estimate(events, declared_r, w=w)
@@ -199,7 +200,7 @@ def run_suite(lookup_fn, corpus: Corpus, declared_r=None, w=None) -> dict:
         "C2": _c2(scores),
     }
     return {"kind": "model", "w": w, "scores": scores, "checks": checks,
-            "corpus": corpus_fp,
+            "corpus": corpus_fp, "pairs": assertion_hist,
             "movers": [s.source for s in movers], "pinned": pinned,
             "monopoly_ctypes": sorted(events.monopoly_ctypes)}
 
@@ -212,6 +213,8 @@ def write_model_report(result: dict, out_dir: Path) -> tuple[Path, Path]:
         return {"source": s.source, "theta": s.theta, "ci_lo": s.ci_lo,
                 "ci_hi": s.ci_hi, "n": s.n, "k": s.k, "rho": s.rho,
                 "evidence": s.evidence,
+                "fountain_suspect": s.fountain_suspect,
+                "unique_share": s.unique_share,
                 "below_market": s.below_market, "monopoly": s.monopoly,
                 "declared_r": s.declared_r}
     payload = {
@@ -219,6 +222,7 @@ def write_model_report(result: dict, out_dir: Path) -> tuple[Path, Path]:
         "generated_at": _dt.datetime.now(_dt.timezone.utc).date().isoformat(),
         "w": result["w"],
         "corpus": result["corpus"],
+        "pairs": result["pairs"],
         "checks": result["checks"],
         "movers": result["movers"],
         "pinned": result["pinned"],
@@ -229,8 +233,8 @@ def write_model_report(result: dict, out_dir: Path) -> tuple[Path, Path]:
     js = d / f"model-{ts}.json"
     lines = ["# Source corroboration-contrast model (advisory)", "",
              f"corpus: {result['corpus']['n_ips']} ips @ {result['corpus']['sha8']}", "",
-             "| source | theta | 90% CI | n | k | rho | evidence | below-mkt | mono | declared_r |",
-             "|---|---|---|---|---|---|---|---|---|---|"]
+             "| source | theta | 90% CI | n | k | rho | evidence | below-mkt | mono | fountain | unique | declared_r |",
+             "|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for s in result["scores"]:
         if s.theta is not None:
             cells = [s.source, f"{s.theta:.3f}",
@@ -241,11 +245,19 @@ def write_model_report(result: dict, out_dir: Path) -> tuple[Path, Path]:
                   f"{s.rho:.3f}" if s.rho is not None else "—",
                   "present" if s.evidence else "none",
                   str(s.below_market), str(s.monopoly),
+                  "suspect" if s.fountain_suspect else "—",
+                  "—" if s.unique_share is None else f"{s.unique_share:.2f}",
                   "—" if s.declared_r is None else f"{s.declared_r:.2f}"]
         lines.append("| " + " | ".join(cells) + " |")
     lines += ["", "## Checks", ""]
     for name, chk in result["checks"].items():
         lines.append(f"- **{name}: {'PASS' if chk['pass'] else 'FAIL'}** — {chk['detail']}")
+    lines += ["",
+              "_High unique share with no evidence = specialist / uncovered niche, "
+              "not necessarily weak (coverage is orthogonal to corroboration)._",
+              "_Monopoly types are information-theoretically uncorroboratable; "
+              "asserters are unscored by design and route through the authority "
+              "tier in any future D2 loop._"]
     lines += ["", "_Corroboration semantics (audit B2): never read theta as accuracy; "
                "advisory only — declared_r stays authoritative until Q4 graduation._"]
     md.write_text("\n".join(lines) + "\n", encoding="utf-8")
