@@ -30,6 +30,7 @@ LINEAGE_CLUSTERS = {
     "ipsum":   "aggregated-threat",
     "otx":     "aggregated-threat",
     "greensnow": "aggregated-threat",  # OC=1.0 w/ firehol, containment ≥0.9 (2026-09-01)
+    "drb_ra": "aggregated-threat",     # C2 aggregator (search-derived, mirrors trackers)
 }
 
 MODEL_W = 10        # G1' prior strength
