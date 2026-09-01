@@ -35,15 +35,11 @@ import orjson
 DEFAULT_MAP_SIZE = 512 * 1024 * 1024   # first-build default; grown on demand
 BYTES_PER_RECORD_EST = 512             # initial estimate from .count sidecar
 BATCH_SIZE = 10_000
-# 嵌套 CIDR 回退扫描上限:MMDB 是最长前缀匹配,父 range 会被子 CIDR 遮蔽,
-# 候选 range 不覆盖时需 prev() 找祖先。真实数据(厂商聚合)基本不相交,
-# 1 步即命中;上限只防病态深嵌套拖慢 miss 查询(保住 bench p99)。
-MAX_BACKSCAN_STEPS = 16
-
-# 耗尽告警每进程只发一次:不相交数据(常态)下真 miss 也会走满 16 步进入
-# 耗尽分支,若每次都告警,生产全源 fan-out(mostly miss)会日志轰炸。
-# 首次告警足以暴露数据不变量违反。
-_exhaustion_warned = False
+# 嵌套源查询:CIDR 前缀探测(MMDB 最长前缀匹配同构)。写入侧所有区间
+# 经 net_cls(cidr) 归一为对齐 CIDR ⇒ 任何覆盖 ip 的区间起点必为
+# ip & mask(prefixlen),逐前缀精确 seek 即完备,上限 bits+1 次树降,
+# 无兄弟网段回扫、无耗尽悬崖(旧 16 步线性回扫漏过深嵌套,实测
+# geolite_city 的 8.8.8.8 城市网被 Google 段兄弟网淹死 → 漏命中)。
 
 logger = logging.getLogger(__name__)
 
@@ -99,48 +95,45 @@ def lookup(env, ip_int: int, *, disjoint: bool = False,
           ip_version: int = 4) -> Any:
     """Per-query read txn (LMDB read txns are not thread-safe to share).
 
-    Three paths unified: exact start hit, fallback to greatest start ≤ ip,
-    and ip outside every range. The set_range-False branch MUST still
-    prev() — an ip inside the LAST range has no key ≥ it (bench bug).
+    disjoint=True (sidecar epoch 绑定背书): 首候选(greatest start ≤ ip)
+    不覆盖即真 miss — 排序不相交区间,更早的区间 end < start_候选 ≤ ip,
+    不可能覆盖(等价性见 tests/core/test_lmdb_fastpath.py)。
 
-    定位后首候选 start ≤ ip 恒成立,此后 prev() 只会减小 ⇒ 循环内 start ≤ ip
-    恒真,key 解析可省,只判 end。disjoint=True(源数据两两不相交,sidecar
-    epoch 绑定背书)时首候选不覆盖即真 miss:排序不相交区间,更早的区间
-    end < start_候选 ≤ ip,不可能覆盖(等价性见 tests/core/test_lmdb_fastpath.py)。
+    disjoint=False(嵌套库): CIDR 前缀探测 — 写入侧所有区间是对齐 CIDR
+    (net_cls(cidr) 归一),覆盖 ip 的区间起点必为 ip & mask(prefixlen);
+    从最长前缀到 /0 逐前缀精确 seek,首个命中即最长前缀容器(MMDB LPM
+    同构,完备且有界,替换旧 16 步线性回扫 — 深嵌套不再漏命中,实测
+    geolite_city 的 8.8.8.8 城市网曾被 Google 段兄弟网淹死)。
+
+    族必须显式声明:小 v6 整数(::,::1,::2)数值上落在 v4 范围,按数值
+    分派会错编 4 字节 key(16 字节 key 环境下排序错乱→假命中/假漏,F1)
     """
-    # 族必须显式声明:小 v6 整数(::,::1,::2)数值上落在 v4 范围,按数值
-    # 分派会错编 4 字节 key(16 字节 key 环境下排序错乱→假命中/假漏,F1)
-    key = (encode_key6 if ip_version == 6 else encode_key)(ip_int)
+    key_enc = (encode_key6 if ip_version == 6 else encode_key)
+    bits = 128 if ip_version == 6 else 32
     with env.begin() as txn:
         cur = txn.cursor()
-        found = cur.set_range(key)
-        if found:
-            if cur.key() == key:
-                pass
+        if disjoint:
+            key = key_enc(ip_int)
+            found = cur.set_range(key)
+            if found:
+                if cur.key() == key:
+                    pass
+                else:
+                    if not cur.prev():
+                        return None
             else:
                 if not cur.prev():
                     return None
-        else:
-            if not cur.prev():
-                return None
-        # cursor 现在位于 greatest start ≤ ip(或 exact start)
-        if disjoint:
+            # cursor 现在位于 greatest start ≤ ip(或 exact start)
             if ip_int <= _end_int(cur.value()):
                 return decode_value(cur.value())[1]
             return None
-        for _ in range(MAX_BACKSCAN_STEPS):
-            if ip_int <= _end_int(cur.value()):
+        for plen in range(bits, -1, -1):
+            mask = (1 << (bits - plen)) - 1
+            key = key_enc((ip_int | mask) ^ mask)   # = ip & ~mask(对齐起点)
+            if cur.set_range(key) and cur.key() == key \
+                    and ip_int <= _end_int(cur.value()):
                 return decode_value(cur.value())[1]
-            if not cur.prev():
-                return None
-        global _exhaustion_warned
-        if not _exhaustion_warned:
-            logger.warning(
-                "lmdb lookup backscan exhausted after %d steps for ip_int=%d; "
-                "data may violate the mostly-disjoint ranges assumption — "
-                "possible missed hit (warning once per process)",
-                MAX_BACKSCAN_STEPS, ip_int)
-            _exhaustion_warned = True
         return None
 
 
@@ -397,6 +390,12 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
                else ipaddress.IPv4Network)
     key_enc = encode_key6 if ip_version == 6 else encode_key
     cov = 0
+    # 增量 disjoint 预判:真重叠无论插入顺序必触发(后插者 start ≤ 已见最大
+    # end — 该最大 end 的持有区间覆盖它)。预判干净 ⇒ 数学上必不相交,
+    # O(n) 后扫只剩确认可疑嵌套一种用途;乱序插入的假阳性只多花一次
+    # 后扫,不影响正确性(key 序才是判定真相)。
+    disjoint_ok = True
+    max_end = -1
     for cidr, evidence in records:
         try:
             net = net_cls(cidr, strict=False)
@@ -407,8 +406,13 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
                 cov += 1               # count-as-1 (与 covered_ip_count(v6) 同构)
             else:
                 cov += 1 << (net.max_prefixlen - net.prefixlen)
-        batch.append((key_enc(int(net.network_address)),
-                      encode_value(int(net.broadcast_address), evidence)))
+        s = int(net.network_address)
+        e = int(net.broadcast_address)
+        if disjoint_ok and s <= max_end:
+            disjoint_ok = False
+        if e > max_end:
+            max_end = e
+        batch.append((key_enc(s), encode_value(e, evidence)))
         n += 1
         if len(batch) >= BATCH_SIZE:
             _flush()
@@ -435,7 +439,8 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
     if progress is not None:
         progress(n, max(total, n) if total > 0 else 0)
     env.sync(True)
-    disjoint = detect_disjoint(env)    # sync 后 close 前判定:句柄在手免重开
+    # 预判干净(必真不相交)直接采信;预判报可疑才跑 O(n) key 序扫描定谁。
+    disjoint = True if disjoint_ok else detect_disjoint(env)
     env.close()                        # closed BEFORE rename — Windows-safe
     os.rename(staging, target)
 
