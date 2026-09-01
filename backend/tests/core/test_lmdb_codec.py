@@ -201,7 +201,8 @@ def test_dual_family_streaming_v6_progress_uses_total_est(tmp_path):
         yield ("1.2.3.4/32", [{}])
         yield ("1.2.3.5/32", [{}])
         for i in range(BATCH_SIZE + 1):          # 触发一次 mid-flush + 终值
-            yield (f"2001:db8:{i:x}::/48", [{}])
+            # 双 hextet 展开任一 i(BATCH_SIZE≥0x10000 时单 hextet 会溢出 4 hex 位)
+            yield (f"2001:db8:{i >> 16:x}:{i & 0xffff:x}::/48", [{}])
 
     n4, n6 = rebuild_dual_family(
         records, tmp_path / "v4.lmdb", tmp_path / "v6.lmdb",
