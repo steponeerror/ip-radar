@@ -69,15 +69,20 @@ describe("ResultTable city column", () => {
 });
 
 describe("ResultTable service badge", () => {
-  it("renders 'Service: <provider>' for an infra asset statement", () => {
+  it("renders one '<role>·<provider>' chip per service statement", () => {
     const dns: LookupResult = {
       ip: "8.8.8.8",
       country: mf("US"), city: mf("Mountain View"), asn: mf(15169), as_name: mf("Google"),
       ip_range: mf("8.8.8.0/24"), is_isp: true, classifications: {},
-      attributes: { service: [{ source: "infra_services", value: "dns", native_type: "Google Public DNS" }] },
+      attributes: { service: [
+        { source: "infra_services", value: "dns", native_type: "Google Public DNS" },
+        { source: "gcp_ranges", value: "cloud", native_type: "Google" },
+      ] },
     };
     renderWithI18n(<ResultTable results={[dns]} />);
-    expect(screen.getByText(/Service: Google Public DNS/)).toBeInTheDocument();
+    // every statement renders — the old first-only chip hid all but one
+    expect(screen.getByText("dns·Google Public DNS")).toBeInTheDocument();
+    expect(screen.getByText("cloud·Google")).toBeInTheDocument();
   });
 });
 
