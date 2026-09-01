@@ -34,7 +34,7 @@ import orjson
 
 DEFAULT_MAP_SIZE = 512 * 1024 * 1024   # first-build default; grown on demand
 BYTES_PER_RECORD_EST = 512             # initial estimate from .count sidecar
-BATCH_SIZE = 10_000
+BATCH_SIZE = 100_000
 # 嵌套源查询:CIDR 前缀探测(MMDB 最长前缀匹配同构)。写入侧所有区间
 # 经 net_cls(cidr) 归一为对齐 CIDR ⇒ 任何覆盖 ip 的区间起点必为
 # ip & mask(prefixlen),逐前缀精确 seek 即完备,上限 bits+1 次树降,
@@ -365,7 +365,12 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
         shutil.rmtree(target)          # orphan of an aborted prior run
 
     size = map_size or initial_map_size(base)
-    env = lmdb.open(str(staging), map_size=size, writemap=True, subdir=True)
+    # 构建期免刷盘(mdb_load -Q quick mode 同构):staging env 是一次性的,
+    # 崩溃/断电残留即垃圾(cleanup_stale 清 .new.*),ptr 从不指向它 — 每 batch
+    # 同步 fsync 是纯浪费的持久化。耐久性由下方 env.sync(True) 在 close+rename
+    # 前一次保证,commit 不变量(sidecar→ptr 顺序)不变。勿"修复"回默认刷盘。
+    env = lmdb.open(str(staging), map_size=size, writemap=True, subdir=True,
+                    sync=False, metasync=False, map_async=True)
     n = 0
     batch: list[tuple[bytes, bytes]] = []
     # 无 __len__ 的流式 records(mmdb 迭代等):total 未知时用调用方的
