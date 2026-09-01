@@ -90,6 +90,37 @@ function FieldDetail<T>({
 export function IpDetailPanel({ r }: { r: LookupResult }) {
   const { t } = useI18n();
   const classKeys = Object.keys(r.classifications);
+  const classTypes = new Set(classKeys);
+  // Service identity: all asset statements, one chip each (role + provider,
+  // boolean assets, carrier). is_tor/is_proxy suppressed when a matching
+  // classification already renders in the threat section.
+  const identityChips: { text: string; detail: string; key: string }[] = [];
+  for (const [key, stmts] of Object.entries(r.attributes ?? {})) {
+    if (key === "as_domain") continue; // rendered as org suffix above
+    if ((key === "is_tor" && classTypes.has("tor")) ||
+        (key === "is_proxy" && classTypes.has("proxy"))) continue;
+    const labelKey = {
+      is_hosting: "asset.is_hosting", is_tor: "asset.is_tor",
+      is_vpn: "asset.is_vpn", is_proxy: "asset.is_proxy",
+      carrier: "asset.carrier",
+    }[key];
+    if (key === "service") {
+      stmts.forEach((s, i) => {
+        identityChips.push({
+          text: `${s.value} · ${s.native_type ?? s.value}`,
+          detail: s.source,
+          key: `service-${i}`,
+        });
+      });
+    } else if (labelKey && stmts[0]) {
+      const s = stmts[0];
+      identityChips.push({
+        text: key === "carrier" ? `${t(labelKey)} · ${s.value}` : t(labelKey),
+        detail: `${s.native_type ? s.native_type + " · " : ""}${s.source}`,
+        key,
+      });
+    }
+  }
   return (
     <div className="grid gap-2.5">
       <FieldDetail label={t("ipDetail.country")} field={r.country} format={String} grouped />
@@ -113,6 +144,19 @@ export function IpDetailPanel({ r }: { r: LookupResult }) {
         format={String}
         suffix={r.attributes?.as_domain?.[0]?.value as string | undefined}
       />
+      {identityChips.length > 0 && (
+        <div>
+          <span className="text-xs font-medium text-zinc-300">{t("ipDetail.serviceIdentity")}</span>
+          <div className="ml-3 mt-1 flex flex-wrap gap-1.5">
+            {identityChips.map((c) => (
+              <span key={c.key} title={c.detail}
+                className="rounded bg-sky-500/12 px-1.5 py-0.5 text-[11px] text-sky-400 ring-1 ring-sky-500/20">
+                {c.text}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
       <div>
         <span className="text-xs font-medium text-zinc-300">{t("ipDetail.threatDetails")}</span>
         {classKeys.length === 0 ? (

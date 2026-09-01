@@ -72,18 +72,22 @@ def test_lookup_nested_cidr_falls_back_to_parent(tmp_path):
     e.close()
 
 
-def test_lookup_nested_backscan_bounded(tmp_path):
-    """回退扫描有上限:超过 MAX_BACKSCAN_STEPS 层的深嵌套不再回找(防 miss O(n))。"""
-    import ipdb._sources._lmdb as m
+def test_lookup_deep_sibling_nesting_found_by_prefix_probe(tmp_path):
+    """深嵌套/兄弟网段密集场景:旧 16 步线性回扫会漏失(实测 geolite_city
+    的 8.8.8.8 城市网被 Google 段兄弟网淹死),CIDR 前缀探测必中。
+
+    最外层 /8 覆盖目标 ip,前面堆 m+1 个 /32 子段;探测从最长前缀逐级
+    下降,越过全部兄弟网命中 /8 容器。"""
     e = lmdb.open(str(tmp_path / "deep"), map_size=1024 * 1024)
     with e.begin(write=True) as txn:
-        # 最外层 /8 覆盖目标 ip,但被 m+1 个逐层递进的子 CIDR 遮蔽到上限之外
         txn.put(encode_key(0x01000000), encode_value(0x01FFFFFF, {"cc": "ROOT"}))
-        for i in range(m.MAX_BACKSCAN_STEPS + 1):
+        # /32 兄弟网从 0x01000001 起错开:同起点 key 会互相覆写(已知限制)
+        for i in range(1, 18):
             s = 0x01000000 + i
             txn.put(encode_key(s), encode_value(s, {"cc": f"L{i}"}))
-    # 候选链超过上限 → miss(有界退化的已文档语义,真实数据不出现)
-    assert lookup(e, 0x01000000 + m.MAX_BACKSCAN_STEPS + 1) is None
+    assert lookup(e, 0x01000013)["cc"] == "ROOT"   # 旧实现此处漏失为 None
+    assert lookup(e, 0x01000011)["cc"] == "L17"          # 精确 /32 命中仍最长前缀
+    assert lookup(e, 0x02000000) is None                  # 真错过 /8
     e.close()
 
 
@@ -105,33 +109,6 @@ def test_lookup_three_level_nested_cidr(tmp_path):
     assert lookup(e, 0x01004405)["cc"] == "PARENT"   # 孙+子之后,父覆盖内
     assert lookup(e, 0x0100430A)["cc"] == "CHILD"    # 子后段(孙之外)
     assert lookup(e, 0x01004180)["cc"] == "GRAND"    # 孙段内最长前缀
-    e.close()
-
-
-def test_lookup_backscan_exhaustion_warns(tmp_path, monkeypatch, caplog):
-    """步数耗尽 ≠ 真 miss,必须可观测,但**每进程只告警一次**(否则不相交
-    数据下的真 miss 会日志轰炸):monkeypatch 调小上限到 2 + reset 模块级
-    flag,构造需要 3 步回退的场景,断言第一次耗尽发 warning(含 ip_int 与
-    步数),第二次耗尽不再发。"""
-    import ipdb._sources._lmdb as m
-    monkeypatch.setattr(m, "MAX_BACKSCAN_STEPS", 2)
-    monkeypatch.setattr(m, "_exhaustion_warned", False)
-    e = lmdb.open(str(tmp_path / "exh"), map_size=1024 * 1024)
-    with e.begin(write=True) as txn:
-        txn.put(encode_key(0x01000000), encode_value(0x0100FFFF, {"cc": "PARENT"}))
-        txn.put(encode_key(0x01004000), encode_value(0x010043FF, {"cc": "CHILD"}))
-        txn.put(encode_key(0x01004100), encode_value(0x010041FF, {"cc": "GRAND"}))
-    with caplog.at_level("WARNING", logger="ipdb._sources._lmdb"):
-        assert lookup(e, 0x01004405) is None          # 需 3 步,上限 2 → 耗尽
-    warns = [r for r in caplog.records if "exhausted" in r.message]
-    assert warns, "expected backscan-exhaustion warning"
-    assert str(0x01004405) in warns[0].getMessage()   # ip_int 在告警里
-    assert "2" in warns[0].getMessage()               # 步数在告警里
-    # 第二次耗尽:同一进程内不再告警(caplog 记录数不增)
-    with caplog.at_level("WARNING", logger="ipdb._sources._lmdb"):
-        assert lookup(e, 0x01004406) is None          # 另一个耗尽 miss
-    warns2 = [r for r in caplog.records if "exhausted" in r.message]
-    assert len(warns2) == len(warns), "exhaustion warning must fire only once"
     e.close()
 
 

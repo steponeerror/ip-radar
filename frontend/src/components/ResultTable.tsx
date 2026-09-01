@@ -40,12 +40,20 @@ function assetBadges(r: LookupResult, t: TFn): { label: string; detail: string; 
       const ctype: Record<string, string> = { is_tor: "tor", is_proxy: "proxy" };
       if (classTypes.has(ctype[key])) continue;
     }
+    if (key === "service") {
+      // One chip per statement: role value (dns/cloud/cdn) + provider identity —
+      // a single first-statement chip used to hide every additional service.
+      stmts.forEach((s, i) => {
+        const detail = String(s.native_type ?? s.value);
+        out.push({ label: String(s.value), detail, key: `service-${i}` });
+      });
+      continue;
+    }
     const first = stmts[0];
     if (!first) continue;
     let detail = first.source;
     if (first.native_type) detail += ` · ${first.native_type}`;
     if (key === "carrier") detail = String(first.value);
-    if (key === "service") detail = String(first.native_type ?? first.value);
     out.push({ label: t(assetKey), detail, key });
   }
   return out;
@@ -545,7 +553,9 @@ export function ResultTable({ results }: ResultTableProps) {
                       {r.is_isp && <span className="ml-1.5 rounded bg-emerald-500/15 px-1 py-0.5 text-[10px] text-emerald-400 ring-1 ring-emerald-500/25">ISP</span>}
                       {badges.map((a) => (
                         <span key={`asset-${a.key}`} className={`ml-1.5 rounded px-1.5 py-0.5 text-[11px] bg-sky-500/12 text-sky-400 ring-1 ring-sky-500/20`} title={a.detail}>
-                          {a.label}{(a.key === "carrier" || a.key === "service") ? `: ${a.detail}` : ""}
+                          {a.key.startsWith("service-")
+                            ? `${a.label}·${a.detail}`
+                            : `${a.label}${a.key === "carrier" ? `: ${a.detail}` : ""}`}
                         </span>
                       ))}
                       {r.attributes?.as_domain?.[0]?.value && (
