@@ -2,9 +2,9 @@
 
 [English](README.md) | **简体中文**
 
-![IP Radar — self-hosted threat intelligence](assets/social-preview.png)
+![IP Radar — 自托管的 IP 情报](assets/social-preview.png)
 
-把 29 个公开情报源搬回家：查任何 IP，拿一份说人话的裁决——证据、置信度、地理、ASN 一次看全。一条命令，自己部署。
+把 42 个公开情报源搬回家：查任何 IP，拿一份全面的画像——说人话的裁决、逐源证据、置信度，加上地理·城市·ASN、云/托管、代理/VPN/Tor、服务身份，一次看全。一条命令，自己部署。
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 ![Docker](https://img.shields.io/badge/Docker-one%20container-2496ED?logo=docker&logoColor=white)
@@ -42,7 +42,7 @@ cd ip-radar
 docker compose up -d --build
 ```
 
-打开 http://127.0.0.1:8000。首次启动数秒内容器即可访问——页面顶部横幅会实时展示免密钥源（29 个源中的 25 个，含地理/城市/ASN 与主要封禁列表）的下载/构建进度，构建完成后查询自动解锁；之后每次启动都从 `ipradar-data` 卷秒级加载。
+打开 http://127.0.0.1:8000。首次启动数秒内容器即可访问——页面顶部横幅会实时展示免密钥源（42 个源中的 38 个，含地理/城市/ASN、主要封禁列表与云网段）的下载/构建进度，构建完成后查询自动解锁；之后每次启动都从 `ipradar-data` 卷秒级加载。
 
 想开 4 个密钥源（ipinfo_lite / abuseipdb / otx / ip2proxy）？把密钥写进 `.env.local`（已 gitignore，盖过 `.env`）：
 
@@ -101,12 +101,12 @@ cd frontend && npm run dev
 
 ## 特性
 
-- **开箱即用，25/29 源不需要密钥** —— 首次启动自动下载构建，数百万条记录入库（确切数量以 `/api/db-status` 实测为准）；剩下 4 个 🔑 源想开的话，密钥填法见[快速开始](#快速开始)。
+- **开箱即用，38/42 源不需要密钥** —— 首次启动自动下载构建，数百万条记录入库（确切数量以 `/api/db-status` 实测为准）；剩下 4 个 🔑 源想开的话，密钥填法见[快速开始](#快速开始)。
 - **冷启动不挡路** —— 容器数秒就能打开，免密钥源的下载/构建进度在页面顶部横幅实时滚动，建完查询自动解锁——绝不拿着半份数据先给结论。
 - **一份裁决，不是一堆列表** —— 单 IP 一句话结论，逐源证据摆给你看，0-100 置信度（log-odds 贝叶斯融合：源可靠性转对数几率系数、威胁断言按 60 天半衰期衰减、交叉佐证；0 = 无证据，而非清白；标量字段不衰减，city/ip_range 保留原语义）。
-- **地理 · 城市 · ASN** —— GeoLite2 给城市，iptoasn 给自治域，CN ISP 归属（含港澳台）也认得。
-- **代理 · VPN · Tor · CDN，一眼认出来** —— 开放代理、VPN 网段、Tor 出口、三大 CDN 边缘，都标得清清楚楚。
-- **IPv6 也能查** —— 裸 v6 / 小段 v6 CIDR 直接查，地理·城市·ASN·VPN·CDN·封禁段对 v6 生效；威胁证据约 10 个源覆盖 v6（ipinfo/GeoLite/iptoasn、spamhaus DROPv6、x4bnet、Cloudflare/Fastly/AWS 边缘等），其余源上游本就无 v6 数据，如实显示无记录。
+- **地理 · 城市 · ASN** —— GeoLite2 + DB-IP 两票给城市，iptoasn 给自治域，CN ISP 归属（含港澳台）也认得。
+- **代理 · VPN · Tor · CDN · 云，一眼认出来** —— 实检代理列表、VPN 网段（含 NordVPN、ProtonVPN）、Tor 出口、三大 CDN 边缘、AWS/GCP/Azure/Oracle 托管网段，都标得清清楚楚；知名基础设施还会亮出服务身份（8.8.8.8 → DNS · Google Public DNS）。
+- **IPv6 也能查** —— 裸 v6 / 小段 v6 CIDR 直接查，地理·城市·ASN·VPN·CDN·封禁段对 v6 生效；地理/城市/ASN、云厂商网段、CDN 边缘、DROPv6 等源原生覆盖 v6；多数威胁列表上游本就无 v6 数据，如实显示无记录。
 - **一个容器跑全栈，内存自己看着办** —— `docker compose up -d --build` 就有；并发按宿主机内存自动收敛，后台自动刷新按源错峰：日更源每天 2 次、周更源每周 1 次，各源固定时刻错开。
 - **STIX 2.1 导出（可选）** —— `/api/lookup/{ip}/stix` 一键导出；Docker 镜像默认不带 `stix2`，`pip install stix2` 装上即开。
 
@@ -114,7 +114,7 @@ cd frontend && npm run dev
 
 ```mermaid
 flowchart TD
-    A["29 feeds<br/>(25 keyless auto + 4 keyed)"] --> B["Cold-start download /<br/>30-min refresh scheduler"]
+    A["42 feeds<br/>(38 keyless auto + 4 keyed)"] --> B["Cold-start download /<br/>30-min refresh scheduler"]
     B --> C["Per-source parsers<br/>(classification pipeline)"]
     C --> D["Fusion<br/>(log-odds · corroboration · decay)"]
     D --> E["LMDB store<br/>(named volume · mmap)"]
@@ -191,12 +191,17 @@ curl -s http://127.0.0.1:8000/api/sources
 | dshield | [DShield](https://feeds.dshield.org/block.txt) | Top-attacker /24 blocks (attack counts) | |
 | f3csystems | [f3cSystems](https://github.com/f3cSystems/BlockList_IP) | Honeypot scanner blocklist (Sekoia sensors) | |
 | reportedip | [ReportedIP](https://github.com/reportedip/reportedip-blacklist) | WordPress-honeypot community reputation | |
+| siberkapan | [SiberKapan](https://siberkapan.org/) | Turkish honeypot-network sensor blocklist | |
+| threatcluster | [ThreatCluster](https://threatcluster.io/) | Curated high-confidence malicious IPs | |
+| turris_greylist | [Turris Sentinel](https://view.sentinel.turris.cz/greylist-data/) | Distributed-router greylist (protocol probes) | |
+| drb_ra `*` | [C2IntelFeeds](https://github.com/drb-ra/C2IntelFeeds) | Aggregated C2 IPs (30-day hunts) | |
 
 ### 地理与 ASN
 
 | 源 | 提供方 | 贡献 | 🔑 |
 |---|---|---|---|
 | geolite_city | [MaxMind GeoLite2](https://github.com/P3TERX/GeoLite.mmdb) | City / geo per IP | |
+| dbip_city | [DB-IP](https://db-ip.com/db/lite.php) | City-lite — 2nd city voting source | |
 | iptoasn | [IPtoASN](https://iptoasn.com/) | ASN + AS-name ranges | |
 | cn_isp | [clang.cn ISP ranges](https://ispip.clang.cn/) | China ISP classification (mainland + HK/MO/TW) | |
 | ipinfo_lite | [IPinfo](https://ipinfo.io/) | Country / ASN / ranges enrichment | 🔑 |
@@ -209,7 +214,15 @@ curl -s http://127.0.0.1:8000/api/sources
 | proxyscrape | [ProxyScrape](https://github.com/proxyscrape/free-proxy-list) | Open proxy IPs | |
 | tor_exits | [Tor Project](https://check.torproject.org/exit-addresses) | Tor exit node addresses | |
 | x4bnet_vpn | [X4BNet](https://github.com/X4BNet/lists_vpn) | VPN ranges | |
-| cdn_edges | [AWS](https://ip-ranges.amazonaws.com/ip-ranges.json) · [Cloudflare](https://www.cloudflare.com/ips-v4) · [Fastly](https://api.fastly.com/public-ip-list) | CDN edge ranges | |
+| nordvpn | [NordVPN](https://github.com/mthcht/awesome-lists) | NordVPN server ranges (mirror) | |
+| protonvpn | [ProtonVPN](https://github.com/mthcht/awesome-lists) | ProtonVPN server ranges (mirror) | |
+| hookzof | [hookzof](https://github.com/hookzof/socks5_list) | Live-checked SOCKS5 proxies | |
+| thespeedx | [TheSpeedX](https://github.com/TheSpeedX/PROXY-List) | Live-checked HTTP proxies | |
+| cdn_edges | [CloudFront](https://ip-ranges.amazonaws.com/ip-ranges.json) · [Cloudflare](https://www.cloudflare.com/ips-v4) · [Fastly](https://api.fastly.com/public-ip-list) | CDN edge ranges | |
+| aws_ranges | [AWS](https://ip-ranges.amazonaws.com/ip-ranges.json) | Full AWS footprint — cloud / hosting | |
+| gcp_ranges | [Google](https://www.gstatic.com/ipranges/goog.json) | Google public ranges — cloud / hosting | |
+| azure_ranges | [Azure](https://www.microsoft.com/en-us/download/details.aspx?id=56519) | AzureCloud service tag — cloud / hosting | |
+| oracle_ranges | [Oracle](https://docs.oracle.com/iaas/tools/public_ip_ranges.json) | OCI region ranges — cloud / hosting | |
 | infra_services | curated | Public DNS-root / NTP infrastructure | |
 
 ## 测试

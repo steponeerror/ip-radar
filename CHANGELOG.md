@@ -14,9 +14,26 @@
   - One-click self-update (opt-in): uncomment the mounts in `docker-compose.yml` (docker.sock + repo dir + token) to light up the Update-now button — confirm dialog → full-screen overlay → in-container `git pull --ff-only` + targeted rebuild (compose project self-discovered via docker.sock); gated on four conditions, always 403 without a token
 - 跨容器更新状态机：发起更新落盘 `from_version`，新容器启动对账（版本已变→上次成功；未变→中断；超 15 分钟→超时），失败原因落盘可在页面查看
   - Cross-container update state machine: `from_version` persisted on start, reconciled on next boot (version changed → success; unchanged → interrupted; >15 min → timed out), failure reason persisted and surfaced in the UI
+- 双模型评估框架：语料纪元 2026-09-01 冻结（per_type_n 30→60），模型级报告持久化断言历史、新增泉眼/唯一性列与专家源/垄断源脚注；greensnow 纳入 DERIVED_SOURCES 聚合谱系
+  - Dual-model eval framework: corpus epoch frozen at 2026-09-01 (per_type_n 30→60); model-level reports persist assertion history and gain fountain/unique columns + specialist/monopoly footnotes; greensnow joins the DERIVED_SOURCES lineage
+- 8 个威胁/VPN 源（29→37）：siberkapan、turris_greylist、threatcluster、drb_ra、hookzof、thespeedx、protonvpn、nordvpn
+  - 8 threat/VPN sources (29→37): siberkapan, turris_greylist, threatcluster, drb_ra, hookzof, thespeedx, protonvpn, nordvpn
+- 5 个信息面源（37→42）：dbip_city 城市第二投票源 + AWS/GCP/Azure/Oracle 官方网段（is_hosting 证人 1→5）
+  - 5 info-surface sources (37→42): dbip_city as the city slot's second voting source + publisher-official AWS/GCP/Azure/Oracle ranges (is_hosting witnesses 1→5)
+- 服务身份：详情面板新增 Service identity 分组，逐条展示服务声明（8.8.8.8 → DNS · Google Public DNS）
+  - Service identity: new "Service identity" section in the detail panel lists every service claim per row (8.8.8.8 → DNS · Google Public DNS)
+
+### 变更 Changed
+
+- LMDB 构建提速：staging env 异步刷盘（sync=False/metasync=False/map_async=True，mdb_load -Q 同款）+ 批次 1 万→10 万，本地 NVMe 构建 18.3s→17.0s（服务器 overlayfs 月度重建收益更大）
+  - Faster LMDB builds: the staging env now async-flushes (sync=False/metasync=False/map_async=True — the mdb_load -Q pattern) with batches up from 10k to 100k; local NVMe build 18.3s→17.0s (bigger win on the server's overlayfs monthly rebuild)
+- LMDB 查询与写库核心：嵌套网段查询改 CIDR 前缀探测（≤33 次 O(log n) seek，根治深嵌套漏命中）；disjoint 预判移入写库循环（running max_end，免事后 O(n) 扫描）；dbip 双族整数快径（inet_pton + 位运算，harvest 103.3s→75.9s）
+  - LMDB core: nested-range lookups now use CIDR prefix probing (≤33 O(log n) seeks — deep-nest misses fixed for good); the disjoint check moved into the write loop (running max_end, no post-hoc O(n) scan); dbip gained an integer fast path (inet_pton + bit ops, harvest 103.3s→75.9s)
 
 ### 修复 Fixed
 
+- 首次构建进度：总行数未知时保持 0% 展示，不再假造 n/n=100%
+  - First-build progress: unknown totals now stay at 0% instead of a fake n/n=100%
 - CI flake：`test_stream_pool` 在逐文件跑序中被 `test_scheduler` 触发的冷启动后台线程污染 `backend/data`（部分源文件落盘使 `_is_cold_start` 误判非冷启，LMDB 未建完 → 503 warming）。加 `tiny_db` 隔离（`test_main_routes` 同款）
   - CI flake: `test_stream_pool` got 503s in per-file CI order after `test_scheduler`'s cold-start thread polluted `backend/data`; isolated with the same `tiny_db` fixture `test_main_routes` uses
 
