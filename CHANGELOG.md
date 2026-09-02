@@ -4,16 +4,10 @@
 
 ## Unreleased
 
+## v1.3.0 — 2026-09-02
+
 ### 新增 Added
 
-- IPv6 查询支持：双族 LMDB 存储（v4 数据零迁移）、裸 v6 / 小段 v6 CIDR 查询、v6 bogon 判定（纯 stdlib）；spamhaus DROPv6、x4bnet、Cloudflare ips-v6 等兄弟源接入，geo/ASN（ipinfo 61% 行、GeoLite 35%、iptoasn 25%）v6 全量入库；STIX 导出产 `ipv6-addr` SCO；`/api/db-status` 新增 `covered_v6_nets` 键
-  - IPv6 lookup support: dual-family LMDB storage (zero v4 migration), bare-v6 / small-CIDR queries, stdlib-driven v6 bogon detection; sibling feeds wired in (spamhaus DROPv6, x4bnet, Cloudflare ips-v6) with geo/ASN fully indexed for v6 (61% of ipinfo rows, 35% of GeoLite, 25% of iptoasn); STIX export emits `ipv6-addr` SCOs; `/api/db-status` gains a `covered_v6_nets` key
-- 页内版本通知：顶部横幅提示新版本（当前/最新版本号 + 变更摘要），复制更新命令、查看 Release Notes、手动检查更新；版本号由镜像内 `git describe` 自描述，最新版由后端代理查 GitHub Releases（1h 惰性缓存 + ETag，离线静默不弹）
-  - In-app version banner: current/latest + release summary, copy-paste update command, release-notes link, manual check; version self-described by in-image `git describe`, latest proxied from GitHub Releases (1h lazy cache + ETag, silent offline)
-- 页内一键自更新（可选）：`docker-compose.yml` 取消注释挂载模板（docker.sock + 仓库目录 + `IP_RADAR_UPDATE_TOKEN`）后，横幅出现「立即更新」——确认框 → 全屏更新态 → 容器内 `git pull --ff-only` + 定向重建（compose 项目名经 docker.sock 自发现）；四条件齐备才解锁，未配 token 恒 403
-  - One-click self-update (opt-in): uncomment the mounts in `docker-compose.yml` (docker.sock + repo dir + token) to light up the Update-now button — confirm dialog → full-screen overlay → in-container `git pull --ff-only` + targeted rebuild (compose project self-discovered via docker.sock); gated on four conditions, always 403 without a token
-- 跨容器更新状态机：发起更新落盘 `from_version`，新容器启动对账（版本已变→上次成功；未变→中断；超 15 分钟→超时），失败原因落盘可在页面查看
-  - Cross-container update state machine: `from_version` persisted on start, reconciled on next boot (version changed → success; unchanged → interrupted; >15 min → timed out), failure reason persisted and surfaced in the UI
 - 双模型评估框架：语料纪元 2026-09-01 冻结（per_type_n 30→60），模型级报告持久化断言历史、新增泉眼/唯一性列与专家源/垄断源脚注；greensnow 纳入 DERIVED_SOURCES 聚合谱系
   - Dual-model eval framework: corpus epoch frozen at 2026-09-01 (per_type_n 30→60); model-level reports persist assertion history and gain fountain/unique columns + specialist/monopoly footnotes; greensnow joins the DERIVED_SOURCES lineage
 - 8 个威胁/VPN 源（29→37）：siberkapan、turris_greylist、threatcluster、drb_ra、hookzof、thespeedx、protonvpn、nordvpn
@@ -29,11 +23,37 @@
   - Faster LMDB builds: the staging env now async-flushes (sync=False/metasync=False/map_async=True — the mdb_load -Q pattern) with batches up from 10k to 100k; local NVMe build 18.3s→17.0s (bigger win on the server's overlayfs monthly rebuild)
 - LMDB 查询与写库核心：嵌套网段查询改 CIDR 前缀探测（≤33 次 O(log n) seek，根治深嵌套漏命中）；disjoint 预判移入写库循环（running max_end，免事后 O(n) 扫描）；dbip 双族整数快径（inet_pton + 位运算，harvest 103.3s→75.9s）
   - LMDB core: nested-range lookups now use CIDR prefix probing (≤33 O(log n) seeks — deep-nest misses fixed for good); the disjoint check moved into the write loop (running max_end, no post-hoc O(n) scan); dbip gained an integer fast path (inet_pton + bit ops, harvest 103.3s→75.9s)
+- 文档口径收敛：README 双语重定位为「全面 IP 画像」，总源数只在开场白出现一次，其余位置改用稳定表述（「除 4 个密钥源外」）
+  - Docs: READMEs repositioned as a "full IP profile" (bilingual); the volatile total count now appears once (hero line), everywhere else uses the stable "all but 4 keyed" phrasing
 
 ### 修复 Fixed
 
 - 首次构建进度：总行数未知时保持 0% 展示，不再假造 n/n=100%
   - First-build progress: unknown totals now stay at 0% instead of a fake n/n=100%
+- nordvpn 下载路径修正（nordvpn_ips_list.csv）
+  - nordvpn download path fixed (nordvpn_ips_list.csv)
+
+## v1.2.2 — 2026-08-26
+
+详见 Release Notes：[v1.2.2 — 数据丰富度与展示管线](https://github.com/steponeerror/ip-radar/releases/tag/v1.2.2)（运营方列 + CDN 防误判徽章、VPN 可见性修复、查询结果更丰富、STIX 资产通道、更新横幅三连修复）
+
+See release notes: [v1.2.2](https://github.com/steponeerror/ip-radar/releases/tag/v1.2.2) (operator column + CDN anti-ban badge, VPN visibility fix, richer results, STIX asset channel, three update-banner fixes).
+
+## v1.2.0 — 2026-08-24
+
+### 新增 Added
+
+- IPv6 查询支持：双族 LMDB 存储（v4 数据零迁移）、裸 v6 / 小段 v6 CIDR 查询、v6 bogon 判定（纯 stdlib）；spamhaus DROPv6、x4bnet、Cloudflare ips-v6 等兄弟源接入，geo/ASN（ipinfo 61% 行、GeoLite 35%、iptoasn 25%）v6 全量入库；STIX 导出产 `ipv6-addr` SCO；`/api/db-status` 新增 `covered_v6_nets` 键
+  - IPv6 lookup support: dual-family LMDB storage (zero v4 migration), bare-v6 / small-CIDR queries, stdlib-driven v6 bogon detection; sibling feeds wired in (spamhaus DROPv6, x4bnet, Cloudflare ips-v6) with geo/ASN fully indexed for v6 (61% of ipinfo rows, 35% of GeoLite, 25% of iptoasn); STIX export emits `ipv6-addr` SCOs; `/api/db-status` gains a `covered_v6_nets` key
+- 页内版本通知：顶部横幅提示新版本（当前/最新版本号 + 变更摘要），复制更新命令、查看 Release Notes、手动检查更新；版本号由镜像内 `git describe` 自描述，最新版由后端代理查 GitHub Releases（1h 惰性缓存 + ETag，离线静默不弹）
+  - In-app version banner: current/latest + release summary, copy-paste update command, release-notes link, manual check; version self-described by in-image `git describe`, latest proxied from GitHub Releases (1h lazy cache + ETag, silent offline)
+- 页内一键自更新（可选）：`docker-compose.yml` 取消注释挂载模板（docker.sock + 仓库目录 + `IP_RADAR_UPDATE_TOKEN`）后，横幅出现「立即更新」——确认框 → 全屏更新态 → 容器内 `git pull --ff-only` + 定向重建（compose 项目名经 docker.sock 自发现）；四条件齐备才解锁，未配 token 恒 403
+  - One-click self-update (opt-in): uncomment the mounts in `docker-compose.yml` (docker.sock + repo dir + token) to light up the Update-now button — confirm dialog → full-screen overlay → in-container `git pull --ff-only` + targeted rebuild (compose project self-discovered via docker.sock); gated on four conditions, always 403 without a token
+- 跨容器更新状态机：发起更新落盘 `from_version`，新容器启动对账（版本已变→上次成功；未变→中断；超 15 分钟→超时），失败原因落盘可在页面查看
+  - Cross-container update state machine: `from_version` persisted on start, reconciled on next boot (version changed → success; unchanged → interrupted; >15 min → timed out), failure reason persisted and surfaced in the UI
+
+### 修复 Fixed
+
 - CI flake：`test_stream_pool` 在逐文件跑序中被 `test_scheduler` 触发的冷启动后台线程污染 `backend/data`（部分源文件落盘使 `_is_cold_start` 误判非冷启，LMDB 未建完 → 503 warming）。加 `tiny_db` 隔离（`test_main_routes` 同款）
   - CI flake: `test_stream_pool` got 503s in per-file CI order after `test_scheduler`'s cold-start thread polluted `backend/data`; isolated with the same `tiny_db` fixture `test_main_routes` uses
 

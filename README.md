@@ -40,9 +40,9 @@ cd ip-radar
 docker compose up -d --build
 ```
 
-Open http://127.0.0.1:8000. The container is reachable within seconds — a banner at the top tracks the keyless feeds' download/build progress live (38 of 42 sources, including geo/city/ASN, the major blocklists and cloud ranges), and queries unlock automatically once the build settles. Subsequent starts load from the `ipradar-data` volume in seconds.
+Open http://127.0.0.1:8000. The container is reachable within seconds — a banner at the top tracks the keyless feeds' download/build progress live (all but the 4 keyed sources, including geo/city/ASN, the major blocklists and cloud ranges), and queries unlock automatically once the build settles. Subsequent starts load from the `ipradar-data` volume in seconds.
 
-**38 of 42 feeds need zero API keys.** To light up the 4 keyed sources, drop the keys into `.env.local` (gitignored, overrides `.env`):
+**All but 4 feeds need zero API keys.** To light up the 4 keyed sources, drop the keys into `.env.local` (gitignored, overrides `.env`):
 
 ```bash
 cp .env .env.local   # then open .env.local in any editor, fill keys
@@ -85,7 +85,7 @@ Notes:
 
 ```mermaid
 flowchart TD
-    A["42 feeds<br/>(38 keyless auto + 4 keyed)"] --> B["Cold-start download /<br/>30-min refresh scheduler"]
+    A["Public sources<br/>(keyless auto + 4 keyed)"] --> B["Cold-start download /<br/>30-min refresh scheduler"]
     B --> C["Per-source parsers<br/>(classification pipeline)"]
     C --> D["Fusion<br/>(log-odds · corroboration · decay)"]
     D --> E["LMDB store<br/>(named volume · mmap)"]
