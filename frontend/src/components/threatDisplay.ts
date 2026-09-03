@@ -34,6 +34,20 @@ export const ALGORITHM_ICONS: Record<string, string> = {
   corroboration: "🤝",
 };
 
+// C1 legend-grade semantics: what each merge algorithm's confidence number
+// MEANS. cascade/pcr6 are legacy values from the retired three-stage threat
+// merge (any-authoritative-wins / PCR6 belief fusion, removed 2026-07);
+// today's backend emits voting/logodds/authority/specificity only — kept so
+// every algorithm string still resolves to honest semantics.
+export const SCORE_SEMANTICS: Record<string, { badge: string; key: string }> = {
+  logodds:     { badge: "σ P",       key: "semantics.posterior" },
+  voting:      { badge: "▮ share",   key: "semantics.consensus" },
+  authority:   { badge: "★ r",       key: "semantics.calibration" },
+  specificity: { badge: "◇ fixed",   key: "semantics.anchor" },
+  cascade:     { badge: "🔑 cascade", key: "semantics.cascade" },
+  pcr6:        { badge: "∑ pcr6",    key: "semantics.pcr6" },
+};
+
 const CLASS_KEYS: Record<string, string> = {
   "c2_server": "class.c2_server",
   botnet_cc: "class.botnet_cc",
