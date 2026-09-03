@@ -138,10 +138,19 @@ describe("ResultTable richness display", () => {
 // --- C1: score-semantics legend + per-field hover (Task 6) ---
 
 describe("score-semantics legend", () => {
-  it("renders the score-semantics legend", () => {
+  it("renders exactly the four live algorithm entries", () => {
     renderWithI18n(<ResultTable results={[baseResult]} />);
     expect(screen.getByText(/posterior probability/i)).toBeInTheDocument();
-    expect(screen.getByText(/consensus/i)).toBeInTheDocument();
+    expect(screen.getByText(/consensus share/i)).toBeInTheDocument();
+    expect(screen.getByText(/single trusted source/i)).toBeInTheDocument();
+    expect(screen.getByText(/fixed anchors/i)).toBeInTheDocument();
+  });
+
+  it("omits legacy cascade/pcr6 entries (R9: live algorithms only)", () => {
+    renderWithI18n(<ResultTable results={[baseResult]} />);
+    expect(screen.queryByText(/legacy/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/cascade/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/pcr6/i)).not.toBeInTheDocument();
   });
 
   it("hover titles carry the algorithm semantics", () => {

@@ -16,7 +16,7 @@ export interface AssetStatement {
 export interface MergedField<T = any> {
   value: T;
   confidence: number;           // 0-100 integer
-  algorithm: string;            // "cascade" | "voting" | "logodds" | "pcr6" | "authority" | "specificity"
+  algorithm: string;            // live: "voting" | "logodds" | "authority" | "specificity" (legacy cascade/pcr6 in old exports)
   sources: SourceAttribution[];
   alternatives?: { value: any; probability: number }[];   // logodds 多类别后验(spec 2026-08-29 §6)
 }
