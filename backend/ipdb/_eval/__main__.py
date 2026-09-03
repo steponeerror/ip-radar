@@ -116,6 +116,8 @@ def main(argv=None):
                    help="fleet corroboration-contrast model + acceptance suite")
     p.add_argument("--audit", action="store_true",
                    help="lineage audit over persisted model history (advisory, B1)")
+    p.add_argument("--anchors", action="store_true",
+                   help="known-answer anchor set regression gate (spec §5.2)")
     p.add_argument("--json", action="store_true", help="机器可读 JSON 到 stdout")
     args = p.parse_args(argv)
 
@@ -162,6 +164,16 @@ def main(argv=None):
                   f"(false accusations: {res['c3']['false_accusations']}, "
                   f"known-missing: {res['c3']['missing_known']})")
         return
+    if args.anchors:
+        from .anchors import ANCHORS, run_anchors
+        fails = run_anchors(registry.lookup)
+        if args.json:
+            print(json.dumps({"failures": fails}, ensure_ascii=False))
+        for f in fails:
+            print(f"ANCHOR FAIL {f['ip']} ({f['expect']}): {f['reason']}")
+        total = len(ANCHORS)
+        print(f"anchors: {total - len(fails)}/{total} pass")
+        sys.exit(1 if fails else 0)
     if args.all:
         if args.json:
             results = []
