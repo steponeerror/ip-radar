@@ -118,6 +118,8 @@ def main(argv=None):
                    help="lineage audit over persisted model history (advisory, B1)")
     p.add_argument("--anchors", action="store_true",
                    help="known-answer anchor set regression gate (spec §5.2)")
+    p.add_argument("--dsem", action="store_true",
+                   help="DS-EM fair fight: market vs declared vs pi-hat T3 (advisory)")
     p.add_argument("--json", action="store_true", help="机器可读 JSON 到 stdout")
     args = p.parse_args(argv)
 
@@ -175,6 +177,24 @@ def main(argv=None):
             total = len(ANCHORS)
             print(f"anchors: {total - len(fails)}/{total} pass")
         sys.exit(1 if fails else 0)
+    if args.dsem:
+        from ipdb._merge import SOURCE_RELIABILITY
+        from .dsem_cli import run_dsem_report
+        corpus = Corpus.load(CORPUS_PATH) if CORPUS_PATH.exists() else Corpus()
+        res = run_dsem_report(registry.lookup, corpus,
+                              declared_r=dict(SOURCE_RELIABILITY),
+                              out_dir=REPORT_DIR)
+        if args.json:
+            print(json.dumps(res, ensure_ascii=False, indent=1))
+        else:
+            ff = res["fair_fight"]
+            print("DS-EM fair fight (advisory; pi-hat = truth-rate, "
+                  "theta = corroboration — never accuracy):")
+            print(f"market:   {ff['market_t3']}")
+            print(f"declared: {ff['declared_t3']}")
+            print(f"pi-hat:   {ff['pihat_t3']}  "
+                  f"(beats declared: {ff['pihat_beats_declared']})")
+        return
     if args.all:
         if args.json:
             results = []
