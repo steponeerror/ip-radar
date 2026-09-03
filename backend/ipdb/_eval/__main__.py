@@ -169,10 +169,11 @@ def main(argv=None):
         fails = run_anchors(registry.lookup)
         if args.json:
             print(json.dumps({"failures": fails}, ensure_ascii=False))
-        for f in fails:
-            print(f"ANCHOR FAIL {f['ip']} ({f['expect']}): {f['reason']}")
-        total = len(ANCHORS)
-        print(f"anchors: {total - len(fails)}/{total} pass")
+        else:
+            for f in fails:
+                print(f"ANCHOR FAIL {f['ip']} ({f['expect']}): {f['reason']}")
+            total = len(ANCHORS)
+            print(f"anchors: {total - len(fails)}/{total} pass")
         sys.exit(1 if fails else 0)
     if args.all:
         if args.json:
