@@ -129,6 +129,13 @@ DATAPLANE_MAP = {
     "sipquery": "brute-force",          # SIP 探测(telnetlogin 先例)
     "sipregistration": "brute-force",   # SIP 注册尝试
     "smtpgreet": "scanner",             # SMTP 问候连接(dnsrd 先例)
+    "smtpdata": "spam",                 # DATA 先行 = 攻击侧 SMTP 协议滥用
+    "ntpmode7": "vulnerable-system",    # RSIT Vulnerable→DDoS Amplifier:
+                                        # monlist 开放 NTP = 可被滥用反射器。
+                                        # 不用 misconfiguration(RSIT/IntelMQ:
+                                        # 自伤可用性的配置错,如过期 KSK);
+                                        # dnsrd 维持 scanner(IntelMQ scanner
+                                        # 定义例明列 DNS querying,旧裁决成立)
 }
 
 # reportedip (reportedip.de) — CSV `categories` 字段是 ;-分隔数字码。1-58 全码

@@ -4,7 +4,7 @@
 
 ## Unreleased
 
-
+### 新增 Added
 
 - 谱系审计（`python -m ipdb._eval --audit`）：基于持久化模型历史的镜像方向裁决；advisory，并对已知聚合源清单跑 C-3 零冤枉检查
   - Lineage audit (`python -m ipdb._eval --audit`): copying-direction verdicts
@@ -24,6 +24,9 @@
     / fixed anchors) with per-field hover.
 
 ### 变更 Changed
+
+- dataplane 新订阅 smtpdata(SMTP DATA 先行 → spam,malicious)与 ntpmode7(monlist 开放 NTP → vulnerable-system,informational):vulnerable-system 死槽开启,victim 侧可滥用状态不标恶意(RSIT "DDoS Amplifier" 权威口径;misconfiguration 被 RSIT/IntelMQ 定义否决——那是自伤可用性的配置错);dnsrd 维持 scanner(权威复核:IntelMQ scanner 定义例明列 DNS querying,旧裁决成立)
+  - dataplane adds smtpdata (SMTP DATA-before-greet → spam, malicious) and ntpmode7 (monlist-enabled NTP → vulnerable-system, informational): opens the vulnerable-system dead slot while victim-side abusable states stay non-malicious (RSIT "DDoS Amplifier" semantics; misconfiguration rejected by RSIT/IntelMQ definition — that type is self-harming availability, e.g. stale DNSSEC KSK); dnsrd stays scanner (authority check: IntelMQ's scanner examples literally include DNS querying — prior ruling upheld)
 
 - stopforumspam 逐条分级：last_seen ≤90 天的记录 verdict 升为可疑（活跃垃圾发送者），其余保持信息；每条记录计算 0-100 咨询分（50% 新近度 + 50% 举报量，log10 千次饱和）存入 native_confidence，融合置信度仍为 log-odds 后验不变（实测 28.1% 记录升档，~13.7 万条）
   - stopforumspam per-record grading: records with last_seen ≤90d upgrade to verdict=suspicious (active spammers), the stale tail stays informational; a 0-100 advisory score (50% recency + 50% report volume, log10 saturating at 1000) rides in native_confidence while fusion confidence stays the untouched log-odds posterior (measured 28.1% of records upgrade, ~137k)
