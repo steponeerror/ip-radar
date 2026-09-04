@@ -543,3 +543,38 @@ def get_status() -> dict:
     }
 
 
+# ── 源名册(加源流程强制对照,dataplane 前例 2026-09-05)──
+# 发现/新增源之前必须粘贴本输出做候选域名对照:同名出版方的信号被当成
+# 新源调研了一整轮(telnetlogin 在库却当新发现)。固定格式,不允许临时
+# 脚本自选列——那正是选择偏差的入口。
+
+def roster() -> list[str]:
+    """全源名册,每源一行:name | category | download_host | fields [| 子列表]。
+
+    子列表 = 多文件源的 SIGNALS/_LISTS/_LIST_SPEC 键(如 dataplane 的
+    telnetlogin、blocklist_de 的 ssh)——候选信号必须先在这里对过。
+    """
+    lines = []
+    from urllib.parse import urlparse
+    for s in _sources:
+        subs: list[str] = []
+        for attr in ("SIGNALS", "_LISTS", "_LIST_SPEC"):
+            v = getattr(s, attr, None)
+            if isinstance(v, (dict, list, frozenset, set)):
+                subs.extend(sorted(v))
+        host = getattr(s, "download_host", None)
+        if not host:
+            host = (urlparse(getattr(s, "url", "") or "").hostname
+                    or "-")
+        parts = [s.name, s.category, host or "-",
+                 ",".join(getattr(s, "fields", ())) or "-"]
+        if subs:
+            parts.append(",".join(subs))
+        lines.append(" | ".join(parts))
+    return lines
+
+
+if __name__ == "__main__":
+    print("\n".join(roster()))
+
+

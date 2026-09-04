@@ -1,7 +1,7 @@
 """Dataplane.org sensor signals — Source subclass (multi-signal, per-row class).
 
 dataplane.org (an NFP) publishes per-signal rolling 7-day lists of source IPs
-that contacted its sensors. This source merges six of them into one feed:
+that contacted its sensors. This source merges six of them into one feed (eight since 2026-09-05):
 
   sshpwauth    — IPs attempting SSH password auth        → brute-force
   telnetlogin  — IPs attempting Telnet login             → brute-force
@@ -9,6 +9,13 @@ that contacted its sensors. This source merges six of them into one feed:
   sipquery     — SIP probe / enumeration attempts        → brute-force
   sipregistration — SIP registration attempts            → brute-force
   smtpgreet    — IPs greeting SMTP servers (connection)  → scanner
+  smtpdata     — IPs sending DATA before SMTP greeting   → spam (attacker-side
+                 protocol abuse, malicious)
+  ntpmode7     — NTP servers answering monlist requests  → vulnerable-system
+                 (victim-side abusable state, RSIT "DDoS Amplifier"; verdict
+                 drops to informational — a reflector host is a victim, not an
+                 attacker; misconfiguration rejected per RSIT/IntelMQ: that
+                 type means self-harming availability, e.g. stale DNSSEC KSK)
 
 Each file is pipe-delimited with a fixed shape:
 
@@ -52,6 +59,8 @@ class DataplaneSource(Source):
         "sipquery": "https://dataplane.org/signals/sipquery.txt",
         "sipregistration": "https://dataplane.org/signals/sipregistration.txt",
         "smtpgreet": "https://dataplane.org/signals/smtpgreet.txt",
+        "smtpdata": "https://dataplane.org/signals/smtpdata.txt",
+        "ntpmode7": "https://dataplane.org/signals/ntpmode7.txt",
     }
 
     @property
@@ -95,9 +104,14 @@ class DataplaneSource(Source):
                     asn = int(asn_raw)
                 except ValueError:
                     asn = None
+                ctype = normalize(category, DATAPLANE_MAP)
+                # victim 侧可滥用状态(vulnerable-system,RSIT DDoS Amplifier)
+                # 不背攻击者的锅:verdict 降档 informational,不推恶意分。
+                verdict = ("informational" if ctype == "vulnerable-system"
+                           else self.verdict)
                 yield f"{ip}/{128 if ':' in ip else 32}", Evidence(
-                    classification_type=normalize(category, DATAPLANE_MAP),
-                    verdict=self.verdict,
+                    classification_type=ctype,
+                    verdict=verdict,
                     first_seen=last_seen,
                     last_seen=last_seen,
                     asn=asn,

@@ -59,8 +59,33 @@ def test_dataplane_new_signal_categories_map(tmp_path):
     assert s.query("154.3.40.77")[0]["native_categories"] == ["sipquery"]
 
 
-def test_dataplane_signals_dict_has_six_feeds():
+def test_dataplane_signals_dict_has_eight_feeds():
     from ipdb._sources.dataplane import DataplaneSource
     assert set(DataplaneSource.SIGNALS) == {
         "sshpwauth", "telnetlogin", "dnsrd",
-        "sipquery", "sipregistration", "smtpgreet"}
+        "sipquery", "sipregistration", "smtpgreet",
+        "smtpdata", "ntpmode7"}
+
+
+def test_dataplane_smtpdata_spam_and_ntpmode7_vulnerable_system(tmp_path):
+    """RSIT 权威口径落地:smtpdata = 攻击侧协议滥用(spam/malicious);
+    ntpmode7 = victim 侧可滥用状态(vulnerable-system/informational,
+    RSIT "DDoS Amplifier"),既有信号 verdict 不受联动影响。"""
+    lines = "\n".join([
+        "# test",
+        "2018 |  Tertiary Education  |  146.64.140.28  |  2026-09-04 09:04:07  |  smtpdata",
+        "4134 |  CHINANET-BACKBONE  |  113.95.143.91  |  2026-08-31 06:33:52  |  ntpmode7",
+        "5 |  SYMBOLICS - WFA  |  201.216.86.55  |  2026-08-03 14:02:49  |  telnetlogin",
+    ])
+    (tmp_path / "dataplane.txt").write_text(lines)
+    s = DataplaneSource(data_dir=tmp_path)
+    s.rebuild()
+    smtp = s.query("146.64.140.28")[0]
+    assert smtp["classification_type"] == "spam"
+    assert smtp["verdict"] == "malicious"
+    ntp = s.query("113.95.143.91")[0]
+    assert ntp["classification_type"] == "vulnerable-system"
+    assert ntp["verdict"] == "informational"
+    telnet = s.query("201.216.86.55")[0]
+    assert telnet["classification_type"] == "brute-force"
+    assert telnet["verdict"] == "malicious"   # 联动只降 victim 侧
