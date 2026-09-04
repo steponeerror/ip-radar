@@ -40,7 +40,7 @@ Two rules, and everything else follows:
 
 ## The workflow
 
-1. **Map the coverage gap.** Read `SOURCE_CATEGORIES`(由源文件 `category` attr 派生); count sources per axis
+1. **Map the coverage gap.** First dump the roster — `cd backend && python -m ipdb._registry --roster` (one line per source: `name | category | download_host | fields | sublists`). **The roster dump is part of the report** — counting categories without naming sources is how the dataplane incident happened (2026-09-05: DataPlane.org was "discovered" as new despite `dataplane` being registered since v1.0.0; its telnetlogin/dnsrd signals were already in the pool). Ad-hoc inventory scripts are forbidden — they choose what to print, and the choice is where the blind spot lives. Then read `SOURCE_CATEGORIES`(由源文件 `category` attr 派生); count sources per axis
    (`threat` / `geo_asn` / `asset`). Then count **witnesses per answer field**
    (union of each source's `fields` attr — a x1 field is a single point of
    failure; sanctioned example: `city` has awaited its second voting source
@@ -121,6 +121,7 @@ pricing/model/terms before applying a gate**, since access tiers and licenses dr
 | **Per-IP / per-query billing** (Shodan, Censys single-IP APIs) | REJECT | cost black hole for a batch-lookup tool |
 | **Structural model mismatch** — reports scoped to *your own* ASN/CIDR (Shadowserver), not global | REJECT | doesn't serve arbitrary-IP lookup |
 | **Feed marked "unverified" / "community"** and you'd consume it on the corroboration axis | REJECT | pollutes fusion; keep only verified for the axis |
+| **Publisher already integrated** — candidate's feed domain matches any roster row's `download_host` (or a signal name matches its sublists column) | REJECT as *new source* | dataplane precedent: the publisher was registered since v1.0.0 yet was researched as a discovery. A same-publisher unconsumed signal is still viable — but must be framed as **extension of the existing source** (edit its `SIGNALS`/map), not a new source |
 | **~100% overlap with an existing source** (verify: is it already aggregated into `firehol`/`ipsum`/`spamhaus`?) | REJECT | redundant |
 | **Sunset/frozen feed** — data-internal timestamp (`Last updated`/`Generated`/`As-of`) older than 30 days at sample-fetch; OR (no internal timestamp) publisher shows no GitHub commit / changelog / release within 30 days AND no content change across ≥2 fetches on different days | REJECT | re-serves a stale file though the URL responds; `file-mtime` is NOT liveness evidence (frozen re-download bumps it — this is how the sunset `feodo` feed slipped in) |
 | **Domain/URL-only feed** needing URL→IP resolution at fetch time (PhishTank, OpenPhish free) | FLAG | fragile, expires; prefer native-IP feeds |
@@ -167,6 +168,7 @@ The `Data freshness verified` slot is mandatory: a candidate whose data is stale
 - **Feed-first instead of gap-first.** Don't start with "GreyNoise looks cool."
   Start with "the `scanner` axis has one real source." The gap determines which
   feeds are even worth evaluating.
+- **Unattributed overlap numbers.** An overlap probe that reports "73% of sampled IPs already flagged" without naming **which sources** flagged them is not verification — in the dataplane incident the covering source WAS dataplane itself, visible in one lookup's attribution list. Overlap probes must print covering source names.
 - **Declaring a dead slot empty after one query.** A single search angle misses
   most feeds — in this campaign, one run concluded "phishing has no native-IP
   feed"; a wider sweep next run found TweetFeed. Sweep every angle (attack-type

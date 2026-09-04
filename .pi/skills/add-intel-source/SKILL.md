@@ -69,6 +69,8 @@ contract, and the merge maps — read them alongside this skill when implementin
 
 ## Phase 1 — Research the feed (do this before writing code)
 
+**Roster diff (mandatory, first):** run `cd backend && python -m ipdb._registry --roster` and diff the candidate's feed domain against every row's `download_host` (and its sublists column if present). A match means the publisher is already integrated — STOP framing this as a new source; unconsumed same-publisher signals go through the **existing** source's `SIGNALS`/`_LISTS`/map (dataplane precedent, 2026-09-05). Record "no match" in the Phase 1 output before proceeding.
+
 Answer these about the candidate feed. The answers determine the archetype and
 half the source's attributes. Grab a real sample (download a few lines / hit the
 API once) rather than guessing from docs.
