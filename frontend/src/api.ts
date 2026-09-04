@@ -16,7 +16,7 @@ export interface AssetStatement {
 export interface MergedField<T = any> {
   value: T;
   confidence: number;           // 0-100 integer
-  algorithm: string;            // "cascade" | "voting" | "logodds" | "pcr6" | "authority" | "specificity"
+  algorithm: string;            // live: "voting" | "logodds" | "authority" | "specificity" (legacy cascade/pcr6 in old exports)
   sources: SourceAttribution[];
   alternatives?: { value: any; probability: number }[];   // logodds 多类别后验(spec 2026-08-29 §6)
 }
@@ -324,6 +324,26 @@ export async function setSourceEnabled(name: string, enabled: boolean): Promise<
     body: JSON.stringify({ enabled }),
   });
   return jsonOrThrow(res, "Failed to update source");
+}
+
+// A2 双轨展示:模型评估最新报告里的每源实测 θ(印证率,advisory)。
+// theta/ci_* 对未入模源(monopoly-only / 无证据)为 null;API 层已剥离 pairs。
+export interface EvalModelScore {
+  source: string;
+  theta: number | null;
+  ci_lo: number | null;
+  ci_hi: number | null;
+  declared_r: number | null;
+}
+
+export interface EvalModel {
+  scores?: EvalModelScore[];
+}
+
+// 无模型报告时返回 null(页面渲染 θ 列为 —);HTTP 错误照常抛出,由调用方降级。
+export async function fetchEvalModel(): Promise<EvalModel | null> {
+  const res = await jsonOrThrow(await fetch("/api/eval/model"), "Failed to load eval model");
+  return (res as any)?.latest ?? null;
 }
 
 // --- Task client: enqueue / control / subscribe (SSE) ---

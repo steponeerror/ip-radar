@@ -134,3 +134,42 @@ describe("ResultTable richness display", () => {
     expect(within(tds[6]).queryByText(/中国移动/)).not.toBeInTheDocument();
   });
 });
+
+// --- C1: score-semantics legend + per-field hover (Task 6) ---
+
+describe("score-semantics legend", () => {
+  it("renders exactly the four live algorithm entries", () => {
+    renderWithI18n(<ResultTable results={[baseResult]} />);
+    expect(screen.getByText(/posterior probability/i)).toBeInTheDocument();
+    expect(screen.getByText(/consensus share/i)).toBeInTheDocument();
+    expect(screen.getByText(/single trusted source/i)).toBeInTheDocument();
+    expect(screen.getByText(/fixed anchors/i)).toBeInTheDocument();
+  });
+
+  it("omits legacy cascade/pcr6 entries (R9: live algorithms only)", () => {
+    renderWithI18n(<ResultTable results={[baseResult]} />);
+    expect(screen.queryByText(/legacy/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/cascade/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/pcr6/i)).not.toBeInTheDocument();
+  });
+
+  it("hover titles carry the algorithm semantics", () => {
+    renderWithI18n(<ResultTable results={[baseResult]} />);
+    const cell = screen.getAllByTitle(/posterior probability/i)[0];
+    expect(cell).toBeInTheDocument();
+  });
+
+  it("expanded field rows carry the per-algorithm hover title", () => {
+    const r: LookupResult = {
+      ...baseResult,
+      asn: {
+        value: 64500, confidence: 90, algorithm: "logodds",
+        sources: [{ source: "iptoasn", value: 64500, reliability: 0.9, authoritative: false }],
+      },
+    };
+    renderWithI18n(<ResultTable results={[r]} />);
+    fireEvent.click(screen.getByText("203.0.113.10"));
+    // 1 = legend entry; >1 means the expanded field's algorithm glyph got one too
+    expect(screen.getAllByTitle(/posterior probability/i).length).toBeGreaterThan(1);
+  });
+});

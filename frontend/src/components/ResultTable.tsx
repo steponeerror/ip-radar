@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, Fragment } from "react";
 import type { LookupResult } from "../api";
 import {
   confTextColor, VERDICT_STYLE, VERDICT_RANK, verdictLabelKey,
-  normType, classLabel, familyShort, threatSummary,
+  normType, classLabel, familyShort, threatSummary, SCORE_SEMANTICS,
 } from "./threatDisplay";
 import { useI18n } from "../i18n";
 import { IpDetailPanel } from "./IpDetailPanel";
@@ -279,6 +279,22 @@ function ScoredCell({
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100, 200];
 
+// C1: one compact line explaining what each algorithm's conf number means.
+// Static — legend-grade badges (symbol + word), never icon-only.
+export function ScoreLegend() {
+  const { t } = useI18n();
+  return (
+    <div className="mb-1 flex flex-wrap gap-3 text-[10px] text-zinc-500">
+      {Object.entries(SCORE_SEMANTICS).map(([algo, s]) => (
+        <span key={algo} title={t(s.key)}>
+          <span className="mr-1 rounded bg-zinc-800 px-1 py-0.5 text-zinc-300">{s.badge}</span>
+          {t(s.key)}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function Pagination({
   page,
   pageCount,
@@ -506,6 +522,8 @@ export function ResultTable({ results }: ResultTableProps) {
           </span>
         )}
       </div>
+
+      <ScoreLegend />
 
       <div className="overflow-auto rounded-lg border border-zinc-800">
         <table className="w-full text-left text-sm">

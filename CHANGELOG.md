@@ -4,6 +4,25 @@
 
 ## Unreleased
 
+### 新增 Added
+
+- 谱系审计（`python -m ipdb._eval --audit`）：基于持久化模型历史的镜像方向裁决；advisory，并对已知聚合源清单跑 C-3 零冤枉检查
+  - Lineage audit (`python -m ipdb._eval --audit`): copying-direction verdicts
+    from persisted model history; advisory, C-3 zero-false-accusation check
+    against the known aggregator list.
+- 锚点回归（`--anchors`）：精选已知答案 IP 集，任一失败退出码 1；后续凡触生产的改动必过此闸
+  - Anchor regression (`--anchors`): curated known-answer IP set; exit 1 on any
+    failure. Required gate for future production-touching changes.
+- DS-EM 引擎 + `--dsem` 公平对决：逐源/逐 ctype 潜真值率估计（沉默计负、声明 r 锚定）与 T3 三方对决（市场 / 声明 / π̂）；advisory
+  - DS-EM engine + `--dsem` fair fight: per-source/per-ctype latent-truth rate
+    estimates (silence-as-negative, declared-r anchored) and the three-way T3
+    comparison (market / declared / pi-hat). Advisory only.
+- 数据源页：实测 θ（印证率，90% CI）与声明 r 并列展示
+  - Sources page: measured θ (corroboration, 90% CI) shown beside declared r.
+- 结果表：分值语义图例（posterior / consensus / calibration / fixed anchors），逐字段悬停说明
+  - Results table: score-semantics legend (posterior / consensus / calibration
+    / fixed anchors) with per-field hover.
+
 ## v1.3.0 — 2026-09-02
 
 ### 新增 Added

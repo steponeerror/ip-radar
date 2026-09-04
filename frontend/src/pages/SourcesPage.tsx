@@ -2,10 +2,11 @@ import { useCallback, useEffect, useState } from "react";
 import {
   enqueueBatch,
   enqueueSingle,
+  fetchEvalModel,
   getSources,
   setSourceEnabled,
 } from "../api";
-import type { SourceInfo, TaskState } from "../api";
+import type { EvalModelScore, SourceInfo, TaskState } from "../api";
 import { useI18n } from "../i18n";
 import { useTasks } from "../tasks/TaskProvider";
 
@@ -68,6 +69,8 @@ export default function SourcesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+  // A2 双轨:每源实测 θ(印证率,advisory)。拉不到/无报告 → 空表,θ 列全 —。
+  const [thetaBySource, setThetaBySource] = useState<Map<string, EvalModelScore>>(new Map());
 
   const fmtTime = (s: SourceInfo) => {
     const ta = timeAgo(s.health.last_updated);
@@ -90,6 +93,16 @@ export default function SourcesPage() {
   // Same idiom as ResultTable.tsx (pre-existing); pattern mandated by task brief.
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { fetchSources(); }, [fetchSources]);
+
+  // A2:拉一次最新评估模型报告,按源名建 θ 索引。失败静默降级 ——
+  // θ 是 advisory 展示,不得拖垮主列表(与主 fetch 的容错语义一致)。
+  useEffect(() => {
+    fetchEvalModel()
+      .then((m) => {
+        if (m?.scores) setThetaBySource(new Map(m.scores.map((sc) => [sc.source, sc])));
+      })
+      .catch(() => { /* 无报告/接口失败:θ 列保持 — */ });
+  }, []);
 
   // Debounce-refetch: when the count of finished tasks (done/failed/cancelled)
   // changes, re-sync the source list after 500ms so health/record_count updates.
@@ -198,6 +211,7 @@ export default function SourcesPage() {
             >
               {items.map((s) => {
                 const st = statusOf(s);
+                const ms = thetaBySource.get(s.name);
                 // Per-row phase comes from the tasks context (SSE-driven), not
                 // local state. A row is "busy" only when a task for this source
                 // is queued / downloading / loading.
@@ -235,6 +249,22 @@ export default function SourcesPage() {
                     ) : (
                       <span className="w-28 shrink-0 text-center text-xs text-zinc-600">-</span>
                     )}
+                    {/* A2 双轨:声明 r(生产权重)+ 实测 θ(印证率,advisory)。 */}
+                    <span className="w-16 shrink-0 text-center font-mono text-xs tabular-nums text-zinc-400">
+                      r {s.reliability.toFixed(2)}
+                    </span>
+                    {ms && ms.theta != null ? (
+                      <span
+                        className="w-36 shrink-0 whitespace-nowrap text-center font-mono text-xs tabular-nums text-sky-400"
+                        title={t("sources.thetaTooltip")}
+                      >
+                        θ {ms.theta.toFixed(2)}
+                        {ms.ci_lo != null &&
+                          ` [${ms.ci_lo.toFixed(2)}–${ms.ci_hi!.toFixed(2)}]`}
+                      </span>
+                    ) : (
+                      <span className="w-36 shrink-0 text-center text-xs text-zinc-600">—</span>
+                    )}
                     <div className="ml-auto flex items-center gap-3">
                       <Toggle
                         on={s.enabled}
@@ -260,6 +290,12 @@ export default function SourcesPage() {
             </ul>
           </div>
         ))
+      )}
+
+      {!loading && grouped.length > 0 && (
+        <p className="mt-2 text-xs text-zinc-600">
+          <span className="font-mono">{t("sources.thetaCol")}</span> — {t("sources.thetaFootnote")}
+        </p>
       )}
     </section>
   );

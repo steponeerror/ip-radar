@@ -221,6 +221,21 @@ cd frontend && npm run dev
 ./start.sh
 ```
 
+### Eval layer
+
+The eval layer emits two kinds of reliability numbers side by side: the
+declared `r` (hand-set per source, production-authoritative) and measured
+θ (independent-corroboration posterior, advisory). θ is never an accuracy
+claim and never feeds the production weights automatically — adopting a
+measured value requires a human-reviewed PR referencing the eval report.
+
+Run it from `backend/` via `python -m ipdb._eval`: `--audit` (lineage audit —
+copying-direction verdicts over persisted model history, advisory),
+`--anchors` (known-answer regression gate; exit 1 on any failure), and
+`--dsem` (DS-EM fair fight: market vs declared vs π̂, advisory). The
+Sources page mirrors this dual track — measured θ (90% CI) beside each
+source's declared `r`.
+
 ## Tests
 
 ```bash
