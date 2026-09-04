@@ -4,7 +4,7 @@
 
 ## Unreleased
 
-### 新增 Added
+
 
 - 谱系审计（`python -m ipdb._eval --audit`）：基于持久化模型历史的镜像方向裁决；advisory，并对已知聚合源清单跑 C-3 零冤枉检查
   - Lineage audit (`python -m ipdb._eval --audit`): copying-direction verdicts
@@ -22,6 +22,11 @@
 - 结果表：分值语义图例（posterior / consensus / calibration / fixed anchors），逐字段悬停说明
   - Results table: score-semantics legend (posterior / consensus / calibration
     / fixed anchors) with per-field hover.
+
+### 变更 Changed
+
+- stopforumspam 逐条分级：last_seen ≤90 天的记录 verdict 升为可疑（活跃垃圾发送者），其余保持信息；每条记录计算 0-100 咨询分（50% 新近度 + 50% 举报量，log10 千次饱和）存入 native_confidence，融合置信度仍为 log-odds 后验不变（实测 28.1% 记录升档，~13.7 万条）
+  - stopforumspam per-record grading: records with last_seen ≤90d upgrade to verdict=suspicious (active spammers), the stale tail stays informational; a 0-100 advisory score (50% recency + 50% report volume, log10 saturating at 1000) rides in native_confidence while fusion confidence stays the untouched log-odds posterior (measured 28.1% of records upgrade, ~137k)
 
 ## v1.3.0 — 2026-09-02
 
