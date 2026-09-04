@@ -114,6 +114,12 @@ def main(argv=None):
     p.add_argument("--all", action="store_true", help="evaluate every source (no ranking in v1)")
     p.add_argument("--model", action="store_true",
                    help="fleet corroboration-contrast model + acceptance suite")
+    p.add_argument("--audit", action="store_true",
+                   help="lineage audit over persisted model history (advisory, B1)")
+    p.add_argument("--anchors", action="store_true",
+                   help="known-answer anchor set regression gate (spec §5.2)")
+    p.add_argument("--dsem", action="store_true",
+                   help="DS-EM fair fight: market vs declared vs pi-hat T3 (advisory)")
     p.add_argument("--json", action="store_true", help="机器可读 JSON 到 stdout")
     args = p.parse_args(argv)
 
@@ -144,6 +150,50 @@ def main(argv=None):
             print(f"model suite: "
                   f"{sum(1 for c in result['checks'].values() if c['pass'])}"
                   f"/{len(result['checks'])} checks pass\n  report: {md}")
+        return
+    if args.audit:
+        from .audit import lineage_audit
+        res = lineage_audit(REPORT_DIR / "model")
+        if args.json:
+            print(json.dumps(res, ensure_ascii=False, indent=1))
+        else:
+            print("lineage audit (advisory):")
+            for s in res["recommended_derived"]:
+                print(f"  {s}: " + "; ".join(
+                    f"<= {u} (contain {f:.2f}, {af}/{af+bf} first)"
+                    for u, f, af, bf in res["relations"][s]))
+            print(f"  C-3: {'PASS' if res['c3']['pass'] else 'CHECK'} "
+                  f"(false accusations: {res['c3']['false_accusations']}, "
+                  f"known-missing: {res['c3']['missing_known']})")
+        return
+    if args.anchors:
+        from .anchors import ANCHORS, run_anchors
+        fails = run_anchors(registry.lookup)
+        if args.json:
+            print(json.dumps({"failures": fails}, ensure_ascii=False))
+        else:
+            for f in fails:
+                print(f"ANCHOR FAIL {f['ip']} ({f['expect']}): {f['reason']}")
+            total = len(ANCHORS)
+            print(f"anchors: {total - len(fails)}/{total} pass")
+        sys.exit(1 if fails else 0)
+    if args.dsem:
+        from ipdb._merge import SOURCE_RELIABILITY
+        from .dsem_cli import run_dsem_report
+        corpus = Corpus.load(CORPUS_PATH) if CORPUS_PATH.exists() else Corpus()
+        res = run_dsem_report(registry.lookup, corpus,
+                              declared_r=dict(SOURCE_RELIABILITY),
+                              out_dir=REPORT_DIR)
+        if args.json:
+            print(json.dumps(res, ensure_ascii=False, indent=1))
+        else:
+            ff = res["fair_fight"]
+            print("DS-EM fair fight (advisory; pi-hat = truth-rate, "
+                  "theta = corroboration — never accuracy):")
+            print(f"market:   {ff['market_t3']}")
+            print(f"declared: {ff['declared_t3']}")
+            print(f"pi-hat:   {ff['pihat_t3']}  "
+                  f"(beats declared: {ff['pihat_beats_declared']})")
         return
     if args.all:
         if args.json:

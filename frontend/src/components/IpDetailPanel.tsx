@@ -1,5 +1,5 @@
 import type { LookupResult, MergedField } from "../api";
-import { confColor, confTextColor, ALGORITHM_ICONS } from "./threatDisplay";
+import { confColor, confTextColor, ALGORITHM_ICONS, SCORE_SEMANTICS } from "./threatDisplay";
 import { useI18n } from "../i18n";
 import { ClassificationBlock } from "./ClassificationBlock";
 
@@ -37,6 +37,7 @@ function FieldDetail<T>({
   grouped?: boolean;
   suffix?: string;
 }) {
+  const { t } = useI18n();
   const entries = field.sources;
   if (entries.length === 0) return null;
   const groups = answerGroups(field);
@@ -69,7 +70,7 @@ function FieldDetail<T>({
         )}
         <span className={`inline-block h-1.5 w-1.5 rounded-full ${confColor(field.confidence)}`} />
         <span className={`text-[10px] ${confTextColor(field.confidence)}`}>{field.confidence}</span>
-        <span className="text-[10px] text-zinc-600">{ALGORITHM_ICONS[field.algorithm] ?? field.algorithm}</span>
+        <span className="text-[10px] text-zinc-600" title={SCORE_SEMANTICS[field.algorithm] ? t(SCORE_SEMANTICS[field.algorithm].key) : undefined}>{ALGORITHM_ICONS[field.algorithm] ?? field.algorithm}</span>
       </div>
       <div className="ml-3 flex flex-wrap gap-x-4 gap-y-0.5">
         {entries.map((s) => (

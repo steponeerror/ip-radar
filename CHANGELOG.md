@@ -4,6 +4,67 @@
 
 ## Unreleased
 
+
+
+- 谱系审计（`python -m ipdb._eval --audit`）：基于持久化模型历史的镜像方向裁决；advisory，并对已知聚合源清单跑 C-3 零冤枉检查
+  - Lineage audit (`python -m ipdb._eval --audit`): copying-direction verdicts
+    from persisted model history; advisory, C-3 zero-false-accusation check
+    against the known aggregator list.
+- 锚点回归（`--anchors`）：精选已知答案 IP 集，任一失败退出码 1；后续凡触生产的改动必过此闸
+  - Anchor regression (`--anchors`): curated known-answer IP set; exit 1 on any
+    failure. Required gate for future production-touching changes.
+- DS-EM 引擎 + `--dsem` 公平对决：逐源/逐 ctype 潜真值率估计（沉默计负、声明 r 锚定）与 T3 三方对决（市场 / 声明 / π̂）；advisory
+  - DS-EM engine + `--dsem` fair fight: per-source/per-ctype latent-truth rate
+    estimates (silence-as-negative, declared-r anchored) and the three-way T3
+    comparison (market / declared / pi-hat). Advisory only.
+- 数据源页：实测 θ（印证率，90% CI）与声明 r 并列展示
+  - Sources page: measured θ (corroboration, 90% CI) shown beside declared r.
+- 结果表：分值语义图例（posterior / consensus / calibration / fixed anchors），逐字段悬停说明
+  - Results table: score-semantics legend (posterior / consensus / calibration
+    / fixed anchors) with per-field hover.
+
+### 变更 Changed
+
+- stopforumspam 逐条分级：last_seen ≤90 天的记录 verdict 升为可疑（活跃垃圾发送者），其余保持信息；每条记录计算 0-100 咨询分（50% 新近度 + 50% 举报量，log10 千次饱和）存入 native_confidence，融合置信度仍为 log-odds 后验不变（实测 28.1% 记录升档，~13.7 万条）
+  - stopforumspam per-record grading: records with last_seen ≤90d upgrade to verdict=suspicious (active spammers), the stale tail stays informational; a 0-100 advisory score (50% recency + 50% report volume, log10 saturating at 1000) rides in native_confidence while fusion confidence stays the untouched log-odds posterior (measured 28.1% of records upgrade, ~137k)
+
+## v1.3.0 — 2026-09-02
+
+### 新增 Added
+
+- 双模型评估框架：语料纪元 2026-09-01 冻结（per_type_n 30→60），模型级报告持久化断言历史、新增泉眼/唯一性列与专家源/垄断源脚注；greensnow 纳入 DERIVED_SOURCES 聚合谱系
+  - Dual-model eval framework: corpus epoch frozen at 2026-09-01 (per_type_n 30→60); model-level reports persist assertion history and gain fountain/unique columns + specialist/monopoly footnotes; greensnow joins the DERIVED_SOURCES lineage
+- 8 个威胁/VPN 源（29→37）：siberkapan、turris_greylist、threatcluster、drb_ra、hookzof、thespeedx、protonvpn、nordvpn
+  - 8 threat/VPN sources (29→37): siberkapan, turris_greylist, threatcluster, drb_ra, hookzof, thespeedx, protonvpn, nordvpn
+- 5 个信息面源（37→42）：dbip_city 城市第二投票源 + AWS/GCP/Azure/Oracle 官方网段（is_hosting 证人 1→5）
+  - 5 info-surface sources (37→42): dbip_city as the city slot's second voting source + publisher-official AWS/GCP/Azure/Oracle ranges (is_hosting witnesses 1→5)
+- 服务身份：详情面板新增 Service identity 分组，逐条展示服务声明（8.8.8.8 → DNS · Google Public DNS）
+  - Service identity: new "Service identity" section in the detail panel lists every service claim per row (8.8.8.8 → DNS · Google Public DNS)
+
+### 变更 Changed
+
+- LMDB 构建提速：staging env 异步刷盘（sync=False/metasync=False/map_async=True，mdb_load -Q 同款）+ 批次 1 万→10 万，本地 NVMe 构建 18.3s→17.0s（服务器 overlayfs 月度重建收益更大）
+  - Faster LMDB builds: the staging env now async-flushes (sync=False/metasync=False/map_async=True — the mdb_load -Q pattern) with batches up from 10k to 100k; local NVMe build 18.3s→17.0s (bigger win on the server's overlayfs monthly rebuild)
+- LMDB 查询与写库核心：嵌套网段查询改 CIDR 前缀探测（≤33 次 O(log n) seek，根治深嵌套漏命中）；disjoint 预判移入写库循环（running max_end，免事后 O(n) 扫描）；dbip 双族整数快径（inet_pton + 位运算，harvest 103.3s→75.9s）
+  - LMDB core: nested-range lookups now use CIDR prefix probing (≤33 O(log n) seeks — deep-nest misses fixed for good); the disjoint check moved into the write loop (running max_end, no post-hoc O(n) scan); dbip gained an integer fast path (inet_pton + bit ops, harvest 103.3s→75.9s)
+- 文档口径收敛：README 双语重定位为「全面 IP 画像」，总源数只在开场白出现一次，其余位置改用稳定表述（「除 4 个密钥源外」）
+  - Docs: READMEs repositioned as a "full IP profile" (bilingual); the volatile total count now appears once (hero line), everywhere else uses the stable "all but 4 keyed" phrasing
+
+### 修复 Fixed
+
+- 首次构建进度：总行数未知时保持 0% 展示，不再假造 n/n=100%
+  - First-build progress: unknown totals now stay at 0% instead of a fake n/n=100%
+- nordvpn 下载路径修正（nordvpn_ips_list.csv）
+  - nordvpn download path fixed (nordvpn_ips_list.csv)
+
+## v1.2.2 — 2026-08-26
+
+详见 Release Notes：[v1.2.2 — 数据丰富度与展示管线](https://github.com/steponeerror/ip-radar/releases/tag/v1.2.2)（运营方列 + CDN 防误判徽章、VPN 可见性修复、查询结果更丰富、STIX 资产通道、更新横幅三连修复）
+
+See release notes: [v1.2.2](https://github.com/steponeerror/ip-radar/releases/tag/v1.2.2) (operator column + CDN anti-ban badge, VPN visibility fix, richer results, STIX asset channel, three update-banner fixes).
+
+## v1.2.0 — 2026-08-24
+
 ### 新增 Added
 
 - 公共 demo 模式（`IP_RADAR_PUBLIC_DEMO=1`）：写接口与内部接口返回 404，查询读接口要求 `x-ipradar-client: web` 头（STIX/OPTIONS/回环/version 豁免）；前端探测 `public_demo` 字段后隐藏数据源管理与更新入口，页顶常驻演示横幅指路 GitHub。自部署默认关闭，行为零变化
