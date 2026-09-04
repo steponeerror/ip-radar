@@ -60,6 +60,11 @@ def to_observation(
 # 运行时由 _registry 从源 attr 派生填充(spec 2026-08-28 §5.1)。
 # 对象身份不变:__init__/_stix_export/_to_attributions 的既有 import 靠它,
 # 严禁重新赋值——只允许 clear()+update()。
+#
+# 治理红线(2026-09-02 修正案,落地记录见 CHANGELOG.md):
+# 声明 r 永不自动派生自 eval;eval 只可产出 advisory 建议列,采纳必须走
+# 人审 PR 且 diff 引用 eval 报告编号;运行时融合只读已提交常量(本表);
+# θ 恒为印证(corroboration)语义,不得当 accuracy。
 SOURCE_RELIABILITY: dict[str, float] = {}
 AUTHORITATIVE_SOURCES: dict[str, list[str]] = {}
 

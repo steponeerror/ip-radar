@@ -118,7 +118,40 @@ def test_download_harvest_rebuild_query_roundtrip(monkeypatch, tmp_path):
     assert rec["reporter_count"] == 71
     assert rec["last_seen"] == "2026-03-27 01:53:34"
     assert rec["first_seen"] == "2026-03-27 01:53:34"
+    assert 0 <= rec["confidence"] <= 100        # graded score persists
     assert s.query("5.6.7.8")[0]["reporter_count"] == 1
+
+
+def _ago(days: int) -> str:
+    import datetime
+    return (datetime.datetime.now() - datetime.timedelta(days=days)).strftime(
+        "%Y-%m-%d %H:%M:%S")
+
+
+def test_harvest_grades_recent_suspicious_stale_informational(tmp_path):
+    """Per-record verdict: last_seen ≤90d → suspicious, older → informational;
+    advisory score rides in Evidence.confidence (native_confidence display)."""
+    s = StopForumSpamSource(data_dir=tmp_path)
+    s._path.write_text(
+        f'"1.2.3.4","71","{_ago(10)}"\n'
+        f'"5.6.7.8","1","{_ago(200)}"\n')
+    evs = dict(s.harvest())
+    assert evs["1.2.3.4"].verdict == "suspicious"
+    assert evs["5.6.7.8"].verdict == "informational"
+    for ev in evs.values():
+        assert 0 <= ev.confidence <= 100
+    assert evs["1.2.3.4"].confidence > evs["5.6.7.8"].confidence
+
+
+def test_grade_boundary_and_monotonicity():
+    from ipdb._sources.stopforumspam import _grade
+    assert _grade(_ago(90), 5)[0] == "suspicious"        # boundary inclusive
+    assert _grade(_ago(91), 5)[0] == "informational"
+    assert _grade("garbage", 500)[0] == "informational"   # unparseable ts
+    assert _grade(None, 500)[0] == "informational"        # missing ts
+    fresh_hi, fresh_lo = _grade(_ago(1), 1000)[1], _grade(_ago(1), 1)[1]
+    stale_hi, stale_lo = _grade(_ago(300), 1000)[1], _grade(_ago(300), 1)[1]
+    assert 0 <= stale_lo < fresh_lo < stale_hi < fresh_hi <= 100
 
 
 def test_harvest_skips_malformed_rows(tmp_path):

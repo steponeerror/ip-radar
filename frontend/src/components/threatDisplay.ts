@@ -34,6 +34,17 @@ export const ALGORITHM_ICONS: Record<string, string> = {
   corroboration: "🤝",
 };
 
+// C1 legend-grade semantics: what each merge algorithm's confidence number
+// MEANS. Covers exactly the four live algorithms; legacy cascade/pcr6
+// (retired three-stage merge, removed 2026-07) are deliberately absent —
+// R9: legend shows live algorithms only.
+export const SCORE_SEMANTICS: Record<string, { badge: string; key: string }> = {
+  logodds:     { badge: "σ P",       key: "semantics.posterior" },
+  voting:      { badge: "▮ share",   key: "semantics.consensus" },
+  authority:   { badge: "★ r",       key: "semantics.calibration" },
+  specificity: { badge: "◇ fixed",   key: "semantics.anchor" },
+};
+
 const CLASS_KEYS: Record<string, string> = {
   "c2_server": "class.c2_server",
   botnet_cc: "class.botnet_cc",

@@ -2,9 +2,9 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-![IP Radar — self-hosted threat intelligence](assets/social-preview.png)
+![IP Radar — self-hosted IP intelligence](assets/social-preview.png)
 
-**Pull 29 public threat feeds into your own box.** Every lookup comes back with a verdict in plain words — evidence, confidence, geo & ASN, all at once. One command, self-hosted.
+**Pull 42 public sources into your own box — a full IP profile, not just a threat verdict.** Every lookup comes back with a plain-words verdict — evidence, confidence, geo · city · ASN, cloud/hosting, proxy · VPN · Tor, service identity, all at once. One command, self-hosted.
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 ![Docker](https://img.shields.io/badge/Docker-one%20container-2496ED?logo=docker&logoColor=white)
@@ -40,9 +40,9 @@ cd ip-radar
 docker compose up -d --build
 ```
 
-Open http://127.0.0.1:8000. The container is reachable within seconds — a banner at the top tracks the keyless feeds' download/build progress live (25 of 29 sources, including geo/city/ASN and the major blocklists), and queries unlock automatically once the build settles. Subsequent starts load from the `ipradar-data` volume in seconds.
+Open http://127.0.0.1:8000. The container is reachable within seconds — a banner at the top tracks the keyless feeds' download/build progress live (all but the 4 keyed sources, including geo/city/ASN, the major blocklists and cloud ranges), and queries unlock automatically once the build settles. Subsequent starts load from the `ipradar-data` volume in seconds.
 
-**25 of 29 feeds need zero API keys.** To light up the 4 keyed sources, drop the keys into `.env.local` (gitignored, overrides `.env`):
+**All but 4 feeds need zero API keys.** To light up the 4 keyed sources, drop the keys into `.env.local` (gitignored, overrides `.env`):
 
 ```bash
 cp .env .env.local   # then open .env.local in any editor, fill keys
@@ -75,9 +75,9 @@ Notes:
 - **Works out of the box** — first start downloads and builds every keyless feed into millions of records (live count: `/api/db-status`).
 - **Cold start doesn't block** — the container opens within seconds; queries unlock only when the keyless feeds are fully built. Never a verdict on half a dataset.
 - **A verdict, not a pile of lists** — one line of conclusion per IP, per-source evidence on the table, 0-100 confidence (log-odds Bayesian fusion: source reliability → logit coefficients, 60-day half-life decay on threat assertions, cross-source corroboration; 0 = no evidence, not innocence; scalar fields don't decay).
-- **Geo · City · ASN** — GeoLite2 for the city, iptoasn for the ASN, plus CN ISP classification incl. HK/MO/TW.
-- **Proxy · VPN · Tor · CDN, spotted at a glance** — open proxies, VPN ranges, Tor exits, and the big three CDNs' edges, all labeled.
-- **IPv6 lookups too** — bare v6 and small v6 CIDRs resolve with geo · city · ASN · VPN · CDN · DROP ranges; ~10 feeds carry v6 data, the rest have no v6 upstream — shown honestly as no-records.
+- **Geo · City · ASN** — dual city sources (GeoLite2 + DB-IP), iptoasn for the ASN, plus CN ISP classification incl. HK/MO/TW.
+- **Proxy · VPN · Tor · CDN · cloud, spotted at a glance** — live-checked proxy lists, VPN ranges (incl. NordVPN & ProtonVPN), Tor exits, the big three CDNs' edges, and AWS/GCP/Azure/Oracle hosting ranges, all labeled; known infra also shows its service identity (8.8.8.8 → DNS · Google Public DNS).
+- **IPv6 lookups too** — bare v6 and small v6 CIDRs resolve with geo · city · ASN · VPN · CDN · DROP ranges; geo/city/ASN, cloud-provider ranges, CDN edges and DROPv6 all carry v6; most threat lists have no v6 upstream — shown honestly as no-records.
 - **One container, memory that behaves** — concurrency bends to host RAM; background refresh staggered per source: daily feeds 2×/day, weekly 1×/week, each at a fixed offset time.
 - **STIX 2.1 export (optional)** — `/api/lookup/{ip}/stix`; the Docker image ships without `stix2` — `pip install stix2` to switch it on.
 
@@ -85,7 +85,7 @@ Notes:
 
 ```mermaid
 flowchart TD
-    A["29 feeds<br/>(25 keyless auto + 4 keyed)"] --> B["Cold-start download /<br/>30-min refresh scheduler"]
+    A["Public sources<br/>(keyless auto + 4 keyed)"] --> B["Cold-start download /<br/>30-min refresh scheduler"]
     B --> C["Per-source parsers<br/>(classification pipeline)"]
     C --> D["Fusion<br/>(log-odds · corroboration · decay)"]
     D --> E["LMDB store<br/>(named volume · mmap)"]
@@ -162,12 +162,17 @@ Every dataset below belongs to its provider — thank you for keeping them open 
 | dshield | [DShield](https://feeds.dshield.org/block.txt) | Top-attacker /24 blocks (attack counts) | |
 | f3csystems | [f3cSystems](https://github.com/f3cSystems/BlockList_IP) | Honeypot scanner blocklist (Sekoia sensors) | |
 | reportedip | [ReportedIP](https://github.com/reportedip/reportedip-blacklist) | WordPress-honeypot community reputation | |
+| siberkapan | [SiberKapan](https://siberkapan.org/) | Turkish honeypot-network sensor blocklist | |
+| threatcluster | [ThreatCluster](https://threatcluster.io/) | Curated high-confidence malicious IPs | |
+| turris_greylist | [Turris Sentinel](https://view.sentinel.turris.cz/greylist-data/) | Distributed-router greylist (protocol probes) | |
+| drb_ra `*` | [C2IntelFeeds](https://github.com/drb-ra/C2IntelFeeds) | Aggregated C2 IPs (30-day hunts) | |
 
 ### Geo & ASN
 
 | Source | Provider | Contributes | 🔑 |
 |---|---|---|---|
 | geolite_city | [MaxMind GeoLite2](https://github.com/P3TERX/GeoLite.mmdb) | City / geo per IP | |
+| dbip_city | [DB-IP](https://db-ip.com/db/lite.php) | City-lite — 2nd city voting source | |
 | iptoasn | [IPtoASN](https://iptoasn.com/) | ASN + AS-name ranges | |
 | cn_isp | [clang.cn ISP ranges](https://ispip.clang.cn/) | China ISP classification (mainland + HK/MO/TW) | |
 | ipinfo_lite | [IPinfo](https://ipinfo.io/) | Country / ASN / ranges enrichment | 🔑 |
@@ -180,7 +185,15 @@ Every dataset below belongs to its provider — thank you for keeping them open 
 | proxyscrape | [ProxyScrape](https://github.com/proxyscrape/free-proxy-list) | Open proxy IPs | |
 | tor_exits | [Tor Project](https://check.torproject.org/exit-addresses) | Tor exit node addresses | |
 | x4bnet_vpn | [X4BNet](https://github.com/X4BNet/lists_vpn) | VPN ranges | |
-| cdn_edges | [AWS](https://ip-ranges.amazonaws.com/ip-ranges.json) · [Cloudflare](https://www.cloudflare.com/ips-v4) · [Fastly](https://api.fastly.com/public-ip-list) | CDN edge ranges | |
+| nordvpn | [NordVPN](https://github.com/mthcht/awesome-lists) | NordVPN server ranges (mirror) | |
+| protonvpn | [ProtonVPN](https://github.com/mthcht/awesome-lists) | ProtonVPN server ranges (mirror) | |
+| hookzof | [hookzof](https://github.com/hookzof/socks5_list) | Live-checked SOCKS5 proxies | |
+| thespeedx | [TheSpeedX](https://github.com/TheSpeedX/PROXY-List) | Live-checked HTTP proxies | |
+| cdn_edges | [CloudFront](https://ip-ranges.amazonaws.com/ip-ranges.json) · [Cloudflare](https://www.cloudflare.com/ips-v4) · [Fastly](https://api.fastly.com/public-ip-list) | CDN edge ranges | |
+| aws_ranges | [AWS](https://ip-ranges.amazonaws.com/ip-ranges.json) | Full AWS footprint — cloud / hosting | |
+| gcp_ranges | [Google](https://www.gstatic.com/ipranges/goog.json) | Google public ranges — cloud / hosting | |
+| azure_ranges | [Azure](https://www.microsoft.com/en-us/download/details.aspx?id=56519) | AzureCloud service tag — cloud / hosting | |
+| oracle_ranges | [Oracle](https://docs.oracle.com/iaas/tools/public_ip_ranges.json) | OCI region ranges — cloud / hosting | |
 | infra_services | curated | Public DNS-root / NTP infrastructure | |
 
 ## Development
@@ -207,6 +220,21 @@ cd frontend && npm run dev
 ```bash
 ./start.sh
 ```
+
+### Eval layer
+
+The eval layer emits two kinds of reliability numbers side by side: the
+declared `r` (hand-set per source, production-authoritative) and measured
+θ (independent-corroboration posterior, advisory). θ is never an accuracy
+claim and never feeds the production weights automatically — adopting a
+measured value requires a human-reviewed PR referencing the eval report.
+
+Run it from `backend/` via `python -m ipdb._eval`: `--audit` (lineage audit —
+copying-direction verdicts over persisted model history, advisory),
+`--anchors` (known-answer regression gate; exit 1 on any failure), and
+`--dsem` (DS-EM fair fight: market vs declared vs π̂, advisory). The
+Sources page mirrors this dual track — measured θ (90% CI) beside each
+source's declared `r`.
 
 ## Tests
 

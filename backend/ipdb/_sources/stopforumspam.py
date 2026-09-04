@@ -7,9 +7,17 @@ fields) — spec D7 / Q13-A. Download limited to 3/day/IP; stale_days=1 keeps
 the daily scheduler under the limit. NOTE: the .txt→.csv rename orphans the
 old LMDB on upgrade — load() sweeps it; until the first download lands the
 source contributes nothing (self-heals, see _cleanup_legacy_txt).
+
+Per-record grading (2026-09-03): last_seen within 90 days → verdict=suspicious
+(active spammer); the stale tail keeps informational (commit ffae4caf rationale
+— reputation context must not drive accusation). Advisory 0-100 score rides in
+Evidence.confidence (native_confidence display slot); fusion confidence stays
+the log-odds posterior over reliability + first_seen decay, untouched.
 """
 import csv
+import datetime
 import logging
+import math
 import zipfile
 from urllib.parse import urlparse
 
@@ -18,6 +26,30 @@ from .._evidence import Evidence
 from ._download import download_file, CancelToken
 
 logger = logging.getLogger(__name__)
+
+# ── Per-record grading ──
+_ACTIVE_DAYS = 90          # active-spammer window
+_TS_FMT = "%Y-%m-%d %H:%M:%S"
+
+
+def _grade(last_seen: str | None, total: int) -> tuple[str, int]:
+    """(verdict, score) per record. Verdict: last_seen ≤90d → suspicious, else
+    informational (missing/unparseable timestamp = no recency claim).
+    Score 0-100: 50% recency (linear decay over the feed's 365-day horizon)
+    + 50% report volume (log10, saturates at 1000 reports). Advisory display
+    only — fusion posterior stays log-odds."""
+    age = None
+    if last_seen:
+        try:
+            age = (datetime.datetime.now()
+                   - datetime.datetime.strptime(last_seen, _TS_FMT)).days
+        except ValueError:
+            pass
+    recency = max(0, 100 - age * 100 // 365) if age is not None else 0
+    volume = min(100, round(math.log10(max(total, 1)) / 3 * 100))
+    verdict = ("suspicious" if age is not None and age <= _ACTIVE_DAYS
+               else "informational")
+    return verdict, round(0.5 * recency + 0.5 * volume)
 
 
 class StopForumSpamSource(Source):
@@ -30,7 +62,7 @@ class StopForumSpamSource(Source):
     filename = "stopforumspam.csv"
     fields = ("spam",)
     classification_type = "spam"
-    verdict = "informational"
+    verdict = "informational"   # stale-tail default; harvest() grades per record
     stale_days = 1
     reliability = 0.70
 
@@ -91,9 +123,11 @@ class StopForumSpamSource(Source):
                 except ValueError:
                     continue
                 last_seen = row[2].strip().strip('"') or None
+                verdict, score = _grade(last_seen, total)
                 yield ip, Evidence(
                     classification_type=self.classification_type,
-                    verdict=self.verdict,
+                    verdict=verdict,
+                    confidence=score,
                     reporter_count=total,
                     first_seen=last_seen,   # single-timestamp double-fill → decay
                     last_seen=last_seen,

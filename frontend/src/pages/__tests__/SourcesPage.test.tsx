@@ -6,6 +6,7 @@ import { renderWithI18n } from "../../test/i18nTestUtils";
 import {
   enqueueSingle,
   enqueueBatch,
+  fetchEvalModel,
   getSources,
   subscribeTasks,
 } from "../../api";
@@ -39,6 +40,7 @@ vi.mock("../../api", async () => {
       },
     ]),
     getTasks: vi.fn().mockResolvedValue({ tasks: [], batch: null }),
+    fetchEvalModel: vi.fn().mockResolvedValue(null),
     subscribeTasks: vi.fn(() => () => {}),
     enqueueSingle: vi.fn().mockResolvedValue({ task_id: "t1" }),
     enqueueBatch: vi.fn().mockResolvedValue({ batch_id: "b1" }),
@@ -229,5 +231,71 @@ describe("SourcesPage", () => {
     render(<SourcesPage />);
     await screen.findByText("feodo");
     expect(screen.getByText("-")).toBeInTheDocument();
+  });
+
+  it("shows measured theta beside declared reliability (A2 dual-track)", async () => {
+    vi.mocked(getSources).mockResolvedValueOnce([
+      {
+        name: "spamhaus",
+        enabled: true,
+        category: "threat",
+        archetype: "offline",
+        fields: ["is_malicious"],
+        reliability: 0.9,
+        authoritative_for: ["is_malicious"],
+        classification_type: "blacklist",
+        url: null,
+        stale_days: 1,
+        eval: null,
+        health: {
+          name: "spamhaus",
+          loaded: true,
+          record_count: 1000,
+          covered_ips: 1000,
+          last_updated: null,
+          is_stale: false,
+          error: null,
+        },
+      },
+      {
+        name: "feodo",
+        enabled: true,
+        category: "threat",
+        archetype: "offline",
+        fields: ["ip"],
+        reliability: 0.5,
+        authoritative_for: [],
+        classification_type: null,
+        url: null,
+        stale_days: null,
+        eval: null,
+        health: {
+          name: "feodo",
+          loaded: true,
+          record_count: 10,
+          covered_ips: 10,
+          last_updated: null,
+          is_stale: true,
+          error: null,
+        },
+      },
+    ]);
+    vi.mocked(fetchEvalModel).mockResolvedValueOnce({
+      scores: [
+        { source: "spamhaus", theta: 0.61, ci_lo: 0.55, ci_hi: 0.68, declared_r: 0.9 },
+      ],
+    } as any);
+    render(<SourcesPage />);
+    // measured θ track (waits for the eval-model fetch to land)
+    const theta = await screen.findByText(/θ 0\.61/);
+    expect(theta.textContent).toContain("[0.55–0.68]");
+    // tooltip carries the corroboration red-line wording
+    expect(screen.getByTitle(/corroboration/i)).toBeInTheDocument();
+    // declared r stays visible beside it (dual track)
+    expect(screen.getByText(/r 0\.90/)).toBeInTheDocument();
+    // unscored source renders — in the θ cell
+    expect(screen.getByText("—")).toBeInTheDocument();
+    // footnote: advisory semantics, declared r authoritative
+    expect(screen.getByText(/production weight/i)).toBeInTheDocument();
   });
 });
