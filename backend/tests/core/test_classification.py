@@ -1,6 +1,7 @@
 from ipdb._classification import (
     CLASSIFICATION_TYPES, normalize, THREATFOX_MAP, PROXY_MAP,
-    BLOCKLIST_DE_MAP, URLHAUS_THREAT_MAP, REPORTEDIP_MAP,
+    BLOCKLIST_DE_MAP, URLHAUS_MAP, URLHAUS_THREAT_MAP, TWEETFEED_MAP,
+    REPORTEDIP_MAP,
 )
 
 
@@ -52,6 +53,29 @@ def test_unmapped_key_warns_once(caplog):
     assert len(unmapped) == 1
 
 
+def test_vocab_infected_system_replaces_botnet():
+    """P1(2026-09-05 IntelMQ 审计):botnet 是项目方言类型,RSIT/IntelMQ
+    官方为 infected-system(harmonization 自动迁移 botnet drone/ransomware
+    → infected-system)。方言清理:词表换型,botnet 不得回流。"""
+    assert "infected-system" in CLASSIFICATION_TYPES
+    assert "botnet" not in CLASSIFICATION_TYPES
+
+
+def test_botnet_emitters_migrated_to_infected_system():
+    """P1 迁移的四张图全部改指 infected-system(botnet drone 语义:
+    被恶意软件感染的主机,非 C2 本身)。"""
+    assert BLOCKLIST_DE_MAP["ircbot"] == "infected-system"
+    assert URLHAUS_MAP["mirai"] == "infected-system"
+    assert URLHAUS_MAP["mozi"] == "infected-system"
+    assert URLHAUS_MAP["hajime"] == "infected-system"
+    assert TWEETFEED_MAP["#botnet"] == "infected-system"
+    assert TWEETFEED_MAP["#mirai"] == "infected-system"
+    assert TWEETFEED_MAP["#mozi"] == "infected-system"
+    assert REPORTEDIP_MAP["23"] == "infected-system"
+    # 词表成员资格随之成立(normalize 走 vocab 校验)
+    assert normalize("ircbot", BLOCKLIST_DE_MAP) == "infected-system"
+
+
 class TestBlocklistDeMapFilenameLevel:
     def test_brute_force_lists(self):
         for name in ("ssh", "bruteforcelogin", "ftp", "imap", "sip", "mail"):
@@ -61,7 +85,8 @@ class TestBlocklistDeMapFilenameLevel:
         # 2026-09-05 修正:bots = IRC/论坛/wiki 灌水(上游原文)→ spam;
         # mail = attacks on Mail/Postfix(攻击者)→ brute-force(上方)
         assert BLOCKLIST_DE_MAP["bots"] == "spam"
-        assert BLOCKLIST_DE_MAP["ircbot"] == "botnet"
+        # P1 2026-09-05:ircbot(IRC bot 受害主机)迁官方型 infected-system
+        assert BLOCKLIST_DE_MAP["ircbot"] == "infected-system"
         assert BLOCKLIST_DE_MAP["apache"] == "scanner"
 
     def test_fallback_lists_absent(self):
