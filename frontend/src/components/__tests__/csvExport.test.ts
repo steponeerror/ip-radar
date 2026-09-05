@@ -14,10 +14,12 @@ const r: LookupResult = {
     c2_server: {
       type: "c2_server", verdict: "malicious", detected: true, confidence: 92,
       algorithm: "corroboration", corroborated: true, reporter_total: 3,
-      verdict_conflict: true, malware_names: ["win.vidar"],
+      // spec 2026-09-06: conflict 只在 benign×指控真对立时为真 — benign 明细在场驱动
+      verdict_conflict: true, has_archive: false, malware_names: ["win.vidar"],
       details: [
-        { source: "otx", reliability: 0.9 },
-        { source: "threatfox", reliability: 0.73 },
+        { source: "otx", verdict: "malicious", reliability: 0.9 },
+        { source: "threatfox", verdict: "suspicious", reliability: 0.73 },
+        { source: "vouch", verdict: "benign", reliability: 0.6 },
       ],
       sources: [],
     },
@@ -48,10 +50,10 @@ describe("aggregateThreatDepth", () => {
         spam: {
           type: "spam", verdict: "informational", detected: true, confidence: 50,
           algorithm: "corroboration", corroborated: false, reporter_total: 3,
-          verdict_conflict: false, malware_names: [],
+          verdict_conflict: false, has_archive: false, malware_names: [],
           details: [
-            { source: "stopforumspam", reliability: 0.7, first_seen: "2026-01-01", last_seen: "2026-07-12" },
-            { source: "sfs2", reliability: 0.7, first_seen: "2025-12-01", last_seen: "2026-03-01" },
+            { source: "stopforumspam", verdict: "informational", reliability: 0.7, first_seen: "2026-01-01", last_seen: "2026-07-12" },
+            { source: "sfs2", verdict: "informational", reliability: 0.7, first_seen: "2025-12-01", last_seen: "2026-03-01" },
           ],
           sources: [],
         },
@@ -71,8 +73,8 @@ describe("aggregateThreatDepth", () => {
         c2_server: {
           type: "c2_server", verdict: "malicious", detected: true, confidence: 92,
           algorithm: "corroboration", corroborated: true, reporter_total: 0,
-          verdict_conflict: false, malware_names: [],
-          details: [{ source: "otx", reliability: 0.734 }],
+          verdict_conflict: false, has_archive: false, malware_names: [],
+          details: [{ source: "otx", verdict: "malicious", reliability: 0.734 }],
           sources: [],
         },
       },
@@ -117,7 +119,7 @@ describe("buildCsvContent", () => {
         scanner: {
           type: "scanner", verdict: "suspicious", detected: true, confidence: 60,
           algorithm: "corroboration", corroborated: false, reporter_total: 0,
-          verdict_conflict: false, malware_names: [],
+          verdict_conflict: false, has_archive: false, malware_names: [],
           details: [], sources: [],
         },
       },

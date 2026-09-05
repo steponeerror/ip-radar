@@ -23,6 +23,7 @@ export interface MergedField<T = any> {
 
 export interface ClassificationDetail {
   source: string;
+  verdict: string;             // spec 2026-09-06: 该源证词章
   reliability: number;
   malware_name?: string;
   native_confidence?: number;
@@ -43,7 +44,8 @@ export interface ClassificationAssessment {
   algorithm: string;
   corroborated: boolean;
   reporter_total: number;
-  verdict_conflict: boolean;
+  verdict_conflict: boolean;   // 真对立(benign×指控);今天恒 false,占位
+  has_archive: boolean;        // 存档章在场 → 黄色"含存档记录"
   malware_names: string[];
   details: ClassificationDetail[];
   sources: SourceAttribution[];

@@ -19,11 +19,13 @@ const dirty: LookupResult = {
   classifications: {
     scanner: { type: "scanner", verdict: "suspicious", detected: true, confidence: 50,
       algorithm: "corroboration", corroborated: false, reporter_total: 0,
-      verdict_conflict: false, malware_names: [], details: [],
+      verdict_conflict: false, has_archive: false, malware_names: [], details: [],
       sources: [{ source: "a", value: true, reliability: 0.5, authoritative: false }] },
+    // spec 2026-09-06: verdict_conflict 只在 benign×指控真对立时为真 — benign 明细在场才语义成立
     c2_server: { type: "c2_server", verdict: "malicious", detected: true, confidence: 90,
       algorithm: "corroboration", corroborated: true, reporter_total: 2,
-      verdict_conflict: true, malware_names: ["win.x"], details: [],
+      verdict_conflict: true, has_archive: false, malware_names: ["win.x"],
+      details: [{ source: "vouch", reliability: 0.6, verdict: "benign" }],
       sources: [{ source: "b", value: true, reliability: 0.8, authoritative: false }] },
   },
   attributes: {},
@@ -54,19 +56,33 @@ describe("threatDisplay", () => {
     expect(s.sourceCount).toBe(2);
     expect(s.corroborated).toBe(true);
     expect(s.conflict).toBe(true);
+    expect(s.archive).toBe(false);
     expect(s.hasThreats).toBe(true);
+  });
+  it("archive flag reflects has_archive across classifications", () => {
+    const withArchive = {
+      ...dirty,
+      classifications: {
+        ...dirty.classifications,
+        scanner: { ...dirty.classifications.scanner, has_archive: true },
+      },
+    };
+    expect(threatSummary(withArchive).archive).toBe(true);
+    expect(threatSummary(dirty).archive).toBe(false);
   });
   it("threatSummary reports clean when nothing detected", () => {
     const clean = { ...dirty, classifications: {} };
     const s = threatSummary(clean);
     expect(s.hasThreats).toBe(false);
     expect(s.verdict).toBe("clean");
+    expect(s.archive).toBe(false);
   });
   it("threatSummary reports reserved when is_reserved", () => {
     const reserved = { ...dirty, is_reserved: true, classifications: {} };
     const s = threatSummary(reserved);
     expect(s.verdict).toBe("reserved");
     expect(s.hasThreats).toBe(false);
+    expect(s.archive).toBe(false);
   });
 });
 

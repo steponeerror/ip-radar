@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { ClassificationDetail } from "../api";
+import { verdictLabelKey, VERDICT_STYLE } from "./threatDisplay";
 import { useI18n } from "../i18n";
 
 function fmtRel(r: number): string {
@@ -32,6 +33,14 @@ export function SourceDetailRow({ detail: d }: { detail: ClassificationDetail })
       <div>
         <span className="text-zinc-600">{d.source}</span>
         <span className="text-zinc-700"> · rel {fmtRel(d.reliability)}</span>
+        {d.verdict && (
+          <span
+            className={`ml-1 rounded px-1 py-px ${VERDICT_STYLE[d.verdict] ?? VERDICT_STYLE.informational}`}
+            title={t("sourceDetail.verdictTitle")}
+          >
+            {t(verdictLabelKey(d.verdict))}
+          </span>
+        )}
         {nativeChips.map((c, i) => (
           <span key={`nc-${i}`} className="rounded bg-sky-800/40 px-1 py-px mr-0.5 ml-1 text-sky-300" title={t("sourceDetail.nativeTypeTitle")}>[{c}]</span>
         ))}
