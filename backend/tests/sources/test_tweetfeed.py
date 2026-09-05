@@ -44,6 +44,22 @@ def test_tweetfeed_filters_nonip_and_classifies_per_row(tmp_path: Path):
     assert "native_type" not in unmap.get("extra", {})
 
 
+def test_tweetfeed_botnet_family_tags_map_infected_system(tmp_path: Path):
+    """#botnet/#mirai/#mozi → infected-system(IntelMQ 官方型;曾落方言
+    botnet,P1 2026-09-05 迁移)。"""
+    rows = (
+        "2025-07-31 00:00:11,a,ip,1.2.3.4,#botnet,x\n"
+        "2025-07-31 00:00:12,b,ip,5.6.7.8,#mirai,x\n"
+        "2025-07-31 00:00:13,c,ip,9.10.11.12,#mozi,x\n"
+    )
+    (tmp_path / "tweetfeed.csv").write_text(rows)
+    s = TweetFeedSource(data_dir=tmp_path)
+    assert s.rebuild() == 3
+    assert s.query("1.2.3.4")[0]["classification_type"] == "infected-system"
+    assert s.query("5.6.7.8")[0]["classification_type"] == "infected-system"
+    assert s.query("9.10.11.12")[0]["classification_type"] == "infected-system"
+
+
 def test_tweetfeed_nonip_rows_filtered(tmp_path: Path):
     """domain/url/hash rows must not enter the IP DB (Principle: filter non-IP noise)."""
     (tmp_path / "tweetfeed.csv").write_text(

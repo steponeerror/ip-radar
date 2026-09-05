@@ -9,7 +9,9 @@ priority over ``tags`` mapping; unmappable threat values (e.g., malware_download
 fall back to ``tags`` for classification. The ``tags`` column is a
 comma-separated mix of malware-family names and file/arch noise
 (``32-bit,elf,mips,Mozi``); IoT-botnet families (mirai/Mozi/hajime) map
-to the ``botnet`` dead slot, every other row falls to ``malware-distribution``
+to ``infected-system`` (botnet drones — infected hosts, P1 2026-09-05
+migrated from the dialect type ``botnet``), every other row falls to
+``malware-distribution``
 (the base classification — every URLhaus URL serves malware). Native tags
 are extracted from tags, filtered for arch noise, exclude the matched
 malware family (already in ``malware_name``), and stored in the ``tags``
@@ -56,7 +58,7 @@ def _host_ip(url: str) -> str | None:
 
 def _classify(tags_raw: str) -> tuple[str, str | None]:
     """Return (classification, malware_name). First mappable tag wins
-    (mirai/Mozi/hajime → botnet, with the matched family as malware_name);
+    (mirai/Mozi/hajime → infected-system, with the matched family as malware_name);
     otherwise the ``malware-distribution`` base — every URLhaus row serves
     malware by definition, so nothing lands in ``other``."""
     for tag in (tags_raw or "").split(","):

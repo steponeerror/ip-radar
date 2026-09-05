@@ -1,9 +1,9 @@
 """URLhaus (Source subclass) — URL→IP extraction + per-row classification + Principle.
 
-Covers: domain-host rows dropped (noise), IP-host extraction, botnet mapping
-(mirai/Mozi/hajime), malware-distribution base for the rest, native_type +
-reporter + url_status preserved (Convention 1 + preserve-signal), comment
-block skipped.
+Covers: domain-host rows dropped (noise), IP-host extraction, infected-system
+mapping (mirai/Mozi/hajime = infected drone hosts), malware-distribution base
+for the rest, native_type + reporter + url_status preserved (Convention 1 +
+preserve-signal), comment block skipped.
 """
 from pathlib import Path
 
@@ -26,14 +26,14 @@ def test_urlhaus_drops_domain_hosts_and_classifies(tmp_path: Path):
     assert s.rebuild() == 4                    # rows 1,2,4,5 (IP-host); row 3 domain dropped
 
     bot = s.query("61.54.253.89")[0]        # Mozi tag
-    assert bot["classification_type"] == "botnet"
+    assert bot["classification_type"] == "infected-system"
     assert bot.get("tags", []) == []   # Mozi 命中进 malware_name，噪音被滤
     assert bot["extra"]["reporter"] == "geenensp"
     assert bot["malware_name"] == "Mozi"                          # enriched: matched family
     assert bot.get("last_seen") == "2026-07-30T11:54:23"          # enriched: last_online recency
 
     hajime = s.query("9.10.11.12")[0]       # hajime tag
-    assert hajime["classification_type"] == "botnet"
+    assert hajime["classification_type"] == "infected-system"
 
     miner = s.query("1.2.3.4")[0]           # CoinMiner → base
     assert miner["classification_type"] == "malware-distribution"
@@ -69,16 +69,16 @@ def test_urlhaus_native_categories_filters_noise_and_excludes_matched_family(tmp
 
     # Row 1: Mozi matched, noise filtered, threat in native_categories
     one = {e["classification_type"]: e for e in s.query("1.2.3.4")}
-    assert one["botnet"]["malware_name"] == "Mozi"
-    assert one["botnet"].get("native_categories", []) == ["malware_download"]  # threat column value
-    assert one["botnet"].get("tags", []) == []  # Mozi 命中被排除进 malware_name，噪音被滤
-    assert "native_type" not in (one["botnet"].get("extra") or {})
+    assert one["infected-system"]["malware_name"] == "Mozi"
+    assert one["infected-system"].get("native_categories", []) == ["malware_download"]  # threat column value
+    assert one["infected-system"].get("tags", []) == []  # Mozi 命中被排除进 malware_name，噪音被滤
+    assert "native_type" not in (one["infected-system"].get("extra") or {})
 
     # Row 2: mirai matched, TrickBot preserved in tags
     two = {e["classification_type"]: e for e in s.query("5.6.7.8")}
-    assert two["botnet"]["malware_name"] == "mirai"
-    assert two["botnet"]["tags"] == ["TrickBot"]  # other family preserved in tags
-    assert two["botnet"]["native_categories"] == ["malware_download"]  # threat column value
+    assert two["infected-system"]["malware_name"] == "mirai"
+    assert two["infected-system"]["tags"] == ["TrickBot"]  # other family preserved in tags
+    assert two["infected-system"]["native_categories"] == ["malware_download"]  # threat column value
 
     # Row 3: empty tags → empty tags, threat in native_categories
     three = {e["classification_type"]: e for e in s.query("9.10.11.12")}
@@ -103,7 +103,7 @@ def test_urlhaus_threat_column_drives_classification(tmp_path):
 
 
 def test_urlhaus_threat_unmappable_falls_back_to_tags(tmp_path):
-    """threat=malware_download 无可映射值 → tags 兜底（Mozi → botnet）。"""
+    """threat=malware_download 无可映射值 → tags 兜底（Mozi → infected-system）。"""
     (tmp_path / "urlhaus.csv").write_text(
         '# id,dateadded,url,url_status,last_online,threat,tags,urlhaus_link,reporter\n'
         '"1","2026-08-01","http://1.2.3.4/x","online","2026-08-05","malware_download","Mozi","u","r"\n'
@@ -112,7 +112,7 @@ def test_urlhaus_threat_unmappable_falls_back_to_tags(tmp_path):
     s = URLhausSource(data_dir=tmp_path)
     s.rebuild()
     one = s.query("1.2.3.4")[0]
-    assert one["classification_type"] == "botnet"
+    assert one["classification_type"] == "infected-system"
     assert one["malware_name"] == "Mozi"
     assert one["native_categories"] == ["malware_download"]
     two = s.query("5.6.7.8")[0]

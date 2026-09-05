@@ -9,7 +9,7 @@
   "cidrHint.label": "Supports IPv4/IPv6 and CIDR ranges, e.g. 1.2.3.0/24",
   "class.abuse_reports": "Abuse reports",
   "class.blacklist": "Blacklist",
-  "class.botnet": "Botnet",
+  "class.infected_system": "Infected System",
   "class.botnet_cc": "C2",
   "class.brute_force": "Brute force",
   "class.c2_server": "C2",

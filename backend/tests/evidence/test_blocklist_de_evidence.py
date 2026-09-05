@@ -47,6 +47,26 @@ def test_blocklist_de_fallback_lists_map_blacklist(tmp_path: Path):
     assert s.query("5.6.7.8")[0]["classification_type"] == "blacklist"
 
 
+def test_blocklist_de_ircbot_maps_infected_system(tmp_path: Path):
+    """ircbot.txt = IRC bot 受害者(被感染主机,非 C2)——IntelMQ 官方归
+    infected-system;曾挂账方言 botnet,P1 2026-09-05 迁移。"""
+    s = _setup(tmp_path, {"ircbot": "1.2.3.4\n"})
+    s.rebuild()
+    assert s.query("1.2.3.4")[0]["classification_type"] == "infected-system"
+    assert s.query("1.2.3.4")[0]["native_categories"] == ["ircbot"]
+
+
+def test_blocklist_de_priority_brute_force_over_infected_system(tmp_path: Path):
+    """裁决优先级表迁移:brute-force(0)仍压过 infected-system(1,
+    原 botnet 槽位);两个子列表名都保留。"""
+    s = _setup(tmp_path, {"ssh": "1.2.3.4\n", "ircbot": "1.2.3.4\n"})
+    s.rebuild()
+    recs = s.query("1.2.3.4")
+    assert len(recs) == 1
+    assert recs[0]["classification_type"] == "brute-force"
+    assert recs[0]["native_categories"] == ["ssh", "ircbot"]   # _LISTS 迭代序
+
+
 def test_blocklist_de_priority_across_lists(tmp_path: Path):
     """同 IP 命中 ssh(brute-force) + mail(brute-force,2026-09 修正后同族)
     → 先到者保持,两个子列表名都保留在 native_categories。"""
