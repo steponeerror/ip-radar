@@ -1,9 +1,23 @@
 """Cancel-aware atomic download helper shared by file-backed sources."""
+import logging
 import os
 import threading
 import urllib.request
 from pathlib import Path
 from typing import Callable, Optional
+
+logger = logging.getLogger(__name__)
+
+
+def warn_if_redirected(url: str, resp) -> None:
+    """feed URL 腐烂早期信号绊线(2026-09-05 IntelMQ 审计):urllib 静默跟随
+    重定向,落点 URL ≠ 请求 URL = 上游搬家/改路径——在 404 之前就可见。
+    (IntelMQ 用版本化迁移函数沉淀这类变更;我们的等价物 = 本绊线 +
+    CHANGELOG feed-change 条目约定。)"""
+    final = getattr(resp, "geturl", lambda: None)()
+    if final and final != url:
+        logger.warning("redirected: %s -> %s (feed URL rot early signal)",
+                       url, final)
 
 
 class CancelledError(Exception):
@@ -59,6 +73,7 @@ def download_file(
     on_progress = getattr(token, "on_progress", None) if token is not None else None
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
+            warn_if_redirected(url, resp)
             total = int(resp.headers.get("Content-Length") or 0)
             received = 0
             with open(tmp, "wb") as f:

@@ -22,6 +22,7 @@ from typing import Any, Iterator
 
 from ._types import SourceHealth
 from ._evidence import Evidence
+from ._sources._download import warn_if_redirected
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +77,7 @@ class Source:
         req = urllib.request.Request(
             self.url, headers={"User-Agent": "ip-lookup-tool/1.0"})
         with urllib.request.urlopen(req, timeout=120) as resp:
+            warn_if_redirected(self.url, resp)
             data = resp.read()
         if not data.strip():
             raise RuntimeError(f"Empty response from {self.url}")
@@ -144,18 +146,31 @@ class Source:
         里 close 掉的其实是现役 reader(自残)。旧 epoch 目录的磁盘清理由
         rebuild_lmdb 的 prune rmtree 负责(Linux 上 fd 未关亦可删)。"""
         from ._sources._lmdb import Auto, rebuild_dual_family
+        from ._logodds import parse_first_seen
         if not self._path.exists():
             return 0
+        # 绊线(2026-09-05 IntelMQ 审计):脏 first_seen 在打分期静默按无
+        # 衰减计(decay_factor(None)=1.0=最大权重)。中央检查按 distinct 值
+        # 去重,单/双遍 harvest(factory 被 rebuild_dual_family 调两次)不双计。
+        bad_fs: set[str] = set()
+
+        def _harvest_checked():
+            for cidr, ev in self.harvest():
+                fs = getattr(ev, "first_seen", None)
+                if fs and parse_first_seen(fs) is None:
+                    bad_fs.add(str(fs))
+                yield cidr, ev
+
         if self.single_evidence:
             # factory 零参 callable,每次调用返回新迭代器(rebuild_dual_family
             # 调用两次做族分区;严禁传裸生成器对象)。harvest 重复解析是既有
             # 模式(CPU 换内存,OOM 纪律见旧注释)。
             def factory():
-                for cidr, ev in self.harvest():
+                for cidr, ev in _harvest_checked():
                     yield cidr, [self.normalize(ev).to_dict()]
         else:
             acc: dict[str, list[dict]] = {}
-            for cidr, ev in self.harvest():
+            for cidr, ev in _harvest_checked():
                 ev = self.normalize(ev)
                 d = ev.to_dict()
                 bucket = acc.setdefault(cidr, [])
@@ -180,6 +195,11 @@ class Source:
         self._count = n4
         self._count6 = n6
         self._loaded_at = time.time()
+        if bad_fs:
+            logger.warning(
+                "%s: %d distinct unparseable first_seen value(s), e.g. %s — "
+                "time-decay silently disabled for those rows",
+                self.name, len(bad_fs), sorted(bad_fs)[:3])
         return n4
     def query(self, ip: str) -> Any:
         if ":" in ip:                      # v6 查询走并行族 reader(spec §3.2)
@@ -254,6 +274,7 @@ class Source:
             try:
                 req = urllib.request.Request(url, headers=h)
                 with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    warn_if_redirected(url, resp)
                     return resp.read()
             except Exception as e:
                 last = e

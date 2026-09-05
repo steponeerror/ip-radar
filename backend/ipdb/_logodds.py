@@ -30,15 +30,25 @@ def decay_factor(age_days: float | None,
     return 2.0 ** (-age_days / half_life_days)
 
 
-def _age_days(first_seen, now: datetime | None) -> float | None:
-    if not first_seen:
+def parse_first_seen(value) -> datetime | None:
+    """ISO 解析 first_seen(Z 后缀容忍,naive 视作 UTC);缺失/不可解析
+    → None。打分期(_age_days)与 rebuild 绊线(_source_base)共用同一口径
+    ——同一函数,免得两边判法漂移。"""
+    if not value:
         return None
     try:
-        ts = datetime.fromisoformat(str(first_seen).replace("Z", "+00:00"))
+        ts = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
     except ValueError:
         return None
     if ts.tzinfo is None:
         ts = ts.replace(tzinfo=timezone.utc)
+    return ts
+
+
+def _age_days(first_seen, now: datetime | None) -> float | None:
+    ts = parse_first_seen(first_seen)
+    if ts is None:
+        return None
     now = now or datetime.now(timezone.utc)
     return max(0.0, (now - ts).total_seconds() / 86400.0)
 
