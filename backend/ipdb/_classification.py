@@ -6,8 +6,8 @@ No separate YAML/versioning process (YAGNI for this tool's scale).
 
 对照基准(词表版本锚定):RSIT v1003 (machinev1, enisaeu/RSIT-TF) /
 IntelMQ develop@bbe452a 2026-04 — 审计 2026-09-05(官方 allowed_values
-45 型;本地取子集 + botnet/abuse-reports 两方言类型,官方无此二者;
-botnet 待 P1 迁往 infected-system 时清理)。上游词表改版时重跑对照。
+45 型;本地取子集,方言仅剩 abuse-reports;botnet 已于 P1 2026-09-05
+迁往官方型 infected-system)。上游词表改版时重跑对照。
 """
 import logging
 
@@ -22,7 +22,9 @@ CLASSIFICATION_TYPES = frozenset({
     "scanner",              # aggressive scanning
     "brute-force",          # credential/protocol brute force (e.g. blocklist_de ssh)
     "phishing",
-    "botnet",
+    "infected-system",      # 被恶意软件感染的主机(botnet drone;
+                            # P1 2026-09-05 迁自方言类型 botnet,
+                            # RSIT malicious-code.infected-system)
     "exploit",
     "proxy",
     "tor",
@@ -47,7 +49,8 @@ THREATFOX_MAP = {
 # brute-force；mail = attacks on Mail/Postfix，攻击邮件服务的攻击者，与
 # ssh 同族，2026-09-05 修正——曾误归 spam；bots = IRC/论坛/wiki 灌水（上游
 # 原文 "spammed on IRC, open forums, wikis"），同日修正——曾误归 botnet；
-# ircbot → botnet（IntelMQ 官方归 infected-system，词表缺型，P1 再迁）；
+# ircbot → infected-system(P1 2026-09-05 迁自方言 botnet,IntelMQ
+# 官方即此型:IRC bot 受害主机 = 已感染 drone,非 C2);
 # apache → scanner。strongips/all 无类型信息，不进表，由源代码兜底
 # blacklist（见 Task 6 实现）。对照：IntelMQ 官方 parser 对攻击类子列表
 # 一律归 ids-alert（告警来源标签），我们按行为语义化，分歧有意为之。
@@ -59,7 +62,7 @@ BLOCKLIST_DE_MAP = {
     "sip": "brute-force",
     "mail": "brute-force",
     "bots": "spam",
-    "ircbot": "botnet",
+    "ircbot": "infected-system",
     "apache": "scanner",
 }
 
@@ -107,23 +110,24 @@ TWEETFEED_MAP = {
     "#formbook": "c2-server",
     "#quasar": "c2-server",
     "#malware": "malware",
-    "#botnet": "botnet",
-    "#mirai": "botnet",
-    "#mozi": "botnet",
+    "#botnet": "infected-system",
+    "#mirai": "infected-system",
+    "#mozi": "infected-system",
     "#ddos": "ddos",
 }
 
 # URLhaus (abuse.ch) malware-distribution-URL feed. The `tags` column is a
 # comma-separated list mixing malware-family names with file/arch noise
 # (``32-bit,elf,mips,Mozi``). urlhaus.harvest splits on ``,`` and applies the
-# first mappable tag. Only IoT-botnet families map to the ``botnet`` dead slot;
-# every other row falls to ``malware-distribution`` (the base classification —
-# every URLhaus URL serves malware), so ``other``% stays near 0. Raw tags +
-# reporter are preserved in ``extra``.
+# first mappable tag. Only IoT-botnet families map to ``infected-system``
+# (P1 2026-09-05 迁自方言 botnet:mirai/Mozi/hajime 的宿主 = 已感染
+# drone,非 C2);every other row falls to ``malware-distribution``
+# (the base classification — every URLhaus URL serves malware), so ``other``%
+# stays near 0. Raw tags + reporter are preserved in ``extra``.
 URLHAUS_MAP = {
-    "mirai": "botnet",
-    "mozi": "botnet",
-    "hajime": "botnet",
+    "mirai": "infected-system",
+    "mozi": "infected-system",
+    "hajime": "infected-system",
 }
 
 # urlhaus `threat` 列（row[5]）原值 → IntelMQ。threat 是上游显式定性字段，
@@ -172,7 +176,7 @@ REPORTEDIP_MAP = {
     "10": "spam", "11": "spam", "12": "spam",               # web/email/blog spam
     "15": "exploit", "16": "exploit", "19": "exploit", "21": "exploit",  # hacking/SQLi/bad-bot/web-app
     "20": "malware", "24": "malware", "25": "malware", "26": "malware", "27": "malware",  # exploited/mining/C2/trojan
-    "23": "botnet",                                        # IoT targeted
+    "23": "infected-system",                               # IoT targeted(drone 宿主)
     "28": "other", "29": "exploit", "30": "c2-server",     # supply chain(无净 IntelMQ 槽)/zero-day/nation-state
     "13": "proxy",                                         # VPN IP → proxy(低威胁,归 proxy)
     # 31-58 WordPress 攻击细分

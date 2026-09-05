@@ -49,6 +49,19 @@ def test_reportedip_grouped_by_canonical_with_official_names(tmp_path: Path):
     assert by_type2["scanner"]["native_categories"] == ["WP User Enumeration"]
 
 
+def test_reportedip_code23_iot_maps_infected_system(tmp_path: Path):
+    """code 23 = IoT Targeted(被盯上/已感染的 IoT 主机)→ infected-system
+    (IntelMQ 官方型;曾落方言 botnet,P1 2026-09-05 迁移)。"""
+    header = "ip,confidence,categories,last_reported\n"
+    row = '1.4.221.22,100,"23","2026-07-02 11:18:40"\n'
+    (tmp_path / "reportedip.csv").write_text(header + row)
+    s = ReportedIPSource(data_dir=tmp_path)
+    s.rebuild()
+    rec = s.query("1.4.221.22")[0]
+    assert rec["classification_type"] == "infected-system"
+    assert rec["native_categories"] == ["IoT Targeted"]
+
+
 def test_reportedip_wp_code_classified_not_other(tmp_path: Path):
     """A WordPress code (31 = WP Login Brute Force) classifies as brute-force,
     not 'other' — the 31-58 range is officially documented (not unpublished)."""

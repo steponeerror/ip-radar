@@ -52,7 +52,7 @@ const CLASS_KEYS: Record<string, string> = {
   brute_force: "class.brute_force",
   malware: "class.malware",
   malware_distribution: "class.malware_distribution",
-  botnet: "class.botnet",
+  infected_system: "class.infected_system",
   exploit: "class.exploit",
   phishing: "class.phishing",
   ddos: "class.ddos",
