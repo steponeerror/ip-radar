@@ -3,9 +3,17 @@
 Governance: add new classification.type values to CLASSIFICATION_TYPES with a
 short comment. Add per-source `{native: intelmq}` maps alongside the source.
 No separate YAML/versioning process (YAGNI for this tool's scale).
+
+对照基准(词表版本锚定):RSIT v1003 (machinev1, enisaeu/RSIT-TF) /
+IntelMQ develop@bbe452a 2026-04 — 审计 2026-09-05(官方 allowed_values
+45 型;本地取子集 + botnet/abuse-reports 两方言类型,官方无此二者;
+botnet 待 P1 迁往 infected-system 时清理)。上游词表改版时重跑对照。
 """
+import logging
 
 # IntelMQ classification.type subset relevant to IP threat intel. Extensible.
+
+logger = logging.getLogger(__name__)
 CLASSIFICATION_TYPES = frozenset({
     "blacklist",            # generic curated blocklist, no subcategory available
     "c2-server",            # command & control
@@ -35,17 +43,22 @@ THREATFOX_MAP = {
 }
 
 # blocklist_de 子列表文件名 -> IntelMQ（2026-08-15 已激活，键=子列表文件名）。
-# 源按文件名分发到对应 attack-type（ssh/bruteforcelogin/ftp/imap/sip → brute-force；
-# mail → spam；bots/ircbot → botnet；apache → scanner）。strongips/all 无类型信息，
-# 不进表，由源代码兜底 blacklist（见 Task 6 实现）。
+# 源按文件名分发到对应 attack-type（ssh/bruteforcelogin/ftp/imap/sip/mail →
+# brute-force；mail = attacks on Mail/Postfix，攻击邮件服务的攻击者，与
+# ssh 同族，2026-09-05 修正——曾误归 spam；bots = IRC/论坛/wiki 灌水（上游
+# 原文 "spammed on IRC, open forums, wikis"），同日修正——曾误归 botnet；
+# ircbot → botnet（IntelMQ 官方归 infected-system，词表缺型，P1 再迁）；
+# apache → scanner。strongips/all 无类型信息，不进表，由源代码兜底
+# blacklist（见 Task 6 实现）。对照：IntelMQ 官方 parser 对攻击类子列表
+# 一律归 ids-alert（告警来源标签），我们按行为语义化，分歧有意为之。
 BLOCKLIST_DE_MAP = {
     "ssh": "brute-force",
     "bruteforcelogin": "brute-force",
     "ftp": "brute-force",
     "imap": "brute-force",
     "sip": "brute-force",
-    "mail": "spam",
-    "bots": "botnet",
+    "mail": "brute-force",
+    "bots": "spam",
     "ircbot": "botnet",
     "apache": "scanner",
 }
@@ -129,13 +142,19 @@ DATAPLANE_MAP = {
     "sipquery": "brute-force",          # SIP 探测(telnetlogin 先例)
     "sipregistration": "brute-force",   # SIP 注册尝试
     "smtpgreet": "scanner",             # SMTP 问候连接(dnsrd 先例)
-    "smtpdata": "spam",                 # DATA 先行 = 攻击侧 SMTP 协议滥用
-    "ntpmode7": "vulnerable-system",    # RSIT Vulnerable→DDoS Amplifier:
-                                        # monlist 开放 NTP = 可被滥用反射器。
-                                        # 不用 misconfiguration(RSIT/IntelMQ:
-                                        # 自伤可用性的配置错,如过期 KSK);
-                                        # dnsrd 维持 scanner(IntelMQ scanner
-                                        # 定义例明列 DNS querying,旧裁决成立)
+    "smtpdata": "spam",                 # DATA = 实际投递报文体(非 EXPN/RCPT
+                                        # 探测)。与 IntelMQ 官方 parser 的
+                                        # scanner 是有意分歧:文件头实测
+                                        # "SMTP clients sending DATA commands",
+                                        # 垃圾邮件大炮特征,RSIT spam 定义
+                                        # (spam infrastructure)更贴合。
+    "ntpmode7": "scanner",              # 文件头实测:"source IP addresses
+                                        # ... sending NTP mode 7 requests"
+                                        # ——探测方(扫 monlist 找放大器),
+                                        # 非被探测的开放 NTP。RSIT DDoS
+                                        # Amplifier 定义对象是被探测服务,
+                                        # dataplane 不列它们(2026-09-05 修正,
+                                        # 曾误读 victim 侧归 vulnerable-system)
 }
 
 # reportedip (reportedip.de) — CSV `categories` 字段是 ;-分隔数字码。1-58 全码
@@ -196,6 +215,9 @@ REPORTEDIP_CODE_THEMATIC = {
 }
 
 
+_unmapped_warned: set[tuple[int, str]] = set()
+
+
 def normalize(raw_type, mapping: dict) -> str:
     """Map a source-native category to a CONTROLLED IntelMQ classification.type
     (the cross-source corroboration axis).
@@ -206,10 +228,18 @@ def normalize(raw_type, mapping: dict) -> str:
     that want to preserve an unmappable native value stash it in `extra` (see
     ip2proxy._proxy_evidence). This keeps the vocabulary from growing on every
     edge case while keeping the corroboration axis intact.
+
+    绊线(2026-09-05):未命中映射的原生值按 (map,key) 进程级去重告警一次
+    ——上游新增/改名分类码(reportedip 59+、dataplane 新信号)当天可见,
+    而非无声落入 other。显式映射到 other 的键(REPORTEDIP "28")不告警。
     """
     key = (raw_type or "").strip().lower()
     mapped = mapping.get(key)
     if mapped and mapped in CLASSIFICATION_TYPES:
         return mapped
+    if key and mapped is None and (trip := (id(mapping), key)) not in _unmapped_warned:
+        _unmapped_warned.add(trip)
+        logger.warning("unmapped native value %r -> 'other' "
+                       "(upstream may have added/renamed a category)", key)
     return "other"
 

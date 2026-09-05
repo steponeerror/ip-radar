@@ -46,6 +46,60 @@ def test_harvest_pairs_become_mmdb_records(tmp_path: Path):
     assert s.query("10.0.1.5")[0]["classification_type"] == "blacklist"
 
 
+class _DemoBadFirstSeen(Source):
+    """Yield one ISO-clean and one unparseable first_seen."""
+    name = "demo_badfs"; fields = ("is_malicious",); stale_days = 7; reliability = 0.6
+    def harvest(self):
+        yield "10.0.0.0/24", Evidence(classification_type="blacklist",
+                                      verdict="malicious", first_seen="2026-09-01T00:00:00")
+        yield "10.0.1.0/24", Evidence(classification_type="blacklist",
+                                      verdict="malicious", first_seen="31/12/2026 junk")
+
+
+def test_rebuild_warns_on_unparseable_first_seen(tmp_path: Path, caplog):
+    """绊线(2026-05-09 IntelMQ 审计):脏 first_seen 在打分期静默按无衰减
+    计(decay_factor(None)=1.0=最大权重)。rebuild 中央检查按 distinct 值
+    去重告警——一处代码覆盖全部源,单/双遍 harvest(factory 双调用)不双计。"""
+    import logging as _logging
+    s = _DemoBadFirstSeen(data_dir=tmp_path)
+    s._path = tmp_path / "demo.dat"
+    (tmp_path / "demo.dat").write_text("x\n")
+    with caplog.at_level(_logging.WARNING, logger="ipdb._source_base"):
+        assert s.rebuild() == 2
+    bad = [r for r in caplog.records if "unparseable first_seen" in r.message]
+    assert len(bad) == 1 and "31/12/2026 junk" in bad[0].getMessage()
+
+
+def test_http_get_and_default_download_warn_on_redirect(tmp_path: Path, caplog):
+    """绊线(2026-09-05):_http_get 与默认 download() 两处直连 urlopen 的
+    共享路径,重定向(geturl()!=请求 URL)→ warn,URL 腐烂早期可见。"""
+    import logging as _logging
+    from unittest.mock import patch
+
+    class _Resp:
+        def __init__(self, final_url):
+            self.final_url = final_url
+        def geturl(self):
+            return self.final_url
+        def read(self):
+            return b"data"
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+
+    with caplog.at_level(_logging.WARNING, logger="ipdb._source_base"):
+        with patch("urllib.request.urlopen", return_value=_Resp("http://moved.example/n")):
+            assert Source._http_get("http://x/y") == b"data"
+        s = _Demo(data_dir=tmp_path)
+        s.url = "http://x/y"
+        s._path = tmp_path / "dl.bin"            # _Demo 无 filename,手动指落盘
+        with patch("urllib.request.urlopen", return_value=_Resp("http://moved.example/n")):
+            s.download()                       # 默认 GET 路径
+    hits = [r for r in caplog.records if "redirected" in r.message]
+    assert len(hits) == 2                      # _http_get + 默认 download 各一
+
+
 def test_health_uses_file_mtime(tmp_path: Path):
     s = _Demo(data_dir=tmp_path)
     s._path = tmp_path / "demo.dat"
