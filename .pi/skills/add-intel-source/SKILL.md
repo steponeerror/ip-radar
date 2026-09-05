@@ -371,6 +371,13 @@ Most are enforced automatically:
    a second instance on the same base — `query()`'s reopen-retry covers the
    cross-thread rebuild case, not two live envs in one test.
 
+8. **Any change to an existing source's URL / filename / parse shape lands a
+   CHANGELOG `feed-change:` entry.** IntelMQ codifies feed moves as versioned
+   migrations (upgrades.py); our equivalent is the CHANGELOG trail — old URL →
+   new URL + reason + date, one line. The runtime redirect tripwire
+   (`warn_if_redirected`) surfaces upstream moves early; this entry is where
+   they get recorded when fixed.
+
 ## Pitfalls (real bugs from this repo's history)
 
 - **Emitting `extra.native_type`** — dead convention; use `native_categories` /
