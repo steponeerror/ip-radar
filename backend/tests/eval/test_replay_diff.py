@@ -96,96 +96,34 @@ def test_main_requires_a_mode():
     assert e.value.code == 2
 
 
-# ── check_directional:方向断言(spec §9,审计修正 A2 的限定条件)──
-
-from datetime import datetime, timedelta, timezone
+# ── check_directional:方向断言(spec 2026-09-06 验收断言,旧 8-29 规则作废)──
 
 from ipdb._eval.replay_diff import check_directional
 
 
-def _days_ago(n):
-    return (datetime.now(timezone.utc) - timedelta(days=n)).strftime(
-        "%Y-%m-%dT%H:%M:%S+00:00")
+def _snap(conf, has_archive=False):
+    return {"scalars": {}, "classifications": {
+        "spam": {"conf": conf, "verdict": "malicious", "n_sources": 2,
+                 "has_archive": has_archive,
+                 "min_first_seen": None, "max_first_seen": None}}}
 
 
-def test_single_fresh_within_two_points():
-    old = {"scalars": {}, "classifications": {"spam": {"conf": 85,
-        "n_sources": 1, "min_first_seen": _days_ago(3)}}}
-    new = {"scalars": {}, "classifications": {"spam": {"conf": 85,
-        "n_sources": 1, "min_first_seen": _days_ago(3)}}}
-    assert check_directional(old, new) == []
+def test_changed_conf_without_archive_is_violation():
+    assert check_directional(_snap(71), _snap(63, has_archive=False))
 
 
-def test_single_fresh_violation_flagged():
-    old = {"scalars": {}, "classifications": {"spam": {"conf": 85,
-        "n_sources": 1, "min_first_seen": _days_ago(3)}}}
-    new = {"scalars": {}, "classifications": {"spam": {"conf": 70,
-        "n_sources": 1, "min_first_seen": _days_ago(3)}}}
-    assert len(check_directional(old, new)) == 1
+def test_changed_conf_with_archive_is_legal():
+    assert not check_directional(_snap(71), _snap(63, has_archive=True))
 
 
-def test_multi_fresh_must_not_drop():
-    old = {"scalars": {}, "classifications": {"spam": {"conf": 70,
-        "n_sources": 3, "min_first_seen": _days_ago(10)}}}
-    new = {"scalars": {}, "classifications": {"spam": {"conf": 69,
-        "n_sources": 3, "min_first_seen": _days_ago(10)}}}
-    assert len(check_directional(old, new)) == 1
+def test_unchanged_conf_always_legal():
+    assert not check_directional(_snap(71), _snap(71, has_archive=False))
 
 
-def test_multi_fresh_floor_band_skipped():
-    # 裁决 2026-08-29:old=80 是旧 Admiralty Confirmed floor(max(mean,80))的产物,
-    # 诚实均值 65–67 不是 not-drop 的合法参照 → 该断言族跳过 old==80 的组
-    old = {"scalars": {}, "classifications": {"spam": {"conf": 80,
-        "n_sources": 3, "min_first_seen": _days_ago(10)}}}
-    new = {"scalars": {}, "classifications": {"spam": {"conf": 76,
-        "n_sources": 3, "min_first_seen": _days_ago(10)}}}
-    assert check_directional(old, new) == []
-
-
-def test_multi_fresh_honest_mean_above_80_still_guards():
-    # 复审 2026-08-29:豁免仅限 ==80(floor 精确落点);81–100 是诚实
-    # corroborated mean,未来通缩(85→70)必须报违规
-    old = {"scalars": {}, "classifications": {"spam": {"conf": 85,
-        "n_sources": 3, "min_first_seen": _days_ago(10)}}}
-    new = {"scalars": {}, "classifications": {"spam": {"conf": 70,
-        "n_sources": 3, "min_first_seen": _days_ago(10)}}}
-    assert len(check_directional(old, new)) == 1
-
-
-def test_stale_converges_neutral():
-    old = {"scalars": {}, "classifications": {"c2-server": {"conf": 20,
-        "n_sources": 2, "min_first_seen": _days_ago(400)}}}
-    new = {"scalars": {}, "classifications": {"c2-server": {"conf": 52,
-        "n_sources": 2, "min_first_seen": _days_ago(400),
-        "max_first_seen": _days_ago(390)}}}
-    assert check_directional(old, new) == []
-
-
-def test_stale_by_freshest_still_enforced():
-    # 组内最新 obs(当前侧 max)也已陈旧 → 收敛中立仍强制执行
-    old = {"scalars": {}, "classifications": {"c2-server": {"conf": 20,
-        "n_sources": 2, "min_first_seen": _days_ago(400)}}}
-    new = {"scalars": {}, "classifications": {"c2-server": {"conf": 70,
-        "n_sources": 2, "min_first_seen": _days_ago(400),
-        "max_first_seen": _days_ago(390)}}}
-    assert len(check_directional(old, new)) == 1
-
-
-def test_stale_mixed_age_with_fresh_obs_skipped():
-    # 裁决 2026-08-29:陈旧触发改用组内最新 obs;任一新鲜观测在(当前侧 max=3d),
-    # 组即不陈旧,不得断言收敛(旧侧 min=400d 是最老 obs,不充任陈旧证据)
-    old = {"scalars": {}, "classifications": {"c2-server": {"conf": 85,
-        "n_sources": 1, "min_first_seen": _days_ago(400)}}}
-    new = {"scalars": {}, "classifications": {"c2-server": {"conf": 70,
-        "n_sources": 1, "min_first_seen": _days_ago(400),
-        "max_first_seen": _days_ago(3)}}}
-    assert check_directional(old, new) == []
-
-
-def test_as_name_single_source_direction():
-    old = {"scalars": {"as_name": 50}, "classifications": {}}
-    new = {"scalars": {"as_name": 85}, "classifications": {}}
-    assert check_directional(old, new) == []
+def test_scalar_conf_change_is_violation():
+    old = {"scalars": {"country": 99}, "classifications": {}}
+    new = {"scalars": {"country": 98}, "classifications": {}}
+    assert check_directional(old, new)
 
 
 def test_clean_ip_phantom_group_violation():
