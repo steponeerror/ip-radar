@@ -68,12 +68,13 @@ class ClassificationAssessment:
     type: str
     verdict: str
     detected: bool
-    confidence: int                          # 0-100, log-odds 组后验(逐源取 max 后求和)
+    confidence: int                          # 0-100, log-odds 后验;仅由指控章(malicious/suspicious)源求和,纯存档组退回全量(spec 2026-09-06)
     algorithm: str
     sources: list  # list[SourceAttribution]
     corroborated: bool                       # >=2 independent sources
     reporter_total: int = 0
-    verdict_conflict: bool = False           # >=2 distinct verdicts in group
+    verdict_conflict: bool = False           # 真对立:benign × 指控同场(spec 2026-09-06;今天恒 False,占位)
+    has_archive: bool = False                # 组内存档章在场(informational;只展示不计分,黄灯数据源)
     malware_names: list[str] = field(default_factory=list)   # de-duplicated, e.g. ["win.vidar"]
     details: list[dict] = field(default_factory=list)        # per-source rich info
 
@@ -149,6 +150,7 @@ class LookupResult:
                     "corroborated": v.corroborated,
                     "reporter_total": v.reporter_total,
                     "verdict_conflict": v.verdict_conflict,
+                    "has_archive": v.has_archive,
                     "malware_names": v.malware_names,
                     "details": v.details,
                     "sources": [

@@ -239,24 +239,33 @@ def _assess_classification(group: list) -> ClassificationAssessment:
         # All verdicts unknown: min() over ties is set-iteration-order dependent
         # (process-nondeterministic), so fall back to sorted order for determinism.
         verdict = sorted(distinct_verdicts)[0]
-    verdict_conflict = len(distinct_verdicts) > 1
-
     # log-odds 后验(spec 2026-08-29 §3.1/§3.2):每源独立按自己的
     # first_seen 衰减;同源多观测不复合(重复广播只计最强单条断言,
     # §3.3 宁少算不多算);谱系去重后求和;σ → conf。
+    # 冲突 = 真对立:benign 断言与指控章同场(spec 2026-09-06 §2.2)。
+    # 定级分歧(指控 × 存档)不再是冲突 —— 由 has_archive 黄灯表达。
+    ACCUSING = frozenset({"malicious", "suspicious"})
+    verdict_conflict = ("benign" in distinct_verdicts
+                        and any(o.verdict in ACCUSING for o in obs))
+
+    # 投票资格 = 指控章;存档章只展示不计分(spec 2026-09-06)。
+    # 核心不变式:confidence 仅由 voters 决定 —— 增删存档观测不改变数字。
+    # 纯存档组(voters 空)退回全量 Σ(决策 5/乙:平滑淡出,不跳变)。
+    # 同源取 max 在投票观测内执行;仅存档观测的源不产生系数但保留展示。
+    voters = [o for o in obs if o.verdict in ACCUSING]
+    pool = voters if voters else obs
     by_source: dict[str, float] = {}
-    for o in obs:
+    for o in pool:
         c = _lo.coefficient(o.reliability, o.first_seen, ctype)
         if o.source not in by_source or c > by_source[o.source]:
             by_source[o.source] = c
     deduped = _lo.dedup_lineage(list(by_source.items()))
     confidence = _lo.assertion_confidence([c for _, c in deduped])
-    # Corroboration = ≥2 INDEPENDENT (lineage-deduped) sources, not ≥2
-    # observations. A single source can emit multiple observations (e.g.
-    # threatfox lists one IP under two malware families); those share a source
-    # and must not count as independent corroboration.
+    # 已印证只数指控源(决策 8):谱系去重后的独立投票源 ≥2。
+    corroborated = bool(voters) and len({s for s, _ in deduped}) >= 2
+    # 存档在场提示(黄灯):组内存在 informational 观测(未知 verdict 不触发)。
+    has_archive = any(o.verdict == "informational" for o in obs)
     distinct_sources = {o.source for o in obs}
-    corroborated = len({s for s, _ in deduped}) >= 2
 
     # Dedupe sources by name: one source emitting multiple observations in a
     # group yields a single attribution (reliability is source-level, identical
@@ -275,7 +284,8 @@ def _assess_classification(group: list) -> ClassificationAssessment:
 
     details: list[dict] = []
     for o in obs:
-        d: dict[str, Any] = {"source": o.source, "reliability": o.reliability}
+        d: dict[str, Any] = {"source": o.source, "reliability": o.reliability,
+                             "verdict": o.verdict}
         if o.malware_name:
             d["malware_name"] = o.malware_name
         if o.confidence is not None:
@@ -300,5 +310,6 @@ def _assess_classification(group: list) -> ClassificationAssessment:
         type=ctype, verdict=verdict, detected=True, confidence=confidence,
         algorithm="logodds", sources=sources, corroborated=corroborated,
         reporter_total=reporter_total, verdict_conflict=verdict_conflict,
+        has_archive=has_archive,
         malware_names=malware_names, details=details,
     )
