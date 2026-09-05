@@ -3,7 +3,7 @@
 订阅 10 个攻击类型子列表 + all.txt 兜底（第 11 个列表，blacklist 兜底分类、
 优先级最低）。实测 all.txt ≠ 子列表并集（约 ±0.1% 漂移：26 IP 只在 all.txt、
 140 IP 只在子列表），双订阅保证零丢失。同 IP 命中多列表时按
-brute-force > botnet > spam > scanner > blacklist 裁决 classification_type，
+brute-force > infected-system > spam > scanner > blacklist 裁决 classification_type，
 全部认领子列表名保留在 native_categories。
 """
 import logging
@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 _LISTS = ["mail", "ssh", "bruteforcelogin", "ftp", "imap", "sip",
           "bots", "ircbot", "apache", "strongips", "all"]
 
-_PRIORITY = {"brute-force": 0, "botnet": 1, "spam": 2, "scanner": 3, "blacklist": 4}
+_PRIORITY = {"brute-force": 0, "infected-system": 1, "spam": 2, "scanner": 3, "blacklist": 4}
 
 
 class BlocklistDeSource(IpListSource):

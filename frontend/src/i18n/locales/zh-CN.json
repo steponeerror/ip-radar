@@ -9,7 +9,7 @@
   "cidrHint.label": "支持 IPv4/IPv6 与 CIDR 网段，如 1.2.3.0/24",
   "class.abuse_reports": "滥用举报",
   "class.blacklist": "黑名",
-  "class.botnet": "僵尸网络",
+  "class.infected_system": "受感染系统",
   "class.botnet_cc": "C2",
   "class.brute_force": "暴力破解",
   "class.c2_server": "C2",

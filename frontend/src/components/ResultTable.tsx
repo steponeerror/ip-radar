@@ -85,7 +85,7 @@ function isInfra(type: string): boolean {
 function classPalette(type: string): string {
   const t = normType(type);
   if (CLASS_PALETTE[t]) return CLASS_PALETTE[t];
-  if (t.includes("c2") || t.includes("botnet")) return CLASS_PALETTE["c2_server"];
+  if (t.includes("c2") || t.includes("infected")) return CLASS_PALETTE["c2_server"];
   if (t.includes("malware")) return CLASS_PALETTE["malware"];
   if (t.includes("scan")) return CLASS_PALETTE["scanner"];
   if (t.includes("brute")) return CLASS_PALETTE["brute_force"];
