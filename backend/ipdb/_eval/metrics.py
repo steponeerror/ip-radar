@@ -76,7 +76,10 @@ def cg(baseline: Snapshot, candidate: Snapshot, candidate_src: str) -> Metric:
 
 
 def conflict(baseline: Snapshot, candidate: Snapshot) -> Metric:
-    """Pairs where verdict_conflict newly appears (False->True)."""
+    """Pairs where verdict_conflict newly appears (False->True).
+
+    2026-09-06: verdict_conflict 语义 = 真对立(benign × 指控);现有源
+    全部不产出 benign → 恒 0,benign 源接入后自然复活(spec §6)。"""
     newly = []
     for ip, res in candidate.items():
         for ctype, ca in res.get("classifications", {}).items():
