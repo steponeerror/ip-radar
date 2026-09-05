@@ -9,13 +9,14 @@ that contacted its sensors. This source merges six of them into one feed (eight 
   sipquery     — SIP probe / enumeration attempts        → brute-force
   sipregistration — SIP registration attempts            → brute-force
   smtpgreet    — IPs greeting SMTP servers (connection)  → scanner
-  smtpdata     — IPs sending DATA before SMTP greeting   → spam (attacker-side
-                 protocol abuse, malicious)
-  ntpmode7     — NTP servers answering monlist requests  → vulnerable-system
-                 (victim-side abusable state, RSIT "DDoS Amplifier"; verdict
-                 drops to informational — a reflector host is a victim, not an
-                 attacker; misconfiguration rejected per RSIT/IntelMQ: that
-                 type means self-harming availability, e.g. stale DNSSEC KSK)
+  smtpdata     — SMTP clients sending DATA (actual payload    → spam
+                 delivery, spam-cannon signature; deliberate
+                 divergence from IntelMQ parser's scanner)
+  ntpmode7     — source IPs SENDING monlist requests        → scanner
+                 (probers scanning for DDoS amplifiers, per the file
+                 header's own wording — NOT the probed open NTP servers,
+                 which dataplane does not list; 2026-09-05 fix, was
+                 misread victim-side as vulnerable-system)
 
 Each file is pipe-delimited with a fixed shape:
 
@@ -105,13 +106,9 @@ class DataplaneSource(Source):
                 except ValueError:
                     asn = None
                 ctype = normalize(category, DATAPLANE_MAP)
-                # victim 侧可滥用状态(vulnerable-system,RSIT DDoS Amplifier)
-                # 不背攻击者的锅:verdict 降档 informational,不推恶意分。
-                verdict = ("informational" if ctype == "vulnerable-system"
-                           else self.verdict)
                 yield f"{ip}/{128 if ':' in ip else 32}", Evidence(
                     classification_type=ctype,
-                    verdict=verdict,
+                    verdict=self.verdict,
                     first_seen=last_seen,
                     last_seen=last_seen,
                     asn=asn,

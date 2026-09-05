@@ -21,7 +21,7 @@ It引用 `discover-intel-sources` / `add-intel-source`(不加源实现,不复述
 
 1. **discover** — invoke `discover-intel-sources` 找候选。
 2. **验活** — 多维验活(curl 4 组合 + jina),四分类(真死/换URL/受限/免费key但bulk付费)。见 `references/empirical-liveness.md`。
-3. **add** — invoke `add-intel-source` Phase 1-4 加源。
+3. **add** — invoke `add-intel-source` Phase 1-4 加源。硬 gate:凡改已存在源的 URL/文件名/解析形态,必落 CHANGELOG `feed-change:` 条目(上游搬家沉淀点,IntelMQ upgrades.py 纪律的本地等价物)。
 
 **到此处停下,offer 用户评估/调优**(eval 重且有 OOM 风险:全量 rebuild 大源 LMDB 同样吃 RSS——ip2proxy 累积模式峰值 686MB,WSL 内存约束不变,故默认不自动跑;用户要「评估影响 / 优化池子」时才进 4-5):
 

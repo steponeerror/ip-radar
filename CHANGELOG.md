@@ -6,7 +6,11 @@
 
 ### 新增 Added
 
-- 谱系审计（`python -m ipdb._eval --audit`）：基于持久化模型历史的镜像方向裁决；advisory，并对已知聚合源清单跑 C-3 零冤枉检查
+- 三条数据质量绊线(IntelMQ 审计落地):normalize() 未命中映射的原生值按 (map,key) 去重告警一次(上游新增/改名分类码当天可见);rebuild 中央检查 first_seen 可解析性,批末汇总告警(脏格式此前静默按无衰减计=最大权重);下载层重定向预警(geturl≠请求 URL,feed URL 腐烂最早信号,覆盖 download_file/_http_get/默认 download 三路径)
+  - Three data-quality tripwires (IntelMQ audit follow-up): normalize() warns once per (map,key) on unmapped native values (upstream category additions/renames surface same-day); rebuild() centrally checks first_seen parseability with an end-of-batch summary (dirty formats previously decayed silently at full weight); download layer warns on redirects (geturl != requested URL - earliest feed-URL-rot signal, covering download_file/_http_get/default download)
+- feed 变更沉淀约定:凡改源 URL/文件名/解析形态,必落 CHANGELOG `feed-change:` 条目(IntelMQ upgrades.py 纪律的本地等价物);分类词表版本锚定注释落地 _classification.py(对照 RSIT v1003 / IntelMQ develop@bbe452a)
+  - Feed-change sedimentation convention: any source URL/filename/parse-shape change must land a CHANGELOG `feed-change:` entry (local equivalent of IntelMQ's upgrades.py discipline); classification vocabulary version anchor added to _classification.py (RSIT v1003 / IntelMQ develop@bbe452a)
+- 谱系审计(`python -m ipdb._eval --audit`)：基于持久化模型历史的镜像方向裁决；advisory，并对已知聚合源清单跑 C-3 零冤枉检查
   - Lineage audit (`python -m ipdb._eval --audit`): copying-direction verdicts
     from persisted model history; advisory, C-3 zero-false-accusation check
     against the known aggregator list.
@@ -25,8 +29,10 @@
 
 ### 变更 Changed
 
-- dataplane 新订阅 smtpdata(SMTP DATA 先行 → spam,malicious)与 ntpmode7(monlist 开放 NTP → vulnerable-system,informational):vulnerable-system 死槽开启,victim 侧可滥用状态不标恶意(RSIT "DDoS Amplifier" 权威口径;misconfiguration 被 RSIT/IntelMQ 定义否决——那是自伤可用性的配置错);dnsrd 维持 scanner(权威复核:IntelMQ scanner 定义例明列 DNS querying,旧裁决成立)
-  - dataplane adds smtpdata (SMTP DATA-before-greet → spam, malicious) and ntpmode7 (monlist-enabled NTP → vulnerable-system, informational): opens the vulnerable-system dead slot while victim-side abusable states stay non-malicious (RSIT "DDoS Amplifier" semantics; misconfiguration rejected by RSIT/IntelMQ definition — that type is self-harming availability, e.g. stale DNSSEC KSK); dnsrd stays scanner (authority check: IntelMQ's scanner examples literally include DNS querying — prior ruling upheld)
+- dataplane 新订阅 smtpdata(SMTP DATA 投递行为 → spam,malicious)与 ntpmode7;信号语义经 2026-09-05 IntelMQ 官方对照审计修正:ntpmode7 → scanner/malicious(文件头实证列的是"发起 monlist 请求的源 IP"= 探测方,曾误读 victim 侧反射器归 vulnerable-system/informational);smtpdata 维持 spam,与 IntelMQ 官方 parser 的 scanner 为有意分歧(DATA = 实际投递报文体,RSIT spam 定义更贴合);dnsrd 维持 scanner(权威复核成立)
+  - dataplane adds smtpdata (SMTP DATA delivery behavior -> spam, malicious) and ntpmode7; semantics corrected by the 2026-09-05 IntelMQ audit: ntpmode7 -> scanner/malicious (the file header itself lists SOURCE IPs sending monlist requests - probers, was misread as victim-side reflectors -> vulnerable-system/informational); smtpdata stays spam, a deliberate divergence from IntelMQ's parser (DATA carries actual message bodies; RSIT's spam definition fits better); dnsrd stays scanner (upheld)
+- blocklist_de 子列表语义修正(同审计):mail → brute-force(上游 = "attacks on Mail/Postfix",攻击邮件服务器的攻击者,曾误归 spam);bots → spam(上游 = "spammed on IRC, open forums, wikis" 灌水滥用,曾误归 botnet)
+  - blocklist.de sublist semantics fixed (same audit): mail -> brute-force (upstream = "attacks on Mail/Postfix" - attackers hitting mail servers, was mis-mapped spam); bots -> spam (upstream = "spammed on IRC, open forums, wikis", was mis-mapped botnet)
 
 - stopforumspam 逐条分级：last_seen ≤90 天的记录 verdict 升为可疑（活跃垃圾发送者），其余保持信息；每条记录计算 0-100 咨询分（50% 新近度 + 50% 举报量，log10 千次饱和）存入 native_confidence，融合置信度仍为 log-odds 后验不变（实测 28.1% 记录升档，~13.7 万条）
   - stopforumspam per-record grading: records with last_seen ≤90d upgrade to verdict=suspicious (active spammers), the stale tail stays informational; a 0-100 advisory score (50% recency + 50% report volume, log10 saturating at 1000) rides in native_confidence while fusion confidence stays the untouched log-odds posterior (measured 28.1% of records upgrade, ~137k)

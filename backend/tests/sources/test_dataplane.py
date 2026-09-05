@@ -67,10 +67,14 @@ def test_dataplane_signals_dict_has_eight_feeds():
         "smtpdata", "ntpmode7"}
 
 
-def test_dataplane_smtpdata_spam_and_ntpmode7_vulnerable_system(tmp_path):
-    """RSIT 权威口径落地:smtpdata = 攻击侧协议滥用(spam/malicious);
-    ntpmode7 = victim 侧可滥用状态(vulnerable-system/informational,
-    RSIT "DDoS Amplifier"),既有信号 verdict 不受联动影响。"""
+def test_dataplane_smtpdata_spam_and_ntpmode7_scanner(tmp_path):
+    """2026-09-05 修正( dataplane.org 文件头实证):ntpmode7 列的是
+    "sending NTP mode 7 requests" 的源 IP——探测方(为找 DDoS 放大器而
+    扫 monlist),非被探测的开放 NTP 服务(RSIT DDoS Amplifier 的定义
+    对象)。改归 scanner/malicious(此前误读为 victim 侧反射器,归
+    vulnerable-system/informational)。smtpdata 维持 spam:DATA = 实际
+    投递报文体(非 EXPN/RCPT 探测),与 IntelMQ 官方 parser 的 scanner
+    是有意分歧(数据头实测 "SMTP clients sending DATA commands")。"""
     lines = "\n".join([
         "# test",
         "2018 |  Tertiary Education  |  146.64.140.28  |  2026-09-04 09:04:07  |  smtpdata",
@@ -84,8 +88,8 @@ def test_dataplane_smtpdata_spam_and_ntpmode7_vulnerable_system(tmp_path):
     assert smtp["classification_type"] == "spam"
     assert smtp["verdict"] == "malicious"
     ntp = s.query("113.95.143.91")[0]
-    assert ntp["classification_type"] == "vulnerable-system"
-    assert ntp["verdict"] == "informational"
+    assert ntp["classification_type"] == "scanner"
+    assert ntp["verdict"] == "malicious"
     telnet = s.query("201.216.86.55")[0]
     assert telnet["classification_type"] == "brute-force"
-    assert telnet["verdict"] == "malicious"   # 联动只降 victim 侧
+    assert telnet["verdict"] == "malicious"
