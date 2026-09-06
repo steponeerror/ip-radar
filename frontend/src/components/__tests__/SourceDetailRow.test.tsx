@@ -4,13 +4,28 @@ import { renderWithI18n } from "../../test/i18nTestUtils";
 import { SourceDetailRow } from "../SourceDetailRow";
 import type { ClassificationDetail } from "../../api";
 
-const base: ClassificationDetail = { source: "otx", reliability: 0.9 };
+const base: ClassificationDetail = { source: "otx", verdict: "malicious", reliability: 0.9 };
 
 describe("SourceDetailRow", () => {
   it("always renders source and reliability", () => {
     renderWithI18n(<SourceDetailRow detail={base} />);
     expect(screen.getByText(/otx/)).toBeInTheDocument();
     expect(screen.getByText(/rel 0\.9/)).toBeInTheDocument();
+  });
+
+  it("renders the per-source verdict chip with localized label and tooltip", () => {
+    renderWithI18n(<SourceDetailRow detail={{ ...base, verdict: "informational" }} />);
+    const chip = screen.getByText("Informational");
+    expect(chip).toBeInTheDocument();
+    expect(chip.getAttribute("title")).toBe("This source's verdict stamp for the record");
+  });
+
+  it("styles unknown verdict codes with the informational fallback", () => {
+    renderWithI18n(<SourceDetailRow detail={{ ...base, verdict: "weird" }} />);
+    // missing label key → raw key text; style falls back to informational ring
+    const chip = screen.getByText("verdict.weird");
+    expect(chip.className).toContain("bg-zinc-500/15");
+    expect(chip.className).toContain("ring-zinc-500/25");
   });
 
   it("renders all optional fields when present", () => {

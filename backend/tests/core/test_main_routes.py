@@ -740,3 +740,5 @@ def test_get_lookup_classified_ip_details_is_list(tmp_path, monkeypatch):
     assert r.status_code == 200, r.text
     det = r.json()["classifications"]["blacklist"]["details"]
     assert isinstance(det, list) and det[0]["source"] == "binarydefense"
+    assert det[0]["verdict"] == "malicious"
+    assert r.json()["classifications"]["blacklist"]["has_archive"] is False

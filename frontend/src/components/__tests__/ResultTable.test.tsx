@@ -97,7 +97,7 @@ const baseResult: LookupResult = {
 const caProxy: ClassificationAssessment = {
   type: "proxy", verdict: "informational", detected: true, confidence: 60,
   algorithm: "voting", corroborated: false, reporter_total: 1,
-  verdict_conflict: false, malware_names: [], details: [], sources: [],
+  verdict_conflict: false, has_archive: false, malware_names: [], details: [], sources: [],
 };
 
 describe("ResultTable richness display", () => {
@@ -132,6 +132,32 @@ describe("ResultTable richness display", () => {
     expect(within(tds[4]).getByText(/Carrier: 中国移动/)).toBeInTheDocument();
     expect(within(tds[4]).getByText("chinamobile.com")).toBeInTheDocument();
     expect(within(tds[6]).queryByText(/中国移动/)).not.toBeInTheDocument();
+  });
+});
+
+// --- spec 2026-09-06: archive amber signal (has_archive → 黄灯,不动 conflict 红灯) ---
+
+describe("ResultTable archive signal", () => {
+  it("renders amber incl. archive badge in ThreatTags when has_archive", () => {
+    const r: LookupResult = { ...baseResult,
+      classifications: { proxy: { ...caProxy, has_archive: true } } };
+    renderWithI18n(<ResultTable results={[r]} />);
+    const row = screen.getByText("203.0.113.10").closest("tr")!;
+    expect(within(row).getByText("incl. archive")).toBeInTheDocument();
+  });
+
+  it("appends the archive suffix to the verdict-cell tooltip", () => {
+    const r: LookupResult = { ...baseResult,
+      classifications: { proxy: { ...caProxy, has_archive: true } } };
+    renderWithI18n(<ResultTable results={[r]} />);
+    expect(screen.getByTitle("Informational · incl. archive")).toBeInTheDocument();
+  });
+
+  it("shows no archive badge or tooltip suffix when has_archive is false", () => {
+    const r: LookupResult = { ...baseResult, classifications: { proxy: caProxy } };
+    renderWithI18n(<ResultTable results={[r]} />);
+    expect(screen.queryByText("incl. archive")).not.toBeInTheDocument();
+    expect(screen.getByTitle("Informational")).toBeInTheDocument();
   });
 });
 

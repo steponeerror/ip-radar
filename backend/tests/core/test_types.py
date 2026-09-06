@@ -82,6 +82,7 @@ class TestLookupResultToDict:
         assert d["classifications"]["c2-server"]["detected"] is True
         assert d["classifications"]["c2-server"]["confidence"] == 85
         assert d["classifications"]["c2-server"]["verdict"] == "malicious"
+        assert d["classifications"]["c2-server"]["has_archive"] is c2_ca.has_archive
         assert d["is_isp"] is False
         assert "error" not in d
 
