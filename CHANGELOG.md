@@ -6,8 +6,8 @@
 
 ### verdict-aware scoring(spec 2026-09-06)
 
-- 存档章(informational)退出威胁置信度:数字仅由指控章(恶意/可疑)源决定,增删存档观测不改数字
-  - Archive-stamped observations (informational) no longer feed threat confidence: the number is decided solely by accusing sources (malicious/suspicious); adding or removing archive observations cannot move it
+- 存档章(informational)退出威胁置信度:数字仅由指控章(恶意/可疑)源决定,混合组(含指控源)数字不变;纯存档组沿用旧公式;源计数与 reporter_total 照旧包含存档观测
+  - Archive-stamped observations (informational) no longer feed threat confidence: the number is decided solely by accusing sources (malicious/suspicious); mixed groups (with accusing sources) keep their numbers, archive-only groups keep the legacy formula, and source counts and reporter_total still include archive observations
 - "冲突"重定义为真对立(benign × 指控,现无 benign 源 → 恒 false 占位);定级分歧改由"含存档记录"黄灯表达
   - "Conflict" redefined as true opposition (benign × accusing; no benign source today → constant-false placeholder); grading disagreements are instead expressed by the "含存档记录" (contains archive records) amber signal
 - "已印证"只数指控源;明细逐条带 verdict;API 新增 has_archive

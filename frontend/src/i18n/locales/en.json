@@ -39,7 +39,7 @@
   "common.conflictTitle": "Verdict conflict between sources",
   "common.conflictTooltip": "Multi-source verdict conflict",
   "common.corroborated": "Corroborated",
-  "common.corroboratedTitle": "2+ independent sources",
+  "common.corroboratedTitle": "Corroborated by 2+ independent accusing sources",
   "common.sourceCount": "{n}src",
   "common.sourcesHit": "Sources hit",
   "csvExport.invalidLines": "Skipped {n} unrecognized input line(s).",

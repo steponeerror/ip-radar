@@ -27,6 +27,17 @@ def test_archive_observation_does_not_change_confidence():
         == _assess_classification(accusers).confidence
 
 
+def test_same_source_archive_never_contributes_even_when_stronger():
+    """同源 max 域:同源的存档观测即使更强(0.90 > 0.65)也不进投票池、
+    不抬数字 —— informational 整条排除,而非被同源 max 吸收。"""
+    mixed = [obs("reportedip", "malicious", 0.65, FS),
+             obs("reportedip", "informational", 0.90, FS)]
+    solo = [obs("reportedip", "malicious", 0.65, FS)]
+    ca = _assess_classification(mixed)
+    assert ca.confidence == _assess_classification(solo).confidence
+    assert ca.has_archive is True
+
+
 def test_pure_archive_group_keeps_legacy_posterior():
     """纯存档组退回全量 Σ(决策 5/乙):与旧算法逐值一致。"""
     group = [obs("stopforumspam", "informational", 0.70, OLD),
@@ -38,6 +49,7 @@ def test_pure_archive_group_keeps_legacy_posterior():
         by_src[o.source] = max(by_src.get(o.source, c), c)
     deduped = _lo.dedup_lineage(list(by_src.items()))
     assert ca.confidence == _lo.assertion_confidence([c for _, c in deduped])
+    assert ca.corroborated is False   # 纯存档组无指控源,不亮已印证(决策 8)
 
 
 def test_suspicious_votes_like_malicious():
@@ -95,3 +107,4 @@ def test_unknown_verdict_abstains_but_shows():
     assert ca.confidence == solo.confidence
     assert ca.verdict == "malicious"
     assert ca.has_archive is False
+    assert ca.corroborated is False   # 唯一 voter 是 a,单源不足 2 不亮(决策 8)

@@ -39,7 +39,7 @@
   "common.conflictTitle": "源之间判定冲突",
   "common.conflictTooltip": "多源判定冲突",
   "common.corroborated": "已印证",
-  "common.corroboratedTitle": "2+ 独立源印证",
+  "common.corroboratedTitle": "2+ 独立指控源印证",
   "common.sourceCount": "{n}源",
   "common.sourcesHit": "命中情报源数",
   "csvExport.invalidLines": "已跳过 {n} 行无法识别的输入。",

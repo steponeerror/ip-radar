@@ -49,7 +49,7 @@ class ClassificationOut(_Out):
     algorithm: Optional[str] = None
     corroborated: bool = False
     reporter_total: int = 0
-    verdict_conflict: bool = False
+    verdict_conflict: bool = False  # 真对立(benign × 指控,spec 2026-09-06;今天恒 False,占位)
     has_archive: bool = False   # 存档章在场(spec 2026-09-06;黄灯数据源)
     malware_names: list[str] = []
     details: list[dict] = []   # per-source 富信息(_types.to_dict 产 list;#41 曾误声明 dict → GET 单查 500)

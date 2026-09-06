@@ -38,7 +38,7 @@ def sample_ips(registry) -> list[str]:
 
 
 def snapshot_entry(result: dict) -> dict:
-    """每 IP 的可比视图:标量 conf + 各威胁组 (conf, n_sources, min_first_seen)。
+    """每 IP 的可比视图:标量 conf + 各威胁组 (conf, verdict, n_sources, has_archive, min_first_seen, max_first_seen)。
 
     防御式读取:缺 conf 的字段/组降级为缺行,不让 KeyError 炸掉整个对比。
     """

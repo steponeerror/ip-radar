@@ -46,7 +46,10 @@ def mc(baseline: Snapshot, candidate: Snapshot, candidate_src: str,
 
 def _effective_votes(snapshot: Snapshot, ip: str, ctype: str) -> int:
     """谱系去重后的有效源票数——生产同款数学(_assess_classification):
-    逐源取最强系数 coefficient(r, first_seen, ctype),再 dedup_lineage。"""
+    逐源取最强系数 coefficient(r, first_seen, ctype),再 dedup_lineage。
+    镜像漂移注记:生产 corroboration 现只数指控源(spec 2026-09-06 决策 8),
+    本 helper 仍不问 verdict 计全部 details;旧快照可能缺 verdict 键,
+    对齐推迟到快照携带 verdict 的阶段。"""
     ca = (snapshot.get(ip, {}).get("classifications") or {}).get(ctype, {})
     by_source: dict[str, float] = {}
     for d in ca.get("details", []):
