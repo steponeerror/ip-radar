@@ -1,10 +1,15 @@
 # backend/ipdb/_eval/replay_diff.py
-"""离线新旧评分对比(spec 2026-08-29 §9)。
+"""离线新旧评分对比:评分语义迁移的回放对比工具,方向断言层现为
+spec 2026-09-06(verdict-aware scoring:存档退出评分,组 conf 改变 ⟹
+新侧必须 has_archive)。
 
   --snapshot out.json   切换前跑(旧实现),存基线
-  --compare base.json   切换后跑(Task 10 实现),出 diff 报告 + 方向断言
+  --compare base.json   切换后跑(新实现),出 diff 报告 + 方向断言
 
 样本:corpus benchmark+benign + 每威胁源 5 个命中 IP(种子稳定)。
+
+操作注记:baseline 采集与 compare 必须在同一无 pytest 窗口内配对进行
+(pytest 冷启动会写 backend/data 造成漂移假阳性)。
 """
 import argparse
 import json
@@ -77,7 +82,10 @@ def check_directional(old: dict, new: dict) -> list[str]:
     - scalar conf:逐字节相等(红线);
     - 组 conf 改变 ⟹ 新侧必须 has_archive(唯一合法成因:存档退出
       投票/去重域收窄;全指控组与纯存档组数字不变,自动落入"相等"桶);
-    - 旧侧全 clean 的 IP 不得凭空出现威胁组(保留 8-29 断言 5)。"""
+    - 旧侧全 clean 的 IP 不得凭空出现威胁组(保留 8-29 断言 5)。
+
+    注:benign 弃权(spec §2.3 审计 F1)落地后,dedup 域收窄无
+    informational 观测亦可合法改变组 conf,本守卫暂未枚举,届时需重审此规则。"""
     problems = []
     for field, old_conf in old["scalars"].items():
         new_conf = new["scalars"].get(field)
@@ -126,7 +134,7 @@ def _diff_rows(ip: str, old: dict, new: dict) -> list[tuple]:
 def main(argv=None):
     p = argparse.ArgumentParser(prog="python -m ipdb._eval.replay_diff")
     p.add_argument("--snapshot", metavar="OUT.json", help="存当前实现评分基线")
-    p.add_argument("--compare", metavar="BASE.json", help="与基线对比(Task 10)")
+    p.add_argument("--compare", metavar="BASE.json", help="与基线对比")
     args = p.parse_args(argv)
     if not (args.snapshot or args.compare):
         p.error("need --snapshot or --compare")
