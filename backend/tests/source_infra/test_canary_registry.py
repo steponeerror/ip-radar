@@ -93,3 +93,29 @@ def test_eval_routes_404_for_internal(monkeypatch):
     client = TestClient(main_mod.app)
     assert client.get("/api/eval/sentinel").status_code == 404
     assert client.post("/api/eval/sentinel/run").status_code == 404
+
+
+def test_all_real_disabled_is_not_warming(monkeypatch):
+    # 回归(review round 1):仅 internal 源 enabled = 全源禁用 —— internal 恒
+    # enabled,若按 _enabled_sources() 判空,该分支永不触发 → 永久 warming 503,
+    # 横幅 Retry(/api/update-db 候选仅 sentinel)永远打不开门(main.py:722 语义)。
+    from fastapi.testclient import TestClient
+    import main as main_mod
+    monkeypatch.setattr(reg, "_enabled_sources", lambda: [_FakeCanary(loaded=True)])
+    monkeypatch.setattr(main_mod, "_db_ready", lambda: False)
+    client = TestClient(main_mod.app)
+    r = client.get("/api/db-status")
+    assert r.status_code == 200
+    assert r.json()["warming_up"] is False
+
+
+def test_require_ready_no_sources_when_only_internal(monkeypatch):
+    # 同口径的 require_ready 侧:全源禁用必须走 no-sources 分支(诚实报错),
+    # 而不是落到 warming 分支。直接调依赖函数,无需 TestClient。
+    from fastapi import HTTPException
+    import main as main_mod
+    monkeypatch.setattr(reg, "_enabled_sources", lambda: [_FakeCanary(loaded=True)])
+    with pytest.raises(HTTPException) as ei:
+        main_mod.require_ready()
+    assert ei.value.status_code == 503
+    assert ei.value.headers["X-IPRadar-Reason"] == "no-sources"

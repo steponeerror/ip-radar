@@ -188,6 +188,16 @@ def _enabled_sources() -> list:
     return [s for s in _sources if is_enabled(s.name)]
 
 
+def _real_enabled_sources() -> list:
+    """_enabled_sources() 剔除内部源(F2 口径)。
+
+    internal 恒 enabled,不剔除时"仅剩 canary"(= 全源禁用)会被判成
+    有源可用。require_ready 的 no-sources 分支与 db_status 的 warming_up
+    共用本口径,保证全源禁用报 no-sources 而非永久 warming。"""
+    return [s for s in _enabled_sources()
+            if s.name not in _INTERNAL_NAMES]
+
+
 def _db_loaded() -> bool:
     """True if any enabled source has a loaded reader.
 

@@ -189,7 +189,7 @@ def require_ready():
     Resolves _db_loaded via the registry module attribute at call time (not a
     name bound at import) so a single patched reference reaches both this gate
     and lookup()'s internal check identically."""
-    if not _ipdb_registry._enabled_sources():
+    if not _ipdb_registry._real_enabled_sources():
         raise HTTPException(
             503, detail="no data sources enabled",
             headers={"X-IPRadar-Reason": "no-sources"})
@@ -720,7 +720,8 @@ async def upload_file_stream(file: UploadFile = File(...)):
 async def db_status():
     status = get_status()
     # 全源禁用不是 warming:报 False 隐藏横幅,查询走 require_ready 的诚实报错
-    status["warming_up"] = bool(_ipdb_registry._enabled_sources()) and not _db_ready()
+    # (internal 恒 enabled,须按 _real_enabled_sources 口径判空 —— 与 require_ready 同源)
+    status["warming_up"] = bool(_ipdb_registry._real_enabled_sources()) and not _db_ready()
     return status
 
 
