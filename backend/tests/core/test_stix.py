@@ -55,13 +55,22 @@ def test_stix_surfaces_extra_details_malware_names_verdict_conflict():
     """Field-loss point #5: extra/details/malware_names/verdict_conflict must
     reach the STIX bundle via the extension-definition bag (NOT new x_* props)."""
     ca = ClassificationAssessment(
-        type="c2-server", verdict="malicious", detected=True, confidence=85,
+        type="spam", verdict="malicious", detected=True, confidence=85,
         algorithm="corroboration",
-        sources=[SourceAttribution("otx", True, 0.7, False)],
-        corroborated=False, reporter_total=1, verdict_conflict=True,
+        sources=[SourceAttribution("reportedip", True, 0.7, False),
+                 SourceAttribution("stopforumspam", True, 0.8, False)],
+        corroborated=False, reporter_total=2,
+        # 非良性混场(malicious+informational)无真对立 → conflict=False(spec 2026-09-06)
+        verdict_conflict=False,
+        has_archive=True,   # informational 在场 → 存档章(merge 同款语义)
         malware_names=["win.vidar"],
-        details=[{"source": "otx", "reliability": 0.7,
-                  "extra": {"port": 443, "native_type": "c2-server"}}],
+        details=[
+            {"source": "reportedip", "verdict": "malicious",
+             "reliability": 0.7,
+             "extra": {"port": 443, "native_type": "spam"}},
+            {"source": "stopforumspam", "verdict": "informational",
+             "reliability": 0.8, "extra": {}},
+        ],
     )
     lr = LookupResult(
         ip="1.2.3.4",
@@ -71,7 +80,7 @@ def test_stix_surfaces_extra_details_malware_names_verdict_conflict():
         as_name=MergedField("N/A", 0, "voting", []),
         ip_range=MergedField("N/A", 0, "voting", []),
         is_isp=False,
-        classifications={"c2-server": ca},
+        classifications={"spam": ca},
     )
     bundle = to_stix_bundle(lr)
     assert bundle is not None
@@ -79,6 +88,13 @@ def test_stix_surfaces_extra_details_malware_names_verdict_conflict():
     assert "443" in blob                 # details[].extra.port surfaced
     assert "win.vidar" in blob           # malware_names surfaced
     assert "verdict_conflict" in blob    # verdict_conflict key present
+    # spec 2026-09-06: details 逐条携带 verdict(STIX 透传)
+    # spam 组应为 {"reportedip": "malicious", "stopforumspam": "informational"}
+    ind = next(o for o in bundle["objects"] if o["type"] == "indicator")
+    ext = ind["extensions"][next(iter(ind["extensions"]))]
+    assert ext["verdict_conflict"] is False   # 非良性混场无真对立(值断言)
+    assert {d["source"]: d["verdict"] for d in ext["details"]} == {
+        "reportedip": "malicious", "stopforumspam": "informational"}
 
 
 @pytest.mark.skipif(not _HAS_STIX2, reason="stix2 not installed")

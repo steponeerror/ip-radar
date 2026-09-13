@@ -21,8 +21,8 @@ const r: LookupResult = {
     c2_server: {
       type: "c2_server", verdict: "malicious", detected: true, confidence: 92,
       algorithm: "corroboration", corroborated: true, reporter_total: 3,
-      verdict_conflict: false, malware_names: ["win.vidar"],
-      details: [{ source: "otx", reliability: 0.9 }], sources: [],
+      verdict_conflict: false, has_archive: false, malware_names: ["win.vidar"],
+      details: [{ source: "otx", verdict: "malicious", reliability: 0.9 }], sources: [],
     },
   },
   attributes: {},

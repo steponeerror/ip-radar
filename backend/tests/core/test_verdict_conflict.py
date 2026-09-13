@@ -36,9 +36,11 @@ def test_single_observation_no_conflict():
 
 def test_all_unknown_verdicts_deterministic():
     # Unknown verdicts: result is alphabetical (deterministic), not set-order dependent.
+    # 冲突 = 真对立(benign × 指控,spec 2026-09-06):定级分歧不再触发,
+    # 未知 × 未知不是对立 → verdict_conflict False。
     a = _assess_classification([_obs("zzz_unknown"), _obs("aaa_unknown")])
     assert a.verdict == "aaa_unknown"
-    assert a.verdict_conflict is True
+    assert a.verdict_conflict is False
 
 
 def test_stale_observation_decays_only_itself():

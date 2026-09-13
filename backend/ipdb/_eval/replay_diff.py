@@ -1,10 +1,15 @@
 # backend/ipdb/_eval/replay_diff.py
-"""离线新旧评分对比(spec 2026-08-29 §9)。
+"""离线新旧评分对比:评分语义迁移的回放对比工具,方向断言层现为
+spec 2026-09-06(verdict-aware scoring:存档退出评分,组 conf 改变 ⟹
+新侧必须 has_archive)。
 
   --snapshot out.json   切换前跑(旧实现),存基线
-  --compare base.json   切换后跑(Task 10 实现),出 diff 报告 + 方向断言
+  --compare base.json   切换后跑(新实现),出 diff 报告 + 方向断言
 
 样本:corpus benchmark+benign + 每威胁源 5 个命中 IP(种子稳定)。
+
+操作注记:baseline 采集与 compare 必须在同一无 pytest 窗口内配对进行
+(pytest 冷启动会写 backend/data 造成漂移假阳性)。
 """
 import argparse
 import json
@@ -33,7 +38,7 @@ def sample_ips(registry) -> list[str]:
 
 
 def snapshot_entry(result: dict) -> dict:
-    """每 IP 的可比视图:标量 conf + 各威胁组 (conf, n_sources, min_first_seen)。
+    """每 IP 的可比视图:标量 conf + 各威胁组 (conf, verdict, n_sources, has_archive, min_first_seen, max_first_seen)。
 
     防御式读取:缺 conf 的字段/组降级为缺行,不让 KeyError 炸掉整个对比。
     """
@@ -51,6 +56,7 @@ def snapshot_entry(result: dict) -> dict:
             "conf": ca["confidence"],
             "verdict": ca.get("verdict"),
             "n_sources": len({d["source"] for d in details if d.get("source")}),
+            "has_archive": any(d.get("verdict") == "informational" for d in details),
             "min_first_seen": min(firsts) if firsts else None,
             "max_first_seen": max(firsts) if firsts else None,
         }
@@ -71,39 +77,28 @@ def _age_days(iso):
 
 
 def check_directional(old: dict, new: dict) -> list[str]:
-    """A2 限定(裁决 2026-08-29 精确化后):单源新鲜±2;多源新鲜不降
-    (old≠80——旧 Admiralty floor 把值恰好垫到 80,只有它是非法参照);
-    组内最新 obs >180d 才算陈旧(用当前侧 max_first_seen),收敛 [45,55];
-    as_name 单源 50→r×100 只查方向(新值 > 50)。返回违规描述列表。"""
+    """spec 2026-09-06 验收断言(全换,旧 8-29 规则作废):
+
+    - scalar conf:逐字节相等(红线);
+    - 组 conf 改变 ⟹ 新侧必须 has_archive(唯一合法成因:存档退出
+      投票/去重域收窄;全指控组与纯存档组数字不变,自动落入"相等"桶);
+    - 旧侧全 clean 的 IP 不得凭空出现威胁组(保留 8-29 断言 5)。
+
+    注:benign 弃权(spec §2.3 审计 F1)落地后,dedup 域收窄无
+    informational 观测亦可合法改变组 conf,本守卫暂未枚举,届时需重审此规则。"""
     problems = []
     for field, old_conf in old["scalars"].items():
         new_conf = new["scalars"].get(field)
-        if new_conf is None:
-            continue
-        if field == "as_name" and old_conf == 50 and new_conf not in (0, 50) \
-                and new_conf < 50:
-            problems.append(f"{field}: as_name 单源 conf 反向下降 {old_conf}->{new_conf}")
+        if new_conf is not None and new_conf != old_conf:
+            problems.append(f"{field}: scalar conf 改变 {old_conf}->{new_conf}")
     for ctype, oc in old["classifications"].items():
         nc = new["classifications"].get(ctype)
         if nc is None:
             continue
-        age = _age_days(oc.get("min_first_seen"))
-        n = oc.get("n_sources", 0)
-        if n == 1 and age is not None and age <= 7:
-            if abs(nc["conf"] - oc["conf"]) > 2:
-                problems.append(f"{ctype}: 单源新鲜漂移 {oc['conf']}->{nc['conf']}")
-        elif n >= 2 and age is not None and age <= 30 and oc["conf"] != 80:
-            if nc["conf"] < oc["conf"]:
-                problems.append(f"{ctype}: 多源新鲜下降 {oc['conf']}->{nc['conf']}")
-        else:
-            # 陈旧判定用当前侧组内最新 obs:任一新鲜观测在,组即不陈旧
-            newest_age = _age_days(nc.get("max_first_seen"))
-            if newest_age is not None and newest_age > 180 \
-                    and not (45 <= nc["conf"] <= 55):
-                problems.append(f"{ctype}: 陈旧未收敛中立 {nc['conf']}")
-    # spec §9 断言5:旧侧全 clean 的 IP,新实现凭空出现威胁组 → 违规。
-    # 仅限旧侧零组(benign)才断言,避免旧侧已有组的 IP 因 DB 漂移新增组误报
-    # (那是数据变化非评分 bug;丢组同样只进 markdown 报告,不违规)。
+        if oc.get("conf") != nc.get("conf") and not nc.get("has_archive"):
+            problems.append(
+                f"{ctype}: conf 改变 {oc.get('conf')}->{nc.get('conf')} "
+                f"且新侧无存档观测(唯一合法成因缺失)")
     if not old["classifications"]:
         for ctype, nc in new["classifications"].items():
             if nc.get("conf") is not None:
@@ -139,7 +134,7 @@ def _diff_rows(ip: str, old: dict, new: dict) -> list[tuple]:
 def main(argv=None):
     p = argparse.ArgumentParser(prog="python -m ipdb._eval.replay_diff")
     p.add_argument("--snapshot", metavar="OUT.json", help="存当前实现评分基线")
-    p.add_argument("--compare", metavar="BASE.json", help="与基线对比(Task 10)")
+    p.add_argument("--compare", metavar="BASE.json", help="与基线对比")
     args = p.parse_args(argv)
     if not (args.snapshot or args.compare):
         p.error("need --snapshot or --compare")

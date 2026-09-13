@@ -20,6 +20,11 @@ export function ClassificationBlock({ type, ca }: { type: string; ca: Classifica
         {ca.corroborated && (
           <span className="text-[10px] text-amber-400" title={t("common.corroboratedTitle")}>{t("common.corroborated")}</span>
         )}
+        {ca.has_archive && (
+          <span className="text-[10px] text-amber-500/90" title={t("common.archiveTooltip")}>
+            {t("common.archiveBadge")}
+          </span>
+        )}
         {ca.verdict_conflict && (
           <span className="text-[10px] text-red-400" title={t("common.conflictTitle")}>{t("common.conflict")}</span>
         )}

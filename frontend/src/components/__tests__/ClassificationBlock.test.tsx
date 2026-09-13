@@ -13,10 +13,11 @@ const ca: ClassificationAssessment = {
   corroborated: true,
   reporter_total: 4,
   verdict_conflict: false,
+  has_archive: false,
   malware_names: ["win.vidar"],
   details: [
-    { source: "otx", reliability: 0.9, malware_name: "remcos" },
-    { source: "threatfox", reliability: 0.7 },
+    { source: "otx", verdict: "suspicious", reliability: 0.9, malware_name: "remcos" },
+    { source: "threatfox", verdict: "informational", reliability: 0.7 },
   ],
   sources: [],
 };
@@ -47,9 +48,24 @@ describe("ClassificationBlock", () => {
     expect(screen.queryByText(/reporters/)).not.toBeInTheDocument();
   });
 
-  it("shows 判定冲突 badge when verdict_conflict", () => {
-    const conflicted = { ...ca, verdict_conflict: true };
+  it("shows 判定冲突 badge when verdict_conflict (benign × accusation mix)", () => {
+    // spec 2026-09-06: conflict 只在 benign×指控真对立时为真 — benign 明细在场驱动
+    const conflicted = { ...ca, verdict_conflict: true,
+      details: [...ca.details, { source: "vouch", verdict: "benign", reliability: 0.6 }] };
     renderWithI18n(<ClassificationBlock type="c2_server" ca={conflicted} />);
-    expect(screen.getByText(/Conflict/)).toBeInTheDocument();
+    expect(screen.getByText("Conflict")).toBeInTheDocument();
+  });
+
+  it("shows amber incl. archive badge when has_archive", () => {
+    renderWithI18n(<ClassificationBlock type="c2_server" ca={{ ...ca, has_archive: true }} />);
+    expect(screen.getByText("incl. archive")).toBeInTheDocument();
+    expect(screen.getByTitle(
+      "This classification also has archive-only records (not accused, not scored); expand details for per-source verdicts and dates",
+    )).toBeInTheDocument();
+  });
+
+  it("omits archive badge when has_archive is false", () => {
+    renderWithI18n(<ClassificationBlock type="c2_server" ca={ca} />);
+    expect(screen.queryByText("incl. archive")).not.toBeInTheDocument();
   });
 });
