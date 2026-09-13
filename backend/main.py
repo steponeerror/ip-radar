@@ -880,7 +880,8 @@ async def eval_model_route():
           responses=_ERRS_SOURCE)
 async def eval_detail_route(source: str):
     """单源 eval 历史 + 最新详情;源存在但无报告 → latest null。"""
-    if _ipdb_registry._find_source(source) is None:
+    src = _ipdb_registry._find_source(source)
+    if src is None or getattr(src, "internal", False):
         raise ApiError(ErrorCode.source_not_found, f"unknown source: {source}")
     return read_source(source)
 
@@ -895,7 +896,8 @@ async def eval_detail_route(source: str):
                      **_ERRS_READY})
 async def eval_run_route(source: str):
     """触发单源 eval(子进程 CLI --json);单槽,busy → 409。"""
-    if _ipdb_registry._find_source(source) is None:
+    src = _ipdb_registry._find_source(source)
+    if src is None or getattr(src, "internal", False):
         raise ApiError(ErrorCode.source_not_found, f"unknown source: {source}")
     try:
         job = eval_manager.run(source)
