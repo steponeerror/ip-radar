@@ -175,7 +175,10 @@ class IpListSource:
                 except (ValueError, _ipa.AddressValueError,
                         _ipa.NetmaskValueError):
                     continue
-                records.append((str(net), [insert_data]))
+                # 每条记录独立浅拷贝:insert_data 在 build 期会被 writer 钩子
+                # (层② watermark, _lmdb.py)按记录选择性挂 extra 键,共享同一
+                # dict 会把命中记录的标记泄漏给同源全部记录。
+                records.append((str(net), [dict(insert_data)]))
                 covered.append(str(net))
         cov4 = covered_ip_count(c for c in covered if ":" not in c)
         cov6 = covered_ip_count(
