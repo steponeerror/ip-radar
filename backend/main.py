@@ -849,6 +849,10 @@ async def set_source_enabled_route(name: str, patch: SourceEnabledPatch):
 @app.post("/api/sources/{name}/update", response_model=TaskAcceptedOut,
            responses=_ERRS_SOURCE)
 async def update_source_route(name: str):
+    # internal 源(sentinel)不可手动触发重建:与 PATCH/eval 同款 404 守卫(F4)。
+    src = _ipdb_registry._find_source(name)
+    if src is None or getattr(src, "internal", False):
+        raise ApiError(ErrorCode.source_not_found, f"unknown source: {name}")
     try:
         t = manager.enqueue_one(name)
     except ValueError:

@@ -177,7 +177,9 @@ class IpListSource:
                     continue
                 # 每条记录独立浅拷贝:insert_data 在 build 期会被 writer 钩子
                 # (层② watermark, _lmdb.py)按记录选择性挂 extra 键,共享同一
-                # dict 会把命中记录的标记泄漏给同源全部记录。
+                # dict 会把命中记录的标记泄漏给同源全部记录。注意是浅拷贝:
+                # get_insert_data 覆写方不得返回嵌套 extra 已填充且共享的
+                # dict——浅拷贝只隔离外层 dict,嵌套 extra 仍被共享。
                 records.append((str(net), [dict(insert_data)]))
                 covered.append(str(net))
         cov4 = covered_ip_count(c for c in covered if ":" not in c)

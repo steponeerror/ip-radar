@@ -302,9 +302,13 @@ def enabled_offline_sources() -> list:
 
     Mirrors the offline+enabled filter that stale_source_names and
     _offline_enabled_names apply, but returns the Source objects so the
-    scheduler can read _path/_mmdb_path and health() directly.
+    scheduler can read _path/_mmdb_path and health() directly. Internal
+    sources (sentinel) are excluded: they never have a data file, so the
+    scheduler's mtime-None "immediately due" branch would re-enqueue them
+    every scan cycle forever (F1/P1).
     """
-    return [s for s in _enabled_sources()]
+    return [s for s in _enabled_sources()
+            if s.name not in _INTERNAL_NAMES]
 
 
 def _needs_rebuild_of(source) -> bool:

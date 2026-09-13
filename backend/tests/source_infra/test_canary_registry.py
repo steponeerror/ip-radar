@@ -17,14 +17,14 @@ class _FakeReal:
     classification_type = "blacklist"
     url = "https://example.invalid/feed"
 
-    def __init__(self, loaded=True, count=10):
-        self._loaded, self._count = loaded, count
+    def __init__(self, loaded=True, count=10, stale=False):
+        self._loaded, self._count, self._stale = loaded, count, stale
 
     def health(self):
         from ipdb._types import SourceHealth
         return SourceHealth(name=self.name, loaded=self._loaded,
                             record_count=self._count, last_updated="2026-01-01T00:00:00Z",
-                            is_stale=False, covered_ips=self._count, covered_v6_nets=0)
+                            is_stale=self._stale, covered_ips=self._count, covered_v6_nets=0)
 
 
 class _FakeCanary(_FakeReal):
@@ -76,9 +76,73 @@ def test_needs_rebuild_of_internal_branch(tmp_path, monkeypatch):
 
 
 def test_stale_source_names_excludes_internal(monkeypatch):
+    # 两 fake 均报 stale=True 才真正考验 filter:canary 能通过 stale 筛选,
+    # 只靠 internal 排除被拦下;real1 存活证明过滤不过宽 → 恰为 ["real1"]。
     monkeypatch.setattr(reg, "_enabled_sources",
-                        lambda: [_FakeReal(), _FakeCanary()])
-    assert "sentinel" not in reg.stale_source_names()
+                        lambda: [_FakeReal(stale=True), _FakeCanary(stale=True)])
+    assert reg.stale_source_names() == ["real1"]
+
+
+def test_scheduler_scan_never_enqueues_sentinel(tmp_path, monkeypatch):
+    """F1 tripwire(P1):ptr 已就位的 sentinel(已建状态,不走 needs_rebuild
+    分支)永无数据文件 → _read_mtime None → 若进调度扫描循环则每个周期
+    (~1800s)永久入队。enabled_offline_sources 必须按 internal 过滤。"""
+    import time as _time
+    from ipdb._scheduler import RefreshScheduler
+    from ipdb._sources.canary import CanarySource
+
+    canary = CanarySource(tmp_path)
+    canary._mmdb_path.write_text("1")     # 已建状态:F3 ptr 齐 → 非重建
+    canary._mmdb6_path.write_text("1")
+    real = _FakeReal()
+    real.stale_days = 1
+    real._path = tmp_path / "real1.txt"
+    real._path.write_text("x")            # 新鲜 mtime:未到 slot → 本就不入队
+    monkeypatch.setattr(reg, "_enabled_sources", lambda: [real, canary])
+    assert [s.name for s in reg.enabled_offline_sources()] == ["real1"]
+
+    class _Mgr:
+        def __init__(self):
+            self.enqueued = []
+
+        def enqueue_one_detached(self, name):
+            from ipdb._tasks import Task
+            self.enqueued.append(name)
+            return Task(id=f"t{len(self.enqueued)}", source_name=name,
+                        host=None, batch_id=None)
+
+        def task_state(self, tid):
+            return "done"
+
+    mgr = _Mgr()
+    sch = RefreshScheduler(manager=mgr,
+                           enabled_offline_sources=reg.enabled_offline_sources,
+                           needs_rebuild_of=reg._needs_rebuild_of)
+    sch.scan(now=_time.time())
+    assert mgr.enqueued == []
+
+
+def test_update_source_route_404_for_internal(monkeypatch):
+    # F4 补口:manual re-embed 触发点(POST /api/sources/{name}/update)对
+    # internal 源必须与 PATCH/eval 同款 404。manager 用记录桩,红跑零副作用。
+    from fastapi.testclient import TestClient
+    import main as main_mod
+    monkeypatch.setattr(main_mod._ipdb_registry, "_find_source",
+                        lambda n: _FakeCanary() if n == "sentinel" else None)
+
+    class _Mgr:
+        def __init__(self):
+            self.calls = []
+
+        def enqueue_one(self, name):
+            self.calls.append(name)
+            return type("T", (), {"id": "t0"})()
+
+    stub = _Mgr()
+    monkeypatch.setattr(main_mod, "manager", stub)
+    client = TestClient(main_mod.app)
+    assert client.post("/api/sources/sentinel/update").status_code == 404
+    assert stub.calls == []
 
 
 def test_eval_routes_404_for_internal(monkeypatch):
