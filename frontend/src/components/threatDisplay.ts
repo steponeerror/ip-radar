@@ -89,15 +89,16 @@ export function threatSummary(r: LookupResult): {
   sourceCount: number;
   corroborated: boolean;
   conflict: boolean;
+  archive: boolean;
   hasThreats: boolean;
 } {
   if (r.is_reserved) {
     return { verdict: "reserved", confidence: 0, sourceCount: 0,
-      corroborated: false, conflict: false, hasThreats: false };
+      corroborated: false, conflict: false, archive: false, hasThreats: false };
   }
   const cas = Object.values(r.classifications).filter((c) => c.detected && c.confidence > 0);
   if (cas.length === 0) {
-    return { verdict: "clean", confidence: 0, sourceCount: 0, corroborated: false, conflict: false, hasThreats: false };
+    return { verdict: "clean", confidence: 0, sourceCount: 0, corroborated: false, conflict: false, archive: false, hasThreats: false };
   }
   let worst = cas[0];
   for (const c of cas) {
@@ -113,6 +114,7 @@ export function threatSummary(r: LookupResult): {
     sourceCount: sources.size,
     corroborated: cas.some((c) => c.corroborated),
     conflict: cas.some((c) => c.verdict_conflict),
+    archive: cas.some((c) => c.has_archive),
     hasThreats: true,
   };
 }

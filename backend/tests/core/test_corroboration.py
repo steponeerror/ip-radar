@@ -45,7 +45,7 @@ def test_corroborated_requires_deduped_sources():
 
 
 def test_verdict_still_worst_first_and_conflict_flag():
-    # verdict 优先级逻辑不变(verdict_conflict 照旧)
+    # benign × 指控 = 真对立,冲突照旧为 True(spec 2026-09-06 语义)
     a = _assess_classification([_obs("s1", verdict="benign"),
                                 _obs("s2", verdict="malicious")])
     assert a.verdict == "malicious"

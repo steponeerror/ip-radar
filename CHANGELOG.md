@@ -4,6 +4,17 @@
 
 ## Unreleased
 
+### verdict-aware scoring(spec 2026-09-06)
+
+- 存档章(informational)退出威胁置信度:数字仅由指控章(恶意/可疑)源决定,混合组(含指控源)数字不变;纯存档组沿用旧公式;源计数与 reporter_total 照旧包含存档观测
+  - Archive-stamped observations (informational) no longer feed threat confidence: the number is decided solely by accusing sources (malicious/suspicious); mixed groups (with accusing sources) keep their numbers, archive-only groups keep the legacy formula, and source counts and reporter_total still include archive observations
+- "冲突"重定义为真对立(benign × 指控,现无 benign 源 → 恒 false 占位);定级分歧改由"含存档记录"黄灯表达
+  - "Conflict" redefined as true opposition (benign × accusing; no benign source today → constant-false placeholder); grading disagreements are instead expressed by the "含存档记录" (contains archive records) amber signal
+- "已印证"只数指控源;明细逐条带 verdict;API 新增 has_archive
+  - "Corroborated" counts accusing sources only; every detail row carries its verdict; the API gains has_archive
+- CSV `verdict_conflict` 列值随新语义(今天恒 false,列结构不变);eval Conflict 指标同
+  - CSV `verdict_conflict` follows the new semantics (constant false today; column structure unchanged); same for the eval Conflict metric
+
 ### 新增 Added
 
 - 三条数据质量绊线(IntelMQ 审计落地):normalize() 未命中映射的原生值按 (map,key) 去重告警一次(上游新增/改名分类码当天可见);rebuild 中央检查 first_seen 可解析性,批末汇总告警(脏格式此前静默按无衰减计=最大权重);下载层重定向预警(geturl≠请求 URL,feed URL 腐烂最早信号,覆盖 download_file/_http_get/默认 download 三路径)

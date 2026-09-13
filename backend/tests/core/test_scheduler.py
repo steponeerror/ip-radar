@@ -429,3 +429,13 @@ def test_due_at_lands_on_own_slot_after_deadline():
     assert due > deadline and due <= deadline + SLOT_GRID
     assert (due - 10 * SLOT_GRID) % SLOT_GRID == slot   # lands on its own slot
 
+
+def test_dbip_refresh_period_cannot_skip_monthly_edition():
+    """2026-09 事故:dbip 上游按月出版版本化 URL,刷新周期(stale_days)≥ 28 天时,
+    月末边界触发的刷新会把上个月文件再锁一整个周期,下一期月版被整期跳过
+    (9 月版从未入库)。不变量:周期 < 最短月长 28 天 ⇒ 相邻两次刷新必然
+    横跨任何一期的存活窗口,任何月版都不会被跳过。"""
+    from ipdb._scheduler import _period_of
+    from ipdb._sources.dbip_city import DbIpCitySource
+    assert _period_of(DbIpCitySource.stale_days) < 28 * 86400
+

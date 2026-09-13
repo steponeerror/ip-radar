@@ -98,7 +98,7 @@ function VerdictCell({ summary }: { summary: ReturnType<typeof threatSummary> })
   const style = VERDICT_STYLE[summary.verdict] ?? VERDICT_STYLE.informational;
   const showConf = summary.verdict === "malicious" || summary.verdict === "suspicious";
   const tooltip = summary.hasThreats
-    ? `${label}${showConf ? ` ${t("common.confidence")} ${summary.confidence}` : ""}${summary.sourceCount ? ` · ${t("common.sourceCount", { n: summary.sourceCount })}` : ""}${summary.corroborated ? ` · ${t("common.corroborated")}` : ""}${summary.conflict ? ` · ${t("common.conflict")}` : ""}`
+    ? `${label}${showConf ? ` ${t("common.confidence")} ${summary.confidence}` : ""}${summary.sourceCount ? ` · ${t("common.sourceCount", { n: summary.sourceCount })}` : ""}${summary.corroborated ? ` · ${t("common.corroborated")}` : ""}${summary.conflict ? ` · ${t("common.conflict")}` : ""}${summary.archive ? ` · ${t("common.archiveBadge")}` : ""}`
     : "";
   if (summary.verdict === "reserved") {
     return (
@@ -140,6 +140,11 @@ function ThreatTags({ r, summary }: { r: LookupResult; summary: ReturnType<typeo
       {summary.sourceCount > 0 && (
         <span className="text-[10px] text-zinc-500" title={t("common.sourcesHit")}>
           {t("common.sourceCount", { n: summary.sourceCount })}{summary.corroborated && <span className="ml-px text-emerald-400">✓</span>}
+        </span>
+      )}
+      {summary.archive && (
+        <span className="rounded bg-amber-500/15 px-1 py-0.5 text-[10px] font-medium text-amber-400 ring-1 ring-amber-500/25" title={t("common.archiveTooltip")}>
+          {t("common.archiveBadge")}
         </span>
       )}
       {summary.conflict && (
