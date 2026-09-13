@@ -64,7 +64,12 @@ class DbIpCitySource(Source):
     category = "geo_asn"
     filename = "dbip_city.csv.gz"
     fields = ("city", "country_code")
-    stale_days = 35                  # monthly dump; one missed cycle is fine
+    stale_days = 27                  # MUST stay < 28 (shortest month): the
+    # upstream rolls monthly edition URLs, and a refresh period longer than the
+    # release gap let a month-boundary refresh lock in the outgoing edition
+    # and skip the next one entirely (2026-09: served the Aug edition all
+    # September). Ceiling: ~1/yr a refresh lands in the month-end pre-publish
+    # window and re-downloads the same edition (~85MB + one rebuild) — fine.
     reliability = 0.80
     single_evidence = True           # ~4M rows → stream load (OOM guard, cf. geolite)
     authoritative_for = ()
