@@ -14,7 +14,11 @@ from ipdb._registry import _sources, roster
 def test_roster_covers_every_registered_source() -> None:
     lines = roster()
     names = [ln.split(" | ")[0] for ln in lines]
-    assert names == [s.name for s in _sources]
+    # internal canary 源(如 sentinel)永不进 roster(42 源口径,F4)
+    from ipdb._registry import _INTERNAL_NAMES
+    public = [s.name for s in _sources
+              if s.name not in _INTERNAL_NAMES]
+    assert names == public
     assert len(set(names)) == len(names)
 
 
