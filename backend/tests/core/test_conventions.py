@@ -24,6 +24,9 @@ def test_staleness_uses_file_mtime():
     for s in _sources:
         if not hasattr(s, "_path"):
             continue
+        if getattr(s, "internal", False):
+            # internal canary: 无数据文件,health() 覆盖 is_stale 恒 False(F2)
+            continue
         # a source whose data file is old must report stale even if just loaded
         # (hard to simulate without files); assert the code path references
         # st_mtime by source inspection instead.

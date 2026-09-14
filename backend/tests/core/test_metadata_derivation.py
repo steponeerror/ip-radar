@@ -48,10 +48,16 @@ OLD_AUTHORITATIVE = {
 }
 
 def test_categories_match_snapshot():
-    assert r.SOURCE_CATEGORIES == OLD_CATEGORIES
+    # internal canary 源(sentinel)不在 42 源口径内,排除后比对
+    live = {k: v for k, v in r.SOURCE_CATEGORIES.items()
+            if k not in r._INTERNAL_NAMES}
+    assert live == OLD_CATEGORIES
 
 def test_reliability_match_snapshot():
-    assert dict(m.SOURCE_RELIABILITY) == OLD_RELIABILITY
+    # 同上:排除 internal(42 源口径),公开源快照仍全等锁死
+    live = {k: v for k, v in dict(m.SOURCE_RELIABILITY).items()
+            if k not in r._INTERNAL_NAMES}
+    assert live == OLD_RELIABILITY
 
 def test_authoritative_match_snapshot():
     got = {k: sorted(v) for k, v in m.AUTHORITATIVE_SOURCES.items()}
