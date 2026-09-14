@@ -32,6 +32,8 @@ from typing import Any, Callable, Iterator
 import lmdb
 import orjson
 
+from .._watermark import mark_hit, mark_value
+
 DEFAULT_MAP_SIZE = 512 * 1024 * 1024   # first-build default; grown on demand
 BYTES_PER_RECORD_EST = 512             # initial estimate from .count sidecar
 BATCH_SIZE = 100_000
@@ -413,6 +415,13 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
                 cov += 1 << (net.max_prefixlen - net.prefixlen)
         s = int(net.network_address)
         e = int(net.broadcast_address)
+        if mark_hit(s, e):                       # lineage watermark (spec §5.3)
+            _tag = mark_value(s, e)              # "ir-xxxxxxxx"
+            for _ev in (evidence if isinstance(evidence, list) else [evidence]):
+                if isinstance(_ev, dict):
+                    _ex = _ev.setdefault("extra", {})
+                    if "ingest_ref" not in _ex:
+                        _ex["ingest_ref"] = _tag
         if disjoint_ok and s <= max_end:
             disjoint_ok = False
         if e > max_end:

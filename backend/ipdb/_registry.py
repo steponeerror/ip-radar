@@ -83,6 +83,11 @@ def _discover_sources(data_dir: Path) -> list:
 
 _sources = _discover_sources(DATA_DIR)
 
+# 内部源(如 watermark canary sentinel):从不进 42 源口径 —— list_sources/
+# get_status/_db_loaded/stale/roster/eval/toggle 全排除(F2/F4,spec §5.2)。
+_INTERNAL_NAMES = frozenset(
+    s.name for s in _sources if getattr(s, "internal", False))
+
 # ── 元数据唯一真相(spec 2026-08-28 §5.1):源 class attr。──
 # 中央名保留兼容(下游零改);_merge 两 dict 为 fill-in-place(对象身份
 # 不变,严禁重新赋值——ipdb/__init__ 的 re-export 靠同对象)。
@@ -174,11 +179,23 @@ def _category(name: str) -> str:
 
 
 def is_enabled(name: str) -> bool:
+    if name in _INTERNAL_NAMES:
+        return True
     return name not in _disabled
 
 
 def _enabled_sources() -> list:
     return [s for s in _sources if is_enabled(s.name)]
+
+
+def _real_enabled_sources() -> list:
+    """_enabled_sources() 剔除内部源(F2 口径)。
+
+    internal 恒 enabled,不剔除时"仅剩 canary"(= 全源禁用)会被判成
+    有源可用。require_ready 的 no-sources 分支与 db_status 的 warming_up
+    共用本口径,保证全源禁用报 no-sources 而非永久 warming。"""
+    return [s for s in _enabled_sources()
+            if s.name not in _INTERNAL_NAMES]
 
 
 def _db_loaded() -> bool:
@@ -199,7 +216,8 @@ def _db_loaded() -> bool:
     if _loaded_cache["key"] == (id(_sources), id(_disabled)) \
             and _loaded_cache["value"]:
         return True
-    value = any(s.health().loaded for s in _enabled_sources())
+    value = any(s.health().loaded for s in _enabled_sources()
+                if s.name not in _INTERNAL_NAMES)
     _loaded_cache["key"] = (id(_sources), id(_disabled))
     _loaded_cache["value"] = value
     return value
@@ -225,7 +243,8 @@ def _source_info(source) -> dict:
 
 def list_sources() -> list[dict]:
     """Metadata + health + enabled flag for every discovered source."""
-    return [_source_info(s) for s in _sources]
+    return [_source_info(s) for s in _sources
+            if s.name not in _INTERNAL_NAMES]
 
 
 def _find_source(name: str):
@@ -262,7 +281,7 @@ def stale_source_names() -> list[str]:
     Used by lifespan at startup to seed manager.enqueue_stale().
     """
     return [s.name for s in _enabled_sources()
-            if s.health().is_stale]
+            if s.name not in _INTERNAL_NAMES and s.health().is_stale]
 
 
 def sources_needing_rebuild() -> list[str]:
@@ -283,9 +302,13 @@ def enabled_offline_sources() -> list:
 
     Mirrors the offline+enabled filter that stale_source_names and
     _offline_enabled_names apply, but returns the Source objects so the
-    scheduler can read _path/_mmdb_path and health() directly.
+    scheduler can read _path/_mmdb_path and health() directly. Internal
+    sources (sentinel) are excluded: they never have a data file, so the
+    scheduler's mtime-None "immediately due" branch would re-enqueue them
+    every scan cycle forever (F1/P1).
     """
-    return [s for s in _enabled_sources()]
+    return [s for s in _enabled_sources()
+            if s.name not in _INTERNAL_NAMES]
 
 
 def _needs_rebuild_of(source) -> bool:
@@ -295,6 +318,11 @@ def _needs_rebuild_of(source) -> bool:
     Single-source form of sources_needing_rebuild, using the same
     needs_convert check. Returns False for sources lacking _path/_mmdb_path
     (defensive; real offline sources always set them)."""
+    if getattr(source, "internal", False):
+        # F3: internal 源无数据文件,needs_convert 恒 False —— 任一 ptr
+        # 缺失即需重建,否则存量升级部署的层①永不落地(挂启动 rebuild 队列)。
+        return (not Path(getattr(source, "_mmdb_path", Path("/x"))).exists()
+                or not Path(getattr(source, "_mmdb6_path", Path("/x"))).exists())
     from ._sources._lmdb import needs_convert
     raw_path = getattr(source, "_path", None)
     mmdb_path = getattr(source, "_mmdb_path", None)
@@ -325,6 +353,8 @@ def set_source_enabled(name: str, enabled: bool) -> dict:
     source = _find_source(name)
     if source is None:
         raise ValueError(f"unknown source: {name}")
+    if getattr(source, "internal", False):
+        raise ValueError(f"internal source not toggleable: {name}")
     with _state_lock:
         _disabled = (_disabled - {name}) if enabled else (_disabled | {name})
         save_disabled(set(_disabled), _STATE_PATH)
@@ -524,7 +554,8 @@ def _reserved_result(ip: str) -> LookupResult:
 
 
 def get_status() -> dict:
-    enabled = _enabled_sources()
+    enabled = [s for s in _enabled_sources()
+               if s.name not in _INTERNAL_NAMES]
     healths = [s.health() for s in enabled]
     mtimes = [h.last_updated for h in healths if h.last_updated]
     last_updated = max(mtimes) if mtimes else "N/A"
@@ -556,7 +587,7 @@ def roster() -> list[str]:
     """
     lines = []
     from urllib.parse import urlparse
-    for s in _sources:
+    for s in (x for x in _sources if x.name not in _INTERNAL_NAMES):
         subs: list[str] = []
         for attr in ("SIGNALS", "_LISTS", "_LIST_SPEC"):
             v = getattr(s, attr, None)
