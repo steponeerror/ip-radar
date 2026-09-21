@@ -65,7 +65,8 @@ docker compose build --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn
 
 Notes:
 
-- The port binds to `127.0.0.1` by default; to go LAN/public, edit `ports` in `docker-compose.yml` — mind that the API has **no authentication**.
+- The port binds to `127.0.0.1` by default; to go LAN/public, edit `ports` in `docker-compose.yml` — same-origin web use needs no key; programmatic/API access requires an API key issued from `/admin` (unlock it via the admin env block in `docker-compose.yml`).
+- Behind a reverse proxy set `IP_RADAR_PROXY_HEADERS=1` (trusted proxies default `172.16.0.0/12`, override via `IP_RADAR_FORWARDED_ALLOW_IPS`, see `docker-compose.yml`) — otherwise per-IP rate limits only see the proxy IP.
 - Each feed has its own usage terms; commercial use is your responsibility (this repo's AGPL-3.0 covers code only).
 - Upgrade: `git pull && docker compose up -d --build` — the data volume stays right where it is.
 - Disk: budget ≥6 GB for the data volume.
@@ -100,7 +101,7 @@ Fused, stored, and queried on your own machine — your lookups never leave it.
 Open http://127.0.0.1:8000 and type any IP: verdict, per-source evidence, and geo/ASN come back together. The API works directly too:
 
 ```bash
-# core lookup
+# core lookup (programmatic callers need a key: add -H "Authorization: Bearer <key>"; the same-origin web page needs none)
 curl -s http://127.0.0.1:8000/api/lookup/1.12.0.1
 # → {"ip":"1.12.0.1","country":{"value":"CN",..},"city":{"value":"Guangzhou",..},"asn":{"value":132203,..},"classifications":{..},"attributes":{..}}
 
@@ -111,7 +112,7 @@ curl -s http://127.0.0.1:8000/api/db-status
 curl -s http://127.0.0.1:8000/api/sources
 ```
 
-The other management endpoints (update-db / tasks / events, …) live in the code; the UI triggers refreshes with one click too. Mind: the API has no authentication — don't expose the port to untrusted networks.
+The other management endpoints (update-db / tasks / events, …) live in the code; the UI triggers refreshes with one click too. Mind: same-origin web use needs no key, but programmatic/API access requires an API key issued from `/admin` — don't expose the port to untrusted networks.
 
 ### Fail2ban integration: ask before you ban
 
@@ -204,7 +205,7 @@ Every dataset below belongs to its provider — thank you for keeping them open 
 ./dev.sh
 ```
 
-**Or run each side yourself** (mind: `--host 0.0.0.0` exposes the **unauthenticated** API to your LAN/public network — use only if you know what you're doing):
+**Or run each side yourself** (mind: `--host 0.0.0.0` exposes the API to your LAN/public network — web visitors query keylessly, programmatic callers need a key; use only if you know what you're doing):
 
 ```bash
 # backend (first run: python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt)

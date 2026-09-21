@@ -336,4 +336,19 @@ describe("TaskProvider", () => {
     });
     await waitFor(() => expect(screen.getByTestId("frozen").textContent).toBe("0.75"));
   });
+
+  it("401 on resync calls onUnauthorized instead of unhandled-rejecting", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false, status: 401,
+      json: async () => ({ error: { code: "unauthorized", message: "Not authenticated" } }),
+    });
+    (globalThis as any).fetch = fetchMock;
+    const onUnauthorized = vi.fn();
+    render(
+      <TaskProvider onUnauthorized={onUnauthorized}>
+        <Probe />
+      </TaskProvider>,
+    );
+    await waitFor(() => expect(onUnauthorized).toHaveBeenCalledTimes(1));
+  });
 });

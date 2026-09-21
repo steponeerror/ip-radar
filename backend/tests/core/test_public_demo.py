@@ -67,11 +67,24 @@ def test_demo_read_endpoints_need_header():
         assert res.status_code == 200
 
 
-def test_demo_stix_exempt_from_header():
-    # window.open 发不了自定义 header;无库时非 403 即证明未拦
+def test_demo_stix_same_header_rule_as_lookup():
+    # PR #63 Q1-B:STIX 改 fetch+blob(apiFetch 带 web header),守卫不再豁免;
+    # 无 header → 403(守卫),带 header → 过守卫后由路由层 api_key_dep 兑底(非 403)。
     with _client("1") as c:
-        res = c.get("/api/lookup/1.1.1.1/stix")
+        assert c.get("/api/lookup/1.1.1.1/stix").status_code == 403
+        res = c.get("/api/lookup/1.1.1.1/stix", headers=HEADER)
         assert res.status_code != 403
+
+
+def test_demo_admin_credentials_bypass_guard():
+    # 三层鉴权合并:伪 cookie/伪 Bearer 不再被守卫 404/403 拦在展示层,
+    # 而是交给依赖层真校验(此处无有效会话/密钥 → 401;keys 未配置时 503)。
+    with _client("1") as c:
+        res = c.get("/api/tasks", cookies={"ipradar_admin": "forged"})
+        assert res.status_code != 404  # 守卫放行,superuser 门拒之
+        res = c.get("/api/lookup/1.1.1.1",
+                   headers={"Authorization": "Bearer forged"})
+        assert res.status_code != 403  # 守卫放行,api_key_dep 拒之
 
 
 def test_demo_options_passthrough():
@@ -103,7 +116,8 @@ def test_demo_loopback_exempt():
 def test_normal_mode_unaffected():
     with _client(None) as c:
         assert c.get("/api/db-status").status_code == 200  # 无 header 也放行
-        assert c.get("/api/tasks").status_code == 200  # 隐藏组照常可达
+        # PR #63 后管理端点超管门接管:无守卫干扰 = 路由应答(503 admin_disabled),非 404
+        assert c.get("/api/tasks").status_code == 503
 
 
 def test_version_reports_demo_flag():
@@ -130,16 +144,18 @@ def test_demo_admin_direct_peer_bypasses_all():
             res = c.get("/api/version")
             assert res.status_code == 200
             assert res.json()["public_demo"] is False   # 前端据此显示完整 UI
-        assert c.get("/api/tasks").status_code == 200
+        # 守卫全旁路:管理端点由超管门应答(503 未配置),不再被守卫 404
+        assert c.get("/api/tasks").status_code == 503
         assert c.get("/api/db-status").status_code == 200
 
 
 def test_demo_admin_trust_xff_first_hop():
     # 显式声明信任反代后,首跳 XFF 命中即旁路(配套网关保证,见 main.py 注释)
     with _client("1", admin="10.9.8.7", trust_xff=True) as c:
+        # 旁路 = 守卫放行(非 404/403);路由层由超管门接管(503 未配置)
         assert c.get("/api/tasks",
                      headers={"x-forwarded-for": "10.9.8.7, 172.64.1.1"}
-                     ).status_code == 200
+                     ).status_code == 503
 
 
 def test_demo_admin_xff_ignored_without_trust_flag():

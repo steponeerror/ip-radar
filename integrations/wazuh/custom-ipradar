@@ -26,7 +26,8 @@
 #
 # Script contract (Wazuh Integrator module):
 #   argv[1]  alert file (JSON)      — mandatory
-#   argv[2]  api_key                — unused here (IP Radar needs none)
+#   argv[2]  api_key                — Bearer token for auth-enabled IP Radar
+#                                      (optional: empty/absent = no header)
 #   argv[3]  hook_url               — IP Radar base URL (default localhost)
 #   argv[4+] optional: 'debug' flag / options file
 #
@@ -49,6 +50,7 @@ MIN_CONFIDENCE_TO_ALERT = 1 # report suspicious+malicious only (see README to ch
 MAX_EVENT_SIZE = 65536      # Wazuh queue socket event limit
 
 ALERT_INDEX = 1
+API_KEY_INDEX = 2
 WEBHOOK_INDEX = 3
 
 debug_enabled = False
@@ -95,12 +97,15 @@ def extract_ips(alert: dict) -> list:
     return ips
 
 
-def ipradar_lookup(base_url: str, ip: str) -> dict | None:
+def ipradar_lookup(base_url: str, ip: str, api_key: str = '') -> dict | None:
     """Query local IP Radar. Returns parsed dict, or None on any failure —
     a dead IP Radar must degrade to 'no enrichment', never an error."""
     url = f'{base_url.rstrip("/")}/api/lookup/{ip}'
+    headers = {'Authorization': f'Bearer {api_key}'} if api_key else {}
     try:
-        with urllib.request.urlopen(url, timeout=LOOKUP_TIMEOUT) as r:
+        with urllib.request.urlopen(
+                urllib.request.Request(url, headers=headers),
+                timeout=LOOKUP_TIMEOUT) as r:
             return json.load(r)
     except Exception as e:  # noqa: BLE001 — any transport/5xx/parse failure
         debug(f'# ipradar: lookup failed for {ip}: {e}')
@@ -200,13 +205,14 @@ def main(args: list) -> None:
     debug_enabled = len(args) > 4 and args[4] == 'debug'
 
     alert_file = args[ALERT_INDEX]
+    api_key = args[API_KEY_INDEX] if len(args) > API_KEY_INDEX else ''
     base_url = args[WEBHOOK_INDEX] if len(args) > WEBHOOK_INDEX else DEFAULT_URL
 
     alert = load_alert(alert_file)
     agent = alert.get('agent')
 
     for ip in extract_ips(alert):
-        result = ipradar_lookup(base_url, ip)
+        result = ipradar_lookup(base_url, ip, api_key)
         if result is None:
             continue  # IP Radar down: skip enrichment, alerting unaffected
         threat = result.get('threat', {})
