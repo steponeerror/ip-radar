@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { DbStatusBar } from "./components/DbStatusBar";
 import { LocaleSwitcher } from "./components/LocaleSwitcher";
 import { Modal } from "./components/Modal";
+import { ThemeToggle } from "./components/ThemeToggle";
 import { UpdateOverlay, TOKEN_KEY } from "./components/UpdateOverlay";
 import { VersionBanner } from "./components/VersionBanner";
 import { DemoBanner } from "./components/DemoBanner";
@@ -105,7 +106,10 @@ export default function Layout({
                 </h1>
                 <p className="mt-1 text-sm text-zinc-500">{t("layout.subtitle")}</p>
               </div>
-              <LocaleSwitcher />
+              <div className="flex items-center gap-2">
+                <ThemeToggle />
+                <LocaleSwitcher />
+              </div>
             </div>
             <nav className="mt-4">
               <div className="flex gap-1 rounded-lg bg-zinc-900 p-1 sm:inline-flex">
