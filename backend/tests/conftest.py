@@ -115,3 +115,16 @@ def key_env(tmp_path, monkeypatch):
     """隔离 auth db + 已配置 JWT secret(≥32B)——issue/verify/dep 可用。"""
     monkeypatch.setenv("IP_RADAR_AUTH_DB", str(tmp_path / "auth.db"))
     monkeypatch.setenv("IP_RADAR_API_JWT_SECRET", KEY_JWT_SECRET)
+
+
+# ── rate limiting(Task 7):测试期默认关闭 ──
+# 全套件测试共用 TestClient 地址 "testclient"(limiter 存储是进程级,跨
+# TestClient 实例共享):匿名 6/min 会让既有 ~1100 条测试级联 429。生产
+# 默认开启(ipdb/_ratelimit.py 的 IP_RADAR_RATELIMIT=0 灭火开关);这里
+# autouse 关闭,tests/auth/test_ratelimit.py 经依赖本 fixture 的 rl_on 重开。
+@pytest.fixture(autouse=True)
+def rate_limit_off():
+    from ipdb import _ratelimit
+    _ratelimit.limiter.enabled = False
+    yield
+    _ratelimit.limiter.enabled = False
