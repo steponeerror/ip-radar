@@ -36,8 +36,8 @@ export default function Layout({
   onNavigate,
   children,
 }: {
-  page: "lookup" | "sources";
-  onNavigate: (p: "lookup" | "sources") => void;
+  page: "lookup" | "sources" | "admin";
+  onNavigate: (p: "lookup" | "sources" | "admin") => void;
   children: ReactNode;
 }) {
   const { t } = useI18n();
@@ -82,7 +82,7 @@ export default function Layout({
     }
   };
 
-  const navBtn = (p: "lookup" | "sources") =>
+  const navBtn = (p: "lookup" | "sources" | "admin") =>
     `rounded-md px-4 py-2 text-sm font-medium transition-colors ${
       page === p ? "bg-zinc-800 text-emerald-400" : "text-zinc-500 hover:text-zinc-300"
     }`;
@@ -108,6 +108,7 @@ export default function Layout({
               <div className="flex gap-1 rounded-lg bg-zinc-900 p-1 sm:inline-flex">
                 <button type="button" className={navBtn("lookup")} onClick={() => onNavigate("lookup")}>{t("layout.nav.lookup")}</button>
                 <button type="button" className={navBtn("sources")} onClick={() => onNavigate("sources")}>{t("layout.nav.sources")}</button>
+                <button type="button" className={navBtn("admin")} onClick={() => onNavigate("admin")}>{t("layout.nav.admin")}</button>
               </div>
             </nav>
           </header>

@@ -107,12 +107,14 @@ export interface StreamOutcome {
 function apiError(
   res: Response,
   fallback: string,
-  env: { code?: string; message?: string } | null,
+  env: { code?: string; message?: string; retry_after?: number } | null,
   cause?: unknown,
 ): Error {
   const err = new Error(env?.message || res.statusText || fallback);
   (err as any).status = res.status;
   (err as any).code = env?.code;
+  // 429 限流的信封 retry_after 秒数(登录暴力破解守卫,Task 8 消费)
+  (err as any).retry_after = env?.retry_after;
   // 过渡兼容:旧读方读 e.reason(曾是 X-IPRadar-Reason 头);信封化后 code 即唯一真相
   (err as any).reason = env?.code ?? res.headers.get("x-ipradar-reason");
   if (cause !== undefined) (err as any).cause = cause;
@@ -465,5 +467,36 @@ export async function postUpdate(token: string): Promise<{ ok: boolean; status: 
 
 export async function getUpdateStatus(): Promise<UpdateStatus> {
   return jsonOrThrow(await fetch("/api/update/status"), "Failed to get update status");
+}
+
+// --- Admin session (three-tier auth, spec 2026-09-21 §9) ---
+
+// GET /api/users/me 的 UserRead(本前端只用 email;Task 9 按需扩字段)
+export interface AdminUserRead {
+  id: string;
+  email: string;
+}
+
+// 登录成功是 204 无 body(CookieTransport 硬编码)——会话在 HttpOnly cookie
+// ipradar_admin,勿解析 json;失败走统一信封 throwApiError(status/code/
+// retry_after 随 Error 走)。表单编码 username/password 是 fastapi-users 约定。
+export async function adminLogin(email: string, password: string): Promise<void> {
+  const res = await fetch("/api/auth/jwt/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ username: email, password }),
+  });
+  if (!res.ok) return throwApiError(res, "Login failed");
+}
+
+export async function adminLogout(): Promise<void> {
+  await fetch("/api/auth/jwt/logout", { method: "POST" });
+}
+
+// 未登录(401)/admin 未配置(503)都返回 null —— 调用方按未登录处理;
+// 网络层错误 reject,由调用方降级。
+export async function adminMe(): Promise<AdminUserRead | null> {
+  const res = await fetch("/api/users/me");
+  return res.ok ? res.json() : null;
 }
 
