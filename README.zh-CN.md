@@ -69,7 +69,7 @@ docker compose build --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn
 
 注意：
 
-- 端口默认只绑 `127.0.0.1`；要上局域网/公网，改 `docker-compose.yml` 的 `ports`——注意本 API **没有任何鉴权**。
+- 端口默认只绑 `127.0.0.1`；要上局域网/公网，改 `docker-compose.yml` 的 `ports`——同源网页使用免 key；程序化/API 调用需要 `/admin` 签发的 API key（在 `docker-compose.yml` 的管理员 env 注释块里解锁）。
 - 各源有自己的使用条款，商用责任自负（本仓库的 AGPL-3.0 只管代码）。
 - 升级：`git pull && docker compose up -d --build`，数据卷原地保留。
 - 磁盘：给数据卷留够 ≥6 GB。
@@ -82,7 +82,7 @@ docker compose build --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn
 ./dev.sh
 ```
 
-**想分开跑也行**（注意 `--host 0.0.0.0` 会把**无鉴权**的 API 暴露给局域网/公网，仅在清楚后果时使用）：
+**想分开跑也行**（注意 `--host 0.0.0.0` 会把 API 暴露给局域网/公网——网页访客免 key 可查、程序化调用需 key，仅在清楚后果时使用）：
 
 ```bash
 # backend（首次：python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt）
@@ -140,7 +140,7 @@ flowchart TD
 打开 http://127.0.0.1:8000，随手输一个 IP：裁决、逐源证据、地理/ASN 一起回来。API 也能直接用：
 
 ```bash
-# 核心查询
+# 核心查询（程序化调用需加 -H "Authorization: Bearer <key>"；同源网页免 key）
 curl -s http://127.0.0.1:8000/api/lookup/1.12.0.1
 # → {"ip":"1.12.0.1","country":{"value":"CN",..},"city":{"value":"Guangzhou",..},"asn":{"value":132203,..},"classifications":{..},"attributes":{..}}
 
@@ -151,7 +151,7 @@ curl -s http://127.0.0.1:8000/api/db-status
 curl -s http://127.0.0.1:8000/api/sources
 ```
 
-其余管理端点（update-db / tasks / events 等）都在代码里；UI 上点一下也能触发刷新。提醒：本 API 无鉴权，勿将端口暴露给不受信网络。
+其余管理端点（update-db / tasks / events 等）都在代码里；UI 上点一下也能触发刷新。提醒：同源网页使用免 key，但程序化/API 调用需要 `/admin` 签发的 API key——仍勿将端口暴露给不受信网络。
 
 ### Fail2ban 集成：拉黑前先问一句
 
