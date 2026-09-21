@@ -167,6 +167,27 @@ function lowestConfidence(r: LookupResult): number {
   return Math.min(...confs);
 }
 
+// Q1-B 配套:顶层导航(window.open)不带 Origin/Referer,过不了同源判;
+// 同源 fetch → blob → 临时 object URL 触发下载(鉴权路径与页面一致)。
+// 端点无 Content-Disposition,文件名自定 stix-{ip}.json。
+async function exportStix(t: TFn, ip: string): Promise<void> {
+  try {
+    const res = await fetch(`/api/lookup/${ip}/stix`);
+    if (!res.ok) throw new Error(`STIX export failed (${res.status})`);
+    const url = URL.createObjectURL(await res.blob());
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `stix-${ip}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch {
+    // 旧 window.open 会把错误 JSON 开在新标签;fetch 化后用 alert 兑底可见
+    window.alert(t("resultTable.stixFailed"));
+  }
+}
+
 export function SummaryBar({ results }: { results: LookupResult[] }) {
   const { t } = useI18n();
   const stats = useMemo(() => {
@@ -513,7 +534,7 @@ export function ResultTable({ results }: ResultTableProps) {
         <button
           onClick={() => {
             const ip = results[0]?.ip;
-            if (ip) window.open(`/api/lookup/${ip}/stix`, "_blank");
+            if (ip) void exportStix(t, ip);
           }}
           disabled={results.length !== 1}
           className="rounded-md bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"

@@ -1,96 +1,25 @@
-import { useEffect, useRef, useState } from "react";
-import { useTasks } from "../tasks/TaskProvider";
 import { useWarming } from "../warming";
 import { useI18n } from "../i18n";
-import { fmtBytes, fmtRows } from "./DbStatusBar";
 
+// Task 9:公开查询页不再挂 TaskProvider(任务上下文收敛 /admin)——横幅
+// 退化为静态冷启动提示。进度数字/当前源/重试按钮依赖任务上下文,数据
+// 不可得已移除;消除依赖 WarmingProvider 的 5s db-status 轮询驱动
+// (batch done 即清的 SSE 快路径随之让位,清除延迟至多 ~5s)。
+// ponytail: 失败去抖+重试已删 —— 匿名无法 enqueue(403);管理员在
+// /admin 任务区可见进度并触发刷新,公开页不再需要这条支路。
 export function WarmupBanner() {
   const { t } = useI18n();
-  const { tasks, batch, enqueueBatch } = useTasks();
-  const { warming, recheck } = useWarming();
-  // 失败态去抖:batch 已 settle 但零源加载(仍 warming)时,等 3s 才切失败态,
-  // 避免冷启动线程尚未 enqueue 的启动瞬态(batch==null && warming)闪成失败。
-  const [showFailure, setShowFailure] = useState(false);
-
-  // batch done → recheck(warming_up 可能翻 false;recheck 顺带管理轮询)
-  const prevBatchState = useRef<string | undefined>(undefined);
-  useEffect(() => {
-    const cur = batch?.state;
-    const prev = prevBatchState.current;
-    prevBatchState.current = cur;
-    if (cur === "done" && (prev === "running" || prev === "paused")) {
-      recheck();
-    }
-  }, [batch?.state, recheck]);
-
-  const batchRunning = batch != null && batch.state !== "done";
-
-  // 去抖:进入「warming && batch 不在跑」后 3s 仍保持 → 失败态;离开该状态即重置。
-  // setTimeout 在 vitest fake timers 下由 advanceTimersByTime 精确推进。
-  useEffect(() => {
-    if (!warming || batchRunning) {
-      setShowFailure(false);
-      return;
-    }
-    const id = setTimeout(() => setShowFailure(true), 3000);
-    return () => clearTimeout(id);
-  }, [warming, batchRunning]);
+  const { warming } = useWarming();
 
   if (!warming) return null;
 
-  // downloading 优先;无下载中任务时退到 loading(流式源 total=0 重建阶段,
-  // 否则长重建期横幅对当前源零反馈 — geolite_city 15min 静默问题)
-  const currentTask = tasks.find(tk => tk.state === "downloading")
-    ?? tasks.find(tk => tk.state === "loading");
-  const retry = async () => { await enqueueBatch(); };
-
   return (
     <div data-warmup className="mb-4 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-4">
-      {showFailure ? (
-        <div className="flex items-center justify-between">
-          <span className="text-amber-400">{t("warmup.failed")}</span>
-          <button onClick={retry}
-            className="rounded-md bg-zinc-800 px-3 py-1.5 text-sm text-emerald-400 hover:bg-zinc-700">
-            {t("warmup.retry")}
-          </button>
-        </div>
-      ) : (
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="animate-spin inline-block h-4 w-4 border-2 border-emerald-400 border-t-transparent rounded-full" />
-            <span className="text-zinc-200 font-medium">{t("warmup.title")}</span>
-            {batch && (
-              <span className="text-zinc-400 text-sm">
-                {t("warmup.progress", { done: batch.done, total: batch.total })}
-              </span>
-            )}
-          </div>
-          {currentTask && (
-            <div className="mt-2 text-sm text-zinc-400">
-              {currentTask.state === "loading"
-                ? t("warmup.currentRows", {
-                    source: currentTask.source,
-                    rows: fmtRows(currentTask.received ?? 0),
-                  })
-                : currentTask.total && currentTask.total > 0
-                ? t("warmup.current", {
-                    source: currentTask.source,
-                    pct: `${Math.round(((currentTask.received ?? 0) * 100) / currentTask.total)}%`,
-                  })
-                : t("warmup.currentBytes", {
-                    source: currentTask.source,
-                    bytes: fmtBytes(currentTask.received ?? 0),
-                  })}
-            </div>
-          )}
-          {tasks.some((tk) => tk.state === "throttled") && (
-            <div className="mt-1 text-xs text-amber-400/80">
-              {t("warmup.throttled")}
-            </div>
-          )}
-          <div className="mt-2 text-xs text-zinc-500">{t("warmup.hint")}</div>
-        </div>
-      )}
+      <div className="flex items-center gap-2">
+        <span className="animate-spin inline-block h-4 w-4 border-2 border-emerald-400 border-t-transparent rounded-full" />
+        <span className="text-zinc-200 font-medium">{t("warmup.title")}</span>
+      </div>
+      <div className="mt-2 text-xs text-zinc-500">{t("warmup.hint")}</div>
     </div>
   );
 }

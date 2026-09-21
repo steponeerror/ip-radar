@@ -21,6 +21,16 @@ services:
       #   IP_RADAR_UPDATE_TOKEN: "改成随机串"
       #   IP_RADAR_REPO_DIR: /app/repo
       #   IP_RADAR_COMPOSE_FILE: /app/repo/docker-compose.yml
+      # ── 管理员/API key(可选):配齐后解锁 /admin 与 API key ──
+      # ↓ 同上,environment 是 service 层键,取消注释时移到 service 缩进层
+      # 反代部署:设置 IP_RADAR_PROXY_HEADERS=1 透传真实客户端 IP,否则 per-IP 限流全站共用一桶;受信代理默认 172.16.0.0/12(IP_RADAR_FORWARDED_ALLOW_IPS 可覆盖,勿设 '*')
+      # 保持 IP_RADAR_ADMIN_PASSWORD 常设(重启自愈锁死的唯一途径)
+      # 纯 http 内网部署(非 localhost)登录失败时设 IP_RADAR_INSECURE_COOKIE=1(Secure cookie 会被浏览器丢弃)
+      # environment:
+      #   IP_RADAR_ADMIN_PASSWORD: "change-me"
+      #   IP_RADAR_API_JWT_SECRET: "<openssl rand -hex 32>"
+      #   # IP_RADAR_ADMIN_EMAIL: "admin@ipradar.local"
+      #   # IP_RADAR_PUBLIC_ORIGIN: "https://ipradar.huxiao0207.dpdns.org"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/api/db-status', timeout=5)"]

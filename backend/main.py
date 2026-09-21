@@ -36,15 +36,19 @@ from ipdb import (
 from ipdb import _batch_pool
 from ipdb._cidr import expand_inputs
 from ipdb import _registry as _ipdb_registry
+from ipdb import _auth as _ipdb_auth
+from ipdb import _apikeys as _ipdb_apikeys  # noqa: F401  (ApiKeyMeta 注册进 Base.metadata,lifespan init_auth_db 建表)
+from ipdb import _ratelimit as _ipdb_ratelimit  # noqa: F401  (Task 7 限流;装饰器引用见各查询端点)
+from slowapi.errors import RateLimitExceeded
 from ipdb import _update as _ipdb_update
 from ipdb import _version as _ipdb_version
 from ipdb._eval_manager import EvalManager, EvalBusyError
 from ipdb._eval_reader import read_model, read_overview, read_source
 from ipdb._api_models import (
-    AckOut, BatchOut, DbStatusOut, ErrorEnvelope, EvalDetailOut,
-    EvalJobAcceptedOut, EvalModelOut, EvalOverviewOut, LookupResultOut,
-    SourceInfoOut, TaskAcceptedOut, TasksSnapshotOut,
-    UpdateAcceptedOut, UpdateDbOut, UpdateStateOut, VersionOut,
+    AckOut, ApiKeyCreateIn, ApiKeyCreatedOut, ApiKeyOut, BatchOut, DbStatusOut,
+    ErrorEnvelope, EvalDetailOut, EvalJobAcceptedOut, EvalModelOut,
+    EvalOverviewOut, LookupResultOut, SourceInfoOut, TaskAcceptedOut,
+    TasksSnapshotOut, UpdateAcceptedOut, UpdateDbOut, UpdateStateOut, VersionOut,
 )
 from ipdb._errors import (
     ApiError, ErrorCode, RETRY_AFTER_WARMING, envelope,
@@ -68,6 +72,23 @@ _ERRS_READY = {**_ERRS_422_500,
                "503": {"model": ErrorEnvelope, "description": "database warming up"}}
 _ERRS_SOURCE = {**_ERRS_422_500,
                 "404": {"model": ErrorEnvelope, "description": "unknown source"}}
+
+
+# ── admin 门依赖(spec 2026-09-21 §6;路由 mount 与管理端点锁共用)──
+# admin 未配置 → 503 admin_disabled(fail-closed)。依赖顺序约定:
+# require_admin_configured → current_superuser → 路由自己的 require_ready,
+# 即 503 优先于 401/403,认证优先于 warming 503(plan Global Constraint)。
+def require_admin_configured():
+    if not _ipdb_auth.admin_configured():
+        raise ApiError(
+            ErrorCode.admin_disabled,
+            "admin not configured: set IP_RADAR_ADMIN_PASSWORD and restart")
+    return None
+
+
+# Task 3:管理端点(含 /api/events SSE)全部要求超管 cookie。
+_ADMIN_DEPS = [Depends(require_admin_configured),
+               Depends(_ipdb_auth.current_superuser)]
 
 
 async def _read_upload_capped(file: UploadFile, cap: int) -> bytes:
@@ -524,6 +545,10 @@ async def lifespan(app: FastAPI):
             logging.getLogger(__name__).warning(f"batch pool init failed: {e}; inline mode")
             pool = None
     _batch_pool.set_pool(pool)
+    # admin 认证层(spec 2026-09-21 §6):幂等建表 + 引导 admin(无密码环境变量
+    # 则不建,路由层 fail-closed 503)。放在启动段末尾,不阻塞查询门。
+    await _ipdb_auth.init_auth_db()
+    await _ipdb_auth.bootstrap_admin()
     try:
         yield
     finally:
@@ -543,6 +568,10 @@ def get_active_layout() -> dict:
     return dict(_ACTIVE_LAYOUT)
 
 app = FastAPI(title="IP Lookup Tool", lifespan=lifespan)
+
+# slowapi 约定(Task 7):装饰器限流不强制需要,但 app.state.limiter 是
+# 官方挂载点(中间件/扩展发现用),保持惯例。
+app.state.limiter = _ipdb_ratelimit.limiter
 
 # ── 全局错误信封(spec 2026-08-28 §5.3)──
 # 所有 HTTP 错误统一 {"error":{code,message,detail?,retry_after?}},status 透传。
@@ -607,6 +636,33 @@ async def _validation_error_handler(request, exc: RequestValidationError):
     )
 
 
+# ── 429 限流信封(Task 7;spec §8)──
+# RateLimitExceeded 是 StarletteHTTPException 子类,starlette 按 MRO 找
+# handler,先命中本 handler,不会落入上面的通用 HTTP handler。
+@app.exception_handler(RateLimitExceeded)
+async def _rate_limit_handler(request, exc: RateLimitExceeded):
+    # retry 从失败窗口算:slowapi __evaluate_limits 在 raise 前已把
+    # request.state.view_rate_limit 设为 (RateLimitItem, [key, scope]),
+    # get_window_stats 回 (reset epoch, remaining)——与 slowapi 自家
+    # Retry-After 同一算法。计划草图的 exc.limit.reset_at 在 slowapi
+    # 0.1.10 / limits 4.x 上不存在(实证),故走 view_rate_limit。
+    retry = 1
+    _vrl = getattr(request.state, "view_rate_limit", None)
+    if _vrl is not None:
+        try:
+            _stats = _ipdb_ratelimit.limiter.limiter.get_window_stats(
+                _vrl[0], *_vrl[1])
+            retry = max(int(_stats[0] - time.time()) + 1, 1)
+        except Exception:
+            retry = 1
+    return JSONResponse(
+        status_code=429,
+        content=envelope(ErrorCode.rate_limited.value, "rate limit exceeded",
+                         retry_after=retry),
+        headers={"Retry-After": str(retry)},
+    )
+
+
 @app.exception_handler(Exception)
 async def _unhandled_error_handler(request, exc: Exception):
     logging.exception("unhandled error on %s %s",
@@ -642,8 +698,21 @@ async def reject_oversized_bodies(request, call_next):
     return await call_next(request)
 
 
-@app.post("/api/query/stream", dependencies=[Depends(require_ready)],
-          responses=_ERRS_READY,
+# Task 6:查询端点鉴权依赖(Q1-B:GET lookup/stix 与 batch 同规,无 GET 匿名
+# 分支)。顺序即语义:api_key_dep(401 跨源无 key / 403 吊销 / 503-admin)
+# 优先于 require_ready 的 warming 503 —— 与 _ADMIN_DEPS 同原则(认认证先于门)。
+_QUERY_AUTH_DEPS = [Depends(_ipdb_apikeys.api_key_dep), Depends(require_ready)]
+
+
+# Task 7 限流装饰器注:装饰器必须在路由装饰器**之下**(最靠近函数):
+# @app.post 返回原函数,若 limit 放在路由装饰器之上,路由持有的是未包装
+# 函数,限流永不生效(实证见 task-7-report)。两个 limit 装饰器叠放均生效
+# (同名函数名下 slowapi 注册两套 Limit,最外层包装器一次检查全部);依赖先于
+# 端点体执行,exempt_when/_sub_key 读 api_key_sub 时 api_key_dep 已设置完。
+@app.post("/api/query/stream", dependencies=[*_QUERY_AUTH_DEPS],
+          responses={"429": {"model": ErrorEnvelope,
+                             "description": "rate limit exceeded"},
+                     **_ERRS_READY},
           summary="Batch IP lookup (NDJSON stream)",
           description="Streaming NDJSON: one JSON object per input IP, same "
           "shape as GET /api/lookup/{ip} (fields: ip/country/city/asn/as_name/"
@@ -654,6 +723,8 @@ async def reject_oversized_bodies(request, call_next):
           "JSON error envelope instead of a stream. Terminal done events that "
           "carry an error string also carry a machine-readable code field "
           "(e.g. \"internal\").")
+@_ipdb_ratelimit.keyed_query_limit()
+@_ipdb_ratelimit.anon_batch_limit()
 async def query_ips_stream(request: Request):
     # body 不走 FastAPI 自动解析(dict 形参会整包缓冲,chunked 无 CL 时
     # 中间件也挡不到)——流式封顶读完后自行解析,语义与原 body:dict 一致。
@@ -681,15 +752,19 @@ async def query_ips_stream(request: Request):
     )
 
 
-@app.post("/api/upload/stream", dependencies=[Depends(require_ready)],
-          responses=_ERRS_READY,
+@app.post("/api/upload/stream", dependencies=[*_QUERY_AUTH_DEPS],
+          responses={"429": {"model": ErrorEnvelope,
+                             "description": "rate limit exceeded"},
+                     **_ERRS_READY},
           summary="Batch IP lookup from uploaded file (NDJSON stream)",
           description="Streaming NDJSON: same per-line lookup event shape as "
           "POST /api/query/stream (one JSON object per extracted IP). "
           "HTTP-level errors (400/503) return the JSON error envelope. "
           "Terminal done events that carry an error string also carry a "
           "machine-readable code field (e.g. \"internal\").")
-async def upload_file_stream(file: UploadFile = File(...)):
+@_ipdb_ratelimit.keyed_query_limit()
+@_ipdb_ratelimit.anon_batch_limit()
+async def upload_file_stream(request: Request, file: UploadFile = File(...)):
     content = await _read_upload_capped(file, MAX_UPLOAD_BYTES)
     content = content.decode("utf-8", errors="ignore")
     lines = content.strip().splitlines()
@@ -732,6 +807,7 @@ def _offline_enabled_names():
 
 
 @app.post("/api/update-db", response_model=UpdateDbOut,
+           dependencies=[*_ADMIN_DEPS],
            responses=_ERRS_422_500)
 async def update_db():
     """Refresh ALL enabled offline sources, regardless of staleness.
@@ -749,6 +825,7 @@ async def update_db():
 
 
 @app.post("/api/update-db/cancel", response_model=AckOut,
+           dependencies=[*_ADMIN_DEPS],
            responses=_ERRS_422_500)
 async def update_db_cancel():
     manager.cancel_batch(manager._active_batch)
@@ -756,6 +833,7 @@ async def update_db_cancel():
 
 
 @app.post("/api/update-db/pause", response_model=AckOut,
+           dependencies=[*_ADMIN_DEPS],
            responses=_ERRS_422_500)
 async def update_db_pause():
     manager.pause()
@@ -763,6 +841,7 @@ async def update_db_pause():
 
 
 @app.post("/api/update-db/resume", response_model=AckOut,
+           dependencies=[*_ADMIN_DEPS],
            responses=_ERRS_422_500)
 async def update_db_resume():
     manager.resume()
@@ -770,11 +849,15 @@ async def update_db_resume():
 
 
 @app.get("/api/lookup/{ip}", response_model=LookupResultOut,
-          dependencies=[Depends(require_ready)],
+          dependencies=[*_QUERY_AUTH_DEPS],
           responses={"400": {"model": ErrorEnvelope,
                             "description": "invalid IP address"},
+                     "429": {"model": ErrorEnvelope,
+                             "description": "rate limit exceeded"},
                      **_ERRS_READY})
-async def lookup_single(ip: str):
+@_ipdb_ratelimit.keyed_query_limit()
+@_ipdb_ratelimit.anon_lookup_limit()
+async def lookup_single(request: Request, ip: str):
     """Single IP lookup — same shape as POST /api/query results[0].
 
     confidence (0-100) is a log-odds posterior: per-source reliability becomes a
@@ -795,13 +878,17 @@ async def lookup_single(ip: str):
 
 
 @app.get("/api/lookup/{ip}/stix", response_model=dict,
-          dependencies=[Depends(require_ready)],
+          dependencies=[*_QUERY_AUTH_DEPS],
           responses={"400": {"model": ErrorEnvelope,
                             "description": "invalid/reserved IP"},
+                     "429": {"model": ErrorEnvelope,
+                             "description": "rate limit exceeded"},
                      "501": {"model": ErrorEnvelope,
                              "description": "stix2 package not installed"},
                      **_ERRS_READY})
-async def lookup_stix(ip: str):
+@_ipdb_ratelimit.keyed_query_limit()
+@_ipdb_ratelimit.anon_lookup_limit()
+async def lookup_stix(request: Request, ip: str):
     """Single IP STIX 2.1 Bundle export."""
     try:
         ipaddress.ip_address(ip)
@@ -838,6 +925,7 @@ async def list_sources_route():
 
 
 @app.patch("/api/sources/{name}", response_model=SourceInfoOut,
+           dependencies=[*_ADMIN_DEPS],
            responses=_ERRS_SOURCE)
 async def set_source_enabled_route(name: str, patch: SourceEnabledPatch):
     try:
@@ -847,6 +935,7 @@ async def set_source_enabled_route(name: str, patch: SourceEnabledPatch):
 
 
 @app.post("/api/sources/{name}/update", response_model=TaskAcceptedOut,
+           dependencies=[*_ADMIN_DEPS],
            responses=_ERRS_SOURCE)
 async def update_source_route(name: str):
     # internal 源(sentinel)不可手动触发重建:与 PATCH/eval 同款 404 守卫(F4)。
@@ -893,7 +982,7 @@ async def eval_detail_route(source: str):
 
 @app.post("/api/eval/{source}/run", status_code=202,
           response_model=EvalJobAcceptedOut,
-          dependencies=[Depends(require_ready)],
+          dependencies=[*_ADMIN_DEPS, Depends(require_ready)],
           responses={"404": {"model": ErrorEnvelope,
                             "description": "unknown source"},
                      "409": {"model": ErrorEnvelope,
@@ -912,6 +1001,7 @@ async def eval_run_route(source: str):
 
 
 @app.post("/api/tasks/{task_id}/cancel", response_model=AckOut,
+           dependencies=[*_ADMIN_DEPS],
            responses=_ERRS_422_500)
 async def cancel_task_route(task_id: str):
     manager.cancel(task_id)
@@ -919,6 +1009,7 @@ async def cancel_task_route(task_id: str):
 
 
 @app.get("/api/tasks", response_model=TasksSnapshotOut,
+          dependencies=[*_ADMIN_DEPS],
           responses=_ERRS_422_500)
 async def tasks_snapshot():
     """Point-in-time snapshot of in-flight tasks + active batch."""
@@ -926,6 +1017,7 @@ async def tasks_snapshot():
 
 
 @app.get("/api/events",
+          dependencies=[*_ADMIN_DEPS],
           summary="SSE task/batch event stream",
           description="Server-Sent Events: `data: <json>` per event. First "
           "event is {type:'snapshot', data:{tasks,batch}}; then task/batch "
@@ -1028,6 +1120,96 @@ async def api_update(authorization: str = Header(default="")):
           responses=_ERRS_422_500)
 async def api_update_status():
     return _ipdb_update.state()
+
+# ── admin 认证路由(spec 2026-09-21 §6;必须在静态 mount 之前挂)──
+# POST /api/auth/jwt/login|logout + /api/users/*(me 与库默认的 /{id} 管理,
+# /{id} 自带超管门)。require_admin_configured 定义见上方 admin 门依赖块。
+# fastapi-users 自抛的裸 HTTPException(400 错误密码/401 未登录)由全局
+# StarletteHTTPException handler 落信封(_HTTP_FALLBACK_CODE 已覆盖)。
+#
+# Task 7:登录挂 5/min 爆破守卫。auth router 是库现成 router,装饰器进不去,
+# 改在构建后包装 login 端点函数(计划首选形状,实证成立:库 login handler
+# 首参即 request: Request,slowapi 签名检查通过;include_router 从
+# route.endpoint 重建路由,包装真正生效;r.dependant.call 同步作兜底)。
+# 包装在 authenticate 之前检查 → 计所有尝试(含失败),见 _ratelimit.LOGIN。
+_jwt_auth_router = _ipdb_auth.app_users.get_auth_router(_ipdb_auth.auth_backend)
+for _r in _jwt_auth_router.routes:
+    if _r.path == "/login":
+        _r.endpoint = _ipdb_ratelimit.login_limit()(_r.endpoint)
+        _r.dependant.call = _r.endpoint
+app.include_router(
+    _jwt_auth_router,
+    prefix="/api/auth/jwt",
+    dependencies=[Depends(require_admin_configured)],
+)
+app.include_router(
+    _ipdb_auth.app_users.get_users_router(
+        _ipdb_auth.UserRead, _ipdb_auth.UserUpdate),
+    prefix="/api/users",
+    dependencies=[Depends(require_admin_configured)],
+)
+
+
+# ── admin API key 管理(spec 2026-09-21 §7;契约对 Task 9 前端 FROZEN)──
+# keys-disabled 语义(spec §7.1):仅 POST(签发)503 admin_disabled ——
+# issue_key 内部 _require_keys_enabled 托底;GET/PATCH/DELETE 照常工作:
+# 吊销/清理在 keys 禁用时仍须可用,元数据查看无害。完整 JWT 仅 POST 201
+# 响应出现一次;list/PATCH 只回元数据,绝不回 token 本体。
+class ApiKeyPatchIn(BaseModel):
+    disabled: bool
+
+
+async def _key_meta_by_sub(sub: str) -> dict | None:
+    """按 sub 取元数据行(list_keys 过滤;key 量级 = 管理员手签,全表扫可接受)。"""
+    return next((k for k in await _ipdb_apikeys.list_keys() if k["sub"] == sub),
+                None)
+
+
+@app.post("/api/admin/keys", status_code=201, response_model=ApiKeyCreatedOut,
+          dependencies=[*_ADMIN_DEPS],
+          responses={"503": {"model": ErrorEnvelope,
+                             "description": "API keys disabled (secret unset/<32B)"},
+                     **_ERRS_422_500})
+async def admin_create_key(payload: ApiKeyCreateIn):
+    meta, token = await _ipdb_apikeys.issue_key(
+        payload.name, expires_days=payload.expires_days or 180)
+    # issue_key 的 meta 只有 {sub,name};201 契约要完整行 → 插入后按 sub 取回
+    return {"key": token, "meta": await _key_meta_by_sub(meta["sub"])}
+
+
+@app.get("/api/admin/keys", response_model=list[ApiKeyOut],
+          dependencies=[*_ADMIN_DEPS],
+          responses=_ERRS_422_500)
+async def admin_list_keys():
+    """全量密钥元数据,created_at 倒序。"""
+    return await _ipdb_apikeys.list_keys()
+
+
+@app.patch("/api/admin/keys/{sub}", response_model=ApiKeyOut,
+           dependencies=[*_ADMIN_DEPS],
+           responses={"404": {"model": ErrorEnvelope,
+                              "description": "unknown API key"},
+                      **_ERRS_422_500})
+async def admin_patch_key(sub: str, patch: ApiKeyPatchIn):
+    if await _key_meta_by_sub(sub) is None:
+        raise ApiError(ErrorCode.source_not_found, f"unknown API key: {sub}")
+    await _ipdb_apikeys.set_disabled(sub, patch.disabled)
+    row = await _key_meta_by_sub(sub)
+    if row is None:  # 极窄并发窗:检查后被删 —— 回 404 而非验证 500
+        raise ApiError(ErrorCode.source_not_found, f"unknown API key: {sub}")
+    return row
+
+
+@app.delete("/api/admin/keys/{sub}", status_code=204,
+            dependencies=[*_ADMIN_DEPS],
+            responses={"404": {"model": ErrorEnvelope,
+                               "description": "unknown API key"},
+                       **_ERRS_422_500})
+async def admin_delete_key(sub: str):
+    if await _key_meta_by_sub(sub) is None:
+        raise ApiError(ErrorCode.source_not_found, f"unknown API key: {sub}")
+    await _ipdb_apikeys.delete_key(sub)
+
 
 _env_static = os.environ.get("IP_RADAR_STATIC_DIR")
 if _env_static:

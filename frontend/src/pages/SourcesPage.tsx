@@ -6,9 +6,18 @@ import {
   getSources,
   setSourceEnabled,
 } from "../api";
-import type { EvalModelScore, SourceInfo, TaskState } from "../api";
+import type { BatchState, EvalModelScore, SourceInfo, TaskState } from "../api";
 import { useI18n } from "../i18n";
-import { useTasks } from "../tasks/TaskProvider";
+
+// Task 9:任务/批量态由 AdminPage 在其 TaskProvider 内取好下传;
+// 公开页(<SourcesPage /> 无 props)纯只读 —— useTasks 已移出本组件。
+export interface SourcesPageProps {
+  manage?: boolean;
+  tasks?: TaskState[];
+  batch?: BatchState | null;
+  // 会话中 401 → 踢回登录页(仅 manage 模式传入;公开页无此语义)
+  onUnauthorized?: () => void;
+}
 
 const CATEGORY_ORDER = ["geo_asn", "threat", "asset", "other"];
 
@@ -62,15 +71,20 @@ function Toggle({ on, disabled, onChange, label }: {
   );
 }
 
-export default function SourcesPage() {
+export default function SourcesPage({ manage = false, tasks = [], batch = null, onUnauthorized }: SourcesPageProps) {
   const { t } = useI18n();
-  const { tasks, batch } = useTasks();
   const [sources, setSources] = useState<SourceInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   // A2 双轨:每源实测 θ(印证率,advisory)。拉不到/无报告 → 空表,θ 列全 —。
   const [thetaBySource, setThetaBySource] = useState<Map<string, EvalModelScore>>(new Map());
+
+  // 401 = 会话失效 → 踢回登录页;其余错误走原错误文案路径。
+  const failWith = (e: unknown, fallback: string) => {
+    if ((e as { status?: number }).status === 401) { onUnauthorized?.(); return; }
+    setError(e instanceof Error ? e.message : fallback);
+  };
 
   const fmtTime = (s: SourceInfo) => {
     const ta = timeAgo(s.health.last_updated);
@@ -82,11 +96,12 @@ export default function SourcesPage() {
     try {
       setSources(await getSources());
     } catch (e) {
-      setError(e instanceof Error ? e.message : t("sources.loadFailed"));
+      failWith(e, t("sources.loadFailed"));
     } finally {
       setLoading(false);
     }
-  }, [t]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [t, onUnauthorized]);
 
   // Initial fetch: setState is reached only after `await getSources()` inside the
   // async callback, but react-hooks/set-state-in-effect is a heuristic flag.
@@ -106,6 +121,7 @@ export default function SourcesPage() {
 
   // Debounce-refetch: when the count of finished tasks (done/failed/cancelled)
   // changes, re-sync the source list after 500ms so health/record_count updates.
+  // 公开页 tasks 恒空 → doneCount 恒 0,自然 no-op。
   const doneCount = tasks.filter(
     (tk) => tk.state === "done" || tk.state === "failed" || tk.state === "cancelled",
   ).length;
@@ -126,7 +142,7 @@ export default function SourcesPage() {
       patch(s.name, { enabled: updated.enabled, health: updated.health });
     } catch (e) {
       patch(s.name, { enabled: s.enabled });  // rollback
-      setError(e instanceof Error ? e.message : t("sources.toggleFailed", { name: s.name }));
+      failWith(e, t("sources.toggleFailed", { name: s.name }));
     }
   };
 
@@ -134,7 +150,7 @@ export default function SourcesPage() {
     try {
       await enqueueSingle(name);
     } catch (e) {
-      setError(e instanceof Error ? e.message : t("sources.updateOneFailed", { name }));
+      failWith(e, t("sources.updateOneFailed", { name }));
     }
   };
 
@@ -144,12 +160,12 @@ export default function SourcesPage() {
       const { refreshed } = await enqueueBatch();
       if (refreshed === 0) setInfo(t("sources.allFresh"));
     } catch (e) {
-      setError(e instanceof Error ? e.message : t("sources.refreshAllFailed"));
+      failWith(e, t("sources.refreshAllFailed"));
     }
   };
 
   // Batch active → global "refreshing" indicator (disables per-row Update + the
-  // Refresh-all button). Derived from context, no local state.
+  // Refresh-all button). Derived from the batch prop, no local state.
   const refreshingAll = batch?.state === "running";
 
   const grouped = CATEGORY_ORDER
@@ -169,13 +185,15 @@ export default function SourcesPage() {
         <h2 className="text-sm font-medium text-zinc-400">
           {sources.length > 0 ? t("sources.titleCount", { n: sources.length }) : t("sources.title")}
         </h2>
-        <button
-          onClick={handleRefreshAll}
-          disabled={refreshingAll || loading}
-          className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm text-zinc-200 transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {refreshingAll ? t("sources.refreshingAll") : t("sources.refreshAll")}
-        </button>
+        {manage && (
+          <button
+            onClick={handleRefreshAll}
+            disabled={refreshingAll || loading}
+            className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm text-zinc-200 transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {refreshingAll ? t("sources.refreshingAll") : t("sources.refreshAll")}
+          </button>
+        )}
       </div>
 
       {error && (
@@ -212,9 +230,10 @@ export default function SourcesPage() {
               {items.map((s) => {
                 const st = statusOf(s);
                 const ms = thetaBySource.get(s.name);
-                // Per-row phase comes from the tasks context (SSE-driven), not
-                // local state. A row is "busy" only when a task for this source
-                // is queued / downloading / loading.
+                // Per-row phase comes from the tasks prop (AdminPage passes
+                // the SSE-driven context state down; public pages pass none).
+                // A row is "busy" only when a task for this source is
+                // queued / downloading / loading.
                 const phase = phaseBySource.get(s.name);
                 const busy =
                   phase === "queued" ||
@@ -265,25 +284,27 @@ export default function SourcesPage() {
                     ) : (
                       <span className="w-36 shrink-0 text-center text-xs text-zinc-600">—</span>
                     )}
-                    <div className="ml-auto flex items-center gap-3">
-                      <Toggle
-                        on={s.enabled}
-                        disabled={busy}
-                        onChange={(v) => handleToggle(s, v)}
-                        label={t("sources.toggleAria", { name: s.name })}
-                      />
-                      <button
-                        onClick={() => handleUpdate(s.name)}
-                        disabled={busy || refreshingAll}
-                        className="rounded-md border border-zinc-700 px-2.5 py-1 text-xs text-zinc-200 transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        {phase === "loading"
-                          ? t("sources.loading")
-                          : phase === "downloading"
-                            ? t("sources.downloading")
-                            : t("sources.update")}
-                      </button>
-                    </div>
+                    {manage && (
+                      <div className="ml-auto flex items-center gap-3">
+                        <Toggle
+                          on={s.enabled}
+                          disabled={busy}
+                          onChange={(v) => handleToggle(s, v)}
+                          label={t("sources.toggleAria", { name: s.name })}
+                        />
+                        <button
+                          onClick={() => handleUpdate(s.name)}
+                          disabled={busy || refreshingAll}
+                          className="rounded-md border border-zinc-700 px-2.5 py-1 text-xs text-zinc-200 transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {phase === "loading"
+                            ? t("sources.loading")
+                            : phase === "downloading"
+                              ? t("sources.downloading")
+                              : t("sources.update")}
+                        </button>
+                      </div>
+                    )}
                   </li>
                 );
               })}
