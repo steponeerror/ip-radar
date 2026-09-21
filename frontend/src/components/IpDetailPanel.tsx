@@ -3,6 +3,11 @@ import { confColor, confTextColor, ALGORITHM_ICONS, SCORE_SEMANTICS } from "./th
 import { useI18n } from "../i18n";
 import { ClassificationBlock } from "./ClassificationBlock";
 
+// 每个信息区块统一的淡色渐变底 + 左侧色条:用同一种颜色过渡划清各信息边界
+// (客户反馈区块间无边界不清晰;统一色,不做分色分组)。
+const SECTION =
+  "rounded-md border-l-2 border-emerald-500/30 bg-gradient-to-r from-emerald-500/5 to-transparent px-3 py-2";
+
 function answerGroups(field: MergedField): { value: any; count: number; weight: number }[] {
   const valid = field.sources.filter(
     (s) => s.value !== null && s.value !== "" && s.value !== "N/A" && s.value !== 0,
@@ -45,7 +50,7 @@ function FieldDetail<T>({
   const prob = (g: { value: any }) =>
     field.alternatives?.find((a) => a.value === g.value)?.probability;
   return (
-    <div>
+    <div className={SECTION}>
       <div className="flex items-center gap-2 mb-1">
         <span className="text-xs font-medium text-zinc-300">{label}</span>
         {showGroups ? (
@@ -146,7 +151,7 @@ export function IpDetailPanel({ r }: { r: LookupResult }) {
         suffix={r.attributes?.as_domain?.[0]?.value as string | undefined}
       />
       {identityChips.length > 0 && (
-        <div>
+        <div className={SECTION}>
           <span className="text-xs font-medium text-zinc-300">{t("ipDetail.serviceIdentity")}</span>
           <div className="ml-3 mt-1 flex flex-wrap gap-1.5">
             {identityChips.map((c) => (
@@ -158,7 +163,7 @@ export function IpDetailPanel({ r }: { r: LookupResult }) {
           </div>
         </div>
       )}
-      <div>
+      <div className={SECTION}>
         <span className="text-xs font-medium text-zinc-300">{t("ipDetail.threatDetails")}</span>
         {classKeys.length === 0 ? (
           <div className="ml-3 mt-1 text-[11px] text-zinc-600">{t("ipDetail.noHits")}</div>
