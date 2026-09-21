@@ -107,3 +107,14 @@ def test_lookup_get_31st_429(client, rl_on):
         assert r.status_code == 200
     r31 = client.get("/api/lookup/1.1.1.1", headers=SAME_ORIGIN)
     assert r31.status_code == 429
+
+
+def test_lookup_shared_budget_across_paths_and_stix(client, rl_on):
+    # 固定 scope 的行为学钉子:lookup 30/min 是跨路径、lookup+stix 共用的
+    # 一个桶 —— slowapi 默认 per-URL 键控下单 URL 测试照样过,此测试才会红。
+    for i in range(15):
+        for path in ("/api/lookup/1.1.1.1", "/api/lookup/8.8.8.8/stix"):
+            r = client.get(path, headers=SAME_ORIGIN)
+            assert r.status_code == 200, f"volley {i} {path}"
+    r31 = client.get("/api/lookup/1.1.1.1", headers=SAME_ORIGIN)
+    assert r31.status_code == 429

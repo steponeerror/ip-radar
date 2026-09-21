@@ -39,7 +39,7 @@ def test_keys_crud_lifecycle(client_as_admin, key_env):
 
 
 def test_keys_expires_days_ge_1(client_as_admin, key_env):
-    # Task 9 ruling 6:expires_days ge=1(负值/0 → 422 信封;None = 永不过期)。
+    # Task 9 ruling 6:expires_days ge=1(负值/0 → 422 信封;None = 默认 180 天,spec §7.1)。
     for bad in (0, -1):
         r = client_as_admin.post("/api/admin/keys",
                                  json={"name": "x", "expires_days": bad})
