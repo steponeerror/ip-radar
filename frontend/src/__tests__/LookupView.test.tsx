@@ -1,29 +1,22 @@
 import { describe, it, expect, vi } from "vitest";
 import { screen, waitFor, fireEvent } from "@testing-library/react";
 import LookupView from "../LookupView";
-import { TaskProvider } from "../tasks/TaskProvider";
 import { renderWithI18n } from "../test/i18nTestUtils";
 import { getDbStatus, queryIpsStream } from "../api";
 
+// Task 9:公开查询页不再包 TaskProvider(任务上下文收敛到 /admin)
 vi.mock("../api", async () => {
   const real = await vi.importActual<any>("../api");
   return {
     ...real,
     getDbStatus: vi.fn(),
-    getTasks: vi.fn().mockResolvedValue({ tasks: [], batch: null }),
-    subscribeTasks: vi.fn(() => () => {}),
-    enqueueBatch: vi.fn().mockResolvedValue({ batch_id: "b2" }),
     queryIpsStream: vi.fn(),
     uploadFileStream: vi.fn(),
   };
 });
 
 function renderLookup() {
-  return renderWithI18n(
-    <TaskProvider>
-      <LookupView />
-    </TaskProvider>
-  );
+  return renderWithI18n(<LookupView />);
 }
 
 describe("LookupView warmup integration", () => {

@@ -29,6 +29,10 @@ One import instead of steps 1–4:
 3. On Graylog ≥5.1, allowlist the adapter URLs (see Step 0)
 4. Done — 3 lookup tables + 2 pipeline rules + a pipeline on the "All messages" stream are live. Test: search `ipradar_verdict:*` on any src_ip-bearing message.
 
+   > Caveat: the pack ships empty adapter `headers` — on auth-enabled builds,
+   > add the `Authorization: Bearer <api-key>` header to each data adapter
+   > after import (same edit as manual Step 1). Pre-auth builds need none.
+
 ## Manual setup (no content pack)
 
 ### Prerequisites
@@ -56,7 +60,9 @@ http://127.0.0.1:8000/api/lookup/*
 - Type: **HTTP JSONPath**
 - URL: `http://127.0.0.1:8000/api/lookup/${key}`
 - Single value JSONPath: `$.threat.verdict`
-- (optional) HTTP headers: none needed — the API is auth-free on localhost
+- HTTP headers: `Authorization: Bearer <api-key>` — programmatic API access
+  needs an API key issued from IP Radar's `/admin`; only the same-origin
+  web page is keyless
 - Refresh: never (IP Radar data refreshes itself in the background)
 
 Test with `141.98.10.63` → expect `malicious`.
@@ -116,5 +122,6 @@ end
   evidence" as a valid answer, not a lookup failure.
 - Reserved/private ranges (RFC1918, loopback) return `benign` with
   `is_reserved: true`; see `/api/lookup/10.0.0.1` to inspect.
-- The API is unauthenticated by design — keep it bound to localhost /
+- Programmatic API access requires an API key (Bearer, issued from `/admin`);
+  only the same-origin web page needs none. Keep it bound to localhost /
   a private network (same rule as IP Radar itself).

@@ -36,11 +36,16 @@ Tunables:
 ```ini
 # stricter gate, week-long list for confirmed hosts
 action = ipradar[threshold=80]
+
+# IP Radar build with API auth enabled: add an API key from /admin —
+# without it lookups get 401 and the action silently degrades to plain bans
+action = ipradar[key=eyJhbGciOiJIUzI1NiIs...]
 ```
 
 | Option | Default | Meaning |
 |---|---|---|
 | `url` | `http://127.0.0.1:8000` | IP Radar base URL |
+| `key` | *(empty)* | API key (Bearer) for auth-enabled IP Radar builds — issue from `/admin`; required there, or the triage silently no-ops |
 | `threshold` | `70` | malicious confidence gate (0-100) |
 | `timeout` | `3` | lookup timeout; on failure banning proceeds normally |
 | `longlist` | `/var/lib/fail2ban/ipradar/confirmed.txt` | confirmed-malicious IP log |

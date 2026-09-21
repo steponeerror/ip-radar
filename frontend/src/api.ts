@@ -116,12 +116,14 @@ export function apiFetch(url: string, init: RequestInit = {}): Promise<Response>
 function apiError(
   res: Response,
   fallback: string,
-  env: { code?: string; message?: string } | null,
+  env: { code?: string; message?: string; retry_after?: number } | null,
   cause?: unknown,
 ): Error {
   const err = new Error(env?.message || res.statusText || fallback);
   (err as any).status = res.status;
   (err as any).code = env?.code;
+  // 429 限流的信封 retry_after 秒数(登录暴力破解守卫,Task 8 消费)
+  (err as any).retry_after = env?.retry_after;
   // 过渡兼容:旧读方读 e.reason(曾是 X-IPRadar-Reason 头);信封化后 code 即唯一真相
   (err as any).reason = env?.code ?? res.headers.get("x-ipradar-reason");
   if (cause !== undefined) (err as any).cause = cause;
@@ -385,19 +387,19 @@ export interface TasksSnapshot {
 
 export async function getTasks(): Promise<TasksSnapshot> {
   const res = await fetch("/api/tasks");
-  if (!res.ok) throw new Error("Failed to load tasks");
+  if (!res.ok) return throwApiError(res, "Failed to load tasks");
   return res.json();
 }
 
 export async function enqueueBatch(): Promise<{ batch_id: string | null; refreshed?: number }> {
   const res = await fetch("/api/update-db", { method: "POST" });
-  if (!res.ok) throw new Error("Failed to start batch");
+  if (!res.ok) return throwApiError(res, "Failed to start batch");
   return res.json();
 }
 
 export async function enqueueSingle(name: string): Promise<{ task_id: string }> {
   const res = await fetch(`/api/sources/${encodeURIComponent(name)}/update`, { method: "POST" });
-  if (!res.ok) throw new Error(`Failed to update ${name}`);
+  if (!res.ok) return throwApiError(res, `Failed to update ${name}`);
   return res.json();
 }
 
@@ -487,5 +489,81 @@ export async function postUpdate(token: string): Promise<{ ok: boolean; status: 
 
 export async function getUpdateStatus(): Promise<UpdateStatus> {
   return jsonOrThrow(await fetch("/api/update/status"), "Failed to get update status");
+}
+
+// --- Admin session (three-tier auth, spec 2026-09-21 §9) ---
+
+// GET /api/users/me 的 UserRead(本前端只用 email;Task 9 按需扩字段)
+export interface AdminUserRead {
+  id: string;
+  email: string;
+}
+
+// 登录成功是 204 无 body(CookieTransport 硬编码)——会话在 HttpOnly cookie
+// ipradar_admin,勿解析 json;失败走统一信封 throwApiError(status/code/
+// retry_after 随 Error 走)。表单编码 username/password 是 fastapi-users 约定。
+export async function adminLogin(email: string, password: string): Promise<void> {
+  const res = await fetch("/api/auth/jwt/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ username: email, password }),
+  });
+  if (!res.ok) return throwApiError(res, "Login failed");
+}
+
+export async function adminLogout(): Promise<void> {
+  await fetch("/api/auth/jwt/logout", { method: "POST" });
+}
+
+// 未登录(401)/admin 未配置(503)都返回 null —— 调用方按未登录处理;
+// 网络层错误 reject,由调用方降级。
+export async function adminMe(): Promise<AdminUserRead | null> {
+  const res = await fetch("/api/users/me");
+  return res.ok ? res.json() : null;
+}
+
+// --- Admin API keys(Task 5 契约 FROZEN,snake_case 字段) ---
+
+// 密钥元数据 —— 绝不含 JWT 本体(list 单项 / PATCH 返回形状)。
+export interface ApiKeyMetaInfo {
+  sub: string;
+  name: string;
+  created_at: string;
+  last_used_at: string | null;
+  disabled: boolean;
+}
+
+// 列表按创建时间倒序(最新在前),从不返回 key 本体。
+export async function listAdminKeys(): Promise<ApiKeyMetaInfo[]> {
+  return jsonOrThrow(await fetch("/api/admin/keys"), "Failed to list keys");
+}
+
+// 201 返回 {key, meta}:完整 JWT 仅此一次,调用方必须当场展示给用户。
+export async function createAdminKey(
+  name: string,
+  expiresDays?: number,
+): Promise<{ key: string; meta: ApiKeyMetaInfo }> {
+  const res = await fetch("/api/admin/keys", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, expires_days: expiresDays }),
+  });
+  return jsonOrThrow(res, "Failed to create key");
+}
+
+// 吊销 = PATCH {disabled:true};返回更新后的 meta。
+export async function revokeAdminKey(sub: string): Promise<ApiKeyMetaInfo> {
+  const res = await fetch(`/api/admin/keys/${encodeURIComponent(sub)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ disabled: true }),
+  });
+  return jsonOrThrow(res, "Failed to revoke key");
+}
+
+// DELETE 成功是 204 无 body。
+export async function deleteAdminKey(sub: string): Promise<void> {
+  const res = await fetch(`/api/admin/keys/${encodeURIComponent(sub)}`, { method: "DELETE" });
+  if (!res.ok) return throwApiError(res, "Failed to delete key");
 }
 

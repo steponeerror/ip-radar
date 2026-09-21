@@ -1,130 +1,59 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { screen, waitFor, act, fireEvent } from "@testing-library/react";
+import { screen, act } from "@testing-library/react";
 import { WarmupBanner } from "../WarmupBanner";
-import { TaskProvider } from "../../tasks/TaskProvider";
 import { WarmingProvider } from "../../warming";
 import { renderWithI18n } from "../../test/i18nTestUtils";
-import { getDbStatus, enqueueBatch } from "../../api";
+import { getDbStatus } from "../../api";
+
+// Task 9:公开查询页不再挂 TaskProvider(管理面收敛 /admin)——横幅退化为
+// 静态冷启动提示:标题+提示语,消除依赖任务上下文的进度/重试/失败去抖
+// (数据不可得;清除由 WarmingProvider 的 db-status 轮询驱动,~5s 延迟)。
 
 // fake timers 若因断言失败泄漏(afterEach 兜底恢复,防污染后续测试)
 afterEach(() => { vi.useRealTimers(); });
-
-const sse = vi.hoisted(() => ({ onEvent: null as ((e: any) => void) | null }));
 
 vi.mock("../../api", async () => {
   const real = await vi.importActual<any>("../../api");
   return {
     ...real,
     getDbStatus: vi.fn(),
-    getTasks: vi.fn().mockResolvedValue({ tasks: [], batch: null }),
-    getPublicDemo: vi.fn().mockResolvedValue(false),
-    subscribeTasks: vi.fn((onEvent: (e: any) => void) => {
-      sse.onEvent = onEvent;
-      return () => {};
-    }),
-    enqueueBatch: vi.fn().mockResolvedValue({ batch_id: "b2" }),
   };
 });
 
 function render(el: React.ReactElement) {
-  return renderWithI18n(
-    <TaskProvider>
-      <WarmingProvider>{el}</WarmingProvider>
-    </TaskProvider>
-  );
+  return renderWithI18n(<WarmingProvider>{el}</WarmingProvider>);
 }
 
-describe("WarmupBanner", () => {
+describe("WarmupBanner (static public degrade)", () => {
   it("renders nothing when not warming up", async () => {
     (getDbStatus as any).mockResolvedValue({ warming_up: false, total_records: 0 });
     const { container } = render(<WarmupBanner />);
-    await waitFor(() => expect(container.querySelector("[data-warmup]")).toBeNull());
+    await act(async () => {});   // flush 挂载首轮 poll 微任务
+    expect(container.querySelector("[data-warmup]")).toBeNull();
   });
 
-  it("shows progress when warming + batch running", async () => {
-    (getDbStatus as any).mockResolvedValue({ warming_up: true, total_records: 0 });
-    // 通过 SSE 注入 batch + downloading task
-    render(<WarmupBanner />);
-    // 订阅经 getPublicDemo 微任务后建立,先等它落地再注入事件
-    await waitFor(() => expect(sse.onEvent).not.toBeNull());
-    act(() => {
-      sse.onEvent?.({ type: "snapshot", data: {
-        tasks: [{ id: "t1", source: "firehol_level2", host: null,
-                  state: "downloading", error: null, batch_id: "b1",
-                  received: 500000, total: 1000000 }],
-        batch: { id: "b1", state: "running", done: 14, total: 28 },
-      }});
-    });
-    expect(await screen.findByText(/14\/28/)).toBeInTheDocument();
-    expect(screen.getByText(/firehol_level2/)).toBeInTheDocument();
-  });
-
-  it("shows loading task row count when total unknown (streaming source)", async () => {
+  it("shows the warming title and hint, with no buttons or progress numbers", async () => {
     (getDbStatus as any).mockResolvedValue({ warming_up: true, total_records: 0 });
     render(<WarmupBanner />);
-    act(() => {
-      sse.onEvent?.({ type: "snapshot", data: {
-        tasks: [{ id: "t1", source: "geolite_city", host: null,
-                  state: "loading", error: null, batch_id: "b1",
-                  received: 2280000, total: 0 }],
-        batch: { id: "b1", state: "running", done: 14, total: 28 },
-      }});
-    });
-    expect(await screen.findByText(/geolite_city/)).toBeInTheDocument();
-    expect(screen.getByText(/2\.3M/)).toBeInTheDocument();
+    expect(await screen.findByText(/building database for the first time/i)).toBeInTheDocument();
+    expect(screen.getByText(/keep this page open/i)).toBeInTheDocument();
+    // 无任何控件(重试已随任务上下文移除;进度数字不可得)
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(screen.queryByText(/\/\d+ sources/i)).toBeNull();
   });
 
-  it("shows memory-pressure hint when all tasks throttled", async () => {
-    (getDbStatus as any).mockResolvedValue({ warming_up: true, total_records: 0 });
-    render(<WarmupBanner />);
-    act(() => {
-      sse.onEvent?.({ type: "snapshot", data: {
-        tasks: [{ id: "t1", source: "binarydefense", host: null,
-                  state: "throttled", error: null, batch_id: "b1",
-                  received: 0, total: 0 }],
-        batch: { id: "b1", state: "running", done: 0, total: 28 },
-      }});
-    });
-    expect(await screen.findByText(/内存压力|memory pressure/i)).toBeInTheDocument();
-  });
-
-  it("shows failure + retry when warming + batch settled with zero sources (after 3s debounce)", async () => {
+  it("disappears when the 5s db-status poll flips warming_up to false", async () => {
     vi.useFakeTimers();
-    (getDbStatus as any).mockResolvedValue({ warming_up: true, total_records: 0 });
-    render(<WarmupBanner />);
-    // flush WarmingProvider 初始轮询的微任务,让 warming 状态先落地
-    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
-    // batch settle(done) 但仍 warming(零源)
-    act(() => {
-      sse.onEvent?.({ type: "done", batch: { id: "b1", state: "done", done: 0, total: 28 }});
-    });
-    // 3s 去抖前不显示失败
-    expect(screen.queryByText(/失败|failed/i)).toBeNull();
-    // 快进 3s(异步推进:debounce 的 setTimeout 触发 + 状态更新 flush)
-    await act(async () => { await vi.advanceTimersByTimeAsync(3100); });
-    expect(screen.getByText(/失败|failed/i)).toBeInTheDocument();
-    // 点重试(fireEvent 同步派发,避开 userEvent 在 fake timers 下的内部延迟)
-    fireEvent.click(screen.getByRole("button", { name: /重试|retry/i }));
-    expect(enqueueBatch).toHaveBeenCalled();
-  });
-
-  it("disappears when warming_up flips to false on batch done", async () => {
     let warming = true;
-    (getDbStatus as any).mockImplementation(() => Promise.resolve({
-      warming_up: warming, total_records: 100,
-    }));
+    (getDbStatus as any).mockImplementation(() =>
+      Promise.resolve({ warming_up: warming, total_records: 100 }));
     const { container } = render(<WarmupBanner />);
-    // 订阅经 getPublicDemo 微任务后建立,先等它落地再注入事件
-    await waitFor(() => expect(sse.onEvent).not.toBeNull());
-    act(() => {
-      sse.onEvent?.({ type: "batch", batch: { id: "b1", state: "running", done: 1, total: 2 }});
-    });
-    expect(await screen.findByText(/1\/2/)).toBeInTheDocument();
-    // batch done 触发 recheck(warming_up 可能翻 false,由 WarmingProvider 落地)
+    // 挂载首查:warming=true → 横幅出现
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(container.querySelector("[data-warmup]")).not.toBeNull();
+    // 后端构建完成 → 下一轮轮询(5s)翻 false → 横幅消失
     warming = false;
-    act(() => {
-      sse.onEvent?.({ type: "done", batch: { id: "b1", state: "done", done: 2, total: 2 }});
-    });
-    await waitFor(() => expect(container.querySelector("[data-warmup]")).toBeNull());
+    await act(async () => { await vi.advanceTimersByTimeAsync(5100); });
+    expect(container.querySelector("[data-warmup]")).toBeNull();
   });
 });

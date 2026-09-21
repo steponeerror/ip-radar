@@ -210,30 +210,26 @@ def test_get_sources_route_returns_list(monkeypatch):
     assert body == [{**stub, "eval": None}]
 
 
-def test_patch_source_route_calls_set_enabled(monkeypatch):
-    from fastapi.testclient import TestClient
+def test_patch_source_route_calls_set_enabled(monkeypatch, client_as_admin):
     import main
 
     captured = {}
     monkeypatch.setattr(main, "set_source_enabled",
                         lambda name, enabled: captured.update(name=name, enabled=enabled) or
                         _stub_source(name, enabled))
-    client = TestClient(main.app)
-    resp = client.patch("/api/sources/spamhaus", json={"enabled": False})
+    resp = client_as_admin.patch("/api/sources/spamhaus", json={"enabled": False})
     assert resp.status_code == 200
     assert resp.json()["enabled"] is False
     assert captured == {"name": "spamhaus", "enabled": False}
 
 
-def test_patch_source_unknown_returns_404(monkeypatch):
-    from fastapi.testclient import TestClient
+def test_patch_source_unknown_returns_404(monkeypatch, client_as_admin):
     import main
 
     def _raise(name, enabled):
         raise ValueError("unknown")
     monkeypatch.setattr(main, "set_source_enabled", _raise)
-    client = TestClient(main.app)
-    resp = client.patch("/api/sources/nope", json={"enabled": True})
+    resp = client_as_admin.patch("/api/sources/nope", json={"enabled": True})
     assert resp.status_code == 404
 
 

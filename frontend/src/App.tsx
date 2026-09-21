@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
 import Layout from "./Layout";
 import LookupView from "./LookupView";
+import AdminPage from "./pages/AdminPage";
 import SourcesPage from "./pages/SourcesPage";
 import { getPublicDemo } from "./api";
 
-export type Page = "lookup" | "sources";
+export type Page = "lookup" | "sources" | "admin";
 
 const pageFromHash = (): Page =>
-  location.hash === "#/sources" ? "sources" : "lookup";
+  location.hash === "#/sources" ? "sources"
+    : location.hash === "#/admin" ? "admin"
+    : "lookup";
 
 export default function App() {
   const [demo, setDemo] = useState(false);
@@ -24,12 +27,14 @@ export default function App() {
 
   // 单一事实源:导航只写 hash,状态由 hashchange 驱动(刷新/手输 URL 同路径)
   const navigate = useCallback((p: Page) => {
-    location.hash = p === "sources" ? "#/sources" : "";
+    location.hash = p === "lookup" ? "" : `#/${p}`;
   }, []);
 
   return (
     <Layout page={page} onNavigate={navigate}>
-      {page === "sources" && !demo ? <SourcesPage /> : <LookupView />}
+      {page === "sources" && !demo ? <SourcesPage />
+        : page === "admin" ? <AdminPage />
+        : <LookupView />}
     </Layout>
   );
 }

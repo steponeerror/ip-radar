@@ -41,20 +41,28 @@ def _reset_manager():
 
 
 @contextmanager
-def _client():
-    """TestClient with ``_startup`` patched out (no cold-start downloads)."""
+def _client(admin=False):
+    """TestClient with ``_startup`` patched out (no cold-start downloads).
+
+    admin=True 时(Task 3 起管理端点要超管;调用方必须同时请求 auth_env
+    fixture 钉 env,否则登录会 fail-closed 503 而炸):https base_url 让
+    Secure cookie 可回发;lifespan(main.py 尾部)用 auth_env 钉的 tmp
+    auth db init+bootstrap,进入 with 后登录超管。"""
     import main
     with patch.object(main, "_startup"):
-        with TestClient(main.app) as c:
+        with TestClient(main.app, base_url="https://testserver") as c:
+            if admin:
+                r = c.post("/api/auth/jwt/login",
+                           data={"username": "admin@ipradar.local",
+                                 "password": "s3cret-pass-123"})
+                assert r.status_code == 204
             yield c
 
 
-def test_tasks_snapshot_shape():
-    """GET /api/tasks returns {tasks: [...], batch: ...}."""
-    import main
-    with patch.object(main, "_startup"):
-        with TestClient(main.app) as c:
-            r = c.get("/api/tasks")
+def test_tasks_snapshot_shape(auth_env):
+    """GET /api/tasks returns {tasks: [...], batch: ...}(超管)。"""
+    with _client(admin=True) as c:
+        r = c.get("/api/tasks")
     assert r.status_code == 200
     data = r.json()
     assert "tasks" in data and "batch" in data
@@ -92,30 +100,30 @@ def test_events_streams_sse():
 # ── Task 10: enqueue / control endpoints ──
 
 
-def test_update_db_enqueues_returns_batch_id():
+def test_update_db_enqueues_returns_batch_id(auth_env):
     """POST /api/update-db enqueues a batch and returns its id."""
-    with _client() as c:
+    with _client(admin=True) as c:
         r = c.post("/api/update-db")
     assert r.status_code == 200
     assert "batch_id" in r.json()
 
 
-def test_update_source_unknown_404():
+def test_update_source_unknown_404(auth_env):
     """POST /api/sources/{name}/update returns 404 for unknown sources."""
-    with _client() as c:
+    with _client(admin=True) as c:
         r = c.post("/api/sources/nope/update")
     assert r.status_code == 404
 
 
-def test_pause_resume_cancel_are_noop_without_batch():
+def test_pause_resume_cancel_are_noop_without_batch(auth_env):
     """pause/resume/cancel return 200 {ok: true} even with no active batch."""
-    with _client() as c:
+    with _client(admin=True) as c:
         assert c.post("/api/update-db/pause").status_code == 200
         assert c.post("/api/update-db/resume").status_code == 200
         assert c.post("/api/update-db/cancel").status_code == 200
 
 
-def test_update_source_known_returns_task_id():
+def test_update_source_known_returns_task_id(auth_env):
     """POST /api/sources/{name}/update on a known offline source returns a task id."""
     import main
     # Pick any enabled offline source known to the registry.
@@ -123,15 +131,15 @@ def test_update_source_known_returns_task_id():
     if not offline:
         pytest.skip("no enabled offline sources in this environment")
     name = offline[0]
-    with _client() as c:
+    with _client(admin=True) as c:
         r = c.post(f"/api/sources/{name}/update")
     assert r.status_code == 200
     assert "task_id" in r.json()
 
 
-def test_cancel_unknown_task_is_noop():
+def test_cancel_unknown_task_is_noop(auth_env):
     """POST /api/tasks/{task_id}/cancel returns 200 {ok: true} for unknown id."""
-    with _client() as c:
+    with _client(admin=True) as c:
         r = c.post("/api/tasks/doesnotexist/cancel")
     assert r.status_code == 200
     assert r.json() == {"ok": True}
@@ -140,7 +148,7 @@ def test_cancel_unknown_task_is_noop():
 # ── Task 15: end-to-end integration smoke ──
 
 
-def test_batch_flows_through_manager_and_snapshot(monkeypatch):
+def test_batch_flows_through_manager_and_snapshot(monkeypatch, auth_env):
     """Network-independent end-to-end smoke: POST /api/update-db → manager
     workers → SSE event bus → /api/tasks snapshot.
 
@@ -188,7 +196,7 @@ def test_batch_flows_through_manager_and_snapshot(monkeypatch):
     q = mgr.subscribe(sub_loop)
     received: list[dict] = []
     try:
-        with _client() as c:
+        with _client(admin=True) as c:
             before = c.get("/api/tasks").json()
             assert before["batch"] is None, "stale batch leaked past _reset_manager"
 
