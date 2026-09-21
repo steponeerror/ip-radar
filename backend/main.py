@@ -1121,16 +1121,26 @@ async def events():
 
 
 class SpaStaticFiles(StaticFiles):
-    """StaticFiles with SPA fallback: paths that aren't real files (e.g.
-    BrowserRouter deep links like /sources) serve index.html so the client
-    router handles them on direct hit / refresh. Plain StaticFiles(html=True)
-    only returns index.html at the directory root and 404s everything else."""
+    """StaticFiles with a two-step fallback for html-mode gaps:
+    1. Extensionless pretty paths (e.g. /admin) retry `path + ".html"` first
+       — starlette 0.46 html mode resolves only real files and
+       dir/index.html, never the .html suffix (verified empirically), so MPA
+       entries like admin.html would otherwise 404.
+    2. Remaining unknown non-/api paths serve index.html (SPA fallback) so the
+       client router handles deep links on direct hit / refresh.
+    /api/* 404s always propagate untouched."""
 
     async def get_response(self, path: str, scope):
         try:
             return await super().get_response(path, scope)
         except StarletteHTTPException as exc:
             if exc.status_code == 404 and not scope["path"].startswith("/api"):
+                # 仅无扩展名路径探 .html(路径已带 .html 时重试只会双重后缀,噪音)
+                if not path.endswith(".html"):
+                    try:
+                        return await super().get_response(path + ".html", scope)
+                    except StarletteHTTPException:
+                        pass
                 return await super().get_response("index.html", scope)
             raise
 
