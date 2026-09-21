@@ -13,6 +13,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from fastapi.testclient import TestClient
 import pytest
 
+from conftest import SAME_ORIGIN
+
 
 @pytest.fixture(autouse=True)
 def _tiny_db(tiny_db):
@@ -28,7 +30,7 @@ class TestLookupResponseShape:
         import main
         from ipdb import load_db
         load_db()
-        cls.client = TestClient(main.app)
+        cls.client = TestClient(main.app, headers=SAME_ORIGIN)
 
     def test_stix_reserved_ip_returns_400(self):
         resp = self.client.get("/api/lookup/10.0.0.1/stix")
@@ -159,7 +161,7 @@ class TestIPv6Routes:
     @pytest.fixture(autouse=True)
     def _db(self, tiny_db_v6):
         import main
-        self.client = TestClient(main.app)
+        self.client = TestClient(main.app, headers=SAME_ORIGIN)
 
     def test_single_v6_lookup_200(self):
         resp = self.client.get("/api/lookup/2a00:1450:4001::42")
@@ -224,7 +226,7 @@ def test_lookup_single_runs_via_to_thread(monkeypatch):
             called_via.append(fn is main_mod.lookup)
             return await orig_to_thread(fn, *a, **kw)
         monkeypatch.setattr(asyncio, "to_thread", spy_to_thread)
-        client = TestClient(main_mod.app)
+        client = TestClient(main_mod.app, headers=SAME_ORIGIN)
         r = client.get("/api/lookup/8.8.8.8")
         assert r.status_code == 200
         assert called_via == [True]
@@ -246,7 +248,7 @@ def test_lookup_stix_runs_via_to_thread(monkeypatch):
             called_via.append(fn is main_mod.lookup)
             return await orig_to_thread(fn, *a, **kw)
         monkeypatch.setattr(asyncio, "to_thread", spy_to_thread)
-        client = TestClient(main_mod.app)
+        client = TestClient(main_mod.app, headers=SAME_ORIGIN)
         r = client.get("/api/lookup/8.8.8.8/stix")
         assert r.status_code in (200, 501)   # 200=stix2 已装;501=未装(分发不涉响应体)
         assert called_via == [True]
@@ -294,7 +296,7 @@ class TestWarmingUpGate:
     @classmethod
     def setup_class(cls):
         import main
-        cls.client = TestClient(main.app)
+        cls.client = TestClient(main.app, headers=SAME_ORIGIN)
 
     def setup_method(self):
         """Default per-test module state: no armed build window (deadline
@@ -610,7 +612,7 @@ def _client_ready():
     import main
     from ipdb import load_db
     load_db()                              # 前序测试可能动过库状态,重开
-    return TestClient(main.app)
+    return TestClient(main.app, headers=SAME_ORIGIN)
 
 
 def test_query_stream_oversized_content_length_rejected_before_body():
@@ -636,7 +638,7 @@ def test_query_stream_non_list_ips_returns_400_not_500():
     load_db()
     with patch("ipdb._registry._db_loaded", return_value=True), \
          patch.object(main, "_coverage_building", return_value=False):
-        client = TestClient(main.app)
+        client = TestClient(main.app, headers=SAME_ORIGIN)
         r = client.post("/api/query/stream", json={"ips": 5})
         assert r.status_code == 400
 
@@ -733,7 +735,7 @@ def test_get_lookup_classified_ip_details_is_list(tmp_path, monkeypatch):
         except Exception:
             pass
     monkeypatch.setattr(_registry, "load_db", lambda: None)
-    c = TestClient(main.app)   # 不用 with:避免 lifespan 重置(同类既有测试同款)
+    c = TestClient(main.app, headers=SAME_ORIGIN)   # 不用 with:避免 lifespan 重置(同类既有测试同款)
     # 同文件早先测试可能在 manager 留在途任务并武装 build-window → 503 warming;
     # 本测试目标是序列化契约非门控:掐断 coverage-building 恒 False
     # (同时断掉 re-arm 与 hold 两个分支)

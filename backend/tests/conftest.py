@@ -12,6 +12,12 @@ ADMIN_PASSWORD = "s3cret-pass-123"
 # API key JWT secret(Task 4):conftest fixture 与用例内伪造 token 共用同值。
 KEY_JWT_SECRET = "x" * 48
 
+# Task 6:四查询端点(query/upload stream、lookup、stix)挂 api_key_dep 后
+# 匿名 TestClient(无 Origin/Referer)会 401。TestClient Host 恒 testserver,
+# _same_origin 对 Host 比对 scheme 不敏感 → 既有测试作为同源浏览器请求放行,
+# 继续测它们原本测的东西(门控/400/503 语义),不是鉴权。
+SAME_ORIGIN = {"Origin": "https://testserver"}
+
 
 def build_lmdb(records, base):
     """测试构库:rebuild 后立即关闭 env,避免同进程双开。"""

@@ -665,7 +665,13 @@ async def reject_oversized_bodies(request, call_next):
     return await call_next(request)
 
 
-@app.post("/api/query/stream", dependencies=[Depends(require_ready)],
+# Task 6:查询端点鉴权依赖(Q1-B:GET lookup/stix 与 batch 同规,无 GET 匿名
+# 分支)。顺序即语义:api_key_dep(401 跨源无 key / 403 吊销 / 503-admin)
+# 优先于 require_ready 的 warming 503 —— 与 _ADMIN_DEPS 同原则(认认证先于门)。
+_QUERY_AUTH_DEPS = [Depends(_ipdb_apikeys.api_key_dep), Depends(require_ready)]
+
+
+@app.post("/api/query/stream", dependencies=[*_QUERY_AUTH_DEPS],
           responses=_ERRS_READY,
           summary="Batch IP lookup (NDJSON stream)",
           description="Streaming NDJSON: one JSON object per input IP, same "
@@ -704,7 +710,7 @@ async def query_ips_stream(request: Request):
     )
 
 
-@app.post("/api/upload/stream", dependencies=[Depends(require_ready)],
+@app.post("/api/upload/stream", dependencies=[*_QUERY_AUTH_DEPS],
           responses=_ERRS_READY,
           summary="Batch IP lookup from uploaded file (NDJSON stream)",
           description="Streaming NDJSON: same per-line lookup event shape as "
@@ -797,7 +803,7 @@ async def update_db_resume():
 
 
 @app.get("/api/lookup/{ip}", response_model=LookupResultOut,
-          dependencies=[Depends(require_ready)],
+          dependencies=[*_QUERY_AUTH_DEPS],
           responses={"400": {"model": ErrorEnvelope,
                             "description": "invalid IP address"},
                      **_ERRS_READY})
@@ -822,7 +828,7 @@ async def lookup_single(ip: str):
 
 
 @app.get("/api/lookup/{ip}/stix", response_model=dict,
-          dependencies=[Depends(require_ready)],
+          dependencies=[*_QUERY_AUTH_DEPS],
           responses={"400": {"model": ErrorEnvelope,
                             "description": "invalid/reserved IP"},
                      "501": {"model": ErrorEnvelope,

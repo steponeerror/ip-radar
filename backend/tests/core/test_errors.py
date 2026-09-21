@@ -15,6 +15,8 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
+from conftest import SAME_ORIGIN
+
 
 @pytest.fixture(autouse=True)
 def _tiny_db(tiny_db):
@@ -27,7 +29,7 @@ class TestErrorEnvelope:
         import main
         from ipdb import load_db
         load_db()
-        cls.client = TestClient(main.app)
+        cls.client = TestClient(main.app, headers=SAME_ORIGIN)
 
     def setup_method(self):
         """每测重置门全局态(同 test_main_routes)+ 显式打门成分为可过

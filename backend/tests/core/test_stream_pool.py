@@ -5,6 +5,8 @@ from concurrent.futures.process import BrokenProcessPool
 
 import pytest
 from fastapi.testclient import TestClient
+
+from conftest import SAME_ORIGIN
 import main
 import ipdb._batch_pool as bp
 
@@ -40,7 +42,7 @@ def test_stream_done_error_carries_code(monkeypatch):
         raise RuntimeError("kaboom")
 
     monkeypatch.setattr(main, "_emit_chunks", _boom)
-    with TestClient(main.app) as client:
+    with TestClient(main.app, headers=SAME_ORIGIN) as client:
         events = _drain_stream(client, ["8.8.8.8"])
     done = events[-1]
     assert done["type"] == "done"
@@ -50,7 +52,7 @@ def test_stream_done_error_carries_code(monkeypatch):
 
 def test_stream_events_shape_and_results_order():
     """v2: start → progress(0) → row×N/progress → done (inline path)."""
-    with TestClient(main.app) as client:
+    with TestClient(main.app, headers=SAME_ORIGIN) as client:
         events = _drain_stream(client, ["8.8.8.8", "1.1.1.1", "9.9.9.9"])
     types = [e["type"] for e in events]
     assert types[0] == "start"
@@ -79,7 +81,7 @@ def test_stream_inline_chunks_streaming(monkeypatch):
     # (203.0.113.0/24 仅 256 个, 故补 100 个 198.51.100.x)
     ips = (["203.0.113.%d" % i for i in range(200)]
            + ["198.51.100.%d" % i for i in range(100)])
-    with TestClient(main.app) as client:
+    with TestClient(main.app, headers=SAME_ORIGIN) as client:
         events = _drain_stream(client, ips)
     types = [e["type"] for e in events]
     assert types[0] == "start"
@@ -101,7 +103,7 @@ def test_stream_inline_chunks_streaming(monkeypatch):
 
 
 def test_stream_total_zero_no_progress():
-    with TestClient(main.app) as client:
+    with TestClient(main.app, headers=SAME_ORIGIN) as client:
         events = _drain_stream(client, ["invalid-line-zzz"])
     types = [e["type"] for e in events]
     assert types == ["start", "done"]  # 无 progress(0,0)
@@ -109,7 +111,7 @@ def test_stream_total_zero_no_progress():
 
 
 def test_stream_progress_done_is_monotonic_and_ends_at_total():
-    with TestClient(main.app) as client:
+    with TestClient(main.app, headers=SAME_ORIGIN) as client:
         events = _drain_stream(client, ["8.8.8.8"] * 250)  # > INLINE_THRESHOLD
     progress = [e["done"] for e in events if e["type"] == "progress"]
     assert progress == sorted(progress)
@@ -145,7 +147,7 @@ def test_stream_pool_broken_mid_wait_no_duplicate_idx(monkeypatch):
     monkeypatch.setattr(bp, "_work_chunk",
                         lambda ips_arg: bp._dedup_lookup(ips_arg))
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, headers=SAME_ORIGIN) as client:
         events = _drain_stream(client, ips)
 
     types = [e["type"] for e in events]
@@ -170,7 +172,7 @@ def test_stream_pool_broken_submit_phase(monkeypatch):
 
     monkeypatch.setattr(bp, "get_pool", lambda: _Boom())
     ips = ["203.0.113.%d" % i for i in range(250)]  # > INLINE_THRESHOLD → pooled 提交路径
-    with TestClient(main.app) as client:
+    with TestClient(main.app, headers=SAME_ORIGIN) as client:
         events = _drain_stream(client, ips)
     types = [e["type"] for e in events]
     assert types[0] == "start"
@@ -196,7 +198,7 @@ def test_stream_pool_wait_non_bpp_error_done(monkeypatch):
 
     monkeypatch.setattr(bp, "get_pool", lambda: _BoomRuntime())
     ips = ["203.0.113.%d" % i for i in range(250)]
-    with TestClient(main.app) as client:
+    with TestClient(main.app, headers=SAME_ORIGIN) as client:
         events = _drain_stream(client, ips)
     assert events[-1]["type"] == "done"
     assert events[-1].get("error") == "simulated worker crash"
@@ -217,7 +219,7 @@ def test_stream_pool_error_empty_message_falls_back_to_type_name(monkeypatch):
 
     monkeypatch.setattr(bp, "get_pool", lambda: _BoomSilent())
     ips = ["203.0.113.%d" % i for i in range(250)]
-    with TestClient(main.app) as client:
+    with TestClient(main.app, headers=SAME_ORIGIN) as client:
         events = _drain_stream(client, ips)
     assert events[-1]["type"] == "done"
     assert events[-1].get("error") == "RuntimeError"
