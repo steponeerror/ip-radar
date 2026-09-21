@@ -50,13 +50,14 @@ describe("BatchPanel active panel", () => {
     expect(screen.getByText(/0\/2/)).toBeInTheDocument();
   });
 
-  it("renders nothing when idle (no active tasks, no batch)", async () => {
+  it("shows empty-state guidance when idle (no active tasks, no batch)", async () => {
     (getTasks as any).mockResolvedValueOnce({ tasks: [], batch: null });
-    const { container } = render(<BatchPanel />);
+    render(<BatchPanel />);
     await act(async () => {
       await waitFor(() => expect(getTasks).toHaveBeenCalled());
     });
-    expect(container.textContent).toBe("");
+    // idle → 不再留白:引导文案在场(任务 tab 死页既视感修复)
+    expect(screen.getByText(/no background tasks/i)).toBeInTheDocument();
   });
 
   it("calls pauseBatch when Pause is clicked", async () => {
@@ -147,14 +148,15 @@ describe("BatchPanel cold-load with stale done batch", () => {
       tasks: [],
       batch: { id: "b1", state: "done", done: 2, total: 2 },
     });
-    const { container } = render(<BatchPanel />);
+    render(<BatchPanel />);
     await act(async () => {
       await waitFor(() => expect(getTasks).toHaveBeenCalled());
       await mockGetTasks.mock.results[0].value;   // resolved snapshot
       await Promise.resolve();                     // flush setBatch + effect
     });
     expect(screen.queryByText(/2\/2/)).not.toBeInTheDocument();
-    expect(container.textContent).toBe("");        // idle → 面板整体不渲染
+    // idle → 不再留白(任务 tab 死页既视感),给引导文案
+    expect(screen.getByText(/no background tasks/i)).toBeInTheDocument();
   });
 });
 

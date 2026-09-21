@@ -67,7 +67,12 @@ export function BatchPanel() {
     || (batch != null && batch.state !== "done")
     || (recentlyDone && batch?.state === "done");
 
-  if (!active) return null;
+  if (!active) {
+    // 任务 tab 空闲态不留白(死页既感),给引导文案;冷加载 done batch 同此路径
+    return (
+      <p className="py-16 text-center text-sm text-zinc-500">{t("admin.tasks.empty")}</p>
+    );
+  }
 
   // Show only tasks relevant to the current view: when a batch is active
   // (running/paused, or lingering done via recentlyDone), show that batch's
