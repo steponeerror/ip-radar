@@ -22,10 +22,13 @@ function loginErrorText(t: (k: string, v?: Record<string, string | number>) => s
   return r.message ? `${t("admin.loginFailed")}: ${r.message}` : t("admin.loginFailed");
 }
 
-// 登录后的四区壳(Task 9):TaskProvider 只挂在这里 —— 公开页零任务上下文,
-// /api/events + /api/tasks 仅登录后订阅(匿名 SSE 401 随之消除)。
-// 评测区保持占位:前端从无 eval 触发 UI(后端 POST /api/eval/{source}/run
-// 一直无前端消费面),无迁移对象,不新建。
+// 登录后的顶 tab 壳：品牌行(h1 + email/登出)→ sticky tab bar →
+// 当前 tab 内容直出(无包裹 section/h3，各组件自带标题)。
+// TaskProvider 包在整壳外层(见 AdminPage)：tasks tab 与 SourcesPage 的
+// 进度徽章共用任务上下文，切 tab 不卸载 provider。
+// tab 顺序 = 使用频率：Sources → API Keys → Tasks，默认 Sources。
+type AdminTab = "sources" | "keys" | "tasks";
+
 function AdminShell({ user, onLogout, onUnauthorized }: {
   user: AdminUserRead;
   onLogout: () => void;
@@ -33,10 +36,23 @@ function AdminShell({ user, onLogout, onUnauthorized }: {
 }) {
   const { t } = useI18n();
   const { tasks, batch } = useTasks();
+  const [tab, setTab] = useState<AdminTab>("sources");
+
+  const tabBtn = (id: AdminTab) =>
+    `rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+      tab === id ? "bg-zinc-800 text-emerald-400" : "text-zinc-500 hover:text-zinc-300"
+    }`;
+
+  const tabs: Array<{ id: AdminTab; key: "admin.tab.sources" | "admin.tab.keys" | "admin.tab.tasks" }> = [
+    { id: "sources", key: "admin.tab.sources" },
+    { id: "keys", key: "admin.tab.keys" },
+    { id: "tasks", key: "admin.tab.tasks" },
+  ];
+
   return (
     <div>
-      <div className="mb-6 flex items-center justify-between gap-4">
-        <h2 className="text-xl font-bold tracking-tight text-zinc-100">{t("admin.shellTitle")}</h2>
+      <div className="flex items-center justify-between gap-4">
+        <h1 className="text-xl font-bold tracking-tight text-zinc-100">IP Radar Admin</h1>
         <div className="flex items-center gap-3">
           <span className="text-sm text-zinc-500">{user.email}</span>
           <button
@@ -48,21 +64,30 @@ function AdminShell({ user, onLogout, onUnauthorized }: {
           </button>
         </div>
       </div>
-      <div className="space-y-6">
-        <section className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-5">
-          <h3 className="mb-3 text-sm font-semibold text-zinc-300">{t("admin.section.sources")}</h3>
+      {/* sticky 长源列表滚动时 tab 常驻；样式镜像公开页导航 pill */}
+      <nav className="sticky top-0 z-10 mt-6 bg-zinc-950/90 backdrop-blur">
+        <div role="tablist" className="flex gap-1 rounded-lg bg-zinc-900 p-1 sm:inline-flex">
+          {tabs.map(({ id, key }) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={tab === id}
+              className={tabBtn(id)}
+              onClick={() => setTab(id)}
+            >
+              {t(key)}
+            </button>
+          ))}
+        </div>
+      </nav>
+      <div className="mt-6">
+        {tab === "sources" && (
           <SourcesPage manage tasks={tasks} batch={batch} onUnauthorized={onUnauthorized} />
-        </section>
-        <section className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-5">
-          <KeysSection onUnauthorized={onUnauthorized} />
-        </section>
-        <section className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-5">
-          <h3 className="mb-3 text-sm font-semibold text-zinc-300">{t("admin.section.tasks")}</h3>
-          <BatchPanel />
-        </section>
-        <section className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-5">
-          <h3 className="text-sm font-semibold text-zinc-300">{t("admin.section.eval")}</h3>
-        </section>
+        )}
+        {tab === "keys" && <KeysSection onUnauthorized={onUnauthorized} />}
+        {tab === "tasks" && <BatchPanel />}
+        {/* eval UI 从未存在，将来作为第四 tab 回归 */}
       </div>
     </div>
   );
@@ -97,35 +122,39 @@ export default function AdminPage() {
   };
 
   return (
-    <div className="mx-auto mt-10 max-w-sm">
-      <form onSubmit={onSubmit} className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-6">
-        <label className="block text-xs text-zinc-500" htmlFor="admin-email">{t("admin.email")}</label>
-        <input
-          id="admin-email"
-          type="email"
-          autoComplete="username"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-200 focus:border-emerald-600 focus:outline-none"
-        />
-        <label className="mt-4 block text-xs text-zinc-500" htmlFor="admin-password">{t("admin.password")}</label>
-        <input
-          id="admin-password"
-          type="password"
-          autoComplete="current-password"
-          value={password}
-          onChange={(e) => { setPassword(e.target.value); setError(null); }}
-          className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-200 focus:border-emerald-600 focus:outline-none"
-        />
-        {error && <p role="alert" className="mt-3 text-xs text-red-400">{error}</p>}
-        <button
-          type="submit"
-          disabled={busy}
-          className="mt-4 w-full rounded-lg bg-emerald-500 px-5 py-2 text-sm font-semibold text-zinc-950 transition-transform hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50"
-        >
-          {t("admin.login")}
-        </button>
-      </form>
+    <div>
+      {/* 品牌行落在 AdminPage(admin-main.tsx 只留框)——登录态与登录后壳同头 */}
+      <h1 className="mb-6 text-xl font-bold tracking-tight text-zinc-100">IP Radar Admin</h1>
+      <div className="mx-auto mt-10 max-w-sm">
+        <form onSubmit={onSubmit} className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-6">
+          <label className="block text-xs text-zinc-500" htmlFor="admin-email">{t("admin.email")}</label>
+          <input
+            id="admin-email"
+            type="email"
+            autoComplete="username"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-200 focus:border-emerald-600 focus:outline-none"
+          />
+          <label className="mt-4 block text-xs text-zinc-500" htmlFor="admin-password">{t("admin.password")}</label>
+          <input
+            id="admin-password"
+            type="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => { setPassword(e.target.value); setError(null); }}
+            className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-200 focus:border-emerald-600 focus:outline-none"
+          />
+          {error && <p role="alert" className="mt-3 text-xs text-red-400">{error}</p>}
+          <button
+            type="submit"
+            disabled={busy}
+            className="mt-4 w-full rounded-lg bg-emerald-500 px-5 py-2 text-sm font-semibold text-zinc-950 transition-transform hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50"
+          >
+            {t("admin.login")}
+          </button>
+        </form>
+      </div>
     </div>
   );
 }
