@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { screen, fireEvent, within } from "@testing-library/react";
+import { describe, it, expect, vi } from "vitest";
+import { screen, fireEvent, within, waitFor } from "@testing-library/react";
 import { renderWithI18n } from "../../test/i18nTestUtils";
 import { ResultTable } from "../ResultTable";
 import type { ClassificationAssessment, LookupResult } from "../../api";
@@ -197,5 +197,55 @@ describe("score-semantics legend", () => {
     fireEvent.click(screen.getByText("203.0.113.10"));
     // 1 = legend entry; >1 means the expanded field's algorithm glyph got one too
     expect(screen.getAllByTitle(/posterior probability/i).length).toBeGreaterThan(1);
+  });
+});
+
+describe("ResultTable STIX export (fetch+blob, Q1-B companion)", () => {
+  const lowConfSingle: LookupResult = {
+    ip: "203.0.113.5", country: mf("US", 50), city: mf("Mountain View", 50), asn: mf(64500, 50),
+    as_name: mf("Example", 50), ip_range: mf("203.0.113.0/24", 50),
+    is_isp: false, classifications: {},
+  };
+
+  it("downloads via fetch → blob → object URL (same-origin passes the Origin/Referer gate)", async () => {
+    const downloads: string[] = [];
+    const clickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(function (this: HTMLAnchorElement) { downloads.push(this.download); });
+    const createObjectURL = vi.fn(() => "blob:stix-mock");
+    const revokeObjectURL = vi.fn();
+    const origCreate = (URL as any).createObjectURL;
+    const origRevoke = (URL as any).revokeObjectURL;
+    (URL as any).createObjectURL = createObjectURL;
+    (URL as any).revokeObjectURL = revokeObjectURL;
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      blob: async () => new Blob(["{}"], { type: "application/json" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWithI18n(<ResultTable results={[lowConfSingle]} />);
+    fireEvent.click(screen.getByRole("button", { name: /Export STIX/i }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/lookup/203.0.113.5/stix"));
+    await waitFor(() => expect(createObjectURL).toHaveBeenCalled());
+    expect(downloads).toEqual(["stix-203.0.113.5.json"]);
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:stix-mock");
+
+    clickSpy.mockRestore();
+    (URL as any).createObjectURL = origCreate;
+    (URL as any).revokeObjectURL = origRevoke;
+    vi.unstubAllGlobals();
+  });
+
+  it("alerts on failure instead of opening a broken tab", async () => {
+    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 401 });
+    vi.stubGlobal("fetch", fetchMock);
+    renderWithI18n(<ResultTable results={[lowConfSingle]} />);
+    fireEvent.click(screen.getByRole("button", { name: /Export STIX/i }));
+    await waitFor(() => expect(alertSpy).toHaveBeenCalled());
+    alertSpy.mockRestore();
+    vi.unstubAllGlobals();
   });
 });

@@ -1,0 +1,233 @@
+import { useEffect, useState } from "react";
+import { Modal } from "../components/Modal";
+import { useI18n } from "../i18n";
+import {
+  createAdminKey,
+  deleteAdminKey,
+  listAdminKeys,
+  revokeAdminKey,
+  type ApiKeyMetaInfo,
+} from "../api";
+
+const fmtDate = (iso: string | null): string =>
+  iso ? new Date(iso).toLocaleString() : "";
+
+// /admin 密钥区(Task 5 契约):列表(元数据,绝不回 key)+ 创建弹窗
+// (完整 key 仅此一次展示 + 复制)+ 吊销 + 两击确认删除。
+export default function KeysSection() {
+  const { t } = useI18n();
+  const [keys, setKeys] = useState<ApiKeyMetaInfo[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [expiresDays, setExpiresDays] = useState("");
+  const [busy, setBusy] = useState(false);
+  // 创建成功后的完整 key(仅此一次);非 null 即在弹窗内展示
+  const [created, setCreated] = useState<{ key: string; meta: ApiKeyMetaInfo } | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [confirmDeleteSub, setConfirmDeleteSub] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    listAdminKeys()
+      .then((ks) => { if (alive) setKeys(ks); })
+      .catch((e) => { if (alive) setError(e instanceof Error ? e.message : t("admin.keys.loadFailed")); })
+      .finally(() => { if (alive) setLoaded(true); });
+    return () => { alive = false; };
+  }, [t]);
+
+  const patchRow = (meta: ApiKeyMetaInfo) =>
+    setKeys((prev) => prev.map((k) => (k.sub === meta.sub ? meta : k)));
+
+  const openCreate = () => {
+    setName("");
+    setExpiresDays("");
+    setCreated(null);
+    setCopied(false);
+    setError(null);
+    setCreateOpen(true);
+  };
+
+  const submitCreate = async () => {
+    if (busy || !name.trim()) return;
+    setBusy(true);
+    try {
+      const r = await createAdminKey(name.trim(), expiresDays ? Number(expiresDays) : undefined);
+      setCreated(r);
+      setKeys((prev) => [r.meta, ...prev]); // 列表 desc,新键插最前
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t("admin.keys.loadFailed"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const copyKey = async () => {
+    if (!created) return;
+    try {
+      await navigator.clipboard.writeText(created.key);
+      setCopied(true);
+    } catch { /* 剪贴板被拒:用户仍可手动选中复制 */ }
+  };
+
+  const handleRevoke = async (k: ApiKeyMetaInfo) => {
+    try {
+      patchRow(await revokeAdminKey(k.sub));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t("admin.keys.loadFailed"));
+    }
+  };
+
+  const handleDelete = async (sub: string) => {
+    if (confirmDeleteSub !== sub) { setConfirmDeleteSub(sub); return; } // 第一击仅换确认文案
+    setConfirmDeleteSub(null);
+    try {
+      await deleteAdminKey(sub);
+      setKeys((prev) => prev.filter((k) => k.sub !== sub));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t("admin.keys.loadFailed"));
+    }
+  };
+
+  return (
+    <div>
+      <div className="mb-3 flex items-center justify-between">
+        <p className="text-xs text-zinc-500">{t("admin.section.keys")}</p>
+        <button
+          type="button"
+          onClick={openCreate}
+          className="rounded-lg bg-emerald-500 px-3 py-1.5 text-sm font-semibold text-zinc-950 transition-transform hover:scale-[1.02] active:scale-[0.98]"
+        >
+          {t("admin.keys.create")}
+        </button>
+      </div>
+
+      {error && (
+        <div className="mb-3 rounded-lg border border-red-400/30 bg-red-400/10 px-4 py-2 text-sm text-red-400">
+          {error}
+        </div>
+      )}
+
+      {loaded && keys.length === 0 ? (
+        <p className="py-6 text-center text-sm text-zinc-600">{t("admin.keys.empty")}</p>
+      ) : (
+        <div className="overflow-x-auto rounded-lg border border-zinc-800">
+          <table className="w-full text-left text-sm">
+            <thead>
+              <tr className="border-b border-zinc-800 text-xs uppercase tracking-wider text-zinc-600">
+                <th className="px-4 py-2 font-semibold">{t("admin.keys.name")}</th>
+                <th className="px-4 py-2 font-semibold">{t("admin.keys.created")}</th>
+                <th className="px-4 py-2 font-semibold">{t("admin.keys.lastUsed")}</th>
+                <th className="px-4 py-2 font-semibold">Status</th>
+                <th className="px-4 py-2" />
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-900">
+              {keys.map((k) => (
+                <tr key={k.sub} className="text-zinc-300">
+                  <td className="px-4 py-2 font-mono text-sm">{k.name}</td>
+                  <td className="px-4 py-2 text-xs text-zinc-500">{fmtDate(k.created_at)}</td>
+                  <td className="px-4 py-2 text-xs text-zinc-500">
+                    {k.last_used_at ? fmtDate(k.last_used_at) : t("admin.keys.neverUsed")}
+                  </td>
+                  <td className="px-4 py-2">
+                    {k.disabled ? (
+                      <span className="rounded-md border border-zinc-700 bg-zinc-800/50 px-2 py-0.5 text-center text-xs text-zinc-500">
+                        {t("admin.keys.disabled")}
+                      </span>
+                    ) : (
+                      <span className="rounded-md border border-emerald-500/20 bg-emerald-500/5 px-2 py-0.5 text-center text-xs text-emerald-400">
+                        {t("admin.keys.active")}
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-2">
+                    <div className="flex justify-end gap-2">
+                      {!k.disabled && (
+                        <button
+                          type="button"
+                          onClick={() => handleRevoke(k)}
+                          className="rounded-md border border-zinc-700 px-2.5 py-1 text-xs text-zinc-200 transition-colors hover:bg-zinc-800"
+                        >
+                          {t("admin.keys.revoke")}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(k.sub)}
+                        className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${
+                          confirmDeleteSub === k.sub
+                            ? "border-red-400/50 bg-red-400/10 text-red-400"
+                            : "border-zinc-700 text-zinc-200 hover:bg-zinc-800"
+                        }`}
+                      >
+                        {confirmDeleteSub === k.sub
+                          ? t("admin.keys.deleteConfirm")
+                          : t("admin.keys.delete")}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <Modal
+        open={createOpen}
+        title={t("admin.keys.create")}
+        onClose={() => { setCreateOpen(false); setCreated(null); }}
+      >
+        {created ? (
+          <div>
+            <p className="text-xs text-amber-400">{t("admin.keys.onceWarning")}</p>
+            <code data-testid="created-key" className="mt-2 block break-all rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 font-mono text-xs text-emerald-300">
+              {created.key}
+            </code>
+            <button
+              type="button"
+              onClick={copyKey}
+              className="mt-2 rounded-md border border-zinc-700 px-3 py-1.5 text-xs text-zinc-200 transition-colors hover:bg-zinc-800"
+            >
+              {copied ? t("admin.keys.copied") : t("admin.keys.copy")}
+            </button>
+          </div>
+        ) : (
+          <div>
+            <label className="block text-xs text-zinc-500" htmlFor="key-name">
+              {t("admin.keys.name")}
+            </label>
+            <input
+              id="key-name"
+              value={name}
+              onChange={(e) => { setName(e.target.value); setError(null); }}
+              className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-200 focus:border-emerald-600 focus:outline-none"
+            />
+            <label className="mt-4 block text-xs text-zinc-500" htmlFor="key-expires">
+              {t("admin.keys.expiresDays")}
+            </label>
+            <input
+              id="key-expires"
+              type="number"
+              min={1}
+              value={expiresDays}
+              onChange={(e) => setExpiresDays(e.target.value)}
+              className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-200 focus:border-emerald-600 focus:outline-none"
+            />
+            {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
+            <button
+              type="button"
+              onClick={submitCreate}
+              disabled={busy || !name.trim()}
+              className="mt-3 rounded-lg bg-emerald-500 px-5 py-2 text-sm font-semibold text-zinc-950 transition-transform hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50"
+            >
+              {t("admin.keys.confirm")}
+            </button>
+          </div>
+        )}
+      </Modal>
+    </div>
+  );
+}

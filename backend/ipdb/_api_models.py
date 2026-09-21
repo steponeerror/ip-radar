@@ -221,7 +221,7 @@ class EvalModelOut(_Out):
 class ApiKeyCreateIn(BaseModel):
     """POST /api/admin/keys 入参(严格模型:多余输入字段 422,非 _Out 透传)。"""
     name: str = Field(min_length=1)
-    expires_days: Optional[int] = None
+    expires_days: Optional[int] = Field(default=None, ge=1)
 
 
 class ApiKeyOut(_Out):

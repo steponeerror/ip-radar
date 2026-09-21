@@ -500,3 +500,48 @@ export async function adminMe(): Promise<AdminUserRead | null> {
   return res.ok ? res.json() : null;
 }
 
+// --- Admin API keys(Task 5 契约 FROZEN,snake_case 字段) ---
+
+// 密钥元数据 —— 绝不含 JWT 本体(list 单项 / PATCH 返回形状)。
+export interface ApiKeyMetaInfo {
+  sub: string;
+  name: string;
+  created_at: string;
+  last_used_at: string | null;
+  disabled: boolean;
+}
+
+// 列表按创建时间倒序(最新在前),从不返回 key 本体。
+export async function listAdminKeys(): Promise<ApiKeyMetaInfo[]> {
+  return jsonOrThrow(await fetch("/api/admin/keys"), "Failed to list keys");
+}
+
+// 201 返回 {key, meta}:完整 JWT 仅此一次,调用方必须当场展示给用户。
+export async function createAdminKey(
+  name: string,
+  expiresDays?: number,
+): Promise<{ key: string; meta: ApiKeyMetaInfo }> {
+  const res = await fetch("/api/admin/keys", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, expires_days: expiresDays }),
+  });
+  return jsonOrThrow(res, "Failed to create key");
+}
+
+// 吊销 = PATCH {disabled:true};返回更新后的 meta。
+export async function revokeAdminKey(sub: string): Promise<ApiKeyMetaInfo> {
+  const res = await fetch(`/api/admin/keys/${encodeURIComponent(sub)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ disabled: true }),
+  });
+  return jsonOrThrow(res, "Failed to revoke key");
+}
+
+// DELETE 成功是 204 无 body。
+export async function deleteAdminKey(sub: string): Promise<void> {
+  const res = await fetch(`/api/admin/keys/${encodeURIComponent(sub)}`, { method: "DELETE" });
+  if (!res.ok) return throwApiError(res, "Failed to delete key");
+}
+

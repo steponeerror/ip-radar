@@ -5,8 +5,22 @@ import { renderWithI18n } from "../../test/i18nTestUtils";
 
 // Controller-amended mock sequence (Task 2 backend contract):
 //   me(401) → login(204, NO body — cookie session) → me(200 {email})
+// Task 9:登录后的壳内挂 TaskProvider(SSE)+ SourcesPage(manage)+
+// KeysSection + BatchPanel —— 数据层函数在模块 mock 中接管,fetch 只服务会话流。
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
+
+vi.mock("../../api", async () => {
+  const real = await vi.importActual<any>("../../api");
+  return {
+    ...real,
+    getTasks: vi.fn().mockResolvedValue({ tasks: [], batch: null }),
+    subscribeTasks: vi.fn(() => () => {}),
+    getSources: vi.fn().mockResolvedValue([]),
+    fetchEvalModel: vi.fn().mockResolvedValue(null),
+    listAdminKeys: vi.fn().mockResolvedValue([]),
+  };
+});
 
 beforeEach(() => { mockFetch.mockReset(); });
 
@@ -37,6 +51,20 @@ describe("AdminPage", () => {
     renderWithI18n(<AdminPage />);
     await waitFor(() => expect(screen.getByText("Admin Console")).toBeTruthy());
     expect(screen.queryByLabelText("Password")).toBeNull();
+  });
+
+  it("logged-in shell fills all four sections (sources manage / keys / tasks / eval)", async () => {
+    mockFetch.mockResolvedValueOnce(me200);
+    renderWithI18n(<AdminPage />);
+    await waitFor(() => expect(screen.getByText("Admin Console")).toBeTruthy());
+    // 四区标题齐备(Sources 同名出现在 SourcesPage 内部标题 → getAllByText)
+    expect(screen.getAllByText("Sources").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("API Keys").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Tasks").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Eval").length).toBeGreaterThan(0);
+    // KeysSection 已挂载(创建按钮);SourcesPage manage(空列表 → 无源文案)
+    expect(await screen.findByRole("button", { name: "Create key" })).toBeTruthy();
+    await screen.findByText(/no sources discovered/i);
   });
 
   it("shows the login-failed message from the error envelope", async () => {

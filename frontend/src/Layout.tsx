@@ -7,7 +7,6 @@ import { UpdateOverlay, TOKEN_KEY } from "./components/UpdateOverlay";
 import { VersionBanner } from "./components/VersionBanner";
 import { getDbStatus, getVersion, postUpdate } from "./api";
 import { useI18n } from "./i18n";
-import { TaskProvider } from "./tasks/TaskProvider";
 
 // ponytail: 开闸后不再重臂——中途 backend 重启进新冷启动时横幅可能与 warmup 横幅
 // 短暂并存(罕见;更新触发的重启由 UpdateOverlay 全屏盖住)。要严格 D9 再加轮询重臂。
@@ -87,86 +86,88 @@ export default function Layout({
       page === p ? "bg-zinc-800 text-emerald-400" : "text-zinc-500 hover:text-zinc-300"
     }`;
 
+  // Task 9:TaskProvider 不再全局挂载 —— 公开页零任务上下文(匿名对
+  // /api/events 的 401 重连循环随之消除),管理态在 AdminPage 登录壳内自挂。
   return (
-    <TaskProvider>
+    <>
       <div className="dot-grid min-h-screen pb-14">
-        <div className="mx-auto max-w-7xl px-4 py-8 lg:px-8">
-          <header className="mb-8">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h1 className="text-2xl font-bold tracking-tight text-zinc-100">
-                  {t("layout.title")}
-                </h1>
-                <p className="mt-1 text-sm text-zinc-500">{t("layout.subtitle")}</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <ThemeToggle />
-                <LocaleSwitcher />
-              </div>
+      <div className="mx-auto max-w-7xl px-4 py-8 lg:px-8">
+        <header className="mb-8">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight text-zinc-100">
+                {t("layout.title")}
+              </h1>
+              <p className="mt-1 text-sm text-zinc-500">{t("layout.subtitle")}</p>
             </div>
-            <nav className="mt-4">
-              <div className="flex gap-1 rounded-lg bg-zinc-900 p-1 sm:inline-flex">
-                <button type="button" className={navBtn("lookup")} onClick={() => onNavigate("lookup")}>{t("layout.nav.lookup")}</button>
-                <button type="button" className={navBtn("sources")} onClick={() => onNavigate("sources")}>{t("layout.nav.sources")}</button>
-                <button type="button" className={navBtn("admin")} onClick={() => onNavigate("admin")}>{t("layout.nav.admin")}</button>
-              </div>
-            </nav>
-          </header>
-          {warmGate && (
-            <VersionBanner
-              selfUpdateEnabled={selfUpdateEnabled}
-              onStartUpdate={openConfirm}
-            />
-          )}
-          {children}
-          <footer className="mt-10 flex items-center justify-center gap-2 text-xs text-zinc-600">
-            <span>© 2026 steponeerror</span>
-            <a
-              href="https://github.com/steponeerror/ip-radar"
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="GitHub"
-              className="text-zinc-600 transition-colors hover:text-zinc-300"
-            >
-              <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true">
-                <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />
-              </svg>
-            </a>
-          </footer>
-        </div>
-        <DbStatusBar />
+            <div className="flex items-center gap-2">
+              <ThemeToggle />
+              <LocaleSwitcher />
+            </div>
+          </div>
+          <nav className="mt-4">
+            <div className="flex gap-1 rounded-lg bg-zinc-900 p-1 sm:inline-flex">
+              <button type="button" className={navBtn("lookup")} onClick={() => onNavigate("lookup")}>{t("layout.nav.lookup")}</button>
+              <button type="button" className={navBtn("sources")} onClick={() => onNavigate("sources")}>{t("layout.nav.sources")}</button>
+              <button type="button" className={navBtn("admin")} onClick={() => onNavigate("admin")}>{t("layout.nav.admin")}</button>
+            </div>
+          </nav>
+        </header>
+        {warmGate && (
+          <VersionBanner
+            selfUpdateEnabled={selfUpdateEnabled}
+            onStartUpdate={openConfirm}
+          />
+        )}
+        {children}
+        <footer className="mt-10 flex items-center justify-center gap-2 text-xs text-zinc-600">
+          <span>© 2026 steponeerror</span>
+          <a
+            href="https://github.com/steponeerror/ip-radar"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="GitHub"
+            className="text-zinc-600 transition-colors hover:text-zinc-300"
+          >
+            <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true">
+              <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />
+            </svg>
+          </a>
+        </footer>
       </div>
+      <DbStatusBar />
+    </div>
 
-      <Modal
-        open={confirmOpen}
-        title={t("update.confirmTitle")}
-        onClose={() => setConfirmOpen(false)}
-      >
-        <label className="block text-xs text-zinc-500" htmlFor="update-token">
-          {t("update.tokenLabel")}
-        </label>
-        <input
-          id="update-token"
-          type="password"
-          value={token}
-          onChange={(e) => { setToken(e.target.value); setTokenError(null); }}
-          className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-200 focus:border-emerald-600 focus:outline-none"
-        />
-        {tokenError && <p className="mt-2 text-xs text-red-400">{tokenError}</p>}
-        <button
-          type="button"
-          onClick={startUpdate}
-          className="mt-3 rounded-lg bg-emerald-500 px-5 py-2 text-sm font-semibold text-zinc-950 transition-transform hover:scale-[1.02] active:scale-[0.98]"
-        >
-          {t("update.start")}
-        </button>
-      </Modal>
-
-      <UpdateOverlay
-        active={overlayActive}
-        startedVersion={versionSnapshot.current}
-        reload={() => location.reload()}
+    <Modal
+      open={confirmOpen}
+      title={t("update.confirmTitle")}
+      onClose={() => setConfirmOpen(false)}
+    >
+      <label className="block text-xs text-zinc-500" htmlFor="update-token">
+        {t("update.tokenLabel")}
+      </label>
+      <input
+        id="update-token"
+        type="password"
+        value={token}
+        onChange={(e) => { setToken(e.target.value); setTokenError(null); }}
+        className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-200 focus:border-emerald-600 focus:outline-none"
       />
-    </TaskProvider>
+      {tokenError && <p className="mt-2 text-xs text-red-400">{tokenError}</p>}
+      <button
+        type="button"
+        onClick={startUpdate}
+        className="mt-3 rounded-lg bg-emerald-500 px-5 py-2 text-sm font-semibold text-zinc-950 transition-transform hover:scale-[1.02] active:scale-[0.98]"
+      >
+        {t("update.start")}
+      </button>
+    </Modal>
+
+    <UpdateOverlay
+      active={overlayActive}
+      startedVersion={versionSnapshot.current}
+      reload={() => location.reload()}
+    />
+    </>
   );
 }

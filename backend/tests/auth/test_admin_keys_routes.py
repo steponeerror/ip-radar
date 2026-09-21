@@ -38,6 +38,15 @@ def test_keys_crud_lifecycle(client_as_admin, key_env):
                for k in client_as_admin.get("/api/admin/keys").json())
 
 
+def test_keys_expires_days_ge_1(client_as_admin, key_env):
+    # Task 9 ruling 6:expires_days ge=1(负值/0 → 422 信封;None = 永不过期)。
+    for bad in (0, -1):
+        r = client_as_admin.post("/api/admin/keys",
+                                 json={"name": "x", "expires_days": bad})
+        assert r.status_code == 422
+        assert r.json()["error"]["code"] == "validation_error"
+
+
 def test_keys_require_admin(auth_client):
     r = auth_client.get("/api/admin/keys")
     assert r.status_code == 401

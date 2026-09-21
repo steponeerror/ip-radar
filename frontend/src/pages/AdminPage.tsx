@@ -1,8 +1,11 @@
 import { useState, type FormEvent } from "react";
 import { useI18n } from "../i18n";
 import { useAdminSession, type LoginOutcome } from "../admin/AdminSession";
-
-const SECTIONS = ["sources", "keys", "tasks", "eval"] as const;
+import { TaskProvider, useTasks } from "../tasks/TaskProvider";
+import { BatchPanel } from "../admin/BatchPanel";
+import KeysSection from "../admin/KeysSection";
+import SourcesPage from "./SourcesPage";
+import type { AdminUserRead } from "../api";
 
 // 错误文案优先信封 message;429 换限流文案(retry_after 秒数)。
 // 503 admin_disabled 的 message 自带"未配置"提示,走通用分支即可。
@@ -16,6 +19,48 @@ function loginErrorText(t: (k: string, v?: Record<string, string | number>) => s
   return r.message ? `${t("admin.loginFailed")}: ${r.message}` : t("admin.loginFailed");
 }
 
+// 登录后的四区壳(Task 9):TaskProvider 只挂在这里 —— 公开页零任务上下文,
+// /api/events + /api/tasks 仅登录后订阅(匿名 SSE 401 随之消除)。
+// 评测区保持占位:前端从无 eval 触发 UI(后端 POST /api/eval/{source}/run
+// 一直无前端消费面),无迁移对象,不新建。
+function AdminShell({ user, onLogout }: { user: AdminUserRead; onLogout: () => void }) {
+  const { t } = useI18n();
+  const { tasks, batch } = useTasks();
+  return (
+    <div>
+      <div className="mb-6 flex items-center justify-between gap-4">
+        <h2 className="text-xl font-bold tracking-tight text-zinc-100">{t("admin.shellTitle")}</h2>
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-zinc-500">{user.email}</span>
+          <button
+            type="button"
+            onClick={onLogout}
+            className="rounded-md border border-zinc-700 px-3 py-1.5 text-sm text-zinc-300 transition-colors hover:border-red-500/50 hover:text-red-400"
+          >
+            {t("admin.logout")}
+          </button>
+        </div>
+      </div>
+      <div className="space-y-6">
+        <section className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-5">
+          <h3 className="mb-3 text-sm font-semibold text-zinc-300">{t("admin.section.sources")}</h3>
+          <SourcesPage manage tasks={tasks} batch={batch} />
+        </section>
+        <section className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-5">
+          <KeysSection />
+        </section>
+        <section className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-5">
+          <h3 className="mb-3 text-sm font-semibold text-zinc-300">{t("admin.section.tasks")}</h3>
+          <BatchPanel />
+        </section>
+        <section className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-5">
+          <h3 className="text-sm font-semibold text-zinc-300">{t("admin.section.eval")}</h3>
+        </section>
+      </div>
+    </div>
+  );
+}
+
 export default function AdminPage() {
   const { t } = useI18n();
   const { user, loading, login, logout } = useAdminSession();
@@ -27,31 +72,10 @@ export default function AdminPage() {
   if (loading) return <div className="py-20 text-center text-sm text-zinc-500">{t("sources.loading")}</div>;
 
   if (user) {
-    // 四区占位壳(内容 Task 9 填)。TaskProvider 仍挂在 Layout(Task 8 裁决:
-    // 公开页 SourcesPage 依赖未断,勿在 AdminPage 叠第二个 SSE 订阅)。
     return (
-      <div>
-        <div className="mb-6 flex items-center justify-between gap-4">
-          <h2 className="text-xl font-bold tracking-tight text-zinc-100">{t("admin.shellTitle")}</h2>
-          <div className="flex items-center gap-3">
-            <span className="text-sm text-zinc-500">{user.email}</span>
-            <button
-              type="button"
-              onClick={() => { logout(); }}
-              className="rounded-md border border-zinc-700 px-3 py-1.5 text-sm text-zinc-300 transition-colors hover:border-red-500/50 hover:text-red-400"
-            >
-              {t("admin.logout")}
-            </button>
-          </div>
-        </div>
-        <div className="grid gap-4 sm:grid-cols-2">
-          {SECTIONS.map((s) => (
-            <section key={s} className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-5">
-              <h3 className="text-sm font-semibold text-zinc-300">{t(`admin.section.${s}`)}</h3>
-            </section>
-          ))}
-        </div>
-      </div>
+      <TaskProvider>
+        <AdminShell user={user} onLogout={() => { logout(); }} />
+      </TaskProvider>
     );
   }
 
