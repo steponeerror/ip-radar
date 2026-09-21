@@ -14,6 +14,7 @@ export function useAdminSession(): {
   loading: boolean;
   login: (email: string, password: string) => Promise<LoginOutcome>;
   logout: () => Promise<void>;
+  handleUnauthorized: () => void;
 } {
   const [user, setUser] = useState<AdminUserRead | null>(null);
   const [loading, setLoading] = useState(true); // 首次 adminMe 探测中
@@ -50,5 +51,9 @@ export function useAdminSession(): {
     setUser(null);
   }, []);
 
-  return { user, loading, login, logout };
+  // 会话中 401(7 天 cookie 过期/服务端重启/auth.db 重建):只清本地态,
+  // 不打登出网络请求(spec §9 踢回登录页;AdminPage 卸壳即断 SSE)。
+  const handleUnauthorized = useCallback(() => setUser(null), []);
+
+  return { user, loading, login, logout, handleUnauthorized };
 }

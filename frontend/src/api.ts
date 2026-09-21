@@ -378,19 +378,19 @@ export interface TasksSnapshot {
 
 export async function getTasks(): Promise<TasksSnapshot> {
   const res = await fetch("/api/tasks");
-  if (!res.ok) throw new Error("Failed to load tasks");
+  if (!res.ok) return throwApiError(res, "Failed to load tasks");
   return res.json();
 }
 
 export async function enqueueBatch(): Promise<{ batch_id: string | null; refreshed?: number }> {
   const res = await fetch("/api/update-db", { method: "POST" });
-  if (!res.ok) throw new Error("Failed to start batch");
+  if (!res.ok) return throwApiError(res, "Failed to start batch");
   return res.json();
 }
 
 export async function enqueueSingle(name: string): Promise<{ task_id: string }> {
   const res = await fetch(`/api/sources/${encodeURIComponent(name)}/update`, { method: "POST" });
-  if (!res.ok) throw new Error(`Failed to update ${name}`);
+  if (!res.ok) return throwApiError(res, `Failed to update ${name}`);
   return res.json();
 }
 

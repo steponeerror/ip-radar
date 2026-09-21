@@ -82,6 +82,22 @@ describe("AdminPage", () => {
     expect(screen.getByText(/Bad credentials/)).toBeTruthy();
   });
 
+  it("hides the raw fastapi-users enum on wrong password (plain loginFailed text)", async () => {
+    mockFetch
+      .mockResolvedValueOnce(me401)
+      .mockResolvedValueOnce({
+        ok: false, status: 400,
+        json: async () => ({ error: { code: "bad_request", message: "LOGIN_BAD_CREDENTIALS" } }),
+      });
+    renderWithI18n(<AdminPage />);
+    await screen.findByLabelText("Email");
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "wrong" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => expect(screen.getByText(/Login failed/)).toBeTruthy());
+    // 库枚举不得泄漏到 UI(fastapi-users detail = LOGIN_BAD_CREDENTIALS)
+    expect(screen.queryByText(/LOGIN_BAD_CREDENTIALS/)).toBeNull();
+  });
+
   it("shows the rate-limit message with retry seconds on 429", async () => {
     mockFetch
       .mockResolvedValueOnce(me401)

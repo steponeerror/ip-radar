@@ -15,6 +15,8 @@ export interface SourcesPageProps {
   manage?: boolean;
   tasks?: TaskState[];
   batch?: BatchState | null;
+  // 会话中 401 → 踢回登录页(仅 manage 模式传入;公开页无此语义)
+  onUnauthorized?: () => void;
 }
 
 const CATEGORY_ORDER = ["geo_asn", "threat", "asset", "other"];
@@ -69,7 +71,7 @@ function Toggle({ on, disabled, onChange, label }: {
   );
 }
 
-export default function SourcesPage({ manage = false, tasks = [], batch = null }: SourcesPageProps) {
+export default function SourcesPage({ manage = false, tasks = [], batch = null, onUnauthorized }: SourcesPageProps) {
   const { t } = useI18n();
   const [sources, setSources] = useState<SourceInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -77,6 +79,12 @@ export default function SourcesPage({ manage = false, tasks = [], batch = null }
   const [info, setInfo] = useState<string | null>(null);
   // A2 双轨:每源实测 θ(印证率,advisory)。拉不到/无报告 → 空表,θ 列全 —。
   const [thetaBySource, setThetaBySource] = useState<Map<string, EvalModelScore>>(new Map());
+
+  // 401 = 会话失效 → 踢回登录页;其余错误走原错误文案路径。
+  const failWith = (e: unknown, fallback: string) => {
+    if ((e as { status?: number }).status === 401) { onUnauthorized?.(); return; }
+    setError(e instanceof Error ? e.message : fallback);
+  };
 
   const fmtTime = (s: SourceInfo) => {
     const ta = timeAgo(s.health.last_updated);
@@ -88,11 +96,12 @@ export default function SourcesPage({ manage = false, tasks = [], batch = null }
     try {
       setSources(await getSources());
     } catch (e) {
-      setError(e instanceof Error ? e.message : t("sources.loadFailed"));
+      failWith(e, t("sources.loadFailed"));
     } finally {
       setLoading(false);
     }
-  }, [t]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [t, onUnauthorized]);
 
   // Initial fetch: setState is reached only after `await getSources()` inside the
   // async callback, but react-hooks/set-state-in-effect is a heuristic flag.
@@ -133,7 +142,7 @@ export default function SourcesPage({ manage = false, tasks = [], batch = null }
       patch(s.name, { enabled: updated.enabled, health: updated.health });
     } catch (e) {
       patch(s.name, { enabled: s.enabled });  // rollback
-      setError(e instanceof Error ? e.message : t("sources.toggleFailed", { name: s.name }));
+      failWith(e, t("sources.toggleFailed", { name: s.name }));
     }
   };
 
@@ -141,7 +150,7 @@ export default function SourcesPage({ manage = false, tasks = [], batch = null }
     try {
       await enqueueSingle(name);
     } catch (e) {
-      setError(e instanceof Error ? e.message : t("sources.updateOneFailed", { name }));
+      failWith(e, t("sources.updateOneFailed", { name }));
     }
   };
 
@@ -151,7 +160,7 @@ export default function SourcesPage({ manage = false, tasks = [], batch = null }
       const { refreshed } = await enqueueBatch();
       if (refreshed === 0) setInfo(t("sources.allFresh"));
     } catch (e) {
-      setError(e instanceof Error ? e.message : t("sources.refreshAllFailed"));
+      failWith(e, t("sources.refreshAllFailed"));
     }
   };
 

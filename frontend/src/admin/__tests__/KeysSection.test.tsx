@@ -77,4 +77,21 @@ describe("KeysSection", () => {
     await waitFor(() => expect(screen.queryByText("k")).toBeNull());
     expect(mockFetch).toHaveBeenNthCalledWith(2, "/api/admin/keys/s1", { method: "DELETE" });
   });
+
+  it("localizes the Status column header (no hard-coded English, zh-CN)", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => [META({ sub: "s1", name: "k" })] });
+    renderWithI18n(<KeysSection />, { locale: "zh-CN" });
+    await waitFor(() => screen.getByText("k"));
+    expect(screen.getByRole("columnheader", { name: "状态" })).toBeInTheDocument();
+  });
+
+  it("401 on list kicks to login via onUnauthorized (spec §9)", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false, status: 401,
+      json: async () => ({ error: { code: "unauthorized", message: "Not authenticated" } }),
+    });
+    const onUnauthorized = vi.fn();
+    renderWithI18n(<KeysSection onUnauthorized={onUnauthorized} />);
+    await waitFor(() => expect(onUnauthorized).toHaveBeenCalledTimes(1));
+  });
 });

@@ -17,6 +17,7 @@
   "admin.keys.neverUsed": "从未使用",
   "admin.keys.onceWarning": "请立即复制保存——完整密钥仅显示这一次。",
   "admin.keys.revoke": "吊销",
+  "admin.keys.status": "状态",
   "admin.login": "登录",
   "admin.loginFailed": "登录失败",
   "admin.loginRateLimited": "尝试过于频繁，{seconds} 秒后再试",

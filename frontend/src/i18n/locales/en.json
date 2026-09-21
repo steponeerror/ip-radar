@@ -17,6 +17,7 @@
   "admin.keys.neverUsed": "never",
   "admin.keys.onceWarning": "Copy this key now — it will not be shown again.",
   "admin.keys.revoke": "Revoke",
+  "admin.keys.status": "Status",
   "admin.login": "Sign in",
   "admin.loginFailed": "Login failed",
   "admin.loginRateLimited": "Too many attempts — try again in {seconds}s",

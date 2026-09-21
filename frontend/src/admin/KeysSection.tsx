@@ -14,7 +14,7 @@ const fmtDate = (iso: string | null): string =>
 
 // /admin 密钥区(Task 5 契约):列表(元数据,绝不回 key)+ 创建弹窗
 // (完整 key 仅此一次展示 + 复制)+ 吊销 + 两击确认删除。
-export default function KeysSection() {
+export default function KeysSection({ onUnauthorized }: { onUnauthorized?: () => void } = {}) {
   const { t } = useI18n();
   const [keys, setKeys] = useState<ApiKeyMetaInfo[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -28,11 +28,18 @@ export default function KeysSection() {
   const [copied, setCopied] = useState(false);
   const [confirmDeleteSub, setConfirmDeleteSub] = useState<string | null>(null);
 
+  // 会话中 401(cookie 过期/服务端重启)→ 踢回登录页(spec §9);
+  // 其余错误仍走错误横幅。
+  const handleErr = (e: unknown) => {
+    if ((e as { status?: number }).status === 401) { onUnauthorized?.(); return; }
+    setError(e instanceof Error ? e.message : t("admin.keys.loadFailed"));
+  };
+
   useEffect(() => {
     let alive = true;
     listAdminKeys()
       .then((ks) => { if (alive) setKeys(ks); })
-      .catch((e) => { if (alive) setError(e instanceof Error ? e.message : t("admin.keys.loadFailed")); })
+      .catch((e) => { if (alive) handleErr(e); })
       .finally(() => { if (alive) setLoaded(true); });
     return () => { alive = false; };
   }, [t]);
@@ -57,7 +64,7 @@ export default function KeysSection() {
       setCreated(r);
       setKeys((prev) => [r.meta, ...prev]); // 列表 desc,新键插最前
     } catch (e) {
-      setError(e instanceof Error ? e.message : t("admin.keys.loadFailed"));
+      handleErr(e);
     } finally {
       setBusy(false);
     }
@@ -75,7 +82,7 @@ export default function KeysSection() {
     try {
       patchRow(await revokeAdminKey(k.sub));
     } catch (e) {
-      setError(e instanceof Error ? e.message : t("admin.keys.loadFailed"));
+      handleErr(e);
     }
   };
 
@@ -86,7 +93,7 @@ export default function KeysSection() {
       await deleteAdminKey(sub);
       setKeys((prev) => prev.filter((k) => k.sub !== sub));
     } catch (e) {
-      setError(e instanceof Error ? e.message : t("admin.keys.loadFailed"));
+      handleErr(e);
     }
   };
 
@@ -119,7 +126,7 @@ export default function KeysSection() {
                 <th className="px-4 py-2 font-semibold">{t("admin.keys.name")}</th>
                 <th className="px-4 py-2 font-semibold">{t("admin.keys.created")}</th>
                 <th className="px-4 py-2 font-semibold">{t("admin.keys.lastUsed")}</th>
-                <th className="px-4 py-2 font-semibold">Status</th>
+                <th className="px-4 py-2 font-semibold">{t("admin.keys.status")}</th>
                 <th className="px-4 py-2" />
               </tr>
             </thead>

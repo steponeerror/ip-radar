@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, type Mock } from "vitest";
 import { screen, waitFor, fireEvent } from "@testing-library/react";
 import SourcesPage from "../SourcesPage";
 import { renderWithI18n } from "../../test/i18nTestUtils";
@@ -303,5 +303,13 @@ describe("SourcesPage read-only info (both modes)", () => {
     expect(screen.getByText("—")).toBeInTheDocument();
     // footnote: advisory semantics, declared r authoritative
     expect(screen.getByText(/production weight/i)).toBeInTheDocument();
+  });
+
+  it("401 on load kicks to login via onUnauthorized when manage-wired (spec §9)", async () => {
+    const err = Object.assign(new Error("Not authenticated"), { status: 401 });
+    (getSources as unknown as Mock).mockRejectedValueOnce(err);
+    const onUnauthorized = vi.fn();
+    renderWithI18n(<SourcesPage manage onUnauthorized={onUnauthorized} />);
+    await waitFor(() => expect(onUnauthorized).toHaveBeenCalledTimes(1));
   });
 });

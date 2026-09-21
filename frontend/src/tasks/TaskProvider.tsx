@@ -19,7 +19,10 @@ type Ctx = {
 
 const TasksContext = createContext<Ctx | null>(null);
 
-export function TaskProvider({ children }: { children: ReactNode }) {
+export function TaskProvider({ children, onUnauthorized }: {
+  children: ReactNode;
+  onUnauthorized?: () => void;
+}) {
   const [tasks, setTasks] = useState<TaskState[]>([]);
   const [batch, setBatch] = useState<BatchState | null>(null);
   const tasksRef = useRef<Record<string, TaskState>>({});
@@ -66,12 +69,21 @@ export function TaskProvider({ children }: { children: ReactNode }) {
     let alive = true;
     const resync = async () => {
       sseSawRef.current = false; // this fetch wins unless SSE interleaves
-      const snap = await getTasks();
-      if (!alive) return;
-      if (sseSawRef.current) return; // an SSE event landed mid-fetch — it's fresher
-      tasksRef.current = Object.fromEntries(snap.tasks.map((t) => [t.id, t]));
-      setTasks(Object.values(tasksRef.current));
-      setBatch(snap.batch);
+      try {
+        const snap = await getTasks();
+        if (!alive) return;
+        if (sseSawRef.current) return; // an SSE event landed mid-fetch — it's fresher
+        tasksRef.current = Object.fromEntries(snap.tasks.map((t) => [t.id, t]));
+        setTasks(Object.values(tasksRef.current));
+        setBatch(snap.batch);
+      } catch (e) {
+        // 会话中 401:踢回登录页(卸壳即断 SSE 重连);其余错误吞下 —
+        // 之前这里是未处理 rejection。
+        if ((e as { status?: number }).status === 401) {
+          onUnauthorized?.();
+          return;
+        }
+      }
     };
     resync();
     const unsub = subscribeTasks(applyEvent, resync);

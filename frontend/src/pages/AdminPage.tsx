@@ -7,8 +7,10 @@ import KeysSection from "../admin/KeysSection";
 import SourcesPage from "./SourcesPage";
 import type { AdminUserRead } from "../api";
 
-// 错误文案优先信封 message;429 换限流文案(retry_after 秒数)。
-// 503 admin_disabled 的 message 自带"未配置"提示,走通用分支即可。
+// 错误文案优先信封 message;429 换限流文案(retry_after 秒数);
+// fastapi-users 的 detail 是库枚举(如 LOGIN_BAD_CREDENTIALS),不进 UI。
+const FASTAPI_USERS_ENUM = /^LOGIN_[A-Z_]+$/;
+
 function loginErrorText(t: (k: string, v?: Record<string, string | number>) => string, r: LoginOutcome): string {
   if (r.ok) return "";
   if (r.code === "rate_limited") {
@@ -16,6 +18,7 @@ function loginErrorText(t: (k: string, v?: Record<string, string | number>) => s
       ? t("admin.loginRateLimited", { seconds: r.retryAfter })
       : t("admin.loginFailed");
   }
+  if (r.message && FASTAPI_USERS_ENUM.test(r.message)) return t("admin.loginFailed");
   return r.message ? `${t("admin.loginFailed")}: ${r.message}` : t("admin.loginFailed");
 }
 
@@ -23,7 +26,11 @@ function loginErrorText(t: (k: string, v?: Record<string, string | number>) => s
 // /api/events + /api/tasks 仅登录后订阅(匿名 SSE 401 随之消除)。
 // 评测区保持占位:前端从无 eval 触发 UI(后端 POST /api/eval/{source}/run
 // 一直无前端消费面),无迁移对象,不新建。
-function AdminShell({ user, onLogout }: { user: AdminUserRead; onLogout: () => void }) {
+function AdminShell({ user, onLogout, onUnauthorized }: {
+  user: AdminUserRead;
+  onLogout: () => void;
+  onUnauthorized: () => void;
+}) {
   const { t } = useI18n();
   const { tasks, batch } = useTasks();
   return (
@@ -44,10 +51,10 @@ function AdminShell({ user, onLogout }: { user: AdminUserRead; onLogout: () => v
       <div className="space-y-6">
         <section className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-5">
           <h3 className="mb-3 text-sm font-semibold text-zinc-300">{t("admin.section.sources")}</h3>
-          <SourcesPage manage tasks={tasks} batch={batch} />
+          <SourcesPage manage tasks={tasks} batch={batch} onUnauthorized={onUnauthorized} />
         </section>
         <section className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-5">
-          <KeysSection />
+          <KeysSection onUnauthorized={onUnauthorized} />
         </section>
         <section className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-5">
           <h3 className="mb-3 text-sm font-semibold text-zinc-300">{t("admin.section.tasks")}</h3>
@@ -63,7 +70,7 @@ function AdminShell({ user, onLogout }: { user: AdminUserRead; onLogout: () => v
 
 export default function AdminPage() {
   const { t } = useI18n();
-  const { user, loading, login, logout } = useAdminSession();
+  const { user, loading, login, logout, handleUnauthorized } = useAdminSession();
   const [email, setEmail] = useState("admin@ipradar.local");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -73,8 +80,8 @@ export default function AdminPage() {
 
   if (user) {
     return (
-      <TaskProvider>
-        <AdminShell user={user} onLogout={() => { logout(); }} />
+      <TaskProvider onUnauthorized={handleUnauthorized}>
+        <AdminShell user={user} onLogout={() => { logout(); }} onUnauthorized={handleUnauthorized} />
       </TaskProvider>
     );
   }
