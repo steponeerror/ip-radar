@@ -87,6 +87,8 @@
   "layout.nav.lookup": "查询",
   "layout.nav.sources": "数据源",
   "layout.subtitle": "面向威胁分析的批量 IP → ASN 查询",
+  "layout.theme.dark": "切换到黑夜模式",
+  "layout.theme.light": "切换到白天模式",
   "layout.title": "IP 查询工具",
   "lookup.cancelled": "查询已取消",
   "lookup.connecting": "连接中...",
