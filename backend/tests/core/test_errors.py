@@ -91,9 +91,10 @@ class TestErrorEnvelope:
         assert r.status_code == 200
         assert r.json()["is_reserved"] is True
 
-    def test_patch_unknown_source_semantic(self):
-        """PATCH 未知源 → source_not_found(原 not_found,T11 语义化)。"""
-        r = self.client.patch("/api/sources/nosuchsrc", json={"enabled": False})
+    def test_patch_unknown_source_semantic(self, client_as_admin):
+        """PATCH 未知源 → source_not_found(原 not_found,T11 语义化)。
+        Task 3 起 PATCH 要超管 → 登录 client。"""
+        r = client_as_admin.patch("/api/sources/nosuchsrc", json={"enabled": False})
         assert r.status_code == 404
         assert r.json()["error"]["code"] == "source_not_found"
 
@@ -108,9 +109,9 @@ class TestErrorEnvelope:
         assert r.status_code == 400
         assert r.json()["error"]["code"] == "bad_request"
 
-    def test_validation_422_envelope(self):
+    def test_validation_422_envelope(self, client_as_admin):
         """RequestValidationError 也信封化,字段级错误进 detail。"""
-        r = self.client.patch("/api/sources/otx", json={})
+        r = client_as_admin.patch("/api/sources/otx", json={})
         assert r.status_code == 422
         body = r.json()["error"]
         assert body["code"] == "validation_error"
@@ -136,12 +137,12 @@ class TestErrorEnvelope:
         assert "retry_after" not in body
         assert r.headers["x-ipradar-reason"] == "no-sources"
 
-    def test_eval_busy_409_envelope(self):
+    def test_eval_busy_409_envelope(self, client_as_admin):
         import main
         from ipdb._eval_manager import EvalBusyError
         with patch.object(main.eval_manager, "run",
                           side_effect=EvalBusyError("otx")):
-            r = self.client.post("/api/eval/otx/run")
+            r = client_as_admin.post("/api/eval/otx/run")
         assert r.status_code == 409
         body = r.json()["error"]
         assert body["code"] == "eval_busy"  # T11 语义化(原 conflict)

@@ -71,6 +71,23 @@ _ERRS_SOURCE = {**_ERRS_422_500,
                 "404": {"model": ErrorEnvelope, "description": "unknown source"}}
 
 
+# ── admin 门依赖(spec 2026-09-21 §6;路由 mount 与管理端点锁共用)──
+# admin 未配置 → 503 admin_disabled(fail-closed)。依赖顺序约定:
+# require_admin_configured → current_superuser → 路由自己的 require_ready,
+# 即 503 优先于 401/403,认证优先于 warming 503(plan Global Constraint)。
+def require_admin_configured():
+    if not _ipdb_auth.admin_configured():
+        raise ApiError(
+            ErrorCode.admin_disabled,
+            "admin not configured: set IP_RADAR_ADMIN_PASSWORD and restart")
+    return None
+
+
+# Task 3:管理端点(含 /api/events SSE)全部要求超管 cookie。
+_ADMIN_DEPS = [Depends(require_admin_configured),
+               Depends(_ipdb_auth.current_superuser)]
+
+
 async def _read_upload_capped(file: UploadFile, cap: int) -> bytes:
     """分块读上传体,累计超 cap 立即 400(chunked 传输不带 Content-Length,
     中间件挡不到这条路)。"""
@@ -737,6 +754,7 @@ def _offline_enabled_names():
 
 
 @app.post("/api/update-db", response_model=UpdateDbOut,
+           dependencies=[*_ADMIN_DEPS],
            responses=_ERRS_422_500)
 async def update_db():
     """Refresh ALL enabled offline sources, regardless of staleness.
@@ -754,6 +772,7 @@ async def update_db():
 
 
 @app.post("/api/update-db/cancel", response_model=AckOut,
+           dependencies=[*_ADMIN_DEPS],
            responses=_ERRS_422_500)
 async def update_db_cancel():
     manager.cancel_batch(manager._active_batch)
@@ -761,6 +780,7 @@ async def update_db_cancel():
 
 
 @app.post("/api/update-db/pause", response_model=AckOut,
+           dependencies=[*_ADMIN_DEPS],
            responses=_ERRS_422_500)
 async def update_db_pause():
     manager.pause()
@@ -768,6 +788,7 @@ async def update_db_pause():
 
 
 @app.post("/api/update-db/resume", response_model=AckOut,
+           dependencies=[*_ADMIN_DEPS],
            responses=_ERRS_422_500)
 async def update_db_resume():
     manager.resume()
@@ -843,6 +864,7 @@ async def list_sources_route():
 
 
 @app.patch("/api/sources/{name}", response_model=SourceInfoOut,
+           dependencies=[*_ADMIN_DEPS],
            responses=_ERRS_SOURCE)
 async def set_source_enabled_route(name: str, patch: SourceEnabledPatch):
     try:
@@ -852,6 +874,7 @@ async def set_source_enabled_route(name: str, patch: SourceEnabledPatch):
 
 
 @app.post("/api/sources/{name}/update", response_model=TaskAcceptedOut,
+           dependencies=[*_ADMIN_DEPS],
            responses=_ERRS_SOURCE)
 async def update_source_route(name: str):
     # internal 源(sentinel)不可手动触发重建:与 PATCH/eval 同款 404 守卫(F4)。
@@ -898,7 +921,7 @@ async def eval_detail_route(source: str):
 
 @app.post("/api/eval/{source}/run", status_code=202,
           response_model=EvalJobAcceptedOut,
-          dependencies=[Depends(require_ready)],
+          dependencies=[*_ADMIN_DEPS, Depends(require_ready)],
           responses={"404": {"model": ErrorEnvelope,
                             "description": "unknown source"},
                      "409": {"model": ErrorEnvelope,
@@ -917,6 +940,7 @@ async def eval_run_route(source: str):
 
 
 @app.post("/api/tasks/{task_id}/cancel", response_model=AckOut,
+           dependencies=[*_ADMIN_DEPS],
            responses=_ERRS_422_500)
 async def cancel_task_route(task_id: str):
     manager.cancel(task_id)
@@ -924,6 +948,7 @@ async def cancel_task_route(task_id: str):
 
 
 @app.get("/api/tasks", response_model=TasksSnapshotOut,
+          dependencies=[*_ADMIN_DEPS],
           responses=_ERRS_422_500)
 async def tasks_snapshot():
     """Point-in-time snapshot of in-flight tasks + active batch."""
@@ -931,6 +956,7 @@ async def tasks_snapshot():
 
 
 @app.get("/api/events",
+          dependencies=[*_ADMIN_DEPS],
           summary="SSE task/batch event stream",
           description="Server-Sent Events: `data: <json>` per event. First "
           "event is {type:'snapshot', data:{tasks,batch}}; then task/batch "
@@ -1036,18 +1062,9 @@ async def api_update_status():
 
 # ── admin 认证路由(spec 2026-09-21 §6;必须在静态 mount 之前挂)──
 # POST /api/auth/jwt/login|logout + /api/users/*(me 与库默认的 /{id} 管理,
-# /{id} 自带超管门)。未配置 admin → 全部 503 admin_disabled(fail-closed):
-# router 级依赖先于路由内的 current_superuser/current_user → 503 优先于 401/403。
+# /{id} 自带超管门)。require_admin_configured 定义见上方 admin 门依赖块。
 # fastapi-users 自抛的裸 HTTPException(400 错误密码/401 未登录)由全局
 # StarletteHTTPException handler 落信封(_HTTP_FALLBACK_CODE 已覆盖)。
-def require_admin_configured():
-    if not _ipdb_auth.admin_configured():
-        raise ApiError(
-            ErrorCode.admin_disabled,
-            "admin not configured: set IP_RADAR_ADMIN_PASSWORD and restart")
-    return None
-
-
 app.include_router(
     _ipdb_auth.app_users.get_auth_router(_ipdb_auth.auth_backend),
     prefix="/api/auth/jwt",

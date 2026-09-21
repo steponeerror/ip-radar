@@ -122,10 +122,9 @@ def test_scheduler_scan_never_enqueues_sentinel(tmp_path, monkeypatch):
     assert mgr.enqueued == []
 
 
-def test_update_source_route_404_for_internal(monkeypatch):
+def test_update_source_route_404_for_internal(monkeypatch, client_as_admin):
     # F4 补口:manual re-embed 触发点(POST /api/sources/{name}/update)对
     # internal 源必须与 PATCH/eval 同款 404。manager 用记录桩,红跑零副作用。
-    from fastapi.testclient import TestClient
     import main as main_mod
     monkeypatch.setattr(main_mod._ipdb_registry, "_find_source",
                         lambda n: _FakeCanary() if n == "sentinel" else None)
@@ -140,12 +139,11 @@ def test_update_source_route_404_for_internal(monkeypatch):
 
     stub = _Mgr()
     monkeypatch.setattr(main_mod, "manager", stub)
-    client = TestClient(main_mod.app)
-    assert client.post("/api/sources/sentinel/update").status_code == 404
+    assert client_as_admin.post("/api/sources/sentinel/update").status_code == 404
     assert stub.calls == []
 
 
-def test_eval_routes_404_for_internal(monkeypatch):
+def test_eval_routes_404_for_internal(monkeypatch, client_as_admin):
     # main 模块导入方式照抄 backend/tests/core/test_main_routes.py
     from fastapi.testclient import TestClient
     import main as main_mod
@@ -155,8 +153,9 @@ def test_eval_routes_404_for_internal(monkeypatch):
     monkeypatch.setattr(main_mod._ipdb_registry, "_find_source",
                         lambda n: _FakeCanary() if n == "sentinel" else None)
     client = TestClient(main_mod.app)
-    assert client.get("/api/eval/sentinel").status_code == 404
-    assert client.post("/api/eval/sentinel/run").status_code == 404
+    assert client.get("/api/eval/sentinel").status_code == 404  # GET 未加锁
+    # POST run Task 3 起要超管 → 登录 client,404 守卫语义不变
+    assert client_as_admin.post("/api/eval/sentinel/run").status_code == 404
 
 
 def test_all_real_disabled_is_not_warming(monkeypatch):

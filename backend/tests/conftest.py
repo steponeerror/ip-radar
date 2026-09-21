@@ -1,7 +1,13 @@
 """Shared test fixtures/helpers for the ipdb test suite."""
+import asyncio
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
+
+# admin 认证 fixture 常量(Task 3):bootstrap_admin 的默认邮箱 + 测试密码。
+ADMIN_EMAIL = "admin@ipradar.local"
+ADMIN_PASSWORD = "s3cret-pass-123"
 
 
 def build_lmdb(records, base):
@@ -61,3 +67,34 @@ def tiny_db_v6(tmp_path, monkeypatch):
     monkeypatch.setattr(_registry, "_sources", _registry._discover_sources(tmp_path))
     load_db()  # 真实引用(绕开 _tiny_db 的 no-op pin)
     monkeypatch.setattr(_registry, "load_db", lambda: None)
+
+
+# ── admin 认证 fixtures(顶层共享:tests/auth 之外的核心路由测试也用)──
+# controller ruling:目录级 conftest 不可见 → 单一定义点放顶层。
+@pytest.fixture()
+def auth_env(tmp_path, monkeypatch):
+    """隔离的 auth db + 已配置 admin 密码。只被 auth_client/client_as_admin
+    依赖(惰性),不用 auth 的测试看不到任何 env 变化。"""
+    monkeypatch.setenv("IP_RADAR_AUTH_DB", str(tmp_path / "auth.db"))
+    monkeypatch.setenv("IP_RADAR_ADMIN_PASSWORD", ADMIN_PASSWORD)
+
+
+@pytest.fixture()
+def auth_client(auth_env):
+    """未登录 TestClient。auth db 已 init+bootstrap(Task 2 模式:不进
+    `with` — lifespan 重活不跑;https base_url 让 Secure cookie 可回发)。"""
+    import main  # noqa: F401  (import 触发 app 组装;惰性 — 非 auth 测试不受影响)
+    from ipdb import _auth
+    asyncio.run(_auth.init_auth_db())
+    asyncio.run(_auth.bootstrap_admin())
+    return TestClient(main.app, base_url="https://testserver")
+
+
+@pytest.fixture()
+def client_as_admin(auth_client):
+    """登录超管后的同一 client(管理端点 Task 3 起全部要求超管 cookie)。"""
+    r = auth_client.post("/api/auth/jwt/login",
+                         data={"username": ADMIN_EMAIL,
+                               "password": ADMIN_PASSWORD})
+    assert r.status_code == 204  # CookieTransport 契约:204 No Content
+    return auth_client

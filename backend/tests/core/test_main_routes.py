@@ -57,18 +57,18 @@ class TestLookupResponseShape:
         assert "ipv6_unsupported" in done
         assert "enrich_error" not in done   # D1: enricher dead contract removed
 
-    def test_update_db_skips_when_no_offline_sources(self):
+    def test_update_db_skips_when_no_offline_sources(self, client_as_admin):
         """Refresh-all enqueues nothing when there are no enabled offline
         sources. Returns refreshed=0 so the UI can show 'nothing to do'."""
         import main
         with patch.object(main, "_offline_enabled_names", return_value=[]), \
              patch.object(main.manager, "enqueue_batch") as mock_enq:
-            resp = self.client.post("/api/update-db")
+            resp = client_as_admin.post("/api/update-db")
         assert resp.status_code == 200
         assert resp.json() == {"batch_id": None, "refreshed": 0}
         mock_enq.assert_not_called()
 
-    def test_update_db_enqueues_all_offline_sources(self):
+    def test_update_db_enqueues_all_offline_sources(self, client_as_admin):
         """Refresh-all enqueues EVERY enabled offline source regardless of
         staleness (the MemoryValve gates rebuild concurrency, so a full batch
         is safe)."""
@@ -79,7 +79,7 @@ class TestLookupResponseShape:
             return "batch-id-1"
         with patch.object(main, "_offline_enabled_names", return_value=["alpha", "beta"]), \
              patch.object(main.manager, "enqueue_batch", side_effect=_capture):
-            resp = self.client.post("/api/update-db")
+            resp = client_as_admin.post("/api/update-db")
         assert resp.status_code == 200
         body = resp.json()
         assert body["batch_id"] == "batch-id-1"
@@ -351,12 +351,14 @@ class TestWarmingUpGate:
             r = self.client.get("/api/lookup/8.8.8.8")
             assert r.status_code == 200
 
-    def test_non_query_endpoints_not_gated(self):
-        """db-status, tasks, sources, update-db remain reachable when warming."""
+    def test_non_query_endpoints_not_gated(self, client_as_admin):
+        """db-status, tasks, sources, update-db remain reachable when warming.
+        Task 3 起 tasks/update-db 要超管 → 用登录 client 验 ready 门;
+        db-status/sources 仍公共可匿名。"""
         import main
         with patch("ipdb._registry._db_loaded", return_value=False):
             assert self.client.get("/api/db-status").status_code == 200
-            assert self.client.get("/api/tasks").status_code == 200
+            assert client_as_admin.get("/api/tasks").status_code == 200
             assert self.client.get("/api/sources").status_code == 200
 
     def test_integral_window_503_while_coverage_building(self):

@@ -130,28 +130,28 @@ class TestEvalRoutes:
 
     # ── POST /api/eval/{source}/run ──
 
-    def test_run_unknown_source_404(self, tmp_path, monkeypatch):
+    def test_run_unknown_source_404(self, tmp_path, monkeypatch, client_as_admin):
         monkeypatch.setenv("IP_RADAR_EVAL_DIR", str(tmp_path))
-        assert self.client.post("/api/eval/nosuchsrc/run").status_code == 404
+        assert client_as_admin.post("/api/eval/nosuchsrc/run").status_code == 404
 
-    def test_run_accepted_202(self, tmp_path, monkeypatch):
+    def test_run_accepted_202(self, tmp_path, monkeypatch, client_as_admin):
         import main
         monkeypatch.setenv("IP_RADAR_EVAL_DIR", str(tmp_path))
         with patch.object(main.eval_manager, "run",
                           return_value={"job_id": "abc123", "source": "spamhaus",
                                         "state": "running"}) as m:
-            r = self.client.post("/api/eval/spamhaus/run")
+            r = client_as_admin.post("/api/eval/spamhaus/run")
         assert r.status_code == 202
         assert r.json() == {"job_id": "abc123"}
         m.assert_called_once_with("spamhaus")
 
-    def test_run_busy_409(self, tmp_path, monkeypatch):
+    def test_run_busy_409(self, tmp_path, monkeypatch, client_as_admin):
         import main
         from ipdb._eval_manager import EvalBusyError
         monkeypatch.setenv("IP_RADAR_EVAL_DIR", str(tmp_path))
         with patch.object(main.eval_manager, "run",
                           side_effect=EvalBusyError("otx")):
-            r = self.client.post("/api/eval/spamhaus/run")
+            r = client_as_admin.post("/api/eval/spamhaus/run")
         assert r.status_code == 409
         assert "otx" in r.json()["error"]["message"]
 
