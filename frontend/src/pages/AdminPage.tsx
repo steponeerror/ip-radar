@@ -3,8 +3,11 @@ import { useI18n } from "../i18n";
 import { useAdminSession, type LoginOutcome } from "../admin/AdminSession";
 import { TaskProvider, useTasks } from "../tasks/TaskProvider";
 import { BatchPanel } from "../admin/BatchPanel";
+import { BatchMiniBar } from "../admin/BatchMiniBar";
 import KeysSection from "../admin/KeysSection";
 import SourcesPage from "./SourcesPage";
+import { ThemeToggle } from "../components/ThemeToggle";
+import { LocaleSwitcher } from "../components/LocaleSwitcher";
 import type { AdminUserRead } from "../api";
 
 // 错误文案优先信封 message;429 换限流文案(retry_after 秒数);
@@ -54,6 +57,10 @@ function AdminShell({ user, onLogout, onUnauthorized }: {
       <div className="flex items-center justify-between gap-4">
         <h1 className="text-xl font-bold tracking-tight text-zinc-100">IP Radar Admin</h1>
         <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <ThemeToggle />
+            <LocaleSwitcher />
+          </div>
           <span className="text-sm text-zinc-500">{user.email}</span>
           <button
             type="button"
@@ -80,6 +87,7 @@ function AdminShell({ user, onLogout, onUnauthorized }: {
             </button>
           ))}
         </div>
+        <BatchMiniBar onOpen={() => setTab("tasks")} />
       </nav>
       <div className="mt-6">
         {tab === "sources" && (
@@ -123,8 +131,15 @@ export default function AdminPage() {
 
   return (
     <div>
-      {/* 品牌行落在 AdminPage(admin-main.tsx 只留框)——登录态与登录后壳同头 */}
-      <h1 className="mb-6 text-xl font-bold tracking-tight text-zinc-100">IP Radar Admin</h1>
+      {/* 品牌行落在 AdminPage(admin-main.tsx 只留框)——登录态与登录后壳同头;
+          右缘常驻主题/语言切换器(独立文档无公开页导航可借,恢复/写入共享 localStorage) */}
+      <div className="mb-6 flex items-center justify-between gap-4">
+        <h1 className="text-xl font-bold tracking-tight text-zinc-100">IP Radar Admin</h1>
+        <div className="flex items-center gap-2">
+          <ThemeToggle />
+          <LocaleSwitcher />
+        </div>
+      </div>
       <div className="mx-auto mt-10 max-w-sm">
         <form onSubmit={onSubmit} className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-6">
           <label className="block text-xs text-zinc-500" htmlFor="admin-email">{t("admin.email")}</label>
