@@ -56,7 +56,9 @@ http://127.0.0.1:8000/api/lookup/*
 - Type: **HTTP JSONPath**
 - URL: `http://127.0.0.1:8000/api/lookup/${key}`
 - Single value JSONPath: `$.threat.verdict`
-- (optional) HTTP headers: none needed — the API is auth-free on localhost
+- HTTP headers: `Authorization: Bearer <api-key>` — programmatic API access
+  needs an API key issued from IP Radar's `/admin`; only the same-origin
+  web page is keyless
 - Refresh: never (IP Radar data refreshes itself in the background)
 
 Test with `141.98.10.63` → expect `malicious`.
@@ -116,5 +118,6 @@ end
   evidence" as a valid answer, not a lookup failure.
 - Reserved/private ranges (RFC1918, loopback) return `benign` with
   `is_reserved: true`; see `/api/lookup/10.0.0.1` to inspect.
-- The API is unauthenticated by design — keep it bound to localhost /
+- Programmatic API access requires an API key (Bearer, issued from `/admin`);
+  only the same-origin web page needs none. Keep it bound to localhost /
   a private network (same rule as IP Radar itself).

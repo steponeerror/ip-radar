@@ -26,6 +26,10 @@ Wazuh alert (with data.src_ip)
 Benign IPs produce **no** follow-up (noise control). IP Radar down?
 The script skips enrichment and alerting continues untouched.
 
+> Note: IP Radar builds with API auth enabled require an API key (Bearer,
+> issued from `/admin`) for programmatic lookups — this script included.
+> Pre-auth builds need none; only the same-origin web page stays keyless.
+
 ## Install
 
 1. IP Radar running on the Wazuh manager host (or reachable from it):
