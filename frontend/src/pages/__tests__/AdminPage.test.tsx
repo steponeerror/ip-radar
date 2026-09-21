@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { screen, fireEvent, waitFor } from "@testing-library/react";
 import AdminPage from "../AdminPage";
+import { getTasks } from "../../api";
 import { renderWithI18n } from "../../test/i18nTestUtils";
 
 // Controller-amended mock sequence (Task 2 backend contract):
@@ -86,6 +87,38 @@ describe("AdminPage", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Tasks" }));
     expect(screen.queryByRole("button", { name: "Create key" })).toBeNull();
     expect(screen.queryByText(/no sources discovered/i)).toBeNull();
+  });
+
+  it("running batch shows sticky mini progress bar on any tab; click jumps to Tasks", async () => {
+    vi.mocked(getTasks).mockResolvedValueOnce({
+      tasks: [{ id: "t1", source: "firehol_level2", host: null, state: "downloading", error: null, batch_id: "b1", received: 500000, total: 1000000 }],
+      batch: { id: "b1", state: "running", done: 3, total: 12 },
+    } as any);
+    mockFetch.mockResolvedValueOnce(me200);
+    renderWithI18n(<AdminPage />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Sign out" })).toBeTruthy());
+    // 默认 sources tab 上,迷你进度条常驻(sticky 区)
+    const mini = await screen.findByText(/Updating 3\/12/);
+    // 点击 → 跳任务 tab,完整 BatchPanel(暂停按钮)在场
+    fireEvent.click(mini.closest("button")!);
+    expect(screen.getByRole("tab", { name: "Tasks" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("button", { name: "Pause" })).toBeTruthy();
+  });
+
+  it("header carries theme + locale switchers in BOTH login and shell states", async () => {
+    // 登录态:语言/主题切换器必须在场(admin 独立文档不再有公开页导航可借)
+    mockFetch.mockResolvedValueOnce(me401);
+    const { unmount } = renderWithI18n(<AdminPage />);
+    await screen.findByLabelText("Email");
+    expect(screen.getByRole("group", { name: "theme" })).toBeTruthy();
+    expect(screen.getByRole("group", { name: "language" })).toBeTruthy();
+    unmount();
+    // 登录后壳态:同一对切换器在场(头排右缘)
+    mockFetch.mockResolvedValueOnce(me200);
+    renderWithI18n(<AdminPage />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Sign out" })).toBeTruthy());
+    expect(screen.getByRole("group", { name: "theme" })).toBeTruthy();
+    expect(screen.getByRole("group", { name: "language" })).toBeTruthy();
   });
 
   it("shows the login-failed message from the error envelope", async () => {
