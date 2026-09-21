@@ -66,7 +66,7 @@ docker compose build --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn
 Notes:
 
 - The port binds to `127.0.0.1` by default; to go LAN/public, edit `ports` in `docker-compose.yml` — same-origin web use needs no key; programmatic/API access requires an API key issued from `/admin` (unlock it via the admin env block in `docker-compose.yml`).
-- Behind a reverse proxy set `IP_RADAR_PROXY_HEADERS=1` (see `docker-compose.yml`) — otherwise per-IP rate limits only see the proxy IP.
+- Behind a reverse proxy set `IP_RADAR_PROXY_HEADERS=1` (trusted proxies default `172.16.0.0/12`, override via `IP_RADAR_FORWARDED_ALLOW_IPS`, see `docker-compose.yml`) — otherwise per-IP rate limits only see the proxy IP.
 - Each feed has its own usage terms; commercial use is your responsibility (this repo's AGPL-3.0 covers code only).
 - Upgrade: `git pull && docker compose up -d --build` — the data volume stays right where it is.
 - Disk: budget ≥6 GB for the data volume.

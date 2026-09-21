@@ -70,7 +70,7 @@ docker compose build --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn
 注意：
 
 - 端口默认只绑 `127.0.0.1`；要上局域网/公网，改 `docker-compose.yml` 的 `ports`——同源网页使用免 key；程序化/API 调用需要 `/admin` 签发的 API key（在 `docker-compose.yml` 的管理员 env 注释块里解锁）。
-- 反代部署时设置 `IP_RADAR_PROXY_HEADERS=1`（见 `docker-compose.yml`）——否则 per-IP 限流只能看到代理 IP。
+- 反代部署时设置 `IP_RADAR_PROXY_HEADERS=1`（受信代理默认 `172.16.0.0/12`，可用 `IP_RADAR_FORWARDED_ALLOW_IPS` 覆盖，见 `docker-compose.yml`）——否则 per-IP 限流只能看到代理 IP。
 - 各源有自己的使用条款，商用责任自负（本仓库的 AGPL-3.0 只管代码）。
 - 升级：`git pull && docker compose up -d --build`，数据卷原地保留。
 - 磁盘：给数据卷留够 ≥6 GB。
