@@ -9,6 +9,9 @@ from fastapi.testclient import TestClient
 ADMIN_EMAIL = "admin@ipradar.local"
 ADMIN_PASSWORD = "s3cret-pass-123"
 
+# API key JWT secret(Task 4):conftest fixture 与用例内伪造 token 共用同值。
+KEY_JWT_SECRET = "x" * 48
+
 
 def build_lmdb(records, base):
     """测试构库:rebuild 后立即关闭 env,避免同进程双开。"""
@@ -98,3 +101,11 @@ def client_as_admin(auth_client):
                                "password": ADMIN_PASSWORD})
     assert r.status_code == 204  # CookieTransport 契约:204 No Content
     return auth_client
+
+
+# ── API key fixtures(Task 4):_apikeys 全链路;后续密钥管理端点任务复用 ──
+@pytest.fixture()
+def key_env(tmp_path, monkeypatch):
+    """隔离 auth db + 已配置 JWT secret(≥32B)——issue/verify/dep 可用。"""
+    monkeypatch.setenv("IP_RADAR_AUTH_DB", str(tmp_path / "auth.db"))
+    monkeypatch.setenv("IP_RADAR_API_JWT_SECRET", KEY_JWT_SECRET)

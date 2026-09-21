@@ -37,6 +37,7 @@ from ipdb import _batch_pool
 from ipdb._cidr import expand_inputs
 from ipdb import _registry as _ipdb_registry
 from ipdb import _auth as _ipdb_auth
+from ipdb import _apikeys as _ipdb_apikeys  # noqa: F401  (ApiKeyMeta 注册进 Base.metadata,lifespan init_auth_db 建表)
 from ipdb import _update as _ipdb_update
 from ipdb import _version as _ipdb_version
 from ipdb._eval_manager import EvalManager, EvalBusyError
