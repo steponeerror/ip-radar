@@ -43,10 +43,10 @@ from ipdb import _version as _ipdb_version
 from ipdb._eval_manager import EvalManager, EvalBusyError
 from ipdb._eval_reader import read_model, read_overview, read_source
 from ipdb._api_models import (
-    AckOut, BatchOut, DbStatusOut, ErrorEnvelope, EvalDetailOut,
-    EvalJobAcceptedOut, EvalModelOut, EvalOverviewOut, LookupResultOut,
-    SourceInfoOut, TaskAcceptedOut, TasksSnapshotOut,
-    UpdateAcceptedOut, UpdateDbOut, UpdateStateOut, VersionOut,
+    AckOut, ApiKeyCreateIn, ApiKeyCreatedOut, ApiKeyOut, BatchOut, DbStatusOut,
+    ErrorEnvelope, EvalDetailOut, EvalJobAcceptedOut, EvalModelOut,
+    EvalOverviewOut, LookupResultOut, SourceInfoOut, TaskAcceptedOut,
+    TasksSnapshotOut, UpdateAcceptedOut, UpdateDbOut, UpdateStateOut, VersionOut,
 )
 from ipdb._errors import (
     ApiError, ErrorCode, RETRY_AFTER_WARMING, envelope,
@@ -1077,6 +1077,68 @@ app.include_router(
     prefix="/api/users",
     dependencies=[Depends(require_admin_configured)],
 )
+
+
+# ── admin API key 管理(spec 2026-09-21 §7;契约对 Task 9 前端 FROZEN)──
+# keys-disabled 语义(spec §7.1):仅 POST(签发)503 admin_disabled ——
+# issue_key 内部 _require_keys_enabled 托底;GET/PATCH/DELETE 照常工作:
+# 吊销/清理在 keys 禁用时仍须可用,元数据查看无害。完整 JWT 仅 POST 201
+# 响应出现一次;list/PATCH 只回元数据,绝不回 token 本体。
+class ApiKeyPatchIn(BaseModel):
+    disabled: bool
+
+
+async def _key_meta_by_sub(sub: str) -> dict | None:
+    """按 sub 取元数据行(list_keys 过滤;key 量级 = 管理员手签,全表扫可接受)。"""
+    return next((k for k in await _ipdb_apikeys.list_keys() if k["sub"] == sub),
+                None)
+
+
+@app.post("/api/admin/keys", status_code=201, response_model=ApiKeyCreatedOut,
+          dependencies=[*_ADMIN_DEPS],
+          responses={"503": {"model": ErrorEnvelope,
+                             "description": "API keys disabled (secret unset/<32B)"},
+                     **_ERRS_422_500})
+async def admin_create_key(payload: ApiKeyCreateIn):
+    meta, token = await _ipdb_apikeys.issue_key(
+        payload.name, expires_days=payload.expires_days or 180)
+    # issue_key 的 meta 只有 {sub,name};201 契约要完整行 → 插入后按 sub 取回
+    return {"key": token, "meta": await _key_meta_by_sub(meta["sub"])}
+
+
+@app.get("/api/admin/keys", response_model=list[ApiKeyOut],
+          dependencies=[*_ADMIN_DEPS],
+          responses=_ERRS_422_500)
+async def admin_list_keys():
+    """全量密钥元数据,created_at 倒序。"""
+    return await _ipdb_apikeys.list_keys()
+
+
+@app.patch("/api/admin/keys/{sub}", response_model=ApiKeyOut,
+           dependencies=[*_ADMIN_DEPS],
+           responses={"404": {"model": ErrorEnvelope,
+                              "description": "unknown API key"},
+                      **_ERRS_422_500})
+async def admin_patch_key(sub: str, patch: ApiKeyPatchIn):
+    if await _key_meta_by_sub(sub) is None:
+        raise ApiError(ErrorCode.source_not_found, f"unknown API key: {sub}")
+    await _ipdb_apikeys.set_disabled(sub, patch.disabled)
+    row = await _key_meta_by_sub(sub)
+    if row is None:  # 极窄并发窗:检查后被删 —— 回 404 而非验证 500
+        raise ApiError(ErrorCode.source_not_found, f"unknown API key: {sub}")
+    return row
+
+
+@app.delete("/api/admin/keys/{sub}", status_code=204,
+            dependencies=[*_ADMIN_DEPS],
+            responses={"404": {"model": ErrorEnvelope,
+                               "description": "unknown API key"},
+                       **_ERRS_422_500})
+async def admin_delete_key(sub: str):
+    if await _key_meta_by_sub(sub) is None:
+        raise ApiError(ErrorCode.source_not_found, f"unknown API key: {sub}")
+    await _ipdb_apikeys.delete_key(sub)
+
 
 _env_static = os.environ.get("IP_RADAR_STATIC_DIR")
 if _env_static:

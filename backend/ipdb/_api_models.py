@@ -6,9 +6,10 @@ _eval_reader 等)。所有模型 extra="allow":dynamic 内层(current layout、
 STIX bundle、eval latest 原始报告)保持 dict/Any,漏建模的键也不丢,
 response_model 不会静默过滤掉未声明字段。
 """
+from datetime import datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel, ConfigDict, model_serializer
+from pydantic import BaseModel, ConfigDict, Field, model_serializer
 
 
 class _Out(BaseModel):
@@ -216,6 +217,28 @@ class EvalModelOut(_Out):
 
 
 # ── 系统 ──
+# ── admin API key 管理(spec 2026-09-21 §7;契约对 Task 9 前端 FROZEN)──
+class ApiKeyCreateIn(BaseModel):
+    """POST /api/admin/keys 入参(严格模型:多余输入字段 422,非 _Out 透传)。"""
+    name: str = Field(min_length=1)
+    expires_days: Optional[int] = None
+
+
+class ApiKeyOut(_Out):
+    """密钥元数据 —— 绝不含 JWT 本体(list 单项 / PATCH 返回形状)。"""
+    sub: str
+    name: str
+    created_at: datetime
+    last_used_at: Optional[datetime] = None
+    disabled: bool
+
+
+class ApiKeyCreatedOut(_Out):
+    """POST /api/admin/keys 201 —— 完整 key 仅此一次出现。"""
+    key: str
+    meta: ApiKeyOut
+
+
 class VersionOut(_Out):
     current: str
     latest: Optional[str] = None

@@ -21,7 +21,7 @@ STREAM = {"/api/query/stream", "/api/upload/stream", "/api/events"}
 # fastapi-users 库路由(Task 2):错误声明不经 ErrorEnvelope,见模块 docstring。
 AUTH_LIB = {"/api/auth/jwt/login", "/api/auth/jwt/logout",
             "/api/users/me", "/api/users/{id}"}
-BUSINESS_ROUTES = 23
+BUSINESS_ROUTES = 25
 
 
 class TestOpenAPIContract:
@@ -42,13 +42,16 @@ class TestOpenAPIContract:
                 responses = op.get("responses", {})
                 if "204" in responses:
                     continue  # 204 No Content:body 设计为空(fastapi-users cookie 会话)
-                resp = responses.get("200") or responses.get("202")
+                # Task 5:POST /api/admin/keys 成功码是 201 Created ——
+                # 成功查找含 201(REST 惯例:创建型端点返回 201 而非 200)
+                resp = responses.get("200") or responses.get("201") \
+                    or responses.get("202")
                 assert resp, f"{method} {path} 无成功响应声明"
                 assert "schema" in json.dumps(resp), \
                     f"{method} {path} 成功响应无 schema"
 
     def test_paths_count_matches_routes(self):
-        """23 业务(含 Task 2 admin 认证 4 路径)+ 3 流式;多/少挂一个立刻红(防漂移)。"""
+        """25 业务(含 Task 2 认证 4 + Task 5 key 管理 2 路径)+ 3 流式;多/少挂一个立刻红(防漂移)。"""
         assert len(self.spec["paths"]) == BUSINESS_ROUTES + len(STREAM)
         assert AUTH_LIB <= set(self.spec["paths"]), "admin 认证路径缺失/改名"
 
@@ -80,8 +83,8 @@ class TestOpenAPIContract:
                         f"{method} {path} {status} 错误响应未引用信封 schema"
 
     def test_business_endpoints_have_response_model(self):
-        """24 业务端点 200/202 schema 都指向具体模型(非空 object);
-        204 成功的库路由(cookie 会话)无 body,不计。"""
+        """业务端点 200/201/202 schema 都指向具体模型(非空 object);
+        204 成功的库路由(cookie 会话)与 DELETE /api/admin/keys 无 body,不计。"""
         for path, ops in self.spec["paths"].items():
             if path in STREAM:
                 continue
@@ -91,7 +94,9 @@ class TestOpenAPIContract:
                 responses = op.get("responses", {})
                 if "204" in responses:
                     continue  # 204 No Content:cookie 会话登录/登出/DELETE
-                resp = responses.get("200") or responses.get("202")
+                # 201:POST /api/admin/keys 创建型成功码(Task 5)
+                resp = responses.get("200") or responses.get("201") \
+                    or responses.get("202")
                 s = json.dumps(resp)
                 assert "$ref" in s or "properties" in s or \
                     "additionalProperties" in s, \
