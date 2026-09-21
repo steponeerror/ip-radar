@@ -36,6 +36,7 @@ from ipdb import (
 from ipdb import _batch_pool
 from ipdb._cidr import expand_inputs
 from ipdb import _registry as _ipdb_registry
+from ipdb import _auth as _ipdb_auth
 from ipdb import _update as _ipdb_update
 from ipdb import _version as _ipdb_version
 from ipdb._eval_manager import EvalManager, EvalBusyError
@@ -524,6 +525,10 @@ async def lifespan(app: FastAPI):
             logging.getLogger(__name__).warning(f"batch pool init failed: {e}; inline mode")
             pool = None
     _batch_pool.set_pool(pool)
+    # admin 认证层(spec 2026-09-21 §6):幂等建表 + 引导 admin(无密码环境变量
+    # 则不建,路由层 fail-closed 503)。放在启动段末尾,不阻塞查询门。
+    await _ipdb_auth.init_auth_db()
+    await _ipdb_auth.bootstrap_admin()
     try:
         yield
     finally:
@@ -1028,6 +1033,32 @@ async def api_update(authorization: str = Header(default="")):
           responses=_ERRS_422_500)
 async def api_update_status():
     return _ipdb_update.state()
+
+# ── admin 认证路由(spec 2026-09-21 §6;必须在静态 mount 之前挂)──
+# POST /api/auth/jwt/login|logout + /api/users/*(me 与库默认的 /{id} 管理,
+# /{id} 自带超管门)。未配置 admin → 全部 503 admin_disabled(fail-closed):
+# router 级依赖先于路由内的 current_superuser/current_user → 503 优先于 401/403。
+# fastapi-users 自抛的裸 HTTPException(400 错误密码/401 未登录)由全局
+# StarletteHTTPException handler 落信封(_HTTP_FALLBACK_CODE 已覆盖)。
+def require_admin_configured():
+    if not _ipdb_auth.admin_configured():
+        raise ApiError(
+            ErrorCode.admin_disabled,
+            "admin not configured: set IP_RADAR_ADMIN_PASSWORD and restart")
+    return None
+
+
+app.include_router(
+    _ipdb_auth.app_users.get_auth_router(_ipdb_auth.auth_backend),
+    prefix="/api/auth/jwt",
+    dependencies=[Depends(require_admin_configured)],
+)
+app.include_router(
+    _ipdb_auth.app_users.get_users_router(
+        _ipdb_auth.UserRead, _ipdb_auth.UserUpdate),
+    prefix="/api/users",
+    dependencies=[Depends(require_admin_configured)],
+)
 
 _env_static = os.environ.get("IP_RADAR_STATIC_DIR")
 if _env_static:

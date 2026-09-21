@@ -17,6 +17,10 @@ class ErrorCode(str, Enum):
     source_not_found = "source_not_found"
     eval_busy = "eval_busy"
     internal = "internal"
+    unauthorized = "unauthorized"        # 401 未登录/凭证失效
+    forbidden = "forbidden"              # 403 已登录但非超管
+    admin_disabled = "admin_disabled"    # 503 fail-closed:admin 未配置
+    rate_limited = "rate_limited"        # 429 限流
 
 
 # 语义码 → HTTP 状态(ApiError.status 的唯一真相)
@@ -25,6 +29,10 @@ _STATUS: dict = {
     ErrorCode.source_not_found: 404,
     ErrorCode.eval_busy: 409,
     ErrorCode.internal: 500,
+    ErrorCode.unauthorized: 401,
+    ErrorCode.forbidden: 403,
+    ErrorCode.admin_disabled: 503,
+    ErrorCode.rate_limited: 429,
 }
 
 

@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.pool import NullPool
 
 from . import _registry
 
@@ -61,7 +62,11 @@ def _engine() -> AsyncEngine:
     eng = _engines.get(key)
     if eng is None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        eng = create_async_engine(f"sqlite+aiosqlite:///{path}")
+        # ponytail: NullPool(每会话新连接)—— sqlite 文件库 + admin 量级流量,
+        # 连接池跨 event loop 复用 aiosqlite 连接必炸(TestClient 每请求新 loop);
+        # 若未来多用户高并发再评估池化 + 单 loop 架构
+        eng = create_async_engine(
+            f"sqlite+aiosqlite:///{path}", poolclass=NullPool)
         _engines[key] = eng
     return eng
 
@@ -139,3 +144,82 @@ async def bootstrap_admin() -> None:
         )
         await s.commit()
     _admin_flag = True
+
+
+# ── Task 2:fastapi-users 接线(spec 2026-09-21 §6)──
+# 登录 = OAuth2 密码表单换 cookie 会话(DatabaseStrategy 写 accesstoken 表,
+# 无 JWT);SECRET 只供 reset/verify token(对应路由未挂),留默认以便后续任务。
+import uuid
+
+from fastapi_users import (
+    BaseUserManager,
+    FastAPIUsers,
+    UUIDIDMixin,
+    schemas as fu_schemas,
+)
+from fastapi_users.authentication import (
+    AuthenticationBackend,
+    CookieTransport,
+)
+from fastapi_users.authentication.strategy.db import (
+    AccessTokenDatabase,
+    DatabaseStrategy,
+)
+
+SECRET = os.environ.get("IP_RADAR_API_JWT_SECRET",
+                        "dev-only-secret-change-me-0123456789")
+
+_ADMIN_COOKIE = "ipradar_admin"
+_COOKIE_LIFETIME = 7 * 24 * 3600
+_cookie_secure = os.environ.get("IP_RADAR_INSECURE_COOKIE", "") != "1"
+
+
+class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
+    reset_password_token_secret = SECRET
+    verification_token_secret = SECRET
+
+
+class UserRead(fu_schemas.BaseUser[uuid.UUID]):
+    """对外用户形状;GET/PATCH /api/users/me 的响应模型。"""
+
+    # bootstrap 默认 admin@ipradar.local 等保留 TLD 会被基类的 EmailStr 拒绝;
+    # 读取侧只回显库中已有值,放宽为 str(写入侧 UserUpdate 仍走 EmailStr)
+    email: str
+
+
+class UserUpdate(fu_schemas.BaseUserUpdate):
+    """/me 可改字段;PATCH /api/users/me 的请求模型。"""
+
+
+async def get_user_manager(
+    user_db: SQLAlchemyUserDatabase = Depends(get_user_db),
+):
+    yield UserManager(user_db)
+
+
+def get_cookie_strategy(
+    access_token_db: AccessTokenDatabase = Depends(get_access_token_db),
+) -> DatabaseStrategy:
+    return DatabaseStrategy(access_token_db, lifetime_seconds=_COOKIE_LIFETIME)
+
+
+auth_backend = AuthenticationBackend(
+    name="cookie",
+    transport=CookieTransport(
+        cookie_name=_ADMIN_COOKIE,
+        cookie_max_age=_COOKIE_LIFETIME,
+        cookie_secure=_cookie_secure,
+        cookie_httponly=True,
+        cookie_samesite="lax",
+    ),
+    get_strategy=get_cookie_strategy,
+)
+
+app_users = FastAPIUsers[User, uuid.UUID](get_user_manager, [auth_backend])
+
+# verified=False:bootstrap 的 admin 沿用基类默认 is_verified=False,
+# 不开任何 require-verification 行为(Task 1 复审裁定)。
+# fastapi-users 15 已移除 FastAPIUsers.current_superuser,超管门 =
+# current_user(superuser=True)(401 未登录 / 403 非超管)。
+current_superuser = app_users.current_user(
+    active=True, verified=False, superuser=True)
