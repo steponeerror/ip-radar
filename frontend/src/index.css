@@ -5,14 +5,59 @@
   --font-mono: "Geist Mono", ui-monospace, monospace;
 }
 
+:root {
+  --bg-body: #09090b;
+  --text-body: #f4f4f5;
+  --dot: #27272a;
+}
+
+/* 柔和白天模式: 暖调 stone 中性 + 加深一档的 accent,整页重映射 zinc 标尺。
+   机理: Tailwind v4 的 zinc、accent 工具类编译为 var(--color-),
+   在 .light 作用域覆盖变量即可全局换肤,组件零改动。 */
+.light {
+  --bg-body: #fafaf9;
+  --text-body: #1c1917;
+  --dot: #e7e5e4;
+  /* 中性标尺明度反转(warm stone) */
+  --color-zinc-950: #fafaf9;
+  --color-zinc-900: #f5f5f4;
+  --color-zinc-800: #e7e5e4;
+  --color-zinc-700: #d6d3d1;
+  --color-zinc-600: #a8a29e;
+  --color-zinc-500: #78716c;
+  --color-zinc-400: #57534e;
+  --color-zinc-300: #44403c;
+  --color-zinc-200: #292524;
+  --color-zinc-100: #1c1917;
+  /* accent 加深保对比 */
+  --color-emerald-300: #7fae98;
+  --color-emerald-400: #43806a;
+  --color-emerald-500: #3f7157;
+  --color-red-300: #ef4444;
+  --color-red-400: #dc2626;
+  --color-red-500: #dc2626;
+  --color-amber-300: #d97706;
+  --color-amber-400: #b45309;
+  --color-amber-500: #d97706;
+  --color-cyan-400: #0e7490;
+  --color-cyan-500: #0891b2;
+  --color-sky-300: #0ea5e9;
+  --color-sky-400: #0369a1;
+  --color-sky-500: #0284c7;
+  --color-orange-400: #c2410c;
+  --color-orange-500: #ea580c;
+  --color-yellow-500: #a16207;
+}
+
 body {
-  background-color: #09090b;
-  color: #f4f4f5;
+  background-color: var(--bg-body);
+  color: var(--text-body);
   font-family: var(--font-sans);
+  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
 .dot-grid {
-  background-image: radial-gradient(circle, #27272a 1px, transparent 1px);
+  background-image: radial-gradient(circle, var(--dot) 1px, transparent 1px);
   background-size: 24px 24px;
 }
 
