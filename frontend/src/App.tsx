@@ -1,15 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import Layout from "./Layout";
 import LookupView from "./LookupView";
-import AdminPage from "./pages/AdminPage";
-import SourcesPage from "./pages/SourcesPage";
 
-export type Page = "lookup" | "sources" | "admin";
+// Admin split + 公开数据源页退役:管理台(/admin)走独立文档,数据源
+// 管理只在管理台内 —— 公开壳的 hash 路由只剩 lookup。
+export type Page = "lookup";
 
-const pageFromHash = (): Page =>
-  location.hash === "#/sources" ? "sources"
-    : location.hash === "#/admin" ? "admin"
-    : "lookup";
+const pageFromHash = (): Page => "lookup";
 
 export default function App() {
   const [page, setPage] = useState<Page>(pageFromHash);
@@ -27,9 +24,7 @@ export default function App() {
 
   return (
     <Layout page={page} onNavigate={navigate}>
-      {page === "sources" ? <SourcesPage />
-        : page === "admin" ? <AdminPage />
-        : <LookupView />}
+      <LookupView />
     </Layout>
   );
 }
