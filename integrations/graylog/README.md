@@ -29,6 +29,10 @@ One import instead of steps 1–4:
 3. On Graylog ≥5.1, allowlist the adapter URLs (see Step 0)
 4. Done — 3 lookup tables + 2 pipeline rules + a pipeline on the "All messages" stream are live. Test: search `ipradar_verdict:*` on any src_ip-bearing message.
 
+   > Caveat: the pack ships empty adapter `headers` — on auth-enabled builds,
+   > add the `Authorization: Bearer <api-key>` header to each data adapter
+   > after import (same edit as manual Step 1). Pre-auth builds need none.
+
 ## Manual setup (no content pack)
 
 ### Prerequisites

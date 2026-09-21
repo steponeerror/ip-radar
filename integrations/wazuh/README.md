@@ -53,6 +53,7 @@ The script skips enrichment and alerting continues untouched.
    <integration>
      <name>custom-ipradar</name>
      <hook_url>http://127.0.0.1:8000</hook_url>
+     <api_key>your-ipradar-api-key</api_key>
      <alert_format>json</alert_format>
      <level>3</level>
    </integration>
@@ -60,7 +61,10 @@ The script skips enrichment and alerting continues untouched.
 
    `<level>3</level>` fires on most meaningful alerts — raise it to reduce
    lookup volume. `<hook_url>` is the IP Radar base URL (same field the
-   Slack/Shuffle integrations use for their endpoint).
+   Slack/Shuffle integrations use for their endpoint). On auth-enabled
+   builds, `<api_key>` carries the Bearer key issued from `/admin` (the
+   Integrator passes it to the script as `argv[2]`); leave it out on
+   pre-auth builds.
 
 4. Restart: `systemctl restart wazuh-manager`
 
