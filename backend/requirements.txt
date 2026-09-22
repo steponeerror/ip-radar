@@ -3,7 +3,7 @@ uvicorn[standard]==0.34.2
 lmdb==2.3.0              # LMDB storage (streaming build, mmap query)
 maxminddb>=2.0           # read-only: GeoLite.mmdb feedstock parsing (input)
 python-multipart==0.0.32   # fastapi form parsing; fastapi-users 15 requires >=0.0.22
-python-dotenv==1.1.0
+python-dotenv==1.2.2
 cabby==0.1.23            # OTX TAXII 1.x client (AlienVault OTX bulk download)
 pymispwarninglists>=1.7.0
 orjson==3.11.9           # fast JSON for NDJSON stream serialization

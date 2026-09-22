@@ -567,7 +567,14 @@ _ACTIVE_LAYOUT: dict = {"n_workers": 1, "m_pool": 1, "source": "auto"}
 def get_active_layout() -> dict:
     return dict(_ACTIVE_LAYOUT)
 
-app = FastAPI(title="IP Lookup Tool", lifespan=lifespan)
+# docs 门控(审计 F3):/docs /redoc /openapi.json 默认关闭——完整 API schema
+# (含 admin 面)不向匿名暴露;IP_RADAR_ENABLE_DOCS=1 显式开启。模块级读,
+# 运行中不可翻转(文档级开关,重启生效)。
+_docs_enabled = os.environ.get("IP_RADAR_ENABLE_DOCS") == "1"
+app = FastAPI(title="IP Lookup Tool", lifespan=lifespan,
+              docs_url="/docs" if _docs_enabled else None,
+              redoc_url="/redoc" if _docs_enabled else None,
+              openapi_url="/openapi.json" if _docs_enabled else None)
 
 # slowapi 约定(Task 7):装饰器限流不强制需要,但 app.state.limiter 是
 # 官方挂载点(中间件/扩展发现用),保持惯例。
@@ -1072,8 +1079,9 @@ class SpaStaticFiles(StaticFiles):
                 if not path.endswith(".html"):
                     try:
                         return await super().get_response(path + ".html", scope)
-                    except StarletteHTTPException:
-                        pass
+                    except StarletteHTTPException as exc2:
+                        if exc2.status_code != 404:
+                            raise  # 非 404(权限/500 等)不得压平成 200 首页(审计 F6)
                 return await super().get_response("index.html", scope)
             raise
 

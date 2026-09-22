@@ -31,6 +31,7 @@ services:
       #   IP_RADAR_API_JWT_SECRET: "<openssl rand -hex 32>"
       #   # IP_RADAR_ADMIN_EMAIL: "admin@ipradar.local"
       #   # IP_RADAR_PUBLIC_ORIGIN: "https://ipradar.huxiao0207.dpdns.org"
+      #   # IP_RADAR_ENABLE_DOCS: "1"   # 开启 /docs /redoc /openapi.json(默认关闭)
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/api/db-status', timeout=5)"]

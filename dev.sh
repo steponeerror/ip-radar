@@ -8,6 +8,9 @@ set -e
 PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$PROJECT_ROOT"
 
+# 本地开发开 API 文档(/docs /redoc /openapi.json;生产默认关,审计 F3)
+export IP_RADAR_ENABLE_DOCS=1
+
 # 后端
 echo "[Backend] Starting..."
 cd backend

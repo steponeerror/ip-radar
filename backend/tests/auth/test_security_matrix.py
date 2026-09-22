@@ -6,9 +6,9 @@
 2. admin 面匿名全扫:所有管理端点无凭据一律 401,无一漏网。
 3. JWT 攻击向量:alg=none 无签名 token、畸形 Bearer → 401。
 4. Referer 伪造(跨源 Referer 无 key)→ 401。
-5. Host 头伪造同源绕过:strict xfail 钉住已知问题(_same_origin loose 集
-   含请求自带 Host/XFH,直连部署下攻击者可同时伪造 Host+Origin 绕过
-   api_key_dep)。修复后 xpass 变红,提醒翻转断言。
+5. Host 头伪造同源绕过:行为钉(grill Q1=A 接受+文档化)—— 同源层是
+   浏览器 UX 非鉴权边界,应用层不修;demo 由 CF/Caddy/回环三层实测挡死,
+   README「安全须知」已文档化。
 
 公开面(2026-09-22 审计口径,均已在冻结表内显式认可):
 - GET /api/version、/api/db-status:公开 UI 需要。
@@ -189,16 +189,18 @@ def test_stix_cross_origin_referer_401(client):
     assert r.json()["error"]["code"] == "unauthorized"
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "SEC Finding: _same_origin loose 集含请求自带 Host/XFH —— 直连部署下"
-    "攻击者同时伪造 Host+Origin 即绕过 api_key_dep(demo 经 Caddy 站点匹配"
-    "不可伪造)。修复(仅信任可信代理来源的 Host/XFH,或要求显式 "
-    "PUBLIC_ORIGIN)后本测试 xpass 变红,翻转断言即可。"))
 def test_host_forgery_same_origin_bypass(client):
+    """行为钉(grill Q1=A:接受+文档化):_same_origin loose 集信任请求自带
+    Host/XFH,裸 HTTP 客户端伪造 Host+Origin 免 key 通过 —— HTTP 层无法与
+    合法无反代浏览器区分,应用层不修。2026-09-22 线上实测 demo 由 CF 验
+    Host / Caddy 站点匹配 / 回环绑定三层挡死;README「安全须知」已文档化。"""
     r = client.get("/api/lookup/1.1.1.1",
                    headers={"Host": "evil.example",
                             "Origin": "http://evil.example"})
-    assert r.status_code == 401, "伪造 Host+Origin 不得通过同源判定"
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ip"] == "1.1.1.1"            # 真 lookup 应答,非别的 200
+    assert body["country"]["value"] == "AU"   # tiny_db: 1.1.1.0/24 = AU
 
 
 def test_self_update_without_token_403(client):
@@ -222,3 +224,39 @@ def test_expired_token_route_level_401(client, key_env):
     r = client.post("/api/query/stream", json={"ips": ["1.1.1.1"]},
                     headers={"Authorization": f"Bearer {dead}"})
     assert r.status_code == 401
+
+
+def test_docs_gated_by_env(tmp_path):
+    """docs 门控(审计 F3):/openapi.json 默认不出 schema,IP_RADAR_ENABLE_DOCS=1
+    才是真 schema。env 在 main 模块级读取、运行中不可翻转 → 子进程各自起
+    真实 app 验证(hermetic,不污染本进程已 import 的 main 单例)。
+    断言安全属性(schema 是否出海)而非状态码:docs 关闭时该路径会被 SPA
+    回退接住返回 index.html(200),但那不是 schema。"""
+    import os
+    import subprocess
+    import sys
+    import textwrap
+
+    probe = textwrap.dedent("""
+        from fastapi.testclient import TestClient
+        import main
+        c = TestClient(main.app)
+        r = c.get("/openapi.json")
+        try:
+            schema = isinstance(r.json(), dict) and "openapi" in r.json()
+        except ValueError:
+            schema = False
+        print("SCHEMA" if schema else "HIDDEN")
+    """)
+    env = {k: v for k, v in os.environ.items()
+           if k != "IP_RADAR_ENABLE_DOCS"}
+    env["IP_RADAR_AUTH_DB"] = str(tmp_path / "docs-gate.db")
+    backend_dir = os.path.join(os.path.dirname(__file__), "..", "..")
+    for extra, want in (({}, "HIDDEN"),
+                        ({"IP_RADAR_ENABLE_DOCS": "1"}, "SCHEMA")):
+        r = subprocess.run([sys.executable, "-c", probe],
+                           env={**env, **extra}, cwd=backend_dir,
+                           capture_output=True, text=True, timeout=120)
+        assert r.returncode == 0, r.stderr[-400:]
+        assert r.stdout.strip() == want, (
+            f"IP_RADAR_ENABLE_DOCS={extra or 'unset'}: 期望 {want}")
