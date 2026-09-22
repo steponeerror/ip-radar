@@ -1,4 +1,5 @@
-fastapi==0.115.12
+fastapi==0.141.1
+starlette==1.6.0  # fastapi 0.141 不设上限,显式锁定(PYSEC-1942/249 等修复线)
 uvicorn[standard]==0.34.2
 lmdb==2.3.0              # LMDB storage (streaming build, mmap query)
 maxminddb>=2.0           # read-only: GeoLite.mmdb feedstock parsing (input)
