@@ -355,13 +355,13 @@ class TestWarmingUpGate:
 
     def test_non_query_endpoints_not_gated(self, client_as_admin):
         """db-status, tasks, sources, update-db remain reachable when warming.
-        Task 3 起 tasks/update-db 要超管 → 用登录 client 验 ready 门;
-        db-status/sources 仍公共可匿名。"""
+        Task 3 起 tasks/update-db 要超管,2026-09-22 审计 F5 起 sources 同样
+        → 用登录 client 验 ready 门;db-status 仍公共可匿名。"""
         import main
         with patch("ipdb._registry._db_loaded", return_value=False):
             assert self.client.get("/api/db-status").status_code == 200
             assert client_as_admin.get("/api/tasks").status_code == 200
-            assert self.client.get("/api/sources").status_code == 200
+            assert client_as_admin.get("/api/sources").status_code == 200
 
     def test_integral_window_503_while_coverage_building(self):
         """Regression (integral gate): once the first source's rebuild flips

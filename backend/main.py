@@ -567,7 +567,14 @@ _ACTIVE_LAYOUT: dict = {"n_workers": 1, "m_pool": 1, "source": "auto"}
 def get_active_layout() -> dict:
     return dict(_ACTIVE_LAYOUT)
 
-app = FastAPI(title="IP Lookup Tool", lifespan=lifespan)
+# docs 门控(审计 F3):/docs /redoc /openapi.json 默认关闭——完整 API schema
+# (含 admin 面)不向匿名暴露;IP_RADAR_ENABLE_DOCS=1 显式开启。模块级读,
+# 运行中不可翻转(文档级开关,重启生效)。
+_docs_enabled = os.environ.get("IP_RADAR_ENABLE_DOCS") == "1"
+app = FastAPI(title="IP Lookup Tool", lifespan=lifespan,
+              docs_url="/docs" if _docs_enabled else None,
+              redoc_url="/redoc" if _docs_enabled else None,
+              openapi_url="/openapi.json" if _docs_enabled else None)
 
 # slowapi 约定(Task 7):装饰器限流不强制需要,但 app.state.limiter 是
 # 官方挂载点(中间件/扩展发现用),保持惯例。
@@ -912,11 +919,13 @@ async def lookup_stix(request: Request, ip: str):
 
 
 @app.get("/api/sources", response_model=list[SourceInfoOut],
+          dependencies=[*_ADMIN_DEPS],
           responses=_ERRS_422_500)
 async def list_sources_route():
     items = list_sources()
     # eval verdict 聚合(spec §5.2):agent 查目录一次拿到 健康+类别+权重+
     # 最近考分;无报告 → null。不加缓存,29 源量级可接受。
+    # 2026-09-22 审计 F5:公开 SPA 已不渲染源目录页,收进 admin 面。
     _ev = {v["source"]: v for v in read_overview()}
     for it in items:
         v = _ev.get(it["name"])
@@ -950,11 +959,13 @@ async def update_source_route(name: str):
 
 
 # ── eval 端点(spec 2026-08-28 §5.2:成绩单上墙)──
-# 两个 GET 是纯文件读(历史报告),不碰 LMDB → 不挂 require_ready
-# (warming 期仍能诚实报告过往 verdict);POST run 会起子进程对当前
-# DB 做消融评估,warming 期评估无意义 → 与 lookup 同门。PR③ 统一错误信封。
+# 三条 GET 2026-09-22 审计 F2 收进 admin 面(源可靠性模型不对外);仍是
+# 纯文件读(历史报告),不碰 LMDB → 不挂 require_ready(warming 期仍能
+# 诚实报告过往 verdict);POST run 会起子进程对当前 DB 做消融评估,
+# warming 期评估无意义 → 与 lookup 同门。PR③ 统一错误信封。
 
 @app.get("/api/eval", response_model=EvalOverviewOut,
+          dependencies=[*_ADMIN_DEPS],
           responses=_ERRS_422_500)
 async def eval_overview_route():
     """全源最新 eval verdict 摘要 + 当前 eval 任务状态(current_job)。"""
@@ -962,6 +973,7 @@ async def eval_overview_route():
 
 
 @app.get("/api/eval/model", response_model=EvalModelOut,
+          dependencies=[*_ADMIN_DEPS],
           responses=_ERRS_422_500)
 async def eval_model_route():
     """舰队 corroboration-contrast 模型报告(advisory 只读;θ̂/CI/below-market
@@ -971,6 +983,7 @@ async def eval_model_route():
 
 
 @app.get("/api/eval/{source}", response_model=EvalDetailOut,
+          dependencies=[*_ADMIN_DEPS],
           responses=_ERRS_SOURCE)
 async def eval_detail_route(source: str):
     """单源 eval 历史 + 最新详情;源存在但无报告 → latest null。"""
@@ -1066,8 +1079,9 @@ class SpaStaticFiles(StaticFiles):
                 if not path.endswith(".html"):
                     try:
                         return await super().get_response(path + ".html", scope)
-                    except StarletteHTTPException:
-                        pass
+                    except StarletteHTTPException as exc2:
+                        if exc2.status_code != 404:
+                            raise  # 非 404(权限/500 等)不得压平成 200 首页(审计 F6)
                 return await super().get_response("index.html", scope)
             raise
 

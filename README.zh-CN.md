@@ -147,12 +147,15 @@ curl -s http://127.0.0.1:8000/api/lookup/1.12.0.1
 
 # 记录数与状态
 curl -s http://127.0.0.1:8000/api/db-status
-
-# 源装载清单
-curl -s http://127.0.0.1:8000/api/sources
 ```
 
-其余管理端点（update-db / tasks / events 等）都在代码里；UI 上点一下也能触发刷新。提醒：同源网页使用免 key，但程序化/API 调用需要 `/admin` 签发的 API key——仍勿将端口暴露给不受信网络。
+其余管理端点（sources / eval / update-db / tasks / events 等）都在代码里；UI 上点一下也能触发刷新。提醒：同源网页使用免 key，但程序化/API 调用需要 `/admin` 签发的 API key——仍勿将端口暴露给不受信网络。
+
+### 安全须知
+
+- 同源 web 层是浏览器便利，不是鉴权边界：裸 HTTP 客户端可任意伪造 `Host`/`Origin`。端口可达不受信网络时，真正的护栏是 API key（`/admin` 签发）或校验 Host 的反代（Caddy/Nginx 站点匹配）。
+- 源目录（`/api/sources`）与 eval 成绩单（`/api/eval*`）仅管理员可用——在 `/admin` 登录后访问。
+- `/docs` / `/redoc` / `/openapi.json` 默认关闭；设 `IP_RADAR_ENABLE_DOCS=1` 开启（开发便利——公网部署保持关闭）。
 
 ### Fail2ban 集成：拉黑前先问一句
 
