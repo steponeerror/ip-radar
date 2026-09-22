@@ -12,7 +12,6 @@ from unittest.mock import patch
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 import pytest
-from fastapi.testclient import TestClient
 
 
 @pytest.fixture(autouse=True)
@@ -43,27 +42,26 @@ def _write_report(d: Path, source: str, at: str, state: str = "POSITIVE-VERIFIED
 class TestEvalRoutes:
     @classmethod
     def setup_class(cls):
-        import main
         from ipdb import load_db
         load_db()
-        cls.client = TestClient(main.app)
 
     # ── GET /api/eval(overview,嵌 current_job)──
+    # 2026-09-22 审计 F2:eval×3 收 admin → GET 用例一律 client_as_admin。
 
-    def test_overview_empty_dir(self, tmp_path, monkeypatch):
+    def test_overview_empty_dir(self, tmp_path, monkeypatch, client_as_admin):
         monkeypatch.setenv("IP_RADAR_EVAL_DIR", str(tmp_path))
-        r = self.client.get("/api/eval")
+        r = client_as_admin.get("/api/eval")
         assert r.status_code == 200
         body = r.json()
         assert body["current_job"] is None
         assert body["verdicts"] == []
 
-    def test_overview_latest_per_source(self, tmp_path, monkeypatch):
+    def test_overview_latest_per_source(self, tmp_path, monkeypatch, client_as_admin):
         monkeypatch.setenv("IP_RADAR_EVAL_DIR", str(tmp_path))
         _write_report(tmp_path, "spamhaus", "2026-08-28", state="POSITIVE-UNVERIFIED")
         _write_report(tmp_path, "spamhaus", "2026-08-29", ts="120000")
         _write_report(tmp_path, "otx", "2026-08-29", state="NEGATIVE-DEPRIORITIZE")
-        body = self.client.get("/api/eval").json()
+        body = client_as_admin.get("/api/eval").json()
         vs = {v["source"]: v for v in body["verdicts"]}
         assert set(vs) == {"spamhaus", "otx"}
         # 最新胜出(同源取 generated_at 最大)
@@ -75,7 +73,7 @@ class TestEvalRoutes:
         assert vs["spamhaus"]["oc"] == 0.03
         assert vs["otx"]["verdict"] == "NEGATIVE-DEPRIORITIZE"
 
-    def test_overview_oc_lowercase_key_not_null(self, tmp_path, monkeypatch):
+    def test_overview_oc_lowercase_key_not_null(self, tmp_path, monkeypatch, client_as_admin):
         """真实报告 metrics 键 oc 是小写(__main__ metrics dict 实测);
         大写 OC 查询必须回退命中——演练发现 overview oc=null 的回归锁。"""
         monkeypatch.setenv("IP_RADAR_EVAL_DIR", str(tmp_path))
@@ -86,28 +84,28 @@ class TestEvalRoutes:
                         "CG": {"value": 0, "n": 9},
                         "oc": {"value": 0.0, "n": 9}},
         }))
-        body = self.client.get("/api/eval").json()
+        body = client_as_admin.get("/api/eval").json()
         v = next(v for v in body["verdicts"] if v["source"] == "toysource")
         assert v["oc"] is not None
         assert v["oc"] == 0.0
 
-    def test_overview_same_day_tiebreak_by_filename_ts(self, tmp_path, monkeypatch):
+    def test_overview_same_day_tiebreak_by_filename_ts(self, tmp_path, monkeypatch, client_as_admin):
         """generated_at 日粒度 → 同日多报告靠文件名秒级时间戳分先后。"""
         monkeypatch.setenv("IP_RADAR_EVAL_DIR", str(tmp_path))
         _write_report(tmp_path, "spamhaus", "2026-08-29", state="POSITIVE-UNVERIFIED",
                       ts="010000")
         _write_report(tmp_path, "spamhaus", "2026-08-29", ts="020000")
-        body = self.client.get("/api/eval").json()
+        body = client_as_admin.get("/api/eval").json()
         v = next(v for v in body["verdicts"] if v["source"] == "spamhaus")
         assert v["verdict"] == "POSITIVE-VERIFIED"   # 后写者胜
 
     # ── GET /api/eval/{source}(detail:latest + history)──
 
-    def test_detail_history_and_latest(self, tmp_path, monkeypatch):
+    def test_detail_history_and_latest(self, tmp_path, monkeypatch, client_as_admin):
         monkeypatch.setenv("IP_RADAR_EVAL_DIR", str(tmp_path))
         _write_report(tmp_path, "spamhaus", "2026-08-28", ts="010000")
         _write_report(tmp_path, "spamhaus", "2026-08-29", ts="020000")
-        d = self.client.get("/api/eval/spamhaus").json()
+        d = client_as_admin.get("/api/eval/spamhaus").json()
         assert len(d["history"]) == 2
         assert d["history"] == [
             {"at": "2026-08-28", "verdict": "POSITIVE-VERIFIED"},
@@ -117,16 +115,16 @@ class TestEvalRoutes:
         assert d["latest"]["metrics"]["MC"]["value"] == 0.1
         assert d["latest"]["source"] == "spamhaus"
 
-    def test_detail_existing_source_no_history(self, tmp_path, monkeypatch):
+    def test_detail_existing_source_no_history(self, tmp_path, monkeypatch, client_as_admin):
         """源存在但从未评估 → latest null + 空 history(与 404 区分)。"""
         monkeypatch.setenv("IP_RADAR_EVAL_DIR", str(tmp_path))
-        d = self.client.get("/api/eval/spamhaus")
+        d = client_as_admin.get("/api/eval/spamhaus")
         assert d.status_code == 200
         assert d.json() == {"latest": None, "history": []}
 
-    def test_detail_unknown_source_404(self, tmp_path, monkeypatch):
+    def test_detail_unknown_source_404(self, tmp_path, monkeypatch, client_as_admin):
         monkeypatch.setenv("IP_RADAR_EVAL_DIR", str(tmp_path))
-        assert self.client.get("/api/eval/nosuchsrc").status_code == 404
+        assert client_as_admin.get("/api/eval/nosuchsrc").status_code == 404
 
     # ── POST /api/eval/{source}/run ──
 
@@ -157,10 +155,10 @@ class TestEvalRoutes:
 
     # ── /api/sources 聚合 eval 字段 ──
 
-    def test_sources_aggregates_eval(self, tmp_path, monkeypatch):
+    def test_sources_aggregates_eval(self, tmp_path, monkeypatch, client_as_admin):
         monkeypatch.setenv("IP_RADAR_EVAL_DIR", str(tmp_path))
         _write_report(tmp_path, "spamhaus", "2026-08-29")
-        items = self.client.get("/api/sources").json()
+        items = client_as_admin.get("/api/sources").json()
         by = {i["name"]: i for i in items}
         assert by["spamhaus"]["eval"] == {"verdict": "POSITIVE-VERIFIED",
                                           "at": "2026-08-29"}

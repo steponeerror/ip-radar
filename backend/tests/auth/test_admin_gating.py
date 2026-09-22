@@ -1,5 +1,5 @@
 # backend/tests/auth/test_admin_gating.py — Task 3: 管理端点全部要求超管
-"""10 个管理端点(含 /api/events SSE)匿名 401 / 非超管 403 / 超管可达。
+"""14 个管理端点(含 /api/events SSE)匿名 401 / 非超管 403 / 超管可达。
 
 依赖顺序(plan Global Constraint + controller ruling 1):
 require_admin_configured → current_superuser → require_ready
@@ -24,26 +24,36 @@ import main  # noqa: F401  (import 触发 app 组装)
 # brief _MANAGEMENT 清单 + POST /api/tasks/{task_id}/cancel(brief step 3
 # 门控 10 端点中唯一不在 _MANAGEMENT 参数表里的非 SSE 项)。
 # firehol 仅是 {name}/{source} 路径参数的代表名(controller ruling 5)。
+# 2026-09-22 审计 F2/F5:eval×3 + GET /api/sources 收编(公开 SPA 已不用)。
 _MANAGEMENT = [
+    ("get", "/api/sources", None),
     ("patch", "/api/sources/firehol", {"enabled": False}),
     ("post", "/api/sources/firehol/update", None),
     ("post", "/api/update-db", None),
     ("post", "/api/update-db/cancel", None),
     ("post", "/api/update-db/pause", None),
     ("post", "/api/update-db/resume", None),
+    ("get", "/api/eval", None),
+    ("get", "/api/eval/model", None),
+    ("get", "/api/eval/firehol", None),
     ("post", "/api/eval/firehol/run", None),
     ("post", "/api/tasks/doesnotexist/cancel", None),
     ("get", "/api/tasks", None),
 ]
 
-# 结构测试的门控清单:brief step 3 全部 10 端点(真实路由路径参数形态)。
+# 结构测试的门控清单:brief step 3 全部 10 端点(真实路由路径参数形态)
+# + 2026-09-22 收编的 eval×3 / sources GET。
 _GATED = [
+    ("get", "/api/sources"),
     ("patch", "/api/sources/{name}"),
     ("post", "/api/sources/{name}/update"),
     ("post", "/api/update-db"),
     ("post", "/api/update-db/cancel"),
     ("post", "/api/update-db/pause"),
     ("post", "/api/update-db/resume"),
+    ("get", "/api/eval"),
+    ("get", "/api/eval/model"),
+    ("get", "/api/eval/{source}"),
     ("post", "/api/eval/{source}/run"),
     ("post", "/api/tasks/{task_id}/cancel"),
     ("get", "/api/tasks"),
@@ -60,7 +70,7 @@ def test_management_requires_admin(auth_client, method, path, body):
 
 @pytest.mark.parametrize("method,path", _GATED)
 def test_gated_routes_declare_admin_deps(method, path):
-    """结构防漂移:10 端点路由级依赖含 require_admin_configured + current_superuser
+    """结构防漂移:14 端点路由级依赖含 require_admin_configured + current_superuser
     (controller ruling:T9 下 /api/events 的 RED 由本测试承载)。"""
     route = next(r for r in main.app.routes
                  if getattr(r, "path", None) == path

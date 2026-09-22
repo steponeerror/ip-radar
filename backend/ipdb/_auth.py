@@ -6,6 +6,7 @@ _registry 数据目录(_STATE_PATH.parent)。引擎/会话工厂按解析出的�
 创建并缓存:生产单路径 → 单实例;不绑定模块导入期状态。
 """
 import os
+import secrets
 from pathlib import Path
 from typing import AsyncGenerator
 
@@ -148,7 +149,7 @@ async def bootstrap_admin() -> None:
 
 # ── Task 2:fastapi-users 接线(spec 2026-09-21 §6)──
 # 登录 = OAuth2 密码表单换 cookie 会话(DatabaseStrategy 写 accesstoken 表,
-# 无 JWT);SECRET 只供 reset/verify token(对应路由未挂),留默认以便后续任务。
+# 无 JWT);SECRET 只供 reset/verify token(对应路由未挂)。
 import uuid
 
 from fastapi_users import (
@@ -166,8 +167,10 @@ from fastapi_users.authentication.strategy.db import (
     DatabaseStrategy,
 )
 
-SECRET = os.environ.get("IP_RADAR_API_JWT_SECRET",
-                        "dev-only-secret-change-me-0123456789")
+# 兜底 per-process 随机(审计 F7):本 SECRET 只喂未挂载的 fastapi-users
+# reset/verify token secret;API key 层走独立 env 门(keys_enabled),
+# 仓库里不留已知常量,缺 env 也不炸默认自部署的模块导入。
+SECRET = os.environ.get("IP_RADAR_API_JWT_SECRET") or secrets.token_urlsafe(48)
 
 _ADMIN_COOKIE = "ipradar_admin"
 _COOKIE_LIFETIME = 7 * 24 * 3600

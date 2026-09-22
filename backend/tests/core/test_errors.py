@@ -61,9 +61,10 @@ class TestErrorEnvelope:
         assert r.json()["error"]["code"] == "not_found"
         assert r.json()["error"]["message"]
 
-    def test_unknown_source_404_envelope(self):
-        """未知源 404 走语义码 source_not_found(T11 交付)。"""
-        r = self.client.get("/api/eval/nosuchsrc")
+    def test_unknown_source_404_envelope(self, client_as_admin):
+        """未知源 404 走语义码 source_not_found(T11 交付)。
+        2026-09-22 审计 F2:eval GET 收 admin → 登录 client。"""
+        r = client_as_admin.get("/api/eval/nosuchsrc")
         assert r.status_code == 404
         assert r.json()["error"]["code"] == "source_not_found"
         assert "nosuchsrc" in r.json()["error"]["message"]
@@ -150,10 +151,13 @@ class TestErrorEnvelope:
         assert body["code"] == "eval_busy"  # T11 语义化(原 conflict)
         assert "otx" in body["message"]
 
-    def test_unhandled_500_envelope(self):
-        """未捕获异常 → internal 信封(不泄栈)。"""
+    def test_unhandled_500_envelope(self, client_as_admin):
+        """未捕获异常 → internal 信封(不泄栈)。
+        /api/sources 2026-09-22 收 admin → raw client 复用登录 cookie。"""
         import main
-        raw = TestClient(main.app, raise_server_exceptions=False)
+        raw = TestClient(main.app, raise_server_exceptions=False,
+                         base_url="https://testserver")
+        raw.cookies.update(client_as_admin.cookies)
         with patch.object(main, "list_sources",
                           side_effect=RuntimeError("boom")):
             r = raw.get("/api/sources")

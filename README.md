@@ -107,12 +107,15 @@ curl -s http://127.0.0.1:8000/api/lookup/1.12.0.1
 
 # record count & status
 curl -s http://127.0.0.1:8000/api/db-status
-
-# loaded sources
-curl -s http://127.0.0.1:8000/api/sources
 ```
 
-The other management endpoints (update-db / tasks / events, …) live in the code; the UI triggers refreshes with one click too. Mind: same-origin web use needs no key, but programmatic/API access requires an API key issued from `/admin` — don't expose the port to untrusted networks.
+The other management endpoints (sources / eval / update-db / tasks / events, …) live in the code; the UI triggers refreshes with one click too. Mind: same-origin web use needs no key, but programmatic/API access requires an API key issued from `/admin` — don't expose the port to untrusted networks.
+
+### Security notes
+
+- The same-origin web tier is browser convenience, not an auth boundary: a raw HTTP client can claim any `Host`/`Origin`. If the port is reachable from an untrusted network, the real fence is API keys (`/admin`) or a `Host`-validating reverse proxy (Caddy/Nginx site match).
+- Source catalog (`/api/sources`) and eval report cards (`/api/eval*`) are admin-only — sign in at `/admin`.
+- `/docs` / `/redoc` / `/openapi.json` are disabled by default; set `IP_RADAR_ENABLE_DOCS=1` to enable (dev convenience — keep off on public deployments).
 
 ### Fail2ban integration: ask before you ban
 

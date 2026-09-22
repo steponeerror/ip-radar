@@ -145,15 +145,14 @@ def test_update_source_route_404_for_internal(monkeypatch, client_as_admin):
 
 def test_eval_routes_404_for_internal(monkeypatch, client_as_admin):
     # main 模块导入方式照抄 backend/tests/core/test_main_routes.py
-    from fastapi.testclient import TestClient
     import main as main_mod
     # POST 路由的 require_ready 是 route 级依赖,先于 404 守卫;孤立运行无
     # DB 会 503 短路。被测点是 404 守卫,不是 ready 门 → 门放行。
     monkeypatch.setattr(main_mod, "_db_ready", lambda: True)
     monkeypatch.setattr(main_mod._ipdb_registry, "_find_source",
                         lambda n: _FakeCanary() if n == "sentinel" else None)
-    client = TestClient(main_mod.app)
-    assert client.get("/api/eval/sentinel").status_code == 404  # GET 未加锁
+    # GET /api/eval/{source} 2026-09-22 审计 F2 起同样要超管;404 守卫语义不变
+    assert client_as_admin.get("/api/eval/sentinel").status_code == 404
     # POST run Task 3 起要超管 → 登录 client,404 守卫语义不变
     assert client_as_admin.post("/api/eval/sentinel/run").status_code == 404
 
