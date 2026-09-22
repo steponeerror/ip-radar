@@ -3,7 +3,8 @@
 
 1. 路由分类冻结网:每条 /api 路由的鉴权类别写入冻结表;新增路由忘挂
    依赖时,本测试第一个红 —— 未分类路由不得静默上线。
-2. admin 面匿名全扫:所有管理端点无凭据一律 401,无一漏网。
+2. admin 面匿名全扫:管理端点无凭据一律 401(eval/model 与 eval/{source}
+   的行为 401 另由 test_admin_gating._MANAGEMENT 携带,FROZEN 兜底分类)。
 3. JWT 攻击向量:alg=none 无签名 token、畸形 Bearer → 401。
 4. Referer 伪造(跨源 Referer 无 key)→ 401。
 5. Host 头伪造同源绕过:行为钉(grill Q1=A 接受+文档化)—— 同源层是
@@ -124,6 +125,8 @@ _ADMIN_PROBES = [
     ("POST", "/api/sources/x/update", None),
     ("POST", "/api/eval/x/run", None),
     ("GET", "/api/eval", None),
+    ("GET", "/api/eval/model", None),
+    ("GET", "/api/eval/{source}", None),
     ("GET", "/api/sources", None),
     ("GET", "/api/tasks", None),
     ("POST", "/api/tasks/t/cancel", None),

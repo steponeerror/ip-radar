@@ -693,7 +693,7 @@ app.add_middleware(
 # OPTIONS/回环/version 豁免;带管理员 cookie 或 Authorization 的请求交给三层鉴权
 # 依赖层真校验(见 _carries_admin_credentials)。env 每请求动态读(测试 monkeypatch 依赖)。
 _DEMO_HIDDEN_PREFIXES = (
-    "/api/update-db", "/api/sources", "/api/tasks", "/api/events",
+    "/api/update-db", "/api/sources", "/api/eval", "/api/tasks", "/api/events",
     "/api/scheduler/status", "/api/update", "/api/perf/layout",
 )
 _DEMO_HEADER_PREFIXES = (

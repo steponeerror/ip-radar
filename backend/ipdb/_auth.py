@@ -149,7 +149,7 @@ async def bootstrap_admin() -> None:
 
 # ── Task 2:fastapi-users 接线(spec 2026-09-21 §6)──
 # 登录 = OAuth2 密码表单换 cookie 会话(DatabaseStrategy 写 accesstoken 表,
-# 无 JWT);SECRET 只供 reset/verify token(对应路由未挂),留默认以便后续任务。
+# 无 JWT);SECRET 只供 reset/verify token(对应路由未挂)。
 import uuid
 
 from fastapi_users import (
