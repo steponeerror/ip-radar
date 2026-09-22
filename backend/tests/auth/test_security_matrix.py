@@ -21,7 +21,7 @@ import base64
 import json
 
 import pytest
-from fastapi.routing import APIRoute
+from fastapi.routing import APIRoute, RouteContext, iter_route_contexts
 from fastapi.testclient import TestClient
 
 import main
@@ -70,19 +70,20 @@ FROZEN = {
 }
 
 
-def _classify(route) -> tuple[str, list[str]]:
+def _classify(route, path: str) -> tuple[str, list[str]]:
     names = set()
     for d in getattr(route, "dependencies", []):
         f = getattr(d, "dependent", None)
         names.add(getattr(f, "__name__", ""))
-    if isinstance(route, APIRoute):
+    if isinstance(route, (APIRoute, RouteContext)):
+        # RouteContext(fastapi 0.141 展开视图)以 __getattr__ 委托 dependant
         for p in route.dependant.dependencies:
             names.add(getattr(p.call, "__name__", ""))
     if "api_key_dep" in names:
         return "keyed", sorted(names)
-    if route.path == "/api/auth/jwt/login":
+    if path == "/api/auth/jwt/login":
         return "login", sorted(names)
-    if route.path == "/api/auth/jwt/logout":
+    if path == "/api/auth/jwt/logout":
         return "logout", sorted(names)
     if "require_admin_configured" in names:
         return "admin", sorted(names)
@@ -92,12 +93,15 @@ def _classify(route) -> tuple[str, list[str]]:
 def test_route_classification_frozen():
     """每条 /api 路由必须命中冻结表且类别一致;新增路由先来这里登记。"""
     seen = set()
-    for r in main.app.routes:
+    # fastapi 0.141 起 include_router 不再摊平进 app.routes(出现 _IncludedRouter
+    # 嵌套节点);用官方 iter_route_contexts 还原平面视图,ctx 以 __getattr__
+    # 委托出 path/methods/dependencies/dependant,下游分类逻辑不变。
+    for r in iter_route_contexts(main.app.routes):
         path = getattr(r, "path", "")
         if not path.startswith("/api/"):
             continue
         for m in getattr(r, "methods", []) - {"HEAD"}:
-            got, deps = _classify(r)
+            got, deps = _classify(r, path)
             key = (m, path)
             seen.add(key)
             assert key in FROZEN, (
