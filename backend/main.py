@@ -912,11 +912,13 @@ async def lookup_stix(request: Request, ip: str):
 
 
 @app.get("/api/sources", response_model=list[SourceInfoOut],
+          dependencies=[*_ADMIN_DEPS],
           responses=_ERRS_422_500)
 async def list_sources_route():
     items = list_sources()
     # eval verdict 聚合(spec §5.2):agent 查目录一次拿到 健康+类别+权重+
     # 最近考分;无报告 → null。不加缓存,29 源量级可接受。
+    # 2026-09-22 审计 F5:公开 SPA 已不渲染源目录页,收进 admin 面。
     _ev = {v["source"]: v for v in read_overview()}
     for it in items:
         v = _ev.get(it["name"])
@@ -950,11 +952,13 @@ async def update_source_route(name: str):
 
 
 # ── eval 端点(spec 2026-08-28 §5.2:成绩单上墙)──
-# 两个 GET 是纯文件读(历史报告),不碰 LMDB → 不挂 require_ready
-# (warming 期仍能诚实报告过往 verdict);POST run 会起子进程对当前
-# DB 做消融评估,warming 期评估无意义 → 与 lookup 同门。PR③ 统一错误信封。
+# 三条 GET 2026-09-22 审计 F2 收进 admin 面(源可靠性模型不对外);仍是
+# 纯文件读(历史报告),不碰 LMDB → 不挂 require_ready(warming 期仍能
+# 诚实报告过往 verdict);POST run 会起子进程对当前 DB 做消融评估,
+# warming 期评估无意义 → 与 lookup 同门。PR③ 统一错误信封。
 
 @app.get("/api/eval", response_model=EvalOverviewOut,
+          dependencies=[*_ADMIN_DEPS],
           responses=_ERRS_422_500)
 async def eval_overview_route():
     """全源最新 eval verdict 摘要 + 当前 eval 任务状态(current_job)。"""
@@ -962,6 +966,7 @@ async def eval_overview_route():
 
 
 @app.get("/api/eval/model", response_model=EvalModelOut,
+          dependencies=[*_ADMIN_DEPS],
           responses=_ERRS_422_500)
 async def eval_model_route():
     """舰队 corroboration-contrast 模型报告(advisory 只读;θ̂/CI/below-market
@@ -971,6 +976,7 @@ async def eval_model_route():
 
 
 @app.get("/api/eval/{source}", response_model=EvalDetailOut,
+          dependencies=[*_ADMIN_DEPS],
           responses=_ERRS_SOURCE)
 async def eval_detail_route(source: str):
     """单源 eval 历史 + 最新详情;源存在但无报告 → latest null。"""
