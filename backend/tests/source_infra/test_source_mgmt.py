@@ -193,8 +193,7 @@ def _stub_source(name, enabled=True):
     }
 
 
-def test_get_sources_route_returns_list(monkeypatch):
-    from fastapi.testclient import TestClient
+def test_get_sources_route_returns_list(monkeypatch, client_as_admin):
     import main
 
     stub = _stub_source("ipinfo_lite")
@@ -202,8 +201,8 @@ def test_get_sources_route_returns_list(monkeypatch):
     # eval 报告目录是本机运行时状态(跑过 eval 就非空)——隔离掉,别让
     # 无报告假设依赖环境(隔离修复 2026-08-31:基线跑挂了它)。
     monkeypatch.setattr(main, "read_overview", lambda: [])
-    client = TestClient(main.app)
-    resp = client.get("/api/sources")
+    # 2026-09-22 审计 F5:GET /api/sources 收 admin → 登录 client
+    resp = client_as_admin.get("/api/sources")
     assert resp.status_code == 200
     # 聚合层给每项追加 eval 字段(无报告 → None,spec §5.2);桩原样透传
     body = resp.json()
