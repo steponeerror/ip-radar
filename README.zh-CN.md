@@ -119,6 +119,7 @@ advisory）。数据源页同样双轨展示——实测 θ（90% CI）与各源
 - **地理 · 城市 · ASN** —— GeoLite2 + DB-IP 两票给城市，iptoasn 给自治域，CN ISP 归属（含港澳台）也认得。
 - **代理 · VPN · Tor · CDN · 云，一眼认出来** —— 实检代理列表、VPN 网段（含 NordVPN、ProtonVPN）、Tor 出口、三大 CDN 边缘、AWS/GCP/Azure/Oracle 托管网段，都标得清清楚楚；知名基础设施还会亮出服务身份（8.8.8.8 → DNS · Google Public DNS）。
 - **IPv6 也能查** —— 裸 v6 / 小段 v6 CIDR 直接查，地理·城市·ASN·VPN·CDN·封禁段对 v6 生效；地理/城市/ASN、云厂商网段、CDN 边缘、DROPv6 等源原生覆盖 v6；多数威胁列表上游本就无 v6 数据，如实显示无记录。
+- **日间/夜间主题切换** —— 明暗一键切换，选择自动记忆、首帧前恢复不闪屏。
 - **一个容器跑全栈，内存自己看着办** —— `docker compose up -d --build` 就有；并发按宿主机内存自动收敛，后台自动刷新按源错峰：日更源每天 2 次、周更源每周 1 次，各源固定时刻错开。
 - **STIX 2.1 导出（可选）** —— `/api/lookup/{ip}/stix` 一键导出；Docker 镜像默认不带 `stix2`，`pip install stix2` 装上即开。
 

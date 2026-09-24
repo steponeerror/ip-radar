@@ -37,6 +37,14 @@
 - 结果表：分值语义图例（posterior / consensus / calibration / fixed anchors），逐字段悬停说明
   - Results table: score-semantics legend (posterior / consensus / calibration
     / fixed anchors) with per-field hover.
+- 数据水印（PR #62）：双层落印——canary 哨兵源（watermark canary sentinel，`internal=True` 不进 42 源口径）+ rebuild 层 gamma=1/512 概率印记（extra.ingest_ref）；另配双模式核验 CLI（探测 URL / 扫描数据目录）
+  - Data watermarking (PR #62): two layers — a hidden canary sentinel source (watermark canary sentinel, `internal=True`, excluded from the 42-source count) plus a rebuild-layer gamma=1/512 probabilistic mark (extra.ingest_ref); a dual-mode verifier CLI rounds it out (probe a URL / scan the data dir)
+- PyJWT API key 体系（PR #63）：签发/校验/元数据存储 + `/api/admin/keys` CRUD——明文仅签发时一次可见、列表脱敏、可吊销可删除
+  - PyJWT API-key system (PR #63): issue/verify/metadata storage + `/api/admin/keys` CRUD — plaintext visible exactly once at issuance, masked in listings, revocable and deletable
+- admin 控制台 `#/admin`（PR #63）：登录 + 标签页壳（数据源管理迁入、密钥管理、任务区，公开数据源页退役为只读）；全局迷你进度条、主题/语言切换
+  - Admin console `#/admin` (PR #63): login + tabbed shell (source management moved in, key management, tasks area — the public sources page retired to read-only); global mini progress bar, theme/locale switchers
+- slowapi 限流（PR #63）：匿名 6/min、持钥统一 60/min、登录防爆破
+  - slowapi rate limits (PR #63): 6/min anonymous, 60/min unified for key holders, plus a login brute-force guard.
 
 ### 变更 Changed
 
@@ -49,6 +57,17 @@
 
 - stopforumspam 逐条分级：last_seen ≤90 天的记录 verdict 升为可疑（活跃垃圾发送者），其余保持信息；每条记录计算 0-100 咨询分（50% 新近度 + 50% 举报量，log10 千次饱和）存入 native_confidence，融合置信度仍为 log-odds 后验不变（实测 28.1% 记录升档，~13.7 万条）
   - stopforumspam per-record grading: records with last_seen ≤90d upgrade to verdict=suspicious (active spammers), the stale tail stays informational; a 0-100 advisory score (50% recency + 50% report volume, log10 saturating at 1000) rides in native_confidence while fusion confidence stays the untouched log-odds posterior (measured 28.1% of records upgrade, ~137k)
+- 查询接口门控（PR #63）：同源或有效 API key 才放行（GET 同则）；管理端点与 /api/events 全部收进 superuser，同源网页免钥、程序化访问走 /admin API key
+  - Query endpoints gated (PR #63): same-origin or a valid API key (GET under the same rule); all management endpoints and /api/events now sit behind superuser — same-origin web stays keyless, programmatic access uses an /admin API key
+- 集成修复（PR #63）：fail2ban verdict glob 此前永不命中、wazuh 改发 Bearer、graylog content-pack 注意事项、XFF 仅信任已配置代理（代理后按真实 IP 限流需显式开启）
+  - Integration fixes (PR #63): the fail2ban verdict glob never fired, wazuh now sends Bearer, a graylog content-pack caveat documented, and XFF trusts only configured proxies (per-IP limits behind a proxy need explicit opt-in)
+
+### 安全 Security
+
+- 安全加固（PR #64）：eval×3 与 sources GET 收进 admin 面；/docs /redoc /openapi.json 默认关闭（IP_RADAR_ENABLE_DOCS=1 显式开启）；SPA 静态兜底不再把非 404 压平成 200 首页；SECRET 未配置兜底 secrets.token_urlsafe；python-dotenv 升 1.2.2
+  - Security hardening (PR #64): the three eval endpoints and sources GET moved behind the admin face; /docs /redoc /openapi.json off by default (IP_RADAR_ENABLE_DOCS=1 to enable); the SPA static fallback no longer flattens non-404 errors into a 200 index page; an unset SECRET falls back to secrets.token_urlsafe; python-dotenv bumped to 1.2.2
+- 依赖升级清 PYSEC（PR #65）：fastapi 0.141.1 + starlette 1.6.0，清除 16+1 条 PYSEC 公告；冻结表枚举适配（_IncludedRouter）
+  - Dependency bump clearing PYSEC (PR #65): fastapi 0.141.1 + starlette 1.6.0 clears 16+1 PYSEC advisories; frozen-table enum adaptation (_IncludedRouter)
 
 ## v1.3.0 — 2026-09-02
 

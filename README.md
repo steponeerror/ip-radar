@@ -79,6 +79,7 @@ Notes:
 - **Geo · City · ASN** — dual city sources (GeoLite2 + DB-IP), iptoasn for the ASN, plus CN ISP classification incl. HK/MO/TW.
 - **Proxy · VPN · Tor · CDN · cloud, spotted at a glance** — live-checked proxy lists, VPN ranges (incl. NordVPN & ProtonVPN), Tor exits, the big three CDNs' edges, and AWS/GCP/Azure/Oracle hosting ranges, all labeled; known infra also shows its service identity (8.8.8.8 → DNS · Google Public DNS).
 - **IPv6 lookups too** — bare v6 and small v6 CIDRs resolve with geo · city · ASN · VPN · CDN · DROP ranges; geo/city/ASN, cloud-provider ranges, CDN edges and DROPv6 all carry v6; most threat lists have no v6 upstream — shown honestly as no-records.
+- **Day/night theme toggle** — light and dark themes one click apart; your choice is remembered and restored before first paint, so no flash of the wrong theme.
 - **One container, memory that behaves** — concurrency bends to host RAM; background refresh staggered per source: daily feeds 2×/day, weekly 1×/week, each at a fixed offset time.
 - **STIX 2.1 export (optional)** — `/api/lookup/{ip}/stix`; the Docker image ships without `stix2` — `pip install stix2` to switch it on.
 
