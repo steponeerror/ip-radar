@@ -108,10 +108,10 @@ Fused, stored, and queried on your own machine — your lookups never leave it.
 
 ## API
 
-Open http://127.0.0.1:8000 and type any IP: verdict, per-source evidence, and geo/ASN come back together. The API works directly too:
+Open http://127.0.0.1:8000 and type any IP: verdict, per-source evidence, and geo/ASN come back together. The API works directly too. Programmatic calls need an API key — first unlock the commented-out admin env block in `docker-compose.yml` and restart, then issue a key at `/admin`; the same-origin web page needs none.
 
 ```bash
-# core lookup (programmatic callers need a key: add -H "Authorization: Bearer <key>"; the same-origin web page needs none)
+# core lookup (needs a key — see above)
 curl -s http://127.0.0.1:8000/api/lookup/1.12.0.1
 # → {"ip":"1.12.0.1","country":{"value":"CN",..},"city":{"value":"Guangzhou",..},"asn":{"value":132203,..},"classifications":{..},"attributes":{..}}
 
@@ -247,8 +247,8 @@ Run it from `backend/` via `python -m ipdb._eval`: `--audit` (lineage audit —
 copying-direction verdicts over persisted model history, advisory),
 `--anchors` (known-answer regression gate; exit 1 on any failure), and
 `--dsem` (DS-EM fair fight: market vs declared vs π̂, advisory). The
-Sources page mirrors this dual track — measured θ (90% CI) beside each
-source's declared `r`.
+admin console's Sources tab mirrors this dual track — measured θ
+(90% CI) beside each source's declared `r`.
 
 ## Tests
 

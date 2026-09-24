@@ -75,42 +75,6 @@ docker compose build --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn
 - 升级：`git pull && docker compose up -d --build`，数据卷原地保留。
 - 磁盘：给数据卷留够 ≥6 GB。
 
-### 开发模式
-
-**dev 模式**（前端 :5173 热更新，后端 API 走 :8000）：
-
-```bash
-./dev.sh
-```
-
-**想分开跑也行**（注意 `--host 0.0.0.0` 会把 API 暴露给局域网/公网——网页访客免 key 可查、程序化调用需 key，仅在清楚后果时使用）：
-
-```bash
-# backend（首次：python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt）
-cd backend && source .venv/bin/activate
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
-
-# frontend
-cd frontend && npm run dev
-```
-
-**类生产**（构建前端，一切都走 :8000）：
-
-```bash
-./start.sh
-```
-
-### 评估层
-
-评估层并排给出两种可靠性数字：声明的 `r`（逐源手工设定，生产权威）与实测
-θ（独立印证后验，advisory）。θ 从不是准确率声明，也从不自动写入生产权重——
-采纳实测值必须走一个人审 PR，并在 diff 里引用评估报告。
-
-在 `backend/` 下用 `python -m ipdb._eval` 驱动：`--audit`（谱系审计——基于
-持久化模型历史的镜像方向裁决，advisory）、`--anchors`（已知答案回归闸，
-任一失败退出码 1）、`--dsem`（DS-EM 公平对决：市场 vs 声明 vs π̂，
-advisory）。数据源页同样双轨展示——实测 θ（90% CI）与各源声明 `r` 并列。
-
 ## 桌面伴侣
 
 <p align="center">
@@ -148,10 +112,10 @@ flowchart TD
 
 ## 使用
 
-打开 http://127.0.0.1:8000，随手输一个 IP：裁决、逐源证据、地理/ASN 一起回来。API 也能直接用：
+打开 http://127.0.0.1:8000，随手输一个 IP：裁决、逐源证据、地理/ASN 一起回来。API 也能直接用。程序化调用需 API key——先在 `docker-compose.yml` 解锁 admin env 注释块并重启，再到 `/admin` 签发；同源网页免 key。
 
 ```bash
-# 核心查询（程序化调用需加 -H "Authorization: Bearer <key>"；同源网页免 key）
+# 核心查询（需 key，见上）
 curl -s http://127.0.0.1:8000/api/lookup/1.12.0.1
 # → {"ip":"1.12.0.1","country":{"value":"CN",..},"city":{"value":"Guangzhou",..},"asn":{"value":132203,..},"classifications":{..},"attributes":{..}}
 
@@ -205,7 +169,7 @@ curl -s http://127.0.0.1:8000/api/db-status
 | urlhaus | [abuse.ch](https://urlhaus.abuse.ch/) | Malicious URLs → IPs | |
 | tweetfeed `*` | [TweetFeed](https://github.com/0xDanielLopez/TweetFeed) | Crowd-sourced IOCs from X/Twitter | |
 | ipsum `*` | [IPsum](https://github.com/stamparm/ipsum) | Daily compile of many public blocklists | |
-| firehol `*` | [FireHOL](https://github.com/firehol/blocklist-ipsets) | Aggregated blocklist levels | |
+| firehol `*` | [FireHOL](https://github.com/firehol/blocklist-ipsets) | Level1/2 + abusers/proxies/webserver 子列表 | |
 | blocklist_de `*` | [Blocklist.de](https://www.blocklist.de/) | 10 attack-type sublists + aggregate | |
 | emerging_threats | [Proofpoint ET](https://rules.emergingthreats.net/) | Provenance-curated firewall blocklist | |
 | binarydefense | [Binary Defense](https://www.binarydefense.com/banlist.txt) | Honeypot attacker banlist | |
@@ -249,6 +213,42 @@ curl -s http://127.0.0.1:8000/api/db-status
 | azure_ranges | [Azure](https://www.microsoft.com/en-us/download/details.aspx?id=56519) | AzureCloud service tag — cloud / hosting | |
 | oracle_ranges | [Oracle](https://docs.oracle.com/iaas/tools/public_ip_ranges.json) | OCI region ranges — cloud / hosting | |
 | infra_services | curated | Public DNS-root / NTP infrastructure | |
+
+## 开发
+
+**dev 模式**（前端 :5173 热更新，后端 API 走 :8000）：
+
+```bash
+./dev.sh
+```
+
+**想分开跑也行**（注意 `--host 0.0.0.0` 会把 API 暴露给局域网/公网——网页访客免 key 可查、程序化调用需 key，仅在清楚后果时使用）：
+
+```bash
+# backend（首次：python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt）
+cd backend && source .venv/bin/activate
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
+
+# frontend
+cd frontend && npm run dev
+```
+
+**类生产**（构建前端，一切都走 :8000）：
+
+```bash
+./start.sh
+```
+
+### 评估层
+
+评估层并排给出两种可靠性数字：声明的 `r`（逐源手工设定，生产权威）与实测
+θ（独立印证后验，advisory）。θ 从不是准确率声明，也从不自动写入生产权重——
+采纳实测值必须走一个人审 PR，并在 diff 里引用评估报告。
+
+在 `backend/` 下用 `python -m ipdb._eval` 驱动：`--audit`（谱系审计——基于
+持久化模型历史的镜像方向裁决，advisory）、`--anchors`（已知答案回归闸，
+任一失败退出码 1）、`--dsem`（DS-EM 公平对决：市场 vs 声明 vs π̂，
+advisory）。admin 控制台的数据源页同样双轨展示——实测 θ（90% CI）与各源声明 `r` 并列。
 
 ## 测试
 
