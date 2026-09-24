@@ -118,7 +118,7 @@ advisory）。数据源页同样双轨展示——实测 θ（90% CI）与各源
   <sub>🖥️ 托盘常驻 —— 热键一按，剪贴板 IP 出并列裁决，批量也行</sub>
 </p>
 
-[IP Radar Desktop](https://github.com/steponeerror/ip-radar-desktop) 把同样的查询搬到桌面：常驻系统托盘，全局热键一按，剪贴板里的 IP 直接出各源并列裁决，整段日志一次性批量查。Linux / macOS / Windows 安装包在 [Releases 页](https://github.com/steponeerror/ip-radar-desktop/releases)。
+[IP Radar Desktop](https://github.com/steponeerror/ip-radar-desktop) 把同样的查询搬到桌面：常驻系统托盘，全局热键一按，剪贴板里的 IP 直接出各源并列裁决，整份 IP 清单一次性批量查。Linux / macOS / Windows 安装包在 [Releases 页](https://github.com/steponeerror/ip-radar-desktop/releases)。
 
 ## 特性
 
