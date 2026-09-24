@@ -4,10 +4,10 @@ import { useI18n } from "../i18n";
 export function DemoBanner() {
   const { t } = useI18n();
   return (
-    <div className="border-b border-emerald-900/50 bg-emerald-950/40 px-4 py-2 text-center text-xs text-emerald-300">
+    <div className="border-b border-zinc-800 bg-zinc-900/60 px-4 py-2 text-center text-xs text-emerald-400">
       {t("demo.banner")}{" "}
       <a
-        className="underline hover:text-emerald-200"
+        className="underline hover:text-emerald-500"
         href="https://github.com/steponeerror/ip-radar"
         target="_blank"
         rel="noreferrer"

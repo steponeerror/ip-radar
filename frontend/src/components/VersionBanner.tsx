@@ -54,7 +54,7 @@ export function VersionBanner({ selfUpdateEnabled, onStartUpdate }: {
   };
 
   return (
-    <div className="mx-auto mt-4 flex max-w-7xl items-center gap-3 rounded-lg border border-emerald-800/60 bg-emerald-950/40 px-4 py-3 text-sm">
+    <div className="mx-auto mt-4 flex max-w-7xl items-center gap-3 rounded-lg border border-zinc-700 bg-zinc-900/60 px-4 py-3 text-sm">
       <span className="text-emerald-300">🔄</span>
       <div className="min-w-0 flex-1">
         <span className="text-zinc-200">
