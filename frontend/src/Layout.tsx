@@ -129,6 +129,7 @@ export default function Layout({
         {children}
         <footer className="mt-10 flex items-center justify-center gap-2 text-xs text-zinc-600">
           <span>© 2026 steponeerror</span>
+          <span aria-hidden="true">·</span>
           <a
             href="https://github.com/steponeerror/ip-radar-desktop"
             target="_blank"

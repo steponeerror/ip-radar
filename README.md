@@ -71,11 +71,14 @@ Notes:
 - Upgrade: `git pull && docker compose up -d --build` — the data volume stays right where it is.
 - Disk: budget ≥6 GB for the data volume.
 
-## Desktop companion
+## Desktop Companion
 
-<p align="center"><img src="assets/desktop-hero.png" alt="IP Radar Desktop — tray companion"></p>
+<p align="center">
+  <img src="assets/desktop-hero.png" alt="IP Radar Desktop — tray companion"><br>
+  <sub>🖥️ Tray-resident companion — hotkey → clipboard IPs → side-by-side verdicts, batch included</sub>
+</p>
 
-Prefer a tray-resident app? [IP Radar Desktop](https://github.com/steponeerror/ip-radar-desktop) lives in your system tray — a global hotkey looks up whatever IP is on your clipboard, every source's verdict side by side, with batch mode for many IPs at once. Grab an installer from the [Releases page](https://github.com/steponeerror/ip-radar-desktop/releases).
+[IP Radar Desktop](https://github.com/steponeerror/ip-radar-desktop) takes the same lookups to your desktop: a tray-resident app where one global hotkey looks up whatever IP is on your clipboard — every source's verdict side by side, whole lists in one shot. Installers for Linux / macOS / Windows live on the [Releases page](https://github.com/steponeerror/ip-radar-desktop/releases).
 
 ## Features
 
