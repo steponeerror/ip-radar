@@ -71,6 +71,12 @@ Notes:
 - Upgrade: `git pull && docker compose up -d --build` — the data volume stays right where it is.
 - Disk: budget ≥6 GB for the data volume.
 
+## Desktop companion
+
+<p align="center"><img src="assets/desktop-hero.png" alt="IP Radar Desktop — tray companion"></p>
+
+Prefer a tray-resident app? [IP Radar Desktop](https://github.com/steponeerror/ip-radar-desktop) lives in your system tray — a global hotkey looks up whatever IP is on your clipboard, every source's verdict side by side, with batch mode for many IPs at once. Grab an installer from the [Releases page](https://github.com/steponeerror/ip-radar-desktop/releases).
+
 ## Features
 
 - **Works out of the box** — first start downloads and builds every keyless feed into millions of records (live count: `/api/db-status`).

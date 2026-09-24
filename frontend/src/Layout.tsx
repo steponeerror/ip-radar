@@ -121,6 +121,14 @@ export default function Layout({
         <footer className="mt-10 flex items-center justify-center gap-2 text-xs text-zinc-600">
           <span>© 2026 steponeerror</span>
           <a
+            href="https://github.com/steponeerror/ip-radar-desktop"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-zinc-600 transition-colors hover:text-zinc-300"
+          >
+            Desktop
+          </a>
+          <a
             href="https://github.com/steponeerror/ip-radar"
             target="_blank"
             rel="noopener noreferrer"

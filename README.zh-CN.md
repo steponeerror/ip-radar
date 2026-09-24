@@ -111,6 +111,12 @@ cd frontend && npm run dev
 任一失败退出码 1）、`--dsem`（DS-EM 公平对决：市场 vs 声明 vs π̂，
 advisory）。数据源页同样双轨展示——实测 θ（90% CI）与各源声明 `r` 并列。
 
+## 桌面伴侣
+
+<p align="center"><img src="assets/desktop-hero.png" alt="IP Radar Desktop —— 托盘伴侣"></p>
+
+更喜欢常驻托盘的应用？[IP Radar Desktop](https://github.com/steponeerror/ip-radar-desktop) 住在系统托盘里——全局热键一按，剪贴板里的 IP 直接出各源并列裁决，多 IP 批量查也行。安装包去 [Releases 页](https://github.com/steponeerror/ip-radar-desktop/releases)拿。
+
 ## 特性
 
 - **开箱即用，除 4 个密钥源外全部免密钥** —— 首次启动自动下载构建，数百万条记录入库（确切数量以 `/api/db-status` 实测为准）；剩下 4 个 🔑 源想开的话，密钥填法见[快速开始](#快速开始)。
