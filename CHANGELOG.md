@@ -2,7 +2,7 @@
 
 本项目的所有重要变更记录于此。自 v1.0.0 起按版本分节，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
-## Unreleased
+## v1.3.1 — 2026-09-24
 
 ### verdict-aware scoring(spec 2026-09-06)
 
