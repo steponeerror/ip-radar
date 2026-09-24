@@ -27,7 +27,7 @@
 
 <p align="center">
 <sub>🚀 Try it in the <a href="https://ipradar.huxiao0207.dpdns.org">live demo</a> — click a sample:</sub><br>
-<b><a href="https://ipradar.huxiao0207.dpdns.org/?ip=80.82.77.139">☠️ Malicious IP</a> · <a href="https://ipradar.huxiao0207.dpdns.org/?ip=185.220.101.1">🕵️ Tor/VPN exit</a> · <a href="https://ipradar.huxiao0207.dpdns.org/?ip=1.12.0.72">🌱 Clean IP</a></b>
+<b><a href="https://ipradar.huxiao0207.dpdns.org/?ip=45.148.10.238">☠️ Malicious IP</a> · <a href="https://ipradar.huxiao0207.dpdns.org/?ip=185.220.101.1">🕵️ Tor/VPN exit</a> · <a href="https://ipradar.huxiao0207.dpdns.org/?ip=1.12.0.72">🌱 Clean IP</a></b>
 </p>
 
 ## Quick Start
@@ -71,6 +71,12 @@ Notes:
 - Upgrade: `git pull && docker compose up -d --build` — the data volume stays right where it is.
 - Disk: budget ≥6 GB for the data volume.
 
+## Desktop companion
+
+<p align="center"><img src="assets/desktop-hero.png" alt="IP Radar Desktop — tray companion"></p>
+
+Prefer a tray-resident app? [IP Radar Desktop](https://github.com/steponeerror/ip-radar-desktop) lives in your system tray — a global hotkey looks up whatever IP is on your clipboard, every source's verdict side by side, with batch mode for many IPs at once. Grab an installer from the [Releases page](https://github.com/steponeerror/ip-radar-desktop/releases).
+
 ## Features
 
 - **Works out of the box** — first start downloads and builds every keyless feed into millions of records (live count: `/api/db-status`).
@@ -79,6 +85,7 @@ Notes:
 - **Geo · City · ASN** — dual city sources (GeoLite2 + DB-IP), iptoasn for the ASN, plus CN ISP classification incl. HK/MO/TW.
 - **Proxy · VPN · Tor · CDN · cloud, spotted at a glance** — live-checked proxy lists, VPN ranges (incl. NordVPN & ProtonVPN), Tor exits, the big three CDNs' edges, and AWS/GCP/Azure/Oracle hosting ranges, all labeled; known infra also shows its service identity (8.8.8.8 → DNS · Google Public DNS).
 - **IPv6 lookups too** — bare v6 and small v6 CIDRs resolve with geo · city · ASN · VPN · CDN · DROP ranges; geo/city/ASN, cloud-provider ranges, CDN edges and DROPv6 all carry v6; most threat lists have no v6 upstream — shown honestly as no-records.
+- **Day/night theme toggle** — light and dark themes one click apart; your choice is remembered and restored before first paint, so no flash of the wrong theme.
 - **One container, memory that behaves** — concurrency bends to host RAM; background refresh staggered per source: daily feeds 2×/day, weekly 1×/week, each at a fixed offset time.
 - **STIX 2.1 export (optional)** — `/api/lookup/{ip}/stix`; the Docker image ships without `stix2` — `pip install stix2` to switch it on.
 
@@ -288,3 +295,7 @@ This project is dedicated to the legitimate rights of every worker — and to on
 <img src="assets/404starlink-logo.png" width="30%">
 
 IP Radar has joined [404Starlink](https://github.com/knownsec/404StarLink)
+
+## Friendly Links
+
+- [LINUX DO — Developer Community](https://linux.do)
