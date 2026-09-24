@@ -129,6 +129,7 @@ export default function Layout({
           >
             Desktop
           </a>
+          <span aria-hidden="true">·</span>
           <a
             href="https://github.com/steponeerror/ip-radar"
             target="_blank"
