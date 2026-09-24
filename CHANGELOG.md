@@ -43,8 +43,8 @@
   - PyJWT API-key system (PR #63): issue/verify/metadata storage + `/api/admin/keys` CRUD — plaintext visible exactly once at issuance, masked in listings, revocable and deletable
 - admin 控制台 `#/admin`（PR #63）：登录 + 标签页壳（数据源管理迁入、密钥管理、任务区，公开数据源页退役为只读）；全局迷你进度条、主题/语言切换
   - Admin console `#/admin` (PR #63): login + tabbed shell (source management moved in, key management, tasks area — the public sources page retired to read-only); global mini progress bar, theme/locale switchers
-- slowapi 限流（PR #63）：匿名 6/min、持钥统一 60/min、登录防爆破
-  - slowapi rate limits (PR #63): 6/min anonymous, 60/min unified for key holders, plus a login brute-force guard.
+- slowapi 限流（PR #63）：匿名批量 6/min、匿名单查 30/min、持钥统一 60/min、登录防爆破
+  - slowapi rate limits (PR #63): 6/min anonymous batch, 30/min anonymous single lookup, 60/min unified for key holders, plus a login brute-force guard
 
 ### 变更 Changed
 

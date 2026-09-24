@@ -27,7 +27,7 @@
 
 <p align="center">
 <sub>🚀 Try it in the <a href="https://ipradar.huxiao0207.dpdns.org">live demo</a> — click a sample:</sub><br>
-<b><a href="https://ipradar.huxiao0207.dpdns.org/?ip=80.82.77.139">☠️ Malicious IP</a> · <a href="https://ipradar.huxiao0207.dpdns.org/?ip=185.220.101.1">🕵️ Tor/VPN exit</a> · <a href="https://ipradar.huxiao0207.dpdns.org/?ip=1.12.0.72">🌱 Clean IP</a></b>
+<b><a href="https://ipradar.huxiao0207.dpdns.org/?ip=45.148.10.238">☠️ Malicious IP</a> · <a href="https://ipradar.huxiao0207.dpdns.org/?ip=185.220.101.1">🕵️ Tor/VPN exit</a> · <a href="https://ipradar.huxiao0207.dpdns.org/?ip=1.12.0.72">🌱 Clean IP</a></b>
 </p>
 
 ## Quick Start
