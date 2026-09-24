@@ -288,3 +288,7 @@ This project is dedicated to the legitimate rights of every worker — and to on
 <img src="assets/404starlink-logo.png" width="30%">
 
 IP Radar has joined [404Starlink](https://github.com/knownsec/404StarLink)
+
+## Friendly Links
+
+- [LINUX DO — Developer Community](https://linux.do)
