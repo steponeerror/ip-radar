@@ -112,7 +112,7 @@ flowchart TD
 
 ## 使用
 
-打开 http://127.0.0.1:8000，随手输一个 IP：裁决、逐源证据、地理/ASN 一起回来。API 也能直接用。程序化调用需 API key——先在 `docker-compose.yml` 解锁 admin env 注释块并重启，再到 `/admin` 签发；同源网页免 key。
+打开 http://127.0.0.1:8000，随手输一个 IP：裁决、逐源证据、地理/ASN 一起回来。API 也能直接用。程序化调用需 API key——先在 `docker-compose.yml` 解锁 admin env 注释块并重启，再到 `/admin` 签发；同源网页免 key；程序化调用加 `-H "Authorization: Bearer <key>"`。
 
 ```bash
 # 核心查询（需 key，见上）
