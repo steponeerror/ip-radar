@@ -114,16 +114,18 @@ describe("KeysSection", () => {
     }));
   });
 
-  it("web badge renders and the web row has no key actions", async () => {
+  it("web badge renders; web row has Edit sources + Revoke, Delete hidden", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: async () => [META({ sub: "demoweb", name: "demo-web", web: true })],
     });
     renderWithI18n(<KeysSection />);
     expect(await screen.findByText("Web")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Revoke" })).toBeNull();
+    // 终审 fix 2:运营商须能 PATCH sources(钦定 demo 集合)+ PATCH disabled
+    // (fail-closed kill switch);仅 Delete 隐藏(backend 403)。无 key 材料 → 无复制。
+    expect(screen.getByRole("button", { name: "Edit sources" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Revoke" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Edit sources" })).toBeNull();
   });
 
   it("row edit saves picked sources via PATCH setAdminKeySources", async () => {

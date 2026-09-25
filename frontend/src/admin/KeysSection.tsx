@@ -131,7 +131,8 @@ function SourcePickerModal({ editing, busy, onSave, onClose }: {
 
 // /admin 密钥区(Task 5 契约 + Task 6 源集合):列表(元数据,绝不回 key)+
 // 创建弹窗(完整 key 仅此一次展示 + 复制 + 源集合选择)+ 吊销 + 两击确认
-// 删除 + 行内源集合编辑;web 种子行(demoweb)只读,仅显徽章。
+// 删除 + 行内源集合编辑;web 种子行(demoweb)同享编辑/吊销(钦定 demo
+// 集合 + fail-closed kill switch),仅删除隐藏(backend 403)。
 export default function KeysSection({ onUnauthorized }: { onUnauthorized?: () => void } = {}) {
   const { t } = useI18n();
   const [keys, setKeys] = useState<ApiKeyMetaInfo[]>([]);
@@ -297,25 +298,26 @@ export default function KeysSection({ onUnauthorized }: { onUnauthorized?: () =>
                     )}
                   </td>
                   <td className="px-4 py-2">
-                    {/* web 种子行(demoweb)只读:仅徽章,无吊销/删除/编辑 */}
+                    {/* web 种子行(demoweb):可编辑源集合(PATCH sources 钦定 demo 集合)*/}
+                    {/* + 可吊销(PATCH disabled,fail-closed kill switch);仅删除隐藏(backend 403) */}
+                    <div className="flex justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setEditing({ sub: k.sub, sources: k.sources })}
+                        className="rounded-md border border-zinc-700 px-2.5 py-1 text-xs text-zinc-200 transition-colors hover:bg-zinc-800"
+                      >
+                        {t("admin.keys.editSources")}
+                      </button>
+                      {!k.disabled && (
+                      <button
+                        type="button"
+                        onClick={() => handleRevoke(k)}
+                        className="rounded-md border border-zinc-700 px-2.5 py-1 text-xs text-zinc-200 transition-colors hover:bg-zinc-800"
+                      >
+                        {t("admin.keys.revoke")}
+                      </button>
+                    )}
                     {!k.web && (
-                      <div className="flex justify-end gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setEditing({ sub: k.sub, sources: k.sources })}
-                          className="rounded-md border border-zinc-700 px-2.5 py-1 text-xs text-zinc-200 transition-colors hover:bg-zinc-800"
-                        >
-                          {t("admin.keys.editSources")}
-                        </button>
-                        {!k.disabled && (
-                        <button
-                          type="button"
-                          onClick={() => handleRevoke(k)}
-                          className="rounded-md border border-zinc-700 px-2.5 py-1 text-xs text-zinc-200 transition-colors hover:bg-zinc-800"
-                        >
-                          {t("admin.keys.revoke")}
-                        </button>
-                      )}
                       <button
                         type="button"
                         onClick={() => handleDelete(k.sub)}
@@ -329,8 +331,8 @@ export default function KeysSection({ onUnauthorized }: { onUnauthorized?: () =>
                           ? t("admin.keys.deleteConfirm")
                           : t("admin.keys.delete")}
                       </button>
-                      </div>
                     )}
+                    </div>
                   </td>
                 </tr>
               ))}
