@@ -1,4 +1,4 @@
-# backend/tests/auth/test_source_scopes.py — Task 1: _apikeys 数据层
+# backend/tests/auth/test_key_source_scopes.py — Task 1: _apikeys 数据层
 """api_key_meta.sources 列 + 幂等迁移 + demo web 种子行 + set_sources /
 issue_key(sources=) 往返(brief Step 1 用例原样)。"""
 import pytest
