@@ -67,6 +67,56 @@ def test_keys_disabled_503(client_as_admin, key_env, monkeypatch):
     assert client_as_admin.get("/api/admin/keys").status_code == 200
 
 
+# ── Task 4:key-source-sets —— sources 契约(POST/PATCH/GET)+ 种子行删除保护 ──
+# brief 用例里 "dbip" 已改名 dbip_city(发现序 10 < dshield 12,去重+registry
+# 序断言语义不变);fixture 沿用本文件 client_as_admin+key_env 既有模式。
+
+def test_create_key_with_sources_roundtrip(client_as_admin, key_env):
+    r = client_as_admin.post("/api/admin/keys", json={
+        "name": "t", "sources": ["dshield", "dbip_city", "dbip_city"]})
+    assert r.status_code == 201
+    assert r.json()["meta"]["sources"] == ["dbip_city", "dshield"]  # 去重+registry 序
+
+
+def test_create_key_null_sources(client_as_admin, key_env):
+    r = client_as_admin.post("/api/admin/keys", json={"name": "t"})
+    assert r.json()["meta"]["sources"] is None
+
+
+def test_create_key_unknown_source_422(client_as_admin, key_env):
+    r = client_as_admin.post("/api/admin/keys",
+                             json={"name": "t", "sources": ["nope"]})
+    assert r.status_code == 422
+
+
+def test_create_key_empty_sources_422(client_as_admin, key_env):
+    r = client_as_admin.post("/api/admin/keys",
+                             json={"name": "t", "sources": []})
+    assert r.status_code == 422
+
+
+def test_patch_set_then_reset_sources(client_as_admin, key_env):
+    sub = client_as_admin.post(
+        "/api/admin/keys",
+        json={"name": "t", "sources": ["dbip_city"]}).json()["meta"]["sub"]
+    r = client_as_admin.patch(f"/api/admin/keys/{sub}",
+                              json={"sources": ["dshield"]})
+    assert r.json()["sources"] == ["dshield"]
+    r = client_as_admin.patch(f"/api/admin/keys/{sub}", json={"sources": None})
+    assert r.json()["sources"] is None   # model_fields_set 区分"显式 null=重置"
+
+
+def test_delete_seed_row_403(client_as_admin, key_env):
+    import asyncio
+    from ipdb import _apikeys
+    asyncio.run(_apikeys.ensure_demo_row())
+    r = client_as_admin.delete(f"/api/admin/keys/{_apikeys.DEMO_SUB}")
+    assert r.status_code == 403
+    # 种子行仍在
+    assert any(k["web"] for k in
+               client_as_admin.get("/api/admin/keys").json())
+
+
 def test_keys_unknown_sub_404(client_as_admin, key_env):
     r = client_as_admin.patch("/api/admin/keys/doesnotexist0000",
                               json={"disabled": True})

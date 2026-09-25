@@ -222,6 +222,14 @@ class ApiKeyCreateIn(BaseModel):
     """POST /api/admin/keys 入参(严格模型:多余输入字段 422,非 _Out 透传)。"""
     name: str = Field(min_length=1)
     expires_days: Optional[int] = Field(default=None, ge=1)
+    sources: Optional[list[str]] = None   # None=全部公开源;[] 拒绝(main 校验 422)
+
+
+class ApiKeyPatchIn(BaseModel):
+    """PATCH /api/admin/keys/{sub} 入参:省略=不改;sources 显式 null=重置
+    (路由按 model_fields_set 区分省略与 null)。"""
+    disabled: Optional[bool] = None
+    sources: Optional[list[str]] = None
 
 
 class ApiKeyOut(_Out):
@@ -231,6 +239,8 @@ class ApiKeyOut(_Out):
     created_at: datetime
     last_used_at: Optional[datetime] = None
     disabled: bool
+    sources: Optional[list[str]] = None
+    web: bool = False                     # 种子行徽章(仅展示)
 
 
 class ApiKeyCreatedOut(_Out):

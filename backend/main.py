@@ -45,7 +45,8 @@ from ipdb import _version as _ipdb_version
 from ipdb._eval_manager import EvalManager, EvalBusyError
 from ipdb._eval_reader import read_model, read_overview, read_source
 from ipdb._api_models import (
-    AckOut, ApiKeyCreateIn, ApiKeyCreatedOut, ApiKeyOut, BatchOut, DbStatusOut,
+    AckOut, ApiKeyCreateIn, ApiKeyCreatedOut, ApiKeyOut, ApiKeyPatchIn,
+    BatchOut, DbStatusOut,
     ErrorEnvelope, EvalDetailOut, EvalJobAcceptedOut, EvalModelOut,
     EvalOverviewOut, LookupResultOut, SourceInfoOut, TaskAcceptedOut,
     TasksSnapshotOut, UpdateAcceptedOut, UpdateDbOut, UpdateStateOut, VersionOut,
@@ -1181,8 +1182,20 @@ app.include_router(
 # issue_key 内部 _require_keys_enabled 托底;GET/PATCH/DELETE 照常工作:
 # 吊销/清理在 keys 禁用时仍须可用,元数据查看无害。完整 JWT 仅 POST 201
 # 响应出现一次;list/PATCH 只回元数据,绝不回 token 本体。
-class ApiKeyPatchIn(BaseModel):
-    disabled: bool
+
+
+def _validate_sources(names: list[str] | None) -> list[str] | None:
+    """None=全部公开源(直通);空列表/未知源名 422(spec §6);非空:去重+registry 序。"""
+    if names is None:
+        return None
+    if not names:
+        raise HTTPException(
+            422, "sources must be a non-empty list or null (null = all public sources)")
+    order = {n: i for i, n in enumerate(_ipdb_registry.known_source_names())}
+    unknown = sorted(set(names) - set(order))
+    if unknown:
+        raise HTTPException(422, f"unknown source names: {', '.join(unknown)}")
+    return sorted(set(names), key=lambda n: order[n])
 
 
 async def _key_meta_by_sub(sub: str) -> dict | None:
@@ -1198,7 +1211,8 @@ async def _key_meta_by_sub(sub: str) -> dict | None:
                      **_ERRS_422_500})
 async def admin_create_key(payload: ApiKeyCreateIn):
     meta, token = await _ipdb_apikeys.issue_key(
-        payload.name, expires_days=payload.expires_days or 180)
+        payload.name, expires_days=payload.expires_days or 180,
+        sources=_validate_sources(payload.sources))
     # issue_key 的 meta 只有 {sub,name};201 契约要完整行 → 插入后按 sub 取回
     return {"key": token, "meta": await _key_meta_by_sub(meta["sub"])}
 
@@ -1219,7 +1233,10 @@ async def admin_list_keys():
 async def admin_patch_key(sub: str, patch: ApiKeyPatchIn):
     if await _key_meta_by_sub(sub) is None:
         raise ApiError(ErrorCode.source_not_found, f"unknown API key: {sub}")
-    await _ipdb_apikeys.set_disabled(sub, patch.disabled)
+    if "sources" in patch.model_fields_set:
+        await _ipdb_apikeys.set_sources(sub, _validate_sources(patch.sources))
+    if patch.disabled is not None:   # 省略/显式 null 都不动 disabled(只改 sources 的 PATCH 不得把列写 NULL)
+        await _ipdb_apikeys.set_disabled(sub, patch.disabled)
     row = await _key_meta_by_sub(sub)
     if row is None:  # 极窄并发窗:检查后被删 —— 回 404 而非验证 500
         raise ApiError(ErrorCode.source_not_found, f"unknown API key: {sub}")
@@ -1228,10 +1245,14 @@ async def admin_patch_key(sub: str, patch: ApiKeyPatchIn):
 
 @app.delete("/api/admin/keys/{sub}", status_code=204,
             dependencies=[*_ADMIN_DEPS],
-            responses={"404": {"model": ErrorEnvelope,
+            responses={"403": {"model": ErrorEnvelope,
+                               "description": "demo web seed row cannot be deleted"},
+                       "404": {"model": ErrorEnvelope,
                                "description": "unknown API key"},
                        **_ERRS_422_500})
 async def admin_delete_key(sub: str):
+    if sub == _ipdb_apikeys.DEMO_SUB:
+        raise ApiError(ErrorCode.forbidden, "demo web seed row cannot be deleted")
     if await _key_meta_by_sub(sub) is None:
         raise ApiError(ErrorCode.source_not_found, f"unknown API key: {sub}")
     await _ipdb_apikeys.delete_key(sub)
