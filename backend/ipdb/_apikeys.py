@@ -10,6 +10,7 @@
 disabled —— issue/verify 抛 503 admin_disabled;api_key_dep 对带
 Authorization 头的请求先 503(在 jwt.decode 摸到缺失 secret 之前)。
 """
+import json
 import logging
 import os
 import time
@@ -36,6 +37,9 @@ _LAST_USED_FLUSH_INTERVAL = 30.0
 _last_used_cache: dict[str, float] = {}   # sub -> ts
 _last_flush = 0.0
 
+# demo 前端种子的保留 sub(Task 3 的 resolve_web_identity 依此识别 web 身份)
+DEMO_SUB = "demoweb"
+
 
 class ApiKeyMeta(Base):
     """API key 元数据表;JWT 本体不入库,sub 为主键关联。"""
@@ -49,6 +53,8 @@ class ApiKeyMeta(Base):
     last_used_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True)
     disabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    sources: Mapped[str | None] = mapped_column(String, nullable=True)
+    # JSON 数组(源名,registry 序)| NULL=全部公开源(spec §4;私源只能显式点名)
 
 
 def keys_enabled() -> bool:
@@ -74,10 +80,13 @@ def _meta_dict(row: ApiKeyMeta) -> dict:
         "created_at": row.created_at,
         "last_used_at": row.last_used_at,
         "disabled": row.disabled,
+        "sources": _parse_sources(row.sources),
+        "web": row.sub == DEMO_SUB,
     }
 
 
-async def issue_key(name: str, expires_days: int = 180) -> tuple[dict, str]:
+async def issue_key(name: str, expires_days: int = 180,
+                    sources: list[str] | None = None) -> tuple[dict, str]:
     _require_keys_enabled()
     sub = uuid.uuid4().hex[:16]
     now = int(time.time())
@@ -87,7 +96,9 @@ async def issue_key(name: str, expires_days: int = 180) -> tuple[dict, str]:
         _secret(), algorithm="HS256")
     sm = _session_maker()
     async with sm() as s:
-        s.add(ApiKeyMeta(sub=sub, name=name))
+        s.add(ApiKeyMeta(sub=sub, name=name,
+                         sources=(json.dumps(sources)
+                                  if sources is not None else None)))
         await s.commit()
     return {"sub": sub, "name": name}, token
 
@@ -108,7 +119,43 @@ async def verify_key(token: str) -> dict:
         if row.disabled:
             raise ApiError(ErrorCode.forbidden, "API key disabled")
     await _touch_last_used(sub)
-    return {"sub": sub, "name": claims.get("kname") or row.name}
+    return {"sub": sub, "name": claims.get("kname") or row.name,
+            "sources": _parse_sources(row.sources)}
+
+
+async def migrate_sources_column() -> None:
+    """create_all 不给已有表加列(审计 C1):幂等 ALTER,失败 fail-fast。"""
+    from ._auth import _engine
+    async with _engine().begin() as conn:
+        rows = (await conn.exec_driver_sql(
+            "PRAGMA table_info(api_key_meta)")).fetchall()
+        if "sources" not in {r[1] for r in rows}:
+            await conn.exec_driver_sql(
+                "ALTER TABLE api_key_meta ADD COLUMN sources TEXT")
+
+
+async def ensure_demo_row() -> None:
+    """种子行(spec §4):仅 keys_enabled 时建;已存在不动(保留管理员改过的集合)。"""
+    if not keys_enabled():
+        return
+    sm = _session_maker()
+    async with sm() as s:
+        if await s.get(ApiKeyMeta, DEMO_SUB) is None:
+            s.add(ApiKeyMeta(sub=DEMO_SUB, name="demo 前端"))
+            await s.commit()
+
+
+async def set_sources(sub: str, sources: list[str] | None) -> None:
+    sm = _session_maker()
+    async with sm() as s:
+        await s.execute(
+            update(ApiKeyMeta).where(ApiKeyMeta.sub == sub)
+            .values(sources=json.dumps(sources) if sources is not None else None))
+        await s.commit()
+
+
+def _parse_sources(raw: str | None) -> list[str] | None:
+    return json.loads(raw) if raw else None
 
 
 async def set_disabled(sub: str, flag: bool) -> None:

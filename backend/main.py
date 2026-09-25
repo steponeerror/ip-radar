@@ -548,6 +548,8 @@ async def lifespan(app: FastAPI):
     # admin 认证层(spec 2026-09-21 §6):幂等建表 + 引导 admin(无密码环境变量
     # 则不建,路由层 fail-closed 503)。放在启动段末尾,不阻塞查询门。
     await _ipdb_auth.init_auth_db()
+    await _ipdb_apikeys.migrate_sources_column()
+    await _ipdb_apikeys.ensure_demo_row()
     await _ipdb_auth.bootstrap_admin()
     try:
         yield

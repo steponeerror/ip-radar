@@ -12,7 +12,10 @@ ruling:两者都要显式请求,env 共存无冲突。401 匿名测试用 auth_c
 """
 import main  # noqa: F401  (import 触发 app 组装)
 
-_META_KEYS = {"sub", "name", "created_at", "last_used_at", "disabled"}
+# Controller ruling 2026-09-25(key-source-sets Task 1):spec §6 GET/201 增 sources/web,
+# 契约演进为增法扩展 —— FROZEN 语义改为跟踪路由真实返回。
+_META_KEYS = {"sub", "name", "created_at", "last_used_at", "disabled",
+              "sources", "web"}
 
 
 def test_keys_crud_lifecycle(client_as_admin, key_env):
@@ -21,6 +24,7 @@ def test_keys_crud_lifecycle(client_as_admin, key_env):
     body = r.json()
     assert body["key"].count(".") == 2          # HS256 JWT 三段
     assert set(body["meta"]) == _META_KEYS      # 201 meta = 完整行(契约 FROZEN)
+    assert body["meta"]["sources"] is None and body["meta"]["web"] is False
     sub = body["meta"]["sub"]
 
     lst = client_as_admin.get("/api/admin/keys").json()
