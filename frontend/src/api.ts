@@ -503,12 +503,15 @@ export async function adminMe(): Promise<AdminUserRead | null> {
 // --- Admin API keys(Task 5 契约 FROZEN,snake_case 字段) ---
 
 // 密钥元数据 —— 绝不含 JWT 本体(list 单项 / PATCH 返回形状)。
+// sources: null = 全部公开源;web: demo 网页身份种子行(demoweb,只读)。
 export interface ApiKeyMetaInfo {
   sub: string;
   name: string;
   created_at: string;
   last_used_at: string | null;
   disabled: boolean;
+  sources: string[] | null;
+  web: boolean;
 }
 
 // 列表按创建时间倒序(最新在前),从不返回 key 本体。
@@ -517,16 +520,31 @@ export async function listAdminKeys(): Promise<ApiKeyMetaInfo[]> {
 }
 
 // 201 返回 {key, meta}:完整 JWT 仅此一次,调用方必须当场展示给用户。
+// sources 缺省/null = 全部公开源;显式列表 = 该键专属源集合。
 export async function createAdminKey(
   name: string,
   expiresDays?: number,
+  sources?: string[] | null,
 ): Promise<{ key: string; meta: ApiKeyMetaInfo }> {
   const res = await fetch("/api/admin/keys", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, expires_days: expiresDays }),
+    body: JSON.stringify({ name, expires_days: expiresDays, sources }),
   });
   return jsonOrThrow(res, "Failed to create key");
+}
+
+// 编辑源集合 = PATCH {"sources": [...] | null};null = 重置为全部公开源。
+export async function setAdminKeySources(
+  sub: string,
+  sources: string[] | null,
+): Promise<ApiKeyMetaInfo> {
+  const res = await fetch(`/api/admin/keys/${encodeURIComponent(sub)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sources }),
+  });
+  return jsonOrThrow(res, "Failed to update key sources");
 }
 
 // 吊销 = PATCH {disabled:true};返回更新后的 meta。
