@@ -49,12 +49,15 @@ def private_source_names() -> frozenset[str]:
 
 
 def resolve_allowed(requested: list[str] | None) -> frozenset[str]:
-    """None → 全部启用非私源(null 永不含私源,spec Q10-A);
-    显式 list → 原样(私源=授权动作;disabled 成员由 lookup 循环自然跳过)。"""
+    """None → 全部启用源减私源(null 永不含私源,spec Q10-A;internal
+    哨兵留下 —— canary 契约:查询环 YES;get_status 在自身站点已过滤
+    internal,计数不受影响);
+    显式 list → 原样(私源=授权动作;internal 哨兵不属显式授权面,
+    admin keys 校验用的 known_source_names 已排除哨兵;disabled 成员由
+    lookup 循环自然跳过)。"""
     if requested is None:
         return frozenset(s.name for s in _enabled_sources()
-                         if s.name not in _INTERNAL_NAMES
-                         and s.name not in _PRIVATE)
+                         if s.name not in _PRIVATE)
     return frozenset(requested)
 
 

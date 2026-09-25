@@ -179,7 +179,8 @@ def test_db_status_bearer_soft_scope(scoped_registry, key_env):
 # ── T2 缓议 M1 补钉(controller ordered fix #2,Q10-A)──
 
 def test_resolve_allowed_none_pins_private_exclusion(monkeypatch):
-    """判别 fixture:两假源其一私有 → resolve_allowed(None) 恰等于公开那个。
+    """判别 fixture:其一私有、其一 internal 哨兵 → resolve_allowed(None)
+    恰等于「启用源减私源」(哨兵留下,查询环 YES,canary 契约)。
     排除语义由测试钉死,不靠代码检视。"""
     class FakeSource:
         name = None
@@ -193,8 +194,30 @@ def test_resolve_allowed_none_pins_private_exclusion(monkeypatch):
         def query(self, ip):
             return {"country_code": "ZZ"}
 
-    a, b = FakeSource(), FakeSource()
+    a, b, c = FakeSource(), FakeSource(), FakeSource()
     a.name, b.name = "pin_pub", "pin_priv"
-    monkeypatch.setattr(reg, "_sources", [a, b])
+    c.name = sentinel = next(iter(reg._INTERNAL_NAMES))
+    monkeypatch.setattr(reg, "_sources", [a, b, c])
     monkeypatch.setattr(reg, "_PRIVATE", frozenset({"pin_priv"}))
-    assert reg.resolve_allowed(None) == frozenset({"pin_pub"})
+    allowed = reg.resolve_allowed(None)
+    assert sentinel in allowed          # 终审 fix:None 支不滤 internal,canary 回查询环
+    assert allowed == frozenset({"pin_pub", sentinel})
+
+
+def test_stix_route_passes_scope_to_lookup(scoped_registry, key_env, monkeypatch):
+    """终审 fix 1 配套:STIX 端点同 lookup 口径 — scope frozenset 作第二
+    位置参进入 lookup。桩返回 reserved 结果 → 路由在 lookup 之后 400,
+    断言只看分发(stix2 装否不影响)。"""
+    calls = []
+
+    def spy(ip, allowed_sources=None):
+        calls.append((ip, allowed_sources))
+        return reg._reserved_result(ip)
+
+    monkeypatch.setattr(main, "lookup", spy)
+    token = _issue("stix-scoped", sources=["priv_x"])
+    client = TestClient(main.app)
+    r = client.get("/api/lookup/1.2.3.4/stix",
+                   headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 400              # reserved 桩,分发已完成
+    assert calls == [("1.2.3.4", frozenset({"priv_x"}))]
