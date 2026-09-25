@@ -37,7 +37,7 @@ def _drain_stream(client, ips):
 
 def test_stream_done_error_carries_code(monkeypatch):
     """follow-up:done-error 终态在裸 error 字符串之外携带语义 code(向后兼容)。"""
-    async def _boom(expansion, total):
+    async def _boom(expansion, total, allowed=None):
         yield b'{"type":"progress","done":0,"total":1}\n'
         raise RuntimeError("kaboom")
 
@@ -145,7 +145,7 @@ def test_stream_pool_broken_mid_wait_no_duplicate_idx(monkeypatch):
     monkeypatch.setattr(bp, "get_pool", lambda: _BreakAfterFirstChunk())
     # 兜底现在直接调 _work_chunk, 不是 fan_out_lookup
     monkeypatch.setattr(bp, "_work_chunk",
-                        lambda ips_arg: bp._dedup_lookup(ips_arg))
+                        lambda ips_arg, allowed=None: bp._dedup_lookup(ips_arg, allowed))
 
     with TestClient(main.app, headers=SAME_ORIGIN) as client:
         events = _drain_stream(client, ips)

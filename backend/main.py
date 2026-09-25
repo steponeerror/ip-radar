@@ -221,12 +221,12 @@ def require_ready():
             headers={"X-IPRadar-Reason": "warming"})
 
 
-async def _emit_chunks(src, total, done_start=0):
+async def _emit_chunks(src, total, done_start=0, allowed=None):
     """src: 产出 (idx, ip) 的可迭代对象; 低层流式吐行 helper。
 
     islice 按 CHUNK 分片(不整体物化), 逐片 asyncio.to_thread 计算,
     片完成即吐 row + progress。整批一个 try —— 异常向上抛, 由调用方终止。
-    """
+    allowed: per-key 源集合, 贯穿到 lookup(Task 5, 审计 I2)。"""
     import itertools
     it = iter(src)
     done = done_start
@@ -236,7 +236,7 @@ async def _emit_chunks(src, total, done_start=0):
             break
         ips = [ip for _, ip in batch]
         start_idx = batch[0][0]
-        dicts = await asyncio.to_thread(_batch_pool._work_chunk, ips)
+        dicts = await asyncio.to_thread(_batch_pool._work_chunk, ips, allowed)
         for i, d in enumerate(dicts):
             yield orjson.dumps({"type": "row", "idx": start_idx + i,
                                 "result": d}) + b"\n"
@@ -246,8 +246,10 @@ async def _emit_chunks(src, total, done_start=0):
         await asyncio.sleep(0)
 
 
-async def _stream_lookup(expansion):
+async def _stream_lookup(expansion, allowed: frozenset[str] | None = None):
     """Stream lookup results row-by-row as NDJSON (protocol v2).
+
+    allowed: per-key 源集合, 贯穿全部回退路径(Task 5, 审计 I2)。
 
     Emits: start{total} → row{idx,result} × N → progress{done,total} → done{...}.
     Rows are emitted in chunk-completion order (not input order); each row
@@ -274,7 +276,7 @@ async def _stream_lookup(expansion):
         yield (orjson.dumps({"type": "progress", "done": 0, "total": total})
                + b"\n")
         try:
-            async for evt in _emit_chunks(expansion, total):
+            async for evt in _emit_chunks(expansion, total, allowed=allowed):
                 yield evt
         except Exception as e:            # done-error 不静默 (spec §4)
             logging.getLogger(__name__).exception("inline stream error")
@@ -303,7 +305,7 @@ async def _stream_lookup(expansion):
                 break
             start_idx = batch[0][0]
             ips = [ip for _, ip in batch]
-            fut = loop.run_in_executor(pool, _batch_pool._work_chunk, ips)
+            fut = loop.run_in_executor(pool, _batch_pool._work_chunk, ips, allowed)
             fut_to_chunk[fut] = (start_idx, ips)
     except BrokenProcessPool:
         logging.getLogger(__name__).warning(
@@ -311,7 +313,7 @@ async def _stream_lookup(expansion):
         yield (orjson.dumps({"type": "progress", "done": 0, "total": total})
                + b"\n")   # 提交期一行未吐, 从头流式
         try:
-            async for evt in _emit_chunks(expansion, total):
+            async for evt in _emit_chunks(expansion, total, allowed=allowed):
                 yield evt
         except Exception as e:
             logging.getLogger(__name__).exception("submit-fallback stream error")
@@ -365,7 +367,8 @@ async def _stream_lookup(expansion):
                 (si + i, ip) for si, ips in un_emitted for i, ip in enumerate(ips))
             try:
                 async for evt in _emit_chunks(
-                        un_emitted_stream, total, done_start=done_count):
+                        un_emitted_stream, total, done_start=done_count,
+                        allowed=allowed):
                     yield evt
             except Exception as e:
                 logging.getLogger(__name__).exception(
@@ -714,6 +717,34 @@ async def reject_oversized_bodies(request, call_next):
 _QUERY_AUTH_DEPS = [Depends(_ipdb_apikeys.api_key_dep), Depends(require_ready)]
 
 
+# ── Task 5(key-source-sets):查询端点 scope 口径 ──
+def _scope_fset(request: Request) -> frozenset[str]:
+    """查询端点硬口径:api_scope(list|None)→ allowed_sources
+    (None=全部公开源语义,私源必须显式点名)。"""
+    return _ipdb_registry.resolve_allowed(
+        getattr(request.state, "api_scope", None))
+
+
+async def _soft_scope(request: Request) -> frozenset[str]:
+    """db-status 软解析:无效凭证不拒,只降级公开底线(计数条非鉴权面
+    ——查询面已由 api_key_dep fail-closed,这里只保证私源计数不泄露)。"""
+    if _ipdb_apikeys.keys_enabled():
+        try:
+            cred = await _ipdb_apikeys._bearer(request)
+            if cred is not None:
+                info = await _ipdb_apikeys.verify_key(cred.credentials)
+                return _ipdb_registry.resolve_allowed(info.get("sources"))
+        except ApiError:
+            pass
+        if _ipdb_apikeys._same_origin(request):
+            try:
+                info = await _ipdb_apikeys.resolve_web_identity()
+                return _ipdb_registry.resolve_allowed(info["sources"])
+            except ApiError:
+                pass   # 种子行禁用:查询面已 fail-closed,计数条降公开底线
+    return _ipdb_registry.resolve_allowed(None)
+
+
 # Task 7 限流装饰器注:装饰器必须在路由装饰器**之下**(最靠近函数):
 # @app.post 返回原函数,若 limit 放在路由装饰器之上,路由持有的是未包装
 # 函数,限流永不生效(实证见 task-7-report)。两个 limit 装饰器叠放均生效
@@ -757,7 +788,7 @@ async def query_ips_stream(request: Request):
         raise HTTPException(
             400, f"Expanded size {expansion.total:,} exceeds 500,000 limit")
     return StreamingResponse(
-        _stream_lookup(expansion),
+        _stream_lookup(expansion, _scope_fset(request)),
         media_type="application/x-ndjson",
     )
 
@@ -795,15 +826,17 @@ async def upload_file_stream(request: Request, file: UploadFile = File(...)):
         raise HTTPException(
             400, f"Expanded size {expansion.total:,} exceeds 500,000 limit")
     return StreamingResponse(
-        _stream_lookup(expansion),
+        _stream_lookup(expansion, _scope_fset(request)),
         media_type="application/x-ndjson",
     )
 
 
 @app.get("/api/db-status", response_model=DbStatusOut,
           responses=_ERRS_422_500)
-async def db_status():
-    status = get_status()
+async def db_status(request: Request):
+    # 软收窄(Task 5):计数条非鉴权面 —— 匿名/无效凭证降级公开底线,
+    # 合法凭证按其集合;私源计数绝不向未点名者泄露。
+    status = await asyncio.to_thread(get_status, await _soft_scope(request))
     # 全源禁用不是 warming:报 False 隐藏横幅,查询走 require_ready 的诚实报错
     # (internal 恒 enabled,须按 _real_enabled_sources 口径判空 —— 与 require_ready 同源)
     status["warming_up"] = bool(_ipdb_registry._real_enabled_sources()) and not _db_ready()
@@ -883,7 +916,7 @@ async def lookup_single(request: Request, ip: str):
         ipaddress.ip_address(ip)
     except ValueError:
         raise ApiError(ErrorCode.invalid_ip, f"invalid IP address: {ip}")
-    result = await asyncio.to_thread(lookup, ip)
+    result = await asyncio.to_thread(lookup, ip, _scope_fset(request))
     return result.to_dict()
 
 
@@ -906,7 +939,7 @@ async def lookup_stix(request: Request, ip: str):
         raise ApiError(ErrorCode.invalid_ip, f"invalid IP address: {ip}")
     from ipdb._stix_export import to_stix_bundle
 
-    result = await asyncio.to_thread(lookup, ip)
+    result = await asyncio.to_thread(lookup, ip, _scope_fset(request))
     if result.error:
         raise HTTPException(400, result.error)
     if result.is_reserved:
