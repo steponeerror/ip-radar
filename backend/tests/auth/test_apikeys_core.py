@@ -196,10 +196,73 @@ async def test_api_key_dep_disabled_503_before_decode(monkeypatch):
 
 @pytest.mark.anyio
 async def test_api_key_dep_same_origin_passes():
-    from ipdb import _apikeys
+    from ipdb import _apikeys, _auth
+    await _auth.init_auth_db()
+    await _apikeys.ensure_demo_row()  # Task 3(key-source-sets)起同源须 demoweb 行
     req = make_request({"origin": "https://h.test", "host": "h.test"})
     assert await _apikeys.api_key_dep(req) is None
     assert getattr(req.state, "api_key_sub", None) is None  # 未注入 sub
+
+
+# ── Task 3(key-source-sets):api_scope 解析 + 同源 demoweb 映射 ──
+# 审计 I1:web 分支绝不写 api_key_sub(限流保持 per-IP anon 桶);
+# 行缺失/禁用都 fail-closed,绝不回退全源语义。
+
+@pytest.mark.anyio
+async def test_same_origin_maps_demoweb_scope_not_sub():
+    from ipdb import _apikeys, _auth
+    await _auth.init_auth_db()
+    await _apikeys.ensure_demo_row()
+    await _apikeys.set_sources(_apikeys.DEMO_SUB, ["dbip"])
+    req = make_request({"origin": "https://h.test", "host": "h.test"})
+    assert await _apikeys.api_key_dep(req) is None  # 放行(≠401 语义)
+    assert req.state.api_scope == ["dbip"]
+    assert getattr(req.state, "api_key_sub", None) is None  # 审计 I1
+
+
+@pytest.mark.anyio
+async def test_demoweb_row_missing_fail_closed():
+    from ipdb import _apikeys, _auth
+    from ipdb._errors import ApiError
+    await _auth.init_auth_db()  # 表在,行不在(生产 lifespan 会种;缺失即拒)
+    req = make_request({"origin": "https://h.test", "host": "h.test"})
+    with pytest.raises(ApiError) as ei:
+        await _apikeys.api_key_dep(req)
+    assert ei.value.status == 503  # fail-closed,绝不回退全源
+
+
+@pytest.mark.anyio
+async def test_demoweb_disabled_fail_closed():
+    from ipdb import _apikeys, _auth
+    from ipdb._errors import ApiError
+    await _auth.init_auth_db()
+    await _apikeys.ensure_demo_row()
+    await _apikeys.set_disabled(_apikeys.DEMO_SUB, True)
+    req = make_request({"origin": "https://h.test", "host": "h.test"})
+    with pytest.raises(ApiError) as ei:
+        await _apikeys.api_key_dep(req)
+    assert ei.value.status == 403  # fail-closed,绝不回退全源
+
+
+@pytest.mark.anyio
+async def test_bearer_sets_sub_and_scope():
+    from ipdb import _apikeys, _auth
+    await _auth.init_auth_db()
+    _, token = await _apikeys.issue_key("k", sources=["dbip"])
+    req = make_request({"authorization": f"Bearer {token}", "host": "h.test"})
+    assert await _apikeys.api_key_dep(req) is None
+    assert req.state.api_key_sub is not None
+    assert req.state.api_scope == ["dbip"]
+
+
+@pytest.mark.anyio
+async def test_no_secret_same_origin_legacy_pass(monkeypatch):
+    # 未配 JWT secret:同源分支退化为旧行为(匿名放行,无 scope)
+    from ipdb import _apikeys
+    monkeypatch.delenv("IP_RADAR_API_JWT_SECRET", raising=False)
+    req = make_request({"origin": "https://h.test", "host": "h.test"})
+    assert await _apikeys.api_key_dep(req) is None  # ≠401:旧匿名放行
+    assert getattr(req.state, "api_scope", None) is None  # 降级,无 scope
 
 
 @pytest.mark.anyio

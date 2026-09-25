@@ -248,6 +248,22 @@ def _same_origin(request: Request) -> bool:
     return any(s == _scheme(source) and n == src_netloc for s, n in strict)
 
 
+async def resolve_web_identity() -> dict:
+    """同源 web 通道 → 种子行(spec §3/§4)。fail-closed:行缺失/禁用都拒绝。"""
+    _require_keys_enabled()
+    sm = _session_maker()
+    async with sm() as s:
+        row = await s.get(ApiKeyMeta, DEMO_SUB)
+        if row is None:
+            raise ApiError(ErrorCode.admin_disabled,
+                           "demo web identity not provisioned")
+        if row.disabled:
+            raise ApiError(ErrorCode.forbidden, "demo web identity disabled")
+        sources = _parse_sources(row.sources)
+    await _touch_last_used(DEMO_SUB)
+    return {"sub": DEMO_SUB, "sources": sources}
+
+
 async def api_key_dep(request: Request) -> None:
     # Q1-B:无 GET 匿名分支 —— GET 与 batch 同规,Task 6 查询端点统一挂本依赖。
     # 顺序即语义:keys 失效时,任何 Authorization 头(含非 Bearer scheme,那
@@ -260,8 +276,14 @@ async def api_key_dep(request: Request) -> None:
     if cred is not None:
         info = await verify_key(cred.credentials)
         request.state.api_key_sub = info["sub"]
+        request.state.api_scope = info.get("sources")
         return
     if _same_origin(request):
+        if not keys_enabled():
+            return  # 降级(spec §3):未配 secret,同源保持旧匿名放行(无 scope)
+        info = await resolve_web_identity()
+        # 审计 I1:绝不写 api_key_sub —— 限流保持 per-IP anon 桶
+        request.state.api_scope = info["sources"]
         return
     raise ApiError(ErrorCode.unauthorized,
                    "API key required for programmatic access")
