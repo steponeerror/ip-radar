@@ -21,6 +21,7 @@
   "admin.keys.pickSources": "选择源",
   "admin.keys.revoke": "吊销",
   "admin.keys.saveSources": "保存",
+  "admin.keys.sourcesEmptyHint": "至少选择一个源，或切换回“全部源”",
   "admin.keys.status": "状态",
   "admin.keys.webBadge": "网页",
   "admin.login": "登录",

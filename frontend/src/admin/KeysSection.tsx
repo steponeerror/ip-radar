@@ -73,6 +73,9 @@ function SourcePickerBody({ initial, onChange }: {
       {!all && (
         <div className="mt-3">
           <p className="text-xs text-zinc-500">{t("admin.keys.pickSources")}</p>
+          {picked.length === 0 && (
+            <p className="mt-1 text-xs text-amber-400">{t("admin.keys.sourcesEmptyHint")}</p>
+          )}
           {loadError ? (
             <p className="mt-2 text-xs text-red-400">{loadError}</p>
           ) : catalog === null ? (
@@ -120,7 +123,7 @@ function SourcePickerModal({ editing, busy, onSave, onClose }: {
       <button
         type="button"
         onClick={() => onSave(pending)}
-        disabled={busy}
+        disabled={busy || (pending !== null && pending.length === 0)}
         className="mt-4 rounded-lg bg-emerald-500 px-5 py-2 text-sm font-semibold text-zinc-950 transition-transform hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50"
       >
         {t("admin.keys.saveSources")}
@@ -389,7 +392,8 @@ export default function KeysSection({ onUnauthorized }: { onUnauthorized?: () =>
             <button
               type="button"
               onClick={submitCreate}
-              disabled={busy || !name.trim()}
+              disabled={busy || !name.trim()
+                || (createSources !== null && createSources.length === 0)}
               className="mt-3 rounded-lg bg-emerald-500 px-5 py-2 text-sm font-semibold text-zinc-950 transition-transform hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50"
             >
               {t("admin.keys.confirm")}

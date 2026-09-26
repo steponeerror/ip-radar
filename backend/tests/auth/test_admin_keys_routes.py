@@ -117,6 +117,46 @@ def test_delete_seed_row_403(client_as_admin, key_env):
                client_as_admin.get("/api/admin/keys").json())
 
 
+def test_patch_seed_row_private_source_422(client_as_admin, key_env, monkeypatch):
+    # P2 sweep Item A:私源∩demoweb 种子行后端硬拒(422),sources 保持原样。
+    import asyncio
+    from ipdb import _apikeys, _registry
+    monkeypatch.setattr(_registry, "_PRIVATE", frozenset({"dshield"}))
+    asyncio.run(_apikeys.ensure_demo_row())
+    r = client_as_admin.patch(f"/api/admin/keys/{_apikeys.DEMO_SUB}",
+                              json={"sources": ["dshield"]})
+    assert r.status_code == 422
+    assert r.json()["error"]["code"] == "validation_error"
+    row = next(k for k in client_as_admin.get("/api/admin/keys").json() if k["web"])
+    assert row["sources"] is None   # 未变
+
+
+def test_patch_regular_key_private_source_ok(client_as_admin, key_env, monkeypatch):
+    # 同一私源名对普通 key 仍合法(私源授予 = admin 显式授权动作)。
+    from ipdb import _registry
+    monkeypatch.setattr(_registry, "_PRIVATE", frozenset({"dshield"}))
+    sub = client_as_admin.post(
+        "/api/admin/keys", json={"name": "t"}).json()["meta"]["sub"]
+    r = client_as_admin.patch(f"/api/admin/keys/{sub}",
+                              json={"sources": ["dshield"]})
+    assert r.status_code == 200
+    assert r.json()["sources"] == ["dshield"]
+
+
+def test_patch_seed_row_public_then_null_ok(client_as_admin, key_env, monkeypatch):
+    # 公源名与显式 null 重置不受守卫影响。
+    import asyncio
+    from ipdb import _apikeys, _registry
+    monkeypatch.setattr(_registry, "_PRIVATE", frozenset({"dshield"}))
+    asyncio.run(_apikeys.ensure_demo_row())
+    r = client_as_admin.patch(f"/api/admin/keys/{_apikeys.DEMO_SUB}",
+                              json={"sources": ["dbip_city"]})
+    assert r.status_code == 200 and r.json()["sources"] == ["dbip_city"]
+    r = client_as_admin.patch(f"/api/admin/keys/{_apikeys.DEMO_SUB}",
+                              json={"sources": None})
+    assert r.status_code == 200 and r.json()["sources"] is None
+
+
 def test_keys_unknown_sub_404(client_as_admin, key_env):
     r = client_as_admin.patch("/api/admin/keys/doesnotexist0000",
                               json={"disabled": True})

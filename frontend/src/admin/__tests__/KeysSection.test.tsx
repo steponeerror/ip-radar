@@ -159,6 +159,58 @@ describe("KeysSection", () => {
     })));
   });
 
+  it("create modal: empty picked set disables submit + shows hint; non-empty re-enables", async () => {
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => [] }) // GET list (empty)
+      .mockResolvedValueOnce({ // GET source catalog (lazy: revealed on toggle-off)
+        ok: true,
+        json: async () => [SRC("dbip", "geo_asn"), SRC("dshield", "threat")],
+      });
+    renderWithI18n(<KeysSection />);
+    await waitFor(() => expect(screen.getByText("No API keys yet")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: "Create key" }));
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "t" } });
+    const submit = screen.getByRole("button", { name: "Create" });
+    expect((submit as HTMLButtonElement).disabled).toBe(false); // 默认全部源 → 可提交
+
+    fireEvent.click(screen.getByLabelText("All sources")); // 关掉 → 空选集
+    expect((submit as HTMLButtonElement).disabled).toBe(true);
+    expect(await screen.findByText("Pick at least one source, or switch back to all sources"))
+      .toBeInTheDocument();
+
+    fireEvent.click(await screen.findByLabelText("dbip"));
+    expect((submit as HTMLButtonElement).disabled).toBe(false); // 非空 → 可用
+    expect(screen.queryByText("Pick at least one source, or switch back to all sources")).toBeNull();
+  });
+
+  it("edit modal: empty picked set disables Save; non-empty re-enables", async () => {
+    mockFetch
+      .mockResolvedValueOnce({ // GET list
+        ok: true,
+        json: async () => [META({ sub: "s1", name: "k", sources: ["dbip"] })],
+      })
+      .mockResolvedValueOnce({ // GET source catalog (edit modal opens with explicit set)
+        ok: true,
+        json: async () => [SRC("dbip", "geo_asn")],
+      });
+    renderWithI18n(<KeysSection />);
+    await waitFor(() => screen.getByText("k"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit sources" }));
+    const save = screen.getByRole("button", { name: "Save" });
+    const dbip = await waitFor(() => screen.getByLabelText("dbip"));
+    expect((save as HTMLButtonElement).disabled).toBe(false); // 预填非空 → 可保存
+
+    fireEvent.click(dbip); // 取消唯一勾选 → 空选集
+    expect((save as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText("Pick at least one source, or switch back to all sources"))
+      .toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText("dbip"));
+    expect((save as HTMLButtonElement).disabled).toBe(false); // 非空 → 可用
+  });
+
   it("localizes the Status column header (no hard-coded English, zh-CN)", async () => {
     mockFetch.mockResolvedValueOnce({ ok: true, json: async () => [META({ sub: "s1", name: "k" })] });
     renderWithI18n(<KeysSection />, { locale: "zh-CN" });

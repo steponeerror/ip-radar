@@ -2,6 +2,19 @@
 
 本项目的所有重要变更记录于此。自 v1.0.0 起按版本分节，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## v1.4.0 — 2026-09-26
+
+### 新增 Added
+
+- 每 key 绑定源集合（PR #66）：`api_key_meta.sources` 列（幂等迁移；NULL = 全部公开源）；查询/STIX/流式/批量全链路按 key 收窄，db-status 计数同按身份收窄
+  - Per-API-key source sets (PR #66): `api_key_meta.sources` column (idempotent migration; NULL = all public sources); lookup/STIX/stream/batch all narrow per key, db-status counts narrow by identity too
+- demoweb 种子行与同源身份：同源网页免钥映射到种子行 scope（fail-closed：行缺失/禁用即拒），支持编辑源集合与吊销（作 kill switch），删除受 403 保护
+  - demoweb seed row & same-origin identity: the same-origin web maps to the seed row's scope without a key (fail-closed — a missing or disabled row refuses queries); it supports Edit-sources and Revoke (as a kill switch), and deletion stays 403-protected
+- admin 密钥页源集合多选 + web 徽章（zh/en 双语）：创建/编辑弹窗按目录分组多选，“全部源”开关默认开
+  - Admin keys-page source multiselect + Web badge (zh/en): grouped catalog multiselect in the create/edit modals, with an all-sources toggle on by default
+- 私源保密（`IP_RADAR_PRIVATE_SOURCES`，逗号分隔，启动时读入）：web/匿名身份与 null-scope key 永不可见；admin 可对普通 key 显式授予，web 种子行除外（422 硬拒）
+  - Private-source secrecy (`IP_RADAR_PRIVATE_SOURCES`, comma-separated, read at startup): invisible to web/anonymous identities and null-scope keys; an admin may grant one explicitly to a regular key, but never to the web seed row (422 hard reject)
+
 ## v1.3.1 — 2026-09-24
 
 ### verdict-aware scoring(spec 2026-09-06)

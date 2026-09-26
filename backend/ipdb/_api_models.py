@@ -236,7 +236,7 @@ class ApiKeyOut(_Out):
     """密钥元数据 —— 绝不含 JWT 本体(list 单项 / PATCH 返回形状)。"""
     sub: str
     name: str
-    created_at: datetime
+    created_at: Optional[datetime] = None   # legacy NULL 行合法(迁移锚点,spec §9)
     last_used_at: Optional[datetime] = None
     disabled: bool
     sources: Optional[list[str]] = None

@@ -1267,7 +1267,14 @@ async def admin_patch_key(sub: str, patch: ApiKeyPatchIn):
     if await _key_meta_by_sub(sub) is None:
         raise ApiError(ErrorCode.source_not_found, f"unknown API key: {sub}")
     if "sources" in patch.model_fields_set:
-        await _ipdb_apikeys.set_sources(sub, _validate_sources(patch.sources))
+        validated = _validate_sources(patch.sources)
+        # 私源∩web 种子行硬拒(P2 sweep Item A):demoweb 身份代表同源网页
+        # 访客,私源只能授予普通 key;null(重置)/公源不受影响。
+        if (sub == _ipdb_apikeys.DEMO_SUB and validated is not None
+                and set(validated) & _ipdb_registry._PRIVATE):
+            raise HTTPException(
+                422, "private sources cannot be granted to the web seed row")
+        await _ipdb_apikeys.set_sources(sub, validated)
     if patch.disabled is not None:   # 省略/显式 null 都不动 disabled(只改 sources 的 PATCH 不得把列写 NULL)
         await _ipdb_apikeys.set_disabled(sub, patch.disabled)
     row = await _key_meta_by_sub(sub)

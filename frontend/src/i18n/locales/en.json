@@ -21,6 +21,7 @@
   "admin.keys.pickSources": "Pick sources",
   "admin.keys.revoke": "Revoke",
   "admin.keys.saveSources": "Save",
+  "admin.keys.sourcesEmptyHint": "Pick at least one source, or switch back to all sources",
   "admin.keys.status": "Status",
   "admin.keys.webBadge": "Web",
   "admin.login": "Sign in",

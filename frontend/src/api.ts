@@ -507,7 +507,7 @@ export async function adminMe(): Promise<AdminUserRead | null> {
 export interface ApiKeyMetaInfo {
   sub: string;
   name: string;
-  created_at: string;
+  created_at: string | null;
   last_used_at: string | null;
   disabled: boolean;
   sources: string[] | null;
