@@ -557,6 +557,16 @@ export async function revokeAdminKey(sub: string): Promise<ApiKeyMetaInfo> {
   return jsonOrThrow(res, "Failed to revoke key");
 }
 
+// 启用 = PATCH {disabled:false}(revokeAdminKey 镜像,同一端点);返回更新后的 meta。
+export async function enableAdminKey(sub: string): Promise<ApiKeyMetaInfo> {
+  const res = await fetch(`/api/admin/keys/${encodeURIComponent(sub)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ disabled: false }),
+  });
+  return jsonOrThrow(res, "Failed to enable key");
+}
+
 // DELETE 成功是 204 无 body。
 export async function deleteAdminKey(sub: string): Promise<void> {
   const res = await fetch(`/api/admin/keys/${encodeURIComponent(sub)}`, { method: "DELETE" });

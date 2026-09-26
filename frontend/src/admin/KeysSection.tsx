@@ -4,6 +4,7 @@ import { useI18n } from "../i18n";
 import {
   createAdminKey,
   deleteAdminKey,
+  enableAdminKey,
   getSources,
   listAdminKeys,
   revokeAdminKey,
@@ -222,6 +223,15 @@ export default function KeysSection({ onUnauthorized }: { onUnauthorized?: () =>
     }
   };
 
+  // 吊销行的复活入口(所有禁用行统一,含 web 行):镜像 handleRevoke。
+  const handleEnable = async (k: ApiKeyMetaInfo) => {
+    try {
+      patchRow(await enableAdminKey(k.sub));
+    } catch (e) {
+      handleErr(e);
+    }
+  };
+
   const handleDelete = async (sub: string) => {
     if (confirmDeleteSub !== sub) { setConfirmDeleteSub(sub); return; } // 第一击仅换确认文案
     setConfirmDeleteSub(null);
@@ -323,6 +333,15 @@ export default function KeysSection({ onUnauthorized }: { onUnauthorized?: () =>
                         className="rounded-md border border-zinc-700 px-2.5 py-1 text-xs text-zinc-200 transition-colors hover:bg-zinc-800"
                       >
                         {t("admin.keys.revoke")}
+                      </button>
+                    )}
+                    {k.disabled && (
+                      <button
+                        type="button"
+                        onClick={() => handleEnable(k)}
+                        className="rounded-md border border-zinc-700 px-2.5 py-1 text-xs text-zinc-200 transition-colors hover:bg-zinc-800"
+                      >
+                        {t("admin.keys.enable")}
                       </button>
                     )}
                     {!k.web && (

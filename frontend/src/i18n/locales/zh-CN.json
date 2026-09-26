@@ -12,6 +12,7 @@
   "admin.keys.disabled": "已吊销",
   "admin.keys.editSources": "源集合",
   "admin.keys.empty": "暂无 API 密钥",
+  "admin.keys.enable": "启用",
   "admin.keys.expiresDays": "有效期(天,可选)",
   "admin.keys.lastUsed": "最近使用",
   "admin.keys.loadFailed": "加载 API 密钥失败",

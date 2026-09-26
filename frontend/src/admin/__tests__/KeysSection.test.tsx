@@ -69,6 +69,37 @@ describe("KeysSection", () => {
     }));
   });
 
+  it("disabled rows (normal + web) show Enable; click PATCHes disabled:false and re-activates", async () => {
+    mockFetch
+      .mockResolvedValueOnce({ // GET list
+        ok: true,
+        json: async () => [
+          META({ sub: "s1", name: "k", disabled: true }),
+          META({ sub: "demoweb", name: "demo-web", web: true, disabled: true }),
+          META({ sub: "s2", name: "live" }), // 启用行:无 Enable
+        ],
+      })
+      .mockResolvedValueOnce({ // PATCH enable s1
+        ok: true, status: 200,
+        json: async () => META({ sub: "s1", name: "k", disabled: false }),
+      });
+    renderWithI18n(<KeysSection />);
+    await waitFor(() => screen.getByText("k"));
+
+    // 仅两个禁用行(普通 + web,无 k.web 特判)显示 Enable
+    expect(screen.getAllByRole("button", { name: "Enable" })).toHaveLength(2);
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Enable" })[0]);
+    await waitFor(() => expect(mockFetch).toHaveBeenNthCalledWith(2, "/api/admin/keys/s1",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ disabled: false }),
+      })));
+    // 行翻回 active(k + live 两个 Active 徽标),该行 Enable 消失(仅剩 web 行)
+    await waitFor(() => expect(screen.getAllByText("Active")).toHaveLength(2));
+    expect(screen.getAllByRole("button", { name: "Enable" })).toHaveLength(1);
+  });
+
   it("deletes a key only after a second confirming click (two-click confirm)", async () => {
     mockFetch
       .mockResolvedValueOnce({ ok: true, json: async () => [META({ sub: "s1", name: "k" })] })

@@ -12,6 +12,7 @@
   "admin.keys.disabled": "Disabled",
   "admin.keys.editSources": "Edit sources",
   "admin.keys.empty": "No API keys yet",
+  "admin.keys.enable": "Enable",
   "admin.keys.expiresDays": "Expires in days (optional)",
   "admin.keys.lastUsed": "Last used",
   "admin.keys.loadFailed": "Failed to load API keys",
