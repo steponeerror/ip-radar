@@ -108,10 +108,13 @@ function SourcePickerBody({ initial, onChange }: {
   );
 }
 
-// 行内“源集合”编辑弹窗:初始集合预填,保存走 setAdminKeySources。
-function SourcePickerModal({ editing, busy, onSave, onClose }: {
+// 行内“源集合”编辑弹窗：初始集合预填，保存走 setAdminKeySources。
+// 保存失败错误内联展示（R2 修波 F3）：页面横幅在 Modal z-50 遮罩后
+// “看不见”（如 web 行选私源 422），错误必须落在弹窗面板内。
+function SourcePickerModal({ editing, busy, error, onSave, onClose }: {
   editing: { sub: string; sources: string[] | null };
   busy: boolean;
+  error: string | null;
   onSave: (sources: string[] | null) => void;
   onClose: () => void;
 }) {
@@ -120,6 +123,7 @@ function SourcePickerModal({ editing, busy, onSave, onClose }: {
   return (
     <Modal open title={t("admin.keys.editSources")} onClose={onClose}>
       <SourcePickerBody initial={editing.sources} onChange={setPending} />
+      {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
       <button
         type="button"
         onClick={() => onSave(pending)}
@@ -231,6 +235,7 @@ export default function KeysSection({ onUnauthorized }: { onUnauthorized?: () =>
 
   const handleSaveSources = async (sub: string, sources: string[] | null) => {
     setSavingSources(true);
+    setError(null);   // 新一次保存尝试先清旧错（openCreate 同款）
     try {
       patchRow(await setAdminKeySources(sub, sources));
       setEditing(null);
@@ -306,7 +311,7 @@ export default function KeysSection({ onUnauthorized }: { onUnauthorized?: () =>
                     <div className="flex justify-end gap-2">
                       <button
                         type="button"
-                        onClick={() => setEditing({ sub: k.sub, sources: k.sources })}
+                        onClick={() => { setError(null); setEditing({ sub: k.sub, sources: k.sources }); }}
                         className="rounded-md border border-zinc-700 px-2.5 py-1 text-xs text-zinc-200 transition-colors hover:bg-zinc-800"
                       >
                         {t("admin.keys.editSources")}
@@ -407,6 +412,7 @@ export default function KeysSection({ onUnauthorized }: { onUnauthorized?: () =>
           key={editing.sub}
           editing={editing}
           busy={savingSources}
+          error={error}
           onSave={(sources) => handleSaveSources(editing.sub, sources)}
           onClose={() => setEditing(null)}
         />

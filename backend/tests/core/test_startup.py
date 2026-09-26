@@ -196,3 +196,61 @@ def test_cold_start_timeout_scales_with_memory(monkeypatch):
     assert _cold_start_timeout(4.0) == 1800
     assert _cold_start_timeout(8.0) == 1200
     assert _cold_start_timeout(16.0) == 900
+
+
+# ── R2 修波 F2:env 私源名单未知名启动告警 ──
+
+class _NameOnly:
+    """known_source_names 只读 .name 的最小桩。"""
+    def __init__(self, name):
+        self.name = name
+
+
+def test_warn_unknown_private_sources_names_them(caplog, monkeypatch):
+    """IP_RADAR_PRIVATE_SOURCES 含未知名（拼错/大小写不匹配）→ 启动
+    warning 点名（exact-match 提示）；已知名不得误报。"""
+    import logging
+    import main
+    from ipdb import _registry as reg
+
+    monkeypatch.setattr(reg, "_sources", [_NameOnly("pub_one"),
+                                           _NameOnly("pub_two")])
+    monkeypatch.setattr(reg, "_PRIVATE", frozenset({"pub_one", "typo_sauce"}))
+    with caplog.at_level(logging.WARNING, logger="main"):
+        main._warn_unknown_private_sources()
+    msgs = [r.getMessage() for r in caplog.records]
+    assert any("typo_sauce" in m for m in msgs)      # 未知名点名
+    assert not any("pub_one" in m for m in msgs)     # 已知名静默
+
+
+def test_warn_unknown_private_sources_quiet_when_all_known(caplog, monkeypatch):
+    import logging
+    import main
+    from ipdb import _registry as reg
+
+    monkeypatch.setattr(reg, "_sources", [_NameOnly("pub_one")])
+    monkeypatch.setattr(reg, "_PRIVATE", frozenset({"pub_one"}))
+    with caplog.at_level(logging.WARNING, logger="main"):
+        main._warn_unknown_private_sources()
+    assert caplog.records == []                       # 全部已知 → 无 warning
+
+
+def test_lifespan_calls_unknown_private_warning(monkeypatch):
+    """接线：告警在 lifespan 启动段被调（registry 模块级已可用）。"""
+    import asyncio
+    import main
+    from fastapi import FastAPI
+
+    called = []
+    monkeypatch.setattr(main, "_startup", lambda: None)
+    monkeypatch.setattr(main, "_warn_unknown_private_sources",
+                        lambda: called.append(1))
+    monkeypatch.setenv("IPRADAR_WORKERS", "1")   # 免真 batch pool
+    monkeypatch.setenv("IPRADAR_BATCH_POOL", "1")
+
+    async def run():
+        async with main.lifespan(FastAPI()):
+            pass
+
+    asyncio.run(run())
+    assert called == [1]

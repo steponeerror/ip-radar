@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { screen, fireEvent, waitFor } from "@testing-library/react";
+import { screen, fireEvent, waitFor, within } from "@testing-library/react";
 import KeysSection from "../KeysSection";
 import { renderWithI18n } from "../../test/i18nTestUtils";
 
@@ -209,6 +209,52 @@ describe("KeysSection", () => {
 
     fireEvent.click(screen.getByLabelText("dbip"));
     expect((save as HTMLButtonElement).disabled).toBe(false); // 非空 → 可用
+  });
+
+  it("edit modal shows inline save error (not behind overlay); success clears it", async () => {
+    // R2 修波 F3 可复现路径：web 行选私源 → Save 422 → 页面横幅在 Modal
+    // z-50 遮罩后“看不见” → 错误必须内联在弹窗内。
+    const PRIV_ERR = "private sources cannot be granted to the web seed row";
+    mockFetch
+      .mockResolvedValueOnce({ // GET list
+        ok: true,
+        json: async () => [META({ sub: "demoweb", name: "demo-web", web: true, sources: ["dbip"] })],
+      })
+      .mockResolvedValueOnce({ // GET source catalog (edit modal opens with explicit set)
+        ok: true,
+        json: async () => [SRC("dbip", "geo_asn"), SRC("priv_x", "threat")],
+      })
+      .mockResolvedValueOnce({ // PATCH sources → 422
+        ok: false, status: 422,
+        json: async () => ({ error: { code: "validation_error", message: PRIV_ERR } }),
+      })
+      .mockResolvedValueOnce({ // PATCH sources → 200
+        ok: true, status: 200,
+        json: async () => META({ sub: "demoweb", name: "demo-web", web: true, sources: ["priv_x"] }),
+      });
+    renderWithI18n(<KeysSection />);
+    await waitFor(() => screen.getByText("demo-web"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit sources" }));
+    await waitFor(() => screen.getByLabelText("dbip"));
+    fireEvent.click(screen.getByLabelText("dbip"));   // 换成私源
+    fireEvent.click(screen.getByLabelText("priv_x"));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    // 失败：错误内联在弹窗面板内（role=dialog），不在遮罩后
+    const dialog = screen.getByRole("dialog");
+    await waitFor(() =>
+      expect(within(dialog).getByText(PRIV_ERR)).toBeInTheDocument());
+    expect(screen.getByRole("dialog")).toBeInTheDocument();  // 弹窗不关，可重试
+
+    // 重试成功：弹窗关闭，无错误残留
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.queryByText(PRIV_ERR)).toBeNull();
+    expect(mockFetch).toHaveBeenNthCalledWith(4, "/api/admin/keys/demoweb", expect.objectContaining({
+      method: "PATCH",
+      body: JSON.stringify({ sources: ["priv_x"] }),
+    }));
   });
 
   it("localizes the Status column header (no hard-coded English, zh-CN)", async () => {

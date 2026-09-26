@@ -249,7 +249,13 @@ def _same_origin(request: Request) -> bool:
 
 
 async def resolve_web_identity() -> dict:
-    """同源 web 通道 → 种子行(spec §3/§4)。fail-closed:行缺失/禁用都拒绝。"""
+    """同源 web 通道 → 种子行（spec §3/§4）。fail-closed：行缺失/禁用都拒绝。
+
+    读侧私源过滤（R2 修波 F1）：web 身份有效集 = 存储集 ∩ 非私源
+    （§11 生命周期焊死 —— 源“先公后私”后存量授予即刻失效）；显式列表
+    滤空 = 空集（向 fail-closed，不回退全源）；null 语义不变（本就走
+    resolve_allowed(None) 公开底线）。存储不动，仅运行时滤；普通 key 的
+    Bearer 路径不经此函数，显式授予私源合法且持久，不得滤。"""
     _require_keys_enabled()
     sm = _session_maker()
     async with sm() as s:
@@ -260,6 +266,11 @@ async def resolve_web_identity() -> dict:
         if row.disabled:
             raise ApiError(ErrorCode.forbidden, "demo web identity disabled")
         sources = _parse_sources(row.sources)
+    if sources is not None:
+        # 调用时属性读取（main.py PATCH 守卫同款）：测试 monkeypatch
+        # _registry._PRIVATE 即生效；函数级导入避环。
+        from . import _registry
+        sources = [s for s in sources if s not in _registry._PRIVATE]
     await _touch_last_used(DEMO_SUB)
     return {"sub": DEMO_SUB, "sources": sources}
 

@@ -221,3 +221,46 @@ def test_stix_route_passes_scope_to_lookup(scoped_registry, key_env, monkeypatch
                    headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 400              # reserved 桩,分发已完成
     assert calls == [("1.2.3.4", frozenset({"priv_x"}))]
+
+
+# ── R2 修波 F1：web 身份读侧私源过滤（陈旧授予焊死）──
+
+def test_web_identity_filters_stale_private_grants(scoped_registry, key_env,
+                                                   monkeypatch):
+    """demoweb 存量授予 [pub_a,pub_b]：皆公时同源查询全见；pub_a 转私
+    （模拟 IP_RADAR_PRIVATE_SOURCES 加名重启）后读侧即刻滤除 —— 查询与
+    db-status 计数同窄，不回退全源；存储不动（list_keys 仍见 [pub_a,pub_b]）。"""
+    asyncio.run(_auth.init_auth_db())
+    asyncio.run(_apikeys.ensure_demo_row())
+    asyncio.run(_apikeys.set_sources(_apikeys.DEMO_SUB, ["pub_a", "pub_b"]))
+    client = TestClient(main.app)
+    same = {"Origin": "http://testserver"}
+
+    r1 = client.get("/api/lookup/1.2.3.4", headers=same)
+    assert r1.status_code == 200
+    assert _country_sources(r1.json()) == {"pub_a", "pub_b"}   # 皆公 → 全见
+
+    monkeypatch.setattr(reg, "_PRIVATE", frozenset({"pub_a"}))  # pub_a 先公后私
+    r2 = client.get("/api/lookup/1.2.3.4", headers=same)
+    assert r2.status_code == 200
+    assert _country_sources(r2.json()) == {"pub_b"}   # 陈旧授予焊死，滤空也不回退全源
+
+    st = client.get("/api/db-status", headers=same)
+    assert st.status_code == 200
+    assert st.json()["total_records"] == 50           # _soft_scope web 分支计数同窄
+
+    rows = {k["sub"]: k for k in asyncio.run(_apikeys.list_keys())}
+    assert rows[_apikeys.DEMO_SUB]["sources"] == ["pub_a", "pub_b"]  # 仅运行时滤
+
+
+def test_bearer_explicit_private_grant_not_filtered(scoped_registry, key_env,
+                                                    monkeypatch):
+    """普通 key 显式点名私源 = 合法且持久（spec §4）：读侧过滤只焊
+    web 身份，Bearer/verify_key 路径不受影响。"""
+    monkeypatch.setattr(reg, "_PRIVATE", frozenset({"pub_a"}))
+    token = _issue("explicit-private", sources=["pub_a"])
+    client = TestClient(main.app)
+    r = client.get("/api/lookup/1.2.3.4",
+                   headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200
+    assert _country_sources(r.json()) == {"pub_a"}

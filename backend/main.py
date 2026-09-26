@@ -526,9 +526,21 @@ def _startup():
         _startup_warm()
 
 
+def _warn_unknown_private_sources() -> None:
+    """R2 修波 F2：env 私源名单拼错/大小写不匹配时 exact-match 静默失效
+    （该源照常公开，零信号）——启动点名告警；不 fail-fast（错配不该
+    brick 启动）。已知对照集 = known_source_names（不含 internal 哨兵）。"""
+    unknown = _ipdb_registry._PRIVATE - set(_ipdb_registry.known_source_names())
+    if unknown:
+        logging.getLogger(__name__).warning(
+            "IP_RADAR_PRIVATE_SOURCES has unknown source names "
+            "(exact match, check spelling/case): %s", ", ".join(sorted(unknown)))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from ipdb._registry import DATA_DIR
+    _warn_unknown_private_sources()
     _cleanup_orphan_tmp(DATA_DIR)
     _startup()
     _ensure_refresh_scheduler()
