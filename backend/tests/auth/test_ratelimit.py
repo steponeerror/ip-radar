@@ -40,8 +40,11 @@ def rl_on(rate_limit_off):
 
 
 def _bearer(name):
-    """key_env 前提下签发一把 key(key_env 已建隔离 auth db)。"""
+    """key_env 前提下签发一把 key(key_env 已建隔离 auth db);
+    ensure_demo_row 补种 web 行(Task 3 起同源匿名请求须 demoweb 行,
+    生产由 lifespan 种,无 lifespan 的 TestClient 这里补)。"""
     asyncio.run(_auth.init_auth_db())
+    asyncio.run(_apikeys.ensure_demo_row())
     _, token = asyncio.run(_apikeys.issue_key(name))
     return {"Authorization": f"Bearer {token}"}
 

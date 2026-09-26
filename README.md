@@ -108,7 +108,7 @@ Fused, stored, and queried on your own machine — your lookups never leave it.
 
 ## API
 
-Open http://127.0.0.1:8000 and type any IP: verdict, per-source evidence, and geo/ASN come back together. The API works directly too. Programmatic calls need an API key — first unlock the commented-out admin env block in `docker-compose.yml` and restart, then issue a key at `/admin`; the same-origin web page needs none (send it as `-H "Authorization: Bearer <key>"`).
+Open http://127.0.0.1:8000 and type any IP: verdict, per-source evidence, and geo/ASN come back together. The API works directly too. Programmatic calls need an API key — first unlock the commented-out admin env block in `docker-compose.yml` and restart, then issue a key at `/admin`; the same-origin web page needs none (send it as `-H "Authorization: Bearer <key>"`). `IP_RADAR_PRIVATE_SOURCES` (comma-separated, read at startup) hides the listed sources from web/anonymous identities and from null-scope keys; an admin can still grant one explicitly to a regular key, but never to the web seed row.
 
 ```bash
 # core lookup (needs a key — see above)

@@ -38,6 +38,34 @@ _STATE_PATH = Path(os.environ.get(
     "SOURCE_STATE_PATH", str(DATA_DIR / "source_state.json")))
 
 
+def _load_private_names() -> frozenset[str]:
+    raw = os.environ.get("IP_RADAR_PRIVATE_SOURCES", "")
+    return frozenset(s.strip() for s in raw.split(",") if s.strip())
+_PRIVATE = _load_private_names()   # spec §4:registry 加载时读一次
+
+
+def private_source_names() -> frozenset[str]:
+    return frozenset(_PRIVATE)
+
+
+def resolve_allowed(requested: list[str] | None) -> frozenset[str]:
+    """None → 全部启用源减私源(null 永不含私源,spec Q10-A;internal
+    哨兵留下 —— canary 契约:查询环 YES;get_status 在自身站点已过滤
+    internal,计数不受影响);
+    显式 list → 原样(私源=授权动作;internal 哨兵不属显式授权面,
+    admin keys 校验用的 known_source_names 已排除哨兵;disabled 成员由
+    lookup 循环自然跳过)。"""
+    if requested is None:
+        return frozenset(s.name for s in _enabled_sources()
+                         if s.name not in _PRIVATE)
+    return frozenset(requested)
+
+
+def known_source_names() -> list[str]:
+    """admin keys 校验对照:发现序全源名(不含 internal 哨兵)。"""
+    return [s.name for s in _sources if s.name not in _INTERNAL_NAMES]
+
+
 def _discover_sources(data_dir: Path) -> list:
     """Auto-discover source classes in _sources/ directory.
 
@@ -398,8 +426,10 @@ def _order_asset_stmts(stmts: list) -> list:
     ))
 
 
-def lookup(ip: str) -> LookupResult:
-    """Look up an IP address and return a typed LookupResult."""
+def lookup(ip: str, allowed_sources: frozenset[str] | None = None) -> LookupResult:
+    """Look up an IP address and return a typed LookupResult.
+
+    allowed_sources 非 None 时仅聚合该集合内的源(per-key 集合,Task 2)。"""
     if not _db_loaded():
         raise RuntimeError("Database not loaded")
     try:
@@ -422,6 +452,8 @@ def lookup(ip: str) -> LookupResult:
     city_zh_map: dict[str, str] = {}
     geolite_extras: dict[str, dict] = {}
     for source in _enabled_sources():
+        if allowed_sources is not None and source.name not in allowed_sources:
+            continue
         try:
             raw = source.query(ip)
         except Exception as e:
@@ -553,9 +585,10 @@ def _reserved_result(ip: str) -> LookupResult:
     )
 
 
-def get_status() -> dict:
+def get_status(allowed: frozenset[str] | None = None) -> dict:
     enabled = [s for s in _enabled_sources()
-               if s.name not in _INTERNAL_NAMES]
+               if s.name not in _INTERNAL_NAMES
+               and (allowed is None or s.name in allowed)]
     healths = [s.health() for s in enabled]
     mtimes = [h.last_updated for h in healths if h.last_updated]
     last_updated = max(mtimes) if mtimes else "N/A"

@@ -15,7 +15,7 @@ def test_dedup_lookup_preserves_order_and_length(monkeypatch):
     class Stub:
         def __init__(self, ip): self.ip = ip
         def to_dict(self): return {"ip": self.ip}
-    def fake(ip):
+    def fake(ip, allowed_sources=None):
         seen.append(ip)
         return Stub(ip)
     monkeypatch.setattr(reg, "lookup", fake)
@@ -31,7 +31,7 @@ def test_work_chunk_uses_dedup(monkeypatch):
     class Stub:
         def __init__(self, ip): self.ip = ip
         def to_dict(self): return {"ip": self.ip}
-    monkeypatch.setattr(reg, "lookup", lambda ip: (seen.append(ip), Stub(ip))[1])
+    monkeypatch.setattr(reg, "lookup", lambda ip, allowed_sources=None: (seen.append(ip), Stub(ip))[1])
     ips = ["1.1.1.1"] * 200 + ["8.8.8.8"]
     out = _batch_pool._work_chunk(ips)
     assert len(out) == 201
@@ -49,7 +49,7 @@ def test_dedup_lookup_repeated_ip_cached(monkeypatch):
     class Stub:
         def __init__(self, ip): self.ip = ip
         def to_dict(self): return {"ip": self.ip}
-    monkeypatch.setattr(reg, "lookup", lambda ip: (seen.append(ip), Stub(ip))[1])
+    monkeypatch.setattr(reg, "lookup", lambda ip, allowed_sources=None: (seen.append(ip), Stub(ip))[1])
 
     fp = bp._epoch_fingerprint()
     a = bp._dedup_lookup(["8.8.8.8", "8.8.8.8", "1.1.1.1"])
@@ -90,12 +90,12 @@ def test_dedup_lookup_pool_worker_bypasses_lru(monkeypatch):
     class Stub:
         def __init__(self, ip): self.ip = ip
         def to_dict(self): return {"ip": self.ip}
-    monkeypatch.setattr(reg, "lookup", lambda ip: (calls.append(ip), Stub(ip))[1])
+    monkeypatch.setattr(reg, "lookup", lambda ip, allowed_sources=None: (calls.append(ip), Stub(ip))[1])
     hits = {"n": 0}
     orig = bp._cached_lookup
-    def spy(ip, fp):
+    def spy(ip, fp, allowed=None):
         hits["n"] += 1
-        return orig.__wrapped__(ip, fp)
+        return orig.__wrapped__(ip, fp, allowed)
     monkeypatch.setattr(bp, "_cached_lookup", spy)
     monkeypatch.setattr(bp, "_IN_POOL_WORKER", True)
     bp._dedup_lookup(["8.8.8.8", "8.8.8.8"])
