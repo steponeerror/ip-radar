@@ -6,7 +6,17 @@
 
 ### 新增 Added
 
-- 公开演示守卫（opt-in，净移植自 demo 分支）：`IP_RADAR_PUBLIC_DEMO=1` 开启守卫中间件套件——写/内部端点对匿名访客 404（当作不存在）、查询面校验 `x-ipradar-client: web` 头、维护者直连 peer IP 旁路（`IP_RADAR_DEMO_ADMIN_IPS`，XFF 可伪造勿默认信；`IP_RADAR_DEMO_TRUST_XFF=1` 须配套网关保证）；默认关闭，未设 env 零行为变化
+- eval v2 Phase 1(设计:docs/superpowers/specs/2026-09-28-eval-algorithm-optimization-brief.md):评估语料加中性公网层静态资产(逐轮恒定,eval 与源自家 raw 佐证解耦)
+  - eval v2 Phase 1 (design: docs/superpowers/specs/2026-09-28-eval-algorithm-optimization-brief.md): a static neutral public-network corpus layer in the eval corpus (constant across rounds, decoupling eval evidence from each source's own raw feeds)
+- eval v2 Phase 1:LSO 双轨制——scores/checks 维持旧基线(不含源自身佐证),leave-self-out 去偏结果降为 advisory 视图(scores_lso + "LSO advisory" 报告节)
+  - eval v2 Phase 1: dual-track LSO — scores/checks keep the old baseline (self-evidence included), while leave-self-out debiased results are demoted to an advisory view (scores_lso + the "LSO advisory" report section)
+- eval v2 Phase 1:NO-DATA 双判据 verdict(feed 空 / record-count 相对历史坍塌,先于其它判定)+ 模型报告 source_health 块 + C1 specialist 分支;前端源页 NO-DATA 灰底红字徽章(title 说明“数据为空或坍塌,该源未在贡献”)
+  - eval v2 Phase 1: NO-DATA dual-criteria verdict (feed empty / record-count collapse vs history, gated ahead of all other verdicts), a source_health block in the model report, and the C1 specialist branch; the frontend sources page renders a NO-DATA badge (red on gray, titled "feed empty or collapsed — source did not contribute")
+- eval v2 Phase 1:`--temporal` λ_s prequential 确认率仪器(Fisher 精确检验 + Wilson CI,预注册 θ̂ 中位数拆分,需 ≥2 轮 model 历史)
+  - eval v2 Phase 1: `--temporal` λ_s prequential confirmation-rate instrument (Fisher exact test + Wilson CI, preregistered θ̂ median split, requires ≥2 rounds of model history)
+- eval v2 Phase 1:谱系审计改前向流方向判定(替换 Dong 时钟,三态 confirmed/not-yet/no-relation + C-3 双向检查);新增 scripts/monthly_eval.sh 月轮脚本(master+clean 守卫 → rsync 生产镜像 → 五连 eval 命令,--dry-run 预演)
+  - eval v2 Phase 1: lineage audit switches to forward-flow direction (replacing the Dong clock, three states confirmed/not-yet/no-relation + the bidirectional C-3 check); adds scripts/monthly_eval.sh for monthly rotation (master+clean guards → rsync prod mirror → the five eval commands, with --dry-run rehearsal)
+- 公开演示守卫(opt-in,净移植自 demo 分支):`IP_RADAR_PUBLIC_DEMO=1` 开启守卫中间件套件——写/内部端点对匿名访客 404(当作不存在)、查询面校验 `x-ipradar-client: web` 头、维护者直连 peer IP 旁路(`IP_RADAR_DEMO_ADMIN_IPS`,XFF 可伪造勿默认信;`IP_RADAR_DEMO_TRUST_XFF=1` 须配套网关保证);默认关闭,未设 env 零行为变化
   - Public-demo guard (opt-in, byte-for-byte port from the demo branch): `IP_RADAR_PUBLIC_DEMO=1` enables the guard middleware suite — write/internal endpoints answer 404 to anonymous visitors, query endpoints enforce the `x-ipradar-client: web` header, and maintainers bypass via direct-peer IPs (`IP_RADAR_DEMO_ADMIN_IPS`; XFF is forgeable, don't trust by default — `IP_RADAR_DEMO_TRUST_XFF=1` requires a gateway guarantee); off by default, zero behavior change without the env
 - 前端配套：所有请求带 `x-ipradar-client: web` 头；STIX 导出改同源 fetch+blob 下载（鉴权路径与页面一致，过守卫同规）
   - Frontend companion: every request carries the `x-ipradar-client: web` header; STIX export switches to same-origin fetch+blob download (same auth path as the page, same rule through the guard)

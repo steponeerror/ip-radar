@@ -48,7 +48,8 @@ def _json_safe_dsem(dsem: dict) -> dict:
             "spread": {f"{s}|{c}": v for (s, c), v in dsem["spread"].items()}}
 
 
-def run_dsem_report(lookup_fn, corpus, declared_r, out_dir=None) -> dict:
+def run_dsem_report(lookup_fn, corpus, declared_r, out_dir=None,
+                    origin=None) -> dict:
     """Snapshot -> events -> the three-prior T-3 fair fight + DS-EM run.
 
     Override rule (plan semantics): override value wins when present and
@@ -57,6 +58,8 @@ def run_dsem_report(lookup_fn, corpus, declared_r, out_dir=None) -> dict:
     snap = take_snapshot(lookup_fn, corpus.all_ips())
     pair_sets = source_pair_sets(snap)
     events = extract_events(snap, pairwise_oc(pair_sets))
+    # 双轨制(控制器裁决 2026-09-28):fair fight 三 prior 恒旧基 pair_sets,
+    # LSO 只出 advisory headline,不动 fair_fight 结构
     dsem = _json_safe_dsem(run_dsem(pair_sets, declared_r))
     movers = _movers(estimate(events, declared_r))
     market = _t3(events, movers, config.MODEL_W)
@@ -71,6 +74,9 @@ def run_dsem_report(lookup_fn, corpus, declared_r, out_dir=None) -> dict:
                           "declared_t3": decl["detail"],
                           "pihat_t3": pihat["detail"],
                           "pihat_beats_declared": beats}}
+    if origin is not None:
+        res["lso"] = {"headline": run_dsem(pair_sets, declared_r,
+                                            origin=origin)["headline"]}
     if out_dir is not None:
         d = Path(out_dir) / "model"
         d.mkdir(parents=True, exist_ok=True)

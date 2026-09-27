@@ -7,8 +7,11 @@ high via the CG gate, UNVERIFIED if high only via MC (dead-slot fillers).
 
 States: (1) POSITIVE-VERIFIED / POSITIVE-UNVERIFIED / MIXED / MARGINAL / NEGATIVE
 (5 net-impact verdicts), (2) INSUFFICIENT-SAMPLE (n-floor escape), (3) N/A-ASSET
-(asset sources where CG does not apply; early return before n-floor check).
+(asset sources where CG does not apply; early return before n-floor check),
+(4) NO-DATA (W4 双判据,决策 #8: feed empty 或 rc 相对历史坍塌 —— 判定先于
+asset 早退与 n-floor,死源(含 asset 类)先告警)。
 """
+import statistics
 from dataclasses import dataclass, field
 
 from . import config
@@ -22,6 +25,7 @@ class Verdict:
     cost_high: bool
     verified: bool
     insufficient: bool
+    reason: str = ""               # NO-DATA 判据: "empty" / "collapsed"
     suspicion_flags: list = field(default_factory=list)
     action: str = ""
 
@@ -34,11 +38,30 @@ _ACTION = {
     "NEGATIVE":            "Drop (or disable by default). Cost exceeds benefit.",
     "INSUFFICIENT-SAMPLE": "Verdict withheld: candidate touches fewer than the n-floor corpus IPs. Metrics are descriptive only.",
     "N/A-ASSET":           "Asset source (is_tor/is_vpn/is_proxy/is_hosting/is_mobile): these are this source's ground truth — CG (independent corroboration) does not apply. Weight via AUTHORITATIVE_SOURCES, not this verdict.",
+    "NO-DATA":              "Verdict withheld: no usable data this round (feed empty, or record count collapsed vs history). Check the source's fetch/parse pipeline before acting on any metric.",
 }
 
 
+def _nodata(reason: str, suspicion_flags: list) -> Verdict:
+    return Verdict(state="NO-DATA", benefit_high=False, cost_high=False,
+                   verified=False, insufficient=False, reason=reason,
+                   suspicion_flags=suspicion_flags,
+                   action=_ACTION["NO-DATA"])
+
+
 def assess(metrics: dict[str, Metric], candidate_touched_n: int,
-           suspicion_flags: list, source_category: str = "threat") -> Verdict:
+           suspicion_flags: list, source_category: str = "threat", *,
+           rc: int | None = None,
+           rc_history: list[int] | None = None) -> Verdict:
+    # W4 前置(决策 #8):NO-DATA 先于 asset 早退与 n-floor —— eval 对死源
+    # (含 asset 类,如 ip2proxy 形态)无数据可判,先告警数据侧问题。
+    if rc is not None:
+        if rc == 0:
+            return _nodata("empty", suspicion_flags)
+        med = statistics.median(rc_history) if rc_history else None
+        if med is not None and rc < config.NO_DATA_COLLAPSE * med:
+            return _nodata("collapsed", suspicion_flags)
+
     if source_category == "asset":
         return Verdict(state="N/A-ASSET", benefit_high=False, cost_high=False,
                        verified=False, insufficient=False,

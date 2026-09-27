@@ -11,6 +11,7 @@ from dataclasses import dataclass
 
 from . import config
 from .events import Events, market_rates
+from .origin import lso_source_events
 from .pairwise import containment
 
 
@@ -160,9 +161,14 @@ def _fountain_suspect(src: str, pair_sets: dict, cont: dict) -> bool:
 
 
 def estimate(events: Events, declared_r: dict[str, float] | None = None,
-             w: int | None = None) -> list[SourceScore]:
+             w: int | None = None,
+             origin: dict[str, set[str]] | None = None) -> list[SourceScore]:
     w = w if w is not None else config.MODEL_W
     declared_r = declared_r or {}
+    if origin is not None:
+        # W0 层1:剔除自采样 pair 后重算证据计数与市场先验;
+        # 全剔空 → n=0 → 走下方 no-signal 分支(诚实结果,见 origin.py)
+        events = lso_source_events(events, origin)
     out: list[SourceScore] = []
     rhos_full = market_rates(events)
     cont = containment(events.pair_sets)
