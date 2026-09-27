@@ -24,6 +24,7 @@ def render_json(source: str, verdict: Verdict, metrics: dict[str, Metric]) -> di
             "cost_high": verdict.cost_high,
             "verified": verdict.verified,
             "insufficient": verdict.insufficient,
+            "reason": verdict.reason,
             "suspicion_flags": verdict.suspicion_flags,
             "action": verdict.action,
         },

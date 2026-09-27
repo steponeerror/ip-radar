@@ -47,6 +47,32 @@ def _load_corpus() -> Corpus:
 _JSON_HINT = "确认 DB 已 load / corpus 存在(--rebuild)"
 
 
+def _rc_history(source_name: str, model_dir: Path) -> list[int]:
+    """W4:REPORT_DIR/model 历史报告里该源 rc 序列(升序,同日期多份取
+    字典序最后,惯例同 _eval_reader)。旧报告无 source_health 键 → 无条目
+    —— 首轮(本任务之后才有的证据)自然为空,assess 只判 empty。"""
+    if not model_dir.exists():
+        return []
+    by_date: dict[str, tuple[str, dict]] = {}
+    for f in sorted(model_dir.glob("model-*.json")):
+        try:
+            r = json.loads(f.read_text())
+        except ValueError:
+            continue
+        sh = r.get("source_health") if isinstance(r, dict) else None
+        if not isinstance(sh, dict):
+            continue
+        date = str(r.get("generated_at") or "")
+        if date not in by_date or f.stem > by_date[date][0]:
+            by_date[date] = (f.stem, sh)
+    out = []
+    for date in sorted(by_date):
+        entry = by_date[date][1].get(source_name)
+        if isinstance(entry, dict) and isinstance(entry.get("rc"), int):
+            out.append(entry["rc"])
+    return out
+
+
 def _json_error(code: str, message: str, hint: str) -> None:
     """--json 模式统一错误出口:stdout 合法 JSON + 非零退出(spec §5.2)。"""
     print(json.dumps({"error": {"code": code, "message": message, "hint": hint}},
@@ -113,7 +139,12 @@ def run_for_source(source_name: str, registry=None, corpus_path=CORPUS_PATH,
     flags = oc_suspicion_pairs(pairwise_oc(source_pair_sets(baseline)))
     from ipdb._registry import SOURCE_CATEGORIES
     category = SOURCE_CATEGORIES.get(source_name, "other")
-    verdict = assess(metrics, candidate_touched, flags, source_category=category)
+    # W4:rc(record_count)与历史中位 → NO-DATA 前置判定(死源先告警,
+    # 在 asset 早退/n-floor 之前;该路径不接 neutral/origin,T2 裁决既定)
+    h = src_obj.health() if src_obj is not None else None
+    verdict = assess(metrics, candidate_touched, flags, source_category=category,
+                     rc=h.record_count if h is not None else None,
+                     rc_history=_rc_history(source_name, Path(out_dir) / "model"))
     md, js = write_report(source_name, verdict, metrics, corpus, out_dir)
     return md, js, verdict
 
@@ -155,7 +186,8 @@ def main(argv=None):
         # W0 层1:自采样偏差治理 —— 语料成员在源 raw 文件内的佐证剔除
         origin = origin_map(registry.sources, corpus.all_ips())
         result = run_suite(registry.lookup, corpus,
-                           declared_r=dict(SOURCE_RELIABILITY), origin=origin)
+                           declared_r=dict(SOURCE_RELIABILITY), origin=origin,
+                           sources=registry.sources)
         md, js = write_model_report(result, REPORT_DIR)
         if args.json:
             print(Path(js).read_text())

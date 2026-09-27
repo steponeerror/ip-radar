@@ -145,8 +145,15 @@ def _c1(scores):
             exemptions.append(f"{s}: exempt (absent on corpus)")
             continue
         r = rank.get(s)
+        sc = next((x for x in scores if x.source == s), None)
         if r is None:
             fails.append(f"{s}: unscored")
+        elif (sc is not None and sc.unique_share is not None
+              and sc.unique_share >= config.SPECIALIST_UNIQUE_SHARE):
+            # W4 specialist 分支(SC-5):独有断言占比 ≥0.8 的 mover 不进
+            # rank 门 —— market-blind 细分领域,垫底是覆盖面问题非佐证问题。
+            # 仪器卫生,不改权重;N = 被豁免的本轮 rank。
+            exemptions.append(f"{s}: specialist-exempt({r})")
         elif r > half:
             fails.append(f"{s}: rank {r}/{len(scored)} > {half}")
     for s in ASSET_AUTHORITIES:
@@ -178,8 +185,22 @@ def _c2(scores):
             f"specialists finite; {len(bm)} below-market flagged (not zeroed)"}
 
 
+def _source_health(sources) -> dict[str, dict] | None:
+    """W4 轮次健康块(决策 #4):源全量 rc/stale 快照,进 model report
+    顶层 —— 后续轮次缺席 = missing 非沉默;rc_history(NO-DATA collapsed
+    判据)的数据源。"""
+    if sources is None:
+        return None
+    out = {}
+    for s in sources:
+        h = s.health()
+        out[s.name] = {"rc": h.record_count, "stale": h.is_stale}
+    return out
+
+
 def run_suite(lookup_fn, corpus: Corpus, declared_r=None, w=None,
-              origin: dict[str, set[str]] | None = None) -> dict:
+              origin: dict[str, set[str]] | None = None,
+              sources=None) -> dict:
     w = w if w is not None else config.MODEL_W
     ips = corpus.all_ips()
     corpus_fp = {"n_ips": len(ips),
@@ -207,6 +228,7 @@ def run_suite(lookup_fn, corpus: Corpus, declared_r=None, w=None,
     }
     return {"kind": "model", "w": w, "lso": scores_lso is not None,
             "scores": scores, "scores_lso": scores_lso, "checks": checks,
+            "source_health": _source_health(sources),
             "corpus": corpus_fp, "pairs": assertion_hist,
             "movers": [s.source for s in movers], "pinned": pinned,
             "monopoly_ctypes": sorted(events.monopoly_ctypes)}
@@ -237,6 +259,7 @@ def write_model_report(result: dict, out_dir: Path) -> tuple[Path, Path]:
         "movers": result["movers"],
         "pinned": result["pinned"],
         "monopoly_ctypes": result["monopoly_ctypes"],
+        "source_health": result.get("source_health"),
         "scores": [_score_dict(s) for s in result["scores"]],
     }
 
