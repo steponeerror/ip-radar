@@ -29,6 +29,7 @@ services:
       # environment:
       #   IP_RADAR_ADMIN_PASSWORD: "change-me"
       #   IP_RADAR_API_JWT_SECRET: "<openssl rand -hex 32>"
+      #   # IP_RADAR_PRIVATE_SOURCES: "a,b"   # 逗号分隔私源名单：web/匿名身份永不可见；改动需重启生效
       #   # IP_RADAR_ADMIN_EMAIL: "admin@ipradar.local"
       #   # IP_RADAR_PUBLIC_ORIGIN: "https://ipradar.huxiao0207.dpdns.org"
       #   # IP_RADAR_ENABLE_DOCS: "1"   # 开启 /docs /redoc /openapi.json(默认关闭)

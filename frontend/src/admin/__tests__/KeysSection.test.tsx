@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { screen, fireEvent, waitFor } from "@testing-library/react";
+import { screen, fireEvent, waitFor, within } from "@testing-library/react";
 import KeysSection from "../KeysSection";
 import { renderWithI18n } from "../../test/i18nTestUtils";
 
@@ -15,8 +15,13 @@ const META = (over: Partial<Record<string, unknown>> = {}) => ({
   created_at: "2026-09-01T00:00:00Z",
   last_used_at: null,
   disabled: false,
+  sources: null,
+  web: false,
   ...over,
 });
+
+// 源目录(/api/sources)最小形状 —— 选择器只用 name + category。
+const SRC = (name: string, category: string) => ({ name, category });
 
 describe("KeysSection", () => {
   it("lists keys, creates one, and shows the full key exactly once", async () => {
@@ -43,7 +48,7 @@ describe("KeysSection", () => {
     expect(screen.getByText(/will not be shown again/i)).toBeTruthy();
     expect(mockFetch).toHaveBeenNthCalledWith(2, "/api/admin/keys", expect.objectContaining({
       method: "POST",
-      body: JSON.stringify({ name: "for-curl", expires_days: 30 }),
+      body: JSON.stringify({ name: "for-curl", expires_days: 30, sources: null }),
     }));
   });
 
@@ -64,6 +69,37 @@ describe("KeysSection", () => {
     }));
   });
 
+  it("disabled rows (normal + web) show Enable; click PATCHes disabled:false and re-activates", async () => {
+    mockFetch
+      .mockResolvedValueOnce({ // GET list
+        ok: true,
+        json: async () => [
+          META({ sub: "s1", name: "k", disabled: true }),
+          META({ sub: "demoweb", name: "demo-web", web: true, disabled: true }),
+          META({ sub: "s2", name: "live" }), // 启用行:无 Enable
+        ],
+      })
+      .mockResolvedValueOnce({ // PATCH enable s1
+        ok: true, status: 200,
+        json: async () => META({ sub: "s1", name: "k", disabled: false }),
+      });
+    renderWithI18n(<KeysSection />);
+    await waitFor(() => screen.getByText("k"));
+
+    // 仅两个禁用行(普通 + web,无 k.web 特判)显示 Enable
+    expect(screen.getAllByRole("button", { name: "Enable" })).toHaveLength(2);
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Enable" })[0]);
+    await waitFor(() => expect(mockFetch).toHaveBeenNthCalledWith(2, "/api/admin/keys/s1",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ disabled: false }),
+      })));
+    // 行翻回 active(k + live 两个 Active 徽标),该行 Enable 消失(仅剩 web 行)
+    await waitFor(() => expect(screen.getAllByText("Active")).toHaveLength(2));
+    expect(screen.getAllByRole("button", { name: "Enable" })).toHaveLength(1);
+  });
+
   it("deletes a key only after a second confirming click (two-click confirm)", async () => {
     mockFetch
       .mockResolvedValueOnce({ ok: true, json: async () => [META({ sub: "s1", name: "k" })] })
@@ -76,6 +112,180 @@ describe("KeysSection", () => {
     fireEvent.click(screen.getByRole("button", { name: "Confirm delete" }));
     await waitFor(() => expect(screen.queryByText("k")).toBeNull());
     expect(mockFetch).toHaveBeenNthCalledWith(2, "/api/admin/keys/s1", { method: "DELETE" });
+  });
+
+  it("create modal submit carries the picked sources (toggle-off reveals multiselect)", async () => {
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => [] }) // GET list (empty)
+      .mockResolvedValueOnce({ // GET source catalog (lazy: revealed on toggle-off)
+        ok: true,
+        json: async () => [SRC("dbip", "geo_asn"), SRC("dshield", "threat")],
+      })
+      .mockResolvedValueOnce({ // POST create
+        ok: true, status: 201,
+        json: async () => ({
+          key: "eyJkIjoiNyJ9.sig",
+          meta: META({ sub: "new", name: "t", sources: ["dbip"] }),
+        }),
+      });
+    renderWithI18n(<KeysSection />);
+    await waitFor(() => expect(screen.getByText("No API keys yet")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: "Create key" }));
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "t" } });
+    // 关掉"全部源"开关 → 懒加载目录并出现分组多选
+    fireEvent.click(screen.getByLabelText("All sources"));
+    fireEvent.click(await waitFor(() => screen.getByLabelText("dbip")));
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() => expect(screen.getByText(/eyJkIjoiNyJ9\.sig/)).toBeTruthy());
+    expect(mockFetch).toHaveBeenNthCalledWith(3, "/api/admin/keys", expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify({ name: "t", sources: ["dbip"] }),
+    }));
+  });
+
+  it("web badge renders; web row has Edit sources + Revoke, Delete hidden", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => [META({ sub: "demoweb", name: "demo-web", web: true })],
+    });
+    renderWithI18n(<KeysSection />);
+    expect(await screen.findByText("Web")).toBeInTheDocument();
+    // 终审 fix 2:运营商须能 PATCH sources(钦定 demo 集合)+ PATCH disabled
+    // (fail-closed kill switch);仅 Delete 隐藏(backend 403)。无 key 材料 → 无复制。
+    expect(screen.getByRole("button", { name: "Edit sources" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Revoke" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
+  });
+
+  it("row edit saves picked sources via PATCH setAdminKeySources", async () => {
+    mockFetch
+      .mockResolvedValueOnce({ // GET list
+        ok: true,
+        json: async () => [META({ sub: "s1", name: "k", sources: ["dbip"] })],
+      })
+      .mockResolvedValueOnce({ // GET source catalog (edit modal opens with explicit set)
+        ok: true,
+        json: async () => [SRC("dbip", "geo_asn"), SRC("dshield", "threat")],
+      })
+      .mockResolvedValueOnce({ // PATCH sources
+        ok: true, status: 200,
+        json: async () => META({ sub: "s1", name: "k", sources: ["dshield"] }),
+      });
+    renderWithI18n(<KeysSection />);
+    await waitFor(() => screen.getByText("k"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit sources" }));
+    // 初始集合预填:dbip 勾、dshield 空;换成 dshield 后保存
+    const dbip = await waitFor(() => screen.getByLabelText("dbip"));
+    expect((dbip as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(dbip);
+    fireEvent.click(screen.getByLabelText("dshield"));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(mockFetch).toHaveBeenNthCalledWith(3, "/api/admin/keys/s1", expect.objectContaining({
+      method: "PATCH",
+      body: JSON.stringify({ sources: ["dshield"] }),
+    })));
+  });
+
+  it("create modal: empty picked set disables submit + shows hint; non-empty re-enables", async () => {
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => [] }) // GET list (empty)
+      .mockResolvedValueOnce({ // GET source catalog (lazy: revealed on toggle-off)
+        ok: true,
+        json: async () => [SRC("dbip", "geo_asn"), SRC("dshield", "threat")],
+      });
+    renderWithI18n(<KeysSection />);
+    await waitFor(() => expect(screen.getByText("No API keys yet")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: "Create key" }));
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "t" } });
+    const submit = screen.getByRole("button", { name: "Create" });
+    expect((submit as HTMLButtonElement).disabled).toBe(false); // 默认全部源 → 可提交
+
+    fireEvent.click(screen.getByLabelText("All sources")); // 关掉 → 空选集
+    expect((submit as HTMLButtonElement).disabled).toBe(true);
+    expect(await screen.findByText("Pick at least one source, or switch back to all sources"))
+      .toBeInTheDocument();
+
+    fireEvent.click(await screen.findByLabelText("dbip"));
+    expect((submit as HTMLButtonElement).disabled).toBe(false); // 非空 → 可用
+    expect(screen.queryByText("Pick at least one source, or switch back to all sources")).toBeNull();
+  });
+
+  it("edit modal: empty picked set disables Save; non-empty re-enables", async () => {
+    mockFetch
+      .mockResolvedValueOnce({ // GET list
+        ok: true,
+        json: async () => [META({ sub: "s1", name: "k", sources: ["dbip"] })],
+      })
+      .mockResolvedValueOnce({ // GET source catalog (edit modal opens with explicit set)
+        ok: true,
+        json: async () => [SRC("dbip", "geo_asn")],
+      });
+    renderWithI18n(<KeysSection />);
+    await waitFor(() => screen.getByText("k"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit sources" }));
+    const save = screen.getByRole("button", { name: "Save" });
+    const dbip = await waitFor(() => screen.getByLabelText("dbip"));
+    expect((save as HTMLButtonElement).disabled).toBe(false); // 预填非空 → 可保存
+
+    fireEvent.click(dbip); // 取消唯一勾选 → 空选集
+    expect((save as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText("Pick at least one source, or switch back to all sources"))
+      .toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText("dbip"));
+    expect((save as HTMLButtonElement).disabled).toBe(false); // 非空 → 可用
+  });
+
+  it("edit modal shows inline save error (not behind overlay); success clears it", async () => {
+    // R2 修波 F3 可复现路径：web 行选私源 → Save 422 → 页面横幅在 Modal
+    // z-50 遮罩后“看不见” → 错误必须内联在弹窗内。
+    const PRIV_ERR = "private sources cannot be granted to the web seed row";
+    mockFetch
+      .mockResolvedValueOnce({ // GET list
+        ok: true,
+        json: async () => [META({ sub: "demoweb", name: "demo-web", web: true, sources: ["dbip"] })],
+      })
+      .mockResolvedValueOnce({ // GET source catalog (edit modal opens with explicit set)
+        ok: true,
+        json: async () => [SRC("dbip", "geo_asn"), SRC("priv_x", "threat")],
+      })
+      .mockResolvedValueOnce({ // PATCH sources → 422
+        ok: false, status: 422,
+        json: async () => ({ error: { code: "validation_error", message: PRIV_ERR } }),
+      })
+      .mockResolvedValueOnce({ // PATCH sources → 200
+        ok: true, status: 200,
+        json: async () => META({ sub: "demoweb", name: "demo-web", web: true, sources: ["priv_x"] }),
+      });
+    renderWithI18n(<KeysSection />);
+    await waitFor(() => screen.getByText("demo-web"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit sources" }));
+    await waitFor(() => screen.getByLabelText("dbip"));
+    fireEvent.click(screen.getByLabelText("dbip"));   // 换成私源
+    fireEvent.click(screen.getByLabelText("priv_x"));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    // 失败：错误内联在弹窗面板内（role=dialog），不在遮罩后
+    const dialog = screen.getByRole("dialog");
+    await waitFor(() =>
+      expect(within(dialog).getByText(PRIV_ERR)).toBeInTheDocument());
+    expect(screen.getByRole("dialog")).toBeInTheDocument();  // 弹窗不关，可重试
+
+    // 重试成功：弹窗关闭，无错误残留
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.queryByText(PRIV_ERR)).toBeNull();
+    expect(mockFetch).toHaveBeenNthCalledWith(4, "/api/admin/keys/demoweb", expect.objectContaining({
+      method: "PATCH",
+      body: JSON.stringify({ sources: ["priv_x"] }),
+    }));
   });
 
   it("localizes the Status column header (no hard-coded English, zh-CN)", async () => {
