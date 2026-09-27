@@ -124,24 +124,28 @@ def _epoch_fingerprint():
 
 
 @functools.lru_cache(maxsize=2048)
-def _cached_lookup(ip: str, epoch_fp: tuple) -> dict:
-    """有界 LRU: 只读契约 —— 返回 dict 不 mutate。epoch_fp 进键保时效。"""
+def _cached_lookup(ip: str, epoch_fp: tuple,
+                   allowed: frozenset | None = None) -> dict:
+    """有界 LRU: 只读契约 —— 返回 dict 不 mutate。epoch_fp 进键保时效;
+    allowed 进键防同 IP 跨 key 集合共享条目(审计 I2 泄露面)。"""
     from ipdb import _registry
-    return _registry.lookup(ip).to_dict()
+    return _registry.lookup(ip, allowed_sources=allowed).to_dict()
 
 
-def _dedup_lookup(ips: list[str]) -> list[dict]:
+def _dedup_lookup(ips: list[str],
+                  allowed: frozenset[str] | None = None) -> list[dict]:
     """Chunk 级去重:唯一 IP 只走一次全管线,结果按输入顺序展开。
     返回长度 == 输入长度(协议不变)。主进程 inline 路径(无池全量 + 有池
-    ≤200 小批,顺序 chunk)走 LRU;池 worker(_IN_POOL_WORKER)直查零驻留。"""
+    ≤200 小批,顺序 chunk)走 LRU;池 worker(_IN_POOL_WORKER)直查零驻留。
+    allowed 贯穿到 lookup(spec §5,审计 I2:scope 到最后一米)。"""
     from ipdb import _registry
     if _IN_POOL_WORKER:
         def _get(ip):
-            return _registry.lookup(ip).to_dict()
+            return _registry.lookup(ip, allowed_sources=allowed).to_dict()
     else:
         epoch_fp = _epoch_fingerprint()
         def _get(ip):
-            return _cached_lookup(ip, epoch_fp)
+            return _cached_lookup(ip, epoch_fp, allowed)
     unique: list[str] = []
     seen: dict[str, int] = {}
     for ip in ips:
@@ -152,9 +156,10 @@ def _dedup_lookup(ips: list[str]) -> list[dict]:
     return [results[seen[ip]] for ip in ips]
 
 
-def _work_chunk(ips: list[str]) -> list[dict]:
+def _work_chunk(ips: list[str],
+                allowed: frozenset[str] | None = None) -> list[dict]:
     """Worker: lookup + to_dict for a chunk of IPs (deduped). Returns plain dicts."""
-    return _dedup_lookup(ips)
+    return _dedup_lookup(ips, allowed)
 
 
 # ── Module-level pool handle (managed by lifespan) ──

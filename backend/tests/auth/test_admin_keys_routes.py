@@ -12,7 +12,10 @@ ruling:两者都要显式请求,env 共存无冲突。401 匿名测试用 auth_c
 """
 import main  # noqa: F401  (import 触发 app 组装)
 
-_META_KEYS = {"sub", "name", "created_at", "last_used_at", "disabled"}
+# Controller ruling 2026-09-25(key-source-sets Task 1):spec §6 GET/201 增 sources/web,
+# 契约演进为增法扩展 —— FROZEN 语义改为跟踪路由真实返回。
+_META_KEYS = {"sub", "name", "created_at", "last_used_at", "disabled",
+              "sources", "web"}
 
 
 def test_keys_crud_lifecycle(client_as_admin, key_env):
@@ -21,6 +24,7 @@ def test_keys_crud_lifecycle(client_as_admin, key_env):
     body = r.json()
     assert body["key"].count(".") == 2          # HS256 JWT 三段
     assert set(body["meta"]) == _META_KEYS      # 201 meta = 完整行(契约 FROZEN)
+    assert body["meta"]["sources"] is None and body["meta"]["web"] is False
     sub = body["meta"]["sub"]
 
     lst = client_as_admin.get("/api/admin/keys").json()
@@ -61,6 +65,96 @@ def test_keys_disabled_503(client_as_admin, key_env, monkeypatch):
     assert r.json()["error"]["code"] == "admin_disabled"
     # 仅签发被拦;元数据视图/吊销/清理在 keys 禁用时仍可用(ruling 3)
     assert client_as_admin.get("/api/admin/keys").status_code == 200
+
+
+# ── Task 4:key-source-sets —— sources 契约(POST/PATCH/GET)+ 种子行删除保护 ──
+# brief 用例里 "dbip" 已改名 dbip_city(发现序 10 < dshield 12,去重+registry
+# 序断言语义不变);fixture 沿用本文件 client_as_admin+key_env 既有模式。
+
+def test_create_key_with_sources_roundtrip(client_as_admin, key_env):
+    r = client_as_admin.post("/api/admin/keys", json={
+        "name": "t", "sources": ["dshield", "dbip_city", "dbip_city"]})
+    assert r.status_code == 201
+    assert r.json()["meta"]["sources"] == ["dbip_city", "dshield"]  # 去重+registry 序
+
+
+def test_create_key_null_sources(client_as_admin, key_env):
+    r = client_as_admin.post("/api/admin/keys", json={"name": "t"})
+    assert r.json()["meta"]["sources"] is None
+
+
+def test_create_key_unknown_source_422(client_as_admin, key_env):
+    r = client_as_admin.post("/api/admin/keys",
+                             json={"name": "t", "sources": ["nope"]})
+    assert r.status_code == 422
+
+
+def test_create_key_empty_sources_422(client_as_admin, key_env):
+    r = client_as_admin.post("/api/admin/keys",
+                             json={"name": "t", "sources": []})
+    assert r.status_code == 422
+
+
+def test_patch_set_then_reset_sources(client_as_admin, key_env):
+    sub = client_as_admin.post(
+        "/api/admin/keys",
+        json={"name": "t", "sources": ["dbip_city"]}).json()["meta"]["sub"]
+    r = client_as_admin.patch(f"/api/admin/keys/{sub}",
+                              json={"sources": ["dshield"]})
+    assert r.json()["sources"] == ["dshield"]
+    r = client_as_admin.patch(f"/api/admin/keys/{sub}", json={"sources": None})
+    assert r.json()["sources"] is None   # model_fields_set 区分"显式 null=重置"
+
+
+def test_delete_seed_row_403(client_as_admin, key_env):
+    import asyncio
+    from ipdb import _apikeys
+    asyncio.run(_apikeys.ensure_demo_row())
+    r = client_as_admin.delete(f"/api/admin/keys/{_apikeys.DEMO_SUB}")
+    assert r.status_code == 403
+    # 种子行仍在
+    assert any(k["web"] for k in
+               client_as_admin.get("/api/admin/keys").json())
+
+
+def test_patch_seed_row_private_source_422(client_as_admin, key_env, monkeypatch):
+    # P2 sweep Item A:私源∩demoweb 种子行后端硬拒(422),sources 保持原样。
+    import asyncio
+    from ipdb import _apikeys, _registry
+    monkeypatch.setattr(_registry, "_PRIVATE", frozenset({"dshield"}))
+    asyncio.run(_apikeys.ensure_demo_row())
+    r = client_as_admin.patch(f"/api/admin/keys/{_apikeys.DEMO_SUB}",
+                              json={"sources": ["dshield"]})
+    assert r.status_code == 422
+    assert r.json()["error"]["code"] == "validation_error"
+    row = next(k for k in client_as_admin.get("/api/admin/keys").json() if k["web"])
+    assert row["sources"] is None   # 未变
+
+
+def test_patch_regular_key_private_source_ok(client_as_admin, key_env, monkeypatch):
+    # 同一私源名对普通 key 仍合法(私源授予 = admin 显式授权动作)。
+    from ipdb import _registry
+    monkeypatch.setattr(_registry, "_PRIVATE", frozenset({"dshield"}))
+    sub = client_as_admin.post(
+        "/api/admin/keys", json={"name": "t"}).json()["meta"]["sub"]
+    r = client_as_admin.patch(f"/api/admin/keys/{sub}",
+                              json={"sources": ["dshield"]})
+    assert r.status_code == 200
+    assert r.json()["sources"] == ["dshield"]
+
+
+def test_patch_seed_row_public_then_null_ok(client_as_admin, key_env, monkeypatch):
+    # 公源名与显式 null 重置不受守卫影响。
+    import asyncio
+    from ipdb import _apikeys, _registry
+    monkeypatch.setattr(_registry, "_PRIVATE", frozenset({"dshield"}))
+    asyncio.run(_apikeys.ensure_demo_row())
+    r = client_as_admin.patch(f"/api/admin/keys/{_apikeys.DEMO_SUB}",
+                              json={"sources": ["dbip_city"]})
+    assert r.status_code == 200 and r.json()["sources"] == ["dbip_city"]
+    r = client_as_admin.patch(f"/api/admin/keys/{_apikeys.DEMO_SUB}",
+                              json={"sources": None})
+    assert r.status_code == 200 and r.json()["sources"] is None
 
 
 def test_keys_unknown_sub_404(client_as_admin, key_env):

@@ -182,5 +182,8 @@ def test_init_worker_sets_pool_child_flag(monkeypatch):
         assert os.environ.get("IP_RADAR_POOL_CHILD") == "1"
     finally:
         # 生产代码直接 set(非 monkeypatch 通道),必须手工回收 ——
-        # 泄漏会让同进程后续 cleanup_stale 测试全部静默 skip。
+        # 泄漏会让同进程后续 cleanup_stale 测试全部静默 skip;
+        # _IN_POOL_WORKER 同理:泄漏后主进程 LRU 路径(_dedup_lookup)
+        # 会被误当池 worker 直查,后续 LRU 相关测试全部失真。
         os.environ.pop("IP_RADAR_POOL_CHILD", None)
+        _batch_pool._IN_POOL_WORKER = False
