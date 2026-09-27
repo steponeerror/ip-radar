@@ -100,6 +100,15 @@ export interface StreamOutcome {
   total: number;
 }
 
+/** demo 模式下后端要求查询接口带此 header(见 public-demo-mode spec)。 */
+export function apiFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  return fetch(url, {
+    ...init,
+    headers: { ...(init.headers as Record<string, string>), "x-ipradar-client": "web" },
+  });
+}
+
+
 // 所有非 2xx 抛错统一走这里:错误对象带 HTTP status 与后端错误信封的
 // error.code(机器可读语义码:"warming" / "no_sources" / "invalid_ip" / ...),
 // message 取信封 error.message;非 JSON body(代理 502 HTML 等)退回
@@ -133,7 +142,7 @@ async function throwApiError(res: Response, fallback: string): Promise<never> {
 }
 
 export async function getDbStatus(): Promise<DbStatus> {
-  const res = await fetch("/api/db-status");
+  const res = await apiFetch("/api/db-status");
   if (!res.ok) return throwApiError(res, "Failed to get database status");
   return res.json();
 }
@@ -239,7 +248,7 @@ export async function queryIpsStream(
   const controller = new AbortController();
   const { resetIdle, clear } = streamFetchTimeout(controller);
   try {
-    const res = await fetch(`/api/query/stream`, {
+    const res = await apiFetch(`/api/query/stream`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ips }),
@@ -267,7 +276,7 @@ export async function uploadFileStream(
   const controller = new AbortController();
   const { resetIdle, clear } = streamFetchTimeout(controller);
   try {
-    const res = await fetch(`/api/upload/stream`, {
+    const res = await apiFetch(`/api/upload/stream`, {
       method: "POST",
       body: form,
       signal: controller.signal,
@@ -441,6 +450,7 @@ export interface VersionInfo {
   summary: string | null;
   release_url: string;
   self_update_enabled: boolean;
+  public_demo: boolean;
 }
 
 export async function getVersion(refresh = false): Promise<VersionInfo> {
@@ -448,6 +458,18 @@ export async function getVersion(refresh = false): Promise<VersionInfo> {
     await fetch(`/api/version${refresh ? "?refresh=1" : ""}`),
     "Failed to check version",
   );
+}
+
+let publicDemoCache: Promise<boolean> | null = null;
+
+/** 探测公共 demo 模式(缓存;失败按非 demo=false,自部署安全默认)。 */
+export function getPublicDemo(): Promise<boolean> {
+  if (!publicDemoCache) {
+    publicDemoCache = getVersion()
+      .then((v) => v.public_demo)
+      .catch(() => false);
+  }
+  return publicDemoCache;
 }
 
 export interface UpdateStatus {

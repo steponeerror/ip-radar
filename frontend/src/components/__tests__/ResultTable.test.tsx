@@ -227,7 +227,10 @@ describe("ResultTable STIX export (fetch+blob, Q1-B companion)", () => {
     renderWithI18n(<ResultTable results={[lowConfSingle]} />);
     fireEvent.click(screen.getByRole("button", { name: /Export STIX/i }));
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/lookup/203.0.113.5/stix"));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/lookup/203.0.113.5/stix",
+      { headers: { "x-ipradar-client": "web" } },
+    ));  // apiFetch:demo 守卫与其它查询同规
     await waitFor(() => expect(createObjectURL).toHaveBeenCalled());
     expect(downloads).toEqual(["stix-203.0.113.5.json"]);
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:stix-mock");
