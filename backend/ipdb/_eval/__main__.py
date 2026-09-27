@@ -243,13 +243,15 @@ def main(argv=None):
             print(json.dumps(res, ensure_ascii=False, indent=1))
         else:
             print("lineage audit (advisory):")
+            print(f"  rounds: {res['n_rounds']}")
             for s in res["recommended_derived"]:
                 print(f"  {s}: " + "; ".join(
-                    f"<= {u} (contain {f:.2f}, {af}/{af+bf} first)"
-                    for u, f, af, bf in res["relations"][s]))
+                    f"<= {u} (flow {fab}:{fba}, contain {c:.2f})"
+                    for u, fab, fba, c in res["relations"][s]))
             print(f"  C-3: {'PASS' if res['c3']['pass'] else 'CHECK'} "
                   f"(false accusations: {res['c3']['false_accusations']}, "
-                  f"known-missing: {res['c3']['missing_known']})")
+                  f"known-missing: {res['c3']['missing_known']}, "
+                  f"recall: {res['c3']['recall']:.2f})")
         return
     if args.anchors:
         from .anchors import ANCHORS, run_anchors
