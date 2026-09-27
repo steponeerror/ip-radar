@@ -233,6 +233,46 @@ describe("SourcesPage read-only info (both modes)", () => {
     expect(badge).toHaveAttribute("title", "2026-08-28");
   });
 
+  it("renders NO-DATA badge: gray base, red text, collapse tooltip instead of date (W4)", async () => {
+    // W4 verdict.py 钉死精确串 "NO-DATA"(reason empty/collapsed)—— 徽章消费
+    // 该精确串,渲染为灰底红字 + 说明性 title(不是评估日期)。
+    vi.mocked(getSources).mockResolvedValueOnce([
+      {
+        name: "deadfeed",
+        enabled: true,
+        category: "threat",
+        archetype: "offline",
+        fields: ["ip"],
+        reliability: 0.7,
+        authoritative_for: [],
+        classification_type: null,
+        url: null,
+        stale_days: null,
+        eval: { verdict: "NO-DATA", at: "2026-09-28" },
+        health: {
+          name: "deadfeed",
+          loaded: true,
+          record_count: 0,
+          covered_ips: 0,
+          last_updated: "2026-09-27T00:00:00Z",
+          is_stale: true,
+          error: null,
+        },
+      },
+    ]);
+    renderWithI18n(<SourcesPage />);
+    // verdict → i18n key sources.eval.no_data("no-data",连字符,与 timeAgo 的
+    // "no data" 空格串可区分)
+    const badge = await screen.findByText("no-data");
+    // 灰底红字:红字 + 灰底(NOT NEGATIVE 的全红边框)
+    expect(badge).toHaveClass("text-red-400");
+    expect(badge).toHaveClass("bg-zinc-800/50");
+    expect(badge).not.toHaveClass("border-red-400/30");
+    // title 是坍塌说明而非评估日期
+    expect(screen.getByTitle(/did not contribute/i)).toBeInTheDocument();
+    expect(screen.queryByTitle("2026-09-28")).toBeNull();
+  });
+
   it("renders '-' when source has no eval result", async () => {
     renderWithI18n(<SourcesPage />);
     await screen.findByText("feodo");

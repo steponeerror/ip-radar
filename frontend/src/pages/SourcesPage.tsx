@@ -49,6 +49,16 @@ function statusOf(s: SourceInfo): { key: string; className: string } {
   return { key: "sources.status.fresh", className: "text-emerald-400 border-emerald-500/20 bg-emerald-500/5" };
 }
 
+// eval verdict 徽章色:W4 "NO-DATA" 精确串(backend verdict.py 钉死,reason
+// empty/collapsed)→ 灰底红字 —— 死源告警,与 NEGATIVE 的全红区分。
+function evalBadgeClass(verdict: string): string {
+  if (verdict === "NO-DATA") return "text-red-400 border-zinc-700 bg-zinc-800/50";
+  if (verdict.startsWith("POSITIVE-VERIFIED")) return "text-emerald-400 border-emerald-400/30 bg-emerald-400/10";
+  if (verdict.startsWith("POSITIVE")) return "text-sky-400 border-sky-400/30 bg-sky-400/10";
+  if (verdict.startsWith("NEGATIVE")) return "text-red-400 border-red-400/30 bg-red-400/10";
+  return "text-zinc-500 border-zinc-700 bg-zinc-800/50";
+}
+
 function Toggle({ on, disabled, onChange, label }: {
   on: boolean; disabled: boolean; onChange: (v: boolean) => void; label: string;
 }) {
@@ -252,16 +262,11 @@ export default function SourcesPage({ manage = false, tasks = [], batch = null, 
                     </span>
                     {s.eval ? (
                       <span
-                        className={`w-28 shrink-0 rounded-md border px-2 py-0.5 text-center text-xs ${
-                          s.eval.verdict.startsWith("POSITIVE-VERIFIED")
-                            ? "text-emerald-400 border-emerald-400/30 bg-emerald-400/10"
-                            : s.eval.verdict.startsWith("POSITIVE")
-                              ? "text-sky-400 border-sky-400/30 bg-sky-400/10"
-                              : s.eval.verdict.startsWith("NEGATIVE")
-                                ? "text-red-400 border-red-400/30 bg-red-400/10"
-                                : "text-zinc-500 border-zinc-700 bg-zinc-800/50"
-                        }`}
-                        title={s.eval.at}
+                        className={`w-28 shrink-0 rounded-md border px-2 py-0.5 text-center text-xs ${evalBadgeClass(s.eval.verdict)}`}
+                        // NO-DATA:说明性 title(数据为空/坍塌)替代评估日期
+                        title={s.eval.verdict === "NO-DATA"
+                          ? t("sources.eval.noDataTitle")
+                          : s.eval.at}
                       >
                         {t("sources.eval." + s.eval.verdict.toLowerCase().replace(/-/g, "_"))}
                       </span>
