@@ -4,6 +4,7 @@
   python -m ipdb._eval --rebuild     # rebuild the frozen benchmark corpus
   python -m ipdb._eval --all         # per-source verdict table (no ranking in v1)
   python -m ipdb._eval --model       # fleet corroboration-contrast model + acceptance suite
+  python -m ipdb._eval --temporal    # λ_s prequential confirmation rate over model history (W1)
 """
 import argparse
 import json
@@ -162,8 +163,47 @@ def main(argv=None):
                    help="known-answer anchor set regression gate (spec §5.2)")
     p.add_argument("--dsem", action="store_true",
                    help="DS-EM fair fight: market vs declared vs pi-hat T3 (advisory)")
+    p.add_argument("--temporal", action="store_true",
+                   help="λ_s prequential confirmation rate over model history (W1)")
     p.add_argument("--json", action="store_true", help="机器可读 JSON 到 stdout")
     args = p.parse_args(argv)
+
+    # --temporal 只读已落盘 model 历史,不碰 registry/DB —— 前置于 load_db
+    if args.temporal:
+        from .temporal import temporal_report
+        rep = temporal_report(REPORT_DIR / "model", out_dir=REPORT_DIR)
+        if rep["n_rounds"] < 2:
+            if args.json:
+                print(json.dumps({"error": {"code": "insufficient_rounds",
+                      "message": "insufficient rounds (need >= 2)",
+                      "hint": "每月 --model 落盘后轮次自然累积"}}, ensure_ascii=False))
+            else:
+                print("insufficient rounds")
+            sys.exit(2)
+        if args.json:
+            print(json.dumps(rep, ensure_ascii=False, indent=1))
+            return
+        print(f"temporal λ_s: {rep['n_rounds']} rounds, "
+              f"{len(rep['windows'])} windows")
+        for w in rep["windows"]:
+            skip = f"  skipped: {', '.join(w['skipped'])}" if w["skipped"] else ""
+            print(f"  window {w['from']} -> {w['to']}{skip}")
+            rows = sorted(w["per_source"].items(),
+                          key=lambda kv: (-(kv[1]["lam"] if kv[1]["lam"] is not None
+                                            else -1.0), kv[0]))
+            for s, st in rows:
+                lam = f"{st['lam']:.3f}" if st["lam"] is not None else "—"
+                ci = (f"[{st['ci_lo']:.3f}, {st['ci_hi']:.3f}]"
+                      if st["ci_lo"] is not None else "—")
+                print(f"    {s:<20} n={st['n_uniq']:<5} k={st['n_conf']:<4} "
+                      f"λ={lam} {ci}")
+        pre = rep["preregistration"]
+        fmt = lambda v: f"{v:.3f}" if v is not None else "—"
+        print(f"  preregistration: above λ={fmt(pre['above']['lam'])} "
+              f"vs below λ={fmt(pre['below']['lam'])}, "
+              f"Fisher p={pre['fisher_p']:.4f}, direction={pre['direction']}")
+        print(f"  report: {rep.get('report_path')}")
+        return
 
     registry = _real_registry()
     if args.json:
