@@ -256,6 +256,7 @@ class VersionOut(_Out):
     summary: Optional[str] = None
     release_url: str
     self_update_enabled: bool
+    public_demo: bool = False   # 公开演示守卫开启且请求方非维护者(demo 探测字段)
 
 
 class UpdateStateOut(_Out):

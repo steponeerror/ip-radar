@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, Fragment } from "react";
-import type { LookupResult } from "../api";
+import { apiFetch, type LookupResult } from "../api";
 import {
   confTextColor, VERDICT_STYLE, VERDICT_RANK, verdictLabelKey,
   normType, classLabel, familyShort, threatSummary, SCORE_SEMANTICS,
@@ -169,10 +169,11 @@ function lowestConfidence(r: LookupResult): number {
 
 // Q1-B 配套:顶层导航(window.open)不带 Origin/Referer,过不了同源判;
 // 同源 fetch → blob → 临时 object URL 触发下载(鉴权路径与页面一致)。
+// apiFetch 附带 demo 守卫要求的 x-ipradar-client(与其它查询同规)。
 // 端点无 Content-Disposition,文件名自定 stix-{ip}.json。
 async function exportStix(t: TFn, ip: string): Promise<void> {
   try {
-    const res = await fetch(`/api/lookup/${ip}/stix`);
+    const res = await apiFetch(`/api/lookup/${ip}/stix`);
     if (!res.ok) throw new Error(`STIX export failed (${res.status})`);
     const url = URL.createObjectURL(await res.blob());
     const a = document.createElement("a");
