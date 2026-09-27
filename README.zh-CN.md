@@ -135,7 +135,7 @@ curl -s http://127.0.0.1:8000/api/db-status
 
 面向任何公网暴露实例的可选守卫中间件，对匿名访客隐藏写入/内部面。三个旋钮，默认全部关闭——未设置时自托管部署零行为变化：
 
-- `IP_RADAR_PUBLIC_DEMO=1` —— 开启守卫：写/内部端点（`/api/update-db`、`/api/sources`、`/api/eval`、`/api/tasks`、`/api/events`、`/api/update` 等）对匿名访客一律 **404（当作不存在）**；查询读端点（`/api/lookup*`、`/api/query/stream`、`/api/upload/stream`、`/api/db-status`）要求 `x-ipradar-client: web` 头。OPTIONS 预检、回环（docker healthcheck）与 `/api/version` 豁免；带管理员 cookie 或 `Authorization` 头的请求交给鉴权依赖层真校验（superuser / API key）——伪凭据在那里得到 401/403，不存在绕过。
+- `IP_RADAR_PUBLIC_DEMO=1` —— 开启守卫：写/内部端点（`/api/update-db`、`/api/sources`、`/api/eval`、`/api/tasks`、`/api/events`、`/api/update` 等）对匿名访客一律 **404（当作不存在）**；查询读端点（`/api/lookup*`、`/api/query/stream`、`/api/upload/stream`、`/api/db-status`）要求 `x-ipradar-client: web` 头。OPTIONS 预检、回环（docker healthcheck）与 `/api/version` 豁免；带管理员 cookie 或 `Authorization` 头的请求交给鉴权依赖层真校验（superuser / API key）——伪凭据在那里得到 401/403，不存在绕过。唯一例外：`/api/update/status` 无自身鉴权依赖，伪造凭据可获得 200，但仅泄露自更新状态（state/error/at），无敏感信息。
 - `IP_RADAR_DEMO_ADMIN_IPS` —— 维护者旁路：逗号分隔的**直连 peer** 白名单。仅适用于应用端口直接暴露的部署；反代后 peer 恒为代理 IP，而 `X-Forwarded-For` 客户端可伪造（实测可穿透 CF→Caddy 链），勿默认信任。
 - `IP_RADAR_DEMO_TRUST_XFF=1` —— 显式声明信任首跳 `X-Forwarded-For` 参与维护者旁路。必须配套网关保证（反代剥/覆写 XFF），否则客户端可伪造。
 
