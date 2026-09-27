@@ -48,7 +48,8 @@ def _json_safe_dsem(dsem: dict) -> dict:
             "spread": {f"{s}|{c}": v for (s, c), v in dsem["spread"].items()}}
 
 
-def run_dsem_report(lookup_fn, corpus, declared_r, out_dir=None) -> dict:
+def run_dsem_report(lookup_fn, corpus, declared_r, out_dir=None,
+                    origin=None) -> dict:
     """Snapshot -> events -> the three-prior T-3 fair fight + DS-EM run.
 
     Override rule (plan semantics): override value wins when present and
@@ -57,8 +58,8 @@ def run_dsem_report(lookup_fn, corpus, declared_r, out_dir=None) -> dict:
     snap = take_snapshot(lookup_fn, corpus.all_ips())
     pair_sets = source_pair_sets(snap)
     events = extract_events(snap, pairwise_oc(pair_sets))
-    dsem = _json_safe_dsem(run_dsem(pair_sets, declared_r))
-    movers = _movers(estimate(events, declared_r))
+    dsem = _json_safe_dsem(run_dsem(pair_sets, declared_r, origin=origin))
+    movers = _movers(estimate(events, declared_r, origin=origin))
     market = _t3(events, movers, config.MODEL_W)
     decl = _t3(events, [replace(s, rho=declared_r.get(s.source) or s.rho)
                         for s in movers], config.MODEL_W)
@@ -66,7 +67,7 @@ def run_dsem_report(lookup_fn, corpus, declared_r, out_dir=None) -> dict:
                          for s in movers], config.MODEL_W)
     pr, dr = _t3_rate(pihat["detail"]), _t3_rate(decl["detail"])
     beats = (pr >= dr) if pr is not None and dr is not None else None
-    res = {"kind": "dsem", "dsem": dsem,
+    res = {"kind": "dsem", "lso": origin is not None, "dsem": dsem,
            "fair_fight": {"market_t3": market["detail"],
                           "declared_t3": decl["detail"],
                           "pihat_t3": pihat["detail"],

@@ -20,6 +20,7 @@ from .independence import oc_suspicion_pairs
 from .metrics import (compute_other_distribution, mc, cg, conflict, oc,
                       fp_proxy, other_pct, confidence_uplift, dead_slot_fill,
                       pairs)
+from .origin import origin_map
 from .pairwise import pairwise_oc, source_pair_sets
 from .report import write_report
 from .suite import run_suite, write_model_report
@@ -32,6 +33,16 @@ REPORT_DIR = Path(os.environ.get(
     "IP_RADAR_EVAL_DIR",
     str(_REPO_ROOT / "backend" / "data" / "eval")))
 CORPUS_PATH = _PKG_DIR / "corpus.json"                  # curated in-package asset (spec §5)
+NEUTRAL_ASSET = _PKG_DIR / "neutral_ips.json"           # W0 中性层静态资产(T1)
+
+
+def _load_corpus() -> Corpus:
+    """--model/--dsem 入口统一装填:frozen benchmark + 静态中性层
+    (W0 层2,资产逐轮恒定,运行期只加载不重采样)。中性层进
+    all_ips → 进快照。"""
+    corpus = Corpus.load(CORPUS_PATH) if CORPUS_PATH.exists() else Corpus()
+    corpus.neutral = json.loads(NEUTRAL_ASSET.read_text())
+    return corpus
 
 _JSON_HINT = "确认 DB 已 load / corpus 存在(--rebuild)"
 
@@ -140,9 +151,11 @@ def main(argv=None):
         return
     if args.model:
         from ipdb._merge import SOURCE_RELIABILITY
-        corpus = Corpus.load(CORPUS_PATH) if CORPUS_PATH.exists() else Corpus()
+        corpus = _load_corpus()
+        # W0 层1:自采样偏差治理 —— 语料成员在源 raw 文件内的佐证剔除
+        origin = origin_map(registry.sources, corpus.all_ips())
         result = run_suite(registry.lookup, corpus,
-                           declared_r=dict(SOURCE_RELIABILITY))
+                           declared_r=dict(SOURCE_RELIABILITY), origin=origin)
         md, js = write_model_report(result, REPORT_DIR)
         if args.json:
             print(Path(js).read_text())
@@ -180,10 +193,11 @@ def main(argv=None):
     if args.dsem:
         from ipdb._merge import SOURCE_RELIABILITY
         from .dsem_cli import run_dsem_report
-        corpus = Corpus.load(CORPUS_PATH) if CORPUS_PATH.exists() else Corpus()
+        corpus = _load_corpus()
+        origin = origin_map(registry.sources, corpus.all_ips())
         res = run_dsem_report(registry.lookup, corpus,
                               declared_r=dict(SOURCE_RELIABILITY),
-                              out_dir=REPORT_DIR)
+                              out_dir=REPORT_DIR, origin=origin)
         if args.json:
             print(json.dumps(res, ensure_ascii=False, indent=1))
         else:

@@ -55,12 +55,13 @@ def _movers(scores):
             if s.theta is not None and s.n >= config.MODEL_N_FLOOR]
 
 
-def _t1(events, declared_r, movers):
+def _t1(events, declared_r, movers, origin=None):
     names = [s.source for s in movers]
     base = {s.source: s.theta for s in movers}
     worst = 1.0
     for w in (5, 20):
-        alt = {s.source: s.theta for s in estimate(events, declared_r, w=w)
+        alt = {s.source: s.theta for s in estimate(events, declared_r, w=w,
+                                                   origin=origin)
                if s.source in base}
         sp = spearman([base[n] for n in names], [alt[n] for n in names])
         worst = min(worst, sp)
@@ -68,7 +69,7 @@ def _t1(events, declared_r, movers):
     return {"pass": ok, "detail": f"min pairwise Spearman vs w=10: {worst:.3f} (>=0.9)"}
 
 
-def _t2(lookup_fn, corpus, declared_r, events, movers, w):
+def _t2(lookup_fn, corpus, declared_r, events, movers, w, origin=None):
     ips = corpus.all_ips()
     names = [s.source for s in movers]
     base = {s.source: s.theta for s in movers}
@@ -80,7 +81,8 @@ def _t2(lookup_fn, corpus, declared_r, events, movers, w):
         keep = [ip for ip in ips if ip not in drop]
         snap = take_snapshot(lookup_fn, keep)
         ev = extract_events(snap, oc_table)           # oc_table frozen
-        alt = {s.source: s.theta for s in estimate(ev, declared_r, w=w)
+        alt = {s.source: s.theta for s in estimate(ev, declared_r, w=w,
+                                                   origin=origin)
                if s.source in base}
         if len(alt) == len(base):
             vals.append(spearman([base[n] for n in names], [alt[n] for n in names]))
@@ -178,7 +180,8 @@ def _c2(scores):
             f"specialists finite; {len(bm)} below-market flagged (not zeroed)"}
 
 
-def run_suite(lookup_fn, corpus: Corpus, declared_r=None, w=None) -> dict:
+def run_suite(lookup_fn, corpus: Corpus, declared_r=None, w=None,
+              origin: dict[str, set[str]] | None = None) -> dict:
     w = w if w is not None else config.MODEL_W
     ips = corpus.all_ips()
     corpus_fp = {"n_ips": len(ips),
@@ -188,18 +191,19 @@ def run_suite(lookup_fn, corpus: Corpus, declared_r=None, w=None) -> dict:
     assertion_hist = assertion_records(snap)
     oc_table = pairwise_oc(pair_sets)
     events = extract_events(snap, oc_table)
-    scores = estimate(events, declared_r, w=w)
+    scores = estimate(events, declared_r, w=w, origin=origin)
     movers = _movers(scores)
     pinned = [s.source for s in scores
               if s.theta is None or s.n < config.MODEL_N_FLOOR]
     checks = {
-        "T1": _t1(events, declared_r, movers),
-        "T2": _t2(lookup_fn, corpus, declared_r, events, movers, w),
+        "T1": _t1(events, declared_r, movers, origin),
+        "T2": _t2(lookup_fn, corpus, declared_r, events, movers, w, origin),
         "T3": _t3(events, movers, w),
         "C1": _c1(scores),
         "C2": _c2(scores),
     }
-    return {"kind": "model", "w": w, "scores": scores, "checks": checks,
+    return {"kind": "model", "w": w, "lso": origin is not None,
+            "scores": scores, "checks": checks,
             "corpus": corpus_fp, "pairs": assertion_hist,
             "movers": [s.source for s in movers], "pinned": pinned,
             "monopoly_ctypes": sorted(events.monopoly_ctypes)}
@@ -221,6 +225,7 @@ def write_model_report(result: dict, out_dir: Path) -> tuple[Path, Path]:
         "kind": "model",
         "generated_at": _dt.datetime.now(_dt.timezone.utc).date().isoformat(),
         "w": result["w"],
+        "lso": result["lso"],
         "corpus": result["corpus"],
         "pairs": result["pairs"],
         "checks": result["checks"],
