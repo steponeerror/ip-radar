@@ -41,7 +41,10 @@ def load_history(model_dir: Path) -> list[dict]:
 
 
 def forward_flow(pairs_by_round, a: str, b: str) -> tuple[int, int]:
-    """(a→b, b→a) forward-flow counts over per-round pair sets
+    """前向流计数:抄袭方向由“谁先断言、谁滞后捡起”的不对称决定,
+    同一 pair 只在其首个合格轮计一次(去重),后续复断/丢弃不重计。
+
+    (a→b, b→a) forward-flow counts over per-round pair sets
     ({source: {(ip, ctype), ...}} per round). A pair flows a→b when a
     asserts it in round t, b does not, and b picks it up in t+1..T —
     counted once, at its first qualifying round. Symmetric for b→a."""
@@ -62,6 +65,15 @@ def forward_flow(pairs_by_round, a: str, b: str) -> tuple[int, int]:
 
 
 def lineage_audit(model_dir: Path) -> dict:
+    """谱系审计:读 model 历史报告,对每对源做前向流三态判定
+    (confirmed / not-yet / no-relation),并跑 C-3 双向检查(0 误伤 ∧
+    recall ≥ 4/5);advisory,生产 DERIVED_SOURCES 仍为人工提交常量。
+
+    Reads persisted model-*.json rounds via load_history, judges each
+    source pair by forward_flow asymmetry (FLOW_MIN / FLOW_ASYM, only
+    with >= MIN_ROUNDS rounds and >= MIN_SHARED shared assertions), and
+    recommends DERIVED candidates holding >= MIN_COPIERS confirmed
+    in-edges. Containment is a display column only."""
     runs = load_history(model_dir)
     n = len(runs)
     rounds = [{s: {(ip, c) for ip, c, *_ in lst}

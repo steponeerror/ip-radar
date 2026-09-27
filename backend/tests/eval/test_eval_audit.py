@@ -43,6 +43,31 @@ def test_forward_flow_first_pickup_counted_once():
     assert forward_flow(rounds, "a", "b") == (2, 0)
 
 
+def test_forward_flow_reassert_dedup_counts_once():
+    # 真去重场景(T3 Minor a):src 轮 1 断言、轮 2 复断言同 pair,
+    # dst 轮 3 才捡起 → forward_flow 恰计 1(counted 集合的变异杀死测试:
+    # 删掉 counted 则轮 2 重复计入 → fab=2 本测必炸)
+    p = ("9.9.9.9", "spam")
+    rounds = [
+        {"src": {p}, "dst": set()},
+        {"src": {p}, "dst": set()},   # re-assert, same pair
+        {"src": {p}, "dst": {p}},     # dst picks up only in round 3
+    ]
+    assert forward_flow(rounds, "src", "dst") == (1, 0)
+
+
+def test_forward_flow_dst_pickup_then_drop_counts_once():
+    # dst 轮 2 捡起又轮 3 丢弃(churn),src 恒持有 → 也只计 1,
+    # 后续丢弃不重置也不增计
+    p = ("8.8.8.8", "spam")
+    rounds = [
+        {"src": {p}, "dst": set()},
+        {"src": {p}, "dst": {p}},     # pickup
+        {"src": {p}, "dst": set()},   # drop, src still holds
+    ]
+    assert forward_flow(rounds, "src", "dst") == (1, 0)
+
+
 def test_forward_flow_symmetric_and_coasserted_zero():
     p1 = ("3.3.3.3", "spam")
     assert forward_flow([{"a": set(), "b": {p1}},
@@ -117,3 +142,21 @@ def test_audit_two_rounds_not_yet(tmp_path, monkeypatch):
     assert res["recommended_derived"] == [] and res["relations"] == {}
     assert all(r["state"] == "not-yet" for r in res["pairs"])
     assert res["c3"]["recall"] == 0.0 and res["c3"]["pass"] is False
+
+
+def test_audit_symmetric_strong_flow_not_yet(tmp_path, monkeypatch):
+    # 对称强流(T3 锁 elif 链):a、b 互相滞后捡起(fab=fba=5)→
+    # 不对称门槛(1.5×)两侧都不满足 → not-yet,不判任一 confirmed
+    ab, ba = _pl("10.7.0", 5), _pl("10.8.0", 5)   # a first / b first
+    both = ab + ba
+    _mk_run(tmp_path, "20260801-000000", {"a": ab, "b": ba})
+    _mk_run(tmp_path, "20260808-000000", {"a": both, "b": both})
+    _mk_run(tmp_path, "20260815-000000", {"a": both, "b": both})
+    import ipdb._eval.audit as A
+    monkeypatch.setattr(A, "DERIVED_SOURCES", frozenset())
+    res = A.lineage_audit(tmp_path)
+    row = next(r for r in res["pairs"] if {r["a"], r["b"]} == {"a", "b"})
+    assert row["fab"] == 5 and row["fba"] == 5
+    assert row["state"] == "not-yet"
+    assert "copier" not in row
+    assert res["relations"] == {}

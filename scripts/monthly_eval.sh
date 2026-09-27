@@ -30,7 +30,7 @@ done
 REPO=$(git rev-parse --show-toplevel)
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 if [ -n "$(git status --porcelain)" ]; then DIRTY=yes; else DIRTY=no; fi
-DATA_DIR="${EVAL_DATA_DIR:-$REPO/.eval-prod-data}"
+DATA_DIR="$(realpath -m "${EVAL_DATA_DIR:-$REPO/.eval-prod-data}")"  # 绝对化:防 run_step cd backend 后相对路径漂移
 RSYNC_SRC="$PROD_HOST:/var/lib/docker/volumes/ip-lookup-tool_ipradar-data/_data/"  # 尾斜杠=拷内容
 
 echo "repo:   $REPO"

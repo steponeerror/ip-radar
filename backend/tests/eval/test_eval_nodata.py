@@ -71,6 +71,15 @@ def test_nodata_collapsed_boundary_not_triggered():
     assert v.state == "MARGINAL"
 
 
+def test_nodata_zero_median_history_not_collapsed():
+    # 全零历史(死源回血形态,任务评审 T3 基线):median=0 → 坍塌线 0,
+    # rc=5 > 0 不触发 collapsed —— 锁裁决:零中位数历史不误报坍塌
+    v = assess(_metrics(), candidate_touched_n=100, suspicion_flags=[],
+               rc=5, rc_history=[0, 0, 0])
+    assert v.state == "MARGINAL"
+    assert v.reason == ""
+
+
 def test_nodata_first_round_no_history():
     # 首轮(本任务之后才有 source_health 证据):无历史只判 empty
     v = assess(_metrics(), candidate_touched_n=100, suspicion_flags=[],
@@ -193,6 +202,18 @@ def test_rc_history_scan(tmp_path):
     _report("2026-08-15", "20260815-010101")
     assert _rc_history("threatfox", d) == _THREATFOX_HISTORY
     assert _rc_history("unknown", d) == []
+
+
+def test_rc_history_skips_corrupt_json(tmp_path):
+    # 目录里混入损坏 JSON(半写/截断)→ 扫描器跳过坏文件,好文件照读
+    from ipdb._eval.__main__ import _rc_history
+    d = tmp_path / "model"
+    d.mkdir()
+    (d / "model-20260901-010101.json").write_text('{"generated_at": "2026-')
+    (d / "model-20260902-010101.json").write_text(json.dumps(
+        {"generated_at": "2026-09-02",
+         "source_health": {"threatfox": {"rc": 16500, "stale": False}}}))
+    assert _rc_history("threatfox", d) == [16500]
 
 
 def test_rc_history_missing_dir(tmp_path):
