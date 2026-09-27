@@ -58,8 +58,10 @@ def run_dsem_report(lookup_fn, corpus, declared_r, out_dir=None,
     snap = take_snapshot(lookup_fn, corpus.all_ips())
     pair_sets = source_pair_sets(snap)
     events = extract_events(snap, pairwise_oc(pair_sets))
-    dsem = _json_safe_dsem(run_dsem(pair_sets, declared_r, origin=origin))
-    movers = _movers(estimate(events, declared_r, origin=origin))
+    # 双轨制(控制器裁决 2026-09-28):fair fight 三 prior 恒旧基 pair_sets,
+    # LSO 只出 advisory headline,不动 fair_fight 结构
+    dsem = _json_safe_dsem(run_dsem(pair_sets, declared_r))
+    movers = _movers(estimate(events, declared_r))
     market = _t3(events, movers, config.MODEL_W)
     decl = _t3(events, [replace(s, rho=declared_r.get(s.source) or s.rho)
                         for s in movers], config.MODEL_W)
@@ -67,11 +69,14 @@ def run_dsem_report(lookup_fn, corpus, declared_r, out_dir=None,
                          for s in movers], config.MODEL_W)
     pr, dr = _t3_rate(pihat["detail"]), _t3_rate(decl["detail"])
     beats = (pr >= dr) if pr is not None and dr is not None else None
-    res = {"kind": "dsem", "lso": origin is not None, "dsem": dsem,
+    res = {"kind": "dsem", "dsem": dsem,
            "fair_fight": {"market_t3": market["detail"],
                           "declared_t3": decl["detail"],
                           "pihat_t3": pihat["detail"],
                           "pihat_beats_declared": beats}}
+    if origin is not None:
+        res["lso"] = {"headline": run_dsem(pair_sets, declared_r,
+                                            origin=origin)["headline"]}
     if out_dir is not None:
         d = Path(out_dir) / "model"
         d.mkdir(parents=True, exist_ok=True)

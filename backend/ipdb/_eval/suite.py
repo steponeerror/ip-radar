@@ -55,13 +55,12 @@ def _movers(scores):
             if s.theta is not None and s.n >= config.MODEL_N_FLOOR]
 
 
-def _t1(events, declared_r, movers, origin=None):
+def _t1(events, declared_r, movers):
     names = [s.source for s in movers]
     base = {s.source: s.theta for s in movers}
     worst = 1.0
     for w in (5, 20):
-        alt = {s.source: s.theta for s in estimate(events, declared_r, w=w,
-                                                   origin=origin)
+        alt = {s.source: s.theta for s in estimate(events, declared_r, w=w)
                if s.source in base}
         sp = spearman([base[n] for n in names], [alt[n] for n in names])
         worst = min(worst, sp)
@@ -69,7 +68,7 @@ def _t1(events, declared_r, movers, origin=None):
     return {"pass": ok, "detail": f"min pairwise Spearman vs w=10: {worst:.3f} (>=0.9)"}
 
 
-def _t2(lookup_fn, corpus, declared_r, events, movers, w, origin=None):
+def _t2(lookup_fn, corpus, declared_r, events, movers, w):
     ips = corpus.all_ips()
     names = [s.source for s in movers]
     base = {s.source: s.theta for s in movers}
@@ -81,8 +80,7 @@ def _t2(lookup_fn, corpus, declared_r, events, movers, w, origin=None):
         keep = [ip for ip in ips if ip not in drop]
         snap = take_snapshot(lookup_fn, keep)
         ev = extract_events(snap, oc_table)           # oc_table frozen
-        alt = {s.source: s.theta for s in estimate(ev, declared_r, w=w,
-                                                   origin=origin)
+        alt = {s.source: s.theta for s in estimate(ev, declared_r, w=w)
                if s.source in base}
         if len(alt) == len(base):
             vals.append(spearman([base[n] for n in names], [alt[n] for n in names]))
@@ -191,19 +189,24 @@ def run_suite(lookup_fn, corpus: Corpus, declared_r=None, w=None,
     assertion_hist = assertion_records(snap)
     oc_table = pairwise_oc(pair_sets)
     events = extract_events(snap, oc_table)
-    scores = estimate(events, declared_r, w=w, origin=origin)
+    # 双轨制(控制器裁决 2026-09-28,沿 09-02 brief A2 先例):scores 与全部
+    # checks 恒旧基(origin=None 语义),月轮 T 检查历史可比;LSO 仅作
+    # advisory 视图附加(scores_lso),不进 checks
+    scores = estimate(events, declared_r, w=w)
+    scores_lso = (estimate(events, declared_r, w=w, origin=origin)
+                  if origin is not None else None)
     movers = _movers(scores)
     pinned = [s.source for s in scores
               if s.theta is None or s.n < config.MODEL_N_FLOOR]
     checks = {
-        "T1": _t1(events, declared_r, movers, origin),
-        "T2": _t2(lookup_fn, corpus, declared_r, events, movers, w, origin),
+        "T1": _t1(events, declared_r, movers),
+        "T2": _t2(lookup_fn, corpus, declared_r, events, movers, w),
         "T3": _t3(events, movers, w),
         "C1": _c1(scores),
         "C2": _c2(scores),
     }
-    return {"kind": "model", "w": w, "lso": origin is not None,
-            "scores": scores, "checks": checks,
+    return {"kind": "model", "w": w, "lso": scores_lso is not None,
+            "scores": scores, "scores_lso": scores_lso, "checks": checks,
             "corpus": corpus_fp, "pairs": assertion_hist,
             "movers": [s.source for s in movers], "pinned": pinned,
             "monopoly_ctypes": sorted(events.monopoly_ctypes)}
@@ -226,6 +229,8 @@ def write_model_report(result: dict, out_dir: Path) -> tuple[Path, Path]:
         "generated_at": _dt.datetime.now(_dt.timezone.utc).date().isoformat(),
         "w": result["w"],
         "lso": result["lso"],
+        "scores_lso": ([_score_dict(s) for s in result["scores_lso"]]
+                        if result["scores_lso"] is not None else None),
         "corpus": result["corpus"],
         "pairs": result["pairs"],
         "checks": result["checks"],
@@ -234,26 +239,38 @@ def write_model_report(result: dict, out_dir: Path) -> tuple[Path, Path]:
         "monopoly_ctypes": result["monopoly_ctypes"],
         "scores": [_score_dict(s) for s in result["scores"]],
     }
+
+    def _score_table(scores) -> list[str]:
+        rows = ["| source | theta | 90% CI | n | k | rho | evidence | below-mkt | mono | fountain | unique | declared_r |",
+                "|---|---|---|---|---|---|---|---|---|---|---|---|"]
+        for s in scores:
+            if s.theta is not None:
+                cells = [s.source, f"{s.theta:.3f}",
+                         f"[{s.ci_lo:.3f}, {s.ci_hi:.3f}]"]
+            else:
+                cells = [s.source, "—", "—"]
+            cells += [str(s.n), str(s.k),
+                      f"{s.rho:.3f}" if s.rho is not None else "—",
+                      "present" if s.evidence else "none",
+                      str(s.below_market), str(s.monopoly),
+                      "suspect" if s.fountain_suspect else "—",
+                      "—" if s.unique_share is None else f"{s.unique_share:.2f}",
+                      "—" if s.declared_r is None else f"{s.declared_r:.2f}"]
+            rows.append("| " + " | ".join(cells) + " |")
+        return rows
+
     md = d / f"model-{ts}.md"
     js = d / f"model-{ts}.json"
     lines = ["# Source corroboration-contrast model (advisory)", "",
-             f"corpus: {result['corpus']['n_ips']} ips @ {result['corpus']['sha8']}", "",
-             "| source | theta | 90% CI | n | k | rho | evidence | below-mkt | mono | fountain | unique | declared_r |",
-             "|---|---|---|---|---|---|---|---|---|---|---|---|"]
-    for s in result["scores"]:
-        if s.theta is not None:
-            cells = [s.source, f"{s.theta:.3f}",
-                     f"[{s.ci_lo:.3f}, {s.ci_hi:.3f}]"]
-        else:
-            cells = [s.source, "—", "—"]
-        cells += [str(s.n), str(s.k),
-                  f"{s.rho:.3f}" if s.rho is not None else "—",
-                  "present" if s.evidence else "none",
-                  str(s.below_market), str(s.monopoly),
-                  "suspect" if s.fountain_suspect else "—",
-                  "—" if s.unique_share is None else f"{s.unique_share:.2f}",
-                  "—" if s.declared_r is None else f"{s.declared_r:.2f}"]
-        lines.append("| " + " | ".join(cells) + " |")
+             f"corpus: {result['corpus']['n_ips']} ips @ {result['corpus']['sha8']}",
+             ""]
+    lines += _score_table(result["scores"])
+    if result["scores_lso"] is not None:
+        lines += ["", "## LSO advisory (debiased)", "",
+                  "_Leave-self-out(自采样剔除)视图;聚合器证据近空 → no-signal "
+                  "是诚实结果(循环佐证无信息),定价走 lineage/权威路径。"
+                  "advisory,不进 checks,不影响上方旧基序列。_", ""]
+        lines += _score_table(result["scores_lso"])
     lines += ["", "## Checks", ""]
     for name, chk in result["checks"].items():
         lines.append(f"- **{name}: {'PASS' if chk['pass'] else 'FAIL'}** — {chk['detail']}")

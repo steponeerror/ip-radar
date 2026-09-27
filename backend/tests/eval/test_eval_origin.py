@@ -134,15 +134,54 @@ def _fleet_corpus():
     return Corpus(benchmark={"spam": [f"10.0.0.{i}" for i in range(12)]})
 
 
-def test_run_suite_lso_flag_and_wiring():
-    result = run_suite(_fleet_lookup(), _fleet_corpus())
-    assert result["lso"] is False                  # 缺省 = 现状,不剔
+def test_run_suite_dual_track_lso():
+    base = run_suite(_fleet_lookup(), _fleet_corpus())
+    assert base["lso"] is False and base["scores_lso"] is None  # 旧基:无视图
     origin = {f"10.0.0.{i}": {"a"} for i in range(12)}
     result = run_suite(_fleet_lookup(), _fleet_corpus(), origin=origin)
-    assert result["lso"] is True
-    sc = {s.source: s for s in result["scores"]}
-    assert sc["a"].theta is None                   # a 证据全自采样 → no-signal
-    assert sc["b"].theta is not None               # b 保留评分
+    assert result["lso"] is True                  # LSO advisory 视图在场
+    # 双轨制(09-02 A2 先例):主表 scores 与全部 checks 恒旧基,逐字段一致
+    # —— 月轮 T 检查序列可比,LSO 不进 checks
+    assert result["scores"] == base["scores"]
+    assert result["checks"] == base["checks"]
+    main = {s.source: s for s in result["scores"]}
+    lso = {s.source: s for s in result["scores_lso"]}
+    assert main["a"].theta is not None            # 主表保留原值
+    assert lso["a"].theta is None and lso["a"].n == 0   # 被剔源 advisory no-signal
+    assert lso["b"].theta is not None
+
+
+def test_model_report_lso_advisory_section(tmp_path):
+    from ipdb._eval.suite import write_model_report
+    origin = {f"10.0.0.{i}": {"a"} for i in range(12)}
+    result = run_suite(_fleet_lookup(), _fleet_corpus(), origin=origin)
+    md, js = write_model_report(result, tmp_path)
+    text = md.read_text()
+    assert "## LSO advisory (debiased)" in text
+    assert text.count("| source | theta |") == 2   # 旧表 + LSO 表同列格式
+    payload = json.loads(js.read_text())
+    assert payload["lso"] is True and payload["scores_lso"]
+    rows = {r["source"]: r for r in payload["scores_lso"]}
+    assert rows["a"]["theta"] is None and rows["a"]["n"] == 0
+
+
+def test_dsem_report_dual_track_lso(tmp_path):
+    from ipdb._eval import dsem_cli
+    origin = {f"10.0.0.{i}": {"a"} for i in range(12)}
+    res = dsem_cli.run_dsem_report(_fleet_lookup(), _fleet_corpus(),
+                                   {"a": 0.8, "b": 0.7}, out_dir=tmp_path,
+                                   origin=origin)
+    # fair fight / dsem 主视图 = 旧基(结构不动,a 仍在 headline)
+    assert set(res["dsem"]) == {"pi_hat", "spread", "headline",
+                                "solo_share", "theta0"}
+    assert res["dsem"]["headline"]["a"] is not None
+    assert set(res["fair_fight"]) == {"market_t3", "declared_t3",
+                                      "pihat_t3", "pihat_beats_declared"}
+    # lso advisory:仅 headline,a 全剔 → None
+    assert set(res["lso"]) == {"headline"}
+    assert res["lso"]["headline"]["a"] is None
+    assert res["lso"]["headline"]["b"] is not None
+    json.dumps(res)
 
 
 # ── 入口装填:中性层进 corpus.neutral ────────────────────────────
