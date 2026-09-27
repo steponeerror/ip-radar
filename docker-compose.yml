@@ -33,6 +33,14 @@ services:
       #   # IP_RADAR_ADMIN_EMAIL: "admin@ipradar.local"
       #   # IP_RADAR_PUBLIC_ORIGIN: "https://ipradar.huxiao0207.dpdns.org"
       #   # IP_RADAR_ENABLE_DOCS: "1"   # 开启 /docs /redoc /openapi.json(默认关闭)
+      # ── 公开演示守卫(可选,默认关):适用任何公网暴露实例,详见 README ──
+      # ↓ 同上,environment 是 service 层键,取消注释时移到 service 缩进层
+      # ADMIN_IPS 是直连 peer 白名单(仅限应用端口直接暴露;反代后 peer 恒为代理 IP,XFF 可伪造勿默认信)
+      # TRUST_XFF=1 须配套网关保证(反代剥/覆写 X-Forwarded-For),否则客户端可伪造
+      # environment:
+      #   IP_RADAR_PUBLIC_DEMO: "1"
+      #   IP_RADAR_DEMO_ADMIN_IPS: "203.0.113.7,198.51.100.9"
+      #   IP_RADAR_DEMO_TRUST_XFF: "0"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/api/db-status', timeout=5)"]

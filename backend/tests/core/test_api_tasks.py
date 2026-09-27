@@ -25,10 +25,11 @@ def _reset_manager():
     """Reset the shared UpdateManager before each test so tests are isolated.
 
     The manager is a process-wide singleton wired into ``ipdb`` at import time;
-    without this reset, tasks/batches queued by one test leak into the next
-    (notably ``_active_batch`` set by ``test_update_db_enqueues_returns_batch_id``
-    would make ``test_pause_resume_cancel_are_noop_without_batch`` run against
-    a stale batch instead of the intended empty state).
+    without this reset, tasks/batches queued by one test leak into the next.
+    ``test_update_db_enqueues_returns_batch_id`` used to leak a real
+    ``_active_batch`` into ``test_pause_resume_cancel_are_noop_without_batch``;
+    it now stubs ``manager.enqueue_batch``, so no side effects leak — the reset
+    remains to isolate tests that enqueue real in-process batches (e2e below).
     """
     import main
     m = main.manager
@@ -100,12 +101,17 @@ def test_events_streams_sse():
 # ── Task 10: enqueue / control endpoints ──
 
 
-def test_update_db_enqueues_returns_batch_id(auth_env):
+def test_update_db_enqueues_returns_batch_id(monkeypatch, auth_env):
     """POST /api/update-db enqueues a batch and returns its id."""
+    import main
+    # 打桩:避免真网络批更新与真实 data 目录写(CI 竞态根因,2026-09-27)
+    monkeypatch.setattr(main.manager, "enqueue_batch",
+                        lambda names: "test-batch-1")
     with _client(admin=True) as c:
         r = c.post("/api/update-db")
     assert r.status_code == 200
     assert "batch_id" in r.json()
+    assert r.json()["batch_id"] == "test-batch-1"
 
 
 def test_update_source_unknown_404(auth_env):

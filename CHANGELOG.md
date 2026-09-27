@@ -2,6 +2,20 @@
 
 本项目的所有重要变更记录于此。自 v1.0.0 起按版本分节，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## v1.4.1 — 未发布
+
+### 新增 Added
+
+- 公开演示守卫（opt-in，净移植自 demo 分支）：`IP_RADAR_PUBLIC_DEMO=1` 开启守卫中间件套件——写/内部端点对匿名访客 404（当作不存在）、查询面校验 `x-ipradar-client: web` 头、维护者直连 peer IP 旁路（`IP_RADAR_DEMO_ADMIN_IPS`，XFF 可伪造勿默认信；`IP_RADAR_DEMO_TRUST_XFF=1` 须配套网关保证）；默认关闭，未设 env 零行为变化
+  - Public-demo guard (opt-in, byte-for-byte port from the demo branch): `IP_RADAR_PUBLIC_DEMO=1` enables the guard middleware suite — write/internal endpoints answer 404 to anonymous visitors, query endpoints enforce the `x-ipradar-client: web` header, and maintainers bypass via direct-peer IPs (`IP_RADAR_DEMO_ADMIN_IPS`; XFF is forgeable, don't trust by default — `IP_RADAR_DEMO_TRUST_XFF=1` requires a gateway guarantee); off by default, zero behavior change without the env
+- 前端配套：所有请求带 `x-ipradar-client: web` 头；STIX 导出改同源 fetch+blob 下载（鉴权路径与页面一致，过守卫同规）
+  - Frontend companion: every request carries the `x-ipradar-client: web` header; STIX export switches to same-origin fetch+blob download (same auth path as the page, same rule through the guard)
+
+### 修复 Fixed
+
+- CI:后端测试批更新竞态——`test_update_db_enqueues_returns_batch_id` 打桩 `manager.enqueue_batch`,消灭真网络副作用与 `_active_batch` 跨测试泄漏
+  - CI: backend test batch-update race — stub `manager.enqueue_batch` in `test_update_db_enqueues_returns_batch_id`, eliminating real-network side effects and cross-test `_active_batch` leakage
+
 ## v1.4.0 — 2026-09-26
 
 ### 新增 Added

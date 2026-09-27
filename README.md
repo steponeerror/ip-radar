@@ -127,6 +127,14 @@ The other management endpoints (sources / eval / update-db / tasks / events, …
 - Source catalog (`/api/sources`) and eval report cards (`/api/eval*`) are admin-only — sign in at `/admin`.
 - `/docs` / `/redoc` / `/openapi.json` are disabled by default; set `IP_RADAR_ENABLE_DOCS=1` to enable (dev convenience — keep off on public deployments).
 
+### Public-demo guard (opt-in)
+
+For any instance exposed to the public internet, an opt-in guard middleware hides the write/internal surface from anonymous visitors. Three knobs, all off by default — unset means zero behavior change for self-hosted deployments:
+
+- `IP_RADAR_PUBLIC_DEMO=1` — enable the guard: write/internal endpoints (`/api/update-db`, `/api/sources`, `/api/eval`, `/api/tasks`, `/api/events`, `/api/update`, …) answer **404 as if they don't exist** to anonymous visitors; read/query endpoints (`/api/lookup*`, `/api/query/stream`, `/api/upload/stream`, `/api/db-status`) require the `x-ipradar-client: web` header. OPTIONS preflights, loopback (docker healthcheck), and `/api/version` are exempt; requests carrying an admin cookie or `Authorization` header are handed to the real auth dependencies (superuser / API-key) — forged credentials get 401/403 there, no bypass. One exception: `/api/update/status` has no auth dependency of its own — a forged credential header yields 200 there, but it only discloses self-update state (state/error/at), nothing sensitive.
+- `IP_RADAR_DEMO_ADMIN_IPS` — maintainer bypass: a comma-separated **direct-peer** allowlist. Only fits deployments where the app port is exposed directly; behind a reverse proxy the peer is always the proxy IP, and `X-Forwarded-For` is client-forgeable (verified to pierce a CF→Caddy chain) — do not trust it by default.
+- `IP_RADAR_DEMO_TRUST_XFF=1` — explicitly opt in to first-hop `X-Forwarded-For` matching for the admin bypass. Must be paired with a gateway guarantee (a reverse proxy that strips/overwrites XFF); otherwise a client can forge it.
+
 ### Fail2ban integration: ask before you ban
 
 `scripts/fail2ban/ipradar.conf` is a fail2ban action that triages every ban against your local IP Radar verdict first: confirmed-malicious IPs (confidence ≥ 70, tunable) go on a persistent long-ban list; CDN/infra edges skip the ban entirely with a loud log line — no more banning Cloudflare. Install & options: [`scripts/fail2ban/README.md`](scripts/fail2ban/README.md).
