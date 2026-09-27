@@ -2,6 +2,13 @@
 
 本项目的所有重要变更记录于此。自 v1.0.0 起按版本分节，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## v1.4.1 — 未发布
+
+### 修复 Fixed
+
+- CI:后端测试批更新竞态——`test_update_db_enqueues_returns_batch_id` 打桩 `manager.enqueue_batch`,消灭真网络副作用与 `_active_batch` 跨测试泄漏
+  - CI: backend test batch-update race — stub `manager.enqueue_batch` in `test_update_db_enqueues_returns_batch_id`, eliminating real-network side effects and cross-test `_active_batch` leakage
+
 ## v1.4.0 — 2026-09-26
 
 ### 新增 Added
