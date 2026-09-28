@@ -4,6 +4,10 @@
 
 ## v1.4.1 — 未发布
 
+### 修复 Fixed
+
+- abuseipdb 生产断供根因修复(P1 实锤 2026-09-28):旧 download() 直写数据文件且 except 分支 unlink——免费层 5 次/天配额被重试烧穿(429)后,每次失败都删掉既有好文件 → raw 永久缺失、LMDB 冻结 9,987 条、stale 恒真。改为 scratch 落盘 + 校验通过才提交(danmeuk 同款),失败永不触碰数据文件
+  - abuseipdb production outage root-cause fix (P1, confirmed live 2026-09-28): the old download() wrote straight to the data file and unlinked it in the except branch — once the free-tier 5-requests/day quota was burned by retries (429), every failure deleted the previously-good file, leaving the raw permanently missing, the LMDB frozen at 9,987 records, and is_stale stuck true. Now fetches to a scratch file and commits only after validation (same pattern as danmeuk_tor); a failed download never touches the existing data file
 ### 新增 Added
 
 - 新源 alibaba_ranges（cloud-ip-ranges.com 聚合的阿里云网段表）：云足迹第 5 名成员（aws/gcp/azure/oracle 之后），service=cloud + is_hosting、provider 标签 Alibaba、asset-only 空裁决；第三方聚合非官方自发布 → reliability 0.75（官方系 0.95）；观测 2026-09-28：2,394 CIDR（v4 2,148 / v6 246）、零重复、Last-Modified 每日 04:00 UTC 推进（站方许可未声明，非商用用户拍板 2026-09-28）；下载内容守卫拒 200-HTML 错误页；新增后公开源 43→44 口径
