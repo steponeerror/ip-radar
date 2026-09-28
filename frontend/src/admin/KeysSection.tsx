@@ -55,6 +55,20 @@ function SourcePickerBody({ initial, onChange }: {
     onChange(next);
   };
 
+  // 物化全清单(≠"全部源"开关的 null 语义:显式固化当前目录,之后新增的源
+  // 不会自动进入该 key 集合 —— 种子行等固化场景全选用达里,不用开关)。
+  const selectAllSources = () => {
+    const next = (catalog ?? []).map((s) => s.name);
+    setPicked(next);
+    onChange(next);
+  };
+
+  const invertSources = () => {
+    const next = (catalog ?? []).map((s) => s.name).filter((n) => !picked.includes(n));
+    setPicked(next);
+    onChange(next);
+  };
+
   const grouped = CATEGORY_ORDER
     .map((cat) => ({ cat, items: (catalog ?? []).filter((s) => s.category === cat) }))
     .filter((g) => g.items.length > 0);
@@ -73,7 +87,27 @@ function SourcePickerBody({ initial, onChange }: {
       </label>
       {!all && (
         <div className="mt-3">
-          <p className="text-xs text-zinc-500">{t("admin.keys.pickSources")}</p>
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-zinc-500">{t("admin.keys.pickSources")}</p>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={selectAllSources}
+                disabled={catalog === null}
+                className="text-xs text-emerald-400 hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {t("admin.keys.selectAll")}
+              </button>
+              <button
+                type="button"
+                onClick={invertSources}
+                disabled={catalog === null}
+                className="text-xs text-emerald-400 hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {t("admin.keys.invert")}
+              </button>
+            </div>
+          </div>
           {picked.length === 0 && (
             <p className="mt-1 text-xs text-amber-400">{t("admin.keys.sourcesEmptyHint")}</p>
           )}
