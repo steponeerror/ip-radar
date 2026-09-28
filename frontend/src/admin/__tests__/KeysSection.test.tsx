@@ -288,6 +288,70 @@ describe("KeysSection", () => {
     }));
   });
 
+  it("picker Select all materializes the full catalog (explicit list, not the all-sources null)", async () => {
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => [] }) // GET list (empty)
+      .mockResolvedValueOnce({ // GET source catalog (lazy: revealed on toggle-off)
+        ok: true,
+        json: async () => [SRC("dbip", "geo_asn"), SRC("dshield", "threat"), SRC("tor", "asset")],
+      })
+      .mockResolvedValueOnce({ // POST create
+        ok: true, status: 201,
+        json: async () => ({
+          key: "eyJzIjoiNyJ9.sig",
+          meta: META({ sub: "new", name: "t", sources: ["dbip", "dshield", "tor"] }),
+        }),
+      });
+    renderWithI18n(<KeysSection />);
+    await waitFor(() => expect(screen.getByText("No API keys yet")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: "Create key" }));
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "t" } });
+    fireEvent.click(screen.getByLabelText("All sources")); // 关掉 → 多选显现
+    fireEvent.click(await screen.findByRole("button", { name: "Select all" }));
+    // 全目录勾选(物化清单,非 null)
+    for (const n of ["dbip", "dshield", "tor"]) {
+      expect((screen.getByLabelText(n) as HTMLInputElement).checked).toBe(true);
+    }
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() => expect(mockFetch).toHaveBeenNthCalledWith(3, "/api/admin/keys", expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify({ name: "t", sources: ["dbip", "dshield", "tor"] }),
+    })));
+  });
+
+  it("picker Invert selection flips the current materialized set", async () => {
+    mockFetch
+      .mockResolvedValueOnce({ // GET list
+        ok: true,
+        json: async () => [META({ sub: "s1", name: "k", sources: ["dbip"] })],
+      })
+      .mockResolvedValueOnce({ // GET source catalog (edit modal opens with explicit set)
+        ok: true,
+        json: async () => [SRC("dbip", "geo_asn"), SRC("dshield", "threat"), SRC("tor", "asset")],
+      })
+      .mockResolvedValueOnce({ // PATCH sources
+        ok: true, status: 200,
+        json: async () => META({ sub: "s1", name: "k", sources: ["dshield", "tor"] }),
+      });
+    renderWithI18n(<KeysSection />);
+    await waitFor(() => screen.getByText("k"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit sources" }));
+    await waitFor(() => screen.getByLabelText("dbip"));
+    fireEvent.click(screen.getByRole("button", { name: "Invert selection" })); // {dbip} → {dshield, tor}
+    expect((screen.getByLabelText("dbip") as HTMLInputElement).checked).toBe(false);
+    expect((screen.getByLabelText("dshield") as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByLabelText("tor") as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(mockFetch).toHaveBeenNthCalledWith(3, "/api/admin/keys/s1", expect.objectContaining({
+      method: "PATCH",
+      body: JSON.stringify({ sources: ["dshield", "tor"] }),
+    })));
+  });
+
   it("localizes the Status column header (no hard-coded English, zh-CN)", async () => {
     mockFetch.mockResolvedValueOnce({ ok: true, json: async () => [META({ sub: "s1", name: "k" })] });
     renderWithI18n(<KeysSection />, { locale: "zh-CN" });

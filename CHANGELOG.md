@@ -6,6 +6,8 @@
 
 ### 新增 Added
 
+- admin 选源器(SourcePickerBody,创建/编辑/种子行共用)新增「全选 / 反选」:物化当前源目录为显式清单(区别于「全部源」开关的 null 动态语义,固化场景从此不用逐个点勾)
+  - admin source picker (SourcePickerBody, shared by create/edit/seed-row) gains Select all / Invert selection: materializes the current catalog as an explicit list (unlike the all-sources switch's null dynamic semantics — frozen-set workflows no longer need per-source clicks)
 - 新源 danmeuk_tor（dan.me.uk Tor 节点表）：`is_tor` / `tor` 分类的第二独立证人（官方 tor_exits 保留权威否决位，新源只佐证）；`/torlist/` 为全量 relay 口径（native 标签 RELAY，~10.7k 行，2026-08-23 存档观测、2026-09-28 复核）；30 分钟拉取限速，12h 自动刷新在限内（手动更新同计限速）；下载内容守卫拒绝限速 200-HTML 页，数据文件永不被替换；新增后公开源 42→43 口径
   - New source danmeuk_tor (dan.me.uk Tor node list): a second independent witness for `is_tor` / the `tor` classification (official tor_exits keeps its authoritative veto; the new source corroborates only); the `/torlist/` URL ships the full relay set (native label RELAY, ~10.7k rows, 2026-08-23 archived capture re-verified 2026-09-28); fetch rate limit is one pull per 30 minutes, the 12h auto-refresh stays within it (manual updates count against the limit too); a download content guard rejects the rate-limit 200-HTML page so the data file is never replaced; public-source count moves 42→43
 - eval v2 Phase 1(设计:docs/superpowers/specs/2026-09-28-eval-algorithm-optimization-brief.md):评估语料加中性公网层静态资产(逐轮恒定,eval 与源自家 raw 佐证解耦)
