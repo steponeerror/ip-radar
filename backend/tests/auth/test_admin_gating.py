@@ -1,5 +1,6 @@
 # backend/tests/auth/test_admin_gating.py — Task 3: 管理端点全部要求超管
-"""14 个管理端点(含 /api/events SSE)匿名 401 / 非超管 403 / 超管可达。
+"""15 个管理端点(含 /api/events SSE;含 guard-hardening 2026-09-28 收编的
+GET /api/update/status)匿名 401 / 非超管 403 / 超管可达。
 
 依赖顺序(plan Global Constraint + controller ruling 1):
 require_admin_configured → current_superuser → require_ready
@@ -39,6 +40,7 @@ _MANAGEMENT = [
     ("post", "/api/eval/firehol/run", None),
     ("post", "/api/tasks/doesnotexist/cancel", None),
     ("get", "/api/tasks", None),
+    ("get", "/api/update/status", None),
 ]
 
 # 结构测试的门控清单:brief step 3 全部 10 端点(真实路由路径参数形态)
@@ -58,6 +60,7 @@ _GATED = [
     ("post", "/api/tasks/{task_id}/cancel"),
     ("get", "/api/tasks"),
     ("get", "/api/events"),
+    ("get", "/api/update/status"),
 ]
 
 
@@ -70,7 +73,7 @@ def test_management_requires_admin(auth_client, method, path, body):
 
 @pytest.mark.parametrize("method,path", _GATED)
 def test_gated_routes_declare_admin_deps(method, path):
-    """结构防漂移:14 端点路由级依赖含 require_admin_configured + current_superuser
+    """结构防漂移:15 端点路由级依赖含 require_admin_configured + current_superuser
     (controller ruling:T9 下 /api/events 的 RED 由本测试承载)。"""
     route = next(r for r in main.app.routes
                  if getattr(r, "path", None) == path

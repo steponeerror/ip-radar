@@ -87,10 +87,11 @@ def test_update_accepted_fires_and_forgets(client):
     assert started == [True]
 
 
-def test_update_status_shape(client):
+def test_update_status_shape(client_as_admin):
+    # guard-hardening 2026-09-28:该路由已收 admin 门 —— 契约形状测试改用超管 client。
     with patch.object(main._ipdb_update, "state",
                       lambda: {"state": "failed", "error": "boom", "at": "T"}):
-        r = client.get("/api/update/status")
+        r = client_as_admin.get("/api/update/status")
     assert r.json() == {"state": "failed", "error": "boom", "at": "T"}
 
 
