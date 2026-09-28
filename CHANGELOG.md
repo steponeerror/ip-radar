@@ -4,6 +4,11 @@
 
 ## v1.4.1 — 未发布
 
+### 调整 Changed
+
+- stopforumspam 降权 reliability 0.70→0.60(用户拍板 2026-09-28,规则内保守档):月轮 eval 首跑实测 θ=0.001(n=117,k=0 零佐证)+ below-market 标记;缓解面=spam 轴 niche(unique 0.48)+ informational 裁决,故不一步到 .55。语料:model-20260928-144045(生产镜像月轮首跑,5/5 checks PASS)
+  - stopforumspam demoted, reliability 0.70 -> 0.60 (user-approved 2026-09-28, conservative in-rule step): the first monthly eval round measured theta=0.001 (n=117, k=0 — zero corroborations) plus a below-market flag; mitigating context = the spam axis is a corpus niche (unique share 0.48) and its verdict is informational, hence not dropping all the way to .55. Corpus: model-20260928-144045 (first monthly round on the production mirror, 5/5 checks pass)
+
 ### 修复 Fixed
 
 - abuseipdb 生产断供根因修复(P1 实锤 2026-09-28):旧 download() 直写数据文件且 except 分支 unlink——免费层 5 次/天配额被重试烧穿(429)后,每次失败都删掉既有好文件 → raw 永久缺失、LMDB 冻结 9,987 条、stale 恒真。改为 scratch 落盘 + 校验通过才提交(danmeuk 同款),失败永不触碰数据文件
