@@ -2,7 +2,7 @@
 
 本项目的所有重要变更记录于此。自 v1.0.0 起按版本分节，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
-## v1.4.1 — 未发布
+## v1.4.1 — 2026-09-28
 
 ### 调整 Changed
 
