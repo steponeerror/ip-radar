@@ -11,13 +11,18 @@ class _FakeSource:
     """Stand-in source with REAL .name/.classification_type/._path.
     MagicMock's `name=` kwarg sets the repr, not the attribute, so a real
     class is required for `s.name == 'cand'` to match in run_for_source.
-    query() returns [] so compute_other_distribution sees no classification."""
+    query() returns [] so compute_other_distribution sees no classification.
+    health() feeds the W4 NO-DATA 判据(rc = record_count)。"""
     def __init__(self, name, path, classification_type):
         self.name = name
         self._path = path
         self.classification_type = classification_type
+        self._rc = 1000
     def query(self, ip):
         return []
+    def health(self):
+        from types import SimpleNamespace
+        return SimpleNamespace(record_count=self._rc, is_stale=False)
 
 
 class _FakeBenign:
@@ -50,3 +55,14 @@ def test_run_for_source_produces_verdict_and_report(tmp_path):
     assert md.exists() and js.exists()
     # candidate is left enabled (no on-disk state mutation leak)
     assert "cand" not in reg.disabled
+
+
+def test_run_for_source_dead_source_nodata(tmp_path):
+    # W4:rc(record_count)=0 → run_for_source 必须把 health 接进 assess,
+    # 死源端到端拿到 NO-DATA/empty(out_dir 无 model/ 历史 → 只判 empty)
+    reg = _FakeRegistry()
+    reg.sources[0]._rc = 0
+    _, _, verdict = run_for_source("cand", registry=reg, corpus_path=tmp_path / "c.json",
+                                   out_dir=tmp_path, benign=_FakeBenign())
+    assert verdict.state == "NO-DATA"
+    assert verdict.reason == "empty"

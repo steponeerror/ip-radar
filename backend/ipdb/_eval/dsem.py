@@ -82,7 +82,12 @@ def _em_once(pi_data, declared_r, iters, seed, min_cover=2, tol=1e-5,
 
 
 def run_dsem(pair_sets, declared_r, restarts=8, iters=200,
-             exclude_solo=False):
+             exclude_solo=False, origin=None):
+    if origin is not None:
+        # W0 层1:同规则剔除自采样 pair 后进 EM(见 origin.py Ruling)
+        pair_sets = {s: {p for p in ps
+                         if s not in origin.get(p[0], frozenset())}
+                     for s, ps in pair_sets.items()}
     pi_data = {s: sorted(ps) for s, ps in pair_sets.items()}
     asserters = defaultdict(set)
     for s, lst in pi_data.items():

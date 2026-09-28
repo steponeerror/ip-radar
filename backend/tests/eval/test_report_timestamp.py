@@ -33,7 +33,7 @@ def test_second_level_timestamp_two_runs_no_overwrite(tmp_path, monkeypatch):
 
     verdict = SimpleNamespace(state="POSITIVE-VERIFIED", benefit_high=True,
                               cost_high=False, verified=True, insufficient=False,
-                              suspicion_flags=[], action="keep")
+                              reason="", suspicion_flags=[], action="keep")
     metrics = {"MC": SimpleNamespace(value=0.1, n=5)}
 
     md1, js1 = rpt.write_report("spamhaus", verdict, metrics, SimpleNamespace(), tmp_path)

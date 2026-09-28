@@ -36,6 +36,14 @@ LINEAGE_CLUSTERS = {
 MODEL_W = 10        # G1' prior strength
 MODEL_N_FLOOR = 10  # mover floor for suite checks
 
+# ── W4 verdict 语义修复(spec §5.5,决策 #8/SC-5)───────────────
+# NO-DATA 双判据:rc=0 → empty;rc < NO_DATA_COLLAPSE × 该源历史中位
+# (数据源 = model report source_health 块)→ collapsed;首轮无历史只判 empty。
+NO_DATA_COLLAPSE = 0.5
+# C1 specialist 分支(SC-5):unique_share ≥ 此值的权威 mover 不进 rank 门
+# (market-blind 细分领域,垫底是覆盖面问题,非佐证问题;仪器卫生,不动权重)。
+SPECIALIST_UNIQUE_SHARE = 0.8
+
 # Fountainhead heuristic (spec 2026-09-01 Part 2): a source is "suspected
 # fountain" when >= FOUNTAIN_MIN_CONTAINEES other sources, each holding
 # >= FOUNTAIN_MIN_PAIRS assertions, are >= FOUNTAIN_CONTAINMENT contained

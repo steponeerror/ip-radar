@@ -145,8 +145,15 @@ def _c1(scores):
             exemptions.append(f"{s}: exempt (absent on corpus)")
             continue
         r = rank.get(s)
+        sc = next((x for x in scores if x.source == s), None)
         if r is None:
             fails.append(f"{s}: unscored")
+        elif (sc is not None and sc.unique_share is not None
+              and sc.unique_share >= config.SPECIALIST_UNIQUE_SHARE):
+            # W4 specialist 分支(SC-5):独有断言占比 ≥0.8 的 mover 不进
+            # rank 门 —— market-blind 细分领域,垫底是覆盖面问题非佐证问题。
+            # 仪器卫生,不改权重;N = 被豁免的本轮 rank。
+            exemptions.append(f"{s}: specialist-exempt({r})")
         elif r > half:
             fails.append(f"{s}: rank {r}/{len(scored)} > {half}")
     for s in ASSET_AUTHORITIES:
@@ -178,7 +185,22 @@ def _c2(scores):
             f"specialists finite; {len(bm)} below-market flagged (not zeroed)"}
 
 
-def run_suite(lookup_fn, corpus: Corpus, declared_r=None, w=None) -> dict:
+def _source_health(sources) -> dict[str, dict] | None:
+    """W4 轮次健康块(决策 #4):源全量 rc/stale 快照,进 model report
+    顶层 —— 后续轮次缺席 = missing 非沉默;rc_history(NO-DATA collapsed
+    判据)的数据源。"""
+    if sources is None:
+        return None
+    out = {}
+    for s in sources:
+        h = s.health()
+        out[s.name] = {"rc": h.record_count, "stale": h.is_stale}
+    return out
+
+
+def run_suite(lookup_fn, corpus: Corpus, declared_r=None, w=None,
+              origin: dict[str, set[str]] | None = None,
+              sources=None) -> dict:
     w = w if w is not None else config.MODEL_W
     ips = corpus.all_ips()
     corpus_fp = {"n_ips": len(ips),
@@ -188,7 +210,12 @@ def run_suite(lookup_fn, corpus: Corpus, declared_r=None, w=None) -> dict:
     assertion_hist = assertion_records(snap)
     oc_table = pairwise_oc(pair_sets)
     events = extract_events(snap, oc_table)
+    # 双轨制(控制器裁决 2026-09-28,沿 09-02 brief A2 先例):scores 与全部
+    # checks 恒旧基(origin=None 语义),月轮 T 检查历史可比;LSO 仅作
+    # advisory 视图附加(scores_lso),不进 checks
     scores = estimate(events, declared_r, w=w)
+    scores_lso = (estimate(events, declared_r, w=w, origin=origin)
+                  if origin is not None else None)
     movers = _movers(scores)
     pinned = [s.source for s in scores
               if s.theta is None or s.n < config.MODEL_N_FLOOR]
@@ -199,7 +226,9 @@ def run_suite(lookup_fn, corpus: Corpus, declared_r=None, w=None) -> dict:
         "C1": _c1(scores),
         "C2": _c2(scores),
     }
-    return {"kind": "model", "w": w, "scores": scores, "checks": checks,
+    return {"kind": "model", "w": w, "lso": scores_lso is not None,
+            "scores": scores, "scores_lso": scores_lso, "checks": checks,
+            "source_health": _source_health(sources),
             "corpus": corpus_fp, "pairs": assertion_hist,
             "movers": [s.source for s in movers], "pinned": pinned,
             "monopoly_ctypes": sorted(events.monopoly_ctypes)}
@@ -221,34 +250,50 @@ def write_model_report(result: dict, out_dir: Path) -> tuple[Path, Path]:
         "kind": "model",
         "generated_at": _dt.datetime.now(_dt.timezone.utc).date().isoformat(),
         "w": result["w"],
+        "lso": result["lso"],
+        "scores_lso": ([_score_dict(s) for s in result["scores_lso"]]
+                        if result["scores_lso"] is not None else None),
         "corpus": result["corpus"],
         "pairs": result["pairs"],
         "checks": result["checks"],
         "movers": result["movers"],
         "pinned": result["pinned"],
         "monopoly_ctypes": result["monopoly_ctypes"],
+        "source_health": result.get("source_health"),
         "scores": [_score_dict(s) for s in result["scores"]],
     }
+
+    def _score_table(scores) -> list[str]:
+        rows = ["| source | theta | 90% CI | n | k | rho | evidence | below-mkt | mono | fountain | unique | declared_r |",
+                "|---|---|---|---|---|---|---|---|---|---|---|---|"]
+        for s in scores:
+            if s.theta is not None:
+                cells = [s.source, f"{s.theta:.3f}",
+                         f"[{s.ci_lo:.3f}, {s.ci_hi:.3f}]"]
+            else:
+                cells = [s.source, "—", "—"]
+            cells += [str(s.n), str(s.k),
+                      f"{s.rho:.3f}" if s.rho is not None else "—",
+                      "present" if s.evidence else "none",
+                      str(s.below_market), str(s.monopoly),
+                      "suspect" if s.fountain_suspect else "—",
+                      "—" if s.unique_share is None else f"{s.unique_share:.2f}",
+                      "—" if s.declared_r is None else f"{s.declared_r:.2f}"]
+            rows.append("| " + " | ".join(cells) + " |")
+        return rows
+
     md = d / f"model-{ts}.md"
     js = d / f"model-{ts}.json"
     lines = ["# Source corroboration-contrast model (advisory)", "",
-             f"corpus: {result['corpus']['n_ips']} ips @ {result['corpus']['sha8']}", "",
-             "| source | theta | 90% CI | n | k | rho | evidence | below-mkt | mono | fountain | unique | declared_r |",
-             "|---|---|---|---|---|---|---|---|---|---|---|---|"]
-    for s in result["scores"]:
-        if s.theta is not None:
-            cells = [s.source, f"{s.theta:.3f}",
-                     f"[{s.ci_lo:.3f}, {s.ci_hi:.3f}]"]
-        else:
-            cells = [s.source, "—", "—"]
-        cells += [str(s.n), str(s.k),
-                  f"{s.rho:.3f}" if s.rho is not None else "—",
-                  "present" if s.evidence else "none",
-                  str(s.below_market), str(s.monopoly),
-                  "suspect" if s.fountain_suspect else "—",
-                  "—" if s.unique_share is None else f"{s.unique_share:.2f}",
-                  "—" if s.declared_r is None else f"{s.declared_r:.2f}"]
-        lines.append("| " + " | ".join(cells) + " |")
+             f"corpus: {result['corpus']['n_ips']} ips @ {result['corpus']['sha8']}",
+             ""]
+    lines += _score_table(result["scores"])
+    if result["scores_lso"] is not None:
+        lines += ["", "## LSO advisory (debiased)", "",
+                  "_Leave-self-out(自采样剔除)视图;聚合器证据近空 → no-signal "
+                  "是诚实结果(循环佐证无信息),定价走 lineage/权威路径。"
+                  "advisory,不进 checks,不影响上方旧基序列。_", ""]
+        lines += _score_table(result["scores_lso"])
     lines += ["", "## Checks", ""]
     for name, chk in result["checks"].items():
         lines.append(f"- **{name}: {'PASS' if chk['pass'] else 'FAIL'}** — {chk['detail']}")

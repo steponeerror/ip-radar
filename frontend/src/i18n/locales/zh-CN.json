@@ -168,6 +168,8 @@
   "sources.eval.mixed": "利弊参半",
   "sources.eval.n/a_asset": "资产类不适用",
   "sources.eval.negative": "负面",
+  "sources.eval.noDataTitle": "数据为空或坍塌,该源未在贡献",
+  "sources.eval.no_data": "无数据",
   "sources.eval.positive_unverified": "未验证",
   "sources.eval.positive_verified": "已验证",
   "sources.loadFailed": "加载源失败",
