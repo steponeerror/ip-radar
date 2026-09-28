@@ -4,7 +4,7 @@
 
 ![IP Radar — 自托管的 IP 情报](assets/social-preview.png)
 
-把 43 个公开情报源搬回家：查任何 IP，拿一份全面的画像——说人话的裁决、逐源证据、置信度，加上地理·城市·ASN、云/托管、代理/VPN/Tor、服务身份，一次看全。一条命令，自己部署。
+把 44 个公开情报源搬回家：查任何 IP，拿一份全面的画像——说人话的裁决、逐源证据、置信度，加上地理·城市·ASN、云/托管、代理/VPN/Tor、服务身份，一次看全。一条命令，自己部署。
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 ![Docker](https://img.shields.io/badge/Docker-one%20container-2496ED?logo=docker&logoColor=white)

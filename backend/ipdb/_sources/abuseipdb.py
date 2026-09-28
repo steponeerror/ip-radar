@@ -72,13 +72,19 @@ class AbuseIPDBSource(IpListSource):
         )
         logger.info(
             f"Downloading {self.name} (confidenceMinimum>={self._confidence_minimum})...")
+        # 先落 scratch、校验通过才提交(生产 P1 回归 2026-09-28):旧实现
+        # 直写 self._path 且 except 分支 unlink —— 配额 429 重试烧穿后,每次
+        # 失败都删掉既有好文件 → raw 永久缺失、LMDB 冻结。scratch 模式下失败
+        # 永不触碰数据文件(danmeuk 同款)。免费层配额 5 次/天,重试轮每烧一次
+        # 就少一次;成功一轮后 stale_days=1 内不再重试,日预算 1/5 富余。
+        scratch = self._path.with_name(self._path.name + ".dl")
         try:
-            download_file(url, self._path, token=token, headers={
+            download_file(url, scratch, token=token, headers={
                 "Key": self._key,
                 "Accept": "application/json",
                 "User-Agent": "ip-lookup-tool/1.0",
             })
-            raw = self._path.read_bytes()
+            raw = scratch.read_bytes()
             if not raw.strip():
                 raise RuntimeError(f"Empty response from {self.url}")
             try:
@@ -86,11 +92,14 @@ class AbuseIPDBSource(IpListSource):
             except ValueError as e:
                 raise RuntimeError(f"Malformed JSON from {self.name}: {e}")
             if not (isinstance(payload, dict) and payload.get("data")):
-                raise RuntimeError(f"{self.name}: empty or missing 'data' in response")
+                raise RuntimeError(
+                    f"{self.name}: empty or missing 'data' in response "
+                    "(likely a 429 rate-limit or error envelope; existing "
+                    "data file kept)")
+            self._path.write_bytes(raw)
             logger.info(f"Downloaded {self.name}")
-        except Exception:
-            self._path.unlink(missing_ok=True)
-            raise
+        finally:
+            scratch.unlink(missing_ok=True)
 
     def rebuild(self, progress=None) -> int:
         """重建 LMDB。JSON 内容 → per-row Evidence（last_seen 逐 IP 不同，
