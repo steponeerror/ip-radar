@@ -64,7 +64,10 @@ class StopForumSpamSource(Source):
     classification_type = "spam"
     verdict = "informational"   # stale-tail default; harvest() grades per record
     stale_days = 1
-    reliability = 0.70
+    # 0.70→0.60(2026-09-28 拍板,规则内保守档):月轮 eval 首跑 θ=0.001
+    # (n=117, k=0 零佐证)+below-market 标记;缓解面=spam 轴 niche
+    # (unique 0.48)+informational 裁决,故不一步到 .55。语料 20260928-144045。
+    reliability = 0.60
 
     def load(self) -> int:
         self._cleanup_legacy_txt()
