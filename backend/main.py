@@ -541,6 +541,7 @@ def _warn_unknown_private_sources() -> None:
 async def lifespan(app: FastAPI):
     from ipdb._registry import DATA_DIR
     _warn_unknown_private_sources()
+    _warn_public_demo_misconfig()
     _cleanup_orphan_tmp(DATA_DIR)
     _startup()
     _ensure_refresh_scheduler()
@@ -707,9 +708,13 @@ app.add_middleware(
 
 
 # ---- 公共 demo 模式（docs/superpowers/specs/2026-08-23-public-demo-mode-design.md）----
-# 开启后: 写/内部接口对匿名访客 404(当作不存在);查询读接口需 x-ipradar-client: web;
-# OPTIONS/回环/version 豁免;带管理员 cookie 或 Authorization 的请求交给三层鉴权
-# 依赖层真校验(见 _carries_admin_credentials)。env 每请求动态读(测试 monkeypatch 依赖)。
+# 开启后: 写/内部接口对匿名访客 404(信封 not_found,当作不存在);查询读接口需
+# x-ipradar-client: web(缺失 403 信封 forbidden)。豁免面:回环 healthcheck、
+# /api/version、/api 路径上 CORS preflight 形状的 OPTIONS(Origin +
+# Access-Control-Request-Method 两头齐全;裸 OPTIONS 不豁免)。维护者旁路 =
+# ADMIN_IPS 直连 peer 白名单(_is_demo_admin,可选 TRUST_XFF,须配套网关保证);
+# 带管理员 cookie 或 Authorization 的请求交给三层鉴权依赖层真校验
+# (见 _carries_admin_credentials)。env 每请求动态读(测试 monkeypatch 依赖)。
 _DEMO_HIDDEN_PREFIXES = (
     "/api/update-db", "/api/sources", "/api/eval", "/api/tasks", "/api/events",
     "/api/scheduler/status", "/api/update", "/api/perf/layout",
@@ -721,6 +726,16 @@ _DEMO_HEADER_PREFIXES = (
 
 def public_demo_enabled() -> bool:
     return os.environ.get("IP_RADAR_PUBLIC_DEMO") == "1"
+
+
+def _warn_public_demo_misconfig() -> None:
+    # 唯一生效值是 "1"(public_demo_enabled 精确比对)。"true"/"yes" 看似开了
+    # 实则没开——守卫沉默、内部接口裸奔。启动时告警一次;绝不阻断启动。
+    raw = os.environ.get("IP_RADAR_PUBLIC_DEMO")
+    if raw and raw != "1":
+        logging.warning(
+            'IP_RADAR_PUBLIC_DEMO=%s has no effect; the only value that '
+            'enables public demo mode is exactly "1"', raw)
 
 
 def _demo_admin_ips() -> set[str]:
@@ -750,6 +765,8 @@ def _carries_admin_credentials(request) -> bool:
     # 三层鉴权(PR #63)后:带管理员 cookie 或 Authorization 头的请求交由路由
     # 依赖层做真校验(superuser / api_key_dep)。守卫只对匿名访客维持
     # "接口不存在"的展示形态;伪凭据在依赖层得到 401/403,不存在绕过。
+    # 完整豁免链 = _is_demo_admin(ADMIN_IPS 直连 peer,可选 TRUST_XFF)+
+    # 本函数 + preflight 形状的 OPTIONS(见 public_demo_guard)。
     if request.cookies.get(_ipdb_auth._ADMIN_COOKIE):
         return True
     return bool(request.headers.get("authorization"))
@@ -761,11 +778,20 @@ async def public_demo_guard(request, call_next):
             or _carries_admin_credentials(request)):
         return await call_next(request)
     path = request.url.path
-    # 预检不带业务 header 且非 /api 也全放行;本中间件在 CORS 外层
-    if request.method == "OPTIONS" or not path.startswith("/api/"):
+    # 非 /api 路径全放;本中间件在 CORS 外层。/api 路径仅放行 preflight 形状的
+    # OPTIONS(Origin + Access-Control-Request-Method 两头齐全,真 CORS 预检)——
+    # 裸 OPTIONS 按路径走既有判定,不留免验探测通道。
+    if not path.startswith("/api/"):
+        return await call_next(request)
+    if (request.method == "OPTIONS"
+            and request.headers.get("origin")
+            and request.headers.get("access-control-request-method")):
         return await call_next(request)
     if path.startswith(_DEMO_HIDDEN_PREFIXES):
-        return JSONResponse({"detail": "Not Found"}, status_code=404)
+        # 中间件在全局 exception handler 之外 → 手工构造信封(与全局信封同形状;
+        # not_found 与 _HTTP_FALLBACK_CODE[404] 同串,与路由器真 404 不可区分)
+        return JSONResponse(
+            envelope(ErrorCode.not_found.value, "Not Found"), status_code=404)
     if path == "/api/version":
         return await call_next(request)
     if path.startswith(_DEMO_HEADER_PREFIXES):
@@ -775,7 +801,8 @@ async def public_demo_guard(request, call_next):
         if client_host in ("127.0.0.1", "::1"):  # docker healthcheck 豁免
             return await call_next(request)
         if request.headers.get("x-ipradar-client") != "web":
-            return JSONResponse({"detail": "Forbidden"}, status_code=403)
+            return JSONResponse(
+                envelope(ErrorCode.forbidden.value, "Forbidden"), status_code=403)
     return await call_next(request)
 
 
@@ -1264,7 +1291,12 @@ async def api_update(authorization: str = Header(default="")):
 
 
 @app.get("/api/update/status", response_model=UpdateStateOut,
-          responses=_ERRS_422_500)
+          dependencies=[*_ADMIN_DEPS],
+          responses={"401": {"model": ErrorEnvelope,
+                             "description": "not authenticated"},
+                     "403": {"model": ErrorEnvelope,
+                             "description": "authenticated but not superuser"},
+                     **_ERRS_422_500})
 async def api_update_status():
     return _ipdb_update.state()
 

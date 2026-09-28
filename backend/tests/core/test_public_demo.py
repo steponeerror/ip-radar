@@ -1,9 +1,11 @@
 """公共 demo 模式中间件测试 — spec: docs/superpowers/specs/2026-08-23-public-demo-mode-design.md
 
-三态:写/内部接口 404(当作不存在);查询读接口无 header 403;
-STIX/OPTIONS/回环/version 豁免。env 需动态读(monkeypatch 可切换)。
+三态:写/内部接口 404 信封 not_found(当作不存在);查询读接口无 header 403
+信封 forbidden;OPTIONS 仅 preflight 形状豁免;回环/version 豁免。
+env 需动态读(monkeypatch 可切换)。
 """
 import asyncio
+import logging
 from contextlib import contextmanager
 from unittest.mock import AsyncMock, patch
 
@@ -169,3 +171,89 @@ def test_demo_admin_mismatch_still_guarded():
     with _client("1", admin="10.9.8.7", trust_xff=True) as c:
         assert c.get("/api/tasks",
                      headers={"x-forwarded-for": "1.2.3.4"}).status_code == 404
+
+
+# ── guard hardening(Task 1):② OPTIONS 仅认 preflight 形状 ──
+PREFLIGHT = {"Origin": "http://localhost:5173",
+             "Access-Control-Request-Method": "GET"}
+
+
+def test_demo_options_preflight_shape_only():
+    # /api 路径上仅放行真 CORS 预检(Origin + Access-Control-Request-Method
+    # 两头齐全);缺任一头按路径走既有判定(hidden 前缀 404 / header 前缀 403)。
+    with _client("1") as c:
+        assert c.options("/api/db-status", headers=PREFLIGHT).status_code == 200
+        assert c.options("/api/sources").status_code == 404
+        assert c.options("/api/db-status").status_code == 403
+        assert c.options("/api/db-status",
+                         headers={"Origin": "http://localhost:5173"}
+                         ).status_code == 403
+        assert c.options("/api/db-status",
+                         headers={"Access-Control-Request-Method": "GET"}
+                         ).status_code == 403
+
+
+def test_demo_options_non_api_still_exempt():
+    # 非 /api 路径 OPTIONS 照旧全放,应答来自路由/静态挂载而非守卫:
+    # 无静态构建时路由 404(not_found);静态挂载时 OPTIONS 405(method_not_allowed
+    # ——守卫永不发 405)。两态都证明守卫未拦。
+    with _client("1") as c:
+        res = c.options("/no-such-page")
+        assert res.status_code in (404, 405)
+        assert res.json()["error"]["code"] in ("not_found", "method_not_allowed")
+
+
+# ── ③ 守卫 404/403 信封化 ──
+def test_demo_guard_errors_use_envelope():
+    # 中间件在全局 exception handler 之外 → 手工构造 {"error":{code,message}}:
+    # 404=not_found(当作不存在),403=forbidden。
+    with _client("1") as c:
+        r = c.get("/api/sources")
+        assert r.status_code == 404
+        assert r.json()["error"]["code"] == "not_found"
+        r = c.get("/api/db-status")
+        assert r.status_code == 403
+        assert r.json()["error"]["code"] == "forbidden"
+
+
+# ── ④ /api/update/status 路由层真锁(守卫 404 只是展示层)──
+def test_update_status_locked_without_admin(auth_client):
+    # admin 已配置的匿名请求:依赖层 401 unauthorized(非 superuser 登录则 403)。
+    r = auth_client.get("/api/update/status")
+    assert r.status_code == 401
+    assert r.json()["error"]["code"] == "unauthorized"
+
+
+def test_update_status_ok_for_admin(client_as_admin):
+    r = client_as_admin.get("/api/update/status")
+    assert r.status_code == 200
+    assert "state" in r.json()
+
+
+def test_demo_update_status_defense_in_depth():
+    # demo 模式:匿名仍 404(守卫展示层);带伪凭据守卫放行 → 路由锁接管,
+    # 由依赖层拒绝(admin 未配置 503 先于 401/403,见 main 依赖顺序约定)。
+    with _client("1") as c:
+        assert c.get("/api/update/status").status_code == 404
+        r = c.get("/api/update/status", cookies={"ipradar_admin": "forged"})
+        assert r.status_code in (401, 403, 503)
+
+
+# ── ⑥ PUBLIC_DEMO 值告警 ──
+def test_public_demo_misconfig_warns(caplog, monkeypatch):
+    # 唯一生效值是 "1";设了其他非空值 → 启动告警(含原值与正确写法),
+    # ="1"/未设 → 无告警;告警绝不阻断启动。
+    import main
+    with caplog.at_level(logging.WARNING):
+        monkeypatch.setenv("IP_RADAR_PUBLIC_DEMO", "true")
+        main._warn_public_demo_misconfig()
+        assert "IP_RADAR_PUBLIC_DEMO" in caplog.text
+        assert "true" in caplog.text
+        assert 'exactly "1"' in caplog.text
+        caplog.clear()
+        monkeypatch.setenv("IP_RADAR_PUBLIC_DEMO", "1")
+        main._warn_public_demo_misconfig()
+        assert "IP_RADAR_PUBLIC_DEMO" not in caplog.text
+        monkeypatch.delenv("IP_RADAR_PUBLIC_DEMO")
+        main._warn_public_demo_misconfig()
+        assert "IP_RADAR_PUBLIC_DEMO" not in caplog.text
