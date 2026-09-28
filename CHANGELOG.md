@@ -6,8 +6,8 @@
 
 ### 新增 Added
 
-- 新源 danmeuk_tor（dan.me.uk Tor 节点表）：`is_tor` / `tor` 分类的第二独立证人（官方 tor_exits 保留权威否决位，新源只佐证）；`/torlist/` 为全量 relay 口径（native 标签 RELAY，~10.7k 行，2026-08-23 存档观测）；30 分钟拉取限速，小时级刷新在限内；新增后公开源 42→43 口径
-  - New source danmeuk_tor (dan.me.uk Tor node list): a second independent witness for `is_tor` / the `tor` classification (official tor_exits keeps its authoritative veto; the new source corroborates only); the `/torlist/` URL ships the full relay set (native label RELAY, ~10.7k rows, observed via the 2026-08-23 archived capture); fetch rate limit is one pull per 30 minutes, hourly refresh stays within it; public-source count moves 42→43
+- 新源 danmeuk_tor（dan.me.uk Tor 节点表）：`is_tor` / `tor` 分类的第二独立证人（官方 tor_exits 保留权威否决位，新源只佐证）；`/torlist/` 为全量 relay 口径（native 标签 RELAY，~10.7k 行，2026-08-23 存档观测、2026-09-28 复核）；30 分钟拉取限速，12h 自动刷新在限内（手动更新同计限速）；下载内容守卫拒绝限速 200-HTML 页，数据文件永不被替换；新增后公开源 42→43 口径
+  - New source danmeuk_tor (dan.me.uk Tor node list): a second independent witness for `is_tor` / the `tor` classification (official tor_exits keeps its authoritative veto; the new source corroborates only); the `/torlist/` URL ships the full relay set (native label RELAY, ~10.7k rows, 2026-08-23 archived capture re-verified 2026-09-28); fetch rate limit is one pull per 30 minutes, the 12h auto-refresh stays within it (manual updates count against the limit too); a download content guard rejects the rate-limit 200-HTML page so the data file is never replaced; public-source count moves 42→43
 - eval v2 Phase 1(设计:docs/superpowers/specs/2026-09-28-eval-algorithm-optimization-brief.md):评估语料加中性公网层静态资产(逐轮恒定,eval 与源自家 raw 佐证解耦)
   - eval v2 Phase 1 (design: docs/superpowers/specs/2026-09-28-eval-algorithm-optimization-brief.md): a static neutral public-network corpus layer in the eval corpus (constant across rounds, decoupling eval evidence from each source's own raw feeds)
 - eval v2 Phase 1:LSO 双轨制——scores/checks 维持旧基线(不含源自身佐证),leave-self-out 去偏结果降为 advisory 视图(scores_lso + "LSO advisory" 报告节)
