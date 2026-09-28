@@ -168,6 +168,8 @@
   "sources.eval.mixed": "mixed",
   "sources.eval.n/a_asset": "n/a (asset)",
   "sources.eval.negative": "negative",
+  "sources.eval.noDataTitle": "Feed empty or record count collapsed — this source did not contribute this round.",
+  "sources.eval.no_data": "no-data",
   "sources.eval.positive_unverified": "unverified",
   "sources.eval.positive_verified": "verified",
   "sources.loadFailed": "Failed to load sources",

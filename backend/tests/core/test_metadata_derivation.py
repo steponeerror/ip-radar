@@ -23,6 +23,7 @@ OLD_CATEGORIES = {
     "aws_ranges": "asset", "gcp_ranges": "asset",
     "azure_ranges": "asset", "oracle_ranges": "asset",
     "dbip_city": "geo_asn",
+    "danmeuk_tor": "asset",
 }
 OLD_RELIABILITY = {
     "ipinfo_lite": 0.95, "iptoasn": 0.90, "cn_isp": 0.85, "geolite_city": 0.85,
@@ -39,6 +40,7 @@ OLD_RELIABILITY = {
     "aws_ranges": 0.95, "gcp_ranges": 0.95,
     "azure_ranges": 0.95, "oracle_ranges": 0.95,
     "dbip_city": 0.80,
+    "danmeuk_tor": 0.85,
 }
 OLD_AUTHORITATIVE = {
     "is_proxy": ["ip2proxy"], "is_tor": ["tor_exits"], "is_vpn": ["x4bnet_vpn"],
@@ -48,13 +50,13 @@ OLD_AUTHORITATIVE = {
 }
 
 def test_categories_match_snapshot():
-    # internal canary 源(sentinel)不在 42 源口径内,排除后比对
+    # internal canary 源(sentinel)不在 43 源口径内,排除后比对
     live = {k: v for k, v in r.SOURCE_CATEGORIES.items()
             if k not in r._INTERNAL_NAMES}
     assert live == OLD_CATEGORIES
 
 def test_reliability_match_snapshot():
-    # 同上:排除 internal(42 源口径),公开源快照仍全等锁死
+    # 同上:排除 internal(43 源口径),公开源快照仍全等锁死
     live = {k: v for k, v in dict(m.SOURCE_RELIABILITY).items()
             if k not in r._INTERNAL_NAMES}
     assert live == OLD_RELIABILITY

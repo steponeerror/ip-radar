@@ -11,6 +11,9 @@ dist/
 # Data files (downloaded datasets)
 backend/data/
 
+# 月轮评估的生产数据镜像(~55GB,scripts/monthly_eval.sh rsync 目标)
+.eval-prod-data/
+
 # IDE
 .idea/
 .vscode/

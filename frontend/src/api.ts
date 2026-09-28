@@ -304,6 +304,9 @@ export interface SourceHealth {
   error: string | null;
 }
 
+/** 每源最近考分徽章(/api/sources 聚合,backend _eval_reader.read_overview)。
+ *  verdict 精确串集含 "NO-DATA"(feed empty / record-count 坍塌 —— W4
+ *  verdict.py 钉死,reason ∈ empty/collapsed):源未在贡献,渲染灰底红字。 */
 export interface EvalInfo { verdict: string; at: string }
 
 export interface SourceInfo {

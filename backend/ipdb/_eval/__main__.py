@@ -4,6 +4,7 @@
   python -m ipdb._eval --rebuild     # rebuild the frozen benchmark corpus
   python -m ipdb._eval --all         # per-source verdict table (no ranking in v1)
   python -m ipdb._eval --model       # fleet corroboration-contrast model + acceptance suite
+  python -m ipdb._eval --temporal    # λ_s prequential confirmation rate over model history (W1)
 """
 import argparse
 import json
@@ -20,6 +21,7 @@ from .independence import oc_suspicion_pairs
 from .metrics import (compute_other_distribution, mc, cg, conflict, oc,
                       fp_proxy, other_pct, confidence_uplift, dead_slot_fill,
                       pairs)
+from .origin import origin_map
 from .pairwise import pairwise_oc, source_pair_sets
 from .report import write_report
 from .suite import run_suite, write_model_report
@@ -32,8 +34,44 @@ REPORT_DIR = Path(os.environ.get(
     "IP_RADAR_EVAL_DIR",
     str(_REPO_ROOT / "backend" / "data" / "eval")))
 CORPUS_PATH = _PKG_DIR / "corpus.json"                  # curated in-package asset (spec §5)
+NEUTRAL_ASSET = _PKG_DIR / "neutral_ips.json"           # W0 中性层静态资产(T1)
+
+
+def _load_corpus() -> Corpus:
+    """--model/--dsem 入口统一装填:frozen benchmark + 静态中性层
+    (W0 层2,资产逐轮恒定,运行期只加载不重采样)。中性层进
+    all_ips → 进快照。"""
+    corpus = Corpus.load(CORPUS_PATH) if CORPUS_PATH.exists() else Corpus()
+    corpus.neutral = json.loads(NEUTRAL_ASSET.read_text())
+    return corpus
 
 _JSON_HINT = "确认 DB 已 load / corpus 存在(--rebuild)"
+
+
+def _rc_history(source_name: str, model_dir: Path) -> list[int]:
+    """W4:REPORT_DIR/model 历史报告里该源 rc 序列(升序,同日期多份取
+    字典序最后,惯例同 _eval_reader)。旧报告无 source_health 键 → 无条目
+    —— 首轮(本任务之后才有的证据)自然为空,assess 只判 empty。"""
+    if not model_dir.exists():
+        return []
+    by_date: dict[str, tuple[str, dict]] = {}
+    for f in sorted(model_dir.glob("model-*.json")):
+        try:
+            r = json.loads(f.read_text())
+        except ValueError:
+            continue
+        sh = r.get("source_health") if isinstance(r, dict) else None
+        if not isinstance(sh, dict):
+            continue
+        date = str(r.get("generated_at") or "")
+        if date not in by_date or f.stem > by_date[date][0]:
+            by_date[date] = (f.stem, sh)
+    out = []
+    for date in sorted(by_date):
+        entry = by_date[date][1].get(source_name)
+        if isinstance(entry, dict) and isinstance(entry.get("rc"), int):
+            out.append(entry["rc"])
+    return out
 
 
 def _json_error(code: str, message: str, hint: str) -> None:
@@ -102,7 +140,12 @@ def run_for_source(source_name: str, registry=None, corpus_path=CORPUS_PATH,
     flags = oc_suspicion_pairs(pairwise_oc(source_pair_sets(baseline)))
     from ipdb._registry import SOURCE_CATEGORIES
     category = SOURCE_CATEGORIES.get(source_name, "other")
-    verdict = assess(metrics, candidate_touched, flags, source_category=category)
+    # W4:rc(record_count)与历史中位 → NO-DATA 前置判定(死源先告警,
+    # 在 asset 早退/n-floor 之前;该路径不接 neutral/origin,T2 裁决既定)
+    h = src_obj.health() if src_obj is not None else None
+    verdict = assess(metrics, candidate_touched, flags, source_category=category,
+                     rc=h.record_count if h is not None else None,
+                     rc_history=_rc_history(source_name, Path(out_dir) / "model"))
     md, js = write_report(source_name, verdict, metrics, corpus, out_dir)
     return md, js, verdict
 
@@ -120,8 +163,47 @@ def main(argv=None):
                    help="known-answer anchor set regression gate (spec §5.2)")
     p.add_argument("--dsem", action="store_true",
                    help="DS-EM fair fight: market vs declared vs pi-hat T3 (advisory)")
+    p.add_argument("--temporal", action="store_true",
+                   help="λ_s prequential confirmation rate over model history (W1)")
     p.add_argument("--json", action="store_true", help="机器可读 JSON 到 stdout")
     args = p.parse_args(argv)
+
+    # --temporal 只读已落盘 model 历史,不碰 registry/DB —— 前置于 load_db
+    if args.temporal:
+        from .temporal import temporal_report
+        rep = temporal_report(REPORT_DIR / "model", out_dir=REPORT_DIR)
+        if rep["n_rounds"] < 2:
+            if args.json:
+                print(json.dumps({"error": {"code": "insufficient_rounds",
+                      "message": "insufficient rounds (need >= 2)",
+                      "hint": "每月 --model 落盘后轮次自然累积"}}, ensure_ascii=False))
+            else:
+                print("insufficient rounds")
+            sys.exit(2)
+        if args.json:
+            print(json.dumps(rep, ensure_ascii=False, indent=1))
+            return
+        print(f"temporal λ_s: {rep['n_rounds']} rounds, "
+              f"{len(rep['windows'])} windows")
+        for w in rep["windows"]:
+            skip = f"  skipped: {', '.join(w['skipped'])}" if w["skipped"] else ""
+            print(f"  window {w['from']} -> {w['to']}{skip}")
+            rows = sorted(w["per_source"].items(),
+                          key=lambda kv: (-(kv[1]["lam"] if kv[1]["lam"] is not None
+                                            else -1.0), kv[0]))
+            for s, st in rows:
+                lam = f"{st['lam']:.3f}" if st["lam"] is not None else "—"
+                ci = (f"[{st['ci_lo']:.3f}, {st['ci_hi']:.3f}]"
+                      if st["ci_lo"] is not None else "—")
+                print(f"    {s:<20} n={st['n_uniq']:<5} k={st['n_conf']:<4} "
+                      f"λ={lam} {ci}")
+        pre = rep["preregistration"]
+        fmt = lambda v: f"{v:.3f}" if v is not None else "—"
+        print(f"  preregistration: above λ={fmt(pre['above']['lam'])} "
+              f"vs below λ={fmt(pre['below']['lam'])}, "
+              f"Fisher p={pre['fisher_p']:.4f}, direction={pre['direction']}")
+        print(f"  report: {rep.get('report_path')}")
+        return
 
     registry = _real_registry()
     if args.json:
@@ -140,9 +222,12 @@ def main(argv=None):
         return
     if args.model:
         from ipdb._merge import SOURCE_RELIABILITY
-        corpus = Corpus.load(CORPUS_PATH) if CORPUS_PATH.exists() else Corpus()
+        corpus = _load_corpus()
+        # W0 层1:自采样偏差治理 —— 语料成员在源 raw 文件内的佐证剔除
+        origin = origin_map(registry.sources, corpus.all_ips())
         result = run_suite(registry.lookup, corpus,
-                           declared_r=dict(SOURCE_RELIABILITY))
+                           declared_r=dict(SOURCE_RELIABILITY), origin=origin,
+                           sources=registry.sources)
         md, js = write_model_report(result, REPORT_DIR)
         if args.json:
             print(Path(js).read_text())
@@ -158,13 +243,15 @@ def main(argv=None):
             print(json.dumps(res, ensure_ascii=False, indent=1))
         else:
             print("lineage audit (advisory):")
+            print(f"  rounds: {res['n_rounds']}")
             for s in res["recommended_derived"]:
                 print(f"  {s}: " + "; ".join(
-                    f"<= {u} (contain {f:.2f}, {af}/{af+bf} first)"
-                    for u, f, af, bf in res["relations"][s]))
+                    f"<= {u} (flow {fab}:{fba}, contain {c:.2f})"
+                    for u, fab, fba, c in res["relations"][s]))
             print(f"  C-3: {'PASS' if res['c3']['pass'] else 'CHECK'} "
                   f"(false accusations: {res['c3']['false_accusations']}, "
-                  f"known-missing: {res['c3']['missing_known']})")
+                  f"known-missing: {res['c3']['missing_known']}, "
+                  f"recall: {res['c3']['recall']:.2f})")
         return
     if args.anchors:
         from .anchors import ANCHORS, run_anchors
@@ -180,10 +267,11 @@ def main(argv=None):
     if args.dsem:
         from ipdb._merge import SOURCE_RELIABILITY
         from .dsem_cli import run_dsem_report
-        corpus = Corpus.load(CORPUS_PATH) if CORPUS_PATH.exists() else Corpus()
+        corpus = _load_corpus()
+        origin = origin_map(registry.sources, corpus.all_ips())
         res = run_dsem_report(registry.lookup, corpus,
                               declared_r=dict(SOURCE_RELIABILITY),
-                              out_dir=REPORT_DIR)
+                              out_dir=REPORT_DIR, origin=origin)
         if args.json:
             print(json.dumps(res, ensure_ascii=False, indent=1))
         else:
