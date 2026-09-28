@@ -68,6 +68,11 @@ def encode_key6(start_int: int) -> bytes:
 
 _JSON_INT_MAX = 2**64 - 1   # orjson 整数上限:v6 区间端点(128-bit)超限需字符串编码
 
+# 值字典(payload interning)sub-db 名:PAYLOADS = ref_id(8B big-endian)
+# → orjson 证据 payload;PIDX = 写侧反查索引(Task 2 用)。Task 2/3 依赖此名。
+PIDX_NAME = b"pidx"
+PAYLOADS_NAME = b"payloads"
+
 
 def encode_value(end_int: int, evidence: Any) -> bytes:
     # orjson 拒绝 >64-bit 整数:v6 端点以字符串落盘,_end_int/decode_value
@@ -77,9 +82,33 @@ def encode_value(end_int: int, evidence: Any) -> bytes:
     return orjson.dumps([end_int, evidence])
 
 
+def encode_value_ref(end_int: int, ref_id: int) -> bytes:
+    """字典引用编码:``[end, ref_id]``,与 encode_value 同构(含 _JSON_INT_MAX
+    超限字符串端点处理),ref_id 取代 inline 证据。读侧经 resolve_evidence
+    解引用。"""
+    if end_int > _JSON_INT_MAX:
+        end_int = str(end_int)
+    return orjson.dumps([end_int, ref_id])
+
+
 def decode_value(raw: bytes) -> tuple[int, Any]:
+    """第二元素自 interning 起可能是 int(ref_id)而非 inline 证据 — int 不得
+    直接当证据用,须先经 resolve_evidence(txn, ev, pay_db) 解引用。"""
     end, evidence = orjson.loads(raw)
     return int(end), evidence
+
+
+def resolve_evidence(txn, ev: Any, pay_db) -> Any:
+    """ref 解引用(lookup 与 verify_watermark 共用):ev 是 int → 从 payloads
+    字典取 ``txn.get(ev.to_bytes(8, "big"), db=pay_db)`` 并 orjson.loads 返回;
+    字典 miss(get 返回 None)→ raise ValueError(腐败防御,不得静默返 int);
+    ev 非 int → 原样返回(inline 证据透传)。"""
+    if not isinstance(ev, int):
+        return ev
+    raw = txn.get(ev.to_bytes(8, "big"), db=pay_db)
+    if raw is None:
+        raise ValueError(f"payload dictionary missing ref {ev}")
+    return orjson.loads(raw)
 
 
 def _end_int(raw: bytes) -> int:
@@ -91,6 +120,26 @@ def _end_int(raw: bytes) -> int:
     if s[:1] == b'"':
         s = s[1:-1]
     return int(s)
+
+
+_PAYLOAD_DB_CACHE: dict[str, Any] = {}
+
+
+def _payloads_db(env):
+    """payloads sub-db 句柄(值字典解引用用),无此 sub-db(旧 epoch 形态)
+    返回 None。按 env.path() 缓存:epoch 目录建后不可变,「有无字典」与句柄
+    都稳定 — 免每次 lookup 的 open_db 开销。只捕 lmdb.NotFoundError;
+    槽位耗尽的 DbsFullError 必须向外炸(静默吞 = int 泄漏成证据)。
+    注意:NotFound 的 None 也缓存(open_db 每次都是真 LMDB 调用)。"""
+    key = env.path()
+    if key in _PAYLOAD_DB_CACHE:
+        return _PAYLOAD_DB_CACHE[key]
+    try:
+        db = env.open_db(PAYLOADS_NAME, create=False)
+    except lmdb.NotFoundError:
+        db = None
+    _PAYLOAD_DB_CACHE[key] = db
+    return db
 
 
 def lookup(env, ip_int: int, *, disjoint: bool = False,
@@ -128,14 +177,20 @@ def lookup(env, ip_int: int, *, disjoint: bool = False,
                     return None
             # cursor 现在位于 greatest start ≤ ip(或 exact start)
             if ip_int <= _end_int(cur.value()):
-                return decode_value(cur.value())[1]
+                ev = decode_value(cur.value())[1]
+                if isinstance(ev, int):     # 惰性:_payloads_db 仅在解引用时取
+                    ev = resolve_evidence(txn, ev, _payloads_db(env))
+                return ev
             return None
         for plen in range(bits, -1, -1):
             mask = (1 << (bits - plen)) - 1
             key = key_enc((ip_int | mask) ^ mask)   # = ip & ~mask(对齐起点)
             if cur.set_range(key) and cur.key() == key \
                     and ip_int <= _end_int(cur.value()):
-                return decode_value(cur.value())[1]
+                ev = decode_value(cur.value())[1]
+                if isinstance(ev, int):     # 惰性:_payloads_db 仅在解引用时取
+                    ev = resolve_evidence(txn, ev, _payloads_db(env))
+                return ev
         return None
 
 
@@ -249,7 +304,8 @@ def open_env_read(path: Path):
                 return env
             except lmdb.Error:
                 pass                            # 已显式 close:重开新 handle
-        env = lmdb.open(key, readonly=True, lock=False, subdir=True)
+        env = lmdb.open(key, readonly=True, lock=False, subdir=True,
+                        max_dbs=2)                  # pidx + payloads sub-dbs
         _OPEN_ENVS[key] = env
         return env
 
