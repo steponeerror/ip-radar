@@ -30,10 +30,13 @@ def test_detect_disjoint_same_start_collapses_to_single_record(tmp_path):
     # docstring —— 每源迁移审计的前置条件)。detect_disjoint 扫描的是坍缩后
     # 的落盘数据,单记录平凡 disjoint,故为 True。
     base, _ = _build(tmp_path, SAME_START)
-    from ipdb._sources._lmdb import open_env_read, read_ptr
+    from ipdb._sources._lmdb import PAYLOADS_NAME, open_env_read, read_ptr
     env = open_env_read(base.parent / f"{base.name}.{read_ptr(base)}")
     with env.begin() as txn:
-        assert txn.stat()["entries"] == 1   # 钉住坍缩行为本身:env 只剩 1 条
+        # 字典化后主库多 1 条 payloads 命名库描述符(键=b"payloads",
+        # 非数据记录);排除后钉住坍缩行为本身:数据只剩 1 条
+        data = [k for k, _ in txn.cursor() if k != PAYLOADS_NAME]
+        assert len(data) == 1
     assert detect_disjoint(env) is True
 
 def test_sidecar_written_by_rebuild_and_epoch_bound(tmp_path):
