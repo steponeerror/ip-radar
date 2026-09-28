@@ -12,8 +12,8 @@
 
 公开面(2026-09-22 审计口径,均已在冻结表内显式认可):
 - GET /api/version、/api/db-status:公开 UI 需要。
-- POST /api/update:handler 内 token 校验(本文件钉 403);
-  GET /api/update/status:更新状态。
+- POST /api/update:handler 内 token 校验(本文件钉 403)。
+- GET /api/update/status:已收 admin(guard-hardening 2026-09-28,本波)。
 - eval×3 + GET /api/sources 已收 admin(F2/F5,本波)。
 """
 import asyncio
@@ -55,7 +55,7 @@ FROZEN = {
     ("GET", "/api/events"): "admin",
     ("GET", "/api/version"): "open-status",
     ("POST", "/api/update"): "open-selfupdate-token",
-    ("GET", "/api/update/status"): "open-status",
+    ("GET", "/api/update/status"): "admin",
     ("POST", "/api/auth/jwt/login"): "login",
     ("POST", "/api/auth/jwt/logout"): "logout",
     ("GET", "/api/users/me"): "admin",
@@ -141,6 +141,7 @@ _ADMIN_PROBES = [
     ("POST", "/api/admin/keys", {"name": "x"}),
     ("PATCH", "/api/admin/keys/deadbeef", {"disabled": True}),
     ("DELETE", "/api/admin/keys/deadbeef", None),
+    ("GET", "/api/update/status", None),
     ("POST", "/api/auth/jwt/logout", None),
 ]
 
