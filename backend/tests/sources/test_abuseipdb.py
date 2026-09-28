@@ -133,6 +133,52 @@ def test_abuseipdb_rebuild_stores_reporter_count(tmp_path):
     assert "reporter_count" not in s.query("5.6.7.8")[0]   # 0/None → 键缺席
 
 
+def test_abuseipdb_download_failure_keeps_existing_file(tmp_path, monkeypatch):
+    """回归(生产 P1 实锤 2026-09-28):旧实现 download 直写 self._path 且
+    except 分支 unlink → 429 配额烧穿后每次重试都删掉既有好文件 → 生产
+    raw 永久缺失、LMDB 冻结。修复 = scratch 落盘 + 校验通过才提交,
+    失败永不碰旧文件。"""
+    good = json.dumps({"meta": {}, "data": [
+        {"ipAddress": "1.2.3.4", "abuseConfidenceScore": 100}]})
+    p = tmp_path / "abuseipdb.txt"
+    p.write_text(good)
+    monkeypatch.setenv("ABUSEIPDB_API_KEY", "k")
+    s = AbuseIPDBSource(data_dir=tmp_path)
+
+    # 网络层失败(urlopen 抛错,如 429 HTTPError / 超时)
+    def _boom(req, timeout=120):
+        raise OSError("simulated 429/network failure")
+    monkeypatch.setattr("ipdb._sources._download.urllib.request.urlopen", _boom)
+    with pytest.raises(Exception):
+        s.download()
+    assert p.read_text() == good                         # 旧文件原样
+    assert not (tmp_path / "abuseipdb.txt.dl").exists()  # scratch 清理
+
+    # 200-OK 但 body 是错误 envelope(无 data,如 429 被网关改写)
+    monkeypatch.setattr(
+        "ipdb._sources._download.urllib.request.urlopen",
+        lambda req, timeout=120: _Resp(
+            b'{"errors":[{"detail":"Daily rate limit of 5 requests '
+            b'exceeded","status":429}]}'))
+    with pytest.raises(RuntimeError, match="data"):
+        s.download()
+    assert p.read_text() == good
+    assert not (tmp_path / "abuseipdb.txt.dl").exists()
+
+
+def test_abuseipdb_download_success_commits_scratch(tmp_path, monkeypatch):
+    """成功路径:scratch 全量校验后才写入数据文件,不留 scratch 残留。"""
+    monkeypatch.setenv("ABUSEIPDB_API_KEY", "k")
+    body = json.dumps({"meta": {}, "data": [
+        {"ipAddress": "1.2.3.4"}]}).encode()
+    monkeypatch.setattr("ipdb._sources._download.urllib.request.urlopen",
+                        lambda req, timeout=120: _Resp(body))
+    s = AbuseIPDBSource(data_dir=tmp_path)
+    s.download()
+    assert json.loads((tmp_path / "abuseipdb.txt").read_text())["data"]
+    assert not (tmp_path / "abuseipdb.txt.dl").exists()
+
+
 def test_abuseipdb_download_rejects_malformed_json(tmp_path, monkeypatch):
     """download 校验 JSON 可解析，失败清理半写文件并抛错。"""
     monkeypatch.setattr("ipdb._sources._download.urllib.request.urlopen",
