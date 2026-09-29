@@ -16,7 +16,7 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <I18nProvider>
       <div className="dot-grid min-h-screen">
-        <div className="mx-auto max-w-5xl px-4 py-8">
+        <div className="mx-auto max-w-6xl px-4 py-8">
           <AdminPage />
         </div>
       </div>
