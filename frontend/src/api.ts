@@ -427,10 +427,16 @@ export async function resumeBatch(): Promise<void> {
  * payload; `onReconnect` fires on each (re)connection so the caller can
  * re-fetch a snapshot via `getTasks`. Returns an unsubscribe that closes
  * the EventSource. The browser handles auto-reconnect natively.
+ *
+ * `onSessionDead` fires when an onerror probe finds the admin session gone
+ * (`adminMe()` → null, i.e. 401/503): the stream is closed (stopping the
+ * native reconnect loop against a dead session) right before the callback.
+ * A failed probe (network error) counts as session-alive — no close, no kick.
  */
 export function subscribeTasks(
   onEvent: (e: any) => void,
   onReconnect?: () => void,
+  onSessionDead?: () => void,
 ): () => void {
   const es = new EventSource("/api/events");
   es.onmessage = (m: MessageEvent) => {
@@ -441,6 +447,19 @@ export function subscribeTasks(
     }
   };
   es.onopen = () => onReconnect?.();
+  // 会话死自愈:一次 onerror 至多探测一次 adminMe;null(401/503)= 会话
+  // 真死 → 关流断原生重连并踢出;会话仍在则不动,交浏览器原生重连;探测
+  // 自身网络错按正常处理(catch 吞掉),绝不误杀活会话。
+  es.onerror = () => {
+    adminMe()
+      .then((me) => {
+        if (me == null) {
+          es.close();
+          onSessionDead?.();
+        }
+      })
+      .catch(() => { /* probe failed — assume alive, native reconnect continues */ });
+  };
   return () => es.close();
 }
 

@@ -10,6 +10,13 @@
   - turris_greylist regrade: suspicious → malicious (align the sensor-observation class with dshield/ciarm/dataplane; the FP-risk discount stays in reliability 0.60, the sole discount axis)
 - GeoIP 大源 LMDB payload 字典化（interning）：同 epoch 双命名 sub-db（`pidx` 构建期去重索引 + `payloads` 读期字典），值格式 `[end, dict_id]` 与旧 `[end, evidence]` 自描述共存，提交前 `drop(pidx)` + `copy(compact=True)` 收割幽灵页。同料 A/B 实测：dbip 835→358MB（0.43×），命中延迟交错基准 3.0→4.1µs（1.38×，绝对值 <10µs），2,000 随机探测新旧 payload 全等；旧 epoch 零迁移可读，44 源零改动自动受益，重建墙钟 +3%
   - GeoIP sources gain LMDB payload interning: a same-epoch dual named sub-db layout (`pidx` build-time dedup index + `payloads` read-time dictionary); the value format `[end, dict_id]` coexists self-describingly with the legacy `[end, evidence]`, and a pre-commit `drop(pidx)` + `copy(compact=True)` reclaims ghost pages. Same-feedstock A/B measured on dbip: 835→358MB (0.43×), interleaved hit latency 3.0→4.1µs (1.38×, absolute <10µs), 2,000 random probes byte-identical old vs new; old epochs stay readable with zero migration, all 44 sources benefit automatically with no source-code changes, rebuild wall clock +3%
+- 管理台源列表 grid 化:全局表头+响应式列(评估 lg+/θ xl+)+滚动锁步,修复按钮换行下沉;组头"地理 / ASN 数据"更名;管理壳 max-w-6xl
+  - Sources list regrid: global header + responsive columns (eval lg+/θ xl+) + scroll lockstep, fixes button wrap; group renamed "Geo & ASN data"; admin shell max-w-6xl
+
+### 修复 Fixed
+
+- 修复:公开演示部署下管理员会话的更新进度静默(任务订阅被 demo 探测误闸;现挂载即订阅,会话失效自愈断流)
+  - Fix: update progress silently dead for admin sessions on public-demo deployments (task subscription wrongly gated by demo probe; now subscribes on mount, self-heals on dead session)
 
 ## v1.4.1 — 2026-09-28
 
