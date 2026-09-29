@@ -399,16 +399,17 @@ describe("SourcesPage grid + header (R1–R8)", () => {
   it("manage: renders all 9 column headers above groups, in track order", async () => {
     renderWithI18n(<SourcesPage manage tasks={[]} batch={null} />);
     await screen.findByText("feodo");
-    const row = screen.getByRole("row");
+    // 表头已无 role(P2a):以首列标签定位表头容器
+    const header = screen.getByText("Name").parentElement!;
     // DOM 顺序 = 轨道顺序(eval 于 status/r 之间,θ 于 r/操作之间):grid 按
     // DOM 序放置,hidden 单元格不占轨道,故顺序错位即布局错位。
-    expect(row.textContent).toBe("NameFieldCovered IPsUpdatedStatusEvalrθActions");
+    expect(header.textContent).toBe("NameFieldCovered IPsUpdatedStatusEvalrθActions");
   });
 
   it("header row shares the exact 3-tier grid template with data rows (manage)", async () => {
     renderWithI18n(<SourcesPage manage tasks={[]} batch={null} />);
     await screen.findByRole("listitem");
-    const header = screen.getByRole("row");
+    const header = screen.getByText("Name").parentElement!;
     const li = screen.getByRole("listitem");
     for (const el of [header, li]) {
       expect(el).toHaveClass("grid");
@@ -421,11 +422,9 @@ describe("SourcesPage grid + header (R1–R8)", () => {
   it("eval/θ breakpoints: header cells and data cells hidden in lockstep (R2)", async () => {
     renderWithI18n(<SourcesPage manage tasks={[]} batch={null} />);
     await screen.findByText("feodo");
-    // 表头:Eval hidden→lg:block,θ hidden→xl:block
-    expect(screen.getByRole("columnheader", { name: "Eval" }))
-      .toHaveClass("hidden", "lg:block");
-    expect(screen.getByRole("columnheader", { name: "θ" }))
-      .toHaveClass("hidden", "xl:block");
+    // 表头:Eval hidden→lg:block,θ hidden→xl:block(P2a 后无 role,按文本定位)
+    expect(screen.getByText("Eval")).toHaveClass("hidden", "lg:block");
+    expect(screen.getByText("θ")).toHaveClass("hidden", "xl:block");
     // 同 mock 下数据单元格:eval 占位 - (lg:block),θ 占位 — (xl:block)
     expect(screen.getByText("-")).toHaveClass("hidden", "lg:block");
     expect(screen.getByText("—")).toHaveClass("hidden", "xl:block");
@@ -434,12 +433,12 @@ describe("SourcesPage grid + header (R1–R8)", () => {
   it("public page: same header minus the action column; template one track shorter (R3)", async () => {
     renderWithI18n(<SourcesPage />);
     await screen.findByText("feodo");
-    expect(screen.queryByRole("columnheader", { name: "Actions" })).toBeNull();
-    const row = screen.getByRole("row");
-    expect(row.textContent).toBe("NameFieldCovered IPsUpdatedStatusEvalrθ");
-    expect(row).toHaveClass("grid-cols-[8rem_4rem_4rem_6rem_6rem_4rem]");
-    expect(row).toHaveClass("lg:grid-cols-[8rem_4rem_4rem_6rem_6rem_7rem_4rem]");
-    expect(row).toHaveClass("xl:grid-cols-[8rem_4rem_4rem_6rem_6rem_7rem_4rem_9rem]");
+    expect(screen.queryByText("Actions")).toBeNull();
+    const header = screen.getByText("Name").parentElement!;
+    expect(header.textContent).toBe("NameFieldCovered IPsUpdatedStatusEvalrθ");
+    expect(header).toHaveClass("grid-cols-[8rem_4rem_4rem_6rem_6rem_4rem]");
+    expect(header).toHaveClass("lg:grid-cols-[8rem_4rem_4rem_6rem_6rem_7rem_4rem]");
+    expect(header).toHaveClass("xl:grid-cols-[8rem_4rem_4rem_6rem_6rem_7rem_4rem_9rem]");
     const li = screen.getByRole("listitem");
     expect(li.className).not.toContain("1fr");
   });
@@ -475,9 +474,17 @@ describe("SourcesPage grid + header (R1–R8)", () => {
     expect(translate("zh-CN", "sources.cat.geo_asn")).toBe("地理 / ASN 数据");
   });
 
-  it("group list container carries overflow-x-auto fallback (R7)", async () => {
+  it("single outer scroller wraps header + all groups; ul no longer scrolls alone (R7 fix)", async () => {
     renderWithI18n(<SourcesPage />);
     await screen.findByRole("listitem");
-    expect(screen.getByRole("list")).toHaveClass("overflow-x-auto");
+    const list = screen.getByRole("list");
+    // 逐分组 overflow-x-auto 已移除(不再各自滚动、不再双横滚条)
+    expect(list).not.toHaveClass("overflow-x-auto");
+    // 表头与分组 ul 同处一个外层滚动容器 → 锁步横滚
+    const scroller = list.closest(".overflow-x-auto");
+    expect(scroller).not.toBeNull();
+    expect(screen.getByText("Name").closest(".overflow-x-auto")).toBe(scroller);
+    // 内层 min-w-max:窄视口下表头/卡片随行内容整体取宽(圆角不回归)
+    expect(scroller!.firstElementChild).toHaveClass("min-w-max");
   });
 });
