@@ -155,6 +155,21 @@ describe("SourcesPage manage mode (admin)", () => {
     ).toBeInTheDocument();
   });
 
+  it("clamps loading percentage at 100% when received exceeds total (250/200)", async () => {
+    // 终审 P2:对齐 progress.ts stagedFrac 的 Math.min(1,…) 既有规范,
+    // 异常数据 received>total 不得显出 >100%。
+    renderWithI18n(
+      <SourcesPage
+        manage
+        tasks={[TK({ id: "t-load2", state: "loading", received: 250, total: 200 })]}
+        batch={null}
+      />,
+    );
+    expect(
+      await screen.findByRole("button", { name: /Loading… 100%/ }),
+    ).toBeInTheDocument();
+  });
+
   it("disables Refresh-all while a batch is running (batch prop)", async () => {
     const batch: BatchState = { id: "b1", state: "running", done: 0, total: 3 };
     renderWithI18n(<SourcesPage manage tasks={[]} batch={batch} />);

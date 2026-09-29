@@ -42,13 +42,14 @@ function timeAgo(iso: string | null): { key: string; vars?: Record<string, strin
 }
 
 // 行内按钮相位文案:downloading/loading 带 received/total 百分比(计划钉死
-// N = Math.floor(received/total*100),total 缺失/≤0 退回纯文案),queued/throttled
+// N = Math.floor(received/total*100),终审 P2 补 Math.min(100,·) clamp 对齐
+// progress.ts stagedFrac 既有规范;total 缺失/≤0 退回纯文案),queued/throttled
 // 共用"排队中"。translate() 对未替换占位符原样保留,故"纯文案回退"由 pct 后缀
 // 传空串实现,而非不传 vars。
 function phaseLabel(tk: TaskState): { key: string; vars?: Record<string, string | number> } {
   if (tk.state !== "downloading" && tk.state !== "loading") return { key: "sources.queued" };
   const total = tk.total ?? 0;
-  const suffix = total > 0 ? ` ${Math.floor(((tk.received ?? 0) / total) * 100)}%` : "";
+  const suffix = total > 0 ? ` ${Math.min(100, Math.floor(((tk.received ?? 0) / total) * 100))}%` : "";
   return {
     key: tk.state === "downloading" ? "sources.downloading" : "sources.loading",
     vars: { pct: suffix },
