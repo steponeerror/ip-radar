@@ -41,6 +41,20 @@ function timeAgo(iso: string | null): { key: string; vars?: Record<string, strin
   return { key: "sources.timeAgo.days", vars: { n: Math.floor(hr / 24) } };
 }
 
+// 行内按钮相位文案:downloading/loading 带 received/total 百分比(计划钉死
+// N = Math.floor(received/total*100),total 缺失/≤0 退回纯文案),queued/throttled
+// 共用"排队中"。translate() 对未替换占位符原样保留,故"纯文案回退"由 pct 后缀
+// 传空串实现,而非不传 vars。
+function phaseLabel(tk: TaskState): { key: string; vars?: Record<string, string | number> } {
+  if (tk.state !== "downloading" && tk.state !== "loading") return { key: "sources.queued" };
+  const total = tk.total ?? 0;
+  const suffix = total > 0 ? ` ${Math.floor(((tk.received ?? 0) / total) * 100)}%` : "";
+  return {
+    key: tk.state === "downloading" ? "sources.downloading" : "sources.loading",
+    vars: { pct: suffix },
+  };
+}
+
 function statusOf(s: SourceInfo): { key: string; className: string } {
   if (s.health.error) return { key: "sources.status.error", className: "text-red-400 border-red-400/30 bg-red-400/10" };
   if (!s.enabled) return { key: "sources.status.off", className: "text-zinc-500 border-zinc-700 bg-zinc-800/50" };
@@ -183,11 +197,12 @@ export default function SourcesPage({ manage = false, tasks = [], batch = null, 
     .filter((g) => g.items.length > 0);
 
   // tasks arrive oldest-first and a source accumulates terminal tasks across
-  // batches; the last state seen per source is the current one. Index once so
+  // batches; the last task seen per source is the current one (whole TaskState:
+  // the row needs received/total for the phase percentage). Index once so
   // re-updating a previously-updated source still reflects its live phase
   // (regression: `find()` returned the stale first task and hid the progress).
-  const phaseBySource = new Map<string, TaskState["state"]>();
-  for (const tk of tasks) phaseBySource.set(tk.source, tk.state);
+  const phaseBySource = new Map<string, TaskState>();
+  for (const tk of tasks) phaseBySource.set(tk.source, tk);
 
   return (
     <section className="space-y-6">
@@ -242,13 +257,17 @@ export default function SourcesPage({ manage = false, tasks = [], batch = null, 
                 const ms = thetaBySource.get(s.name);
                 // Per-row phase comes from the tasks prop (AdminPage passes
                 // the SSE-driven context state down; public pages pass none).
-                // A row is "busy" only when a task for this source is
-                // queued / downloading / loading.
+                // A row is "busy" when a task for this source is in any of
+                // the four idempotent enqueue states (backend _enqueue_one:
+                // re-clicking during throttled is a silent no-op, hence
+                // throttled must read as busy too).
                 const phase = phaseBySource.get(s.name);
                 const busy =
-                  phase === "queued" ||
-                  phase === "downloading" ||
-                  phase === "loading";
+                  phase?.state === "queued" ||
+                  phase?.state === "throttled" ||
+                  phase?.state === "downloading" ||
+                  phase?.state === "loading";
+                const label = busy && phase ? phaseLabel(phase) : null;
                 return (
                   <li key={s.name} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
                     <span className="w-32 shrink-0 font-mono text-sm text-zinc-200">{s.name}</span>
@@ -302,11 +321,7 @@ export default function SourcesPage({ manage = false, tasks = [], batch = null, 
                           disabled={busy || refreshingAll}
                           className="rounded-md border border-zinc-700 px-2.5 py-1 text-xs text-zinc-200 transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                          {phase === "loading"
-                            ? t("sources.loading")
-                            : phase === "downloading"
-                              ? t("sources.downloading")
-                              : t("sources.update")}
+                          {label ? t(label.key, label.vars) : t("sources.update")}
                         </button>
                       </div>
                     )}
