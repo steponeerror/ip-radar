@@ -8,7 +8,9 @@ License: CC BY-NC-SA 4.0 (view.sentinel.turris.cz/greylist-data/LICENSE.txt)
 — non-commercial; user-approved 2026-09-01 for this non-commercial tool.
 
 All rows are protocol probes → single ``scanner`` classification,
-``suspicious`` verdict (heuristic greylist, FP risk documented by publisher).
+``malicious`` verdict (2026-09-29 regrade: sensor-observation class aligned
+with dshield/ciarm/dataplane — same epistemics, same word; the FP-risk
+discount lives in reliability 0.60, the sole discount axis).
 Protocols survive verbatim in ``native_categories`` (f3csystems precedent).
 """
 from ._base import CsvSource
@@ -21,7 +23,7 @@ class TurrisGreylistSource(CsvSource):
     filename = "turris_greylist.csv"
     fields = ("is_malicious",)
     classification_type = "scanner"
-    verdict = "suspicious"
+    verdict = "malicious"
     stale_days = 1
     reliability = 0.60
     authoritative_for = ()
