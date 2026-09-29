@@ -167,3 +167,22 @@ def test_probe_data_dir_layer2_invalid_is_suspicious(tmp_path, monkeypatch):
     l2 = probe_data_dir(Path(tmp_path))["layer2"]
     assert l2["valid"] == 0 and l2["invalid"] >= 1
     assert l2["verdict"] == "SUSPICIOUS"
+
+
+def test_layer2_resolves_interned_refs(tmp_path):
+    """interned 值(int ref)必须解引用后才见 extra.ingest_ref——回归:旧实现
+    只认 list/dv dict,int 会被静默跳过,层② valid 计数塌缩。"""
+    import ipaddress
+    from ipdb._watermark import mark_value
+    from ipdb._sources._lmdb import rebuild_lmdb
+    from scripts.verify_watermark import _layer2   # 仓库现有导入模式(test_verify_watermark.py 同款)
+    start, end = int(ipaddress.IPv4Address("10.9.0.0")), \
+                 int(ipaddress.IPv4Address("10.9.255.255"))
+    ev = {"classification_type": "scanner", "verdict": "suspicious",
+          "extra": {"ingest_ref": mark_value(start, end)}}
+    envs = []
+    rebuild_lmdb([("10.9.0.0/16", [ev])], tmp_path / "w.lmdb", envs.append)
+    envs[0].close()
+    out = _layer2(tmp_path)
+    assert out["valid"] == 1 and out["invalid"] == 0
+    assert out["verdict"] == "CONFIRMED"
