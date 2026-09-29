@@ -21,6 +21,16 @@ export interface SourcesPageProps {
 
 const CATEGORY_ORDER = ["geo_asn", "threat", "asset", "other"];
 
+// R1/R2/R3:表头行与数据行共用同一套三档 grid 模板 —— 基础档 名称/字段/
+// 覆盖IP/更新/状态/r(+manage 的操作),lg(≥1024)加评估列,xl(≥1280)再加
+// θ 列;公开页(manage=false)模板随之少操作列一档。固定轨道沿用原列宽
+// 语义(w-32/16/24/28/36 → 8/4/6/7/9rem),末列 1fr 供操作列右贴。模板档位
+// 必须与单元格 hidden lg:block / hidden xl:block 断点逐档一致。
+const GRID_TEMPLATE_MANAGE =
+  "grid-cols-[8rem_4rem_4rem_6rem_6rem_4rem_1fr] lg:grid-cols-[8rem_4rem_4rem_6rem_6rem_7rem_4rem_1fr] xl:grid-cols-[8rem_4rem_4rem_6rem_6rem_7rem_4rem_9rem_1fr]";
+const GRID_TEMPLATE_PUBLIC =
+  "grid-cols-[8rem_4rem_4rem_6rem_6rem_4rem] lg:grid-cols-[8rem_4rem_4rem_6rem_6rem_7rem_4rem] xl:grid-cols-[8rem_4rem_4rem_6rem_6rem_7rem_4rem_9rem]";
+
 function formatCount(n: number): string {
   if (n <= 0) return "-";
   if (n >= 1_000_000_000) return (n / 1_000_000_000).toFixed(1).replace(/\.0$/, "") + "B";
@@ -245,93 +255,132 @@ export default function SourcesPage({ manage = false, tasks = [], batch = null, 
           {t("sources.none")}
         </div>
       ) : (
-        grouped.map(({ cat, items }) => (
-          <div key={cat}>
-            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-600">
-              {t(`sources.cat.${cat}`)}
-            </h3>
-            <ul
-              className="fade-in divide-y divide-zinc-900 overflow-hidden rounded-lg border border-zinc-800"
-            >
-              {items.map((s) => {
-                const st = statusOf(s);
-                const ms = thetaBySource.get(s.name);
-                // Per-row phase comes from the tasks prop (AdminPage passes
-                // the SSE-driven context state down; public pages pass none).
-                // A row is "busy" when a task for this source is in any of
-                // the four idempotent enqueue states (backend _enqueue_one:
-                // re-clicking during throttled is a silent no-op, hence
-                // throttled must read as busy too).
-                const phase = phaseBySource.get(s.name);
-                const busy =
-                  phase?.state === "queued" ||
-                  phase?.state === "throttled" ||
-                  phase?.state === "downloading" ||
-                  phase?.state === "loading";
-                const label = busy && phase ? phaseLabel(phase) : null;
-                return (
-                  <li key={s.name} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
-                    <span className="w-32 shrink-0 font-mono text-sm text-zinc-200">{s.name}</span>
-                    <span className="w-16 shrink-0 text-xs text-zinc-500">{s.fields[0] ?? s.archetype}</span>
-                    <span className="w-16 shrink-0 text-right font-mono text-sm tabular-nums text-zinc-300">
-                      {formatCount(s.health.covered_ips)}
-                    </span>
-                    <span className="w-24 shrink-0 text-xs text-zinc-500">{fmtTime(s)}</span>
-                    <span className={`w-24 shrink-0 rounded-md border px-2 py-0.5 text-center text-xs ${st.className}`}>
-                      {t(st.key)}
-                    </span>
-                    {s.eval ? (
-                      <span
-                        className={`w-28 shrink-0 rounded-md border px-2 py-0.5 text-center text-xs ${evalBadgeClass(s.eval.verdict)}`}
-                        // NO-DATA:说明性 title(数据为空/坍塌)替代评估日期
-                        title={s.eval.verdict === "NO-DATA"
-                          ? t("sources.eval.noDataTitle")
-                          : s.eval.at}
-                      >
-                        {t("sources.eval." + s.eval.verdict.toLowerCase().replace(/-/g, "_"))}
-                      </span>
-                    ) : (
-                      <span className="w-28 shrink-0 text-center text-xs text-zinc-600">-</span>
-                    )}
-                    {/* A2 双轨:声明 r(生产权重)+ 实测 θ(印证率,advisory)。 */}
-                    <span className="w-16 shrink-0 text-center font-mono text-xs tabular-nums text-zinc-400">
-                      r {s.reliability.toFixed(2)}
-                    </span>
-                    {ms && ms.theta != null ? (
-                      <span
-                        className="w-36 shrink-0 whitespace-nowrap text-center font-mono text-xs tabular-nums text-sky-400"
-                        title={t("sources.thetaTooltip")}
-                      >
-                        θ {ms.theta.toFixed(2)}
-                        {ms.ci_lo != null &&
-                          ` [${ms.ci_lo.toFixed(2)}–${ms.ci_hi!.toFixed(2)}]`}
-                      </span>
-                    ) : (
-                      <span className="w-36 shrink-0 text-center text-xs text-zinc-600">—</span>
-                    )}
-                    {manage && (
-                      <div className="ml-auto flex items-center gap-3">
-                        <Toggle
-                          on={s.enabled}
-                          disabled={busy}
-                          onChange={(v) => handleToggle(s, v)}
-                          label={t("sources.toggleAria", { name: s.name })}
-                        />
-                        <button
-                          onClick={() => handleUpdate(s.name)}
-                          disabled={busy || refreshingAll}
-                          className="rounded-md border border-zinc-700 px-2.5 py-1 text-xs text-zinc-200 transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          {label ? t(label.key, label.vars) : t("sources.update")}
-                        </button>
-                      </div>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
+        <div>
+          {/* R1 全局单表头:置于所有分组之上(组头仍在各自分组处),与数据行
+              同模板同断点;div + role,不做 table 化(R8)。R3:公开页同步省略
+              操作列。评估/θ 表头单元格与数据单元格同 hidden 断点(R2)。 */}
+          <div
+            role="row"
+            className={`grid gap-x-4 px-4 pb-2 text-xs font-medium text-zinc-500 ${
+              manage ? GRID_TEMPLATE_MANAGE : GRID_TEMPLATE_PUBLIC
+            }`}
+          >
+            <span role="columnheader" className="truncate">{t("sources.col.name")}</span>
+            <span role="columnheader" className="truncate">{t("sources.col.field")}</span>
+            <span role="columnheader" className="truncate text-right">{t("sources.col.covered")}</span>
+            <span role="columnheader" className="truncate">{t("sources.col.updated")}</span>
+            <span role="columnheader" className="truncate text-center">{t("sources.col.status")}</span>
+            <span role="columnheader" className="hidden truncate text-center lg:block">{t("sources.col.eval")}</span>
+            <span role="columnheader" className="truncate text-center">{t("sources.col.r")}</span>
+            <span role="columnheader" className="hidden truncate text-center xl:block">{t("sources.col.theta")}</span>
+            {manage && (
+              <span role="columnheader" className="truncate text-right">{t("sources.col.action")}</span>
+            )}
           </div>
-        ))
+          <div className="space-y-6">
+            {grouped.map(({ cat, items }) => (
+              <div key={cat}>
+                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-600">
+                  {t(`sources.cat.${cat}`)}
+                </h3>
+                {/* R7:overflow-x-auto 兜底 —— 基础档固定轨道之和可超窄视口。 */}
+                <ul
+                  className="fade-in divide-y divide-zinc-900 overflow-x-auto rounded-lg border border-zinc-800"
+                >
+                  {items.map((s) => {
+                    const st = statusOf(s);
+                    const ms = thetaBySource.get(s.name);
+                    // Per-row phase comes from the tasks prop (AdminPage passes
+                    // the SSE-driven context state down; public pages pass none).
+                    // A row is "busy" when a task for this source is in any of
+                    // the four idempotent enqueue states (backend _enqueue_one:
+                    // re-clicking during throttled is a silent no-op, hence
+                    // throttled must read as busy too).
+                    const phase = phaseBySource.get(s.name);
+                    const busy =
+                      phase?.state === "queued" ||
+                      phase?.state === "throttled" ||
+                      phase?.state === "downloading" ||
+                      phase?.state === "loading";
+                    const label = busy && phase ? phaseLabel(phase) : null;
+                    return (
+                      <li
+                        key={s.name}
+                        className={`grid items-center gap-x-4 px-4 py-3 ${
+                          manage ? GRID_TEMPLATE_MANAGE : GRID_TEMPLATE_PUBLIC
+                        }`}
+                      >
+                        {/* 轨道宽度由模板控制;truncate+title 防长名/长字段溢出邻列 */}
+                        <span className="truncate font-mono text-sm text-zinc-200" title={s.name}>
+                          {s.name}
+                        </span>
+                        <span
+                          className="truncate text-xs text-zinc-500"
+                          title={s.fields[0] ?? s.archetype}
+                        >
+                          {s.fields[0] ?? s.archetype}
+                        </span>
+                        <span className="text-right font-mono text-sm tabular-nums text-zinc-300">
+                          {formatCount(s.health.covered_ips)}
+                        </span>
+                        <span className="truncate text-xs text-zinc-500">{fmtTime(s)}</span>
+                        <span className={`rounded-md border px-2 py-0.5 text-center text-xs ${st.className}`}>
+                          {t(st.key)}
+                        </span>
+                        {s.eval ? (
+                          <span
+                            className={`hidden rounded-md border px-2 py-0.5 text-center text-xs lg:block ${evalBadgeClass(s.eval.verdict)}`}
+                            // NO-DATA:说明性 title(数据为空/坍塌)替代评估日期
+                            title={s.eval.verdict === "NO-DATA"
+                              ? t("sources.eval.noDataTitle")
+                              : s.eval.at}
+                          >
+                            {t("sources.eval." + s.eval.verdict.toLowerCase().replace(/-/g, "_"))}
+                          </span>
+                        ) : (
+                          <span className="hidden text-center text-xs text-zinc-600 lg:block">-</span>
+                        )}
+                        {/* A2 双轨:声明 r(生产权重)+ 实测 θ(印证率,advisory)。 */}
+                        <span className="text-center font-mono text-xs tabular-nums text-zinc-400">
+                          r {s.reliability.toFixed(2)}
+                        </span>
+                        {ms && ms.theta != null ? (
+                          <span
+                            className="hidden whitespace-nowrap text-center font-mono text-xs tabular-nums text-sky-400 xl:block"
+                            title={t("sources.thetaTooltip")}
+                          >
+                            θ {ms.theta.toFixed(2)}
+                            {ms.ci_lo != null &&
+                              ` [${ms.ci_lo.toFixed(2)}–${ms.ci_hi!.toFixed(2)}]`}
+                          </span>
+                        ) : (
+                          <span className="hidden text-center text-xs text-zinc-600 xl:block">—</span>
+                        )}
+                        {manage && (
+                          <div className="flex items-center gap-3 justify-self-end">
+                            <Toggle
+                              on={s.enabled}
+                              disabled={busy}
+                              onChange={(v) => handleToggle(s, v)}
+                              label={t("sources.toggleAria", { name: s.name })}
+                            />
+                            <button
+                              onClick={() => handleUpdate(s.name)}
+                              disabled={busy || refreshingAll}
+                              className="rounded-md border border-zinc-700 px-2.5 py-1 text-xs text-zinc-200 transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {label ? t(label.key, label.vars) : t("sources.update")}
+                            </button>
+                          </div>
+                        )}
+                      </li>
+                    );
+                  })}
+            </ul>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
 
       {!loading && grouped.length > 0 && (

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, type Mock } from "vitest";
 import { screen, waitFor, fireEvent } from "@testing-library/react";
 import SourcesPage from "../SourcesPage";
 import { renderWithI18n } from "../../test/i18nTestUtils";
+import { translate } from "../../i18n/translate";
 import {
   enqueueSingle,
   enqueueBatch,
@@ -389,5 +390,94 @@ describe("SourcesPage read-only info (both modes)", () => {
     const onUnauthorized = vi.fn();
     renderWithI18n(<SourcesPage manage onUnauthorized={onUnauthorized} />);
     await waitFor(() => expect(onUnauthorized).toHaveBeenCalledTimes(1));
+  });
+});
+
+// Task:grid 化 + 全局表头 + 响应式藏列(R1–R8)。默认 mock(feodo,threat,
+// eval:null,无 θ)驱动:表头/模板/hidden 断点/公开页无操作列/geo_asn 改名。
+describe("SourcesPage grid + header (R1–R8)", () => {
+  it("manage: renders all 9 column headers above groups, in track order", async () => {
+    renderWithI18n(<SourcesPage manage tasks={[]} batch={null} />);
+    await screen.findByText("feodo");
+    const row = screen.getByRole("row");
+    // DOM 顺序 = 轨道顺序(eval 于 status/r 之间,θ 于 r/操作之间):grid 按
+    // DOM 序放置,hidden 单元格不占轨道,故顺序错位即布局错位。
+    expect(row.textContent).toBe("NameFieldCovered IPsUpdatedStatusEvalrθActions");
+  });
+
+  it("header row shares the exact 3-tier grid template with data rows (manage)", async () => {
+    renderWithI18n(<SourcesPage manage tasks={[]} batch={null} />);
+    await screen.findByRole("listitem");
+    const header = screen.getByRole("row");
+    const li = screen.getByRole("listitem");
+    for (const el of [header, li]) {
+      expect(el).toHaveClass("grid");
+      expect(el).toHaveClass("grid-cols-[8rem_4rem_4rem_6rem_6rem_4rem_1fr]");
+      expect(el).toHaveClass("lg:grid-cols-[8rem_4rem_4rem_6rem_6rem_7rem_4rem_1fr]");
+      expect(el).toHaveClass("xl:grid-cols-[8rem_4rem_4rem_6rem_6rem_7rem_4rem_9rem_1fr]");
+    }
+  });
+
+  it("eval/θ breakpoints: header cells and data cells hidden in lockstep (R2)", async () => {
+    renderWithI18n(<SourcesPage manage tasks={[]} batch={null} />);
+    await screen.findByText("feodo");
+    // 表头:Eval hidden→lg:block,θ hidden→xl:block
+    expect(screen.getByRole("columnheader", { name: "Eval" }))
+      .toHaveClass("hidden", "lg:block");
+    expect(screen.getByRole("columnheader", { name: "θ" }))
+      .toHaveClass("hidden", "xl:block");
+    // 同 mock 下数据单元格:eval 占位 - (lg:block),θ 占位 — (xl:block)
+    expect(screen.getByText("-")).toHaveClass("hidden", "lg:block");
+    expect(screen.getByText("—")).toHaveClass("hidden", "xl:block");
+  });
+
+  it("public page: same header minus the action column; template one track shorter (R3)", async () => {
+    renderWithI18n(<SourcesPage />);
+    await screen.findByText("feodo");
+    expect(screen.queryByRole("columnheader", { name: "Actions" })).toBeNull();
+    const row = screen.getByRole("row");
+    expect(row.textContent).toBe("NameFieldCovered IPsUpdatedStatusEvalrθ");
+    expect(row).toHaveClass("grid-cols-[8rem_4rem_4rem_6rem_6rem_4rem]");
+    expect(row).toHaveClass("lg:grid-cols-[8rem_4rem_4rem_6rem_6rem_7rem_4rem]");
+    expect(row).toHaveClass("xl:grid-cols-[8rem_4rem_4rem_6rem_6rem_7rem_4rem_9rem]");
+    const li = screen.getByRole("listitem");
+    expect(li.className).not.toContain("1fr");
+  });
+
+  it("geo_asn group header renamed (R6): en on page, zh-CN verbatim in locale", async () => {
+    vi.mocked(getSources).mockResolvedValueOnce([
+      {
+        name: "ipinfo_lite",
+        enabled: true,
+        category: "geo_asn",
+        archetype: "offline",
+        fields: ["country_code"],
+        reliability: 0.9,
+        authoritative_for: [],
+        classification_type: null,
+        url: null,
+        stale_days: null,
+        eval: null,
+        health: {
+          name: "ipinfo_lite",
+          loaded: true,
+          record_count: 1,
+          covered_ips: 1,
+          last_updated: null,
+          is_stale: false,
+          error: null,
+        },
+      },
+    ]);
+    renderWithI18n(<SourcesPage />);
+    expect(await screen.findByText("Geo & ASN data")).toBeInTheDocument();
+    // zh-CN 逐字裁决值(无 OpenCC 运行时依赖,直接校 locale 表)
+    expect(translate("zh-CN", "sources.cat.geo_asn")).toBe("地理 / ASN 数据");
+  });
+
+  it("group list container carries overflow-x-auto fallback (R7)", async () => {
+    renderWithI18n(<SourcesPage />);
+    await screen.findByRole("listitem");
+    expect(screen.getByRole("list")).toHaveClass("overflow-x-auto");
   });
 });
