@@ -109,7 +109,7 @@ export default function AdminPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  if (loading) return <div className="py-20 text-center text-sm text-zinc-500">{t("sources.loading")}</div>;
+  if (loading) return <div className="py-20 text-center text-sm text-zinc-500">{t("sources.pageLoading")}</div>;
 
   if (user) {
     return (

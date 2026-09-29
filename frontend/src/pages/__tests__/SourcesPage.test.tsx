@@ -132,6 +132,44 @@ describe("SourcesPage manage mode (admin)", () => {
     expect(await screen.findByRole("button", { name: /Downloading/i })).toBeInTheDocument();
   });
 
+  it("treats a throttled task as busy: Update disabled and labeled Queued", async () => {
+    // throttled(限流排队)在旧代码不算 busy → 按钮可点、文案仍是 Update,
+    // 而后端 _enqueue_one 对四态幂等,排队期间再点完全无感("点了没反应"困惑)。
+    renderWithI18n(
+      <SourcesPage manage tasks={[TK({ id: "t-th", state: "throttled" })]} batch={null} />,
+    );
+    const btn = await screen.findByRole("button", { name: "Queued" });
+    expect(btn).toBeDisabled();
+  });
+
+  it("shows loading percentage from received/total (100/200 → 50%)", async () => {
+    renderWithI18n(
+      <SourcesPage
+        manage
+        tasks={[TK({ id: "t-load", state: "loading", received: 100, total: 200 })]}
+        batch={null}
+      />,
+    );
+    expect(
+      await screen.findByRole("button", { name: /Loading… 50%/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("clamps loading percentage at 100% when received exceeds total (250/200)", async () => {
+    // 终审 P2:对齐 progress.ts stagedFrac 的 Math.min(1,…) 既有规范,
+    // 异常数据 received>total 不得显出 >100%。
+    renderWithI18n(
+      <SourcesPage
+        manage
+        tasks={[TK({ id: "t-load2", state: "loading", received: 250, total: 200 })]}
+        batch={null}
+      />,
+    );
+    expect(
+      await screen.findByRole("button", { name: /Loading… 100%/ }),
+    ).toBeInTheDocument();
+  });
+
   it("disables Refresh-all while a batch is running (batch prop)", async () => {
     const batch: BatchState = { id: "b1", state: "running", done: 0, total: 3 };
     renderWithI18n(<SourcesPage manage tasks={[]} batch={batch} />);
