@@ -9,7 +9,10 @@ never Path.with_suffix: it would eat the ``.lmdb`` segment):
     <base>.count / <base>.cov  sidecars (unchanged commit-order contract)
     <base>.disjoint        epoch-bound disjoint flag (<epoch> <0|1>)
 
-key = start_ip 4-byte big-endian; value = JSON [end_ip_int, evidence].
+key = start_ip 4-byte big-endian; value = JSON [end_ip_int, ref_id] —
+evidence payloads are interned into a "payloads" sub-db (write side drops
+its "pidx" reverse index before commit); old epochs carry inline evidence,
+readers take both forms.
 v6 sidecar env (rebuild_lmdb(ip_version=6)): key = 16-byte big-endian;
 ends >2⁶⁴−1 are stored as JSON strings (orjson int ceiling), and
 lookup() requires the explicit ip_version=6 argument.
@@ -21,6 +24,7 @@ segment is permanently lost with no backscan rescue — every source migrated
 to this module MUST be audited to have ZERO same-start collisions.
 """
 import functools
+import hashlib
 import ipaddress
 import logging
 import os
@@ -68,6 +72,11 @@ def encode_key6(start_int: int) -> bytes:
 
 _JSON_INT_MAX = 2**64 - 1   # orjson 整数上限:v6 区间端点(128-bit)超限需字符串编码
 
+# 值字典(payload interning)sub-db 名:PAYLOADS = ref_id(8B big-endian)
+# → orjson 证据 payload;PIDX = 写侧反查索引(Task 2 用)。Task 2/3 依赖此名。
+PIDX_NAME = b"pidx"
+PAYLOADS_NAME = b"payloads"
+
 
 def encode_value(end_int: int, evidence: Any) -> bytes:
     # orjson 拒绝 >64-bit 整数:v6 端点以字符串落盘,_end_int/decode_value
@@ -77,9 +86,33 @@ def encode_value(end_int: int, evidence: Any) -> bytes:
     return orjson.dumps([end_int, evidence])
 
 
+def encode_value_ref(end_int: int, ref_id: int) -> bytes:
+    """字典引用编码:``[end, ref_id]``,与 encode_value 同构(含 _JSON_INT_MAX
+    超限字符串端点处理),ref_id 取代 inline 证据。读侧经 resolve_evidence
+    解引用。"""
+    if end_int > _JSON_INT_MAX:
+        end_int = str(end_int)
+    return orjson.dumps([end_int, ref_id])
+
+
 def decode_value(raw: bytes) -> tuple[int, Any]:
+    """第二元素自 interning 起可能是 int(ref_id)而非 inline 证据 — int 不得
+    直接当证据用,须先经 resolve_evidence(txn, ev, pay_db) 解引用。"""
     end, evidence = orjson.loads(raw)
     return int(end), evidence
+
+
+def resolve_evidence(txn, ev: Any, pay_db) -> Any:
+    """ref 解引用(lookup 与 verify_watermark 共用):ev 是 int → 从 payloads
+    字典取 ``txn.get(ev.to_bytes(8, "big"), db=pay_db)`` 并 orjson.loads 返回;
+    字典 miss(get 返回 None)→ raise ValueError(腐败防御,不得静默返 int);
+    ev 非 int → 原样返回(inline 证据透传)。"""
+    if not isinstance(ev, int):
+        return ev
+    raw = txn.get(ev.to_bytes(8, "big"), db=pay_db)
+    if raw is None:
+        raise ValueError(f"payload dictionary missing ref {ev}")
+    return orjson.loads(raw)
 
 
 def _end_int(raw: bytes) -> int:
@@ -91,6 +124,55 @@ def _end_int(raw: bytes) -> int:
     if s[:1] == b'"':
         s = s[1:-1]
     return int(s)
+
+
+_PAYLOAD_DB_CACHE: dict[str, Any] = {}
+
+
+def _pidx_key(payload: bytes) -> bytes:
+    """写侧 pidx 反查键 = payload 的 blake2b-256。键上限 511B(LMDB 硬限),
+    证据 payload 可超限(如 test_lmdb_progress 的 512B 填充)——哈希键恒 32B;
+    pidx 值存 ``pid(8B) + payload 原文``,命中时校验尾部,理论碰撞退化为
+    未命中重分配(不串证据)。pidx 提交前 drop,键格式无外部契约。"""
+    return hashlib.blake2b(payload, digest_size=32).digest()
+
+
+def _payloads_db(env, txn=None):
+    """payloads sub-db 句柄(值字典解引用用),无此 sub-db(旧 epoch 形态)
+    返回 None。按 env.path() 缓存:epoch 目录建后不可变,「有无字典」与句柄
+    都稳定 — 免每次 lookup 的 open_db 开销。只捕 lmdb.NotFoundError;
+    槽位耗尽的 DbsFullError 必须向外炸(静默吞 = int 泄漏成证据)。
+    注意:NotFound 的 None 也缓存(open_db 每次都是真 LMDB 调用)。
+    txn 形参:read txn 内首开时必须传入 — py-lmdb 无显式 txn 的 open_db
+    走隐式独立事务,dbi 对当前 txn 不可见(mdb_get EINVAL);txn 内句柄
+    仅本 txn 有效,不缓存逐 txn 重开(一次主库 B-tree 探测,µs 级);
+    open_env_read 建立时 txn 外预热句柄,生产热路径恒走缓存。"""
+    key = env.path()
+    if key in _PAYLOAD_DB_CACHE:
+        return _PAYLOAD_DB_CACHE[key]
+    if txn is not None:
+        try:
+            return env.open_db(PAYLOADS_NAME, create=False, txn=txn)
+        except lmdb.NotFoundError:
+            _PAYLOAD_DB_CACHE[key] = None
+            return None
+    try:
+        db = env.open_db(PAYLOADS_NAME, create=False)
+    except lmdb.NotFoundError:
+        db = None
+    _PAYLOAD_DB_CACHE[key] = db
+    return db
+
+
+def _prev_record(cur) -> bool:
+    """回退一步到真实数据记录:prev() 跳过 payloads 命名库描述符键。
+    LMDB 把 sub-db 注册项落在主库键空间(键=库名 b"payloads",值=二进制
+    描述符),它不是 [end, ref] 布局——回扫落上去 _end_int 直接炸。
+    (pidx 在提交前已 drop,可读 env 中不可能出现,无需防御。)"""
+    while cur.prev():
+        if cur.key() != PAYLOADS_NAME:
+            return True
+    return False
 
 
 def lookup(env, ip_int: int, *, disjoint: bool = False,
@@ -121,21 +203,27 @@ def lookup(env, ip_int: int, *, disjoint: bool = False,
                 if cur.key() == key:
                     pass
                 else:
-                    if not cur.prev():
+                    if not _prev_record(cur):
                         return None
             else:
-                if not cur.prev():
+                if not _prev_record(cur):
                     return None
             # cursor 现在位于 greatest start ≤ ip(或 exact start)
             if ip_int <= _end_int(cur.value()):
-                return decode_value(cur.value())[1]
+                ev = decode_value(cur.value())[1]
+                if isinstance(ev, int):     # 惰性:_payloads_db 仅在解引用时取
+                    ev = resolve_evidence(txn, ev, _payloads_db(env, txn))
+                return ev
             return None
         for plen in range(bits, -1, -1):
             mask = (1 << (bits - plen)) - 1
             key = key_enc((ip_int | mask) ^ mask)   # = ip & ~mask(对齐起点)
             if cur.set_range(key) and cur.key() == key \
                     and ip_int <= _end_int(cur.value()):
-                return decode_value(cur.value())[1]
+                ev = decode_value(cur.value())[1]
+                if isinstance(ev, int):     # 惰性:_payloads_db 仅在解引用时取
+                    ev = resolve_evidence(txn, ev, _payloads_db(env, txn))
+                return ev
         return None
 
 
@@ -146,6 +234,9 @@ def detect_disjoint(env) -> bool:
         prev_end = -1
         ok = cur.first()
         while ok:
+            if cur.key() == PAYLOADS_NAME:   # 命名库描述符键:非数据记录,跳过
+                ok = cur.next()
+                continue
             if int.from_bytes(cur.key(), "big") <= prev_end:
                 return False
             prev_end = _end_int(cur.value())
@@ -249,8 +340,14 @@ def open_env_read(path: Path):
                 return env
             except lmdb.Error:
                 pass                            # 已显式 close:重开新 handle
-        env = lmdb.open(key, readonly=True, lock=False, subdir=True)
+        env = lmdb.open(key, readonly=True, lock=False, subdir=True,
+                        max_dbs=2)                  # pidx + payloads sub-dbs
         _OPEN_ENVS[key] = env
+        # 新 handle 必失效旧句柄缓存:同路径旧 env 实例(已显式 close 或被
+        # GC)名下的 payloads 句柄绑旧实例,跨实例使用报 "belongs to another
+        # environment" —— 评审遗留 #1 的完整形态(GC 路径同样中招)。
+        _PAYLOAD_DB_CACHE.pop(key, None)
+        _payloads_db(env)   # txn 外预热字典句柄(跨 txn 可复用;NotFound 缓存 None)
         return env
 
 
@@ -276,8 +373,9 @@ def cleanup_stale(base: Path) -> None:
             continue
         tail = name[len(prefix):]
         parts = tail.split(".")
-        if parts[-1].isdigit() and len(parts) >= 2 and parts[-2] == "new":
-            shutil.rmtree(child, ignore_errors=True)   # .new.<pid>
+        if tail.endswith(".cmp") or (
+                parts[-1].isdigit() and len(parts) >= 2 and parts[-2] == "new"):
+            shutil.rmtree(child, ignore_errors=True)   # .new.<pid> / .new.<pid>.cmp
             continue
         if parts[0].isdigit():
             epoch = int(parts[0])
@@ -372,9 +470,12 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
     # 同步 fsync 是纯浪费的持久化。耐久性由下方 env.sync(True) 在 close+rename
     # 前一次保证,commit 不变量(sidecar→ptr 顺序)不变。勿"修复"回默认刷盘。
     env = lmdb.open(str(staging), map_size=size, writemap=True, subdir=True,
-                    sync=False, metasync=False, map_async=True)
+                    sync=False, metasync=False, map_async=True, max_dbs=3)
+    pidx_db = env.open_db(PIDX_NAME)      # 写侧反查 payload→ref_id(提交前 drop)
+    pay_db = env.open_db(PAYLOADS_NAME)   # 值字典 ref_id→payload(随主库提交)
     n = 0
-    batch: list[tuple[bytes, bytes]] = []
+    next_id = 1                           # ref_id 分配器:单调递增,不复用
+    batch: list[tuple[bytes, int, bytes]] = []
     # 无 __len__ 的流式 records(mmdb 迭代等):total 未知时用调用方的
     # 上一轮计数估计(total_est,刷新场景下极准);仍无则 0(UI --%)。
     total = len(records) if hasattr(records, "__len__") else total_est
@@ -382,16 +483,30 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
         progress(0, total)
 
     def _flush():
-        nonlocal batch
+        nonlocal batch, next_id
         while batch:
             try:
                 with env.begin(write=True) as txn:
-                    for k, v in batch:
-                        txn.put(k, v)
+                    for k, end_int, payload in batch:
+                        # 字典化:payload 首见入典(pidx 反查 + payloads 本体),
+                        # 已见则复用其 ref_id;写入值一律 encode_value_ref
+                        # 编码(写侧无裸标量 evidence,天然隔离读侧判定)
+                        hit = txn.get(_pidx_key(payload), db=pidx_db)
+                        if hit is not None and hit[8:] == payload:
+                            pid = hit[:8]
+                        else:
+                            pid = next_id.to_bytes(8, "big")
+                            txn.put(_pidx_key(payload), pid + payload,
+                                    db=pidx_db)
+                            txn.put(pid, payload, db=pay_db)
+                            next_id += 1
+                        txn.put(k, encode_value_ref(
+                            end_int, int.from_bytes(pid, "big")))
                 batch = []
             except lmdb.MapFullError:
                 env.set_mapsize(env.info()["map_size"] * 2)
-                # retry same batch after growth
+                # retry same batch after growth(abort 已回滚本批全部写入,
+                # 重分配仅可能跳号无碰撞,next_id 无需回退)
 
     net_cls = (ipaddress.IPv6Network if ip_version == 6
                else ipaddress.IPv4Network)
@@ -426,7 +541,7 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
             disjoint_ok = False
         if e > max_end:
             max_end = e
-        batch.append((key_enc(s), encode_value(e, evidence)))
+        batch.append((key_enc(s), e, orjson.dumps(evidence)))
         n += 1
         if len(batch) >= BATCH_SIZE:
             _flush()
@@ -452,11 +567,29 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
                     "keeping old epoch")
     if progress is not None:
         progress(n, max(total, n) if total > 0 else 0)
+    # 反查索引使命终结(字典闭合,主库 ref 已落定):提交前整体 drop,读侧
+    # 只见主库 + payloads(n==0 raise 分支在上文已退出,空建也走到这)
+    with env.begin(write=True) as txn:
+        txn.drop(pidx_db, delete=True)
     env.sync(True)
     # 预判干净(必真不相交)直接采信;预判报可疑才跑 O(n) key 序扫描定谁。
     disjoint = True if disjoint_ok else detect_disjoint(env)
     env.close()                        # closed BEFORE rename — Windows-safe
-    os.rename(staging, target)
+    # 提交前 compact:staging 以 writemap 免刷盘建库,文件尺寸是 map 预分配
+    # 而非真实数据量——close 后只读重开再 copy(compact=True)才回收;失败
+    # 退回直 rename(只少回收磁盘,不伤正确性)。残留 .cmp 由 prune 与
+    # cleanup_stale 兜底。
+    cmp_dir = staging.parent / (staging.name + ".cmp")
+    shutil.rmtree(cmp_dir, ignore_errors=True)
+    cmp_dir.mkdir(parents=True)
+    try:
+        renv = lmdb.open(str(staging), readonly=True, lock=False, subdir=True)
+        renv.copy(str(cmp_dir), compact=True)
+        renv.close()
+        shutil.rmtree(staging, ignore_errors=True)
+        os.rename(cmp_dir, target)
+    except Exception:
+        os.rename(staging, target)   # compact 失败退回直 rename(只少回收,不伤正确性)
 
     staged = []
     if covered is Auto:
