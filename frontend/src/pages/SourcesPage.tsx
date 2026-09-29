@@ -291,7 +291,7 @@ export default function SourcesPage({ manage = false, tasks = [], batch = null, 
                     {t(`sources.cat.${cat}`)}
                   </h3>
                   <ul
-                    className="fade-in divide-y divide-zinc-900 rounded-lg border border-zinc-800"
+                    className="fade-in divide-y divide-zinc-900 overflow-hidden rounded-lg border border-zinc-800"
                   >
                     {items.map((s) => {
                       const st = statusOf(s);
