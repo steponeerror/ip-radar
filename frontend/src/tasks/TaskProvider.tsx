@@ -85,8 +85,13 @@ export function TaskProvider({ children, onUnauthorized }: {
         }
       }
     };
+    // 无条件订阅:本 provider 只在 AdminPage 登录后挂载,挂载即已验证 admin
+    // 会话,无匿名访客面;demo 闸(/api/version 的 public_demo 只认 ADMIN_IPS
+    // peer、不认 admin cookie)会误闸非白名单 IP 的管理员。会话中途死亡由
+    // subscribeTasks 的 onerror → adminMe 探测兜底(onUnauthorized 踢回登录,
+    // 卸壳即断流)。
     resync();
-    const unsub = subscribeTasks(applyEvent, resync);
+    const unsub = subscribeTasks(applyEvent, resync, onUnauthorized);
     return () => { alive = false; unsub(); };
   }, []);
 
