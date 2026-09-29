@@ -2,6 +2,13 @@
 
 本项目的所有重要变更记录于此。自 v1.0.0 起按版本分节，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## Unreleased
+
+### 调整 Changed
+
+- GeoIP 大源 LMDB payload 字典化（interning）：同 epoch 双命名 sub-db（`pidx` 构建期去重索引 + `payloads` 读期字典），值格式 `[end, dict_id]` 与旧 `[end, evidence]` 自描述共存，提交前 `drop(pidx)` + `copy(compact=True)` 收割幽灵页。同料 A/B 实测：dbip 835→358MB（0.43×），命中延迟交错基准 3.0→4.1µs（1.38×，绝对值 <10µs），2,000 随机探测新旧 payload 全等；旧 epoch 零迁移可读，44 源零改动自动受益，重建墙钟 +3%
+  - GeoIP sources gain LMDB payload interning: a same-epoch dual named sub-db layout (`pidx` build-time dedup index + `payloads` read-time dictionary); the value format `[end, dict_id]` coexists self-describingly with the legacy `[end, evidence]`, and a pre-commit `drop(pidx)` + `copy(compact=True)` reclaims ghost pages. Same-feedstock A/B measured on dbip: 835→358MB (0.43×), interleaved hit latency 3.0→4.1µs (1.38×, absolute <10µs), 2,000 random probes byte-identical old vs new; old epochs stay readable with zero migration, all 44 sources benefit automatically with no source-code changes, rebuild wall clock +3%
+
 ## v1.4.1 — 2026-09-28
 
 ### 调整 Changed
