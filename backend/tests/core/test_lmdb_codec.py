@@ -239,3 +239,64 @@ def test_rebuild_lmdb_zero_records_first_build_succeeds(tmp_path):
     n = rebuild_lmdb([], tmp_path / "fresh.lmdb", lambda e: None)
     assert n == 0
     assert read_ptr(tmp_path / "fresh.lmdb") is not None
+
+
+def test_encode_value_ref_layout_matches_end_int():
+    from ipdb._sources._lmdb import encode_value_ref, _end_int, decode_value
+    import orjson
+    raw = encode_value_ref(134744075, 422800)
+    assert _end_int(raw) == 134744075          # 回扫快路径不破
+    assert raw == orjson.dumps([134744075, 422800])   # 与 orjson 字节一致
+    d, ev = decode_value(raw)
+    assert d == 134744075 and ev == 422800
+
+def test_encode_value_ref_v6_end_string():
+    from ipdb._sources._lmdb import encode_value_ref, _end_int
+    end = 0x20010db8ffffffffffffffffffffffff
+    assert _end_int(encode_value_ref(end, 7)) == end
+
+def test_lookup_resolves_interned_ref_and_passes_inline(tmp_path):
+    import lmdb, orjson
+    from ipdb._sources._lmdb import (lookup, encode_value, encode_value_ref,
+                                     ip_to_int, PAYLOADS_NAME, resolve_evidence)
+    env = lmdb.open(str(tmp_path / "m"), map_size=1 << 22, subdir=True,
+                    max_dbs=1)
+    pay = env.open_db(PAYLOADS_NAME)
+    inline_ev = {"city": "Oldtown"}
+    payload = orjson.dumps({"city": "Newtown"})
+    with env.begin(write=True) as txn:
+        txn.put(ip_to_int("1.0.0.0").to_bytes(4, "big"),
+                encode_value(ip_to_int("1.0.0.255"), inline_ev))
+        txn.put(ip_to_int("2.0.0.0").to_bytes(4, "big"),
+                encode_value_ref(ip_to_int("2.0.0.255"), 7))
+        txn.put((7).to_bytes(8, "big"), payload, db=pay)
+    # 混合 env:同一次 lookup 双路——inline 透传、int 解引用
+    assert lookup(env, ip_to_int("1.0.0.5"), disjoint=True) == {"city": "Oldtown"}
+    assert lookup(env, ip_to_int("2.0.0.5"), disjoint=True) == {"city": "Newtown"}
+    # 腐败防御:int 值但字典缺失 → resolve_evidence 必须炸响,不得静默返 int
+    import pytest
+    with env.begin() as txn:
+        with pytest.raises(ValueError):
+            resolve_evidence(txn, 999, pay)   # 字典无 999 号
+    env.close()
+
+def test_payloads_db_none_on_missing_loud_on_dbsfull(tmp_path):
+    import lmdb, pytest
+    from ipdb._sources._lmdb import _payloads_db
+    slotted = lmdb.open(str(tmp_path / "p"), map_size=1 << 20, subdir=True,
+                        max_dbs=1)
+    slotted.close()
+    ro = lmdb.open(str(tmp_path / "p"), map_size=1 << 20, subdir=True,
+                   max_dbs=1, readonly=True, lock=False)
+    assert _payloads_db(ro) is None            # 无 payloads db 且有槽位 → None(旧 epoch 形态)
+    ro.close()
+    # 槽位不足(max_dbs=0)→ DbsFullError 必须向外炸(Review Focus #1:
+    # 静默吞 = int 泄漏成证据)。py-lmdb 对 create=False 缺槽位先报 DbsFull
+    tight = lmdb.open(str(tmp_path / "t"), map_size=1 << 20, subdir=True,
+                      max_dbs=0)
+    tight.close()
+    ro0 = lmdb.open(str(tmp_path / "t"), map_size=1 << 20, subdir=True,
+                    readonly=True, lock=False)
+    with pytest.raises(lmdb.Error):
+        _payloads_db(ro0)
+    ro0.close()

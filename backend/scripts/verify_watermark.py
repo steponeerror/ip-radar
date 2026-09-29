@@ -32,8 +32,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # backend/
 from ipdb._watermark import (  # noqa: E402
     CONFIRM_THRESHOLD, MARK_GAMMA, canary_family, mark_value)
 from ipdb._sources._lmdb import (  # noqa: E402
-    decode_value, env_dir, ip_to_int, ip_to_int6, lookup,
-    open_env_read, read_disjoint_flag, read_ptr)
+    PAYLOADS_NAME, _payloads_db, decode_value, env_dir, ip_to_int,
+    ip_to_int6, lookup, open_env_read, read_disjoint_flag, read_ptr,
+    resolve_evidence)
 
 
 def detect(query_fn) -> dict:
@@ -131,13 +132,19 @@ def _layer2(data_dir: Path) -> dict:
         if epoch is None:
             continue
         env = open_env_read(env_dir(base, epoch))
+        pay_db = _payloads_db(env)   # 字典句柄:read txn 外取(open_env_read 已预热)
         with env.begin() as txn:
             cur = txn.cursor()
             ok = cur.first()
             while ok:
                 key, raw = cur.key(), cur.value()
+                if key == PAYLOADS_NAME:      # 命名库描述符键:非数据记录
+                    ok = cur.next()
+                    continue
                 start = int.from_bytes(key, "big")
                 end, ev = decode_value(raw)
+                if isinstance(ev, int):       # 字典化 env:ref 解引用后再扫描
+                    ev = resolve_evidence(txn, ev, pay_db)
                 for e in (ev if isinstance(ev, list) else [ev]):
                     scanned += 1
                     ex = e.get("extra") if isinstance(e, dict) else None
