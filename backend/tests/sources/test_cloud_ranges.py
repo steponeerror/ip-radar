@@ -7,10 +7,20 @@ round-trip 钉住:冻结 Evidence 形状、per-provider reliability、缺家文�
 的 round-trip 用例(query 返回 evidence dict 列表,verdict="" 落库即省略)。
 """
 import json
+import os
+import time
 from pathlib import Path
 
+import pytest
+
 from ipdb._evidence import Evidence
+from ipdb._source_base import Source
 from ipdb._sources.cloud_ranges import (
+    _ALIBABA_URL,
+    _AWS_URL,
+    _GCP_URL,
+    _ORACLE_URL,
+    _PAGE,
     CloudRangesSource,
     _FEEDS,
     _provider_by_file,
@@ -155,3 +165,125 @@ def test_metadata_declared():
     assert s.authoritative_for == ()
     assert s.reliability == 0.95
     assert s.url is None                    # 单源多 host,无单一权威 URL(cn_isp 先例)
+
+
+# ── Task 3: 运维面(download 部分容忍 / legacy 清理 / feeds health) ──
+# monkeypatch Source._http_get(五家 fetch 的统一传输层):查表返回伪造响应,
+# fail_urls 直接 raise 模拟单家/全体传输故障,零真实网络。
+
+_AZURE_LINK = ("https://download.microsoft.com/download/x/"
+               "ServiceTags_Public_20260101.json")
+_OK_RESPONSES = {
+    _AWS_URL: b'{"prefixes": [{"ip_prefix": "203.0.113.0/24"}]}',
+    _GCP_URL: b'{"prefixes": [{"ipv4Prefix": "198.51.100.0/24"}]}',
+    _PAGE: (b'<html><a href="' + _AZURE_LINK.encode() + b'">dl</a></html>'),
+    _AZURE_LINK: (b'{"values": [{"name": "AzureCloud", '
+                  b'"properties": {"addressPrefixes": ["192.0.2.0/24"]}}]}'),
+    _ORACLE_URL: b'{"regions": [{"region": "us-ashburn-1", '
+                 b'"cidrs": [{"cidr": "198.18.0.0/15"}]}]}',
+    _ALIBABA_URL: b"203.0.114.0/24\n",
+}
+
+
+def _patch_http(monkeypatch, fail_urls=()):
+    def fake_get(url, *, headers=None, timeout=120, retries=3):
+        if url in fail_urls:
+            raise RuntimeError(f"network down: {url}")
+        return _OK_RESPONSES[url]
+
+    monkeypatch.setattr(Source, "_http_get", staticmethod(fake_get))
+
+
+def test_download_partial_failure_keeps_old_file(tmp_path, monkeypatch):
+    """azure 单家挂:download 整体成功;旧 azure.json 原样保留(内容+mtime
+    不变),其余四家新落地,scratch 不留(cn_isp 部分容忍先例)。"""
+    d = tmp_path / _DIR
+    d.mkdir(parents=True)
+    old = d / "azure.json"
+    old.write_text("PREVIOUS INTERMEDIATE")
+    old_mtime = old.stat().st_mtime_ns
+    _patch_http(monkeypatch, fail_urls=(_PAGE,))      # azure 第一步即挂
+    CloudRangesSource(data_dir=tmp_path).download()
+    assert old.read_bytes() == b"PREVIOUS INTERMEDIATE"
+    assert old.stat().st_mtime_ns == old_mtime
+    for url, name in ((_AWS_URL, "aws.json"), (_GCP_URL, "gcp.json"),
+                      (_ORACLE_URL, "oracle.json"),
+                      (_ALIBABA_URL, "alibaba.txt")):
+        assert (d / name).read_bytes() == _OK_RESPONSES[url]
+    assert not list(d.glob("*.dl"))                   # scratch 清干净
+
+
+def test_download_all_failed_raises(tmp_path, monkeypatch):
+    """五家全挂必须 raise(防空 rebuild 清库)。"""
+    _patch_http(monkeypatch, fail_urls=tuple(_OK_RESPONSES))
+    s = CloudRangesSource(data_dir=tmp_path)
+    with pytest.raises(RuntimeError, match="all cloud_ranges feeds"):
+        s.download()
+
+
+def test_cleanup_legacy_only_touches_five_families(tmp_path, monkeypatch):
+    """旧单源文件名 + .lmdb.*/.v6.lmdb.* sidecar(epoch 目录与 ptr 文件两
+    形态)在首次 download 后全消失;旁源文件原样。"""
+    legacy_file = tmp_path / "aws_ranges.json"
+    legacy_file.write_text("{}")
+    epoch_dir = tmp_path / "aws_ranges.json.lmdb.1"   # LMDB epoch 目录形态
+    epoch_dir.mkdir()
+    (epoch_dir / "data.mdb").write_text("x")
+    ptr = tmp_path / "aws_ranges.json.lmdb.ptr"       # ptr/count/cov 文件形态
+    ptr.write_text("1")
+    v6_dir = tmp_path / "alibaba_ranges.txt.v6.lmdb.2"   # v6 变体目录
+    v6_dir.mkdir()
+    v6_ptr = tmp_path / "alibaba_ranges.txt.v6.lmdb.ptr"
+    v6_ptr.write_text("2")
+    orphan_txt = tmp_path / "alibaba_ranges.txt"
+    orphan_txt.write_text("203.0.114.0/24\n")
+    bystander_dir = tmp_path / "blocklist_de"         # 旁源:不得误伤
+    bystander_dir.mkdir()
+    (bystander_dir / "ssh.txt").write_text("1.2.3.4\n")
+    bystander_file = tmp_path / "blocklist_de.txt"
+    bystander_file.write_text("1.2.3.4\n")
+
+    _patch_http(monkeypatch)          # 五家全成功;download 首步执行清理
+    CloudRangesSource(data_dir=tmp_path).download()
+
+    for gone in (legacy_file, epoch_dir, ptr, v6_dir, v6_ptr, orphan_txt):
+        assert not gone.exists()
+    assert (bystander_dir / "ssh.txt").exists()
+    assert bystander_file.exists()
+
+
+def test_health_any_stale(tmp_path):
+    """feeds 逐家 mtime → FeedHealth;任一超期即源级 stale;last_updated =
+    max-mtime;Azure 阈值 14 查 _FEEDS 表(health 内不硬编码:13 天不超期)。"""
+    _write_all(tmp_path)
+    azure = tmp_path / _DIR / "azure.json"
+    now = time.time()
+    os.utime(azure, (now - 15 * 86400,) * 2)         # Azure 阈值 14 → 超期
+    h = CloudRangesSource(data_dir=tmp_path).health()
+    by_name = {f.name: f for f in h.feeds}
+    assert set(by_name) == {f[0] for f in _FEEDS}
+    assert by_name["Azure"].is_stale is True
+    assert by_name["AWS"].is_stale is False
+    assert h.is_stale is True
+    newest = max((tmp_path / _DIR / f[3]).stat().st_mtime for f in _FEEDS)
+    assert h.last_updated == time.strftime("%Y-%m-%dT%H:%M:%SZ",
+                                            time.gmtime(newest))
+    os.utime(azure, (now - 13 * 86400,) * 2)         # 13 < 14 → 不超期
+    h2 = CloudRangesSource(data_dir=tmp_path).health()
+    assert {f.name: f.is_stale for f in h2.feeds}["Azure"] is False
+    assert h2.is_stale is False
+
+
+def test_health_no_files_stale(tmp_path):
+    """无任何文件(目录不存在):源级 stale、last_updated None,五家 feed
+    全部 last_updated=None / is_stale=True。"""
+    h = CloudRangesSource(data_dir=tmp_path).health()
+    assert h.is_stale is True
+    assert h.last_updated is None
+    assert len(h.feeds) == len(_FEEDS)
+    assert all(f.last_updated is None and f.is_stale for f in h.feeds)
+
+
+def test_download_host_is_none(tmp_path):
+    """五家出版方无单一权威主机(cn_isp 先例)——registry 名册落 '-'。"""
+    assert CloudRangesSource(data_dir=tmp_path).download_host is None

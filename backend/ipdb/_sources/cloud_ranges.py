@@ -32,12 +32,16 @@ publisher-self 0.95 ×4, Alibaba aggregator 0.75.
 import ipaddress
 import json
 import logging
+import os
 import re
+import shutil
+import time
 from pathlib import Path
 from typing import Iterator
 
 from .._evidence import Evidence
 from .._source_base import Source
+from .._types import FeedHealth, SourceHealth
 
 logger = logging.getLogger(__name__)
 
@@ -188,6 +192,17 @@ _FEEDS = (
 
 _BY_FILE = {entry[3]: entry for entry in _FEEDS}
 
+# 五个旧单源时代的数据文件名(download 首跑清理目标);sidecar 命名沿
+# Source 基类:<name>.lmdb.<epoch>/ 目录 + ptr/count/cov 文件 + .v6.lmdb.*
+# 变体(blocklist_de._cleanup_legacy 同款 glob,加 v6)。
+_LEGACY_FILES = (
+    "aws_ranges.json",
+    "gcp_ranges.json",
+    "azure_ranges.json",
+    "oracle_ranges.json",
+    "alibaba_ranges.txt",
+)
+
 
 def _provider_by_file(filename: str) -> str | None:
     """中间文件名 → provider 展示名查表(None = 非本源 feed 文件)。"""
@@ -210,6 +225,89 @@ class CloudRangesSource(Source):
     def __init__(self, data_dir: Path):
         super().__init__(data_dir)
         self._path = data_dir / "cloud_ranges"   # directory, not file
+
+    @property
+    def download_host(self) -> str | None:
+        # 单源多 host(五家出版方各自域名),无单一权威主机 — cn_isp 先例。
+        return None
+
+    def _cleanup_legacy(self) -> None:
+        """删除五个旧单源时代的数据文件及其 LMDB sidecar(含 v6 变体)。
+
+        sidecar 形态两种(blocklist_de 同款):epoch 目录 rmtree;
+        ptr/count/cov 等文件 sidecar unlink。"""
+        for name in _LEGACY_FILES:
+            (self._path.parent / name).unlink(missing_ok=True)
+            for pattern in (f"{name}.lmdb.*", f"{name}.v6.lmdb.*"):
+                for side in self._path.parent.glob(pattern):
+                    if side.is_dir():
+                        shutil.rmtree(side, ignore_errors=True)
+                    else:
+                        side.unlink(missing_ok=True)
+
+    def download(self, token=None) -> None:
+        """五家逐个:fetch → scratch `<file>.dl` → os.replace 原子落地。
+
+        单家失败 logger.warning 计数且保留旧中间文件(cn_isp 部分容忍:
+        harvest 本就容忍缺家,旧数据继续可用);五家全挂才 raise。os.replace
+        落地新目录项,目录 mtime 随之前进 — needs_convert 语义保持。首跑
+        顺带清理旧单源遗留文件(_cleanup_legacy)。"""
+        self._path.mkdir(parents=True, exist_ok=True)
+        self._cleanup_legacy()
+        failed = 0
+        for provider, fetch, _parse, filename, _rel, _stale in _FEEDS:
+            dest = self._path / filename
+            scratch = dest.with_name(dest.name + ".dl")
+            try:
+                data = fetch(token)
+                scratch.write_bytes(data)
+                os.replace(scratch, dest)
+                logger.info(f"cloud_ranges: downloaded {provider} ({filename})")
+            except Exception as e:
+                failed += 1
+                logger.warning(
+                    f"cloud_ranges: {provider} download failed "
+                    f"({filename}): {e} — keeping existing intermediate")
+            finally:
+                scratch.unlink(missing_ok=True)
+        if failed == len(_FEEDS):
+            raise RuntimeError(
+                f"all cloud_ranges feeds failed to download: "
+                f"{[f[0] for f in _FEEDS]}")
+
+    def health(self) -> SourceHealth:
+        """目录形覆写(blocklist_de 同式):逐家 mtime → FeedHealth,阈值查
+        _FEEDS 表(Azure 14,不硬编码);任一家超期或无任何文件即源级
+        stale;last_updated = max-mtime;其余字段沿基类语义。"""
+        feeds = []
+        mtimes = []
+        for provider, _fetch, _parse, filename, _rel, stale_days in _FEEDS:
+            p = self._path / filename
+            if p.exists():
+                mtime = p.stat().st_mtime
+                mtimes.append(mtime)
+                feeds.append(FeedHealth(
+                    name=provider,
+                    last_updated=time.strftime(
+                        "%Y-%m-%dT%H:%M:%SZ", time.gmtime(mtime)),
+                    is_stale=time.time() - mtime > stale_days * 86400,
+                ))
+            else:
+                feeds.append(FeedHealth(
+                    name=provider, last_updated=None, is_stale=True))
+        file_mtime = max(mtimes) if mtimes else None
+        return SourceHealth(
+            name=self.name,
+            loaded=self._reader is not None,
+            record_count=self._count,
+            last_updated=(time.strftime("%Y-%m-%dT%H:%M:%SZ",
+                                        time.gmtime(file_mtime))
+                          if file_mtime else None),
+            is_stale=file_mtime is None or any(f.is_stale for f in feeds),
+            covered_ips=self._covered_ips,
+            covered_v6_nets=self._covered_v6_nets,
+            feeds=feeds,
+        )
 
     def harvest(self):
         if not self._path.exists():
