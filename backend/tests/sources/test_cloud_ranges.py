@@ -13,8 +13,9 @@ from pathlib import Path
 
 import pytest
 
-from ipdb._evidence import Evidence
+from ipdb._evidence import ASSET_SLOTS, Evidence
 from ipdb._source_base import Source
+from ipdb._types import AssetStatement
 from ipdb._sources.cloud_ranges import (
     _ALIBABA_URL,
     _AWS_URL,
@@ -137,6 +138,56 @@ def test_non_cloud_ip_miss(tmp_path: Path):
     assert s.query("2001:db8:dddd::1") == {}      # fixture 外 v6
 
 
+def test_cross_provider_same_cidr_statements(tmp_path: Path):
+    """spec 验收 §4.1 跨家重叠段的 carve-out 钉死:AWS 与 Alibaba 声明同一
+    CIDR → 同一最长前缀桶内两家证据并存 —— 按 _registry.lookup 的
+    AssetStatement 收集口径:service 两条(native_type 各异)、is_hosting
+    一条(同 source+value+native_type=None 三元组去重)。跨家**嵌套** CIDR
+    场景则 LPM 只返回最长前缀桶(更短前缀桶证据不并入),与 cdn_edges
+    先例语义一致 —— 文末一并钉死。"""
+    d = tmp_path / _DIR
+    d.mkdir(parents=True)
+    (d / "aws.json").write_text(json.dumps(
+        {"prefixes": [{"ip_prefix": "203.0.113.0/24"}]}))
+    (d / "alibaba.txt").write_text(
+        "203.0.113.0/24\n"          # 与 AWS 同一 CIDR(重叠段)
+        "203.0.113.128/25\n")       # 嵌套更长前缀(carve-out 探针)
+    (d / "gcp.json").write_text(json.dumps({"prefixes": []}))
+    (d / "azure.json").write_text(json.dumps({"values": []}))
+    (d / "oracle.json").write_text(json.dumps({"regions": []}))
+    s = CloudRangesSource(data_dir=tmp_path)
+    assert s.rebuild() > 0
+
+    recs = s.query("203.0.113.55")                 # 同 CIDR 段内
+    assert len(recs) == 2                          # 两家证据同桶并存
+    by_native = {r["_native_types"]["service"]: r for r in recs}
+    assert set(by_native) == {"AWS", "Alibaba"}
+    assert by_native["AWS"]["reliability"] == 0.95
+    assert by_native["Alibaba"]["reliability"] == 0.75
+    # _registry.lookup 同款收集循环(AssetStatement 去重三元组)
+    attributes: dict = {}
+    for item in recs:
+        native_types = item.get("_native_types") or {}
+        for akey in ASSET_SLOTS:
+            if akey in item:
+                stmt = AssetStatement(
+                    source=s.name, value=item[akey],
+                    native_type=native_types.get(akey))
+                if not any(x.source == stmt.source and x.value == stmt.value
+                           and x.native_type == stmt.native_type
+                           for x in attributes.setdefault(akey, [])):
+                    attributes[akey].append(stmt)
+    assert len(attributes["service"]) == 2
+    assert {st.native_type for st in attributes["service"]} == {"AWS", "Alibaba"}
+    assert attributes["is_hosting"] == [AssetStatement(
+        source="cloud_ranges", value=True, native_type=None)]
+
+    # 嵌套 carve-out:LPM 只回最长前缀桶(cdn_edges 先例),不并入父段
+    # (203.0.113.200 同时落在 Alibaba /25 与两家共有的 /24 桶内,只回 /25 桶)
+    nested = s.query("203.0.113.200")
+    assert [r["_native_types"]["service"] for r in nested] == ["Alibaba"]
+
+
 def test_feeds_table_contract():
     """_FEEDS 六元组 = (provider, fetch_fn, parse_fn, filename, reliability,
     stale_days);provider 冻结名与 per-provider 值按 Global Constraints。"""
@@ -165,6 +216,7 @@ def test_metadata_declared():
     assert s.authoritative_for == ()
     assert s.reliability == 0.95
     assert s.url is None                    # 单源多 host,无单一权威 URL(cn_isp 先例)
+    assert s.stale_days == 7                # 显式声明,防基类默认漂移(scheduler 消费)
 
 
 # ── Task 3: 运维面(download 部分容忍 / legacy 清理 / feeds health) ──
@@ -219,6 +271,96 @@ def test_download_all_failed_raises(tmp_path, monkeypatch):
     s = CloudRangesSource(data_dir=tmp_path)
     with pytest.raises(RuntimeError, match="all cloud_ranges feeds"):
         s.download()
+
+
+def test_download_records_partial_failure_signal(tmp_path, monkeypatch):
+    """终审 Important#1 源侧:download 把失败家记入 last_partial_failure
+    (RefreshScheduler 的 done-但-部分失败信号):全绿 = 空列表,单家挂 =
+    该家名,全挂 raise 前同样记录。"""
+    (tmp_path / _DIR).mkdir(parents=True)
+    s = CloudRangesSource(data_dir=tmp_path)
+    assert s.last_partial_failure == []          # 初始态(尚未 download)
+    _patch_http(monkeypatch)
+    s.download()
+    assert s.last_partial_failure == []
+    _patch_http(monkeypatch, fail_urls=(_PAGE,))
+    s.download()
+    assert s.last_partial_failure == ["Azure"]
+    _patch_http(monkeypatch, fail_urls=tuple(_OK_RESPONSES))
+    with pytest.raises(RuntimeError, match="all cloud_ranges feeds"):
+        s.download()
+    assert s.last_partial_failure == [
+        "AWS", "Google", "Azure", "Oracle Cloud", "Alibaba"]
+
+
+# Rails 应用可能的 200-HTML 错误/维护页(旧 test_alibaba_ranges.py 同款)
+_ERROR_PAGE = (
+    b"<!DOCTYPE html><html><body>"
+    b"<h1>We're sorry, but something went wrong (500)</h1>"
+    b"</body></html>\n"
+)
+
+
+def _patch_http_with(url, body):
+    """_patch_http 变体:单一 url 返回 body,其余照 _OK_RESPONSES。"""
+    def fake_get(u, *, headers=None, timeout=120, retries=3):
+        return body if u == url else _OK_RESPONSES[u]
+    return staticmethod(fake_get)
+
+
+def test_alibaba_html_error_page_end_to_end_guard(tmp_path, monkeypatch):
+    """旧 test_alibaba_ranges.py 的 200-HTML 错误页端到端守卫移植(终审
+    #6a):Rails 错误页(非空体)穿不透 _validate_raw —— 旧 alibaba.txt
+    中间文件原样保留(内容+mtime),该家计失败(部分容忍,非整源炸)。"""
+    d = tmp_path / _DIR
+    d.mkdir(parents=True)
+    good = "203.0.113.0/24\n198.51.100.0/24\n"
+    (d / "alibaba.txt").write_text(good)
+    old_mtime = (d / "alibaba.txt").stat().st_mtime_ns
+    monkeypatch.setattr(Source, "_http_get",
+                        _patch_http_with(_ALIBABA_URL, _ERROR_PAGE))
+    s = CloudRangesSource(data_dir=tmp_path)
+    s.download()                                    # 整体成功:其余四家照常
+    assert (d / "alibaba.txt").read_text() == good  # 旧中间文件原样保留
+    assert (d / "alibaba.txt").stat().st_mtime_ns == old_mtime
+    assert s.last_partial_failure == ["Alibaba"]    # 该家计失败
+    assert (d / "aws.json").exists()
+    assert not list(d.glob("*.dl"))                 # scratch 清干净
+
+
+def test_fetch_json_rejects_html_error_page(tmp_path, monkeypatch):
+    """终审 #4:aws/gcp/oracle 的 _fetch_json 补 JSON 可解析守卫 ——
+    200-HTML 不得换掉好中间文件(azure/alibaba 已有守卫);失败走单家
+    部分容忍路径。"""
+    d = tmp_path / _DIR
+    d.mkdir(parents=True)
+    good = json.dumps({"prefixes": [{"ipv4Prefix": "198.51.100.0/24"}]})
+    (d / "gcp.json").write_text(good)
+    old_mtime = (d / "gcp.json").stat().st_mtime_ns
+    monkeypatch.setattr(Source, "_http_get",
+                        _patch_http_with(_GCP_URL, _ERROR_PAGE))
+    s = CloudRangesSource(data_dir=tmp_path)
+    s.download()                                    # 单家挂不炸整源
+    assert (d / "gcp.json").read_text() == good    # 好中间文件原样保留
+    assert (d / "gcp.json").stat().st_mtime_ns == old_mtime
+    assert s.last_partial_failure == ["Google"]
+
+
+def test_cleanup_legacy_deferred_until_fetch_lands(tmp_path, monkeypatch):
+    """终审 #3 回滚安全:_cleanup_legacy 在 fetch 循环**之后** —— 升级首跑
+    fetch 全挂(raise)时五个旧单源文件还在,回滚上一版本仍可用;旧中间
+    文件对新源本就不可读,后置对成功路径零差别(见上例
+    test_cleanup_legacy_only_touches_five_families)。"""
+    legacy = tmp_path / "aws_ranges.json"
+    legacy.write_text("{}")
+    orphan = tmp_path / "alibaba_ranges.txt"
+    orphan.write_text("203.0.113.0/24\n")
+    _patch_http(monkeypatch, fail_urls=tuple(_OK_RESPONSES))
+    s = CloudRangesSource(data_dir=tmp_path)
+    with pytest.raises(RuntimeError, match="all cloud_ranges feeds"):
+        s.download()
+    assert legacy.exists()
+    assert orphan.exists()
 
 
 def test_cleanup_legacy_only_touches_five_families(tmp_path, monkeypatch):

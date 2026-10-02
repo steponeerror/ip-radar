@@ -258,6 +258,101 @@ def test_reconcile_success_clears_fail_count(tmp_path):
     assert "x" not in sch._last_task
 
 
+class PartialFeedSource(SchedFakeSource):
+    """cloud_ranges 形源:download 部分容忍,失败家记在
+    last_partial_failure(scheduler 的 done-但-部分失败信号,spec §2.3)。"""
+
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self.last_partial_failure: list = []
+
+
+def _make_partial_src(name, tmp_path, mtime=None):
+    p = tmp_path / f"fake_{name}"
+    p.write_text("x")
+    # stale_days=7(周级,cloud_ranges 同款):默认 mtime = 8 天前 → 已过
+    # 周级 deadline,首扫即 due(与日级用例的 OLD=1 天前同理)。
+    if mtime is None:
+        mtime = NOW - 8 * 86400
+    return PartialFeedSource(name, path=p, stale_days=7, mtime=mtime)
+
+
+def test_reconcile_partial_failure_backoff_not_stale_days(tmp_path):
+    """终审 Important#1:部分容忍下 download 整体 done、目录 mtime 前进
+    (四家成一家挂),旧槽位判定只看新鲜 mtime → 下次重试 = +stale_days
+    (+7d),坏死家永不自愈。修复:done-但-部分失败(last_partial_failure
+    非空)→ 走 _BACKOFF_SECONDS 封顶 backoff(≤12h),自愈前持续重试。"""
+    src = _make_partial_src("cloud_ranges", tmp_path)
+    sch, mgr = _make_scheduler([src])
+    sch.scan(now=NOW)                          # enqueues t0
+    mgr._states[sch._last_task["cloud_ranges"]] = "done"
+    src.set_mtime(NOW + 100.0)                 # 成功落地的四家推进目录 mtime
+    src.last_partial_failure = ["Azure"]       # …但 Azure 挂了
+    sch.scan(now=NOW + 1000.0)                 # reconcile: done + mtime 前进
+    b = sch._backoff["cloud_ranges"]
+    assert b.fail_count == 1
+    assert b.next_attempt == NOW + 1000.0 + 3600    # 首级 1h
+    # 核心断言:下次重试间隔 ≤ backoff 封顶(12h),而非 stale_days 的 7 天
+    assert b.next_attempt - (NOW + 1000.0) <= 43200 < 7 * 86400
+    # backoff 未到期:mtime 全新也压着不重试(防 30 分钟全源重拉风暴)
+    sch.scan(now=NOW + 2000.0)
+    assert mgr.enqueued == ["cloud_ranges"]
+    # 到期即重试:部分失败信号短路槽位判定,不等 mtime + 7d
+    sch.scan(now=NOW + 4601.0)
+    assert mgr.enqueued == ["cloud_ranges", "cloud_ranges"]
+    # 再次部分失败 → 逐级爬梯 2h
+    mgr._states[sch._last_task["cloud_ranges"]] = "done"
+    src.set_mtime(NOW + 4700.0)
+    sch.scan(now=NOW + 4800.0)
+    assert sch._backoff["cloud_ranges"].fail_count == 2
+    assert sch._backoff["cloud_ranges"].next_attempt == NOW + 4800.0 + 7200
+
+
+def test_partial_failure_backoff_caps_at_12h(tmp_path):
+    """持续部分失败的重试间隔封顶 _BACKOFF_SECONDS 末位 12h:既不无限
+    放大,也不退化成每扫描周期的全源重拉。"""
+    src = _make_partial_src("cloud_ranges", tmp_path)
+    sch, mgr = _make_scheduler([src])
+    sch.scan(now=NOW)
+    mgr._states[sch._last_task["cloud_ranges"]] = "done"
+    src.set_mtime(NOW + 100.0)
+    src.last_partial_failure = ["Azure"]
+    sch._backoff["cloud_ranges"] = type("B", (), {
+        "fail_count": 5, "next_attempt": 0.0})()    # 已在梯子末级
+    sch.scan(now=NOW + 1000.0)
+    b = sch._backoff["cloud_ranges"]
+    assert b.fail_count == 6
+    assert b.next_attempt == NOW + 1000.0 + 43200   # 封顶 12h
+
+
+def test_partial_failure_healed_resumes_stale_days_rhythm(tmp_path):
+    """全绿自愈:Azure 恢复(last_partial_failure 清空)→ backoff 消除,
+    新 mtime 重新按槽位节奏(stale_days 内不再重试,正常节奏不变)。"""
+    src = _make_partial_src("cloud_ranges", tmp_path)
+    sch, mgr = _make_scheduler([src])
+    sch.scan(now=NOW)                          # 首次入队
+    mgr._states[sch._last_task["cloud_ranges"]] = "done"
+    src.set_mtime(NOW + 100.0)
+    src.last_partial_failure = ["Azure"]
+    sch.scan(now=NOW + 1000.0)
+    assert "cloud_ranges" in sch._backoff        # 部分失败被记入梯子
+    # backoff 到期后的重试:此刻 last_partial_failure 仍是上一轮的
+    # ["Azure"](它只在下一轮 download 结束时被覆写)→ 部分失败信号仍短路
+    # 槽位判定,重试得以入队
+    sch.scan(now=NOW + 4601.0)
+    assert mgr.enqueued == ["cloud_ranges", "cloud_ranges"]
+    mgr._states[sch._last_task["cloud_ranges"]] = "done"
+    src.set_mtime(NOW + 5000.0)                 # 五家全落地
+    src.last_partial_failure = []               # 本轮 download 结束时落账:全绿
+    sch.scan(now=NOW + 5200.0)
+    assert "cloud_ranges" not in sch._backoff    # 梯子清空 = 自愈完成
+    assert "cloud_ranges" not in sch._last_task
+    # 正常节奏恢复:mtime 全新、无部分失败 → stale_days 内不再入队
+    for t in (NOW + 5200.0 + 43200, NOW + 5200.0 + 3 * 86400):
+        sch.scan(now=t)
+    assert mgr.enqueued == ["cloud_ranges", "cloud_ranges"]
+
+
 def test_reconcile_real_failure_increments_backoff(tmp_path):
     """mtime unchanged + task_state 'failed' -> fail_count++, next_attempt set."""
     src = _make_src("x", tmp_path, mtime=OLD)
