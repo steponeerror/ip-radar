@@ -20,3 +20,11 @@ def test_api_model_serializes_feeds():
                           is_stale=False, covered_ips=0, covered_v6_nets=0,
                           feeds=[{"name": "AWS", "last_updated": None, "is_stale": False}])
     assert out.model_dump()["feeds"][0]["name"] == "AWS"
+
+def test_api_model_omits_null_feeds():
+    # 响应形状零变化红线(同 _omit_null_error):单 feed 源不带 feeds 键,
+    # 声明默认值不得给每个源的 health 注入 "feeds": null。
+    out = SourceHealthOut(name="x", loaded=True, record_count=0, last_updated=None,
+                          is_stale=False, covered_ips=0, covered_v6_nets=0,
+                          feeds=None)
+    assert "feeds" not in out.model_dump()

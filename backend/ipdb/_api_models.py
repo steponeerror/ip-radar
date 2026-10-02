@@ -108,6 +108,15 @@ class SourceHealthOut(_Out):
     error: Optional[str] = None
     feeds: Optional[list[FeedHealthOut]] = None   # 多 feed 源(如 cloud_ranges);单 feed 源不填
 
+    @model_serializer(mode="wrap")
+    def _omit_null_feeds(self, handler):
+        # feeds 只在多 feed 源出现;模型默认值不得给单 feed 源补成 null
+        # (响应形状零变化红线,同 _omit_null_error)。其余键照常。
+        out = handler(self)
+        if out.get("feeds") is None:
+            out.pop("feeds", None)
+        return out
+
 
 class EvalBadgeOut(_Out):
     verdict: str
