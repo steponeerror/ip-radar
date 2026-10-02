@@ -316,10 +316,36 @@ export default function SourcesPage({ manage = false, tasks = [], batch = null, 
                             manage ? GRID_TEMPLATE_MANAGE : GRID_TEMPLATE_PUBLIC
                           }`}
                         >
-                          {/* 轨道宽度由模板控制;truncate+title 防长名/长字段溢出邻列 */}
-                          <span className="truncate font-mono text-sm text-zinc-200" title={s.name}>
-                            {s.name}
-                          </span>
+                          {/* 轨道宽度由模板控制;truncate+title 防长名/长字段溢出邻列。
+                              名称列同时承载 T5 多 feed 源的 provider 芯片行(源名
+                              下方):stale→text-red-400,fresh→text-zinc-400,字号
+                              小于源名(text-xs vs text-sm)。单 feed 源 feeds 键
+                              被后端省略(响应形状零变化)→ 不渲染任何额外节点;
+                              纯展示,零交互。 */}
+                          <div className="flex min-w-0 flex-col">
+                            <span
+                              className="truncate font-mono text-sm text-zinc-200"
+                              title={s.name}
+                            >
+                              {s.name}
+                            </span>
+                            {s.health.feeds && s.health.feeds.length > 0 && (
+                              <span className="flex flex-wrap gap-x-2 gap-y-0.5">
+                                {s.health.feeds.map((f) => (
+                                  <span
+                                    key={f.name}
+                                    data-feed={f.name}
+                                    data-stale={f.is_stale}
+                                    className={`text-xs leading-tight ${
+                                      f.is_stale ? "text-red-400" : "text-zinc-400"
+                                    }`}
+                                  >
+                                    {f.name}
+                                  </span>
+                                ))}
+                              </span>
+                            )}
+                          </div>
                           <span
                             className="truncate text-xs text-zinc-500"
                             title={s.fields[0] ?? s.archetype}
