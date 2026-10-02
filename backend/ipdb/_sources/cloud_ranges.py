@@ -59,10 +59,17 @@ _LINK_RE = re.compile(r"https://download\.microsoft\.com/download/[^\s\"']+"
 # (token 形参为 download 循环统一调用形态保留,传输层不可取消)
 
 def _fetch_json(url: str, token=None) -> bytes:
-    """官方 JSON 原文直取(守卫:空响应 raise,与旧基类 download 同款)。"""
+    """官方 JSON 原文直取(守卫:空响应与非 JSON 均 raise —— 200-HTML 错误页
+    不得换掉好中间文件;azure/alibaba 各自已有守卫,此为 aws/gcp/oracle
+    补齐;raise 由 download 计入单家失败,走部分容忍路径)。"""
     data = Source._http_get(url)
     if not data.strip():
         raise RuntimeError(f"empty response from {url}")
+    try:
+        json.loads(data)
+    except ValueError:
+        raise RuntimeError(
+            f"non-JSON response from {url} — likely an HTML error page")
     return data
 
 
@@ -221,10 +228,15 @@ class CloudRangesSource(Source):
     authoritative_for = ()
     reliability = 0.95             # 源级 = 官方四家;per-row 查表(Alibaba 0.75)
     url = None                     # 单源多 host,无单一权威 URL(cn_isp 先例)
+    stale_days = 7                 # scheduler due 节奏消费此值;per-feed 阈值在 _FEEDS
 
     def __init__(self, data_dir: Path):
         super().__init__(data_dir)
         self._path = data_dir / "cloud_ranges"   # directory, not file
+        # 最近一次 download 的失败家(provider 展示名;空列表 = 全绿)。
+        # RefreshScheduler 消费此信号:非空 = "done 但部分失败" → 走
+        # _BACKOFF_SECONDS 封顶的 backoff 重试而非 +stale_days(spec §2.3)。
+        self.last_partial_failure: list[str] = []
 
     @property
     def download_host(self) -> str | None:
@@ -249,12 +261,14 @@ class CloudRangesSource(Source):
         """五家逐个:fetch → scratch `<file>.dl` → os.replace 原子落地。
 
         单家失败 logger.warning 计数且保留旧中间文件(cn_isp 部分容忍:
-        harvest 本就容忍缺家,旧数据继续可用);五家全挂才 raise。os.replace
-        落地新目录项,目录 mtime 随之前进 — needs_convert 语义保持。首跑
-        顺带清理旧单源遗留文件(_cleanup_legacy)。"""
+        harvest 本就容忍缺家,旧数据继续可用),失败家名记入
+        self.last_partial_failure(scheduler 据此对 done-但-部分失败走
+        backoff 封顶重试);五家全挂才 raise。os.replace 落地新目录项,
+        目录 mtime 随之前进 — needs_convert 语义保持。_cleanup_legacy 在
+        fetch 循环之后(回滚安全:升级首跑 fetch 全挂时五个旧单源文件还在,
+        回滚上一版本仍可用;旧中间文件对新源本就不可读,后置零差别)。"""
         self._path.mkdir(parents=True, exist_ok=True)
-        self._cleanup_legacy()
-        failed = 0
+        failed: list[str] = []
         for provider, fetch, _parse, filename, _rel, _stale in _FEEDS:
             dest = self._path / filename
             scratch = dest.with_name(dest.name + ".dl")
@@ -264,16 +278,18 @@ class CloudRangesSource(Source):
                 os.replace(scratch, dest)
                 logger.info(f"cloud_ranges: downloaded {provider} ({filename})")
             except Exception as e:
-                failed += 1
+                failed.append(provider)
                 logger.warning(
                     f"cloud_ranges: {provider} download failed "
                     f"({filename}): {e} — keeping existing intermediate")
             finally:
                 scratch.unlink(missing_ok=True)
-        if failed == len(_FEEDS):
+        self.last_partial_failure = failed
+        if len(failed) == len(_FEEDS):
             raise RuntimeError(
                 f"all cloud_ranges feeds failed to download: "
                 f"{[f[0] for f in _FEEDS]}")
+        self._cleanup_legacy()
 
     def health(self) -> SourceHealth:
         """目录形覆写(blocklist_de 同式):逐家 mtime → FeedHealth,阈值查
