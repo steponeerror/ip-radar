@@ -91,6 +91,12 @@ class LookupResultOut(_Out):
 
 
 # ── 源目录 ──
+class FeedHealthOut(_Out):
+    name: str
+    last_updated: Optional[str]
+    is_stale: bool
+
+
 class SourceHealthOut(_Out):
     name: str
     loaded: bool
@@ -100,6 +106,7 @@ class SourceHealthOut(_Out):
     covered_ips: int = 0
     covered_v6_nets: int = 0
     error: Optional[str] = None
+    feeds: Optional[list[FeedHealthOut]] = None   # 多 feed 源(如 cloud_ranges);单 feed 源不填
 
 
 class EvalBadgeOut(_Out):

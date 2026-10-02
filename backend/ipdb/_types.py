@@ -3,6 +3,13 @@ from typing import Any, Optional
 
 
 @dataclass
+class FeedHealth:
+    name: str
+    last_updated: Optional[str]
+    is_stale: bool
+
+
+@dataclass
 class SourceHealth:
     name: str
     loaded: bool
@@ -12,6 +19,7 @@ class SourceHealth:
     covered_ips: int = 0
     covered_v6_nets: int = 0
     error: Optional[str] = None
+    feeds: Optional[list["FeedHealth"]] = None   # 多 feed 源(如 cloud_ranges);单 feed 源不填
 
 
 # ── New typed internal model ──
