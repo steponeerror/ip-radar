@@ -76,7 +76,7 @@ describe("ResultTable service badge", () => {
       ip_range: mf("8.8.8.0/24"), is_isp: true, classifications: {},
       attributes: { service: [
         { source: "infra_services", value: "dns", native_type: "Google Public DNS" },
-        { source: "gcp_ranges", value: "cloud", native_type: "Google" },
+        { source: "cloud_ranges", value: "cloud", native_type: "Google" },
       ] },
     };
     renderWithI18n(<ResultTable results={[dns]} />);
