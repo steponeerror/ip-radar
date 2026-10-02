@@ -2,7 +2,9 @@
 
 A single daemon thread that scans enabled offline sources every `interval`
 seconds and enqueues each at its deterministic 12h-grid slot when due
-(`_due_at`; daily tier twice a day, weekly tier once per stale_days), via
+(`_due_at`; daily tier twice a day, weekly tier once per stale_days) — or
+immediately, behind the backoff gate, for partial-tolerant multi-feed
+sources with a standing feed failure (spec 2026-10-02 §2.3) — via
 enqueue_one_detached (batch_id=None, so scheduler tasks never pollute an
 in-flight manual batch).
 Backoff is inferred on the NEXT scan: a float-mtime diff plus one task_state
@@ -97,10 +99,16 @@ class RefreshScheduler:
                 b = self._backoff.get(name)
                 if b is not None and now < b.next_attempt:
                     continue  # still backing off
-                if not self._needs_rebuild_of(source):
+                if (self._partial_failure_of(source) is None
+                        and not self._needs_rebuild_of(source)):
                     # needs_rebuild is immediate (local integrity, no quota).
                     # Otherwise: slot-based due. mtime None (download-failure
                     # residue) is immediately due; backoff throttles retries.
+                    # A standing partial failure (partial-tolerant multi-feed
+                    # source: overall done, some feeds failed) is likewise due
+                    # now — the slot check keys on the dir mtime, which any
+                    # landed feed advances, hiding the dead one (spec
+                    # 2026-10-02 §2.3); the backoff gate above paces it.
                     mtime = self._read_mtime(source)
                     if mtime is not None and now < _due_at(
                             name, mtime, source.stale_days):
@@ -121,7 +129,15 @@ class RefreshScheduler:
         baseline = self._baseline_mtime.get(name)
         if current != baseline:
             # file was rewritten -> success
-            self._backoff.pop(name, None)
+            if self._partial_failure_of(source) is not None:
+                # done-but-partial: the overall download succeeded and mtime
+                # advanced, but some feeds failed — escalate backoff instead
+                # of clearing it, so the dead feeds keep the 1h..12h retry
+                # pacing instead of waiting out the full stale period (spec
+                # 2026-10-02 §2.3 self-heal; final-review Important #1).
+                self._escalate_backoff(name, now)
+            else:
+                self._backoff.pop(name, None)
             self._last_task.pop(name, None)
             self._baseline_mtime.pop(name, None)
             return
@@ -134,11 +150,7 @@ class RefreshScheduler:
                 self._baseline_mtime.pop(name, None)
             return
         if state == "failed":
-            b = self._backoff.get(name)
-            fail_count = (b.fail_count + 1) if b else 1
-            idx = min(fail_count, len(_BACKOFF_SECONDS)) - 1
-            self._backoff[name] = _Backoff(
-                fail_count=fail_count, next_attempt=now + _BACKOFF_SECONDS[idx])
+            self._escalate_backoff(name, now)
             self._last_task.pop(name, None)
             self._baseline_mtime.pop(name, None)
             return
@@ -147,13 +159,37 @@ class RefreshScheduler:
             self._baseline_mtime.pop(name, None)
             return
         if state == "done":
-            logger.warning(
-                "scheduler: source %s task %s is 'done' but mtime unchanged "
-                "(theoretically unreachable); needs_rebuild will catch a stale MMDB",
-                name, task_id)
+            if self._partial_failure_of(source) is not None:
+                # Unreachable for the one partial-tolerant source (any landed
+                # feed advances the dir mtime), but escalate anyway so a
+                # standing partial failure can never degrade to per-scan
+                # retries (30-min full re-pull storm guard).
+                self._escalate_backoff(name, now)
+            else:
+                logger.warning(
+                    "scheduler: source %s task %s is 'done' but mtime unchanged "
+                    "(theoretically unreachable); needs_rebuild will catch a stale MMDB",
+                    name, task_id)
             self._last_task.pop(name, None)
             self._baseline_mtime.pop(name, None)
             return
+
+    def _escalate_backoff(self, name: str, now: float) -> None:
+        """Bump the failure ladder: 1h, 2h, 4h, 8h, 12h (cap). Shared by the
+        real-failure path and the done-but-partial path (spec §2.3)."""
+        b = self._backoff.get(name)
+        fail_count = (b.fail_count + 1) if b else 1
+        idx = min(fail_count, len(_BACKOFF_SECONDS)) - 1
+        self._backoff[name] = _Backoff(
+            fail_count=fail_count, next_attempt=now + _BACKOFF_SECONDS[idx])
+
+    @staticmethod
+    def _partial_failure_of(source) -> Optional[list]:
+        """Partial-tolerance signal (cloud_ranges): download() records the
+        feeds that failed in `last_partial_failure`. Non-empty → the source
+        is not healthy despite a fresh dir mtime. Sources without the attr
+        (i.e. everything else) report None — scheduling unchanged."""
+        return getattr(source, "last_partial_failure", None) or None
 
     @staticmethod
     def _read_mtime(source) -> Optional[float]:

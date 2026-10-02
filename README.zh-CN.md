@@ -4,7 +4,7 @@
 
 ![IP Radar — 自托管的 IP 情报](assets/social-preview.png)
 
-把 44 个公开情报源搬回家：查任何 IP，拿一份全面的画像——说人话的裁决、逐源证据、置信度，加上地理·城市·ASN、云/托管、代理/VPN/Tor、服务身份，一次看全。一条命令，自己部署。
+把 40 个公开情报源搬回家：查任何 IP，拿一份全面的画像——说人话的裁决、逐源证据、置信度，加上地理·城市·ASN、云/托管、代理/VPN/Tor、服务身份，一次看全。一条命令，自己部署。
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 ![Docker](https://img.shields.io/badge/Docker-one%20container-2496ED?logo=docker&logoColor=white)
@@ -90,7 +90,7 @@ docker compose build --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn
 - **冷启动不挡路** —— 容器数秒就能打开，免密钥源的下载/构建进度在页面顶部横幅实时滚动，建完查询自动解锁——绝不拿着半份数据先给结论。
 - **一份裁决，不是一堆列表** —— 单 IP 一句话结论，逐源证据摆给你看，0-100 置信度（log-odds 贝叶斯融合：源可靠性转对数几率系数、威胁断言按 60 天半衰期衰减、交叉佐证；0 = 无证据，而非清白；标量字段不衰减，city/ip_range 保留原语义）。
 - **地理 · 城市 · ASN** —— GeoLite2 + DB-IP 两票给城市，iptoasn 给自治域，CN ISP 归属（含港澳台）也认得。
-- **代理 · VPN · Tor · CDN · 云，一眼认出来** —— 实检代理列表、VPN 网段（含 NordVPN、ProtonVPN）、Tor 出口、三大 CDN 边缘、AWS/GCP/Azure/Oracle 托管网段，都标得清清楚楚；知名基础设施还会亮出服务身份（8.8.8.8 → DNS · Google Public DNS）。
+- **代理 · VPN · Tor · CDN · 云，一眼认出来** —— 实检代理列表、VPN 网段（含 NordVPN、ProtonVPN）、Tor 出口、三大 CDN 边缘、五家云厂商托管网段（AWS · Google · Azure · Oracle · Alibaba，单源五 feed、逐家健康可见），都标得清清楚楚；知名基础设施还会亮出服务身份（8.8.8.8 → DNS · Google Public DNS）。
 - **IPv6 也能查** —— 裸 v6 / 小段 v6 CIDR 直接查，地理·城市·ASN·VPN·CDN·封禁段对 v6 生效；地理/城市/ASN、云厂商网段、CDN 边缘、DROPv6 等源原生覆盖 v6；多数威胁列表上游本就无 v6 数据，如实显示无记录。
 - **日间/夜间主题切换** —— 明暗一键切换，选择自动记忆、首帧前恢复不闪屏。
 - **一个容器跑全栈，内存自己看着办** —— `docker compose up -d --build` 就有；并发按宿主机内存自动收敛，后台自动刷新按源错峰：日更源每天 2 次、周更源每周 1 次，各源固定时刻错开。
@@ -218,10 +218,7 @@ curl -s http://127.0.0.1:8000/api/db-status
 | hookzof | [hookzof](https://github.com/hookzof/socks5_list) | Live-checked SOCKS5 proxies | |
 | thespeedx | [TheSpeedX](https://github.com/TheSpeedX/PROXY-List) | Live-checked HTTP proxies | |
 | cdn_edges | [CloudFront](https://ip-ranges.amazonaws.com/ip-ranges.json) · [Cloudflare](https://www.cloudflare.com/ips-v4) · [Fastly](https://api.fastly.com/public-ip-list) | CDN edge ranges | |
-| aws_ranges | [AWS](https://ip-ranges.amazonaws.com/ip-ranges.json) | Full AWS footprint — cloud / hosting | |
-| gcp_ranges | [Google](https://www.gstatic.com/ipranges/goog.json) | Google public ranges — cloud / hosting | |
-| azure_ranges | [Azure](https://www.microsoft.com/en-us/download/details.aspx?id=56519) | AzureCloud service tag — cloud / hosting | |
-| oracle_ranges | [Oracle](https://docs.oracle.com/iaas/tools/public_ip_ranges.json) | OCI region ranges — cloud / hosting | |
+| cloud_ranges | [AWS](https://ip-ranges.amazonaws.com/ip-ranges.json) · [Google](https://www.gstatic.com/ipranges/goog.json) · [Azure](https://www.microsoft.com/en-us/download/details.aspx?id=56519) · [Oracle](https://docs.oracle.com/iaas/tools/public_ip_ranges.json) · [Alibaba](https://cloud-ip-ranges.com/) | 云 / 托管网段 —— 单源五 feed（各发布方一家一 feed）；部分失败容忍（单家挂保留旧快照），per-provider reliability：官方自发布 0.95 ×4，Alibaba 第三方聚合商 0.75 | |
 | infra_services | curated | Public DNS-root / NTP infrastructure | |
 
 ## 开发

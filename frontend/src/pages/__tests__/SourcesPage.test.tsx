@@ -488,3 +488,86 @@ describe("SourcesPage grid + header (R1–R8)", () => {
     expect(scroller!.firstElementChild).toHaveClass("min-w-max");
   });
 });
+
+// T5(cloud_ranges 融合):多 feed 源 health.feeds —— 名称列源名下方渲染
+// provider 芯片行(stale→红/fresh→灰,字号小于源名,纯展示零交互)。单 feed
+// 源后端经 _omit_null_feeds 省略 feeds 键(响应形状零变化红线),前端类型
+// 必须可选,且该源行不得渲染任何 [data-feed] 节点。
+describe("SourcesPage feed chips (T5 multi-feed sources)", () => {
+  it("renders per-provider chips under the name: stale red, fresh zinc, smaller font", async () => {
+    vi.mocked(getSources).mockResolvedValueOnce([
+      {
+        name: "cloud_ranges",
+        enabled: true,
+        category: "asset",
+        archetype: "offline",
+        fields: ["service", "is_hosting"],
+        reliability: 0.95,
+        authoritative_for: [],
+        classification_type: null,
+        url: null,
+        stale_days: null,
+        eval: null,
+        health: {
+          name: "cloud_ranges",
+          loaded: true,
+          record_count: 100,
+          covered_ips: 100,
+          last_updated: null,
+          is_stale: true,
+          error: null,
+          feeds: [
+            { name: "AWS", last_updated: "2026-10-01T00:00:00Z", is_stale: false },
+            { name: "Azure", last_updated: null, is_stale: true },
+          ],
+        },
+      },
+      {
+        name: "feodo",
+        enabled: true,
+        category: "threat",
+        archetype: "offline",
+        fields: ["ip"],
+        reliability: 0.5,
+        authoritative_for: [],
+        classification_type: null,
+        url: null,
+        stale_days: null,
+        eval: null,
+        health: {
+          name: "feodo",
+          loaded: true,
+          record_count: 10,
+          covered_ips: 10,
+          last_updated: null,
+          is_stale: true,
+          error: null,
+        },
+      },
+    ]);
+    const { container } = renderWithI18n(<SourcesPage />);
+    await screen.findByText("cloud_ranges");
+    // fresh 芯片:data-feed+data-stale=false,zinc 灰
+    const aws = container.querySelector('[data-feed="AWS"]');
+    expect(aws).not.toBeNull();
+    expect(aws).toHaveAttribute("data-stale", "false");
+    expect(aws).toHaveClass("text-zinc-400");
+    expect(aws).not.toHaveClass("text-red-400");
+    // stale 芯片:data-stale=true,红
+    const azure = container.querySelector('[data-feed="Azure"]');
+    expect(azure).not.toBeNull();
+    expect(azure).toHaveAttribute("data-stale", "true");
+    expect(azure).toHaveClass("text-red-400");
+    // 字号小于源名(源名 text-sm,芯片 text-xs)
+    expect(aws).toHaveClass("text-xs");
+    expect(
+      container.querySelector('[title="cloud_ranges"]')!,
+    ).toHaveClass("text-sm");
+    // 无 feeds 源(键被后端省略)不渲染任何 [data-feed] 节点:全页恰好两枚
+    expect(container.querySelectorAll("[data-feed]")).toHaveLength(2);
+    // 芯片行位于源名下方同一名称单元格内(flex-col 栈序)
+    expect(aws!.compareDocumentPosition(
+      container.querySelector('[title="cloud_ranges"]')!,
+    ) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+  });
+});

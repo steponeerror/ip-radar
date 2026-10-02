@@ -111,7 +111,7 @@ def _discover_sources(data_dir: Path) -> list:
 
 _sources = _discover_sources(DATA_DIR)
 
-# 内部源(如 watermark canary sentinel):从不进 44 源口径 —— list_sources/
+# 内部源(如 watermark canary sentinel):从不进 40 源口径 —— list_sources/
 # get_status/_db_loaded/stale/roster/eval/toggle 全排除(F2/F4,spec §5.2)。
 _INTERNAL_NAMES = frozenset(
     s.name for s in _sources if getattr(s, "internal", False))

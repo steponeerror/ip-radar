@@ -294,6 +294,15 @@ export async function uploadFileStream(
   }
 }
 
+/** 多 feed 源的每家出版方健康(T5 cloud_ranges:AWS/Google/Azure/Oracle
+ *  Cloud/Alibaba)。backend _omit_null_feeds:单 feed 源响应中省略 feeds 键
+ *  (响应形状零变化红线)→ 前端必须可选。 */
+export interface FeedHealth {
+  name: string;
+  last_updated: string | null;
+  is_stale: boolean;
+}
+
 export interface SourceHealth {
   name: string;
   loaded: boolean;
@@ -302,6 +311,7 @@ export interface SourceHealth {
   last_updated: string | null;
   is_stale: boolean;
   error: string | null;
+  feeds?: FeedHealth[] | null;
 }
 
 /** 每源最近考分徽章(/api/sources 聚合,backend _eval_reader.read_overview)。
