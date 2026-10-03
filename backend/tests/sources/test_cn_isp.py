@@ -62,9 +62,14 @@ def test_cn_isp_content_mtime_tracks_isp_dir(tmp_path: Path):
     isp = tmp_path / "isp"
     isp.mkdir()
     (isp / "chinatelecom.txt").write_text("1.0.0.0/24\n")
+    old = tmp_path / "isp" / "old.txt"
+    old.write_text("x\n")
+    import os
+    os.utime(old, (1000000, 1000000))   # 旧文件:证明取的是 max 而非目录/首个
     mtime = RefreshScheduler._read_mtime(s)
     assert mtime is not None
-    assert abs(mtime - isp.stat().st_mtime) < 1         # 目录 mtime,与 cloud_ranges 同机制
+    assert mtime == max(isp.joinpath("chinatelecom.txt").stat().st_mtime,
+                        isp.stat().st_mtime)   # 重写不改目录 mtime,必须取目录内最新文件
 
 
 def test_all_isp_files_failed_raises(tmp_path):

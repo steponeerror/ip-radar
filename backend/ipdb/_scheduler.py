@@ -243,11 +243,21 @@ class RefreshScheduler:
     @staticmethod
     def _read_mtime(source) -> Optional[float]:
         from pathlib import Path
+        import stat as _stat
         p = getattr(source, "_path", None)
         if p is None:
             return None
         try:
-            return Path(p).stat().st_mtime
+            st = Path(p).stat()
+            if _stat.S_ISDIR(st.st_mode):
+                # 目录型源(cn_isp isp/、cloud_ranges/):内容 mtime = 目录内
+                # 最新文件。重写文件不改目录 mtime(线上实证:isp/ 目录停在
+                # 首建日 08-18,文件当天 10-03 刚刷新),只看目录会把新鲜
+                # 多 feed 源误判 46 天过期。
+                mtimes = [c.stat().st_mtime
+                          for c in Path(p).iterdir() if c.is_file()]
+                return max(mtimes) if mtimes else None
+            return st.st_mtime
         except OSError:
             return None
 
