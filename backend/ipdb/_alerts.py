@@ -234,7 +234,10 @@ def evaluate(snapshots: list[dict], now: float) -> dict | None:
 
 
 def push(title: str, body: str) -> bool:
-    """apprise 推送出口(约束 5):notify 结果透传,任何异常 False 不抛。
+    """apprise 推送出口(约束 5):notify 结果 bool() 化透传,任何异常 False 不抛。
+
+    实测 apprise 2.0 的 notify() 返回 AppriseResult 对象,不是 bool;
+    bool() 取其 __bool__(status==SUCCESS),与签名 -> bool 一致。
 
     IP_RADAR_ALERT_URLS 逗号/空白分隔多个 URL;空/未设 → False 且不 import
     apprise(历史照记,只是不通知)。单 URL add 失败仅 log.debug 跳过,
@@ -250,7 +253,7 @@ def push(title: str, body: str) -> bool:
         for url in urls:
             if not ap.add(url):
                 logger.debug("apprise add 失败,跳过该 URL: %s", url)
-        return ap.notify(title=title, body=body)
+        return bool(ap.notify(title=title, body=body))
     except Exception:
         logger.warning("apprise 推送失败(title=%r)", title, exc_info=True)
         return False
