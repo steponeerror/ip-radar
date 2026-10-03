@@ -17,7 +17,7 @@ def _fake(kind):
                     "attributes": {"is_tor": [{"source": "tor_exits",
                                                "value": True}]}}
         return {"classifications": {}, "is_reserved": False,
-                "attributes": {"is_hosting": [{"source": "aws_ranges",
+                "attributes": {"is_hosting": [{"source": "cloud_ranges",
                                                "value": True}]}}
     return lk
 

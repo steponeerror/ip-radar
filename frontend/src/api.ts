@@ -294,6 +294,15 @@ export async function uploadFileStream(
   }
 }
 
+/** 多 feed 源的每家出版方健康(T5 cloud_ranges:AWS/Google/Azure/Oracle
+ *  Cloud/Alibaba)。backend _omit_null_feeds:单 feed 源响应中省略 feeds 键
+ *  (响应形状零变化红线)→ 前端必须可选。 */
+export interface FeedHealth {
+  name: string;
+  last_updated: string | null;
+  is_stale: boolean;
+}
+
 export interface SourceHealth {
   name: string;
   loaded: boolean;
@@ -302,6 +311,14 @@ export interface SourceHealth {
   last_updated: string | null;
   is_stale: boolean;
   error: string | null;
+  // T6 告警诊断对(backend _registry._source_info 合并,_alerts 近 90d 间隔
+  // 中位数):content_age_h = now - 原始文件 mtime(小时);observed_interval_h
+  // = 实测更新节奏(小时)。null = 无文件 / 事件 <5 条 / 读取失败(后端
+  // 永不让 /api/sources 500)。content_age_h 可为负(时钟回拨/未来 mtime),
+  // 展示层负责 clamp 0(见 SourcesPage fmtHours)。
+  content_age_h: number | null;
+  observed_interval_h: number | null;
+  feeds?: FeedHealth[] | null;
 }
 
 /** 每源最近考分徽章(/api/sources 聚合,backend _eval_reader.read_overview)。

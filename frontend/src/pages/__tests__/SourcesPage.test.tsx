@@ -40,6 +40,9 @@ vi.mock("../../api", async () => {
           last_updated: null,
           is_stale: true,
           error: null,
+          // T6:非空诊断对 → 默认 mock 驱动的公开/管理/grid 测试也路过值渲染路径
+          content_age_h: 26,
+          observed_interval_h: 172.8,
         },
       },
     ]),
@@ -202,6 +205,8 @@ describe("SourcesPage read-only info (both modes)", () => {
           last_updated: null,
           is_stale: true,
           error: null,
+          content_age_h: null,
+          observed_interval_h: null,
         },
       },
     ]);
@@ -234,6 +239,8 @@ describe("SourcesPage read-only info (both modes)", () => {
           last_updated: null,
           is_stale: false,
           error: null,
+          content_age_h: null,
+          observed_interval_h: null,
         },
       },
     ]);
@@ -263,6 +270,8 @@ describe("SourcesPage read-only info (both modes)", () => {
           last_updated: null,
           is_stale: false,
           error: null,
+          content_age_h: null,
+          observed_interval_h: null,
         },
       },
     ]);
@@ -296,6 +305,8 @@ describe("SourcesPage read-only info (both modes)", () => {
           last_updated: "2026-09-27T00:00:00Z",
           is_stale: true,
           error: null,
+          content_age_h: null,
+          observed_interval_h: null,
         },
       },
     ]);
@@ -340,6 +351,8 @@ describe("SourcesPage read-only info (both modes)", () => {
           last_updated: null,
           is_stale: false,
           error: null,
+          content_age_h: null,
+          observed_interval_h: null,
         },
       },
       {
@@ -362,6 +375,8 @@ describe("SourcesPage read-only info (both modes)", () => {
           last_updated: null,
           is_stale: true,
           error: null,
+          content_age_h: null,
+          observed_interval_h: null,
         },
       },
     ]);
@@ -465,6 +480,8 @@ describe("SourcesPage grid + header (R1–R8)", () => {
           last_updated: null,
           is_stale: false,
           error: null,
+          content_age_h: null,
+          observed_interval_h: null,
         },
       },
     ]);
@@ -486,5 +503,181 @@ describe("SourcesPage grid + header (R1–R8)", () => {
     expect(screen.getByText("Name").closest(".overflow-x-auto")).toBe(scroller);
     // 内层 min-w-max:窄视口下表头/卡片随行内容整体取宽(圆角不回归)
     expect(scroller!.firstElementChild).toHaveClass("min-w-max");
+  });
+});
+
+// T5(cloud_ranges 融合):多 feed 源 health.feeds —— 名称列源名下方渲染
+// provider 芯片行(stale→红/fresh→灰,字号小于源名,纯展示零交互)。单 feed
+// 源后端经 _omit_null_feeds 省略 feeds 键(响应形状零变化红线),前端类型
+// 必须可选,且该源行不得渲染任何 [data-feed] 节点。
+describe("SourcesPage feed chips (T5 multi-feed sources)", () => {
+  it("renders per-provider chips under the name: stale red, fresh zinc, smaller font", async () => {
+    vi.mocked(getSources).mockResolvedValueOnce([
+      {
+        name: "cloud_ranges",
+        enabled: true,
+        category: "asset",
+        archetype: "offline",
+        fields: ["service", "is_hosting"],
+        reliability: 0.95,
+        authoritative_for: [],
+        classification_type: null,
+        url: null,
+        stale_days: null,
+        eval: null,
+        health: {
+          name: "cloud_ranges",
+          loaded: true,
+          record_count: 100,
+          covered_ips: 100,
+          last_updated: null,
+          is_stale: true,
+          error: null,
+          content_age_h: null,
+          observed_interval_h: null,
+          feeds: [
+            { name: "AWS", last_updated: "2026-10-01T00:00:00Z", is_stale: false },
+            { name: "Azure", last_updated: null, is_stale: true },
+          ],
+        },
+      },
+      {
+        name: "feodo",
+        enabled: true,
+        category: "threat",
+        archetype: "offline",
+        fields: ["ip"],
+        reliability: 0.5,
+        authoritative_for: [],
+        classification_type: null,
+        url: null,
+        stale_days: null,
+        eval: null,
+        health: {
+          name: "feodo",
+          loaded: true,
+          record_count: 10,
+          covered_ips: 10,
+          last_updated: null,
+          is_stale: true,
+          error: null,
+          content_age_h: null,
+          observed_interval_h: null,
+        },
+      },
+    ]);
+    const { container } = renderWithI18n(<SourcesPage />);
+    await screen.findByText("cloud_ranges");
+    // fresh 芯片:data-feed+data-stale=false,zinc 灰
+    const aws = container.querySelector('[data-feed="AWS"]');
+    expect(aws).not.toBeNull();
+    expect(aws).toHaveAttribute("data-stale", "false");
+    expect(aws).toHaveClass("text-zinc-400");
+    expect(aws).not.toHaveClass("text-red-400");
+    // stale 芯片:data-stale=true,红
+    const azure = container.querySelector('[data-feed="Azure"]');
+    expect(azure).not.toBeNull();
+    expect(azure).toHaveAttribute("data-stale", "true");
+    expect(azure).toHaveClass("text-red-400");
+    // 字号小于源名(源名 text-sm,芯片 text-xs)
+    expect(aws).toHaveClass("text-xs");
+    expect(
+      container.querySelector('[title="cloud_ranges"]')!,
+    ).toHaveClass("text-sm");
+    // 无 feeds 源(键被后端省略)不渲染任何 [data-feed] 节点:全页恰好两枚
+    expect(container.querySelectorAll("[data-feed]")).toHaveLength(2);
+    // 芯片行位于源名下方同一名称单元格内(flex-col 栈序)
+    expect(aws!.compareDocumentPosition(
+      container.querySelector('[title="cloud_ranges"]')!,
+    ) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+  });
+});
+
+// T6(源活性告警):health 增 content_age_h/observed_interval_h —— 更新单元格
+// 第二行展示"内容年龄 · 实测节奏"。档位与后端推送 _fmt_hours 同规
+// (<48h → ceil 整数 + "h";≥48h → 一位小数 + "d");cadence 套 i18n 模板
+// (zh "{v}/次" / en "every {v}");null(无文件/事件<5 条)→ "—";负值
+// (时钟回拨,终审 P2-1)clamp 0;完整 i18n 标签入 title(值可见,6rem 固定
+// 轨道容不下双语长标签,循 θ 单元格 tooltip 模式)。
+describe("SourcesPage health diagnostics (T6 content age / measured cadence)", () => {
+  const src = (name: string, contentAge: number | null, observed: number | null) => ({
+    name,
+    enabled: true,
+    category: "threat" as const,
+    archetype: "offline" as const,
+    fields: ["ip"],
+    reliability: 0.5,
+    authoritative_for: [],
+    classification_type: null,
+    url: null,
+    stale_days: null,
+    eval: null,
+    health: {
+      name,
+      loaded: true,
+      record_count: 10,
+      covered_ips: 10,
+      last_updated: null,
+      is_stale: false,
+      error: null,
+      content_age_h: contentAge,
+      observed_interval_h: observed,
+    },
+  });
+
+  it("renders age + cadence in the updated cell: h tier below 48h, d tier above", async () => {
+    vi.mocked(getSources).mockResolvedValueOnce([src("feodo", 26, 172.8)]);
+    const { container } = renderWithI18n(<SourcesPage />);
+    await screen.findByText("feodo");
+    // <48h → 裸数 26h;≥48h → 一位小数 d 档(172.8h → 7.2d)+ cadence 模板
+    const line = container.querySelector('[data-age="26h"]');
+    expect(line).not.toBeNull();
+    expect(line).toHaveAttribute("data-cadence", "every 7.2d");
+    expect(line!.textContent).toBe("26h · every 7.2d");
+  });
+
+  it("carries the full i18n labels on hover (values visible, labels in title)", async () => {
+    vi.mocked(getSources).mockResolvedValueOnce([src("feodo", 26, 172.8)]);
+    renderWithI18n(<SourcesPage />);
+    const line = await screen.findByTitle(/content age/i);
+    expect(line).toHaveAttribute(
+      "title",
+      "Content age 26h · Measured cadence every 7.2d",
+    );
+    // zh-CN 逐字裁决值(循 geo_asn 测试惯例直校 locale 表)
+    expect(translate("zh-CN", "sources.health.contentAge")).toBe("内容年龄");
+    expect(translate("zh-CN", "sources.health.observed")).toBe("实测节奏");
+    expect(translate("zh-CN", "sources.health.cadence", { v: "7.2d" })).toBe("7.2d/次");
+  });
+
+  it("renders — for null age/cadence (no file / <5 events), never 'every —'", async () => {
+    vi.mocked(getSources).mockResolvedValueOnce([src("feodo", null, null)]);
+    const { container } = renderWithI18n(<SourcesPage />);
+    await screen.findByText("feodo");
+    const line = container.querySelector("[data-age]");
+    expect(line!.getAttribute("data-age")).toBe("—");
+    expect(line!.getAttribute("data-cadence")).toBe("—");
+    expect(line!.textContent).toBe("— · —");
+    expect(screen.queryByText(/every/i)).toBeNull();
+  });
+
+  it("clamps negative age/cadence to 0h (clock-skew guard, review P2-1)", async () => {
+    vi.mocked(getSources).mockResolvedValueOnce([src("feodo", -3, -0.4)]);
+    const { container } = renderWithI18n(<SourcesPage />);
+    await screen.findByText("feodo");
+    const line = container.querySelector("[data-age]");
+    // 不渲染负时长:-3 → 0h;-0.4 → clamp 0 → "every 0h"(非 every -0.4h)
+    expect(line!.getAttribute("data-age")).toBe("0h");
+    expect(line!.getAttribute("data-cadence")).toBe("every 0h");
+  });
+
+  it("rounds sub-hour values up to the nearest hour (mirrors backend ceil)", async () => {
+    vi.mocked(getSources).mockResolvedValueOnce([src("feodo", 0.2, 47.9)]);
+    const { container } = renderWithI18n(<SourcesPage />);
+    await screen.findByText("feodo");
+    const line = container.querySelector("[data-age]");
+    // ceil 语义:0.2 → 1h;47.9 < 48 仍在 h 档 → 48h(非 2.0d),与后端一致
+    expect(line!.getAttribute("data-age")).toBe("1h");
+    expect(line!.getAttribute("data-cadence")).toBe("every 48h");
   });
 });

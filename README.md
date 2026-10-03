@@ -4,7 +4,7 @@
 
 ![IP Radar — self-hosted IP intelligence](assets/social-preview.png)
 
-**Pull 44 public sources into your own box — a full IP profile, not just a threat verdict.** Every lookup comes back with a plain-words verdict — evidence, confidence, geo · city · ASN, cloud/hosting, proxy · VPN · Tor, service identity, all at once. One command, self-hosted.
+**Pull 40 public sources into your own box — a full IP profile, not just a threat verdict.** Every lookup comes back with a plain-words verdict — evidence, confidence, geo · city · ASN, cloud/hosting, proxy · VPN · Tor, service identity, all at once. One command, self-hosted.
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 ![Docker](https://img.shields.io/badge/Docker-one%20container-2496ED?logo=docker&logoColor=white)
@@ -86,7 +86,7 @@ Notes:
 - **Cold start doesn't block** — the container opens within seconds; queries unlock only when the keyless feeds are fully built. Never a verdict on half a dataset.
 - **A verdict, not a pile of lists** — one line of conclusion per IP, per-source evidence on the table, 0-100 confidence (log-odds Bayesian fusion: source reliability → logit coefficients, 60-day half-life decay on threat assertions, cross-source corroboration; 0 = no evidence, not innocence; scalar fields don't decay).
 - **Geo · City · ASN** — dual city sources (GeoLite2 + DB-IP), iptoasn for the ASN, plus CN ISP classification incl. HK/MO/TW.
-- **Proxy · VPN · Tor · CDN · cloud, spotted at a glance** — live-checked proxy lists, VPN ranges (incl. NordVPN & ProtonVPN), Tor exits, the big three CDNs' edges, and AWS/GCP/Azure/Oracle hosting ranges, all labeled; known infra also shows its service identity (8.8.8.8 → DNS · Google Public DNS).
+- **Proxy · VPN · Tor · CDN · cloud, spotted at a glance** — live-checked proxy lists, VPN ranges (incl. NordVPN & ProtonVPN), Tor exits, the big three CDNs' edges, and the five cloud providers' hosting ranges (AWS · Google · Azure · Oracle · Alibaba — one fused source, per-feed health), all labeled; known infra also shows its service identity (8.8.8.8 → DNS · Google Public DNS).
 - **IPv6 lookups too** — bare v6 and small v6 CIDRs resolve with geo · city · ASN · VPN · CDN · DROP ranges; geo/city/ASN, cloud-provider ranges, CDN edges and DROPv6 all carry v6; most threat lists have no v6 upstream — shown honestly as no-records.
 - **Day/night theme toggle** — light and dark themes one click apart; your choice is remembered and restored before first paint, so no flash of the wrong theme.
 - **One container, memory that behaves** — concurrency bends to host RAM; background refresh staggered per source: daily feeds 2×/day, weekly 1×/week, each at a fixed offset time.
@@ -214,10 +214,7 @@ Every dataset below belongs to its provider — thank you for keeping them open 
 | hookzof | [hookzof](https://github.com/hookzof/socks5_list) | Live-checked SOCKS5 proxies | |
 | thespeedx | [TheSpeedX](https://github.com/TheSpeedX/PROXY-List) | Live-checked HTTP proxies | |
 | cdn_edges | [CloudFront](https://ip-ranges.amazonaws.com/ip-ranges.json) · [Cloudflare](https://www.cloudflare.com/ips-v4) · [Fastly](https://api.fastly.com/public-ip-list) | CDN edge ranges | |
-| aws_ranges | [AWS](https://ip-ranges.amazonaws.com/ip-ranges.json) | Full AWS footprint — cloud / hosting | |
-| gcp_ranges | [Google](https://www.gstatic.com/ipranges/goog.json) | Google public ranges — cloud / hosting | |
-| azure_ranges | [Azure](https://www.microsoft.com/en-us/download/details.aspx?id=56519) | AzureCloud service tag — cloud / hosting | |
-| oracle_ranges | [Oracle](https://docs.oracle.com/iaas/tools/public_ip_ranges.json) | OCI region ranges — cloud / hosting | |
+| cloud_ranges | [AWS](https://ip-ranges.amazonaws.com/ip-ranges.json) · [Google](https://www.gstatic.com/ipranges/goog.json) · [Azure](https://www.microsoft.com/en-us/download/details.aspx?id=56519) · [Oracle](https://docs.oracle.com/iaas/tools/public_ip_ranges.json) · [Alibaba](https://cloud-ip-ranges.com/) | Cloud / hosting ranges — five publisher feeds behind one source; partial-failure tolerant (a failed feed keeps its last snapshot), per-provider reliability: publisher-self 0.95 ×4, Alibaba (third-party aggregator) 0.75 | |
 | infra_services | curated | Public DNS-root / NTP infrastructure | |
 
 ## Development

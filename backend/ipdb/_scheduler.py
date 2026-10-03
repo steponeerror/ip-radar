@@ -2,7 +2,9 @@
 
 A single daemon thread that scans enabled offline sources every `interval`
 seconds and enqueues each at its deterministic 12h-grid slot when due
-(`_due_at`; daily tier twice a day, weekly tier once per stale_days), via
+(`_due_at`; daily tier twice a day, weekly tier once per stale_days) — or
+immediately, behind the backoff gate, for partial-tolerant multi-feed
+sources with a standing feed failure (spec 2026-10-02 §2.3) — via
 enqueue_one_detached (batch_id=None, so scheduler tasks never pollute an
 in-flight manual batch).
 Backoff is inferred on the NEXT scan: a float-mtime diff plus one task_state
@@ -16,6 +18,8 @@ import threading
 import time
 from dataclasses import dataclass
 from typing import Callable, Optional
+
+from . import _alerts
 
 logger = logging.getLogger(__name__)
 
@@ -92,15 +96,34 @@ class RefreshScheduler:
             try:
                 had_task = name in self._last_task
                 self._reconcile(name, source, now)
+                # 种子事件(Task 4):存量内容冷启动加速——源有 mtime 且
+                # 事件表零行 → 以 mtime 落一条“首次观测到此内容”
+                # (record_count 缺省 None)。放在 reconcile 之后:同轮
+                # mtime 前进已落过事件则这里事件非零,不双记。独立兜错:
+                # 告警侧故障不碰下方调度逻辑。
+                try:
+                    seed_mtime = self._read_mtime(source)
+                    if seed_mtime is not None \
+                            and _alerts.event_count(name) == 0:
+                        _alerts.record_event(name, at=seed_mtime)
+                except Exception:
+                    logger.exception(
+                        "scheduler: seed event failed for %s; continuing", name)
                 if had_task:
                     continue  # just resolved (or still tracking); re-eligible next scan
                 b = self._backoff.get(name)
                 if b is not None and now < b.next_attempt:
                     continue  # still backing off
-                if not self._needs_rebuild_of(source):
+                if (self._partial_failure_of(source) is None
+                        and not self._needs_rebuild_of(source)):
                     # needs_rebuild is immediate (local integrity, no quota).
                     # Otherwise: slot-based due. mtime None (download-failure
                     # residue) is immediately due; backoff throttles retries.
+                    # A standing partial failure (partial-tolerant multi-feed
+                    # source: overall done, some feeds failed) is likewise due
+                    # now — the slot check keys on the dir mtime, which any
+                    # landed feed advances, hiding the dead one (spec
+                    # 2026-10-02 §2.3); the backoff gate above paces it.
                     mtime = self._read_mtime(source)
                     if mtime is not None and now < _due_at(
                             name, mtime, source.stale_days):
@@ -112,6 +135,30 @@ class RefreshScheduler:
             except Exception:
                 logger.exception("scheduler: error processing source %s; skipping", name)
 
+        # ── 告警周期(Task 4):快照 → evaluate → push → prune ──
+        # 独立 try/except:告警侧任何异常只 log,scheduler 永不因告警死
+        # (约束 5 同精神,把评估/存储/推送一并兑住)。快照必须是 enabled
+        # 源全集——缺失的源会被 evaluate 静默清状态。
+        try:
+            snapshots = []
+            for source in self._enabled_offline_sources():
+                mtime = self._read_mtime(source)
+                b = self._backoff.get(source.name)
+                snapshots.append({
+                    "name": source.name,
+                    "stale_days": source.stale_days,
+                    # mtime None(无文件)→ content_age_h None = 视为 ∞ 必触发
+                    "content_age_h": None if mtime is None
+                    else (now - mtime) / 3600.0,
+                    "fail_count": b.fail_count if b is not None else 0,
+                })
+            msg = _alerts.evaluate(snapshots, now)
+            if msg is not None:
+                _alerts.push(msg["title"], msg["body"])
+            _alerts.prune(now)
+        except Exception:
+            logger.exception("scheduler: alert cycle raised; continuing")
+
     def _reconcile(self, name: str, source, now: float) -> None:
         """Infer the previous cycle's outcome. No-op if name not in _last_task."""
         task_id = self._last_task.get(name)
@@ -121,9 +168,27 @@ class RefreshScheduler:
         baseline = self._baseline_mtime.get(name)
         if current != baseline:
             # file was rewritten -> success
-            self._backoff.pop(name, None)
+            if self._partial_failure_of(source) is not None:
+                # done-but-partial: the overall download succeeded and mtime
+                # advanced, but some feeds failed — escalate backoff instead
+                # of clearing it, so the dead feeds keep the 1h..12h retry
+                # pacing instead of waiting out the full stale period (spec
+                # 2026-10-02 §2.3 self-heal; final-review Important #1).
+                self._escalate_backoff(name, now)
+            else:
+                self._backoff.pop(name, None)
             self._last_task.pop(name, None)
             self._baseline_mtime.pop(name, None)
+            # 内容变化被确认(Task 4):落一条真实更新事件,record_count 取
+            # 当前 health。独立兜错(仿种子块,T4-P2-1):告警侧故障只丢
+            # 本轮事件,上方已完成的调度状态收敛不受影响。
+            try:
+                _alerts.record_event(name, at=now,
+                                     record_count=source.health().record_count)
+            except Exception:
+                logger.warning(
+                    "alerts: record_event failed for %s; event lost this round",
+                    name)
             return
         # mtime unchanged -> classify by terminal state
         state = self._manager.task_state(task_id)
@@ -134,11 +199,7 @@ class RefreshScheduler:
                 self._baseline_mtime.pop(name, None)
             return
         if state == "failed":
-            b = self._backoff.get(name)
-            fail_count = (b.fail_count + 1) if b else 1
-            idx = min(fail_count, len(_BACKOFF_SECONDS)) - 1
-            self._backoff[name] = _Backoff(
-                fail_count=fail_count, next_attempt=now + _BACKOFF_SECONDS[idx])
+            self._escalate_backoff(name, now)
             self._last_task.pop(name, None)
             self._baseline_mtime.pop(name, None)
             return
@@ -147,13 +208,37 @@ class RefreshScheduler:
             self._baseline_mtime.pop(name, None)
             return
         if state == "done":
-            logger.warning(
-                "scheduler: source %s task %s is 'done' but mtime unchanged "
-                "(theoretically unreachable); needs_rebuild will catch a stale MMDB",
-                name, task_id)
+            if self._partial_failure_of(source) is not None:
+                # Unreachable for the one partial-tolerant source (any landed
+                # feed advances the dir mtime), but escalate anyway so a
+                # standing partial failure can never degrade to per-scan
+                # retries (30-min full re-pull storm guard).
+                self._escalate_backoff(name, now)
+            else:
+                logger.warning(
+                    "scheduler: source %s task %s is 'done' but mtime unchanged "
+                    "(theoretically unreachable); needs_rebuild will catch a stale MMDB",
+                    name, task_id)
             self._last_task.pop(name, None)
             self._baseline_mtime.pop(name, None)
             return
+
+    def _escalate_backoff(self, name: str, now: float) -> None:
+        """Bump the failure ladder: 1h, 2h, 4h, 8h, 12h (cap). Shared by the
+        real-failure path and the done-but-partial path (spec §2.3)."""
+        b = self._backoff.get(name)
+        fail_count = (b.fail_count + 1) if b else 1
+        idx = min(fail_count, len(_BACKOFF_SECONDS)) - 1
+        self._backoff[name] = _Backoff(
+            fail_count=fail_count, next_attempt=now + _BACKOFF_SECONDS[idx])
+
+    @staticmethod
+    def _partial_failure_of(source) -> Optional[list]:
+        """Partial-tolerance signal (cloud_ranges): download() records the
+        feeds that failed in `last_partial_failure`. Non-empty → the source
+        is not healthy despite a fresh dir mtime. Sources without the attr
+        (i.e. everything else) report None — scheduling unchanged."""
+        return getattr(source, "last_partial_failure", None) or None
 
     @staticmethod
     def _read_mtime(source) -> Optional[float]:
