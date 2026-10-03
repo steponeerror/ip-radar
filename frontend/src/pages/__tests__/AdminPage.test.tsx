@@ -40,7 +40,8 @@ describe("AdminPage", () => {
     const email = await screen.findByLabelText("Email");
     // 品牌行落在 AdminPage 登录态(admin-main.tsx 不再渲染 h1)
     expect(screen.getByRole("heading", { level: 1, name: "IP Radar Admin" })).toBeTruthy();
-    expect(email).toHaveValue("admin@ipradar.local"); // prefilled
+    expect(email).toHaveValue(""); // 不预填:公开 demo 不泄露 admin 标识
+    fireEvent.change(email, { target: { value: "admin@ipradar.local" } });
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "x".repeat(12) } });
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Sign out" })).toBeTruthy());
