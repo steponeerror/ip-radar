@@ -243,6 +243,16 @@ def evaluate(snapshots: list[dict], now: float) -> dict | None:
     return {"title": title, "body": "\n".join(lines)}
 
 
+def _redact_url(url: str) -> str:
+    """URL 脱敏(终审 P2-1):只留 scheme + 尾 4 字符——lark://<token>
+    等凭据不得落日志;无 "://" 或余段过短(≤8)只留 scheme://***。"""
+    scheme, sep, rest = url.partition("://")
+    if not sep:
+        return "***"
+    tail = f"…{rest[-4:]}" if len(rest) > 8 else "***"
+    return f"{scheme}://{tail}"
+
+
 def push(title: str, body: str) -> bool:
     """apprise 推送出口(约束 5):notify 结果 bool() 化透传,任何异常 False 不抛。
 
@@ -250,8 +260,8 @@ def push(title: str, body: str) -> bool:
     bool() 取其 __bool__(status==SUCCESS),与签名 -> bool 一致。
 
     IP_RADAR_ALERT_URLS 逗号/空白分隔多个 URL;空/未设 → False 且不 import
-    apprise(历史照记,只是不通知)。单 URL add 失败仅 log.debug 跳过,
-    notify 对其余 URL 照发。本函数会跑在 scheduler 守护线程里,故全路径
+    apprise(历史照记,只是不通知)。单 URL add 失败仅 log.debug(经
+    _redact_url 脱敏)跳过,notify 对其余 URL 照发。本函数会跑在 scheduler 守护线程里,故全路径
     吞异常(含 apprise 未安装的 ImportError),warning 后返回 False。
     """
     urls = [u for u in re.split(r",\s*|\s+", os.environ.get("IP_RADAR_ALERT_URLS", "")) if u]
@@ -262,7 +272,7 @@ def push(title: str, body: str) -> bool:
         ap = apprise.Apprise()
         for url in urls:
             if not ap.add(url):
-                logger.debug("apprise add 失败,跳过该 URL: %s", url)
+                logger.debug("apprise add 失败,跳过该 URL: %s", _redact_url(url))
         return bool(ap.notify(title=title, body=body))
     except Exception:
         logger.warning("apprise 推送失败(title=%r)", title, exc_info=True)

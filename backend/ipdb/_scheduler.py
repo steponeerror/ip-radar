@@ -180,9 +180,15 @@ class RefreshScheduler:
             self._last_task.pop(name, None)
             self._baseline_mtime.pop(name, None)
             # 内容变化被确认(Task 4):落一条真实更新事件,record_count 取
-            # 当前 health。只增此一行,位置在 backoff 清理/状态收敛之后。
-            _alerts.record_event(name, at=now,
-                                 record_count=source.health().record_count)
+            # 当前 health。独立兜错(仿种子块,T4-P2-1):告警侧故障只丢
+            # 本轮事件,上方已完成的调度状态收敛不受影响。
+            try:
+                _alerts.record_event(name, at=now,
+                                     record_count=source.health().record_count)
+            except Exception:
+                logger.warning(
+                    "alerts: record_event failed for %s; event lost this round",
+                    name)
             return
         # mtime unchanged -> classify by terminal state
         state = self._manager.task_state(task_id)

@@ -90,6 +90,19 @@ def test_recovery_round_message_and_state_delete(alerts_db):
                             now=T0 + 2 * H) is None
 
 
+def test_multi_source_recovery_same_round(alerts_db):
+    from ipdb import _alerts
+    # 两源同轮恢复(T2-P2-1):恢复段源名逗号+空格连接、字母序——
+    # 快照故意逆序传入,锁定输出按 sorted() 排序而非入参顺序
+    _alerts.evaluate([_snap("otx", age=26.0), _snap("dshield", age=26.0)],
+                     now=T0)
+    msg = _alerts.evaluate([_snap("otx", age=1.0), _snap("dshield", age=1.0)],
+                           now=T0 + H)
+    assert msg == {"title": "ipradar: 2 源已恢复",
+                   "body": "——已恢复: dshield, otx"}
+    assert _state(alerts_db) == []
+
+
 def test_fail_condition_and_its_recovery(alerts_db):
     from ipdb import _alerts
     msg = _alerts.evaluate([_snap("otx", age=1.0, fail=3)], now=T0)
