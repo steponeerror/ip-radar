@@ -104,7 +104,7 @@ function AdminShell({ user, onLogout, onUnauthorized }: {
 export default function AdminPage() {
   const { t } = useI18n();
   const { user, loading, login, logout, handleUnauthorized } = useAdminSession();
-  const [email, setEmail] = useState("admin@ipradar.local");
+  const [email, setEmail] = useState(""); // 勿预填:公开 demo 不应泄露 admin 标识
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
