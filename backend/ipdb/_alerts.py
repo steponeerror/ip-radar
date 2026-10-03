@@ -1,4 +1,4 @@
-# backend/ipdb/_alerts.py — 源活性告警:存储层 + 节奏计算 + 判定状态机(Task 1-2)
+# backend/ipdb/_alerts.py — 源活性告警:存储层 + 节奏计算 + 判定状态机 + 推送出口(Task 1-3)
 """update_events 事件表、节奏推导与 evaluate 状态机(stdlib sqlite3 同步,每次操作新连接)。
 
 事件历史恒开,与通知无关(约束 2):scheduler 每见内容更新就 record_event,
@@ -9,15 +9,23 @@ IP_RADAR_ALERTS_DB 可覆盖 db 路径(测试逐用例隔离);缺省落在 _regi
 数据目录(_STATE_PATH.parent),与 auth.db 同级。连接工厂按解析出的路径
 字符串缓存(循 _auth._engine 惯例但同步版):生产单路径单工厂,env 切
 tmp 即新键,互不串台。时间统一 epoch 秒落库(at REAL),对外 API 一律小时。
+
+push 是唯一出站出口(约束 5):apprise 多 URL 推送,env IP_RADAR_ALERT_URLS
+空 = 完全不通知;apprise 惰性 import(env 空不 import),任何异常 warning
+吞掉永不 raise——跑在 scheduler 守护线程里,推送失败不得杀死调度。
 """
+import logging
 import math
 import os
+import re
 import sqlite3
 from contextlib import closing
 from pathlib import Path
 from typing import Callable
 
 from . import _registry
+
+logger = logging.getLogger(__name__)
 
 # 固定参数不设旋钮(约束 8):90d 滚动窗口/清理、min events=5、K=4、fail≥3、24h 重发
 _WINDOW_S = 90 * 86400
@@ -223,3 +231,26 @@ def evaluate(snapshots: list[dict], now: float) -> dict | None:
     else:
         title = f"ipradar: {len(recovered)} 源已恢复"
     return {"title": title, "body": "\n".join(lines)}
+
+
+def push(title: str, body: str) -> bool:
+    """apprise 推送出口(约束 5):notify 结果透传,任何异常 False 不抛。
+
+    IP_RADAR_ALERT_URLS 逗号/空白分隔多个 URL;空/未设 → False 且不 import
+    apprise(历史照记,只是不通知)。单 URL add 失败仅 log.debug 跳过,
+    notify 对其余 URL 照发。本函数会跑在 scheduler 守护线程里,故全路径
+    吞异常(含 apprise 未安装的 ImportError),warning 后返回 False。
+    """
+    urls = [u for u in re.split(r",\s*|\s+", os.environ.get("IP_RADAR_ALERT_URLS", "")) if u]
+    if not urls:
+        return False
+    try:
+        import apprise  # 惰性:仅 env 非空才 import(约束 5)
+        ap = apprise.Apprise()
+        for url in urls:
+            if not ap.add(url):
+                logger.debug("apprise add 失败,跳过该 URL: %s", url)
+        return ap.notify(title=title, body=body)
+    except Exception:
+        logger.warning("apprise 推送失败(title=%r)", title, exc_info=True)
+        return False
