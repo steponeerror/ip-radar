@@ -19,6 +19,8 @@ import time
 from dataclasses import dataclass
 from typing import Callable, Optional
 
+from . import _alerts
+
 logger = logging.getLogger(__name__)
 
 # Backoff seconds for fail_count 1..5: 1h, 2h, 4h, 8h, 12h (cap).
@@ -94,6 +96,19 @@ class RefreshScheduler:
             try:
                 had_task = name in self._last_task
                 self._reconcile(name, source, now)
+                # 种子事件(Task 4):存量内容冷启动加速——源有 mtime 且
+                # 事件表零行 → 以 mtime 落一条“首次观测到此内容”
+                # (record_count 缺省 None)。放在 reconcile 之后:同轮
+                # mtime 前进已落过事件则这里事件非零,不双记。独立兜错:
+                # 告警侧故障不碰下方调度逻辑。
+                try:
+                    seed_mtime = self._read_mtime(source)
+                    if seed_mtime is not None \
+                            and _alerts.event_count(name) == 0:
+                        _alerts.record_event(name, at=seed_mtime)
+                except Exception:
+                    logger.exception(
+                        "scheduler: seed event failed for %s; continuing", name)
                 if had_task:
                     continue  # just resolved (or still tracking); re-eligible next scan
                 b = self._backoff.get(name)
@@ -120,6 +135,30 @@ class RefreshScheduler:
             except Exception:
                 logger.exception("scheduler: error processing source %s; skipping", name)
 
+        # ── 告警周期(Task 4):快照 → evaluate → push → prune ──
+        # 独立 try/except:告警侧任何异常只 log,scheduler 永不因告警死
+        # (约束 5 同精神,把评估/存储/推送一并兑住)。快照必须是 enabled
+        # 源全集——缺失的源会被 evaluate 静默清状态。
+        try:
+            snapshots = []
+            for source in self._enabled_offline_sources():
+                mtime = self._read_mtime(source)
+                b = self._backoff.get(source.name)
+                snapshots.append({
+                    "name": source.name,
+                    "stale_days": source.stale_days,
+                    # mtime None(无文件)→ content_age_h None = 视为 ∞ 必触发
+                    "content_age_h": None if mtime is None
+                    else (now - mtime) / 3600.0,
+                    "fail_count": b.fail_count if b is not None else 0,
+                })
+            msg = _alerts.evaluate(snapshots, now)
+            if msg is not None:
+                _alerts.push(msg["title"], msg["body"])
+            _alerts.prune(now)
+        except Exception:
+            logger.exception("scheduler: alert cycle raised; continuing")
+
     def _reconcile(self, name: str, source, now: float) -> None:
         """Infer the previous cycle's outcome. No-op if name not in _last_task."""
         task_id = self._last_task.get(name)
@@ -140,6 +179,10 @@ class RefreshScheduler:
                 self._backoff.pop(name, None)
             self._last_task.pop(name, None)
             self._baseline_mtime.pop(name, None)
+            # 内容变化被确认(Task 4):落一条真实更新事件,record_count 取
+            # 当前 health。只增此一行,位置在 backoff 清理/状态收敛之后。
+            _alerts.record_event(name, at=now,
+                                 record_count=source.health().record_count)
             return
         # mtime unchanged -> classify by terminal state
         state = self._manager.task_state(task_id)

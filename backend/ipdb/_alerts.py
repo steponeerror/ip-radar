@@ -1,4 +1,4 @@
-# backend/ipdb/_alerts.py — 源活性告警:存储层 + 节奏计算 + 判定状态机 + 推送出口(Task 1-3)
+# backend/ipdb/_alerts.py — 源活性告警:存储层 + 节奏计算 + 判定状态机 + 推送出口(Task 1-4)
 """update_events 事件表、节奏推导与 evaluate 状态机(stdlib sqlite3 同步,每次操作新连接)。
 
 事件历史恒开,与通知无关(约束 2):scheduler 每见内容更新就 record_event,
@@ -91,6 +91,16 @@ def record_event(source: str, at: float, record_count: int | None = None) -> Non
             " VALUES (?, ?, ?)",
             (source, at, record_count),
         )
+
+
+def event_count(source: str) -> int:
+    """该源 update_events 行数。scheduler 种子判定用:0 = 从未观测到
+    此源的内容更新(prune 清空后回到 0,重扫时按当前 mtime 重种)。"""
+    with closing(_connect()) as conn:
+        (n,) = conn.execute(
+            "SELECT COUNT(*) FROM update_events WHERE source = ?",
+            (source,)).fetchone()
+    return n
 
 
 def observed_interval_h(source: str, now: float) -> float | None:

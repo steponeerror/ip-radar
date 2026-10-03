@@ -117,6 +117,18 @@ def key_env(tmp_path, monkeypatch):
     monkeypatch.setenv("IP_RADAR_API_JWT_SECRET", KEY_JWT_SECRET)
 
 
+# ── alerts db 隔离(Task 4):全套件 autouse ──
+# scheduler 挂钩后 scan() 会在源循环与轮末告警周期里写 _alerts(缺省
+# 路径 = _registry 数据目录,即真 data/)。auth 走惰性 fixture(用到才见
+# env),但 alerts 写点埋在 scheduler 流程深处,任何间接驱动 scan 的既有
+# 测试都无法逐一口头记隔离 → autouse 兜底;不用 _alerts 的测试只是多
+# 一个无害 env 变量。tests/alerts/* 的用例级 fixture 会再 setenv 同一
+# 路径(同值覆盖,不冲突)。
+@pytest.fixture(autouse=True)
+def alerts_db_isolated(tmp_path, monkeypatch):
+    monkeypatch.setenv("IP_RADAR_ALERTS_DB", str(tmp_path / "alerts.db"))
+
+
 # ── rate limiting(Task 7):测试期默认关闭 ──
 # 全套件测试共用 TestClient 地址 "testclient"(limiter 存储是进程级,跨
 # TestClient 实例共享):匿名 6/min 会让既有 ~1100 条测试级联 429。生产
