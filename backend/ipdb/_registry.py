@@ -5,6 +5,7 @@ import ipaddress
 import logging
 import os
 import threading
+import time
 from collections import defaultdict
 from dataclasses import asdict
 from pathlib import Path
@@ -252,7 +253,27 @@ def _db_loaded() -> bool:
 
 
 def _source_info(source) -> dict:
-    health = source.health()
+    health = asdict(source.health())
+    # Task 5:实测节奏并入 health 输出(plan Interfaces"health 扩展"行)。
+    # content_age_h = now - 文件 mtime(直接 stat source._path,与 health()
+    # 同源;无文件/无 _path → None);observed_interval_h 出 _alerts 近
+    # 90 天间隔中位数。任何读失败 → 两键 None(logger.warning),
+    # /api/sources 不得 500。_alerts 惰性 import(它在模块顶引用本模块,
+    # 顶层互导成环);合并发生在本层,SourceHealth dataclass 不动(plan
+    # 钉死此分层,SourceHealthOut extra=allow 透传)。
+    now = time.time()
+    try:
+        path = getattr(source, "_path", None)
+        content_age_h = ((now - path.stat().st_mtime) / 3600.0
+                         if path is not None and path.exists() else None)
+        from . import _alerts
+        observed_interval_h = _alerts.observed_interval_h(source.name, now)
+    except Exception as e:
+        logger.warning(f"{source.name} health 扩展读取失败: {e}")
+        content_age_h = None
+        observed_interval_h = None
+    health["content_age_h"] = content_age_h
+    health["observed_interval_h"] = observed_interval_h
     return {
         "name": source.name,
         "enabled": is_enabled(source.name),
@@ -265,7 +286,7 @@ def _source_info(source) -> dict:
         "classification_type": getattr(source, "classification_type", None),
         "url": getattr(source, "url", None),
         "stale_days": getattr(source, "stale_days", None),
-        "health": asdict(health),
+        "health": health,
     }
 
 
