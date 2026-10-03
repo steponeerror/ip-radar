@@ -51,6 +51,16 @@ function timeAgo(iso: string | null): { key: string; vars?: Record<string, strin
   return { key: "sources.timeAgo.days", vars: { n: Math.floor(hr / 24) } };
 }
 
+// T6 健康诊断对(content_age_h/observed_interval_h)时长档位 —— 与后端推送
+// _fmt_hours 同规(约束 6):<48h → ceil 整数 + "h";≥48h → 一位小数 +
+// "d"。终审 P2-1:时钟回拨/未来 mtime 可致负时长,展示层 clamp 0,不渲染
+// 负数;null(无文件/事件<5 条)→ "—"。
+function fmtHours(h: number | null): string {
+  if (h == null) return "—";
+  const v = Math.max(0, h);
+  return v < 48 ? `${Math.ceil(v)}h` : `${(v / 24).toFixed(1)}d`;
+}
+
 // 行内按钮相位文案:downloading/loading 带 received/total 百分比(计划钉死
 // N = Math.floor(received/total*100),终审 P2 补 Math.min(100,·) clamp 对齐
 // progress.ts stagedFrac 既有规范;total 缺失/≤0 退回纯文案),queued/throttled
@@ -296,6 +306,16 @@ export default function SourcesPage({ manage = false, tasks = [], batch = null, 
                     {items.map((s) => {
                       const st = statusOf(s);
                       const ms = thetaBySource.get(s.name);
+                      // T6:更新单元格第二行的健康诊断对 —— 值可见,完整 i18n 标签入
+                      // title(6rem 固定轨道容不下双语长标签,循 θ 单元格“值可见+
+                      // 标签 tooltip”模式)。cadence 为 null 时直出 "—",不套
+                      // cadence 模板(免渲染 "every —"/"—/次")。
+                      const ageStr = fmtHours(s.health.content_age_h);
+                      const cadStr = s.health.observed_interval_h == null
+                        ? "—"
+                        : t("sources.health.cadence", {
+                            v: fmtHours(s.health.observed_interval_h),
+                          });
                       // Per-row phase comes from the tasks prop (AdminPage passes
                       // the SSE-driven context state down; public pages pass none).
                       // A row is "busy" when a task for this source is in any of
@@ -355,7 +375,23 @@ export default function SourcesPage({ manage = false, tasks = [], batch = null, 
                           <span className="text-right font-mono text-sm tabular-nums text-zinc-300">
                             {formatCount(s.health.covered_ips)}
                           </span>
-                          <span className="truncate text-xs text-zinc-500">{fmtTime(s)}</span>
+                          {/* T6:更新单元格改 flex-col 承载第二行诊断对(循名称
+                              单元格 feeds 芯片行同构):内容年龄 · 实测节奏,
+                              data-age/data-cadence 供测试精确定位(循 data-feed
+                              惯例)。首行 timeAgo 不变。 */}
+                          <div className="flex min-w-0 flex-col">
+                            <span className="truncate text-xs text-zinc-500">{fmtTime(s)}</span>
+                            <span
+                              className="whitespace-nowrap font-mono text-xs leading-tight tabular-nums text-zinc-600"
+                              data-age={ageStr}
+                              data-cadence={cadStr}
+                              title={`${t("sources.health.contentAge")} ${ageStr} · ${t(
+                                "sources.health.observed",
+                              )} ${cadStr}`}
+                            >
+                              {ageStr} · {cadStr}
+                            </span>
+                          </div>
                           <span className={`rounded-md border px-2 py-0.5 text-center text-xs ${st.className}`}>
                             {t(st.key)}
                           </span>

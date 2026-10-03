@@ -311,6 +311,13 @@ export interface SourceHealth {
   last_updated: string | null;
   is_stale: boolean;
   error: string | null;
+  // T6 告警诊断对(backend _registry._source_info 合并,_alerts 近 90d 间隔
+  // 中位数):content_age_h = now - 原始文件 mtime(小时);observed_interval_h
+  // = 实测更新节奏(小时)。null = 无文件 / 事件 <5 条 / 读取失败(后端
+  // 永不让 /api/sources 500)。content_age_h 可为负(时钟回拨/未来 mtime),
+  // 展示层负责 clamp 0(见 SourcesPage fmtHours)。
+  content_age_h: number | null;
+  observed_interval_h: number | null;
   feeds?: FeedHealth[] | null;
 }
 
