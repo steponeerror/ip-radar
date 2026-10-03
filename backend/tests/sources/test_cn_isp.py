@@ -50,6 +50,23 @@ def test_cn_isp_hk_no_isp_badge(tmp_path: Path):
     assert "as_name" not in rec
 
 
+def test_cn_isp_content_mtime_tracks_isp_dir(tmp_path: Path):
+    """cn_isp 数据在 isp/ 子目录:_path 必须指向它,scheduler._read_mtime 才能
+    种子/测 content_age(2026-10-03 线上误报根因:_path 从不存在 → age=None
+    按无文件视为 ∞ → 恒报 stale 且成功刷新也测不到 mtime 变化、永不自愈)。"""
+    from ipdb._scheduler import RefreshScheduler
+
+    s = ChineseISPSource(data_dir=tmp_path)
+    assert RefreshScheduler._read_mtime(s) is None       # 无任何文件 → None 语义不变
+
+    isp = tmp_path / "isp"
+    isp.mkdir()
+    (isp / "chinatelecom.txt").write_text("1.0.0.0/24\n")
+    mtime = RefreshScheduler._read_mtime(s)
+    assert mtime is not None
+    assert abs(mtime - isp.stat().st_mtime) < 1         # 目录 mtime,与 cloud_ranges 同机制
+
+
 def test_all_isp_files_failed_raises(tmp_path):
     """全部 ISP 文件下载失败必须 raise(防空 rebuild 清库)。"""
     import pytest

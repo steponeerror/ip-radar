@@ -34,6 +34,11 @@ class ChineseISPSource(Source):
     def __init__(self, data_dir: Path):
         super().__init__(data_dir)   # _data_dir, _path, _lmdb_base, _reader, _count, _loaded_at
         self._isp_dir = data_dir / "isp"
+        # 多 feed 源:数据在 isp/ 子目录,基类 _path(data_dir/cn_isp)从不落盘。
+        # 指向目录让 scheduler._read_mtime 拿到真实内容 mtime(目录 mtime 随
+        # 任一 feed 重写前进,与 cloud_ranges 目录同机制);否则种子/content_age/
+        # reconcile 全失明 → cn_isp 恒报 stale 误警且永不自愈(2026-10-03 线上)。
+        self._path = self._isp_dir
 
     @property
     def download_host(self) -> str | None:
