@@ -158,6 +158,9 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .fade-in, .row-in { animation: none; }
+  /* tw-animate-css 的 animate-in/out(dialog/tooltip 入退场)自身不受 reduce 门控,这里显式冻结。
+     !important 用于压过 data-open:/data-closed: 变体编译出的更高特异性选择器。 */
+  [data-slot^="dialog-"], [data-slot^="tooltip-"] { animation: none !important; }
 }
 
 /* 注: 模板在此写入过 --font-sans: 'Geist Variable' 覆盖,已删——
