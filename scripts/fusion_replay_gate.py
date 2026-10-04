@@ -226,7 +226,11 @@ def main() -> int:
     ap.add_argument("--limit", type=int, default=0,
                     help="处理探测 IP 上限(0=不限;小切片自测用)")
     ap.add_argument("--report", default="",
-                    help="Markdown 报告输出路径(缺省=stdout)")
+                    help="Markdown 报告输出路径（缺省=stdout）")
+    ap.add_argument("--dump-movers", default="",
+                    metavar="PATH",
+                    help="C3 补证：把新晋 ≥70（old<70≤new）的 IP 逐条流式落盘"
+                         "JSONL（ip/old/new/k/provider），不进内存")
     args = ap.parse_args()
 
     data_dir = Path(args.data).resolve()
@@ -305,6 +309,8 @@ def main() -> int:
     benign_ge70_new_prov: Counter = Counter()
     xcheck_bad = 0                      # 本地重算融合分 vs threat_summary 失配
     n_err = 0
+    n_movers70 = 0                       # C3 补证：新晋 ≥70 计数（与落盘独立）
+    movers_fh = open(args.dump_movers, "w") if args.dump_movers else None
 
     log = lambda msg: print(msg, file=sys.stderr, flush=True)
     log(f"数据: {data_dir}")
@@ -375,7 +381,7 @@ def main() -> int:
         else:
             moved_same += 1
 
-        # C3:benign 基础设施(警告表 provider 口径)上的误报
+        # C3:benign 基础设施（警告表 provider 口径）上的误报
         prov = benign.provider(raw)
         if prov is not None:
             benign_n += 1
@@ -389,6 +395,14 @@ def main() -> int:
                 benign_ge90_old += 1
             if new_conf >= C3_THRESHOLD_HI:
                 benign_ge90_new += 1
+
+        # C3 补证：新晋 ≥70（old<70≤new）画像流式落盘（provider 可为 null）
+        if old_conf < C3_THRESHOLD <= new_conf:
+            n_movers70 += 1
+            if movers_fh is not None:
+                movers_fh.write(json.dumps(
+                    {"ip": ip, "old": old_conf, "new": new_conf,
+                     "k": k, "provider": prov}, ensure_ascii=False) + "\n")
 
         if n_probe % 200_000 == 0:
             rate = n_probe / (time.time() - t_probe)
@@ -442,6 +456,8 @@ def main() -> int:
                "pass": c4_pass},
         "movement": {"up": moved_up, "same": moved_same, "down": moved_down,
                      "mean_delta": round(delta_sum / n_accused, 4) if n_accused else None},
+        "movers70": {"n": n_movers70,
+                     "dump": args.dump_movers or None},
         "k_hist_top": dict(sorted(k_hist.items(), key=lambda kv: -kv[1])[:8]),
     }
 
@@ -522,6 +538,10 @@ def main() -> int:
     for m in sorted(src_meta, key=lambda x: x["name"]):
         lines2.append(f"| {m['name']} | {m['type']} | {m['verdict']} | {m['epoch']} |")
     report += "\n".join(lines2) + "\n"
+
+    if movers_fh is not None:
+        movers_fh.close()
+        log(f"movers 落盘: {args.dump_movers}（{n_movers70:,} 条新晋 ≥70）")
 
     if args.report:
         Path(args.report).parent.mkdir(parents=True, exist_ok=True)
