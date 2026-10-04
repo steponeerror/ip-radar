@@ -62,7 +62,7 @@ describe("IpDetailPanel", () => {
     renderWithI18n(<IpDetailPanel r={withCity} />);
     expect(screen.getByText("City")).toBeInTheDocument();
     expect(screen.getAllByText("Mountain View").length).toBeGreaterThan(0);
-    expect(screen.getByText("山景城")).toBeInTheDocument();
+    expect(screen.getByText("· 山景城")).toBeInTheDocument();
     const rows = screen.getAllByText(/Mountain View/);
     const countryIdx = screen.getByText("Country").compareDocumentPosition(
       screen.getByText("City"),
@@ -127,7 +127,7 @@ describe("as_domain org suffix", () => {
       } as LookupResult["attributes"],
     };
     renderWithI18n(<IpDetailPanel r={withDomain} />);
-    expect(screen.getByText("google.com")).toBeInTheDocument();
+    expect(screen.getByText("· google.com")).toBeInTheDocument();
   });
   it("renders no suffix element when as_domain is absent", () => {
     renderWithI18n(<IpDetailPanel r={r} />);
