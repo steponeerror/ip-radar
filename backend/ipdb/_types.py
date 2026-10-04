@@ -119,7 +119,9 @@ class LookupResult:
         if detected:
             worst = min(detected, key=lambda v: self._VERDICT_PRECEDENCE.get(v.verdict, 99))
             verdict = worst.verdict
-            confidence = worst.confidence
+            # 同 verdict 并列取组内 max(与网页 threatDisplay.threatSummary 对齐;
+            # min() 字典序第一成员是任意值 —— 回归:66.132.186.179 桌面 65 vs 网页 94)
+            confidence = max(v.confidence for v in detected if v.verdict == verdict)
         else:
             verdict = "benign"
             confidence = 0
