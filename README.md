@@ -208,6 +208,7 @@ Every dataset below belongs to its provider — thank you for keeping them open 
 | ip2proxy | [IP2Location](https://www.ip2location.com/) | PX2 LITE proxy ranges | 🔑 |
 | proxyscrape | [ProxyScrape](https://github.com/proxyscrape/free-proxy-list) | Open proxy IPs | |
 | tor_exits | [Tor Project](https://check.torproject.org/exit-addresses) | Tor exit node addresses | |
+| danmeuk_tor | [dan.me.uk](https://www.dan.me.uk/torlist/) | Full Tor relay list (~11k nodes) — second `is_tor` witness | |
 | x4bnet_vpn | [X4BNet](https://github.com/X4BNet/lists_vpn) | VPN ranges | |
 | nordvpn | [NordVPN](https://github.com/mthcht/awesome-lists) | NordVPN server ranges (mirror) | |
 | protonvpn | [ProtonVPN](https://github.com/mthcht/awesome-lists) | ProtonVPN server ranges (mirror) | |
