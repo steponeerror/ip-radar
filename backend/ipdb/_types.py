@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+from . import _logodds as _lo
+
 
 @dataclass
 class FeedHealth:
@@ -87,6 +89,11 @@ class ClassificationAssessment:
     details: list[dict] = field(default_factory=list)        # per-source rich info
 
 
+# 顶层融合的指控章(与 _merge._assess_classification 的 ACCUSING 同一口径):
+# 只有 malicious/suspicious 证人进 P(恶意) 后验;存档(informational)证人只展示不计分。
+_ACCUSING = frozenset({"malicious", "suspicious"})
+
+
 @dataclass
 class LookupResult:
     """Complete IP lookup result."""
@@ -119,9 +126,31 @@ class LookupResult:
         if detected:
             worst = min(detected, key=lambda v: self._VERDICT_PRECEDENCE.get(v.verdict, 99))
             verdict = worst.verdict
-            # 同 verdict 并列取组内 max(与网页 threatDisplay.threatSummary 对齐;
-            # min() 字典序第一成员是任意值 —— 回归:66.132.186.179 桌面 65 vs 网页 94)
-            confidence = max(v.confidence for v in detected if v.verdict == verdict)
+            # 证据级重融合(共识 2026-10-04):顶层置信度不再是最坏组选角,而是把
+            # 全部指控组(malicious/suspicious)的证人明细池化后重算 P(恶意) 后验——
+            # 多类别佐证计入。同源跨组取 max(不双计),再走与组内同一套
+            # coefficient → dedup_lineage → assertion_confidence 流水线;
+            # 单指控组时数字恰好退化为该组 confidence(恒等)。
+            pool: dict[str, float] = {}
+            for v in self.classifications.values():
+                if v.verdict not in _ACCUSING:
+                    continue
+                for d in v.details:
+                    if d.get("verdict") not in _ACCUSING:
+                        continue
+                    c = _lo.coefficient(d["reliability"], d.get("first_seen"), v.type)
+                    src = d["source"]
+                    if src not in pool or c > pool[src]:
+                        pool[src] = c
+            if pool:
+                deduped = _lo.dedup_lineage(list(pool.items()))
+                confidence = _lo.assertion_confidence([c for _, c in deduped])
+            else:
+                # 空池边界:detected 但无指控证据(纯存档组/无 details 的旧载荷)
+                # → 沿用现行选角(worst-first 组内 max,informational 组参与),
+                # 绝不让空池 σ(0)=50 泄漏。(与网页 threatDisplay.threatSummary 对齐;
+                # 回归:66.132.186.179 桌面 65 vs 网页 94)
+                confidence = max(v.confidence for v in detected if v.verdict == verdict)
         else:
             verdict = "benign"
             confidence = 0
