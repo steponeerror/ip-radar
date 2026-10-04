@@ -59,6 +59,53 @@ describe("threatDisplay", () => {
     expect(s.archive).toBe(false);
     expect(s.hasThreats).toBe(true);
   });
+  it("threat 在场时消费后端单一真相:confidence 取后端融合分而非本地最坏组选角", () => {
+    // 回归 66.132.186.179:本地组内 max=90,后端证据级重融合=94
+    const withThreat: LookupResult = {
+      ...dirty,
+      threat: { verdict: "malicious", confidence: 94, types: ["c2_server", "scanner"], is_cdn: false },
+    };
+    const s = threatSummary(withThreat);
+    expect(s.verdict).toBe("malicious");
+    expect(s.confidence).toBe(94);
+    expect(s.hasThreats).toBe(true);
+  });
+  it("threat 在场时 verdict 也以后端为准(即便与本地最坏组选角不同)", () => {
+    const backendSaysSuspicious: LookupResult = {
+      ...dirty,
+      threat: { verdict: "suspicious", confidence: 77, types: ["scanner"], is_cdn: false },
+    };
+    const s = threatSummary(backendSaysSuspicious);
+    expect(s.verdict).toBe("suspicious");
+    expect(s.confidence).toBe(77);
+  });
+  it("旗标不受 threat 在场影响,继续本地推导", () => {
+    const withThreat: LookupResult = {
+      ...dirty,
+      threat: { verdict: "malicious", confidence: 94, types: ["c2_server"], is_cdn: false },
+    };
+    const s = threatSummary(withThreat);
+    expect(s.sourceCount).toBe(2);
+    expect(s.corroborated).toBe(true);
+    expect(s.conflict).toBe(true);
+    expect(s.archive).toBe(false);
+  });
+  it("无指控组但 threat 在场:verdict/confidence 同样取后端,旗标照旧本地", () => {
+    const cleanWithThreat: LookupResult = {
+      ...dirty,
+      classifications: {},
+      threat: { verdict: "benign", confidence: 0, types: [], is_cdn: false },
+    };
+    const s = threatSummary(cleanWithThreat);
+    expect(s.verdict).toBe("benign");
+    expect(s.confidence).toBe(0);
+    expect(s.hasThreats).toBe(false);
+  });
+  it("threat 缺失时原样回退本地推导(旧缓存 payload 兼容)", () => {
+    const s = threatSummary(dirty);
+    expect(s.verdict).toBe("malicious");
+    expect(s.confidence).toBe(90);
+  });
   it("archive flag reflects has_archive across classifications", () => {
     const withArchive = {
       ...dirty,
