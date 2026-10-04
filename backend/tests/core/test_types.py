@@ -86,6 +86,30 @@ class TestLookupResultToDict:
         assert d["is_isp"] is False
         assert "error" not in d
 
+    def test_threat_summary_confidence_is_group_max(self):
+        """同 verdict 并列时顶层 confidence = 组内 max(回归:66.132.186.179
+        桌面 threat 65 vs 网页 threatSummary 94 —— min() 取字典序第一成员是
+        任意值;必须与网页 threatDisplay.threatSummary 的组内 max 对齐)。"""
+        def ca(name, conf):
+            return ClassificationAssessment(
+                name, "malicious", True, conf, "corroboration", [],
+                corroborated=True)
+
+        r = LookupResult(
+            ip="66.132.186.179",
+            country=MergedField("US", 85, "voting", []),
+            city=MergedField("N/A", 0, "voting", []),
+            asn=MergedField(0, 0, "voting", []),
+            as_name=MergedField("N/A", 0, "voting", []),
+            ip_range=MergedField("N/A", 0, "voting", []),
+            is_isp=False,
+            classifications={
+                "abuse-reports": ca("abuse-reports", 65),
+                "scanner": ca("scanner", 94),
+            },
+        )
+        assert r.threat_summary()["confidence"] == 94
+
     def test_error_result(self):
         r = LookupResult(
             ip="bad",
