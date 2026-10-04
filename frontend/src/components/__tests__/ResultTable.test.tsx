@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { screen, fireEvent, within, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { renderWithI18n } from "../../test/i18nTestUtils";
 import { ResultTable } from "../ResultTable";
 import type { ClassificationAssessment, LookupResult } from "../../api";
@@ -146,18 +147,49 @@ describe("ResultTable archive signal", () => {
     expect(within(row).getByText("incl. archive")).toBeInTheDocument();
   });
 
-  it("appends the archive suffix to the verdict-cell tooltip", () => {
+  it("appends the archive suffix to the verdict-cell tooltip", async () => {
     const r: LookupResult = { ...baseResult,
       classifications: { proxy: { ...caProxy, has_archive: true } } };
     renderWithI18n(<ResultTable results={[r]} />);
-    expect(screen.getByTitle("Informational · incl. archive")).toBeInTheDocument();
+    // tooltip 内容聚焦后才挂载(Base UI 按需渲染),无 role,只能按文本断言
+    const badge = await focusBadgeByTab(screen.getByText("Informational"));
+    expect(badge).toHaveFocus();
+    expect(await screen.findByText("Informational · incl. archive")).toBeVisible();
   });
 
-  it("shows no archive badge or tooltip suffix when has_archive is false", () => {
+  it("shows no archive badge or tooltip suffix when has_archive is false", async () => {
     const r: LookupResult = { ...baseResult, classifications: { proxy: caProxy } };
     renderWithI18n(<ResultTable results={[r]} />);
     expect(screen.queryByText("incl. archive")).not.toBeInTheDocument();
-    expect(screen.getByTitle("Informational")).toBeInTheDocument();
+    const badge = await focusBadgeByTab(screen.getByText("Informational"));
+    expect(badge).toHaveFocus();
+    // 徽章与 tooltip 内容同串,Base UI 1.8 弹层不带 role,按 registry 槽位定位弹层容器
+    const popup = await screen.findByText("Informational", { selector: "[data-slot='tooltip-content']" });
+    expect(popup).toBeVisible();
+    expect(popup).toHaveTextContent(/^Informational$/);
+  });
+});
+
+// --- 键盘可达(shadcn/Base UI 迁移核心卖点):徽章 tabIndex=0,tab 聚焦即开 tooltip ---
+
+// 徽章是表格里第一批可聚焦元素,工具栏在前;tab 循环到目标徽章聚焦为止
+async function focusBadgeByTab(badge: HTMLElement): Promise<HTMLElement> {
+  for (let i = 0; i < 12 && document.activeElement !== badge; i += 1) {
+    await userEvent.tab();
+  }
+  return badge;
+}
+
+describe("ResultTable keyboard tooltips", () => {
+  it("userEvent.tab() reaches a threat badge and opens its tooltip", async () => {
+    const r: LookupResult = { ...baseResult,
+      classifications: { proxy: { ...caProxy, verdict: "malicious" } } };
+    renderWithI18n(<ResultTable results={[r]} />);
+    const row = screen.getByText("203.0.113.10").closest("tr")!;
+    const badge = await focusBadgeByTab(within(row).getByText("Proxy"));
+    expect(badge).toHaveFocus();
+    // ThreatTags 组串: "<label>: <verdict>, conf <n>"
+    expect(await screen.findByText("Proxy: Malicious, conf 60")).toBeVisible();
   });
 });
 
