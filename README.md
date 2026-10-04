@@ -108,7 +108,7 @@ Fused, stored, and queried on your own machine — your lookups never leave it.
 
 ## API
 
-Open http://127.0.0.1:8000 and type any IP: verdict, per-source evidence, and geo/ASN come back together. The API works directly too. Programmatic calls need an API key — first unlock the commented-out admin env block in `docker-compose.yml` and restart, then issue a key at `/admin`; the same-origin web page needs none (send it as `-H "Authorization: Bearer <key>"`). `IP_RADAR_PRIVATE_SOURCES` (comma-separated, read at startup) hides the listed sources from web/anonymous identities and from null-scope keys; an admin can still grant one explicitly to a regular key, but never to the web seed row.
+Open http://127.0.0.1:8000 and type any IP: verdict, per-source evidence, and geo/ASN come back together. The API works directly too. Programmatic calls need an API key — first unlock the commented-out admin env block in `docker-compose.yml` and restart, then issue a key at `/admin`; the same-origin web page needs none (send it as `-H "Authorization: Bearer <key>"`).
 
 ```bash
 # core lookup (needs a key — see above)
@@ -119,7 +119,7 @@ curl -s http://127.0.0.1:8000/api/lookup/1.12.0.1
 curl -s http://127.0.0.1:8000/api/db-status
 ```
 
-The other management endpoints (sources / eval / update-db / tasks / events, …) live in the code; the UI triggers refreshes with one click too. Mind: same-origin web use needs no key, but programmatic/API access requires an API key issued from `/admin` — don't expose the port to untrusted networks.
+The other management endpoints (sources / eval / update-db / tasks / events, …) live in the code; the UI triggers refreshes with one click too. Don't expose the port to untrusted networks.
 
 ### Security notes
 
@@ -129,13 +129,7 @@ The other management endpoints (sources / eval / update-db / tasks / events, …
 
 ### Public-demo guard (opt-in)
 
-For any instance exposed to the public internet, an opt-in guard middleware hides the write/internal surface from anonymous visitors. Three knobs, all off by default — unset means zero behavior change for self-hosted deployments:
-
-- `IP_RADAR_PUBLIC_DEMO=1` — enable the guard: write/internal endpoints (`/api/update-db`, `/api/sources`, `/api/eval`, `/api/tasks`, `/api/events`, `/api/update`, …) answer **404 as if they don't exist** to anonymous visitors; read/query endpoints (`/api/lookup*`, `/api/query/stream`, `/api/upload/stream`, `/api/db-status`) require the `x-ipradar-client: web` header. Real CORS preflights (OPTIONS carrying both `Origin` and `Access-Control-Request-Method`), loopback (docker healthcheck), and `/api/version` are exempt — bare OPTIONS falls through to the same checks; requests carrying an admin cookie or `Authorization` header are handed to the real auth dependencies (superuser / API-key) — forged credentials get 401/403 there, no bypass. `/api/update/status` requires admin authentication in every deployment (superuser only).
-- `IP_RADAR_DEMO_ADMIN_IPS` — maintainer bypass: a comma-separated **direct-peer** allowlist. Only fits deployments where the app port is exposed directly; behind a reverse proxy the peer is always the proxy IP, and `X-Forwarded-For` is client-forgeable (verified to pierce a CF→Caddy chain) — do not trust it by default.
-- `IP_RADAR_DEMO_TRUST_XFF=1` — explicitly opt in to first-hop `X-Forwarded-For` matching for the admin bypass. Must be paired with a gateway guarantee (a reverse proxy that strips/overwrites XFF); otherwise a client can forge it.
-
-Security premise of the `IP_RADAR_DEMO_ADMIN_IPS` + `IP_RADAR_DEMO_TRUST_XFF=1` combination: `X-Forwarded-For` is client-forgeable, so trusting the first hop is safe **only** when your gateway (Caddy/Cloudflare chain) is guaranteed to strip/overwrite that header on ingress — by default no header is trusted. Also set `IP_RADAR_PUBLIC_DEMO` to exactly `1`: any other non-empty value enables nothing (the guard stays silently off) and just logs a warning at startup — it never blocks startup.
+For any instance exposed to the public internet, an opt-in guard middleware hides the write/internal surface from anonymous visitors. Three knobs, all off by default (zero behavior change for self-hosting): `IP_RADAR_PUBLIC_DEMO=1` enables it; `IP_RADAR_DEMO_ADMIN_IPS` and `IP_RADAR_DEMO_TRUST_XFF=1` control the maintainer bypass. Full endpoint semantics, exemptions, and the XFF-trust security premise: [`deploy/README.md`](deploy/README.md).
 
 ### Fail2ban integration: ask before you ban
 
@@ -215,7 +209,7 @@ Every dataset below belongs to its provider — thank you for keeping them open 
 | hookzof | [hookzof](https://github.com/hookzof/socks5_list) | Live-checked SOCKS5 proxies | |
 | thespeedx | [TheSpeedX](https://github.com/TheSpeedX/PROXY-List) | Live-checked HTTP proxies | |
 | cdn_edges | [CloudFront](https://ip-ranges.amazonaws.com/ip-ranges.json) · [Cloudflare](https://www.cloudflare.com/ips-v4) · [Fastly](https://api.fastly.com/public-ip-list) | CDN edge ranges | |
-| cloud_ranges | [AWS](https://ip-ranges.amazonaws.com/ip-ranges.json) · [Google](https://www.gstatic.com/ipranges/goog.json) · [Azure](https://www.microsoft.com/en-us/download/details.aspx?id=56519) · [Oracle](https://docs.oracle.com/iaas/tools/public_ip_ranges.json) · [Alibaba](https://cloud-ip-ranges.com/) | Cloud / hosting ranges — five publisher feeds behind one source; partial-failure tolerant (a failed feed keeps its last snapshot), per-provider reliability: publisher-self 0.95 ×4, Alibaba (third-party aggregator) 0.75 | |
+| cloud_ranges | [AWS](https://ip-ranges.amazonaws.com/ip-ranges.json) · [Google](https://www.gstatic.com/ipranges/goog.json) · [Azure](https://www.microsoft.com/en-us/download/details.aspx?id=56519) · [Oracle](https://docs.oracle.com/iaas/tools/public_ip_ranges.json) · [Alibaba](https://cloud-ip-ranges.com/) | Cloud / hosting ranges — five publisher feeds behind one source; partial-failure tolerant (a failed feed keeps its last snapshot) | |
 | infra_services | curated | Public DNS-root / NTP infrastructure | |
 
 ## Development

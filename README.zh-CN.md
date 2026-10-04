@@ -123,7 +123,7 @@ curl -s http://127.0.0.1:8000/api/lookup/1.12.0.1
 curl -s http://127.0.0.1:8000/api/db-status
 ```
 
-其余管理端点（sources / eval / update-db / tasks / events 等）都在代码里；UI 上点一下也能触发刷新。提醒：同源网页使用免 key，但程序化/API 调用需要 `/admin` 签发的 API key——仍勿将端口暴露给不受信网络。
+其余管理端点（sources / eval / update-db / tasks / events 等）都在代码里；UI 上点一下也能触发刷新。仍勿将端口暴露给不受信网络。
 
 ### 安全须知
 
@@ -133,13 +133,7 @@ curl -s http://127.0.0.1:8000/api/db-status
 
 ### 公开演示守卫（可选）
 
-面向任何公网暴露实例的可选守卫中间件，对匿名访客隐藏写入/内部面。三个旋钮，默认全部关闭——未设置时自托管部署零行为变化：
-
-- `IP_RADAR_PUBLIC_DEMO=1` —— 开启守卫：写/内部端点（`/api/update-db`、`/api/sources`、`/api/eval`、`/api/tasks`、`/api/events`、`/api/update` 等）对匿名访客一律 **404（当作不存在）**；查询读端点（`/api/lookup*`、`/api/query/stream`、`/api/upload/stream`、`/api/db-status`）要求 `x-ipradar-client: web` 头。真 CORS 预检（OPTIONS 带 `Origin` 与 `Access-Control-Request-Method` 两头）、回环（docker healthcheck）与 `/api/version` 豁免——裸 OPTIONS 走同样的判定；带管理员 cookie 或 `Authorization` 头的请求交给鉴权依赖层真校验（superuser / API key）——伪凭据在那里得到 401/403，不存在绕过。`/api/update/status` 在所有部署形态下均要求管理员鉴权（仅 superuser）。
-- `IP_RADAR_DEMO_ADMIN_IPS` —— 维护者旁路：逗号分隔的**直连 peer** 白名单。仅适用于应用端口直接暴露的部署；反代后 peer 恒为代理 IP，而 `X-Forwarded-For` 客户端可伪造（实测可穿透 CF→Caddy 链），勿默认信任。
-- `IP_RADAR_DEMO_TRUST_XFF=1` —— 显式声明信任首跳 `X-Forwarded-For` 参与维护者旁路。必须配套网关保证（反代剥/覆写 XFF），否则客户端可伪造。
-
-`IP_RADAR_DEMO_ADMIN_IPS` + `IP_RADAR_DEMO_TRUST_XFF=1` 组合的安全前提：`X-Forwarded-For` 客户端可伪造，信任首跳的唯一前提是网关（Caddy/CF 链）保证在入口剥除/覆写该头——默认不信任任何头。另注意 `IP_RADAR_PUBLIC_DEMO` 必须精确设为 `1`：其他非空值不会开启任何守卫（守卫静默关闭），仅在启动时打一条告警——绝不阻断启动。
+面向任何公网暴露实例的可选守卫中间件，对匿名访客隐藏写入/内部面。三个旋钮默认全关（自托管零行为变化）：`IP_RADAR_PUBLIC_DEMO=1` 开启；`IP_RADAR_DEMO_ADMIN_IPS` 与 `IP_RADAR_DEMO_TRUST_XFF=1` 控制维护者旁路。完整端点语义、豁免规则与 XFF 信任安全前提见 [`deploy/README.md`](deploy/README.md)。
 
 ### Fail2ban 集成：拉黑前先问一句
 
@@ -219,7 +213,7 @@ curl -s http://127.0.0.1:8000/api/db-status
 | hookzof | [hookzof](https://github.com/hookzof/socks5_list) | Live-checked SOCKS5 proxies | |
 | thespeedx | [TheSpeedX](https://github.com/TheSpeedX/PROXY-List) | Live-checked HTTP proxies | |
 | cdn_edges | [CloudFront](https://ip-ranges.amazonaws.com/ip-ranges.json) · [Cloudflare](https://www.cloudflare.com/ips-v4) · [Fastly](https://api.fastly.com/public-ip-list) | CDN edge ranges | |
-| cloud_ranges | [AWS](https://ip-ranges.amazonaws.com/ip-ranges.json) · [Google](https://www.gstatic.com/ipranges/goog.json) · [Azure](https://www.microsoft.com/en-us/download/details.aspx?id=56519) · [Oracle](https://docs.oracle.com/iaas/tools/public_ip_ranges.json) · [Alibaba](https://cloud-ip-ranges.com/) | 云 / 托管网段 —— 单源五 feed（各发布方一家一 feed）；部分失败容忍（单家挂保留旧快照），per-provider reliability：官方自发布 0.95 ×4，Alibaba 第三方聚合商 0.75 | |
+| cloud_ranges | [AWS](https://ip-ranges.amazonaws.com/ip-ranges.json) · [Google](https://www.gstatic.com/ipranges/goog.json) · [Azure](https://www.microsoft.com/en-us/download/details.aspx?id=56519) · [Oracle](https://docs.oracle.com/iaas/tools/public_ip_ranges.json) · [Alibaba](https://cloud-ip-ranges.com/) | 云 / 托管网段 —— 单源五 feed（各发布方一家一 feed）；部分失败容忍（单家挂保留旧快照） | |
 | infra_services | curated | Public DNS-root / NTP infrastructure | |
 
 ## 开发
