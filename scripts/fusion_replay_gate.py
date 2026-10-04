@@ -10,8 +10,9 @@
 
 语料 = 31 个指控源(malicious/suspicious)LMDB v4 键起点(CIDR 起点)的
 并集,k 路归并流式遍历,不物化 —— 每个起点代表该源一条区间证据;任意
-被指控 IP 的证据集与其最近左侧起点的证据集相同,故起点并集是完备且
-无冗余的探测集。少量起点落在保留地址(查询短路)或纯存档证据
+被指控 IP 的证据集含于其最近左侧起点的证据集(evidence(x) ⊆
+evidence(start(x)) 恒真;等号不总成立——起点证据可严格超于区间内成员),
+故起点并集是无冗余的超集代表探测集。少量起点落在保留地址(查询短路)或纯存档证据
 (firehol 子 feed informational verdict)→ 控池空,新旧同为 0/存档组
 回退,恒等成立;C4 主口径取指控池非空语料,全探测到 ω 仅作语境。
 benign 语料复用 `_eval` 基建:pymispwarninglists 装载 +
@@ -31,7 +32,7 @@ Python 侧匿名堆(brk + 私有匿名 mmap),超限分配立即 MemoryError(已
       scripts/fusion_replay_gate.py \
       --data /home/huxiao/dev/pi-ip-lookup-tool/.eval-prod-data \
       --report <工作区>/replay-report.md
-小切片自测:加 --stride 20000 --limit 300。
+小切片自测:加 --limit 300(或系统抽样 --stride 100 --limit 250000)。
 
 数据目录只读:导入 ipdb 前设 IP_RADAR_POOL_CHILD=1(Source.load 的
 cleanup_stale 直接返回,绝不 rmtree 镜像),全程无写调用。
@@ -40,6 +41,7 @@ from __future__ import annotations
 
 import argparse
 import bisect
+import contextlib
 import heapq
 import ipaddress
 import json
@@ -229,8 +231,10 @@ def main() -> int:
                     help="Markdown 报告输出路径（缺省=stdout）")
     ap.add_argument("--dump-movers", default="",
                     metavar="PATH",
-                    help="C3 补证：把新晋 ≥70（old<70≤new）的 IP 逐条流式落盘"
-                         "JSONL（ip/old/new/k/provider），不进内存")
+                    help="C3 补证 + 终审 Important-1:阈值穿越 IP 逐条流式落盘 JSONL"
+                         "(ip/old/new/direction/k/provider;direction=up 为新晋 ≥70"
+                         " old<70≤new;down 为跌出 ≥70 old≥70>new,即 fail2ban"
+                         " 退封方向),不进内存")
     args = ap.parse_args()
 
     data_dir = Path(args.data).resolve()
@@ -289,7 +293,7 @@ def main() -> int:
 
     # ── 聚合器(内存只留这些)──
     n_probe = 0
-    n_accused = 0                       # 指控池非空(构造上=全部探测 IP)
+    n_accused = 0                       # 指控池非空(<探测总数:保留地址/纯存档证据等空池起点不计;首轮实测空池 19,173 个,恰=k_hist[0])
     hist_old = [0] * 101
     hist_new = [0] * 101
     cont_old: dict[tuple[int, int], int] = {}     # 全探测到列联(语境)
@@ -309,108 +313,124 @@ def main() -> int:
     benign_ge70_new_prov: Counter = Counter()
     xcheck_bad = 0                      # 本地重算融合分 vs threat_summary 失配
     n_err = 0
-    n_movers70 = 0                       # C3 补证：新晋 ≥70 计数（与落盘独立）
-    movers_fh = open(args.dump_movers, "w") if args.dump_movers else None
+    n_movers70 = 0                       # C3 补证:上行穿越 old<70≤new 计数(与落盘独立)
+    n_movers_down = 0                    # 终审 Important-1:下行穿越 old≥70>new 计数(fail2ban 退封方向)
+    # 落盘句柄交给 with 托管(nullcontext 兼容未开 --dump-movers 的运行):
+    # 中途异常退出也保证 close→flush,已缓冲的画像行不丢。
+    movers_cm = (open(args.dump_movers, "w", encoding="utf-8")
+                 if args.dump_movers else contextlib.nullcontext())
 
-    log = lambda msg: print(msg, file=sys.stderr, flush=True)
     log(f"数据: {data_dir}")
     log(f"指控源 {len(accusing)} 个;stride={args.stride} limit={args.limit or '∞'}")
     log(f"benign 区间索引: {len(benign._starts):,} 个折叠区间")
 
     t_probe = time.time()
-    for raw in merged_union(iters):
-        n_probe += 1
-        if args.stride > 1 and (n_probe - 1) % args.stride != 0:
-            continue
-        ip = fmt_ip(raw)
-        try:
-            result = reg.lookup(ip)
-            new_conf = result.threat_summary()["confidence"]   # 生产融合实现（worktree 代码）
-            old_conf = old_rule(result)
-            pool = fusion_pool(result, _lo.coefficient, _types._ACCUSING)
-        except Exception as e:                          # 单 IP 失败不终止整轮
-            n_err += 1
-            if n_err <= 5:
-                log(f"lookup 错误 {ip}: {e!r}")
-            continue
+    with movers_cm as movers_fh:
+        for raw in merged_union(iters):
+            n_probe += 1
+            if args.stride > 1 and (n_probe - 1) % args.stride != 0:
+                continue
+            ip = fmt_ip(raw)
+            try:
+                result = reg.lookup(ip)
+                new_conf = result.threat_summary()["confidence"]   # 生产融合实现（worktree 代码）
+                old_conf = old_rule(result)
+                pool = fusion_pool(result, _lo.coefficient, _types._ACCUSING)
+            except Exception as e:                          # 单 IP 失败不终止整轮
+                n_err += 1
+                if n_err <= 5:
+                    log(f"lookup 错误 {ip}: {e!r}")
+                continue
 
-        n_accused += 1 if pool else 0
-        # 交叉核对:本地镜像池化重算 == 生产 threat_summary(防脚本镜像漂移)
-        if pool:
-            mine = _lo.assertion_confidence(
-                [c for _, c in _lo.dedup_lineage(list(pool.items()))])
-            if mine != new_conf:
-                xcheck_bad += 1
+            n_accused += 1 if pool else 0
+            # 交叉核对:本地镜像池化重算 == 生产 threat_summary(防脚本镜像漂移)
+            if pool:
+                mine = _lo.assertion_confidence(
+                    [c for _, c in _lo.dedup_lineage(list(pool.items()))])
+                if mine != new_conf:
+                    xcheck_bad += 1
 
-        deduped = _lo.dedup_lineage(list(pool.items())) if pool else []
-        k = len(deduped)
+            deduped = _lo.dedup_lineage(list(pool.items())) if pool else []
+            k = len(deduped)
 
-        # C2:恒等计数(严格/宽两口径)
-        detected = [v for v in result.classifications.values() if v.detected]
-        accusing_groups = [v for v in detected if v.verdict in _ACCUSING]
-        if len(detected) == 1 and len(accusing_groups) == 1:
-            c2_strict_n += 1
-            if old_conf != new_conf:
-                c2_strict_bad += 1
-                if len(c2_examples) < 10:
-                    c2_examples.append({"ip": ip, "old": old_conf, "new": new_conf,
-                                        "strict": True})
-        if len(accusing_groups) == 1:
-            c2_loose_n += 1
-            if old_conf != new_conf:
-                c2_loose_bad += 1
-                if len(c2_examples) < 10:
-                    c2_examples.append({"ip": ip, "old": old_conf, "new": new_conf,
-                                        "strict": False})
+            # C2:恒等计数(严格/宽两口径)
+            detected = [v for v in result.classifications.values() if v.detected]
+            accusing_groups = [v for v in detected if v.verdict in _ACCUSING]
+            if len(detected) == 1 and len(accusing_groups) == 1:
+                c2_strict_n += 1
+                if old_conf != new_conf:
+                    c2_strict_bad += 1
+                    if len(c2_examples) < 10:
+                        c2_examples.append({"ip": ip, "old": old_conf, "new": new_conf,
+                                            "strict": True})
+            if len(accusing_groups) == 1:
+                c2_loose_n += 1
+                if old_conf != new_conf:
+                    c2_loose_bad += 1
+                    if len(c2_examples) < 10:
+                        c2_examples.append({"ip": ip, "old": old_conf, "new": new_conf,
+                                            "strict": False})
 
-        # 直方图 / 列联表 / 变动统计
-        hist_old[old_conf] += 1
-        hist_new[new_conf] += 1
-        cont_old[(old_conf, k)] = cont_old.get((old_conf, k), 0) + 1
-        cont_new[(new_conf, k)] = cont_new.get((new_conf, k), 0) + 1
-        if pool:                                          # 判据主口径：指控语料
-            cont_acc_old[(old_conf, k)] = cont_acc_old.get((old_conf, k), 0) + 1
-            cont_acc_new[(new_conf, k)] = cont_acc_new.get((new_conf, k), 0) + 1
-        k_hist[k] += 1
-        d = new_conf - old_conf
-        delta_sum += d
-        if d > 0:
-            moved_up += 1
-        elif d < 0:
-            moved_down += 1
-        else:
-            moved_same += 1
+            # 直方图 / 列联表 / 变动统计
+            hist_old[old_conf] += 1
+            hist_new[new_conf] += 1
+            cont_old[(old_conf, k)] = cont_old.get((old_conf, k), 0) + 1
+            cont_new[(new_conf, k)] = cont_new.get((new_conf, k), 0) + 1
+            if pool:                                          # 判据主口径：指控语料
+                cont_acc_old[(old_conf, k)] = cont_acc_old.get((old_conf, k), 0) + 1
+                cont_acc_new[(new_conf, k)] = cont_acc_new.get((new_conf, k), 0) + 1
+            k_hist[k] += 1
+            d = new_conf - old_conf
+            delta_sum += d
+            if d > 0:
+                moved_up += 1
+            elif d < 0:
+                moved_down += 1
+            else:
+                moved_same += 1
 
-        # C3:benign 基础设施（警告表 provider 口径）上的误报
-        prov = benign.provider(raw)
-        if prov is not None:
-            benign_n += 1
-            benign_prov[prov] += 1
-            if old_conf >= C3_THRESHOLD:
-                benign_ge70_old += 1
-            if new_conf >= C3_THRESHOLD:
-                benign_ge70_new += 1
-                benign_ge70_new_prov[prov] += 1
-            if old_conf >= C3_THRESHOLD_HI:
-                benign_ge90_old += 1
-            if new_conf >= C3_THRESHOLD_HI:
-                benign_ge90_new += 1
+            # C3:benign 基础设施（警告表 provider 口径）上的误报
+            prov = benign.provider(raw)
+            if prov is not None:
+                benign_n += 1
+                benign_prov[prov] += 1
+                if old_conf >= C3_THRESHOLD:
+                    benign_ge70_old += 1
+                if new_conf >= C3_THRESHOLD:
+                    benign_ge70_new += 1
+                    benign_ge70_new_prov[prov] += 1
+                if old_conf >= C3_THRESHOLD_HI:
+                    benign_ge90_old += 1
+                if new_conf >= C3_THRESHOLD_HI:
+                    benign_ge90_new += 1
 
-        # C3 补证：新晋 ≥70（old<70≤new）画像流式落盘（provider 可为 null）
-        if old_conf < C3_THRESHOLD <= new_conf:
-            n_movers70 += 1
-            if movers_fh is not None:
+            # C3 补证 + 终审 Important-1:阈值穿越画像流式落盘(provider 可为 null)
+            # direction="up"   = 新晋 ≥70(old<70≤new),沿用 C3 补证口径;
+            # direction="down" = 跌出 ≥70(old≥70>new),即 fail2ban 退封方向——
+            # 封禁决策取查询时点分数,分数回落不追溯已下发的封禁。
+            if old_conf < C3_THRESHOLD <= new_conf:
+                direction = "up"
+            elif old_conf >= C3_THRESHOLD > new_conf:
+                direction = "down"
+            else:
+                direction = None
+            if direction == "up":
+                n_movers70 += 1
+            elif direction == "down":
+                n_movers_down += 1
+            if direction is not None and movers_fh is not None:
                 movers_fh.write(json.dumps(
                     {"ip": ip, "old": old_conf, "new": new_conf,
-                     "k": k, "provider": prov}, ensure_ascii=False) + "\n")
+                     "direction": direction, "k": k,
+                     "provider": prov}, ensure_ascii=False) + "\n")
 
-        if n_probe % 200_000 == 0:
-            rate = n_probe / (time.time() - t_probe)
-            log(f"  {n_probe:,} probes | {rate:,.0f}/s | "
-                f"elapsed {time.time()-t_probe:,.0f}s | VmHWM {read_hwm_kb()/1e6:.2f}GB")
+            if n_probe % 200_000 == 0:
+                rate = n_probe / (time.time() - t_probe)
+                log(f"  {n_probe:,} probes | {rate:,.0f}/s | "
+                    f"elapsed {time.time()-t_probe:,.0f}s | VmHWM {read_hwm_kb()/1e6:.2f}GB")
 
-        if args.limit and n_probe >= args.limit:
-            break
+            if args.limit and n_probe >= args.limit:
+                break
 
     elapsed = time.time() - t_start
     hwm_kb = read_hwm_kb()
@@ -456,7 +476,7 @@ def main() -> int:
                "pass": c4_pass},
         "movement": {"up": moved_up, "same": moved_same, "down": moved_down,
                      "mean_delta": round(delta_sum / n_accused, 4) if n_accused else None},
-        "movers70": {"n": n_movers70,
+        "movers70": {"n": n_movers70, "n_down": n_movers_down,
                      "dump": args.dump_movers or None},
         "k_hist_top": dict(sorted(k_hist.items(), key=lambda kv: -kv[1])[:8]),
     }
@@ -540,8 +560,8 @@ def main() -> int:
     report += "\n".join(lines2) + "\n"
 
     if movers_fh is not None:
-        movers_fh.close()
-        log(f"movers 落盘: {args.dump_movers}（{n_movers70:,} 条新晋 ≥70）")
+        log(f"movers 落盘: {args.dump_movers}"
+            f"(上行新晋 ≥70 {n_movers70:,} 条;下行跌出 ≥70 {n_movers_down:,} 条)")
 
     if args.report:
         Path(args.report).parent.mkdir(parents=True, exist_ok=True)
