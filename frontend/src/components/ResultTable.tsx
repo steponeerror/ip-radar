@@ -103,14 +103,14 @@ function VerdictCell({ summary }: { summary: ReturnType<typeof threatSummary> })
   if (summary.verdict === "reserved") {
     return (
       <span title={t("reserved.notice")}
-        className={`inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-semibold ${VERDICT_STYLE.reserved}`}>
+        className={`inline-flex whitespace-nowrap items-center rounded px-1.5 py-0.5 text-[11px] font-semibold ${VERDICT_STYLE.reserved}`}>
         {t("verdict.reserved")}
       </span>
     );
   }
   if (!summary.hasThreats) return <span className="text-zinc-700 text-[11px]">-</span>;
   return (
-    <span title={tooltip} className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-semibold ${style}`}>
+    <span title={tooltip} className={`inline-flex whitespace-nowrap items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-semibold ${style}`}>
       {label}
       {showConf && <span className="font-mono text-[10px] opacity-80">{summary.confidence}</span>}
     </span>

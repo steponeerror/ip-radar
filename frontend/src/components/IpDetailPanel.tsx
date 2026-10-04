@@ -65,7 +65,7 @@ function FieldDetail<T>({
         ) : (
           <span className="text-[10px] text-zinc-500">
             {format(field.value)}
-            {suffix && <span className="ml-1 text-zinc-600">{suffix}</span>}
+            {suffix && <span className="ml-1.5 text-zinc-600">· {suffix}</span>}
           </span>
         )}
         <span className={`inline-block h-1.5 w-1.5 rounded-full ${confColor(field.confidence)}`} />
