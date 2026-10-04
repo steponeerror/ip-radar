@@ -1,6 +1,6 @@
 # Public Deployment Notes
 
-Operational knobs for instances exposed to untrusted networks, expanded from the README's summary. Applies to the app container in any deployment shape (direct port exposure, reverse proxy, Cloudflare→Caddy chain).
+Operational knobs for instances exposed to untrusted networks, expanded from [the README's summary](../README.md#public-demo-guard-opt-in). Applies to the app container in any deployment shape (direct port exposure, reverse proxy, Cloudflare→Caddy chain).
 
 ## Public-demo guard (opt-in)
 
@@ -14,6 +14,6 @@ Security premise of the `IP_RADAR_DEMO_ADMIN_IPS` + `IP_RADAR_DEMO_TRUST_XFF=1` 
 
 ## Hiding sources from anonymous identities
 
-Moved from the README API section:
+See [the README](../README.md)'s API section for the key model.
 
 `IP_RADAR_PRIVATE_SOURCES` (comma-separated, read at startup) hides the listed sources from web/anonymous identities and from null-scope keys; an admin can still grant one explicitly to a regular key, but never to the web seed row.
