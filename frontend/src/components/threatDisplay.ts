@@ -1,4 +1,4 @@
-import type { LookupResult } from "../api";
+import type { LookupResult, ThreatSummary } from "../api";
 
 export function confColor(conf: number): string {
   if (conf >= 70) return "bg-emerald-500";
@@ -83,6 +83,17 @@ export function familyShort(name: string): string {
   return name.replace(/^(win|linux|mac|osx|android|ios|trojan|worm|backdoor)[._-]/i, "");
 }
 
+// 单一真相(2026-10-04):后端 threat 在场 → verdict/confidence 取后端值(证据级重融合,
+// 见 backend/ipdb/_types.py threat_summary),旗标照旧本地;threat 缺失(旧缓存 payload /
+// 防御性路径)→ 本地推导原样回退。
+function consumeBackendThreat(
+  local: ReturnType<typeof threatSummary>,
+  threat?: ThreatSummary,
+): ReturnType<typeof threatSummary> {
+  if (!threat) return local;
+  return { ...local, verdict: threat.verdict, confidence: threat.confidence };
+}
+
 export function threatSummary(r: LookupResult): {
   verdict: string;
   confidence: number;
@@ -93,12 +104,16 @@ export function threatSummary(r: LookupResult): {
   hasThreats: boolean;
 } {
   if (r.is_reserved) {
+    // 保留地址分支原样在前:reserved 是展示层概念,后端 threat 无此 verdict
     return { verdict: "reserved", confidence: 0, sourceCount: 0,
       corroborated: false, conflict: false, archive: false, hasThreats: false };
   }
   const cas = Object.values(r.classifications).filter((c) => c.detected && c.confidence > 0);
   if (cas.length === 0) {
-    return { verdict: "clean", confidence: 0, sourceCount: 0, corroborated: false, conflict: false, archive: false, hasThreats: false };
+    return consumeBackendThreat(
+      { verdict: "clean", confidence: 0, sourceCount: 0, corroborated: false, conflict: false, archive: false, hasThreats: false },
+      r.threat,
+    );
   }
   let worst = cas[0];
   for (const c of cas) {
@@ -108,13 +123,16 @@ export function threatSummary(r: LookupResult): {
   const confidence = Math.max(...cas.filter((c) => c.verdict === worstVerdict).map((c) => c.confidence));
   const sources = new Set<string>();
   for (const c of cas) for (const s of c.sources) sources.add(s.source);
-  return {
-    verdict: worstVerdict,
-    confidence,
-    sourceCount: sources.size,
-    corroborated: cas.some((c) => c.corroborated),
-    conflict: cas.some((c) => c.verdict_conflict),
-    archive: cas.some((c) => c.has_archive),
-    hasThreats: true,
-  };
+  return consumeBackendThreat(
+    {
+      verdict: worstVerdict,
+      confidence,
+      sourceCount: sources.size,
+      corroborated: cas.some((c) => c.corroborated),
+      conflict: cas.some((c) => c.verdict_conflict),
+      archive: cas.some((c) => c.has_archive),
+      hasThreats: true,
+    },
+    r.threat,
+  );
 }
