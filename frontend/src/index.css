@@ -1,4 +1,9 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+/* 深色为默认方案: dark: 变体在非 .light 作用域生效(light 模式下反转为不生效)。 */
+@custom-variant dark (&:not(:where(.light, .light *)));
 
 @theme {
   --font-sans: "Geist", "Noto Sans SC", "Noto Sans TC", "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
@@ -9,6 +14,39 @@
   --bg-body: #09090b;
   --text-body: #f4f4f5;
   --dot: #27272a;
+  /* shadcn 语义令牌 · 深色轨(dark 为默认方案,映射现皮肤: zinc 深色板 + emerald accent)。 */
+  --background: #09090b;
+  --foreground: #f4f4f5;
+  --card: #18181b;
+  --card-foreground: #f4f4f5;
+  --popover: #18181b;
+  --popover-foreground: #f4f4f5;
+  --primary: #10b981;
+  --primary-foreground: #09090b;
+  --secondary: #27272a;
+  --secondary-foreground: #f4f4f5;
+  --muted: #27272a;
+  --muted-foreground: #a1a1aa;
+  --accent: #27272a;
+  --accent-foreground: #f4f4f5;
+  --destructive: #f87171;
+  --border: #27272a;
+  --input: #27272a;
+  --ring: #10b981;
+  --chart-1: #d4d4d8;
+  --chart-2: #a1a1aa;
+  --chart-3: #71717a;
+  --chart-4: #52525b;
+  --chart-5: #3f3f46;
+  --radius: 0.625rem;
+  --sidebar: #18181b;
+  --sidebar-foreground: #f4f4f5;
+  --sidebar-primary: #10b981;
+  --sidebar-primary-foreground: #09090b;
+  --sidebar-accent: #27272a;
+  --sidebar-accent-foreground: #f4f4f5;
+  --sidebar-border: #27272a;
+  --sidebar-ring: #10b981;
 }
 
 /* 柔和白天模式: 暖调 stone 中性 + 加深一档的 accent,整页重映射 zinc 标尺。
@@ -47,6 +85,38 @@
   --color-orange-400: #c2410c;
   --color-orange-500: #ea580c;
   --color-yellow-500: #a16207;
+  /* shadcn 语义令牌 · 浅色轨(与上方 warm stone 色阶同源: 背景/前景/边框按 brief,accent 用加深后的 emerald)。 */
+  --background: #fafaf9;
+  --foreground: #1c1917;
+  --card: #ffffff;
+  --card-foreground: #1c1917;
+  --popover: #ffffff;
+  --popover-foreground: #1c1917;
+  --primary: #3f7157;
+  --primary-foreground: #fafaf9;
+  --secondary: #f5f5f4;
+  --secondary-foreground: #1c1917;
+  --muted: #f5f5f4;
+  --muted-foreground: #78716c;
+  --accent: #f5f5f4;
+  --accent-foreground: #1c1917;
+  --destructive: #dc2626;
+  --border: #e7e5e4;
+  --input: #e7e5e4;
+  --ring: #3f7157;
+  --chart-1: #d6d3d1;
+  --chart-2: #a8a29e;
+  --chart-3: #78716c;
+  --chart-4: #57534e;
+  --chart-5: #44403c;
+  --sidebar: #fafaf9;
+  --sidebar-foreground: #1c1917;
+  --sidebar-primary: #3f7157;
+  --sidebar-primary-foreground: #fafaf9;
+  --sidebar-accent: #f5f5f4;
+  --sidebar-accent-foreground: #1c1917;
+  --sidebar-border: #e7e5e4;
+  --sidebar-ring: #3f7157;
 }
 
 body {
@@ -88,4 +158,61 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .fade-in, .row-in { animation: none; }
+}
+
+/* 注: 模板在此写入过 --font-sans: 'Geist Variable' 覆盖,已删——
+   上方 @theme 的 Geist + Noto Sans SC/TC 栈是 CJK 渲染的唯一来源,必须保留胜出。
+   --font-heading 保留(指向同一栈),dialog.tsx 的 font-heading 工具类消费它。 */
+@theme inline {
+  --font-heading: var(--font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
 }
