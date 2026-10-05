@@ -7,7 +7,12 @@ def _clear_lru_cache():
     """每个测试前后都清空模块级 LRU,避免跨测试/跨文件污染(Stub 结果泄漏)。"""
     _batch_pool._cached_lookup.cache_clear()
     yield
-    _batch_pool._cached_lookup.cache_clear()
+    cached = getattr(_batch_pool, "_cached_lookup", None)
+    # pytest ≥9 终结顺序:本 teardown 可能先于 monkeypatch 恢复执行,此刻
+    # _cached_lookup 还是测试的普通 spy(无 cache_clear)——跳过本次后置清;
+    # 残留由同文件下个用例的前置清兜底(CI per-file 分进程,无跨文件窗口)。
+    if cached is not None and hasattr(cached, "cache_clear"):
+        cached.cache_clear()
 
 def test_dedup_lookup_preserves_order_and_length(monkeypatch):
     import ipdb._registry as reg
