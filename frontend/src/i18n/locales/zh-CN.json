@@ -71,6 +71,7 @@
   "column.city": "城市",
   "column.country": "国家",
   "column.operator": "运营方",
+  "column.tags": "标签",
   "column.threat": "威胁标签",
   "column.verdict": "判定",
   "common.archiveBadge": "含存档记录",
