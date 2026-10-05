@@ -139,13 +139,29 @@ function VerdictCell({ summary }: { summary: ReturnType<typeof threatSummary> })
   );
 }
 
-function ThreatTags({ r, summary }: { r: LookupResult; summary: ReturnType<typeof threatSummary> }) {
+// 标签列 = 该 IP 全部事实类徽章的家:威胁 chips 在前、资产 chips 在后、源数/存档/冲突殿后。
+// CDN 徽章合并裁定(防同列重复):threat.is_cdn 且存在 cdn-role service chip 时,不再渲染
+// 独立 CDN 徽章,该 chip 的 title 换成 cdn.notice(劝禁语义进 tooltip,provider 仍在 chip 文本);
+// is_cdn 无 cdn chip 时才回退渲染独立徽章(样式逐字 #85)。
+function ThreatTags({
+  r,
+  summary,
+  badges,
+}: {
+  r: LookupResult;
+  summary: ReturnType<typeof threatSummary>;
+  badges: { label: string; detail: string; key: string }[];
+}) {
   const { t } = useI18n();
   const keys = Object.keys(r.classifications).filter((t) => {
     const ca = r.classifications[t];
     return ca.detected && ca.confidence > 0;
   });
-  if (keys.length === 0) return <span className="text-zinc-700 text-[11px]">-</span>;
+  const hasCdnServiceChip = badges.some((a) => a.key.startsWith("service-") && a.label === "cdn");
+  const showCdnBadge = r.threat?.is_cdn && !hasCdnServiceChip;
+  if (keys.length === 0 && badges.length === 0 && !showCdnBadge) {
+    return <span className="text-zinc-700 text-[11px]">-</span>;
+  }
   return (
     <span className="inline-flex flex-wrap items-center gap-1">
       {keys.map((type) => {
@@ -164,6 +180,20 @@ function ThreatTags({ r, summary }: { r: LookupResult; summary: ReturnType<typeo
           </Tooltip>
         );
       })}
+      {badges.map((a, i) => (
+          <span key={`asset-${a.key}`}
+            className={`${i === 0 ? "" : "ml-1.5"} rounded px-1.5 py-0.5 text-[11px] bg-sky-500/12 text-sky-400 ring-1 ring-sky-500/20`}
+            title={r.threat?.is_cdn && a.key.startsWith("service-") && a.label === "cdn" ? t("cdn.notice") : a.detail}>
+            {a.key.startsWith("service-")
+              ? `${a.label}·${a.detail}`
+              : `${a.label}${a.key === "carrier" ? `: ${a.detail}` : ""}`}
+          </span>
+        ))}
+      {showCdnBadge && (
+        <span title={t("cdn.notice")} className="inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-semibold bg-sky-500/12 text-sky-400 ring-1 ring-sky-500/20">
+          {t("verdict.cdn")}
+        </span>
+      )}
       {summary.sourceCount > 0 && (
         <span className="text-[10px] text-zinc-500" title={t("common.sourcesHit")}>
           {t("common.sourceCount", { n: summary.sourceCount })}{summary.corroborated && <span className="ml-px text-emerald-400">✓</span>}
@@ -533,7 +563,7 @@ export function ResultTable({ results }: ResultTableProps) {
     { key: "city", label: t("column.city"), className: "w-28" },
     { key: "as_name", label: t("column.operator") },
     { key: "verdict", label: t("column.verdict"), className: "w-20 text-center" },
-    { key: "threat", label: t("column.threat"), className: "min-w-[180px]" },
+    { key: "threat", label: t("column.tags"), className: "min-w-[180px]" },
     { key: "ip_range", label: t("ipDetail.range"), className: "w-44" },
   ];
 
@@ -634,13 +664,6 @@ export function ResultTable({ results }: ResultTableProps) {
                         <span title={r.as_name.value} className="inline-block max-w-[16rem] truncate align-middle text-zinc-300">{r.as_name.value}</span>
                         <span className={`ml-1 text-[10px] ${confTextColor(r.as_name.confidence)}`}>({r.as_name.confidence})</span>
                         {r.is_isp && <span className="ml-1.5 rounded bg-emerald-500/15 px-1 py-0.5 text-[10px] text-emerald-400 ring-1 ring-emerald-500/25">ISP</span>}
-                        {badges.map((a) => (
-                          <span key={`asset-${a.key}`} className={`ml-1.5 rounded px-1.5 py-0.5 text-[11px] bg-sky-500/12 text-sky-400 ring-1 ring-sky-500/20`} title={a.detail}>
-                            {a.key.startsWith("service-")
-                              ? `${a.label}·${a.detail}`
-                              : `${a.label}${a.key === "carrier" ? `: ${a.detail}` : ""}`}
-                          </span>
-                        ))}
                         {r.attributes?.as_domain?.[0]?.value && (
                           <span title={String(r.attributes.as_domain[0].value)}
                             className="block max-w-[16rem] truncate text-[10px] text-zinc-600">
@@ -655,20 +678,11 @@ export function ResultTable({ results }: ResultTableProps) {
                           {t("verdict.invalid")}
                         </span>
                       ) : (
-                        <>
-                          <span className="inline-flex flex-wrap items-center justify-center gap-1">
-                            <VerdictCell summary={summary} />
-                            {r.threat?.is_cdn && (
-                              <span title={t("cdn.notice")} className="inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-semibold bg-sky-500/12 text-sky-400 ring-1 ring-sky-500/20">
-                                {t("verdict.cdn")}
-                              </span>
-                            )}
-                          </span>
-                        </>
+                        <VerdictCell summary={summary} />
                       )}
                     </td>
                     <td className="px-3 py-2">
-                      <ThreatTags r={r} summary={summary} />
+                      <ThreatTags r={r} summary={summary} badges={badges} />
                     </td>
                     <ScoredCell value={r.ip_range.value} confidence={r.ip_range.confidence} valueClass="text-zinc-500" />
                   </tr>
