@@ -1,5 +1,6 @@
-import { useEffect, useRef, useId } from "react";
+import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { useI18n } from "../i18n";
+import { Dialog, DialogClose, DialogOverlay, DialogPortal, DialogTitle } from "./ui/dialog";
 
 interface ModalProps {
   open: boolean;
@@ -9,86 +10,35 @@ interface ModalProps {
   closeLabel?: string;
 }
 
-const FOCUSABLE =
-  'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
-
+// Escape/焦点陷阱/滚动锁/焦点恢复/外点关闭全部交给 Base UI(modal 默认 true)。
+// 不走 ui DialogContent:其内置 overlay 硬编码 bg-black/10+blur 且不透传 className,
+// 视觉契约要求 bg-black/60 无模糊,而 ui/dialog.tsx 是 registry-verbatim 不可改——
+// 故直接组装 Overlay + Popup,并保留旧面板的 zinc 硬编码类(视觉零漂移)。
 export function Modal({ open, title, onClose, children, closeLabel }: ModalProps) {
   const { t } = useI18n();
-  const panelRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLElement | null>(null);
-  const titleId = useId();
-
-  useEffect(() => {
-    if (!open) return;
-    // remember the element that had focus, to restore on close
-    triggerRef.current = document.activeElement as HTMLElement | null;
-    // lock body scroll
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-
-    const panel = panelRef.current;
-    const focusables = () =>
-      Array.from(panel?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? []);
-    // move focus into the dialog; prioritize first focusable child, fall back to panel itself
-    const focusTarget = focusables()[0] ?? panel;
-    focusTarget?.focus();
-
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        onClose();
-        return;
-      }
-      if (e.key !== "Tab") return;
-      const items = focusables();
-      if (!items.length) return;
-      const first = items[0];
-      const last = items[items.length - 1];
-      const active = document.activeElement;
-      if (e.shiftKey && active === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && active === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prevOverflow;
-      // restore focus to the trigger
-      triggerRef.current?.focus?.();
-    };
-  }, [open, onClose]);
-
-  if (!open) return null;
 
   return (
-    <div
-      className="fade-in fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-      onClick={onClose}
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
     >
-      <div
-        ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        tabIndex={-1}
-        className="w-full max-w-md rounded-lg border border-zinc-800 bg-zinc-900 p-6"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 id={titleId} className="mb-2 text-base font-semibold text-zinc-100">
-          {title}
-        </h2>
-        <div className="mb-4 text-sm text-zinc-400">{children}</div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="rounded-lg bg-emerald-500 px-5 py-2 text-sm font-semibold text-zinc-950 transition-transform hover:scale-[1.02] active:scale-[0.98]"
-        >
-          {closeLabel ?? t("modal.close")}
-        </button>
-      </div>
-    </div>
+      <DialogPortal>
+        <DialogOverlay className="bg-black/60 supports-backdrop-filter:backdrop-blur-none" />
+        <DialogPrimitive.Popup className="fade-in fixed top-1/2 left-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-lg border border-zinc-800 bg-zinc-900 p-6 outline-none">
+          <DialogTitle className="mb-2 text-base font-semibold leading-normal text-zinc-100">
+            {title}
+          </DialogTitle>
+          <div className="mb-4 text-sm text-zinc-400">{children}</div>
+          <DialogClose
+            type="button"
+            className="rounded-lg bg-emerald-500 px-5 py-2 text-sm font-semibold text-zinc-950 transition-transform hover:scale-[1.02] active:scale-[0.98]"
+          >
+            {closeLabel ?? t("modal.close")}
+          </DialogClose>
+        </DialogPrimitive.Popup>
+      </DialogPortal>
+    </Dialog>
   );
 }

@@ -6,6 +6,7 @@ import {
 } from "./threatDisplay";
 import { useI18n } from "../i18n";
 import { IpDetailPanel } from "./IpDetailPanel";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 
 type TFn = (key: string, vars?: Record<string, string | number>) => string;
 
@@ -92,6 +93,13 @@ function classPalette(type: string): string {
   return isInfra(t) ? INFRA_FALLBACK : BEHAVIORAL_FALLBACK;
 }
 
+// registry TooltipContent 默认 bg-foreground/text-background(双轨令牌反色):深色轨下是全应用唯一的亮面浮层,
+// 与现有 zinc 面板语言(Modal/下拉均 bg-zinc-900 + border-zinc-800)冲突,故在使用点覆写硬编码 zinc;
+// .light 作用域由 index.css 的 zinc 标尺变量重映射自动换肤。令牌核对:两轨下 zinc 组合对比度均 >12:1。
+// [&>*:last-child] 对齐冻结 ui/tooltip.tsx 内硬编码 bg/fill-foreground 的 Arrow(Popup 的最后一个元素子节点)。
+const TOOLTIP_CONTENT_CLASS =
+  "border border-zinc-800 bg-zinc-900 text-zinc-100 [&>*:last-child]:bg-zinc-900 [&>*:last-child]:fill-zinc-900";
+
 function VerdictCell({ summary }: { summary: ReturnType<typeof threatSummary> }) {
   const { t } = useI18n();
   const label = t(verdictLabelKey(summary.verdict));
@@ -102,18 +110,32 @@ function VerdictCell({ summary }: { summary: ReturnType<typeof threatSummary> })
     : "";
   if (summary.verdict === "reserved") {
     return (
-      <span title={t("reserved.notice")}
-        className={`inline-flex whitespace-nowrap items-center rounded px-1.5 py-0.5 text-[11px] font-semibold ${VERDICT_STYLE.reserved}`}>
-        {t("verdict.reserved")}
-      </span>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <span tabIndex={0}
+              className={`inline-flex whitespace-nowrap items-center rounded px-1.5 py-0.5 text-[11px] font-semibold ${VERDICT_STYLE.reserved}`} />
+          }
+        >
+          {t("verdict.reserved")}
+        </TooltipTrigger>
+        <TooltipContent className={TOOLTIP_CONTENT_CLASS}>{t("reserved.notice")}</TooltipContent>
+      </Tooltip>
     );
   }
   if (!summary.hasThreats) return <span className="text-zinc-700 text-[11px]">-</span>;
   return (
-    <span title={tooltip} className={`inline-flex whitespace-nowrap items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-semibold ${style}`}>
-      {label}
-      {showConf && <span className="font-mono text-[10px] opacity-80">{summary.confidence}</span>}
-    </span>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span tabIndex={0} className={`inline-flex whitespace-nowrap items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-semibold ${style}`} />
+        }
+      >
+        {label}
+        {showConf && <span className="font-mono text-[10px] opacity-80">{summary.confidence}</span>}
+      </TooltipTrigger>
+      <TooltipContent className={TOOLTIP_CONTENT_CLASS}>{tooltip}</TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -132,9 +154,14 @@ function ThreatTags({ r, summary }: { r: LookupResult; summary: ReturnType<typeo
         const family = ca.malware_names.length > 0 ? familyShort(ca.malware_names[0]) : null;
         const tooltip = `${label}: ${t(verdictLabelKey(ca.verdict))}, ${t("common.confidence")} ${ca.confidence}${ca.corroborated ? `, ${t("common.corroborated")}` : ""}`;
         return (
-          <span key={type} title={tooltip} className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${classPalette(type)}`}>
-            {label}{family && <span className="ml-0.5 opacity-70">·{family}</span>}
-          </span>
+          <Tooltip key={type}>
+            <TooltipTrigger
+              render={<span tabIndex={0} className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${classPalette(type)}`} />}
+            >
+              {label}{family && <span className="ml-0.5 opacity-70">·{family}</span>}
+            </TooltipTrigger>
+            <TooltipContent className={TOOLTIP_CONTENT_CLASS}>{tooltip}</TooltipContent>
+          </Tooltip>
         );
       })}
       {summary.sourceCount > 0 && (
@@ -143,14 +170,24 @@ function ThreatTags({ r, summary }: { r: LookupResult; summary: ReturnType<typeo
         </span>
       )}
       {summary.archive && (
-        <span className="rounded bg-amber-500/15 px-1 py-0.5 text-[10px] font-medium text-amber-400 ring-1 ring-amber-500/25" title={t("common.archiveTooltip")}>
-          {t("common.archiveBadge")}
-        </span>
+        <Tooltip>
+          <TooltipTrigger
+            render={<span tabIndex={0} className="rounded bg-amber-500/15 px-1 py-0.5 text-[10px] font-medium text-amber-400 ring-1 ring-amber-500/25" />}
+          >
+            {t("common.archiveBadge")}
+          </TooltipTrigger>
+          <TooltipContent className={TOOLTIP_CONTENT_CLASS}>{t("common.archiveTooltip")}</TooltipContent>
+        </Tooltip>
       )}
       {summary.conflict && (
-        <span className="rounded bg-amber-500/15 px-1 py-0.5 text-[10px] font-medium text-amber-400 ring-1 ring-amber-500/25" title={t("common.conflictTooltip")}>
-          {t("common.conflictBadge")}
-        </span>
+        <Tooltip>
+          <TooltipTrigger
+            render={<span tabIndex={0} className="rounded bg-amber-500/15 px-1 py-0.5 text-[10px] font-medium text-amber-400 ring-1 ring-amber-500/25" />}
+          >
+            {t("common.conflictBadge")}
+          </TooltipTrigger>
+          <TooltipContent className={TOOLTIP_CONTENT_CLASS}>{t("common.conflictTooltip")}</TooltipContent>
+        </Tooltip>
       )}
     </span>
   );
@@ -501,170 +538,172 @@ export function ResultTable({ results }: ResultTableProps) {
   ];
 
   return (
-    <div className="space-y-3">
-      <SummaryBar results={results} />
+    <TooltipProvider>
+      <div className="space-y-3">
+        <SummaryBar results={results} />
 
-      <div className="flex flex-wrap items-center gap-2">
-        <input
-          type="text"
-          placeholder={t("resultTable.filterPlaceholder")}
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          className="flex-1 min-w-48 rounded-md border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-xs text-zinc-300 placeholder:text-zinc-600 focus:border-emerald-500/40 focus:outline-none focus:ring-1 focus:ring-emerald-500/20"
-        />
-        <button
-          onClick={() => setDisagreementsFirst(!disagreementsFirst)}
-          className={`rounded-md px-2.5 py-1.5 text-xs transition-colors ${
-            disagreementsFirst
-              ? "bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/25"
-              : "bg-zinc-800 text-zinc-500 hover:text-zinc-300"
-          }`}
-        >
-          {t("resultTable.disagreementsFirst")}
-        </button>
-        <button
-          onClick={toggleDisagreements}
-          className={`rounded-md px-2.5 py-1.5 text-xs transition-colors ${
-            allDisagreementsExpanded
-              ? "bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/25"
-              : "bg-zinc-800 text-zinc-500 hover:text-zinc-300"
-          }`}
-        >
-          {allDisagreementsExpanded ? t("resultTable.collapseAll") : t("resultTable.expandAll")}
-        </button>
-        <button
-          onClick={() => {
-            const ip = results[0]?.ip;
-            if (ip) void exportStix(t, ip);
-          }}
-          disabled={results.length !== 1}
-          className="rounded-md bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-          title={results.length !== 1 ? t("resultTable.stixDisabledTitle") : t("resultTable.stixTitle")}
-        >
-          {t("resultTable.exportStix")}
-        </button>
-        {filter && (
-          <span className="text-xs text-zinc-500">
-            {filtered.length.toLocaleString()} of {results.length.toLocaleString()}
-          </span>
-        )}
-      </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            type="text"
+            placeholder={t("resultTable.filterPlaceholder")}
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            className="flex-1 min-w-48 rounded-md border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-xs text-zinc-300 placeholder:text-zinc-600 focus:border-emerald-500/40 focus:outline-none focus:ring-1 focus:ring-emerald-500/20"
+          />
+          <button
+            onClick={() => setDisagreementsFirst(!disagreementsFirst)}
+            className={`rounded-md px-2.5 py-1.5 text-xs transition-colors ${
+              disagreementsFirst
+                ? "bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/25"
+                : "bg-zinc-800 text-zinc-500 hover:text-zinc-300"
+            }`}
+          >
+            {t("resultTable.disagreementsFirst")}
+          </button>
+          <button
+            onClick={toggleDisagreements}
+            className={`rounded-md px-2.5 py-1.5 text-xs transition-colors ${
+              allDisagreementsExpanded
+                ? "bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/25"
+                : "bg-zinc-800 text-zinc-500 hover:text-zinc-300"
+            }`}
+          >
+            {allDisagreementsExpanded ? t("resultTable.collapseAll") : t("resultTable.expandAll")}
+          </button>
+          <button
+            onClick={() => {
+              const ip = results[0]?.ip;
+              if (ip) void exportStix(t, ip);
+            }}
+            disabled={results.length !== 1}
+            className="rounded-md bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            title={results.length !== 1 ? t("resultTable.stixDisabledTitle") : t("resultTable.stixTitle")}
+          >
+            {t("resultTable.exportStix")}
+          </button>
+          {filter && (
+            <span className="text-xs text-zinc-500">
+              {filtered.length.toLocaleString()} of {results.length.toLocaleString()}
+            </span>
+          )}
+        </div>
 
-      <ScoreLegend />
+        <ScoreLegend />
 
-      <div className="overflow-auto rounded-lg border border-zinc-800">
-        <table className="w-full text-left text-sm">
-          <thead>
-            <tr className="border-b border-zinc-800 bg-zinc-900/80">
-              {cols.map((col) => (
-                <th
-                  key={col.key}
-                  onClick={() => handleSort(col.key)}
-                  className={`cursor-pointer px-3 py-2.5 text-[11px] font-medium uppercase tracking-wider text-zinc-500 hover:text-emerald-400 transition-colors select-none ${col.className ?? ""}`}
-                >
-                  {col.label}
-                  {sortKey === col.key && (
-                    <span className="ml-1 text-emerald-500">{sortAsc ? "↑" : "↓"}</span>
-                  )}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {pageRows.map((r, i) => {
-              const summary = threatSummary(r);
-              const badges = assetBadges(r, t);
-              return (
-              <Fragment key={r.ip + i}>
-                <tr
-                  className={`row-in cursor-pointer border-b border-zinc-800/40 font-mono text-xs transition-colors hover:bg-zinc-800/60 ${
-                    expanded.has(r.ip) ? "bg-zinc-800/40" : ""
-                  }`}
-                  style={{ animationDelay: `${Math.min(i * 0.02, 0.4)}s` }}
-                  onClick={() => toggleRow(r.ip)}
-                >
-                  <td className={`px-3 py-2 font-semibold ${r.is_reserved ? "text-zinc-500" : "text-zinc-100"}`}>{r.ip}</td>
-                  <ScoredCell value={r.asn.value} confidence={r.asn.confidence} />
-                  <ScoredCell value={r.country.value} confidence={r.country.confidence} />
-                  {r.city && r.city.value !== null && r.city.value !== "" && r.city.value !== "N/A" ? (
-                    <ScoredCell value={r.city.value} confidence={r.city.confidence} />
-                  ) : (
-                    <td className="px-3 py-2 text-zinc-600">-</td>
-                  )}
-                  <td className="px-3 py-2">
-                    <div className="whitespace-nowrap">
-                      <span title={r.as_name.value} className="inline-block max-w-[16rem] truncate align-middle text-zinc-300">{r.as_name.value}</span>
-                      <span className={`ml-1 text-[10px] ${confTextColor(r.as_name.confidence)}`}>({r.as_name.confidence})</span>
-                      {r.is_isp && <span className="ml-1.5 rounded bg-emerald-500/15 px-1 py-0.5 text-[10px] text-emerald-400 ring-1 ring-emerald-500/25">ISP</span>}
-                      {badges.map((a) => (
-                        <span key={`asset-${a.key}`} className={`ml-1.5 rounded px-1.5 py-0.5 text-[11px] bg-sky-500/12 text-sky-400 ring-1 ring-sky-500/20`} title={a.detail}>
-                          {a.key.startsWith("service-")
-                            ? `${a.label}·${a.detail}`
-                            : `${a.label}${a.key === "carrier" ? `: ${a.detail}` : ""}`}
-                        </span>
-                      ))}
-                      {r.attributes?.as_domain?.[0]?.value && (
-                        <span title={String(r.attributes.as_domain[0].value)}
-                          className="block max-w-[16rem] truncate text-[10px] text-zinc-600">
-                          {String(r.attributes.as_domain[0].value)}
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-3 py-2 text-center">
-                    {r.error ? (
-                      <span title={r.error} className="inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-semibold bg-zinc-700/40 text-zinc-500 ring-1 ring-zinc-600/40">
-                        {t("verdict.invalid")}
-                      </span>
+        <div className="overflow-auto rounded-lg border border-zinc-800">
+          <table className="w-full text-left text-sm">
+            <thead>
+              <tr className="border-b border-zinc-800 bg-zinc-900/80">
+                {cols.map((col) => (
+                  <th
+                    key={col.key}
+                    onClick={() => handleSort(col.key)}
+                    className={`cursor-pointer px-3 py-2.5 text-[11px] font-medium uppercase tracking-wider text-zinc-500 hover:text-emerald-400 transition-colors select-none ${col.className ?? ""}`}
+                  >
+                    {col.label}
+                    {sortKey === col.key && (
+                      <span className="ml-1 text-emerald-500">{sortAsc ? "↑" : "↓"}</span>
+                    )}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {pageRows.map((r, i) => {
+                const summary = threatSummary(r);
+                const badges = assetBadges(r, t);
+                return (
+                <Fragment key={r.ip + i}>
+                  <tr
+                    className={`row-in cursor-pointer border-b border-zinc-800/40 font-mono text-xs transition-colors hover:bg-zinc-800/60 ${
+                      expanded.has(r.ip) ? "bg-zinc-800/40" : ""
+                    }`}
+                    style={{ animationDelay: `${Math.min(i * 0.02, 0.4)}s` }}
+                    onClick={() => toggleRow(r.ip)}
+                  >
+                    <td className={`px-3 py-2 font-semibold ${r.is_reserved ? "text-zinc-500" : "text-zinc-100"}`}>{r.ip}</td>
+                    <ScoredCell value={r.asn.value} confidence={r.asn.confidence} />
+                    <ScoredCell value={r.country.value} confidence={r.country.confidence} />
+                    {r.city && r.city.value !== null && r.city.value !== "" && r.city.value !== "N/A" ? (
+                      <ScoredCell value={r.city.value} confidence={r.city.confidence} />
                     ) : (
-                      <>
-                        <VerdictCell summary={summary} />
-                        {r.threat?.is_cdn && (
-                          <span title={t("cdn.notice")} className="ml-1 inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-semibold bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30">
-                            {t("verdict.cdn")}
+                      <td className="px-3 py-2 text-zinc-600">-</td>
+                    )}
+                    <td className="px-3 py-2">
+                      <div className="whitespace-nowrap">
+                        <span title={r.as_name.value} className="inline-block max-w-[16rem] truncate align-middle text-zinc-300">{r.as_name.value}</span>
+                        <span className={`ml-1 text-[10px] ${confTextColor(r.as_name.confidence)}`}>({r.as_name.confidence})</span>
+                        {r.is_isp && <span className="ml-1.5 rounded bg-emerald-500/15 px-1 py-0.5 text-[10px] text-emerald-400 ring-1 ring-emerald-500/25">ISP</span>}
+                        {badges.map((a) => (
+                          <span key={`asset-${a.key}`} className={`ml-1.5 rounded px-1.5 py-0.5 text-[11px] bg-sky-500/12 text-sky-400 ring-1 ring-sky-500/20`} title={a.detail}>
+                            {a.key.startsWith("service-")
+                              ? `${a.label}·${a.detail}`
+                              : `${a.label}${a.key === "carrier" ? `: ${a.detail}` : ""}`}
+                          </span>
+                        ))}
+                        {r.attributes?.as_domain?.[0]?.value && (
+                          <span title={String(r.attributes.as_domain[0].value)}
+                            className="block max-w-[16rem] truncate text-[10px] text-zinc-600">
+                            {String(r.attributes.as_domain[0].value)}
                           </span>
                         )}
-                      </>
-                    )}
-                  </td>
-                  <td className="px-3 py-2">
-                    <ThreatTags r={r} summary={summary} />
-                  </td>
-                  <ScoredCell value={r.ip_range.value} confidence={r.ip_range.confidence} valueClass="text-zinc-500" />
-                </tr>
-                {expanded.has(r.ip) && (
-                  <tr className="fade-in">
-                    <td colSpan={8} className="px-5 py-3 bg-zinc-900/60 border-b border-zinc-800/40">
-                      {r.is_reserved ? (
-                        <div className="text-xs text-zinc-500">{t("reserved.notice")}</div>
+                      </div>
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      {r.error ? (
+                        <span title={r.error} className="inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-semibold bg-zinc-700/40 text-zinc-500 ring-1 ring-zinc-600/40">
+                          {t("verdict.invalid")}
+                        </span>
                       ) : (
-                        <IpDetailPanel r={r} />
+                        <>
+                          <VerdictCell summary={summary} />
+                          {r.threat?.is_cdn && (
+                            <span title={t("cdn.notice")} className="ml-1 inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-semibold bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30">
+                              {t("verdict.cdn")}
+                            </span>
+                          )}
+                        </>
                       )}
                     </td>
+                    <td className="px-3 py-2">
+                      <ThreatTags r={r} summary={summary} />
+                    </td>
+                    <ScoredCell value={r.ip_range.value} confidence={r.ip_range.confidence} valueClass="text-zinc-500" />
                   </tr>
-                )}
-              </Fragment>
-              );
-            })}
-            {sorted.length === 0 && filter && (
-              <tr>
-                <td colSpan={8} className="px-4 py-8 text-center text-xs text-zinc-600">
-                  {t("resultTable.noMatch", { filter })}
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+                  {expanded.has(r.ip) && (
+                    <tr className="fade-in">
+                      <td colSpan={8} className="px-5 py-3 bg-zinc-900/60 border-b border-zinc-800/40">
+                        {r.is_reserved ? (
+                          <div className="text-xs text-zinc-500">{t("reserved.notice")}</div>
+                        ) : (
+                          <IpDetailPanel r={r} />
+                        )}
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+                );
+              })}
+              {sorted.length === 0 && filter && (
+                <tr>
+                  <td colSpan={8} className="px-4 py-8 text-center text-xs text-zinc-600">
+                    {t("resultTable.noMatch", { filter })}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
 
-      <Pagination
-        page={safePage}
-        pageCount={pageCount}
-        pageSize={pageSize}
-        total={sorted.length}
-        onPage={setPage}
-        onPageSize={setPageSize}
-      />
-    </div>
+        <Pagination
+          page={safePage}
+          pageCount={pageCount}
+          pageSize={pageSize}
+          total={sorted.length}
+          onPage={setPage}
+          onPageSize={setPageSize}
+        />
+      </div>
+    </TooltipProvider>
   );
 }

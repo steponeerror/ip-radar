@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { screen, fireEvent } from "@testing-library/react";
+import { screen, fireEvent, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import userEvent from "@testing-library/user-event";
 import { renderWithI18n } from "../../test/i18nTestUtils";
@@ -7,14 +7,18 @@ import { Modal } from "../Modal";
 
 describe("Modal", () => {
   it("renders title and children when open", () => {
-    renderWithI18n(
+    // Base UI 1.8 不再输出 aria-modal:模态性改由外层元素 aria-hidden+inert 表达,断言该等价语义
+    const { container } = renderWithI18n(
       <Modal open={true} title="Done" onClose={() => {}}>
         <p>body text</p>
       </Modal>,
     );
-    expect(screen.getByRole("dialog")).toHaveAttribute("aria-modal", "true");
+    expect(container).toHaveAttribute("aria-hidden", "true");
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(screen.getByText("Done")).toBeInTheDocument();
     expect(screen.getByText("body text")).toBeInTheDocument();
+    // 标题关联成立: DialogTitle 经 aria-labelledby 成为 dialog 的可访问名
+    expect(screen.getByRole("dialog", { name: "Done" })).toBeInTheDocument();
   });
 
   it("renders nothing when closed", () => {
@@ -37,15 +41,18 @@ describe("Modal", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("calls onClose when the backdrop is clicked", () => {
+  it("calls onClose when the backdrop is clicked", async () => {
+    const user = userEvent.setup();
     const onClose = vi.fn();
     renderWithI18n(
       <Modal open={true} title="Done" onClose={onClose}>
         <p>body</p>
       </Modal>,
     );
-    // backdrop is the outer element with role=None; click the dialog container's parent
-    fireEvent.click(screen.getByRole("dialog").parentElement!);
+    // portal 渲染后遮罩与面板同级挂在 body 下;点击遮罩(data-slot=dialog-overlay)即外点关闭
+    const overlay = document.querySelector('[data-slot="dialog-overlay"]');
+    expect(overlay).not.toBeNull();
+    await user.click(overlay!);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
@@ -93,11 +100,11 @@ describe("Modal", () => {
     expect(document.activeElement).toBe(trigger);
 
     await user.click(trigger); // opens modal; effect runs, captures trigger
-    // focus has moved into the dialog (to the first focusable / panel)
-    expect(document.activeElement).not.toBe(trigger);
+    // focus has moved into the dialog (async, Base UI defers to after mount)
+    await waitFor(() => expect(document.activeElement).not.toBe(trigger));
 
     await user.keyboard("{Escape}"); // closes modal; cleanup runs, restores focus
-    expect(document.activeElement).toBe(trigger);
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
   });
 
   it("wraps Tab focus within the dialog", async () => {
@@ -117,8 +124,8 @@ describe("Modal", () => {
     const lastChildButton = buttons[1];
     const closeButton = buttons[2];
 
-    // Modal's open-effect focuses the first focusable (first child button, not close button)
-    expect(document.activeElement).toBe(firstChildButton);
+    // Base UI opens by focusing the first tabbable element (async, after mount)
+    await waitFor(() => expect(document.activeElement).toBe(firstChildButton));
 
     // Tab forward: first child button → last child button
     await user.tab();
@@ -129,11 +136,12 @@ describe("Modal", () => {
     expect(document.activeElement).toBe(closeButton);
 
     // Tab forward: at last focusable (close button), trap wraps to first
+    // (Base UI 经焦点守卫重定向,是异步的,用 waitFor 等待落点)
     await user.tab();
-    expect(document.activeElement).toBe(firstChildButton);
+    await waitFor(() => expect(document.activeElement).toBe(firstChildButton));
 
     // Tab backward (Shift+Tab): at first focusable, trap wraps to last
     await user.tab({ shift: true });
-    expect(document.activeElement).toBe(closeButton);
+    await waitFor(() => expect(document.activeElement).toBe(closeButton));
   });
 });

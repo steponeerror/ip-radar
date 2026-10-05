@@ -1,8 +1,14 @@
+import path from "node:path";
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react()],
+  resolve: {
+    alias: {
+      "@": path.resolve(__dirname, "./src"),
+    },
+  },
   build: {
     rollupOptions: {
       // 双 MPA 入口:公开壳(index)+ 独立管理文档(admin)
