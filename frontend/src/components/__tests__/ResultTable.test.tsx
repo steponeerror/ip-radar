@@ -81,9 +81,10 @@ describe("ResultTable service badge", () => {
       ] },
     };
     renderWithI18n(<ResultTable results={[dns]} />);
-    // every statement renders — the old first-only chip hid all but one
-    expect(screen.getByText("dns·Google Public DNS")).toBeInTheDocument();
-    expect(screen.getByText("cloud·Google")).toBeInTheDocument();
+    const tds = screen.getByText("8.8.8.8").closest("tr")!.querySelectorAll("td");
+    // every statement renders in the tags column — the old first-only chip hid all but one
+    expect(within(tds[6]).getByText("dns·Google Public DNS")).toBeInTheDocument();
+    expect(within(tds[6]).getByText("cloud·Google")).toBeInTheDocument();
   });
 });
 
@@ -102,10 +103,11 @@ const caProxy: ClassificationAssessment = {
 };
 
 describe("ResultTable richness display", () => {
-  it("renders CDN edge badge when threat.is_cdn", () => {
+  it("renders CDN edge badge in the tags column when threat.is_cdn (fallback: no cdn service chip)", () => {
     renderWithI18n(<ResultTable results={[{ ...baseResult, ip: "104.16.132.229",
       threat: { verdict: "benign", confidence: 0, types: [], is_cdn: true } }]} />);
-    expect(screen.getByText("CDN edge")).toBeInTheDocument();
+    const tds = screen.getByText("104.16.132.229").closest("tr")!.querySelectorAll("td");
+    expect(within(tds[6]).getByText("CDN edge")).toBeInTheDocument();
   });
 
   it("renders invalid badge when row error", () => {
@@ -123,16 +125,16 @@ describe("ResultTable richness display", () => {
     expect(within(row).getByText("Proxy")).toBeInTheDocument(); // classification tag still shown
   });
 
-  it("operator column shows as_domain subtitle and carrier badge; threat column has no carrier badge", () => {
+  it("tags column shows the carrier chip; operator column keeps only the as_domain subtitle", () => {
     const r = { ...baseResult, ip: "39.144.0.1",
       attributes: { carrier: [{ source: "cn_isp", value: "中国移动" }],
                    as_domain: [{ source: "ipinfo_lite", value: "chinamobile.com" }] } };
     renderWithI18n(<ResultTable results={[r]} />);
     expect(screen.getByRole("columnheader", { name: "Operator" })).toBeInTheDocument();
     const tds = screen.getByText("39.144.0.1").closest("tr")!.querySelectorAll("td");
-    expect(within(tds[4]).getByText(/Carrier: 中国移动/)).toBeInTheDocument();
+    expect(within(tds[6]).getByText(/Carrier: 中国移动/)).toBeInTheDocument();
     expect(within(tds[4]).getByText("chinamobile.com")).toBeInTheDocument();
-    expect(within(tds[6]).queryByText(/中国移动/)).not.toBeInTheDocument();
+    expect(within(tds[4]).queryByText(/Carrier: 中国移动/)).not.toBeInTheDocument();
   });
 });
 

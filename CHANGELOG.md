@@ -6,6 +6,8 @@
 
 ### 调整 Changed
 
+- 威胁列更名「标签」，成为该 IP 全部事实类徽章的家：威胁 chips 在前、资产 chips（CDN 边缘/云/VPN/代理/hosting/carrier）在后、源数/存档/冲突殿后；资产 chips 自判定列与运营者列迁入（运营者列留 ISP 徽章与域名副行），判定列回归纯判定
+  - Threat column renamed to Tags, the home for every fact badge of the IP: threat chips first, asset chips (CDN edge/cloud/VPN/proxy/hosting/carrier) after, source count/archive/conflict last; asset chips migrated in from the verdict and operator columns (operator keeps the ISP badge and the domain subtitle), and the verdict column is back to pure verdicts
 - 多类别指控融合:顶层 threat.confidence 改证据级重融合——同一 IP 的多类独立佐证全部计入 P(恶意) 后验,多类别指控 IP 分数整体上移(生产镜像全量回放:升 130,696 / 平 3,348,156 / 降 18,平均 Δ+0.18;分数×独立源数区分度 ρ 0.412→0.504);数字语义不变(仍为 P(恶意) 后验 0–100),fail2ban 等消费方 70 阈值继续有效;已知良性段(云/CDN)的误报影响 ≤0.0013%(全量分母 1.74 亿 IP,新增 2,233 个过线,均为 ≥2 独立源佐证,且无 IP 从 ≥70 降破);配套前端页眉威胁分改消费后端 threat 单一真相(本地推导降为回退)
   - Multiclass-accusation fusion: the top-level threat.confidence becomes an evidence-level re-fusion — every independent cross-class corroboration for an IP now feeds the P(malicious) posterior, lifting scores of multi-class IPs as a whole (full replay on the production mirror: 130,696 up / 3,348,156 flat / 18 down, mean Δ+0.18; score-vs-independent-source discrimination ρ 0.412→0.504); the number's semantics are unchanged (still the P(malicious) posterior on 0–100), so consumers like fail2ban keep their 70 threshold working; impact on known-benign cloud/CDN ranges stays ≤0.0013% (2,233 newly-over-70 IPs out of a 174M-IP full denominator, all corroborated by ≥2 independent sources, and zero IPs dropped below 70); the web header score now consumes the backend threat field as the single source of truth (local derivation demoted to a fallback)
 - 云厂商五源融合为 cloud_ranges：aws_ranges / gcp_ranges / azure_ranges / oracle_ranges / alibaba_ranges 并为单表驱动源（同一 asset 契约：service=cloud、is_hosting、provider 身份、asset-only 空裁决），五 feed 声明表逐家拉取（Azure 两步直链、Alibaba 内容守卫逐字保留）；部分失败容忍——单家挂仅告警且保留旧中间文件（旧数据继续可查），五家全挂才算失败；per-provider reliability 逐行查表（官方自发布 0.95 ×4，Alibaba 第三方聚合商 0.75）；源健康 feeds 分项（FeedHealth）+ 前端源页逐 feed 健康芯片；旧五源数据文件与 LMDB sidecar（含 v6 变体）由新源首次 download 自动清理，无需手工迁移；公开源口径 44→40
@@ -21,8 +23,8 @@
 
 - 修复:公开演示部署下管理员会话的更新进度静默(任务订阅被 demo 探测误闸;现挂载即订阅,会话失效自愈断流)
   - Fix: update progress silently dead for admin sessions on public-demo deployments (task subscription wrongly gated by demo probe; now subscribes on mount, self-heals on dead session)
-- 修复:verdict 列 CDN 边缘徽章与“可疑”判定同用琥珀色且窄列内错位换行;改天蓝资产族配色、与判定徽章同基线居中排列
-  - Fix: the CDN edge badge in the verdict column shared the suspicious verdict's amber palette and wrapped misaligned inside the narrow column; now sky asset-family colors, laid out on a centered same-baseline wrap with the verdict badge
+- 修复：verdict 列 CDN 边缘徽章曾与“可疑”判定同用琥珀色且窄列内错位换行（#85 临时同列排版）；根治为迁入标签列，与其它资产 chips 同用天蓝资产族配色，判定列回归纯判定
+  - Fix: the CDN edge badge once shared the suspicious verdict's amber palette and wrapped misaligned inside the narrow verdict column (#85 interim same-column layout); root-fixed by moving it into the Tags column alongside the other asset chips in the sky asset-family palette, with the verdict column back to pure verdicts
 
 ## v1.4.1 — 2026-09-28
 

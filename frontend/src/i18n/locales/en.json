@@ -71,6 +71,7 @@
   "column.city": "City",
   "column.country": "Country",
   "column.operator": "Operator",
+  "column.tags": "Tags",
   "column.threat": "Threat",
   "column.verdict": "Verdict",
   "common.archiveBadge": "incl. archive",
