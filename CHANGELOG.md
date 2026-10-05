@@ -21,6 +21,8 @@
 
 - 修复:公开演示部署下管理员会话的更新进度静默(任务订阅被 demo 探测误闸;现挂载即订阅,会话失效自愈断流)
   - Fix: update progress silently dead for admin sessions on public-demo deployments (task subscription wrongly gated by demo probe; now subscribes on mount, self-heals on dead session)
+- 修复:verdict 列 CDN 边缘徽章与“可疑”判定同用琥珀色且窄列内错位换行;改天蓝资产族配色、与判定徽章同基线居中排列
+  - Fix: the CDN edge badge in the verdict column shared the suspicious verdict's amber palette and wrapped misaligned inside the narrow column; now sky asset-family colors, laid out on a centered same-baseline wrap with the verdict badge
 
 ## v1.4.1 — 2026-09-28
 
