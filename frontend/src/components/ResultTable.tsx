@@ -656,12 +656,14 @@ export function ResultTable({ results }: ResultTableProps) {
                         </span>
                       ) : (
                         <>
-                          <VerdictCell summary={summary} />
-                          {r.threat?.is_cdn && (
-                            <span title={t("cdn.notice")} className="ml-1 inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-semibold bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30">
-                              {t("verdict.cdn")}
-                            </span>
-                          )}
+                          <span className="inline-flex flex-wrap items-center justify-center gap-1">
+                            <VerdictCell summary={summary} />
+                            {r.threat?.is_cdn && (
+                              <span title={t("cdn.notice")} className="inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-semibold bg-sky-500/12 text-sky-400 ring-1 ring-sky-500/20">
+                                {t("verdict.cdn")}
+                              </span>
+                            )}
+                          </span>
                         </>
                       )}
                     </td>
