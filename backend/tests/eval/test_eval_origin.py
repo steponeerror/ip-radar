@@ -16,9 +16,8 @@ from ipdb._eval.suite import run_suite
 
 # ── origin_map:raw 文件正则成员判定 ──────────────────────────────
 
-def _fake_source(name, path=None, internal=False, files=None):
-    return SimpleNamespace(name=name, _path=path, _files=files,
-                           internal=internal)
+def _fake_source(name, path=None, files=None):
+    return SimpleNamespace(name=name, _path=path, _files=files)
 
 
 def test_origin_map_membership(tmp_path):
@@ -35,7 +34,6 @@ def test_origin_map_membership(tmp_path):
     m = origin_map([_fake_source("has", has),
                     _fake_source("lacks", lacks),
                     _fake_source("gone", missing),
-                    _fake_source("sentinel", has, internal=True),
                     _fake_source("agg", multi,
                                  files=[m1, m2, multi / "c.netset"])],
                    ["1.2.3.4", "5.6.7.8", "8.8.8.8", "4.4.4.4"])
@@ -43,7 +41,6 @@ def test_origin_map_membership(tmp_path):
     assert m["5.6.7.8"] == {"has"}              # CIDR 掩码剥除后命中
     assert m["8.8.8.8"] == {"lacks", "agg"}
     assert m["4.4.4.4"] == set()                # .tmp 残件不在 _files → 不计
-    assert all("sentinel" not in v for v in m.values())   # internal 哨兵跳过
     assert all("gone" not in v for v in m.values())       # 文件缺失不贡献
 
 

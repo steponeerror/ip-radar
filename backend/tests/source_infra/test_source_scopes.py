@@ -1,7 +1,7 @@
 """Task 2 (feat/key-source-sets): _registry 私源集 + 集合解析 + lookup/get_status 收窄。
 
 resolve_allowed(None→启用非私源, list→原样)、private_source_names、
-known_source_names(发现序、不含 internal)、lookup(allowed_sources=...)、
+known_source_names(发现序)、lookup(allowed_sources=...)、
 get_status(allowed=...)。spec §4 / Q10-A。
 """
 import pytest
@@ -61,6 +61,6 @@ def test_get_status_allowed_sums_subset(fake_sources):
     assert cut["total_records"] < full["total_records"]
 
 
-def test_known_source_names_excludes_internal(fake_sources):
+def test_known_source_names_covers_all_sources(fake_sources):
     names = R.known_source_names()
-    assert names and set(names).isdisjoint(R._INTERNAL_NAMES)
+    assert names and names == [s.name for s in R._sources]
