@@ -1,6 +1,6 @@
 # backend/test_eval_metrics.py
 from ipdb._eval.metrics import (Metric, pairs, mc, cg,
-    conflict, oc, dead_slot_fill)
+    conflict, oc, dead_slot_fill, _effective_votes)
 from ipdb._eval.ablation import Snapshot
 
 # baseline: only threatfox on c2-server for 1.1.1.1
@@ -98,6 +98,42 @@ def test_cg_two_derived_alone_corroborate():
                      {"source": "ipsum", "reliability": 0.60}]}}}}
     m = cg(base, cand, "ipsum")
     assert m.value == 1
+
+def test_effective_votes_informational_detail_not_counted():
+    # EV-F1:存档票只展示不计分——2 details 其中 1 条 informational
+    # -> 有效票 1 而非 2(镜像生产 corroboration,spec 2026-09-06 决策 8)。
+    snap = {"1.1.1.1": {"classifications": {"c2-server": {
+        "sources": [{"source": "threatfox"}, {"source": "urlhaus"}],
+        "details": [{"source": "threatfox", "reliability": 0.60,
+                      "verdict": "malicious"},
+                    {"source": "urlhaus", "reliability": 0.60,
+                     "verdict": "informational"}]}}}}
+    assert _effective_votes(snap, "1.1.1.1", "c2-server") == 1
+
+def test_effective_votes_missing_verdict_key_counts_as_malicious():
+    # 旧快照兼容:detail 缺 verdict 键 -> 兑底 malicious 仍计票
+    # (生产读路径 _registry.to_observation 同口径)。
+    snap = {"1.1.1.1": {"classifications": {"c2-server": {
+        "sources": [{"source": "threatfox"}, {"source": "urlhaus"}],
+        "details": [{"source": "threatfox", "reliability": 0.60},
+                    {"source": "urlhaus", "reliability": 0.60}]}}}}
+    assert _effective_votes(snap, "1.1.1.1", "c2-server") == 2
+
+def test_cg_pure_archive_cooccurrence_gains_nothing():
+    # EV-F1:纯存档↔存档共现——有效票 0 -> 0,cg 无 gain;无过滤时
+    # 会是 1 -> 2,经 CG 闸门误挣 POSITIVE-VERIFIED(verdict.verified = cg_hi)。
+    base = {"1.1.1.1": {"classifications": {"c2-server": {
+        "sources": [{"source": "threatfox"}],
+        "details": [{"source": "threatfox", "reliability": 0.60,
+                      "verdict": "informational"}]}}}}
+    cand = {"1.1.1.1": {"classifications": {"c2-server": {
+        "sources": [{"source": "threatfox"}, {"source": "urlhaus"}],
+        "details": [{"source": "threatfox", "reliability": 0.60,
+                      "verdict": "informational"},
+                    {"source": "urlhaus", "reliability": 0.60,
+                     "verdict": "informational"}]}}}}
+    m = cg(base, cand, "urlhaus")
+    assert m.value == 0
 
 def test_dead_slot_fill_detects_new_type():
     # baseline had no phishing anywhere; candidate adds it.
