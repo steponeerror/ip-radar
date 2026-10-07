@@ -36,8 +36,6 @@ from typing import Any, Callable, Iterator
 import lmdb
 import orjson
 
-from .._watermark import mark_hit, mark_value
-
 DEFAULT_MAP_SIZE = 512 * 1024 * 1024   # first-build default; grown on demand
 BYTES_PER_RECORD_EST = 512             # initial estimate from .count sidecar
 BATCH_SIZE = 100_000
@@ -103,7 +101,7 @@ def decode_value(raw: bytes) -> tuple[int, Any]:
 
 
 def resolve_evidence(txn, ev: Any, pay_db) -> Any:
-    """ref 解引用(lookup 与 verify_watermark 共用):ev 是 int → 从 payloads
+    """ref 解引用:ev 是 int → 从 payloads
     字典取 ``txn.get(ev.to_bytes(8, "big"), db=pay_db)`` 并 orjson.loads 返回;
     字典 miss(get 返回 None)→ raise ValueError(腐败防御,不得静默返 int);
     ev 非 int → 原样返回(inline 证据透传)。"""
@@ -530,13 +528,6 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
                 cov += 1 << (net.max_prefixlen - net.prefixlen)
         s = int(net.network_address)
         e = int(net.broadcast_address)
-        if mark_hit(s, e):                       # lineage watermark (spec §5.3)
-            _tag = mark_value(s, e)              # "ir-xxxxxxxx"
-            for _ev in (evidence if isinstance(evidence, list) else [evidence]):
-                if isinstance(_ev, dict):
-                    _ex = _ev.setdefault("extra", {})
-                    if "ingest_ref" not in _ex:
-                        _ex["ingest_ref"] = _tag
         if disjoint_ok and s <= max_end:
             disjoint_ok = False
         if e > max_end:

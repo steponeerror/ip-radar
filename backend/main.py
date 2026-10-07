@@ -211,7 +211,7 @@ def require_ready():
     Resolves _db_loaded via the registry module attribute at call time (not a
     name bound at import) so a single patched reference reaches both this gate
     and lookup()'s internal check identically."""
-    if not _ipdb_registry._real_enabled_sources():
+    if not _ipdb_registry._enabled_sources():
         raise HTTPException(
             503, detail="no data sources enabled",
             headers={"X-IPRadar-Reason": "no-sources"})
@@ -529,7 +529,7 @@ def _startup():
 def _warn_unknown_private_sources() -> None:
     """R2 修波 F2：env 私源名单拼错/大小写不匹配时 exact-match 静默失效
     （该源照常公开，零信号）——启动点名告警；不 fail-fast（错配不该
-    brick 启动）。已知对照集 = known_source_names（不含 internal 哨兵）。"""
+    brick 启动）。已知对照集 = known_source_names。"""
     unknown = _ipdb_registry._PRIVATE - set(_ipdb_registry.known_source_names())
     if unknown:
         logging.getLogger(__name__).warning(
@@ -950,8 +950,7 @@ async def db_status(request: Request):
     # 合法凭证按其集合;私源计数绝不向未点名者泄露。
     status = await asyncio.to_thread(get_status, await _soft_scope(request))
     # 全源禁用不是 warming:报 False 隐藏横幅,查询走 require_ready 的诚实报错
-    # (internal 恒 enabled,须按 _real_enabled_sources 口径判空 —— 与 require_ready 同源)
-    status["warming_up"] = bool(_ipdb_registry._real_enabled_sources()) and not _db_ready()
+    status["warming_up"] = bool(_ipdb_registry._enabled_sources()) and not _db_ready()
     return status
 
 
@@ -1095,9 +1094,8 @@ async def set_source_enabled_route(name: str, patch: SourceEnabledPatch):
            dependencies=[*_ADMIN_DEPS],
            responses=_ERRS_SOURCE)
 async def update_source_route(name: str):
-    # internal 源(sentinel)不可手动触发重建:与 PATCH/eval 同款 404 守卫(F4)。
     src = _ipdb_registry._find_source(name)
-    if src is None or getattr(src, "internal", False):
+    if src is None:
         raise ApiError(ErrorCode.source_not_found, f"unknown source: {name}")
     try:
         t = manager.enqueue_one(name)
@@ -1136,7 +1134,7 @@ async def eval_model_route():
 async def eval_detail_route(source: str):
     """单源 eval 历史 + 最新详情;源存在但无报告 → latest null。"""
     src = _ipdb_registry._find_source(source)
-    if src is None or getattr(src, "internal", False):
+    if src is None:
         raise ApiError(ErrorCode.source_not_found, f"unknown source: {source}")
     return read_source(source)
 
@@ -1152,7 +1150,7 @@ async def eval_detail_route(source: str):
 async def eval_run_route(source: str):
     """触发单源 eval(子进程 CLI --json);单槽,busy → 409。"""
     src = _ipdb_registry._find_source(source)
-    if src is None or getattr(src, "internal", False):
+    if src is None:
         raise ApiError(ErrorCode.source_not_found, f"unknown source: {source}")
     try:
         job = eval_manager.run(source)
