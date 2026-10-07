@@ -67,8 +67,11 @@ BLOCKLIST_DE_MAP = {
 }
 
 # ip2proxy proxy_type → IntelMQ. DCH (datacenter/hosting) intentionally absent:
-# it has no clean IntelMQ mapping, so normalize() passes it through RAW ("dch")
-# rather than mislabeling it "proxy" or bloating the vocabulary with ad-hoc types.
+# it has no clean IntelMQ mapping. Since SM-F2 (2026-10-08) ip2proxy routes DCH
+# rows to asset-only Evidence BEFORE this map (classification_type=None,
+# verdict="" 弃权), so "dch" never reaches normalize() in production. If it
+# ever did (regression), normalize() would ring the 绊线 and fall to "other"
+# — never "proxy": unmapped types must ring, no per-key exemption.
 PROXY_MAP = {
     "vpn": "proxy",
     "pub": "proxy",

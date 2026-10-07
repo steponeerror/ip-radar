@@ -34,6 +34,9 @@ def test_case_and_whitespace_tolerant():
 
 def test_proxy_map_dch_maps_to_other():
     # DCH (datacenter/hosting) has no clean IntelMQ map -> "other", NOT "proxy".
+    # 生产路径(SM-F2)DCH 在 ip2proxy._proxy_evidence 就走 asset-only 分支,
+    # 不再喂给这张表;此处钉住表级行为作为回归防线(若有人重新接回
+    # normalize,落 other 而非 proxy,且绊线会响)。
     assert normalize("DCH", PROXY_MAP) == "other"
     assert normalize("VPN", PROXY_MAP) == "proxy"
     assert normalize("PUB", PROXY_MAP) == "proxy"

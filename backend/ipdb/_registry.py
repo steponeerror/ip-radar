@@ -467,6 +467,9 @@ def lookup(ip: str, allowed_sources: frozenset[str] | None = None) -> LookupResu
                 observations.append(to_observation(
                     source.name, item,
                     classification_type=item["classification_type"],
+                    # 缺键兑底 malicious = 旧快照兼容(重建前的存量无此键);
+                    # 显式 ""(弃权拼写)已由 Evidence.to_dict 特判保留,
+                    # 读回按 "" 处理不兑底(R17A-1)。
                     verdict=item.get("verdict", "malicious"),
                     reliability=item.get("reliability", getattr(source, "reliability", 0.5))))
             native_types = item.get("_native_types") or {}

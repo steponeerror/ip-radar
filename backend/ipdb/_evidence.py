@@ -66,7 +66,12 @@ class Evidence:
 
     def to_dict(self) -> dict:
         """Serialize for MMDB storage. Drops None-valued canonical slots so the
-        stored dict only carries what the source actually set."""
+        stored dict only carries what the source actually set.
+
+        Abstention exception (R17A-1): verdict="" is the abstention spelling
+        (asset-only evidence that accuses nothing) and is PRESERVED, not
+        dropped — see the special case in the loop.
+        """
         out = {}
         for k, v in asdict(self).items():
             if k == "extra":
@@ -76,6 +81,12 @@ class Evidence:
             if k == "native_types":
                 if v:
                     out["_native_types"] = v      # internal key the read path expects
+                continue
+            # 弃权拼写(R17A-1):verdict="" 特判保留(先于丢空检查)。若被
+            # v=="" 吃掉,读路径 _registry.lookup 的 item.get("verdict", "malicious")
+            # 会把缺键兑底成恶意——弃权变指控,语义反转,勿兑底。
+            if k == "verdict" and v == "":
+                out[k] = v
                 continue
             if v is None or v == [] or v == "":
                 continue

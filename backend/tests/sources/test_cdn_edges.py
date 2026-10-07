@@ -26,8 +26,9 @@ def test_cdn_edges_loads_and_routes(tmp_path):
     assert s.query("151.101.5.5")[0]["_native_types"] == {"service": "Fastly"}
     # not in feed
     assert s.query("8.8.8.8") == {}
-    # asset-only source: the "malicious" default verdict must NOT leak
-    assert "verdict" not in r
+    # asset-only source: verdict="" 弃权拼写由 to_dict 特判保留(R17A-1),
+    # 读回按 "" 处理不兑底 malicious(旧断言「verdict 键缺席」随之反转)
+    assert r["verdict"] == ""
 
 
 def test_cdn_edges_health_loaded_not_stale(tmp_path):
