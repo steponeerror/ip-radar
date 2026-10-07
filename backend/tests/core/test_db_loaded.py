@@ -6,7 +6,7 @@ from ipdb import _registry as r
 
 def test_db_loaded_recomputes_true_after_false_probe_is_not_frozen(monkeypatch):
     class FakeSource:
-        name = "fake_probe"          # _db_loaded 排除 internal 按名比对,需有 name
+        name = "fake_probe"          # is_enabled 按名比对,需有 name
 
         def __init__(self):
             self.loaded = False
