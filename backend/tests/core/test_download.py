@@ -3,6 +3,8 @@ import threading
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from ipdb._sources._download import CancelToken, CancelledError, download_file
 
 
@@ -107,3 +109,70 @@ def test_token_threadsafe_cancel():
         if t.is_cancelled():
             break
     assert t.is_cancelled()
+
+
+# --- DL-F1 (P0, 2026-10-07 A1): 传输层截断守卫 -------------------------
+# mid-body 断连的空读曾被当干净 EOF,截断文件被原子落盘为「好文件」;
+# 修复 = received != Content-Length 时拒绝,dest 保留旧文件、tmp 被清。
+
+def _seed_dest(dest: Path) -> bytes:
+    old = b"previous-good-evidence"
+    dest.write_bytes(old)
+    return old
+
+
+def test_truncated_single_chunk_raises_keeps_dest(tmp_path: Path):
+    """DL-F1:CL=1000/实发 500(单 chunk)→ RuntimeError,dest 保留旧内容,无 .tmp。"""
+    dest = tmp_path / "out.txt"
+    old = _seed_dest(dest)
+    resp = _FakeResp([b"a" * 500])
+    resp.headers["Content-Length"] = "1000"
+    with _patch_urlopen(resp):
+        with pytest.raises(RuntimeError) as ei:
+            download_file("http://x/y", dest)
+    msg = str(ei.value)
+    assert "truncated download" in msg and "500" in msg and "1000" in msg
+    assert dest.read_bytes() == old          # 旧证据未灭失
+    assert not (tmp_path / "out.txt.tmp").exists()
+
+
+def test_truncated_multi_chunk_raises_keeps_dest(tmp_path: Path):
+    """DL-F1 变体:CL=1000/实发 500(多 chunk,300+200)→ 同样拒绝。"""
+    dest = tmp_path / "out.txt"
+    old = _seed_dest(dest)
+    resp = _FakeResp([b"a" * 300, b"b" * 200])
+    resp.headers["Content-Length"] = "1000"
+    with _patch_urlopen(resp):
+        with pytest.raises(RuntimeError, match="truncated download"):
+            download_file("http://x/y", dest)
+    assert dest.read_bytes() == old
+    assert not (tmp_path / "out.txt.tmp").exists()
+
+
+def test_honest_content_length_succeeds_progress_unchanged(tmp_path: Path):
+    """DL-F1 ②+④:诚实 CL 正常落盘;进度回调语义不变(逐 chunk 事件 + 最终 100%)。"""
+    dest = tmp_path / "out.txt"
+    resp = _FakeResp([b"a" * 300, b"b" * 200])
+    resp.headers["Content-Length"] = "500"
+    token = CancelToken()
+    events: list[tuple[int, int]] = []
+    token.on_progress = lambda r, t: events.append((r, t))
+    with _patch_urlopen(resp):
+        download_file("http://x/y", dest, token=token)
+    assert dest.read_bytes() == b"a" * 300 + b"b" * 200
+    assert not (tmp_path / "out.txt.tmp").exists()
+    assert events == [(300, 500), (500, 500), (500, 500)]  # 2 chunk 事件 + final
+
+
+def test_missing_content_length_chunked_succeeds(tmp_path: Path):
+    """DL-F1 ③:无 CL(chunked,total=0)→ 不比对,正常;进度事件 total=0。"""
+    dest = tmp_path / "out.txt"
+    resp = _FakeResp([b"a" * 300, b"b" * 200])   # headers 无 Content-Length
+    token = CancelToken()
+    events: list[tuple[int, int]] = []
+    token.on_progress = lambda r, t: events.append((r, t))
+    with _patch_urlopen(resp):
+        download_file("http://x/y", dest, token=token)
+    assert dest.read_bytes() == b"a" * 300 + b"b" * 200
+    assert not (tmp_path / "out.txt.tmp").exists()
+    assert events == [(300, 0), (500, 0)]          # total=0:无 final 100% 事件

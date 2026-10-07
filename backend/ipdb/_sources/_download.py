@@ -58,6 +58,9 @@ def download_file(
     Writes a sibling .tmp file, then os.replace onto `dest` on success — so
     readers only ever see a complete old or new file. Checks `token` between
     chunks; on cancel/failure the .tmp is removed and `dest` is untouched.
+    A body shorter than its Content-Length is rejected as truncated, so a
+    mid-body disconnect can't masquerade as clean EOF and replace the
+    previous good file with a partial one.
 
     Args:
         timeout: stdlib urllib socket timeout applied to all socket ops
@@ -87,6 +90,9 @@ def download_file(
                     received += len(chunk)
                     if on_progress is not None:
                         on_progress(received, total)
+            if total and received != total:
+                raise RuntimeError(
+                    f"truncated download: {url} — got {received} of {total} bytes")
             if on_progress is not None and total > 0:
                 on_progress(received, total)  # ensure final 100% lands
         os.replace(str(tmp), str(dest))
