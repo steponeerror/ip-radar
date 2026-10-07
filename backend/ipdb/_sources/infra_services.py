@@ -17,6 +17,7 @@ import csv
 import io
 import logging
 
+from ._download import atomic_write_bytes
 from .._source_base import Source
 from .._evidence import Evidence
 
@@ -75,7 +76,7 @@ class InfraServicesSource(Source):
     def download(self, token=None) -> None:
         """Materialize the embedded curated CSV (no remote fetch)."""
         self._data_dir.mkdir(parents=True, exist_ok=True)
-        self._path.write_text(_DATA)
+        atomic_write_bytes(self._path, _DATA.encode("utf-8"))
 
     def load(self) -> int:
         # Self-heal: a cold start without a prior download still loads.

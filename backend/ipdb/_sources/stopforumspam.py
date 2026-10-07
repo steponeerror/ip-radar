@@ -23,7 +23,7 @@ from urllib.parse import urlparse
 
 from .._source_base import Source
 from .._evidence import Evidence
-from ._download import download_file, CancelToken
+from ._download import download_file, CancelToken, atomic_write_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +111,7 @@ class StopForumSpamSource(Source):
                                 raise RuntimeError(
                                     f"inner file too large (> {self.MAX_INNER_BYTES} bytes): {name}")
                     data = bytes(buf)
-            self._path.write_bytes(data)
+            atomic_write_bytes(self._path, data)
         finally:
             zip_path.unlink(missing_ok=True)
 

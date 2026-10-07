@@ -31,7 +31,7 @@ from urllib.parse import urlparse
 from .._source_base import Source
 from .._evidence import Evidence
 from .._classification import normalize, THREATFOX_MAP
-from ._download import download_file, CancelToken
+from ._download import download_file, CancelToken, atomic_write_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +73,7 @@ class ThreatFoxSource(Source):
                     if name is None:
                         raise RuntimeError("no .csv inside threatfox zip")
                     data = z.read(name)
-            self._path.write_bytes(data)
+            atomic_write_bytes(self._path, data)
         finally:
             zip_path.unlink(missing_ok=True)
 

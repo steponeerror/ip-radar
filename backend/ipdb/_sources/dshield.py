@@ -11,7 +11,7 @@ from urllib.parse import urlparse
 
 from .._source_base import Source
 from .._evidence import Evidence
-from ._download import CancelToken
+from ._download import CancelToken, atomic_write_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +36,7 @@ class DshieldSource(Source):
         data = self._http_get(self.url)
         if not data.strip():
             raise RuntimeError(f"Empty response from {self.url}")
-        self._path.write_bytes(data)
+        atomic_write_bytes(self._path, data)
 
     def harvest(self):
         with open(self._path, "r", encoding="utf-8", errors="ignore") as f:

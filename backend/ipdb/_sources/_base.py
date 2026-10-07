@@ -47,6 +47,10 @@ class IpListSource:
         self._disjoint6 = False
         self._count6: int = 0
         self._covered_v6_nets: int = 0
+        # SA-F1 部分失败信号(cloud_ranges 模式,A1/Task 3):与
+        # _source_base.Source.__init__ 同款默认 — 多子项源覆写 download()
+        # 时记失败子项名,RefreshScheduler._partial_failure_of 消费。
+        self.last_partial_failure: list[str] = []
 
     # ── Overridable hooks ──
 
@@ -82,29 +86,37 @@ class IpListSource:
         return urlparse(self.url).hostname or None if getattr(self, "url", "") else None
 
     def download(self, token=None) -> None:
-        """Fetch the raw list atomically, then parse + rewrite as entries.
+        """Fetch the raw list to a scratch path, parse, then install entries.
 
         Token-aware: pass a CancelToken to allow cooperative cancellation
         between chunk reads. Subclasses may override for bespoke fetch logic.
+
+        Failure contract (A1/Task 3 except-unlink restructure): the raw lands
+        on ``<path>.dl`` scratch and ``self._path`` is only touched after
+        parse succeeds — any failure (network, empty body, zero entries)
+        leaves the previous entries file byte-identical; only the scratch is
+        cleaned, never the old evidence (旧实现 except 分支 unlink 会把刚
+        顶掉旧文件的好证据一并删光). Empty/no-entries RuntimeError
+        signals are preserved.
         """
-        from ._download import download_file
+        from ._download import download_file, atomic_write_bytes
         self._data_dir.mkdir(parents=True, exist_ok=True)
         logger.info(f"Downloading {self.name}...")
+        scratch = self._path.with_name(self._path.name + ".dl")
         try:
-            download_file(self.url, self._path, token=token,
+            download_file(self.url, scratch, token=token,
                           headers={"User-Agent": "ip-lookup-tool/1.0"})
-            raw = self._path.read_bytes()
+            raw = scratch.read_bytes()
             if not raw.strip():
                 raise RuntimeError(f"Empty response from {self.url}")
             entries = self.parse_raw(raw)
             if not entries:
                 raise RuntimeError(f"No entries parsed from {self.name} response")
-            with open(self._path, "w", encoding="utf-8") as f:
-                f.write("\n".join(entries) + "\n")
-            logger.info(f"Downloaded {self.name} ({len(entries)} entries)")
-        except Exception:
-            self._path.unlink(missing_ok=True)
-            raise
+        finally:
+            scratch.unlink(missing_ok=True)
+        atomic_write_bytes(
+            self._path, ("\n".join(entries) + "\n").encode("utf-8"))
+        logger.info(f"Downloaded {self.name} ({len(entries)} entries)")
 
     def load(self) -> int:
         """纯 mmap:加载现有 LMDB env(若有),永不重建。读 sidecar。"""
