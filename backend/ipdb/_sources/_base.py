@@ -87,7 +87,7 @@ class IpListSource:
         Token-aware: pass a CancelToken to allow cooperative cancellation
         between chunk reads. Subclasses may override for bespoke fetch logic.
         """
-        from ._download import download_file
+        from ._download import download_file, atomic_write_bytes
         self._data_dir.mkdir(parents=True, exist_ok=True)
         logger.info(f"Downloading {self.name}...")
         try:
@@ -99,8 +99,8 @@ class IpListSource:
             entries = self.parse_raw(raw)
             if not entries:
                 raise RuntimeError(f"No entries parsed from {self.name} response")
-            with open(self._path, "w", encoding="utf-8") as f:
-                f.write("\n".join(entries) + "\n")
+            atomic_write_bytes(
+                self._path, ("\n".join(entries) + "\n").encode("utf-8"))
             logger.info(f"Downloaded {self.name} ({len(entries)} entries)")
         except Exception:
             self._path.unlink(missing_ok=True)

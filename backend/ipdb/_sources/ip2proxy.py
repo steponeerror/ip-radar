@@ -21,7 +21,7 @@ from pathlib import Path
 
 from .._source_base import Source
 from .._evidence import Evidence
-from ._download import download_file, CancelToken
+from ._download import download_file, CancelToken, atomic_write_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -76,9 +76,7 @@ class IP2ProxySource(Source):
                 if not csv_names:
                     raise RuntimeError("no .csv inside IP2Proxy zip")
                 payload = zf.read(csv_names[0])
-            tmp = self._path.with_suffix(".csv.tmp")
-            tmp.write_bytes(payload)
-            tmp.replace(self._path)   # atomic
+            atomic_write_bytes(self._path, payload)
         finally:
             zip_path.unlink(missing_ok=True)
 

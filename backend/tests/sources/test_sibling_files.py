@@ -114,3 +114,25 @@ def test_x4bnet_no_trailing_newline(tmp_path):
         src.download()
     src.rebuild()
     assert src._count == 1 and src._count6 == 1
+
+
+def test_spamhaus_write_failure_keeps_old_file(tmp_path):
+    """DL-F2 代表源(join 形):v4+v6 拼接落地时写 scratch 抛(模拟 ENOSPC)
+    → 旧数据文件字节级保留、.tmp 无残留,异常上抛走退避。"""
+    from pathlib import Path as _Path
+    import pytest
+    from ipdb._source_base import Source
+    from ipdb._sources.spamhaus import SpamhausSource
+    src = SpamhausSource(tmp_path)
+    old = b"1.2.3.0/24 ; SBL123\n"
+    src._path.write_bytes(old)
+    with patch.object(Source, "_http_get",
+                      side_effect=_fake_http({
+                          "https://www.spamhaus.org/drop/drop.txt": b"9.9.9.0/24\n",
+                          "https://www.spamhaus.org/drop/dropv6.txt": b"2001:db8::/32\n"})):
+        with patch.object(_Path, "write_bytes",
+                          side_effect=OSError(28, "No space left on device")):
+            with pytest.raises(OSError):
+                src.download()
+    assert src._path.read_bytes() == old           # 字节级完好
+    assert not (tmp_path / "spamhaus_drop.txt.tmp").exists()

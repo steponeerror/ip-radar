@@ -102,3 +102,52 @@ def test_ipinfo_rebuild_parses_csv_twice_not_four(tmp_path, monkeypatch):
     assert opened["n"] == 2                  # 旧行为 4:_cidrs 2 + _records 2
     assert src._covered_ips == 256
     assert src._covered_v6_nets == 1
+
+
+def test_ipinfo_lite_download_gunzip_replaces_old_csv(tmp_path, monkeypatch):
+    """F-5 成功路径:gz 下载 → 解压 scratch → replace;旧 CSV 换新,gz/scratch 清理。"""
+    import gzip as _gzip
+    import ipdb._sources.ipinfo_lite as mod
+    from ipdb._sources.ipinfo_lite import IPinfoLiteSource
+
+    csv_new = "network,country_code\n9.9.9.0/24,DE\n8.8.8.0/24,US\n"
+
+    def fake_download_file(url, dest, token=None, **kw):
+        dest.write_bytes(_gzip.compress(csv_new.encode()))
+
+    monkeypatch.setenv("IPINFO_TOKEN", "t")
+    monkeypatch.setattr(mod, "download_file", fake_download_file)
+    src = IPinfoLiteSource(tmp_path)
+    src._path.write_text("network,country_code\n1.1.1.0/24,AU\n")
+    src.download()
+    assert src._path.read_text() == csv_new
+    assert not (tmp_path / "ipinfo_lite.csv.dl").exists()
+    assert not (tmp_path / "ipinfo_lite.csv.gz").exists()
+
+
+def test_ipinfo_lite_gunzip_write_failure_keeps_old_csv(tmp_path, monkeypatch):
+    """F-5 代表源(gz 形):解压写 scratch 半途抛(模拟 ENOSPC)→ 旧 CSV
+    字节级保留、scratch/gz 清理,异常上抛走退避(旧实现的直写会留半文件,
+    且 except 分支 unlink 会把旧证据一并删掉)。"""
+    import gzip as _gzip
+    import pytest
+    import ipdb._sources.ipinfo_lite as mod
+    from ipdb._sources.ipinfo_lite import IPinfoLiteSource
+
+    def fake_download_file(url, dest, token=None, **kw):
+        dest.write_bytes(_gzip.compress(b"network,country_code\n9.9.9.0/24,DE\n"))
+
+    def boom(src, dst, length=None):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setenv("IPINFO_TOKEN", "t")
+    monkeypatch.setattr(mod, "download_file", fake_download_file)
+    monkeypatch.setattr(mod.shutil, "copyfileobj", boom)
+    src = IPinfoLiteSource(tmp_path)
+    csv_old = "network,country_code\n1.1.1.0/24,AU\n"
+    src._path.write_text(csv_old)
+    with pytest.raises(OSError):
+        src.download()
+    assert src._path.read_text() == csv_old          # 字节级完好
+    assert not (tmp_path / "ipinfo_lite.csv.dl").exists()
+    assert not (tmp_path / "ipinfo_lite.csv.gz").exists()

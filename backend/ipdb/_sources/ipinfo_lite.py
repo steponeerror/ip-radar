@@ -66,17 +66,24 @@ class IPinfoLiteSource:
         try:
             download_file(self._url, self._gz_path, token=token,
                           headers={"User-Agent": "ip-lookup-tool/1.0"})
-            with gzip.open(self._gz_path, "rb") as f_in, open(self._path, "wb") as f_out:
-                shutil.copyfileobj(f_in, f_out)
-            with open(self._path, "r", encoding="utf-8") as f:
-                line_count = sum(1 for _ in f)
-            if line_count == 0:
-                raise RuntimeError("Downloaded file is empty")
+            # F-5: 解压流式落 scratch 再 replace(atomic_write_bytes 同款
+            # 语义;解压后 ~2M 行不整体进内存)。旧直写在 copyfileobj 半途
+            # kill/ENOSPC 会留下半份 CSV、mtime 新鲜 → 重启后当新证据提交。
+            # 失败时 scratch 由 finally 清理,旧 _path 字节级不动。
+            scratch = self._path.with_name(self._path.name + ".dl")
+            try:
+                with gzip.open(self._gz_path, "rb") as f_in, \
+                        open(scratch, "wb") as f_out:
+                    shutil.copyfileobj(f_in, f_out)
+                with open(scratch, "r", encoding="utf-8") as f:
+                    line_count = sum(1 for _ in f)
+                if line_count == 0:
+                    raise RuntimeError("Downloaded file is empty")
+                os.replace(scratch, self._path)
+            finally:
+                scratch.unlink(missing_ok=True)
             self._gz_path.unlink(missing_ok=True)
             logger.info(f"Downloaded IPinfo Lite ({line_count} lines)")
-        except Exception:
-            self._path.unlink(missing_ok=True)
-            raise
         finally:
             if self._gz_path.exists():
                 self._gz_path.unlink(missing_ok=True)

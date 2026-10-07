@@ -1,6 +1,7 @@
 """Spamhaus DROP list — IpListSource subclass."""
 from .._source_base import Source
 from ._base import IpListSource
+from ._download import atomic_write_bytes
 
 
 class SpamhausSource(IpListSource):
@@ -34,7 +35,7 @@ class SpamhausSource(IpListSource):
             v6 = b""
         if v4 and not v4.endswith(b"\n"):
             v4 += b"\n"
-        self._path.write_bytes(v4 + v6)
+        atomic_write_bytes(self._path, v4 + v6)
 
     def rebuild(self, progress=None) -> int:
         """重建 LMDB。覆写基类：保留 `;` 后的 SBL 案件编号 → extra.sbl_id

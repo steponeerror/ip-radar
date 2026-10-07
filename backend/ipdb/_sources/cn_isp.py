@@ -4,7 +4,7 @@ import urllib.request
 from pathlib import Path
 
 from .._source_base import Source
-from ._download import CancelToken, CancelledError
+from ._download import CancelToken, CancelledError, atomic_write_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -65,8 +65,7 @@ class ChineseISPSource(Source):
                     logger.warning(f"Empty response for {isp_name}")
                     dest.unlink(missing_ok=True)   # don't leave stale to be mixed in
                     continue
-                with open(dest, "wb") as f:
-                    f.write(data)
+                atomic_write_bytes(dest, data)
                 newline = b'\n'
                 logger.info(f"Downloaded {isp_name}.txt ({data.count(newline)} lines)")
             except Exception as e:

@@ -54,7 +54,7 @@ class DanMeUkTorSource(IpListSource):
         """Fetch to scratch + validate BEFORE any write: a 200-OK garbage
         payload must never replace the data file (next rebuild would
         silently clear the source)."""
-        from ._download import download_file
+        from ._download import download_file, atomic_write_bytes
         self._data_dir.mkdir(parents=True, exist_ok=True)
         scratch = self._path.with_name(self._path.name + ".dl")
         try:
@@ -63,8 +63,8 @@ class DanMeUkTorSource(IpListSource):
             raw = scratch.read_bytes()
             self._validate_raw(raw)
             entries = self.parse_raw(raw)
-            with open(self._path, "w", encoding="utf-8") as f:
-                f.write("\n".join(entries) + "\n")
+            atomic_write_bytes(
+                self._path, ("\n".join(entries) + "\n").encode("utf-8"))
             logger.info(f"Downloaded {self.name} ({len(entries)} entries)")
         finally:
             scratch.unlink(missing_ok=True)

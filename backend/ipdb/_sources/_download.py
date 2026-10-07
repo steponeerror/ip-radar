@@ -99,3 +99,24 @@ def download_file(
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise
+
+
+def atomic_write_bytes(dest: Path, data: bytes) -> None:
+    """Atomically install in-memory `data` at `dest` (single repo entry point).
+
+    Same scratch+replace contract as `download_file`, for the sources that
+    build their payload in memory (join/parse/zip-extract/gunzip) instead of
+    streaming it: write a sibling .tmp, then os.replace — readers only ever
+    see the complete old or new bytes, so a kill/OOM/ENOSPC mid-write can
+    never leave a truncated file whose fresh mtime masquerades as new
+    evidence (DL-F2). Any exception removes the scratch; `dest` is never
+    touched on failure. Text callers encode first (single bytes entry point,
+    no per-source variants)."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.parent / (dest.name + ".tmp")
+    try:
+        tmp.write_bytes(data)
+        os.replace(str(tmp), str(dest))
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise

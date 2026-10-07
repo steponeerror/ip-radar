@@ -22,7 +22,7 @@ from typing import Any, Iterator
 
 from ._types import SourceHealth
 from ._evidence import Evidence
-from ._sources._download import warn_if_redirected
+from ._sources._download import warn_if_redirected, atomic_write_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +81,7 @@ class Source:
             data = resp.read()
         if not data.strip():
             raise RuntimeError(f"Empty response from {self.url}")
-        self._path.write_bytes(data)
+        atomic_write_bytes(self._path, data)
 
     def harvest(self) -> Iterator[tuple[str, Evidence]]:
         """Parse → yield (cidr_str, Evidence). Override in every concrete source."""

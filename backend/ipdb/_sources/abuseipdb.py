@@ -96,7 +96,8 @@ class AbuseIPDBSource(IpListSource):
                     f"{self.name}: empty or missing 'data' in response "
                     "(likely a 429 rate-limit or error envelope; existing "
                     "data file kept)")
-            self._path.write_bytes(raw)
+            # commit = rename:scratch 本就是完整校验过的字节,不再重写一遍
+            os.replace(scratch, self._path)
             logger.info(f"Downloaded {self.name}")
         finally:
             scratch.unlink(missing_ok=True)

@@ -1,6 +1,7 @@
 """X4BNet VPN list source — IpListSource subclass."""
 from .._source_base import Source
 from ._base import IpListSource
+from ._download import atomic_write_bytes
 
 
 class X4BNetVPNSource(IpListSource):
@@ -33,7 +34,7 @@ class X4BNetVPNSource(IpListSource):
             v6 = b""
         if v4 and not v4.endswith(b"\n"):
             v4 += b"\n"
-        self._path.write_bytes(v4 + v6)
+        atomic_write_bytes(self._path, v4 + v6)
 
     def get_insert_data(self) -> dict:
         from .._evidence import Evidence

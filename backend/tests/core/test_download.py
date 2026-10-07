@@ -5,7 +5,8 @@ from unittest.mock import patch
 
 import pytest
 
-from ipdb._sources._download import CancelToken, CancelledError, download_file
+from ipdb._sources._download import (
+    CancelToken, CancelledError, download_file, atomic_write_bytes)
 
 
 class _FakeResp:
@@ -176,3 +177,27 @@ def test_missing_content_length_chunked_succeeds(tmp_path: Path):
     assert dest.read_bytes() == b"a" * 300 + b"b" * 200
     assert not (tmp_path / "out.txt.tmp").exists()
     assert events == [(300, 0), (500, 0)]          # total=0:无 final 100% 事件
+
+
+# ── atomic_write_bytes (DL-F2):in-memory payload 的全仓统一原子落地 ──
+
+def test_atomic_write_bytes_success_installs_and_cleans_scratch(tmp_path: Path):
+    """成功:dest 换新字节,scratch(.tmp)无残留;已有内容被完整替换。"""
+    dest = tmp_path / "out.bin"
+    dest.write_bytes(b"previous-good-evidence")
+    atomic_write_bytes(dest, b"new-evidence")
+    assert dest.read_bytes() == b"new-evidence"
+    assert not (tmp_path / "out.bin.tmp").exists()
+
+
+def test_atomic_write_bytes_failure_keeps_dest_and_scratch_cleaned(tmp_path: Path):
+    """写 scratch 半途异常(模拟 ENOSPC):dest 旧内容字节级保留,.tmp 清掉,
+    异常原样上抛(走 scheduler 既有退避)。"""
+    dest = tmp_path / "out.bin"
+    dest.write_bytes(b"previous-good-evidence")
+    with patch.object(Path, "write_bytes",
+                      side_effect=OSError(28, "No space left on device")):
+        with pytest.raises(OSError):
+            atomic_write_bytes(dest, b"new-evidence")
+    assert dest.read_bytes() == b"previous-good-evidence"
+    assert list(tmp_path.glob("*.tmp")) == []

@@ -17,6 +17,7 @@ The CSV's 4th column carries the pulse ``modified`` timestamp, which feeds
 
 import csv
 import datetime
+import io
 import json
 import logging
 import os
@@ -28,7 +29,7 @@ from urllib.parse import urlparse
 from .._source_base import Source
 from .._evidence import Evidence
 from .._classification import OTX_PROTOCOL_MAP
-from ._download import CancelToken, CancelledError
+from ._download import CancelToken, CancelledError, atomic_write_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -187,18 +188,19 @@ class OtxSource(Source):
             raise RuntimeError(
                 f"{self.name}: no IPv4 indicators harvested")
 
-        # Write CSV for harvest() to consume
+        # Write CSV for harvest() to consume (atomic install: a torn
+        # mid-write CSV would otherwise look like fresh data on restart)
         self._data_dir.mkdir(parents=True, exist_ok=True)
-        with open(self._path, "w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            for indicator in sorted(collected):
-                for ctype, protocol, modified in sorted(collected[indicator]):
-                    writer.writerow([indicator, ctype, protocol, modified])
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        for indicator in sorted(collected):
+            for ctype, protocol, modified in sorted(collected[indicator]):
+                writer.writerow([indicator, ctype, protocol, modified])
+        atomic_write_bytes(self._path, buf.getvalue().encode("utf-8"))
 
         # Persist cursor for next incremental fetch
         today = time.strftime("%Y-%m-%d")
-        with open(self._cursor_path, "w", encoding="utf-8") as f:
-            f.write(today + "\n")
+        atomic_write_bytes(self._cursor_path, (today + "\n").encode("utf-8"))
 
         n_rows = sum(len(pairs) for pairs in collected.values())
         elapsed = time.time() - t0

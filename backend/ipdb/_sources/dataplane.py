@@ -37,6 +37,7 @@ import logging
 from .._source_base import Source
 from .._evidence import Evidence
 from .._classification import normalize, DATAPLANE_MAP
+from ._download import atomic_write_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +85,7 @@ class DataplaneSource(Source):
         if not parts:
             raise RuntimeError(
                 f"dataplane: all signals failed to download ({list(self.SIGNALS)})")
-        self._path.write_bytes(b"\n".join(parts))
+        atomic_write_bytes(self._path, b"\n".join(parts))
 
     def harvest(self):
         with open(self._path, "r", encoding="utf-8") as f:
