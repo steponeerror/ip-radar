@@ -240,7 +240,7 @@ class RefreshScheduler:
         """Partial-tolerance signal (cloud_ranges): download() records the
         feeds that failed in `last_partial_failure`. Non-empty → the source
         is not healthy despite a fresh dir mtime. Sources without the attr
-        (i.e. everything else) report None — scheduling unchanged."""
+        (legacy/custom sources) report None — scheduling unchanged."""
         return getattr(source, "last_partial_failure", None) or None
 
     @staticmethod
