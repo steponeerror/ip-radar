@@ -209,10 +209,13 @@ class RefreshScheduler:
             return
         if state == "done":
             if self._partial_failure_of(source) is not None:
-                # Unreachable for the one partial-tolerant source (any landed
-                # feed advances the dir mtime), but escalate anyway so a
-                # standing partial failure can never degrade to per-scan
-                # retries (30-min full re-pull storm guard).
+                # Normal path since F-4 (A1/Task 3): spamhaus/x4bnet_vpn's
+                # v6-sibling failure records the flag and returns done
+                # WITHOUT rewriting the join file, so mtime is unchanged —
+                # escalate so the dead sibling keeps the 1h..12h retry
+                # pacing instead of per-scan retries (30-min re-pull storm
+                # guard). Dir-shaped multi-feed sources (cloud_ranges) with
+                # any landed feed take the mtime-advanced branch above.
                 self._escalate_backoff(name, now)
             else:
                 logger.warning(

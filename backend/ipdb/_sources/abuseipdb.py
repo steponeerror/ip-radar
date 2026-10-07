@@ -7,9 +7,14 @@ the most-reported IPs. With `Accept: application/json` it yields
 abusers). Requires an API key — register at abuseipdb.com and set
 ABUSEIPDB_API_KEY in .env.
 
-Downloaded once per day (stale_days=1). The blacklist endpoint's free-tier daily
-quota is only 5 requests, so a single daily refresh is well within budget — this
-is why the source is a download+load (offline) source, not a query-on-demand API.
+Refreshed every 48h (stale_days=2 — F-1 quota adjudication, 2026-10-07; the
+old stale_days=1 claimed 24h but the 12h slot grid made it twice a day,
+burning 2 of the free tier's 5 daily requests on the baseline alone). One pull
+per 48h keeps the day budget at 0.5 of the 5/day quota, leaving headroom for
+retry rounds — and is why the source is a download+load (offline) source, not
+a query-on-demand API. The scheduler is deliberately untouched: the 12h slot
+grid stays for every other source, and a per-source min_refresh knob is
+deferred to a later batch.
 
 Auth: the API key is sent in the `Key` header (recommended over the query-string
 form to keep it out of server logs). download() is overridden solely to add that
@@ -45,7 +50,7 @@ class AbuseIPDBSource(IpListSource):
     verdict = "malicious"
 
     # ── tuning ──
-    stale_days = 1                  # daily refresh; free-tier quota = 5/day
+    stale_days = 2                  # 48h refresh (F-1, 2026-10-07); day budget 0.5/5
     reliability = 0.65
     authoritative_for = ()               # dict 真相:is_malicious 权威属 threatfox/emerging_threats/spamhaus
 
@@ -76,7 +81,8 @@ class AbuseIPDBSource(IpListSource):
         # 直写 self._path 且 except 分支 unlink —— 配额 429 重试烧穿后,每次
         # 失败都删掉既有好文件 → raw 永久缺失、LMDB 冻结。scratch 模式下失败
         # 永不触碰数据文件(danmeuk 同款)。免费层配额 5 次/天,重试轮每烧一次
-        # 就少一次;成功一轮后 stale_days=1 内不再重试,日预算 1/5 富余。
+        # 就少一次;成功一轮后 48h 内不再重试(stale_days=2,F-1 2026-10-07
+        # 配额修复:槽位下基线 2/5 → 0.5/5 每天,失败重试由 1h→12h 退避梯限速)。
         scratch = self._path.with_name(self._path.name + ".dl")
         try:
             download_file(url, scratch, token=token, headers={

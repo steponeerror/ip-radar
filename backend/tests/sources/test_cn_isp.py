@@ -83,6 +83,22 @@ def test_all_isp_files_failed_raises(tmp_path):
             src.download()
 
 
+def test_all_isp_files_failed_raises_even_with_old_files(tmp_path):
+    """全挂判据 = 本轮失败计数,非文件存在性(SA-F1 语义修正;firehol 同名
+    测试同款):旧实现下旧文件还在时全挂会静默不 raise,源停在旧证据且无信号。"""
+    import pytest
+    from unittest.mock import patch
+    from ipdb._sources.cn_isp import ChineseISPSource, _ISP_FILES
+    src = ChineseISPSource(tmp_path)
+    src._isp_dir.mkdir(parents=True)
+    old = src._isp_dir / f"{next(iter(_ISP_FILES))}.txt"
+    old.write_text("1.2.3.0/24\n")
+    with patch("urllib.request.urlopen", side_effect=RuntimeError("net down")):
+        with pytest.raises(RuntimeError):
+            src.download()
+    assert old.read_text() == "1.2.3.0/24\n"
+
+
 def test_partial_failure_flags_without_touching_old_file(tmp_path):
     """SA-F1(A1/Task 3):单 feed 空响应/失败 → 旧文件保留 + flag 记名
     (空响应路径与网络失败同语义;bytes 级验证见 test_storage_helpers.py
