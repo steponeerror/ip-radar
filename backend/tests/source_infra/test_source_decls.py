@@ -82,6 +82,27 @@ def test_x4bnet_vpn_get_insert_data_has_is_vpn():
     assert d["_native_types"] == {"is_vpn": "VPN"}
 
 
+def test_authority_axes_declared_by_real_producers():
+    """SM-F1 权威矩阵删幻影:AUTORITATIVE_SOURCES 每轴的声明者必须是
+    真正产出该键的源。幻影轴(is_malicious——无证据键生产者;
+    is_hosting/is_mobile——ipinfo_lite 只产 geo/asn 槽)已删;is_hosting
+    真生产者 ip2proxy(DCH)/cloud_ranges 有意不扩面声明(裁决只删不补)。"""
+    import ipdb._merge as m
+    got = {k: sorted(v) for k, v in m.AUTHORITATIVE_SOURCES.items()}
+    assert got == {
+        "is_proxy": ["ip2proxy"],
+        "is_tor": ["tor_exits"],
+        "is_vpn": ["x4bnet_vpn"],
+        "service": ["cdn_edges", "infra_services"],
+    }
+    # 声明者与产出者一致(ip2proxy 产 is_proxy,tor_exits 产 is_tor,
+    # x4bnet_vpn 产 is_vpn,cdn_edges/infra_services 产 service)。
+    from ipdb._sources.ip2proxy import _proxy_evidence
+    assert _proxy_evidence("VPN").is_proxy is True
+    from ipdb._sources.x4bnet_vpn import X4BNetVPNSource
+    assert "is_vpn" in X4BNetVPNSource.get_insert_data(X4BNetVPNSource(data_dir=Path("/tmp")))
+
+
 def test_reliability_floor_and_derived_flags():
     """spec 2026-08-29 §3.4:r ≥ 0.5 红线;聚合器源带 derived 标记。
     R1-F1:_logodds.DERIVED_SOURCES 由该 attr 集合灌装(registry

@@ -51,7 +51,7 @@ class ThreatFoxSource(Source):
     verdict = "malicious"
     stale_days = 1
     reliability = 0.85
-    authoritative_for = ("is_malicious",)
+    authoritative_for = ()               # SM-F1:is_malicious 无证据键生产者(幻影轴),不声明
     skip_lines = 9
 
     @property

@@ -1,6 +1,7 @@
 """迁移护栏:三个中央 dict 无论字面量还是派生,必须等于旧值快照。
 spec 2026-08-28 §5.1——三处权威修正(abuseipdb/proxyscrape 清空、
-ipinfo_lite 补)被此快照锁死,防回退。"""
+ipinfo_lite 补)被此快照锁死,防回退。SM-F1(2026-10-08):权威快照
+修剪——幻影轴(is_malicious/is_hosting/is_mobile)删除,真轴归真生产者。"""
 import ipdb._merge as m
 import ipdb._registry as r
 
@@ -42,10 +43,12 @@ OLD_RELIABILITY = {
 }
 OLD_AUTHORITATIVE = {
     "is_proxy": ["ip2proxy"], "is_tor": ["tor_exits"], "is_vpn": ["x4bnet_vpn"],
-    "is_malicious": ["threatfox", "emerging_threats", "spamhaus"],
-    "is_hosting": ["ipinfo_lite"], "is_mobile": ["ipinfo_lite"],
     "service": ["infra_services", "cdn_edges"],
 }
+# SM-F1 删除的幻影轴:is_malicious(threatfox/emerging_threats/spamhaus
+# 声明但无证据键生产者)、is_hosting/is_mobile(ipinfo_lite 声明但只产
+# geo/asn 槽;is_hosting 真生产者 ip2proxy/cloud_ranges 有意不扩面)。
+_PHANTOM_AXES = ("is_malicious", "is_hosting", "is_mobile")
 
 def test_categories_match_snapshot():
     # 41 = otx_subscribed 入册后实测 len(SOURCE_CATEGORIES)
@@ -61,6 +64,8 @@ def test_authoritative_match_snapshot():
     got = {k: sorted(v) for k, v in m.AUTHORITATIVE_SOURCES.items()}
     want = {k: sorted(v) for k, v in OLD_AUTHORITATIVE.items()}
     assert got == want
+    for axis in _PHANTOM_AXES:     # SM-F1:幻影轴永久禁入(独立于快照逐位比对)
+        assert axis not in got, f"phantom authority axis {axis!r} resurrected"
 
 def test_reexport_identity():
     import ipdb

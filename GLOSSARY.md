@@ -32,7 +32,7 @@
 - **背景质量**:multicategory posterior 里 +1 的"未观测答案"概率质量(mass,非品质);没有它单源 conf 会到 100,违反单源 conf=r。锚:_logodds.py(multicategory_posterior)
 - **单源 conf = r**:校准公理——一个源单独作证,置信度等于它自己的可靠度,永远到不了 100。锚:backend/tests/core/test_confidence.py
 - **衰减**:威胁断言随 first_seen 指数衰减(2^(-age/h),默认 60d 半衰期);方向不变、强度衰减;标量字段不衰减。锚:_logodds.py(decay_factor)
-- **声明 r**:SOURCE_RELIABILITY 手定可靠度;永不自动派生自 eval,采纳走人审 PR 且 diff 引用 eval 报告编号;`DATA_DIR/_calibrated.json` 为后验覆盖通道。锚:_merge.py:65 教义、_registry.py(_apply_calibrated)
+- **声明 r**:SOURCE_RELIABILITY 手定可靠度;永不自动派生自 eval,采纳走人审 PR 且 diff 引用 eval 报告编号;`DATA_DIR/_calibrated.json` 为后验覆盖通道,覆盖直达全融合面(threat details.r 与置信度、标量、STIX;lookup 表优先,DM-1)。锚:_merge.py:65 教义、_registry.py(_apply_calibrated、to_observation 表优先)
 - **平滑淡出**:纯存档组(无指控源)的 confidence 退回全量 Σ 而非跳变——数字渐变,不闪断。锚:_merge.py(_assess_classification)、tests/core/test_archive_abstention.py
 - **合并策略**:四种标量策略——加权投票(city)/ log-odds 多类别(country/asn)/ 权威(as_name)/ 最长前缀(ip_range);威胁断言走独立路径 _assess_classification(谱系去重+按源衰减),不在标量策略表内。算法跟着字段语义走。锚:_merge.py、_registry.py(_strategies)
 - **受控词表**:classification_type 用 IntelMQ 词汇作跨源印证轴——可比性是 schema 保证的,不是模型保证的。锚:_classification.py

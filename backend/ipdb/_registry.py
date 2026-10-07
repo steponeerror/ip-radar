@@ -476,6 +476,11 @@ def lookup(ip: str, allowed_sources: frozenset[str] | None = None) -> LookupResu
             if source.name == "geolite_city" and extra:
                 geolite_extras[source.name] = extra
             if "classification_type" in item:
+                # DM-1 声明 r 生效:表优先(SOURCE_RELIABILITY 含
+                # _calibrated.json 运行时覆盖,表优先 → 后校准即真生效,
+                # threat details.r 与融合权重即时反映);表未收录(测试假源
+                # 等未注册名)回落 payload/class attr 旧链,无校准文件零漂移。
+                r_live = SOURCE_RELIABILITY.get(source.name)
                 observations.append(to_observation(
                     source.name, item,
                     classification_type=item["classification_type"],
@@ -483,7 +488,9 @@ def lookup(ip: str, allowed_sources: frozenset[str] | None = None) -> LookupResu
                     # 显式 ""(弃权拼写)已由 Evidence.to_dict 特判保留,
                     # 读回按 "" 处理不兑底(R17A-1)。
                     verdict=item.get("verdict", "malicious"),
-                    reliability=item.get("reliability", getattr(source, "reliability", 0.5))))
+                    reliability=(r_live if r_live is not None
+                                 else item.get("reliability",
+                                               getattr(source, "reliability", 0.5)))))
             native_types = item.get("_native_types") or {}
             for akey in ASSET_SLOTS:            # schema-driven, was _ASSET_KEYS
                 if akey in item:

@@ -96,5 +96,5 @@ def test_danmeuk_metadata_declared():
     s = DanMeUkTorSource.__new__(DanMeUkTorSource)
     assert s.category == "asset"
     assert 0 < s.reliability <= 1
-    assert s.authoritative_for == ()               # witness, not veto (official stays authority)
+    assert s.authoritative_for == ()               # witness; is_tor 展示层权威属 tor_exits(SM-F1:veto 机制不存在)
     assert s.stale_days == 1
