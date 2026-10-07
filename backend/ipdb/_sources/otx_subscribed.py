@@ -12,8 +12,12 @@
 - 分类 = 双路:indicator 自带 role 字段优先(bruteforce→brute-force,逐 IP
   精确),pulse 名关键词兜底(Botnet List→c2-server 等,规则来自 2026-10-07
   实测 pulse 名分布),都miss→blacklist(通用策展榜)。
-- 同 IP 多行 = 同一蜜罐内重复观测(45,330 行→5,867 唯一,87% 重复):去重保
-  created 最新行,first_seen 落观测时间(provenance 三时间戳中的观测侧)。
+- 去重键 = (IP, 分类),非裸 IP:同分类重复观测(45,330 行→5,867 唯一,
+  87% 重复——均指同一蜜罐内的同分类重复上报)保 created 最新行;跨 pulse
+  异分类观测(同 IP 见于 Botnet List=c2-server 与 Phishing List=
+  phishing)各自保留——证据不预坍缩,坍缩点在 rebuild 的逐 CIDR 累加
+  (convention 3;otx.py 同型保 per-ctype 元组)。first_seen 落观测时间
+  (provenance 三时间戳中的观测侧)。
 - 谱系:derived=True(聚合平台,与 otx/firehol/ipsum 同层)。dedup_lineage
   在存在更强非派生源时剔除本源(spec 2026-08-29 §3.3);残余回声 = activity
   流与订阅流对同一 pulse 双计(仅当无任何非派生源覆盖该 IP 时),与 firehol/
@@ -101,31 +105,16 @@ class OtxSubscribedSource(Source):
         from urllib.parse import urlparse
         return urlparse(_SUBSCRIBED_URL).hostname
 
-    def _fetch(self, url: str, headers: dict, retries: int = 2) -> bytes:
-        """GET with retries(otx.py 同型;urllib UA 见文件头 WAF 注)。"""
-        import urllib.request
-        for attempt in range(1, retries + 1):
-            try:
-                req = urllib.request.Request(url, headers=headers)
-                with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
-                    return resp.read()
-            except Exception as e:
-                if attempt == retries:
-                    raise
-                wait = 2 ** attempt
-                logger.info(
-                    f"{self.name}: request failed (attempt {attempt}), "
-                    f"retrying in {wait}s: {type(e).__name__}")
-                time.sleep(wait)
-        raise RuntimeError(  # pragma: no cover
-            f"{self.name}: fetch failed after {retries} retries")
-
     def _fetch_json_page(self, page: int, headers: dict) -> dict | None:
-        """取第 page 页(limit=1);失败(含 504 HTML)返回 None。"""
+        """取第 page 页(limit=1);失败(含 504 HTML)返回 None(原因入 debug 日志)。"""
         url = f"{_SUBSCRIBED_URL}?limit=1&page={page}"
         try:
-            return json.loads(self._fetch(url, headers))
-        except Exception:
+            return json.loads(self._http_get(
+                url, headers=headers, timeout=_TIMEOUT, retries=2))
+        except Exception as e:
+            logger.debug(
+                f"{self.name}: page {page} fetch failed: "
+                f"{type(e).__name__}: {e}")
             return None
 
     def download(self, token: CancelToken | None = None) -> None:
@@ -142,8 +131,9 @@ class OtxSubscribedSource(Source):
             "OTX_SUBSCRIBED_BUDGET_SECONDS", _DEFAULT_BUDGET_SECONDS))
         t0 = time.time()
 
-        # ip -> [ctype, tag, author, pulse, created, description]
-        collected: dict[str, list] = {}
+        # (ip, ctype) -> [tag, author, pulse, created, description]:跨 pulse
+        # 异分类观测各自保留(convention 3 证据不预坍缩,坍缩点在 rebuild)
+        collected: dict[tuple[str, str], list] = {}
         page, empty_streak, blocked, pulses_seen = 1, 0, 0, 0
 
         logger.info(f"Downloading {self.name} (REST /pulses/subscribed, limit=1 pages)")
@@ -163,6 +153,14 @@ class OtxSubscribedSource(Source):
                 time.sleep(8)
                 data = self._fetch_json_page(page, headers)
                 if data is None or "results" not in data:
+                    if page == 1:
+                        # 首页即败 = key 错/WAF/断供,快败镜像 otx.py 首页语义:
+                        # 不烧余下 ~99 页 + 900s 预算才在收尾 RuntimeError
+                        reason = ("fetch/JSON failed after retry" if data is None
+                                  else "payload lacks 'results'")
+                        raise RuntimeError(
+                            f"{self.name}: page 1 failed — {reason} "
+                            f"(bad OTX_API_KEY / WAF / outage)")
                     blocked += 1
                     empty_streak = 0
                     page += 1
@@ -190,16 +188,22 @@ class OtxSubscribedSource(Source):
                 if not value:
                     continue
                 created = str(ind.get("created") or "")
-                prev = collected.get(value)
-                if prev is not None and prev[4] >= created:
-                    continue        # 同 IP 重复观测,保最新 created 行
                 ctype, tag = _classify_row(
                     str(ind.get("role") or ""), pname)
-                collected[value] = [ctype, tag, author, pname, created,
-                                    str(ind.get("description") or "")]
+                # 同 (IP, 分类) 重复观测保 created 最新行;异分类互不覆盖
+                pair = (value, ctype)
+                prev = collected.get(pair)
+                if prev is not None and prev[3] >= created:
+                    continue
+                collected[pair] = [tag, author, pname, created,
+                                   str(ind.get("description") or "")]
 
             page += 1
 
+        if page > _MAX_PAGES:
+            logger.warning(
+                f"{self.name}: hit {_MAX_PAGES}-page cap at page {page - 1} "
+                f"before stream end — tail deferred to next slot")
         if blocked:
             logger.warning(
                 f"{self.name}: {blocked} page(s) blocked by 504 "
@@ -211,14 +215,15 @@ class OtxSubscribedSource(Source):
         self._data_dir.mkdir(parents=True, exist_ok=True)
         with open(self._path, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
-            for indicator in sorted(collected):
-                writer.writerow([indicator] + collected[indicator])
+            for (indicator, ctype), rest in sorted(collected.items()):
+                writer.writerow([indicator, ctype] + rest)
 
+        unique_ips = len({ip for ip, _ in collected})
         elapsed = time.time() - t0
         logger.info(
             f"Downloaded {self.name} "
-            f"({len(collected)} unique IPs, {pulses_seen} pulses, "
-            f"{blocked} blocked pages, {elapsed:.0f}s)")
+            f"({unique_ips} unique IPs, {len(collected)} rows, "
+            f"{pulses_seen} pulses, {blocked} blocked pages, {elapsed:.0f}s)")
 
     # ── CSV parser(single source of truth)──
 

@@ -71,6 +71,13 @@ class TestClassifyRow:
         ctype, _ = _classify_row("", "Bruteforce SSH port 22 (S3)")
         assert ctype == "brute-force"
 
+    def test_unmapped_role_falls_through_to_name_keyword(self):
+        # role="c2" 不在 OTX_SUBSCRIBED_ROLE_MAP(normalize → "other"),
+        # 契约 = 脉冲名关键词接手而非丢行(契约钉住,防未来漂移)
+        assert _classify_row(
+            "c2", "Malware Filter - Botnet List - 06-10-2026 (Part 6)") \
+            == ("c2-server", "botnet")
+
     def test_unmatched_falls_back_to_blacklist(self):
         # Twitter Feed mirrors and unknown future pulses → generic curated list
         ctype, tag = _classify_row("", "Twitter Feed - harugasumi - 06-10-2026")
@@ -188,6 +195,29 @@ class TestHarvest:
         # empty tag → no native_categories entry
         assert rows[0][1].native_categories == []
 
+    def test_cross_pulse_classifications_both_survive(self, tmp_path):
+        # 同一 IP 见于两个 pulse、分类不同(Botnet List=c2-server vs
+        # Phishing List=phishing):(IP, 分类) 去重不得互相覆盖——
+        # convention 3 证据不预坍缩,坍缩点在 rebuild
+        self._write_fixture(
+            tmp_path / "otx_subscribed.csv",
+            [["203.0.113.9", "c2-server", "botnet", "CyberHunterAutoFeed",
+              "Malware Filter - Botnet List - 06-10-2026 (Part 6)",
+              "2026-10-06T02:00:00", ""],
+             ["203.0.113.9", "phishing", "phishing", "CyberHunterAutoFeed",
+              "Malware Filter - Phishing List - 06-10-2026",
+              "2026-10-06T03:00:00", "Phishing website"]],
+        )
+        src = OtxSubscribedSource(tmp_path)
+        src.rebuild()
+        recs = src.query("203.0.113.9")
+        assert sorted(r["classification_type"] for r in recs) == [
+            "c2-server", "phishing"]
+        by_ctype = {r["classification_type"]: r for r in recs}
+        assert by_ctype["c2-server"]["native_categories"] == ["botnet"]
+        assert by_ctype["phishing"]["extra"]["pulse"] == \
+            "Malware Filter - Phishing List - 06-10-2026"
+
     def test_cidr_row_supported(self, tmp_path):
         self._write_fixture(
             tmp_path / "otx_subscribed.csv",
@@ -198,3 +228,69 @@ class TestHarvest:
         src.rebuild()
         rec = src.query("5.6.7.3")[0]
         assert rec["classification_type"] == "scanner"
+
+
+class TestDownloadDedup:
+    """download() 的 (IP, 分类) 去重键:异分类互不覆盖,同键保最新 created。
+
+    免网络:monkeypatch 实例 _fetch_json_page 喂合成页(两连空页终结,
+    与真实流同型)。"""
+
+    @staticmethod
+    def _page(name, indicators, author="CyberHunterAutoFeed"):
+        return {"results": [{
+            "author_name": author, "name": name,
+            "indicators": indicators,
+        }]}
+
+    def _run_download(self, tmp_path, pages):
+        import csv as _csv
+        seq = list(pages) + [{"results": []}, {"results": []}]
+        src = OtxSubscribedSource(tmp_path)
+        src._fetch_json_page = lambda page, headers: seq[page - 1]
+        src.download()
+        with open(tmp_path / "otx_subscribed.csv") as f:
+            return [row for row in _csv.reader(f)]
+
+    def test_distinct_classifications_keep_both_rows(
+            self, tmp_path, monkeypatch):
+        # 同 IP 跨 pulse 异分类:两行都要落 CSV(裸 IP 键会丢一行)
+        monkeypatch.setenv("OTX_API_KEY", "test-key")
+        rows = self._run_download(tmp_path, [
+            self._page("Malware Filter - Botnet List - 06-10-2026 (Part 6)",
+                       [{"type": "IPv4", "indicator": "203.0.113.9",
+                         "created": "2026-10-06T02:00:00"}]),
+            self._page("Malware Filter - Phishing List - 06-10-2026",
+                       [{"type": "IPv4", "indicator": "203.0.113.9",
+                         "created": "2026-10-06T03:00:00"}]),
+        ])
+        assert rows == [
+            ["203.0.113.9", "c2-server", "botnet", "CyberHunterAutoFeed",
+             "Malware Filter - Botnet List - 06-10-2026 (Part 6)",
+             "2026-10-06T02:00:00", ""],
+            ["203.0.113.9", "phishing", "phishing", "CyberHunterAutoFeed",
+             "Malware Filter - Phishing List - 06-10-2026",
+             "2026-10-06T03:00:00", ""],
+        ]
+
+    def test_same_pair_dedups_to_latest_created(self, tmp_path, monkeypatch):
+        # 同 (IP, 分类) 重复观测:只保 created 最新那行(87% 重复的成因)
+        monkeypatch.setenv("OTX_API_KEY", "test-key")
+        rows = self._run_download(tmp_path, [
+            self._page("SSH Brute-Force Honeypot Live",
+                       [{"type": "IPv4", "indicator": "198.51.100.7",
+                         "role": "bruteforce",
+                         "created": "2026-10-05T00:00:00"}],
+                       author="pr0viehh"),
+            self._page("SSH Brute-Force Honeypot Live",
+                       [{"type": "IPv4", "indicator": "198.51.100.7",
+                         "role": "bruteforce",
+                         "created": "2026-10-06T00:00:00",
+                         "description": "newer observation"}],
+                       author="pr0viehh"),
+        ])
+        assert rows == [
+            ["198.51.100.7", "brute-force", "bruteforce", "pr0viehh",
+             "SSH Brute-Force Honeypot Live",
+             "2026-10-06T00:00:00", "newer observation"],
+        ]
