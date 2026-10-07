@@ -37,6 +37,7 @@ import logging
 from .._source_base import Source
 from .._evidence import Evidence
 from .._classification import normalize, DATAPLANE_MAP
+from ._download import atomic_write_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -69,22 +70,30 @@ class DataplaneSource(Source):
         return "dataplane.org"
 
     def download(self, token=None) -> None:
+        """逐信号拉取 join 单文件(SA-F1):成功 parts join 原子写 + 失败信号
+        记 self.last_partial_failure;全挂 raise。join 文件无法新旧混合,
+        部分失败的缩水窗口由 scheduler 的 done-但-部分失败 backoff 封顶
+        (≤分钟级重试,非整个 stale 周期;计划已裁)。"""
         self._data_dir.mkdir(parents=True, exist_ok=True)
         parts: list[bytes] = []
+        failed: list[str] = []
         for name, url in self.SIGNALS.items():
             try:
                 data = self._http_get(url)
             except Exception as e:
                 logger.warning(f"dataplane {name} fetch failed: {e}")
+                failed.append(name)
                 continue
             if not data.strip():
                 logger.warning(f"dataplane {name}: empty response")
+                failed.append(name)
                 continue
             parts.append(data)
+        self.last_partial_failure = failed
         if not parts:
             raise RuntimeError(
                 f"dataplane: all signals failed to download ({list(self.SIGNALS)})")
-        self._path.write_bytes(b"\n".join(parts))
+        atomic_write_bytes(self._path, b"\n".join(parts))
 
     def harvest(self):
         with open(self._path, "r", encoding="utf-8") as f:

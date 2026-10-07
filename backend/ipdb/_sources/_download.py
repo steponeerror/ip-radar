@@ -58,6 +58,9 @@ def download_file(
     Writes a sibling .tmp file, then os.replace onto `dest` on success — so
     readers only ever see a complete old or new file. Checks `token` between
     chunks; on cancel/failure the .tmp is removed and `dest` is untouched.
+    A body shorter than its Content-Length is rejected as truncated, so a
+    mid-body disconnect can't masquerade as clean EOF and replace the
+    previous good file with a partial one.
 
     Args:
         timeout: stdlib urllib socket timeout applied to all socket ops
@@ -87,8 +90,32 @@ def download_file(
                     received += len(chunk)
                     if on_progress is not None:
                         on_progress(received, total)
+            if total and received != total:
+                raise RuntimeError(
+                    f"truncated download: {url} — got {received} of {total} bytes")
             if on_progress is not None and total > 0:
                 on_progress(received, total)  # ensure final 100% lands
+        os.replace(str(tmp), str(dest))
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
+def atomic_write_bytes(dest: Path, data: bytes) -> None:
+    """Atomically install in-memory `data` at `dest` (single repo entry point).
+
+    Same scratch+replace contract as `download_file`, for the sources that
+    build their payload in memory (join/parse/zip-extract/gunzip) instead of
+    streaming it: write a sibling .tmp, then os.replace — readers only ever
+    see the complete old or new bytes, so a kill/OOM/ENOSPC mid-write can
+    never leave a truncated file whose fresh mtime masquerades as new
+    evidence (DL-F2). Any exception removes the scratch; `dest` is never
+    touched on failure. Text callers encode first (single bytes entry point,
+    no per-source variants)."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.parent / (dest.name + ".tmp")
+    try:
+        tmp.write_bytes(data)
         os.replace(str(tmp), str(dest))
     except BaseException:
         tmp.unlink(missing_ok=True)

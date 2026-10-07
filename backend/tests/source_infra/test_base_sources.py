@@ -82,6 +82,87 @@ def test_get_insert_data_without_classification_type_unchanged():
     assert data == {"is_legacy": True}
 
 
+# ── download 失败契约(A1/Task 3 except-unlink 重构)──
+
+
+class _Simple(IpListSource):
+    name = "simple"
+    url = "https://example.com/simple.txt"
+    filename = "simple.txt"
+    fields = ("is_malicious",)
+
+
+def _serve_bytes(body: bytes):
+    """模拟 download_file 落盘契约:直接把 body 写到给定 dest(scratch)。"""
+    def _fake(url, dest, token=None, headers=None, **kw):
+        Path(dest).write_bytes(body)
+    return _fake
+
+
+def test_download_parse_failure_keeps_old_file_and_cleans_scratch(
+        tmp_path, monkeypatch):
+    """解析失败(零 entries):旧 entries 文件字节级完好(旧实现 except
+    分支 unlink 把刚顶掉旧文件的好证据删光)、scratch(.dl/.dl.tmp)无
+    残留、RuntimeError 信号保留。"""
+    import pytest
+    old = b"1.2.3.0/24\n5.6.7.0/24\n"
+    (tmp_path / "simple.txt").write_bytes(old)
+    src = _Simple(data_dir=tmp_path)
+    monkeypatch.setattr("ipdb._sources._download.download_file",
+                        _serve_bytes(b"# only a comment line\n"))
+    with pytest.raises(RuntimeError, match="No entries parsed"):
+        src.download()
+    assert (tmp_path / "simple.txt").read_bytes() == old
+    assert not (tmp_path / "simple.txt.dl").exists()
+    assert not (tmp_path / "simple.txt.dl.tmp").exists()
+
+
+def test_download_parse_crash_keeps_old_file(tmp_path, monkeypatch):
+    """parse_raw 自身抛异常(如解码/格式炸):同契约 — _path 不被触碰。"""
+    import pytest
+
+    class _BadParse(_Simple):
+        def parse_raw(self, raw):
+            raise ValueError("bad format")
+
+    old = b"1.2.3.0/24\n"
+    (tmp_path / "simple.txt").write_bytes(old)
+    src = _BadParse(data_dir=tmp_path)
+    monkeypatch.setattr("ipdb._sources._download.download_file",
+                        _serve_bytes(b"garbage"))
+    with pytest.raises(ValueError, match="bad format"):
+        src.download()
+    assert (tmp_path / "simple.txt").read_bytes() == old
+    assert not (tmp_path / "simple.txt.dl").exists()
+
+
+def test_download_empty_body_keeps_old_file(tmp_path, monkeypatch):
+    """空 body:RuntimeError 信号保留,旧文件字节级完好,scratch 清理。"""
+    import pytest
+    old = b"1.2.3.0/24\n"
+    (tmp_path / "simple.txt").write_bytes(old)
+    src = _Simple(data_dir=tmp_path)
+    monkeypatch.setattr("ipdb._sources._download.download_file",
+                        _serve_bytes(b"  \n\t\n"))
+    with pytest.raises(RuntimeError, match="Empty response"):
+        src.download()
+    assert (tmp_path / "simple.txt").read_bytes() == old
+    assert not (tmp_path / "simple.txt.dl").exists()
+
+
+def test_download_success_installs_entries_and_leaves_no_scratch(
+        tmp_path, monkeypatch):
+    """成功路径行为不变(无损红线):最终内容 = 解析后 entries(+尾行),
+    scratch 不残留 — 与旧实现产物字节一致。"""
+    src = _Simple(data_dir=tmp_path)
+    monkeypatch.setattr("ipdb._sources._download.download_file",
+                        _serve_bytes(b"# header\n1.2.3.0/24\n\n5.6.7.0/24\n"))
+    src.download()
+    assert (tmp_path / "simple.txt").read_bytes() == b"1.2.3.0/24\n5.6.7.0/24\n"
+    assert not (tmp_path / "simple.txt.dl").exists()
+    assert src.last_partial_failure == []       # 基类接线默认值在位
+
+
 def test_load_pure_mmap_does_not_rebuild(tmp_path, monkeypatch):
     """load() 纯 mmap:有 LMDB ptr 就开 env,没有则 _reader=None。不触发任何 harvest。"""
     from ipdb._source_base import Source

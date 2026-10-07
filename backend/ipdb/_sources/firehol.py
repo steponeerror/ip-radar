@@ -10,6 +10,7 @@
 重叠部分由谱系去重兜底(derived=True);同 CIDR 异分类共存(convention 3)。
 """
 import logging
+import os
 import time
 from pathlib import Path
 from urllib.parse import urlparse
@@ -62,22 +63,35 @@ class FireholBlocklistSource(IpListSource):
         return urlparse(_BASE_URL).hostname
 
     def download(self, token: CancelToken | None = None) -> None:
+        """逐列表下载(SA-F1,cloud_ranges 模式):raw 先落 `<name>.netset.dl`
+        scratch,非空才 os.replace 落地 — 单列表失败/空响应保留旧 netset
+        (rebuild 对缺列表本就容忍),失败列表名记 self.last_partial_failure
+        (scheduler 对 done-但-部分失败走 backoff 封顶重试);全挂才 raise。"""
         self._path.mkdir(parents=True, exist_ok=True)
+        failed: list[str] = []
         for list_name in self._lists:
             if token is not None and token.is_cancelled():
                 raise CancelledError(f"{self.name} download cancelled")
             url = f"{_BASE_URL}/{list_name}.netset"
             dest = self._path / f"{list_name}.netset"
+            scratch = dest.with_name(dest.name + ".dl")
             logger.info(f"Downloading {list_name}...")
             try:
-                download_file(url, dest, token=token,
+                download_file(url, scratch, token=token,
                               headers={"User-Agent": "ip-lookup-tool/1.0"})
-                if not dest.read_bytes().strip():
-                    dest.unlink(missing_ok=True)   # don't leave stale to be mixed in
+                if not scratch.read_bytes().strip():
+                    failed.append(list_name)
+                    logger.warning(f"Empty response for {list_name}")
+                    continue
+                os.replace(scratch, dest)
             except Exception as e:
-                logger.error(f"Failed to download {list_name}: {e}")
-                dest.unlink(missing_ok=True)       # don't leave stale to be mixed in
-        if not any((self._path / f"{l}.netset").exists() for l in self._lists):
+                failed.append(list_name)
+                logger.warning(
+                    f"Failed to download {list_name}: {e} — keeping existing file")
+            finally:
+                scratch.unlink(missing_ok=True)
+        self.last_partial_failure = failed
+        if len(failed) == len(self._lists):
             raise RuntimeError(
                 f"all firehol lists failed to download: {self._lists}")
 

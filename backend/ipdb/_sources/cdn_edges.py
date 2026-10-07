@@ -15,6 +15,7 @@ download() fetches the feeds and writes a combined
 import json
 import re
 
+from ._download import atomic_write_bytes
 from .._source_base import Source
 from .._evidence import Evidence
 
@@ -44,7 +45,8 @@ class CdnEdgesSource(Source):
         for provider, url, fmt in _FEEDS:
             data = self._http_get(url)
             rows.extend((cidr, provider) for cidr in _parse(data, fmt))
-        self._path.write_text("".join(f"{c},{p}\n" for c, p in rows))
+        atomic_write_bytes(self._path,
+                           "".join(f"{c},{p}\n" for c, p in rows).encode("utf-8"))
 
     def harvest(self):
         for line in self._path.read_text().splitlines():

@@ -67,6 +67,56 @@ def test_dataplane_signals_dict_has_eight_feeds():
         "smtpdata", "ntpmode7"}
 
 
+# ── download 部分失败语义(SA-F1,A1/Task 3)──
+
+_OK = {"sshpwauth", "telnetlogin"}   # 模拟仅存的两路信号
+
+
+def _fake_get(urls: dict):
+    def _get(url, **kw):
+        if url not in urls:
+            raise RuntimeError(f"fetch failed: {url}")
+        return urls[url]
+    return _get
+
+
+def test_download_partial_failure_writes_ok_parts_and_flags(tmp_path):
+    """部分失败:成功 parts join 原子写(join 文件无法新旧混合,缩水窗口由
+    scheduler 的 done-但-部分失败 backoff 封顶,计划已裁)+ 失败信号名
+    记 last_partial_failure。"""
+    from unittest.mock import patch
+    from ipdb._source_base import Source
+    from ipdb._sources.dataplane import DataplaneSource
+    s = DataplaneSource(data_dir=tmp_path)
+    urls = {
+        f"https://dataplane.org/signals/{n}.txt":
+            f"174|A|10.0.{i}.1|2026-10-07 00:00:00|{n}\n".encode()
+        for i, n in enumerate(sorted(_OK))}
+    with patch.object(Source, "_http_get", side_effect=_fake_get(urls)):
+        s.download()
+    content = (tmp_path / "dataplane.txt").read_text()
+    assert "10.0.0.1" in content and "10.0.1.1" in content   # 成功 parts 落盘
+    assert s.last_partial_failure == [
+        n for n in DataplaneSource.SIGNALS if n not in _OK]
+
+
+def test_download_all_signals_failed_raises_and_keeps_old_file(tmp_path):
+    """全挂 raise 保留;join 文件全程不被触碰(旧证据字节级保留)。"""
+    import pytest
+    from unittest.mock import patch
+    from ipdb._source_base import Source
+    from ipdb._sources.dataplane import DataplaneSource
+    s = DataplaneSource(data_dir=tmp_path)
+    old = b"174|A|1.2.3.4|2026-10-01 00:00:00|sshpwauth\n"
+    s._path.write_bytes(old)
+    with patch.object(Source, "_http_get",
+                      side_effect=RuntimeError("net down")):
+        with pytest.raises(RuntimeError, match="all signals failed"):
+            s.download()
+    assert s._path.read_bytes() == old
+    assert len(s.last_partial_failure) == len(DataplaneSource.SIGNALS)
+
+
 def test_dataplane_smtpdata_spam_and_ntpmode7_scanner(tmp_path):
     """2026-09-05 修正( dataplane.org 文件头实证):ntpmode7 列的是
     "sending NTP mode 7 requests" 的源 IP——探测方(为找 DDoS 放大器而

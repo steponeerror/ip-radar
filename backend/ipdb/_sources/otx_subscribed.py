@@ -31,6 +31,7 @@ UA 的 urllib 请求在 per-pulse indicators 端点被拦;subscribed 端点同 U
 若线上 403 频发,备选 = 换 UA 复测(风险栏,未启用)。
 """
 import csv
+import io
 import json
 import logging
 import os
@@ -39,7 +40,7 @@ import time
 from .._source_base import Source
 from .._evidence import Evidence
 from .._classification import normalize, OTX_SUBSCRIBED_ROLE_MAP
-from ._download import CancelToken, CancelledError
+from ._download import CancelToken, CancelledError, atomic_write_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -211,12 +212,14 @@ class OtxSubscribedSource(Source):
         if not collected:
             raise RuntimeError(f"{self.name}: no IP indicators harvested")
 
-        # 全量重写 CSV(滚动窗口,harvest() 的唯一消费源)
+        # 全量重写 CSV(滚动窗口,harvest() 的唯一消费源;原子落地,
+        # 写一半的 CSV 不会以新 mtime 冒充新证据)
         self._data_dir.mkdir(parents=True, exist_ok=True)
-        with open(self._path, "w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            for (indicator, ctype), rest in sorted(collected.items()):
-                writer.writerow([indicator, ctype] + rest)
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        for (indicator, ctype), rest in sorted(collected.items()):
+            writer.writerow([indicator, ctype] + rest)
+        atomic_write_bytes(self._path, buf.getvalue().encode("utf-8"))
 
         unique_ips = len({ip for ip, _ in collected})
         elapsed = time.time() - t0

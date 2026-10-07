@@ -14,6 +14,20 @@ def test_all_lists_failed_raises(tmp_path):
             src.download()
 
 
+def test_all_lists_failed_raises_even_with_old_files(tmp_path):
+    """全挂判据 = 本轮失败计数,非文件存在性(SA-F1 语义修正):旧实现
+    在旧文件还在时全挂会静默不 raise,源永远停在旧证据且无信号。"""
+    src = FireholBlocklistSource(tmp_path, selected_lists=["firehol_level1",
+                                                           "firehol_level2"])
+    src._path.mkdir(parents=True)
+    (src._path / "firehol_level1.netset").write_bytes(b"1.2.3.0/24\n")
+    with patch("ipdb._sources.firehol.download_file",
+               side_effect=RuntimeError("boom")):
+        with pytest.raises(RuntimeError):
+            src.download()
+    assert (src._path / "firehol_level1.netset").read_bytes() == b"1.2.3.0/24\n"
+
+
 def test_partial_failure_tolerated(tmp_path):
     src = FireholBlocklistSource(tmp_path, selected_lists=["firehol_level1",
                                                            "firehol_level2"])
@@ -31,6 +45,52 @@ def test_partial_failure_tolerated(tmp_path):
         src.download()          # level2 失败容忍,不 raise
     assert (src._path / "firehol_level1.netset").exists()
     assert not (src._path / "firehol_level2.netset").exists()
+    assert src.last_partial_failure == ["firehol_level2"]
+
+
+def test_partial_failure_keeps_old_file_and_updates_rest(tmp_path):
+    """SA-F1(A1/Task 3):单列表失败(mock 500)→ 旧 netset 字节级保留
+    (不再 unlink)、其余列表正常更新、失败名记 last_partial_failure;
+    scratch(<name>.netset.dl)无残留。全挂 raise 见 test_all_lists_failed_raises。"""
+    from pathlib import Path
+    src = FireholBlocklistSource(tmp_path, selected_lists=["firehol_level1",
+                                                           "firehol_level2"])
+    src._path.mkdir(parents=True)
+    old = src._path / "firehol_level2.netset"
+    old.write_bytes(b"9.9.9.0/24\n")
+
+    def fake_dl(url, dest, token=None, headers=None, **kw):
+        if "firehol_level1" in url:
+            Path(dest).write_bytes(b"1.2.3.0/24\n")
+        else:
+            raise RuntimeError("HTTP 500")
+
+    with patch("ipdb._sources.firehol.download_file", side_effect=fake_dl):
+        src.download()
+    assert (src._path / "firehol_level1.netset").read_bytes() == b"1.2.3.0/24\n"
+    assert old.read_bytes() == b"9.9.9.0/24\n"        # 旧文件保留
+    assert src.last_partial_failure == ["firehol_level2"]
+    assert not (src._path / "firehol_level2.netset.dl").exists()
+
+
+def test_empty_response_keeps_old_file_and_flags(tmp_path):
+    """空响应与拉取失败同语义:旧文件保留(旧实现先覆盖再 unlink,旧证据
+    已不可恢复),记入 last_partial_failure。"""
+    from pathlib import Path
+    src = FireholBlocklistSource(tmp_path, selected_lists=["firehol_level1",
+                                                           "firehol_level2"])
+    src._path.mkdir(parents=True)
+    (src._path / "firehol_level1.netset").write_bytes(b"1.2.3.0/24\n")
+    old = src._path / "firehol_level2.netset"
+    old.write_bytes(b"9.9.9.0/24\n")
+
+    def fake_dl(url, dest, token=None, headers=None, **kw):
+        Path(dest).write_bytes(b"" if "firehol_level2" in url else b"1.2.3.0/24\n")
+
+    with patch("ipdb._sources.firehol.download_file", side_effect=fake_dl):
+        src.download()
+    assert old.read_bytes() == b"9.9.9.0/24\n"        # 空响应不碰旧文件
+    assert src.last_partial_failure == ["firehol_level2"]
 
 
 # ── per-list classification(2026-08-30 拆子列表)──
