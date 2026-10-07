@@ -23,13 +23,10 @@ def origin_map(sources, ips: list[str]) -> dict[str, set[str]]:
     一致(_IP_RE + CIDR 剥掩码);只对入参 ips 判定,不展开全文件宇宙。
     多文件源(firehol/blocklist_de 的 _path 是目录)读自报的 _files
     清单 —— 排除目录内 .tmp 残件;无 _path 或文件缺失 → 该源不贡献。
-    internal 哨兵源跳过。
     """
     want = set(ips)
     out: dict[str, set[str]] = {ip: set() for ip in want}
     for s in sources:
-        if getattr(s, "internal", False):
-            continue
         files = getattr(s, "_files", None)
         if files is None:
             p = getattr(s, "_path", None)

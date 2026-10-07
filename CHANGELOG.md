@@ -19,6 +19,11 @@
 - 管理台源列表 grid 化:全局表头+响应式列(评估 lg+/θ xl+)+滚动锁步,修复按钮换行下沉;组头"地理 / ASN 数据"更名;管理壳 max-w-6xl
   - Sources list regrid: global header + responsive columns (eval lg+/θ xl+) + scroll lockstep, fixes button wrap; group renamed "Geo & ASN data"; admin shell max-w-6xl
 
+### 移除 Removed
+
+- 移除 sentinel/水印机制(裁决 #5,2026-10-07:数据走向开源许可,防盗前提消失):内部合成哨兵源(canary,internal=True,从不计入公开源口径)与谱系标记整体拆除——公开答案对 ~500 个哨兵 IP 不再返回 suspicious;rebuild 不再嵌入 ingest_ref 概率印记;内部源(internal)接线全部移除,源注册表回归单一口径;核验 CLI 一并删除
+  - Removed the sentinel/watermark mechanism (adjudication #5, 2026-10-07: the dataset is heading to an open license, dissolving the anti-theft premise): the internal synthetic canary source (internal=True, never counted in the public-source tally) and its lineage marks are torn out wholesale — public answers no longer return suspicious for the ~500 canary IPs; rebuilds no longer embed the ingest_ref probabilistic mark; the internal-source wiring is gone entirely, leaving one uniform source registry; the verifier CLI goes with it
+
 ### 修复 Fixed
 
 - 修复:公开演示部署下管理员会话的更新进度静默(任务订阅被 demo 探测误闸;现挂载即订阅,会话失效自愈断流)

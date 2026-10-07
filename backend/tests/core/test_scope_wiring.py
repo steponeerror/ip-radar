@@ -179,9 +179,8 @@ def test_db_status_bearer_soft_scope(scoped_registry, key_env):
 # ── T2 缓议 M1 补钉(controller ordered fix #2,Q10-A)──
 
 def test_resolve_allowed_none_pins_private_exclusion(monkeypatch):
-    """判别 fixture:其一私有、其一 internal 哨兵 → resolve_allowed(None)
-    恰等于「启用源减私源」(哨兵留下,查询环 YES,canary 契约)。
-    排除语义由测试钉死,不靠代码检视。"""
+    """判别 fixture:其一私有 → resolve_allowed(None) 恰等于
+    「启用源减私源」。排除语义由测试钉死,不靠代码检视。"""
     class FakeSource:
         name = None
         fields = ("country_code",)
@@ -196,12 +195,11 @@ def test_resolve_allowed_none_pins_private_exclusion(monkeypatch):
 
     a, b, c = FakeSource(), FakeSource(), FakeSource()
     a.name, b.name = "pin_pub", "pin_priv"
-    c.name = sentinel = next(iter(reg._INTERNAL_NAMES))
+    c.name = "pin_pub2"
     monkeypatch.setattr(reg, "_sources", [a, b, c])
     monkeypatch.setattr(reg, "_PRIVATE", frozenset({"pin_priv"}))
     allowed = reg.resolve_allowed(None)
-    assert sentinel in allowed          # 终审 fix:None 支不滤 internal,canary 回查询环
-    assert allowed == frozenset({"pin_pub", sentinel})
+    assert allowed == frozenset({"pin_pub", "pin_pub2"})
 
 
 def test_stix_route_passes_scope_to_lookup(scoped_registry, key_env, monkeypatch):
