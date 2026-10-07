@@ -54,6 +54,7 @@ docker compose up -d
 | ipinfo_lite | `IPINFO_TOKEN` | <https://ipinfo.io/account/token> |
 | abuseipdb | `ABUSEIPDB_API_KEY` | <https://www.abuseipdb.com/account> |
 | otx | `OTX_API_KEY` | <https://otx.alienvault.com/settings> |
+| otx_subscribed | `OTX_API_KEY`（与 otx 共用） | <https://otx.alienvault.com/settings> |
 | ip2proxy | `IP2PROXY_TOKEN` | <https://www.ip2location.com/> |
 
 Slow npm/pip downloads (common on CN networks)? Pass mirror build-args:
@@ -163,6 +164,7 @@ Every dataset below belongs to its provider — thank you for keeping them open 
 |---|---|---|---|
 | abuseipdb | [AbuseIPDB](https://www.abuseipdb.com/) | Most-reported attacker IPs | 🔑 |
 | otx | [AlienVault OTX](https://otx.alienvault.com/) | Community threat pulses (IPv4 indicators) | 🔑 |
+| otx_subscribed | [AlienVault OTX](https://otx.alienvault.com/) | Subscribed pulse library (curated honeypots / C2 lists) | 🔑 |
 | spamhaus | [Spamhaus](https://www.spamhaus.org/drop/) | DROP/EDROP hijacked ranges | |
 | stopforumspam | [StopForumSpam](https://www.stopforumspam.com/) | Forum-spammer IPs (365-day window, report counts) | |
 | threatfox | [abuse.ch](https://threatfox.abuse.ch/) | Malware IOC feed (CSV/ZIP) | |

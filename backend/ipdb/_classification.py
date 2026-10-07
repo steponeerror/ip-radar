@@ -93,6 +93,13 @@ OTX_PROTOCOL_MAP = {
     "web": "scanner",
 }
 
+# otx_subscribed indicator 自带 role 字段(pr0viehh 蜜罐逐 IP 角色标签,
+# 2026-10-07 实测仅 bruteforce 一种取值)→ IntelMQ。未命中走 pulse 名关键词
+# 兜底链(otx_subscribed._NAME_RULES),两个都 miss → blacklist。
+OTX_SUBSCRIBED_ROLE_MAP = {
+    "bruteforce": "brute-force",
+}
+
 # TweetFeed (0xDanielLopez/TweetFeed) — infosec-X IOC feed. The `tag` field is a
 # space-separated hashtag list (e.g. "#C2 #CobaltStrike"); tweetfeed.harvest
 # splits it and applies the FIRST mappable hashtag. C2/RAT-infra tags collapse

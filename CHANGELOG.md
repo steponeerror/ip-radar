@@ -4,6 +4,11 @@
 
 ## Unreleased
 
+### 新增 Added
+
+- 新源 otx_subscribed：AlienVault OTX 订阅库流（/api/v1/pulses/subscribed，与 otx 的 activity 全网扫描流同发布者不同流）——数据 = 账号策展作者群（蜜罐运营方/威胁研究团队），demo 账号实测 83 pulses / 16,929 唯一 IPv4（对比 activity 流同窗口数百条）；取数 = limit=1 逐页（大页必 504，OTX 60s 网关闸；枚举页被巨型 pulse 挡住则跳过记账下轮补）；分类双路 = indicator 自带 role 优先（bruteforce→brute-force）+ pulse 名关键词兜底（Botnet List→c2-server、Malware Delivery→malware-distribution、URLHaus 镜像→malware-distribution、ICS Targeting/Scan port/S3#→scanner、其余→blacklist）；同 IP 重复观测去重保最新 created（first_seen 落观测时间）；TSEC 逐 IP 描述（置信度/行业定向/协议交互）无损入 extra；派生标记 = derived + DERIVED_SOURCES + LINEAGE_CLUSTERS（与 otx/firehol/ipsum 同层，谱系去重兜底 activity∩subscribed 残余回声）；reliability 0.6，stale_days=1（12h 槽）
+  - New source otx_subscribed: the AlienVault OTX subscribed-library stream (/api/v1/pulses/subscribed; same publisher as the otx activity firehose, different stream) — data = the account's curated author set (honeypot operators / threat researchers), live-verified at 83 pulses / 16,929 unique IPv4 on the demo account (vs a few hundred from the activity stream over the same window); fetching = limit=1 page-at-a-time (bigger pages always 504 at OTX's 60s gateway; pages blocked by mega-pulses are logged and skipped, retried next 12h slot); classification is two-path = the indicator's own role first (bruteforce→brute-force) with pulse-name keywords as fallback (Botnet List→c2-server, Malware Delivery→malware-distribution, URLHaus mirrors→malware-distribution, ICS Targeting/Scan port/S3#→scanner, else→blacklist); duplicate observations of the same IP dedup keeping the latest created (first_seen = observation time); TSEC's per-IP descriptions (confidence/sector targeting/protocol interaction) preserved losslessly in extra; lineage = derived + DERIVED_SOURCES + LINEAGE_CLUSTERS (same tier as otx/firehol/ipsum, lineage dedup absorbs the residual activity∩subscribed echo); reliability 0.6, stale_days=1 (12h slot grid)
+
 ### 调整 Changed
 
 - 威胁列更名「标签」，成为该 IP 全部事实类徽章的家：威胁 chips 在前、资产 chips（CDN 边缘/云/VPN/代理/hosting/carrier）在后、源数/存档/冲突殿后；资产 chips 自判定列与运营者列迁入（运营者列留 ISP 徽章与域名副行），判定列回归纯判定
