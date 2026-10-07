@@ -192,12 +192,23 @@ def test_atomic_write_bytes_success_installs_and_cleans_scratch(tmp_path: Path):
 
 def test_atomic_write_bytes_failure_keeps_dest_and_scratch_cleaned(tmp_path: Path):
     """写 scratch 半途异常(模拟 ENOSPC):dest 旧内容字节级保留,.tmp 清掉,
-    异常原样上抛(走 scheduler 既有退避)。"""
+    异常原样上抛(走 scheduler 既有退避)。side_effect 先真实落盘再抛,
+    「无 .tmp 残留」断言面对真存在的 scratch,而非从未写过的空目录。"""
     dest = tmp_path / "out.bin"
     dest.write_bytes(b"previous-good-evidence")
-    with patch.object(Path, "write_bytes",
-                      side_effect=OSError(28, "No space left on device")):
+    scratch = tmp_path / "out.bin.tmp"
+    real_write = Path.write_bytes
+    wrote_partial = False
+
+    def enospc_mid_write(data: bytes):
+        nonlocal wrote_partial
+        real_write(scratch, data[: len(data) // 2])  # 半途:盘上已有部分字节
+        wrote_partial = True
+        raise OSError(28, "No space left on device")
+
+    with patch.object(Path, "write_bytes", side_effect=enospc_mid_write):
         with pytest.raises(OSError):
             atomic_write_bytes(dest, b"new-evidence")
+    assert wrote_partial                              # 失败时盘上确有真 scratch
     assert dest.read_bytes() == b"previous-good-evidence"
     assert list(tmp_path.glob("*.tmp")) == []

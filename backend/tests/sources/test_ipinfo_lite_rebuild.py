@@ -137,17 +137,24 @@ def test_ipinfo_lite_gunzip_write_failure_keeps_old_csv(tmp_path, monkeypatch):
     def fake_download_file(url, dest, token=None, **kw):
         dest.write_bytes(_gzip.compress(b"network,country_code\n9.9.9.0/24,DE\n"))
 
-    def boom(src, dst, length=None):
+    wrote_partial = False
+
+    def partial_then_enospc(src_f, dst_f, length=None):
+        # 先解出部分字节再抛(半途 ENOSPC):「scratch 被清」断言面对真内容
+        nonlocal wrote_partial
+        dst_f.write(src_f.read(16))
+        wrote_partial = True
         raise OSError(28, "No space left on device")
 
     monkeypatch.setenv("IPINFO_TOKEN", "t")
     monkeypatch.setattr(mod, "download_file", fake_download_file)
-    monkeypatch.setattr(mod.shutil, "copyfileobj", boom)
+    monkeypatch.setattr(mod.shutil, "copyfileobj", partial_then_enospc)
     src = IPinfoLiteSource(tmp_path)
     csv_old = "network,country_code\n1.1.1.0/24,AU\n"
     src._path.write_text(csv_old)
     with pytest.raises(OSError):
         src.download()
+    assert wrote_partial                         # 失败时盘上确有真 scratch
     assert src._path.read_text() == csv_old          # 字节级完好
     assert not (tmp_path / "ipinfo_lite.csv.dl").exists()
     assert not (tmp_path / "ipinfo_lite.csv.gz").exists()

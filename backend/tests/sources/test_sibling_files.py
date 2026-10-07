@@ -126,13 +126,23 @@ def test_spamhaus_write_failure_keeps_old_file(tmp_path):
     src = SpamhausSource(tmp_path)
     old = b"1.2.3.0/24 ; SBL123\n"
     src._path.write_bytes(old)
+    scratch = tmp_path / "spamhaus_drop.txt.tmp"
+    real_write = _Path.write_bytes
+    wrote_partial = False
+
+    def enospc_mid_write(data: bytes):
+        nonlocal wrote_partial
+        real_write(scratch, data[: len(data) // 2])  # 半途:盘上已有部分字节
+        wrote_partial = True
+        raise OSError(28, "No space left on device")
+
     with patch.object(Source, "_http_get",
                       side_effect=_fake_http({
                           "https://www.spamhaus.org/drop/drop.txt": b"9.9.9.0/24\n",
                           "https://www.spamhaus.org/drop/dropv6.txt": b"2001:db8::/32\n"})):
-        with patch.object(_Path, "write_bytes",
-                          side_effect=OSError(28, "No space left on device")):
+        with patch.object(_Path, "write_bytes", side_effect=enospc_mid_write):
             with pytest.raises(OSError):
                 src.download()
+    assert wrote_partial                    # 失败时盘上确有真 scratch
     assert src._path.read_bytes() == old           # 字节级完好
-    assert not (tmp_path / "spamhaus_drop.txt.tmp").exists()
+    assert not scratch.exists()
