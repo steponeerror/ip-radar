@@ -336,9 +336,8 @@ class CsvSource(IpListSource):
         v6_keys = (c for c in acc if ":" in c)
         cov4 = covered_ip_count(v4_keys)
         cov6 = covered_ip_count(v6_keys, ip_version=6)
-        # count 语义保持证据数(而非 CIDR 数)——与单族时代一致
-        cnt4 = sum(len(acc[c]) for c in acc if ":" not in c)
-        cnt6 = sum(len(acc[c]) for c in acc if ":" in c)
+        # DQ-2:.count 语义 = LMDB 主库键数(rebuild_lmdb commit 时从 env
+        # 回写);旧「count=证据数」覆写已删——同 CIDR 多证据并单键,计数
+        # 不再随证据数虚增,record_count 恒等于 env 键数。
         return commit_dual_family(
-            self, acc.items(), cov4=cov4, cov6=cov6,
-            count4=cnt4, count6=cnt6, progress=progress)
+            self, acc.items(), cov4=cov4, cov6=cov6, progress=progress)

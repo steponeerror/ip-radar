@@ -11,7 +11,7 @@ DISJOINT = [("10.0.0.0/24", {"v": "a"}), ("10.1.0.0/24", {"v": "b"}),
 
 def _env(tmp_path, records, name):
     base = tmp_path / f"{name}.lmdb"
-    rebuild_lmdb(iter(records), base, reader_setter=lambda e: None, count=len(records))
+    rebuild_lmdb(iter(records), base, reader_setter=lambda e: None)
     return open_env_read(base.parent / f"{base.name}.{read_ptr(base)}")
 
 @pytest.mark.parametrize("records,name", [(DISJOINT, "d"), (NESTED, "n")])
