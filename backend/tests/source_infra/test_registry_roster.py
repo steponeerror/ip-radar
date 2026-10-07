@@ -16,7 +16,6 @@ def test_roster_covers_every_registered_source() -> None:
     names = [ln.split(" | ")[0] for ln in lines]
     # 41 源口径(otx_subscribed 入册后实测)
     assert names == [s.name for s in _sources]
-418cb6ca (Fix otx_subscribed review findings: (IP, ctype) dedup key, fast-fail, counts)
     assert len(set(names)) == len(names)
 
 

@@ -109,11 +109,6 @@ def _discover_sources(data_dir: Path) -> list:
 
 _sources = _discover_sources(DATA_DIR)
 
-# 内部源(如 watermark canary sentinel):从不进 41 源口径 —— list_sources/
-# get_status/_db_loaded/stale/roster/eval/toggle 全排除(F2/F4,spec §5.2)。
-_INTERNAL_NAMES = frozenset(
-    s.name for s in _sources if getattr(s, "internal", False))
-
 # ── 元数据唯一真相(spec 2026-08-28 §5.1):源 class attr。──
 # 中央名保留兼容(下游零改);_merge 两 dict 为 fill-in-place(对象身份
 # 不变,严禁重新赋值——ipdb/__init__ 的 re-export 靠同对象)。

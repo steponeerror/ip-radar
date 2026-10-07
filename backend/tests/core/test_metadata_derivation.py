@@ -48,7 +48,6 @@ OLD_AUTHORITATIVE = {
 }
 
 def test_categories_match_snapshot():
-def test_categories_match_snapshot():
     # 41 = otx_subscribed 入册后实测 len(SOURCE_CATEGORIES)
     live = dict(r.SOURCE_CATEGORIES)
     assert live == OLD_CATEGORIES
@@ -56,7 +55,6 @@ def test_categories_match_snapshot():
 def test_reliability_match_snapshot():
     # 公开源快照全等锁死(41 源口径)
     live = dict(m.SOURCE_RELIABILITY)
-    assert live == OLD_RELIABILITY
     assert live == OLD_RELIABILITY
 
 def test_authoritative_match_snapshot():
