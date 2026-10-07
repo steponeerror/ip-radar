@@ -53,3 +53,28 @@ def test_all_lists_failed_raises(tmp_path):
                side_effect=RuntimeError("boom")):
         with pytest.raises(RuntimeError):
             src.download()
+
+
+def test_partial_failure_keeps_old_file_and_updates_rest(tmp_path):
+    """SA-F1(A1/Task 3,firehol 同款):单列表失败 → 旧 txt 字节级保留、
+    其余列表更新、失败名记 last_partial_failure、scratch 无残留。"""
+    from unittest.mock import patch
+    from ipdb._sources.blocklist_de import BlocklistDeSource
+    src = BlocklistDeSource(tmp_path, selected_lists=["ssh", "mail"])
+    src._path.mkdir(parents=True)
+    old = src._path / "mail.txt"
+    old.write_text("5.6.7.8\n")
+
+    def fake_dl(url, dest, token=None, headers=None, **kw):
+        if url.endswith("/ssh.txt"):
+            from pathlib import Path
+            Path(dest).write_bytes(b"1.2.3.4\n")
+        else:
+            raise RuntimeError("boom")
+
+    with patch("ipdb._sources.blocklist_de.download_file", side_effect=fake_dl):
+        src.download()          # mail 失败容忍,不 raise
+    assert (src._path / "ssh.txt").read_bytes() == b"1.2.3.4\n"
+    assert old.read_text() == "5.6.7.8\n"             # 旧文件保留
+    assert src.last_partial_failure == ["mail"]
+    assert not (src._path / "mail.txt.dl").exists()

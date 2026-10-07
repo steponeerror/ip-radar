@@ -81,3 +81,32 @@ def test_all_isp_files_failed_raises(tmp_path):
     with patch("urllib.request.urlopen", side_effect=RuntimeError("net down")):
         with pytest.raises(RuntimeError):
             src.download()
+
+
+def test_partial_failure_flags_without_touching_old_file(tmp_path):
+    """SA-F1(A1/Task 3):单 feed 空响应/失败 → 旧文件保留 + flag 记名
+    (空响应路径与网络失败同语义;bytes 级验证见 test_storage_helpers.py
+    同款测试)。"""
+    from unittest.mock import patch
+    from ipdb._sources.cn_isp import ChineseISPSource, _ISP_FILES
+    src = ChineseISPSource(tmp_path)
+    src._isp_dir.mkdir(parents=True)
+    empty_name = next(iter(_ISP_FILES))
+    for name in _ISP_FILES:
+        (src._isp_dir / f"{name}.txt").write_text("1.2.3.0/24\n")
+
+    class _Resp:
+        def __init__(self, b): self._b = b
+        def read(self): return self._b
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    def fake_urlopen(req, timeout=30):
+        if empty_name in req.full_url:
+            return _Resp(b"   \n")          # 空 body(200-OK)
+        return _Resp(b"5.6.7.0/24\n")
+
+    with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+        src.download()
+    assert (src._isp_dir / f"{empty_name}.txt").read_text() == "1.2.3.0/24\n"
+    assert src.last_partial_failure == [empty_name]

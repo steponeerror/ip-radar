@@ -58,6 +58,11 @@ class Source:
         self._count = 0
         self._covered_ips = 0
         self._loaded_at = 0.0
+        # SA-F1 部分失败信号(cloud_ranges 模式,A1/Task 3):download() 把
+        # 失败子项名记入此列表(空 = 全绿);RefreshScheduler._partial_failure_of
+        # 消费(done-但-部分失败 → backoff 封顶重试,spec §2.3)。
+        # cloud_ranges 在自己 __init__ 里重复声明同名属性,赋值覆写零冲突。
+        self.last_partial_failure: list[str] = []
         # v6 并行族(spec §3.2):base/ptr/reader/disjoint 全套独立 sidecar
         self._lmdb6_base = data_dir / f"{self.filename}.v6.lmdb"
         self._mmdb6_path = _ptr_path(self._lmdb6_base)

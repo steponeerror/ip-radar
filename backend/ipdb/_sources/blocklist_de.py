@@ -7,6 +7,7 @@ brute-force > infected-system > spam > scanner > blacklist 裁决 classification
 全部认领子列表名保留在 native_categories。
 """
 import logging
+import os
 import shutil
 import time
 from pathlib import Path
@@ -63,23 +64,36 @@ class BlocklistDeSource(IpListSource):
                 side.unlink(missing_ok=True)
 
     def download(self, token: CancelToken | None = None) -> None:
+        """逐列表下载(SA-F1,cloud_ranges/firehol 同模式):raw 先落
+        `<name>.txt.dl` scratch,非空才 os.replace 落地 — 单列表失败/空响应
+        保留旧列表文件,失败列表名记 self.last_partial_failure;全挂才 raise。"""
         self._path.mkdir(parents=True, exist_ok=True)
         self._cleanup_legacy()
+        failed: list[str] = []
         for list_name in self._lists:
             if token is not None and token.is_cancelled():
                 raise CancelledError(f"{self.name} download cancelled")
             url = f"{_BASE_URL}/{list_name}.txt"
             dest = self._path / f"{list_name}.txt"
+            scratch = dest.with_name(dest.name + ".dl")
             logger.info(f"Downloading blocklist_de/{list_name}...")
             try:
-                download_file(url, dest, token=token,
+                download_file(url, scratch, token=token,
                               headers={"User-Agent": "ip-lookup-tool/1.0"})
-                if not dest.read_bytes().strip():
-                    dest.unlink(missing_ok=True)   # don't leave stale to be mixed in
+                if not scratch.read_bytes().strip():
+                    failed.append(list_name)
+                    logger.warning(f"Empty response for blocklist_de/{list_name}")
+                    continue
+                os.replace(scratch, dest)
             except Exception as e:
-                logger.error(f"Failed to download blocklist_de/{list_name}: {e}")
-                dest.unlink(missing_ok=True)       # don't leave stale to be mixed in
-        if not any((self._path / f"{l}.txt").exists() for l in self._lists):
+                failed.append(list_name)
+                logger.warning(
+                    f"Failed to download blocklist_de/{list_name}: {e} "
+                    f"— keeping existing file")
+            finally:
+                scratch.unlink(missing_ok=True)
+        self.last_partial_failure = failed
+        if len(failed) == len(self._lists):
             raise RuntimeError(
                 f"all blocklist_de lists failed to download: {self._lists}")
 

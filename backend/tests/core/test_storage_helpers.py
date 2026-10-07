@@ -109,9 +109,10 @@ def test_base_csv_reconverts_when_count_sidecar_missing(tmp_path):
     os.utime(raw, (src._mmdb_path.stat().st_mtime - 100,) * 2)
     assert src.rebuild() == 2, "_base CsvSource should rebuild when .count missing"
 
-def test_cn_isp_download_drops_file_on_per_file_failure(tmp_path, monkeypatch):
-    """A failed per-file download must drop the stale file, not leave it to be
-    mixed into load() as if current (cn_isp/firehol iterate many files)."""
+def test_cn_isp_download_keeps_file_on_per_file_failure(tmp_path, monkeypatch):
+    """SA-F1(A1/Task 3):单 feed 下载失败 → 旧文件字节级保留(旧实现
+    unlink 会删旧好证据)、其余 feed 正常更新、失败名记 last_partial_failure
+    (scheduler done-但-部分失败信号)。"""
     from ipdb._sources import cn_isp as mod
     from ipdb._sources.cn_isp import ChineseISPSource
 
@@ -120,6 +121,7 @@ def test_cn_isp_download_drops_file_on_per_file_failure(tmp_path, monkeypatch):
     for name in mod._ISP_FILES:                       # pre-populate stale content
         (src._isp_dir / f"{name}.txt").write_text("1.2.3.0/24\n")
     fail_name = next(iter(mod._ISP_FILES))
+    ok_name = next(n for n in mod._ISP_FILES if n != fail_name)
 
     class _Resp:
         def __init__(self, b): self._b = b
@@ -133,6 +135,8 @@ def test_cn_isp_download_drops_file_on_per_file_failure(tmp_path, monkeypatch):
         return _Resp(b"5.6.7.0/24\n")
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
 
-    src.download()
-    assert not (src._isp_dir / f"{fail_name}.txt").exists(), (
-        "failed download must drop the stale file, not leave it to be mixed in")
+    src.download()                                     # 部分失败不 raise
+    assert (src._isp_dir / f"{fail_name}.txt").read_text() == "1.2.3.0/24\n", (
+        "failed feed must keep the old file (evidence preservation, SA-F1)")
+    assert (src._isp_dir / f"{ok_name}.txt").read_text() == "5.6.7.0/24\n"
+    assert src.last_partial_failure == [fail_name]

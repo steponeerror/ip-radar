@@ -48,8 +48,12 @@ class ChineseISPSource(Source):
         return None
 
     def download(self, token: CancelToken | None = None) -> None:
+        """逐 feed 下载(SA-F1,cloud_ranges 模式):单 feed 失败/空响应 →
+        保留旧文件不再 unlink,失败 feed 名记 self.last_partial_failure;
+        全挂才 raise。旧实现失败即删旧文件 — 捕获异常路径删旧好证据。"""
         self._isp_dir.mkdir(parents=True, exist_ok=True)
         logger.info(f"Downloading Chinese ISP data from {_ISP_BASE_URL}...")
+        failed: list[str] = []
         for isp_name in _ISP_FILES:
             if token is not None and token.is_cancelled():
                 raise CancelledError(f"{self.name} download cancelled")
@@ -63,15 +67,17 @@ class ChineseISPSource(Source):
                     data = resp.read()
                 if not data.strip():
                     logger.warning(f"Empty response for {isp_name}")
-                    dest.unlink(missing_ok=True)   # don't leave stale to be mixed in
+                    failed.append(isp_name)
                     continue
                 atomic_write_bytes(dest, data)
                 newline = b'\n'
                 logger.info(f"Downloaded {isp_name}.txt ({data.count(newline)} lines)")
             except Exception as e:
-                logger.error(f"Failed to download {isp_name}.txt: {e}")
-                dest.unlink(missing_ok=True)       # don't leave stale to be mixed in
-        if not any((self._isp_dir / f"{n}.txt").exists() for n in _ISP_FILES):
+                failed.append(isp_name)
+                logger.warning(
+                    f"Failed to download {isp_name}.txt: {e} — keeping existing file")
+        self.last_partial_failure = failed
+        if len(failed) == len(_ISP_FILES):
             raise RuntimeError("all CN ISP files failed to download")
 
     def load(self) -> int:
