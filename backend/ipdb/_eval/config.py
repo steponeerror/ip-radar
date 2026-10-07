@@ -29,6 +29,9 @@ LINEAGE_CLUSTERS = {
     "firehol": "aggregated-threat",
     "ipsum":   "aggregated-threat",
     "otx":     "aggregated-threat",
+    # 同发布者另一流(策展订阅库);与 otx 的 activity 流残余重叠由
+    # dedup_lineage 的派生剔除兜底(2026-10-07 立项注)
+    "otx_subscribed": "aggregated-threat",
     "greensnow": "aggregated-threat",  # OC=1.0 w/ firehol, containment ≥0.9 (2026-09-01)
     "drb_ra": "aggregated-threat",     # C2 aggregator (search-derived, mirrors trackers)
 }

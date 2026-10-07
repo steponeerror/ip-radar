@@ -4,7 +4,7 @@
 
 ![IP Radar — 自托管的 IP 情报](assets/social-preview.png)
 
-把 40 个公开情报源搬回家：查任何 IP，拿一份全面的画像——说人话的裁决、逐源证据、置信度，加上地理·城市·ASN、云/托管、代理/VPN/Tor、服务身份，一次看全。一条命令，自己部署。
+把 41 个公开情报源搬回家：查任何 IP，拿一份全面的画像——说人话的裁决、逐源证据、置信度，加上地理·城市·ASN、云/托管、代理/VPN/Tor、服务身份，一次看全。一条命令，自己部署。
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 ![Docker](https://img.shields.io/badge/Docker-one%20container-2496ED?logo=docker&logoColor=white)
@@ -42,9 +42,9 @@ cd ip-radar
 docker compose up -d --build
 ```
 
-打开 http://127.0.0.1:8000。首次启动数秒内容器即可访问——页面顶部横幅会实时展示免密钥源（除 4 个密钥源外全部，含地理/城市/ASN、主要封禁列表与云网段）的下载/构建进度，构建完成后查询自动解锁；之后每次启动都从 `ipradar-data` 卷秒级加载。
+打开 http://127.0.0.1:8000。首次启动数秒内容器即可访问——页面顶部横幅会实时展示免密钥源（除 5 个密钥源外全部，含地理/城市/ASN、主要封禁列表与云网段）的下载/构建进度，构建完成后查询自动解锁；之后每次启动都从 `ipradar-data` 卷秒级加载。
 
-想开 4 个密钥源（ipinfo_lite / abuseipdb / otx / ip2proxy）？把密钥写进 `.env.local`（已 gitignore，盖过 `.env`）：
+想开 5 个密钥源（ipinfo_lite / abuseipdb / otx / otx_subscribed / ip2proxy）？把密钥写进 `.env.local`（已 gitignore，盖过 `.env`）：
 
 ```bash
 cp .env .env.local   # 编辑 .env.local 填入密钥
@@ -58,6 +58,7 @@ docker compose up -d
 | ipinfo_lite | `IPINFO_TOKEN` | <https://ipinfo.io/account/token> |
 | abuseipdb | `ABUSEIPDB_API_KEY` | <https://www.abuseipdb.com/account> |
 | otx | `OTX_API_KEY` | <https://otx.alienvault.com/settings> |
+| otx_subscribed | `OTX_API_KEY`（与 otx 共用） | <https://otx.alienvault.com/settings> |
 | ip2proxy | `IP2PROXY_TOKEN` | <https://www.ip2location.com/> |
 
 npm/pip 下载慢（国内网络常见）——传镜像 build-args：
@@ -86,7 +87,7 @@ docker compose build --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn
 
 ## 特性
 
-- **开箱即用，除 4 个密钥源外全部免密钥** —— 首次启动自动下载构建，数百万条记录入库（确切数量以 `/api/db-status` 实测为准）；剩下 4 个 🔑 源想开的话，密钥填法见[快速开始](#快速开始)。
+- **开箱即用，除 5 个密钥源外全部免密钥** —— 首次启动自动下载构建，数百万条记录入库（确切数量以 `/api/db-status` 实测为准）；剩下 5 个 🔑 源想开的话，密钥填法见[快速开始](#快速开始)。
 - **冷启动不挡路** —— 容器数秒就能打开，免密钥源的下载/构建进度在页面顶部横幅实时滚动，建完查询自动解锁——绝不拿着半份数据先给结论。
 - **一份裁决，不是一堆列表** —— 单 IP 一句话结论，逐源证据摆给你看，0-100 置信度（log-odds 贝叶斯融合：源可靠性转对数几率系数、威胁断言按 60 天半衰期衰减、交叉佐证；0 = 无证据，而非清白；标量字段不衰减，city/ip_range 保留原语义）。
 - **地理 · 城市 · ASN** —— GeoLite2 + DB-IP 两票给城市，iptoasn 给自治域，CN ISP 归属（含港澳台）也认得。
@@ -100,7 +101,7 @@ docker compose build --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn
 
 ```mermaid
 flowchart TD
-    A["Public sources<br/>(keyless auto + 4 keyed)"] --> B["Cold-start download /<br/>30-min refresh scheduler"]
+    A["Public sources<br/>(keyless auto + 5 keyed)"] --> B["Cold-start download /<br/>30-min refresh scheduler"]
     B --> C["Per-source parsers<br/>(classification pipeline)"]
     C --> D["Fusion<br/>(log-odds · corroboration · decay)"]
     D --> E["LMDB store<br/>(named volume · mmap)"]
@@ -167,6 +168,7 @@ curl -s http://127.0.0.1:8000/api/db-status
 |---|---|---|---|
 | abuseipdb | [AbuseIPDB](https://www.abuseipdb.com/) | Most-reported attacker IPs | 🔑 |
 | otx | [AlienVault OTX](https://otx.alienvault.com/) | Community threat pulses (IPv4 indicators) | 🔑 |
+| otx_subscribed | [AlienVault OTX](https://otx.alienvault.com/) | Subscribed pulse library (curated honeypots / C2 lists) | 🔑 |
 | spamhaus | [Spamhaus](https://www.spamhaus.org/drop/) | DROP/EDROP hijacked ranges | |
 | stopforumspam | [StopForumSpam](https://www.stopforumspam.com/) | Forum-spammer IPs (365-day window, report counts) | |
 | threatfox | [abuse.ch](https://threatfox.abuse.ch/) | Malware IOC feed (CSV/ZIP) | |
