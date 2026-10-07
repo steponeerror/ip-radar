@@ -37,7 +37,7 @@ _ACTION = {
     "MARGINAL":            "Low benefit, low cost. Keep or drop — little signal either way.",
     "NEGATIVE":            "Drop (or disable by default). Cost exceeds benefit.",
     "INSUFFICIENT-SAMPLE": "Verdict withheld: candidate touches fewer than the n-floor corpus IPs. Metrics are descriptive only.",
-    "N/A-ASSET":           "Asset source (is_tor/is_vpn/is_proxy/is_hosting/is_mobile): these are this source's ground truth — CG (independent corroboration) does not apply. Weight via AUTHORITATIVE_SOURCES, not this verdict.",
+    "N/A-ASSET":           "Asset source (is_tor/is_vpn/is_proxy/is_hosting): these are this source's ground truth — CG (independent corroboration) does not apply. Tune SOURCE_RELIABILITY, not this verdict (AUTHORITATIVE_SOURCES is display-only since the phantom-axis prune; is_mobile has no producer and is no longer an asset axis).",
     "NO-DATA":              "Verdict withheld: no usable data this round (feed empty, or record count collapsed vs history). Check the source's fetch/parse pipeline before acting on any metric.",
 }
 

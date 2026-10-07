@@ -87,6 +87,8 @@ def dedup_lineage(coeffs: list[tuple[str, float]]) -> list[tuple[str, float]]:
             continue
         anchor = LINEAGE_ANCHORS.get(s)
         if anchor is not None:
+            # 锚在场 = 锚源出现在输入 coeffs(逐前置判别,不看 kept 集合);
+            # 全 derived 输入在上文 non_derived_max 短路返回,锚判式不适用
             anchor_max = max((c2 for s2, c2 in coeffs if s2 == anchor),
                              default=None)
             if anchor_max is not None and anchor_max >= c:
