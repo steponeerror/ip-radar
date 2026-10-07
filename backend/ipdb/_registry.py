@@ -120,6 +120,18 @@ _merge_mod.SOURCE_RELIABILITY.update(
     {s.name: s.reliability for s in _sources})
 
 
+def _apply_derived_sources():
+    """R1-F1:DERIVED_SOURCES 改由源 class attr 灌装(fill-in-place,
+    同 SOURCE_RELIABILITY 模式——_eval/audit.py 值绑定该集合对象身份,
+    严禁重新赋值);种子字面量仅为无 registry 导入时的兜底。"""
+    _lo.DERIVED_SOURCES.clear()
+    _lo.DERIVED_SOURCES.update(
+        {s.name for s in _sources if getattr(s, "derived", False)})
+
+
+_apply_derived_sources()  # 模块导入时灌装一次;测试可重跑验证同步
+
+
 def _apply_calibrated(path=None):
     """校准覆盖(spec 2026-08-29 §8):data/_calibrated.json 的 default 域
     覆盖 class attr 先验;其余域(country/asset key/classification type)

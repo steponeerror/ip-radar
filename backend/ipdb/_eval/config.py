@@ -25,6 +25,10 @@ OC_EXCLUSION = 0.30
 
 # Static lineage clusters for the event layer (aligned with production
 # DERIVED_SOURCES; per-sublist prose lineage folds in here as confirmed).
+# R1-F1 备案:生产 DERIVED_SOURCES 已改源 attr 灌装(registry fill-in-
+# place);此表有意分立——簇分配是 eval 可调参数(可指向其它簇),且为
+# 导入时快照,不可从活集合推导。一致性由 test_eval_config 钉
+# (DERIVED_SOURCES ⊆ 此表):新增 derived 源须同步加簇。
 LINEAGE_CLUSTERS = {
     "firehol": "aggregated-threat",
     "ipsum":   "aggregated-threat",

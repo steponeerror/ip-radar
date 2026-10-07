@@ -83,9 +83,34 @@ def test_x4bnet_vpn_get_insert_data_has_is_vpn():
 
 
 def test_reliability_floor_and_derived_flags():
-    """spec 2026-08-29 §3.4:r ≥ 0.5 红线;聚合器源带 derived 标记。"""
+    """spec 2026-08-29 §3.4:r ≥ 0.5 红线;聚合器源带 derived 标记。
+    R1-F1:_logodds.DERIVED_SOURCES 由该 attr 集合灌装(registry
+    fill-in-place),此处钉镜像——attr 面与集合面不得再漂移。"""
     import ipdb._registry as reg
+    import ipdb._logodds as lo
+    from ipdb._sources.greensnow import GreensnowSource
     for s in reg._sources:
         assert getattr(s, "reliability", 0.5) >= 0.5, f"{s.name} below r floor"
+    assert GreensnowSource.derived is True  # R1-F1:补齐 attr 面漂移
     derived = {s.name for s in reg._sources if getattr(s, "derived", False)}
-    assert derived == {"firehol", "ipsum", "otx", "otx_subscribed", "drb_ra"}
+    assert derived == set(lo.DERIVED_SOURCES)
+
+
+def test_derived_sources_registry_fill_sync(monkeypatch):
+    """R1-F1:registry 灌装机制——源 attr 变动后重灌 → DERIVED_SOURCES
+    原位同步(对象身份不变,clear+update;重绑定会切断 _eval/audit.py
+    的值绑定,严禁)。"""
+    import ipdb._registry as reg
+    import ipdb._logodds as lo
+    seed = {"firehol", "ipsum", "otx", "otx_subscribed", "greensnow", "drb_ra"}
+    assert set(lo.DERIVED_SOURCES) == seed  # 导入时已灌装 = attr 全集
+    src = next(s for s in reg._sources if s.name == "blocklist_de")
+    try:
+        monkeypatch.setattr(src, "derived", True, raising=False)
+        reg._apply_derived_sources()
+        assert "blocklist_de" in lo.DERIVED_SOURCES
+        assert set(lo.DERIVED_SOURCES) == seed | {"blocklist_de"}
+    finally:
+        monkeypatch.undo()
+        reg._apply_derived_sources()  # 状态复位不依赖断言路径
+    assert set(lo.DERIVED_SOURCES) == seed
