@@ -480,6 +480,11 @@ def lookup(ip: str, allowed_sources: frozenset[str] | None = None) -> LookupResu
                 # _calibrated.json 运行时覆盖,表优先 → 后校准即真生效,
                 # threat details.r 与融合权重即时反映);表未收录(测试假源
                 # 等未注册名)回落 payload/class attr 旧链,无校准文件零漂移。
+                # 不变式:payload 的 reliability 键恒 == class attr(全 threat
+                # 源以 self.reliability 构造 Evidence;唯一 per-row r 生产者
+                # cloud_ranges 无 classification_type,永不入观测)——表优先
+                # 因此零漂移;未来源若 per-row r≠attr 且带 classification_type,
+                # 将被表静默覆盖,须先扩 _calibrated 语义再引入。
                 r_live = SOURCE_RELIABILITY.get(source.name)
                 observations.append(to_observation(
                     source.name, item,
