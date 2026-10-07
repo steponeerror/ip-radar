@@ -7,7 +7,7 @@ import ipdb._registry as r
 OLD_CATEGORIES = {
     "ipinfo_lite": "geo_asn", "iptoasn": "geo_asn", "cn_isp": "geo_asn",
     "geolite_city": "geo_asn",
-    "threatfox": "threat", "otx": "threat", "spamhaus": "threat",
+    "threatfox": "threat", "otx": "threat", "otx_subscribed": "threat", "spamhaus": "threat",
     "blocklist_de": "threat", "emerging_threats": "threat", "ipsum": "threat",
     "firehol": "threat", "abuseipdb": "threat", "stopforumspam": "threat",
     "binarydefense": "threat", "tweetfeed": "threat", "urlhaus": "threat",
@@ -28,7 +28,7 @@ OLD_RELIABILITY = {
     "ipinfo_lite": 0.95, "iptoasn": 0.90, "cn_isp": 0.85, "geolite_city": 0.85,
     "ip2proxy": 0.80, "tor_exits": 0.95, "x4bnet_vpn": 0.70, "ipsum": 0.55,
     "firehol": 0.50, "spamhaus": 0.90, "threatfox": 0.85, "blocklist_de": 0.65,
-    "emerging_threats": 0.85, "otx": 0.55, "abuseipdb": 0.65,
+    "emerging_threats": 0.85, "otx": 0.55, "otx_subscribed": 0.6, "abuseipdb": 0.65,
     "stopforumspam": 0.60, "binarydefense": 0.65, "tweetfeed": 0.50,
     "urlhaus": 0.55, "ciarm": 0.60, "bruteforce": 0.60, "greensnow": 0.60,
     "dataplane": 0.70, "dshield": 0.70, "f3csystems": 0.60, "reportedip": 0.65,
@@ -48,12 +48,12 @@ OLD_AUTHORITATIVE = {
 }
 
 def test_categories_match_snapshot():
-    # 40 = 五云源融合进 cloud_ranges 后实测 len(SOURCE_CATEGORIES)
+    # 41 = otx_subscribed 入册后实测 len(SOURCE_CATEGORIES)
     live = dict(r.SOURCE_CATEGORIES)
     assert live == OLD_CATEGORIES
 
 def test_reliability_match_snapshot():
-    # 公开源快照全等锁死(40 源口径)
+    # 公开源快照全等锁死(41 源口径)
     live = dict(m.SOURCE_RELIABILITY)
     assert live == OLD_RELIABILITY
 

@@ -4,7 +4,7 @@
 
 ![IP Radar — self-hosted IP intelligence](assets/social-preview.png)
 
-**Pull 40 public sources into your own box — a full IP profile, not just a threat verdict.** Every lookup comes back with a plain-words verdict — evidence, confidence, geo · city · ASN, cloud/hosting, proxy · VPN · Tor, service identity, all at once. One command, self-hosted.
+**Pull 41 public sources into your own box — a full IP profile, not just a threat verdict.** Every lookup comes back with a plain-words verdict — evidence, confidence, geo · city · ASN, cloud/hosting, proxy · VPN · Tor, service identity, all at once. One command, self-hosted.
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 ![Docker](https://img.shields.io/badge/Docker-one%20container-2496ED?logo=docker&logoColor=white)
@@ -40,9 +40,9 @@ cd ip-radar
 docker compose up -d --build
 ```
 
-Open http://127.0.0.1:8000. The container is reachable within seconds — a banner at the top tracks the keyless feeds' download/build progress live (all but the 4 keyed sources, including geo/city/ASN, the major blocklists and cloud ranges), and queries unlock automatically once the build settles. Subsequent starts load from the `ipradar-data` volume in seconds.
+Open http://127.0.0.1:8000. The container is reachable within seconds — a banner at the top tracks the keyless feeds' download/build progress live (all but the 5 keyed sources, including geo/city/ASN, the major blocklists and cloud ranges), and queries unlock automatically once the build settles. Subsequent starts load from the `ipradar-data` volume in seconds.
 
-**All but 4 feeds need zero API keys.** To light up the 4 keyed sources, drop the keys into `.env.local` (gitignored, overrides `.env`):
+**All but 5 feeds need zero API keys.** To light up the 5 keyed sources, drop the keys into `.env.local` (gitignored, overrides `.env`):
 
 ```bash
 cp .env .env.local   # then open .env.local in any editor, fill keys
@@ -54,6 +54,7 @@ docker compose up -d
 | ipinfo_lite | `IPINFO_TOKEN` | <https://ipinfo.io/account/token> |
 | abuseipdb | `ABUSEIPDB_API_KEY` | <https://www.abuseipdb.com/account> |
 | otx | `OTX_API_KEY` | <https://otx.alienvault.com/settings> |
+| otx_subscribed | `OTX_API_KEY`（与 otx 共用） | <https://otx.alienvault.com/settings> |
 | ip2proxy | `IP2PROXY_TOKEN` | <https://www.ip2location.com/> |
 
 Slow npm/pip downloads (common on CN networks)? Pass mirror build-args:
@@ -96,7 +97,7 @@ Notes:
 
 ```mermaid
 flowchart TD
-    A["Public sources<br/>(keyless auto + 4 keyed)"] --> B["Cold-start download /<br/>30-min refresh scheduler"]
+    A["Public sources<br/>(keyless auto + 5 keyed)"] --> B["Cold-start download /<br/>30-min refresh scheduler"]
     B --> C["Per-source parsers<br/>(classification pipeline)"]
     C --> D["Fusion<br/>(log-odds · corroboration · decay)"]
     D --> E["LMDB store<br/>(named volume · mmap)"]
@@ -163,6 +164,7 @@ Every dataset below belongs to its provider — thank you for keeping them open 
 |---|---|---|---|
 | abuseipdb | [AbuseIPDB](https://www.abuseipdb.com/) | Most-reported attacker IPs | 🔑 |
 | otx | [AlienVault OTX](https://otx.alienvault.com/) | Community threat pulses (IPv4 indicators) | 🔑 |
+| otx_subscribed | [AlienVault OTX](https://otx.alienvault.com/) | Subscribed pulse library (curated honeypots / C2 lists) | 🔑 |
 | spamhaus | [Spamhaus](https://www.spamhaus.org/drop/) | DROP/EDROP hijacked ranges | |
 | stopforumspam | [StopForumSpam](https://www.stopforumspam.com/) | Forum-spammer IPs (365-day window, report counts) | |
 | threatfox | [abuse.ch](https://threatfox.abuse.ch/) | Malware IOC feed (CSV/ZIP) | |
