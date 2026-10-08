@@ -1383,7 +1383,7 @@ async def admin_list_keys():
                       **_ERRS_422_500})
 async def admin_patch_key(sub: str, patch: ApiKeyPatchIn):
     if await _key_meta_by_sub(sub) is None:
-        raise ApiError(ErrorCode.source_not_found, f"unknown API key: {sub}")
+        raise ApiError(ErrorCode.api_key_not_found, f"unknown API key: {sub}")
     if "sources" in patch.model_fields_set:
         validated = _validate_sources(patch.sources)
         # 私源∩web 种子行硬拒(P2 sweep Item A):demoweb 身份代表同源网页
@@ -1397,7 +1397,7 @@ async def admin_patch_key(sub: str, patch: ApiKeyPatchIn):
         await _ipdb_apikeys.set_disabled(sub, patch.disabled)
     row = await _key_meta_by_sub(sub)
     if row is None:  # 极窄并发窗:检查后被删 —— 回 404 而非验证 500
-        raise ApiError(ErrorCode.source_not_found, f"unknown API key: {sub}")
+        raise ApiError(ErrorCode.api_key_not_found, f"unknown API key: {sub}")
     return row
 
 
@@ -1412,7 +1412,7 @@ async def admin_delete_key(sub: str):
     if sub == _ipdb_apikeys.DEMO_SUB:
         raise ApiError(ErrorCode.forbidden, "demo web seed row cannot be deleted")
     if await _key_meta_by_sub(sub) is None:
-        raise ApiError(ErrorCode.source_not_found, f"unknown API key: {sub}")
+        raise ApiError(ErrorCode.api_key_not_found, f"unknown API key: {sub}")
     await _ipdb_apikeys.delete_key(sub)
 
 

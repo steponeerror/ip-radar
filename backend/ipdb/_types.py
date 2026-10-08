@@ -89,8 +89,9 @@ class ClassificationAssessment:
     details: list[dict] = field(default_factory=list)        # per-source rich info
 
 
-# 顶层融合的指控章(与 _merge._assess_classification 的 ACCUSING 同一口径):
-# 只有 malicious/suspicious 证人进 P(恶意) 后验;存档(informational)证人只展示不计分。
+# 指控章全仓单一真源(_merge._assess_classification 与 _eval/anchors.py 引用之,
+# A2 遗留三处字面量收口):只有 malicious/suspicious 证人进 P(恶意) 后验;
+# 存档(informational)证人只展示不计分。
 _ACCUSING = frozenset({"malicious", "suspicious"})
 
 

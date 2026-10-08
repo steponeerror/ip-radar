@@ -3,6 +3,8 @@
 production-touching change (spec §5.2). Partial ground truth, curated.
 Grow the lists, not knobs. A failure anywhere = the change rolls back.
 """
+from .._types import _ACCUSING   # 指控章单一口径(EV-F1 同款借道,A2 遗留收口)
+
 ANCHORS: list[tuple[str, str]] = [
     # public DNS/resolver infra — must stay clean
     ("8.8.8.8", "clean"), ("8.8.4.4", "clean"),
@@ -26,7 +28,7 @@ def _check(res: dict, expect: str) -> str | None:
         if res.get("is_reserved"):
             return "expected clean, got reserved"
         for ca in (res.get("classifications") or {}).values():
-            if ca.get("verdict") in ("malicious", "suspicious"):
+            if ca.get("verdict") in _ACCUSING:
                 return f"expected clean, got {ca.get('verdict')}"
         return None
     if expect == "reserved":
