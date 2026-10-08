@@ -397,14 +397,15 @@ async def _stream_lookup(expansion, allowed: frozenset[str] | None = None):
 def _cleanup_orphan_tmp(data_dir: Path) -> None:
     """lifespan 最早期:删 OOM kill / SIGKILL 残留。此时无 worker 在跑。
 
-    LMDB 时代:_write_staged 的暂存文件(``<name>.lmdb.{count,cov,ptr}.new.<pid>``,
+    LMDB 时代:_write_staged 的暂存文件(``<name>.lmdb.{count,cov,ptr,disjoint}.new.<pid>``,
     os.replace 前被杀则永留;cleanup_stale 只删目录不删文件)。
     一次性迁移清洁工:MMDB 时代的 ``*.mmdb.*.tmp`` / ``*.mmdb.new.*`` 旧文件
     还在用户机器上,一并清掉。
     """
     orphans = list(data_dir.glob("*.lmdb.count.new.*")) \
         + list(data_dir.glob("*.lmdb.cov.new.*")) \
-        + list(data_dir.glob("*.lmdb.ptr.new.*"))
+        + list(data_dir.glob("*.lmdb.ptr.new.*")) \
+        + list(data_dir.glob("*.lmdb.disjoint.new.*"))
     orphans += list(data_dir.glob("*.mmdb.*.tmp")) + list(data_dir.glob("*.mmdb.new.*"))
     orphans += list(data_dir.glob("*.mmdb.count.new.*")) + list(data_dir.glob("*.mmdb.cov.new.*"))
     for tmp in orphans:

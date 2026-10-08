@@ -34,7 +34,7 @@ class X4BNetVPNSource(IpListSource):
         try:
             v6 = Source._http_get(self._V6_URL)
             if not v6.strip():
-                raise RuntimeError(f"empty v6 sibling from {self._V6_URL}")
+                raise RuntimeError(f"empty v6 sibling from {redact_url(self._V6_URL)}")
         except Exception as e:
             logging.getLogger(__name__).warning(
                 f"x4bnet ipv6 fetch failed: {e} — keeping existing join file")

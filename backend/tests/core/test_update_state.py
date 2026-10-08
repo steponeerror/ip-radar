@@ -20,6 +20,17 @@ def test_reconcile_version_changed_to_idle(tmp_path):
     assert _update.state()["state"] == "idle"
 
 
+def test_reconcile_slow_build_version_changed_beats_stale(tmp_path):
+    # OL-2 顺序钉:慢机构建(>15min stale 窗)但版本已前进 = 成功更新,
+    # 不得先落 stale 判定被误标 failed(状态与事实相反)
+    old = (datetime.now(timezone.utc) - timedelta(minutes=20)).isoformat()
+    _write_state(tmp_path, {"state": "updating", "from_version": "v1.0.0", "at": old})
+    with patch.object(_update, "STATE_PATH", tmp_path / "update_state.json"), \
+         patch.object(_update, "_version_now", lambda: "v1.2.0"):
+        _update.reconcile_on_startup()
+    assert _update.state()["state"] == "idle"
+
+
 def test_reconcile_version_same_to_failed(tmp_path):
     _write_state(tmp_path, {"state": "updating", "from_version": "v1.2.0",
                             "at": datetime.now(timezone.utc).isoformat()})

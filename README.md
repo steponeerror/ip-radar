@@ -277,6 +277,10 @@ git pull && docker compose up -d --build
 
 To update from the page itself, uncomment the self-update mounts in `docker-compose.yml` (docker.sock + repo dir + token), restart, and an "Update now" button appears. The repo-dir mount must use an absolute host path (e.g. `/home/you/ip-radar:/app/repo`) — a `./` relative path breaks the in-container compose replay. Note: mounting docker.sock grants the container host-level root control — recommended for LAN self-hosting only; you'll paste your `IP_RADAR_UPDATE_TOKEN` once on first update. Known quirks: files written by in-container git pull are owned by root — host-side repo operations may need sudo or `git safe.directory`; and if you edit tracked files in the repo (like `.env`), `git pull --ff-only` will refuse to update by design — put local overrides in `.env.local` instead.
 
+### Source alerts (optional)
+
+The scheduler tracks every source's liveness, but notifications are **silent by default**. Set `IP_RADAR_ALERT_URLS` (any `environment` block in `docker-compose.yml`, or `.env.local`) to a comma-separated list of [apprise](https://github.com/caronc/apprise)-style URLs — e.g. `mailto:you@example.com`, a Discord/Telegram/Lark webhook — and you'll get one combined message when a source stops updating, keeps failing downloads, or its database fails to load (e.g. a corrupted epoch). Per-source health (including load errors) is always visible under `/api/sources`; the env change takes effect on restart.
+
 ## License
 
 © 2026 steponeerror, licensed under [AGPL-3.0](LICENSE); each intelligence feed keeps its own terms.

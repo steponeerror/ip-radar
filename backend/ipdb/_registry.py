@@ -265,6 +265,12 @@ def _source_info(source) -> dict:
         observed_interval_h = None
     health["content_age_h"] = content_age_h
     health["observed_interval_h"] = observed_interval_h
+    # OL-4:load_db 抓到的加载异常(如 epoch 损坏)并入既有 error 字段
+    # ——仅在未加载时合并(重建成功 reader 恢复后旧错误自然退场);
+    # SourceHealth dataclass 不动的分层约定同上。
+    if not health.get("loaded"):
+        health["error"] = health.get("error") \
+            or getattr(source, "load_error", None)
     return {
         "name": source.name,
         "enabled": is_enabled(source.name),
@@ -402,7 +408,12 @@ def load_db() -> None:
         try:
             source.load()
         except Exception as e:
-            logger.warning(f"{source.name} load failed: {e}")
+            # OL-4:epoch 损坏(open_env_read 抛)不再静默缺席——ERROR 级
+            # 可见 + load_error 记入源状态(_source_info 并入 health.error,
+            # 告警快照查 loaded 态)。不自动 rebuild:数据面安全(宁少算),
+            # rebuild 仍人裁不变。
+            logger.error(f"{source.name} load failed: {e}")
+            setattr(source, "load_error", str(e) or type(e).__name__)
     counts = " + ".join(f"{s.health().record_count} {s.name}" for s in enabled)
     logger.info(f"Loaded {counts} records")
 
