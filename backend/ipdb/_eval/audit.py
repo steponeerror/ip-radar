@@ -5,7 +5,8 @@ outflowing side is the source. Replaces the naive first-seen Dong clock:
 the §7 spike showed aggregators keep history while originals churn, so
 observed first-seen inverts direction (the spamhaus counterexample).
 Containment survives as a display column only. Advisory — production
-DERIVED_SOURCES stays a human-committed constant.
+DERIVED_SOURCES is attr-derived (source classes, registry fill-in-place,
+R1-F1).
 """
 import json
 import re
@@ -67,7 +68,8 @@ def forward_flow(pairs_by_round, a: str, b: str) -> tuple[int, int]:
 def lineage_audit(model_dir: Path) -> dict:
     """谱系审计:读 model 历史报告,对每对源做前向流三态判定
     (confirmed / not-yet / no-relation),并跑 C-3 双向检查(0 误伤 ∧
-    recall ≥ 4/5);advisory,生产 DERIVED_SOURCES 仍为人工提交常量。
+    recall ≥ 4/5);advisory,生产 DERIVED_SOURCES 已改源 attr 灌装
+    (R1-F1,registry fill-in-place;本审计仅作交叉校验)。
 
     Reads persisted model-*.json rounds via load_history, judges each
     source pair by forward_flow asymmetry (FLOW_MIN / FLOW_ASYM, only

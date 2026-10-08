@@ -78,3 +78,43 @@ def test_dedup_lineage_greensnow_mirror_dropped():
     # source it must never out-vote its non-derived competitor's ceiling.
     coeffs = [("firehol", 2.0), ("spamhaus", 1.5), ("greensnow", 1.4)]
     assert dedup_lineage(coeffs) == [("firehol", 2.0), ("spamhaus", 1.5)]
+
+
+def test_dedup_lineage_anchor_scenarios():
+    """DQ-1 谱系锚(emerging_threats ⊇ spamhaus DROP,/12 巨块回声审计
+    实证):锚在场且系数不低于 target → 剔;缺席/更弱/单独 → 保留。"""
+    # 双在场(emerging ≤)→ emerging 剔,spamhaus 保留
+    assert dedup_lineage([("spamhaus", 2.2), ("emerging_threats", 1.7)]) == [
+        ("spamhaus", 2.2)]
+    # 相等也剔(与 derived 同判式,宁少算)
+    assert dedup_lineage([("spamhaus", 1.7), ("emerging_threats", 1.7)]) == [
+        ("spamhaus", 1.7)]
+    # 锚缺席 → emerging 保留(非 derived,照常计票)
+    assert dedup_lineage(
+        [("emerging_threats", 1.7), ("blocklist_de", 0.6)]) == [
+        ("emerging_threats", 1.7), ("blocklist_de", 0.6)]
+    # 锚系数更低 → emerging 保留(锚不能压过更强证据)
+    assert dedup_lineage(
+        [("spamhaus", 1.0), ("emerging_threats", 1.7),
+         ("blocklist_de", 0.6)]) == [
+        ("spamhaus", 1.0), ("emerging_threats", 1.7), ("blocklist_de", 0.6)]
+    # emerging 单独在场 → 保留
+    assert dedup_lineage([("emerging_threats", 1.7)]) == [
+        ("emerging_threats", 1.7)]
+
+
+def test_dedup_lineage_drop12_echo_42_208(monkeypatch):
+    """「42.208.0.0/12 回声」回归(DQ-1,审计 2026-10-06:firehol/
+    spamhaus/emerging 在 42.128/160/208.0.0/12 边界逐位相同,每 IP 白
+    得 3 个「独立」证人 rel .5/.85/.9,corroborated≥2 判真,14.9M IP
+    受影响)。等新鲜度下系数 = logit(rel):spamhaus 最强、firehol 最弱。
+    修复前(锚表空 = 旧行为):firehol 恒剔(derived 弱于最强非
+    derived)→ 有效票 3→2,佐证门仍被回声凑满;修复后 emerging 因锚
+    在场再剔 → 有效票 1,回声破。"""
+    coeffs = [("firehol", logit(0.5)), ("emerging_threats", logit(0.85)),
+              ("spamhaus", logit(0.9))]
+    monkeypatch.setattr("ipdb._logodds.LINEAGE_ANCHORS", {})
+    baseline = dedup_lineage(coeffs)
+    assert [s for s, _ in baseline] == ["emerging_threats", "spamhaus"]  # 3→2
+    monkeypatch.undo()
+    assert dedup_lineage(coeffs) == [("spamhaus", logit(0.9))]  # →1

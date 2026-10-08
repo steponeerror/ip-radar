@@ -98,5 +98,5 @@ class InfraServicesSource(Source):
             yield ip, Evidence(
                 service=svc,
                 native_types={"service": provider},
-                verdict="",  # asset-only source; suppress the "malicious" default
+                verdict="",  # 弃权拼写:由 to_dict 特判保留,读回按 "" 处理不兑底(R17A-1)
             )

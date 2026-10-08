@@ -140,10 +140,36 @@ def test_stix_addr_sco_carries_cdn_and_attributes():
 
 
 @pytest.mark.skipif(not _HAS_STIX2, reason="stix2 not installed")
+def test_stix_archive_verdict_produces_no_indicator():
+    """AS-1:存档/弃权章不产 STIX Indicator —— verdict ∈ 指控章
+    (malicious/suspicious) 才出海;informational(存档)不产。旧守卫
+    (not ca.detected) 在生产路径恒 False,形同虚设,已换 verdict 轴。"""
+    def _ca(verdict, ctype="spam"):
+        return ClassificationAssessment(
+            type=ctype, verdict=verdict, detected=True, confidence=42,
+            algorithm="corroboration",
+            sources=[SourceAttribution("stopforumspam", True, 0.8, False)],
+            corroborated=False)
+
+    lr = _result()
+    lr.classifications = {
+        "spam": _ca("informational"),       # 存档章:存证不计控
+        "c2-server": _ca("malicious", "c2-server"),
+    }
+    bundle = to_stix_bundle(lr)
+    assert bundle is not None
+    inds = [o for o in bundle["objects"] if o["type"] == "indicator"]
+    x_ctypes = {i["x_classification_type"] for i in inds}
+    assert "spam" not in x_ctypes          # informational-only → 无 Indicator
+    assert x_ctypes == {"c2-server"}       # 指控章照产
+
+
+@pytest.mark.skipif(not _HAS_STIX2, reason="stix2 not installed")
 def test_stix_v6_bundle_uses_ipv6_addr_sco():
     lr = _result()
     lr.ip = "2a00:1450:4001::42"
-    # 需要至少一个 detected classification 才会产 Indicator(含 pattern)
+    # c2-server(指控章)已产 Indicator(AS-1 后 _result 的 malicious 组
+    # 不再被 detected=False 守卫拦下);再添一个恶意组验 pattern 家族
     lr.classifications["blacklist"] = ClassificationAssessment(
         "blacklist", "malicious", True, 90, "corroboration",
         [SourceAttribution("spamhaus", True, 0.9, True)],

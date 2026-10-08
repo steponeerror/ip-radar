@@ -211,7 +211,7 @@ the drift-aware diff you'll need it for).
    overwritten on next startup. In your source file declare:
    - `category = "threat" | "geo_asn" | "asset"` — required for EVERY source; omit (or leave the `"other"` default) and the UI groups it under `other`. **Startup fails loudly** if the value is not one of the four enum values.
    - `reliability = <0–1>` — feeds two consumers: (1) the scalar merge path (`_to_attributions`) and (2) STIX export's source-identity `x_reliability`. Default `0.5` on both if omitted.
-   - `authoritative_for = ("is_proxy", ...)` — tuple of fields your source has authoritative veto on (`is_proxy`/`is_tor`/`is_vpn`/`is_malicious`/`is_hosting`/`is_mobile`/`service`); registry inverts it into `AUTHORITATIVE_SOURCES`. Empty by default.
+   - `authoritative_for = ("is_proxy", ...)` — tuple of fields this source truly produces and is the display-layer authority for (e.g. `is_proxy`/`is_tor`/`is_vpn`/`service`; any routing slot is accepted); registry inverts it into `AUTHORITATIVE_SOURCES` (attributions / STIX `x_authoritative` / api/sources — display only, **no fusion effect**). Empty by default. Non-routing-slot axes like `is_malicious` fail `_AUTHORITY_FIELDS` validation at startup (SM-F1 phantom prune).
    `_validate.py` enforces this contract at startup: unknown `category`, out-of-range `reliability`, or unknown `authoritative_for` field → `RuntimeError` naming the source.
 7. **Per-row evidence — pick the right path (commit idiom as of `f4db2169`):**
    - **New source** → `Source` subclass: `harvest()` yields per-row

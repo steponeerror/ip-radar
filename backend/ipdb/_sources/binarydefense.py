@@ -18,4 +18,4 @@ class BinaryDefenseSource(IpListSource):
     verdict = "malicious"
     stale_days = 1                       # continuously refreshed banlist
     reliability = 0.65                   # honeypot-sourced: automated but evidence-based
-    authoritative_for = ()               # contributes to corroboration, no veto (0.65 reliability)
+    authoritative_for = ()               # contributes to corroboration only (SM-F1:veto 机制不存在,措辞如实)

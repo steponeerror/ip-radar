@@ -4,7 +4,7 @@ fixture 中间文件逐家镜像真实格式(aws/gcp/azure/oracle 官方 JSON、
 alibaba CIDR-per-line 文本)落 tmp_path/cloud_ranges/,rebuild → query
 round-trip 钉住:冻结 Evidence 形状、per-provider reliability、缺家文件
 容忍、v6 双族路由、fixture 外 miss。断言写法移植自 test_alibaba_ranges.py
-的 round-trip 用例(query 返回 evidence dict 列表,verdict="" 落库即省略)。
+的 round-trip 用例(query 返回 evidence dict 列表,verdict="" 弃权保留)。
 """
 import json
 import os
@@ -86,7 +86,9 @@ def test_evidence_shape_frozen(tmp_path: Path):
     rec = s.query("203.0.113.55")[0]        # AWS fixture 网段内任意 IP
     assert rec["service"] == "cloud"
     assert rec["is_hosting"] is True
-    assert "verdict" not in rec             # verdict="" 落库即省略(cdn_edges 同款)
+    # verdict="" 弃权拼写由 to_dict 特判保留(R17A-1),读回按 "" 处理
+    # 不兑底 malicious(旧断言「落库即省略(cdn_edges 同款)」随之反转)
+    assert rec["verdict"] == ""
     assert rec["_native_types"] == {"service": "AWS"}
     assert rec["reliability"] == 0.95
     # 写入边界的 Evidence 冻结形状同样钉死(query 侧是它的落库投影)
@@ -100,7 +102,7 @@ def test_evidence_shape_frozen(tmp_path: Path):
         service="cloud",
         is_hosting=True,
         native_types={"service": "AWS"},
-        verdict="",                         # asset-only; suppress "malicious" default
+        verdict="",                         # 弃权拼写:由 to_dict 特判保留,读回不兑底(R17A-1)
         reliability=0.95,
     )
     # azure 只取 AzureCloud tag(region 子集 tag 不入,逐字移植的守卫)

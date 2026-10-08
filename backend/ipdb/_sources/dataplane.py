@@ -73,7 +73,8 @@ class DataplaneSource(Source):
         """逐信号拉取 join 单文件(SA-F1):成功 parts join 原子写 + 失败信号
         记 self.last_partial_failure;全挂 raise。join 文件无法新旧混合,
         部分失败的缩水窗口由 scheduler 的 done-但-部分失败 backoff 封顶
-        (≤分钟级重试,非整个 stale 周期;计划已裁)。"""
+        (1h→2h→4h→8h→12h 逐次翻倍退避梯,封顶 12h,非整个 stale 周期;
+        计划已裁)。"""
         self._data_dir.mkdir(parents=True, exist_ok=True)
         parts: list[bytes] = []
         failed: list[str] = []

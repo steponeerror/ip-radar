@@ -338,7 +338,8 @@ class CloudRangesSource(Source):
                 service="cloud",
                 is_hosting=True,
                 native_types={"service": provider},
-                verdict="",        # asset-only; suppress "malicious" default
+                # 弃权拼写:由 to_dict 特判保留,读回按 "" 处理不兑底(R17A-1)
+                verdict="",
                 reliability=reliability,
             )
             for cidr in parse(p.read_bytes()):

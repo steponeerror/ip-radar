@@ -18,7 +18,10 @@ class IPinfoLiteSource:
     fields = ("country_code", "asn", "as_name", "ip_range")
     stale_days = 7
     reliability = 0.95
-    authoritative_for = ("is_hosting", "is_mobile")
+    # SM-F1:旧声明 (is_hosting, is_mobile) 为幻影——本源只产
+    # country/asn/as_name/ip_range/as_domain,is_mobile 更不在 ASSET_SLOTS;
+    # is_hosting 真生产者是 ip2proxy(DCH)/cloud_ranges(未声明,有意不扩面)。
+    authoritative_for = ()
 
     def __init__(self, data_dir: Path):
         self._token = os.environ.get("IPINFO_TOKEN", "").strip()

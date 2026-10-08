@@ -19,13 +19,17 @@ def test_proxy_evidence_tor_maps_to_tor_type():
     assert e["_native_types"]["is_tor"] == "TOR"
 
 
-def test_proxy_evidence_dch_is_hosting():
-    e = _proxy_evidence("DCH").to_dict()
-    assert e["classification_type"] == "other"
+def test_proxy_evidence_dch_is_asset_only():
+    """SM-F2:DCH 镜像 cloud_ranges 形状 —— 无 classification_type(不产
+    分类组)、is_hosting 走 attributes 通道、verdict=""(弃权,不兑底)。
+    旧行为(DCH→other + suspicious 指控)已按指控/存档轴裁决反转。"""
+    d = _proxy_evidence("DCH").to_dict()
+    assert "classification_type" not in d       # 无分类轴 → 不产分类组
+    assert d["verdict"] == ""                    # 弃权拼写保留,不兑底 malicious
+    assert d["is_hosting"] is True
+    assert d["_native_types"] == {"is_hosting": "DCH"}
     # extra.native_type retired (Plan B Task 3)
-    assert "native_type" not in (e.get("extra") or {})
-    assert e["is_hosting"] is True
-    assert e["_native_types"]["is_hosting"] == "DCH"
+    assert "native_type" not in (d.get("extra") or {})
 
 
 def test_proxy_evidence_no_native_type():
@@ -51,6 +55,12 @@ def test_ip2proxy_harvest_proxy_assets(tmp_path):
     rec = s.query("1.0.0.0")          # 16777216 = 1.0.0.0
     assert rec[0]["is_proxy"] is True
     assert rec[0]["_native_types"]["is_proxy"] == "VPN"
+    # SM-F2:DCH 行 → asset-only(无 classification_type,弃权 verdict="")
+    dch = s.query("1.0.1.0")[0]       # 16777472 = 1.0.1.0
+    assert dch["is_hosting"] is True
+    assert dch["_native_types"]["is_hosting"] == "DCH"
+    assert "classification_type" not in dch
+    assert dch["verdict"] == ""
 
 
 def test_ip2proxy_download_extracts_zip_to_path_then_loads(tmp_path, monkeypatch):

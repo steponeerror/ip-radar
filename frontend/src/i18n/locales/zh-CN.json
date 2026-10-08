@@ -236,7 +236,7 @@
   "update.tokenInvalid": "令牌错误，请核对后重试",
   "update.tokenLabel": "更新令牌（部署时配置的 IP_RADAR_UPDATE_TOKEN）",
   "update.tokenMissing": "未设置更新令牌",
-  "verdict.benign": "可信",
+  "verdict.benign": "良性",
   "verdict.cdn": "CDN 边缘",
   "verdict.clean": "—",
   "verdict.informational": "信息性",

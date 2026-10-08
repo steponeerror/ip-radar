@@ -14,8 +14,9 @@ def test_infra_services_loads_and_routes(tmp_path):
     assert s.query("216.239.35.0")[0]["service"] == "ntp"
     # not in feed
     assert s.query("1.2.3.4") == {}
-    # asset-only source: the "malicious" default verdict must NOT leak
-    assert "verdict" not in r
+    # asset-only source: verdict="" 弃权拼写由 to_dict 特判保留(R17A-1),
+    # 读回按 "" 处理不兑底 malicious(旧断言「verdict 键缺席」随之反转)
+    assert r["verdict"] == ""
 
 
 def test_infra_services_health_loaded_not_stale(tmp_path):
