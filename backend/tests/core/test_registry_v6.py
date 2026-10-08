@@ -107,6 +107,9 @@ def test_v6_quirk_v4_mapped_goes_normal_path(v6_db):
     assert ipaddress.IPv6Address("::ffff:8.8.8.8").is_global is True
     assert r.is_reserved is False
     assert r.error is None
+    # R3-F4:钉「绝不翻译进 v4 族」——v4 env 里有 8.8.8.0/24=US,
+    # 若被误翻译成内嵌 v4 查询,country 会变 "US" 而非 N/A。
+    assert r.country.value == "N/A"
     assert r.threat_summary()["verdict"] == "benign"
 
 

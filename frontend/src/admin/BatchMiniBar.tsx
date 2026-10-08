@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useTasks } from "../tasks/TaskProvider";
+import { useTasks } from "../tasks/useTasks";
 import { useI18n } from "../i18n";
 import { stagedFrac } from "../tasks/progress";
 

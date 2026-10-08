@@ -3,6 +3,7 @@ import { screen, waitFor, fireEvent, act } from "@testing-library/react";
 import { BatchPanel } from "../BatchPanel";
 import { TaskProvider } from "../../tasks/TaskProvider";
 import { renderWithI18n } from "../../test/i18nTestUtils";
+import type { TaskEvent } from "../../api";
 import {
   pauseBatch, cancelBatch, cancelTask, getTasks, resumeBatch,
 } from "../../api";
@@ -13,10 +14,10 @@ import {
 
 // Hoisted holder so the (also hoisted) vi.mock factory can capture the SSE
 // onEvent callback and tests can drive events through it.
-const sse = vi.hoisted(() => ({ onEvent: null as ((e: any) => void) | null }));
+const sse = vi.hoisted(() => ({ onEvent: null as ((e: TaskEvent) => void) | null }));
 
 vi.mock("../../api", async () => {
-  const real = await vi.importActual<any>("../../api");
+  const real = await vi.importActual<typeof import("../../api")>("../../api");
   return {
     ...real,
     getDbStatus: vi.fn().mockResolvedValue({
@@ -27,7 +28,7 @@ vi.mock("../../api", async () => {
       tasks: [{ id: "t1", source: "feodo", host: null, state: "downloading", error: null, batch_id: "b1" }],
       batch: { id: "b1", state: "running", done: 0, total: 2 },
     }),
-    subscribeTasks: vi.fn((onEvent: (e: any) => void) => {
+    subscribeTasks: vi.fn((onEvent: (e: TaskEvent) => void) => {
       sse.onEvent = onEvent;
       return () => {};
     }),
@@ -51,7 +52,7 @@ describe("BatchPanel active panel", () => {
   });
 
   it("shows empty-state guidance when idle (no active tasks, no batch)", async () => {
-    (getTasks as any).mockResolvedValueOnce({ tasks: [], batch: null });
+    vi.mocked(getTasks).mockResolvedValueOnce({ tasks: [], batch: null });
     render(<BatchPanel />);
     await act(async () => {
       await waitFor(() => expect(getTasks).toHaveBeenCalled());
@@ -68,7 +69,7 @@ describe("BatchPanel active panel", () => {
   });
 
   it("calls resumeBatch when Resume is clicked (paused batch)", async () => {
-    const mockGetTasks = getTasks as any;
+    const mockGetTasks = vi.mocked(getTasks);
     mockGetTasks.mockReset();
     mockGetTasks.mockResolvedValue({
       tasks: [{ id: "t1", source: "feodo", host: null, state: "downloading", error: null, batch_id: "b1" }],
@@ -97,7 +98,7 @@ describe("BatchPanel active panel", () => {
 
 describe("BatchPanel collapse on done", () => {
   it("lingers ~5s after batch done, then collapses away", async () => {
-    const mockGetTasks = getTasks as any;
+    const mockGetTasks = vi.mocked(getTasks);
     mockGetTasks.mockReset();
     mockGetTasks.mockResolvedValue({
       tasks: [{ id: "t1", source: "feodo", host: null, state: "downloading", error: null, batch_id: "b1" }],
@@ -139,7 +140,7 @@ describe("BatchPanel collapse on done", () => {
 
 describe("BatchPanel cold-load with stale done batch", () => {
   it("does NOT pop the active panel when the snapshot already reports a done batch", async () => {
-    const mockGetTasks = getTasks as any;
+    const mockGetTasks = vi.mocked(getTasks);
     mockGetTasks.mockReset();
     // Backend keeps _active_batch pointing at a finished batch, so the cold
     // snapshot reports batch.state === "done". This must NOT re-trigger the
@@ -162,7 +163,7 @@ describe("BatchPanel cold-load with stale done batch", () => {
 
 describe("BatchPanel batchless update hides stale tasks", () => {
   it("shows only the active batchless task, not terminal tasks from prior batches", async () => {
-    const mockGetTasks = getTasks as any;
+    const mockGetTasks = vi.mocked(getTasks);
     mockGetTasks.mockReset();
     // After a batch finished, _tasks still holds its terminal tasks. A later
     // single-source update runs batchless (batch_id null, batch null). The panel
@@ -184,7 +185,7 @@ describe("BatchPanel batchless update hides stale tasks", () => {
 
 describe("BatchPanel batchless single-task", () => {
   it("shows Updating label without 0/0 when active task has no batch", async () => {
-    const mockGetTasks = getTasks as any;
+    const mockGetTasks = vi.mocked(getTasks);
     mockGetTasks.mockReset();
     mockGetTasks.mockResolvedValue({
       tasks: [{ id: "t1", source: "feodo", host: null, state: "downloading", error: null, batch_id: null }],

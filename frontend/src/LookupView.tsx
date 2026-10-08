@@ -5,8 +5,9 @@ import { ResultTable } from "./components/ResultTable";
 import { ExportCsv } from "./components/ExportCsv";
 import { Modal } from "./components/Modal";
 import { WarmupBanner } from "./components/WarmupBanner";
-import { WarmingProvider, useWarming } from "./warming";
-import { queryIpsStream, uploadFileStream } from "./api";
+import { WarmingProvider } from "./WarmingProvider";
+import { useWarming } from "./warming";
+import { queryIpsStream, uploadFileStream, type ApiError } from "./api";
 import type { LookupResult, Progress, StreamOutcome } from "./api";
 import { useI18n } from "./i18n";
 
@@ -15,7 +16,7 @@ type InputTab = "text" | "file";
 // api 层非 2xx 抛错统一带 e.status + e.code(信封语义码,见 api.ts throwApiError);
 // code==="warming" 才是 warming 门(no_sources 是另一种 503)。
 const isWarming503 = (e: unknown) =>
-  (e as any)?.code === "warming";
+  (e as ApiError).code === "warming";
 
 export default function LookupView() {
   return (
@@ -39,19 +40,6 @@ function LookupViewInner() {
     invalid: number;
   } | null>(null);
   const { warming, recheck } = useWarming();
-  const [pendingIp, setPendingIp] = useState<string | null>(() => {
-    const q = new URLSearchParams(window.location.search).get("ip");
-    return q && q.trim() ? q.trim() : null;
-  });
-
-  // ?ip= 深链:挂载时自动查询一次。仅读一次参数,不随路由变化重复触发。
-  useEffect(() => {
-    if (pendingIp == null) return;
-    const ip = pendingIp;
-    setPendingIp(null);
-    handleQueryRef.current([ip]);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   const applyOutcome = (r: StreamOutcome) => {
     if (r.invalidLines > 0) {
@@ -91,7 +79,7 @@ function LookupViewInner() {
             setError(t("lookup.cancelled"));
             break;
           }
-          if ((e as any)?.code === "no_sources") {
+          if ((e as ApiError).code === "no_sources") {
             setError(t("lookup.noSources"));
             break;
           }
@@ -118,8 +106,18 @@ function LookupViewInner() {
   const handleQuery = (ips: string[]) =>
     runLookup(() => queryIpsStream(ips, setProgress), t("lookup.queryFailed"));
 
+  // ?ip= 深链:挂载时自动查询一次。仅读一次参数,不随路由变化重复触发。
+  // handleQueryRef 持挂载帧闭包(挂载时即最新);effect [] 只跑一次,
+  // 无需 render 期写 ref(react-hooks/refs)也无 effect 内同步 setState。
+  const deepLinkFiredRef = useRef(false);
   const handleQueryRef = useRef(handleQuery);
-  handleQueryRef.current = handleQuery;
+  useEffect(() => {
+    if (deepLinkFiredRef.current) return;
+    deepLinkFiredRef.current = true;
+    const q = new URLSearchParams(window.location.search).get("ip");
+    const ip = q && q.trim() ? q.trim() : null;
+    if (ip != null) handleQueryRef.current([ip]);
+  }, []);
 
   const handleUpload = (file: File) =>
     runLookup(() => uploadFileStream(file, setProgress), t("lookup.uploadFailed"));

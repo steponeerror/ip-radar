@@ -11,7 +11,7 @@ const base: api.VersionInfo = {
 
 // renderWithI18n 默认 en locale;沿用 WarmupBanner.test 的 importActual mock 风格
 vi.mock("../../api", async () => {
-  const real = await vi.importActual<any>("../../api");
+  const real = await vi.importActual<typeof import("../../api")>("../../api");
   return { ...real, getVersion: vi.fn() };
 });
 

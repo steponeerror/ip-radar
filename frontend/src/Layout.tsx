@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { DbStatusBar } from "./components/DbStatusBar";
 import { LocaleSwitcher } from "./components/LocaleSwitcher";
 import { Modal } from "./components/Modal";
@@ -48,7 +48,9 @@ export default function Layout({
   const [token, setToken] = useState("");
   const [tokenError, setTokenError] = useState<string | null>(null);
   const [overlayActive, setOverlayActive] = useState(false);
-  const versionSnapshot = useRef("");
+  // 更新开始时的版本快照:UpdateOverlay 判断「新 current !== 起始版本」即成功。
+  // 曾用 ref 在 render 读取(react-hooks/refs 违例);改 state,beginOverlay 异步落位。
+  const [overlayStartedVersion, setOverlayStartedVersion] = useState("");
 
   useEffect(() => {
     // 横幅按钮可见性所需的 self_update_enabled;L2 解锁需改 compose+重启(整页重载),挂载拉一次即够
@@ -68,7 +70,7 @@ export default function Layout({
 
   const beginOverlay = async () => {
     setConfirmOpen(false);
-    try { versionSnapshot.current = (await getVersion()).current; } catch { /* 快照失败置空:首个成功的 current !== "" 即判成功 */ }
+    try { setOverlayStartedVersion((await getVersion()).current); } catch { /* 快照失败置空:首个成功的 current !== "" 即判成功 */ }
     setOverlayActive(true);
   };
 
@@ -182,7 +184,7 @@ export default function Layout({
 
     <UpdateOverlay
       active={overlayActive}
-      startedVersion={versionSnapshot.current}
+      startedVersion={overlayStartedVersion}
       reload={() => location.reload()}
     />
     </>

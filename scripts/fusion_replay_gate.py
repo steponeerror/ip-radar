@@ -20,7 +20,8 @@ benign 语料复用 `_eval` 基建:pymispwarninglists 装载 +
 内 slow_search 为 138ms/IP(全量不可行),区间包含判定改为本地折叠区间
 数组 + bisect(语义同库 cidr 分支,启动时对样例自校验)。
 
-内存红线(2026-10-03 教训):本脚本启动即 `RLIMIT_DATA = 4GiB` —— 限制
+内存红线(2026-10-03 教训):`main()` 首行设 `RLIMIT_DATA = 4GiB`(R3-F3:
+import 本模块零副作用、不钳调用方 rlimit;CLI 跑语义不变)—— 限制
 Python 侧匿名堆(brk + 私有匿名 mmap),超限分配立即 MemoryError(已
 实测 5GiB bytearray 被拒)。不用 RLIMIT_AS:registry 需以只读 mmap 打开
 全部 90 个 LMDB env,合计 map ≈ 6.94GB 地址空间,4GiB AS 下 load_db
@@ -54,10 +55,6 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]          # scripts/ -> 仓库根
 BACKEND_DIR = REPO_ROOT / "backend"                       # 代码 = 脚本所在仓(worktree)
-
-# 内存红线:4GiB 匿名堆硬顶(理由见模块 docstring;RLIMIT_AS 与只读
-# mmap 数据面互斥,不可用)。必须在重导入前设置。
-resource.setrlimit(resource.RLIMIT_DATA, (4 * 1024**3, 4 * 1024**3))
 
 # 与 b3db5ee2 / _merge._assess_classification 同一的 verdict 优先级(旧规则冻结语义)
 _PRECEDENCE = {"malicious": 0, "suspicious": 1, "benign": 2, "informational": 3}
@@ -220,6 +217,11 @@ def fmt_ip(v: int) -> str:
 
 
 def main() -> int:
+    # 内存红线(R3-F3):4GiB 匿名堆硬顶在 main() 首行设置 —— CLI 跑语义
+    # 不变,而 import 本模块零副作用(测试/工具可安全 import,不钳调用方
+    # rlimit)。必须在下方重导入 ipdb 前生效;理由见模块 docstring
+    # (RLIMIT_AS 与只读 mmap 数据面互斥,不可用)。
+    resource.setrlimit(resource.RLIMIT_DATA, (4 * 1024**3, 4 * 1024**3))
     ap = argparse.ArgumentParser(description="融合回放门:C2/C3/C4 实证(流式,内存红线)")
     ap.add_argument("--data", default=str(REPO_ROOT / ".eval-prod-data"),
                     help="生产数据镜像目录(默认 <脚本仓>/.eval-prod-data;worktree 跑时指主仓)")

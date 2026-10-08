@@ -14,7 +14,7 @@ function makeFakeEventSource() {
   let onError: (() => void) | null = null;
   const close = vi.fn();
   const constructed = vi.fn();
-  function FakeEventSource(this: any) {
+  function FakeEventSource(this: { close: () => void }) {
     constructed();
     this.close = close;
     Object.defineProperty(this, "onmessage", {
@@ -31,8 +31,8 @@ function makeFakeEventSource() {
 }
 
 // 按 URL 路由的 fetch stub;未列出的端点兜底返回空快照(getTasks 用)。
-function routeFetch(routes: Record<string, () => any>) {
-  return vi.fn((url: any) => {
+function routeFetch(routes: Record<string, () => unknown>) {
+  return vi.fn((url: string) => {
     const hit = Object.entries(routes).find(([p]) => String(url).startsWith(p));
     return Promise.resolve(hit ? hit[1]() : { ok: true, json: async () => ({ tasks: [], batch: null }) });
   });
@@ -45,9 +45,9 @@ describe("TaskProvider on public-demo deployments", () => {
       // 询此端点 —— 订阅必须无条件发生,该 mock 钉住部署上下文。
       "/api/version": () => ({ ok: true, json: async () => ({ public_demo: true }) }),
     });
-    (globalThis as any).fetch = fetchMock;
+    (globalThis as { fetch?: unknown }).fetch = fetchMock;
     const es = makeFakeEventSource();
-    (globalThis as any).EventSource = es.FakeEventSource;
+    (globalThis as { EventSource?: unknown }).EventSource = es.FakeEventSource;
     render(<TaskProvider>{null}</TaskProvider>);
     await waitFor(() => expect(es.constructed).toHaveBeenCalledTimes(1)); // 已订阅
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/tasks")); // 已 resync
@@ -57,9 +57,9 @@ describe("TaskProvider on public-demo deployments", () => {
     const fetchMock = routeFetch({
       "/api/users/me": () => ({ ok: false, status: 401 }), // adminMe → null
     });
-    (globalThis as any).fetch = fetchMock;
+    (globalThis as { fetch?: unknown }).fetch = fetchMock;
     const es = makeFakeEventSource();
-    (globalThis as any).EventSource = es.FakeEventSource;
+    (globalThis as { EventSource?: unknown }).EventSource = es.FakeEventSource;
     const onUnauthorized = vi.fn();
     render(<TaskProvider onUnauthorized={onUnauthorized}>{null}</TaskProvider>);
     await waitFor(() => expect(es.constructed).toHaveBeenCalled());
@@ -72,9 +72,9 @@ describe("TaskProvider on public-demo deployments", () => {
     const fetchMock = routeFetch({
       "/api/users/me": () => ({ ok: true, json: async () => ({ id: "u1", email: "a@b.c" }) }),
     });
-    (globalThis as any).fetch = fetchMock;
+    (globalThis as { fetch?: unknown }).fetch = fetchMock;
     const es = makeFakeEventSource();
-    (globalThis as any).EventSource = es.FakeEventSource;
+    (globalThis as { EventSource?: unknown }).EventSource = es.FakeEventSource;
     const onUnauthorized = vi.fn();
     render(<TaskProvider onUnauthorized={onUnauthorized}>{null}</TaskProvider>);
     await waitFor(() => expect(es.constructed).toHaveBeenCalled());

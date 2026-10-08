@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, act, waitFor } from "@testing-library/react";
-import { TaskProvider, useTasks } from "../TaskProvider";
+import { TaskProvider } from "../TaskProvider";
+import { useTasks } from "../useTasks";
 import type { TaskState, BatchState } from "../../api";
 
 function Probe() {
@@ -22,9 +23,9 @@ function Probe() {
 // captured and fired from tests. Arrow-function impls can't be `new`-ed, so we
 // use a real function and stash handlers on the instance.
 function makeFakeEventSource(closeSpy?: () => void) {
-  let onMessage: ((m: any) => void) | null = null;
+  let onMessage: ((m: { data: string }) => void) | null = null;
   let onOpen: (() => void) | null = null;
-  function FakeEventSource(this: any) {
+  function FakeEventSource(this: { close: () => void }) {
     this.close = closeSpy ?? (() => {});
     Object.defineProperty(this, "onmessage", {
       get: () => onMessage,
@@ -39,7 +40,7 @@ function makeFakeEventSource(closeSpy?: () => void) {
   }
   return {
     FakeEventSource,
-    fireMessage: (data: any) => {
+    fireMessage: (data: unknown) => {
       onMessage?.({ data: typeof data === "string" ? data : JSON.stringify(data) });
     },
     fireOpen: () => { onOpen?.(); },
@@ -49,7 +50,9 @@ function makeFakeEventSource(closeSpy?: () => void) {
 describe("TaskProvider", () => {
   beforeEach(() => {
     // Default stub; tests that need to assert on SSE overwrite this.
-    (globalThis as any).EventSource = vi.fn(function (this: any) {
+    (globalThis as { EventSource?: unknown }).EventSource = vi.fn(function (this: {
+      onmessage: unknown; onopen: unknown; close: () => void;
+    }) {
       this.onmessage = null;
       this.onopen = null;
       this.close = () => {};
@@ -66,7 +69,7 @@ describe("TaskProvider", () => {
         batch: { id: "b1", state: "done", done: 1, total: 1 },
       }),
     });
-    (globalThis as any).fetch = fetchMock;
+    (globalThis as { fetch?: unknown }).fetch = fetchMock;
     render(
       <TaskProvider>
         <Probe />
@@ -81,9 +84,9 @@ describe("TaskProvider", () => {
       ok: true,
       json: async () => ({ tasks: [], batch: null }),
     });
-    (globalThis as any).fetch = fetchMock;
+    (globalThis as { fetch?: unknown }).fetch = fetchMock;
     const es = makeFakeEventSource();
-    (globalThis as any).EventSource = es.FakeEventSource as any;
+    (globalThis as { EventSource?: unknown }).EventSource = es.FakeEventSource;
     render(
       <TaskProvider>
         <Probe />
@@ -112,9 +115,9 @@ describe("TaskProvider", () => {
       ok: true,
       json: async () => ({ tasks: [t1], batch: { id: "b1", state: "running", done: 0, total: 1 } as BatchState }),
     });
-    (globalThis as any).fetch = fetchMock;
+    (globalThis as { fetch?: unknown }).fetch = fetchMock;
     const es = makeFakeEventSource();
-    (globalThis as any).EventSource = es.FakeEventSource as any;
+    (globalThis as { EventSource?: unknown }).EventSource = es.FakeEventSource;
     render(
       <TaskProvider>
         <Probe />
@@ -144,9 +147,9 @@ describe("TaskProvider", () => {
       ok: true,
       json: async () => ({ tasks: [], batch: null }),
     });
-    (globalThis as any).fetch = fetchMock;
+    (globalThis as { fetch?: unknown }).fetch = fetchMock;
     const es = makeFakeEventSource();
-    (globalThis as any).EventSource = es.FakeEventSource as any;
+    (globalThis as { EventSource?: unknown }).EventSource = es.FakeEventSource;
     render(
       <TaskProvider>
         <Probe />
@@ -180,9 +183,9 @@ describe("TaskProvider", () => {
           batch: { id: "b2", state: "done", done: 1, total: 1 },
         }),
       });
-    (globalThis as any).fetch = fetchMock;
+    (globalThis as { fetch?: unknown }).fetch = fetchMock;
     const es = makeFakeEventSource();
-    (globalThis as any).EventSource = es.FakeEventSource as any;
+    (globalThis as { EventSource?: unknown }).EventSource = es.FakeEventSource;
     render(
       <TaskProvider>
         <Probe />
@@ -200,10 +203,10 @@ describe("TaskProvider", () => {
       ok: true,
       json: async () => ({ tasks: [], batch: null }),
     });
-    (globalThis as any).fetch = fetchMock;
+    (globalThis as { fetch?: unknown }).fetch = fetchMock;
     const closeSpy = vi.fn();
     const es = makeFakeEventSource(closeSpy);
-    (globalThis as any).EventSource = es.FakeEventSource as any;
+    (globalThis as { EventSource?: unknown }).EventSource = es.FakeEventSource;
     const { unmount } = render(
       <TaskProvider>
         <Probe />
@@ -217,12 +220,12 @@ describe("TaskProvider", () => {
   it("progress ticks mid-fetch do NOT discard the resync snapshot (F5)", async () => {
     // 下载洪峰期 progress tick ~0.15s 一次;若它也置 sseSaw,resync 快照
     // 几乎总被丢弃(SSE 溢出丢掉 done 事件时 batch 永远卡 running)。
-    let resolveSnap!: (v: any) => void;
-    const delayed = new Promise<any>(r => { resolveSnap = r; });
+    let resolveSnap!: (v: { ok: boolean; json: () => Promise<unknown> }) => void;
+    const delayed = new Promise<{ ok: boolean; json: () => Promise<unknown> }>(r => { resolveSnap = r; });
     const fetchMock = vi.fn().mockReturnValue(delayed);
-    (globalThis as any).fetch = fetchMock;
+    (globalThis as { fetch?: unknown }).fetch = fetchMock;
     const es = makeFakeEventSource();
-    (globalThis as any).EventSource = es.FakeEventSource as any;
+    (globalThis as { EventSource?: unknown }).EventSource = es.FakeEventSource;
     render(
       <TaskProvider>
         <Probe />
@@ -243,12 +246,12 @@ describe("TaskProvider", () => {
   });
 
   it("a state event mid-fetch still discards the resync snapshot (fresher wins)", async () => {
-    let resolveSnap!: (v: any) => void;
-    const delayed = new Promise<any>(r => { resolveSnap = r; });
+    let resolveSnap!: (v: { ok: boolean; json: () => Promise<unknown> }) => void;
+    const delayed = new Promise<{ ok: boolean; json: () => Promise<unknown> }>(r => { resolveSnap = r; });
     const fetchMock = vi.fn().mockReturnValue(delayed);
-    (globalThis as any).fetch = fetchMock;
+    (globalThis as { fetch?: unknown }).fetch = fetchMock;
     const es = makeFakeEventSource();
-    (globalThis as any).EventSource = es.FakeEventSource as any;
+    (globalThis as { EventSource?: unknown }).EventSource = es.FakeEventSource;
     render(
       <TaskProvider>
         <Probe />
@@ -342,7 +345,7 @@ describe("TaskProvider", () => {
       ok: false, status: 401,
       json: async () => ({ error: { code: "unauthorized", message: "Not authenticated" } }),
     });
-    (globalThis as any).fetch = fetchMock;
+    (globalThis as { fetch?: unknown }).fetch = fetchMock;
     const onUnauthorized = vi.fn();
     render(
       <TaskProvider onUnauthorized={onUnauthorized}>
