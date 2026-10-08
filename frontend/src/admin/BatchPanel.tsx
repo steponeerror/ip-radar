@@ -34,10 +34,14 @@ const fmtRows = (n: number): string => {
   return `${n}`;
 };
 
-export function BatchPanel() {
+export function BatchPanel({ onUnauthorized }: { onUnauthorized?: () => void } = {}) {
   const { t } = useI18n();
   const { tasks, batch, cancelTask, cancelBatch, pause, resume } = useTasks();
   const [expanded, setExpanded] = useState(true);
+  // U7:控制端点(暂停/恢复/终止/逐任务取消)失败反馈 —— api 层非 ok 现
+  // reject;此处红字横幅展示(文案优先信封 message),401 踢回登录页(admin
+  // 面既有约定,同 SourcesPage.failWith/KeysSection.handleErr)。新动作先清旧错。
+  const [error, setError] = useState<string | null>(null);
   // Keep the active panel mounted for ~5s after the batch finishes so the
   // user sees the final state before it collapses away.
   const [recentlyDone, setRecentlyDone] = useState(false);
@@ -66,6 +70,16 @@ export function BatchPanel() {
   const active = taskActive
     || (batch != null && batch.state !== "done")
     || (recentlyDone && batch?.state === "done");
+
+  // 会话中 401(cookie 过期/服务端重启)踢回登录页;其余错误落横幅。
+  const failWith = (e: unknown) => {
+    if ((e as { status?: number }).status === 401) { onUnauthorized?.(); return; }
+    setError(e instanceof Error && e.message ? e.message : t("admin.tasks.actionFailed"));
+  };
+  const run = (fn: () => Promise<unknown>) => {
+    setError(null);
+    fn().catch(failWith);
+  };
 
   if (!active) {
     // 任务 tab 空闲态不留白(死页既感),给引导文案;冷加载 done batch 同此路径
@@ -99,7 +113,7 @@ export function BatchPanel() {
           <span className="flex gap-2">
             {batch?.state === "paused" ? (
               <button
-                onClick={() => resume()}
+                onClick={() => run(resume)}
                 className="rounded px-2 py-0.5 text-emerald-400 hover:bg-zinc-800 hover:text-emerald-300"
                 aria-label={t("dbStatus.resume")}
               >
@@ -107,7 +121,7 @@ export function BatchPanel() {
               </button>
             ) : (
               <button
-                onClick={() => pause()}
+                onClick={() => run(pause)}
                 disabled={batch?.state === "done"}
                 className="rounded px-2 py-0.5 text-emerald-400 hover:bg-zinc-800 hover:text-emerald-300 disabled:opacity-50"
                 aria-label={t("dbStatus.pause")}
@@ -116,7 +130,7 @@ export function BatchPanel() {
               </button>
             )}
             <button
-              onClick={() => cancelBatch()}
+              onClick={() => run(cancelBatch)}
               className="rounded px-2 py-0.5 text-red-400 hover:bg-zinc-800 hover:text-red-300"
               aria-label={t("dbStatus.abort")}
             >
@@ -137,6 +151,11 @@ export function BatchPanel() {
             style={{ width: `${overallPct}%` }}
           />
         </div>
+        {error && (
+          <p className="mt-1 rounded-md border border-red-400/30 bg-red-400/10 px-2 py-1 text-[11px] text-red-400">
+            {error}
+          </p>
+        )}
         {expanded && (
           <div className="mt-1 max-h-40 overflow-y-auto">
             {visibleTasks.map((task) => (
@@ -201,7 +220,7 @@ export function BatchPanel() {
                 )}
                 <button
                   className="text-zinc-500 hover:text-red-400 disabled:opacity-30"
-                  onClick={() => cancelTask(task.id)}
+                  onClick={() => run(() => cancelTask(task.id))}
                   disabled={!ACTIVE_TASK_STATES.includes(task.state)}
                   aria-label={`Cancel ${task.source}`}
                 >

@@ -352,6 +352,44 @@ describe("KeysSection", () => {
     })));
   });
 
+  it("key copy falls back to execCommand when the clipboard API is absent (http LAN, U10)", async () => {
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => [] }) // GET list (empty)
+      .mockResolvedValueOnce({ // POST create
+        ok: true, status: 201,
+        json: async () => ({
+          key: "eyJhbGciOiJIUzI1NiJ9.http-fallback.sig",
+          meta: META({ sub: "new", name: "t" }),
+        }),
+      });
+    renderWithI18n(<KeysSection />);
+    await waitFor(() => expect(screen.getByText("No API keys yet")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: "Create key" }));
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "t" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    expect(await screen.findByTestId("created-key")).toBeInTheDocument();
+
+    // jsdom 无 navigator.clipboard —— 与自托管 http://LAN-IP 非安全上下文同型;
+    // 捕获降级路径:临时 textarea 携带完整密钥 + execCommand("copy")
+    expect(navigator.clipboard).toBeUndefined();
+    const placed: string[] = [];
+    const selectSpy = vi
+      .spyOn(HTMLTextAreaElement.prototype, "select")
+      .mockImplementation(function (this: HTMLTextAreaElement) { placed.push(this.value); });
+    const exec = vi.fn(() => true);
+    document.execCommand = exec;
+    try {
+      fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+      await waitFor(() => expect(exec).toHaveBeenCalledWith("copy"));
+      expect(placed).toEqual(["eyJhbGciOiJIUzI1NiJ9.http-fallback.sig"]);
+      expect(screen.getByRole("button", { name: "Copied!" })).toBeInTheDocument();
+    } finally {
+      selectSpy.mockRestore();
+      delete (document as { execCommand?: unknown }).execCommand;
+    }
+  });
+
   it("localizes the Status column header (no hard-coded English, zh-CN)", async () => {
     mockFetch.mockResolvedValueOnce({ ok: true, json: async () => [META({ sub: "s1", name: "k" })] });
     renderWithI18n(<KeysSection />, { locale: "zh-CN" });

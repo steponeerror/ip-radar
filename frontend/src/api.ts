@@ -445,20 +445,26 @@ export async function enqueueSingle(name: string): Promise<{ task_id: string }> 
   return res.json();
 }
 
+// 控制类端点成功无业务 body;失败必须 reject(U7:此前非 ok 静默吞掉,
+// 按钮点击零反馈)。reject 走统一信封 throwApiError(status+code+message)。
 export async function cancelTask(id: string): Promise<void> {
-  await fetch(`/api/tasks/${encodeURIComponent(id)}/cancel`, { method: "POST" });
+  const res = await fetch(`/api/tasks/${encodeURIComponent(id)}/cancel`, { method: "POST" });
+  if (!res.ok) return throwApiError(res, "Failed to cancel task");
 }
 
 export async function cancelBatch(): Promise<void> {
-  await fetch("/api/update-db/cancel", { method: "POST" });
+  const res = await fetch("/api/update-db/cancel", { method: "POST" });
+  if (!res.ok) return throwApiError(res, "Failed to cancel batch");
 }
 
 export async function pauseBatch(): Promise<void> {
-  await fetch("/api/update-db/pause", { method: "POST" });
+  const res = await fetch("/api/update-db/pause", { method: "POST" });
+  if (!res.ok) return throwApiError(res, "Failed to pause batch");
 }
 
 export async function resumeBatch(): Promise<void> {
-  await fetch("/api/update-db/resume", { method: "POST" });
+  const res = await fetch("/api/update-db/resume", { method: "POST" });
+  if (!res.ok) return throwApiError(res, "Failed to resume batch");
 }
 
 /**
