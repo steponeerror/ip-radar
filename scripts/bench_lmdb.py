@@ -2,25 +2,33 @@
 """LMDB 冒烟闸门:真实数据构建 + 万次查询基准,对比基线 JSON 判 go/no-go。
 
 用法:
-  生成基线: python scripts/bench_lmdb.py --data backend/data --out scripts/baseline-linux.json
-  闸门对比: python scripts/bench_lmdb.py --data <data_dir> --baseline scripts/baseline-linux.json
+  生成基线: python scripts/bench_lmdb.py --data <backend/data 的拷贝> --out scripts/baseline-linux.json
+  闸门对比: python scripts/bench_lmdb.py --data <拷贝> --baseline scripts/baseline-linux.json
+
+安全默认(R16-4):--data 缺省 = 一次性 tmp 空基座(无 CSV → exit 2,绝不触生产存储);
+显式传生产数据目录(= IP_RADAR_DATA_DIR,缺省 backend/data)会被拒绝——rebuild_lmdb
+会原子换 <source>.csv.lmdb.ptr,即覆写 live 存储。基准请在数据拷贝上跑;
+确要直跑生产目录需显式 --allow-live。
 
 判定(spec 第 3 节): HIT/MISS/MIX × p50/p99 各 ≤ 基线 ×1.5;
-构建峰值 RSS ≤ 500MB; 构建时长 ≤ 3× 基线。退出码 0 过 / 1 不过 / 2 数据缺失。
+构建峰值 RSS ≤ 500MB; 构建时长 ≤ 3× 基线。退出码 0 过 / 1 不过 / 2 数据缺失或用法拒绝。
 """
 import argparse
 import csv
 import ipaddress
 import json
+import os
 import random
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
 
 import psutil
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backend"))
+_BACKEND = Path(__file__).resolve().parent.parent / "backend"
+sys.path.insert(0, str(_BACKEND))
 from ipdb._sources._lmdb import lookup, rebuild_lmdb, ptr_path  # noqa: E402
 
 QUERY_N = 10_000
@@ -167,18 +175,44 @@ def judge(cur: dict, base: dict | None) -> bool:
     return ok
 
 
+def live_data_dir() -> Path:
+    """生产数据目录,与 ipdb._registry.DATA_DIR 同式(env 优先,缺省 backend/data);
+    .env 与 registry 同款加载,防 IP_RADAR_DATA_DIR 只写在 .env 里。"""
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(_BACKEND / ".env")
+    except ImportError:
+        pass
+    return Path(os.environ.get("IP_RADAR_DATA_DIR", str(_BACKEND / "data")))
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--data", required=True)
+    ap.add_argument("--data",
+                    help="含 <source>.csv 的数据目录;缺省 = 一次性 tmp 空基座"
+                         "(R16-4 安全默认,详见模块 docstring)")
     ap.add_argument("--source", default="ipinfo_lite")
     ap.add_argument("--baseline")
     ap.add_argument("--out")
+    ap.add_argument("--allow-live", action="store_true",
+                    help="确认在 live 数据目录内直跑(rebuild 会原子换 <source>.ptr)")
     args = ap.parse_args()
+    if args.data is not None:
+        data = Path(args.data).expanduser().resolve()
+    else:
+        data = Path(tempfile.mkdtemp(prefix="bench_lmdb_"))
+        print(f"(no --data given — throwaway tmp base {data})")
+    if data == live_data_dir().resolve() and not args.allow_live:
+        print(f"refusing --data {data}: this is the live data dir — rebuild_lmdb "
+              f"atomically swaps {args.source}.csv.lmdb.ptr, overwriting the storage "
+              f"the service reads. Bench a COPY of the data dir instead, or pass "
+              f"--allow-live if you really mean it.", file=sys.stderr)
+        sys.exit(2)
     if args.baseline and not Path(args.baseline).exists():
         # 先于 bench():避免白跑 ~25s 构建后才 exit 2
         print(f"baseline file not found: {Path(args.baseline)}", file=sys.stderr)
         sys.exit(2)
-    cur = bench(Path(args.data), args.source)
+    cur = bench(data, args.source)
     print(json.dumps(cur, indent=2))
     if args.out:
         Path(args.out).write_text(json.dumps(cur, indent=2))

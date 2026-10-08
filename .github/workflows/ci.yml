@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [master]
+    branches: [master, demo]   # demo = 生产分支,push 面同样过 CI(CI-F1)
     tags: ['v*']        # tag push 也跑构建验证(spec Changes Checklist)
     paths-ignore: ["**.md", "assets/**", "LICENSE"]  # 纯文档/图片变更不跑 5 分钟 CI
   pull_request:
@@ -21,7 +21,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"   # 对齐 Dockerfile node:22-alpine(CI-F4)
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
@@ -61,7 +61,7 @@ jobs:
             echo "::endgroup::"
           done
       - name: Tests — remaining suites whole-dir
-        run: python -m pytest tests/eval tests/evidence tests/lookup tests/source_infra tests/sources -q
+        run: python -m pytest tests/eval tests/evidence tests/lookup tests/source_infra tests/sources tests/auth tests/alerts -q   # auth/alerts 入闸(R3-F1);本地整目录合跑无跨文件污染
       - name: Full suite in one process (reference only — flake tracking, do not gate)
         run: python -m pytest tests -q
         continue-on-error: true
