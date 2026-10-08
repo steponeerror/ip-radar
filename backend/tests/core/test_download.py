@@ -6,7 +6,7 @@ from unittest.mock import patch
 import pytest
 
 from ipdb._sources._download import (
-    CancelToken, CancelledError, download_file, atomic_write_bytes)
+    CancelToken, CancelledError, download_file, atomic_write_bytes, redact_url)
 
 
 class _FakeResp:
@@ -66,6 +66,55 @@ def test_download_file_no_redirect_no_warning(tmp_path: Path, caplog):
         with _patch_urlopen(resp):
             download_file("http://x/y", dest)
     assert not [r for r in caplog.records if "redirected" in r.message]
+
+
+def test_redact_url_keeps_host_path_replaces_query():
+    """打码契约(2026-10-08 C 批 Task 1,事故驱动:OTX/IP2PROXY token 各
+    泄过一次):保留 scheme+host+path,query 整体替 "?q=REDACTED"(逐参数
+    白名单不做——token 可藏在任意参数名下);userinfo/fragment 同丢。"""
+    assert redact_url(
+        "https://www.ip2location.com/download?token=SEKRIT&file=PX2LITECSV"
+    ) == "https://www.ip2location.com/download?q=REDACTED"
+    assert redact_url("http://x/y") == "http://x/y"            # 无 query 原样
+    assert redact_url("http://x:8443/y?a=1") == "http://x:8443/y?q=REDACTED"
+    assert "pass" not in redact_url("https://u:pass@h/p?a=1")   # userinfo 丢弃
+    assert redact_url("https://h/p#frag") == "https://h/p"     # fragment 丢弃
+
+
+def test_download_file_redirect_log_has_no_token(tmp_path: Path, caplog):
+    """事故驱动(2026-10-08,OTX/IP2PROXY 各一次):redirected 绊线曾把
+    带 token 的完整下载 URL 打进 docker 日志——现 query 打码,host/path
+    保留(ip2proxy 走 download_file 的代表性路径)。"""
+    import logging as _logging
+    dest = tmp_path / "out.txt"
+    resp = _FakeResp(
+        [b"data"], final_url="https://cdn.example/download?token=SEKRIT2")
+    with caplog.at_level(_logging.WARNING, logger="ipdb._sources._download"):
+        with _patch_urlopen(resp):
+            download_file(
+                "https://www.ip2location.com/download"
+                "?token=SEKRIT1&file=PX2LITECSV", dest)
+    hits = [r for r in caplog.records if "redirected" in r.message]
+    assert len(hits) == 1
+    msg = hits[0].getMessage()
+    assert "SEKRIT1" not in msg and "SEKRIT2" not in msg   # 请求与落点 URL 均零 token
+    assert "www.ip2location.com/download" in msg
+    assert "cdn.example/download" in msg
+    assert "?q=REDACTED" in msg
+
+
+def test_truncated_download_error_message_has_no_token(tmp_path: Path):
+    """截断错误消息经 scheduler logger.exception 连同 traceback 落 docker
+    日志——同打码(假 token 不入消息体)。"""
+    dest = tmp_path / "out.txt"
+    resp = _FakeResp([b"a" * 500])
+    resp.headers["Content-Length"] = "1000"
+    with _patch_urlopen(resp):
+        with pytest.raises(RuntimeError) as ei:
+            download_file(
+                "https://www.ip2location.com/download?token=SEKRIT3", dest)
+    assert "SEKRIT3" not in str(ei.value)
+    assert "www.ip2location.com/download?q=REDACTED" in str(ei.value)
 
 
 def test_pre_cancelled_token_raises_and_no_dest(tmp_path: Path):

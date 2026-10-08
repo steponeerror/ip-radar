@@ -100,6 +100,41 @@ def test_http_get_and_default_download_warn_on_redirect(tmp_path: Path, caplog):
     assert len(hits) == 2                      # _http_get + 默认 download 各一
 
 
+def test_http_get_redirect_log_has_no_token(caplog):
+    """事故驱动(2026-10-08 C 批 Task 1):OTX/IP2PROXY token 各泄过一次
+    ——绊线曾把带 token 的完整下载 URL 打进 docker 日志。_http_get 是
+    otx_subscribed/dataplane/cloud_ranges 等带 query 源的共用直连路径:
+    warn 消息零 token 子串、host/path 保留、query 打 "?q=REDACTED"。"""
+    import logging as _logging
+    from unittest.mock import patch
+
+    class _Resp:
+        def __init__(self, final_url):
+            self.final_url = final_url
+        def geturl(self):
+            return self.final_url
+        def read(self):
+            return b"data"
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+
+    with caplog.at_level(_logging.WARNING, logger="ipdb._source_base"):
+        with patch("urllib.request.urlopen",
+                   return_value=_Resp("https://moved.example/new?token=SEKRIT2")):
+            Source._http_get(
+                "https://otx.alienvault.com/api/v1/pulses/subscribed"
+                "?limit=1&page=7&modified_since=2026-10-01")
+    hits = [r for r in caplog.records if "redirected" in r.message]
+    assert len(hits) == 1
+    msg = hits[0].getMessage()
+    assert "SEKRIT2" not in msg and "modified_since=2026-10-01" not in msg
+    assert "otx.alienvault.com/api/v1/pulses/subscribed" in msg
+    assert "moved.example/new" in msg
+    assert "?q=REDACTED" in msg
+
+
 def test_health_uses_file_mtime(tmp_path: Path):
     s = _Demo(data_dir=tmp_path)
     s._path = tmp_path / "demo.dat"

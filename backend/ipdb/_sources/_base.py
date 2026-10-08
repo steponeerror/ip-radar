@@ -99,7 +99,7 @@ class IpListSource:
         顶掉旧文件的好证据一并删光). Empty/no-entries RuntimeError
         signals are preserved.
         """
-        from ._download import download_file, atomic_write_bytes
+        from ._download import download_file, atomic_write_bytes, redact_url
         self._data_dir.mkdir(parents=True, exist_ok=True)
         logger.info(f"Downloading {self.name}...")
         scratch = self._path.with_name(self._path.name + ".dl")
@@ -108,7 +108,7 @@ class IpListSource:
                           headers={"User-Agent": "ip-lookup-tool/1.0"})
             raw = scratch.read_bytes()
             if not raw.strip():
-                raise RuntimeError(f"Empty response from {self.url}")
+                raise RuntimeError(f"Empty response from {redact_url(self.url)}")
             entries = self.parse_raw(raw)
             if not entries:
                 raise RuntimeError(f"No entries parsed from {self.name} response")

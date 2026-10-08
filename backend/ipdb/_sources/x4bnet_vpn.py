@@ -1,7 +1,7 @@
 """X4BNet VPN list source — IpListSource subclass."""
 from .._source_base import Source
 from ._base import IpListSource
-from ._download import atomic_write_bytes
+from ._download import atomic_write_bytes, redact_url
 
 
 class X4BNetVPNSource(IpListSource):
@@ -27,7 +27,7 @@ class X4BNetVPNSource(IpListSource):
         try:
             v4 = Source._http_get(self.url)
             if not v4.strip():
-                raise RuntimeError(f"empty response from {self.url}")
+                raise RuntimeError(f"empty response from {redact_url(self.url)}")
         except Exception:
             self.last_partial_failure = ["v4"]
             raise

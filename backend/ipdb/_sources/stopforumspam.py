@@ -23,7 +23,7 @@ from urllib.parse import urlparse
 
 from .._source_base import Source
 from .._evidence import Evidence
-from ._download import download_file, CancelToken, atomic_write_bytes
+from ._download import download_file, CancelToken, redact_url, atomic_write_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +97,7 @@ class StopForumSpamSource(Source):
                           headers={"User-Agent": "ip-lookup-tool/1.0"})
             data = zip_path.read_bytes()
             if not data.strip():
-                raise RuntimeError(f"Empty response from {self.url}")
+                raise RuntimeError(f"Empty response from {redact_url(self.url)}")
             if data[:4] == b"PK\x03\x04":
                 with zipfile.ZipFile(zip_path) as z:
                     name = next((n for n in z.namelist() if n.endswith(".txt") or n.endswith(".csv")), None)
