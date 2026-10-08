@@ -209,7 +209,10 @@ def test_dual_family_streaming_v6_progress_uses_total_est(tmp_path):
         reader_setter4=lambda e: None, reader_setter6=lambda e: None,
         progress=lambda done, total: events.append((done, total)),
         total_est=BATCH_SIZE + 3)
-    assert (n4, n6) == (2, BATCH_SIZE + 1)
+    # DQ-2:返回值 = 提交库键数,非流式行数。本 fixture 的 v6 记录全部
+    # 被 /48 掩码归一(i&0xffff 落在 host 位)坍缩为 2 个网段
+    # (2001:db8::/48 + 2001:db8:1::/48)——旧行数口径 100001 是虚高计数。
+    assert (n4, n6) == (2, 2)
     # v6 阶段(d 已越过 v4 计数)必须出现未完成分数:received < total
     assert any(d < t for d, t in events if d > 2)
 

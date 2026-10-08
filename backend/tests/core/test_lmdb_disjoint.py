@@ -3,8 +3,7 @@ from ipdb._sources._lmdb import (
 
 def _build(tmp_path, records, name="t"):
     base = tmp_path / f"{name}.lmdb"
-    n = rebuild_lmdb(iter(records), base, reader_setter=lambda e: None,
-                     count=len(records))
+    n = rebuild_lmdb(iter(records), base, reader_setter=lambda e: None)
     return base, n
 
 DISJOINT = [("10.0.0.0/8", {"a": 1}), ("20.0.0.0/16", {"a": 2}), ("30.0.0.0/24", {"a": 3})]

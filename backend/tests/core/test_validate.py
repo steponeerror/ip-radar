@@ -62,6 +62,17 @@ def test_authoritative_for_known_fields():
     assert any("authoritative_for" in p for p in validate_source(Bad()))
 
 
+def test_phantom_authority_axes_rejected():
+    """SM-F1 幻影轴去键:is_malicious/is_mobile 不再是合法权威轴,
+    再声明 = metadata_problems 违规(registry 启动即 raise 的绊线)。"""
+    from ipdb._evidence import ALL_KNOWN
+    from ipdb._validate import _AUTHORITY_FIELDS
+    assert _AUTHORITY_FIELDS == ALL_KNOWN          # 幻影键已去,合法集=路由槽
+    for phantom in ("is_malicious", "is_mobile"):
+        class Phantom(_Fake): authoritative_for = (phantom,)
+        assert any("authoritative_for" in p for p in metadata_problems(Phantom()))
+
+
 # ── metadata_problems 独立函数(Controller 修正 #2:registry 启动 raise 用它)──
 from ipdb._validate import metadata_problems
 

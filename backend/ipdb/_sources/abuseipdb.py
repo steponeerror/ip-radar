@@ -52,7 +52,7 @@ class AbuseIPDBSource(IpListSource):
     # ── tuning ──
     stale_days = 2                  # 48h refresh (F-1, 2026-10-07); day budget 0.5/5
     reliability = 0.65
-    authoritative_for = ()               # dict 真相:is_malicious 权威属 threatfox/emerging_threats/spamhaus
+    authoritative_for = ()               # SM-F1:is_malicious 幻影轴已删(threatfox/emerging_threats/spamhaus 原声明同样删除)
 
     def __init__(self, data_dir, confidence_minimum=None, limit=10000):
         # convention: a source reads its OWN env vars; the registry passes only data_dir

@@ -72,6 +72,34 @@ def test_evidence_native_categories_serialized():
     assert d["native_categories"] == ["15", "16"]
 
 
+def test_verdict_empty_abstention_survives_roundtrip():
+    """R17A-1:verdict="" 是弃权拼写,不得被丢空检查吃掉 —— 否则读路径
+    _registry.lookup 的 item.get("verdict","malicious") 会把缺键兑底成
+    恶意(弃权变指控,语义反转)。写入边 → route_record → to_observation
+    读路径逐级保持 ""。"""
+    from ipdb._merge import to_observation
+    e = Evidence(classification_type="other", verdict="")
+    d = e.to_dict()
+    assert d["verdict"] == ""                      # 特判保留(先于丢空检查)
+    routed = route_record(d)                       # 查询路径路由:verdict ∈ ALL_KNOWN 顶层
+    assert routed["verdict"] == ""
+    # 模拟 _registry.lookup 的读侧调用形状(_registry.py 兑底行同构)
+    obs = to_observation("cloud_ranges", routed,
+                         classification_type=routed["classification_type"],
+                         verdict=routed.get("verdict", "malicious"),
+                         reliability=0.95)
+    assert obs.verdict == ""                       # 弃权,非 "malicious"
+    # 反例:正常 verdict 照常保留;缺键(旧快照)仍兑底 malicious(兼容不动)
+    assert Evidence(classification_type="proxy",
+                    verdict="suspicious").to_dict()["verdict"] == "suspicious"
+    legacy = route_record({"classification_type": "other"})
+    obs2 = to_observation("old_snapshot", legacy,
+                          classification_type="other",
+                          verdict=legacy.get("verdict", "malicious"),
+                          reliability=0.5)
+    assert obs2.verdict == "malicious"
+
+
 def test_evidence_native_categories_empty_not_serialized():
     e = Evidence(classification_type="exploit")   # no native_categories set
     d = e.to_dict()

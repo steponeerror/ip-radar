@@ -151,26 +151,32 @@ def _proxy_evidence(proxy_type: str) -> Evidence | None:
 
     Keeps VPN/PUB (proxy), TOR (tor), DCH (hosting). Drops SES/WEB/etc.
     Per-asset labels ride in native_types (→ _native_types).
+
+    DCH is asset-only (SM-F2): datacenter/hosting 属性是基础设施事实而非
+    指控 —— 镜像 cloud_ranges 形状(classification_type=None、verdict=""
+    弃权):只走 attributes 通道,不产分类组、不计票、不产 STIX Indicator。
     """
     from .._classification import normalize, PROXY_MAP
     pt = proxy_type.strip().upper()
     if pt not in ("VPN", "PUB", "DCH", "TOR"):
         return None
+    if pt == "DCH":
+        return Evidence(
+            is_hosting=True,
+            native_types={"is_hosting": "DCH"},
+            verdict="",   # 弃权拼写:由 to_dict 特判保留,读回按 "" 处理不兑底
+        )
     is_proxy = pt in ("VPN", "PUB")
-    is_hosting = pt == "DCH"
     is_tor = pt == "TOR"
     native = {}
     if is_proxy:
         native["is_proxy"] = pt
-    if is_hosting:
-        native["is_hosting"] = "DCH"
     if is_tor:
         native["is_tor"] = "TOR"
     return Evidence(
         classification_type=normalize(pt, PROXY_MAP),
         verdict="suspicious",
         is_proxy=is_proxy or None,
-        is_hosting=is_hosting or None,
         is_tor=is_tor or None,
         native_types=native,
     )

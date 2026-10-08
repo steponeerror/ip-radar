@@ -6,7 +6,10 @@ never Path.with_suffix: it would eat the ``.lmdb`` segment):
     <base>.<epoch>/            LMDB env dir (data.mdb + lock.mdb)
     <base>.<epoch>.new.<pid>/  build staging dir
     <base>.ptr                 one line: current epoch integer
-    <base>.count / <base>.cov  sidecars (unchanged commit-order contract)
+    <base>.count / <base>.cov  sidecars (unchanged commit-order contract);
+                               .count = env 实际键数(DQ-2,commit 时从主库
+                               entries 回写,非流式行数——重复行/同起点 CIDR
+                               碰撞下行数 > 键数,旧行为 UI record_count 虚高)
     <base>.disjoint        epoch-bound disjoint flag (<epoch> <0|1>)
 
 key = start_ip 4-byte big-endian; value = JSON [end_ip_int, ref_id] —
@@ -420,7 +423,6 @@ Auto = object()  # covered=Auto 哨兵:写库循环内统计覆盖数(见 rebuil
 
 
 def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
-                 count: int | None = None,
                  covered: "int | Auto | None" = None,
                  map_size: int | None = None,
                  flag_setter: Callable[[bool], None] | None = None,
@@ -450,6 +452,12 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
     covered 三态:None=不写 .cov sidecar;int=照写调用方预计算值;Auto=写库
     循环内统计实际入库记录的覆盖数(v4 Σ2^host_bits,v6 每网段计 1)。covered_setter
     可选,与 flag_setter 同点(ptr+sidecar 提交后 race-free)回调统计值。
+
+    .count 语义(DQ-2 修)= 提交 env 的主库实际键数(env.stat()["entries"],
+    pidx drop 后统计):重复行归一为同键覆盖、同起点不同长度 CIDR 碰撞只存
+    一条,键数才是「库里有什么」的真值;返回值同此键数(流式行数 n 只用于
+    progress/零记录守卫)。CsvSource 时代的「count=证据数」覆写通道已删——
+    多证据并单键的源不再虚增计数。
     """
     import shutil
     if ip_version not in (4, 6):
@@ -563,6 +571,13 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
     with env.begin(write=True) as txn:
         txn.drop(pidx_db, delete=True)
     env.sync(True)
+    # DQ-2:count sidecar 从提交 env 的主库键数回写。stat()["entries"] 数
+    # 主库(含 payloads 命名库描述符键 —— pidx 已 drop,主库内恰余 1 个
+    # 命名库键,与 detect_disjoint 跳过 PAYLOADS_NAME 同口径),减 1 即纯
+    # 数据键数;本地实测与跳过描述符键的全键游标逐位一致。流式行数 n 在
+    # 重复行/同起点碰撞下 > 键数(tor_exits 实测 3328 行 vs 1431 键,
+    # 57% 虚高)。
+    n_keys = env.stat()["entries"] - 1
     # 预判干净(必真不相交)直接采信;预判报可疑才跑 O(n) key 序扫描定谁。
     disjoint = True if disjoint_ok else detect_disjoint(env)
     env.close()                        # closed BEFORE rename — Windows-safe
@@ -586,9 +601,8 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
     if covered is Auto:
         covered = cov                  # 归一:此后 covered 恒为 int
     try:
-        if count is None:
-            count = n
-        staged.append((_write_staged(count_path(base), str(count)), count_path(base)))
+        staged.append((_write_staged(count_path(base), str(n_keys)),
+                       count_path(base)))
         if covered is not None:
             staged.append((_write_staged(cov_path(base), str(covered)), cov_path(base)))
         staged.append((_write_staged(
@@ -619,7 +633,7 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
                 head = name[len(base.name) + 1:].split(".")[0]
                 if head.isdigit() and int(head) < epoch:
                     shutil.rmtree(child, ignore_errors=True)
-    return n
+    return n_keys
 
 
 def rebuild_dual_family(records, v4_base: Path, v6_base: Path, *,
@@ -628,8 +642,6 @@ def rebuild_dual_family(records, v4_base: Path, v6_base: Path, *,
                         flag_setter6: Callable[[bool], None] | None = None,
                         covered4: "int | Auto | None" = None,
                         covered6: "int | Auto | None" = None,
-                        count4: int | None = None,
-                        count6: int | None = None,
                         progress: Callable[[int, int], None] | None = None,
                         covered_setter4: Callable[[int], None] | None = None,
                         covered_setter6: Callable[[int], None] | None = None,
@@ -644,8 +656,8 @@ def rebuild_dual_family(records, v4_base: Path, v6_base: Path, *,
     (n4 + done),received 全程单调不归零(UI 行数不回跳)。
     covered4/covered6: 三态同 rebuild_lmdb——None=不写 .cov;int=照写
     调用方预计算值;Auto=写库循环内统计(流式位点用,免预扫描)。
-    count4/count6: 各族 .count sidecar 覆盖——CsvSource 的 count 语义是
-    证据数而非 CIDR 数(rebuild_lmdb 默认取 n),透传保语义不变。
+    返回 (n4, n6) = 各族提交后的主库键数(DQ-2:键数即 .count 真值,供
+    owner._count 直采;CsvSource 旧 count4/count6 证据数覆写通道已删)。
     """
     if callable(records):
         rec4 = ((c, e) for c, e in records() if ":" not in c)
@@ -654,7 +666,7 @@ def rebuild_dual_family(records, v4_base: Path, v6_base: Path, *,
         rec4 = [(c, e) for c, e in records if ":" not in c]
         rec6 = [(c, e) for c, e in records if ":" in c]
     n4 = rebuild_lmdb(rec4, v4_base, reader_setter4,
-                      count=count4, covered=covered4, flag_setter=flag_setter4,
+                      covered=covered4, flag_setter=flag_setter4,
                       progress=progress, covered_setter=covered_setter4,
                       total_est=total_est)
     progress6 = None
@@ -664,20 +676,19 @@ def rebuild_dual_family(records, v4_base: Path, v6_base: Path, *,
                 return                          # 空 pass:v4 已报终值,不复发
             progress(n4 + done, (n4 + total) if total > 0 else 0)
     n6 = rebuild_lmdb(rec6, v6_base, reader_setter6,
-                      count=count6, covered=covered6, flag_setter=flag_setter6,
+                      covered=covered6, flag_setter=flag_setter6,
                       progress=progress6, ip_version=6,
                       covered_setter=covered_setter6,
                       total_est=max(0, total_est - n4))
     return n4, n6
 
 
-def commit_dual_family(owner, records, *, cov4, cov6,
-                       count4=None, count6=None, progress=None) -> int:
+def commit_dual_family(owner, records, *, cov4, cov6, progress=None) -> int:
     """rebuild_dual_family 提交 + owner 六态回写(9 个覆写 rebuild 的共同尾巴)。
 
     owner: 任一 Source/IpListSource 实例(_lmdb_base/_lmdb6_base + 六个
-    状态槽)。count4/count6:Csv 类证据数语义覆写(默认 None = 行数即 count)。
-    返回 n4(rebuild 的返回值,与各覆写点的 return n4 契约一致)。
+    状态槽)。返回 n4 = rebuild 的返回值 = v4 主库键数(DQ-2:与 .count
+    sidecar 同源;owner._count/_count6 直采,无行数/证据数覆写通道)。
     """
     import time
     n4, n6 = rebuild_dual_family(
@@ -687,9 +698,9 @@ def commit_dual_family(owner, records, *, cov4, cov6,
         flag_setter4=lambda v: setattr(owner, "_disjoint", v),
         flag_setter6=lambda v: setattr(owner, "_disjoint6", v),
         covered4=cov4, covered6=cov6,
-        count4=count4, count6=count6, progress=progress)
-    owner._count = count4 if count4 is not None else n4
-    owner._count6 = count6 if count6 is not None else n6
+        progress=progress)
+    owner._count = n4
+    owner._count6 = n6
     owner._covered_ips = cov4
     owner._covered_v6_nets = cov6
     owner._loaded_at = time.time()

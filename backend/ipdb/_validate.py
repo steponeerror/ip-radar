@@ -14,10 +14,10 @@ from collections import Counter
 from ._classification import CLASSIFICATION_TYPES
 from ._evidence import ALL_KNOWN
 
-# 权威轴合法字段:路由槽 ∪ 历史权威轴。is_malicious(classification
-# verdict 轴)与 is_mobile 非 ALL_KNOWN 路由槽,但 AUTHORITATIVE_SOURCES
-# 传统授权它们(迁移快照含这两个键)——合法集必须接纳,否则真源启动即炸。
-_AUTHORITY_FIELDS = ALL_KNOWN | {"is_malicious", "is_mobile"}
+# 权威轴合法字段 = 路由槽(SM-F1 幻影修剪:is_malicious(classification
+# verdict 轴,无证据键生产者)与 is_mobile(非 ASSET_SLOTS、无生产者)
+# 已去键——再声明它们 = metadata_problems 启动即 raise,作为防幻影回潮绊线。
+_AUTHORITY_FIELDS = ALL_KNOWN
 
 
 def metadata_problems(source) -> list[str]:

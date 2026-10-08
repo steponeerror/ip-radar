@@ -120,6 +120,18 @@ _merge_mod.SOURCE_RELIABILITY.update(
     {s.name: s.reliability for s in _sources})
 
 
+def _apply_derived_sources():
+    """R1-F1:DERIVED_SOURCES 改由源 class attr 灌装(fill-in-place,
+    同 SOURCE_RELIABILITY 模式——_eval/audit.py 值绑定该集合对象身份,
+    严禁重新赋值);种子字面量仅为无 registry 导入时的兜底。"""
+    _lo.DERIVED_SOURCES.clear()
+    _lo.DERIVED_SOURCES.update(
+        {s.name for s in _sources if getattr(s, "derived", False)})
+
+
+_apply_derived_sources()  # 模块导入时灌装一次;测试可重跑验证同步
+
+
 def _apply_calibrated(path=None):
     """校准覆盖(spec 2026-08-29 §8):data/_calibrated.json 的 default 域
     覆盖 class attr 先验;其余域(country/asset key/classification type)
@@ -464,11 +476,26 @@ def lookup(ip: str, allowed_sources: frozenset[str] | None = None) -> LookupResu
             if source.name == "geolite_city" and extra:
                 geolite_extras[source.name] = extra
             if "classification_type" in item:
+                # DM-1 声明 r 生效:表优先(SOURCE_RELIABILITY 含
+                # _calibrated.json 运行时覆盖,表优先 → 后校准即真生效,
+                # threat details.r 与融合权重即时反映);表未收录(测试假源
+                # 等未注册名)回落 payload/class attr 旧链,无校准文件零漂移。
+                # 不变式:payload 的 reliability 键恒 == class attr(全 threat
+                # 源以 self.reliability 构造 Evidence;唯一 per-row r 生产者
+                # cloud_ranges 无 classification_type,永不入观测)——表优先
+                # 因此零漂移;未来源若 per-row r≠attr 且带 classification_type,
+                # 将被表静默覆盖,须先扩 _calibrated 语义再引入。
+                r_live = SOURCE_RELIABILITY.get(source.name)
                 observations.append(to_observation(
                     source.name, item,
                     classification_type=item["classification_type"],
+                    # 缺键兑底 malicious = 旧快照兼容(重建前的存量无此键);
+                    # 显式 ""(弃权拼写)已由 Evidence.to_dict 特判保留,
+                    # 读回按 "" 处理不兑底(R17A-1)。
                     verdict=item.get("verdict", "malicious"),
-                    reliability=item.get("reliability", getattr(source, "reliability", 0.5))))
+                    reliability=(r_live if r_live is not None
+                                 else item.get("reliability",
+                                               getattr(source, "reliability", 0.5)))))
             native_types = item.get("_native_types") or {}
             for akey in ASSET_SLOTS:            # schema-driven, was _ASSET_KEYS
                 if akey in item:

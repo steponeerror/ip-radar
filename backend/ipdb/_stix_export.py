@@ -6,7 +6,9 @@ import json
 import logging
 from uuid import UUID, uuid5
 
-from ._types import LookupResult
+# _ACCUSING 私有名跨模块借道(AS-1):指控章单一口径 —— 与 _types 顶层
+# threat_summary 同一集合;本地等义副本会漂移,借道优于复制。
+from ._types import LookupResult, _ACCUSING
 
 logger = logging.getLogger(__name__)
 
@@ -117,9 +119,13 @@ def to_stix_bundle(lr: LookupResult) -> dict | None:
             target_ref=as_obj.id,
         ))
 
-    # 5. Indicator SDOs — one per detected classification
+    # 5. Indicator SDOs — one per ACCUSING classification (AS-1)
+    # 存档/弃权章(informational、benign、"")只展示不指控 → 不产 STIX
+    # Indicator(Indicator 语义 = 恶性工件断言)。生产路径
+    # _assess_classification 恒 detected=True,旧 detected 守卫形同虚设;
+    # verdict ∈ 指控章(malicious/suspicious)才是真轴。
     for ctype, ca in lr.classifications.items():
-        if not ca.detected:
+        if ca.verdict not in _ACCUSING:
             continue
         indicator_type = _CLASSIFICATION_INDICATOR_TYPES.get(ctype, "unknown")
         ind = Indicator(

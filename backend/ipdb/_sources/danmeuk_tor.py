@@ -32,7 +32,7 @@ class DanMeUkTorSource(IpListSource):
     verdict = "suspicious"
     stale_days = 1                       # publisher refreshes every 30 min
     reliability = 0.85                   # community standard, occasional multi-day lag
-    authoritative_for = ()               # witness only; official tor_exits keeps the veto
+    authoritative_for = ()               # witness only; is_tor 展示层权威属 tor_exits(SM-F1:veto 机制不存在,措辞如实)
 
     def _validate_raw(self, raw: bytes) -> None:
         """Content guard (add-intel-source Phase 3 step 8): the publisher's
