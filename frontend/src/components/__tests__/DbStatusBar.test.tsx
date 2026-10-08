@@ -9,7 +9,7 @@ import { getDbStatus } from "../../api";
 // 活动面板测试已迁移至 admin/__tests__/BatchPanel.test.tsx(update-not-delete)。
 
 vi.mock("../../api", async () => {
-  const real = await vi.importActual<any>("../../api");
+  const real = await vi.importActual<typeof import("../../api")>("../../api");
   return {
     ...real,
     getDbStatus: vi.fn().mockResolvedValue({

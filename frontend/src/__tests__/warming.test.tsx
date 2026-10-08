@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { act } from "@testing-library/react";
-import { WarmingProvider, useWarming } from "../warming";
-import { getDbStatus } from "../api";
+import { WarmingProvider } from "../WarmingProvider";
+import { useWarming } from "../warming";
+import { getDbStatus, type DbStatus } from "../api";
 import { renderWithI18n } from "../test/i18nTestUtils";
 
 afterEach(() => { vi.useRealTimers(); });
@@ -13,9 +14,9 @@ vi.mock("../api", () => ({
 describe("WarmingProvider", () => {
   it("stops polling after the first warming_up=false (steady state is silent)", async () => {
     vi.useFakeTimers();
-    (getDbStatus as any).mockClear();
+    vi.mocked(getDbStatus).mockClear();
     let warming = true;
-    (getDbStatus as any).mockImplementation(() => Promise.resolve({ warming_up: warming }));
+    vi.mocked(getDbStatus).mockImplementation(() => Promise.resolve({ warming_up: warming } as DbStatus));
     renderWithI18n(<WarmingProvider><span>probe</span></WarmingProvider>);
     await act(async () => { await vi.advanceTimersByTimeAsync(0); });   // 初始 poll
     expect(getDbStatus).toHaveBeenCalledTimes(1);
@@ -31,9 +32,9 @@ describe("WarmingProvider", () => {
 
   it("recheck re-arms polling when warming reappears (backend restart, F2)", async () => {
     vi.useFakeTimers();
-    (getDbStatus as any).mockClear();
+    vi.mocked(getDbStatus).mockClear();
     let warming = false;
-    (getDbStatus as any).mockImplementation(() => Promise.resolve({ warming_up: warming }));
+    vi.mocked(getDbStatus).mockImplementation(() => Promise.resolve({ warming_up: warming } as DbStatus));
     let recheck: (() => Promise<boolean>) | null = null;
     function Probe() {
       const w = useWarming();

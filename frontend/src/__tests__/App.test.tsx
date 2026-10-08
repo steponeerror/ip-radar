@@ -6,7 +6,7 @@ import { renderWithI18n } from "../test/i18nTestUtils";
 // Admin split + 公开数据源页退役:公开壳 = 纯 lookup(admin 走独立文档
 // /admin,数据源管理只在管理台内)。此文件钉住拆分后的路由契约。
 vi.mock("../api", async () => {
-  const real = await vi.importActual<any>("../api");
+  const real = await vi.importActual<typeof import("../api")>("../api");
   return {
     ...real,
     // 挂载期网络面哑化:Layout(warmup 轮询/version)

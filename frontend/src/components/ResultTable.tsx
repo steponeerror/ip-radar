@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, Fragment } from "react";
+import { useState, useMemo, Fragment } from "react";
 import { apiFetch, type LookupResult } from "../api";
 import {
   confTextColor, VERDICT_STYLE, VERDICT_RANK, verdictLabelKey,
@@ -460,10 +460,15 @@ export function ResultTable({ results }: ResultTableProps) {
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(50);
 
-  // Reset to first page whenever the result set or view config changes.
-  useEffect(() => {
+  // Reset to first page whenever the result set changes (render-time adjust,
+  // React 官方「prop 变化时调 state」模式,替代 reset effect——后者触发
+  // react-hooks/set-state-in-effect)。view config(filter/sort/分页大小)
+  // 的复位在各自事件处理器里就地 setPage(0)。
+  const [prevResults, setPrevResults] = useState(results);
+  if (prevResults !== results) {
+    setPrevResults(results);
     setPage(0);
-  }, [results, filter, sortKey, sortAsc, disagreementsFirst, pageSize]);
+  }
 
   const filtered = useMemo(() => {
     if (!filter.trim()) return results;
@@ -477,6 +482,7 @@ export function ResultTable({ results }: ResultTableProps) {
   }, [results, filter]);
 
   const handleSort = (key: SortKey) => {
+    setPage(0);
     if (sortKey === key) {
       setSortAsc(!sortAsc);
     } else {
@@ -504,7 +510,7 @@ export function ResultTable({ results }: ResultTableProps) {
   };
 
   const sorted = useMemo(() => {
-    let arr = [...filtered];
+    const arr = [...filtered];
     if (disagreementsFirst) {
       arr.sort((a, b) => lowestConfidence(a) - lowestConfidence(b));
       return arr;
@@ -577,11 +583,17 @@ export function ResultTable({ results }: ResultTableProps) {
             type="text"
             placeholder={t("resultTable.filterPlaceholder")}
             value={filter}
-            onChange={(e) => setFilter(e.target.value)}
+            onChange={(e) => {
+              setFilter(e.target.value);
+              setPage(0);
+            }}
             className="flex-1 min-w-48 rounded-md border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-xs text-zinc-300 placeholder:text-zinc-600 focus:border-emerald-500/40 focus:outline-none focus:ring-1 focus:ring-emerald-500/20"
           />
           <button
-            onClick={() => setDisagreementsFirst(!disagreementsFirst)}
+            onClick={() => {
+              setDisagreementsFirst(!disagreementsFirst);
+              setPage(0);
+            }}
             className={`rounded-md px-2.5 py-1.5 text-xs transition-colors ${
               disagreementsFirst
                 ? "bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/25"
@@ -717,7 +729,10 @@ export function ResultTable({ results }: ResultTableProps) {
           pageSize={pageSize}
           total={sorted.length}
           onPage={setPage}
-          onPageSize={setPageSize}
+          onPageSize={(n) => {
+            setPageSize(n);
+            setPage(0);
+          }}
         />
       </div>
     </TooltipProvider>

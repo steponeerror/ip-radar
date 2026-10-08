@@ -14,7 +14,7 @@ const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 
 vi.mock("../../api", async () => {
-  const real = await vi.importActual<any>("../../api");
+  const real = await vi.importActual<typeof import("../../api")>("../../api");
   return {
     ...real,
     getTasks: vi.fn().mockResolvedValue({ tasks: [], batch: null }),
@@ -94,7 +94,7 @@ describe("AdminPage", () => {
     vi.mocked(getTasks).mockResolvedValueOnce({
       tasks: [{ id: "t1", source: "firehol_level2", host: null, state: "downloading", error: null, batch_id: "b1", received: 500000, total: 1000000 }],
       batch: { id: "b1", state: "running", done: 3, total: 12 },
-    } as any);
+    });
     mockFetch.mockResolvedValueOnce(me200);
     renderWithI18n(<AdminPage />);
     await waitFor(() => expect(screen.getByRole("button", { name: "Sign out" })).toBeTruthy());

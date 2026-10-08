@@ -1,6 +1,7 @@
 import type { ReactElement } from "react";
 import { render, type RenderOptions } from "@testing-library/react";
-import { I18nProvider, type Locale } from "../i18n";
+import { I18nProvider } from "../i18n/I18nProvider";
+import type { Locale } from "../i18n";
 
 export function renderWithI18n(
   ui: ReactElement,

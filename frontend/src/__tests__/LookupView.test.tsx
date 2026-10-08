@@ -2,11 +2,11 @@ import { describe, it, expect, vi } from "vitest";
 import { screen, waitFor, fireEvent } from "@testing-library/react";
 import LookupView from "../LookupView";
 import { renderWithI18n } from "../test/i18nTestUtils";
-import { getDbStatus, queryIpsStream } from "../api";
+import { getDbStatus, queryIpsStream, type DbStatus } from "../api";
 
 // Task 9:公开查询页不再包 TaskProvider(任务上下文收敛到 /admin)
 vi.mock("../api", async () => {
-  const real = await vi.importActual<any>("../api");
+  const real = await vi.importActual<typeof import("../api")>("../api");
   return {
     ...real,
     getDbStatus: vi.fn(),
@@ -21,7 +21,7 @@ function renderLookup() {
 
 describe("LookupView warmup integration", () => {
   it("renders WarmupBanner above the query controls while warming", async () => {
-    (getDbStatus as any).mockResolvedValue({ warming_up: true, total_records: 0 });
+    vi.mocked(getDbStatus).mockResolvedValue({ warming_up: true, total_records: 0 } as DbStatus);
     const { container } = renderLookup();
     await waitFor(() => expect(container.querySelector("[data-warmup]")).not.toBeNull());
     const banner = container.querySelector("[data-warmup]")!;
@@ -33,7 +33,7 @@ describe("LookupView warmup integration", () => {
   });
 
   it("disables IP input, file upload and query button while warming", async () => {
-    (getDbStatus as any).mockResolvedValue({ warming_up: true, total_records: 0 });
+    vi.mocked(getDbStatus).mockResolvedValue({ warming_up: true, total_records: 0 } as DbStatus);
     const { container } = renderLookup();
     // text tab: textarea + 查询按钮置灰
     await waitFor(() => expect((container.querySelector("textarea") as HTMLTextAreaElement).disabled).toBe(true));
@@ -45,7 +45,7 @@ describe("LookupView warmup integration", () => {
   });
 
   it("keeps controls enabled and hides banner when not warming", async () => {
-    (getDbStatus as any).mockResolvedValue({ warming_up: false, total_records: 100 });
+    vi.mocked(getDbStatus).mockResolvedValue({ warming_up: false, total_records: 100 } as DbStatus);
     const { container } = renderLookup();
     await waitFor(() => expect(container.querySelector("textarea")).not.toBeNull());
     expect((container.querySelector("textarea") as HTMLTextAreaElement).disabled).toBe(false);
@@ -59,12 +59,12 @@ describe("LookupView 503 self-correction", () => {
     // 所有 getDbStatus 调用共享一个 deferred:挂载期轮询保持 pending
     // (控件可用);查询撞 503 后 resolve warming_up=true,LookupView 的
     // 重拉与 WarmupBanner 的轮询拿到同一份结果(横幅不必等 5s 轮询)。
-    (queryIpsStream as any).mockClear();
-    let resolveStatus!: (v: any) => void;
-    const pending = new Promise<any>(r => { resolveStatus = r; });
-    (getDbStatus as any).mockReturnValue(pending);
+    vi.mocked(queryIpsStream).mockClear();
+    let resolveStatus!: (v: DbStatus) => void;
+    const pending = new Promise<DbStatus>(r => { resolveStatus = r; });
+    vi.mocked(getDbStatus).mockReturnValue(pending);
     const err503 = Object.assign(new Error("database is warming up"), { status: 503, code: "warming" });
-    (queryIpsStream as any).mockRejectedValue(err503);
+    vi.mocked(queryIpsStream).mockRejectedValue(err503);
 
     const { container } = renderLookup();
     const textarea = await waitFor(() => {
@@ -75,7 +75,7 @@ describe("LookupView 503 self-correction", () => {
     fireEvent.change(textarea, { target: { value: "1.1.1.1" } });
     fireEvent.click(screen.getByRole("button", { name: "Query" }));
 
-    resolveStatus({ warming_up: true, total_records: 0 });
+    resolveStatus({ warming_up: true, total_records: 0 } as DbStatus);
 
     await waitFor(() => expect(container.querySelector("[data-warmup]")).not.toBeNull());
     expect(screen.queryByText("database is warming up")).toBeNull();
@@ -87,8 +87,8 @@ describe("LookupView 503 self-correction", () => {
   it("retries the query once when the gate closed between the 503 and the db-status refetch", async () => {
     // review #4: 重拉说 warming 已结束(503 与重拉之间的竞态窗口)时,
     // 旧实现只 setWarming(false) 静默丢弃查询;现在原样重试一次成功。
-    (queryIpsStream as any).mockClear();
-    (getDbStatus as any).mockResolvedValue({ warming_up: false, total_records: 100 });
+    vi.mocked(queryIpsStream).mockClear();
+    vi.mocked(getDbStatus).mockResolvedValue({ warming_up: false, total_records: 100 } as DbStatus);
     const err503 = Object.assign(new Error("database is warming up"), { status: 503, code: "warming" });
     const mf = <T,>(value: T, confidence = 95) => ({
       value, confidence, algorithm: "cascade", sources: [],
@@ -102,7 +102,7 @@ describe("LookupView 503 self-correction", () => {
       }],
       csvDownloaded: false, invalidLines: 0, total: 1,
     };
-    (queryIpsStream as any).mockRejectedValueOnce(err503).mockResolvedValueOnce(outcome);
+    vi.mocked(queryIpsStream).mockRejectedValueOnce(err503).mockResolvedValueOnce(outcome);
 
     const { container } = renderLookup();
     const textarea = await waitFor(() => {
@@ -120,10 +120,10 @@ describe("LookupView 503 self-correction", () => {
   });
 
   it("gives up with the generic error when the retried attempt 503s again (no ping-pong)", async () => {
-    (queryIpsStream as any).mockClear();
-    (getDbStatus as any).mockResolvedValue({ warming_up: false, total_records: 100 });
+    vi.mocked(queryIpsStream).mockClear();
+    vi.mocked(getDbStatus).mockResolvedValue({ warming_up: false, total_records: 100 } as DbStatus);
     const err503 = Object.assign(new Error("database is warming up"), { status: 503, code: "warming" });
-    (queryIpsStream as any).mockRejectedValue(err503);   // 每次都 503
+    vi.mocked(queryIpsStream).mockRejectedValue(err503);   // 每次都 503
 
     const { container } = renderLookup();
     const textarea = await waitFor(() => {
@@ -142,11 +142,11 @@ describe("LookupView 503 self-correction", () => {
   it("a no-sources 503 shows the localized message once, without retrying (F3)", async () => {
     // 全源禁用的 503 是配置态而非瞬时门:不重试(50MB 上传不再重发),
     // 用户看到本地化文案而非后端裸英文串。
-    (queryIpsStream as any).mockClear();
-    (getDbStatus as any).mockResolvedValue({ warming_up: false, total_records: 0 });
+    vi.mocked(queryIpsStream).mockClear();
+    vi.mocked(getDbStatus).mockResolvedValue({ warming_up: false, total_records: 0 } as DbStatus);
     const errNoSources = Object.assign(
       new Error("no data sources enabled"), { status: 503, code: "no_sources" });
-    (queryIpsStream as any).mockRejectedValue(errNoSources);
+    vi.mocked(queryIpsStream).mockRejectedValue(errNoSources);
 
     const { container } = renderLookup();
     const textarea = await waitFor(() => {
@@ -164,8 +164,8 @@ describe("LookupView 503 self-correction", () => {
   });
 
   it("a non-warming error still shows the generic error box without the banner", async () => {
-    (getDbStatus as any).mockResolvedValue({ warming_up: false, total_records: 100 });
-    (queryIpsStream as any).mockRejectedValue(new Error("boom"));
+    vi.mocked(getDbStatus).mockResolvedValue({ warming_up: false, total_records: 100 } as DbStatus);
+    vi.mocked(queryIpsStream).mockRejectedValue(new Error("boom"));
 
     const { container } = renderLookup();
     const textarea = await waitFor(() => {
@@ -184,9 +184,9 @@ describe("LookupView 503 self-correction", () => {
   it("a 400 invalid_ip from a single query surfaces the backend message (信封迁移)", async () => {
     // 单查询无前端 IP 校验,非法 IP 直接打到后端:400 invalid_ip 走通用
     // 错误分支展示后端 message,不触发 warming 自纠。
-    (queryIpsStream as any).mockClear();
-    (getDbStatus as any).mockResolvedValue({ warming_up: false, total_records: 100 });
-    (queryIpsStream as any).mockRejectedValue(
+    vi.mocked(queryIpsStream).mockClear();
+    vi.mocked(getDbStatus).mockResolvedValue({ warming_up: false, total_records: 100 } as DbStatus);
+    vi.mocked(queryIpsStream).mockRejectedValue(
       Object.assign(new Error("not a valid IP: 999.1.1.1"), { status: 400, code: "invalid_ip" }));
 
     const { container } = renderLookup();
@@ -206,9 +206,9 @@ describe("LookupView 503 self-correction", () => {
 
 describe("LookupView stream done.error", () => {
   it("shows error banner when queryIpsStream resolves with error (no throw)", async () => {
-    (queryIpsStream as any).mockClear();
-    (getDbStatus as any).mockResolvedValue({ warming_up: false, total_records: 100 });
-    (queryIpsStream as any).mockResolvedValue({
+    vi.mocked(queryIpsStream).mockClear();
+    vi.mocked(getDbStatus).mockResolvedValue({ warming_up: false, total_records: 100 } as DbStatus);
+    vi.mocked(queryIpsStream).mockResolvedValue({
       results: [], csvDownloaded: false, invalidLines: 0,
       total: 1, error: "boom",
     });
@@ -223,9 +223,9 @@ describe("LookupView stream done.error", () => {
   });
 
   it("shows error banner alongside CSV modal in csv mode (csvDownloaded + error)", async () => {
-    (queryIpsStream as any).mockClear();
-    (getDbStatus as any).mockResolvedValue({ warming_up: false, total_records: 100 });
-    (queryIpsStream as any).mockResolvedValue({
+    vi.mocked(queryIpsStream).mockClear();
+    vi.mocked(getDbStatus).mockResolvedValue({ warming_up: false, total_records: 100 } as DbStatus);
+    vi.mocked(queryIpsStream).mockResolvedValue({
       results: [], csvDownloaded: true, invalidLines: 0,
       total: 60000, error: "boom",
     });

@@ -16,7 +16,7 @@ import type { TaskState, BatchState } from "../../api";
 // TaskProvider 内取好下传;公开页(<SourcesPage /> 无 props)纯只读。
 
 vi.mock("../../api", async () => {
-  const real = await vi.importActual<any>("../../api");
+  const real = await vi.importActual<typeof import("../../api")>("../../api");
   return {
     ...real,
     getSources: vi.fn().mockResolvedValue([
@@ -95,7 +95,7 @@ describe("SourcesPage manage mode (admin)", () => {
   });
 
   it("Toggle switch PATCHes the source and rolls back on failure", async () => {
-    (setSourceEnabled as any).mockRejectedValueOnce(new Error("403"));
+    vi.mocked(setSourceEnabled).mockRejectedValueOnce(new Error("403"));
     renderWithI18n(<SourcesPage manage tasks={[]} batch={null} />);
     const sw = await screen.findByRole("switch");
     expect(sw).toHaveAttribute("aria-checked", "true");
@@ -107,13 +107,13 @@ describe("SourcesPage manage mode (admin)", () => {
   it("debounce-refetches sources when a passed-down task reaches done", async () => {
     const { rerender } = renderWithI18n(<SourcesPage manage tasks={[]} batch={null} />);
     await screen.findByText("feodo");
-    const initialCalls = (getSources as any).mock.calls.length;
+    const initialCalls = vi.mocked(getSources).mock.calls.length;
     // doneCount 0 → 1(AdminPage 下传的任务完成)触发 500ms 去抖重拉
     rerender(
       <SourcesPage manage tasks={[TK({ state: "done" })]} batch={null} />,
     );
     await waitFor(
-      () => expect((getSources as any).mock.calls.length).toBeGreaterThan(initialCalls),
+      () => expect(vi.mocked(getSources).mock.calls.length).toBeGreaterThan(initialCalls),
       { timeout: 2000 },
     );
   });
@@ -384,7 +384,7 @@ describe("SourcesPage read-only info (both modes)", () => {
       scores: [
         { source: "spamhaus", theta: 0.61, ci_lo: 0.55, ci_hi: 0.68, declared_r: 0.9 },
       ],
-    } as any);
+    });
     renderWithI18n(<SourcesPage />);
     // measured θ track (waits for the eval-model fetch to land)
     const theta = await screen.findByText(/θ 0\.61/);
