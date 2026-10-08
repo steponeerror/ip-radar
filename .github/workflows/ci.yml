@@ -26,6 +26,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npx tsc -b
+      - run: npx eslint src   # CI-F5:lint 入闸(strictNullChecks 已开,0 错 0 例外)
       - run: npm test
       - run: npm run build
       - uses: actions/upload-artifact@v4

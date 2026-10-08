@@ -1,23 +1,13 @@
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { getTasks, subscribeTasks, type TaskEvent, type TaskState, type BatchState } from "../api";
 import {
-  getTasks, subscribeTasks, enqueueBatch as apiEnqueueBatch, enqueueSingle as apiEnqueueSingle,
+  enqueueBatch as apiEnqueueBatch, enqueueSingle as apiEnqueueSingle,
   cancelTask as apiCancelTask, cancelBatch as apiCancelBatch, pauseBatch, resumeBatch,
-  type TaskState, type BatchState,
 } from "../api";
+import { TasksContext, type TasksCtxValue } from "./useTasks";
 import { stagedFrac } from "./progress";
 
-type Ctx = {
-  tasks: TaskState[];
-  batch: BatchState | null;
-  enqueueSingle: typeof apiEnqueueSingle;
-  enqueueBatch: typeof apiEnqueueBatch;
-  cancelTask: typeof apiCancelTask;
-  cancelBatch: typeof apiCancelBatch;
-  pause: typeof pauseBatch;
-  resume: typeof resumeBatch;
-};
-
-const TasksContext = createContext<Ctx | null>(null);
+const SAW_EVENTS = new Set(["snapshot", "task", "batch", "done"]);
 
 export function TaskProvider({ children, onUnauthorized }: {
   children: ReactNode;
@@ -36,12 +26,11 @@ export function TaskProvider({ children, onUnauthorized }: {
   // 计数、不含快照会过期的状态 — 下载洪峰期 ~0.15s 一次的 progress tick
   // 若也置位,resync 快照将几乎总被丢弃(SSE 溢出丢掉 done 事件时,UI
   // 中的 batch 会永远卡在 running)。
-  const SAW_EVENTS = new Set(["snapshot", "task", "batch", "done"]);
 
-  const applyEvent = (e: any) => {
+  const applyEvent = (e: TaskEvent) => {
     if (SAW_EVENTS.has(e.type)) sseSawRef.current = true;
     if (e.type === "snapshot" && e.data) {
-      tasksRef.current = Object.fromEntries(e.data.tasks.map((t: TaskState) => [t.id, t]));
+      tasksRef.current = Object.fromEntries(e.data.tasks.map((t) => [t.id, t]));
       setTasks(Object.values(tasksRef.current));
       setBatch(e.data.batch ?? null);
     } else if (e.type === "task" && e.task) {
@@ -95,7 +84,7 @@ export function TaskProvider({ children, onUnauthorized }: {
     return () => { alive = false; unsub(); };
   }, []);
 
-  const value: Ctx = {
+  const value: TasksCtxValue = {
     tasks, batch,
     enqueueSingle: apiEnqueueSingle,
     enqueueBatch: apiEnqueueBatch,
@@ -106,10 +95,4 @@ export function TaskProvider({ children, onUnauthorized }: {
   };
 
   return <TasksContext.Provider value={value}>{children}</TasksContext.Provider>;
-}
-
-export function useTasks(): Ctx {
-  const c = useContext(TasksContext);
-  if (!c) throw new Error("useTasks must be used within TaskProvider");
-  return c;
 }

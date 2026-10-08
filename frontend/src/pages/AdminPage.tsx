@@ -1,7 +1,8 @@
 import { useState, type FormEvent } from "react";
 import { useI18n } from "../i18n";
 import { useAdminSession, type LoginOutcome } from "../admin/AdminSession";
-import { TaskProvider, useTasks } from "../tasks/TaskProvider";
+import { TaskProvider } from "../tasks/TaskProvider";
+import { useTasks } from "../tasks/useTasks";
 import { BatchPanel } from "../admin/BatchPanel";
 import { BatchMiniBar } from "../admin/BatchMiniBar";
 import KeysSection from "../admin/KeysSection";

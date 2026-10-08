@@ -3,18 +3,20 @@ import { confColor, confTextColor, ALGORITHM_ICONS, SCORE_SEMANTICS } from "./th
 import { useI18n } from "../i18n";
 import { ClassificationBlock } from "./ClassificationBlock";
 
-function answerGroups(field: MergedField): { value: any; count: number; weight: number }[] {
+function answerGroups<T>(
+  field: MergedField<T>,
+): { value: T; count: number; weight: number }[] {
   const valid = field.sources.filter(
     (s) => s.value !== null && s.value !== "" && s.value !== "N/A" && s.value !== 0,
   );
-  const groups = new Map<any, { value: any; count: number; weight: number }>();
+  const groups = new Map<T, { value: T; count: number; weight: number }>();
   for (const s of valid) {
     const g = groups.get(s.value) ?? { value: s.value, count: 0, weight: 0 };
     g.count += 1;
     g.weight += s.reliability;
     groups.set(s.value, g);
   }
-  const win = (g: { value: any }) => (g.value === field.value ? 1 : 0);
+  const win = (g: { value: T }) => (g.value === field.value ? 1 : 0);
   return [...groups.values()].sort(
     (a, b) =>
       win(b) - win(a) ||
@@ -42,7 +44,7 @@ function FieldDetail<T>({
   if (entries.length === 0) return null;
   const groups = answerGroups(field);
   const showGroups = grouped && groups.length >= 2;
-  const prob = (g: { value: any }) =>
+  const prob = (g: { value: T }) =>
     field.alternatives?.find((a) => a.value === g.value)?.probability;
   return (
     <div>

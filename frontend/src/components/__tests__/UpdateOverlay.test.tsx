@@ -6,7 +6,7 @@ import * as api from "../../api";
 
 // renderWithI18n 默认 en locale;沿用 VersionBanner.test 的 importActual mock 风格
 vi.mock("../../api", async () => {
-  const real = await vi.importActual<any>("../../api");
+  const real = await vi.importActual<typeof import("../../api")>("../../api");
   return {
     ...real,
     getVersion: vi.fn(),

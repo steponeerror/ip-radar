@@ -248,10 +248,8 @@ describe("ResultTable STIX export (fetch+blob, Q1-B companion)", () => {
       .mockImplementation(function (this: HTMLAnchorElement) { downloads.push(this.download); });
     const createObjectURL = vi.fn(() => "blob:stix-mock");
     const revokeObjectURL = vi.fn();
-    const origCreate = (URL as any).createObjectURL;
-    const origRevoke = (URL as any).revokeObjectURL;
-    (URL as any).createObjectURL = createObjectURL;
-    (URL as any).revokeObjectURL = revokeObjectURL;
+    const urlCreateSpy = vi.spyOn(URL, "createObjectURL").mockImplementation(createObjectURL);
+    const urlRevokeSpy = vi.spyOn(URL, "revokeObjectURL").mockImplementation(revokeObjectURL);
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       blob: async () => new Blob(["{}"], { type: "application/json" }),
@@ -270,8 +268,8 @@ describe("ResultTable STIX export (fetch+blob, Q1-B companion)", () => {
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:stix-mock");
 
     clickSpy.mockRestore();
-    (URL as any).createObjectURL = origCreate;
-    (URL as any).revokeObjectURL = origRevoke;
+    urlCreateSpy.mockRestore();
+    urlRevokeSpy.mockRestore();
     vi.unstubAllGlobals();
   });
 

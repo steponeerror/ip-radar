@@ -1,50 +1,18 @@
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
-import { translate, type Locale } from "./translate";
-import { detectLocale, persistLocale } from "./detect";
-import { ensureOpenCC } from "./opencc";
+import { createContext, useContext } from "react";
+import type { Locale } from "./translate";
 
 type Vars = Record<string, string | number>;
-type TFn = (key: string, vars?: Vars) => string;
+export type TFn = (key: string, vars?: Vars) => string;
 
-interface I18nContextValue {
+export interface I18nContextValue {
   locale: Locale;
   setLocale: (l: Locale) => void;
   t: TFn;
 }
 
-const I18nContext = createContext<I18nContextValue | null>(null);
-
-export function I18nProvider({ children, defaultLocale }: { children: ReactNode; defaultLocale?: Locale }) {
-  const [locale, setLocaleState] = useState<Locale>(() => defaultLocale ?? detectLocale());
-  const [openccReady, setOpenccReady] = useState(false);
-
-  useEffect(() => {
-    if (locale !== "zh-TW") return;
-    let cancelled = false;
-    ensureOpenCC().then(() => { if (!cancelled) setOpenccReady(true); });
-    return () => { cancelled = true; };
-  }, [locale]);
-
-  const setLocale = useCallback((l: Locale) => {
-    setLocaleState(l);
-    persistLocale(l);
-    document.documentElement.lang = l;
-  }, []);
-
-  const t = useCallback(
-    (key: string, vars?: Vars) => translate(locale, key, vars),
-    // openccReady is read indirectly via translate()/toTraditional when locale === "zh-TW";
-    // including it forces consumers to re-render once the converter is loaded.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [locale, openccReady],
-  );
-
-  return (
-    <I18nContext.Provider value={{ locale, setLocale, t }}>
-      {children}
-    </I18nContext.Provider>
-  );
-}
+// 组件(I18nProvider)拆到 ./I18nProvider.tsx:本文件只留 context + hook,
+// 避免 react-refresh/only-export-components(组件与 hook 混导出)。
+export const I18nContext = createContext<I18nContextValue | null>(null);
 
 export function useI18n(): I18nContextValue {
   const ctx = useContext(I18nContext);

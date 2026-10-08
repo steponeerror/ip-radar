@@ -41,7 +41,11 @@ export function VersionBanner({ selfUpdateEnabled, onStartUpdate }: {
   const load = async (refresh = false) => {
     try { setInfo(await getVersion(refresh)); } catch { /* 静默:版本检查失败不打扰 */ }
   };
-  useEffect(() => { load(); }, []);
+  // 挂载拉一次:回调式 setState(.then)是 effect 内合法形态;直接调用含
+  // setState 的 async 函数会触发 react-hooks/set-state-in-effect。
+  useEffect(() => {
+    getVersion().then(setInfo).catch(() => { /* 静默:版本检查失败不打扰 */ });
+  }, []);
 
   if (!info?.update_available) return null;
   if (dismissed === info.latest) return null;

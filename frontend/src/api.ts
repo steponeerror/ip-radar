@@ -1,8 +1,18 @@
 import { buildCsvRow, CSV_HEADER, downloadCsv } from "./components/csvExport";
 
-export interface SourceAttribution {
+// api 层非 2xx 抛错统一带 status + code(信封语义码"warming" / "no_sources" /
+// "invalid_ip" / ...;见 throwApiError)。调用方按 status+code 分支,不靠文案猜。
+export interface ApiError extends Error {
+  status: number;
+  code?: string;
+  retry_after?: number;
+  // 过渡兼容:旧读方读 reason(曾是 X-IPRadar-Reason 头);信封化后 code 即唯一真相
+  reason?: string | null;
+}
+
+export interface SourceAttribution<T = unknown> {
   source: string;
-  value: any;
+  value: T;
   reliability: number;
   authoritative: boolean;
 }
@@ -13,12 +23,12 @@ export interface AssetStatement {
   native_type?: string;
 }
 
-export interface MergedField<T = any> {
+export interface MergedField<T = unknown> {
   value: T;
   confidence: number;           // 0-100 integer
   algorithm: string;            // live: "voting" | "logodds" | "authority" | "specificity" (legacy cascade/pcr6 in old exports)
-  sources: SourceAttribution[];
-  alternatives?: { value: any; probability: number }[];   // logodds 多类别后验(spec 2026-08-29 §6)
+  sources: SourceAttribution<T>[];
+  alternatives?: { value: T; probability: number }[];   // logodds 多类别后验(spec 2026-08-29 §6)
 }
 
 export interface ClassificationDetail {
@@ -109,24 +119,19 @@ export function apiFetch(url: string, init: RequestInit = {}): Promise<Response>
 }
 
 
-// 所有非 2xx 抛错统一走这里:错误对象带 HTTP status 与后端错误信封的
-// error.code(机器可读语义码:"warming" / "no_sources" / "invalid_ip" / ...),
-// message 取信封 error.message;非 JSON body(代理 502 HTML 等)退回
-// statusText/fallback。调用方按 status+code 分支,不靠文案猜。
 function apiError(
   res: Response,
   fallback: string,
   env: { code?: string; message?: string; retry_after?: number } | null,
   cause?: unknown,
-): Error {
-  const err = new Error(env?.message || res.statusText || fallback);
-  (err as any).status = res.status;
-  (err as any).code = env?.code;
+): ApiError {
+  const err = new Error(env?.message || res.statusText || fallback) as ApiError;
+  err.status = res.status;
+  err.code = env?.code;
   // 429 限流的信封 retry_after 秒数(登录暴力破解守卫,Task 8 消费)
-  (err as any).retry_after = env?.retry_after;
-  // 过渡兼容:旧读方读 e.reason(曾是 X-IPRadar-Reason 头);信封化后 code 即唯一真相
-  (err as any).reason = env?.code ?? res.headers.get("x-ipradar-reason");
-  if (cause !== undefined) (err as any).cause = cause;
+  err.retry_after = env?.retry_after;
+  err.reason = env?.code ?? res.headers.get("x-ipradar-reason");
+  if (cause !== undefined) (err as { cause?: unknown }).cause = cause;
   return err;
 }
 
@@ -135,7 +140,7 @@ async function throwApiError(res: Response, fallback: string): Promise<never> {
     const body = await res.json();
     throw apiError(res, fallback, body?.error ?? null);
   } catch (e) {
-    if (e instanceof Error && (e as any).status === res.status) throw e;
+    if (e instanceof Error && (e as ApiError).status === res.status) throw e;
     // body 非 JSON:statusText/fallback 兑底
     throw apiError(res, fallback, null, e);
   }
@@ -151,6 +156,14 @@ export interface Progress {
   done: number;
   total: number;
 }
+
+// /api/query/stream 与 /api/upload/stream 的 NDJSON 事件面(backend 流式
+// 查询协议;字段见 readStream 消费处)。
+type StreamEvent =
+  | { type: "start"; total: number }
+  | { type: "row"; idx: number; result: LookupResult }
+  | { type: "progress"; done: number; total: number }
+  | { type: "done"; invalid_lines?: number; error?: string | null };
 
 async function readStream(
   res: Response,
@@ -186,8 +199,8 @@ async function readStream(
     buffer = lines.pop()!;
     for (const line of lines) {
       if (!line.trim()) continue;
-      let evt: any;
-      try { evt = JSON.parse(line); } catch { continue; }
+      let evt: StreamEvent;
+      try { evt = JSON.parse(line) as StreamEvent; } catch { continue; }
       if (evt.type === "start") {
         total = evt.total;
         mode = total <= TABLE_THRESHOLD ? "table" : "csv";
@@ -259,7 +272,7 @@ export async function queryIpsStream(
     return await readStream(res, onProgress, resetIdle);
   } catch (e) {
     if (e instanceof DOMException && e.name === "AbortError") {
-      throw new Error("Request timed out (120s idle)");
+      throw new Error("Request timed out (120s idle)", { cause: e });
     }
     throw e;
   } finally {
@@ -286,7 +299,7 @@ export async function uploadFileStream(
     return await readStream(res, onProgress, resetIdle);
   } catch (e) {
     if (e instanceof DOMException && e.name === "AbortError") {
-      throw new Error("Request timed out (120s idle)");
+      throw new Error("Request timed out (120s idle)", { cause: e });
     }
     throw e;
   } finally {
@@ -376,10 +389,19 @@ export interface EvalModel {
 // 无模型报告时返回 null(页面渲染 θ 列为 —);HTTP 错误照常抛出,由调用方降级。
 export async function fetchEvalModel(): Promise<EvalModel | null> {
   const res = await jsonOrThrow(await fetch("/api/eval/model"), "Failed to load eval model");
-  return (res as any)?.latest ?? null;
+  return (res as { latest?: EvalModel })?.latest ?? null;
 }
 
 // --- Task client: enqueue / control / subscribe (SSE) ---
+
+// /api/events SSE 消息负载(backend 任务流协议)。可选字段容缺:老事件/
+// 边界事件可能缺 task/batch;消费方(TaskProvider.applyEvent)自行窄化。
+export type TaskEvent =
+  | { type: "snapshot"; data?: { tasks: TaskState[]; batch: BatchState | null } }
+  | { type: "task"; task?: TaskState }
+  | { type: "task_progress"; task_id?: string; received?: number; total?: number }
+  | { type: "batch"; batch?: BatchState | null }
+  | { type: "done"; batch?: BatchState | null };
 
 export interface TaskState {
   id: string;
@@ -451,7 +473,7 @@ export async function resumeBatch(): Promise<void> {
  * A failed probe (network error) counts as session-alive — no close, no kick.
  */
 export function subscribeTasks(
-  onEvent: (e: any) => void,
+  onEvent: (e: TaskEvent) => void,
   onReconnect?: () => void,
   onSessionDead?: () => void,
 ): () => void {
@@ -518,7 +540,7 @@ export interface UpdateStatus {
 }
 
 // 不走 jsonOrThrow:202/409 都算"已接受",调用方按 status 分支;网络层错误才 reject
-export async function postUpdate(token: string): Promise<{ ok: boolean; status: number; body: any }> {
+export async function postUpdate(token: string): Promise<{ ok: boolean; status: number; body: unknown }> {
   const res = await fetch("/api/update", {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
