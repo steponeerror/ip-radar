@@ -80,3 +80,38 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: docker build -t ipradar:ci .
+      # CI-F2: 入口/compose 面回归 —— compose YAML 解析错也红(不止 build 绿)。
+      # .env 是被跟踪的安全默认文件(checkout 即有,真密钥走 gitignored .env.local),
+      # 故无需 touch 即可 config。
+      - name: Compose file sanity (CI-F2)
+        run: docker compose config -q
+      # CI-F2: 运行面健康门 —— 生产式端口/env:镜像自带 ENTRYPOINT(uvicorn :8000)
+      # + ENV IP_RADAR_DATA_DIR=/app/data,compose 默认部署的 env 面即镜像默认
+      # (其余 environment 块全为注释态),裸 run 即对齐生产默认面。
+      - name: Runtime health — run image & poll /api/version (CI-F2)
+        run: |
+          docker run -d --name ipradar-ci -p 127.0.0.1:8000:8000 ipradar:ci
+          trap 'docker rm -f ipradar-ci >/dev/null 2>&1 || true' EXIT
+          for i in $(seq 1 60); do
+            code="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/api/version || true)"
+            if [ "$code" = "200" ]; then
+              echo "healthy: /api/version 200 after ~${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::/api/version did not return 200 within 60s"
+          docker logs ipradar-ci
+          exit 1
+      # CI-F3: tag↔CHANGELOG↔GitHub Release 三真相源一致性(分支 push/PR 跳过)。
+      # 版本头格式为 `## vX.Y.Z — YYYY-MM-DD`,故锚 tag 名 + 边界(空格|行尾),
+      # 兼顾 v1.4.1 不误吞 v1.4.10。漏打 tag → 更新横幅死;漏建 Release → 通知死:失败即红。
+      - name: Tag↔CHANGELOG↔Release consistency (CI-F3)
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}   # workflow 顶 permissions: contents: read 足够 release view
+        run: |
+          grep -qE "^## ${GITHUB_REF_NAME}( |$)" CHANGELOG.md \
+            || { echo "::error::CHANGELOG.md has no '## ${GITHUB_REF_NAME}' section"; exit 1; }
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null \
+            || { echo "::error::GitHub Release ${GITHUB_REF_NAME} missing"; exit 1; }

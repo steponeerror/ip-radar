@@ -56,5 +56,13 @@ PYEOF
 
 export IP_RADAR_DATA_DIR="$DATA"
 "$PY" "$REPO_ROOT/backend/scripts/bench_lookup.py" --snapshot "$WORK/bench-baseline.json"
+
+# 命中断言(T3 评审 P2):防「tiny 源构建成功但读路径静默失败」的自往返假绿
+# (miss==miss 且 epochs 双 None 时 snapshot/compare 仍零 diff)。双保险:
+#   ① binarydefense epoch 非 null(ptr 真落地;orjson 紧凑无空格,null 不匹配)
+#   ② 快照含 "malicious" = 1.2.4.0 指控经全读路径产出(全 miss 快照无此串)
+grep -qE '"binarydefense":[0-9]' "$WORK/bench-baseline.json"
+grep -q '"malicious"' "$WORK/bench-baseline.json"
+
 "$PY" "$REPO_ROOT/backend/scripts/bench_lookup.py" --compare "$WORK/bench-baseline.json"
 echo "bit-identity smoke: PASS(snapshot → compare 自往返零 diff)"

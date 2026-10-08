@@ -14,11 +14,13 @@
 构建峰值 RSS ≤ 500MB; 构建时长 ≤ 3× 基线。退出码 0 过 / 1 不过 / 2 数据缺失或用法拒绝。
 """
 import argparse
+import atexit
 import csv
 import ipaddress
 import json
 import os
 import random
+import shutil
 import sys
 import tempfile
 import threading
@@ -201,6 +203,7 @@ def main():
         data = Path(args.data).expanduser().resolve()
     else:
         data = Path(tempfile.mkdtemp(prefix="bench_lmdb_"))
+        atexit.register(shutil.rmtree, data, ignore_errors=True)  # 用后即清(T1 评审 P2)
         print(f"(no --data given — throwaway tmp base {data})")
     if data == live_data_dir().resolve() and not args.allow_live:
         print(f"refusing --data {data}: this is the live data dir — rebuild_lmdb "
