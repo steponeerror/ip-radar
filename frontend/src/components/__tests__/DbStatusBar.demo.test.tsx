@@ -5,7 +5,7 @@ import { TaskProvider } from "../../tasks/TaskProvider";
 import { renderWithI18n } from "../../test/i18nTestUtils";
 
 vi.mock("../../api", async () => {
-  const real = await vi.importActual<any>("../../api");
+  const real = await vi.importActual<typeof import("../../api")>("../../api");
   return {
     ...real,
     getDbStatus: vi.fn().mockResolvedValue({
