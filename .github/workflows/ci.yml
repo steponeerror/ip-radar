@@ -63,6 +63,8 @@ jobs:
           done
       - name: Tests — remaining suites whole-dir
         run: python -m pytest tests/eval tests/evidence tests/lookup tests/source_infra tests/sources tests/auth tests/alerts -q   # auth/alerts 入闸(R3-F1);本地整目录合跑无跨文件污染
+      - name: Bit-identity smoke (R3-F2①) — bench_lookup snapshot/compare round-trip
+        run: ../scripts/ci_bitidentity_smoke.sh
       - name: Full suite in one process (reference only — flake tracking, do not gate)
         run: python -m pytest tests -q
         continue-on-error: true
