@@ -74,7 +74,7 @@ def test_multicategory_background_mass():
 
 
 def test_dedup_lineage_greensnow_mirror_dropped():
-    # greensnow mirrors firehol (containment ≥0.9, spec Part 6): as a derived
+    # greensnow mirrors firehol (containment ≥0.9, spec 2026-09-02-brief §5.1): as a derived
     # source it must never out-vote its non-derived competitor's ceiling.
     coeffs = [("firehol", 2.0), ("spamhaus", 1.5), ("greensnow", 1.4)]
     assert dedup_lineage(coeffs) == [("firehol", 2.0), ("spamhaus", 1.5)]

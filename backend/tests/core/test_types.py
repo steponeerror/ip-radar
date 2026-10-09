@@ -194,7 +194,7 @@ def test_lookup_result_to_dict_contains_city():
     assert d["city"]["value"] == "Milan"
 
 
-# ── threat_summary 证据级重融合(共识 2026-10-04)──
+# ── threat_summary 证据级重融合(spec 2026-10-04-refusion;共识 2026-10-04)──
 
 def _ca(ctype, verdict, conf, details, detected=True):
     return ClassificationAssessment(

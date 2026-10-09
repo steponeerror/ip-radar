@@ -22,7 +22,7 @@ def source_pair_sets(snap: dict) -> dict[str, set[tuple[str, str]]]:
 
 def assertion_records(snap: dict) -> dict[str, list[list]]:
     """{source: [[ip, ctype, first_seen|None], ...]} over all classification
-    hits — the time-stamped assertion history payload (spec Part 1).
+    hits — the time-stamped assertion history payload (spec 2026-09-02-brief §5.1).
     first_seen is source-self-reported; the run timestamp (report filename
     + generated_at) is the reliable cross-run clock."""
     out: dict[str, list[list]] = {}

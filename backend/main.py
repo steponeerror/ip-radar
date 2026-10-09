@@ -1336,7 +1336,7 @@ app.include_router(
 
 
 def _validate_sources(names: list[str] | None) -> list[str] | None:
-    """None=全部公开源(直通);空列表/未知源名 422(spec §6);非空:去重+registry 序。"""
+    """None=全部公开源(直通);空列表/未知源名 422(spec 2026-09-21 §7.4);非空:去重+registry 序。"""
     if names is None:
         return None
     if not names:

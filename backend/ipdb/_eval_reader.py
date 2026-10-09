@@ -97,7 +97,7 @@ def read_model() -> dict | None:
             key = (str(r.get("generated_at") or ""), f.stem)
             if key > best_key:
                 best, best_key = r, key
-    # pairs = offline assertion history, not API payload — spec Part 1
+    # pairs = offline assertion history, not API payload — spec 2026-09-02-brief §5.1
     if best is not None:
         best.pop("pairs", None)
     return best

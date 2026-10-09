@@ -84,6 +84,6 @@ def test_market_rates_leave_one_out_and_smoothing():
 
 
 def test_independent_greensnow_clusters_with_firehol():
-    # greensnow joined the aggregated-threat lineage (spec Part 6): same
+    # greensnow joined the aggregated-threat lineage (spec 2026-09-02-brief §5.1): same
     # cluster ⇒ not independent, even at zero overlap.
     assert not independent("firehol", "greensnow", {})
