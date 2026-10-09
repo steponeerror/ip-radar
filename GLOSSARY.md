@@ -19,18 +19,19 @@
 - **契约声明器,不是过滤器**:Pydantic `_Out` 用 extra="allow" 透传多余键——模型声明响应形状,不做裁剪。锚:_api_models.py(_Out)
 - **native_type / native_categories**:源原生分类标签的保底存放处,映不上受控词表时的完整备份。锚:_classification.py
 - **指控章 / 存档章**:ACCUSING = malicious|suspicious,有计分资格;informational 只展示不计分;benign = 弃权——不投票、也不亮存档黄灯。核心不变式:confidence 仅由 voters 决定,增删存档观测不改变数字。锚:_merge.py(_assess_classification)
+- **benign(两层,勿混)**:①指控缺席 = 弃权——观测级弃权拼写 verdict=""(R17A-1,序列化特判保留,勿兑底 malicious),顶层无指控观测时缺省序列化 verdict="benign"、confidence=0(_types.threat_summary);不投票、不亮黄灯,是「无证据」不是「判良性」——弃权绝不作良性背书(见「无证据≠清白」)。②良性判定 = 非指控信号源明确断言 benign,与指控同场才算真对立(verdict_conflict);今日尚无源产良性断言,该通路为占位。锚:_evidence.py(to_dict 弃权特判)、_types.py(threat_summary)、_merge.py(_assess_classification)
 - **无证据≠清白**:conf 0 = 无源命中,不是"干净";缺数据直说缺。锚:_api_models.py(FieldOut)
 
 ## 融合
 
 - **宁少算**:融合歧义一律向低估解——同源多观测取 max 不求和、谱系相等也剔、纯存档组退回全量平滑淡出。锚:_logodds.py(dedup_lineage)
-- **谱系**:源与源的派生关系(谁聚合了谁);DERIVED_SOURCES = firehol/ipsum/otx/greensnow/drb_ra;计分前谱系去重。锚:_logodds.py(DERIVED_SOURCES)
+- **谱系**:源与源的派生关系(谁聚合了谁);DERIVED_SOURCES = firehol/ipsum/otx/otx_subscribed/greensnow/drb_ra(六员,源 class attr `derived=True` 在 _registry 导入时灌装;otx_subscribed 2026-10-07 入列);计分前谱系去重。锚:_logodds.py(DERIVED_SOURCES)
 - **舰队**:评估时的对照基线——在场的其余启用源;与「市场先验」的"其余源"同一集合口径。锚:backend/main.py、backend/ipdb/_eval_reader.py
 - **印证**:θ 的语义——与舰队的一致性,不是 accuracy;corroborated = 谱系去重后 ≥2 独立指控源(只数指控章)。锚:_merge.py 教义注释、_eval/model.py
 - **市场先验**:其余源(舰队)在该分类上的命中率,作 Beta 先验中心;leave-out 计算防自证。锚:_eval/model.py(_prior_center)
 - **喷泉源**:≥2 个源被它包含比例 ≥0.9——嫌疑是它在上游污染整个市场先验。锚:_eval/model.py(_fountain_suspect)
 - **背景质量**:multicategory posterior 里 +1 的"未观测答案"概率质量(mass,非品质);没有它单源 conf 会到 100,违反单源 conf=r。锚:_logodds.py(multicategory_posterior)
-- **单源 conf = r**:校准公理——一个源单独作证,置信度等于它自己的可靠度,永远到不了 100。锚:backend/tests/core/test_confidence.py
+- **单源 conf = r**:校准公理——一个源单独作证,置信度等于它自己的可靠度,永远到不了 100;适用校准族(log-odds 标量/威胁断言、as_name r×100),city 单源恒 50 与 ip_range 50/85 是品质阶梯/几何锚的有意设计(spec 2026-08-29 §4),公理字面不适用此二族。锚:backend/tests/core/test_confidence.py
 - **衰减**:威胁断言随 first_seen 指数衰减(2^(-age/h),默认 60d 半衰期);方向不变、强度衰减;标量字段不衰减。锚:_logodds.py(decay_factor)
 - **声明 r**:SOURCE_RELIABILITY 手定可靠度;永不自动派生自 eval,采纳走人审 PR 且 diff 引用 eval 报告编号;`DATA_DIR/_calibrated.json` 为后验覆盖通道,覆盖直达全融合面(threat details.r 与置信度、标量、STIX;lookup 表优先,DM-1)。锚:_merge.py:65 教义、_registry.py(_apply_calibrated、to_observation 表优先)
 - **平滑淡出**:纯存档组(无指控源)的 confidence 退回全量 Σ 而非跳变——数字渐变,不闪断。锚:_merge.py(_assess_classification)、tests/core/test_archive_abstention.py

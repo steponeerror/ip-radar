@@ -101,7 +101,7 @@ docker compose build --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn
 
 ```mermaid
 flowchart TD
-    A["Public sources<br/>(keyless auto + 5 keyed)"] --> B["Cold-start download /<br/>30-min refresh scheduler"]
+    A["Public sources<br/>(keyless auto + 5 keyed)"] --> B["Cold-start download /<br/>30-min scan · per-source 12h staggered refresh slots"]
     B --> C["Per-source parsers<br/>(classification pipeline)"]
     C --> D["Fusion<br/>(log-odds · corroboration · decay)"]
     D --> E["LMDB store<br/>(named volume · mmap)"]
