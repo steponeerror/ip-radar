@@ -45,6 +45,7 @@
   "admin.tasks.collapse": "收起",
   "admin.tasks.empty": "当前没有后台任务。在「源管理」页点「更新」/「全部刷新」，作业进度会显示这里。",
   "admin.tasks.expand": "展开",
+  "admin.tasks.reconnecting": "连接中断，重连中…",
   "admin.tasks.state.cancelled": "已取消",
   "admin.tasks.state.done": "完成",
   "admin.tasks.state.downloading": "下载中",

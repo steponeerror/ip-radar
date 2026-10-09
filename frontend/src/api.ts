@@ -493,11 +493,17 @@ export async function resumeBatch(): Promise<void> {
  * (`adminMe()` → null, i.e. 401/503): the stream is closed (stopping the
  * native reconnect loop against a dead session) right before the callback.
  * A failed probe (network error) counts as session-alive — no close, no kick.
+ *
+ * `onDisconnect` (U8) fires synchronously at the top of onerror, before the
+ * probe resolves: the stream dropped and the browser is natively reconnecting
+ * — callers surface a transient "reconnecting" hint; recovery is signalled by
+ * `onReconnect` (onopen). Purely advisory: no new wire protocol or heartbeat.
  */
 export function subscribeTasks(
   onEvent: (e: TaskEvent) => void,
   onReconnect?: () => void,
   onSessionDead?: () => void,
+  onDisconnect?: () => void,
 ): () => void {
   const es = new EventSource("/api/events");
   es.onmessage = (m: MessageEvent) => {
@@ -512,6 +518,9 @@ export function subscribeTasks(
   // 真死 → 关流断原生重连并踢出;会话仍在则不动,交浏览器原生重连;探测
   // 自身网络错按正常处理(catch 吞掉),绝不误杀活会话。
   es.onerror = () => {
+    // U8:断线即置位(浏览器原生重连中);恢复由 onopen→onReconnect 清。
+    // 先于探测发出:会话真死时调用方随即被 onSessionDead 卸载,横幅无关紧要。
+    onDisconnect?.();
     adminMe()
       .then((me) => {
         if (me == null) {

@@ -13,8 +13,13 @@ import {
 // 迁移(update-not-delete),外加「完成后 5s 收起」改为面板自身消失。
 
 // Hoisted holder so the (also hoisted) vi.mock factory can capture the SSE
-// onEvent callback and tests can drive events through it.
-const sse = vi.hoisted(() => ({ onEvent: null as ((e: TaskEvent) => void) | null }));
+// callbacks (onEvent / onReconnect / onDisconnect — U8) and tests can drive
+// events + connection-state transitions through them.
+const sse = vi.hoisted(() => ({
+  onEvent: null as ((e: TaskEvent) => void) | null,
+  onReconnect: null as (() => void) | null,
+  onDisconnect: null as (() => void) | null,
+}));
 
 vi.mock("../../api", async () => {
   const real = await vi.importActual<typeof import("../../api")>("../../api");
@@ -28,8 +33,15 @@ vi.mock("../../api", async () => {
       tasks: [{ id: "t1", source: "feodo", host: null, state: "downloading", error: null, batch_id: "b1" }],
       batch: { id: "b1", state: "running", done: 0, total: 2 },
     }),
-    subscribeTasks: vi.fn((onEvent: (e: TaskEvent) => void) => {
+    subscribeTasks: vi.fn((
+      onEvent: (e: TaskEvent) => void,
+      onReconnect?: () => void,
+      _onSessionDead?: () => void,
+      onDisconnect?: () => void,
+    ) => {
       sse.onEvent = onEvent;
+      sse.onReconnect = onReconnect ?? null;
+      sse.onDisconnect = onDisconnect ?? null;
       return () => {};
     }),
     enqueueBatch: vi.fn().mockResolvedValue({ batch_id: "b1" }),
@@ -342,5 +354,51 @@ describe("BatchPanel 分段进度渲染", () => {
     });
     render(<BatchPanel />);
     expect(await screen.findByText(/999K\/1\.0M/)).toBeInTheDocument();
+  });
+});
+
+// U8:SSE 断线指示 —— onerror(既有事件路径)置位 → amber「重连中」横幅;
+// onopen 恢复自动清。语义与 U7 红字终态失败区分(瞬态 vs 终态)。
+describe("BatchPanel SSE disconnect banner (U8)", () => {
+  const setRunning = () => {
+    const mockGetTasks = vi.mocked(getTasks);
+    mockGetTasks.mockReset();
+    mockGetTasks.mockResolvedValue({
+      tasks: [{ id: "t1", source: "feodo", host: null, state: "downloading", error: null, batch_id: "b1" }],
+      batch: { id: "b1", state: "running", done: 0, total: 2 },
+    });
+  };
+
+  it("active batch 断线 → 重连横幅出现;恢复 → 自动消失(不再冻结无提示)", async () => {
+    setRunning();
+    render(<BatchPanel />);
+    expect(await screen.findByText(/feodo/)).toBeInTheDocument();
+    expect(screen.queryByRole("status")).toBeNull(); // 断线前无横幅
+    await act(async () => { sse.onDisconnect?.(); });   // onerror → reconnecting
+    const banner = await screen.findByRole("status");
+    expect(banner).toHaveTextContent(/reconnecting/i);
+    await act(async () => { sse.onReconnect?.(); });    // onopen → connected + resync
+    await waitFor(() => expect(screen.queryByRole("status")).toBeNull());
+    // 恢复后面板仍在(重拉快照后正常展示),而非整面板消失
+    expect(await screen.findByText(/feodo/)).toBeInTheDocument();
+  });
+
+  it("断线横幅 zh 文案(双语键在场)", async () => {
+    setRunning();
+    renderWithI18n(<TaskProvider><BatchPanel /></TaskProvider>, { locale: "zh-CN" });
+    expect(await screen.findByText(/feodo/)).toBeInTheDocument();
+    await act(async () => { sse.onDisconnect?.(); });
+    expect(await screen.findByText("连接中断，重连中…")).toBeInTheDocument();
+  });
+
+  it("idle 断线 → 空态引导让位给断线横幅(不再谎报「没有后台任务」)", async () => {
+    const mockGetTasks = vi.mocked(getTasks);
+    mockGetTasks.mockReset();
+    mockGetTasks.mockResolvedValue({ tasks: [], batch: null });
+    render(<BatchPanel />);
+    expect(await screen.findByText(/no background tasks/i)).toBeInTheDocument();
+    await act(async () => { sse.onDisconnect?.(); });
+    expect(screen.queryByText(/no background tasks/i)).toBeNull();
+    expect(await screen.findByRole("status")).toHaveTextContent(/reconnecting/i);
   });
 });

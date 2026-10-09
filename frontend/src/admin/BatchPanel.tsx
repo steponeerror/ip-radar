@@ -36,7 +36,7 @@ const fmtRows = (n: number): string => {
 
 export function BatchPanel({ onUnauthorized }: { onUnauthorized?: () => void } = {}) {
   const { t } = useI18n();
-  const { tasks, batch, cancelTask, cancelBatch, pause, resume } = useTasks();
+  const { tasks, batch, connection, cancelTask, cancelBatch, pause, resume } = useTasks();
   const [expanded, setExpanded] = useState(true);
   // U7:控制端点(暂停/恢复/终止/逐任务取消)失败反馈 —— api 层非 ok 现
   // reject;此处红字横幅展示(文案优先信封 message),401 踢回登录页(admin
@@ -81,7 +81,28 @@ export function BatchPanel({ onUnauthorized }: { onUnauthorized?: () => void } =
     fn().catch(failWith);
   };
 
+  // U8:SSE 断线横幅(amber = 瞬态、原生重连中,区别于 U7 红字终态失败);
+  // 置位在既有 onerror 事件路径,恢复(onopen)由 provider 自动清,无操作面。
+  const reconnecting = connection === "reconnecting";
+  const sseBanner = reconnecting ? (
+    <p
+      role="status"
+      className="flex items-center gap-2 rounded-md border border-amber-500/30 bg-amber-400/10 px-2 py-1 text-[11px] text-amber-400"
+    >
+      <span className="inline-block h-2 w-2 shrink-0 animate-pulse rounded-full bg-amber-400" />
+      {t("admin.tasks.reconnecting")}
+    </p>
+  ) : null;
+
   if (!active) {
+    // 空闲期断线:空态文案会谎报「没有后台任务」(快照不再新鲜),改示断线横幅
+    if (reconnecting) {
+      return (
+        <div className="rounded-lg border border-amber-500/30 bg-zinc-950/90">
+          <div className="px-4 py-2 text-xs font-mono">{sseBanner}</div>
+        </div>
+      );
+    }
     // 任务 tab 空闲态不留白(死页既感),给引导文案;冷加载 done batch 同此路径
     return (
       <p className="py-16 text-center text-sm text-zinc-500">{t("admin.tasks.empty")}</p>
@@ -151,6 +172,7 @@ export function BatchPanel({ onUnauthorized }: { onUnauthorized?: () => void } =
             style={{ width: `${overallPct}%` }}
           />
         </div>
+        {sseBanner}
         {error && (
           <p className="mt-1 rounded-md border border-red-400/30 bg-red-400/10 px-2 py-1 text-[11px] text-red-400">
             {error}

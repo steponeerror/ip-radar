@@ -45,6 +45,7 @@
   "admin.tasks.collapse": "Collapse",
   "admin.tasks.empty": "No background tasks. Trigger Update / Refresh all on the Sources tab — progress appears here.",
   "admin.tasks.expand": "Expand",
+  "admin.tasks.reconnecting": "Connection lost, reconnecting…",
   "admin.tasks.state.cancelled": "Cancelled",
   "admin.tasks.state.done": "Done",
   "admin.tasks.state.downloading": "Downloading",

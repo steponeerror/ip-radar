@@ -4,7 +4,7 @@ import {
   enqueueBatch as apiEnqueueBatch, enqueueSingle as apiEnqueueSingle,
   cancelTask as apiCancelTask, cancelBatch as apiCancelBatch, pauseBatch, resumeBatch,
 } from "../api";
-import { TasksContext, type TasksCtxValue } from "./useTasks";
+import { TasksContext, type TasksCtxValue, type TaskConnection } from "./useTasks";
 import { stagedFrac } from "./progress";
 
 const SAW_EVENTS = new Set(["snapshot", "task", "batch", "done"]);
@@ -15,6 +15,9 @@ export function TaskProvider({ children, onUnauthorized }: {
 }) {
   const [tasks, setTasks] = useState<TaskState[]>([]);
   const [batch, setBatch] = useState<BatchState | null>(null);
+  // U8:SSE 流连接态。onerror → reconnecting,恢复(onopen)→ connected;
+  // 初始 connected(宁少算:首连失败也会先经 onerror 置位,不预支连接中文案)。
+  const [connection, setConnection] = useState<TaskConnection>("connected");
   const tasksRef = useRef<Record<string, TaskState>>({});
   // True while a getTasks() fetch is in flight AND an SSE event has since
   // arrived. Prevents a slow getTasks() snapshot (e.g. cold-start first load)
@@ -80,12 +83,19 @@ export function TaskProvider({ children, onUnauthorized }: {
     // subscribeTasks 的 onerror → adminMe 探测兜底(onUnauthorized 踢回登录,
     // 卸壳即断流)。
     resync();
-    const unsub = subscribeTasks(applyEvent, resync, onUnauthorized);
+    // onopen = (重)连接成功:先清 U8 断线态再重拉快照(初始连接同经此路径);
+    // 第四参 onerror = 流断开、浏览器原生重连中 → 置 reconnecting。
+    const unsub = subscribeTasks(
+      applyEvent,
+      () => { setConnection("connected"); resync(); },
+      onUnauthorized,
+      () => setConnection("reconnecting"),
+    );
     return () => { alive = false; unsub(); };
   }, []);
 
   const value: TasksCtxValue = {
-    tasks, batch,
+    tasks, batch, connection,
     enqueueSingle: apiEnqueueSingle,
     enqueueBatch: apiEnqueueBatch,
     cancelTask: apiCancelTask,
