@@ -83,7 +83,7 @@ def test_v4_path_unchanged(v6_db):
                                  "2002:c000:204::1", "ff02::1"])
 def test_v6_reserved_short_circuits(bad, monkeypatch):
     """v6 bogon 纯 stdlib:is_global=False 或 multicast → reserved,源不触达。
-    2001:db8::1(文档段)与 2002:c000:204::1(6to4)是 spec A4 钉死的 quirk。"""
+    2001:db8::1(文档段)与 2002:c000:204::1(6to4)是 spec 2026-08-23 §4.2 钉死的 quirk。"""
     monkeypatch.setattr(reg, "_sources", [_ProbeSource()])
     r = reg.lookup(bad)
     assert r.is_reserved is True
@@ -101,7 +101,7 @@ def test_v6_reserved_takes_priority_over_data_hit(v6_db):
 
 
 def test_v6_quirk_v4_mapped_goes_normal_path(v6_db):
-    """spec A4 quirk:::ffff:8.8.8.8 is_global=True → 当公网 v6 走正常查询
+    """spec 2026-08-23 §4.2 quirk:::ffff:8.8.8.8 is_global=True → 当公网 v6 走正常查询
     (不翻译成内嵌 v4),各源 miss → clean;绝不能是 reserved。"""
     r = reg.lookup("::ffff:8.8.8.8")
     assert ipaddress.IPv6Address("::ffff:8.8.8.8").is_global is True
@@ -114,7 +114,7 @@ def test_v6_quirk_v4_mapped_goes_normal_path(v6_db):
 
 
 def test_v6_quirk_6to4_is_reserved():
-    """spec A4 quirk:6to4(2002::/16)is_global=False → reserved。stdlib 钉死。"""
+    """spec 2026-08-23 §4.2 quirk:6to4(2002::/16)is_global=False → reserved。stdlib 钉死。"""
     assert ipaddress.IPv6Address("2002:c000:204::1").is_global is False
 
 

@@ -12,11 +12,19 @@ export function FileUpload({ onUpload, loading, progress, disabled }: FileUpload
   const { t } = useI18n();
   const [dragOver, setDragOver] = useState(false);
 
+  // U2:loading(查询进行中)与 disabled(warming)统一收口为一个谓词,
+  // handleDrop / handleChange / input disabled 三处守卫同源,禁两处布尔各写。
+  const blocked = loading || disabled;
+
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
       setDragOver(false);
-      if (disabled) return;
+      if (blocked) {
+        // 仅 loading 提示「进行中」;disabled(warming)静默,提示归 WarmupBanner
+        if (loading) alert(t("fileUpload.busy"));
+        return;
+      }
       const file = e.dataTransfer.files[0];
       if (!file) return;
       const validExtensions = [".txt", ".csv"];
@@ -31,15 +39,16 @@ export function FileUpload({ onUpload, loading, progress, disabled }: FileUpload
       }
       onUpload(file);
     },
-    [onUpload, disabled, t]
+    [onUpload, blocked, loading, t]
   );
 
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (blocked) return;
       const file = e.target.files?.[0];
       if (file) onUpload(file);
     },
-    [onUpload]
+    [onUpload, blocked]
   );
 
   return (
@@ -84,20 +93,26 @@ export function FileUpload({ onUpload, loading, progress, disabled }: FileUpload
           )}
         </>
       ) : (
-        <>
-          <p className="text-sm text-zinc-400">{t("fileUpload.dropHint")}</p>
-          <label className="cursor-pointer rounded-lg bg-emerald-500 px-5 py-2 text-sm font-semibold text-zinc-950 transition-transform hover:scale-[1.02] active:scale-[0.98]">
-            {t("fileUpload.choose")}
-            <input
-              type="file"
-              accept=".txt,.csv"
-              onChange={handleChange}
-              disabled={disabled}
-              className="hidden"
-            />
-          </label>
-        </>
+        <p className="text-sm text-zinc-400">{t("fileUpload.dropHint")}</p>
       )}
+      {/* U2:label+input 常驻 DOM(loading 时整体 hidden),点选守卫落在
+          handler 层的同一 blocked 谓词,而非仅靠 input 消失/置灰 */}
+      <label
+        className={
+          loading
+            ? "hidden"
+            : "cursor-pointer rounded-lg bg-emerald-500 px-5 py-2 text-sm font-semibold text-zinc-950 transition-transform hover:scale-[1.02] active:scale-[0.98]"
+        }
+      >
+        {t("fileUpload.choose")}
+        <input
+          type="file"
+          accept=".txt,.csv"
+          onChange={handleChange}
+          disabled={blocked}
+          className="hidden"
+        />
+      </label>
     </div>
   );
 }

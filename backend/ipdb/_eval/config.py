@@ -73,7 +73,8 @@ IP_WARNINGLISTS = [
 
 # Corpus sizing.
 # Epoch 2026-09-01 (spec 2026-09-02-brief §5.10): per_type_n 30→60, corpus.json frozen.
-# Any --rebuild from here on starts a NEW epoch — record old/new
-# fingerprints in superpowers/runbooks/eval-model-monthly.md first.
+# Any --rebuild from here on starts a NEW epoch — record the old/new corpus
+# fingerprints (the "corpus: <n> ips @<hash>" line) in the model reports
+# under backend/data/eval/model/ first.
 CORPUS_PER_TYPE_N = 60     # malicious IPs sampled per classification_type
 CORPUS_CANDIDATE_N = 100

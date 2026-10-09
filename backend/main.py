@@ -477,7 +477,7 @@ def _ensure_refresh_scheduler() -> None:
 def _is_cold_start() -> bool:
     """True if NO enabled offline source has an existing data file on disk.
 
-    All sources are offline file-backed (online enrichers removed, spec D1).
+    All sources are offline file-backed (online enrichers removed, spec 2026-08-19 §4.1 D1).
     A source missing the ``_path`` attribute entirely is treated as having no
     data (defensive; real offline sources always set it in IpListSource.__init__).
     """

@@ -240,3 +240,72 @@ describe("LookupView stream done.error", () => {
     expect(await screen.findByText("boom")).toBeInTheDocument();
   });
 });
+
+describe("LookupView error banner i18n (U1)", () => {
+  // 主行必为 t() 键,信封 message 不再裸上屏;retry_after 追加「约 Ns 后可重试」
+  it("429 rate_limited renders localized main line + retry-after hint, not the raw envelope message", async () => {
+    vi.mocked(queryIpsStream).mockClear();
+    vi.mocked(getDbStatus).mockResolvedValue({ warming_up: false, total_records: 100 } as DbStatus);
+    vi.mocked(queryIpsStream).mockRejectedValue(Object.assign(
+      new Error("rate limit exceeded"),
+      { status: 429, code: "rate_limited", retry_after: 30 }));
+
+    renderWithI18n(<LookupView />, { locale: "zh-CN" });
+    const textarea = screen.getByPlaceholderText(/1\.1\.1\.1/i);
+    fireEvent.change(textarea, { target: { value: "8.8.8.8" } });
+    fireEvent.click(screen.getByRole("button", { name: "查询" }));
+
+    expect(await screen.findByText("查询过于频繁，请稍后重试")).toBeInTheDocument();
+    expect(screen.getByText("约 30 秒后可重试")).toBeInTheDocument();
+    expect(screen.queryByText("rate limit exceeded")).toBeNull();   // 非裸 e.message
+  });
+
+  it("truncated stream outcome renders the localized truncation line, not the frontend sentinel", async () => {
+    vi.mocked(queryIpsStream).mockClear();
+    vi.mocked(getDbStatus).mockResolvedValue({ warming_up: false, total_records: 100 } as DbStatus);
+    vi.mocked(queryIpsStream).mockResolvedValue({
+      results: [], csvDownloaded: false, invalidLines: 0, total: 2,
+      error: "stream ended before done", error_code: "stream_truncated",
+    });
+
+    renderWithI18n(<LookupView />, { locale: "zh-CN" });
+    const textarea = screen.getByPlaceholderText(/1\.1\.1\.1/i);
+    fireEvent.change(textarea, { target: { value: "8.8.8.8" } });
+    fireEvent.click(screen.getByRole("button", { name: "查询" }));
+
+    expect(await screen.findByText("响应流意外中断，结果可能不完整，请重试")).toBeInTheDocument();
+    expect(screen.queryByText("stream ended before done")).toBeNull();
+  });
+
+  it("422 validation_error renders the localized line, not the backend message", async () => {
+    vi.mocked(queryIpsStream).mockClear();
+    vi.mocked(getDbStatus).mockResolvedValue({ warming_up: false, total_records: 100 } as DbStatus);
+    vi.mocked(queryIpsStream).mockRejectedValue(Object.assign(
+      new Error("request validation failed"),
+      { status: 422, code: "validation_error" }));
+
+    renderWithI18n(<LookupView />, { locale: "zh-CN" });
+    const textarea = screen.getByPlaceholderText(/1\.1\.1\.1/i);
+    fireEvent.change(textarea, { target: { value: "8.8.8.8" } });
+    fireEvent.click(screen.getByRole("button", { name: "查询" }));
+
+    expect(await screen.findByText("请求参数无效")).toBeInTheDocument();
+    expect(screen.queryByText("request validation failed")).toBeNull();
+  });
+
+  it("400 invalid_ip keeps the envelope message as the secondary detail line (en)", async () => {
+    vi.mocked(queryIpsStream).mockClear();
+    vi.mocked(getDbStatus).mockResolvedValue({ warming_up: false, total_records: 100 } as DbStatus);
+    vi.mocked(queryIpsStream).mockRejectedValue(Object.assign(
+      new Error("not a valid IP: 999.1.1.1"),
+      { status: 400, code: "invalid_ip" }));
+
+    renderLookup();
+    const textarea = screen.getByPlaceholderText(/1\.1\.1\.1/i);
+    fireEvent.change(textarea, { target: { value: "999.1.1.1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Query" }));
+
+    expect(await screen.findByText("The input contains an invalid IP address")).toBeInTheDocument();
+    expect(screen.getByText("not a valid IP: 999.1.1.1")).toBeInTheDocument();
+  });
+});

@@ -309,6 +309,26 @@ describe("queryIpsStream (row protocol v2)", () => {
     expect(out.error).toBe("boom");
   });
 
+  // U1:backend done 事件带 code(internal)时透传 error_code 供视图层 i18n
+  it("done.error + code → outcome.error_code passthrough (U1)", async () => {
+    const ndjson = [
+      `{"type":"start","total":2}`,
+      `{"type":"row","idx":0,"result":{"ip":"8.8.8.8"}}`,
+      `{"type":"done","invalid_lines":0,"ipv6_unsupported":0,"error":"boom","code":"internal"}`,
+    ].join("\n");
+    const reader = (async function* () {
+      yield new TextEncoder().encode(ndjson + "\n");
+    })();
+    fetchMock().mockResolvedValue({
+      ok: true,
+      body: { getReader: () => ({ read: () => reader.next() }) },
+    });
+
+    const out = await queryIpsStream(["8.8.8.8"], () => {});
+    expect(out.error).toBe("boom");
+    expect(out.error_code).toBe("internal");
+  });
+
   it("clean EOF without done → error 'stream ended before done'", async () => {
     // 代理截断/进程被杀的干净关闭: start+row 已到但 done 永不到来
     const ndjson = [
@@ -325,6 +345,34 @@ describe("queryIpsStream (row protocol v2)", () => {
 
     const out = await queryIpsStream(["8.8.8.8", "1.1.1.1"], () => {});
     expect(out.error).toBe("stream ended before done");
+    expect(out.error_code).toBe("stream_truncated");   // U1:哨兵码供视图层 i18n
+  });
+
+  // U1:连接守卫超时的 AbortError 转结构化 ApiError(code=timeout),供横幅 i18n
+  it("connect timeout abort → structured code 'timeout' (U1)", async () => {
+    vi.useFakeTimers();
+    try {
+      fetchMock().mockImplementation((_url: string, init?: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(new DOMException("Aborted", "AbortError")));
+        }),
+      );
+      const p = queryIpsStream(["8.8.8.8"], () => {});
+      const assertion = p.then(
+        () => { throw new Error("expected rejection"); },
+        (e: unknown) => {
+          const err = e as ApiError;
+          expect(err).toBeInstanceOf(Error);
+          expect(err.code).toBe("timeout");
+          expect(err.status).toBe(0);
+        },
+      );
+      await vi.advanceTimersByTimeAsync(30_000);   // streamFetchTimeout connectMs
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

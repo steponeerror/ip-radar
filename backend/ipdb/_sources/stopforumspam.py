@@ -3,7 +3,7 @@
 `listed_ip_365_all.zip` lists every IP active as a forum spammer within the
 last 365 days, one record per line as `"ip","total","last_seen"` (total =
 report count). Replaces the old toxic_ip_cidr.txt (60 CIDRs, zero extra
-fields) — spec D7 / Q13-A. Download limited to 3/day/IP; stale_days=1 keeps
+fields) — spec 2026-08-19 §4.4 D7 / Q13-A. Download limited to 3/day/IP; stale_days=1 keeps
 the daily scheduler under the limit. NOTE: the .txt→.csv rename orphans the
 old LMDB on upgrade — load() sweeps it; until the first download lands the
 source contributes nothing (self-heals, see _cleanup_legacy_txt).

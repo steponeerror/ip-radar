@@ -13,6 +13,7 @@ function Probe() {
       <span data-testid="batch">
         {t.batch ? `${t.batch.state}:${t.batch.done}/${t.batch.total}` : "none"}
       </span>
+      <span data-testid="connection">{t.connection}</span>
       <button onClick={() => t.enqueueSingle("feodo")}>single</button>
       <button onClick={() => t.enqueueBatch()}>batch</button>
     </div>
@@ -25,6 +26,7 @@ function Probe() {
 function makeFakeEventSource(closeSpy?: () => void) {
   let onMessage: ((m: { data: string }) => void) | null = null;
   let onOpen: (() => void) | null = null;
+  let onError: (() => void) | null = null;
   function FakeEventSource(this: { close: () => void }) {
     this.close = closeSpy ?? (() => {});
     Object.defineProperty(this, "onmessage", {
@@ -37,6 +39,11 @@ function makeFakeEventSource(closeSpy?: () => void) {
       set: (v) => { onOpen = v; },
       configurable: true,
     });
+    Object.defineProperty(this, "onerror", {
+      get: () => onError,
+      set: (v) => { onError = v; },
+      configurable: true,
+    });
   }
   return {
     FakeEventSource,
@@ -44,6 +51,7 @@ function makeFakeEventSource(closeSpy?: () => void) {
       onMessage?.({ data: typeof data === "string" ? data : JSON.stringify(data) });
     },
     fireOpen: () => { onOpen?.(); },
+    fireError: () => { onError?.(); },
   };
 }
 
@@ -353,5 +361,28 @@ describe("TaskProvider", () => {
       </TaskProvider>,
     );
     await waitFor(() => expect(onUnauthorized).toHaveBeenCalledTimes(1));
+  });
+
+  // U8:onerror(既有事件路径)置 connection=reconnecting,onopen 恢复 connected。
+  // fetch 兜底返回 ok 快照 → onerror 里的 adminMe 探测判会话存活,不关流不踢出。
+  it("U8: onerror sets connection=reconnecting; onopen recovers to connected", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ tasks: [], batch: null }),
+    });
+    (globalThis as { fetch?: unknown }).fetch = fetchMock;
+    const es = makeFakeEventSource();
+    (globalThis as { EventSource?: unknown }).EventSource = es.FakeEventSource;
+    render(
+      <TaskProvider>
+        <Probe />
+      </TaskProvider>,
+    );
+    await screen.findByText("none");
+    expect(screen.getByTestId("connection").textContent).toBe("connected");
+    await act(async () => { es.fireError(); });
+    expect(screen.getByTestId("connection").textContent).toBe("reconnecting");
+    await act(async () => { es.fireOpen(); });
+    expect(screen.getByTestId("connection").textContent).toBe("connected");
   });
 });

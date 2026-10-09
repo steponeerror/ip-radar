@@ -95,7 +95,7 @@ docker compose build --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn
 - **IPv6 也能查** —— 裸 v6 / 小段 v6 CIDR 直接查，地理·城市·ASN·VPN·CDN·封禁段对 v6 生效；地理/城市/ASN、云厂商网段、CDN 边缘、DROPv6 等源原生覆盖 v6；多数威胁列表上游本就无 v6 数据，如实显示无记录。
 - **日间/夜间主题切换** —— 明暗一键切换，选择自动记忆、首帧前恢复不闪屏。
 - **一个容器跑全栈，内存自己看着办** —— `docker compose up -d --build` 就有；并发按宿主机内存自动收敛，后台自动刷新按源错峰：日更源每天 2 次、周更源每周 1 次，各源固定时刻错开。
-- **STIX 2.1 导出（可选）** —— `/api/lookup/{ip}/stix` 一键导出；镜像自带 `stix2`（requirements 预装），开箱即用。
+- **STIX 2.1 导出** —— `/api/lookup/{ip}/stix` 一键导出；镜像自带 `stix2`（requirements 预装），开箱即用。
 
 ## 架构
 
@@ -286,6 +286,12 @@ git pull && docker compose up -d --build
 ### 发版（维护者）
 
 发版切 tag 时的一个坑：release 提交必须含至少一个非 markdown 文件改动——CI 的 `paths-ignore` 会跳过 `**.md`-only 的 push，md-only 发版提交将不触发 tag↔CHANGELOG↔GitHub Release 一致性闸门。
+
+部署侧还有一个坑：部署服务器上先 `git fetch --tags` 再 build——否则 BUILD_VERSION（`git describe`）回退旧基线 → 假更新横幅（v1.4.2 实录）。
+
+### 来源告警（可选）
+
+调度器追踪每个源的存活，但通知**默认静默**。把 `IP_RADAR_ALERT_URLS`（`docker-compose.yml` 里任意 `environment` 块，或 `.env.local`）设为逗号分隔的 [apprise](https://github.com/caronc/apprise) 风格 URL 列表——如 `mailto:you@example.com`、Discord/Telegram/Lark webhook——当某源停止更新、下载持续失败或数据库加载失败（如 epoch 损坏）时，会收到一条合并消息。各源健康（含加载错误）始终可在 `/api/sources` 查看；该环境变量改动重启后生效。
 
 ## 许可证
 

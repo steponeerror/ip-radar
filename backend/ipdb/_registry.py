@@ -275,7 +275,7 @@ def _source_info(source) -> dict:
         "name": source.name,
         "enabled": is_enabled(source.name),
         "category": _category(source.name),
-        # 全源 offline(enricher 已删, spec D1);前端 api.ts 类型为字面量 "offline"
+        # 全源 offline(enricher 已删, spec 2026-08-19 §4.1 D1);前端 api.ts 类型为字面量 "offline"
         "archetype": "offline",
         "fields": list(getattr(source, "fields", ())),
         "reliability": getattr(source, "reliability", 0.5),
