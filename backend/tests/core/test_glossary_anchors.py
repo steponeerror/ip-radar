@@ -1,4 +1,4 @@
-# backend/tests/core/test_glossary_anchors.py 的孪生守卫:词条锚(`锚:…`)必须解析到真实代码。
+# test_skill_drift.py 的孪生守卫:词条锚(`锚:…`)必须解析到真实代码。
 """GLOSSARY anchor drift guard (one-way): every 锚: anchor a glossary entry
 makes must resolve in the codebase. GLOSSARY 定义即教义——词条锚点指向死
 代码时,这把静默谎言变成红测试(替代纯手工的「随 codegraph init 核对」)。
