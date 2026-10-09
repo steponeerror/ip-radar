@@ -6,7 +6,7 @@ from ipdb._types import (
 )
 
 # NOTE: These tests only verify the export logic when stix2 is not installed.
-# stix2 tests require `pip install stix2` in the dev environment.
+# stix2 tests require the dev requirements (pip install -r requirements-dev.txt).
 
 
 def _result():

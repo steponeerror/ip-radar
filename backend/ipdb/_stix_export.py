@@ -1,6 +1,9 @@
 """STIX 2.1 Bundle export adapter — the only file that imports stix2.
 
-stix2 is an OPTIONAL dependency. If not installed, to_stix_bundle() returns None.
+stix2 ships with the image (pre-installed via requirements.txt) — STIX export
+works out of the box. The ImportError path below is a defensive fallback for
+trimmed deployments that drop the dependency: with stix2 missing,
+to_stix_bundle() returns None (and the endpoint answers 501).
 """
 import json
 import logging

@@ -213,7 +213,7 @@ async def flush_last_used() -> None:
 
 
 def _same_origin(request: Request) -> bool:
-    """Origin(无则 Referer)是否指向本站(spec §4 + Q1-B)。
+    """Origin(无则 Referer)是否指向本站(spec 2026-09-21 §3 Q1-B)。
 
     目标集:IP_RADAR_PUBLIC_ORIGIN(设了才算,proxy 逃生口,比对含
     scheme)+ Host 头 + X-Forwarded-Host(取首个值)。对 Host/XFH 比对

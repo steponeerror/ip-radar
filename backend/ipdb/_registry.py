@@ -50,7 +50,7 @@ def private_source_names() -> frozenset[str]:
 
 
 def resolve_allowed(requested: list[str] | None) -> frozenset[str]:
-    """None → 全部启用源减私源(null 永不含私源,spec Q10-A);
+    """None → 全部启用源减私源(null 永不含私源,spec 2026-09-21 §4 Q10-A);
     显式 list → 原样(私源=授权动作;disabled 成员由
     lookup 循环自然跳过)。"""
     if requested is None:
@@ -448,8 +448,8 @@ def lookup(ip: str, allowed_sources: frozenset[str] | None = None) -> LookupResu
     except (ipaddress.AddressValueError, ValueError):
         return _error_result(ip)
     if addr.version == 6:
-        # v6 bogon 纯 stdlib(spec Q6):IANA 特殊用途表驱动,与 v4 同构。
-        # quirk(spec A4):v4-mapped(::ffff:x)is_global=True→当公网 v6 查,
+        # v6 bogon 纯 stdlib(spec 2026-08-23 §2 Q6):IANA 特殊用途表驱动,与 v4 同构。
+        # quirk(spec 2026-08-23 §4.2):v4-mapped(::ffff:x)is_global=True→当公网 v6 查,
         # 各源 miss 显示 clean;6to4(2002::/16)is_global=False→reserved。
         if not addr.is_global or addr.is_multicast:
             return _reserved_result(ip)

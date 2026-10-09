@@ -22,7 +22,7 @@ def source_pair_sets(snap: dict) -> dict[str, set[tuple[str, str]]]:
 
 def assertion_records(snap: dict) -> dict[str, list[list]]:
     """{source: [[ip, ctype, first_seen|None], ...]} over all classification
-    hits — the time-stamped assertion history payload (spec Part 1).
+    hits — the time-stamped assertion history payload (spec 2026-09-02-brief §5.1).
     first_seen is source-self-reported; the run timestamp (report filename
     + generated_at) is the reliable cross-run clock."""
     out: dict[str, list[list]] = {}
@@ -53,7 +53,7 @@ def pairwise_oc(pair_sets: dict[str, set]) -> dict[frozenset[str], float]:
 
 
 def containment(pair_sets: dict[str, set]) -> dict[frozenset[str], tuple[float, float]]:
-    """Directed containment per source pair (spec 2026-09-01 Part 2).
+    """Directed containment per source pair (spec 2026-09-02-brief §5.1).
 
     {frozenset({a,b}): (|A∩B|/|A|, |A∩B|/|B|)} with a < b lexicographically —
     tuple order is deterministic despite the unordered key. (0.3, 1.0) on

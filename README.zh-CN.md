@@ -95,13 +95,13 @@ docker compose build --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn
 - **IPv6 也能查** —— 裸 v6 / 小段 v6 CIDR 直接查，地理·城市·ASN·VPN·CDN·封禁段对 v6 生效；地理/城市/ASN、云厂商网段、CDN 边缘、DROPv6 等源原生覆盖 v6；多数威胁列表上游本就无 v6 数据，如实显示无记录。
 - **日间/夜间主题切换** —— 明暗一键切换，选择自动记忆、首帧前恢复不闪屏。
 - **一个容器跑全栈，内存自己看着办** —— `docker compose up -d --build` 就有；并发按宿主机内存自动收敛，后台自动刷新按源错峰：日更源每天 2 次、周更源每周 1 次，各源固定时刻错开。
-- **STIX 2.1 导出（可选）** —— `/api/lookup/{ip}/stix` 一键导出；Docker 镜像默认不带 `stix2`，`pip install stix2` 装上即开。
+- **STIX 2.1 导出（可选）** —— `/api/lookup/{ip}/stix` 一键导出；镜像自带 `stix2`（requirements 预装），开箱即用。
 
 ## 架构
 
 ```mermaid
 flowchart TD
-    A["Public sources<br/>(keyless auto + 5 keyed)"] --> B["Cold-start download /<br/>30-min refresh scheduler"]
+    A["Public sources<br/>(keyless auto + 5 keyed)"] --> B["Cold-start download /<br/>30-min scan · per-source 12h staggered refresh slots"]
     B --> C["Per-source parsers<br/>(classification pipeline)"]
     C --> D["Fusion<br/>(log-odds · corroboration · decay)"]
     D --> E["LMDB store<br/>(named volume · mmap)"]
@@ -278,6 +278,14 @@ git pull && docker compose up -d --build
 ```
 
 想省去 SSH：在 `docker-compose.yml` 取消注释自更新挂载模板（docker.sock + 仓库目录 + token 三件套）后 `docker compose up -d`，横幅上会出现「立即更新」。仓库目录挂载需用宿主机上的绝对路径（如 `/home/you/ip-radar:/app/repo`，不能用 `./` 相对路径，否则容器内重放 compose 时解析不到宿主机目录）。注意：挂载 docker.sock 等于赋予容器宿主机 root 级控制权，仅建议内网自托管使用；页面首次更新时需粘贴一次部署时配置的 `IP_RADAR_UPDATE_TOKEN`。已知事项：容器内 git pull 写入的文件归 root，若之后在宿主机上直接操作仓库可能遇到权限提示（`sudo` 或 `git config --global --add safe.directory` 即可）；若直接修改了仓库内被跟踪的文件（如 `.env`），`git pull --ff-only` 会更新失败，这是预期保护，改用 `.env.local` 放本地覆盖即可。
+
+### 备份与恢复
+
+全部状态都在同一个 named volume（`ipradar-data` → `/app/data`）：各源原始下载、LMDB epoch 目录及其 `.ptr/.count/.cov/.disjoint` 四边车、SQLite 双库 `auth.db`/`alerts.db`。重建从不原地写——先落新 epoch 目录、指针再原子翻转——所以停容器拷卷（`docker compose stop ipradar` 后 tar 卷目录再 start；`down` 切勿带 `-v`）即得完整一致的备份。热拷按源可行，避开该源正在重建的窗口：先拷 epoch 目录、边车殿后、复查 `.ptr` 未翻；SQLite 双库用 `sqlite3 <db> ".backup …"` 在线备份（写瞬间的 `-journal` 伴生文件会让裸拷撕裂）。恢复 = 拷回卷 + `docker compose up -d`，再核对启动日志 `Loaded <键数> <源名> + …` 与备份前的 `/api/db-status` 一致。真正不可再生的只有 `auth.db`/`alerts.db`（key 与告警史）——若持有 `_calibrated.json` 则一并（手定可靠度覆盖，不会再生）;数据文件全部可从公开 feed 重新下载。
+
+### 发版（维护者）
+
+发版切 tag 时的一个坑：release 提交必须含至少一个非 markdown 文件改动——CI 的 `paths-ignore` 会跳过 `**.md`-only 的 push，md-only 发版提交将不触发 tag↔CHANGELOG↔GitHub Release 一致性闸门。
 
 ## 许可证
 

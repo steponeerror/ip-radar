@@ -127,7 +127,7 @@ class LookupResult:
         if detected:
             worst = min(detected, key=lambda v: self._VERDICT_PRECEDENCE.get(v.verdict, 99))
             verdict = worst.verdict
-            # 证据级重融合(共识 2026-10-04):顶层置信度不再是最坏组选角,而是把
+            # 证据级重融合(spec 2026-10-04-refusion §3;共识 2026-10-04):顶层置信度不再是最坏组选角,而是把
             # 全部指控组(malicious/suspicious)的证人明细池化后重算 P(恶意) 后验——
             # 多类别佐证计入。同源跨组取 max(不双计),再走与组内同一套
             # coefficient → dedup_lineage → assertion_confidence 流水线;
