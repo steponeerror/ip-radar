@@ -174,9 +174,9 @@ describe("ResultTable archive signal", () => {
 
 // --- 键盘可达(shadcn/Base UI 迁移核心卖点):徽章 tabIndex=0,tab 聚焦即开 tooltip ---
 
-// 徽章是表格里第一批可聚焦元素,工具栏在前;tab 循环到目标徽章聚焦为止
+// U3 后表头(×8)与行 tr 也入 tab 序:input+3 工具钮+8 表头+行都在徽章前,tab 上限放宽到 24
 async function focusBadgeByTab(badge: HTMLElement): Promise<HTMLElement> {
-  for (let i = 0; i < 12 && document.activeElement !== badge; i += 1) {
+  for (let i = 0; i < 24 && document.activeElement !== badge; i += 1) {
     await userEvent.tab();
   }
   return badge;
@@ -192,6 +192,87 @@ describe("ResultTable keyboard tooltips", () => {
     expect(badge).toHaveFocus();
     // ThreatTags 组串: "<label>: <verdict>, conf <n>"
     expect(await screen.findByText("Proxy: Malicious, conf 60")).toBeVisible();
+  });
+});
+
+// --- U3: 排序表头键盘可达 + aria-sort 三态;行展开键盘路径;分页 aria-label ---
+
+const sortByIpTwo: LookupResult[] = [
+  { ...baseResult, ip: "203.0.113.9" },
+  { ...baseResult, ip: "203.0.113.2" },
+];
+
+describe("sort header aria-sort + keyboard (U3)", () => {
+  it("all 8 columnheaders start at aria-sort=none", () => {
+    renderWithI18n(<ResultTable results={sortByIpTwo} />);
+    const headers = screen.getAllByRole("columnheader");
+    expect(headers).toHaveLength(8);
+    headers.forEach((h) => expect(h).toHaveAttribute("aria-sort", "none"));
+  });
+
+  it("click flips none→ascending→descending; inactive columns stay none", () => {
+    renderWithI18n(<ResultTable results={sortByIpTwo} />);
+    const ip = screen.getByRole("columnheader", { name: /^IP/ });
+    fireEvent.click(ip);
+    expect(ip).toHaveAttribute("aria-sort", "ascending");
+    expect(screen.getByRole("columnheader", { name: /^ASN/ })).toHaveAttribute("aria-sort", "none");
+    fireEvent.click(ip);
+    expect(ip).toHaveAttribute("aria-sort", "descending");
+  });
+
+  it("Enter/Space keydown on the focused header sorts for real (row order flips)", () => {
+    renderWithI18n(<ResultTable results={sortByIpTwo} />);
+    const ip = screen.getByRole("columnheader", { name: /^IP/ });
+    expect(ip).toHaveAttribute("tabindex", "0"); // focusable
+    const firstIp = () => document.querySelector("tbody tr td")?.textContent;
+    expect(firstIp()).toBe("203.0.113.9"); // 输入序(未排序)
+    ip.focus();
+    fireEvent.keyDown(ip, { key: "Enter" });
+    expect(ip).toHaveAttribute("aria-sort", "ascending");
+    expect(firstIp()).toBe("203.0.113.2");
+    fireEvent.keyDown(ip, { key: " " });
+    expect(ip).toHaveAttribute("aria-sort", "descending");
+    expect(firstIp()).toBe("203.0.113.9");
+  });
+});
+
+describe("row expansion keyboard path (U3)", () => {
+  it("Enter expands the focused row; Space collapses it", async () => {
+    renderWithI18n(<ResultTable results={[baseResult]} />);
+    const row = screen.getByText("203.0.113.10").closest("tr")!;
+    expect(row).toHaveAttribute("tabindex", "0");
+    expect(row).toHaveAttribute("aria-expanded", "false");
+    row.focus();
+    fireEvent.keyDown(row, { key: "Enter" });
+    expect(await screen.findByText("Threat details")).toBeInTheDocument();
+    expect(row).toHaveAttribute("aria-expanded", "true");
+    fireEvent.keyDown(row, { key: " " });
+    await waitFor(() => expect(screen.queryByText("Threat details")).not.toBeInTheDocument());
+    expect(row).toHaveAttribute("aria-expanded", "false");
+  });
+});
+
+describe("pagination a11y (U3)", () => {
+  const many: LookupResult[] = Array.from({ length: 60 }, (_, i) => ({
+    ...baseResult, ip: `203.0.113.${i + 1}`,
+  }));
+
+  it("prev/next expose aria-labels and page through for real", () => {
+    renderWithI18n(<ResultTable results={many} />);
+    const prev = screen.getByRole("button", { name: "Previous page" });
+    const next = screen.getByRole("button", { name: "Next page" });
+    expect(prev).toBeDisabled();
+    const firstIp = () => document.querySelector("tbody tr td")?.textContent;
+    expect(firstIp()).toBe("203.0.113.1");
+    fireEvent.click(next);
+    expect(prev).toBeEnabled();
+    expect(firstIp()).toBe("203.0.113.51"); // 第二页首行
+    expect(screen.getByText("2 / 2")).toBeInTheDocument();
+  });
+
+  it("page-size select is labelled", () => {
+    renderWithI18n(<ResultTable results={many} />);
+    expect(screen.getByRole("combobox", { name: "Per page" })).toBeInTheDocument();
   });
 });
 

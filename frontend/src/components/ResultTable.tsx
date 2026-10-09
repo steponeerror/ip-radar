@@ -415,6 +415,7 @@ function Pagination({
         <select
           value={pageSize}
           onChange={(e) => onPageSize(Number(e.target.value))}
+          aria-label={t("pagination.perPage")}
           className="rounded-md border border-zinc-800 bg-zinc-900 px-2 py-1 text-xs text-zinc-300 focus:outline-none focus:ring-1 focus:ring-emerald-500/30"
         >
           {PAGE_SIZE_OPTIONS.map((s) => (
@@ -430,6 +431,7 @@ function Pagination({
           <button
             onClick={() => onPage(page - 1)}
             disabled={page === 0}
+            aria-label={t("pagination.prevPage")}
             className="rounded-md bg-zinc-800 px-2.5 py-1 text-zinc-300 transition-colors hover:text-emerald-400 disabled:opacity-30 disabled:cursor-not-allowed"
           >
             ‹
@@ -440,6 +442,7 @@ function Pagination({
           <button
             onClick={() => onPage(page + 1)}
             disabled={page >= pageCount - 1}
+            aria-label={t("pagination.nextPage")}
             className="rounded-md bg-zinc-800 px-2.5 py-1 text-zinc-300 transition-colors hover:text-emerald-400 disabled:opacity-30 disabled:cursor-not-allowed"
           >
             ›
@@ -448,6 +451,15 @@ function Pagination({
       )}
     </div>
   );
+}
+
+// U3 键盘路径共用件:Enter/Space 触发激活(排序表头/行展开);Space preventDefault 防页面滚动。
+// th/tr 保持原 DOM(不动视觉硬约束),不挂 role=button 以免覆盖 th 的 columnheader 语义。
+function activateOnKey(e: React.KeyboardEvent, activate: () => void): void {
+  if (e.key === "Enter" || e.key === " ") {
+    e.preventDefault();
+    activate();
+  }
 }
 
 export function ResultTable({ results }: ResultTableProps) {
@@ -640,6 +652,9 @@ export function ResultTable({ results }: ResultTableProps) {
                   <th
                     key={col.key}
                     onClick={() => handleSort(col.key)}
+                    onKeyDown={(e) => activateOnKey(e, () => handleSort(col.key))}
+                    tabIndex={0}
+                    aria-sort={sortKey === col.key ? (sortAsc ? "ascending" : "descending") : "none"}
                     className={`cursor-pointer px-3 py-2.5 text-[11px] font-medium uppercase tracking-wider text-zinc-500 hover:text-emerald-400 transition-colors select-none ${col.className ?? ""}`}
                   >
                     {col.label}
@@ -662,6 +677,9 @@ export function ResultTable({ results }: ResultTableProps) {
                     }`}
                     style={{ animationDelay: `${Math.min(i * 0.02, 0.4)}s` }}
                     onClick={() => toggleRow(r.ip)}
+                    onKeyDown={(e) => activateOnKey(e, () => toggleRow(r.ip))}
+                    tabIndex={0}
+                    aria-expanded={expanded.has(r.ip)}
                   >
                     <td className={`px-3 py-2 font-semibold ${r.is_reserved ? "text-zinc-500" : "text-zinc-100"}`}>{r.ip}</td>
                     <ScoredCell value={r.asn.value} confidence={r.asn.confidence} />
