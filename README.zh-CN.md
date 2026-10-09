@@ -281,7 +281,7 @@ git pull && docker compose up -d --build
 
 ### 备份与恢复
 
-全部状态都在同一个 named volume（`ipradar-data` → `/app/data`）：各源原始下载、LMDB epoch 目录及其 `.ptr/.count/.cov/.disjoint` 四边车、SQLite 双库 `auth.db`/`alerts.db`。重建从不原地写——先落新 epoch 目录、指针再原子翻转——所以停容器拷卷（`docker compose stop ipradar` 后 tar 卷目录再 start；`down` 切勿带 `-v`）即得完整一致的备份。热拷按源可行，避开该源正在重建的窗口：先拷 epoch 目录、边车殿后、复查 `.ptr` 未翻；SQLite 双库用 `sqlite3 <db> ".backup …"` 在线备份（写瞬间的 `-journal` 伴生文件会让裸拷撕裂）。恢复 = 拷回卷 + `docker compose up -d`，再核对启动日志 `Loaded <键数> <源名> + …` 与备份前的 `/api/db-status` 一致。真正不可再生的只有 `auth.db`/`alerts.db`（key 与告警史）——数据文件全部可从公开 feed 重新下载。
+全部状态都在同一个 named volume（`ipradar-data` → `/app/data`）：各源原始下载、LMDB epoch 目录及其 `.ptr/.count/.cov/.disjoint` 四边车、SQLite 双库 `auth.db`/`alerts.db`。重建从不原地写——先落新 epoch 目录、指针再原子翻转——所以停容器拷卷（`docker compose stop ipradar` 后 tar 卷目录再 start；`down` 切勿带 `-v`）即得完整一致的备份。热拷按源可行，避开该源正在重建的窗口：先拷 epoch 目录、边车殿后、复查 `.ptr` 未翻；SQLite 双库用 `sqlite3 <db> ".backup …"` 在线备份（写瞬间的 `-journal` 伴生文件会让裸拷撕裂）。恢复 = 拷回卷 + `docker compose up -d`，再核对启动日志 `Loaded <键数> <源名> + …` 与备份前的 `/api/db-status` 一致。真正不可再生的只有 `auth.db`/`alerts.db`（key 与告警史）——若持有 `_calibrated.json` 则一并（手定可靠度覆盖，不会再生）;数据文件全部可从公开 feed 重新下载。
 
 ### 发版（维护者）
 
