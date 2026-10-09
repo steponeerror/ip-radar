@@ -113,6 +113,28 @@ describe("api task functions", () => {
     expect(url).toBe("/api/update-db/resume");
     expect(init.method).toBe("POST");
   });
+
+  // U7:控制类端点非 ok 必须 reject(带 status+code 信封),不再静默吞掉
+  it("control endpoints reject with envelope error on non-ok (U7)", async () => {
+    fetchMock().mockResolvedValue(
+      new Response(
+        JSON.stringify({ error: { code: "task_not_found", message: "no such task" } }),
+        { status: 404, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    const err = (await cancelTask("t9").then(() => null, (e: unknown) => e)) as ApiError;
+    expect(err).toBeInstanceOf(Error);
+    expect(err.status).toBe(404);
+    expect(err.code).toBe("task_not_found");
+    expect(err.message).toBe("no such task");
+  });
+
+  it("cancelBatch / pauseBatch / resumeBatch all reject on non-ok (U7)", async () => {
+    for (const fn of [cancelBatch, pauseBatch, resumeBatch]) {
+      fetchMock().mockResolvedValue({ ok: false, statusText: "Boom" });
+      await expect(fn()).rejects.toThrow();
+    }
+  });
 });
 
 describe("subscribeTasks", () => {

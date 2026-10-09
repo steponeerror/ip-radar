@@ -17,6 +17,7 @@ def _parse_net(cidr: str) -> ipaddress.IPv4Network | ipaddress.IPv6Network:
 from ._types import (
     SourceAttribution, MergedField,
     EvidenceObservation, ClassificationAssessment,
+    _ACCUSING,
 )
 from . import _logodds as _lo
 
@@ -244,15 +245,14 @@ def _assess_classification(group: list) -> ClassificationAssessment:
     # §3.3 宁少算不多算);谱系去重后求和;σ → conf。
     # 冲突 = 真对立:benign 断言与指控章同场(spec 2026-09-06 §2.2)。
     # 定级分歧(指控 × 存档)不再是冲突 —— 由 has_archive 黄灯表达。
-    ACCUSING = frozenset({"malicious", "suspicious"})
     verdict_conflict = ("benign" in distinct_verdicts
-                        and any(o.verdict in ACCUSING for o in obs))
+                        and any(o.verdict in _ACCUSING for o in obs))
 
     # 投票资格 = 指控章;存档章只展示不计分(spec 2026-09-06)。
     # 核心不变式:confidence 仅由 voters 决定 —— 增删存档观测不改变数字。
     # 纯存档组(voters 空)退回全量 Σ(决策 5/乙:平滑淡出,不跳变)。
     # 同源取 max 在投票观测内执行;仅存档观测的源不产生系数但保留展示。
-    voters = [o for o in obs if o.verdict in ACCUSING]
+    voters = [o for o in obs if o.verdict in _ACCUSING]
     pool = voters if voters else obs
     by_source: dict[str, float] = {}
     for o in pool:

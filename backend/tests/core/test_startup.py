@@ -172,7 +172,8 @@ def test_is_cold_start_true_when_only_online_sources():
 def test_orphan_tmp_cleaned_on_startup(tmp_path):
     """lifespan 最早期清掉 OOM kill / SIGKILL 残留。
 
-    LMDB 时代:_write_staged 暂存文件(``*.lmdb.{count,cov,ptr}.new.<pid>``);
+    LMDB 时代:_write_staged 暂存文件(``*.lmdb.{count,cov,ptr,disjoint}.new.<pid>``
+    ——OL-3 补 disjoint,与下载 .tmp 同性质);
     一次性迁移清洁工:MMDB 时代 ``*.mmdb.*.tmp`` / ``*.mmdb.new.*`` 旧命名。
     """
     (tmp_path / "a.mmdb.123.tmp").write_bytes(b"x")
@@ -180,12 +181,14 @@ def test_orphan_tmp_cleaned_on_startup(tmp_path):
     (tmp_path / "c.mmdb.new.99479").write_bytes(b"x")
     (tmp_path / "ipinfo_lite.csv.lmdb.count.new.99479").write_bytes(b"x")
     (tmp_path / "ipinfo_lite.csv.lmdb.ptr.new.99479").write_bytes(b"x")
+    (tmp_path / "ipinfo_lite.csv.lmdb.disjoint.new.99479").write_bytes(b"x")
     (tmp_path / "ipinfo_lite.csv.lmdb.cov").write_bytes(b"512")   # live sidecar, 不得误删
     from main import _cleanup_orphan_tmp
     _cleanup_orphan_tmp(tmp_path)
     assert list(tmp_path.glob("*.mmdb.*.tmp")) == []
     assert list(tmp_path.glob("*.mmdb.new.*")) == []
     assert list(tmp_path.glob("*.lmdb.*.new.*")) == []
+    assert list(tmp_path.glob("*.lmdb.disjoint.new.*")) == []   # OL-3 钉死
     assert (tmp_path / "ipinfo_lite.csv.lmdb.cov").exists()
 
 

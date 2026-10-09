@@ -158,10 +158,13 @@ def test_patch_seed_row_public_then_null_ok(client_as_admin, key_env, monkeypatc
 
 
 def test_keys_unknown_sub_404(client_as_admin, key_env):
+    # AS-8:密钥行 404 独立语义码,不再复用源侧 source_not_found(按 code
+    # 分支的客户端不再把密钥错误当源错误);源侧两形态(GET/eval、PATCH
+    # sources)钉在 test_errors.py,两套码互不串。
     r = client_as_admin.patch("/api/admin/keys/doesnotexist0000",
                               json={"disabled": True})
     assert r.status_code == 404
-    assert r.json()["error"]["code"] == "source_not_found"
+    assert r.json()["error"]["code"] == "api_key_not_found"
     r = client_as_admin.delete("/api/admin/keys/doesnotexist0000")
     assert r.status_code == 404
-    assert r.json()["error"]["code"] == "source_not_found"
+    assert r.json()["error"]["code"] == "api_key_not_found"

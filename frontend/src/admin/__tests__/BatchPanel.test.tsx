@@ -96,6 +96,42 @@ describe("BatchPanel active panel", () => {
   });
 });
 
+// U7:控制端点(暂停/恢复/终止/逐任务取消)非 ok 现 reject;面板必须给反馈
+describe("BatchPanel control-action failure feedback (U7)", () => {
+  // 模块级 mock 跨测试残留:每个用例显式重置为 running batch(同前述用例惯例)
+  const setRunning = () => {
+    const mockGetTasks = vi.mocked(getTasks);
+    mockGetTasks.mockReset();
+    mockGetTasks.mockResolvedValue({
+      tasks: [{ id: "t1", source: "feodo", host: null, state: "downloading", error: null, batch_id: "b1" }],
+      batch: { id: "b1", state: "running", done: 0, total: 2 },
+    });
+  };
+
+  it("shows the error when a control action rejects; a later action clears it", async () => {
+    setRunning();
+    vi.mocked(cancelBatch).mockRejectedValueOnce(new Error("task manager unavailable"));
+    render(<BatchPanel />);
+    fireEvent.click(await screen.findByRole("button", { name: /Abort/i }));
+    expect(await screen.findByText(/task manager unavailable/i)).toBeInTheDocument();
+    // 第二击走默认 resolved mock → 新动作先清旧错(openCreate 同款语义)
+    fireEvent.click(screen.getByRole("button", { name: /Abort/i }));
+    await waitFor(() => expect(screen.queryByText(/task manager unavailable/i)).toBeNull());
+  });
+
+  it("kicks to login on 401 instead of showing a dead-end banner", async () => {
+    setRunning();
+    const e = new Error("Not authenticated") as Error & { status?: number };
+    e.status = 401;
+    vi.mocked(pauseBatch).mockRejectedValueOnce(e);
+    const onUnauthorized = vi.fn();
+    render(<BatchPanel onUnauthorized={onUnauthorized} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Pause/i }));
+    await waitFor(() => expect(onUnauthorized).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText(/Not authenticated/i)).toBeNull();
+  });
+});
+
 describe("BatchPanel collapse on done", () => {
   it("lingers ~5s after batch done, then collapses away", async () => {
     const mockGetTasks = vi.mocked(getTasks);

@@ -121,3 +121,37 @@ def test_api_sources_json_carries_both_keys(tmp_path, alerts_db, monkeypatch,
     h = resp.json()[0]["health"]
     assert isinstance(h["content_age_h"], float)
     assert h["observed_interval_h"] == pytest.approx(1.0)
+
+
+# ── OL-4:加载失败不再静默(ERROR 日志 + health.error 状态面)──
+
+def test_load_failure_error_level_log_and_health_error(
+        tmp_path, alerts_db, caplog):
+    """epoch 损坏(ptr 指向不存在的 epoch 目录 → open_env_read 抛)→
+    load_db 以 ERROR 级落日志(不再 warning 静默),list_sources 的
+    health.error 携带异常消息(/api/sources 即状态面);loaded=False。"""
+    import logging
+
+    _touch_file(tmp_path, age_s=2 * 3600)
+    # 损坏形态:ptr 声称 epoch 42,但 <base>.42 目录不存在
+    (tmp_path / "x.txt.lmdb.ptr").write_text("42\n")
+
+    with caplog.at_level(logging.ERROR, logger="ipdb._registry"):
+        reg.load_db()
+
+    assert any(r.levelno == logging.ERROR and "load failed" in r.getMessage()
+               for r in caplog.records)
+    h = reg.list_sources()[0]["health"]
+    assert h["loaded"] is False
+    assert h["error"] and "x.txt.lmdb.42" in h["error"]
+
+
+def test_healthy_source_no_error_key_noise(tmp_path, alerts_db):
+    """正常源(无库无文件,或库健康)不因 OL-4 合并冒出 error 噪声;
+    error 仅在未加载且确有 load_error 时出现。"""
+    # 场景:从未建库(无 ptr)→ load() 走 epoch None 早退,零异常
+    _touch_file(tmp_path, age_s=2 * 3600)
+    reg.load_db()
+    h = reg.list_sources()[0]["health"]
+    assert h["loaded"] is False
+    assert h["error"] is None

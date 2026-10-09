@@ -30,7 +30,7 @@ import logging
 import os
 
 from ._base import IpListSource
-from ._download import download_file, CancelToken
+from ._download import download_file, CancelToken, redact_url
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +92,7 @@ class AbuseIPDBSource(IpListSource):
             })
             raw = scratch.read_bytes()
             if not raw.strip():
-                raise RuntimeError(f"Empty response from {self.url}")
+                raise RuntimeError(f"Empty response from {redact_url(self.url)}")
             try:
                 payload = json.loads(raw)
             except ValueError as e:

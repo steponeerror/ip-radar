@@ -15,6 +15,7 @@ RETRY_AFTER_WARMING = 30
 class ErrorCode(str, Enum):
     invalid_ip = "invalid_ip"
     source_not_found = "source_not_found"
+    api_key_not_found = "api_key_not_found"  # 404 密钥行不存在(AS-8:与源 404 分码)
     not_found = "not_found"              # 404 资源不存在(guard 伪装端点不存在等;
                                          # 与 _HTTP_FALLBACK_CODE[404] 同串)
     eval_busy = "eval_busy"
@@ -29,6 +30,7 @@ class ErrorCode(str, Enum):
 _STATUS: dict = {
     ErrorCode.invalid_ip: 400,
     ErrorCode.source_not_found: 404,
+    ErrorCode.api_key_not_found: 404,
     ErrorCode.not_found: 404,
     ErrorCode.eval_busy: 409,
     ErrorCode.internal: 500,

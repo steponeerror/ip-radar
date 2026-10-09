@@ -95,7 +95,7 @@ function AdminShell({ user, onLogout, onUnauthorized }: {
           <SourcesPage manage tasks={tasks} batch={batch} onUnauthorized={onUnauthorized} />
         )}
         {tab === "keys" && <KeysSection onUnauthorized={onUnauthorized} />}
-        {tab === "tasks" && <BatchPanel />}
+        {tab === "tasks" && <BatchPanel onUnauthorized={onUnauthorized} />}
         {/* eval UI 从未存在，将来作为第四 tab 回归 */}
       </div>
     </div>

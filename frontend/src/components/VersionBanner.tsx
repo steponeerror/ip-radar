@@ -1,30 +1,10 @@
 import { useEffect, useState } from "react";
 import { useI18n } from "../i18n";
 import { getVersion, type VersionInfo } from "../api";
+import { copyText } from "../lib/utils";
 
 const DISMISS_KEY = "dismissed_version";
 const UPDATE_CMD = "git pull && docker compose up -d --build";
-
-// 自托管常走 http://LAN-IP(非 secure context),navigator.clipboard 为 undefined——
-// 降级 legacy execCommand;两条路都挂则返回 false(按钮不假装已复制)
-function copyText(text: string): Promise<boolean> {
-  if (navigator.clipboard?.writeText) {
-    return navigator.clipboard.writeText(text).then(() => true, () => false);
-  }
-  try {
-    const ta = document.createElement("textarea");
-    ta.value = text;
-    ta.style.position = "fixed";
-    ta.style.opacity = "0";
-    document.body.appendChild(ta);
-    ta.select();
-    const ok = document.execCommand("copy");
-    ta.remove();
-    return Promise.resolve(ok);
-  } catch {
-    return Promise.resolve(false);
-  }
-}
 
 export function VersionBanner({ selfUpdateEnabled, onStartUpdate }: {
   selfUpdateEnabled: boolean;
