@@ -63,7 +63,7 @@ class ProxyScrapeSource(CsvSource):
         if len(row) > 10:
             isp = row[10].strip()
             if isp:
-                # carrier asset slot (spec D3/Q11): proxy-host operators are the
+                # carrier asset slot (spec 2026-08-19 §4.1 D3/Q11): proxy-host operators are the
                 # asset-row semantics; the old isp scalar slot had no consumer.
                 evidence["carrier"] = isp
         port = row[2].strip() if len(row) > 2 else ""

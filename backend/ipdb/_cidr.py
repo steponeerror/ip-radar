@@ -19,7 +19,7 @@ class LazyExpansion:
         total: total address count (sum of CIDR num_addresses + bare IPs).
         invalid: count of malformed lines (neither valid IPv4 nor IPv6).
         ipv6: 恒 0；保留为 SSE done 事件 `ipv6_unsupported` 字段的兼容来源
-            （Q4，spec §4.1）——v6 行现已进展开计划。
+            （Q4，spec 2026-08-23 §4.1）——v6 行现已进展开计划。
     """
 
     __slots__ = ("total", "invalid", "ipv6", "_plan")
