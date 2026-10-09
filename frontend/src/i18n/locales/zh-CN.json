@@ -103,6 +103,7 @@
   "dbStatus.updated": "更新 {time}",
   "dbStatus.updating": "更新中...",
   "exportCsv.button": "导出 CSV（{n} 行）",
+  "fileUpload.busy": "查询进行中，请稍候",
   "fileUpload.choose": "选择文件",
   "fileUpload.dropHint": "拖放 .txt 或 .csv 文件",
   "fileUpload.invalidType": "请拖放 .txt 或 .csv 文件",

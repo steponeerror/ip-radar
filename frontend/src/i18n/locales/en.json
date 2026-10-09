@@ -103,6 +103,7 @@
   "dbStatus.updated": "Updated {time}",
   "dbStatus.updating": "Updating...",
   "exportCsv.button": "Export CSV ({n} rows)",
+  "fileUpload.busy": "A lookup is in progress, please wait",
   "fileUpload.choose": "Choose File",
   "fileUpload.dropHint": "Drag and drop a .txt or .csv file",
   "fileUpload.invalidType": "Please drop a .txt or .csv file",
