@@ -3,7 +3,7 @@ import { screen, waitFor, fireEvent, act } from "@testing-library/react";
 import { BatchPanel } from "../BatchPanel";
 import { TaskProvider } from "../../tasks/TaskProvider";
 import { renderWithI18n } from "../../test/i18nTestUtils";
-import type { TaskEvent } from "../../api";
+import type { TaskEvent, TaskState } from "../../api";
 import {
   pauseBatch, cancelBatch, cancelTask, getTasks, resumeBatch,
 } from "../../api";
@@ -216,6 +216,36 @@ describe("BatchPanel batchless update hides stale tasks", () => {
     expect(await screen.findByText(/ip2proxy/)).toBeInTheDocument();
     expect(screen.queryByText(/abuseipdb/)).not.toBeInTheDocument();
     expect(screen.queryByText(/dataplane/)).not.toBeInTheDocument();
+  });
+});
+
+// U4:状态徽章与 aria-label 全 i18n 化 —— zh 下不得再有英文枚举直出
+describe("BatchPanel task-state badge i18n (U4)", () => {
+  const setRunning = (states: { id: string; source: string; state: TaskState["state"] }[]) => {
+    const mockGetTasks = vi.mocked(getTasks);
+    mockGetTasks.mockReset();
+    mockGetTasks.mockResolvedValue({
+      tasks: states.map((s) => ({ ...s, host: null, error: null, batch_id: "b1" })),
+      batch: { id: "b1", state: "running", done: 0, total: states.length },
+    });
+  };
+
+  it("renders zh badge copy for loading/failed, never the raw enum", async () => {
+    setRunning([
+      { id: "t1", source: "otx", state: "loading" },
+      { id: "t2", source: "spamhaus", state: "failed" },
+    ]);
+    renderWithI18n(<TaskProvider><BatchPanel /></TaskProvider>, { locale: "zh-CN" });
+    expect(await screen.findByText("载入中")).toBeInTheDocument();
+    expect(screen.getByText("失败")).toBeInTheDocument();
+    expect(screen.queryByText("loading")).not.toBeInTheDocument();
+    expect(screen.queryByText("failed")).not.toBeInTheDocument();
+  });
+
+  it("localizes the per-row cancel aria-label", async () => {
+    setRunning([{ id: "t1", source: "feodo", state: "downloading" }]);
+    renderWithI18n(<TaskProvider><BatchPanel /></TaskProvider>, { locale: "zh-CN" });
+    expect(await screen.findByRole("button", { name: "取消 feodo" })).toBeInTheDocument();
   });
 });
 

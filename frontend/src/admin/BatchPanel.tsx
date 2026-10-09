@@ -139,7 +139,7 @@ export function BatchPanel({ onUnauthorized }: { onUnauthorized?: () => void } =
             <button
               onClick={() => setExpanded((e) => !e)}
               className="rounded px-2 py-0.5 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
-              aria-label={expanded ? "Collapse" : "Expand"}
+              aria-label={expanded ? t("admin.tasks.collapse") : t("admin.tasks.expand")}
             >
               {expanded ? "▴" : "▾"}
             </button>
@@ -163,10 +163,12 @@ export function BatchPanel({ onUnauthorized }: { onUnauthorized?: () => void } =
                 <span className="w-32 truncate font-mono text-zinc-300" title={task.source}>
                   {task.source}
                 </span>
+                {/* U4:状态徽章走 i18n;键面必须覆盖 api.ts TaskState 的全枚举
+                    (新增后端状态时同步补 admin.tasks.state.* 双语键) */}
                 <span
                   className={`rounded-md border px-2 text-[10px] ${BADGE[task.state] ?? ""}`}
                 >
-                  {task.state}
+                  {t(`admin.tasks.state.${task.state}`)}
                 </span>
                 <div className="h-1 flex-1 overflow-hidden rounded-full bg-zinc-800">
                   {(() => {
@@ -222,7 +224,7 @@ export function BatchPanel({ onUnauthorized }: { onUnauthorized?: () => void } =
                   className="text-zinc-500 hover:text-red-400 disabled:opacity-30"
                   onClick={() => run(() => cancelTask(task.id))}
                   disabled={!ACTIVE_TASK_STATES.includes(task.state)}
-                  aria-label={`Cancel ${task.source}`}
+                  aria-label={t("admin.tasks.cancelTask", { source: task.source })}
                 >
                   ✕
                 </button>

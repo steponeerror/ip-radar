@@ -286,9 +286,14 @@ export function SummaryBar({ results }: { results: LookupResult[] }) {
 
   const activeClasses = Object.keys(stats.classTotals);
   if (activeClasses.length === 0 && stats.ispCount === 0 && stats.lowConf === 0 && stats.medConf === 0 && stats.reservedCount === 0) {
+    // U6:绿点=geo/ASN 字段置信面(中性语义,勿写成「全部安全」;
+    // 口径对照 GLOSSARY benign 两层词条;title 说明统计面
     return (
       <div className="flex items-center gap-3 text-xs text-zinc-500">
-        <span className="flex items-center gap-1.5">
+        <span
+          className="flex items-center gap-1.5"
+          title={t("summary.allHighTitle", { n: results.length.toLocaleString() })}
+        >
           <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500" />
           {t("summary.allHigh", { n: results.length.toLocaleString() })}
         </span>
