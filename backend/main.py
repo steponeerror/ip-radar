@@ -1039,7 +1039,8 @@ async def lookup_single(request: Request, ip: str):
                      "429": {"model": ErrorEnvelope,
                              "description": "rate limit exceeded"},
                      "501": {"model": ErrorEnvelope,
-                             "description": "stix2 package not installed"},
+                             "description": "stix2 missing from a trimmed build "
+                                            "(the image ships it pre-installed)"},
                      **_ERRS_READY})
 @_ipdb_ratelimit.keyed_query_limit()
 @_ipdb_ratelimit.anon_lookup_limit()
@@ -1061,7 +1062,8 @@ async def lookup_stix(request: Request, ip: str):
     if bundle is None:
         raise HTTPException(
             501,
-            "STIX export unavailable: install stix2 package (pip install stix2)",
+            "STIX export unavailable: stix2 missing from this trimmed build "
+            "(the image ships it pre-installed)",
         )
     return bundle
 
@@ -1336,7 +1338,7 @@ app.include_router(
 
 
 def _validate_sources(names: list[str] | None) -> list[str] | None:
-    """None=全部公开源(直通);空列表/未知源名 422(spec §6);非空:去重+registry 序。"""
+    """None=全部公开源(直通);空列表/未知源名 422(spec 2026-09-21 §7.4);非空:去重+registry 序。"""
     if names is None:
         return None
     if not names:

@@ -84,7 +84,7 @@ def test_estimate_evidence_flag():
     assert scores["tor_exits"].evidence is False  # no-signal slot
 
 
-# ── fountain_suspect flag (spec 2026-09-01 Part 2) ───────────────
+# ── fountain_suspect flag (spec 2026-09-02-brief §5.1) ─────────
 
 from ipdb._eval.events import Events, SourceEvents
 from ipdb._eval.model import estimate
@@ -137,7 +137,7 @@ def test_fountain_suspect_partial_overlap_below_bar():
     assert sc["fount"].fountain_suspect is False      # only m1 qualifies
 
 
-# ── unique_share (spec 2026-09-01 Q4-B1) ─────────────────────────
+# ── unique_share (spec 2026-09-02-brief §3) ─────────────────
 
 def test_unique_share_counts_solo_pairs_only():
     ips = [("10.0.0.%d" % i, "spam") for i in range(4)]

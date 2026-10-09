@@ -146,7 +146,7 @@ def _prior_center(se, rhos_full: dict[str, float], rhos_loo: dict[str, float]) -
 
 def _fountain_suspect(src: str, pair_sets: dict, cont: dict) -> bool:
     """≥ FOUNTAIN_MIN_CONTAINEES other sources ≥0.9-contained in src,
-    each with ≥ FOUNTAIN_MIN_PAIRS assertions (spec Part 2)."""
+    each with ≥ FOUNTAIN_MIN_PAIRS assertions (spec 2026-09-02-brief §5.1)."""
     qualify = 0
     for other, ps in pair_sets.items():
         if other == src or len(ps) < config.FOUNTAIN_MIN_PAIRS:
