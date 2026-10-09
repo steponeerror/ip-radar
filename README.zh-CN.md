@@ -279,6 +279,14 @@ git pull && docker compose up -d --build
 
 想省去 SSH：在 `docker-compose.yml` 取消注释自更新挂载模板（docker.sock + 仓库目录 + token 三件套）后 `docker compose up -d`，横幅上会出现「立即更新」。仓库目录挂载需用宿主机上的绝对路径（如 `/home/you/ip-radar:/app/repo`，不能用 `./` 相对路径，否则容器内重放 compose 时解析不到宿主机目录）。注意：挂载 docker.sock 等于赋予容器宿主机 root 级控制权，仅建议内网自托管使用；页面首次更新时需粘贴一次部署时配置的 `IP_RADAR_UPDATE_TOKEN`。已知事项：容器内 git pull 写入的文件归 root，若之后在宿主机上直接操作仓库可能遇到权限提示（`sudo` 或 `git config --global --add safe.directory` 即可）；若直接修改了仓库内被跟踪的文件（如 `.env`），`git pull --ff-only` 会更新失败，这是预期保护，改用 `.env.local` 放本地覆盖即可。
 
+### 备份与恢复
+
+全部状态都在同一个 named volume（`ipradar-data` → `/app/data`）：各源原始下载、LMDB epoch 目录及其 `.ptr/.count/.cov/.disjoint` 四边车、SQLite 双库 `auth.db`/`alerts.db`。重建从不原地写——先落新 epoch 目录、指针再原子翻转——所以停容器拷卷（`docker compose stop ipradar` 后 tar 卷目录再 start；`down` 切勿带 `-v`）即得完整一致的备份。热拷按源可行，避开该源正在重建的窗口：先拷 epoch 目录、边车殿后、复查 `.ptr` 未翻；SQLite 双库用 `sqlite3 <db> ".backup …"` 在线备份（写瞬间的 `-journal` 伴生文件会让裸拷撕裂）。恢复 = 拷回卷 + `docker compose up -d`，再核对启动日志 `Loaded <键数> <源名> + …` 与备份前的 `/api/db-status` 一致。真正不可再生的只有 `auth.db`/`alerts.db`（key 与告警史）——数据文件全部可从公开 feed 重新下载。
+
+### 发版（维护者）
+
+发版切 tag 时的一个坑：release 提交必须含至少一个非 markdown 文件改动——CI 的 `paths-ignore` 会跳过 `**.md`-only 的 push，md-only 发版提交将不触发 tag↔CHANGELOG↔GitHub Release 一致性闸门。
+
 ## 许可证
 
 © 2026 steponeerror，采用 [AGPL-3.0](LICENSE) 授权；各情报源有自己的使用条款。

@@ -277,6 +277,14 @@ git pull && docker compose up -d --build
 
 To update from the page itself, uncomment the self-update mounts in `docker-compose.yml` (docker.sock + repo dir + token), restart, and an "Update now" button appears. The repo-dir mount must use an absolute host path (e.g. `/home/you/ip-radar:/app/repo`) — a `./` relative path breaks the in-container compose replay. Note: mounting docker.sock grants the container host-level root control — recommended for LAN self-hosting only; you'll paste your `IP_RADAR_UPDATE_TOKEN` once on first update. Known quirks: files written by in-container git pull are owned by root — host-side repo operations may need sudo or `git safe.directory`; and if you edit tracked files in the repo (like `.env`), `git pull --ff-only` will refuse to update by design — put local overrides in `.env.local` instead.
 
+### Backup & restore
+
+All state lives in a single named volume (`ipradar-data` → `/app/data`): per-source raw downloads, LMDB epoch dirs with their `.ptr/.count/.cov/.disjoint` sidecars, and the SQLite pair `auth.db`/`alerts.db`. Rebuilds never write in place — a fresh epoch dir lands, then the pointer flips atomically — so a volume copy taken with the container stopped (`docker compose stop ipradar`, tar the volume, start again; `down` never with `-v`) is a complete, consistent backup. Hot copies work per source as long as that source isn't mid-rebuild: copy the epoch dir first, the sidecars last, re-check `.ptr` didn't flip; for the SQLite pair use `sqlite3 <db> ".backup …"` (a mid-write `-journal` sibling makes naive copies torn). Restore = copy the volume back, `docker compose up -d`, then verify the startup line `Loaded <count> <source> + …` matches `/api/db-status` from before the backup. Only `auth.db`/`alerts.db` are irreplaceable (keys, alert history) — every data file re-downloads from its public feed.
+
+### Releasing (maintainers)
+
+One trap when cutting a release: the release commit must include at least one non-markdown file change — CI's `paths-ignore` skips `**.md`-only pushes, so an md-only release commit never triggers the tag↔CHANGELOG↔GitHub Release consistency gate that runs on tag builds.
+
 ### Source alerts (optional)
 
 The scheduler tracks every source's liveness, but notifications are **silent by default**. Set `IP_RADAR_ALERT_URLS` (any `environment` block in `docker-compose.yml`, or `.env.local`) to a comma-separated list of [apprise](https://github.com/caronc/apprise)-style URLs — e.g. `mailto:you@example.com`, a Discord/Telegram/Lark webhook — and you'll get one combined message when a source stops updating, keeps failing downloads, or its database fails to load (e.g. a corrupted epoch). Per-source health (including load errors) is always visible under `/api/sources`; the env change takes effect on restart.
