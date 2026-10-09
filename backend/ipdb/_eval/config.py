@@ -51,7 +51,7 @@ NO_DATA_COLLAPSE = 0.5
 # (market-blind 细分领域,垫底是覆盖面问题,非佐证问题;仪器卫生,不动权重)。
 SPECIALIST_UNIQUE_SHARE = 0.8
 
-# Fountainhead heuristic (spec 2026-09-01 Part 2): a source is "suspected
+# Fountainhead heuristic (spec 2026-09-02-brief §5.1): a source is "suspected
 # fountain" when >= FOUNTAIN_MIN_CONTAINEES other sources, each holding
 # >= FOUNTAIN_MIN_PAIRS assertions, are >= FOUNTAIN_CONTAINMENT contained
 # in it (directed). Presentation-only metadata — never alters theta or
@@ -72,7 +72,7 @@ IP_WARNINGLISTS = [
 ]
 
 # Corpus sizing.
-# Epoch 2026-09-01 (spec Part 5): per_type_n 30→60, corpus.json frozen.
+# Epoch 2026-09-01 (spec 2026-09-02-brief §5.10): per_type_n 30→60, corpus.json frozen.
 # Any --rebuild from here on starts a NEW epoch — record old/new
 # fingerprints in superpowers/runbooks/eval-model-monthly.md first.
 CORPUS_PER_TYPE_N = 60     # malicious IPs sampled per classification_type

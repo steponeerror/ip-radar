@@ -65,7 +65,9 @@ def _env_int(env: dict, key: str, default: int) -> int:
 
 
 def resolve_layout(cpu: int, ram_avail_mb: int, env: dict) -> tuple[int, int]:
-    """Compute (N, M) layout with precedence: env var > perf_config > auto formula.
+    """Compute (N, M) layout with precedence: env var > auto formula.
+    (The 2026-08-06 batch-pool spec's perf_config.json tier — its D8 — was
+    never implemented; env vars + auto formula are the only inputs.)
 
     Precedence order:
     1. IPRADAR_TOTAL_PROCS env var (re-splits budget via _split_budget)
