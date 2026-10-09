@@ -37,6 +37,7 @@ _RE_NOTIFY_S = 86400
 # alert_state 的 condition 取值
 _STALE = "stale"
 _FAIL = "fail"
+_READER = "reader"   # OL-4:ptr 在(库已建成)但 reader 未加载(load 抛/epoch 损坏)
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS update_events (
@@ -44,7 +45,7 @@ CREATE TABLE IF NOT EXISTS update_events (
   source TEXT NOT NULL, at REAL NOT NULL, record_count INTEGER);
 CREATE INDEX IF NOT EXISTS ix_update_events_source_at ON update_events(source, at);
 CREATE TABLE IF NOT EXISTS alert_state (
-  source TEXT NOT NULL, condition TEXT NOT NULL,   -- 'stale' | 'fail'
+  source TEXT NOT NULL, condition TEXT NOT NULL,   -- 'stale' | 'fail' | 'reader'
   active_since REAL NOT NULL, last_notified REAL NOT NULL,
   PRIMARY KEY (source, condition));
 """
@@ -148,7 +149,8 @@ def evaluate(snapshots: list[dict], now: float) -> dict | None:
     """消费 scheduler 每轮快照,推进 alert_state 并组装本轮合并消息。
 
     snapshot 每项:{"name", "stale_days", "content_age_h"(None=无文件→视为 ∞),
-    "fail_count"(缺省 0)}。per (source, condition) 状态机(约束 4):
+    "fail_count"(缺省 0), "reader_error"(缺省 False:ptr 在而 reader 未加载,
+    OL-4 epoch 损坏降级信号)}。per (source, condition) 状态机(约束 4):
     转入坏 → INSERT active_since/last_notified=now 并计入;持续坏且
     now-last_notified ≥ 24h → 刷新 last_notified 并计入(重发);恢复 →
     DELETE,源名入恢复段;快照中消失的源(被禁用)→ 静默 DELETE。
@@ -160,6 +162,7 @@ def evaluate(snapshots: list[dict], now: float) -> dict | None:
     deletes: list[tuple[str, str]] = []
     stale_lines: list[tuple[str, str]] = []  # (源名, 行)——组内按源名排序
     fail_lines: list[tuple[str, str]] = []
+    reader_lines: list[tuple[str, str]] = []
     recovered: set[str] = set()
 
     with closing(_connect()) as conn:
@@ -185,6 +188,7 @@ def evaluate(snapshots: list[dict], now: float) -> dict | None:
             for cond, bad in (
                 (_STALE, age_h is None or age_h > thr),  # None = 无文件 → ∞ 必触发
                 (_FAIL, fail_count >= _FAIL_COUNT),
+                (_READER, snap.get("reader_error", False)),
             ):
                 key = (name, cond)
                 if bad:
@@ -210,6 +214,9 @@ def evaluate(snapshots: list[dict], now: float) -> dict | None:
                 stale_lines.append((name, line))
             if _FAIL in counted:
                 fail_lines.append((name, f"{name}: 连续失败 ×{fail_count}"))
+            if _READER in counted:
+                reader_lines.append(
+                    (name, f"{name}: 数据库未加载(疑 epoch 损坏),查询端静默缺席"))
 
         # 快照里消失的源(被禁用):静默清状态,不入恢复段
         deletes.extend(k for k in existing if k[0] not in seen)
@@ -229,11 +236,13 @@ def evaluate(snapshots: list[dict], now: float) -> dict | None:
                     "DELETE FROM alert_state WHERE source = ? AND condition = ?",
                     (source, cond))
 
-    bad_sources = {name for name, _ in stale_lines} | {name for name, _ in fail_lines}
+    bad_sources = ({name for name, _ in stale_lines} | {name for name, _ in fail_lines}
+                   | {name for name, _ in reader_lines})
     if not bad_sources and not recovered:
         return None
     lines = [line for _, line in sorted(stale_lines)] \
-        + [line for _, line in sorted(fail_lines)]
+        + [line for _, line in sorted(fail_lines)] \
+        + [line for _, line in sorted(reader_lines)]
     if recovered:
         lines.append("——已恢复: " + ", ".join(sorted(recovered)))
     if bad_sources:

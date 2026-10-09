@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, fireEvent } from "@testing-library/react";
 import { DbStatusBar } from "../DbStatusBar";
 import { renderWithI18n } from "../../test/i18nTestUtils";
 import { getDbStatus } from "../../api";
@@ -52,12 +52,30 @@ describe("DbStatusBar read-only public bar", () => {
     expect(screen.queryByRole("button")).toBeNull();
   });
 
-  it("renders the error bar (no Retry button) when db-status fails entirely", async () => {
+  it("renders the error bar with exactly one control — Retry — when db-status fails entirely (U9)", async () => {
     vi.mocked(getDbStatus).mockRejectedValueOnce(new Error("network down"));
     renderWithI18n(<DbStatusBar />);
     // 错误文案优先信封 message(e.message),与旧行为一致
     expect(await screen.findByText(/network down/i)).toBeInTheDocument();
-    expect(screen.queryByRole("button")).toBeNull();
+    // 失败态现在有就地重试入口(不再需要整页刷新);也是唯一按钮
+    expect(screen.getByRole("button", { name: /Retry/i })).toBeInTheDocument();
+    expect(screen.getAllByRole("button")).toHaveLength(1);
+  });
+
+  it("Retry refetches db-status and recovers the bar to read-only (U9)", async () => {
+    vi.mocked(getDbStatus)
+      .mockRejectedValueOnce(new Error("network down"))
+      .mockResolvedValueOnce({
+        last_updated: "2026-09-21T00:00:00Z", total_records: 100,
+        scalar_records: 60, threat_records: 30, asset_records: 10,
+        is_stale: false, warming_up: false, warnings: [],
+      });
+    renderWithI18n(<DbStatusBar />);
+    expect(await screen.findByText(/network down/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Retry/i }));
+    expect(await screen.findByText(/100 records/i)).toBeInTheDocument();
+    expect(screen.queryByText(/network down/i)).toBeNull();
+    expect(screen.queryByRole("button")).toBeNull();   // 恢复后回纯只读
   });
 
   it("renders nothing before the first db-status response lands", () => {

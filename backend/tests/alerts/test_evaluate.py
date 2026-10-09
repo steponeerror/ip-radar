@@ -22,9 +22,10 @@ def alerts_db(tmp_path, monkeypatch):
     return p
 
 
-def _snap(name, stale_days=1, age=1.0, fail=0):
+def _snap(name, stale_days=1, age=1.0, fail=0, reader=False):
     return {"name": name, "stale_days": stale_days,
-            "content_age_h": age, "fail_count": fail}
+            "content_age_h": age, "fail_count": fail,
+            "reader_error": reader}
 
 
 def _seed_observed(source, gap_h, now, events=6):
@@ -119,6 +120,41 @@ def test_fail_count_defaults_to_zero(alerts_db):
     snap = [{"name": "otx", "stale_days": 1, "content_age_h": 1.0}]  # 缺 fail_count
     assert _alerts.evaluate(snap, now=T0) is None
     assert _state(alerts_db) == []
+
+
+def test_reader_error_condition_and_recovery(alerts_db):
+    """OL-4:库已建成(ptr 在)但 reader 未加载(load 抛/epoch 损坏)→
+    reader 条件转入,逐字消息行 + alert_state 落行;恢复(人裁 rebuild
+    完成 reader 回来)→ 恢复段。"""
+    from ipdb import _alerts
+    msg = _alerts.evaluate([_snap("dbip", age=1.0, reader=True)], now=T0)
+    assert msg == {"title": "ipradar: 1 源异常",
+                   "body": "dbip: 数据库未加载(疑 epoch 损坏),查询端静默缺席"}
+    assert _state(alerts_db) == [("dbip", "reader", T0, T0)]
+    # reader_error 回 False = 条件解除 → 恢复段
+    msg = _alerts.evaluate([_snap("dbip", age=1.0)], now=T0 + H)
+    assert msg == {"title": "ipradar: 1 源已恢复", "body": "——已恢复: dbip"}
+
+
+def test_reader_error_key_absent_defaults_false(alerts_db):
+    """旧快照形状(无 reader_error 键)不触发 reader 条件(向后兼容)。"""
+    from ipdb import _alerts
+    snap = [{"name": "otx", "stale_days": 1, "content_age_h": 1.0,
+             "fail_count": 0}]
+    assert _alerts.evaluate(snap, now=T0) is None
+    assert _state(alerts_db) == []
+
+
+def test_reader_error_counts_source_once_with_stale(alerts_db):
+    """reader + stale 同源同轮双条件:标题 N = 异常源数(双条件算 1),
+    消息行 stale 在前 reader 在后(组装序)。"""
+    from ipdb import _alerts
+    msg = _alerts.evaluate([_snap("dbip", age=26.0, reader=True)], now=T0)
+    assert msg == {
+        "title": "ipradar: 1 源异常",
+        "body": "dbip: 过期(上次内容更新 26h,阈值 24h)\n"
+                "dbip: 数据库未加载(疑 epoch 损坏),查询端静默缺席"}
+    assert [r[:2] for r in _state(alerts_db)] == [("dbip", "reader"), ("dbip", "stale")]
 
 
 def test_none_age_always_triggers(alerts_db):

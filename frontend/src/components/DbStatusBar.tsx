@@ -1,20 +1,24 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { getDbStatus, type DbStatus } from "../api";
 import { useI18n } from "../i18n";
 
 // Task 9:公开底栏只读化(管理面收敛 /admin,spec §9)。计数/警告/过期来自
 // 公开的 GET /api/db-status;原 Update/Retry 按钮与活动任务面板
 // (依赖 /api/tasks + /api/events,Task 3 起超管门)移至 admin/BatchPanel。
+// U9:拉取全挂的失败态红条曾需整页刷新才能恢复 —— 就地补一个 Retry 入口
+// (重拉同一公开接口,成功即恢复;成功/警告态仍纯只读零按钮)。
 export function DbStatusBar() {
   const { t } = useI18n();
   const [status, setStatus] = useState<DbStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const load = useCallback(() => {
     getDbStatus()
-      .then(setStatus)
+      .then((s) => { setStatus(s); setError(null); })
       .catch((e) => setError(e instanceof Error ? e.message : t("dbStatus.statusUnavailable")));
   }, [t]);
+
+  useEffect(() => { load(); }, [load]);
 
   if (!status && !error) return null;
 
@@ -29,6 +33,14 @@ export function DbStatusBar() {
             <span className="inline-flex h-2 w-2 rounded-full bg-red-500" />
             <span>{error}</span>
           </div>
+          <button
+            type="button"
+            onClick={load}
+            aria-label={t("dbStatus.retry")}
+            className="rounded px-2 py-0.5 text-red-400 hover:bg-zinc-800 hover:text-red-300"
+          >
+            ↻ {t("dbStatus.retry")}
+          </button>
         </div>
       </div>
     );

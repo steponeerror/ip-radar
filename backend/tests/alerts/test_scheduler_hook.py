@@ -43,6 +43,15 @@ class HookSource:
         os.utime(str(self._path), (ts, ts))
 
 
+class UnloadedSource(HookSource):
+    """OL-4 测试源:reader 未加载(epoch 损坏后 load_db 的残留形态)。"""
+
+    def health(self):
+        from ipdb._types import SourceHealth
+        return SourceHealth(name=self.name, loaded=False, record_count=0,
+                            last_updated=None, is_stale=False, covered_ips=0)
+
+
 class FakeManager:
     """Stand-in UpdateManager:记录 detached enqueue,task_state 可脚本化。"""
 
@@ -93,6 +102,14 @@ def _events(db):
         return conn.execute(
             "SELECT source, at, record_count FROM update_events"
             " ORDER BY at, id").fetchall()
+
+
+def _alert_state(db):
+    """直读 sqlite 验证 alert_state(OL-4:reader 条件经 scheduler 落行)。"""
+    with closing(sqlite3.connect(str(db))) as conn:
+        return conn.execute(
+            "SELECT source, condition FROM alert_state"
+            " ORDER BY source, condition").fetchall()
 
 
 # ── 种子事件 ──
@@ -175,8 +192,10 @@ def test_snapshots_passed_to_evaluate(alerts_db, tmp_path, monkeypatch):
     monkeypatch.setattr(_alerts, "push", fake_push)
     sch.scan(now=NOW)
     assert seen == [([
-        {"name": "a", "stale_days": 3, "content_age_h": 24.0, "fail_count": 2},
-        {"name": "b", "stale_days": 1, "content_age_h": None, "fail_count": 0},
+        {"name": "a", "stale_days": 3, "content_age_h": 24.0, "fail_count": 2,
+         "reader_error": False},
+        {"name": "b", "stale_days": 1, "content_age_h": None, "fail_count": 0,
+         "reader_error": False},
     ], NOW)]
     assert pushes == []
 
@@ -243,3 +262,59 @@ def test_prune_runs_each_scan(alerts_db, tmp_path):
     _alerts.record_event("x", at=NOW - 91 * 86400)   # 窗口外旧事件
     sch.scan(now=NOW)
     assert _events(alerts_db) == []
+
+
+# ── OL-4:epoch 损坏不再静默(轮末告警查 loaded 态)──
+
+def test_scan_alerts_reader_error_for_corrupt_epoch(
+        alerts_db, tmp_path, monkeypatch):
+    """ptr 在(库已建成)而 health().loaded=False(load 抛/epoch 损坏)
+    → 轮末快照记 reader_error → alert_state 落 reader 行 + push 消息含
+    降级行;调度面不自动 rebuild(宁少算,rebuild 人裁)——mtime 新鲜
+    且 needs_rebuild=False 时不得入队。"""
+    from ipdb import _alerts
+    src = UnloadedSource("dbip", tmp_path / "fake_dbip", mtime=NOW)
+    ptr = tmp_path / "fake_dbip.lmdb.ptr"
+    ptr.write_text("42\n")                    # 库已建成(ptr 在)
+    src._mmdb_path = ptr
+    sch, mgr = _make_scheduler([src])
+    pushes = []
+
+    def fake_push(title, body):
+        pushes.append((title, body))
+        return True
+
+    monkeypatch.setattr(_alerts, "push", fake_push)
+    sch.scan(now=NOW)
+    assert mgr.enqueued == []                 # 不自动 rebuild(人裁不变)
+    assert _alert_state(alerts_db) == [("dbip", "reader")]
+    assert len(pushes) == 1
+    assert pushes[0][0] == "ipradar: 1 源异常"
+    assert "dbip: 数据库未加载" in pushes[0][1]
+    # 人裁 rebuild 完成 reader 回来(loaded=True)→ 下一轮恢复,状态自清
+    fixed = _make_src("dbip", tmp_path, mtime=NOW)   # HookSource: loaded=True
+    fixed._mmdb_path = ptr
+    sch2, _ = _make_scheduler([fixed])
+    sch2.scan(now=NOW + 60.0)
+    assert _alert_state(alerts_db) == []
+
+
+def test_scan_no_reader_alert_when_never_built(
+        alerts_db, tmp_path, monkeypatch):
+    """ptr 缺失(库从未建成/冷启动未建)→ reader_error False,不告
+    reader——只有「库已建成却加载不上」才算降级。"""
+    from ipdb import _alerts
+    src = UnloadedSource("fresh", tmp_path / "fake_fresh", mtime=NOW)
+    src._mmdb_path = tmp_path / "fake_fresh.lmdb.ptr"   # 不存在
+    sch, mgr = _make_scheduler([src])
+    pushes = []
+
+    def fake_push(title, body):
+        pushes.append((title, body))
+        return True
+
+    monkeypatch.setattr(_alerts, "push", fake_push)
+    sch.scan(now=NOW)
+    assert mgr.enqueued == []                 # mtime 新鲜,非 slot 到期
+    assert _alert_state(alerts_db) == []
+    assert pushes == []

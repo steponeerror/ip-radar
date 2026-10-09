@@ -59,6 +59,11 @@ def reconcile_on_startup() -> None:
     if not d or d.get("state") != "updating":
         _inmem.update(state="idle", error=None, at=None)
         return
+    # OL-2:先判版本后判 stale——慢机构建(>15min)成功的更新版本已前进,
+    # 不得先落 stale 窗被误标 failed(状态与事实相反)。
+    if d.get("from_version") and d["from_version"] != _version_now():
+        _inmem.update(state="idle", error=None, at=None)  # 版本已变 → 上次成功
+        return
     at = d.get("at")
     if at:
         try:
@@ -68,10 +73,7 @@ def reconcile_on_startup() -> None:
                 return
         except ValueError:
             pass
-    if d.get("from_version") and d["from_version"] != _version_now():
-        _inmem.update(state="idle", error=None, at=None)  # 版本已变 → 上次成功
-    else:
-        _persist("failed", "更新中断(版本未变化,subprocess 未完成)")
+    _persist("failed", "更新中断(版本未变化,subprocess 未完成)")
 
 
 # ── L2 解锁检测 + compose 项目名自发现(F1) ──

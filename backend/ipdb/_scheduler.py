@@ -144,6 +144,7 @@ class RefreshScheduler:
             for source in self._enabled_offline_sources():
                 mtime = self._read_mtime(source)
                 b = self._backoff.get(source.name)
+                ptr = getattr(source, "_mmdb_path", None)   # ptr 文件(registry/scheduler 契约名)
                 snapshots.append({
                     "name": source.name,
                     "stale_days": source.stale_days,
@@ -151,6 +152,10 @@ class RefreshScheduler:
                     "content_age_h": None if mtime is None
                     else (now - mtime) / 3600.0,
                     "fail_count": b.fail_count if b is not None else 0,
+                    # OL-4:epoch 损坏不得静默缺席——ptr 在(库已建成)而
+                    # reader None(load 抛)即降级告警;不触发自动 rebuild(人裁)
+                    "reader_error": ptr is not None and ptr.exists()
+                    and not source.health().loaded,
                 })
             msg = _alerts.evaluate(snapshots, now)
             if msg is not None:

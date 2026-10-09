@@ -6,6 +6,7 @@ frontend/dist
 backend/.venv
 backend/data
 backend/.env
+backend/tests
 .env
 .env.local
 **/.env*

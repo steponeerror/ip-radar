@@ -22,7 +22,8 @@ from typing import Any, Iterator
 
 from ._types import SourceHealth
 from ._evidence import Evidence
-from ._sources._download import warn_if_redirected, atomic_write_bytes
+from ._sources._download import (
+    warn_if_redirected, atomic_write_bytes, redact_url)
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +86,7 @@ class Source:
             warn_if_redirected(self.url, resp)
             data = resp.read()
         if not data.strip():
-            raise RuntimeError(f"Empty response from {self.url}")
+            raise RuntimeError(f"Empty response from {redact_url(self.url)}")
         atomic_write_bytes(self._path, data)
 
     def harvest(self) -> Iterator[tuple[str, Evidence]]:

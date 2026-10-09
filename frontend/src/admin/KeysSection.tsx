@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Modal } from "../components/Modal";
 import { useI18n } from "../i18n";
+import { copyText } from "../lib/utils";
 import {
   createAdminKey,
   deleteAdminKey,
@@ -243,10 +244,12 @@ export default function KeysSection({ onUnauthorized }: { onUnauthorized?: () =>
 
   const copyKey = async () => {
     if (!created) return;
-    try {
-      await navigator.clipboard.writeText(created.key);
+    // U10:http:// 非安全上下文 navigator.clipboard 为 undefined(管理台主场景
+    // = 自托管 LAN 部署)→ copyText 降级 execCommand;两路皆挂则不亮“已复制”
+    // (密钥仅展示这一次,绝不假装已复制;用户仍可手动选中)。
+    if (await copyText(created.key)) {
       setCopied(true);
-    } catch { /* 剪贴板被拒:用户仍可手动选中复制 */ }
+    }
   };
 
   const handleRevoke = async (k: ApiKeyMetaInfo) => {

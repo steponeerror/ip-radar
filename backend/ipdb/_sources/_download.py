@@ -5,8 +5,24 @@ import threading
 import urllib.request
 from pathlib import Path
 from typing import Callable, Optional
+from urllib.parse import urlsplit, urlunsplit
 
 logger = logging.getLogger(__name__)
+
+
+def redact_url(url: str) -> str:
+    """下载 URL 日志打码(2026-10-08 C 批 Task 1,事故驱动:OTX 与
+    IP2PROXY token 各泄过一次——warn_if_redirected 绊线把带 token 的完整
+    下载 URL 打进了 docker 日志)。策略:保留 scheme+host+path(feed 腐烂
+    排查需要可见落点),query 整体替换为 "?q=REDACTED"——逐参数白名单
+    不做(YAGNI):token 可能藏在任意参数名下,全部 query 按敏感处理;
+    userinfo(user:pass@)与 fragment 同属凭据面,一并丢弃。"""
+    parts = urlsplit(url)
+    host = parts.netloc.rsplit("@", 1)[-1]
+    redacted = urlunsplit((parts.scheme, host, parts.path, "", ""))
+    if parts.query:
+        redacted += "?q=REDACTED"
+    return redacted
 
 
 def warn_if_redirected(url: str, resp) -> None:
@@ -17,7 +33,7 @@ def warn_if_redirected(url: str, resp) -> None:
     final = getattr(resp, "geturl", lambda: None)()
     if final and final != url:
         logger.warning("redirected: %s -> %s (feed URL rot early signal)",
-                       url, final)
+                       redact_url(url), redact_url(final))
 
 
 class CancelledError(Exception):
@@ -92,7 +108,7 @@ def download_file(
                         on_progress(received, total)
             if total and received != total:
                 raise RuntimeError(
-                    f"truncated download: {url} — got {received} of {total} bytes")
+                    f"truncated download: {redact_url(url)} — got {received} of {total} bytes")
             if on_progress is not None and total > 0:
                 on_progress(received, total)  # ensure final 100% lands
         os.replace(str(tmp), str(dest))

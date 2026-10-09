@@ -4,7 +4,7 @@ import urllib.request
 from pathlib import Path
 
 from .._source_base import Source
-from ._download import CancelToken, CancelledError, atomic_write_bytes
+from ._download import CancelToken, CancelledError, atomic_write_bytes, redact_url
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +52,7 @@ class ChineseISPSource(Source):
         保留旧文件不再 unlink,失败 feed 名记 self.last_partial_failure;
         全挂才 raise。旧实现失败即删旧文件 — 捕获异常路径删旧好证据。"""
         self._isp_dir.mkdir(parents=True, exist_ok=True)
-        logger.info(f"Downloading Chinese ISP data from {_ISP_BASE_URL}...")
+        logger.info(f"Downloading Chinese ISP data from {redact_url(_ISP_BASE_URL)}...")
         failed: list[str] = []
         for isp_name in _ISP_FILES:
             if token is not None and token.is_cancelled():

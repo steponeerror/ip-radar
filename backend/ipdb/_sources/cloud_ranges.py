@@ -42,6 +42,7 @@ from typing import Iterator
 from .._evidence import Evidence
 from .._source_base import Source
 from .._types import FeedHealth, SourceHealth
+from ._download import redact_url
 
 logger = logging.getLogger(__name__)
 
@@ -64,12 +65,12 @@ def _fetch_json(url: str, token=None) -> bytes:
     补齐;raise 由 download 计入单家失败,走部分容忍路径)。"""
     data = Source._http_get(url)
     if not data.strip():
-        raise RuntimeError(f"empty response from {url}")
+        raise RuntimeError(f"empty response from {redact_url(url)}")
     try:
         json.loads(data)
     except ValueError:
         raise RuntimeError(
-            f"non-JSON response from {url} — likely an HTML error page")
+            f"non-JSON response from {redact_url(url)} — likely an HTML error page")
     return data
 
 
