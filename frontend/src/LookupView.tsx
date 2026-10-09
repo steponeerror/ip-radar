@@ -9,6 +9,7 @@ import { WarmingProvider } from "./WarmingProvider";
 import { useWarming } from "./warming";
 import { queryIpsStream, uploadFileStream, type ApiError } from "./api";
 import type { LookupResult, Progress, StreamOutcome } from "./api";
+import { errorToBanner, outcomeToBanner, type BannerError } from "./lib/lookupError";
 import { useI18n } from "./i18n";
 
 type InputTab = "text" | "file";
@@ -31,7 +32,7 @@ function LookupViewInner() {
   const [tab, setTab] = useState<InputTab>("text");
   const [results, setResults] = useState<LookupResult[]>([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<BannerError | null>(null);
   const [skipped, setSkipped] = useState<{ invalid: number } | null>(null);
   const [progress, setProgress] = useState<Progress | null>(null);
   const [csvModal, setCsvModal] = useState<{
@@ -41,10 +42,13 @@ function LookupViewInner() {
   } | null>(null);
   const { warming, recheck } = useWarming();
 
-  const applyOutcome = (r: StreamOutcome) => {
+  // U1:done.error / done.code 经 outcomeToBanner 映射为 i18n 主行;
+  // fallbackKey = 调用方已本地化的 failMsg 键。
+  const applyOutcome = (r: StreamOutcome, fallbackKey: string) => {
     if (r.invalidLines > 0) {
       setSkipped({ invalid: r.invalidLines });
     }
+    const banner = outcomeToBanner(r, fallbackKey);
     if (r.csvDownloaded) {
       setResults([]);
       setCsvModal({
@@ -52,19 +56,19 @@ function LookupViewInner() {
         count: r.total,
         invalid: r.invalidLines,
       });
-      if (r.error != null) setError(r.error);
     } else {
       setResults(r.results);
-      if (r.error != null) setError(r.error);
     }
+    if (banner) setError(banner);
   };
 
   // 503 自纠:乐观提交漏过初始加载窗口撞上 warming 门时,recheck 确认 —
   // 仍在 warming 则横幅接管(recheck 同时重臂轮询,后端重启亦能恢复);
   // 门已开则原样重试一次(503 在依赖处抛出,服务端零副作用,重试安全)。
   // 第二次仍 503 不再重试(防乒乓)。no-sources 是配置态非瞬时门:本地化
-  // 提示、不重试。
-  const runLookup = async (fetcher: () => Promise<StreamOutcome>, failMsg: string) => {
+  // 提示、不重试。其余错误主行必为 t() 键(errorToBanner 映射),信封
+  // message 降级为次要行(U1)。
+  const runLookup = async (fetcher: () => Promise<StreamOutcome>, fallbackKey: string) => {
     setLoading(true);
     setError(null);
     setSkipped(null);
@@ -72,26 +76,26 @@ function LookupViewInner() {
     try {
       for (let attempt = 0; ; attempt++) {
         try {
-          applyOutcome(await fetcher());
+          applyOutcome(await fetcher(), fallbackKey);
           break;
         } catch (e) {
           if (e instanceof Error && e.name === "AbortError") {
-            setError(t("lookup.cancelled"));
+            setError({ key: "lookup.cancelled" });
             break;
           }
           if ((e as ApiError).code === "no_sources") {
-            setError(t("lookup.noSources"));
+            setError({ key: "lookup.noSources" });
             break;
           }
           if (!isWarming503(e)) {
-            setError(e instanceof Error ? e.message : failMsg);
+            setError(errorToBanner(e, fallbackKey));
             break;
           }
           if (await recheck()) {
             break;
           }
           if (attempt > 0) {
-            setError(e instanceof Error ? e.message : failMsg);
+            setError(errorToBanner(e, fallbackKey));
             break;
           }
           // 503 与重拉之间门恰好开合 — 重试一次
@@ -104,7 +108,7 @@ function LookupViewInner() {
   };
 
   const handleQuery = (ips: string[]) =>
-    runLookup(() => queryIpsStream(ips, setProgress), t("lookup.queryFailed"));
+    runLookup(() => queryIpsStream(ips, setProgress), "lookup.queryFailed");
 
   // ?ip= 深链:挂载时自动查询一次。仅读一次参数,不随路由变化重复触发。
   // handleQueryRef 持挂载帧闭包(挂载时即最新);effect [] 只跑一次,
@@ -120,7 +124,7 @@ function LookupViewInner() {
   }, []);
 
   const handleUpload = (file: File) =>
-    runLookup(() => uploadFileStream(file, setProgress), t("lookup.uploadFailed"));
+    runLookup(() => uploadFileStream(file, setProgress), "lookup.uploadFailed");
 
   return (
     <div className="space-y-6">
@@ -203,7 +207,17 @@ function LookupViewInner() {
 
         {error && (
           <div className="mb-3 rounded-lg border border-red-400/30 bg-red-400/10 px-4 py-2 text-sm text-red-400">
-            {error}
+            <div>
+              {t(error.key)}
+              {error.retryAfter != null && (
+                <span className="ml-2 text-red-300/80">
+                  {t("lookup.error.retryAfterHint", { n: error.retryAfter })}
+                </span>
+              )}
+            </div>
+            {error.detail && (
+              <div className="mt-1 break-all text-xs text-red-300/70">{error.detail}</div>
+            )}
           </div>
         )}
 
