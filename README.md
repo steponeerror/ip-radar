@@ -91,7 +91,7 @@ Notes:
 - **IPv6 lookups too** — bare v6 and small v6 CIDRs resolve with geo · city · ASN · VPN · CDN · DROP ranges; geo/city/ASN, cloud-provider ranges, CDN edges and DROPv6 all carry v6; most threat lists have no v6 upstream — shown honestly as no-records.
 - **Day/night theme toggle** — light and dark themes one click apart; your choice is remembered and restored before first paint, so no flash of the wrong theme.
 - **One container, memory that behaves** — concurrency bends to host RAM; background refresh staggered per source: daily feeds 2×/day, weekly 1×/week, each at a fixed offset time.
-- **STIX 2.1 export (optional)** — `/api/lookup/{ip}/stix`; the image ships with `stix2` pre-installed (requirements.txt), so the export works out of the box.
+- **STIX 2.1 export** — `/api/lookup/{ip}/stix`; the image ships with `stix2` pre-installed (requirements.txt), so the export works out of the box.
 
 ## Architecture
 
@@ -284,6 +284,8 @@ All state lives in a single named volume (`ipradar-data` → `/app/data`): per-s
 ### Releasing (maintainers)
 
 One trap when cutting a release: the release commit must include at least one non-markdown file change — CI's `paths-ignore` skips `**.md`-only pushes, so an md-only release commit never triggers the tag↔CHANGELOG↔GitHub Release consistency gate that runs on tag builds.
+
+Another trap when deploying: on the deploy server, `git fetch --tags` before build — without the tag, BUILD_VERSION (`git describe`) falls back to an older baseline and the update banner falsely announces an update (v1.4.2 field note).
 
 ### Source alerts (optional)
 

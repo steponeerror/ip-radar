@@ -4,7 +4,7 @@ tuple. Verified behaviorally: a source emitting country_code has it flow
 source.query -> route_record -> field_values -> country_code strategy ->
 LookupResult.country.
 
-The isp slot was removed (spec D3): no strategy ever consumed it, and its
+The isp slot was removed (spec 2026-08-19 §4.1 D3): no strategy ever consumed it, and its
 only emitter (proxyscrape) now rides carrier. Stale stored "isp" keys fold
 into extra until the next rebuild.
 """
@@ -38,7 +38,7 @@ def test_lookup_routes_scalar_slot_to_result(monkeypatch):
     # country_code routed end-to-end to the merged result (would be "N/A" if
     # lookup stopped collecting SCALAR_SLOTS fields).
     assert lr.country.value == "US"
-    # isp slot removed (spec D3): values ride carrier now; stale stored
+    # isp slot removed (spec 2026-08-19 §4.1 D3): values ride carrier now; stale stored
     # "isp" keys fold into extra until the next rebuild.
     assert "isp" not in SCALAR_SLOTS
     assert "country_code" in SCALAR_SLOTS
@@ -46,6 +46,6 @@ def test_lookup_routes_scalar_slot_to_result(monkeypatch):
 
 def test_as_domain_is_asset_slot():
     """as_domain rides the asset schema (string value like carrier); ipinfo_lite
-    stores it per-node and lookup routes it without bespoke code (spec D5/Q7-A)."""
+    stores it per-node and lookup routes it without bespoke code (spec 2026-08-19 §4.2 D5/Q7-A)."""
     from ipdb._evidence import ASSET_SLOTS
     assert "as_domain" in ASSET_SLOTS

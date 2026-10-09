@@ -5,9 +5,14 @@ import {
   type TaskState, type BatchState,
 } from "../api";
 
+// U8:SSE 任务流连接态。reconnecting = 断线中、浏览器原生重连(瞬态,可能
+// 自愈)——与失败态(U7 控制/快照终态红字)语义区分;onopen 恢复自动回 connected。
+export type TaskConnection = "connected" | "reconnecting";
+
 export type TasksCtxValue = {
   tasks: TaskState[];
   batch: BatchState | null;
+  connection: TaskConnection;
   enqueueSingle: typeof apiEnqueueSingle;
   enqueueBatch: typeof apiEnqueueBatch;
   cancelTask: typeof apiCancelTask;

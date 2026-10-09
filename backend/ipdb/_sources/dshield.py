@@ -4,7 +4,7 @@ https://feeds.dshield.org/block.txt — tab-separated:
     start end prefix attacks as-name country abuse-mail
 No last_seen upstream (attacks is a rolling count). Small feed (~20 rows,
 top-20 attacking class C subnets). Direct source replaces what firehol's
-aggregate drops (spec D8/Q14-A).
+aggregate drops (spec 2026-08-19 §4.5 D8/Q14-A).
 """
 import logging
 from urllib.parse import urlparse

@@ -107,6 +107,7 @@ export interface StreamOutcome {
   csvDownloaded: boolean;
   invalidLines: number;
   error?: string | null;   // backend done.error (spec §4)
+  error_code?: string | null;  // done.code(backend 语义码)或前端哨兵 "stream_truncated"(U1 视图层 i18n)
   total: number;
 }
 
@@ -163,7 +164,7 @@ type StreamEvent =
   | { type: "start"; total: number }
   | { type: "row"; idx: number; result: LookupResult }
   | { type: "progress"; done: number; total: number }
-  | { type: "done"; invalid_lines?: number; error?: string | null };
+  | { type: "done"; invalid_lines?: number; error?: string | null; code?: string | null };
 
 async function readStream(
   res: Response,
@@ -181,6 +182,7 @@ async function readStream(
   let rowBuffer: string[] = [];
   let invalidLines = 0;
   let error: string | null = null;
+  let errorCode: string | null = null;
   let sawDone = false;
 
   const flushRows = () => {
@@ -218,27 +220,32 @@ async function readStream(
         sawDone = true;
         invalidLines = evt.invalid_lines ?? 0;
         error = evt.error ?? null;
+        errorCode = evt.code ?? null;
       }
     }
   }
 
-  // done 未到即 EOF(代理截断/进程被杀的干净关闭): 不视为成功
-  if (!sawDone && error == null) error = "stream ended before done";
+  // done 未到即 EOF(代理截断/进程被杀的干净关闭): 不视为成功;挂前端
+  // 哨兵 code "stream_truncated" 供视图层 i18n(U1)
+  if (!sawDone && error == null) {
+    error = "stream ended before done";
+    errorCode = "stream_truncated";
+  }
 
   if (mode === "csv") {
     flushRows();
     if (csvParts.length > 1) {  // more than just the header → has rows
       downloadCsv(csvParts);
-      return { results: [], csvDownloaded: true, invalidLines, error, total };
+      return { results: [], csvDownloaded: true, invalidLines, error, error_code: errorCode, total };
     }
-    return { results: [], csvDownloaded: false, invalidLines, error, total };
+    return { results: [], csvDownloaded: false, invalidLines, error, error_code: errorCode, total };
   }
 
   // table mode — reassemble in idx order
   const results = Array.from({ length: total }, (_, i) => resultsByIdx.get(i)).filter(
     (x): x is LookupResult => x !== undefined,
   );
-  return { results, csvDownloaded: false, invalidLines, error, total };
+  return { results, csvDownloaded: false, invalidLines, error, error_code: errorCode, total };
 }
 
 function streamFetchTimeout(controller: AbortController, connectMs = 30_000, idleMs = 120_000) {
@@ -252,6 +259,15 @@ function streamFetchTimeout(controller: AbortController, connectMs = 30_000, idl
       clearTimeout(timer);
     },
   };
+}
+
+// U1:流式守卫超时(30s 连接 / 120s 空闲)的 AbortError 转结构化
+// code="timeout"(视图层据此 i18n);cause 保留原始 DOMException 供诊断。
+function timeoutError(cause: unknown): ApiError {
+  const err = new Error("Request timed out (120s idle)", { cause }) as ApiError;
+  err.status = 0;
+  err.code = "timeout";
+  return err;
 }
 
 export async function queryIpsStream(
@@ -272,7 +288,7 @@ export async function queryIpsStream(
     return await readStream(res, onProgress, resetIdle);
   } catch (e) {
     if (e instanceof DOMException && e.name === "AbortError") {
-      throw new Error("Request timed out (120s idle)", { cause: e });
+      throw timeoutError(e);
     }
     throw e;
   } finally {
@@ -299,7 +315,7 @@ export async function uploadFileStream(
     return await readStream(res, onProgress, resetIdle);
   } catch (e) {
     if (e instanceof DOMException && e.name === "AbortError") {
-      throw new Error("Request timed out (120s idle)", { cause: e });
+      throw timeoutError(e);
     }
     throw e;
   } finally {
@@ -477,11 +493,17 @@ export async function resumeBatch(): Promise<void> {
  * (`adminMe()` → null, i.e. 401/503): the stream is closed (stopping the
  * native reconnect loop against a dead session) right before the callback.
  * A failed probe (network error) counts as session-alive — no close, no kick.
+ *
+ * `onDisconnect` (U8) fires synchronously at the top of onerror, before the
+ * probe resolves: the stream dropped and the browser is natively reconnecting
+ * — callers surface a transient "reconnecting" hint; recovery is signalled by
+ * `onReconnect` (onopen). Purely advisory: no new wire protocol or heartbeat.
  */
 export function subscribeTasks(
   onEvent: (e: TaskEvent) => void,
   onReconnect?: () => void,
   onSessionDead?: () => void,
+  onDisconnect?: () => void,
 ): () => void {
   const es = new EventSource("/api/events");
   es.onmessage = (m: MessageEvent) => {
@@ -496,6 +518,9 @@ export function subscribeTasks(
   // 真死 → 关流断原生重连并踢出;会话仍在则不动,交浏览器原生重连;探测
   // 自身网络错按正常处理(catch 吞掉),绝不误杀活会话。
   es.onerror = () => {
+    // U8:断线即置位(浏览器原生重连中);恢复由 onopen→onReconnect 清。
+    // 先于探测发出:会话真死时调用方随即被 onSessionDead 卸载,横幅无关紧要。
+    onDisconnect?.();
     adminMe()
       .then((me) => {
         if (me == null) {

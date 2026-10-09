@@ -162,7 +162,7 @@ class NamingAuthority:
     """Authority model for naming fields (as_name).
 
     cn_isp once held a CN/HK/MO/TW authority branch (conf 90) — removed when
-    cn_isp stopped emitting as_name (spec D6): region names like "香港" were
+    cn_isp stopped emitting as_name (spec 2026-08-19 §4.3 D6): region names like "香港" were
     polluting the org slot. First valid by reliability order wins; see git
     history if a CN authority source ever returns."""
 
