@@ -462,6 +462,7 @@ def lookup(ip: str, allowed_sources: frozenset[str] | None = None) -> LookupResu
     attributes: dict[str, list] = defaultdict(list)
     city_zh_map: dict[str, str] = {}
     geolite_extras: dict[str, dict] = {}
+    rir_extras: dict[str, dict] = {}
     for source in _enabled_sources():
         if allowed_sources is not None and source.name not in allowed_sources:
             continue
@@ -486,6 +487,10 @@ def lookup(ip: str, allowed_sources: frozenset[str] | None = None) -> LookupResu
             # 坐标仅 geolite 产;按源名收集,胜者匹配时读出(同 city_zh 旁路点)
             if source.name == "geolite_city" and extra:
                 geolite_extras[source.name] = extra
+            # rir_delegated 旁路(同 city_zh/坐标同族):注册分配元数据单证人,
+            # 不进任何合并策略(reg_country ≠ 地理国,绝不进 country 融合)
+            if source.name == "rir_delegated" and extra:
+                rir_extras[source.name] = extra
             if "classification_type" in item:
                 # DM-1 声明 r 生效:表优先(SOURCE_RELIABILITY 含
                 # _calibrated.json 运行时覆盖,表优先 → 后校准即真生效,
@@ -555,7 +560,9 @@ def lookup(ip: str, allowed_sources: frozenset[str] | None = None) -> LookupResu
             best = sorted(winners, key=lambda s: (-s.reliability, s.source))[0]
             city_zh = city_zh_map[best.source]
 
-    # geolite lat/lon 旁路(同 city_zh;display-only,无合并语义)
+    # geolite lat/lon 旁路(同 city_zh;display-only,无合并语义)。
+    # time_zone 同路捎带(信息维度批 2026-10-10):仅在 location 块成立时
+    # 附带(lat/lon 缺席则块不存在,tz 不独立成块——无定位即无时区语义)。
     location = None
     for s in city.sources:
         if s.source == "geolite_city" and s.value == city.value:
@@ -564,7 +571,18 @@ def lookup(ip: str, allowed_sources: frozenset[str] | None = None) -> LookupResu
                 location = {"lat": ex["lat"], "lon": ex["lon"]}
                 if ex.get("accuracy_radius") is not None:
                     location["accuracy_radius"] = ex["accuracy_radius"]
+                if ex.get("time_zone") is not None:
+                    location["time_zone"] = ex["time_zone"]
             break
+
+    # registration 顶层信息块(信息维度批,单证人,无合并语义):
+    # {registry, reg_country?, alloc_date?, status?};键缺席即省略。
+    registration = None
+    if rir_extras:
+        ex = next(iter(rir_extras.values()))
+        registration = {k: ex[k] for k in
+                        ("registry", "reg_country", "alloc_date", "status")
+                        if k in ex} or None
 
     return LookupResult(
         ip=ip,
@@ -576,6 +594,7 @@ def lookup(ip: str, allowed_sources: frozenset[str] | None = None) -> LookupResu
         as_name=as_name,
         ip_range=ip_range,
         is_isp=is_isp,
+        registration=registration,
         classifications=classifications,
         attributes=dict(attributes),
     )
@@ -590,6 +609,7 @@ def _error_result(ip: str) -> LookupResult:
         as_name=MergedField("N/A", 0, "voting", []),
         ip_range=MergedField("N/A", 0, "voting", []),
         is_isp=False,
+        registration=None,
         classifications={},
         attributes={},
         error="invalid IP format",

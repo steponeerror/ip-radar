@@ -110,7 +110,8 @@ class LookupResult:
     error: str | None = None
     is_reserved: bool = False
     city_zh: Optional[str] = None      # display-only zh name of winning city
-    location: Optional[dict] = None       # display-only {lat, lon, accuracy_radius?} (geolite, spec 2026-08-25)
+    location: Optional[dict] = None       # display-only {lat, lon, accuracy_radius?, time_zone?} (geolite, spec 2026-08-25; tz 信息维度批 2026-10-10)
+    registration: Optional[dict] = None   # display-only {registry, reg_country?, alloc_date?, status?} 单证人(rir_delegated 旁路;reg_country ≠ 地理国)
 
     # Verdict precedence for the fused top-level `threat` summary. Mirrors
     # _merge._assess_classification's PRECEDENCE so both layers never disagree.
@@ -175,6 +176,7 @@ class LookupResult:
             "city": _field_to_dict(self.city),
             "city_zh": self.city_zh,
             "location": self.location,
+            "registration": self.registration,
             "asn": _field_to_dict(self.asn),
             "as_name": _field_to_dict(self.as_name),
             "ip_range": _field_to_dict(self.ip_range),

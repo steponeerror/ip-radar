@@ -58,6 +58,9 @@ class GeoLiteCitySource(Source):
                     continue
                 extra = {"city_zh": city_zh} if city_zh else {}
                 loc = record.get("location") or {}
+                tz = loc.get("time_zone")
+                if tz:
+                    extra["time_zone"] = tz
                 lat, lon = loc.get("latitude"), loc.get("longitude")
                 if lat is not None and lon is not None:
                     extra["lat"] = lat

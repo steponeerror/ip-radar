@@ -7,9 +7,9 @@
 | 想知道什么 | 首记 | 状态 | 闭环指针 |
 |---|---|---|---|
 | 查解析器 IP 说不出是什么(service) | <2026-10-10 | 已闭 | dns_public + root_servers,PR #97/#98(普查判例) |
-| IP 所在时区 | 2026-10-10 | 候选 | GeoLite2 mmdb 自带 time_zone,harvest 现丢弃;库内扩展非新源(census 矩阵行 1) |
-| IP 的注册分配元数据(RIR/分配日期/allocated·assigned·available) | 2026-10-10 | 候选 | rir_delegated:五 RIR delegated-extended,日更免登录(census 矩阵行 2) |
-| IP 是否 IX 交换点 fabric | 2026-10-10 | 候选 | peeringdb ixpfx:开放 API 批量落地,otx 先例(census 矩阵行 4) |
+| IP 所在时区 | 2026-10-10 | 已立项（2026-10-10 信息维度批，geolite harvest 透传） | GeoLite2 mmdb 自带 time_zone,harvest 现丢弃;库内扩展非新源(census 矩阵行 1) |
+| IP 的注册分配元数据(RIR/分配日期/allocated·assigned·available) | 2026-10-10 | 已立项（2026-10-10 信息维度批，新源 rir_delegated） | rir_delegated:五 RIR delegated-extended,日更免登录(census 矩阵行 2) |
+| IP 是否 IX 交换点 fabric | 2026-10-10 | 已立项（2026-10-10 信息维度批，新源 peeringdb） | peeringdb ixpfx:开放 API 批量落地,otx 先例(census 矩阵行 4) |
 | ASN 的组织级名称(独立于 ASN 名) | 2026-10-10 | 候选 | caida_asorg:220k 行月更免登录;许可 add 时核(census 矩阵行 10) |
 | rDNS 主机名 | 2026-10-10 | open | 红线:需在线解析;无免费批量反解库(2026-10-10 查证) |
 | abuse contact | 2026-10-10 | open | RIPE DB bulk 重且仅部分 RIR |
