@@ -28,6 +28,8 @@ OLD_CATEGORIES = {
     "dns_public": "asset",
     "rir_delegated": "geo_asn",
     "peeringdb": "asset",
+    "caida_asorg": "geo_asn",      # b/asorg-anycast 2026-10-10
+    "anycast_census": "asset",    # b/asorg-anycast 2026-10-10
 }
 OLD_RELIABILITY = {
     "ipinfo_lite": 0.95, "iptoasn": 0.90, "cn_isp": 0.85, "geolite_city": 0.85,
@@ -48,10 +50,13 @@ OLD_RELIABILITY = {
     "dns_public": 0.90,
     "rir_delegated": 0.99,
     "peeringdb": 0.85,
+    "caida_asorg": 0.8,            # b/asorg-anycast 2026-10-10
+    "anycast_census": 0.9,         # b/asorg-anycast 2026-10-10
 }
 OLD_AUTHORITATIVE = {
     "is_proxy": ["ip2proxy"], "is_tor": ["tor_exits"], "is_vpn": ["x4bnet_vpn"],
     "service": ["infra_services", "cdn_edges", "root_servers", "dns_public"],
+    "as_org": ["caida_asorg"], "is_anycast": ["anycast_census"],  # b/asorg-anycast 2026-10-10
 }
 # SM-F1 删除的幻影轴:is_malicious(threatfox/emerging_threats/spamhaus
 # 声明但无证据键生产者)、is_hosting/is_mobile(ipinfo_lite 声明但只产
@@ -59,7 +64,7 @@ OLD_AUTHORITATIVE = {
 _PHANTOM_AXES = ("is_malicious", "is_hosting", "is_mobile")
 
 def test_categories_match_snapshot():
-    # 45 = 信息维度批两源入册后实测 len(SOURCE_CATEGORIES)
+    # 47 = b/asorg-anycast 两源入册后实测 len(SOURCE_CATEGORIES)
     live = dict(r.SOURCE_CATEGORIES)
     assert live == OLD_CATEGORIES
 

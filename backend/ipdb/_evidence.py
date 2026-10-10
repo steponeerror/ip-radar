@@ -19,10 +19,11 @@ CORE_FIELDS = frozenset({
     "malware_name", "first_seen", "confidence",
 })
 
-SCALAR_SLOTS = frozenset({"country_code", "asn", "as_name", "ip_range", "city"})
+SCALAR_SLOTS = frozenset({"country_code", "asn", "as_name", "ip_range", "city",
+                         "as_org"})  # as_org: ASN→组织级名称,caida_asorg 查询期 join(b/asorg-anycast 2026-10-10;as_domain 单源占位同例)
 RICH_SLOTS = frozenset({"native_categories", "comment", "tags", "reporter_count", "last_seen"})
 ASSET_SLOTS = frozenset({"is_proxy", "is_hosting", "is_tor", "is_vpn", "carrier",
-                         "service", "as_domain"})  # service: public-infra role (dns/ntp/...) — string, like carrier; as_domain: registrar domain (ipinfo_lite)
+                         "service", "as_domain", "is_anycast"})  # service: public-infra role (dns/ntp/...) — string, like carrier; as_domain: registrar domain (ipinfo_lite); is_anycast: 任播槽,anycast_census 单源(b/asorg-anycast 2026-10-10,NEEDS anycast 行;bgp.tools 复活后双源投票)
 CANONICAL_SLOTS = SCALAR_SLOTS | RICH_SLOTS | ASSET_SLOTS
 ALL_KNOWN = CORE_FIELDS | CANONICAL_SLOTS
 
@@ -43,6 +44,7 @@ class Evidence:
     country_code: Optional[str] = None
     asn: Optional[int] = None
     as_name: Optional[str] = None
+    as_org: Optional[str] = None    # 组织级名称(SCALAR_SLOTS 契约;caida_asorg join 注入)
     ip_range: Optional[str] = None
     city: Optional[str] = None
     # ── canonical rich slots ──
@@ -56,6 +58,7 @@ class Evidence:
     is_hosting: Optional[bool] = None
     is_tor: Optional[bool] = None
     is_vpn: Optional[bool] = None
+    is_anycast: Optional[bool] = None
     carrier: Optional[str] = None
     service: Optional[str] = None     # public-infra role (dns/ntp/...) — string asset slot
     as_domain: Optional[str] = None   # registrar domain (ASSET_SLOTS contract)

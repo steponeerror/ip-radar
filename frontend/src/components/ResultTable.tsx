@@ -34,6 +34,7 @@ function assetBadges(r: LookupResult, t: TFn): { label: string; detail: string; 
       is_vpn: "asset.is_vpn",
       carrier: "asset.carrier",
       service: "asset.service",
+      is_anycast: "asset.is_anycast",
     }[key];
     if (!assetKey) continue;
     // De-dup: if classification already covers this, skip
