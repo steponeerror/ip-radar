@@ -4,6 +4,16 @@
 
 ## Unreleased
 
+### 新增 Added
+
+- 新源 root_servers（IANA named.root 根提示文件抓取，asset 资产通道，https://www.internic.net/domain/named.root）：service=authoritative_for；内容 = 13 台根服务器的 A + AAAA 裸址双族采入（13 + 13 共 26 行）；reliability 0.99（IANA 官方发布，named.root 序号周更），stale_days=7；裁决空串弃权（同 infra_services——资产位作证不指控）；下载落盘前 ≥13 A 行守卫（200-OK 空内容不替换旧数据防清源）；新增后公开源口径 41→42
+  - New source root_servers (IANA named.root root-hints fetch, asset channel, https://www.internic.net/domain/named.root): service=authoritative_for; content = the 13 root servers' bare A + AAAA addresses (13 + 13 = 26 rows, both families); reliability 0.99 (IANA official self-publication, named.root's serial advances weekly), stale_days=7; verdict stays an empty string (abstention, same as infra_services — the asset slot witnesses, never accuses); a ≥13-A-lines guard before persisting downloads (a 200-OK empty body never replaces old data, guarding against a source wipe); public-source count moves 41→42
+
+### 调整 Changed
+
+- feed-change: infra_services 内容重构——移除 13 行根服务器（迁入新源 root_servers，独立生命周期），新增 21 行公共 DNS resolver（中文公共 DNS 9 行：AliDNS/DNSPod/114DNS/百度，含 v6；既有 6 家 resolver 的 IPv6 伴侣行 10 行；Yandex DNS 基础对 2 行），35→43 总行（31 v4 + 12 v6）；纯 feed 内容面，分类与权威轴零变化
+  - feed-change: infra_services content restructure — 13 root-server rows removed (moved into the new root_servers source with its own lifecycle), 21 public-DNS-resolver rows added (9 Chinese public DNS rows: AliDNS/DNSPod/114DNS/Baidu, v6 included; 10 IPv6 companion rows for the existing 6 resolvers; 2 rows for the Yandex DNS base pair), 35→43 rows total (31 v4 + 12 v6); feed-content surface only, zero change to classification or authority axes
+
 ## v1.4.2 — 2026-10-09
 
 ### 新增 Added
