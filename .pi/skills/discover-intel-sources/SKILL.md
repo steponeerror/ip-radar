@@ -134,12 +134,15 @@ demand evidence (a NEEDS row or a probe column), never schema alone:
 ## The rubric (score every candidate 1–5 on each dimension)
 
 These six dimensions are the field's standard TI-feed quality metrics
-(Pearce et al., USENIX Security 2019: Volume, Uniqueness, Latency, Accuracy,
-Coverage) mapped onto this tool's contract. Score them, don't narrate them.
+(Li et al., "Reading the Tea Leaves", USENIX Security 2019: Volume, Differential
+Contribution, **Exclusive Contribution**, Latency, Accuracy, Coverage — the
+citation previously mis-summarized this as "Pearce et al.: Volume, Uniqueness,
+…"; corrected 2026-10-10) mapped onto this tool's contract. Score them, don't
+narrate them.
 
 | Dimension | What 5 looks like | What 1 looks like | Maps to |
 |---|---|---|---|
-| **Coverage value** | opens a dead slot / thin axis | near-100% overlap with an existing source | classification axis gap |
+| **Coverage value** | opens a dead slot / thin axis, **or** exclusive contribution ≥50% on ≥300 sampleable keys | near-100% overlap with an existing source | classification axis gap + exclusive contribution |
 | **Integration cost** | a simple base class (~10 lines) | a full `Source` subclass | archetype |
 | **Access / license** | free, no auth, bulk download | per-IP / per-query billing | `__init__` + `.env` |
 | **Freshness** | updates daily, actively maintained | stale, no update signal | `stale_days` |
@@ -149,6 +152,23 @@ Coverage) mapped onto this tool's contract. Score them, don't narrate them.
 **Total = sum of the six (6–30).** Rank survivors by total. The rubric is the
 *ranking* mechanism — if your final order isn't the rubric order, say explicitly
 why (e.g. "cost tied, #2 wins on uniqueness").
+
+**Coverage value is dual-anchor (2026-10-10 grill ruling):
+`max(axis novelty, exclusive contribution)`.** Exclusive contribution
+`Uniq_A = |A \ ⋃ other pool sources| / |A|` (Li et al. 2019) is the fraction of a
+candidate's own keys that no existing pool source answers on the target field —
+measured, not eyeballed, via `cd backend && python -m ipdb._eval --exclusive
+<feed-file> [--field f]` (N=300 candidate-side sample, stable seed,
+known-positive control, named covering sources — the two 2026-10-10 probe
+incidents are why the control and attribution live in code, not in discipline).
+Anchors: 5 = dead slot/thin axis OR Uniq ≥50% (floor: ≥300 sampleable keys;
+below the floor a niche feed caps at 3 with a dossier note — small-universe
+sources score via the axis anchor); 3 = Uniq ~25% or a 1-witness field's second
+vote; 1 = Uniq <10% on a saturated axis. Threat-axis clause: exclusivity scores
+normally but never rescues a failed quality gate — a new key is not a true
+positive (Li et al. pair cheap structural metrics with grounded accuracy;
+post-integration the θ/unique_share machinery prices it). Differential
+contribution (pairwise |A\B|/|A|) stays diagnostic-only, in dossier notes.
 
 **Reading `other`% on the cleanliness axis:** crowd-sourced / hashtag feeds
 (TweetFeed, community IOC lists) naturally run 20–40% `other` — empty tags,
@@ -219,7 +239,7 @@ The `Data freshness verified` slot is mandatory: a candidate whose data is stale
 - **Feed-first instead of gap-first.** Don't start with "GreyNoise looks cool."
   Start with "the `scanner` axis has one real source." The gap determines which
   feeds are even worth evaluating.
-- **Unattributed overlap numbers.** An overlap probe that reports "73% of sampled IPs already flagged" without naming **which sources** flagged them is not verification — in the dataplane incident the covering source WAS dataplane itself, visible in one lookup's attribution list. Overlap probes must print covering source names.
+- **Unattributed overlap numbers.** An overlap probe that reports "73% of sampled IPs already flagged" without naming **which sources** flagged them is not verification — in the dataplane incident the covering source WAS dataplane itself, visible in one lookup's attribution list. Run the committed probe (`python -m ipdb._eval --exclusive …`), which prints covering source names; ad-hoc probe scripts are retired.
 - **Declaring a dead slot empty after one query.** A single search angle misses
   most feeds — in this campaign, one run concluded "phishing has no native-IP
   feed"; a wider sweep next run found TweetFeed. Sweep every angle (attack-type
@@ -240,7 +260,12 @@ The `Data freshness verified` slot is mandatory: a candidate whose data is stale
   control (look up one IP already in the fleet, confirm it returns flagged) and
   must never swallow exceptions silently — 2026-10-10: `except Exception:
   continue` ate `Database not loaded` and the probe reported 0/300 "unique"
-  before the self-check caught it.
+  before the self-check caught it. Both controls ship inside `_eval --exclusive`;
+  both 2026-10-10 incidents were ad-hoc scripts — hence the committed command.
+- **Exclusive rate without a volume floor.** A 50-row feed at 100% Uniq buys
+  coverage 5 under the pure rate while moving the pool's answer rate by nothing
+  — the ThreatCluster trap. The ≥300-key floor keeps the exclusive anchor
+  honest; below it, cap at 3 with a "niche" dossier note (2026-10-10 ruling).
 - **Polishing the lone survivor.** When the gates kill everyone but one
   marginal candidate, the finding IS the stop signal (硬凑数量 = 加噪音) —
   report "nothing worth adding this run" and stop. A dressed-up top pick from
