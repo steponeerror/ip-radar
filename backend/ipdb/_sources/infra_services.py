@@ -6,10 +6,10 @@ Baidu Public DNS) with IPv6 companions for the major resolvers — and public
 NTP servers. The 13 DNS root servers moved out to the dedicated root_servers
 fetched source (2026-10-10 batch) and are no longer curated here. Data is
 hardcoded (no remote download); the service role rides the `service` asset
-slot and the
-provider/identity rides `native_types` (→ AssetStatement.native_type), so a
-lookup of e.g. 8.8.8.8 surfaces `attributes["service"] = (dns, "Google Public
-DNS")` alongside the existing is_proxy/is_hosting asset statements.
+slot and the provider/identity rides `native_types`
+(→ AssetStatement.native_type), so a lookup of e.g. 8.8.8.8 surfaces
+`attributes["service"] = (dns, "Google Public DNS")` alongside the
+existing is_proxy/is_hosting asset statements.
 
 Why a source (not a lookup table): multiple infra sources emit `service`
 (curated-static here; scanner_egress / cdn_edges feeds later) and the asset

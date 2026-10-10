@@ -5,7 +5,8 @@ file: 13 root servers A–M, one A + one AAAA each (bare-address rows; the
 address itself decides v4/v6 family in rebuild_dual_family). The root rows
 moved out of curated infra_services to this dedicated fetched source
 (2026-10-10 DNS resolver coverage batch) so refreshes track IANA edits —
-the zone serial bumps a few times a year, 7-day staleness is generous.
+the file is updated irregularly; the file header carries a last-update
+line (observed 2026-10-07), 7-day staleness is generous.
 service="dns" rides the asset slot; the native label is "<letter> root
 server" (lowercase first label of the hostname, e.g. "a root server").
 Operator names (Verisign, RIPE NCC, ICANN, WIDE …) are curated knowledge

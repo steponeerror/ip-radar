@@ -4,9 +4,10 @@ from ipdb._sources.infra_services import InfraServicesSource
 def test_infra_services_loads_and_routes(tmp_path):
     s = InfraServicesSource(data_dir=tmp_path)
     # 43 总行 = 22 既有行(2026-10-10 根 13 行迁出至 root_servers 源)+ 21 新行:
-    # 中文公共 DNS 9 行(AliDNS/DNSPod/114DNS/百度)+ 既有 6 家 resolver 的
-    # IPv6 对 12 行(OpenDNS v6 经 ARIN RDAP OPENDNS-V6-NET-1 核验;
-    # ControlD IPv6 无可核背书,宁少算不入)。31 v4 + 12 v6 = 43 总行
+    # 中文公共 DNS 9 行(AliDNS/DNSPod/114DNS/百度)+ 既有 5 家 resolver 的
+    # IPv6 对 10 行(OpenDNS v6 经 ARIN RDAP OPENDNS-V6-NET-1 核验;
+    # ControlD IPv6 无可核背书,宁少算不入)+ AliDNS v6 2 行(含于中文 9 行)
+    # + Yandex 基础对 2 行。31 v4 + 12 v6 = 43 总行
     # (双族计数,n4 口径,同 test_reportedip 惯例:IPv6 行入 v6 族)
     assert s.rebuild() == 31
     # DNS resolver — service slot + provider on _native_types (→ AssetStatement.native_type)
