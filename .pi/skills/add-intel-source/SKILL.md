@@ -173,6 +173,8 @@ canonical harvest template).
 
 ## Phase 3 — Implement (TDD: test first, code second)
 
+**执行路由(2026-10-10 用户定)**:本 Phase 与 Phase 4 的代码改动,在具备 subagent 工具的会话里走 superpowers:subagent-driven-development(fresh implementer per task + task review + 整分支终审);无 subagent 工具的会话按其决策树内联执行,但保留本 Phase 的 TDD 硬序、ledger/ruling 与 Phase 4 的基线对照纪律。
+
 **Hard order — write the source's test BEFORE the source file (RED → GREEN).**
 Phase 4's per-source test is not an afterthought: write it first in
 `backend/tests/sources/` (same `<name>` stem as the source file; sample

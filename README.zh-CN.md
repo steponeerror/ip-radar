@@ -4,7 +4,7 @@
 
 ![IP Radar — 自托管的 IP 情报](assets/social-preview.png)
 
-把 47 个公开情报源搬回家：查任何 IP，拿一份全面的画像——说人话的裁决、逐源证据、置信度，加上地理·城市·ASN、云/托管、代理/VPN/Tor、服务身份，一次看全。一条命令，自己部署。
+把 49 个公开情报源搬回家：查任何 IP，拿一份全面的画像——说人话的裁决、逐源证据、置信度，加上地理·城市·ASN、云/托管、代理/VPN/Tor、服务身份，一次看全。一条命令，自己部署。
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 ![Docker](https://img.shields.io/badge/Docker-one%20container-2496ED?logo=docker&logoColor=white)
@@ -190,6 +190,8 @@ curl -s http://127.0.0.1:8000/api/db-status
 | threatcluster | [ThreatCluster](https://threatcluster.io/) | Curated high-confidence malicious IPs | |
 | turris_greylist | [Turris Sentinel](https://view.sentinel.turris.cz/greylist-data/) | Distributed-router greylist (protocol probes) | |
 | drb_ra `*` | [C2IntelFeeds](https://github.com/drb-ra/C2IntelFeeds) | Aggregated C2 IPs (30-day hunts) | |
+| knock_knock | [Knock-Knock](https://knock-knock.net/blocklist) | 13-protocol honeypot attacker blocklist (month window) | |
+| rtbh | [RTBH.com.tr](https://www.rtbh.com.tr/) | Turkish 54-sensor DDoS-source RTBH list | |
 
 ### 地理与 ASN
 
