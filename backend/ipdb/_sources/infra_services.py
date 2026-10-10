@@ -1,8 +1,12 @@
 """Curated well-known public infrastructure IPs — static Source subclass.
 
-Stable, canonical IPs operated by well-known public services: DNS resolvers,
-the 13 root DNS servers, and public NTP servers. Data is hardcoded (no remote
-download); the service role rides the `service` asset slot and the
+Stable, canonical IPs operated by well-known public services: DNS resolvers
+— international providers plus Chinese public DNS (AliDNS/DNSPod/114DNS/
+Baidu Public DNS) with IPv6 companions for the major resolvers — and public
+NTP servers. The 13 DNS root servers moved out to the dedicated root_servers
+fetched source (2026-10-10 batch) and are no longer curated here. Data is
+hardcoded (no remote download); the service role rides the `service` asset
+slot and the
 provider/identity rides `native_types` (→ AssetStatement.native_type), so a
 lookup of e.g. 8.8.8.8 surfaces `attributes["service"] = (dns, "Google Public
 DNS")` alongside the existing is_proxy/is_hosting asset statements.
@@ -37,19 +41,27 @@ _DATA = """\
 94.140.15.15,dns,AdGuard DNS
 76.76.2.22,dns,ControlD
 76.76.10.11,dns,ControlD
-198.41.0.4,dns,a root server (Verisign)
-199.9.14.201,dns,b root server (USC-ISI)
-192.33.4.12,dns,c root server (Cogent)
-199.7.91.13,dns,d root server (UMD)
-192.203.230.10,dns,e root server (NASA)
-192.5.5.241,dns,f root server (ISC)
-192.112.36.4,dns,g root server (DISA)
-198.97.190.53,dns,h root server (ARL)
-192.36.148.17,dns,i root server (Netnod)
-192.58.128.30,dns,j root server (Verisign)
-193.0.14.129,dns,k root server (RIPE)
-199.7.83.42,dns,l root server (ICANN)
-202.12.27.33,dns,m root server (WIDE)
+223.5.5.5,dns,AliDNS
+223.6.6.6,dns,AliDNS
+2400:3200::1,dns,AliDNS
+2400:3200:baba::1,dns,AliDNS
+119.29.29.29,dns,DNSPod Public DNS
+119.28.28.28,dns,DNSPod Public DNS
+114.114.114.114,dns,114DNS
+114.114.115.115,dns,114DNS
+180.76.76.76,dns,Baidu Public DNS
+77.88.8.8,dns,Yandex DNS
+77.88.8.1,dns,Yandex DNS
+2001:4860:4860::8888,dns,Google Public DNS
+2001:4860:4860::8844,dns,Google Public DNS
+2606:4700:4700::1111,dns,Cloudflare DNS
+2606:4700:4700::1001,dns,Cloudflare DNS
+2620:fe::fe,dns,Quad9
+2620:fe::9,dns,Quad9
+2620:119::c,dns,Cisco OpenDNS
+2620:119:35::35,dns,Cisco OpenDNS
+2a10:50c0::ad1:ff,dns,AdGuard DNS
+2a10:50c0::ad2:ff,dns,AdGuard DNS
 216.239.35.0,ntp,Google NTP
 216.239.35.4,ntp,Google NTP
 216.239.35.8,ntp,Google NTP
