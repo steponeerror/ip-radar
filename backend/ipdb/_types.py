@@ -112,6 +112,7 @@ class LookupResult:
     city_zh: Optional[str] = None      # display-only zh name of winning city
     location: Optional[dict] = None       # display-only {lat, lon, accuracy_radius?, time_zone?} (geolite, spec 2026-08-25; tz 信息维度批 2026-10-10)
     registration: Optional[dict] = None   # display-only {registry, reg_country?, alloc_date?, status?} 单证人(rir_delegated 旁路;reg_country ≠ 地理国)
+    as_org: Optional[MergedField] = None # ASN→组织级名称(查询期 join,caida_asorg;b/asorg-anycast 2026-10-10);asn 无解或钩子源缺席则 None
 
     # Verdict precedence for the fused top-level `threat` summary. Mirrors
     # _merge._assess_classification's PRECEDENCE so both layers never disagree.
@@ -179,6 +180,8 @@ class LookupResult:
             "registration": self.registration,
             "asn": _field_to_dict(self.asn),
             "as_name": _field_to_dict(self.as_name),
+            "as_org": (_field_to_dict(self.as_org)
+                       if self.as_org is not None else None),
             "ip_range": _field_to_dict(self.ip_range),
             "is_isp": self.is_isp,
             "threat": self.threat_summary(),

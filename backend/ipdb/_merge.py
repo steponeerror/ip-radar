@@ -159,15 +159,15 @@ class LogOddsVoting:
 
 
 class NamingAuthority:
-    """Authority model for naming fields (as_name).
+    """Authority model for naming fields (as_name, as_org).
 
     cn_isp once held a CN/HK/MO/TW authority branch (conf 90) — removed when
     cn_isp stopped emitting as_name (spec 2026-08-19 §4.3 D6): region names like "香港" were
     polluting the org slot. First valid by reliability order wins; see git
     history if a CN authority source ever returns."""
 
-    def __init__(self):
-        self.field = "as_name"
+    def __init__(self, field: str = "as_name"):
+        self.field = field
 
     def merge(self, source_values: dict[str, Any], context: dict) -> MergedField:
         attributions = _to_attributions(source_values, self.field)

@@ -266,5 +266,7 @@
   "verdict.suspicious": "Suspicious",
   "warmup.hint": "Queries unlock once the build completes — please keep this page open",
   "warmup.title": "Building database for the first time",
-  "ipDetail.registration": "Registry allocation"
+  "ipDetail.registration": "Registry allocation",
+  "asset.is_anycast": "Anycast",
+  "ipDetail.asOrg": "AS organization"
 }

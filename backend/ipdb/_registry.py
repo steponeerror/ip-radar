@@ -193,6 +193,7 @@ _strategies = {
     "country_code": LogOddsVoting(default="N/A"),
     "asn": LogOddsVoting(default=0),
     "as_name": NamingAuthority(),
+    "as_org": NamingAuthority(field="as_org"),   # 单证人 conf=r 公理(b/asorg-anycast 2026-10-10)
     "ip_range": RangeSpecificity(),
     "city": FactualVoting(default="N/A"),   # 保留(spec §4:品质阶梯语义)
 }
@@ -535,6 +536,26 @@ def lookup(ip: str, allowed_sources: frozenset[str] | None = None) -> LookupResu
         field_values.get("city", {}), context)
     asn = _strategies["asn"].merge(
         field_values.get("asn", {}), context)
+
+    # as_org 查询期 join(b/asorg-anycast 批,2026-10-10):ASN 键源(caida_asorg)
+    # 无 CIDR 面,无法走 per-IP 收集——在 asn 胜者解出后经 org_for_asn 钩子
+    # 注入 as_org 值,再走 as_org 策略;allowed_sources(per-key 白名单)照常
+    # 过滤,join 不得旁路。
+    as_org = None
+    if asn.value:
+        for s in _enabled_sources():
+            if allowed_sources is not None and s.name not in allowed_sources:
+                continue
+            fn = getattr(s, "org_for_asn", None)
+            if fn is None:
+                continue
+            org = fn(asn.value)
+            if org:
+                field_values["as_org"][s.name] = org
+        if field_values.get("as_org"):
+            as_org = _strategies["as_org"].merge(
+                field_values["as_org"], context)
+
     as_name = _strategies["as_name"].merge(
         field_values.get("as_name", {}), context)
     ip_range = _strategies["ip_range"].merge(
@@ -592,6 +613,7 @@ def lookup(ip: str, allowed_sources: frozenset[str] | None = None) -> LookupResu
         location=location,
         asn=asn,
         as_name=as_name,
+        as_org=as_org,
         ip_range=ip_range,
         is_isp=is_isp,
         registration=registration,
