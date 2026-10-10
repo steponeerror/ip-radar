@@ -4,7 +4,7 @@
 
 ![IP Radar — self-hosted IP intelligence](assets/social-preview.png)
 
-**Pull 41 public sources into your own box — a full IP profile, not just a threat verdict.** Every lookup comes back with a plain-words verdict — evidence, confidence, geo · city · ASN, cloud/hosting, proxy · VPN · Tor, service identity, all at once. One command, self-hosted.
+**Pull 43 public sources into your own box — a full IP profile, not just a threat verdict.** Every lookup comes back with a plain-words verdict — evidence, confidence, geo · city · ASN, cloud/hosting, proxy · VPN · Tor, service identity, all at once. One command, self-hosted.
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 ![Docker](https://img.shields.io/badge/Docker-one%20container-2496ED?logo=docker&logoColor=white)
@@ -212,7 +212,9 @@ Every dataset below belongs to its provider — thank you for keeping them open 
 | thespeedx | [TheSpeedX](https://github.com/TheSpeedX/PROXY-List) | Live-checked HTTP proxies | |
 | cdn_edges | [CloudFront](https://ip-ranges.amazonaws.com/ip-ranges.json) · [Cloudflare](https://www.cloudflare.com/ips-v4) · [Fastly](https://api.fastly.com/public-ip-list) | CDN edge ranges | |
 | cloud_ranges | [AWS](https://ip-ranges.amazonaws.com/ip-ranges.json) · [Google](https://www.gstatic.com/ipranges/goog.json) · [Azure](https://www.microsoft.com/en-us/download/details.aspx?id=56519) · [Oracle](https://docs.oracle.com/iaas/tools/public_ip_ranges.json) · [Alibaba](https://cloud-ip-ranges.com/) | Cloud / hosting ranges — five publisher feeds behind one source; partial-failure tolerant (a failed feed keeps its last snapshot) | |
-| infra_services | curated | Public DNS-root / NTP infrastructure | |
+| infra_services | curated | Public DNS resolvers / NTP infrastructure (root servers moved to `root_servers`) | |
+| root_servers | [IANA](https://www.internic.net/domain/named.root) | IANA root hints (named.root) | |
+| dns_public | [DNSCrypt](https://github.com/DNSCrypt/dnscrypt-resolvers) | Community public DNS resolver endpoints (public-resolvers.md, sdns stamps decoded) | |
 
 ## Development
 

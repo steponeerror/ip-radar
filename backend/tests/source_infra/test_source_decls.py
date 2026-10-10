@@ -95,7 +95,7 @@ def test_authority_axes_declared_by_real_producers(tmp_path):
         "is_proxy": ["ip2proxy"],
         "is_tor": ["tor_exits"],
         "is_vpn": ["x4bnet_vpn"],
-        "service": ["cdn_edges", "infra_services"],
+        "service": ["cdn_edges", "dns_public", "infra_services", "root_servers"],
     }
     # 声明者与产出者一致:每轴钉一个真产出断言(ip2proxy 产 is_proxy,
     # tor_exits 产 is_tor,x4bnet_vpn 产 is_vpn;service 轴两声明者都走
@@ -114,6 +114,16 @@ def test_authority_axes_declared_by_real_producers(tmp_path):
     (tmp_path / "infra_services.csv").write_text("8.8.8.8,dns,Google Public DNS\n")
     _, ev = next(InfraServicesSource(data_dir=tmp_path).harvest())
     assert ev.service == "dns" and ev.native_types == {"service": "Google Public DNS"}
+    from ipdb._sources.root_servers import RootServersSource
+    (tmp_path / "root_servers.cache").write_text(
+        "A.ROOT-SERVERS.NET.      3600000      A     198.41.0.4\n")
+    _, ev = next(RootServersSource(data_dir=tmp_path).harvest())
+    assert ev.service == "dns" and ev.native_types == {"service": "a root server"}
+    from ipdb._sources.dns_public import DnsPublicSource
+    (tmp_path / "dns_public.md").write_text(
+        "## test-slug\n\nsdns://AgAAAAAAAAAABzEuMi4zLjQ\n")
+    _, ev = next(DnsPublicSource(data_dir=tmp_path).harvest())
+    assert ev.service == "dns" and ev.native_types == {"service": "test-slug"}
 
 
 def test_reliability_floor_and_derived_flags():
