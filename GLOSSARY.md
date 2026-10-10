@@ -50,6 +50,7 @@
 
 - **NO-DATA**:eval 裁决之一,带成因(empty/collapsed);死源先报数据侧问题,不给语义豁免。锚:_eval/verdict.py(assess)
 - **sunset 门**:冻结/已死的 feed 不许再准入;数据内部时间戳检测。锚:tests/core/test_no_feodo_residue.py;详设(本机私有 docs):docs/superpowers/specs/2026-08-04-source-triage-and-sunset-gate-design.md
+- **独占贡献 (Exclusive Contribution)**:候选源自有键中,池内无任何既有源在目标字段作答的比例 Uniq_A=|A\⋃其他源|/|A|(Li et al., "Reading the Tea Leaves", USENIX Sec'19);discover rubric 覆盖价值双锚之一(与轴新颖度取 max),≥300 可抽样键地板、niche 封顶 3、threat 轴独占不豁免 quality 闸(新键≠真阳性);动态孪生=eval 的 unique_share。判例:2026-10-10 grill 五问。锚:`_eval --exclusive` 探针、.pi/skills/discover-intel-sources/SKILL.md(rubric)
 
 ## It's working if
 
