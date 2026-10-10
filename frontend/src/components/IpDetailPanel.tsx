@@ -110,7 +110,7 @@ export function IpDetailPanel({ r }: { r: LookupResult }) {
     const labelKey = {
       is_hosting: "asset.is_hosting", is_tor: "asset.is_tor",
       is_vpn: "asset.is_vpn", is_proxy: "asset.is_proxy",
-      carrier: "asset.carrier",
+      carrier: "asset.carrier", is_anycast: "asset.is_anycast",
     }[key];
     if (key === "service") {
       stmts.forEach((s, i) => {
@@ -153,6 +153,13 @@ export function IpDetailPanel({ r }: { r: LookupResult }) {
         format={String}
         suffix={r.attributes?.as_domain?.[0]?.value as string | undefined}
       />
+      {r.as_org && (
+        <FieldDetail
+          label={t("ipDetail.asOrg")}
+          field={r.as_org}
+          format={String}
+        />
+      )}
       {r.registration && (
         <div className="flex items-center gap-2 mb-1">
           <span className="text-xs font-medium text-zinc-300">{t("ipDetail.registration")}</span>

@@ -267,5 +267,7 @@
   "verdict.suspicious": "可疑",
   "warmup.hint": "构建完成后即可查询,请勿关闭页面",
   "warmup.title": "数据库首次构建中",
-  "ipDetail.registration": "注册分配"
+  "ipDetail.registration": "注册分配",
+  "asset.is_anycast": "任播",
+  "ipDetail.asOrg": "所属组织"
 }
