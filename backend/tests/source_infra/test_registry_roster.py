@@ -14,7 +14,7 @@ from ipdb._registry import _sources, roster
 def test_roster_covers_every_registered_source() -> None:
     lines = roster()
     names = [ln.split(" | ")[0] for ln in lines]
-    # 42 源口径(root_servers 入册后实测)
+    # 43 源口径(dns_public 入册后实测)
     assert names == [s.name for s in _sources]
     assert len(set(names)) == len(names)
 

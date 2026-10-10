@@ -4,7 +4,7 @@
 
 ![IP Radar — 自托管的 IP 情报](assets/social-preview.png)
 
-把 42 个公开情报源搬回家：查任何 IP，拿一份全面的画像——说人话的裁决、逐源证据、置信度，加上地理·城市·ASN、云/托管、代理/VPN/Tor、服务身份，一次看全。一条命令，自己部署。
+把 43 个公开情报源搬回家：查任何 IP，拿一份全面的画像——说人话的裁决、逐源证据、置信度，加上地理·城市·ASN、云/托管、代理/VPN/Tor、服务身份，一次看全。一条命令，自己部署。
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 ![Docker](https://img.shields.io/badge/Docker-one%20container-2496ED?logo=docker&logoColor=white)
@@ -218,6 +218,7 @@ curl -s http://127.0.0.1:8000/api/db-status
 | cloud_ranges | [AWS](https://ip-ranges.amazonaws.com/ip-ranges.json) · [Google](https://www.gstatic.com/ipranges/goog.json) · [Azure](https://www.microsoft.com/en-us/download/details.aspx?id=56519) · [Oracle](https://docs.oracle.com/iaas/tools/public_ip_ranges.json) · [Alibaba](https://cloud-ip-ranges.com/) | 云 / 托管网段 —— 单源五 feed（各发布方一家一 feed）；部分失败容忍（单家挂保留旧快照） | |
 | infra_services | curated | Public DNS resolvers / NTP infrastructure (root servers moved to `root_servers`) | |
 | root_servers | [IANA](https://www.internic.net/domain/named.root) | IANA root hints (named.root) | |
+| dns_public | [DNSCrypt](https://github.com/DNSCrypt/dnscrypt-resolvers) | Community public DNS resolver endpoints (public-resolvers.md, sdns stamps decoded) | |
 
 ## 开发
 
