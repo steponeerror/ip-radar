@@ -122,6 +122,7 @@ class RirDelegatedSource(Source):
     name = "rir_delegated"
     category = "geo_asn"          # 路由与分配族(展示聚合);零投票字段
     fields = ()                   # 不投任何合并字段的票(回声禁令)
+    filename = "rir_delegated"    # 目录名;P1 热修:基类靠 filename 推 _lmdb_base,缺声明则共享裸 `.lmdb`(2026-10-10 生产事故,peeringdb 同病)
     url = None                    # 多 host(五 RIR 各自 ftp),cn_isp/cloud_ranges 先例
     stale_days = 2
     reliability = 0.99            # RIR 官方发布(NRO 标准,五家同步日更)
@@ -129,8 +130,7 @@ class RirDelegatedSource(Source):
     single_evidence = True        # ~300k CIDR → stream load(OOM 守卫)
 
     def __init__(self, data_dir: Path):
-        super().__init__(data_dir)
-        self._path = data_dir / "rir_delegated"      # 目录,非单文件
+        super().__init__(data_dir)   # _path/_lmdb_base 全由 filename 推导(目录形)
         self.last_partial_failure: list[str] = []
 
     @property
