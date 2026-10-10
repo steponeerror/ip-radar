@@ -10,7 +10,7 @@
 | IP 所在时区 | 2026-10-10 | 已立项（2026-10-10 信息维度批，geolite harvest 透传） | GeoLite2 mmdb 自带 time_zone,harvest 现丢弃;库内扩展非新源(census 矩阵行 1) |
 | IP 的注册分配元数据(RIR/分配日期/allocated·assigned·available) | 2026-10-10 | 已立项（2026-10-10 信息维度批，新源 rir_delegated） | rir_delegated:五 RIR delegated-extended,日更免登录(census 矩阵行 2) |
 | IP 是否 IX 交换点 fabric | 2026-10-10 | 已立项（2026-10-10 信息维度批，新源 peeringdb） | peeringdb ixpfx:开放 API 批量落地,otx 先例(census 矩阵行 4) |
-| ASN 的组织级名称(独立于 ASN 名) | 2026-10-10 | 候选 | caida_asorg:220k 行月更免登录;许可 add 时核(census 矩阵行 10) |
+| ASN 的组织级名称(独立于 ASN 名) | 2026-10-10 | 已闭 | caida_asorg 已交付(PR #101,2026-10-10 双锚批) |
 | rDNS 主机名 | 2026-10-10 | open | 红线:需在线解析;无免费批量反解库(2026-10-10 查证) |
 | abuse contact | 2026-10-10 | open | RIPE DB bulk 重且仅部分 RIR |
 | carrier / is_isp 出中国段 | 2026-10-10 | open | 无免费全球批量源(2026-10-10 两轮查证:IPinfo carrier 批量库 1.18MB CSV 存在但 standard 付费 token 档,无免费路径);现 cn_isp CN 限定单源 |
@@ -18,6 +18,9 @@
 | vulnerable-system / misconfiguration(词表死槽) | 2026-10-10 | open | 唯一已知路径 = 类 7 扫描数据(Rapid7 门,见下) |
 | IP 的开放端口/服务指纹/TLS | 2026-10-10 | open | Rapid7 Open Data:免费账号+research 许可+大文件,未立项 |
 | TLD 权威服务器 | 2026-10-10 | open | CZDS 账号门槛 |
-| NTP 基础设施角色 | 2026-10-10 | open | 仅三方小列表(jauderho,活但量薄);NTP Pool 无批量 |
-| anycast | 2026-10-10 | 候选 | ut-dacs/anycast-census(LACeS 主动测量 41,382 前缀日更 MPL-2.0)单源候选;bgptools/anycatch 弃置:license 真空(无 LICENSE 文件、issue #5 追问 3.5 个月零回复、站点无 ToS,2026-10-10 查证),复活路径=书面许可 |
+| NTP 基础设施角色 | 2026-10-10 | open | 仅三方小列表(jauderho,活但量薄);NTP Pool 无批量。2026-10-10 二轮:jauderho/public-ntp-servers(BSD-3,活)输出仅 hostname 键配置(ntp.toml/ntp-sources.yml),无 IP 面 → 需在线解析,红线拒 |
+| anycast | 2026-10-10 | 已闭 | anycast_census 已交付(PR #101);anycatch 弃置维持:license 真空(无 LICENSE 文件、issue #5 追问 3.5 个月零回复、站点无 ToS,2026-10-10 查证),复活路径=书面许可 |
 | ASN 业务类型(ISP/content/edu) | 2026-10-10 | 候选 | CAIDA as-classification 已死(官方 legacy、下载关闭,2026-10-10 查证);其真值本就是 PeeringDB 自报 info_type → 正路 = peeringdb 既有源扩展(org/net 端点 join,闸门判例),立项另裁 |
+| 攻击者 IP 第一方测量(蜜罐/传感网) | 2026-10-10 | 已闭 | knock_knock 已交付(PR #104,blacklist=binarydefense 双生判例) |
+| DDoS 攻击源 | 2026-10-10 | 已闭 | rtbh 已交付(PR #104,ddos 槽首个专职证人;许可用户签核 2026-10-10) |
+| 土耳其政府 SGB 情报(siberguvenlik.gov.tr/api/address/index) | 2026-10-10 | open | JSON API,本轮未验活未取样;与 RTBH 同区域第二票,区域扩展时再验 |
