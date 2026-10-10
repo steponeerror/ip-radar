@@ -26,6 +26,8 @@ OLD_CATEGORIES = {
     "danmeuk_tor": "asset",
     "root_servers": "asset",
     "dns_public": "asset",
+    "rir_delegated": "geo_asn",
+    "peeringdb": "asset",
 }
 OLD_RELIABILITY = {
     "ipinfo_lite": 0.95, "iptoasn": 0.90, "cn_isp": 0.85, "geolite_city": 0.85,
@@ -44,6 +46,8 @@ OLD_RELIABILITY = {
     "danmeuk_tor": 0.85,
     "root_servers": 0.99,
     "dns_public": 0.90,
+    "rir_delegated": 0.99,
+    "peeringdb": 0.85,
 }
 OLD_AUTHORITATIVE = {
     "is_proxy": ["ip2proxy"], "is_tor": ["tor_exits"], "is_vpn": ["x4bnet_vpn"],
@@ -55,7 +59,7 @@ OLD_AUTHORITATIVE = {
 _PHANTOM_AXES = ("is_malicious", "is_hosting", "is_mobile")
 
 def test_categories_match_snapshot():
-    # 43 = dns_public 入册后实测 len(SOURCE_CATEGORIES)
+    # 45 = 信息维度批两源入册后实测 len(SOURCE_CATEGORIES)
     live = dict(r.SOURCE_CATEGORIES)
     assert live == OLD_CATEGORIES
 

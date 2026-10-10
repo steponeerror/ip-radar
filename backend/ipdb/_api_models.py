@@ -70,6 +70,7 @@ class LookupResultOut(_Out):
     city: FieldOut
     city_zh: Optional[str] = None
     location: Optional[dict] = None
+    registration: Optional[dict] = None   # 单证人注册元数据块(信息维度批)
     asn: FieldOut
     as_name: FieldOut
     ip_range: FieldOut
