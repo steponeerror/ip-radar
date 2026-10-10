@@ -77,12 +77,19 @@ export interface LookupResult {
   as_name: MergedField<string>;
   ip_range: MergedField<string>;
   is_isp: boolean;
+  // 单证人注册元数据块(信息维度批 2026-10-10);reg_country = 注册国≠地理国
+  registration?: {
+    registry: string;
+    reg_country?: string;
+    alloc_date?: string;
+    status?: string;
+  } | null;
   classifications: Record<string, ClassificationAssessment>;
   attributes?: Record<string, AssetStatement[]>;
   error?: string;
   is_reserved?: boolean;
   threat?: ThreatSummary;
-  location?: { lat: number; lon: number; accuracy_radius?: number } | null;
+  location?: { lat: number; lon: number; accuracy_radius?: number; time_zone?: string } | null;
 }
 
 export interface DbStatus {

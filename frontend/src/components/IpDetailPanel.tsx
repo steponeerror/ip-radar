@@ -143,6 +143,7 @@ export function IpDetailPanel({ r }: { r: LookupResult }) {
         <div className="text-[10px] text-zinc-600"
           title={r.location.accuracy_radius ? `±${r.location.accuracy_radius} km` : undefined}>
           📍 {r.location.lat.toFixed(2)}, {r.location.lon.toFixed(2)}
+          {r.location.time_zone && <span className="ml-1.5">🕒 {r.location.time_zone}</span>}
         </div>
       )}
       <FieldDetail label="ASN" field={r.asn} format={(v) => String(v)} grouped />
@@ -152,6 +153,17 @@ export function IpDetailPanel({ r }: { r: LookupResult }) {
         format={String}
         suffix={r.attributes?.as_domain?.[0]?.value as string | undefined}
       />
+      {r.registration && (
+        <div className="flex items-center gap-2 mb-1">
+          <span className="text-xs font-medium text-zinc-300">{t("ipDetail.registration")}</span>
+          <span className="text-[10px] text-zinc-500">
+            {r.registration.registry}
+            {r.registration.alloc_date && ` · ${r.registration.alloc_date}`}
+            {r.registration.status && ` · ${r.registration.status}`}
+            {r.registration.reg_country && ` · ${r.registration.reg_country}`}
+          </span>
+        </div>
+      )}
       {identityChips.length > 0 && (
         <div className={SECTION}>
           <span className="text-xs font-medium text-zinc-300">{t("ipDetail.serviceIdentity")}</span>

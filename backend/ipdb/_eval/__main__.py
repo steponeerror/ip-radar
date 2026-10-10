@@ -165,6 +165,9 @@ def main(argv=None):
                    help="DS-EM fair fight: market vs declared vs pi-hat T3 (advisory)")
     p.add_argument("--temporal", action="store_true",
                    help="λ_s prequential confirmation rate over model history (W1)")
+    p.add_argument("--demand", action="store_true",
+                   help="答案率探针:双队列(舰队语料+随机可路由)per-field "
+                        "answer-rate(罗盘批 2026-10-10,discover Step 1 四输入之一)")
     p.add_argument("--json", action="store_true", help="机器可读 JSON 到 stdout")
     args = p.parse_args(argv)
 
@@ -215,6 +218,11 @@ def main(argv=None):
     else:
         registry.load_db()
 
+    if args.demand:
+        from .demand import run as demand_run
+        print(demand_run(registry.lookup, registry.sources,
+                         as_json=args.json))
+        return
     if args.rebuild:
         bench = build_benchmark(registry.sources, config.CORPUS_PER_TYPE_N)
         bench.save(CORPUS_PATH)
