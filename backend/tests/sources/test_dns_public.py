@@ -37,6 +37,9 @@ urls = ['https://example.invalid/public-resolvers.md']
 minisign_key = 'RW...'
 
 --
+A line-start stamp BEFORE the first section header — no owner section, must be
+skipped (钉住 section is None 防御分支;rebuild()==3 若变 4 即漏跳).
+{_stamp(2, b"203.0.113.42", b"", b"dns.pre-section.example", b"/dns-query")}
 
 ## test-doh-ip
 

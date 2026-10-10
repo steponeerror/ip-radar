@@ -10,8 +10,9 @@ harvested (DNSCrypt `ip[:port]` / `[v6]:port`; DoH first varstr ip / `[v6]`) —
 hostname-only and empty addresses are skipped (宁少算: no DNS resolution),
 and unknown protos (0x03 odoh / 0x04 doq / 0x05 relay) get the same
 conservative first-varstr treatment (design ruling 2026-10-10). Same IP under
-multiple sections dedups to one row; the provider label is the first
-section's name verbatim. props bits are deliberately NOT decoded into
+multiple sections dedups to one row; the provider label is the slug of the
+section where that IP is first seen in file order (首见, per-IP — not the
+file's first section). props bits are deliberately NOT decoded into
 vocabulary. service="dns" rides the asset slot; verdict="" abstention, same
 spelling as infra_services/root_servers (R17A-1: to_dict 特判保留,读回按
 "" 处理不兑底).
@@ -100,8 +101,10 @@ class DnsPublicSource(Source):
         self._data_dir.mkdir(parents=True, exist_ok=True)
         data = self._http_get(_URL)
         text = data.decode("utf-8", errors="replace")
+        # 守卫与 harvest 同口径:仅认行首 sdns://——重排/缩进的 feed 宁可
+        # 守卫响(旧数据保留),也不放行后采到 0 行静默清源(fail-closed)
         n = sum(1 for ln in text.splitlines()
-                if ln.strip().startswith("sdns://"))
+                if ln.startswith("sdns://"))
         if n < _MIN_STAMP_LINES:
             raise RuntimeError(
                 f"dns_public: only {n} sdns:// lines (<{_MIN_STAMP_LINES}) "
