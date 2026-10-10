@@ -104,6 +104,7 @@ class PeeringDbSource(Source):
     name = "peeringdb"
     category = "asset"
     fields = ("service",)
+    filename = "peeringdb.csv"     # P1 热修:基类靠 filename 推 _lmdb_base,缺声明则与同病源共享裸 `.lmdb`(2026-10-10 生产事故)
     url = None                    # 多端点 REST,otx 先例;download_host 固定
     stale_days = 7
     reliability = 0.85            # 社区维护主数据注册库(编辑开放,较 dns_public 降半档)
@@ -111,8 +112,7 @@ class PeeringDbSource(Source):
     single_evidence = True
 
     def __init__(self, data_dir: Path):
-        super().__init__(data_dir)
-        self._path = data_dir / "peeringdb.csv"
+        super().__init__(data_dir)   # _path/_lmdb_base 全由 filename 推导
 
     @property
     def download_host(self) -> str | None:
