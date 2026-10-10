@@ -4,7 +4,7 @@
 
 ![IP Radar — self-hosted IP intelligence](assets/social-preview.png)
 
-**Pull 47 public sources into your own box — a full IP profile, not just a threat verdict.** Every lookup comes back with a plain-words verdict — evidence, confidence, geo · city · ASN, cloud/hosting, proxy · VPN · Tor, service identity, all at once. One command, self-hosted.
+**Pull 49 public sources into your own box — a full IP profile, not just a threat verdict.** Every lookup comes back with a plain-words verdict — evidence, confidence, geo · city · ASN, cloud/hosting, proxy · VPN · Tor, service identity, all at once. One command, self-hosted.
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 ![Docker](https://img.shields.io/badge/Docker-one%20container-2496ED?logo=docker&logoColor=white)
@@ -186,6 +186,8 @@ Every dataset below belongs to its provider — thank you for keeping them open 
 | threatcluster | [ThreatCluster](https://threatcluster.io/) | Curated high-confidence malicious IPs | |
 | turris_greylist | [Turris Sentinel](https://view.sentinel.turris.cz/greylist-data/) | Distributed-router greylist (protocol probes) | |
 | drb_ra `*` | [C2IntelFeeds](https://github.com/drb-ra/C2IntelFeeds) | Aggregated C2 IPs (30-day hunts) | |
+| knock_knock | [Knock-Knock](https://knock-knock.net/blocklist) | 13-protocol honeypot attacker blocklist (month window) | |
+| rtbh | [RTBH.com.tr](https://www.rtbh.com.tr/) | Turkish 54-sensor DDoS-source RTBH list | |
 
 ### Geo & ASN
 
