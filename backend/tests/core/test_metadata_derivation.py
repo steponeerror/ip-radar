@@ -25,6 +25,7 @@ OLD_CATEGORIES = {
     "dbip_city": "geo_asn",
     "danmeuk_tor": "asset",
     "root_servers": "asset",
+    "dns_public": "asset",
 }
 OLD_RELIABILITY = {
     "ipinfo_lite": 0.95, "iptoasn": 0.90, "cn_isp": 0.85, "geolite_city": 0.85,
@@ -42,10 +43,11 @@ OLD_RELIABILITY = {
     "dbip_city": 0.80,
     "danmeuk_tor": 0.85,
     "root_servers": 0.99,
+    "dns_public": 0.90,
 }
 OLD_AUTHORITATIVE = {
     "is_proxy": ["ip2proxy"], "is_tor": ["tor_exits"], "is_vpn": ["x4bnet_vpn"],
-    "service": ["infra_services", "cdn_edges", "root_servers"],
+    "service": ["infra_services", "cdn_edges", "root_servers", "dns_public"],
 }
 # SM-F1 删除的幻影轴:is_malicious(threatfox/emerging_threats/spamhaus
 # 声明但无证据键生产者)、is_hosting/is_mobile(ipinfo_lite 声明但只产
@@ -53,12 +55,12 @@ OLD_AUTHORITATIVE = {
 _PHANTOM_AXES = ("is_malicious", "is_hosting", "is_mobile")
 
 def test_categories_match_snapshot():
-    # 42 = root_servers 入册后实测 len(SOURCE_CATEGORIES)
+    # 43 = dns_public 入册后实测 len(SOURCE_CATEGORIES)
     live = dict(r.SOURCE_CATEGORIES)
     assert live == OLD_CATEGORIES
 
 def test_reliability_match_snapshot():
-    # 公开源快照全等锁死(42 源口径)
+    # 公开源快照全等锁死(43 源口径)
     live = dict(m.SOURCE_RELIABILITY)
     assert live == OLD_RELIABILITY
 
