@@ -153,14 +153,12 @@ describe("as_org display dedupe + registration styling (2026-10-11 user report)"
     expect(screen.getByText("AS organization")).toBeInTheDocument();
   });
 
-  it("renders the registry allocation row as a block mirroring FieldDetail structure", () => {
+  it("renders the registry allocation row inside the shared SECTION styling", () => {
     renderWithI18n(<IpDetailPanel
       r={{ ...r, registration: { registry: "apnic", alloc_date: "2008-05-20", status: "allocated", reg_country: "CN" } }} />);
     expect(screen.getByText(/apnic · 2008-05-20 · allocated · CN/)).toBeInTheDocument();
-    // 与 FieldDetail 同构:外层块 div + 内层 flex 头(demo 分支的 SECTION 化妆品
-    // 可单行套上去,不再是一行裸 flex——2026-10-11 用户报的样式精茬)
-    const label = screen.getByText("Registry allocation");
-    const block = label.parentElement?.parentElement;
-    expect(block?.childElementCount).toBe(1);
+    // demo 吸收后 SECTION 上岸 master:registration 与其余区块同底(左色条+渐变),
+    // 不再是裸 flex 行——2026-10-11 用户报的样式茬终验
+    expect(screen.getByText("Registry allocation").closest(".border-l-2")).not.toBeNull();
   });
 });

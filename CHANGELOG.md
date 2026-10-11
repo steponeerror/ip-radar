@@ -25,6 +25,8 @@
 
 ### 调整 Changed
 
+- demo 分支退役：demo → master 全量吸收（merge 吸收，14 文件净差上岸——SECTION 统一区块底/横幅日间修复/DemoBanner 全家/eval 匿名探针补齐/stix2 运行时启用）；registration 块补 SECTION 底（demo 侧从未包过，master 上岸后统一）；公网站改由 master + `IP_RADAR_PUBLIC_DEMO=1`（已在服务器 override）直接部署，双分支教义终结（demo 全部历史成为 master 祖先，证据不灭失）
+  - Demo branch retired: demo → master absorbed wholesale via merge (the 14-file net diff lands — unified SECTION block styling / banner light-mode fixes / the DemoBanner family / missing eval anonymous probes / stix2 runtime enabled); the registration block gains the SECTION background (never wrapped on demo; unified now that it's ashore); the public site deploys from master + `IP_RADAR_PUBLIC_DEMO=1` (already in the server override) directly, ending the dual-branch doctrine (all demo history becomes master ancestry — evidence never lost)
 - feed-change: infra_services 内容重构——移除 13 行根服务器（迁入新源 root_servers，独立生命周期），新增 21 行公共 DNS resolver（中文公共 DNS 9 行：AliDNS/DNSPod/114DNS/百度，含 v6；既有 5 家 resolver 的 IPv6 伴侣行 10 行；Yandex DNS 基础对 2 行），35→43 总行（31 v4 + 12 v6）；纯 feed 内容面，分类与权威轴零变化
   - feed-change: infra_services content restructure — 13 root-server rows removed (moved into the new root_servers source with its own lifecycle), 21 public-DNS-resolver rows added (9 Chinese public DNS rows: AliDNS/DNSPod/114DNS/Baidu, v6 included; 10 IPv6 companion rows for the existing 5 resolvers; 2 rows for the Yandex DNS base pair), 35→43 rows total (31 v4 + 12 v6); feed-content surface only, zero change to classification or authority axes
 
@@ -270,6 +272,10 @@ See release notes: [v1.2.2](https://github.com/steponeerror/ip-radar/releases/ta
 
 ### 新增 Added
 
+- 公共 demo 模式（`IP_RADAR_PUBLIC_DEMO=1`）：写接口与内部接口返回 404，查询读接口要求 `x-ipradar-client: web` 头（STIX/OPTIONS/回环/version 豁免）；前端探测 `public_demo` 字段后隐藏数据源管理与更新入口，页顶常驻演示横幅指路 GitHub。自部署默认关闭，行为零变化
+  - Public demo mode (`IP_RADAR_PUBLIC_DEMO=1`): write/internal endpoints return 404, query endpoints require the `x-ipradar-client: web` header (STIX/OPTIONS/loopback/version exempt); the frontend probes `public_demo` and hides source-management/update affordances behind a persistent demo banner linking to GitHub. Off by default — self-hosted deployments unchanged
+- 版权与引用声明：仓库添加 AGPL-3.0 许可证标识与引用格式（`https://github.com/steponeerror/ip-radar`）
+  - License & citation notice: AGPL-3.0 identifiers and citation format added (`https://github.com/steponeerror/ip-radar`)
 - IPv6 查询支持：双族 LMDB 存储（v4 数据零迁移）、裸 v6 / 小段 v6 CIDR 查询、v6 bogon 判定（纯 stdlib）；spamhaus DROPv6、x4bnet、Cloudflare ips-v6 等兄弟源接入，geo/ASN（ipinfo 61% 行、GeoLite 35%、iptoasn 25%）v6 全量入库；STIX 导出产 `ipv6-addr` SCO；`/api/db-status` 新增 `covered_v6_nets` 键
   - IPv6 lookup support: dual-family LMDB storage (zero v4 migration), bare-v6 / small-CIDR queries, stdlib-driven v6 bogon detection; sibling feeds wired in (spamhaus DROPv6, x4bnet, Cloudflare ips-v6) with geo/ASN fully indexed for v6 (61% of ipinfo rows, 35% of GeoLite, 25% of iptoasn); STIX export emits `ipv6-addr` SCOs; `/api/db-status` gains a `covered_v6_nets` key
 - 页内版本通知：顶部横幅提示新版本（当前/最新版本号 + 变更摘要），复制更新命令、查看 Release Notes、手动检查更新；版本号由镜像内 `git describe` 自描述，最新版由后端代理查 GitHub Releases（1h 惰性缓存 + ETag，离线静默不弹）

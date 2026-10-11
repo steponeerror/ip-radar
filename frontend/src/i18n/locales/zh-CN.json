@@ -113,6 +113,7 @@
   "dbStatus.threat": "威胁",
   "dbStatus.updated": "更新 {time}",
   "dbStatus.updating": "更新中...",
+  "demo.banner": "🛰️ 演示模式 — 数据源管理与更新已禁用，自部署解锁完整体验 →",
   "exportCsv.button": "导出 CSV（{n} 行）",
   "fileUpload.busy": "查询进行中，请稍候",
   "fileUpload.choose": "选择文件",
