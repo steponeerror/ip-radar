@@ -228,6 +228,32 @@ class TestNamingAuthority:
         assert result.value == "Cloudflare"
         assert result.confidence == 85          # r×100(was 50)
 
+    def test_single_source_half_up_825(self, monkeypatch):
+        """单源 conf=r 公理:r=.825 → 83(half-up;round() 银行家 82.5→82)。grill Q3。"""
+        monkeypatch.setattr(_merge, "SOURCE_RELIABILITY", {"s": 0.825})
+        monkeypatch.setattr(_merge, "AUTHORITATIVE_SOURCES", {})
+        na = NamingAuthority()
+        result = na.merge({"s": "Acme"}, {"country": {}, "ip": "1.2.3.4"})
+        assert result.confidence == 83
+
+    def test_half_boundary_625_rounds_up(self, monkeypatch):
+        monkeypatch.setattr(_merge, "SOURCE_RELIABILITY", {"s": 0.625})
+        monkeypatch.setattr(_merge, "AUTHORITATIVE_SOURCES", {})
+        na = NamingAuthority()
+        result = na.merge({"s": "Acme"}, {"country": {}, "ip": "1.2.3.4"})
+        assert result.confidence == 63          # 62.5 → half-up 63(银行家 62)
+
+    def test_multi_source_best_r_wins_half_up(self, monkeypatch):
+        """多源路径不变:最高 r 胜,conf 仍 = 胜者 r×100(同 half-up 口径)。"""
+        monkeypatch.setattr(_merge, "SOURCE_RELIABILITY",
+                            {"a": 0.825, "b": 0.80})
+        monkeypatch.setattr(_merge, "AUTHORITATIVE_SOURCES", {})
+        na = NamingAuthority()
+        result = na.merge(
+            {"a": "Acme", "b": "Beta"}, {"country": {}, "ip": "1.2.3.4"})
+        assert result.value == "Acme"
+        assert result.confidence == 83
+
     def test_no_authoritative_falls_back(self, monkeypatch):
         monkeypatch.setattr(_merge, "SOURCE_RELIABILITY",
                             {"ipinfo_lite": 0.95, "iptoasn": 0.90})
