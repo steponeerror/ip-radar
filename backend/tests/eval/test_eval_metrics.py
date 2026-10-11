@@ -86,9 +86,10 @@ def test_cg_no_gain_when_already_corroborated():
     assert m.value == 0
 
 def test_cg_two_derived_alone_corroborate():
-    # All-derived pair: dedup_lineage keeps everything -> firehol + ipsum
-    # alone still count as 2 effective votes (matches production
-    # `corroborated` semantics for all-derived groups).
+    # All-derived pair WITHOUT an anchor: still 2 effective votes (matches
+    # production `corroborated` semantics for all-derived groups).
+    # grill Q2 翻案(2026-10-11):「全 derived 全保留」不再无条件成立——
+    # 锚对(firehol+greensnow 镜像)例外,见 test_cg_mirror_pair_no_corroboration。
     base = {"1.1.1.1": {"classifications": {"spam": {
         "sources": [{"source": "firehol"}],
         "details": [{"source": "firehol", "reliability": 0.60}]}}}}
@@ -98,6 +99,21 @@ def test_cg_two_derived_alone_corroborate():
                      {"source": "ipsum", "reliability": 0.60}]}}}}
     m = cg(base, cand, "ipsum")
     assert m.value == 1
+
+
+def test_cg_mirror_pair_no_corroboration():
+    # grill Q2 翻案(2026-10-11):firehol+greensnow 镜像对(OC=1.0,
+    # 包含度 ≥0.9)=同一出版方——firehol(r=.5,系数恒 0)不再是第二票:
+    # 加它不涨有效票,cg=0(生产 dedup_lineage 经 _effective_votes)。
+    base = {"1.1.1.1": {"classifications": {"blacklist": {
+        "sources": [{"source": "greensnow"}],
+        "details": [{"source": "greensnow", "reliability": 0.60}]}}}}
+    cand = {"1.1.1.1": {"classifications": {"blacklist": {
+        "sources": [{"source": "greensnow"}, {"source": "firehol"}],
+        "details": [{"source": "greensnow", "reliability": 0.60},
+                     {"source": "firehol", "reliability": 0.50}]}}}}
+    m = cg(base, cand, "firehol")
+    assert m.value == 0
 
 def test_effective_votes_informational_detail_not_counted():
     # EV-F1:存档票只展示不计分——2 details 其中 1 条 informational
