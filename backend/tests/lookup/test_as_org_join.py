@@ -82,3 +82,19 @@ def test_allowed_sources_filters_join(monkeypatch):
     from ipdb._registry import lookup
     r = lookup("1.1.1.1", allowed_sources=frozenset({"ipinfo_lite"}))
     assert r.as_org is None                        # 白名单不含 caida_asorg → join 不注入
+
+
+def test_org_hook_sources_precomputed_list(monkeypatch):
+    """Task 4(grill 候选5):join 钩子源列表预计算——只含带 org_for_asn
+    的源(热路径逐源 getattr 实测 2.33µs×49 源);enabled 过滤照常生效
+    (PATCH disable 后钩子源退出列表,不得旁路)。"""
+    import ipdb._registry as reg
+    monkeypatch.setattr(reg, "_disabled", set())
+    _patch(monkeypatch, [FakeAsnSource(), FakeAsorgSource()])
+    hooks = reg._org_hook_sources()
+    assert [s.name for s, fn in hooks] == ["caida_asorg"]
+    assert callable(hooks[0][1])
+    monkeypatch.setattr(reg, "_disabled", {"caida_asorg"})   # PATCH disable
+    assert reg._org_hook_sources() == []
+    monkeypatch.setattr(reg, "_disabled", set())             # PATCH enable
+    assert [s.name for s, fn in reg._org_hook_sources()] == ["caida_asorg"]

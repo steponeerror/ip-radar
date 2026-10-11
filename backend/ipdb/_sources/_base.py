@@ -8,8 +8,9 @@ from urllib.parse import urlparse
 import lmdb
 
 from .._types import SourceHealth
-# 热路径共享:query()/_query6() 函数体内缓存 import 实测 1.075µs/调用 ×
-# ~40 个有 v4 reader 的源 ≈ 43µs/IP(2026-10-11 perf 剖析);_lmdb 仅依赖
+# 热路径共享:函数体内缓存 import 复测 273ns/调用(2026-10-11 配对
+# A/B 修正侦察预估 1.075µs;43µs/IP 为已修正的侦察预估,非实测);提升后
+# 配对 A/B 实测 -21µs/IP(5/5 全胜)。_lmdb 仅依赖
 # stdlib/lmdb/orjson,无对本模块的反向 import,模块级提升安全(PR-2 Task 3)
 from ._lmdb import (
     ip_to_int, ip_to_int6, lookup, read_ptr, open_env_read,
