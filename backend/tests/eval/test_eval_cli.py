@@ -66,3 +66,23 @@ def test_run_for_source_dead_source_nodata(tmp_path):
                                    out_dir=tmp_path, benign=_FakeBenign())
     assert verdict.state == "NO-DATA"
     assert verdict.reason == "empty"
+
+
+def test_real_registry_toggle_visible_to_enabled_sources(monkeypatch):
+    """消融 CLI 的 _real_registry().toggle 必须「重赋值」_disabled:registry
+    身份键控缓存(_enabled_cache/_org_hooks_cache,Task 4)按对象身份失效,
+    原地 .add/.discard 令 baseline/candidate 恒同、消融指标静默全零
+    (终审 Critical-1)。断言可见性:toggle 后 _enabled_sources() 立即反映。"""
+    import ipdb._registry as reg
+    from ipdb._eval.__main__ import _real_registry
+
+    # 任取当前启用的真实源;monkeypatch 充当快照,终结时恢复原 _disabled 对象
+    name = next(s.name for s in reg._sources if s.name not in reg._disabled)
+    monkeypatch.setattr(reg, "_disabled", reg._disabled)
+
+    before = [s.name for s in reg._enabled_sources()]   # 预热身份缓存(命中态)
+    assert name in before
+    _real_registry().toggle(name, False)
+    assert name not in [s.name for s in reg._enabled_sources()]   # 立即可见
+    _real_registry().toggle(name, True)
+    assert name in [s.name for s in reg._enabled_sources()]       # 往返恢复

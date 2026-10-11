@@ -115,6 +115,9 @@ def _init_worker():
 # ②PATCH enable/disable 与 _sources/_disabled 换对象 → 引用比对失配
 # 即刻重算(缓存持强引用,被换对象存活,无 id 地址复用误中);
 # ③桶跨越延迟 ≤5s。单键整体替换(元组一次赋值,线程竞争最坏多算一次)。
+# 与 _org_hooks_cache 不对称(不键 _enabled_sources 函数身份):生产永不
+# 换函数本体,唯测试 stub 它——凡 stub 处必配本缓存清理/时钟推进
+# (test_batch_dedup autouse),故无 stale 面(终审 Minor,2026-10-11)。
 _FP_TTL_S = 5.0
 _fp_cache: dict = {"entry": None}   # (ts, src_ref, dis_ref, fp);测试清理 = 置 None
 
