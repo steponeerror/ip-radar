@@ -1,4 +1,6 @@
+import ipdb._sources.infra_services as infra_mod
 from ipdb._sources.infra_services import InfraServicesSource
+from ipdb._sources._lmdb import needs_convert
 
 
 def test_infra_services_loads_and_routes(tmp_path):
@@ -44,3 +46,74 @@ def test_infra_services_health_loaded_not_stale(tmp_path):
     assert h.covered_ips == 31      # 31 个 /32 单址 → 31 covered IPs(v4 口径)
     assert h.covered_v6_nets == 12  # 12 个 /128 单址 → 12 covered v6 nets
     assert h.is_stale is False      # stale_days=36500 (curated static)
+
+
+# ── 投影语义(grill Q6,2026-10-11):_DATA 唯一真相源,data/ csv 是物化投影 ──
+
+
+def test_projection_rematerializes_on_content_drift(tmp_path, monkeypatch):
+    """生产挂账形态(2026-10-10):csv 是旧 _DATA 的投影、mtime 老、ptr 新
+    → 代码演进 _DATA 后 needs_convert 恒 False、旧纪元永不重建;
+    投影语义下 load() 重物化 + mtime 前进 → needs_convert 翻 True。"""
+    s = InfraServicesSource(data_dir=tmp_path)
+    csv_path = tmp_path / "infra_services.csv"
+    monkeypatch.setattr(infra_mod, "_DATA", "8.8.8.8,dns,Old Projection\n")
+    s.download()
+    assert s.rebuild() == 1           # 活纪元建于旧 _DATA
+    new_data = "8.8.8.8,dns,Google Public DNS\n203.0.113.9,dns,New Row\n"
+    monkeypatch.setattr(infra_mod, "_DATA", new_data)   # 模拟新版代码
+    assert not needs_convert(csv_path, s._mmdb_path)    # 死锁态:csv 老 ptr 新
+    m0 = csv_path.stat().st_mtime_ns
+    assert s.load() == 1              # 旧 epoch 照常 mmap(重建交给调度器)
+    assert csv_path.read_text() == new_data             # 投影已追平真相
+    assert csv_path.stat().st_mtime_ns > m0   # mtime bump = rebuild 入队信号
+    assert needs_convert(csv_path, s._mmdb_path)   # → 一次 rebuild 在队
+
+
+def test_projection_no_rewrite_when_content_matches(tmp_path):
+    """同内容零写(数字零变化契约):内容一致时 load 不碰 csv——
+    不写、不换 inode、mtime 不动,无 rebuild 循环。"""
+    s = InfraServicesSource(data_dir=tmp_path)
+    s.download()
+    csv_path = tmp_path / "infra_services.csv"
+    m0 = csv_path.stat().st_mtime_ns
+    s.load()
+    assert csv_path.read_text() == infra_mod._DATA
+    assert csv_path.stat().st_mtime_ns == m0
+
+
+def test_projection_repeat_load_idempotent_no_half_write(tmp_path, monkeypatch):
+    """漂移态下连续两次 load 幂等:csv 恒 == _DATA(原子换入,无半写),
+    第二次零写(mtime 冻结),无 .tmp 残留。"""
+    s = InfraServicesSource(data_dir=tmp_path)
+    s.download()
+    csv_path = tmp_path / "infra_services.csv"
+    monkeypatch.setattr(infra_mod, "_DATA", infra_mod._DATA + "203.0.113.9,dns,Test\n")
+    s.load()
+    first = csv_path.read_text()
+    m1 = csv_path.stat().st_mtime_ns
+    s.load()
+    assert csv_path.read_text() == first == infra_mod._DATA
+    assert csv_path.stat().st_mtime_ns == m1
+    assert list(tmp_path.glob("*.tmp")) == []
+
+
+def test_projection_converges_after_one_rebuild(tmp_path, monkeypatch):
+    """全程收敛:_DATA 演进 → load 重物化(mtime bump → needs_convert
+    True)→ rebuild 采新 csv → needs_convert False,再 load 零写。"""
+    from ipdb._sources.infra_services import _DATA
+    s = InfraServicesSource(data_dir=tmp_path)
+    s.rebuild()                     # 旧 _DATA 建纪元
+    assert s.query("203.0.113.9") == {}
+    monkeypatch.setattr(infra_mod, "_DATA", _DATA + "203.0.113.9,dns,Test\n")
+    s.load()
+    csv_path = tmp_path / "infra_services.csv"
+    assert csv_path.read_text() == infra_mod._DATA
+    # 重建路径同样同步投影(未经 load 直入 rebuild 也不采到旧 csv)
+    assert s.rebuild() == 32
+    assert s.query("203.0.113.9")[0]["service"] == "dns"
+    assert not needs_convert(csv_path, s._mmdb_path)   # ptr 已新 → 收敛
+    m1 = csv_path.stat().st_mtime_ns
+    s.load()                        # 收敛后零写,无循环
+    assert csv_path.stat().st_mtime_ns == m1
+    assert not needs_convert(csv_path, s._mmdb_path)

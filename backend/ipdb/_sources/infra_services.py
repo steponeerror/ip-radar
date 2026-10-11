@@ -90,16 +90,37 @@ class InfraServicesSource(Source):
         self._data_dir.mkdir(parents=True, exist_ok=True)
         atomic_write_bytes(self._path, _DATA.encode("utf-8"))
 
-    def load(self) -> int:
-        # Self-heal: a cold start without a prior download still loads.
-        if not self._path.exists():
+    def _sync_projection(self) -> None:
+        """投影同步(grill Q6 裁决 2026-10-11):_DATA 是唯一真相源,data/
+        下 csv 是物化投影——文件缺失或内容与 _DATA 不一致 → 重物化。修
+        2026-10-10 生产挂账:旧码只在文件缺失时物化,代码改 _DATA 后卷上
+        旧 csv mtime 不动 → needs_convert 恒 False → 旧纪元永不重建(生产
+        曾靠 docker rm csv+restart 外科治愈)。风险锚点(评审 a–e):
+        (a) load 写副作用:load() 会写盘,但仅内容不一致时一次;同内容零写
+        (零变化契约),KB 级 _DATA 一次 read+memcmp 毫秒级。
+        (b) pool 子进程并发写:批池 worker 的 load_db 可与本进程并发重物化;
+        双方字节恒同,atomic_write_bytes 走 .tmp+os.replace 原子换入,读者
+        永不见半写;极端时序下落后者的 .tmp 已被前者换走 → 其 load 报错,
+        经 load_db OL-4 路径可见,下轮 load 收敛(幂等),不污染 epoch。
+        (c) 覆写语义:手工改过的 data/ csv 会被覆写——特性,_DATA 是真相。
+        (d) mtime 收敛:重物化 bump csv mtime → needs_convert True → 一次
+        rebuild 后 ptr 更新即收敛;同内容不再写,无循环。epoch 损坏遇内容
+        变更亦借此自愈(bump 直接入重建队列,不再 load_error 永久瘫痪)。
+        (e) 零记录守卫交互:_DATA 若退化到零行,_lmdb 零记录守卫拒提交保旧
+        epoch,needs_convert 维持 True 走退避重试——可见失败非静默。"""
+        if not self._path.exists() or self._path.read_text() != _DATA:
             self.download()
+
+    def load(self) -> int:
+        # Self-heal: a cold start without a prior download still loads;
+        # content drift re-materializes (projection semantics, see above).
+        self._sync_projection()
         return super().load()
 
     def rebuild(self, progress=None) -> int:
-        # Self-heal: same as load() — cold start without prior download.
-        if not self._path.exists():
-            self.download()
+        # Self-heal: same as load() — cold start without prior download;
+        # 直入 rebuild(未经 load)也不采到旧 csv。
+        self._sync_projection()
         return super().rebuild(progress=progress)
 
     def harvest(self):
