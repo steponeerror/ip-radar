@@ -26,8 +26,9 @@ LINEAGE_ANCHORS: dict[str, str] = {"emerging_threats": "spamhaus"}
 
 
 def logit(p: float) -> float:
-    """ln(p/(1-p));上界钳 0.98 防发散(spec §3.4)。"""
-    p = min(p, 0.98)
+    """ln(p/(1-p));钳 [1e-6, 0.98] 防发散(spec §3.4;下钳 1e-6 与上钳 0.98
+    对称,p=0 输入全安全)。"""
+    p = min(max(p, 1e-6), 0.98)
     return math.log(p / (1 - p))
 
 

@@ -18,6 +18,14 @@ def test_logit_identity_and_clamp():
     assert logit(1.0) == logit(0.98)                             # 上界钳制
 
 
+def test_logit_lower_clamp_inputs_safe():
+    """p=0/1e-7 不炸:下钳 1e-6 与上钳 0.98 对称(输入域 [0,1] 全安全,
+    加固 2026-10-11 PR-1)。"""
+    assert math.isfinite(logit(0.0))
+    assert math.isfinite(logit(1e-7))
+    assert logit(0.0) == logit(1e-6)                             # 钳位锚点
+
+
 def test_decay_checkpoints():
     # h=60d:30d→0.707,120d→0.25,240d→0.0625(每 60d 减半)
     assert abs(decay_factor(30) - 0.7071) < 1e-3

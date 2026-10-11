@@ -8,12 +8,12 @@ from concurrent.futures.process import BrokenProcessPool
 
 
 @pytest.mark.parametrize("cpu, ram_mb, expected", [
-    (16, 3900, (2, 6)),   # P=16 -> N=2, M=min(6, (16-2)//2=7)=6
-    (8, 8192, (2, 3)),    # P=8  -> N=2, M=min(6, (8-2)//2=3)=3
+    (16, 3900, (1, 6)),   # P=16 -> N=1, M=min(6, 15)=6
+    (8, 8192, (1, 6)),    # P=8  -> N=1, M=min(6, 7)=6
     (4, 4096, (1, 3)),    # P=4  -> N=1, M=min(6, 4-1=3)=3
     (2, 2048, (1, 1)),    # P=2  -> below 3 -> serial inline
     (3, 2048, (1, 2)),    # P=3  -> N=1, M=min(6,2)=2
-    (6, 4096, (2, 2)),    # P=6  -> N=2, M=min(6,(6-2)//2=2)=2
+    (6, 4096, (1, 5)),    # P=6  -> N=1, M=min(6, 5)=5
     # RAM-bound: 2 cores, tons of RAM still caps at cpu
     (2, 65536, (1, 1)),
     # RAM-bound: many cores, little RAM (P from RAM)
@@ -31,6 +31,14 @@ def test_compute_layout_constants_are_measured_values():
     assert _batch_pool.CHUNK == 200
 
 
+@pytest.mark.parametrize("P", [1, 2, 3, 6, 8, 16])
+def test_split_budget_always_single_worker(P):
+    """恒 N=1(grill Q4 裁决 2026-10-11,P1-2):N=2 时每个 uvicorn worker
+    进程各起一个 refresh-scheduler 双开互踩;预算全给批内池。"""
+    N, _ = _batch_pool._split_budget(P)
+    assert N == 1
+
+
 def test_detect_host_returns_positive_ints():
     cpu, ram = _batch_pool.detect_host()
     assert isinstance(cpu, int) and cpu >= 1
@@ -38,7 +46,7 @@ def test_detect_host_returns_positive_ints():
 
 
 def test_resolve_layout_formula_when_no_overrides():
-    assert _batch_pool.resolve_layout(16, 3900, {}) == (2, 6)
+    assert _batch_pool.resolve_layout(16, 3900, {}) == (1, 6)
 
 
 def test_resolve_layout_env_overrides_formula():
@@ -50,17 +58,17 @@ def test_resolve_layout_total_procs_env_resplits():
     # IPRADAR_TOTAL_PROCS overrides the budget P, then split
     env = {"IPRADAR_TOTAL_PROCS": "8"}
     N, M = _batch_pool.resolve_layout(2, 2048, env)  # tiny host, but forced P=8
-    assert (N, M) == _batch_pool._split_budget(8) == (2, 3)
+    assert (N, M) == _batch_pool._split_budget(8) == (1, 6)
 
 
 def test_resolve_layout_non_numeric_env_falls_back(caplog):
     """M3: a non-numeric env override (typo) must not crash startup — it falls
     back to the formula value and logs a warning so the typo is visible."""
-    # Formula on (16, 3900) -> (2, 6); typos must not change that.
+    # Formula on (16, 3900) -> (1, 6); typos must not change that.
     env = {"IPRADAR_WORKERS": "foo", "IPRADAR_BATCH_POOL": "bar"}
     with caplog.at_level("WARNING", logger="ipdb._batch_pool"):
         N, M = _batch_pool.resolve_layout(16, 3900, env)
-    assert (N, M) == (2, 6)
+    assert (N, M) == (1, 6)
     # Both typos are surfaced (one warning per key).
     msgs = " ".join(r.message for r in caplog.records)
     assert "IPRADAR_WORKERS" in msgs and "IPRADAR_BATCH_POOL" in msgs
@@ -70,8 +78,8 @@ def test_resolve_layout_non_numeric_total_procs_falls_back():
     """M3: IPRADAR_TOTAL_PROCS=foo also falls back to the auto formula."""
     env = {"IPRADAR_TOTAL_PROCS": "foo"}
     N, M = _batch_pool.resolve_layout(16, 3900, env)
-    # auto formula on (16, 3900) -> (2, 6)
-    assert (N, M) == (2, 6)
+    # auto formula on (16, 3900) -> (1, 6)
+    assert (N, M) == (1, 6)
 
 
 def test_work_chunk_returns_to_dict_dicts(tiny_db):
@@ -161,10 +169,10 @@ def test_fan_out_lookup_preserves_order_and_count(tiny_db):
 
 def test_n_workers_cli_prints_int(monkeypatch, capsys):
     """`python -m ipdb._batch_pool n-workers` resolves N from host+env."""
-    monkeypatch.setattr(_batch_pool, "detect_host", lambda: (8, 8192))  # -> N=2
+    monkeypatch.setattr(_batch_pool, "detect_host", lambda: (8, 8192))  # -> N=1
     _batch_pool._cli(["n-workers"])
     out = capsys.readouterr().out.strip()
-    assert out == "2"
+    assert out == "1"
 
 
 def test_init_worker_sets_pool_child_flag(monkeypatch):

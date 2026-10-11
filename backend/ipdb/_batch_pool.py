@@ -26,15 +26,14 @@ CHUNK = 200            # fan-out task granularity
 
 def _split_budget(P: int) -> tuple[int, int]:
     """Split total process budget P into (N uvicorn workers, M pool per worker)."""
-    if P >= 6:
-        N = 2
-        M = min(M_CAP, (P - N) // N)
-    elif P >= 3:
-        N = 1
+    # 恒 N=1(grill Q4 裁决 2026-10-11,P1-2):N=2 时每个 uvicorn worker
+    # 进程各起一个 refresh-scheduler 双开互踩;加锁防重=加机械被否,
+    # 预算全给批内池。
+    if P >= 3:
         M = min(M_CAP, P - 1)
     else:
-        N, M = 1, 1
-    return N, M
+        M = 1
+    return 1, M
 
 
 def compute_layout(cpu: int, ram_avail_mb: int) -> tuple[int, int]:

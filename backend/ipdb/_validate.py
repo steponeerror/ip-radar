@@ -27,8 +27,10 @@ def metadata_problems(source) -> list[str]:
     if cat not in ("geo_asn", "threat", "asset", "other"):
         problems.append(f"category {cat!r} invalid (need geo_asn|threat|asset|other)")
     rel = getattr(source, "reliability", 0.5)
-    if not (0.0 <= rel <= 1.0):
-        problems.append(f"reliability {rel!r} out of range [0,1]")
+    # 域收紧 (0,1](2026-10-11):r=0 是漏配不是合法校准(单源 conf=r
+    # 公理下 0 = 必错源),报 problems = registry 启动即炸承诺。
+    if not (0.0 < rel <= 1.0):
+        problems.append(f"reliability {rel!r} out of range (0,1]")
     for f in getattr(source, "authoritative_for", ()) or ():
         if f not in _AUTHORITY_FIELDS and not str(f).startswith("extra"):
             problems.append(f"authoritative_for names unknown field {f!r}")
