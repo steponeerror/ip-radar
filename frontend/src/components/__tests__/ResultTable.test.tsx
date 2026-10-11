@@ -70,21 +70,38 @@ describe("ResultTable city column", () => {
 });
 
 describe("ResultTable service badge", () => {
-  it("renders one '<role>·<provider>' chip per service statement", () => {
+  // 折并(2026-10-11 五裁,同 IpDetailPanel):正文只显角色词,证人逐行进 title
+  it("folds same-role statements into one chip, witnesses in the title", () => {
     const dns: LookupResult = {
       ip: "8.8.8.8",
       country: mf("US"), city: mf("Mountain View"), asn: mf(15169), as_name: mf("Google"),
       ip_range: mf("8.8.8.0/24"), is_isp: true, classifications: {},
       attributes: { service: [
+        { source: "dns_public", value: "dns", native_type: "google" },
         { source: "infra_services", value: "dns", native_type: "Google Public DNS" },
         { source: "cloud_ranges", value: "cloud", native_type: "Google" },
       ] },
     };
     renderWithI18n(<ResultTable results={[dns]} />);
     const tds = screen.getByText("8.8.8.8").closest("tr")!.querySelectorAll("td");
-    // every statement renders in the tags column — the old first-only chip hid all but one
-    expect(within(tds[6]).getByText("dns·Google Public DNS")).toBeInTheDocument();
-    expect(within(tds[6]).getByText("cloud·Google")).toBeInTheDocument();
+    expect(within(tds[6]).getAllByText("dns")).toHaveLength(1);
+    expect(within(tds[6]).getByText("cloud")).toBeInTheDocument();
+    const dnsChip = within(tds[6]).getByText("dns");
+    expect(dnsChip.getAttribute("title")).toContain("dns_public · google");
+    expect(dnsChip.getAttribute("title")).toContain("infra_services · Google Public DNS");
+  });
+
+  it("keeps the cdn-notice title on a folded cdn chip when threat.is_cdn (no separate CDN edge badge)", () => {
+    const cdn: LookupResult = {
+      ...baseResult, ip: "104.16.132.229",
+      threat: { verdict: "benign", confidence: 0, types: [], is_cdn: true },
+      attributes: { service: [{ source: "cdn_edges", value: "cdn", native_type: "Cloudflare" }] },
+    };
+    renderWithI18n(<ResultTable results={[cdn]} />);
+    const tds = screen.getByText("104.16.132.229").closest("tr")!.querySelectorAll("td");
+    const chip = within(tds[6]).getByText("cdn");
+    expect(chip.getAttribute("title")).toContain("banning not recommended");  // t(cdn.notice) 语义锚
+    expect(within(tds[6]).queryByText("CDN edge")).not.toBeInTheDocument();
   });
 });
 
