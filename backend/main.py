@@ -503,6 +503,22 @@ def _cold_start_background():
             "cold-start background thread failed")
 
 
+def _catchup_footprint(source) -> int:
+    """补账排序键:数据足迹(字节)升序——小/新源先收敛,未加载源的覆盖
+    门早清(2026-10-11 demo 机实测:peeringdb 类未加载源在队即持查询门);
+    大源(dbip/firehol 6M 级)殿后,撞低内存中止也不拖累小源完成。
+    目录源(firehol 多 netset)按递归文件和;缺失=0 最前(快速失败放行)。"""
+    p = Path(getattr(source, "_path", "") or "")
+    try:
+        if not p.exists():
+            return 0
+        if p.is_file():
+            return p.stat().st_size
+        return sum(f.stat().st_size for f in p.rglob("*") if f.is_file())
+    except OSError:
+        return 0
+
+
 def _startup_warm():
     """Warm path: load all sources from disk immediately, then refresh any stale
     ones in the background (non-blocking — the whole point of the warm branch)."""
@@ -513,6 +529,8 @@ def _startup_warm():
     stale = stale_source_names()
     merge = list(dict.fromkeys(needs_rebuild + stale))
     if merge:
+        by_name = {s.name: s for s in _ipdb_registry._enabled_sources()}
+        merge.sort(key=lambda n: _catchup_footprint(by_name.get(n)))
         manager.enqueue_stale(merge)
 
 
