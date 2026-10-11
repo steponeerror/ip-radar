@@ -20,10 +20,20 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Iterator
 
+import lmdb
+
 from ._types import SourceHealth
 from ._evidence import Evidence
 from ._sources._download import (
     warn_if_redirected, atomic_write_bytes, redact_url)
+# 热路径共享:函数体内缓存 import 复测 273ns/调用(2026-10-11 配对
+# A/B 修正侦察预估 1.075µs;43µs/IP 为已修正的侦察预估,非实测);提升后
+# 配对 A/B 实测 -21µs/IP(5/5 全胜)。_lmdb 仅依赖
+# stdlib/lmdb/orjson,无对本模块的反向 import,模块级提升安全(PR-2 Task 3;
+# 与 _sources/_base.py 平行维护)
+from ._sources._lmdb import (
+    ip_to_int, ip_to_int6, lookup, read_ptr, open_env_read,
+    read_disjoint_flag)
 
 logger = logging.getLogger(__name__)
 
@@ -212,13 +222,10 @@ class Source:
             return self._query6(ip)
         if self._reader is None:
             return {}
-        import lmdb as _lmdb
-        from ._sources._lmdb import (
-            ip_to_int, lookup, read_ptr, open_env_read, read_disjoint_flag)
         ip_int = ip_to_int(ip)
         try:
             result = lookup(self._reader, ip_int, disjoint=self._disjoint)
-        except (_lmdb.Error, OSError):
+        except (lmdb.Error, OSError):
             # 撞上刚 close 的旧 env:读 ptr 重开重试一次(与 MMDB 时代同模式)
             epoch = read_ptr(self._lmdb_base)
             self._reader = (open_env_read(
@@ -235,14 +242,11 @@ class Source:
         无 v6 env(源无 v6 数据/旧目录)安静返回 {}——与该源不存在同体验。"""
         if self._reader6 is None:
             return {}
-        import lmdb as _lmdb
-        from ._sources._lmdb import (
-            ip_to_int6, lookup, read_ptr, open_env_read, read_disjoint_flag)
         ip_int = ip_to_int6(ip)
         try:
             result = lookup(self._reader6, ip_int, disjoint=self._disjoint6,
                             ip_version=6)
-        except (_lmdb.Error, OSError):
+        except (lmdb.Error, OSError):
             # 撞上刚 close 的旧 env:读 ptr 重开重试一次(与 v4 同模式)
             epoch = read_ptr(self._lmdb6_base)
             self._reader6 = (open_env_read(

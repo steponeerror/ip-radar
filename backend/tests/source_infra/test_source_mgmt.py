@@ -30,6 +30,26 @@ def test_enabled_sources_filters_disabled(monkeypatch):
     assert names == ["a", "c"]
 
 
+def test_enabled_sources_memo_identity_and_invalidation(monkeypatch):
+    """Task 4(grill 候选5):_enabled_sources 按对象身份 memo(lookup
+    热路径每查重建 list comprehension ×2 实测 2.73µs×2);PATCH
+    enable/disable 重新赋值 _disabled 换对象 → 缓存即刻失效重算,
+    allowed 过滤(resolve_allowed 走同名抽取)不得见到旧名单。
+    """
+    monkeypatch.setattr(reg, "_sources", [_fake("a"), _fake("b"), _fake("c")])
+    monkeypatch.setattr(reg, "_disabled", set())
+    first = reg._enabled_sources()
+    assert [s.name for s in first] == ["a", "b", "c"]
+    assert reg._enabled_sources() is first   # memo 命中同对象(旧实现新 list 即红)
+    monkeypatch.setattr(reg, "_disabled", {"b"})   # PATCH disable 语义:换对象
+    again = reg._enabled_sources()
+    assert again is not first
+    assert [s.name for s in again] == ["a", "c"]
+    monkeypatch.setattr(reg, "_disabled", set())   # PATCH enable 回来
+    names = [s.name for s in reg._enabled_sources()]
+    assert names == ["a", "b", "c"]
+
+
 def test_category_known_and_unknown():
     assert reg._category("ipinfo_lite") == "geo_asn"
     assert reg._category("spamhaus") == "threat"

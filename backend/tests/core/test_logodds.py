@@ -57,9 +57,44 @@ def test_dedup_lineage_scenarios():
     # 场景2b:derived 恰好相等 → 也剔除(spec §3.3「≥ 即剔」)
     out = dedup_lineage([("firehol", 0.62), ("blocklist_de", 0.62)])
     assert [s for s, _ in out] == ["blocklist_de"]
-    # 场景3:全是 derived → 全保留
+    # 场景3:全是 derived 且无锚对 → 全保留(锚对在场例外:弱侧回声剔,
+    # grill Q2 2026-10-11 翻案,见 test_dedup_lineage_pure_derived_mirror_pair)
     out = dedup_lineage([("firehol", 0.5), ("ipsum", 0.4)])
     assert len(out) == 2
+
+
+def test_dedup_lineage_pure_derived_mirror_pair():
+    """grill Q2 翻案(2026-10-11):谱系锚判式对纯 derived 组同样生效——
+    修复前纯 derived 早退全保留,firehol r=.5 + greensnow r=.6(OC=1.0
+    镜像对,greensnow 原创内容被 firehol 再发布,包含度 ≥0.9,eval
+    谱系簇 2026-09-01)同场时同一出版方算两票、corroborated 假真。
+    修后 greensnow 在场且系数不低于 firehol → firehol 剔回声:单票
+    (corroborated=len(dedup)≥2 → False),conf=σ(logit(.6))=60=单源 r。
+    firehol 系数=logit(.5)·decay≡0,剔它不改任何分数——回放闸门 C2
+    退化恒等由构造成立。"""
+    gs = coefficient(0.6, None)                     # logit(.6),无龄不衰减
+    out = dedup_lineage([("firehol", coefficient(0.5, None)),
+                         ("greensnow", gs)])
+    assert out == [("greensnow", gs)]               # 单票 → corroborated=False
+    assert assertion_confidence([c for _, c in out]) == 60  # conf=单源 r
+
+
+def test_dedup_lineage_mixed_pool_zero_change():
+    """非 derived 在场行为零变(grill Q2 影响面):混合组里 firehol
+    本就被「derived ≤ 最强非 derived」剔(0 ≤ logit(.55)),锚判式前移
+    不改变保留集——本测试修复前后同绿,是影响面钉子而非红证。"""
+    kept = dedup_lineage([("firehol", coefficient(0.5, None)),
+                          ("greensnow", coefficient(0.6, None)),
+                          ("blocklist_de", coefficient(0.55, None))])
+    assert [s for s, _ in kept] == ["greensnow", "blocklist_de"]
+
+
+def test_dedup_lineage_otx_pair_still_double_vote():
+    """otx/otx_subscribed 互嵌无实测数字,不入锚表(grill Q2:无数字
+    不入,现状钉死)——纯 derived 双票保持。"""
+    out = dedup_lineage([("otx", coefficient(0.5, None)),
+                         ("otx_subscribed", coefficient(0.5, None))])
+    assert [s for s, _ in out] == ["otx", "otx_subscribed"]
 
 
 def test_assertion_confidence_numbers():

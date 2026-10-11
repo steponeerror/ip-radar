@@ -108,6 +108,20 @@ def _init_worker():
     _registry.load_db()
 
 
+# Task 4(grill 候选3,2026-10-11 剖析):指纹 5s TTL——每 inline 批前对
+# 每启用源 read_ptr 的系统调用串实测 1,164µs/次,小批占比骤增。
+# 失效面:①后台换 epoch 后 ≤5s 内 LRU 键/池 worker 重载判定用旧指纹
+# (最终一致;300s 桶本就整桶冻结,语义同向,grill 候选3 已裁可接受);
+# ②PATCH enable/disable 与 _sources/_disabled 换对象 → 引用比对失配
+# 即刻重算(缓存持强引用,被换对象存活,无 id 地址复用误中);
+# ③桶跨越延迟 ≤5s。单键整体替换(元组一次赋值,线程竞争最坏多算一次)。
+# 与 _org_hooks_cache 不对称(不键 _enabled_sources 函数身份):生产永不
+# 换函数本体,唯测试 stub 它——凡 stub 处必配本缓存清理/时钟推进
+# (test_batch_dedup autouse),故无 stale 面(终审 Minor,2026-10-11)。
+_FP_TTL_S = 5.0
+_fp_cache: dict = {"entry": None}   # (ts, src_ref, dis_ref, fp);测试清理 = 置 None
+
+
 def _epoch_fingerprint():
     """离线源 epoch 指纹 + 5 分钟时间桶。
 
@@ -117,12 +131,20 @@ def _epoch_fingerprint():
     """
     from ipdb import _registry
     from ipdb._sources._lmdb import read_ptr
+    now = time.time()
+    entry = _fp_cache["entry"]
+    if (entry is not None
+            and entry[1] is _registry._sources and entry[2] is _registry._disabled
+            and now - entry[0] < _FP_TTL_S):
+        return entry[3]
     fp = tuple(
         (s.name, read_ptr(s._lmdb_base))
         for s in _registry._enabled_sources()
         if hasattr(s, "_lmdb_base")
     )
-    return fp + (int(time.time()) // 300,)
+    fp = fp + (int(now) // 300,)
+    _fp_cache["entry"] = (now, _registry._sources, _registry._disabled, fp)
+    return fp
 
 
 @functools.lru_cache(maxsize=2048)

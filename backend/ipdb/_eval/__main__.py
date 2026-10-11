@@ -89,10 +89,14 @@ def _real_registry():
 
     def toggle(name, enabled):
         # in-memory only — NEVER reg.set_source_enabled (which persists).
+        # 必须重赋值而非 .add/.discard 原地改(与 set_source_enabled 同款):
+        # registry 身份键控缓存(_enabled_cache/_org_hooks_cache,Task 4)按
+        # _disabled 对象身份失效,原地改会让消融 baseline/candidate 恒同、
+        # 指标静默全零(终审 Critical-1,2026-10-11)。
         if enabled:
-            reg._disabled.discard(name)
+            reg._disabled = reg._disabled - {name}
         else:
-            reg._disabled.add(name)
+            reg._disabled = reg._disabled | {name}
 
     from types import SimpleNamespace
     return SimpleNamespace(

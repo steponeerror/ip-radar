@@ -175,7 +175,10 @@ class NamingAuthority:
         if not valid:
             return MergedField("N/A", 0, "authority", attributions)
         best = sorted(valid, key=lambda a: (-a.reliability, a.source))[0]
-        return MergedField(best.value, round(best.reliability * 100),
+        # 单源 conf=r 公理:r=.825 → 83;Python round() 是银行家取整(82.5→82),
+        # 故 half-up(同 FactualVoting conf 口径)。grill Q3 2026-10-11 裁决:
+        # 只统一 NamingAuthority;assertion_confidence/LogOddsVoting 的 round() 不动。
+        return MergedField(best.value, int(best.reliability * 100 + 0.5),
                            "authority", attributions)
 
 

@@ -27,6 +27,7 @@
 
 - **宁少算**:融合歧义一律向低估解——同源多观测取 max 不求和、谱系相等也剔、纯存档组退回全量平滑淡出。锚:_logodds.py(dedup_lineage)
 - **谱系**:源与源的派生关系(谁聚合了谁);DERIVED_SOURCES = firehol/ipsum/otx/otx_subscribed/greensnow/drb_ra(六员,源 class attr `derived=True` 在 _registry 导入时灌装;otx_subscribed 2026-10-07 入列);计分前谱系去重。锚:_logodds.py(DERIVED_SOURCES)
+- **镜像对**:同出版方 OC=1.0/包含度 ≥0.9 的互嵌源对(判例 greensnow↔firehol);锚判式剔弱侧,corroborated 不把同一出版方算两票——回声不是印证。锚:_logodds.py(LINEAGE_ANCHORS)。判例:grill Q2 2026-10-11。
 - **舰队**:评估时的对照基线——在场的其余启用源;与「市场先验」的"其余源"同一集合口径。锚:backend/main.py、backend/ipdb/_eval_reader.py
 - **印证**:θ 的语义——与舰队的一致性,不是 accuracy;corroborated = 谱系去重后 ≥2 独立指控源(只数指控章)。锚:_merge.py 教义注释、_eval/model.py
 - **市场先验**:其余源(舰队)在该分类上的命中率,作 Beta 先验中心;leave-out 计算防自证。锚:_eval/model.py(_prior_center)

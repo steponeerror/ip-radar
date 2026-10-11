@@ -216,8 +216,42 @@ def is_enabled(name: str) -> bool:
     return name not in _disabled
 
 
+# Task 4(grill 候选5,2026-10-11 剖析):_enabled_sources memo——lookup
+# 热路径每查重建 list comprehension ×2 实测 2.73µs×2。失效键持有
+# (_sources, _disabled) 强引用后用 is 比对(非 id():被替换对象因缓存
+# 存活不可能被地址复用,测试换桩零误中;PATCH enable/disable 在
+# set_source_enabled 重新赋值换对象 → 即刻失效)。返回共享 list,
+# 现行调用方全为迭代/推导,只读不得 mutate。
+_enabled_cache: dict = {"entry": None}
+
+
 def _enabled_sources() -> list:
-    return [s for s in _sources if is_enabled(s.name)]
+    entry = _enabled_cache["entry"]
+    if entry is not None and entry[0] is _sources and entry[1] is _disabled:
+        return entry[2]
+    value = [s for s in _sources if is_enabled(s.name)]
+    _enabled_cache["entry"] = (_sources, _disabled, value)
+    return value
+
+
+# Task 4(grill 候选5):as_org join 钩子源预计算——热路径逐源
+# getattr(org_for_asn) 实测 2.33µs×49 源,现役仅 caida_asorg 有钩子;
+# enabled 过滤烘进缓存构造(禁用源不得旁路 join)。键含 _enabled_sources
+# 函数本体引用:测试以函数桩注入假钩子源时(源集合未动)缓存随函数
+# 身份失配而重算,桩语义不受损。
+_org_hooks_cache: dict = {"entry": None}
+
+
+def _org_hook_sources() -> list:
+    entry = _org_hooks_cache["entry"]
+    if (entry is not None and entry[0] is _enabled_sources
+            and entry[1] is _sources and entry[2] is _disabled):
+        return entry[3]
+    value = [
+        (s, fn) for s in _enabled_sources()
+        if (fn := getattr(s, "org_for_asn", None)) is not None]
+    _org_hooks_cache["entry"] = (_enabled_sources, _sources, _disabled, value)
+    return value
 
 
 def _db_loaded() -> bool:
@@ -540,14 +574,11 @@ def lookup(ip: str, allowed_sources: frozenset[str] | None = None) -> LookupResu
     # as_org 查询期 join(b/asorg-anycast 批,2026-10-10):ASN 键源(caida_asorg)
     # 无 CIDR 面,无法走 per-IP 收集——在 asn 胜者解出后经 org_for_asn 钩子
     # 注入 as_org 值,再走 as_org 策略;allowed_sources(per-key 白名单)照常
-    # 过滤,join 不得旁路。
+    # 过滤,join 不得旁路。钩子源列表预计算(Task 4,grill 候选5)。
     as_org = None
     if asn.value:
-        for s in _enabled_sources():
+        for s, fn in _org_hook_sources():
             if allowed_sources is not None and s.name not in allowed_sources:
-                continue
-            fn = getattr(s, "org_for_asn", None)
-            if fn is None:
                 continue
             org = fn(asn.value)
             if org:

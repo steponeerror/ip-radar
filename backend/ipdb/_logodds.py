@@ -21,8 +21,15 @@ DERIVED_SOURCES: set[str] = {
 # anchor 原创清单(emerging_threats ⊇ spamhaus DROP,/12 巨块回声
 # LMDB 实证):anchor 在场且系数不低于 target 时 target 视为回声剔除
 # (宁少算);anchor 缺席或更弱 → target 保留。firehol⊃DROP 已由
-# DERIVED_SOURCES 覆盖,不入此表。
-LINEAGE_ANCHORS: dict[str, str] = {"emerging_threats": "spamhaus"}
+# DERIVED_SOURCES 覆盖,不入此表。grill Q2(2026-10-11)补镜像对:
+# firehol ⊇ greensnow 原创清单(OC=1.0,包含度 ≥0.9,eval 谱系簇
+# 2026-09-01;firehol 系数 = logit(.5)·decay ≡ 0,剔它不动任何分数);
+# otx/otx_subscribed 互嵌无实测数字,不入(现状钉死)。
+# _calibrated.json 把 firehol r 抬离 0.5 时须重验 C2 恒等(剔它即动分数)。
+LINEAGE_ANCHORS: dict[str, str] = {
+    "emerging_threats": "spamhaus",
+    "firehol": "greensnow",
+}
 
 
 def logit(p: float) -> float:
@@ -75,21 +82,21 @@ def coefficient(r: float, first_seen: str | None, ctype: str | None = None,
 
 def dedup_lineage(coeffs: list[tuple[str, float]]) -> list[tuple[str, float]]:
     """谱系去重(保守近似,spec §3.3):存在非 derived 源时,剔除系数
-    不高于最强非 derived 的 derived 源(相等也剔——宁少算勿重算);
-    全 derived 则全保留。谱系锚(LINEAGE_ANCHORS)同判式:target 在
-    其锚源在场且锚系数不低于它时同样剔除(锚缺席或更弱 → 保留)。"""
+    不高于最强非 derived 的 derived 源(相等也剔——宁少算勿重算)。
+    谱系锚(LINEAGE_ANCHORS)同判式且对纯 derived 组同样生效——锚判式
+    在早退判别之前(grill Q2 2026-10-11 前移;此前纯 derived 早退全
+    保留,镜像对同一出版方算两票、corroborated 假真):target 在其锚源
+    在场且锚系数不低于它时同样剔除(锚缺席或更弱 → 保留)。"""
     non_derived_max = max((c for s, c in coeffs if s not in DERIVED_SOURCES),
                           default=None)
-    if non_derived_max is None:
-        return list(coeffs)
     kept: list[tuple[str, float]] = []
     for s, c in coeffs:
-        if s in DERIVED_SOURCES and c <= non_derived_max:
+        if (non_derived_max is not None and s in DERIVED_SOURCES
+                and c <= non_derived_max):
             continue
         anchor = LINEAGE_ANCHORS.get(s)
         if anchor is not None:
-            # 锚在场 = 锚源出现在输入 coeffs(逐前置判别,不看 kept 集合);
-            # 全 derived 输入在上文 non_derived_max 短路返回,锚判式不适用
+            # 锚在场 = 锚源出现在输入 coeffs(逐前置判别,不看 kept 集合)
             anchor_max = max((c2 for s2, c2 in coeffs if s2 == anchor),
                              default=None)
             if anchor_max is not None and anchor_max >= c:

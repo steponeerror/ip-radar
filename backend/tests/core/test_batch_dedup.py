@@ -4,8 +4,11 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def _clear_lru_cache():
-    """每个测试前后都清空模块级 LRU,避免跨测试/跨文件污染(Stub 结果泄漏)。"""
+    """每个测试前后都清空模块级 LRU,避免跨测试/跨文件污染(Stub 结果泄漏)。
+    Task 4:指纹 TTL 缓存同治(同窗内缓存会把上一测试的指纹带给
+    monkeypatch 后的假源面)。"""
     _batch_pool._cached_lookup.cache_clear()
+    _batch_pool._fp_cache["entry"] = None
     yield
     cached = getattr(_batch_pool, "_cached_lookup", None)
     # pytest ≥9 终结顺序:本 teardown 可能先于 monkeypatch 恢复执行,此刻
@@ -13,6 +16,7 @@ def _clear_lru_cache():
     # 残留由同文件下个用例的前置清兜底(CI per-file 分进程,无跨文件窗口)。
     if cached is not None and hasattr(cached, "cache_clear"):
         cached.cache_clear()
+    _batch_pool._fp_cache["entry"] = None
 
 def test_dedup_lookup_preserves_order_and_length(monkeypatch):
     import ipdb._registry as reg
@@ -68,6 +72,7 @@ def test_dedup_lookup_repeated_ip_cached(monkeypatch):
 def test_epoch_fingerprint_includes_source_names(monkeypatch):
     """指纹键带源名(位置元组碰撞回归): 全新安装所有源 ptr=1 时,
     切换启用源集合后旧指纹(纯 ptr 元组)字节相同 → LRU 返回错误证据组合。
+    (Task 4 TTL 后两次取样须越 5s 窗——同窗内命中缓存属预期语义)
     """
     import ipdb._batch_pool as bp
     import ipdb._registry as reg
@@ -79,9 +84,12 @@ def test_epoch_fingerprint_includes_source_names(monkeypatch):
             self._lmdb_base = f"/fake/{name}.lmdb"
 
     monkeypatch.setattr(lmdb_mod, "read_ptr", lambda base: 1)  # 全新安装 ptr 恒 1
+    clock = {"t": 1_000_200.0}  # 桶对齐,两次取样均在同 300s 桶内
+    monkeypatch.setattr(bp.time, "time", lambda: clock["t"])
     monkeypatch.setattr(reg, "_enabled_sources",
                         lambda: [FakeSrc("src_x"), FakeSrc("src_y")])
     fp_a = bp._epoch_fingerprint()
+    clock["t"] += 6                             # 越 TTL 窗,强制重算
     monkeypatch.setattr(reg, "_enabled_sources",
                         lambda: [FakeSrc("src_x"), FakeSrc("src_z")])
     fp_b = bp._epoch_fingerprint()
@@ -118,8 +126,9 @@ def test_dedup_lookup_pool_worker_bypasses_lru(monkeypatch):
 def test_epoch_fingerprint_time_bucket(monkeypatch):
     """跨 5 分钟桶指纹不同; 同桶相同。
 
-    基准取 300 的整数倍(桶对齐): +299 仍在同桶, +301 跨入下一桶。
+    基准取 300 的整数倍(桶对齐): +299 仍在同桶, +305 跨入下一桶。
     (1_000_000 非桶对齐——距桶界仅 200s, +299 即跨桶, 断言会假失败)
+    (Task 4 TTL:跨桶样本还须越上一取样的 5s 窗,否则命中缓存不重算)
     """
     import ipdb._batch_pool as bp
     T0 = 999_900.0  # = 3333 * 300, 桶对齐
@@ -127,6 +136,41 @@ def test_epoch_fingerprint_time_bucket(monkeypatch):
     a = bp._epoch_fingerprint()
     monkeypatch.setattr(bp.time, "time", lambda: T0 + 299)
     b = bp._epoch_fingerprint()
-    monkeypatch.setattr(bp.time, "time", lambda: T0 + 301)
+    monkeypatch.setattr(bp.time, "time", lambda: T0 + 305)
     c = bp._epoch_fingerprint()
     assert a == b and a != c
+
+
+def test_epoch_fingerprint_ttl_cache(monkeypatch):
+    """Task 4(grill 候选3):指纹 5s TTL 缓存——同窗内不重读 read_ptr
+    (每 inline 批对每启用源的系统调用串实测 1,164µs/次),换代检测
+    延迟 ≤5s 最终一致(300s 桶整桶冻结,语义同向);越窗重算见新代。
+    """
+    import ipdb._batch_pool as bp
+    import ipdb._registry as reg
+    import ipdb._sources._lmdb as lmdb_mod
+
+    reads = {"n": 0}
+    ptr = {"v": 1}
+
+    class FakeSrc:
+        name = "src_x"
+        _lmdb_base = "/fake/src_x.lmdb"
+
+    def fake_read_ptr(base):
+        reads["n"] += 1
+        return ptr["v"]
+
+    monkeypatch.setattr(lmdb_mod, "read_ptr", fake_read_ptr)
+    monkeypatch.setattr(reg, "_enabled_sources", lambda: [FakeSrc()])
+    clock = {"t": 1_000_200.0}  # 桶对齐(300 的倍数),越窗仍在同桶
+    monkeypatch.setattr(bp.time, "time", lambda: clock["t"])
+
+    a = bp._epoch_fingerprint()
+    assert reads["n"] == 1
+    ptr["v"] = 2                            # 模拟后台 rebuild 换 epoch
+    b = bp._epoch_fingerprint()             # 同 TTL 窗内:命中缓存不重读
+    assert b == a and reads["n"] == 1       # 旧实现此处重读(reads==2)即红
+    clock["t"] += 5.1                       # 越 5s 窗(仍在同 300s 桶)
+    c = bp._epoch_fingerprint()
+    assert reads["n"] == 2 and c != a       # 重算,见新代
