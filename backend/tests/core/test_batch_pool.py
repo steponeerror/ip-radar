@@ -175,6 +175,53 @@ def test_n_workers_cli_prints_int(monkeypatch, capsys):
     assert out == "1"
 
 
+def test_work_chunk_pool_worker_follows_epoch_rotation(monkeypatch):
+    """P1-1(grill 2026-10-11):worker 孵化后主进程 rebuild 换 epoch 并 prune
+    旧目录,子进程 mmap 挂未链接 inode 仍可读、不报错、永不触发 _base 的
+    重开重试——批查恒旧代直到重启。修法:池 worker 分支进 chunk 前比对
+    epoch 指纹,变化即 load_db 跟随轮转(主进程 inline 路径本有 LRU 指纹键
+    护着,单查/批查从此同代)。直接测 _work_chunk(与 main.py 现行调用
+    一致);fan_out_lookup 禁用(Task 3 将删)。"""
+    from ipdb import _batch_pool, _registry
+
+    # 指纹序列:gen1(锚定)→ gen2(换代)→ gen2(同代不得再重载)
+    fps = iter([("gen1",), ("gen2",), ("gen2",)])
+    monkeypatch.setattr(_batch_pool, "_epoch_fingerprint", lambda: next(fps))
+
+    state = {"gen": "gen1"}  # mock registry 当前服务的代
+    load_calls = []
+
+    def _fake_load_db():  # 重载后 registry 服务新代
+        load_calls.append(1)
+        state["gen"] = "gen2"
+
+    monkeypatch.setattr(_registry, "load_db", _fake_load_db)
+
+    class _Stub:
+        def to_dict(self):
+            return {"gen": state["gen"]}
+
+    monkeypatch.setattr(_registry, "lookup",
+                        lambda ip, allowed_sources=None: _Stub())
+
+    # 池 worker 身份(真实子进程里 _init_worker 置位;单测直置)
+    monkeypatch.setattr(_batch_pool, "_IN_POOL_WORKER", True)
+    # 预锚 gen1:模拟 worker 孵化装载后的稳态(生产里首 chunk 锚定,
+    # 幂等重复装载;本测只测换代轮转分支,勿把锚定装载计入恰一次)
+    _batch_pool._POOL_EPOCH_FP = ("gen1",)
+    try:
+        first = _batch_pool._work_chunk(["8.8.8.8"])    # gen1:锚定指纹
+        rotated = _batch_pool._work_chunk(["8.8.8.8"])  # gen2:必重载
+        same = _batch_pool._work_chunk(["8.8.8.8"])     # gen2 未变:不再重载
+    finally:
+        # 生产代码直写的模块缓存,monkeypatch 不认领,手工回收防泄漏
+        _batch_pool._POOL_EPOCH_FP = None
+    assert first == [{"gen": "gen1"}]   # 换代前照旧
+    assert rotated == [{"gen": "gen2"}]  # 第二次查询走新代(旧代码 gen1=stale 即 bug)
+    assert same == [{"gen": "gen2"}]
+    assert len(load_calls) == 1          # 恰一次换代替换载(旧代码 0=从不重载)
+
+
 def test_init_worker_sets_pool_child_flag(monkeypatch):
     """FIX6 接线钉死:_init_worker 必须设 IP_RADAR_POOL_CHILD(cleanup_stale
     见旗标即退)。删掉那行生产代码本测试必红 —— 无此接线,懒孵化子进程

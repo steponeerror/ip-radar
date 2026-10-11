@@ -141,6 +141,16 @@ def _dedup_lookup(ips: list[str],
     allowed 贯穿到 lookup(spec §5,审计 I2:scope 到最后一米)。"""
     from ipdb import _registry
     if _IN_POOL_WORKER:
+        # P1-1(grill 2026-10-11):worker 孵化后主进程 rebuild 换代并 prune 旧
+        # epoch,子进程 mmap 挂未链接 inode 仍可读、不报错、永不触发 _base 的
+        # 重开重试——批查恒旧代直到重启。进 chunk 前比对指纹,变化即重载跟随
+        # 轮转(load_db 幂等,open_env_read 按路径缓存,仅真换代源开新 env;
+        # 主进程 inline 路径本有下方 LRU 指纹键护着,单查/批查从此同代)。
+        global _POOL_EPOCH_FP
+        fp = _epoch_fingerprint()
+        if fp != _POOL_EPOCH_FP:
+            _registry.load_db()
+            _POOL_EPOCH_FP = fp
         def _get(ip):
             return _registry.lookup(ip, allowed_sources=allowed).to_dict()
     else:
@@ -166,6 +176,7 @@ def _work_chunk(ips: list[str],
 # ── Module-level pool handle (managed by lifespan) ──
 _POOL: ProcessPoolExecutor | None = None
 _IN_POOL_WORKER = False
+_POOL_EPOCH_FP: tuple | None = None  # 池 worker 已装载的 epoch 指纹(None=未锚定)
 
 
 def set_pool(pool: ProcessPoolExecutor | None) -> None:
