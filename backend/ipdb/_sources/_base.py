@@ -5,7 +5,15 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+import lmdb
+
 from .._types import SourceHealth
+# 热路径共享:query()/_query6() 函数体内缓存 import 实测 1.075µs/调用 ×
+# ~40 个有 v4 reader 的源 ≈ 43µs/IP(2026-10-11 perf 剖析);_lmdb 仅依赖
+# stdlib/lmdb/orjson,无对本模块的反向 import,模块级提升安全(PR-2 Task 3)
+from ._lmdb import (
+    ip_to_int, ip_to_int6, lookup, read_ptr, open_env_read,
+    read_disjoint_flag)
 
 logger = logging.getLogger(__name__)
 
@@ -205,13 +213,10 @@ class IpListSource:
             return self._query6(ip)
         if self._reader is None:
             return {}
-        import lmdb as _lmdb
-        from ._lmdb import (
-            ip_to_int, lookup, read_ptr, open_env_read, read_disjoint_flag)
         ip_int = ip_to_int(ip)
         try:
             result = lookup(self._reader, ip_int, disjoint=self._disjoint)
-        except (_lmdb.Error, OSError):
+        except (lmdb.Error, OSError):
             # 撞上刚 close 的旧 env:读 ptr 重开重试一次(与 MMDB 时代同模式)
             epoch = read_ptr(self._lmdb_base)
             self._reader = (open_env_read(
@@ -229,14 +234,11 @@ class IpListSource:
         (与 Source._query6 平行维护。)"""
         if self._reader6 is None:
             return {}
-        import lmdb as _lmdb
-        from ._lmdb import (
-            ip_to_int6, lookup, read_ptr, open_env_read, read_disjoint_flag)
         ip_int = ip_to_int6(ip)
         try:
             result = lookup(self._reader6, ip_int, disjoint=self._disjoint6,
                             ip_version=6)
-        except (_lmdb.Error, OSError):
+        except (lmdb.Error, OSError):
             # 撞上刚 close 的旧 env:读 ptr 重开重试一次(与 v4 同模式)
             epoch = read_ptr(self._lmdb6_base)
             self._reader6 = (open_env_read(
