@@ -134,3 +134,33 @@ describe("as_domain org suffix", () => {
     expect(screen.queryByText("google.com")).not.toBeInTheDocument();
   });
 });
+
+describe("as_org display dedupe + registration styling (2026-10-11 user report)", () => {
+  const asOrg = (value: string): NonNullable<LookupResult["as_org"]> => ({
+    value, confidence: 80, algorithm: "authority",
+    sources: [{ source: "caida_asorg", value, reliability: 0.8, authoritative: true }],
+  });
+
+  it("folds an equal as_org into the Operator row instead of a duplicate block", () => {
+    renderWithI18n(<IpDetailPanel r={{ ...r, as_org: asOrg("Google") }} />);
+    expect(screen.queryByText("AS organization")).not.toBeInTheDocument();
+    // 证据不灭失:caida 证人折进行内 chips,只是不再单开一块
+    expect(screen.getByText("caida_asorg")).toBeInTheDocument();
+  });
+
+  it("keeps a separate AS organization block when the value differs", () => {
+    renderWithI18n(<IpDetailPanel r={{ ...r, as_org: asOrg("Google LLC") }} />);
+    expect(screen.getByText("AS organization")).toBeInTheDocument();
+  });
+
+  it("renders the registry allocation row as a block mirroring FieldDetail structure", () => {
+    renderWithI18n(<IpDetailPanel
+      r={{ ...r, registration: { registry: "apnic", alloc_date: "2008-05-20", status: "allocated", reg_country: "CN" } }} />);
+    expect(screen.getByText(/apnic · 2008-05-20 · allocated · CN/)).toBeInTheDocument();
+    // 与 FieldDetail 同构:外层块 div + 内层 flex 头(demo 分支的 SECTION 化妆品
+    // 可单行套上去,不再是一行裸 flex——2026-10-11 用户报的样式精茬)
+    const label = screen.getByText("Registry allocation");
+    const block = label.parentElement?.parentElement;
+    expect(block?.childElementCount).toBe(1);
+  });
+});

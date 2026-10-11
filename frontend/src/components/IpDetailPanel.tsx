@@ -124,6 +124,14 @@ export function IpDetailPanel({ r }: { r: LookupResult }) {
       });
     }
   }
+  // 展示层去重(2026-10-11 用户反馈"重复展示"):as_org 判定值与 as_name 一致时,把
+  // caida 证人折进 Operator 行 chips,不再单开一块(证据不灭失;仅展示合并,不动
+  // 置信度/算法——宁少算);值不同时两块分立,两轴本就独立。
+  const orgDup =
+    r.as_org && String(r.as_org.value) === String(r.as_name.value) ? r.as_org : null;
+  const orgField = orgDup
+    ? { ...r.as_name, sources: [...r.as_name.sources, ...orgDup.sources] }
+    : r.as_name;
   return (
     <div className="grid gap-2.5">
       <FieldDetail label={t("ipDetail.country")} field={r.country} format={String} grouped />
@@ -144,11 +152,11 @@ export function IpDetailPanel({ r }: { r: LookupResult }) {
       <FieldDetail label="ASN" field={r.asn} format={(v) => String(v)} grouped />
       <FieldDetail
         label={t("ipDetail.org")}
-        field={r.as_name}
+        field={orgField}
         format={String}
         suffix={r.attributes?.as_domain?.[0]?.value as string | undefined}
       />
-      {r.as_org && (
+      {r.as_org && !orgDup && (
         <FieldDetail
           label={t("ipDetail.asOrg")}
           field={r.as_org}
@@ -156,14 +164,16 @@ export function IpDetailPanel({ r }: { r: LookupResult }) {
         />
       )}
       {r.registration && (
-        <div className="flex items-center gap-2 mb-1">
-          <span className="text-xs font-medium text-zinc-300">{t("ipDetail.registration")}</span>
-          <span className="text-[10px] text-zinc-500">
-            {r.registration.registry}
-            {r.registration.alloc_date && ` · ${r.registration.alloc_date}`}
-            {r.registration.status && ` · ${r.registration.status}`}
-            {r.registration.reg_country && ` · ${r.registration.reg_country}`}
-          </span>
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-xs font-medium text-zinc-300">{t("ipDetail.registration")}</span>
+            <span className="text-[10px] text-zinc-500">
+              {r.registration.registry}
+              {r.registration.alloc_date && ` · ${r.registration.alloc_date}`}
+              {r.registration.status && ` · ${r.registration.status}`}
+              {r.registration.reg_country && ` · ${r.registration.reg_country}`}
+            </span>
+          </div>
         </div>
       )}
       {identityChips.length > 0 && (
