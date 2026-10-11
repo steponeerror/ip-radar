@@ -28,6 +28,8 @@ def _split_budget(P: int) -> tuple[int, int]:
     # 恒 N=1(grill Q4 裁决 2026-10-11,P1-2):N=2 时每个 uvicorn worker
     # 进程各起一个 refresh-scheduler 双开互踩;加锁防重=加机械被否,
     # 预算全给批内池。
+    # IPRADAR_WORKERS≥2 手动 env 覆写(resolve_layout :89-90 直接采纳)
+    # 会复活双开 scheduler 竞态(P1-2),勿覆写。
     if P >= 3:
         M = min(M_CAP, P - 1)
     else:
