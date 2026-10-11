@@ -113,6 +113,7 @@
   "dbStatus.threat": "threat",
   "dbStatus.updated": "Updated {time}",
   "dbStatus.updating": "Updating...",
+  "demo.banner": "🛰️ Demo mode — sources & updates disabled. Self-host for the full experience →",
   "exportCsv.button": "Export CSV ({n} rows)",
   "fileUpload.busy": "A lookup is in progress, please wait",
   "fileUpload.choose": "Choose File",
