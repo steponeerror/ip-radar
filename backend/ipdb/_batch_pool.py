@@ -11,7 +11,6 @@ import os
 import time
 from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor
-from concurrent.futures.process import BrokenProcessPool
 import functools
 
 _log = logging.getLogger(__name__)
@@ -188,21 +187,10 @@ def get_pool() -> ProcessPoolExecutor | None:
     return _POOL
 
 
-def fan_out_lookup(ips: list[str]) -> list[dict]:
-    """Lookup+to_dict for a list of IPs. Inline for small batches or when no
-    pool / broken pool; otherwise fan out across the process pool. Output is in
-    input order, one dict per IP."""
-    if len(ips) <= INLINE_THRESHOLD or _POOL is None:
-        return _dedup_lookup(ips)
-    chunks = [ips[i:i + CHUNK] for i in range(0, len(ips), CHUNK)]
-    try:
-        chunk_results = list(_POOL.map(_work_chunk, chunks))
-    except BrokenProcessPool:
-        import logging
-        logging.getLogger(__name__).warning(
-            "batch pool broken; falling back to inline")
-        return _dedup_lookup(ips)
-    return [d for chunk in chunk_results for d in chunk]
+# fan_out_lookup 已删(grill Q7 裁决 2026-10-11:零生产调用 + 签名丢 allowed
+# 的 I2 per-key scope 陷阱)。池入口必须带 allowed —— 现行示范 = main.py
+# 直调 _work_chunk(ips, allowed)(inline: asyncio.to_thread;pooled:
+# loop.run_in_executor)。
 
 
 def _cli(argv: list[str]) -> None:

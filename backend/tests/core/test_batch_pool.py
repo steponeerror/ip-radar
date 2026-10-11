@@ -4,7 +4,6 @@ import pytest
 # Module under test (created in this task); tiny_db fixture 来自 tests/conftest.py
 from ipdb import _batch_pool
 from ipdb import _registry
-from concurrent.futures.process import BrokenProcessPool
 
 
 @pytest.mark.parametrize("cpu, ram_mb, expected", [
@@ -105,48 +104,10 @@ def test_work_chunk_spawns_in_isolated_process(tiny_db):
     assert results == [[_registry.lookup("8.8.8.8").to_dict()]]
 
 
-def test_fan_out_lookup_inline_below_threshold(monkeypatch, tiny_db):
-    """<= INLINE_THRESHOLD IPs go inline even when pool is available."""
-    # Inject a poison pool that raises if its .map is called
-    class _Poison:
-        def map(self, fn, iterable):
-            raise AssertionError("pool must not be called for <=threshold batches")
-    _batch_pool.set_pool(_Poison())
-    ips = ["8.8.8.8", "1.1.1.1"]  # len=2 << INLINE_THRESHOLD=200
-    out = _batch_pool.fan_out_lookup(ips)
-    # Assert we got inline results (and poison.map was never called)
-    assert out == [_registry.lookup("8.8.8.8").to_dict(),
-                   _registry.lookup("1.1.1.1").to_dict()]
-    _batch_pool.set_pool(None)  # cleanup
-
-
-def test_fan_out_lookup_falls_back_to_inline_on_broken_pool(monkeypatch, tiny_db):
-    """A broken pool triggers inline fallback (never raises to the caller)."""
-    # Force the pool path by reducing INLINE_THRESHOLD below our test size
-    monkeypatch.setattr(_batch_pool, "INLINE_THRESHOLD", 1)
-
-    # Track that the broken pool.map was actually called
-    call_count = {"count": 0}
-    class _Broken:
-        def map(self, fn, iterable):
-            call_count["count"] += 1
-            raise BrokenProcessPool("simulated")
-    _batch_pool.set_pool(_Broken())
-
-    ips = ["8.8.8.8"] * 5  # len=5 > INLINE_THRESHOLD=1 → pool path taken
-    try:
-        out = _batch_pool.fan_out_lookup(ips)
-        # Prove the pool.map was actually called (coverage of the except clause)
-        assert call_count["count"] > 0, "Broken pool.map was never called"
-        # Verify inline fallback produced correct results
-        assert len(out) == 5
-        assert out[0] == _registry.lookup("8.8.8.8").to_dict()
-    finally:
-        _batch_pool.set_pool(None)
-
-
-def test_fan_out_lookup_preserves_order_and_count(tiny_db):
-    """Output is in input order, one dict per IP, bit-identical to inline."""
+def test_work_chunk_preserves_order_and_count(tiny_db):
+    """Output is in input order, one dict per IP, bit-identical to inline.
+    (fan_out_lookup 已删 grill Q7;本用例本质在钉 chunk 协议,改写为直调
+    _work_chunk —— 与 main.py 现行调用一致。)"""
     import hashlib, ipaddress
     ips = []
     i = 0
@@ -161,8 +122,7 @@ def test_fan_out_lookup_preserves_order_and_count(tiny_db):
         except ValueError:
             continue
         ips.append(ip)
-    _batch_pool.set_pool(None)  # force inline path
-    out = _batch_pool.fan_out_lookup(ips)
+    out = _batch_pool._work_chunk(ips)
     expected = [_registry.lookup(ip).to_dict() for ip in ips]
     assert out == expected
 
@@ -181,7 +141,7 @@ def test_work_chunk_pool_worker_follows_epoch_rotation(monkeypatch):
     重开重试——批查恒旧代直到重启。修法:池 worker 分支进 chunk 前比对
     epoch 指纹,变化即 load_db 跟随轮转(主进程 inline 路径本有 LRU 指纹键
     护着,单查/批查从此同代)。直接测 _work_chunk(与 main.py 现行调用
-    一致);fan_out_lookup 禁用(Task 3 将删)。"""
+    一致);fan_out_lookup 已删(grill Q7, 2026-10-11)。"""
     from ipdb import _batch_pool, _registry
 
     # 指纹序列:gen1(锚定)→ gen2(换代)→ gen2(同代不得再重载)
