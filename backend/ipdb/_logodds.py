@@ -25,6 +25,7 @@ DERIVED_SOURCES: set[str] = {
 # firehol ⊇ greensnow 原创清单(OC=1.0,包含度 ≥0.9,eval 谱系簇
 # 2026-09-01;firehol 系数 = logit(.5)·decay ≡ 0,剔它不动任何分数);
 # otx/otx_subscribed 互嵌无实测数字,不入(现状钉死)。
+# _calibrated.json 把 firehol r 抬离 0.5 时须重验 C2 恒等(剔它即动分数)。
 LINEAGE_ANCHORS: dict[str, str] = {
     "emerging_threats": "spamhaus",
     "firehol": "greensnow",
