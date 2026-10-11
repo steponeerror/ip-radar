@@ -103,6 +103,43 @@ def test_hold_band_recovers_from_zero(monkeypatch):
         f"hold band should recover target from 0, got {v.target_capacity}"
 
 
+def test_critical_requires_two_consecutive_samples(monkeypatch):
+    """单次 <12% 毛刺不归零(滞回);连续两次才 0——2026-10-11 demo 机
+    avail 11.9↔12.1% 抖动致 0↔1 每两秒横跳(容器日志实测)。"""
+    v = MemoryValve(ceiling=1)
+    v.target_capacity = 1
+    _set_mem(monkeypatch, available_gb=0.9, total_gb=8.0)   # 11.25% < 12%
+    v.update_from_sample()
+    assert v.target_capacity == 1, "single sub-critical blip must not zero"
+    v.update_from_sample()
+    assert v.target_capacity == 0, "two consecutive must zero"
+
+
+def test_critical_counter_resets_on_recovery(monkeypatch):
+    """毛刺后回到 ≥12%,计数清零;再单次低压仍不归零。"""
+    v = MemoryValve(ceiling=1)
+    v.target_capacity = 1
+    _set_mem(monkeypatch, available_gb=0.9, total_gb=8.0)   # 11.25%
+    v.update_from_sample()                                   # count=1
+    _set_mem(monkeypatch, available_gb=1.5, total_gb=8.0)   # 18.75%(THROTTLE 清零)
+    v.update_from_sample()
+    _set_mem(monkeypatch, available_gb=0.9, total_gb=8.0)
+    v.update_from_sample()                                   # count=1 重新起算
+    assert v.target_capacity == 1
+
+
+def test_alternating_blips_stay_throttled(monkeypatch):
+    """11.25%↔12.5% 交替(实测形状)→ 恒 1,永不 0。"""
+    v = MemoryValve(ceiling=1)
+    v.target_capacity = 1
+    for _ in range(6):
+        _set_mem(monkeypatch, available_gb=0.9, total_gb=8.0)
+        v.update_from_sample()
+        _set_mem(monkeypatch, available_gb=1.0, total_gb=8.0)   # 12.5%
+        v.update_from_sample()
+    assert v.target_capacity == 1
+
+
 def test_sampler_survives_psutil_exception(monkeypatch):
     """psutil.virtual_memory() 抛异常时,采样线程不应死亡。
 
