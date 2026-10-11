@@ -103,6 +103,11 @@ def test_dedup_lookup_pool_worker_bypasses_lru(monkeypatch):
         return orig.__wrapped__(ip, fp, allowed)
     monkeypatch.setattr(bp, "_cached_lookup", spy)
     monkeypatch.setattr(bp, "_IN_POOL_WORKER", True)
+    # 密封(Task 2 换代检查带入的真库依赖):固定指纹 + 同值预锚定 →
+    # fp==锚 不触发真实 load_db/read_ptr;monkeypatch 终结时还原原值,
+    # 生产代码直写的 _POOL_EPOCH_FP 模块残留也一并回收。
+    monkeypatch.setattr(bp, "_epoch_fingerprint", lambda: ("t",))
+    monkeypatch.setattr(bp, "_POOL_EPOCH_FP", ("t",))
     bp._dedup_lookup(["8.8.8.8", "8.8.8.8"])
     assert hits["n"] == 0 and len(calls) == 1   # 直查+片内去重, 无 LRU
     monkeypatch.setattr(bp, "_IN_POOL_WORKER", False)

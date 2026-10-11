@@ -166,3 +166,52 @@ def test_harvest_skips_malformed_rows(tmp_path):
     pairs = dict(s.harvest())
     assert set(pairs) == {"3.4.5.6"}
     assert pairs["3.4.5.6"].last_seen is None
+
+
+def test_single_evidence_dual_path_equivalence(tmp_path):
+    """single_evidence=True 流式 rebuild 与 acc 路径产物逐值相等(T4,
+    2026-10-11)。声明安全前提 = 全量实测 485,960 行 bucket>1=0(每 IP
+    恰一行一证据),故数据集按同形状构造。若 feed 将来出现重复行:count
+    仍同(键覆盖归一),但 covered=Auto 按行统计会虚增 .cov,且异证据
+    重复会丢前一行 —— 届时撤声明(对照:threatfox 16.8% 键真多证据,
+    不可声明)。"""
+    ages = [10, 89, 90, 91, 200, 365, None, "not-a-date"]   # 双裁决+边界+缺/坏 ts
+    totals = [1, 5, 71, 1000, 12345, 999999]
+    n = 300
+    ips = [f"10.0.{i % 256}.{1 + i // 256}" for i in range(n)]
+    rows = []
+    for i, ip in enumerate(ips):
+        age = ages[i % len(ages)]
+        ts = age if isinstance(age, str) else ("" if age is None else _ago(age))
+        rows.append(f'"{ip}","{totals[i % len(totals)]}","{ts}"')
+    rows += [
+        '"1.2.3.4","abc","2026-01-01 00:00:00"',   # 非整数 total → skip
+        '"2.3.4.5","5"',                            # 太短 → skip
+        '","9","2026-01-01 00:00:00"',              # 空 IP → skip
+    ]
+    data = ("\n".join(rows) + "\n").encode()
+
+    dir_acc, dir_stream = tmp_path / "acc", tmp_path / "stream"
+    dir_acc.mkdir()
+    dir_stream.mkdir()
+    s_acc = StopForumSpamSource(data_dir=dir_acc)
+    s_acc.single_evidence = False                # 强制 acc 路径(声明前历史行为)
+    s_acc._path.write_bytes(data)
+    s_acc.rebuild()
+    s_stream = StopForumSpamSource(data_dir=dir_stream)   # 类声明:流式路径
+    s_stream._path.write_bytes(data)
+    s_stream.rebuild()
+
+    assert StopForumSpamSource.single_evidence is True   # 声明本体(防静默回退)
+    assert s_stream._count == s_acc._count == n
+    assert s_stream._covered_ips == s_acc._covered_ips == n
+    assert (dir_stream / "stopforumspam.csv.lmdb.count").read_text().strip() == str(n)
+    assert (dir_stream / "stopforumspam.csv.lmdb.cov").read_text().strip() == str(n)
+    for ip in ips + ["8.8.8.8", "127.0.0.1"]:            # 命中+双 miss 逐值全等
+        assert s_stream.query(ip) == s_acc.query(ip), ip
+    # 语义钉子(非纯同构):裁决边界与 reporter_count 真落库
+    assert s_stream.query("8.8.8.8") == {}
+    assert s_stream.query(ips[0])[0]["classification_type"] == "spam"
+    assert s_stream.query(ips[0])[0]["reporter_count"] == 1
+    assert s_stream.query(ips[2])[0]["verdict"] == "suspicious"    # 90d 边界含
+    assert s_stream.query(ips[3])[0]["verdict"] == "informational"  # 91d 出窗

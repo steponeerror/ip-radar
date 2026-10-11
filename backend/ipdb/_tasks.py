@@ -470,6 +470,8 @@ class UpdateManager:
                 task.token.on_progress = None
             # 与 download→loading 边界检查对称:loading 期间点的取消在
             # rebuild 返回后生效(按钮在 loading 态是启用的,无视会误导)。
+            # 取消只影响记账:epoch 已安全换新(rebuild 返回即 ptr 已切换,
+            # 数据不回滚;grill Q8 2026-10-11)。
             if task.token.is_cancelled():
                 self._set_state(task, "cancelled"); return
             self._set_state(task, "done")

@@ -11,7 +11,6 @@ import os
 import time
 from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor
-from concurrent.futures.process import BrokenProcessPool
 import functools
 
 _log = logging.getLogger(__name__)
@@ -26,15 +25,16 @@ CHUNK = 200            # fan-out task granularity
 
 def _split_budget(P: int) -> tuple[int, int]:
     """Split total process budget P into (N uvicorn workers, M pool per worker)."""
-    if P >= 6:
-        N = 2
-        M = min(M_CAP, (P - N) // N)
-    elif P >= 3:
-        N = 1
+    # 恒 N=1(grill Q4 裁决 2026-10-11,P1-2):N=2 时每个 uvicorn worker
+    # 进程各起一个 refresh-scheduler 双开互踩;加锁防重=加机械被否,
+    # 预算全给批内池。
+    # IPRADAR_WORKERS≥2 手动 env 覆写(resolve_layout :89-90 直接采纳)
+    # 会复活双开 scheduler 竞态(P1-2),勿覆写。
+    if P >= 3:
         M = min(M_CAP, P - 1)
     else:
-        N, M = 1, 1
-    return N, M
+        M = 1
+    return 1, M
 
 
 def compute_layout(cpu: int, ram_avail_mb: int) -> tuple[int, int]:
@@ -142,6 +142,16 @@ def _dedup_lookup(ips: list[str],
     allowed 贯穿到 lookup(spec §5,审计 I2:scope 到最后一米)。"""
     from ipdb import _registry
     if _IN_POOL_WORKER:
+        # P1-1(grill 2026-10-11):worker 孵化后主进程 rebuild 换代并 prune 旧
+        # epoch,子进程 mmap 挂未链接 inode 仍可读、不报错、永不触发 _base 的
+        # 重开重试——批查恒旧代直到重启。进 chunk 前比对指纹,变化即重载跟随
+        # 轮转(load_db 幂等,open_env_read 按路径缓存,仅真换代源开新 env;
+        # 主进程 inline 路径本有下方 LRU 指纹键护着,单查/批查从此同代)。
+        global _POOL_EPOCH_FP
+        fp = _epoch_fingerprint()
+        if fp != _POOL_EPOCH_FP:
+            _registry.load_db()
+            _POOL_EPOCH_FP = fp
         def _get(ip):
             return _registry.lookup(ip, allowed_sources=allowed).to_dict()
     else:
@@ -167,6 +177,7 @@ def _work_chunk(ips: list[str],
 # ── Module-level pool handle (managed by lifespan) ──
 _POOL: ProcessPoolExecutor | None = None
 _IN_POOL_WORKER = False
+_POOL_EPOCH_FP: tuple | None = None  # 池 worker 已装载的 epoch 指纹(None=未锚定)
 
 
 def set_pool(pool: ProcessPoolExecutor | None) -> None:
@@ -178,21 +189,10 @@ def get_pool() -> ProcessPoolExecutor | None:
     return _POOL
 
 
-def fan_out_lookup(ips: list[str]) -> list[dict]:
-    """Lookup+to_dict for a list of IPs. Inline for small batches or when no
-    pool / broken pool; otherwise fan out across the process pool. Output is in
-    input order, one dict per IP."""
-    if len(ips) <= INLINE_THRESHOLD or _POOL is None:
-        return _dedup_lookup(ips)
-    chunks = [ips[i:i + CHUNK] for i in range(0, len(ips), CHUNK)]
-    try:
-        chunk_results = list(_POOL.map(_work_chunk, chunks))
-    except BrokenProcessPool:
-        import logging
-        logging.getLogger(__name__).warning(
-            "batch pool broken; falling back to inline")
-        return _dedup_lookup(ips)
-    return [d for chunk in chunk_results for d in chunk]
+# fan_out_lookup 已删(grill Q7 裁决 2026-10-11:零生产调用 + 签名丢 allowed
+# 的 I2 per-key scope 陷阱)。池入口必须带 allowed —— 现行示范 = main.py
+# 直调 _work_chunk(ips, allowed)(inline: asyncio.to_thread;pooled:
+# loop.run_in_executor)。
 
 
 def _cli(argv: list[str]) -> None:

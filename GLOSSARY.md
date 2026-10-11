@@ -12,6 +12,7 @@
 - **族**:v4/v6 双套平行 LMDB 存储(base/ptr/reader/disjoint 全套独立);族必须显式声明——小 v6 整数数值上落在 v4 范围,按数值分派会错编 key。锚:_lmdb.py(lookup)、_source_base.py
 - **disjoint 快路径**:排序区间两两不相交的库可走 O(1) 回扫;前提经 detect_disjoint O(n) 验证才许走,否则保守退到逐前缀 LPM 探测(嵌套库)。算法按数据形状选择,前提显式验证。锚:_lmdb.py(lookup/detect_disjoint)
 - **interning(payloads 字典)**:证据 payload 跨 CIDR 去重存 sub-db,主库值里放 ref_id,命中时解引用;解引用 miss 必炸不降级。锚:_lmdb.py(PAYLOADS_NAME/resolve_evidence)
+- **投影(策展静态源)**:策展静态源的 _DATA 常量是唯一真相源,data/ 下 csv 是物化投影——缺失或内容不一致即重物化并 bump mtime(needs_convert 入队一次 rebuild 后收敛,无循环;手工改 csv 会被覆写,是特性);epoch 损坏遇内容变更亦借此自愈。锚:_sources/infra_services.py(_sync_projection)、grill Q6(2026-10-11)
 
 ## 证据
 

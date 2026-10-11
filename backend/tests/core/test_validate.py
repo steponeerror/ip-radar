@@ -57,6 +57,12 @@ def test_reliability_range():
     class Bad(_Fake): reliability = 1.5
     assert any("reliability" in p for p in validate_source(Bad()))
 
+def test_reliability_zero_rejected():
+    """域收紧 (0,1]:r=0 是漏配不是合法校准(单源 conf=r 公理下 0 = 必错
+    源),metadata_problems 报出 = 启动即炸承诺(grill Q1 批,2026-10-11)。"""
+    class Zero(_Fake): reliability = 0.0
+    assert any("reliability" in p for p in validate_source(Zero()))
+
 def test_authoritative_for_known_fields():
     class Bad(_Fake): authoritative_for = ("not_a_field",)
     assert any("authoritative_for" in p for p in validate_source(Bad()))

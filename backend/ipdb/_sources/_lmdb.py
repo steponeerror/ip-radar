@@ -543,6 +543,11 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
     # 后扫,不影响正确性(key 序才是判定真相)。
     disjoint_ok = True
     max_end = -1
+    # same-start 绊线(grill Q5,2026-10-11):同 start 异 end = 同键后写覆
+    # 盖、超网剩余段静默丢失(docstring 红线,哲学1)。零行为变化(只告
+    # 警);相邻对检测保 O(1) 内存(流式写循环无 O(n) dict 预算),非相邻
+    # 同起点对由 scripts/audit_same_start.py 全量审计兜底。
+    prev: tuple[int, int, str] | None = None   # (start, end, cidr) 上一条
     for cidr, evidence in records:
         try:
             net = net_cls(cidr, strict=False)
@@ -555,6 +560,11 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
                 cov += 1 << (net.max_prefixlen - net.prefixlen)
         s = int(net.network_address)
         e = int(net.broadcast_address)
+        if prev is not None and s == prev[0] and e != prev[1]:
+            logger.warning("[same-start] base=%s: %s overlapped by %s "
+                           "(audit source; docstring red line)",
+                           base.name, prev[2], cidr)
+        prev = (s, e, cidr)
         if disjoint_ok and s <= max_end:
             disjoint_ok = False
         if e > max_end:
@@ -585,7 +595,14 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
             try:
                 prev = int(cp.read_text().strip())
             except ValueError:
-                prev = 0
+                # 损坏=有历史,保守守死(grill Q1 批 P2-6,2026-10-11):
+                # count 文件在即曾有数据,不可解析按最坏情况拒提交,
+                # 旧 epoch/ptr 原样,任务走既有失败退避。
+                env.close()
+                shutil.rmtree(staging, ignore_errors=True)
+                raise RuntimeError(
+                    f"count sidecar corrupted (non-integer): {cp}; "
+                    "keeping old epoch")
             if prev > 0:
                 env.close()
                 shutil.rmtree(staging, ignore_errors=True)
@@ -648,6 +665,11 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
     cleanup_legacy_mmdb(base)               # 提交成功后:清 MMDB 时代孤儿
 
     new_env = open_env_read(target)
+    # 提交序:flag 先压 False → 换 reader → 再放真值(2026-10-11 加固)。
+    # False 只是慢不是错:换 reader 前把快路径压保守,防上 epoch 的
+    # disjoint=True 残留值对可能嵌套的新库在窗口内走快路径静默漏报。
+    if flag_setter is not None:
+        flag_setter(False)
     reader_setter(new_env)
     if flag_setter is not None:                 # ptr+sidecar 已提交 → race-free
         flag_setter(disjoint)

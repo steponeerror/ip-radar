@@ -68,6 +68,12 @@ class StopForumSpamSource(Source):
     # (n=117, k=0 零佐证)+below-market 标记;缓解面=spam 轴 niche
     # (unique 0.48)+informational 裁决,故不一步到 .55。语料 20260928-144045。
     reliability = 0.60
+    # 流式 rebuild 声明(2026-10-11 加固批 T4):全量实测 485,960 行
+    # bucket>1=0(每 IP 恰一行一证据)→ 流式无损,免 acc dict 常驻
+    # (-246MB Python 堆,964MB 生产小机)。对照:threatfox 16.8% 键真
+    # 多证据,不可同批声明;若 feed 出现重复行须撤此声明(covered=Auto
+    # 按行计会虚增 .cov,见 test_single_evidence_dual_path_equivalence)。
+    single_evidence = True
 
     def load(self) -> int:
         self._cleanup_legacy_txt()
