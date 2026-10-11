@@ -169,7 +169,7 @@ export function IpDetailPanel({ r }: { r: LookupResult }) {
         />
       )}
       {r.registration && (
-        <div>
+        <div className={SECTION}>
           <div className="flex items-center gap-2 mb-1">
             <span className="text-xs font-medium text-zinc-300">{t("ipDetail.registration")}</span>
             <span className="text-[10px] text-zinc-500">

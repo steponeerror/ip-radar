@@ -25,6 +25,8 @@
 
 ### 调整 Changed
 
+- demo 分支退役：demo → master 全量吸收（merge 吸收，14 文件净差上岸——SECTION 统一区块底/横幅日间修复/DemoBanner 全家/eval 匿名探针补齐/stix2 运行时启用）；registration 块补 SECTION 底（demo 侧从未包过，master 上岸后统一）；公网站改由 master + `IP_RADAR_PUBLIC_DEMO=1`（已在服务器 override）直接部署，双分支教义终结（demo 全部历史成为 master 祖先，证据不灭失）
+  - Demo branch retired: demo → master absorbed wholesale via merge (the 14-file net diff lands — unified SECTION block styling / banner light-mode fixes / the DemoBanner family / missing eval anonymous probes / stix2 runtime enabled); the registration block gains the SECTION background (never wrapped on demo; unified now that it's ashore); the public site deploys from master + `IP_RADAR_PUBLIC_DEMO=1` (already in the server override) directly, ending the dual-branch doctrine (all demo history becomes master ancestry — evidence never lost)
 - feed-change: infra_services 内容重构——移除 13 行根服务器（迁入新源 root_servers，独立生命周期），新增 21 行公共 DNS resolver（中文公共 DNS 9 行：AliDNS/DNSPod/114DNS/百度，含 v6；既有 5 家 resolver 的 IPv6 伴侣行 10 行；Yandex DNS 基础对 2 行），35→43 总行（31 v4 + 12 v6）；纯 feed 内容面，分类与权威轴零变化
   - feed-change: infra_services content restructure — 13 root-server rows removed (moved into the new root_servers source with its own lifecycle), 21 public-DNS-resolver rows added (9 Chinese public DNS rows: AliDNS/DNSPod/114DNS/Baidu, v6 included; 10 IPv6 companion rows for the existing 5 resolvers; 2 rows for the Yandex DNS base pair), 35→43 rows total (31 v4 + 12 v6); feed-content surface only, zero change to classification or authority axes
 
