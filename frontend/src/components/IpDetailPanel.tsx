@@ -113,13 +113,26 @@ export function IpDetailPanel({ r }: { r: LookupResult }) {
       carrier: "asset.carrier", is_anycast: "asset.is_anycast",
     }[key];
     if (key === "service") {
-      stmts.forEach((s, i) => {
+      // 折并(grill 2026-10-11 五裁 b/a/a/a/a):按归一 value(源侧写死的角色词
+      // dns/ntp/cdn/cloud)分组,chip 正文只显角色词,证人 source · native 逐行
+      // 进悬停——同 #105 as_org 折并同构(展示层合一、后端零动、证据不灭失);
+      // Map 首见序稳定,不按可靠性挑赢家(零选择算法,宁少算)。
+      const byRole = new Map<string, typeof stmts>();
+      for (const s of stmts) {
+        const v = String(s.value);   // attributes 值可布尔(is_*),service 恒字符串
+        const g = byRole.get(v) ?? [];
+        g.push(s);
+        byRole.set(v, g);
+      }
+      for (const [value, group] of byRole) {
         identityChips.push({
-          text: `${s.value} · ${s.native_type ?? s.value}`,
-          detail: s.source,
-          key: `service-${i}`,
+          text: value,
+          detail: group
+            .map((s) => `${s.source} · ${s.native_type ?? s.value}`)
+            .join("\n"),
+          key: `service-${value}`,
         });
-      });
+      }
     } else if (labelKey && stmts[0]) {
       const s = stmts[0];
       identityChips.push({
