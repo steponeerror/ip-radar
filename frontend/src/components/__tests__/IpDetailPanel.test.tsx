@@ -135,6 +135,40 @@ describe("as_domain org suffix", () => {
   });
 });
 
+describe("service chip 折并(grill 2026-10-11 五裁 b/a/a/a/a)", () => {
+  const svc = (source: string, value: string, native: string) =>
+    ({ source, value, native_type: native });
+
+  it("同值双源折并为单 chip,证人逐行进悬停", () => {
+    renderWithI18n(<IpDetailPanel r={{ ...r, attributes: {
+      service: [svc("dns_public", "dns", "google"),
+                 svc("infra_services", "dns", "Google Public DNS")],
+    } as LookupResult["attributes"] }} />);
+    // 单 chip 裸角色词;证人不灭失,全在悬停
+    expect(screen.getAllByText("dns")).toHaveLength(1);
+    const chip = screen.getByText("dns");
+    expect(chip.getAttribute("title")).toContain("dns_public · google");
+    expect(chip.getAttribute("title")).toContain("infra_services · Google Public DNS");
+  });
+
+  it("单证人同形态:裸角色词,厂商进悬停(无 ≥2 特例)", () => {
+    renderWithI18n(<IpDetailPanel r={{ ...r, attributes: {
+      service: [svc("cdn_edges", "cdn", "CloudFront")],
+    } as LookupResult["attributes"] }} />);
+    expect(screen.getAllByText("cdn")).toHaveLength(1);
+    expect(screen.getByText("cdn").getAttribute("title")).toBe("cdn_edges · CloudFront");
+  });
+
+  it("异值各立 chip", () => {
+    renderWithI18n(<IpDetailPanel r={{ ...r, attributes: {
+      service: [svc("infra_services", "dns", "Google Public DNS"),
+                 svc("infra_services", "ntp", "Google NTP")],
+    } as LookupResult["attributes"] }} />);
+    expect(screen.getByText("dns")).toBeInTheDocument();
+    expect(screen.getByText("ntp")).toBeInTheDocument();
+  });
+});
+
 describe("as_org display dedupe + registration styling (2026-10-11 user report)", () => {
   const asOrg = (value: string): NonNullable<LookupResult["as_org"]> => ({
     value, confidence: 80, algorithm: "authority",
