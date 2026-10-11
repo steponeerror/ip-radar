@@ -43,12 +43,25 @@ function assetBadges(r: LookupResult, t: TFn): { label: string; detail: string; 
       if (classTypes.has(ctype[key])) continue;
     }
     if (key === "service") {
-      // One chip per statement: role value (dns/cloud/cdn) + provider identity —
-      // a single first-statement chip used to hide every additional service.
-      stmts.forEach((s, i) => {
-        const detail = String(s.native_type ?? s.value);
-        out.push({ label: String(s.value), detail, key: `service-${i}` });
-      });
+      // 折并(2026-10-11 五裁,同 IpDetailPanel):按归一角色词分组,chip 正文只显
+      // 角色,证人 source · native 逐行进 title;key=service-<角色> 保住 ThreatTags
+      // 的 cdn 压制判据(startsWith("service-") && label === "cdn")。
+      const byRole = new Map<string, typeof stmts>();
+      for (const s of stmts) {
+        const v = String(s.value);
+        const g = byRole.get(v) ?? [];
+        g.push(s);
+        byRole.set(v, g);
+      }
+      for (const [value, group] of byRole) {
+        out.push({
+          label: value,
+          detail: group
+            .map((s) => `${s.source} · ${s.native_type ?? s.value}`)
+            .join("\n"),
+          key: `service-${value}`,
+        });
+      }
       continue;
     }
     const first = stmts[0];
@@ -185,9 +198,7 @@ function ThreatTags({
           <span key={`asset-${a.key}`}
             className={`${i === 0 ? "" : "ml-1.5"} rounded px-1.5 py-0.5 text-[11px] bg-sky-500/12 text-sky-400 ring-1 ring-sky-500/20`}
             title={r.threat?.is_cdn && a.key.startsWith("service-") && a.label === "cdn" ? t("cdn.notice") : a.detail}>
-            {a.key.startsWith("service-")
-              ? `${a.label}·${a.detail}`
-              : `${a.label}${a.key === "carrier" ? `: ${a.detail}` : ""}`}
+            {a.key === "carrier" ? `${a.label}: ${a.detail}` : a.label}
           </span>
         ))}
       {showCdnBadge && (
