@@ -21,6 +21,7 @@ class MemoryValve:
         self.active_rebuilds = 0
         self._lock = threading.Lock()
         self._high_count = 0
+        self._low_count = 0
 
     def can_run(self) -> bool:
         with self._lock:
@@ -41,18 +42,26 @@ class MemoryValve:
         with self._lock:
             prev = self.target_capacity
             if ratio < CRITICAL_RATIO:
-                self.target_capacity = 0
+                # 滞回(2026-10-11 demo 机实测:avail 11.9↔12.1% 每 2s 横跳
+                # 0↔1,日志刷屏且 worker 反复唤醒):单次跌破不归零,连续 2
+                # 采样才停新启动——镜像 RELAX 档的 _high_count≥2 模式。
+                self._low_count += 1
                 self._high_count = 0
+                if self._low_count >= 2:
+                    self.target_capacity = 0
             elif ratio < THROTTLE_RATIO:
                 self.target_capacity = 1
                 self._high_count = 0
+                self._low_count = 0
             elif ratio >= RELAX_RATIO:
+                self._low_count = 0
                 self._high_count += 1
                 if self._high_count >= 2 and self.target_capacity < self.ceiling:
                     self.target_capacity += 1
                     self._high_count = 0
             else:
                 self._high_count = 0
+                self._low_count = 0
                 if self.target_capacity < 1:
                     self.target_capacity = 1
             if self.target_capacity != prev:

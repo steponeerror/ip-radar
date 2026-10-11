@@ -42,6 +42,25 @@ import orjson
 DEFAULT_MAP_SIZE = 512 * 1024 * 1024   # first-build default; grown on demand
 BYTES_PER_RECORD_EST = 512             # initial estimate from .count sidecar
 BATCH_SIZE = 100_000
+
+# ── 低内存预警中止(宁停勿死;2026-10-11 demo 机宿主 OOM 十杀对症修)──
+# 实测:964MB 小机上 6.1M 行源 rebuild(writemap staging total_vm ~6.7GB、
+# rss ~470MB)把宿主 MemAvailable 压穿,全局 OOM 每 ~94min 杀容器一次。
+# 阀门只挡任务启动不挡在跑的;此处在 flush 边界主动放弃——旧 epoch/ptr
+# 原样,任务失败走既有退避。阈值高于 valve CRITICAL_RATIO(0.12)留 kernel 前
+# 余量(哲学 9:先消浪费的保命版)。
+REBUILD_ABORT_RATIO = 0.15
+
+
+class RebuildAborted(RuntimeError):
+    """rebuild 因可用内存低于 REBUILD_ABORT_RATIO 而干净中止(无损:旧库原样)。"""
+
+
+def _avail_ratio() -> float:
+    """宿主可用内存比(flush 边界预警用;psutil 惰性导入随本文件惯例)。"""
+    import psutil
+    v = psutil.virtual_memory()
+    return v.available / v.total
 # 嵌套源查询:CIDR 前缀探测(MMDB 最长前缀匹配同构)。写入侧所有区间
 # 经 net_cls(cidr) 归一为对齐 CIDR ⇒ 任何覆盖 ip 的区间起点必为
 # ip & mask(prefixlen),逐前缀精确 seek 即完备,上限 bits+1 次树降,
@@ -543,6 +562,15 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
         batch.append((key_enc(s), e, orjson.dumps(evidence)))
         n += 1
         if len(batch) >= BATCH_SIZE:
+            if _avail_ratio() < REBUILD_ABORT_RATIO:
+                # 预警中止:txn 均已闭合(只在 _flush 内),关 env、弃 staging。
+                # 下次重试同 epoch 同 staging 路径,开头 rmtree 自清。
+                env.close()
+                shutil.rmtree(staging, ignore_errors=True)
+                raise RebuildAborted(
+                    f"rebuild aborted at {n} rows: host avail ratio below "
+                    f"{REBUILD_ABORT_RATIO:.0%} — old epoch/ptr intact, "
+                    f"task will back off and retry")
             _flush()
             if progress is not None:
                 # total 已知时 feed 增长跟随 received(防 >100%);未知(0)时

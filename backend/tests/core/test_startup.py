@@ -257,3 +257,58 @@ def test_lifespan_calls_unknown_private_warning(monkeypatch):
 
     asyncio.run(run())
     assert called == [1]
+
+
+# ── 补账小源优先(2026-10-11 重建韧性 Task 3)─────────────────────────
+
+class _FakeSource:
+    def __init__(self, name, path):
+        self.name, self._path = name, path
+
+
+def test_catchup_footprint_missing_smallest_then_size(tmp_path):
+    """排序键:缺失=0 最前 < 小文件 < 大文件;目录源按递归文件和。"""
+    import main
+    missing = _FakeSource("missing", tmp_path / "none.csv")
+    small = _FakeSource("small", tmp_path / "s.csv")
+    (tmp_path / "s.csv").write_bytes(b"x" * 10)
+    big = _FakeSource("big", tmp_path / "b.csv")
+    (tmp_path / "b.csv").write_bytes(b"x" * 100)
+    d = tmp_path / "firehol"
+    d.mkdir()
+    (d / "a.netset").write_bytes(b"x" * 30)
+    (d / "b.netset").write_bytes(b"x" * 40)
+    dirsrc = _FakeSource("dir", d)
+
+    key = main._catchup_footprint
+    assert key(missing) == 0
+    assert key(small) == 10
+    assert key(big) == 100
+    assert key(dirsrc) == 70
+    assert sorted([big, missing, dirsrc, small], key=key) == \
+        [missing, small, dirsrc, big]
+
+
+def test_startup_warm_enqueues_catchup_small_first(tmp_path):
+    """_startup_warm 补账列表按足迹升序入队(小/缺失源先,大源殿后)——
+    2026-10-11 demo 机实测:未加载源(peeringdb 429 残局)在队即持查询门,
+    小源先收敛让覆盖门早清。"""
+    import main
+    import ipdb._registry as reg
+    sources = [
+        _FakeSource("big", tmp_path / "big.csv"),
+        _FakeSource("missing", tmp_path / "none.csv"),
+        _FakeSource("small", tmp_path / "small.csv"),
+    ]
+    (tmp_path / "big.csv").write_bytes(b"x" * 100)
+    (tmp_path / "small.csv").write_bytes(b"x" * 10)
+    captured = []
+    with patch.object(main, "load_db", lambda: None), \
+         patch.object(main, "_ensure_valve_sampler", lambda: None), \
+         patch.object(reg, "sources_needing_rebuild", lambda: ["big"]), \
+         patch.object(main, "stale_source_names", lambda: ["missing", "small"]), \
+         patch.object(reg, "_enabled_sources", lambda: sources), \
+         patch.object(main.manager, "enqueue_stale",
+                      lambda names: captured.append(names)):
+        main._startup_warm()
+    assert captured == [["missing", "small", "big"]]
