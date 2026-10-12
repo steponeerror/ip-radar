@@ -31,12 +31,14 @@ class IP2ProxySource(Source):
     category = "asset"
     filename = "ip2proxy_px2.csv"  # post-extraction
     fields = ("is_proxy", "is_hosting")
-    classification_type = "proxy"
-    verdict = "suspicious"
     stale_days = 7
     reliability = 0.80
     single_evidence = True   # one evidence per CIDR → stream load() (OOM guard)
     authoritative_for = ("is_proxy",)
+    # ADR 0001(2026-10-12, grill Q1):全量资产弃权 —— 类级不再声明
+    # classification_type/verdict,对齐 cloud_ranges 全弃权样板(DCH 时代
+    # 残留的 "proxy"/"suspicious" 随 VPN/PUB/TOR 一并弃)。指控语料枚举
+    # (fusion_replay_gate)与 /api/sources 据此类属性判指控章,勿回填。
 
     def __init__(self, data_dir: Path):
         self._token = os.environ.get("IP2PROXY_TOKEN", "").strip()
@@ -147,16 +149,18 @@ def _int_to_ip(s: str) -> str | None:
 
 
 def _proxy_evidence(proxy_type: str) -> Evidence | None:
-    """Map an IP2Proxy proxy_type to Evidence (or None to drop).
+    """Map an IP2Proxy proxy_type to asset-only Evidence (or None to drop).
 
-    Keeps VPN/PUB (proxy), TOR (tor), DCH (hosting). Drops SES/WEB/etc.
-    Per-asset labels ride in native_types (→ _native_types).
+    ADR 0001 (2026-10-12, grill Q1): ip2proxy 全量资产弃权 —— VPN/PUB/TOR
+    继 DCH (SM-F2) 之后同判:挂着代理/出口节点是基础设施属性,不是滥用
+    指控;滥用由行为源立证,corroborated 自然涨分。四型统一镜像
+    cloud_ranges 形状(classification_type 缺省 None、verdict="" 弃权):
+    只走 attributes 通道,不产分类组、不计票、不产 STIX Indicator。
+    is_proxy/is_tor 标签照常;数据摄取(fields/harvest)不动 —— 改的是
+    指控计票资格,不是数据面。
 
-    DCH is asset-only (SM-F2): datacenter/hosting 属性是基础设施事实而非
-    指控 —— 镜像 cloud_ranges 形状(classification_type=None、verdict=""
-    弃权):只走 attributes 通道,不产分类组、不计票、不产 STIX Indicator。
+    Drops SES/WEB/etc. Per-asset labels ride in native_types (→ _native_types).
     """
-    from .._classification import normalize, PROXY_MAP
     pt = proxy_type.strip().upper()
     if pt not in ("VPN", "PUB", "DCH", "TOR"):
         return None
@@ -166,17 +170,15 @@ def _proxy_evidence(proxy_type: str) -> Evidence | None:
             native_types={"is_hosting": "DCH"},
             verdict="",   # 弃权拼写:由 to_dict 特判保留,读回按 "" 处理不兑底
         )
-    is_proxy = pt in ("VPN", "PUB")
-    is_tor = pt == "TOR"
-    native = {}
-    if is_proxy:
-        native["is_proxy"] = pt
-    if is_tor:
-        native["is_tor"] = "TOR"
+    if pt == "TOR":
+        return Evidence(
+            is_tor=True,
+            native_types={"is_tor": "TOR"},
+            verdict="",
+        )
+    # VPN / PUB
     return Evidence(
-        classification_type=normalize(pt, PROXY_MAP),
-        verdict="suspicious",
-        is_proxy=is_proxy or None,
-        is_tor=is_tor or None,
-        native_types=native,
+        is_proxy=True,
+        native_types={"is_proxy": pt},
+        verdict="",
     )

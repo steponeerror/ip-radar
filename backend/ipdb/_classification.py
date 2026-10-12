@@ -66,17 +66,14 @@ BLOCKLIST_DE_MAP = {
     "apache": "scanner",
 }
 
-# ip2proxy proxy_type → IntelMQ. DCH (datacenter/hosting) intentionally absent:
-# it has no clean IntelMQ mapping. Since SM-F2 (2026-10-08) ip2proxy routes DCH
-# rows to asset-only Evidence BEFORE this map (classification_type=None,
-# verdict="" 弃权), so "dch" never reaches normalize() in production. If it
-# ever did (regression), normalize() would ring the 绊线 and fall to "other"
-# — never "proxy": unmapped types must ring, no per-key exemption.
-PROXY_MAP = {
-    "vpn": "proxy",
-    "pub": "proxy",
-    "tor": "tor",
-}
+# ip2proxy proxy_type → IntelMQ. EMPTY since ADR 0001 (2026-10-12, grill Q1):
+# ip2proxy 全量资产弃权(VPN/PUB/TOR 继 DCH/SM-F2 之后),生产路径在
+# ip2proxy._proxy_evidence 就走 asset-only 分支(classification_type=None,
+# verdict="" 弃权),四型都不再喂给这张表。保持空表而非删定义:若回归把
+# proxy_type 重新接回 normalize(),一律落 "other" 且绊线告警 —— 绝不
+# 静默恢复 "proxy"/"tor" 指控(unmapped types must ring, no per-key
+# exemption)。
+PROXY_MAP = {}
 
 # OTX pulse name protocol keyword -> IntelMQ. The /pulses/activity feed is
 # auto-generated "IMMEDIATE THREAT: {PROTO} Intrusion from..." pulses with

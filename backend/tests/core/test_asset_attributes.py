@@ -84,6 +84,58 @@ def test_lookup_aggregates_attributes_from_multiple_sources(tmp_path, monkeypatc
     # is_tor from tor fixture
     assert "is_tor" in r.attributes
     assert r.attributes["is_tor"][0].source == "tor_exits"
-    # Threat channel still works (ip2proxy proxy + tor tor classifications)
-    assert "proxy" in r.classifications
+    # Threat channel:tor_exits 仍产 tor 指控组;ip2proxy VPN 已全量弃权
+    # (ADR 0001)——proxy 组不再由 ip2proxy 产生
+    assert "proxy" not in r.classifications
     assert "tor" in r.classifications
+
+
+def _lookup_ip2proxy_only(rows: str, ip: str, tmp_path, monkeypatch):
+    """lookup 舱:只挂 ip2proxy fixture(真 harvest→LMDB→query 链),
+    策略表照既有测试同口径 monkeypatch。ADR 0001 红测共用。"""
+    import ipdb._registry as reg
+
+    ip2p = _Ip2ProxyFixture(data_dir=tmp_path)
+    ip2p._path = tmp_path / "ip2proxy.csv"
+    ip2p._path.write_text(rows)
+    ip2p.rebuild()
+
+    monkeypatch.setattr(reg, "_sources", [ip2p])
+    monkeypatch.setattr(reg, "_strategies", {
+        "country_code": FactualVoting(default="N/A"),
+        "city": FactualVoting(default="N/A"),
+        "asn": FactualVoting(default=0),
+        "as_name": FactualVoting(default="N/A"),
+        "ip_range": RangeSpecificity(),
+    })
+    return lookup(ip)
+
+
+def test_lookup_ip2proxy_vpn_abstains_no_proxy_group(tmp_path, monkeypatch):
+    """ADR 0001(grill Q1)红测①:VPN 段 IP —— classifications 无 proxy
+    指控组,attributes 有 is_proxy=True(标签照常呈现)。"""
+    r = _lookup_ip2proxy_only("1.2.3.0/24,VPN\n", "1.2.3.4", tmp_path, monkeypatch)
+    assert "proxy" not in r.classifications
+    assert r.classifications == {}
+    assert r.attributes["is_proxy"][0].value is True
+    assert r.attributes["is_proxy"][0].native_type == "VPN"
+
+
+def test_lookup_ip2proxy_tor_abstains_no_tor_group(tmp_path, monkeypatch):
+    """ADR 0001 红测②:TOR 同构 —— 无 tor 指控组,is_tor 标签照常。"""
+    r = _lookup_ip2proxy_only("1.2.3.0/24,TOR\n", "1.2.3.4", tmp_path, monkeypatch)
+    assert "tor" not in r.classifications
+    assert r.classifications == {}
+    assert r.attributes["is_tor"][0].value is True
+    assert r.attributes["is_tor"][0].native_type == "TOR"
+
+
+def test_lookup_ip2proxy_single_source_80_gone(tmp_path, monkeypatch):
+    """ADR 0001 红测③:单源 80 分消失 —— 只喂 ip2proxy(旧:r=0.80 单源
+    恰 80 分 suspicious,benign 语料 C3 崩塌主因;新:无指控证人 →
+    benign/0,conf < 70)。"""
+    r = _lookup_ip2proxy_only("1.2.3.0/24,VPN\n", "1.2.3.4", tmp_path, monkeypatch)
+    threat = r.threat_summary()
+    assert threat["confidence"] < 70
+    assert threat["verdict"] == "benign"
+    assert threat["types"] == []
