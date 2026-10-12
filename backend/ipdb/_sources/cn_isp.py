@@ -3,8 +3,14 @@ import time
 import urllib.request
 from pathlib import Path
 
+import lmdb
+
 from .._source_base import Source
 from ._download import CancelToken, CancelledError, atomic_write_bytes, redact_url
+# query() 覆写内联 import 提升:缓存 import 实测 273ns/调用
+# (PR-2 #111 T3 侦察遗留姊妹件;_lmdb 无反向 import,模块级安全)
+from ._lmdb import (
+    ip_to_int, lookup, read_ptr, open_env_read, read_disjoint_flag)
 
 logger = logging.getLogger(__name__)
 
@@ -136,13 +142,10 @@ class ChineseISPSource(Source):
             return self._query6(ip)
         if self._reader is None:
             return {}
-        import lmdb as _lmdb
-        from ._lmdb import (
-            ip_to_int, lookup, read_ptr, open_env_read, read_disjoint_flag)
         ip_int = ip_to_int(ip)
         try:
             node = lookup(self._reader, ip_int, disjoint=self._disjoint)
-        except (_lmdb.Error, OSError):
+        except (lmdb.Error, OSError):
             # 撞上刚 close 的旧 env:读 ptr 重开重试一次(与 MMDB 时代同模式)
             epoch = read_ptr(self._lmdb_base)
             self._reader = (open_env_read(

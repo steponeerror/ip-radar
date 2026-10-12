@@ -6,8 +6,15 @@ import time
 from pathlib import Path
 from typing import Optional
 
+import lmdb
+
 from ._download import download_file, CancelToken
 from ._lmdb import ptr_path as ptr_path_for
+# query()/_query6 覆写内联 import 提升:缓存 import 实测 273ns/调用
+# (PR-2 #111 T3 侦察遗留姊妹件;_lmdb 无反向 import,模块级安全)
+from ._lmdb import (
+    ip_to_int, ip_to_int6, lookup, read_ptr, open_env_read,
+    read_disjoint_flag)
 
 logger = logging.getLogger(__name__)
 
@@ -217,13 +224,10 @@ class IPinfoLiteSource:
             return self._query6(ip)
         if self._reader is None:
             return {}
-        import lmdb as _lmdb
-        from ._lmdb import (
-            ip_to_int, lookup, read_ptr, open_env_read, read_disjoint_flag)
         ip_int = ip_to_int(ip)
         try:
             node = lookup(self._reader, ip_int, disjoint=self._disjoint)
-        except (_lmdb.Error, OSError):
+        except (lmdb.Error, OSError):
             # 撞上刚 close 的旧 env:读 ptr 重开重试一次(与 MMDB 时代同模式)
             epoch = read_ptr(self._lmdb_base)
             self._reader = (open_env_read(
@@ -244,14 +248,11 @@ class IPinfoLiteSource:
         v6 侧同形,否则 v6 结果丢 ip_range 槽。)"""
         if self._reader6 is None:
             return {}
-        import lmdb as _lmdb
-        from ._lmdb import (
-            ip_to_int6, lookup, read_ptr, open_env_read, read_disjoint_flag)
         ip_int = ip_to_int6(ip)
         try:
             node = lookup(self._reader6, ip_int, disjoint=self._disjoint6,
                           ip_version=6)
-        except (_lmdb.Error, OSError):
+        except (lmdb.Error, OSError):
             # 撞上刚 close 的旧 env:读 ptr 重开重试一次(与 v4 同模式)
             epoch = read_ptr(self._lmdb6_base)
             self._reader6 = (open_env_read(

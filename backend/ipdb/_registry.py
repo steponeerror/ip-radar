@@ -170,7 +170,9 @@ _state_lock = threading.Lock()
 # across lookups and only changes when the source set or enabled-state changes,
 # so caching avoids re-stat'ing source files on every lookup (health() does
 # self._path.stat() — up to 16 stats for multi-file sources like cn_isp).
-_loaded_cache: dict = {"key": None, "value": False}
+# PR-2 #111 终审 P2-3:键存强引用并以 is 比对,非 id()——旧对象被替换回收后
+# 地址可复用,id 相等误中 stale True(同款修见 _enabled_cache/_org_hooks_cache)。
+_loaded_cache: dict = {"entry": None}
 _update_locks: dict[str, threading.Lock] = {}
 _update_locks_guard = threading.Lock()
 
@@ -269,12 +271,12 @@ def _db_loaded() -> bool:
     False result is never cached, so pre-ready polls cannot freeze a ready-state
     query).
     """
-    if _loaded_cache["key"] == (id(_sources), id(_disabled)) \
-            and _loaded_cache["value"]:
+    entry = _loaded_cache["entry"]
+    if entry is not None and entry[0] is _sources and entry[1] is _disabled \
+            and entry[2]:
         return True
     value = any(s.health().loaded for s in _enabled_sources())
-    _loaded_cache["key"] = (id(_sources), id(_disabled))
-    _loaded_cache["value"] = value
+    _loaded_cache["entry"] = (_sources, _disabled, value)
     return value
 
 
