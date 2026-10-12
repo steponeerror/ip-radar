@@ -1,22 +1,38 @@
-from ipdb._sources.ip2proxy import _proxy_evidence
+from ipdb._sources.ip2proxy import IP2ProxySource, _proxy_evidence
 
 
-def test_proxy_evidence_vpn():
-    e = _proxy_evidence("VPN").to_dict()
-    assert e["classification_type"] == "proxy"
-    assert e["verdict"] == "suspicious"
-    # extra.native_type retired (Plan B Task 3): identity is in _native_types
-    assert "native_type" not in (e.get("extra") or {})
-    assert e["is_proxy"] is True
-    assert "_native_types" in e
-    assert e["_native_types"]["is_proxy"] == "VPN"
+def test_ip2proxy_class_metadata_all_abstain():
+    """ADR 0001(2026-10-12, grill Q1):全量弃权源对齐 cloud_ranges 类形状
+    —— 类级不再声明 classification_type/verdict(fusion_replay_gate 语料
+    枚举与 /api/sources 据此判指控章;留着即谎报)。is_proxy attributes
+    权威照旧保留。"""
+    assert not hasattr(IP2ProxySource, "classification_type")
+    assert not hasattr(IP2ProxySource, "verdict")
+    assert IP2ProxySource.authoritative_for == ("is_proxy",)
 
 
-def test_proxy_evidence_tor_maps_to_tor_type():
+def test_proxy_evidence_vpn_pub_abstain():
+    """ADR 0001(grill Q1)红测①:VPN/PUB 镜像 DCH 弃权 —— 无
+    classification_type(不产分类组/不计票/不产 STIX Indicator)、
+    verdict="" 弃权拼写,is_proxy 标签照常走 attributes 通道。"""
+    for pt in ("VPN", "PUB"):
+        e = _proxy_evidence(pt).to_dict()
+        assert "classification_type" not in e, f"{pt=}"
+        assert e["verdict"] == "", f"{pt=}"
+        assert e["is_proxy"] is True
+        assert e["_native_types"] == {"is_proxy": pt}
+        # extra.native_type retired (Plan B Task 3): identity is in _native_types
+        assert "native_type" not in (e.get("extra") or {})
+
+
+def test_proxy_evidence_tor_abstains():
+    """ADR 0001 红测②:TOR 同构弃权 —— is_tor 标签照常,tor 指控组不再
+    由 ip2proxy 产(行为源/其他源仍可立 tor 指控)。"""
     e = _proxy_evidence("TOR").to_dict()
-    assert e["classification_type"] == "tor"
+    assert "classification_type" not in e
+    assert e["verdict"] == ""
     assert e["is_tor"] is True
-    assert e["_native_types"]["is_tor"] == "TOR"
+    assert e["_native_types"] == {"is_tor": "TOR"}
 
 
 def test_proxy_evidence_dch_is_asset_only():
@@ -55,6 +71,9 @@ def test_ip2proxy_harvest_proxy_assets(tmp_path):
     rec = s.query("1.0.0.0")          # 16777216 = 1.0.0.0
     assert rec[0]["is_proxy"] is True
     assert rec[0]["_native_types"]["is_proxy"] == "VPN"
+    # ADR 0001:VPN 行与 DCH 行同构弃权(无 classification_type,verdict="")
+    assert "classification_type" not in rec[0]
+    assert rec[0]["verdict"] == ""
     # SM-F2:DCH 行 → asset-only(无 classification_type,弃权 verdict="")
     dch = s.query("1.0.1.0")[0]       # 16777472 = 1.0.1.0
     assert dch["is_hosting"] is True

@@ -4,7 +4,6 @@ from ipdb._sources.threatfox import ThreatFoxSource
 from ipdb._sources.spamhaus import SpamhausSource
 from ipdb._sources.emerging_threats import EmergingThreatsSource
 from ipdb._sources.blocklist_de import BlocklistDeSource
-from ipdb._sources.ip2proxy import IP2ProxySource
 from ipdb._sources.tor_exits import TorExitSource
 from ipdb._sources.x4bnet_vpn import X4BNetVPNSource
 from ipdb._sources.otx import OtxSource
@@ -19,7 +18,9 @@ DECLS = [
     (SpamhausSource, "blacklist", "malicious", 0.90),
     (EmergingThreatsSource, "blacklist", "malicious", 0.85),
     (BlocklistDeSource, "blacklist", "malicious", 0.65),
-    (IP2ProxySource, "proxy", "suspicious", 0.80),
+    # ip2proxy 已移出:ADR 0001(2026-10-12)全量资产弃权,类级不再声明
+    # 指控章(缺席形状由 test_ip2proxy_proxytype 钉住;r=0.80 由
+    # test_metadata_derivation 的 OLD_RELIABILITY 继续钉)。
     (TorExitSource, "tor", "suspicious", 0.95),
     (X4BNetVPNSource, "proxy", "suspicious", 0.70),
     (FireholBlocklistSource, "blacklist", "malicious", 0.50),
