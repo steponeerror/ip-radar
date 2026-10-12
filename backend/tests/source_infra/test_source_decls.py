@@ -4,7 +4,6 @@ from ipdb._sources.threatfox import ThreatFoxSource
 from ipdb._sources.spamhaus import SpamhausSource
 from ipdb._sources.emerging_threats import EmergingThreatsSource
 from ipdb._sources.blocklist_de import BlocklistDeSource
-from ipdb._sources.ip2proxy import IP2ProxySource
 from ipdb._sources.tor_exits import TorExitSource
 from ipdb._sources.x4bnet_vpn import X4BNetVPNSource
 from ipdb._sources.otx import OtxSource
