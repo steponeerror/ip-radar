@@ -81,7 +81,8 @@ def _sample_cloud_hosts(cloud_ranges: list[str], needed: int,
     配额时如实短(宁少算, member_count 如实), 不回绕补采。
     段 version != 4 跳过不炸(生产 cloud_ranges 中间文件 aws/gcp/azure
     混 v6_prefixes; 宁少算), 跳过计数返调用方入 params —— 无证据即无话,
-    但跳了多少要说。v6 网络地址整型恒大于 v4, 跳过不改 v4 段排序序。
+    但跳了多少要说。跳过不消耗 rng 也不改 v4 段相对序, v6 段存在与否
+    不改变 v4 采样(排序在前, 循环内逐段跳)。
     """
     nets = sorted({ipaddress.ip_network(c, strict=False) for c in cloud_ranges},
                   key=lambda n: (int(n.network_address), n.prefixlen))

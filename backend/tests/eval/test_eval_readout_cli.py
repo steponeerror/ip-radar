@@ -32,7 +32,10 @@ class _FakeSource:
 
 
 class _FakeRegistry:
-    """lookup: 末位 .1 的 IP 被 src_a 指控(malicious); 记录 asof 透传。"""
+    """lookup: 末位 .1 的 IP 被 src_a 指控(malicious); 记录 asof 透传。
+
+    组级 verdict 键是 to_dict 生产契约(_types.py:195): layered._accusing_types
+    门控 ca.get("verdict") ∈ _ACCUSING, 缺键 = 该 IP 全组按干净算(评审核)。"""
 
     def __init__(self, sources):
         self.sources = sources
@@ -43,7 +46,9 @@ class _FakeRegistry:
             self.asof_seen.append(asof)
         if ip.endswith(".1"):
             return {"ip": ip, "classifications": {"proxy": {
-                "type": "proxy", "verdict_conflict": False, "confidence": 50,
+                "type": "proxy",
+                "verdict": "malicious",
+                "verdict_conflict": False, "confidence": 50,
                 "details": [{"source": "src_a", "verdict": "malicious"}]}}}
         return {"ip": ip, "classifications": {}}
 
@@ -133,6 +138,8 @@ def test_readout_truth_layer_anchors_asof_and_epsilon(tmp_path):
     assert readout["layers"]["truth"]["status"] == "OK"
     assert reg.asof_seen                           # asof 锚(T10)透传引擎链
     text = md.read_text()
-    assert "ε=0.00" in text                        # F7 三档行在
+    # F7 三档行在, 且分子非零: 真值成员 4 个中 10.100.0.1(末位 .1)真被指控
+    # → hits=1 → ε=0.00 档 0.2500(组级 verdict 缺位时恒 0.0000, 旧版空过)
+    assert "ε=0.00 → 0.2500" in text
     assert "真值层缺" not in text                   # ε 哨兵行不误发
     assert readout["degraded"] is False
