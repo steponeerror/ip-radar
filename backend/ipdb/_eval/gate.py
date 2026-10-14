@@ -25,6 +25,14 @@
 - ⑤ gate-<candidate>-<ts>.md/.json 落 out_dir; eval_env=gate 强制
   (S37 fail-loud: 显式 monthly/dev 下跑 gate 拒绝 —— 环境标签错位会令
   rc_history/报告目录跨 env 混读; 未设 → 进程内钉 gate, 退出还原)。
+- ⑥ T6 触发集接线 + conf 档诊断列(spec §3.1/§8 S1-S4/S31):
+  evaluate_triggers(triggers.py T5 落地件, 只升旗零写路径)消费键在
+  gate 组装 —— truth 资产成员(S1)/蜜罐声明(源类属性 + config 兜底,
+  layered 同款读侧合并)/oc(stratum metrics)/unique_share(suite
+  model 落地口径)/derived(源类属性, R1-F1); 输出 mandatory_review/
+  bands 旗标行进报告「强制人裁」「OC 敏感带」两节。conf 阈值档
+  (70, 90, yardstick 实测先例)消融读数自两臂 F10 快照再生(S29),
+  诊断列不入读数家族(S31)。
 
 读数家族(F9 显式枚举, 报告头携带): 假设检验族 = 四层命中率 delta ×4;
 描述族 = candidate 自域指标族(run_for_source 全套)+ k 族位移 ×2;
@@ -39,11 +47,15 @@ import secrets
 from dataclasses import asdict
 from pathlib import Path
 
+from . import config
 from .assets import load_asset
 from .keysets import _source_ips
 from .layered import (PRIORITY, STATUS_OK, LayerResult, assemble_four_layers,
                       layered_readout)
 from .significance import mcnemar, paired_bootstrap
+from .snapshots import load_ip_snapshot
+from .triggers import evaluate_triggers
+from .._types import _ACCUSING
 
 _PKG_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _PKG_DIR.parents[2]
@@ -66,6 +78,12 @@ FAMILIES = {
     # S31: conf 档不入读数家族(控 FDR 预算); T6 展开为接入关消融诊断列
     "excluded": ["conf 档(S31, T6 展开为消融诊断列)"],
 }
+
+# S31 conf 阈值档 = 诊断列档位: 照 Phase 1 yardstick 实测先例
+# (docs/research/2026-10-12-yardstick-feasibility.md §二: ≥70 与 ≥90 双档
+# 读数形态; §四: conf≥70 回归基线; C3 旧分口径同为 70)。诊断列, 不入
+# FAMILIES(控 FDR 预算), 描述性不做检验。
+CONF_TIERS = (70, 90)
 
 
 def _strip_candidate(consensus: LayerResult, keyset: set[str]) -> int:
@@ -167,6 +185,86 @@ def _layer_delta(off_lr: LayerResult, off_block: dict,
     }
 
 
+def _conf_tier_hits(rows: dict, tier: int) -> int:
+    """F10 快照行 → conf≥tier 命中 IP 数。指控判定 = 分组 verdict ∈
+    _ACCUSING(layered._accusing_types 同口径), conf 取指控组 max ——
+    「最坏 verdict 组内 max 置信度」(yardstick 旧分语义同形); 无指控组
+    → 非命中(宁少算; 缺 confidence 兑底 0 = metrics.confidence_uplift
+    同字段同兑底)。"""
+    n = 0
+    for row in rows.values():
+        confs = [ca.get("confidence", 0)
+                 for ca in (row.get("classifications") or {}).values()
+                 if ca.get("verdict") in _ACCUSING]
+        if confs and max(confs) >= tier:
+            n += 1
+    return n
+
+
+def _conf_tier_deltas(out_dir: Path, run_id: str, layers: dict) -> dict:
+    """per-conf 档消融诊断列(S31): 逐层 × conf 阈值档的两臂命中读数。
+
+    数据自两臂 F10 快照再生(S29: 子读数免重查引擎, 证据已落盘; 两臂
+    成员恒同 = Q14 配对前提, _layer_delta 已验)。NO-LAYER 层 None
+    (缺层≠0 层); n=0 层率值 None(哨兵纪律, 不冒充 0)。描述性, 不做
+    检验, 不入 F9 读数家族(S31 控 FDR 预算)。"""
+    out: dict[str, dict | None] = {}
+    for kind in PRIORITY:
+        lr = layers[kind]
+        if lr.status != STATUS_OK:
+            out[kind] = None
+            continue
+        n = len(lr.members)
+        snap_dir = Path(out_dir) / "snapshots"
+        off_rows = load_ip_snapshot(snap_dir / f"{run_id}-off"
+                                    / f"{kind}.jsonl.gz")
+        on_rows = load_ip_snapshot(snap_dir / f"{run_id}-on"
+                                   / f"{kind}.jsonl.gz")
+        tiers = {}
+        for tier in CONF_TIERS:
+            h_off, h_on = (_conf_tier_hits(off_rows, tier),
+                           _conf_tier_hits(on_rows, tier))
+            r_off = h_off / n if n else None
+            r_on = h_on / n if n else None
+            tiers[str(tier)] = {
+                "off_hits": h_off, "on_hits": h_on,
+                "rate_off": r_off, "rate_on": r_on,
+                "rate_delta": (r_on - r_off
+                               if r_on is not None and r_off is not None
+                               else None),
+            }
+        out[kind] = {"n": n, "tiers": tiers}
+    return out
+
+
+def _candidate_unique_share(src_obj, reg, run_seed: int,
+                            corpus_path) -> float | None:
+    """S2 象限臂输入: 候选独有命中占比 —— suite/model 落地口径原样
+    (SourceScore.unique_share = 自有非垄断 pair 中无他源同指的份额,
+    model.estimate; suite model 件同源字段, T5 契约注明消费源)。
+
+    语料与 run_for_source 同 seed 重构(sample_source_ips 的 run_seed
+    覆盖 rng, S36: 同 run_seed + 同源文件 → 同 candidate_ips), 候选 ON
+    态全语料快照 → source_pair_sets → extract_events → estimate 与
+    run_suite 同链, 不另立口径。引擎零改动红线(run_for_source 不回传
+    快照)下重查一次语料(数百次 mmap lookup)是接线的最小代价。
+    """
+    from .ablation import take_snapshot
+    from .corpus import Corpus, sample_source_ips
+    from .events import extract_events
+    from .model import estimate
+    from .pairwise import pairwise_oc, source_pair_sets
+    corpus = (Corpus.load(corpus_path) if Path(corpus_path).exists()
+              else Corpus())
+    corpus.candidate_ips = sample_source_ips(
+        src_obj, config.CORPUS_CANDIDATE_N, run_seed=run_seed)
+    snap = take_snapshot(reg.lookup, corpus.all_ips())
+    pair_sets = source_pair_sets(snap)
+    events = extract_events(snap, pairwise_oc(pair_sets))
+    return next((s.unique_share for s in estimate(events)
+                 if s.source == src_obj.name), None)
+
+
 def _fmt(v) -> str:
     return "—" if v is None else f"{v:.4f}"
 
@@ -195,11 +293,13 @@ def _layer_row(kind: str, delta) -> list[str]:
 
 def _render_md(candidate: str, verdict: dict, metrics: dict, deltas: dict,
                excluded_n: int, keyset_n: int, run_seed: int,
-               assets_root: Path) -> str:
-    """gate 报告 md: 头部(种子/两场景/F9 家族)+ 双口径两节(演示 B 措辞)。
+               assets_root: Path, trig: dict, conf_tiers: dict) -> str:
+    """gate 报告 md: 头部(种子/两场景/F9 家族)+ 双口径两节(演示 B 措辞)
+    + 强制人裁/OC 敏感带/conf 档诊断列(T6, S1-S4/S31)。
 
     禁综合分(F1): 全文无任何单一总分; 只有分层向量行与 verdict 原文。
-    """
+    零旗标也显式留哨兵行(无旗 ≠ 无话: 人裁面须能区分「未触发」与
+    「未评估」)。"""
     lines = [
         f"# 接入关 gate: `{candidate}`(eval_env=gate)",
         "",
@@ -252,6 +352,46 @@ def _render_md(candidate: str, verdict: dict, metrics: dict, deltas: dict,
                 f"- {kind} {fam}:ON {_hist_repr(k['on'])} / OFF "
                 f"{_hist_repr(k['off'])} → 位移 {_delta_repr(k['delta_hist'])}"
                 f"(均值 Δ {md_})")
+    # T6「强制人裁」节(R2 基础三态 + S1-S4, spec §3.1): 只升旗不自动动作
+    lines += [
+        "",
+        "## 强制人裁(R2 基础三态 + S1-S4, spec §3.1)",
+        "",
+        "触发集只升旗不自动动作(声明 r: 测量建言, 人裁终局);处置归人,",
+        "接入关报告必附 PR。",
+        "",
+    ]
+    lines += [f"- {row}" for row in trig["mandatory_review"]] or [
+        "- 无强制人裁旗标(基础三态与 S1-S4 本轮均未触发)。"]
+    # T6「OC 敏感带」节(S3, report-only: 报告不触发)
+    lines += ["", "## OC 敏感带(S3, report-only)", ""]
+    lines += [f"- {row}" for row in trig["bands"]] or [
+        "- 无敏感带标注(OC 不在 [0.7, 0.9) 或本轮无 OC 读数)。"]
+    # T6 conf 档消融诊断列(S31: 诊断列, 不入读数家族 —— 家族枚举见头部
+    lines += [
+        "",
+        "## conf 档消融诊断列(S31: 诊断列, 不入读数家族)",
+        "",
+        f"档位照 Phase 1 yardstick 实测先例(conf≥{CONF_TIERS[0]} / "
+        f"conf≥{CONF_TIERS[-1]}, docs/research/2026-10-12-yardstick-"
+        "feasibility.md);自两臂 F10 快照再生(S29),描述性读数,不做检验,",
+        "不扩 F9 读数家族(控 FDR 预算)。",
+        "",
+        "| layer | n | tier | OFF hits (rate) | ON hits (rate) | rate Δ |",
+        "|---|---|---|---|---|---|",
+    ]
+    for kind in PRIORITY:
+        ct = conf_tiers.get(kind)
+        if ct is None:
+            lines.append(f"| {kind} | — | NO-LAYER | 缺层≠0 层(§2.3 哨兵) "
+                         "| — | — |")
+            continue
+        for tier, r in ct["tiers"].items():
+            lines.append(
+                f"| {kind} | {ct['n']} | conf≥{tier} | "
+                f"{r['off_hits']} ({_fmt(r['rate_off'])}) | "
+                f"{r['on_hits']} ({_fmt(r['rate_on'])}) | "
+                f"{_fmt(r['rate_delta'])} |")
     lines += [
         "",
         "_测量建言, 人裁终局(声明 r);接入关报告必附 PR(spec §3.1)。_",
@@ -286,7 +426,7 @@ def run_gate(candidate: str, reg, out_dir: Path, *,
 
 
 def _run_gate(candidate: str, reg, out_dir, *, run_seed, assets_dir, benign):
-    from .__main__ import run_for_source   # 懒导入避 T9 CLI 循环(见 docstring)
+    from .__main__ import CORPUS_PATH, run_for_source  # 懒导入避 T9 CLI 循环(见 docstring)
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     # S36: run 级 seed 显式随机缺省, 两臂/自域/自举共用一个 run_seed
@@ -294,6 +434,7 @@ def _run_gate(candidate: str, reg, out_dir, *, run_seed, assets_dir, benign):
     src_obj = next((s for s in reg.sources if s.name == candidate), None)
     if src_obj is None:
         raise ValueError(f"no source named {candidate!r} in reg.sources")
+    corpus_path = CORPUS_PATH
 
     # ① candidate-stratum 自域判别力(run_for_source 复用: 消融+8态+报告)
     _, js1, verdict = run_for_source(
@@ -332,6 +473,47 @@ def _run_gate(candidate: str, reg, out_dir, *, run_seed, assets_dir, benign):
             off_lr, off["layers"][kind], on_lr, on["layers"][kind],
             seed=run_seed)
 
+    # ⑥a per-conf 档消融诊断列(S31): 自两臂 F10 快照再生, 不查引擎
+    conf_tiers = _conf_tier_deltas(out, run_id, off_layers)
+
+    # ⑥b 触发集接线(S1-S4 + R2 基础三态, T5 契约键在 gate 组装):
+    # 大列表(键集/truth 成员)只在内存装配, JSON 件只落计数与标量 ——
+    # 大源键集 10^5-10^6 IP 会把报告件撑到 MB 级, T4 payload 纪律 =
+    # 聚合 + 指针(assets_dir 可回算; 旗标行自身携带观测值)。
+    truth_lr = off_layers["truth"]
+    truth_members = (truth_lr.members if truth_lr.status == STATUS_OK
+                     else None)   # NO-LAYER → None: S1 缺键不评(宁少算)
+    # 蜜罐声明读侧合并 = layered 同款(源类属性优先, config 集兜底收敛漏报)
+    honeypot_declared = (bool(getattr(src_obj, "honeypot_methodology", False))
+                         or candidate in config.HONEYPOT_METHODOLOGY)
+    # 谱系声明 = 源类属性 derived(registry R1-F1: 导入时 fill-in-place
+    # 灌装 DERIVED_SOURCES, 属性即声明本体)
+    declared_derived = bool(getattr(src_obj, "derived", False))
+    oc_val = ((stratum.get("metrics") or {}).get("oc") or {}).get("value")
+    unique_share = _candidate_unique_share(src_obj, reg, run_seed,
+                                           corpus_path)  # 候选 ON 态(两臂后)
+    trig_raw = evaluate_triggers({
+        "candidate_stratum": {"verdict": asdict(verdict)},
+        "deltas": deltas,
+        "candidate_keyset": sorted(keyset),
+        "truth_members": truth_members,
+        "honeypot_declared": honeypot_declared,
+        "oc": oc_val,
+        "unique_share": unique_share,
+        "declared_derived": declared_derived,
+    })
+    trig = {"mandatory_review": trig_raw["mandatory_review"],
+            "bands": trig_raw["bands"],
+            "inputs": {
+                "candidate_keyset_n": len(keyset),
+                "truth_members_n": (len(truth_members)
+                                    if truth_members is not None else None),
+                "honeypot_declared": honeypot_declared,
+                "oc": oc_val,
+                "unique_share": unique_share,
+                "declared_derived": declared_derived,
+            }}
+
     payload = {
         "kind": "gate",
         "eval_env": "gate",
@@ -352,13 +534,15 @@ def _run_gate(candidate: str, reg, out_dir, *, run_seed, assets_dir, benign):
         "arms": {"off": off, "on": on},
         "deltas": deltas,
         "families": FAMILIES,
+        "triggers": trig,
+        "conf_tiers": conf_tiers,
     }
     md_path = out / f"gate-{candidate}-{ts}.md"
     js_path = out / f"gate-{candidate}-{ts}.json"
     md_path.write_text(
         _render_md(candidate, payload["candidate_stratum"]["verdict"],
                    stratum.get("metrics") or {}, deltas, excluded,
-                   len(keyset), run_seed, assets_root),
+                   len(keyset), run_seed, assets_root, trig, conf_tiers),
         encoding="utf-8")
     js_path.write_text(json.dumps(payload, indent=1, ensure_ascii=False,
                                   default=str), encoding="utf-8")
