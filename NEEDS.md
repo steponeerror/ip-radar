@@ -27,7 +27,7 @@
 | 我们输出的 verdict 在真实执法点(阻断/检测消费端)的 TP/FP 表现 | 2026-10-12 | open | 业界金标准 = 消费端反馈回流(ThreatConnect CAL 社区众包/MISP sightings/GTI 分析师纠正,docs/research/2026-10-12-industry-loop-practices.md);前置 = 产品需有消费 verdict 并能回报处置结论的执法点 + 查询隐私裁决,2026-10-12 用户记「后续想做」;本批以蜜罐锚+纠错检验作无遥测近似 |
 | 土耳其政府 SGB 情报(siberguvenlik.gov.tr/api/address/index) | 2026-10-10 | open | JSON API,本轮未验活未取样;与 RTBH 同区域第二票,区域扩展时再验 |
 | geo_asn/attributes 通道源的接入关读数口径(现走硬门得零信息报告) | 2026-10-13 | open | 对抗审查第1轮:读数覆盖域=threat/asset 两轴(verdict N/A-ASSET 早退+metrics 仅遍历 classifications),geo_asn 现役 7 源即此态;标量轴/排除清单覆盖率口径未裁,待用户(扩张 Q4/Q18 gate 覆盖域须裁) |
-| 语料治理双缺口(固定复用过拟合+活语料漂移)如何治理 | 2026-10-13 | open | 对抗审查第1轮:固定语料逐月复用×声明 r 回流(人审 PR)=未申报适应性过拟合通道;四层误报侧语料含 dns_public 活抓取名单(seed 只冻采样不冻活列表)=尺漂移;候选机制=轮换/seed-bump 趋势重置、语料版本化+换版双跑,均须用户裁 |
+| 语料治理双缺口(固定复用过拟合+活语料漂移)如何治理 | 2026-10-13 | 已立项(2026-10-14 eval 闭环 Phase 1 落地治理机制) | 对抗审查第1轮:固定语料逐月复用×声明 r 回流(人审 PR)=未申报适应性过拟合通道;四层误报侧语料含 dns_public 活抓取名单(seed 只冻采样不冻活列表)=尺漂移;已裁落地:语料版本化(S12)+换版=趋势重置(S17)+run 级采样 seed(S36,月轮报告 v2 报头携带指纹变列);轮换/seed-bump 未采纳为独立机制 |
 | grace period(融合语义防抖) | 2026-10-12 | open | grill Q19 裁另立 NEEDS,industry 启示 5(docs/research/2026-10-12-industry-loop-practices.md) |
 | 月轮 action block 对接指针 | 2026-10-12 | open | grill Q9:每轮 action block 在此留一行指针,裁毕置已闭 |
 | 非 SSH 攻击类型(C2/DDoS/spam)的真值锚(威胁真值层现仅 SSH 攻击源) | 2026-10-13 | open | 对抗审查第4轮:多类型蜜罐/传感器语料候选;ADR 0002 已自认边界,不扩本批(第4轮 2026-10-13) |
