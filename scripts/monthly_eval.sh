@@ -79,4 +79,4 @@ run_step audit    --audit    # 谱系前向流审计(读 model 历史)
 run_step temporal --temporal # λ_s 确认率(读 model 历史,须 ≥2 轮)
 
 echo
-echo "完成。报告目录: $REPO/backend/data/eval(model/ 逐轮累积)"
+echo "完成。报告目录: $REPO/backend/data/eval/monthly(model/ 逐轮累积)"

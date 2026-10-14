@@ -49,12 +49,16 @@ def _json_safe_dsem(dsem: dict) -> dict:
 
 
 def run_dsem_report(lookup_fn, corpus, declared_r, out_dir=None,
-                    origin=None) -> dict:
+                    origin=None, *, eval_env: str | None = None) -> dict:
     """Snapshot -> events -> the three-prior T-3 fair fight + DS-EM run.
 
     Override rule (plan semantics): override value wins when present and
     non-None, else the mover's existing market rho stands.
     """
+    # S37(裁决①):dsem-*.json 顶层也带 eval_env;None → 读 __main__.eval_env()
+    if eval_env is None:
+        from .__main__ import eval_env as _current_env
+        eval_env = _current_env()
     snap = take_snapshot(lookup_fn, corpus.all_ips())
     pair_sets = source_pair_sets(snap)
     events = extract_events(snap, pairwise_oc(pair_sets))
@@ -69,7 +73,7 @@ def run_dsem_report(lookup_fn, corpus, declared_r, out_dir=None,
                          for s in movers], config.MODEL_W)
     pr, dr = _t3_rate(pihat["detail"]), _t3_rate(decl["detail"])
     beats = (pr >= dr) if pr is not None and dr is not None else None
-    res = {"kind": "dsem", "dsem": dsem,
+    res = {"kind": "dsem", "eval_env": eval_env, "dsem": dsem,
            "fair_fight": {"market_t3": market["detail"],
                           "declared_t3": decl["detail"],
                           "pihat_t3": pihat["detail"],

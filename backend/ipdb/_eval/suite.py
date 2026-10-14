@@ -234,7 +234,13 @@ def run_suite(lookup_fn, corpus: Corpus, declared_r=None, w=None,
             "monopoly_ctypes": sorted(events.monopoly_ctypes)}
 
 
-def write_model_report(result: dict, out_dir: Path) -> tuple[Path, Path]:
+def write_model_report(result: dict, out_dir: Path, *,
+                       eval_env: str | None = None) -> tuple[Path, Path]:
+    # S37(裁决①):model-*.json 顶层也带 eval_env;None → 读 __main__.eval_env()
+    # (call-time 懒导入避 suite←__main__ 循环;env 未设时该 helper 自回 dev)
+    if eval_env is None:
+        from .__main__ import eval_env as _current_env
+        eval_env = _current_env()
     d = Path(out_dir) / "model"
     d.mkdir(parents=True, exist_ok=True)
     ts = _dt.datetime.now(_dt.timezone.utc).strftime("%Y%m%d-%H%M%S")
@@ -248,6 +254,7 @@ def write_model_report(result: dict, out_dir: Path) -> tuple[Path, Path]:
                 "declared_r": s.declared_r}
     payload = {
         "kind": "model",
+        "eval_env": eval_env,
         "generated_at": _dt.datetime.now(_dt.timezone.utc).date().isoformat(),
         "w": result["w"],
         "lso": result["lso"],

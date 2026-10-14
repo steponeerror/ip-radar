@@ -197,10 +197,15 @@ def compute_temporal(rounds: list[dict]) -> dict:
     }
 
 
-def temporal_report(model_dir, out_dir=None) -> dict:
+def temporal_report(model_dir, out_dir=None, *, eval_env: str | None = None) -> dict:
     """Compute the λ_s report over persisted history; when out_dir is given
     (and rounds suffice) also persist it as <out_dir>/temporal-<ts>.json."""
+    # S37(裁决①):temporal-*.json 顶层也带 eval_env;None → 读 __main__.eval_env()
+    if eval_env is None:
+        from .__main__ import eval_env as _current_env
+        eval_env = _current_env()
     rep = compute_temporal(rounds_from_history(model_dir))
+    rep["eval_env"] = eval_env
     if out_dir is not None and rep["n_rounds"] >= 2:
         d = Path(out_dir)
         d.mkdir(parents=True, exist_ok=True)
