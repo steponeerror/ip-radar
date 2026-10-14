@@ -1,5 +1,6 @@
 # backend/test_source_base.py
 import inspect
+import os
 from pathlib import Path
 from ipdb._source_base import Source
 from ipdb._evidence import Evidence
@@ -205,6 +206,9 @@ def test_lmdb_lifecycle_build_load_query_rebuild(tmp_path: Path):
 
         # rebuild 新值:旧 range 退位,新 range 上位,sidecar 刷新
         cls.rows = [("10.0.0.0/24", _ev("new")), ("10.0.1.0/24", _ev("new"))]
+        # 分族增量(2026-10-14):rebuild 以 raw mtime 为新内容信号,已收敛族跳过
+        # ——本源收割自内存 rows,占位 raw 不变会被判收敛;模拟新下载推进 mtime
+        os.utime(raw, ns=((raw.stat().st_mtime_ns + 10**9),) * 2)
         s1 = cls(data_dir=tmp_path)       # 复用同名源,新实例续跑
         s1._path = raw
         assert s1.rebuild() == 2
