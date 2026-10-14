@@ -26,14 +26,14 @@ def _epochs(base: Path):
 
 
 def test_low_memory_aborts_and_keeps_old_epoch(monkeypatch, tmp_path):
-    """flush 边界 avail < 15% → RebuildAborted:ptr/epoch/计数原样,staging 清除。"""
+    """flush 边界 avail < 8% → RebuildAborted:ptr/epoch/计数原样,staging 清除。"""
     monkeypatch.setattr("ipdb._sources._lmdb.BATCH_SIZE", 10)
     base = tmp_path / "t.lmdb"
     _set_ratio(monkeypatch, 0.9)
     rebuild_lmdb(_recs(12), base, lambda e: None)          # 先建成功 epoch=1
     before_ptr, before_epochs = read_ptr(base), _epochs(base)
 
-    _set_ratio(monkeypatch, 0.10)                          # 10% < 15%
+    _set_ratio(monkeypatch, 0.05)                          # 5% < 8%
     with pytest.raises(RebuildAborted):
         rebuild_lmdb(_recs(50), base, lambda e: None)
 
@@ -53,11 +53,22 @@ def test_healthy_ratio_never_aborts(monkeypatch, tmp_path):
 
 
 def test_boundary_ratio_exact_threshold_passes(monkeypatch, tmp_path):
-    """ratio == 0.15 不中止(严格小于)。"""
+    """ratio == 0.08 不中止(严格小于)。"""
     monkeypatch.setattr("ipdb._sources._lmdb.BATCH_SIZE", 10)
     base = tmp_path / "t.lmdb"
-    _set_ratio(monkeypatch, 0.15)
+    _set_ratio(monkeypatch, 0.08)
     assert rebuild_lmdb(_recs(25), base, lambda e: None) == 25
+
+
+def test_mid_band_ratio_0p10_no_longer_aborts(monkeypatch, tmp_path):
+    """ratio 0.10(旧 0.15 与新 0.08 之间)不再中止——钉住 2026-10-14
+    标定 0.15→0.08 的行为变化:demo 机常驻 avail 6-12% 属"磨 swap
+    但能活"的合法路径,纪元不再冻结。"""
+    monkeypatch.setattr("ipdb._sources._lmdb.BATCH_SIZE", 10)
+    base = tmp_path / "t.lmdb"
+    _set_ratio(monkeypatch, 0.10)
+    assert rebuild_lmdb(_recs(25), base, lambda e: None) == 25
+    assert read_ptr(base) is not None
 
 
 def test_retry_after_abort_completes(monkeypatch, tmp_path):
@@ -66,7 +77,7 @@ def test_retry_after_abort_completes(monkeypatch, tmp_path):
     base = tmp_path / "t.lmdb"
     _set_ratio(monkeypatch, 0.9)
     rebuild_lmdb(_recs(12), base, lambda e: None)
-    _set_ratio(monkeypatch, 0.10)
+    _set_ratio(monkeypatch, 0.05)
     with pytest.raises(RebuildAborted):
         rebuild_lmdb(_recs(50), base, lambda e: None)
     _set_ratio(monkeypatch, 0.9)
