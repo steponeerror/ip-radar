@@ -229,7 +229,8 @@ class RangeSpecificity:
         return MergedField(most_specific[1].value, 85, "specificity", attributions)
 
 
-def _assess_classification(group: list) -> ClassificationAssessment:
+def _assess_classification(
+        group: list, *, asof: float | None = None) -> ClassificationAssessment:
     """Assess one classification.type group of observations."""
     obs = group
     ctype = obs[0].classification_type
@@ -257,9 +258,12 @@ def _assess_classification(group: list) -> ClassificationAssessment:
     # 同源取 max 在投票观测内执行;仅存档观测的源不产生系数但保留展示。
     voters = [o for o in obs if o.verdict in _ACCUSING]
     pool = voters if voters else obs
+    # F2/S37 时钟锚:asof 非空时衰减按锚刻而非墙钟(月度读数可复现);
+    # None → coefficient 默认墙钟,现网行为逐位不变。
+    _now = _lo.asof_to_now(asof)
     by_source: dict[str, float] = {}
     for o in pool:
-        c = _lo.coefficient(o.reliability, o.first_seen, ctype)
+        c = _lo.coefficient(o.reliability, o.first_seen, ctype, now=_now)
         if o.source not in by_source or c > by_source[o.source]:
             by_source[o.source] = c
     deduped = _lo.dedup_lineage(list(by_source.items()))

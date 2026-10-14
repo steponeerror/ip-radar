@@ -73,6 +73,16 @@ def _age_days(first_seen, now: datetime | None) -> float | None:
     return max(0.0, (now - ts).total_seconds() / 86400.0)
 
 
+def asof_to_now(asof: float | None) -> datetime | None:
+    """F2/S37 时钟锚:asof epoch 秒 → UTC datetime;None → None(=墙钟,
+    默认路径逐位不变)。打分期两处 coefficient 消费点(_merge 组级 /
+    _types threat 重融合)共用本换算,免得口径漂移(parse_first_seen
+    同款纪律)。"""
+    if asof is None:
+        return None
+    return datetime.fromtimestamp(asof, tz=timezone.utc)
+
+
 def coefficient(r: float, first_seen: str | None, ctype: str | None = None,
                 now: datetime | None = None) -> float:
     """证据系数 = logit(r) × 2^(−age/h);符号随证据方向保留(B3)。"""

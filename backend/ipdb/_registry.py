@@ -474,10 +474,13 @@ def _order_asset_stmts(stmts: list) -> list:
     ))
 
 
-def lookup(ip: str, allowed_sources: frozenset[str] | None = None) -> LookupResult:
+def lookup(ip: str, allowed_sources: frozenset[str] | None = None, *,
+          asof: float | None = None) -> LookupResult:
     """Look up an IP address and return a typed LookupResult.
 
-    allowed_sources 非 None 时仅聚合该集合内的源(per-key 集合,Task 2)。"""
+    allowed_sources 非 None 时仅聚合该集合内的源(per-key 集合,Task 2)。
+    asof(F2/S37 时钟锚,仅限关键字):epoch 秒,非空时证据衰减按锚刻
+    而非墙钟(eval 月度读数可复现);None 默认 = 墙钟,现网行为逐位不变。"""
     if not _db_loaded():
         raise RuntimeError("Database not loaded")
     try:
@@ -601,7 +604,8 @@ def lookup(ip: str, allowed_sources: frozenset[str] | None = None) -> LookupResu
     for o in observations:
         groups[o.classification_type].append(o)
     classifications = {
-        ctype: _assess_classification(grp) for ctype, grp in groups.items()
+        ctype: _assess_classification(grp, asof=asof)
+        for ctype, grp in groups.items()
     }
 
     # city_zh: display-only; among sources whose value == winning city value,
@@ -652,6 +656,7 @@ def lookup(ip: str, allowed_sources: frozenset[str] | None = None) -> LookupResu
         registration=registration,
         classifications=classifications,
         attributes=dict(attributes),
+        asof=asof,
     )
 
 

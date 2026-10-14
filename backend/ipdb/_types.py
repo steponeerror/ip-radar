@@ -113,6 +113,7 @@ class LookupResult:
     location: Optional[dict] = None       # display-only {lat, lon, accuracy_radius?, time_zone?} (geolite, spec 2026-08-25; tz 信息维度批 2026-10-10)
     registration: Optional[dict] = None   # display-only {registry, reg_country?, alloc_date?, status?} 单证人(rir_delegated 旁路;reg_country ≠ 地理国)
     as_org: Optional[MergedField] = None # ASN→组织级名称(查询期 join,caida_asorg;b/asorg-anycast 2026-10-10);asn 无解或钩子源缺席则 None
+    asof: float | None = None             # F2/S37 时钟锚(epoch 秒):threat_summary 重融合按锚刻衰减;None = 墙钟(默认逐位不变)
 
     # Verdict precedence for the fused top-level `threat` summary. Mirrors
     # _merge._assess_classification's PRECEDENCE so both layers never disagree.
@@ -133,7 +134,9 @@ class LookupResult:
             # 全部指控组(malicious/suspicious)的证人明细池化后重算 P(恶意) 后验——
             # 多类别佐证计入。同源跨组取 max(不双计),再走与组内同一套
             # coefficient → dedup_lineage → assertion_confidence 流水线;
-            # 单指控组时数字恰好退化为该组 confidence(恒等)。
+            # 单指控组时数字恰好退化为该组 confidence(恒等)。asof
+            # (F2/S37)随查询锚入 → to_dict() 时免重查引擎,快照可复算。
+            _now = _lo.asof_to_now(self.asof)
             pool: dict[str, float] = {}
             for v in self.classifications.values():
                 if v.verdict not in _ACCUSING:
@@ -141,7 +144,8 @@ class LookupResult:
                 for d in v.details:
                     if d.get("verdict") not in _ACCUSING:
                         continue
-                    c = _lo.coefficient(d["reliability"], d.get("first_seen"), v.type)
+                    c = _lo.coefficient(d["reliability"], d.get("first_seen"), v.type,
+                                        now=_now)
                     src = d["source"]
                     if src not in pool or c > pool[src]:
                         pool[src] = c
