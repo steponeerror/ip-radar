@@ -1,5 +1,5 @@
-"""月轮报告 v2 测试 (S28 记分卡 / S30 行动区块 / S24 锚对 OC / S6 年度
-递减 / S12+S17 换版注记 / Q22 诊断层统计)。
+"""月轮报告 v2 测试 (S28 记分卡 / S30 行动区块 / S24 锚对 OC / S34 偷泊
+诊断 / S6 年度递减 / S12+S17 换版注记 / Q22 诊断层统计)。
 
 fixtures 全 fake, 无引擎/DB 依赖: readout 手工按 T8 layered_readout 输出
 契约构造; model_history 按 suite.write_model_report JSON 形状; sources =
@@ -23,6 +23,7 @@ from ipdb._eval.monthly import (
     render_anchor_oc,
     render_consensus_diag,
     render_scorecard,
+    render_steal_parking_diag,
 )
 
 DAY = 86400
@@ -274,6 +275,48 @@ def test_anchor_oc_missing_dir_never_crashes(tmp_path):
     assert all("N/A(名单缺失)" in l for l in lines)
 
 
+# ── render_steal_parking_diag (S34) ────────────────────────────
+
+
+def test_steal_parking_rc_same_keyset_changed_names_source(tmp_path):
+    # rc 3→3 恒定而键集 +1/−1: 模板行点名源(S34 偷泊嫌疑→人裁)
+    root = tmp_path / "keysets"
+    _write_run(root, "r0", 0, {"et": ["1.1.1.1", "2.2.2.2", "3.3.3.3"]})
+    _write_run(root, "r1", 30, {"et": ["1.1.1.1", "2.2.2.2", "4.4.4.4"]})
+    lines = render_steal_parking_diag(root)
+    assert len(lines) == 1
+    assert lines[0].startswith("偷泊嫌疑: et")
+    assert "rc 恒定 3" in lines[0] and "+1" in lines[0] and "-1" in lines[0]
+    assert "人裁" in lines[0]
+
+
+def test_steal_parking_rc_changed_or_keyset_same_no_line(tmp_path):
+    # rc 已变 → 非偷泊; 键集没变 → 无嫌疑行(宁少算)
+    root = tmp_path / "keysets"
+    _write_run(root, "r0", 0, {"growing": ["1.1.1.1", "2.2.2.2"],
+                               "frozen": ["9.9.9.9"]})
+    _write_run(root, "r1", 30, {"growing": ["1.1.1.1", "2.2.2.2", "3.3.3.3"],
+                                "frozen": ["9.9.9.9"]})
+    assert render_steal_parking_diag(root) == []
+
+
+def test_steal_parking_fewer_than_two_runs(tmp_path):
+    root = tmp_path / "keysets"
+    _write_run(root, "r0", 0, {"et": ["1.1.1.1"]})
+    assert render_steal_parking_diag(root) == ["偷泊诊断: 快照不足(<2 轮)"]
+    assert render_steal_parking_diag(tmp_path / "nope") == \
+        ["偷泊诊断: 快照不足(<2 轮)"]
+
+
+def test_steal_parking_missing_member_skips_all_missing_line(tmp_path):
+    # 最新轮该源 gz 缺席 → 跳过不炸; 无可比对源 → 单行声明
+    root = tmp_path / "keysets"
+    _write_run(root, "r0", 0, {"et": ["1.1.1.1", "2.2.2.2"]})
+    _write_run(root, "r1", 30, {"et": ["1.1.1.1", "3.3.3.3"]})
+    (root / "r1" / "et.txt.gz").unlink()
+    assert render_steal_parking_diag(root) == ["偷泊诊断: 无可比对"]
+
+
 # ── compose_monthly_md ─────────────────────────────────────────
 
 
@@ -328,3 +371,13 @@ def test_md_stable_fingerprint_no_reset_note_and_unset_annual():
 def test_md_empty_action_block_renders_placeholder():
     md = compose_monthly_md(_readout(), [], [], [], [], _header_meta())
     assert "OPEN 0 / CARRIED 0 / DONE 0" in md
+
+
+def test_md_steal_parking_lines_after_consensus_default_none():
+    md = compose_monthly_md(
+        _readout(), [], [], [], ["- 池大小: 570"], _header_meta(),
+        steal_parking_lines=["偷泊嫌疑: et (rc 恒定 3, 键集 +1/-1)→人裁"])
+    assert md.index("池大小") < md.index("偷泊嫌疑: et")  # Q22 行之后
+    default = compose_monthly_md(_readout(), [], [], [], ["- 池大小: 570"],
+                                 _header_meta())
+    assert "偷泊" not in default  # 缺省 None → 节不变(schema-stable)

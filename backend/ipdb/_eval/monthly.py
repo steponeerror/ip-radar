@@ -1,6 +1,6 @@
 # backend/ipdb/_eval/monthly.py
-"""月轮报告 v2 组合器 (S28 记分卡 / S30 行动区块 / S24 锚对 OC / S6 年度
-递减计数 / S12+S17 换版注记 / Q22 诊断层统计)。
+"""月轮报告 v2 组合器 (S28 记分卡 / S30 行动区块 / S24 锚对 OC / S34 偷泊
+诊断 / S6 年度递减计数 / S12+S17 换版注记 / Q22 诊断层统计)。
 
 纯函数消费 dicts/file paths, 无引擎/DB 依赖: 四层读数(T8 layered_readout
 输出)、R10 披露行(T9)、model-*.json 历史(suite.write_model_report 形状)、
@@ -162,15 +162,22 @@ def render_consensus_diag(stats: dict) -> list[str]:
             for k, label in _CONSENSUS_KEYS]
 
 
-def _latest_keyset_run(kd: Path) -> Path | None:
-    """keysets/<run_id>/ 最新轮(按 meta.json date 排序, long_memory_ips
-    同款口径); 无轮目录 → None(调用方渲染 N/A, 不炸报告)。"""
+def _sorted_runs(kd: Path) -> list[Path]:
+    """keysets/<run_id>/ 全部轮按 meta.json date 升序(long_memory_ips
+    同款口径; 同日平手按目录名, 确定性)。"""
     runs = []
     for rd in sorted(kd.iterdir()):
         meta_p = rd / "meta.json"
         if rd.is_dir() and meta_p.is_file():
             runs.append((json.loads(meta_p.read_text()).get("date", ""), rd))
-    return max(runs)[1] if runs else None
+    return [rd for _, rd in sorted(runs)]
+
+
+def _latest_keyset_run(kd: Path) -> Path | None:
+    """keysets/<run_id>/ 最新轮(按 meta.json date 排序, long_memory_ips
+    同款口径); 无轮目录 → None(调用方渲染 N/A, 不炸报告)。"""
+    runs = _sorted_runs(kd)
+    return runs[-1] if runs else None
 
 
 def _load_keyset(run_dir: Path, name: str) -> set[str] | None:
@@ -199,6 +206,39 @@ def render_anchor_oc(keyset_dir: Path) -> list[str]:
     return lines
 
 
+def render_steal_parking_diag(keyset_dir: Path) -> list[str]:
+    """S34 内容偷泊诊断列: 取最新两轮, 双轮 meta.json counts 同在的源
+    逐个比对 —— rc 恒定而键集 symmetric diff 非零 → 偷泊嫌疑行交人裁
+    (哲学 5 测量建言, 人裁终局: 只报不判, 不自动触发任何动作)。<2 轮 →
+    快照不足行; 成员 gz 缺席(空名单同锚对口径)逐源跳过不炸; 全无可
+    比对 → 单行声明。rc 一手读 meta.json counts, 键集一手读 gz, 两手
+    各述(证据原样, 不互相回算)。"""
+    kd = Path(keyset_dir)
+    runs = _sorted_runs(kd) if kd.is_dir() else []
+    if len(runs) < 2:
+        return ["偷泊诊断: 快照不足(<2 轮)"]
+    prev_run, cur_run = runs[-2], runs[-1]
+    prev_counts = json.loads(
+        (prev_run / "meta.json").read_text()).get("counts", {})
+    cur_counts = json.loads(
+        (cur_run / "meta.json").read_text()).get("counts", {})
+    lines: list[str] = []
+    compared = False
+    for name in sorted(set(prev_counts) & set(cur_counts)):
+        prev_ks = _load_keyset(prev_run, name)
+        cur_ks = _load_keyset(cur_run, name)
+        if prev_ks is None or cur_ks is None:  # 成员缺席 → 跳过, 不炸
+            continue
+        compared = True
+        if prev_counts[name] != cur_counts[name]:  # rc 已变 → 非偷泊
+            continue
+        added, removed = cur_ks - prev_ks, prev_ks - cur_ks
+        if added or removed:
+            lines.append(f"偷泊嫌疑: {name} (rc 恒定 {cur_counts[name]}, "
+                         f"键集 +{len(added)}/-{len(removed)})→人裁")
+    return lines if compared else ["偷泊诊断: 无可比对"]
+
+
 def _fmt(v) -> str:
     return "—" if v is None else f"{v:.4f}" if isinstance(v, float) else str(v)
 
@@ -211,12 +251,15 @@ def compose_monthly_md(readout: dict, disclosures_lines: list[str],
                        action_items: list[ActionItem],
                        scorecard_rows: list[tuple],
                        consensus_diag_lines: list[str],
-                       header_meta: dict) -> str:
+                       header_meta: dict,
+                       steal_parking_lines: list[str] | None = None) -> str:
     """组装月轮报告 v2 markdown。头块 = 环境指纹 + 语料版本/指纹逐层 +
     S12/S17 换版注记(仅指纹实变才出, F2 趋势纪律) + S6 年度递减计数 +
     S30 处置状态汇总 + F7 ε 三档行; 正文 = 分层读数表(T8)/行动区块
     (S30)/R10 混杂披露/记分卡(S28)/诊断层统计(Q22, S24 锚对 OC 行由
-    接线方并入 consensus_diag_lines)。F1: 无任何总分列。"""
+    接线方并入 consensus_diag_lines;S34 偷泊行经 steal_parking_lines
+    并入同节 Q22 行之后, 缺省 None 不出, schema-stable)。F1: 无任何
+    总分列。"""
     lines: list[str] = ["# 月轮读数报告 v2", ""]
     lines.append(f"- 环境指纹(eval_env): {header_meta.get('eval_env', '—')}")
     corpus = header_meta.get("corpus") or {}
@@ -295,6 +338,8 @@ def compose_monthly_md(readout: dict, disclosures_lines: list[str],
 
     lines += ["", "## 诊断层统计(Q22)+ 锚对 OC(S24)", "",
               *consensus_diag_lines]
+    if steal_parking_lines:  # S34 偷泊列: Q22 行之后, 只报人裁
+        lines += steal_parking_lines
 
     # 声明 r(report.py 脚注纪律同款斜体行): 测量建言, 人裁终局
     lines += ["", "_声明 r: 本报告为测量建言,人裁终局;读数不自动触发任何"
