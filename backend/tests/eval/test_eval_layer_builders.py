@@ -113,6 +113,24 @@ def test_consensus_determinism_and_seed_sensitivity(tmp_path):
     assert m1.fingerprint == m2.fingerprint != m3.fingerprint
 
 
+def test_infra_skips_v6_blocks_honest_fewer_and_counts(tmp_path):
+    # 生产 cloud_ranges 中间文件混 v6 段(aws ipv6_prefixes/gcp ipv6Prefix/azure
+    # 双族, _sources/cloud_ranges.py): 采样器跳过不炸(宁少算), 计数如实入
+    # params.skipped_v6_blocks; v6 int 恒大于 v4 → 排序序不变 → 采样结果与
+    # 纯 v4 输入逐字节相同(同 seed)。
+    mixed = ["2600:1f00::/24", *_BLOCKS[:5], "2a01::/32", *_BLOCKS[5:20]]
+    a, b = tmp_path / "mixed", tmp_path / "v4only"
+    meta_mixed = build_infra_asset(a, version="v1", run_seed=5,
+                                   cloud_ranges=mixed, resolver_ips=_RESOLVERS)
+    meta_v4 = build_infra_asset(b, version="v1", run_seed=5,
+                                cloud_ranges=_BLOCKS[:20],
+                                resolver_ips=_RESOLVERS)
+    assert meta_mixed.fingerprint == meta_v4.fingerprint
+    assert (a / "ips.txt").read_bytes() == (b / "ips.txt").read_bytes()
+    _, loaded = load_asset(a)
+    assert loaded.params["skipped_v6_blocks"] == 2
+
+
 def test_build_all_monthly_layout_matches_four_layer_assembler(tmp_path):
     root = tmp_path / "assets"
     metas = build_all_monthly(root, version="v1", run_seed=99,

@@ -46,6 +46,9 @@ class LayerResult:
     k_hist: dict = field(default_factory=dict)
     removed_overlap: int = 0
     notes: list[str] = field(default_factory=list)
+    # 命中 IP 具名清单(layered_readout 回填, 排序定序): F7 ε 敏感性
+    # 需按身份再采(rng.sample), 不能只拿 hits 计数 —— 计数可再生不出成员。
+    hit_members: list[str] = field(default_factory=list)
 
 
 def assemble_four_layers(assets_root: Path) -> dict[str, LayerResult]:
@@ -190,6 +193,7 @@ def layered_readout(lookup_fn, layers: dict[str, LayerResult], *,
         lr.hits = len(hit_ips)
         lr.rate = len(hit_ips) / len(lr.members) if lr.members else None
         lr.k_hist = dict(sorted(k_all_hist.items()))
+        lr.hit_members = sorted(hit_ips)
         persist_ip_snapshot(out_dir, run_id, kind, snapshot)
         block = {
             "status": STATUS_OK,

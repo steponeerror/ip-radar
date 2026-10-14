@@ -290,11 +290,15 @@ def compose_monthly_md(readout: dict, disclosures_lines: list[str],
               for s in (OPEN, CARRIED, DONE)}
     lines.append(f"- 处置状态(S30): OPEN {counts[OPEN]}"
                  f" / CARRIED {counts[CARRIED]} / DONE {counts[DONE]}")
-    eps = header_meta.get("epsilon") or {}
+    eps = header_meta.get("epsilon")
     if eps:
         cells = " / ".join(f"ε={e:.2f} → {v:.4f}"
                            for e, v in sorted(eps.items()))
         lines.append(f"- F7 ε 敏感性(真值层命中率三档): {cells}")
+    elif "epsilon" in header_meta:
+        # 真值层 NO-LAYER → ε 三档不算(缺层≠0 层, §2.3): 显式哨兵行,
+        # 不静默省略 —— 读者须能区分「没算」与「没层」。
+        lines.append("- F7 ε 敏感性(真值层命中率三档): 真值层缺(N/A)")
 
     layers = readout.get("layers", {})
     lines += ["", "## 分层读数(T8)", "",

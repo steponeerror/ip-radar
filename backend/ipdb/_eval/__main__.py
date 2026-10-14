@@ -105,7 +105,9 @@ def _real_registry():
     """Bind the real ipdb._registry to the harness's injected interfaces."""
     import ipdb._registry as reg
 
-    def lookup(ip): return reg.lookup(ip).to_dict()
+    def lookup(ip, asof=None):
+        # asof(T10 时钟锚)仅月轮读数用; 其它调用方单参不变
+        return reg.lookup(ip, asof=asof).to_dict()
 
     def toggle(name, enabled):
         # in-memory only — NEVER reg.set_source_enabled (which persists).
@@ -182,6 +184,197 @@ def run_for_source(source_name: str, registry=None, corpus_path=CORPUS_PATH,
     return md, js, verdict
 
 
+def _load_prev_action_block(out_dir: Path) -> tuple[list, dict]:
+    """上轮 action-block.json → (ActionItem 列表, header dict); 缺文件 →
+    ([], {}); 坏 JSON 直接炸 —— 静默清零会丢整月携带项, 必须响。"""
+    from .monthly import ActionItem
+    p = Path(out_dir) / "action-block.json"
+    if not p.is_file():
+        return [], {}
+    data = json.loads(p.read_text())
+    items = [ActionItem(**d) for d in data.get("items", [])]
+    return items, data.get("header") or {}
+
+
+def _cloud_v4_ranges(src) -> list[str]:
+    """cloud_ranges 源中间文件 → v4 CIDR 清单(§2.1 非指控基础设施层输入)。
+
+    键集正则(_source_ips)剥 CIDR mask 且只吃单文件, 而 cloud_ranges 的
+    _path 是目录 → 走源模块 _FEEDS 的 parse 函数直读中间文件(与引擎
+    harvest 同码, 单一真实路径); v6 段接线侧即滤(":" 判族), 构建器侧
+    另有 version!=4 跳过保险(skipped_v6_blocks 记账)。缺源/缺文件 →
+    空(宁少算: 无云段采样, 不炸报告)。"""
+    from ipdb._sources import cloud_ranges as _cr
+    if src is None:
+        return []
+    out: list[str] = []
+    for _provider, _fetch, parse, filename, _rel, _stale in _cr._FEEDS:
+        p = Path(getattr(src, "_path", "")) / filename
+        if p.is_file():
+            out += [c for c in parse(p.read_bytes()) if ":" not in c]
+    return out
+
+
+def _resolver_ips(srcs: dict) -> list[str]:
+    """解析器侧键集 = root_servers ∪ dns_public(§2.1 的 320 侧输入)。
+
+    root_servers.cache 明文 A/AAAA 行 → 键集正则(v4 过滤内置); dns_public.md
+    是 sdns:// base64 stamp, 明文 IP 不在文件内(正则恒空)→ 走源模块
+    _decode_stamp_ip(harvest 同码纯函数), v6 stamp 弃(宁少算)。"""
+    from ipdb._sources.dns_public import _decode_stamp_ip
+    from .keysets import _source_ips
+    ips: list[str] = []
+    rs = srcs.get("root_servers")
+    if rs is not None:
+        ips += _source_ips(rs)
+    dp = srcs.get("dns_public")
+    if dp is not None and Path(getattr(dp, "_path", "")).is_file():
+        for ln in Path(dp._path).read_text(errors="ignore").splitlines():
+            if not ln.startswith("sdns://"):
+                continue
+            ip = _decode_stamp_ip(ln[len("sdns://"):].strip())
+            if ip and ":" not in ip:
+                ips.append(ip)
+    return sorted(set(ips))
+
+
+def _vpn_prefixes(src) -> list[str]:
+    """x4bnet_vpn 原样 v4 CIDR/裸 IP 行(保留 mask): 键集正则剥 mask 会把
+    VPN 段缩成网络地址单点、过滤失真; 逐行原读(IpListSource.parse_raw
+    同款跳注释/空行, ":" 弃 v6)。缺源/缺文件 → 空表 = 无段可剔。"""
+    if src is None:
+        return []
+    p = Path(getattr(src, "_path", ""))
+    if not p.is_file():
+        return []
+    return [ln.strip() for ln in p.read_text(errors="ignore").splitlines()
+            if ln.strip() and not ln.strip().startswith("#") and ":" not in ln]
+
+
+def run_readout(registry, out_dir, *, assets_dir=None, keysets_dir=None,
+                run_seed=None, run_id=None):
+    """§4.2/S26 月轮读数接线: 组合既有纯件, 不实现新读数。
+
+    链: 生产输入(镜像内源文件) → 三件套资产(S36 run_seed) → 键集快照+
+    长记忆(T5) → 四层装配(缺 truth = NO-LAYER 哨兵, 报告照发) → 逐层
+    读数(F10 快照, asof 锚 = 真值层 created_at, 缺真值层 → None 走普通
+    查询, 不虚构锚) → ε 敏感性(真值层 OK 才算, 否则 None → 哨兵行) →
+    行动区块 + 月报 + action-block.json(header 快照供下轮 prev 对比)。
+    assets/keysets 跨 env 共享(语料/键集是事实不是报告, spec §4.2)。"""
+    from dataclasses import asdict
+    from datetime import date, datetime, timezone
+    from .assets import load_asset
+    from .disclosures import render_disclosures
+    from .keysets import _source_ips, export_source_keysets, long_memory_ips
+    from .layer_builders import PER_SOURCE_N, build_all_monthly, non_vpn_resolvers
+    from .layered import assemble_four_layers, epsilon_sensitivity, layered_readout
+    from .monthly import (compose_action_block, compose_monthly_md,
+                          load_dispositions, render_anchor_oc,
+                          render_consensus_diag, render_scorecard,
+                          render_steal_parking_diag)
+
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    run_seed = secrets.randbits(64) if run_seed is None else run_seed
+    run_id = run_id or datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+
+    srcs = {s.name: s for s in registry.sources}
+    threat_srcs = [s for s in registry.sources
+                   if getattr(s, "category", None) == "threat"]
+    assets_root = (Path(assets_dir) if assets_dir else
+                   _REPO_ROOT / "backend" / "data" / "eval" / "assets")
+    source_keysets = {s.name: _source_ips(s) for s in threat_srcs}
+    metas = build_all_monthly(
+        assets_root, version=run_id, run_seed=run_seed,
+        cloud_ranges=_cloud_v4_ranges(srcs.get("cloud_ranges")),
+        resolver_ips=non_vpn_resolvers(
+            _resolver_ips(srcs), _vpn_prefixes(srcs.get("x4bnet_vpn"))),
+        source_keysets=source_keysets)
+    # truth 资产 = ops 侧经 truth_layer 三闸产出(§2.1), 在场才入指纹表
+    truth_dir = assets_root / "truth"
+    if truth_dir.is_dir():
+        metas["truth"] = load_asset(truth_dir)[1]
+
+    keysets_root = (Path(keysets_dir) if keysets_dir else
+                    _REPO_ROOT / "backend" / "data" / "eval" / "keysets")
+    export_source_keysets(
+        registry.sources, keysets_root, run_id,
+        corpus_fingerprint=fingerprint(
+            [f"{k}:{m.fingerprint}" for k, m in sorted(metas.items())]))
+    long_memory = long_memory_ips(keysets_root)
+
+    layers = assemble_four_layers(assets_root)
+    truth = layers["truth"]
+    asof = None
+    if truth.status == "OK":
+        created = datetime.fromisoformat(metas["truth"].created_at)
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        asof = created.timestamp()
+    readout = layered_readout(registry.lookup, layers, out_dir=out_dir,
+                              run_id=run_id, asof=asof,
+                              sources=registry.sources,
+                              long_memory=long_memory)
+    eps = (epsilon_sensitivity(truth.hit_members, n=len(truth.members),
+                               seed=run_seed)
+           if truth.status == "OK" else None)
+
+    # Q22 诊断层统计: desync(预期指控源不再指控)需逐成员重查引擎, 不便宜
+    # → 不算, 渲染侧 N/A(无证据即无话)。
+    actual = len(layers["consensus"].members)
+    stats = {
+        "expected_pool": PER_SOURCE_N * len(threat_srcs),
+        "actual": actual,
+        "pool": actual,
+        "contributing_sources": sum(1 for v in source_keysets.values() if v),
+        # 目录形源(_path 为目录, 键集提取结构性不可行, 如 blocklist_de):
+        # 键集贡献为零是形状使然, 计数披露不虚拟补
+        "catalog_excluded": sum(1 for s in threat_srcs
+                                if Path(getattr(s, "_path", "")).is_dir()),
+        "desync": None,
+    }
+    readout["assembly_stats"] = stats
+
+    prev_items, prev_header = _load_prev_action_block(out_dir)
+    dispositions = load_dispositions(out_dir)
+    today = date.today()
+    items = compose_action_block(readout, prev_items, dispositions, today)
+
+    model_dir = out_dir / "model"
+    history = []
+    if model_dir.is_dir():
+        for f in sorted(model_dir.glob("model-*.json")):
+            try:  # _rc_history 同款: 坏历史报告跳过不炸
+                history.append(json.loads(f.read_text()))
+            except ValueError:
+                continue
+    corpus = {k: {"version": m.version, "fingerprint": m.fingerprint}
+              for k, m in metas.items()}
+    prev_fp = {k: (v.get("fingerprint") if isinstance(v, dict) else v)
+               for k, v in (prev_header.get("corpus") or {}).items()}
+    md = compose_monthly_md(
+        readout,
+        render_disclosures(readout, metas, extra=[
+            f"run_seed={run_seed}(S36: 采样层同 seed 逐字节可复现; 资产 "
+            "meta.params 同录)"]),
+        items, render_scorecard(history, registry.sources),
+        render_consensus_diag(stats) + render_anchor_oc(keysets_root),
+        {"eval_env": eval_env(), "corpus": corpus,
+         "prev_fingerprints": prev_fp,
+         "annual": dispositions.get("last_annual_review"),
+         "today": today, "epsilon": eps},
+        steal_parking_lines=render_steal_parking_diag(keysets_root))
+    md_path = out_dir / f"monthly-{run_id}.md"
+    md_path.write_text(md)
+    (out_dir / "action-block.json").write_text(json.dumps(
+        {"header": {"run_id": run_id, "run_seed": run_seed,
+                   "eval_env": eval_env(), "today": today.isoformat(),
+                   "epsilon": eps, "corpus": corpus},
+         "items": [asdict(i) for i in items]},
+        indent=1, ensure_ascii=False))
+    return md_path, items, readout
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="python -m ipdb._eval")
     p.add_argument("source", nargs="?", help="source name to evaluate")
@@ -200,6 +393,12 @@ def main(argv=None):
     p.add_argument("--demand", action="store_true",
                    help="答案率探针:双队列(舰队语料+随机可路由)per-field "
                         "answer-rate(罗盘批 2026-10-10,discover Step 1 四输入之一)")
+    p.add_argument("--readout", action="store_true",
+                   help="月轮四层读数管线(§4.2/S26): 三件套资产构建+四层"
+                        "读数+行动区块+月报 monthly-*.md")
+    p.add_argument("--assets-dir", default=None,
+                   help="语料资产根目录(默认 <repo>/backend/data/eval/assets, "
+                        "跨 env 共享; truth 层由 ops 侧经三闸产出)")
     p.add_argument("--json", action="store_true", help="机器可读 JSON 到 stdout")
     args = p.parse_args(argv)
 
@@ -322,6 +521,13 @@ def main(argv=None):
             print(f"declared: {ff['declared_t3']}")
             print(f"pi-hat:   {ff['pihat_t3']}  "
                   f"(beats declared: {ff['pihat_beats_declared']})")
+        return
+    if args.readout:
+        md_path, items, res = run_readout(registry, REPORT_DIR,
+                                          assets_dir=args.assets_dir)
+        print(f"readout: {len(items)} action items, "
+              f"degraded={'yes' if res['degraded'] else 'no'}")
+        print(f"  report: {md_path}")
         return
     if args.all:
         if args.json:

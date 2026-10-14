@@ -2,8 +2,9 @@
 # 月轮全量评估(Eval Algorithm v2 Phase 1 收口;决策 #6:手动触发,
 # 错峰可前置 nice/ionice,如 `nice -n 19 ionice -c3 bash scripts/monthly_eval.sh`)。
 # 流程:① 守卫(须在 master 且工作区 clean)② rsync 生产 volume 镜像到本地
-# ③ 镜像 manifest 守卫(S7: 塕缩即止, 先于读数)④ 五连 eval 命令
-# (--model 先落盘本轮,--audit/--temporal 只读 model 历史)
+# ③ 镜像 manifest 守卫(S7: 塕缩即止, 先于读数)④ 六连 eval 命令
+# (--model 先落盘本轮,--audit/--temporal 只读 model 历史;--readout
+# 组合四层读数管线出月报 monthly-*.md + action-block.json)
 # ⑤ 每命令打印尾行摘要 ⑥ 报告族齐全校验 → 生产 volume 心跳推送(S5)。
 # 自验:`bash -n scripts/monthly_eval.sh`(语法);`bash scripts/monthly_eval.sh
 # --dry-run`(只打印将执行的命令不执行;dry-run 下守卫仅提示不拦截,便于预演)。
@@ -93,9 +94,10 @@ run_step anchors  --anchors  # 锚点回归
 run_step dsem     --dsem     # DS-EM 公平对决(advisory)
 run_step audit    --audit    # 谱系前向流审计(读 model 历史)
 run_step temporal --temporal # λ_s 确认率(读 model 历史,须 ≥2 轮)
+run_step readout  --readout  # 月轮四层读数(§4.2/S26: 资产+四层读数+行动区块+月报)
 
 # ── S5(裁决 A / spec §4.1):报告族齐全校验 → 心跳推送 ──
-# 六命令齐全=活:写者查本轮工件(mtime 晚于脚本启动),非写者
+# 七命令齐全=活:写者查本轮工件(mtime 晚于脚本启动),非写者
 # (audit/anchors)由 set -e 退出码门把关(anchors 失败即 sys.exit(1);
 # audit advisory 按设计不拦截);audit/anchors 的 json 落盘留 Phase 2。
 # 缺员即死(半途中止=死,不推心跳)。心跳落生产 volume,生产侧
@@ -120,11 +122,13 @@ check_family() {  # check_family <label> <subdir> <name-pattern> [排除pattern]
   fi
 }
 echo
-echo "==> 报告族齐全校验(model/all/dsem/temporal;audit/anchors 靠退出码门)"
+# readout 月报 = 报告根第 5 位写者(monthly-*.md);缺月轮读数即缺员。
+echo "==> 报告族齐全校验(model/all/dsem/temporal/readout;audit/anchors 靠退出码门)"
 check_family model    model 'model-*.json'
 check_family all      ''     '*-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9].json' 'temporal-*'
 check_family dsem     model 'dsem-*.json'
 check_family temporal ''     'temporal-*.json'
+check_family readout  ''     'monthly-*.md'
 
 echo
 echo "==> 心跳推送: $PROD_HOST:$HEARTBEAT_DST"

@@ -71,27 +71,34 @@ def non_vpn_resolvers(resolver_ips: list[str], vpn_prefixes: list[str]) -> list[
 
 
 def _sample_cloud_hosts(cloud_ranges: list[str], needed: int,
-                        rng: random.Random) -> list[str]:
-    """云/CDN 段内确定性采样, ≤needed 个互异主机。
+                        rng: random.Random) -> tuple[list[str], int]:
+    """云/CDN 段内确定性采样, (≤needed 个互异主机, 跳过的 v6 段数)。
 
     方法(采样指纹纪律锚点, meta.params.sample_method 同名登记):
     段经 ip_network 规范化去重后按 (网络地址, 前缀长) 排序, 逐段用同一
     rng.randrange(num_addresses) 取一个主机(全段均匀, 含网络/广播地址,
     /32 亦可采); 撞重则弃该段继续; 采满 needed 或段尽即止 —— 段不足
     配额时如实短(宁少算, member_count 如实), 不回绕补采。
+    段 version != 4 跳过不炸(生产 cloud_ranges 中间文件 aws/gcp/azure
+    混 v6_prefixes; 宁少算), 跳过计数返调用方入 params —— 无证据即无话,
+    但跳了多少要说。v6 网络地址整型恒大于 v4, 跳过不改 v4 段排序序。
     """
     nets = sorted({ipaddress.ip_network(c, strict=False) for c in cloud_ranges},
                   key=lambda n: (int(n.network_address), n.prefixlen))
     out: list[str] = []
     seen: set[str] = set()
+    skipped_v6 = 0
     for net in nets:
         if len(out) >= needed:
             break
+        if net.version != 4:
+            skipped_v6 += 1
+            continue
         ip = str(ipaddress.IPv4Address(int(net.network_address) + rng.randrange(net.num_addresses)))
         if ip not in seen:
             seen.add(ip)
             out.append(ip)
-    return out
+    return out, skipped_v6
 
 
 def build_infra_asset(out_dir: Path, *, version: str, run_seed: int,
@@ -105,7 +112,7 @@ def build_infra_asset(out_dir: Path, *, version: str, run_seed: int,
     """
     rng = random.Random(run_seed)
     resolvers = sorted(set(resolver_ips))
-    cloud = _sample_cloud_hosts(cloud_ranges, CLOUD_SAMPLE_N, rng)
+    cloud, skipped_v6 = _sample_cloud_hosts(cloud_ranges, CLOUD_SAMPLE_N, rng)
     members = sorted(set(resolvers) | set(cloud))
     meta = AssetMeta(
         version=version,
@@ -117,6 +124,7 @@ def build_infra_asset(out_dir: Path, *, version: str, run_seed: int,
             "sample_method": "sorted-block-one-host",
             "n_resolvers": len(resolvers),
             "n_cloud_sampled": len(cloud),
+            "skipped_v6_blocks": skipped_v6,
             "cloud_target": CLOUD_SAMPLE_N,
             "resolver_fingerprint": fingerprint(resolvers),
             "cloud_ranges_fingerprint": fingerprint(list(cloud_ranges)),
