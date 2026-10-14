@@ -170,6 +170,17 @@ def test_same_month_regenerate_dedupes_by_id():
     assert [i.id for i in items].count("truth-2026-10") == 1
 
 
+def test_same_month_done_disposition_suppresses_regeneration():
+    # 同月重跑: 上轮项人裁 DONE 后, 仍触发的规则不得复活同 id 为 OPEN
+    # (裁决 "DONE 不再现"; 复现 Critical: DONE continue 未记 seen)
+    today = date(2026, 10, 14)
+    ro = _readout()
+    ro["layers"]["truth"] = _no_layer_block()      # 规则同月再触发
+    prev = [_prev("truth-2026-10", OPEN, title="truth 层 NO-LAYER")]
+    items = compose_action_block(ro, prev, {"truth-2026-10": "DONE"}, today)
+    assert items == []                              # 消账项不复活
+
+
 # ── render_scorecard ───────────────────────────────────────────
 
 

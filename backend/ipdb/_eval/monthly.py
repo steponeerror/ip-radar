@@ -86,6 +86,7 @@ def compose_action_block(readout: dict, prev_items: list[ActionItem],
     seen: set[str] = set()
     for it in prev_items:
         if it.status == DONE or dispositions.get(it.id) == DONE:
+            seen.add(it.id)  # 记 id: 同月仍触发的规则不得复活 DONE 项
             continue
         status = OPEN if dispositions.get(it.id) == OPEN else CARRIED
         _add(items, seen, ActionItem(it.id, it.title, it.source,
