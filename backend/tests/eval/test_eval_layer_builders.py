@@ -90,6 +90,26 @@ def test_infra_deterministic_bytes_and_seed_sensitivity(tmp_path):
     assert m3.fingerprint != m1.fingerprint  # 采样指纹纪律: seed 变指纹变
 
 
+def test_infra_seed_frozen_until_input_fingerprint_changes(tmp_path):
+    # 语料治理(终审 P1-3a): 同目录重跑, 前轮资产存在且输入指纹
+    # (cloud_ranges+resolver)未变 → 沿用前轮 run_seed(冻结采样: 指纹
+    # 不随采样噪声漂移); 输入实变(云段) → 新 seed 生效=版本重置语义
+    out = tmp_path / "infra"
+    m1 = build_infra_asset(out, version="v1", run_seed=100,
+                           cloud_ranges=_BLOCKS, resolver_ips=_RESOLVERS)
+    frozen = (out / "ips.txt").read_bytes()
+    m2 = build_infra_asset(out, version="v2", run_seed=200,
+                           cloud_ranges=_BLOCKS, resolver_ips=_RESOLVERS)
+    assert m2.params["run_seed"] == 100
+    assert m2.fingerprint == m1.fingerprint
+    assert (out / "ips.txt").read_bytes() == frozen
+    m3 = build_infra_asset(out, version="v3", run_seed=300,
+                           cloud_ranges=[*_BLOCKS, "203.0.113.0/24"],
+                           resolver_ips=_RESOLVERS)
+    assert m3.params["run_seed"] == 300
+    assert m3.fingerprint != m1.fingerprint
+
+
 def test_consensus_per_source_cap_and_honest_union(tmp_path):
     out = tmp_path / "consensus"
     meta = build_consensus_asset(out, version="v1", run_seed=7,

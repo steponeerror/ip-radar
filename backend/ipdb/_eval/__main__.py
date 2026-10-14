@@ -251,6 +251,31 @@ def _vpn_prefixes(src) -> list[str]:
             if ln.strip() and not ln.strip().startswith("#") and ":" not in ln]
 
 
+def _oc_latest(out_dir: Path) -> dict[str, float]:
+    """S28 冗余度% 数据源: <out_dir>/<source>-<ts>.json(--all 先于
+    --readout 落同目录, report.py 秒级 ts 命名)按文件名 ts 取每源最新
+    → {源名: metrics.oc.value}。非该形状文件(action-block/mirror-
+    manifest/temporal-*)逐个跳过(无该路径即无话); 坏 JSON 跳过不炸
+    (_rc_history 同款宽容)。"""
+    out: dict[str, tuple[str, float]] = {}
+    for p in sorted(Path(out_dir).glob("*-*.json")):
+        try:
+            d = json.loads(p.read_text(encoding="utf-8"))
+        except ValueError:
+            continue
+        if not isinstance(d, dict):
+            continue
+        m = d.get("metrics")
+        oc = m.get("oc") if isinstance(m, dict) else None
+        v = oc.get("value") if isinstance(oc, dict) else None
+        name = d.get("source")
+        if not isinstance(name, str) or not isinstance(v, (int, float)):
+            continue
+        if name not in out or p.name > out[name][0]:
+            out[name] = (p.name, float(v))
+    return {k: v for k, (_, v) in out.items()}
+
+
 def run_readout(registry, out_dir, *, assets_dir=None, keysets_dir=None,
                 run_seed=None, run_id=None):
     """§4.2/S26 月轮读数接线: 组合既有纯件, 不实现新读数。
@@ -323,7 +348,11 @@ def run_readout(registry, out_dir, *, assets_dir=None, keysets_dir=None,
     # → 不算, 渲染侧 N/A(无证据即无话)。
     actual = len(layers["consensus"].members)
     stats = {
-        "expected_pool": PER_SOURCE_N * len(threat_srcs),
+        # P1-1: 分母 = sum(min(PER_SOURCE_N, |键集|)) —— 目录形源(键集提取
+        # 结构性贡献 0, 如 firehol/blocklist_de)不入分母, 池竭规则只对
+        # 回声收窄(键集实缩)发话, 不再月月假警
+        "expected_pool": sum(min(PER_SOURCE_N, len(v))
+                             for v in source_keysets.values()),
         "actual": actual,
         "pool": actual,
         "contributing_sources": sum(1 for v in source_keysets.values() if v),
@@ -355,9 +384,11 @@ def run_readout(registry, out_dir, *, assets_dir=None, keysets_dir=None,
     md = compose_monthly_md(
         readout,
         render_disclosures(readout, metas, extra=[
-            f"run_seed={run_seed}(S36: 采样层同 seed 逐字节可复现; 资产 "
-            "meta.params 同录)"]),
-        items, render_scorecard(history, registry.sources),
+            f"run_seed={run_seed}(S36: 采样 seed 逐字节可复现, 逐资产真值在"
+            " meta.params.run_seed —— infra 输入指纹未变时沿用前轮 seed,"
+            " 冻结采样防指纹噪声)"]),
+        items, render_scorecard(history, registry.sources,
+                                oc_latest=_oc_latest(out_dir)),
         render_consensus_diag(stats) + render_anchor_oc(keysets_root),
         {"eval_env": eval_env(), "corpus": corpus,
          "prev_fingerprints": prev_fp,
@@ -365,13 +396,13 @@ def run_readout(registry, out_dir, *, assets_dir=None, keysets_dir=None,
          "today": today, "epsilon": eps},
         steal_parking_lines=render_steal_parking_diag(keysets_root))
     md_path = out_dir / f"monthly-{run_id}.md"
-    md_path.write_text(md)
+    md_path.write_text(md, encoding="utf-8")
     (out_dir / "action-block.json").write_text(json.dumps(
         {"header": {"run_id": run_id, "run_seed": run_seed,
                    "eval_env": eval_env(), "today": today.isoformat(),
                    "epsilon": eps, "corpus": corpus},
          "items": [asdict(i) for i in items]},
-        indent=1, ensure_ascii=False))
+        indent=1, ensure_ascii=False), encoding="utf-8")
     return md_path, items, readout
 
 

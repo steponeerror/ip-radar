@@ -54,13 +54,15 @@ class _FakeRegistry:
 
 
 def _build_sources(root: Path) -> list:
-    """镜像内源文件的最小复刻: 威胁×2 + root_servers(明文 A/AAAA)
-    + dns_public(sdns stamp, 含 VPN 段内解析器与 v6) + x4bnet_vpn
-    (v4 段 + v6 行) + cloud_ranges(目录形 aws.json 混 v4/v6)。"""
+    """镜像内源文件的最小复刻: 威胁×3(含目录形) + root_servers(明文
+    A/AAAA)+ dns_public(sdns stamp, 含 VPN 段内解析器与 v6)+ x4bnet_vpn
+    (v4 段 + v6 行)+ cloud_ranges(目录形 aws.json 混 v4/v6)。"""
     a = root / "src_a.txt"
     a.write_text("\n".join(f"10.100.0.{i}" for i in range(1, 41)) + "\n")
     b = root / "src_b.txt"
     b.write_text("\n".join(f"10.101.0.{i}" for i in range(1, 11)) + "\n")
+    d = root / "src_dir"  # 目录形威胁源(生产判例 firehol/blocklist_de):
+    d.mkdir()             # 键集提取结构性贡献 0, 不入池分母(P1-1)
     rs = root / "root_servers.cache"
     rs.write_text("A.ROOT-SERVERS.NET.      3600000      A     198.41.0.4\n"
                   "B.ROOT-SERVERS.NET.      3600000      AAAA  2001:500:200::b\n")
@@ -78,6 +80,7 @@ def _build_sources(root: Path) -> list:
     return [
         _FakeSource("src_a", "threat", a),
         _FakeSource("src_b", "threat", b),
+        _FakeSource("src_dir", "threat", d),
         _FakeSource("root_servers", "asset", rs),
         _FakeSource("dns_public", "asset", dp),
         _FakeSource("x4bnet_vpn", "asset", vpn),
@@ -102,6 +105,10 @@ def test_readout_first_run_no_truth_layer(tmp_path):
                for i in ab["items"])
     assert any(i["id"].startswith("truth-") and i["status"] == "OPEN"
                for i in ab["items"])              # 缺层 → 规则生成 OPEN 项
+    # P1-1 池分母: sum(min(PER_SOURCE_N, len(键集))) = 30+10+0 —— 目录形
+    # 源的结构性零贡献不入分母(旧口径 30×3=90 恒触池竭假警), 回声收窄
+    # (键集实缩)才是该规则的真信号
+    assert readout["assembly_stats"]["expected_pool"] == 40
     # 生产输入接线: VPN 段内解析器(10.66.0.9)被剔, root+v4 stamp 存活
     infra = json.loads((assets / "infra" / "meta.json").read_text())
     assert infra["params"]["n_resolvers"] == 2
@@ -121,8 +128,46 @@ def test_readout_second_run_carries_prev_items(tmp_path):
     assert {i.id for i in carried} <= {i.id for i in items1}
     ab2 = json.loads((rep / "action-block.json").read_text())
     assert ab2["header"]["run_id"] == "r2"         # header 逐轮覆盖
-    # run_seed 变 → 共识层指纹变 → S12/S17 换版=趋势重置警示行
-    assert "换版" in md2.read_text()
+    # 语料治理(终审 P1-3): 输入指纹未变 → infra 沿用前轮 run_seed, 指纹
+    # 恒定(采样噪声不构成换版); consensus=滚动语料豁免注记 → 全 md 无
+    # 换版=趋势重置行
+    infra_meta = json.loads((assets / "infra" / "meta.json").read_text())
+    assert infra_meta["params"]["run_seed"] == 1
+    assert "换版=趋势重置" not in md2.read_text()
+    # 云段输入实变 → infra 换新 seed + 指纹变 → 换版行点名 infra 不点
+    # consensus(共识侧指纹虽也月月变, 滚动豁免)
+    (tmp_path / "cloud_ranges" / "aws.json").write_text(json.dumps({
+        "prefixes": [{"ip_prefix": "198.51.100.0/25"},
+                     {"ip_prefix": "198.51.100.128/25"}],
+        "ipv6_prefixes": []}))
+    md3, _, _ = run_readout(reg, rep, assets_dir=assets, keysets_dir=kdir,
+                            run_seed=3, run_id="r3")
+    assert json.loads((assets / "infra" / "meta.json")
+                      .read_text())["params"]["run_seed"] == 3
+    reset = [l for l in md3.read_text().splitlines() if "换版=趋势重置" in l]
+    assert reset and "infra" in reset[0] and "consensus" not in reset[0]
+    assert "滚动语料" in md3.read_text()           # 共识滚动声明行在场
+
+
+def test_readout_scorecard_oc_wired_from_latest_verdict_jsons(tmp_path):
+    assets, kdir, rep = tmp_path / "assets", tmp_path / "keysets", tmp_path / "rep"
+    reg = _FakeRegistry(_build_sources(tmp_path))
+    rep.mkdir()  # 逐源 verdict JSON 先在, run_readout 才跑(月轮真实序)
+    # --all 先于 --readout 落同目录逐源 verdict JSON(report.py 秒级 ts 命名)
+    for name, payload in (
+            ("src_a-20261001-000000.json",
+             {"source": "src_a", "metrics": {"oc": {"value": 0.9, "n": 9}}}),
+            ("src_a-20261014-120000.json",
+             {"source": "src_a", "metrics": {"oc": {"value": 0.5, "n": 5}}}),
+            ("src_b-20261014-120000.json",
+             {"source": "src_b", "metrics": {"oc": {"value": 0.25, "n": 4}}})):
+        (rep / name).write_text(json.dumps(payload))
+    md, _, _ = run_readout(reg, rep, assets_dir=assets, keysets_dir=kdir,
+                           run_seed=1, run_id="r1")
+    rows = {l.split("|")[1].strip(): l for l in md.read_text().splitlines()
+            if l.startswith("| src_")}
+    assert "50.0%" in rows["src_a"]    # 每源取最新 ts 文件, 非首份 0.9
+    assert "25.0%" in rows["src_b"]    # 冗余度% 列非 N/A(P1-2 接线修复)
 
 
 def test_readout_truth_layer_anchors_asof_and_epsilon(tmp_path):

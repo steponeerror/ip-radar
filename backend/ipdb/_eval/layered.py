@@ -124,7 +124,9 @@ def _accusing_sources(payload: dict) -> set[str]:
 def _lm_split(members: list[str], hit_set: set[str],
               long_memory: set[str]) -> dict:
     """F5 长记忆分拆: in = 成员 ∈ 长记忆名单, out = 其余。仅描述性,
-    禁当召回率; 空半区 rate=None(同哨兵纪律, 不冒充 0)。"""
+    禁当召回率; 空半区 rate=None(同哨兵纪律, 不冒充 0)。
+    数据层专用, 不进月报 md 章节(S29: 可自 F10 快照+键集长记忆名单回算;
+    人的裁面 = 处置评审, 月报只裁趋势与行动)。"""
     def half(sel: set[str]) -> dict:
         n = len(sel)
         hits = len(sel & hit_set)

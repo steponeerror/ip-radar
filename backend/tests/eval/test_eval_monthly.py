@@ -368,6 +368,29 @@ def test_md_stable_fingerprint_no_reset_note_and_unset_annual():
     assert "未设" in md
 
 
+def test_md_reset_note_excludes_rolling_consensus():
+    # 终审 P1-3b: 共识代理层=滚动语料(Q22 诊断层裁决), 月月自然更替≠
+    # 趋势重置事件 → 豁免换版注记(声明行替代静默省略); 稳定层实变仍注记
+    hm = _header_meta(
+        corpus={"truth": {"version": "v2", "fingerprint": "ff2"},
+                "infra": {"version": "i9", "fingerprint": "if9"},
+                "consensus": {"version": "c9", "fingerprint": "cf9"}},
+        prev_fingerprints={"truth": "ff1", "infra": "if8",
+                           "consensus": "cf1"})
+    md = compose_monthly_md(_readout(), [], [], [], [], hm)
+    reset = [l for l in md.splitlines() if "换版=趋势重置" in l]
+    assert reset and "infra" in reset[0] and "truth" in reset[0]
+    assert "consensus" not in reset[0]          # 滚动层不进注记行
+    assert "滚动语料" in md                      # 豁免声明行在场
+    # 仅 consensus 指纹变 → 不出换版行
+    hm2 = _header_meta(
+        corpus={"consensus": {"version": "c9", "fingerprint": "cf9"}},
+        prev_fingerprints={"consensus": "cf1"})
+    md2 = compose_monthly_md(_readout(), [], [], [], [], hm2)
+    assert "换版=趋势重置" not in md2
+    assert "滚动语料" in md2
+
+
 def test_md_empty_action_block_renders_placeholder():
     md = compose_monthly_md(_readout(), [], [], [], [], _header_meta())
     assert "OPEN 0 / CARRIED 0 / DONE 0" in md

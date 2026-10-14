@@ -11,7 +11,9 @@
   调用方用 non_vpn_resolvers 过滤)+ 云/CDN 段内 run_seed 确定性采样
   177(spec §2.1 口径 497=320+177; 原型实测 2026-10-12 yardstick §三)。
 - 共识代理层: 逐源采 30(IP 配额, spec §2.1; Q22 裁决=诊断层, 容量
-  独立声明 —— 池竭 ~19源×30≈570 上限不设闸不封顶, member_count 恒如实)。
+  独立声明 —— 池竭 ~19源×30≈570 上限不设闸不封顶, member_count 恒如实);
+  滚动语料(Q22): 月月随键集自然更替 ≠ 趋势重置事件, 月报换版注记豁免
+  (monthly.RESET_NOTE_KINDS)。
 
 S36 纪律: 凡采样必带必填 kw-only run_seed(run 级随机 seed, 防源名/
 文件内容可预测的定向策展, 对抗审查 R1#1 第14轮条款); 同 run_seed
@@ -25,7 +27,7 @@ import random
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .assets import AssetMeta, fingerprint, save_asset
+from .assets import AssetMeta, fingerprint, load_asset, save_asset
 
 # 云/CDN 采样配额(spec §2.1: 非指控基础设施层 497 = 320 解析器 + 177 云/CDN)
 CLOUD_SAMPLE_N = 177
@@ -110,9 +112,23 @@ def build_infra_asset(out_dir: Path, *, version: str, run_seed: int,
     run_seed(S36 必填 kw-only)只喂云侧 rng; resolver_ips 侧应为调用方
     经 non_vpn_resolvers 过滤后的干净清单(320 侧口径)。params 记采样
     方法+输入指纹+两侧计数(第14轮: 报告记采样指纹, 语料指纹条款同构)。
+    语料治理(终审 P1-3a): 目录内前轮资产在场且其输入指纹
+    (cloud_ranges_fingerprint+resolver_fingerprint)与本次相同 → 沿用
+    前轮 run_seed(冻结采样: 采样噪声不构成指纹换版); 输入实变 → 本次
+    run_seed 生效(换版=趋势重置语义正确)。
     """
-    rng = random.Random(run_seed)
+    ranges_fp = fingerprint(list(cloud_ranges))
     resolvers = sorted(set(resolver_ips))
+    res_fp = fingerprint(resolvers)
+    prev_p = Path(out_dir) / "meta.json"
+    if prev_p.is_file():  # 前轮资产在场才谈沿用; 坏资产照 load_asset 炸
+        _, prev = load_asset(Path(out_dir))
+        pp = prev.params
+        if (pp.get("cloud_ranges_fingerprint") == ranges_fp
+                and pp.get("resolver_fingerprint") == res_fp
+                and isinstance(pp.get("run_seed"), int)):
+            run_seed = pp["run_seed"]  # 冻结采样: 输入未变不换 seed
+    rng = random.Random(run_seed)
     cloud, skipped_v6 = _sample_cloud_hosts(cloud_ranges, CLOUD_SAMPLE_N, rng)
     members = sorted(set(resolvers) | set(cloud))
     meta = AssetMeta(
@@ -127,8 +143,8 @@ def build_infra_asset(out_dir: Path, *, version: str, run_seed: int,
             "n_cloud_sampled": len(cloud),
             "skipped_v6_blocks": skipped_v6,
             "cloud_target": CLOUD_SAMPLE_N,
-            "resolver_fingerprint": fingerprint(resolvers),
-            "cloud_ranges_fingerprint": fingerprint(list(cloud_ranges)),
+            "resolver_fingerprint": res_fp,
+            "cloud_ranges_fingerprint": ranges_fp,
         },
         eval_env="monthly",
         created_at=_today(),
@@ -145,7 +161,9 @@ def build_consensus_asset(out_dir: Path, *, version: str, run_seed: int,
     rng 单实例 seed=run_seed(S36 必填 kw-only), 按源名字典序逐源
     rng.sample 消耗(顺序即契约: 换源名序=换采样结果); 宁少算 —— 键集
     不足 per_source 全取, 空键集贡献零, 均不炸。去重并集排序落盘;
-    Q22: 诊断层容量独立声明, member_count = 并集实数(池竭不设闸)。
+    Q22: 诊断层容量独立声明, member_count = 并集实数(池竭不设闸);
+    滚动语料: 月月随键集自然更替, 非趋势重置事件(月报换版注记豁免,
+    见 monthly.RESET_NOTE_KINDS)。
     """
     rng = random.Random(run_seed)
     members: set[str] = set()

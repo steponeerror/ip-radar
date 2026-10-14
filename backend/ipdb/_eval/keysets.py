@@ -59,7 +59,7 @@ def export_source_keysets(sources, out_dir: Path, run_id: str,
         "counts": counts,
     }
     (run_dir / "meta.json").write_text(
-        json.dumps(meta, indent=2, ensure_ascii=False))
+        json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
     return run_dir
 
 

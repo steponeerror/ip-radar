@@ -55,8 +55,12 @@ def save_asset(dir: Path, members: list[str], meta: AssetMeta) -> Path:
     if meta.fingerprint != fingerprint(members):
         raise ValueError("asset fingerprint mismatch")
     dir.mkdir(parents=True, exist_ok=True)
-    (dir / "ips.txt").write_text("\n".join(members))
-    (dir / "meta.json").write_text(json.dumps(asdict(meta), indent=2, ensure_ascii=False))
+    # encoding="utf-8" 显式(C-locale 宿主默认 ANSI): 中文/任意非 ASCII
+    # 内容写入不得依赖宿主 locale(终审 P2-4)
+    (dir / "ips.txt").write_text("\n".join(members), encoding="utf-8")
+    (dir / "meta.json").write_text(
+        json.dumps(asdict(meta), indent=2, ensure_ascii=False),
+        encoding="utf-8")
     return dir
 
 

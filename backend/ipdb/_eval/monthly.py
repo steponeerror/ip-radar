@@ -1,6 +1,7 @@
 # backend/ipdb/_eval/monthly.py
 """月轮报告 v2 组合器 (S28 记分卡 / S30 行动区块 / S24 锚对 OC / S34 偷泊
-诊断 / S6 年度递减计数 / S12+S17 换版注记 / Q22 诊断层统计)。
+诊断 / S6 年度递减计数 / S12+S17 换版注记(共识代理层滚动豁免) /
+Q22 诊断层统计)。
 
 纯函数消费 dicts/file paths, 无引擎/DB 依赖: 四层读数(T8 layered_readout
 输出)、R10 披露行(T9)、model-*.json 历史(suite.write_model_report 形状)、
@@ -27,6 +28,11 @@ DONE = "DONE"
 DEADLINE_DAYS = 35
 # S30: 诊断层池竭率 >10%(actual < 90% × expected_pool)→ 待办
 POOL_EXHAUSTION = 0.10
+
+# S12/S17 换版=趋势重置注记只辖稳定层(truth/infra/neutral); 共识代理层
+# =滚动语料(Q22 诊断层裁决: 月月随键集自然更替, 不做趋势断言)→ 豁免
+# 注记, 由 compose_monthly_md 的声明行显式交代(非静默省略)。
+RESET_NOTE_KINDS = frozenset({"truth", "infra", "neutral"})
 
 # S24 两现役锚对(只监测不设门): OC = |A∩B|/min(|A|,|B|)
 ANCHOR_PAIRS = (("emerging_threats", "spamhaus"), ("firehol", "greensnow"))
@@ -254,7 +260,8 @@ def compose_monthly_md(readout: dict, disclosures_lines: list[str],
                        header_meta: dict,
                        steal_parking_lines: list[str] | None = None) -> str:
     """组装月轮报告 v2 markdown。头块 = 环境指纹 + 语料版本/指纹逐层 +
-    S12/S17 换版注记(仅指纹实变才出, F2 趋势纪律) + S6 年度递减计数 +
+    S12/S17 换版注记(仅稳定层指纹实变才出, F2 趋势纪律; 共识代理层=
+    滚动语料豁免, 声明行交代)+ S6 年度递减计数 +
     S30 处置状态汇总 + F7 ε 三档行; 正文 = 分层读数表(T8)/行动区块
     (S30)/R10 混杂披露/记分卡(S28)/诊断层统计(Q22, S24 锚对 OC 行由
     接线方并入 consensus_diag_lines;S34 偷泊行经 steal_parking_lines
@@ -271,13 +278,16 @@ def compose_monthly_md(readout: dict, disclosures_lines: list[str],
         lines.append(f"- 语料指纹: {cells}")
     prev = header_meta.get("prev_fingerprints") or {}
     changed = [k for k, v in prev.items()
-               if isinstance(corpus.get(k), dict)
+               if k in RESET_NOTE_KINDS
+               and isinstance(corpus.get(k), dict)
                and corpus[k].get("fingerprint") not in (None, v)]
     if changed:
         detail = ", ".join(f"{k}: {prev[k]} → {corpus[k]['fingerprint']}"
                            for k in changed)
         lines.append(f"- ⚠ 换版=趋势重置(S12/S17): {detail}"
                      "(趋势断言仅限指纹未变窗口)")
+    # 共识滚动豁免声明行(替代静默省略): 读者须能区分「豁免」与「没变」
+    lines.append("- 共识代理层=滚动语料(Q22), 豁免换版注记, 不做趋势断言")
     annual = header_meta.get("annual")
     if annual:
         y, m = (int(x) for x in annual.split("-")[:2])
