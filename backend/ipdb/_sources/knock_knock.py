@@ -22,3 +22,4 @@ class KnockKnockSource(IpListSource):
     stale_days = 3                       # hourly regen; 3d silence = feed dead
     reliability = 0.70                   # measured attacks, single-network geo bias
     authoritative_for = ()               # corroboration only (SM-F1)
+    honeypot_methodology = True          # 蜜罐法采集(S33):k_nonhoneypot 剔除

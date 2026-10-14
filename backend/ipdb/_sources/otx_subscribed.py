@@ -99,6 +99,7 @@ class OtxSubscribedSource(Source):
     stale_days = 1          # 12h 槽位网格;Live 蜜罐 pulse 时更、CyberHunter 日更
     reliability = 0.6       # 策展库主体为原创蜜罐观测,略高于 activity 流的 0.55
     derived = True          # 聚合平台:谱系去重用(spec 2026-08-29 §3.3)
+    provenance_tier = "C"   # C=聚合派生(S21):订阅 pulse 平台聚合(同 otx)
     authoritative_for = ()
 
     @property

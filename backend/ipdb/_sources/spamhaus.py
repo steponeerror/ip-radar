@@ -15,6 +15,7 @@ class SpamhausSource(IpListSource):
     stale_days = 1
     reliability = 0.90
     authoritative_for = ()               # SM-F1:is_malicious 无证据键生产者(幻影轴),不声明
+    provenance_tier = "A"                 # A=官方一手(S21):Spamhaus DROP 官方发布
 
     _V6_URL = "https://www.spamhaus.org/drop/dropv6.txt"
 

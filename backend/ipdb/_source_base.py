@@ -48,6 +48,10 @@ class Source:
     # ── 元数据契约(spec 2026-08-28 §5.1):源文件是唯一真相 ──
     category: str = "other"            # geo_asn | threat | asset | other
     authoritative_for: tuple = ()      # 本源权威的字段名(反转成 AUTHORITATIVE_SOURCES)
+    # eval 元数据(S21/S33,2026-10-14 eval-loop phase1):纯元数据,不参与
+    # 抓取/解析/合并;仅偏离默认的源在类内覆写(与 _sources/_base.py 平行维护)。
+    provenance_tier: str = "B"          # A 官方/自采 | B 社区 | C 聚合派生
+    honeypot_methodology: bool = False  # 蜜罐法采集(k_nonhoneypot 剔除依据)
     # When True, rebuild() streams one (cidr, [evidence]) per harvest yield
     # straight into rebuild_lmdb instead of accumulating a full acc dict. Safe
     # only for sources whose harvest yields each CIDR at most once (geo/asset

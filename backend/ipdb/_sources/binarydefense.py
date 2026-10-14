@@ -19,3 +19,4 @@ class BinaryDefenseSource(IpListSource):
     stale_days = 1                       # continuously refreshed banlist
     reliability = 0.65                   # honeypot-sourced: automated but evidence-based
     authoritative_for = ()               # contributes to corroboration only (SM-F1:veto 机制不存在,措辞如实)
+    honeypot_methodology = True          # 蜜罐法采集(S33):k_nonhoneypot 剔除

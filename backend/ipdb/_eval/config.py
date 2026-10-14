@@ -40,6 +40,11 @@ LINEAGE_CLUSTERS = {
     "drb_ra": "aggregated-threat",     # C2 aggregator (search-derived, mirrors trackers)
 }
 
+# 蜜罐法采集源(S33):k 排除集兜底——源类属性 honeypot_methodology 声明
+# 优先,本集收敛漏报(读侧合并语义:getattr(src, "honeypot_methodology",
+# False) or src.name in 此集;消费方 = k_nonhoneypot 双报告,Task 8)。
+HONEYPOT_METHODOLOGY: set[str] = {"knock_knock", "binarydefense"}
+
 MODEL_W = 10        # G1' prior strength
 MODEL_N_FLOOR = 10  # mover floor for suite checks
 

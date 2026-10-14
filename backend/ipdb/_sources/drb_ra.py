@@ -23,6 +23,7 @@ class DrbRaSource(CsvSource):
     stale_days = 2
     reliability = 0.50                   # "Possible"-grade aggregator output
     derived = True                       # aggregator: lineage dedup (spec 2026-08-29 §3.3)
+    provenance_tier = "C"                # C=聚合派生(S21):搜索衍生镜像 tracker
     authoritative_for = ()
 
     def parse_row(self, row: list[str]) -> dict | None:

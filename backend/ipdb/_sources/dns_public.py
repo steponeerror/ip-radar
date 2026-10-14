@@ -90,6 +90,7 @@ class DnsPublicSource(Source):
     stale_days = 7              # 周更 feed,7 天余量
     reliability = 0.9
     authoritative_for = ("service",)
+    provenance_tier = "A"                 # A=自采策展(S21):各公共 DNS 运营方一手地址
 
     def download(self, token=None) -> None:
         """GET public-resolvers.md → 校验 → 原子落盘。

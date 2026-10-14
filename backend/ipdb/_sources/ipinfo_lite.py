@@ -29,6 +29,9 @@ class IPinfoLiteSource:
     # country/asn/as_name/ip_range/as_domain,is_mobile 更不在 ASSET_SLOTS;
     # is_hosting 真生产者是 ip2proxy(DCH)/cloud_ranges(未声明,有意不扩面)。
     authoritative_for = ()
+    # eval 元数据(S21/S33):唯一无基类源,手抄两基类同款默认 B/False。
+    provenance_tier: str = "B"
+    honeypot_methodology: bool = False
 
     def __init__(self, data_dir: Path):
         self._token = os.environ.get("IPINFO_TOKEN", "").strip()

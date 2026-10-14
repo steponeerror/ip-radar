@@ -34,6 +34,10 @@ class IpListSource:
     stale_days: int = 7
     reliability: float = 0.5
     authoritative_for: tuple = ()      # tuple,与 _source_base.Source 同契约
+    # eval 元数据(S21/S33,2026-10-14 eval-loop phase1):纯元数据;默认 B,
+    # 与 _source_base.Source 平行维护(仓库多套平行基类)。
+    provenance_tier: str = "B"          # A 官方/自采 | B 社区 | C 聚合派生
+    honeypot_methodology: bool = False  # 蜜罐法采集(k_nonhoneypot 剔除依据)
 
     def __init__(self, data_dir: Path):
         self._data_dir = data_dir

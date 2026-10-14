@@ -20,3 +20,4 @@ class EmergingThreatsSource(IpListSource):
     stale_days = 1
     reliability = 0.85
     authoritative_for = ()               # SM-F1:is_malicious 无证据键生产者(幻影轴),不声明
+    provenance_tier = "A"                 # A=官方一手(S21):Proofpoint ET 规则发布

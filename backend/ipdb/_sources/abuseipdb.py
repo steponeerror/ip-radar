@@ -53,6 +53,7 @@ class AbuseIPDBSource(IpListSource):
     stale_days = 2                  # 48h refresh (F-1, 2026-10-07); day budget 0.5/5
     reliability = 0.65
     authoritative_for = ()               # SM-F1:is_malicious 幻影轴已删(threatfox/emerging_threats/spamhaus 原声明同样删除)
+    provenance_tier = "A"                 # A=官方一手(S21):AbuseIPDB 官方 API 数据
 
     def __init__(self, data_dir, confidence_minimum=None, limit=10000):
         # convention: a source reads its OWN env vars; the registry passes only data_dir

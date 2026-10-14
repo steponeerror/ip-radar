@@ -42,6 +42,7 @@ class RootServersSource(Source):
     stale_days = 7
     reliability = 0.99
     authoritative_for = ("service",)
+    provenance_tier = "A"                 # A=自采策展(S21):根服务器运营方官方参数
 
     def download(self, token=None) -> None:
         """GET named.root → 校验 → 原子落盘。

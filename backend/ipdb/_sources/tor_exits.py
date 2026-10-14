@@ -22,6 +22,7 @@ class TorExitSource(IpListSource):
     stale_days = 1
     reliability = 0.95
     authoritative_for = ("is_tor",)
+    provenance_tier = "A"                 # A=官方一手(S21):Tor Project 官方出口列表
 
     def parse_raw(self, raw: bytes) -> list[str]:
         ips = []

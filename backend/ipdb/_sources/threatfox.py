@@ -52,6 +52,7 @@ class ThreatFoxSource(Source):
     stale_days = 1
     reliability = 0.85
     authoritative_for = ()               # SM-F1:is_malicious 无证据键生产者(幻影轴),不声明
+    provenance_tier = "A"                 # A=官方一手(S21):abuse.ch 运营方直接发布
     skip_lines = 9
 
     @property
