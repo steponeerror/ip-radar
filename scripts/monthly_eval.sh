@@ -4,7 +4,7 @@
 # 流程:① 守卫(须在 master 且工作区 clean)② rsync 生产 volume 镜像到本地
 # ③ 镜像 manifest 守卫(S7: 塕缩即止, 先于读数)④ 五连 eval 命令
 # (--model 先落盘本轮,--audit/--temporal 只读 model 历史)
-# ⑤ 每命令打印尾行摘要。
+# ⑤ 每命令打印尾行摘要 ⑥ 报告族齐全校验 → 生产 volume 心跳推送(S5)。
 # 自验:`bash -n scripts/monthly_eval.sh`(语法);`bash scripts/monthly_eval.sh
 # --dry-run`(只打印将执行的命令不执行;dry-run 下守卫仅提示不拦截,便于预演)。
 # 数据目录默认 <repo>/.eval-prod-data(已 gitignore,防误提交 ~55GB),
@@ -38,6 +38,7 @@ echo "repo:   $REPO"
 echo "branch: $BRANCH (dirty: $DIRTY)"
 echo "host:   $PROD_HOST"
 echo "data:   $DATA_DIR"
+START_S=$(date +%s)  # S5:报告族"本轮"锚 —— 工件 mtime 须晚于此才算本轮产物
 
 # 守卫:月轮在 master 基线上跑,树必须 clean(防把未提交代码的评估当月轮结论)
 if [ "$DRY_RUN" != 1 ]; then
@@ -93,5 +94,45 @@ run_step dsem     --dsem     # DS-EM 公平对决(advisory)
 run_step audit    --audit    # 谱系前向流审计(读 model 历史)
 run_step temporal --temporal # λ_s 确认率(读 model 历史,须 ≥2 轮)
 
+# ── S5(裁决 A / spec §4.1):报告族齐全校验 → 心跳推送 ──
+# 六命令齐全=活:写者查本轮工件(mtime 晚于脚本启动),非写者
+# (audit/anchors)由 set -e 退出码门把关(anchors 失败即 sys.exit(1);
+# audit advisory 按设计不拦截);audit/anchors 的 json 落盘留 Phase 2。
+# 缺员即死(半途中止=死,不推心跳)。心跳落生产 volume,生产侧
+# _alerts 只认文件 mtime(IP_RADAR_EVAL_HEARTBEAT,>35d 告警;时基
+# 独立 S6,不信管线自报)。
+REPORT_ROOT="$REPO/backend/data/eval/monthly"
+HEARTBEAT_DST="/var/lib/docker/volumes/ip-lookup-tool_ipradar-data/_data/eval-heartbeat"
+check_family() {  # check_family <label> <subdir> <name-pattern> [排除pattern]
+  local label=$1 sub=$2 pat=$3 excl=${4:-}
+  if [ "$DRY_RUN" = 1 ]; then
+    echo "  [dry-run] 报告族: $label -> ${sub:+$sub/}$pat${excl:+ 排除 $excl}"
+    return 0
+  fi
+  local args=(-name "$pat")
+  if [ -n "$excl" ]; then args+=(! -name "$excl"); fi
+  local f
+  f=$(find "$REPORT_ROOT/${sub}" "${args[@]}" -newermt "@$START_S" \
+        -print -quit 2>/dev/null)
+  if [ -z "$f" ]; then
+    echo "拒绝: 报告族不齐($label)" >&2
+    exit 1
+  fi
+}
 echo
-echo "完成。报告目录: $REPO/backend/data/eval/monthly(model/ 逐轮累积)"
+echo "==> 报告族齐全校验(model/all/dsem/temporal;audit/anchors 靠退出码门)"
+check_family model    model 'model-*.json'
+check_family all      ''     '*-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9].json' 'temporal-*'
+check_family dsem     model 'dsem-*.json'
+check_family temporal ''     'temporal-*.json'
+
+echo
+echo "==> 心跳推送: $PROD_HOST:$HEARTBEAT_DST"
+if [ "$DRY_RUN" = 1 ]; then
+  echo "  [dry-run] 跳过 ssh(生产 volume 心跳写入)"
+else
+  ssh "$PROD_HOST" "printf '%s\n' $(date -u +%Y-%m-%dT%H:%M:%SZ) > $HEARTBEAT_DST"
+fi
+
+echo
+echo "完成。报告目录: $REPORT_ROOT(model/ 逐轮累积)"

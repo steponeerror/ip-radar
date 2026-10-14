@@ -170,9 +170,11 @@ def test_content_change_records_event_with_record_count(alerts_db, tmp_path):
 def test_snapshots_passed_to_evaluate(alerts_db, tmp_path, monkeypatch):
     """轮末快照 = enabled 源全集,逐源含 name/stale_days/content_age_h
     (now-mtime,无文件 None)/fail_count(_backoff 缺省 0);evaluate
-    返回 None → push 不调。"""
+    返回 None → push 不调。eval_heartbeat(S6):env 未设 → None;
+    env 给路径则透传(scheduler 每轮解析)。"""
     from ipdb import _alerts
     from ipdb._scheduler import _Backoff
+    monkeypatch.delenv("IP_RADAR_EVAL_HEARTBEAT", raising=False)
     a = _make_src("a", tmp_path, mtime=OLD, stale_days=3)
     b = _make_src("b", tmp_path, mtime=NOW)
     b._path.unlink()                  # 无文件 → content_age_h None
@@ -180,8 +182,8 @@ def test_snapshots_passed_to_evaluate(alerts_db, tmp_path, monkeypatch):
     sch._backoff["a"] = _Backoff(fail_count=2, next_attempt=0.0)
     seen, pushes = [], []
 
-    def fake_evaluate(snapshots, now):
-        seen.append((snapshots, now))
+    def fake_evaluate(snapshots, now, eval_heartbeat=None):
+        seen.append((snapshots, now, eval_heartbeat))
         return None
 
     def fake_push(title, body):
@@ -196,8 +198,14 @@ def test_snapshots_passed_to_evaluate(alerts_db, tmp_path, monkeypatch):
          "reader_error": False},
         {"name": "b", "stale_days": 1, "content_age_h": None, "fail_count": 0,
          "reader_error": False},
-    ], NOW)]
+    ], NOW, None)]
     assert pushes == []
+    # S6 接线:env 给路径则透传给 evaluate(未设已验 None)
+    seen.clear()
+    hb = tmp_path / "eval-heartbeat"
+    monkeypatch.setenv("IP_RADAR_EVAL_HEARTBEAT", str(hb))
+    sch.scan(now=NOW)
+    assert seen[0][2] == hb
 
 
 def test_evaluate_exception_does_not_kill_scan(

@@ -38,6 +38,9 @@ _RE_NOTIFY_S = 86400
 _STALE = "stale"
 _FAIL = "fail"
 _READER = "reader"   # OL-4:ptr 在(库已建成)但 reader 未加载(load 抛/epoch 损坏)
+_EVAL_ROUND = "eval_round"        # S6:月轮心跳过期/缺失(阈值 35d,Q10)
+_EVAL_SOURCE = "monthly-eval"     # S6:月轮心跳在 alert_state 的伪源名
+_EVAL_ROUND_THRESHOLD_H = 35 * 24  # 阈值 35.0d:月轮周期 30d + 5d 容差
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS update_events (
@@ -56,6 +59,30 @@ def _db_path() -> Path:
     if env:
         return Path(env)
     return _registry._STATE_PATH.parent / "alerts.db"
+
+
+def _heartbeat_path() -> Path | None:
+    """S6:env IP_RADAR_EVAL_HEARTBEAT 给生产侧心跳文件路径才启用检查;
+    未设/空 → None = 不检查(新部署防误报)。scheduler 每轮调用时解析。"""
+    env = os.environ.get("IP_RADAR_EVAL_HEARTBEAT", "")
+    return Path(env) if env else None
+
+
+def eval_heartbeat_age_h(heartbeat_path: Path | None,
+                          now: float) -> float | None:
+    """心跳文件年龄(小时);路径 None 或文件缺/不可读 → None。
+
+    时基独立(S6):只看本机 stat 的 mtime —— 生产侧告警不采信月轮管线
+    的自报时间。None 的语义由调用方按入参区分:路径 None = 不检查
+    (evaluate 位等价红线),路径在而文件缺 = 心跳缺失告警。
+    """
+    if heartbeat_path is None:
+        return None
+    try:
+        mtime = heartbeat_path.stat().st_mtime
+    except OSError:
+        return None
+    return (now - mtime) / 3600.0
 
 
 # 按路径字符串缓存连接工厂(不是连接本身):约束 3 要求每次操作新建
@@ -145,7 +172,8 @@ def _fmt_hours(hours: float) -> str:
     return f"{hours / 24:.1f}d"
 
 
-def evaluate(snapshots: list[dict], now: float) -> dict | None:
+def evaluate(snapshots: list[dict], now: float,
+             eval_heartbeat: Path | None = None) -> dict | None:
     """消费 scheduler 每轮快照,推进 alert_state 并组装本轮合并消息。
 
     snapshot 每项:{"name", "stale_days", "content_age_h"(None=无文件→视为 ∞),
@@ -156,6 +184,11 @@ def evaluate(snapshots: list[dict], now: float) -> dict | None:
     DELETE,源名入恢复段;快照中消失的源(被禁用)→ 静默 DELETE。
     本轮无计入且无恢复 → None(不产生空消息);恢复-only 轮标题
     "ipradar: {k} 源已恢复"。状态只经 DB 传递,进程重启自然续跑。
+
+    eval_heartbeat(S6/Q10):生产侧月轮心跳文件路径;None(缺省)=
+    整段不检查,行为与历史逐位同(位等价红线,既有测试零改动)。
+    给路径才查:>35d 或文件缺 → 伪源 "monthly-eval" 计入 _EVAL_ROUND
+    行,重发抑制循同一 24h 机制;年龄只认文件 mtime,不信管线自报。
     """
     inserts: list[tuple[str, str]] = []
     refires: list[tuple[str, str]] = []
@@ -164,6 +197,7 @@ def evaluate(snapshots: list[dict], now: float) -> dict | None:
     fail_lines: list[tuple[str, str]] = []
     reader_lines: list[tuple[str, str]] = []
     recovered: set[str] = set()
+    eval_line: str | None = None  # S6:本轮计入消息的月轮心跳行(无计入=None)
 
     with closing(_connect()) as conn:
         existing = {
@@ -218,8 +252,37 @@ def evaluate(snapshots: list[dict], now: float) -> dict | None:
                 reader_lines.append(
                     (name, f"{name}: 数据库未加载(疑 epoch 损坏),查询端静默缺席"))
 
-        # 快照里消失的源(被禁用):静默清状态,不入恢复段
-        deletes.extend(k for k in existing if k[0] not in seen)
+        # ── S6(Q10):月轮心跳条件 —— 伪源 "monthly-eval" 单条件状态机 ──
+        # 时基独立:只认生产侧文件 mtime(eval_heartbeat_age_h),不信
+        # 月轮自报;env 未设(路径 None)整段跳过 = 新部署零误报。
+        if eval_heartbeat is not None:
+            age_h = eval_heartbeat_age_h(eval_heartbeat, now)
+            key = (_EVAL_SOURCE, _EVAL_ROUND)
+            counted = False
+            if age_h is None or age_h > _EVAL_ROUND_THRESHOLD_H:
+                if key not in existing:
+                    inserts.append(key)
+                    counted = True
+                elif now - existing[key] >= _RE_NOTIFY_S:
+                    refires.append(key)
+                    counted = True
+                # else:24h 抑制期,状态保留但本轮不入消息
+            elif key in existing:
+                deletes.append(key)
+                recovered.add(_EVAL_SOURCE)
+            if counted:
+                eval_line = (
+                    "月轮心跳缺失(阈值 35.0d)" if age_h is None
+                    else f"月轮过期({_fmt_hours(age_h)} 未心跳,阈值 35.0d)")
+
+        # 快照里消失的源(被禁用):静默清状态,不入恢复段。eval_heartbeat
+        # =None 时顺带退役遗留 eval_round 行(env 撤下即清理);提供时该行
+        # 归上面状态机管辖,不得被当"消失源"误删(否则抑制被逐轮重置)。
+        if eval_heartbeat is None:
+            deletes.extend(k for k in existing if k[0] not in seen)
+        else:
+            deletes.extend(k for k in existing
+                           if k[0] not in seen and k != (_EVAL_SOURCE, _EVAL_ROUND))
 
         # 条件全部算完才落写:先读后写,一事务提交(约束 3:本操作单连接)
         with conn:
@@ -238,15 +301,19 @@ def evaluate(snapshots: list[dict], now: float) -> dict | None:
 
     bad_sources = ({name for name, _ in stale_lines} | {name for name, _ in fail_lines}
                    | {name for name, _ in reader_lines})
-    if not bad_sources and not recovered:
+    if not bad_sources and not recovered and eval_line is None:
         return None
     lines = [line for _, line in sorted(stale_lines)] \
         + [line for _, line in sorted(fail_lines)] \
         + [line for _, line in sorted(reader_lines)]
+    if eval_line is not None:
+        lines.append(eval_line)
     if recovered:
         lines.append("——已恢复: " + ", ".join(sorted(recovered)))
     if bad_sources:
         title = f"ipradar: {len(bad_sources)} 源异常"  # N=异常源数,双条件同源算 1
+    elif eval_line is not None:
+        title = "ipradar: 月轮心跳异常"   # S6:纯月轮过期轮(无源异常)
     else:
         title = f"ipradar: {len(recovered)} 源已恢复"
     return {"title": title, "body": "\n".join(lines)}

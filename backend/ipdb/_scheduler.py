@@ -157,7 +157,10 @@ class RefreshScheduler:
                     "reader_error": ptr is not None and ptr.exists()
                     and not source.health().loaded,
                 })
-            msg = _alerts.evaluate(snapshots, now)
+            # S6:env 给心跳路径才查月轮过期(未设 None = 旧有行为不变);
+            # 时基独立 —— 生产侧只看文件 mtime,不采信管线自报时间。
+            msg = _alerts.evaluate(
+                snapshots, now, eval_heartbeat=_alerts._heartbeat_path())
             if msg is not None:
                 _alerts.push(msg["title"], msg["body"])
             _alerts.prune(now)
