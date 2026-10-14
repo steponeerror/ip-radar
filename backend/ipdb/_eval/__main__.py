@@ -32,9 +32,27 @@ from .verdict import assess
 _PKG_DIR = Path(__file__).resolve().parent              # backend/ipdb/_eval
 _REPO_ROOT = _PKG_DIR.parents[2]                        # _eval -> ipdb -> backend -> repo root
 # 报告目录(spec 2026-08-28 §5.2):运行时状态区,env 可覆盖;write_report 自带 mkdir
-REPORT_DIR = Path(os.environ.get(
-    "IP_RADAR_EVAL_DIR",
-    str(_REPO_ROOT / "backend" / "data" / "eval")))
+# S37 环境隔离(spec 待办9):REPORT_DIR = base/<env>,env ∈ monthly|gate|dev
+# (默认 dev)——rc_history 读的 model/ 历史随目录命名空间天然不跨环境混读;
+# 非法 env fail loud:静默回落 dev 会让 dev/gate 读到 monthly 的模型历史。
+def eval_env() -> str:
+    env = os.environ.get("IP_RADAR_EVAL_ENV", "dev")
+    if env not in ("monthly", "gate", "dev"):
+        raise ValueError(
+            f"IP_RADAR_EVAL_ENV must be one of monthly|gate|dev, got {env!r}")
+    return env
+
+
+def report_dir() -> Path:
+    """call-time 解析(测试免 reload;月轮脚本经 monthly_eval.sh 注入 env)。"""
+    return Path(os.environ.get(
+        "IP_RADAR_EVAL_DIR",
+        str(_REPO_ROOT / "backend" / "data" / "eval"))) / eval_env()
+
+
+# 导入期快照:CLI 每次进程启动即等价 report_dir();保留模块属性作为
+# main() 的读取点与既有测试 monkeypatch 缝(tests/eval/test_eval_temporal)。
+REPORT_DIR = report_dir()
 CORPUS_PATH = _PKG_DIR / "corpus.json"                  # curated in-package asset (spec §5)
 NEUTRAL_ASSET = _PKG_DIR / "neutral_ips.json"           # W0 中性层静态资产(T1)
 
@@ -110,9 +128,11 @@ def _real_registry():
 
 
 def run_for_source(source_name: str, registry=None, corpus_path=CORPUS_PATH,
-                   out_dir=REPORT_DIR, benign=None, run_seed: int | None = None):
+                   out_dir=None, benign=None, run_seed: int | None = None):
     registry = registry or _real_registry()
     benign = benign or BenignChecker()
+    # S37:out_dir 缺省按当前 env 解析(月轮 monthly / 本地 dev 各归各目录)
+    out_dir = report_dir() if out_dir is None else out_dir
     rng = random.Random(stable_seed(source_name))
 
     corpus = Corpus.load(corpus_path) if corpus_path.exists() else Corpus()
@@ -157,7 +177,7 @@ def run_for_source(source_name: str, registry=None, corpus_path=CORPUS_PATH,
                      rc=h.record_count if h is not None else None,
                      rc_history=_rc_history(source_name, Path(out_dir) / "model"))
     md, js = write_report(source_name, verdict, metrics, corpus, out_dir,
-                          run_seed=run_seed,
+                          run_seed=run_seed, eval_env=eval_env(),
                           sampling_fingerprint=fingerprint(corpus.candidate_ips))
     return md, js, verdict
 

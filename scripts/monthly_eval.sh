@@ -52,12 +52,13 @@ run_step() {  # run_step <label> <ipdb._eval args...> — 执行并打印尾行�
   local label=$1; shift
   local log="/tmp/monthly_eval-$label.log"
   echo
-  echo "==> $label: python3 -m ipdb._eval $*"
+  echo "==> $label: IP_RADAR_EVAL_ENV=monthly python3 -m ipdb._eval $*"
   if [ "$DRY_RUN" = 1 ]; then return 0; fi
   # cwd 须在 backend/(模块路径 ipdb);报告目录用绝对路径防 cwd 歧义
   ( cd "$REPO/backend" && \
       IP_RADAR_DATA_DIR="$DATA_DIR" \
       IP_RADAR_EVAL_DIR="$REPO/backend/data/eval" \
+      IP_RADAR_EVAL_ENV=monthly \
       python3 -m ipdb._eval "$@" ) 2>&1 | tee "$log"
   echo "-- [$label 尾行] $(tail -n 2 "$log" | tr '\n' ' ')"
 }

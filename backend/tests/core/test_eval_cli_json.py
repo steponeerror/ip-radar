@@ -42,20 +42,20 @@ def test_cli_json_failure_path_is_valid_json(tmp_path):
 
 
 def test_report_dir_respects_env(tmp_path):
-    """REPORT_DIR 尊重 IP_RADAR_EVAL_DIR(导入期读取)。"""
+    """REPORT_DIR 尊重 IP_RADAR_EVAL_DIR(导入期读取)+ S37 env 后缀(默认 dev)。"""
     p = subprocess.run(
         [sys.executable, "-c", "import ipdb._eval.__main__ as m; print(m.REPORT_DIR)"],
         cwd=str(BACKEND), env={**os.environ, "IP_RADAR_EVAL_DIR": str(tmp_path)},
         capture_output=True, text=True, timeout=120)
-    assert Path(p.stdout.strip()) == tmp_path
+    assert Path(p.stdout.strip()) == tmp_path / "dev"
 
 
 def test_report_dir_default_is_backend_data_eval():
-    """默认落 <repo>/backend/data/eval(不再写 docs/eval)。"""
+    """默认落 <repo>/backend/data/eval/dev(S37 环境隔离,dev 默认,不再平铺)。"""
     p = subprocess.run(
         [sys.executable, "-c", "import ipdb._eval.__main__ as m; print(m.REPORT_DIR)"],
         cwd=str(BACKEND), capture_output=True, text=True, timeout=120)
-    assert Path(p.stdout.strip()) == (BACKEND / "data" / "eval").resolve()
+    assert Path(p.stdout.strip()) == (BACKEND / "data" / "eval" / "dev").resolve()
 _BD_PTR = BACKEND / "data" / "binarydefense_banlist.txt.lmdb.ptr"
 
 
@@ -107,6 +107,6 @@ def test_cli_json_happy_path_binarydefense(tmp_path):
     assert out["verdict"]["state"]                      # POSITIVE-*/INSUFFICIENT-* 非空
     assert isinstance(out["metrics"], dict) and out["metrics"]
     assert out["generated_at"]                          # date 串
-    assert list(tmp_path.glob("binarydefense-*.json")), "报告应落 IP_RADAR_EVAL_DIR"
+    assert list(tmp_path.glob("dev/binarydefense-*.json")), "报告应落 IP_RADAR_EVAL_DIR/dev(S37 默认 dev)"
     _after = set(_default.glob("binarydefense-*.json")) if _default.exists() else set()
     assert not (_after - _before), "不得回落默认目录"

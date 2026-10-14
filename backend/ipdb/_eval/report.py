@@ -16,13 +16,16 @@ def _metric_to_json(m: Metric) -> dict:
 
 def render_json(source: str, verdict: Verdict, metrics: dict[str, Metric],
                 run_seed: int | None = None,
-                sampling_fingerprint: str | None = None) -> dict:
+                sampling_fingerprint: str | None = None,
+                eval_env: str | None = None) -> dict:
     return {
         "source": source,
         "generated_at": _dt.datetime.now(_dt.timezone.utc).date().isoformat(),
         # S36:run 级采样 seed + 被采键集指纹(存 metrics 旁)入报告 —— 防投伪证
         "run_seed": run_seed,
         "sampling_fingerprint": sampling_fingerprint,
+        # S37:环境标识(monthly|gate|dev);键恒在、缺省 null(T2 schema 稳定同款)
+        "eval_env": eval_env,
         "verdict": {
             "state": verdict.state,
             "benefit_high": verdict.benefit_high,
@@ -69,7 +72,8 @@ def render_md(source: str, verdict: Verdict, metrics: dict[str, Metric],
 
 def write_report(source: str, verdict: Verdict, metrics: dict[str, Metric],
                  corpus: Corpus, out_dir: Path, run_seed: int | None = None,
-                 sampling_fingerprint: str | None = None) -> tuple[Path, Path]:
+                 sampling_fingerprint: str | None = None,
+                 eval_env: str | None = None) -> tuple[Path, Path]:
     out_dir = Path(out_dir); out_dir.mkdir(parents=True, exist_ok=True)
     # 秒级时间戳(spec §5.2 修正):同日重跑不再覆盖同名文件,历史自然累积
     ts = _dt.datetime.now(_dt.timezone.utc).strftime("%Y%m%d-%H%M%S")
@@ -78,5 +82,6 @@ def write_report(source: str, verdict: Verdict, metrics: dict[str, Metric],
     md.write_text(render_md(source, verdict, metrics, corpus))
     js.write_text(__import__("json").dumps(
         render_json(source, verdict, metrics, run_seed=run_seed,
-                    sampling_fingerprint=sampling_fingerprint), indent=2))
+                    sampling_fingerprint=sampling_fingerprint,
+                    eval_env=eval_env), indent=2))
     return md, js
