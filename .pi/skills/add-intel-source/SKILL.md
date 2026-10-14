@@ -310,6 +310,14 @@ print(s.health())                                      # loaded/stale sane?
 
 若跑模型套件(`python -m ipdb._eval --model`):模型的冷启动语义 = 市场先验(新源无独立印证记录属预期,不降分)。
 
+**物化生效性哨兵(Q18,spec §3.2)——收录前最后一关。** 上面的测试只证明源模块对手工样例的行为,不证明物化后的引擎真的能看到数据。跑编排脚本一次走完:离线驱动唯一写路径 `download() → rebuild()` → 从源自身原始文件采 20 个已知成员回查引擎(threat:须由**本源自身**具名指控,他源回声不算;asset:须带本源 AssetStatement;geo_asn:标量轴 N/A → 键集 coverage 口径)→ 给出 gate 提示与 epoch 清理/回滚指引(旧物化产物保留至 gate 过后再清,脚本不自动删除):
+
+```bash
+bash scripts/materialize_source.sh <name>        # fetch→rebuild→sentinel;哨兵不过=不进 gate
+```
+
+哨兵 20/20(geo_asn 为 N/A+coverage)后跑接入关,gate 报告附 PR(人裁终局):`cd backend && IP_RADAR_EVAL_ENV=gate python -m ipdb._eval --gate <name>`。
+
 ## How your Evidence is consumed (read path)
 
 `source.query(ip)` → `route_record()` (unknown keys fold into `extra`) → three paths:
