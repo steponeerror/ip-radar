@@ -175,13 +175,20 @@ class RefreshScheduler:
         current = self._read_mtime(source)
         baseline = self._baseline_mtime.get(name)
         if current != baseline:
-            # file was rewritten -> success
+            # file was rewritten -> download landed; integrity still to check
             if self._partial_failure_of(source) is not None:
                 # done-but-partial: the overall download succeeded and mtime
                 # advanced, but some feeds failed — escalate backoff instead
                 # of clearing it, so the dead feeds keep the 1h..12h retry
                 # pacing instead of waiting out the full stale period (spec
                 # 2026-10-02 §2.3 self-heal; final-review Important #1).
+                self._escalate_backoff(name, now)
+            elif self._needs_rebuild_of(source):
+                # 2026-10-14 demo 五源自增强环:mtime 前进(下载成功)但 ptr
+                # 未推进(rebuild 被 memory valve 卡住/纪元冻结)= 完整性未
+                # 恢复;归成功清退避会失去唯一刹车 → 每 30min scan 全量重抓
+                # (ipinfo 330MB/轮)。升退避 1h→12h 梯;ptr 推进后自动回
+                # else 清退避,正常槽位节奏不受影响。
                 self._escalate_backoff(name, now)
             else:
                 self._backoff.pop(name, None)

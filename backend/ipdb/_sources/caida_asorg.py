@@ -36,6 +36,9 @@ class CaidaAsorgSource(Source):
     authoritative_for = ("as_org",)
     stale_days = 45               # 月更快照,双月余量
     reliability = 0.8
+    # 无 per-IP LMDB 面:rebuild=load,文件即持久层(query 恒 None,join 走
+    # org_for_asn 钩子)→ 豁免 needs_rebuild(2026-10-14 幻影环)
+    lmdb_backed = False
 
     # 202610 快照实测 ~11 万 aut 行;200-OK 空/坏内容不落地(fail-closed)
     _MIN_AUT_ROWS = 50_000
