@@ -104,6 +104,7 @@ echo
 if [ "$DRY_RUN" = 1 ]; then
   echo "==> 3/3 gate 提示 + epoch 清理/回滚指引"
   echo "  [dry-run] 哨兵通过分支: 提示 cd backend && IP_RADAR_EVAL_ENV=gate \\"
+  echo "            IP_RADAR_DATA_DIR=<repo>/.eval-gate-mirror \\"
   echo "            $PY -m ipdb._eval --gate $SOURCE(不代跑)"
   echo "  [dry-run] 指引块: 清理(保留至 gate 过;rebuild 自 prune)/"
   echo "            回滚(停用 PATCH enabled=false 或 IP_RADAR_PRIVATE_SOURCES / 摘除 rm)"
@@ -119,8 +120,14 @@ if [ "$SENTINEL_RC" != 0 ]; then
   echo "    accused-by-others[...]=他源回声、本源缺席 / NO-MEMBERS / NO-ASSET-AXIS"
 else
   echo "==> 3/3 哨兵通过: 提示跑接入关(人裁终局,本脚本不代跑)"
-  echo "    cd backend && IP_RADAR_EVAL_ENV=gate $PY -m ipdb._eval --gate $SOURCE"
+  echo "    cd backend && IP_RADAR_EVAL_ENV=gate \\"
+  echo "    IP_RADAR_DATA_DIR=<repo>/.eval-gate-mirror \\"
+  echo "    $PY -m ipdb._eval --gate $SOURCE"
   echo "    (--gate 先对齐生产镜像(S7)再出双口径报告;报告 gate-$SOURCE-<ts>.md 附 PR)"
+  echo "    gate 实跑协议: 测量数据目录须指向 .eval-gate-mirror 同步出的镜像目录"
+  echo "    (monthly_eval.sh run_step 同款接线) —— 本脚本应以"
+  echo "    IP_RADAR_DATA_DIR=<repo>/.eval-gate-mirror 运行使候选物化落镜像工作副本;"
+  echo "    rsync --delete-after 会清掉镜像内非生产文件 —— 物化后、gate 过前不得再跑 sync"
 fi
 
 cat <<EOF

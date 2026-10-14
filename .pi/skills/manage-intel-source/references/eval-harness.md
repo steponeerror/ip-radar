@@ -42,6 +42,6 @@ print(s.health())   # 确认 record_count > 0、is_stale=False
 
 **共识层装配两场景**:gate=装配后排除候选键集(与他源重叠的候选 IP 一并剔,在场性证据不可拆分,宁少算);月轮=全舰队(固有循环语义,月报注记承载)。**同批多候选串行纳入**——后放行者的舰队含先放行者。
 
-**强制人裁触发集(只升旗不自动动作,声明 r:测量建言,人裁终局)**:R2 基础三态(NEGATIVE/MIXED/NO-DATA)+ S1 抄尺(候选键集对 truth 资产成员包含度>0.5 且非蜜罐声明)+ S2 好得可疑(独有命中×低 OC,或真值层 delta 显著正且 OC 低)+ S3 OC≥0.9 未声明派生(0.7-0.9 敏感带 report-only,报告不触发)+ S4 任一层 delta 显著恶化(bootstrap p<0.05)而 verdict 非基础三态。旗标行 = PR 人裁清单项,逐项处置留痕;零旗标也留哨兵行(未触发≠未评估)。
+**强制人裁触发集(只升旗不自动动作,声明 r:测量建言,人裁终局)**:R2 基础三态(NEGATIVE/MIXED/NO-DATA)+ S1 抄尺(候选键集对 truth 资产成员包含度>0.5 且非蜜罐声明)+ S2 好得可疑(独有命中×低 OC,或真值层 delta 显著正且 OC 低)+ S3 OC≥0.9 未声明派生(0.7-0.9 敏感带 report-only,报告不触发)+ S4 任一层 delta 显著恶化(bootstrap p<0.05)而 verdict 非 NEGATIVE/MIXED(NO-DATA 不豁免:死源四层 delta 仍可恶化)。旗标行 = PR 人裁清单项,逐项处置留痕;零旗标也留哨兵行(未触发≠未评估)。
 
-**镜像 epoch 对齐契约(S7,fail-closed)**:gate 每次跑前 rsync 生产 volume → `.eval-gate-mirror/`(常驻增量镜像,已 gitignore)+ ssh 逐源比对 epoch,失配即拒跑(rc=3,绝不降级为警告)——测量基线必须是生产实况,不因想跑而放行。
+**镜像 epoch 对齐契约(S7,fail-closed)**:gate 每次跑前 rsync 生产 volume → `.eval-gate-mirror/`(常驻增量镜像,已 gitignore)+ ssh 逐源比对 epoch,失配即拒跑(rc=3,绝不降级为警告)——测量基线必须是生产实况,不因想跑而放行。实跑协议:测量数据目录须设 `IP_RADAR_DATA_DIR=<repo>/.eval-gate-mirror`(不设则读本地 dev 数据,CLI 会在镜像对齐后再校验 registry 数据目录与镜像 epoch 逐源一致——candidate 自身豁免,其新 ptr 只存在于物化侧——失配同样 rc=3 拒跑;monthly_eval.sh run_step 同款接线);候选物化落镜像工作副本(`IP_RADAR_DATA_DIR=<repo>/.eval-gate-mirror bash scripts/materialize_source.sh <name>`);rsync `--delete-after` 会清掉镜像内非生产文件——物化后、gate 过前不得再跑 sync。

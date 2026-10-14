@@ -74,6 +74,15 @@ def gate_mirror_dir() -> Path:
                                str(_GATE_MIRROR_DEFAULT)))
 
 
+def registry_data_dir() -> Path:
+    """registry 测量数据目录(S7 测量对齐消费, 终审 Issue-1): 取
+    ipdb._registry.DATA_DIR 落地值(import 期 IP_RADAR_DATA_DIR 或
+    <backend>/data 解析, sources 即按它发现)—— 不另设第二真源; 测试经
+    monkeypatch 本函数注入(模块属性快照免 reload, REPORT_DIR 同款缝)。"""
+    import ipdb._registry as reg
+    return Path(reg.DATA_DIR)
+
+
 @contextmanager
 def _gate_env():
     """--gate/--canary CLI 的 env 钉(S37;run_gate/run_canary 内嵌 pin 的
@@ -634,22 +643,40 @@ def main(argv=None):
     # ── T9 gate 族子命令(spec §3.1/§3.2; 镜像前置 S7)────────────
     if args.gate is not None:
         # 接入关 CLI: ensure_gate_mirror(S7: 跑前镜像对齐, 失配拒跑
-        # fail-closed)→ run_gate(双口径+triggers 节已在报告内, T4/T6)→
-        # 报告路径回显。退出码契约: 镜像失配/同步失败 → rc=3(与通用 rc=1
-        # 区分 —— 运维一眼认「对齐未过, gate 根本没跑」);env 错位/未知源
-        # → rc=1;其余内部异常不吞(裸栈可查, 证据链完整)。
+        # fail-closed)→ 测量对齐校验(终审 Issue-1: registry 数据目录与镜像
+        # epoch 逐源比对, 失配拒跑 —— 镜像对齐了、测的却是本地 dev 数据
+        # = S7 虚假保证)→ run_gate(双口径+triggers 节已在报告内, T4/T6)→
+        # 报告路径回显。退出码契约: 镜像失配/同步失败/测量数据目录漂移 →
+        # rc=3(与通用 rc=1 区分 —— 运维一眼认「对齐未过, gate 根本没
+        # 跑」);env 错位/未知源 → rc=1;其余内部异常不吞(裸栈可查, 证据链完整)。
         from .gate import run_gate
-        from .gate_mirror import GateMirrorMisalignedError, ensure_gate_mirror
+        from .gate_mirror import (GateMirrorMisalignedError,
+                                  check_measurement_alignment,
+                                  ensure_gate_mirror)
         try:
             with _gate_env():
                 try:
                     # 镜像参数从 env/常量读(见 gate_prod_host/gate_mirror_dir
                     # 出处注释; 不发明新配置面)
-                    ensure_gate_mirror(gate_prod_host(), gate_mirror_dir())
+                    mirror = ensure_gate_mirror(gate_prod_host(),
+                                                gate_mirror_dir())
                 except (GateMirrorMisalignedError, RuntimeError) as e:
                     _gate_cli_fail(3, "gate_mirror_misaligned",
                                    f"S7 fail-closed: gate 拒跑 —— {e}",
                                    "重跑本命令重试 rsync, 或人工比对生产/镜像 .ptr",
+                                   args.json)
+                # S7 测量对齐(终审 Issue-1): registry 数据目录漂移(未设
+                # IP_RADAR_DATA_DIR → 缺省读本地 dev backend/data)时 S7 对
+                # 测量真值零约束 → fail-closed 拒跑; candidate 自身豁免
+                # (check_measurement_alignment 口径, 其新 ptr 只在物化侧)。
+                m_align = check_measurement_alignment(
+                    registry_data_dir(), mirror["mirror_epochs"], args.gate)
+                if not m_align["aligned"]:
+                    _gate_cli_fail(3, "measurement_misaligned",
+                                   f"S7 fail-closed: 测量数据目录与镜像 epoch "
+                                   f"不对齐 —— {m_align['detail']}",
+                                   f"设 IP_RADAR_DATA_DIR={gate_mirror_dir()} "
+                                   "或先物化进镜像工作副本",
                                    args.json)
                 res = run_gate(args.gate, registry, report_dir(),
                                run_seed=args.run_seed,

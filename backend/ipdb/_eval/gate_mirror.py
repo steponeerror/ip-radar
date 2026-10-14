@@ -124,6 +124,45 @@ def check_alignment(mirror_dir: Path, prod_epochs: dict) -> dict:
     return {"aligned": True, "detail": f"aligned ({len(mirror_epochs)} sources)"}
 
 
+def check_measurement_alignment(data_dir: Path, mirror_epochs: dict,
+                                candidate: str) -> dict:
+    """S7 测量对齐(终审 Issue-1): 测量数据目录 vs 镜像快照逐源 epoch 比对。
+
+    check_alignment 只保证「镜像 ↔ 生产」对齐; 测量真值另查 —— registry
+    数据目录(data_dir)逐源 epoch 必须与镜像快照(mirror_epochs, 取
+    ensure_gate_mirror 返回的 mirror_epochs)一致, 否则 S7 对测量零约束
+    (镜像对齐了, 测的却是本地 dev 数据 = 虚假保证)。失配含 data_dir 缺
+    某源 ptr(缺证据≠对齐); 候选豁免: 候选新 ptr 只存在于物化侧, 镜像
+    生产快照没有 —— `<candidate>.` ptr 族(materialize_source.sh 物化产物
+    同款命名, house style filename==name)整族不计, 兼容 filename≠name
+    的老源前缀(如 threatfox.csv.lmdb.ptr); 双侧皆无 ptr 证据 → 不对齐
+    (check_alignment 同守卫)。
+    """
+    data_epochs = epoch_fingerprint(data_dir)
+    if not data_epochs and not mirror_epochs:
+        return {"aligned": False,
+                "detail": "no epoch evidence: 0 ptr sources in data_dir and mirror"}
+    prefix = f"{candidate}."
+    bad = []
+    compared = 0
+    for name in sorted(set(data_epochs) | set(mirror_epochs)):
+        if name.startswith(prefix):
+            continue                     # 候选豁免: 物化侧新 ptr, 生产快照没有
+        compared += 1
+        dv, mv = data_epochs.get(name), mirror_epochs.get(name)
+        if dv == mv:
+            continue
+        if dv is None:
+            bad.append(f"{name}: data_dir missing (mirror={mv})")
+        elif mv is None:
+            bad.append(f"{name}: mirror missing (data_dir={dv})")
+        else:
+            bad.append(f"{name}: data_dir={dv} mirror={mv}")
+    if bad:
+        return {"aligned": False, "detail": "; ".join(bad)}
+    return {"aligned": True, "detail": f"aligned ({compared} sources)"}
+
+
 def _remote_epochs(prod_host: str, *,
                    runner: Callable[[list[str]], Any] | None = None) -> dict[str, str]:
     """ssh 读远端逐源 epoch (`name=value` 行);rc≠0 → raise (fail-closed)。"""

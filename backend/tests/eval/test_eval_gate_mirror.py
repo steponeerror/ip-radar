@@ -12,6 +12,10 @@
   双侧皆无 epoch 证据 → 不放行(无证据≠对齐)。
 - ensure_gate_mirror: sync → ssh 读远端逐源 epoch → 比对;失配 raise
   GateMirrorMisalignedError(fail-closed, 不跑 gate);对齐返回摘要 dict。
+- check_measurement_alignment(终审 Issue-1): registry 测量数据目录逐源
+  epoch vs 镜像快照(mirror_epochs);candidate 自身豁免(新 ptr 只在物化
+  侧);失配含 data_dir 缺 ptr → 不对齐(镜像对齐了、测的却是本地 dev
+  数据 = S7 虚假保证)。
 
 无真实网络: rsync/ssh 一律经注入 stub runner;纯本地红线(不触线上)。
 """
@@ -24,6 +28,7 @@ from ipdb._eval import gate_mirror
 from ipdb._eval.gate_mirror import (
     GateMirrorMisalignedError,
     check_alignment,
+    check_measurement_alignment,
     ensure_gate_mirror,
     epoch_fingerprint,
     sync_gate_mirror,
@@ -208,3 +213,52 @@ def test_ensure_gate_mirror_ssh_failure_raises(tmp_path):
     stub = StubRunner(ssh_rc=255)
     with pytest.raises(RuntimeError, match="ssh"):
         ensure_gate_mirror("root@h", mirror, runner=stub)
+
+
+# ── check_measurement_alignment(S7 测量对齐, 终审 Issue-1)────
+
+
+def test_measurement_alignment_candidate_exempt_passes(tmp_path):
+    # 候选新 ptr 只存在于物化侧(镜像生产快照没有)→ 豁免放行
+    data = tmp_path / "data"
+    make_ptr(data, "a.txt.lmdb.ptr", "22")
+    make_ptr(data, "newsrc.lmdb.ptr", "5")           # 候选 v4 新 ptr
+    make_ptr(data, "newsrc.v6.lmdb.ptr", "5")        # 候选 v6 同族豁免
+    r = check_measurement_alignment(data, {"a.txt.lmdb.ptr": "22"}, "newsrc")
+    assert r["aligned"] is True
+    assert "1" in r["detail"]                        # 计数只含比对源(候选不计)
+
+
+def test_measurement_alignment_epoch_drift_refuses(tmp_path):
+    # 测量数据目录(如未设 IP_RADAR_DATA_DIR 落在本地 dev 数据)epoch 漂移
+    data = tmp_path / "data"
+    make_ptr(data, "a.txt.lmdb.ptr", "23")           # dev 漂移 epoch ≠ 镜像 22
+    r = check_measurement_alignment(data, {"a.txt.lmdb.ptr": "22"}, "cand")
+    assert r["aligned"] is False
+    assert "a.txt.lmdb.ptr" in r["detail"]           # detail 列失配源名
+
+
+def test_measurement_alignment_data_dir_missing_ptr_refuses(tmp_path):
+    # data_dir 缺某源 ptr(dev 数据半截/路径错)→ 不对齐(缺证据≠对齐)
+    data = tmp_path / "data"
+    make_ptr(data, "a.txt.lmdb.ptr", "22")
+    r = check_measurement_alignment(
+        data, {"a.txt.lmdb.ptr": "22", "b.txt.lmdb.ptr": "7"}, "cand")
+    assert r["aligned"] is False
+    assert "b.txt.lmdb.ptr" in r["detail"] and "missing" in r["detail"]
+
+
+def test_measurement_alignment_extra_non_candidate_ptr_refuses(tmp_path):
+    # data_dir 单侧多出非候选 ptr(如本地 dev 的私源/旧候选)→ 不对齐:
+    # 舰队必须是生产实况(S7), 候选豁免不外溢
+    data = tmp_path / "data"
+    make_ptr(data, "a.txt.lmdb.ptr", "22")
+    make_ptr(data, "other.lmdb.ptr", "1")
+    r = check_measurement_alignment(data, {"a.txt.lmdb.ptr": "22"}, "cand")
+    assert r["aligned"] is False
+    assert "other.lmdb.ptr" in r["detail"]
+
+
+def test_measurement_alignment_no_evidence_fails_closed(tmp_path):
+    r = check_measurement_alignment(tmp_path / "nope", {}, "cand")
+    assert r["aligned"] is False                     # 无证据≠对齐(check_alignment 同守卫)

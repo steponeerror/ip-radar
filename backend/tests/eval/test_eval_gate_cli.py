@@ -6,6 +6,8 @@ runner 断言 CLI 面(零网络零真 DB):
 - 参数解析与报告产出(gate-*/canary-* 落 base/gate 命名空间);
 - 镜像前置序(S7): ensure_gate_mirror 先于 run_gate,参数从 env 读;失配 →
   rc=3 拒跑且不产 gate 报告(fail-closed);
+- S7 测量对齐(终审 Issue-1): registry 数据目录逐源 epoch 漂移 → 同族
+  rc=3 拒跑且 run_gate 不执行(镜像对齐≠测量对齐);
 - EVAL_ENV=gate 强制(S37): 未设 → CLI 钉 gate(报告目录/嵌套 stratum 件
   标签随钉, 进程内退出还原);显式 monthly/dev → fail-loud 拒跑且不触镜像;
 - 退出码契约: sentinel pass=True→0 / pass=False→1 / N/A(geo_asn)→0+N/A
@@ -106,19 +108,32 @@ def _gate_env(tmp_path, monkeypatch):
     monkeypatch.delenv("IP_RADAR_EVAL_ENV", raising=False)
 
 
-def _stub_mirror(monkeypatch, misaligned=False):
+def _stub_mirror(monkeypatch, misaligned=False, mirror_epochs=None):
     """ensure_gate_mirror 替身: 记录(prod_host, mirror_dir) 调用序;
-    misaligned=True 时 raise(S7 fail-closed 路径)。"""
+    misaligned=True 时 raise(S7 fail-closed 路径);mirror_epochs = 返回的
+    镜像快照指纹(测量对齐消费, 终审 Issue-1)。"""
     calls = []
 
     def stub(prod_host, mirror_dir, **kw):
         calls.append((prod_host, Path(mirror_dir)))
         if misaligned:
             raise GateMirrorMisalignedError("cand.lmdb.ptr: mirror=1 prod=2")
-        return {"alignment": {"aligned": True, "detail": "aligned"}}
+        return {"alignment": {"aligned": True, "detail": "aligned"},
+                "mirror_epochs": dict(mirror_epochs) if mirror_epochs else {}}
 
     monkeypatch.setattr(gm, "ensure_gate_mirror", stub)
     return calls
+
+
+def _reg_data(monkeypatch, tmp_path, epochs: dict) -> Path:
+    """registry 测量数据目录替身(终审 Issue-1): tmp 目录逐源写 ptr,
+    monkeypatch M.registry_data_dir 指向它(免 reload, REPORT_DIR 同款缝)。"""
+    d = tmp_path / "regdata"
+    d.mkdir()
+    for name, epoch in epochs.items():
+        (d / name).write_text(epoch + "\n", encoding="utf-8")
+    monkeypatch.setattr(M, "registry_data_dir", lambda: d)
+    return d
 
 
 def _patch_registry(monkeypatch, reg):
@@ -131,7 +146,10 @@ def _patch_registry(monkeypatch, reg):
 
 def test_gate_cli_mirror_then_report(tmp_path, monkeypatch, capsys):
     _gate_env(tmp_path, monkeypatch)
-    calls = _stub_mirror(monkeypatch)
+    # S7 测量对齐(终审 Issue-1): registry 数据目录与镜像快照逐源一致才放行
+    _reg_data(monkeypatch, tmp_path, {"a.txt.lmdb.ptr": "22"})
+    calls = _stub_mirror(monkeypatch,
+                         mirror_epochs={"a.txt.lmdb.ptr": "22"})
     # 镜像参数从 env 读(决策 1: 不发明新配置面)
     monkeypatch.setenv("IP_RADAR_GATE_PROD_HOST", "root@stub")
     monkeypatch.setenv("IP_RADAR_GATE_MIRROR_DIR", str(tmp_path / "mirror"))
@@ -172,6 +190,39 @@ def test_gate_cli_mirror_misaligned_refuses(tmp_path, monkeypatch, capsys):
     assert e2.value.code == 3
     env = json.loads(capsys.readouterr().out)
     assert env["error"]["code"] == "gate_mirror_misaligned"
+
+
+def test_gate_cli_measurement_drift_refuses_run_gate_not_run(
+        tmp_path, monkeypatch, capsys):
+    """S7 测量对齐(终审 Issue-1): 镜像对齐了、registry 数据目录 epoch 漂移
+    (按旧文档逐字跑 = 未设 IP_RADAR_DATA_DIR 读本地 dev 数据)→ rc=3 拒跑,
+    run_gate 不执行(fail-closed, 不产 gate 报告)。"""
+    _gate_env(tmp_path, monkeypatch)
+    _stub_mirror(monkeypatch, mirror_epochs={"a.txt.lmdb.ptr": "22"})
+    _reg_data(monkeypatch, tmp_path, {"a.txt.lmdb.ptr": "23"})   # 漂移 epoch
+    reg = _FakeRegistry(
+        [_FakeSource("cand", _src_file(tmp_path, "cand", _CAND_IPS))])
+    _patch_registry(monkeypatch, reg)
+    import ipdb._eval.gate as gate_mod
+    ran: list = []
+
+    def _boom(*a, **k):
+        ran.append(a)
+        raise AssertionError("run_gate must not run (S7 fail-closed)")
+
+    monkeypatch.setattr(gate_mod, "run_gate", _boom)
+    with pytest.raises(SystemExit) as e:
+        M.main(["--gate", "cand"])
+    assert e.value.code == 3              # rc=3 族 = 对齐前置未过
+    assert ran == []                      # run_gate 不执行
+    assert not (tmp_path / "gate").exists()   # fail-closed: 无报告产出
+    err = capsys.readouterr().err
+    assert "IP_RADAR_DATA_DIR" in err     # 错误信封给出修法(指向镜像目录)
+    with pytest.raises(SystemExit) as e2:  # --json: stdout JSON 信封 + 同 rc(§5.2)
+        M.main(["--gate", "cand", "--json"])
+    assert e2.value.code == 3
+    env = json.loads(capsys.readouterr().out)
+    assert env["error"]["code"] == "measurement_misaligned"
 
 
 def test_gate_cli_env_mislabel_fails_loud_before_mirror(tmp_path, monkeypatch):

@@ -22,7 +22,7 @@
   fleet_hit_delta=0; 不复现 = 谱系锚/装配机制腐化。
 - threatfox POSITIVE(首月轮月报判例, backend/data/eval/
   threatfox-20260927-161242.md: POSITIVE-UNVERIFIED, benefit_high=True,
-  MC=0.1266 —— 自域效益在场): 自有指控在引擎载荷可见。计数本身随数据
+  MC=0.1245 —— 自域效益在场): 自有指控在引擎载荷可见。计数本身随数据
   刷新漂移, 冻结稳定属性 PRESENT(>0) 而非具体数(冻结具体数 = 每季
   必假告警, 标尺自腐)。
 
@@ -97,7 +97,7 @@ KNOWN_CASES: tuple[KnownCase, ...] = (
             "own_accusing_off": 0,
         }),
         why="首月轮月报 threatfox-20260927-161242: POSITIVE-UNVERIFIED, "
-            "benefit_high=True, MC=0.1266",
+            "benefit_high=True, MC=0.1245",
     ),
 )
 
