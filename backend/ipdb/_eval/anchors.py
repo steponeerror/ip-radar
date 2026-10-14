@@ -3,6 +3,10 @@
 production-touching change (spec §5.2). Partial ground truth, curated.
 Grow the lists, not knobs. A failure anywhere = the change rolls back.
 """
+import datetime as _dt
+import json
+from pathlib import Path
+
 from .._types import _ACCUSING   # 指控章单一口径(EV-F1 同款借道,A2 遗留收口)
 
 ANCHORS: list[tuple[str, str]] = [
@@ -50,3 +54,29 @@ def run_anchors(lookup_fn) -> list[dict]:
         if why:
             failures.append({"ip": ip, "expect": expect, "reason": why})
     return failures
+
+
+def anchors_report(lookup_fn, out_dir=None, *, eval_env: str | None = None
+                   ) -> list[dict]:
+    """run_anchors + 落盘（Phase 2 T8，清偿 Phase 1 终审 T14 缓议）。
+
+    落 <out_dir>/model/anchors-<ts>.json（ts/序列化同 model-*.json 写法，
+    dsem-*.json 同族）；件含 eval_env（S37 裁决①：None → call-time 读
+    __main__.eval_env()）。失败也落盘（failures 原样留档，证据不灭）。
+    位等价契约：返回值即 run_anchors 原样，CLI --anchors 的 stdout 与
+    退出码（失败 sys.exit(1)）不因落盘变化（计算逻辑零改动）。"""
+    if eval_env is None:
+        from .__main__ import eval_env as _current_env
+        eval_env = _current_env()
+    fails = run_anchors(lookup_fn)
+    if out_dir is not None:
+        d = Path(out_dir) / "model"
+        d.mkdir(parents=True, exist_ok=True)
+        ts = _dt.datetime.now(_dt.timezone.utc).strftime("%Y%m%d-%H%M%S")
+        (d / f"anchors-{ts}.json").write_text(json.dumps(
+            {"kind": "anchors", "eval_env": eval_env,
+             "generated_at": _dt.datetime.now(
+                 _dt.timezone.utc).date().isoformat(),
+             "n_total": len(ANCHORS), "failures": fails},
+            indent=1, default=str), encoding="utf-8")
+    return fails

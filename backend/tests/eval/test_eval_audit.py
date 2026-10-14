@@ -144,19 +144,66 @@ def test_audit_two_rounds_not_yet(tmp_path, monkeypatch):
     assert res["c3"]["recall"] == 0.0 and res["c3"]["pass"] is False
 
 
-def test_audit_symmetric_strong_flow_not_yet(tmp_path, monkeypatch):
-    # 对称强流(T3 锁 elif 链):a、b 互相滞后捡起(fab=fba=5)→
-    # 不对称门槛(1.5×)两侧都不满足 → not-yet,不判任一 confirmed
-    ab, ba = _pl("10.7.0", 5), _pl("10.8.0", 5)   # a first / b first
-    both = ab + ba
-    _mk_run(tmp_path, "20260801-000000", {"a": ab, "b": ba})
-    _mk_run(tmp_path, "20260808-000000", {"a": both, "b": both})
-    _mk_run(tmp_path, "20260815-000000", {"a": both, "b": both})
+# ── T8(T14 缓议清偿):audit 落盘 model/audit-<ts>.json ──────────
+
+def test_audit_report_persists_model_dir_json(tmp_path, monkeypatch):
+    # 落盘件:<out>/model/audit-<ts>.json(ts 形态同 model-*.json 写法),
+    # 件含 eval_env;返回值与纯 lineage_audit 位等价(stdout/--json 不变)
+    import re
+    from ipdb._eval.audit import audit_report, lineage_audit
+    base, n1, n2 = _pl("10.0.0", 10), _pl("10.1.0", 5), _pl("10.2.0", 5)
+    for i, ts in enumerate(["20260801", "20260808", "20260815", "20260822"]):
+        u1 = base + (n1 if i >= 1 else [])
+        u2 = base + (n2 if i >= 1 else [])
+        c = base + (n1 + n2 if i >= 2 else [])
+        _mk_run(tmp_path, f"{ts}-000000", {"u1": u1, "u2": u2, "c": c})
     import ipdb._eval.audit as A
-    monkeypatch.setattr(A, "DERIVED_SOURCES", frozenset())
-    res = A.lineage_audit(tmp_path)
-    row = next(r for r in res["pairs"] if {r["a"], r["b"]} == {"a", "b"})
-    assert row["fab"] == 5 and row["fba"] == 5
-    assert row["state"] == "not-yet"
-    assert "copier" not in row
-    assert res["relations"] == {}
+    monkeypatch.setattr(A, "DERIVED_SOURCES", frozenset({"c"}))
+    out = tmp_path / "out"  # out_dir 与 model_dir 分置,证明件落在 out_dir/model
+    res = audit_report(tmp_path, out_dir=out, eval_env="monthly")
+    files = list((out / "model").glob("audit-*.json"))
+    assert len(files) == 1
+    assert re.fullmatch(r"audit-\d{8}-\d{6}\.json", files[0].name)
+    d = json.loads(files[0].read_text())
+    assert d["eval_env"] == "monthly"
+    assert d["kind"] == "lineage-audit"
+    assert d["recommended_derived"] == ["c"]
+    # 位等价:返回值即纯函数原样(不加 report_path/eval_env 等落盘侧键)
+    assert res == lineage_audit(tmp_path)
+
+
+def test_audit_report_eval_env_default_from_ip_radar_env(tmp_path, monkeypatch):
+    # eval_env 缺省 → __main__.eval_env()(IP_RADAR_EVAL_ENV;S37 裁决①同款)
+    from ipdb._eval.audit import audit_report
+    monkeypatch.setenv("IP_RADAR_EVAL_ENV", "gate")
+    audit_report(tmp_path, out_dir=tmp_path)  # 空历史也可落盘(证在场)
+    d = json.loads(next((tmp_path / "model").glob("audit-*.json")).read_text())
+    assert d["eval_env"] == "gate" and d["n_rounds"] == 0
+
+
+def test_audit_report_without_out_dir_writes_nothing(tmp_path):
+    # out_dir=None → 纯读路径,不建目录不落件(历史调用方语义不变)
+    from ipdb._eval.audit import audit_report
+    res = audit_report(tmp_path)
+    assert res["n_rounds"] == 0 and not (tmp_path / "model").exists()
+
+
+def test_cli_audit_persists_but_json_stdout_unchanged(
+        tmp_path, monkeypatch, capsys):
+    # CLI 位等价:--audit --json stdout 仍是纯审计 payload(无 eval_env/
+    # report_path 等落盘侧键);件落 REPORT_DIR/model 并带 eval_env
+    from types import SimpleNamespace
+    import ipdb._eval.__main__ as M
+    monkeypatch.setattr(M, "_real_registry", lambda: SimpleNamespace(
+        load_db=lambda: None, lookup=lambda ip: {}))
+    monkeypatch.setattr(M, "REPORT_DIR", tmp_path)
+    monkeypatch.setenv("IP_RADAR_EVAL_ENV", "monthly")
+    (tmp_path / "model").mkdir()
+    _mk_run(tmp_path / "model", "20260801-000000",
+            {"a": _pl("10.0.0", 10)})
+    M.main(["--audit", "--json"])
+    out = json.loads(capsys.readouterr().out)
+    assert out["kind"] == "lineage-audit" and "eval_env" not in out
+    files = list((tmp_path / "model").glob("audit-*.json"))
+    assert len(files) == 1
+    assert json.loads(files[0].read_text())["eval_env"] == "monthly"

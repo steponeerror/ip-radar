@@ -507,8 +507,10 @@ def main(argv=None):
                   f"/{len(result['checks'])} checks pass\n  report: {md}")
         return
     if args.audit:
-        from .audit import lineage_audit
-        res = lineage_audit(REPORT_DIR / "model")
+        # T8（T14 缓议清偿）：audit 升格报告族写者 —— audit_report 落
+        # model/audit-<ts>.json；stdout/退出码位等价（advisory 不拦）
+        from .audit import audit_report
+        res = audit_report(REPORT_DIR / "model", out_dir=REPORT_DIR)
         if args.json:
             print(json.dumps(res, ensure_ascii=False, indent=1))
         else:
@@ -524,8 +526,10 @@ def main(argv=None):
                   f"recall: {res['c3']['recall']:.2f})")
         return
     if args.anchors:
-        from .anchors import ANCHORS, run_anchors
-        fails = run_anchors(registry.lookup)
+        # T8（T14 缓议清偿）：anchors 升格报告族写者 —— anchors_report 落
+        # model/anchors-<ts>.json（失败也落盘，证据不灭）；stdout/退出码位等价
+        from .anchors import ANCHORS, anchors_report
+        fails = anchors_report(registry.lookup, out_dir=REPORT_DIR)
         if args.json:
             print(json.dumps({"failures": fails}, ensure_ascii=False))
         else:

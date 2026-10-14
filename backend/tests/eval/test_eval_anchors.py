@@ -41,9 +41,10 @@ def test_failure_reports_ip_and_reason():
     assert any(f["ip"] == tor_ip and f["expect"] == "tor" for f in fails)
 
 
-def test_anchors_json_mode_output_is_pure_json(monkeypatch, capsys):
+def test_anchors_json_mode_output_is_pure_json(monkeypatch, capsys, tmp_path):
     # --anchors --json: whole stdout must parse as the envelope (review: prose
     # prints used to leak after it); exit codes stay 0/1 in both modes.
+    # T8 后 CLI 会落盘 anchors-*.json → REPORT_DIR 隔离到 tmp_path(断言原样)
     from types import SimpleNamespace
     import pytest
     import ipdb._eval.__main__ as M
@@ -51,6 +52,7 @@ def test_anchors_json_mode_output_is_pure_json(monkeypatch, capsys):
     def _reg(lk):
         return SimpleNamespace(load_db=lambda: None, lookup=lk)
 
+    monkeypatch.setattr(M, "REPORT_DIR", tmp_path)
     monkeypatch.setattr(M, "_real_registry", lambda: _reg(_matching()))
     with pytest.raises(SystemExit) as e:
         M.main(["--anchors", "--json"])
@@ -68,3 +70,61 @@ def test_anchors_json_mode_output_is_pure_json(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "anchors: " in out and "ANCHOR FAIL " in out
     assert e.value.code == 1
+
+
+# ── T8(T14 缓议清偿):anchors 落盘 model/anchors-<ts>.json ──────
+
+def test_anchors_report_persists_json(tmp_path):
+    # 落盘件:<out>/model/anchors-<ts>.json(ts 形态同 model-*.json),
+    # 件含 eval_env/kind/failures/n_total;返回值与 run_anchors 位等价
+    import re
+    from ipdb._eval.anchors import anchors_report, run_anchors
+    fails = anchors_report(_matching(), out_dir=tmp_path, eval_env="monthly")
+    assert fails == run_anchors(_matching()) == []
+    files = list((tmp_path / "model").glob("anchors-*.json"))
+    assert len(files) == 1
+    assert re.fullmatch(r"anchors-\d{8}-\d{6}\.json", files[0].name)
+    d = json.loads(files[0].read_text())
+    assert d["kind"] == "anchors" and d["eval_env"] == "monthly"
+    assert d["failures"] == [] and d["n_total"] == len(ANCHORS)
+
+
+def test_anchors_report_persists_failures_too(tmp_path):
+    # 失败也落盘(证据不灭):failures 原样留档,eval_env 缺省走
+    # __main__.eval_env()(IP_RADAR_EVAL_ENV)
+    from ipdb._eval.anchors import anchors_report
+    import ipdb._eval.__main__ as M  # noqa: F401  (env 解析链路真实性)
+    import os
+    old = os.environ.get("IP_RADAR_EVAL_ENV")
+    os.environ["IP_RADAR_EVAL_ENV"] = "gate"
+    try:
+        fails = anchors_report(_fake("clean"), out_dir=tmp_path)
+    finally:
+        if old is None:
+            os.environ.pop("IP_RADAR_EVAL_ENV", None)
+        else:
+            os.environ["IP_RADAR_EVAL_ENV"] = old
+    assert fails  # clean-only fake: tor/hosting anchors must fail
+    d = json.loads(next((tmp_path / "model").glob("anchors-*.json")).read_text())
+    assert d["failures"] == fails and d["eval_env"] == "gate"
+
+
+def test_anchors_cli_persists_but_stdout_envelope_unchanged(
+        tmp_path, monkeypatch, capsys):
+    # CLI 位等价:--anchors --json stdout 仍恰为 {"failures": ...}(无
+    # eval_env 等落盘侧键);退出码不变;件落 REPORT_DIR/model 带 eval_env
+    from types import SimpleNamespace
+    import pytest
+    import ipdb._eval.__main__ as M
+    monkeypatch.setattr(M, "REPORT_DIR", tmp_path)
+    monkeypatch.setattr(M, "_real_registry", lambda: SimpleNamespace(
+        load_db=lambda: None, lookup=_matching()))
+    monkeypatch.setenv("IP_RADAR_EVAL_ENV", "monthly")
+    with pytest.raises(SystemExit) as e:
+        M.main(["--anchors", "--json"])
+    assert json.loads(capsys.readouterr().out) == {"failures": []}
+    assert e.value.code == 0
+    files = list((tmp_path / "model").glob("anchors-*.json"))
+    assert len(files) == 1
+    d = json.loads(files[0].read_text())
+    assert d["kind"] == "anchors" and d["eval_env"] == "monthly"
