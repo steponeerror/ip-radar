@@ -71,7 +71,13 @@ echo "==> rsync: $RSYNC_SRC -> $DATA_DIR/"
 if [ "$DRY_RUN" != 1 ]; then
   mkdir -p "$DATA_DIR"
   # --delete-after 保持镜像(与既往手动月轮一致)
-  rsync -az --partial --delete-after --info=progress2 "$RSYNC_SRC" "$DATA_DIR/"
+  # rc=24(源侧活文件消失)对活镜像良性:生产 scheduler 随时在重建 LMDB epoch,
+  # 旧 epoch 家族中途消失属常态;其余非零仍致命(首月轮 2026-10-14 实测发现)。
+  rsync -az --partial --delete-after --info=progress2 "$RSYNC_SRC" "$DATA_DIR/" && rc=0 || rc=$?
+  if [ "$rc" != 0 ] && [ "$rc" != 24 ]; then
+    echo "拒绝: rsync 失败 (rc=$rc)" >&2; exit 1
+  fi
+  [ "$rc" = 24 ] && echo "-- rsync rc=24(源侧活动文件消失,活镜像可容忍)"
 fi
 
 # 守卫序(S7): rsync 后、读数前校验 manifest(文件数+字节+epoch 指纹+抽样
