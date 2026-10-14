@@ -85,7 +85,8 @@ if [ "$DRY_RUN" != 1 ]; then
 fi
 
 # ── 2/3 生效性哨兵(spec §3.2「哨兵 20/20」;T9 CLI,geo_asn 标量轴=N/A,
-# 键集口径 coverage_check 由 CLI 分派)。失败不进 set -e 直杀 —— 回滚指引
+# 键集口径 coverage_check 由 CLI 分派;rc 契约(T9 落地):pass=False→1,
+# N/A→0 不中止)。失败不进 set -e 直杀 —— 回滚指引
 # 必须先于退出码给出,人裁才有抓手。
 SENTINEL_RC=0
 echo
