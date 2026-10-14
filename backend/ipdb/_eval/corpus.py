@@ -68,9 +68,13 @@ def generate_neutral(n: int = 600, seed: int = 20260928) -> list[str]:
     return out
 
 
-def sample_source_ips(source, n: int, rng: random.Random | None = None) -> list[str]:
+def sample_source_ips(source, n: int, rng: random.Random | None = None,
+                      run_seed: int | None = None) -> list[str]:
     """Archetype-agnostic: regex-extract IP/CIDR tokens from the source's raw
-    file and sample n (without replacement, capped at available)."""
+    file and sample n (without replacement, capped at available).
+    run_seed(S36)非 None 时覆盖 rng:run 级采样不随源名/文件内容可预测。"""
+    if run_seed is not None:
+        rng = random.Random(run_seed)   # run 级 seed 优先于外部 rng(S36 反定向策展)
     rng = rng or random.Random()
     if not getattr(source, "_path", None) or not source._path.is_file():
         return []

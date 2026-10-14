@@ -10,11 +10,13 @@ import argparse
 import json
 import os
 import random
+import secrets
 import sys
 from pathlib import Path
 
 from . import config
 from .ablation import run_ablation
+from .assets import fingerprint
 from .benign import BenignChecker
 from .corpus import Corpus, build_benchmark, sample_source_ips, stable_seed
 from .independence import oc_suspicion_pairs
@@ -108,16 +110,20 @@ def _real_registry():
 
 
 def run_for_source(source_name: str, registry=None, corpus_path=CORPUS_PATH,
-                   out_dir=REPORT_DIR, benign=None):
+                   out_dir=REPORT_DIR, benign=None, run_seed: int | None = None):
     registry = registry or _real_registry()
     benign = benign or BenignChecker()
     rng = random.Random(stable_seed(source_name))
 
     corpus = Corpus.load(corpus_path) if corpus_path.exists() else Corpus()
+    # S36:run 级 seed 缺省显式随机(randbits 64)——不回退源名/文件内容
+    # 派生的可预测纯函数(那正是本任务要堵的洞),先于 candidate 采样注入
+    run_seed = run_seed if run_seed is not None else secrets.randbits(64)
     # dynamic candidate stratum: fresh sample each run.
     src_obj = next((s for s in registry.sources if s.name == source_name), None)
     if src_obj is not None:
-        corpus.candidate_ips = sample_source_ips(src_obj, config.CORPUS_CANDIDATE_N, rng)
+        corpus.candidate_ips = sample_source_ips(src_obj, config.CORPUS_CANDIDATE_N,
+                                                 rng, run_seed=run_seed)
 
     baseline, candidate_snap = run_ablation(registry.lookup, registry.toggle,
                                             source_name, corpus)
@@ -150,7 +156,9 @@ def run_for_source(source_name: str, registry=None, corpus_path=CORPUS_PATH,
     verdict = assess(metrics, candidate_touched, flags, source_category=category,
                      rc=h.record_count if h is not None else None,
                      rc_history=_rc_history(source_name, Path(out_dir) / "model"))
-    md, js = write_report(source_name, verdict, metrics, corpus, out_dir)
+    md, js = write_report(source_name, verdict, metrics, corpus, out_dir,
+                          run_seed=run_seed,
+                          sampling_fingerprint=fingerprint(corpus.candidate_ips))
     return md, js, verdict
 
 
