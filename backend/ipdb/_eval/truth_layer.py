@@ -33,14 +33,16 @@ class TruthLayerDegradedError(RuntimeError):
 def parse_rir_delegated(lines: Iterable[str]) -> list[tuple[int, int, str]]:
     """delegated-extended 行 → ipv4 段 (start_int, host_count, date)。
 
-    仅收 7 字段且 type=ipv4、status=allocated/assigned 的行: 版本行(8
-    字段)、注释、汇总行(status=summary)、ipv6/asn 天然出局。结构合法
-    但字段坏(如 start 非 IP)则 ValueError 炸出 —— 坏快照不许静默缩水。
+    收 ≥7 字段且 type=ipv4、status=allocated/assigned 的行: 真格式带第
+    8 列 opaque-id(2026-10-14 首真数据实测: 7 字段断言 → 镜像五文件 0
+    段),富余列忽略; 版本行(type 非ipv4)、汇总行(status=summary)自然出
+    局。结构合法但字段坏(如 start 非 IP)则 ValueError 炸出 —— 坏快照不
+    许静默缩水。
     """
     out = []
     for line in lines:
         parts = line.strip().split("|")
-        if len(parts) != 7 or parts[2] != "ipv4" or parts[6] not in ("allocated", "assigned"):
+        if len(parts) < 7 or parts[2] != "ipv4" or parts[6] not in ("allocated", "assigned"):
             continue
         out.append((int(ipaddress.IPv4Address(parts[3])), int(parts[4]), parts[5]))
     return out

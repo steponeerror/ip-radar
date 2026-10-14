@@ -93,3 +93,17 @@ def test_build_happy_path_publishes_truth_asset(tmp_path):
     assert meta.params["scanlist_fingerprint"] == fingerprint(["10.0.0.0/8"])
     members, loaded = load_asset(out)
     assert members == ["5.1.0.5", "9.9.9.9"] and loaded.kind == "truth"
+
+
+def test_parse_accepts_delegated_extended_8th_field():
+    """真 delegated-extended 带第 8 列 opaque-id(2026-10-14 首真数据实测
+    发现:7 字段断言 → 镜像五文件 0 段)。≥7 字段即收,富余列忽略。"""
+    lines = [
+        "afrinic|ZA|ipv4|41.0.0.0|2097152|20071126|allocated|F364712F",  # 真格式
+        "afrinic|ZA|ipv4|41.79.0.0|4096|20170811|allocated",             # 7列旧式
+        "afrinic|*|ipv4|*|6111|summary",                                  # 汇总出局
+        "2|afrinic|20261014|19858|00000000|20261014|00000",               # 版本行出局
+    ]
+    out = parse_rir_delegated(lines)
+    assert len(out) == 2
+    assert out[0] == (int(__import__("ipaddress").IPv4Address("41.0.0.0")), 2097152, "20071126")
