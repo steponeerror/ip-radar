@@ -60,6 +60,16 @@ def test_unexpected_shape_written_whole_not_filtered(tmp_path):
     assert list(loaded) == list(snapshot)
 
 
+def test_half_shaped_payload_written_whole_not_slimmed(tmp_path):
+    # 两键齐备才精简: 缺 verdict 的半形状载荷整值照写(country/threat 不被裁)
+    snapshot = {"1.2.3.4": {"classifications": {"spam_source": {"type": "spam_source"}},
+                            "country": {"value": "US"},
+                            "threat": {"verdict": "benign"}}}
+    loaded = load_ip_snapshot(persist_ip_snapshot(tmp_path, "run-h", "truth",
+                                                  snapshot))
+    assert loaded == snapshot            # 整值照写, 宁多存不丢证
+
+
 def test_persist_deterministic_bytes(tmp_path):
     # mtime=0 + filename="": 同快照两轮落盘字节一致(冻结工件可复现)
     snapshot = _snapshot(5)

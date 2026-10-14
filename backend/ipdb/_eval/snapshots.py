@@ -3,9 +3,8 @@
 
 把一轮逐 IP 读数(snapshot: ip → LookupResult.to_dict() 载荷)原样落盘,
 供 S29 子读出免重查询引擎复算(哲学 1 证据永不灭失)。
-精简纪律(照 brief, 不自作额外过滤): 载荷是 dict 且带
-classifications/verdict 任一键 → 逐行只留这两个计分字段;
-形状不符 → 整值照写, 宁多存不丢证。
+精简纪律(照 brief, 不自作额外过滤): 载荷是 dict 且 classifications/verdict
+两键齐备 → 逐行只留这两个计分字段; 缺任一键 → 整值照写, 宁多存不丢证。
 """
 from __future__ import annotations
 
@@ -30,7 +29,9 @@ def persist_ip_snapshot(out_dir: Path, run_id: str, layer_kind: str,
         # filename="" 头部不嵌路径: 字节只由内容决定
         with gzip.GzipFile(filename="", fileobj=f, mode="wb", mtime=0) as gz:
             for ip, value in snapshot.items():
-                if isinstance(value, dict) and any(k in value for k in _FIELDS):
+                # 两键齐备才精简(T6 评审硬化): 缺任一键整值照写 ——
+                # 半形状载荷(如裸 to_dict 的 threat)不许被静默裁掉
+                if isinstance(value, dict) and all(k in value for k in _FIELDS):
                     payload = {k: value[k] for k in _FIELDS if k in value}
                 else:
                     payload = value  # 形状不符 → 整值照写
