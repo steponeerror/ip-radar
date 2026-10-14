@@ -68,8 +68,11 @@ def test_cn_isp_content_mtime_tracks_isp_dir(tmp_path: Path):
     os.utime(old, (1000000, 1000000))   # 旧文件:证明取的是 max 而非目录/首个
     mtime = RefreshScheduler._read_mtime(s)
     assert mtime is not None
-    assert mtime == max(isp.joinpath("chinatelecom.txt").stat().st_mtime,
-                        isp.stat().st_mtime)   # 重写不改目录 mtime,必须取目录内最新文件
+    # 与 _read_mtime 实现语义对称:仅目录内文件 max。原 max 混入目录 mtime,
+    # CI 上文件/目录创建差 µs 级即翻车(CI run 38553834119;old.txt 已被
+    # utime 钉到 1000000,期望=chinatelecom.txt 的 mtime,同文件两次 stat 稳定)
+    expected = max(f.stat().st_mtime for f in isp.iterdir() if f.is_file())
+    assert mtime == expected
 
 
 def test_all_isp_files_failed_raises(tmp_path):
