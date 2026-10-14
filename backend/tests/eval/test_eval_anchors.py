@@ -109,6 +109,16 @@ def test_anchors_report_persists_failures_too(tmp_path):
     assert d["failures"] == fails and d["eval_env"] == "gate"
 
 
+def test_anchors_report_pure_read_ignores_invalid_env(monkeypatch, tmp_path):
+    # 纯读路径懒解析 eval_env(T8 复审②):out_dir=None 时不得读
+    # IP_RADAR_EVAL_ENV——无效值不炸,裸 run_anchors 可成功则
+    # anchors_report 纯读也必须成功(不落盘 = 零副作用契约)
+    from ipdb._eval.anchors import anchors_report
+    monkeypatch.setenv("IP_RADAR_EVAL_ENV", "bogus")
+    assert anchors_report(_matching()) == [] \
+        and not (tmp_path / "model").exists()
+
+
 def test_anchors_cli_persists_but_stdout_envelope_unchanged(
         tmp_path, monkeypatch, capsys):
     # CLI 位等价:--anchors --json stdout 仍恰为 {"failures": ...}(无

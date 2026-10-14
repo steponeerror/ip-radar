@@ -144,6 +144,24 @@ def test_audit_two_rounds_not_yet(tmp_path, monkeypatch):
     assert res["c3"]["recall"] == 0.0 and res["c3"]["pass"] is False
 
 
+def test_audit_symmetric_strong_flow_not_yet(tmp_path, monkeypatch):
+    # 对称强流(T3 锁 elif 链):a、b 互相滞后捡起(fab=fba=5)→
+    # 不对称门槛(1.5×)两侧都不满足 → not-yet,不判任一 confirmed
+    ab, ba = _pl("10.7.0", 5), _pl("10.8.0", 5)   # a first / b first
+    both = ab + ba
+    _mk_run(tmp_path, "20260801-000000", {"a": ab, "b": ba})
+    _mk_run(tmp_path, "20260808-000000", {"a": both, "b": both})
+    _mk_run(tmp_path, "20260815-000000", {"a": both, "b": both})
+    import ipdb._eval.audit as A
+    monkeypatch.setattr(A, "DERIVED_SOURCES", frozenset())
+    res = A.lineage_audit(tmp_path)
+    row = next(r for r in res["pairs"] if {r["a"], r["b"]} == {"a", "b"})
+    assert row["fab"] == 5 and row["fba"] == 5
+    assert row["state"] == "not-yet"
+    assert "copier" not in row
+    assert res["relations"] == {}
+
+
 # ── T8(T14 缓议清偿):audit 落盘 model/audit-<ts>.json ──────────
 
 def test_audit_report_persists_model_dir_json(tmp_path, monkeypatch):
@@ -184,6 +202,16 @@ def test_audit_report_eval_env_default_from_ip_radar_env(tmp_path, monkeypatch):
 def test_audit_report_without_out_dir_writes_nothing(tmp_path):
     # out_dir=None → 纯读路径,不建目录不落件(历史调用方语义不变)
     from ipdb._eval.audit import audit_report
+    res = audit_report(tmp_path)
+    assert res["n_rounds"] == 0 and not (tmp_path / "model").exists()
+
+
+def test_audit_report_pure_read_ignores_invalid_env(tmp_path, monkeypatch):
+    # 纯读路径懒解析 eval_env(T8 复审②):out_dir=None 时不得读
+    # IP_RADAR_EVAL_ENV——无效值不炸,裸 lineage_audit 可成功则
+    # audit_report 纯读也必须成功(不落盘 = 零副作用契约)
+    from ipdb._eval.audit import audit_report
+    monkeypatch.setenv("IP_RADAR_EVAL_ENV", "bogus")
     res = audit_report(tmp_path)
     assert res["n_rounds"] == 0 and not (tmp_path / "model").exists()
 

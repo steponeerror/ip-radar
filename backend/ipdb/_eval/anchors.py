@@ -65,11 +65,14 @@ def anchors_report(lookup_fn, out_dir=None, *, eval_env: str | None = None
     __main__.eval_env()）。失败也落盘（failures 原样留档，证据不灭）。
     位等价契约：返回值即 run_anchors 原样，CLI --anchors 的 stdout 与
     退出码（失败 sys.exit(1)）不因落盘变化（计算逻辑零改动）。"""
-    if eval_env is None:
-        from .__main__ import eval_env as _current_env
-        eval_env = _current_env()
     fails = run_anchors(lookup_fn)
     if out_dir is not None:
+        # eval_env 懒解析:仅落盘需要它才读 IP_RADAR_EVAL_ENV——纯读路径
+        # (out_dir=None,docstring 契约零副作用)不得因无效 env 值 raise
+        # (T8 复审②:裸 run_anchors 可成功则 anchors_report 也必须成功)
+        if eval_env is None:
+            from .__main__ import eval_env as _current_env
+            eval_env = _current_env()
         d = Path(out_dir) / "model"
         d.mkdir(parents=True, exist_ok=True)
         ts = _dt.datetime.now(_dt.timezone.utc).strftime("%Y%m%d-%H%M%S")
