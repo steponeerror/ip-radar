@@ -2,8 +2,9 @@
 # 月轮全量评估(Eval Algorithm v2 Phase 1 收口;决策 #6:手动触发,
 # 错峰可前置 nice/ionice,如 `nice -n 19 ionice -c3 bash scripts/monthly_eval.sh`)。
 # 流程:① 守卫(须在 master 且工作区 clean)② rsync 生产 volume 镜像到本地
-# ③ 五连 eval 命令(--model 先落盘本轮,--audit/--temporal 只读 model 历史)
-# ④ 每命令打印尾行摘要。
+# ③ 镜像 manifest 守卫(S7: 塕缩即止, 先于读数)④ 五连 eval 命令
+# (--model 先落盘本轮,--audit/--temporal 只读 model 历史)
+# ⑤ 每命令打印尾行摘要。
 # 自验:`bash -n scripts/monthly_eval.sh`(语法);`bash scripts/monthly_eval.sh
 # --dry-run`(只打印将执行的命令不执行;dry-run 下守卫仅提示不拦截,便于预演)。
 # 数据目录默认 <repo>/.eval-prod-data(已 gitignore,防误提交 ~55GB),
@@ -69,6 +70,20 @@ if [ "$DRY_RUN" != 1 ]; then
   mkdir -p "$DATA_DIR"
   # --delete-after 保持镜像(与既往手动月轮一致)
   rsync -az --partial --delete-after --info=progress2 "$RSYNC_SRC" "$DATA_DIR/"
+fi
+
+# 守卫序(S7): rsync 后、读数前校验 manifest(文件数+字节+epoch 指纹+抽样
+# sha256);源塔缩(binarydefense 6347→382 式)或半截 rsync → 退出非零,
+# set -e 在任何 eval 读数前中止。manifest 只在通过时落盘,失败保留旧档
+# 可复现;epoch 指纹留档供新鲜度哨兵(S6)。
+MIRROR_MANIFEST="$REPO/backend/data/eval/monthly/mirror-manifest.json"
+echo
+echo "==> mirror-check: python3 -m ipdb._eval.mirror_check \"$DATA_DIR\" \"$MIRROR_MANIFEST\""
+if [ "$DRY_RUN" != 1 ]; then
+  ( cd "$REPO/backend" && \
+      IP_RADAR_DATA_DIR="$DATA_DIR" \
+      IP_RADAR_EVAL_ENV=monthly \
+      python3 -m ipdb._eval.mirror_check "$DATA_DIR" "$MIRROR_MANIFEST" )
 fi
 
 run_step model    --model    # 舰队模型 + 验收套件(落盘本轮 model-*.json)
