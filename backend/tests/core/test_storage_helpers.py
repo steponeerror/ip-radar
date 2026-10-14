@@ -45,6 +45,9 @@ def test_reload_leaves_prior_reader_to_refcount(tmp_path, monkeypatch):
     prior = SimpleNamespace(close=lambda: closed.append(1))
     src._reader = prior
 
+    # 族级增量(2026-10-14 收敛批):same-raw 的重复 rebuild 是已收敛
+    # no-op(不动 reader);推进 raw mtime 模拟新下载,才会真正换纪元。
+    os.utime(csv, (csv.stat().st_mtime + 100,) * 2)
     src.rebuild()                                          # double-buffer swap
 
     assert closed == [], "rebuild must not close the prior reader"

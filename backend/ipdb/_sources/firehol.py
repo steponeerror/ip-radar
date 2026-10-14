@@ -203,7 +203,8 @@ class FireholBlocklistSource(IpListSource):
             covered_setter4=lambda v: setattr(self, "_covered_ips", v),
             covered_setter6=lambda v: setattr(self, "_covered_v6_nets", v),
             progress=progress,
-            total_est=self._count + self._count6)
+            total_est=self._count + self._count6,
+            raw=self._path)   # 族级增量:_path=列表目录,与 _needs_rebuild_of 同基准
         self._count = n4
         self._count6 = n6
         self._loaded_at = time.time()

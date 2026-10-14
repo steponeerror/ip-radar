@@ -453,7 +453,8 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
                  progress: Callable[[int, int], None] | None = None,
                  ip_version: int = 4,
                  covered_setter: Callable[[int], None] | None = None,
-                 total_est: int = 0) -> int:
+                 total_est: int = 0,
+                 allow_empty: bool = False) -> int:
     """Stream-build a fresh epoch env, then atomically swap via ptr.
 
     Commit order (crash invariant): rename closed env dir → sidecars (staged
@@ -482,6 +483,12 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
     一条,键数才是「库里有什么」的真值;返回值同此键数(流式行数 n 只用于
     progress/零记录守卫)。CsvSource 时代的「count=证据数」覆写通道已删——
     多证据并单键的源不再虚增计数。
+
+    allow_empty:跳过零记录守卫,空 rebuild 允许提交(count 写 0)。唯一
+    合法调用方 = rebuild_dual_family 的 v6 腿且仅当 n4>0(主族健康):
+    v4-only feed 的空 v6 重建若按历史 count 拒绝,v6 幻影纪元(如
+    2026-10-11 build 留下的 stopforumspam v6 count=1)永困旧 epoch;
+    v4 主族永不传,守卫保持严格(feed 改格式仍拒绝空重建)。
     """
     import shutil
     if ip_version not in (4, 6):
@@ -577,22 +584,34 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
         batch.append((key_enc(s), e, orjson.dumps(evidence)))
         n += 1
         if len(batch) >= BATCH_SIZE:
-            if _avail_ratio() < REBUILD_ABORT_RATIO:
+            ratio = _avail_ratio()
+            if ratio < REBUILD_ABORT_RATIO:
+                # 写回后再判死(2026-10-14 收敛批):构建期免刷盘的 staging
+                # 脏页是自压 —— env.sync(True) 把已提交批次写回成干净
+                # file-backed 页(内核可回收),不该计为「不可用」。健康
+                # 主机 avail 永不触线,此路径零代价。
+                logger.debug(
+                    "rebuild %s: avail %.1f%% < %.1f%% at %d rows; syncing "
+                    "staging dirty pages before abort decision",
+                    base.name, ratio * 100, REBUILD_ABORT_RATIO * 100, n)
+                env.sync(True)
+                ratio = _avail_ratio()
+            if ratio < REBUILD_ABORT_RATIO:
                 # 预警中止:txn 均已闭合(只在 _flush 内),关 env、弃 staging。
                 # 下次重试同 epoch 同 staging 路径,开头 rmtree 自清。
                 env.close()
                 shutil.rmtree(staging, ignore_errors=True)
                 raise RebuildAborted(
                     f"rebuild aborted at {n} rows: host avail ratio below "
-                    f"{REBUILD_ABORT_RATIO:.0%} — old epoch/ptr intact, "
-                    f"task will back off and retry")
+                    f"{REBUILD_ABORT_RATIO:.0%} after staging sync — old "
+                    f"epoch/ptr intact, task will back off and retry")
             _flush()
             if progress is not None:
                 # total 已知时 feed 增长跟随 received(防 >100%);未知(0)时
                 # 诚实报 0 — UI --% 不定态,而非假 n/n=100%(首次构建修复)。
                 progress(n, max(total, n) if total > 0 else 0)
     _flush()
-    if n == 0:
+    if n == 0 and not allow_empty:
         # 零记录守卫:历史 count>0 的空 rebuild 是 feed 异常(改格式/上游清
         # 空),不得提交 — 旧 epoch + ptr 原样保留,任务显式失败走退避。
         cp = count_path(base)
@@ -691,6 +710,22 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
     return n_keys
 
 
+def _converged_count(base: Path, raw: Path | None) -> int | None:
+    """族级增量的跳过判定 + 跳过族返回计数(2026-10-14 收敛批)。
+
+    None(不跳过,照建)= raw 未给出 / 族 ptr 落后于 raw / count sidecar
+    缺失或不可解析。sidecar 缺失不跳:rebuild 即自愈(既有契约,
+    test_base_*_reconverts_when_count_sidecar_missing)—— ptr 在而计数
+    丢失时跳过会把 owner._count 静默归 0。ptr 存在 ⇒ sidecar 先于 ptr
+    提交(见 rebuild_lmdb 提交序),理论恒在。"""
+    if raw is None or needs_convert(raw, ptr_path(base)):
+        return None
+    try:
+        return int(count_path(base).read_text().strip())
+    except (OSError, ValueError):
+        return None
+
+
 def rebuild_dual_family(records, v4_base: Path, v6_base: Path, *,
                         reader_setter4: Callable, reader_setter6: Callable,
                         flag_setter4: Callable[[bool], None] | None = None,
@@ -700,7 +735,8 @@ def rebuild_dual_family(records, v4_base: Path, v6_base: Path, *,
                         progress: Callable[[int, int], None] | None = None,
                         covered_setter4: Callable[[int], None] | None = None,
                         covered_setter6: Callable[[int], None] | None = None,
-                        total_est: int = 0) -> tuple[int, int]:
+                        total_est: int = 0,
+                        raw: Path | None = None) -> tuple[int, int]:
     """One records source → both family envs (spec §3).
 
     records: list[(cidr, evidence)] 或零参 callable 返回 iterable(流式源用,
@@ -713,28 +749,44 @@ def rebuild_dual_family(records, v4_base: Path, v6_base: Path, *,
     调用方预计算值;Auto=写库循环内统计(流式位点用,免预扫描)。
     返回 (n4, n6) = 各族提交后的主库键数(DQ-2:键数即 .count 真值,供
     owner._count 直采;CsvSource 旧 count4/count6 证据数覆写通道已删)。
+    raw: 原始数据路径(族级增量,2026-10-14 收敛批)。给出时每族先判
+    needs_convert(raw, 族ptr):ptr ≥ raw mtime(该族已收敛)→ 跳过 —— 不建
+    新纪元不动 reader,返回计数取现有 count sidecar。重试场景(v6 被
+    memory valve 中止)只重做未收敛族,v4 不再每次全量重做;与 registry
+    _needs_rebuild_of 同谓词,触发车道与跳过判定恒一致。v6 ptr 缺失
+    照建(needs_convert 对缺 ptr 恒 True,Q3 不变量不破)。
     """
     if callable(records):
-        rec4 = ((c, e) for c, e in records() if ":" not in c)
-        rec6 = ((c, e) for c, e in records() if ":" in c)
+        # 注意 PEP 289:genexp 最外层 iterable 在创建时即求值 —— 分区必须
+        # 延迟到该族真正要建时才做,否则跳过的族仍白跑一整遍 harvest
+        # (流式源 records() 的 full pass)。
+        def _recs(v6: bool):
+            return ((c, e) for c, e in records() if (":" in c) == v6)
     else:
-        rec4 = [(c, e) for c, e in records if ":" not in c]
-        rec6 = [(c, e) for c, e in records if ":" in c]
-    n4 = rebuild_lmdb(rec4, v4_base, reader_setter4,
-                      covered=covered4, flag_setter=flag_setter4,
-                      progress=progress, covered_setter=covered_setter4,
-                      total_est=total_est)
+        def _recs(v6: bool):
+            return [(c, e) for c, e in records if (":" in c) == v6]
+    n4 = _converged_count(v4_base, raw)
+    if n4 is None:
+        n4 = rebuild_lmdb(_recs(False), v4_base, reader_setter4,
+                          covered=covered4, flag_setter=flag_setter4,
+                          progress=progress, covered_setter=covered_setter4,
+                          total_est=total_est)
     progress6 = None
     if progress is not None:
         def progress6(done, total):           # 闭包捕 n4(v4 pass 已返回)
             if done == 0 and total == 0:
                 return                          # 空 pass:v4 已报终值,不复发
             progress(n4 + done, (n4 + total) if total > 0 else 0)
-    n6 = rebuild_lmdb(rec6, v6_base, reader_setter6,
-                      covered=covered6, flag_setter=flag_setter6,
-                      progress=progress6, ip_version=6,
-                      covered_setter=covered_setter6,
-                      total_est=max(0, total_est - n4))
+    n6 = _converged_count(v6_base, raw)
+    if n6 is None:
+        # v6 空重建:仅当 n4>0(主族健康)允许提交 —— v4-only feed 的
+        # v6 幻影 count(如 sfs 10-11 build 的 1)随下次重建归零。
+        n6 = rebuild_lmdb(_recs(True), v6_base, reader_setter6,
+                          covered=covered6, flag_setter=flag_setter6,
+                          progress=progress6, ip_version=6,
+                          covered_setter=covered_setter6,
+                          total_est=max(0, total_est - n4),
+                          allow_empty=n4 > 0)
     return n4, n6
 
 
@@ -753,7 +805,8 @@ def commit_dual_family(owner, records, *, cov4, cov6, progress=None) -> int:
         flag_setter4=lambda v: setattr(owner, "_disjoint", v),
         flag_setter6=lambda v: setattr(owner, "_disjoint6", v),
         covered4=cov4, covered6=cov6,
-        progress=progress)
+        progress=progress,
+        raw=owner._path)   # 族级增量:raw 已收敛的族跳过(两基类契约 _path=原始数据)
     owner._count = n4
     owner._count6 = n6
     owner._covered_ips = cov4

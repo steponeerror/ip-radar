@@ -205,7 +205,8 @@ class IPinfoLiteSource:
             covered4=Auto, covered6=Auto,
             covered_setter4=lambda v: setattr(self, "_covered_ips", v),
             covered_setter6=lambda v: setattr(self, "_covered_v6_nets", v),
-            progress=progress)
+            progress=progress,
+            raw=self._path)   # 族级增量:已收敛族跳过,重试只做未收敛族
         self._count = n4
         self._count6 = n6
         self._loaded_at = time.time()

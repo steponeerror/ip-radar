@@ -85,6 +85,38 @@ def test_retry_after_abort_completes(monkeypatch, tmp_path):
     assert read_ptr(base) is not None
 
 
+def test_sync_before_abort_recovers_and_completes(monkeypatch, tmp_path):
+    """T2(2026-10-14 收敛批)写回后再判死:首测低读数(构建期免刷盘的
+    staging 脏页自压)→ env.sync 写回 → 复测恢复 → 不中止完成。avail 序列
+    钉住判定序:低 → sync → 复测,而非直接 abort。"""
+    monkeypatch.setattr("ipdb._sources._lmdb.BATCH_SIZE", 10)
+    seq = [0.05, 0.5]                       # 首边界:低 → sync 后恢复
+
+    def fake_ratio():
+        return seq.pop(0) if seq else 0.5   # 后续边界恒健康
+
+    monkeypatch.setattr("ipdb._sources._lmdb._avail_ratio", fake_ratio)
+    base = tmp_path / "t.lmdb"
+    assert rebuild_lmdb(_recs(25), base, lambda e: None) == 25   # ≥2 次 flush 边界
+    assert read_ptr(base) is not None
+
+
+def test_persistent_low_ratio_still_aborts_after_sync(monkeypatch, tmp_path):
+    """T2 守卫语义保留:sync 后仍低于线 → 照旧 abort(旧 epoch/ptr 原样、
+    staging 清除)—— 写回只是抢救,不悬空宁停勿死语义。"""
+    monkeypatch.setattr("ipdb._sources._lmdb.BATCH_SIZE", 10)
+    base = tmp_path / "t.lmdb"
+    _set_ratio(monkeypatch, 0.9)
+    rebuild_lmdb(_recs(12), base, lambda e: None)
+    before_ptr, before_epochs = read_ptr(base), _epochs(base)
+    _set_ratio(monkeypatch, 0.05)                          # 恒低:sync 也救不回
+    with pytest.raises(RebuildAborted):
+        rebuild_lmdb(_recs(50), base, lambda e: None)
+    assert read_ptr(base) == before_ptr
+    assert _epochs(base) == before_epochs
+    assert not list(base.parent.glob(f"{base.name}.*.new.*"))  # staging 已清
+
+
 def test_zero_records_corrupt_count_sidecar_raises(monkeypatch, tmp_path):
     """零记录守卫加固:count sidecar 存在但不可解析 → raise(损坏=有历史,
     保守守死,grill Q1 批 P2-6);旧 epoch/ptr 原样,staging 清除。

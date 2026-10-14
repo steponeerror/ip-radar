@@ -188,6 +188,102 @@ def test_rebuild_dual_family_empty_v6_writes_ptr(tmp_path):
     for e in envs: e.close()
 
 
+def _epoch_dirs(base):
+    return sorted(p.name for p in base.parent.glob(f"{base.name}.*")
+                  if p.is_dir() and p.name.rsplit(".", 1)[-1].isdigit())
+
+
+def test_rebuild_dual_family_converged_family_skipped(tmp_path):
+    """T1(2026-10-14 收敛批)族级增量:raw 已被 v4 ptr 覆盖 → v4 跳过
+    (不建新纪元、不动 reader、计数取 count sidecar),v6 ptr 落后照建;
+    两族均收敛 → 双跳(重试零成本)。"""
+    import os
+    from ipdb._sources._lmdb import rebuild_dual_family, read_ptr, ptr_path
+    raw = tmp_path / "s.txt"
+    raw.write_text("x")
+    v4, v6 = tmp_path / "s.lmdb", tmp_path / "s.v6.lmdb"
+    envs = []
+    rebuild_dual_family(
+        [("10.0.0.0/24", [{}]), ("2001:db8::/32", [{}])],
+        v4, v6, reader_setter4=envs.append, reader_setter6=envs.append,
+        raw=raw)
+    e4, e6 = envs
+    for e in envs: e.close()
+    FUT, PAST = 2e9, 1e9   # 与真实时钟无关的确定性两档 mtime
+    made = []
+
+    def factory():
+        made.append(1)     # 流式源形态:每次调用 = 一整遍 harvest
+        return iter([("10.9.0.0/24", [{}]), ("2001:db9::/32", [{}])])
+
+    # 场景 A:仅 v6 落后 —— v4 ptr 拨未来、v6 ptr 拨过去
+    os.utime(ptr_path(v4), (FUT, FUT))
+    os.utime(ptr_path(v6), (PAST, PAST))
+    calls = []
+    n4, n6 = rebuild_dual_family(
+        factory, v4, v6,
+        reader_setter4=lambda e: calls.append(("r4", e)),
+        reader_setter6=lambda e: calls.append(("r6", e)),
+        raw=raw)
+    assert [c[0] for c in calls] == ["r6"]     # v4 reader 未动
+    assert n4 == 1                             # 跳过族计数取 sidecar
+    assert n6 == 1
+    assert read_ptr(v4) == 1                   # v4 无新纪元
+    assert read_ptr(v6) == 2                   # v6 重建到下一纪元
+    assert _epoch_dirs(v4) == ["s.lmdb.1"]
+    assert made == [1]                         # 跳过的族不白跑 harvest(PEP 289 延迟)
+    for _, e in calls: e.close()
+
+    # 场景 B:两族 ptr 均 ≥ raw → 双跳,零 reader 回调零新纪元零 harvest
+    os.utime(ptr_path(v6), (FUT, FUT))
+    calls = []
+    made.clear()
+    n4, n6 = rebuild_dual_family(
+        factory, v4, v6,
+        reader_setter4=lambda e: calls.append(("r4", e)),
+        reader_setter6=lambda e: calls.append(("r6", e)),
+        raw=raw)
+    assert calls == []
+    assert made == []
+    assert (n4, n6) == (1, 1)
+    assert read_ptr(v4) == 1 and read_ptr(v6) == 2
+
+    # 场景 C:raw 新于两族 ptr(新下载落地)→ 两族均重建
+    os.utime(raw, (FUT + 100, FUT + 100))
+    calls = []
+    made.clear()
+    n4, n6 = rebuild_dual_family(
+        factory, v4, v6,
+        reader_setter4=lambda e: calls.append(("r4", e)),
+        reader_setter6=lambda e: calls.append(("r6", e)),
+        raw=raw)
+    assert [c[0] for c in calls] == ["r4", "r6"]
+    assert made == [1, 1]                      # 两族各跑一遭 harvest
+    assert read_ptr(v4) == 2 and read_ptr(v6) == 3
+    for _, e in calls: e.close()
+
+
+def test_rebuild_dual_family_v4_only_feed_zeroes_v6_phantom(tmp_path):
+    """T4(2026-10-14 收敛批)sfs v6 幻影:历史 v6 count=1 的库遇到 v4-only
+    feed → n4>0(主族健康)时空 v6 重建允许提交,count 归 0;修复前此处被
+    零记录守卫拒("zero records parsed but previous count was 1")。
+    v4 主族零记录仍拒由既有 test_rebuild_lmdb_zero_records_with_history_
+    raises_keeps_ptr 钉住(allow_empty 默认 False)。"""
+    from ipdb._sources._lmdb import (rebuild_dual_family, rebuild_lmdb,
+                                     read_ptr, count_path)
+    v4, v6 = tmp_path / "f.lmdb", tmp_path / "f.v6.lmdb"
+    rebuild_lmdb([("2001:db8::/32", [{}])], v6, lambda e: None, ip_version=6)
+    assert count_path(v6).read_text() == "1"      # 幻影:历史 v6 count=1
+    envs = []
+    n4, n6 = rebuild_dual_family(
+        [("10.0.0.0/24", [{}])],                   # v4-only feed
+        v4, v6, reader_setter4=envs.append, reader_setter6=envs.append)
+    assert (n4, n6) == (1, 0)
+    assert count_path(v6).read_text() == "0"      # 幻影归零
+    assert read_ptr(v6) is not None               # ptr 前进,空 env 服役
+    for e in envs: e.close()
+
+
 def test_dual_family_streaming_v6_progress_uses_total_est(tmp_path):
     """流式 factory(无 __len__)+ total_est:v6 pass 的进度事件必须携带
     换算后的 total。断言 mid-flush 分数:终值事件经 max(total, n) 自适应
