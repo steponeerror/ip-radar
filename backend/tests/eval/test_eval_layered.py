@@ -200,21 +200,24 @@ def test_long_memory_split_descriptive_only(tmp_path):
 # ── F6 仅双派生佐证计数 ─────────────────────────────────────────
 
 
-def test_derived_only_corroboration_counts_pure_derived(tmp_path):
+def test_derived_only_corroboration_counts_unique_across_all_layers(tmp_path):
+    # F6 裁决: 全层唯一计数 —— 层经交集审计互斥, 唯一 = 逐层求和无回声双计
     _save_layer(tmp_path, "truth", ["1.1.1.1", "2.2.2.2", "5.5.5.5"])
-    _save_layer(tmp_path, "infra", ["9.9.9.9"])
+    _save_layer(tmp_path, "neutral", ["9.9.9.9", "7.7.7.7"])
     lookup = _lookup({
         "1.1.1.1": _hit("spam_source", [("firehol", "malicious"),
-                                        ("ipsum", "malicious")]),   # k=2 全派生
+                                        ("ipsum", "malicious")]),   # truth k=2 全派生
         "2.2.2.2": _hit("c2-server", [("firehol", "malicious"),
-                                      ("threatfox", "malicious")]),  # k=2 含非派生
+                                      ("threatfox", "malicious")]),  # 含非派生指控源→不计
         "5.5.5.5": _hit("spam_source", [("firehol", "malicious")]),  # k=1 不计
         "9.9.9.9": _hit("spam_source", [("firehol", "malicious"),
-                                        ("ipsum", "malicious")]),   # 非 truth 层不计
+                                        ("ipsum", "malicious")]),   # neutral 全派生同计
+        "7.7.7.7": _hit("spam_source", [("ipsum", "malicious"),
+                                        ("threatfox", "malicious")]),  # 任意层含非派生→不计
     })
     readout = layered_readout(lookup, assemble_four_layers(tmp_path),
                               out_dir=tmp_path, run_id="r")
-    assert readout["derived_only_corroboration"] == 1
+    assert readout["derived_only_corroboration"] == 2
 
 
 # ── F10 快照: 每层落盘 + 顶层 verdict 展平 ──────────────────────

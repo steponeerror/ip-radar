@@ -142,7 +142,9 @@ def layered_readout(lookup_fn, layers: dict[str, LayerResult], *,
     truth 层另携 split_by_long_memory(缺名单 → 键在值 null, 模式稳定)。
     NO-LAYER 层块字段全 None 且不查不落盘 —— 哨兵贯穿, 缺层≠0 层。
     degraded = 任一层 status != "OK"。derived_only_corroboration(F6,
-    §2.2 闸③) = 威胁真值层 k_all≥2 且指控源全属声明派生簇的命中 IP 数。
+    §2.2 闸③) = 全部 OK 层命中 IP 中 k_all≥2 且指控源全属声明派生簇的
+    唯一 IP 数 —— 层成员经交集审计互斥(assemble_four_layers), 全层唯一
+    = 逐层求和, 无回声双计(哲学 3: 回声不是印证)。
     asof 非空时以 kwarg 透传(T10 时钟锚; None 走普通调用, T10 前引擎
     链无该形参)。sources 给源对象(.name/.honeypot_methodology)时并入
     蜜罐排除集, None 时仅 config.HONEYPOT_METHODOLOGY 兜底。
@@ -183,8 +185,8 @@ def layered_readout(lookup_fn, layers: dict[str, LayerResult], *,
             k_nh_hist[k_nh] = k_nh_hist.get(k_nh, 0) + 1
             for t in types:
                 ctype_mix[t] = ctype_mix.get(t, 0) + 1
-            if kind == "truth" and len(accusing) >= 2 and accusing <= derived:
-                derived_only += 1
+            if len(accusing) >= 2 and accusing <= derived:
+                derived_only += 1  # F6 裁决: 全层唯一(层互斥, 无回声双计)
         lr.hits = len(hit_ips)
         lr.rate = len(hit_ips) / len(lr.members) if lr.members else None
         lr.k_hist = dict(sorted(k_all_hist.items()))
