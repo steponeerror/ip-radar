@@ -258,6 +258,63 @@ def test_reconcile_success_clears_fail_count(tmp_path):
     assert "x" not in sch._last_task
 
 
+def test_reconcile_mtime_advanced_but_unrebuilt_escalates(tmp_path, monkeypatch):
+    """2026-10-14 demo 五源自增强环刹车:mtime 前进(下载成功)但
+    needs_rebuild 仍 True(rebuild 被 memory valve 卡住/ptr 纪元冻结)
+    → 升退避而非清退避(归成功会失去唯一刹车 → 每 30min 全量重抓);
+    record_event 照记(内容真实落地)。ptr 推进后走 else 清退避(见
+    test_reconcile_success_clears_fail_count 钉住)。"""
+    src = _make_src("freeze", tmp_path, mtime=OLD)
+    sch, mgr = _make_scheduler([src], needs_rebuild=lambda s: True)
+    sch.scan(now=NOW)                           # enqueues t0
+    mgr._states[sch._last_task["freeze"]] = "done"
+    src.set_mtime(NOW + 100.0)                  # 下载落地,mtime 前进
+    recorded = []
+    from ipdb import _alerts
+    monkeypatch.setattr(
+        _alerts, "record_event",
+        lambda name, at=None, **k: recorded.append((name, at)))
+    sch.scan(now=NOW + 1000.0)                  # reconcile: mtime 前进但 ptr 冻结
+    b = sch._backoff["freeze"]
+    assert b.fail_count == 1
+    assert b.next_attempt == NOW + 1000.0 + 3600    # 首级 1h
+    # 事件不丢:内容变化被确认(record_count 取当前 health)
+    assert ("freeze", NOW + 1000.0) in recorded
+    # backoff 未到期:needs_rebuild 立即路径也被压着,不重拉
+    sch.scan(now=NOW + 2000.0)
+    assert mgr.enqueued == ["freeze"]
+
+
+def test_scan_lmdb_backed_false_exempt_from_rebuild(tmp_path):
+    """2026-10-14 幻影环修:设计上无 LMDB 的源(lmdb_backed=False,如
+    caida_asorg)ptr 永不存在 ≠ 需重建 → fresh raw + ptr 缺失不 enqueue;
+    同形源未标(默认 True)仍走 needs_rebuild 立即路径(对照组)。"""
+    from ipdb._registry import _needs_rebuild_of
+    src = _make_src("phantom", tmp_path, mtime=NOW)   # fresh raw, ptr 缺失
+    assert not src._mmdb_path.exists()
+    sch, mgr = _make_scheduler([src], needs_rebuild=_needs_rebuild_of)
+    sch.scan(now=NOW)
+    assert mgr.enqueued == ["phantom"]                # 对照:默认豁免前必抓
+    src2 = _make_src("caida_phantom", tmp_path, mtime=NOW)
+    src2.lmdb_backed = False
+    assert _needs_rebuild_of(src2) is False
+    sch2, mgr2 = _make_scheduler([src2], needs_rebuild=_needs_rebuild_of)
+    sch2.scan(now=NOW)
+    assert mgr2.enqueued == []                        # 豁免:不再幻影重抓
+
+
+def test_caida_asorg_exempt_from_phantom_rebuild(tmp_path):
+    """生产钉子:真实 caida_asorg(rebuild=load,文件即持久层)必须豁免
+    needs_rebuild —— raw 在而 ptr 缺失(基类无条件设 _mmdb_path 的默认)
+    不得触发重建入队。"""
+    from ipdb._registry import _needs_rebuild_of
+    from ipdb._sources.caida_asorg import CaidaAsorgSource
+    src = CaidaAsorgSource(tmp_path)
+    (tmp_path / src.filename).write_text("x")   # raw 存在(ptr 家族永不存在)
+    assert src.lmdb_backed is False
+    assert _needs_rebuild_of(src) is False
+
+
 class PartialFeedSource(SchedFakeSource):
     """cloud_ranges 形源:download 部分容忍,失败家记在
     last_partial_failure(scheduler 的 done-但-部分失败信号,spec §2.3)。"""

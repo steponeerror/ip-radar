@@ -59,6 +59,9 @@ class Source:
     # a stray duplicate is harmless. Multi-evidence threat sources must leave
     # this False — they rely on acc to group several evidence per CIDR.
     single_evidence: bool = False
+    # 设计上无 per-IP LMDB 面的源置 False(caida_asorg:文件即持久层);
+    # 2026-10-14 demo 幻影环:ptr 永不存在被当 needs_rebuild → 每 30min 全量重抓
+    lmdb_backed: bool = True
 
     def __init__(self, data_dir: Path):
         self._data_dir = data_dir

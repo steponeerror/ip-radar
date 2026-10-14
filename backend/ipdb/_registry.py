@@ -395,7 +395,12 @@ def _needs_rebuild_of(source) -> bool:
 
     Single-source form of sources_needing_rebuild, using the same
     needs_convert check. Returns False for sources lacking _path/_mmdb_path
-    (defensive; real offline sources always set them)."""
+    (defensive; real offline sources always set them) and for by-design
+    LMDB-less sources (lmdb_backed=False; ptr 永不存在 ≠ 需重建)."""
+    if not getattr(source, "lmdb_backed", True):
+        # 2026-10-14 demo 幻影环:caida_asorg 等无 LMDB 源 ptr 永不存在,
+        # needs_convert 恒 True → 调度器绕过 12h 槽位每 30min 全量重抓
+        return False
     from ._sources._lmdb import needs_convert
     raw_path = getattr(source, "_path", None)
     mmdb_path = getattr(source, "_mmdb_path", None)
