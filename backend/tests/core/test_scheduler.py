@@ -156,19 +156,27 @@ class FakeManager:
 
     def __init__(self):
         self.enqueued = []        # list of source names enqueue_one_detached was called with
+        self.lanes = []           # parallel to enqueued: rebuild_only flag per call
         self._states = {}         # task_id -> state (scripted)
+        self._rebuild_only = {}   # task_id -> rebuild_only flag
         self._next_task_id = 0
 
-    def enqueue_one_detached(self, name):
+    def enqueue_one_detached(self, name, rebuild_only=False):
         tid = f"t{self._next_task_id}"
         self._next_task_id += 1
         self.enqueued.append(name)
+        self.lanes.append(rebuild_only)
         self._states.setdefault(tid, "queued")  # default queued unless overwritten
+        self._rebuild_only[tid] = rebuild_only
         from ipdb._tasks import Task
-        return Task(id=tid, source_name=name, host=None, batch_id=None)
+        return Task(id=tid, source_name=name, host=None, batch_id=None,
+                    _rebuild_only=rebuild_only)
 
     def task_state(self, task_id):
         return self._states.get(task_id)
+
+    def task_rebuild_only(self, task_id):
+        return self._rebuild_only.get(task_id, False)
 
 
 def _make_scheduler(sources, manager=None, needs_rebuild=lambda s: False, interval=1800):
@@ -283,6 +291,103 @@ def test_reconcile_mtime_advanced_but_unrebuilt_escalates(tmp_path, monkeypatch)
     # backoff 未到期:needs_rebuild 立即路径也被压着,不重拉
     sch.scan(now=NOW + 2000.0)
     assert mgr.enqueued == ["freeze"]
+
+
+def test_scan_needs_rebuild_lane_is_rebuild_only(tmp_path):
+    """T3(2026-10-14 收敛批):needs_rebuild 车道 enqueue 传 rebuild_only=
+    True(已下载的不重复下载);partial_failure 车道(死 feed 要重抓)与
+    slot 车道(新内容要抓)不传。三车道同扫对照。"""
+    rb = _make_src("rb", tmp_path, mtime=NOW)          # fresh:仅 needs_rebuild 触发
+    slot = _make_src("slot_src", tmp_path, mtime=OLD)  # slot 到期,无 needs_rebuild
+    pf = _make_partial_src("pf", tmp_path)
+    pf.last_partial_failure = ["dead_feed"]
+    sch, mgr = _make_scheduler(
+        [rb, slot, pf], needs_rebuild=lambda s: s.name == "rb")
+    sch.scan(now=NOW)
+    assert mgr.enqueued == ["rb", "slot_src", "pf"]    # 三车道全触发
+    assert dict(zip(mgr.enqueued, mgr.lanes)) == {
+        "rb": True, "slot_src": False, "pf": False}
+
+
+def test_rebuild_only_task_skips_download_when_raw_exists(tmp_path):
+    """T3:rebuild-only 任务 raw 在 → download 不被调用,rebuild 照跑至 done
+    (状态直达 loading);raw 缺失 → 回退全量(download 照调)。"""
+    class RawBackedSource:
+        def __init__(self, name, path, exists=True):
+            self.name = name
+            self.download_host = None
+            self._path = path
+            self.download_calls = 0
+            self.rebuild_calls = 0
+            if exists:
+                path.write_text("x")
+
+        def download(self, token=None):
+            self.download_calls += 1
+
+        def rebuild(self):
+            self.rebuild_calls += 1
+
+    def _wait_terminal(mgr, task):
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline \
+                and mgr.task_state(task.id) not in ("done", "failed", "cancelled"):
+            time.sleep(0.02)
+        return mgr.task_state(task.id)
+
+    src = RawBackedSource("geo", tmp_path / "geo.csv")
+    mgr, _ = _make_manager([src])
+    task = mgr.enqueue_one_detached("geo", rebuild_only=True)
+    assert _wait_terminal(mgr, task) == "done"
+    assert src.download_calls == 0          # 车道核心:没下载
+    assert src.rebuild_calls == 1
+
+    src2 = RawBackedSource("geo2", tmp_path / "geo2.csv", exists=False)
+    mgr2, _ = _make_manager([src2])
+    task2 = mgr2.enqueue_one_detached("geo2", rebuild_only=True)
+    assert _wait_terminal(mgr2, task2) == "done"
+    assert src2.download_calls == 1         # raw 缺失回退全量
+    assert src2.rebuild_calls == 1
+
+
+def test_reconcile_rebuild_only_done_converged_clears_backoff(
+        tmp_path, monkeypatch):
+    """T3:rebuild-only done + mtime 不变(预期,没下载)+ needs_rebuild 翻
+    False → 成功处理:清退避清任务,不记内容事件(事件在下载轮已记)。"""
+    from ipdb import _alerts
+    monkeypatch.setattr(_alerts, "event_count", lambda name: 1)  # 抑制种子事件
+    recorded = []
+    monkeypatch.setattr(_alerts, "record_event",
+                        lambda name, at=None, **k: recorded.append((name, at)))
+    needs = {"flag": True}
+    src = _make_src("rb2", tmp_path, mtime=OLD)
+    sch, mgr = _make_scheduler([src], needs_rebuild=lambda s: needs["flag"])
+    sch.scan(now=NOW)                            # needs_rebuild 车道 → rebuild_only
+    assert mgr.lanes == [True]
+    mgr._states[sch._last_task["rb2"]] = "done"  # 重建完成,mtime 不变
+    needs["flag"] = False                         # ptr 已推进 → 收敛
+    sch.scan(now=NOW + 1000.0)
+    assert "rb2" not in sch._backoff              # 成功:退避清
+    assert "rb2" not in sch._last_task
+    assert recorded == []                         # 不记内容事件
+
+
+def test_reconcile_rebuild_only_done_still_stale_escalates(tmp_path, caplog):
+    """T3:rebuild-only done 但 needs_rebuild 仍 True(另一族被 valve 卡住
+    仍冻)→ 升退避梯(与 mtime-advanced 分支同刹车),且不再触发
+    "theoretically unreachable"告警分支。"""
+    import logging
+    src = _make_src("rb3", tmp_path, mtime=OLD)
+    sch, mgr = _make_scheduler([src], needs_rebuild=lambda s: True)
+    sch.scan(now=NOW)
+    mgr._states[sch._last_task["rb3"]] = "done"
+    with caplog.at_level(logging.WARNING):
+        sch.scan(now=NOW + 1000.0)
+    b = sch._backoff["rb3"]
+    assert b.fail_count == 1
+    assert b.next_attempt == NOW + 1000.0 + 3600   # 首级 1h
+    assert not any("unreachable" in r.message.lower() for r in caplog.records)
+
 
 
 def test_scan_lmdb_backed_false_exempt_from_rebuild(tmp_path):

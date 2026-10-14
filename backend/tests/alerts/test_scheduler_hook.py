@@ -60,7 +60,8 @@ class FakeManager:
         self._states = {}
         self._next = 0
 
-    def enqueue_one_detached(self, name):
+    def enqueue_one_detached(self, name, rebuild_only=False):
+        # rebuild_only:收敛批(2026-10-14)调度器以 kwarg 调用;fake 只记账
         tid = f"t{self._next}"
         self._next += 1
         self.enqueued.append(name)

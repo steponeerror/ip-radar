@@ -6,6 +6,7 @@ import time
 import uuid
 from collections import deque
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Callable, Optional
 
 from ._sources._download import CancelledError, CancelToken
@@ -26,6 +27,10 @@ class Task:
     received: int = 0
     total: int = 0
     token: CancelToken = field(default_factory=CancelToken)
+    # rebuild-only 车道(2026-10-14 收敛批):scheduler needs_rebuild 触发、
+    # raw 已最新时跳过 download 直进 loading。刻意不入 to_dict:前端照旧
+    # 显示 loading,无新契约。
+    _rebuild_only: bool = False
     # Idempotency guard for _settle: a terminal task can be settled from two
     # places (cancel()'s _settle and _run_task's finally _settle) when cancel
     # races dispatch. Without this flag, both calls increment batch.done (#1).
@@ -97,15 +102,19 @@ class UpdateManager:
         with self._lock:
             return self._enqueue_one(name, self._active_batch)
 
-    def enqueue_one_detached(self, name: str) -> Task:
+    def enqueue_one_detached(self, name: str, rebuild_only: bool = False) -> Task:
         """Enqueue a task with batch_id=None, so scheduler-triggered refreshes
         are never absorbed into an in-flight manual batch (which would corrupt
         that batch's done/total via _settle). Shares dedup with enqueue_one:
         if the source already has an in-flight task, that task is returned
-        unchanged — no new task, no new pollution."""
-        return self._enqueue_one(name, None)
+        unchanged — no new task, no new pollution.
 
-    def _enqueue_one(self, name: str, batch_id: Optional[str]) -> Task:
+        rebuild_only=True:needs_rebuild 车道专用(raw 已最新)——_run_task
+        跳过 download 直进 loading;raw 缺失时 _run_task 自动回退全量。"""
+        return self._enqueue_one(name, None, rebuild_only=rebuild_only)
+
+    def _enqueue_one(self, name: str, batch_id: Optional[str],
+                     rebuild_only: bool = False) -> Task:
         source = self._resolve(name)
         if source is None:
             raise ValueError(f"unknown source: {name}")
@@ -127,7 +136,7 @@ class UpdateManager:
                 self._prog.pop(tid, None)
             task = Task(id=uuid.uuid4().hex[:12], source_name=name,
                         host=getattr(source, "download_host", None),
-                        batch_id=batch_id)
+                        batch_id=batch_id, _rebuild_only=rebuild_only)
             self._tasks[task.id] = task
             self._by_source[name] = task.id
             # A task attaching to the active batch AFTER populate (re-enable
@@ -150,6 +159,14 @@ class UpdateManager:
         with self._lock:
             task = self._tasks.get(task_id)
             return task.state if task is not None else None
+
+    def task_rebuild_only(self, task_id: str) -> bool:
+        """Whether the task runs the rebuild-only lane (skip download). The
+        scheduler's reconcile uses this: done-but-mtime-unchanged is EXPECTED
+        for this lane (no download ran), not the "unreachable" warning case."""
+        with self._lock:
+            task = self._tasks.get(task_id)
+            return task._rebuild_only if task is not None else False
 
     def snapshot(self) -> dict:
         with self._lock:
@@ -437,21 +454,27 @@ class UpdateManager:
             host_lock.acquire()
         src_lock.acquire()
         try:
-            task.received = task.total = 0
-            self._set_state(task, "downloading")
-            self._prog[task.id] = (0.0, -1)
-            task.token.on_progress = lambda r, t: self._emit_progress(task, r, t)
-            try:
-                source.download(token=task.token)
-            except CancelledError:
-                self._set_state(task, "cancelled"); return
-            except Exception as e:
-                self._set_state(task, "failed", str(e),
-                                error_code="internal"); return
-            finally:
-                task.token.on_progress = None
-            if task.token.is_cancelled():
-                self._set_state(task, "cancelled"); return
+            # rebuild-only 车道(2026-10-14 收敛批):needs_rebuild 触发的任务
+            # raw 已最新,重抓是纯浪费 —— 跳过 download 直进 loading(状态机
+            # 少一个相位,进度语义不变);raw 缺失回退正常全量,旗标不制造
+            # 假失败(手动 enqueue/降级路径不受影响)。
+            p = getattr(source, "_path", None)
+            if not (task._rebuild_only and p is not None and Path(p).exists()):
+                task.received = task.total = 0
+                self._set_state(task, "downloading")
+                self._prog[task.id] = (0.0, -1)
+                task.token.on_progress = lambda r, t: self._emit_progress(task, r, t)
+                try:
+                    source.download(token=task.token)
+                except CancelledError:
+                    self._set_state(task, "cancelled"); return
+                except Exception as e:
+                    self._set_state(task, "failed", str(e),
+                                    error_code="internal"); return
+                finally:
+                    task.token.on_progress = None
+                if task.token.is_cancelled():
+                    self._set_state(task, "cancelled"); return
             task.received = task.total = 0
             self._set_state(task, "loading")
             self._prog[task.id] = (0.0, -1)

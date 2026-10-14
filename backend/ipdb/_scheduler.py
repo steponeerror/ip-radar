@@ -114,8 +114,9 @@ class RefreshScheduler:
                 b = self._backoff.get(name)
                 if b is not None and now < b.next_attempt:
                     continue  # still backing off
-                if (self._partial_failure_of(source) is None
-                        and not self._needs_rebuild_of(source)):
+                partial = self._partial_failure_of(source)
+                rebuild_only = False
+                if partial is None and not self._needs_rebuild_of(source):
                     # needs_rebuild is immediate (local integrity, no quota).
                     # Otherwise: slot-based due. mtime None (download-failure
                     # residue) is immediately due; backoff throttles retries.
@@ -128,7 +129,15 @@ class RefreshScheduler:
                     if mtime is not None and now < _due_at(
                             name, mtime, source.stale_days):
                         continue
-                task = self._manager.enqueue_one_detached(name)
+                elif partial is None:
+                    # needs_rebuild 立即车道(2026-10-14 收敛批):raw 已最新
+                    # 只欠重建,重抓是纯浪费 → rebuild-only 跳下载。partial
+                    # 车道相反(死 feed 要重抓)、slot 车道有新内容要抓,
+                    # 均不传。needs_rebuild=True 蕴含 raw 在,故 _run_task
+                    # 的 raw 缺失回退分支在此仅是防御。
+                    rebuild_only = True
+                task = self._manager.enqueue_one_detached(
+                    name, rebuild_only=rebuild_only)
                 self._last_task[name] = task.id
                 self._last_attempt[name] = now
                 self._baseline_mtime[name] = self._read_mtime(source)
@@ -232,6 +241,16 @@ class RefreshScheduler:
                 # guard). Dir-shaped multi-feed sources (cloud_ranges) with
                 # any landed feed take the mtime-advanced branch above.
                 self._escalate_backoff(name, now)
+            elif self._manager.task_rebuild_only(task_id):
+                # rebuild-only 车道(2026-10-14 收敛批):mtime 不变是预期
+                # (没下载)。收敛(needs_rebuild 翻 False)→ 清退避 —— 内容
+                # 事件不记,事件在下载轮已记,重建轮零新证据(哲学 3);
+                # 仍 needs_rebuild(另一族被 valve 卡住仍冻)→ 升梯,
+                # ptr 推进前不重抓(与 mtime-advanced 分支同刹车)。
+                if self._needs_rebuild_of(source):
+                    self._escalate_backoff(name, now)
+                else:
+                    self._backoff.pop(name, None)
             else:
                 logger.warning(
                     "scheduler: source %s task %s is 'done' but mtime unchanged "
