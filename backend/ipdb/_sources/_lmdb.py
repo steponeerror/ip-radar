@@ -43,13 +43,18 @@ DEFAULT_MAP_SIZE = 512 * 1024 * 1024   # first-build default; grown on demand
 BYTES_PER_RECORD_EST = 512             # initial estimate from .count sidecar
 BATCH_SIZE = 100_000
 
-# ── 低内存预警中止(宁停勿死;2026-10-11 demo 机宿主 OOM 十杀对症修)──
-# 实测:964MB 小机上 6.1M 行源 rebuild(writemap staging total_vm ~6.7GB、
-# rss ~470MB)把宿主 MemAvailable 压穿,全局 OOM 每 ~94min 杀容器一次。
-# 阀门只挡任务启动不挡在跑的;此处在 flush 边界主动放弃——旧 epoch/ptr
-# 原样,任务失败走既有退避。阈值高于 valve CRITICAL_RATIO(0.12)留 kernel 前
-# 余量(哲学 9:先消浪费的保命版)。
-REBUILD_ABORT_RATIO = 0.15
+# ── 低内存预警中止(宁停勿死)── flush 边界主动放弃:旧 epoch/ptr 原样、
+# staging 清除、任务失败走既有退避(阀门只挡任务启动不挡在跑的;哲学 9)。
+# 0.15 是 2026-10-11 宿主 OOM 十杀危机日按危机血压标定上线(6acf881f);
+# 但那场危机真根因 stopforumspam 按记录评分堆膨胀 ~6.7GB-vm 当日已由
+# b9d25bc8 修复,常规大源 rebuild 峰值仅数百 MB(964MB+3G swap 装得下)。
+# 而 demo 机常驻基线(x-ui/dockerd/引擎)avail 长期 6-12% < 0.15 → 10-11 起
+# ≥10万行源全被首个 flush 检查点拦停,纪元冻结(geolite 停 10-06 / rir 停
+# 10-10,2026-10-14 生产取证)。
+# 标定 0.08(≈77MB 绝对地板 + 3G swap 余量,2026-10-14 用户裁决):恢复
+# "磨 swap 但能活"的合法路径,仍拦真 OOM 边缘;盯守一晚 dmesg/OOM,
+# 若宿主 OOM 杀容器复发,立即回滚本值。
+REBUILD_ABORT_RATIO = 0.08
 
 
 class RebuildAborted(RuntimeError):
