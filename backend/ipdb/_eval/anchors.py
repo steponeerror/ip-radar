@@ -14,8 +14,10 @@ ANCHORS: list[tuple[str, str]] = [
     ("10.0.0.1", "reserved"), ("127.0.0.1", "reserved"),
     ("192.168.1.1", "reserved"), ("172.16.0.1", "reserved"),
     # tor exits (torproject published list; refresh quarterly) — is_tor true
+    # 2026-10-14 季度刷新:96.44.159.202 已离 danmeuk_tor 现役表(生产/镜像双
+    # 口径一致),换入现役 F3 Netze 段 185.220.101.34(双源 is_tor=True)。
     ("185.220.101.1", "tor"), ("171.25.193.78", "tor"),
-    ("96.44.159.202", "tor"),
+    ("185.220.101.34", "tor"),
     # public cloud edges — hosting flag true
     ("52.95.116.115", "hosting"),   # AWS
     ("20.36.253.52", "hosting"),    # Azure
