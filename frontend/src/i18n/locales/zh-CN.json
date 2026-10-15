@@ -205,7 +205,7 @@
   "sources.eval.positive_verified": "已验证",
   "sources.health.cadence": "{v}/次",
   "sources.health.contentAge": "内容年龄",
-  "sources.health.observed": "实测节奏",
+  "sources.health.period": "刷新周期",
   "sources.loadFailed": "加载源失败",
   "sources.loading": "加载中…{pct}",
   "sources.none": "未发现数据源",

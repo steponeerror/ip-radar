@@ -357,6 +357,11 @@ export interface SourceHealth {
   // 展示层负责 clamp 0(见 SourcesPage fmtHours)。
   content_age_h: number | null;
   observed_interval_h: number | null;
+  // 配置刷新周期(scheduler 档位:stale_days<=1 → 12h,否则 stale_days×24h;
+  // backend _registry._source_info 经 _scheduler._period_of 换算)。更新列第二
+  // 段渲染此值(2026-10-15 裁决:实测中位数退告警侧,observed_interval_h 仍随
+  // payload 下发但仅诊断用)。可选键:旧 payload 无此键 → 展示层按 null 出 "—"。
+  refresh_period_h?: number | null;
   feeds?: FeedHealth[] | null;
 }
 

@@ -205,7 +205,7 @@
   "sources.eval.positive_verified": "verified",
   "sources.health.cadence": "every {v}",
   "sources.health.contentAge": "Content age",
-  "sources.health.observed": "Measured cadence",
+  "sources.health.period": "Refresh period",
   "sources.loadFailed": "Failed to load sources",
   "sources.loading": "Loading…{pct}",
   "sources.none": "No sources discovered",

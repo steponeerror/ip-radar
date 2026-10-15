@@ -40,9 +40,12 @@ vi.mock("../../api", async () => {
           last_updated: null,
           is_stale: true,
           error: null,
-          // T6:非空诊断对 → 默认 mock 驱动的公开/管理/grid 测试也路过值渲染路径
+          // T6:非空诊断对 → 默认 mock 驱动的公开/管理/grid 测试也路过值渲染路径;
+          // 第二段渲染 refresh_period_h(配置周期,2026-10-15 裁决),observed
+          // 仅随 payload 保留(前端不渲染)
           content_age_h: 26,
           observed_interval_h: 172.8,
+          refresh_period_h: 172.8,
         },
       },
     ]),
@@ -593,14 +596,18 @@ describe("SourcesPage feed chips (T5 multi-feed sources)", () => {
   });
 });
 
-// T6(源活性告警):health 增 content_age_h/observed_interval_h —— 更新单元格
-// 第二行展示"内容年龄 · 实测节奏"。档位与后端推送 _fmt_hours 同规
+// T6(源活性告警):health 增 content_age_h/observed_interval_h/refresh_period_h
+// —— 更新单元格第二行展示"内容年龄 · 刷新周期"。第二段 2026-10-15 裁决改显
+// 配置刷新周期(refresh_period_h,scheduler 档位):实测中位数(observed_interval_h)
+// 被十月初重抓风暴拉小且数周不收敛,en "every {v}" 读作承诺周期属误导 →
+// 退告警侧,仍随 payload 下发但前端不再渲染(fixture 恒带 0.5h 风暴值,若
+// 误回渲染会出 "every 1h" 而非 "every 7.2d")。档位与后端推送 _fmt_hours 同规
 // (<48h → ceil 整数 + "h";≥48h → 一位小数 + "d");cadence 套 i18n 模板
-// (zh "{v}/次" / en "every {v}");null(无文件/事件<5 条)→ "—";负值
-// (时钟回拨,终审 P2-1)clamp 0;完整 i18n 标签入 title(值可见,6rem 固定
+// (zh "{v}/次" / en "every {v}");null(无文件/旧 payload 无键)→ "—";
+// 负值(时钟回拨,终审 P2-1)clamp 0;完整 i18n 标签入 title(值可见,6rem 固定
 // 轨道容不下双语长标签,循 θ 单元格 tooltip 模式)。
-describe("SourcesPage health diagnostics (T6 content age / measured cadence)", () => {
-  const src = (name: string, contentAge: number | null, observed: number | null) => ({
+describe("SourcesPage health diagnostics (T6 content age / refresh period)", () => {
+  const src = (name: string, contentAge: number | null, period: number | null) => ({
     name,
     enabled: true,
     category: "threat" as const,
@@ -621,15 +628,19 @@ describe("SourcesPage health diagnostics (T6 content age / measured cadence)", (
       is_stale: false,
       error: null,
       content_age_h: contentAge,
-      observed_interval_h: observed,
+      // 实测中位数仍随 payload 下发(告警/诊断侧),前端不再渲染;恒带风暴期
+      // 0.5h 小值,误回渲染即出 "every 1h" 露馅
+      observed_interval_h: 0.5,
+      refresh_period_h: period,
     },
   });
 
-  it("renders age + cadence in the updated cell: h tier below 48h, d tier above", async () => {
+  it("renders age + configured period in the updated cell (observed no longer drives it): h tier below 48h, d tier above", async () => {
     vi.mocked(getSources).mockResolvedValueOnce([src("feodo", 26, 172.8)]);
     const { container } = renderWithI18n(<SourcesPage />);
     await screen.findByText("feodo");
-    // <48h → 裸数 26h;≥48h → 一位小数 d 档(172.8h → 7.2d)+ cadence 模板
+    // <48h → 裸数 26h;≥48h → 一位小数 d 档(172.8h → 7.2d)+ cadence 模板;
+    // observed(风暴期 0.5h)不参与 —— 误导修复的回归面
     const line = container.querySelector('[data-age="26h"]');
     expect(line).not.toBeNull();
     expect(line).toHaveAttribute("data-cadence", "every 7.2d");
@@ -642,15 +653,15 @@ describe("SourcesPage health diagnostics (T6 content age / measured cadence)", (
     const line = await screen.findByTitle(/content age/i);
     expect(line).toHaveAttribute(
       "title",
-      "Content age 26h · Measured cadence every 7.2d",
+      "Content age 26h · Refresh period every 7.2d",
     );
     // zh-CN 逐字裁决值(循 geo_asn 测试惯例直校 locale 表)
     expect(translate("zh-CN", "sources.health.contentAge")).toBe("内容年龄");
-    expect(translate("zh-CN", "sources.health.observed")).toBe("实测节奏");
+    expect(translate("zh-CN", "sources.health.period")).toBe("刷新周期");
     expect(translate("zh-CN", "sources.health.cadence", { v: "7.2d" })).toBe("7.2d/次");
   });
 
-  it("renders — for null age/cadence (no file / <5 events), never 'every —'", async () => {
+  it("renders — for null age/period (no file / legacy payload), never 'every —'", async () => {
     vi.mocked(getSources).mockResolvedValueOnce([src("feodo", null, null)]);
     const { container } = renderWithI18n(<SourcesPage />);
     await screen.findByText("feodo");
@@ -661,12 +672,25 @@ describe("SourcesPage health diagnostics (T6 content age / measured cadence)", (
     expect(screen.queryByText(/every/i)).toBeNull();
   });
 
-  it("clamps negative age/cadence to 0h (clock-skew guard, review P2-1)", async () => {
+  it("renders — for null period with age present (period absent → no template)", async () => {
+    vi.mocked(getSources).mockResolvedValueOnce([src("feodo", 26, null)]);
+    const { container } = renderWithI18n(<SourcesPage />);
+    await screen.findByText("feodo");
+    // period null(undefined 同:null 之松等)→ "—",不套 cadence 模板
+    const line = container.querySelector('[data-age="26h"]');
+    expect(line!.getAttribute("data-cadence")).toBe("—");
+    expect(line!.textContent).toBe("26h · —");
+    expect(screen.queryByText(/every/i)).toBeNull();
+  });
+
+  it("clamps negative age/period to 0h (clock-skew guard, review P2-1)", async () => {
     vi.mocked(getSources).mockResolvedValueOnce([src("feodo", -3, -0.4)]);
     const { container } = renderWithI18n(<SourcesPage />);
     await screen.findByText("feodo");
     const line = container.querySelector("[data-age]");
-    // 不渲染负时长:-3 → 0h;-0.4 → clamp 0 → "every 0h"(非 every -0.4h)
+    // 不渲染负时长:-3 → 0h;-0.4 → clamp 0 → "every 0h"(非 every -0.4h)。
+    // period 现为配置值不会为负,但 clamp 守卫住在 fmtHours(与 age 共用),
+    // 负入参仍锁死不吐负。
     expect(line!.getAttribute("data-age")).toBe("0h");
     expect(line!.getAttribute("data-cadence")).toBe("every 0h");
   });
@@ -677,6 +701,7 @@ describe("SourcesPage health diagnostics (T6 content age / measured cadence)", (
     await screen.findByText("feodo");
     const line = container.querySelector("[data-age]");
     // ceil 语义:0.2 → 1h;47.9 < 48 仍在 h 档 → 48h(非 2.0d),与后端一致
+    // (配置周期实为整档,非整值仅锁 fmtHours 的 ceil 守卫)
     expect(line!.getAttribute("data-age")).toBe("1h");
     expect(line!.getAttribute("data-cadence")).toBe("every 48h");
   });

@@ -302,6 +302,20 @@ def _source_info(source) -> dict:
         observed_interval_h = None
     health["content_age_h"] = content_age_h
     health["observed_interval_h"] = observed_interval_h
+    # refresh_period_h = 配置刷新周期(scheduler 真实用的档位),口径复用
+    # _scheduler._period_of(stale_days<=1 → 12h;否则 stale_days×24h)。2026-10-15
+    # 裁决:更新列第二段改显此配置值——实测中位数被十月初重抓风暴的事件拉小
+    # 且数周不收敛,en "every {v}" 读作承诺周期属误导;实测 observed_interval_h
+    # 保留在 payload 供告警/诊断,前端不再渲染。_period_of 函数内 import:
+    # _scheduler 顶层引 _alerts 而 _alerts 顶层引本模块,顶层 import 成环(同上
+    # _alerts 惰性 import 缘由)。与 _alerts 读失败无关 → 不进上方 try(配置值
+    # 永不为 None)。
+    from ._scheduler import _period_of
+    # stale_days 缺省按 Source/IpListSource 基类 7(→ 168h);payload 同名键
+    # 仍按属性缺失诚实出 None,仅档位回退基类值
+    stale_days = getattr(source, "stale_days", None)
+    health["refresh_period_h"] = _period_of(
+        stale_days if stale_days is not None else 7) / 3600.0
     # OL-4:load_db 抓到的加载异常(如 epoch 损坏)并入既有 error 字段
     # ——仅在未加载时合并(重建成功 reader 恢复后旧错误自然退场);
     # SourceHealth dataclass 不动的分层约定同上。
@@ -319,7 +333,7 @@ def _source_info(source) -> dict:
         "authoritative_for": list(getattr(source, "authoritative_for", [])),
         "classification_type": getattr(source, "classification_type", None),
         "url": getattr(source, "url", None),
-        "stale_days": getattr(source, "stale_days", None),
+        "stale_days": stale_days,
         "health": health,
     }
 

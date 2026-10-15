@@ -1,8 +1,10 @@
 # backend/tests/alerts/test_health_fields.py — Task 5:health 扩展透传 /api/sources
-"""_source_info 给 health dict 并入两键:content_age_h(now - 文件 mtime,
+"""_source_info 给 health dict 并入三键:content_age_h(now - 文件 mtime,
 与 health() 同源读 source._path)与 observed_interval_h(_alerts 近 90 天
-间隔中位数)。读失败(无文件/无 _path/OSError/_alerts 异常)→ 相应键或
-两键 None,/api/sources 不得 500。fake source 循 test_source_mgmt 的
+间隔中位数;2026-10-15 裁决后仅诊断/告警用,前端不再渲染)与
+refresh_period_h(配置刷新周期,scheduler 档位口径 _scheduler._period_of)。
+读失败(无文件/无 _path/OSError/_alerts 异常)→ 相应键或两键 None,
+/api/sources 不得 500。fake source 循 test_source_mgmt 的
 ListSrc 模式;observed 经 env 指向 tmp alerts.db(record_event 造历史)。
 """
 import os
@@ -121,6 +123,67 @@ def test_api_sources_json_carries_both_keys(tmp_path, alerts_db, monkeypatch,
     h = resp.json()[0]["health"]
     assert isinstance(h["content_age_h"], float)
     assert h["observed_interval_h"] == pytest.approx(1.0)
+
+
+# ── refresh_period_h:更新列第二段改显配置刷新周期(2026-10-15 裁决;
+# 档位口径与 _scheduler._period_of 同源,这里锁死防漂移)──
+
+def test_refresh_period_tiers_match_scheduler(tmp_path, monkeypatch, alerts_db):
+    """档位规则:stale_days<=1 → 12h(日两档);否则 stale_days×24h。"""
+    from ipdb._sources._base import IpListSource
+
+    class TwoDay(IpListSource):
+        name = "two_day"
+        url = "https://example.com/x.txt"
+        filename = "x.txt"
+        fields = ("country_code",)
+        stale_days = 2
+
+    class Daily(IpListSource):
+        name = "daily"
+        url = "https://example.com/y.txt"
+        filename = "y.txt"
+        fields = ("country_code",)
+        stale_days = 1
+
+    monkeypatch.setattr(reg, "_sources",
+                        [TwoDay(data_dir=tmp_path), Daily(data_dir=tmp_path)])
+    monkeypatch.setattr(reg, "_disabled", set())
+
+    infos = reg.list_sources()
+
+    assert infos[0]["health"]["refresh_period_h"] == 48.0
+    assert infos[1]["health"]["refresh_period_h"] == 12.0
+
+
+def test_refresh_period_missing_stale_days_falls_back_to_base_default(
+        tmp_path, alerts_db):
+    """无 stale_days 覆盖 → Source/IpListSource 基类缺省 7 → 168h;与
+    payload 顶层 stale_days 同源(均为 None 仅档位回退,值诚实)。"""
+    info = reg.list_sources()[0]
+
+    assert info["stale_days"] == 7
+    assert info["health"]["refresh_period_h"] == 168.0
+
+
+def test_refresh_period_present_even_when_alerts_reads_fail(
+        tmp_path, alerts_db, monkeypatch):
+    """配置值与 _alerts 读取无关:_alerts 抐异常时 observed/content 两键
+    None 但 refresh_period_h 照常出(配置周期永不为 None)。"""
+    from ipdb import _alerts
+
+    _touch_file(tmp_path, age_s=3600)
+    _seed_events(5)
+
+    def boom(source, now):
+        raise RuntimeError("alerts db gone")
+
+    monkeypatch.setattr(_alerts, "observed_interval_h", boom)
+
+    h = reg.list_sources()[0]["health"]
+
+    assert h["observed_interval_h"] is None
+    assert h["refresh_period_h"] == 168.0
 
 
 # ── OL-4:加载失败不再静默(ERROR 日志 + health.error 状态面)──

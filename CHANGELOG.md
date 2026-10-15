@@ -40,6 +40,11 @@
 - feed-change: infra_services 内容重构——移除 13 行根服务器（迁入新源 root_servers，独立生命周期），新增 21 行公共 DNS resolver（中文公共 DNS 9 行：AliDNS/DNSPod/114DNS/百度，含 v6；既有 5 家 resolver 的 IPv6 伴侣行 10 行；Yandex DNS 基础对 2 行），35→43 总行（31 v4 + 12 v6）；纯 feed 内容面，分类与权威轴零变化
   - feed-change: infra_services content restructure — 13 root-server rows removed (moved into the new root_servers source with its own lifecycle), 21 public-DNS-resolver rows added (9 Chinese public DNS rows: AliDNS/DNSPod/114DNS/Baidu, v6 included; 10 IPv6 companion rows for the existing 5 resolvers; 2 rows for the Yandex DNS base pair), 35→43 rows total (31 v4 + 12 v6); feed-content surface only, zero change to classification or authority axes
 
+### 修复 Fixed
+
+- 误导修复:Sources 页更新列第二段从「实测节奏」(_alerts 近 90 天事件间隔中位数)改显「刷新周期」——scheduler 真实用的配置档位(health 新增 refresh_period_h:stale_days≤1 → 12h,否则 stale_days×24h,口径复用 _scheduler._period_of);en "every {v}" 被读作承诺的刷新周期而实为历史实测(且十月初重抓风暴的事件把中位数拉小、数周不收敛),实测中位数退告警侧(observed_interval_h 保留在 payload 供告警/诊断,前端不再渲染;i18n 键 sources.health.observed → sources.health.period,zh 实测节奏→刷新周期 / en Measured cadence→Refresh period)
+  - Misleading-display fix: the Sources page's updated-cell second segment now shows the configured "refresh period" (new health key refresh_period_h carrying the tier the scheduler actually uses: stale_days≤1 → 12h, else stale_days×24h, reusing _scheduler._period_of) instead of the "measured cadence" (the _alerts 90-day median event interval); the en "every {v}" wording read like a promised schedule while being a historical measurement (and the early-October refetch storm dragged the median down without converging for weeks) — the measured median retreats to the alerting side (observed_interval_h stays in the payload for alerting/diagnostics, no longer rendered; i18n key sources.health.observed → sources.health.period, zh 实测节奏→刷新周期 / en Measured cadence→Refresh period)
+
 ## v1.4.2 — 2026-10-09
 
 ### 新增 Added
