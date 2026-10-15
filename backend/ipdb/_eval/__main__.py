@@ -5,6 +5,9 @@
   python -m ipdb._eval --all         # per-source verdict table (no ranking in v1)
   python -m ipdb._eval --model       # fleet corroboration-contrast model + acceptance suite
   python -m ipdb._eval --temporal    # λ_s prequential confirmation rate over model history (W1)
+  python -m ipdb._eval --sentinel <source>  # 物化生效性哨兵(Q18 §3.2, materialize_source.sh 2/3)
+  python -m ipdb._eval --gate <source>      # 接入关(spec §3.1: S7 镜像对齐→双口径报告)
+  python -m ipdb._eval --canary      # 季度 canary 冻结判例复跑(S10)
 """
 import argparse
 import json
@@ -12,6 +15,7 @@ import os
 import random
 import secrets
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 from . import config
@@ -48,6 +52,55 @@ def report_dir() -> Path:
     return Path(os.environ.get(
         "IP_RADAR_EVAL_DIR",
         str(_REPO_ROOT / "backend" / "data" / "eval"))) / eval_env()
+
+
+# T9 gate 镜像参数(S7/Q11, spec 2026-10-12-eval-loop-hardening-design.md §3.1):
+# prod host 缺省 = monthly_eval.sh PROD_HOST 同值(生产卷唯一既存部署事实, 不
+# 复制进 config.py 造第二真源);mirror dir 缺省 = spec §3.1 本地常驻
+# .eval-gate-mirror/(.gitignore 已忽略)。env 覆盖照 _registry.DATA_DIR
+# (IP_RADAR_DATA_DIR)先例 —— call-time 解析(report_dir 同款, 测试免 reload)。
+_GATE_PROD_HOST_ENV = "IP_RADAR_GATE_PROD_HOST"
+_GATE_MIRROR_DIR_ENV = "IP_RADAR_GATE_MIRROR_DIR"
+_PROD_HOST_DEFAULT = "root@203.88.124.85"          # monthly_eval.sh 同值
+_GATE_MIRROR_DEFAULT = _REPO_ROOT / ".eval-gate-mirror"   # spec §3.1, 已 gitignore
+
+
+def gate_prod_host() -> str:
+    return os.environ.get(_GATE_PROD_HOST_ENV, _PROD_HOST_DEFAULT)
+
+
+def gate_mirror_dir() -> Path:
+    return Path(os.environ.get(_GATE_MIRROR_DIR_ENV,
+                               str(_GATE_MIRROR_DEFAULT)))
+
+
+def registry_data_dir() -> Path:
+    """registry 测量数据目录(S7 测量对齐消费, 终审 Issue-1): 取
+    ipdb._registry.DATA_DIR 落地值(import 期 IP_RADAR_DATA_DIR 或
+    <backend>/data 解析, sources 即按它发现)—— 不另设第二真源; 测试经
+    monkeypatch 本函数注入(模块属性快照免 reload, REPORT_DIR 同款缝)。"""
+    import ipdb._registry as reg
+    return Path(reg.DATA_DIR)
+
+
+@contextmanager
+def _gate_env():
+    """--gate/--canary CLI 的 env 钉(S37;run_gate/run_canary 内嵌 pin 的
+    CLI 前置同款, T4/T7 pin 先例):CLI 先钉 gate 使 call-time report_dir()
+    解析进 base/gate —— 否则未设 env 时报告落 dev 目录却带 gate 标签(S37
+    跨 env 混读)。显式 monthly/dev → fail-loud 拒跑(内嵌 pin 同语义);
+    退出还原。"""
+    prev = os.environ.get("IP_RADAR_EVAL_ENV")
+    if prev not in (None, "gate"):
+        raise ValueError(f"IP_RADAR_EVAL_ENV={prev!r}: gate 族命令必须跑在 "
+                         "env 'gate' (S37 fail-loud)")
+    if prev is None:
+        os.environ["IP_RADAR_EVAL_ENV"] = "gate"
+    try:
+        yield
+    finally:
+        if prev is None:
+            del os.environ["IP_RADAR_EVAL_ENV"]
 
 
 # 导入期快照:CLI 每次进程启动即等价 report_dir();保留模块属性作为
@@ -94,11 +147,22 @@ def _rc_history(source_name: str, model_dir: Path) -> list[int]:
     return out
 
 
-def _json_error(code: str, message: str, hint: str) -> None:
-    """--json 模式统一错误出口:stdout 合法 JSON + 非零退出(spec §5.2)。"""
+def _json_error(code: str, message: str, hint: str, rc: int = 1) -> None:
+    """--json 模式统一错误出口:stdout 合法 JSON + 非零退出(spec §5.2);
+    rc 可覆写(T9 gate 镜像失配族 rc=3, 与通用 rc=1 区分)。"""
     print(json.dumps({"error": {"code": code, "message": message, "hint": hint}},
                      ensure_ascii=False))
-    sys.exit(1)
+    sys.exit(rc)
+
+
+def _gate_cli_fail(rc: int, code: str, message: str, hint: str,
+                   as_json: bool) -> None:
+    """gate 族子命令失败出口:--json → stdout JSON 信封(§5.2);否则 stderr
+    清洁行 + 退出码(退出码契约见各 handler 注释, 不裸栈)。"""
+    if as_json:
+        _json_error(code, message, hint, rc=rc)
+    print(f"拒绝: {message}\n  ({hint})", file=sys.stderr)
+    sys.exit(rc)
 
 
 def _real_registry():
@@ -430,6 +494,18 @@ def main(argv=None):
     p.add_argument("--assets-dir", default=None,
                    help="语料资产根目录(默认 <repo>/backend/data/eval/assets, "
                         "跨 env 共享; truth 层由 ops 侧经三闸产出)")
+    p.add_argument("--gate", metavar="SOURCE",
+                   help="接入关(spec §3.1): S7 镜像对齐后跑双口径报告, "
+                        "EVAL_ENV=gate 强制; 报告必附 PR")
+    p.add_argument("--canary", action="store_true",
+                   help="季度 canary(S10): 冻结判例复跑, all_match=False → "
+                        "rc=1(腐化告警可见)但报告照写")
+    p.add_argument("--sentinel", metavar="SOURCE",
+                   help="生效性哨兵(Q18 §3.2): pass=True→rc 0, False→rc 1, "
+                        "N/A(geo_asn)→rc 0+说明行; materialize_source.sh 消费")
+    p.add_argument("--run-seed", type=int, default=None,
+                   help="run 级 seed(T2 纪律: 显式传则可复现; 缺省 = "
+                        "各入口稳定缺省 —— sentinel 名派生 / gate 随机但落报告)")
     p.add_argument("--json", action="store_true", help="机器可读 JSON 到 stdout")
     args = p.parse_args(argv)
 
@@ -507,8 +583,10 @@ def main(argv=None):
                   f"/{len(result['checks'])} checks pass\n  report: {md}")
         return
     if args.audit:
-        from .audit import lineage_audit
-        res = lineage_audit(REPORT_DIR / "model")
+        # T8（T14 缓议清偿）：audit 升格报告族写者 —— audit_report 落
+        # model/audit-<ts>.json；stdout/退出码位等价（advisory 不拦）
+        from .audit import audit_report
+        res = audit_report(REPORT_DIR / "model", out_dir=REPORT_DIR)
         if args.json:
             print(json.dumps(res, ensure_ascii=False, indent=1))
         else:
@@ -524,8 +602,10 @@ def main(argv=None):
                   f"recall: {res['c3']['recall']:.2f})")
         return
     if args.anchors:
-        from .anchors import ANCHORS, run_anchors
-        fails = run_anchors(registry.lookup)
+        # T8（T14 缓议清偿）：anchors 升格报告族写者 —— anchors_report 落
+        # model/anchors-<ts>.json（失败也落盘，证据不灭）；stdout/退出码位等价
+        from .anchors import ANCHORS, anchors_report
+        fails = anchors_report(registry.lookup, out_dir=REPORT_DIR)
         if args.json:
             print(json.dumps({"failures": fails}, ensure_ascii=False))
         else:
@@ -560,6 +640,158 @@ def main(argv=None):
               f"degraded={'yes' if res['degraded'] else 'no'}")
         print(f"  report: {md_path}")
         return
+    # ── T9 gate 族子命令(spec §3.1/§3.2; 镜像前置 S7)────────────
+    if args.gate is not None:
+        # 接入关 CLI: ensure_gate_mirror(S7: 跑前镜像对齐, 失配拒跑
+        # fail-closed)→ 测量对齐校验(终审 Issue-1: registry 数据目录与镜像
+        # epoch 逐源比对, 失配拒跑 —— 镜像对齐了、测的却是本地 dev 数据
+        # = S7 虚假保证)→ run_gate(双口径+triggers 节已在报告内, T4/T6)→
+        # 报告路径回显。退出码契约: 镜像失配(gate_mirror_misaligned)/同步
+        # 失败(gate_mirror_sync_failed, rsync/ssh 族)/测量数据目录漂移
+        # (measurement_misaligned)/候选文件名不被 preserve 覆盖
+        # (gate_candidate_filename_uncovered, filename≠name 老源, r2 P1)
+        # → rc=3(与通用 rc=1 区分 —— 运维一眼认「对齐未过, gate 根本没跑」);
+        # env 错位/未知源 → rc=1;其余内部异常
+        # 不吞(裸栈可查, 证据链完整)。
+        from .gate import run_gate
+        from .gate_mirror import (GateMirrorMisalignedError,
+                                  check_measurement_alignment,
+                                  ensure_gate_mirror)
+        try:
+            with _gate_env():
+                # review-loop r2 P1: preserve(--exclude=<name> / <name>.*)
+                # 只覆盖 filename==<name> 或 <name>.* house style 源; 老源
+                # 文件名≠源名(如 spamhaus → spamhaus_drop.txt)时 exclude 不
+                # 匹配 → 前置 sync 会静默回滚镜像内候选再比对(r1 P0 同款
+                # 签名), gate 变成拿生产数据当候选全绿 —— fail-closed 先于
+                # 任何 rsync 拒跑; 未知源不走此口(维持 run_gate 既有出口)。
+                cand = next((s for s in registry.sources
+                             if s.name == args.gate), None)
+                if cand is not None:
+                    fname = Path(getattr(cand, "_path", "")).name
+                    if fname != args.gate and not fname.startswith(
+                            f"{args.gate}."):
+                        _gate_cli_fail(
+                            3, "gate_candidate_filename_uncovered",
+                            f"S7 fail-closed: gate 拒跑 —— 候选 {args.gate} "
+                            f"raw 文件名 {fname!r} 不被 gate preserve 覆盖"
+                            "(仅支持 filename==<name> 或 <name>.* house "
+                            "style 源)",
+                            "老命名源不支持镜像流, 人工接入裁决(扩展 "
+                            "preserve 语义属 scope 决策)", args.json)
+                try:
+                    # 镜像参数从 env/常量读(见 gate_prod_host/gate_mirror_dir
+                    # 出处注释; 不发明新配置面)。preserve=候选 → sync
+                    # --exclude 豁免候选文件, 物化产物跨 sync 存活(r1 P0:
+                    # 否则前置 sync 会删掉镜像内刚物化的候选)。
+                    mirror = ensure_gate_mirror(gate_prod_host(),
+                                                gate_mirror_dir(),
+                                                preserve=args.gate)
+                except GateMirrorMisalignedError as e:
+                    _gate_cli_fail(3, "gate_mirror_misaligned",
+                                   f"S7 fail-closed: gate 拒跑 —— {e}",
+                                   "重跑本命令重试 rsync, 或人工比对生产/镜像 .ptr",
+                                   args.json)
+                except RuntimeError as e:
+                    # rsync/ssh 失败族与 epoch 失配拆信封码(同名会误导排障;
+                    # rc 同为 3, review-loop r1 P2)
+                    _gate_cli_fail(3, "gate_mirror_sync_failed",
+                                   f"S7 fail-closed: gate 拒跑 —— {e}",
+                                   "检查 ssh/rsync 可达性后重跑本命令(网络/主机)",
+                                   args.json)
+                # S7 测量对齐(终审 Issue-1): registry 数据目录漂移(未设
+                # IP_RADAR_DATA_DIR → 缺省读本地 dev backend/data)时 S7 对
+                # 测量真值零约束 → fail-closed 拒跑; candidate 自身豁免
+                # (check_measurement_alignment 口径, 其新 ptr 只在物化侧)。
+                m_align = check_measurement_alignment(
+                    registry_data_dir(), mirror["mirror_epochs"], args.gate)
+                if not m_align["aligned"]:
+                    _gate_cli_fail(3, "measurement_misaligned",
+                                   f"S7 fail-closed: 测量数据目录与镜像 epoch "
+                                   f"不对齐 —— {m_align['detail']}",
+                                   f"设 IP_RADAR_DATA_DIR={gate_mirror_dir()} "
+                                   "或先物化进镜像工作副本",
+                                   args.json)
+                res = run_gate(args.gate, registry, report_dir(),
+                               run_seed=args.run_seed,
+                               assets_dir=args.assets_dir)
+        except ValueError as e:
+            _gate_cli_fail(1, "bad_request", str(e),
+                           "gate 族命令须 IP_RADAR_EVAL_ENV=gate 或未设(S37); "
+                           "源名查 GET /api/sources", args.json)
+        if args.json:
+            print(json.dumps(res, ensure_ascii=False, indent=1, default=str))
+        else:
+            n_rev = len(res["triggers"]["mandatory_review"])
+            print(f"gate: {args.gate} "
+                  f"verdict={res['candidate_stratum']['verdict']['state']} "
+                  f"(强制人裁旗标 {n_rev} 条, 详见报告)")
+            print(f"  report: {res['report']['md']}")
+        return
+    if args.canary:
+        # 季度 canary CLI(S10): run_canary → 报告;all_match=False →
+        # rc=1(腐化告警须可见)但报告照写(run_canary 恒落盘, 证据不灭)。
+        from .canary import run_canary
+        try:
+            with _gate_env():
+                res = run_canary(registry, report_dir())
+        except ValueError as e:
+            _gate_cli_fail(1, "bad_request", str(e),
+                           "canary 须 IP_RADAR_EVAL_ENV=gate 或未设(S37)",
+                           args.json)
+        if args.json:
+            print(json.dumps(res, ensure_ascii=False, indent=1))
+        else:
+            ok = sum(1 for c in res["cases"] if c["matched"])
+            print(f"canary: all_match={res['all_match']} "
+                  f"({ok}/{len(res['cases'])} 判例复现)")
+            for a in res["alarms"]:
+                print(f"  {a}")
+            print(f"  report: {res['report']['md']}")
+        sys.exit(0 if res["all_match"] else 1)
+    if args.sentinel is not None:
+        # 生效性哨兵 CLI(Q18 §3.2; materialize_source.sh 2/3 透传本 rc):
+        #   pass=True → rc 0;pass=False → rc 1(探针失配或 fail-closed 通道
+        #   NO-MEMBERS/UNKNOWN-CATEGORY/NO-ASSET-AXIS);pass=None(N/A,
+        #   geo_asn 标量轴=非目标 spec §9/S13)→ rc 0 + N/A 说明行 ——
+        #   N/A≠失败, 物化流程继续进 gate 提示分支;键集口径 coverage_check
+        #   由本 CLI 分派(T2 消费面约定), 信息行不改 rc。
+        # run_seed 纪律照 T2: --run-seed 显式传则可复现, 缺省 =
+        # stable_seed(名派生, 进程无关稳定)。哨兵不落报告 → 不钉 env。
+        from .keysets import _source_ips
+        from .sentinel import coverage_check, sentinel_probe
+        src = next((s for s in registry.sources
+                    if s.name == args.sentinel), None)
+        if src is None:
+            if args.json:
+                _json_error("source_not_found",
+                            f"no source named {args.sentinel!r}",
+                            "GET /api/sources 或查 backend/ipdb/_sources/ 确认源名")
+            p.error(f"no source named {args.sentinel!r}")
+        r = sentinel_probe(src, registry.lookup, seed=args.run_seed)
+        cov = (coverage_check(src, _source_ips(src))
+               if r["pass"] is None else None)
+        if args.json:
+            out = dict(r)
+            out["coverage_check"] = cov
+            print(json.dumps(out, ensure_ascii=False, indent=1))
+        else:
+            ok = "—" if r["ok"] is None else f"{r['ok']}/{r['n']}"
+            print(f"sentinel: {r['source']} channel={r['channel']} "
+                  f"pass={r['pass']} status={r['status']} "
+                  f"({ok}, seed={r['seed']})")
+            if r.get("reason"):
+                prefix = "N/A: " if r["pass"] is None else ""
+                print(f"  {prefix}{r['reason']}")
+            for pr in r["probes"]:
+                if pr["expected"] != pr["actual"]:
+                    print(f"  FAIL {pr['ip']}: expected {pr['expected']}, "
+                          f"actual {pr['actual']}")
+            if cov is not None:
+                c = "—" if cov["covered"] is None else f"{cov['covered']:.2%}"
+                print(f"  coverage_check(键集口径, 信息行不改 rc): "
+                      f"covered={c} (n={cov['n']}, hits={cov['hits']})")
+        sys.exit(0 if r["pass"] is not False else 1)
     if args.all:
         if args.json:
             results = []

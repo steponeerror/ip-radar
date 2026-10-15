@@ -8,6 +8,7 @@ Containment survives as a display column only. Advisory — production
 DERIVED_SOURCES is attr-derived (source classes, registry fill-in-place,
 R1-F1).
 """
+import datetime as _dt
 import json
 import re
 from pathlib import Path
@@ -128,3 +129,31 @@ def lineage_audit(model_dir: Path) -> dict:
     return {"kind": "lineage-audit", "n_rounds": n,
             "recommended_derived": recommended, "relations": relations,
             "pairs": pairs_out, "c3": c3}
+
+
+def audit_report(model_dir: Path, out_dir: Path | None = None,
+                 *, eval_env: str | None = None) -> dict:
+    """lineage_audit + 落盘（Phase 2 T8，清偿 Phase 1 终审 T14 缓议）。
+
+    落 <out_dir>/model/audit-<ts>.json（ts/序列化同 model-*.json 写法，
+    dsem-*.json 同族）；件含 eval_env（S37 裁决①：None → call-time 读
+    __main__.eval_env()，IP_RADAR_EVAL_ENV）。位等价契约：返回值即
+    lineage_audit 原样 —— 不加 report_path/eval_env 等落盘侧键，
+    CLI --audit 的 stdout 不因落盘变化（计算逻辑零改动）。"""
+    res = lineage_audit(model_dir)
+    if out_dir is not None:
+        # eval_env 懒解析:仅落盘需要它才读 IP_RADAR_EVAL_ENV——纯读路径
+        # (out_dir=None,docstring 契约零副作用)不得因无效 env 值 raise
+        # (T8 复审②:裸 lineage_audit 可成功则 audit_report 也必须成功)
+        if eval_env is None:
+            from .__main__ import eval_env as _current_env
+            eval_env = _current_env()
+        d = Path(out_dir) / "model"
+        d.mkdir(parents=True, exist_ok=True)
+        ts = _dt.datetime.now(_dt.timezone.utc).strftime("%Y%m%d-%H%M%S")
+        payload = {**res, "eval_env": eval_env,
+                   "generated_at": _dt.datetime.now(
+                       _dt.timezone.utc).date().isoformat()}
+        (d / f"audit-{ts}.json").write_text(
+            json.dumps(payload, indent=1, default=str), encoding="utf-8")
+    return res
