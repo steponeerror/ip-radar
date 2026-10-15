@@ -72,6 +72,8 @@ Notes:
 - Upgrade: `git pull && docker compose up -d --build` — the data volume stays right where it is.
 - Disk: budget ≥6 GB for the data volume.
 
+Everything after `docker compose up` — reading the results page, the admin console, the full API surface, backup/upgrade/alert runbooks — lives in the **[User Manual](MANUAL.md)** ([简体中文](MANUAL.zh-CN.md)).
+
 ## Desktop Companion
 
 <p align="center">
@@ -273,27 +275,19 @@ cd frontend && npm test
 
 ## Updating
 
-The banner at the top tells you when a new release lands (hit "Check for updates" to refresh), with a copy-paste command:
-
-```
+```bash
 git pull && docker compose up -d --build
 ```
 
-To update from the page itself, uncomment the self-update mounts in `docker-compose.yml` (docker.sock + repo dir + token), restart, and an "Update now" button appears. The repo-dir mount must use an absolute host path (e.g. `/home/you/ip-radar:/app/repo`) — a `./` relative path breaks the in-container compose replay. Note: mounting docker.sock grants the container host-level root control — recommended for LAN self-hosting only; you'll paste your `IP_RADAR_UPDATE_TOKEN` once on first update. Known quirks: files written by in-container git pull are owned by root — host-side repo operations may need sudo or `git safe.directory`; and if you edit tracked files in the repo (like `.env`), `git pull --ff-only` will refuse to update by design — put local overrides in `.env.local` instead.
+The data volume stays in place — no data migration on upgrades. The banner at the top tells you when a new release lands (hit "Check for updates" to refresh) with this exact command; an in-page "Update now" button can be enabled via the self-update mounts. The opt-in setup, its security caveats (docker.sock), and the maintainer release traps: [User Manual → Operations](MANUAL.md#9-operations).
 
 ### Backup & restore
 
-All state lives in a single named volume (`ipradar-data` → `/app/data`): per-source raw downloads, LMDB epoch dirs with their `.ptr/.count/.cov/.disjoint` sidecars, and the SQLite pair `auth.db`/`alerts.db`. Rebuilds never write in place — a fresh epoch dir lands, then the pointer flips atomically — so a volume copy taken with the container stopped (`docker compose stop ipradar`, tar the volume, start again; `down` never with `-v`) is a complete, consistent backup. Hot copies work per source as long as that source isn't mid-rebuild: copy the epoch dir first, the sidecars last, re-check `.ptr` didn't flip; for the SQLite pair use `sqlite3 <db> ".backup …"` (a mid-write `-journal` sibling makes naive copies torn). Restore = copy the volume back, `docker compose up -d`, then verify the startup line `Loaded <count> <source> + …` matches `/api/db-status` from before the backup. Only `auth.db`/`alerts.db` are irreplaceable (keys, alert history) — a `_calibrated.json` calibration override, if you keep one, joins that set (hand-declared reliabilities, never regenerated); every data file re-downloads from its public feed.
-
-### Releasing (maintainers)
-
-One trap when cutting a release: the release commit must include at least one non-markdown file change — CI's `paths-ignore` skips `**.md`-only pushes, so an md-only release commit never triggers the tag↔CHANGELOG↔GitHub Release consistency gate that runs on tag builds.
-
-Another trap when deploying: on the deploy server, `git fetch --tags` before build — without the tag, BUILD_VERSION (`git describe`) falls back to an older baseline and the update banner falsely announces an update (v1.4.2 field note).
+All state lives in a single named volume (`ipradar-data` → `/app/data`): per-source raw downloads, LMDB epoch dirs with their sidecars, and the SQLite pair `auth.db`/`alerts.db` — rebuilds never write in place, so a volume copy taken with the container stopped is a complete, consistent backup. Stopped-copy recipe, hot-copy rules, restore verification, and what is (ir)replaceable: [User Manual → Operations](MANUAL.md#backup--restore).
 
 ### Source alerts (optional)
 
-The scheduler tracks every source's liveness, but notifications are **silent by default**. Set `IP_RADAR_ALERT_URLS` (any `environment` block in `docker-compose.yml`, or `.env.local`) to a comma-separated list of [apprise](https://github.com/caronc/apprise)-style URLs — e.g. `mailto:you@example.com`, a Discord/Telegram/Lark webhook — and you'll get one combined message when a source stops updating, keeps failing downloads, or its database fails to load (e.g. a corrupted epoch). Per-source health (including load errors) is always visible under `/api/sources`; the env change takes effect on restart.
+Notifications are **silent by default**. Set `IP_RADAR_ALERT_URLS` (any `environment` block, or `.env.local`) to a comma-separated list of [apprise](https://github.com/caronc/apprise)-style URLs — `mailto:`, Discord/Telegram/Lark webhooks — and you'll get one combined message when a source stops updating, keeps failing, or fails to load. Details: [User Manual → Operations](MANUAL.md#source-alerts-optional-silent-by-default).
 
 ## License
 
