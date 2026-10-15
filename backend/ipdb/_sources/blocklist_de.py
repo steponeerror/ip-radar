@@ -70,34 +70,60 @@ class BlocklistDeSource(IpListSource):
                 side.unlink(missing_ok=True)
 
     def download(self, token: CancelToken | None = None) -> None:
-        """逐列表下载(SA-F1,cloud_ranges/firehol 同模式):raw 先落
-        `<name>.txt.dl` scratch,非空才 os.replace 落地 — 单列表失败/空响应
-        保留旧列表文件,失败列表名记 self.last_partial_failure;全挂才 raise。"""
+        """两阶段批量下载，词汇正源 GLOSSARY「合法空」/「活性锚」(判例
+        ircbot 2026-10-15):
+
+        阶段一逐列表抓到 `<name>.txt.dl` scratch;阶段二锚门裁决后才统一
+        os.replace 落地(空文件照落)。bare-IP 列表无头部格式，HTTP 200 +
+        空 body = 发布方声明「当前无此类条目」(合法空)：落 0 字节文件，
+        下一 epoch 出清该列表条目，不计失败。firehol 是头部化 netset，
+        空文件无头即坏，其同款非空守卫语义本对，故不改。
+
+        活性锚 = all.txt 聚合(出版方存活证明)：锚空(200 空)或锚挂
+        (404/超时) → 本轮零替换、旧文件全保留(fail-closed，防灾难性
+        全空清库)，"all" 记真失败走部分失败梯经告警暴露，不 raise;
+        抓取异常的子列表同理保留旧文件并记名 last_partial_failure。
+        len(failed) == len(self._lists) 仍 raise(防空 rebuild 清库)。"""
         self._path.mkdir(parents=True, exist_ok=True)
         self._cleanup_legacy()
-        failed: list[str] = []
-        for list_name in self._lists:
-            if token is not None and token.is_cancelled():
-                raise CancelledError(f"{self.name} download cancelled")
-            url = f"{_BASE_URL}/{list_name}.txt"
-            dest = self._path / f"{list_name}.txt"
-            scratch = dest.with_name(dest.name + ".dl")
-            logger.info(f"Downloading blocklist_de/{list_name}...")
-            try:
-                download_file(url, scratch, token=token,
-                              headers={"User-Agent": "ip-lookup-tool/1.0"})
-                if not scratch.read_bytes().strip():
+        landed: list[tuple[Path, Path]] = []   # (scratch, dest) 待锚门裁决
+        failed: list[str] = []                 # 仅抓取异常(cancel 直 raise)
+        try:
+            for list_name in self._lists:
+                if token is not None and token.is_cancelled():
+                    raise CancelledError(f"{self.name} download cancelled")
+                url = f"{_BASE_URL}/{list_name}.txt"
+                dest = self._path / f"{list_name}.txt"
+                scratch = dest.with_name(dest.name + ".dl")
+                logger.info(f"Downloading blocklist_de/{list_name}...")
+                try:
+                    download_file(url, scratch, token=token,
+                                  headers={"User-Agent": "ip-lookup-tool/1.0"})
+                    landed.append((scratch, dest))
+                except Exception as e:
                     failed.append(list_name)
-                    logger.warning(f"Empty response for blocklist_de/{list_name}")
-                    continue
-                os.replace(scratch, dest)
-            except Exception as e:
-                failed.append(list_name)
+                    logger.warning(
+                        f"Failed to download blocklist_de/{list_name}: {e} "
+                        f"— keeping existing file")
+                    scratch.unlink(missing_ok=True)
+            anchor = self._path / "all.txt.dl"
+            anchor_empty = any(s == anchor for s, _ in landed) and \
+                not anchor.read_bytes().strip()
+            if "all" in failed or anchor_empty:
+                for scratch, _ in landed:
+                    scratch.unlink(missing_ok=True)
+                if "all" not in failed:
+                    failed.append("all")
                 logger.warning(
-                    f"Failed to download blocklist_de/{list_name}: {e} "
-                    f"— keeping existing file")
-            finally:
+                    "blocklist_de liveness anchor (all.txt) broken — "
+                    "replacing nothing this cycle (fail-closed)")
+            else:
+                for scratch, dest in landed:
+                    os.replace(scratch, dest)    # 合法空 0 字节照落
+        except CancelledError:
+            for scratch, _ in landed:            # 已抓未裁决 scratch 不得残留
                 scratch.unlink(missing_ok=True)
+            raise
         self.last_partial_failure = failed
         if len(failed) == len(self._lists):
             raise RuntimeError(

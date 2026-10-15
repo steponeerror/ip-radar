@@ -347,6 +347,8 @@ See release notes: [v1.2.2](https://github.com/steponeerror/ip-radar/releases/ta
 
 ### 修复 Fixed
 
+- blocklist_de 合法空修复：HTTP 200 空子列表（如 ircbot）是发布方「当前无此类条目」的声明——落 0 字节文件、不计失败（原空响应计入失败列表，骑真失败同一条退避梯，产「连续失败 ×3」假阳性告警）；all.txt 活性锚空或挂时本轮零替换并记真失败（fail-closed 防全空清库，走部分失败梯经告警暴露）；下载改两阶段（先全部抓 scratch、锚门过后才统一落地）
+  - blocklist_de legit-empty fix: an HTTP-200 empty sub-list (ircbot's case) is the publisher declaring "no entries of this category" — the 0-byte file lands and no failure is counted (previously an empty response joined the failed list and rode the same backoff ladder as real failures, producing the "3 consecutive failures" false-positive alert); an empty or unreachable all.txt liveness anchor now replaces nothing this cycle and records a real failure (fail-closed against a catastrophic all-empty wipe, exposed via the partial-failure ladder instead of raising); the download is now two-phase (fetch all lists to scratch, gate on the anchor, then land them together)
 - 批量更新收敛竞态：终态 done 事件不再出现 done<total；源中途启用 (re-enable) 或调度器刷新与手动全量更新重叠时，total 动态校正，批次不再可能永久停在 running（需重启才能再全量更新）
   - Batch-update convergence race: terminal done events no longer report done<total; when a source is re-enabled mid-batch or a scheduler refresh overlaps a manual full update, total is dynamically corrected — a batch can no longer get stuck in running forever (which previously required a restart)
 - cn_isp 不再把运营商名写进 as_name；ISP 徽标仅中国 IP 显示
