@@ -128,7 +128,9 @@ else
   echo "    (monthly_eval.sh run_step 同款接线) —— 本脚本应以"
   echo "    IP_RADAR_DATA_DIR=<repo>/.eval-gate-mirror 运行使候选物化落镜像工作副本;"
   echo "    --gate 的前置 sync 自动保留候选文件(--exclude=$SOURCE / $SOURCE.*,"
-  echo "    与候选豁免同口径);镜像内其他本地改动(非生产、非候选)仍会被 --delete-after 清除"
+  echo "    与候选豁免同口径;仅覆盖 filename==name house style 源,filename≠源名"
+  echo "    的老源会被 gate 以 rc=3 拒绝,不支持镜像流);镜像内其他本地改动"
+  echo "    (非生产、非候选)仍会被 --delete-after 清除"
 fi
 
 cat <<EOF

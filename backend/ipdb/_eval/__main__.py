@@ -648,8 +648,10 @@ def main(argv=None):
         # = S7 虚假保证)→ run_gate(双口径+triggers 节已在报告内, T4/T6)→
         # 报告路径回显。退出码契约: 镜像失配(gate_mirror_misaligned)/同步
         # 失败(gate_mirror_sync_failed, rsync/ssh 族)/测量数据目录漂移
-        # (measurement_misaligned)→ rc=3(与通用 rc=1 区分 —— 运维一眼认
-        # 「对齐未过, gate 根本没跑」);env 错位/未知源 → rc=1;其余内部异常
+        # (measurement_misaligned)/候选文件名不被 preserve 覆盖
+        # (gate_candidate_filename_uncovered, filename≠name 老源, r2 P1)
+        # → rc=3(与通用 rc=1 区分 —— 运维一眼认「对齐未过, gate 根本没跑」);
+        # env 错位/未知源 → rc=1;其余内部异常
         # 不吞(裸栈可查, 证据链完整)。
         from .gate import run_gate
         from .gate_mirror import (GateMirrorMisalignedError,
@@ -657,6 +659,26 @@ def main(argv=None):
                                   ensure_gate_mirror)
         try:
             with _gate_env():
+                # review-loop r2 P1: preserve(--exclude=<name> / <name>.*)
+                # 只覆盖 filename==<name> 或 <name>.* house style 源; 老源
+                # 文件名≠源名(如 spamhaus → spamhaus_drop.txt)时 exclude 不
+                # 匹配 → 前置 sync 会静默回滚镜像内候选再比对(r1 P0 同款
+                # 签名), gate 变成拿生产数据当候选全绿 —— fail-closed 先于
+                # 任何 rsync 拒跑; 未知源不走此口(维持 run_gate 既有出口)。
+                cand = next((s for s in registry.sources
+                             if s.name == args.gate), None)
+                if cand is not None:
+                    fname = Path(getattr(cand, "_path", "")).name
+                    if fname != args.gate and not fname.startswith(
+                            f"{args.gate}."):
+                        _gate_cli_fail(
+                            3, "gate_candidate_filename_uncovered",
+                            f"S7 fail-closed: gate 拒跑 —— 候选 {args.gate} "
+                            f"raw 文件名 {fname!r} 不被 gate preserve 覆盖"
+                            "(仅支持 filename==<name> 或 <name>.* house "
+                            "style 源)",
+                            "老命名源不支持镜像流, 人工接入裁决(扩展 "
+                            "preserve 语义属 scope 决策)", args.json)
                 try:
                     # 镜像参数从 env/常量读(见 gate_prod_host/gate_mirror_dir
                     # 出处注释; 不发明新配置面)。preserve=候选 → sync

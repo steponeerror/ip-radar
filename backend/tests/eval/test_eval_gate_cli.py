@@ -7,6 +7,7 @@ runner 断言 CLI 面(零网络零真 DB):
 - 镜像前置序(S7): ensure_gate_mirror 先于 run_gate, 参数从 env 读, 候选名
   透传 preserve(sync --exclude 豁免候选, r1 P0);失配(gate_mirror_misaligned)
   /同步失败(gate_mirror_sync_failed)→ rc=3 拒跑且不产 gate 报告(fail-closed);
+  filename≠name 老源不被 preserve 覆盖(r2 P1)→ rc=3 拒跑且不触镜像;
 - S7 测量对齐(终审 Issue-1): registry 数据目录逐源 epoch 漂移 → 同族
   rc=3 拒跑且 run_gate 不执行(镜像对齐≠测量对齐);
 - EVAL_ENV=gate 强制(S37): 未设 → CLI 钉 gate(报告目录/嵌套 stratum 件
@@ -251,6 +252,45 @@ def test_gate_cli_measurement_drift_refuses_run_gate_not_run(
     assert e2.value.code == 3
     env = json.loads(capsys.readouterr().out)
     assert env["error"]["code"] == "measurement_misaligned"
+
+
+def test_gate_cli_legacy_filename_refuses_before_mirror(
+        tmp_path, monkeypatch, capsys):
+    """review-loop r2 P1: filename≠name 老源(如 spamhaus → spamhaus_drop.txt)
+    不被 preserve --exclude 覆盖 → 前置 sync 会静默回滚镜像内候选(r1 P0
+    同款签名)→ rc=3 拒跑且不触镜像(零网络副作用)。"""
+    _gate_env(tmp_path, monkeypatch)
+    calls = _stub_mirror(monkeypatch, misaligned=True)   # 被调即拒
+    reg = _FakeRegistry(
+        [_FakeSource("spamhaus", _src_file(tmp_path, "spamhaus_drop", _CAND_IPS))])
+    _patch_registry(monkeypatch, reg)
+    with pytest.raises(SystemExit) as e:
+        M.main(["--gate", "spamhaus"])
+    assert e.value.code == 3              # rc=3 族 = 对齐前置未过(拒先于 rsync)
+    assert calls == []                    # fail-closed: 零网络副作用, 无谓 sync 不跑
+    assert not (tmp_path / "gate").exists()   # gate 根本没跑, 无报告产出
+    err = capsys.readouterr().err
+    assert "spamhaus_drop.txt" in err and "拒跑" in err
+    with pytest.raises(SystemExit) as e2:  # --json: stdout JSON 信封 + 同 rc(§5.2)
+        M.main(["--gate", "spamhaus", "--json"])
+    assert e2.value.code == 3
+    env = json.loads(capsys.readouterr().out)
+    assert env["error"]["code"] == "gate_candidate_filename_uncovered"
+
+
+def test_gate_cli_house_style_filename_passes_to_mirror(
+        tmp_path, monkeypatch):
+    """house style(filename==<name> 或 <name>.*): 文件名检查放行 →
+    前置序照触镜像(misaligned 拒跑族复用, 免挂全套 run_gate)。"""
+    _gate_env(tmp_path, monkeypatch)
+    calls = _stub_mirror(monkeypatch, misaligned=True)
+    reg = _FakeRegistry(
+        [_FakeSource("cand", _src_file(tmp_path, "cand", _CAND_IPS))])
+    _patch_registry(monkeypatch, reg)
+    with pytest.raises(SystemExit) as e:
+        M.main(["--gate", "cand"])
+    assert e.value.code == 3              # misaligned 族(证明已过文件名检查)
+    assert len(calls) == 1                # house style 放行, 镜像前置照跑
 
 
 def test_gate_cli_env_mislabel_fails_loud_before_mirror(tmp_path, monkeypatch):

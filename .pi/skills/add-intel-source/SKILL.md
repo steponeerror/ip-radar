@@ -316,7 +316,7 @@ print(s.health())                                      # loaded/stale sane?
 bash scripts/materialize_source.sh <name>        # fetch→rebuild→sentinel;哨兵不过=不进 gate
 ```
 
-哨兵 20/20(geo_asn 为 N/A+coverage)后跑接入关,gate 报告附 PR(人裁终局):`cd backend && IP_RADAR_EVAL_ENV=gate IP_RADAR_DATA_DIR=<repo>/.eval-gate-mirror python -m ipdb._eval --gate <name>`。gate 实跑协议:测量数据目录必须指向 `.eval-gate-mirror` 同步出的镜像目录(monthly_eval.sh run_step 同款接线——不设 IP_RADAR_DATA_DIR 会读本地 dev 数据,现在会拒跑 rc=3);候选物化也落同一镜像工作副本(`IP_RADAR_DATA_DIR=<repo>/.eval-gate-mirror bash scripts/materialize_source.sh <name>`);`--gate` 的前置 sync 自动保留候选文件(`--exclude=<name>` / `<name>.*`,与候选豁免同口径),镜像内**其他**本地改动(非生产、非候选)仍会被 `--delete-after` 清除。
+哨兵 20/20(geo_asn 为 N/A+coverage)后跑接入关,gate 报告附 PR(人裁终局):`cd backend && IP_RADAR_EVAL_ENV=gate IP_RADAR_DATA_DIR=<repo>/.eval-gate-mirror python -m ipdb._eval --gate <name>`。gate 实跑协议:测量数据目录必须指向 `.eval-gate-mirror` 同步出的镜像目录(monthly_eval.sh run_step 同款接线——不设 IP_RADAR_DATA_DIR 会读本地 dev 数据,现在会拒跑 rc=3);候选物化也落同一镜像工作副本(`IP_RADAR_DATA_DIR=<repo>/.eval-gate-mirror bash scripts/materialize_source.sh <name>`);`--gate` 的前置 sync 自动保留候选文件(`--exclude=<name>` / `<name>.*`,与候选豁免同口径;仅覆盖 filename==name house style 源,filename≠源名的老源会被 gate 以 rc=3 拒绝,不支持镜像流),镜像内**其他**本地改动(非生产、非候选)仍会被 `--delete-after` 清除。
 
 **接入关(Q4,spec §3.1)——哨兵过了才是硬门,gate 报告必附 PR。** gate 双口径分节作答:①candidate-stratum 自域判别力(verdict 8 态 + 消融指标族——候选自己行不行)②四层舰队净影响(ON/OFF 同语料同 run_seed 的配对 delta——加进舰队搬动了什么);两问各答各节,可拆着下结论(演示 B 判例)。报告「强制人裁」节的每一行 mandatory_review 旗标(基础三态 NEGATIVE/MIXED/NO-DATA + S1 抄尺 / S2 好得可疑 / S3 OC≥0.9 / S4 层 delta 显著恶化)= PR 人裁清单项,逐项处置留痕;触发集只升旗不自动动作(声明 r:测量建言,人裁终局)。跑 gate 前镜像 epoch 失配会拒跑(rc=3,S7 fail-closed)。gate 语义全景(共识层两场景 / OC 敏感带 / 同批串行纳入)见 manage-intel-source 的 `references/eval-harness.md`(gate 语义节)。
 
