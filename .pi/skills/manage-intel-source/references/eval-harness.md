@@ -36,7 +36,7 @@ print(s.health())   # 确认 record_count > 0、is_stale=False
 
 ## gate 接入关语义(spec 2026-10-12-eval-loop-hardening-design.md §3.1/§3.2)
 
-新源收录收尾强制跑接入关(`cd backend && IP_RADAR_EVAL_ENV=gate python -m ipdb._eval --gate <source>`;物化前序 `scripts/materialize_source.sh` 见 add-intel-source skill Phase 4),**gate 报告必附 PR**。
+新源收录收尾强制跑接入关(`cd backend && IP_RADAR_EVAL_ENV=gate IP_RADAR_DATA_DIR=<repo>/.eval-gate-mirror python -m ipdb._eval --gate <source>`;物化前序 `scripts/materialize_source.sh` 见 add-intel-source skill Phase 4),**gate 报告必附 PR**。
 
 **双口径并报(Q4)**:「candidate-stratum 自域判别力」(消融 + verdict 8 态——候选自己行不行)与「四层舰队净影响」(ON/OFF delta——加进舰队搬动了什么)是两个问题,各答各节、可拆着下结论(演示 B 判例)。ON/OFF 两臂同一套四层语料资产 + 同一 run_seed——delta 是配对读数,不是两独立样本的差(Q14)。
 
@@ -44,4 +44,4 @@ print(s.health())   # 确认 record_count > 0、is_stale=False
 
 **强制人裁触发集(只升旗不自动动作,声明 r:测量建言,人裁终局)**:R2 基础三态(NEGATIVE/MIXED/NO-DATA)+ S1 抄尺(候选键集对 truth 资产成员包含度>0.5 且非蜜罐声明)+ S2 好得可疑(独有命中×低 OC,或真值层 delta 显著正且 OC 低)+ S3 OC≥0.9 未声明派生(0.7-0.9 敏感带 report-only,报告不触发)+ S4 任一层 delta 显著恶化(bootstrap p<0.05)而 verdict 非 NEGATIVE/MIXED(NO-DATA 不豁免:死源四层 delta 仍可恶化)。旗标行 = PR 人裁清单项,逐项处置留痕;零旗标也留哨兵行(未触发≠未评估)。
 
-**镜像 epoch 对齐契约(S7,fail-closed)**:gate 每次跑前 rsync 生产 volume → `.eval-gate-mirror/`(常驻增量镜像,已 gitignore)+ ssh 逐源比对 epoch,失配即拒跑(rc=3,绝不降级为警告)——测量基线必须是生产实况,不因想跑而放行。实跑协议:测量数据目录须设 `IP_RADAR_DATA_DIR=<repo>/.eval-gate-mirror`(不设则读本地 dev 数据,CLI 会在镜像对齐后再校验 registry 数据目录与镜像 epoch 逐源一致——candidate 自身豁免,其新 ptr 只存在于物化侧——失配同样 rc=3 拒跑;monthly_eval.sh run_step 同款接线);候选物化落镜像工作副本(`IP_RADAR_DATA_DIR=<repo>/.eval-gate-mirror bash scripts/materialize_source.sh <name>`);rsync `--delete-after` 会清掉镜像内非生产文件——物化后、gate 过前不得再跑 sync。
+**镜像 epoch 对齐契约(S7,fail-closed)**:gate 每次跑前 rsync 生产 volume → `.eval-gate-mirror/`(常驻增量镜像,已 gitignore)+ ssh 逐源比对 epoch,失配即拒跑(rc=3,绝不降级为警告)——测量基线必须是生产实况,不因想跑而放行。实跑协议:测量数据目录须设 `IP_RADAR_DATA_DIR=<repo>/.eval-gate-mirror`(不设则读本地 dev 数据,CLI 会在镜像对齐后再校验 registry 数据目录与镜像 epoch 逐源一致——candidate 自身豁免,其新 ptr 只存在于物化侧——失配同样 rc=3 拒跑;monthly_eval.sh run_step 同款接线);候选物化落镜像工作副本(`IP_RADAR_DATA_DIR=<repo>/.eval-gate-mirror bash scripts/materialize_source.sh <name>`);`--gate` 的前置 sync 自动保留候选文件(`--exclude=<name>` / `<name>.*`,与候选豁免同口径);镜像内**其他**本地改动(非生产、非候选)仍会被 `--delete-after` 清除。

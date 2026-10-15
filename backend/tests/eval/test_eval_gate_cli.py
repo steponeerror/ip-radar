@@ -4,8 +4,9 @@
 库件(gate/canary/sentinel/gate_mirror)各有单测;本文件 fake reg + stub
 runner 断言 CLI 面(零网络零真 DB):
 - 参数解析与报告产出(gate-*/canary-* 落 base/gate 命名空间);
-- 镜像前置序(S7): ensure_gate_mirror 先于 run_gate,参数从 env 读;失配 →
-  rc=3 拒跑且不产 gate 报告(fail-closed);
+- 镜像前置序(S7): ensure_gate_mirror 先于 run_gate, 参数从 env 读, 候选名
+  透传 preserve(sync --exclude 豁免候选, r1 P0);失配(gate_mirror_misaligned)
+  /同步失败(gate_mirror_sync_failed)→ rc=3 拒跑且不产 gate 报告(fail-closed);
 - S7 测量对齐(终审 Issue-1): registry 数据目录逐源 epoch 漂移 → 同族
   rc=3 拒跑且 run_gate 不执行(镜像对齐≠测量对齐);
 - EVAL_ENV=gate 强制(S37): 未设 → CLI 钉 gate(报告目录/嵌套 stratum 件
@@ -147,9 +148,18 @@ def _patch_registry(monkeypatch, reg):
 def test_gate_cli_mirror_then_report(tmp_path, monkeypatch, capsys):
     _gate_env(tmp_path, monkeypatch)
     # S7 测量对齐(终审 Issue-1): registry 数据目录与镜像快照逐源一致才放行
+    # 本地替身记 kwargs(CLI 须把候选名透传 preserve → sync 豁免, r1 P0):
+    # _stub_mirror 只记 (host, dir), 拒跑族测试因此保持不变。
+    calls, kw_seen = [], []
+
+    def _mirror_stub(prod_host, mirror_dir, **kw):
+        calls.append((prod_host, Path(mirror_dir)))
+        kw_seen.append(kw)
+        return {"alignment": {"aligned": True, "detail": "aligned"},
+                "mirror_epochs": {"a.txt.lmdb.ptr": "22"}}
+
+    monkeypatch.setattr(gm, "ensure_gate_mirror", _mirror_stub)
     _reg_data(monkeypatch, tmp_path, {"a.txt.lmdb.ptr": "22"})
-    calls = _stub_mirror(monkeypatch,
-                         mirror_epochs={"a.txt.lmdb.ptr": "22"})
     # 镜像参数从 env 读(决策 1: 不发明新配置面)
     monkeypatch.setenv("IP_RADAR_GATE_PROD_HOST", "root@stub")
     monkeypatch.setenv("IP_RADAR_GATE_MIRROR_DIR", str(tmp_path / "mirror"))
@@ -159,8 +169,9 @@ def test_gate_cli_mirror_then_report(tmp_path, monkeypatch, capsys):
     _patch_registry(monkeypatch, reg)
     assets = tmp_path / "assets"          # 空资产根 → 四层 NO-LAYER 哨兵(报告照发)
     M.main(["--gate", "cand", "--run-seed", "7", "--assets-dir", str(assets)])
-    # 镜像前置恰一次, 参数 = env 解析值
+    # 镜像前置恰一次, 参数 = env 解析值, 候选名透传 preserve(r1 P0)
     assert calls == [("root@stub", tmp_path / "mirror")]
+    assert kw_seen == [{"preserve": "cand"}]
     out = tmp_path / "gate"               # env 钉 → call-time report_dir() = base/gate
     md = next(out.glob("gate-cand-*.md"))
     payload = json.loads(next(out.glob("gate-cand-*.json")).read_text())
@@ -190,6 +201,23 @@ def test_gate_cli_mirror_misaligned_refuses(tmp_path, monkeypatch, capsys):
     assert e2.value.code == 3
     env = json.loads(capsys.readouterr().out)
     assert env["error"]["code"] == "gate_mirror_misaligned"
+
+
+def test_gate_cli_mirror_sync_failure_envelope_code(tmp_path, monkeypatch, capsys):
+    """rsync/ssh 失败族与 epoch 失配拆信封码(r1 P2): rc 同为 3,
+    code=gate_mirror_sync_failed —— 运维一眼分「同步没成」vs「对齐未过」。"""
+    _gate_env(tmp_path, monkeypatch)
+
+    def _sync_fail(prod_host, mirror_dir, **kw):
+        raise RuntimeError("rsync 失败 (rc=23)")
+
+    monkeypatch.setattr(gm, "ensure_gate_mirror", _sync_fail)
+    _patch_registry(monkeypatch, _FakeRegistry([]))
+    with pytest.raises(SystemExit) as e:
+        M.main(["--gate", "cand", "--json"])
+    assert e.value.code == 3               # rc=3 族契约不变
+    env = json.loads(capsys.readouterr().out)
+    assert env["error"]["code"] == "gate_mirror_sync_failed"
 
 
 def test_gate_cli_measurement_drift_refuses_run_gate_not_run(

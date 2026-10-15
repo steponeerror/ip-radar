@@ -9,7 +9,8 @@
   mirror_check._epoch_fingerprint 逐源展开(该处聚合单哈希);不可读 ptr
   记 "?" 不炸;rebuild 换值即变;逐源确定性。
 - check_alignment: 逐源比对(值失配/单侧缺席皆失配), detail 列源名;
-  双侧皆无 epoch 证据 → 不放行(无证据≠对齐)。
+  双侧皆无 epoch 证据 → 不放行(无证据≠对齐);候选 `<candidate>.` ptr 族
+  豁免(r1 P0 carve-out, 与 sync --exclude 保留同口径)。
 - ensure_gate_mirror: sync → ssh 读远端逐源 epoch → 比对;失配 raise
   GateMirrorMisalignedError(fail-closed, 不跑 gate);对齐返回摘要 dict。
 - check_measurement_alignment(终审 Issue-1): registry 测量数据目录逐源
@@ -98,6 +99,22 @@ def test_sync_other_rc_raises(tmp_path):
         sync_gate_mirror("root@h", tmp_path / "m", runner=stub)
 
 
+def test_sync_preserve_candidate_excludes_before_src_dst(tmp_path):
+    # preserve=候选 → --exclude 使候选文件免传输且免 --delete-after 清除
+    # (review-loop r1 P0: 否则 --gate 前置 sync 删掉镜像内刚物化的候选);
+    # 豁免模式与 check_measurement_alignment 的 `<candidate>.` 前缀同口径。
+    mirror = tmp_path / "mirror"
+    r = sync_gate_mirror("root@h", mirror, dry_run=True, runner=StubRunner(),
+                         preserve="cand")
+    cmd = r["command"]
+    assert cmd == ["rsync", "-az", "--partial", "--delete-after",
+                   "--info=progress2", "--exclude=cand", "--exclude=cand.*",
+                   f"root@h:{gate_mirror.PROD_DATA_DIR}/", f"{mirror}/"]
+    r_none = sync_gate_mirror("root@h", mirror, dry_run=True,
+                              runner=StubRunner())      # preserve=None 不加排除
+    assert not any(a.startswith("--exclude") for a in r_none["command"])
+
+
 # ── epoch_fingerprint(逐源)──────────────────────────────────
 
 
@@ -124,6 +141,23 @@ def test_epoch_fingerprint_unreadable_ptr_records_question(tmp_path):
     make_ptr(d, "ok.lmdb.ptr", "5")
     (d / "bad.lmdb.ptr").mkdir()            # 读目录 → OSError → "?"(口径同 mirror_check)
     assert epoch_fingerprint(d) == {"ok.lmdb.ptr": "5", "bad.lmdb.ptr": "?"}
+
+
+def test_epoch_fingerprint_recipe_matches_mirror_check_aggregate(tmp_path):
+    # drift-guard: 本模块逐源 map 按 mirror_check 自家配方重组(sorted
+    # `name=value` 行 → sha256[:16])须得其聚合哈希 —— 两处口径无声漂移
+    # (格式/不可读"?"处理)即红。fixture 全部 ptr 同层, 路径序==名序;
+    # 若真分叉, 改为仅钉 mirror_check 实际值并注明(口径漂移须人裁)。
+    import hashlib
+    from ipdb._eval.mirror_check import _epoch_fingerprint as aggregate_fp
+    d = tmp_path / "mirror"
+    make_ptr(d, "a.txt.lmdb.ptr", "22")
+    make_ptr(d, "b.txt.lmdb.ptr", "7")
+    (d / "bad.lmdb.ptr").mkdir()            # 不可读 → "?"(两处同口径)
+    per = epoch_fingerprint(d)
+    recomputed = hashlib.sha256("\n".join(
+        f"{k}={v}" for k, v in sorted(per.items())).encode()).hexdigest()[:16]
+    assert recomputed == aggregate_fp(d)
 
 
 # ── check_alignment ───────────────────────────────────────────
@@ -161,6 +195,27 @@ def test_check_alignment_no_evidence_on_both_sides_fails_closed(tmp_path):
     d.mkdir()
     r = check_alignment(d, {})
     assert r["aligned"] is False             # 无证据≠对齐(路径错/半截同步)
+
+
+def test_check_alignment_candidate_ptr_exempt(tmp_path):
+    # 候选 ptr 只在镜像物化侧(生产快照没有)→ 豁免放行(r1 P0 carve-out,
+    # 与 check_measurement_alignment / sync --exclude 同口径)
+    d = tmp_path / "mirror"
+    make_ptr(d, "a.txt.lmdb.ptr", "22")
+    make_ptr(d, "cand.lmdb.ptr", "5")
+    r = check_alignment(d, {"a.txt.lmdb.ptr": "22"}, candidate="cand")
+    assert r["aligned"] is True
+    assert "1" in r["detail"]               # 计数只含比对源(候选不计)
+
+
+def test_check_alignment_non_candidate_mirror_only_ptr_refuses(tmp_path):
+    # 豁免不外溢: 非候选的镜像单侧 ptr 仍拒(候选豁免只对 <candidate>. 前缀)
+    d = tmp_path / "mirror"
+    make_ptr(d, "a.txt.lmdb.ptr", "22")
+    make_ptr(d, "other.lmdb.ptr", "1")
+    r = check_alignment(d, {"a.txt.lmdb.ptr": "22"}, candidate="cand")
+    assert r["aligned"] is False
+    assert "other.lmdb.ptr" in r["detail"]
 
 
 # ── ensure_gate_mirror(sync→ssh 读→比对)─────────────────────
@@ -213,6 +268,19 @@ def test_ensure_gate_mirror_ssh_failure_raises(tmp_path):
     stub = StubRunner(ssh_rc=255)
     with pytest.raises(RuntimeError, match="ssh"):
         ensure_gate_mirror("root@h", mirror, runner=stub)
+
+
+def test_ensure_gate_mirror_preserve_threads_to_rsync(tmp_path):
+    # CLI --gate 把候选名透传到 ensure_gate_mirror → rsync 豁免 + 候选 ptr
+    # 对齐豁免(r1 P0: 物化候选跨 sync 存活, check_alignment 不再拒跑)
+    mirror = tmp_path / "mirror"
+    make_ptr(mirror, "a.txt.lmdb.ptr", "22")
+    make_ptr(mirror, "cand.lmdb.ptr", "5")     # 物化候选 ptr(镜像单侧)
+    stub = StubRunner(ssh_stdout="a.txt.lmdb.ptr=22\n")
+    r = ensure_gate_mirror("root@h", mirror, runner=stub, preserve="cand")
+    assert "--exclude=cand" in stub.calls[0]
+    assert "--exclude=cand.*" in stub.calls[0]
+    assert r["alignment"]["aligned"] is True
 
 
 # ── check_measurement_alignment(S7 测量对齐, 终审 Issue-1)────

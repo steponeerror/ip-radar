@@ -62,15 +62,24 @@ def _stderr_tail(proc: Any) -> str:
 
 
 def sync_gate_mirror(prod_host: str, mirror_dir: Path, dry_run: bool = False,
-                     *, runner: Callable[[list[str]], Any] | None = None) -> dict:
+                     *, runner: Callable[[list[str]], Any] | None = None,
+                     preserve: str | None = None) -> dict:
     """rsync 增量同步生产 volume → mirror_dir (旗标/容忍集照 monthly_eval.sh)。
 
     dry_run 只回显将执行的命令, 不执行不落盘 (monthly_eval.sh --dry-run
     同义);rc∉{0, 24} → raise (fail-closed);rc=24 当成功并留痕 note。
+    preserve=候选源名 → --exclude 使其文件既不传输也不被 --delete-after
+    清除 (镜像内物化的候选 raw/LMDB/ptr 跨 sync 存活, 候选豁免同口径)。
     """
     runner = runner or _run
-    argv = ["rsync", *RSYNC_FLAGS,
-            f"{prod_host}:{PROD_DATA_DIR}/", f"{Path(mirror_dir)}/"]
+    argv = ["rsync", *RSYNC_FLAGS]
+    if preserve is not None:
+        # 排除模式与 check_measurement_alignment 的 `<candidate>.` 前缀豁免
+        # 同口径 (review-loop round-1 P0; rsync --exclude 同时豁免传输与
+        # --delete —— 无它, --gate 的前置 sync 会删掉镜像内刚物化的候选,
+        # gate 变成空候选测量却 S7 全绿)。
+        argv += [f"--exclude={preserve}", f"--exclude={preserve}.*"]
+    argv += [f"{prod_host}:{PROD_DATA_DIR}/", f"{Path(mirror_dir)}/"]
     if dry_run:
         return {"ok": True, "dry_run": True, "rc": None, "command": argv,
                 "note": ""}
@@ -99,17 +108,27 @@ def epoch_fingerprint(data_dir: Path) -> dict[str, str]:
     return out
 
 
-def check_alignment(mirror_dir: Path, prod_epochs: dict) -> dict:
+def check_alignment(mirror_dir: Path, prod_epochs: dict,
+                    candidate: str | None = None) -> dict:
     """逐源比对镜像 vs 生产 epoch: 值失配/单侧缺席皆失配, detail 列源名。
 
     双侧皆无任何 ptr 证据 (路径错/半截同步) → aligned=False: 无证据≠对齐。
+    candidate=候选源名 → `<candidate>.` ptr 族不计: 候选新 ptr 只在镜像
+    物化侧, 生产快照没有 (gate 物化 carve-out, 口径同
+    check_measurement_alignment 与 sync --exclude 保留, review-loop
+    round-1 P0 —— 无此豁免, preserve 保住的候选 ptr 会被本函数拒跑)。
     """
     mirror_epochs = epoch_fingerprint(mirror_dir)
     if not mirror_epochs and not prod_epochs:
         return {"aligned": False,
                 "detail": "no epoch evidence: 0 ptr sources on mirror and prod"}
+    prefix = f"{candidate}." if candidate is not None else None
     bad = []
+    compared = 0
     for name in sorted(set(mirror_epochs) | set(prod_epochs)):
+        if prefix is not None and name.startswith(prefix):
+            continue                     # 候选豁免: 物化侧新 ptr, 生产快照没有
+        compared += 1
         mv, pv = mirror_epochs.get(name), prod_epochs.get(name)
         if mv == pv:
             continue
@@ -121,7 +140,7 @@ def check_alignment(mirror_dir: Path, prod_epochs: dict) -> dict:
             bad.append(f"{name}: mirror={mv} prod={pv}")
     if bad:
         return {"aligned": False, "detail": "; ".join(bad)}
-    return {"aligned": True, "detail": f"aligned ({len(mirror_epochs)} sources)"}
+    return {"aligned": True, "detail": f"aligned ({compared} sources)"}
 
 
 def check_measurement_alignment(data_dir: Path, mirror_epochs: dict,
@@ -135,8 +154,9 @@ def check_measurement_alignment(data_dir: Path, mirror_epochs: dict,
     某源 ptr(缺证据≠对齐); 候选豁免: 候选新 ptr 只存在于物化侧, 镜像
     生产快照没有 —— `<candidate>.` ptr 族(materialize_source.sh 物化产物
     同款命名, house style filename==name)整族不计, 兼容 filename≠name
-    的老源前缀(如 threatfox.csv.lmdb.ptr); 双侧皆无 ptr 证据 → 不对齐
-    (check_alignment 同守卫)。
+    的老源前缀(如 threatfox.csv.lmdb.ptr); (--gate 前置 sync 现以
+    --exclude 同口径保留候选文件, review-loop round-1 P0)双侧皆无 ptr
+    证据 → 不对齐(check_alignment 同守卫)。
     """
     data_epochs = epoch_fingerprint(data_dir)
     if not data_epochs and not mirror_epochs:
@@ -182,16 +202,20 @@ def _remote_epochs(prod_host: str, *,
 
 
 def ensure_gate_mirror(prod_host: str, mirror_dir: Path, *,
-                       runner: Callable[[list[str]], Any] | None = None) -> dict:
+                       runner: Callable[[list[str]], Any] | None = None,
+                       preserve: str | None = None) -> dict:
     """gate 前置序: sync → ssh 读远端 epoch → 逐源比对;失配 raise 拒跑。
 
     返回摘要 dict (sync 结果 + 双侧逐源 epoch + alignment);失配 raise
     GateMirrorMisalignedError (detail 列失配源名), 调用方不得继续跑 gate
-    (S7 fail-closed)。
+    (S7 fail-closed)。preserve=候选源名 透传 sync 豁免与 check_alignment
+    候选豁免 (候选物化产物跨 sync 存活且不触发失配拒跑,
+    review-loop round-1 P0)。
     """
-    sync = sync_gate_mirror(prod_host, mirror_dir, runner=runner)
+    sync = sync_gate_mirror(prod_host, mirror_dir, runner=runner,
+                            preserve=preserve)
     prod = _remote_epochs(prod_host, runner=runner)
-    alignment = check_alignment(mirror_dir, prod)
+    alignment = check_alignment(mirror_dir, prod, candidate=preserve)
     if not alignment["aligned"]:
         raise GateMirrorMisalignedError(alignment["detail"])
     return {

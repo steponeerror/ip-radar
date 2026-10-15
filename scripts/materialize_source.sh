@@ -127,7 +127,8 @@ else
   echo "    gate 实跑协议: 测量数据目录须指向 .eval-gate-mirror 同步出的镜像目录"
   echo "    (monthly_eval.sh run_step 同款接线) —— 本脚本应以"
   echo "    IP_RADAR_DATA_DIR=<repo>/.eval-gate-mirror 运行使候选物化落镜像工作副本;"
-  echo "    rsync --delete-after 会清掉镜像内非生产文件 —— 物化后、gate 过前不得再跑 sync"
+  echo "    --gate 的前置 sync 自动保留候选文件(--exclude=$SOURCE / $SOURCE.*,"
+  echo "    与候选豁免同口径);镜像内其他本地改动(非生产、非候选)仍会被 --delete-after 清除"
 fi
 
 cat <<EOF

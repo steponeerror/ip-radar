@@ -646,9 +646,11 @@ def main(argv=None):
         # fail-closed)→ 测量对齐校验(终审 Issue-1: registry 数据目录与镜像
         # epoch 逐源比对, 失配拒跑 —— 镜像对齐了、测的却是本地 dev 数据
         # = S7 虚假保证)→ run_gate(双口径+triggers 节已在报告内, T4/T6)→
-        # 报告路径回显。退出码契约: 镜像失配/同步失败/测量数据目录漂移 →
-        # rc=3(与通用 rc=1 区分 —— 运维一眼认「对齐未过, gate 根本没
-        # 跑」);env 错位/未知源 → rc=1;其余内部异常不吞(裸栈可查, 证据链完整)。
+        # 报告路径回显。退出码契约: 镜像失配(gate_mirror_misaligned)/同步
+        # 失败(gate_mirror_sync_failed, rsync/ssh 族)/测量数据目录漂移
+        # (measurement_misaligned)→ rc=3(与通用 rc=1 区分 —— 运维一眼认
+        # 「对齐未过, gate 根本没跑」);env 错位/未知源 → rc=1;其余内部异常
+        # 不吞(裸栈可查, 证据链完整)。
         from .gate import run_gate
         from .gate_mirror import (GateMirrorMisalignedError,
                                   check_measurement_alignment,
@@ -657,13 +659,23 @@ def main(argv=None):
             with _gate_env():
                 try:
                     # 镜像参数从 env/常量读(见 gate_prod_host/gate_mirror_dir
-                    # 出处注释; 不发明新配置面)
+                    # 出处注释; 不发明新配置面)。preserve=候选 → sync
+                    # --exclude 豁免候选文件, 物化产物跨 sync 存活(r1 P0:
+                    # 否则前置 sync 会删掉镜像内刚物化的候选)。
                     mirror = ensure_gate_mirror(gate_prod_host(),
-                                                gate_mirror_dir())
-                except (GateMirrorMisalignedError, RuntimeError) as e:
+                                                gate_mirror_dir(),
+                                                preserve=args.gate)
+                except GateMirrorMisalignedError as e:
                     _gate_cli_fail(3, "gate_mirror_misaligned",
                                    f"S7 fail-closed: gate 拒跑 —— {e}",
                                    "重跑本命令重试 rsync, 或人工比对生产/镜像 .ptr",
+                                   args.json)
+                except RuntimeError as e:
+                    # rsync/ssh 失败族与 epoch 失配拆信封码(同名会误导排障;
+                    # rc 同为 3, review-loop r1 P2)
+                    _gate_cli_fail(3, "gate_mirror_sync_failed",
+                                   f"S7 fail-closed: gate 拒跑 —— {e}",
+                                   "检查 ssh/rsync 可达性后重跑本命令(网络/主机)",
                                    args.json)
                 # S7 测量对齐(终审 Issue-1): registry 数据目录漂移(未设
                 # IP_RADAR_DATA_DIR → 缺省读本地 dev backend/data)时 S7 对
