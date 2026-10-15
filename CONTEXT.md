@@ -22,6 +22,16 @@ _Avoid_: 恶意源
 融合层不变式:恰一个 reliability=r 的证人时,合成置信度恒等于 r(σ(logit(r))=r)。
 _Avoid_: —
 
+### 摄取
+
+**合法空**:
+bare-IP 多列表 feed 中 HTTP 200 + 空 body 的子列表——发布方「当前无此类条目」的声明:落 0 字节文件、下一 epoch 出清该列表条目、不计失败。仅限 200;404/超时/锚空仍是失败。
+_Avoid_: 空响应(混淆断供空)
+
+**活性锚**:
+同批下载中证明出版方存活的列表(blocklist_de = all.txt 聚合);锚空 = 本轮零替换 + 记真失败(fail-closed),防灾难性全空清库。判例:blocklist_de ircbot 2026-10-15(grill Q1-Q3)。
+_Avoid_: —
+
 ### 质量闸门
 
 (词汇正源为 GLOSSARY.md;本节为 grill 会话工件,冲突时以 GLOSSARY 为准。)
