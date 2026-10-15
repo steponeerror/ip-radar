@@ -14,6 +14,11 @@
 - **interning(payloads 字典)**:证据 payload 跨 CIDR 去重存 sub-db,主库值里放 ref_id,命中时解引用;解引用 miss 必炸不降级。锚:_lmdb.py(PAYLOADS_NAME/resolve_evidence)
 - **投影(策展静态源)**:策展静态源的 _DATA 常量是唯一真相源,data/ 下 csv 是物化投影——缺失或内容不一致即重物化并 bump mtime(needs_convert 入队一次 rebuild 后收敛,无循环;手工改 csv 会被覆写,是特性);epoch 损坏遇内容变更亦借此自愈。锚:_sources/infra_services.py(_sync_projection)、grill Q6(2026-10-11)
 
+## 摄取
+
+- **合法空**:bare-IP 多列表 feed 中 HTTP 200 + 空 body 的子列表——发布方「当前无此类条目」的声明:落 0 字节文件、下一 epoch 出清该列表条目、不计失败。仅限 200;404/超时/锚空仍是失败。firehol 等头部化格式不适用(空文件无头即坏)。锚:_sources/blocklist_de.py(download)
+- **活性锚**:同批下载中证明出版方存活的列表(blocklist_de = all.txt 聚合);锚空 = 本轮零替换 + 记真失败(fail-closed),防灾难性全空清库。判例:blocklist_de ircbot 2026-10-15(grill Q1-Q3)。锚:_sources/blocklist_de.py(download)
+
 ## 证据
 
 - **无损管线**:parse→merge→types 任何一层不得丢弃证据;分类词映不上受控词表就落 other,原始标签全保。评分模型是过客,原始证据是永恒。锚:_evidence.py(route_record)
