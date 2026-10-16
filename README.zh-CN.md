@@ -76,6 +76,8 @@ docker compose build --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn
 - 升级：`git pull && docker compose up -d --build`，数据卷原地保留。
 - 磁盘：给数据卷留够 ≥6 GB。
 
+`docker compose up` 之后的一切——读懂结果页、管理台、完整 API、备份/升级/告警 runbook——都在**《使用手册》**（[MANUAL.zh-CN.md](MANUAL.zh-CN.md) / [English](MANUAL.md)）。
+
 ## 桌面伴侣
 
 <p align="center">
@@ -124,7 +126,7 @@ curl -s http://127.0.0.1:8000/api/lookup/1.12.0.1
 curl -s http://127.0.0.1:8000/api/db-status
 ```
 
-其余管理端点（sources / eval / update-db / tasks / events 等）都在代码里；UI 上点一下也能触发刷新。仍勿将端口暴露给不受信网络。
+其余管理端点（sources / eval / update-db / tasks / events 等）在《使用手册》[API 参考](MANUAL.zh-CN.md#7-api-参考)里逐个列出；UI 上点一下也能触发刷新。仍勿将端口暴露给不受信网络。
 
 ### 安全须知
 
@@ -275,27 +277,19 @@ cd frontend && npm test
 
 ## 版本通知与一键更新
 
-页面顶部的版本横幅会提示新版本（点击「检查更新」手动查询），并给出复制即用的更新命令：
-
-```
+```bash
 git pull && docker compose up -d --build
 ```
 
-想省去 SSH：在 `docker-compose.yml` 取消注释自更新挂载模板（docker.sock + 仓库目录 + token 三件套）后 `docker compose up -d`，横幅上会出现「立即更新」。仓库目录挂载需用宿主机上的绝对路径（如 `/home/you/ip-radar:/app/repo`，不能用 `./` 相对路径，否则容器内重放 compose 时解析不到宿主机目录）。注意：挂载 docker.sock 等于赋予容器宿主机 root 级控制权，仅建议内网自托管使用；页面首次更新时需粘贴一次部署时配置的 `IP_RADAR_UPDATE_TOKEN`。已知事项：容器内 git pull 写入的文件归 root，若之后在宿主机上直接操作仓库可能遇到权限提示（`sudo` 或 `git config --global --add safe.directory` 即可）；若直接修改了仓库内被跟踪的文件（如 `.env`），`git pull --ff-only` 会更新失败，这是预期保护，改用 `.env.local` 放本地覆盖即可。
+数据卷原地保留，升级无数据迁移。页面顶部横幅会提示新版本（「检查更新」手动查询）并给出这条命令；取消注释自更新挂载后横幅上还会出现「立即更新」按钮。选配挂载的安全注意（docker.sock）、绝对路径要求、维护者发版坑：见《使用手册》[运维章](MANUAL.zh-CN.md#9-运维)。
 
 ### 备份与恢复
 
-全部状态都在同一个 named volume（`ipradar-data` → `/app/data`）：各源原始下载、LMDB epoch 目录及其 `.ptr/.count/.cov/.disjoint` 四边车、SQLite 双库 `auth.db`/`alerts.db`。重建从不原地写——先落新 epoch 目录、指针再原子翻转——所以停容器拷卷（`docker compose stop ipradar` 后 tar 卷目录再 start；`down` 切勿带 `-v`）即得完整一致的备份。热拷按源可行，避开该源正在重建的窗口：先拷 epoch 目录、边车殿后、复查 `.ptr` 未翻；SQLite 双库用 `sqlite3 <db> ".backup …"` 在线备份（写瞬间的 `-journal` 伴生文件会让裸拷撕裂）。恢复 = 拷回卷 + `docker compose up -d`，再核对启动日志 `Loaded <键数> <源名> + …` 与备份前的 `/api/db-status` 一致。真正不可再生的只有 `auth.db`/`alerts.db`（key 与告警史）——若持有 `_calibrated.json` 则一并（手定可靠度覆盖，不会再生）;数据文件全部可从公开 feed 重新下载。
-
-### 发版（维护者）
-
-发版切 tag 时的一个坑：release 提交必须含至少一个非 markdown 文件改动——CI 的 `paths-ignore` 会跳过 `**.md`-only 的 push，md-only 发版提交将不触发 tag↔CHANGELOG↔GitHub Release 一致性闸门。
-
-部署侧还有一个坑：部署服务器上先 `git fetch --tags` 再 build——否则 BUILD_VERSION（`git describe`）回退旧基线 → 假更新横幅（v1.4.2 实录）。
+全部状态都在同一个 named volume（`ipradar-data` → `/app/data`）：各源原始下载、LMDB epoch 目录及其四边车、SQLite 双库 `auth.db`/`alerts.db`。重建从不原地写，停容器拷卷即得完整一致的备份。停机/热拷两种做法、恢复核对步骤、什么真正不可再生：见《使用手册》[备份与恢复](MANUAL.zh-CN.md#备份与恢复)。
 
 ### 来源告警（可选）
 
-调度器追踪每个源的存活，但通知**默认静默**。把 `IP_RADAR_ALERT_URLS`（`docker-compose.yml` 里任意 `environment` 块，或 `.env.local`）设为逗号分隔的 [apprise](https://github.com/caronc/apprise) 风格 URL 列表——如 `mailto:you@example.com`、Discord/Telegram/Lark webhook——当某源停止更新、下载持续失败或数据库加载失败（如 epoch 损坏）时，会收到一条合并消息。各源健康（含加载错误）始终可在 `/api/sources` 查看；该环境变量改动重启后生效。
+通知**默认静默**。把 `IP_RADAR_ALERT_URLS`（任意 `environment` 块或 `.env.local`）设为逗号分隔的 [apprise](https://github.com/caronc/apprise) 风格 URL（`mailto:`、Discord/Telegram/Lark webhook），某源停止更新、持续失败或库加载失败时会收到一条合并消息；重启生效。详见《使用手册》[源告警](MANUAL.zh-CN.md#源告警选配默认静默)。
 
 ## 许可证
 
