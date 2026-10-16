@@ -126,7 +126,7 @@ curl -s http://127.0.0.1:8000/api/lookup/1.12.0.1
 curl -s http://127.0.0.1:8000/api/db-status
 ```
 
-其余管理端点（sources / eval / update-db / tasks / events 等）都在代码里；UI 上点一下也能触发刷新。仍勿将端口暴露给不受信网络。
+其余管理端点（sources / eval / update-db / tasks / events 等）在《使用手册》[API 参考](MANUAL.zh-CN.md#7-api-参考)里逐个列出；UI 上点一下也能触发刷新。仍勿将端口暴露给不受信网络。
 
 ### 安全须知
 

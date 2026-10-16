@@ -122,7 +122,7 @@ curl -s http://127.0.0.1:8000/api/lookup/1.12.0.1
 curl -s http://127.0.0.1:8000/api/db-status
 ```
 
-The other management endpoints (sources / eval / update-db / tasks / events, …) live in the code; the UI triggers refreshes with one click too. Don't expose the port to untrusted networks.
+The other management endpoints (sources / eval / update-db / tasks / events, …) are cataloged end-to-end in the [User Manual → API reference](MANUAL.md#7-api-reference); the UI triggers refreshes with one click too. Don't expose the port to untrusted networks.
 
 ### Security notes
 
