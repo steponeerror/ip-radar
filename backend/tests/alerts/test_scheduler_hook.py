@@ -180,7 +180,9 @@ def test_snapshots_passed_to_evaluate(alerts_db, tmp_path, monkeypatch):
     b = _make_src("b", tmp_path, mtime=NOW)
     b._path.unlink()                  # 无文件 → content_age_h None
     sch, mgr = _make_scheduler([a, b])
-    sch._backoff["a"] = _Backoff(fail_count=2, next_attempt=0.0)
+    # kind=download 随梯子入快照(2026-10-17 裁定:告警分报);无梯子 → ""
+    sch._backoff["a"] = _Backoff(fail_count=2, next_attempt=0.0,
+                                 kind="download")
     seen, pushes = [], []
 
     def fake_evaluate(snapshots, now, eval_heartbeat=None):
@@ -196,9 +198,9 @@ def test_snapshots_passed_to_evaluate(alerts_db, tmp_path, monkeypatch):
     sch.scan(now=NOW)
     assert seen == [([
         {"name": "a", "stale_days": 3, "content_age_h": 24.0, "fail_count": 2,
-         "reader_error": False},
+         "fail_kind": "download", "reader_error": False},
         {"name": "b", "stale_days": 1, "content_age_h": None, "fail_count": 0,
-         "reader_error": False},
+         "fail_kind": "", "reader_error": False},
     ], NOW, None)]
     assert pushes == []
     # S6 接线:env 给路径则透传给 evaluate(未设已验 None)

@@ -503,6 +503,12 @@ class FailInLoadingSource(FakeSource):
         raise RuntimeError("boom")
 
 
+class FailInDownloadSource(FakeSource):
+    """下载相位抛非取消异常(2026-10-17 裁定:告警分报下载/构建失败)。"""
+    def download(self, token=None):
+        raise RuntimeError("net down")
+
+
 class DownloadCountsSource(FakeSource):
     def download(self, token=None):
         if token is not None and token.on_progress:
@@ -530,6 +536,38 @@ def test_failed_state_carries_error_code():
     t2 = Task(id="y", source_name="b", host=None)
     mgr._set_state(t2, "done")
     assert t2.to_dict()["error_code"] is None
+
+
+def test_failure_sites_classify_download_vs_rebuild():
+    """2026-10-17 用户裁定(源监控告警须说清挂的是哪一环):下载相位异常
+    → error_code=download;构建相位异常 → error_code=rebuild;取码走
+    task_failure_kind(仅 failed 态返回,其余 None)。"""
+    mgr, _ = _make_manager([FailInDownloadSource("d")])
+    td = mgr.enqueue_one("d")
+    _wait_states(mgr, lambda s: s["tasks"] and
+                 s["tasks"][0]["state"] in ("done", "failed", "cancelled"))
+    tk = mgr.snapshot()["tasks"][0]
+    assert tk["state"] == "failed"
+    assert tk["error_code"] == "download"
+    assert mgr.task_failure_kind(td.id) == "download"
+
+    mgr2, _ = _make_manager([FailInLoadingSource("f")])
+    tf = mgr2.enqueue_one("f")
+    _wait_states(mgr2, lambda s: s["tasks"] and
+                 s["tasks"][0]["state"] in ("done", "failed", "cancelled"))
+    tk2 = mgr2.snapshot()["tasks"][0]
+    assert tk2["state"] == "failed"
+    assert tk2["error_code"] == "rebuild"
+    assert mgr2.task_failure_kind(tf.id) == "rebuild"
+
+    # 非 failed 态/未知 id → None(done 任务无失败分类可言)
+    mgr3, _ = _make_manager([FakeSource("ok")])
+    tok = mgr3.enqueue_one("ok")
+    _wait_states(mgr3, lambda s: s["tasks"] and
+                 s["tasks"][0]["state"] in ("done", "failed", "cancelled"))
+    assert mgr3.snapshot()["tasks"][0]["state"] == "done"
+    assert mgr3.task_failure_kind(tok.id) is None
+    assert mgr3.task_failure_kind("does-not-exist") is None
 
 
 def test_emit_progress_persists_counts_even_when_throttled():

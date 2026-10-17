@@ -177,7 +177,9 @@ def evaluate(snapshots: list[dict], now: float,
     """消费 scheduler 每轮快照,推进 alert_state 并组装本轮合并消息。
 
     snapshot 每项:{"name", "stale_days", "content_age_h"(None=无文件→视为 ∞),
-    "fail_count"(缺省 0), "reader_error"(缺省 False:ptr 在而 reader 未加载,
+    "fail_count"(缺省 0), "fail_kind"(缺省 ""=旧「连续失败 ×N」通用
+    文案;"download"/"rebuild" 分报下载/构建失败,2026-10-17 用户裁定),
+    "reader_error"(缺省 False:ptr 在而 reader 未加载,
     OL-4 epoch 损坏降级信号)}。per (source, condition) 状态机(约束 4):
     转入坏 → INSERT active_since/last_notified=now 并计入;持续坏且
     now-last_notified ≥ 24h → 刷新 last_notified 并计入(重发);恢复 →
@@ -247,7 +249,18 @@ def evaluate(snapshots: list[dict], now: float,
                             f"阈值 {_fmt_hours(thr)})")
                 stale_lines.append((name, line))
             if _FAIL in counted:
-                fail_lines.append((name, f"{name}: 连续失败 ×{fail_count}"))
+                # 2026-10-17 用户裁定:源监控告警须说清挂的是哪一环——下载
+                # 失败就报下载失败,构建失败就报构建失败。condition 仍为
+                # "fail"(DB 兼容:生产存量 (source,'fail') 行无迁移,首次
+                # 24h 重发即按当前 kind 渲染);未知/缺省 kind 回退旧通用
+                # 文案(既有调用方/测试位等价)。
+                kind = snap.get("fail_kind", "")
+                if kind == "download":
+                    fail_lines.append((name, f"{name}: 下载连续失败 ×{fail_count}"))
+                elif kind == "rebuild":
+                    fail_lines.append((name, f"{name}: 构建连续失败 ×{fail_count}"))
+                else:
+                    fail_lines.append((name, f"{name}: 连续失败 ×{fail_count}"))
             if _READER in counted:
                 reader_lines.append(
                     (name, f"{name}: 数据库未加载(疑 epoch 损坏),查询端静默缺席"))

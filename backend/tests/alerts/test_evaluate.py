@@ -22,10 +22,10 @@ def alerts_db(tmp_path, monkeypatch):
     return p
 
 
-def _snap(name, stale_days=1, age=1.0, fail=0, reader=False):
+def _snap(name, stale_days=1, age=1.0, fail=0, reader=False, kind=""):
     return {"name": name, "stale_days": stale_days,
             "content_age_h": age, "fail_count": fail,
-            "reader_error": reader}
+            "fail_kind": kind, "reader_error": reader}
 
 
 def _seed_observed(source, gap_h, now, events=6):
@@ -120,6 +120,29 @@ def test_fail_count_defaults_to_zero(alerts_db):
     snap = [{"name": "otx", "stale_days": 1, "content_age_h": 1.0}]  # 缺 fail_count
     assert _alerts.evaluate(snap, now=T0) is None
     assert _state(alerts_db) == []
+
+
+def test_fail_kind_renders_download_rebuild_and_fallback(alerts_db):
+    """2026-10-17 用户裁定:源监控告警须说清挂的是哪一环——下载失败就报
+    下载失败,构建失败就报构建失败。fail_kind 三态渲染;缺省 "" 与缺键
+    (旧快照形状)均回退旧通用文案(位等价红线);condition 恒 "fail"
+    (DB 兼容:生产存量行无迁移,首次 24h 重发即按当前 kind 渲染)。"""
+    from ipdb import _alerts
+    msg = _alerts.evaluate([
+        _snap("dl", age=1.0, fail=3, kind="download"),
+        _snap("rb", age=1.0, fail=3, kind="rebuild"),
+        _snap("gen", age=1.0, fail=3),            # 缺省 "" → 旧通用文案
+        {"name": "old", "stale_days": 1, "content_age_h": 1.0,   # 缺键:旧快照形状
+         "fail_count": 3},
+    ], now=T0)
+    assert msg == {"title": "ipradar: 4 源异常",
+                   "body": "dl: 下载连续失败 ×3\n"
+                           "gen: 连续失败 ×3\n"
+                           "old: 连续失败 ×3\n"
+                           "rb: 构建连续失败 ×3"}
+    # 分类只动文案:alert_state 落行 condition 仍全为 "fail"
+    assert [r[:2] for r in _state(alerts_db)] == [
+        ("dl", "fail"), ("gen", "fail"), ("old", "fail"), ("rb", "fail")]
 
 
 def test_reader_error_condition_and_recovery(alerts_db):
