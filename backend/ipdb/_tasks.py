@@ -1,6 +1,10 @@
 """UpdateManager — unified trackable/abortable source-update task runner."""
 import asyncio
 import inspect
+import logging
+import os
+import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -10,6 +14,8 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from ._sources._download import CancelledError, CancelToken
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -443,6 +449,96 @@ class UpdateManager:
             self._emit({"type": "task_progress", "task_id": task.id,
                         "received": received, "total": total})
 
+    def _rebuild_via_subprocess(self, task: Task, source) -> bool:
+        """loading 相位的子进程重建(IP_RADAR_REBUILD_SUBPROCESS=1 车道,
+        2026-10 小机 RSS 棘轮根修)。
+
+        子进程 `python -m ipdb._rebuild_child <name>`(stdout 行协议 PROG/OK,
+        见该模块头);数据目录经继承的 IP_RADAR_DATA_DIR 解析,与父进程
+        一致。rc==0 后父进程 source.load() 把 reader/count 重同步到子进程
+        提交的新 epoch(子进程不回写父进程对象状态);load 抛 → failed。
+        rc!=0 → failed(stderr 尾部 ~300 字入 error,足够定位 traceback 末段
+        又不把任务快照变日志倾倒场)。
+
+        取消:逐行检查 token,命中即 terminate + wait + cancelled(记账
+        语义与现行取消一致:epoch 已换新不回滚,grill Q8 2026-10-11)。
+        返回 True 仅当 rc==0 且 load() 成功 —— 取消/失败都在此内置终态并
+        返回 False,由 _run_task 的 finally 走 _settle。Popen/管道层异常同样
+        映射 failed:炸出 _run_task 会杀死 worker 线程,任务永久卡 loading、
+        batch 永不完成。
+        """
+        stderr_buf: list[str] = []
+        try:
+            proc = subprocess.Popen(
+                [sys.executable, "-m", "ipdb._rebuild_child",
+                 task.source_name],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        except Exception as e:
+            logger.warning("rebuild subprocess spawn failed for %s: %s",
+                           task.source_name, e)
+            self._set_state(task, "failed", str(e), error_code="internal")
+            return False
+        # stderr 独立 reader 线程:子进程把 64KB stderr 管道缓冲写满而父
+        # 进程只逐行读 stdout 时,子进程阻塞在 stderr 写上,OK 永远到不了
+        # —— 经典双管道死锁。
+
+        def _drain_stderr():
+            for ln in proc.stderr:
+                stderr_buf.append(ln)
+
+        stderr_reader = threading.Thread(target=_drain_stderr, daemon=True)
+        stderr_reader.start()
+        cancelled = False
+        try:
+            try:
+                for line in proc.stdout:
+                    parts = line.split()
+                    if len(parts) == 3 and parts[0] == "PROG":
+                        try:
+                            r, t = int(parts[1]), int(parts[2])
+                        except ValueError:
+                            pass
+                        else:
+                            self._emit_progress(task, r, t)
+                    if task.token.is_cancelled():
+                        cancelled = True
+                        break
+                if cancelled:
+                    proc.terminate()
+                rc = proc.wait()
+            finally:
+                proc.stdout.close()
+                # 子进程已退出(wait 返回)⇒ 两管道必至 EOF ⇒ reader 线程
+                # 必退出;join 后再 close stderr,避免与阻塞中的 read 竞争。
+                stderr_reader.join(timeout=5)
+                proc.stderr.close()
+                if proc.returncode is None:     # 异常路径兜底:不留僵尸
+                    proc.terminate()
+                    proc.wait()
+        except Exception as e:
+            logger.warning("rebuild subprocess pipe failed for %s: %s",
+                           task.source_name, e)
+            self._set_state(task, "failed", str(e), error_code="internal")
+            return False
+        if cancelled:
+            self._set_state(task, "cancelled")
+            return False
+        if rc == 0:
+            try:
+                source.load()
+            except Exception as e:
+                logger.warning("post-subprocess load failed for %s: %s",
+                               task.source_name, e)
+                self._set_state(task, "failed", str(e), error_code="internal")
+                return False
+            return True
+        tail = "".join(stderr_buf).strip()[-300:]
+        logger.warning("rebuild subprocess failed for %s: %s",
+                       task.source_name, tail)
+        self._set_state(task, "failed", tail or f"rc={rc}",
+                        error_code="internal")
+        return False
+
     def _run_task(self, task: Task):
         source = self._resolve(task.source_name)
         if source is None:
@@ -469,6 +565,9 @@ class UpdateManager:
                 except CancelledError:
                     self._set_state(task, "cancelled"); return
                 except Exception as e:
+                    # 静默失败清偿(2026-10 小机事故诊断痛点):失败必须留痕。
+                    logger.warning("download failed for %s: %s",
+                                   task.source_name, e)
                     self._set_state(task, "failed", str(e),
                                     error_code="internal"); return
                 finally:
@@ -478,19 +577,29 @@ class UpdateManager:
             task.received = task.total = 0
             self._set_state(task, "loading")
             self._prog[task.id] = (0.0, -1)
-            task.token.on_progress = lambda d, t: self._emit_progress(task, d, t)
-            try:
-                # 预检而非 try/except TypeError 回退:后者会吞 rebuild 内部
-                # 真实 TypeError 并重复执行整个重建。
-                if "progress" in inspect.signature(source.rebuild).parameters:
-                    source.rebuild(progress=task.token.on_progress)
-                else:
-                    source.rebuild()
-            except Exception as e:
-                self._set_state(task, "failed", str(e),
-                                error_code="internal"); return
-            finally:
-                task.token.on_progress = None
+            if os.environ.get("IP_RADAR_REBUILD_SUBPROCESS") == "1":
+                # 子进程车道(2026-10 小机 RSS 棘轮根修):rebuild 在一次性
+                # 子进程执行,退出即归还堆高水位(动因见 _rebuild_child
+                # 模块头)。默认关:不设开关时下方原路径逐位不动(位等价)。
+                if not self._rebuild_via_subprocess(task, source):
+                    return
+            else:
+                task.token.on_progress = lambda d, t: self._emit_progress(task, d, t)
+                try:
+                    # 预检而非 try/except TypeError 回退:后者会吞 rebuild 内部
+                    # 真实 TypeError 并重复执行整个重建。
+                    if "progress" in inspect.signature(source.rebuild).parameters:
+                        source.rebuild(progress=task.token.on_progress)
+                    else:
+                        source.rebuild()
+                except Exception as e:
+                    # 静默失败清偿(2026-10 小机事故诊断痛点):失败必须留痕。
+                    logger.warning("in-process rebuild failed for %s: %s",
+                                   task.source_name, e)
+                    self._set_state(task, "failed", str(e),
+                                    error_code="internal"); return
+                finally:
+                    task.token.on_progress = None
             # 与 download→loading 边界检查对称:loading 期间点的取消在
             # rebuild 返回后生效(按钮在 loading 态是启用的,无视会误导)。
             # 取消只影响记账:epoch 已安全换新(rebuild 返回即 ptr 已切换,
