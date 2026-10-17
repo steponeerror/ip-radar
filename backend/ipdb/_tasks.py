@@ -25,7 +25,8 @@ class Task:
     host: Optional[str]
     state: str = "queued"  # queued|downloading|loading|throttled|done|failed|cancelled
     error: Optional[str] = None
-    # 失败终态的语义码(_errors ErrorCode 值;None=未失败)。SSE/快照消费。
+    # 失败终态的语义码:值域 = _errors ErrorCode 值 + 任务相位码
+    # download/rebuild(2026-10-17 裁定);None=未失败。SSE/快照消费。
     error_code: Optional[str] = None
     batch_id: Optional[str] = None
     # 阶段内进度计数(事件/快照展示用):downloading=字节,loading=记录数。

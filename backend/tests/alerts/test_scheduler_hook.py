@@ -58,6 +58,7 @@ class FakeManager:
     def __init__(self):
         self.enqueued = []
         self._states = {}
+        self._kinds = {}       # task_id -> failure kind(镜像真 manager,仅 failed 态读)
         self._next = 0
 
     def enqueue_one_detached(self, name, rebuild_only=False):
@@ -71,6 +72,12 @@ class FakeManager:
 
     def task_state(self, task_id):
         return self._states.get(task_id)
+
+    def task_failure_kind(self, task_id):
+        # 镜像 UpdateManager.task_failure_kind 语义:仅 failed 态返回分类码
+        if self._states.get(task_id) != "failed":
+            return None
+        return self._kinds.get(task_id)
 
 
 def _make_scheduler(sources, needs_rebuild=lambda s: False):
@@ -180,9 +187,10 @@ def test_snapshots_passed_to_evaluate(alerts_db, tmp_path, monkeypatch):
     b = _make_src("b", tmp_path, mtime=NOW)
     b._path.unlink()                  # 无文件 → content_age_h None
     sch, mgr = _make_scheduler([a, b])
-    # kind=download 随梯子入快照(2026-10-17 裁定:告警分报);无梯子 → ""
+    # kind=download 随梯子入快照(2026-10-17 裁定:告警分报;×N 口径 =
+    # 逐 kind 计数 fail_kind_count);无梯子 → ""/0
     sch._backoff["a"] = _Backoff(fail_count=2, next_attempt=0.0,
-                                 kind="download")
+                                 kind="download", kind_count=2)
     seen, pushes = [], []
 
     def fake_evaluate(snapshots, now, eval_heartbeat=None):
@@ -198,9 +206,9 @@ def test_snapshots_passed_to_evaluate(alerts_db, tmp_path, monkeypatch):
     sch.scan(now=NOW)
     assert seen == [([
         {"name": "a", "stale_days": 3, "content_age_h": 24.0, "fail_count": 2,
-         "fail_kind": "download", "reader_error": False},
+         "fail_kind": "download", "fail_kind_count": 2, "reader_error": False},
         {"name": "b", "stale_days": 1, "content_age_h": None, "fail_count": 0,
-         "fail_kind": "", "reader_error": False},
+         "fail_kind": "", "fail_kind_count": 0, "reader_error": False},
     ], NOW, None)]
     assert pushes == []
     # S6 接线:env 给路径则透传给 evaluate(未设已验 None)
@@ -263,6 +271,67 @@ def test_push_not_called_when_evaluate_returns_none(
     monkeypatch.setattr(_alerts, "push", fake_push)
     sch.scan(now=NOW)
     assert pushes == []
+
+
+def test_kind_switch_mid_failure_no_false_recovery(
+        alerts_db, tmp_path, monkeypatch):
+    """双计数走查(2026-10-17 裁定修):download×3 → 告警「下载连续失败
+    ×3」;随后下载成功但构建挂(kind 切换,total 4/kind_count 1)→ 行仍
+    活、24h 内无任何消息(不下假「已恢复」——恢复只认真成功);24h 到点
+    重发渲染「构建连续失败 ×1」。计时梯跟总数走(第 4 级 8h)。"""
+    from ipdb import _alerts
+    monkeypatch.delenv("IP_RADAR_EVAL_HEARTBEAT", raising=False)
+    # partial 车道:last_partial_failure 常立 → 每轮退避到期即重试不等
+    # slot(mtime 可全程保持新鲜,stale 不掺和本走查)
+    src = _make_src("x", tmp_path, mtime=NOW - 3600.0)
+    src.last_partial_failure = ["dead"]
+    needs = {"flag": False}
+    sch, mgr = _make_scheduler([src], needs_rebuild=lambda s: needs["flag"])
+    pushes = []
+
+    def fake_push(title, body):
+        pushes.append((title, body))
+        return True
+
+    monkeypatch.setattr(_alerts, "push", fake_push)
+
+    def _fail(kind):
+        mgr._states[sch._last_task["x"]] = "failed"
+        mgr._kinds[sch._last_task["x"]] = kind
+
+    # ── 第 1-3 轮:download 连败(退避到期 → partial 车道重试)──
+    sch.scan(now=NOW)                  # 入队 t0;轮末 fail_count 0 无消息
+    _fail("download")
+    sch.scan(now=NOW + 4000.0)         # reconcile:total 1 / kind 1(1h 梯)
+    sch.scan(now=NOW + 8000.0)         # 过 1h:重试入队
+    _fail("download")
+    sch.scan(now=NOW + 12000.0)        # total 2 / kind 2(2h 梯)
+    sch.scan(now=NOW + 20000.0)        # 过 2h:重试入队
+    _fail("download")
+    sch.scan(now=NOW + 24000.0)        # total 3 ≥3 → 落行 + push ×3
+    assert pushes == [("ipradar: 1 源异常", "x: 下载连续失败 ×3")]
+    assert _alert_state(alerts_db) == [("x", "fail")]
+
+    # ── 第 4 轮:下载成功但构建挂(kind 切换)──
+    sch.scan(now=NOW + 40000.0)        # 过 4h 梯:重试入队 t3
+    src.set_mtime(NOW + 40100.0)       # 下载落地(mtime 前进)
+    src.last_partial_failure = []      # 家家都成了
+    needs["flag"] = True               # …但 ptr 冻结(构建未成)
+    mgr._states[sch._last_task["x"]] = "done"
+    sch.scan(now=NOW + 41000.0)        # reconcile:mtime 前进 + ptr 冻 → rebuild
+    b = sch._backoff["x"]
+    assert (b.fail_count, b.kind, b.kind_count) == (4, "rebuild", 1)
+    # 计时梯跟总数走:第 4 级 8h(若误按 kind_count 落梯会回首级 1h)
+    assert b.next_attempt == NOW + 41000.0 + 28800
+    # 24h 内:行仍活、无任何消息(尤其无「已恢复」——kind 切换 ≠ 成功)
+    assert pushes == [("ipradar: 1 源异常", "x: 下载连续失败 ×3")]
+    assert _alert_state(alerts_db) == [("x", "fail")]
+
+    # ── 24h 到点重发:文案按当前 kind 渲染 ×1 ──
+    sch.scan(now=NOW + 24000.0 + 86401.0)
+    assert pushes[1:] == [("ipradar: 1 源异常", "x: 构建连续失败 ×1")]
+    assert _alert_state(alerts_db) == [("x", "fail")]   # 行未清,恢复只认真成功
+    assert not any("已恢复" in body for _, body in pushes)
 
 
 def test_prune_runs_each_scan(alerts_db, tmp_path):

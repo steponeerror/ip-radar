@@ -249,9 +249,11 @@ def test_scan_backoff_skip(tmp_path):
     guard must fail this test)."""
     src = _make_src("x", tmp_path, mtime=OLD)      # slot-due at NOW
     sch, mgr = _make_scheduler([src])
-    # Plant a backoff entry: next_attempt well past NOW
-    sch._backoff["x"] = type("B", (), {
-        "fail_count": 1, "next_attempt": NOW + 99999.0})()
+    from ipdb._scheduler import _Backoff
+    # Plant a backoff entry: next_attempt well past NOW(真 _Backoff:轮末
+    # 快照要读 kind/kind_count,假对象会触发告警侧异常兑错路径)
+    sch._backoff["x"] = _Backoff(
+        fail_count=1, next_attempt=NOW + 99999.0)
     sch.scan(now=NOW)
     assert mgr.enqueued == []
     # and without the guard the source WOULD be due (guards the pin itself)
@@ -266,7 +268,8 @@ def test_reconcile_success_clears_fail_count(tmp_path):
     sch, mgr = _make_scheduler([src])
     sch.scan(now=NOW)
     assert "x" in sch._last_task
-    sch._backoff["x"] = type("B", (), {"fail_count": 2, "next_attempt": 0.0})()
+    from ipdb._scheduler import _Backoff
+    sch._backoff["x"] = _Backoff(fail_count=2, next_attempt=0.0)
     src.set_mtime(NOW + 100.0)          # success: file rewritten
     sch.scan(now=NOW + 1000.0)
     assert "x" not in sch._backoff
@@ -540,6 +543,7 @@ def test_reconcile_real_failure_increments_backoff(tmp_path):
     sch.scan(now=NOW + 6000.0)          # second failure -> 2h backoff
     assert sch._backoff["x"].fail_count == 2
     assert sch._backoff["x"].next_attempt == NOW + 6000.0 + 7200
+    assert sch._backoff["x"].kind_count == 2     # 同 kind(""):逐 kind 计数照爬
 
 
 # ── 失败分类计梯(2026-10-17 用户裁定:告警分报下载/构建失败)──
@@ -562,6 +566,7 @@ def test_reconcile_kind_partial_feeds_are_download(tmp_path):
     b = sch._backoff["cloud_ranges"]
     assert b.kind == "download"
     assert b.fail_count == 2
+    assert b.kind_count == 2                     # 同 kind:双计数同步爬
     assert b.next_attempt == NOW + 4800.0 + 7200
 
 
@@ -600,30 +605,35 @@ def test_reconcile_kind_failed_task_takes_manager_value(tmp_path):
     assert sch._backoff["x"].kind == "download"
 
 
-def test_kind_switch_resets_fail_count(tmp_path):
-    """kind 切换 → fail_count 重归 1、重走首级 1h(2026-10-17 裁定:不同
-    失败模式是不同的工作,计时基线不该继承,×N 逐 kind 真实)。"""
+def test_kind_switch_dual_counters(tmp_path):
+    """双计数(2026-10-17 裁定修):kind 切换 → fail_count(任意类连败总数)
+    **不**重置——≥3 告警/恢复判定/退避计时梯全由总数驱动(kind 中途切换
+    ≠ 成功,不得下假「已恢复」);kind_count 重归 1,只驱动文案 ×N。"""
     src = _make_src("x", tmp_path, mtime=OLD)
     sch, mgr = _make_scheduler([src])
     sch.scan(now=NOW)                           # 第 1 次 download 失败
     mgr._states[sch._last_task["x"]] = "failed"
     mgr._kinds[sch._last_task["x"]] = "download"
     sch.scan(now=NOW + 1000.0)
-    assert sch._backoff["x"].fail_count == 1
+    b = sch._backoff["x"]
+    assert (b.fail_count, b.kind, b.kind_count) == (1, "download", 1)
     sch.scan(now=NOW + 5000.0)                  # 过 1h 重试
     mgr._states[sch._last_task["x"]] = "failed"
     mgr._kinds[sch._last_task["x"]] = "download"
     sch.scan(now=NOW + 6000.0)                  # 同 kind 续爬 2h
-    assert sch._backoff["x"].fail_count == 2
-    assert sch._backoff["x"].next_attempt == NOW + 6000.0 + 7200
+    b = sch._backoff["x"]
+    assert (b.fail_count, b.kind_count) == (2, 2)
+    assert b.next_attempt == NOW + 6000.0 + 7200
     sch.scan(now=NOW + 20000.0)                 # 过 2h 重试
     mgr._states[sch._last_task["x"]] = "failed"
     mgr._kinds[sch._last_task["x"]] = "rebuild"  # 第 3 次换 kind
     sch.scan(now=NOW + 21000.0)
     b = sch._backoff["x"]
-    assert b.fail_count == 1                    # 计数重归 1
+    assert b.fail_count == 3                    # 总数不重置(切换 ≠ 成功)
     assert b.kind == "rebuild"
-    assert b.next_attempt == NOW + 21000.0 + 3600   # 重走梯子首级 1h
+    assert b.kind_count == 1                    # 逐 kind 计数重归 1
+    # 计时梯跟总数走:第 3 级 4h(若误按 kind_count 落梯会回首级 1h)
+    assert b.next_attempt == NOW + 21000.0 + 14400
 
 
 def test_reconcile_throttled_not_a_failure(tmp_path):

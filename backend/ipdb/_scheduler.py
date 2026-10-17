@@ -65,6 +65,10 @@ class _Backoff:
     # 失败模式分类(2026-10-17 用户裁定:告警分报下载/构建失败):"download"
     # /"rebuild"/""(缺省 = 旧通用文案,兼容存量路径)。
     kind: str = ""
+    # 双计数(2026-10-17 裁定修):逐 kind 连败数——kind 切换重归 1,同 kind
+    # +1;只驱动告警文案 ×N。fail_count 是任意类连败总数,kind 切换不
+    # 重置(≥3 告警/恢复判定/退避计时梯全由总数驱动)。
+    kind_count: int = 1
 
 
 class RefreshScheduler:
@@ -165,8 +169,10 @@ class RefreshScheduler:
                     else (now - mtime) / 3600.0,
                     "fail_count": b.fail_count if b is not None else 0,
                     # 2026-10-17 裁定:失败分类随快照交给告警渲染(缺省 ""
-                    # = 旧「连续失败 ×N」通用文案)
+                    # = 旧「连续失败 ×N」通用文案);×N 口径 = 逐 kind 连败
+                    # 数 fail_kind_count(裁定修:kind 切换重归 1,只动文案)
                     "fail_kind": b.kind if b is not None else "",
+                    "fail_kind_count": b.kind_count if b is not None else 0,
                     # OL-4:epoch 损坏不得静默缺席——ptr 在(库已建成)而
                     # reader None(load 抛)即降级告警;不触发自动 rebuild(人裁)
                     "reader_error": ptr is not None and ptr.exists()
@@ -231,8 +237,10 @@ class RefreshScheduler:
             return
         if state == "failed":
             # 失败分类(2026-10-17 裁定):取任务自己的 error_code——下载
-            # 异常 download/构建异常 rebuild;无码(source_not_found 等非
-            # 下载/构建失败,或旧任务无 error_code)→ "" 走通用文案。
+            # 异常 download/构建异常 rebuild;其余码(source_not_found 等
+            # 非下载/构建失败)原样透传为非空 kind,告警侧未知 kind 走
+            # else 通用文案(可观测行为同 "",机制是透传非重写);旧任务
+            # 无 error_code → ""。
             self._escalate_backoff(
                 name, now, kind=self._manager.task_failure_kind(task_id) or "")
             self._last_task.pop(name, None)
@@ -277,17 +285,20 @@ class RefreshScheduler:
         """Bump the failure ladder: 1h, 2h, 4h, 8h, 12h (cap). Shared by the
         real-failure path and the done-but-partial path (spec §2.3).
 
-        kind(2026-10-17 用户裁定:告警分报下载/构建失败):失败模式分类。
-        同 kind 连败 → 梯子照爬;kind 切换 → fail_count 重归 1 —— 不同
-        失败模式是不同的工作,计时基线不该继承(×N 必须逐 kind 真实)。
-        next_attempt 按新 fail_count 落梯不变。"""
+        kind(2026-10-17 用户裁定:告警分报下载/构建失败)+ 双计数(裁定修):
+        fail_count = 任意类连败总数,kind 切换**不**重置——≥3 告警条件、
+        恢复判定(只有真成功才清,与改前逐位同)与退避计时梯全由总数驱动
+        (kind 中途切换 ≠ 成功,不得下假「已恢复」);kind_count = 逐 kind
+        连败数,切换重归 1——只驱动告警文案 ×N(报什么就像什么,×N 逐
+        kind 真实)。next_attempt 落梯公式不变(按总数)。"""
         b = self._backoff.get(name)
         same_kind = b is not None and b.kind == kind
-        fail_count = (b.fail_count + 1) if same_kind else 1
+        fail_count = (b.fail_count + 1) if b is not None else 1
+        kind_count = (b.kind_count + 1) if same_kind else 1
         idx = min(fail_count, len(_BACKOFF_SECONDS)) - 1
         self._backoff[name] = _Backoff(
             fail_count=fail_count, next_attempt=now + _BACKOFF_SECONDS[idx],
-            kind=kind)
+            kind=kind, kind_count=kind_count)
 
     @staticmethod
     def _partial_failure_of(source) -> Optional[list]:

@@ -22,10 +22,13 @@ def alerts_db(tmp_path, monkeypatch):
     return p
 
 
-def _snap(name, stale_days=1, age=1.0, fail=0, reader=False, kind=""):
-    return {"name": name, "stale_days": stale_days,
-            "content_age_h": age, "fail_count": fail,
-            "fail_kind": kind, "reader_error": reader}
+def _snap(name, stale_days=1, age=1.0, fail=0, reader=False, kind="", kcount=None):
+    d = {"name": name, "stale_days": stale_days,
+         "content_age_h": age, "fail_count": fail,
+         "fail_kind": kind, "reader_error": reader}
+    if kcount is not None:      # 缺键 = 旧快照形状(位等价回退路径)
+        d["fail_kind_count"] = kcount
+    return d
 
 
 def _seed_observed(source, gap_h, now, events=6):
@@ -143,6 +146,25 @@ def test_fail_kind_renders_download_rebuild_and_fallback(alerts_db):
     # 分类只动文案:alert_state 落行 condition 仍全为 "fail"
     assert [r[:2] for r in _state(alerts_db)] == [
         ("dl", "fail"), ("gen", "fail"), ("old", "fail"), ("rb", "fail")]
+
+
+def test_fail_text_uses_per_kind_count(alerts_db):
+    """双计数(2026-10-17 裁定修):×N 口径逐 kind——kind 在 →
+    ×fail_kind_count(kind 切换重归 1);kind 空/缺键 → 旧 fail_count 口径
+    (位等价回退)。≥3 告警条件仍看 fail_count 总数(kind_count<3 但总数
+    ≥3 照告,kind 切换不下假「已恢复」)。"""
+    from ipdb import _alerts
+    msg = _alerts.evaluate([
+        _snap("sw", age=1.0, fail=4, kind="rebuild", kcount=1),  # 切换后首轮
+        _snap("dl", age=1.0, fail=4, kind="download", kcount=2),
+        _snap("old", age=1.0, fail=3, kind="download"),  # 缺 kind_count 键:回退总数
+        _snap("gen", age=1.0, fail=4),                   # 无 kind:×fail_count
+    ], now=T0)
+    assert msg == {"title": "ipradar: 4 源异常",
+                   "body": "dl: 下载连续失败 ×2\n"
+                           "gen: 连续失败 ×4\n"
+                           "old: 下载连续失败 ×3\n"
+                           "sw: 构建连续失败 ×1"}
 
 
 def test_reader_error_condition_and_recovery(alerts_db):

@@ -1202,8 +1202,8 @@ async def tasks_snapshot():
           description="Server-Sent Events: `data: <json>` per event. First "
           "event is {type:'snapshot', data:{tasks,batch}}; then task/batch "
           "lifecycle events ({type:'task'|'batch', ...}). task events in the "
-          "failed state carry a machine-readable error_code (e.g. \"internal\", "
-          "\"source_not_found\"). No response_model — "
+          "failed state carry a machine-readable error_code (e.g. \"download\", "
+          "\"rebuild\", \"source_not_found\"). No response_model — "
           "event payloads are documented here, not as a JSON schema.")
 async def events():
     """SSE stream of task/batch events. Yields an initial snapshot event on

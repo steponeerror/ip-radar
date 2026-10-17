@@ -179,6 +179,8 @@ def evaluate(snapshots: list[dict], now: float,
     snapshot 每项:{"name", "stale_days", "content_age_h"(None=无文件→视为 ∞),
     "fail_count"(缺省 0), "fail_kind"(缺省 ""=旧「连续失败 ×N」通用
     文案;"download"/"rebuild" 分报下载/构建失败,2026-10-17 用户裁定),
+    "fail_kind_count"(缺省 = fail_count:逐 kind 连败数只驱动 ×N 文案,
+    ≥3 告警条件仍看 fail_count 总数——裁定修:kind 切换不下假「已恢复」),
     "reader_error"(缺省 False:ptr 在而 reader 未加载,
     OL-4 epoch 损坏降级信号)}。per (source, condition) 状态机(约束 4):
     转入坏 → INSERT active_since/last_notified=now 并计入;持续坏且
@@ -250,15 +252,19 @@ def evaluate(snapshots: list[dict], now: float,
                 stale_lines.append((name, line))
             if _FAIL in counted:
                 # 2026-10-17 用户裁定:源监控告警须说清挂的是哪一环——下载
-                # 失败就报下载失败,构建失败就报构建失败。condition 仍为
-                # "fail"(DB 兼容:生产存量 (source,'fail') 行无迁移,首次
+                # 失败就报下载失败,构建失败就报构建失败。×N 口径(裁定修,
+                # 双计数):kind 在 → 逐 kind 连败数 fail_kind_count(切换重归
+                # 1;≥3 条件仍看 fail_count 总数,kind 中途切换不下假「已恢复」);
+                # kind 空/缺键 → 旧 fail_count 口径(位等价回退)。condition
+                # 仍为 "fail"(DB 兼容:生产存量 (source,'fail') 行无迁移,首次
                 # 24h 重发即按当前 kind 渲染);未知/缺省 kind 回退旧通用
                 # 文案(既有调用方/测试位等价)。
                 kind = snap.get("fail_kind", "")
+                n = snap.get("fail_kind_count", fail_count) if kind else fail_count
                 if kind == "download":
-                    fail_lines.append((name, f"{name}: 下载连续失败 ×{fail_count}"))
+                    fail_lines.append((name, f"{name}: 下载连续失败 ×{n}"))
                 elif kind == "rebuild":
-                    fail_lines.append((name, f"{name}: 构建连续失败 ×{fail_count}"))
+                    fail_lines.append((name, f"{name}: 构建连续失败 ×{n}"))
                 else:
                     fail_lines.append((name, f"{name}: 连续失败 ×{fail_count}"))
             if _READER in counted:
