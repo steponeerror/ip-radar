@@ -135,4 +135,4 @@ def test_manager_subprocess_lane_done_ptr_advances_and_rc2_fails(
     bad = mgr.enqueue_one_detached("no_such_source_zz", rebuild_only=True)
     assert _wait_terminal(mgr, bad) == "failed"
     assert bad.error                         # stderr 尾部非空
-    assert bad.error_code == "internal"
+    assert bad.error_code == "rebuild"       # 子进程车道构建失败码(2026-10-17 裁定)

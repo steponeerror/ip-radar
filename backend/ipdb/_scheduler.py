@@ -62,6 +62,13 @@ def _due_at(name: str, mtime: float, stale_days: int) -> float:
 class _Backoff:
     fail_count: int
     next_attempt: float
+    # 失败模式分类(2026-10-17 用户裁定:告警分报下载/构建失败):"download"
+    # /"rebuild"/""(缺省 = 旧通用文案,兼容存量路径)。
+    kind: str = ""
+    # 双计数(2026-10-17 裁定修):逐 kind 连败数——kind 切换重归 1,同 kind
+    # +1;只驱动告警文案 ×N。fail_count 是任意类连败总数,kind 切换不
+    # 重置(≥3 告警/恢复判定/退避计时梯全由总数驱动)。
+    kind_count: int = 1
 
 
 class RefreshScheduler:
@@ -161,6 +168,11 @@ class RefreshScheduler:
                     "content_age_h": None if mtime is None
                     else (now - mtime) / 3600.0,
                     "fail_count": b.fail_count if b is not None else 0,
+                    # 2026-10-17 裁定:失败分类随快照交给告警渲染(缺省 ""
+                    # = 旧「连续失败 ×N」通用文案);×N 口径 = 逐 kind 连败
+                    # 数 fail_kind_count(裁定修:kind 切换重归 1,只动文案)
+                    "fail_kind": b.kind if b is not None else "",
+                    "fail_kind_count": b.kind_count if b is not None else 0,
                     # OL-4:epoch 损坏不得静默缺席——ptr 在(库已建成)而
                     # reader None(load 抛)即降级告警;不触发自动 rebuild(人裁)
                     "reader_error": ptr is not None and ptr.exists()
@@ -191,14 +203,15 @@ class RefreshScheduler:
                 # of clearing it, so the dead feeds keep the 1h..12h retry
                 # pacing instead of waiting out the full stale period (spec
                 # 2026-10-02 §2.3 self-heal; final-review Important #1).
-                self._escalate_backoff(name, now)
+                self._escalate_backoff(name, now, kind="download")
             elif self._needs_rebuild_of(source):
                 # 2026-10-14 demo 五源自增强环:mtime 前进(下载成功)但 ptr
                 # 未推进(rebuild 被 memory valve 卡住/纪元冻结)= 完整性未
                 # 恢复;归成功清退避会失去唯一刹车 → 每 30min scan 全量重抓
                 # (ipinfo 330MB/轮)。升退避 1h→12h 梯;ptr 推进后自动回
-                # else 清退避,正常槽位节奏不受影响。
-                self._escalate_backoff(name, now)
+                # else 清退避,正常槽位节奏不受影响。ptr 冻结 = 构建未成
+                # → kind=rebuild(2026-10-17 裁定)。
+                self._escalate_backoff(name, now, kind="rebuild")
             else:
                 self._backoff.pop(name, None)
             self._last_task.pop(name, None)
@@ -223,7 +236,13 @@ class RefreshScheduler:
                 self._baseline_mtime.pop(name, None)
             return
         if state == "failed":
-            self._escalate_backoff(name, now)
+            # 失败分类(2026-10-17 裁定):取任务自己的 error_code——下载
+            # 异常 download/构建异常 rebuild;其余码(source_not_found 等
+            # 非下载/构建失败)原样透传为非空 kind,告警侧未知 kind 走
+            # else 通用文案(可观测行为同 "",机制是透传非重写);旧任务
+            # 无 error_code → ""。
+            self._escalate_backoff(
+                name, now, kind=self._manager.task_failure_kind(task_id) or "")
             self._last_task.pop(name, None)
             self._baseline_mtime.pop(name, None)
             return
@@ -240,15 +259,17 @@ class RefreshScheduler:
                 # pacing instead of per-scan retries (30-min re-pull storm
                 # guard). Dir-shaped multi-feed sources (cloud_ranges) with
                 # any landed feed take the mtime-advanced branch above.
-                self._escalate_backoff(name, now)
+                # 部分挂 = 下载相位失败 → kind=download(2026-10-17 裁定)。
+                self._escalate_backoff(name, now, kind="download")
             elif self._manager.task_rebuild_only(task_id):
                 # rebuild-only 车道(2026-10-14 收敛批):mtime 不变是预期
                 # (没下载)。收敛(needs_rebuild 翻 False)→ 清退避 —— 内容
                 # 事件不记,事件在下载轮已记,重建轮零新证据(哲学 3);
                 # 仍 needs_rebuild(另一族被 valve 卡住仍冻)→ 升梯,
-                # ptr 推进前不重抓(与 mtime-advanced 分支同刹车)。
+                # ptr 推进前不重抓(与 mtime-advanced 分支同刹车);ptr 冻
+                # = 构建未成 → kind=rebuild(2026-10-17 裁定)。
                 if self._needs_rebuild_of(source):
-                    self._escalate_backoff(name, now)
+                    self._escalate_backoff(name, now, kind="rebuild")
                 else:
                     self._backoff.pop(name, None)
             else:
@@ -260,14 +281,24 @@ class RefreshScheduler:
             self._baseline_mtime.pop(name, None)
             return
 
-    def _escalate_backoff(self, name: str, now: float) -> None:
+    def _escalate_backoff(self, name: str, now: float, kind: str = "") -> None:
         """Bump the failure ladder: 1h, 2h, 4h, 8h, 12h (cap). Shared by the
-        real-failure path and the done-but-partial path (spec §2.3)."""
+        real-failure path and the done-but-partial path (spec §2.3).
+
+        kind(2026-10-17 用户裁定:告警分报下载/构建失败)+ 双计数(裁定修):
+        fail_count = 任意类连败总数,kind 切换**不**重置——≥3 告警条件、
+        恢复判定(只有真成功才清,与改前逐位同)与退避计时梯全由总数驱动
+        (kind 中途切换 ≠ 成功,不得下假「已恢复」);kind_count = 逐 kind
+        连败数,切换重归 1——只驱动告警文案 ×N(报什么就像什么,×N 逐
+        kind 真实)。next_attempt 落梯公式不变(按总数)。"""
         b = self._backoff.get(name)
-        fail_count = (b.fail_count + 1) if b else 1
+        same_kind = b is not None and b.kind == kind
+        fail_count = (b.fail_count + 1) if b is not None else 1
+        kind_count = (b.kind_count + 1) if same_kind else 1
         idx = min(fail_count, len(_BACKOFF_SECONDS)) - 1
         self._backoff[name] = _Backoff(
-            fail_count=fail_count, next_attempt=now + _BACKOFF_SECONDS[idx])
+            fail_count=fail_count, next_attempt=now + _BACKOFF_SECONDS[idx],
+            kind=kind, kind_count=kind_count)
 
     @staticmethod
     def _partial_failure_of(source) -> Optional[list]:

@@ -25,7 +25,8 @@ class Task:
     host: Optional[str]
     state: str = "queued"  # queued|downloading|loading|throttled|done|failed|cancelled
     error: Optional[str] = None
-    # 失败终态的语义码(_errors ErrorCode 值;None=未失败)。SSE/快照消费。
+    # 失败终态的语义码:值域 = _errors ErrorCode 值 + 任务相位码
+    # download/rebuild(2026-10-17 裁定);None=未失败。SSE/快照消费。
     error_code: Optional[str] = None
     batch_id: Optional[str] = None
     # 阶段内进度计数(事件/快照展示用):downloading=字节,loading=记录数。
@@ -173,6 +174,19 @@ class UpdateManager:
         with self._lock:
             task = self._tasks.get(task_id)
             return task._rebuild_only if task is not None else False
+
+    def task_failure_kind(self, task_id: str) -> Optional[str]:
+        """失败任务的 error_code(2026-10-17 用户裁定:源监控告警须说清
+        挂的是哪一环——下载失败就报下载失败,构建失败就报构建失败)。
+        task 存在且 state=="failed" → 其 error_code("download"/"rebuild"
+        等分类码;source_not_found 非下载/构建失败原样透传);否则 None。
+        循 task_state/task_rebuild_only 惯例:锁内查,供 scheduler
+        reconcile 分类计梯。"""
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if task is not None and task.state == "failed":
+                return task.error_code
+            return None
 
     def snapshot(self) -> dict:
         with self._lock:
@@ -476,7 +490,9 @@ class UpdateManager:
         except Exception as e:
             logger.warning("rebuild subprocess spawn failed for %s: %s",
                            task.source_name, e)
-            self._set_state(task, "failed", str(e), error_code="internal")
+            # 子进程车道全线 rebuild 码:构建失败就报构建失败(2026-10-17
+            # 用户裁定,失败分类告警)。
+            self._set_state(task, "failed", str(e), error_code="rebuild")
             return False
         # stderr 独立 reader 线程:子进程把 64KB stderr 管道缓冲写满而父
         # 进程只逐行读 stdout 时,子进程阻塞在 stderr 写上,OK 永远到不了
@@ -518,7 +534,7 @@ class UpdateManager:
         except Exception as e:
             logger.warning("rebuild subprocess pipe failed for %s: %s",
                            task.source_name, e)
-            self._set_state(task, "failed", str(e), error_code="internal")
+            self._set_state(task, "failed", str(e), error_code="rebuild")
             return False
         if cancelled:
             self._set_state(task, "cancelled")
@@ -529,14 +545,14 @@ class UpdateManager:
             except Exception as e:
                 logger.warning("post-subprocess load failed for %s: %s",
                                task.source_name, e)
-                self._set_state(task, "failed", str(e), error_code="internal")
+                self._set_state(task, "failed", str(e), error_code="rebuild")
                 return False
             return True
         tail = "".join(stderr_buf).strip()[-300:]
         logger.warning("rebuild subprocess failed for %s: %s",
                        task.source_name, tail)
         self._set_state(task, "failed", tail or f"rc={rc}",
-                        error_code="internal")
+                        error_code="rebuild")
         return False
 
     def _run_task(self, task: Task):
@@ -568,8 +584,10 @@ class UpdateManager:
                     # 静默失败清偿(2026-10 小机事故诊断痛点):失败必须留痕。
                     logger.warning("download failed for %s: %s",
                                    task.source_name, e)
+                    # 失败分类(2026-10-17 用户裁定):下载相位异常记
+                    # download——scheduler 按此分梯,告警渲染「下载连续失败」。
                     self._set_state(task, "failed", str(e),
-                                    error_code="internal"); return
+                                    error_code="download"); return
                 finally:
                     task.token.on_progress = None
                 if task.token.is_cancelled():
@@ -596,8 +614,11 @@ class UpdateManager:
                     # 静默失败清偿(2026-10 小机事故诊断痛点):失败必须留痕。
                     logger.warning("in-process rebuild failed for %s: %s",
                                    task.source_name, e)
+                    # 失败分类(2026-10-17 用户裁定):构建相位异常记
+                    # rebuild——告警渲染「构建连续失败」(子进程车道同码,
+                    # 见 _rebuild_via_subprocess)。
                     self._set_state(task, "failed", str(e),
-                                    error_code="internal"); return
+                                    error_code="rebuild"); return
                 finally:
                     task.token.on_progress = None
             # 与 download→loading 边界检查对称:loading 期间点的取消在
