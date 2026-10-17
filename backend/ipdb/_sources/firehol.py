@@ -157,8 +157,8 @@ class FireholBlocklistSource(IpListSource):
             # "哪些列表命中该 CIDR"(bit i = self._lists[i];Python int 宽
             # 度随列表数动态,无 8 桶假设)。旧实现逐行物化证据 dict
             # (~230k CIDR ≈ 150–250MB 驻留),信息量却只有命中列表集合 →
-            # 压成 dict[str,int] ≈ 40MB;证据推迟到吐出时按模板重建。
-            # 964MB 机子进程车道(interp ~70MB + acc ~40MB)+ Task 1
+            # 压成 dict[str,int],230k 量级实测 ~18MB;证据推迟到吐出时按模板重建。
+            # 964MB 机子进程车道(interp ~70MB + acc ~18MB)+ Task 1
             # stall 窗口后可过 8% 水线。
             bit_of = {name: 1 << i for i, name in enumerate(self._lists)}
             acc: dict[str, int] = {}
