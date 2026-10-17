@@ -127,10 +127,11 @@ class FireholBlocklistSource(IpListSource):
         """重建 LMDB(唯一重建入口)。新 epoch + ptr swap reader。
 
         Per-list classification(2026-08-30):每列表按 _LIST_SPEC 各投分类;
-        同 CIDR 同分类命中合并 tags(2026-08-15 语义推广),异分类各成一条
-        证据(convention 3)。流式双族(ipinfo_lite 惯例):非流式列表先
-        build acc,流式列表(proxies)行级直吐、撞 acc 就地合并——保证同
-        CIDR 跨列表证据零丢失(先物化后流式的顺序是正确性要求)。
+        同 CIDR 同模板(cls/verdict/extras 相同)命中合并 tags(2026-08-15
+        语义推广),异模板各成一条证据(convention 3)。流式双族
+        (ipinfo_lite 惯例):非流式列表先 build acc(位掩码),流式列表
+        行级直吐、撞 acc 就地置位——保证同 CIDR 跨列表证据零丢失
+        (先物化后流式的顺序是正确性要求)。
         同起止不同长度 CIDR 仍依赖审计脚本零冲突
         (scripts/audit_lmdb_invariants.py)。
         """
@@ -151,25 +152,52 @@ class FireholBlocklistSource(IpListSource):
                 **extras,
             ).to_dict()
 
-        def _merge(bucket: list, d: dict) -> None:
-            """同 CIDR:sans-tags 等价则合并 tags,否则共存为独立证据。"""
-            for other in bucket:
-                if {k: v for k, v in other.items() if k != "tags"} == \
-                   {k: v for k, v in d.items() if k != "tags"}:
-                    for t in d["tags"]:
-                        if t not in other["tags"]:
-                            other["tags"].append(t)
-                    return
-            bucket.append(d)
-
         def _factory():
-            acc: dict[str, list] = {}
+            # acc 位掩码压缩(Task 2,fix/rebuild-time-for-space):值只记
+            # "哪些列表命中该 CIDR"(bit i = self._lists[i];Python int 宽
+            # 度随列表数动态,无 8 桶假设)。旧实现逐行物化证据 dict
+            # (~230k CIDR ≈ 150–250MB 驻留),信息量却只有命中列表集合 →
+            # 压成 dict[str,int],230k 量级实测 ~18MB;证据推迟到吐出时按模板重建。
+            # 964MB 机子进程车道(interp ~70MB + acc ~18MB)+ Task 1
+            # stall 窗口后可过 8% 水线。
+            bit_of = {name: 1 << i for i, name in enumerate(self._lists)}
+            acc: dict[str, int] = {}
             ordered = ([n for n in self._lists if n not in _STREAMED]
                        + [n for n in self._lists if n in _STREAMED])
+            # 名字 → 模板 (cls, verdict, extras);未列入 _LIST_SPEC 的
+            # 列表回退类属性(兼容任意 selected_lists,与 _ev 同口径)。
+            spec = {n: _LIST_SPEC.get(
+                n, (self.classification_type, self.verdict, {}))
+                for n in ordered}
+
+            def _evidence(mask: int) -> list[dict]:
+                """吐出时按模板分桶重建证据:同模板命中合并 tags
+                (sorted 并集),异模板各成一条(convention 3)——与旧
+                _merge(sans-tags 等价→tags 并集,否则共存)逐位一致;
+                reliability 为类常量全列表同值,不入桶键。桶序 = 首个
+                命中列表在 ordered 的位置(= 旧共存追加序)。"""
+                buckets: dict[tuple, list[str]] = {}
+                for name in ordered:
+                    if not mask & bit_of[name]:
+                        continue
+                    cls, verdict, extras = spec[name]
+                    buckets.setdefault(
+                        (cls, verdict, tuple(sorted(extras.items()))),
+                        []).append(name)
+                return [
+                    Evidence(
+                        classification_type=cls, verdict=verdict,
+                        reliability=self.reliability,
+                        tags=sorted(set(names)), **dict(extra_items),
+                    ).to_dict()
+                    for (cls, verdict, extra_items), names in buckets.items()
+                ]
+
             for list_name in ordered:
                 p = self._path / f"{list_name}.netset"
                 if not p.exists():
                     continue
+                bit, streamed = bit_of[list_name], list_name in _STREAMED
                 with open(p, "r", encoding="utf-8") as f:
                     for line in f:
                         line = line.strip()
@@ -180,18 +208,20 @@ class FireholBlocklistSource(IpListSource):
                         except (ValueError, _ipa.AddressValueError,
                                 _ipa.NetmaskValueError):
                             continue
-                        d = _ev(list_name)
-                        if list_name in _STREAMED and net not in acc:
-                            yield net, [d]   # 流式直吐,不落 acc
+                        if streamed and net not in acc:
+                            yield net, [_ev(list_name)]   # 流式直吐,不落 acc
                         else:
-                            _merge(acc.setdefault(net, []), d)
+                            # 同列表重复行 |= 幂等(internal dup=0 天花板不变)
+                            acc[net] = acc.get(net, 0) | bit
             # ponytail: 两个已知天花板(均为保守方向,审计脚本可观测):
-            # ① 流式文件内部重复行未设防(实测 5 文件 internal dup=0);
+            # ① 流式文件内部重复行未设防(实测 5 文件 internal dup=0;非流
+            #    式侧 |= 幂等,掩码不会重复置位);
             # ② 同起点不同长度 CIDR 对(实测 1,948/3M≈0.065%,LMDB 键=start
             #    只存其一):跨列表对中 acc 后 yield 恒胜 → 粒度粗化、无假
             #    阳性。要无损消除需 start 集合(~200MB)或排序合并,不值;
             #    升级路径 = _lmdb 键改 (start,prefixlen) 双分量。
-            yield from acc.items()
+            for net, mask in acc.items():
+                yield net, _evidence(mask)
 
         n4, n6 = rebuild_dual_family(
             _factory, self._lmdb_base, self._lmdb6_base,

@@ -56,6 +56,38 @@ BATCH_SIZE = 100_000
 # 若宿主 OOM 杀容器复发,立即回滚本值。
 REBUILD_ABORT_RATIO = 0.08
 
+# ── 时间换空间:检查点预算内等待(2026-10-17 用户裁定)──
+# 「构建时间留足,按道理怎样都可以构建成功」:检查点内存低不再弃进度,
+# 先等内存窗口;等穿预算才走既有干净中止。生产实证 2026-10-17:964MB
+# demo 机 firehol avail 196-249MB 起跑仍在首个 10 万行检查点被拦停、纪元
+# 冻结——中止救不了内存,只会反复丢进度;PR #117 子进程车道已把父进程
+# RSS 与重建解耦,等待不再连坐全容器。
+_STALL_POLL_S = 30.0               # 轮询间隔:每次复查仅一次 psutil,勿忙等
+_STALL_BUDGET_DEFAULT_S = 3600.0   # 缺省预算 1h:swap 磨完大源 rebuild 的合理上界
+
+
+def _stall_budget_s() -> float:
+    """stall 预算秒数:env IP_RADAR_REBUILD_STALL_S,缺省 3600。
+
+    "0" = 0 = 立即中止老行为(逐位不变,test_rebuild_abort 回归钉兼紧急
+    逃生门);非法值(非数/负/NaN)按缺省并 warning。NaN 必须一并拦:
+    `<=0` 与 `>budget` 对 NaN 恒假,漏拦会绕进永不中止的等待。
+    """
+    raw = os.environ.get("IP_RADAR_REBUILD_STALL_S")
+    if raw is None:
+        return _STALL_BUDGET_DEFAULT_S
+    try:
+        val = float(raw)
+    except ValueError:
+        logger.warning("IP_RADAR_REBUILD_STALL_S=%r not a number; "
+                       "using default %.0fs", raw, _STALL_BUDGET_DEFAULT_S)
+        return _STALL_BUDGET_DEFAULT_S
+    if not val >= 0:   # 负/NaN 一并按非法(单式比较,NaN 两侧皆假)
+        logger.warning("IP_RADAR_REBUILD_STALL_S=%r negative/NaN; "
+                       "using default %.0fs", raw, _STALL_BUDGET_DEFAULT_S)
+        return _STALL_BUDGET_DEFAULT_S
+    return val
+
 
 class RebuildAborted(RuntimeError):
     """rebuild 因可用内存低于 REBUILD_ABORT_RATIO 而干净中止(无损:旧库原样)。"""
@@ -491,6 +523,7 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
     v4 主族永不传,守卫保持严格(feed 改格式仍拒绝空重建)。
     """
     import shutil
+    import time
     if ip_version not in (4, 6):
         raise ValueError(f"ip_version must be 4 or 6, got {ip_version!r}")
     epoch = next_epoch(base)
@@ -597,14 +630,60 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
                 env.sync(True)
                 ratio = _avail_ratio()
             if ratio < REBUILD_ABORT_RATIO:
-                # 预警中止:txn 均已闭合(只在 _flush 内),关 env、弃 staging。
-                # 下次重试同 epoch 同 staging 路径,开头 rmtree 自清。
-                env.close()
-                shutil.rmtree(staging, ignore_errors=True)
-                raise RebuildAborted(
-                    f"rebuild aborted at {n} rows: host avail ratio below "
-                    f"{REBUILD_ABORT_RATIO:.0%} after staging sync — old "
-                    f"epoch/ptr intact, task will back off and retry")
+                budget = _stall_budget_s()
+                if budget <= 0:
+                    # env=0(2026-10-17 前唯一行为):sync→复查→中止,逐位
+                    # 不变 —— 老语义回归钉(test_rebuild_abort)兼紧急逃生门。
+                    # txn 均已闭合(只在 _flush 内),关 env、弃 staging;下次
+                    # 重试同 epoch 同 staging 路径,开头 rmtree 自清。
+                    env.close()
+                    shutil.rmtree(staging, ignore_errors=True)
+                    raise RebuildAborted(
+                        f"rebuild aborted at {n} rows: host avail ratio below "
+                        f"{REBUILD_ABORT_RATIO:.0%} after staging sync — old "
+                        f"epoch/ptr intact, task will back off and retry")
+                # 时间换空间(2026-10-17 用户裁定):检查点不弃进度,等内存
+                # 窗口。复查前不再 sync —— 脏页已在上方首次 sync 落净,循环
+                # 内新脏页仅来自本 batch 尚未 _flush 的部分,恒定;每次复查
+                # 只是一次 psutil,极便宜。
+                logger.warning(
+                    "rebuild %s: avail %.1f%% < %.1f%% at %d rows after "
+                    "staging sync — stalling for a memory window "
+                    "(poll %.0fs, budget %.0fs)",
+                    base.name, ratio * 100, REBUILD_ABORT_RATIO * 100, n,
+                    _STALL_POLL_S, budget)
+                waited = 0.0
+                polls = 0
+                while True:
+                    time.sleep(_STALL_POLL_S)
+                    # 每 poll 至少记 1s:间隔被调成 0(测试/误配)时纯间隔
+                    # 累加永不触顶 → 忙转到天荒地老;正常 30s 下取间隔本身。
+                    waited += max(_STALL_POLL_S, 1.0)
+                    polls += 1
+                    ratio = _avail_ratio()
+                    if ratio >= REBUILD_ABORT_RATIO:
+                        logger.info(
+                            "rebuild %s: memory window opened (avail %.1f%%) "
+                            "after stalling %.0fs; continuing at %d rows",
+                            base.name, ratio * 100, waited, n)
+                        break
+                    if polls % 10 == 0:   # ≈5min 一条,勿刷屏
+                        logger.info(
+                            "rebuild %s: still stalled at avail %.1f%% — "
+                            "waited %.0fs / budget %.0fs",
+                            base.name, ratio * 100, waited, budget)
+                    if waited > budget:
+                        # 预算耗尽:与立即中止同一善后(关 env、弃 staging、
+                        # 旧 epoch/ptr 原样、任务走退避),消息注明等过再弃。
+                        env.close()
+                        shutil.rmtree(staging, ignore_errors=True)
+                        raise RebuildAborted(
+                            f"rebuild aborted at {n} rows: stall budget "
+                            f"{budget:.0f}s exhausted after waiting "
+                            f"{waited:.0f}s at host avail ratio below "
+                            f"{REBUILD_ABORT_RATIO:.0%} (staging synced) — "
+                            f"old epoch/ptr intact, task will back off and "
+                            f"retry")
             _flush()
             if progress is not None:
                 # total 已知时 feed 增长跟随 received(防 >100%);未知(0)时

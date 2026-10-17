@@ -1,13 +1,23 @@
-"""rebuild 低内存预警中止(宁停勿死,哲学 9「先消浪费」的保命版):
+"""rebuild 低内存检查点:预算内等待(时间换空间)+ env=0 立即中止回归钉。
 
-旧 epoch/ptr 原样、staging 清除、任务走既有失败退避——964MB demo 机
-2026-10-11 宿主 OOM 十杀根因的对症修(6.7GB-vm 大源 rebuild 拖死全容器)。
+2026-10-17 用户裁定「构建时间留足,按道理怎样都可以构建成功」:默认行为
+改为检查点等待内存窗口(stall-not-abort,IP_RADAR_REBUILD_STALL_S 缺省
+3600s);STALL_S="0" 回到 2026-10-11「宁停勿死」立即中止。本文件缺省 env 钉 0,
+既有中止用例零语义漂移,等待路径用例显式覆写。历史背景:964MB demo 机
+2026-10-11 宿主 OOM 十杀(6.7GB-vm 大源 rebuild 拖死全容器)的对症修。
 """
 from pathlib import Path
 
 import pytest
 
 from ipdb._sources._lmdb import rebuild_lmdb, read_ptr, RebuildAborted, count_path
+
+
+@pytest.fixture(autouse=True)
+def _stall_disabled_by_default(monkeypatch):
+    """缺省钉 2026-10-17 前老行为(STALL_S=0 立即中止):既有中止用例
+    不因新默认等待而挂起;等待路径用例在体内显式覆写本 env。"""
+    monkeypatch.setenv("IP_RADAR_REBUILD_STALL_S", "0")
 
 
 def _recs(n: int):
@@ -26,7 +36,9 @@ def _epochs(base: Path):
 
 
 def test_low_memory_aborts_and_keeps_old_epoch(monkeypatch, tmp_path):
-    """flush 边界 avail < 8% → RebuildAborted:ptr/epoch/计数原样,staging 清除。"""
+    """flush 边界 avail < 8% → RebuildAborted:ptr/epoch/计数原样,staging 清除。
+    显式钉 STALL_S="0":env=0 必须逐位回到立即中止老行为(回归钉)。"""
+    monkeypatch.setenv("IP_RADAR_REBUILD_STALL_S", "0")
     monkeypatch.setattr("ipdb._sources._lmdb.BATCH_SIZE", 10)
     base = tmp_path / "t.lmdb"
     _set_ratio(monkeypatch, 0.9)
@@ -114,6 +126,49 @@ def test_persistent_low_ratio_still_aborts_after_sync(monkeypatch, tmp_path):
         rebuild_lmdb(_recs(50), base, lambda e: None)
     assert read_ptr(base) == before_ptr
     assert _epochs(base) == before_epochs
+    assert not list(base.parent.glob(f"{base.name}.*.new.*"))  # staging 已清
+
+
+def test_stall_waits_for_window_and_completes(monkeypatch, tmp_path):
+    """时间换空间(2026-10-17):检查点低 avail → 等内存窗口而非弃进度。
+    avail 序列钉判定序:检查点低(0.05)→ sync 复查仍低(0.05)→ 首次
+    轮询恢复(≥8%)→ 跳出继续 _flush → rebuild 完成、ptr 前进;poll sleep
+    被 monkeypatch 收集(不计真实等待),断言确有等待(次数 ≥1)。"""
+    monkeypatch.setenv("IP_RADAR_REBUILD_STALL_S", "300")
+    monkeypatch.setattr("ipdb._sources._lmdb.BATCH_SIZE", 10)
+    seq = [0.05, 0.05]                       # 检查点、sync 复查各一次低
+
+    def fake_ratio():
+        return seq.pop(0) if seq else 0.5    # 首次轮询起恢复,后续边界健康
+
+    monkeypatch.setattr("ipdb._sources._lmdb._avail_ratio", fake_ratio)
+    sleeps: list[float] = []
+    monkeypatch.setattr("time.sleep", lambda s: sleeps.append(s))
+    base = tmp_path / "t.lmdb"
+    assert rebuild_lmdb(_recs(25), base, lambda e: None) == 25  # ≥2 次 flush 边界
+    assert read_ptr(base) is not None
+    assert len(sleeps) >= 1                   # 确实在检查点等过,而非直接中止
+
+
+def test_stall_budget_exhaustion_aborts(monkeypatch, tmp_path):
+    """预算耗尽:avail 恒低 + budget=1s + poll 间隔调 0(免真实等待)→
+    RebuildAborted 且消息注明 stall 预算耗尽(含已等秒数);比直接 abort
+    (0 次 sleep)多等了 ≥2 个 poll;旧 epoch/ptr 原样、staging 清除。"""
+    monkeypatch.setenv("IP_RADAR_REBUILD_STALL_S", "1")
+    monkeypatch.setattr("ipdb._sources._lmdb._STALL_POLL_S", 0.0)
+    monkeypatch.setattr("ipdb._sources._lmdb.BATCH_SIZE", 10)
+    _set_ratio(monkeypatch, 0.9)
+    base = tmp_path / "t.lmdb"
+    rebuild_lmdb(_recs(12), base, lambda e: None)          # 先建成功 epoch=1
+    before_ptr, before_epochs = read_ptr(base), _epochs(base)
+    sleeps: list[float] = []
+    monkeypatch.setattr("time.sleep", lambda s: sleeps.append(s))
+    _set_ratio(monkeypatch, 0.05)                         # 恒低:等穿预算
+    with pytest.raises(RebuildAborted, match="stall budget"):
+        rebuild_lmdb(_recs(50), base, lambda e: None)
+    assert len(sleeps) >= 2                               # 多等了 ≥2 个 poll
+    assert read_ptr(base) == before_ptr                   # ptr 不动 = 旧库原样
+    assert _epochs(base) == before_epochs                 # 无新 epoch 目录
     assert not list(base.parent.glob(f"{base.name}.*.new.*"))  # staging 已清
 
 

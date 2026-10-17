@@ -165,3 +165,27 @@ def test_same_cidr_same_classification_merges_tags(tmp_path):
     recs = src.query("10.0.0.5")
     assert len(recs) == 1
     assert recs[0]["tags"] == ["firehol_abusers_30d", "firehol_webserver"]
+
+
+def test_three_list_cross_hit_union_and_coexistence(tmp_path):
+    """三列表同 CIDR 交叉命中(acc 位掩码重建,Task 2 组合断言):
+    同模板(abusers+webserver,均 spam)tags 并集一条;异模板(proxies,
+    流式列表撞 acc 走置位合并不丢证据)各成一条;extras(is_proxy)在
+    吐出时重建保留。"""
+    _write(tmp_path, "firehol_abusers_30d", "10.0.0.0/24\n")
+    _write(tmp_path, "firehol_webserver", "10.0.0.0/24\n")
+    _write(tmp_path, "firehol_proxies", "10.0.0.0/24\n")
+    src = FireholBlocklistSource(tmp_path, selected_lists=[
+        "firehol_abusers_30d", "firehol_webserver", "firehol_proxies"])
+    n = src.rebuild()
+    assert n == 1
+    recs = src.query("10.0.0.5")
+    assert len(recs) == 2
+    by_cls = {r["classification_type"]: r for r in recs}
+    assert set(by_cls) == {"spam", "proxy"}
+    # 同模板 tags 并集(重建自位掩码,sorted)
+    assert by_cls["spam"]["tags"] == ["firehol_abusers_30d",
+                                      "firehol_webserver"]
+    # 异模板共存 + 流式撞 acc 合并 + extras 保留
+    assert by_cls["proxy"]["tags"] == ["firehol_proxies"]
+    assert by_cls["proxy"]["is_proxy"] is True
