@@ -60,6 +60,19 @@ def test_load_bad_json_noop_with_warning(token_env, caplog, monkeypatch):
     assert "tokens.json" in caplog.text
 
 
+@pytest.mark.skipif(hasattr(os, "geteuid") and os.geteuid() == 0,
+                    reason="root 读文件不受 chmod 000 限制")
+def test_load_unreadable_file_noop_with_warning(token_env, caplog):
+    # 终审 I-1:重部署卷权限/UID 变化 → OSError 不得穿到 lifespan brick 启动
+    path = token_env / "tokens.json"
+    path.write_text(json.dumps({"IPINFO_TOKEN": "ui-val"}), encoding="utf-8")
+    path.chmod(0o000)
+    with caplog.at_level(logging.WARNING, logger="ipdb._tokens"):
+        _tokens.load()
+    assert "IPINFO_TOKEN" not in os.environ
+    assert "tokens.json" in caplog.text
+
+
 def test_set_token_persists_and_applies(token_env):
     _tokens.set_token("IPINFO_TOKEN", "abcd1234")
     stored = json.loads((token_env / "tokens.json").read_text(encoding="utf-8"))

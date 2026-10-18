@@ -44,7 +44,7 @@ def _read_store() -> dict:
         return {}
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except ValueError as e:   # 坏 JSON / 坏编码:不炸启动(plan 裁决)
+    except (OSError, ValueError) as e:   # 坏 JSON/坏编码/不可读(卷权限、EIO):不炸启动(plan 裁决 + 终审 I-1)
         logger.warning("tokens.json unreadable (%s); ignoring stored tokens", e)
         return {}
     return data if isinstance(data, dict) else {}
@@ -66,7 +66,7 @@ def _write_store(data: dict) -> None:
 
 def load() -> None:
     """lifespan 早期调用:tokens.json 逐键**覆盖** os.environ(UI 优先裁决)。
-    缺文件 = no-op;坏 JSON = warning + no-op。防御:非受管键/空白值跳过
+    缺文件 = no-op;坏 JSON/文件不可读 = warning + no-op。防御:非受管键/空白值跳过
     (手工改过的文件不得 brick 启动——os.environ 赋非 str 会 TypeError)。"""
     for var, value in _read_store().items():
         if var in MANAGED and isinstance(value, str) and value.strip():
