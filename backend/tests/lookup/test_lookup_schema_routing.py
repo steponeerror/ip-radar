@@ -8,7 +8,7 @@ The isp slot was removed (spec 2026-08-19 §4.1 D3): no strategy ever consumed i
 only emitter (proxyscrape) now rides carrier. Stale stored "isp" keys fold
 into extra until the next rebuild.
 """
-from ipdb._evidence import SCALAR_SLOTS
+from ipdb._evidence import SCALAR_SLOTS, route_record
 
 
 def test_lookup_routes_scalar_slot_to_result(monkeypatch):
@@ -49,3 +49,47 @@ def test_as_domain_is_asset_slot():
     stores it per-node and lookup routes it without bespoke code (spec 2026-08-19 §4.2 D5/Q7-A)."""
     from ipdb._evidence import ASSET_SLOTS
     assert "as_domain" in ASSET_SLOTS
+
+
+def test_route_record_keeps_abuse_contact_at_top_level():
+    """abuse_contact 是类 3 所有权与联系标量槽(rir_abuse,2026-10-18):
+    route_record 后留在顶层、不落 extra——lookup 的 SCALAR_SLOTS 收集才看得见。"""
+    raw = {"country_code": "NL", "abuse_contact": "abuse@ripe.net"}
+    out = route_record(raw)
+    assert out["abuse_contact"] == "abuse@ripe.net"          # stays top level
+    assert "abuse_contact" not in (out.get("extra") or {})    # NOT folded into extra
+    assert "abuse_contact" in SCALAR_SLOTS
+
+
+def test_lookup_routes_abuse_contact_to_merged_field(monkeypatch):
+    """abuse_contact per-IP 标量,同 country_code 路径(无 join 钩子):
+    source.query → route_record → SCALAR_SLOTS 收集 → NamingAuthority →
+    LookupResult.abuse_contact(单证人 conf=r 公理)。"""
+    from ipdb import _registry
+    from ipdb._types import SourceHealth
+
+    class FakeSrc:
+        name = "fake_rir"
+        reliability = 0.85
+        authoritative_for = []
+        fields = ("abuse_contact",)
+
+        def health(self):
+            return SourceHealth("fake_rir", True, 1, None, False)
+
+        def query(self, ip):
+            return {"abuse_contact": "abuse@ripe.net"}
+
+    monkeypatch.setattr(_registry, "_sources", [FakeSrc()])
+    monkeypatch.setattr(_registry, "_disabled", set())
+    import ipdb._merge as _merge
+    monkeypatch.setattr(_merge, "SOURCE_RELIABILITY", {"fake_rir": 0.85})
+
+    import ipdb._registry as R
+    lr = R.lookup("1.2.3.4")
+
+    assert lr.abuse_contact is not None
+    assert lr.abuse_contact.value == "abuse@ripe.net"
+    assert lr.abuse_contact.confidence == 85       # int(0.85*100+0.5)
+    assert lr.abuse_contact.algorithm == "authority"
+    assert lr.abuse_contact.sources[0].source == "fake_rir"

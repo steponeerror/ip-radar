@@ -254,6 +254,21 @@ class TestNamingAuthority:
         assert result.value == "Acme"
         assert result.confidence == 83
 
+    def test_abuse_contact_single_witness_and_empty(self, monkeypatch):
+        """abuse_contact 槽(类 3 所有权与联系,rir_abuse 单源占位同 as_org 例):
+        单证人 value + conf=int(0.85*100+0.5)=85、algorithm "authority";空值回 N/A。"""
+        monkeypatch.setattr(_merge, "SOURCE_RELIABILITY", {"rir_abuse": 0.85})
+        monkeypatch.setattr(_merge, "AUTHORITATIVE_SOURCES", {})
+        na = NamingAuthority(field="abuse_contact")
+        hit = na.merge({"rir_abuse": "abuse@ripe.net"},
+                       {"country": {}, "ip": "1.2.3.4"})
+        assert hit.value == "abuse@ripe.net"
+        assert hit.confidence == 85          # int(0.85*100+0.5)
+        assert hit.algorithm == "authority"
+        miss = na.merge({}, {"country": {}, "ip": "1.2.3.4"})
+        assert miss.value == "N/A"
+        assert miss.confidence == 0
+
     def test_no_authoritative_falls_back(self, monkeypatch):
         monkeypatch.setattr(_merge, "SOURCE_RELIABILITY",
                             {"ipinfo_lite": 0.95, "iptoasn": 0.90})
