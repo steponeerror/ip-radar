@@ -193,7 +193,7 @@ pricing/model/terms before applying a gate**, since access tiers and licenses dr
 | **Feed marked "unverified" / "community"** and you'd consume it on the corroboration axis | REJECT | pollutes fusion; keep only verified for the axis |
 | **Unverifiable provenance** — anonymous push-only data dump: no upstream attribution AND no in-repo derivation code (SentinelPhishFeed, 2026-10-10: 2★ anonymous repo, zero code, 203k IPs, "without per-source attribution") | REJECT | rubric cannot price provenance opacity — it scored quality 2 yet 26/30 still topped the shortlist. The gate's intent is auditability; a feed need not be *labeled* unverified to fail it. User-rejected same day. Scope: targets **anonymous aggregation** — a community-maintained PRIMARY list with per-entry attribution and a known maintaining org passes (dns_public: DNSCrypt stamps, per-resolver names like "a-and-a"; root_servers: IANA; both 2026-10-10). Asset/service sources are judged on provenance verifiability, not on threat-corroboration standards |
 | **Publisher already integrated** — candidate and a roster row are published by the **same party** (repo owner/organization/project — NOT a bare `download_host` match: `raw.githubusercontent.com` is shared by 12 roster rows, and host-matching would have falsely rejected `dns_public`, 2026-10-10) (or a signal name matches its sublists column) | REJECT as *new source* | dataplane precedent: the publisher was registered since v1.0.0 yet was researched as a discovery. A same-publisher unconsumed signal is still viable — but must be framed as **extension of the existing source** (edit its `SIGNALS`/map), not a new source |
-| **~100% overlap with an existing source** (verify: is it already aggregated into `firehol`/`ipsum`/`spamhaus`?) | REJECT | redundant |
+| **~100% overlap with an existing source** — a REJECT on this gate **requires a measured exclusive rate** from `cd backend && python -m ipdb._eval --exclusive <feed-file>` (stable seed, known-positive control, covering sources named); upstream/publisher-mapping inference ("its publishers are all in the pool") must NOT substitute. No measured number → at most FLAG (the `firehol`/`ipsum`/`spamhaus` aggregation check is a lead, not a verdict) | REJECT (measured near-zero exclusivity) / FLAG (unmeasured) | redundant only on measured evidence — mapping intuition fails exactly here (2026-10-18 double overturn, see Common mistakes) |
 | **Sunset/frozen feed** — data-internal timestamp (`Last updated`/`Generated`/`As-of`) older than 30 days at sample-fetch; OR (no internal timestamp) publisher shows no GitHub commit / changelog / release within 30 days AND no content change across ≥2 fetches on different days | REJECT | re-serves a stale file though the URL responds; `file-mtime` is NOT liveness evidence (frozen re-download bumps it — this is how the sunset `feodo` feed slipped in) |
 | **Domain/URL-only feed** needing URL→IP resolution at fetch time (PhishTank, OpenPhish free) | FLAG | fragile, expires; prefer native-IP feeds |
 | **Ambiguous commercial-use license** ("not for commercial resale") | FLAG | needs explicit user sign-off before integrating |
@@ -225,7 +225,7 @@ table, so a filled dossier hands off with zero rework.
 - License/quota:  <terms + any rate limit>
 - Rubric score:   coverage __ / cost __ / access __ / freshness __ / quality __ / cleanliness __ = __/30
 - Gate verdict:   PASS | FLAG(<blocker>) | REJECT(<reason>)
-- Notes:          <overlap check vs existing sources; the one trade-off the user should know>
+- Notes:          <overlap check vs existing sources — overlap claims cite the `--exclusive` measured rate per the gate table; the one trade-off the user should know>
 ```
 
 Leave no slot blank. "Unknown" is an acceptable value only for `Fields`/`Cadence`
@@ -240,6 +240,7 @@ The `Data freshness verified` slot is mandatory: a candidate whose data is stale
   Start with "the `scanner` axis has one real source." The gap determines which
   feeds are even worth evaluating.
 - **Unattributed overlap numbers.** An overlap probe that reports "73% of sampled IPs already flagged" without naming **which sources** flagged them is not verification — in the dataplane incident the covering source WAS dataplane itself, visible in one lookup's attribution list. Run the committed probe (`python -m ipdb._eval --exclusive …`), which prints covering source names; ad-hoc probe scripts are retired.
+- **Mapping-inferred overlap verdicts.** "All its publishers are already in the pool" is not overlap evidence — upstream-mapping intuition fails exactly at aggregator-shaped candidates. Measured twice, overturned twice (2026-10-18): romainmarcoux/malicious-ip (mapped-inferred ~100% overlap → measured 82.7% exclusive, 248/300), ziyadnz/threat-intel-ip-feeds ("pool has the aggregators" → measured 44.7% exclusive, 134/300). No overlap-class REJECT without an `--exclusive` run.
 - **Declaring a dead slot empty after one query.** A single search angle misses
   most feeds — in this campaign, one run concluded "phishing has no native-IP
   feed"; a wider sweep next run found TweetFeed. Sweep every angle (attack-type
