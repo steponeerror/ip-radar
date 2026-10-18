@@ -226,6 +226,22 @@ REPORTEDIP_CODE_THEMATIC = {
 }
 
 
+# ShadowWhisperer/IPs Threats.csv `category` → IntelMQ(波1,2026-10-18)。
+# 六值实测谱系:botnet node/recon/intrusion/abuse/exploit/dropper host。
+# 四值有净词表槽即映射;abuse/intrusion 语义过宽(泛指控、无行为类型)
+# 显式 other(REPORTEDIP "28" 先例:已审视不强行映射,原值仍由
+# native_categories 保存;显式映射同时免绊线重警)。
+SW_THREATS_MAP = {
+    "botnet node": "infected-system",   # botnet drone(词表已无方言 botnet,
+                                        # P1 2026-09-05 迁官方型 infected-system)
+    "recon": "scanner",
+    "exploit": "exploit",
+    "dropper host": "malware-distribution",   # 投递宿主 = 恶意软件分发
+    "abuse": "other",
+    "intrusion": "other",
+}
+
+
 _unmapped_warned: set[tuple[int, str]] = set()
 
 
