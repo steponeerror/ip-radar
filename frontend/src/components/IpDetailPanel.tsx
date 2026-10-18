@@ -188,6 +188,13 @@ export function IpDetailPanel({ r }: { r: LookupResult }) {
           format={String}
         />
       )}
+      {r.org_name && (
+        <FieldDetail
+          label={t("ipDetail.orgName")}
+          field={r.org_name}
+          format={String}
+        />
+      )}
       {r.registration && (
         <div className={SECTION}>
           <div className="flex items-center gap-2 mb-1">

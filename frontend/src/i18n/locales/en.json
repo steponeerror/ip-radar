@@ -279,5 +279,6 @@
   "ipDetail.registration": "Registry allocation",
   "asset.is_anycast": "Anycast",
   "ipDetail.asOrg": "AS organization",
-  "ipDetail.abuseContact": "Abuse Contact"
+  "ipDetail.abuseContact": "Abuse Contact",
+  "ipDetail.orgName": "Registered Org"
 }
