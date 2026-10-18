@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import {
+  clearAdminToken,
   enqueueBatch,
   enqueueSingle,
   fetchEvalModel,
+  getAdminTokens,
   getSources,
+  putAdminToken,
   setSourceEnabled,
 } from "../api";
-import type { BatchState, EvalModelScore, SourceInfo, TaskState } from "../api";
+import type { BatchState, EvalModelScore, SourceInfo, TaskState, TokenStatus } from "../api";
 import { useI18n } from "../i18n";
 
 // 源页重设计(2026-10-17 grill 裁决)三级扫读结构:组头(可收起 button)→
@@ -159,6 +162,13 @@ export default function SourcesPage({ tasks, batch, onUnauthorized }: SourcesPag
   // 同组多行可同时展开,不持久化)
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(loadExpandedGroups);
   const [openDetails, setOpenDetails] = useState<Set<string>>(() => new Set());
+  // token 状态(T3):null = 未拉到(失败静默/未返回)→ 全视为已配置,入口全隐。
+  // 裁决:不新增轮询,挂载一次性拉取;写/清除成功只翻本地态,不重拉。
+  const [tokens, setTokens] = useState<TokenStatus[] | null>(null);
+  // 行内简易对话框:记源名(非 env_var —— OTX 双源共享一 var,按 var 记会两行同开)
+  const [tokenDialogFor, setTokenDialogFor] = useState<string | null>(null);
+  const [tokenDraft, setTokenDraft] = useState("");
+  const [tokenBusy, setTokenBusy] = useState(false);
 
   // 401 = 会话失效 → 踢回登录页;其余错误走原错误文案路径。
   const failWith = (e: unknown, fallback: string) => {
@@ -198,6 +208,18 @@ export default function SourcesPage({ tasks, batch, onUnauthorized }: SourcesPag
       })
       .catch(() => { /* 无报告/接口失败:详情层 θ 保持 — */ });
   }, []);
+
+  // token 状态挂载一次性拉取;失败静默保持 null(grill 冻结:拉取失败 →
+  // 全部视为已配置,入口隐藏,不得拖垮主列表/不出错误横幅)。
+  useEffect(() => {
+    getAdminTokens().then(setTokens).catch(() => { /* 静默降级 */ });
+  }, []);
+
+  // 源名 → token 状态索引(OTX 一 key 双源:两行取同一 status,配置一次双双消失)。
+  const tokenBySource = new Map<string, TokenStatus>();
+  for (const tk of tokens ?? []) {
+    for (const sn of tk.sources) tokenBySource.set(sn, tk);
+  }
 
   // Debounce-refetch: when the count of finished tasks (done/failed/cancelled)
   // changes, re-sync the source list after 500ms so health/record_count updates.
@@ -247,6 +269,37 @@ export default function SourcesPage({ tasks, batch, onUnauthorized }: SourcesPag
       await enqueueSingle(name);
     } catch (e) {
       failWith(e, t("sources.updateOneFailed", { name }));
+    }
+  };
+
+  // 保存即 PUT,成功即关;本地翻 configured + 尾 4 位(与后端 status 同源算
+  // 法:value.slice(-4)),不重拉。空值/重复提交在按钮 disabled + guard 双挡
+  // (后端 422 兕底)。
+  const handleTokenSave = async (envVar: string) => {
+    const value = tokenDraft;
+    if (!value.trim() || tokenBusy) return;
+    setTokenBusy(true);
+    try {
+      await putAdminToken(envVar, value);
+      setTokens((prev) => prev!.map((x) =>
+        x.env_var === envVar ? { ...x, configured: true, tail4: value.slice(-4) } : x,
+      ));
+      setTokenDialogFor(null);
+    } catch (e) {
+      failWith(e, t("sources.token.saveFailed"));
+    } finally {
+      setTokenBusy(false);
+    }
+  };
+
+  const handleTokenClear = async (envVar: string) => {
+    try {
+      await clearAdminToken(envVar);
+      setTokens((prev) => prev!.map((x) =>
+        x.env_var === envVar ? { ...x, configured: false, tail4: null } : x,
+      ));
+    } catch (e) {
+      failWith(e, t("sources.token.clearFailed"));
     }
   };
 
@@ -363,6 +416,7 @@ export default function SourcesPage({ tasks, batch, onUnauthorized }: SourcesPag
                       const open = openDetails.has(s.name);
                       const detailId = `sources-detail-${s.name}`;
                       const ms = thetaBySource.get(s.name);
+                      const tokenSt = tokenBySource.get(s.name);
                       // Per-row phase comes from the tasks prop (AdminPage passes
                       // the SSE-driven context state down). A row is "busy" when
                       // a task for this source is in any of the four idempotent
@@ -426,6 +480,20 @@ export default function SourcesPage({ tasks, batch, onUnauthorized }: SourcesPag
                               <span className="truncate text-xs text-zinc-500">{fmtTime(s)}</span>
                             </button>
                             <div className="flex shrink-0 items-center gap-3">
+                              {/* 未配置 token 源的入口(琥珀边);已配置/拉取失败均隐 */}
+                              {tokenSt && !tokenSt.configured && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setTokenDraft("");   // 不回显既有值(API 也不出值)
+                                    setTokenDialogFor(s.name);
+                                  }}
+                                  aria-label={t("sources.token.fillAria", { name: s.name })}
+                                  className="rounded-md border border-amber-400/40 px-2.5 py-1 text-xs text-amber-400 transition-colors hover:bg-amber-400/10"
+                                >
+                                  {t("sources.token.fill")}
+                                </button>
+                              )}
                               <Toggle
                                 on={s.enabled}
                                 disabled={busy}
@@ -441,6 +509,38 @@ export default function SourcesPage({ tasks, batch, onUnauthorized }: SourcesPag
                               </button>
                             </div>
                           </div>
+                          {/* 行内简易对话框:密码型输入,保存即 PUT,成功即关;
+                              不设 role=dialog(无焦点陷阱,伪语义) */}
+                          {tokenSt && !tokenSt.configured && tokenDialogFor === s.name && (
+                            <form
+                              onSubmit={(e) => { e.preventDefault(); void handleTokenSave(tokenSt.env_var); }}
+                              className="flex flex-wrap items-center gap-2 border-t border-zinc-900 bg-zinc-950/60 px-4 py-3 text-xs"
+                            >
+                              <span className="font-mono text-zinc-400">{tokenSt.env_var}</span>
+                              <input
+                                type="password"
+                                autoFocus
+                                value={tokenDraft}
+                                onChange={(e) => setTokenDraft(e.target.value)}
+                                aria-label={t("sources.token.inputAria")}
+                                className="w-56 rounded border border-zinc-700 bg-zinc-900 px-2 py-1 font-mono text-zinc-200 focus:border-emerald-400 focus:outline-none"
+                              />
+                              <button
+                                type="submit"
+                                disabled={tokenBusy || !tokenDraft.trim()}
+                                className="rounded-md border border-emerald-400/40 px-2 py-1 text-emerald-400 transition-colors hover:bg-emerald-400/10 disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                {t("sources.token.save")}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setTokenDialogFor(null)}
+                                className="rounded-md border border-zinc-700 px-2 py-1 text-zinc-400 transition-colors hover:bg-zinc-800"
+                              >
+                                {t("sources.token.cancel")}
+                              </button>
+                            </form>
+                          )}
                           {/* 详情层:r(声明)/θ+CI(实测)/评估 verdict/内容年龄·
                               刷新周期/feeds 芯片/最近错误 —— 按需查看 */}
                           {open && (
@@ -455,6 +555,24 @@ export default function SourcesPage({ tasks, batch, onUnauthorized }: SourcesPag
                                   r {s.reliability.toFixed(2)}
                                 </span>
                               </DetailRow>
+                              {tokenSt?.configured && (
+                                <DetailRow label={tokenSt.env_var}>
+                                  <span data-detail="token" className="flex items-center gap-2">
+                                    <span className="font-mono text-zinc-300">
+                                      {t("sources.token.configured")}
+                                      {tokenSt.tail4 ? ` ····${tokenSt.tail4}` : ""}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => void handleTokenClear(tokenSt.env_var)}
+                                      aria-label={t("sources.token.clearAria", { name: tokenSt.env_var })}
+                                      className="rounded border border-zinc-700 px-1.5 py-0.5 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+                                    >
+                                      {t("sources.token.clear")}
+                                    </button>
+                                  </span>
+                                </DetailRow>
+                              )}
                               <DetailRow label={t("sources.detail.theta")}>
                                 {ms && ms.theta != null ? (
                                   <span

@@ -5,12 +5,16 @@ import type { SourcesPageProps } from "../SourcesPage";
 import { renderWithI18n } from "../../test/i18nTestUtils";
 import { translate } from "../../i18n/translate";
 import {
+  clearAdminToken,
   enqueueSingle,
   enqueueBatch,
   fetchEvalModel,
+  getAdminTokens,
   getSources,
+  putAdminToken,
   setSourceEnabled,
 } from "../../api";
+import type { TokenStatus } from "../../api";
 import type { TaskState, BatchState, SourceInfo, SourceHealth } from "../../api";
 
 // 源页重设计(2026-10-17 grill 裁决):三级扫读结构 —— 组头(可收起
@@ -53,6 +57,9 @@ vi.mock("../../api", async () => {
     enqueueSingle: vi.fn().mockResolvedValue({ task_id: "t1" }),
     enqueueBatch: vi.fn().mockResolvedValue({ batch_id: "b1" }),
     setSourceEnabled: vi.fn(),
+    getAdminTokens: vi.fn().mockResolvedValue([]),
+    putAdminToken: vi.fn().mockResolvedValue(undefined),
+    clearAdminToken: vi.fn().mockResolvedValue(undefined),
   };
 });
 
@@ -487,5 +494,98 @@ describe("SourcesPage group labels (i18n)", () => {
     expect(translate("zh-CN", "sources.group.anomalyUnit")).toBe("异常");
     expect(translate("zh-CN", "sources.detail.evalNone")).toBe("无评估报告");
     expect(translate("zh-CN", "sources.row.expandAria", { name: "feodo" })).toBe("展开 feodo 详情");
+  });
+});
+
+// ── token 界面接线(T3;grill 裁决冻结:未配置出「填 token」琥珀入口,密码型
+// 输入不回显既有值,成功即关;详情层「已配置 ····{tail4} · [清除]」;拉取失败
+// 静默 → 全视为已配置入口全隐;OTX 一 key 双源同状态)──
+describe("SourcesPage token wiring (T3)", () => {
+  const tokenRow = (over: Partial<TokenStatus> = {}): TokenStatus => ({
+    env_var: "ABUSEIPDB_API_KEY",
+    sources: ["abuseipdb"],
+    configured: false,
+    tail4: null,
+    ...over,
+  });
+
+  it("unconfigured token source shows the amber 'Set token' entry in the main row", async () => {
+    vi.mocked(getSources).mockResolvedValueOnce([src("abuseipdb", { fields: ["is_malicious"] })]);
+    vi.mocked(getAdminTokens).mockResolvedValueOnce([tokenRow()]);
+    renderPage();
+    await expandGroup();
+    const btn = await screen.findByRole("button", { name: "Set token for abuseipdb" });
+    expect(btn).toHaveClass("border-amber-400/40");
+    expect(btn).toHaveTextContent("Set token");
+  });
+
+  it("configured token source hides the entry; detail layer shows 'Configured ····{tail4}' with Clear → DELETE", async () => {
+    vi.mocked(getSources).mockResolvedValueOnce([src("abuseipdb", { fields: ["is_malicious"] })]);
+    vi.mocked(getAdminTokens).mockResolvedValueOnce([tokenRow({ configured: true, tail4: "9f8e" })]);
+    const { container } = renderPage();
+    await expandGroup();
+    await screen.findByText("abuseipdb");
+    expect(screen.queryByRole("button", { name: "Set token for abuseipdb" })).toBeNull();
+    openDetail("abuseipdb");
+    expect(container.querySelector('[data-detail="token"]')!.textContent).toContain("····9f8e");
+    expect(container.querySelector('[data-detail="token"]')!.textContent).toContain("Configured");
+    fireEvent.click(screen.getByRole("button", { name: "Clear ABUSEIPDB_API_KEY" }));
+    await waitFor(() => expect(clearAdminToken).toHaveBeenCalledWith("ABUSEIPDB_API_KEY"));
+  });
+
+  it("tokens fetch failure is silent: every entry hidden (all treated as configured)", async () => {
+    vi.mocked(getSources).mockResolvedValueOnce([src("abuseipdb", { fields: ["is_malicious"] })]);
+    vi.mocked(getAdminTokens).mockRejectedValueOnce(new Error("boom"));
+    renderPage();
+    await expandGroup();
+    expect(await screen.findByText("abuseipdb")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Set token/ })).toBeNull();
+    expect(screen.queryByText(/Failed to/)).toBeNull(); // 静默:无错误横幅
+  });
+
+  it("save dialog: password input, empty on open (never echoes), PUT on submit, closes on success", async () => {
+    vi.mocked(getSources).mockResolvedValueOnce([src("abuseipdb", { fields: ["is_malicious"] })]);
+    vi.mocked(getAdminTokens).mockResolvedValueOnce([tokenRow()]);
+    renderPage();
+    await expandGroup();
+    fireEvent.click(await screen.findByRole("button", { name: "Set token for abuseipdb" }));
+    const input = screen.getByLabelText("Token value");
+    expect(input).toHaveAttribute("type", "password");
+    expect(input).toHaveValue(""); // 硬约束:不回显既有值(API 也不出值)
+    fireEvent.change(input, { target: { value: "secret-key-9999" } });
+    fireEvent.submit(input.closest("form")!);
+    await waitFor(() =>
+      expect(putAdminToken).toHaveBeenCalledWith("ABUSEIPDB_API_KEY", "secret-key-9999"),
+    );
+    await waitFor(() => expect(screen.queryByLabelText("Token value")).toBeNull());
+    // 本地态已翻 configured:入口消失,详情层立即见尾 4 位
+    expect(screen.queryByRole("button", { name: "Set token for abuseipdb" })).toBeNull();
+    openDetail("abuseipdb");
+    expect(screen.getByText(/····9999/)).toBeInTheDocument();
+  });
+
+  it("otx and otx_subscribed share OTX_API_KEY: both entries vanish after one save", async () => {
+    vi.mocked(getSources).mockResolvedValueOnce([src("otx"), src("otx_subscribed")]);
+    vi.mocked(getAdminTokens).mockResolvedValueOnce([
+      { env_var: "OTX_API_KEY", sources: ["otx", "otx_subscribed"], configured: false, tail4: null },
+    ]);
+    renderPage();
+    await expandGroup();
+    expect(await screen.findByRole("button", { name: "Set token for otx" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Set token for otx_subscribed" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Set token for otx" }));
+    fireEvent.change(screen.getByLabelText("Token value"), { target: { value: "otxkey-1234" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(putAdminToken).toHaveBeenCalledWith("OTX_API_KEY", "otxkey-1234"));
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "Set token for otx" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Set token for otx_subscribed" })).toBeNull();
+    });
+  });
+
+  it("zh-CN verbatim token wording (grill-frozen 「填 token」)", () => {
+    expect(translate("zh-CN", "sources.token.fill")).toBe("填 token");
+    expect(translate("zh-CN", "sources.token.configured")).toBe("已配置");
+    expect(translate("zh-CN", "sources.token.clear")).toBe("清除");
   });
 });
