@@ -20,7 +20,7 @@ CORE_FIELDS = frozenset({
 })
 
 SCALAR_SLOTS = frozenset({"country_code", "asn", "as_name", "ip_range", "city",
-                         "as_org"})  # as_org: ASN→组织级名称,caida_asorg 查询期 join(b/asorg-anycast 2026-10-10;as_domain 单源占位同例)
+                         "as_org", "abuse_contact"})  # as_org: ASN→组织级名称,caida_asorg 查询期 join(b/asorg-anycast 2026-10-10;as_domain 单源占位同例); abuse_contact: 类 3 所有权与联系,rir_abuse 单源占位同 as_org 例(2026-10-18)
 RICH_SLOTS = frozenset({"native_categories", "comment", "tags", "reporter_count", "last_seen"})
 ASSET_SLOTS = frozenset({"is_proxy", "is_hosting", "is_tor", "is_vpn", "carrier",
                          "service", "as_domain", "is_anycast"})  # service: public-infra role (dns/ntp/...) — string, like carrier; as_domain: registrar domain (ipinfo_lite); is_anycast: 任播槽,anycast_census 单源(b/asorg-anycast 2026-10-10,NEEDS anycast 行;bgp.tools 复活后双源投票)
@@ -45,6 +45,7 @@ class Evidence:
     asn: Optional[int] = None
     as_name: Optional[str] = None
     as_org: Optional[str] = None    # 组织级名称(SCALAR_SLOTS 契约;caida_asorg join 注入)
+    abuse_contact: Optional[str] = None   # 滥用联系邮箱(类 3 所有权与联系;RIR 注册库,rir_abuse)
     ip_range: Optional[str] = None
     city: Optional[str] = None
     # ── canonical rich slots ──

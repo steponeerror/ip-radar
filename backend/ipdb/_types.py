@@ -113,6 +113,7 @@ class LookupResult:
     location: Optional[dict] = None       # display-only {lat, lon, accuracy_radius?, time_zone?} (geolite, spec 2026-08-25; tz 信息维度批 2026-10-10)
     registration: Optional[dict] = None   # display-only {registry, reg_country?, alloc_date?, status?} 单证人(rir_delegated 旁路;reg_country ≠ 地理国)
     as_org: Optional[MergedField] = None # ASN→组织级名称(查询期 join,caida_asorg;b/asorg-anycast 2026-10-10);asn 无解或钩子源缺席则 None
+    abuse_contact: Optional[MergedField] = None  # 滥用联系邮箱(per-IP 标量,无 join 钩子;rir_abuse 单证人,无证人/错误/保留地址结果均 None 同 as_org 缺席语义)
     asof: float | None = None             # F2/S37 时钟锚(epoch 秒):threat_summary 重融合按锚刻衰减;None = 墙钟(默认逐位不变)
 
     # Verdict precedence for the fused top-level `threat` summary. Mirrors
@@ -186,6 +187,8 @@ class LookupResult:
             "as_name": _field_to_dict(self.as_name),
             "as_org": (_field_to_dict(self.as_org)
                        if self.as_org is not None else None),
+            "abuse_contact": (_field_to_dict(self.abuse_contact)
+                              if self.abuse_contact is not None else None),
             "ip_range": _field_to_dict(self.ip_range),
             "is_isp": self.is_isp,
             "threat": self.threat_summary(),

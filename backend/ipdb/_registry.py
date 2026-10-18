@@ -196,6 +196,7 @@ _strategies = {
     "asn": LogOddsVoting(default=0),
     "as_name": NamingAuthority(),
     "as_org": NamingAuthority(field="as_org"),   # 单证人 conf=r 公理(b/asorg-anycast 2026-10-10)
+    "abuse_contact": NamingAuthority(field="abuse_contact"),   # 同公理;类 3 滥用联系(rir_abuse,2026-10-18)
     "ip_range": RangeSpecificity(),
     "city": FactualVoting(default="N/A"),   # 保留(spec §4:品质阶梯语义)
 }
@@ -615,6 +616,13 @@ def lookup(ip: str, allowed_sources: frozenset[str] | None = None, *,
         field_values.get("as_name", {}), context)
     ip_range = _strategies["ip_range"].merge(
         field_values.get("ip_range", {}), context)
+    # abuse_contact:per-IP 标量,同 country_code 收集路径(无 join 钩子,无特判);
+    # 无证人时 None(同 as_org 缺席语义,to_dict 出 null);
+    # 有证人走 NamingAuthority 单源 conf=r 公理(rir_abuse,2026-10-18)。
+    abuse_contact = None
+    if field_values.get("abuse_contact"):
+        abuse_contact = _strategies["abuse_contact"].merge(
+            field_values["abuse_contact"], context)
 
     is_isp = any(field_values.get("is_isp", {}).values())
 
@@ -670,6 +678,7 @@ def lookup(ip: str, allowed_sources: frozenset[str] | None = None, *,
         asn=asn,
         as_name=as_name,
         as_org=as_org,
+        abuse_contact=abuse_contact,
         ip_range=ip_range,
         is_isp=is_isp,
         registration=registration,
