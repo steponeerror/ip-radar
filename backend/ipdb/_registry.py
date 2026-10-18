@@ -197,6 +197,7 @@ _strategies = {
     "as_name": NamingAuthority(),
     "as_org": NamingAuthority(field="as_org"),   # 单证人 conf=r 公理(b/asorg-anycast 2026-10-10)
     "abuse_contact": NamingAuthority(field="abuse_contact"),   # 同公理;类 3 滥用联系(rir_abuse,2026-10-18)
+    "org_name": NamingAuthority(field="org_name"),   # 同公理;注册组织名(rir_abuse 同 dump 扩展,2026-10-18)
     "ip_range": RangeSpecificity(),
     "city": FactualVoting(default="N/A"),   # 保留(spec §4:品质阶梯语义)
 }
@@ -623,6 +624,12 @@ def lookup(ip: str, allowed_sources: frozenset[str] | None = None, *,
     if field_values.get("abuse_contact"):
         abuse_contact = _strategies["abuse_contact"].merge(
             field_values["abuse_contact"], context)
+    # org_name:同收集路径同门控(rir_abuse 同 dump 扩展,2026-10-18):
+    # 无证人 None(to_dict 出 null),有证人 NamingAuthority 单源 conf=r 公理。
+    org_name = None
+    if field_values.get("org_name"):
+        org_name = _strategies["org_name"].merge(
+            field_values["org_name"], context)
 
     is_isp = any(field_values.get("is_isp", {}).values())
 
@@ -679,6 +686,7 @@ def lookup(ip: str, allowed_sources: frozenset[str] | None = None, *,
         as_name=as_name,
         as_org=as_org,
         abuse_contact=abuse_contact,
+        org_name=org_name,
         ip_range=ip_range,
         is_isp=is_isp,
         registration=registration,
