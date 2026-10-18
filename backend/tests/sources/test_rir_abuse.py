@@ -37,6 +37,10 @@ inet6num:       2001:db8:{v6tag}:: - 2001:db8:{v6tag}:ffff:ffff:ffff:ffff:ffff
 netname:        V6-NET
 abuse-c:        ACRO15229-RIPE
 
+inet6num:       2a02:{v6tag}::/32
+netname:        V6-PFX-NET
+abuse-c:        ACRO15230-RIPE
+
 role:           Outer Abuse Role
 address:        Some Street
                 Tel: +31 20 123 4567
@@ -80,7 +84,7 @@ def test_rebuild_count_and_health_record_count(tmp_path):
     n = src.rebuild()
     assert n == _expected_v4()
     assert src.health().record_count == n
-    assert src._count6 == 2            # 每文件 1 个 inet6num 键
+    assert src._count6 == 4            # 每文件 2 个 v6 键(范围形 /48 + 前缀形 /32)
     src._reader.close()
     src._reader6.close()
     # LMDB 卫生:同 base 第二实例前先 close;load 读回计数一致
@@ -103,9 +107,12 @@ def test_query_most_specific_hit_and_abstention(tmp_path):
     row = src.query("145.15.200.1")[0]
     assert row["abuse_contact"] == "abuse@ripe.example"
     assert row["verdict"] == ""       # 弃权拼写:信息位不指控(R17A-1)
-    # v6 同链
+    # v6 同链:范围形与 RPSLng 前缀形(RFC 4012,现行 inet6num 标准)双路
     row = src.query("2001:db8:aaaa::1")[0]
     assert row["abuse_contact"] == "abuse@ripe.example"
+    row = src.query("2a02:aaaa::1")[0]
+    assert row["abuse_contact"] == "core@ripe.example"
+    assert row["extra"]["netname"] == "V6-PFX-NET"
     # afrinic 文件出键且 registry 标注正确
     row = src.query("196.15.0.9")[0]
     assert row["abuse_contact"] == "abuse@afrinic.example"

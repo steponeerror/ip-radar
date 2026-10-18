@@ -69,7 +69,7 @@ OLD_AUTHORITATIVE = {
 _PHANTOM_AXES = ("is_malicious", "is_hosting", "is_mobile")
 
 def test_categories_match_snapshot():
-    # 48 = rir_abuse 入册后实测 len(SOURCE_CATEGORIES)
+    # 50 = rir_abuse 入册后实测 len(SOURCE_CATEGORIES)
     live = dict(r.SOURCE_CATEGORIES)
     assert live == OLD_CATEGORIES
 

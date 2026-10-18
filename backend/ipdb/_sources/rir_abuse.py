@@ -4,7 +4,8 @@ docs/research/2026-10-18-rdns-abuse-contact-rescan.md)。
 RIPE NCC / AFRINIC 注册库全量 dump(RPSL 文本 gz,夜更免费免登录):
     ripe    https://ftp.ripe.net/ripe/dbase/ripe.db.gz       352MB,22:19 UTC
     afrinic https://ftp.afrinic.net/pub/dbase/afrinic.db.gz  10.5MB,00:05 UTC
-字段链(两遍流式解压):inetnum/inet6num(range→CIDR 键)→ abuse-c →
+字段链(两遍流式解压):inetnum/inet6num(网段→CIDR 键:v4 范围形 +
+v6 前缀形 RFC 4012)→ abuse-c →
 role → abuse-mailbox(邮箱本体);country 弃(caida_asorg 判例:注册属性
 ≠ IP 属性)。
 License:RIPE DB T&C(署名义务;再分发条款需过目,见重扫报告)。
@@ -51,6 +52,7 @@ def _iter_objects(f) -> Iterator[dict[str, str]]:
     """RPSL 流 → 逐对象 attr dict(对象以空行分隔;%/# 注释行与续行首字符
     空白/+/`)跳过——关心的属性都是单行值,宁少算;多值取首见非空)。"""
     obj: dict[str, str] = {}
+    # shortcut: 仅空行分对象,两对象只隔 % 注释行(无空行)会并卷(首值胜保网段但可吸收对侧 abuse-c),RIPE/AFRINIC 官方 dump 恒空行分隔;真源出现注释分隔再升结构
     for line in f:
         line = line.rstrip("\n")
         if not line.strip():
@@ -71,9 +73,19 @@ def _iter_objects(f) -> Iterator[dict[str, str]]:
 
 
 def _range_to_cidrs(range_str: str) -> list[str]:
-    """RPSL "a - b" → CIDR 列表(对齐位运算快速路 + stdlib summarize 兜底,
-    dbip_city 同款;非 2 幂长范围可能展开多网,全返回防覆盖缺口;解不出
-    → [](丢该对象,不造槽)。v6 地址不含 '-',split 安全。"""
+    """RPSL 网段值 → CIDR 列表。前缀形(RFC 4012/RPSLng,现行 inet6num
+    标准形如 `inet6num: 2001:db8::/32`)直取 ip_network;范围形 "a - b"
+    (inetnum 传统形)对齐位运算快速路 + stdlib summarize 兜底(dbip_city
+    同款;非 2 幂长范围可能展开多网,全返回防覆盖缺口);解不出 →
+    [](丢该对象,不造槽)。v6 地址不含 '-',split 安全。"""
+    if "/" in range_str and "-" not in range_str:
+        # 前缀形(RFC 4012):真实 inet6num dump 的现行标准形;走范围
+        # split 会把 "2001:db8::/32" 当单地址解析失败静默丢——v6 全族
+        # 零键(评审 F1,2026-10-18)
+        try:
+            return [str(ipaddress.ip_network(range_str, strict=False))]
+        except ValueError:
+            return []
     parts = [p.strip() for p in range_str.split("-")]
     if len(parts) == 1:        # 旧式单地址 inetnum(a==b → /32 或 /128)
         parts = [parts[0], parts[0]]
@@ -191,7 +203,7 @@ class RirAbuseSource(Source):
         第 1 遍收 {nic-hdl: abuse-mailbox}(role 对象,仅 abuse-mailbox
         非空者;irt/person 不收——abuse-c 指向 role,宁少算);第 2 遍
         inetnum/inet6num 且带 abuse-c → 解析邮箱(解不出丢对象不造槽)
-        → range → CIDR。v6 由写入侧按 ':' 双族分派。"""
+        → 网段值 → CIDR(范围形/前缀形两路)。v6 由写入侧按 ':' 双族分派。"""
         if not self._path.exists():
             return
         for reg in _BASE:
