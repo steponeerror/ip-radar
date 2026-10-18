@@ -188,6 +188,25 @@ describe("abuse_contact 槽(类 3 所有权与联系,rir_abuse 前置 2026-10-18
   });
 });
 
+describe("org_name 槽(注册组织名,rir_abuse 扩展前置 2026-10-18)", () => {
+  const org = (value: string): NonNullable<LookupResult["org_name"]> => ({
+    value, confidence: 85, algorithm: "authority",
+    sources: [{ source: "rir_abuse", value, reliability: 0.85, authoritative: true }],
+  });
+
+  it("renders the Registered Org block with witness attribution", () => {
+    renderWithI18n(<IpDetailPanel r={{ ...r, org_name: org("Nederlandse Spoorwegen") }} />);
+    expect(screen.getByText("Registered Org")).toBeInTheDocument();
+    expect(screen.getByText("rir_abuse")).toBeInTheDocument();
+    expect(screen.getAllByText("Nederlandse Spoorwegen").length).toBeGreaterThan(0);
+  });
+
+  it("renders no block when org_name is null/absent", () => {
+    renderWithI18n(<IpDetailPanel r={r} />);
+    expect(screen.queryByText("Registered Org")).not.toBeInTheDocument();
+  });
+});
+
 describe("as_org display dedupe + registration styling (2026-10-11 user report)", () => {
   const asOrg = (value: string): NonNullable<LookupResult["as_org"]> => ({
     value, confidence: 80, algorithm: "authority",

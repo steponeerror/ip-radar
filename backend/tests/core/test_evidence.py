@@ -37,7 +37,7 @@ def test_schema_tiers_disjoint_and_complete():
     assert CANONICAL_SLOTS == (frozenset({"country_code","asn","as_name","ip_range","city",
         "native_categories","comment","tags","reporter_count","last_seen",
         "is_proxy","is_hosting","is_tor","is_vpn","carrier","service","as_domain",
-        "as_org","is_anycast","abuse_contact"}))
+        "as_org","is_anycast","abuse_contact","org_name"}))
     assert ALL_KNOWN == CORE_FIELDS | CANONICAL_SLOTS
 
 

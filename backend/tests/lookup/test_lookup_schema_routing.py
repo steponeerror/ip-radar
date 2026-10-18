@@ -93,3 +93,50 @@ def test_lookup_routes_abuse_contact_to_merged_field(monkeypatch):
     assert lr.abuse_contact.confidence == 85       # int(0.85*100+0.5)
     assert lr.abuse_contact.algorithm == "authority"
     assert lr.abuse_contact.sources[0].source == "fake_rir"
+
+
+def test_route_record_keeps_org_name_at_top_level():
+    """org_name 是注册组织名标量槽(rir_abuse 扩展 2026-10-18):
+    route_record 后留在顶层、不落 extra——lookup 的 SCALAR_SLOTS 收集才看得见。"""
+    raw = {"country_code": "NL", "org_name": "Nederlandse Spoorwegen"}
+    out = route_record(raw)
+    assert out["org_name"] == "Nederlandse Spoorwegen"          # stays top level
+    assert "org_name" not in (out.get("extra") or {})    # NOT folded into extra
+    assert "org_name" in SCALAR_SLOTS
+
+
+def test_lookup_routes_org_name_to_merged_field(monkeypatch):
+    """org_name per-IP 标量,同 country_code 路径(无 join 钩子):
+    source.query → route_record → SCALAR_SLOTS 收集 → NamingAuthority →
+    LookupResult.org_name(单证人 conf=r 公理)。"""
+    from ipdb import _registry
+    from ipdb._types import SourceHealth
+
+    class FakeSrc:
+        name = "fake_rir"
+        reliability = 0.85
+        authoritative_for = []
+        fields = ("org_name",)
+
+        def health(self):
+            return SourceHealth("fake_rir", True, 1, None, False)
+
+        def query(self, ip):
+            return {"org_name": "RIPE Network Coordination Center"}
+
+    monkeypatch.setattr(_registry, "_sources", [FakeSrc()])
+    monkeypatch.setattr(_registry, "_disabled", set())
+    import ipdb._merge as _merge
+    monkeypatch.setattr(_merge, "SOURCE_RELIABILITY", {"fake_rir": 0.85})
+
+    import ipdb._registry as R
+    lr = R.lookup("1.2.3.4")
+
+    assert lr.org_name is not None
+    assert lr.org_name.value == "RIPE Network Coordination Center"
+    assert lr.org_name.confidence == 85       # int(0.85*100+0.5)
+    assert lr.org_name.algorithm == "authority"
+    assert lr.org_name.sources[0].source == "fake_rir"
+    # to_dict 恒写键、缺证出 null(同 as_org/abuse_contact 出海契约)
+    d = lr.to_dict()
+    assert d["org_name"]["value"] == "RIPE Network Coordination Center"

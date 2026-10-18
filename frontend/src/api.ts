@@ -80,6 +80,9 @@ export interface LookupResult {
   as_org?: MergedField<string> | null;
   // 滥用联系邮箱(RIPE/AFRINIC 注册库,rir_abuse 单证人;无证人时 N/A/null)
   abuse_contact?: MergedField<string> | null;
+  // 注册组织名(RIPE/AFRINIC 注册库 organisation 对象,rir_abuse 单证人;
+  // ≠ as_org 路由层组织;无证人时 N/A/null)
+  org_name?: MergedField<string> | null;
   ip_range: MergedField<string>;
   is_isp: boolean;
   // 单证人注册元数据块(信息维度批 2026-10-10);reg_country = 注册国≠地理国

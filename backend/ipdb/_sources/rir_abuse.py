@@ -15,6 +15,11 @@ License:RIPE DB T&C(署名义务;再分发条款需过目,见重扫报告)。
 回声。纯信息位:verdict="" 弃权(R17A-1 同款,永不进观测/指控)。
 占位 role 实测存在("Placeholder Role Object",重扫报告 quality 扣 1)
 → reliability 0.85 而非官方发布档。
+org_name 扩展(rir-abuse-org,2026-10-18):同 dump 增收 inetnum org:
+→ organisation.org-name(Evidence.org_name 槽)+ descr(extra 无损随
+行,不设槽)。边界:organisation 对象仅存在于全量 dump——NRTM 镜像/
+增量文件剥除之,勿换 feed;org: 悬空引用只丢 org_name 不丢行(宁少算),
+键空间准入仍由 abuse-c 解析驱动(descr/org 不独立产键)。
 """
 import gzip
 import logging
@@ -41,10 +46,13 @@ _BASE = {
 # fail-closed 下限(重扫报告实测口径,余量 ≥2×;AFRINIC 最小实测全库)
 _MIN_NET_OBJECTS = {"ripe": 100_000, "afrinic": 1_000}
 
-# 本源消费的 RPSL 属性;过滤后对象 dict 有界(其余属性首值丢弃即足)
+# 本源消费的 RPSL 属性;过滤后对象 dict 有界(其余属性首值丢弃即足)。
+# org_name 扩展(rir-abuse-org,2026-10-18):org/inetnum 侧引用,
+# organisation/org-name 组织对象侧锚(全量 dump 专有,见模块 docstring)
 _KEY_ATTRS = frozenset({
     "inetnum", "inet6num", "netname", "abuse-c",
     "role", "nic-hdl", "abuse-mailbox",
+    "org", "descr", "organisation", "org-name",
 })
 
 
@@ -125,8 +133,8 @@ class RirAbuseSource(Source):
     name = "rir_abuse"
     category = "geo_asn"          # 路由与分配族(类 3 槽位挂 geo_asn 族,caida_asorg 同例)
     filename = "rir_abuse"        # 目录名;基类靠 filename 推 _lmdb_base(P1 热修教训,rir_delegated 同款声明)
-    fields = ("abuse_contact",)
-    authoritative_for = ("abuse_contact",)   # 单证人(NamingAuthority conf=r 公理,as_org 同族)
+    fields = ("abuse_contact", "org_name")
+    authoritative_for = ("abuse_contact", "org_name")   # 双槽单证人(NamingAuthority conf=r 公理,as_org 同族);descr 只随 extra 不入槽
     url = None                    # 双 host(ripe/afrinic),目录形,rir_delegated 同款
     stale_days = 7                # 夜更,一周余量(重扫档案)
     reliability = 0.85            # 注册局一手,但占位 role 实测存在(重扫 quality 扣 1)
@@ -201,9 +209,14 @@ class RirAbuseSource(Source):
     def harvest(self):
         """目录内两文件 × 两遍流式 gzip → (cidr, Evidence)。
         第 1 遍收 {nic-hdl: abuse-mailbox}(role 对象,仅 abuse-mailbox
-        非空者;irt/person 不收——abuse-c 指向 role,宁少算);第 2 遍
-        inetnum/inet6num 且带 abuse-c → 解析邮箱(解不出丢对象不造槽)
-        → 网段值 → CIDR(范围形/前缀形两路)。v6 由写入侧按 ':' 双族分派。"""
+        非空者;irt/person 不收——abuse-c 指向 role,宁少算)与
+        {organisation: org-name}(organisation 对象,org-name 非空才收);
+        第 2 遍 inetnum/inet6num 且带 abuse-c → 解析邮箱(解不出丢对象不
+        造槽)→ 网段值 → CIDR(范围形/前缀形两路)。org: 解析成功 →
+        Evidence.org_name,悬空引用只丢 org_name 不丢行(宁少算);descr
+        非空 → extra["descr"] 原样无损(不设槽);键空间准入不变——仍由
+        abuse-c 解析驱动,descr/org 不独立产键(宁少算/no-bloat)。v6 由
+        写入侧按 ':' 双族分派。"""
         if not self._path.exists():
             return
         for reg in _BASE:
@@ -212,12 +225,18 @@ class RirAbuseSource(Source):
                 logger.warning(f"rir_abuse: missing {reg} file — skipped")
                 continue
             handles: dict[str, str] = {}
+            orgs: dict[str, str] = {}    # {organisation-id: org-name}(org: 引用解析表)
             with gzip.open(p, "rt", encoding="utf-8", errors="replace") as f:
                 for obj in _iter_objects(f):
                     if "role" in obj:
                         hdl, mbox = obj.get("nic-hdl"), obj.get("abuse-mailbox")
                         if hdl and mbox:
                             handles[hdl] = mbox
+                    else:
+                        org_id, oname = (obj.get("organisation"),
+                                         obj.get("org-name"))
+                        if org_id and oname:
+                            orgs[org_id] = oname
             with gzip.open(p, "rt", encoding="utf-8", errors="replace") as f:
                 for obj in _iter_objects(f):
                     rng = obj.get("inetnum") or obj.get("inet6num")
@@ -230,9 +249,16 @@ class RirAbuseSource(Source):
                     extra = {"registry": reg, "abuse_c": hdl}
                     if obj.get("netname"):
                         extra["netname"] = obj["netname"]
+                    if obj.get("descr"):
+                        # descr 无损随行(红线:超长原样不截断,展示层自理)
+                        extra["descr"] = obj["descr"]
+                    # 宁少算:org: 悬空引用只丢 org_name(None 槽被 to_dict
+                    # 丢),行内 abuse_contact/descr 不受牵连
+                    org_name = orgs.get(obj["org"]) if obj.get("org") else None
                     for cidr in _range_to_cidrs(rng):
                         yield cidr, Evidence(
                             verdict="",       # 弃权拼写(R17A-1):信息位不指控
                             abuse_contact=mbox,
+                            org_name=org_name,
                             extra=dict(extra),
                         )

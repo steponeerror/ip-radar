@@ -279,5 +279,6 @@
   "ipDetail.registration": "注册分配",
   "asset.is_anycast": "任播",
   "ipDetail.asOrg": "所属组织",
-  "ipDetail.abuseContact": "滥用联系"
+  "ipDetail.abuseContact": "滥用联系",
+  "ipDetail.orgName": "注册组织"
 }

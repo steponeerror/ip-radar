@@ -62,6 +62,7 @@ OLD_AUTHORITATIVE = {
     "service": ["infra_services", "cdn_edges", "root_servers", "dns_public"],
     "as_org": ["caida_asorg"], "is_anycast": ["anycast_census"],  # b/asorg-anycast 2026-10-10
     "abuse_contact": ["rir_abuse"],   # rir-abuse 2026-10-18
+    "org_name": ["rir_abuse"],        # rir-abuse-org 2026-10-18(同 dump 扩展,同公理)
 }
 # SM-F1 删除的幻影轴:is_malicious(threatfox/emerging_threats/spamhaus
 # 声明但无证据键生产者)、is_hosting/is_mobile(ipinfo_lite 声明但只产

@@ -100,6 +100,7 @@ def test_authority_axes_declared_by_real_producers(tmp_path):
         "as_org": ["caida_asorg"],               # b/asorg-anycast 2026-10-10
         "is_anycast": ["anycast_census"],        # b/asorg-anycast 2026-10-10
         "abuse_contact": ["rir_abuse"],          # rir-abuse 2026-10-18(单证人,as_org 同族)
+        "org_name": ["rir_abuse"],               # rir-abuse-org 2026-10-18(同 dump 扩展,同公理)
     }
     # 声明者与产出者一致:每轴钉一个真产出断言(ip2proxy 产 is_proxy,
     # tor_exits 产 is_tor,x4bnet_vpn 产 is_vpn;service 轴两声明者都走

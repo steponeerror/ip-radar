@@ -269,6 +269,21 @@ class TestNamingAuthority:
         assert miss.value == "N/A"
         assert miss.confidence == 0
 
+    def test_org_name_single_witness_and_empty(self, monkeypatch):
+        """org_name 槽(注册组织名,rir_abuse 同 dump 扩展,单源占位同 as_org 例):
+        单证人 value + conf=int(0.85*100+0.5)=85、algorithm "authority";空值回 N/A。"""
+        monkeypatch.setattr(_merge, "SOURCE_RELIABILITY", {"rir_abuse": 0.85})
+        monkeypatch.setattr(_merge, "AUTHORITATIVE_SOURCES", {})
+        na = NamingAuthority(field="org_name")
+        hit = na.merge({"rir_abuse": "RIPE Network Coordination Center"},
+                       {"country": {}, "ip": "1.2.3.4"})
+        assert hit.value == "RIPE Network Coordination Center"
+        assert hit.confidence == 85          # int(0.85*100+0.5)
+        assert hit.algorithm == "authority"
+        miss = na.merge({}, {"country": {}, "ip": "1.2.3.4"})
+        assert miss.value == "N/A"
+        assert miss.confidence == 0
+
     def test_no_authoritative_falls_back(self, monkeypatch):
         monkeypatch.setattr(_merge, "SOURCE_RELIABILITY",
                             {"ipinfo_lite": 0.95, "iptoasn": 0.90})
