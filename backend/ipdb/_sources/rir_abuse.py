@@ -20,13 +20,18 @@ org_name 扩展(rir-abuse-org,2026-10-18):同 dump 增收 inetnum org:
 行,不设槽)。边界:organisation 对象仅存在于全量 dump——NRTM 镜像/
 增量文件剥除之,勿换 feed;org: 悬空引用只丢 org_name 不丢行(宁少算),
 键空间准入仍由 abuse-c 解析驱动(descr/org 不独立产键)。
+登记属性增收(abuse-context 批,2026-10-18,词汇表 CONTEXT.md「登记
+声明/登记新鲜度/下挂行」):notify/created/last-modified/mnt-by 自
+inetnum、contact_name 自 role 对象名,均入 extra 乘客(投诉工作流用
+料);融合层 abuse_contact 下挂行白名单透传 contact_name/notify/
+created/last_modified,mnt_by 留 evidence extra→STIX x_*(不进下挂行)。
 """
 import gzip
 import logging
 import os
 import time
 from pathlib import Path
-from typing import Iterator
+from typing import Any, Iterator
 
 import ipaddress
 
@@ -49,16 +54,20 @@ _MIN_NET_OBJECTS = {"ripe": 100_000, "afrinic": 1_000}
 # 本源消费的 RPSL 属性;过滤后对象 dict 有界(其余属性首值丢弃即足)。
 # org_name 扩展(rir-abuse-org,2026-10-18):org/inetnum 侧引用,
 # organisation/org-name 组织对象侧锚(全量 dump 专有,见模块 docstring)
+# 登记属性增收(abuse-context 批,2026-10-18):notify/created/
+# last-modified 单值首见非空;mnt-by 多值属性全收为 list(无损红线)
 _KEY_ATTRS = frozenset({
     "inetnum", "inet6num", "netname", "abuse-c",
     "role", "nic-hdl", "abuse-mailbox",
     "org", "descr", "organisation", "org-name",
+    "notify", "created", "last-modified", "mnt-by",
 })
 
 
-def _iter_objects(f) -> Iterator[dict[str, str]]:
+def _iter_objects(f) -> Iterator[dict[str, Any]]:
     """RPSL 流 → 逐对象 attr dict(对象以空行分隔;%/# 注释行与续行首字符
-    空白/+/`)跳过——关心的属性都是单行值,宁少算;多值取首见非空)。"""
+    空白/+/`)跳过——关心的属性都是单行值,宁少算;多值取首见非空,
+    唯一例外 mnt-by 全值累积为 list(多值属性,无损红线)。"""
     obj: dict[str, str] = {}
     # shortcut: 仅空行分对象,两对象只隔 % 注释行(无空行)会并卷(首值胜保网段但可吸收对侧 abuse-c),RIPE/AFRINIC 官方 dump 恒空行分隔;真源出现注释分隔再升结构
     for line in f:
@@ -72,9 +81,13 @@ def _iter_objects(f) -> Iterator[dict[str, str]]:
         if c in "%#" or c in " \t+*" or ":" not in line:
             continue
         attr, _, val = line.partition(":")
-        if attr in _KEY_ATTRS and attr not in obj:
+        if attr in _KEY_ATTRS:
             val = val.strip()
-            if val:
+            if not val:
+                continue
+            if attr == "mnt-by":
+                obj.setdefault("mnt-by", []).append(val)
+            elif attr not in obj:
                 obj[attr] = val
     if obj:
         yield obj
@@ -124,7 +137,7 @@ def _count_objects(p: Path) -> tuple[int, int]:
         for obj in _iter_objects(f):
             if "inetnum" in obj or "inet6num" in obj:
                 nets += 1
-            elif obj.get("abuse-mailbox") and "role" in obj:
+            elif obj.get("nic-hdl") and obj.get("abuse-mailbox"):
                 roles += 1
     return nets, roles
 
@@ -208,15 +221,19 @@ class RirAbuseSource(Source):
 
     def harvest(self):
         """目录内两文件 × 两遍流式 gzip → (cidr, Evidence)。
-        第 1 遍收 {nic-hdl: abuse-mailbox}(role 对象,仅 abuse-mailbox
-        非空者;irt/person 不收——abuse-c 指向 role,宁少算)与
+        第 1 遍收 {nic-hdl: (abuse-mailbox, role-name)}(nic-hdl+
+        abuse-mailbox 双非空即收,role 对象名缺席为 None——真实 dump 存在
+        无名 role;irt/person 不带 abuse-mailbox 自然不收,宁少算)与
         {organisation: org-name}(organisation 对象,org-name 非空才收);
         第 2 遍 inetnum/inet6num 且带 abuse-c → 解析邮箱(解不出丢对象不
         造槽)→ 网段值 → CIDR(范围形/前缀形两路)。org: 解析成功 →
         Evidence.org_name,悬空引用只丢 org_name 不丢行(宁少算);descr
-        非空 → extra["descr"] 原样无损(不设槽);键空间准入不变——仍由
-        abuse-c 解析驱动,descr/org 不独立产键(宁少算/no-bloat)。v6 由
-        写入侧按 ':' 双族分派。"""
+        非空 → extra["descr"] 原样无损(不设槽);登记属性增收(abuse-
+        context 批,2026-10-18):contact_name(role 名)/notify(首个非空)
+        /created/last_modified(原样 ISO 串,展示截断归前端)/mnt_by
+        (全值列表)均入 extra 乘客,不设槽不进融合数学;键空间准入不变
+        ——仍由 abuse-c 解析驱动(宁少算/no-bloat)。v6 由写入侧按 ':'
+        双族分派。"""
         if not self._path.exists():
             return
         for reg in _BASE:
@@ -224,14 +241,14 @@ class RirAbuseSource(Source):
             if not p.exists():
                 logger.warning(f"rir_abuse: missing {reg} file — skipped")
                 continue
-            handles: dict[str, str] = {}
+            handles: dict[str, tuple[str, str | None]] = {}
             orgs: dict[str, str] = {}    # {organisation-id: org-name}(org: 引用解析表)
             with gzip.open(p, "rt", encoding="utf-8", errors="replace") as f:
                 for obj in _iter_objects(f):
-                    if "role" in obj:
-                        hdl, mbox = obj.get("nic-hdl"), obj.get("abuse-mailbox")
-                        if hdl and mbox:
-                            handles[hdl] = mbox
+                    hdl, mbox = obj.get("nic-hdl"), obj.get("abuse-mailbox")
+                    if hdl and mbox:
+                        # 名缺席 None:contact_name 透传层不造名(宁少算)
+                        handles[hdl] = (mbox, obj.get("role"))
                     else:
                         org_id, oname = (obj.get("organisation"),
                                          obj.get("org-name"))
@@ -243,10 +260,22 @@ class RirAbuseSource(Source):
                     hdl = obj.get("abuse-c")
                     if not rng or not hdl:
                         continue
-                    mbox = handles.get(hdl)
+                    mbox, cname = handles.get(hdl, (None, None))
                     if not mbox:
                         continue
                     extra = {"registry": reg, "abuse_c": hdl}
+                    if cname:
+                        extra["contact_name"] = cname
+                    if obj.get("notify"):
+                        extra["notify"] = obj["notify"]
+                    if obj.get("created"):
+                        # 登记声明原样 ISO 串入库,展示截断归前端(无损)
+                        extra["created"] = obj["created"]
+                    if obj.get("last-modified"):
+                        extra["last_modified"] = obj["last-modified"]
+                    if obj.get("mnt-by"):
+                        # 多值属性全值列表(无损红线:不截断不取首)
+                        extra["mnt_by"] = list(obj["mnt-by"])
                     if obj.get("netname"):
                         extra["netname"] = obj["netname"]
                     if obj.get("descr"):
