@@ -68,7 +68,7 @@ def _iter_objects(f) -> Iterator[dict[str, Any]]:
     """RPSL 流 → 逐对象 attr dict(对象以空行分隔;%/# 注释行与续行首字符
     空白/+/`)跳过——关心的属性都是单行值,宁少算;多值取首见非空,
     唯一例外 mnt-by 全值累积为 list(多值属性,无损红线)。"""
-    obj: dict[str, str] = {}
+    obj: dict[str, Any] = {}
     # shortcut: 仅空行分对象,两对象只隔 % 注释行(无空行)会并卷(首值胜保网段但可吸收对侧 abuse-c),RIPE/AFRINIC 官方 dump 恒空行分隔;真源出现注释分隔再升结构
     for line in f:
         line = line.rstrip("\n")
