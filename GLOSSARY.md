@@ -81,7 +81,9 @@
 
 - **NO-DATA**:eval 裁决之一,带成因(empty/collapsed);死源先报数据侧问题,不给语义豁免;属「eval verdict」态之一,见该词条。锚:_eval/verdict.py(assess)
 - **sunset 门**:冻结/已死的 feed 不许再准入;数据内部时间戳检测。锚:tests/core/test_no_feodo_residue.py;详设(本机私有 docs):docs/superpowers/specs/2026-08-04-source-triage-and-sunset-gate-design.md
-- **独占贡献 (Exclusive Contribution)**:候选源自有键中,池内无任何既有源在目标字段作答的比例 Uniq_A=|A\⋃其他源|/|A|(Li et al., "Reading the Tea Leaves", USENIX Sec'19);discover rubric 覆盖价值双锚之一(与轴新颖度取 max),≥300 可抽样键地板、niche 封顶 3、threat 轴独占不豁免 quality 闸(新键≠真阳性);动态孪生=eval 的 unique_share。判例:2026-10-10 grill 五问。锚:`_eval --exclusive` 探针=未实现,补齐须独立 PR(含 control 失败路径测试),此前按手工复刻契约执行(对抗审查第1轮 2026-10-13 声明)、.pi/skills/discover-intel-sources/SKILL.md(rubric)
+- **独占贡献 (Exclusive Contribution)**:候选源自有键中,池内无任何既有源在目标字段作答的比例 Uniq_A=|A\⋃其他源|/|A|(Li et al., "Reading the Tea Leaves", USENIX Sec'19);discover rubric 覆盖价值双锚之一(与轴新颖度取 max),≥300 可抽样键地板、niche 封顶 3、threat 轴独占不豁免 quality 闸(新键≠真阳性);动态孪生=eval 的 unique_share。判例:2026-10-10 grill 五问。锚:backend/ipdb/_eval/exclusive.py + `_eval/__main__.py`(`python -m ipdb._eval --exclusive <feed> [--seed] [--json]`,已实现:阳性对照闸+覆盖源归因+seed 可复现;探针未实现期曾按手工复刻契约执行——对抗审查第1轮 2026-10-13 声明,2026-10-18 收口)、.pi/skills/discover-intel-sources/SKILL.md(rubric)
+- **排他率**:候选 feed 采样键中,池内无任何指控的份额——候选自有增量的实测度量;discover 立项判据(协议:N=300 稳定 seed、阳性对照、归因到覆盖源、不吞异常)。重叠类 REJECT 必须附此实测数,上游映射推断不得替代。判例:malicious-ip(82.7%)/ziyadnz(44.7%)两连翻案(2026-10-18);排他梯度反向于印证度——多源印证段=回声段,单源段=增量段。锚:backend/ipdb/_eval/exclusive.py(`python -m ipdb._eval --exclusive`)、CONTEXT.md(源发现)
+- **聚合器候选**:上游为多个池内已知出版的聚合列表的候选源;此类候选的映射直觉最不可靠(『出版方都有了』推不出回声),是排他率实测的强制适用域。接入时一律 `derived=True`(谱系去重,与主源同现自动折叠)。锚:CONTEXT.md(源发现)、_logodds.py(DERIVED_SOURCES)
 
 ## It's working if
 
