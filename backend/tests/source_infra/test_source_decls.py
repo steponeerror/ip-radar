@@ -151,7 +151,8 @@ def test_derived_sources_registry_fill_sync(monkeypatch):
     的值绑定,严禁)。"""
     import ipdb._registry as reg
     import ipdb._logodds as lo
-    seed = {"firehol", "ipsum", "otx", "otx_subscribed", "greensnow", "drb_ra"}
+    seed = {"firehol", "ipsum", "otx", "otx_subscribed", "greensnow", "drb_ra",
+            "ziyadnz"}   # 波1 聚合源入列(2026-10-18,与 attr 全集同步)
     assert set(lo.DERIVED_SOURCES) == seed  # 导入时已灌装 = attr 全集
     src = next(s for s in reg._sources if s.name == "blocklist_de")
     try:
