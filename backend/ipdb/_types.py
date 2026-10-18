@@ -43,6 +43,7 @@ class MergedField:
     algorithm: str = "voting"           # "cascade" | "voting" | "logodds" | "pcr6" | "authority" | "specificity"
     sources: list[SourceAttribution] = field(default_factory=list)
     alternatives: list = field(default_factory=list)   # [{value, probability 0-100}](仅 logodds 多类别,spec §6)
+    context: Optional[dict] = None   # 登记声明下挂行(abuse-context 2026-10-18):白名单键自单证人 extra 透传,声明非融合不进 conf;None=缺席,to_dict 不写键
 
 
 @dataclass
@@ -242,4 +243,8 @@ def _field_to_dict(f: MergedField) -> dict:
     }
     if f.alternatives:
         d["alternatives"] = f.alternatives
+    # 下挂行非空才序列化(与 alternatives 条件序列化同例):context 是可选
+    # 附属非槽契约,缺席恒不写键(公网 Out extra=allow 透传)
+    if f.context:
+        d["context"] = f.context
     return d

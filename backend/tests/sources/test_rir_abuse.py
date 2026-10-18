@@ -13,12 +13,23 @@ def _rpsl_db(o: int, v6tag: str, dom: str) -> str:
     孤儿 abuse-c、无邮箱 role、inet6num、带 abuse-mailbox 的 role +
     org_name 扩展形态 ≥10:⑦organisation 对象、⑧org: 可解析 inetnum
     (org_name + 无损长 descr)、⑨org: 悬空引用 inetnum、⑩descr-only /
-    org-only(不产键,准入仍 abuse-c 驱动)。"""
+    org-only(不产键,准入仍 abuse-c 驱动);abuse-context 批(2026-10-18)
+    增形:外层 /16 带 notify/created/last-modified/mnt-by×2(登记声明),
+    无 `role:` 名的 role 对象(nic-hdl+abuse-mailbox,nameless 形)。"""
     return f"""\
 % registry dump comment header
 inetnum:        {o}.15.0.0 - {o}.15.255.255
 netname:        OUTER-NET
+notify:         abuse-notify@{dom}
 abuse-c:        ACRO15229-RIPE
+mnt-by:         RIPE-NCC-HM-MNT
+mnt-by:         OUTER-MNT
+created:        2002-06-19T09:53:29Z
+last-modified:  2025-02-13T15:47:12Z
+
+inetnum:        {o}.16.0.0 - {o}.16.0.255
+netname:        NO-ROLE-NAME-NET
+abuse-c:        NONAME-RIPE
 
 inetnum:        {o}.15.7.0 - {o}.15.7.255
 netname:        INNER-NET
@@ -73,6 +84,9 @@ role:           Inner Abuse Role
 nic-hdl:        ACRO15230-RIPE
 abuse-mailbox:  core@{dom}
 
+nic-hdl:        NONAME-RIPE
+abuse-mailbox:  noname@{dom}
+
 role:           Role Without Mailbox
 nic-hdl:        NOMAIL-RIPE
 
@@ -98,13 +112,13 @@ def _write_source(tmp_path) -> RirAbuseSource:
 
 
 def _expected_v4() -> int:
-    """每文件 = 对齐 2 键(外层 /16 + 内层 /24)+ 非对齐范围展开(stdlib
-    现场算真值,rir_delegated 同风格)+ org 扩展 2 键(ORG-NET /24 +
-    GHOST-NET /24;⑩ descr-only/org-only 不产键不计);两文件同构 ×2。"""
+    """每文件 = 对齐 5 键(外层 /16 + 内层 /24 + NO-ROLE-NAME /24 + org
+    扩展 ORG-NET/GHOST-NET 两 /24)+ 非对齐范围展开(stdlib 现场算真值,
+    rir_delegated 同风格);⑩ descr-only/org-only 不产键不计;两文件同构 ×2。"""
     n = len(list(ipaddress.summarize_address_range(
         ipaddress.IPv4Address("192.0.145.10"),
         ipaddress.IPv4Address("192.0.145.43"))))
-    return 2 * (4 + n)
+    return 2 * (5 + n)
 
 
 def test_rebuild_count_and_health_record_count(tmp_path):
@@ -171,6 +185,43 @@ def test_harvest_unaligned_range_summarizes(tmp_path):
         ipaddress.IPv4Address("192.0.145.10"),
         ipaddress.IPv4Address("192.0.145.43"))}
     assert got == want
+
+
+def test_registration_attrs_harvested_verbatim(tmp_path):
+    """登记属性增收(abuse-context 批,2026-10-18):外层 /16 行 notify/
+    created/last-modified 原样 ISO 串、mnt-by 全值列表(无损,不截断)、
+    contact_name = 解析到的 role 对象名;无属性行(内层 /24)五键齐缺
+    (宁少算:缺席键不造)。"""
+    src = _write_source(tmp_path)
+    src.rebuild()
+    row = src.query("145.15.200.1")[0]
+    assert row["extra"]["contact_name"] == "Outer Abuse Role"
+    assert row["extra"]["notify"] == "abuse-notify@ripe.example"
+    assert row["extra"]["created"] == "2002-06-19T09:53:29Z"      # 原样
+    assert row["extra"]["last_modified"] == "2025-02-13T15:47:12Z"
+    assert row["extra"]["mnt_by"] == ["RIPE-NCC-HM-MNT", "OUTER-MNT"]  # 全值
+    # 无声明属性的行:inetnum 侧四键缺席,既有乘客(registry/abuse_c/
+    # netname)不受牵连;contact_name 仍在(角色对象有名,与 inetnum 属性
+    # 无关——两路独立解析)
+    row = src.query("145.15.7.8")[0]
+    for k in ("notify", "created", "last_modified", "mnt_by"):
+        assert k not in row["extra"]
+    assert row["extra"]["contact_name"] == "Inner Abuse Role"
+    assert row["extra"]["netname"] == "INNER-NET"
+    src._reader.close()
+    src._reader6.close()
+
+
+def test_role_without_name_contact_name_absent_mailbox_survives(tmp_path):
+    """role 缺 `role:` 名(真实 dump 存在此形):contact_name 缺席但
+    abuse-mailbox 解析存活(乘客缺席不牵连主值,宁少算)。"""
+    src = _write_source(tmp_path)
+    src.rebuild()
+    row = src.query("145.16.0.1")[0]
+    assert row["abuse_contact"] == "noname@ripe.example"
+    assert "contact_name" not in row["extra"]
+    src._reader.close()
+    src._reader6.close()
 
 
 def test_download_guard_thin_payload_keeps_old(monkeypatch, tmp_path):

@@ -8,6 +8,16 @@ import { ClassificationBlock } from "./ClassificationBlock";
 const SECTION =
   "rounded-md border-l-2 border-emerald-500/30 bg-gradient-to-r from-emerald-500/5 to-transparent px-3 py-2";
 
+// abuse_contact 下挂行白名单(与后端 _registry context_fields 同名单;CONTEXT.md「下挂行」:
+// 单证人融合块内的非融合登记声明,不进 conf)。date=true 的键取 ISO 串日期段呈现
+// (「登记新鲜度」:纯日期不表态,判断权归 analyst)。
+const ABUSE_CTX: { key: string; label: string; date?: boolean }[] = [
+  { key: "contact_name", label: "ipDetail.abuseCtx.name" },
+  { key: "notify", label: "ipDetail.abuseCtx.notify" },
+  { key: "created", label: "ipDetail.abuseCtx.created", date: true },
+  { key: "last_modified", label: "ipDetail.abuseCtx.modified", date: true },
+];
+
 function answerGroups<T>(
   field: MergedField<T>,
 ): { value: T; count: number; weight: number }[] {
@@ -187,6 +197,20 @@ export function IpDetailPanel({ r }: { r: LookupResult }) {
           field={r.abuse_contact}
           format={String}
         />
+      )}
+      {/* 下挂行:视觉层级小一号、灰(text-[10px] zinc-600),不与融合值/来源芯片混淆 */}
+      {r.abuse_contact?.context && (
+        <div className="ml-3 -mt-1 space-y-px">
+          {ABUSE_CTX.map(({ key, label, date }) => {
+            const v = r.abuse_contact?.context?.[key];
+            if (!v) return null;   // 缺席键不造(宁少算)
+            return (
+              <div key={key} className="text-[10px] text-zinc-600">
+                {t(label)}: {date ? v.slice(0, 10) : v}
+              </div>
+            );
+          })}
+        </div>
       )}
       {r.org_name && (
         <FieldDetail

@@ -196,11 +196,20 @@ _strategies = {
     "asn": LogOddsVoting(default=0),
     "as_name": NamingAuthority(),
     "as_org": NamingAuthority(field="as_org"),   # 单证人 conf=r 公理(b/asorg-anycast 2026-10-10)
-    "abuse_contact": NamingAuthority(field="abuse_contact"),   # 同公理;类 3 滥用联系(rir_abuse,2026-10-18)
+    "abuse_contact": NamingAuthority(
+        field="abuse_contact",   # 同公理;类 3 滥用联系(rir_abuse,2026-10-18)
+        # 下挂行白名单(abuse-context 批,2026-10-18):登记声明透传不进
+        # conf;mnt_by 留 evidence extra(存储/证据层),不进融合下挂行
+        context_fields=("contact_name", "notify", "created", "last_modified")),
     "org_name": NamingAuthority(field="org_name"),   # 同公理;注册组织名(rir_abuse 同 dump 扩展,2026-10-18)
     "ip_range": RangeSpecificity(),
     "city": FactualVoting(default="N/A"),   # 保留(spec §4:品质阶梯语义)
 }
+
+# 登记声明下挂行槽位(abuse-context 批,2026-10-18):仅带 context_fields
+# 的策略需要证人 extra 透传;预计算避免热路径逐槽 getattr
+_CTX_SLOTS = frozenset(
+    f for f, s in _strategies.items() if getattr(s, "context_fields", ()))
 
 _LOOKUP_SLOTS = SCALAR_SLOTS | {"is_isp"}
 
@@ -519,6 +528,9 @@ def lookup(ip: str, allowed_sources: frozenset[str] | None = None, *,
 
     # Collect scalar fields + evidence observations from all sources.
     field_values: dict[str, dict[str, Any]] = defaultdict(dict)
+    # 下挂行证人 extra(abuse-context 批):slot → {source: extra},仅
+    # _CTX_SLOTS 槽收集(引用不拷贝,热路径成本 = 一次集合交)
+    field_extras: dict[str, dict[str, dict]] = {}
     observations = []
     attributes: dict[str, list] = defaultdict(list)
     city_zh_map: dict[str, str] = {}
@@ -541,6 +553,9 @@ def lookup(ip: str, allowed_sources: frozenset[str] | None = None, *,
                 if key in item:
                     field_values[key][source.name] = item[key]
             extra = item.get("extra") or {}
+            if extra:
+                for key in _CTX_SLOTS & item.keys():
+                    field_extras.setdefault(key, {})[source.name] = extra
             if "city" in item:
                 zh = extra.get("city_zh")
                 if zh:
@@ -588,7 +603,9 @@ def lookup(ip: str, allowed_sources: frozenset[str] | None = None, *,
     for akey in list(attributes.keys()):
         attributes[akey] = _order_asset_stmts(attributes[akey])
 
-    context = {"ip": ip, "addr": addr, "country": field_values.get("country_code", {})}
+    context = {"ip": ip, "addr": addr,
+               "country": field_values.get("country_code", {}),
+               "field_extras": field_extras}
 
     country = _strategies["country_code"].merge(
         field_values.get("country_code", {}), context)

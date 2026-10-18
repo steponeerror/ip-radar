@@ -166,8 +166,13 @@ class NamingAuthority:
     polluting the org slot. First valid by reliability order wins; see git
     history if a CN authority source ever returns."""
 
-    def __init__(self, field: str = "as_name"):
+    def __init__(self, field: str = "as_name",
+                 context_fields: tuple[str, ...] = ()):
         self.field = field
+        # 登记声明下挂行(abuse-context 批,2026-10-18,词汇表 CONTEXT.md):
+        # 白名单键自单证人 extra 透传,声明非融合不进 conf;() = 无通道,
+        # org_name 等既有槽位语义零变化(context 恒 None)
+        self.context_fields = context_fields
 
     def merge(self, source_values: dict[str, Any], context: dict) -> MergedField:
         attributions = _to_attributions(source_values, self.field)
@@ -175,11 +180,19 @@ class NamingAuthority:
         if not valid:
             return MergedField("N/A", 0, "authority", attributions)
         best = sorted(valid, key=lambda a: (-a.reliability, a.source))[0]
+        # 下挂行通道:仅单证人(证人≠1 恒 None,防御——未来第二证人入场
+        # 时声明归属才无歧义);缺席键不造、全缺 → None(宁少算)
+        ctx = None
+        if self.context_fields and len(valid) == 1:
+            w_extra = ((context.get("field_extras") or {})
+                       .get(self.field, {}).get(best.source) or {})
+            ctx = {k: w_extra[k] for k in self.context_fields
+                   if k in w_extra} or None
         # 单源 conf=r 公理:r=.825 → 83;Python round() 是银行家取整(82.5→82),
         # 故 half-up(同 FactualVoting conf 口径)。grill Q3 2026-10-11 裁决:
         # 只统一 NamingAuthority;assertion_confidence/LogOddsVoting 的 round() 不动。
         return MergedField(best.value, int(best.reliability * 100 + 0.5),
-                           "authority", attributions)
+                           "authority", attributions, context=ctx)
 
 
 class RangeSpecificity:

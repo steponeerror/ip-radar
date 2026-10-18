@@ -29,6 +29,7 @@ export interface MergedField<T = unknown> {
   algorithm: string;            // live: "voting" | "logodds" | "authority" | "specificity" (legacy cascade/pcr6 in old exports)
   sources: SourceAttribution<T>[];
   alternatives?: { value: T; probability: number }[];   // logodds 多类别后验(spec 2026-08-29 §6)
+  context?: Record<string, string> | null;   // 登记声明上下文,单证人透传,非融合
 }
 
 export interface ClassificationDetail {

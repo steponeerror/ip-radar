@@ -280,5 +280,9 @@
   "asset.is_anycast": "Anycast",
   "ipDetail.asOrg": "AS organization",
   "ipDetail.abuseContact": "Abuse Contact",
+  "ipDetail.abuseCtx.name": "Contact",
+  "ipDetail.abuseCtx.notify": "Notify",
+  "ipDetail.abuseCtx.created": "Registered",
+  "ipDetail.abuseCtx.modified": "Last Maintained",
   "ipDetail.orgName": "Registered Org"
 }
