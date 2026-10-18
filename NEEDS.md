@@ -13,6 +13,7 @@
 | ASN 的组织级名称(独立于 ASN 名) | 2026-10-10 | 已闭 | caida_asorg 已交付(PR #101,2026-10-10 双锚批) |
 | rDNS 主机名 | 2026-10-10 | 候选 | 2026-10-18 重扫:免费批量路径出现 = ip.thc.org 月度全量 parquet(49.5GB,HF+镜像双源实测活;FLAG=商用条款模糊+小机 1B 行重建未裁);ELLIO/InternetData/Rapid7 商业关门(docs/research/2026-10-18-rdns-abuse-contact-rescan.md) |
 | abuse contact | 2026-10-10 | 已闭 | rir_abuse 已交付(本 PR;RIPE+AFRINIC 全库 dump,RPSL 离线链 inetnum→abuse-c→role→abuse-mailbox);调研 docs/research/2026-10-18-rdns-abuse-contact-rescan.md |
+| IP 注册组织名称/描述(org_name/descr) | 2026-10-18 | 已立项(本 PR,rir_abuse 扩展) | 同 dump 增量挖掘,org 槽+descr extra;调研 docs/research/2026-10-18-rdns-abuse-contact-rescan.md |
 | carrier / is_isp 出中国段 | 2026-10-10 | open | 无免费全球批量源(2026-10-10 两轮查证:IPinfo carrier 批量库 1.18MB CSV 存在但 standard 付费 token 档,无免费路径);现 cn_isp CN 限定单源 |
 | is_mobile | 2026-10-10 | open | 无槽;商业专属(2026-10-10 查证) |
 | vulnerable-system / misconfiguration(词表死槽) | 2026-10-10 | open | 唯一已知路径 = 类 7 扫描数据(Rapid7 门,见下) |
