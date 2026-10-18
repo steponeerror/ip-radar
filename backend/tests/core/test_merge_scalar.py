@@ -284,6 +284,79 @@ class TestNamingAuthority:
         assert miss.value == "N/A"
         assert miss.confidence == 0
 
+    def test_abuse_contact_context_whitelist_passthrough(self, monkeypatch):
+        """登记声明下挂行(abuse-context 批,2026-10-18):单证人时
+        context_fields 白名单键自 witness extra 透传(登记声明,非融合,
+        不进 conf);白名单外键(mnt_by/registry)与缺席键一律不造。"""
+        monkeypatch.setattr(_merge, "SOURCE_RELIABILITY", {"rir_abuse": 0.85})
+        monkeypatch.setattr(_merge, "AUTHORITATIVE_SOURCES", {})
+        na = NamingAuthority(
+            field="abuse_contact",
+            context_fields=("contact_name", "notify", "created", "last_modified"))
+        hit = na.merge(
+            {"rir_abuse": "abuse@ripe.net"},
+            {"ip": "1.2.3.4",
+             "field_extras": {"abuse_contact": {"rir_abuse": {
+                 "contact_name": "Outer Abuse Role",
+                 "notify": "abuse-notify@ripe.example",
+                 "created": "2002-06-19T09:53:29Z",
+                 "last_modified": "2025-02-13T15:47:12Z",
+                 "mnt_by": ["RIPE-NCC-HM-MNT"],   # 白名单外:不透传
+                 "registry": "ripe",              # 同上
+             }}}})
+        assert hit.context == {
+            "contact_name": "Outer Abuse Role",
+            "notify": "abuse-notify@ripe.example",
+            "created": "2002-06-19T09:53:29Z",
+            "last_modified": "2025-02-13T15:47:12Z",
+        }
+
+    def test_abuse_contact_context_absent_keys_not_fabricated(self, monkeypatch):
+        """缺席键不造(宁少算):witness extra 只有部分白名单键 → 只透传
+        在场的;无 extra → context None(None 不序列化,非空字典判例)。"""
+        monkeypatch.setattr(_merge, "SOURCE_RELIABILITY", {"rir_abuse": 0.85})
+        monkeypatch.setattr(_merge, "AUTHORITATIVE_SOURCES", {})
+        na = NamingAuthority(
+            field="abuse_contact", context_fields=("contact_name", "notify"))
+        hit = na.merge(
+            {"rir_abuse": "abuse@ripe.net"},
+            {"ip": "1.2.3.4",
+             "field_extras": {"abuse_contact": {"rir_abuse": {
+                 "notify": "abuse-notify@ripe.example"}}}})
+        assert hit.context == {"notify": "abuse-notify@ripe.example"}
+        none = na.merge(
+            {"rir_abuse": "abuse@ripe.net"}, {"ip": "1.2.3.4"})
+        assert none.value == "abuse@ripe.net"
+        assert none.context is None
+
+    def test_context_none_without_context_fields(self, monkeypatch):
+        """context_fields 默认 ()(org_name/现行全部注册):即便 witness
+        extra 在场,context 恒 None——既有槽位语义零变化。"""
+        monkeypatch.setattr(_merge, "SOURCE_RELIABILITY", {"rir_abuse": 0.85})
+        monkeypatch.setattr(_merge, "AUTHORITATIVE_SOURCES", {})
+        na = NamingAuthority(field="org_name")
+        hit = na.merge(
+            {"rir_abuse": "RIPE NCC"},
+            {"ip": "1.2.3.4",
+             "field_extras": {"org_name": {"rir_abuse": {"created": "2002"}}}})
+        assert hit.value == "RIPE NCC"
+        assert hit.context is None
+
+    def test_context_none_multi_witness(self, monkeypatch):
+        """多证人守卫:证人 ≠1 → context 恒 None(防御性,当前单源——
+        下来日第二证人入场时下挂行声明归属不再无歧义)。"""
+        monkeypatch.setattr(_merge, "SOURCE_RELIABILITY", {"a": 0.85, "b": 0.80})
+        monkeypatch.setattr(_merge, "AUTHORITATIVE_SOURCES", {})
+        na = NamingAuthority(field="abuse_contact",
+                             context_fields=("notify",))
+        m = na.merge(
+            {"a": "x@ripe.net", "b": "y@afrinic.net"},
+            {"ip": "1.2.3.4",
+             "field_extras": {"abuse_contact": {
+                 "a": {"notify": "n1"}, "b": {"notify": "n2"}}}})
+        assert m.value == "x@ripe.net"     # 融合主值照常(最高 r 胜)
+        assert m.context is None
+
     def test_no_authoritative_falls_back(self, monkeypatch):
         monkeypatch.setattr(_merge, "SOURCE_RELIABILITY",
                             {"ipinfo_lite": 0.95, "iptoasn": 0.90})

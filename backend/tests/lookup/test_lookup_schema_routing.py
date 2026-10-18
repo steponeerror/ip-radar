@@ -95,6 +95,78 @@ def test_lookup_routes_abuse_contact_to_merged_field(monkeypatch):
     assert lr.abuse_contact.sources[0].source == "fake_rir"
 
 
+def test_lookup_abuse_contact_context_end_to_end(monkeypatch):
+    """登记声明下挂行端到端(abuse-context 批,2026-10-18):source extra →
+    lookup 收集 field_extras → NamingAuthority 白名单透传 →
+    LookupResult.abuse_contact.context;to_dict 非空才写 context 键
+    (与 alternatives 条件序列化同例,公网 Out(extra=allow)透传)。"""
+    from ipdb import _registry
+    from ipdb._types import SourceHealth
+
+    class FakeSrc:
+        name = "fake_rir"
+        reliability = 0.85
+        authoritative_for = []
+        fields = ("abuse_contact",)
+
+        def health(self):
+            return SourceHealth("fake_rir", True, 1, None, False)
+
+        def query(self, ip):
+            return {"abuse_contact": "abuse@ripe.net",
+                    "extra": {"contact_name": "Outer Abuse Role",
+                              "notify": "abuse-notify@ripe.example",
+                              "created": "2002-06-19T09:53:29Z",
+                              "mnt_by": ["RIPE-NCC-HM-MNT"]}}
+
+    monkeypatch.setattr(_registry, "_sources", [FakeSrc()])
+    monkeypatch.setattr(_registry, "_disabled", set())
+    import ipdb._merge as _merge
+    monkeypatch.setattr(_merge, "SOURCE_RELIABILITY", {"fake_rir": 0.85})
+
+    import ipdb._registry as R
+    lr = R.lookup("1.2.3.4")
+
+    assert lr.abuse_contact.context == {
+        "contact_name": "Outer Abuse Role",
+        "notify": "abuse-notify@ripe.example",
+        "created": "2002-06-19T09:53:29Z",
+    }                                     # mnt_by 白名单外,不进下挂行
+    d = lr.to_dict()
+    assert d["abuse_contact"]["context"]["contact_name"] == "Outer Abuse Role"
+
+
+def test_lookup_abuse_contact_context_key_absent_when_none(monkeypatch):
+    """无登记属性(extra 空)→ context None;to_dict 键恒不出现
+    (context 是可选附属非槽契约,缺席不补 null)。"""
+    from ipdb import _registry
+    from ipdb._types import SourceHealth
+
+    class FakeSrc:
+        name = "fake_rir"
+        reliability = 0.85
+        authoritative_for = []
+        fields = ("abuse_contact",)
+
+        def health(self):
+            return SourceHealth("fake_rir", True, 1, None, False)
+
+        def query(self, ip):
+            return {"abuse_contact": "abuse@ripe.net"}
+
+    monkeypatch.setattr(_registry, "_sources", [FakeSrc()])
+    monkeypatch.setattr(_registry, "_disabled", set())
+    import ipdb._merge as _merge
+    monkeypatch.setattr(_merge, "SOURCE_RELIABILITY", {"fake_rir": 0.85})
+
+    import ipdb._registry as R
+    lr = R.lookup("1.2.3.4")
+    assert lr.abuse_contact.context is None
+    d = lr.to_dict()
+    assert "context" not in d["abuse_contact"]
+    assert "context" not in d["country"]      # 其他槽恒无 context 键
+
+
 def test_route_record_keeps_org_name_at_top_level():
     """org_name 是注册组织名标量槽(rir_abuse 扩展 2026-10-18):
     route_record 后留在顶层、不落 extra——lookup 的 SCALAR_SLOTS 收集才看得见。"""
