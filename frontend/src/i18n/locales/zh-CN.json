@@ -280,5 +280,9 @@
   "asset.is_anycast": "任播",
   "ipDetail.asOrg": "所属组织",
   "ipDetail.abuseContact": "滥用联系",
+  "ipDetail.abuseCtx.name": "联络对象",
+  "ipDetail.abuseCtx.notify": "备用渠道",
+  "ipDetail.abuseCtx.created": "登记于",
+  "ipDetail.abuseCtx.modified": "最后维护",
   "ipDetail.orgName": "注册组织"
 }

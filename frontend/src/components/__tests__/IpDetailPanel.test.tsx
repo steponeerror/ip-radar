@@ -118,6 +118,62 @@ describe("IpDetailPanel", () => {
   });
 });
 
+describe("IpDetailPanel abuse_contact 下挂行 (context sub-lines)", () => {
+  const withAbuse = (context?: Record<string, string>): LookupResult => ({
+    ...r,
+    abuse_contact: {
+      value: "abuse@dxc.com", confidence: 85, algorithm: "authority",
+      sources: [
+        { source: "rir_abuse", value: "abuse@dxc.com", reliability: 0.85, authoritative: true },
+      ],
+      context: context ?? null,
+    },
+  });
+
+  it("renders four labeled sub-lines with timestamps sliced to YYYY-MM-DD", () => {
+    renderWithI18n(
+      <IpDetailPanel
+        r={withAbuse({
+          contact_name: "DXC Technology Abuse-C Team",
+          notify: "ipaddr@dxc.com",
+          created: "2002-06-19T09:53:29Z",
+          last_modified: "2025-02-13T15:47:12Z",
+        })}
+      />,
+    );
+    expect(screen.getByText("Abuse Contact")).toBeInTheDocument();
+    expect(screen.getByText("Contact: DXC Technology Abuse-C Team")).toBeInTheDocument();
+    expect(screen.getByText("Notify: ipaddr@dxc.com")).toBeInTheDocument();
+    expect(screen.getByText("Registered: 2002-06-19")).toBeInTheDocument();
+    expect(screen.getByText("Last Maintained: 2025-02-13")).toBeInTheDocument();
+    // 时间戳截断钉死:完整 ISO 串不得出现在任何文本节点
+    expect(screen.queryByText(/09:53:29/)).toBeNull();
+    expect(screen.queryByText(/15:47:12/)).toBeNull();
+  });
+
+  it("renders no sub-lines when context is absent", () => {
+    renderWithI18n(<IpDetailPanel r={withAbuse()} />);
+    expect(screen.getByText("Abuse Contact")).toBeInTheDocument();
+    for (const label of ["Contact:", "Notify:", "Registered:", "Last Maintained:"]) {
+      expect(screen.queryByText(new RegExp(`^${label}`))).toBeNull();
+    }
+  });
+
+  it("skips absent context keys (宁少算: 缺席键不造)", () => {
+    renderWithI18n(<IpDetailPanel r={withAbuse({ contact_name: "DXC Abuse-C" })} />);
+    expect(screen.getByText("Contact: DXC Abuse-C")).toBeInTheDocument();
+    expect(screen.queryByText(/^Notify:/)).toBeNull();
+    expect(screen.queryByText(/^Registered:/)).toBeNull();
+    expect(screen.queryByText(/^Last Maintained:/)).toBeNull();
+  });
+
+  it("renders no abuse block at all when abuse_contact is absent", () => {
+    renderWithI18n(<IpDetailPanel r={r} />);
+    expect(screen.queryByText("Abuse Contact")).toBeNull();
+    expect(screen.queryByText(/^Contact:/)).toBeNull();
+  });
+});
+
 describe("as_domain org suffix", () => {
   it("appends the registrar domain after the org value when present", () => {
     const withDomain: LookupResult = {
