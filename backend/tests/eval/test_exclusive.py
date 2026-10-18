@@ -142,6 +142,20 @@ def test_cli_empty_feed_json_envelope_exit2(monkeypatch, tmp_path, capsys):
     assert "零个候选键" in err["message"]
 
 
+def test_cli_missing_feed_json_envelope_exit2(monkeypatch, tmp_path, capsys):
+    """feed 文件不存在 --json 必须走 bad_feed 信封 rc=2,不裸
+    FileNotFoundError 栈(spec §5.2;终审 I-1 2026-10-18,OSError 族
+    与空 feed 同出口)。消息含路径。"""
+    _install_plane(monkeypatch, tmp_path, covered_control=True)
+    missing = tmp_path / "nonexistent-feed.txt"
+    with pytest.raises(SystemExit) as ei:
+        main(["--exclusive", str(missing), "--json"])
+    assert ei.value.code == 2
+    err = json.loads(capsys.readouterr().out)["error"]
+    assert err["code"] == "bad_feed"
+    assert str(missing) in err["message"]
+
+
 def test_cli_empty_feed_stderr_nonjson(monkeypatch, tmp_path, capsys):
     """同一空 feed 非 json:清洁 stderr 单行 + exit 2,不裸栈。"""
     feed = _install_plane(monkeypatch, tmp_path, covered_control=True)

@@ -590,9 +590,11 @@ def main(argv=None):
                 _json_error("control_failed", str(e), _JSON_HINT, rc=2)
             print(str(e), file=sys.stderr)
             sys.exit(2)
-        except ValueError as e:
-            # 空 feed 提取零键仍属 abort 族(空分母不冒充 0),但 §5.2 要信封
-            # 不裸栈;消息含 feed 路径可有数字(no-digit 约束只及对照闸)
+        except (ValueError, OSError) as e:
+            # abort 族:空 feed 零键(空分母不冒充 0)+ feed 文件缺失/不可读
+            # (终审 I-1 2026-10-18,OSError 含 IsADirectoryError,str 自带
+            # 路径),§5.2 要信封不裸栈;消息含 feed 路径可有数字
+            # (no-digit 约束只及对照闸)
             if args.json:
                 _json_error("bad_feed", str(e), _JSON_HINT, rc=2)
             print(str(e), file=sys.stderr)
