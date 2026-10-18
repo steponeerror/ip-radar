@@ -181,6 +181,13 @@ export function IpDetailPanel({ r }: { r: LookupResult }) {
           format={String}
         />
       )}
+      {r.abuse_contact && (
+        <FieldDetail
+          label={t("ipDetail.abuseContact")}
+          field={r.abuse_contact}
+          format={String}
+        />
+      )}
       {r.registration && (
         <div className={SECTION}>
           <div className="flex items-center gap-2 mb-1">
