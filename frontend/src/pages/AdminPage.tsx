@@ -92,7 +92,7 @@ function AdminShell({ user, onLogout, onUnauthorized }: {
       </nav>
       <div className="mt-6">
         {tab === "sources" && (
-          <SourcesPage manage tasks={tasks} batch={batch} onUnauthorized={onUnauthorized} />
+          <SourcesPage tasks={tasks} batch={batch} onUnauthorized={onUnauthorized} />
         )}
         {tab === "keys" && <KeysSection onUnauthorized={onUnauthorized} />}
         {tab === "tasks" && <BatchPanel onUnauthorized={onUnauthorized} />}

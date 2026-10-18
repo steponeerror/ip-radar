@@ -57,7 +57,6 @@ class AbuseIPDBSource(IpListSource):
 
     def __init__(self, data_dir, confidence_minimum=None, limit=10000):
         # convention: a source reads its OWN env vars; the registry passes only data_dir
-        self._key = os.environ.get("ABUSEIPDB_API_KEY", "")
         self._confidence_minimum = (
             confidence_minimum
             if confidence_minimum is not None
@@ -67,7 +66,10 @@ class AbuseIPDBSource(IpListSource):
         super().__init__(data_dir=data_dir)
 
     def download(self, token: CancelToken | None = None) -> None:
-        if not self._key:
+        # key 使用点读取(sources-redesign T1 2026-10-17):admin API 热改 env
+        # 即时生效,__init__ 捕获会错过;启动时已设的行为逐字节等价。
+        key = os.environ.get("ABUSEIPDB_API_KEY", "")
+        if not key:
             raise RuntimeError(
                 "ABUSEIPDB_API_KEY not set — register at "
                 "https://www.abuseipdb.com/account and add the key to .env")
@@ -87,7 +89,7 @@ class AbuseIPDBSource(IpListSource):
         scratch = self._path.with_name(self._path.name + ".dl")
         try:
             download_file(url, scratch, token=token, headers={
-                "Key": self._key,
+                "Key": key,
                 "Accept": "application/json",
                 "User-Agent": "ip-lookup-tool/1.0",
             })

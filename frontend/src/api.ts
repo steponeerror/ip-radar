@@ -702,3 +702,33 @@ export async function deleteAdminKey(sub: string): Promise<void> {
   if (!res.ok) return throwApiError(res, "Failed to delete key");
 }
 
+// ── token 界面配置(sources-redesign T3;契约见 backend/main.py admin_token_*
+// 与 ipdb/_tokens.py 冻结映射:OTX_API_KEY 一 key 双源)。硬约束:status 只出
+// configured + tail4,完整值永不回显 —— 前端无既有值可回填,输入框恒空。
+export interface TokenStatus {
+  env_var: string;
+  sources: string[];
+  configured: boolean;
+  tail4: string | null;
+}
+
+export async function getAdminTokens(): Promise<TokenStatus[]> {
+  return jsonOrThrow(await fetch("/api/admin/tokens"), "Failed to list tokens");
+}
+
+// PUT 成功是 204 无 body;未知 var/空值 → 422(信封 validation_error)。
+export async function putAdminToken(envVar: string, value: string): Promise<void> {
+  const res = await fetch(`/api/admin/tokens/${encodeURIComponent(envVar)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ value }),
+  });
+  if (!res.ok) return throwApiError(res, "Failed to save token");
+}
+
+// 清除 = DELETE;回落启动快照语义见 _tokens.clear_token(204 无 body)。
+export async function clearAdminToken(envVar: string): Promise<void> {
+  const res = await fetch(`/api/admin/tokens/${encodeURIComponent(envVar)}`, { method: "DELETE" });
+  if (!res.ok) return throwApiError(res, "Failed to clear token");
+}
+

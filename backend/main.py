@@ -39,6 +39,7 @@ from ipdb import _registry as _ipdb_registry
 from ipdb import _auth as _ipdb_auth
 from ipdb import _apikeys as _ipdb_apikeys  # noqa: F401  (ApiKeyMeta 注册进 Base.metadata,lifespan init_auth_db 建表)
 from ipdb import _ratelimit as _ipdb_ratelimit  # noqa: F401  (Task 7 限流;装饰器引用见各查询端点)
+from ipdb import _tokens as _ipdb_tokens
 from slowapi.errors import RateLimitExceeded
 from ipdb import _update as _ipdb_update
 from ipdb import _version as _ipdb_version
@@ -49,7 +50,8 @@ from ipdb._api_models import (
     BatchOut, DbStatusOut,
     ErrorEnvelope, EvalDetailOut, EvalJobAcceptedOut, EvalModelOut,
     EvalOverviewOut, LookupResultOut, SourceInfoOut, TaskAcceptedOut,
-    TasksSnapshotOut, UpdateAcceptedOut, UpdateDbOut, UpdateStateOut, VersionOut,
+    TasksSnapshotOut, TokenSetIn, TokenStatusOut,
+    UpdateAcceptedOut, UpdateDbOut, UpdateStateOut, VersionOut,
 )
 from ipdb._errors import (
     ApiError, ErrorCode, RETRY_AFTER_WARMING, envelope,
@@ -562,6 +564,7 @@ async def lifespan(app: FastAPI):
     _warn_unknown_private_sources()
     _warn_public_demo_misconfig()
     _cleanup_orphan_tmp(DATA_DIR)
+    _ipdb_tokens.load()   # tokens.json → env(UI 优先裁决;须先于任何下载任务)
     _startup()
     _ensure_refresh_scheduler()
     cpu, ram = _batch_pool.detect_host()
@@ -1434,6 +1437,36 @@ async def admin_delete_key(sub: str):
     if await _key_meta_by_sub(sub) is None:
         raise ApiError(ErrorCode.api_key_not_found, f"unknown API key: {sub}")
     await _ipdb_apikeys.delete_key(sub)
+
+
+# ── token 界面配置(sources-redesign T1;grill 裁决 4,2026-10-17)──
+# 存储与即时生效语义见 ipdb/_tokens.py;出参仅 configured+tail4 ——
+# token 完整值永不回显(硬约束)。
+
+@app.get("/api/admin/tokens", response_model=list[TokenStatusOut],
+          dependencies=[*_ADMIN_DEPS],
+          responses=_ERRS_422_500)
+async def admin_list_tokens():
+    return _ipdb_tokens.status()
+
+
+@app.put("/api/admin/tokens/{env_var}", status_code=204,
+         dependencies=[*_ADMIN_DEPS],
+         responses=_ERRS_422_500)
+async def admin_set_token(env_var: str, payload: TokenSetIn):
+    try:
+        _ipdb_tokens.set_token(env_var, payload.value)
+    except ValueError as e:
+        raise HTTPException(422, str(e))   # 通用 handler 收敛为 validation_error 信封
+
+
+@app.delete("/api/admin/tokens/{env_var}", status_code=204,
+            dependencies=[*_ADMIN_DEPS],
+            responses=_ERRS_422_500)
+async def admin_clear_token(env_var: str):
+    if env_var not in _ipdb_tokens.MANAGED:
+        raise HTTPException(422, f"unknown managed env var: {env_var}")
+    _ipdb_tokens.clear_token(env_var)
 
 
 _env_static = os.environ.get("IP_RADAR_STATIC_DIR")

@@ -34,7 +34,6 @@ class IPinfoLiteSource:
     honeypot_methodology: bool = False
 
     def __init__(self, data_dir: Path):
-        self._token = os.environ.get("IPINFO_TOKEN", "").strip()
         self._path = data_dir / "ipinfo_lite.csv"
         self._gz_path = data_dir / "ipinfo_lite.csv.gz"
         self._data_dir = data_dir
@@ -58,9 +57,12 @@ class IPinfoLiteSource:
 
     @property
     def _url(self) -> str:
+        # token 使用点读取(sources-redesign T1 2026-10-17):admin API 热改
+        # env 即时生效;启动时已设的行为逐字节等价。
+        token = os.environ.get("IPINFO_TOKEN", "").strip()
         return (
-            f"https://ipinfo.io/data/ipinfo_lite.csv.gz?token={self._token}"
-            if self._token
+            f"https://ipinfo.io/data/ipinfo_lite.csv.gz?token={token}"
+            if token
             else ""
         )
 

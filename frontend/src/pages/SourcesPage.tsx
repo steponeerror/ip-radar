@@ -1,35 +1,44 @@
 import { useCallback, useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import {
+  clearAdminToken,
   enqueueBatch,
   enqueueSingle,
   fetchEvalModel,
+  getAdminTokens,
   getSources,
+  putAdminToken,
   setSourceEnabled,
 } from "../api";
-import type { BatchState, EvalModelScore, SourceInfo, TaskState } from "../api";
+import type { BatchState, EvalModelScore, SourceInfo, TaskState, TokenStatus } from "../api";
 import { useI18n } from "../i18n";
 
-// Task 9:任务/批量态由 AdminPage 在其 TaskProvider 内取好下传;
-// 公开页(<SourcesPage /> 无 props)纯只读 —— useTasks 已移出本组件。
+// 源页重设计(2026-10-17 grill 裁决)三级扫读结构:组头(可收起 button)→
+// 主行(单行 6 元素)→ 详情层(点行非控件区展开的 region)。页面第一用途 =
+// 扫一眼发现异常源:正常源安静成行,诊断数据(r/θ/评估/年龄·周期/feeds/
+// 最近错误)按需下沉详情层。任务/批量态由 AdminPage 在其 TaskProvider 内
+// 取好下传;manage=false 公开变体已删(唯一调用方恒传全套 props)。
 export interface SourcesPageProps {
-  manage?: boolean;
-  tasks?: TaskState[];
-  batch?: BatchState | null;
-  // 会话中 401 → 踢回登录页(仅 manage 模式传入;公开页无此语义)
-  onUnauthorized?: () => void;
+  tasks: TaskState[];
+  batch: BatchState | null;
+  // 会话中 401 → 踢回登录页
+  onUnauthorized: () => void;
 }
 
 const CATEGORY_ORDER = ["geo_asn", "threat", "asset", "other"];
 
-// R1/R2/R3:表头行与数据行共用同一套三档 grid 模板 —— 基础档 名称/字段/
-// 覆盖IP/更新/状态/r(+manage 的操作),lg(≥1024)加评估列,xl(≥1280)再加
-// θ 列;公开页(manage=false)模板随之少操作列一档。固定轨道沿用原列宽
-// 语义(w-32/16/24/28/36 → 8/4/6/7/9rem),末列 1fr 供操作列右贴。模板档位
-// 必须与单元格 hidden lg:block / hidden xl:block 断点逐档一致。
-const GRID_TEMPLATE_MANAGE =
-  "grid-cols-[8rem_4rem_4rem_6rem_6rem_4rem_1fr] lg:grid-cols-[8rem_4rem_4rem_6rem_6rem_7rem_4rem_1fr] xl:grid-cols-[8rem_4rem_4rem_6rem_6rem_7rem_4rem_9rem_1fr]";
-const GRID_TEMPLATE_PUBLIC =
-  "grid-cols-[8rem_4rem_4rem_6rem_6rem_4rem] lg:grid-cols-[8rem_4rem_4rem_6rem_6rem_7rem_4rem] xl:grid-cols-[8rem_4rem_4rem_6rem_6rem_7rem_4rem_9rem]";
+// 组展开态持久化键:localStorage 记 {cat: expanded},缺省(无键/坏 JSON)
+// = 全收起 —— 扫读优先,异常从组头计数进,不靠铺开全表。
+const GROUPS_LS_KEY = "ipradar.sources.groups";
+
+// 详情层「从不」阈值:≥1000d 的内容年龄/刷新周期数字无信息量(如
+// infra_services 周期 36500h),裁决以「从不」替显。
+const NEVER_H = 24_000;
+
+// 主行单行 grid 五轨(状态点/源名/字段/覆盖/更新)在行按钮内;源名
+// minmax(0,1fr) 弹性吸收剩余宽(旧 8rem 固定轨曾截断源名)。操作区
+// (Toggle+更新)是行按钮的兄弟节点 —— 控件点击永不触发行展开。
+const ROW_TEMPLATE = "grid-cols-[1rem_minmax(0,1fr)_6rem_6rem_6rem]";
 
 function formatCount(n: number): string {
   if (n <= 0) return "-";
@@ -51,11 +60,10 @@ function timeAgo(iso: string | null): { key: string; vars?: Record<string, strin
   return { key: "sources.timeAgo.days", vars: { n: Math.floor(hr / 24) } };
 }
 
-// T6 健康诊断对(content_age_h/refresh_period_h,2026-10-15 裁决后第二段
-// 为配置周期;observed_interval_h 不再渲染)时长档位 —— 与后端推送
-// _fmt_hours 同规(约束 6):<48h → ceil 整数 + "h";≥48h → 一位小数 +
-// "d"。终审 P2-1:时钟回拨/未来 mtime 可致负时长,展示层 clamp 0,不渲染
-// 负数;null(无文件/旧 payload 无键)→ "—"。
+// 与后端推送 _fmt_hours 同规(约束 6):<48h → ceil 整数 + "h";≥48h →
+// 一位小数 + "d"。终审 P2-1:时钟回拨/未来 mtime 可致负时长,展示层
+// clamp 0;null(无文件/旧 payload 无键)→ "—"。≥1000d「从不」由调用侧
+// 裁决(需 i18n,fmtHours 保持纯函数)。
 function fmtHours(h: number | null): string {
   if (h == null) return "—";
   const v = Math.max(0, h);
@@ -77,12 +85,18 @@ function phaseLabel(tk: TaskState): { key: string; vars?: Record<string, string 
   };
 }
 
-function statusOf(s: SourceInfo): { key: string; className: string } {
-  if (s.health.error) return { key: "sources.status.error", className: "text-red-400 border-red-400/30 bg-red-400/10" };
-  if (!s.enabled) return { key: "sources.status.off", className: "text-zinc-500 border-zinc-700 bg-zinc-800/50" };
-  if (!s.health.loaded) return { key: "sources.status.notLoaded", className: "text-amber-400 border-amber-400/30 bg-amber-400/10" };
-  if (s.health.is_stale) return { key: "sources.status.stale", className: "text-amber-400 border-amber-400/30 bg-amber-400/10" };
-  return { key: "sources.status.fresh", className: "text-emerald-400 border-emerald-500/20 bg-emerald-500/5" };
+// 四态主行呈现:id 供 data-status 测试定位与 dot title 键拼接;dot = 行首
+// 状态点(fresh 近隐形 bg-zinc-800,error 红,stale/notLoaded 琥珀,off 灰蓝);
+// tint = 异常行轻微底色(随异常类着色);rank = 组内排序(异常置顶,内部序
+// error>stale/notLoaded>off,健康按 name 字母序 —— rank 3 = fresh)。
+type RowStatus = { id: string; dot: string; tint: string; rank: number };
+
+function statusOf(s: SourceInfo): RowStatus {
+  if (s.health.error) return { id: "error", dot: "bg-red-400", tint: "bg-red-400/5", rank: 0 };
+  if (!s.enabled) return { id: "off", dot: "bg-sky-700", tint: "bg-sky-700/5", rank: 2 };
+  if (!s.health.loaded) return { id: "notLoaded", dot: "bg-amber-400", tint: "bg-amber-400/5", rank: 1 };
+  if (s.health.is_stale) return { id: "stale", dot: "bg-amber-400", tint: "bg-amber-400/5", rank: 1 };
+  return { id: "fresh", dot: "bg-zinc-800", tint: "", rank: 3 };
 }
 
 // eval verdict 徽章色:W4 "NO-DATA" 精确串(backend verdict.py 钉死,reason
@@ -93,6 +107,15 @@ function evalBadgeClass(verdict: string): string {
   if (verdict.startsWith("POSITIVE")) return "text-sky-400 border-sky-400/30 bg-sky-400/10";
   if (verdict.startsWith("NEGATIVE")) return "text-red-400 border-red-400/30 bg-red-400/10";
   return "text-zinc-500 border-zinc-700 bg-zinc-800/50";
+}
+
+function loadExpandedGroups(): Record<string, boolean> {
+  try {
+    const raw = localStorage.getItem(GROUPS_LS_KEY);
+    const v = raw ? JSON.parse(raw) : null;
+    return v && typeof v === "object" ? (v as Record<string, boolean>) : {};
+  } catch { /* localStorage 可能不可用 / 坏 JSON → 全收起 */ }
+  return {};
 }
 
 function Toggle({ on, disabled, onChange, label }: {
@@ -117,18 +140,39 @@ function Toggle({ on, disabled, onChange, label }: {
   );
 }
 
-export default function SourcesPage({ manage = false, tasks = [], batch = null, onUnauthorized }: SourcesPageProps) {
+// 详情层标签/值行:标签固定宽对齐扫读,值区右延
+function DetailRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex gap-3">
+      <span className="w-44 shrink-0 text-zinc-600">{label}</span>
+      <span className="min-w-0 text-zinc-300">{children}</span>
+    </div>
+  );
+}
+
+export default function SourcesPage({ tasks, batch, onUnauthorized }: SourcesPageProps) {
   const { t } = useI18n();
   const [sources, setSources] = useState<SourceInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
-  // A2 双轨:每源实测 θ(印证率,advisory)。拉不到/无报告 → 空表,θ 列全 —。
+  // A2 双轨:每源实测 θ(印证率,advisory)。拉不到/无报告 → 空表,详情层 —。
   const [thetaBySource, setThetaBySource] = useState<Map<string, EvalModelScore>>(new Map());
+  // 三级结构状态:组展开态(持久化 localStorage)+ 行详情展开态(会话内,
+  // 同组多行可同时展开,不持久化)
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(loadExpandedGroups);
+  const [openDetails, setOpenDetails] = useState<Set<string>>(() => new Set());
+  // token 状态(T3):null = 未拉到(失败静默/未返回)→ 全视为已配置,入口全隐。
+  // 裁决:不新增轮询,挂载一次性拉取;写/清除成功只翻本地态,不重拉。
+  const [tokens, setTokens] = useState<TokenStatus[] | null>(null);
+  // 行内简易对话框:记源名(非 env_var —— OTX 双源共享一 var,按 var 记会两行同开)
+  const [tokenDialogFor, setTokenDialogFor] = useState<string | null>(null);
+  const [tokenDraft, setTokenDraft] = useState("");
+  const [tokenBusy, setTokenBusy] = useState(false);
 
   // 401 = 会话失效 → 踢回登录页;其余错误走原错误文案路径。
   const failWith = (e: unknown, fallback: string) => {
-    if ((e as { status?: number }).status === 401) { onUnauthorized?.(); return; }
+    if ((e as { status?: number }).status === 401) { onUnauthorized(); return; }
     setError(e instanceof Error ? e.message : fallback);
   };
 
@@ -162,12 +206,23 @@ export default function SourcesPage({ manage = false, tasks = [], batch = null, 
       .then((m) => {
         if (m?.scores) setThetaBySource(new Map(m.scores.map((sc) => [sc.source, sc])));
       })
-      .catch(() => { /* 无报告/接口失败:θ 列保持 — */ });
+      .catch(() => { /* 无报告/接口失败:详情层 θ 保持 — */ });
   }, []);
+
+  // token 状态挂载一次性拉取;失败静默保持 null(grill 冻结:拉取失败 →
+  // 全部视为已配置,入口隐藏,不得拖垮主列表/不出错误横幅)。
+  useEffect(() => {
+    getAdminTokens().then(setTokens).catch(() => { /* 静默降级 */ });
+  }, []);
+
+  // 源名 → token 状态索引(OTX 一 key 双源:两行取同一 status,配置一次双双消失)。
+  const tokenBySource = new Map<string, TokenStatus>();
+  for (const tk of tokens ?? []) {
+    for (const sn of tk.sources) tokenBySource.set(sn, tk);
+  }
 
   // Debounce-refetch: when the count of finished tasks (done/failed/cancelled)
   // changes, re-sync the source list after 500ms so health/record_count updates.
-  // 公开页 tasks 恒空 → doneCount 恒 0,自然 no-op。
   const doneCount = tasks.filter(
     (tk) => tk.state === "done" || tk.state === "failed" || tk.state === "cancelled",
   ).length;
@@ -176,6 +231,23 @@ export default function SourcesPage({ manage = false, tasks = [], batch = null, 
     const id = setTimeout(() => { void fetchSources(); }, 500);
     return () => clearTimeout(id);
   }, [doneCount, fetchSources]);
+
+  const toggleGroup = (cat: string) => {
+    setExpandedGroups((prev) => {
+      const next = { ...prev, [cat]: !prev[cat] };
+      try { localStorage.setItem(GROUPS_LS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  };
+
+  const toggleDetail = (name: string) => {
+    setOpenDetails((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  };
 
   const patch = (name: string, change: Partial<SourceInfo>) => {
     setSources((prev) => prev.map((s) => (s.name === name ? { ...s, ...change } : s)));
@@ -200,6 +272,37 @@ export default function SourcesPage({ manage = false, tasks = [], batch = null, 
     }
   };
 
+  // 保存即 PUT,成功即关;本地翻 configured + 尾 4 位(与后端 status 同源算
+  // 法:value.slice(-4)),不重拉。空值/重复提交在按钮 disabled + guard 双挡
+  // (后端 422 兕底)。
+  const handleTokenSave = async (envVar: string) => {
+    const value = tokenDraft;
+    if (!value.trim() || tokenBusy) return;
+    setTokenBusy(true);
+    try {
+      await putAdminToken(envVar, value);
+      setTokens((prev) => prev!.map((x) =>
+        x.env_var === envVar ? { ...x, configured: true, tail4: value.slice(-4) } : x,
+      ));
+      setTokenDialogFor(null);
+    } catch (e) {
+      failWith(e, t("sources.token.saveFailed"));
+    } finally {
+      setTokenBusy(false);
+    }
+  };
+
+  const handleTokenClear = async (envVar: string) => {
+    try {
+      await clearAdminToken(envVar);
+      setTokens((prev) => prev!.map((x) =>
+        x.env_var === envVar ? { ...x, configured: false, tail4: null } : x,
+      ));
+    } catch (e) {
+      failWith(e, t("sources.token.clearFailed"));
+    }
+  };
+
   const handleRefreshAll = async () => {
     setInfo(null);
     try {
@@ -215,7 +318,14 @@ export default function SourcesPage({ manage = false, tasks = [], batch = null, 
   const refreshingAll = batch?.state === "running";
 
   const grouped = CATEGORY_ORDER
-    .map((cat) => ({ cat, items: sources.filter((s) => s.category === cat) }))
+    .map((cat) => {
+      // 组内序:异常(状态≠fresh)置顶,内部序 error>stale/notLoaded>off;
+      // 健康按 name 字母序(filter 产新数组,原地排序不动 sources state)
+      const items = sources
+        .filter((s) => s.category === cat)
+        .sort((a, b) => statusOf(a).rank - statusOf(b).rank || a.name.localeCompare(b.name));
+      return { cat, items };
+    })
     .filter((g) => g.items.length > 0);
 
   // tasks arrive oldest-first and a source accumulates terminal tasks across
@@ -232,15 +342,13 @@ export default function SourcesPage({ manage = false, tasks = [], batch = null, 
         <h2 className="text-sm font-medium text-zinc-400">
           {sources.length > 0 ? t("sources.titleCount", { n: sources.length }) : t("sources.title")}
         </h2>
-        {manage && (
-          <button
-            onClick={handleRefreshAll}
-            disabled={refreshingAll || loading}
-            className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm text-zinc-200 transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {refreshingAll ? t("sources.refreshingAll") : t("sources.refreshAll")}
-          </button>
-        )}
+        <button
+          onClick={handleRefreshAll}
+          disabled={refreshingAll || loading}
+          className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm text-zinc-200 transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {refreshingAll ? t("sources.refreshingAll") : t("sources.refreshAll")}
+        </button>
       </div>
 
       {error && (
@@ -266,67 +374,55 @@ export default function SourcesPage({ manage = false, tasks = [], batch = null, 
           {t("sources.none")}
         </div>
       ) : (
-        <div className="overflow-x-auto">
-          {/* 修复轮 P1:单一外层 overflow-x-auto 滚动容器把全局表头行与全部分组
-              (grouped.map 整块)包在一起 —— 表头与所有数据行同层锁步横滚,不再
-              逐分组各自滚动(窄屏表头/数据错位 + 页面级双横滚条)。内层 min-w-max:
-              窄视口下表头与各分组卡片(ul 圆角边框)随行内容整体取宽,行不溢出
-              卡片边框,圆角裁剪等视觉不回归。 */}
-          <div className="min-w-max">
-            {/* R1 全局单表头:置于所有分组之上(组头仍在各自分组处),与数据行
-                同模板同断点;纯 div/span 无 role(修复轮 P2a:无 table 上下文的
-                role="row"/"columnheader" 属孤儿 role,违反 ARIA 上下文规则),
-                不做 table 化(R8)。R3:公开页同步省略操作列。评估/θ 表头单元格
-                与数据单元格同 hidden 断点(R2)。 */}
-            <div
-              className={`grid gap-x-4 px-4 pb-2 text-xs font-medium text-zinc-500 ${
-                manage ? GRID_TEMPLATE_MANAGE : GRID_TEMPLATE_PUBLIC
-              }`}
-            >
-              <span className="truncate">{t("sources.col.name")}</span>
-              <span className="truncate">{t("sources.col.field")}</span>
-              <span className="truncate text-right">{t("sources.col.covered")}</span>
-              <span className="truncate">{t("sources.col.updated")}</span>
-              <span className="truncate text-center">{t("sources.col.status")}</span>
-              <span className="hidden truncate text-center lg:block">{t("sources.col.eval")}</span>
-              <span className="truncate text-center">{t("sources.col.r")}</span>
-              <span className="hidden truncate text-center xl:block">{t("sources.col.theta")}</span>
-              {manage && (
-                <span className="truncate text-right">{t("sources.col.action")}</span>
-              )}
-            </div>
-            <div className="space-y-6">
-              {grouped.map(({ cat, items }) => (
-                <div key={cat}>
-                  <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-600">
-                    {t(`sources.cat.${cat}`)}
-                  </h3>
+        <div className="space-y-4">
+          {grouped.map(({ cat, items }) => {
+            const expanded = !!expandedGroups[cat];
+            const anomalies = items.filter((s) => statusOf(s).rank < 3);
+            const hasError = anomalies.some((s) => statusOf(s).rank === 0);
+            return (
+              <div key={cat}>
+                {/* 组头:类别 · N 源 · M 异常(琥珀;含 error 源时红)。
+                    可收起 button + aria-expanded;默认全收起,展开态记
+                    localStorage。 */}
+                <button
+                  type="button"
+                  aria-expanded={expanded}
+                  aria-controls={`sources-group-${cat}`}
+                  onClick={() => toggleGroup(cat)}
+                  className="flex w-full items-baseline gap-2 rounded px-1 py-1.5 text-left text-xs font-semibold uppercase tracking-wider text-zinc-500 transition-colors hover:text-zinc-300"
+                >
+                  <span aria-hidden="true" className="w-3 shrink-0">{expanded ? "▾" : "▸"}</span>
+                  <span className="text-zinc-400">{t(`sources.cat.${cat}`)}</span>
+                  <span className="font-normal normal-case tracking-normal text-zinc-600">
+                    {`· ${items.length} ${t("sources.group.sourcesUnit")}`}
+                  </span>
+                  {anomalies.length > 0 && (
+                    <span
+                      className={`font-normal normal-case tracking-normal ${
+                        hasError ? "text-red-400" : "text-amber-400"
+                      }`}
+                    >
+                      {`· ${anomalies.length} ${t("sources.group.anomalyUnit")}`}
+                    </span>
+                  )}
+                </button>
+                {expanded && (
                   <ul
+                    id={`sources-group-${cat}`}
                     className="fade-in divide-y divide-zinc-900 overflow-hidden rounded-lg border border-zinc-800"
                   >
                     {items.map((s) => {
                       const st = statusOf(s);
+                      const open = openDetails.has(s.name);
+                      const detailId = `sources-detail-${s.name}`;
                       const ms = thetaBySource.get(s.name);
-                      // T6:更新单元格第二行的健康诊断对 —— 值可见,完整 i18n 标签入
-                      // title(6rem 固定轨道容不下双语长标签,循 θ 单元格“值可见+
-                      // 标签 tooltip”模式)。第二段现显配置刷新周期(refresh_period_h
-                      // = scheduler 档位:stale_days<=1 → 12h,否则 stale_days×24h;
-                      // 2026-10-15 裁决:en "every {v}" 被读作承诺周期而实为历史实测,
-                      // 且重抓风暴拉小中位数、数周不收敛 → 实测 observed_interval_h
-                      // 退告警侧,前端不再渲染)。cadence 为 null 时直出 "—",不套
-                      // cadence 模板(免渲染 "every —"/"—/次")。
-                      const ageStr = fmtHours(s.health.content_age_h);
-                      const cadStr = s.health.refresh_period_h == null
-                        ? "—"
-                        : t("sources.health.cadence", {
-                            v: fmtHours(s.health.refresh_period_h),
-                          });
+                      const tokenSt = tokenBySource.get(s.name);
                       // Per-row phase comes from the tasks prop (AdminPage passes
-                      // the SSE-driven context state down; public pages pass none).
-                      // A row is "busy" when a task for this source is in any of
-                      // the four idempotent enqueue states (backend _enqueue_one:
-                      // re-clicking during throttled is a silent no-op, hence
-                      // throttled must read as busy too).
+                      // the SSE-driven context state down). A row is "busy" when
+                      // a task for this source is in any of the four idempotent
+                      // enqueue states (backend _enqueue_one: re-clicking during
+                      // throttled is a silent no-op, hence throttled must read as
+                      // busy too).
                       const phase = phaseBySource.get(s.name);
                       const busy =
                         phase?.state === "queued" ||
@@ -334,103 +430,70 @@ export default function SourcesPage({ manage = false, tasks = [], batch = null, 
                         phase?.state === "downloading" ||
                         phase?.state === "loading";
                       const label = busy && phase ? phaseLabel(phase) : null;
+                      // 详情层诊断值:fmtHours 档位 + ≥1000d「从不」裁决;
+                      // cadence 为 null 时直出 "—",不套 cadence 模板
+                      const fmtDetailHours = (h: number | null | undefined) =>
+                        h == null ? "—" : h >= NEVER_H ? t("sources.detail.never") : fmtHours(h);
+                      const ageStr = fmtDetailHours(s.health.content_age_h);
+                      const periodStr = s.health.refresh_period_h == null
+                        ? "—"
+                        : s.health.refresh_period_h >= NEVER_H
+                          ? t("sources.detail.never")
+                          : t("sources.health.cadence", {
+                              v: fmtHours(s.health.refresh_period_h),
+                            });
                       return (
-                        <li
-                          key={s.name}
-                          className={`grid items-center gap-x-4 px-4 py-3 ${
-                            manage ? GRID_TEMPLATE_MANAGE : GRID_TEMPLATE_PUBLIC
-                          }`}
-                        >
-                          {/* 轨道宽度由模板控制;truncate+title 防长名/长字段溢出邻列。
-                              名称列同时承载 T5 多 feed 源的 provider 芯片行(源名
-                              下方):stale→text-red-400,fresh→text-zinc-400,字号
-                              小于源名(text-xs vs text-sm)。单 feed 源 feeds 键
-                              被后端省略(响应形状零变化)→ 不渲染任何额外节点;
-                              纯展示,零交互。 */}
-                          <div className="flex min-w-0 flex-col">
-                            <span
-                              className="truncate font-mono text-sm text-zinc-200"
-                              title={s.name}
+                        <li key={s.name} className={st.tint}>
+                          {/* 主行 = 行按钮(点非控件区展开详情)+ 兄弟操作区。
+                              行按钮承载五轨 grid;aria-label 用 expandAria 而
+                              非拼单元格文本(读屏听整行噪声)。 */}
+                          <div className="flex items-center gap-4 px-4 py-2.5">
+                            <button
+                              type="button"
+                              id={`sources-row-${s.name}`}
+                              aria-expanded={open}
+                              aria-controls={detailId}
+                              aria-label={t("sources.row.expandAria", { name: s.name })}
+                              onClick={() => toggleDetail(s.name)}
+                              className={`grid flex-1 items-center gap-x-3 rounded text-left focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-600 ${ROW_TEMPLATE}`}
                             >
-                              {s.name}
-                            </span>
-                            {s.health.feeds && s.health.feeds.length > 0 && (
-                              <span className="flex flex-wrap gap-x-2 gap-y-0.5">
-                                {s.health.feeds.map((f) => (
-                                  <span
-                                    key={f.name}
-                                    data-feed={f.name}
-                                    data-stale={f.is_stale}
-                                    className={`text-xs leading-tight ${
-                                      f.is_stale ? "text-red-400" : "text-zinc-400"
-                                    }`}
-                                  >
-                                    {f.name}
-                                  </span>
-                                ))}
+                              <span
+                                data-status={st.id}
+                                title={t(`sources.status.${st.id}`)}
+                                className={`h-2 w-2 rounded-full ${st.dot}`}
+                              />
+                              <span
+                                className="truncate font-mono text-sm text-zinc-200"
+                                title={s.name}
+                              >
+                                {s.name}
                               </span>
-                            )}
-                          </div>
-                          <span
-                            className="truncate text-xs text-zinc-500"
-                            title={s.fields[0] ?? s.archetype}
-                          >
-                            {s.fields[0] ?? s.archetype}
-                          </span>
-                          <span className="text-right font-mono text-sm tabular-nums text-zinc-300">
-                            {formatCount(s.health.covered_ips)}
-                          </span>
-                          {/* T6:更新单元格改 flex-col 承载第二行诊断对(循名称
-                              单元格 feeds 芯片行同构):内容年龄 · 刷新周期,
-                              data-age/data-cadence 供测试精确定位(循 data-feed
-                              惯例)。首行 timeAgo 不变。 */}
-                          <div className="flex min-w-0 flex-col">
-                            <span className="truncate text-xs text-zinc-500">{fmtTime(s)}</span>
-                            <span
-                              className="whitespace-nowrap font-mono text-xs leading-tight tabular-nums text-zinc-600"
-                              data-age={ageStr}
-                              data-cadence={cadStr}
-                              title={`${t("sources.health.contentAge")} ${ageStr} · ${t(
-                                "sources.health.period",
-                              )} ${cadStr}`}
-                            >
-                              {ageStr} · {cadStr}
-                            </span>
-                          </div>
-                          <span className={`rounded-md border px-2 py-0.5 text-center text-xs ${st.className}`}>
-                            {t(st.key)}
-                          </span>
-                          {s.eval ? (
-                            <span
-                              className={`hidden rounded-md border px-2 py-0.5 text-center text-xs lg:block ${evalBadgeClass(s.eval.verdict)}`}
-                              // NO-DATA:说明性 title(数据为空/坍塌)替代评估日期
-                              title={s.eval.verdict === "NO-DATA"
-                                ? t("sources.eval.noDataTitle")
-                                : s.eval.at}
-                            >
-                              {t("sources.eval." + s.eval.verdict.toLowerCase().replace(/-/g, "_"))}
-                            </span>
-                          ) : (
-                            <span className="hidden text-center text-xs text-zinc-600 lg:block">-</span>
-                          )}
-                          {/* A2 双轨:声明 r(生产权重)+ 实测 θ(印证率,advisory)。 */}
-                          <span className="text-center font-mono text-xs tabular-nums text-zinc-400">
-                            r {s.reliability.toFixed(2)}
-                          </span>
-                          {ms && ms.theta != null ? (
-                            <span
-                              className="hidden whitespace-nowrap text-center font-mono text-xs tabular-nums text-sky-400 xl:block"
-                              title={t("sources.thetaTooltip")}
-                            >
-                              θ {ms.theta.toFixed(2)}
-                              {ms.ci_lo != null &&
-                                ` [${ms.ci_lo.toFixed(2)}–${ms.ci_hi!.toFixed(2)}]`}
-                            </span>
-                          ) : (
-                            <span className="hidden text-center text-xs text-zinc-600 xl:block">—</span>
-                          )}
-                          {manage && (
-                            <div className="flex items-center gap-3 justify-self-end">
+                              <span
+                                className="truncate text-xs text-zinc-600"
+                                title={s.fields[0] ?? s.archetype}
+                              >
+                                {s.fields[0] ?? s.archetype}
+                              </span>
+                              <span className="truncate text-right font-mono text-sm tabular-nums text-zinc-300">
+                                {formatCount(s.health.covered_ips)}
+                              </span>
+                              <span className="truncate text-xs text-zinc-500">{fmtTime(s)}</span>
+                            </button>
+                            <div className="flex shrink-0 items-center gap-3">
+                              {/* 未配置 token 源的入口(琥珀边);已配置/拉取失败均隐 */}
+                              {tokenSt && !tokenSt.configured && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setTokenDraft("");   // 不回显既有值(API 也不出值)
+                                    setTokenDialogFor(s.name);
+                                  }}
+                                  aria-label={t("sources.token.fillAria", { name: s.name })}
+                                  className="rounded-md border border-amber-400/40 px-2.5 py-1 text-xs text-amber-400 transition-colors hover:bg-amber-400/10"
+                                >
+                                  {t("sources.token.fill")}
+                                </button>
+                              )}
                               <Toggle
                                 on={s.enabled}
                                 disabled={busy}
@@ -445,22 +508,150 @@ export default function SourcesPage({ manage = false, tasks = [], batch = null, 
                                 {label ? t(label.key, label.vars) : t("sources.update")}
                               </button>
                             </div>
+                          </div>
+                          {/* 行内简易对话框:密码型输入,保存即 PUT,成功即关;
+                              不设 role=dialog(无焦点陷阱,伪语义) */}
+                          {tokenSt && !tokenSt.configured && tokenDialogFor === s.name && (
+                            <form
+                              onSubmit={(e) => { e.preventDefault(); void handleTokenSave(tokenSt.env_var); }}
+                              className="flex flex-wrap items-center gap-2 border-t border-zinc-900 bg-zinc-950/60 px-4 py-3 text-xs"
+                            >
+                              <span className="font-mono text-zinc-400">{tokenSt.env_var}</span>
+                              <input
+                                type="password"
+                                // new-password:防浏览器把 token 存进站点密码管理器
+                                autoComplete="new-password"
+                                autoFocus
+                                value={tokenDraft}
+                                onChange={(e) => setTokenDraft(e.target.value)}
+                                aria-label={t("sources.token.inputAria")}
+                                className="w-56 rounded border border-zinc-700 bg-zinc-900 px-2 py-1 font-mono text-zinc-200 focus:border-emerald-400 focus:outline-none"
+                              />
+                              <button
+                                type="submit"
+                                disabled={tokenBusy || !tokenDraft.trim()}
+                                className="rounded-md border border-emerald-400/40 px-2 py-1 text-emerald-400 transition-colors hover:bg-emerald-400/10 disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                {t("sources.token.save")}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setTokenDialogFor(null)}
+                                className="rounded-md border border-zinc-700 px-2 py-1 text-zinc-400 transition-colors hover:bg-zinc-800"
+                              >
+                                {t("sources.token.cancel")}
+                              </button>
+                            </form>
+                          )}
+                          {/* 详情层:r(声明)/θ+CI(实测)/评估 verdict/内容年龄·
+                              刷新周期/feeds 芯片/最近错误 —— 按需查看 */}
+                          {open && (
+                            <div
+                              role="region"
+                              id={detailId}
+                              aria-labelledby={`sources-row-${s.name}`}
+                              className="space-y-1.5 border-t border-zinc-900 bg-zinc-950/60 px-4 py-3 text-xs"
+                            >
+                              <DetailRow label={t("sources.detail.r")}>
+                                <span data-detail="r" className="font-mono">
+                                  r {s.reliability.toFixed(2)}
+                                </span>
+                              </DetailRow>
+                              {tokenSt?.configured && (
+                                <DetailRow label={tokenSt.env_var}>
+                                  <span data-detail="token" className="flex items-center gap-2">
+                                    <span className="font-mono text-zinc-300">
+                                      {t("sources.token.configured")}
+                                      {tokenSt.tail4 ? ` ····${tokenSt.tail4}` : ""}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => void handleTokenClear(tokenSt.env_var)}
+                                      aria-label={t("sources.token.clearAria", { name: tokenSt.env_var })}
+                                      className="rounded border border-zinc-700 px-1.5 py-0.5 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+                                    >
+                                      {t("sources.token.clear")}
+                                    </button>
+                                  </span>
+                                </DetailRow>
+                              )}
+                              <DetailRow label={t("sources.detail.theta")}>
+                                {ms && ms.theta != null ? (
+                                  <span
+                                    data-detail="theta"
+                                    className="font-mono text-sky-400"
+                                    title={t("sources.thetaTooltip")}
+                                  >
+                                    θ {ms.theta.toFixed(2)}
+                                    {ms.ci_lo != null &&
+                                      ` [${ms.ci_lo.toFixed(2)}–${ms.ci_hi!.toFixed(2)}]`}
+                                  </span>
+                                ) : (
+                                  <span data-detail="theta" className="text-zinc-600">—</span>
+                                )}
+                              </DetailRow>
+                              <DetailRow label={t("sources.detail.eval")}>
+                                {s.eval ? (
+                                  <span
+                                    data-detail="eval"
+                                    className={`rounded-md border px-2 py-0.5 ${evalBadgeClass(s.eval.verdict)}`}
+                                    // NO-DATA:说明性 title(数据为空/坍塌)替代评估日期
+                                    title={s.eval.verdict === "NO-DATA"
+                                      ? t("sources.eval.noDataTitle")
+                                      : s.eval.at}
+                                  >
+                                    {t("sources.eval." + s.eval.verdict.toLowerCase().replace(/-/g, "_"))}
+                                  </span>
+                                ) : (
+                                  <span data-detail="eval" className="text-zinc-600">
+                                    {t("sources.detail.evalNone")}
+                                  </span>
+                                )}
+                              </DetailRow>
+                              <DetailRow label={t("sources.detail.contentAge")}>
+                                <span data-detail="age" className="font-mono tabular-nums">
+                                  {ageStr}
+                                </span>
+                              </DetailRow>
+                              <DetailRow label={t("sources.detail.refreshPeriod")}>
+                                <span data-detail="period" className="font-mono tabular-nums">
+                                  {periodStr}
+                                </span>
+                              </DetailRow>
+                              {s.health.feeds && s.health.feeds.length > 0 && (
+                                <DetailRow label={t("sources.detail.feeds")}>
+                                  <span className="flex flex-wrap gap-x-3 gap-y-0.5">
+                                    {s.health.feeds.map((f) => (
+                                      <span
+                                        key={f.name}
+                                        data-feed={f.name}
+                                        data-stale={f.is_stale}
+                                        className={f.is_stale ? "text-red-400" : "text-zinc-400"}
+                                      >
+                                        {f.name}
+                                      </span>
+                                    ))}
+                                  </span>
+                                </DetailRow>
+                              )}
+                              {s.health.error && (
+                                <DetailRow label={t("sources.detail.lastError")}>
+                                  <span data-detail="error" className="text-red-400">
+                                    {s.health.error}
+                                  </span>
+                                </DetailRow>
+                              )}
+                            </div>
                           )}
                         </li>
                       );
                     })}
                   </ul>
-                </div>
-              ))}
-            </div>
-          </div>
+                )}
+              </div>
+            );
+          })}
         </div>
-      )}
-
-      {!loading && grouped.length > 0 && (
-        <p className="mt-2 text-xs text-zinc-600">
-          <span className="font-mono">{t("sources.thetaCol")}</span> — {t("sources.thetaFootnote")}
-        </p>
       )}
     </section>
   );

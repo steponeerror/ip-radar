@@ -21,7 +21,7 @@ STREAM = {"/api/query/stream", "/api/upload/stream", "/api/events"}
 # fastapi-users 库路由(Task 2):错误声明不经 ErrorEnvelope,见模块 docstring。
 AUTH_LIB = {"/api/auth/jwt/login", "/api/auth/jwt/logout",
             "/api/users/me", "/api/users/{id}"}
-BUSINESS_ROUTES = 25
+BUSINESS_ROUTES = 27
 
 
 class TestOpenAPIContract:
@@ -51,7 +51,8 @@ class TestOpenAPIContract:
                     f"{method} {path} 成功响应无 schema"
 
     def test_paths_count_matches_routes(self):
-        """25 业务(含 Task 2 认证 4 + Task 5 key 管理 2 路径)+ 3 流式;多/少挂一个立刻红(防漂移)。"""
+        """27 业务路径(含 Task 2 认证 4 + Task 5 key 管理 2 + sources-redesign T1
+        token 2 路径;PUT/DELETE tokens/{env_var} 共路径)+ 3 流式;多/少挂一个立刻红(防漂移)。"""
         assert len(self.spec["paths"]) == BUSINESS_ROUTES + len(STREAM)
         assert AUTH_LIB <= set(self.spec["paths"]), "admin 认证路径缺失/改名"
 
