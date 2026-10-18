@@ -221,6 +221,7 @@
   "sources.status.off": "关闭",
   "sources.status.stale": "过期",
   "sources.thetaTooltip": "相对类型市场的独立印证后验率——不是准确率。仅供参考;生产权重仍以声明 r 为准。",
+  "sources.token.cancel": "取消",
   "sources.token.clear": "清除",
   "sources.token.clearAria": "清除 {name}",
   "sources.token.clearFailed": "清除 token 失败",

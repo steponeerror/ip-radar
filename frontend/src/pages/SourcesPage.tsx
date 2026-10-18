@@ -519,6 +519,8 @@ export default function SourcesPage({ tasks, batch, onUnauthorized }: SourcesPag
                               <span className="font-mono text-zinc-400">{tokenSt.env_var}</span>
                               <input
                                 type="password"
+                                // new-password:防浏览器把 token 存进站点密码管理器
+                                autoComplete="new-password"
                                 autoFocus
                                 value={tokenDraft}
                                 onChange={(e) => setTokenDraft(e.target.value)}

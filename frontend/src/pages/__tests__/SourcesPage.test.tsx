@@ -551,7 +551,11 @@ describe("SourcesPage token wiring (T3)", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Set token for abuseipdb" }));
     const input = screen.getByLabelText("Token value");
     expect(input).toHaveAttribute("type", "password");
+    // 防站点密码管理器收录 token(评审 Minor)
+    expect(input).toHaveAttribute("autoComplete", "new-password");
     expect(input).toHaveValue(""); // 硬约束:不回显既有值(API 也不出值)
+    // Cancel 按钮在位(回归钉:cancel i18n 键缺失曾漏网,P1 修)
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
     fireEvent.change(input, { target: { value: "secret-key-9999" } });
     fireEvent.submit(input.closest("form")!);
     await waitFor(() =>
@@ -587,5 +591,6 @@ describe("SourcesPage token wiring (T3)", () => {
     expect(translate("zh-CN", "sources.token.fill")).toBe("填 token");
     expect(translate("zh-CN", "sources.token.configured")).toBe("已配置");
     expect(translate("zh-CN", "sources.token.clear")).toBe("清除");
+    expect(translate("zh-CN", "sources.token.cancel")).toBe("取消");
   });
 });

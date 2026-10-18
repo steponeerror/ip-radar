@@ -221,6 +221,7 @@
   "sources.status.off": "off",
   "sources.status.stale": "stale",
   "sources.thetaTooltip": "Posterior corroboration rate vs ctype market — NOT accuracy. Advisory; declared r stays authoritative.",
+  "sources.token.cancel": "Cancel",
   "sources.token.clear": "Clear",
   "sources.token.clearAria": "Clear {name}",
   "sources.token.clearFailed": "Failed to clear token",
