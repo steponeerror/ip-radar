@@ -23,6 +23,7 @@ from .ablation import run_ablation
 from .assets import fingerprint
 from .benign import BenignChecker
 from .corpus import Corpus, build_benchmark, sample_source_ips, stable_seed
+from .exclusive import ControlAbort, DEFAULT_SEED
 from .independence import oc_suspicion_pairs
 from .metrics import (compute_other_distribution, mc, cg, conflict, oc,
                       fp_proxy, other_pct, confidence_uplift, dead_slot_fill,
@@ -503,6 +504,14 @@ def main(argv=None):
     p.add_argument("--sentinel", metavar="SOURCE",
                    help="生效性哨兵(Q18 §3.2): pass=True→rc 0, False→rc 1, "
                         "N/A(geo_asn)→rc 0+说明行; materialize_source.sh 消费")
+    p.add_argument("--exclusive", metavar="FEED_FILE",
+                   help="候选 feed 实测排他率探针(2026-10-18 两起翻案探针产品化): "
+                        "阳性对照闸(binarydefense 前 20 bare IP 池命中 ≥18,否则 "
+                        "exit 2)→ 稳定 seed 采样 300 逐点查池;排他 = 池内无任何"
+                        "指控 detail。只读装载(不动数据面)")
+    p.add_argument("--seed", type=int, default=DEFAULT_SEED,
+                   help="--exclusive 采样 seed(默认 20261018 = 翻案探针同口径;"
+                        "同 seed 逐字节可复现)")
     p.add_argument("--run-seed", type=int, default=None,
                    help="run 级 seed(T2 纪律: 显式传则可复现; 缺省 = "
                         "各入口稳定缺省 —— sentinel 名派生 / gate 随机但落报告)")
@@ -547,6 +556,56 @@ def main(argv=None):
         return
 
     registry = _real_registry()
+
+    # ── --exclusive 排他率探针(2026-10-18 malicious-ip 82.7%/ziyadnz 44.7%
+    # 两起翻案 /tmp 探针产品化;协议逐字见 exclusive.py 模块注释)────────
+    if args.exclusive:
+        from ipdb._sources.infra_services import InfraServicesSource
+        # 只读装载(audit_same_start.py 判例):投影自愈是写路径,load_db 前置 no-op
+        InfraServicesSource._sync_projection = lambda self: None
+        from .exclusive import run as exclusive_run
+        ctrl = next((s for s in registry.sources
+                     if s.name == "binarydefense"), None)
+        cpath = Path(getattr(ctrl, "_path", "")) if ctrl is not None else None
+        if cpath is None or not cpath.is_file():
+            msg = ("ABORT: control failed —— binarydefense 原始文件缺失"
+                   "(数据面未物化或 IP_RADAR_DATA_DIR 错位),不出数字")
+            if args.json:
+                _json_error("control_failed", msg,
+                            "先 materialize_source.sh binarydefense 或核对数据目录", rc=2)
+            print(msg, file=sys.stderr)
+            sys.exit(2)
+        if args.json:
+            try:
+                registry.load_db()
+            except Exception as e:
+                _json_error("internal", f"load_db failed: {e}", _JSON_HINT)
+        else:
+            registry.load_db()
+        try:
+            res = exclusive_run(args.exclusive, registry.lookup,
+                                seed=args.seed, control_path=cpath)
+        except ControlAbort as e:
+            if args.json:
+                _json_error("control_failed", str(e), _JSON_HINT, rc=2)
+            print(str(e), file=sys.stderr)
+            sys.exit(2)
+        if args.json:
+            print(json.dumps(res, ensure_ascii=False, indent=1))
+        else:
+            c = res["control"]
+            print(f"[control] binarydefense {c['hits']}/{c['n']} 池命中")
+            print(f"[sample] feed {res['feed_unique_keys']} uniq → "
+                  f"采样 {res['sampled']} (seed={res['seed']})")
+            print(f"[result] 排他(池无任何指控)= {res['exclusive']}/{res['sampled']} "
+                  f"= {res['exclusive_rate']:.1%}   池已覆盖 = "
+                  f"{res['covered']}/{res['sampled']}")
+            print("[coverers] 覆盖源归因:")
+            for s, k in res["coverage_sources"].items():
+                print(f"    {s:<24} {k}")
+            print(f"[exclusive-sample] {res['exclusive_sample']}")
+        return
+
     if args.json:
         # --json 下前置失败也必须走 stdout JSON 信封,不许 stderr 裸栈(spec §5.2)
         try:
