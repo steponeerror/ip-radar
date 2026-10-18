@@ -278,5 +278,6 @@
   "warmup.title": "Building database for the first time",
   "ipDetail.registration": "Registry allocation",
   "asset.is_anycast": "Anycast",
-  "ipDetail.asOrg": "AS organization"
+  "ipDetail.asOrg": "AS organization",
+  "ipDetail.abuseContact": "Abuse Contact"
 }

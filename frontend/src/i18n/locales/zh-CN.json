@@ -278,5 +278,6 @@
   "warmup.title": "数据库首次构建中",
   "ipDetail.registration": "注册分配",
   "asset.is_anycast": "任播",
-  "ipDetail.asOrg": "所属组织"
+  "ipDetail.asOrg": "所属组织",
+  "ipDetail.abuseContact": "滥用联系"
 }

@@ -78,6 +78,8 @@ export interface LookupResult {
   // ASN→组织级名称(查询期 join,caida_asorg;b/asorg-anycast 2026-10-10);
   // asn 无解或钩子源缺席时 null/undefined
   as_org?: MergedField<string> | null;
+  // 滥用联系邮箱(RIPE/AFRINIC 注册库,rir_abuse 单证人;无证人时 N/A/null)
+  abuse_contact?: MergedField<string> | null;
   ip_range: MergedField<string>;
   is_isp: boolean;
   // 单证人注册元数据块(信息维度批 2026-10-10);reg_country = 注册国≠地理国

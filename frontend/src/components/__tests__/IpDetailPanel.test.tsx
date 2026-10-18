@@ -169,6 +169,25 @@ describe("service chip 折并(grill 2026-10-11 五裁 b/a/a/a/a)", () => {
   });
 });
 
+describe("abuse_contact 槽(类 3 所有权与联系,rir_abuse 前置 2026-10-18)", () => {
+  const abuse = (value: string): NonNullable<LookupResult["abuse_contact"]> => ({
+    value, confidence: 85, algorithm: "authority",
+    sources: [{ source: "rir_abuse", value, reliability: 0.85, authoritative: true }],
+  });
+
+  it("renders the Abuse Contact block with witness attribution", () => {
+    renderWithI18n(<IpDetailPanel r={{ ...r, abuse_contact: abuse("abuse@ripe.net") }} />);
+    expect(screen.getByText("Abuse Contact")).toBeInTheDocument();
+    expect(screen.getByText("rir_abuse")).toBeInTheDocument();
+    expect(screen.getAllByText("abuse@ripe.net").length).toBeGreaterThan(0);
+  });
+
+  it("renders no block when abuse_contact is null/absent", () => {
+    renderWithI18n(<IpDetailPanel r={r} />);
+    expect(screen.queryByText("Abuse Contact")).not.toBeInTheDocument();
+  });
+});
+
 describe("as_org display dedupe + registration styling (2026-10-11 user report)", () => {
   const asOrg = (value: string): NonNullable<LookupResult["as_org"]> => ({
     value, confidence: 80, algorithm: "authority",
