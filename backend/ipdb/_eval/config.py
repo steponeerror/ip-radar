@@ -38,6 +38,8 @@ LINEAGE_CLUSTERS = {
     "otx_subscribed": "aggregated-threat",
     "greensnow": "aggregated-threat",  # OC=1.0 w/ firehol, containment ≥0.9 (2026-09-01)
     "drb_ra": "aggregated-threat",     # C2 aggregator (search-derived, mirrors trackers)
+    "ziyadnz": "aggregated-threat",   # 波1 聚合源(2026-10-18;derived 源须同步加簇,见上注)
+    "malicious_ip": "aggregated-threat",  # 波1 T2 5 片联合体(2026-10-18;derived 同步入簇)
 }
 
 # 蜜罐法采集源(S33):k 排除集兜底——源类属性 honeypot_methodology 声明
