@@ -32,6 +32,22 @@ _Avoid_: 空响应(混淆断供空)
 同批下载中证明出版方存活的列表(blocklist_de = all.txt 聚合);锚空 = 本轮零替换 + 记真失败(fail-closed),防灾难性全空清库。判例:blocklist_de ircbot 2026-10-15(grill Q1-Q3)。
 _Avoid_: —
 
+#### 管理界面
+
+**异常源**:
+健康扫描的目标集:状态 ∉ {最新} 的源,即 报错/过期(stale)/关闭(off)/未加载(notLoaded) 四态。正常源在源页静默成行,仅异常源显色跳出。
+_Avoid_: 坏源、问题源
+
+**主行**: 源页每源默认可见的单一信息层:状态呈现、源名、字段名、覆盖数、更新时间、操作;行高统一单行。与行展开的详情层相对。
+_Avoid_: 表格行(混淆 grid 行概念)
+
+**详情层**: 主行点击展开的下沉层: r/θ/评估 verdict/内容年龄与刷新周期/feed 芯片/最近错误;按需查看的诊断数据。
+_Avoid_: 弹窗、抽屉
+
+**token 源**:
+下载需要 API key 的源:abuseipdb/ip2proxy/ipinfo_lite/otx(+otx_subscribed 共用 OTX key),共 4 key 5 行;peeringdb 走免 key 节流 API 不算。现行 key 存服务器 .env,改由管理界面填写。
+_Avoid_: 密钥源、付费源
+
 ### 质量闸门
 
 (词汇正源为 GLOSSARY.md;本节为 grill 会话工件,冲突时以 GLOSSARY 为准。)
