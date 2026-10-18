@@ -24,7 +24,7 @@ org_name 扩展(rir-abuse-org,2026-10-18):同 dump 增收 inetnum org:
 声明/登记新鲜度/下挂行」):notify/created/last-modified/mnt-by 自
 inetnum、contact_name 自 role 对象名,均入 extra 乘客(投诉工作流用
 料);融合层 abuse_contact 下挂行白名单透传 contact_name/notify/
-created/last_modified,mnt_by 留 evidence extra→STIX x_*(不进下挂行)。
+created/last_modified,mnt_by 留 evidence extra(存储/证据层,不进下挂行)。
 """
 import gzip
 import logging

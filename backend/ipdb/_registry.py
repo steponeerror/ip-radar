@@ -199,7 +199,7 @@ _strategies = {
     "abuse_contact": NamingAuthority(
         field="abuse_contact",   # 同公理;类 3 滥用联系(rir_abuse,2026-10-18)
         # 下挂行白名单(abuse-context 批,2026-10-18):登记声明透传不进
-        # conf;mnt_by 留 evidence extra→STIX x_*,不进融合下挂行
+        # conf;mnt_by 留 evidence extra(存储/证据层),不进融合下挂行
         context_fields=("contact_name", "notify", "created", "last_modified")),
     "org_name": NamingAuthority(field="org_name"),   # 同公理;注册组织名(rir_abuse 同 dump 扩展,2026-10-18)
     "ip_range": RangeSpecificity(),
