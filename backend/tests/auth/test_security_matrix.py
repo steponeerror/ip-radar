@@ -68,6 +68,9 @@ FROZEN = {
     ("POST", "/api/admin/keys"): "admin",
     ("PATCH", "/api/admin/keys/{sub}"): "admin",
     ("DELETE", "/api/admin/keys/{sub}"): "admin",
+    ("GET", "/api/admin/tokens"): "admin",
+    ("PUT", "/api/admin/tokens/{env_var}"): "admin",
+    ("DELETE", "/api/admin/tokens/{env_var}"): "admin",
 }
 
 

@@ -17,7 +17,6 @@ import io
 import logging
 import os
 import zipfile
-from pathlib import Path
 
 from .._source_base import Source
 from .._evidence import Evidence
@@ -40,15 +39,14 @@ class IP2ProxySource(Source):
     # 残留的 "proxy"/"suspicious" 随 VPN/PUB/TOR 一并弃)。指控语料枚举
     # (fusion_replay_gate)与 /api/sources 据此类属性判指控章,勿回填。
 
-    def __init__(self, data_dir: Path):
-        self._token = os.environ.get("IP2PROXY_TOKEN", "").strip()
-        super().__init__(data_dir=data_dir)
-
     @property
     def _url(self) -> str:
-        if not self._token:
+        # token 使用点读取(sources-redesign T1 2026-10-17):admin API 热改
+        # env 即时生效;启动时已设的行为逐字节等价。
+        token = os.environ.get("IP2PROXY_TOKEN", "").strip()
+        if not token:
             return ""
-        return f"https://www.ip2location.com/download?token={self._token}&file=PX2LITECSV"
+        return f"https://www.ip2location.com/download?token={token}&file=PX2LITECSV"
 
     @property
     def download_host(self) -> str | None:

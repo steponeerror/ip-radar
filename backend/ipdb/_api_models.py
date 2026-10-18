@@ -249,6 +249,23 @@ class ApiKeyPatchIn(BaseModel):
     sources: Optional[list[str]] = None
 
 
+# ── token 界面配置（sources-redesign T1；契约对 Task 3 前端 FROZEN）──
+class TokenStatusOut(_Out):
+    """GET /api/admin/tokens 出参行。硬约束：完整 token 值永不回显，
+    仅 configured + tail4（≤4 字符）。"""
+    env_var: str
+    sources: list[str]
+    configured: bool
+    tail4: Optional[str] = None
+
+
+class TokenSetIn(BaseModel):
+    """PUT /api/admin/tokens/{env_var} 入参。长度上限不在此声明：pydantic 422
+    detail 会回带 input 原值，违反「永不回显」；≤512 在 _tokens.set_token 校验
+    （HTTPException 信封不带值）。"""
+    value: str = Field(min_length=1)
+
+
 class ApiKeyOut(_Out):
     """密钥元数据 —— 绝不含 JWT 本体(list 单项 / PATCH 返回形状)。"""
     sub: str

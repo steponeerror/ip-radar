@@ -119,7 +119,7 @@ def test_ip2proxy_download_extracts_zip_to_path_then_loads(tmp_path, monkeypatch
             return False
 
     s = IP2ProxySource(data_dir=tmp_path)
-    s._token = "fake"                                   # non-empty → _url() set
+    monkeypatch.setenv("IP2PROXY_TOKEN", "fake")         # 使用点读取 → _url() 生效
     monkeypatch.setattr("urllib.request.urlopen",
                         lambda req, timeout=30: _Resp(zip_bytes))
 
