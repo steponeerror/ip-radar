@@ -590,6 +590,13 @@ def main(argv=None):
                 _json_error("control_failed", str(e), _JSON_HINT, rc=2)
             print(str(e), file=sys.stderr)
             sys.exit(2)
+        except ValueError as e:
+            # 空 feed 提取零键仍属 abort 族(空分母不冒充 0),但 §5.2 要信封
+            # 不裸栈;消息含 feed 路径可有数字(no-digit 约束只及对照闸)
+            if args.json:
+                _json_error("bad_feed", str(e), _JSON_HINT, rc=2)
+            print(str(e), file=sys.stderr)
+            sys.exit(2)
         if args.json:
             print(json.dumps(res, ensure_ascii=False, indent=1))
         else:

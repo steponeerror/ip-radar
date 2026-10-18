@@ -128,6 +128,30 @@ def test_cli_control_abort_stderr_nonjson(monkeypatch, tmp_path, capsys):
     assert "ABORT: control failed" in capsys.readouterr().err
 
 
+def test_cli_empty_feed_json_envelope_exit2(monkeypatch, tmp_path, capsys):
+    """空 feed --json 必须走信封退出,不裸 ValueError 栈(spec §5.2;评审
+    Important-1 2026-10-18)。abort 族 rc=2;消息含 feed 路径可有数字
+    (no-digit 约束只及对照闸)。"""
+    feed = _install_plane(monkeypatch, tmp_path, covered_control=True)
+    feed.write_text("# comment only\nnot-an-ip line\n")
+    with pytest.raises(SystemExit) as ei:
+        main(["--exclusive", str(feed), "--json"])
+    assert ei.value.code == 2
+    err = json.loads(capsys.readouterr().out)["error"]
+    assert err["code"] == "bad_feed"
+    assert "零个候选键" in err["message"]
+
+
+def test_cli_empty_feed_stderr_nonjson(monkeypatch, tmp_path, capsys):
+    """同一空 feed 非 json:清洁 stderr 单行 + exit 2,不裸栈。"""
+    feed = _install_plane(monkeypatch, tmp_path, covered_control=True)
+    feed.write_text("# comment only\n")
+    with pytest.raises(SystemExit) as ei:
+        main(["--exclusive", str(feed)])
+    assert ei.value.code == 2
+    assert "零个候选键" in capsys.readouterr().err
+
+
 def test_run_same_seed_reproducible(tmp_path):
     ctrl = tmp_path / "bd.txt"
     ctrl.write_text("\n".join(f"192.0.2.{i}" for i in range(1, 21)))
