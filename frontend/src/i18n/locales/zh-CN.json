@@ -193,6 +193,7 @@
   "sources.detail.r": "r(声明)",
   "sources.detail.refreshPeriod": "刷新周期",
   "sources.detail.theta": "实测 θ(印证率)",
+  "sources.detail.url": "取源地址",
   "sources.downloading": "下载中…{pct}",
   "sources.eval.insufficient_sample": "样本不足",
   "sources.eval.marginal": "边缘",

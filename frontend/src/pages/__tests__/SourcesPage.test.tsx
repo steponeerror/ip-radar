@@ -378,6 +378,47 @@ describe("SourcesPage detail layer (expanded region)", () => {
   });
 });
 
+// ── 详情层取源 URL 行(wave-2 task 3:用户「管理页面源信息出增加取源的url」)──
+describe("SourcesPage detail layer feed URL row (wave-2 task 3)", () => {
+  it("url source renders Feed URL label and link: href/target=_blank/rel=noreferrer, >64 chars truncated, title = full url", async () => {
+    const url = "https://raw.githubusercontent.com/ShadowWhisperer/IPs/master/Lists/Scanners.csv";
+    vi.mocked(getSources).mockResolvedValueOnce([src("longurl", { url })]);
+    const { container } = renderPage();
+    await expandGroup();
+    openDetail("longurl");
+    expect(screen.getByText("Feed URL")).toBeInTheDocument();
+    const a = container.querySelector('[data-detail="url"]')!;
+    expect(a.tagName).toBe("A");
+    expect(a).toHaveAttribute("href", url);
+    expect(a).toHaveAttribute("target", "_blank");
+    expect(a).toHaveAttribute("rel", "noreferrer");
+    expect(a.getAttribute("title")).toBe(url);
+    expect(a.textContent).toBe(url.slice(0, 64) + "…");
+  });
+
+  it("short url renders in full; null url renders — (no anchor)", async () => {
+    vi.mocked(getSources).mockResolvedValueOnce([
+      src("shorturl", { url: "https://example.com/feed.csv" }),
+      src("nourl"),
+    ]);
+    const { container } = renderPage();
+    await expandGroup();
+    openDetail("shorturl");
+    openDetail("nourl");
+    const rows = Array.from(container.querySelectorAll('[data-detail="url"]'));
+    const texts = rows.map((r) => r.textContent);
+    expect(texts).toContain("https://example.com/feed.csv");
+    expect(texts).toContain("—");
+    const none = rows.find((r) => r.textContent === "—")!;
+    expect(none.tagName).not.toBe("A");
+  });
+
+  it("zh-CN verbatim 取源地址 (brief task 3)", () => {
+    expect(translate("zh-CN", "sources.detail.url")).toBe("取源地址");
+    expect(translate("en", "sources.detail.url")).toBe("Feed URL");
+  });
+});
+
 describe("SourcesPage manage behaviors (kept pins, new structure)", () => {
   it("renders Toggle switches and Update buttons (public variant deleted)", async () => {
     renderPage();

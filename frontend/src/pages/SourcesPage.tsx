@@ -618,6 +618,24 @@ export default function SourcesPage({ tasks, batch, onUnauthorized }: SourcesPag
                                   {periodStr}
                                 </span>
                               </DetailRow>
+                              {/* 取源地址(wave-2 task 3):有 url → 新窗口链接,>64 字符截断 +
+                                  title 全文;null → —。break-all 防长 URL 撑破详情层 */}
+                              <DetailRow label={t("sources.detail.url")}>
+                                {s.url ? (
+                                  <a
+                                    href={s.url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    data-detail="url"
+                                    title={s.url}
+                                    className="break-all text-zinc-400 transition-colors hover:text-zinc-200"
+                                  >
+                                    {s.url.length > 64 ? s.url.slice(0, 64) + "…" : s.url}
+                                  </a>
+                                ) : (
+                                  <span data-detail="url" className="text-zinc-600">—</span>
+                                )}
+                              </DetailRow>
                               {s.health.feeds && s.health.feeds.length > 0 && (
                                 <DetailRow label={t("sources.detail.feeds")}>
                                   <span className="flex flex-wrap gap-x-3 gap-y-0.5">

@@ -193,6 +193,7 @@
   "sources.detail.r": "r (declared)",
   "sources.detail.refreshPeriod": "Refresh period",
   "sources.detail.theta": "measured θ (corroboration)",
+  "sources.detail.url": "Feed URL",
   "sources.downloading": "Downloading…{pct}",
   "sources.eval.insufficient_sample": "low sample",
   "sources.eval.marginal": "marginal",
