@@ -1,12 +1,13 @@
 """Firehol blocklist source — IpListSource subclass with multi-list download.
 
-子列表拆分(2026-08-30):level1/2 之外订阅 firehol 自有的三个语义净新增
+子列表拆分(2026-08-30):level1/2 之外订阅 firehol 自有的两个语义净新增
 列表,per-list 分类(verdict 与同轴直接源对齐,详见 _LIST_SPEC 注释):
 - abusers_30d(7/7 上游为 spam 族追踪器)→ spam/informational(对齐 sfs,
   ffae4caf 的 off-threat-axis 裁决);
 - proxies(iblocklist/socks/sslproxies 三个无直接源的代理上游)→
-  proxy/suspicious + is_proxy(对齐 proxyscrape/ip2proxy);
-- webserver(98% IP 为 sfs toxic 段)→ spam/informational(同 sfs 轴)。
+  proxy/suspicious + is_proxy(对齐 proxyscrape/ip2proxy)。
+firehol_webserver 已退订(2026-10-19 矩阵案一裁决:8.8.8.8 权威 DNS 经
+其残差标签显形 spam 的事故执法,ADR 0003;退订回归测试钉死不回流)。
 重叠部分由谱系去重兜底(derived=True);同 CIDR 异分类共存(convention 3)。
 """
 import logging
@@ -36,7 +37,6 @@ _LIST_SPEC = {
     "firehol_level2":      ("blacklist", "malicious", {}),
     "firehol_abusers_30d": ("spam", "informational", {}),
     "firehol_proxies":     ("proxy", "suspicious", {"is_proxy": True}),
-    "firehol_webserver":   ("spam", "informational", {}),
 }
 
 # 超大列表(2.8M 行)流式直读不落 acc:内存上界由非流式列表总量决定,

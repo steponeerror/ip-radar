@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import pytest
 
-from ipdb._sources.firehol import FireholBlocklistSource
+from ipdb._sources.firehol import FireholBlocklistSource, _LIST_SPEC
 
 
 def test_all_lists_failed_raises(tmp_path):
@@ -101,11 +101,18 @@ def _write(tmp_path, name, text):
     (d / f"{name}.netset").write_text(text)
 
 
-def test_default_lists_cover_five_sublists(tmp_path):
+def test_default_lists_cover_four_sublists(tmp_path):
+    # webserver 已退订(2026-10-19 矩阵案一),缺省订阅面 = 4 子清单
     src = FireholBlocklistSource(tmp_path)
     assert src._lists == ["firehol_level1", "firehol_level2",
-                          "firehol_abusers_30d", "firehol_proxies",
-                          "firehol_webserver"]
+                          "firehol_abusers_30d", "firehol_proxies"]
+
+
+def test_webserver_unsubscribed_from_spec_and_default_lists(tmp_path):
+    """退订回归(2026-10-19 矩阵案一,8.8.8.8 事故执法):firehol_webserver
+    不得回流 _LIST_SPEC 或缺省订阅面——回流即权威 DNS 威胁轴显形复发。"""
+    assert "firehol_webserver" not in _LIST_SPEC
+    assert "firehol_webserver" not in FireholBlocklistSource(tmp_path)._lists
 
 
 def test_per_list_classification_and_verdict(tmp_path):
@@ -116,7 +123,6 @@ def test_per_list_classification_and_verdict(tmp_path):
         "firehol_level1": "1.0.0.0/24\n",
         "firehol_abusers_30d": "2.0.0.0/24\n",
         "firehol_proxies": "3.0.0.0/24\n",
-        "firehol_webserver": "4.0.0.0/24\n",
         "unknown_netset": "5.0.0.0/24\n",
     }
     for name, text in lists.items():
@@ -130,8 +136,6 @@ def test_per_list_classification_and_verdict(tmp_path):
     px = src.query("3.0.0.1")[0]
     assert (px["classification_type"], px["verdict"]) == ("proxy", "suspicious")
     assert px["is_proxy"] is True
-    ws = src.query("4.0.0.1")[0]
-    assert (ws["classification_type"], ws["verdict"]) == ("spam", "informational")
     unk = src.query("5.0.0.1")[0]
     assert (unk["classification_type"], unk["verdict"]) == ("blacklist", "malicious")
 
@@ -154,38 +158,38 @@ def test_same_cidr_different_classification_keeps_both(tmp_path):
 
 
 def test_same_cidr_same_classification_merges_tags(tmp_path):
-    """同 CIDR 同分类(abusers∩webserver,均 spam):合并 tags 一条证据
-    ——推广田 L1∩L2 合并语义。"""
-    _write(tmp_path, "firehol_abusers_30d", "10.0.0.0/24\n")
-    _write(tmp_path, "firehol_webserver", "10.0.0.0/24\n")
+    """同 CIDR 同分类(L1∩L2,均 blacklist):合并 tags 一条证据
+    ——旧推广用例(abusers∩webserver)随 webserver 退订回归 L1∩L2 本体。"""
+    _write(tmp_path, "firehol_level1", "10.0.0.0/24\n")
+    _write(tmp_path, "firehol_level2", "10.0.0.0/24\n")
     src = FireholBlocklistSource(tmp_path, selected_lists=[
-        "firehol_abusers_30d", "firehol_webserver"])
+        "firehol_level1", "firehol_level2"])
     n = src.rebuild()
     assert n == 1
     recs = src.query("10.0.0.5")
     assert len(recs) == 1
-    assert recs[0]["tags"] == ["firehol_abusers_30d", "firehol_webserver"]
+    assert recs[0]["tags"] == ["firehol_level1", "firehol_level2"]
 
 
 def test_three_list_cross_hit_union_and_coexistence(tmp_path):
     """三列表同 CIDR 交叉命中(acc 位掩码重建,Task 2 组合断言):
-    同模板(abusers+webserver,均 spam)tags 并集一条;异模板(proxies,
+    同模板(L1+L2,均 blacklist)tags 并集一条;异模板(proxies,
     流式列表撞 acc 走置位合并不丢证据)各成一条;extras(is_proxy)在
     吐出时重建保留。"""
-    _write(tmp_path, "firehol_abusers_30d", "10.0.0.0/24\n")
-    _write(tmp_path, "firehol_webserver", "10.0.0.0/24\n")
+    _write(tmp_path, "firehol_level1", "10.0.0.0/24\n")
+    _write(tmp_path, "firehol_level2", "10.0.0.0/24\n")
     _write(tmp_path, "firehol_proxies", "10.0.0.0/24\n")
     src = FireholBlocklistSource(tmp_path, selected_lists=[
-        "firehol_abusers_30d", "firehol_webserver", "firehol_proxies"])
+        "firehol_level1", "firehol_level2", "firehol_proxies"])
     n = src.rebuild()
     assert n == 1
     recs = src.query("10.0.0.5")
     assert len(recs) == 2
     by_cls = {r["classification_type"]: r for r in recs}
-    assert set(by_cls) == {"spam", "proxy"}
+    assert set(by_cls) == {"blacklist", "proxy"}
     # 同模板 tags 并集(重建自位掩码,sorted)
-    assert by_cls["spam"]["tags"] == ["firehol_abusers_30d",
-                                      "firehol_webserver"]
+    assert by_cls["blacklist"]["tags"] == ["firehol_level1",
+                                           "firehol_level2"]
     # 异模板共存 + 流式撞 acc 合并 + extras 保留
     assert by_cls["proxy"]["tags"] == ["firehol_proxies"]
     assert by_cls["proxy"]["is_proxy"] is True

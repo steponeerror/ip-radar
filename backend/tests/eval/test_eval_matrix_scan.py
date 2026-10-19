@@ -101,7 +101,7 @@ def test_score_requires_nonabsent_group_confidence():
 def test_informational_shows_on_ui_only():
     # 8.8.8.8 事故形状:infra IP 经存档章显形 spam
     p = _payload("8.8.8.8", [_group("spam", "informational", detected=True,
-                                    details=(("firehol_webserver",
+                                    details=(("firehol_abusers_30d",
                                               "informational"),))])
     cl = channel_labels(p)
     assert cl["UI"] == {"informational"}     # verdict 任意,含 informational
@@ -181,7 +181,7 @@ def test_diff_three_buckets():
     })
     obs = {}
     obs.update(_obs("infra", "informational", "UI",
-                    [("8.8.8.8", ["firehol_webserver"])]))
+                    [("8.8.8.8", ["firehol_abusers_30d"])]))
     obs.update(_obs("truth", "malicious", "score", [("1.2.3.4", ["feed_a"])]))
     obs.update(_obs("infra", "asset", "stix",
                     [("52.95.116.115", ["cloud_ranges"])]))
@@ -192,7 +192,7 @@ def test_diff_three_buckets():
     assert {e["cell"] for e in buckets["pending"]} == {"infra|informational|UI"}
     assert buckets["pending"][0]["note"] == "待裁:8.8.8.8 事故"
     assert buckets["pending"][0]["evidence"] == [
-        {"ip": "8.8.8.8", "sources": ["firehol_webserver"]}]
+        {"ip": "8.8.8.8", "sources": ["firehol_abusers_30d"]}]
     agreement = {e["cell"]: e for e in buckets["agreement"]}
     assert set(agreement) == {"truth|malicious|score"}
     assert agreement["truth|malicious|score"]["provenance"] == "ADR 0002"
@@ -222,12 +222,12 @@ def test_scan_caps_evidence_at_three(tmp_path):
     _save_layer(tmp_path, "infra", ips)
     fn = _lookup({ip: _payload(ip, [_group(
         "spam", "informational", detected=True,
-        details=(("firehol_webserver", "informational"),))]) for ip in ips})
+        details=(("firehol_abusers_30d", "informational"),))]) for ip in ips})
     obs, stats = scan_layers(fn, assemble_four_layers(tmp_path))
     o = obs[("infra", "informational", "UI")]
     assert len(o.evidence) == 3                       # ≤3 IP
     assert o.evidence[0].ip == ips[0]                 # 查询序前 3
-    assert o.evidence[0].sources == ("firehol_webserver",)
+    assert o.evidence[0].sources == ("firehol_abusers_30d",)
     assert stats["infra"] == {"status": "OK", "members": 5, "sampled": 5}
     for kind in ("truth", "neutral", "consensus"):
         assert stats[kind]["status"] == "NO-LAYER"    # 缺层≠0 层,不查不观测
@@ -250,7 +250,7 @@ def test_run_matrix_scan_real_matrix_violation(tmp_path):
     fn = _lookup({
         "8.8.8.8": _payload("8.8.8.8", [_group(
             "spam", "informational", detected=True,
-            details=(("firehol_webserver", "informational"),))]),
+            details=(("firehol_abusers_30d", "informational"),))]),
         "198.51.100.7": _payload("198.51.100.7",
                                  [_group("blacklist", "malicious")]),
     })
@@ -259,7 +259,7 @@ def test_run_matrix_scan_real_matrix_violation(tmp_path):
     v = res["buckets"]["violation"][0]
     assert v["cell"] == "infra|informational|UI"      # 事故格 = 保守默认非法
     assert v["evidence"] == [{"ip": "8.8.8.8",
-                              "sources": ["firehol_webserver"]}]
+                              "sources": ["firehol_abusers_30d"]}]
     # truth 指控显形 = 五组合法格 → agreement 不产断言
     assert {e["cell"] for e in res["buckets"]["agreement"]} == {
         "infra|clean|score", "infra|clean|stix",
@@ -316,7 +316,7 @@ def _install_registry(monkeypatch, fn):
 
 
 _811 = _payload("8.8.8.8", [_group("spam", "informational", detected=True,
-                                   details=(("firehol_webserver",
+                                   details=(("firehol_abusers_30d",
                                              "informational"),))])
 
 
@@ -380,7 +380,7 @@ def test_cli_matrix_scan_human_md(monkeypatch, tmp_path, capsys):
     assert ei.value.code == 2
     out = capsys.readouterr().out
     assert "待裁" in out                          # 建议栏「待裁」
-    assert "8.8.8.8" in out and "firehol_webserver" in out
+    assert "8.8.8.8" in out and "firehol_abusers_30d" in out
     assert "informational" in out and "violation 1" in out
 
 
@@ -397,13 +397,13 @@ def test_render_md_violation_row_carries_evidence_and_pending_column():
                            "state": "illegal",
                            "note": "conservative-default",
                            "evidence": [{"ip": "8.8.8.8",
-                                         "sources": ["firehol_webserver"]}]}],
+                                         "sources": ["firehol_abusers_30d"]}]}],
             "pending": [], "agreement": []},
         "counts": {"violation": 1, "pending": 0, "agreement": 0},
         "exit_code": 2}
     md = render_md(res)
     assert "infra\\|informational\\|UI" in md     # md 表格转义管道
-    assert "8.8.8.8" in md and "firehol_webserver" in md
+    assert "8.8.8.8" in md and "firehol_abusers_30d" in md
     assert "待裁" in md
 
 
@@ -435,7 +435,7 @@ def test_stix_mirror_channel_matches_real_export():
     archived = ClassificationAssessment(
         type="spam", verdict="informational", detected=True, confidence=0,
         algorithm="corroboration", sources=[], corroborated=False,
-        details=[{"source": "firehol_webserver", "verdict": "informational",
+        details=[{"source": "firehol_abusers_30d", "verdict": "informational",
                   "reliability": 0.5}])
     lr = LookupResult(
         ip="203.0.113.9",
