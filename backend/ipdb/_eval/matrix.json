@@ -95,27 +95,27 @@
     },
     "infra|malicious|score": {
       "state": "illegal",
-      "note": "conservative-default"
+      "note": "ruling-confirmed(2026-10-19 案一)"
     },
     "infra|malicious|stix": {
       "state": "illegal",
-      "note": "conservative-default"
+      "note": "ruling-confirmed(2026-10-19 案一)"
     },
     "infra|malicious|UI": {
       "state": "illegal",
-      "note": "conservative-default"
+      "note": "ruling-confirmed(2026-10-19 案一)"
     },
     "infra|suspicious|score": {
       "state": "illegal",
-      "note": "conservative-default"
+      "note": "ruling-confirmed(2026-10-19 案一)"
     },
     "infra|suspicious|stix": {
       "state": "illegal",
-      "note": "conservative-default"
+      "note": "ruling-confirmed(2026-10-19 案一)"
     },
     "infra|suspicious|UI": {
       "state": "illegal",
-      "note": "conservative-default"
+      "note": "ruling-confirmed(2026-10-19 案一)"
     },
     "infra|benign|score": {
       "state": "illegal",
@@ -139,19 +139,19 @@
     },
     "infra|informational|UI": {
       "state": "illegal",
-      "note": "conservative-default"
+      "note": "ruling-confirmed(2026-10-19 案一)"
     },
     "infra|asset|score": {
       "state": "illegal",
       "note": "conservative-default"
     },
     "infra|asset|stix": {
-      "state": "illegal",
-      "note": "conservative-default"
+      "state": "legal",
+      "provenance": "docs/adr/0001-ip2proxy-asset-abstention.md §决策(资产弃权:x_* 扩展面装属性为设计意图,「不产 STIX」限指控 Indicator——attributes 陈述出海非指控) · 裁决:docs/superpowers/plans/2026-10-19-matrix-ruling1.md 案二"
     },
     "infra|asset|UI": {
       "state": "legal",
-      "provenance": "docs/adr/0001-ip2proxy-asset-abstention.md §决策(资产弃权:verdict 空、不计票、不产 STIX Indicator,仅 attributes 通道标签照常呈现) · cloud_ranges 判例:backend/ipdb/_eval/__main__.py _cloud_v4_ranges(云/CDN 段入非指控基础设施层,spec §2.1) · 先例:backend/ipdb/_eval/anchors.py(public cloud edges 锚预期 is_hosting=true) · 裁决:docs/superpowers/plans/2026-10-18-semantic-matrix.md Task 1"
+      "provenance": "docs/adr/0001-ip2proxy-asset-abstention.md §决策(资产弃权:verdict 空、不计票、不产 STIX Indicator,仅 attributes 通道标签照常呈现) · cloud_ranges 判例:backend/ipdb/_eval/__main__.py _cloud_v4_ranges(云/CDN 段入非指控基础设施层,spec §2.1) · 先例:backend/ipdb/_eval/anchors.py(public cloud edges 锚预期 is_hosting=true) · 裁决:docs/superpowers/plans/2026-10-18-semantic-matrix.md Task 1 · 裁决:docs/superpowers/plans/2026-10-19-matrix-ruling1.md 案二(维持)"
     },
     "infra|clean|score": {
       "state": "legal",
@@ -218,12 +218,12 @@
       "note": "conservative-default"
     },
     "neutral|asset|stix": {
-      "state": "illegal",
-      "note": "conservative-default"
+      "state": "legal",
+      "provenance": "docs/adr/0001-ip2proxy-asset-abstention.md §决策(资产弃权:x_* 扩展面装属性为设计意图,「不产 STIX」限指控 Indicator——attributes 陈述出海非指控) · 裁决:docs/superpowers/plans/2026-10-19-matrix-ruling1.md 案二"
     },
     "neutral|asset|UI": {
-      "state": "illegal",
-      "note": "conservative-default"
+      "state": "legal",
+      "provenance": "docs/adr/0001-ip2proxy-asset-abstention.md §决策(资产弃权:x_* 扩展面装属性为设计意图,「不产 STIX」限指控 Indicator——attributes 陈述出海非指控) · 裁决:docs/superpowers/plans/2026-10-19-matrix-ruling1.md 案二"
     },
     "neutral|clean|score": {
       "state": "legal",
@@ -282,20 +282,20 @@
       "note": "conservative-default"
     },
     "consensus|informational|UI": {
-      "state": "illegal",
-      "note": "conservative-default"
+      "state": "legal",
+      "provenance": "共识层对照语义:已指控对象上的 archival 补充证词非新指控(docs/superpowers/specs/2026-10-12-eval-loop-hardening-design.md §2.1 诊断层;stopforumspam archival 判例,生产首扫 2026-10-19) · 裁决:docs/superpowers/plans/2026-10-19-matrix-ruling1.md 案三"
     },
     "consensus|asset|score": {
       "state": "illegal",
       "note": "conservative-default"
     },
     "consensus|asset|stix": {
-      "state": "illegal",
-      "note": "conservative-default"
+      "state": "legal",
+      "provenance": "docs/adr/0001-ip2proxy-asset-abstention.md §决策(资产弃权:x_* 扩展面装属性为设计意图,「不产 STIX」限指控 Indicator——attributes 陈述出海非指控) · 裁决:docs/superpowers/plans/2026-10-19-matrix-ruling1.md 案二"
     },
     "consensus|asset|UI": {
-      "state": "illegal",
-      "note": "conservative-default"
+      "state": "legal",
+      "provenance": "docs/adr/0001-ip2proxy-asset-abstention.md §决策(资产弃权:x_* 扩展面装属性为设计意图,「不产 STIX」限指控 Indicator——attributes 陈述出海非指控) · 裁决:docs/superpowers/plans/2026-10-19-matrix-ruling1.md 案二"
     },
     "consensus|clean|score": {
       "state": "legal",

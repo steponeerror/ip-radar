@@ -171,7 +171,7 @@ def _incident_payload(ip):
             "classifications": {"spam": {
                 "type": "spam", "verdict": "informational", "detected": True,
                 "confidence": 0, "details": [
-                    {"source": "firehol_webserver", "verdict": "informational",
+                    {"source": "firehol_abusers_30d", "verdict": "informational",
                      "reliability": 0.5}]}},
             "attributes": {}}
 
