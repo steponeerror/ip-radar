@@ -36,6 +36,9 @@ from .verdict import assess
 
 _PKG_DIR = Path(__file__).resolve().parent              # backend/ipdb/_eval
 _REPO_ROOT = _PKG_DIR.parents[2]                        # _eval -> ipdb -> backend -> repo root
+# 四层资产根缺省(run_readout / --model / --matrix-scan 三口同值;资产跨
+# env 共享是事实不是报告, spec §4.2)—— 终审 M-3: 三处 inline 副本收口
+_ASSETS_ROOT_DEFAULT = _REPO_ROOT / "backend" / "data" / "eval" / "assets"
 # 报告目录(spec 2026-08-28 §5.2):运行时状态区,env 可覆盖;write_report 自带 mkdir
 # S37 环境隔离(spec 待办9):REPORT_DIR = base/<env>,env ∈ monthly|gate|dev
 # (默认 dev)——rc_history 读的 model/ 历史随目录命名空间天然不跨环境混读;
@@ -371,8 +374,7 @@ def run_readout(registry, out_dir, *, assets_dir=None, keysets_dir=None,
     srcs = {s.name: s for s in registry.sources}
     threat_srcs = [s for s in registry.sources
                    if getattr(s, "category", None) == "threat"]
-    assets_root = (Path(assets_dir) if assets_dir else
-                   _REPO_ROOT / "backend" / "data" / "eval" / "assets")
+    assets_root = (Path(assets_dir) if assets_dir else _ASSETS_ROOT_DEFAULT)
     source_keysets = {s.name: _source_ips(s) for s in threat_srcs}
     metas = build_all_monthly(
         assets_root, version=run_id, run_seed=run_seed,
@@ -509,9 +511,13 @@ def main(argv=None):
                         "阳性对照闸(binarydefense 前 20 bare IP 池命中 ≥18,否则 "
                         "exit 2)→ 稳定 seed 采样 300 逐点查池;排他 = 池内无任何"
                         "指控 detail。只读装载(不动数据面)")
+    p.add_argument("--matrix-scan", action="store_true",
+                   help="语义契约矩阵现状扫描(ADR 0003 Task 2): 四层取样→"
+                        "逐通道显形观测→matrix.json 裁决 diff 三桶;退出码 "
+                        "0/1/2 = 干净/有 pending/有 violation;只读不落盘")
     p.add_argument("--seed", type=int, default=DEFAULT_SEED,
-                   help="--exclusive 采样 seed(默认 20261018 = 翻案探针同口径;"
-                        "同 seed 逐字节可复现)")
+                   help="--exclusive/--matrix-scan 采样 seed(默认 20261018 = "
+                        "翻案探针同口径;同 seed 逐字节可复现)")
     p.add_argument("--run-seed", type=int, default=None,
                    help="run 级 seed(T2 纪律: 显式传则可复现; 缺省 = "
                         "各入口稳定缺省 —— sentinel 名派生 / gate 随机但落报告)")
@@ -639,9 +645,15 @@ def main(argv=None):
         corpus = _load_corpus()
         # W0 层1:自采样偏差治理 —— 语料成员在源 raw 文件内的佐证剔除
         origin = origin_map(registry.sources, corpus.all_ips())
+        # 矩阵断言段接线(ADR 0003 Task 3):--assets-dir 缺省同
+        # --matrix-scan/run_readout 四层资产根(跨 env 共享事实);
+        # 断言分级 = violation 失败级 check / pending 警示行(套件
+        # report_checks 段),不重跑语料只跑矩阵扫描段。
         result = run_suite(registry.lookup, corpus,
                            declared_r=dict(SOURCE_RELIABILITY), origin=origin,
-                           sources=registry.sources)
+                           sources=registry.sources,
+                           matrix_assets=(Path(args.assets_dir) if args.assets_dir
+                                          else _ASSETS_ROOT_DEFAULT))
         md, js = write_model_report(result, REPORT_DIR)
         if args.json:
             print(Path(js).read_text())
@@ -708,6 +720,34 @@ def main(argv=None):
               f"degraded={'yes' if res['degraded'] else 'no'}")
         print(f"  report: {md_path}")
         return
+    # ── 矩阵现状扫描(Task 2, ADR 0003)──────────────────────
+    if args.matrix_scan:
+        # --assets-dir 缺省同 run_readout(四层资产根, 跨 env 共享);只读
+        # (lookup + 资产 + matrix.json)stdout 报告不落盘(stix 黑盒最小面
+        # 同纪律);退出码 0/1/2 = 干净/有 pending/有 violation 或坏输入
+        # 信封(--exclusive 先例, violation 优先)。不写文件 → 无目录隔
+        # 离面, eval_env 只进报告头(call-time fail-loud 同族)。
+        from .matrix_scan import render_md, run_matrix_scan
+        assets_root = (Path(args.assets_dir) if args.assets_dir
+                       else _ASSETS_ROOT_DEFAULT)
+        try:
+            res = run_matrix_scan(registry.lookup, assets_root, seed=args.seed)
+        except (ValueError, OSError) as e:
+            # 坏输入族:matrix.json 缺失/坏 JSON(load_matrix →
+            # FileNotFoundError/JSONDecodeError)+ 层资产损坏 → §5.2 要
+            # 信封不裸栈(--exclusive 先例, 终审 M-1)。rc 2 与 violation
+            # 同码但信封可辨成因;pending=1 语义保持无歧义。
+            if args.json:
+                _json_error("matrix_scan_failed", str(e),
+                            "核对 --assets-dir 与 matrix.json 存在/合法",
+                            rc=2)
+            print(str(e), file=sys.stderr)
+            sys.exit(2)
+        if args.json:
+            print(json.dumps(res, ensure_ascii=False, indent=1, default=str))
+        else:
+            print(render_md(res))
+        sys.exit(res["exit_code"])
     # ── T9 gate 族子命令(spec §3.1/§3.2; 镜像前置 S7)────────────
     if args.gate is not None:
         # 接入关 CLI: ensure_gate_mirror(S7: 跑前镜像对齐, 失配拒跑
