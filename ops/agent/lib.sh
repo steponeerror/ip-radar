@@ -70,6 +70,8 @@ inject_precedents() {
 # verify_cited_precedents <包路径> — 解析包内「注入判例」节列出的判例文件路径,逐一校验存在;
 # 编造路径 → 非零退出并打印;节缺失/既无路径又无「无判例」→ 非零(Review Focus 2:防 agent 编造判例)。
 # 路径接受三种形式:相对当前目录 / docs 仓相对(docs/ops/precedents/x.md)/ 判例文件名(x.md)。
+# T4 实测补丁(2026-10-19):排除类补冒号与全角顿号——模型引文「…判例:2026-…md、2026-…md」
+# 旧类把 ':2026-…md' 混进 token,真实文件被误报编造(邻洞律:同族问题一次清面)。
 verify_cited_precedents() {
   local pkg="$1"
   [[ -f "$pkg" ]] || { echo "verify_cited_precedents: 包不存在: $pkg" >&2; return 1; }
@@ -79,8 +81,8 @@ verify_cited_precedents() {
   local paths rc=0
   paths="$(printf '%s\n' "$sec" | awk '{
     line = $0; gsub(/`/, "", line)
-    if (match(line, /[^ \t()\[\]'"'"',;。]+\.md/)) {
-      tok = substr(line, RSTART, RLENGTH); gsub(/[),.;]$/, "", tok); print tok
+    if (match(line, /[^ \t()\[\]'"'"',;。:、]+\.md/)) {
+      tok = substr(line, RSTART, RLENGTH); gsub(/[),.;:、]$/, "", tok); print tok
     }
   }')"
   if [[ -z "$paths" ]]; then
