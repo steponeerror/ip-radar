@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# lib.sh — 判例检索注入 / 判例引用校验 / 台账 / 沙箱断言(T2;feed_freshness 等健康轮扩展归 T3)
+# lib.sh — 判例检索注入 / 判例引用校验 / 台账 / 沙箱断言(T2;feed_freshness 等健康轮扩展归 T3;
+# run_pi pi 调用面归 T3.5)
 # 检索只许 rg 词法,禁止 embedding(九裁决 7);判例库 docs/ops/precedents/ 无界不删。
 # fixture 隔离:PRECEDENTS_DIR / LEDGER_FILE 可环境覆盖(selftest 用);沙箱根不可覆盖——
 # 由本文件落位推导,保证断言对象恒为 worktree 根(任务书:不是主 checkout)。
@@ -126,6 +127,105 @@ sandbox_assert() {
     return 1
   fi
   return 0
+}
+
+# ── T3.5: pi 统一调用面 ──────────────────────
+# run_pi — stdin=用户消息,argv=追加 pi 旗标(模型/工具面/--append-system-prompt 文件等)。
+# 修正批四问题(2026-10-19 用户质疑查证):
+# ① --no-session——print 默认持久会话,定时轮会无限灌 session store(经验在判例库不在会话);
+# ② --mode json——print 模式无用量输出,九裁决 9 记账空转;解析事件流取真数:
+#    最终文本/stopReason=末个 role=assistant 的 message_end;用量=全部 assistant
+#    message_end 的 usage 求和(实测 2026-10-19 多回合探针:每回合重置非累计,
+#    只取末事件会在工具多回合轮少数;中间回合 stopReason=toolUse 不入失败面);
+#    usage/stopReason 均在 message 内层非事件顶层(同日探针);
+# ③ --no-extensions——claude-mem 扩展会注入开发会话观察(customType=
+#    claude-mem-context,实测 ~5k tokens);同时关 MCP/codemode——discover 动作面=
+#    gh/curl/ipdb CLI,不依赖 MCP;
+# ④ 工具面由调用方按轮次收紧(round.sh)。
+# stdin prompt 经 '-- -' 传入、--append-system-prompt 传文件路径读文件内容,均 2026-10-19
+# 实测支持(探针 /tmp 留档)。失败面(JSON 模式下 pi 不必然非零退出,必须自判):末个
+# assistant message_end 的 stopReason=error/aborted、agent_settled.aborted=true、最终文本为空。
+# 出参:PI_TEXT(最终文本)/PI_USAGE(紧凑串 in=.. out=.. total=.. cost=..);失败非零+原因到 stderr。
+# PI_BIN 可覆盖(selftest fixture 用,不真调 pi);RUN_PI_RAW_OUT=<file> 可选——原始
+# 事件流留档供审计(冒烟验 claude-mem 零注入等),不留档不落盘。
+run_pi() {
+  local raw errf textf rc verdict
+  raw="$(mktemp)"; errf="$(mktemp)"; textf="$(mktemp)"
+  if "${PI_BIN:-pi}" --mode json --no-session --no-extensions "$@" -- - \
+      > "$raw" 2> "$errf"; then rc=0; else rc=$?; fi
+  if (( rc != 0 )); then
+    echo "run_pi: pi 进程失败(rc=$rc)" >&2; cat "$errf" >&2
+    rm -f "$raw" "$errf" "$textf"; return "$rc"
+  fi
+  [[ -n "${RUN_PI_RAW_OUT:-}" ]] && cp "$raw" "$RUN_PI_RAW_OUT"
+  verdict="$(python3 - "$raw" "$textf" <<'PY'
+import json, sys
+# 输出单行「ok<TAB>用量串」或「fail<TAB>原因」;最终文本写 argv[2]。
+# 永不非零退出(解析器自身故障也降级为 fail 判定,不伪装成功)。
+raw_path, text_path = sys.argv[1], sys.argv[2]
+try:
+    last, aborted = None, False
+    u_in = u_out = u_tot = 0
+    u_cost = 0.0
+    n_usage = 0
+    with open(raw_path, encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                ev = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(ev, dict):
+                continue
+            if ev.get('type') == 'message_end':
+                msg = ev.get('message')
+                if isinstance(msg, dict) and msg.get('role') == 'assistant':
+                    last = ev
+                    u = msg.get('usage') or {}
+                    u_in += u.get('input') or 0
+                    u_out += u.get('output') or 0
+                    u_tot += u.get('totalTokens') or 0
+                    u_cost += (u.get('cost') or {}).get('total') or 0.0
+                    n_usage += 1
+            elif ev.get('type') == 'agent_settled' and ev.get('aborted'):
+                aborted = True
+    if aborted:
+        print('fail\tagent_settled.aborted=true(轮次中止)')
+    elif last is None:
+        print('fail\t事件流无 assistant message_end(pi 未产出?)')
+    else:
+        # 实测(2026-10-19 探针):usage/stopReason 在 message 内层,非事件顶层
+        msg = last.get('message') or {}
+        if msg.get('stopReason') in ('error', 'aborted'):
+            print('fail\tstopReason=%s' % msg.get('stopReason'))
+        else:
+            content = msg.get('content')
+            if isinstance(content, list):
+                text = ''.join(p.get('text') or '' for p in content
+                               if isinstance(p, dict) and p.get('type') == 'text')
+            else:
+                text = content if isinstance(content, str) else ''
+            if not text.strip():
+                print('fail\t最终文本为空')
+            else:
+                u_cost = round(u_cost, 8)
+                print('ok\tin=%s out=%s total=%s cost=%s' % (u_in, u_out, u_tot, u_cost))
+                with open(text_path, 'w', encoding='utf-8') as tf:
+                    tf.write(text)
+except Exception as e:
+    print('fail\t事件流解析异常: %s' % e)
+PY
+)" || verdict="fail\t解析器调用异常"
+  rm -f "$raw" "$errf"
+  if [[ "${verdict%%$'\t'*}" != ok ]]; then
+    echo "run_pi: ${verdict#*$'\t'}" >&2
+    rm -f "$textf"; return 1
+  fi
+  PI_USAGE="${verdict#*$'\t'}"
+  PI_TEXT="$(<"$textf")"
+  rm -f "$textf"
 }
 
 # ── T3: 健康轮确定性检查(feed 冻结检测)──────────────────────

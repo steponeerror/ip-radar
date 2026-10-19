@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# round.sh — 运营轮次 runner(T2 骨架 + T3 健康轮动作面;discover 归 T4)
-# 链:组上下文(模板+判例注入+输入,health 输入含确定性检查实测读数)→
-# pi --print → 落裁决包草稿 → 台账 → 判例引用校验 → 沙箱断言。
-# 任一步失败即轮次失败非零退出(九裁决 6:短命 pi 进程,每轮记账)。
+# round.sh — 运营轮次 runner(T2 骨架 + T3 健康轮动作面;discover 归 T4;
+# T3.5 pi 调用面修正:run_pi 统一 json/no-session/no-extensions,工具面按轮次收紧)
+# 链:组用户消息(判例注入块+轮次输入,health 输入含确定性检查实测读数;系统提示
+# 经 --append-system-prompt 文件传入)→ run_pi → 落裁决包草稿 → 台账(真用量)→
+# 判例引用校验 → 沙箱断言。任一步失败即轮次失败非零退出(九裁决 6:短命 pi 进程,每轮记账)。
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
@@ -25,8 +26,10 @@ round="$1"; input="$2"; shift 2
 # 模型映射(九裁决 9):健康轮 flash,discover 轮 pi 默认主力;检索词默认按轮次主题,T3/T4 再精化
 case "$round" in
   health)
-    prompt_file=ops/agent/prompts/health.md
-    model_args=(--model glm-5.3-flash)
+    sys_prompt=ops/agent/prompts/health-system.md
+    # 工具面收紧(T3.5 问题④):健康轮纯摘要器,一切输入已在用户消息,
+    # --no-tools --no-skills 全关(含扩展工具);flash 轻模型(九裁决 9)。
+    pi_flags=(--model glm-5.3-flash --no-tools --no-skills)
     model_label="glm-5.3-flash"
     kws=(冻结 死键 不可达 违例)
     # ── T3 确定性检查:不经 LLM 先算,结果作为 INPUT 一部分喂 flash ──
@@ -62,8 +65,11 @@ EOF
     ledger_note="urls=${#ff_urls[@]} flags=$(grep -c '建议复核' <<<"$ff_flags" || true) matrix_rc=${ff_ms_rc}"
     ;;
   discover)
-    prompt_file=ops/agent/prompts/discover.md
-    model_args=()
+    sys_prompt=ops/agent/prompts/discover-system.md
+    # 工具面收紧(T3.5 问题④):-xt write,edit 留 read+bash 跑探针(gh/curl/ipdb
+    # CLI);注意 bash 仍可写文件——沙箱保证仍是系统提示红线+轮末 sandbox_assert,
+    # 工具收紧只减面不立界。
+    pi_flags=(-xt write,edit)
     model_label="default(主力)"
     kws=(排他率 聚合器 许可 体量 冻结)
     ;;
@@ -71,29 +77,30 @@ EOF
 esac
 kws+=("$@")
 
-[[ -f "$prompt_file" ]] || { echo "round: 缺提示词模板 $prompt_file" >&2; exit 1; }
+[[ -f "$sys_prompt" ]] || { echo "round: 缺系统提示文件 $sys_prompt" >&2; exit 1; }
 
-# 1) 组上下文:模板 + 判例注入块(rg 词法,无嵌入)+ 本轮输入
+# 1) 组用户消息 = 判例注入块(rg 词法,无嵌入)+ 本轮输入;系统提示(role/边界/
+#    输出契约)经 --append-system-prompt 文件传入(实测读文件内容,2026-10-19 探针)
 inject_block="$(inject_precedents "${kws[@]}")"
-prompt="$(<"$prompt_file")"
-prompt="${prompt//'{{PRECEDENTS}}'/$inject_block}"
-prompt="${prompt//'{{INPUT}}'/$input}"
+user_msg="$inject_block
 
-# 2) pi 短命调用;非零退出或空输出 = 轮次失败
-pi_err="$(mktemp)"
-if ! pi_out="$(pi --print ${model_args[@]+"${model_args[@]}"} -- "$prompt" 2>"$pi_err")"; then
-  echo "round: pi 调用失败(非零退出)" >&2; cat "$pi_err" >&2; rm -f "$pi_err"; exit 1
+# 本轮输入
+
+$input"
+
+# 2) pi 短命调用(T3.5 修正面:json 真用量/no-session/no-extensions/工具收紧;
+#    失败面——stopReason=error/aborted、agent_settled.aborted、空文本——由 run_pi 自判)
+if ! run_pi --append-system-prompt "$sys_prompt" ${pi_flags[@]+"${pi_flags[@]}"} <<<"$user_msg"; then
+  echo "round: pi 调用失败,轮次失败" >&2; exit 1
 fi
-rm -f "$pi_err"
-[[ -n "$pi_out" ]] || { echo "round: pi 空输出,轮次失败" >&2; exit 1; }
 
 # 3) 裁决包草稿落 docs 仓(经符号链接;文件名带 HHMM——同日同轮重跑不覆盖,证据不灭失裁决 2026-10-19 评审 Minor-2)
 pkg_dir="$DOCS_ROOT/ops/packages"; mkdir -p "$pkg_dir"
 pkg="$pkg_dir/$(date +%F)-$round-$(date +%H%M).md"
-printf '%s\n' "$pi_out" > "$pkg"
+printf '%s\n' "$PI_TEXT" > "$pkg"
 
-# 4) 台账 → 5) 判例引用校验 → 6) 沙箱断言(每轮末步强制,Review Focus 1)
-ledger_append "$round" "$model_label" "pi_rc=0 out_len=${#pi_out}" "${ledger_note:-}"
+# 4) 台账(用量=pi 实报真数,九裁决 9)→ 5) 判例引用校验 → 6) 沙箱断言(每轮末步强制,Review Focus 1)
+ledger_append "$round" "$model_label" "$PI_USAGE" "${ledger_note:-}"
 verify_cited_precedents "$pkg"
 sandbox_assert
 echo "round: $round 完成 → $pkg"

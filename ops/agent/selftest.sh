@@ -136,13 +136,86 @@ OUT="$(sandbox_assert 2>&1)"; RC=$?
 rm -f "$ROOT/backend/.selftest-pollution"
 sandbox_assert >/dev/null 2>&1 && ok "sandbox:清理后恢复零退出" || bad "sandbox:清理后恢复零退出"
 
-# ---- 5. 模板与 round.sh 骨架 ----
+# ---- 5. 提示词拆分与语法(T3.5:*-system.md 系统提示化,占位符机制退役) ----
 for p in health discover; do
-  f="$AGENT/prompts/$p.md"
-  [[ -f "$f" ]] && grep -q '{{PRECEDENTS}}' "$f" && grep -q '{{INPUT}}' "$f" \
-    && ok "prompt:$p.md 含双占位符" || bad "prompt:$p.md 含双占位符"
+  f="$AGENT/prompts/$p-system.md"
+  [[ -f "$f" ]] && ! grep -q '{{' "$f" \
+    && ok "prompt:$p-system.md 存在且无占位符" || bad "prompt:$p-system.md 存在且无占位符"
+  [[ ! -f "$AGENT/prompts/$p.md" ]] \
+    && ok "prompt:旧 $p.md 已改造退役" || bad "prompt:旧 $p.md 已改造退役"
 done
 bash -n "$AGENT/round.sh" 2>/dev/null && ok "round.sh:bash 语法通过" || bad "round.sh:bash 语法通过"
+bash -n "$AGENT/lib.sh" 2>/dev/null && ok "lib.sh:bash 语法通过" || bad "lib.sh:bash 语法通过"
+
+# ---- 5b. T3.5: run_pi 解析器(罐装 JSONL 经 PI_BIN stub,不真调 pi) ----
+# 事件形状 = 2026-10-19 真流实测:末个 assistant message_end 携 text+usage+
+# stopReason;agent_settled.aborted 为全局中止旗标。四态判定(JSON 模式下 pi
+# 不必然非零退出,失败面必须 run_pi 自判)。
+PI_STUB="$TMP/pi-stub.sh"
+cat > "$PI_STUB" <<'EOF'
+#!/usr/bin/env bash
+# selftest stub:记录 run_pi 传下的旗标与 stdin,stdout 吐罐装事件流
+printf '%s\n' "$*" > "$PI_STUB_ARGS"
+cat > "$PI_STUB_STDIN"
+cat "$PI_STUB_FIXTURE"
+exit "${PI_STUB_RC:-0}"
+EOF
+chmod +x "$PI_STUB"
+# 注意:PI_STUB_FIXTURE 每例重赋,必须在 export 列表里(非导出的普通变量
+# 进不了 stub 子进程——首跑 6 FAIL 即此坑,2026-10-19)
+export PI_BIN="$PI_STUB" PI_STUB_ARGS="$TMP/pi.args" PI_STUB_STDIN="$TMP/pi.stdin" PI_STUB_FIXTURE=/dev/null PI_STUB_RC=0
+
+# 成功态:双 assistant message_end——文本取末个,用量取全部回合求和(实测每回合
+# 重置非累计,2026-10-19 多回合探针 /tmp/jitrl-t35-multiturn.jsonl)
+cat > "$TMP/pi-ok.jsonl" <<'EOF'
+{"type": "session", "id": "fixture"}
+{"type": "message_end", "message": {"role": "system", "content": ""}}
+{"type": "message_end", "message": {"role": "assistant", "content": [{"type": "text", "text": "早轮文本"}], "usage": {"input": 1, "output": 1, "totalTokens": 2, "cost": {"total": 0.0001}}, "stopReason": "stop"}}
+{"type": "message_end", "message": {"role": "assistant", "content": [{"type": "thinking", "thinking": "略"}, {"type": "text", "text": "最终摘要文本"}], "usage": {"input": 10976, "output": 40, "totalTokens": 11144, "cost": {"total": 0.00155936}}, "stopReason": "stop"}}
+{"type": "agent_settled", "aborted": false}
+EOF
+PI_STUB_FIXTURE="$TMP/pi-ok.jsonl"
+PI_TEXT=""; PI_USAGE=""
+run_pi --no-tools <<<"用户消息内容" 2>/dev/null && ok "run_pi:成功态零退出" || bad "run_pi:成功态零退出"
+[[ "${PI_TEXT:-}" == "最终摘要文本" ]] && ok "run_pi:最终文本=末个 assistant" || bad "run_pi:最终文本=末个 assistant"
+[[ "${PI_USAGE:-}" == "in=10977 out=41 total=11146 cost=0.00165936" ]] \
+  && ok "run_pi:用量四真数=全部 assistant 回合求和(1+10976 等)" || bad "run_pi:用量四真数=全部 assistant 回合求和(1+10976 等)"
+grep -q -- '--mode json --no-session --no-extensions --no-tools -- -' "$PI_STUB_ARGS" \
+  && ok "run_pi:调用面旗标钉死(json/no-session/no-extensions/-- -)" || bad "run_pi:调用面旗标钉死(json/no-session/no-extensions/-- -)"
+grep -q '用户消息内容' "$PI_STUB_STDIN" && ok "run_pi:prompt 经 stdin 传递" || bad "run_pi:prompt 经 stdin 传递"
+
+# 失败三态 + pi 进程非零
+cat > "$TMP/pi-stoperr.jsonl" <<'EOF'
+{"type": "message_end", "message": {"role": "assistant", "content": [{"type": "text", "text": "部分文本"}], "usage": {"input": 10, "output": 5, "totalTokens": 15, "cost": {"total": 0.001}}, "stopReason": "error"}}
+{"type": "agent_settled", "aborted": false}
+EOF
+PI_STUB_FIXTURE="$TMP/pi-stoperr.jsonl"
+OUT="$(run_pi 2>&1)"; RC=$?
+[[ $RC -ne 0 ]] && ok "run_pi:stopReason=error 判失败" || bad "run_pi:stopReason=error 判失败"
+[[ "$OUT" == *"stopReason=error"* ]] && ok "run_pi:失败原因含 stopReason" || bad "run_pi:失败原因含 stopReason"
+
+cat > "$TMP/pi-abort.jsonl" <<'EOF'
+{"type": "message_end", "message": {"role": "assistant", "content": [{"type": "text", "text": "文本"}], "usage": {"input": 10, "output": 5, "totalTokens": 15, "cost": {"total": 0.001}}, "stopReason": "stop"}}
+{"type": "agent_settled", "aborted": true}
+EOF
+PI_STUB_FIXTURE="$TMP/pi-abort.jsonl"
+OUT="$(run_pi 2>&1)"; RC=$?
+[[ $RC -ne 0 ]] && ok "run_pi:agent_settled.aborted 判失败" || bad "run_pi:agent_settled.aborted 判失败"
+[[ "$OUT" == *"aborted"* ]] && ok "run_pi:失败原因含 aborted" || bad "run_pi:失败原因含 aborted"
+
+cat > "$TMP/pi-empty.jsonl" <<'EOF'
+{"type": "message_end", "message": {"role": "assistant", "content": [{"type": "thinking", "thinking": "只有思考无正文"}], "usage": {"input": 10, "output": 5, "totalTokens": 15, "cost": {"total": 0.001}}, "stopReason": "stop"}}
+{"type": "agent_settled", "aborted": false}
+EOF
+PI_STUB_FIXTURE="$TMP/pi-empty.jsonl"
+OUT="$(run_pi 2>&1)"; RC=$?
+[[ $RC -ne 0 ]] && ok "run_pi:空最终文本判失败" || bad "run_pi:空最终文本判失败"
+[[ "$OUT" == *"空"* ]] && ok "run_pi:失败原因指明空文本" || bad "run_pi:失败原因指明空文本"
+
+PI_STUB_FIXTURE=/dev/null PI_STUB_RC=1
+OUT="$(run_pi 2>&1)"; RC=$?
+[[ $RC -ne 0 ]] && ok "run_pi:pi 进程非零退出判失败" || bad "run_pi:pi 进程非零退出判失败"
+unset PI_BIN PI_STUB_ARGS PI_STUB_STDIN PI_STUB_FIXTURE PI_STUB_RC
 
 # ---- 6. 真实台账文件(docs 仓 docs/ops/ledger.md 首建表头) ----
 grep -q '^| 日期 | 轮次 | model | 用量 | 备注 |$' "$ROOT/docs/ops/ledger.md" 2>/dev/null \
