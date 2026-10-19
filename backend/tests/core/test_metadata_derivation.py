@@ -24,6 +24,7 @@ OLD_CATEGORIES = {
     "sw_scanners": "threat",    # 波2 T1 ShadowWhisperer Scanners(2026-10-19,自采策展非 derived)
     "data_shield": "threat",    # 波2 T2 duggytuxy Data-Shield(2026-10-19,derived 聚合源)
     "sblam": "threat",          # 波3 T1 Sblam! 表单垃圾黑名单(2026-10-19,非 derived)
+    "cloudzy": "asset",         # 波3 T2 Cloudzy VPS 段标签(2026-10-19,asset 轴非 derived)
     "ip2proxy": "asset", "tor_exits": "asset", "x4bnet_vpn": "asset",
     "proxyscrape": "asset", "infra_services": "asset", "cdn_edges": "asset",
     "hookzof": "asset", "thespeedx": "asset",
@@ -56,6 +57,7 @@ OLD_RELIABILITY = {
     "sw_scanners": 0.55,        # 波2 T1 ShadowWhisperer Scanners(2026-10-19)
     "data_shield": 0.50,        # 波2 T2 duggytuxy Data-Shield(2026-10-19)
     "sblam": 0.55,              # 波3 T1 Sblam!(2026-10-19)
+    "cloudzy": 0.90,            # 波3 T2 Cloudzy VPS 段标签(2026-10-19)
     "drb_ra": 0.50, "hookzof": 0.50, "thespeedx": 0.50,
     "protonvpn": 0.75, "nordvpn": 0.75,
     "cloud_ranges": 0.95,
