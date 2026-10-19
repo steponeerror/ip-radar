@@ -9,6 +9,10 @@
 // → host 收口四件:裁决包 + 台账(轮次汇总行)+ 判例引用闭合校验[∈预注入∪本会话命中]
 // + sandbox_assert。任一失败 = 轮次失败非零退出。
 // 结构性红线:零内建工具(tools 仅 ToolHost 领域面);agent 永不写数据面/查询路径。
+// opts(T6 金轨迹缝,缺省=生产行为不变):opts.models={models,resolve} 注入 faux provider
+// 模型(pi-ai faux;不花 API);opts.registrySeed=[{id,tool,sc}] 预登记测量腿结构化返回——
+// 排他 24.9/25.0 边界用例的 exclusive_probe 需真网络+数据面,离线金轨迹钉其冻结契约
+// (tools.mjs outputSchema 形状),门仍从登记表真算。返回值 registry=登记表快照(断言面)。
 import fs from "node:fs";
 import path from "node:path";
 import { execFile as execFileCb } from "node:child_process";
@@ -33,10 +37,11 @@ const runLib = (fn, args = [], timeoutMs = 120_000) => execFileP("bash",
   ["-c", `. "$0"; ${fn} "$@"`, path.join(AGENT_DIR, "lib.sh"), ...args],
   { timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024, env: { ...process.env } });
 
-export async function runRound(round, input, extraKws = []) {
+export async function runRound(round, input, extraKws = [], opts = {}) {
   if (!(round in KWS)) throw new Error(`轮次必须是 health|discover,得到:${round}`);
   const host = new ToolHost(round);
-  const { models, resolve } = await loadModels();
+  const { models, resolve } = opts.models ?? await loadModels();
+  for (const seed of opts.registrySeed ?? []) host.registry.register(seed.id, seed.tool, seed.sc);
   const model = resolve(round);
   const systemPrompt = fs.readFileSync(path.join(AGENT_DIR, "prompts", `${round}-system.md`), "utf8");
 
@@ -124,7 +129,8 @@ ${input}`;
   const verify = await runLib("verify_cited_precedents", [pkg]); // 存在性(lib.sh)
   closureCheck(finalText, allowed); // 闭集成员(铁律④);违 = 抛错轮次失败
   await runLib("sandbox_assert", [], 60_000);
-  return { pkg, usage: usageStr, toolCalls, queueWrites: host.queueWrites, verify: verify.stdout.trim() };
+  return { pkg, usage: usageStr, toolCalls, queueWrites: host.queueWrites, verify: verify.stdout.trim(),
+    registry: [...host.registry.byCall].map(([id, r]) => ({ id, tool: r.tool, sc: r.sc })) };
 }
 
 async function main() {

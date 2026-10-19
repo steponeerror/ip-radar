@@ -363,6 +363,43 @@ grep -q '工具返回验证' "$DISC" \
 grep -q 'health_snapshot' "$AGENT/prompts/health-system.md" && grep -q '信封处置' "$AGENT/prompts/health-system.md" \
   && ok "prompt:health 信封处置条款+快照工具在文" || bad "prompt:health 信封处置条款+快照工具在文"
 
+# ---- 10. T6: 金轨迹集(faux provider 跑真回路:Agent 循环+语义门+收口四件;不花 API) ----
+# 真模型用例=smoke 层单列,仅 --smoke 手跑,本钩子永不触发(计划书 Task 6 Step 2)。
+# 供给检查(T1 docs skip 判例同型):node+依赖缺供则跳过不计入 fail(CI 侧由 npm ci 保证供给)。
+if command -v node >/dev/null 2>&1 && [[ -d "$AGENT/node_modules/@earendil-works/pi-agent-core" ]] \
+   && command -v rg >/dev/null 2>&1 && command -v git >/dev/null 2>&1; then
+  GOLDOUT="$(node "$AGENT/golden/run-golden.mjs" 2>&1)"; GOLDRC=$?
+  GP_N="$(grep -c '^GOLDENPASS ' <<<"$GOLDOUT" || true)"
+  GF_N="$(grep -c '^GOLDENFAIL ' <<<"$GOLDOUT" || true)"
+  if (( GOLDRC == 0 && GF_N == 0 && GP_N >= 7 )); then
+    ok "golden:faux 用例集全绿(${GP_N} 例,布尔判据)"
+  else
+    bad "golden:faux 用例集失败(PASS=${GP_N} FAIL=${GF_N})"
+    printf '%s\n' "$GOLDOUT" | grep -E '^(GOLDENFAIL|  )' || true
+  fi
+  # 分类点名(冻结面:正例×2/负例三发/边界×2;smoke 层隔离面)
+  grep -q 'GOLDENPASS health_summary_format' <<<"$GOLDOUT" \
+    && ok "golden:正例①健康快照摘要格式+near_band 179/180 边界" || bad "golden:正例①健康快照摘要格式+near_band 179/180 边界"
+  grep -q 'GOLDENPASS discover_predicate_hit' <<<"$GOLDOUT" \
+    && ok "golden:正例②discover 谓词命中路径(门放行入队)" || bad "golden:正例②discover 谓词命中路径(门放行入队)"
+  grep -q 'GOLDENPASS neg1_enqueue_without_measurement' <<<"$GOLDOUT" \
+    && ok "golden:负例①无实测 ENQUEUE 被门挡零写队列" || bad "golden:负例①无实测 ENQUEUE 被门挡零写队列"
+  grep -q 'GOLDENPASS neg2_failed_envelope_as_evidence' <<<"$GOLDOUT" \
+    && ok "golden:负例②失败信封入 evidence 被拒" || bad "golden:负例②失败信封入 evidence 被拒"
+  grep -q 'GOLDENPASS neg3_fabricated_precedent_citation' <<<"$GOLDOUT" \
+    && ok "golden:负例③编造判例引用被闭合校验拦(轮次失败+台账已记账)" || bad "golden:负例③编造判例引用被闭合校验拦(轮次失败+台账已记账)"
+  grep -q 'GOLDENPASS boundary_enqueue_rate_24_9' <<<"$GOLDOUT" && grep -q 'GOLDENPASS boundary_enqueue_rate_25_0' <<<"$GOLDOUT" \
+    && ok "golden:边界排他 24.9 拒/25.0 入(门线两侧)" || bad "golden:边界排他 24.9 拒/25.0 入(门线两侧)"
+  ! grep -qE 'GOLDENPASS smoke_' <<<"$GOLDOUT" \
+    && ok "golden:smoke 真模型层零触发(冒烟层隔离面)" || bad "golden:smoke 真模型层零触发(冒烟层隔离面)"
+  node --check "$AGENT/golden/run-golden.mjs" 2>/dev/null \
+    && ok "golden:runner node 语法通过" || bad "golden:runner node 语法通过"
+  node -e 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))' "$AGENT/golden/cases.json" 2>/dev/null \
+    && ok "golden:用例集 json 可解析" || bad "golden:用例集 json 可解析"
+else
+  echo "SKIP golden:金轨迹供给缺(node/node_modules/rg/git)——T1 docs skip 判例同型,CI 由 npm ci 保证"
+fi
+
 echo "----"
 echo "selftest: PASS=$pass FAIL=$fail"
 (( fail == 0 )) || exit 1

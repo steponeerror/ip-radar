@@ -186,7 +186,8 @@ export function checkReadablePath(absPath) {
 }
 
 // evidence 字段点路径解析:"results.0.size_kb" / "results[0].size_kb" → 嵌套取值;无命中 undefined。
-function resolveField(obj, field) {
+// 导出供金轨迹 runner 复用同一解析语义(T6,避免断言侧另起炉灶)。
+export function resolveField(obj, field) {
   const parts = String(field).replace(/\[(\d+)\]/g, ".$1").split(".");
   let cur = obj;
   for (const p of parts) {

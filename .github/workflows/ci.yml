@@ -34,6 +34,16 @@ jobs:
           name: frontend-dist
           path: frontend/dist
           retention-days: 1
+      # T6(2026-10-19): ops 金轨迹集回归探针——faux provider 跑真 agent 回路,零 API 花费;
+      # 自带 fixture 判例树,不依赖嵌套 docs 仓(T1 docs skip 判例同型问题不存在),仅依赖
+      # node+npm 供给(本 job 已具备)+rg(ubuntu runner 预装,兜底 apt 装)。真模型 smoke 层
+      # 单列不进 CI(计划书 Task 6 Step 2)。沙箱断言面对 checkout 干净仓(同 仓内 step 均落 ignore 面)。
+      - name: Ops agent golden set (faux, no API spend)
+        working-directory: ops/agent
+        run: |
+          command -v rg >/dev/null 2>&1 || sudo apt-get install -y -q ripgrep
+          npm ci --no-fund --no-audit
+          node golden/run-golden.mjs
 
   backend:
     # needs frontend: SPA fallback tests assert on frontend/dist contents
