@@ -41,12 +41,13 @@ LINEAGE_CLUSTERS = {
     "ziyadnz": "aggregated-threat",   # 波1 聚合源(2026-10-18;derived 源须同步加簇,见上注)
     "malicious_ip": "aggregated-threat",  # 波1 T2 5 片联合体(2026-10-18;derived 同步入簇)
     "data_shield": "aggregated-threat",  # 波2 T2 duggytuxy Data-Shield(2026-10-19;derived 同步入簇)
+    "cps_collected_iocs": "aggregated-threat",  # 波3 T3 CPS 自有聚合(2026-10-19;derived 同步入簇)
 }
 
 # 蜜罐法采集源(S33):k 排除集兜底——源类属性 honeypot_methodology 声明
 # 优先,本集收敛漏报(读侧合并语义:getattr(src, "honeypot_methodology",
 # False) or src.name in 此集;消费方 = k_nonhoneypot 双报告,Task 8)。
-HONEYPOT_METHODOLOGY: set[str] = {"knock_knock", "binarydefense"}
+HONEYPOT_METHODOLOGY: set[str] = {"knock_knock", "binarydefense", "sblam"}
 
 MODEL_W = 10        # G1' prior strength
 MODEL_N_FLOOR = 10  # mover floor for suite checks
