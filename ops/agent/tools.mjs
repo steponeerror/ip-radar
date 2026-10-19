@@ -91,46 +91,59 @@ export function pinnedLookup(validatedAddrs) {
 
 // 手动逐跳重定向:每一跳都过 SSRF 门并钉地址(融合必保:D1 逐跳复检)。
 async function safeFetch(rawUrl, { method = "GET", maxBytes, timeoutMs }) {
-  let url = rawUrl, hops = 0, finalRes;
-  for (;;) {
-    const validated = await guardHop(url);
-    const dispatcher = new Agent({ connections: 1, connect: { lookup: pinnedLookup(validated) } });
-    try {
-      finalRes = await undiciFetch(url, {
-        method, redirect: "manual", signal: AbortSignal.timeout(timeoutMs),
-        headers: { "user-agent": UA }, dispatcher,
-      }).catch((e) => {
+  let url = rawUrl, hops = 0, finalRes, active = null;
+  try {
+    for (;;) {
+      const validated = await guardHop(url);
+      const hop = new Agent({ connections: 1, connect: { lookup: pinnedLookup(validated) } });
+      let r;
+      try {
+        r = await undiciFetch(url, {
+          method, redirect: "manual", signal: AbortSignal.timeout(timeoutMs),
+          headers: { "user-agent": UA }, dispatcher: hop,
+        });
+      } catch (e) {
+        await hop.close().catch(() => { /* 本跳失败即弃 */ });
         const why = e?.cause?.message ?? e?.message ?? String(e);
         throw Object.assign(new Error(`网络失败:${why}`), { code: /timeout|abort/i.test(why) ? "timeout" : "network" });
-      });
-    } finally {
-      await dispatcher.close().catch(() => { /* 单跳即弃 */ });
+      }
+      if (active) await active.close().catch(() => { /* 前一跳体已 cancel */ });
+      active = hop;
+      finalRes = r;
+      if ([301, 302, 303, 307, 308].includes(finalRes.status)) {
+        const loc = finalRes.headers.get("location");
+        await finalRes.body?.cancel().catch(() => { /* 重定向体不消费,显式 cancel 释放在飞请求 */ });
+        if (!loc) throw Object.assign(new Error(`${finalRes.status} 无 Location`), { code: "http_error" });
+        if (++hops > 5) throw Object.assign(new Error("重定向 >5 跳"), { code: "too_many_hops" });
+        url = new URL(loc, url).toString();
+        continue;
+      }
+      break;
     }
-    if ([301, 302, 303, 307, 308].includes(finalRes.status)) {
-      const loc = finalRes.headers.get("location");
-      if (!loc) throw Object.assign(new Error(`${finalRes.status} 无 Location`), { code: "http_error" });
-      if (++hops > 5) throw Object.assign(new Error("重定向 >5 跳"), { code: "too_many_hops" });
-      url = new URL(loc, url).toString();
-      continue;
+    // GET 体必须在本跳 dispatcher 开着时消费(复审 Important,2026-10-19):undici fetch
+    // 头部即 resolve,体流是消费者驱动带背压;先 close() 会等在飞请求,体永不被喡 →
+    // 卡到超时。实测复现:30MB 体 headers 20ms,close() 4s+ 仍挂起;177KB 则侥幸过。
+    let buf = null;
+    if (method === "GET") {
+      const reader = finalRes.body.getReader();
+      const chunks = []; let n = 0;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        n += value.byteLength;
+        if (n > maxBytes) { await reader.cancel(); throw Object.assign(new Error(`响应超过 ${maxBytes}B 上限`), { code: "too_large" }); }
+        chunks.push(value);
+      }
+      buf = Buffer.concat(chunks);
+    } else {
+      await finalRes.body?.cancel().catch(() => { /* HEAD 等无体请求:显式释放 */ });
     }
-    break;
+    if (finalRes.status >= 400) throw Object.assign(new Error(`HTTP ${finalRes.status}`), { code: "http_error", status: finalRes.status });
+    const headers = Object.fromEntries(finalRes.headers.entries());
+    return { finalUrl: url, status: finalRes.status, headers, body: buf, bytes: buf?.byteLength ?? 0 };
+  } finally {
+    await active?.close().catch(() => { /* 消费/取消/异常后统一收口(钉址 agent 单跳即弃) */ });
   }
-  let buf = null;
-  if (method === "GET") {
-    const reader = finalRes.body.getReader();
-    const chunks = []; let n = 0;
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      n += value.byteLength;
-      if (n > maxBytes) { await reader.cancel(); throw Object.assign(new Error(`响应超过 ${maxBytes}B 上限`), { code: "too_large" }); }
-      chunks.push(value);
-    }
-    buf = Buffer.concat(chunks);
-  }
-  if (finalRes.status >= 400) throw Object.assign(new Error(`HTTP ${finalRes.status}`), { code: "http_error", status: finalRes.status });
-  const headers = Object.fromEntries(finalRes.headers.entries());
-  return { finalUrl: url, status: finalRes.status, headers, body: buf, bytes: buf?.byteLength ?? 0 };
 }
 
 // ── 通用助手 ──────────────────────────────────────────────────────────────

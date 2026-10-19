@@ -171,7 +171,7 @@ await t("门:引用非测量工具(queue_action 套娃)被挡", async () => {
 });
 
 await t("门:queue 预算 ≤10/轮,第 11 次被挡(真实 execute 路径计数,不手工 spend)", async () => {
-  const h2 = new ToolHost("discover", { queueFile: path.join(TMP, "q-budget.md") });
+  const h2 = new ToolHost("discover", { queueFile: path.join(TMP, "q-budget.md"), artifactDir: TMP });
   h2.registry.register("p0", "exclusive_probe", { ok: true, control_pass: true, exclusive_rate: 0.5 });
   const qa = h2.tools.find((x) => x.name === "queue_action");
   const argsFor = (s) => ({ source: s, action: "ENQUEUE", rationale: "r", evidence: [EV("p0", "exclusive_rate", 0.5)] });
@@ -256,7 +256,7 @@ await t("键量:probe 键计数 + 上限信封", () => {
 
 // ── queue_action 执行面:行模板渲染 + 幂等去重 + veto_cmd ──────────────────────
 await t("队列:模板渲染落行/幂等去重/vetoable+veto_cmd", async () => {
-  const h3 = new ToolHost("discover", { queueFile: path.join(TMP, "queue.md") });
+  const h3 = new ToolHost("discover", { queueFile: path.join(TMP, "queue.md"), artifactDir: TMP });
   h3.registry.register("call_p9", "exclusive_probe", { ok: true, control_pass: true, exclusive_rate: 0.587, exclusive: 176, sampled: 300 });
   const qa = h3.tools.find((x) => x.name === "queue_action");
   const r1 = await qa.execute("t4", { source: "cand_x", action: "ENQUEUE", rationale: "看好", evidence: [EV("call_p9", "exclusive_rate", 0.587)] });
