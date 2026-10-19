@@ -150,3 +150,106 @@ def test_model_md_report_has_new_columns_and_footnotes(tmp_path):
     assert "| source | theta | 90% CI | n | k | rho | evidence | below-mkt | mono | fountain | unique | declared_r |" in text
     assert "specialist / uncovered niche, not necessarily weak" in text
     assert "information-theoretically uncorroboratable" in text
+
+
+# ── 矩阵断言段(ADR 0003 Task 3:violation→失败级 / pending→警示行)────
+# 接线面 = run_suite(matrix_assets=...)(缺省不接,旧入口/旧测试零漂移,
+# sources=None 可选注入同款先例);月度入口 --model 传四层资产根。
+
+def _save_matrix_layer(root, kind, ips):
+    from ipdb._eval.assets import AssetMeta, fingerprint, save_asset
+    save_asset(root / kind, ips, AssetMeta(
+        version="v1", kind=kind, fingerprint=fingerprint(ips),
+        member_count=len(ips), params={}, eval_env="monthly",
+        created_at="2026-10-19"))
+
+
+def _incident_payload(ip):
+    # 8.8.8.8 事故形状:infra IP 经存档章显形 informational(UI 通道)
+    return {"ip": ip, "threat": {"verdict": "informational", "confidence": 0,
+                                 "types": ["spam"], "is_cdn": False},
+            "classifications": {"spam": {
+                "type": "spam", "verdict": "informational", "detected": True,
+                "confidence": 0, "details": [
+                    {"source": "firehol_webserver", "verdict": "informational",
+                     "reliability": 0.5}]}},
+            "attributes": {}}
+
+
+def _matrix_lookup(hits):
+    def lookup(ip):
+        return hits.get(ip, {"ip": ip, "classifications": {}})
+    return lookup
+
+
+def test_run_suite_matrix_segment_violation_fails(tmp_path):
+    _save_matrix_layer(tmp_path, "infra", ["8.8.8.8"])
+    result = run_suite(_matrix_lookup({"8.8.8.8": _incident_payload("8.8.8.8")}),
+                       _corpus(), matrix_assets=tmp_path)
+    assert set(result["checks"]) == {"T1", "T2", "T3", "C1", "C2", "MATRIX"}
+    chk = result["checks"]["MATRIX"]
+    assert chk["pass"] is False                     # violation = 失败级
+    assert "violation 1" in chk["detail"] and "pending 0" in chk["detail"]
+    assert chk["violation_cells"] == ["infra|informational|UI"]
+
+
+def test_run_suite_matrix_segment_pending_warns_passes(tmp_path, monkeypatch):
+    from ipdb._eval import matrix_scan
+    from ipdb._eval.matrix import (CHANNELS, LABELS, LAYERS, RuledCell,
+                                   SemanticMatrix, save_matrix)
+    _save_matrix_layer(tmp_path, "infra", ["8.8.8.8"])
+    cells = {(l, b, c): RuledCell(state="illegal", note="conservative-default")
+             for l in LAYERS for b in LABELS for c in CHANNELS}
+    cells.update({(l, "clean", c): RuledCell(state="pending", note="待裁例")
+                  for l in ("infra",) for c in CHANNELS})
+    mpath = tmp_path / "matrix.json"
+    save_matrix(SemanticMatrix(cells=cells), mpath)
+    monkeypatch.setattr(matrix_scan, "MATRIX_PATH", mpath)
+    result = run_suite(_matrix_lookup({}), _corpus(), matrix_assets=tmp_path)
+    chk = result["checks"]["MATRIX"]
+    assert chk["pass"] is True                      # pending = 警示级不拦
+    assert "violation 0" in chk["detail"] and "pending 3" in chk["detail"]
+    assert "pending 3" in chk["warn"] and "待裁" in chk["warn"]
+    md, js = write_model_report(result, tmp_path)
+    text = md.read_text()
+    assert "**MATRIX: PASS**" in text
+    assert "⚠" in text and "pending 3" in text      # 警示行进 Checks 段
+    assert json.loads(js.read_text())["checks"]["MATRIX"]["pass"] is True
+
+
+def test_run_suite_matrix_segment_clean_passes_no_warn(tmp_path):
+    _save_matrix_layer(tmp_path, "infra", ["8.8.8.8"])
+    result = run_suite(_matrix_lookup({}), _corpus(), matrix_assets=tmp_path)
+    chk = result["checks"]["MATRIX"]
+    assert chk["pass"] is True
+    assert "violation 0" in chk["detail"] and "pending 0" in chk["detail"]
+    assert "warn" not in chk and "violation_cells" not in chk
+
+
+def test_cli_model_wires_matrix_segment(monkeypatch, tmp_path, capsys):
+    # 月度入口接线面:--model 传四层资产根(缺省 <repo>/backend/data/
+    # eval/assets,--assets-dir 覆盖)→ 套件增 MATRIX 段(真 matrix.json)
+    import ipdb._registry as reg
+    monkeypatch.setattr(reg, "_sources", [])
+    monkeypatch.setattr(reg, "load_db", lambda: None)
+
+    class _Result:
+        def __init__(self, payload):
+            self._p = payload
+        def to_dict(self):
+            return self._p
+
+    monkeypatch.setattr(
+        reg, "lookup",
+        lambda ip, allowed_sources=None, *, asof=None: _Result(
+            {"8.8.8.8": _incident_payload("8.8.8.8")}.get(
+                ip, {"ip": ip, "classifications": {}})))
+    from ipdb._eval import __main__ as em
+    monkeypatch.setattr(em, "REPORT_DIR", tmp_path)
+    _save_matrix_layer(tmp_path, "infra", ["8.8.8.8"])
+    em.main(["--model", "--assets-dir", str(tmp_path)])
+    assert "model suite:" in capsys.readouterr().out
+    js = next((tmp_path / "model").glob("model-*.json"))
+    chk = json.loads(js.read_text())["checks"]["MATRIX"]
+    assert chk["pass"] is False
+    assert chk["violation_cells"] == ["infra|informational|UI"]

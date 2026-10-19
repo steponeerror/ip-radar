@@ -15,6 +15,7 @@ from . import config
 from .ablation import take_snapshot
 from .corpus import Corpus, stable_seed
 from .events import extract_events, independent
+from .matrix_scan import run_matrix_scan
 from .model import SourceScore, beta_binomial_interval, estimate
 from .pairwise import assertion_records, pairwise_oc, source_pair_sets
 
@@ -185,6 +186,29 @@ def _c2(scores):
             f"specialists finite; {len(bm)} below-market flagged (not zeroed)"}
 
 
+def _matrix_check(scan: dict) -> dict:
+    """矩阵扫描结果 → 套件 check(ADR 0003 Task 3 断言分级)。
+
+    violation → 失败级(pass=False,格名进 violation_cells);
+    pending → 警示级(warn 行,不拦);计数进 detail → Checks 既有
+    报告段(write_model_report)。证据样本不进套件——全量报告归
+    --matrix-scan(职责单一,套件只答过/不过)。"""
+    c = scan["counts"]
+    detail = (f"语义矩阵扫描(ADR 0003):violation {c['violation']}/"
+              f"pending {c['pending']}/agreement {c['agreement']};层 "
+              + " ".join(f"{k}={st['status']}"
+                          for k, st in scan["layers"].items())
+              + f"(seed {scan['seed']}, 不重跑语料只跑矩阵扫描段)")
+    chk = {"pass": c["violation"] == 0, "detail": detail}
+    if c["violation"]:
+        chk["violation_cells"] = [e["cell"]
+                                   for e in scan["buckets"]["violation"]]
+    if c["pending"]:
+        chk["warn"] = (f"pending {c['pending']} 格违例待裁(警示级,不拦;"
+                       "证据样本见 --matrix-scan)")
+    return chk
+
+
 def _source_health(sources) -> dict[str, dict] | None:
     """W4 轮次健康块(决策 #4):源全量 rc/stale 快照,进 model report
     顶层 —— 后续轮次缺席 = missing 非沉默;rc_history(NO-DATA collapsed
@@ -200,7 +224,7 @@ def _source_health(sources) -> dict[str, dict] | None:
 
 def run_suite(lookup_fn, corpus: Corpus, declared_r=None, w=None,
               origin: dict[str, set[str]] | None = None,
-              sources=None) -> dict:
+              sources=None, matrix_assets=None) -> dict:
     w = w if w is not None else config.MODEL_W
     ips = corpus.all_ips()
     corpus_fp = {"n_ips": len(ips),
@@ -226,6 +250,13 @@ def run_suite(lookup_fn, corpus: Corpus, declared_r=None, w=None,
         "C1": _c1(scores),
         "C2": _c2(scores),
     }
+    if matrix_assets is not None:
+        # 矩阵断言段(ADR 0003 Task 3):不重跑语料,只跑矩阵扫描段
+        # (四层取样存在性判定,run_matrix_scan 只读);缺省不接 —— 旧入口/
+        # 旧测试零漂移(sources=None 可选注入同款先例),月度接线面 =
+        # __main__ --model 传四层资产根。
+        checks["MATRIX"] = _matrix_check(
+            run_matrix_scan(lookup_fn, matrix_assets))
     return {"kind": "model", "w": w, "lso": scores_lso is not None,
             "scores": scores, "scores_lso": scores_lso, "checks": checks,
             "source_health": _source_health(sources),
@@ -304,6 +335,9 @@ def write_model_report(result: dict, out_dir: Path, *,
     lines += ["", "## Checks", ""]
     for name, chk in result["checks"].items():
         lines.append(f"- **{name}: {'PASS' if chk['pass'] else 'FAIL'}** — {chk['detail']}")
+        if chk.get("warn"):
+            # 警示行(矩阵 pending 档,ADR 0003 断言分级):过但留声
+            lines.append(f"  - ⚠ {name}: {chk['warn']}")
     lines += ["",
               "_High unique share with no evidence = specialist / uncovered niche, "
               "not necessarily weak (coverage is orthogonal to corroboration)._",

@@ -643,9 +643,16 @@ def main(argv=None):
         corpus = _load_corpus()
         # W0 层1:自采样偏差治理 —— 语料成员在源 raw 文件内的佐证剔除
         origin = origin_map(registry.sources, corpus.all_ips())
+        # 矩阵断言段接线(ADR 0003 Task 3):--assets-dir 缺省同
+        # --matrix-scan/run_readout 四层资产根(跨 env 共享事实);
+        # 断言分级 = violation 失败级 check / pending 警示行(套件
+        # report_checks 段),不重跑语料只跑矩阵扫描段。
         result = run_suite(registry.lookup, corpus,
                            declared_r=dict(SOURCE_RELIABILITY), origin=origin,
-                           sources=registry.sources)
+                           sources=registry.sources,
+                           matrix_assets=(Path(args.assets_dir) if args.assets_dir
+                                          else _REPO_ROOT / "backend" / "data"
+                                          / "eval" / "assets"))
         md, js = write_model_report(result, REPORT_DIR)
         if args.json:
             print(Path(js).read_text())
