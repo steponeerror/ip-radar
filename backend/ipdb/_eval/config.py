@@ -41,6 +41,7 @@ LINEAGE_CLUSTERS = {
     "ziyadnz": "aggregated-threat",   # 波1 聚合源(2026-10-18;derived 源须同步加簇,见上注)
     "malicious_ip": "aggregated-threat",  # 波1 T2 5 片联合体(2026-10-18;derived 同步入簇)
     "data_shield": "aggregated-threat",  # 波2 T2 duggytuxy Data-Shield(2026-10-19;derived 同步入簇)
+    "cps_collected_iocs": "aggregated-threat",  # 波3 T3 CPS 自有聚合(2026-10-19;derived 同步入簇)
 }
 
 # 蜜罐法采集源(S33):k 排除集兜底——源类属性 honeypot_methodology 声明
