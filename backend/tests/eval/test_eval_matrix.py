@@ -5,7 +5,9 @@
 
 轴取值与保守默认语义权威:docs/superpowers/plans/2026-10-18-semantic-matrix.md
 Global Constraints + Task 1;指控标签集合复用 _types._ACCUSING(指控章单一口径,
-anchors.py 同款借道)。
+anchors.py 同款借道)。2026-10-19 首轮裁决(案一维持/案二案三转 legal)
+权威:docs/superpowers/plans/2026-10-19-matrix-ruling1.md——放宽任何格 =
+新裁决 + 改本文件断言。
 """
 import json
 from pathlib import Path
@@ -31,11 +33,29 @@ _TRUTH_CONSENSUS_IDS = {
     for label in _ACCUSING
     for ch in CHANNELS
 }
-EXPECTED_LEGAL_IDS = _TRUTH_CONSENSUS_IDS | {
-    cell_id("infra", "asset", "UI"),
-} | {
-    cell_id(layer, "clean", ch) for layer in LAYERS for ch in CHANNELS
+# 案二(2026-10-19):asset×{UI,stix}×{infra,neutral,consensus} 6 格转 legal
+# (infra|asset|UI 初始填充已在 legal,案二维持并补裁决出处)。
+_ASSET_CASE2_IDS = {
+    cell_id(layer, "asset", ch)
+    for layer in ("infra", "neutral", "consensus")
+    for ch in ("UI", "stix")
 }
+EXPECTED_LEGAL_IDS = _TRUTH_CONSENSUS_IDS | _ASSET_CASE2_IDS | {
+    cell_id(layer, "clean", ch) for layer in LAYERS for ch in CHANNELS
+} | {
+    # 案三(2026-10-19):consensus|informational|UI——archival 补充证词
+    # 非新指控,已指控对象上的对照显形合法。
+    cell_id("consensus", "informational", "UI"),
+}
+
+# 案一(2026-10-19):infra 威胁轴 7 格维持非法,note 自 conservative-default
+# 升 ruling-confirmed(裁决记录:docs/superpowers/plans/
+# 2026-10-19-matrix-ruling1.md 案一)。
+RULING1_CONFIRMED_NOTE = "ruling-confirmed(2026-10-19 案一)"
+CASE1_STAY_ILLEGAL_IDS = (
+    {cell_id("infra", label, ch)
+     for label in ("malicious", "suspicious") for ch in CHANNELS}
+    | {cell_id("infra", "informational", "UI")})
 
 
 def _repo_matrix_json() -> dict:
@@ -84,13 +104,22 @@ def test_repo_asset_provenance_and_note_rules():
         else:
             assert c.provenance is None, key          # 依据只属于合法格
         if c.state == "illegal":
-            assert c.note == "conservative-default", key
+            # 非法格 note ∈ {保守默认, 案一裁决确认};案一之外不许新 note 词
+            assert c.note in ("conservative-default",
+                              RULING1_CONFIRMED_NOTE), key
+    # 案一 7 格精确钉死:ruling-confirmed 只落在 infra 威胁轴维持非法格上
+    confirmed = {cell_id(*k) for k, c in m.cells.items()
+                 if c.note == RULING1_CONFIRMED_NOTE}
+    assert confirmed == CASE1_STAY_ILLEGAL_IDS
 
 
 def test_repo_asset_initial_fill_exactly_documented_groups():
     m = load_matrix()
     legal = {cell_id(*k) for k, c in m.cells.items() if c.state == "legal"}
     assert legal == EXPECTED_LEGAL_IDS
+    # 25(初始填充)→ 31(2026-10-19 首轮裁决:案二 +5、案三 +1;
+    # 计划原文「25→32」系对 infra|asset|UI 重复计数,裁决记录在案)
+    assert len(legal) == 31
     assert ALL_CELL_IDS - legal == {
         cell_id(*k) for k, c in m.cells.items() if c.state == "illegal"}
 
