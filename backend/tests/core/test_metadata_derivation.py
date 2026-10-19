@@ -22,6 +22,7 @@ OLD_CATEGORIES = {
     "malicious_ip": "threat",   # 波1 T2 5 片联合体(2026-10-18)
     "sw_threats": "threat",     # 波1 T3 ShadowWhisperer Threats(2026-10-18,自采策展非 derived)
     "sw_scanners": "threat",    # 波2 T1 ShadowWhisperer Scanners(2026-10-19,自采策展非 derived)
+    "data_shield": "threat",    # 波2 T2 duggytuxy Data-Shield(2026-10-19,derived 聚合源)
     "ip2proxy": "asset", "tor_exits": "asset", "x4bnet_vpn": "asset",
     "proxyscrape": "asset", "infra_services": "asset", "cdn_edges": "asset",
     "hookzof": "asset", "thespeedx": "asset",
@@ -52,6 +53,7 @@ OLD_RELIABILITY = {
     "malicious_ip": 0.50,       # 波1 T2 5 片联合体(2026-10-18)
     "sw_threats": 0.55,         # 波1 T3 ShadowWhisperer Threats(2026-10-18)
     "sw_scanners": 0.55,        # 波2 T1 ShadowWhisperer Scanners(2026-10-19)
+    "data_shield": 0.50,        # 波2 T2 duggytuxy Data-Shield(2026-10-19)
     "drb_ra": 0.50, "hookzof": 0.50, "thespeedx": 0.50,
     "protonvpn": 0.75, "nordvpn": 0.75,
     "cloud_ranges": 0.95,
