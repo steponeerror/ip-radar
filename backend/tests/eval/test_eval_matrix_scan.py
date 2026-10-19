@@ -390,3 +390,54 @@ def test_render_md_violation_row_carries_evidence_and_pending_column():
     assert "infra\\|informational\\|UI" in md     # md 表格转义管道
     assert "8.8.8.8" in md and "firehol_webserver" in md
     assert "待裁" in md
+
+
+# ── stix 镜像守卫(Task 2 终审 Minor-1b) ──────────────────────
+
+try:
+    import stix2 as _stix2  # noqa: F401
+    _HAS_STIX2 = True
+except ImportError:
+    _HAS_STIX2 = False
+
+
+@pytest.mark.skipif(not _HAS_STIX2, reason="stix2 not installed")
+def test_stix_mirror_channel_matches_real_export():
+    """channel_labels 的 stix 通道是 _stix_export 判定点的镜像(模块注释
+    同步义务句):上游判定点变更而镜像未同步时,本守卫炸(Minor-1b,
+    Task 2 终审遗留)。合成 LookupResult = 指控 + 存档 + attributes 三证人
+    (tests/core/test_stix.py fixture 先例)。"""
+    from ipdb._stix_export import to_stix_bundle
+    from ipdb._types import (AssetStatement, ClassificationAssessment,
+                             LookupResult, MergedField, SourceAttribution)
+    accusing = ClassificationAssessment(
+        type="blacklist", verdict="malicious", detected=True, confidence=88,
+        algorithm="corroboration",
+        sources=[SourceAttribution("feed_a", True, 0.7, False)],
+        corroborated=False,
+        details=[{"source": "feed_a", "verdict": "malicious",
+                  "reliability": 0.7}])
+    archived = ClassificationAssessment(
+        type="spam", verdict="informational", detected=True, confidence=0,
+        algorithm="corroboration", sources=[], corroborated=False,
+        details=[{"source": "firehol_webserver", "verdict": "informational",
+                  "reliability": 0.5}])
+    lr = LookupResult(
+        ip="203.0.113.9",
+        country=MergedField("N/A", 0, "voting", []),
+        city=MergedField("N/A", 0, "voting", []),
+        asn=MergedField(0, 0, "voting", []),
+        as_name=MergedField("N/A", 0, "voting", []),
+        ip_range=MergedField("N/A", 0, "voting", []),
+        is_isp=False,
+        classifications={"blacklist": accusing, "spam": archived},
+        attributes={"is_hosting": [AssetStatement("cloud_ranges", True,
+                                                  "AWS")]})
+    stix_labels = channel_labels(lr.to_dict())["stix"]
+    assert stix_labels == {"malicious", "asset"}   # 存档章不产 Indicator
+    bundle = to_stix_bundle(lr)
+    indicators = [o for o in bundle["objects"] if o["type"] == "indicator"]
+    assert {i["x_verdict"] for i in indicators} == \
+        stix_labels - {"asset", "clean"}
+    addr = next(o for o in bundle["objects"] if o["type"].startswith("ipv"))
+    assert ("x_ipradar_attributes" in addr) == ("asset" in stix_labels)

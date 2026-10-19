@@ -16,7 +16,9 @@ legal;未观测格无断言(无证据即无话)。
   asset(attributes 陈述)+ clean(threat 块空,净空缺省形态);
 - stix:镜像 _stix_export.to_stix_bundle 判定点(黑盒最小面,不落盘,
   判定在内存载荷)——Indicator 只产 _ACCUSING 组(存档/弃权章不产),
-  attributes 非空产 x_ipradar_attributes(asset);
+  attributes 非空产 x_ipradar_attributes(asset);上游 _stix_export
+  判定点变更须同步本镜像(守卫测试:test_eval_matrix_scan::
+  test_stix_mirror_channel_matches_real_export);
 - clean 在 score/stix 以「该通道无指控显形」观测(净空显形是缺省输出
   形态,matrix 全层 clean×三通道 legal)。
 
