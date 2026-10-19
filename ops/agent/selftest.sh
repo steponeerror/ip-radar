@@ -12,7 +12,8 @@ ok()  { pass=$((pass + 1)); echo "PASS $1"; }
 bad() { fail=$((fail + 1)); echo "FAIL $1"; }
 
 TMP="$(mktemp -d)"
-cleanup() { rm -rf "$TMP"; rm -f "$ROOT/backend/.selftest-pollution"; }
+FF_SRV_PIDS=()   # T3 http.server fixture 进程(cleanup 兜底杀)
+cleanup() { rm -rf "$TMP"; rm -f "$ROOT/backend/.selftest-pollution"; kill "${FF_SRV_PIDS[@]}" 2>/dev/null || true; }
 trap cleanup EXIT
 
 # ---- fixture:两条假判例 + 应被排除的 _schema.md ----
@@ -146,6 +147,104 @@ bash -n "$AGENT/round.sh" 2>/dev/null && ok "round.sh:bash 语法通过" || bad 
 # ---- 6. 真实台账文件(docs 仓 docs/ops/ledger.md 首建表头) ----
 grep -q '^| 日期 | 轮次 | model | 用量 | 备注 |$' "$ROOT/docs/ops/ledger.md" 2>/dev/null \
   && ok "ledger:真实台账文件已建表头" || bad "ledger:真实台账文件已建表头"
+
+# ---- 7. T3: feed_freshness / freshness_flags / extract_feed_urls / matrix_summary ----
+# fixture:本地 http.server 双目录(冻结 mtime / 活跃 touch;HEAD 由 http.server 原生支持,
+# Last-Modified = 文件 mtime)。mtime 拍 epoch 且留 600s 余量,防 179/180 边界因
+# 探测耗时跨天抖动。
+FF_FR="$TMP/ff-frozen"; FF_AC="$TMP/ff-active"
+mkdir -p "$FF_FR" "$FF_AC"
+ff_set_age() {  # <days> <file>
+  touch -d "@$(( $(date +%s) - $1 * 86400 - 600 ))" "$2"
+}
+for d in 179 180 200; do echo x > "$FF_FR/f$d.txt"; ff_set_age "$d" "$FF_FR/f$d.txt"; done
+echo x > "$FF_AC/live.txt"; touch "$FF_AC/live.txt"
+
+ff_start_server() {  # <dir> → echo <port>;随机端口避撞,起失败重试
+  local dir="$1" i j p
+  for i in 1 2 3 4 5; do
+    p=$(( 20000 + RANDOM % 30000 ))
+    python3 -m http.server "$p" --bind 127.0.0.1 --directory "$dir" >/dev/null 2>&1 &
+    FF_SRV_PIDS+=($!)
+    for j in $(seq 1 30); do
+      curl -s -o /dev/null --max-time 1 "http://127.0.0.1:$p/" && { echo "$p"; return 0; }
+      sleep 0.1
+    done
+  done
+  return 1
+}
+ff_closed_port() {  # 找一个确证拒绝连接的端口(UNREACHABLE fixture)
+  local p
+  while :; do
+    p=$(( 20000 + RANDOM % 30000 ))
+    curl -s -o /dev/null --max-time 1 "http://127.0.0.1:$p/" && continue
+    echo "$p"; return 0
+  done
+}
+FF_FR_PORT=""; FF_AC_PORT=""
+FF_FR_PORT="$(ff_start_server "$FF_FR")" && ok "fixture:冻结目录 server 起来" || bad "fixture:冻结目录 server 起来"
+FF_AC_PORT="$(ff_start_server "$FF_AC")" && ok "fixture:活跃目录 server 起来" || bad "fixture:活跃目录 server 起来"
+FF_CLOSED="$(ff_closed_port)"
+furl() { echo "http://127.0.0.1:$1/$2"; }
+
+if [[ -n "$FF_FR_PORT" && -n "$FF_AC_PORT" ]]; then
+  FF_TSV="$(feed_freshness "$(furl "$FF_FR_PORT" f179.txt)" "$(furl "$FF_FR_PORT" f180.txt)" \
+                     "$(furl "$FF_FR_PORT" f200.txt)" "$(furl "$FF_AC_PORT" live.txt)" \
+                     "$(furl "$FF_CLOSED" x)" 2>/dev/null)"
+  [[ "$(wc -l <<<"$FF_TSV")" -eq 5 ]] && ok "fresh:行数守恒(并发不丢行)" || bad "fresh:行数守恒(并发不丢行)"
+  ff_col() { awk -F'\t' -v u="$1" -v c="$3" '$1==u{print $c}' <<<"$2"; }
+  [[ "$(ff_col "$(furl "$FF_FR_PORT" f179.txt)" "$FF_TSV" 3)" == "179" ]] \
+    && ok "fresh:179 天边界读数正确" || bad "fresh:179 天边界读数正确"
+  [[ "$(ff_col "$(furl "$FF_FR_PORT" f180.txt)" "$FF_TSV" 3)" == "180" ]] \
+    && ok "fresh:180 天边界读数正确" || bad "fresh:180 天边界读数正确"
+  [[ "$(ff_col "$(furl "$FF_FR_PORT" f200.txt)" "$FF_TSV" 3)" == "200" ]] \
+    && ok "fresh:冻结 200 天读数正确" || bad "fresh:冻结 200 天读数正确"
+  [[ "$(ff_col "$(furl "$FF_AC_PORT" live.txt)" "$FF_TSV" 3)" == "0" ]] \
+    && ok "fresh:活跃源 age=0" || bad "fresh:活跃源 age=0"
+  [[ "$(ff_col "$(furl "$FF_AC_PORT" live.txt)" "$FF_TSV" 2)" != "NO-LM" ]] \
+    && ok "fresh:活跃行带 Last-Modified" || bad "fresh:活跃行带 Last-Modified"
+  [[ "$(ff_col "$(furl "$FF_CLOSED" x)" "$FF_TSV" 3)" == "UNREACHABLE" ]] \
+    && ok "fresh:坏端口 URL → UNREACHABLE" || bad "fresh:坏端口 URL → UNREACHABLE"
+
+  FF_FLAGS="$(freshness_flags <<<"$FF_TSV")"
+  grep -q "f180.txt" <<<"$FF_FLAGS" && grep -q "死键嫌疑" <<<"$FF_FLAGS" \
+    && ok "flags:180 天标死键嫌疑(≥ 门线含 180)" || bad "flags:180 天标死键嫌疑(≥ 门线含 180)"
+  grep -q "f200.txt" <<<"$FF_FLAGS" \
+    && ok "flags:200 天标死键嫌疑" || bad "flags:200 天标死键嫌疑"
+  ! grep -q "f179.txt" <<<"$FF_FLAGS" \
+    && ok "flags:179 天不标(边界不越界)" || bad "flags:179 天不标(边界不越界)"
+  ! grep -q "live.txt" <<<"$FF_FLAGS" \
+    && ok "flags:活跃源不标" || bad "flags:活跃源不标"
+  grep -q "不可达" <<<"$FF_FLAGS" && grep -q ":$FF_CLOSED/" <<<"$FF_FLAGS" \
+    && ok "flags:坏端口标不可达" || bad "flags:坏端口标不可达"
+else
+  bad "fixture:http.server 起不来,T3 断言整组失效"
+fi
+
+# extract_feed_urls(真实 worktree 只读扫描)
+EFU="$(extract_feed_urls 2>/dev/null)"
+[[ "$(awk '!/^https:\/\// && !/^http:\/\// {bad=1} END{print bad?1:0}' <<<"$EFU")" == "0" ]] \
+  && ok "urls:全部 https?:// 形" || bad "urls:全部 https?:// 形"
+grep -qx 'https://www.binarydefense.com/banlist.txt' <<<"$EFU" \
+  && ok "urls:含 binarydefense feed URL" || bad "urls:含 binarydefense feed URL"
+! grep -q '{' <<<"$EFU" \
+  && ok "urls:排除 {token} 模板(ipinfo/ip2location 占位符)" || bad "urls:排除 {token} 模板(ipinfo/ip2location 占位符)"
+[[ "$(wc -l <<<"$EFU")" -ge 50 ]] \
+  && ok "urls:规模 ≥50(源覆盖面)" || bad "urls:规模 ≥50(源覆盖面)"
+
+# matrix_summary.py(小 fixture;真实读数冒烟归 round.sh health)
+MS_FIX="$TMP/ms.json"
+cat > "$MS_FIX" <<'EOF'
+{"exit_code": 2, "counts": {"violation": 1, "pending": 0, "agreement": 3},
+ "layers": {"truth": {"status": "NO-LAYER", "members": 0, "sampled": 0, "notes": ["no-asset"]},
+            "infra": {"status": "OK", "members": 5, "sampled": 5}},
+ "buckets": {"violation": [{"cell": "infra|malicious|UI", "note": "ruling-confirmed", "evidence": []}],
+             "pending": [], "agreement": []}}
+EOF
+MS_OUT="$(python3 "$AGENT/matrix_summary.py" "$MS_FIX" 2>&1)"
+grep -q 'violation=1' <<<"$MS_OUT" && ok "mssum:counts 行" || bad "mssum:counts 行"
+grep -q 'infra|malicious|UI' <<<"$MS_OUT" && ok "mssum:violation 格列出" || bad "mssum:violation 格列出"
+grep -q 'NO-LAYER' <<<"$MS_OUT" && ok "mssum:层状态含 NO-LAYER" || bad "mssum:层状态含 NO-LAYER"
 
 echo "----"
 echo "selftest: PASS=$pass FAIL=$fail"

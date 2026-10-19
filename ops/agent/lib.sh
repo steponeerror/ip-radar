@@ -127,3 +127,74 @@ sandbox_assert() {
   fi
   return 0
 }
+
+# ── T3: 健康轮确定性检查(feed 冻结检测)──────────────────────
+FEED_TIMEOUT_S=15   # 任务书:HEAD 超时 15s,失败不重试
+FROZEN_DAYS=180     # 死键嫌疑门线(threatview sunset 判例:Last-Modified 冻结即判死)
+
+# _ff_code <响应头块> — 最终 HTTP 状态码(-L 跟随后取最后一个;无状态行 = 0)。
+_ff_code() {
+  printf '%s' "$1" | tr -d '\r' | awk '$1 ~ /^HTTP\// { c = $2 } END { print c + 0 }'
+}
+
+# _ff_probe <url> — 单 URL 探测 → TSV 一行 url<TAB>last_modified<TAB>age_days。
+# HEAD(跟随重定向)→ HTTP≥400/网络失败降级 GET Range 0-0 → 仍失败=UNREACHABLE
+# (任务书契约);age_days 以 Last-Modified 头 floor((now-lm)/86400),缺头/不可
+# 解析=NO-LM。恒 rc=0:不可达是读数不是故障;需 token 的 API(401/403)也会落
+# UNREACHABLE —— 已知限,摘要员措辞「不可达≠死键」(prompts/health.md)。
+_ff_probe() {
+  local url="$1" hdr="" rc=0 code lm epoch age
+  hdr="$(curl -sS -L -A ip-lookup-tool/1.0 --max-time "$FEED_TIMEOUT_S" \
+        -I -o /dev/null -D - "$url" 2>/dev/null)" || rc=1
+  code="$(_ff_code "$hdr")"
+  if (( rc )) || (( code >= 400 )); then    # HEAD 被拒/不支持 → GET Range 0-0
+    rc=0
+    hdr="$(curl -sS -L -A ip-lookup-tool/1.0 --max-time "$FEED_TIMEOUT_S" \
+          -H 'Range: bytes=0-0' -o /dev/null -D - "$url" 2>/dev/null)" || rc=1
+    code="$(_ff_code "$hdr")"
+  fi
+  if (( rc )) || (( code >= 400 )); then
+    printf '%s\tUNREACHABLE\tUNREACHABLE\n' "$url"; return 0
+  fi
+  lm="$(printf '%s' "$hdr" | tr -d '\r' | awk 'tolower($1) ~ /^last-modified:$/ { lm = $0 }
+      END { if (lm != "") { sub(/^[^:]*:[ \t]*/, "", lm); print lm } }')"
+  epoch="$(date -d "$lm" +%s 2>/dev/null)" || true
+  if [[ -z "$lm" || -z "${epoch:-}" ]]; then
+    printf '%s\tNO-LM\tNO-LM\n' "$url"; return 0
+  fi
+  age=$(( ( $(date +%s) - epoch ) / 86400 ))
+  (( age < 0 )) && age=0    # 时钟偏移(LM 在未来)钳 0,不出负读数
+  printf '%s\t%s\t%s\n' "$url" "$lm" "$age"
+}
+
+# feed_freshness <urls...> — 并发(xargs -P 8,任务书)探测 → 按 URL 序排序的 TSV。
+feed_freshness() {
+  (( $# )) || return 0
+  export FEED_TIMEOUT_S
+  export -f _ff_probe _ff_code
+  printf '%s\n' "$@" | xargs -P 8 -I{} bash -c '_ff_probe "$1"' _ {} | sort -t$'\t' -k1,1
+}
+
+# freshness_flags — stdin 吃 feed_freshness TSV → 异常行(冻结≥门线=死键嫌疑 /
+# 不可达);NO-LM 不标(可达但缺头≠异常,原始读数留给摘要员;任务书异常清单三态)。
+freshness_flags() {
+  awk -F'\t' -v frozen="$FROZEN_DAYS" '
+    $3 == "UNREACHABLE" { printf "%s\n", "- 不可达·建议复核: " $1 }
+    $3 ~ /^[0-9]+$/ && ($3 + 0) >= frozen {
+      printf "%s\n", "- 死键嫌疑·建议复核: " $1 "(冻结 " $3 " 天 ≥ " frozen " 门线;Last-Modified: " $2 ")"
+    }
+  '
+}
+
+# extract_feed_urls — 只读扫描 backend/ipdb/_sources/*.py 的 https?:// 字面量
+# (rg;任务书自选最简可靠)。排除含 {} 的 token 模板(ipinfo_lite/ip2location
+# 的 {token} 占位符:无凭据不可测,其新鲜度由 scheduler mtime 侧覆盖;且避免
+# 占位符落包)。结尾 .,; 剥掉(注释里句读会并入 URL);[ ] 排除(源码正则
+# 字面量如 ...download/[^s] 的残片不混入;IPv6 字面量场景本仓无)。
+extract_feed_urls() {
+  rg -oN --no-filename 'https?://[^"'\''[:space:]()><,\[\]]+' \
+    -g '*.py' "$ROOT/backend/ipdb/_sources" \
+    | grep -v '[{}\\]' \
+    | sed -E 's/[.,;]+$//' \
+    | sort -u
+}
