@@ -1,0 +1,313 @@
+{
+  "axes": {
+    "layers": [
+      "truth",
+      "infra",
+      "neutral",
+      "consensus"
+    ],
+    "labels": [
+      "malicious",
+      "suspicious",
+      "benign",
+      "informational",
+      "asset",
+      "clean"
+    ],
+    "channels": [
+      "score",
+      "stix",
+      "UI"
+    ]
+  },
+  "cells": {
+    "truth|malicious|score": {
+      "state": "legal",
+      "provenance": "docs/adr/0002-honeypot-truth-anchor.md(蜜罐源 IP 即攻击方,威胁真值层) · 指控组语义 verdict∈{malicious,suspicious}:docs/research/2026-10-04-multiclass-threat-fusion.md §2 形式化 · 裁决:docs/superpowers/plans/2026-10-18-semantic-matrix.md Task 1"
+    },
+    "truth|malicious|stix": {
+      "state": "legal",
+      "provenance": "docs/adr/0002-honeypot-truth-anchor.md(蜜罐源 IP 即攻击方,威胁真值层) · 指控组语义 verdict∈{malicious,suspicious}:docs/research/2026-10-04-multiclass-threat-fusion.md §2 形式化 · 裁决:docs/superpowers/plans/2026-10-18-semantic-matrix.md Task 1"
+    },
+    "truth|malicious|UI": {
+      "state": "legal",
+      "provenance": "docs/adr/0002-honeypot-truth-anchor.md(蜜罐源 IP 即攻击方,威胁真值层) · 指控组语义 verdict∈{malicious,suspicious}:docs/research/2026-10-04-multiclass-threat-fusion.md §2 形式化 · 裁决:docs/superpowers/plans/2026-10-18-semantic-matrix.md Task 1"
+    },
+    "truth|suspicious|score": {
+      "state": "legal",
+      "provenance": "docs/adr/0002-honeypot-truth-anchor.md(蜜罐源 IP 即攻击方,威胁真值层) · 指控组语义 verdict∈{malicious,suspicious}:docs/research/2026-10-04-multiclass-threat-fusion.md §2 形式化 · 裁决:docs/superpowers/plans/2026-10-18-semantic-matrix.md Task 1"
+    },
+    "truth|suspicious|stix": {
+      "state": "legal",
+      "provenance": "docs/adr/0002-honeypot-truth-anchor.md(蜜罐源 IP 即攻击方,威胁真值层) · 指控组语义 verdict∈{malicious,suspicious}:docs/research/2026-10-04-multiclass-threat-fusion.md §2 形式化 · 裁决:docs/superpowers/plans/2026-10-18-semantic-matrix.md Task 1"
+    },
+    "truth|suspicious|UI": {
+      "state": "legal",
+      "provenance": "docs/adr/0002-honeypot-truth-anchor.md(蜜罐源 IP 即攻击方,威胁真值层) · 指控组语义 verdict∈{malicious,suspicious}:docs/research/2026-10-04-multiclass-threat-fusion.md §2 形式化 · 裁决:docs/superpowers/plans/2026-10-18-semantic-matrix.md Task 1"
+    },
+    "truth|benign|score": {
+      "state": "illegal",
+      "note": "conservative-default"
+    },
+    "truth|benign|stix": {
+      "state": "illegal",
+      "note": "conservative-default"
+    },
+    "truth|benign|UI": {
+      "state": "illegal",
+      "note": "conservative-default"
+    },
+    "truth|informational|score": {
+      "state": "illegal",
+      "note": "conservative-default"
+    },
+    "truth|informational|stix": {
+      "state": "illegal",
+      "note": "conservative-default"
+    },
+    "truth|informational|UI": {
+      "state": "illegal",
+      "note": "conservative-default"
+    },
+    "truth|asset|score": {
+      "state": "illegal",
+      "note": "conservative-default"
+    },
+    "truth|asset|stix": {
+      "state": "illegal",
+      "note": "conservative-default"
+    },
+    "truth|asset|UI": {
+      "state": "illegal",
+      "note": "conservative-default"
+    },
+    "truth|clean|score": {
+      "state": "legal",
+      "provenance": "净空显形=查询缺省输出形态(无证据时 threat 块恒空) · 先例:backend/ipdb/_eval/anchors.py(public DNS/resolver infra — must stay clean) · 裁决:docs/superpowers/plans/2026-10-18-semantic-matrix.md Task 1"
+    },
+    "truth|clean|stix": {
+      "state": "legal",
+      "provenance": "净空显形=查询缺省输出形态(无证据时 threat 块恒空) · 先例:backend/ipdb/_eval/anchors.py(public DNS/resolver infra — must stay clean) · 裁决:docs/superpowers/plans/2026-10-18-semantic-matrix.md Task 1"
+    },
+    "truth|clean|UI": {
+      "state": "legal",
+      "provenance": "净空显形=查询缺省输出形态(无证据时 threat 块恒空) · 先例:backend/ipdb/_eval/anchors.py(public DNS/resolver infra — must stay clean) · 裁决:docs/superpowers/plans/2026-10-18-semantic-matrix.md Task 1"
+    },
+    "infra|malicious|score": {
+      "state": "illegal",
+      "note": "conservative-default"
+    },
+    "infra|malicious|stix": {
+      "state": "illegal",
+      "note": "conservative-default"
+    },
+    "infra|malicious|UI": {
+      "state": "illegal",
+      "note": "conservative-default"
+    },
+    "infra|suspicious|score": {
+      "state": "illegal",
+      "note": "conservative-default"
+    },
+    "infra|suspicious|stix": {
+      "state": "illegal",
+      "note": "conservative-default"
+    },
+    "infra|suspicious|UI": {
+      "state": "illegal",
+      "note": "conservative-default"
+    },
+    "infra|benign|score": {
+      "state": "illegal",
+      "note": "conservative-default"
+    },
+    "infra|benign|stix": {
+      "state": "illegal",
+      "note": "conservative-default"
+    },
+    "infra|benign|UI": {
+      "state": "illegal",
+      "note": "conservative-default"
+    },
+    "infra|informational|score": {
+      "state": "illegal",
+      "note": "conservative-default"
+    },
+    "infra|informational|stix": {
+      "state": "illegal",
+      "note": "conservative-default"
+    },
+    "infra|informational|UI": {
+      "state": "illegal",
+      "note": "conservative-default"
+    },
+    "infra|asset|score": {
+      "state": "illegal",
+      "note": "conservative-default"
+    },
+    "infra|asset|stix": {
+      "state": "illegal",
+      "note": "conservative-default"
+    },
+    "infra|asset|UI": {
+      "state": "legal",
+      "provenance": "docs/adr/0001-ip2proxy-asset-abstention.md §决策(资产弃权:verdict 空、不计票、不产 STIX Indicator,仅 attributes 通道标签照常呈现) · cloud_ranges 判例:backend/ipdb/_eval/__main__.py _cloud_v4_ranges(云/CDN 段入非指控基础设施层,spec §2.1) · 先例:backend/ipdb/_eval/anchors.py(public cloud edges 锚预期 is_hosting=true) · 裁决:docs/superpowers/plans/2026-10-18-semantic-matrix.md Task 1"
+    },
+    "infra|clean|score": {
+      "state": "legal",
+      "provenance": "净空显形=查询缺省输出形态(无证据时 threat 块恒空) · 先例:backend/ipdb/_eval/anchors.py(public DNS/resolver infra — must stay clean) · 裁决:docs/superpowers/plans/2026-10-18-semantic-matrix.md Task 1"
+    },
+    "infra|clean|stix": {
+      "state": "legal",
+      "provenance": "净空显形=查询缺省输出形态(无证据时 threat 块恒空) · 先例:backend/ipdb/_eval/anchors.py(public DNS/resolver infra — must stay clean) · 裁决:docs/superpowers/plans/2026-10-18-semantic-matrix.md Task 1"
+    },
+    "infra|clean|UI": {
+      "state": "legal",
+      "provenance": "净空显形=查询缺省输出形态(无证据时 threat 块恒空) · 先例:backend/ipdb/_eval/anchors.py(public DNS/resolver infra — must stay clean) · 裁决:docs/superpowers/plans/2026-10-18-semantic-matrix.md Task 1"
+    },
+    "neutral|malicious|score": {
+      "state": "illegal",
+      "note": "conservative-default"
+    },
+    "neutral|malicious|stix": {
+      "state": "illegal",
+      "note": "conservative-default"
+    },
+    "neutral|malicious|UI": {
+      "state": "illegal",
+      "note": "conservative-default"
+    },
+    "neutral|suspicious|score": {
+      "state": "illegal",
+      "note": "conservative-default"
+    },
+    "neutral|suspicious|stix": {
+      "state": "illegal",
+      "note": "conservative-default"
+    },
+    "neutral|suspicious|UI": {
+      "state": "illegal",
+      "note": "conservative-default"
+    },
+    "neutral|benign|score": {
+      "state": "illegal",
+      "note": "conservative-default"
+    },
+    "neutral|benign|stix": {
+      "state": "illegal",
+      "note": "conservative-default"
+    },
+    "neutral|benign|UI": {
+      "state": "illegal",
+      "note": "conservative-default"
+    },
+    "neutral|informational|score": {
+      "state": "illegal",
+      "note": "conservative-default"
+    },
+    "neutral|informational|stix": {
+      "state": "illegal",
+      "note": "conservative-default"
+    },
+    "neutral|informational|UI": {
+      "state": "illegal",
+      "note": "conservative-default"
+    },
+    "neutral|asset|score": {
+      "state": "illegal",
+      "note": "conservative-default"
+    },
+    "neutral|asset|stix": {
+      "state": "illegal",
+      "note": "conservative-default"
+    },
+    "neutral|asset|UI": {
+      "state": "illegal",
+      "note": "conservative-default"
+    },
+    "neutral|clean|score": {
+      "state": "legal",
+      "provenance": "净空显形=查询缺省输出形态(无证据时 threat 块恒空) · 先例:backend/ipdb/_eval/anchors.py(public DNS/resolver infra — must stay clean) · 裁决:docs/superpowers/plans/2026-10-18-semantic-matrix.md Task 1"
+    },
+    "neutral|clean|stix": {
+      "state": "legal",
+      "provenance": "净空显形=查询缺省输出形态(无证据时 threat 块恒空) · 先例:backend/ipdb/_eval/anchors.py(public DNS/resolver infra — must stay clean) · 裁决:docs/superpowers/plans/2026-10-18-semantic-matrix.md Task 1"
+    },
+    "neutral|clean|UI": {
+      "state": "legal",
+      "provenance": "净空显形=查询缺省输出形态(无证据时 threat 块恒空) · 先例:backend/ipdb/_eval/anchors.py(public DNS/resolver infra — must stay clean) · 裁决:docs/superpowers/plans/2026-10-18-semantic-matrix.md Task 1"
+    },
+    "consensus|malicious|score": {
+      "state": "legal",
+      "provenance": "docs/superpowers/specs/2026-10-12-eval-loop-hardening-design.md §2.1(共识代理层=诊断层:舰队共识指控语料的回声/源坍塌监测对照) · 裁决:docs/superpowers/plans/2026-10-18-semantic-matrix.md Task 1"
+    },
+    "consensus|malicious|stix": {
+      "state": "legal",
+      "provenance": "docs/superpowers/specs/2026-10-12-eval-loop-hardening-design.md §2.1(共识代理层=诊断层:舰队共识指控语料的回声/源坍塌监测对照) · 裁决:docs/superpowers/plans/2026-10-18-semantic-matrix.md Task 1"
+    },
+    "consensus|malicious|UI": {
+      "state": "legal",
+      "provenance": "docs/superpowers/specs/2026-10-12-eval-loop-hardening-design.md §2.1(共识代理层=诊断层:舰队共识指控语料的回声/源坍塌监测对照) · 裁决:docs/superpowers/plans/2026-10-18-semantic-matrix.md Task 1"
+    },
+    "consensus|suspicious|score": {
+      "state": "legal",
+      "provenance": "docs/superpowers/specs/2026-10-12-eval-loop-hardening-design.md §2.1(共识代理层=诊断层:舰队共识指控语料的回声/源坍塌监测对照) · 裁决:docs/superpowers/plans/2026-10-18-semantic-matrix.md Task 1"
+    },
+    "consensus|suspicious|stix": {
+      "state": "legal",
+      "provenance": "docs/superpowers/specs/2026-10-12-eval-loop-hardening-design.md §2.1(共识代理层=诊断层:舰队共识指控语料的回声/源坍塌监测对照) · 裁决:docs/superpowers/plans/2026-10-18-semantic-matrix.md Task 1"
+    },
+    "consensus|suspicious|UI": {
+      "state": "legal",
+      "provenance": "docs/superpowers/specs/2026-10-12-eval-loop-hardening-design.md §2.1(共识代理层=诊断层:舰队共识指控语料的回声/源坍塌监测对照) · 裁决:docs/superpowers/plans/2026-10-18-semantic-matrix.md Task 1"
+    },
+    "consensus|benign|score": {
+      "state": "illegal",
+      "note": "conservative-default"
+    },
+    "consensus|benign|stix": {
+      "state": "illegal",
+      "note": "conservative-default"
+    },
+    "consensus|benign|UI": {
+      "state": "illegal",
+      "note": "conservative-default"
+    },
+    "consensus|informational|score": {
+      "state": "illegal",
+      "note": "conservative-default"
+    },
+    "consensus|informational|stix": {
+      "state": "illegal",
+      "note": "conservative-default"
+    },
+    "consensus|informational|UI": {
+      "state": "illegal",
+      "note": "conservative-default"
+    },
+    "consensus|asset|score": {
+      "state": "illegal",
+      "note": "conservative-default"
+    },
+    "consensus|asset|stix": {
+      "state": "illegal",
+      "note": "conservative-default"
+    },
+    "consensus|asset|UI": {
+      "state": "illegal",
+      "note": "conservative-default"
+    },
+    "consensus|clean|score": {
+      "state": "legal",
+      "provenance": "净空显形=查询缺省输出形态(无证据时 threat 块恒空) · 先例:backend/ipdb/_eval/anchors.py(public DNS/resolver infra — must stay clean) · 裁决:docs/superpowers/plans/2026-10-18-semantic-matrix.md Task 1"
+    },
+    "consensus|clean|stix": {
+      "state": "legal",
+      "provenance": "净空显形=查询缺省输出形态(无证据时 threat 块恒空) · 先例:backend/ipdb/_eval/anchors.py(public DNS/resolver infra — must stay clean) · 裁决:docs/superpowers/plans/2026-10-18-semantic-matrix.md Task 1"
+    },
+    "consensus|clean|UI": {
+      "state": "legal",
+      "provenance": "净空显形=查询缺省输出形态(无证据时 threat 块恒空) · 先例:backend/ipdb/_eval/anchors.py(public DNS/resolver infra — must stay clean) · 裁决:docs/superpowers/plans/2026-10-18-semantic-matrix.md Task 1"
+    }
+  }
+}
