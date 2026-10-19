@@ -320,6 +320,8 @@ bash scripts/materialize_source.sh <name>        # fetch→rebuild→sentinel;�
 
 **接入关(Q4,spec §3.1)——哨兵过了才是硬门,gate 报告必附 PR。** gate 双口径分节作答:①candidate-stratum 自域判别力(verdict 8 态 + 消融指标族——候选自己行不行)②四层舰队净影响(ON/OFF 同语料同 run_seed 的配对 delta——加进舰队搬动了什么);两问各答各节,可拆着下结论(演示 B 判例)。报告「强制人裁」节的每一行 mandatory_review 旗标(基础三态 NEGATIVE/MIXED/NO-DATA + S1 抄尺 / S2 好得可疑 / S3 OC≥0.9 / S4 层 delta 显著恶化)= PR 人裁清单项,逐项处置留痕;触发集只升旗不自动动作(声明 r:测量建言,人裁终局)。跑 gate 前镜像 epoch 失配会拒跑(rc=3,S7 fail-closed)。gate 语义全景(共识层两场景 / OC 敏感带 / 同批串行纳入)见 manage-intel-source 的 `references/eval-harness.md`(gate 语义节)。
 
+**语义矩阵闸(ADR 0003,2026-10-19 起接入关第三节)——gate 过后、PR 前,候选镜像上跑一次矩阵扫描**:`cd backend && IP_RADAR_EVAL_ENV=gate IP_RADAR_DATA_DIR=<repo>/.eval-gate-mirror python -m ipdb._eval --matrix-scan`。看的是:候选有没有把**新的残差指控**带进非法格(当前 parked 基线 = 6 格:infra×{malicious,suspicious}×{score,stix,UI},涉 tweetfeed/malicious_ip/firehol-ip2proxy/danmeuk_tor/cps_collected_iocs)。证据栏出现**候选源名** = 新违例 → PR「强制人裁」节加一行(处置 = 接受 park 或撤源;格不动——矩阵语义与源生杀分治,判例 cps_collected_iocs 波 3)。rc2 但证据栏无候选源名 = 既有 parked,不算新账。资产格与 consensus archival 已合法化(2026-10-19 案二/案三),不因候选变。
+
 ## How your Evidence is consumed (read path)
 
 `source.query(ip)` → `route_record()` (unknown keys fold into `extra`) → three paths:
