@@ -17,7 +17,7 @@ async function t(name, fn) { try { await fn(); ok(name); } catch (e) { bad(name,
 
 const { loadModels } = await import("./models.mjs");
 const {
-  ToolHost, checkPrivateIp, countFeedKeys, closureCheck, checkReadablePath,
+  ToolHost, checkPrivateIp, countFeedKeys, closureCheck, checkReadablePath, pinnedLookup,
 } = await import("./tools.mjs");
 
 // ── fixture:用户 models.json(flash 定义,无 api/baseUrl)+ models-store(glm-5.3 全量)+ auth ──
@@ -170,17 +170,34 @@ await t("门:引用非测量工具(queue_action 套娃)被挡", async () => {
     evidence: [EV("call_q1", "exclusive_rate", 0.99)] }, "测量");
 });
 
-await t("门:queue 预算 ≤10/轮,第 11 次被挡", async () => {
-  const h2 = new ToolHost("discover");
-  for (let i = 0; i < 10; i++) h2.registry.register(`p${i}`, "exclusive_probe", { ok: true, control_pass: true, exclusive_rate: 0.5 });
-  const g2 = (args) => h2.beforeToolCall({ assistantMessage: { content: [] }, toolCall: { id: "c", name: "queue_action", arguments: args }, args, context: { messages: [], tools: [] } });
-  for (let i = 0; i < 10; i++) {
-    const r = await g2({ source: `s_${i}`, action: "ENQUEUE", rationale: "r", evidence: [EV(`p${i}`, "exclusive_rate", 0.5)] });
-    assert.equal(r, undefined);
-    h2.budgetSpend("queue_action");
+await t("门:queue 预算 ≤10/轮,第 11 次被挡(真实 execute 路径计数,不手工 spend)", async () => {
+  const h2 = new ToolHost("discover", { queueFile: path.join(TMP, "q-budget.md") });
+  h2.registry.register("p0", "exclusive_probe", { ok: true, control_pass: true, exclusive_rate: 0.5 });
+  const qa = h2.tools.find((x) => x.name === "queue_action");
+  const argsFor = (s) => ({ source: s, action: "ENQUEUE", rationale: "r", evidence: [EV("p0", "exclusive_rate", 0.5)] });
+  for (let i = 0; i < 10; i++) { // 真实路径:execute 内 budgetSpend(评审 Important-1 修复面)
+    const r = await qa.execute(`c${i}`, argsFor(`s_${i}`));
+    assert.equal(r.structuredContent.appended, true);
   }
-  const r = await g2({ source: "s_x", action: "ENQUEUE", rationale: "r", evidence: [EV("p0", "exclusive_rate", 0.5)] });
+  assert.equal(h2.spent["queue_action"], 10, "execute 真实计数(不再依赖测试代炉)");
+  const r = await h2.beforeToolCall({ assistantMessage: { content: [] }, toolCall: { id: "cx", name: "queue_action", arguments: argsFor("s_x") }, args: argsFor("s_x"), context: { messages: [], tools: [] } });
   assert.ok(r?.block && r.reason.includes("预算"), `第 11 次应挡:${r?.reason}`);
+});
+
+await t("SSRF:pinnedLookup 只吐已验证地址集(堵双解析重绑定,评审 Important-2)", () => {
+  let got = null;
+  const lookup = pinnedLookup(["93.184.216.34"]);
+  lookup("example.com", { all: true }, (err, addrs) => { got = { err, addrs }; });
+  assert.ok(!got.err);
+  assert.deepEqual(got.addrs, [{ address: "93.184.216.34", family: 4 }], "无论二次解析返回什么,连接层只见已验证集");
+  const v6 = pinnedLookup(["2606:2800:220:1::1"]);
+  let got6 = null;
+  v6("h", {}, (err, addrs) => { got6 = { err, addrs }; });
+  assert.deepEqual(got6.addrs, [{ address: "2606:2800:220:1::1", family: 6 }], "v6 family 标注");
+  // IP 字面量:验证后空集,fail-closed(若 lookup 仍被调,连接报错而非绕过)
+  let gotE = null;
+  pinnedLookup([])("h", {}, (err, addrs) => { gotE = { err, addrs }; });
+  assert.deepEqual(gotE.addrs, []);
 });
 
 // ── 负例③:编造判例路径被闭合校验拦(闭集成员校验,非存在性)────────────────────

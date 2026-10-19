@@ -16,6 +16,7 @@ import os from "node:os";
 import path from "node:path";
 import dns from "node:dns/promises";
 import { fileURLToPath } from "node:url";
+import { fetch as undiciFetch, Agent } from "undici";
 import { Type } from "@earendil-works/pi-ai";
 
 const execFileP = promisify(execFile);
@@ -62,27 +63,49 @@ export function checkPrivateIp(ip) {
 
 class SsrfError extends Error { constructor(h) { super(`SSRF 拒绝:${h} 解析到私网/环回/链路本地地址`); this.code = "ssrf"; } }
 
+// 返回本跳已验证的安全地址集(供连接层钉死);IP 字面量已验则返回空数组
+// (net.connect 对字面量不走 lookup,直连即已验地址)。
 async function guardHop(rawUrl) {
   const u = new URL(rawUrl);
   if (u.protocol !== "http:" && u.protocol !== "https:") throw Object.assign(new Error(`仅许 http(s):${rawUrl}`), { code: "bad_url" });
   const h = u.hostname.replace(/^\[|\]$/g, "");
-  if (net.isIP(h)) { if (checkPrivateIp(h)) throw new SsrfError(h); return; }
+  if (net.isIP(h)) { if (checkPrivateIp(h)) throw new SsrfError(h); return []; }
   const addrs = await dns.lookup(h, { all: true }).catch(() => { throw Object.assign(new Error(`DNS 解析失败:${h}`), { code: "network" }); });
-  for (const { address } of addrs) if (checkPrivateIp(address)) throw new SsrfError(`${h}→${address}`);
+  const safe = [];
+  for (const { address } of addrs) {
+    if (checkPrivateIp(address)) throw new SsrfError(`${h}→${address}`);
+    safe.push(address);
+  }
+  return safe;
 }
 
-// 手动逐跳重定向:每一跳都过 SSRF 门(融合必保:D1 逐跳复检)。
+// 连接层钉死:lookup 只吐 guardHop 已验证的地址——验证与连接同一地址集,
+// 堵 TTL-0 DNS 重绑定的双解析 TOCTOU(评审 Important-2,2026-10-19)。
+// 选 undici Agent + undici.fetch(而非全局 fetch):全局 fetch 不保证消费自定义 dispatcher;
+// hostname/SNI/证书校验仍按域名,仅连接地址被钉。导出供单测钉住机制。
+export function pinnedLookup(validatedAddrs) {
+  return (hostname, options, callback) => {
+    callback(null, validatedAddrs.map((a) => ({ address: a, family: net.isIPv6(a) ? 6 : 4 })));
+  };
+}
+
+// 手动逐跳重定向:每一跳都过 SSRF 门并钉地址(融合必保:D1 逐跳复检)。
 async function safeFetch(rawUrl, { method = "GET", maxBytes, timeoutMs }) {
   let url = rawUrl, hops = 0, finalRes;
   for (;;) {
-    await guardHop(url);
-    finalRes = await fetch(url, {
-      method, redirect: "manual", signal: AbortSignal.timeout(timeoutMs),
-      headers: { "user-agent": UA },
-    }).catch((e) => {
-      const why = e?.cause?.message ?? e?.message ?? String(e);
-      throw Object.assign(new Error(`网络失败:${why}`), { code: /timeout|abort/i.test(why) ? "timeout" : "network" });
-    });
+    const validated = await guardHop(url);
+    const dispatcher = new Agent({ connections: 1, connect: { lookup: pinnedLookup(validated) } });
+    try {
+      finalRes = await undiciFetch(url, {
+        method, redirect: "manual", signal: AbortSignal.timeout(timeoutMs),
+        headers: { "user-agent": UA }, dispatcher,
+      }).catch((e) => {
+        const why = e?.cause?.message ?? e?.message ?? String(e);
+        throw Object.assign(new Error(`网络失败:${why}`), { code: /timeout|abort/i.test(why) ? "timeout" : "network" });
+      });
+    } finally {
+      await dispatcher.close().catch(() => { /* 单跳即弃 */ });
+    }
     if ([301, 302, 303, 307, 308].includes(finalRes.status)) {
       const loc = finalRes.headers.get("location");
       if (!loc) throw Object.assign(new Error(`${finalRes.status} 无 Location`), { code: "http_error" });
@@ -669,6 +692,9 @@ export class ToolHost {
         action: Type.String(), source: Type.String(), vetoable: Type.Boolean(), veto_cmd: Type.String(),
       }),
       execute: async (callId, p) => {
+        // 预算计数走真实路径:queue_action 不经 finish()(非测量工具,不进登记表),
+        // 若不在此计数 spent 永不增长、10/轮上限永不触发(评审 Important-1,2026-10-19)
+        this.budgetSpend("queue_action");
         // 幂等去重:同 action+source 已在队列 → 返回既有事实,不双写
         let existing = "";
         try { existing = fs.readFileSync(this.queueFile, "utf8"); } catch { /* 首建 */ }
