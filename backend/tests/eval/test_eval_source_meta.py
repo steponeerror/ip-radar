@@ -26,7 +26,7 @@ TIER_PRECEDENTS = {
     "ciarm": "B",
 }
 
-HONEYPOT_SOURCES = ("knock_knock", "binarydefense")
+HONEYPOT_SOURCES = ("knock_knock", "binarydefense", "sblam")
 
 
 def _threat_sources():
