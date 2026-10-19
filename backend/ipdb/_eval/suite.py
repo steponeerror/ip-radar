@@ -198,7 +198,7 @@ def _matrix_check(scan: dict) -> dict:
               f"pending {c['pending']}/agreement {c['agreement']};层 "
               + " ".join(f"{k}={st['status']}"
                           for k, st in scan["layers"].items())
-              + f"(seed {scan['seed']}, 不重跑语料只跑矩阵扫描段)")
+              + f" (seed {scan['seed']}, 不重跑语料只跑矩阵扫描段)")
     chk = {"pass": c["violation"] == 0, "detail": detail}
     if c["violation"]:
         chk["violation_cells"] = [e["cell"]

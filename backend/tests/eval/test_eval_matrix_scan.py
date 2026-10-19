@@ -357,6 +357,21 @@ def test_cli_matrix_scan_pending_exit1(monkeypatch, tmp_path, capsys):
     assert ei.value.code == 1
 
 
+def test_cli_matrix_scan_missing_matrix_json_envelope_rc2(monkeypatch,
+                                                          tmp_path, capsys):
+    # 终审 M-1:matrix.json 缺失 → rc 2 + JSON 错误信封(--exclusive 先例,
+    # §5.2 要信封不裸栈),不再是裸栈 rc 1;pending=1 语义保持无歧义
+    _install_registry(monkeypatch, _lookup({}))
+    from ipdb._eval import matrix_scan
+    monkeypatch.setattr(matrix_scan, "MATRIX_PATH", tmp_path / "nope.json")
+    with pytest.raises(SystemExit) as ei:
+        main(["--matrix-scan", "--assets-dir", str(tmp_path), "--json"])
+    assert ei.value.code == 2
+    res = json.loads(capsys.readouterr().out)
+    assert res["error"]["code"] == "matrix_scan_failed"
+    assert "nope.json" in res["error"]["message"]
+
+
 def test_cli_matrix_scan_human_md(monkeypatch, tmp_path, capsys):
     _save_layer(tmp_path, "infra", ["8.8.8.8"])
     _install_registry(monkeypatch, _lookup({"8.8.8.8": _811}))
