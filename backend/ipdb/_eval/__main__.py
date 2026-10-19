@@ -509,9 +509,13 @@ def main(argv=None):
                         "阳性对照闸(binarydefense 前 20 bare IP 池命中 ≥18,否则 "
                         "exit 2)→ 稳定 seed 采样 300 逐点查池;排他 = 池内无任何"
                         "指控 detail。只读装载(不动数据面)")
+    p.add_argument("--matrix-scan", action="store_true",
+                   help="语义契约矩阵现状扫描(ADR 0003 Task 2): 四层取样→"
+                        "逐通道显形观测→matrix.json 裁决 diff 三桶;退出码 "
+                        "0/1/2 = 干净/有 pending/有 violation;只读不落盘")
     p.add_argument("--seed", type=int, default=DEFAULT_SEED,
-                   help="--exclusive 采样 seed(默认 20261018 = 翻案探针同口径;"
-                        "同 seed 逐字节可复现)")
+                   help="--exclusive/--matrix-scan 采样 seed(默认 20261018 = "
+                        "翻案探针同口径;同 seed 逐字节可复现)")
     p.add_argument("--run-seed", type=int, default=None,
                    help="run 级 seed(T2 纪律: 显式传则可复现; 缺省 = "
                         "各入口稳定缺省 —— sentinel 名派生 / gate 随机但落报告)")
@@ -708,6 +712,22 @@ def main(argv=None):
               f"degraded={'yes' if res['degraded'] else 'no'}")
         print(f"  report: {md_path}")
         return
+    # ── 矩阵现状扫描(Task 2, ADR 0003)──────────────────────
+    if args.matrix_scan:
+        # --assets-dir 缺省同 run_readout(四层资产根, 跨 env 共享);只读
+        # (lookup + 资产 + matrix.json)stdout 报告不落盘(stix 黑盒最小面
+        # 同纪律);退出码 0/1/2 = 干净/有 pending/有 violation(--exclusive
+        # 先例, violation 优先)。不写文件 → 无目录隔离面, eval_env 只进
+        # 报告头(call-time fail-loud 同族)。
+        from .matrix_scan import render_md, run_matrix_scan
+        assets_root = (Path(args.assets_dir) if args.assets_dir else
+                       _REPO_ROOT / "backend" / "data" / "eval" / "assets")
+        res = run_matrix_scan(registry.lookup, assets_root, seed=args.seed)
+        if args.json:
+            print(json.dumps(res, ensure_ascii=False, indent=1, default=str))
+        else:
+            print(render_md(res))
+        sys.exit(res["exit_code"])
     # ── T9 gate 族子命令(spec §3.1/§3.2; 镜像前置 S7)────────────
     if args.gate is not None:
         # 接入关 CLI: ensure_gate_mirror(S7: 跑前镜像对齐, 失配拒跑
