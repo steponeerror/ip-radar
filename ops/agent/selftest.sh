@@ -319,6 +319,50 @@ grep -q 'violation=1' <<<"$MS_OUT" && ok "mssum:counts 行" || bad "mssum:counts
 grep -q 'infra|malicious|UI' <<<"$MS_OUT" && ok "mssum:violation 格列出" || bad "mssum:violation 格列出"
 grep -q 'NO-LAYER' <<<"$MS_OUT" && ok "mssum:层状态含 NO-LAYER" || bad "mssum:层状态含 NO-LAYER"
 
+# ---- 8. T4: pi-agent-core 宿主(node 单测:语义门/负例三发/SSRF/读面/队列幂等;不花 API 不真调网络) ----
+if command -v node >/dev/null 2>&1; then
+  T4OUT="$(node "$AGENT/selftest-t4.mjs" 2>&1)"; T4RC=$?
+  for line in $T4OUT; do :; done  # 占位(下面逐行计数)
+  T4PASS_N="$(grep -c '^T4PASS ' <<<"$T4OUT" || true)"
+  T4FAIL_N="$(grep -c '^T4FAIL ' <<<"$T4OUT" || true)"
+  if (( T4RC == 0 && T4FAIL_N == 0 && T4PASS_N > 0 )); then
+    ok "t4:node 单测全绿(${T4PASS_N} 例,含负例三发+语义门)"
+  else
+    bad "t4:node 单测失败(PASS=${T4PASS_N} FAIL=${T4FAIL_N})"
+    printf '%s\n' "$T4OUT" | grep '^T4FAIL' || true
+  fi
+  # 负例三发逐项点名(验收 c 针脚:三发各自必须在汤)
+  grep -q 'T4PASS 负例①' <<<"$T4OUT" && ok "t4:负例①无实测 ENQUEUE 被门挡" || bad "t4:负例①无实测 ENQUEUE 被门挡"
+  grep -q 'T4PASS 负例②' <<<"$T4OUT" && ok "t4:负例②失败信封作 evidence 被拒" || bad "t4:负例②失败信封作 evidence 被拒"
+  grep -q 'T4PASS 负例③' <<<"$T4OUT" && ok "t4:负例③编造判例路径被闭合校验拦" || bad "t4:负例③编造判例路径被闭合校验拦"
+else
+  bad "t4:node 不可用(宿主运行前置)"
+fi
+[[ -f "$AGENT/package.json" ]] && grep -q 'pi-agent-core' "$AGENT/package.json" \
+  && ok "t4:package.json 声明 pi-agent-core 依赖" || bad "t4:package.json 声明 pi-agent-core 依赖"
+[[ -d "$AGENT/node_modules/@earendil-works/pi-agent-core" ]] \
+  && ok "t4:npm install 已落位" || bad "t4:npm install 已落位"
+git -C "$ROOT" check-ignore -q "$AGENT/node_modules" \
+  && ok "t4:node_modules 已入 .gitignore" || bad "t4:node_modules 已入 .gitignore"
+# round.sh 弃用标注(T4 边界:保留文件不删)
+grep -q '已弃用' "$AGENT/round.sh" && ok "t4:round.sh 已标弃用(保留)" || bad "t4:round.sh 已标弃用(保留)"
+node --check "$AGENT/agent.mjs" 2>/dev/null && node --check "$AGENT/tools.mjs" 2>/dev/null \
+  && node --check "$AGENT/models.mjs" 2>/dev/null \
+  && ok "t4:agent/tools/models 三模块 node 语法通过" || bad "t4:agent/tools/models 三模块 node 语法通过"
+
+# ---- 9. T4: 提示词条款钉子(谓词表三条/自动入队/信封处置/验证条款;health 信封条款) ----
+DISC="$AGENT/prompts/discover-system.md"
+grep -q 'sunset_frozen' "$DISC" && grep -q 'mirror_echo' "$DISC" && grep -q 'zero_asset' "$DISC" \
+  && ok "prompt:discover 谓词表三条在文" || bad "prompt:discover 谓词表三条在文"
+grep -q '0.25' "$DISC" && grep -q 'control_pass' "$DISC" \
+  && ok "prompt:discover 自动入队条件在文" || bad "prompt:discover 自动入队条件在文"
+grep -q '信封处置' "$DISC" && grep -q '禁止替失败补数' "$DISC" \
+  && ok "prompt:discover 信封处置条款在文" || bad "prompt:discover 信封处置条款在文"
+grep -q '工具返回验证' "$DISC" \
+  && ok "prompt:discover 工具返回验证条款在文" || bad "prompt:discover 工具返回验证条款在文"
+grep -q 'health_snapshot' "$AGENT/prompts/health-system.md" && grep -q '信封处置' "$AGENT/prompts/health-system.md" \
+  && ok "prompt:health 信封处置条款+快照工具在文" || bad "prompt:health 信封处置条款+快照工具在文"
+
 echo "----"
 echo "selftest: PASS=$pass FAIL=$fail"
 (( fail == 0 )) || exit 1
