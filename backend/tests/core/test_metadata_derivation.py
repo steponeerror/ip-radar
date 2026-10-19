@@ -25,6 +25,8 @@ OLD_CATEGORIES = {
     "data_shield": "threat",    # 波2 T2 duggytuxy Data-Shield(2026-10-19,derived 聚合源)
     "sblam": "threat",          # 波3 T1 Sblam! 表单垃圾黑名单(2026-10-19,非 derived)
     "cps_collected_iocs": "threat",  # 波3 T3 CPS 自有聚合(2026-10-19,derived 聚合源)
+    "ustc_blackip": "threat",   # 波4 T1 USTC 校园自保黑名单(2026-10-19,非 derived)
+    "myip_ms": "threat",        # 波4 T2 myip.ms htaccess 黑名单(2026-10-19,非 derived)
     "cloudzy": "asset",         # 波3 T2 Cloudzy VPS 段标签(2026-10-19,asset 轴非 derived)
     "ip2proxy": "asset", "tor_exits": "asset", "x4bnet_vpn": "asset",
     "proxyscrape": "asset", "infra_services": "asset", "cdn_edges": "asset",
@@ -59,6 +61,8 @@ OLD_RELIABILITY = {
     "data_shield": 0.50,        # 波2 T2 duggytuxy Data-Shield(2026-10-19)
     "sblam": 0.55,              # 波3 T1 Sblam!(2026-10-19)
     "cps_collected_iocs": 0.50,  # 波3 T3 CPS 自有聚合(2026-10-19)
+    "ustc_blackip": 0.55,       # 波4 T1 USTC 校园自保黑名单(2026-10-19)
+    "myip_ms": 0.55,            # 波4 T2 myip.ms htaccess 黑名单(2026-10-19)
     "cloudzy": 0.90,            # 波3 T2 Cloudzy VPS 段标签(2026-10-19)
     "drb_ra": 0.50, "hookzof": 0.50, "thespeedx": 0.50,
     "protonvpn": 0.75, "nordvpn": 0.75,
