@@ -5,7 +5,7 @@
 # 由本文件落位推导,保证断言对象恒为 worktree 根(任务书:不是主 checkout)。
 
 AGENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="${ROOT:-$(cd "$AGENT_DIR/../.." && pwd)}"   # worktree 根(ops/agent/ 上两级)
+ROOT="$(cd "$AGENT_DIR/../.." && pwd)"   # worktree 根(无条件赋值:沙箱红线不变式,评审 Minor-1;环境预置不得改写)
 DOCS_ROOT="${DOCS_ROOT:-$ROOT/docs}"              # 符号链接 → docs 仓
 PRECEDENTS_DIR="${PRECEDENTS_DIR:-$DOCS_ROOT/ops/precedents}"
 LEDGER_FILE="${LEDGER_FILE:-$DOCS_ROOT/ops/ledger.md}"
@@ -41,11 +41,18 @@ fm_block() {
 inject_precedents() {
   local kws=("$@")
   echo "### 注入判例(检索词: ${kws[*]})"
-  local hits=""
+  local hits="" rg_out rg_rc=0
   if (( ${#kws[@]} )); then
-    hits="$(rg -i -l -g '*.md' -g '!_schema.md' \
-      $(printf -- '-e %q ' "${kws[@]}") "$PRECEDENTS_DIR" 2>/dev/null | sort -u || true)"
+    rg_out="$(rg -i -l -g '*.md' -g '!_schema.md' \
+      $(printf -- '-e %q ' "${kws[@]}") "$PRECEDENTS_DIR" 2>/dev/null)" || rg_rc=$?
   fi
+  if (( rg_rc > 1 )); then
+    # 评审 Minor-3:rc≥2 = 目录缺失/非法检索词等基础设施故障,必须报错,
+    # 不许伪装成「无判例」(无证据≠清白);rc=1 才是真零命中。
+    echo "inject_precedents: rg 检索失败(rc=$rg_rc)——基础设施故障,非「无判例」" >&2
+    return 1
+  fi
+  hits="$(sort -u <<<"$rg_out")"
   if [[ -z "$hits" ]]; then
     echo "无判例(检索词: ${kws[*]})"
     return 0

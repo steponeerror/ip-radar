@@ -49,9 +49,9 @@ fi
 rm -f "$pi_err"
 [[ -n "$pi_out" ]] || { echo "round: pi 空输出,轮次失败" >&2; exit 1; }
 
-# 3) 裁决包草稿落 docs 仓(经符号链接;同名同日重跑会覆盖,台账仍逐轮记账)
+# 3) 裁决包草稿落 docs 仓(经符号链接;文件名带 HHMM——同日同轮重跑不覆盖,证据不灭失裁决 2026-10-19 评审 Minor-2)
 pkg_dir="$DOCS_ROOT/ops/packages"; mkdir -p "$pkg_dir"
-pkg="$pkg_dir/$(date +%F)-$round.md"
+pkg="$pkg_dir/$(date +%F)-$round-$(date +%H%M).md"
 printf '%s\n' "$pi_out" > "$pkg"
 
 # 4) 台账 → 5) 判例引用校验 → 6) 沙箱断言(每轮末步强制,Review Focus 1)
