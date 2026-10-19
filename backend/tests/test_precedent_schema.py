@@ -7,9 +7,17 @@ frontmatter 四元组齐全 + reward 复合映射永不坍缩成标量(Review Fo
 
 from pathlib import Path
 
+import pytest
 import yaml
 
 PRECEDENTS_DIR = Path(__file__).resolve().parents[2] / "docs" / "ops" / "precedents"
+# docs 是嵌套独立仓,主仓 .gitignore 排除 → CI checkout 无判例库(2026-10-19 T1 评审
+# Info-① 裁决:无仓即跳过,本地/worktree 符号链接下守真章)。
+if not PRECEDENTS_DIR.is_dir():
+    pytest.skip(
+        "precedent store not present in this checkout (docs is a nested repo)",
+        allow_module_level=True,
+    )
 SCHEMA_FILE = "_schema.md"
 REQUIRED_FIELDS = [
     "id",
