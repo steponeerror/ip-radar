@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# round.sh — 运营轮次 runner(T2 骨架 + T3 健康轮动作面;discover 归 T4;
-# T3.5 pi 调用面修正:run_pi 统一 json/no-session/no-extensions,工具面按轮次收紧)
+# round.sh — 运营轮次 runner(T2 骨架 + T3 健康轮;T3.5 pi 调用面修正)
+#
+# 【已弃用(2026-10-19 T4)】pi CLI 拼装不再是 agent 正主:宿主已升级为
+# ops/agent/agent.mjs(pi-agent-core + 领域工具面,ADR 0004)。本文件保留作兼容入口与
+# 规格史档,不再演进;新轮次一律用: node ops/agent/agent.mjs <health|discover> "<输入>"
 # 链:组用户消息(判例注入块+轮次输入,health 输入含确定性检查实测读数;系统提示
 # 经 --append-system-prompt 文件传入)→ run_pi → 落裁决包草稿 → 台账(真用量)→
 # 判例引用校验 → 沙箱断言。任一步失败即轮次失败非零退出(九裁决 6:短命 pi 进程,每轮记账)。
