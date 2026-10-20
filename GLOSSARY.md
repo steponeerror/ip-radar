@@ -89,6 +89,9 @@
 
 - **spawn 契约**:Python 桥(P2)/人/测试与 ops/agent/agent.mjs 之间 CLI interface 的全部事实(argv 形状 + env 表 + 退出码 0/1/2 + 轮次信封 + stderr 进度行);后端 spawn 该 CLI 是运营轮唯一入口 seam,env 面以 agent.mjs 的 SPAWN_CONTRACT_ENV 为唯一详述点(双向对拍钉死:selftest-contract)。判例:2026-10-20 契约深化批——T4「CLI 契约冻结」后首次修约,消费方未现=修约非违约。锚:ops/agent/agent.mjs(SPAWN_CONTRACT_ENV/main)
 - **轮次信封**:runRound 结果的机器面——agent.mjs stdout 的单行 JSON,成功/失败同形成败面(成功:ok/round/pkg/usage{数字}/queue_writes{action,source,dedup}/verify{cited};失败:error{code 闭集九词,message 原文},pkg 仅当包已落盘);用法错(argv 缺参)=纯 stderr+exit 2 不发信封。与工具级「失败信封」(tools.mjs envelope(),铁律②)是两物勿混:失败信封是单工具返回面,轮次信封是整轮 CLI 面。锚:ops/agent/agent.mjs(main 序列化处 successEnvelope/failureEnvelope)
+- **待集成清单**:ops 树 queue.md——裁⑦「全保守」(零自动执行)的唯一动作产物:人裁 agreed 且建议动词落在 T4 冻结闭集 {ENQUEUE,REJECT} 内才经 append_queue 入队(幂等去重键 = action+source,与轮次信封 queue_writes 的 dedup 同键);闭集外/人裁类动词(ACCEPT/FLAG 等)判例-only 零队列写,不发明闭集外动词;幂等重放仍调 append_queue——去重下真零写,兼自愈队列中途丢失/多写的残态。与判例两物勿混:判例记人裁留痕本体,清单只收闭集动词的已批准动作(集成回 SourcesPage 手动,包 UI 恒标「仅立项」)。锚:backend/ipdb/_ops_store.py(append_queue/_maybe_queue;票 #135)
+- **写回四律**:人裁写回 POST /api/ops/ruling(write_ruling)的四条硬律:schema 校验(序列化文本往返解析过 validate_precedent_entry 才落盘,写什么校什么)/ superseded_by(改裁=新条目+旧条目链指,原条目永不删,链指是唯一许可的就地变更;写序先新后旧链,任一瞬间链目标都存在)/ 幂等(键 =(包,建议,verdict,修正案)语义比较,同裁重复含跨日零副作用)/ 修正案逐字留痕(原文进 human_ruling 一字不改,只随 amended);production_delta 恒 null(30 天生产增量写回是独立后续批,未结案不补)。锚:backend/ipdb/_ops_store.py(write_ruling;票 #135)
+- **串行车道**:运营轮与源更新任务在任务管理器的互斥机制:ops 轮在飞(占道,一轮一车道)则源任务停摆等待(已 queued 者也不出队,worker 在 _queue_cv 上等 notify_all);反之任一源任务 queued/downloading/loading/throttled 在飞则 ops 轮被拒(busy_reason="sources",queued 也算——关死 worker pop 后未翻相位的并发窗;占道冲突则 busy_reason="round")。ops 相位 running 不入 has_active_offline_tasks 四态 → 不阻查询门(冷启动验收 1)。锚:backend/ipdb/_tasks.py(start_ops_round/_worker;票 #134)
 
 ## It's working if
 
