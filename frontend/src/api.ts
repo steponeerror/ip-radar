@@ -712,9 +712,10 @@ export async function deleteAdminKey(sub: string): Promise<void> {
   if (!res.ok) return throwApiError(res, "Failed to delete key");
 }
 
-// ── ops 运营面(P4,票 #136;契约真源 = backend/main.py 7 条 ops 路由 +
-// _api_models.py Ops* 模型,P2/P3 冻结面)── admin 鉴权走同源 cookie 会话,
-// 与密钥/token 面同惯例;错误统一走 throwApiError(status+code+message)。
+// ── ops 运营面(P4,票 #136;契约真源 = backend/main.py ops 路由 +
+// _api_models.py Ops* 模型,P2/P3 冻结面;票 #140 +2:agent 配置)── admin 鉴权
+// 走同源 cookie 会话,与密钥/token 面同惯例;错误统一走
+// throwApiError(status+code+message)。
 
 export type OpsRoundType = "health" | "discover";
 
@@ -805,6 +806,43 @@ export async function exportOpsPrecedents(): Promise<Blob> {
   const res = await fetch("/api/ops/precedents/export.zip");
   if (!res.ok) return throwApiError(res, "Failed to export precedents");
   return res.blob();
+}
+
+// ── ops agent 配置面(票 #140;契约真源 = backend GET/PUT /api/ops/agent-config
+// + _api_models.py OpsAgentConfig*)── 模型闭集下拉由后端 allowed_models 驱动
+// (单一真相源,裁决 2026-10-20);key 硬约束同 token 面:write-only,状态只
+// configured+tail4,完整值永不回显(前端无既有值可回填,输入框恒空)。
+export interface OpsAgentKeyStatus {
+  configured: boolean;
+  tail4: string | null;
+}
+
+export interface OpsAgentConfig {
+  model_health: string; // 有效值:配置 > env > models.mjs 缺省
+  model_discover: string;
+  zai_api_key: OpsAgentKeyStatus;
+  allowed_models: string[]; // 后端校验闭集(实测 pi-ai 装载目录)
+}
+
+export async function getOpsAgentConfig(): Promise<OpsAgentConfig> {
+  return jsonOrThrow(await fetch("/api/ops/agent-config"), "Failed to load agent config");
+}
+
+// PUT:三字段缺省/空 key = 保持不改(无清除面);闭集外模型 422。
+// 成功返回写后状态(与 GET 同形)。
+export async function putOpsAgentConfig(
+  payload: { model_health: string; model_discover: string; zai_api_key?: string },
+): Promise<OpsAgentConfig> {
+  const res = await fetch("/api/ops/agent-config", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model_health: payload.model_health,
+      model_discover: payload.model_discover,
+      ...(payload.zai_api_key ? { zai_api_key: payload.zai_api_key } : {}),
+    }),
+  });
+  return jsonOrThrow(res, "Failed to save agent config");
 }
 
 // ── token 界面配置(sources-redesign T3;契约见 backend/main.py admin_token_*
