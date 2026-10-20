@@ -243,6 +243,67 @@ def test_spawn_cancelled_token_terminates_child(rounds, ops_env, fake_agent, mon
     assert "取消" in _ledger_text(ops_env)
 
 
+# ── B2. agent-config.json 注入(票 #140:配置优先,未配置回落 effective env;
+# 每次 spawn 现读 = 改完即生效,无需重启)──────────────────────────────────
+
+
+def _plant_agent_config(ops_env, cfg: dict) -> None:
+    """直接落配置文件(独立于被测模块写入面的独立真源)。"""
+    (ops_env / "ops").mkdir(parents=True, exist_ok=True)
+    (ops_env / "ops" / "agent-config.json").write_text(
+        json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
+
+
+def test_spawn_env_injects_configured_models_and_key(rounds, ops_env, fake_agent):
+    """配置三元注入:OPS_MODEL_HEALTH/OPS_MODEL_DISCOVER/ZAI_CODING_CN_API_KEY
+    spawn 面可见配置值;key 配置优先于 env(ops_env fixture 已灌 env key)。"""
+    _plant_agent_config(ops_env, {"model_health": "glm-4.6v",
+                                  "model_discover": "glm-5.3-highspeed",
+                                  "zai_api_key": "cfg-key-9999"})
+    rounds.spawn_round("health", "输入")
+    dump = _read_dump(fake_agent[1])
+    assert dump["env"]["OPS_MODEL_HEALTH"] == "glm-4.6v"
+    assert dump["env"]["OPS_MODEL_DISCOVER"] == "glm-5.3-highspeed"
+    assert dump["env"]["ZAI_CODING_CN_API_KEY"] == "cfg-key-9999"  # 配置赢 env
+
+
+def test_spawn_config_absent_falls_back_to_env(rounds, ops_env, fake_agent, monkeypatch):
+    """未配置回落继承的 effective env:operator 灌的 OPS_MODEL_HEALTH 透传、
+    zai key 吃 env 兜底链;未涉模型名不注入(models.mjs 缺省兜底)。"""
+    monkeypatch.setenv("OPS_MODEL_HEALTH", "glm-5.3-flashx")
+    rounds.spawn_round("health", "输入")
+    dump = _read_dump(fake_agent[1])
+    assert dump["env"]["OPS_MODEL_HEALTH"] == "glm-5.3-flashx"
+    assert "OPS_MODEL_DISCOVER" not in dump["env"]  # 未配置不注入
+    assert dump["env"]["ZAI_CODING_CN_API_KEY"] == "zai-secret-key-1234"  # env 兜底
+
+
+def test_spawn_rereads_config_each_spawn(rounds, ops_env, fake_agent):
+    """每次 spawn 现读:两轮之间改配置,第二轮即见新值(改完即生效)。"""
+    _plant_agent_config(ops_env, {"model_health": "glm-5.3", "zai_api_key": "v1-key-1111"})
+    rounds.spawn_round("health", "第一轮")
+    first = _read_dump(fake_agent[1])
+    fake_agent[1].unlink()
+    _plant_agent_config(ops_env, {"model_health": "glm-5.3-flashx", "zai_api_key": "v2-key-2222"})
+    rounds.spawn_round("health", "第二轮")
+    second = _read_dump(fake_agent[1])
+    assert first["env"]["OPS_MODEL_HEALTH"] == "glm-5.3"
+    assert first["env"]["ZAI_CODING_CN_API_KEY"] == "v1-key-1111"
+    assert second["env"]["OPS_MODEL_HEALTH"] == "glm-5.3-flashx"
+    assert second["env"]["ZAI_CODING_CN_API_KEY"] == "v2-key-2222"
+
+
+def test_spawn_corrupt_config_maps_infra(rounds, ops_env, fake_agent):
+    """坏配置文件 = 显式失败不静默:infra 兜底信封 + 台账行(消息不含 key 值)。"""
+    (ops_env / "ops").mkdir(parents=True, exist_ok=True)
+    (ops_env / "ops" / "agent-config.json").write_text("{broken", encoding="utf-8")
+    result = rounds.spawn_round("health", "输入")
+    assert result["ok"] is False
+    assert result["error"]["code"] == "infra"
+    assert "配置" in _ledger_text(ops_env)
+
+
+
 # ── C. 串行车道(UpdateManager;FakeSource 模式沿 tests/core/test_tasks.py)──
 
 

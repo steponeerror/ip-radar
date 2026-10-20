@@ -62,6 +62,9 @@ FROZEN = {
     ("GET", "/api/ops/precedents/{name}"): "admin",
     ("GET", "/api/ops/precedents/export.zip"): "admin",
     ("POST", "/api/ops/ruling"): "admin",
+    # 票 #140:agent 配置面全部 admin 面
+    ("GET", "/api/ops/agent-config"): "admin",
+    ("PUT", "/api/ops/agent-config"): "admin",
     ("GET", "/api/events"): "admin",
     ("GET", "/api/version"): "open-status",
     ("POST", "/api/update"): "open-selfupdate-token",

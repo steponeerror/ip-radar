@@ -315,6 +315,33 @@ class OpsRulingOut(_Out):
     queue_appended: bool
 
 
+# ── ops agent 配置面（票 #140；永不回显约束同 token 面 sources-redesign T1）──
+class OpsAgentKeyStatusOut(_Out):
+    """key 状态：configured + tail4（≤4 字符）。硬约束：完整 key 永不回显
+    （沿 TokenStatusOut 先例）；空串/缺省 = 保持不改（无清除面）。"""
+    configured: bool
+    tail4: Optional[str] = None
+
+
+class OpsAgentConfigOut(_Out):
+    """GET/PUT /api/ops/agent-config 出参（票 #140）。model_* = 有效值
+    （配置 > env > models.mjs 缺省，优先级链见 _ops_config 模块头）；
+    allowed_models = 后端校验闭集，前端下拉单一真相源（裁决 2026-10-20）。"""
+    model_health: str
+    model_discover: str
+    zai_api_key: OpsAgentKeyStatusOut
+    allowed_models: list[str]
+
+
+class OpsAgentConfigIn(BaseModel):
+    """PUT 入参：三字段全可省（缺省 = 保持不改）；zai_api_key 空串 = 保持
+    不改。闭集与长度上限不在此声明（pydantic 422 detail 回带 input 原值，
+    违「永不回显」）；在 _ops_config.update 校验（HTTPException 信封不带值）。"""
+    model_health: Optional[str] = None
+    model_discover: Optional[str] = None
+    zai_api_key: Optional[str] = None
+
+
 class ApiKeyOut(_Out):
     """密钥元数据 —— 绝不含 JWT 本体(list 单项 / PATCH 返回形状)。"""
     sub: str

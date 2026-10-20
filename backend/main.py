@@ -42,6 +42,7 @@ from ipdb import _ratelimit as _ipdb_ratelimit  # noqa: F401  (Task 7 限流;装
 from ipdb import _tokens as _ipdb_tokens
 from ipdb import _ops_rounds as _ipdb_ops_rounds
 from ipdb import _ops_read as _ipdb_ops_read
+from ipdb import _ops_config as _ipdb_ops_config
 from ipdb import _ops_store as _ipdb_ops_store
 from slowapi.errors import RateLimitExceeded
 from ipdb import _update as _ipdb_update
@@ -52,7 +53,8 @@ from ipdb._api_models import (
     AckOut, ApiKeyCreateIn, ApiKeyCreatedOut, ApiKeyOut, ApiKeyPatchIn,
     BatchOut, DbStatusOut,
     ErrorEnvelope, EvalDetailOut, EvalJobAcceptedOut, EvalModelOut,
-    EvalOverviewOut, LookupResultOut, OpsFileTextOut, OpsPackagesOut,
+    EvalOverviewOut, LookupResultOut, OpsAgentConfigIn, OpsAgentConfigOut,
+    OpsFileTextOut, OpsPackagesOut,
     OpsPackageOut, OpsPrecedentsOut, OpsRoundIn, OpsRulingIn, OpsRulingOut,
     SourceInfoOut,
     TaskAcceptedOut,
@@ -1594,6 +1596,34 @@ async def create_ops_ruling(payload: OpsRulingIn):
         raise HTTPException(422, str(e))
     except FileNotFoundError as e:
         raise ApiError(ErrorCode.not_found, str(e))
+
+
+# ── ops agent 配置面（票 #140：选模型 + 填 key，运行时可配）──
+# 全部 admin 面（沿 P2/P3 _ADMIN_DEPS 惯例）；出参永不回显完整 key
+# （configured+tail4，沿 token 面先例）；优先级链/闭集/坏文件语义见
+# ipdb/_ops_config.py 模块头；每次 spawn 现读 → 改完即生效无需重启。
+
+@app.get("/api/ops/agent-config", response_model=OpsAgentConfigOut,
+         dependencies=[*_ADMIN_DEPS], responses=_ERRS_422_500)
+async def read_ops_agent_config():
+    try:
+        return _ipdb_ops_config.status()
+    except RuntimeError as e:  # 坏文件显式失败，不伪装未配置（无证据≠清白）
+        raise ApiError(ErrorCode.internal, str(e))
+
+
+@app.put("/api/ops/agent-config", response_model=OpsAgentConfigOut,
+         dependencies=[*_ADMIN_DEPS], responses=_ERRS_422_500)
+async def update_ops_agent_config(payload: OpsAgentConfigIn):
+    """三字段缺省 = 保持不改；zai_api_key 空串 = 保持不改（无清除面）；
+    模型闭集外 422（消息不带 key 值）。"""
+    try:
+        return _ipdb_ops_config.update(
+            payload.model_health, payload.model_discover, payload.zai_api_key)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    except RuntimeError as e:
+        raise ApiError(ErrorCode.internal, str(e))
 
 
 _env_static = os.environ.get("IP_RADAR_STATIC_DIR")

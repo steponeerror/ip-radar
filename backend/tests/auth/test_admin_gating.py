@@ -52,6 +52,9 @@ _MANAGEMENT = [
     ("get", "/api/ops/precedents/export.zip", None),
     ("post", "/api/ops/ruling", {"package": "p.md", "suggestion": "s",
                                    "verdict": "agreed"}),
+    # 票 #140:agent 配置面 2 端点
+    ("get", "/api/ops/agent-config", None),
+    ("put", "/api/ops/agent-config", {"model_health": "glm-5.3"}),
 ]
 
 # 结构测试的门控清单:brief step 3 全部 10 端点(真实路由路径参数形态)
@@ -81,6 +84,9 @@ _GATED = [
     ("get", "/api/ops/precedents/export.zip"),
     ("get", "/api/ops/precedents/{name}"),
     ("post", "/api/ops/ruling"),
+    # 票 #140:agent 配置面 2 端点
+    ("get", "/api/ops/agent-config"),
+    ("put", "/api/ops/agent-config"),
 ]
 
 

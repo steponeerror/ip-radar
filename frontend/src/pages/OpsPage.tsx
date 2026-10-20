@@ -4,7 +4,8 @@ import { useTasks } from "../tasks/useTasks";
 import { Modal } from "../components/Modal";
 import {
   startOpsRound, readOpsLedger, listOpsPrecedents, readOpsPrecedent, exportOpsPrecedents,
-  type ApiError, type OpsRoundType, type TaskState,
+  getOpsAgentConfig, putOpsAgentConfig,
+  type ApiError, type OpsAgentConfig, type OpsRoundType, type TaskState,
 } from "../api";
 import OpsPackagesSection from "./OpsPackagesSection";
 import { opsErrorText, roundErrorText } from "./opsErrorText";
@@ -126,8 +127,127 @@ function RoundPanel({ onUnauthorized }: { onUnauthorized: () => void }) {
   );
 }
 
-// 台账 markdown 表(| 日期 | 轮次 | model | 用量 | 备注 |)→ 只读表;
-// 分隔行(|---|)跳过;表外行(标题等)不渲染(节标题已在面内)。
+// 票 #140「agent 配置」子区:两轮次模型下拉(闭集由后端 GET allowed_models
+// 驱动,单一真相源)+ zai key write-only 输入(状态只显 configured+tail4,
+// 永不回填;保存成功后清空)。改完即生效由后端每次 spawn 现读保证。
+function ConfigSection({ onUnauthorized }: { onUnauthorized: () => void }) {
+  const { t } = useI18n();
+  const [cfg, setCfg] = useState<OpsAgentConfig | null>(null);
+  const [modelHealth, setModelHealth] = useState("");
+  const [modelDiscover, setModelDiscover] = useState("");
+  const [keyInput, setKeyInput] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const apply = (c: OpsAgentConfig) => {
+    setCfg(c);
+    setModelHealth(c.model_health);
+    setModelDiscover(c.model_discover);
+  };
+
+  const load = useCallback(async () => {
+    setError(null);
+    try {
+      apply(await getOpsAgentConfig());
+    } catch (e) {
+      if ((e as ApiError).status === 401) { onUnauthorized(); return; }
+      setError(opsErrorText(t, e, t("ops.cfg.loadFailed")));
+    }
+  }, [t, onUnauthorized]);
+
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { load(); }, [load]);
+
+  const save = () => {
+    if (busy || !modelHealth || !modelDiscover) return;
+    setBusy(true);
+    setSaved(false);
+    setError(null);
+    putOpsAgentConfig({
+      model_health: modelHealth,
+      model_discover: modelDiscover,
+      ...(keyInput.trim() ? { zai_api_key: keyInput.trim() } : {}),
+    })
+      .then((c) => {
+        apply(c);
+        setKeyInput(""); // write-only:保存后即清,后端永不回填
+        setSaved(true);
+      })
+      .catch((e) => {
+        if ((e as ApiError).status === 401) { onUnauthorized(); return; }
+        setError(opsErrorText(t, e, t("ops.cfg.saveFailed")));
+      })
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <section aria-label={t("ops.cfg.title")} className="mt-8">
+      <h2 className="text-sm font-semibold tracking-wide text-zinc-400 uppercase">
+        {t("ops.cfg.title")}
+      </h2>
+      {error && (
+        <p role="alert" className="mt-3 rounded-md border border-red-400/30 bg-red-400/10 px-3 py-2 text-xs text-red-400">
+          {error}
+        </p>
+      )}
+      {cfg && (
+        <div className="mt-3 flex flex-wrap items-end gap-4">
+          <label className="flex flex-col gap-1 text-xs text-zinc-400">
+            {t("ops.cfg.modelHealth")}
+            <select
+              value={modelHealth}
+              onChange={(e) => setModelHealth(e.target.value)}
+              className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-1.5 font-mono text-xs text-zinc-200 focus:border-emerald-600 focus:outline-none"
+            >
+              {cfg.allowed_models.map((m) => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-zinc-400">
+            {t("ops.cfg.modelDiscover")}
+            <select
+              value={modelDiscover}
+              onChange={(e) => setModelDiscover(e.target.value)}
+              className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-1.5 font-mono text-xs text-zinc-200 focus:border-emerald-600 focus:outline-none"
+            >
+              {cfg.allowed_models.map((m) => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-zinc-400">
+            {t("ops.cfg.keyLabel")}
+            <input
+              type="password"
+              autoComplete="off"
+              placeholder={t("ops.cfg.keyPlaceholder")}
+              value={keyInput}
+              onChange={(e) => setKeyInput(e.target.value)}
+              className="min-w-56 rounded-md border border-zinc-700 bg-zinc-950 px-3 py-1.5 font-mono text-xs text-zinc-200 focus:border-emerald-600 focus:outline-none"
+            />
+            <span className="text-[11px] text-zinc-500">
+              {cfg.zai_api_key.configured
+                ? t("ops.cfg.keyConfigured", { tail4: cfg.zai_api_key.tail4 ?? "" })
+                : t("ops.cfg.keyMissing")}
+            </span>
+          </label>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={save}
+            className="rounded-md bg-emerald-500 px-4 py-1.5 text-xs font-semibold text-zinc-950 transition-transform hover:scale-[1.02] disabled:opacity-40"
+          >
+            {t("ops.cfg.save")}
+          </button>
+        </div>
+      )}
+      {saved && (
+        <p className="mt-2 text-xs text-emerald-400">{t("ops.cfg.saved")}</p>
+      )}
+    </section>
+  );
+}
+
+// 台账 markdown 表(| 日期 | 轮次 | model | 用量 | 备注 |)→ 只读表；
+// 分隔行(|---|)跳过；表外行(标题等)不渲染(节标题已在面内)。
 function ledgerRows(text: string): string[][] {
   return text
     .split("\n")
@@ -352,6 +472,7 @@ export default function OpsPage({ onUnauthorized }: { onUnauthorized: () => void
       </p>
       <div className="mt-6">
         <RoundPanel onUnauthorized={onUnauthorized} />
+        <ConfigSection onUnauthorized={onUnauthorized} />
         <OpsPackagesSection onUnauthorized={onUnauthorized} roundTick={roundTick} />
         <LedgerSection onUnauthorized={onUnauthorized} />
         <PrecedentsSection onUnauthorized={onUnauthorized} />

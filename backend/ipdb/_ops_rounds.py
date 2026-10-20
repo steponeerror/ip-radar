@@ -11,9 +11,10 @@
   → $IP_RADAR_DATA_DIR/ops 一个根,裁④,经 P1 _ops_store.ops_root 解析;agent
   侧派生 queue.md/artifacts 挂 DOCS_ROOT/ops/*,故 DOCS_ROOT 钉在 ops 根的父
   目录)+ 求值 CLI(OPS_EVAL_PY=本进程解释器、OPS_DATA_DIR=registry 数据面,
-  exclusive_probe 复用产品同一 DB);zai key(ZAI_CODING_CN_API_KEY)自 admin
-  token 机制维护的 effective env 读出后注入子进程 env——绝不写盘、绝不进
-  .env、绝不出现在日志(裁⑤);其余 OPS_* 围栏(OPS_PROBE_MAX_KEYS 等,
+  exclusive_probe 复用产品同一 DB)+ 票 #140 配置面三元(OPS_MODEL_HEALTH/
+  OPS_MODEL_DISCOVER/ZAI_CODING_CN_API_KEY:ops 树 agent-config.json 配置
+  优先,未配置回落 effective env 兜底链,每次 spawn 现读改完即生效)——key
+  绝不进日志(裁⑤);其余 OPS_* 围栏(OPS_PROBE_MAX_KEYS 等,
   裁①闸二)经 env 继承透传(operator 可调,spawn 层可见);
 - stdout = 单行 JSON 轮次信封(成功/失败同形);exit 0=成功面 / 1=失败面 /
   2=用法错(纯 stderr 无 JSON);exit 2、非单行 stdout、rc×ok 组合非法 =
@@ -62,10 +63,18 @@ def _agent_argv(round_type: str, input_text: str) -> list[str]:
 
 
 def _round_env() -> dict[str, str]:
-    """桥侧注入的契约 env(其余 SPAWN_CONTRACT_ENV 名经继承透传)。"""
+    """桥侧注入的契约 env(其余 SPAWN_CONTRACT_ENV 名经继承透传)。
+
+    票 #140:agent-config.json(ops 树,_ops_config)每次 spawn 现读——
+    配置优先,未配置回落继承的 effective env(env 兜底链不动,override 灌
+    key 语义保持);模型名未配置时不注入(继承透传 operator 的 OPS_MODEL_*,
+    都无则 models.mjs 缺省)。改完即生效,无需重启。
+    """
     from . import _registry  # 惰性导入:单测仅解析路径时不牵源发现链
+    from . import _ops_config
 
     root = _ops_store.ops_root()
+    cfg = _ops_config.read_config()
     env = {
         "DOCS_ROOT": str(root.parent),
         "PRECEDENTS_DIR": str(root / "precedents"),
@@ -73,7 +82,12 @@ def _round_env() -> dict[str, str]:
         "OPS_EVAL_PY": sys.executable,
         "OPS_DATA_DIR": str(_registry.DATA_DIR),
     }
-    zai = os.environ.get("ZAI_CODING_CN_API_KEY", "").strip()
+    if cfg.get("model_health"):
+        env["OPS_MODEL_HEALTH"] = cfg["model_health"]
+    if cfg.get("model_discover"):
+        env["OPS_MODEL_DISCOVER"] = cfg["model_discover"]
+    zai = (cfg.get("zai_api_key")
+           or os.environ.get("ZAI_CODING_CN_API_KEY", "")).strip()
     if zai:
         env["ZAI_CODING_CN_API_KEY"] = zai
     return env
@@ -101,7 +115,10 @@ def spawn_round(
     返回 {"cancelled": True}(台账留痕,九裁决 9)。
     """
     argv = _agent_argv(round_type, input_text)
-    env = {**os.environ, **_round_env()}
+    try:
+        env = {**os.environ, **_round_env()}
+    except RuntimeError as e:  # agent-config.json 坏文件(读面显式报错不静默)
+        return _infra(round_type, f"agent 配置读取失败: {e}")
     try:
         # ops 树形状先行（裁④一个根；幂等建目录+表头）——判例注入（lib.sh rg
         # 对 PRECEDENTS_DIR）在空树也须能跑，目录缺失会伪装成 rg rc=2 基础设施
