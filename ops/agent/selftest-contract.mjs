@@ -2,7 +2,7 @@
 // selftest-contract.mjs — Task 1 spawn 契约三层测试(零 API:faux 或前置-throw 两路)。
 // a. 契约表双向对拍:SPAWN_CONTRACT_ENV ↔ 生产文件真读(agent/tools/models 的 process.env.X
 //    + 计算读取按轮次闭集展开 + models.mjs envApiKeyAuth 声明 key + lib.sh ${VAR:-} 侧名);
-//    GH_TOKEN 豁免(gh CLI 自读);PI_BIN/RUN_PI_RAW_OUT 出界钉死(run_pi fixture 面,T3 退役)。
+//    GH_TOKEN 豁免(gh CLI 自读);PI_BIN/RUN_PI_RAW_OUT 出界钉死(已退役 run_pi 的 fixture 面;T3 删尽后名灭,禁入表断言留作防复活绊线)。
 // b. in-process main(faux provider,golden 同型):成功轮单行 JSON 轮次信封逐字段 + stderr 进度行;
 //    失败轮 code=model_face/empty_text 信封(pkg 缺席)+ closure_check 带 pkg 信封(reviewer
 //    Minor-1,T2:包已落盘的失败面必须回传工件——轮次失败≠工件灭失,P2 消费面)。
@@ -116,7 +116,7 @@ await t("表对拍:OPS_*|ZAI_*|DOCS_ROOT/PRECEDENTS_DIR/LEDGER_FILE 读取 ∈ �
   const nsRe = /^(OPS_|ZAI_)/;
   const named = new Set(["DOCS_ROOT", "PRECEDENTS_DIR", "LEDGER_FILE"]);
   for (const n of READS.reads) {
-    if (n === "PI_BIN" || n === "RUN_PI_RAW_OUT") continue; // run_pi selftest fixture 面,T3 退役
+    if (n === "PI_BIN" || n === "RUN_PI_RAW_OUT") continue; // 已退役 run_pi 的 fixture 面(T3 删尽,名灭;此行为防御性残留,断言保留作绊线)
     if (nsRe.test(n) || named.has(n)) assert.ok(tableNames().has(n), `${n} 被读但不在 SPAWN_CONTRACT_ENV`);
   }
   assert.ok(!tableNames().has("PI_BIN") && !tableNames().has("RUN_PI_RAW_OUT"), "fixture 面名字不得入表");

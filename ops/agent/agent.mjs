@@ -38,8 +38,9 @@ const HIT_CAP = 8; // 铁律⑦
 // ── spawn 契约 env 表(本表 = spawn 契约 env 面唯一详述点;P2 Python 桥/P5 runbook 从此读)──
 // phase:import-time=模块装载期读一次(spawn 时注入即冻结,进程内改无效);call-time=调用期逐次读。
 // 双向对拍钉死(selftest-contract.mjs):表内每项真被读(GH_TOKEN 豁免——gh CLI 自读);每个
-// OPS_*|ZAI_*|DOCS_ROOT|PRECEDENTS_DIR|LEDGER_FILE 读取 ∈ 表。PI_BIN/RUN_PI_RAW_OUT 是 run_pi
-// 的 selftest fixture 面(T3 退役),刻意不在表。
+// OPS_*|ZAI_*|DOCS_ROOT|PRECEDENTS_DIR|LEDGER_FILE 读取 ∈ 表。PI_BIN/RUN_PI_RAW_OUT 是已退役
+// 死引擎的 selftest fixture 面(2026-10-20 T3 删尽,名在活代码已不存在);禁入表断言保留
+// 作防复活绊线。
 export const SPAWN_CONTRACT_ENV = [
   { name: "DOCS_ROOT", default: "<worktree 根>/docs", consumer: "tools.mjs 模块顶(docs 根,派生包/队列/工件落位)+ lib.sh 落位", phase: "import-time" },
   { name: "PRECEDENTS_DIR", default: "<DOCS_ROOT>/ops/precedents", consumer: "lib.sh(inject_precedents/verify_cited_precedents)", phase: "call-time" },
@@ -158,7 +159,7 @@ ${input}`;
 `;
   fs.writeFileSync(pkg, `${finalText}\n${footer}`);
 
-  // 台账先于校验(九裁决 9 每轮记账:校验失败的轮次也花真钱,用量必须入账;T2 round.sh 同序)
+  // 台账先于校验(九裁决 9 每轮记账:校验失败的轮次也花真钱,用量必须入账;序承 T2 轮次 runner,史档 git 历史)
   const usageStr = `in=${usage.input} out=${usage.output} total=${usage.totalTokens} cost=${usage.cost.toFixed(8)}`;
   const note = `tools=${toolCalls.length}${host.queueWrites.length ? ` queue=${host.queueWrites.length}` : ""} sdk=pi-agent-core`;
   let verifyOut = "";
