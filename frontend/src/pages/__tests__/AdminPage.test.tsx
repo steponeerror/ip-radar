@@ -130,20 +130,46 @@ describe("AdminPage", () => {
     expect(screen.getByRole("group", { name: "language" })).toBeTruthy();
   });
 
-  it("fourth tab 运营 renders OpsPage (round trigger + read-only sections); other tabs yield", async () => {
+  it("fourth tab 运营 renders OpsPage (sub-tabs + round trigger); other tabs yield", async () => {
     mockFetch.mockResolvedValueOnce(me200);
     renderWithI18n(<AdminPage />);
     await waitFor(() => expect(screen.getByRole("button", { name: "Sign out" })).toBeTruthy());
     const tabOps = screen.getByRole("tab", { name: "Operations" });
     expect(tabOps).toHaveAttribute("aria-selected", "false");
     fireEvent.click(tabOps);
+    // 票 #142:运营页内二级子 tab(轮次默认/裁决/档案/设置),默认面 = 触发按钮在场
     expect(await screen.findByRole("button", { name: "Run health round" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Rounds" })).toHaveAttribute("aria-selected", "true");
+    // 裁决包区在「裁决」子 tab 后面
+    fireEvent.click(screen.getByRole("tab", { name: "Rulings" }));
     expect(screen.getByRole("heading", { name: "Ruling packages" })).toBeTruthy();
     expect(tabOps).toHaveAttribute("aria-selected", "true");
     // 非活动 tab 不渲染:sources 空态让位
     expect(screen.queryByText(/no sources discovered/i)).toBeNull();
     // 默认 tab 仍是 sources(ops tab 挂载不影响默认选中)
     expect(screen.getByRole("tab", { name: "Sources" })).toHaveAttribute("aria-selected", "false");
+  });
+
+  // 票 #142:ops 轮在飞(任务链 running)→ 壳层 ops nav tab 红点;空闲无点。
+  // 轮次可观察性入口——不看运营页也能知道 agent 在跑。
+  it("ops nav tab shows a red dot while an ops round task is running (idle: none)", async () => {
+    // 空闲(任务链空):无红点
+    mockFetch.mockResolvedValueOnce(me200);
+    const { unmount } = renderWithI18n(<AdminPage />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Sign out" })).toBeTruthy());
+    expect(screen.queryByTitle("An ops round is running")).toBeNull();
+    unmount();
+    // 在飞(source=ops state=running):红点亮(title 语义可查)
+    vi.mocked(getTasks).mockResolvedValueOnce({
+      tasks: [{ id: "t9", source: "ops", host: null, state: "running", error: null, batch_id: null }],
+      batch: null,
+    });
+    mockFetch.mockResolvedValueOnce(me200);
+    renderWithI18n(<AdminPage />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Sign out" })).toBeTruthy());
+    expect(await screen.findByTitle("An ops round is running")).toBeTruthy();
+    // 红点挂在 ops tab 内(与 Operations 同按钮)
+    expect(screen.getByTitle("An ops round is running").closest("button")?.textContent).toContain("Operations");
   });
 
   it("shows the login-failed message from the error envelope", async () => {
