@@ -570,11 +570,16 @@ export class ToolHost {
         covering_sources: Type.Array(Type.Object({})), artifact: Type.String(),
         trace: Type.Object({ cmd: Type.String(), rc: Type.Number() }),
       }),
+      // 串行一层(评审 P1 修正):SDK 每工具执行模式 pi-agent-core 1.3.0 AgentTool.
+      // executionMode(agent-loop executeToolCalls:批次含 sequential 工具即整批逐个执行,
+      // 防 SDK 缺省 parallel 下并发 ≤256MB 下载 + _eval CLI/LMDB 读压)。
+      executionMode: "sequential",
       execute: async (callId, p) => this.probeQueue(this.runExclusiveProbe(callId, p)),
     };
   }
 
-  // 串行锁(LMDB 读压;模块级 promise 链,同进程内探针一次一个)
+  // 串行二层(实例级 promise 链 this.probeChain,非模块级;只序落定,起跑由 execute 立即发生)
+  // ——并发防护以一层 executionMode 为准,本链兜底 SDK 批层之外的调用路径(LMDB 读压)。
   probeQueue(task) {
     const run = this.probeChain ?? Promise.resolve();
     this.probeChain = run.then(() => task, () => task);

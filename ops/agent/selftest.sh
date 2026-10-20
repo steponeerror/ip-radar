@@ -371,7 +371,7 @@ if command -v node >/dev/null 2>&1 && [[ -d "$AGENT/node_modules/@earendil-works
   GOLDOUT="$(node "$AGENT/golden/run-golden.mjs" 2>&1)"; GOLDRC=$?
   GP_N="$(grep -c '^GOLDENPASS ' <<<"$GOLDOUT" || true)"
   GF_N="$(grep -c '^GOLDENFAIL ' <<<"$GOLDOUT" || true)"
-  if (( GOLDRC == 0 && GF_N == 0 && GP_N >= 7 )); then
+  if (( GOLDRC == 0 && GF_N == 0 && GP_N >= 8 )); then
     ok "golden:faux 用例集全绿(${GP_N} 例,布尔判据)"
   else
     bad "golden:faux 用例集失败(PASS=${GP_N} FAIL=${GF_N})"
@@ -382,6 +382,9 @@ if command -v node >/dev/null 2>&1 && [[ -d "$AGENT/node_modules/@earendil-works
     && ok "golden:正例①健康快照摘要格式+near_band 179/180 边界" || bad "golden:正例①健康快照摘要格式+near_band 179/180 边界"
   grep -q 'GOLDENPASS discover_predicate_hit' <<<"$GOLDOUT" \
     && ok "golden:正例②discover 谓词命中路径(门放行入队)" || bad "golden:正例②discover 谓词命中路径(门放行入队)"
+  grep -q 'GOLDENPASS discover_midround_search_citation' <<<"$GOLDOUT" \
+    && ok "golden:正例③轮中 search_precedents 命中引用放行(闭集=预注入∪本会话命中,活时并集;neg3 拒侧反面)" \
+    || bad "golden:正例③轮中 search_precedents 命中引用放行(闭集=预注入∪本会话命中,活时并集;neg3 拒侧反面)"
   grep -q 'GOLDENPASS neg1_enqueue_without_measurement' <<<"$GOLDOUT" \
     && ok "golden:负例①无实测 ENQUEUE 被门挡零写队列" || bad "golden:负例①无实测 ENQUEUE 被门挡零写队列"
   grep -q 'GOLDENPASS neg2_failed_envelope_as_evidence' <<<"$GOLDOUT" \

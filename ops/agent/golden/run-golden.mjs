@@ -6,7 +6,10 @@
 // + 真收口四件(包/台账/闭合校验/沙箱断言),零 API 花费;判据全布尔(计划书:无 1-5 打分)。
 // 隔离:每例一子进程,fixture DOCS_ROOT(判例树/队列/台账/包全落 tmp)——真实 docs 树零触碰;
 // DOCS_ROOT/PRECEDENTS_DIR/LEDGER_FILE 经 lib.sh 落位默认值传导(env 先于 import)。
-// smoke 层(真模型)= --smoke 显式手跑,花 API,不进 selftest/CI。
+// smoke 层(真模型)仅手跑花 API,不进 selftest/CI;--smoke 单独 = smoke 层全部,
+// --smoke --only <id> = 单例,缺省 = faux 层(修正③:旧行为缺省恒 faux,--smoke 单独
+// 重跑 faux 却打印真模型横幅,冷启动验收会记到假冒烟通过)。
+// smoke 层 fixture 树保全不清理(修正④):真 API 轮的台账行/裁决包=记账工件(九裁决 9)。
 import { execFile as execFileCb } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -157,13 +160,26 @@ async function runCase(c, allowSmoke) {
       default: fail(a, `未知断言种类(${a.kind})——用例集词汇表外`);
     }
   }
-  fs.rmSync(tmp, { recursive: true, force: true });
-  return fails;
+  // fixture 树处置(修正④):faux 层一次性;smoke 层保全——真 API 轮的台账行/裁决包
+  // 是记账工件(九裁决 9/证据永不灭失),路径随结果行打印后仍整树保留。
+  const kept = cleanupFixture(c.tier, tmp);
+  return { fails, kept };
 }
+
+// 选层(修正③):--only 钉单例(跨层);--smoke 单独 = smoke 层;缺省 = faux 层。纯函数,selftest-t4 钉。
+export const selectCases = (cases, { smoke, only }) =>
+  cases.filter((c) => (only ? c.id === only : c.tier === (smoke ? "smoke" : "faux")));
+
+// fixture 树清理决策(修正④):faux 即删;smoke 保留整树并返回路径,faux 返回 null。
+export const cleanupFixture = (tier, tmp) => {
+  if (tier !== "smoke") fs.rmSync(tmp, { recursive: true, force: true });
+  return tier === "smoke" ? tmp : null;
+};
 
 const args = process.argv.slice(2);
 const flag = (n) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : undefined; };
 
+async function main() {
 if (args.includes("--list")) {
   for (const c of CASES) console.log(`${c.tier}\t${c.id}\t${c.tags.join(",")}\t${c.desc.slice(0, 60)}`);
   process.exit(0);
@@ -173,13 +189,13 @@ if (args.includes("--case")) { // 子进程:单例
   const c = CASES.find((x) => x.id === flag("--case"));
   if (!c) { console.error(`GOLDENFAIL ${flag("--case")}: 用例集无此 id`); process.exit(1); }
   try {
-    const fails = await runCase(c, args.includes("--smoke"));
+    const { fails, kept } = await runCase(c, args.includes("--smoke"));
     if (fails.length) {
-      console.log(`GOLDENFAIL ${c.id}`);
+      console.log(`GOLDENFAIL ${c.id}${kept ? ` fixture=${kept}` : ""}`);
       for (const f of fails) console.log(`  ${f}`);
       process.exit(1);
     }
-    console.log(`GOLDENPASS ${c.id}`);
+    console.log(`GOLDENPASS ${c.id}${kept ? ` fixture=${kept}` : ""}`);
     process.exit(0);
   } catch (e) {
     console.log(`GOLDENFAIL ${c.id}: ${e.message}`);
@@ -190,8 +206,8 @@ if (args.includes("--case")) { // 子进程:单例
 // 父进程:逐例派生子进程(隔离 DOCS_ROOT/PATH env;子进程内 env 先于 import 生效)
 const smoke = args.includes("--smoke");
 const only = flag("--only");
-const todo = CASES.filter((c) => (only ? c.id === only : c.tier === "faux"));
-if (!todo.length) { console.error("无可跑用例(--only 未命中或非 smoke 模式)"); process.exit(1); }
+const todo = selectCases(CASES, { smoke, only });
+if (!todo.length) { console.error("无可跑用例(--only 未命中或该层无用例)"); process.exit(1); }
 if (smoke) console.error("SMOKE 模式:真模型用例,花 API(冒烟层,不进 selftest/CI)");
 let pass = 0, failN = 0;
 for (const c of todo) {
@@ -207,3 +223,9 @@ for (const c of todo) {
 }
 console.log(`golden: PASS=${pass} FAIL=${failN}`);
 process.exit(failN ? 1 : 0);
+}
+
+// CLI 入口护栏(同 agent.mjs):selftest-t4 经 import 复用 selectCases/cleanupFixture,不触发跑例。
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  await main();
+}

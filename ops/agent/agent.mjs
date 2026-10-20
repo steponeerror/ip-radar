@@ -51,7 +51,6 @@ export async function runRound(round, input, extraKws = [], opts = {}) {
   const hitNames = [...inj.stdout.matchAll(/^- ([0-9]{4}-[0-9]{2}-[0-9]{2}-[^\s]+\.md)\s*$/gm)].map((m) => m[1]);
   const truncated = hitNames.length > HIT_CAP;
   const injected = hitNames.slice(0, HIT_CAP);
-  const allowed = new Set([...hitNames.map((h) => path.basename(h)), ...host.searchHits]);
   const injectBlock = truncated
     ? inj.stdout.split("\n").filter((l) => !/^- 202/.test(l) || injected.includes(l.slice(2).trim())).join("\n")
       + `\n(命中 ${hitNames.length} 条,注入前 ${HIT_CAP} 条——铁律⑦检索深度上限)`
@@ -127,7 +126,10 @@ ${input}`;
   await runLib("ledger_append", [round, model.id, usageStr, note]);
 
   const verify = await runLib("verify_cited_precedents", [pkg]); // 存在性(lib.sh)
-  closureCheck(finalText, allowed); // 闭集成员(铁律④);违 = 抛错轮次失败
+  // 闭集活时并集(评审 P1 修正):host.searchHits 由轮中 search_precedents execute 填充,
+  // agent.prompt() 前必空——并集必须在收口时重建,否则轮中合法命中引用在包+台账落盘后被误杀。
+  // 两侧同形(basename):预注入名(lib.sh 输出 basename)basename 化,searchHits 即 basename。
+  closureCheck(finalText, new Set([...hitNames.map((h) => path.basename(h)), ...host.searchHits])); // 闭集成员(铁律④);违 = 抛错轮次失败
   await runLib("sandbox_assert", [], 60_000);
   return { pkg, usage: usageStr, toolCalls, queueWrites: host.queueWrites, verify: verify.stdout.trim(),
     registry: [...host.registry.byCall].map(([id, r]) => ({ id, tool: r.tool, sc: r.sc })) };

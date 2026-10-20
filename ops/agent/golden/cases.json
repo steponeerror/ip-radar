@@ -15,7 +15,8 @@
     "faux 模型回合为脚本化 fixture:冻结的是回路/门/收口行为与结构化契约,摘要文本是格式模板",
     "样本(输出契约节齐全),非模型产物。fixture 判例树:2026-06-01-golden-aggregator.md 命中",
     "health+discover 检索词;2026-06-02-golden-matrix-nolayer.md 存在于库但不命中任何轮次检索词",
-    "(负例③:存在性通过、闭集校验拦截)。"
+    "(负例③:存在性通过、闭集校验拦截;正例③:经轮中 search_precedents 命中后引用放行——",
+    "闭集=预注入∪本会话命中,收口活时并集;检索词 NO-LAYER/读数约定 仅命中 B)。"
   ],
   "cases": [
     {
@@ -109,6 +110,36 @@
           "- 队列动作: REJECT:cand_zerohub",
           "2026-06-01-golden-aggregator.md"
         ], "not_matches": [ "金轨迹:仓零数据资产" ] }
+      ]
+    },
+    {
+      "id": "discover_midround_search_citation",
+      "tier": "faux",
+      "round": "discover",
+      "tags": ["positive", "midround-search-citation"],
+      "desc": "正例③(评审修正①钉子):轮中 search_precedents 命中引用放行——终稿引用非预注入、但经本会话检索命中的判例(B),收口闭集活时并集必须接纳(旧时序缺陷下被误杀);neg3 为拒侧反面。",
+      "input": "discover 金轨迹回放:候选 cand_m(轮中检索补证)。",
+      "stubs": {},
+      "registrySeed": [],
+      "turns": [
+        { "toolCall": { "name": "search_precedents", "id": "call_sp1", "args": { "keywords": ["NO-LAYER", "读数约定"] } } },
+        { "text": "## 注入判例\n- 2026-06-01-golden-aggregator.md\n- 2026-06-02-golden-matrix-nolayer.md(call_sp1 轮中检索命中)\n\n## 候选表\n- cand_m:语义矩阵层读数疑点,轮中检索判例库补证(检索词 NO-LAYER/读数约定)。\n\n## 硬门数字\n- 无测量需求(本例只钉闭集活时并集)。\n\n## 建议\n- 人裁 cand_m。\n\n## 自动执行区\n- 无。\n\n## 人裁区\n- cand_m:层读数约定引 call_sp1 命中判例,留人裁。\n\n## 摘要\n金轨迹回放:轮中 search_precedents 命中(非预注入)的判例引用,收口闭集=预注入∪本会话命中(活时并集)必须放行;neg3 为拒侧反面。" }
+      ],
+      "assertions": [
+        { "kind": "round_ok" },
+        { "kind": "tool_calls", "equals": ["search_precedents"] },
+        { "kind": "registry", "id": "call_sp1", "path": "tool", "equals": "search_precedents" },
+        { "kind": "registry", "id": "call_sp1", "path": "sc.ok", "equals": true },
+        { "kind": "registry", "id": "call_sp1", "path": "sc.hit_n", "equals": 1 },
+        { "kind": "registry", "id": "call_sp1", "path": "sc.hits.0", "equals": "2026-06-02-golden-matrix-nolayer.md" },
+        { "kind": "queue_writes", "count": 0 },
+        { "kind": "queue_file", "state": "absent" },
+        { "kind": "ledger", "min_rows": 1, "last_matches": "\\| discover \\| faux-golden \\|" },
+        { "kind": "package", "exists": true, "matches": [
+          "- tool calls: search_precedents×1",
+          "- 队列动作: 无",
+          "2026-06-02-golden-matrix-nolayer.md"
+        ] }
       ]
     },
     {

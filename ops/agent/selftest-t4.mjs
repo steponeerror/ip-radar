@@ -286,6 +286,42 @@ await t("工具面:discover=7 工具、health=1 工具,全部声明 outputSchema
   assert.equal(qa.annotations.readOnlyHint, false, "唯一写工具 readOnly=false");
 });
 
+// ── 评审环修正波 1 钉子(修正②③④;零 API 零网络) ──────────────────────
+await t("修正②:exclusive_probe 声明 executionMode=sequential(SDK 1.3.0 每工具执行模式,批次含本工具即整批逐个执行——串行为真,不再只序落定)", () => {
+  const ep = new ToolHost("discover").tools.find((x) => x.name === "exclusive_probe");
+  assert.equal(ep.executionMode, "sequential", "缺声明则 SDK 缺省 parallel,探针可并发(下载/_eval LMDB 读压)");
+  for (const other of new ToolHost("discover").tools.filter((x) => x.name !== "exclusive_probe")) {
+    assert.notEqual(other.executionMode, "sequential", "非探针工具不受牵连,保持缺省并发");
+  }
+});
+
+await t("修正③:选层纯函数——--smoke 单独=smoke 层;缺省=faux 层;--only 钉单例(跨层)", async () => {
+  const { selectCases } = await import("./golden/run-golden.mjs");
+  const cases = JSON.parse(fs.readFileSync(path.join(AGENT, "golden/cases.json"), "utf8")).cases;
+  const ids = (tier) => cases.filter((c) => c.tier === tier).map((c) => c.id);
+  assert.deepEqual(selectCases(cases, { smoke: true }).map((c) => c.id), ids("smoke"), "--smoke 单独须选且仅选 smoke 层");
+  assert.deepEqual(selectCases(cases, {}).map((c) => c.id), ids("faux"), "缺省 faux 层(旧缺陷:恒 faux)");
+  assert.deepEqual(selectCases(cases, { smoke: true, only: "smoke_health" }).map((c) => c.id), ["smoke_health"], "--smoke --only 钉 smoke 单例");
+  assert.deepEqual(selectCases(cases, { only: "discover_predicate_hit" }).map((c) => c.id), ["discover_predicate_hit"], "--only 可跨层钉 faux 单例");
+  assert.deepEqual(selectCases(cases, { only: "不存在" }), [], "--only 未命中=空计划");
+});
+
+await t("修正④:smoke 层 fixture 树保全(台账/包=记账工件不灭失);faux 层照旧即删", async () => {
+  const { cleanupFixture } = await import("./golden/run-golden.mjs");
+  const smokeTmp = fs.mkdtempSync(path.join(os.tmpdir(), "gfix4-smoke-"));
+  fs.mkdirSync(path.join(smokeTmp, "docs/ops/packages"), { recursive: true });
+  const ledger = path.join(smokeTmp, "docs/ops/ledger.md");
+  const pkg = path.join(smokeTmp, "docs/ops/packages/2026-10-20-discover-0000.md");
+  fs.writeFileSync(ledger, "| 2026-10-20 | discover | glm-5.3 | in=1 | |\n");
+  fs.writeFileSync(pkg, "## 注入判例\n");
+  const kept = cleanupFixture("smoke", smokeTmp);
+  assert.equal(kept, smokeTmp, "smoke 返回保全路径(结果行打印后仍整树在)");
+  assert.ok(fs.existsSync(ledger) && fs.existsSync(pkg), "smoke 台账行+裁决包保全");
+  const fauxTmp = fs.mkdtempSync(path.join(os.tmpdir(), "gfix4-faux-"));
+  assert.equal(cleanupFixture("faux", fauxTmp), null, "faux 返回 null");
+  assert.ok(!fs.existsSync(fauxTmp), "faux 一次性树照旧清理");
+});
+
 fs.rmSync(TMP, { recursive: true, force: true });
 console.log(`t4-selftest: PASS=${pass} FAIL=${fail}`);
 process.exit(fail ? 1 : 0);
