@@ -15,8 +15,15 @@
 // (tools.mjs outputSchema 形状),门仍从登记表真算。返回值 registry=登记表快照(断言面)。
 // spawn 契约(2026-10-20 契约深化批,T4「CLI 契约冻结」后首次修约——消费方 P2 未现,修约非违约):
 // stdout=轮次信封(单行 JSON,成功/失败同形,main 序列化处);此前 stdout 上的人读散文(完成
-// 横幅/verify 消息)与进度行([turn]/[tool])全走 stderr——P2 将 tee stderr 做 SSE 进度;用法错
+// 横幅/verify 消息)与进度行全走 stderr——P2 将 tee stderr 做 SSE 进度;用法错
 // (argv 缺参)=纯 stderr + exit 2,不发 JSON。env 面 = SPAWN_CONTRACT_ENV(下方,唯一详述点)。
+// stderr 进度行语法(票 #142 修约,第二次修约——驾驶舱消费方已现):
+//   [turn N] stopReason=<r> usage(in=<i> out=<o>)            回合结束,累计前 provider 实报
+//   [tool] <name>(<callId>) <参数一行摘要>                     起跑行;摘要=工具闭集逐一的人读
+//                                                              关键位(零参工具无摘要段)
+//   [tool-result] <name>(<callId>) ok <关键读数>               完成行;读数从 structuredContent
+//                                                              摘取(如 rate=0.44 control_pass=true)
+//   [tool-result] <name>(<callId>) fail code=<code>            失败信封行;code=铁律②信封 code
 import fs from "node:fs";
 import path from "node:path";
 import { execFile as execFileCb } from "node:child_process";
@@ -74,10 +81,35 @@ const runLib = (fn, args = [], timeoutMs = 120_000, env = process.env) => execFi
   ["-c", `. "$0"; ${fn} "$@"`, path.join(AGENT_DIR, "lib.sh"), ...args],
   { timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024, env: { ...env } });
 
+// ── stderr 进度行工具面摘要表(票 #142;闭集 8 工具逐一,未列名=零摘要「宁少算」)──
+// 参数摘要回答「在查什么」;完成行读数回答「查到什么」。只做呈现摘取,不裁决不缩料。
+const urlHost = (u) => { try { return new URL(u).hostname; } catch { return u; } };
+const TOOL_ARG_SUMMARY = {
+  health_snapshot: () => "",
+  search_precedents: (a) => (a.keywords ?? []).join(" "),
+  read_file: (a) => [a.path, a.pattern ? `pattern=${a.pattern}` : ""].filter(Boolean).join(" "),
+  fetch_url: (a) => `${a.method ?? "HEAD"} ${a.url}`,
+  gh_search: (a) => `${a.kind} "${a.query}"${a.limit ? ` limit=${a.limit}` : ""}`,
+  exclusive_probe: (a) => [urlHost(a.url), a.seed != null ? `seed=${a.seed}` : ""].filter(Boolean).join(" "),
+  matrix_scan_summary: () => "",
+  queue_action: (a) => `${a.action} ${a.source}`,
+};
+const TOOL_RESULT_SUMMARY = {
+  health_snapshot: (sc) => `frozen=${sc.frozen_n} unreachable=${sc.unreachable_n} matrix_exit=${sc.matrix_exit_code}`,
+  search_precedents: (sc) => `hits=${sc.hit_n}${sc.truncated ? "+" : ""}`,
+  read_file: (sc) => `lines=${sc.lines_n} bytes=${sc.bytes_n}`,
+  fetch_url: (sc) => `status=${sc.status} age_days=${sc.age_days ?? "null"}`,
+  gh_search: (sc) => `total=${sc.total}`,
+  exclusive_probe: (sc) => `rate=${sc.exclusive_rate} control_pass=${sc.control_pass}`,
+  matrix_scan_summary: (sc) => `exit_code=${sc.exit_code} violation=${sc.violation_n}`,
+  queue_action: (sc) => `${sc.action} ${sc.source}${sc.dedup ? " dedup" : ""}`,
+};
+
 export async function runRound(round, input, extraKws = [], opts = {}) {
   if (!(round in KWS)) throw Object.assign(new Error(`轮次必须是 health|discover,得到:${round}`), { code: "bad_round" });
   const childEnv = opts.env ?? process.env; // main io.env 注入(契约 env 面 → lib.sh 子进程)
-  const log = (...a) => (opts.stderr ?? process.stderr).write(a.join(" ") + "\n"); // stderr 进度行入契约,格式钉现状(规格 §6)
+  // stderr 进度行入契约:语法见模块头 spawn 契约段([turn]/[tool]+参数摘要/[tool-result])。
+  const log = (...a) => (opts.stderr ?? process.stderr).write(a.join(" ") + "\n");
   const host = new ToolHost(round);
   const { models, resolve } = opts.models ?? await loadModels();
   for (const seed of opts.registrySeed ?? []) host.registry.register(seed.id, seed.tool, seed.sc);
@@ -112,7 +144,17 @@ export async function runRound(round, input, extraKws = [], opts = {}) {
       log(`[turn ${usage.turns}] stopReason=${event.message.stopReason ?? "?"} usage(in=${u.input ?? 0} out=${u.output ?? 0})`);
     } else if (event.type === "tool_execution_start") {
       toolCalls.push(event.toolName);
-      log(`[tool] ${event.toolName}(${event.toolCallId})`);
+      const sum = TOOL_ARG_SUMMARY[event.toolName]?.(event.args ?? {});
+      log(`[tool] ${event.toolName}(${event.toolCallId})${sum ? ` ${sum}` : ""}`);
+    } else if (event.type === "tool_execution_end") {
+      // 完成行(票 #142):失败信封(ok:false)带 code,成功带关键读数;读数缺字段如实缺省
+      const sc = event.result?.structuredContent;
+      if (sc && sc.ok === false) {
+        log(`[tool-result] ${event.toolName}(${event.toolCallId}) fail code=${sc.code ?? "unknown"}`);
+      } else {
+        const read = sc ? TOOL_RESULT_SUMMARY[event.toolName]?.(sc) : undefined;
+        log(`[tool-result] ${event.toolName}(${event.toolCallId}) ok${read ? ` ${read}` : ""}`);
+      }
     }
   });
 

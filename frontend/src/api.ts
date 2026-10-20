@@ -437,7 +437,7 @@ export type TaskEvent =
   | { type: "snapshot"; data?: { tasks: TaskState[]; batch: BatchState | null } }
   | { type: "task"; task?: TaskState }
   | { type: "task_progress"; task_id?: string; received?: number; total?: number }
-  | { type: "task_log"; task_id?: string; line?: string } // ops 轮 stderr [turn]/[tool] 行(P2)
+  | { type: "task_log"; task_id?: string; line?: string } // ops 轮 stderr [turn]/[tool]/[tool-result] 行(P2;票 #142 修约后含参数摘要与完成行)
   | { type: "batch"; batch?: BatchState | null }
   | { type: "done"; batch?: BatchState | null };
 

@@ -8,40 +8,27 @@ import {
   type ApiError, type OpsAgentConfig, type OpsRoundType, type TaskState,
 } from "../api";
 import OpsPackagesSection from "./OpsPackagesSection";
-import { opsErrorText, roundErrorText } from "./opsErrorText";
+import { OpsCockpit, OpsPastRounds } from "./OpsCockpit";
+import { ledgerRows } from "./opsLedger";
+import { opsErrorText } from "./opsErrorText";
 
 // P4 admin 第四 tab「运营」(票 #136):①轮次触发 ②裁决包区(OpsPackagesSection)
 // ③台账只读 ④判例浏览+检索只读 ⑤导出。裁⑦:顶部恒挂「仅立项」横幅;无在线
 // 编辑、无重复面板。进度面 = 任务链徽章/mini bar 形态复用(BatchMiniBar 同款
 // 视觉),数据源 = TaskProvider 的 ops 任务(source="ops",running 相位 +
 // task_log 行)。
+// 票 #142 子 tab 重组:轮次(默认:驾驶舱+触发面+过去轮次)/裁决(OpsPackagesSection)/
+// 档案(台账+判例,只读审计面)/设置(#140 配置)。现有 section 逻辑原样搬迁,不重写。
 
 // 健康轮一键的非空输入(P2 路由 422 门:input 恒非空;健康轮指令面自含于
 // prompts/health-system.md,输入仅占位——钉常量防 i18n 漂移)。
 const HEALTH_ROUND_INPUT = "health";
 
-const STATE_BADGE: Record<string, string> = {
-  running: "text-emerald-400 border-emerald-500/20 bg-emerald-500/5",
-  done: "text-emerald-400 border-emerald-500/20 bg-emerald-500/5",
-  failed: "text-red-400 border-red-400/30 bg-red-400/10",
-  cancelled: "text-zinc-500 border-zinc-700 bg-zinc-800/50",
-};
-
-const STATE_KEY: Record<string, string> = {
-  running: "ops.round.state.running",
-  done: "ops.round.state.done",
-  failed: "ops.round.state.failed",
-  cancelled: "ops.round.state.cancelled",
-};
-
 function RoundPanel({ onUnauthorized }: { onUnauthorized: () => void }) {
   const { t } = useI18n();
-  const { tasks, logs } = useTasks();
   const [discoverInput, setDiscoverInput] = useState("");
   const [triggerError, setTriggerError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const opsTask = tasks.find((tk) => tk.source === "ops");
-  const logLines = opsTask ? logs[opsTask.id] ?? [] : [];
 
   const start = (type: OpsRoundType) => {
     if (busy) return;
@@ -57,8 +44,9 @@ function RoundPanel({ onUnauthorized }: { onUnauthorized: () => void }) {
       .finally(() => setBusy(false));
   };
 
+  // 票 #142:进度观察面(状态/耗时/日志/上一轮摘要)上移驾驶舱卡,本区只留触发面
   return (
-    <section aria-label={t("ops.round.title")}>
+    <section aria-label={t("ops.round.title")} className="mt-8">
       <h2 className="text-sm font-semibold tracking-wide text-zinc-400 uppercase">
         {t("ops.round.title")}
       </h2>
@@ -93,42 +81,12 @@ function RoundPanel({ onUnauthorized }: { onUnauthorized: () => void }) {
           {triggerError}
         </p>
       )}
-      {/* 进度面:任务链徽章 + mini bar(运行中不定长脉冲)+ task_log 行尾 */}
-      {opsTask && (
-        <div className="mt-3 rounded-md border border-zinc-800 bg-zinc-900/60 p-3">
-          <div className="flex items-center gap-3">
-            <span className={`rounded border px-2 py-0.5 font-mono text-[11px] ${STATE_BADGE[opsTask.state] ?? STATE_BADGE.cancelled}`}>
-              {t(STATE_KEY[opsTask.state] ?? "ops.round.state.running")}
-            </span>
-            {opsTask.state === "running" && (
-              <span className="h-1 flex-1 overflow-hidden rounded-full bg-zinc-800">
-                <span className="block h-full w-full animate-pulse rounded-full bg-emerald-500" />
-              </span>
-            )}
-          </div>
-          {opsTask.state === "failed" && (
-            <p role="alert" className="mt-2 text-xs text-red-400">
-              {roundErrorText(t, opsTask.error_code, opsTask.error)}
-            </p>
-          )}
-          {logLines.length > 0 && (
-            <div className="mt-2">
-              <p className="text-[11px] text-zinc-500">{t("ops.round.log")}</p>
-              <pre className="mt-1 max-h-40 overflow-auto rounded border border-zinc-800 bg-zinc-950 p-2 font-mono text-[11px] leading-relaxed text-zinc-400">
-                {logLines.map((l, i) => (
-                  <div key={i}>{l}</div>
-                ))}
-              </pre>
-            </div>
-          )}
-        </div>
-      )}
     </section>
   );
 }
 
-// 票 #140「agent 配置」子区:两轮次模型下拉(闭集由后端 GET allowed_models
-// 驱动,单一真相源)+ zai key write-only 输入(状态只显 configured+tail4,
+// 票 #140「agent 配置」子区(票 #142 起驻「设置」子 tab):两轮次模型下拉(闭集由后端
+// GET allowed_models 驱动,单一真相源)+ zai key write-only 输入(状态只显 configured+tail4,
 // 永不回填;保存成功后清空)。改完即生效由后端每次 spawn 现读保证。
 function ConfigSection({ onUnauthorized }: { onUnauthorized: () => void }) {
   const { t } = useI18n();
@@ -182,7 +140,7 @@ function ConfigSection({ onUnauthorized }: { onUnauthorized: () => void }) {
   };
 
   return (
-    <section aria-label={t("ops.cfg.title")} className="mt-8">
+    <section aria-label={t("ops.cfg.title")}>
       <h2 className="text-sm font-semibold tracking-wide text-zinc-400 uppercase">
         {t("ops.cfg.title")}
       </h2>
@@ -246,16 +204,6 @@ function ConfigSection({ onUnauthorized }: { onUnauthorized: () => void }) {
   );
 }
 
-// 台账 markdown 表(| 日期 | 轮次 | model | 用量 | 备注 |)→ 只读表；
-// 分隔行(|---|)跳过；表外行(标题等)不渲染(节标题已在面内)。
-function ledgerRows(text: string): string[][] {
-  return text
-    .split("\n")
-    .filter((l) => l.trim().startsWith("|"))
-    .map((l) => l.split("|").slice(1, -1).map((c) => c.trim()))
-    .filter((cells) => !cells.every((c) => /^:?-{3,}:?$/.test(c)));
-}
-
 function LedgerSection({ onUnauthorized }: { onUnauthorized: () => void }) {
   const { t } = useI18n();
   const [text, setText] = useState<string | null>(null);
@@ -277,7 +225,7 @@ function LedgerSection({ onUnauthorized }: { onUnauthorized: () => void }) {
   const rows = text != null ? ledgerRows(text) : [];
 
   return (
-    <section aria-label={t("ops.ledger.title")} className="mt-8">
+    <section aria-label={t("ops.ledger.title")}>
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-sm font-semibold tracking-wide text-zinc-400 uppercase">
           {t("ops.ledger.title")}
@@ -450,10 +398,18 @@ function PrecedentsSection({ onUnauthorized }: { onUnauthorized: () => void }) {
   );
 }
 
+// 二级子 tab(票 #142):轮次(默认)/裁决/档案/设置。裁决子 tab 的待裁亮点
+// 降级未做——包列表 API({name,size,modified})不含裁决态,判未裁须逐包全文
+// 读取,非廉价来源(票面明许降级);PR 记录。
+type OpsSubTab = "rounds" | "rulings" | "archive" | "settings";
+
 export default function OpsPage({ onUnauthorized }: { onUnauthorized: () => void }) {
   const { t } = useI18n();
   const { tasks } = useTasks();
   const opsTask = tasks.find((tk) => tk.source === "ops");
+  const [subTab, setSubTab] = useState<OpsSubTab>("rounds");
+  const goRulings = useCallback(() => setSubTab("rulings"), []);
+
   // 轮次收口(running → done/failed/cancelled)→ 裁决包列表重拉(新包先见)
   const prevRef = useRef<string | undefined>(undefined);
   const [roundTick, setRoundTick] = useState(0);
@@ -464,18 +420,56 @@ export default function OpsPage({ onUnauthorized }: { onUnauthorized: () => void
     if (prev === "running" && cur && cur !== "running") setRoundTick((n) => n + 1);
   }, [opsTask?.state]);
 
+  const subTabBtn = (id: OpsSubTab) =>
+    `rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+      subTab === id ? "bg-zinc-800 text-emerald-400" : "text-zinc-500 hover:text-zinc-300"
+    }`;
+
+  const subTabs: Array<{ id: OpsSubTab; key: "ops.tab.rounds" | "ops.tab.rulings" | "ops.tab.archive" | "ops.tab.settings" }> = [
+    { id: "rounds", key: "ops.tab.rounds" },
+    { id: "rulings", key: "ops.tab.rulings" },
+    { id: "archive", key: "ops.tab.archive" },
+    { id: "settings", key: "ops.tab.settings" },
+  ];
+
   return (
     <div>
       {/* 裁⑦ 恒挂:全部建议仅立项,零自动执行 */}
       <p className="rounded-md border border-amber-500/30 bg-amber-400/10 px-3 py-2 text-xs text-amber-400">
         {t("ops.disclaimer")}
       </p>
+      <div role="tablist" aria-label={t("ops.cockpit.title")} className="mt-4 flex gap-1 rounded-lg bg-zinc-900 p-1 sm:inline-flex">
+        {subTabs.map(({ id, key }) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={subTab === id}
+            className={subTabBtn(id)}
+            onClick={() => setSubTab(id)}
+          >
+            {t(key)}
+          </button>
+        ))}
+      </div>
       <div className="mt-6">
-        <RoundPanel onUnauthorized={onUnauthorized} />
-        <ConfigSection onUnauthorized={onUnauthorized} />
-        <OpsPackagesSection onUnauthorized={onUnauthorized} roundTick={roundTick} />
-        <LedgerSection onUnauthorized={onUnauthorized} />
-        <PrecedentsSection onUnauthorized={onUnauthorized} />
+        {subTab === "rounds" && (
+          <>
+            <OpsCockpit onGoRulings={goRulings} onUnauthorized={onUnauthorized} />
+            <RoundPanel onUnauthorized={onUnauthorized} />
+            <OpsPastRounds onGoRulings={goRulings} onUnauthorized={onUnauthorized} />
+          </>
+        )}
+        {subTab === "rulings" && (
+          <OpsPackagesSection onUnauthorized={onUnauthorized} roundTick={roundTick} />
+        )}
+        {subTab === "archive" && (
+          <>
+            <LedgerSection onUnauthorized={onUnauthorized} />
+            <PrecedentsSection onUnauthorized={onUnauthorized} />
+          </>
+        )}
+        {subTab === "settings" && <ConfigSection onUnauthorized={onUnauthorized} />}
       </div>
     </div>
   );

@@ -43,6 +43,9 @@ function AdminShell({ user, onLogout, onUnauthorized }: {
   const { t } = useI18n();
   const { tasks, batch } = useTasks();
   const [tab, setTab] = useState<AdminTab>("sources");
+  // 票 #142:ops 轮在飞(任务链 running)→ ops nav tab 红点;不看运营页
+  // 也能知道 agent 在跑(轮次可观察性入口,驾驶舱面的壳层信号灯)。
+  const opsRunning = tasks.some((tk) => tk.source === "ops" && tk.state === "running");
 
   const tabBtn = (id: AdminTab) =>
     `rounded-md px-4 py-2 text-sm font-medium transition-colors ${
@@ -88,6 +91,13 @@ function AdminShell({ user, onLogout, onUnauthorized }: {
               onClick={() => setTab(id)}
             >
               {t(key)}
+              {id === "ops" && opsRunning && (
+                <span
+                  title={t("admin.tab.opsRunning")}
+                  aria-hidden="true"
+                  className="ml-1.5 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-red-500 align-middle"
+                />
+              )}
             </button>
           ))}
         </div>
