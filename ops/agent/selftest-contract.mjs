@@ -153,6 +153,9 @@ const singleLineJSON = (s) => {
 };
 const successTurns = () => [
   fauxAssistantMessage([fauxToolCall("search_precedents", { keywords: ["排他率"] }, { id: "call_sp1" })], { stopReason: "toolUse" }),
+  // 票 #142 stderr 修约锚例:fetch_url 私网字面量 → SSRF 拒绝(零网络,guardHop
+  // 先于连接抛)→ [tool-result] fail code=ssrf 完成行断言面。
+  fauxAssistantMessage([fauxToolCall("fetch_url", { url: "http://127.0.0.1:9/x", method: "HEAD" }, { id: "call_ff1" })], { stopReason: "toolUse" }),
   fauxAssistantMessage([fauxText(`## 注入判例\n- ${PREC}\n\n## 摘要\n契约回放:stdout 单行 JSON 轮次信封。`)]),
 ];
 
@@ -180,6 +183,19 @@ await t("in-process:成功轮 stderr 横幅+usage/verify 行+[turn]/[tool] 进�
   assert.match(se, /\[turn \d+\] stopReason=/, "[turn] 进度行");
   assert.match(se, /\[tool\] search_precedents\(call_sp1\)/, "[tool] 进度行");
   assert.ok(!io.buf.stdout.includes("完成"), "横幅不得留在 stdout");
+});
+
+// 票 #142 stderr 修约:[tool] 行带参数一行摘要(看得出在查什么)+ [tool-result] 完成行
+// (成功带关键读数 / 失败带 code)。参数摘要与读数 = 工具闭集逐一的人读关键位,
+// 锚例覆盖两极:成功读数(search_precedents hits)与失败码(fetch_url SSRF)。
+await t("in-process:[tool] 行含参数摘要 + [tool-result] 完成行(ok 读数/fail code)", async () => {
+  const io = mkIO();
+  await main(["discover", "契约回放:工具行参数摘要"], { ...io, ...fauxIO(successTurns()) });
+  const se = io.buf.stderr;
+  assert.match(se, /\[tool\] search_precedents\(call_sp1\) 排他率/, "[tool] 参数摘要行(关键词拼接)");
+  assert.match(se, /\[tool-result\] search_precedents\(call_sp1\) ok hits=1/, "[tool-result] ok 行带关键读数");
+  assert.match(se, /\[tool\] fetch_url\(call_ff1\) HEAD http:\/\/127\.0\.0\.1:9\/x/, "[tool] fetch_url 参数摘要(method+url)");
+  assert.match(se, /\[tool-result\] fetch_url\(call_ff1\) fail code=ssrf/, "[tool-result] fail 行带 code");
 });
 
 await t("in-process:失败轮 model_face(stopReason=error)信封+pkg 缺席", async () => {
