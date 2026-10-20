@@ -18,6 +18,8 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 STREAM = {"/api/query/stream", "/api/upload/stream", "/api/events"}
+# 二进制下载端点（P3 票 #135 首例）：无 JSON 模型，成功声明须含 application/zip
+BINARY = {"/api/ops/precedents/export.zip"}
 # fastapi-users 库路由(Task 2):错误声明不经 ErrorEnvelope,见模块 docstring。
 AUTH_LIB = {"/api/auth/jwt/login", "/api/auth/jwt/logout",
             "/api/users/me", "/api/users/{id}"}
@@ -38,6 +40,12 @@ class TestOpenAPIContract:
                 if path in STREAM:
                     assert "event" in (op.get("description") or "").lower(), \
                         f"{path} 流式端点 description 缺事件结构说明"
+                    continue
+                if path in BINARY:
+                    content = (op.get("responses", {}).get("200") or {}).get(
+                        "content", {})
+                    assert "application/zip" in content, \
+                        f"{path} 二进制端点未声明 application/zip 内容类型"
                     continue
                 responses = op.get("responses", {})
                 if "204" in responses:
@@ -88,7 +96,7 @@ class TestOpenAPIContract:
         """业务端点 200/201/202 schema 都指向具体模型(非空 object);
         204 成功的库路由(cookie 会话)与 DELETE /api/admin/keys 无 body,不计。"""
         for path, ops in self.spec["paths"].items():
-            if path in STREAM:
+            if path in STREAM or path in BINARY:
                 continue
             for method, op in ops.items():
                 if method not in ("get", "post", "put", "patch", "delete"):

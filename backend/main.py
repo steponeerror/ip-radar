@@ -41,6 +41,8 @@ from ipdb import _apikeys as _ipdb_apikeys  # noqa: F401  (ApiKeyMeta 注册进 
 from ipdb import _ratelimit as _ipdb_ratelimit  # noqa: F401  (Task 7 限流;装饰器引用见各查询端点)
 from ipdb import _tokens as _ipdb_tokens
 from ipdb import _ops_rounds as _ipdb_ops_rounds
+from ipdb import _ops_read as _ipdb_ops_read
+from ipdb import _ops_store as _ipdb_ops_store
 from slowapi.errors import RateLimitExceeded
 from ipdb import _update as _ipdb_update
 from ipdb import _version as _ipdb_version
@@ -50,7 +52,9 @@ from ipdb._api_models import (
     AckOut, ApiKeyCreateIn, ApiKeyCreatedOut, ApiKeyOut, ApiKeyPatchIn,
     BatchOut, DbStatusOut,
     ErrorEnvelope, EvalDetailOut, EvalJobAcceptedOut, EvalModelOut,
-    EvalOverviewOut, LookupResultOut, OpsRoundIn, SourceInfoOut,
+    EvalOverviewOut, LookupResultOut, OpsFileTextOut, OpsPackagesOut,
+    OpsPackageOut, OpsPrecedentsOut, OpsRoundIn, OpsRulingIn, OpsRulingOut,
+    SourceInfoOut,
     TaskAcceptedOut,
     TasksSnapshotOut, TokenSetIn, TokenStatusOut,
     UpdateAcceptedOut, UpdateDbOut, UpdateStateOut, VersionOut,
@@ -1498,6 +1502,98 @@ async def start_ops_round(payload: OpsRoundIn):
         args=(manager, task, payload.type, payload.input),
         daemon=True, name=f"ops-round-{task.id}").start()
     return {"task_id": task.id}
+
+
+# ── ops 读 API + 人裁写回（P3，票 #135；产品化批 Task P3）──
+# 全部 admin 面（沿 P2 _ADMIN_DEPS 惯例）；只读端点零写入（读缺失树 =
+# _ops_read 内 init 幂等建形状，空是真实态）；export.zip 声明序先于
+# /{name} 动态段；写回四律/裁⑦清单维护语义见 ipdb/_ops_store.write_ruling。
+
+
+@app.get("/api/ops/packages", response_model=OpsPackagesOut,
+         dependencies=[*_ADMIN_DEPS], responses=_ERRS_422_500)
+async def list_ops_packages():
+    return {"packages": _ipdb_ops_read.list_packages()}
+
+
+@app.get("/api/ops/packages/{name}", response_model=OpsFileTextOut,
+         dependencies=[*_ADMIN_DEPS],
+         responses={**_ERRS_422_500,
+                    "404": {"model": ErrorEnvelope,
+                            "description": "unknown package"}})
+async def read_ops_package(name: str):
+    try:
+        return {"text": _ipdb_ops_read.read_package(name)}
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    except FileNotFoundError:
+        raise ApiError(ErrorCode.not_found, f"unknown package: {name}")
+
+
+@app.get("/api/ops/ledger", response_model=OpsFileTextOut,
+         dependencies=[*_ADMIN_DEPS], responses=_ERRS_422_500)
+async def read_ops_ledger():
+    return {"text": _ipdb_ops_read.read_ledger()}
+
+
+@app.get("/api/ops/precedents", response_model=OpsPrecedentsOut,
+         dependencies=[*_ADMIN_DEPS], responses=_ERRS_422_500)
+async def list_ops_precedents(kws: str = ""):
+    """无 kws = 全量倒序；kws = 词法检索（逗号/空白分隔多词，rg OR；
+    rc≥2 基础设施故障 500 不伪装空——T2 Minor-3 判例，经 P1 rg 助手）。"""
+    parts = _ipdb_ops_read.parse_kws(kws)
+    try:
+        names = (_ipdb_ops_read.search_precedents(parts) if parts
+                 else _ipdb_ops_read.list_precedents())
+    except RuntimeError as e:
+        raise ApiError(ErrorCode.internal, str(e))
+    return {"precedents": names}
+
+
+@app.get("/api/ops/precedents/export.zip",
+         dependencies=[*_ADMIN_DEPS],
+         responses={"200": {"description": "zip archive: precedents/*.md（含 _schema.md，库自描述）+ ledger.md",
+                            "content": {"application/zip": {"schema": {}}}},
+                    **_ERRS_422_500})
+async def export_ops_precedents():
+    """导出 = 全量判例 + 台账；固定 zip 时间戳 → 同树字节恒同（可回算）。"""
+    data = _ipdb_ops_read.export_zip_bytes()
+    return StreamingResponse(
+        iter([data]), media_type="application/zip",
+        headers={"Content-Disposition":
+                 'attachment; filename="ops-precedents-export.zip"'})
+
+
+@app.get("/api/ops/precedents/{name}", response_model=OpsFileTextOut,
+         dependencies=[*_ADMIN_DEPS],
+         responses={**_ERRS_422_500,
+                    "404": {"model": ErrorEnvelope,
+                            "description": "unknown precedent"}})
+async def read_ops_precedent(name: str):
+    try:
+        return {"text": _ipdb_ops_read.read_precedent(name)}
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    except FileNotFoundError:
+        raise ApiError(ErrorCode.not_found, f"unknown precedent: {name}")
+
+
+@app.post("/api/ops/ruling", response_model=OpsRulingOut,
+          dependencies=[*_ADMIN_DEPS],
+          responses={**_ERRS_422_500,
+                     "404": {"model": ErrorEnvelope,
+                             "description": "unknown package"}})
+async def create_ops_ruling(payload: OpsRulingIn):
+    """人裁三动作（同意/否决/修正）落判例：新建条目或 superseded_by 链；
+    幂等（重复同裁零副作用）；production_delta 恒 null（30 天写回独立后续批）。"""
+    try:
+        return _ipdb_ops_store.write_ruling(
+            payload.package, payload.suggestion, payload.verdict,
+            payload.amendment)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    except FileNotFoundError as e:
+        raise ApiError(ErrorCode.not_found, str(e))
 
 
 _env_static = os.environ.get("IP_RADAR_STATIC_DIR")
