@@ -43,6 +43,15 @@ _MANAGEMENT = [
     ("get", "/api/tasks", None),
     ("get", "/api/update/status", None),
     ("post", "/api/ops/rounds", {"type": "health", "input": "x"}),
+    # P3(票 #135):读 API + 人裁写回 7 端点
+    ("get", "/api/ops/packages", None),
+    ("get", "/api/ops/packages/x.md", None),
+    ("get", "/api/ops/ledger", None),
+    ("get", "/api/ops/precedents", None),
+    ("get", "/api/ops/precedents/x.md", None),
+    ("get", "/api/ops/precedents/export.zip", None),
+    ("post", "/api/ops/ruling", {"package": "p.md", "suggestion": "s",
+                                   "verdict": "agreed"}),
 ]
 
 # 结构测试的门控清单:brief step 3 全部 10 端点(真实路由路径参数形态)
@@ -64,6 +73,14 @@ _GATED = [
     ("get", "/api/events"),
     ("get", "/api/update/status"),
     ("post", "/api/ops/rounds"),
+    # P3(票 #135):读 API + 人裁写回 7 端点(export.zip 声明序先于 /{name})
+    ("get", "/api/ops/packages"),
+    ("get", "/api/ops/packages/{name}"),
+    ("get", "/api/ops/ledger"),
+    ("get", "/api/ops/precedents"),
+    ("get", "/api/ops/precedents/export.zip"),
+    ("get", "/api/ops/precedents/{name}"),
+    ("post", "/api/ops/ruling"),
 ]
 
 
