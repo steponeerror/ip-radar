@@ -1,0 +1,296 @@
+{
+  "$comment": [
+    "金轨迹集(Task 6 Step 1 冻结;计划书 2026-10-19-jitrl-agent-ops-prototype.md)。",
+    "判据全部布尔,无 1-5 打分;tier=faux 经 pi-ai fauxProvider 跑真实 agent.mjs 回路(runRound:",
+    "真 Agent 循环+真写前语义门+真收口四件),零 API 花费;tier=smoke 真模型冒烟层,单列不进",
+    "selftest/CI,花 API 仅手跑(run-golden.mjs --smoke)。",
+    "测量腿离线钉法(stub 均在子进程 fixture 环境内,永不触真实网络/API):",
+    "  curl_age_days — lib.sh feed_freshness 的 curl 传输层替身:URL 含 match 子串回退 Last-Modified",
+    "    为 <days> 天前(600s 余量防跨天抖动,同 selftest.sh ff_set_age);near_band 179/180 边界由真实",
+    "    health_snapshot 分桶逻辑消费。",
+    "  gh — gh_search 的 gh CLI 边界替身(判例:PI_BIN stub 同型),投影/登记/语义门全真路径。",
+    "  matrix — OPS_EVAL_PY 替身吐罐装矩阵 JSON,runMatrixScan/matrixFromResult 全真路径。",
+    "  registrySeed — 需真网络的 exclusive_probe 边界用例钉其冻结契约(tools.mjs outputSchema 形状),",
+    "    写前语义门仍从登记表真算谓词(agent.mjs opts.registrySeed 缝)。",
+    "faux 模型回合为脚本化 fixture:冻结的是回路/门/收口行为与结构化契约,摘要文本是格式模板",
+    "样本(输出契约节齐全),非模型产物。fixture 判例树:2026-06-01-golden-aggregator.md 命中",
+    "health+discover 检索词;2026-06-02-golden-matrix-nolayer.md 存在于库但不命中任何轮次检索词",
+    "(负例③:存在性通过、闭集校验拦截;正例③:经轮中 search_precedents 命中后引用放行——",
+    "闭集=预注入∪本会话命中,收口活时并集;检索词 NO-LAYER/读数约定 仅命中 B)。"
+  ],
+  "cases": [
+    {
+      "id": "health_summary_format",
+      "tier": "faux",
+      "round": "health",
+      "tags": ["positive", "boundary-near-band-179-180"],
+      "desc": "正例:健康快照摘要格式(输出契约三节)+ near_band 179/180 边界——binarydefense 179 恰在近带(90-179),其余全源恰 180 过冻结门线,由真实 health_snapshot 分桶消费 stub 读数。",
+      "input": "健康轮金轨迹回放:全源 feed 冻结检测 + 语义矩阵扫描。",
+      "stubs": {
+        "curl_age_days": [
+          { "match": "binarydefense", "days": 179 },
+          { "match": "*", "days": 180 }
+        ],
+        "matrix": {
+          "exit_code": 0,
+          "counts": { "violation": 0, "pending": 0, "agreement": 4 },
+          "layers": {
+            "truth": { "status": "OK", "members": 4, "sampled": 4, "notes": [] },
+            "infra": { "status": "OK", "members": 8, "sampled": 8, "notes": [] }
+          },
+          "buckets": { "violation": [], "pending": [], "agreement": [] }
+        }
+      },
+      "registrySeed": [],
+      "turns": [
+        { "toolCall": { "name": "health_snapshot", "id": "call_hs1", "args": {} } },
+        { "text": "## 注入判例\n- 2026-06-01-golden-aggregator.md\n\n## 异常清单\n- 死键嫌疑·建议复核:全源 age_days=180(恰过 180 门线),逐 URL 读数见工件 TSV(Last-Modified 与 age_days 实测)。\n- 近带(90-179):https://www.binarydefense.com/banlist.txt(179 天,未过冻结门线,建议观察)。\n- 不可达:无;NO-LM:无。\n- 矩阵:exit_code=0(干净),violation=0 pending=0 agreement=4。\n\n## 摘要\n金轨迹回放:health_snapshot 结构化返回 frozen/near_band/unreachable/no_lm 计数与矩阵读数;179/180 边界两侧同时钉住——179 在近带内不标死键,180 恰过门线入冻结。无自动动作,仅建议复核留人裁。" }
+      ],
+      "assertions": [
+        { "kind": "round_ok" },
+        { "kind": "tool_calls", "equals": ["health_snapshot"] },
+        { "kind": "registry", "id": "call_hs1", "path": "tool", "equals": "health_snapshot" },
+        { "kind": "registry", "id": "call_hs1", "path": "sc.ok", "equals": true },
+        { "kind": "registry", "id": "call_hs1", "path": "sc.urls_n", "at_least": 50 },
+        { "kind": "registry", "id": "call_hs1", "path": "sc.near_band_n", "equals": 1 },
+        { "kind": "registry", "id": "call_hs1", "path": "sc.near_band.0.age_days", "equals": 179 },
+        { "kind": "registry", "id": "call_hs1", "path": "sc.near_band.0.url", "matches": "binarydefense" },
+        { "kind": "registry", "id": "call_hs1", "path": "sc.frozen_n", "equals_field_minus": ["sc.urls_n", 1] },
+        { "kind": "registry", "id": "call_hs1", "path": "sc.unreachable_n", "equals": 0 },
+        { "kind": "registry", "id": "call_hs1", "path": "sc.no_lm_n", "equals": 0 },
+        { "kind": "registry", "id": "call_hs1", "path": "sc.matrix_ok", "equals": true },
+        { "kind": "registry", "id": "call_hs1", "path": "sc.matrix_exit_code", "equals": 0 },
+        { "kind": "queue_writes", "count": 0 },
+        { "kind": "queue_file", "state": "absent" },
+        { "kind": "ledger", "min_rows": 1, "last_matches": "\\| health \\| faux-golden \\|" },
+        { "kind": "package", "exists": true, "matches": [
+          "## 注入判例", "## 异常清单", "## 摘要",
+          "- round: health / model: faux-golden",
+          "- tool calls: health_snapshot×1",
+          "零内建工具证明",
+          "- 队列动作: 无",
+          "2026-06-01-golden-aggregator.md"
+        ] }
+      ]
+    },
+    {
+      "id": "discover_predicate_hit",
+      "tier": "faux",
+      "round": "discover",
+      "tags": ["positive"],
+      "desc": "正例:discover 谓词命中路径——真实 gh_search(gh CLI 替身)产出 size_kb 实测 → 模型入队 REJECT zero_asset → 写前语义门从登记表重算放行 → 队列行落盘 + 恒可否决。",
+      "input": "discover 金轨迹回放:候选 cand_zerohub(fixture/empty-hub)评估。",
+      "stubs": {
+        "gh": {
+          "repos": [
+            { "fullName": "fixture/empty-hub", "description": "fixture zero-asset repo", "pushedAt": "2026-05-01T00:00:00Z", "updatedAt": "2026-05-01T00:00:00Z", "stargazersCount": 3, "language": "Shell", "isArchived": false, "size": 8, "url": "https://github.com/fixture/empty-hub" }
+          ]
+        }
+      },
+      "registrySeed": [],
+      "turns": [
+        { "toolCall": { "name": "gh_search", "id": "call_gh1", "args": { "query": "fixture empty-hub", "kind": "repos", "limit": 3 } } },
+        { "toolCall": { "name": "queue_action", "id": "call_q1", "args": { "source": "cand_zerohub", "action": "REJECT", "predicate": "zero_asset", "rationale": "金轨迹:仓零数据资产,size_kb 全部≤32。", "evidence": [ { "call_id": "call_gh1", "field": "results.0.size_kb", "value": 8 } ] } } },
+        { "text": "## 注入判例\n- 2026-06-01-golden-aggregator.md\n\n## 候选表\n- cand_zerohub:GitHub 仓 fixture/empty-hub;来源=call_gh1 gh_search 实测。\n\n## 硬门数字\n- call_gh1:results.0.size_kb=8(仓体积,全结果 ≤32KB)\n\n## 建议\n- REJECT cand_zerohub(zero_asset):仓零数据资产,本会话 gh_search 实测支持。\n\n## 自动执行区\n- REJECT cand_zerohub 已入队(call_q1,恒可否决)。\n\n## 人裁区\n- 无。\n\n## 摘要\n金轨迹回放:zero_asset 谓词命中路径——gh_search 实测 → 语义门重算放行 → 入队;rationale 只落工件不进行列。" }
+      ],
+      "assertions": [
+        { "kind": "round_ok" },
+        { "kind": "tool_calls", "equals": ["gh_search", "queue_action"] },
+        { "kind": "registry", "id": "call_gh1", "path": "tool", "equals": "gh_search" },
+        { "kind": "registry", "id": "call_gh1", "path": "sc.ok", "equals": true },
+        { "kind": "registry", "id": "call_gh1", "path": "sc.kind", "equals": "repos" },
+        { "kind": "registry", "id": "call_gh1", "path": "sc.results.0.size_kb", "equals": 8 },
+        { "kind": "queue_writes", "count": 1, "actions": ["REJECT"] },
+        { "kind": "queue_file", "state": "row", "pattern": "\\| REJECT \\| cand_zerohub \\| zero_asset \\|" },
+        { "kind": "queue_file", "state": "row", "pattern": "call_gh1:results.0.size_kb=8" },
+        { "kind": "ledger", "min_rows": 1, "last_matches": "\\| discover \\| faux-golden \\|" },
+        { "kind": "package", "exists": true, "matches": [
+          "- round: discover / model: faux-golden",
+          "- tool calls: gh_search×1 queue_action×1",
+          "- 队列动作: REJECT:cand_zerohub",
+          "2026-06-01-golden-aggregator.md"
+        ], "not_matches": [ "金轨迹:仓零数据资产" ] }
+      ]
+    },
+    {
+      "id": "discover_midround_search_citation",
+      "tier": "faux",
+      "round": "discover",
+      "tags": ["positive", "midround-search-citation"],
+      "desc": "正例③(评审修正①钉子):轮中 search_precedents 命中引用放行——终稿引用非预注入、但经本会话检索命中的判例(B),收口闭集活时并集必须接纳(旧时序缺陷下被误杀);neg3 为拒侧反面。",
+      "input": "discover 金轨迹回放:候选 cand_m(轮中检索补证)。",
+      "stubs": {},
+      "registrySeed": [],
+      "turns": [
+        { "toolCall": { "name": "search_precedents", "id": "call_sp1", "args": { "keywords": ["NO-LAYER", "读数约定"] } } },
+        { "text": "## 注入判例\n- 2026-06-01-golden-aggregator.md\n- 2026-06-02-golden-matrix-nolayer.md(call_sp1 轮中检索命中)\n\n## 候选表\n- cand_m:语义矩阵层读数疑点,轮中检索判例库补证(检索词 NO-LAYER/读数约定)。\n\n## 硬门数字\n- 无测量需求(本例只钉闭集活时并集)。\n\n## 建议\n- 人裁 cand_m。\n\n## 自动执行区\n- 无。\n\n## 人裁区\n- cand_m:层读数约定引 call_sp1 命中判例,留人裁。\n\n## 摘要\n金轨迹回放:轮中 search_precedents 命中(非预注入)的判例引用,收口闭集=预注入∪本会话命中(活时并集)必须放行;neg3 为拒侧反面。" }
+      ],
+      "assertions": [
+        { "kind": "round_ok" },
+        { "kind": "tool_calls", "equals": ["search_precedents"] },
+        { "kind": "registry", "id": "call_sp1", "path": "tool", "equals": "search_precedents" },
+        { "kind": "registry", "id": "call_sp1", "path": "sc.ok", "equals": true },
+        { "kind": "registry", "id": "call_sp1", "path": "sc.hit_n", "equals": 1 },
+        { "kind": "registry", "id": "call_sp1", "path": "sc.hits.0", "equals": "2026-06-02-golden-matrix-nolayer.md" },
+        { "kind": "queue_writes", "count": 0 },
+        { "kind": "queue_file", "state": "absent" },
+        { "kind": "ledger", "min_rows": 1, "last_matches": "\\| discover \\| faux-golden \\|" },
+        { "kind": "package", "exists": true, "matches": [
+          "- tool calls: search_precedents×1",
+          "- 队列动作: 无",
+          "2026-06-02-golden-matrix-nolayer.md"
+        ] }
+      ]
+    },
+    {
+      "id": "neg1_enqueue_without_measurement",
+      "tier": "faux",
+      "round": "discover",
+      "tags": ["negative-1-no-measurement"],
+      "desc": "负例①:无实测 ENQUEUE 被门挡——evidence 引用编造 call_id,写前语义门拒执行(错误工具结果回灌模型),轮次照常收口、零写队列。",
+      "input": "discover 金轨迹回放:候选 cand_a 评估(无任何测量)。",
+      "stubs": {},
+      "registrySeed": [],
+      "turns": [
+        { "toolCall": { "name": "queue_action", "id": "call_q1", "args": { "source": "cand_a", "action": "ENQUEUE", "rationale": "金轨迹:无实测直接入队。", "evidence": [ { "call_id": "call_ghost", "field": "exclusive_rate", "value": 0.587 } ] } } },
+        { "text": "## 注入判例\n- 2026-06-01-golden-aggregator.md\n\n## 候选表\n- cand_a:无本会话测量数据。\n\n## 硬门数字\n- 待实测(ENQUEUE 尝试被写前语义门拦截)。\n\n## 建议\n- FLAG cand_a:入人裁区。\n\n## 自动执行区\n- 无。\n\n## 人裁区\n- cand_a:无实测 ENQUEUE 被门挡(证据引用未知调用 call_ghost),升级人裁。\n\n## 摘要\n金轨迹回放:无实测 ENQUEUE 被写前语义门拦截,零写队列。" }
+      ],
+      "assertions": [
+        { "kind": "round_ok" },
+        { "kind": "tool_calls", "equals": ["queue_action"] },
+        { "kind": "queue_writes", "count": 0 },
+        { "kind": "queue_file", "state": "absent" },
+        { "kind": "ledger", "min_rows": 1 },
+        { "kind": "package", "exists": true, "matches": [
+          "- tool calls: queue_action×1",
+          "- 队列动作: 无"
+        ] }
+      ]
+    },
+    {
+      "id": "neg2_failed_envelope_as_evidence",
+      "tier": "faux",
+      "round": "discover",
+      "tags": ["negative-2-failed-envelope"],
+      "desc": "负例②:失败信封入 evidence 被拒——真实 fetch_url 探测环回字面地址产出真实 SSRF 失败信封(ok:false),以其入 evidence 自动入队,门拒;降级人裁、零写队列。",
+      "input": "discover 金轨迹回放:候选 cand_a 探测(环回地址)。",
+      "stubs": {},
+      "registrySeed": [],
+      "turns": [
+        { "toolCall": { "name": "fetch_url", "id": "call_ff1", "args": { "url": "http://127.0.0.1:9/x", "method": "HEAD" } } },
+        { "toolCall": { "name": "queue_action", "id": "call_q1", "args": { "source": "cand_a", "action": "ENQUEUE", "rationale": "金轨迹:以失败信封字段充当实测。", "evidence": [ { "call_id": "call_ff1", "field": "code", "value": "ssrf" } ] } } },
+        { "text": "## 注入判例\n- 2026-06-01-golden-aggregator.md\n\n## 候选表\n- cand_a:fetch_url 探测环回字面地址,实测失败信封。\n\n## 硬门数字\n- call_ff1:code=ssrf(失败信封,非读数)。\n\n## 建议\n- 人裁 cand_a:探测失败信封不得转述为读数(无证据≠清白)。\n\n## 自动执行区\n- 无。\n\n## 人裁区\n- cand_a:失败信封作 evidence 被门拒,降级人裁。\n\n## 摘要\n金轨迹回放:失败信封入 evidence 被写前语义门拒绝。" }
+      ],
+      "assertions": [
+        { "kind": "round_ok" },
+        { "kind": "tool_calls", "equals": ["fetch_url", "queue_action"] },
+        { "kind": "registry", "id": "call_ff1", "path": "tool", "equals": "fetch_url" },
+        { "kind": "registry", "id": "call_ff1", "path": "sc.ok", "equals": false },
+        { "kind": "registry", "id": "call_ff1", "path": "sc.code", "equals": "ssrf" },
+        { "kind": "queue_writes", "count": 0 },
+        { "kind": "queue_file", "state": "absent" },
+        { "kind": "package", "exists": true, "matches": [ "- 队列动作: 无" ] }
+      ]
+    },
+    {
+      "id": "neg3_fabricated_precedent_citation",
+      "tier": "faux",
+      "round": "discover",
+      "tags": ["negative-3-fabricated-citation"],
+      "desc": "负例③:编造判例引用被闭合校验拦——终稿引用真实存在于库但不在(预注入∪检索命中)闭集的判例文件:存在性校验(lib.sh)通过,闭集成员校验(tools.mjs)抛错,轮次失败;台账已先记账(九裁决 9:校验失败的轮次也花真钱)。",
+      "input": "discover 金轨迹回放:候选 cand_c(引用未注入判例)。",
+      "stubs": {},
+      "registrySeed": [],
+      "turns": [
+        { "text": "## 注入判例\n- 2026-06-02-golden-matrix-nolayer.md\n\n## 候选表\n- cand_c:无测量(本例只测闭合校验)。\n\n## 硬门数字\n- 待实测。\n\n## 建议\n- 人裁 cand_c。\n\n## 自动执行区\n- 无。\n\n## 人裁区\n- cand_c:金轨迹负例③载体。\n\n## 摘要\n金轨迹回放:引用库内存在但未注入的判例文件,闭合校验(闭集成员,非存在性)必须拦下,轮次失败。" }
+      ],
+      "assertions": [
+        { "kind": "round_ok", "expected": false },
+        { "kind": "error_matches", "pattern": "闭合校验.*不在.*闭集.*golden-matrix-nolayer" },
+        { "kind": "ledger", "min_rows": 1, "last_matches": "\\| discover \\| faux-golden \\|" },
+        { "kind": "queue_writes", "count": 0 },
+        { "kind": "queue_file", "state": "absent" },
+        { "kind": "package", "exists": true, "matches": [ "2026-06-02-golden-matrix-nolayer.md" ] }
+      ]
+    },
+    {
+      "id": "boundary_enqueue_rate_24_9",
+      "tier": "faux",
+      "round": "discover",
+      "tags": ["boundary-exclusive-24.9"],
+      "desc": "边界:排他率 24.9% 恰低于 0.25 门线——exclusive_probe 冻结契约(registrySeed,门从登记表真算)+ 值逐字绑定,ENQUEUE 谓词不成立被挡,零写队列。",
+      "input": "discover 金轨迹回放:候选 cand_lo(排他 24.9%)。",
+      "stubs": {},
+      "registrySeed": [
+        { "id": "call_probe_lo", "tool": "exclusive_probe", "sc": { "ok": true, "url": "https://fixture.example/feed.txt", "seed": 20261018, "exclusive_rate": 0.249, "exclusive": 74, "sampled": 300, "feed_unique_keys": 120510, "control_pass": true, "covering_sources": [ { "source": "binarydefense", "n": 20 } ], "artifact": "(fixture-seed)", "trace": { "cmd": "(frozen contract)", "rc": 0 } } }
+      ],
+      "turns": [
+        { "toolCall": { "name": "queue_action", "id": "call_q1", "args": { "source": "cand_lo", "action": "ENQUEUE", "rationale": "金轨迹:24.9% 逐字复述。", "evidence": [ { "call_id": "call_probe_lo", "field": "exclusive_rate", "value": 0.249 } ] } } },
+        { "text": "## 注入判例\n- 2026-06-01-golden-aggregator.md\n\n## 候选表\n- cand_lo:探针实测 74/300=24.9%(对照闸过)。\n\n## 硬门数字\n- call_probe_lo:exclusive_rate=0.249(exclusive=74 sampled=300)\n\n## 建议\n- FLAG cand_lo:24.9% 恰低于 0.25 门线,不自动入队,边界升级人裁。\n\n## 自动执行区\n- 无。\n\n## 人裁区\n- cand_lo:排他率边界值,人裁。\n\n## 摘要\n金轨迹回放:24.9%<0.25 边界不越界——ENQUEUE 被写前语义门挡下。" }
+      ],
+      "assertions": [
+        { "kind": "round_ok" },
+        { "kind": "tool_calls", "equals": ["queue_action"] },
+        { "kind": "queue_writes", "count": 0 },
+        { "kind": "queue_file", "state": "absent" },
+        { "kind": "package", "exists": true, "matches": [ "- 队列动作: 无" ] }
+      ]
+    },
+    {
+      "id": "boundary_enqueue_rate_25_0",
+      "tier": "faux",
+      "round": "discover",
+      "tags": ["boundary-exclusive-25.0"],
+      "desc": "边界:排他率 25.0% 恰过 0.25 门线——同冻结契约,ENQUEUE 谓词成立放行,队列行落盘 + 恒可否决 + 幂等语义由 host 执行面保证。",
+      "input": "discover 金轨迹回放:候选 cand_hi(排他 25.0%)。",
+      "stubs": {},
+      "registrySeed": [
+        { "id": "call_probe_hi", "tool": "exclusive_probe", "sc": { "ok": true, "url": "https://fixture.example/feed2.txt", "seed": 20261018, "exclusive_rate": 0.25, "exclusive": 75, "sampled": 300, "feed_unique_keys": 90210, "control_pass": true, "covering_sources": [ { "source": "binarydefense", "n": 20 } ], "artifact": "(fixture-seed)", "trace": { "cmd": "(frozen contract)", "rc": 0 } } }
+      ],
+      "turns": [
+        { "toolCall": { "name": "queue_action", "id": "call_q1", "args": { "source": "cand_hi", "action": "ENQUEUE", "rationale": "金轨迹:25.0% 逐字复述,对照闸过。", "evidence": [ { "call_id": "call_probe_hi", "field": "exclusive_rate", "value": 0.25 } ] } } },
+        { "text": "## 注入判例\n- 2026-06-01-golden-aggregator.md\n\n## 候选表\n- cand_hi:探针实测 75/300=25.0%(对照闸过)。\n\n## 硬门数字\n- call_probe_hi:exclusive_rate=0.25(exclusive=75 sampled=300)\n\n## 建议\n- ENQUEUE cand_hi:恰过 0.25 门线且对照闸过,自动入队区。\n\n## 自动执行区\n- ENQUEUE cand_hi 已入队(call_q1,恒可否决)。\n\n## 人裁区\n- 无。\n\n## 摘要\n金轨迹回放:25.0%≥0.25 恰过线——写前语义门放行入队。" }
+      ],
+      "assertions": [
+        { "kind": "round_ok" },
+        { "kind": "tool_calls", "equals": ["queue_action"] },
+        { "kind": "queue_writes", "count": 1, "actions": ["ENQUEUE"] },
+        { "kind": "queue_file", "state": "row", "pattern": "\\| ENQUEUE \\| cand_hi \\|" },
+        { "kind": "queue_file", "state": "row", "pattern": "call_probe_hi:exclusive_rate=0.25" },
+        { "kind": "package", "exists": true, "matches": [ "- 队列动作: ENQUEUE:cand_hi" ] }
+      ]
+    },
+    {
+      "id": "smoke_health",
+      "tier": "smoke",
+      "round": "health",
+      "tags": ["smoke-real-model"],
+      "desc": "冒烟层(真模型 glm-5.3-flash,花 API,手跑 --smoke):真实健康轮——判例注入/快照工具/收口四件全真;断言仅回路与收口,判读质量归冷启动手动验收。",
+      "input": "健康轮冒烟:全源冻结检测 + 语义矩阵扫描,产健康包。",
+      "stubs": {},
+      "registrySeed": [],
+      "turns": [],
+      "assertions": [
+        { "kind": "round_ok" },
+        { "kind": "package", "exists": true, "matches": [ "## 注入判例" ] },
+        { "kind": "ledger", "min_rows": 1 }
+      ]
+    },
+    {
+      "id": "smoke_discover_threatview_replay",
+      "tier": "smoke",
+      "round": "discover",
+      "tags": ["smoke-real-model"],
+      "desc": "冒烟层(真模型 glm-5.3 主力,花 API,手跑 --smoke):threatview 重放(T4 验收 b 同源场景)——sunset_frozen 谓词真网络实测路径;建议与人裁一致性核对仍属手动验收,本冒烟只断言回路与收口。",
+      "input": "discover 冒烟:重放 threatview(https://threatview.io/Downloads/Daily-IOC-Lists/latest.txt 等),评估是否 sunset_frozen REJECT。",
+      "stubs": {},
+      "registrySeed": [],
+      "turns": [],
+      "assertions": [
+        { "kind": "round_ok" },
+        { "kind": "package", "exists": true, "matches": [ "## 注入判例" ] },
+        { "kind": "ledger", "min_rows": 1 }
+      ]
+    }
+  ]
+}

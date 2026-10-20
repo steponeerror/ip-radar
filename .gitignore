@@ -76,3 +76,6 @@ misp-docker/
 AGENTS.md
 ips10k.json
 result10k.ndjson
+
+# T4: ops agent npm 依赖不入库(ADR 0004 宿主)
+ops/agent/node_modules/

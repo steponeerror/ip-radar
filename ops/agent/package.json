@@ -1,0 +1,15 @@
+{
+  "name": "ip-radar-ops-agent",
+  "private": true,
+  "type": "module",
+  "description": "IP Radar 源生命周期运营 agent(T4:pi-agent-core 宿主+融合领域工具面;ADR 0004)",
+  "engines": {
+    "node": ">=22.19"
+  },
+  "dependencies": {
+    "@earendil-works/pi-agent-core": "^1.3.0",
+    "@earendil-works/pi-ai": "^1.3.0",
+    "typebox": "^1.3.27",
+    "undici": "^7.30.1"
+  }
+}
