@@ -74,6 +74,7 @@ async function openDetail() {
 }
 
 beforeEach(() => {
+  vi.clearAllMocks();
   vi.mocked(listOpsPackages).mockResolvedValue([
     { name: PKG_NAME, size: 4096, modified: "2026-10-20T10:30:00+00:00" },
   ]);
@@ -102,12 +103,13 @@ describe("OpsPackagesSection — list → detail", () => {
   });
 
   it("re-fetches the list when a round settles (roundTick bump)", async () => {
-    const { rerender } = renderSection(0);
+    const onUnauthorized = vi.fn(); // 稳定引用:rerender 不因回调换身份而重拉
+    const { rerender } = renderWithI18n(
+      <OpsPackagesSection onUnauthorized={onUnauthorized} roundTick={0} />,
+    );
     await screen.findByRole("button", { name: new RegExp(PKG_NAME) });
     expect(listOpsPackages).toHaveBeenCalledTimes(1);
-    rerender(
-      <OpsPackagesSection onUnauthorized={vi.fn()} roundTick={1} />,
-    );
+    rerender(<OpsPackagesSection onUnauthorized={onUnauthorized} roundTick={1} />);
     await waitFor(() => expect(listOpsPackages).toHaveBeenCalledTimes(2));
   });
 });
@@ -193,7 +195,7 @@ describe("OpsPackagesSection — 裁⑦ 仅立项 + 人裁三动作", () => {
     vi.mocked(readOpsPackage).mockResolvedValueOnce("# 裁决包\n\n## 摘要\n\n无建议行。\n");
     renderSection();
     await openDetail();
-    expect(screen.getByText(/Pick a suggestion/i)).toBeTruthy();
+    expect(screen.getByText(/Select a suggestion/i)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Agree" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Overrule" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Amend" })).toBeDisabled();

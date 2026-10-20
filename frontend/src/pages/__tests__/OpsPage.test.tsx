@@ -1,11 +1,12 @@
-import { describe, it, expect, vi, beforeEach, type ReactElement } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { ReactElement } from "react";
 import { screen, fireEvent, waitFor } from "@testing-library/react";
 import OpsPage from "../OpsPage";
 import { TasksContext, type TasksCtxValue } from "../../tasks/useTasks";
 import type { TaskState } from "../../api";
 import { renderWithI18n } from "../../test/i18nTestUtils";
 import {
-  startOpsRound, readOpsLedger, listOpsPrecedents, exportOpsPrecedents,
+  startOpsRound, readOpsLedger, listOpsPrecedents, readOpsPrecedent, exportOpsPrecedents,
 } from "../../api";
 
 // P4 admin 第四 tab「运营」(票 #136):渲染面 + 轮次触发 + 台账/判例只读 +
@@ -61,6 +62,7 @@ const opsTask = (state: TaskState["state"]): TaskState => ({
 });
 
 beforeEach(() => {
+  vi.clearAllMocks();
   vi.mocked(readOpsLedger).mockResolvedValue(LEDGER_MD);
   vi.mocked(listOpsPrecedents).mockResolvedValue(["2026-10-18-a-case.md"]);
 });
@@ -91,6 +93,8 @@ describe("OpsPage — sections & read-only faces", () => {
     fireEvent.click(item);
     expect(vi.mocked(readOpsPrecedent)).toHaveBeenCalledWith("2026-10-18-a-case.md");
     expect(await screen.findByText(/# 判例:人裁同意/)).toBeTruthy();
+    // 关弹窗(Base UI 对话框会把背景置 inert,不关则背景不可查)
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
     // 检索:kws 输入 → listOpsPrecedents(kws)
     fireEvent.change(screen.getByRole("searchbox", { name: /keywords/i }), {
       target: { value: "sunset mirror" },

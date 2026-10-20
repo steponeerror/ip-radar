@@ -13,6 +13,9 @@ export type TasksCtxValue = {
   tasks: TaskState[];
   batch: BatchState | null;
   connection: TaskConnection;
+  // ops 轮 stderr 进度行(task_log 事件,按 task_id 分组,保留末 200 行/
+  // 任务——进度流非存档,全量证据在裁决包/台账,哲学 1)。
+  logs: Record<string, string[]>;
   enqueueSingle: typeof apiEnqueueSingle;
   enqueueBatch: typeof apiEnqueueBatch;
   cancelTask: typeof apiCancelTask;

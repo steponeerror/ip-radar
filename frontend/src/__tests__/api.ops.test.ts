@@ -37,7 +37,7 @@ describe("api ops functions (P4, #136)", () => {
       ok: false, status: 409,
       json: async () => ({ error: { code: "eval_busy", message: "an ops round is already in flight" } }),
     });
-    const e = await startOpsRound("discover", "新候选 x").catch((err: ApiError) => err);
+    const e = (await startOpsRound("discover", "新候选 x").catch((err) => err)) as ApiError;
     expect(e.status).toBe(409);
     expect(e.code).toBe("eval_busy");
     expect(e.message).toBe("an ops round is already in flight");
@@ -136,7 +136,7 @@ describe("api ops functions (P4, #136)", () => {
       ok: false, status: 500,
       json: async () => ({ error: { code: "internal", message: "rg failed rc=2" } }),
     });
-    const e = await exportOpsPrecedents().catch((err: ApiError) => err);
+    const e = (await exportOpsPrecedents().catch((err) => err)) as ApiError;
     expect(e.status).toBe(500);
     expect(e.code).toBe("internal");
   });

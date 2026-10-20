@@ -7,6 +7,7 @@ import { BatchPanel } from "../admin/BatchPanel";
 import { BatchMiniBar } from "../admin/BatchMiniBar";
 import KeysSection from "../admin/KeysSection";
 import SourcesPage from "./SourcesPage";
+import OpsPage from "./OpsPage";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { LocaleSwitcher } from "../components/LocaleSwitcher";
 import type { AdminUserRead } from "../api";
@@ -30,8 +31,9 @@ function loginErrorText(t: (k: string, v?: Record<string, string | number>) => s
 // 当前 tab 内容直出(无包裹 section/h3，各组件自带标题)。
 // TaskProvider 包在整壳外层(见 AdminPage)：tasks tab 与 SourcesPage 的
 // 进度徽章共用任务上下文，切 tab 不卸载 provider。
-// tab 顺序 = 使用频率：Sources → API Keys → Tasks，默认 Sources。
-type AdminTab = "sources" | "keys" | "tasks";
+// tab 顺序 = 使用频率：Sources → API Keys → Tasks → 运营(P4 票 #136,
+// 99 行预留位启用;轮次/裁决/台账/判例恒 admin 面),默认 Sources。
+type AdminTab = "sources" | "keys" | "tasks" | "ops";
 
 function AdminShell({ user, onLogout, onUnauthorized }: {
   user: AdminUserRead;
@@ -47,10 +49,11 @@ function AdminShell({ user, onLogout, onUnauthorized }: {
       tab === id ? "bg-zinc-800 text-emerald-400" : "text-zinc-500 hover:text-zinc-300"
     }`;
 
-  const tabs: Array<{ id: AdminTab; key: "admin.tab.sources" | "admin.tab.keys" | "admin.tab.tasks" }> = [
+  const tabs: Array<{ id: AdminTab; key: "admin.tab.sources" | "admin.tab.keys" | "admin.tab.tasks" | "admin.tab.ops" }> = [
     { id: "sources", key: "admin.tab.sources" },
     { id: "keys", key: "admin.tab.keys" },
     { id: "tasks", key: "admin.tab.tasks" },
+    { id: "ops", key: "admin.tab.ops" },
   ];
 
   return (
@@ -96,7 +99,8 @@ function AdminShell({ user, onLogout, onUnauthorized }: {
         )}
         {tab === "keys" && <KeysSection onUnauthorized={onUnauthorized} />}
         {tab === "tasks" && <BatchPanel onUnauthorized={onUnauthorized} />}
-        {/* eval UI 从未存在，将来作为第四 tab 回归 */}
+        {/* 第四 tab 运营(P4):轮次触发/裁决包人裁/台账/判例/导出,恒仅立项(裁⑦) */}
+        {tab === "ops" && <OpsPage onUnauthorized={onUnauthorized} />}
       </div>
     </div>
   );
