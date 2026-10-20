@@ -13,7 +13,8 @@ bad() { fail=$((fail + 1)); echo "FAIL $1"; }
 # 嵌套 docs 仓缺席守卫(T2;test_precedent_schema.py 同型):CI checkout 无 docs/(嵌套
 # 独立仓,主仓 .gitignore 排除)→ 显式 SKIP 行并计 PASS,不是静默跳过;本地/worktree
 # (docs 符号链接在)仍真跑守真章。守卫模式照 §10 供给守卫的「前置条件不满足」形。
-skipok() { pass=$((pass + 1)); echo "SKIP $1: 嵌套 docs 仓缺席(CI checkout 判例,test_precedent_schema.py 同型)"; }
+# reason 可选第二参(缺省=docs 缺席;§10/§11 供给缺席同用此计数形,Info-3,T3 统一)。
+skipok() { pass=$((pass + 1)); echo "SKIP $1: ${2:-嵌套 docs 仓缺席(CI checkout 判例,test_precedent_schema.py 同型)}"; }
 
 TMP="$(mktemp -d)"
 FF_SRV_PIDS=()   # T3 http.server fixture 进程(cleanup 兜底杀)
@@ -298,7 +299,7 @@ grep -q 'health_snapshot' "$AGENT/prompts/health-system.md" && grep -q '信封�
 
 # ---- 10. T6: 金轨迹集(faux provider 跑真回路:Agent 循环+语义门+收口四件;不花 API) ----
 # 真模型用例=smoke 层单列,仅 --smoke 手跑,本钩子永不触发(计划书 Task 6 Step 2)。
-# 供给检查(T1 docs skip 判例同型):node+依赖缺供则跳过不计入 fail(CI 侧由 npm ci 保证供给)。
+# 供给检查:node+依赖缺供则显式 SKIP 计 PASS(Info-3,T3 与 T2 守卫统一计数形;CI 侧由 npm ci 保证供给)。
 if command -v node >/dev/null 2>&1 && [[ -d "$AGENT/node_modules/@earendil-works/pi-agent-core" ]] \
    && command -v rg >/dev/null 2>&1 && command -v git >/dev/null 2>&1; then
   GOLDOUT="$(node "$AGENT/golden/run-golden.mjs" 2>&1)"; GOLDRC=$?
@@ -333,7 +334,7 @@ if command -v node >/dev/null 2>&1 && [[ -d "$AGENT/node_modules/@earendil-works
   node -e 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))' "$AGENT/golden/cases.json" 2>/dev/null \
     && ok "golden:用例集 json 可解析" || bad "golden:用例集 json 可解析"
 else
-  echo "SKIP golden:金轨迹供给缺(node/node_modules/rg/git)——T1 docs skip 判例同型,CI 由 npm ci 保证"
+  skipok "golden:金轨迹集" "供给缺(node/node_modules/rg/git)——CI 由 npm ci 保证"
 fi
 
 # ---- 11. Task 1: spawn 契约(表对拍/in-process faux main/真 spawn 冒烟;零 API) ----
@@ -360,7 +361,7 @@ if command -v node >/dev/null 2>&1 && [[ -d "$AGENT/node_modules/@earendil-works
   node --check "$AGENT/selftest-contract.mjs" 2>/dev/null \
     && ok "contract:runner node 语法通过" || bad "contract:runner node 语法通过"
 else
-  echo "SKIP contract:供给缺(node/node_modules/rg/git)——T1 docs skip 判例同型,CI 由 npm ci 保证"
+  skipok "contract:spawn 契约三层测试" "供给缺(node/node_modules/rg/git)——CI 由 npm ci 保证"
 fi
 
 echo "----"
