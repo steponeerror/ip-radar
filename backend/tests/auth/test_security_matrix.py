@@ -53,6 +53,7 @@ FROZEN = {
     ("POST", "/api/update-db/resume"): "admin",
     ("GET", "/api/tasks"): "admin",
     ("POST", "/api/tasks/{task_id}/cancel"): "admin",
+    ("POST", "/api/ops/rounds"): "admin",
     ("GET", "/api/events"): "admin",
     ("GET", "/api/version"): "open-status",
     ("POST", "/api/update"): "open-selfupdate-token",

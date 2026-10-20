@@ -1,6 +1,7 @@
 # backend/tests/auth/test_admin_gating.py — Task 3: 管理端点全部要求超管
-"""15 个管理端点(含 /api/events SSE;含 guard-hardening 2026-09-28 收编的
-GET /api/update/status)匿名 401 / 非超管 403 / 超管可达。
+"""16 个管理端点(含 /api/events SSE;含 guard-hardening 2026-09-28 收编的
+GET /api/update/status;含 P2 轮次端点 POST /api/ops/rounds,票 #134)匿名
+401 / 非超管 403 / 超管可达。
 
 依赖顺序(plan Global Constraint + controller ruling 1):
 require_admin_configured → current_superuser → require_ready
@@ -41,6 +42,7 @@ _MANAGEMENT = [
     ("post", "/api/tasks/doesnotexist/cancel", None),
     ("get", "/api/tasks", None),
     ("get", "/api/update/status", None),
+    ("post", "/api/ops/rounds", {"type": "health", "input": "x"}),
 ]
 
 # 结构测试的门控清单:brief step 3 全部 10 端点(真实路由路径参数形态)
@@ -61,6 +63,7 @@ _GATED = [
     ("get", "/api/tasks"),
     ("get", "/api/events"),
     ("get", "/api/update/status"),
+    ("post", "/api/ops/rounds"),
 ]
 
 

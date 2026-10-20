@@ -40,6 +40,7 @@ from ipdb import _auth as _ipdb_auth
 from ipdb import _apikeys as _ipdb_apikeys  # noqa: F401  (ApiKeyMeta 注册进 Base.metadata,lifespan init_auth_db 建表)
 from ipdb import _ratelimit as _ipdb_ratelimit  # noqa: F401  (Task 7 限流;装饰器引用见各查询端点)
 from ipdb import _tokens as _ipdb_tokens
+from ipdb import _ops_rounds as _ipdb_ops_rounds
 from slowapi.errors import RateLimitExceeded
 from ipdb import _update as _ipdb_update
 from ipdb import _version as _ipdb_version
@@ -49,7 +50,8 @@ from ipdb._api_models import (
     AckOut, ApiKeyCreateIn, ApiKeyCreatedOut, ApiKeyOut, ApiKeyPatchIn,
     BatchOut, DbStatusOut,
     ErrorEnvelope, EvalDetailOut, EvalJobAcceptedOut, EvalModelOut,
-    EvalOverviewOut, LookupResultOut, SourceInfoOut, TaskAcceptedOut,
+    EvalOverviewOut, LookupResultOut, OpsRoundIn, SourceInfoOut,
+    TaskAcceptedOut,
     TasksSnapshotOut, TokenSetIn, TokenStatusOut,
     UpdateAcceptedOut, UpdateDbOut, UpdateStateOut, VersionOut,
 )
@@ -1467,6 +1469,35 @@ async def admin_clear_token(env_var: str):
     if env_var not in _ipdb_tokens.MANAGED:
         raise HTTPException(422, f"unknown managed env var: {env_var}")
     _ipdb_tokens.clear_token(env_var)
+
+
+# ── ops 轮次端点（P2，票 #134；产品化批 Task P2）──
+# 串行车道（裁①闸二）：源更新在飞/ops 轮在飞 → 409 eval_busy（一轮一车道，
+# 拒绝不排队——重活互斥，admin 见状可重试）；围栏/zai key/轮次信封/台账语义
+# 见 ipdb/_ops_rounds.py 模块头；SSE 进度复用 /api/events（task/task_log 事件，
+# stderr [turn]/[tool] 行透传）；取消复用 POST /api/tasks/{task_id}/cancel。
+
+@app.post("/api/ops/rounds", status_code=202, response_model=TaskAcceptedOut,
+          dependencies=[*_ADMIN_DEPS],
+          responses={"409": {"model": ErrorEnvelope,
+                             "description": "serial lane busy (source update or ops round in flight)"},
+                     **_ERRS_422_500})
+async def start_ops_round(payload: OpsRoundIn):
+    if payload.type not in ("health", "discover"):
+        raise HTTPException(422, "type must be one of: health, discover")
+    if not payload.input.strip():
+        raise HTTPException(422, "input must be a non-empty string")
+    task, busy = manager.start_ops_round(payload.type)
+    if busy == "sources":
+        raise ApiError(ErrorCode.eval_busy,
+                       "source update tasks in flight; retry after they finish")
+    if busy == "round":
+        raise ApiError(ErrorCode.eval_busy, "an ops round is already in flight")
+    threading.Thread(
+        target=_ipdb_ops_rounds.run_round,
+        args=(manager, task, payload.type, payload.input),
+        daemon=True, name=f"ops-round-{task.id}").start()
+    return {"task_id": task.id}
 
 
 _env_static = os.environ.get("IP_RADAR_STATIC_DIR")
