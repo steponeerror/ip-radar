@@ -14,8 +14,8 @@ import {
   putOpsAgentConfig,
 } from "../api";
 
-// P4(票 #136):ops admin 面数据层。契约真源 = backend/main.py 7 条 ops
-// 路由 + _api_models.py Ops* 模型(P2/P3 冻结面)——期望值全部对拍该真源,
+// P4(票 #136):ops admin 面数据层。契约真源 = backend/main.py 9 条 ops
+// 路由(P2/P3 冻结面 + 票 #140 配置 2)+ _api_models.py Ops* 模型——期望值全部对拍该真源,
 // 不从被测模块反推。错误面:后端统一信封 {error:{code,message}} 必须以
 // ApiError(status+code+message) 抛出(AdminPage 面既有约定)。
 describe("api ops functions (P4, #136)", () => {
