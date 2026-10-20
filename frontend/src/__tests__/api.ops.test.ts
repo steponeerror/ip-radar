@@ -10,6 +10,8 @@ import {
   readOpsPrecedent,
   postOpsRuling,
   exportOpsPrecedents,
+  getOpsAgentConfig,
+  putOpsAgentConfig,
 } from "../api";
 
 // P4(票 #136):ops admin 面数据层。契约真源 = backend/main.py 7 条 ops
@@ -139,5 +141,63 @@ describe("api ops functions (P4, #136)", () => {
     const e = (await exportOpsPrecedents().catch((err) => err)) as ApiError;
     expect(e.status).toBe(500);
     expect(e.code).toBe("internal");
+  });
+});
+
+// 票 #140:agent 配置面数据层。契约真源 = backend GET/PUT /api/ops/agent-config
+// + _api_models.py OpsAgentConfig*(闭集/优先级链/永不回显 key,出参只带
+// configured+tail4);allowed_models = 后端驱动下拉的单一真相源(实测 pi-ai
+// 装载目录五值,裁决 2026-10-20)。
+describe("api ops agent config (票 #140)", () => {
+  beforeEach(() => {
+    installFetchMock();
+    (globalThis as { EventSource?: unknown }).EventSource = vi.fn(() => ({ close: () => {} }));
+  });
+
+  const CFG = {
+    model_health: "glm-5.3-flash",
+    model_discover: "glm-5.3",
+    zai_api_key: { configured: true, tail4: "9988" },
+    allowed_models: ["glm-4.6v", "glm-5.3", "glm-5.3-flash", "glm-5.3-highspeed", "glm-5.3-flashx"],
+  };
+
+  it("getOpsAgentConfig GETs /api/ops/agent-config and returns the status shape", async () => {
+    fetchMock().mockResolvedValue({ ok: true, json: async () => CFG });
+    const r = await getOpsAgentConfig();
+    expect(r).toEqual(CFG);
+    expect(fetchMock().mock.calls[0][0]).toBe("/api/ops/agent-config");
+    expect(fetchMock().mock.calls[0][1]).toBeUndefined();
+  });
+
+  it("putOpsAgentConfig PUTs models + key and returns the updated status", async () => {
+    fetchMock().mockResolvedValue({ ok: true, json: async () => CFG });
+    const r = await putOpsAgentConfig({
+      model_health: "glm-4.6v", model_discover: "glm-5.3-highspeed", zai_api_key: "sk-new-9988",
+    });
+    expect(r).toEqual(CFG);
+    const [url, init] = fetchMock().mock.calls[0];
+    expect(url).toBe("/api/ops/agent-config");
+    expect(init.method).toBe("PUT");
+    expect(JSON.parse(init.body)).toEqual({
+      model_health: "glm-4.6v", model_discover: "glm-5.3-highspeed", zai_api_key: "sk-new-9988",
+    });
+  });
+
+  it("putOpsAgentConfig omits zai_api_key when blank (保持不改语义)", async () => {
+    fetchMock().mockResolvedValue({ ok: true, json: async () => CFG });
+    await putOpsAgentConfig({ model_health: "glm-5.3", model_discover: "glm-5.3" });
+    expect(JSON.parse(fetchMock().mock.calls[0][1].body)).toEqual({
+      model_health: "glm-5.3", model_discover: "glm-5.3",
+    });
+  });
+
+  it("putOpsAgentConfig rejects with the envelope on 422 (闭集外模型)", async () => {
+    fetchMock().mockResolvedValue({
+      ok: false, status: 422,
+      json: async () => ({ error: { code: "validation_error", message: "model_health 必须在闭集内" } }),
+    });
+    const e = (await putOpsAgentConfig({ model_health: "bad", model_discover: "glm-5.3" }).catch((err) => err)) as ApiError;
+    expect(e.status).toBe(422);
+    expect(e.code).toBe("validation_error");
   });
 });

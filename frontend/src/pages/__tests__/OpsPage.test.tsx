@@ -7,6 +7,7 @@ import type { TaskState } from "../../api";
 import { renderWithI18n } from "../../test/i18nTestUtils";
 import {
   startOpsRound, readOpsLedger, listOpsPrecedents, readOpsPrecedent, exportOpsPrecedents,
+  getOpsAgentConfig, putOpsAgentConfig,
 } from "../../api";
 
 // P4 admin 第四 tab「运营」(票 #136):渲染面 + 轮次触发 + 台账/判例只读 +
@@ -25,6 +26,8 @@ vi.mock("../../api", async () => {
     readOpsPrecedent: vi.fn(),
     postOpsRuling: vi.fn(),
     exportOpsPrecedents: vi.fn(),
+    getOpsAgentConfig: vi.fn(),
+    putOpsAgentConfig: vi.fn(),
   };
 });
 
@@ -163,5 +166,89 @@ describe("OpsPage — round trigger panel", () => {
     rerenderOps({ tasks: [failed], logs: {} });
     expect(screen.getByText(/Model provider failed/i)).toBeTruthy();
     expect(screen.getByText(/模型失败面 stopReason=error/)).toBeTruthy();
+  });
+});
+
+// ── 票 #140:agent 配置子区(选模型 + 填 key)── 闭集下拉由后端 GET
+// allowed_models 驱动(单一真相源,实测 pi-ai 装载目录五值);key write-only
+// 不回显,状态只显 configured+tail4(沿 token 面先例);保存后下一轮即生效。
+const CFG_MOCK = {
+  model_health: "glm-5.3-flash",
+  model_discover: "glm-5.3",
+  zai_api_key: { configured: true, tail4: "9988" },
+  allowed_models: ["glm-4.6v", "glm-5.3", "glm-5.3-flash", "glm-5.3-highspeed", "glm-5.3-flashx"],
+};
+
+describe("OpsPage — agent config section (票 #140)", () => {
+  beforeEach(() => {
+    vi.mocked(getOpsAgentConfig).mockResolvedValue(CFG_MOCK);
+  });
+
+  it("renders backend-driven closed-set dropdowns + configured key status", async () => {
+    renderOps();
+    const health = await screen.findByRole("combobox", { name: /health-round model/i });
+    const discover = screen.getByRole("combobox", { name: /discover-round model/i });
+    for (const sel of [health, discover]) {
+      expect([...sel.querySelectorAll("option")].map((o) => o.value)).toEqual(CFG_MOCK.allowed_models);
+    }
+    expect((health as HTMLSelectElement).value).toBe("glm-5.3-flash");
+    expect((discover as HTMLSelectElement).value).toBe("glm-5.3");
+    expect(screen.getByText(/Configured \(•••• 9988\)/)).toBeTruthy();
+  });
+
+  it("shows the not-configured key status text when no key", async () => {
+    vi.mocked(getOpsAgentConfig).mockResolvedValue({
+      ...CFG_MOCK, zai_api_key: { configured: false, tail4: null },
+    });
+    renderOps();
+    expect(await screen.findByText(/No key configured/i)).toBeTruthy();
+  });
+
+  it("save sends models + typed key, clears the write-only input, refreshes status", async () => {
+    vi.mocked(putOpsAgentConfig).mockResolvedValue({
+      ...CFG_MOCK,
+      model_health: "glm-4.6v",
+      model_discover: "glm-5.3-highspeed",
+      zai_api_key: { configured: true, tail4: "4321" },
+    });
+    renderOps();
+    fireEvent.change(await screen.findByRole("combobox", { name: /health-round model/i }), {
+      target: { value: "glm-4.6v" },
+    });
+    fireEvent.change(screen.getByRole("combobox", { name: /discover-round model/i }), {
+      target: { value: "glm-5.3-highspeed" },
+    });
+    fireEvent.change(screen.getByLabelText(/Z\.AI API key/i), {
+      target: { value: "sk-typed-4321" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(vi.mocked(putOpsAgentConfig)).toHaveBeenCalledWith({
+      model_health: "glm-4.6v", model_discover: "glm-5.3-highspeed", zai_api_key: "sk-typed-4321",
+    }));
+    expect(await screen.findByText(/Saved — the next round picks it up/i)).toBeTruthy();
+    expect(screen.getByText(/Configured \(•••• 4321\)/)).toBeTruthy();
+    expect((screen.getByLabelText(/Z\.AI API key/i) as HTMLInputElement).value).toBe("");
+  });
+
+  it("blank key input omits zai_api_key from the payload (保持不改)", async () => {
+    vi.mocked(putOpsAgentConfig).mockResolvedValue(CFG_MOCK);
+    renderOps();
+    fireEvent.change(await screen.findByRole("combobox", { name: /discover-round model/i }), {
+      target: { value: "glm-5.3-flashx" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(vi.mocked(putOpsAgentConfig)).toHaveBeenCalledWith({
+      model_health: "glm-5.3-flash", model_discover: "glm-5.3-flashx",
+    }));
+  });
+
+  it("save failure shows readable text, never the raw code", async () => {
+    vi.mocked(putOpsAgentConfig).mockRejectedValue(Object.assign(new Error("model_health 必须在闭集内"), {
+      status: 422, code: "validation_error",
+    }));
+    renderOps();
+    fireEvent.click(await screen.findByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.getByText(/必须在闭集内/)).toBeTruthy());
+    expect(screen.queryByText(/validation_error/)).toBeNull();
   });
 });
