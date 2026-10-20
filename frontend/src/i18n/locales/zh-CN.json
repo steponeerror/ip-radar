@@ -176,7 +176,7 @@
   "ops.cockpit.idle": "空闲",
   "ops.cockpit.lastActivity": "最后一行活动",
   "ops.cockpit.lastRound": "上一轮结果",
-  "ops.cockpit.lastRound.ledger": "台账兑底",
+  "ops.cockpit.lastRound.ledger": "台账兜底",
   "ops.cockpit.lastRound.none": "尚无已完成轮次",
   "ops.cockpit.lastRound.ok": "完成",
   "ops.cockpit.logHide": "收起日志",
