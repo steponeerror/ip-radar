@@ -403,6 +403,33 @@ else
   echo "SKIP golden:金轨迹供给缺(node/node_modules/rg/git)——T1 docs skip 判例同型,CI 由 npm ci 保证"
 fi
 
+# ---- 11. Task 1: spawn 契约(表对拍/in-process faux main/真 spawn 冒烟;零 API) ----
+if command -v node >/dev/null 2>&1 && [[ -d "$AGENT/node_modules/@earendil-works/pi-agent-core" ]] \
+   && command -v rg >/dev/null 2>&1 && command -v git >/dev/null 2>&1; then
+  CTOUT="$(node "$AGENT/selftest-contract.mjs" 2>&1)"; CTRC=$?
+  CTPASS_N="$(grep -c '^CONTRACTPASS ' <<<"$CTOUT" || true)"
+  CTFAIL_N="$(grep -c '^CONTRACTFAIL ' <<<"$CTOUT" || true)"
+  if (( CTRC == 0 && CTFAIL_N == 0 && CTPASS_N > 0 )); then
+    ok "contract:三层测试全绿(${CTPASS_N} 例)"
+  else
+    bad "contract:三层测试失败(PASS=${CTPASS_N} FAIL=${CTFAIL_N})"
+    printf '%s\n' "$CTOUT" | grep '^CONTRACTFAIL' || true
+  fi
+  # 分层点名(规格 §8 验收面)
+  grep -q 'CONTRACTPASS 表对拍:表内每项真被读' <<<"$CTOUT" \
+    && ok "contract:env 表双向对拍(SPAWN_CONTRACT_ENV ↔ 生产文件真读)" || bad "contract:env 表双向对拍(SPAWN_CONTRACT_ENV ↔ 生产文件真读)"
+  grep -q 'CONTRACTPASS in-process:成功轮 stdout 单行 JSON' <<<"$CTOUT" \
+    && ok "contract:成功轮轮次信封(stdout 单行 JSON 逐字段)" || bad "contract:成功轮轮次信封(stdout 单行 JSON 逐字段)"
+  grep -q 'CONTRACTPASS in-process:失败轮 model_face' <<<"$CTOUT" \
+    && ok "contract:失败轮信封(code=model_face/empty_text,pkg 缺席)" || bad "contract:失败轮信封(code=model_face/empty_text,pkg 缺席)"
+  grep -q 'CONTRACTPASS spawn:badround' <<<"$CTOUT" \
+    && ok "contract:真 spawn 冒烟(badround exit1+bad_round;用法错 exit2 无 JSON)" || bad "contract:真 spawn 冒烟(badround exit1+bad_round;用法错 exit2 无 JSON)"
+  node --check "$AGENT/selftest-contract.mjs" 2>/dev/null \
+    && ok "contract:runner node 语法通过" || bad "contract:runner node 语法通过"
+else
+  echo "SKIP contract:供给缺(node/node_modules/rg/git)——T1 docs skip 判例同型,CI 由 npm ci 保证"
+fi
+
 echo "----"
 echo "selftest: PASS=$pass FAIL=$fail"
 (( fail == 0 )) || exit 1
