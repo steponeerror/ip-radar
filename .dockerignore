@@ -1,4 +1,5 @@
-.gitignore
+# .gitignore 不在此列(P5):镜像内 .git 重建为运行时快照仓后,sandbox_assert 的
+# `git status -- backend/ frontend/` 依赖它静音运行时产物(__pycache__/pyc/dist)
 .dockerignore
 node_modules
 **/node_modules
