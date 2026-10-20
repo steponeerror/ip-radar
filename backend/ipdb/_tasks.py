@@ -24,6 +24,9 @@ class Task:
     source_name: str
     host: Optional[str]
     state: str = "queued"  # queued|downloading|loading|throttled|done|failed|cancelled
+                           # running = ops 轮相位(P2 票 #134;源任务不用——
+                           # 下载/构建沿既有相位,has_active_offline_tasks 四态
+                           # 不含 running → 轮次不阻查询门,冷启动验收 1)
     error: Optional[str] = None
     # 失败终态的语义码:值域 = _errors ErrorCode 值 + 任务相位码
     # download/rebuild(2026-10-17 裁定);None=未失败。SSE/快照消费。
@@ -87,6 +90,11 @@ class UpdateManager:
 
         self._host_locks: dict[str, threading.Lock] = {}
         self._host_guard = threading.Lock()
+
+        # ops 轮串行车道(P2 票 #134,裁①闸二):在飞 ops 轮 task_id;非 None
+        # 时 worker 全局停摆(轮次与源更新互斥,964MB 小机 OOM 前科),
+        # finish_ops_round 的 notify_all 放行。
+        self._ops_active: Optional[str] = None
 
         self._queue: deque[str] = deque()
         self._queue_cv = threading.Condition()
@@ -368,6 +376,55 @@ class UpdateManager:
         for tid in ids:
             self.cancel(tid)
 
+    # --- ops 轮串行车道(P2,票 #134;裁①闸二:轮次与源更新互斥)---
+    def start_ops_round(self, round_type: str):
+        """占串行车道并登记 ops 轮任务;返回 (Task, None) 或 (None, busy_reason)。
+
+        busy_reason="sources" = 任一源任务 queued/downloading/loading/throttled
+        (queued 也算:worker pop 后未翻相位的任务 state 仍 queued,拒绝即无
+        并发窗);"round" = ops 轮在飞(一轮一车道)。占道成功即建 running 态
+        任务并发 task 事件;ops 任务不入 worker 队列/_by_source(驱动方是轮次
+        线程,不走 _run_task/_settle)。清扫上一轮终态 ops 任务(镜像
+        _enqueue_one 的 stale 清扫,快照不随轮次累积)。
+        """
+        with self._lock:
+            if self._ops_active is not None:
+                return None, "round"
+            for t in self._tasks.values():
+                if t.state in ("queued", "downloading", "loading", "throttled"):
+                    return None, "sources"
+            stale = [tid for tid, t in self._tasks.items()
+                     if t.source_name == "ops"
+                     and t.state in ("done", "failed", "cancelled")]
+            for tid in stale:
+                self._tasks.pop(tid, None)
+                self._prog.pop(tid, None)
+            task = Task(id=uuid.uuid4().hex[:12], source_name="ops", host=None,
+                        state="running")
+            self._tasks[task.id] = task
+            self._ops_active = task.id
+            self._emit({"type": "task", "task": task.to_dict()})
+            return task, None
+
+    def finish_ops_round(self, task_id: str, state: str, error: Optional[str] = None,
+                         error_code: Optional[str] = None) -> None:
+        """ops 轮收口:终态落任务(emit)+ 释放车道(notify_all 放行源 worker)。"""
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if task is not None:
+                task.state = state
+                task.error = error
+                task.error_code = error_code
+                self._emit({"type": "task", "task": task.to_dict()})
+            if self._ops_active == task_id:
+                self._ops_active = None
+        with self._queue_cv:
+            self._queue_cv.notify_all()
+
+    def ops_log(self, task_id: str, line: str) -> None:
+        """轮次 stderr 进度行([turn]/[tool],spawn 契约面)→ 事件总线 → SSE。"""
+        self._emit({"type": "task_log", "task_id": task_id, "line": line})
+
     # --- internals ---
     def _host_lock(self, host):
         if host is None:
@@ -385,7 +442,10 @@ class UpdateManager:
     def _worker(self):
         while True:
             with self._queue_cv:
-                while (not self._go.is_set()) or (not self._queue):
+                # ops 轮在飞 = 全局停摆(P2 裁①闸二:轮次与源更新串行);车道
+                # 释放(finish_ops_round)的 notify_all 在此唤醒。
+                while (not self._go.is_set()) or (not self._queue) \
+                        or (self._ops_active is not None):
                     self._queue_cv.wait()
                 # Scan the queue for the first ADMISSIBLE task instead of only
                 # peeking queue[0]. A throttled (valve-blocked) task at the

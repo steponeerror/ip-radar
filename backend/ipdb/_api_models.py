@@ -266,6 +266,14 @@ class TokenSetIn(BaseModel):
     value: str = Field(min_length=1)
 
 
+class OpsRoundIn(BaseModel):
+    """POST /api/ops/rounds 入参（P2，票 #134）。type 闭集 {health, discover}
+    与 input 非空在 handler 校验（422；闭集真源 = agent.mjs KWS，桥不复制
+    九词/轮次闭集常量，防双源漂移）。"""
+    type: str
+    input: str
+
+
 class ApiKeyOut(_Out):
     """密钥元数据 —— 绝不含 JWT 本体(list 单项 / PATCH 返回形状)。"""
     sub: str
