@@ -85,6 +85,11 @@
 - **排他率**:候选 feed 采样键中,池内无任何指控的份额——候选自有增量的实测度量;discover 立项判据(协议:N=300 稳定 seed、阳性对照、归因到覆盖源、不吞异常)。重叠类 REJECT 必须附此实测数,上游映射推断不得替代。判例:malicious-ip(82.7%)/ziyadnz(44.7%)两连翻案(2026-10-18);排他梯度反向于印证度——多源印证段=回声段,单源段=增量段。锚:backend/ipdb/_eval/exclusive.py(`python -m ipdb._eval --exclusive`)、CONTEXT.md(源发现)
 - **聚合器候选**:上游为多个池内已知出版的聚合列表的候选源;此类候选的映射直觉最不可靠(『出版方都有了』推不出回声),是排他率实测的强制适用域。接入时一律 `derived=True`(谱系去重,与主源同现自动折叠)。锚:CONTEXT.md(源发现)、_logodds.py(DERIVED_SOURCES)
 
+## 运营 agent(ops)
+
+- **spawn 契约**:Python 桥(P2)/人/测试与 ops/agent/agent.mjs 之间 CLI interface 的全部事实(argv 形状 + env 表 + 退出码 0/1/2 + 轮次信封 + stderr 进度行);后端 spawn 该 CLI 是运营轮唯一入口 seam,env 面以 agent.mjs 的 SPAWN_CONTRACT_ENV 为唯一详述点(双向对拍钉死:selftest-contract)。判例:2026-10-20 契约深化批——T4「CLI 契约冻结」后首次修约,消费方未现=修约非违约。锚:ops/agent/agent.mjs(SPAWN_CONTRACT_ENV/main)
+- **轮次信封**:runRound 结果的机器面——agent.mjs stdout 的单行 JSON,成功/失败同形成败面(成功:ok/round/pkg/usage{数字}/queue_writes{action,source,dedup}/verify{cited};失败:error{code 闭集九词,message 原文},pkg 仅当包已落盘);用法错(argv 缺参)=纯 stderr+exit 2 不发信封。与工具级「失败信封」(tools.mjs envelope(),铁律②)是两物勿混:失败信封是单工具返回面,轮次信封是整轮 CLI 面。锚:ops/agent/agent.mjs(main 序列化处 successEnvelope/failureEnvelope)
+
 ## It's working if
 
 - 讨论与 PR 描述直接用本表词汇("这是谱系问题"),而不是每次从头解释

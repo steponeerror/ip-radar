@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# selftest.sh — lib.sh 四函数 + 台账/模板/round.sh 骨架断言(T2;不真调 pi,全 fixture 化)
+# selftest.sh — lib.sh 函数族 + 台账/模板断言(T2 起;不真调 pi,全 fixture 化)
 # 设计说明(任务书开放点):PRECEDENTS_DIR / LEDGER_FILE 用环境变量覆盖实现 fixture 隔离
 # (lib.sh 落位默认值,一行成本,最简);sandbox_assert 无法用环境隔离出主仓 git 语义,
 # 故就地污染本 worktree 的 backend/(touch→断言非零→清理,EXIT trap 兜底)。
@@ -10,6 +10,11 @@ ROOT="$(cd "$AGENT/../.." && pwd)"
 pass=0; fail=0
 ok()  { pass=$((pass + 1)); echo "PASS $1"; }
 bad() { fail=$((fail + 1)); echo "FAIL $1"; }
+# 嵌套 docs 仓缺席守卫(T2;test_precedent_schema.py 同型):CI checkout 无 docs/(嵌套
+# 独立仓,主仓 .gitignore 排除)→ 显式 SKIP 行并计 PASS,不是静默跳过;本地/worktree
+# (docs 符号链接在)仍真跑守真章。守卫模式照 §10 供给守卫的「前置条件不满足」形。
+# reason 可选第二参(缺省=docs 缺席;§10/§11 供给缺席同用此计数形,Info-3,T3 统一)。
+skipok() { pass=$((pass + 1)); echo "SKIP $1: ${2:-嵌套 docs 仓缺席(CI checkout 判例,test_precedent_schema.py 同型)}"; }
 
 TMP="$(mktemp -d)"
 FF_SRV_PIDS=()   # T3 http.server fixture 进程(cleanup 兜底杀)
@@ -88,10 +93,16 @@ OUT="$(inject_precedents 不存在的词xyz 2>&1)"
 [[ "$OUT" == *"无判例(检索词: 不存在的词xyz)"* ]]   && ok "inject:零命中显式无判例行" || bad "inject:零命中显式无判例行"
 
 # 真实判例库冒烟(只读):frontmatter 解析对 12 条种子成立。子壳隔离:bash 对
-# 「VAR=x 函数调用」的前缀赋值会在函数返回后泄漏到当前 shell(非 POSIX 模式)
-OUT="$( (PRECEDENTS_DIR="$ROOT/docs/ops/precedents" inject_precedents 排他率) 2>&1)"
-[[ "$OUT" == *"2026-10-18-malicious-ip-mapping-vs-key-overlap.md"* ]] && ok "inject:真实库命中 malicious-ip 判例" || bad "inject:真实库命中 malicious-ip 判例"
-[[ "$OUT" == *"ruling_agreement: overruled"* ]]                        && ok "inject:reward 摘要含 ruling_agreement" || bad "inject:reward 摘要含 ruling_agreement"
+# 「VAR=x 函数调用」的前缀赋值会在函数返回后泄漏到当前 shell(非 POSIX 模式)。
+# docs 符号链接缺席(CI checkout)→ SKIP 显式计 PASS(T2 守卫,理由见 skipok 注释)。
+if [[ -d "$ROOT/docs/ops/precedents" ]]; then
+  OUT="$( (PRECEDENTS_DIR="$ROOT/docs/ops/precedents" inject_precedents 排他率) 2>&1)"
+  [[ "$OUT" == *"2026-10-18-malicious-ip-mapping-vs-key-overlap.md"* ]] && ok "inject:真实库命中 malicious-ip 判例" || bad "inject:真实库命中 malicious-ip 判例"
+  [[ "$OUT" == *"ruling_agreement: overruled"* ]]                        && ok "inject:reward 摘要含 ruling_agreement" || bad "inject:reward 摘要含 ruling_agreement"
+else
+  skipok "inject:真实库命中 malicious-ip 判例"
+  skipok "inject:reward 摘要含 ruling_agreement"
+fi
 
 # ---- 2. verify_cited_precedents ----
 PKG_OK="$TMP/pkg-ok.md"
@@ -114,9 +125,15 @@ OUT="$(verify_cited_precedents "$PKG_NOSEC" 2>&1)"; RC=$?
 [[ $RC -ne 0 ]] && ok "verify:缺注入判例节非零" || bad "verify:缺注入判例节非零"
 [[ "$OUT" == *"缺少「注入判例」节"* ]] && ok "verify:缺节报错指明原因" || bad "verify:缺节报错指明原因"
 
-PKG_DOCSPATH="$TMP/pkg-docspath.md"
-printf '## 注入判例\n- docs/ops/precedents/2026-10-18-malicious-ip-mapping-vs-key-overlap.md\n' > "$PKG_DOCSPATH"
-verify_cited_precedents "$PKG_DOCSPATH" >/dev/null 2>&1 && ok "verify:docs 仓相对路径形式通过" || bad "verify:docs 仓相对路径形式通过"
+# docs 仓相对路径形:引真实判例文件(经 $ROOT/<相对路径> 解析,依赖 docs 符号链接在);
+# 缺席 → SKIP 显式计 PASS(T2 守卫,brief 漏列此处的同型补齐,偏离记录待 review)
+if [[ -f "$ROOT/docs/ops/precedents/2026-10-18-malicious-ip-mapping-vs-key-overlap.md" ]]; then
+  PKG_DOCSPATH="$TMP/pkg-docspath.md"
+  printf '## 注入判例\n- docs/ops/precedents/2026-10-18-malicious-ip-mapping-vs-key-overlap.md\n' > "$PKG_DOCSPATH"
+  verify_cited_precedents "$PKG_DOCSPATH" >/dev/null 2>&1 && ok "verify:docs 仓相对路径形式通过" || bad "verify:docs 仓相对路径形式通过"
+else
+  skipok "verify:docs 仓相对路径形式通过"
+fi
 
 # ---- 3. ledger_append ----
 rm -f "$LEDGER_FILE"
@@ -144,84 +161,17 @@ for p in health discover; do
   [[ ! -f "$AGENT/prompts/$p.md" ]] \
     && ok "prompt:旧 $p.md 已改造退役" || bad "prompt:旧 $p.md 已改造退役"
 done
-bash -n "$AGENT/round.sh" 2>/dev/null && ok "round.sh:bash 语法通过" || bad "round.sh:bash 语法通过"
 bash -n "$AGENT/lib.sh" 2>/dev/null && ok "lib.sh:bash 语法通过" || bad "lib.sh:bash 语法通过"
 
-# ---- 5b. T3.5: run_pi 解析器(罐装 JSONL 经 PI_BIN stub,不真调 pi) ----
-# 事件形状 = 2026-10-19 真流实测:末个 assistant message_end 携 text+usage+
-# stopReason;agent_settled.aborted 为全局中止旗标。四态判定(JSON 模式下 pi
-# 不必然非零退出,失败面必须 run_pi 自判)。
-PI_STUB="$TMP/pi-stub.sh"
-cat > "$PI_STUB" <<'EOF'
-#!/usr/bin/env bash
-# selftest stub:记录 run_pi 传下的旗标与 stdin,stdout 吐罐装事件流
-printf '%s\n' "$*" > "$PI_STUB_ARGS"
-cat > "$PI_STUB_STDIN"
-cat "$PI_STUB_FIXTURE"
-exit "${PI_STUB_RC:-0}"
-EOF
-chmod +x "$PI_STUB"
-# 注意:PI_STUB_FIXTURE 每例重赋,必须在 export 列表里(非导出的普通变量
-# 进不了 stub 子进程——首跑 6 FAIL 即此坑,2026-10-19)
-export PI_BIN="$PI_STUB" PI_STUB_ARGS="$TMP/pi.args" PI_STUB_STDIN="$TMP/pi.stdin" PI_STUB_FIXTURE=/dev/null PI_STUB_RC=0
+# ---- 6. 真实台账文件(docs 仓 docs/ops/ledger.md 首建表头;缺席 → SKIP 显式计 PASS,T2 守卫) ----
+if [[ -f "$ROOT/docs/ops/ledger.md" ]]; then
+  grep -q '^| 日期 | 轮次 | model | 用量 | 备注 |$' "$ROOT/docs/ops/ledger.md" 2>/dev/null \
+    && ok "ledger:真实台账文件已建表头" || bad "ledger:真实台账文件已建表头"
+else
+  skipok "ledger:真实台账文件已建表头"
+fi
 
-# 成功态:双 assistant message_end——文本取末个,用量取全部回合求和(实测每回合
-# 重置非累计,2026-10-19 多回合探针 /tmp/jitrl-t35-multiturn.jsonl)
-cat > "$TMP/pi-ok.jsonl" <<'EOF'
-{"type": "session", "id": "fixture"}
-{"type": "message_end", "message": {"role": "system", "content": ""}}
-{"type": "message_end", "message": {"role": "assistant", "content": [{"type": "text", "text": "早轮文本"}], "usage": {"input": 1, "output": 1, "totalTokens": 2, "cost": {"total": 0.0001}}, "stopReason": "stop"}}
-{"type": "message_end", "message": {"role": "assistant", "content": [{"type": "thinking", "thinking": "略"}, {"type": "text", "text": "最终摘要文本"}], "usage": {"input": 10976, "output": 40, "totalTokens": 11144, "cost": {"total": 0.00155936}}, "stopReason": "stop"}}
-{"type": "agent_settled", "aborted": false}
-EOF
-PI_STUB_FIXTURE="$TMP/pi-ok.jsonl"
-PI_TEXT=""; PI_USAGE=""
-run_pi --no-tools <<<"用户消息内容" 2>/dev/null && ok "run_pi:成功态零退出" || bad "run_pi:成功态零退出"
-[[ "${PI_TEXT:-}" == "最终摘要文本" ]] && ok "run_pi:最终文本=末个 assistant" || bad "run_pi:最终文本=末个 assistant"
-[[ "${PI_USAGE:-}" == "in=10977 out=41 total=11146 cost=0.00165936" ]] \
-  && ok "run_pi:用量四真数=全部 assistant 回合求和(1+10976 等)" || bad "run_pi:用量四真数=全部 assistant 回合求和(1+10976 等)"
-grep -q -- '--mode json --no-session --no-extensions --no-tools -- -' "$PI_STUB_ARGS" \
-  && ok "run_pi:调用面旗标钉死(json/no-session/no-extensions/-- -)" || bad "run_pi:调用面旗标钉死(json/no-session/no-extensions/-- -)"
-grep -q '用户消息内容' "$PI_STUB_STDIN" && ok "run_pi:prompt 经 stdin 传递" || bad "run_pi:prompt 经 stdin 传递"
-
-# 失败三态 + pi 进程非零
-cat > "$TMP/pi-stoperr.jsonl" <<'EOF'
-{"type": "message_end", "message": {"role": "assistant", "content": [{"type": "text", "text": "部分文本"}], "usage": {"input": 10, "output": 5, "totalTokens": 15, "cost": {"total": 0.001}}, "stopReason": "error"}}
-{"type": "agent_settled", "aborted": false}
-EOF
-PI_STUB_FIXTURE="$TMP/pi-stoperr.jsonl"
-OUT="$(run_pi 2>&1)"; RC=$?
-[[ $RC -ne 0 ]] && ok "run_pi:stopReason=error 判失败" || bad "run_pi:stopReason=error 判失败"
-[[ "$OUT" == *"stopReason=error"* ]] && ok "run_pi:失败原因含 stopReason" || bad "run_pi:失败原因含 stopReason"
-
-cat > "$TMP/pi-abort.jsonl" <<'EOF'
-{"type": "message_end", "message": {"role": "assistant", "content": [{"type": "text", "text": "文本"}], "usage": {"input": 10, "output": 5, "totalTokens": 15, "cost": {"total": 0.001}}, "stopReason": "stop"}}
-{"type": "agent_settled", "aborted": true}
-EOF
-PI_STUB_FIXTURE="$TMP/pi-abort.jsonl"
-OUT="$(run_pi 2>&1)"; RC=$?
-[[ $RC -ne 0 ]] && ok "run_pi:agent_settled.aborted 判失败" || bad "run_pi:agent_settled.aborted 判失败"
-[[ "$OUT" == *"aborted"* ]] && ok "run_pi:失败原因含 aborted" || bad "run_pi:失败原因含 aborted"
-
-cat > "$TMP/pi-empty.jsonl" <<'EOF'
-{"type": "message_end", "message": {"role": "assistant", "content": [{"type": "thinking", "thinking": "只有思考无正文"}], "usage": {"input": 10, "output": 5, "totalTokens": 15, "cost": {"total": 0.001}}, "stopReason": "stop"}}
-{"type": "agent_settled", "aborted": false}
-EOF
-PI_STUB_FIXTURE="$TMP/pi-empty.jsonl"
-OUT="$(run_pi 2>&1)"; RC=$?
-[[ $RC -ne 0 ]] && ok "run_pi:空最终文本判失败" || bad "run_pi:空最终文本判失败"
-[[ "$OUT" == *"空"* ]] && ok "run_pi:失败原因指明空文本" || bad "run_pi:失败原因指明空文本"
-
-PI_STUB_FIXTURE=/dev/null PI_STUB_RC=1
-OUT="$(run_pi 2>&1)"; RC=$?
-[[ $RC -ne 0 ]] && ok "run_pi:pi 进程非零退出判失败" || bad "run_pi:pi 进程非零退出判失败"
-unset PI_BIN PI_STUB_ARGS PI_STUB_STDIN PI_STUB_FIXTURE PI_STUB_RC
-
-# ---- 6. 真实台账文件(docs 仓 docs/ops/ledger.md 首建表头) ----
-grep -q '^| 日期 | 轮次 | model | 用量 | 备注 |$' "$ROOT/docs/ops/ledger.md" 2>/dev/null \
-  && ok "ledger:真实台账文件已建表头" || bad "ledger:真实台账文件已建表头"
-
-# ---- 7. T3: feed_freshness / freshness_flags / extract_feed_urls / matrix_summary ----
+# ---- 7. T3: feed_freshness / freshness_flags / extract_feed_urls ----
 # fixture:本地 http.server 双目录(冻结 mtime / 活跃 touch;HEAD 由 http.server 原生支持,
 # Last-Modified = 文件 mtime)。mtime 拍 epoch 且留 600s 余量,防 179/180 边界因
 # 探测耗时跨天抖动。
@@ -305,20 +255,6 @@ grep -qx 'https://www.binarydefense.com/banlist.txt' <<<"$EFU" \
 [[ "$(wc -l <<<"$EFU")" -ge 50 ]] \
   && ok "urls:规模 ≥50(源覆盖面)" || bad "urls:规模 ≥50(源覆盖面)"
 
-# matrix_summary.py(小 fixture;真实读数冒烟归 round.sh health)
-MS_FIX="$TMP/ms.json"
-cat > "$MS_FIX" <<'EOF'
-{"exit_code": 2, "counts": {"violation": 1, "pending": 0, "agreement": 3},
- "layers": {"truth": {"status": "NO-LAYER", "members": 0, "sampled": 0, "notes": ["no-asset"]},
-            "infra": {"status": "OK", "members": 5, "sampled": 5}},
- "buckets": {"violation": [{"cell": "infra|malicious|UI", "note": "ruling-confirmed", "evidence": []}],
-             "pending": [], "agreement": []}}
-EOF
-MS_OUT="$(python3 "$AGENT/matrix_summary.py" "$MS_FIX" 2>&1)"
-grep -q 'violation=1' <<<"$MS_OUT" && ok "mssum:counts 行" || bad "mssum:counts 行"
-grep -q 'infra|malicious|UI' <<<"$MS_OUT" && ok "mssum:violation 格列出" || bad "mssum:violation 格列出"
-grep -q 'NO-LAYER' <<<"$MS_OUT" && ok "mssum:层状态含 NO-LAYER" || bad "mssum:层状态含 NO-LAYER"
-
 # ---- 8. T4: pi-agent-core 宿主(node 单测:语义门/负例三发/SSRF/读面/队列幂等;不花 API 不真调网络) ----
 if command -v node >/dev/null 2>&1; then
   T4OUT="$(node "$AGENT/selftest-t4.mjs" 2>&1)"; T4RC=$?
@@ -344,8 +280,6 @@ fi
   && ok "t4:npm install 已落位" || bad "t4:npm install 已落位"
 git -C "$ROOT" check-ignore -q "$AGENT/node_modules" \
   && ok "t4:node_modules 已入 .gitignore" || bad "t4:node_modules 已入 .gitignore"
-# round.sh 弃用标注(T4 边界:保留文件不删)
-grep -q '已弃用' "$AGENT/round.sh" && ok "t4:round.sh 已标弃用(保留)" || bad "t4:round.sh 已标弃用(保留)"
 node --check "$AGENT/agent.mjs" 2>/dev/null && node --check "$AGENT/tools.mjs" 2>/dev/null \
   && node --check "$AGENT/models.mjs" 2>/dev/null \
   && ok "t4:agent/tools/models 三模块 node 语法通过" || bad "t4:agent/tools/models 三模块 node 语法通过"
@@ -365,7 +299,7 @@ grep -q 'health_snapshot' "$AGENT/prompts/health-system.md" && grep -q '信封�
 
 # ---- 10. T6: 金轨迹集(faux provider 跑真回路:Agent 循环+语义门+收口四件;不花 API) ----
 # 真模型用例=smoke 层单列,仅 --smoke 手跑,本钩子永不触发(计划书 Task 6 Step 2)。
-# 供给检查(T1 docs skip 判例同型):node+依赖缺供则跳过不计入 fail(CI 侧由 npm ci 保证供给)。
+# 供给检查:node+依赖缺供则显式 SKIP 计 PASS(Info-3,T3 与 T2 守卫统一计数形;CI 侧由 npm ci 保证供给)。
 if command -v node >/dev/null 2>&1 && [[ -d "$AGENT/node_modules/@earendil-works/pi-agent-core" ]] \
    && command -v rg >/dev/null 2>&1 && command -v git >/dev/null 2>&1; then
   GOLDOUT="$(node "$AGENT/golden/run-golden.mjs" 2>&1)"; GOLDRC=$?
@@ -400,7 +334,34 @@ if command -v node >/dev/null 2>&1 && [[ -d "$AGENT/node_modules/@earendil-works
   node -e 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))' "$AGENT/golden/cases.json" 2>/dev/null \
     && ok "golden:用例集 json 可解析" || bad "golden:用例集 json 可解析"
 else
-  echo "SKIP golden:金轨迹供给缺(node/node_modules/rg/git)——T1 docs skip 判例同型,CI 由 npm ci 保证"
+  skipok "golden:金轨迹集" "供给缺(node/node_modules/rg/git)——CI 由 npm ci 保证"
+fi
+
+# ---- 11. Task 1: spawn 契约(表对拍/in-process faux main/真 spawn 冒烟;零 API) ----
+if command -v node >/dev/null 2>&1 && [[ -d "$AGENT/node_modules/@earendil-works/pi-agent-core" ]] \
+   && command -v rg >/dev/null 2>&1 && command -v git >/dev/null 2>&1; then
+  CTOUT="$(node "$AGENT/selftest-contract.mjs" 2>&1)"; CTRC=$?
+  CTPASS_N="$(grep -c '^CONTRACTPASS ' <<<"$CTOUT" || true)"
+  CTFAIL_N="$(grep -c '^CONTRACTFAIL ' <<<"$CTOUT" || true)"
+  if (( CTRC == 0 && CTFAIL_N == 0 && CTPASS_N > 0 )); then
+    ok "contract:三层测试全绿(${CTPASS_N} 例)"
+  else
+    bad "contract:三层测试失败(PASS=${CTPASS_N} FAIL=${CTFAIL_N})"
+    printf '%s\n' "$CTOUT" | grep '^CONTRACTFAIL' || true
+  fi
+  # 分层点名(规格 §8 验收面)
+  grep -q 'CONTRACTPASS 表对拍:表内每项真被读' <<<"$CTOUT" \
+    && ok "contract:env 表双向对拍(SPAWN_CONTRACT_ENV ↔ 生产文件真读)" || bad "contract:env 表双向对拍(SPAWN_CONTRACT_ENV ↔ 生产文件真读)"
+  grep -q 'CONTRACTPASS in-process:成功轮 stdout 单行 JSON' <<<"$CTOUT" \
+    && ok "contract:成功轮轮次信封(stdout 单行 JSON 逐字段)" || bad "contract:成功轮轮次信封(stdout 单行 JSON 逐字段)"
+  grep -q 'CONTRACTPASS in-process:失败轮 model_face' <<<"$CTOUT" \
+    && ok "contract:失败轮信封(code=model_face/empty_text,pkg 缺席)" || bad "contract:失败轮信封(code=model_face/empty_text,pkg 缺席)"
+  grep -q 'CONTRACTPASS spawn:badround' <<<"$CTOUT" \
+    && ok "contract:真 spawn 冒烟(badround exit1+bad_round;用法错 exit2 无 JSON)" || bad "contract:真 spawn 冒烟(badround exit1+bad_round;用法错 exit2 无 JSON)"
+  node --check "$AGENT/selftest-contract.mjs" 2>/dev/null \
+    && ok "contract:runner node 语法通过" || bad "contract:runner node 语法通过"
+else
+  skipok "contract:spawn 契约三层测试" "供给缺(node/node_modules/rg/git)——CI 由 npm ci 保证"
 fi
 
 echo "----"

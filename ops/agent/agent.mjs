@@ -13,6 +13,10 @@
 // 模型(pi-ai faux;不花 API);opts.registrySeed=[{id,tool,sc}] 预登记测量腿结构化返回——
 // 排他 24.9/25.0 边界用例的 exclusive_probe 需真网络+数据面,离线金轨迹钉其冻结契约
 // (tools.mjs outputSchema 形状),门仍从登记表真算。返回值 registry=登记表快照(断言面)。
+// spawn 契约(2026-10-20 契约深化批,T4「CLI 契约冻结」后首次修约——消费方 P2 未现,修约非违约):
+// stdout=轮次信封(单行 JSON,成功/失败同形,main 序列化处);此前 stdout 上的人读散文(完成
+// 横幅/verify 消息)与进度行([turn]/[tool])全走 stderr——P2 将 tee stderr 做 SSE 进度;用法错
+// (argv 缺参)=纯 stderr + exit 2,不发 JSON。env 面 = SPAWN_CONTRACT_ENV(下方,唯一详述点)。
 import fs from "node:fs";
 import path from "node:path";
 import { execFile as execFileCb } from "node:child_process";
@@ -31,14 +35,49 @@ const KWS = {
 };
 const HIT_CAP = 8; // 铁律⑦
 
-const log = (...a) => process.stderr.write(a.join(" ") + "\n");
-// bash 复用 lib.sh(inject_precedents/verify_cited_precedents/ledger_append/sandbox_assert)
-const runLib = (fn, args = [], timeoutMs = 120_000) => execFileP("bash",
+// ── spawn 契约 env 表(本表 = spawn 契约 env 面唯一详述点;P2 Python 桥/P5 runbook 从此读)──
+// phase:import-time=模块装载期读一次(spawn 时注入即冻结,进程内改无效);call-time=调用期逐次读。
+// 双向对拍钉死(selftest-contract.mjs):表内每项真被读(GH_TOKEN 豁免——gh CLI 自读);每个
+// OPS_*|ZAI_*|DOCS_ROOT|PRECEDENTS_DIR|LEDGER_FILE 读取 ∈ 表。PI_BIN/RUN_PI_RAW_OUT 是已退役
+// 死引擎的 selftest fixture 面(2026-10-20 T3 删尽,名在活代码已不存在);禁入表断言保留
+// 作防复活绊线。
+export const SPAWN_CONTRACT_ENV = [
+  { name: "DOCS_ROOT", default: "<worktree 根>/docs", consumer: "tools.mjs 模块顶(docs 根,派生包/队列/工件落位)+ lib.sh 落位", phase: "import-time" },
+  { name: "PRECEDENTS_DIR", default: "<DOCS_ROOT>/ops/precedents", consumer: "lib.sh(inject_precedents/verify_cited_precedents)", phase: "call-time" },
+  { name: "LEDGER_FILE", default: "<DOCS_ROOT>/ops/ledger.md", consumer: "lib.sh(ledger_append)", phase: "call-time" },
+  { name: "OPS_MODELS", default: "~/.pi/agent/models.json", consumer: "models.mjs loadModels(用户 models.json 路径)", phase: "call-time" },
+  { name: "OPS_MODELS_STORE", default: "~/.pi/agent/models-store.json", consumer: "models.mjs loadModels(models-store 路径)", phase: "call-time" },
+  { name: "OPS_AUTH", default: "~/.pi/agent/auth.json", consumer: "models.mjs loadModels(auth.json 路径)", phase: "call-time" },
+  { name: "ZAI_CODING_CN_API_KEY", default: "(无存储凭证时的兜底 key)", consumer: "models.mjs envApiKeyAuth(请求期解析;stored credential 优先)", phase: "call-time" },
+  { name: "OPS_MODEL_HEALTH", default: "glm-5.3-flash", consumer: "models.mjs resolve(health 轮模型)", phase: "call-time" },
+  { name: "OPS_MODEL_DISCOVER", default: "glm-5.3", consumer: "models.mjs resolve(discover 轮模型)", phase: "call-time" },
+  { name: "OPS_EVAL_PY", default: "/home/huxiao/dev/pi-ip-lookup-tool/backend/.venv/bin/python", consumer: "tools.mjs(exclusive_probe/matrix 求值 CLI)", phase: "import-time" },
+  { name: "OPS_DATA_DIR", default: "/home/huxiao/dev/pi-ip-lookup-tool/backend/data", consumer: "tools.mjs(经 IP_RADAR_DATA_DIR 传导给 _eval)", phase: "import-time" },
+  { name: "OPS_FETCH_MAX_BYTES", default: "524288", consumer: "tools.mjs(fetch_url 响应上限)", phase: "import-time" },
+  { name: "OPS_PROBE_MAX_BYTES", default: "268435456", consumer: "tools.mjs(探针下载上限)", phase: "import-time" },
+  // OPS_PROBE_MAX_KEYS:任务书规格 §7 清单漏列,tools.mjs B.probeMaxKeys 实读——对拍不变式
+  // (每个 OPS_* 读取 ∈ 表)要求闭包补入,随本任务 commit 记偏离待 review。
+  { name: "OPS_PROBE_MAX_KEYS", default: "1000000", consumer: "tools.mjs(探针键量上限;bitwire OOM 判例)", phase: "import-time" },
+  { name: "OPS_PROBE_CLI_TIMEOUT_MS", default: "1800000", consumer: "tools.mjs(探针 CLI 超时)", phase: "import-time" },
+  { name: "OPS_MATRIX_TIMEOUT_MS", default: "1200000", consumer: "tools.mjs(matrix 扫描超时)", phase: "import-time" },
+  { name: "GH_TOKEN", default: "(gh CLI 自身凭证链)", consumer: "gh CLI(外部自读;tools.mjs 不读,对拍豁免)", phase: "call-time" },
+];
+
+// 轮次信封失败面 error.code 闭集九词(规格 §4):已知 throw 点挂 err.code,main 边界对
+// 无 code/闭集外 code(如 fs 的 ENOENT)归 infra——信封面九词恒闭。
+export const ERROR_CODES = ["bad_round", "model_face", "empty_text", "foreign_tool", "closure_check",
+  "ledger_failed", "verify_failed", "sandbox_violation", "infra"];
+
+// bash 复用 lib.sh(inject_precedents/verify_cited_precedents/ledger_append/sandbox_assert);
+// env 参数 = main 注入的 io.env(缺省 process.env),fixture/契约 env 经此传导给 lib.sh 子进程
+const runLib = (fn, args = [], timeoutMs = 120_000, env = process.env) => execFileP("bash",
   ["-c", `. "$0"; ${fn} "$@"`, path.join(AGENT_DIR, "lib.sh"), ...args],
-  { timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024, env: { ...process.env } });
+  { timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024, env: { ...env } });
 
 export async function runRound(round, input, extraKws = [], opts = {}) {
-  if (!(round in KWS)) throw new Error(`轮次必须是 health|discover,得到:${round}`);
+  if (!(round in KWS)) throw Object.assign(new Error(`轮次必须是 health|discover,得到:${round}`), { code: "bad_round" });
+  const childEnv = opts.env ?? process.env; // main io.env 注入(契约 env 面 → lib.sh 子进程)
+  const log = (...a) => (opts.stderr ?? process.stderr).write(a.join(" ") + "\n"); // stderr 进度行入契约,格式钉现状(规格 §6)
   const host = new ToolHost(round);
   const { models, resolve } = opts.models ?? await loadModels();
   for (const seed of opts.registrySeed ?? []) host.registry.register(seed.id, seed.tool, seed.sc);
@@ -47,7 +86,7 @@ export async function runRound(round, input, extraKws = [], opts = {}) {
 
   // 判例预注入(rg 词法,lib.sh 复用);命中>8 截前 8(铁律⑦),全部进闭集
   const kws = [...KWS[round], ...extraKws];
-  const inj = await runLib("inject_precedents", kws);
+  const inj = await runLib("inject_precedents", kws, 120_000, childEnv);
   const hitNames = [...inj.stdout.matchAll(/^- ([0-9]{4}-[0-9]{2}-[0-9]{2}-[^\s]+\.md)\s*$/gm)].map((m) => m[1]);
   const truncated = hitNames.length > HIT_CAP;
   const injected = hitNames.slice(0, HIT_CAP);
@@ -86,17 +125,17 @@ ${input}`;
 
   // 最终文本 + 失败面(stopReason error/aborted / 空文本 = 轮次失败,不产包)
   const assistant = [...agent.state.messages].reverse().find((m) => m.role === "assistant");
-  if (!assistant) throw new Error("事件流无 assistant 消息");
+  if (!assistant) throw Object.assign(new Error("事件流无 assistant 消息"), { code: "empty_text" });
   if (assistant.stopReason === "error" || assistant.stopReason === "aborted") {
-    throw new Error(`模型失败面 stopReason=${assistant.stopReason}:${assistant.errorMessage ?? ""}`);
+    throw Object.assign(new Error(`模型失败面 stopReason=${assistant.stopReason}:${assistant.errorMessage ?? ""}`), { code: "model_face" });
   }
   const finalText = (assistant.content ?? []).filter((c) => c.type === "text").map((c) => c.text).join("\n").trim();
-  if (!finalText) throw new Error("最终文本为空");
+  if (!finalText) throw Object.assign(new Error("最终文本为空"), { code: "empty_text" });
 
   // 零内建工具证明:全部工具调用 ∈ 本轮领域工具面
   const domainNames = new Set(host.tools.map((t) => t.name));
   const foreign = [...new Set(toolCalls.filter((n) => !domainNames.has(n)))];
-  if (foreign.length) throw new Error(`越界工具调用(结构性红线破口):${foreign.join(",")}`);
+  if (foreign.length) throw Object.assign(new Error(`越界工具调用(结构性红线破口):${foreign.join(",")}`), { code: "foreign_tool" });
 
   // ── host 收口四件 ──
   const stamp = new Date();
@@ -120,38 +159,89 @@ ${input}`;
 `;
   fs.writeFileSync(pkg, `${finalText}\n${footer}`);
 
-  // 台账先于校验(九裁决 9 每轮记账:校验失败的轮次也花真钱,用量必须入账;T2 round.sh 同序)
+  // 台账先于校验(九裁决 9 每轮记账:校验失败的轮次也花真钱,用量必须入账;序承 T2 轮次 runner,史档 git 历史)
   const usageStr = `in=${usage.input} out=${usage.output} total=${usage.totalTokens} cost=${usage.cost.toFixed(8)}`;
   const note = `tools=${toolCalls.length}${host.queueWrites.length ? ` queue=${host.queueWrites.length}` : ""} sdk=pi-agent-core`;
-  await runLib("ledger_append", [round, model.id, usageStr, note]);
+  let verifyOut = "";
+  // 落盘后收口(规格 §3:轮次失败≠工件灭失):此处任何失败在错误上带 pkg,失败信封仅此条件回传工件
+  try {
+    try {
+      await runLib("ledger_append", [round, model.id, usageStr, note], 120_000, childEnv);
+    } catch (e) { throw Object.assign(e, { code: "ledger_failed" }); }
 
-  const verify = await runLib("verify_cited_precedents", [pkg]); // 存在性(lib.sh)
-  // 闭集活时并集(评审 P1 修正):host.searchHits 由轮中 search_precedents execute 填充,
-  // agent.prompt() 前必空——并集必须在收口时重建,否则轮中合法命中引用在包+台账落盘后被误杀。
-  // 两侧同形(basename):预注入名(lib.sh 输出 basename)basename 化,searchHits 即 basename。
-  closureCheck(finalText, new Set([...hitNames.map((h) => path.basename(h)), ...host.searchHits])); // 闭集成员(铁律④);违 = 抛错轮次失败
-  await runLib("sandbox_assert", [], 60_000);
-  return { pkg, usage: usageStr, toolCalls, queueWrites: host.queueWrites, verify: verify.stdout.trim(),
+    let verify;
+    try {
+      verify = await runLib("verify_cited_precedents", [pkg], 120_000, childEnv); // 存在性(lib.sh)
+    } catch (e) { throw Object.assign(e, { code: "verify_failed" }); }
+    verifyOut = verify.stdout.trim();
+
+    // 闭集活时并集(评审 P1 修正):host.searchHits 由轮中 search_precedents execute 填充,
+    // agent.prompt() 前必空——并集必须在收口时重建,否则轮中合法命中引用在包+台账落盘后被误杀。
+    // 两侧同形(basename):预注入名(lib.sh 输出 basename)basename 化,searchHits 即 basename。
+    try {
+      closureCheck(finalText, new Set([...hitNames.map((h) => path.basename(h)), ...host.searchHits])); // 闭集成员(铁律④);违 = 抛错轮次失败
+    } catch (e) { throw Object.assign(e, { code: "closure_check" }); }
+
+    try {
+      await runLib("sandbox_assert", [], 60_000, childEnv);
+    } catch (e) { throw Object.assign(e, { code: "sandbox_violation" }); }
+  } catch (e) {
+    if (e && typeof e === "object" && e.pkg === undefined) e.pkg = pkg;
+    throw e;
+  }
+
+  // verify_cited:从 verify_cited_precedents 的 stdout 消息解析条数(规格 §2;「无判例」通过时无消息=0)
+  const verifyCited = Number((verifyOut.match(/(\d+) 条判例路径全部存在/) ?? [])[1] ?? 0);
+  return { pkg, usage: usageStr,
+    usage_num: { input: usage.input, output: usage.output, totalTokens: usage.totalTokens, cost: +usage.cost.toFixed(8) },
+    toolCalls, queueWrites: host.queueWrites, verify: verifyOut, verify_cited: verifyCited,
     registry: [...host.registry.byCall].map(([id, r]) => ({ id, tool: r.tool, sc: r.sc })) };
 }
 
-async function main() {
-  const [round, input, ...extra] = process.argv.slice(2);
-  if (!round || input === undefined) {
-    console.error('用法: node ops/agent/agent.mjs <health|discover> "<本轮输入>" [追加判例检索词...]');
-    process.exit(2);
+// ── 轮次信封序列化(GLOSSARY「轮次信封」锚点;成功/失败同形,stdout 单行 JSON+末尾换行)──
+function successEnvelope(round, r) {
+  return {
+    ok: true, round, pkg: r.pkg, usage: r.usage_num,
+    queue_writes: r.queueWrites.map((q) => ({ action: q.action, source: q.source, dedup: q.dedup })), // 完整信封裁三字段(规格 §2)
+    verify: { ok: true, cited: r.verify_cited },
+  };
+}
+function failureEnvelope(round, e) {
+  const code = e && typeof e === "object" && ERROR_CODES.includes(e.code) ? e.code : "infra"; // 无 code/闭集外归兜底
+  const envelope = { ok: false, round, error: { code, message: e?.message ?? String(e) } }; // message 保持原文,不裁不改
+  if (e && typeof e === "object" && typeof e.pkg === "string") envelope.pkg = e.pkg; // 仅当包已落盘(轮次失败≠工件灭失)
+  return envelope;
+}
+
+// main(argv, io) — 可测入口(规格 §5):io={env,stdout,stderr,models} 缺省绑 process;
+// io.models = runRound 的 opts.models(golden faux 同型);返回退出码 0/1/2(不自己 exit,bin adapter 负责)。
+export async function main(argv, io = {}) {
+  const env = io.env ?? process.env;
+  const stdout = io.stdout ?? process.stdout;
+  const stderr = io.stderr ?? process.stderr;
+  const log = (...a) => stderr.write(a.join(" ") + "\n");
+  const [round, input, ...extra] = argv;
+  if (!round || input === undefined) { // 用法错:纯 stderr + exit 2,不发 JSON(机器契约只覆盖真轮次)
+    log('用法: node ops/agent/agent.mjs <health|discover> "<本轮输入>" [追加判例检索词...]');
+    return 2;
   }
+  let r;
   try {
-    const r = await runRound(round, input, extra);
-    console.log(`round: ${round} 完成 → ${r.pkg}`);
-    console.log(`usage: ${r.usage}`);
-    console.log(`${r.verify}`);
+    r = await runRound(round, input, extra, { models: io.models, env, stderr });
   } catch (e) {
-    console.error(`round 失败:${e.message}`);
-    process.exit(1);
+    log(`round 失败:${e.message}`);
+    stdout.write(JSON.stringify(failureEnvelope(round, e)) + "\n");
+    return 1;
   }
+  log(`round: ${round} 完成 → ${r.pkg}`); // 此前的 stdout 散文全移 stderr,格式逐字保持(规格 §6)
+  log(`usage: ${r.usage}`);
+  log(r.verify);
+  stdout.write(JSON.stringify(successEnvelope(round, r)) + "\n");
+  return 0;
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  await main();
+  // 薄 adapter(规格 §5):绑 process 面。用 exitCode 而非 process.exit——管道下 stdout 单行
+  // JSON 是异步写,process.exit 会截断在飞数据(机器契约必须完整落管,P2 从管道读)。
+  process.exitCode = await main(process.argv.slice(2));
 }
