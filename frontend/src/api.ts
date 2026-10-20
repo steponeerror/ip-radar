@@ -437,6 +437,7 @@ export type TaskEvent =
   | { type: "snapshot"; data?: { tasks: TaskState[]; batch: BatchState | null } }
   | { type: "task"; task?: TaskState }
   | { type: "task_progress"; task_id?: string; received?: number; total?: number }
+  | { type: "task_log"; task_id?: string; line?: string } // ops 轮 stderr [turn]/[tool] 行(P2)
   | { type: "batch"; batch?: BatchState | null }
   | { type: "done"; batch?: BatchState | null };
 
@@ -444,8 +445,11 @@ export interface TaskState {
   id: string;
   source: string;
   host: string | null;
-  state: "queued" | "throttled" | "downloading" | "loading" | "done" | "failed" | "cancelled";
+  // running = ops 轮相位(P2 票 #134,source="ops";源任务不用——不含
+  // running → 轮次不阻查询门,冷启动验收 1)
+  state: "queued" | "throttled" | "downloading" | "loading" | "running" | "done" | "failed" | "cancelled";
   error: string | null;
+  error_code?: string | null; // failed 语义码;ops 轮 = 信封 error.code 九词闭集透传
   batch_id: string | null;
   received?: number;   // 阶段内进度(相位语义):downloading=字节,loading=记录数
   total?: number;      // 分母;0/缺失=未知(Content-Length 缺失或生成器路径)
@@ -706,6 +710,101 @@ export async function enableAdminKey(sub: string): Promise<ApiKeyMetaInfo> {
 export async function deleteAdminKey(sub: string): Promise<void> {
   const res = await fetch(`/api/admin/keys/${encodeURIComponent(sub)}`, { method: "DELETE" });
   if (!res.ok) return throwApiError(res, "Failed to delete key");
+}
+
+// ── ops 运营面(P4,票 #136;契约真源 = backend/main.py 7 条 ops 路由 +
+// _api_models.py Ops* 模型,P2/P3 冻结面)── admin 鉴权走同源 cookie 会话,
+// 与密钥/token 面同惯例;错误统一走 throwApiError(status+code+message)。
+
+export type OpsRoundType = "health" | "discover";
+
+// 202 → {task_id};串行车道占用 → 409 eval_busy(拒绝不排队,admin 重试)。
+export async function startOpsRound(
+  type: OpsRoundType,
+  input: string,
+): Promise<{ task_id: string }> {
+  const res = await fetch("/api/ops/rounds", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type, input }),
+  });
+  return jsonOrThrow(res, "Failed to start ops round");
+}
+
+export interface OpsPackageInfo {
+  name: string;
+  size: number;
+  modified: string; // ISO-UTC
+}
+
+export async function listOpsPackages(): Promise<OpsPackageInfo[]> {
+  const r = await jsonOrThrow(await fetch("/api/ops/packages"), "Failed to load packages");
+  return r.packages;
+}
+
+// 包/台账/判例全文逐字(OpsFileTextOut.text;渲染归本层)。
+export async function readOpsPackage(name: string): Promise<string> {
+  const r = await jsonOrThrow(
+    await fetch(`/api/ops/packages/${encodeURIComponent(name)}`),
+    "Failed to load package",
+  );
+  return r.text;
+}
+
+export async function readOpsLedger(): Promise<string> {
+  const r = await jsonOrThrow(await fetch("/api/ops/ledger"), "Failed to load ledger");
+  return r.text;
+}
+
+// kws:空串 = 全量倒序;非空 = 词法检索(逗号/空白分隔多词,后端 rg OR)。
+export async function listOpsPrecedents(kws = ""): Promise<string[]> {
+  const url = kws
+    ? `/api/ops/precedents?kws=${encodeURIComponent(kws)}`
+    : "/api/ops/precedents";
+  const r = await jsonOrThrow(await fetch(url), "Failed to load precedents");
+  return r.precedents;
+}
+
+export async function readOpsPrecedent(name: string): Promise<string> {
+  const r = await jsonOrThrow(
+    await fetch(`/api/ops/precedents/${encodeURIComponent(name)}`),
+    "Failed to load precedent",
+  );
+  return r.text;
+}
+
+export type OpsRulingVerdict = "agreed" | "overruled" | "amended";
+
+export interface OpsRulingResult {
+  created: boolean; // false = 幂等零副作用(重复同裁)
+  precedent: string;
+  superseded: string | null; // 被取代的旧条目(原条目永不删)
+  queue_appended: boolean; // 裁⑦「已批准待集成」清单是否新入行
+}
+
+// 人裁三动作;suggestion = 包内建议原文逐字(后端幂等键入参)。
+export async function postOpsRuling(
+  pkg: string,
+  suggestion: string,
+  verdict: OpsRulingVerdict,
+  amendment?: string,
+): Promise<OpsRulingResult> {
+  const res = await fetch("/api/ops/ruling", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      package: pkg, suggestion, verdict,
+      ...(verdict === "amended" ? { amendment } : {}),
+    }),
+  });
+  return jsonOrThrow(res, "Failed to record ruling");
+}
+
+// 导出 = 全量判例 + 台账(确定性 zip);鉴权同 cookie,Blob 落地下载。
+export async function exportOpsPrecedents(): Promise<Blob> {
+  const res = await fetch("/api/ops/precedents/export.zip");
+  if (!res.ok) return throwApiError(res, "Failed to export precedents");
+  return res.blob();
 }
 
 // ── token 界面配置(sources-redesign T3;契约见 backend/main.py admin_token_*

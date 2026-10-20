@@ -22,6 +22,14 @@ vi.mock("../../api", async () => {
     getSources: vi.fn().mockResolvedValue([]),
     fetchEvalModel: vi.fn().mockResolvedValue(null),
     listAdminKeys: vi.fn().mockResolvedValue([]),
+    startOpsRound: vi.fn(),
+    listOpsPackages: vi.fn().mockResolvedValue([]),
+    readOpsPackage: vi.fn(),
+    readOpsLedger: vi.fn().mockResolvedValue(""),
+    listOpsPrecedents: vi.fn().mockResolvedValue([]),
+    readOpsPrecedent: vi.fn(),
+    postOpsRuling: vi.fn(),
+    exportOpsPrecedents: vi.fn(),
   };
 });
 
@@ -120,6 +128,22 @@ describe("AdminPage", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Sign out" })).toBeTruthy());
     expect(screen.getByRole("group", { name: "theme" })).toBeTruthy();
     expect(screen.getByRole("group", { name: "language" })).toBeTruthy();
+  });
+
+  it("fourth tab 运营 renders OpsPage (round trigger + read-only sections); other tabs yield", async () => {
+    mockFetch.mockResolvedValueOnce(me200);
+    renderWithI18n(<AdminPage />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Sign out" })).toBeTruthy());
+    const tabOps = screen.getByRole("tab", { name: "Operations" });
+    expect(tabOps).toHaveAttribute("aria-selected", "false");
+    fireEvent.click(tabOps);
+    expect(await screen.findByRole("button", { name: "Run health round" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Ruling packages" })).toBeTruthy();
+    expect(tabOps).toHaveAttribute("aria-selected", "true");
+    // 非活动 tab 不渲染:sources 空态让位
+    expect(screen.queryByText(/no sources discovered/i)).toBeNull();
+    // 默认 tab 仍是 sources(ops tab 挂载不影响默认选中)
+    expect(screen.getByRole("tab", { name: "Sources" })).toHaveAttribute("aria-selected", "false");
   });
 
   it("shows the login-failed message from the error envelope", async () => {

@@ -40,6 +40,9 @@ from ipdb import _auth as _ipdb_auth
 from ipdb import _apikeys as _ipdb_apikeys  # noqa: F401  (ApiKeyMeta 注册进 Base.metadata,lifespan init_auth_db 建表)
 from ipdb import _ratelimit as _ipdb_ratelimit  # noqa: F401  (Task 7 限流;装饰器引用见各查询端点)
 from ipdb import _tokens as _ipdb_tokens
+from ipdb import _ops_rounds as _ipdb_ops_rounds
+from ipdb import _ops_read as _ipdb_ops_read
+from ipdb import _ops_store as _ipdb_ops_store
 from slowapi.errors import RateLimitExceeded
 from ipdb import _update as _ipdb_update
 from ipdb import _version as _ipdb_version
@@ -49,7 +52,10 @@ from ipdb._api_models import (
     AckOut, ApiKeyCreateIn, ApiKeyCreatedOut, ApiKeyOut, ApiKeyPatchIn,
     BatchOut, DbStatusOut,
     ErrorEnvelope, EvalDetailOut, EvalJobAcceptedOut, EvalModelOut,
-    EvalOverviewOut, LookupResultOut, SourceInfoOut, TaskAcceptedOut,
+    EvalOverviewOut, LookupResultOut, OpsFileTextOut, OpsPackagesOut,
+    OpsPackageOut, OpsPrecedentsOut, OpsRoundIn, OpsRulingIn, OpsRulingOut,
+    SourceInfoOut,
+    TaskAcceptedOut,
     TasksSnapshotOut, TokenSetIn, TokenStatusOut,
     UpdateAcceptedOut, UpdateDbOut, UpdateStateOut, VersionOut,
 )
@@ -1467,6 +1473,127 @@ async def admin_clear_token(env_var: str):
     if env_var not in _ipdb_tokens.MANAGED:
         raise HTTPException(422, f"unknown managed env var: {env_var}")
     _ipdb_tokens.clear_token(env_var)
+
+
+# ── ops 轮次端点（P2，票 #134；产品化批 Task P2）──
+# 串行车道（裁①闸二）：源更新在飞/ops 轮在飞 → 409 eval_busy（一轮一车道，
+# 拒绝不排队——重活互斥，admin 见状可重试）；围栏/zai key/轮次信封/台账语义
+# 见 ipdb/_ops_rounds.py 模块头；SSE 进度复用 /api/events（task/task_log 事件，
+# stderr [turn]/[tool] 行透传）；取消复用 POST /api/tasks/{task_id}/cancel。
+
+@app.post("/api/ops/rounds", status_code=202, response_model=TaskAcceptedOut,
+          dependencies=[*_ADMIN_DEPS],
+          responses={"409": {"model": ErrorEnvelope,
+                             "description": "serial lane busy (source update or ops round in flight)"},
+                     **_ERRS_422_500})
+async def start_ops_round(payload: OpsRoundIn):
+    if payload.type not in ("health", "discover"):
+        raise HTTPException(422, "type must be one of: health, discover")
+    if not payload.input.strip():
+        raise HTTPException(422, "input must be a non-empty string")
+    task, busy = manager.start_ops_round(payload.type)
+    if busy == "sources":
+        raise ApiError(ErrorCode.eval_busy,
+                       "source update tasks in flight; retry after they finish")
+    if busy == "round":
+        raise ApiError(ErrorCode.eval_busy, "an ops round is already in flight")
+    threading.Thread(
+        target=_ipdb_ops_rounds.run_round,
+        args=(manager, task, payload.type, payload.input),
+        daemon=True, name=f"ops-round-{task.id}").start()
+    return {"task_id": task.id}
+
+
+# ── ops 读 API + 人裁写回（P3，票 #135；产品化批 Task P3）──
+# 全部 admin 面（沿 P2 _ADMIN_DEPS 惯例）；只读端点零写入（读缺失树 =
+# _ops_read 内 init 幂等建形状，空是真实态）；export.zip 声明序先于
+# /{name} 动态段；写回四律/裁⑦清单维护语义见 ipdb/_ops_store.write_ruling。
+
+
+@app.get("/api/ops/packages", response_model=OpsPackagesOut,
+         dependencies=[*_ADMIN_DEPS], responses=_ERRS_422_500)
+async def list_ops_packages():
+    return {"packages": _ipdb_ops_read.list_packages()}
+
+
+@app.get("/api/ops/packages/{name}", response_model=OpsFileTextOut,
+         dependencies=[*_ADMIN_DEPS],
+         responses={**_ERRS_422_500,
+                    "404": {"model": ErrorEnvelope,
+                            "description": "unknown package"}})
+async def read_ops_package(name: str):
+    try:
+        return {"text": _ipdb_ops_read.read_package(name)}
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    except FileNotFoundError:
+        raise ApiError(ErrorCode.not_found, f"unknown package: {name}")
+
+
+@app.get("/api/ops/ledger", response_model=OpsFileTextOut,
+         dependencies=[*_ADMIN_DEPS], responses=_ERRS_422_500)
+async def read_ops_ledger():
+    return {"text": _ipdb_ops_read.read_ledger()}
+
+
+@app.get("/api/ops/precedents", response_model=OpsPrecedentsOut,
+         dependencies=[*_ADMIN_DEPS], responses=_ERRS_422_500)
+async def list_ops_precedents(kws: str = ""):
+    """无 kws = 全量倒序；kws = 词法检索（逗号/空白分隔多词，rg OR；
+    rc≥2 基础设施故障 500 不伪装空——T2 Minor-3 判例，经 P1 rg 助手）。"""
+    parts = _ipdb_ops_read.parse_kws(kws)
+    try:
+        names = (_ipdb_ops_read.search_precedents(parts) if parts
+                 else _ipdb_ops_read.list_precedents())
+    except RuntimeError as e:
+        raise ApiError(ErrorCode.internal, str(e))
+    return {"precedents": names}
+
+
+@app.get("/api/ops/precedents/export.zip",
+         dependencies=[*_ADMIN_DEPS],
+         responses={"200": {"description": "zip archive: precedents/*.md（含 _schema.md，库自描述）+ ledger.md",
+                            "content": {"application/zip": {"schema": {}}}},
+                    **_ERRS_422_500})
+async def export_ops_precedents():
+    """导出 = 全量判例 + 台账；固定 zip 时间戳 → 同树字节恒同（可回算）。"""
+    data = _ipdb_ops_read.export_zip_bytes()
+    return StreamingResponse(
+        iter([data]), media_type="application/zip",
+        headers={"Content-Disposition":
+                 'attachment; filename="ops-precedents-export.zip"'})
+
+
+@app.get("/api/ops/precedents/{name}", response_model=OpsFileTextOut,
+         dependencies=[*_ADMIN_DEPS],
+         responses={**_ERRS_422_500,
+                    "404": {"model": ErrorEnvelope,
+                            "description": "unknown precedent"}})
+async def read_ops_precedent(name: str):
+    try:
+        return {"text": _ipdb_ops_read.read_precedent(name)}
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    except FileNotFoundError:
+        raise ApiError(ErrorCode.not_found, f"unknown precedent: {name}")
+
+
+@app.post("/api/ops/ruling", response_model=OpsRulingOut,
+          dependencies=[*_ADMIN_DEPS],
+          responses={**_ERRS_422_500,
+                     "404": {"model": ErrorEnvelope,
+                             "description": "unknown package"}})
+async def create_ops_ruling(payload: OpsRulingIn):
+    """人裁三动作（同意/否决/修正）落判例：新建条目或 superseded_by 链；
+    幂等（重复同裁零副作用）；production_delta 恒 null（30 天写回独立后续批）。"""
+    try:
+        return _ipdb_ops_store.write_ruling(
+            payload.package, payload.suggestion, payload.verdict,
+            payload.amendment)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    except FileNotFoundError as e:
+        raise ApiError(ErrorCode.not_found, str(e))
 
 
 _env_static = os.environ.get("IP_RADAR_STATIC_DIR")

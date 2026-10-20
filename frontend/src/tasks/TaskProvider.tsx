@@ -9,12 +9,18 @@ import { stagedFrac } from "./progress";
 
 const SAW_EVENTS = new Set(["snapshot", "task", "batch", "done"]);
 
+// task_log 保留末 N 行/任务(ops 轮进度流;源任务无此事件)。有界防内存
+// 无限增长——证据本体在包/台账,这里只是即时进度面。
+const LOG_KEEP_LINES = 200;
+
 export function TaskProvider({ children, onUnauthorized }: {
   children: ReactNode;
   onUnauthorized?: () => void;
 }) {
   const [tasks, setTasks] = useState<TaskState[]>([]);
   const [batch, setBatch] = useState<BatchState | null>(null);
+  // ops 轮 task_log 行(task_id → 末 200 行);快照不含此面(SSE 即时流)。
+  const [logs, setLogs] = useState<Record<string, string[]>>({});
   // U8:SSE 流连接态。onerror → reconnecting,恢复(onopen)→ connected;
   // 初始 connected(宁少算:首连失败也会先经 onerror 置位,不预支连接中文案)。
   const [connection, setConnection] = useState<TaskConnection>("connected");
@@ -50,6 +56,14 @@ export function TaskProvider({ children, onUnauthorized }: {
         tasksRef.current[e.task_id] = { ...ex, received: e.received, total: e.total };
         setTasks(Object.values(tasksRef.current));
       }
+    } else if (e.type === "task_log" && e.task_id) {
+      // 不入 SAW_EVENTS:task_log 不携带快照会过期的任务状态,不抢 resync。
+      const tid = e.task_id; // 窄化提出闭包(setLogs 回调内不保留属性收窄)
+      const line = e.line ?? "";
+      setLogs((prev) => {
+        const next = [...(prev[tid] ?? []), line];
+        return { ...prev, [tid]: next.slice(-LOG_KEEP_LINES) };
+      });
     } else if (e.type === "batch" && e.batch) {
       setBatch(e.batch);
     } else if (e.type === "done") {
@@ -95,7 +109,7 @@ export function TaskProvider({ children, onUnauthorized }: {
   }, []);
 
   const value: TasksCtxValue = {
-    tasks, batch, connection,
+    tasks, batch, connection, logs,
     enqueueSingle: apiEnqueueSingle,
     enqueueBatch: apiEnqueueBatch,
     cancelTask: apiCancelTask,

@@ -266,6 +266,55 @@ class TokenSetIn(BaseModel):
     value: str = Field(min_length=1)
 
 
+class OpsRoundIn(BaseModel):
+    """POST /api/ops/rounds 入参（P2，票 #134）。type 闭集 {health, discover}
+    与 input 非空在 handler 校验（422；闭集真源 = agent.mjs KWS，桥不复制
+    九词/轮次闭集常量，防双源漂移）。"""
+    type: str
+    input: str
+
+
+class OpsPackageOut(_Out):
+    """GET /api/ops/packages 列表项（P3，票 #135）。modified = ISO-UTC。"""
+    name: str
+    size: int
+    modified: str
+
+
+class OpsPackagesOut(_Out):
+    packages: list[OpsPackageOut]
+
+
+class OpsFileTextOut(_Out):
+    """包/台账/判例全文（逐字；渲染归 P4 前端）。"""
+    text: str
+
+
+class OpsPrecedentsOut(_Out):
+    """判例名列表（无 kws = 全量倒序；kws = rg 命中面，_schema.md 排除）。"""
+    precedents: list[str]
+
+
+class OpsRulingIn(BaseModel):
+    """POST /api/ops/ruling 入参（P3，票 #135）。verdict 闭集
+    {agreed, overruled, amended}（T1 ruling_agreement 去 pending）与 amendment
+    存在性约束（仅 amended 带）在 handler 校验（422；闭集真源 = 判例
+    _schema.md，路由不复制常量防双源漂移——P2 同惯例）。"""
+    package: str
+    suggestion: str
+    verdict: str
+    amendment: Optional[str] = None
+
+
+class OpsRulingOut(_Out):
+    """人裁写回结果：created=False = 幂等零副作用（重复同裁）；superseded =
+    被取代的旧条目文件名（原条目永不删）；queue_appended = 裁⑦清单是否新入行。"""
+    created: bool
+    precedent: str
+    superseded: Optional[str] = None
+    queue_appended: bool
+
+
 class ApiKeyOut(_Out):
     """密钥元数据 —— 绝不含 JWT 本体(list 单项 / PATCH 返回形状)。"""
     sub: str
