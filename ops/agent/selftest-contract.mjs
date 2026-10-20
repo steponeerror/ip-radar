@@ -4,7 +4,8 @@
 //    + 计算读取按轮次闭集展开 + models.mjs envApiKeyAuth 声明 key + lib.sh ${VAR:-} 侧名);
 //    GH_TOKEN 豁免(gh CLI 自读);PI_BIN/RUN_PI_RAW_OUT 出界钉死(run_pi fixture 面,T3 退役)。
 // b. in-process main(faux provider,golden 同型):成功轮单行 JSON 轮次信封逐字段 + stderr 进度行;
-//    失败轮 code=model_face/empty_text 信封(pkg 缺席)。
+//    失败轮 code=model_face/empty_text 信封(pkg 缺席)+ closure_check 带 pkg 信封(reviewer
+//    Minor-1,T2:包已落盘的失败面必须回传工件——轮次失败≠工件灭失,P2 消费面)。
 // c. 真 spawn 冒烟(badround 前置 throw / 用法错 exit 2):两路都在 loadModels 之前,不触网不读模型目录。
 // 输出行 CONTRACTPASS/CONTRACTFAIL,selftest.sh §11 计数;任一 FAIL 退出非零。
 import assert from "node:assert/strict";
@@ -34,6 +35,13 @@ fs.mkdirSync(precDir, { recursive: true });
 fs.writeFileSync(path.join(precDir, PREC),
   `---\nid: 2026-06-01-contract-fixture\ndate: 2026-06-01\nsubject: fixture — 契约测试判例(排他率命中)\ncontext: >\n  契约回放 fixture。\nhuman_ruling: >\n  认可。\nreward:\n  hard_gates: {}\n  ruling_agreement: agreed\n---\n\n正文检索词:排他率 聚合器 冻结。\n`);
 fs.writeFileSync(path.join(precDir, "_schema.md"), "schema 说明(注入排除面)。\n");
+// 闭集外真文件(reviewer Minor-1 fixture):库内真实存在(存在性校验过)但正文检索词
+// 刻意避开 KWS.discover 全部词(排他率/聚合器/许可/体量/冻结/sunset)→ 永不进闭集,
+// 收口时闭集成员校验(tools.mjs closureCheck)抛错——引它 = closure_check 失败面。
+// 不能引纯编造路径:那会先撞 lib.sh 存在性层(verify_failed),到不了闭集层。
+const UNINJ = "2026-05-01-contract-uninjected.md";
+fs.writeFileSync(path.join(precDir, UNINJ),
+  `---\nid: 2026-05-01-contract-uninjected\ndate: 2026-05-01\nsubject: fixture — 闭集外真文件(closure_check 面)\ncontext: >\n  库内存在但检索不命中:存在性过、闭集拦。\nhuman_ruling: >\n  认可。\nreward:\n  hard_gates: {}\n  ruling_agreement: agreed\n---\n\n正文检索词:裁决 回放。\n`);
 process.env.DOCS_ROOT = DOCS; // tools.mjs import 期读 docs 根——必须先于 import
 process.env.PRECEDENTS_DIR = precDir;
 process.env.LEDGER_FILE = path.join(DOCS, "ops", "ledger.md");
@@ -49,6 +57,10 @@ const computeReads = () => {
   let unknownTemplate = null;
   for (const s of [SRCS.agent, SRCS.tools, SRCS.models]) {
     for (const m of s.matchAll(/process\.env\.([A-Za-z_][A-Za-z0-9_]*)/g)) reads.add(m[1]);
+    // 方括号字符串读形(reviewer Minor-2,T2):process.env["QUOTED_NAME"]/['X']——与点形
+    // 同名集并入对拍;引号族与反引号族(下方)互不重叠。动态下标读形 process.env[expr]
+    // 为已声明盲区(现存为零,需作用域感知扫描,词法正则会误收)。
+    for (const m of s.matchAll(/process\.env\[\s*["']([A-Za-z_][A-Za-z0-9_]*)["']\s*\]/g)) reads.add(m[1]);
     // 计算读取(models.mjs:`process.env[`OPS_MODEL_${round.toUpperCase()}`]`)按轮次闭集展开
     for (const m of s.matchAll(/process\.env\[\s*`([^`]+)`\s*\]/g)) {
       const mm = m[1].match(/^([A-Z_]+)\$\{round\.toUpperCase\(\)\}$/);
@@ -58,8 +70,12 @@ const computeReads = () => {
   }
   // envApiKeyAuth 声明式 env key(pi-ai 请求期读;models.mjs 不直写 process.env.X)
   for (const m of SRCS.models.matchAll(/envApiKeyAuth\(\s*"[^"]+"\s*,\s*\[\s*"([A-Za-z_][A-Za-z0-9_]*)"/g)) reads.add(m[1]);
-  // lib.sh 的 bash 侧名:${VAR:-...} 形(env 可覆盖面;限大写——${epoch:-} 是局部变量不是 env 面)
-  for (const m of SRCS.libsh.matchAll(/\$\{([A-Z][A-Z0-9_]*):-/g)) reads.add(m[1]);
+  // JS 解构形 `const { X } = process.env` 为已声明盲区(reviewer Minor-2):现存为零,
+  // 需作用域感知扫描,词法正则会误收局部解构——零现状下收录成本>收益,注释钉界。
+  // lib.sh 的 bash 侧名:${VAR:-...} 形(env 可覆盖面;限大写——${epoch:-} 是局部变量
+  // 不是 env 面);:= 赋默认 / :? 出错退出变体(Minor-2)同属 env 覆盖面,一并收录
+  // (现存为零,收录即防未来漂入时漏对拍)。
+  for (const m of SRCS.libsh.matchAll(/\$\{([A-Z][A-Z0-9_]*)(?::-|:=|:\?)/g)) reads.add(m[1]);
   return { reads, unknownTemplate };
 };
 const READS = computeReads();
@@ -189,6 +205,24 @@ await t("in-process:失败轮 empty_text(最终文本为空)信封", async () =>
   assert.equal(env.ok, false);
   assert.equal(env.error.code, "empty_text");
   assert.equal(env.error.message, "最终文本为空");
+});
+
+// reviewer Minor-1(T2):closure_check 带 pkg 失败信封——钉「轮次失败≠工件灭失」主承诺面(P2 消费方要的正是它)。
+// 判据分界:引用必须真实在盘但闭集外——纯编造路径会先撞 lib.sh 存在性层(verify_failed),
+// 到不了闭集层;golden neg3 同机制(「存在性校验通过,闭集成员校验抛错」)。fixture 专设
+// 闭集外真文件 UNINJ(库内存在、检索词不命中 KWS,永不进闭集)。
+await t("in-process:失败轮 closure_check 带 pkg(包已落盘,失败信封必须回传工件)", async () => {
+  const io = mkIO();
+  const rc = await main(["discover", "失败面回放:引用闭集外真文件"], {
+    ...io, ...fauxIO([fauxAssistantMessage([fauxText(`## 注入判例\n- ${UNINJ}\n\n## 摘要\n契约回放:closure_check 失败面。`)])]),
+  });
+  assert.equal(rc, 1);
+  const env = singleLineJSON(io.buf.stdout);
+  assert.equal(env.ok, false);
+  assert.equal(env.error.code, "closure_check");
+  assert.deepEqual(Object.keys(env).sort(), ["error", "ok", "pkg", "round"], "包已落盘:失败信封必须带 pkg");
+  assert.ok(typeof env.pkg === "string" && path.isAbsolute(env.pkg) && fs.existsSync(env.pkg), `pkg 应绝对路径且真在盘:${env.pkg}`);
+  assert.ok(io.buf.stderr.includes("round 失败:"), "失败原因行(stderr)");
 });
 
 // ── c. 真 spawn 冒烟(前置-throw 两路;loadModels 之前,零 API 零网)─────────
