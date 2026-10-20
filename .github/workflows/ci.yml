@@ -44,6 +44,16 @@ jobs:
           command -v rg >/dev/null 2>&1 || sudo apt-get install -y -q ripgrep
           npm ci --no-fund --no-audit
           node golden/run-golden.mjs
+      # T2(2026-10-20): selftest 伞面入闸(架构审查 R3 候选 2)——lib.sh 四函数/语义门
+      # 24+ 例单测/prompt↔工具面同步闸/spawn 契约三层,此前全靠手跑。供给已就绪:
+      # node+node_modules(golden 步 npm ci 沉淀)/rg(上步守卫)/python3+curl+git
+      # (ubuntu-latest 自带,§7 feed fixture 用 http.server)。§1/§2/§6 真实 docs 仓
+      # 依赖断言在 CI checkout 无嵌套 docs 仓 → SKIP 行显式计 PASS
+      # (test_precedent_schema.py 同型)。§10 会再跑一遍 golden(faux,秒级)——
+      # 接受重复,不加条件分支:伞面绿=全部绿。
+      - name: Ops agent selftest (lib.sh + gate units + contract)
+        working-directory: ops/agent
+        run: bash selftest.sh
 
   backend:
     # needs frontend: SPA fallback tests assert on frontend/dist contents
