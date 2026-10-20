@@ -10,6 +10,10 @@ ROOT="$(cd "$AGENT/../.." && pwd)"
 pass=0; fail=0
 ok()  { pass=$((pass + 1)); echo "PASS $1"; }
 bad() { fail=$((fail + 1)); echo "FAIL $1"; }
+# 嵌套 docs 仓缺席守卫(T2;test_precedent_schema.py 同型):CI checkout 无 docs/(嵌套
+# 独立仓,主仓 .gitignore 排除)→ 显式 SKIP 行并计 PASS,不是静默跳过;本地/worktree
+# (docs 符号链接在)仍真跑守真章。守卫模式照 §10 供给守卫的「前置条件不满足」形。
+skipok() { pass=$((pass + 1)); echo "SKIP $1: 嵌套 docs 仓缺席(CI checkout 判例,test_precedent_schema.py 同型)"; }
 
 TMP="$(mktemp -d)"
 FF_SRV_PIDS=()   # T3 http.server fixture 进程(cleanup 兜底杀)
@@ -88,10 +92,16 @@ OUT="$(inject_precedents 不存在的词xyz 2>&1)"
 [[ "$OUT" == *"无判例(检索词: 不存在的词xyz)"* ]]   && ok "inject:零命中显式无判例行" || bad "inject:零命中显式无判例行"
 
 # 真实判例库冒烟(只读):frontmatter 解析对 12 条种子成立。子壳隔离:bash 对
-# 「VAR=x 函数调用」的前缀赋值会在函数返回后泄漏到当前 shell(非 POSIX 模式)
-OUT="$( (PRECEDENTS_DIR="$ROOT/docs/ops/precedents" inject_precedents 排他率) 2>&1)"
-[[ "$OUT" == *"2026-10-18-malicious-ip-mapping-vs-key-overlap.md"* ]] && ok "inject:真实库命中 malicious-ip 判例" || bad "inject:真实库命中 malicious-ip 判例"
-[[ "$OUT" == *"ruling_agreement: overruled"* ]]                        && ok "inject:reward 摘要含 ruling_agreement" || bad "inject:reward 摘要含 ruling_agreement"
+# 「VAR=x 函数调用」的前缀赋值会在函数返回后泄漏到当前 shell(非 POSIX 模式)。
+# docs 符号链接缺席(CI checkout)→ SKIP 显式计 PASS(T2 守卫,理由见 skipok 注释)。
+if [[ -d "$ROOT/docs/ops/precedents" ]]; then
+  OUT="$( (PRECEDENTS_DIR="$ROOT/docs/ops/precedents" inject_precedents 排他率) 2>&1)"
+  [[ "$OUT" == *"2026-10-18-malicious-ip-mapping-vs-key-overlap.md"* ]] && ok "inject:真实库命中 malicious-ip 判例" || bad "inject:真实库命中 malicious-ip 判例"
+  [[ "$OUT" == *"ruling_agreement: overruled"* ]]                        && ok "inject:reward 摘要含 ruling_agreement" || bad "inject:reward 摘要含 ruling_agreement"
+else
+  skipok "inject:真实库命中 malicious-ip 判例"
+  skipok "inject:reward 摘要含 ruling_agreement"
+fi
 
 # ---- 2. verify_cited_precedents ----
 PKG_OK="$TMP/pkg-ok.md"
@@ -114,9 +124,15 @@ OUT="$(verify_cited_precedents "$PKG_NOSEC" 2>&1)"; RC=$?
 [[ $RC -ne 0 ]] && ok "verify:缺注入判例节非零" || bad "verify:缺注入判例节非零"
 [[ "$OUT" == *"缺少「注入判例」节"* ]] && ok "verify:缺节报错指明原因" || bad "verify:缺节报错指明原因"
 
-PKG_DOCSPATH="$TMP/pkg-docspath.md"
-printf '## 注入判例\n- docs/ops/precedents/2026-10-18-malicious-ip-mapping-vs-key-overlap.md\n' > "$PKG_DOCSPATH"
-verify_cited_precedents "$PKG_DOCSPATH" >/dev/null 2>&1 && ok "verify:docs 仓相对路径形式通过" || bad "verify:docs 仓相对路径形式通过"
+# docs 仓相对路径形:引真实判例文件(经 $ROOT/<相对路径> 解析,依赖 docs 符号链接在);
+# 缺席 → SKIP 显式计 PASS(T2 守卫,brief 漏列此处的同型补齐,偏离记录待 review)
+if [[ -f "$ROOT/docs/ops/precedents/2026-10-18-malicious-ip-mapping-vs-key-overlap.md" ]]; then
+  PKG_DOCSPATH="$TMP/pkg-docspath.md"
+  printf '## 注入判例\n- docs/ops/precedents/2026-10-18-malicious-ip-mapping-vs-key-overlap.md\n' > "$PKG_DOCSPATH"
+  verify_cited_precedents "$PKG_DOCSPATH" >/dev/null 2>&1 && ok "verify:docs 仓相对路径形式通过" || bad "verify:docs 仓相对路径形式通过"
+else
+  skipok "verify:docs 仓相对路径形式通过"
+fi
 
 # ---- 3. ledger_append ----
 rm -f "$LEDGER_FILE"
@@ -217,9 +233,13 @@ OUT="$(run_pi 2>&1)"; RC=$?
 [[ $RC -ne 0 ]] && ok "run_pi:pi 进程非零退出判失败" || bad "run_pi:pi 进程非零退出判失败"
 unset PI_BIN PI_STUB_ARGS PI_STUB_STDIN PI_STUB_FIXTURE PI_STUB_RC
 
-# ---- 6. 真实台账文件(docs 仓 docs/ops/ledger.md 首建表头) ----
-grep -q '^| 日期 | 轮次 | model | 用量 | 备注 |$' "$ROOT/docs/ops/ledger.md" 2>/dev/null \
-  && ok "ledger:真实台账文件已建表头" || bad "ledger:真实台账文件已建表头"
+# ---- 6. 真实台账文件(docs 仓 docs/ops/ledger.md 首建表头;缺席 → SKIP 显式计 PASS,T2 守卫) ----
+if [[ -f "$ROOT/docs/ops/ledger.md" ]]; then
+  grep -q '^| 日期 | 轮次 | model | 用量 | 备注 |$' "$ROOT/docs/ops/ledger.md" 2>/dev/null \
+    && ok "ledger:真实台账文件已建表头" || bad "ledger:真实台账文件已建表头"
+else
+  skipok "ledger:真实台账文件已建表头"
+fi
 
 # ---- 7. T3: feed_freshness / freshness_flags / extract_feed_urls / matrix_summary ----
 # fixture:本地 http.server 双目录(冻结 mtime / 活跃 touch;HEAD 由 http.server 原生支持,
