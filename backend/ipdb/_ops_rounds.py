@@ -184,18 +184,12 @@ def spawn_round(
 
 
 def run_round(manager, task, round_type: str, input_text: str) -> None:
-    """ops 轮线程入口(路由侧 threading.Thread 拉起):树初始化 → spawn → 收口。
+    """ops 轮线程入口(路由侧 threading.Thread 拉起):spawn → 收口。
 
-    任务态收口走 manager.finish_ops_round(done/failed/cancelled;error_code =
+    ops 树形状初始化在 spawn_round 内(单一拼写,幂等)。任务态收口走
+    manager.finish_ops_round(done/failed/cancelled;error_code =
     信封 error.code 九词闭集透传);stderr 行经 manager.ops_log 进任务链 SSE。
     """
-    try:
-        _ops_store.init_ops_tree()
-    except OSError as e:
-        manager.finish_ops_round(task.id, "failed", f"ops 树初始化失败: {e}", "infra")
-        return
-    # 注：树形状初始化已并入 spawn_round（单一拼写，见该函数）；此处不再重复
-
     def on_log(line: str) -> None:
         manager.ops_log(task.id, line)
 
