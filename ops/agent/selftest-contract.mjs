@@ -1,0 +1,218 @@
+#!/usr/bin/env node
+// selftest-contract.mjs — Task 1 spawn 契约三层测试(零 API:faux 或前置-throw 两路)。
+// a. 契约表双向对拍:SPAWN_CONTRACT_ENV ↔ 生产文件真读(agent/tools/models 的 process.env.X
+//    + 计算读取按轮次闭集展开 + models.mjs envApiKeyAuth 声明 key + lib.sh ${VAR:-} 侧名);
+//    GH_TOKEN 豁免(gh CLI 自读);PI_BIN/RUN_PI_RAW_OUT 出界钉死(run_pi fixture 面,T3 退役)。
+// b. in-process main(faux provider,golden 同型):成功轮单行 JSON 轮次信封逐字段 + stderr 进度行;
+//    失败轮 code=model_face/empty_text 信封(pkg 缺席)。
+// c. 真 spawn 冒烟(badround 前置 throw / 用法错 exit 2):两路都在 loadModels 之前,不触网不读模型目录。
+// 输出行 CONTRACTPASS/CONTRACTFAIL,selftest.sh §11 计数;任一 FAIL 退出非零。
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { execFile as execFileCb } from "node:child_process";
+import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
+
+const execFileP = promisify(execFileCb);
+const AGENT = path.dirname(fileURLToPath(import.meta.url));
+let pass = 0, fail = 0;
+const ok = (name) => { pass++; console.log(`CONTRACTPASS ${name}`); };
+const bad = (name, err) => { fail++; console.log(`CONTRACTFAIL ${name}: ${err}`); };
+async function t(name, fn) { try { await fn(); ok(name); } catch (e) { bad(name, e.message); } }
+
+const src = (f) => fs.readFileSync(path.join(AGENT, f), "utf8");
+const SRCS = { agent: src("agent.mjs"), tools: src("tools.mjs"), models: src("models.mjs"), libsh: src("lib.sh") };
+
+// ── fixture(in-process 用;golden writePrecedents 同型:env 先于 agent.mjs import)──
+const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "contract-selftest-"));
+const DOCS = path.join(TMP, "docs");
+const PREC = "2026-06-01-contract-fixture.md";
+const precDir = path.join(DOCS, "ops", "precedents");
+fs.mkdirSync(precDir, { recursive: true });
+fs.writeFileSync(path.join(precDir, PREC),
+  `---\nid: 2026-06-01-contract-fixture\ndate: 2026-06-01\nsubject: fixture — 契约测试判例(排他率命中)\ncontext: >\n  契约回放 fixture。\nhuman_ruling: >\n  认可。\nreward:\n  hard_gates: {}\n  ruling_agreement: agreed\n---\n\n正文检索词:排他率 聚合器 冻结。\n`);
+fs.writeFileSync(path.join(precDir, "_schema.md"), "schema 说明(注入排除面)。\n");
+process.env.DOCS_ROOT = DOCS; // tools.mjs import 期读 docs 根——必须先于 import
+process.env.PRECEDENTS_DIR = precDir;
+process.env.LEDGER_FILE = path.join(DOCS, "ops", "ledger.md");
+
+const mod = await import("./agent.mjs");
+const main = mod.main;
+const SPAWN_CONTRACT_ENV = mod.SPAWN_CONTRACT_ENV;
+const ERROR_CODES = mod.ERROR_CODES;
+
+// ── a. 契约表双向对拍 ─────────────────────────────────────────────────────
+const computeReads = () => {
+  const reads = new Set();
+  let unknownTemplate = null;
+  for (const s of [SRCS.agent, SRCS.tools, SRCS.models]) {
+    for (const m of s.matchAll(/process\.env\.([A-Za-z_][A-Za-z0-9_]*)/g)) reads.add(m[1]);
+    // 计算读取(models.mjs:`process.env[`OPS_MODEL_${round.toUpperCase()}`]`)按轮次闭集展开
+    for (const m of s.matchAll(/process\.env\[\s*`([^`]+)`\s*\]/g)) {
+      const mm = m[1].match(/^([A-Z_]+)\$\{round\.toUpperCase\(\)\}$/);
+      if (!mm) { unknownTemplate = m[1]; continue; }
+      for (const r of ["health", "discover"]) reads.add(mm[1] + r.toUpperCase()); // argv 轮次闭集(冻结)
+    }
+  }
+  // envApiKeyAuth 声明式 env key(pi-ai 请求期读;models.mjs 不直写 process.env.X)
+  for (const m of SRCS.models.matchAll(/envApiKeyAuth\(\s*"[^"]+"\s*,\s*\[\s*"([A-Za-z_][A-Za-z0-9_]*)"/g)) reads.add(m[1]);
+  // lib.sh 的 bash 侧名:${VAR:-...} 形(env 可覆盖面;限大写——${epoch:-} 是局部变量不是 env 面)
+  for (const m of SRCS.libsh.matchAll(/\$\{([A-Z][A-Z0-9_]*):-/g)) reads.add(m[1]);
+  return { reads, unknownTemplate };
+};
+const READS = computeReads();
+const tableNames = () => new Set((SPAWN_CONTRACT_ENV ?? []).map((e) => e?.name));
+
+await t("导出面:main(argv,io)/SPAWN_CONTRACT_ENV/ERROR_CODES 可导入", () => {
+  assert.equal(typeof main, "function", "main 应为导出函数");
+  assert.ok(Array.isArray(SPAWN_CONTRACT_ENV), "SPAWN_CONTRACT_ENV 非数组");
+  assert.ok(Array.isArray(ERROR_CODES), "ERROR_CODES 非数组");
+});
+
+await t("表对拍:扫描器收录的 env 读取面(计算模板无未知形)", () => {
+  assert.equal(READS.unknownTemplate, null, `未收录的 process.env[··] 计算读取模板,对拍器需同步`);
+});
+
+await t("表:SPAWN_CONTRACT_ENV 名集=规格 16 项+OPS_PROBE_MAX_KEYS(tools.mjs 实读,对拍闭包补入)", () => {
+  assert.deepEqual([...tableNames()].sort(), ["DOCS_ROOT", "GH_TOKEN", "LEDGER_FILE", "OPS_AUTH", "OPS_DATA_DIR",
+    "OPS_EVAL_PY", "OPS_FETCH_MAX_BYTES", "OPS_MATRIX_TIMEOUT_MS", "OPS_MODELS", "OPS_MODEL_DISCOVER",
+    "OPS_MODEL_HEALTH", "OPS_MODELS_STORE", "OPS_PROBE_CLI_TIMEOUT_MS", "OPS_PROBE_MAX_BYTES", "OPS_PROBE_MAX_KEYS",
+    "PRECEDENTS_DIR", "ZAI_CODING_CN_API_KEY"].sort());
+});
+
+await t("表:元素形状 {name,default,consumer,phase}/phase 闭集/名唯一", () => {
+  const names = (SPAWN_CONTRACT_ENV ?? []).map((e) => e?.name);
+  assert.equal(new Set(names).size, names.length, "名重复");
+  for (const e of SPAWN_CONTRACT_ENV) {
+    for (const k of ["name", "default", "consumer", "phase"]) assert.equal(typeof e[k], "string", `${e.name}.${k} 非字符串`);
+    assert.ok(["import-time", "call-time"].includes(e.phase), `${e.name}.phase=${e.phase} 不在闭集`);
+  }
+});
+
+await t("表对拍:表内每项真被读(GH_TOKEN 豁免——gh CLI 自读,tools.mjs 不读)", () => {
+  const missing = [...tableNames()].filter((n) => n !== "GH_TOKEN" && !READS.reads.has(n));
+  assert.deepEqual(missing, [], "表内名字无人读(死表项)");
+});
+
+await t("表对拍:OPS_*|ZAI_*|DOCS_ROOT/PRECEDENTS_DIR/LEDGER_FILE 读取 ∈ 表;PI_BIN/RUN_PI_RAW_OUT 出界钉死", () => {
+  const nsRe = /^(OPS_|ZAI_)/;
+  const named = new Set(["DOCS_ROOT", "PRECEDENTS_DIR", "LEDGER_FILE"]);
+  for (const n of READS.reads) {
+    if (n === "PI_BIN" || n === "RUN_PI_RAW_OUT") continue; // run_pi selftest fixture 面,T3 退役
+    if (nsRe.test(n) || named.has(n)) assert.ok(tableNames().has(n), `${n} 被读但不在 SPAWN_CONTRACT_ENV`);
+  }
+  assert.ok(!tableNames().has("PI_BIN") && !tableNames().has("RUN_PI_RAW_OUT"), "fixture 面名字不得入表");
+});
+
+await t("表:error.code 闭集九词(ERROR_CODES 导出面)", () => {
+  assert.deepEqual([...ERROR_CODES].sort(), ["bad_round", "closure_check", "empty_text", "foreign_tool", "infra",
+    "ledger_failed", "model_face", "sandbox_violation", "verify_failed"].sort());
+});
+
+// ── b. in-process main(faux provider,golden 同型;零 API)──────────────────
+const { fauxProvider, fauxAssistantMessage, fauxToolCall, fauxText, fauxThinking, createModels } =
+  await import("@earendil-works/pi-ai");
+const fauxIO = (turns) => {
+  const faux = fauxProvider({ models: [{ id: "faux-contract" }] });
+  const models = createModels();
+  models.setProvider(faux.provider);
+  faux.setResponses(turns);
+  return { models: { models, resolve: () => faux.getModel() } };
+};
+const mkIO = () => {
+  const buf = { stdout: "", stderr: "" };
+  return {
+    stdout: { write: (s) => { buf.stdout += s; return true; } },
+    stderr: { write: (s) => { buf.stderr += s; return true; } },
+    buf,
+  };
+};
+const singleLineJSON = (s) => {
+  const lines = s.split("\n");
+  assert.equal(lines.length, 2, `stdout 应恰一行+末尾换行,实得 ${lines.length - 1} 行:${JSON.stringify(s.slice(0, 200))}`);
+  assert.equal(lines[1], "", "stdout 末尾应恰一个换行");
+  return JSON.parse(lines[0]);
+};
+const successTurns = () => [
+  fauxAssistantMessage([fauxToolCall("search_precedents", { keywords: ["排他率"] }, { id: "call_sp1" })], { stopReason: "toolUse" }),
+  fauxAssistantMessage([fauxText(`## 注入判例\n- ${PREC}\n\n## 摘要\n契约回放:stdout 单行 JSON 轮次信封。`)]),
+];
+
+await t("in-process:成功轮 stdout 单行 JSON 轮次信封(ok/round/pkg/usage/queue_writes/verify 逐字段)", async () => {
+  const io = mkIO();
+  const rc = await main(["discover", "契约回放:stdout 单行 JSON 信封"], { ...io, ...fauxIO(successTurns()) });
+  assert.equal(rc, 0);
+  const env = singleLineJSON(io.buf.stdout);
+  assert.equal(env.ok, true);
+  assert.equal(env.round, "discover");
+  assert.deepEqual(Object.keys(env).sort(), ["ok", "pkg", "queue_writes", "round", "usage", "verify"]);
+  assert.ok(path.isAbsolute(env.pkg) && fs.existsSync(env.pkg), `pkg 应绝对路径且真存在:${env.pkg}`);
+  for (const k of ["input", "output", "totalTokens", "cost"]) assert.equal(typeof env.usage[k], "number", `usage.${k} 应数字`);
+  assert.deepEqual(env.queue_writes, []);
+  assert.deepEqual(env.verify, { ok: true, cited: 1 });
+});
+
+await t("in-process:成功轮 stderr 横幅+usage/verify 行+[turn]/[tool] 进度行(格式钉现状)", async () => {
+  const io = mkIO();
+  await main(["discover", "契约回放:stderr 进度行"], { ...io, ...fauxIO(successTurns()) });
+  const se = io.buf.stderr;
+  assert.match(se, /round: discover 完成 → /, "完成横幅(stderr)");
+  assert.match(se, /usage: in=\d+ out=\d+ total=\d+ cost=/, "usage 行(stderr)");
+  assert.match(se, /verify_cited_precedents: 1 条判例路径全部存在/, "verify 消息(stderr)");
+  assert.match(se, /\[turn \d+\] stopReason=/, "[turn] 进度行");
+  assert.match(se, /\[tool\] search_precedents\(call_sp1\)/, "[tool] 进度行");
+  assert.ok(!io.buf.stdout.includes("完成"), "横幅不得留在 stdout");
+});
+
+await t("in-process:失败轮 model_face(stopReason=error)信封+pkg 缺席", async () => {
+  const io = mkIO();
+  const rc = await main(["discover", "失败面回放"], {
+    ...io, ...fauxIO([fauxAssistantMessage([fauxText("部分文本")], { stopReason: "error", errorMessage: "faux 模型失败面" })]),
+  });
+  assert.equal(rc, 1);
+  const env = singleLineJSON(io.buf.stdout);
+  assert.equal(env.ok, false);
+  assert.equal(env.round, "discover");
+  assert.deepEqual(Object.keys(env).sort(), ["error", "ok", "round"], "pkg 未落盘不得带");
+  assert.equal(env.error.code, "model_face");
+  assert.match(env.error.message, /模型失败面 stopReason=error/);
+  assert.ok(io.buf.stderr.includes("round 失败:"), "失败原因行(stderr)");
+});
+
+await t("in-process:失败轮 empty_text(最终文本为空)信封", async () => {
+  const io = mkIO();
+  const rc = await main(["discover", "失败面回放"], { ...io, ...fauxIO([fauxAssistantMessage([fauxThinking("只有思考无正文")])]) });
+  assert.equal(rc, 1);
+  const env = singleLineJSON(io.buf.stdout);
+  assert.equal(env.ok, false);
+  assert.equal(env.error.code, "empty_text");
+  assert.equal(env.error.message, "最终文本为空");
+});
+
+// ── c. 真 spawn 冒烟(前置-throw 两路;loadModels 之前,零 API 零网)─────────
+const spawnAgent = (args) => execFileP(process.execPath, [path.join(AGENT, "agent.mjs"), ...args], { timeout: 60_000 })
+  .then(({ stdout, stderr }) => ({ rc: 0, stdout, stderr }))
+  .catch((e) => ({ rc: typeof e.code === "number" ? e.code : -1, stdout: e.stdout ?? "", stderr: e.stderr ?? "" }));
+
+await t("spawn:badround exit 1 + stdout 单行 JSON code=bad_round", async () => {
+  const r = await spawnAgent(["badround", "x"]);
+  assert.equal(r.rc, 1);
+  const env = singleLineJSON(r.stdout);
+  assert.equal(env.ok, false);
+  assert.equal(env.round, "badround");
+  assert.equal(env.error.code, "bad_round");
+  assert.match(r.stderr, /轮次必须是 health\|discover/);
+});
+
+await t("spawn:用法错 exit 2 + stdout 空纯 stderr", async () => {
+  const r = await spawnAgent([]);
+  assert.equal(r.rc, 2);
+  assert.equal(r.stdout, "", "用法错不发 JSON");
+  assert.match(r.stderr, /用法:/);
+});
+
+fs.rmSync(TMP, { recursive: true, force: true });
+console.log(`contract-selftest: PASS=${pass} FAIL=${fail}`);
+process.exit(fail ? 1 : 0);
