@@ -18,10 +18,12 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 STREAM = {"/api/query/stream", "/api/upload/stream", "/api/events"}
+# 二进制下载端点（P3 票 #135 首例）：无 JSON 模型，成功声明须含 application/zip
+BINARY = {"/api/ops/precedents/export.zip"}
 # fastapi-users 库路由(Task 2):错误声明不经 ErrorEnvelope,见模块 docstring。
 AUTH_LIB = {"/api/auth/jwt/login", "/api/auth/jwt/logout",
             "/api/users/me", "/api/users/{id}"}
-BUSINESS_ROUTES = 28  # P2(票 #134)+1:/api/ops/rounds
+BUSINESS_ROUTES = 35  # P3(票 #135)+7:ops 读 API(包/台账/判例/导出)+ 人裁写回
 
 
 class TestOpenAPIContract:
@@ -39,6 +41,12 @@ class TestOpenAPIContract:
                     assert "event" in (op.get("description") or "").lower(), \
                         f"{path} 流式端点 description 缺事件结构说明"
                     continue
+                if path in BINARY:
+                    content = (op.get("responses", {}).get("200") or {}).get(
+                        "content", {})
+                    assert "application/zip" in content, \
+                        f"{path} 二进制端点未声明 application/zip 内容类型"
+                    continue
                 responses = op.get("responses", {})
                 if "204" in responses:
                     continue  # 204 No Content:body 设计为空(fastapi-users cookie 会话)
@@ -51,9 +59,9 @@ class TestOpenAPIContract:
                     f"{method} {path} 成功响应无 schema"
 
     def test_paths_count_matches_routes(self):
-        """28 业务路径(含 Task 2 认证 4 + Task 5 key 管理 2 + sources-redesign T1
-        token 2 路径;PUT/DELETE tokens/{env_var} 共路径;P2 ops 轮次 1)+ 3 流式;
-        多/少挂一个立刻红(防漂移)。"""
+        """35 业务路径(含 Task 2 认证 4 + Task 5 key 管理 2 + sources-redesign T1
+        token 2 路径;PUT/DELETE tokens/{env_var} 共路径;P2 ops 轮次 1;P3 ops
+        读 API+写回 7)+ 3 流式;多/少挂一个立刻红(防漂移)。"""
         assert len(self.spec["paths"]) == BUSINESS_ROUTES + len(STREAM)
         assert AUTH_LIB <= set(self.spec["paths"]), "admin 认证路径缺失/改名"
 
@@ -88,7 +96,7 @@ class TestOpenAPIContract:
         """业务端点 200/201/202 schema 都指向具体模型(非空 object);
         204 成功的库路由(cookie 会话)与 DELETE /api/admin/keys 无 body,不计。"""
         for path, ops in self.spec["paths"].items():
-            if path in STREAM:
+            if path in STREAM or path in BINARY:
                 continue
             for method, op in ops.items():
                 if method not in ("get", "post", "put", "patch", "delete"):
