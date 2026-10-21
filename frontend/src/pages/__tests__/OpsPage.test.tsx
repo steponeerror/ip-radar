@@ -136,6 +136,61 @@ describe("OpsPage — 子 tab 重组(票 #142)", () => {
   });
 });
 
+// ── 票 #147:壳层视觉修约(underline 子 tab / 注记降级 / 节头行规范)──────
+
+describe("OpsPage — 壳层视觉修约(票 #147)", () => {
+  beforeEach(() => {
+    // 恒挂/aria 用例会切到「设置」:最小目录配置防 cfg=undefined 崩面
+    vi.mocked(getOpsAgentConfig).mockResolvedValue({
+      model_health: "zai-coding-cn/glm-5.3-flash",
+      model_discover: "zai-coding-cn/glm-5.3-flash",
+      api_keys: {},
+      catalog: { "zai-coding-cn": [{ id: "glm-5.3-flash", name: "GLM-5.3-Flash", cost: null }] },
+      catalog_source: "fallback" as const,
+    });
+  });
+
+  it("注记降级不撤除:「仅立项」一行注记恒挂于全部四个子 tab(裁⑦ 语义不变)", () => {
+    renderOps();
+    for (const name of ["Rounds", "Rulings", "Archive", "Settings"] as const) {
+      if (name !== "Rounds") goSubTab(name);
+      expect(screen.getByText(/Proposals only/i)).toBeTruthy();
+    }
+  });
+
+  it("underline 子 tab:切换后 aria-selected 仅激活项为 true(role=tab 语义不弱化)", () => {
+    renderOps();
+    const names = ["Rounds", "Rulings", "Archive", "Settings"] as const;
+    for (const active of names) {
+      if (active !== "Rounds") goSubTab(active);
+      for (const name of names) {
+        expect(screen.getByRole("tab", { name })).toHaveAttribute(
+          "aria-selected",
+          name === active ? "true" : "false",
+        );
+      }
+    }
+  });
+
+  it("节头计数:过往轮次头显渲染行数(台账行+孤儿包);无数据不显计数", async () => {
+    vi.mocked(listOpsPackages).mockResolvedValue([
+      { name: "2026-10-21-health-0800.md", size: 512, modified: "2026-10-21T08:00:00Z" },
+    ]);
+    const withData = renderOps();
+    // 2 台账数据行 + 1 孤儿包 = 3;现解析把冻结表头行也切入表体(伪表头
+    // bug,修复归 #148),故现阶段渲染行 = 4——计数描述面板实况,#148 修后
+    // 本断言随解析修正收敛为 (3)
+    expect(await withData.findByRole("heading", { name: /Past rounds \(4\)/ })).toBeTruthy();
+    withData.unmount();
+    // 无数据(台账空+包空):计数不显——「有数据时」才计数,空表不谎报
+    vi.mocked(readOpsLedger).mockResolvedValue("");
+    vi.mocked(listOpsPackages).mockResolvedValue([]);
+    const empty = renderOps();
+    expect(await empty.findByText(/No rounds recorded/i)).toBeTruthy();
+    expect(empty.getByRole("heading", { name: "Past rounds" })).toBeTruthy();
+  });
+});
+
 // ── 票 #142:驾驶舱卡(状态徽章/耗时走字/最后一行/可折叠日志/上一轮摘要)──
 
 describe("OpsPage — 驾驶舱卡(票 #142)", () => {

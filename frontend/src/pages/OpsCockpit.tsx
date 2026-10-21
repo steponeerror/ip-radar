@@ -4,6 +4,7 @@ import { useTasks } from "../tasks/useTasks";
 import { readOpsLedger, listOpsPackages, type ApiError, type OpsPackageInfo, type TaskState } from "../api";
 import { opsErrorText, roundErrorText } from "./opsErrorText";
 import { ledgerRows, splitUsage, pkgMatchesRow, type LedgerRow } from "./opsLedger";
+import { SectionHead } from "./OpsSectionHead";
 
 // OpsCockpit.tsx — 驾驶舱(GLOSSARY 词条「驾驶舱」锚点;票 #142)。
 // 轮次进行时的观察面:状态徽章/已耗时走字/最后一行活动/可折叠全量日志 +
@@ -132,9 +133,8 @@ export function OpsCockpit({ onGoRulings, onUnauthorized }: {
 
   return (
     <section aria-label={t("ops.cockpit.title")}>
-      <h2 className="text-sm font-semibold tracking-wide text-zinc-400 uppercase">
-        {t("ops.cockpit.title")}
-      </h2>
+      {/* 票 #147 节头行规范;驾驶舱单卡化(状态内联节头等)归 #148 */}
+      <SectionHead title={t("ops.cockpit.title")} />
       <div className="mt-3 rounded-md border border-zinc-800 bg-zinc-900/60 p-3">
         <div className="flex flex-wrap items-center gap-3">
           <span className={`rounded border px-2 py-0.5 font-mono text-[11px] ${running ? STATE_BADGE.running : "text-zinc-400 border-zinc-700 bg-zinc-800/50"}`}>
@@ -160,7 +160,7 @@ export function OpsCockpit({ onGoRulings, onUnauthorized }: {
               <button
                 type="button"
                 onClick={() => setExpanded((v) => !v)}
-                className="mt-1 text-[11px] text-zinc-500 transition-colors hover:text-zinc-300"
+                className="mt-1 rounded-md border border-zinc-700 px-3 py-1 text-[11px] text-zinc-300 transition-colors hover:border-emerald-500/50 hover:text-emerald-400"
               >
                 {expanded ? t("ops.cockpit.logHide") : t("ops.cockpit.logShow")}
               </button>
@@ -263,6 +263,8 @@ export function OpsPastRounds({ onGoRulings, onUnauthorized }: {
     return { cells, pkgs: hit };
   });
   const orphans = pkgs.filter((p) => !matchedPkgs.has(p.name));
+  // 节头计数(票 #147):渲染行 = 台账行 + 孤儿包,空表不显计数
+  const pastCount = dataRows.length + orphans.length;
 
   // 最新行结果码:终态任务的完成行包名与行(日期+轮型)对上 → ok(唯一可证关联);
   // 失败/旧行无证据恒 —(台账行不载成败;无证据≠清白,不伪造)
@@ -281,9 +283,7 @@ export function OpsPastRounds({ onGoRulings, onUnauthorized }: {
 
   return (
     <section aria-label={t("ops.past.title")} className="mt-8">
-      <h2 className="text-sm font-semibold tracking-wide text-zinc-400 uppercase">
-        {t("ops.past.title")}
-      </h2>
+      <SectionHead title={t("ops.past.title")} count={pastCount} />
       {error && (
         <p role="alert" className="mt-3 rounded-md border border-red-400/30 bg-red-400/10 px-3 py-2 text-xs text-red-400">
           {error}

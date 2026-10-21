@@ -6,6 +6,7 @@ import {
   type ApiError, type OpsPackageInfo, type OpsRulingResult, type OpsRulingVerdict,
 } from "../api";
 import { opsErrorText } from "./opsErrorText";
+import { SectionHead } from "./OpsSectionHead";
 
 // P4 裁决包区(票 #136):列表 → 详情(包文逐字:建议/证据 call_id+field+value/
 // trace;判例引用可点开全文)→ 人裁三动作(同意/否决/修正)。裁⑦:全部建议
@@ -131,20 +132,18 @@ export default function OpsPackagesSection({ onUnauthorized, roundTick }: {
   };
 
   const title = (
-    <div className="flex items-center justify-between gap-3">
-      <h2 className="text-sm font-semibold tracking-wide text-zinc-400 uppercase">
-        {t("ops.pkgs.title")}
-      </h2>
+    <SectionHead title={t("ops.pkgs.title")}>
+      {/* 裸文字链接 → 描边按钮(票 #147;硬规④) */}
       {detailName && (
         <button
           type="button"
           onClick={() => { setDetailName(null); setSelected(null); setAmending(false); setAmendment(""); setResult(null); setRulingError(null); }}
-          className="text-xs text-zinc-500 transition-colors hover:text-zinc-300"
+          className="rounded-md border border-zinc-700 px-4 py-1.5 text-xs text-zinc-300 transition-colors hover:border-emerald-500/50 hover:text-emerald-400"
         >
           {t("ops.pkgs.back")}
         </button>
       )}
-    </div>
+    </SectionHead>
   );
 
   if (detailName) {
