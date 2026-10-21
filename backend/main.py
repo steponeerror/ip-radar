@@ -1598,16 +1598,18 @@ async def create_ops_ruling(payload: OpsRulingIn):
         raise ApiError(ErrorCode.not_found, str(e))
 
 
-# ── ops agent 配置面（票 #140：选模型 + 填 key，运行时可配）──
-# 全部 admin 面（沿 P2/P3 _ADMIN_DEPS 惯例）；出参永不回显完整 key
-# （configured+tail4，沿 token 面先例）；优先级链/闭集/坏文件语义见
-# ipdb/_ops_config.py 模块头；每次 spawn 现读 → 改完即生效无需重启。
+# ── ops agent 配置面（票 #140 立：选模型 + 填 key；票 #143 多供应商扩面：
+# 动态目录 + api_keys + qualified 模型值）── 全部 admin 面（沿 P2/P3
+# _ADMIN_DEPS 惯例）；出参永不回显完整 key（configured+tail4，沿 token 面先例）；
+# 优先级链/目录兜底/坏文件语义见 ipdb/_ops_config.py 模块头；每次 spawn 现读 →
+# 改完即生效无需重启。status/update 在 to_thread 里跑：目录缓存 miss 时要
+# 子调用 node dump（~0.3s，不能堵事件循环；TTL 窗外罕见）。
 
 @app.get("/api/ops/agent-config", response_model=OpsAgentConfigOut,
          dependencies=[*_ADMIN_DEPS], responses=_ERRS_422_500)
 async def read_ops_agent_config():
     try:
-        return _ipdb_ops_config.status()
+        return await asyncio.to_thread(_ipdb_ops_config.status)
     except RuntimeError as e:  # 坏文件显式失败，不伪装未配置（无证据≠清白）
         raise ApiError(ErrorCode.internal, str(e))
 
@@ -1615,11 +1617,12 @@ async def read_ops_agent_config():
 @app.put("/api/ops/agent-config", response_model=OpsAgentConfigOut,
          dependencies=[*_ADMIN_DEPS], responses=_ERRS_422_500)
 async def update_ops_agent_config(payload: OpsAgentConfigIn):
-    """三字段缺省 = 保持不改；zai_api_key 空串 = 保持不改（无清除面）；
-    模型闭集外 422（消息不带 key 值）。"""
+    """字段缺省 = 保持不改；api_keys 值空串 = 该家保持不改（无清除面）；
+    目录外模型 422（消息不带 key 值）。"""
     try:
-        return _ipdb_ops_config.update(
-            payload.model_health, payload.model_discover, payload.zai_api_key)
+        return await asyncio.to_thread(
+            _ipdb_ops_config.update,
+            payload.model_health, payload.model_discover, payload.api_keys)
     except ValueError as e:
         raise HTTPException(422, str(e))
     except RuntimeError as e:
