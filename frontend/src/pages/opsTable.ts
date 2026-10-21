@@ -30,11 +30,16 @@ export const LEDGER_CELL: Record<(typeof LEDGER_COL_KEYS)[number], number> = (()
   return Object.freeze(idx);
 })();
 
-// 统一件表格类(#149 从 OpsCockpit 收编入此:两表同一处施加,右对齐不漂移)
+// 统一件表格类(#149 从 OpsCockpit 收编入此:两表同一处施加,右对齐不漂移)。
+// 视觉门 2026-10-21(低3):表头一律不折行(「结果码」两字折行/时间单元格
+// 「6小时前」折行凸行)——列宽不足时由宽内容列(备注/包)内部换行吸收,
+// 表头与窄内容零折行;表容器自有 overflow-auto 横滚兑底。
 const NUMERIC_COLS = new Set(["usage", "cost"]);
 export const thClass = (k: string) =>
-  `px-3 py-1.5 font-medium${NUMERIC_COLS.has(k) ? " text-right" : ""}`;
+  `px-3 py-1.5 font-medium whitespace-nowrap${NUMERIC_COLS.has(k) ? " text-right" : ""}`;
 export const tdNumClass = "px-3 py-1.5 text-right";
+// 时间单元格:相对时间短语(「6小时前」)不折行(title 挂完整戳由调用方施加)
+export const tdTimeClass = "px-3 py-1.5 whitespace-nowrap";
 
 // 相对时间(词条复用 sources.timeAgo.*——一个概念一个拼写)。dateLike =
 // 台账日期(YYYY-MM-DD,精度即日)或包 modified(ISO);title = 证据串
@@ -62,6 +67,15 @@ export function relTime(dateLike: string, now: number): {
 export function precDate(name: string): string | null {
   const m = name.match(/^(\d{4}-\d{2}-\d{2})-/);
   return m ? m[1] : null;
+}
+
+// 用量人话化(视觉门 2026-10-21 低2):台账用量串裸 key=value
+// 「in=3076 out=854 total=3930」→「in 3076 · out 854 · 计 3930」(表体
+// font-mono 轨);原始串由调用方挂 title(证据不灭失)。未知形状回原文
+// (宁少算:不猜,原文即证据;失败行「—」等非形状原样透传)。
+export function usageText(t: TFn, raw: string): string {
+  const m = raw.match(/^in=(\d+) out=(\d+) total=(\d+)$/);
+  return m ? t("ops.usage.fmt", { in: m[1], out: m[2], total: m[3] }) : raw;
 }
 
 // 台账备注人话化(票 #148):备注 = lib.sh ledger_append note 参数,写口

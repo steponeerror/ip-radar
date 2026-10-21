@@ -9,9 +9,10 @@ import {
 } from "../api";
 import OpsPackagesSection from "./OpsPackagesSection";
 import { OpsCockpit, OpsPastRounds } from "./OpsCockpit";
+import { OpsSearchInput } from "./OpsSearchInput";
 import { SectionHead } from "./OpsSectionHead";
 import { ledgerRows, splitUsage } from "./opsLedger";
-import { LEDGER_CELL, LEDGER_COL_KEYS, relTime, noteText, precDate, thClass, tdNumClass } from "./opsTable";
+import { LEDGER_CELL, LEDGER_COL_KEYS, relTime, noteText, precDate, thClass, tdNumClass, tdTimeClass, usageText } from "./opsTable";
 import { useArrivalNow } from "./useArrivalNow";
 import { opsErrorText } from "./opsErrorText";
 
@@ -214,20 +215,25 @@ function ConfigSection({ onUnauthorized }: { onUnauthorized: () => void }) {
           </div>
           <section aria-label={t("ops.cfg.keysTitle")} className="mt-8">
             <SectionHead title={t("ops.cfg.keysTitle")} />
-            <input
-              type="search"
-              aria-label={t("ops.cfg.keySearch")}
+            {/* 视觉门 2026-10-21 阻断1(硬规⑤):搜索输入统一件(原生蓝清除钮
+                同根因,见 OpsSearchInput 头注——含 Chromium UA shadow 不可作者化
+                实测结论);此处仅声明调用面。 */}
+            <OpsSearchInput
+              label={t("ops.cfg.keySearch")}
               placeholder={t("ops.cfg.keySearch")}
               value={keySearch}
-              onChange={(e) => setKeySearch(e.target.value)}
-              className="mt-3 w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-1.5 text-xs text-zinc-200 focus:border-emerald-600 focus:outline-none"
+              onChange={setKeySearch}
+              wrapperClass="mt-3"
             />
             {/* 「只写不回显」说明仅此一次(#150):替代旧 41 格逐格占位噪音 */}
             <p className="mt-2 text-[11px] text-zinc-500">{t("ops.cfg.keysNote")}</p>
-            {/* 等宽通栏容器(硬规①):网格填满内容列,不再裸奔页面背景 */}
+            {/* 等宽通栏容器(硬规①):网格填满内容列,不再裸奔页面背景。
+                视觉门 2026-10-21 低4:auto-fit 塌空轨道——过滤后空槽不再露
+                gap-px 的 zinc-800 底板((39,39,42) 读作无内容灰卡),卡片
+                自适应填满行,右侧零灰板。 */}
             <div className="mt-3 overflow-hidden rounded-md border border-zinc-800">
               {visibleKeys.length > 0 ? (
-                <div className="grid grid-cols-[repeat(auto-fill,minmax(13rem,1fr))] gap-px bg-zinc-800">
+                <div className="grid grid-cols-[repeat(auto-fit,minmax(13rem,1fr))] gap-px bg-zinc-800">
                   {visibleKeys.map((pid) => {
                     const st = cfg.api_keys[pid];
                     return (
@@ -288,8 +294,9 @@ function LedgerSection({ onUnauthorized }: { onUnauthorized: () => void }) {
 
   return (
     <section aria-label={t("ops.ledger.title")}>
-      {/* 票 #149:节头计数(台账 N 行;空表不谎报) */}
-      <SectionHead title={t("ops.ledger.title")} count={rows.length}>
+      {/* 票 #149:节头计数(台账 N 行;空表显 (0),视觉门 2026-10-21 微5);
+          加载中 text=null → 计数 null 不显(无证据不显 0) */}
+      <SectionHead title={t("ops.ledger.title")} count={text != null ? rows.length : null}>
         {/* 裸文字链接 → 描边按钮(票 #147;硬规④次级动作一律描边) */}
         <button
           type="button"
@@ -309,7 +316,9 @@ function LedgerSection({ onUnauthorized }: { onUnauthorized: () => void }) {
           {/* 票 #148:台账表走表格统一件——ops.col.* 中文列名(与轮次表同集，
               T4 冻结表头不再入 DOM)+ 用量/成本右对齐 + 相对时间 title +
               备注人话化(title 留原文,证据不灭失)。#149:类件收编 opsTable
-              (thClass/tdNumClass),与轮次表同源不漂移 */}
+              (thClass/tdNumClass),与轮次表同源不漂移。视觉门 2026-10-21 低2:
+              用量列人话化(title 挂台账原始串,证据不灭失);低3:表头/时间
+              零折行(thClass whitespace-nowrap + tdTimeClass) */}
           <table className="w-full text-left text-xs">
             <thead className="sticky top-0 bg-zinc-900 font-mono text-[11px] text-zinc-500">
               <tr>
@@ -328,10 +337,10 @@ function LedgerSection({ onUnauthorized }: { onUnauthorized: () => void }) {
                 const humanNote = noteText(t, note);
                 return (
                   <tr key={r}>
-                    <td className="px-3 py-1.5" title={rt.title}>{t(rt.key, rt.vars)}</td>
+                    <td className={tdTimeClass} title={rt.title}>{t(rt.key, rt.vars)}</td>
                     <td className="px-3 py-1.5">{cells[LEDGER_CELL.round]}</td>
                     <td className="px-3 py-1.5">{cells[LEDGER_CELL.model]}</td>
-                    <td className={tdNumClass}>{usage}</td>
+                    <td className={tdNumClass} title={usage}>{usageText(t, usage)}</td>
                     <td className={tdNumClass}>{cost ?? "—"}</td>
                     <td className="px-3 py-1.5" title={note || undefined}>
                       {humanNote ?? note ?? "—"}
@@ -420,14 +429,15 @@ function PrecedentsSection({ onUnauthorized }: { onUnauthorized: () => void }) {
         </button>
       </SectionHead>
       <div className="mt-3 flex gap-2">
-        <input
-          type="search"
-          aria-label={t("ops.prec.searchPlaceholder")}
+        {/* 视觉门 2026-10-21 同根因补收口:原生蓝清除钮 → 搜索输入统一件
+            (OpsSearchInput);Enter 即查行为经 onKeyDown 透传保留 */}
+        <OpsSearchInput
+          label={t("ops.prec.searchPlaceholder")}
           placeholder={t("ops.prec.searchPlaceholder")}
           value={kws}
-          onChange={(e) => setKws(e.target.value)}
+          onChange={setKws}
           onKeyDown={(e) => { if (e.key === "Enter") load(kws.trim()); }}
-          className="min-w-48 flex-1 rounded-md border border-zinc-700 bg-zinc-950 px-3 py-1.5 text-xs text-zinc-200 focus:border-emerald-600 focus:outline-none"
+          wrapperClass="min-w-48 flex-1"
         />
         <button
           type="button"

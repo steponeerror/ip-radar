@@ -30,7 +30,16 @@ with sync_playwright() as p:
     page.wait_for_timeout(400)  # 相对时间渲染稳定
     body_text = page.inner_text("body")
     assert "上游令牌过期" in body_text, "人话化错误未渲染:" + body_text[:600]
+    # 视觉门 2026-10-21 低2:轮次表用量列人话化(mono 轨;title 挂台账原始串)
+    assert "in 3076 · out 854 · 计 3930" in body_text, "用量人话化未渲染:" + body_text[:600]
     page.screenshot(path=str(OUT), full_page=True)
     print("saved:", OUT)
+    # 视觉门 2026-10-21 同根因补收口:发现轮输入清除钮在场可清(role=searchbox 保留)
+    disc = page.get_by_role("searchbox", name="发现轮输入——候选/任务描述")
+    disc.fill("c2")
+    clear = page.get_by_role("button", name="清除搜索")
+    assert clear.is_visible(), "发现轮输入清除钮未渲染"
+    clear.click()
+    assert disc.input_value() == "", "发现轮输入清除钮未清空"
     browser.close()
 httpd.shutdown()
