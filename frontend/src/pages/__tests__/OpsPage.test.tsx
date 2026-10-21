@@ -756,7 +756,7 @@ describe("OpsPage — settings 视觉修约(票 #150)", () => {
     expect(screen.getAllByText(/write-only/i)).toHaveLength(1);
   });
 
-  it("API 密钥搜索清除钮:输入后在场,点击清空(视觉门 2026-10-21 阻断1;原生蓝钮已全局 CSS 隐去)", async () => {
+  it("API 密钥搜索清除钮:输入后在场,点击清空(视觉门 2026-10-21 阻断1;type=text 无原生钮,清除走统一件)", async () => {
     renderOps();
     goSubTab("Settings");
     const box = await screen.findByRole("searchbox", { name: /search providers/i });
@@ -794,6 +794,34 @@ describe("OpsPage — settings 视觉修约(票 #150)", () => {
     expect(await screen.findByRole("heading", { name: "模型配置" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "API 密钥" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "保存全部" })).toBeTruthy();
+  });
+});
+
+// ── 视觉门 2026-10-21 同根因补收口:搜索输入统一件(另两处原生 search)──
+
+describe("OpsPage — 搜索输入统一件(视觉门同根因补收口)", () => {
+  it("驾驶舱发现轮输入:role=searchbox 保留 + 清除钮输入后在扬、点击清空", () => {
+    renderOps();
+    const box = screen.getByRole("searchbox", { name: /discover input/i });
+    // 空输入无清除钮(无动作不占位)
+    expect(screen.queryByRole("button", { name: /clear search/i })).toBeNull();
+    fireEvent.change(box, { target: { value: "threatview" } });
+    fireEvent.click(screen.getByRole("button", { name: /clear search/i }));
+    expect((box as HTMLInputElement).value).toBe("");
+    expect(screen.queryByRole("button", { name: /clear search/i })).toBeNull();
+  });
+
+  it("档案判例检索:清除钮输入后在扬、点击清空;Enter 即查行为经统一件透传不回归", async () => {
+    renderOps();
+    goSubTab("Archive");
+    const box = await screen.findByRole("searchbox", { name: /keywords/i });
+    fireEvent.change(box, { target: { value: "mirror" } });
+    fireEvent.click(screen.getByRole("button", { name: /clear search/i }));
+    expect((box as HTMLInputElement).value).toBe("");
+    // Enter 即查(onKeyDown 透传):检索词直达 listOpsPrecedents
+    fireEvent.change(box, { target: { value: "sunset" } });
+    fireEvent.keyDown(box, { key: "Enter" });
+    await waitFor(() => expect(vi.mocked(listOpsPrecedents)).toHaveBeenCalledWith("sunset"));
   });
 });
 

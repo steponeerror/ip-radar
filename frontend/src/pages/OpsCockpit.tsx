@@ -6,6 +6,7 @@ import {
   type ApiError, type OpsPackageInfo, type OpsRoundType, type TaskState,
 } from "../api";
 import { opsErrorText, roundErrorText, humanizeRoundMessage } from "./opsErrorText";
+import { OpsSearchInput } from "./OpsSearchInput";
 import { ledgerRows, splitUsage, pkgMatchesRow, type LedgerRow } from "./opsLedger";
 import { LEDGER_CELL, LEDGER_COL_KEYS, PAST_EXTRA_COL_KEYS, relTime, noteText, thClass, tdNumClass, tdTimeClass, usageText } from "./opsTable";
 import { SectionHead } from "./OpsSectionHead";
@@ -272,13 +273,14 @@ export function OpsCockpit({ onGoRulings, onUnauthorized }: {
           >
             {t("ops.round.health")}
           </button>
-          <input
-            type="search"
-            aria-label={t("ops.round.discoverPlaceholder")}
+          {/* 视觉门 2026-10-21 同根因补收口:原生蓝清除钮 → 搜索输入统一件
+              (OpsSearchInput);行内弹性尺寸经 wrapperClass 落容器 */}
+          <OpsSearchInput
+            label={t("ops.round.discoverPlaceholder")}
             placeholder={t("ops.round.discoverPlaceholder")}
             value={discoverInput}
-            onChange={(e) => setDiscoverInput(e.target.value)}
-            className="min-w-64 flex-1 rounded-md border border-zinc-700 bg-zinc-950 px-3 py-1.5 text-xs text-zinc-200 focus:border-emerald-600 focus:outline-none"
+            onChange={setDiscoverInput}
+            wrapperClass="min-w-64 flex-1"
           />
           <button
             type="button"

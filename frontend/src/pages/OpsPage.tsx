@@ -9,6 +9,7 @@ import {
 } from "../api";
 import OpsPackagesSection from "./OpsPackagesSection";
 import { OpsCockpit, OpsPastRounds } from "./OpsCockpit";
+import { OpsSearchInput } from "./OpsSearchInput";
 import { SectionHead } from "./OpsSectionHead";
 import { ledgerRows, splitUsage } from "./opsLedger";
 import { LEDGER_CELL, LEDGER_COL_KEYS, relTime, noteText, precDate, thClass, tdNumClass, tdTimeClass, usageText } from "./opsTable";
@@ -214,33 +215,16 @@ function ConfigSection({ onUnauthorized }: { onUnauthorized: () => void }) {
           </div>
           <section aria-label={t("ops.cfg.keysTitle")} className="mt-8">
             <SectionHead title={t("ops.cfg.keysTitle")} />
-            {/* 视觉门 2026-10-21 阻断1(硬规⑤):type="search" 的原生
-                ::-webkit-search-cancel-button 在 Chromium 不可作者化(实测:伪元素
-                display/-webkit-appearance !important 均触达不了 UA shadow 钮,
-                默认蓝 #3F71B7 系像素仍在)——故去 type=search 改 type=text +
-                role="searchbox"(保留 a11y 语义与测试选择器),清除面走此处
-                中性灰自定义钮(text-zinc-500 hover:text-zinc-300,非 accent 色)。 */}
-            <div className="relative mt-3">
-              <input
-                type="text"
-                role="searchbox"
-                aria-label={t("ops.cfg.keySearch")}
-                placeholder={t("ops.cfg.keySearch")}
-                value={keySearch}
-                onChange={(e) => setKeySearch(e.target.value)}
-                className="w-full rounded-md border border-zinc-700 bg-zinc-950 py-1.5 pl-3 pr-8 text-xs text-zinc-200 focus:border-emerald-600 focus:outline-none"
-              />
-              {keySearch && (
-                <button
-                  type="button"
-                  aria-label={t("ops.cfg.keySearchClear")}
-                  onClick={() => setKeySearch("")}
-                  className="absolute inset-y-0 right-2 flex items-center py-0.5 text-sm leading-none text-zinc-500 transition-colors hover:text-zinc-300"
-                >
-                  ×
-                </button>
-              )}
-            </div>
+            {/* 视觉门 2026-10-21 阻断1(硬规⑤):搜索输入统一件(原生蓝清除钮
+                同根因,见 OpsSearchInput 头注——含 Chromium UA shadow 不可作者化
+                实测结论);此处仅声明调用面。 */}
+            <OpsSearchInput
+              label={t("ops.cfg.keySearch")}
+              placeholder={t("ops.cfg.keySearch")}
+              value={keySearch}
+              onChange={setKeySearch}
+              wrapperClass="mt-3"
+            />
             {/* 「只写不回显」说明仅此一次(#150):替代旧 41 格逐格占位噪音 */}
             <p className="mt-2 text-[11px] text-zinc-500">{t("ops.cfg.keysNote")}</p>
             {/* 等宽通栏容器(硬规①):网格填满内容列,不再裸奔页面背景。
@@ -445,14 +429,15 @@ function PrecedentsSection({ onUnauthorized }: { onUnauthorized: () => void }) {
         </button>
       </SectionHead>
       <div className="mt-3 flex gap-2">
-        <input
-          type="search"
-          aria-label={t("ops.prec.searchPlaceholder")}
+        {/* 视觉门 2026-10-21 同根因补收口:原生蓝清除钮 → 搜索输入统一件
+            (OpsSearchInput);Enter 即查行为经 onKeyDown 透传保留 */}
+        <OpsSearchInput
+          label={t("ops.prec.searchPlaceholder")}
           placeholder={t("ops.prec.searchPlaceholder")}
           value={kws}
-          onChange={(e) => setKws(e.target.value)}
+          onChange={setKws}
           onKeyDown={(e) => { if (e.key === "Enter") load(kws.trim()); }}
-          className="min-w-48 flex-1 rounded-md border border-zinc-700 bg-zinc-950 px-3 py-1.5 text-xs text-zinc-200 focus:border-emerald-600 focus:outline-none"
+          wrapperClass="min-w-48 flex-1"
         />
         <button
           type="button"

@@ -63,6 +63,14 @@ with sync_playwright() as p:
     page.screenshot(path=str(OUT_ARCHIVE), full_page=True)
     print("saved:", OUT_ARCHIVE)
 
+    # 视觉门 2026-10-21 同根因补收口:判例检索清除钮在场可清(Enter 即查不回归)
+    kws = page.get_by_role("searchbox", name="检索词——空格/逗号分隔")
+    kws.fill("mirror")
+    clear = page.get_by_role("button", name="清除搜索")
+    assert clear.is_visible(), "判例检索清除钮未渲染"
+    clear.click()
+    assert kws.input_value() == "", "判例检索清除钮未清空"
+
     # 裁决子 tab:裁决包列表
     page.get_by_role("tab", name="裁决").click(timeout=5000)
     page.wait_for_timeout(400)
