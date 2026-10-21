@@ -3,87 +3,25 @@ import { useI18n } from "../i18n";
 import { useTasks } from "../tasks/useTasks";
 import { Modal } from "../components/Modal";
 import {
-  startOpsRound, readOpsLedger, listOpsPrecedents, readOpsPrecedent, exportOpsPrecedents,
+  readOpsLedger, listOpsPrecedents, readOpsPrecedent, exportOpsPrecedents,
   getOpsAgentConfig, putOpsAgentConfig,
-  type ApiError, type OpsAgentConfig, type OpsRoundType, type TaskState,
+  type ApiError, type OpsAgentConfig, type TaskState,
 } from "../api";
 import OpsPackagesSection from "./OpsPackagesSection";
 import { OpsCockpit, OpsPastRounds } from "./OpsCockpit";
 import { SectionHead } from "./OpsSectionHead";
-import { ledgerRows } from "./opsLedger";
+import { ledgerRows, splitUsage } from "./opsLedger";
+import { LEDGER_COL_KEYS, relTime, noteText } from "./opsTable";
 import { opsErrorText } from "./opsErrorText";
 
 // P4 admin 第四 tab「运营」(票 #136):①轮次触发 ②裁决包区(OpsPackagesSection)
-// ③台账只读 ④判例浏览+检索只读 ⑤导出。裁⑦:顶部恒挂「仅立项」横幅;无在线
+// ③台账只读 ④判例浏览+检索只读 ⑤导出。裁⑦:顶部恒挂「仅立项」注记;无在线
 // 编辑、无重复面板。进度面 = 任务链徽章/mini bar 形态复用(BatchMiniBar 同款
 // 视觉),数据源 = TaskProvider 的 ops 任务(source="ops",running 相位 +
 // task_log 行)。
-// 票 #142 子 tab 重组:轮次(默认:驾驶舱+触发面+过去轮次)/裁决(OpsPackagesSection)/
-// 档案(台账+判例,只读审计面)/设置(#140 配置)。现有 section 逻辑原样搬迁,不重写。
-
-// 健康轮一键的非空输入(P2 路由 422 门:input 恒非空;健康轮指令面自含于
-// prompts/health-system.md,输入仅占位——钉常量防 i18n 漂移)。
-const HEALTH_ROUND_INPUT = "health";
-
-function RoundPanel({ onUnauthorized }: { onUnauthorized: () => void }) {
-  const { t } = useI18n();
-  const [discoverInput, setDiscoverInput] = useState("");
-  const [triggerError, setTriggerError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  const start = (type: OpsRoundType) => {
-    if (busy) return;
-    const input = type === "health" ? HEALTH_ROUND_INPUT : discoverInput.trim();
-    if (!input) { setTriggerError(t("ops.round.inputRequired")); return; }
-    setTriggerError(null);
-    setBusy(true);
-    startOpsRound(type, input)
-      .catch((e) => {
-        if ((e as ApiError).status === 401) { onUnauthorized(); return; }
-        setTriggerError(opsErrorText(t, e, t("ops.round.triggerFailed")));
-      })
-      .finally(() => setBusy(false));
-  };
-
-  // 票 #142:进度观察面(状态/耗时/日志/上一轮摘要)上移驾驶舱卡,本区只留触发面
-  // (触发动作是主操作非次级,不入节头——节头只挂描边次级动作,硬规④)
-  return (
-    <section aria-label={t("ops.round.title")} className="mt-8">
-      <SectionHead title={t("ops.round.title")} />
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => start("health")}
-          className="rounded-md bg-emerald-500 px-4 py-1.5 text-xs font-semibold text-zinc-950 transition-transform hover:scale-[1.02] disabled:opacity-40"
-        >
-          {t("ops.round.health")}
-        </button>
-        <input
-          type="search"
-          aria-label={t("ops.round.discoverPlaceholder")}
-          placeholder={t("ops.round.discoverPlaceholder")}
-          value={discoverInput}
-          onChange={(e) => setDiscoverInput(e.target.value)}
-          className="min-w-64 flex-1 rounded-md border border-zinc-700 bg-zinc-950 px-3 py-1.5 text-xs text-zinc-200 focus:border-emerald-600 focus:outline-none"
-        />
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => start("discover")}
-          className="rounded-md border border-emerald-600/50 px-4 py-1.5 text-xs text-emerald-400 transition-colors hover:border-emerald-500 disabled:opacity-40"
-        >
-          {t("ops.round.discover")}
-        </button>
-      </div>
-      {triggerError && (
-        <p role="alert" className="mt-2 rounded-md border border-red-400/30 bg-red-400/10 px-3 py-2 text-xs text-red-400">
-          {triggerError}
-        </p>
-      )}
-    </section>
-  );
-}
+// 票 #142 子 tab 重组:轮次(默认)/裁决(OpsPackagesSection)/档案(台账+
+// 判例,只读审计面)/设置(#140 配置)。票 #148:轮次 tab = 驾驶舱单卡
+// (触发入卡,OpsCockpit)+ 过往轮次表;原独立「轮次」触发节撤除。
 
 // 票 #140「agent 配置」子区(票 #142 起驻「设置」子 tab;票 #143 多供应商;
 // 票 #150 视觉修约):两轮次 {provider, model} 双下拉(目录由后端 GET catalog
@@ -328,11 +266,14 @@ function LedgerSection({ onUnauthorized }: { onUnauthorized: () => void }) {
   const { t } = useI18n();
   const [text, setText] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // 相对时间基准 = 台账抵达时刻(Date.now 不入 render,同已耗时纪律)
+  const [now, setNow] = useState(0);
 
   const load = useCallback(async () => {
     setError(null);
     try {
       setText(await readOpsLedger());
+      setNow(Date.now());
     } catch (e) {
       if ((e as ApiError).status === 401) { onUnauthorized(); return; }
       setError(opsErrorText(t, e, t("ops.ledger.loadFailed")));
@@ -342,7 +283,7 @@ function LedgerSection({ onUnauthorized }: { onUnauthorized: () => void }) {
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { load(); }, [load]);
 
-  const rows = text != null ? ledgerRows(text) : [];
+  const rows = text != null ? ledgerRows(text) : []; // 纯数据行(表头已在解析跳过)
 
   return (
     <section aria-label={t("ops.ledger.title")}>
@@ -363,24 +304,42 @@ function LedgerSection({ onUnauthorized }: { onUnauthorized: () => void }) {
       )}
       {rows.length > 0 && (
         <div className="mt-3 max-h-72 overflow-auto rounded-md border border-zinc-800">
+          {/* 票 #148:台账表走表格统一件——ops.col.* 中文列名(与轮次表同集,
+              T4 冻结表头不再入 DOM)+ 用量/成本右对齐 + 相对时间 title +
+              备注人话化(title 留原文,证据不灭失) */}
           <table className="w-full text-left text-xs">
-            {rows[0] && (
-              <thead className="sticky top-0 bg-zinc-900 font-mono text-[11px] text-zinc-500">
-                <tr>
-                  {rows[0].map((h, i) => (
-                    <th key={i} scope="col" className="px-3 py-1.5 font-medium">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-            )}
+            <thead className="sticky top-0 bg-zinc-900 font-mono text-[11px] text-zinc-500">
+              <tr>
+                {LEDGER_COL_KEYS.map((k) => (
+                  <th
+                    key={k}
+                    scope="col"
+                    className={`px-3 py-1.5 font-medium${k === "usage" || k === "cost" ? " text-right" : ""}`}
+                  >
+                    {t(`ops.col.${k}`)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
             <tbody className="divide-y divide-zinc-800/60 font-mono text-zinc-400">
-              {rows.slice(1).map((cells, r) => (
-                <tr key={r}>
-                  {cells.map((c, i) => (
-                    <td key={i} className="px-3 py-1.5">{c}</td>
-                  ))}
-                </tr>
-              ))}
+              {rows.map((cells, r) => {
+                const { usage, cost } = splitUsage(cells[3] ?? "");
+                const rt = relTime(cells[0] ?? "", now);
+                const note = cells[4] ?? "";
+                const humanNote = noteText(t, note);
+                return (
+                  <tr key={r}>
+                    <td className="px-3 py-1.5" title={rt.title}>{t(rt.key, rt.vars)}</td>
+                    <td className="px-3 py-1.5">{cells[1]}</td>
+                    <td className="px-3 py-1.5">{cells[2]}</td>
+                    <td className="px-3 py-1.5 text-right">{usage}</td>
+                    <td className="px-3 py-1.5 text-right">{cost ?? "—"}</td>
+                    <td className="px-3 py-1.5" title={note || undefined}>
+                      {humanNote ?? note ?? "—"}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -576,8 +535,9 @@ export default function OpsPage({ onUnauthorized }: { onUnauthorized: () => void
       <div className="mt-6">
         {subTab === "rounds" && (
           <>
+            {/* 票 #148:驾驶舱单卡(状态 chip 内联节头/上一轮结果人话化+原始
+                信封/触发动作同卡)+ 过往轮次表;原独立触发节已并入卡 */}
             <OpsCockpit onGoRulings={goRulings} onUnauthorized={onUnauthorized} />
-            <RoundPanel onUnauthorized={onUnauthorized} />
             <OpsPastRounds onGoRulings={goRulings} onUnauthorized={onUnauthorized} />
           </>
         )}
