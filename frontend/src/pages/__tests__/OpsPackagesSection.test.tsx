@@ -85,7 +85,7 @@ describe("OpsPackagesSection — list → detail", () => {
   it("lists packages (newest first metadata); empty state without a round", async () => {
     vi.mocked(listOpsPackages).mockResolvedValueOnce([]);
     renderSection();
-    expect(await screen.findByText(/No packages yet/i)).toBeTruthy();
+    expect(await screen.findByText(/No ruling packages yet/i)).toBeTruthy();
     expect(listOpsPackages).toHaveBeenCalledTimes(1);
   });
 
@@ -111,6 +111,31 @@ describe("OpsPackagesSection — list → detail", () => {
     expect(listOpsPackages).toHaveBeenCalledTimes(1);
     rerender(<OpsPackagesSection onUnauthorized={onUnauthorized} roundTick={1} />);
     await waitFor(() => expect(listOpsPackages).toHaveBeenCalledTimes(2));
+  });
+});
+
+// ── 票 #149:裁决包列表行元数据(大小+相对时间)+ 节头计数 ──
+
+describe("OpsPackagesSection — 列表行元数据与计数(票 #149)", () => {
+  it("行元数据:大小 KB + 相对时间(title=ISO 原文,证据不灭失);节头计数 N 个", async () => {
+    renderSection(); // beforeEach 夹具:1 包,4096B,modified=2026-10-20T10:30:00+00:00
+    expect(await screen.findByRole("heading", { name: "Ruling packages (1)" })).toBeTruthy();
+    expect(screen.getByText("4.0 KB")).toBeTruthy();
+    const timed = screen.getByTitle("2026-10-20T10:30:00+00:00");
+    expect(timed.textContent ?? "").toMatch(/ago$|^just now/);
+  });
+
+  it("空列表:计数如实显 (0)(视觉门 2026-10-21 微5)+ 基准「暂无」式空态入容器(不留纯空白)", async () => {
+    vi.mocked(listOpsPackages).mockResolvedValueOnce([]);
+    renderSection();
+    await screen.findByText(/No ruling packages yet/i);
+    expect(screen.getByRole("heading", { name: "Ruling packages (0)" })).toBeTruthy();
+  });
+
+  it("详情态节头不带计数(计数属列表面;详情无行集可数)", async () => {
+    renderSection();
+    await openDetail();
+    expect(screen.getByRole("heading", { name: "Ruling packages" })).toBeTruthy();
   });
 });
 

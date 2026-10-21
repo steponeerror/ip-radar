@@ -6,6 +6,9 @@ import {
   type ApiError, type OpsPackageInfo, type OpsRulingResult, type OpsRulingVerdict,
 } from "../api";
 import { opsErrorText } from "./opsErrorText";
+import { relTime } from "./opsTable";
+import { SectionHead } from "./OpsSectionHead";
+import { useArrivalNow } from "./useArrivalNow";
 
 // P4 裁决包区(票 #136):列表 → 详情(包文逐字:建议/证据 call_id+field+value/
 // trace;判例引用可点开全文)→ 人裁三动作(同意/否决/修正)。裁⑦:全部建议
@@ -68,6 +71,8 @@ export default function OpsPackagesSection({ onUnauthorized, roundTick }: {
   const { t } = useI18n();
   const [packages, setPackages] = useState<OpsPackageInfo[] | null>(null);
   const [listError, setListError] = useState<string | null>(null);
+  // 相对时间基准 = 列表抵达时刻(#149;useArrivalNow,Date.now 不入 render)
+  const [now, markArrived] = useArrivalNow();
   const [detailName, setDetailName] = useState<string | null>(null);
   const [detailText, setDetailText] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
@@ -92,11 +97,12 @@ export default function OpsPackagesSection({ onUnauthorized, roundTick }: {
     setListError(null);
     try {
       setPackages(await listOpsPackages());
+      markArrived();
     } catch (e) {
       failWith(setListError, t("ops.pkgs.loadFailed"))(e);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [t, onUnauthorized]);
+  }, [t, onUnauthorized, markArrived]);
 
   // 挂载 + 轮次收口(roundTick)重拉
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -131,20 +137,19 @@ export default function OpsPackagesSection({ onUnauthorized, roundTick }: {
   };
 
   const title = (
-    <div className="flex items-center justify-between gap-3">
-      <h2 className="text-sm font-semibold tracking-wide text-zinc-400 uppercase">
-        {t("ops.pkgs.title")}
-      </h2>
+    // 票 #149:节头计数(裁决包 N 个)属列表面;详情态无行集可数,不带计数
+    <SectionHead title={t("ops.pkgs.title")} count={detailName ? null : (packages?.length ?? null)}>
+      {/* 裸文字链接 → 描边按钮(票 #147;硬规④) */}
       {detailName && (
         <button
           type="button"
           onClick={() => { setDetailName(null); setSelected(null); setAmending(false); setAmendment(""); setResult(null); setRulingError(null); }}
-          className="text-xs text-zinc-500 transition-colors hover:text-zinc-300"
+          className="rounded-md border border-zinc-700 px-4 py-1.5 text-xs text-zinc-300 transition-colors hover:border-emerald-500/50 hover:text-emerald-400"
         >
           {t("ops.pkgs.back")}
         </button>
       )}
-    </div>
+    </SectionHead>
   );
 
   if (detailName) {
@@ -276,24 +281,39 @@ export default function OpsPackagesSection({ onUnauthorized, roundTick }: {
           {listError}
         </p>
       )}
+      {/* 票 #149:空列表显基准「暂无」式居中空态(硬规⑥),不留纯空白 */}
       {packages != null && packages.length === 0 && !listError && (
-        <p className="mt-3 text-sm text-zinc-500">{t("ops.pkgs.empty")}</p>
+        <div className="mt-3 rounded-md border border-zinc-800">
+          <p className="px-3 py-6 text-center text-xs text-zinc-500">{t("ops.pkgs.empty")}</p>
+        </div>
       )}
       {packages != null && packages.length > 0 && (
         <ul className="mt-3 divide-y divide-zinc-800 rounded-md border border-zinc-800">
-          {packages.map((p) => (
-            <li key={p.name}>
-              <button
-                type="button"
-                onClick={() => openDetail(p.name)}
-                className="flex w-full flex-wrap items-baseline gap-x-3 px-3 py-2 text-left font-mono text-xs transition-colors hover:bg-zinc-900"
-              >
-                <span className="text-emerald-400">{p.name}</span>
-                <span className="text-zinc-500">{(p.size / 1024).toFixed(1)} KB</span>
-                <span className="text-zinc-600">{p.modified}</span>
-              </button>
-            </li>
-          ))}
+          {/* 票 #149:行元数据 = 大小 KB + 相对时间(title=ISO 原文,证据
+              不灭失);密度向源管理列表看齐(px-4 py-2.5,文件名 text-sm) */}
+          {packages.map((p) => {
+            const rt = relTime(p.modified, now);
+            return (
+              <li key={p.name}>
+                <button
+                  type="button"
+                  onClick={() => openDetail(p.name)}
+                  className="flex w-full items-baseline gap-x-3 px-4 py-2.5 text-left transition-colors hover:bg-zinc-900"
+                >
+                  <span className="font-mono text-sm text-emerald-400">{p.name}</span>
+                  <span className="ml-auto whitespace-nowrap font-mono text-xs text-zinc-500">
+                    {(p.size / 1024).toFixed(1)} KB
+                  </span>
+                  <span
+                    className="whitespace-nowrap font-mono text-xs text-zinc-500"
+                    title={rt.title}
+                  >
+                    {t(rt.key, rt.vars)}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
         </ul>
       )}
       {/* 判例全文弹窗:仅详情态(包内引用可点)可开 */}

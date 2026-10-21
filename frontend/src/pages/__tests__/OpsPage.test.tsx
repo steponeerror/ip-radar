@@ -9,6 +9,8 @@ import {
   startOpsRound, readOpsLedger, listOpsPrecedents, readOpsPrecedent, exportOpsPrecedents,
   getOpsAgentConfig, putOpsAgentConfig, listOpsPackages,
 } from "../../api";
+import en from "../../i18n/locales/en.json";
+import zhCN from "../../i18n/locales/zh-CN.json";
 
 // P4 admin 第四 tab「运营」(票 #136):渲染面 + 轮次触发 + 台账/判例只读 +
 // 导出 + 错误信封可读呈现(不裸抛 code)。裁决包区交互面见
@@ -80,15 +82,16 @@ beforeEach(() => {
 // ── 票 #142:二级子 tab 重组 ─────────────────────────────────────────────
 
 describe("OpsPage — 子 tab 重组(票 #142)", () => {
-  it("默认子 tab=轮次:驾驶舱+触发面+过去轮次在场;裁决/档案/设置内容不在 DOM", () => {
+  it("默认子 tab=轮次:驾驶舱+过去轮次在场;裁决/档案/设置内容不在 DOM", () => {
     renderOps();
     expect(screen.getByRole("heading", { name: "Cockpit" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Rounds" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Past rounds" })).toBeTruthy();
-    // 非活动子 tab 不渲染(顶 tab 同款范式)
+    // 票 #148:触发动作入驾驶舱单卡,独立「轮次」节头撤除
+    expect(screen.queryByRole("heading", { name: "Rounds" })).toBeNull();
+    // 非活动子 tab 不渲染(顶 tab 同款范式;#149 标题去「(只读)」限定词)
     expect(screen.queryByRole("heading", { name: "Ruling packages" })).toBeNull();
-    expect(screen.queryByRole("heading", { name: "Ledger (read-only)" })).toBeNull();
-    expect(screen.queryByRole("heading", { name: "Precedents (read-only)" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Ledger" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Precedents" })).toBeNull();
     expect(screen.queryByRole("combobox", { name: /health-round model/i })).toBeNull();
     // 四个子 tab 在场,默认选中轮次
     const rounds = screen.getByRole("tab", { name: "Rounds" });
@@ -106,18 +109,22 @@ describe("OpsPage — 子 tab 重组(票 #142)", () => {
     expect(screen.queryByRole("button", { name: "Run health round" })).toBeNull();
   });
 
-  it("切「档案」→ 台账只读表 + 判例库 + 导出(原 section 逻辑原样搬迁)", async () => {
+  it("切「档案」→ 台账只读表 + 判例库 + 导出(原 section 逻辑原样搬迁;#149 标题去「(只读)」)", async () => {
     renderOps();
     goSubTab("Archive");
-    expect(await screen.findByRole("heading", { name: "Ledger (read-only)" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Precedents (read-only)" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: /^Ledger( \(\d+\))?$/ })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: /^Precedents( \(\d+\))?$/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Export precedents (.zip)" })).toBeTruthy();
-    await waitFor(() => expect(screen.getByRole("cell", { name: "2026-10-20" })).toBeTruthy());
+    // 票 #148:台账表统一件列名(与轮次表同集 ops.col.*)+ 相对时间 title 完整戳
+    expect(await screen.findByRole("columnheader", { name: "Round" })).toBeTruthy();
+    for (const h of ["Time", "Model", "Usage", "Cost", "Note"]) {
+      expect(screen.getByRole("columnheader", { name: h })).toBeTruthy();
+    }
+    expect(screen.getByTitle("2026-10-20")).toBeTruthy();
     expect(screen.getByRole("cell", { name: "discover" })).toBeTruthy();
-    expect(screen.getByRole("columnheader", { name: "轮次" })).toBeTruthy();
   });
 
-  it("切「设置」→ agent 配置面(#140 ConfigSection 移入,票 #143 多供应商形状)", async () => {
+  it("切「设置」→ 配置面(#140 ConfigSection 移入,票 #143 多供应商形状;#150 保存全部)", async () => {
     vi.mocked(getOpsAgentConfig).mockResolvedValue({
       model_health: "zai-coding-cn/glm-5.3", model_discover: "zai-coding-cn/glm-5.3",
       api_keys: {},
@@ -127,12 +134,175 @@ describe("OpsPage — 子 tab 重组(票 #142)", () => {
     renderOps();
     goSubTab("Settings");
     expect(await screen.findByRole("combobox", { name: /health-round model/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Save" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Save all" })).toBeTruthy();
   });
 
   it("裁⑦ 仅立项横幅恒挂(子 tab 重组不撤横幅)", () => {
     renderOps();
     expect(screen.getByText(/Proposals only/i)).toBeTruthy();
+  });
+});
+
+// ── 票 #147:壳层视觉修约(underline 子 tab / 注记降级 / 节头行规范)──────
+
+describe("OpsPage — 壳层视觉修约(票 #147)", () => {
+  beforeEach(() => {
+    // 恒挂/aria 用例会切到「设置」:最小目录配置防 cfg=undefined 崩面
+    vi.mocked(getOpsAgentConfig).mockResolvedValue({
+      model_health: "zai-coding-cn/glm-5.3-flash",
+      model_discover: "zai-coding-cn/glm-5.3-flash",
+      api_keys: {},
+      catalog: { "zai-coding-cn": [{ id: "glm-5.3-flash", name: "GLM-5.3-Flash", cost: null }] },
+      catalog_source: "fallback" as const,
+    });
+  });
+
+  it("注记降级不撤除:「仅立项」一行注记恒挂于全部四个子 tab(裁⑦ 语义不变)", () => {
+    renderOps();
+    for (const name of ["Rounds", "Rulings", "Archive", "Settings"] as const) {
+      if (name !== "Rounds") goSubTab(name);
+      expect(screen.getByText(/Proposals only/i)).toBeTruthy();
+    }
+  });
+
+  it("underline 子 tab:切换后 aria-selected 仅激活项为 true(role=tab 语义不弱化)", () => {
+    renderOps();
+    const names = ["Rounds", "Rulings", "Archive", "Settings"] as const;
+    for (const active of names) {
+      if (active !== "Rounds") goSubTab(active);
+      for (const name of names) {
+        expect(screen.getByRole("tab", { name })).toHaveAttribute(
+          "aria-selected",
+          name === active ? "true" : "false",
+        );
+      }
+    }
+  });
+
+  it("节头计数:过往轮次头显渲染行数(台账行+孤儿包);空表如实显 (0)(视觉门 2026-10-21 微5)", async () => {
+    vi.mocked(listOpsPackages).mockResolvedValue([
+      { name: "2026-10-21-health-0800.md", size: 512, modified: "2026-10-21T08:00:00Z" },
+    ]);
+    const withData = renderOps();
+    // 2 台账数据行 + 1 孤儿包 = 3(#148 修伪表头后冻结表头行不再切入表体,
+    // 计数随解析修正从 4 收敛为 3)
+    expect(await withData.findByRole("heading", { name: /Past rounds \(3\)/ })).toBeTruthy();
+    withData.unmount();
+    // 无数据(台账空+包空):计数如实显 (0)(空表不谎报 = 显真 0,非隐藏)
+    vi.mocked(readOpsLedger).mockResolvedValue("");
+    vi.mocked(listOpsPackages).mockResolvedValue([]);
+    const empty = renderOps();
+    expect(await empty.findByText(/No rounds recorded/i)).toBeTruthy();
+    expect(empty.getByRole("heading", { name: "Past rounds (0)" })).toBeTruthy();
+  });
+});
+
+// ── 票 #148:驾驶舱单卡 + 伪表头修复落地 + 表格统一件 ──────────────
+
+describe("OpsPage — 驾驶舱单卡(票 #148)", () => {
+  it("状态 chip 内联节头(标题同排)+ 健康/发现触发动作与上一轮结果同卡", () => {
+    renderOps({ tasks: [], logs: {} });
+    const cockpit = screen.getByRole("region", { name: "Cockpit" });
+    // 状态 chip 在节头左簇:chip 所在容器含「驾驶舱」标题
+    const chip = within(cockpit).getByText("Idle");
+    expect(chip.closest("div")).toContainElement(
+      within(cockpit).getByRole("heading", { name: "Cockpit" }));
+    // 触发动作入卡(单卡:状态/上一轮结果/触发同卡)
+    expect(within(cockpit).getByRole("button", { name: "Run health round" })).toBeTruthy();
+    expect(within(cockpit).getByRole("button", { name: "Run discover round" })).toBeTruthy();
+    expect(within(cockpit).getByRole("searchbox", { name: /discover input/i })).toBeTruthy();
+  });
+});
+
+describe("OpsPage — 伪表头修复与表格统一件(票 #148)", () => {
+  it("台账夹具(含表头行)渲染后表体零表头行:表 = 列头 + 2 数据行", async () => {
+    renderOps();
+    const table = await screen.findByRole("table");
+    expect(within(table).getAllByRole("row")).toHaveLength(3);
+    expect(within(table).queryByText("日期")).toBeNull();
+    expect(within(table).queryByText("model")).toBeNull();
+  });
+
+  it("备注人话化 + 时间相对且 title 完整戳 + 结果码「—」附宁少算 title", async () => {
+    vi.mocked(readOpsLedger).mockResolvedValue([
+      "# 运营轮次台账", "",
+      "| 日期 | 轮次 | model | 用量 | 备注 |",
+      "|---|---|---|---|---|",
+      "| 2026-10-21 | health | — | — | spawn error_code=model_face |",
+    ].join("\n"));
+    renderOps();
+    // spawn error_code=model_face → 人话;title = 台账原文(证据不灭失)
+    expect(await screen.findByRole("cell", { name: "Start failed: model provider" })).toBeTruthy();
+    expect(screen.getByTitle("spawn error_code=model_face")).toBeTruthy();
+    // 时间相对 + title 完整戳(台账行精度即日期)
+    const timeCell = screen.getByTitle("2026-10-21");
+    expect(timeCell.textContent ?? "").toMatch(/ago$|^just now/);
+    // 结果码「—」:台账行不载成败;无证据≠成功
+    expect(
+      screen.getAllByTitle("Ledger rows carry no outcome — absence of evidence is not success").length,
+    ).toBeGreaterThan(0);
+  });
+});
+
+// ── 票 #149:档案+裁决列表修约(列头逐字一致/计数/空态/标题收尾/行元数据)──
+
+describe("OpsPage — 档案面修约(票 #149)", () => {
+  it("台账表与轮次表列头逐字一致:共享基列(6)文本相等,追列仅轮次表(审计面不补结果码/包列)", async () => {
+    renderOps();
+    const roundsTable = await screen.findByRole("table");
+    const roundsHeads = within(roundsTable)
+      .getAllByRole("columnheader").map((th) => th.textContent);
+    expect(roundsHeads).toHaveLength(8); // 基列6 + 追列2(结果码/包)
+    goSubTab("Archive");
+    const ledgerTable = await screen.findByRole("table");
+    const ledgerHeads = within(ledgerTable)
+      .getAllByRole("columnheader").map((th) => th.textContent);
+    expect(ledgerHeads).toHaveLength(6);
+    // 逐字一致断言:台账列头 = 轮次表前 6 列列头(同一套 ops.col.* 词条)
+    expect(ledgerHeads).toEqual(roundsHeads.slice(0, 6));
+  });
+
+  it("节头计数:台账 N 行/判例 N 篇(非零显计数;空不显)", async () => {
+    renderOps(); // LEDGER_MD 2 行;beforeEach 判例 1 篇
+    goSubTab("Archive");
+    expect(await screen.findByRole("heading", { name: "Ledger (2)" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Precedents (1)" })).toBeTruthy();
+  });
+
+  it("空列表显基准「暂无」式空态(台账空/判例空),不留纯空白;空表计数如实显 (0)(视觉门 2026-10-21 微5)", async () => {
+    vi.mocked(readOpsLedger).mockResolvedValue("# 运营轮次台账\n");
+    vi.mocked(listOpsPrecedents).mockResolvedValue([]);
+    renderOps();
+    goSubTab("Archive");
+    expect(await screen.findByText("No ledger entries yet")).toBeTruthy();
+    expect(await screen.findByText("No precedents yet")).toBeTruthy();
+    // 空表不谎报 = 如实显 (0)(基准「数据源 (60)」式在空态同样成立)
+    expect(screen.getByRole("heading", { name: "Ledger (0)" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Precedents (0)" })).toBeTruthy();
+  });
+
+  it("「(只读)」限定词移出标题:标题无括号限定词,只读声明入档案面副注(一次,不逐节重复)", async () => {
+    renderOps();
+    goSubTab("Archive");
+    expect(await screen.findByRole("heading", { name: "Ledger (2)" })).toBeTruthy();
+    // 副注一次覆盖两节(反噪音纪律,同 #150 占位说明只现一次)
+    expect(screen.getAllByText(/read-only audit face/i)).toHaveLength(1);
+    expect(screen.queryByText(/\(read-only\)/)).toBeNull();
+  });
+
+  it("判例行元数据:文件名日期派生相对时间(title=日期原文,证据不灭失);无日期名不显时间(零大小 = API 降级,零后端红线)", async () => {
+    vi.mocked(listOpsPrecedents).mockResolvedValue([
+      "2026-10-17-a-case.md",
+      "notes-plain.md",
+    ]);
+    renderOps();
+    goSubTab("Archive");
+    const list = await screen.findByRole("list");
+    const timed = within(list).getByTitle("2026-10-17");
+    expect(timed.textContent ?? "").toMatch(/ago$|^just now/);
+    // 无日期前缀名:行内无相对时间元素(宁少算不猜)
+    const plain = within(list).getByRole("button", { name: /notes-plain\.md/ });
+    expect(within(plain).queryByTitle(/\d{4}-\d{2}-\d{2}/)).toBeNull();
   });
 });
 
@@ -207,12 +377,30 @@ describe("OpsPage — 驾驶舱卡(票 #142)", () => {
     expect(screen.getByRole("heading", { name: "Ruling packages" })).toBeTruthy();
   });
 
-  it("轮结束(failed):摘要卡 = 可读失败文案 + 原始消息,不裸抛 code", () => {
-    const failed = { ...opsTask("failed"), error: "模型失败面 stopReason=error", error_code: "model_face" } as TaskState;
-    renderOps({ tasks: [failed], logs: { t1: ["round 失败:模型失败面 stopReason=error"] } });
-    expect(screen.getByText(/Model provider failed/i)).toBeTruthy();
-    expect(screen.getByText(/模型失败面 stopReason=error/)).toBeTruthy();
+  it("轮结束(failed):人话化错误短语 + 可展开原始信封(证据不灭失),不裸抛 code", () => {
+    const failed = {
+      ...opsTask("failed"),
+      error: '模型失败面 stopReason=error:401 {"code":"401","message":"令牌已过期或验证不正确"}',
+      error_code: "model_face",
+    } as TaskState;
+    renderOps({ tasks: [failed], logs: { t1: ["round 失败:模型失败面 stopReason=error:401"] } });
+    // 人话主行(票 #148):上游令牌过期(401),不再裸奔原始 JSON
+    expect(screen.getByText("Upstream token expired (401)")).toBeTruthy();
     expect(screen.queryByText(/model_face/)).toBeNull();
+    // 原始信封可展开:完整原始 message 原样在场(证据不灭失)
+    expect(screen.getByText("Raw envelope")).toBeTruthy();
+    expect(screen.getByText(/stopReason=error:401/)).toBeTruthy();
+  });
+
+  it("轮结束(failed,信封不可人话化):回退可读 code 名,信封仍可展开", () => {
+    const failed = {
+      ...opsTask("failed"),
+      error: "stopReason=aborted", error_code: "infra",
+    } as TaskState;
+    renderOps({ tasks: [failed], logs: { t1: [] } });
+    expect(screen.getByText(/Infrastructure error/i)).toBeTruthy();
+    expect(screen.getByText("Raw envelope")).toBeTruthy();
+    expect(screen.getByText("stopReason=aborted")).toBeTruthy();
   });
 
   it("轮结束(cancelled):摘要卡显已取消", () => {
@@ -230,9 +418,11 @@ describe("OpsPage — 过去轮次(票 #142)", () => {
       { name: "2026-10-18-health-0912.md", size: 1024, modified: "2026-10-18T09:12:00Z" },
     ]);
     renderOps();
-    await waitFor(() => expect(screen.getByRole("cell", { name: "2026-10-20" })).toBeTruthy());
-    // usage 与 cost 拆列呈现(台账用量串 cost= 段独立成列)
-    expect(screen.getByRole("cell", { name: "in=1 out=2 total=3" })).toBeTruthy();
+    await waitFor(() => expect(screen.getByTitle("2026-10-20")).toBeTruthy());
+    // usage 与 cost 拆列呈现(台账用量串 cost= 段独立成列);视觉门 2026-10-21
+    // 低2:用量列人话化「in 1 · out 2 · total 3」,title 挂台账原始串(证据不灭失)
+    expect(screen.getByRole("cell", { name: "in 1 · out 2 · total 3" })).toBeTruthy();
+    expect(screen.getByTitle("in=1 out=2 total=3")).toBeTruthy();
     expect(screen.getByRole("cell", { name: "0.00000045" })).toBeTruthy();
     expect(screen.getByRole("cell", { name: "glm-4.7" })).toBeTruthy();
     expect(screen.getByRole("columnheader", { name: "Result" })).toBeTruthy();
@@ -269,7 +459,7 @@ describe("OpsPage — 过去轮次(票 #142)", () => {
         ],
       },
     });
-    await waitFor(() => expect(screen.getByRole("cell", { name: "2026-10-20" })).toBeTruthy());
+    await waitFor(() => expect(screen.getByTitle("2026-10-20")).toBeTruthy());
     // 最新行(discover 2026-10-20)与摘要卡包名对上 → ok;旧行(health 2026-10-19)无证据 → —
     expect(screen.getByRole("cell", { name: "ok" })).toBeTruthy();
     expect(screen.getAllByText("—").length).toBeGreaterThan(0);
@@ -377,7 +567,7 @@ describe("OpsPage — agent config section (票 #143,「设置」子 tab)", () =
     expect([...health.querySelectorAll("option")].map((o) => o.value))
       .toEqual(["fake-7b", "glm-5.3"]); // 跨家同名模型按 provider 作用域
     expect((health as HTMLSelectElement).value).toBe("fake-7b"); // 级联落首家
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save all" }));
     await waitFor(() => expect(vi.mocked(putOpsAgentConfig)).toHaveBeenCalledWith({
       model_health: "fake-prov/fake-7b",
       model_discover: "zai-coding-cn/glm-5.3",
@@ -392,7 +582,11 @@ describe("OpsPage — agent config section (票 #143,「设置」子 tab)", () =
     expect(fakeOpt?.textContent).toMatch(/needs key first/i);
     const zaiOpt = [...provider.querySelectorAll("option")].find((o) => o.value === "zai-coding-cn");
     expect(zaiOpt?.textContent).not.toMatch(/needs key first/i);
-    // 逐家 key 面同帧可见:未配置家显「No key configured」(现值不回填)
+    // #150 key 面:默认仅已配置家;未配置家按搜索唤出后显「No key configured」
+    expect(screen.queryByLabelText("fake-prov")).toBeNull();
+    fireEvent.change(screen.getByRole("searchbox", { name: /search providers/i }), {
+      target: { value: "fake" },
+    });
     expect(await screen.findByText(/No key configured/i)).toBeTruthy();
   });
 
@@ -418,8 +612,12 @@ describe("OpsPage — agent config section (票 #143,「设置」子 tab)", () =
     });
     renderOps();
     goSubTab("Settings");
+    // #150:未配置家默认不渲染,搜索唤出后可填
+    fireEvent.change(await screen.findByRole("searchbox", { name: /search providers/i }), {
+      target: { value: "fake" },
+    });
     fireEvent.change(await screen.findByLabelText("fake-prov"), { target: { value: "sk-ant-4321" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save all" }));
     await waitFor(() => expect(vi.mocked(putOpsAgentConfig)).toHaveBeenCalledWith({
       model_health: "zai-coding-cn/glm-5.3-flash",
       model_discover: "zai-coding-cn/glm-5.3",
@@ -437,7 +635,7 @@ describe("OpsPage — agent config section (票 #143,「设置」子 tab)", () =
     fireEvent.change(await screen.findByRole("combobox", { name: /discover-round model/i }), {
       target: { value: "glm-5.3-flashx" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save all" }));
     await waitFor(() => expect(vi.mocked(putOpsAgentConfig)).toHaveBeenCalledWith({
       model_health: "zai-coding-cn/glm-5.3-flash", model_discover: "zai-coding-cn/glm-5.3-flashx",
     }));
@@ -450,7 +648,7 @@ describe("OpsPage — agent config section (票 #143,「设置」子 tab)", () =
     ));
     renderOps();
     goSubTab("Settings");
-    fireEvent.click(await screen.findByRole("button", { name: "Save" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Save all" }));
     await waitFor(() => expect(screen.getByText(/未在 zai-coding-cn 装载目录内/)).toBeTruthy());
     expect(screen.queryByText(/validation_error/)).toBeNull();
   });
@@ -468,6 +666,165 @@ describe("OpsPage — agent config section (票 #143,「设置」子 tab)", () =
   });
 });
 
+// ── 票 #150:设置子 tab 视觉修约(表单基线/保存全部/key 搜索置顶/术语)──
+
+describe("OpsPage — settings 视觉修约(票 #150)", () => {
+  beforeEach(() => {
+    vi.mocked(getOpsAgentConfig).mockResolvedValue(CFG_MOCK);
+  });
+
+  it("表单基线:四字段同属单一基线容器;成本帮助行在控件下方(纵向节奏一致)", async () => {
+    renderOps();
+    goSubTab("Settings");
+    const healthProv = await screen.findByRole("combobox", { name: /health-round provider/i });
+    const healthModel = screen.getByRole("combobox", { name: /health-round model/i });
+    const discProv = screen.getByRole("combobox", { name: /discover-round provider/i });
+    const discModel = screen.getByRole("combobox", { name: /discover-round model/i });
+    // 四控件同一基线容器(旧 renderRound=每轮各自包裹,模型组成本行抬高标签 → 两级错落)
+    const row = healthProv.closest("div");
+    expect(healthModel.closest("div")).toBe(row);
+    expect(discProv.closest("div")).toBe(row);
+    expect(discModel.closest("div")).toBe(row);
+    // 帮助行在控件下方:选中带价模型后,成本提示位于同字段 select 之后(不抬标签)
+    fireEvent.change(healthModel, { target: { value: "glm-5.3" } });
+    const hint = within(healthModel.closest("label") as HTMLElement).getByText(/Reference cost/i);
+    expect(hint.compareDocumentPosition(healthModel) & Node.DOCUMENT_POSITION_PRECEDING)
+      .toBeTruthy();
+  });
+
+  it("保存全部上移节头:与节标题同排 + 一行说明;契约不变 = 单次 PUT 同交模型与 key", async () => {
+    vi.mocked(putOpsAgentConfig).mockResolvedValue(CFG_MOCK);
+    renderOps();
+    goSubTab("Settings");
+    const saveAll = await screen.findByRole("button", { name: "Save all" });
+    // 节头行:按钮的容器行同排着节标题 h2(不再是表单下随行按钮)
+    const headRow = saveAll.closest("div")?.parentElement;
+    expect(headRow?.querySelector("h2")?.textContent).toMatch(/model config/i);
+    // 一行说明:同时提交模型与 key(单次提交)
+    expect(screen.getByText(/in one request/i)).toBeTruthy();
+    // 契约不变:填 key 后单次 PUT 同交 model_* 与 api_keys(ADR 0005 面)
+    fireEvent.change(screen.getByRole("searchbox", { name: /search providers/i }), {
+      target: { value: "fake" },
+    });
+    fireEvent.change(await screen.findByLabelText("fake-prov"), { target: { value: "sk-1" } });
+    fireEvent.click(saveAll);
+    await waitFor(() => expect(vi.mocked(putOpsAgentConfig)).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(putOpsAgentConfig)).toHaveBeenCalledWith({
+      model_health: "zai-coding-cn/glm-5.3-flash",
+      model_discover: "zai-coding-cn/glm-5.3",
+      api_keys: { "fake-prov": "sk-1" },
+    });
+  });
+
+  it("API 密钥面:默认仅已配置家;搜索唤出其余且已配置置顶;无匹配空态", async () => {
+    renderOps();
+    goSubTab("Settings");
+    // 默认:已配置家在场(现值只显尾 4),未配置家不渲染(配 1 家不滚 40 格)
+    expect(await screen.findByText(/Configured \(•••• 9988\)/)).toBeTruthy();
+    expect(screen.queryByLabelText("fake-prov")).toBeNull();
+    // 搜索唤出:命中的未配置家出现,已配置家仍置顶(文档序在前)
+    fireEvent.change(screen.getByRole("searchbox", { name: /search providers/i }), {
+      target: { value: "o" },
+    });
+    const zai = await screen.findByLabelText("zai-coding-cn");
+    const fake = screen.getByLabelText("fake-prov");
+    expect(zai.compareDocumentPosition(fake) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // 无匹配:基准「暂无」式空态(硬规⑥)
+    fireEvent.change(screen.getByRole("searchbox", { name: /search providers/i }), {
+      target: { value: "nonexistent" },
+    });
+    expect(await screen.findByText(/no matching providers/i)).toBeTruthy();
+  });
+
+  it("API 密钥面:零已配置时默认显「暂无」式空态(硬规⑥)", async () => {
+    vi.mocked(getOpsAgentConfig).mockResolvedValue({ ...CFG_MOCK, api_keys: {} });
+    renderOps();
+    goSubTab("Settings");
+    expect(await screen.findByText(/no api keys configured yet/i)).toBeTruthy();
+  });
+
+  it("「只写不回显」说明仅节头一次;输入框不再各挂占位文案(噪音清零)", async () => {
+    renderOps();
+    goSubTab("Settings");
+    fireEvent.change(await screen.findByRole("searchbox", { name: /search providers/i }), {
+      target: { value: "o" },
+    });
+    const zai = screen.getByLabelText("zai-coding-cn") as HTMLInputElement;
+    const fake = screen.getByLabelText("fake-prov") as HTMLInputElement;
+    expect(zai.placeholder).toBe("");
+    expect(fake.placeholder).toBe("");
+    expect(screen.getAllByText(/write-only/i)).toHaveLength(1);
+  });
+
+  it("API 密钥搜索清除钮:输入后在场,点击清空(视觉门 2026-10-21 阻断1;type=text 无原生钮,清除走统一件)", async () => {
+    renderOps();
+    goSubTab("Settings");
+    const box = await screen.findByRole("searchbox", { name: /search providers/i });
+    // 空输入无清除钮(无动作不占位)
+    expect(screen.queryByRole("button", { name: /clear search/i })).toBeNull();
+    fireEvent.change(box, { target: { value: "o" } });
+    const clear = screen.getByRole("button", { name: /clear search/i });
+    fireEvent.click(clear);
+    expect((box as HTMLInputElement).value).toBe("");
+    expect(screen.queryByRole("button", { name: /clear search/i })).toBeNull();
+  });
+
+  it("keys 面搜索态在场 + 节标题与 keys tab 同词(样式类名不断言,视觉规走复评门)", async () => {
+    renderOps();
+    goSubTab("Settings");
+    fireEvent.change(await screen.findByRole("searchbox", { name: /search providers/i }), {
+      target: { value: "o" },
+    });
+    // 等宽通栏容器/描边面板属样式面(硬规①)——DOM 测试不断样式类名
+    // (spec #146 Testing Decisions),视觉合规由截屏复评门验证;
+    // 此处只断行为:搜索唤出的未配置家输入框在场 + 两节标题。
+    expect(await screen.findByLabelText("zai-coding-cn")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "API Keys" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Model config" })).toBeTruthy();
+  });
+
+  it("术语同词(两 locale):ops keys 节标题 = admin keys tab 词条", () => {
+    expect(en["ops.cfg.keysTitle"]).toBe(en["admin.tab.keys"]);
+    expect(zhCN["ops.cfg.keysTitle"]).toBe(zhCN["admin.tab.keys"]);
+  });
+
+  it("zh-CN:节标题纯中文(「模型配置」「API 密钥」)+「保存全部」", async () => {
+    renderWithI18n(wrapCtx({}, <OpsPage onUnauthorized={vi.fn()} />), { locale: "zh-CN" });
+    fireEvent.click(screen.getByRole("tab", { name: "设置" }));
+    expect(await screen.findByRole("heading", { name: "模型配置" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "API 密钥" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "保存全部" })).toBeTruthy();
+  });
+});
+
+// ── 视觉门 2026-10-21 同根因补收口:搜索输入统一件(另两处原生 search)──
+
+describe("OpsPage — 搜索输入统一件(视觉门同根因补收口)", () => {
+  it("驾驶舱发现轮输入:role=searchbox 保留 + 清除钮输入后在扬、点击清空", () => {
+    renderOps();
+    const box = screen.getByRole("searchbox", { name: /discover input/i });
+    // 空输入无清除钮(无动作不占位)
+    expect(screen.queryByRole("button", { name: /clear search/i })).toBeNull();
+    fireEvent.change(box, { target: { value: "threatview" } });
+    fireEvent.click(screen.getByRole("button", { name: /clear search/i }));
+    expect((box as HTMLInputElement).value).toBe("");
+    expect(screen.queryByRole("button", { name: /clear search/i })).toBeNull();
+  });
+
+  it("档案判例检索:清除钮输入后在扬、点击清空;Enter 即查行为经统一件透传不回归", async () => {
+    renderOps();
+    goSubTab("Archive");
+    const box = await screen.findByRole("searchbox", { name: /keywords/i });
+    fireEvent.change(box, { target: { value: "mirror" } });
+    fireEvent.click(screen.getByRole("button", { name: /clear search/i }));
+    expect((box as HTMLInputElement).value).toBe("");
+    // Enter 即查(onKeyDown 透传):检索词直达 listOpsPrecedents
+    fireEvent.change(box, { target: { value: "sunset" } });
+    fireEvent.keyDown(box, { key: "Enter" });
+    await waitFor(() => expect(vi.mocked(listOpsPrecedents)).toHaveBeenCalledWith("sunset"));
+  });
+});
+
 // ── 档案子 tab:判例检索/详情/导出(原 PrecedentsSection 行为搬迁)──────
 
 describe("OpsPage — archive: precedents & export", () => {
@@ -475,7 +832,9 @@ describe("OpsPage — archive: precedents & export", () => {
     vi.mocked(readOpsPrecedent).mockResolvedValue("# 判例:人裁同意\n\nfrontmatter…\n");
     renderOps();
     goSubTab("Archive");
-    const item = await screen.findByRole("button", { name: "2026-10-18-a-case.md" });
+    // #149:行含文件名日期派生相对时间 → 可访问名为「文件名 + N days ago」,
+    // 按含文件名匹配(行为断言不变:点名开全文)
+    const item = await screen.findByRole("button", { name: /2026-10-18-a-case\.md/ });
     fireEvent.click(item);
     expect(vi.mocked(readOpsPrecedent)).toHaveBeenCalledWith("2026-10-18-a-case.md");
     expect(await screen.findByText(/# 判例:人裁同意/)).toBeTruthy();

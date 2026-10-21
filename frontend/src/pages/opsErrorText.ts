@@ -30,3 +30,33 @@ export function roundErrorText(
   if (message) text = text ? `${text}: ${message}` : message;
   return text;
 }
+
+// 票 #148:失败 message 人话化短语(驾驶舱单卡「上一轮结果」主行)。覆盖面 =
+// 已观测的模型面信封形状(agent.mjs model_face:stopReason=error:NNN + 嵌入
+// JSON {code,message};zai 401 令牌过期 / 1113 余额不足)。HTTP 码优先归类,
+// 无码时 message 关键词归类(短语不带括号码,不伪造);无可判 → null,调用方
+// 回 roundErrorText 可读面 + 原始信封折叠(证据不灭失,不猜)。
+export function humanizeRoundMessage(
+  raw: string | null | undefined,
+): { key: string; vars?: Record<string, string | number> } | null {
+  if (!raw) return null;
+  const code = raw.match(/(?:stopReason=error:|"code"\s*:\s*"?)(\d{3,4})/)?.[1];
+  const jsonMsg = raw.match(/"message"\s*:\s*"([^"]*)"/)?.[1] ?? "";
+  const hay = `${raw} ${jsonMsg}`;
+  const kw =
+    /令牌|token|expired|unauthorized|过期|认证|鉴权/i.test(hay) ? "upstreamAuth"
+    : /余额不足|insufficient (?:balance|quota)|欠费/i.test(hay) ? "upstreamBalance"
+    : /rate.?limit|too many requests|限流/i.test(hay) ? "upstreamRate"
+    : null;
+  const cls = code
+    ? code === "401" ? "upstreamAuth"
+      : code === "402" ? "upstreamBalance"
+      : code === "429" ? "upstreamRate"
+      : code.startsWith("5") ? "upstreamServer"
+      : kw ?? "upstreamOther"
+    : kw;
+  if (!cls) return null;
+  return code
+    ? { key: `ops.err.human.${cls}Code`, vars: { code } }
+    : { key: `ops.err.human.${cls}` };
+}
