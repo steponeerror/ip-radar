@@ -7,7 +7,7 @@ import {
 } from "../api";
 import { opsErrorText, roundErrorText, humanizeRoundMessage } from "./opsErrorText";
 import { ledgerRows, splitUsage, pkgMatchesRow, type LedgerRow } from "./opsLedger";
-import { LEDGER_COL_KEYS, PAST_EXTRA_COL_KEYS, relTime, noteText } from "./opsTable";
+import { LEDGER_COL_KEYS, PAST_EXTRA_COL_KEYS, relTime, noteText, thClass, tdNumClass } from "./opsTable";
 import { SectionHead } from "./OpsSectionHead";
 
 // OpsCockpit.tsx — 驾驶舱(GLOSSARY 词条「驾驶舱」锚点;票 #142 起)。
@@ -63,11 +63,7 @@ function ledgerCardRow(cells: LedgerRow): LedgerSummary {
   return { kind: "ledger", cells, usage, cost };
 }
 
-// 统一件数字列(用量/成本右对齐,硬规②;类名于两表同施加)
-const NUMERIC_COLS = new Set(["usage", "cost"]);
-const thClass = (k: string) =>
-  `px-3 py-1.5 font-medium${NUMERIC_COLS.has(k) ? " text-right" : ""}`;
-const tdNumClass = "px-3 py-1.5 text-right";
+// 统一件表格类已收编 opsTable.ts(#149:两表同一处施加,防右对齐漂移)
 
 export function OpsCockpit({ onGoRulings, onUnauthorized }: {
   onGoRulings: () => void;

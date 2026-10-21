@@ -11,7 +11,7 @@ import OpsPackagesSection from "./OpsPackagesSection";
 import { OpsCockpit, OpsPastRounds } from "./OpsCockpit";
 import { SectionHead } from "./OpsSectionHead";
 import { ledgerRows, splitUsage } from "./opsLedger";
-import { LEDGER_COL_KEYS, relTime, noteText } from "./opsTable";
+import { LEDGER_COL_KEYS, relTime, noteText, precDate, thClass, tdNumClass } from "./opsTable";
 import { opsErrorText } from "./opsErrorText";
 
 // P4 admin 第四 tab「运营」(票 #136):①轮次触发 ②裁决包区(OpsPackagesSection)
@@ -287,7 +287,8 @@ function LedgerSection({ onUnauthorized }: { onUnauthorized: () => void }) {
 
   return (
     <section aria-label={t("ops.ledger.title")}>
-      <SectionHead title={t("ops.ledger.title")}>
+      {/* 票 #149:节头计数(台账 N 行;空表不谎报) */}
+      <SectionHead title={t("ops.ledger.title")} count={rows.length}>
         {/* 裸文字链接 → 描边按钮(票 #147;硬规④次级动作一律描边) */}
         <button
           type="button"
@@ -304,18 +305,15 @@ function LedgerSection({ onUnauthorized }: { onUnauthorized: () => void }) {
       )}
       {rows.length > 0 && (
         <div className="mt-3 max-h-72 overflow-auto rounded-md border border-zinc-800">
-          {/* 票 #148:台账表走表格统一件——ops.col.* 中文列名(与轮次表同集,
+          {/* 票 #148:台账表走表格统一件——ops.col.* 中文列名(与轮次表同集，
               T4 冻结表头不再入 DOM)+ 用量/成本右对齐 + 相对时间 title +
-              备注人话化(title 留原文,证据不灭失) */}
+              备注人话化(title 留原文,证据不灭失)。#149:类件收编 opsTable
+              (thClass/tdNumClass),与轮次表同源不漂移 */}
           <table className="w-full text-left text-xs">
             <thead className="sticky top-0 bg-zinc-900 font-mono text-[11px] text-zinc-500">
               <tr>
                 {LEDGER_COL_KEYS.map((k) => (
-                  <th
-                    key={k}
-                    scope="col"
-                    className={`px-3 py-1.5 font-medium${k === "usage" || k === "cost" ? " text-right" : ""}`}
-                  >
+                  <th key={k} scope="col" className={thClass(k)}>
                     {t(`ops.col.${k}`)}
                   </th>
                 ))}
@@ -332,8 +330,8 @@ function LedgerSection({ onUnauthorized }: { onUnauthorized: () => void }) {
                     <td className="px-3 py-1.5" title={rt.title}>{t(rt.key, rt.vars)}</td>
                     <td className="px-3 py-1.5">{cells[1]}</td>
                     <td className="px-3 py-1.5">{cells[2]}</td>
-                    <td className="px-3 py-1.5 text-right">{usage}</td>
-                    <td className="px-3 py-1.5 text-right">{cost ?? "—"}</td>
+                    <td className={tdNumClass}>{usage}</td>
+                    <td className={tdNumClass}>{cost ?? "—"}</td>
                     <td className="px-3 py-1.5" title={note || undefined}>
                       {humanNote ?? note ?? "—"}
                     </td>
@@ -342,6 +340,12 @@ function LedgerSection({ onUnauthorized }: { onUnauthorized: () => void }) {
               })}
             </tbody>
           </table>
+        </div>
+      )}
+      {/* 票 #149:空台账显基准「暂无」式居中空态(硬规⑥),不留纯空白 */}
+      {text != null && rows.length === 0 && !error && (
+        <div className="mt-3 rounded-md border border-zinc-800">
+          <p className="px-3 py-6 text-center text-xs text-zinc-500">{t("ops.ledger.empty")}</p>
         </div>
       )}
     </section>
@@ -357,6 +361,8 @@ function PrecedentsSection({ onUnauthorized }: { onUnauthorized: () => void }) {
   const [precName, setPrecName] = useState<string | null>(null);
   const [precText, setPrecText] = useState<string | null>(null);
   const [precError, setPrecError] = useState<string | null>(null);
+  // 相对时间基准 = 列表抵达时刻(#149;Date.now 不入 render,同台账纪律)
+  const [now, setNow] = useState(0);
 
   const failWith = (set: (s: string) => void, fallback: string) => (e: unknown) => {
     if ((e as ApiError).status === 401) { onUnauthorized(); return; }
@@ -367,6 +373,7 @@ function PrecedentsSection({ onUnauthorized }: { onUnauthorized: () => void }) {
     setListError(null);
     try {
       setNames(await listOpsPrecedents(q));
+      setNow(Date.now());
     } catch (e) {
       failWith(setListError, t("ops.prec.loadFailed"))(e);
     }
@@ -401,7 +408,8 @@ function PrecedentsSection({ onUnauthorized }: { onUnauthorized: () => void }) {
 
   return (
     <section aria-label={t("ops.prec.title")} className="mt-8">
-      <SectionHead title={t("ops.prec.title")}>
+      {/* 票 #149:节头计数(判例 N 篇;空库不谎报) */}
+      <SectionHead title={t("ops.prec.title")} count={names?.length ?? null}>
         <button
           type="button"
           onClick={onExport}
@@ -433,22 +441,41 @@ function PrecedentsSection({ onUnauthorized }: { onUnauthorized: () => void }) {
           {listError}
         </p>
       )}
+      {/* 票 #149:空库显基准「暂无」式居中空态(硬规⑥) */}
       {names != null && names.length === 0 && !listError && (
-        <p className="mt-3 text-sm text-zinc-500">{t("ops.prec.empty")}</p>
+        <div className="mt-3 rounded-md border border-zinc-800">
+          <p className="px-3 py-6 text-center text-xs text-zinc-500">{t("ops.prec.empty")}</p>
+        </div>
       )}
       {names != null && names.length > 0 && (
         <ul className="mt-3 max-h-72 divide-y divide-zinc-800 overflow-auto rounded-md border border-zinc-800">
-          {names.map((n) => (
-            <li key={n}>
-              <button
-                type="button"
-                onClick={() => openPrecedent(n)}
-                className="w-full px-3 py-1.5 text-left font-mono text-xs text-emerald-400 transition-colors hover:bg-zinc-900"
-              >
-                {n}
-              </button>
-            </li>
-          ))}
+          {/* 票 #149:行元数据 = 文件名日期派生相对时间(title=日期原文,
+              证据不灭失);大小无源(API 仅文件名)零后端红线下降级不显;
+              无日期前缀名不显时间(宁少算不猜)。密度向源管理列表看齐
+              (px-4 py-2.5,文件名 text-sm) */}
+          {names.map((n) => {
+            const d = precDate(n);
+            const rt = d ? relTime(d, now) : null;
+            return (
+              <li key={n}>
+                <button
+                  type="button"
+                  onClick={() => openPrecedent(n)}
+                  className="flex w-full items-baseline gap-x-3 px-4 py-2.5 text-left transition-colors hover:bg-zinc-900"
+                >
+                  <span className="font-mono text-sm text-emerald-400">{n}</span>
+                  {rt && (
+                    <span
+                      className="ml-auto whitespace-nowrap font-mono text-xs text-zinc-500"
+                      title={rt.title}
+                    >
+                      {t(rt.key, rt.vars)}
+                    </span>
+                  )}
+                </button>
+              </li>
+            );
+          })}
         </ul>
       )}
       {exportError && (
@@ -546,6 +573,10 @@ export default function OpsPage({ onUnauthorized }: { onUnauthorized: () => void
         )}
         {subTab === "archive" && (
           <>
+            {/* 票 #149:「(只读)」限定词移出节标题(标题收尾),档案面只读
+                声明入一行副注——两节共享一次,不逐节重复(反噪音纪律,
+                同 #150 占位说明只现一次) */}
+            <p className="text-[11px] text-zinc-500">{t("ops.archive.note")}</p>
             <LedgerSection onUnauthorized={onUnauthorized} />
             <PrecedentsSection onUnauthorized={onUnauthorized} />
           </>
