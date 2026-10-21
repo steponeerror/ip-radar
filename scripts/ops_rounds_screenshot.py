@@ -54,11 +54,15 @@ def handle_api(route):
     if path == "/events":
         return route.fulfill(content_type="text/event-stream", body="")
     if path == "/ops/ledger":
-        return route.fulfill(content_type="text/markdown", body=LEDGER)
+        # 出参形状 = OpsFileTextOut({text});#149 修:裸 markdown 不是合法 JSON,
+        # 前端 jsonOrThrow 解析即抛 → 旧版截屏实际渲染错误态而非表
+        return route.fulfill(content_type="application/json", body=json.dumps({"text": LEDGER}))
     if path == "/ops/packages":
-        return route.fulfill(content_type="application/json", body=json.dumps(PKGS))
+        # 出参形状 = OpsPackagesOut({packages});#149 修:裸数组同上
+        return route.fulfill(content_type="application/json", body=json.dumps({"packages": PKGS}))
     if path == "/ops/precedents":
-        return route.fulfill(content_type="application/json", body=json.dumps(["2026-10-19-ustc-myip-incremental-queue-signoff.md"]))
+        # 出参形状 = OpsPrecedentsOut({precedents});#149 修
+        return route.fulfill(content_type="application/json", body=json.dumps({"precedents": ["2026-10-19-ustc-myip-incremental-queue-signoff.md"]}))
     if path == "/version":
         return route.fulfill(content_type="application/json", body=json.dumps(VERSION))
     # 默认壳层(SourcesPage 默认 tab)最小合法形状:空表/空列,防 React 树崩
