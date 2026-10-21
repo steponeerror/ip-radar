@@ -266,11 +266,14 @@ function LedgerSection({ onUnauthorized }: { onUnauthorized: () => void }) {
   const { t } = useI18n();
   const [text, setText] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // 相对时间基准 = 台账抵达时刻(Date.now 不入 render,同已耗时纪律)
+  const [now, setNow] = useState(0);
 
   const load = useCallback(async () => {
     setError(null);
     try {
       setText(await readOpsLedger());
+      setNow(Date.now());
     } catch (e) {
       if ((e as ApiError).status === 401) { onUnauthorized(); return; }
       setError(opsErrorText(t, e, t("ops.ledger.loadFailed")));
@@ -321,7 +324,7 @@ function LedgerSection({ onUnauthorized }: { onUnauthorized: () => void }) {
             <tbody className="divide-y divide-zinc-800/60 font-mono text-zinc-400">
               {rows.map((cells, r) => {
                 const { usage, cost } = splitUsage(cells[3] ?? "");
-                const rt = relTime(cells[0] ?? "", Date.now());
+                const rt = relTime(cells[0] ?? "", now);
                 const note = cells[4] ?? "";
                 const humanNote = noteText(t, note);
                 return (

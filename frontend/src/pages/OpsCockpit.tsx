@@ -322,6 +322,9 @@ export function OpsPastRounds({ onGoRulings, onUnauthorized }: {
   const [text, setText] = useState<string | null>(null);
   const [packages, setPackages] = useState<OpsPackageInfo[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // 相对时间基准 = 数据抵达时刻(Date.now 不入 render,同已耗时纪律);行
+  // 渲染晚于两回调置位,不闪初值
+  const [now, setNow] = useState(0);
 
   const failWith = (fallback: string) => (e: unknown) => {
     if ((e as ApiError).status === 401) { onUnauthorized(); return; }
@@ -329,8 +332,8 @@ export function OpsPastRounds({ onGoRulings, onUnauthorized }: {
   };
 
   useEffect(() => {
-    readOpsLedger().then(setText).catch(failWith(t("ops.ledger.loadFailed")));
-    listOpsPackages().then(setPackages).catch(() => { /* 包列缺不阻台账面 */ });
+    readOpsLedger().then((v) => { setText(v); setNow(Date.now()); }).catch(failWith(t("ops.ledger.loadFailed")));
+    listOpsPackages().then((v) => { setPackages(v); setNow(Date.now()); }).catch(() => { /* 包列缺不阻台账面 */ });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -392,7 +395,7 @@ export function OpsPastRounds({ onGoRulings, onUnauthorized }: {
             </thead>
             <tbody className="divide-y divide-zinc-800/60 font-mono text-zinc-400">
               {orphans.map((p) => {
-                const rt = relTime(p.modified, Date.now());
+                const rt = relTime(p.modified, now);
                 return (
                   <tr key={p.name}>
                     <td className="px-3 py-1.5" title={rt.title}>{t(rt.key, rt.vars)}</td>
@@ -412,7 +415,7 @@ export function OpsPastRounds({ onGoRulings, onUnauthorized }: {
               })}
               {rowsWithPkgs.map(({ cells, pkgs: hit }, r) => {
                 const { usage, cost } = splitUsage(cells[3] ?? "");
-                const rt = relTime(cells[0] ?? "", Date.now());
+                const rt = relTime(cells[0] ?? "", now);
                 const note = cells[4] ?? "";
                 const humanNote = noteText(t, note);
                 const res = resultFor(cells);
