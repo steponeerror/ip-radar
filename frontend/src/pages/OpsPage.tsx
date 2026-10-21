@@ -23,11 +23,18 @@ import { opsErrorText } from "./opsErrorText";
 // 判例,只读审计面)/设置(#140 配置)。票 #148:轮次 tab = 驾驶舱单卡
 // (触发入卡,OpsCockpit)+ 过往轮次表;原独立「轮次」触发节撤除。
 
-// 票 #140「agent 配置」子区(票 #142 起驻「设置」子 tab;票 #143 多供应商):
-// 两轮次 {provider, model} 双下拉(目录由后端 GET catalog 驱动,单一真相源;
-// 缺 key 的 provider 在下拉内标「需先填 key」——零硬闸只标注不阻断,ADR 0005
-// 裁③)+ 模型行参考成本提示(cost 来自目录数据,无价即隐)+ 逐 provider key
-// write-only 输入(状态只显 configured+tail4,永不回填;保存成功后清空)。
+// 票 #140「agent 配置」子区(票 #142 起驻「设置」子 tab;票 #143 多供应商;
+// 票 #150 视觉修约):两轮次 {provider, model} 双下拉(目录由后端 GET catalog
+// 驱动,单一真相源;缺 key 的 provider 在下拉内标「需先填 key」——零硬闸只
+// 标注不阻断,ADR 0005 裁③)+ 模型行参考成本提示(cost 来自目录数据,无价
+// 即隐)+ 逐 provider key write-only 输入(状态只显 configured+tail4,永不
+// 回填;保存成功后清空)。
+// 票 #150:①四字段同一基线容器(items-start 网格,标签在上/控件在下/帮助行
+// 在控件下方——成本行不再抬高标签);②「保存全部」上移节头(节级主操作,
+// 实心非描边;一行说明明示单次 PUT 同交模型与 key,契约不变);③API 密钥面
+// = 搜索 + 已配置置顶(默认仅已配置家,其余按搜索唤出)+「只写不回显」说明
+// 仅节头一次 + 网格入等宽通栏容器(硬规①,与全站内容列对齐);④术语对齐
+// 全站词汇(「API 密钥」与 keys tab 同词;节标题纯中文)。
 // 改完即生效由后端每次 spawn 现读保证;catalog_source=fallback 显式提示
 // (不伪装动态)。
 function ConfigSection({ onUnauthorized }: { onUnauthorized: () => void }) {
@@ -36,6 +43,7 @@ function ConfigSection({ onUnauthorized }: { onUnauthorized: () => void }) {
   const [modelHealth, setModelHealth] = useState("");
   const [modelDiscover, setModelDiscover] = useState("");
   const [keyInputs, setKeyInputs] = useState<Record<string, string>>({});
+  const [keySearch, setKeySearch] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -86,34 +94,30 @@ function ConfigSection({ onUnauthorized }: { onUnauthorized: () => void }) {
       .finally(() => setBusy(false));
   };
 
-  // 轮次双下拉(渲染助手非组件,避免重挂我):现值 qualified 拆
-  // {provider, model};provider 切换级联模型落该家首项;现值家/型不在目录
-  // (如兜底闭集期存了别家)时补现值选项防空选。
-  const renderRound = (kind: "health" | "discover") => {
+  // 表单字段(渲染助手非组件,避免重挂我):#150 四字段同入一个 items-start
+  // 网格——单一基线,标签在上/控件在下/帮助行(成本)在控件下方;现值
+  // qualified 拆 {provider, model};provider 切换级联模型落该家首项;现值家/型
+  // 不在目录(如兜底闭集期存了别家)时补现值选项防空选。
+  const renderSelect = (kind: "health" | "discover", part: "provider" | "model") => {
     if (!cfg) return null;
     const value = kind === "health" ? modelHealth : modelDiscover;
     const onChange = kind === "health" ? setModelHealth : setModelDiscover;
     const slash = value.indexOf("/");
     const pid = slash >= 0 ? value.slice(0, slash) : "";
     const mid = slash >= 0 ? value.slice(slash + 1) : value;
-    const inCatalog = (p: string) => Object.prototype.hasOwnProperty.call(cfg.catalog, p);
-    const providers = pid && !inCatalog(pid)
-      ? [...Object.keys(cfg.catalog), pid] : Object.keys(cfg.catalog);
-    const rawEntries = cfg.catalog[pid] ?? [];
-    const entries = rawEntries.some((e) => e.id === mid)
-      ? rawEntries : [{ id: mid, name: mid, cost: null }, ...rawEntries];
-    const cost = entries.find((e) => e.id === mid)?.cost;
-    const showCost = cost && cost.input != null && cost.output != null;
-    const needsKey = (p: string) => !cfg.api_keys[p]?.configured;
-    return (
-      <div key={kind} className="flex flex-wrap items-end gap-2">
-        <label className="flex flex-col gap-1 text-xs text-zinc-400">
+    if (part === "provider") {
+      const inCatalog = (p: string) => Object.prototype.hasOwnProperty.call(cfg.catalog, p);
+      const providers = pid && !inCatalog(pid)
+        ? [...Object.keys(cfg.catalog), pid] : Object.keys(cfg.catalog);
+      const needsKey = (p: string) => !cfg.api_keys[p]?.configured;
+      return (
+        <label key={`${kind}-provider`} className="flex flex-col gap-1 text-xs text-zinc-400">
           {kind === "health" ? t("ops.cfg.providerHealth") : t("ops.cfg.providerDiscover")}
           <select
             value={pid}
             onChange={(e) => {
               const next = e.target.value;
-              const nextEntries = cfg.catalog[next] ?? entries;
+              const nextEntries = cfg.catalog[next] ?? [];
               onChange(`${next}/${nextEntries[0]?.id ?? mid}`); // 级联落首家
             }}
             className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-1.5 font-mono text-xs text-zinc-200 focus:border-emerald-600 focus:outline-none"
@@ -125,25 +129,33 @@ function ConfigSection({ onUnauthorized }: { onUnauthorized: () => void }) {
             ))}
           </select>
         </label>
-        <label className="flex flex-col gap-1 text-xs text-zinc-400">
-          {kind === "health" ? t("ops.cfg.modelHealth") : t("ops.cfg.modelDiscover")}
-          <select
-            value={mid}
-            onChange={(e) => onChange(`${pid}/${e.target.value}`)}
-            className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-1.5 font-mono text-xs text-zinc-200 focus:border-emerald-600 focus:outline-none"
-          >
-            {entries.map((m) => <option key={m.id} value={m.id}>{m.id}</option>)}
-          </select>
-          {showCost && (
-            <span className="text-[11px] text-zinc-500">
-              {t("ops.cfg.costHint", {
-                input: String(cost!.input),
-                output: String(cost!.output),
-              })}
-            </span>
-          )}
-        </label>
-      </div>
+      );
+    }
+    const rawEntries = cfg.catalog[pid] ?? [];
+    const entries = rawEntries.some((e) => e.id === mid)
+      ? rawEntries : [{ id: mid, name: mid, cost: null }, ...rawEntries];
+    const cost = entries.find((e) => e.id === mid)?.cost;
+    const showCost = cost && cost.input != null && cost.output != null;
+    return (
+      <label key={`${kind}-model`} className="flex flex-col gap-1 text-xs text-zinc-400">
+        {kind === "health" ? t("ops.cfg.modelHealth") : t("ops.cfg.modelDiscover")}
+        <select
+          value={mid}
+          onChange={(e) => onChange(`${pid}/${e.target.value}`)}
+          className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-1.5 font-mono text-xs text-zinc-200 focus:border-emerald-600 focus:outline-none"
+        >
+          {entries.map((m) => <option key={m.id} value={m.id}>{m.id}</option>)}
+        </select>
+        {/* 帮助行在控件下方(基准表单节奏);不抬任何标签基线 */}
+        {showCost && (
+          <span className="text-[11px] text-zinc-500">
+            {t("ops.cfg.costHint", {
+              input: String(cost!.input),
+              output: String(cost!.output),
+            })}
+          </span>
+        )}
+      </label>
     );
   };
 
@@ -152,71 +164,104 @@ function ConfigSection({ onUnauthorized }: { onUnauthorized: () => void }) {
     ? [...new Set([...Object.keys(cfg.catalog), ...Object.keys(cfg.api_keys)])]
     : [];
 
+  // #150 已配置置顶 + 搜索唤出:默认仅列已配置家(配 1 家 key 不用滚过 40 格,
+  // spec #146 user story 12/13);搜索词命中时唤出其余,过滤后仍已配置在前
+  // (稳定排序保目录序);无匹配/零配置显「暂无」式空态(硬规⑥)。
+  const q = keySearch.trim().toLowerCase();
+  const visibleKeys = q
+    ? keyProviders
+        .filter((p) => p.toLowerCase().includes(q))
+        .sort((a, b) =>
+          Number(cfg?.api_keys[b]?.configured ?? false) - Number(cfg?.api_keys[a]?.configured ?? false))
+    : keyProviders.filter((p) => cfg?.api_keys[p]?.configured);
+
   return (
     <section aria-label={t("ops.cfg.title")}>
-      {/* 票 #147 节头行规范;设置面重做(基线/保存全部/key 搜索)归 #150 */}
-      <SectionHead title={t("ops.cfg.title")} />
+      {/* 票 #147 节头行规范;#150:「保存全部」上移节头 = 节级主操作(实心,
+          主操作非次级不描边——硬规④辖次级动作),一行说明明示提交面。 */}
+      <SectionHead title={t("ops.cfg.title")}>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={save}
+          className="rounded-md bg-emerald-500 px-4 py-1.5 text-xs font-semibold text-zinc-950 transition-transform hover:scale-[1.02] disabled:opacity-40"
+        >
+          {t("ops.cfg.saveAll")}
+        </button>
+      </SectionHead>
+      <p className="mt-1 text-[11px] text-zinc-500">{t("ops.cfg.saveAllNote")}</p>
+      {saved && (
+        <p className="mt-1 text-xs text-emerald-400">{t("ops.cfg.saved")}</p>
+      )}
       {error && (
         <p role="alert" className="mt-3 rounded-md border border-red-400/30 bg-red-400/10 px-3 py-2 text-xs text-red-400">
           {error}
         </p>
       )}
       {cfg && (
-        <div className="mt-3 flex flex-col gap-3">
+        <>
           {cfg.catalog_source === "fallback" && (
-            <p className="text-[11px] text-amber-400/90">{t("ops.cfg.fallbackNote")}</p>
+            <p className="mt-3 text-[11px] text-amber-400/90">{t("ops.cfg.fallbackNote")}</p>
           )}
-          <div className="flex flex-wrap items-end gap-4">
-            {renderRound("health")}
-            {renderRound("discover")}
-            <button
-              type="button"
-              disabled={busy}
-              onClick={save}
-              className="rounded-md bg-emerald-500 px-4 py-1.5 text-xs font-semibold text-zinc-950 transition-transform hover:scale-[1.02] disabled:opacity-40"
-            >
-              {t("ops.cfg.save")}
-            </button>
+          {/* #150 单一基线容器:四字段 items-start 网格(窄屏两列成对,
+              lg 一行四列),成本帮助行只下延不抬标签——四标签同一基线 */}
+          <div className="mt-3 grid grid-cols-2 items-start gap-x-4 gap-y-3 lg:grid-cols-4">
+            {renderSelect("health", "provider")}
+            {renderSelect("health", "model")}
+            {renderSelect("discover", "provider")}
+            {renderSelect("discover", "model")}
           </div>
-          <div>
-            <h3 className="text-xs font-semibold tracking-wide text-zinc-400 uppercase">
-              {t("ops.cfg.keysTitle")}
-            </h3>
-            <div className="mt-2 flex flex-wrap items-start gap-4">
-              {keyProviders.map((pid) => {
-                const st = cfg.api_keys[pid];
-                return (
-                  <label key={pid} className="flex flex-col gap-1 text-xs text-zinc-400">
-                    <span className="font-mono">{pid}</span>
-                    <input
-                      type="password"
-                      autoComplete="off"
-                      aria-label={pid}
-                      placeholder={t("ops.cfg.keyPlaceholder")}
-                      value={keyInputs[pid] ?? ""}
-                      onChange={(e) =>
-                        setKeyInputs((v) => ({ ...v, [pid]: e.target.value }))}
-                      className="min-w-56 rounded-md border border-zinc-700 bg-zinc-950 px-3 py-1.5 font-mono text-xs text-zinc-200 focus:border-emerald-600 focus:outline-none"
-                    />
-                    <span className="text-[11px] text-zinc-500">
-                      {st?.configured
-                        ? t("ops.cfg.keyConfigured", { tail4: st.tail4 ?? "" })
-                        : t("ops.cfg.keyMissing")}
-                    </span>
-                  </label>
-                );
-              })}
+          <section aria-label={t("ops.cfg.keysTitle")} className="mt-8">
+            <SectionHead title={t("ops.cfg.keysTitle")} />
+            <input
+              type="search"
+              aria-label={t("ops.cfg.keySearch")}
+              placeholder={t("ops.cfg.keySearch")}
+              value={keySearch}
+              onChange={(e) => setKeySearch(e.target.value)}
+              className="mt-3 w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-1.5 text-xs text-zinc-200 focus:border-emerald-600 focus:outline-none"
+            />
+            {/* 「只写不回显」说明仅此一次(#150):替代旧 41 格逐格占位噪音 */}
+            <p className="mt-2 text-[11px] text-zinc-500">{t("ops.cfg.keysNote")}</p>
+            {/* 等宽通栏容器(硬规①):网格填满内容列,不再裸奔页面背景 */}
+            <div className="mt-3 overflow-hidden rounded-md border border-zinc-800">
+              {visibleKeys.length > 0 ? (
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(13rem,1fr))] gap-px bg-zinc-800">
+                  {visibleKeys.map((pid) => {
+                    const st = cfg.api_keys[pid];
+                    return (
+                      <label key={pid} className="flex flex-col gap-1 bg-zinc-950 p-3 text-xs text-zinc-400">
+                        <span className="font-mono">{pid}</span>
+                        <input
+                          type="password"
+                          autoComplete="off"
+                          aria-label={pid}
+                          value={keyInputs[pid] ?? ""}
+                          onChange={(e) =>
+                            setKeyInputs((v) => ({ ...v, [pid]: e.target.value }))}
+                          className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-1.5 font-mono text-xs text-zinc-200 focus:border-emerald-600 focus:outline-none"
+                        />
+                        <span className="text-[11px] text-zinc-500">
+                          {st?.configured
+                            ? t("ops.cfg.keyConfigured", { tail4: st.tail4 ?? "" })
+                            : t("ops.cfg.keyMissing")}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="px-3 py-6 text-center text-xs text-zinc-500">
+                  {q ? t("ops.cfg.keysNoMatch") : t("ops.cfg.keysEmpty")}
+                </p>
+              )}
             </div>
-          </div>
-        </div>
-      )}
-      {saved && (
-        <p className="mt-2 text-xs text-emerald-400">{t("ops.cfg.saved")}</p>
+          </section>
+        </>
       )}
     </section>
   );
 }
-
 function LedgerSection({ onUnauthorized }: { onUnauthorized: () => void }) {
   const { t } = useI18n();
   const [text, setText] = useState<string | null>(null);
