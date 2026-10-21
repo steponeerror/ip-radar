@@ -1,14 +1,15 @@
 import type { ReactNode } from "react";
 
 // OpsSectionHead.tsx — 节头行规范(票 #147,spec #146)。运营面全部节的头行 =
-// 标题(+计数,有数据时)+ 次级动作(描边按钮)同排;基准范式 = 源管理页
+// 标题(+计数,有数据时)+ 右排动作同排;基准范式 = 源管理页
 // 「数据源(60) | 全部刷新」。次级动作一律描边按钮(硬规④),裸文字链接
-// 动作清零;计数只显非零——空表不谎报数量。台账/判例/裁决包三节计数与空态
+// 动作清零;节级主操作(如 #150「保存全部」)可实心——硬规④辖次级动作。
+// 计数只显非零——空表不谎报数量。台账/判例/裁决包三节计数与空态
 // 由 #149 在此组件上补齐。
 export function SectionHead({ title, count, children }: {
   title: string;
   count?: number | null;
-  children?: ReactNode; // 右排次级动作(描边按钮)
+  children?: ReactNode; // 右排动作(描边次级为主;节级主操作可实心)
 }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-3">

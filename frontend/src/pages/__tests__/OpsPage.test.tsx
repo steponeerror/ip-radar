@@ -9,6 +9,8 @@ import {
   startOpsRound, readOpsLedger, listOpsPrecedents, readOpsPrecedent, exportOpsPrecedents,
   getOpsAgentConfig, putOpsAgentConfig, listOpsPackages,
 } from "../../api";
+import en from "../../i18n/locales/en.json";
+import zhCN from "../../i18n/locales/zh-CN.json";
 
 // P4 admin 第四 tab「运营」(票 #136):渲染面 + 轮次触发 + 台账/判例只读 +
 // 导出 + 错误信封可读呈现(不裸抛 code)。裁决包区交互面见
@@ -117,7 +119,7 @@ describe("OpsPage — 子 tab 重组(票 #142)", () => {
     expect(screen.getByRole("columnheader", { name: "轮次" })).toBeTruthy();
   });
 
-  it("切「设置」→ agent 配置面(#140 ConfigSection 移入,票 #143 多供应商形状)", async () => {
+  it("切「设置」→ 配置面(#140 ConfigSection 移入,票 #143 多供应商形状;#150 保存全部)", async () => {
     vi.mocked(getOpsAgentConfig).mockResolvedValue({
       model_health: "zai-coding-cn/glm-5.3", model_discover: "zai-coding-cn/glm-5.3",
       api_keys: {},
@@ -127,7 +129,7 @@ describe("OpsPage — 子 tab 重组(票 #142)", () => {
     renderOps();
     goSubTab("Settings");
     expect(await screen.findByRole("combobox", { name: /health-round model/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Save" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Save all" })).toBeTruthy();
   });
 
   it("裁⑦ 仅立项横幅恒挂(子 tab 重组不撤横幅)", () => {
@@ -432,7 +434,7 @@ describe("OpsPage — agent config section (票 #143,「设置」子 tab)", () =
     expect([...health.querySelectorAll("option")].map((o) => o.value))
       .toEqual(["fake-7b", "glm-5.3"]); // 跨家同名模型按 provider 作用域
     expect((health as HTMLSelectElement).value).toBe("fake-7b"); // 级联落首家
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save all" }));
     await waitFor(() => expect(vi.mocked(putOpsAgentConfig)).toHaveBeenCalledWith({
       model_health: "fake-prov/fake-7b",
       model_discover: "zai-coding-cn/glm-5.3",
@@ -447,7 +449,11 @@ describe("OpsPage — agent config section (票 #143,「设置」子 tab)", () =
     expect(fakeOpt?.textContent).toMatch(/needs key first/i);
     const zaiOpt = [...provider.querySelectorAll("option")].find((o) => o.value === "zai-coding-cn");
     expect(zaiOpt?.textContent).not.toMatch(/needs key first/i);
-    // 逐家 key 面同帧可见:未配置家显「No key configured」(现值不回填)
+    // #150 key 面:默认仅已配置家;未配置家按搜索唤出后显「No key configured」
+    expect(screen.queryByLabelText("fake-prov")).toBeNull();
+    fireEvent.change(screen.getByRole("searchbox", { name: /search providers/i }), {
+      target: { value: "fake" },
+    });
     expect(await screen.findByText(/No key configured/i)).toBeTruthy();
   });
 
@@ -473,8 +479,12 @@ describe("OpsPage — agent config section (票 #143,「设置」子 tab)", () =
     });
     renderOps();
     goSubTab("Settings");
+    // #150:未配置家默认不渲染,搜索唤出后可填
+    fireEvent.change(await screen.findByRole("searchbox", { name: /search providers/i }), {
+      target: { value: "fake" },
+    });
     fireEvent.change(await screen.findByLabelText("fake-prov"), { target: { value: "sk-ant-4321" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save all" }));
     await waitFor(() => expect(vi.mocked(putOpsAgentConfig)).toHaveBeenCalledWith({
       model_health: "zai-coding-cn/glm-5.3-flash",
       model_discover: "zai-coding-cn/glm-5.3",
@@ -492,7 +502,7 @@ describe("OpsPage — agent config section (票 #143,「设置」子 tab)", () =
     fireEvent.change(await screen.findByRole("combobox", { name: /discover-round model/i }), {
       target: { value: "glm-5.3-flashx" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save all" }));
     await waitFor(() => expect(vi.mocked(putOpsAgentConfig)).toHaveBeenCalledWith({
       model_health: "zai-coding-cn/glm-5.3-flash", model_discover: "zai-coding-cn/glm-5.3-flashx",
     }));
@@ -505,7 +515,7 @@ describe("OpsPage — agent config section (票 #143,「设置」子 tab)", () =
     ));
     renderOps();
     goSubTab("Settings");
-    fireEvent.click(await screen.findByRole("button", { name: "Save" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Save all" }));
     await waitFor(() => expect(screen.getByText(/未在 zai-coding-cn 装载目录内/)).toBeTruthy());
     expect(screen.queryByText(/validation_error/)).toBeNull();
   });
@@ -520,6 +530,124 @@ describe("OpsPage — agent config section (票 #143,「设置」子 tab)", () =
     renderOps();
     goSubTab("Settings");
     expect(await screen.findByText(/fell back/i)).toBeTruthy();
+  });
+});
+
+// ── 票 #150:设置子 tab 视觉修约(表单基线/保存全部/key 搜索置顶/术语)──
+
+describe("OpsPage — settings 视觉修约(票 #150)", () => {
+  beforeEach(() => {
+    vi.mocked(getOpsAgentConfig).mockResolvedValue(CFG_MOCK);
+  });
+
+  it("表单基线:四字段同属单一基线容器;成本帮助行在控件下方(纵向节奏一致)", async () => {
+    renderOps();
+    goSubTab("Settings");
+    const healthProv = await screen.findByRole("combobox", { name: /health-round provider/i });
+    const healthModel = screen.getByRole("combobox", { name: /health-round model/i });
+    const discProv = screen.getByRole("combobox", { name: /discover-round provider/i });
+    const discModel = screen.getByRole("combobox", { name: /discover-round model/i });
+    // 四控件同一基线容器(旧 renderRound=每轮各自包裹,模型组成本行抬高标签 → 两级错落)
+    const row = healthProv.closest("div");
+    expect(healthModel.closest("div")).toBe(row);
+    expect(discProv.closest("div")).toBe(row);
+    expect(discModel.closest("div")).toBe(row);
+    // 帮助行在控件下方:选中带价模型后,成本提示位于同字段 select 之后(不抬标签)
+    fireEvent.change(healthModel, { target: { value: "glm-5.3" } });
+    const hint = within(healthModel.closest("label") as HTMLElement).getByText(/Reference cost/i);
+    expect(hint.compareDocumentPosition(healthModel) & Node.DOCUMENT_POSITION_PRECEDING)
+      .toBeTruthy();
+  });
+
+  it("保存全部上移节头:与节标题同排 + 一行说明;契约不变 = 单次 PUT 同交模型与 key", async () => {
+    vi.mocked(putOpsAgentConfig).mockResolvedValue(CFG_MOCK);
+    renderOps();
+    goSubTab("Settings");
+    const saveAll = await screen.findByRole("button", { name: "Save all" });
+    // 节头行:按钮的容器行同排着节标题 h2(不再是表单下随行按钮)
+    const headRow = saveAll.closest("div")?.parentElement;
+    expect(headRow?.querySelector("h2")?.textContent).toMatch(/model config/i);
+    // 一行说明:同时提交模型与 key(单次提交)
+    expect(screen.getByText(/in one request/i)).toBeTruthy();
+    // 契约不变:填 key 后单次 PUT 同交 model_* 与 api_keys(ADR 0005 面)
+    fireEvent.change(screen.getByRole("searchbox", { name: /search providers/i }), {
+      target: { value: "fake" },
+    });
+    fireEvent.change(await screen.findByLabelText("fake-prov"), { target: { value: "sk-1" } });
+    fireEvent.click(saveAll);
+    await waitFor(() => expect(vi.mocked(putOpsAgentConfig)).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(putOpsAgentConfig)).toHaveBeenCalledWith({
+      model_health: "zai-coding-cn/glm-5.3-flash",
+      model_discover: "zai-coding-cn/glm-5.3",
+      api_keys: { "fake-prov": "sk-1" },
+    });
+  });
+
+  it("API 密钥面:默认仅已配置家;搜索唤出其余且已配置置顶;无匹配空态", async () => {
+    renderOps();
+    goSubTab("Settings");
+    // 默认:已配置家在场(现值只显尾 4),未配置家不渲染(配 1 家不滚 40 格)
+    expect(await screen.findByText(/Configured \(•••• 9988\)/)).toBeTruthy();
+    expect(screen.queryByLabelText("fake-prov")).toBeNull();
+    // 搜索唤出:命中的未配置家出现,已配置家仍置顶(文档序在前)
+    fireEvent.change(screen.getByRole("searchbox", { name: /search providers/i }), {
+      target: { value: "o" },
+    });
+    const zai = await screen.findByLabelText("zai-coding-cn");
+    const fake = screen.getByLabelText("fake-prov");
+    expect(zai.compareDocumentPosition(fake) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // 无匹配:基准「暂无」式空态(硬规⑥)
+    fireEvent.change(screen.getByRole("searchbox", { name: /search providers/i }), {
+      target: { value: "nonexistent" },
+    });
+    expect(await screen.findByText(/no matching providers/i)).toBeTruthy();
+  });
+
+  it("API 密钥面:零已配置时默认显「暂无」式空态(硬规⑥)", async () => {
+    vi.mocked(getOpsAgentConfig).mockResolvedValue({ ...CFG_MOCK, api_keys: {} });
+    renderOps();
+    goSubTab("Settings");
+    expect(await screen.findByText(/no api keys configured yet/i)).toBeTruthy();
+  });
+
+  it("「只写不回显」说明仅节头一次;输入框不再各挂占位文案(噪音清零)", async () => {
+    renderOps();
+    goSubTab("Settings");
+    fireEvent.change(await screen.findByRole("searchbox", { name: /search providers/i }), {
+      target: { value: "o" },
+    });
+    const zai = screen.getByLabelText("zai-coding-cn") as HTMLInputElement;
+    const fake = screen.getByLabelText("fake-prov") as HTMLInputElement;
+    expect(zai.placeholder).toBe("");
+    expect(fake.placeholder).toBe("");
+    expect(screen.getAllByText(/write-only/i)).toHaveLength(1);
+  });
+
+  it("keys 网格入等宽通栏容器(硬规①);节标题与 keys tab 同词", async () => {
+    renderOps();
+    goSubTab("Settings");
+    fireEvent.change(await screen.findByRole("searchbox", { name: /search providers/i }), {
+      target: { value: "o" },
+    });
+    const cell = screen.getByLabelText("zai-coding-cn");
+    const grid = cell.closest("div");
+    expect(grid?.className).toMatch(/grid-cols-\[repeat/); // 等宽列填满内容列
+    expect(grid?.parentElement?.className).toMatch(/border/); // 通栏容器面板(不再裸奔)
+    expect(screen.getByRole("heading", { name: "API Keys" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Model config" })).toBeTruthy();
+  });
+
+  it("术语同词(两 locale):ops keys 节标题 = admin keys tab 词条", () => {
+    expect(en["ops.cfg.keysTitle"]).toBe(en["admin.tab.keys"]);
+    expect(zhCN["ops.cfg.keysTitle"]).toBe(zhCN["admin.tab.keys"]);
+  });
+
+  it("zh-CN:节标题纯中文(「模型配置」「API 密钥」)+「保存全部」", async () => {
+    renderWithI18n(wrapCtx({}, <OpsPage onUnauthorized={vi.fn()} />), { locale: "zh-CN" });
+    fireEvent.click(screen.getByRole("tab", { name: "设置" }));
+    expect(await screen.findByRole("heading", { name: "模型配置" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "API 密钥" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "保存全部" })).toBeTruthy();
   });
 });
 
