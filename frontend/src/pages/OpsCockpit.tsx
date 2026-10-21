@@ -1,23 +1,28 @@
 import { useEffect, useRef, useState } from "react";
 import { useI18n } from "../i18n";
 import { useTasks } from "../tasks/useTasks";
-import { readOpsLedger, listOpsPackages, type ApiError, type OpsPackageInfo, type TaskState } from "../api";
-import { opsErrorText, roundErrorText } from "./opsErrorText";
+import {
+  startOpsRound, readOpsLedger, listOpsPackages,
+  type ApiError, type OpsPackageInfo, type OpsRoundType, type TaskState,
+} from "../api";
+import { opsErrorText, roundErrorText, humanizeRoundMessage } from "./opsErrorText";
 import { ledgerRows, splitUsage, pkgMatchesRow, type LedgerRow } from "./opsLedger";
+import { LEDGER_COL_KEYS, PAST_EXTRA_COL_KEYS, relTime, noteText } from "./opsTable";
 import { SectionHead } from "./OpsSectionHead";
 
-// OpsCockpit.tsx — 驾驶舱(GLOSSARY 词条「驾驶舱」锚点;票 #142)。
-// 轮次进行时的观察面:状态徽章/已耗时走字/最后一行活动/可折叠全量日志 +
-// 轮结束保留的「上一轮结果」摘要卡。只观察不裁决(裁决动作面在「裁决」子 tab)。
-// 数据源链:任务链内存态(tasks+logs)优先 → readOpsLedger 末行兜底;
-// 耗时无后端创建时间戳可读(任务面零改),自本页首见该轮起计——宁少算不伪造。
+// OpsCockpit.tsx — 驾驶舱(GLOSSARY 词条「驾驶舱」锚点;票 #142 起)。
+// 票 #148 单卡化:状态 chip 内联节头 + 上一轮结果(人话化错误 + 可展开原始
+// 信封,证据不灭失)+ 健康/发现触发动作,三者同卡;过往轮次表独立成节。
+// 只观察不裁决(裁决动作面在「裁决」子 tab)。数据源链:任务链内存态
+// (tasks+logs)优先 → readOpsLedger 末行兜底;耗时无后端创建时间戳可读
+// (任务面零改),自本页首见该轮起计——宁少算不伪造。
 
-const STATE_BADGE: Record<string, string> = {
-  running: "text-emerald-400 border-emerald-500/20 bg-emerald-500/5",
-  done: "text-emerald-400 border-emerald-500/20 bg-emerald-500/5",
-  failed: "text-red-400 border-red-400/30 bg-red-400/10",
-  cancelled: "text-zinc-500 border-zinc-700 bg-zinc-800/50",
-};
+// 健康轮一键的非空输入(P2 路由 422 门:input 恒非空;健康轮指令面自含于
+// prompts/health-system.md,输入仅占位——钉常量防 i18n 漂移)。
+const HEALTH_ROUND_INPUT = "health";
+
+const RUNNING_BADGE = "text-emerald-400 border-emerald-500/20 bg-emerald-500/5";
+const IDLE_BADGE = "text-zinc-400 border-zinc-700 bg-zinc-800/50";
 
 // 已耗时走字:mm:ss(不足一小时)/ h:mm:ss
 function fmtElapsed(ms: number): string {
@@ -58,6 +63,12 @@ function ledgerCardRow(cells: LedgerRow): LedgerSummary {
   return { kind: "ledger", cells, usage, cost };
 }
 
+// 统一件数字列(用量/成本右对齐,硬规②;类名于两表同施加)
+const NUMERIC_COLS = new Set(["usage", "cost"]);
+const thClass = (k: string) =>
+  `px-3 py-1.5 font-medium${NUMERIC_COLS.has(k) ? " text-right" : ""}`;
+const tdNumClass = "px-3 py-1.5 text-right";
+
 export function OpsCockpit({ onGoRulings, onUnauthorized }: {
   onGoRulings: () => void;
   onUnauthorized: () => void;
@@ -94,7 +105,7 @@ export function OpsCockpit({ onGoRulings, onUnauthorized }: {
     readOpsLedger()
       .then((text) => {
         const rows = ledgerRows(text);
-        if (rows.length > 1) setLedgerLast(rows[rows.length - 1]);
+        if (rows.length > 0) setLedgerLast(rows[rows.length - 1]);
       })
       .catch((e) => { if ((e as ApiError).status === 401) onUnauthorized(); })
       .finally(() => setLedgerDone(true));
@@ -128,92 +139,163 @@ export function OpsCockpit({ onGoRulings, onUnauthorized }: {
     if (el && expanded) el.scrollTop = el.scrollHeight;
   }, [logLen, expanded]);
 
+  // 触发面(票 #148 入卡;原独立「轮次」节撤除):健康/发现是主操作非次级,
+  // 不入节头——节头只挂描边次级动作(硬规④)
+  const [discoverInput, setDiscoverInput] = useState("");
+  const [triggerError, setTriggerError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const start = (type: OpsRoundType) => {
+    if (busy) return;
+    const input = type === "health" ? HEALTH_ROUND_INPUT : discoverInput.trim();
+    if (!input) { setTriggerError(t("ops.round.inputRequired")); return; }
+    setTriggerError(null);
+    setBusy(true);
+    startOpsRound(type, input)
+      .catch((e) => {
+        if ((e as ApiError).status === 401) { onUnauthorized(); return; }
+        setTriggerError(opsErrorText(t, e, t("ops.round.triggerFailed")));
+      })
+      .finally(() => setBusy(false));
+  };
+
   const lastLine = logLen > 0 ? logLines[logLen - 1] : null;
   const last = summary ?? (ledgerLast ? ledgerCardRow(ledgerLast) : null);
 
+  // 失败主行人话化:信封可判 → 人话短语;不可判 → 可读 code 名(不带原始
+  // message 尾巴——细节在下方可展开原始信封,不灭失)
+  const failedPrimary = (f: Extract<LastRoundSummary, { kind: "failed" }>) => {
+    const h = humanizeRoundMessage(f.message);
+    return h ? t(h.key, h.vars) : roundErrorText(t, f.code, null);
+  };
+
+  // 状态 chip:内联节头左簇(进行中/空闲),不占动作位
+  const chip = (
+    <span className={`rounded border px-2 py-0.5 font-mono text-[11px] ${running ? RUNNING_BADGE : IDLE_BADGE}`}>
+      {running ? t("ops.round.state.running") : t("ops.cockpit.idle")}
+    </span>
+  );
+
   return (
     <section aria-label={t("ops.cockpit.title")}>
-      {/* 票 #147 节头行规范;驾驶舱单卡化(状态内联节头等)归 #148 */}
-      <SectionHead title={t("ops.cockpit.title")} />
+      <SectionHead title={t("ops.cockpit.title")} lead={chip} />
       <div className="mt-3 rounded-md border border-zinc-800 bg-zinc-900/60 p-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <span className={`rounded border px-2 py-0.5 font-mono text-[11px] ${running ? STATE_BADGE.running : "text-zinc-400 border-zinc-700 bg-zinc-800/50"}`}>
-            {running ? t("ops.round.state.running") : t("ops.cockpit.idle")}
-          </span>
-          {running && (
-            <span className="font-mono text-[11px] text-zinc-400">
-              {t("ops.cockpit.elapsed")}{" "}
-              <span>{fmtElapsed(elapsedMs)}</span>
-              <span className="ml-2 text-zinc-600">{t("ops.cockpit.observedStart")}</span>
-            </span>
-          )}
-        </div>
         {running && (
-          <div className="mt-2">
-            <p className="text-[11px] text-zinc-500">{t("ops.cockpit.lastActivity")}</p>
-            {!expanded && (
-              <pre className="mt-1 overflow-hidden rounded border border-zinc-800 bg-zinc-950 px-2 py-1 font-mono text-[11px] leading-relaxed text-zinc-400 whitespace-nowrap text-ellipsis">
-                {lastLine ?? t("ops.cockpit.noActivity")}
-              </pre>
-            )}
-            {logLen > 0 && (
-              <button
-                type="button"
-                onClick={() => setExpanded((v) => !v)}
-                className="mt-1 rounded-md border border-zinc-700 px-3 py-1 text-[11px] text-zinc-300 transition-colors hover:border-emerald-500/50 hover:text-emerald-400"
-              >
-                {expanded ? t("ops.cockpit.logHide") : t("ops.cockpit.logShow")}
-              </button>
-            )}
-            {expanded && (
-              <pre
-                ref={logRef}
-                className="mt-1 max-h-64 overflow-auto rounded border border-zinc-800 bg-zinc-950 p-2 font-mono text-[11px] leading-relaxed text-zinc-400"
-              >
-                {logLines.map((l, i) => (<div key={i}>{l}</div>))}
-              </pre>
-            )}
+          <div>
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="font-mono text-[11px] text-zinc-400">
+                {t("ops.cockpit.elapsed")}{" "}
+                <span>{fmtElapsed(elapsedMs)}</span>
+                <span className="ml-2 text-zinc-600">{t("ops.cockpit.observedStart")}</span>
+              </span>
+            </div>
+            <div className="mt-2">
+              <p className="text-[11px] text-zinc-500">{t("ops.cockpit.lastActivity")}</p>
+              {!expanded && (
+                <pre className="mt-1 overflow-hidden rounded border border-zinc-800 bg-zinc-950 px-2 py-1 font-mono text-[11px] leading-relaxed text-zinc-400 whitespace-nowrap text-ellipsis">
+                  {lastLine ?? t("ops.cockpit.noActivity")}
+                </pre>
+              )}
+              {logLen > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setExpanded((v) => !v)}
+                  className="mt-1 rounded-md border border-zinc-700 px-3 py-1 text-[11px] text-zinc-300 transition-colors hover:border-emerald-500/50 hover:text-emerald-400"
+                >
+                  {expanded ? t("ops.cockpit.logHide") : t("ops.cockpit.logShow")}
+                </button>
+              )}
+              {expanded && (
+                <pre
+                  ref={logRef}
+                  className="mt-1 max-h-64 overflow-auto rounded border border-zinc-800 bg-zinc-950 p-2 font-mono text-[11px] leading-relaxed text-zinc-400"
+                >
+                  {logLines.map((l, i) => (<div key={i}>{l}</div>))}
+                </pre>
+              )}
+            </div>
           </div>
         )}
-      </div>
-      {/* 上一轮结果摘要卡:内存态优先,台账末行兜底;空闲不留白(缺证据显空态,无证据≠清白) */}
-      <div className="mt-2">
-        {last ? (
-          <div className="rounded-md border border-zinc-800 bg-zinc-900/60 p-3">
-            <p className="text-[11px] text-zinc-500">
-              {t("ops.cockpit.lastRound")}
-              {summary == null && <span className="ml-1 text-zinc-600">({t("ops.cockpit.lastRound.ledger")})</span>}
-            </p>
-            {last.kind === "failed" ? (
-              <p role="alert" className="mt-1 text-xs text-red-400">
-                {roundErrorText(t, last.code, last.message)}
+        {/* 上一轮结果:内存态优先,台账末行兜底;空闲不留白(缺证据显空态,无证据≠清白) */}
+        <div className={running ? "mt-3" : ""}>
+          {last ? (
+            <div>
+              <p className="text-[11px] text-zinc-500">
+                {t("ops.cockpit.lastRound")}
+                {summary == null && <span className="ml-1 text-zinc-600">({t("ops.cockpit.lastRound.ledger")})</span>}
               </p>
-            ) : last.kind === "cancelled" ? (
-              <p className="mt-1 text-xs text-zinc-400">{t("ops.round.state.cancelled")}</p>
-            ) : last.kind === "ok" ? (
-              <p className="mt-1 text-xs text-zinc-300">
-                <span className="mr-2 rounded border border-emerald-500/20 bg-emerald-500/5 px-1.5 py-0.5 font-mono text-[10px] text-emerald-400">
-                  {t("ops.cockpit.lastRound.ok")}
-                </span>
-                {last.round} · <span className="font-mono">{last.pkg}</span>
-                <span className="ml-2 font-mono text-zinc-500">{last.usage} · cost={last.cost}</span>
-              </p>
-            ) : (
-              <p className="mt-1 text-xs text-zinc-300">
-                <span className="font-mono">{last.cells[0]}</span> · {last.cells[1]} · <span className="font-mono">{last.cells[2]}</span>
-                <span className="ml-2 font-mono text-zinc-500">{last.usage} · cost={last.cost ?? "—"}</span>
-              </p>
-            )}
-            <button
-              type="button"
-              onClick={onGoRulings}
-              className="mt-2 rounded-md border border-zinc-700 px-3 py-1 text-[11px] text-zinc-300 transition-colors hover:border-emerald-500/50 hover:text-emerald-400"
-            >
-              {t("ops.cockpit.goRulings")}
-            </button>
-          </div>
-        ) : (
-          !running && ledgerDone && <p className="px-1 text-xs text-zinc-500">{t("ops.cockpit.lastRound.none")}</p>
+              {last.kind === "failed" ? (
+                <>
+                  <p role="alert" className="mt-1 text-xs text-red-400">{failedPrimary(last)}</p>
+                  {last.message && (
+                    <details className="mt-1">
+                      <summary className="cursor-pointer text-[11px] text-zinc-500 transition-colors hover:text-zinc-300">
+                        {t("ops.cockpit.rawEnvelope")}
+                      </summary>
+                      <pre className="mt-1 overflow-auto rounded border border-zinc-800 bg-zinc-950 p-2 font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-zinc-400">
+                        {last.message}
+                      </pre>
+                    </details>
+                  )}
+                </>
+              ) : last.kind === "cancelled" ? (
+                <p className="mt-1 text-xs text-zinc-400">{t("ops.round.state.cancelled")}</p>
+              ) : last.kind === "ok" ? (
+                <p className="mt-1 text-xs text-zinc-300">
+                  <span className="mr-2 rounded border border-emerald-500/20 bg-emerald-500/5 px-1.5 py-0.5 font-mono text-[10px] text-emerald-400">
+                    {t("ops.cockpit.lastRound.ok")}
+                  </span>
+                  {last.round} · <span className="font-mono">{last.pkg}</span>
+                  <span className="ml-2 font-mono text-zinc-500">{last.usage} · cost={last.cost}</span>
+                </p>
+              ) : (
+                <p className="mt-1 text-xs text-zinc-300">
+                  <span className="font-mono">{last.cells[0]}</span> · {last.cells[1]} · <span className="font-mono">{last.cells[2]}</span>
+                  <span className="ml-2 font-mono text-zinc-500">{last.usage} · cost={last.cost ?? "—"}</span>
+                </p>
+              )}
+              <button
+                type="button"
+                onClick={onGoRulings}
+                className="mt-2 rounded-md border border-zinc-700 px-3 py-1 text-[11px] text-zinc-300 transition-colors hover:border-emerald-500/50 hover:text-emerald-400"
+              >
+                {t("ops.cockpit.goRulings")}
+              </button>
+            </div>
+          ) : (
+            !running && ledgerDone && <p className="px-1 text-xs text-zinc-500">{t("ops.cockpit.lastRound.none")}</p>
+          )}
+        </div>
+        {/* 触发动作:健康(实心主 CTA)+ 发现输入 + 发现(描边)——主操作同排 */}
+        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-zinc-800/60 pt-3">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => start("health")}
+            className="rounded-md bg-emerald-500 px-4 py-1.5 text-xs font-semibold text-zinc-950 transition-transform hover:scale-[1.02] disabled:opacity-40"
+          >
+            {t("ops.round.health")}
+          </button>
+          <input
+            type="search"
+            aria-label={t("ops.round.discoverPlaceholder")}
+            placeholder={t("ops.round.discoverPlaceholder")}
+            value={discoverInput}
+            onChange={(e) => setDiscoverInput(e.target.value)}
+            className="min-w-64 flex-1 rounded-md border border-zinc-700 bg-zinc-950 px-3 py-1.5 text-xs text-zinc-200 focus:border-emerald-600 focus:outline-none"
+          />
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => start("discover")}
+            className="rounded-md border border-emerald-600/50 px-4 py-1.5 text-xs text-emerald-400 transition-colors hover:border-emerald-500 disabled:opacity-40"
+          >
+            {t("ops.round.discover")}
+          </button>
+        </div>
+        {triggerError && (
+          <p role="alert" className="mt-2 rounded-md border border-red-400/30 bg-red-400/10 px-3 py-2 text-xs text-red-400">
+            {triggerError}
+          </p>
         )}
       </div>
     </section>
@@ -226,6 +308,8 @@ export function OpsCockpit({ onGoRulings, onUnauthorized }: {
 // 证据(终态任务+完成行包名)与行(日期+轮型)对上时标 ok;失败/旧行无证据
 // 恒 —(台账行不载成败;无证据≠清白,不伪造)。无台账行的包(失败先于
 // 记账等)不灭失:并入孤行,缺列显 —。
+// 票 #148:表格统一件落地——ops.col.* 中文列名(+备注)、用量/成本右对齐、
+// 时间相对 + title 完整戳、备注人话化(title 留原文)、「—」附宁少算 title。
 const PAST_N = 10;
 
 export function OpsPastRounds({ onGoRulings, onUnauthorized }: {
@@ -251,7 +335,7 @@ export function OpsPastRounds({ onGoRulings, onUnauthorized }: {
   }, []);
 
   const rows = text != null ? ledgerRows(text) : [];
-  const dataRows = rows.length > 1 ? rows.slice(-PAST_N).reverse() : []; // 末 N 行,新在前
+  const dataRows = rows.length > 0 ? rows.slice(-PAST_N).reverse() : []; // 末 N 行,新在前
   const pkgs = packages ?? [];
 
   // 行↔包关联先算后渲染(纯函数):匹配包记录在集合,未匹配包(失败先于
@@ -281,6 +365,10 @@ export function OpsPastRounds({ onGoRulings, onUnauthorized }: {
       ? t("ops.cockpit.lastRound.ok")
       : null;
 
+  // 统一件列集:台账基列 + 结果码/包;数字列右对齐(硬规②)
+  const cols = [...LEDGER_COL_KEYS, ...PAST_EXTRA_COL_KEYS];
+  const dash = <span title={t("ops.result.dashTitle")}>—</span>;
+
   return (
     <section aria-label={t("ops.past.title")} className="mt-8">
       <SectionHead title={t("ops.past.title")} count={pastCount} />
@@ -297,38 +385,48 @@ export function OpsPastRounds({ onGoRulings, onUnauthorized }: {
           <table className="w-full text-left text-xs">
             <thead className="sticky top-0 bg-zinc-900 font-mono text-[11px] text-zinc-500">
               <tr>
-                {[t("ops.past.col.time"), t("ops.past.col.round"), t("ops.past.col.model"),
-                  t("ops.past.col.usage"), t("ops.past.col.cost"), t("ops.past.col.result"), t("ops.past.col.pkg")]
-                  .map((h, i) => <th key={i} scope="col" className="px-3 py-1.5 font-medium">{h}</th>)}
+                {cols.map((k) => (
+                  <th key={k} scope="col" className={thClass(k)}>{t(`ops.col.${k}`)}</th>
+                ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-800/60 font-mono text-zinc-400">
-              {orphans.map((p) => (
-                <tr key={p.name}>
-                  <td className="px-3 py-1.5">{p.name.slice(0, 10)}</td>
-                  <td className="px-3 py-1.5">{p.name.split("-")[3] ?? "—"}</td>
-                  <td className="px-3 py-1.5">—</td>
-                  <td className="px-3 py-1.5">—</td>
-                  <td className="px-3 py-1.5">—</td>
-                  <td className="px-3 py-1.5">—</td>
-                  <td className="px-3 py-1.5">
-                    <button type="button" onClick={onGoRulings} className="text-emerald-400 transition-colors hover:text-emerald-300">
-                      {p.name}
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {orphans.map((p) => {
+                const rt = relTime(p.modified, Date.now());
+                return (
+                  <tr key={p.name}>
+                    <td className="px-3 py-1.5" title={rt.title}>{t(rt.key, rt.vars)}</td>
+                    <td className="px-3 py-1.5">{p.name.split("-")[3] ?? "—"}</td>
+                    <td className="px-3 py-1.5">—</td>
+                    <td className={tdNumClass}>—</td>
+                    <td className={tdNumClass}>—</td>
+                    <td className="px-3 py-1.5">—</td>
+                    <td className="px-3 py-1.5">{dash}</td>
+                    <td className="px-3 py-1.5">
+                      <button type="button" onClick={onGoRulings} className="text-emerald-400 transition-colors hover:text-emerald-300">
+                        {p.name}
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
               {rowsWithPkgs.map(({ cells, pkgs: hit }, r) => {
                 const { usage, cost } = splitUsage(cells[3] ?? "");
+                const rt = relTime(cells[0] ?? "", Date.now());
+                const note = cells[4] ?? "";
+                const humanNote = noteText(t, note);
                 const res = resultFor(cells);
                 return (
                   <tr key={r}>
-                    <td className="px-3 py-1.5">{cells[0]}</td>
+                    <td className="px-3 py-1.5" title={rt.title}>{t(rt.key, rt.vars)}</td>
                     <td className="px-3 py-1.5">{cells[1]}</td>
                     <td className="px-3 py-1.5">{cells[2]}</td>
-                    <td className="px-3 py-1.5">{usage}</td>
-                    <td className="px-3 py-1.5">{cost ?? "—"}</td>
-                    <td className="px-3 py-1.5">{res ?? "—"}</td>
+                    <td className={tdNumClass}>{usage}</td>
+                    <td className={tdNumClass}>{cost ?? "—"}</td>
+                    <td className="px-3 py-1.5" title={note || undefined}>
+                      {humanNote ?? (note || "—")}
+                    </td>
+                    <td className="px-3 py-1.5">{res ?? dash}</td>
                     <td className="px-3 py-1.5">
                       {hit.length > 0 ? hit.map((p) => (
                         <button

@@ -80,11 +80,12 @@ beforeEach(() => {
 // ── 票 #142:二级子 tab 重组 ─────────────────────────────────────────────
 
 describe("OpsPage — 子 tab 重组(票 #142)", () => {
-  it("默认子 tab=轮次:驾驶舱+触发面+过去轮次在场;裁决/档案/设置内容不在 DOM", () => {
+  it("默认子 tab=轮次:驾驶舱+过去轮次在场;裁决/档案/设置内容不在 DOM", () => {
     renderOps();
     expect(screen.getByRole("heading", { name: "Cockpit" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Rounds" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Past rounds" })).toBeTruthy();
+    // 票 #148:触发动作入驾驶舱单卡,独立「轮次」节头撤除
+    expect(screen.queryByRole("heading", { name: "Rounds" })).toBeNull();
     // 非活动子 tab 不渲染(顶 tab 同款范式)
     expect(screen.queryByRole("heading", { name: "Ruling packages" })).toBeNull();
     expect(screen.queryByRole("heading", { name: "Ledger (read-only)" })).toBeNull();
@@ -112,9 +113,13 @@ describe("OpsPage — 子 tab 重组(票 #142)", () => {
     expect(await screen.findByRole("heading", { name: "Ledger (read-only)" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Precedents (read-only)" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Export precedents (.zip)" })).toBeTruthy();
-    await waitFor(() => expect(screen.getByRole("cell", { name: "2026-10-20" })).toBeTruthy());
+    // 票 #148:台账表统一件列名(与轮次表同集 ops.col.*)+ 相对时间 title 完整戳
+    expect(await screen.findByRole("columnheader", { name: "Round" })).toBeTruthy();
+    for (const h of ["Time", "Model", "Usage", "Cost", "Note"]) {
+      expect(screen.getByRole("columnheader", { name: h })).toBeTruthy();
+    }
+    expect(screen.getByTitle("2026-10-20")).toBeTruthy();
     expect(screen.getByRole("cell", { name: "discover" })).toBeTruthy();
-    expect(screen.getByRole("columnheader", { name: "轮次" })).toBeTruthy();
   });
 
   it("切「设置」→ agent 配置面(#140 ConfigSection 移入,票 #143 多供应商形状)", async () => {
@@ -177,10 +182,9 @@ describe("OpsPage — 壳层视觉修约(票 #147)", () => {
       { name: "2026-10-21-health-0800.md", size: 512, modified: "2026-10-21T08:00:00Z" },
     ]);
     const withData = renderOps();
-    // 2 台账数据行 + 1 孤儿包 = 3;现解析把冻结表头行也切入表体(伪表头
-    // bug,修复归 #148),故现阶段渲染行 = 4——计数描述面板实况,#148 修后
-    // 本断言随解析修正收敛为 (3)
-    expect(await withData.findByRole("heading", { name: /Past rounds \(4\)/ })).toBeTruthy();
+    // 2 台账数据行 + 1 孤儿包 = 3(#148 修伪表头后冻结表头行不再切入表体,
+    // 计数随解析修正从 4 收敛为 3)
+    expect(await withData.findByRole("heading", { name: /Past rounds \(3\)/ })).toBeTruthy();
     withData.unmount();
     // 无数据(台账空+包空):计数不显——「有数据时」才计数,空表不谎报
     vi.mocked(readOpsLedger).mockResolvedValue("");
@@ -188,6 +192,53 @@ describe("OpsPage — 壳层视觉修约(票 #147)", () => {
     const empty = renderOps();
     expect(await empty.findByText(/No rounds recorded/i)).toBeTruthy();
     expect(empty.getByRole("heading", { name: "Past rounds" })).toBeTruthy();
+  });
+});
+
+// ── 票 #148:驾驶舱单卡 + 伪表头修复落地 + 表格统一件 ──────────────
+
+describe("OpsPage — 驾驶舱单卡(票 #148)", () => {
+  it("状态 chip 内联节头(标题同排)+ 健康/发现触发动作与上一轮结果同卡", () => {
+    renderOps({ tasks: [], logs: {} });
+    const cockpit = screen.getByRole("region", { name: "Cockpit" });
+    // 状态 chip 在节头左簇:chip 所在容器含「驾驶舱」标题
+    const chip = within(cockpit).getByText("Idle");
+    expect(chip.closest("div")).toContainElement(
+      within(cockpit).getByRole("heading", { name: "Cockpit" }));
+    // 触发动作入卡(单卡:状态/上一轮结果/触发同卡)
+    expect(within(cockpit).getByRole("button", { name: "Run health round" })).toBeTruthy();
+    expect(within(cockpit).getByRole("button", { name: "Run discover round" })).toBeTruthy();
+    expect(within(cockpit).getByRole("searchbox", { name: /discover input/i })).toBeTruthy();
+  });
+});
+
+describe("OpsPage — 伪表头修复与表格统一件(票 #148)", () => {
+  it("台账夹具(含表头行)渲染后表体零表头行:表 = 列头 + 2 数据行", async () => {
+    renderOps();
+    const table = await screen.findByRole("table");
+    expect(within(table).getAllByRole("row")).toHaveLength(3);
+    expect(within(table).queryByText("日期")).toBeNull();
+    expect(within(table).queryByText("model")).toBeNull();
+  });
+
+  it("备注人话化 + 时间相对且 title 完整戳 + 结果码「—」附宁少算 title", async () => {
+    vi.mocked(readOpsLedger).mockResolvedValue([
+      "# 运营轮次台账", "",
+      "| 日期 | 轮次 | model | 用量 | 备注 |",
+      "|---|---|---|---|---|",
+      "| 2026-10-21 | health | — | — | spawn error_code=model_face |",
+    ].join("\n"));
+    renderOps();
+    // spawn error_code=model_face → 人话;title = 台账原文(证据不灭失)
+    expect(await screen.findByRole("cell", { name: "Start failed: model provider" })).toBeTruthy();
+    expect(screen.getByTitle("spawn error_code=model_face")).toBeTruthy();
+    // 时间相对 + title 完整戳(台账行精度即日期)
+    const timeCell = screen.getByTitle("2026-10-21");
+    expect(timeCell.textContent ?? "").toMatch(/ago$|^just now/);
+    // 结果码「—」:台账行不载成败;无证据≠成功
+    expect(
+      screen.getAllByTitle("Ledger rows carry no outcome — absence of evidence is not success").length,
+    ).toBeGreaterThan(0);
   });
 });
 
@@ -262,12 +313,30 @@ describe("OpsPage — 驾驶舱卡(票 #142)", () => {
     expect(screen.getByRole("heading", { name: "Ruling packages" })).toBeTruthy();
   });
 
-  it("轮结束(failed):摘要卡 = 可读失败文案 + 原始消息,不裸抛 code", () => {
-    const failed = { ...opsTask("failed"), error: "模型失败面 stopReason=error", error_code: "model_face" } as TaskState;
-    renderOps({ tasks: [failed], logs: { t1: ["round 失败:模型失败面 stopReason=error"] } });
-    expect(screen.getByText(/Model provider failed/i)).toBeTruthy();
-    expect(screen.getByText(/模型失败面 stopReason=error/)).toBeTruthy();
+  it("轮结束(failed):人话化错误短语 + 可展开原始信封(证据不灭失),不裸抛 code", () => {
+    const failed = {
+      ...opsTask("failed"),
+      error: '模型失败面 stopReason=error:401 {"code":"401","message":"令牌已过期或验证不正确"}',
+      error_code: "model_face",
+    } as TaskState;
+    renderOps({ tasks: [failed], logs: { t1: ["round 失败:模型失败面 stopReason=error:401"] } });
+    // 人话主行(票 #148):上游令牌过期(401),不再裸奔原始 JSON
+    expect(screen.getByText("Upstream token expired (401)")).toBeTruthy();
     expect(screen.queryByText(/model_face/)).toBeNull();
+    // 原始信封可展开:完整原始 message 原样在场(证据不灭失)
+    expect(screen.getByText("Raw envelope")).toBeTruthy();
+    expect(screen.getByText(/stopReason=error:401/)).toBeTruthy();
+  });
+
+  it("轮结束(failed,信封不可人话化):回退可读 code 名,信封仍可展开", () => {
+    const failed = {
+      ...opsTask("failed"),
+      error: "stopReason=aborted", error_code: "infra",
+    } as TaskState;
+    renderOps({ tasks: [failed], logs: { t1: [] } });
+    expect(screen.getByText(/Infrastructure error/i)).toBeTruthy();
+    expect(screen.getByText("Raw envelope")).toBeTruthy();
+    expect(screen.getByText("stopReason=aborted")).toBeTruthy();
   });
 
   it("轮结束(cancelled):摘要卡显已取消", () => {
@@ -285,7 +354,7 @@ describe("OpsPage — 过去轮次(票 #142)", () => {
       { name: "2026-10-18-health-0912.md", size: 1024, modified: "2026-10-18T09:12:00Z" },
     ]);
     renderOps();
-    await waitFor(() => expect(screen.getByRole("cell", { name: "2026-10-20" })).toBeTruthy());
+    await waitFor(() => expect(screen.getByTitle("2026-10-20")).toBeTruthy());
     // usage 与 cost 拆列呈现(台账用量串 cost= 段独立成列)
     expect(screen.getByRole("cell", { name: "in=1 out=2 total=3" })).toBeTruthy();
     expect(screen.getByRole("cell", { name: "0.00000045" })).toBeTruthy();
@@ -324,7 +393,7 @@ describe("OpsPage — 过去轮次(票 #142)", () => {
         ],
       },
     });
-    await waitFor(() => expect(screen.getByRole("cell", { name: "2026-10-20" })).toBeTruthy());
+    await waitFor(() => expect(screen.getByTitle("2026-10-20")).toBeTruthy());
     // 最新行(discover 2026-10-20)与摘要卡包名对上 → ok;旧行(health 2026-10-19)无证据 → —
     expect(screen.getByRole("cell", { name: "ok" })).toBeTruthy();
     expect(screen.getAllByText("—").length).toBeGreaterThan(0);
