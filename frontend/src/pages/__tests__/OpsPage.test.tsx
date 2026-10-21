@@ -754,16 +754,16 @@ describe("OpsPage — settings 视觉修约(票 #150)", () => {
     expect(screen.getAllByText(/write-only/i)).toHaveLength(1);
   });
 
-  it("keys 网格入等宽通栏容器(硬规①);节标题与 keys tab 同词", async () => {
+  it("keys 面搜索态在场 + 节标题与 keys tab 同词(样式类名不断言,视觉规走复评门)", async () => {
     renderOps();
     goSubTab("Settings");
     fireEvent.change(await screen.findByRole("searchbox", { name: /search providers/i }), {
       target: { value: "o" },
     });
-    const cell = screen.getByLabelText("zai-coding-cn");
-    const grid = cell.closest("div");
-    expect(grid?.className).toMatch(/grid-cols-\[repeat/); // 等宽列填满内容列
-    expect(grid?.parentElement?.className).toMatch(/border/); // 通栏容器面板(不再裸奔)
+    // 等宽通栏容器/描边面板属样式面(硬规①)——DOM 测试不断样式类名
+    // (spec #146 Testing Decisions),视觉合规由截屏复评门验证;
+    // 此处只断行为:搜索唤出的未配置家输入框在场 + 两节标题。
+    expect(await screen.findByLabelText("zai-coding-cn")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "API Keys" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Model config" })).toBeTruthy();
   });

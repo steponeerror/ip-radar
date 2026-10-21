@@ -11,7 +11,8 @@ import OpsPackagesSection from "./OpsPackagesSection";
 import { OpsCockpit, OpsPastRounds } from "./OpsCockpit";
 import { SectionHead } from "./OpsSectionHead";
 import { ledgerRows, splitUsage } from "./opsLedger";
-import { LEDGER_COL_KEYS, relTime, noteText, precDate, thClass, tdNumClass } from "./opsTable";
+import { LEDGER_CELL, LEDGER_COL_KEYS, relTime, noteText, precDate, thClass, tdNumClass } from "./opsTable";
+import { useArrivalNow } from "./useArrivalNow";
 import { opsErrorText } from "./opsErrorText";
 
 // P4 admin 第四 tab「运营」(票 #136):①轮次触发 ②裁决包区(OpsPackagesSection)
@@ -266,19 +267,19 @@ function LedgerSection({ onUnauthorized }: { onUnauthorized: () => void }) {
   const { t } = useI18n();
   const [text, setText] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // 相对时间基准 = 台账抵达时刻(Date.now 不入 render,同已耗时纪律)
-  const [now, setNow] = useState(0);
+  // 相对时间基准 = 台账抵达时刻(useArrivalNow,Date.now 不入 render)
+  const [now, markArrived] = useArrivalNow();
 
   const load = useCallback(async () => {
     setError(null);
     try {
       setText(await readOpsLedger());
-      setNow(Date.now());
+      markArrived();
     } catch (e) {
       if ((e as ApiError).status === 401) { onUnauthorized(); return; }
       setError(opsErrorText(t, e, t("ops.ledger.loadFailed")));
     }
-  }, [t, onUnauthorized]);
+  }, [t, onUnauthorized, markArrived]);
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { load(); }, [load]);
@@ -321,15 +322,15 @@ function LedgerSection({ onUnauthorized }: { onUnauthorized: () => void }) {
             </thead>
             <tbody className="divide-y divide-zinc-800/60 font-mono text-zinc-400">
               {rows.map((cells, r) => {
-                const { usage, cost } = splitUsage(cells[3] ?? "");
-                const rt = relTime(cells[0] ?? "", now);
-                const note = cells[4] ?? "";
+                const { usage, cost } = splitUsage(cells[LEDGER_CELL.usage] ?? "");
+                const rt = relTime(cells[LEDGER_CELL.time] ?? "", now);
+                const note = cells[LEDGER_CELL.note] ?? "";
                 const humanNote = noteText(t, note);
                 return (
                   <tr key={r}>
                     <td className="px-3 py-1.5" title={rt.title}>{t(rt.key, rt.vars)}</td>
-                    <td className="px-3 py-1.5">{cells[1]}</td>
-                    <td className="px-3 py-1.5">{cells[2]}</td>
+                    <td className="px-3 py-1.5">{cells[LEDGER_CELL.round]}</td>
+                    <td className="px-3 py-1.5">{cells[LEDGER_CELL.model]}</td>
                     <td className={tdNumClass}>{usage}</td>
                     <td className={tdNumClass}>{cost ?? "—"}</td>
                     <td className="px-3 py-1.5" title={note || undefined}>
@@ -361,8 +362,8 @@ function PrecedentsSection({ onUnauthorized }: { onUnauthorized: () => void }) {
   const [precName, setPrecName] = useState<string | null>(null);
   const [precText, setPrecText] = useState<string | null>(null);
   const [precError, setPrecError] = useState<string | null>(null);
-  // 相对时间基准 = 列表抵达时刻(#149;Date.now 不入 render,同台账纪律)
-  const [now, setNow] = useState(0);
+  // 相对时间基准 = 列表抵达时刻(#149;useArrivalNow,Date.now 不入 render)
+  const [now, markArrived] = useArrivalNow();
 
   const failWith = (set: (s: string) => void, fallback: string) => (e: unknown) => {
     if ((e as ApiError).status === 401) { onUnauthorized(); return; }
@@ -373,12 +374,12 @@ function PrecedentsSection({ onUnauthorized }: { onUnauthorized: () => void }) {
     setListError(null);
     try {
       setNames(await listOpsPrecedents(q));
-      setNow(Date.now());
+      markArrived();
     } catch (e) {
       failWith(setListError, t("ops.prec.loadFailed"))(e);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [t, onUnauthorized]);
+  }, [t, onUnauthorized, markArrived]);
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { load(""); }, [load]);

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { translate } from "../../i18n/translate";
 import type { TFn } from "../../i18n";
+import { tArgs } from "../../test/tArgs";
 import { relTime, noteText, precDate } from "../opsTable";
 
 // 票 #148:表格统一件(本票首创,#149 档案面复用)。纯函数面 = 相对时间、
@@ -31,8 +32,8 @@ describe("relTime — 相对时间 + title 完整戳", () => {
   });
 
   it("包 modified(ISO)→ 小时/分钟级;悬停 title = ISO 完整戳", () => {
-    expect(t(...w(relTime("2026-10-21T11:30:00Z", NOW)))).toBe("30分钟前");
-    expect(t(...w(relTime("2026-10-21T05:00:00Z", NOW)))).toBe("7小时前");
+    expect(t(...tArgs(relTime("2026-10-21T11:30:00Z", NOW)))).toBe("30分钟前");
+    expect(t(...tArgs(relTime("2026-10-21T05:00:00Z", NOW)))).toBe("7小时前");
     expect(relTime("2026-10-21T05:00:00Z", NOW).title).toBe("2026-10-21T05:00:00Z");
   });
 
@@ -71,6 +72,5 @@ describe("noteText — 台账备注 key=value 人话化", () => {
   });
 });
 
-// relTime 返回 {key, vars?} → translate(key, vars) 调用形状适配
-const w = (r: { key: string; vars?: Record<string, string | number> }): [string, Record<string, string | number> | undefined] =>
-  [r.key, r.vars];
+// relTime 返回 {key, vars?} → translate(key, vars) 调用形状适配:
+// 共享件 tArgs(src/test/tArgs.ts,终审 standards 重构收编)
