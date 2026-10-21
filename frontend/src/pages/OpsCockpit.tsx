@@ -7,7 +7,7 @@ import {
 } from "../api";
 import { opsErrorText, roundErrorText, humanizeRoundMessage } from "./opsErrorText";
 import { ledgerRows, splitUsage, pkgMatchesRow, type LedgerRow } from "./opsLedger";
-import { LEDGER_CELL, LEDGER_COL_KEYS, PAST_EXTRA_COL_KEYS, relTime, noteText, thClass, tdNumClass } from "./opsTable";
+import { LEDGER_CELL, LEDGER_COL_KEYS, PAST_EXTRA_COL_KEYS, relTime, noteText, thClass, tdNumClass, tdTimeClass, usageText } from "./opsTable";
 import { SectionHead } from "./OpsSectionHead";
 import { useArrivalNow } from "./useArrivalNow";
 
@@ -307,6 +307,8 @@ export function OpsCockpit({ onGoRulings, onUnauthorized }: {
 // 记账等)不灭失:并入孤行,缺列显 —。
 // 票 #148:表格统一件落地——ops.col.* 中文列名(+备注)、用量/成本右对齐、
 // 时间相对 + title 完整戳、备注人话化(title 留原文)、「—」附宁少算 title。
+// 视觉门 2026-10-21:低2 用量人话化(title 挂台账原始串,证据不灭失);
+// 低3 表头/时间零折行(thClass whitespace-nowrap + tdTimeClass)。
 const PAST_N = 10;
 
 export function OpsPastRounds({ onGoRulings, onUnauthorized }: {
@@ -347,8 +349,9 @@ export function OpsPastRounds({ onGoRulings, onUnauthorized }: {
     return { cells, pkgs: hit };
   });
   const orphans = pkgs.filter((p) => !matchedPkgs.has(p.name));
-  // 节头计数(票 #147):渲染行 = 台账行 + 孤儿包,空表不显计数
-  const pastCount = dataRows.length + orphans.length;
+  // 节头计数(票 #147):渲染行 = 台账行 + 孤儿包;空表显 (0)(视觉门
+  // 2026-10-21 微5);台账未到 text=null → 计数 null 不显(无证据不显 0)
+  const pastCount = text != null ? dataRows.length + orphans.length : null;
 
   // 最新行结果码:终态任务的完成行包名与行(日期+轮型)对上 → ok(唯一可证关联);
   // 失败/旧行无证据恒 —(台账行不载成败;无证据≠清白,不伪造)
@@ -395,7 +398,7 @@ export function OpsPastRounds({ onGoRulings, onUnauthorized }: {
                 const rt = relTime(p.modified, now);
                 return (
                   <tr key={p.name}>
-                    <td className="px-3 py-1.5" title={rt.title}>{t(rt.key, rt.vars)}</td>
+                    <td className={tdTimeClass} title={rt.title}>{t(rt.key, rt.vars)}</td>
                     <td className="px-3 py-1.5">{p.name.split("-")[3] ?? "—"}</td>
                     <td className="px-3 py-1.5">—</td>
                     <td className={tdNumClass}>—</td>
@@ -418,10 +421,10 @@ export function OpsPastRounds({ onGoRulings, onUnauthorized }: {
                 const res = resultFor(cells);
                 return (
                   <tr key={r}>
-                    <td className="px-3 py-1.5" title={rt.title}>{t(rt.key, rt.vars)}</td>
+                    <td className={tdTimeClass} title={rt.title}>{t(rt.key, rt.vars)}</td>
                     <td className="px-3 py-1.5">{cells[LEDGER_CELL.round]}</td>
                     <td className="px-3 py-1.5">{cells[LEDGER_CELL.model]}</td>
-                    <td className={tdNumClass}>{usage}</td>
+                    <td className={tdNumClass} title={usage}>{usageText(t, usage)}</td>
                     <td className={tdNumClass}>{cost ?? "—"}</td>
                     <td className="px-3 py-1.5" title={note || undefined}>
                       {humanNote ?? (note || "—")}

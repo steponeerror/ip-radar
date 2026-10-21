@@ -30,6 +30,8 @@ with sync_playwright() as p:
     page.wait_for_timeout(400)  # 相对时间渲染稳定
     body_text = page.inner_text("body")
     assert "上游令牌过期" in body_text, "人话化错误未渲染:" + body_text[:600]
+    # 视觉门 2026-10-21 低2:轮次表用量列人话化(mono 轨;title 挂台账原始串)
+    assert "in 3076 · out 854 · 计 3930" in body_text, "用量人话化未渲染:" + body_text[:600]
     page.screenshot(path=str(OUT), full_page=True)
     print("saved:", OUT)
     browser.close()

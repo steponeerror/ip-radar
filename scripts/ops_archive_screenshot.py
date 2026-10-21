@@ -51,7 +51,9 @@ with sync_playwright() as p:
     if EMPTY:
         assert "暂无台账记录" in body_text, "台账空态未渲染:" + body_text[:600]
         assert "暂无判例" in body_text, "判例空态未渲染:" + body_text[:600]
-        assert "(5)" not in body_text.split("档案", 1)[-1], "空表不应显计数"
+        # 视觉门 2026-10-21 微5:空表计数如实显 (0)(旧断言「空表不应显计数」废止)
+        assert "台账 (0)" in body_text, "台账空态计数 (0) 未渲染:" + body_text[:600]
+        assert "判例库 (0)" in body_text, "判例空态计数 (0) 未渲染:" + body_text[:600]
     else:
         assert "台账 (5)" in body_text, "台账计数未渲染:" + body_text[:600]
         assert "判例库 (7)" in body_text, "判例计数未渲染:" + body_text[:600]
@@ -67,6 +69,7 @@ with sync_playwright() as p:
     body_text = page.inner_text("body")
     if EMPTY:
         assert "暂无裁决包" in body_text, "裁决包空态未渲染:" + body_text[:600]
+        assert "裁决包 (0)" in body_text, "裁决包空态计数 (0) 未渲染:" + body_text[:600]
     else:
         assert "裁决包 (4)" in body_text, "裁决包计数未渲染:" + body_text[:600]
         assert "小时前" in body_text or "分钟前" in body_text or "天前" in body_text, "包行相对时间未渲染"

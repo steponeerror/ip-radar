@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { translate } from "../../i18n/translate";
 import type { TFn } from "../../i18n";
 import { tArgs } from "../../test/tArgs";
-import { relTime, noteText, precDate } from "../opsTable";
+import { relTime, noteText, precDate, usageText } from "../opsTable";
 
 // 票 #148:表格统一件(本票首创,#149 档案面复用)。纯函数面 = 相对时间、
 // 台账备注人话化;列名映射 = ops.col.* 词条(组件测试断言列头)。t 注入
@@ -41,6 +41,18 @@ describe("relTime — 相对时间 + title 完整戳", () => {
     const r = relTime("not-a-date", NOW);
     expect(t(r.key, r.vars)).toBe("未知");
     expect(r.title).toBe("not-a-date");
+  });
+});
+
+describe("usageText — 用量串人话化(视觉门 2026-10-21 低2)", () => {
+  it("in/out/total 三段形状 → 人话短语(title 面由调用方挂台账原文,证据不灭失)", () => {
+    expect(usageText(t, "in=3076 out=854 total=3930")).toBe("in 3076 · out 854 · 计 3930");
+  });
+
+  it("未知形状回原文(宁少算:不猜;失败行「—」等非形状原样透传)", () => {
+    expect(usageText(t, "—")).toBe("—");
+    expect(usageText(t, "manual text")).toBe("manual text");
+    expect(usageText(t, "")).toBe("");
   });
 });
 

@@ -125,11 +125,11 @@ describe("OpsPackagesSection — 列表行元数据与计数(票 #149)", () => {
     expect(timed.textContent ?? "").toMatch(/ago$|^just now/);
   });
 
-  it("空列表:计数不显 + 基准「暂无」式空态入容器(不留纯空白)", async () => {
+  it("空列表:计数如实显 (0)(视觉门 2026-10-21 微5)+ 基准「暂无」式空态入容器(不留纯空白)", async () => {
     vi.mocked(listOpsPackages).mockResolvedValueOnce([]);
     renderSection();
     await screen.findByText(/No ruling packages yet/i);
-    expect(screen.getByRole("heading", { name: "Ruling packages" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Ruling packages (0)" })).toBeTruthy();
   });
 
   it("详情态节头不带计数(计数属列表面;详情无行集可数)", async () => {

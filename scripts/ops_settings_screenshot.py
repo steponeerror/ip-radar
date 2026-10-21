@@ -64,6 +64,13 @@ with sync_playwright() as p:
     page.screenshot(path=str(OUT_SEARCH), full_page=True)
     print("saved:", OUT_SEARCH)
 
+    # 视觉门 2026-10-21 阻断1(硬规⑤):原生蓝清除钮已全局 CSS 隐去,中性灰
+    # 自定义清除钮在场且可清空
+    clear = page.get_by_role("button", name="清除搜索")
+    assert clear.is_visible(), "自定义清除钮未渲染(搜索态)"
+    clear.click()
+    assert page.get_by_role("searchbox", name="搜索供应商名").input_value() == "", "清除钮未清空搜索框"
+
     # ②零配置态:api_keys 翻空 → 刷新 → 密钥面「暂无」式空态(硬规⑥)
     CFG["api_keys"] = {}
     page.reload()
