@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { ReactElement } from "react";
-import { screen, fireEvent, waitFor, act } from "@testing-library/react";
+import { screen, fireEvent, waitFor, act, within } from "@testing-library/react";
 import OpsPage from "../OpsPage";
 import { TasksContext, type TasksCtxValue } from "../../tasks/useTasks";
 import type { TaskState } from "../../api";
@@ -117,10 +117,12 @@ describe("OpsPage — 子 tab 重组(票 #142)", () => {
     expect(screen.getByRole("columnheader", { name: "轮次" })).toBeTruthy();
   });
 
-  it("切「设置」→ agent 配置面(#140 ConfigSection 移入)", async () => {
+  it("切「设置」→ agent 配置面(#140 ConfigSection 移入,票 #143 多供应商形状)", async () => {
     vi.mocked(getOpsAgentConfig).mockResolvedValue({
-      model_health: "glm-5.3-flash", model_discover: "glm-5.3",
-      zai_api_key: { configured: false, tail4: null }, allowed_models: ["glm-5.3"],
+      model_health: "zai-coding-cn/glm-5.3", model_discover: "zai-coding-cn/glm-5.3",
+      api_keys: {},
+      catalog: { "zai-coding-cn": [{ id: "glm-5.3", name: "GLM-5.3", cost: null }] },
+      catalog_source: "dynamic" as const,
     });
     renderOps();
     goSubTab("Settings");
@@ -316,72 +318,119 @@ describe("OpsPage — round trigger panel", () => {
   });
 });
 
-// ── 票 #140:agent 配置子区(选模型 + 填 key)── 闭集下拉由后端 GET
-// allowed_models 驱动(单一真相源,实测 pi-ai 装载目录五值);key write-only
-// 不回显,状态只显 configured+tail4(沿 token 面先例);保存后下一轮即生效。
-// 票 #142 起该面移入「设置」子 tab(逻辑原样搬迁)。
+// ── 票 #140 立:agent 配置子区;票 #143 多供应商形状(双下拉 + 逐家 key)──
+// 目录由后端 GET catalog 驱动(单一真相源:node 子调用 dump,失败兜底闭集,
+// catalog_source 显式不伪装);qualified "provider/model" 现值驱动选中;key
+// write-only 不回显,状态只显 configured+tail4;保存后下一轮即生效(后端每次
+// spawn 现读)。票 #142 起该面驻「设置」子 tab。
 const CFG_MOCK = {
-  model_health: "glm-5.3-flash",
-  model_discover: "glm-5.3",
-  zai_api_key: { configured: true, tail4: "9988" },
-  allowed_models: ["glm-4.6v", "glm-5.3", "glm-5.3-flash", "glm-5.3-highspeed", "glm-5.3-flashx"],
+  model_health: "zai-coding-cn/glm-5.3-flash",
+  model_discover: "zai-coding-cn/glm-5.3",
+  api_keys: { "zai-coding-cn": { configured: true, tail4: "9988" } },
+  catalog: {
+    "zai-coding-cn": [
+      { id: "glm-4.6v", name: "GLM-4.6V", cost: null },
+      { id: "glm-5.3", name: "GLM-5.3", cost: { input: 1.4, output: 4.4, cacheRead: 0.26, cacheWrite: 0 } },
+      { id: "glm-5.3-flash", name: "GLM-5.3-Flash", cost: null },
+      { id: "glm-5.3-highspeed", name: "GLM-5.3-Highspeed", cost: null },
+      { id: "glm-5.3-flashx", name: "GLM-5.3-FlashX", cost: null },
+    ],
+    "fake-prov": [
+      { id: "fake-7b", name: "Fake 7B", cost: { input: 0.1, output: 0.2, cacheRead: 0, cacheWrite: 0 } },
+      { id: "glm-5.3", name: "同名家", cost: null },
+    ],
+  },
+  catalog_source: "dynamic" as const,
 };
 
-describe("OpsPage — agent config section (票 #140,「设置」子 tab)", () => {
+describe("OpsPage — agent config section (票 #143,「设置」子 tab)", () => {
   beforeEach(() => {
     vi.mocked(getOpsAgentConfig).mockResolvedValue(CFG_MOCK);
   });
 
-  it("renders backend-driven closed-set dropdowns + configured key status", async () => {
+  it("renders dual dropdowns driven by the backend catalog + configured key status", async () => {
     renderOps();
     goSubTab("Settings");
-    const health = await screen.findByRole("combobox", { name: /health-round model/i });
+    const healthProvider = await screen.findByRole("combobox", { name: /health-round provider/i });
+    const health = screen.getByRole("combobox", { name: /health-round model/i });
     const discover = screen.getByRole("combobox", { name: /discover-round model/i });
-    for (const sel of [health, discover]) {
-      expect([...sel.querySelectorAll("option")].map((o) => o.value)).toEqual(CFG_MOCK.allowed_models);
-    }
+    // provider 下拉两家齐(qualified 现值驱动选中)
+    expect([...healthProvider.querySelectorAll("option")].map((o) => o.value))
+      .toEqual(["zai-coding-cn", "fake-prov"]);
+    expect((healthProvider as HTMLSelectElement).value).toBe("zai-coding-cn");
+    // model 下拉 = 现选中 provider 的目录(id 单拼写)
+    expect([...health.querySelectorAll("option")].map((o) => o.value))
+      .toEqual(["glm-4.6v", "glm-5.3", "glm-5.3-flash", "glm-5.3-highspeed", "glm-5.3-flashx"]);
     expect((health as HTMLSelectElement).value).toBe("glm-5.3-flash");
     expect((discover as HTMLSelectElement).value).toBe("glm-5.3");
     expect(screen.getByText(/Configured \(•••• 9988\)/)).toBeTruthy();
   });
 
-  it("shows the not-configured key status text when no key", async () => {
-    vi.mocked(getOpsAgentConfig).mockResolvedValue({
-      ...CFG_MOCK, zai_api_key: { configured: false, tail4: null },
-    });
+  it("switching provider cascades the model list and saves a qualified value", async () => {
+    vi.mocked(putOpsAgentConfig).mockResolvedValue(CFG_MOCK);
     renderOps();
     goSubTab("Settings");
+    fireEvent.change(await screen.findByRole("combobox", { name: /health-round provider/i }), {
+      target: { value: "fake-prov" },
+    });
+    const health = screen.getByRole("combobox", { name: /health-round model/i });
+    expect([...health.querySelectorAll("option")].map((o) => o.value))
+      .toEqual(["fake-7b", "glm-5.3"]); // 跨家同名模型按 provider 作用域
+    expect((health as HTMLSelectElement).value).toBe("fake-7b"); // 级联落首家
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(vi.mocked(putOpsAgentConfig)).toHaveBeenCalledWith({
+      model_health: "fake-prov/fake-7b",
+      model_discover: "zai-coding-cn/glm-5.3",
+    }));
+  });
+
+  it("providers without a key are marked in the dropdown (零硬闸:只标注不阻断)", async () => {
+    renderOps();
+    goSubTab("Settings");
+    const provider = await screen.findByRole("combobox", { name: /health-round provider/i });
+    const fakeOpt = [...provider.querySelectorAll("option")].find((o) => o.value === "fake-prov");
+    expect(fakeOpt?.textContent).toMatch(/needs key first/i);
+    const zaiOpt = [...provider.querySelectorAll("option")].find((o) => o.value === "zai-coding-cn");
+    expect(zaiOpt?.textContent).not.toMatch(/needs key first/i);
+    // 逐家 key 面同帧可见:未配置家显「No key configured」(现值不回填)
     expect(await screen.findByText(/No key configured/i)).toBeTruthy();
   });
 
-  it("save sends models + typed key, clears the write-only input, refreshes status", async () => {
+  it("cost hint shows for models with cost data and hides when null (目录可得才显)", async () => {
+    renderOps();
+    goSubTab("Settings");
+    const health = await screen.findByRole("combobox", { name: /health-round model/i });
+    const healthWrap = health.closest("label") as HTMLElement;
+    expect(within(healthWrap).queryByText(/Reference cost/i)).toBeNull(); // glm-5.3-flash cost=null
+    fireEvent.change(health, { target: { value: "glm-5.3" } });
+    const hint = within(healthWrap).getByText(/Reference cost/i);
+    expect(hint.textContent).toMatch(/1\.4/);
+    expect(hint.textContent).toMatch(/4\.4/);
+  });
+
+  it("per-provider key inputs send api_keys, write-only cleared after save", async () => {
     vi.mocked(putOpsAgentConfig).mockResolvedValue({
       ...CFG_MOCK,
-      model_health: "glm-4.6v",
-      model_discover: "glm-5.3-highspeed",
-      zai_api_key: { configured: true, tail4: "4321" },
+      api_keys: {
+        "zai-coding-cn": { configured: true, tail4: "9988" },
+        "fake-prov": { configured: true, tail4: "4321" },
+      },
     });
     renderOps();
     goSubTab("Settings");
-    fireEvent.change(await screen.findByRole("combobox", { name: /health-round model/i }), {
-      target: { value: "glm-4.6v" },
-    });
-    fireEvent.change(screen.getByRole("combobox", { name: /discover-round model/i }), {
-      target: { value: "glm-5.3-highspeed" },
-    });
-    fireEvent.change(screen.getByLabelText(/Z\.AI API key/i), {
-      target: { value: "sk-typed-4321" },
-    });
+    fireEvent.change(await screen.findByLabelText("fake-prov"), { target: { value: "sk-ant-4321" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(vi.mocked(putOpsAgentConfig)).toHaveBeenCalledWith({
-      model_health: "glm-4.6v", model_discover: "glm-5.3-highspeed", zai_api_key: "sk-typed-4321",
+      model_health: "zai-coding-cn/glm-5.3-flash",
+      model_discover: "zai-coding-cn/glm-5.3",
+      api_keys: { "fake-prov": "sk-ant-4321" },
     }));
     expect(await screen.findByText(/Saved — the next round picks it up/i)).toBeTruthy();
+    expect((screen.getByLabelText("fake-prov") as HTMLInputElement).value).toBe(""); // write-only
     expect(screen.getByText(/Configured \(•••• 4321\)/)).toBeTruthy();
-    expect((screen.getByLabelText(/Z\.AI API key/i) as HTMLInputElement).value).toBe("");
   });
 
-  it("blank key input omits zai_api_key from the payload (保持不改)", async () => {
+  it("blank key inputs omit api_keys from the payload (保持不改)", async () => {
     vi.mocked(putOpsAgentConfig).mockResolvedValue(CFG_MOCK);
     renderOps();
     goSubTab("Settings");
@@ -390,19 +439,32 @@ describe("OpsPage — agent config section (票 #140,「设置」子 tab)", () =
     });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(vi.mocked(putOpsAgentConfig)).toHaveBeenCalledWith({
-      model_health: "glm-5.3-flash", model_discover: "glm-5.3-flashx",
+      model_health: "zai-coding-cn/glm-5.3-flash", model_discover: "zai-coding-cn/glm-5.3-flashx",
     }));
   });
 
   it("save failure shows readable text, never the raw code", async () => {
-    vi.mocked(putOpsAgentConfig).mockRejectedValue(Object.assign(new Error("model_health 必须在闭集内"), {
-      status: 422, code: "validation_error",
-    }));
+    vi.mocked(putOpsAgentConfig).mockRejectedValue(Object.assign(
+      new Error("model_health 未在 zai-coding-cn 装载目录内(glm-4.6v/…): zai-coding-cn/gpt-4o"),
+      { status: 422, code: "validation_error" },
+    ));
     renderOps();
     goSubTab("Settings");
     fireEvent.click(await screen.findByRole("button", { name: "Save" }));
-    await waitFor(() => expect(screen.getByText(/必须在闭集内/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/未在 zai-coding-cn 装载目录内/)).toBeTruthy());
     expect(screen.queryByText(/validation_error/)).toBeNull();
+  });
+
+  it("catalog fallback is surfaced, not disguised (catalog_source=fallback)", async () => {
+    vi.mocked(getOpsAgentConfig).mockResolvedValue({
+      model_health: "zai-coding-cn/glm-5.3", model_discover: "zai-coding-cn/glm-5.3",
+      api_keys: {},
+      catalog: { "zai-coding-cn": [{ id: "glm-5.3", name: "GLM-5.3", cost: null }] },
+      catalog_source: "fallback" as const,
+    });
+    renderOps();
+    goSubTab("Settings");
+    expect(await screen.findByText(/fell back/i)).toBeTruthy();
   });
 });
 

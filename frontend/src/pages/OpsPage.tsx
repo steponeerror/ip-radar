@@ -85,15 +85,19 @@ function RoundPanel({ onUnauthorized }: { onUnauthorized: () => void }) {
   );
 }
 
-// 票 #140「agent 配置」子区(票 #142 起驻「设置」子 tab):两轮次模型下拉(闭集由后端
-// GET allowed_models 驱动,单一真相源)+ zai key write-only 输入(状态只显 configured+tail4,
-// 永不回填;保存成功后清空)。改完即生效由后端每次 spawn 现读保证。
+// 票 #140「agent 配置」子区(票 #142 起驻「设置」子 tab;票 #143 多供应商):
+// 两轮次 {provider, model} 双下拉(目录由后端 GET catalog 驱动,单一真相源;
+// 缺 key 的 provider 在下拉内标「需先填 key」——零硬闸只标注不阻断,ADR 0005
+// 裁③)+ 模型行参考成本提示(cost 来自目录数据,无价即隐)+ 逐 provider key
+// write-only 输入(状态只显 configured+tail4,永不回填;保存成功后清空)。
+// 改完即生效由后端每次 spawn 现读保证;catalog_source=fallback 显式提示
+// (不伪装动态)。
 function ConfigSection({ onUnauthorized }: { onUnauthorized: () => void }) {
   const { t } = useI18n();
   const [cfg, setCfg] = useState<OpsAgentConfig | null>(null);
   const [modelHealth, setModelHealth] = useState("");
   const [modelDiscover, setModelDiscover] = useState("");
-  const [keyInput, setKeyInput] = useState("");
+  const [keyInputs, setKeyInputs] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -119,17 +123,22 @@ function ConfigSection({ onUnauthorized }: { onUnauthorized: () => void }) {
 
   const save = () => {
     if (busy || !modelHealth || !modelDiscover) return;
+    const api_keys: Record<string, string> = {};
+    for (const [pid, raw] of Object.entries(keyInputs)) {
+      const key = raw.trim();
+      if (key) api_keys[pid] = key; // 空串 = 该家保持不改(无清除面)
+    }
     setBusy(true);
     setSaved(false);
     setError(null);
     putOpsAgentConfig({
       model_health: modelHealth,
       model_discover: modelDiscover,
-      ...(keyInput.trim() ? { zai_api_key: keyInput.trim() } : {}),
+      ...(Object.keys(api_keys).length ? { api_keys } : {}),
     })
       .then((c) => {
         apply(c);
-        setKeyInput(""); // write-only:保存后即清,后端永不回填
+        setKeyInputs({}); // write-only:保存后即清,后端永不回填
         setSaved(true);
       })
       .catch((e) => {
@@ -138,6 +147,72 @@ function ConfigSection({ onUnauthorized }: { onUnauthorized: () => void }) {
       })
       .finally(() => setBusy(false));
   };
+
+  // 轮次双下拉(渲染助手非组件,避免重挂我):现值 qualified 拆
+  // {provider, model};provider 切换级联模型落该家首项;现值家/型不在目录
+  // (如兜底闭集期存了别家)时补现值选项防空选。
+  const renderRound = (kind: "health" | "discover") => {
+    if (!cfg) return null;
+    const value = kind === "health" ? modelHealth : modelDiscover;
+    const onChange = kind === "health" ? setModelHealth : setModelDiscover;
+    const slash = value.indexOf("/");
+    const pid = slash >= 0 ? value.slice(0, slash) : "";
+    const mid = slash >= 0 ? value.slice(slash + 1) : value;
+    const inCatalog = (p: string) => Object.prototype.hasOwnProperty.call(cfg.catalog, p);
+    const providers = pid && !inCatalog(pid)
+      ? [...Object.keys(cfg.catalog), pid] : Object.keys(cfg.catalog);
+    const rawEntries = cfg.catalog[pid] ?? [];
+    const entries = rawEntries.some((e) => e.id === mid)
+      ? rawEntries : [{ id: mid, name: mid, cost: null }, ...rawEntries];
+    const cost = entries.find((e) => e.id === mid)?.cost;
+    const showCost = cost && cost.input != null && cost.output != null;
+    const needsKey = (p: string) => !cfg.api_keys[p]?.configured;
+    return (
+      <div key={kind} className="flex flex-wrap items-end gap-2">
+        <label className="flex flex-col gap-1 text-xs text-zinc-400">
+          {kind === "health" ? t("ops.cfg.providerHealth") : t("ops.cfg.providerDiscover")}
+          <select
+            value={pid}
+            onChange={(e) => {
+              const next = e.target.value;
+              const nextEntries = cfg.catalog[next] ?? entries;
+              onChange(`${next}/${nextEntries[0]?.id ?? mid}`); // 级联落首家
+            }}
+            className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-1.5 font-mono text-xs text-zinc-200 focus:border-emerald-600 focus:outline-none"
+          >
+            {providers.map((p) => (
+              <option key={p} value={p}>
+                {needsKey(p) ? `${p} ${t("ops.cfg.needsKey")}` : p}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1 text-xs text-zinc-400">
+          {kind === "health" ? t("ops.cfg.modelHealth") : t("ops.cfg.modelDiscover")}
+          <select
+            value={mid}
+            onChange={(e) => onChange(`${pid}/${e.target.value}`)}
+            className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-1.5 font-mono text-xs text-zinc-200 focus:border-emerald-600 focus:outline-none"
+          >
+            {entries.map((m) => <option key={m.id} value={m.id}>{m.id}</option>)}
+          </select>
+          {showCost && (
+            <span className="text-[11px] text-zinc-500">
+              {t("ops.cfg.costHint", {
+                input: String(cost!.input),
+                output: String(cost!.output),
+              })}
+            </span>
+          )}
+        </label>
+      </div>
+    );
+  };
+
+  // key 面行序 = 目录家 ∪ 已配置家(别家 key 在目录消失时状态仍可见,诚实呈现)
+  const keyProviders = cfg
+    ? [...new Set([...Object.keys(cfg.catalog), ...Object.keys(cfg.api_keys)])]
+    : [];
 
   return (
     <section aria-label={t("ops.cfg.title")}>
@@ -150,51 +225,52 @@ function ConfigSection({ onUnauthorized }: { onUnauthorized: () => void }) {
         </p>
       )}
       {cfg && (
-        <div className="mt-3 flex flex-wrap items-end gap-4">
-          <label className="flex flex-col gap-1 text-xs text-zinc-400">
-            {t("ops.cfg.modelHealth")}
-            <select
-              value={modelHealth}
-              onChange={(e) => setModelHealth(e.target.value)}
-              className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-1.5 font-mono text-xs text-zinc-200 focus:border-emerald-600 focus:outline-none"
+        <div className="mt-3 flex flex-col gap-3">
+          {cfg.catalog_source === "fallback" && (
+            <p className="text-[11px] text-amber-400/90">{t("ops.cfg.fallbackNote")}</p>
+          )}
+          <div className="flex flex-wrap items-end gap-4">
+            {renderRound("health")}
+            {renderRound("discover")}
+            <button
+              type="button"
+              disabled={busy}
+              onClick={save}
+              className="rounded-md bg-emerald-500 px-4 py-1.5 text-xs font-semibold text-zinc-950 transition-transform hover:scale-[1.02] disabled:opacity-40"
             >
-              {cfg.allowed_models.map((m) => <option key={m} value={m}>{m}</option>)}
-            </select>
-          </label>
-          <label className="flex flex-col gap-1 text-xs text-zinc-400">
-            {t("ops.cfg.modelDiscover")}
-            <select
-              value={modelDiscover}
-              onChange={(e) => setModelDiscover(e.target.value)}
-              className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-1.5 font-mono text-xs text-zinc-200 focus:border-emerald-600 focus:outline-none"
-            >
-              {cfg.allowed_models.map((m) => <option key={m} value={m}>{m}</option>)}
-            </select>
-          </label>
-          <label className="flex flex-col gap-1 text-xs text-zinc-400">
-            {t("ops.cfg.keyLabel")}
-            <input
-              type="password"
-              autoComplete="off"
-              placeholder={t("ops.cfg.keyPlaceholder")}
-              value={keyInput}
-              onChange={(e) => setKeyInput(e.target.value)}
-              className="min-w-56 rounded-md border border-zinc-700 bg-zinc-950 px-3 py-1.5 font-mono text-xs text-zinc-200 focus:border-emerald-600 focus:outline-none"
-            />
-            <span className="text-[11px] text-zinc-500">
-              {cfg.zai_api_key.configured
-                ? t("ops.cfg.keyConfigured", { tail4: cfg.zai_api_key.tail4 ?? "" })
-                : t("ops.cfg.keyMissing")}
-            </span>
-          </label>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={save}
-            className="rounded-md bg-emerald-500 px-4 py-1.5 text-xs font-semibold text-zinc-950 transition-transform hover:scale-[1.02] disabled:opacity-40"
-          >
-            {t("ops.cfg.save")}
-          </button>
+              {t("ops.cfg.save")}
+            </button>
+          </div>
+          <div>
+            <h3 className="text-xs font-semibold tracking-wide text-zinc-400 uppercase">
+              {t("ops.cfg.keysTitle")}
+            </h3>
+            <div className="mt-2 flex flex-wrap items-start gap-4">
+              {keyProviders.map((pid) => {
+                const st = cfg.api_keys[pid];
+                return (
+                  <label key={pid} className="flex flex-col gap-1 text-xs text-zinc-400">
+                    <span className="font-mono">{pid}</span>
+                    <input
+                      type="password"
+                      autoComplete="off"
+                      aria-label={pid}
+                      placeholder={t("ops.cfg.keyPlaceholder")}
+                      value={keyInputs[pid] ?? ""}
+                      onChange={(e) =>
+                        setKeyInputs((v) => ({ ...v, [pid]: e.target.value }))}
+                      className="min-w-56 rounded-md border border-zinc-700 bg-zinc-950 px-3 py-1.5 font-mono text-xs text-zinc-200 focus:border-emerald-600 focus:outline-none"
+                    />
+                    <span className="text-[11px] text-zinc-500">
+                      {st?.configured
+                        ? t("ops.cfg.keyConfigured", { tail4: st.tail4 ?? "" })
+                        : t("ops.cfg.keyMissing")}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
         </div>
       )}
       {saved && (

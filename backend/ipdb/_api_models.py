@@ -315,7 +315,8 @@ class OpsRulingOut(_Out):
     queue_appended: bool
 
 
-# ── ops agent 配置面（票 #140；永不回显约束同 token 面 sources-redesign T1）──
+# ── ops agent 配置面（票 #140 立；票 #143 多供应商扩面；永不回显约束同
+# token 面 sources-redesign T1）──
 class OpsAgentKeyStatusOut(_Out):
     """key 状态：configured + tail4（≤4 字符）。硬约束：完整 key 永不回显
     （沿 TokenStatusOut 先例）；空串/缺省 = 保持不改（无清除面）。"""
@@ -323,23 +324,42 @@ class OpsAgentKeyStatusOut(_Out):
     tail4: Optional[str] = None
 
 
+class OpsModelCostOut(_Out):
+    """pi-ai Model.cost 原样（单位 $/1M tokens；catalog.mjs dump 逐字）。"""
+    input: Optional[float] = None
+    output: Optional[float] = None
+    cacheRead: Optional[float] = None
+    cacheWrite: Optional[float] = None
+
+
+class OpsCatalogModelOut(_Out):
+    """目录单项（catalog.mjs dump 形状）；cost=None → UI 成本提示隐去。"""
+    id: str
+    name: str
+    cost: Optional[OpsModelCostOut] = None
+
+
 class OpsAgentConfigOut(_Out):
-    """GET/PUT /api/ops/agent-config 出参（票 #140）。model_* = 有效值
-    （配置 > env > models.mjs 缺省，优先级链见 _ops_config 模块头）；
-    allowed_models = 后端校验闭集，前端下拉单一真相源（裁决 2026-10-20）。"""
+    """GET/PUT /api/ops/agent-config 出参（票 #143 多供应商形状）。model_* =
+    有效值（配置 > env > models.mjs 缺省，qualified "provider/model" 归一，
+    优先级链见 _ops_config 模块头）；api_keys = 逐 provider key 状态；catalog =
+    动态目录（node 子调用 dump，TTL 缓存，失败兜底闭集），catalog_source 显式
+    dynamic|fallback；前端双下拉单一真相源（裁决 2026-10-20）。"""
     model_health: str
     model_discover: str
-    zai_api_key: OpsAgentKeyStatusOut
-    allowed_models: list[str]
+    api_keys: dict[str, OpsAgentKeyStatusOut]
+    catalog: dict[str, list[OpsCatalogModelOut]]
+    catalog_source: str
 
 
 class OpsAgentConfigIn(BaseModel):
-    """PUT 入参：三字段全可省（缺省 = 保持不改）；zai_api_key 空串 = 保持
-    不改。闭集与长度上限不在此声明（pydantic 422 detail 回带 input 原值，
-    违「永不回显」）；在 _ops_config.update 校验（HTTPException 信封不带值）。"""
+    """PUT 入参：字段全可省（缺省 = 保持不改）；api_keys 值空串 = 该家保持
+    不改。api_keys 故意不声明 dict[str,str]（pydantic 422 detail 回带 input
+    原值，非 str 值会被回显——违「永不回显」）；类型/长度/形状校验全在
+    _ops_config.update（HTTPException 信封不带值）。"""
     model_health: Optional[str] = None
     model_discover: Optional[str] = None
-    zai_api_key: Optional[str] = None
+    api_keys: Optional[dict] = None
 
 
 class ApiKeyOut(_Out):

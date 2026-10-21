@@ -60,6 +60,66 @@ await t("models:三层装载——flash 继承 api/baseUrl,store glm-5.3 保全�
   assert.equal((await credentials.read("zai-coding-cn"))?.key, "fixture-key");
 });
 
+// ── 票 #143 多供应商装载:builtin 全家注册 + qualified resolve + 逐家凭证 ──
+// fixture:auth.json 两家凭证(zai + anthropic);用户层 provider(lmstudio 形,
+// 非 builtin)从 providerConfig 构造——baseUrl/api/apiKey 全在 provider 层。
+fs.writeFileSync(path.join(TMP, "auth-multi.json"), JSON.stringify({
+  "zai-coding-cn": { type: "api_key", key: "fixture-zai" },
+  "anthropic": { type: "api_key", key: "fixture-anthropic" },
+}));
+fs.writeFileSync(path.join(TMP, "models-multi.json"), JSON.stringify({
+  providers: {
+    lmstudio: {
+      baseUrl: "http://127.0.0.1:1234/v1", api: "openai-completions", apiKey: "lm-studio",
+      models: [{ id: "ornith-1.5-9b", name: "Ornith", input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }],
+    },
+  },
+}));
+
+await t("models:builtin 多家装载(pi-ai registry;离线,resolve 不触网)", async () => {
+  const { models } = await loadModels({ authPath: path.join(TMP, "auth-multi.json") });
+  const anthropic = models.getModels("anthropic");
+  assert.ok(anthropic.length > 0, "anthropic builtin 目录应已装载");
+  const m = models.getModel("anthropic", anthropic[0].id);
+  assert.equal(m?.provider, "anthropic");
+  assert.equal(m?.api, "anthropic-messages");
+});
+
+await t("models:qualified resolve(provider/model;裸值=缺省 zai)+ 逐家凭证入店", async () => {
+  const { models, resolve, credentials } = await loadModels({
+    modelsPath: path.join(TMP, "models-multi.json"),
+    authPath: path.join(TMP, "auth-multi.json"),
+  });
+    // qualified:builtin 家(anthropic)+ 用户层构造家(lmstudio)各一发;
+    // anthropic 模型 id 从装载目录动态取(目录内容随 pi-ai 版本浮动,不钉字面量)
+    const claudeId = models.getModels("anthropic")[0].id;
+    process.env.OPS_MODEL_HEALTH = `anthropic/${claudeId}`;
+    process.env.OPS_MODEL_DISCOVER = "lmstudio/ornith-1.5-9b";
+    assert.equal(resolve("health").provider, "anthropic");
+    assert.equal(resolve("health").id, claudeId);
+    assert.equal(resolve("discover").provider, "lmstudio");
+    assert.equal(resolve("discover").baseUrl, "http://127.0.0.1:1234/v1", "非 builtin provider 继承 provider 层 baseUrl");
+    assert.equal((await credentials.read("anthropic"))?.key, "fixture-anthropic", "auth.json 逐家凭证");
+    assert.equal((await credentials.read("lmstudio"))?.key, "lm-studio", "provider 层 apiKey 字面量入店");
+    // 裸值(无 /)= 缺省 zai(向后兼容:#140 既有配置/env 面)
+    delete process.env.OPS_MODEL_HEALTH;
+    assert.equal(resolve("health").provider, "zai-coding-cn");
+    assert.equal(resolve("health").id, "glm-5.3-flash");
+    delete process.env.OPS_MODEL_DISCOVER;
+  });
+
+await t("models:未知 provider/模型 显式报错(错误面含 provider 名与已装载摘要)", async () => {
+  const { resolve } = await loadModels({ authPath: path.join(TMP, "auth-multi.json") });
+  process.env.OPS_MODEL_HEALTH = "no-such-provider/foo";
+  try {
+    assert.throws(() => resolve("health"), /no-such-provider/);
+  } finally { delete process.env.OPS_MODEL_HEALTH; }
+  process.env.OPS_MODEL_HEALTH = "anthropic/no-such-model";
+  try {
+    assert.throws(() => resolve("health"), /anthropic\/no-such-model/);
+  } finally { delete process.env.OPS_MODEL_HEALTH; }
+});
+
 // ── 语义门(伪 evidence 登记表;beforeToolCall 直调,不建 Agent)──────────────────
 const host = new ToolHost("discover");
 const gate = (args) => host.beforeToolCall({

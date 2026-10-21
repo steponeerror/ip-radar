@@ -293,6 +293,68 @@ def test_spawn_rereads_config_each_spawn(rounds, ops_env, fake_agent):
     assert second["env"]["ZAI_CODING_CN_API_KEY"] == "v2-key-2222"
 
 
+# ── B3. 多供应商注入面(票 #143:qualified 模型透传 + api_keys 物化 auth.json
+# + OPS_AUTH 指它;ADR 0005 裁②)────────────────────────────────────
+
+
+def test_spawn_env_qualified_models_pass_through(rounds, ops_env, fake_agent):
+    """qualified 模型值(config 或 env)spawn 面逐字透传——provider 限定是值
+    文法不是新 env 名(17 名 env 面不变)。"""
+    _plant_agent_config(ops_env, {"model_health": "anthropic/claude-x"})
+    rounds.spawn_round("health", "输入")
+    dump = _read_dump(fake_agent[1])
+    assert dump["env"]["OPS_MODEL_HEALTH"] == "anthropic/claude-x"
+
+
+def test_spawn_materializes_merged_auth_json(rounds, ops_env, fake_agent):
+    """api_keys 配置 → 每次 spawn 物化合并 auth.json 落 ops 树(pi auth.json
+    同形 {providerId:{type:'api_key',key}}),OPS_AUTH 指它;旧 zai_api_key
+    alias 同入;zai env 兜底链不动(ZAI env 仍注入,stored credential 优先)。"""
+    _plant_agent_config(ops_env, {
+        "api_keys": {"anthropic": "sk-ant-material-8888", "zai-coding-cn": "sk-zai-cfg-7777"}})
+    rounds.spawn_round("health", "输入")
+    dump = _read_dump(fake_agent[1])
+    auth_path = ops_env / "ops" / "auth.json"
+    assert dump["env"]["OPS_AUTH"] == str(auth_path)
+    auth = json.loads(auth_path.read_text(encoding="utf-8"))
+    assert auth == {
+        "anthropic": {"type": "api_key", "key": "sk-ant-material-8888"},
+        "zai-coding-cn": {"type": "api_key", "key": "sk-zai-cfg-7777"}}
+    assert dump["env"]["ZAI_CODING_CN_API_KEY"] == "sk-zai-cfg-7777"  # env 链不动
+
+
+def test_spawn_materializes_legacy_zai_alias(rounds, ops_env, fake_agent):
+    """仅旧 zai_api_key(无 api_keys)也物化 zai 家(兼容面等价)。"""
+    _plant_agent_config(ops_env, {"zai_api_key": "sk-legacy-6666"})
+    rounds.spawn_round("health", "输入")
+    dump = _read_dump(fake_agent[1])
+    auth = json.loads((ops_env / "ops" / "auth.json").read_text(encoding="utf-8"))
+    assert auth["zai-coding-cn"]["key"] == "sk-legacy-6666"
+    assert dump["env"]["OPS_AUTH"] == str(ops_env / "ops" / "auth.json")
+
+
+def test_spawn_no_configured_keys_no_auth_materialization(rounds, ops_env, fake_agent):
+    """零 key 配置 → 不物化不注入 OPS_AUTH(models.mjs 回落 ~/.pi/agent/auth.json
+    /各家 env 链,#140 时期行为零回归);zai env 兜底仍注入。"""
+    rounds.spawn_round("health", "输入")
+    dump = _read_dump(fake_agent[1])
+    assert "OPS_AUTH" not in dump["env"]
+    assert not (ops_env / "ops" / "auth.json").exists()
+    assert dump["env"]["ZAI_CODING_CN_API_KEY"] == "zai-secret-key-1234"  # env 兜底
+
+
+def test_spawn_rematerializes_auth_on_key_change(rounds, ops_env, fake_agent):
+    """两轮间改 key → 第二轮 auth.json 内容即新值(改完即生效,同模型面)。"""
+    _plant_agent_config(ops_env, {"api_keys": {"anthropic": "sk-v1-1111"}})
+    rounds.spawn_round("health", "第一轮")
+    first = json.loads((ops_env / "ops" / "auth.json").read_text(encoding="utf-8"))
+    _plant_agent_config(ops_env, {"api_keys": {"anthropic": "sk-v2-2222"}})
+    rounds.spawn_round("health", "第二轮")
+    second = json.loads((ops_env / "ops" / "auth.json").read_text(encoding="utf-8"))
+    assert first["anthropic"]["key"] == "sk-v1-1111"
+    assert second["anthropic"]["key"] == "sk-v2-2222"
+
+
 def test_spawn_corrupt_config_maps_infra(rounds, ops_env, fake_agent):
     """坏配置文件 = 显式失败不静默:infra 兜底信封 + 台账行(消息不含 key 值)。"""
     (ops_env / "ops").mkdir(parents=True, exist_ok=True)
