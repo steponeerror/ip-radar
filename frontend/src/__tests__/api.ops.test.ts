@@ -163,7 +163,7 @@ describe("api ops agent config (票 #140/#143)", () => {
       "zai-coding-cn": [{ id: "glm-5.3", name: "GLM-5.3", cost: { input: 1.4, output: 4.4, cacheRead: 0.26, cacheWrite: 0 } }],
       "fake-prov": [{ id: "fake-7b", name: "Fake 7B", cost: null }],
     },
-    catalog_source: "dynamic",
+    catalog_source: "dynamic" as const,
   };
 
   it("getOpsAgentConfig GETs /api/ops/agent-config and returns the status shape", async () => {

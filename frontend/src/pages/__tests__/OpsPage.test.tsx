@@ -122,7 +122,7 @@ describe("OpsPage — 子 tab 重组(票 #142)", () => {
       model_health: "zai-coding-cn/glm-5.3", model_discover: "zai-coding-cn/glm-5.3",
       api_keys: {},
       catalog: { "zai-coding-cn": [{ id: "glm-5.3", name: "GLM-5.3", cost: null }] },
-      catalog_source: "dynamic",
+      catalog_source: "dynamic" as const,
     });
     renderOps();
     goSubTab("Settings");
@@ -340,7 +340,7 @@ const CFG_MOCK = {
       { id: "glm-5.3", name: "同名家", cost: null },
     ],
   },
-  catalog_source: "dynamic",
+  catalog_source: "dynamic" as const,
 };
 
 describe("OpsPage — agent config section (票 #143,「设置」子 tab)", () => {
@@ -460,7 +460,7 @@ describe("OpsPage — agent config section (票 #143,「设置」子 tab)", () =
       model_health: "zai-coding-cn/glm-5.3", model_discover: "zai-coding-cn/glm-5.3",
       api_keys: {},
       catalog: { "zai-coding-cn": [{ id: "glm-5.3", name: "GLM-5.3", cost: null }] },
-      catalog_source: "fallback",
+      catalog_source: "fallback" as const,
     });
     renderOps();
     goSubTab("Settings");
