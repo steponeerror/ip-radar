@@ -9,6 +9,7 @@ import {
 } from "../api";
 import OpsPackagesSection from "./OpsPackagesSection";
 import { OpsCockpit, OpsPastRounds } from "./OpsCockpit";
+import { SectionHead } from "./OpsSectionHead";
 import { ledgerRows } from "./opsLedger";
 import { opsErrorText } from "./opsErrorText";
 
@@ -45,11 +46,10 @@ function RoundPanel({ onUnauthorized }: { onUnauthorized: () => void }) {
   };
 
   // 票 #142:进度观察面(状态/耗时/日志/上一轮摘要)上移驾驶舱卡,本区只留触发面
+  // (触发动作是主操作非次级,不入节头——节头只挂描边次级动作,硬规④)
   return (
     <section aria-label={t("ops.round.title")} className="mt-8">
-      <h2 className="text-sm font-semibold tracking-wide text-zinc-400 uppercase">
-        {t("ops.round.title")}
-      </h2>
+      <SectionHead title={t("ops.round.title")} />
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <button
           type="button"
@@ -216,9 +216,8 @@ function ConfigSection({ onUnauthorized }: { onUnauthorized: () => void }) {
 
   return (
     <section aria-label={t("ops.cfg.title")}>
-      <h2 className="text-sm font-semibold tracking-wide text-zinc-400 uppercase">
-        {t("ops.cfg.title")}
-      </h2>
+      {/* 票 #147 节头行规范;设置面重做(基线/保存全部/key 搜索)归 #150 */}
+      <SectionHead title={t("ops.cfg.title")} />
       {error && (
         <p role="alert" className="mt-3 rounded-md border border-red-400/30 bg-red-400/10 px-3 py-2 text-xs text-red-400">
           {error}
@@ -302,14 +301,16 @@ function LedgerSection({ onUnauthorized }: { onUnauthorized: () => void }) {
 
   return (
     <section aria-label={t("ops.ledger.title")}>
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold tracking-wide text-zinc-400 uppercase">
-          {t("ops.ledger.title")}
-        </h2>
-        <button type="button" onClick={load} className="text-xs text-zinc-500 transition-colors hover:text-zinc-300">
+      <SectionHead title={t("ops.ledger.title")}>
+        {/* 裸文字链接 → 描边按钮(票 #147;硬规④次级动作一律描边) */}
+        <button
+          type="button"
+          onClick={load}
+          className="rounded-md border border-zinc-700 px-4 py-1.5 text-xs text-zinc-300 transition-colors hover:border-emerald-500/50 hover:text-emerald-400"
+        >
           {t("ops.ledger.refresh")}
         </button>
-      </div>
+      </SectionHead>
       {error && (
         <p role="alert" className="mt-3 rounded-md border border-red-400/30 bg-red-400/10 px-3 py-2 text-xs text-red-400">
           {error}
@@ -396,10 +397,7 @@ function PrecedentsSection({ onUnauthorized }: { onUnauthorized: () => void }) {
 
   return (
     <section aria-label={t("ops.prec.title")} className="mt-8">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold tracking-wide text-zinc-400 uppercase">
-          {t("ops.prec.title")}
-        </h2>
+      <SectionHead title={t("ops.prec.title")}>
         <button
           type="button"
           onClick={onExport}
@@ -407,7 +405,7 @@ function PrecedentsSection({ onUnauthorized }: { onUnauthorized: () => void }) {
         >
           {t("ops.export")}
         </button>
-      </div>
+      </SectionHead>
       <div className="mt-3 flex gap-2">
         <input
           type="search"
@@ -496,11 +494,6 @@ export default function OpsPage({ onUnauthorized }: { onUnauthorized: () => void
     if (prev === "running" && cur && cur !== "running") setRoundTick((n) => n + 1);
   }, [opsTask?.state]);
 
-  const subTabBtn = (id: OpsSubTab) =>
-    `rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-      subTab === id ? "bg-zinc-800 text-emerald-400" : "text-zinc-500 hover:text-zinc-300"
-    }`;
-
   const subTabs: Array<{ id: OpsSubTab; key: "ops.tab.rounds" | "ops.tab.rulings" | "ops.tab.archive" | "ops.tab.settings" }> = [
     { id: "rounds", key: "ops.tab.rounds" },
     { id: "rulings", key: "ops.tab.rulings" },
@@ -510,18 +503,25 @@ export default function OpsPage({ onUnauthorized }: { onUnauthorized: () => void
 
   return (
     <div>
-      {/* 裁⑦ 恒挂:全部建议仅立项,零自动执行 */}
-      <p className="rounded-md border border-amber-500/30 bg-amber-400/10 px-3 py-2 text-xs text-amber-400">
-        {t("ops.disclaimer")}
-      </p>
-      <div role="tablist" aria-label={t("ops.cockpit.title")} className="mt-4 flex gap-1 rounded-lg bg-zinc-900 p-1 sm:inline-flex">
+      {/* 裁⑦ 恒挂:全部建议仅立项,零自动执行。票 #147:彩色横幅降级为一行
+          无底色小字注记——文案语义不变;恒挂声明非事件,琥珀只留给事件性
+          警示(硬规⑤)。位置在子 tab 上方,四个子 tab 恒见。 */}
+      <p className="text-[11px] text-zinc-500">{t("ops.disclaimer")}</p>
+      {/* 票 #147:二级子 tab underline 式——去 chip 容器、字号较一级 tab
+          (text-sm)降一级、与内容列左对齐;与一级 tab 的容器形态拉开两级
+          视觉。role=tab / aria-selected 语义不弱化(underline 只换皮肤)。 */}
+      <div role="tablist" aria-label={t("ops.cockpit.title")} className="mt-4 flex gap-5 border-b border-zinc-800">
         {subTabs.map(({ id, key }) => (
           <button
             key={id}
             type="button"
             role="tab"
             aria-selected={subTab === id}
-            className={subTabBtn(id)}
+            className={`border-b-2 px-1 pb-2 pt-1 text-xs font-medium transition-colors ${
+              subTab === id
+                ? "border-emerald-500 text-emerald-400"
+                : "border-transparent text-zinc-500 hover:text-zinc-300"
+            }`}
             onClick={() => setSubTab(id)}
           >
             {t(key)}
