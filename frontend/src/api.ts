@@ -808,30 +808,46 @@ export async function exportOpsPrecedents(): Promise<Blob> {
   return res.blob();
 }
 
-// ── ops agent 配置面(票 #140;契约真源 = backend GET/PUT /api/ops/agent-config
-// + _api_models.py OpsAgentConfig*)── 模型闭集下拉由后端 allowed_models 驱动
-// (单一真相源,裁决 2026-10-20);key 硬约束同 token 面:write-only,状态只
-// configured+tail4,完整值永不回显(前端无既有值可回填,输入框恒空)。
+// ── ops agent 配置面(票 #140 立;票 #143 多供应商形状;契约真源 = backend
+// GET/PUT /api/ops/agent-config + _api_models.py OpsAgentConfig*)── 双下拉由
+// 后端 catalog 驱动(单一真相源:node 子调用 dump,失败兜底闭集,catalog_source
+// 显式);模型值 = qualified "provider/model";key 硬约束同 token 面:write-only,
+// 状态只 configured+tail4,完整值永不回显(前端无既有值可回填,输入框恒空)。
 export interface OpsAgentKeyStatus {
   configured: boolean;
   tail4: string | null;
 }
 
+// pi-ai Model.cost 原样(单位 $/1M tokens;null = 目录无价 → UI 成本提示隐去)
+export interface OpsModelCost {
+  input: number | null;
+  output: number | null;
+  cacheRead: number | null;
+  cacheWrite: number | null;
+}
+
+export interface OpsCatalogModel {
+  id: string;
+  name: string;
+  cost: OpsModelCost | null;
+}
+
 export interface OpsAgentConfig {
-  model_health: string; // 有效值:配置 > env > models.mjs 缺省
+  model_health: string; // 有效值:配置 > env > models.mjs 缺省(qualified)
   model_discover: string;
-  zai_api_key: OpsAgentKeyStatus;
-  allowed_models: string[]; // 后端校验闭集(实测 pi-ai 装载目录)
+  api_keys: Record<string, OpsAgentKeyStatus>; // 逐 provider key 状态
+  catalog: Record<string, OpsCatalogModel[]>; // 后端驱动的双下拉目录
+  catalog_source: "dynamic" | "fallback"; // 兜底闭集显式标注,不伪装动态
 }
 
 export async function getOpsAgentConfig(): Promise<OpsAgentConfig> {
   return jsonOrThrow(await fetch("/api/ops/agent-config"), "Failed to load agent config");
 }
 
-// PUT:三字段缺省/空 key = 保持不改(无清除面);闭集外模型 422。
-// 成功返回写后状态(与 GET 同形)。
+// PUT:字段缺省 = 保持不改;api_keys 逐家 {providerId:key},未输入/空串家 =
+// 该家保持不改(无清除面);目录外模型 422。成功返回写后状态(与 GET 同形)。
 export async function putOpsAgentConfig(
-  payload: { model_health: string; model_discover: string; zai_api_key?: string },
+  payload: { model_health: string; model_discover: string; api_keys?: Record<string, string> },
 ): Promise<OpsAgentConfig> {
   const res = await fetch("/api/ops/agent-config", {
     method: "PUT",
@@ -839,7 +855,8 @@ export async function putOpsAgentConfig(
     body: JSON.stringify({
       model_health: payload.model_health,
       model_discover: payload.model_discover,
-      ...(payload.zai_api_key ? { zai_api_key: payload.zai_api_key } : {}),
+      ...(payload.api_keys && Object.keys(payload.api_keys).length
+        ? { api_keys: payload.api_keys } : {}),
     }),
   });
   return jsonOrThrow(res, "Failed to save agent config");

@@ -144,21 +144,26 @@ describe("api ops functions (P4, #136)", () => {
   });
 });
 
-// 票 #140:agent 配置面数据层。契约真源 = backend GET/PUT /api/ops/agent-config
-// + _api_models.py OpsAgentConfig*(闭集/优先级链/永不回显 key,出参只带
-// configured+tail4);allowed_models = 后端驱动下拉的单一真相源(实测 pi-ai
-// 装载目录五值,裁决 2026-10-20)。
-describe("api ops agent config (票 #140)", () => {
+// 票 #140 立:agent 配置面数据层;票 #143 多供应商形状。契约真源 = backend
+// GET/PUT /api/ops/agent-config + _api_models.py OpsAgentConfig*(动态目录/
+// qualified 值/逐家 key 永不回显,出参只带 configured+tail4);catalog =
+// 后端驱动双下拉的单一真相源(node 子调用 dump,失败兜底闭集并显式
+// catalog_source)。
+describe("api ops agent config (票 #140/#143)", () => {
   beforeEach(() => {
     installFetchMock();
     (globalThis as { EventSource?: unknown }).EventSource = vi.fn(() => ({ close: () => {} }));
   });
 
   const CFG = {
-    model_health: "glm-5.3-flash",
-    model_discover: "glm-5.3",
-    zai_api_key: { configured: true, tail4: "9988" },
-    allowed_models: ["glm-4.6v", "glm-5.3", "glm-5.3-flash", "glm-5.3-highspeed", "glm-5.3-flashx"],
+    model_health: "zai-coding-cn/glm-5.3-flash",
+    model_discover: "zai-coding-cn/glm-5.3",
+    api_keys: { "zai-coding-cn": { configured: true, tail4: "9988" } },
+    catalog: {
+      "zai-coding-cn": [{ id: "glm-5.3", name: "GLM-5.3", cost: { input: 1.4, output: 4.4, cacheRead: 0.26, cacheWrite: 0 } }],
+      "fake-prov": [{ id: "fake-7b", name: "Fake 7B", cost: null }],
+    },
+    catalog_source: "dynamic",
   };
 
   it("getOpsAgentConfig GETs /api/ops/agent-config and returns the status shape", async () => {
@@ -169,34 +174,36 @@ describe("api ops agent config (票 #140)", () => {
     expect(fetchMock().mock.calls[0][1]).toBeUndefined();
   });
 
-  it("putOpsAgentConfig PUTs models + key and returns the updated status", async () => {
+  it("putOpsAgentConfig PUTs qualified models + api_keys and returns the updated status", async () => {
     fetchMock().mockResolvedValue({ ok: true, json: async () => CFG });
     const r = await putOpsAgentConfig({
-      model_health: "glm-4.6v", model_discover: "glm-5.3-highspeed", zai_api_key: "sk-new-9988",
+      model_health: "fake-prov/fake-7b", model_discover: "zai-coding-cn/glm-5.3-highspeed",
+      api_keys: { "fake-prov": "sk-ant-new-4321" },
     });
     expect(r).toEqual(CFG);
     const [url, init] = fetchMock().mock.calls[0];
     expect(url).toBe("/api/ops/agent-config");
     expect(init.method).toBe("PUT");
     expect(JSON.parse(init.body)).toEqual({
-      model_health: "glm-4.6v", model_discover: "glm-5.3-highspeed", zai_api_key: "sk-new-9988",
+      model_health: "fake-prov/fake-7b", model_discover: "zai-coding-cn/glm-5.3-highspeed",
+      api_keys: { "fake-prov": "sk-ant-new-4321" },
     });
   });
 
-  it("putOpsAgentConfig omits zai_api_key when blank (保持不改语义)", async () => {
+  it("putOpsAgentConfig omits api_keys when no keys typed (保持不改语义)", async () => {
     fetchMock().mockResolvedValue({ ok: true, json: async () => CFG });
-    await putOpsAgentConfig({ model_health: "glm-5.3", model_discover: "glm-5.3" });
+    await putOpsAgentConfig({ model_health: "zai-coding-cn/glm-5.3", model_discover: "zai-coding-cn/glm-5.3" });
     expect(JSON.parse(fetchMock().mock.calls[0][1].body)).toEqual({
-      model_health: "glm-5.3", model_discover: "glm-5.3",
+      model_health: "zai-coding-cn/glm-5.3", model_discover: "zai-coding-cn/glm-5.3",
     });
   });
 
-  it("putOpsAgentConfig rejects with the envelope on 422 (闭集外模型)", async () => {
+  it("putOpsAgentConfig rejects with the envelope on 422 (目录外模型)", async () => {
     fetchMock().mockResolvedValue({
       ok: false, status: 422,
-      json: async () => ({ error: { code: "validation_error", message: "model_health 必须在闭集内" } }),
+      json: async () => ({ error: { code: "validation_error", message: "model_health 未在 zai-coding-cn 装载目录内(glm-4.6v/…): zai-coding-cn/gpt-4o" } }),
     });
-    const e = (await putOpsAgentConfig({ model_health: "bad", model_discover: "glm-5.3" }).catch((err) => err)) as ApiError;
+    const e = (await putOpsAgentConfig({ model_health: "bad", model_discover: "zai-coding-cn/glm-5.3" }).catch((err) => err)) as ApiError;
     expect(e.status).toBe(422);
     expect(e.code).toBe("validation_error");
   });
