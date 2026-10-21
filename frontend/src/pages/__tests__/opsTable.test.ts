@@ -1,12 +1,25 @@
 import { describe, it, expect } from "vitest";
 import { translate } from "../../i18n/translate";
 import type { TFn } from "../../i18n";
-import { relTime, noteText } from "../opsTable";
+import { relTime, noteText, precDate } from "../opsTable";
 
 // 票 #148:表格统一件(本票首创,#149 档案面复用)。纯函数面 = 相对时间、
 // 台账备注人话化;列名映射 = ops.col.* 词条(组件测试断言列头)。t 注入
 // zh-CN 真词典(断言中文人话串,与 en 词条同 key)。
 const t: TFn = (key, vars) => translate("zh-CN", key, vars);
+
+describe("precDate — 判例文件名日期前缀(#149 判例行相对时间源)", () => {
+  it("YYYY-MM-DD-<slug>.md 命名约定 → 提取日期(day 精度,同台账行)", () => {
+    expect(precDate("2026-10-19-ustc-myip-incremental-queue-signoff.md")).toBe("2026-10-19");
+    expect(precDate("2026-10-20-ruling-abc123def0.md")).toBe("2026-10-20");
+  });
+
+  it("无日期前缀名 → null(宁少算:不猜,调用方不显时间)", () => {
+    expect(precDate("notes-plain.md")).toBeNull();
+    expect(precDate("2026-10-19.md")).toBeNull(); // 约定形 = 日期后必有 slug 段
+    expect(precDate("")).toBeNull();
+  });
+});
 
 describe("relTime — 相对时间 + title 完整戳", () => {
   const NOW = Date.parse("2026-10-21T12:00:00Z");
