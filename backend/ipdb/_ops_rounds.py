@@ -86,10 +86,22 @@ def _round_env() -> dict[str, str]:
         env["OPS_MODEL_HEALTH"] = cfg["model_health"]
     if cfg.get("model_discover"):
         env["OPS_MODEL_DISCOVER"] = cfg["model_discover"]
-    zai = (cfg.get("zai_api_key")
-           or os.environ.get("ZAI_CODING_CN_API_KEY", "")).strip()
+    # 票 #143(ADR 0005 裁②):配置面 key(api_keys + 旧 zai_api_key alias)→
+    # 每次 spawn 物化合并 auth.json 落 ops 树(pi auth.json 同形),OPS_AUTH 指它
+    # (models.mjs 读面 #143 起逐家);零 key 配置 → 不物化不注入(回落
+    # ~/.pi/agent/auth.json / 各家 env 链,#140 行为零回归)。零硬闸:不在此设
+    # 任何成本/供应商门(裁③)。
+    keys = _ops_config.effective_keys()  # 配置面逐家(含旧 alias;不含 env)
+    if keys:
+        auth_path = root / "auth.json"
+        _ops_store.atomic_write_text(auth_path, json.dumps(
+            {pid: {"type": "api_key", "key": key} for pid, key in keys.items()},
+            ensure_ascii=False, indent=2) + "\n")
+        env["OPS_AUTH"] = str(auth_path)
+    zai = keys.get("zai-coding-cn") \
+        or os.environ.get("ZAI_CODING_CN_API_KEY", "").strip()
     if zai:
-        env["ZAI_CODING_CN_API_KEY"] = zai
+        env["ZAI_CODING_CN_API_KEY"] = zai  # zai env 兜底链不动(stored credential 优先)
     return env
 
 
