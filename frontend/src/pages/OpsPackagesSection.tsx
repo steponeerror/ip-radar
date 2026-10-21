@@ -8,6 +8,7 @@ import {
 import { opsErrorText } from "./opsErrorText";
 import { relTime } from "./opsTable";
 import { SectionHead } from "./OpsSectionHead";
+import { useArrivalNow } from "./useArrivalNow";
 
 // P4 裁决包区(票 #136):列表 → 详情(包文逐字:建议/证据 call_id+field+value/
 // trace;判例引用可点开全文)→ 人裁三动作(同意/否决/修正)。裁⑦:全部建议
@@ -70,8 +71,8 @@ export default function OpsPackagesSection({ onUnauthorized, roundTick }: {
   const { t } = useI18n();
   const [packages, setPackages] = useState<OpsPackageInfo[] | null>(null);
   const [listError, setListError] = useState<string | null>(null);
-  // 相对时间基准 = 列表抵达时刻(#149;Date.now 不入 render,同台账纪律)
-  const [now, setNow] = useState(0);
+  // 相对时间基准 = 列表抵达时刻(#149;useArrivalNow,Date.now 不入 render)
+  const [now, markArrived] = useArrivalNow();
   const [detailName, setDetailName] = useState<string | null>(null);
   const [detailText, setDetailText] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
@@ -96,12 +97,12 @@ export default function OpsPackagesSection({ onUnauthorized, roundTick }: {
     setListError(null);
     try {
       setPackages(await listOpsPackages());
-      setNow(Date.now());
+      markArrived();
     } catch (e) {
       failWith(setListError, t("ops.pkgs.loadFailed"))(e);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [t, onUnauthorized]);
+  }, [t, onUnauthorized, markArrived]);
 
   // 挂载 + 轮次收口(roundTick)重拉
   // eslint-disable-next-line react-hooks/set-state-in-effect

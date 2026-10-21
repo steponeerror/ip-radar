@@ -7,8 +7,9 @@ import {
 } from "../api";
 import { opsErrorText, roundErrorText, humanizeRoundMessage } from "./opsErrorText";
 import { ledgerRows, splitUsage, pkgMatchesRow, type LedgerRow } from "./opsLedger";
-import { LEDGER_COL_KEYS, PAST_EXTRA_COL_KEYS, relTime, noteText, thClass, tdNumClass } from "./opsTable";
+import { LEDGER_CELL, LEDGER_COL_KEYS, PAST_EXTRA_COL_KEYS, relTime, noteText, thClass, tdNumClass } from "./opsTable";
 import { SectionHead } from "./OpsSectionHead";
+import { useArrivalNow } from "./useArrivalNow";
 
 // OpsCockpit.tsx — 驾驶舱(GLOSSARY 词条「驾驶舱」锚点;票 #142 起)。
 // 票 #148 单卡化:状态 chip 内联节头 + 上一轮结果(人话化错误 + 可展开原始
@@ -59,7 +60,7 @@ function buildFromMemory(task: TaskState, lines: string[]): LastRoundSummary | n
 // 台账末行 → 兜底摘要(宽形:cells 全行,缺读数如实缺省)
 type LedgerSummary = { kind: "ledger"; cells: LedgerRow; usage: string; cost: string | null };
 function ledgerCardRow(cells: LedgerRow): LedgerSummary {
-  const { usage, cost } = splitUsage(cells[3] ?? "");
+  const { usage, cost } = splitUsage(cells[LEDGER_CELL.usage] ?? "");
   return { kind: "ledger", cells, usage, cost };
 }
 
@@ -245,7 +246,7 @@ export function OpsCockpit({ onGoRulings, onUnauthorized }: {
                 </p>
               ) : (
                 <p className="mt-1 text-xs text-zinc-300">
-                  <span className="font-mono">{last.cells[0]}</span> · {last.cells[1]} · <span className="font-mono">{last.cells[2]}</span>
+                  <span className="font-mono">{last.cells[LEDGER_CELL.time]}</span> · {last.cells[LEDGER_CELL.round]} · <span className="font-mono">{last.cells[LEDGER_CELL.model]}</span>
                   <span className="ml-2 font-mono text-zinc-500">{last.usage} · cost={last.cost ?? "—"}</span>
                 </p>
               )}
@@ -318,9 +319,9 @@ export function OpsPastRounds({ onGoRulings, onUnauthorized }: {
   const [text, setText] = useState<string | null>(null);
   const [packages, setPackages] = useState<OpsPackageInfo[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // 相对时间基准 = 数据抵达时刻(Date.now 不入 render,同已耗时纪律);行
+  // 相对时间基准 = 数据抵达时刻(useArrivalNow,Date.now 不入 render);行
   // 渲染晚于两回调置位,不闪初值
-  const [now, setNow] = useState(0);
+  const [now, markArrived] = useArrivalNow();
 
   const failWith = (fallback: string) => (e: unknown) => {
     if ((e as ApiError).status === 401) { onUnauthorized(); return; }
@@ -328,8 +329,8 @@ export function OpsPastRounds({ onGoRulings, onUnauthorized }: {
   };
 
   useEffect(() => {
-    readOpsLedger().then((v) => { setText(v); setNow(Date.now()); }).catch(failWith(t("ops.ledger.loadFailed")));
-    listOpsPackages().then((v) => { setPackages(v); setNow(Date.now()); }).catch(() => { /* 包列缺不阻台账面 */ });
+    readOpsLedger().then((v) => { setText(v); markArrived(); }).catch(failWith(t("ops.ledger.loadFailed")));
+    listOpsPackages().then((v) => { setPackages(v); markArrived(); }).catch(() => { /* 包列缺不阻台账面 */ });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -341,7 +342,7 @@ export function OpsPastRounds({ onGoRulings, onUnauthorized }: {
   // 记账等)不灭失——入孤行置顶,缺列显 —
   const matchedPkgs = new Set<string>();
   const rowsWithPkgs = dataRows.map((cells) => {
-    const hit = pkgs.filter((p) => pkgMatchesRow(p.name, cells[0] ?? "", cells[1] ?? ""));
+    const hit = pkgs.filter((p) => pkgMatchesRow(p.name, cells[LEDGER_CELL.time] ?? "", cells[LEDGER_CELL.round] ?? ""));
     hit.forEach((p) => matchedPkgs.add(p.name));
     return { cells, pkgs: hit };
   });
@@ -360,7 +361,7 @@ export function OpsPastRounds({ onGoRulings, onUnauthorized }: {
   })();
   const newest = rowsWithPkgs[0];
   const resultFor = (cells: LedgerRow): string | null =>
-    okPkg && newest && cells === newest.cells && pkgMatchesRow(okPkg, cells[0] ?? "", cells[1] ?? "")
+    okPkg && newest && cells === newest.cells && pkgMatchesRow(okPkg, cells[LEDGER_CELL.time] ?? "", cells[LEDGER_CELL.round] ?? "")
       ? t("ops.cockpit.lastRound.ok")
       : null;
 
@@ -410,16 +411,16 @@ export function OpsPastRounds({ onGoRulings, onUnauthorized }: {
                 );
               })}
               {rowsWithPkgs.map(({ cells, pkgs: hit }, r) => {
-                const { usage, cost } = splitUsage(cells[3] ?? "");
-                const rt = relTime(cells[0] ?? "", now);
-                const note = cells[4] ?? "";
+                const { usage, cost } = splitUsage(cells[LEDGER_CELL.usage] ?? "");
+                const rt = relTime(cells[LEDGER_CELL.time] ?? "", now);
+                const note = cells[LEDGER_CELL.note] ?? "";
                 const humanNote = noteText(t, note);
                 const res = resultFor(cells);
                 return (
                   <tr key={r}>
                     <td className="px-3 py-1.5" title={rt.title}>{t(rt.key, rt.vars)}</td>
-                    <td className="px-3 py-1.5">{cells[1]}</td>
-                    <td className="px-3 py-1.5">{cells[2]}</td>
+                    <td className="px-3 py-1.5">{cells[LEDGER_CELL.round]}</td>
+                    <td className="px-3 py-1.5">{cells[LEDGER_CELL.model]}</td>
                     <td className={tdNumClass}>{usage}</td>
                     <td className={tdNumClass}>{cost ?? "—"}</td>
                     <td className="px-3 py-1.5" title={note || undefined}>

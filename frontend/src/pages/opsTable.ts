@@ -14,6 +14,22 @@ export const LEDGER_COL_KEYS = ["time", "round", "model", "usage", "cost", "note
 // 审计面;包列属裁决 tab 导航面——#149 裁定不补,两表一致按六基列断言钉死)
 export const PAST_EXTRA_COL_KEYS = ["result", "pkg"] as const;
 
+// 台账行 cells 命名索引(终审 standards 重构):裸位序取值(cells[4] 等)改
+// 命名,防列漂移。由 LEDGER_COL_KEYS 派生:UI 六基列对 markdown 台账五列
+// (T4 冻结表头「日期|轮次|model|用量|备注」),usage 与 cost 同居「用量」
+// 列位(splitUsage 拆串),故 cost 之后各列的 cells 位序比基列位序前移一位
+// (time/round/model/usage/cost/note → 0/1/2/3/3/4)。重排 LEDGER_COL_KEYS
+// 时此处自动跟随,不再靠人手同步两处魔数。
+export const LEDGER_CELL: Record<(typeof LEDGER_COL_KEYS)[number], number> = (() => {
+  const idx = {} as Record<(typeof LEDGER_COL_KEYS)[number], number>;
+  let shift = 0;
+  LEDGER_COL_KEYS.forEach((k, i) => {
+    if (k === "cost") shift = 1; // cost 与 usage 同列位(「用量」串拆两 UI 列)
+    idx[k] = i - shift;
+  });
+  return Object.freeze(idx);
+})();
+
 // 统一件表格类(#149 从 OpsCockpit 收编入此:两表同一处施加,右对齐不漂移)
 const NUMERIC_COLS = new Set(["usage", "cost"]);
 export const thClass = (k: string) =>
