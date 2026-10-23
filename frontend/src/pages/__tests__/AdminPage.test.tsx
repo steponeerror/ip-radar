@@ -30,6 +30,9 @@ vi.mock("../../api", async () => {
     readOpsPrecedent: vi.fn(),
     postOpsRuling: vi.fn(),
     exportOpsPrecedents: vi.fn(),
+    getOpsItems: vi.fn().mockResolvedValue([]),
+    readOpsItem: vi.fn(),
+    postOpsReview: vi.fn(),
   };
 });
 
@@ -140,9 +143,9 @@ describe("AdminPage", () => {
     // 票 #142:运营页内二级子 tab(轮次默认/裁决/档案/设置),默认面 = 触发按钮在场
     expect(await screen.findByRole("button", { name: "Run health round" })).toBeTruthy();
     expect(screen.getByRole("tab", { name: "Rounds" })).toHaveAttribute("aria-selected", "true");
-    // 裁决包区在「裁决」子 tab 后面
-    fireEvent.click(screen.getByRole("tab", { name: "Rulings" }));
-    expect(screen.getByRole("heading", { name: "Ruling packages" })).toBeTruthy();
+    // 票 #156:旧「裁决」子 tab →「审阅」(四键条目面;ADR 0006 术语双层)
+    fireEvent.click(screen.getByRole("tab", { name: "Review" }));
+    expect(screen.getByRole("heading", { name: /^Pending review items( \(\d+\))?$/ })).toBeTruthy();
     expect(tabOps).toHaveAttribute("aria-selected", "true");
     // 非活动 tab 不渲染:sources 空态让位
     expect(screen.queryByText(/no sources discovered/i)).toBeNull();

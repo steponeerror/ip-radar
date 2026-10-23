@@ -2,43 +2,27 @@ import { useCallback, useEffect, useState } from "react";
 import { useI18n } from "../i18n";
 import { Modal } from "../components/Modal";
 import {
-  listOpsPackages, readOpsPackage, readOpsPrecedent, postOpsRuling,
-  type ApiError, type OpsPackageInfo, type OpsRulingResult, type OpsRulingVerdict,
+  listOpsPackages, readOpsPackage, readOpsPrecedent,
+  type ApiError, type OpsPackageInfo,
 } from "../api";
 import { opsErrorText } from "./opsErrorText";
 import { relTime } from "./opsTable";
 import { SectionHead } from "./OpsSectionHead";
 import { useArrivalNow } from "./useArrivalNow";
 
-// P4 裁决包区(票 #136):列表 → 详情(包文逐字:建议/证据 call_id+field+value/
-// trace;判例引用可点开全文)→ 人裁三动作(同意/否决/修正)。裁⑦:全部建议
-// 恒标「仅立项」,同意只落判例+待集成清单,零执行。
+// 旧包报告档案(P1 T4,票 #156,spec #152 §4;ADR 0006):markdown 包降级为
+// 条目集的只读渲染视图——列表 → 详情(报告文逐字:证据三元组/trace 原样
+// 保留,判例引用可点开全文),不再承载审阅。人裁交互面(旧「逐字选建议行
+// + 三动作」)已移除:四键审阅在「审阅」子 tab(OpsReviewSection),本节
+// 驻「档案」子 tab(只读审计面:历史/规则/报告)。mono 数据/文件名分轨
+// 不变(文件名仍 packages/ 下的原词)。
 
 // 判例引用文件名(注入判例节引用 YYYY-MM-DD-<slug>.md;人裁落判例
 // YYYY-MM-DD-ruling-<hex>.md 同形)——只做「可点开」识别,存在性由读取端点
 // 判(404 → 可读文案,不伪装空)。
 const PRECEDENT_REF_RE = /(\d{4}-\d{2}-\d{2}-[A-Za-z0-9._-]+\.md)/;
 
-// 建议候选 = 包文本固定节的列表项(逐字,去列表标记):discover 包「## 建议」
-// + 健康包「## 异常清单」(「建议复核」条目 = 留人裁面,health-system 输出
-// 契约)。逐字纪律:suggestion 只从包内原文选取,不提供自由输入发明建议。
-function parseSuggestions(text: string): string[] {
-  const out: string[] = [];
-  let inSection = false;
-  for (const line of text.split("\n")) {
-    if (line.startsWith("## ")) {
-      inSection = line === "## 建议" || line.startsWith("## 异常清单");
-      continue;
-    }
-    if (inSection && /^\s*[-*] /.test(line)) {
-      const item = line.replace(/^\s*[-*] /, "").trim();
-      if (item) out.push(item);
-    }
-  }
-  return out;
-}
-
-// 包文逐字渲染(证据三元组/trace 原样保留);判例文件名替换为可点按钮。
+// 报告文逐字渲染(证据三元组/trace 原样保留);判例文件名替换为可点按钮。
 function PackageText({ text, onOpenPrecedent }: {
   text: string;
   onOpenPrecedent: (name: string) => void;
@@ -76,13 +60,6 @@ export default function OpsPackagesSection({ onUnauthorized, roundTick }: {
   const [detailName, setDetailName] = useState<string | null>(null);
   const [detailText, setDetailText] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
-  // 人裁面
-  const [selected, setSelected] = useState<string | null>(null);
-  const [amending, setAmending] = useState(false);
-  const [amendment, setAmendment] = useState("");
-  const [rulingBusy, setRulingBusy] = useState(false);
-  const [result, setResult] = useState<OpsRulingResult | null>(null);
-  const [rulingError, setRulingError] = useState<string | null>(null);
   // 判例全文弹窗
   const [precName, setPrecName] = useState<string | null>(null);
   const [precText, setPrecText] = useState<string | null>(null);
@@ -110,8 +87,6 @@ export default function OpsPackagesSection({ onUnauthorized, roundTick }: {
 
   const openDetail = (name: string) => {
     setDetailName(name); setDetailText(null); setDetailError(null);
-    setSelected(null); setAmending(false); setAmendment("");
-    setResult(null); setRulingError(null);
     readOpsPackage(name)
       .then(setDetailText)
       .catch(failWith(setDetailError, t("ops.pkgs.loadFailed")));
@@ -124,26 +99,14 @@ export default function OpsPackagesSection({ onUnauthorized, roundTick }: {
       .catch(failWith(setPrecError, t("ops.prec.loadFailed")));
   };
 
-  const rule = (verdict: OpsRulingVerdict, amendmentText?: string) => {
-    if (!selected || rulingBusy) return;
-    setRulingBusy(true); setRulingError(null);
-    postOpsRuling(detailName as string, selected, verdict, amendmentText)
-      .then((r) => {
-        setResult(r);
-        setAmending(false); setAmendment("");
-      })
-      .catch(failWith(setRulingError, t("ops.pkgs.ruling.failed")))
-      .finally(() => setRulingBusy(false));
-  };
-
   const title = (
-    // 票 #149:节头计数(裁决包 N 个)属列表面;详情态无行集可数,不带计数
+    // 票 #149:节头计数(报告 N 个)属列表面;详情态无行集可数,不带计数
     <SectionHead title={t("ops.pkgs.title")} count={detailName ? null : (packages?.length ?? null)}>
       {/* 裸文字链接 → 描边按钮(票 #147;硬规④) */}
       {detailName && (
         <button
           type="button"
-          onClick={() => { setDetailName(null); setSelected(null); setAmending(false); setAmendment(""); setResult(null); setRulingError(null); }}
+          onClick={() => { setDetailName(null); setDetailText(null); setDetailError(null); }}
           className="rounded-md border border-zinc-700 px-4 py-1.5 text-xs text-zinc-300 transition-colors hover:border-emerald-500/50 hover:text-emerald-400"
         >
           {t("ops.pkgs.back")}
@@ -153,7 +116,6 @@ export default function OpsPackagesSection({ onUnauthorized, roundTick }: {
   );
 
   if (detailName) {
-    const suggestions = detailText != null ? parseSuggestions(detailText) : [];
     return (
       <section aria-label={t("ops.pkgs.title")} className="mt-8">
         {title}
@@ -162,96 +124,8 @@ export default function OpsPackagesSection({ onUnauthorized, roundTick }: {
             {detailError}
           </p>
         )}
-        {detailText != null && (
-          <>
-            <PackageText text={detailText} onOpenPrecedent={openPrecedent} />
-            {/* 人裁面:建议候选(逐字)+ 三动作;裁⑦ 恒标仅立项 */}
-            <div className="mt-4 rounded-md border border-zinc-800 bg-zinc-900/60 p-4">
-              <p className="text-xs text-zinc-500">{t("ops.pkgs.ruling.selectHint")}</p>
-              {suggestions.length === 0 ? null : (
-                <ul className="mt-2 space-y-1">
-                  {suggestions.map((s) => (
-                    <li key={s}>
-                      <button
-                        type="button"
-                        aria-pressed={selected === s}
-                        onClick={() => { setSelected(s); setAmending(false); setAmendment(""); setRulingError(null); }}
-                        className={`w-full rounded-md border px-3 py-2 text-left text-xs transition-colors ${
-                          selected === s
-                            ? "border-emerald-500/50 bg-emerald-500/5 text-zinc-200"
-                            : "border-zinc-800 bg-zinc-950/60 text-zinc-400 hover:border-zinc-700"
-                        }`}
-                      >
-                        <span className="mr-2 inline-block rounded border border-amber-500/30 bg-amber-400/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-400 align-middle">
-                          {t("ops.pkgs.onlyProposal")}
-                        </span>
-                        {s}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {!amending && (
-                <div className="mt-3 flex gap-2">
-                  <button type="button" disabled={!selected || rulingBusy} onClick={() => rule("agreed")}
-                    className="rounded-md bg-emerald-500 px-4 py-1.5 text-xs font-semibold text-zinc-950 transition-transform hover:scale-[1.02] disabled:opacity-40 disabled:hover:scale-100">
-                    {t("ops.pkgs.ruling.agree")}
-                  </button>
-                  <button type="button" disabled={!selected || rulingBusy} onClick={() => rule("overruled")}
-                    className="rounded-md border border-zinc-700 px-4 py-1.5 text-xs text-zinc-300 transition-colors hover:border-red-500/50 hover:text-red-400 disabled:opacity-40">
-                    {t("ops.pkgs.ruling.overrule")}
-                  </button>
-                  <button type="button" disabled={!selected || rulingBusy} onClick={() => setAmending(true)}
-                    className="rounded-md border border-zinc-700 px-4 py-1.5 text-xs text-zinc-300 transition-colors hover:border-amber-500/50 hover:text-amber-400 disabled:opacity-40">
-                    {t("ops.pkgs.ruling.amend")}
-                  </button>
-                </div>
-              )}
-              {amending && (
-                <div className="mt-3">
-                  <textarea
-                    aria-label={t("ops.pkgs.ruling.amendPlaceholder")}
-                    placeholder={t("ops.pkgs.ruling.amendPlaceholder")}
-                    rows={3}
-                    value={amendment}
-                    onChange={(e) => setAmendment(e.target.value)}
-                    className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-xs text-zinc-200 focus:border-amber-600 focus:outline-none"
-                  />
-                  <button
-                    type="button"
-                    disabled={!amendment.trim() || rulingBusy}
-                    onClick={() => rule("amended", amendment)}
-                    className="mt-2 rounded-md bg-amber-500 px-4 py-1.5 text-xs font-semibold text-zinc-950 transition-transform hover:scale-[1.02] disabled:opacity-40 disabled:hover:scale-100"
-                  >
-                    {t("ops.pkgs.ruling.amendSend")}
-                  </button>
-                </div>
-              )}
-              {result && (
-                <div role="status" className="mt-3 rounded-md border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-400">
-                  <p>
-                    {result.created
-                      ? t("ops.pkgs.ruling.ok", { precedent: result.precedent })
-                      : t("ops.pkgs.ruling.idempotent", { precedent: result.precedent })}
-                  </p>
-                  {result.superseded && (
-                    <p className="mt-1 text-zinc-400">
-                      {t("ops.pkgs.ruling.superseded", { superseded: result.superseded })}
-                    </p>
-                  )}
-                  {result.queue_appended && (
-                    <p className="mt-1 text-zinc-400">{t("ops.pkgs.ruling.queued")}</p>
-                  )}
-                </div>
-              )}
-              {rulingError && (
-                <p role="alert" className="mt-3 rounded-md border border-red-400/30 bg-red-400/10 px-3 py-2 text-xs text-red-400">
-                  {rulingError}
-                </p>
-              )}
-            </div>
-          </>
-        )}
+        {/* 只读渲染:报告文逐字,零审阅交互(人裁面已迁「审阅」子 tab) */}
+        {detailText != null && <PackageText text={detailText} onOpenPrecedent={openPrecedent} />}
         <Modal
           open={precName != null}
           title={precName ?? ""}
@@ -316,7 +190,7 @@ export default function OpsPackagesSection({ onUnauthorized, roundTick }: {
           })}
         </ul>
       )}
-      {/* 判例全文弹窗:仅详情态(包内引用可点)可开 */}
+      {/* 判例全文弹窗:仅详情态(报告内引用可点)可开 */}
     </section>
   );
 }

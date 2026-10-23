@@ -8,6 +8,7 @@ import {
   type ApiError, type OpsAgentConfig, type TaskState,
 } from "../api";
 import OpsPackagesSection from "./OpsPackagesSection";
+import OpsReviewSection from "./OpsReviewSection";
 import { OpsCockpit, OpsPastRounds } from "./OpsCockpit";
 import { OpsSearchInput } from "./OpsSearchInput";
 import { SectionHead } from "./OpsSectionHead";
@@ -21,9 +22,11 @@ import { opsErrorText } from "./opsErrorText";
 // 编辑、无重复面板。进度面 = 任务链徽章/mini bar 形态复用(BatchMiniBar 同款
 // 视觉),数据源 = TaskProvider 的 ops 任务(source="ops",running 相位 +
 // task_log 行)。
-// 票 #142 子 tab 重组:轮次(默认)/裁决(OpsPackagesSection)/档案(台账+
-// 判例,只读审计面)/设置(#140 配置)。票 #148:轮次 tab = 驾驶舱单卡
-// (触发入卡,OpsCockpit)+ 过往轮次表;原独立「轮次」触发节撤除。
+// 票 #142 子 tab 重组:轮次(默认)/审阅(四键动作面)/档案(历史+规则
+// +报告,只读审计面)/设置(#140 配置)。票 #156(P1 T4,ADR 0006):旧
+// 「裁决」子 tab →「审阅」(OpsReviewSection);旧包(OpsPackagesSection)
+// 降级只读报告驻档案。票 #148:轮次 tab = 驾驶舱单卡(触发入卡,
+// OpsCockpit)+ 过往轮次表;原独立「轮次」触发节撤除。
 
 // 票 #140「agent 配置」子区(票 #142 起驻「设置」子 tab;票 #143 多供应商;
 // 票 #150 视觉修约):两轮次 {provider, model} 双下拉(目录由后端 GET catalog
@@ -514,9 +517,10 @@ function PrecedentsSection({ onUnauthorized }: { onUnauthorized: () => void }) {
   );
 }
 
-// 二级子 tab(票 #142):轮次(默认)/裁决/档案/设置。裁决子 tab 的待裁亮点
-// 降级未做——包列表 API({name,size,modified})不含裁决态,判未裁须逐包全文
-// 读取,非廉价来源(票面明许降级);PR 记录。
+// 二级子 tab(票 #142):轮次(默认)/审阅/档案/设置。票 #156(P1 T4,
+// ADR 0006 术语双层):旧「裁决」→「审阅」——机制层 key 保留原词
+// (rulings/archive/UI 别名映射),UI 文案走 ops.tab.* 词条;待审条目
+// 的审阅面不在旧包里(包 = 只读报告,驻档案)。
 type OpsSubTab = "rounds" | "rulings" | "archive" | "settings";
 
 export default function OpsPage({ onUnauthorized }: { onUnauthorized: () => void }) {
@@ -524,9 +528,11 @@ export default function OpsPage({ onUnauthorized }: { onUnauthorized: () => void
   const { tasks } = useTasks();
   const opsTask = tasks.find((tk) => tk.source === "ops");
   const [subTab, setSubTab] = useState<OpsSubTab>("rounds");
-  const goRulings = useCallback(() => setSubTab("rulings"), []);
+  // 机制层名保留 goRulings;目标 = 档案子 tab(轮次产物 = 报告,只读渲染
+  // 驻彼处;审阅面由条目探测器驱动,与轮次收口无联动)
+  const goRulings = useCallback(() => setSubTab("archive"), []);
 
-  // 轮次收口(running → done/failed/cancelled)→ 裁决包列表重拉(新包先见)
+  // 轮次收口(running → done/failed/cancelled)→ 报告列表重拉(新报告先见)
   const prevRef = useRef<string | undefined>(undefined);
   const [roundTick, setRoundTick] = useState(0);
   useEffect(() => {
@@ -545,9 +551,10 @@ export default function OpsPage({ onUnauthorized }: { onUnauthorized: () => void
 
   return (
     <div>
-      {/* 裁⑦ 恒挂:全部建议仅立项,零自动执行。票 #147:彩色横幅降级为一行
-          无底色小字注记——文案语义不变;恒挂声明非事件,琥珀只留给事件性
-          警示(硬规⑤)。位置在子 tab 上方,四个子 tab 恒见。 */}
+      {/* 恒挂注记(票 #156 随 ADR 0006 措辞修约:审阅四键——可逆动作同意即
+          执行,其余仅立项;旧「零自动执行」声明已被分级自动化推翻)。票 #147:
+          一行无底色小字注记;恒挂声明非事件,琥珀只留给事件性警示(硬规⑤)。
+          位置在子 tab 上方,四个子 tab 恒见。 */}
       <p className="text-[11px] text-zinc-500">{t("ops.disclaimer")}</p>
       {/* 票 #147:二级子 tab underline 式——去 chip 容器、字号较一级 tab
           (text-sm)降一级、与内容列左对齐;与一级 tab 的容器形态拉开两级
@@ -580,16 +587,17 @@ export default function OpsPage({ onUnauthorized }: { onUnauthorized: () => void
           </>
         )}
         {subTab === "rulings" && (
-          <OpsPackagesSection onUnauthorized={onUnauthorized} roundTick={roundTick} />
+          <OpsReviewSection onUnauthorized={onUnauthorized} />
         )}
         {subTab === "archive" && (
           <>
             {/* 票 #149:「(只读)」限定词移出节标题(标题收尾),档案面只读
-                声明入一行副注——两节共享一次,不逐节重复(反噪音纪律,
-                同 #150 占位说明只现一次) */}
+                声明入一行副注——三节共享一次,不逐节重复(反噪音纪律,
+                同 #150 占位说明只现一次);票 #156:旧包降级只读报告入驻 */}
             <p className="text-[11px] text-zinc-500">{t("ops.archive.note")}</p>
             <LedgerSection onUnauthorized={onUnauthorized} />
             <PrecedentsSection onUnauthorized={onUnauthorized} />
+            <OpsPackagesSection onUnauthorized={onUnauthorized} roundTick={roundTick} />
           </>
         )}
         {subTab === "settings" && <ConfigSection onUnauthorized={onUnauthorized} />}
