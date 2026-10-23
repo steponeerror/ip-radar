@@ -91,6 +91,13 @@ class UpdateManager:
         self._host_locks: dict[str, threading.Lock] = {}
         self._host_guard = threading.Lock()
 
+        # P1 T2 确定性探测器旁挂(票 #154,spec #152 §2):终态回调,入参 =
+        # task.to_dict() 只读快照。None = 无消费者(位等价:既有测试/未装配
+        # 路径零行为变化);装配在 main.lifespan(_ops_detectors),本模块零
+        # 存储依赖。回调在 _settle 收口处只读消费,异常全吞 + log——探测面
+        # 故障不得反噬任务状态机/串行车道/查询门。
+        self.on_terminal: Optional[Callable[[dict], None]] = None
+
         # ops 轮串行车道(P2 票 #134,裁①闸二):在飞 ops 轮 task_id;非 None
         # 时 worker 全局停摆(轮次与源更新互斥,964MB 小机 OOM 前科),
         # finish_ops_round 的 notify_all 放行。
@@ -717,6 +724,16 @@ class UpdateManager:
             if terminal:
                 task._settled = True
         self._maybe_finish_batch()
+        # P1 T2 终态旁挂(票 #154):_settled 幂等保证恰好一次;快照只读
+        # (dict 拷贝,不传活 task 对象),回调异常吞掉只留警告日志。
+        hook = self.on_terminal
+        if hook is not None and task.state in ("done", "failed", "cancelled"):
+            try:
+                hook(task.to_dict())
+            except Exception:
+                logger.warning("on_terminal hook raised for %s(%s/%s)",
+                               task.id, task.source_name, task.state,
+                               exc_info=True)
 
     # --- event bus (Task 6) ---
     def subscribe(self, loop: asyncio.AbstractEventLoop) -> "asyncio.Queue[dict]":

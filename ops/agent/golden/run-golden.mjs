@@ -33,13 +33,19 @@ const writePrecedents = (dir) => {
 
 // stub 脚本(判例:PI_BIN stub 同型——CLI 边界替身,工具实现层全真)
 const stubCurl = (rules) => `#!/usr/bin/env bash
-# golden stub: curl 传输层替身(health 例)。末参=URL;按 cases.json curl_age_days 规则回
-# Last-Modified(600s 余量防跨天抖动);HTTP/行与头形对齐 lib.sh _ff_probe/_ff_code 解析。
+# golden stub: curl 传输层替身(health 例)。末参=URL;按 cases.json 规则回:
+# 带 status≥400 → 该状态行无 Last-Modified(P1 T2:401/403 由真实 _ff_probe
+# 分桶 TOKEN_REQUIRED,其余 ≥400 落 UNREACHABLE);否则 Last-Modified 为
+# <days> 天前(600s 余量防跨天抖动);HTTP/行与头形对齐 lib.sh _ff_probe/_ff_code 解析。
 url="${'${@: -1}'}"
-d=180
+d=180; s=0
 case "$url" in
-${rules.map((r) => `  *${r.match}*) d=${r.days} ;;`).join("\n")}
+${rules.map((r) => `  *${r.match}*) d=${r.days ?? 180}; s=${r.status ?? 0} ;;`).join("\n")}
 esac
+if (( s >= 400 )); then
+  printf 'HTTP/1.1 %s stub\\r\\nContent-Length: 0\\r\\n\\r\\n' "$s"
+  exit 0
+fi
 printf 'HTTP/1.1 200 OK\\r\\nLast-Modified: %s\\r\\nContent-Length: 4\\r\\n\\r\\n' \\
   "$(date -u -d "@$(( $(date +%s) - d * 86400 - 600 ))" '+%a, %d %b %Y %H:%M:%S GMT')"
 exit 0

@@ -335,7 +335,7 @@ export class ToolHost {
       parameters: Type.Object({}),
       outputSchema: Type.Object({
         ok: Type.Boolean(), urls_n: Type.Number(), frozen_n: Type.Number(), near_band_n: Type.Number(),
-        unreachable_n: Type.Number(), no_lm_n: Type.Number(),
+        unreachable_n: Type.Number(), no_lm_n: Type.Number(), token_required_n: Type.Number(),
         matrix_ok: Type.Boolean(), matrix_exit_code: Type.Number(),
         artifacts: Type.Array(Type.String()),
       }),
@@ -346,10 +346,14 @@ export class ToolHost {
           const urls = urlOut.split("\n").map((s) => s.trim()).filter(Boolean);
           if (!urls.length) throw Object.assign(new Error("extract_feed_urls 零 URL"), { code: "extract_failed" });
           const { stdout: tsv } = await runLib("feed_freshness", urls, 900_000);
-          const frozen = [], near = [], unreachable = [], noLm = [];
+          // TSV 四类读数(P1 T2 修约,spec #152 §2a:401/403 → TOKEN_REQUIRED
+          // 需令牌·正常——不算不可达不进 unreachable,与 NO-LM 同待遇只计数;
+          // 契约修约判例 2026-10-20:消费方未现=修约非违约)
+          const frozen = [], near = [], unreachable = [], noLm = [], tokenReq = [];
           for (const line of tsv.trimEnd().split("\n")) {
             const [url, lm, age] = line.split("\t");
             if (age === "UNREACHABLE") unreachable.push(url);
+            else if (age === "TOKEN_REQUIRED") tokenReq.push(url);
             else if (age === "NO-LM") noLm.push(url);
             else {
               const a = +age;
@@ -364,10 +368,11 @@ export class ToolHost {
           const st = {
             ok: true, urls_n: urls.length, frozen, frozen_n: frozen.length, near_band: near, near_band_n: near.length,
             unreachable, unreachable_n: unreachable.length, no_lm_n: noLm.length,
+            token_required: tokenReq, token_required_n: tokenReq.length,
             matrix_ok: matrix.ok, matrix_exit_code: matrix.exit_code ?? -1,
             matrix: matrix.ok ? matrix : { envelope: matrix }, artifacts: arts,
           };
-          const c = [`源 URL ${urls.length};冻结≥${FROZEN_DAYS}天 ${frozen.length};近带(90-179) ${near.length};不可达 ${unreachable.length};NO-LM ${noLm.length}`,
+          const c = [`源 URL ${urls.length};冻结≥${FROZEN_DAYS}天 ${frozen.length};近带(90-179) ${near.length};不可达 ${unreachable.length};NO-LM ${noLm.length};需令牌(401/403) ${tokenReq.length}`,
             ...frozen.map((f) => `- 死键嫌疑·建议复核: ${f.url}(冻结 ${f.age_days} 天;Last-Modified: ${f.last_modified})`),
             ...unreachable.map((u) => `- 不可达·建议复核: ${u}(不可达≠死键)`),
             matrix.ok

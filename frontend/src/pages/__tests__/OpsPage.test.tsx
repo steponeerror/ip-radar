@@ -12,12 +12,13 @@ import {
 import en from "../../i18n/locales/en.json";
 import zhCN from "../../i18n/locales/zh-CN.json";
 
-// P4 admin 第四 tab「运营」(票 #136):渲染面 + 轮次触发 + 台账/判例只读 +
-// 导出 + 错误信封可读呈现(不裸抛 code)。裁决包区交互面见
-// OpsPackagesSection.test.tsx。任务链面(tasks/logs)经 TasksContext 直供
-// ——SSE 装配归 TaskProvider 自有测试。
-// 票 #142:二级子 tab 重组(轮次/裁决/档案/设置)+ 驾驶舱卡(状态/耗时/
-// 最后一行/可折叠日志/上一轮摘要)+ 过去轮次(台账末 N 行+包目录合并)。
+// P4 admin 第四 tab「运营」(票 #136):渲染面 + 轮次触发 + 历史/规则只读 +
+// 导出 + 错误信封可读呈现(不裸抛 code)。审阅面四键交互见
+// OpsReviewSection.test.tsx;旧包报告只读渲染见 OpsPackagesSection.test.tsx。
+// 任务链面(tasks/logs)经 TasksContext 直供——SSE 装配归 TaskProvider 自有测试。
+// 票 #142:二级子 tab 重组(轮次/审阅/档案/设置)+ 驾驶舱卡(状态/耗时/
+// 最后一行/可折叠日志/上一轮摘要)+ 过去轮次(历史末 N 行+包目录合并)。
+// 票 #156(ADR 0006 术语双层):裁决→审阅/台账→历史/判例→规则/包→报告。
 vi.mock("../../api", async () => {
   const real = await vi.importActual<typeof import("../../api")>("../../api");
   return {
@@ -32,6 +33,9 @@ vi.mock("../../api", async () => {
     exportOpsPrecedents: vi.fn(),
     getOpsAgentConfig: vi.fn(),
     putOpsAgentConfig: vi.fn(),
+    getOpsItems: vi.fn().mockResolvedValue([]),
+    readOpsItem: vi.fn(),
+    postOpsReview: vi.fn(),
   };
 });
 
@@ -89,32 +93,34 @@ describe("OpsPage — 子 tab 重组(票 #142)", () => {
     // 票 #148:触发动作入驾驶舱单卡,独立「轮次」节头撤除
     expect(screen.queryByRole("heading", { name: "Rounds" })).toBeNull();
     // 非活动子 tab 不渲染(顶 tab 同款范式;#149 标题去「(只读)」限定词)
-    expect(screen.queryByRole("heading", { name: "Ruling packages" })).toBeNull();
-    expect(screen.queryByRole("heading", { name: "Ledger" })).toBeNull();
-    expect(screen.queryByRole("heading", { name: "Precedents" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: /^Pending review items( \(\d+\))?$/ })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "History" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Rules" })).toBeNull();
     expect(screen.queryByRole("combobox", { name: /health-round model/i })).toBeNull();
     // 四个子 tab 在场,默认选中轮次
     const rounds = screen.getByRole("tab", { name: "Rounds" });
     expect(rounds).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("tab", { name: "Rulings" })).toHaveAttribute("aria-selected", "false");
+    expect(screen.getByRole("tab", { name: "Review" })).toHaveAttribute("aria-selected", "false");
     expect(screen.getByRole("tab", { name: "Archive" })).toBeTruthy();
     expect(screen.getByRole("tab", { name: "Settings" })).toBeTruthy();
   });
 
-  it("切「裁决」→ 裁决包区让位其余子 tab 面板", async () => {
+  it("切「审阅」→ 审阅面让位其余子 tab 面板(票 #156)", async () => {
     renderOps();
-    goSubTab("Rulings");
-    expect(await screen.findByRole("heading", { name: "Ruling packages" })).toBeTruthy();
+    goSubTab("Review");
+    expect(await screen.findByRole("heading", { name: /^Pending review items( \(\d+\))?$/ })).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Cockpit" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Run health round" })).toBeNull();
   });
 
-  it("切「档案」→ 台账只读表 + 判例库 + 导出(原 section 逻辑原样搬迁;#149 标题去「(只读)」)", async () => {
+  it("切「档案」→ 历史只读表 + 规则库 + 导出 + 报告(旧包档案化)(原 section 逻辑原样搬迁;#149 标题去「(只读)」)", async () => {
     renderOps();
     goSubTab("Archive");
-    expect(await screen.findByRole("heading", { name: /^Ledger( \(\d+\))?$/ })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: /^Precedents( \(\d+\))?$/ })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Export precedents (.zip)" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: /^History( \(\d+\))?$/ })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: /^Rules( \(\d+\))?$/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Export rules (.zip)" })).toBeTruthy();
+    // 票 #156:旧包档案化——报告区驻档案 tab(只读;裁决交互已移除)
+    expect(screen.getByRole("heading", { name: /^Reports( \(\d+\))?$/ })).toBeTruthy();
     // 票 #148:台账表统一件列名(与轮次表同集 ops.col.*)+ 相对时间 title 完整戳
     expect(await screen.findByRole("columnheader", { name: "Round" })).toBeTruthy();
     for (const h of ["Time", "Model", "Usage", "Cost", "Note"]) {
@@ -139,7 +145,7 @@ describe("OpsPage — 子 tab 重组(票 #142)", () => {
 
   it("裁⑦ 仅立项横幅恒挂(子 tab 重组不撤横幅)", () => {
     renderOps();
-    expect(screen.getByText(/Proposals only/i)).toBeTruthy();
+    expect(screen.getByText(/Four-key review/i)).toBeTruthy();
   });
 });
 
@@ -159,15 +165,15 @@ describe("OpsPage — 壳层视觉修约(票 #147)", () => {
 
   it("注记降级不撤除:「仅立项」一行注记恒挂于全部四个子 tab(裁⑦ 语义不变)", () => {
     renderOps();
-    for (const name of ["Rounds", "Rulings", "Archive", "Settings"] as const) {
+    for (const name of ["Rounds", "Review", "Archive", "Settings"] as const) {
       if (name !== "Rounds") goSubTab(name);
-      expect(screen.getByText(/Proposals only/i)).toBeTruthy();
+      expect(screen.getByText(/Four-key review/i)).toBeTruthy();
     }
   });
 
   it("underline 子 tab:切换后 aria-selected 仅激活项为 true(role=tab 语义不弱化)", () => {
     renderOps();
-    const names = ["Rounds", "Rulings", "Archive", "Settings"] as const;
+    const names = ["Rounds", "Review", "Archive", "Settings"] as const;
     for (const active of names) {
       if (active !== "Rounds") goSubTab(active);
       for (const name of names) {
@@ -239,7 +245,7 @@ describe("OpsPage — 伪表头修复与表格统一件(票 #148)", () => {
     expect(timeCell.textContent ?? "").toMatch(/ago$|^just now/);
     // 结果码「—」:台账行不载成败;无证据≠成功
     expect(
-      screen.getAllByTitle("Ledger rows carry no outcome — absence of evidence is not success").length,
+      screen.getAllByTitle("History rows carry no outcome — absence of evidence is not success").length,
     ).toBeGreaterThan(0);
   });
 });
@@ -247,7 +253,7 @@ describe("OpsPage — 伪表头修复与表格统一件(票 #148)", () => {
 // ── 票 #149:档案+裁决列表修约(列头逐字一致/计数/空态/标题收尾/行元数据)──
 
 describe("OpsPage — 档案面修约(票 #149)", () => {
-  it("台账表与轮次表列头逐字一致:共享基列(6)文本相等,追列仅轮次表(审计面不补结果码/包列)", async () => {
+  it("历史表与轮次表列头逐字一致:共享基列(6)文本相等,追列仅轮次表(审计面不补结果码/包列)", async () => {
     renderOps();
     const roundsTable = await screen.findByRole("table");
     const roundsHeads = within(roundsTable)
@@ -262,29 +268,29 @@ describe("OpsPage — 档案面修约(票 #149)", () => {
     expect(ledgerHeads).toEqual(roundsHeads.slice(0, 6));
   });
 
-  it("节头计数:台账 N 行/判例 N 篇(非零显计数;空不显)", async () => {
+  it("节头计数:历史 N 行/规则 N 篇(非零显计数;空不显)", async () => {
     renderOps(); // LEDGER_MD 2 行;beforeEach 判例 1 篇
     goSubTab("Archive");
-    expect(await screen.findByRole("heading", { name: "Ledger (2)" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Precedents (1)" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "History (2)" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Rules (1)" })).toBeTruthy();
   });
 
-  it("空列表显基准「暂无」式空态(台账空/判例空),不留纯空白;空表计数如实显 (0)(视觉门 2026-10-21 微5)", async () => {
+  it("空列表显基准「暂无」式空态(历史空/规则空),不留纯空白;空表计数如实显 (0)(视觉门 2026-10-21 微5)", async () => {
     vi.mocked(readOpsLedger).mockResolvedValue("# 运营轮次台账\n");
     vi.mocked(listOpsPrecedents).mockResolvedValue([]);
     renderOps();
     goSubTab("Archive");
-    expect(await screen.findByText("No ledger entries yet")).toBeTruthy();
-    expect(await screen.findByText("No precedents yet")).toBeTruthy();
+    expect(await screen.findByText("No history entries yet")).toBeTruthy();
+    expect(await screen.findByText("No rules yet")).toBeTruthy();
     // 空表不谎报 = 如实显 (0)(基准「数据源 (60)」式在空态同样成立)
-    expect(screen.getByRole("heading", { name: "Ledger (0)" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Precedents (0)" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "History (0)" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Rules (0)" })).toBeTruthy();
   });
 
   it("「(只读)」限定词移出标题:标题无括号限定词,只读声明入档案面副注(一次,不逐节重复)", async () => {
     renderOps();
     goSubTab("Archive");
-    expect(await screen.findByRole("heading", { name: "Ledger (2)" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "History (2)" })).toBeTruthy();
     // 副注一次覆盖两节(反噪音纪律,同 #150 占位说明只现一次)
     expect(screen.getAllByText(/read-only audit face/i)).toHaveLength(1);
     expect(screen.queryByText(/\(read-only\)/)).toBeNull();
@@ -316,7 +322,7 @@ describe("OpsPage — 驾驶舱卡(票 #142)", () => {
     expect(await screen.findAllByText("discover")).not.toHaveLength(0);
     expect(await screen.findAllByText("glm-4.7")).not.toHaveLength(0);
     expect(await screen.findAllByText(/0\.00000045/)).not.toHaveLength(0);
-    expect(screen.getByRole("button", { name: "Open rulings" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Open reports" })).toBeTruthy();
   });
 
   it("空闲且台账空:显式「尚无已完成轮次」占位,不留白", async () => {
@@ -357,7 +363,7 @@ describe("OpsPage — 驾驶舱卡(票 #142)", () => {
     expect(screen.queryByText("[turn 1] stopReason=toolUse usage(in=100 out=20)")).toBeNull();
   });
 
-  it("轮结束(done,内存日志优先):摘要卡 = 包名 + usage/cost + 跳「裁决」", () => {
+  it("轮结束(done,内存日志优先):摘要卡 = 包名 + usage/cost + 跳「档案·报告」", () => {
     const done = opsTask("done");
     renderOps({
       tasks: [done],
@@ -372,9 +378,9 @@ describe("OpsPage — 驾驶舱卡(票 #142)", () => {
     expect(screen.getAllByText("2026-10-20-discover-1126.md").length).toBeGreaterThan(0);
     expect(screen.getAllByText(/in=3076 out=854/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/cost=0\.00095/).length).toBeGreaterThan(0);
-    // 包名跳「裁决」:点击切子 tab,裁决包区在场
-    fireEvent.click(screen.getByRole("button", { name: "Open rulings" }));
-    expect(screen.getByRole("heading", { name: "Ruling packages" })).toBeTruthy();
+    // 包名跳「档案·报告」:点击切档案子 tab,报告区在场(轮次产物 = 只读报告)
+    fireEvent.click(screen.getByRole("button", { name: "Open reports" }));
+    expect(screen.getByRole("heading", { name: /^Reports( \(\d+\))?$/ })).toBeTruthy();
   });
 
   it("轮结束(failed):人话化错误短语 + 可展开原始信封(证据不灭失),不裸抛 code", () => {
@@ -412,7 +418,7 @@ describe("OpsPage — 驾驶舱卡(票 #142)", () => {
 // ── 票 #142:过去轮次(台账末 N 行 + 包目录合并,零新后端存储)───────────
 
 describe("OpsPage — 过去轮次(票 #142)", () => {
-  it("台账行渲染(时间/轮次/model/usage/cost 拆列)+ 同日同型包挂跳包按钮", async () => {
+  it("历史行渲染(时间/轮次/model/usage/cost 拆列)+ 同日同型包挂跳报告按钮", async () => {
     vi.mocked(listOpsPackages).mockResolvedValue([
       { name: "2026-10-20-discover-1126.md", size: 2048, modified: "2026-10-20T11:26:00Z" },
       { name: "2026-10-18-health-0912.md", size: 1024, modified: "2026-10-18T09:12:00Z" },
@@ -426,14 +432,15 @@ describe("OpsPage — 过去轮次(票 #142)", () => {
     expect(screen.getByRole("cell", { name: "0.00000045" })).toBeTruthy();
     expect(screen.getByRole("cell", { name: "glm-4.7" })).toBeTruthy();
     expect(screen.getByRole("columnheader", { name: "Result" })).toBeTruthy();
-    expect(screen.getByRole("columnheader", { name: "Package" })).toBeTruthy();
+    expect(screen.getByRole("columnheader", { name: "Report" })).toBeTruthy();
     // 匹配包(日期+轮型前缀)挂为跳包按钮且与该台账行同列;异日包不入该行(孤行)
     const discBtn = screen.getByRole("button", { name: "2026-10-20-discover-1126.md" });
     expect(discBtn.closest("tr")?.textContent).toContain("glm-4.7");
     const healthBtn = screen.getByRole("button", { name: "2026-10-18-health-0912.md" });
     expect(healthBtn.closest("tr")?.textContent).not.toContain("glm-4.7");
     fireEvent.click(discBtn);
-    expect(screen.getByRole("heading", { name: "Ruling packages" })).toBeTruthy();
+    // 跳包按钮 → 档案子 tab 报告区(票 #156:旧包驻档案,审阅面另立)
+    expect(screen.getByRole("heading", { name: /^Reports( \(\d+\))?$/ })).toBeTruthy();
   });
 
   it("无台账行的包(失败先于记账等)不灭失:并入列表,缺列显 —", async () => {
@@ -856,7 +863,7 @@ describe("OpsPage — archive: precedents & export", () => {
     vi.mocked(exportOpsPrecedents).mockResolvedValue(new Blob(["zip"]));
     renderOps();
     goSubTab("Archive");
-    fireEvent.click(await screen.findByRole("button", { name: "Export precedents (.zip)" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Export rules (.zip)" }));
     await waitFor(() => expect(createObjectURL).toHaveBeenCalled());
     expect(vi.mocked(exportOpsPrecedents)).toHaveBeenCalled();
   });

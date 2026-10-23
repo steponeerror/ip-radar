@@ -12,6 +12,9 @@ import {
   exportOpsPrecedents,
   getOpsAgentConfig,
   putOpsAgentConfig,
+  getOpsItems,
+  readOpsItem,
+  postOpsReview,
 } from "../api";
 
 // P4(票 #136):ops admin 面数据层。契约真源 = backend/main.py 9 条 ops
@@ -131,6 +134,58 @@ describe("api ops functions (P4, #136)", () => {
     const b = await exportOpsPrecedents();
     expect(b).toBeInstanceOf(Blob);
     expect(fetchMock().mock.calls[0][0]).toBe("/api/ops/precedents/export.zip");
+  });
+
+  // ── P1 待审条目面(票 #153/#155):列表/全文/四键审阅 ──
+
+  it("getOpsItems GETs /api/ops/items and returns the backend-ordered list", async () => {
+    fetchMock().mockResolvedValue({
+      ok: true,
+      json: async () => ({ items: [{
+        id: "2026-10-23-item-bbbb000002", action: "retry_download",
+        args: { source: "spamhaus_drop" }, evidence: { consecutive_failures: 3 },
+        impact: "spamhaus_drop 数据停更", rollback: "重新触发下载即可恢复",
+        dedup_key: { source: "spamhaus_drop", probe_class: "download", error_signature: "http_403_anonymous" },
+        severity: "high", cause_group: "download_failure", status: "active",
+        supersedes: null, modified: "2026-10-23T05:30:00Z",
+      }] }),
+    });
+    const r = await getOpsItems();
+    expect(r).toHaveLength(1);
+    expect(r[0].id).toBe("2026-10-23-item-bbbb000002");
+    expect(fetchMock().mock.calls[0][0]).toBe("/api/ops/items");
+  });
+
+  it("readOpsItem GETs the encoded item id and returns text", async () => {
+    fetchMock().mockResolvedValue({ ok: true, json: async () => ({ text: "---\nid: x\n---\n" }) });
+    const r = await readOpsItem("2026-10-23-item-bbbb000002");
+    expect(r).toBe("---\nid: x\n---\n");
+    expect(fetchMock().mock.calls[0][0]).toBe("/api/ops/items/2026-10-23-item-bbbb000002");
+  });
+
+  it("postOpsReview posts the four-key payload per verdict (分键互斥载荷)", async () => {
+    fetchMock().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        item: "2026-10-23-item-bbbb000002", verdict: "modify", status: "done",
+        executed: true, proposal_only: false,
+        precedent: "2026-10-23-ruling-2222222222.md", created: true,
+        superseded: null, queue_appended: false, wake_at: null,
+      }),
+    });
+    const r = await postOpsReview("2026-10-23-item-bbbb000002", "modify", {
+      args: { source: "spamhaus_drop", force: true },
+    });
+    expect(r.executed).toBe(true);
+    const [url, init] = fetchMock().mock.calls[0];
+    expect(url).toBe("/api/ops/items/2026-10-23-item-bbbb000002/review");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body)).toEqual({
+      verdict: "modify", args: { source: "spamhaus_drop", force: true },
+    });
+    // agree 零参数:body 只带 verdict(分键互斥,不带空字段)
+    await postOpsReview("2026-10-23-item-bbbb000002", "agree");
+    expect(JSON.parse(fetchMock().mock.calls[1][1].body)).toEqual({ verdict: "agree" });
   });
 
   it("exportOpsPrecedents rejects with the envelope on failure", async () => {

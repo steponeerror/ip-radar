@@ -73,11 +73,17 @@ class _Backoff:
 
 class RefreshScheduler:
     def __init__(self, manager, enabled_offline_sources: Callable[[], list],
-                 needs_rebuild_of: Callable[[object], bool], interval: int = 1800):
+                 needs_rebuild_of: Callable[[object], bool], interval: int = 1800,
+                 on_scan: Optional[Callable[[list, float], None]] = None):
         self._manager = manager
         self._enabled_offline_sources = enabled_offline_sources
         self._needs_rebuild_of = needs_rebuild_of
         self._interval = interval
+        # P1 T2 超龄探测器旁挂(票 #154,spec #152 §2):每轮扫描尾回调
+        # (enabled_sources, now) 只读消费;None = 位等价(既有测试零变化)。
+        # 装配在 main.lifespan(_ops_detectors.run_staleness_detector),
+        # 本模块零存储依赖;回调异常独立吞掉(仿告警周期兑错律)。
+        self._on_scan = on_scan
         self._last_task: dict[str, str] = {}
         self._last_attempt: dict[str, float] = {}
         self._baseline_mtime: dict[str, Optional[float]] = {}
@@ -187,6 +193,14 @@ class RefreshScheduler:
             _alerts.prune(now)
         except Exception:
             logger.exception("scheduler: alert cycle raised; continuing")
+
+        # ── P1 T2 超龄探测器旁挂(票 #154):扫描尾只读回调,独立兑错 ──
+        # (探测面故障只 log,调度行为零影响;默认 None = 位等价)。
+        if self._on_scan is not None:
+            try:
+                self._on_scan(self._enabled_offline_sources(), now)
+            except Exception:
+                logger.exception("scheduler: on_scan hook raised; continuing")
 
     def _reconcile(self, name: str, source, now: float) -> None:
         """Infer the previous cycle's outcome. No-op if name not in _last_task."""

@@ -7,7 +7,8 @@
     "测量腿离线钉法(stub 均在子进程 fixture 环境内,永不触真实网络/API):",
     "  curl_age_days — lib.sh feed_freshness 的 curl 传输层替身:URL 含 match 子串回退 Last-Modified",
     "    为 <days> 天前(600s 余量防跨天抖动,同 selftest.sh ff_set_age);near_band 179/180 边界由真实",
-    "    health_snapshot 分桶逻辑消费。",
+    "    health_snapshot 分桶逻辑消费;P1 T2 修约(spec #152 §2a):规则可带 status≥400 → 回该状态行",
+    "    无 Last-Modified(401/403 由真实 _ff_probe 分桶 TOKEN_REQUIRED,不进 unreachable)。",
     "  gh — gh_search 的 gh CLI 边界替身(判例:PI_BIN stub 同型),投影/登记/语义门全真路径。",
     "  matrix — OPS_EVAL_PY 替身吐罐装矩阵 JSON,runMatrixScan/matrixFromResult 全真路径。",
     "  registrySeed — 需真网络的 exclusive_probe 边界用例钉其冻结契约(tools.mjs outputSchema 形状),",
@@ -23,11 +24,12 @@
       "id": "health_summary_format",
       "tier": "faux",
       "round": "health",
-      "tags": ["positive", "boundary-near-band-179-180"],
-      "desc": "正例:健康快照摘要格式(输出契约三节)+ near_band 179/180 边界——binarydefense 179 恰在近带(90-179),其余全源恰 180 过冻结门线,由真实 health_snapshot 分桶消费 stub 读数。",
+      "tags": ["positive", "boundary-near-band-179-180", "boundary-token-required"],
+      "desc": "正例:健康快照摘要格式(输出契约三节)+ near_band 179/180 边界 + P1 T2 TOKEN_REQUIRED 分桶——binarydefense 179 恰在近带(90-179),api.abuseipdb.com 403 → 需令牌·正常不进 unreachable,其余全源恰 180 过冻结门线,由真实 health_snapshot 分桶消费 stub 读数。",
       "input": "健康轮金轨迹回放:全源 feed 冻结检测 + 语义矩阵扫描。",
       "stubs": {
         "curl_age_days": [
+          { "match": "api.abuseipdb.com", "status": 403 },
           { "match": "binarydefense", "days": 179 },
           { "match": "*", "days": 180 }
         ],
@@ -44,7 +46,7 @@
       "registrySeed": [],
       "turns": [
         { "toolCall": { "name": "health_snapshot", "id": "call_hs1", "args": {} } },
-        { "text": "## 注入判例\n- 2026-06-01-golden-aggregator.md\n\n## 异常清单\n- 死键嫌疑·建议复核:全源 age_days=180(恰过 180 门线),逐 URL 读数见工件 TSV(Last-Modified 与 age_days 实测)。\n- 近带(90-179):https://www.binarydefense.com/banlist.txt(179 天,未过冻结门线,建议观察)。\n- 不可达:无;NO-LM:无。\n- 矩阵:exit_code=0(干净),violation=0 pending=0 agreement=4。\n\n## 摘要\n金轨迹回放:health_snapshot 结构化返回 frozen/near_band/unreachable/no_lm 计数与矩阵读数;179/180 边界两侧同时钉住——179 在近带内不标死键,180 恰过门线入冻结。无自动动作,仅建议复核留人裁。" }
+        { "text": "## 注入判例\n- 2026-06-01-golden-aggregator.md\n\n## 异常清单\n- 死键嫌疑·建议复核:全源 age_days=180(恰过 180 门线),逐 URL 读数见工件 TSV(Last-Modified 与 age_days 实测)。\n- 近带(90-179):https://www.binarydefense.com/banlist.txt(179 天,未过冻结门线,建议观察)。\n- 需令牌(401/403):https://api.abuseipdb.com/api/v2/blacklist(需令牌·正常,可达但匿名无凭据;不算异常不推动作)。\n- 不可达:无;NO-LM:无。\n- 矩阵:exit_code=0(干净),violation=0 pending=0 agreement=4。\n\n## 摘要\n金轨迹回放:health_snapshot 结构化返回 frozen/near_band/unreachable/no_lm/token_required 计数与矩阵读数;179/180 边界两侧同时钉住——179 在近带内不标死键,180 恰过门线入冻结;403 需令牌归 TOKEN_REQUIRED 不入不可达。无自动动作,仅建议复核留人裁。" }
       ],
       "assertions": [
         { "kind": "round_ok" },
@@ -55,9 +57,11 @@
         { "kind": "registry", "id": "call_hs1", "path": "sc.near_band_n", "equals": 1 },
         { "kind": "registry", "id": "call_hs1", "path": "sc.near_band.0.age_days", "equals": 179 },
         { "kind": "registry", "id": "call_hs1", "path": "sc.near_band.0.url", "matches": "binarydefense" },
-        { "kind": "registry", "id": "call_hs1", "path": "sc.frozen_n", "equals_field_minus": ["sc.urls_n", 1] },
+        { "kind": "registry", "id": "call_hs1", "path": "sc.frozen_n", "equals_field_minus": ["sc.urls_n", 2] },
         { "kind": "registry", "id": "call_hs1", "path": "sc.unreachable_n", "equals": 0 },
         { "kind": "registry", "id": "call_hs1", "path": "sc.no_lm_n", "equals": 0 },
+        { "kind": "registry", "id": "call_hs1", "path": "sc.token_required_n", "equals": 1 },
+        { "kind": "registry", "id": "call_hs1", "path": "sc.token_required.0", "matches": "api\\.abuseipdb\\.com" },
         { "kind": "registry", "id": "call_hs1", "path": "sc.matrix_ok", "equals": true },
         { "kind": "registry", "id": "call_hs1", "path": "sc.matrix_exit_code", "equals": 0 },
         { "kind": "queue_writes", "count": 0 },

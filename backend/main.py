@@ -44,6 +44,8 @@ from ipdb import _ops_rounds as _ipdb_ops_rounds
 from ipdb import _ops_read as _ipdb_ops_read
 from ipdb import _ops_config as _ipdb_ops_config
 from ipdb import _ops_store as _ipdb_ops_store
+from ipdb import _ops_items as _ipdb_ops_items
+from ipdb import _ops_review as _ipdb_ops_review
 from slowapi.errors import RateLimitExceeded
 from ipdb import _update as _ipdb_update
 from ipdb import _version as _ipdb_version
@@ -55,7 +57,9 @@ from ipdb._api_models import (
     ErrorEnvelope, EvalDetailOut, EvalJobAcceptedOut, EvalModelOut,
     EvalOverviewOut, LookupResultOut, OpsAgentConfigIn, OpsAgentConfigOut,
     OpsFileTextOut, OpsPackagesOut,
+    OpsItemReviewIn, OpsItemReviewOut,
     OpsPackageOut, OpsPrecedentsOut, OpsRoundIn, OpsRulingIn, OpsRulingOut,
+    OpsItemOut, OpsItemsOut,
     SourceInfoOut,
     TaskAcceptedOut,
     TasksSnapshotOut, TokenSetIn, TokenStatusOut,
@@ -457,6 +461,21 @@ _refresh_scheduler = None
 _scheduler_stop: threading.Event | None = None
 
 
+def _ensure_ops_detectors() -> None:
+    """P1 T2 确定性探测器装配(票 #154,spec #152 §2;生产启动单点,幂等)。
+
+    下载失败探测器 → manager.on_terminal(_tasks._settle 终态缝,只读旁挂:
+    异常全吞,任务状态机零语义变化);超龄探测器 → RefreshScheduler 的
+    on_scan(在 _ensure_refresh_scheduler 构造时装配,扫描节律即探测节律)。
+    装配在 lifespan 而非 import 侧效应:测试进程 import main/_registry 零
+    激活,既有套件位等价;探测面故障经挂点独立兑错,不碰查询门/串行车道。
+    """
+    from ipdb import _ops_detectors
+    from ipdb._registry import manager
+    if getattr(manager, "on_terminal", None) is None:
+        manager.on_terminal = _ops_detectors.make_download_fail_detector()
+
+
 def _ensure_refresh_scheduler() -> None:
     """Start the background auto-refresh scheduler once per process.
 
@@ -470,12 +489,16 @@ def _ensure_refresh_scheduler() -> None:
         return
     from ipdb._scheduler import RefreshScheduler
     from ipdb._registry import enabled_offline_sources, _needs_rebuild_of
+    # P1 T2(票 #154):超龄探测器搭 scheduler 扫描节律(on_scan 只读旁挂,
+    # 扫描尾独立兑错);探测器装配统一见 _ensure_ops_detectors。
+    from ipdb import _ops_detectors
     interval = int(os.environ.get("IPRADAR_REFRESH_INTERVAL_SEC", "1800"))
     _refresh_scheduler = RefreshScheduler(
         manager=manager,
         enabled_offline_sources=enabled_offline_sources,
         needs_rebuild_of=_needs_rebuild_of,
-        interval=interval)
+        interval=interval,
+        on_scan=_ops_detectors.run_staleness_detector)
     _scheduler_stop = threading.Event()
     threading.Thread(
         target=_refresh_scheduler.start, args=(_scheduler_stop,),
@@ -574,6 +597,7 @@ async def lifespan(app: FastAPI):
     _cleanup_orphan_tmp(DATA_DIR)
     _ipdb_tokens.load()   # tokens.json → env(UI 优先裁决;须先于任何下载任务)
     _startup()
+    _ensure_ops_detectors()
     _ensure_refresh_scheduler()
     cpu, ram = _batch_pool.detect_host()
     env = os.environ
@@ -1596,6 +1620,69 @@ async def create_ops_ruling(payload: OpsRulingIn):
         raise HTTPException(422, str(e))
     except FileNotFoundError as e:
         raise ApiError(ErrorCode.not_found, str(e))
+
+
+# ── ops 待审条目读面(P1 §1,票 #153 T1;四键审阅写面 = T3,见下方
+# review 路由)── 列表序 = active 先见 → severity 降序 → cause_group 升序
+# → 新条目先见(排序真源 = _ops_items.list_items,路由不复制);空库 =
+# 空列表(空是真实态,沿 _ops_read 同判例);条目库坏文件 → 500 显式失败
+# 不伪装空(无证据≠清白)。
+
+
+@app.get("/api/ops/items", response_model=OpsItemsOut,
+         dependencies=[*_ADMIN_DEPS], responses=_ERRS_422_500)
+async def list_ops_items():
+    try:
+        return {"items": _ipdb_ops_items.list_items()}
+    except ValueError as e:
+        raise ApiError(ErrorCode.internal, str(e))
+
+
+@app.get("/api/ops/items/{item_id}", response_model=OpsFileTextOut,
+         dependencies=[*_ADMIN_DEPS],
+         responses={**_ERRS_422_500,
+                    "404": {"model": ErrorEnvelope,
+                            "description": "unknown item"}})
+async def read_ops_item(item_id: str):
+    try:
+        return {"text": _ipdb_ops_items.read_item(item_id)}
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    except FileNotFoundError:
+        raise ApiError(ErrorCode.not_found, f"unknown item: {item_id}")
+
+
+# ── ops 审阅四键写面(P1 §3,票 #155,spec #152 §3)── 全部 admin 面
+# (沿 _ADMIN_DEPS 惯例);编排/裁记(可逆闭集、集外仅立项、失败分步
+# 自愈、snooze 惰性唤醒、终态拒审)见 ipdb/_ops_review.py 模块头,路由
+# 不复制。错误面分诊:请求面校验 → 422(validation_error 信封);未知
+# 条目 → 404;执行失败/坏条目文件 → 500 显式不吞(无证据≠清白)。
+
+
+@app.post("/api/ops/items/{item_id}/review", response_model=OpsItemReviewOut,
+          dependencies=[*_ADMIN_DEPS],
+          responses={**_ERRS_422_500,
+                     "404": {"model": ErrorEnvelope,
+                             "description": "unknown item"}})
+async def review_ops_item(item_id: str, payload: OpsItemReviewIn):
+    """四键审阅(spec #152 §3):agree/modify(可逆闭集直接执行,集外判例
+    only+待集成清单既有闭集语义「仅立项」)/ ignore(reason 必填,判例
+    overruled)/ snooze(wake_at 到期回 active = 读取面惰性判定,无定时器);
+    判例落盘沿用 write_ruling 四律(item_id 关联);条目状态经 set_status
+    合法迁移闭集(终态拒审:复开 = 新条目链指)。"""
+    try:
+        return await asyncio.to_thread(
+            _ipdb_ops_review.review_item, item_id, payload.verdict,
+            args=payload.args, reason=payload.reason, wake_at=payload.wake_at)
+    except _ipdb_ops_review.ReviewValidationError as e:
+        raise HTTPException(422, str(e))
+    except FileNotFoundError as e:
+        raise ApiError(ErrorCode.not_found, str(e))
+    except _ipdb_ops_review.ExecutionError as e:
+        raise ApiError(ErrorCode.internal, str(e))
+    except ValueError as e:
+        # 坏条目文件/存储层意外:500 显式失败,不伪装空(无证据≠清白)
+        raise ApiError(ErrorCode.internal, str(e))
 
 
 # ── ops agent 配置面（票 #140 立：选模型 + 填 key；票 #143 多供应商扩面：

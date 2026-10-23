@@ -808,6 +808,76 @@ export async function exportOpsPrecedents(): Promise<Blob> {
   return res.blob();
 }
 
+// ── ops 待审条目面(P1 §1/§3,票 #153/#155;契约真源 = GET /api/ops/items +
+// GET /api/ops/items/{id} + POST /api/ops/items/{id}/review + _api_models.py
+// OpsItem* 模型)── 十字段冻结(spec #152);列表序 = 后端已排序
+// (active 先见/severity 降序/cause_group 升序),前端不重排;四键 verdict
+// 闭集 {agree, modify, ignore, snooze} 真源 = spec #152 §3(与后端
+// _ops_review.REVIEW_VERDICTS 对拍,防第二拼写)。
+export interface OpsItem {
+  id: string;
+  action: string;
+  args: Record<string, unknown>;
+  evidence: Record<string, unknown>;
+  impact: string;
+  rollback: string;
+  dedup_key: Record<string, unknown>;
+  severity: string;   // 闭集 high|medium|low(真源 = _ops_items.ITEM_SEVERITIES)
+  cause_group: string;
+  status: string;     // active|snoozed|done|dismissed(snoozed 到期由读面呈 active)
+  supersedes?: string | null; // 复开链指的旧条目 id(仅复开条目携带)
+  modified: string;   // ISO-UTC
+}
+
+export async function getOpsItems(): Promise<OpsItem[]> {
+  const r = await jsonOrThrow(await fetch("/api/ops/items"), "Failed to load review items");
+  return r.items;
+}
+
+// 条目全文逐字(OpsFileTextOut.text;渲染归本层)。
+export async function readOpsItem(itemId: string): Promise<string> {
+  const r = await jsonOrThrow(
+    await fetch(`/api/ops/items/${encodeURIComponent(itemId)}`),
+    "Failed to load review item",
+  );
+  return r.text;
+}
+
+export type OpsReviewVerdict = "agree" | "modify" | "ignore" | "snooze";
+
+export interface OpsItemReviewResult {
+  item: string;
+  verdict: OpsReviewVerdict;
+  status: string;
+  executed: boolean;          // 可逆闭集动作是否直接执行
+  proposal_only: boolean;     // 集外动作「仅立项」恒标(渲染不重推导闭集)
+  precedent?: string | null;  // snooze 不落判例 → 三判例字段 null
+  created?: boolean | null;
+  superseded?: string | null;
+  queue_appended?: boolean | null;
+  wake_at?: string | null;    // 归一 UTC 唤醒时刻(仅 snooze)
+}
+
+// 四键审阅;extra 分键互斥(modify 只 args / ignore 只 reason / snooze 只
+// wakeAt / agree 零参数)由后端 422 校验,前端按键只带各键载荷。
+export async function postOpsReview(
+  itemId: string,
+  verdict: OpsReviewVerdict,
+  extra?: { args?: Record<string, unknown>; reason?: string; wakeAt?: string },
+): Promise<OpsItemReviewResult> {
+  const res = await fetch(`/api/ops/items/${encodeURIComponent(itemId)}/review`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      verdict,
+      ...(extra?.args != null ? { args: extra.args } : {}),
+      ...(extra?.reason != null ? { reason: extra.reason } : {}),
+      ...(extra?.wakeAt != null ? { wake_at: extra.wakeAt } : {}),
+    }),
+  });
+  return jsonOrThrow(res, "Failed to submit review");
+}
+
 // ── ops agent 配置面(票 #140 立;票 #143 多供应商形状;契约真源 = backend
 // GET/PUT /api/ops/agent-config + _api_models.py OpsAgentConfig*)── 双下拉由
 // 后端 catalog 驱动(单一真相源:node 子调用 dump,失败兜底闭集,catalog_source

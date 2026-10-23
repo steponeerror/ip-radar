@@ -413,3 +413,38 @@ def test_ruling_route_amended_verbatim(admin_env, client_as_admin):
     pfile = admin_env / "ops" / "precedents" / r.json()["precedent"]
     fm = _parse_frontmatter(pfile)
     assert fm["human_ruling"] == PREFIX_AMENDED_HEAD + AMENDMENT_VERBATIM
+
+
+def test_item_sourced_agreed_enqueue_appends_queue_row(store, ops_env):
+    """T3 审 P3①(票 #156 顺手件):条目来源 ENQUEUE 建议 agree → queue 行
+    轮次列 = review(审阅动作非轮次产物,不伪造轮次名),evidence = item 溯源;
+    与包来源名空间隔离,幂等去重(action+source)同键。"""
+    from ipdb import _ops_items as items
+    made = items.create_item(
+        source="threatview_c2", probe_class="download",
+        error_signature="http_410_gone",
+        action="ENQUEUE threatview_c2 — 退订候选",
+        args={"source": "threatview_c2"},
+        evidence={"consecutive_failures": 7, "error_code": "HTTP 410"},
+        impact="上游 410 永久下线,覆盖面收缩",
+        rollback="重新启用源即可恢复;无不可逆变更",
+        severity="high", cause_group="download_failure",
+        summary="# 待审:threatview_c2 410\n", today=date(2026, 10, 23))
+    item_id = made["item"]
+    res = store.write_ruling(
+        None, f"ENQUEUE threatview_c2 — 上游 410 永久下线(待审条目 {item_id})",
+        "agreed", today=date(2026, 10, 23), item_id=item_id)
+    assert res["queue_appended"] is True
+    q = (ops_env / "ops" / "queue.md").read_text(encoding="utf-8")
+    expected = ('| 2026-10-23 | review | ENQUEUE | threatview_c2 | — | '
+                'ruling:verdict="agreed";ruling:item="' + item_id + '" '
+                f'| {VETOABLE_CELL} |')
+    assert expected in q.splitlines()
+    # 幂等:重复同裁零追加
+    res2 = store.write_ruling(
+        None, f"ENQUEUE threatview_c2 — 上游 410 永久下线(待审条目 {item_id})",
+        "agreed", today=date(2026, 10, 24), item_id=item_id)
+    assert res2["queue_appended"] is False
+    rows = [ln for ln in (ops_env / "ops" / "queue.md").read_text(
+        encoding="utf-8").splitlines() if ln.startswith("| 2026-")]
+    assert len(rows) == 1

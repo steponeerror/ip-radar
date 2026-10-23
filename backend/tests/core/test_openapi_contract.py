@@ -23,7 +23,7 @@ BINARY = {"/api/ops/precedents/export.zip"}
 # fastapi-users 库路由(Task 2):错误声明不经 ErrorEnvelope,见模块 docstring。
 AUTH_LIB = {"/api/auth/jwt/login", "/api/auth/jwt/logout",
             "/api/users/me", "/api/users/{id}"}
-BUSINESS_ROUTES = 36  # 票 #140 +1：ops agent 配置（GET/PUT 共路径）；P3(票 #135)前 35
+BUSINESS_ROUTES = 39  # 票 #155 +1：审阅四键（POST /api/ops/items/{item_id}/review）；票 #153 +2：待审条目读面（GET /api/ops/items 与 /api/ops/items/{id}）；票 #140 +1：ops agent 配置（GET/PUT 共路径）；P3(票 #135)前 35
 
 
 class TestOpenAPIContract:
@@ -59,10 +59,10 @@ class TestOpenAPIContract:
                     f"{method} {path} 成功响应无 schema"
 
     def test_paths_count_matches_routes(self):
-        """36 业务路径(含 Task 2 认证 4 + Task 5 key 管理 2 + sources-redesign T1
+        """39 业务路径(含 Task 2 认证 4 + Task 5 key 管理 2 + sources-redesign T1
         token 2 路径;PUT/DELETE tokens/{env_var} 共路径;P2 ops 轮次 1;P3 ops
-        读 API+写回 7;票 #140 agent 配置 1 路径 GET/PUT 两方法)+ 3 流式;
-        多/少挂一个立刻红(防漂移)。"""
+        读 API+写回 7;票 #140 agent 配置 1 路径 GET/PUT 两方法;票 #153 待审
+        条目读面 2;票 #155 审阅四键 1)+ 3 流式;多/少挂一个立刻红(防漂移)。"""
         assert len(self.spec["paths"]) == BUSINESS_ROUTES + len(STREAM)
         assert AUTH_LIB <= set(self.spec["paths"]), "admin 认证路径缺失/改名"
 

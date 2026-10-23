@@ -140,26 +140,51 @@ _ff_code() {
   printf '%s' "$1" | tr -d '\r' | awk '$1 ~ /^HTTP\// { c = $2 } END { print c + 0 }'
 }
 
-# _ff_probe <url> — 单 URL 探测 → TSV 一行 url<TAB>last_modified<TAB>age_days。
-# HEAD(跟随重定向)→ HTTP≥400/网络失败降级 GET Range 0-0 → 仍失败=UNREACHABLE
-# (任务书契约);age_days 以 Last-Modified 头 floor((now-lm)/86400),缺头/不可
-# 解析=NO-LM。恒 rc=0:不可达是读数不是故障;需 token 的 API(401/403)也会落
-# UNREACHABLE —— 已知限,摘要员措辞「不可达≠死键」(prompts/health.md)。
-_ff_probe() {
-  local url="$1" hdr="" rc=0 code lm epoch age
-  hdr="$(curl -sS -L -A ip-lookup-tool/1.0 --max-time "$FEED_TIMEOUT_S" \
-        -I -o /dev/null -D - "$url" 2>/dev/null)" || rc=1
-  code="$(_ff_code "$hdr")"
-  if (( rc )) || (( code >= 400 )); then    # HEAD 被拒/不支持 → GET Range 0-0
-    rc=0
-    hdr="$(curl -sS -L -A ip-lookup-tool/1.0 --max-time "$FEED_TIMEOUT_S" \
-          -H 'Range: bytes=0-0' -o /dev/null -D - "$url" 2>/dev/null)" || rc=1
-    code="$(_ff_code "$hdr")"
+# _ff_probe_once <url> — 单轮探测(HEAD 跟随重定向 → HTTP≥400/网络失败降级
+# GET Range 0-0);结果经 _PR_RC(curl rc)/_PR_CODE(最终状态码)/_PR_HDR
+# (响应头块)传出。仅 _ff_probe 内部用(feed_freshness 的 xargs 子壳内联)。
+_ff_probe_once() {
+  local url="$1"
+  _PR_RC=0
+  _PR_HDR="$(curl -sS -L -A ip-lookup-tool/1.0 --max-time "$FEED_TIMEOUT_S" \
+        -I -o /dev/null -D - "$url" 2>/dev/null)" || _PR_RC=1
+  _PR_CODE="$(_ff_code "$_PR_HDR")"
+  if (( _PR_RC )) || (( _PR_CODE >= 400 )); then    # HEAD 被拒/不支持 → GET Range 0-0
+    _PR_RC=0
+    _PR_HDR="$(curl -sS -L -A ip-lookup-tool/1.0 --max-time "$FEED_TIMEOUT_S" \
+          -H 'Range: bytes=0-0' -o /dev/null -D - "$url" 2>/dev/null)" || _PR_RC=1
+    _PR_CODE="$(_ff_code "$_PR_HDR")"
   fi
-  if (( rc )) || (( code >= 400 )); then
+}
+
+# _ff_probe <url> — 单 URL 探测 → TSV 一行 url<TAB>last_modified<TAB>age_days。
+# HEAD(跟随重定向)→ HTTP≥400/网络失败降级 GET Range 0-0 → 分类三态:
+#   - 401/403 → TOKEN_REQUIRED(P1 T2 降噪刀一,spec #152 §2a:匿名撞鉴权
+#     墙 = 需令牌·正常——可达且响应正常,只是无凭据;不算 UNREACHABLE 不
+#     算异常,与 NO-LM 同等待遇:读数保留,摘要如实提及计数);
+#   - 其余失败 → UNREACHABLE(任务书契约);
+#   - 成功 → age_days 以 Last-Modified 头 floor((now-lm)/86400),缺头/不可
+#     解析=NO-LM。
+# 恒 rc=0:不可达是读数不是故障。
+# raw.githubusercontent.com 前缀的瞬时失败(网络层/5xx/429)重试一轮再判
+# (P1 T2 降噪刀三,spec #152 §2c:该域限流抖动是 2026-10-23 实证噪音源,
+# HEAD 与 GET Range 各一次后仅对 raw.github 再来一轮,2s 间隔;确定性失败
+# 404/401/403 不重试)。
+_ff_probe() {
+  local url="$1" lm epoch age
+  _ff_probe_once "$url"
+  if [[ "$url" == https://raw.githubusercontent.com/* ]] \
+     && { (( _PR_RC )) || (( _PR_CODE >= 500 || _PR_CODE == 429 )); }; then
+    sleep 2
+    _ff_probe_once "$url"
+  fi
+  if (( _PR_RC == 0 )) && (( _PR_CODE == 401 || _PR_CODE == 403 )); then
+    printf '%s\tTOKEN_REQUIRED\tTOKEN_REQUIRED\n' "$url"; return 0
+  fi
+  if (( _PR_RC )) || (( _PR_CODE >= 400 )); then
     printf '%s\tUNREACHABLE\tUNREACHABLE\n' "$url"; return 0
   fi
-  lm="$(printf '%s' "$hdr" | tr -d '\r' | awk 'tolower($1) ~ /^last-modified:$/ { lm = $0 }
+  lm="$(printf '%s' "$_PR_HDR" | tr -d '\r' | awk 'tolower($1) ~ /^last-modified:$/ { lm = $0 }
       END { if (lm != "") { sub(/^[^:]*:[ \t]*/, "", lm); print lm } }')"
   epoch="$(date -d "$lm" +%s 2>/dev/null)" || true
   if [[ -z "$lm" || -z "${epoch:-}" ]]; then
@@ -174,12 +199,13 @@ _ff_probe() {
 feed_freshness() {
   (( $# )) || return 0
   export FEED_TIMEOUT_S
-  export -f _ff_probe _ff_code
+  export -f _ff_probe _ff_code _ff_probe_once
   printf '%s\n' "$@" | xargs -P 8 -I{} bash -c '_ff_probe "$1"' _ {} | sort -t$'\t' -k1,1
 }
 
 # freshness_flags — stdin 吃 feed_freshness TSV → 异常行(冻结≥门线=死键嫌疑 /
-# 不可达);NO-LM 不标(可达但缺头≠异常,原始读数留给摘要员;任务书异常清单三态)。
+# 不可达);NO-LM 与 TOKEN_REQUIRED 不标(可达但缺头/需令牌·正常 ≠ 异常,
+# 原始读数留给摘要员如实提及;任务书异常清单三态 + P1 T2 第四类读数)。
 freshness_flags() {
   awk -F'\t' -v frozen="$FROZEN_DAYS" '
     $3 == "UNREACHABLE" { printf "%s\n", "- 不可达·建议复核: " $1 }
@@ -190,14 +216,33 @@ freshness_flags() {
 }
 
 # extract_feed_urls — 只读扫描 backend/ipdb/_sources/*.py 的 https?:// 字面量
-# (rg;任务书自选最简可靠)。排除含 {} 的 token 模板(ipinfo_lite/ip2location
-# 的 {token} 占位符:无凭据不可测,其新鲜度由 scheduler mtime 侧覆盖;且避免
-# 占位符落包)。结尾 .,; 剥掉(注释里句读会并入 URL);[ ] 排除(源码正则
-# 字面量如 ...download/[^s] 的残片不混入;IPv6 字面量场景本仓无)。
+# (rg;任务书自选最简可靠)。排除面(P1 T2 降噪刀二,spec #152 §2b;保守:
+# 宁可漏探不可误报——被漏探 URL 的新鲜度由 mtime 侧既有先例覆盖(scheduler
+# 槽位 + health .last_updated),误报则会以「不可达/冻结」假异常污染健康轮):
+#   1) 注释面:URL 须出现在行内首个 '#' 之前——# 起注释(Python 词法),
+#      注释 URL 是文档指针不是 feed 落点;URL 本身不含 '#'(本仓 82 URL
+#      实证),故首个 '#' 即注释界。同行多 URL 只取第一个(rg 惰性量词,
+#      漏探保守);docstring 是字符串字面量非注释,照旧保留(只切注释面,
+#      不越权扩大排除)。
+#   2) token 模板:含 {} 的占位符(ipinfo_lite/ip2location:无凭据不可测,
+#      其新鲜度由 scheduler mtime 侧覆盖;且避免占位符落包)。
+#   3) 非数据页模式(P1 T2 实证噪音源):/account($|?后缀;账号/门户页,
+#      auth 墙非 feed;不吞 /accounts.json 之类真数据路径)+ 微软
+#      download/confirmation.aspx(下载确认页,真实资产链接由源代码从该
+#      页解析,页本身非数据)。
+# 结尾 .,; 剥掉(注释里句读会并入 URL);[ ] 排除(源码正则字面量如
+# ...download/[^s] 的残片不混入;IPv6 字面量场景本仓无)。
+# 前缀剥离:rg -o 惰性匹配输出 = <行首至 # 前的非 URL 前缀>+<URL>,sed
+# 贪婪剥到最后一个 https?:(前缀无 https? 子串 → 恰剥到 URL 头;同轮修
+# 发现 2:http:// 行旧式只剥 https: 会残留前缀)。
+# 可选 $1 = 扫描根(缺省源目录;selftest fixture 隔离,PRECEDENTS_DIR 判例同型)。
 extract_feed_urls() {
-  rg -oN --no-filename 'https?://[^"'\''[:space:]()><,\[\]]+' \
-    -g '*.py' "$ROOT/backend/ipdb/_sources" \
+  local dir="${1:-$ROOT/backend/ipdb/_sources}"
+  rg -oN --no-filename '^[^#]*?https?://[^"'\''[:space:]()><,\[\]#]+' \
+    -g '*.py' "$dir" \
+    | sed -E 's/^[^#]*(https?:)/\1/' \
     | grep -v '[{}\\]' \
+    | grep -Ev '(/account($|[/?])|download/confirmation\.aspx)' \
     | sed -E 's/[.,;]+$//' \
     | sort -u
 }

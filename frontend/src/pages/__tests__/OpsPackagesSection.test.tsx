@@ -4,11 +4,12 @@ import OpsPackagesSection from "../OpsPackagesSection";
 import { renderWithI18n } from "../../test/i18nTestUtils";
 import { listOpsPackages, readOpsPackage, readOpsPrecedent, postOpsRuling } from "../../api";
 
-// P4 裁决包区(票 #136):列表→详情(建议/证据 call_id+field+value/trace/
-// 判例引用可点开全文)→人裁三动作(同意/否决/修正)。建议行只从包文本解析
-// (逐字纪律:suggestion = 包内原文,不允许自由输入发明建议);全部建议恒标
-// 「仅立项」(裁⑦)。包/判例正文形状 = ops/agent/prompts 输出契约(固定节)
-// ——此处 fixture 取自该契约,不从实现反推。
+// 旧包报告档案(P1 T4,票 #156,ADR 0006):markdown 包降级为条目集的只读
+// 渲染视图——列表 → 详情(报告文逐字:证据 call_id+field+value/trace/判例
+// 引用可点开全文),不再承载审阅。人裁交互面(逐字选建议行 + 三动作)
+// 已移除:四键审阅在「审阅」子 tab(OpsReviewSection.test.tsx)。报告正文
+// 形状 = ops/agent/prompts 输出契约(固定节)——fixture 取自该契约,不从
+// 实现反推。
 vi.mock("../../api", async () => {
   const real = await vi.importActual<typeof import("../../api")>("../../api");
   return {
@@ -21,9 +22,6 @@ vi.mock("../../api", async () => {
 });
 
 const PKG_NAME = "2026-10-20-discover-1030.md";
-const SUGGESTION_ENQUEUE =
-  "ENQUEUE threatview_c2 — CPS 镜像 cobaltstrike_ips 排他 57.0%(171/300),建议单独立项直连";
-const SUGGESTION_HUMAN = "人裁 语义矩阵槽位冲突(example),证据不足";
 
 const PKG_TEXT = [
   "# 裁决包",
@@ -45,8 +43,8 @@ const PKG_TEXT = [
   "",
   "## 建议",
   "",
-  `- ${SUGGESTION_ENQUEUE}`,
-  `- ${SUGGESTION_HUMAN}`,
+  "- ENQUEUE threatview_c2 — CPS 镜像 cobaltstrike_ips 排他 57.0%(171/300),建议单独立项直连",
+  "- 人裁 语义矩阵槽位冲突(example),证据不足",
   "",
   "## 自动执行区",
   "",
@@ -82,14 +80,14 @@ beforeEach(() => {
 });
 
 describe("OpsPackagesSection — list → detail", () => {
-  it("lists packages (newest first metadata); empty state without a round", async () => {
+  it("lists reports (newest first metadata); empty state without a round", async () => {
     vi.mocked(listOpsPackages).mockResolvedValueOnce([]);
     renderSection();
-    expect(await screen.findByText(/No ruling packages yet/i)).toBeTruthy();
+    expect(await screen.findByText(/No reports yet/i)).toBeTruthy();
     expect(listOpsPackages).toHaveBeenCalledTimes(1);
   });
 
-  it("detail shows the package verbatim (evidence call_id+field=value / trace) with precedent refs clickable", async () => {
+  it("detail shows the report verbatim (evidence call_id+field=value / trace) with precedent refs clickable", async () => {
     vi.mocked(readOpsPrecedent).mockResolvedValue("# 判例:blocklist-de-legit\n\nid: 2026-10-18-blocklist-de-legit\n");
     renderSection();
     await openDetail();
@@ -114,12 +112,12 @@ describe("OpsPackagesSection — list → detail", () => {
   });
 });
 
-// ── 票 #149:裁决包列表行元数据(大小+相对时间)+ 节头计数 ──
+// ── 票 #149:报告列表行元数据(大小+相对时间)+ 节头计数 ──
 
 describe("OpsPackagesSection — 列表行元数据与计数(票 #149)", () => {
   it("行元数据:大小 KB + 相对时间(title=ISO 原文,证据不灭失);节头计数 N 个", async () => {
     renderSection(); // beforeEach 夹具:1 包,4096B,modified=2026-10-20T10:30:00+00:00
-    expect(await screen.findByRole("heading", { name: "Ruling packages (1)" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Reports (1)" })).toBeTruthy();
     expect(screen.getByText("4.0 KB")).toBeTruthy();
     const timed = screen.getByTitle("2026-10-20T10:30:00+00:00");
     expect(timed.textContent ?? "").toMatch(/ago$|^just now/);
@@ -128,101 +126,40 @@ describe("OpsPackagesSection — 列表行元数据与计数(票 #149)", () => {
   it("空列表:计数如实显 (0)(视觉门 2026-10-21 微5)+ 基准「暂无」式空态入容器(不留纯空白)", async () => {
     vi.mocked(listOpsPackages).mockResolvedValueOnce([]);
     renderSection();
-    await screen.findByText(/No ruling packages yet/i);
-    expect(screen.getByRole("heading", { name: "Ruling packages (0)" })).toBeTruthy();
+    await screen.findByText(/No reports yet/i);
+    expect(screen.getByRole("heading", { name: "Reports (0)" })).toBeTruthy();
   });
 
   it("详情态节头不带计数(计数属列表面;详情无行集可数)", async () => {
     renderSection();
     await openDetail();
-    expect(screen.getByRole("heading", { name: "Ruling packages" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Reports" })).toBeTruthy();
   });
 });
 
-describe("OpsPackagesSection — 裁⑦ 仅立项 + 人裁三动作", () => {
-  it("every parsed suggestion row carries the proposal-only badge", async () => {
+// ── 票 #156:旧包档案化——纯只读渲染,人裁交互移除 ──
+
+describe("OpsPackagesSection — 旧包档案化(票 #156,只读)", () => {
+  it("详情零裁决交互:无建议选行/无三动作按钮/无「仅立项」徽标——审阅面在「审阅」子 tab", async () => {
     renderSection();
     await openDetail();
-    const badges = screen.getAllByText(/proposal only/i);
-    expect(badges.length).toBe(2);
+    // 三动作按钮不在场(票 #136 旧面:Agree/Overrule/Amend)
+    expect(screen.queryByRole("button", { name: "Agree" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Overrule" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Amend" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Submit amended ruling/i })).toBeNull();
+    // 建议行不带选择态/「仅立项」徽标(逐字建议文本仍在报告全文里,但不可选)
+    expect(screen.queryByText(/proposal only/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: /^ENQUEUE threatview_c2/ })).toBeNull();
+    // 报告全文逐字在场(「## 建议」节原样可见,不可交互)
+    expect(screen.getByText(/ENQUEUE threatview_c2/)).toBeTruthy();
   });
 
-  it("agree posts {package, suggestion verbatim, verdict:'agreed'}; result names the created precedent", async () => {
-    vi.mocked(postOpsRuling).mockResolvedValue({
-      created: true, precedent: "2026-10-20-ruling-abc123def0.md",
-      superseded: null, queue_appended: true,
-    });
+  it("零写路径:postOpsRuling 永不被调(报告面无任何写动作)", async () => {
     renderSection();
     await openDetail();
-    fireEvent.click(screen.getByRole("button", { name: new RegExp(SUGGESTION_ENQUEUE.slice(0, 20)) }));
-    fireEvent.click(screen.getByRole("button", { name: "Agree" }));
-    await waitFor(() => expect(vi.mocked(postOpsRuling)).toHaveBeenCalledWith(
-      PKG_NAME, SUGGESTION_ENQUEUE, "agreed", undefined,
-    ));
-    expect(await screen.findByText(/2026-10-20-ruling-abc123def0\.md/)).toBeTruthy();
-    expect(screen.getByText(/approved-for-integration/i)).toBeTruthy();
-  });
-
-  it("overrule posts verdict 'overruled'", async () => {
-    vi.mocked(postOpsRuling).mockResolvedValue({
-      created: true, precedent: "2026-10-20-ruling-1111111111.md",
-      superseded: null, queue_appended: false,
-    });
-    renderSection();
-    await openDetail();
-    fireEvent.click(screen.getByRole("button", { name: new RegExp(SUGGESTION_HUMAN.slice(0, 6)) }));
-    fireEvent.click(screen.getByRole("button", { name: "Overrule" }));
-    await waitFor(() => expect(vi.mocked(postOpsRuling)).toHaveBeenCalledWith(
-      PKG_NAME, SUGGESTION_HUMAN, "overruled", undefined,
-    ));
-  });
-
-  it("amend requires verbatim amendment text and posts it; superseded + idempotent results rendered", async () => {
-    vi.mocked(postOpsRuling).mockResolvedValueOnce({
-      created: true, precedent: "2026-10-20-ruling-aaaaaaaaaa.md",
-      superseded: "2026-10-18-ruling-bbbbbbbbbb.md", queue_appended: false,
-    }).mockResolvedValueOnce({
-      created: false, precedent: "2026-10-20-ruling-aaaaaaaaaa.md",
-      superseded: null, queue_appended: false,
-    });
-    renderSection();
-    await openDetail();
-    fireEvent.click(screen.getByRole("button", { name: new RegExp(SUGGESTION_ENQUEUE.slice(0, 20)) }));
-    fireEvent.click(screen.getByRole("button", { name: "Amend" }));
-    // 空修正案不可提交(后端 422;前端先拦)
-    expect(screen.getByRole("button", { name: "Submit amended ruling" })).toBeDisabled();
-    fireEvent.change(screen.getByRole("textbox", { name: /amendment/i }), {
-      target: { value: "修正案:排他门按头部/尾部分档,逐字留痕" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Submit amended ruling" }));
-    await waitFor(() => expect(vi.mocked(postOpsRuling)).toHaveBeenCalledWith(
-      PKG_NAME, SUGGESTION_ENQUEUE, "amended", "修正案:排他门按头部/尾部分档,逐字留痕",
-    ));
-    expect(await screen.findByText(/Superseded earlier entry: 2026-10-18-ruling-bbbbbbbbbb\.md/)).toBeTruthy();
-    // 重复同裁:created=false → 幂等文案
-    fireEvent.click(screen.getByRole("button", { name: "Agree" }));
-    await waitFor(() => expect(screen.getByText(/already on record/i)).toBeTruthy());
-  });
-
-  it("ruling failure shows the readable envelope text, not the raw code", async () => {
-    vi.mocked(postOpsRuling).mockRejectedValue(Object.assign(new Error("裁决包不存在: x.md"), {
-      status: 404, code: "not_found",
-    }));
-    renderSection();
-    await openDetail();
-    fireEvent.click(screen.getByRole("button", { name: new RegExp(SUGGESTION_ENQUEUE.slice(0, 20)) }));
-    fireEvent.click(screen.getByRole("button", { name: "Agree" }));
-    await waitFor(() => expect(screen.getByText(/does not exist/i)).toBeTruthy());
-    expect(screen.queryByText(/not_found/)).toBeNull();
-  });
-
-  it("no selectable suggestion → three actions disabled (verbatim discipline, no free-text invention)", async () => {
-    vi.mocked(readOpsPackage).mockResolvedValueOnce("# 裁决包\n\n## 摘要\n\n无建议行。\n");
-    renderSection();
-    await openDetail();
-    expect(screen.getByText(/Select a suggestion/i)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Agree" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Overrule" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Amend" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "2026-10-18-blocklist-de-legit.md" }));
+    await screen.findByText(/# 判例:blocklist-de-legit/);
+    expect(vi.mocked(postOpsRuling)).not.toHaveBeenCalled();
   });
 });

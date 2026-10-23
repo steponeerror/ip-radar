@@ -109,7 +109,7 @@ function AdminShell({ user, onLogout, onUnauthorized }: {
         )}
         {tab === "keys" && <KeysSection onUnauthorized={onUnauthorized} />}
         {tab === "tasks" && <BatchPanel onUnauthorized={onUnauthorized} />}
-        {/* 第四 tab 运营(P4):轮次触发/裁决包人裁/台账/判例/导出,恒仅立项(裁⑦) */}
+        {/* 第四 tab 运营(P4):轮次触发/待审条目四键审阅/历史/规则/报告,分级自动化(ADR 0006;集外仅立项) */}
         {tab === "ops" && <OpsPage onUnauthorized={onUnauthorized} />}
       </div>
     </div>

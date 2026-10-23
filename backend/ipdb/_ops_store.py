@@ -35,7 +35,11 @@ P3 人裁写回(票 #135,写回四律 = 计划书 Global Constraints + 原 T5 �
   (不发明闭集外动词);幂等路径也调 append_queue —— 去重下真零写,且自愈
   「判例已落、队列中途失或多」的崩殘态;
 - 竞态窗口:模块锁关进程内窗(先查后写 + 原子写);多进程部署下窗口残留
-  (uvicorn 单 worker 单容器形态下不可达,报告已说明)。
+  (uvicorn 单 worker 单容器形态下不可达,报告已说明);
+- P1 §3 审阅四键(票 #155):write_ruling 增 item_id 来源(与 package 互斥),
+  四律同构复用:lineage/hard_gates 指针 = ops/items/<id>.md(证据在条目里
+  不复制),幂等键首槽 = item:<id>(与包名空间隔离),队列行轮次列 =
+  "review"(审阅动作非轮次产物);包来源路径字节零变化。
 """
 
 import hashlib
@@ -120,13 +124,15 @@ def atomic_write_text(path: Path | str, text: str) -> Path:
 
 
 def init_ops_tree() -> Path:
-    """初始化 ops 树(precedents/packages/artifacts + 台账/清单表头)。
+    """初始化 ops 树(precedents/packages/artifacts/items + 台账/清单表头)。
 
     幂等:目录与表头已存在即零改动,既有内容不重写、不校验(树内容归
-    导入/追加/写回路径管,init 只保证形状存在)。
+    导入/追加/写回路径管,init 只保证形状存在)。items/ = P1 待审条目库
+    (票 #153,spec #152 §1,一条一文件;旧树无此目录 = 首次调用补建,
+    既有文件零触碰)。
     """
     root = ops_root()
-    for sub in ("precedents", "packages", "artifacts"):
+    for sub in ("precedents", "packages", "artifacts", "items"):
         (root / sub).mkdir(parents=True, exist_ok=True)
     for name, header in (("ledger.md", LEDGER_HEADER), ("queue.md", QUEUE_HEADER)):
         target = root / name
@@ -334,6 +340,13 @@ def validate_precedent_entry(fm: dict) -> None:
     sb = fm["superseded_by"]
     if sb is not None and not (ops_root() / "precedents" / str(sb)).is_file():
         raise ValueError(f"superseded_by 指向不存在文件: {sb}")
+    # P1 判例扩展(票 #153,spec #152 §1):item_id = 本判例来源的待审条目
+    # id(T3 审阅四键落判时携带)。可选缺省 —— 旧判例文件零改动照常通过,
+    # 写回四律/write_ruling 语义零改动;有则须非空字符串(条目 id 形状
+    # 校验归 _ops_items,此处不跨模块 import 防环)。
+    item_id = fm.get("item_id")
+    if item_id is not None and (not isinstance(item_id, str) or not item_id.strip()):
+        raise ValueError("item_id 若有必须是非空字符串(来源待审条目 id)")
 
 
 def _frontmatter_text(text: str) -> str:
@@ -376,11 +389,12 @@ def _render_precedent(fm: dict, body: str) -> str:
     return f"---\n{fm_text}---\n\n{body}"
 
 
-def _find_current_ruling(package: str, suggestion: str):
-    """找目标(包+建议)的 current 判例:未被取代且 recommendation 逐字相等
-    且 lineage 含该包。返回 (path, fm) 或 None;廉价预滤 = 全文不含包引用
-    的判例零解析。"""
-    needle = f"ops/packages/{package}"
+def _find_current_ruling(origin: str, suggestion: str):
+    """找目标(来源+建议)的 current 判例:未被取代且 recommendation 逐字相等
+    且 lineage 含该来源。来源 = ops/packages/<包> 或 ops/items/<条目>.md
+    (T3 审阅四键同律复用)。返回 (path, fm) 或 None;廉价预滤 = 全文不含
+    来源引用的判例零解析。"""
+    needle = origin
     pdir = ops_root() / "precedents"
     for path in sorted(pdir.glob("*.md")):
         if path.name == "_schema.md":
@@ -428,33 +442,43 @@ def _link_superseded(path: Path, new_name: str) -> None:
     atomic_write_text(path, "\n".join(lines))
 
 
-def _maybe_queue(package: str, suggestion: str, verdict: str,
-                 today: date) -> bool:
+def _maybe_queue(suggestion: str, verdict: str, today: date, *,
+                 round_: str | None, origin_field: tuple[str, str]) -> bool:
     """裁⑦清单维护:agreed 且建议首词 = T4 队列闭集动词(ENQUEUE/REJECT)
     + 合法源名 → append_queue(去重幂等);否则零队列写(不发明闭集外
-    动词;ACCEPT/FLAG/人裁类建议以判例为唯一产物)。返回是否新入行。"""
+    动词;ACCEPT/FLAG/人裁类建议以判例为唯一产物)。round_ = None 时由
+    包名推导(P3 包来源旧径);条目来源传 "review"(审阅动作非轮次产物,
+    不伪造轮次名)。origin_field = 溯源对(("package", 包名) 或
+    ("item", 条目 id))。返回是否新入行。"""
     if verdict != "agreed":
         return False
     m = _SUGGESTION_QUEUE_RE.match(suggestion)
     if not m:
         return False
     res = append_queue(
-        round_=_round_from_package(package), action=m.group(1).upper(),
+        round_=round_ or _round_from_package(origin_field[1]),
+        action=m.group(1).upper(),
         source=m.group(2), predicate=None,
-        evidence=[("ruling", "verdict", "agreed"), ("ruling", "package", package)],
+        evidence=[("ruling", "verdict", "agreed"),
+                  ("ruling", *origin_field)],
         today=today)
     return res["appended"]
 
 
-def write_ruling(package: str, suggestion: str, verdict: str,
-                 amendment: str | None = None, *, today: date | None = None) -> dict:
-    """人裁三动作落判例(POST /api/ops/ruling 的存储层本体)。
+def write_ruling(package: str | None, suggestion: str, verdict: str,
+                 amendment: str | None = None, *, today: date | None = None,
+                 item_id: str | None = None) -> dict:
+    """人裁三动作落判例(POST /api/ops/ruling 的存储层本体;P1 §3 审阅
+    四键(票 #155)经 item_id 来源同律复用)。
 
-    四律:幂等(同裁重复零副作用,跨日同裁同零)/ superseded_by(改裁 =
-    新条目 + 旧条目链指,原条目永不删)/ 人裁逐字留痕(修正案原文进
-    human_ruling 一字不改)/ schema 校验(生成内容过 validate_precedent_entry
-    才落盘);production_delta 恒 null。返回 {created, precedent, superseded,
-    queue_appended}。"""
+    来源互斥二选一:package(P3 裁决包,须存在)或 item_id(P1 待审条目,
+    须存在;判例 item_id 字段 = T1 预留扩展位)。四律对两来源同构:
+    幂等(键 =(来源,建议,verdict,修正案)语义比较,同裁重复含跨日零
+    副作用)/ superseded_by(改裁 = 新条目 + 旧条目链指,原条目永不删)/
+    人裁逐字留痕 / schema 校验;production_delta 恒 null。条目来源的
+    hard_gates/lineage 指针 = ops/items/<id>.md(证据在条目里,不复制,
+    防双源漂移)。返回 {created, precedent, superseded, queue_appended}。
+    """
     if verdict not in RULING_VERDICTS:
         raise ValueError(
             f"verdict 必须在闭集内: {'/'.join(RULING_VERDICTS)},实际 {verdict!r}")
@@ -467,52 +491,96 @@ def write_ruling(package: str, suggestion: str, verdict: str,
             raise ValueError("amended 必须带非空修正案(逐字留痕载体)")
     elif amendment is not None:
         raise ValueError("修正案只随 amended(同意/否决无修正案)")
-    validate_ops_filename(package)
+    if item_id is not None and package is not None:
+        raise ValueError("package 与 item_id 互斥(判例来源唯一)")
+    if item_id is not None:
+        if not isinstance(item_id, str) or not item_id.strip():
+            raise ValueError("item_id 必须是非空字符串(来源待审条目 id)")
+        # 存在性:hard_gates/lineage 指针不得悬空(superseded_by 同律);
+        # 不 import _ops_items 防环(_ops_items → _ops_store),按树形状直查
+        if not (ops_root() / "items" / f"{item_id}.md").is_file():
+            raise FileNotFoundError(f"待审条目不存在: {item_id}")
+        origin = f"ops/items/{item_id}.md"
+        digest_source = f"item:{item_id}"   # 与包名空间隔离(幂等键首槽)
+        round_label = "review"              # 审阅动作非轮次产物(见 _maybe_queue)
+        origin_field = ("item", item_id)
+    else:
+        validate_ops_filename(package)
+        origin = f"ops/packages/{package}"
+        digest_source = package
+        round_label = None
+        origin_field = ("package", package)
     init_ops_tree()
-    pkg_path = ops_root() / "packages" / package
-    if not pkg_path.is_file():
-        raise FileNotFoundError(f"裁决包不存在: {package}")
+    if item_id is None:
+        pkg_path = ops_root() / "packages" / package
+        if not pkg_path.is_file():
+            raise FileNotFoundError(f"裁决包不存在: {package}")
     d = today or date.today()
     with _ruling_lock:
-        current = _find_current_ruling(package, suggestion)
+        current = _find_current_ruling(origin, suggestion)
         if current is not None and _same_ruling(current[1], verdict, amendment):
             # 幂等零副作用;append_queue 去重 = 真零写,兼自愈队列崩殘态
             return {"created": False, "precedent": current[0].name,
                     "superseded": None,
-                    "queue_appended": _maybe_queue(package, suggestion, verdict, d)}
+                    "queue_appended": _maybe_queue(
+                        suggestion, verdict, d, round_=round_label,
+                        origin_field=origin_field)}
         digest = hashlib.sha1("\x00".join(
-            (package, suggestion, verdict, amendment or "")).encode("utf-8")
+            (digest_source, suggestion, verdict, amendment or "")).encode("utf-8")
         ).hexdigest()[:10]
         new_name = f"{d:%Y-%m-%d}-ruling-{digest}.md"
         human = (_RULING_AMENDED_HEAD + amendment if verdict == "amended"
                  else _RULING_HUMAN[verdict])
+        if item_id is None:
+            subject = f"运营建议人裁 — {_RULING_ZH[verdict]}({package})"
+            context = (
+                f"裁决包 ops/packages/{package} 的建议(见 recommendation 逐字)经 "
+                "admin 人裁三动作落判例;决策时事实面与硬门实测数字以该包为准,"
+                "本条不复制(宁少算勿多算,防双源漂移)。")
+            hard_gates = {"package": f"ops/packages/{package}",
+                          "round": _round_from_package(package)}
+            lineage = [f"ops/packages/{package}"]
+            body = (
+                f"# 判例:人裁{_RULING_ZH[verdict]} — {package}\n\n"
+                f"裁决包 `ops/packages/{package}` 的建议经人裁{_RULING_ZH[verdict]}。"
+                "事实面/硬门数字/trace 以该包为准,本条不复制(防双源漂移);"
+                f"回报三列:ruling_agreement={verdict},production_delta=null"
+                "(30 天生产增量写回是独立后续批,未结案不补)。\n"
+            )
+        else:
+            subject = f"待审条目人裁 — {_RULING_ZH[verdict]}({item_id})"
+            context = (
+                f"待审条目 ops/items/{item_id}.md 的动作建议(见 recommendation 逐字)经 "
+                "admin 四键审阅落判例;决策时事实面与证据以该条目为准,"
+                "本条不复制(宁少算勿多算,防双源漂移)。")
+            hard_gates = {"item": f"ops/items/{item_id}.md"}
+            lineage = [f"ops/items/{item_id}.md"]
+            body = (
+                f"# 判例:待审条目人裁{_RULING_ZH[verdict]} — {item_id}\n\n"
+                f"待审条目 `ops/items/{item_id}.md` 的动作建议经人裁{_RULING_ZH[verdict]}。"
+                "事实面/证据/evidence 以该条目为准,本条不复制(防双源漂移);"
+                f"回报三列:ruling_agreement={verdict},production_delta=null"
+                "(30 天生产增量写回是独立后续批,未结案不补)。\n"
+            )
         fm = {
             "id": new_name[:-3],
             "date": d,
-            "subject": f"运营建议人裁 — {_RULING_ZH[verdict]}({package})",
-            "context": (
-                f"裁决包 ops/packages/{package} 的建议(见 recommendation 逐字)经 "
-                "admin 人裁三动作落判例;决策时事实面与硬门实测数字以该包为准,"
-                "本条不复制(宁少算勿多算,防双源漂移)。"),
+            "subject": subject,
+            "context": context,
             "recommendation": suggestion,
             "human_ruling": human,
             "reward": {
-                # 指针非数字:硬门数字在包里,复制 = 双源漂移(模块头裁记)
-                "hard_gates": {"package": f"ops/packages/{package}",
-                               "round": _round_from_package(package)},
+                # 指针非数字:硬门数字/证据在包或条目里,复制 = 双源漂移
+                # (模块头裁记;条目来源 hard_gates 只携 item 指针)
+                "hard_gates": hard_gates,
                 "ruling_agreement": verdict,
                 "production_delta": None,
             },
-            "lineage": [f"ops/packages/{package}"],
+            "lineage": lineage,
             "superseded_by": None,
         }
-        body = (
-            f"# 判例:人裁{_RULING_ZH[verdict]} — {package}\n\n"
-            f"裁决包 `ops/packages/{package}` 的建议经人裁{_RULING_ZH[verdict]}。"
-            "事实面/硬门数字/trace 以该包为准,本条不复制(防双源漂移);"
-            f"回报三列:ruling_agreement={verdict},production_delta=null"
-            "(30 天生产增量写回是独立后续批,未结案不补)。\n"
-        )
+        if item_id is not None:
+            fm["item_id"] = item_id  # T1 预留扩展位(validate 可选字段)
         text = _render_precedent(fm, body)
         # 四律之 schema 校验:序列化文本往返解析后过校验(写什么校什么)
         validate_precedent_entry(yaml.safe_load(_frontmatter_text(text)))
@@ -523,7 +591,9 @@ def write_ruling(package: str, suggestion: str, verdict: str,
             _link_superseded(current[0], new_name)
             superseded = current[0].name
         return {"created": True, "precedent": new_name, "superseded": superseded,
-                "queue_appended": _maybe_queue(package, suggestion, verdict, d)}
+                "queue_appended": _maybe_queue(
+                    suggestion, verdict, d, round_=round_label,
+                    origin_field=origin_field)}
 
 
 def main(argv: Sequence[str] | None = None) -> int:
