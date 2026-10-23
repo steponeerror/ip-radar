@@ -12,16 +12,17 @@ import path from "node:path";
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
-import { FROZEN_DAYS, matrixScanCli, matrixArtifactText } from "../tools.mjs";
-import { loadAnchors, anchorSelect, HIT_CAP } from "./anchors.mjs"; // 锚域词表×旗标选锚(B 三件②;P3 接线 #165)
+import { FROZEN_DAYS, matrixScanCli, matrixArtifactText, resolveField } from "../tools.mjs";
+import { loadAnchors, anchorSelect, HIT_CAP } from "./anchors.mjs"; // 锚域词表×旗标选锚(B 三件②;DISPATCH 逐假设判例命中 ≤3,P4 #166)
+import { itemSignature, fullDedupKey, createOpsItem, CAUSE_GROUP_BY_BUCKET } from "./ops-items.mjs"; // 条目库桥(P4 #166:接 _ops_items 同空间)
 
 const execFileP = promisify(execFileCb);
 const AGENT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const LIBSH = path.join(AGENT_DIR, "lib.sh");
 const promptFile = (key) => path.join(AGENT_DIR, "prompts", `${key}.md`); // 提示词层真源(P3,#165;C稿 §3.1)
-// DEEP 桩占位系统提示(P3:全部 unresolved 直通;真提示词 P4 #166 落 prompts/health/deep.md,C稿 §3.3)
-const DEEP_STUB_PROMPT = "(P3 桩:深验步未上线,全部假设 verdict=unresolved 直通交人裁;真提示词 P4 #166 落 prompts/health/deep.md)";
+// DEEP 真提示词 = prompts/health/deep.md(P4 #166,C稿 §3.3 草案+A 一律收窄;装配见 deepInput)
 const EST_PER_HYP_CNY = 0.016; // C稿 §7 成本模型上限(每假设 ~0.008-0.016;预算估取上限,宁紧勿松)
+const MAX_DEEP_HYPOTHESES = 3; // 深验假设数上限(C稿 §7「上限 3 假设」;超即 severity 截尾留痕,P4 #166)
 const SEV_RANK = { high: 0, medium: 1, low: 2 }; // DISPATCH 截尾序:低 severity 先丢
 export const RULE_PREDICATES = ["bucket", "url_shape", "source", "error_family"]; // 匹配谓词闭集(C稿 §4.2;新增谓词=spec 变更)
 export const RULE_ACTIONS = ["suppress", "annotate"]; // 规则动作闭集(C稿 §4.2)
@@ -37,10 +38,9 @@ const j = (p) => { try { return JSON.parse(fs.readFileSync(p, "utf8")); } catch 
 const writeJson = (p, obj) => fs.writeFileSync(p, JSON.stringify(obj, null, 2) + "\n");
 const host = (u) => { try { return new URL(u).hostname; } catch { return u; } };
 export const hidSlug = (hid) => String(hid).replace(/[^A-Za-z0-9.-]+/g, "-").replace(/^-+|-+$/g, "");
-// dedup 签:P2 起对齐 _ops_items 面——source = 清单标源名(feeds.txt 行内 # 首词,lib.sh
-// extract_feed_urls -t;_ops_items.dedup_key.source 同形 ^[a-z0-9_]{1,32}$,无注解回落 host);
-// probe_class/error_signature 全签收口在 P4 ITEMIZE 接 create_item 时(#166)。
-const dedupKey = (f) => `${f.source ?? host(f.url ?? f.signal_id ?? "")}|${f.bucket ?? "unknown"}`;
+// dedup 全签 = (source, probe_class, error_signature),与 P1 探测器同空间(_ops_items.dedup_key 语义键);
+// 折叠族映射与查表真源 = ops-items.mjs itemSignature(#164 偏离①②收口,P4 #166)。
+const dedupKey = (f) => fullDedupKey(f);
 
 // ── 抑制规则库(闭集 schema;C稿 §4.2)──────────────────────────────────────
 // 真源 = DOCS_ROOT/ops/rules/suppressions.json(人裁采纳才写入,adopt_rule 四键通道 P5);
