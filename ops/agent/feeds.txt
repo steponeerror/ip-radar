@@ -1,0 +1,131 @@
+# feeds.txt — 健康轮探测 URL 人工维护清单(extract_feed_urls 事实层)
+#
+# 2026-10-23 事故重构:旧 rg 扫 backend/ipdb/_sources/*.py 字面量,混入首页
+# URL(dataplane.org/ 静态页 Last-Modified → 伪报「冻结 291 天」)、多行拼接
+# 截断 URL(GeoLite …/latest/download/ 撞 GitHub 重定向 404 → 伪报「不可达」)、
+# 注释/docstring 文档 URL,且漏探 base+文件名拼出的真端点。本清单 = 逐源读
+# 各 download() 实际抓取的数据 URL,只有真数据端点。
+#
+# 维护契约:新增源 / 改源的下载端点 → 同 PR 更新本清单(等价于源的接线图)。
+# 行格式:<URL> # <source_name>(行内 # 后为标源注释,解析只取首列);
+# ^# 全注释行 = 分组头。解析方 = lib.sh extract_feed_urls。
+#
+# 刻意不收录(反面形状,勿经清单再引入):
+#   - threatfox / urlhaus:…/v2/files/exports/ 端点 Auth-Key 是路径段,匿名形
+#     404 必伪报不可达(票 #159);新鲜度由源健康 .last_updated 侧覆盖。
+#   - dbip_city:月度滚动 URL(dbip-city-lite-YYYY-MM.csv.gz),无常驻端点。
+#   - ip2proxy / ipinfo_lite:{token} 模板 URL,匿名不可探。
+#   - cloud_ranges 微软段:confirmation.aspx 为下载确认页非数据,真实
+#     download.microsoft.com 链接运行时从页内解析,无常驻 URL。
+#   - infra_services:内嵌 CSV,无网络抓取。
+#   - 首页 / about / 文档 / 许可证页(旧清单的 docs.abuseipdb.com、
+#     creativecommons.org、caida.org/catalog、github.com/proxyscrape 等)。
+
+# ── 威胁黑名单:单文件/单端点源 ──────────────────────────────
+https://www.binarydefense.com/banlist.txt # binarydefense
+https://danger.rulez.sk/projects/bruteforceblocker/blist.php # bruteforce
+https://cinsscore.com/list/ci-badguys.txt # ciarm
+https://raw.githubusercontent.com/CriticalPathSecurity/Public-Intelligence-Feeds/master/cps-collected-iocs.txt # cps_collected_iocs
+https://raw.githubusercontent.com/duggytuxy/Data-Shield_IPv4_Blocklist/main/prod_data-shield_ipv4_blocklist.txt # data_shield
+https://feeds.dshield.org/block.txt # dshield
+https://rules.emergingthreats.net/fwrules/emerging-Block-IPs.txt # emerging_threats
+https://raw.githubusercontent.com/f3cSystems/BlockList_IP/main/blacklist.csv # f3csystems
+https://blocklist.greensnow.co/greensnow.txt # greensnow
+https://raw.githubusercontent.com/stamparm/ipsum/master/ipsum.txt # ipsum
+https://knock-knock.net/static/ip-blocklist-month.txt # knock_knock
+https://myip.ms/files/blacklist/htaccess/latest_blacklist.txt # myip_ms
+https://raw.githubusercontent.com/reportedip/reportedip-blacklist/main/blacklist-all.csv # reportedip
+https://list.rtbh.com.tr/output.txt # rtbh
+https://sblam.com/blacklist.txt # sblam
+https://siberkapan.org/api/v1/list/txt # siberkapan
+https://www.spamhaus.org/drop/drop.txt # spamhaus
+https://www.spamhaus.org/drop/dropv6.txt # spamhaus
+https://www.stopforumspam.com/downloads/listed_ip_365_all.zip # stopforumspam
+https://threatcluster.io/api/iocs/public/feed.csv # threatcluster
+https://raw.githubusercontent.com/0xDanielLopez/TweetFeed/master/year.csv # tweetfeed
+https://raw.githubusercontent.com/drb-ra/C2IntelFeeds/master/feeds/IPC2s-30day.csv # drb_ra
+https://raw.githubusercontent.com/ShadowWhisperer/IPs/master/Lists/Scanners.csv # sw_scanners
+https://raw.githubusercontent.com/ShadowWhisperer/IPs/master/Lists/Threats.csv # sw_threats
+https://view.sentinel.turris.cz/greylist-data/greylist-latest.csv # turris_greylist
+https://blackip.ustc.edu.cn/list.php?txt # ustc_blackip
+https://api.abuseipdb.com/api/v2/blacklist # abuseipdb(无 key 探测=401→TOKEN_REQUIRED 读数)
+
+# ── 威胁黑名单:多列表/分片源(base+文件名,旧扫描漏探面)──────
+https://raw.githubusercontent.com/firehol/blocklist-ipsets/master/firehol_level1.netset # firehol
+https://raw.githubusercontent.com/firehol/blocklist-ipsets/master/firehol_level2.netset # firehol
+https://raw.githubusercontent.com/firehol/blocklist-ipsets/master/firehol_abusers_30d.netset # firehol
+https://raw.githubusercontent.com/firehol/blocklist-ipsets/master/firehol_proxies.netset # firehol
+https://raw.githubusercontent.com/romainmarcoux/malicious-ip/master/full-300k-aa.txt # malicious_ip
+https://raw.githubusercontent.com/romainmarcoux/malicious-ip/master/full-300k-ab.txt # malicious_ip
+https://raw.githubusercontent.com/romainmarcoux/malicious-ip/master/full-300k-ac.txt # malicious_ip
+https://raw.githubusercontent.com/romainmarcoux/malicious-ip/master/full-300k-ad.txt # malicious_ip
+https://raw.githubusercontent.com/romainmarcoux/malicious-ip/master/full-40k.txt # malicious_ip
+https://lists.blocklist.de/lists/mail.txt # blocklist_de
+https://lists.blocklist.de/lists/ssh.txt # blocklist_de
+https://lists.blocklist.de/lists/bruteforcelogin.txt # blocklist_de
+https://lists.blocklist.de/lists/ftp.txt # blocklist_de
+https://lists.blocklist.de/lists/imap.txt # blocklist_de
+https://lists.blocklist.de/lists/sip.txt # blocklist_de
+https://lists.blocklist.de/lists/bots.txt # blocklist_de
+https://lists.blocklist.de/lists/ircbot.txt # blocklist_de
+https://lists.blocklist.de/lists/apache.txt # blocklist_de
+https://lists.blocklist.de/lists/strongips.txt # blocklist_de
+https://lists.blocklist.de/lists/all.txt # blocklist_de
+https://raw.githubusercontent.com/CriticalPathSecurity/Public-Intelligence-Feeds/master/cloudzy.txt # cloudzy
+https://dataplane.org/signals/sshpwauth.txt # dataplane
+https://dataplane.org/signals/telnetlogin.txt # dataplane
+https://dataplane.org/signals/dnsrd.txt # dataplane
+https://dataplane.org/signals/sipquery.txt # dataplane
+https://dataplane.org/signals/sipregistration.txt # dataplane
+https://dataplane.org/signals/smtpgreet.txt # dataplane
+https://dataplane.org/signals/smtpdata.txt # dataplane
+https://dataplane.org/signals/ntpmode7.txt # dataplane
+
+# ── 代理 / Tor / VPN ────────────────────────────────────────
+https://www.dan.me.uk/torlist/ # danmeuk_tor
+https://check.torproject.org/exit-addresses # tor_exits
+https://cdn.jsdelivr.net/gh/proxyscrape/free-proxy-list@main/proxies/all/data.csv # proxyscrape
+https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt # thespeedx
+https://raw.githubusercontent.com/hookzof/socks5_list/master/proxy.txt # hookzof
+https://raw.githubusercontent.com/mthcht/awesome-lists/main/Lists/VPN/NordVPN/nordvpn_ips_list.csv # nordvpn
+https://raw.githubusercontent.com/mthcht/awesome-lists/main/Lists/VPN/ProtonVPN/protonvpn_ip_list.csv # protonvpn
+https://raw.githubusercontent.com/X4BNet/lists_vpn/main/output/vpn/ipv4.txt # x4bnet_vpn
+https://raw.githubusercontent.com/X4BNet/lists_vpn/main/output/vpn/ipv6.txt # x4bnet_vpn
+
+# ── 云 / CDN 网段 ───────────────────────────────────────────
+https://ip-ranges.amazonaws.com/ip-ranges.json # cloud_ranges + cdn_edges(AWS,双源共用)
+https://www.gstatic.com/ipranges/goog.json # cloud_ranges(GCP)
+https://docs.oracle.com/iaas/tools/public_ip_ranges.json # cloud_ranges(Oracle)
+https://cloud-ip-ranges.com/download/alibaba.txt # cloud_ranges(Alibaba)
+https://www.cloudflare.com/ips-v4 # cdn_edges(Cloudflare)
+https://www.cloudflare.com/ips-v6 # cdn_edges(Cloudflare)
+https://api.fastly.com/public-ip-list # cdn_edges(Fastly)
+
+# ── 地理 / ASN / RIR ────────────────────────────────────────
+https://manycast.net/api/v1/export/IPv4-latest.csv.gz # anycast_census
+https://data.caida.org/datasets/as-organizations/latest.as-org2info.txt.gz # caida_asorg
+https://iptoasn.com/data/ip2asn-combined.tsv.gz # iptoasn
+https://github.com/P3TERX/GeoLite.mmdb/releases/latest/download/GeoLite2-City.mmdb # geolite_city
+https://www.peeringdb.com/api/ix # peeringdb
+https://www.peeringdb.com/api/ixpfx # peeringdb
+https://ftp.afrinic.net/pub/stats/afrinic/delegated-afrinic-extended-latest # rir_delegated
+https://ftp.apnic.net/stats/apnic/delegated-apnic-extended-latest # rir_delegated
+https://ftp.arin.net/pub/stats/arin/delegated-arin-extended-latest # rir_delegated
+https://ftp.lacnic.net/pub/stats/lacnic/delegated-lacnic-extended-latest # rir_delegated
+https://ftp.ripe.net/pub/stats/ripencc/delegated-ripencc-extended-latest # rir_delegated
+https://ftp.ripe.net/ripe/dbase/ripe.db.gz # rir_abuse
+https://ftp.afrinic.net/pub/dbase/afrinic.db.gz # rir_abuse
+https://ispip.clang.cn/chinatelecom.txt # cn_isp
+https://ispip.clang.cn/unicom_cnc.txt # cn_isp
+https://ispip.clang.cn/cmcc.txt # cn_isp
+https://ispip.clang.cn/chinabtn.txt # cn_isp
+https://ispip.clang.cn/cernet.txt # cn_isp
+https://ispip.clang.cn/gwbn.txt # cn_isp
+https://ispip.clang.cn/othernet.txt # cn_isp
+https://ispip.clang.cn/hk.txt # cn_isp
+https://ispip.clang.cn/mo.txt # cn_isp
+https://ispip.clang.cn/tw.txt # cn_isp
+
+# ── DNS / 根域 ──────────────────────────────────────────────
+https://raw.githubusercontent.com/DNSCrypt/dnscrypt-resolvers/master/v3/public-resolvers.md # dns_public
+https://www.internic.net/domain/named.root # root_servers

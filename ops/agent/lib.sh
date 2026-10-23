@@ -215,34 +215,17 @@ freshness_flags() {
   '
 }
 
-# extract_feed_urls — 只读扫描 backend/ipdb/_sources/*.py 的 https?:// 字面量
-# (rg;任务书自选最简可靠)。排除面(P1 T2 降噪刀二,spec #152 §2b;保守:
-# 宁可漏探不可误报——被漏探 URL 的新鲜度由 mtime 侧既有先例覆盖(scheduler
-# 槽位 + health .last_updated),误报则会以「不可达/冻结」假异常污染健康轮):
-#   1) 注释面:URL 须出现在行内首个 '#' 之前——# 起注释(Python 词法),
-#      注释 URL 是文档指针不是 feed 落点;URL 本身不含 '#'(本仓 82 URL
-#      实证),故首个 '#' 即注释界。同行多 URL 只取第一个(rg 惰性量词,
-#      漏探保守);docstring 是字符串字面量非注释,照旧保留(只切注释面,
-#      不越权扩大排除)。
-#   2) token 模板:含 {} 的占位符(ipinfo_lite/ip2location:无凭据不可测,
-#      其新鲜度由 scheduler mtime 侧覆盖;且避免占位符落包)。
-#   3) 非数据页模式(P1 T2 实证噪音源):/account($|?后缀;账号/门户页,
-#      auth 墙非 feed;不吞 /accounts.json 之类真数据路径)+ 微软
-#      download/confirmation.aspx(下载确认页,真实资产链接由源代码从该
-#      页解析,页本身非数据)。
-# 结尾 .,; 剥掉(注释里句读会并入 URL);[ ] 排除(源码正则字面量如
-# ...download/[^s] 的残片不混入;IPv6 字面量场景本仓无)。
-# 前缀剥离:rg -o 惰性匹配输出 = <行首至 # 前的非 URL 前缀>+<URL>,sed
-# 贪婪剥到最后一个 https?:(前缀无 https? 子串 → 恰剥到 URL 头;同轮修
-# 发现 2:http:// 行旧式只剥 https: 会残留前缀)。
-# 可选 $1 = 扫描根(缺省源目录;selftest fixture 隔离,PRECEDENTS_DIR 判例同型)。
+# extract_feed_urls — 读人工维护清单 ops/agent/feeds.txt(健康轮探测 URL
+# 事实层)。2026-10-23 事故重构:旧 rg 扫 backend/ipdb/_sources/*.py 字面量
+# 混入首页 URL(dataplane 静态页 Last-Modified → 伪报冻结 291 天)、多行
+# 拼接截断 URL(GeoLite 撞 GitHub 重定向 404 → 伪报不可达)、注释/
+# docstring 文档 URL,且漏探 base+文件名拼出的真端点(blocklist_de/cn_isp/
+# firehol/malicious_ip/rir_delegated 等)——扫描路径退役,事实由清单承载
+# (每行 URL + 行内 # 标源;^# 分组头;不收录形状与维护契约见清单头注释;
+# 新增/改源端点 = 同 PR 更新清单)。
+# 可选 $1 = 清单路径(缺省 $AGENT_DIR/feeds.txt;selftest fixture 隔离,
+# PRECEDENTS_DIR 判例同型)。
 extract_feed_urls() {
-  local dir="${1:-$ROOT/backend/ipdb/_sources}"
-  rg -oN --no-filename '^[^#]*?https?://[^"'\''[:space:]()><,\[\]#]+' \
-    -g '*.py' "$dir" \
-    | sed -E 's/^[^#]*(https?:)/\1/' \
-    | grep -v '[{}\\]' \
-    | grep -Ev '(/account($|[/?])|download/confirmation\.aspx|/v2/files/exports/)' \
-    | sed -E 's/[.,;]+$//' \
-    | sort -u
+  local manifest="${1:-$AGENT_DIR/feeds.txt}"
+  grep -v '^#' "$manifest" | awk 'NF { print $1 }' | sort -u
 }
