@@ -190,7 +190,8 @@ async function runCase(c, allowSmoke) {
       }
       case "pipeline_stage": {
         const s = result?.envelope?.pipeline?.stages?.find((x) => x.name === a.stage);
-        if (!s || s.status !== a.status) fail(a, `${a.stage}=${s?.status ?? "(无)"}≠${a.status}`);
+        if (!s || s.status !== a.status) { fail(a, `${a.stage}=${s?.status ?? "(无)"}≠${a.status}`); break; }
+        if (a.note_matches && !new RegExp(a.note_matches).test(s.note ?? "")) { fail(a, `${a.stage}.note 不匹配 /${a.note_matches}/(=${s.note ?? "(无)"})`); break; }
         break;
       }
       case "pipeline_gates": {

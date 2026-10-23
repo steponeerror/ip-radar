@@ -481,6 +481,25 @@ else
   skipok "pipeline:P2 骨架自测" "供给缺(node/node_modules/pipeline.mjs)——CI 由 npm ci 保证"
 fi
 
+# ---- #164 审 P2 顺手件(#165 落):B 三件真源面挂伞——build-index --check(锚表闭包+_INDEX 新度)
+# 与 promote-detect --dry(升格候选检测器,只打印不写盘)。判例库真源=嵌套 docs 仓,在在场才跑
+# (skipok 守卫,同 test_precedent_schema.py 判例;worktree/CI 缺席=SKIP 计 PASS 非静默跳);
+# --docs-root 显式 + PRECEDENTS_DIR 内联覆盖(上方 fixture 已 export 本地 PRECEDENTS_DIR,须指回真源)。
+if command -v node >/dev/null 2>&1 && [[ -d "$ROOT/docs/ops/precedents" ]]; then
+  if PRECEDENTS_DIR="$ROOT/docs/ops/precedents" node "$AGENT/build-index.mjs" --check --docs-root "$ROOT/docs" >/dev/null 2>&1; then
+    ok "B三件:build-index --check 真源面(锚表闭包+_INDEX 新度)"
+  else
+    bad "B三件:build-index --check 失败(_INDEX 陈旧或锚指缺件;可再生:node ops/agent/build-index.mjs)"
+  fi
+  if PRECEDENTS_DIR="$ROOT/docs/ops/precedents" node "$AGENT/promote-detect.mjs" --dry --docs-root "$ROOT/docs" >/dev/null 2>&1; then
+    ok "B三件:promote-detect --dry 真源面(升格候选检测器,只打印不写盘)"
+  else
+    bad "B三件:promote-detect --dry 失败(候选检测器在真源留痕判例上不可跑)"
+  fi
+else
+  skipok "B三件:build-index --check+promote-detect --dry 真源面" "嵌套 docs 仓缺席(判例库真源不在场;主 checkout 在场时真跑)"
+fi
+
 echo "----"
 echo "selftest: PASS=$pass FAIL=$fail"
 (( fail == 0 )) || exit 1
