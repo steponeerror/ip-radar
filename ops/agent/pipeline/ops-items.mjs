@@ -117,6 +117,11 @@ const pyJson = (obj) => `{${Object.keys(obj).sort().map((k) => `${JSON.stringify
 
 // 产条(确定性,零 LLM):十字段 frontmatter + 人读摘要正文一条一文件,写 ops/items 树。
 // spec={source,probe_class,error_signature,action,args,evidence,impact,rollback,severity,cause_group,summary,round_id}
+// 跨语言镜像钉子面(审后修 P1-2):仅供 selftest 对拍 _ops_items.py 金常量;createOpsItem 内部 digest 同拼法。
+// 双向注释律:backend/ipdb/_ops_items.py create_item 改拼接收=先过 selftest 本断言(嵌套/浮点 args 两语言即分叉,现调用面恒扁平)。
+export function mirrorDigestForTest({ source, probe_class, error_signature, action, args, latest }) {
+  return crypto.createHash("sha1").update([source, probe_class, error_signature, action, pyJson(args ?? {}), latest ?? ""].join("\x00"), "utf8").digest("hex").slice(0, 10);
+}
 // 返回 {outcome: created|reopened|deduped, item, supersedes, echo}。校验全在写前,失败=树零变化。
 export function createOpsItem(itemsDir, spec, { echoRoundId = null, dayIso } = {}) {
   const sig = { source: spec.source, probe_class: spec.probe_class, error_signature: spec.error_signature };

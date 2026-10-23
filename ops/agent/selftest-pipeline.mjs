@@ -798,6 +798,29 @@ await t("模型步装载对拍:TRIAGE/SYNTH transcript system_sha=提示词文�
   }
 });
 
+await t("DISPATCH 3-bundle 稳态预算回归(审 P1-1):floor 拆分合计≤轮预算过门;toFixed 形必红", async () => {
+  const { GATES } = await import("./pipeline/gates.mjs");
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), "p4-gdispatch-"));
+  const mk = (per) => {
+    fs.writeFileSync(path.join(d, "03-triage-hypotheses.json"), JSON.stringify({ hypotheses: [1, 2, 3].map((i) => ({ signal_id: `https://x/${i}.txt`, need_deep: true, severity: "high", cause_class: "unknown", hypothesis: `h${i}`, probe_hint: "reprobe_get", one_line: `l${i}` })), digest: "d" }));
+    fs.writeFileSync(path.join(d, "04-dispatch-bundles.json"), JSON.stringify({ budget_cny: 0.05, bundles: [1, 2, 3].map((i) => ({ hid: `https://x/${i}.txt`, budget_cny: per })), truncated: [] }));
+  };
+  mk(0.0166); // floor(0.05/3×1e4)/1e4
+  assert.equal(GATES.G_DISPATCH({ dir: d, budgetCny: 0.05 }).pass, true, "floor 拆分合计 0.0498≤0.05 必过");
+  mk(0.0167); // 旧 toFixed 四舍五入形
+  assert.match(GATES.G_DISPATCH({ dir: d, budgetCny: 0.05 }).reason, /预算合计/, "toFixed 形合计 0.0501>0.05 必红(原 P1-1 缺陷钉死)");
+  fs.rmSync(d, { recursive: true, force: true });
+});
+
+// 审后修 P1-2:跨语言镜像钉子——ops-items digest 与 _ops_items.py 语义对拍(backend/.venv Python 预计算金常量;
+// pyJson 仅对扁平 {source:str}/空 args 与 Python json.dumps(sort_keys,ensure_ascii=False) 字节同——嵌套/浮点即分叉,
+// 现调用面恒扁平(steps.mjs dispatch);Python 侧改拼接收=本断言红,防两语言镜像静默回声)。
+await t("条目摘要镜像钉:ops-items digest=Python 侧金常量(flat a052743a5d/empty 1772523325)", async () => {
+  const { mirrorDigestForTest } = await import("./pipeline/ops-items.mjs");
+  assert.equal(mirrorDigestForTest({ source: "ciarm", probe_class: "staleness", error_signature: "age_gt_2x_refresh", action: "human_ruling", args: { source: "ciarm" }, latest: "" }), "a052743a5d");
+  assert.equal(mirrorDigestForTest({ source: "dshield", probe_class: "unreachable", error_signature: "net_fail", action: "human_ruling", args: {}, latest: "" }), "1772523325");
+});
+
 fs.rmSync(TMP, { recursive: true, force: true });
 console.log(`pipeline-selftest: PASS=${pass} FAIL=${fail}`);
 process.exit(fail ? 1 : 0);

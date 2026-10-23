@@ -181,7 +181,7 @@ async function DISPATCH(def, ctx) {
     const L = sorted.length; // 被截项在截前所处队列长度
     truncated.push({ x: sorted.pop(), reason: L > MAX_DEEP_HYPOTHESES ? "unresolved(dispatch_cap)" : "unresolved(budget)" }); // 截尾降级非终态:假设数上限(#166)优先归因,其次轮预算门 OPS_PIPELINE_BUDGET_CNY;低 severity 先丢
   }
-  const bundles = sorted.map((x) => ({ hid: x.signal_id, budget_cny: +(ctx.budgetCny / sorted.length).toFixed(4),
+  const bundles = sorted.map((x) => ({ hid: x.signal_id, budget_cny: Math.floor((ctx.budgetCny / sorted.length) * 1e4) / 1e4, // 审后修 P1-1:toFixed 四舍五入 n=3 时各 0.0167 合计 0.0501>0.05 必砸 G_DISPATCH;改 floor 下取
     prompt_pkg: { hypothesis: x.hypothesis, cause_class: x.cause_class, severity: x.severity, probe_hint: x.probe_hint, url: x.signal_id, precedent_hits: hitsOf(x) } }));
   writeJson(path.join(ctx.dir, "04-dispatch-bundles.json"), { budget_cny: ctx.budgetCny, est_per_hyp_cny: EST_PER_HYP_CNY, max_hypotheses: MAX_DEEP_HYPOTHESES,
     bundles, truncated: truncated.map(({ x, reason }) => ({ hid: x.signal_id, severity: x.severity, reason })),

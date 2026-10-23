@@ -125,8 +125,9 @@ export const GATES = {
     for (const x of v.verdicts) {
       if (!CLOSED_SETS.verdict.includes(x.verdict)) return fail(`verdict 闭集外:${x.verdict}(${x.hid})`, inputs);
       if (x.verdict !== "unresolved" && !(x.evidence ?? []).length) return fail(`${x.verdict} 无证据腿(${x.hid};confirmed/refuted 必带 evidence)`, inputs);
+      const regH = deepSeeds(ctx.dir, x.hid); // 审后修 P2-2:逐假设登记表——邻假设 call_id 不得借道过门(回填按 hid,门同口径)
       for (const e of x.evidence ?? []) {
-        const r = reg.get(e.call_id);
+        const r = regH.get(e.call_id);
         if (!r) return fail(`evidence 引用未知 call_id:${e.call_id}(${x.hid})`, inputs);
         if (r.sc && r.sc.ok === false) return fail(`失败信封禁入 evidence:${e.call_id}(ok:false 是测量故障非读数;留痕在 transcript 不占 evidence)`, inputs);
         const regv = resolveField(r.sc, e.field);
