@@ -96,6 +96,8 @@
 - **档案**:运营页只读审计面(票 #142):台账(轮次记账)+判例库(人裁留痕)两 section 合驻的「档案」子 tab,与裁决(动作面,三动作写回)相对——只读不写,一切结论可回溯原始证据(哲学 1)。锚:frontend/src/pages/OpsPage.tsx(archive 子 tab:LedgerSection/PrecedentsSection)
 - **表格统一件**:运营面表格的单一规范源(opsTable.ts 单源施加):列名映射(ops.col.* 中文词条,轮次表与台账表同集同套)、数字列右对齐、时间统一相对时间+title 完整戳、台账备注 key=value 人话化(title 留原文)——两表改一处同步生效,防两套 schema 漂移;台账 T4 冻结表头是契约冻结面,UI 措辞与之解耦。判例:#148 首创(轮次表),#149 档案台账表收编复用。锚:frontend/src/pages/opsTable.ts
 - **节头**:运营面节的头行规范件(SectionHead):标题(+计数,空表不谎报不显)+右排次级动作(描边按钮,硬规④)同排;lead = 标题右邻内联件(非动作,如驾驶舱状态 chip);节头统辖其下唯一面板,从属不悬空;节级主操作(如「保存全部」)可实心——硬规④只辖次级。判例:#147 立规范件,#148 lead 扩展(状态 chip 内联),#149 计数/空态补齐。锚:frontend/src/pages/OpsSectionHead.tsx
+- **UI 别名映射**:术语双层决议(2026-10-23 grill,ADR 0006):UI 层换常规词,机制层(文件名/代码/判例 schema)保留原词并映射——包→报告(只读渲染视图)/ 裁决→审阅(四键:同意·修改·忽略·稍后;忽略必填原因,原因即判例输入)/ 判例→规则 / 台账→历史;写回四律与判例闭集语义不变,四键是三动作的 UI 面。锚:docs/adr/0006(嵌套 docs 仓)、frontend i18n ops.* 词条(P1 落码)
+- **待审条目**:运营交互重构的新域对象(2026-10-23 裁,ADR 0006):结构化动作条目,v1 冻结十字段 {id, action, args, evidence, impact, rollback, dedup_key, severity, cause_group, status(active/snoozed/done/dismissed)};markdown 包降级为条目集的只读渲染,不再是审阅面。锚:docs/adr/0006(词条锚码随 P1 落地补)
 - **六条硬规**:运营面视觉验收基准(spec #146):①面板等宽通栏 ②数字列右对齐 ③中文术语统一(mono 数据/UI 文案分轨不变) ④次级动作一律描边按钮 ⑤accent 纪律 = 唯一绿 accent,红/琥珀仅事件性警示 ⑥空态用基准「暂无」式居中提示。执行纪律:DOM 测得出的走行为断言(role/aria/可见文本,不断样式类名);测不出的(基线/密度/accent/右对齐)走视觉复评门——截屏对照基准(公开页/源管理页)逐条对拍,零违规是合并裁决前置。锚:spec #146(票面)、frontend/src/pages/opsTable.ts(②⑥)、frontend/src/pages/OpsSectionHead.tsx(④)
 
 ## It's working if
