@@ -455,3 +455,75 @@ def test_items_route_detail_unknown_404_and_bad_shape_422(
     assert r.json()["error"]["code"] == "not_found"
     r = client_as_admin.get("/api/ops/items/.hidden")
     assert r.status_code == 422
+
+
+# ── D. T3 顺手落地(T1 review Finding 4/5,票 #155)────────────────────
+
+
+def test_item_id_shape_tightened_in_read_face(items, ops_env):
+    """Finding 4 裁:条目 id 形状在读面收紧执行(_ITEM_FILENAME_RE 真源,
+    不再靠包/判例面共用的宽松 validate_ops_filename 兜):宽松 RE 放行、
+    条目形状不符的名一律拒 —— 手放文件/异形名混不进读/改/审全链。"""
+    items.create_item(**_mk())
+    for bad in ("foo_bar", "2026-10-23-ruling-abcdef1234", "item-only"):
+        with pytest.raises(ValueError, match="形状非法"):
+            items.read_item(bad)
+        with pytest.raises(ValueError, match="形状非法"):
+            items.load_item(bad)
+        with pytest.raises(ValueError, match="形状非法"):
+            items.set_status(bad, "done")
+    # 合形但不存在仍是 404 语义(FileNotFoundError 不伪装空)
+    with pytest.raises(FileNotFoundError):
+        items.read_item("2026-10-23-item-0000000000")
+
+
+def test_item_supersedes_dangling_rejected(items, ops_env):
+    """Finding 5 裁:supersedes 存在性校验(对齐判例 validate_precedent_entry
+    的 superseded_by 检查):悬空链指 = 坏文件,列表/读面显式拦下,不让
+    幂等判读跑在断链数据上(无证据≠清白);合法链照常通过。"""
+    r1 = items.create_item(**_mk())
+    items.set_status(r1["item"], "done")
+    r2 = items.create_item(**_mk(today=date(2026, 10, 24)))   # 合法链指 r1
+    assert r2["supersedes"] == r1["item"]
+    assert len(items.list_items()) == 2
+    # 手删旧条 → r2 链指悬空:列表与读面都拦下
+    (ops_env / "ops" / "items" / f"{r1['item']}.md").unlink()
+    with pytest.raises(ValueError, match="supersedes 指向不存在条目"):
+        items.list_items()
+    with pytest.raises(ValueError, match="supersedes 指向不存在条目"):
+        items.load_item(r2["item"])
+
+
+def test_item_snooze_storage_primitives(items, ops_env):
+    """T3 存储原语:snooze_item 写 status+wake_at 单次原子写、带时区硬律、
+    终态拒绝;同 snoozed 顺延只改 wake_at;update_args 就地改 args、同值
+    零写、正文逐字不动(编排/裁记归 _ops_review,此处只钉存储面)。"""
+    r = items.create_item(**_mk(args={"source": "a_src"}))
+    with pytest.raises(ValueError, match="带时区"):
+        items.snooze_item(r["item"], "2030-06-01T08:00:00")
+    res = items.snooze_item(r["item"], "2030-06-01T08:00:00+08:00")
+    assert res == {"item": r["item"], "from": "active", "to": "snoozed",
+                   "wake_at": "2030-06-01T08:00:00+08:00", "changed": True}
+    fm = _parse_frontmatter(
+        {p.stem: p for p in _item_files(ops_env)}[r["item"]])
+    assert fm["status"] == "snoozed" and fm["wake_at"] == "2030-06-01T08:00:00+08:00"
+    # 顺延:状态不动,只改 wake_at
+    res2 = items.snooze_item(r["item"], "2031-01-01T00:00:00+00:00")
+    assert res2["changed"] is False
+    fm2 = _parse_frontmatter(
+        {p.stem: p for p in _item_files(ops_env)}[r["item"]])
+    assert fm2["status"] == "snoozed" and fm2["wake_at"] == "2031-01-01T00:00:00+00:00"
+    # 回 active 后 update_args 就地改 + 同值零写
+    items.set_status(r["item"], "active")
+    p = {q.stem: q for q in _item_files(ops_env)}[r["item"]]
+    body_before = _body_text(p)
+    upd = items.update_args(r["item"], {"source": "b_src"})
+    assert upd["changed"] is True and upd["from"] == {"source": "a_src"}
+    assert _parse_frontmatter(p)["args"] == {"source": "b_src"}
+    assert _body_text(p) == body_before          # 正文逐字不动
+    again = items.update_args(r["item"], {"source": "b_src"})
+    assert again["changed"] is False
+    # 终态拒 snooze(T1 状态机)
+    items.set_status(r["item"], "done")
+    with pytest.raises(ValueError, match="非法迁移"):
+        items.snooze_item(r["item"], "2030-06-01T08:00:00+08:00")

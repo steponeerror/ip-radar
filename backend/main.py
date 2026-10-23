@@ -45,6 +45,7 @@ from ipdb import _ops_read as _ipdb_ops_read
 from ipdb import _ops_config as _ipdb_ops_config
 from ipdb import _ops_store as _ipdb_ops_store
 from ipdb import _ops_items as _ipdb_ops_items
+from ipdb import _ops_review as _ipdb_ops_review
 from slowapi.errors import RateLimitExceeded
 from ipdb import _update as _ipdb_update
 from ipdb import _version as _ipdb_version
@@ -56,6 +57,7 @@ from ipdb._api_models import (
     ErrorEnvelope, EvalDetailOut, EvalJobAcceptedOut, EvalModelOut,
     EvalOverviewOut, LookupResultOut, OpsAgentConfigIn, OpsAgentConfigOut,
     OpsFileTextOut, OpsPackagesOut,
+    OpsItemReviewIn, OpsItemReviewOut,
     OpsPackageOut, OpsPrecedentsOut, OpsRoundIn, OpsRulingIn, OpsRulingOut,
     OpsItemOut, OpsItemsOut,
     SourceInfoOut,
@@ -1620,11 +1622,11 @@ async def create_ops_ruling(payload: OpsRulingIn):
         raise ApiError(ErrorCode.not_found, str(e))
 
 
-# ── ops 待审条目读面（P1 §1，票 #153 T1；四键审阅写面 = T3，勿在此扩）──
-# 列表序 = active 先见 → severity 降序 → cause_group 升序 → 新条目先见
-# （排序真源 = _ops_items.list_items，路由不复制）；空库 = 空列表（空是
-# 真实态，沿 _ops_read 同判例）；条目库坏文件 → 500 显式失败不伪装空
-# （无证据≠清白）。
+# ── ops 待审条目读面(P1 §1,票 #153 T1;四键审阅写面 = T3,见下方
+# review 路由)── 列表序 = active 先见 → severity 降序 → cause_group 升序
+# → 新条目先见(排序真源 = _ops_items.list_items,路由不复制);空库 =
+# 空列表(空是真实态,沿 _ops_read 同判例);条目库坏文件 → 500 显式失败
+# 不伪装空(无证据≠清白)。
 
 
 @app.get("/api/ops/items", response_model=OpsItemsOut,
@@ -1648,6 +1650,39 @@ async def read_ops_item(item_id: str):
         raise HTTPException(422, str(e))
     except FileNotFoundError:
         raise ApiError(ErrorCode.not_found, f"unknown item: {item_id}")
+
+
+# ── ops 审阅四键写面(P1 §3,票 #155,spec #152 §3)── 全部 admin 面
+# (沿 _ADMIN_DEPS 惯例);编排/裁记(可逆闭集、集外仅立项、失败分步
+# 自愈、snooze 惰性唤醒、终态拒审)见 ipdb/_ops_review.py 模块头,路由
+# 不复制。错误面分诊:请求面校验 → 422(validation_error 信封);未知
+# 条目 → 404;执行失败/坏条目文件 → 500 显式不吞(无证据≠清白)。
+
+
+@app.post("/api/ops/items/{item_id}/review", response_model=OpsItemReviewOut,
+          dependencies=[*_ADMIN_DEPS],
+          responses={**_ERRS_422_500,
+                     "404": {"model": ErrorEnvelope,
+                             "description": "unknown item"}})
+async def review_ops_item(item_id: str, payload: OpsItemReviewIn):
+    """四键审阅(spec #152 §3):agree/modify(可逆闭集直接执行,集外判例
+    only+待集成清单既有闭集语义「仅立项」)/ ignore(reason 必填,判例
+    overruled)/ snooze(wake_at 到期回 active = 读取面惰性判定,无定时器);
+    判例落盘沿用 write_ruling 四律(item_id 关联);条目状态经 set_status
+    合法迁移闭集(终态拒审:复开 = 新条目链指)。"""
+    try:
+        return await asyncio.to_thread(
+            _ipdb_ops_review.review_item, item_id, payload.verdict,
+            args=payload.args, reason=payload.reason, wake_at=payload.wake_at)
+    except _ipdb_ops_review.ReviewValidationError as e:
+        raise HTTPException(422, str(e))
+    except FileNotFoundError as e:
+        raise ApiError(ErrorCode.not_found, str(e))
+    except _ipdb_ops_review.ExecutionError as e:
+        raise ApiError(ErrorCode.internal, str(e))
+    except ValueError as e:
+        # 坏条目文件/存储层意外:500 显式失败,不伪装空(无证据≠清白)
+        raise ApiError(ErrorCode.internal, str(e))
 
 
 # ── ops agent 配置面（票 #140 立：选模型 + 填 key；票 #143 多供应商扩面：

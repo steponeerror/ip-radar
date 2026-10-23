@@ -1,8 +1,10 @@
 """ops 待审条目库(P1 §1,票 #153;spec #152 运营审阅条目化)。
 
 结构化待审条目一条一文件(markdown + frontmatter,判例同构),是四键审阅
-(同意/修改/忽略/稍后,T3)与确定性产条(T2 探测器)的存储底座;本模块
-只做 T1 范围:存储/幂等/复开链指/状态机,零审阅动作、零 LLM、零队列写。
+(同意/修改/忽略/稍后,T3)与确定性产条(T2 探测器)的存储底座。本模块
+只做存储原语(T1:存储/幂等/复开链指/状态机;T3 增 update_args/
+snooze_item/wake_at 惰性唤醒读取面);四键审阅编排在 _ops_review,本
+模块零 LLM、零队列写。
 
 设计裁记(出处):
 - 十字段冻结(spec #152 §1):id / action / args / evidence / impact /
@@ -122,6 +124,32 @@ def validate_item_entry(fm: dict) -> None:
     sup = fm.get("supersedes")
     if sup is not None and (not isinstance(sup, str) or not sup):
         raise ValueError("supersedes 若有必须是非空字符串(复开链指旧条目 id)")
+    # 链指悬空拒绝(T1 review Finding 5,票 #155 顺手落地):对齐判例
+    # validate_precedent_entry 的 superseded_by 存在性检查 —— 手删旧条会让
+    # 全库列表/产条扫描显式拦下待修,不让幂等判读跑在断链数据上
+    # (无证据≠清白)。
+    if sup is not None and not (_items_dir() / f"{sup}.md").is_file():
+        raise ValueError(f"supersedes 指向不存在条目: {sup}")
+    # wake_at = snooze 键的唤醒时刻(T3,spec #152 §3):可选第 12 字段,
+    # 仅 snoozed 条目携带(同 supersedes 先例,不计入冻结十)。带时区硬
+    # 律:与 modified(ISO-UTC)同口径,list_items 惰性唤醒比较面无
+    # naive/aware 混比(裸 naive 一律写前拒,不静默按本地时区猜)。
+    # 注:本库写入(字符串值)经 safe_dump 带引号往返为 str;手写未加引号
+    # 的 ISO 时间戳被 PyYAML 自动解析为 datetime —— 两形都收,同一律校验。
+    wake = fm.get("wake_at")
+    if wake is not None:
+        if isinstance(wake, datetime):
+            if wake.tzinfo is None:
+                raise ValueError("wake_at 必须带时区(如 +08:00 或 Z)")
+        elif isinstance(wake, str) and wake.strip():
+            try:
+                dt = datetime.fromisoformat(wake)
+            except ValueError:
+                raise ValueError(f"wake_at 非法(ISO 8601): {wake!r}") from None
+            if dt.tzinfo is None:
+                raise ValueError("wake_at 必须带时区(如 +08:00 或 Z)")
+        else:
+            raise ValueError("wake_at 若有必须是非空 ISO 8601 字符串(带时区)")
 
 
 def _frontmatter_text(text: str) -> str:
@@ -246,8 +274,20 @@ def create_item(*, source: str, probe_class: str, error_signature: str,
         return {"created": True, "item": stem, "supersedes": latest}
 
 
+def validate_item_id(item_id: str) -> None:
+    """条目 id 形状校验(真源 = _ITEM_FILENAME_RE,T1 review Finding 4 裁:
+    在读面收紧执行,票 #155 顺手落地)。条目文件名唯一产自信面
+    create_item(日期前缀 + item + 内容寻址摘要),异形名(含手放文件、
+    路径逃逸)在读/改/审全链一致拒绝 —— 不再靠宽松的
+    validate_ops_filename(包/判例面共用)兜条目形状。"""
+    if (not isinstance(item_id, str)
+            or not _ITEM_FILENAME_RE.match(f"{item_id}.md")):
+        raise ValueError(
+            f"条目 id 形状非法(YYYY-MM-DD-item-<hex10>): {item_id!r}")
+
+
 def _resolve_item(item_id: str) -> Path:
-    _ops_store.validate_ops_filename(item_id)
+    validate_item_id(item_id)
     return _items_dir() / f"{item_id}.md"
 
 
@@ -293,15 +333,113 @@ def set_status(item_id: str, new_status: str) -> dict:
         return {"item": item_id, "from": old, "to": new_status, "changed": True}
 
 
+def _body_text_of(text: str) -> str:
+    """围栏闭合行 + 空行之后的正文全文(逐字)。重渲染路径
+    (update_args/snooze_item)用它保证「正文永不改」与 set_status 的字面行
+    替换法同约束。"""
+    marker = "\n---\n\n"
+    end = text.find(marker, 4)
+    if end == -1:
+        raise ValueError("条目正文分隔缺失,拒绝重渲染(疑似手改损坏)")
+    return text[end + len(marker):]
+
+
+def load_item(item_id: str) -> dict:
+    """条目 frontmatter 读面(T3 审阅编排消费):校验后返回全字段。
+    名形状非法 ValueError / 不存在 FileNotFoundError / 坏文件 ValueError
+    显式报错(read_item 同口径,不伪装空)。"""
+    path = _resolve_item(item_id)
+    if not path.is_file():
+        raise FileNotFoundError(f"条目不存在: {item_id}")
+    return _parse_item(path)
+
+
+def update_args(item_id: str, new_args: dict) -> dict:
+    """modify 键存储原语:就地改 frontmatter 的 args 块,正文与其余字段
+    逐字不动(哲学①;原值留痕归审阅编排的判例修正案,不在存储层复制)。
+
+    重渲染 = parse → 改 → render 往返:本库文件由同款 dump 参数写就,除
+    args 块外字节等价;同值 = 幂等零写。仅机械改写,状态机/审阅合法性
+    归调用面(_ops_review),不在此重复裁决。
+    """
+    if not isinstance(new_args, dict):
+        raise ValueError("new_args 必须是映射(动作参数)")
+    with _items_lock:
+        path = _resolve_item(item_id)
+        if not path.is_file():
+            raise FileNotFoundError(f"条目不存在: {item_id}")
+        text = path.read_text(encoding="utf-8")
+        fm = _parse_item(path)
+        old = fm["args"]
+        if new_args == old:
+            return {"item": item_id, "from": old, "to": new_args,
+                    "changed": False}
+        fm["args"] = new_args
+        new_text = _render_item(fm, _body_text_of(text))
+        validate_item_entry(yaml.safe_load(_frontmatter_text(new_text)))
+        _ops_store.atomic_write_text(path, new_text)
+        return {"item": item_id, "from": old, "to": new_args, "changed": True}
+
+
+def snooze_item(item_id: str, wake_at: str) -> dict:
+    """snooze 键存储原语:status → snoozed + wake_at(带时区 ISO)一次
+    原子写(T3,spec #152 §3)。
+
+    active → snoozed 首睡;snoozed → snoozed = 顺延唤醒(只改 wake_at,
+    状态不动,changed=False);终态拒绝(T1 状态机,复开 = 新条目链指)。
+    到期回 active 不在此翻转 —— 读取面惰性判定(list_items),不自建
+    定时器(spec #152 §3);后续四键迁移 snoozed→done/dismissed 本就
+    合法,无需物理翻转。
+    """
+    with _items_lock:
+        try:
+            dt = datetime.fromisoformat(wake_at)
+        except (TypeError, ValueError):
+            raise ValueError(
+                f"wake_at 必须是 ISO 8601 时间: {wake_at!r}") from None
+        if dt.tzinfo is None:
+            raise ValueError("wake_at 必须带时区(如 +08:00 或 Z)")
+        path = _resolve_item(item_id)
+        if not path.is_file():
+            raise FileNotFoundError(f"条目不存在: {item_id}")
+        text = path.read_text(encoding="utf-8")
+        fm = _parse_item(path)
+        old = fm["status"]
+        if old in ("done", "dismissed"):
+            raise ValueError(
+                f"非法迁移 {old} → snoozed(终态复开 = 新条目链指,非就地迁移)")
+        fm["status"] = "snoozed"
+        fm["wake_at"] = wake_at
+        new_text = _render_item(fm, _body_text_of(text))
+        validate_item_entry(yaml.safe_load(_frontmatter_text(new_text)))
+        _ops_store.atomic_write_text(path, new_text)
+        return {"item": item_id, "from": old, "to": "snoozed",
+                "wake_at": wake_at, "changed": old != "snoozed"}
+
+
 def list_items() -> list[dict]:
     """条目列表(frontmatter 全字段 + mtime):active 先见,severity 降序,
     cause_group 升序,同组新条目先见(日期前缀名倒序,包/判例同惯例)。
-    坏文件显式报错不静默跳过(无证据≠清白)。"""
+    坏文件显式报错不静默跳过(无证据≠清白)。
+
+    惰性唤醒(spec #152 §3「到期回 active …不自建定时器」):snoozed 且
+    wake_at 已过 → 呈现面计为 active(回审阅列表);文件字节零改(证据
+    不灭失),物理 status 保持 snoozed —— 定时器是新增失败面(线程错过
+    窗/重启丢拍),读取面判定幂等且免维护,故选惰性不选定时器。"""
     _ops_store.init_ops_tree()
+    now = datetime.now(timezone.utc)
     out = []
     for path in sorted(_items_dir().glob("*.md"), reverse=True):
         fm = _parse_item(path)  # 含 schema 校验(坏文件显式报错)
         it = dict(fm)
+        wake = it.get("wake_at")
+        if it.get("status") == "snoozed" and wake is not None:
+            # wake 可能是 str(本库写入)或 datetime(手写未引号时间戳,
+            # validate 已收两形);到期 → 呈现面计为 active(见 docstring)
+            dt = wake if isinstance(wake, datetime) \
+                else datetime.fromisoformat(str(wake))
+            if dt <= now:
+                it["status"] = "active"  # 呈现面唤醒;文件不动
         it["modified"] = datetime.fromtimestamp(
             path.stat().st_mtime, tz=timezone.utc).isoformat()
         out.append(it)

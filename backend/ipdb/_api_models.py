@@ -337,6 +337,36 @@ class OpsItemsOut(_Out):
     items: list[OpsItemOut]
 
 
+class OpsItemReviewIn(BaseModel):
+    """POST /api/ops/items/{id}/review 入参(P1 §3,票 #155)。verdict 闭集
+    {agree, modify, ignore, snooze} 与分键参数存在性/互斥(modify 只带 args、
+    ignore 只带 reason、snooze 只带 wake_at、agree 零参数)在 handler 校验
+    (422;闭集真源 = spec #152 §3,路由不复制常量防双源漂移 ——
+    OpsRulingIn 同惯例)。"""
+    verdict: str
+    args: Optional[dict] = None      # modify:新 args(必填,映射)
+    reason: Optional[str] = None     # ignore:必填(非空,判例输入)
+    wake_at: Optional[str] = None    # snooze:必填(ISO 8601,带时区,未来时)
+
+
+class OpsItemReviewOut(_Out):
+    """四键审阅结果(P1 §3,票 #155)。executed = 可逆闭集动作是否直接
+    执行;proposal_only = 集外动作「仅立项」恒标(队列面零写,判例-only,
+    T4 渲染不再推导闭集);precedent/created/superseded/queue_appended =
+    判例落盘面(write_ruling 语义,created=False = 幂等零副作用);snooze
+    键不落判例 → 判例三字段 None,wake_at = 归一 UTC 唤醒时刻。"""
+    item: str
+    verdict: str
+    status: str
+    executed: bool
+    proposal_only: bool
+    precedent: Optional[str] = None
+    created: Optional[bool] = None
+    superseded: Optional[str] = None
+    queue_appended: Optional[bool] = None
+    wake_at: Optional[str] = None
+
+
 # ── ops agent 配置面（票 #140 立；票 #143 多供应商扩面；永不回显约束同
 # token 面 sources-redesign T1）──
 class OpsAgentKeyStatusOut(_Out):
