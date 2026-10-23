@@ -293,12 +293,11 @@ export function retroDiff({ survivors, suppressed, items, rules, today }) {
   }
   return { candidates, rules_due_review, rule_hits, channel_conflicts };
 }
-// 候选 → adopt_rule 待审条目(dedup:source=retro|probe_class=adopt_rule|error_signature=match 规范键;
-// 同 key 终态(done=已采纳/dismissed=已否决)在树即不再立项——已否决候选不重复打扰人裁)。
-function adoptRuleItem(ctx, cand, existingItems) {
+// 候选 → adopt_rule 待审条目(dedup:source=retro|probe_class=adopt_rule|error_signature=match 规范键)。
+// 立项节流(RETRO_ITEM_CAP):每轮至多一次立项尝试;已被裁(done=采纳/dismissed=否决)的
+// 候选键不再立项(已否决不重复打扰人裁),队位让给下一条未裁候选(确定性序,防饿死)。
+function adoptRuleItem(ctx, cand) {
   const mk = matchKey(cand.match);
-  const sameKey = existingItems.filter((it) => it.dedup_key.source === "retro" && it.dedup_key.probe_class === "adopt_rule" && it.dedup_key.error_signature === mk);
-  if (sameKey.some((it) => it.status === "done" || it.status === "dismissed")) return { skipped: "already_ruled" };
   const res = createOpsItem(ctx.itemsDir, { source: "retro", probe_class: "adopt_rule", error_signature: mk,
     action: "adopt_rule", // 四键面识别词:agree/modify → _ops_review 采纳写规则(唯一写口);ignore → 否决
     args: { match: cand.match, action: cand.action, note: cand.note },
@@ -329,9 +328,18 @@ async function RETRO(def, ctx) {
     const rules = rawRules ? normalizeRules(rawRules) : { version: 0, rules: [] }; // 步侧已过门,坏文件不会到这;缺席=零规则照常
     const items = parseItemsTree(ctx.itemsDir);
     const diff = retroDiff({ survivors, suppressed: suppressedF?.suppressed ?? [], items, rules, today: dayIso() });
-    // 待审条目:仅首条立项(RETRO_ITEM_CAP);replay 恒零写(审计重放不改生产条目面,同 ITEMIZE 回声律)
-    for (const c of diff.candidates.slice(0, RETRO_ITEM_CAP)) {
-      c.item = ctx.state?.replay_of ? { skipped: "replay" } : adoptRuleItem(ctx, c, items);
+    // 待审条目:首条未裁候选立项(RETRO_ITEM_CAP=一次尝试/轮);replay 恒零写
+    // (审计重放不改生产条目面,同 ITEMIZE 回声律)。
+    let placed = false;
+    for (const c of diff.candidates) {
+      if (ctx.state?.replay_of) { c.item = { skipped: "replay" }; continue; }
+      if (placed) { c.item = { skipped: "cap" }; continue; }
+      const mk = matchKey(c.match);
+      const ruled = items.some((it) => it.dedup_key.source === "retro" && it.dedup_key.probe_class === "adopt_rule"
+        && it.dedup_key.error_signature === mk && (it.status === "done" || it.status === "dismissed"));
+      if (ruled) { c.item = { skipped: "already_ruled" }; continue; }
+      c.item = adoptRuleItem(ctx, c);
+      placed = true;
     }
     fs.mkdirSync(path.dirname(ctx.retroFile), { recursive: true });
     writeJson(ctx.retroFile, { round_id: ctx.roundId, generated_at: new Date().toISOString(),

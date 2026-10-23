@@ -241,7 +241,7 @@ async function runStages(ctx, { fromIdx = 0, toIdx = RUNNABLE.length - 1, dry = 
       }
       rec.dur_ms = Math.round(performance.now() - t0);
       if (degraded) rec.status = "degraded";
-      if (resume) rec.recovered = def.kind === "model" ? "gate_partial" : "rerun"; // 模型步=部分假设补门部分重跑;脚本步=幂等重入(#167 三规则①)
+      if (resume) rec.recovered = def.kind === "model" && def.forEach ? "gate_partial" : "rerun"; // DEEP=部分假设补门部分重跑;单发模型步/脚本步=重入(#167 三规则①③)
       ctx.state.stages.push(rec);
       ctx.state.stage = def.name;
       writeState(ctx); // 每步边界原子写(C稿 §4.6)

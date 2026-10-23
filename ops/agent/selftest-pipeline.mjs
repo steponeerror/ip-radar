@@ -821,6 +821,237 @@ await t("条目摘要镜像钉:ops-items digest=Python 侧金常量(flat a052743
   assert.equal(mirrorDigestForTest({ source: "dshield", probe_class: "unreachable", error_signature: "net_fail", action: "human_ruling", args: {}, latest: "" }), "1772523325");
 });
 
+// ══ P5 #167 新例:RETRO 候选闭环/超时分腿镜像/resume 三规则/双模开关/cron 草案 ══
+
+const dismissItem = (itemsDir, itemId) => { // 四键 ignore 的树面终态(字面行替换,_ops_items.set_status 同法)
+  const p = path.join(itemsDir, `${itemId}.md`);
+  const t = fs.readFileSync(p, "utf8");
+  fs.writeFileSync(p, t.replace(/\nstatus: ("?)(active|snoozed)\1/, "\nstatus: \"dismissed\""));
+};
+const itemsOf = (root) => path.join(root, "ops", "items");
+const readRules = (root) => j(path.join(root, "ops", "rules", "suppressions.json"));
+
+await t("RETRO 闭环实证(#167 验收):dismissed 同签→候选+adopt_rule 立项→采纳(写规则)→下一轮 VERIFY 生效", async () => {
+  const T = mkTree("tree-retro-loop");
+  const io1 = mkIo();
+  const r1 = await runPipeline({ roundId: "2026-10-24-0200-health", fixturesDir: cloneFixtures("fx-loop1"), env: T.env, ...io1 });
+  assert.equal(r1.ok, true, `首轮:${io1.buf.stderr.slice(-200)}`);
+  let files = fs.readdirSync(itemsOf(T.root)).filter((f) => f.endsWith(".md"));
+  assert.equal(files.length, 2, "首轮 2 条目(ciarm/binarydefense)");
+  for (const f of files) dismissItem(itemsOf(T.root), f.replace(/\.md$/, "")); // 四键 ignore 模拟(人裁终态)
+  // 第二轮:同签信号幸存(items 已终态不在飞)→ RETRO 产候选+至多一条 adopt_rule 待审条目
+  const io2 = mkIo();
+  const r2 = await runPipeline({ roundId: "2026-10-24-0201-health", fixturesDir: cloneFixtures("fx-loop2"), env: T.env, ...io2 });
+  assert.equal(r2.ok, true, `次轮:${io2.buf.stderr.slice(-200)}`);
+  const retro2 = j(path.join(T.root, "ops", "retro", "2026-10-24-0201-health.json"));
+  assert.equal(retro2.candidates.length, 2, "两条同签误判候选全列清单");
+  assert.ok(retro2.candidates.every((c) => c.action === "suppress" && Object.keys(c.match).length >= 2), "草案=suppress 且 match 谓词闭集内");
+  const withItem = retro2.candidates.filter((c) => c.item?.outcome === "created");
+  const skippedCap = retro2.candidates.filter((c) => c.item?.skipped === "cap");
+  assert.equal(withItem.length, 1, "每轮至多一条立项(C稿 §2.2「可选一条」)");
+  assert.equal(skippedCap.length, 1, "其余候选留清单不入条目");
+  assert.deepEqual(retro2.candidates[0].match, { bucket: "frozen", source: "binarydefense" }, "确定性序首条=matchKey 序最小");
+  const retroItem = fs.readFileSync(path.join(itemsOf(T.root), `${withItem[0].item_id}.md`), "utf8");
+  assert.match(retroItem, /action: "?adopt_rule"?/, "树面 action=adopt_rule(四键写口识别词)");
+  assert.match(retroItem, /probe_class: "?adopt_rule"?/);
+  assert.match(retroItem, /severity: "?low"?/, "候选条目恒 low(#167 任务面)");
+  assert.ok(retroItem.includes("match:"), "args 携草案 match(采纳面读 args)");
+  // 四键 agree 模拟(写口=backend _ops_review._adopt_rule;selftest 侧镜像同形落规则——闭环的采纳腿)
+  const rules = readRules(T.root);
+  rules.version += 1;
+  for (const c of retro2.candidates) rules.rules.push({ id: `R${rules.rules.length + 1}`, adopted: "2026-10-24",
+    adopted_via: `item:${c.item?.item_id ?? "retro-selftest"}`, match: c.match, action: "suppress", note: c.note, review_at: "2027-01-22" });
+  fs.writeFileSync(path.join(T.root, "ops", "rules", "suppressions.json"), JSON.stringify(rules, null, 2) + "\n");
+  // 第三轮:采纳的规则在 VERIFY 生效——同签信号被压(留痕),幸存集空,RETRO 零候选(闭环合拢)
+  const fx3 = cloneFixtures("fx-loop3");
+  fs.writeFileSync(path.join(fx3, "triage.json"), JSON.stringify({ turns: [{ role: "assistant", content: [{ type: "text", stopReason: "stop",
+    text: "{\"hypotheses\":[],\"digest\":\"采纳后零幸存:同签信号已被抑制规则压掉。\"}" }] }] }));
+  writeSynthFx(fx3, "## 注入判例\n- 2026-06-01-golden-aggregator.md\n\n## 异常清单\n- (无幸存信号——同签误判已被采纳规则压制,明细见 suppressed 工件)\n\n抑制 3 条(R1×1+采纳 R2/R3×2——明细见工件)。\n\n## 摘要\n- 计数: created=0 reopened=0 deduped=0 suppressed=3\n- 深验: confirmed=0 refuted=0 unresolved=0\n- 闭环合拢:误判一次,规则防一类。");
+  const io3 = mkIo();
+  const r3 = await runPipeline({ roundId: "2026-10-24-0202-health", fixturesDir: fx3, env: T.env, ...io3 });
+  assert.equal(r3.ok, true, `三轮:${io3.buf.stderr.slice(-300)}`);
+  const d3 = path.join(T.root, "ops", "rounds", "2026-10-24-0202-health");
+  const sp3 = j(path.join(d3, "02-verify-suppressed.json"));
+  assert.equal(sp3.suppressed.length, 3, "R1+两条采纳规则全命中");
+  assert.deepEqual(sp3.suppressed.map((x) => x.rule_id).sort(), ["R1", "R2", "R3"]);
+  const retro3 = j(path.join(T.root, "ops", "retro", "2026-10-24-0202-health.json"));
+  assert.equal(retro3.candidates.length, 0, "零幸存→零新候选(规则已防住该类)");
+  const hit = new Map(retro3.rule_hits.map((h) => [h.id, h.hits_n]));
+  assert.deepEqual([hit.get("R1"), hit.get("R2"), hit.get("R3")], [1, 1, 1], "规则命中统计入 retro(审计面)");
+  assert.deepEqual(retro3.rules_due_review, [], "review_at 未到点零复审行");
+  assert.deepEqual(retro3.channel_conflicts, [], "无两通道矛盾");
+  const items3 = fs.readdirSync(itemsOf(T.root)).filter((f) => f.endsWith(".md"));
+  assert.equal(items3.length, 3, "2 重开条目(次轮)+1 adopt_rule 条目——三轮零新增(在飞/已裁防重)");
+});
+
+await t("retroDiff 单元:review_at 到点报复审+两通道矛盾(被抑制信号在 P1 探测器通道在飞)+already_ruled 防饿死", async () => {
+  const { retroDiff } = await import("./pipeline/steps.mjs");
+  const rules = { version: 2, rules: [
+    { id: "R9", action: "suppress", review_at: "2020-01-01", match: {}, note: "x" },   // 到点(零命中)
+    { id: "R8", action: "annotate", review_at: "2099-01-01", match: {}, note: "y" } ] };
+  const survivors = [];
+  const suppressed = [{ signal_id: "u1", dedup_key: "ciarm|download|http_4xx", rule_id: "R9" }];
+  const items = [
+    { id: "i-live", status: "active", dedup_key: { source: "ciarm", probe_class: "download", error_signature: "http_4xx" } }, // P1 探测器独立通道在飞
+    { id: "i-old", status: "dismissed", dedup_key: { source: "ciarm", probe_class: "download", error_signature: "http_4xx" } } ];
+  const d = retroDiff({ survivors, suppressed, items, rules, today: "2026-10-24" });
+  assert.deepEqual(d.rules_due_review.map((r) => r.id), ["R9"], "到点规则报人复审(零命中也在列)");
+  assert.equal(d.rules_due_review[0].hits_n, 1);
+  assert.deepEqual(d.channel_conflicts, [{ dedup_key: "ciarm|download|http_4xx", rule_id: "R9", in_flight_items: ["i-live"] }],
+    "被抑制信号对照探测器通道:在飞即矛盾(仅报不裁)");
+  // already_ruled 队位让渡:首候选已裁 → 次候选获立项位(防饿死);cap 语义见闭环例
+  const candItems = [];
+  const mk = (src) => ({ signal_id: `u-${src}`, dedup_key: `${src}|staleness|age_gt_2x_refresh`, source: src, bucket: "frozen" });
+  const dd = retroDiff({ survivors: [mk("aa"), mk("bb")], suppressed: [], items: [
+    { id: "r-ruled", status: "dismissed", dedup_key: { source: "retro", probe_class: "adopt_rule", error_signature: "bucket=frozen&source=aa" } } ],
+    rules: { version: 0, rules: [] }, today: "2026-10-24" });
+  assert.equal(dd.candidates.length, 2);
+});
+
+await t("超时分腿镜像(#166 审 P2-1):fold net_timeout→timeout;lib.sh _ff_probe curl rc=28 → 第4列 net_timeout", async () => {
+  const { foldErrorFamily } = await import("./pipeline/ops-items.mjs");
+  assert.equal(foldErrorFamily("net_timeout"), "timeout", "对拍 _ops_detectors._error_family timeout 族");
+  assert.equal(foldErrorFamily("net_fail"), "network");
+  assert.equal(foldErrorFamily("http_404"), "http_4xx");
+  const stubDir = fs.mkdtempSync(path.join(os.tmpdir(), "ff-timeout-"));
+  fs.writeFileSync(path.join(stubDir, "curl"), "#!/usr/bin/env bash\n# stub:--max-time 到点 → curl rc 28\nexit 28\n");
+  fs.chmodSync(path.join(stubDir, "curl"), 0o755);
+  const out = await execFileP("bash", ["-c", `. "${path.join(AGENT, "lib.sh")}"; PATH="${stubDir}:$PATH" _ff_probe https://example.net/feed.txt`]);
+  assert.equal(out.stdout.trim(), "https://example.net/feed.txt\tUNREACHABLE\tUNREACHABLE\tnet_timeout", "超时单列(net_fail 分腿)");
+  const out2 = await execFileP("bash", ["-c", `. "${path.join(AGENT, "lib.sh")}"; PATH="${stubDir}:$PATH" _ff_probe https://example.net/x.txt; true`]);
+  assert.ok(out2.stdout.includes("net_timeout"));
+  fs.rmSync(stubDir, { recursive: true, force: true });
+});
+
+// ── resume 三规则(#167 验收:各一例)+两负例 ──
+const crashState = (root, rid, uptoN) => { // 模拟 crash:截断 stages 至 uptoN 条,置回 in_flight
+  const p = path.join(root, "ops", "rounds", rid, "state.json");
+  const st = j(p);
+  st.stages = st.stages.slice(0, uptoN);
+  st.status = "in_flight"; st.stage = st.stages.at(-1)?.name ?? null;
+  fs.writeFileSync(p, JSON.stringify(st, null, 2) + "\n");
+  return st;
+};
+await t("resume 三规则①(#167):脚本步幂等重入——SYNTH 后崩,RETRO 重入零双记账,CLOSE 收口", async () => {
+  const T = mkTree("tree-res1");
+  const rid = "2026-10-24-0300-health";
+  const io1 = mkIo();
+  assert.equal((await runPipeline({ roundId: rid, fixturesDir: cloneFixtures("fx-res1"), env: T.env, ...io1 })).ok, true);
+  const ledger1 = fs.readFileSync(path.join(T.root, "ops", "ledger.md"), "utf8");
+  crashState(T.root, rid, 7); // 保留 PROBE..SYNTH 七记录,RETRO 未记录=崩溃现场
+  const { runResume } = await import("./pipeline.mjs");
+  const io2 = mkIo();
+  const r = await runResume({ roundId: rid, env: T.env, ...io2 });
+  assert.equal(r.ok, true, `resume:${io2.buf.stderr.slice(-300)}`);
+  const sy = stageOf(r.envelope, "SYNTH");
+  assert.equal(sy.recovered, undefined, "SYNTH 已记录零重入");
+  const rt = stageOf(r.envelope, "RETRO");
+  assert.equal(rt.recovered, "rerun", "脚本步幂等重入");
+  const st = j(path.join(T.root, "ops", "rounds", rid, "state.json"));
+  assert.equal(st.status, "done");
+  const ledger2 = fs.readFileSync(path.join(T.root, "ops", "ledger.md"), "utf8");
+  assert.equal(ledger2.split(`pipeline:${rid}`).length - 1, 1, "台账幂等:恢复重入 RETRO 不双记行");
+  assert.match(io2.buf.stderr, /\[stage\] RESUME start/);
+});
+
+await t("resume 三规则②(#167):模型步工件齐 → 只补门不重花 token(attempts=0/usage=null/gate_only)", async () => {
+  const T = mkTree("tree-res2");
+  const rid = "2026-10-24-0301-health";
+  const io1 = mkIo();
+  assert.equal((await runPipeline({ roundId: rid, fixturesDir: cloneFixtures("fx-res2"), env: T.env, ...io1 })).ok, true);
+  crashState(T.root, rid, 6); // 崩在 SYNTH 前:state 未推进,但 07-* 工件完整(写盘后崩溃)
+  const { runResume } = await import("./pipeline.mjs");
+  const io2 = mkIo();
+  const r = await runResume({ roundId: rid, env: T.env, ...io2 });
+  assert.equal(r.ok, true, `resume:${io2.buf.stderr.slice(-300)}`);
+  const sy = stageOf(r.envelope, "SYNTH");
+  assert.equal(sy.status, "done");
+  assert.equal(sy.attempts, 0, "零模型调用(attempts=0)");
+  assert.equal(sy.usage, null, "零 token 花费面");
+  assert.equal(sy.recovered, "gate_only", "只补门评估");
+  assert.equal(r.envelope.pipeline.resumed_from, "SYNTH", "信封 resumed_from=恢复起点");
+  assert.ok(fs.readFileSync(path.join(T.root, "ops", "rounds", rid, "07-synth-transcript.jsonl"), "utf8").length > 0, "transcript 零重写");
+});
+
+await t("resume 三规则③(#167):模型步工件缺 → 重跑(attempts=1);DEEP 逐假设粒度=缺谁重跑谁", async () => {
+  const T = mkTree("tree-res3");
+  const rid = "2026-10-24-0302-health";
+  const io1 = mkIo();
+  assert.equal((await runPipeline({ roundId: rid, fixturesDir: cloneFixtures("fx-res3"), env: T.env, ...io1 })).ok, true);
+  const dir = path.join(T.root, "ops", "rounds", rid);
+  crashState(T.root, rid, 4); // 崩在 DEEP 前:DISPATCH 记录在,05-* 缺
+  fs.rmSync(path.join(dir, "05-deep-verdicts.json"));
+  fs.rmSync(path.join(dir, "05-deep-https-cinsscore.com-list-ci-badguys.txt.json")); // 首假设工件也缺(假设级崩溃)
+  const { runResume } = await import("./pipeline.mjs");
+  const io2 = mkIo();
+  const r = await runResume({ roundId: rid, env: T.env, ...io2 });
+  assert.equal(r.ok, true, `resume:${io2.buf.stderr.slice(-300)}`);
+  const deep = stageOf(r.envelope, "DEEP");
+  assert.equal(deep.attempts, 1, "仅缺工件假设重跑(1/2,不重花已齐假设)");
+  assert.equal(deep.recovered, "gate_partial");
+  const sy = stageOf(r.envelope, "SYNTH");
+  assert.equal(sy.attempts, 1, "SYNTH 工件缺 → 重跑(损失仅该步 token)");
+  assert.equal(sy.recovered, "rerun");
+  assert.equal(j(path.join(dir, "state.json")).resume_count, 1);
+});
+
+await t("resume 负例(#167):二次恢复拒绝(至多一次)+龄>16h 拒绝(stale)——CLI 面兜底(boot 扫描同判)", async () => {
+  const T = mkTree("tree-res4");
+  const rid = "2026-10-24-0303-health";
+  const io1 = mkIo();
+  assert.equal((await runPipeline({ roundId: rid, fixturesDir: cloneFixtures("fx-res4"), env: T.env, ...io1 })).ok, true);
+  const st = crashState(T.root, rid, 6);
+  st.resume_count = 1;
+  fs.writeFileSync(path.join(T.root, "ops", "rounds", rid, "state.json"), JSON.stringify(st, null, 2) + "\n");
+  const { runResume } = await import("./pipeline.mjs");
+  const io2 = mkIo();
+  await assert.rejects(() => runResume({ roundId: rid, env: T.env, ...io2 }), /自动恢复已用尽/);
+  st.updated_at = new Date(Date.now() - 17 * 3600_000).toISOString();
+  st.resume_count = 0;
+  fs.writeFileSync(path.join(T.root, "ops", "rounds", rid, "state.json"), JSON.stringify(st, null, 2) + "\n");
+  await assert.rejects(() => runResume({ roundId: rid, env: T.env, ...io2 }), /16h/);
+  const r2 = await spawnPipe(["resume", rid], T.env);
+  assert.equal(r2.rc, 1);
+  assert.match(JSON.parse(r2.stdout.trim().split("\n").pop()).error.message, /16h/, "CLI 面:infra 信封(boot 扫描已处置时的兜底)");
+});
+
+await t("双模灰度开关(#167 终检):agent.mjs OPS_PIPELINE=pipeline → 委派 pipeline.mjs(信封带 pipeline.stages);legacy 缺省零变化", async () => {
+  const { main: agentMain } = await import("./agent.mjs");
+  const T = mkTree("tree-switch");
+  const ioP = mkIo();
+  const rcP = await agentMain(["health", "cron 灰度冒烟"], { env: { ...T.env, OPS_PIPELINE: "pipeline" }, ...ioP });
+  assert.equal(rcP, 0, `pipeline 腿:${ioP.buf.stderr.slice(-300)}`);
+  const envP = JSON.parse(ioP.buf.stdout.trim().split("\n").pop());
+  assert.equal(envP.ok, true);
+  assert.ok(Array.isArray(envP.pipeline?.stages) && envP.pipeline.stages.length >= 9, "委派状态机路径(信封 pipeline 扩展字段)");
+  assert.match(ioP.buf.stderr, /\[stage\] PROBE start/, "stderr stage 行族(驾驶舱 SSE 透传面)");
+  const T2 = mkTree("tree-switch-legacy");
+  const ioL = mkIo();
+  const faux2 = (await import("@earendil-works/pi-ai"));
+  const faux = faux2.fauxProvider({ models: [{ id: "faux-legacy" }] });
+  const models = faux2.createModels();
+  models.setProvider(faux.provider);
+  faux.setResponses([
+    faux2.fauxAssistantMessage([faux2.fauxToolCall("health_snapshot", {}, { id: "call_sw1" })], { stopReason: "toolUse" }),
+    faux2.fauxAssistantMessage([faux2.fauxText("## 注入判例\n- 2026-06-01-golden-aggregator.md\n\n## 异常清单\n- legacy 冒烟:冻结读数 3 条,见工件。\n\n## 摘要\nOPS_PIPELINE 缺省 legacy:agent.mjs 现状路径零变化(退出码/信封同形)。")]),
+  ]);
+  const rcL = await agentMain(["health", "legacy 冒烟"], { env: T2.env, stdout: ioL.stdout, stderr: ioL.stderr, models: { models, resolve: () => faux.getModel() } });
+  assert.equal(rcL, 0, `legacy 腿:${ioL.buf.stderr.slice(-300)}`);
+  const envL = JSON.parse(ioL.buf.stdout.trim().split("\n").pop());
+  assert.equal(envL.ok, true);
+  assert.equal(envL.pipeline, undefined, "legacy 信封无 pipeline 扩展(现状零回归)");
+});
+
+await t("cron 草案 schema 校验(#167 交付③):错峰 04:00/8h+同 seam POST+鉴权矩阵注记+409 零排队语义", async () => {
+  const doc = fs.readFileSync(path.join(AGENT, "..", "..", "deploy", "ops-cron.md"), "utf8");
+  assert.match(doc, /0 4-23\/8 \* \* \*/, "crontab 行=04:00 起错峰(三小裁③)");
+  assert.ok(doc.includes("POST /api/ops/rounds"), "同 seam 触发(不新开路由)");
+  assert.ok(doc.includes("FROZEN 鉴权矩阵"), "鉴权矩阵核对注记在案");
+  assert.ok(doc.includes("409") && doc.includes("不排队"), "409=跳过留痕退出码 0(健康快照无回填)");
+  assert.ok(doc.includes("OPS_PIPELINE=pipeline"), "灰度开关部署面在案");
+  assert.ok(!doc.includes("OPS_CRON_PASSWORD=\"") || !/OPS_CRON_PASSWORD="[^\$<]/.test(doc), "草案不含真实凭据(占位形)");
+});
+
 fs.rmSync(TMP, { recursive: true, force: true });
 console.log(`pipeline-selftest: PASS=${pass} FAIL=${fail}`);
 process.exit(fail ? 1 : 0);

@@ -268,6 +268,14 @@ export async function main(argv, io = {}) {
   const stderr = io.stderr ?? process.stderr;
   const log = (...a) => stderr.write(a.join(" ") + "\n");
   const [round, input, ...extra] = argv;
+  // OPS_PIPELINE=pipeline 灰度开关(P5 #167 终检;agent.mjs SPAWN_CONTRACT_ENV 表同名项的
+  // 消费点):health 轮委派 pipeline.mjs 状态机路径;缺省/legacy=本文件现状路径零变化;
+  // discover 恒走 legacy(其自有管线表未立项,C稿 §5.2)。argv 透传 <round> <input>
+  // (pipeline.mjs 忽略 input——其轮次自持输入面);退出码/信封契约两路同形。
+  if ((env.OPS_PIPELINE ?? "legacy") === "pipeline" && round === "health") {
+    const { main: pipelineMain } = await import("./pipeline.mjs");
+    return pipelineMain([round, input, ...extra], { env, stdout, stderr });
+  }
   if (!round || input === undefined) { // 用法错:纯 stderr + exit 2,不发 JSON(机器契约只覆盖真轮次)
     log('用法: node ops/agent/agent.mjs <health|discover> "<本轮输入>" [追加判例检索词...]');
     return 2;
