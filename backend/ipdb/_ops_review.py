@@ -178,8 +178,14 @@ def review_item(item_id: str, verdict: str, *, args=None, reason=None,
             except ReviewValidationError:
                 raise
             except Exception as e:   # 不吞:执行失败 = 500,判例/状态零写
+                # T3 审 P2(票 #155→#156 顺手件):modify 半程失败时
+                # update_args 已落盘,重放会从已变异 fm 重算「原值」——
+                # 预捕获 old_args 进 500 证据面,真原值不灭失(哲学①)。
+                orig = (f";args 原值(预捕获): "
+                        f"{json.dumps(old_args, sort_keys=True, ensure_ascii=False)}"
+                        if verdict == "modify" else "")
                 raise ExecutionError(
-                    f"动作执行失败({fm['action']} {eff_args!r}): {e}") from e
+                    f"动作执行失败({fm['action']} {eff_args!r}){orig}: {e}") from e
             executed = True
         else:
             proposal_only = True   # 集外动作:「仅立项」恒标(模块头裁记)
