@@ -16,10 +16,9 @@ const transcriptName = (def, item) => def.name === "TRIAGE" ? "03-triage-transcr
   : def.name === "SYNTH" ? "07-synth-transcript.jsonl" : null;
 
 function loadFixture(def, ctx, item) {
-  // P3 DEEP 桩(#165):def.stub=deep_stub 时一律吃 deep/_stub.json(unresolved 直通 canned 回合);
-  // 真开启(P4 #166 删 stub)恢复逐假设 deep/<slug>.json。缺 fixture=配置面失败(infra)。
-  const p = def.stub ? path.join(ctx.fixturesDir, "deep", "_stub.json")
-    : def.name === "DEEP" ? path.join(ctx.fixturesDir, "deep", `${hidSlug(item.hid)}.json`)
+  // DEEP 逐假设 fixture(P4 #166 真开启):deep/<slug>.json,slug=hidSlug(hid);金轨迹轮=golden-track-canned。
+  // 缺 fixture=配置面失败(infra;faux 面零网络,微探针=seed 登记表脚本化)。
+  const p = def.name === "DEEP" ? path.join(ctx.fixturesDir, "deep", `${hidSlug(item.hid)}.json`)
     : path.join(ctx.fixturesDir, `${def.name.toLowerCase()}.json`);
   let fx;
   try { fx = JSON.parse(fs.readFileSync(p, "utf8")); } // 缺 fixture=配置面失败(infra;P0 未接真模型)
@@ -51,7 +50,7 @@ export async function runModelStep(def, ctx, item) {
   await agent.prompt(input.userMsg);
   const lines = [
     JSON.stringify({ type: "input", stage: def.name, system_sha: sha(input.systemPrompt), user_sha: sha(input.userMsg), meta: input.meta ?? null }),
-    ...(fx.seed ? [JSON.stringify({ type: "registry_seed", call_id: fx.seed.id, tool: fx.seed.tool, sc: fx.seed.sc })] : []),
+    ...(fx.seeds ?? (fx.seed ? [fx.seed] : [])).map((sd) => JSON.stringify({ type: "registry_seed", call_id: sd.id, tool: sd.tool, sc: sd.sc })), // 微探针登记行(P4 ≤3/假设,G_DEEP 计数面;fx.seed 单腿向后兼容)
     ...rec.messages.map((m) => JSON.stringify({ type: "message", ...m })),
   ];
   fs.writeFileSync(path.join(ctx.dir, transcriptName(def, item)), lines.join("\n") + "\n"); // 留痕先于失败面判定

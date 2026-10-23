@@ -1,13 +1,13 @@
-# fixtures/pipeline — P0 模型步 canned 回合集(spec #161 P0;复用律:golden 与 selftest 共用同一份)
+# fixtures/pipeline — 模型步 canned 回合集(spec #161 P0;复用律:golden 与 selftest 共用同一份)
 
-P0 模型步(TRIAGE/DEEP/SYNTH)经 `pipeline/faux.mjs` 用 pi-ai fauxProvider 跑真 Agent 循环,
-回合资次脚本化于本目录(`turns` = AssistantMessage 形 JSON;DEEP 逐假设 `deep/<slug>.json`,
-slug = `hidSlug(signal_id)`)。需网络的测量腿走 `seed`(registrySeed 判例:预登记结构化返回,
-G_DEEP 从 transcript 的 `registry_seed` 行重建登记表逐字回引——golden exclusive_probe 同型)。
+P4(#166)起三模型步全真装配形态:TRIAGE/SYNTH 单发、DEEP 逐假设 `deep/<slug>.json`
+(slug = `hidSlug(signal_id)`,faux provider 真 Agent 循环)。微探针 = `seed`/`seeds`
+登记表脚本化(registrySeed 判例:预登记结构化返回,G_DEEP 从 transcript 的 `registry_seed`
+行重建登记表逐字回引;`≤3/假设` 由 G_DEEP 机检,`fx.seed` 单腿向后兼容 `fx.seeds` 多腿)。
+**A 一律**:canned evidence 只给 `{call_id, field}` 选择对,值由宿主回填(deepConsume);
 
-PROBE(P1,#163 起)不再消费本目录:feed_freshness=lib.sh 真执行(curl stub),matrix=
-tools.mjs `matrixScanCli` 真扫描(OPS_EVAL_PY stub;旧 `matrix.json` 罐装件已删,回放基线
-=轮次目录里已产的 `01-probe-matrix.json` 前置复制件)。
+PROBE(P1,#163 起)不消费本目录:feed_freshness=lib.sh 真执行(curl stub),matrix=
+tools.mjs `matrixScanCli` 真扫描(OPS_EVAL_PY stub)。
 
 ## 本 fixture 集的配对契约(改一处须同步另一处)
 
@@ -17,31 +17,32 @@ tools.mjs `matrixScanCli` 真扫描(OPS_EVAL_PY stub;旧 `matrix.json` 罐装件
 - **抑制规则 fixture**(`$DOCS_ROOT/ops/rules/suppressions.json`):R1 = suppress
   `{bucket:"frozen", url_shape:"*dshield.org*"}` → 幸存 = 2(cinsscore 高危 + binarydefense 中危),
   抑制 = 1(R1×dshield)。
-- **判例树 fixture**:`2026-06-01-golden-aggregator.md`(golden `writePrecedents` 同款,正文含
-  health 检索词)→ SYNTH 注入命中 1 条,canned 报告引用它过闭合校验。
-- **标源名(P2 #164)**:flags.source = feeds.txt 行内 `# 首词`(lib.sh `extract_feed_urls -t`;
-  cinsscore 的 URL 标源名 = `ciarm`,binarydefense/dshield 同名)——在飞不重问与抑制规则
-  `source` 谓词按它对齐 `_ops_items.dedup_key.source`。在飞面真源 = `$DOCS_ROOT/ops/items/*.md`
-  (_ops_items 树,frontmatter status/dedup_key;旧 `in-flight.json` fixture 已退役)。
-- **计数链**:manifest `created=2 reopened=0 deduped=0 suppressed=1`(cinsscore=confirmed
-  review_freeze;binarydefense=refuted digest_ignore 恒 low,附带三小裁②)。
+- **判例树 fixture**:`2026-06-01-golden-aggregator.md` → SYNTH 注入命中 1 条。
+- **标源名(P2 #164)**:flags.source = feeds.txt 行内 `# 首词`(ciarm/binarydefense/dshield)。
+- **DEEP 逐假设链(P4 #166)**:cinsscore → confirmed(reprobe_get seed,age_days=220 回填);
+  binarydefense → refuted(reprobe_ua seed,age_days=5 回填——TRIAGE 读数 210 与深验实测 5
+  的差即证伪腿;probe_hint 提示 GET 而模型选 UA 变体=闭集内自由设计探针,合法)。
+- **条目链(P4 #166,ITEMIZE 查表零模型)**:cinsscore confirmed → human_ruling severity=high
+  (dedup `ciarm|staleness|age_gt_2x_refresh`);binarydefense refuted → digest_ignore
+  severity=low 默认折叠(三小裁②;dedup `binarydefense|staleness|age_gt_2x_refresh`);
+  真条目落 `$DOCS_ROOT/ops/items/*.md`(ops-items 桥,同 _ops_items 形)。自测逐轮独立
+  DOCS 树(mkTree)——条目库真写后轮间在飞面必须隔离。
+- **计数链**:manifest `created=2 reopened=0 deduped=0 suppressed=1`;深验行
+  `confirmed=1 refuted=1 unresolved=0`。
 
 ## 文件清单
 
 | 文件 | 消费步 | 内容 |
 |---|---|---|
-| `triage.json` | TRIAGE | 2 幸存一条一假设,均 need_deep(P3 起配真提示词 prompts/health/triage.md)|
-| `deep/_stub.json` | DEEP 桩 | P3 桩 canned 回合:全部 verdict=unresolved 直通(#166 真开启时恢复逐假设件)|
-| `synth.json` | SYNTH | 三节 canned 报告(计数行 `created=2 reopened=0 deduped=0 suppressed=1` + 深验行 `confirmed=0 refuted=0 unresolved=2`)|
+| `triage.json` | TRIAGE | 2 幸存一条一假设,均 need_deep(prompts/health/triage.md)|
+| `deep/https-cinsscore.com-list-ci-badguys.txt.json` | DEEP | confirmed;seed c-cins reprobe_get age_days=220 |
+| `deep/https-www.binarydefense.com-banlist.txt.json` | DEEP | refuted;seed c-bd reprobe_ua age_days=5 |
+| `deep/golden-track-canned.json` | DEEP 金轨迹 | unresolved 直通(零 need_deep 轮保活,#162 审 P2-2 裁定①)|
+| `synth.json` | SYNTH | 三节 canned 报告(计数行 + 深验行 `confirmed=1 refuted=1 unresolved=0`)|
 
-P0 时代的逐假设 deep 件(cinsscore confirmed/binarydefense refuted,registrySeed 演示)已随 P3 桩退役;
-A 一律(evidence call_id+field 逐字回引登记表)机制面改由 selftest-pipeline G_DEEP 单元例直构工件钉住。
-零 need_deep 轮(空转金轨迹,#162 审 P2-2 裁定①)不经本目录 canned 件:自测以专用 fixtures 目录提供
-need_deep=false 的 triage 件与 unresolved=0 的 synth 件(见 selftest-pipeline 金轨迹例)。
+P3 桩件 `deep/_stub.json` 已随真开启退役(#166);`review_freeze` 动作词随 confirmed→human_ruling
+裁决退役(P4:人裁终局,建议面恒交人)。
 
-在飞面(P2 #164)不经本目录:自测把真形条目 .md 写进各自 DOCS tmp 的 `ops/items/`
-(见 selftest-pipeline Case A;status active/snoozed = 在飞,done/dismissed 终态不算)。
-
-预算降级用例(`OPS_PIPELINE_BUDGET_CNY=0.03`):2×0.016>0.03 → binarydefense 截尾
-unresolved(budget),DEEP 桩只跑 cinsscore;manifest created 仍=2。canned synth 报告的深验行
-unresolved=2 与该场景回算一致(1 桩 unresolved + 1 截尾 unresolved),G_SYNTH 抽检面同过。
+预算降级用例(`OPS_PIPELINE_BUDGET_CNY=0.03`):binarydefense 截尾 unresolved(budget),
+DEEP 只跑 cinsscore;深验行回算 `confirmed=1 unresolved=1`(自测自带专用 fixtures 目录)。
+上限截尾(>3 假设)由 DISPATCH 单元例直构钉住(reason=`unresolved(dispatch_cap)`)。

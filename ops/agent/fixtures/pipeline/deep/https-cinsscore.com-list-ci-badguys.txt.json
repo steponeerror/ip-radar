@@ -1,0 +1,6 @@
+{
+  "seed": { "id": "c-cins", "tool": "reprobe_get", "sc": { "ok": true, "url": "https://cinsscore.com/list/ci-badguys.txt", "method": "GET", "status": 200, "age_days": 220, "last_modified": "canned-220d" } },
+  "turns": [
+    { "role": "assistant", "content": [ { "type": "text", "text": "{\"hypothesis_id\":\"https://cinsscore.com/list/ci-badguys.txt\",\"verdict\":\"confirmed\",\"evidence\":[{\"call_id\":\"c-cins\",\"field\":\"age_days\"}],\"one_line\":\"GET 复测 age_days=220,冻结确证\"}" } ], "stopReason": "stop" }
+  ]
+}

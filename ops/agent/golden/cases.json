@@ -275,7 +275,7 @@
       "tier": "faux",
       "round": "health",
       "tags": ["p0-skeleton", "positive", "pipeline"],
-      "desc": "轮次状态机全十状态 faux 跑通到 CLOSE(spec #161 P0 骨架 + P1 位等价面 #163):真 extract_feed_urls+feed_freshness(curl 替身零网络)+真 matrix 扫描(OPS_EVAL_PY 替身,tools.mjs matrixScanCli 单源,01-probe-matrix.json 与 legacy <ts>-matrix-scan.json 逐字节同文)→真抑制分区(R1 压 dshield)→faux TRIAGE/DEEP/SYNTH(仓内 fixtures/pipeline,registrySeed 测量腿)→真收编/条目/台账/沙箱;九门全机检留 gates.json;信封只增 pipeline 扩展字段。",
+      "desc": "轮次状态机全十状态 faux 跑通到 CLOSE(spec #161 P0 骨架 + P1 位等价面 #163 + P4 DEEP/ITEMIZE 真开启 #166):真 extract_feed_urls+feed_freshness(curl 替身零网络)+真 matrix 扫描(OPS_EVAL_PY 替身,tools.mjs matrixScanCli 单源,01-probe-matrix.json 与 legacy <ts>-matrix-scan.json 逐字节同文)→真抑制分区(R1 压 dshield)→faux TRIAGE/DEEP/SYNTH(仓内 fixtures/pipeline,DEEP 逐假设微探针 seed=registrySeed 测量腿,A 一律宿主回填)→真收编/条目库桥落 ops/items/台账/沙箱;九门全机检留 gates.json;信封只增 pipeline 扩展字段。",
       "stubs": {
         "curl_age_days": [
           { "match": "cinsscore", "days": 220 },
@@ -306,7 +306,7 @@
       "assertions": [
         { "kind": "pipeline_ok" },
         { "kind": "pipeline_stage", "stage": "PROBE", "status": "done" },
-        { "kind": "pipeline_stage", "stage": "DEEP", "status": "degraded", "note_matches": "deep_stub" },
+        { "kind": "pipeline_stage", "stage": "DEEP", "status": "done" },
         { "kind": "pipeline_stage", "stage": "CLOSE", "status": "done" },
         { "kind": "pipeline_gates" },
         { "kind": "pipeline_artifact", "file": "01-probe-summary.json",
@@ -322,7 +322,7 @@
         { "kind": "pipeline_artifact", "file": "07-synth-report.md", "matches": [
           "## 注入判例", "## 异常清单", "## 摘要",
           "created=2 reopened=0 deduped=0 suppressed=1",
-          "confirmed=0 refuted=0 unresolved=2",
+          "confirmed=1 refuted=1 unresolved=0",
           "2026-06-01-golden-aggregator.md",
           "human_ruling"
         ] },
