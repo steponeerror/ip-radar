@@ -332,9 +332,21 @@ async function synthInput(ctx) {
     const a = anchors.anchors.find((x) => x.precedents.includes(n));
     return `- ${n}\n  - 锚域 ${a?.domain ?? "?"}: ${a?.note ?? ""}`;
   });
-  const block = hitNames.length > HIT_CAP
-    ? `${inj.stdout.split("\n").filter((l) => !/^- 202/.test(l) || injected.includes(l.slice(2).trim())).join("\n")}${anchoredExtra.length ? `\n${anchoredExtra.join("\n")}` : ""}\n(命中 ${hitNames.length} 条,注入前 ${HIT_CAP} 条——铁律⑦)` : `${inj.stdout}${anchoredExtra.length ? `\n${anchoredExtra.join("\n")}` : ""}`;
+  // 展示面=闭合集(审后修 P1):注入块里出现的命中行必须 ∈ injected(G_SYNTH 的 allowed 集为同源),
+  // 否则模型诚实引用注入块内文件名也会被 closure_check 误杀成轮终态——过滤无条件化,不分命中多寡。
+  const injectedHitN = hitNames.filter((n) => injected.includes(n)).length;
+  const block = synthInjectionBlock(inj.stdout, anchoredExtra, hitNames, injected)
+    + (hitNames.length > injectedHitN ? `\n(命中 ${hitNames.length} 条,注入 ${injectedHitN} 条——铁律⑦)` : "");
   return { systemPrompt: fs.readFileSync(promptFile("health/synth"), "utf8"), userMsg: `${block.trim()}\n\n# 本轮输入\n${JSON.stringify(input)}`, meta: { injected } };
+}
+
+// 注入块构造(纯函数,审后修 P1 抽出钉负例):命中行仅当 ∈ injected 才展示;锚补行(锚选⊆injected 恒成立)直出。
+export function synthInjectionBlock(injStdout, anchoredExtra, hitNames, injected) {
+  const lines = injStdout.split("\n").filter((l) => {
+    const m = l.match(/^- ([0-9]{4}-[0-9]{2}-[0-9]{2}-[^\s]+\.md)\s*$/);
+    return !m || injected.includes(m[1]);
+  });
+  return `${lines.join("\n")}${anchoredExtra.length ? `\n${anchoredExtra.join("\n")}` : ""}`;
 }
 function synthConsume(ctx, _item, { text }) {
   if (!text.trim()) throw Object.assign(new Error("SYNTH 最终文本为空"), { code: "empty_text" });

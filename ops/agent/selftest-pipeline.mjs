@@ -587,6 +587,32 @@ await t("同 id 重跑拒绝(bad_round 信封)——轮次目录不覆盖(证据
   assert.equal(r.envelope.error.code, "bad_round");
 });
 
+// 审后修 P1 负例:注入块展示面=闭合集(anchored≥2 且 anchored∪hits>8 时,块外命中行必须滤除)
+await t("SYNTH 注入块=闭合集(命中 10/锚 2:块内仅 ∈injected 的 6 命中+锚补行,块外行必滤)", async () => {
+  const { synthInjectionBlock } = await import(path.join(AGENT, "pipeline", "steps.mjs"));
+  const hits = Array.from({ length: 10 }, (_, i) => `2026-01-${String(i + 1).padStart(2, "0")}-hit-${i}.md`);
+  const anchored = ["2026-02-01-anch-a.md", "2026-02-02-anch-b.md"];
+  const injected = [...anchored, ...hits].slice(0, 8); // 锚选在前恒⊆injected
+  const stdout = hits.map((n) => `- ${n}`).join("\n");
+  const extra = anchored.map((n) => `- ${n}\n  - 锚域 test: gist`);
+  const block = synthInjectionBlock(stdout, extra, hits, injected);
+  for (const n of hits.slice(6)) assert.ok(!block.includes(n), `块外命中行必须滤除(旧实现整块直出=审 P1): ${n}`);
+  for (const n of hits.slice(0, 6)) assert.ok(block.includes(n), `∈injected 命中保留: ${n}`);
+  for (const n of anchored) assert.ok(block.includes(n), "锚补行恒保留(锚选⊆injected)");
+});
+
+// 审后补 P2:装载对拍持久化(transcript system_sha === 提示词文件 sha;文件缺失/装载漂移即红,取代一次性手验)
+await t("模型步装载对拍:TRIAGE/SYNTH transcript system_sha=提示词文件 sha 逐字", async () => {
+  const { createHash } = await import("node:crypto");
+  const sha = (s) => createHash("sha256").update(s).digest("hex").slice(0, 16);
+  for (const [tf, pf] of [["03-triage-transcript.jsonl", "triage"], ["07-synth-transcript.jsonl", "synth"]]) {
+    const head = fs.readFileSync(path.join(run1.dir, tf), "utf8").split("\n")[0];
+    const rec = JSON.parse(head);
+    assert.equal(rec.type, "input");
+    assert.equal(rec.system_sha, sha(fs.readFileSync(path.join(AGENT, "prompts", "health", `${pf}.md`), "utf8")), `${pf} 装载漂移`);
+  }
+});
+
 fs.rmSync(TMP, { recursive: true, force: true });
 console.log(`pipeline-selftest: PASS=${pass} FAIL=${fail}`);
 process.exit(fail ? 1 : 0);

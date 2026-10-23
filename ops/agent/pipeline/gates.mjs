@@ -170,6 +170,11 @@ export const GATES = {
     if (report === null) return fail("07-synth-report.md 缺失", inputs);
     if (!m) return fail("06-itemize-manifest.json 不可解析", inputs);
     for (const sec of ["## 注入判例", "## 异常清单", "## 摘要"]) if (!report.includes(sec)) return fail(`三节缺:${sec}`, inputs);
+    { // 摘要行数门(审后补 P2:提示词声明「≤10 行(门机检)」,门必须真检)
+      const idx = report.indexOf("## 摘要");
+      const n = report.slice(idx).trim().split("\n").length - 1;
+      if (n > 10) return fail(`摘要超 10 行(实 ${n};契约 ≤10)`, inputs);
+    }
     for (const k of ["created", "reopened", "deduped", "suppressed"]) {
       const occ = [...report.matchAll(new RegExp(`\\b${k}=(\\d+)`, "g"))].map((x) => +x[1]);
       if (!occ.length) return fail(`报告缺计数 ${k}=N(契约:摘要行携带四计数)`, inputs);
