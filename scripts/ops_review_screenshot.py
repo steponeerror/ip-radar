@@ -1,8 +1,11 @@
-# 票 #157 验收截屏脚本(P1 审阅面):「审阅」子 tab 全页(条目列表四态行 +
-# 四键后果文案 + 终态行无键)与 --empty 空态对照(硬规⑥)。纯前端 mock 面
-# (共享骨架 = ops_screenshot_common,同 t149 范式),不起后端。产物 png 落
-# 工作树根不入仓。契约真源 = GET /api/ops/items → OpsItemsOut({items});
-# 行形状 = OpsItemOut 十字段 + modified(_api_models.py:318-333)。
+# 票 #157 验收截屏脚本(P1 审阅面):「审阅」子 tab 三图——满态 active 行
+# 展开态(四键后果文案入图)+ 终态行展开态(无四键图证)+ --empty 空态对照
+# (硬规⑥)。纯前端 mock 面(共享骨架 = ops_screenshot_common,t149 范式),
+# 不起后端;产物 png 落工作树根不入仓。契约真源 = GET /api/ops/items →
+# OpsItemsOut({items});行形状 = OpsItemOut 十字段 + modified。
+# 手风琴单开模型:断言序 = active 展开→四键→截图;sblam 终态展开→四键
+# 归零+详情可见→截图(视觉门 Finding 1/2 修复:钮面断言不被页头提示语
+# 误满足,b/c 两项图证齐)。
 import sys
 from pathlib import Path
 
@@ -58,13 +61,27 @@ with sync_playwright() as p:
     browser, page = open_admin(p, PORT, handle_api)
     page.get_by_role("tab", name="审阅").click(timeout=5000)
     page.wait_for_timeout(400)  # 相对时间渲染稳定
-    body_text = page.inner_text("body")
     if EMPTY:
-        assert "暂无" in body_text, "空态必须显基准「暂无」提示(硬规⑥)"
+        assert "暂无" in page.inner_text("body"), "空态必须显基准「暂无」提示(硬规⑥)"
     else:
-        assert "spamhaus_drop" in body_text and "同意" in body_text, "满态必须见条目行与四键"
-        assert "已审结" in body_text or "done" not in "", "终态行在列(文案以 locale 为准)"
-    page.screenshot(path=str(OUT), full_page=True)
+        # active 行展开:四键后果文案入图入断言(钮面级,非页头提示语)
+        page.get_by_role("button", name="spamhaus_drop").first.click()
+        page.wait_for_timeout(200)
+        for label, n in (("同意·执行", 1), ("修改", 1), ("忽略", 1), ("稍后", 2)):
+            got = page.get_by_role("button", name=label).count()
+            assert got == n, f"展开态按钮面不符:{label} 期望 {n} 实得 {got}"
+        page.screenshot(path=str(OUT), full_page=True)
+        # 终态行展开:详情可见 + 四键全零(手风琴单开,active 面已收)
+        page.get_by_role("button", name="sblam").first.click()
+        page.wait_for_timeout(200)
+        assert "已自愈" in page.inner_text("body"), "终态行展开后详情可见"
+        for label in ("同意·执行", "修改", "忽略", "稍后"):
+            assert page.get_by_role("button", name=label).count() == 0, \
+                f"终态行不得渲染四键:{label} 实得非零"
+        out_done = OUT.with_name(OUT.name.replace("-t157", "-t157-done"))
+        page.screenshot(path=str(out_done), full_page=True)
+    if EMPTY:
+        page.screenshot(path=str(OUT), full_page=True)
     browser.close()
 httpd.shutdown()
 print(f"OK {OUT}")
