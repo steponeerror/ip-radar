@@ -3,9 +3,11 @@
 //   门是唯一转移裁判,不信模型自报;reason 必须带数字(「门说覆盖率 0.83 拦了」可在 gates.json 回算);
 //   重算秒级,CLOSE 与 replay 全量重跑(自愈:状态文件与工件不一致时以工件+门为准);
 //   闭集值集中在 CLOSED_SETS(新增闭集值=spec 变更);字段点解析复用 tools.mjs resolveField(单一解析语义)。
+//   P2(#164):在飞面改真读 _ops_items(steps.readInFlightItems 单一解析语义,门与步同源不另起炉灶)。
 import fs from "node:fs";
 import path from "node:path";
 import { resolveField, closureCheck } from "../tools.mjs";
+import { normalizeRules, readInFlightItems, inFlightSources } from "./steps.mjs";
 
 export const CLOSED_SETS = {
   cause_class: ["frozen_feed", "dead_endpoint", "auth_wall", "rate_limit", "probe_artifact", "matrix_violation", "unknown"], // C稿 §3.2 草案 1
@@ -40,27 +42,33 @@ export const GATES = {
   },
   // G_VERIFY:survivors∪suppressed 的 signal_id = probe 旗标全集(穷尽一条不丢)∧ 每条抑制引用规则 id ∈ 规则文件闭集
   G_VERIFY: (ctx) => {
-    const inputs = ["01-probe-summary.json", "02-verify-survivors.json", "02-verify-suppressed.json", "rules/suppressions.json", "fixtures/in-flight.json"];
+    const inputs = ["01-probe-summary.json", "02-verify-survivors.json", "02-verify-suppressed.json", "rules/suppressions.json", "items/*.md"];
     const s = j(path.join(ctx.dir, "01-probe-summary.json"));
     const sv = j(path.join(ctx.dir, "02-verify-survivors.json"));
     const sp = j(path.join(ctx.dir, "02-verify-suppressed.json"));
-    const rules = j(ctx.rulesFile);
+    const raw = j(ctx.rulesFile);
     if (!s || !sv || !sp) return fail("verify 工件不可解析", inputs);
-    if (!rules || !Array.isArray(rules.rules)) return fail("抑制规则库不可解析(规则零命中=空集照常过;文件坏=终态 infra 面)", inputs);
+    let rules;
+    try { rules = raw ? normalizeRules(raw) : null; } // 闭集校验同源步侧单一实现
+    catch { rules = null; }
+    if (!rules) return fail("抑制规则库不可解析(规则零命中=空集照常过;文件坏=终态 infra 面)", inputs);
     const flagIds = (s.flags ?? []).map((f) => f.signal_id);
     const partIds = [...(sv.survivors ?? []), ...(sp.suppressed ?? [])].map((x) => x.signal_id);
     if (!eqSet(flagIds, partIds))
       return fail(`分区不穷尽:flags=${flagIds.length}≠survivors∪suppressed=${partIds.length};丢=${flagIds.filter((i) => !partIds.includes(i)).slice(0, 3).join(",")}`, inputs);
     const ruleIds = new Set(rules.rules.map((r) => r.id));
-    const flight = new Set((j(ctx.inFlightFile) ?? []).map((i) => i.dedup_key));
+    const flight = inFlightSources(readInFlightItems(ctx.itemsDir)); // 在飞面重算(与步同源)
     for (const x of sp.suppressed ?? []) {
       if (x.rule_id === "in_flight") {
-        if (!flight.has(x.dedup_key)) return fail(`in_flight 抑制键不在在飞集:${x.dedup_key}`, inputs);
+        if (!flight.has(x.source)) return fail(`in_flight 抑制源不在在飞集:${x.source}`, inputs);
+        const ids = flight.get(x.source) ?? [];
+        if (!(x.in_flight_items ?? []).length || (x.in_flight_items ?? []).some((id) => !ids.includes(id)))
+          return fail(`in_flight 溯源条目缺席:${x.source}(工件 ${(x.in_flight_items ?? []).join(",")} vs 在飞 ${ids.join(",")})`, inputs);
         continue;
       }
       if (!ruleIds.has(x.rule_id)) return fail(`抑制引用规则 id 不在闭集:${x.rule_id}`, inputs);
     }
-    return pass(`flags=${flagIds.length} 全分区(survivors=${(sv.survivors ?? []).length} suppressed=${(sp.suppressed ?? []).length},规则 v${rules.version ?? 0},在飞 ${flight.size})`, inputs);
+    return pass(`flags=${flagIds.length} 全分区(survivors=${(sv.survivors ?? []).length} suppressed=${(sp.suppressed ?? []).length},规则 v${rules.version} 共${rules.rules.length} 条,在飞源 ${flight.size})`, inputs);
   },
   // G_TRIAGE:schema 过 ∧ 闭集 ∧ 假设覆盖全部幸存 signal_id(一条一假设,吞并即门败);幸存集空=门直过
   G_TRIAGE: (ctx) => {
@@ -118,9 +126,9 @@ export const GATES = {
     }
     return pass(`verdicts=${v.verdicts.length} degraded=${(v.degraded ?? []).length};evidence 逐字回引登记表(${reg.size} 腿,全 ∈ 只读闭集)`, inputs);
   },
-  // G_ITEMIZE:manifest 读回与条目文件一致 ∧ dedup_key 唯一且与在飞零冲突(回声防线)∧ 动作闭集
+  // G_ITEMIZE:manifest 读回与条目文件一致 ∧ dedup_key 唯一且与在飞零冲突(回声防线,源级)∧ 动作闭集
   G_ITEMIZE: (ctx) => {
-    const inputs = ["06-itemize-manifest.json", "items/*.json", "02-verify-suppressed.json", "fixtures/in-flight.json"];
+    const inputs = ["06-itemize-manifest.json", "items/*.json", "02-verify-suppressed.json", "ops-items/*.md"];
     const m = j(path.join(ctx.dir, "06-itemize-manifest.json"));
     if (!m) return fail("06-itemize-manifest.json 不可解析", inputs);
     for (const k of ["created", "reopened", "deduped", "suppressed"]) if (typeof m[k] !== "number") return fail(`manifest.${k} 非数字`, inputs);
@@ -128,7 +136,7 @@ export const GATES = {
     const files = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.endsWith(".json")) : [];
     if (files.length !== m.created + m.deduped) return fail(`items 文件 ${files.length}≠created+deduped=${m.created + m.deduped}(幂等重入:新写=created,已存跳写=deduped)`, inputs);
     for (const n of m.items ?? []) if (!files.includes(n)) return fail(`manifest 条目文件缺席:${n}`, inputs);
-    const flight = new Set((j(ctx.inFlightFile) ?? []).map((i) => i.dedup_key));
+    const flight = inFlightSources(readInFlightItems(ctx.itemsDir)); // 在飞面(ops 树 items/*.md,真读 P2)
     const seen = new Set();
     for (const f of files) {
       const it = j(path.join(dir, f));
@@ -136,7 +144,7 @@ export const GATES = {
       if (!CLOSED_SETS.action.includes(it.suggested_action)) return fail(`suggested_action 闭集外:${it.suggested_action}(${f})`, inputs);
       if (seen.has(it.dedup_key)) return fail(`dedup_key 重复:${it.dedup_key}`, inputs);
       seen.add(it.dedup_key);
-      if (flight.has(it.dedup_key)) return fail(`dedup_key 撞在飞条目(回声):${it.dedup_key}`, inputs);
+      if (flight.has(it.source)) return fail(`条目源撞在飞条目(回声):${it.source}`, inputs);
     }
     const sp = j(path.join(ctx.dir, "02-verify-suppressed.json"));
     if ((sp?.suppressed ?? []).length !== m.suppressed) return fail(`suppressed=${m.suppressed}≠抑制工件 ${(sp?.suppressed ?? []).length}`, inputs);

@@ -157,21 +157,25 @@ _ff_probe_once() {
   fi
 }
 
-# _ff_probe <url> — 单 URL 探测 → TSV 一行 url<TAB>last_modified<TAB>age_days。
-# HEAD(跟随重定向)→ HTTP≥400/网络失败降级 GET Range 0-0 → 分类三态:
+# _ff_probe <url> — 单 URL 探测 → TSV 一行 url<TAB>last_modified<TAB>age_days
+# [<TAB>error_family](仅 UNREACHABLE 行携带,P2 #164:VERIFY 抑制规则谓词闭集
+# 消费面——http_429 限流形/http_404 重定向形是 10-23 两假异常的实测族):
 #   - 401/403 → TOKEN_REQUIRED(P1 T2 降噪刀一,spec #152 §2a:匿名撞鉴权
 #     墙 = 需令牌·正常——可达且响应正常,只是无凭据;不算 UNREACHABLE 不
 #     算异常,与 NO-LM 同等待遇:读数保留,摘要如实提及计数);
-#   - 其余失败 → UNREACHABLE(任务书契约);
+#   - 其余失败 → UNREACHABLE + error_family(任务书契约):终末 HTTP 状态码
+#     ≥400 → http_<code>(精确码:404/429/500 各自成族,与抑制规则
+#     error_family 谓词值同拼写);无 HTTP 码(传输层败)→ net_fail;
 #   - 成功 → age_days 以 Last-Modified 头 floor((now-lm)/86400),缺头/不可
 #     解析=NO-LM。
 # 恒 rc=0:不可达是读数不是故障。
 # raw.githubusercontent.com 前缀的瞬时失败(网络层/5xx/429)重试一轮再判
 # (P1 T2 降噪刀三,spec #152 §2c:该域限流抖动是 2026-10-23 实证噪音源,
 # HEAD 与 GET Range 各一次后仅对 raw.github 再来一轮,2s 间隔;确定性失败
-# 404/401/403 不重试)。
+# 404/401/403 不重试)。重试后仍 429 → UNREACHABLE+http_429(抑制规则库 R7
+# annotate 形的消费面,首批规则 #164)。
 _ff_probe() {
-  local url="$1" lm epoch age
+  local url="$1" lm epoch age fam
   _ff_probe_once "$url"
   if [[ "$url" == https://raw.githubusercontent.com/* ]] \
      && { (( _PR_RC )) || (( _PR_CODE >= 500 || _PR_CODE == 429 )); }; then
@@ -182,7 +186,8 @@ _ff_probe() {
     printf '%s\tTOKEN_REQUIRED\tTOKEN_REQUIRED\n' "$url"; return 0
   fi
   if (( _PR_RC )) || (( _PR_CODE >= 400 )); then
-    printf '%s\tUNREACHABLE\tUNREACHABLE\n' "$url"; return 0
+    if (( _PR_CODE >= 400 )); then fam="http_${_PR_CODE}"; else fam="net_fail"; fi
+    printf '%s\tUNREACHABLE\tUNREACHABLE\t%s\n' "$url" "$fam"; return 0
   fi
   lm="$(printf '%s' "$_PR_HDR" | tr -d '\r' | awk 'tolower($1) ~ /^last-modified:$/ { lm = $0 }
       END { if (lm != "") { sub(/^[^:]*:[ \t]*/, "", lm); print lm } }')"
@@ -225,7 +230,23 @@ freshness_flags() {
 # 新增/改源端点 = 同 PR 更新清单)。
 # 可选 $1 = 清单路径(缺省 $AGENT_DIR/feeds.txt;selftest fixture 隔离,
 # PRECEDENTS_DIR 判例同型)。
+# -t = 标源对模式(P2,#164):每行出 `URL<TAB>标源名`——标源名=行内 #
+# 注释首词(^[a-z0-9_]{1,32}$ 截到首个异形字符;_ops_items.dedup_key.source
+# 同形,VERIFY 在飞不重问按它对齐);无注解/异形 → "-"(消费方回落 host)。
+# 缺省(无 -t)零行为变化:只出 URL 列(legacy/位等价腿消费面,#163)。
 extract_feed_urls() {
-  local manifest="${1:-$AGENT_DIR/feeds.txt}"
-  grep -v '^#' "$manifest" | awk 'NF { print $1 }' | sort -u
+  local tsv=0 manifest="${AGENT_DIR}/feeds.txt"
+  if [[ "${1:-}" == "-t" ]]; then tsv=1; shift; fi
+  [[ "${1:-}" != "" ]] && manifest="$1"
+  if (( tsv )); then
+    grep -v '^#' "$manifest" | awk -F' *# *' 'NF && $1 != "" {
+      gsub(/^[ \t]+|[ \t]+$/, "", $1)
+      src = ($2 == "") ? "-" : $2
+      sub(/[^a-z0-9_].*$/, "", src)
+      if (src !~ /^[a-z0-9_]{1,32}$/) src = "-"
+      print $1 "\t" src
+    }' | sort -u
+  else
+    grep -v '^#' "$manifest" | awk 'NF { print $1 }' | sort -u
+  fi
 }

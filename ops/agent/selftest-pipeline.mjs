@@ -142,12 +142,15 @@ await t("VERIFY 分区穷尽(旗标3=survivors2+suppressed1,R1 抑制 dshield)+G
   assert.ok(s.urls_n >= 30, `urls_n=${s.urls_n}`);
   assert.equal(s.flags.length, 3);
   assert.equal(s.buckets.frozen, 3);
+  assert.equal(s.flags.find((f) => /cinsscore/.test(f.url)).source, "ciarm", "标源名=清单 # 首词(非 host;#164)");
+  assert.ok(s.flags.every((f) => !f.error_family), "冻结旗标无 error_family(仅不可达行携带)");
   const sv = j(path.join(d, "02-verify-survivors.json"));
   const sp = j(path.join(d, "02-verify-suppressed.json"));
   assert.equal(sv.survivors.length, 2);
   assert.equal(sp.suppressed.length, 1);
   assert.equal(sp.suppressed[0].rule_id, "R1");
   assert.match(sp.suppressed[0].url, /dshield/);
+  assert.ok(sv.known_noise_digest.some((r) => r.id === "R1"), "已知误判模式 digest 入幸存工件(C稿 §3.5)");
   const v = j(path.join(d, "05-deep-verdicts.json"));
   assert.equal(v.verdicts.length, 2);
   const conf = v.verdicts.find((x) => /cinsscore/.test(x.hid));
@@ -162,8 +165,8 @@ await t("ITEMIZE 判例:confirmed→review_freeze 原级;refuted 恒 low 消化�
   const m = j(path.join(d, "06-itemize-manifest.json"));
   assert.deepEqual([m.created, m.reopened, m.deduped, m.suppressed], [2, 0, 0, 1]);
   const items = fs.readdirSync(path.join(d, "items")).map((f) => j(path.join(d, "items", f)));
-  const c = items.find((i) => /cinsscore/.test(i.source));
-  const b = items.find((i) => /binarydefense/.test(i.source));
+  const c = items.find((i) => i.source === "ciarm"); // 标源名(#164),URL=cinsscore.com
+  const b = items.find((i) => i.source === "binarydefense");
   assert.equal(c.suggested_action, "review_freeze");
   assert.equal(c.severity, "high");
   assert.equal(b.suggested_action, "digest_ignore");
@@ -192,7 +195,7 @@ await t("预算降级:0.03¥ 截尾 1 条标 unresolved(budget),DISPATCH degrade
 await t("失败面:坏 TRIAGE fixture → model_face 终态(attempts=2),01/02 工件保留(证据不灭失),code∈九词", async () => {
   const badFx = path.join(TMP, "fixtures-bad");
   fs.mkdirSync(badFx, { recursive: true });
-  for (const f of ["in-flight.json", "synth.json"]) fs.copyFileSync(path.join(AGENT, "fixtures/pipeline", f), path.join(badFx, f));
+  for (const f of ["synth.json"]) fs.copyFileSync(path.join(AGENT, "fixtures/pipeline", f), path.join(badFx, f));
   fs.cpSync(path.join(AGENT, "fixtures/pipeline/deep"), path.join(badFx, "deep"), { recursive: true });
   fs.writeFileSync(path.join(badFx, "triage.json"), JSON.stringify({ turns: [{ role: "assistant", content: [{ type: "text", text: "不是 JSON(schema 违例负例)" }], stopReason: "stop" }] }));
   const io = mkIo();

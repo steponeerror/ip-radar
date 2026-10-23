@@ -24,7 +24,12 @@ const HIT_CAP = 8; // 铁律⑦(同 agent.mjs)
 const P0_MODEL_PROMPT = (key) => `(P0 骨架占位系统提示:模型步 ${key};真提示词 P3 落 prompts/health/*.md)`;
 const EST_PER_HYP_CNY = 0.016; // C稿 §7 成本模型上限(每假设 ~0.008-0.016;预算估取上限,宁紧勿松)
 const SEV_RANK = { high: 0, medium: 1, low: 2 }; // DISPATCH 截尾序:低 severity 先丢
-const RULE_ACTIONS = ["suppress", "annotate"]; // 规则动作闭集(C稿 §4.2)
+export const RULE_PREDICATES = ["bucket", "url_shape", "source", "error_family"]; // 匹配谓词闭集(C稿 §4.2;新增谓词=spec 变更)
+export const RULE_ACTIONS = ["suppress", "annotate"]; // 规则动作闭集(C稿 §4.2)
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const infra = (msg) => Object.assign(new Error(msg), { code: "infra" });
+// review_at 缺省 = 采纳日 +90 天(C稿 §4.2:防规则磨烂成新噪音;RETRO P5 到点报人复审)
+const addDaysIso = (iso, n) => { const d = new Date(`${iso}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 
 const sh = (fn, args = [], timeoutMs = 600_000, env = process.env) => execFileP("bash",
   ["-c", `. "$0"; ${fn} "$@"`, LIBSH, ...args], { timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024, env: { ...env } });
@@ -33,12 +38,85 @@ const j = (p) => { try { return JSON.parse(fs.readFileSync(p, "utf8")); } catch 
 const writeJson = (p, obj) => fs.writeFileSync(p, JSON.stringify(obj, null, 2) + "\n");
 const host = (u) => { try { return new URL(u).hostname; } catch { return u; } };
 export const hidSlug = (hid) => String(hid).replace(/[^A-Za-z0-9.-]+/g, "-").replace(/^-+|-+$/g, "");
-// P0 简签(source|bucket);P4 接 _ops_items 时对齐 source+probe_class+error_signature 全签
+// dedup 签:P2 起对齐 _ops_items 面——source = 清单标源名(feeds.txt 行内 # 首词,lib.sh
+// extract_feed_urls -t;_ops_items.dedup_key.source 同形 ^[a-z0-9_]{1,32}$,无注解回落 host);
+// probe_class/error_signature 全签收口在 P4 ITEMIZE 接 create_item 时(#166)。
 const dedupKey = (f) => `${f.source ?? host(f.url ?? f.signal_id ?? "")}|${f.bucket ?? "unknown"}`;
+
+// ── 抑制规则库(闭集 schema;C稿 §4.2)──────────────────────────────────────
+// 真源 = DOCS_ROOT/ops/rules/suppressions.json(人裁采纳才写入,adopt_rule 四键通道 P5);
+// 本函数 = 加载→闭集校验→规范化(review_at 缺省补采纳+90天)的纯函数;坏文件=infra 终态,
+// 规则零命中=空集照常过(降级直通)。谓词求值见 ruleMatch(纯函数,规则序即优先级)。
+export function normalizeRules(raw) {
+  if (!raw || typeof raw !== "object" || !Array.isArray(raw.rules)) throw infra("抑制规则库不可解析:rules 数组缺");
+  const seen = new Set();
+  const rules = [];
+  for (const r of raw.rules) {
+    if (!r || typeof r !== "object") throw infra("规则项非对象");
+    for (const k of ["id", "adopted", "adopted_via", "match", "action", "note"])
+      if (typeof r[k] !== "string" || !r[k].trim()) throw infra(`规则 ${r.id ?? "?"} 缺字符串字段 ${k}`);
+    if (seen.has(r.id)) throw infra(`规则 id 重复:${r.id}`);
+    seen.add(r.id);
+    if (!RULE_ACTIONS.includes(r.action)) throw infra(`规则动作闭集外:${r.action}(${r.id})`);
+    if (!DATE_RE.test(r.adopted)) throw infra(`规则 adopted 形状非法(YYYY-MM-DD):${r.adopted}(${r.id})`);
+    const keys = Object.keys(r.match);
+    if (!keys.length) throw infra(`规则 match 空(${r.id};谓词闭集 ${RULE_PREDICATES.join("/")})`);
+    for (const k of keys) if (!RULE_PREDICATES.includes(k)) throw infra(`抑制规则谓词闭集外:${k}(${r.id})`);
+    if (r.review_at !== undefined && !DATE_RE.test(r.review_at)) throw infra(`规则 review_at 形状非法(YYYY-MM-DD):${r.review_at}(${r.id})`);
+    rules.push({ id: r.id, adopted: r.adopted, adopted_via: r.adopted_via, match: r.match, action: r.action, note: r.note,
+      review_at: r.review_at ?? addDaysIso(r.adopted, 90) });
+  }
+  return { version: typeof raw.version === "number" ? raw.version : 0, rules };
+}
+
+// ── 在飞条目集(P2 真读 _ops_items 面;同因在飞不重问=P1 探测器双开防线同律)────
+// 在飞 = status ∈ {active, snoozed}(_ops_items.ITEM_STATUSES;done/dismissed 终态不算,
+// 复开走 supersedes 链指);同因判定 = 源级对齐(dedup_key.source;probe_class/error_signature
+// 全签 P4)。坏条目文件宁响亮不猜测(_ops_items._parse_item 同律)——在飞集不可靠则停轮。
+export function readInFlightItems(itemsDir) {
+  if (!fs.existsSync(itemsDir)) return [];
+  const out = [];
+  for (const f of fs.readdirSync(itemsDir).filter((x) => x.endsWith(".md")).sort()) {
+    const text = fs.readFileSync(path.join(itemsDir, f), "utf8");
+    const fm = text.split(/^---\s*$/m)[1];
+    if (!fm) throw infra(`条目 frontmatter 缺:${f}(_ops_items 十字段冻结面)`);
+    const status = (fm.match(/^status:[ \t]*(\S+)/m) ?? [])[1];
+    if (!status) throw infra(`条目 status 行缺:${f}`);
+    const dk = {};
+    let inDk = false;
+    for (const line of fm.split("\n")) {
+      if (/^dedup_key:/.test(line)) { inDk = true; continue; }
+      if (!inDk) continue;
+      const kv = line.match(/^[ \t]+([a-z_]+):[ \t]*(.+)$/);
+      if (kv) dk[kv[1]] = kv[2].trim().replace(/^["']|["']$/g, "");
+      else break;
+    }
+    if (!dk.source) throw infra(`条目 dedup_key.source 缺:${f}`);
+    out.push({ item_id: f.replace(/\.md$/, ""), status, source: dk.source,
+      probe_class: dk.probe_class ?? null, error_signature: dk.error_signature ?? null });
+  }
+  return out;
+}
+// 在飞源索引:source → 在飞条目 id 列表(VERIFY 抑制溯源 + 门重算共用)
+export const inFlightSources = (items) => {
+  const m = new Map();
+  for (const i of items) {
+    if (i.status !== "active" && i.status !== "snoozed") continue;
+    if (!m.has(i.source)) m.set(i.source, []);
+    m.get(i.source).push(i.item_id);
+  }
+  return m;
+};
 
 // ── 脚本步 ─────────────────────────────────────────────────────────────────
 async function PROBE(def, ctx) {
-  const urls = [...new Set((await sh("extract_feed_urls", [], 120_000, ctx.env)).stdout.split("\n").map((s) => s.trim()).filter(Boolean))].sort();
+  // 标源对模式(P2,#164):URL+标源名(feeds.txt 行内 # 首词)——flags.source 从 host 改为
+  // 标源名,对齐 _ops_items.dedup_key.source(在飞不重问同因判定面);无注解行回落 host。
+  // URL 集与排序与缺省模式同源同序,位等价面(#163 TSV 逐字节同文)不受影响。
+  const pairs = (await sh("extract_feed_urls", ["-t"], 120_000, ctx.env)).stdout.split("\n").map((s) => s.trim()).filter(Boolean)
+    .map((l) => { const i = l.indexOf("\t"); return [l.slice(0, i), l.slice(i + 1)]; });
+  const srcOf = new Map(pairs);
+  const urls = [...new Set(pairs.map(([u]) => u))].sort();
   const tsv = (await sh("feed_freshness", urls, 1200_000, ctx.env)).stdout;
   fs.writeFileSync(path.join(ctx.dir, "01-probe-freshness.tsv"), tsv);
   // matrix(P1,#163)=真扫描单源 tools.mjs matrixScanCli(legacy health_snapshot 同路径同解析;位等价门=同 stub
@@ -52,50 +130,58 @@ async function PROBE(def, ctx) {
   const buckets = { fresh: 0, frozen: 0, unreachable: 0, token_required: 0, no_lm: 0 };
   const flags = [];
   for (const line of tsv.split("\n").filter(Boolean)) {
-    const [url, lm, age] = line.split("\t");
+    const [url, lm, age, fam] = line.split("\t");
     const bucket = age === "UNREACHABLE" ? "unreachable" : age === "TOKEN_REQUIRED" ? "token_required"
       : age === "NO-LM" ? "no_lm" : (/^\d+$/.test(age) && +age >= FROZEN_DAYS ? "frozen" : "fresh"); // 门线常量同源 tools.mjs
     buckets[bucket] += 1;
-    if (bucket === "frozen" || bucket === "unreachable") // freshness_flags 同口径:仅冻结/不可达进旗标(TOKEN_REQUIRED/NO-LM 读数不旗)
-      flags.push({ signal_id: url, url, bucket, ...(bucket === "frozen" ? { age_days: +age, last_modified: lm } : {}), source: host(url) });
+    if (bucket === "frozen" || bucket === "unreachable") { // freshness_flags 同口径:仅冻结/不可达进旗标(TOKEN_REQUIRED/NO-LM 读数不旗)
+      const name = srcOf.get(url);
+      flags.push({ signal_id: url, url, bucket,
+        source: name && name !== "-" ? name : host(url), // 标源名(_ops_items 同形;缺注解回落 host)
+        ...(bucket === "frozen" ? { age_days: +age, last_modified: lm } : {}),
+        ...(bucket === "unreachable" && fam ? { error_family: fam } : {}) }); // http_<code>/net_fail(lib.sh _ff_probe 四列,P2 消费)
+    }
   }
   writeJson(path.join(ctx.dir, "01-probe-summary.json"), { ok: true, round_id: ctx.roundId, urls_n: urls.length,
     attempted_n: tsv.split("\n").filter(Boolean).length, buckets, flags,
     matrix: { ok: matrix.ok === true, exit_code: matrix.exit_code ?? null, violation_n: matrix.counts?.violation ?? null } });
 }
 
-// 抑制规则谓词闭集 bucket/url_shape/source/error_family(新增谓词=spec 变约);闭集外键=规则文件坏
+// 抑制规则谓词求值(纯函数,闭集键在 normalizeRules 入口拦截;首命中即停,规则序=优先级)
 function ruleMatch(match, f) {
   const shape = (pat, s) => new RegExp(`^${String(pat).split("*").map((x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(".*")}$`).test(s);
   for (const [k, v] of Object.entries(match ?? {})) {
     if (k === "bucket" && f.bucket !== v) return false;
     else if (k === "url_shape" && !shape(v, f.url)) return false;
     else if (k === "source" && f.source !== v) return false;
-    else if (k === "error_family" && (f.error_family ?? null) !== v) return false; // P0 旗标暂无该字段(P2 消费)
-    else if (!["bucket", "url_shape", "source", "error_family"].includes(k))
-      throw Object.assign(new Error(`抑制规则谓词闭集外:${k}`), { code: "infra" });
+    else if (k === "error_family" && (f.error_family ?? null) !== v) return false;
   }
   return true;
 }
 async function VERIFY(def, ctx) {
   const summary = j(path.join(ctx.dir, "01-probe-summary.json"));
-  const rules = j(ctx.rulesFile);
-  if (!summary) throw Object.assign(new Error("01-probe-summary.json 不可解析"), { code: "infra" });
-  if (!rules || !Array.isArray(rules.rules))
-    throw Object.assign(new Error(`抑制规则库不可解析:${ctx.rulesFile}(规则零命中=空集照常过;文件坏=终态)`), { code: "infra" });
-  for (const r of rules.rules) if (!RULE_ACTIONS.includes(r.action))
-    throw Object.assign(new Error(`规则动作闭集外:${r.action}(${r.id})`), { code: "infra" });
-  const flight = new Set((j(ctx.inFlightFile) ?? []).map((i) => i.dedup_key)); // 在飞条目集(P0=fixtures;P4 接 _ops_items)
+  if (!summary) throw infra("01-probe-summary.json 不可解析");
+  const raw = j(ctx.rulesFile);
+  if (!raw) throw infra(`抑制规则库不可解析:${ctx.rulesFile}(规则零命中=空集照常过;文件坏=终态)`);
+  const rules = normalizeRules(raw); // 闭集校验+review_at 规范化;坏=infra 终态(C稿 §2.2)
+  const flight = inFlightSources(readInFlightItems(ctx.itemsDir)); // 同因在飞不重问:真读 _ops_items 面(P2,#164)
   const survivors = [], suppressed = [];
   for (const f of summary.flags) {
     const rule = rules.rules.find((r) => ruleMatch(r.match, f)); // 首命中,规则序即优先级
     const key = dedupKey(f);
     if (rule?.action === "suppress") { suppressed.push({ ...f, dedup_key: key, rule_id: rule.id }); continue; } // 留痕抑制
-    if (flight.has(key)) { suppressed.push({ ...f, dedup_key: key, rule_id: "in_flight" }); continue; } // 在飞不重问(P1 探测器双开防线)
+    if (flight.has(f.source)) { // 同源在飞不重问(源级同因;full 签 P4):证据不灭失,压掉的进留痕工件可翻案
+      suppressed.push({ ...f, dedup_key: key, rule_id: "in_flight", in_flight_items: flight.get(f.source) });
+      continue;
+    }
     survivors.push(rule?.action === "annotate" ? { ...f, dedup_key: key, annotated_rule: rule.id } : { ...f, dedup_key: key });
   }
-  writeJson(path.join(ctx.dir, "02-verify-survivors.json"), { survivors, rules_version: rules.version ?? 0, in_flight_n: flight.size });
-  writeJson(path.join(ctx.dir, "02-verify-suppressed.json"), { suppressed, rules_version: rules.version ?? 0 });
+  // known_noise_digest:已知误判模式机器格式(C稿 §3.5——TRIAGE 不注入判例全文,只吃本 digest;
+  // 含 review_at 供 RETRO P5 到点复审)。
+  writeJson(path.join(ctx.dir, "02-verify-survivors.json"), { survivors,
+    known_noise_digest: rules.rules.map(({ id, action, match, note, review_at }) => ({ id, action, match, note, review_at })),
+    rules_version: rules.version, in_flight_n: flight.size });
+  writeJson(path.join(ctx.dir, "02-verify-suppressed.json"), { suppressed, rules_version: rules.version });
 }
 
 async function DISPATCH(def, ctx) {
@@ -178,9 +264,12 @@ async function CLOSE(def, ctx) { // 书挡步:存在性校验(闭合双层的外
 // ── 模型步装配/收编(faux.mjs 真 Agent 循环的上下文与落盘;判断仍全在模型步+门)────────
 function triageInput(ctx) {
   const sv = j(path.join(ctx.dir, "02-verify-survivors.json"));
-  const rows = (sv?.survivors ?? []).map(({ signal_id, source, bucket, age_days, url, annotated_rule }) =>
-    ({ signal_id, source, bucket, ...(age_days != null ? { age_days } : {}), url, ...(annotated_rule ? { annotated_rule } : {}) }));
-  return { systemPrompt: P0_MODEL_PROMPT("health/triage"), userMsg: JSON.stringify({ survivors: rows }) };
+  const rows = (sv?.survivors ?? []).map(({ signal_id, source, bucket, age_days, url, error_family, annotated_rule }) =>
+    ({ signal_id, source, bucket, ...(age_days != null ? { age_days } : {}), url,
+      ...(error_family ? { error_family } : {}), ...(annotated_rule ? { annotated_rule } : {}) }));
+  // 已知误判模式 digest 同入(C稿 §3.5:TRIAGE 只吃机器 digest,不注入判例全文;闭集校验面不膨胀)
+  return { systemPrompt: P0_MODEL_PROMPT("health/triage"),
+    userMsg: JSON.stringify({ survivors: rows, known_noise_digest: sv?.known_noise_digest ?? [] }) };
 }
 function triageConsume(ctx, _item, { text }) {
   let h;

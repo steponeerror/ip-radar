@@ -94,9 +94,9 @@ function mkCtx(opts, io) {
     started_at: nowIso(), updated_at: nowIso(), resume_count: 0, replay_of: opts.replayOf ?? null };
   return { type, roundId, dir: path.join(OPS_ROOT, "rounds", roundId), env: io.env, log: io.log,
     fixturesDir, budgetCny, opsRoot: OPS_ROOT, rulesFile: path.join(OPS_ROOT, "rules", "suppressions.json"),
+    itemsDir: path.join(OPS_ROOT, "items"), // 在飞条目面真源(_ops_items 树,P2 #164;同 ops 树派生判例)
     retroFile: path.join(OPS_ROOT, "retro", `${roundId}.json`), retroAuditKey: roundId,
     ledgerFile: io.env.LEDGER_FILE ?? process.env.LEDGER_FILE ?? path.join(DOCS_ROOT, "ops", "ledger.md"),
-    inFlightFile: path.join(fixturesDir, "in-flight.json"),
     pkg: null, verify: null, envelope: null, usage: { input: 0, output: 0, totalTokens: 0, cost: 0 }, state };
 }
 const writeState = (ctx) => { ctx.state.updated_at = nowIso(); atomicWrite(path.join(ctx.dir, "state.json"), JSON.stringify(ctx.state, null, 2) + "\n"); };

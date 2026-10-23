@@ -19,6 +19,10 @@ tools.mjs `matrixScanCli` 真扫描(OPS_EVAL_PY stub;旧 `matrix.json` 罐装件
   抑制 = 1(R1×dshield)。
 - **判例树 fixture**:`2026-06-01-golden-aggregator.md`(golden `writePrecedents` 同款,正文含
   health 检索词)→ SYNTH 注入命中 1 条,canned 报告引用它过闭合校验。
+- **标源名(P2 #164)**:flags.source = feeds.txt 行内 `# 首词`(lib.sh `extract_feed_urls -t`;
+  cinsscore 的 URL 标源名 = `ciarm`,binarydefense/dshield 同名)——在飞不重问与抑制规则
+  `source` 谓词按它对齐 `_ops_items.dedup_key.source`。在飞面真源 = `$DOCS_ROOT/ops/items/*.md`
+  (_ops_items 树,frontmatter status/dedup_key;旧 `in-flight.json` fixture 已退役)。
 - **计数链**:manifest `created=2 reopened=0 deduped=0 suppressed=1`(cinsscore=confirmed
   review_freeze;binarydefense=refuted digest_ignore 恒 low,附带三小裁②)。
 
@@ -26,11 +30,13 @@ tools.mjs `matrixScanCli` 真扫描(OPS_EVAL_PY stub;旧 `matrix.json` 罐装件
 
 | 文件 | 消费步 | 内容 |
 |---|---|---|
-| `in-flight.json` | VERIFY | 在飞条目集(P0 空集;P4 接 `_ops_items`) |
 | `triage.json` | TRIAGE | 2 幸存一条一假设,均 need_deep |
 | `deep/https-cinsscore.com-….json` | DEEP | seed `call_d1` fetch_url age_days=220;verdict confirmed |
 | `deep/https-www.binarydefense-….json` | DEEP | seed `call_d2` probe_variant age_days=3;verdict refuted |
 | `synth.json` | SYNTH | 三节 canned 报告(计数行 `created=2 reopened=0 deduped=0 suppressed=1`) |
+
+在飞面(P2 #164)不经本目录:自测把真形条目 .md 写进各自 DOCS tmp 的 `ops/items/`
+(见 selftest-pipeline Case A;status active/snoozed = 在飞,done/dismissed 终态不算)。
 
 预算降级用例(`OPS_PIPELINE_BUDGET_CNY=0.03`):2×0.016>0.03 → binarydefense 截尾
 unresolved(budget),DEEP 只跑 cinsscore;manifest created 仍=2。canned synth 报告的四计数
