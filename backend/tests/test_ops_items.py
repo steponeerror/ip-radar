@@ -187,6 +187,29 @@ def test_item_reopen_chain_extends_not_collides(items, ops_env):
     assert len(_item_files(ops_env)) == 3, "同日连环复开不撞名"
 
 
+@pytest.mark.parametrize("sig", ["http_403_anonymous", "age_gt_2x_refresh"])
+def test_item_same_day_reopen_chain_no_overwrite(items, ops_env, sig):
+    """同日三次同 key 事件回归(review Finding 1):latest 须按 mtime 取链头,
+    不能按文件名序 —— 同日文件名倒序退化为摘要 hex 序,旧实现下第三次产条
+    会链指 r1、摘要与 r2 撞名、静默覆写 r2 终态字节。两组签名各钉一种
+    hex 序(http_403_anonymous: D1<D2 旧实现碰巧不炸;age_gt_2x_refresh:
+    D1>D2 旧实现必炸 —— 撘 D1=28b5e5a138/D2=bb1d50ccae 与
+    D1=c3145a1e68/D2=a679bfe510 实测序)。"""
+    r1 = items.create_item(**_mk(error_signature=sig))
+    items.set_status(r1["item"], "done")
+    r2 = items.create_item(**_mk(error_signature=sig))  # 同日复开一
+    items.set_status(r2["item"], "done")
+    r3 = items.create_item(**_mk(error_signature=sig))  # 同日复开二
+    assert r3["created"] is True and r3["supersedes"] == r2["item"]
+    files = {p.stem: p for p in _item_files(ops_env)}
+    assert set(files) == {r1["item"], r2["item"], r3["item"]}, \
+        "三个事件 = 三份文件,无一被覆写"
+    assert _parse_frontmatter(files[r2["item"]])["status"] == "done", \
+        "r2 终态字节不被抹(哲学①证据不灭失)"
+    assert _parse_frontmatter(files[r1["item"]])["status"] == "done"
+    assert _parse_frontmatter(files[r3["item"]])["supersedes"] == r2["item"]
+
+
 @pytest.mark.parametrize("path", [
     ("active", "snoozed"), ("active", "done"), ("active", "dismissed"),
     ("snoozed", "active"), ("snoozed", "done"), ("snoozed", "dismissed"),

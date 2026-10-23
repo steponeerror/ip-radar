@@ -196,18 +196,23 @@ def create_item(*, source: str, probe_class: str, error_signature: str,
     _ops_store.init_ops_tree()  # 幂等建形状(items/ 目录,裁④同判例)
     with _items_lock:
         open_item = None    # 同 key 在飞条目(不双开)
-        latest = None       # 同 key 最近条目(复开链指目标)
+        same_key = []       # 同 key 文件集(倒序扫描仅为确定性遍历,不作新旈权威)
         for path in sorted(_items_dir().glob("*.md"), reverse=True):
             fm = _parse_item(path)  # 坏文件显式报错(模块头裁记)
             if not _same_dedup_key(fm, source, probe_class, error_signature):
                 continue
-            if latest is None:
-                latest = path.stem  # 倒序遍历,首个同 key 即最新
+            same_key.append(path)
             if fm.get("status") in ("active", "snoozed"):
                 open_item = path.stem
                 break
         if open_item is not None:
             return {"created": False, "item": open_item, "supersedes": None}
+        # latest = 同 key 中 mtime 最大者(review Finding 1):同日文件名倒序
+        # 退化为摘要 hex 序,与创建先后无关,曾致第三次同日事件链指错跳并
+        # 撞名静默覆写终态字节。创建与 set_status 都是原子重写(临时文件 +
+        # rename 换新 mtime),终态文件此后不被触碰 → mtime 新者即链头。
+        latest = (max(same_key, key=lambda p: p.stat().st_mtime).stem
+                  if same_key else None)
         # 文件名内容寻址含 supersedes 目标 → 同日连环复开各得新名不撞车
         digest = hashlib.sha1("\x00".join((
             source, probe_class, error_signature, action,
@@ -234,6 +239,9 @@ def create_item(*, source: str, probe_class: str, error_signature: str,
         text = _render_item(fm, summary)
         # schema 校验律:序列化文本往返解析后过校验才落盘(写什么校什么)
         validate_item_entry(yaml.safe_load(_frontmatter_text(text)))
+        # 写前防呆(review Finding 1):撞名宁响亮失败不静默覆写(哲学①)
+        if (_items_dir() / f"{stem}.md").is_file():
+            raise ValueError(f"条目文件已存在,拒绝覆写: {stem}.md")
         _ops_store.atomic_write_text(_items_dir() / f"{stem}.md", text)
         return {"created": True, "item": stem, "supersedes": latest}
 
@@ -250,35 +258,39 @@ def set_status(item_id: str, new_status: str) -> dict:
     非就地迁移);同态重置 = 幂等零写。字面行找不到 = 疑似手改损坏 →
     拒绝猜测改写(宁报错不碰历史)。
     """
-    if new_status not in ITEM_STATUSES:
-        raise ValueError(
-            f"status 必须在闭集内: {'/'.join(ITEM_STATUSES)},实际 {new_status!r}")
-    path = _resolve_item(item_id)
-    if not path.is_file():
-        raise FileNotFoundError(f"条目不存在: {item_id}")
-    text = path.read_text(encoding="utf-8")
-    fm = _parse_item(path)
-    old = fm["status"]
-    if new_status == old:
-        return {"item": item_id, "from": old, "to": new_status, "changed": False}
-    if new_status not in _ITEM_TRANSITIONS[old]:
-        raise ValueError(
-            f"非法迁移 {old} → {new_status}(终态复开 = 新条目链指,"
-            f"非就地迁移;合法目标: {'/'.join(sorted(_ITEM_TRANSITIONS[old])) or '无'})")
-    # 字面行替换(仅 frontmatter 范围;正文按构造不动)
-    lines = text.split("\n")
-    try:
-        close = lines[1:].index("---") + 1
-    except ValueError:
-        raise ValueError(f"{path.name}: frontmatter 未闭合,拒绝改状态") from None
-    target = f"status: {old}"
-    idx = next((i for i in range(1, close) if lines[i] == target), None)
-    if idx is None:
-        raise ValueError(
-            f"{path.name}: 无字面行 {target!r},疑似手改损坏,拒绝改状态")
-    lines[idx] = f"status: {new_status}"
-    _ops_store.atomic_write_text(path, "\n".join(lines))
-    return {"item": item_id, "from": old, "to": new_status, "changed": True}
+    # 与 create_item 同锁纪律(review Finding 2):读-改-写全程持锁,
+    # 防并发丢更新与查在飞/落终态的 TOCTOU 窗口(_ops_store._ruling_lock
+    # 包 _link_superseded 同思想)。
+    with _items_lock:
+        if new_status not in ITEM_STATUSES:
+            raise ValueError(
+                f"status 必须在闭集内: {'/'.join(ITEM_STATUSES)},实际 {new_status!r}")
+        path = _resolve_item(item_id)
+        if not path.is_file():
+            raise FileNotFoundError(f"条目不存在: {item_id}")
+        text = path.read_text(encoding="utf-8")
+        fm = _parse_item(path)
+        old = fm["status"]
+        if new_status == old:
+            return {"item": item_id, "from": old, "to": new_status, "changed": False}
+        if new_status not in _ITEM_TRANSITIONS[old]:
+            raise ValueError(
+                f"非法迁移 {old} → {new_status}(终态复开 = 新条目链指,"
+                f"非就地迁移;合法目标: {'/'.join(sorted(_ITEM_TRANSITIONS[old])) or '无'})")
+        # 字面行替换(仅 frontmatter 范围;正文按构造不动)
+        lines = text.split("\n")
+        try:
+            close = lines[1:].index("---") + 1
+        except ValueError:
+            raise ValueError(f"{path.name}: frontmatter 未闭合,拒绝改状态") from None
+        target = f"status: {old}"
+        idx = next((i for i in range(1, close) if lines[i] == target), None)
+        if idx is None:
+            raise ValueError(
+                f"{path.name}: 无字面行 {target!r},疑似手改损坏,拒绝改状态")
+        lines[idx] = f"status: {new_status}"
+        _ops_store.atomic_write_text(path, "\n".join(lines))
+        return {"item": item_id, "from": old, "to": new_status, "changed": True}
 
 
 def list_items() -> list[dict]:

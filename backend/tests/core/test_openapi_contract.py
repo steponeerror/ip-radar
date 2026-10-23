@@ -59,7 +59,7 @@ class TestOpenAPIContract:
                     f"{method} {path} 成功响应无 schema"
 
     def test_paths_count_matches_routes(self):
-        """36 业务路径(含 Task 2 认证 4 + Task 5 key 管理 2 + sources-redesign T1
+        """38 业务路径(含 Task 2 认证 4 + Task 5 key 管理 2 + sources-redesign T1
         token 2 路径;PUT/DELETE tokens/{env_var} 共路径;P2 ops 轮次 1;P3 ops
         读 API+写回 7;票 #140 agent 配置 1 路径 GET/PUT 两方法)+ 3 流式;
         多/少挂一个立刻红(防漂移)。"""
