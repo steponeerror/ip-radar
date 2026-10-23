@@ -23,6 +23,13 @@ const AGENT_DIR = path.dirname(fileURLToPath(import.meta.url));
 // 条目库真写面 ops/items 共树,自测需逐轮独立 DOCS 树隔离在飞面;CLI 面=进程 env 同一拼写)。
 const opsRootOf = (env) => path.join(env.DOCS_ROOT ?? process.env.DOCS_ROOT ?? DOCS_ROOT, "ops");
 
+// ctx 派生路径单一形状源(mkCtx 与崩溃恢复重建共用;终审 smell 收口:加字段不再两处改)
+const ctxPaths = (OPS_ROOT, roundId) => ({
+  rulesFile: path.join(OPS_ROOT, "rules", "suppressions.json"),
+  itemsDir: path.join(OPS_ROOT, "items"), // 在飞条目面真源(_ops_items 树,P2 #164;P4 起兼 ITEMIZE 落笔面)
+  retroFile: path.join(OPS_ROOT, "retro", `${roundId}.json`), retroAuditKey: roundId,
+});
+
 // ── 轮次定义表(数据非代码;C稿 §2.2 十状态;加状态须过 spec 变更+三元组铁律:无工件/无门/无失败语义=不配当状态)──
 // 每态:name/kind(script|model|bookend|terminal)/model(配置键,P0 恒 faux)/工件清单(out)/门/失败语义三元组
 // fail={retry,terminal,degrade?,perItem?}(重试上限/终态错误码∈九词闭集/降级路径);skipWhen=命名谓词闭集。
@@ -98,9 +105,7 @@ function mkCtx(opts, io) {
     started_at: nowIso(), updated_at: nowIso(), resume_count: 0, replay_of: opts.replayOf ?? null };
   const OPS_ROOT = opsRootOf(io.env); // 本轮 ops 树(rounds/rules/retro/items 同根;items=条目库真写面 P4 #166)
   return { type, roundId, dir: path.join(OPS_ROOT, "rounds", roundId), env: io.env, log: io.log,
-    fixturesDir, budgetCny, opsRoot: OPS_ROOT, rulesFile: path.join(OPS_ROOT, "rules", "suppressions.json"),
-    itemsDir: path.join(OPS_ROOT, "items"), // 在飞条目面真源(_ops_items 树,P2 #164;P4 起兼 ITEMIZE 落笔面)
-    retroFile: path.join(OPS_ROOT, "retro", `${roundId}.json`), retroAuditKey: roundId,
+    fixturesDir, budgetCny, opsRoot: OPS_ROOT, ...ctxPaths(OPS_ROOT, roundId),
     ledgerFile: io.env.LEDGER_FILE ?? process.env.LEDGER_FILE ?? path.join(DOCS_ROOT, "ops", "ledger.md"),
     pkg: null, verify: null, envelope: null, usage: { input: 0, output: 0, totalTokens: 0, cost: 0 }, state };
 }
@@ -376,9 +381,7 @@ export async function runResume(opts = {}) {
   // 崩溃尝试的已花量不可回收,恢复轮 usage=下界,宁少算)
   const ctx = { type: state.type, roundId, dir, env: io.env, log: io.log,
     budgetCny: state.budget_cny, fixturesDir: state.fixtures_dir, opsRoot: OPS_ROOT,
-    rulesFile: path.join(OPS_ROOT, "rules", "suppressions.json"),
-    itemsDir: path.join(OPS_ROOT, "items"),
-    retroFile: path.join(OPS_ROOT, "retro", `${roundId}.json`), retroAuditKey: roundId,
+    ...ctxPaths(OPS_ROOT, roundId), // 单一形状源(mkCtx 同;终审 smell 收口)
     ledgerFile: io.env.LEDGER_FILE ?? process.env.LEDGER_FILE ?? path.join(DOCS_ROOT, "ops", "ledger.md"),
     pkg: null, verify: null, envelope: null, usage: { input: 0, output: 0, totalTokens: 0, cost: 0 }, state };
   const pending = RUNNABLE.filter((n) => !state.stages.some((r) => r.name === n && ["done", "skipped", "degraded", "dry"].includes(r.status)));

@@ -114,6 +114,38 @@ def _infra(round_type: str, message: str) -> dict:
             "error": {"code": "infra", "message": message}}
 
 
+def _drain_stderr(proc, on_log):
+    """stderr 泵线程(spawn_round/_spawn_resume 共用):tail 留痕 + on_log 进度回调,
+    回调炸不截断泵(进度面尽力而为)。"""
+    stderr_lines: deque[str] = deque(maxlen=_STDERR_KEEP_LINES)
+
+    def _drain() -> None:
+        for line in proc.stderr:
+            line = line.rstrip("\n")
+            stderr_lines.append(line)
+            if on_log is not None:
+                try:
+                    on_log(line)
+                except Exception:
+                    logger.warning("ops on_log 回调失败", exc_info=True)
+
+    reader = threading.Thread(target=_drain, daemon=True, name="ops-round-stderr")
+    reader.start()
+    return stderr_lines, reader
+
+
+def _stdout_envelope(stdout_text: str) -> dict | None:
+    """轮次 CLI stdout 单行 JSON 信封解析(契约违背返回 None;两 spawn 面共用)。"""
+    lines = [ln for ln in stdout_text.splitlines() if ln.strip()]
+    if len(lines) != 1:
+        return None
+    try:
+        parsed = json.loads(lines[0])
+    except ValueError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
 def spawn_round(
     round_type: str,
     input_text: str,
@@ -145,20 +177,7 @@ def spawn_round(
     except OSError as e:  # 如 node 不在 PATH(P5 镜像未装时的显式失败面)
         return _infra(round_type, f"agent 拉起失败: {e}")
 
-    stderr_lines: deque[str] = deque(maxlen=_STDERR_KEEP_LINES)
-
-    def _drain() -> None:
-        for line in proc.stderr:
-            line = line.rstrip("\n")
-            stderr_lines.append(line)
-            if on_log is not None:
-                try:
-                    on_log(line)
-                except Exception:  # 回调炸不截断 stderr 泵(进度面尽力而为)
-                    logger.warning("ops on_log 回调失败", exc_info=True)
-
-    reader = threading.Thread(target=_drain, daemon=True, name="ops-round-stderr")
-    reader.start()
+    stderr_lines, reader = _drain_stderr(proc, on_log)  # 两 spawn 面共用泵(终审 smell 收口)
 
     cancelled = threading.Event()
 
@@ -188,15 +207,7 @@ def spawn_round(
             round_type, "—", "—", "admin 取消(无轮次信封;已花用量未知,九裁决 9 留痕)")
         return {"cancelled": True, "round": round_type}
 
-    lines = [ln for ln in stdout_text.splitlines() if ln.strip()]
-    envelope = None
-    if len(lines) == 1:
-        try:
-            parsed = json.loads(lines[0])
-            if isinstance(parsed, dict):
-                envelope = parsed
-        except ValueError:
-            envelope = None
+    envelope = _stdout_envelope(stdout_text)
     if envelope is None or "ok" not in envelope:
         tail = " | ".join(list(stderr_lines)[-3:])[-_STDERR_TAIL_CHARS:]
         return _infra(round_type, f"轮次信封契约违背(rc={rc},stdout 非单行 JSON 含 ok): "
@@ -301,33 +312,12 @@ def _spawn_resume(round_id: str, *, on_log: Callable[[str], None] | None = None,
             errors="replace", env=env or os.environ)
     except OSError as e:
         return _infra("health", f"resume 拉起失败: {e}")
-    stderr_tail: deque[str] = deque(maxlen=_STDERR_KEEP_LINES)
-
-    def _drain() -> None:
-        for line in proc.stderr:
-            line = line.rstrip("\n")
-            stderr_tail.append(line)
-            if on_log is not None:
-                try:
-                    on_log(line)
-                except Exception:
-                    logger.warning("ops on_log 回调失败", exc_info=True)
-
-    reader = threading.Thread(target=_drain, daemon=True, name="ops-resume-stderr")
-    reader.start()
+    stderr_tail, reader = _drain_stderr(proc, on_log)  # 同 spawn_round 泵(终审 smell 收口)
     stdout_text = proc.stdout.read()
     proc.stdout.close()
     rc = proc.wait()
     reader.join(timeout=5)
-    lines = [ln for ln in stdout_text.splitlines() if ln.strip()]
-    envelope = None
-    if len(lines) == 1:
-        try:
-            parsed = json.loads(lines[0])
-            if isinstance(parsed, dict):
-                envelope = parsed
-        except ValueError:
-            envelope = None
+    envelope = _stdout_envelope(stdout_text)
     if envelope is None or "ok" not in envelope:
         tail = " | ".join(list(stderr_tail)[-3:])[-_STDERR_TAIL_CHARS:]
         return _infra("health", f"resume 信封契约违背(rc={rc}): {tail or '(stderr 空)'}")

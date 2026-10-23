@@ -41,7 +41,7 @@ export OPS_CRON_PASSWORD="<服务器本地设置>"
 set -u
 CONTAINER="${OPS_CRON_CONTAINER:-ip-lookup-tool-ipradar-1}"
 : "${OPS_CRON_EMAIL:?需 /root/.ops-cron-env 提供 OPS_CRON_EMAIL}"
-: "${OPS_CRON_PASSWORD:?需 /root/.ops-cron.env 提供 OPS_CRON_PASSWORD}"
+: "${OPS_CRON_PASSWORD:?需 /root/.ops-cron-env 提供 OPS_CRON_PASSWORD}"
 echo "[$(date -Is)] ops-cron: 触发健康轮"
 JAR=/tmp/ops-cron-cookie.$$; trap 'rm -f "$JAR"' EXIT
 # ① 管理登录(表单式;204 + Set-Cookie ipradar_admin;判例=2026-10-23 #160 部署验收)
@@ -63,6 +63,7 @@ esac
 ```
 
 (草案形状注:登录与触发两跳均在容器内回环完成——凭据不出容器网络面;脚本细节
+容器内 /tmp/ops-cookie.$$ 与 /tmp/ops-body.$$ 用毕即删(curl --next 或 && rm;部署段实测定稿)。
 如 cookie 传递在部署段实测定稿,以「登录 → 带 cookie POST → 409 即零成本跳过」
 三断言为验收面。)
 
@@ -88,6 +89,7 @@ esac
 
 1. 服务器落 `/root/.ops-cron-env`(chmod 600)+ `deploy/ops-cron.sh`(chmod +x);
 2. crontab 安装上文行(先手动 dry 一轮验证 202/409 两态);
-3. docker-compose.override.yml 增 `OPS_PIPELINE=pipeline`(灰度,待用户裁);
+3. docker-compose.override.yml 增 `OPS_PIPELINE=pipeline`(灰度,待用户裁)。**前置条件(Spec 终审 P1):模型步现仍无条件 fauxProvider——faux.mjs 是唯一替换点,真 provider 接线 PR 落地并过门之前禁止切本开关**(照切则生产轮 TRIAGE=罐装假设,G_TRIAGE 穷尽门必红,每轮 model_face 终态);
 4. `/var/log/ipradar-ops-cron.log` 轮转(logrotate 或按大小截断);
-5. (可选)生产 ops 树种子 `rules/suppressions.json`:拷 docs 仓规则件或空库 `{"version":0,"rules":[]}`。注:缺席=合法零规则态(与 _ops_review 同口径;首轮 VERIFY 零抑制照常过,首条规则经 RETRO 候选→四键采纳自动建形)——种子仅为带 R12/R7 起步,非必需(审后修 P1 改口径后死锁已除)。
+5. (可选)生产 ops 树种子 `rules/suppressions.json`:拷 docs 仓规则件或空库 `{"version":0,"rules":[]}`。注:缺席=合法零规则态(与 _ops_review 同口径;首轮 VERIFY 零抑制照常过,首条规则经 RETRO 候选→四键采纳自动建形)——种子仅为带 R12/R7 起步,非必需(审后修 P1 改口径后死锁已除);
+6. 生产段验收门(spec #161,部署后逐项收口,勿灭失):①P2 影子轮 N≥3(legacy 与 pipeline 并行,报告对照一致)②P3 三节报告影子对照 ③P4 剧本=人为停一个真源→条目经四键走查 ④首轮 RETRO 候选 ≥1 经采纳后下轮 VERIFY 生效(闭环)。
