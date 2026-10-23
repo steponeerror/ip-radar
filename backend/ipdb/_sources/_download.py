@@ -25,15 +25,29 @@ def redact_url(url: str) -> str:
     return redacted
 
 
-def warn_if_redirected(url: str, resp) -> None:
+def _mask_secret(url: str, secret: str | None) -> str:
+    """redact_url 之上再打路径段内嵌 secret(票 #159 P0):abuse.ch v2
+    认证端点把 Auth-Key 放在 URL 路径段(v2/files/exports/<KEY>/file),
+    redact_url 的「path 保留」策略对它失效——入日志/异常串前把 key 替换
+    为 ***。secret 缺省 None 时零操作,既有调用面(40+ 源)行为不变。"""
+    masked = redact_url(url)
+    if secret:
+        masked = masked.replace(secret, "***")
+    return masked
+
+
+def warn_if_redirected(url: str, resp, secret: str | None = None) -> None:
     """feed URL 腐烂早期信号绊线(2026-09-05 IntelMQ 审计):urllib 静默跟随
     重定向,落点 URL ≠ 请求 URL = 上游搬家/改路径——在 404 之前就可见。
     (IntelMQ 用版本化迁移函数沉淀这类变更;我们的等价物 = 本绊线 +
-    CHANGELOG feed-change 条目约定。)"""
+    CHANGELOG feed-change 条目约定。)
+
+    secret: URL 路径段内嵌凭据(abuse.ch v2 Auth-Key,票 #159)——警告
+    串里 key 替换为 ***;缺省 None 走既有 redact_url 契约。"""
     final = getattr(resp, "geturl", lambda: None)()
     if final and final != url:
         logger.warning("redirected: %s -> %s (feed URL rot early signal)",
-                       redact_url(url), redact_url(final))
+                       _mask_secret(url, secret), _mask_secret(final, secret))
 
 
 class CancelledError(Exception):
@@ -68,6 +82,7 @@ def download_file(
     timeout: float = 30,
     headers: dict | None = None,
     chunk_size: int = 65536,
+    secret: str | None = None,
 ) -> None:
     """Stream `url` to `dest` atomically.
 
@@ -82,6 +97,8 @@ def download_file(
         timeout: stdlib urllib socket timeout applied to all socket ops
             (connect+read); it cannot be split, and bounds abort latency
             to one read.
+        secret: 凭据串(abuse.ch v2 Auth-Key,票 #159)——截断报错串里
+            URL 的该串替换为 ***;缺省 None 走既有 redact_url 契约。
     """
     if token is not None and token.is_cancelled():
         raise CancelledError("cancelled before start")
@@ -92,7 +109,7 @@ def download_file(
     on_progress = getattr(token, "on_progress", None) if token is not None else None
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            warn_if_redirected(url, resp)
+            warn_if_redirected(url, resp, secret=secret)
             total = int(resp.headers.get("Content-Length") or 0)
             received = 0
             with open(tmp, "wb") as f:
@@ -108,7 +125,7 @@ def download_file(
                         on_progress(received, total)
             if total and received != total:
                 raise RuntimeError(
-                    f"truncated download: {redact_url(url)} — got {received} of {total} bytes")
+                    f"truncated download: {_mask_secret(url, secret)} — got {received} of {total} bytes")
             if on_progress is not None and total > 0:
                 on_progress(received, total)  # ensure final 100% lands
         os.replace(str(tmp), str(dest))

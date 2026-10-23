@@ -261,3 +261,60 @@ def test_atomic_write_bytes_failure_keeps_dest_and_scratch_cleaned(tmp_path: Pat
     assert wrote_partial                              # 失败时盘上确有真 scratch
     assert dest.read_bytes() == b"previous-good-evidence"
     assert list(tmp_path.glob("*.tmp")) == []
+
+
+# ── secret 参数(abuse.ch v2 Auth-Key 在 URL 路径段,票 #159 P0)──────────
+# redact_url 只打码 query(2026-10-08 契约);v2 端点把 key 放路径段 →
+# download_file / warn_if_redirected 新增 secret 参数,入日志/异常串前
+# 把 key 替换为 ***。缺省 None 时行为与既有调用面(40+ 源)逐字节不变。
+
+def test_secret_masks_path_segment_in_truncation_error(tmp_path: Path):
+    """截断报错串:keyed URL 的路径段 key → ***(redact_url 盖不住 path)。"""
+    dest = tmp_path / "out.txt"
+    resp = _FakeResp([b"a" * 500])
+    resp.headers["Content-Length"] = "1000"
+    with _patch_urlopen(resp):
+        with pytest.raises(RuntimeError) as ei:
+            download_file(
+                "https://threatfox-api.abuse.ch/v2/files/exports/KEY123/full.csv.zip",
+                dest, secret="KEY123")
+    assert "KEY123" not in str(ei.value)
+    assert "threatfox-api.abuse.ch/v2/files/exports/***/full.csv.zip" in str(ei.value)
+
+
+def test_secret_masks_path_segment_in_redirect_warning(tmp_path: Path, caplog):
+    """重定向绊线警告:请求与落点两侧 URL 的路径段 key 均 → ***。"""
+    import logging as _logging
+    dest = tmp_path / "out.txt"
+    resp = _FakeResp(
+        [b"data"], final_url="https://mirror.example/exports/KEY456/online.csv")
+    with caplog.at_level(_logging.WARNING, logger="ipdb._sources._download"):
+        with _patch_urlopen(resp):
+            download_file(
+                "https://urlhaus-api.abuse.ch/v2/files/exports/KEY456/online.csv",
+                dest, secret="KEY456")
+    hits = [r for r in caplog.records if "redirected" in r.message]
+    assert len(hits) == 1
+    msg = hits[0].getMessage()
+    assert "KEY456" not in msg
+    assert "urlhaus-api.abuse.ch/v2/files/exports/***/online.csv" in msg
+    assert "mirror.example/exports/***/online.csv" in msg
+
+
+def test_secret_none_keeps_existing_redaction_contract(tmp_path: Path, caplog):
+    """向后兼容钉子:secret 缺省 None → 既有 redact_url 契约原样(path 可见,
+    只打码 query)——非 abuse.ch 调用面零感知。"""
+    import logging as _logging
+    dest = tmp_path / "out.txt"
+    resp = _FakeResp(
+        [b"data"], final_url="https://mirror.example/exports/KEY789/online.csv")
+    with caplog.at_level(_logging.WARNING, logger="ipdb._sources._download"):
+        with _patch_urlopen(resp):
+            download_file(
+                "https://urlhaus-api.abuse.ch/v2/files/exports/KEY789/online.csv",
+                dest)                      # 不传 secret
+    hits = [r for r in caplog.records if "redirected" in r.message]
+    assert len(hits) == 1
+    msg = hits[0].getMessage()
+    assert "KEY789" in msg                 # path 原样保留(既有契约)
+    assert "?q=REDACTED" not in msg        # 无 query,无打码

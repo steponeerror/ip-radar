@@ -4,6 +4,8 @@ import io
 import zipfile
 from pathlib import Path
 
+import pytest
+
 from ipdb._sources.threatfox import ThreatFoxSource
 
 # A realistic abuse.ch full.csv data row (space after comma, quoted fields),
@@ -65,6 +67,7 @@ class TestThreatFoxParseRow:
 
 class TestThreatFoxDownloadUnzips:
     def test_download_extracts_inner_csv_from_zip(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("ABUSECH_AUTH_KEY", "TESTKEY123")   # v2 认证端点(票 #159)
         # Build a valid zip containing full.csv (what abuse.ch actually serves).
         csv_body = "\n".join(["#"] * 9) + "\n" + _IP_ROW + "\n"
         buf = io.BytesIO()
@@ -105,6 +108,7 @@ class TestThreatFoxDownloadUnzips:
         assert b"1.2.3.4" in saved
 
     def test_download_then_load_yields_records(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("ABUSECH_AUTH_KEY", "TESTKEY123")   # v2 认证端点(票 #159)
         csv_body = "\n".join(["#"] * 9) + "\n" + _IP_ROW + "\n"
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
@@ -224,3 +228,105 @@ def test_parse_row_stores_ioc_id(tmp_path):
            "None", "vshell", "1", "anonymous"]
     parsed = src.parse_row(row)
     assert parsed["extra"]["threatfox_ioc"] == "1886405"
+
+
+# ── v2 认证端点迁移(票 #159,2026-10-23)──────────────────────────────
+# 旧匿名出口 https://threatfox.abuse.ch/export/csv/full/ 2026-10-22 起 410;
+# 迁 https://threatfox-api.abuse.ch/v2/files/exports/<KEY>/full.csv.zip,
+# Auth-Key 在 URL 路径段(非 query)→ download_file 新增 secret 打码参数。
+
+_KEY = "TESTKEY123"
+_KEYED_URL = f"https://threatfox-api.abuse.ch/v2/files/exports/{_KEY}/full.csv.zip"
+
+
+def _fake_urlopen(body: bytes, seen: list, *, final_url: str | None = None,
+                  content_length: int | None = None):
+    """urlopen 替身:seen 收集每次请求的 full_url;final_url ≠ None 模拟
+    重定向落点;content_length > len(body) 模拟传输层截断。"""
+
+    class _Resp:
+        def __init__(self):
+            self._pos = 0
+            self.headers = (
+                {"Content-Length": str(content_length)} if content_length else {})
+
+        def geturl(self):
+            return final_url or seen[-1]
+
+        def read(self, n=-1):
+            if n is None or n < 0:
+                n = len(body)
+            data = body[self._pos:self._pos + n]
+            self._pos += len(data)
+            return data
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake(req, timeout=120):
+        seen.append(req.full_url)
+        return _Resp()
+
+    return fake
+
+
+def _zip_bytes(csv_body: str) -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("full.csv", csv_body)
+    return buf.getvalue()
+
+
+class TestThreatFoxAuthExport:
+    def test_download_requires_auth_key(self, tmp_path, monkeypatch):
+        """缺 ABUSECH_AUTH_KEY → download() 报 RuntimeError 明文(票 #159:
+        __init__ 缺省空串,不炸 import/构建;下载时才拦)。"""
+        monkeypatch.delenv("ABUSECH_AUTH_KEY", raising=False)
+        src = _make_source(tmp_path)
+        with pytest.raises(RuntimeError, match="ABUSECH_AUTH_KEY"):
+            src.download()
+
+    def test_download_builds_keyed_url_class_attr_stays_keyless(self, tmp_path, monkeypatch):
+        """keyed URL 只在 download() 内拼;url class attr 保持无 key 占位形状
+        (注册表/日志/测试断言面只见占位,票 #159 泄 key 防护)。"""
+        monkeypatch.setenv("ABUSECH_AUTH_KEY", _KEY)
+        body = _zip_bytes("\n".join(["#"] * 9) + "\n" + _IP_ROW + "\n")
+        seen: list[str] = []
+        monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen(body, seen))
+        src = _make_source(tmp_path)
+        src.download()
+        assert seen == [_KEYED_URL]
+        assert src.url == "https://threatfox-api.abuse.ch/v2/files/exports/full.csv.zip"
+        assert _KEY not in src.url
+        saved = (tmp_path / "threatfox.csv").read_bytes()
+        assert not saved.startswith(b"PK") and b"1.2.3.4" in saved
+
+    def test_download_rejects_200_ok_bad_body_keeps_old_evidence(self, tmp_path, monkeypatch):
+        """200-OK-坏体守卫(Phase 3 step 8 惯例):v2 错误页也是 200,坏体
+        不得替换旧证据——既非 PK zip 亦无 first_seen_utc 列头 → RuntimeError。"""
+        monkeypatch.setenv("ABUSECH_AUTH_KEY", _KEY)
+        old = b"# previous-good-evidence\n"
+        (tmp_path / "threatfox.csv").write_bytes(old)
+        monkeypatch.setattr(
+            "urllib.request.urlopen",
+            _fake_urlopen(b"<html>login required</html>", []))
+        src = _make_source(tmp_path)
+        with pytest.raises(RuntimeError, match="threatfox payload"):
+            src.download()
+        assert (tmp_path / "threatfox.csv").read_bytes() == old   # 旧证据未灭失
+        assert not (tmp_path / "threatfox.zip").exists()          # scratch 已清
+
+    def test_download_truncation_error_masks_key(self, tmp_path, monkeypatch):
+        """截断报错串里 keyed URL 打码:key 不入消息体,*** 代位(票 #159 P0)。"""
+        monkeypatch.setenv("ABUSECH_AUTH_KEY", _KEY)
+        monkeypatch.setattr(
+            "urllib.request.urlopen",
+            _fake_urlopen(b"PK" + b"x" * 498, [], content_length=1000))
+        src = _make_source(tmp_path)
+        with pytest.raises(RuntimeError, match="truncated") as ei:
+            src.download()
+        assert _KEY not in str(ei.value)
+        assert "***" in str(ei.value)
