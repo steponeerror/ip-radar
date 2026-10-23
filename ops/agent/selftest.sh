@@ -464,6 +464,23 @@ else
   skipok "contract:spawn 契约三层测试" "供给缺(node/node_modules/rg/git)——CI 由 npm ci 保证"
 fi
 
+if command -v node >/dev/null 2>&1 && [[ -d "$AGENT/node_modules/@earendil-works/pi-agent-core" ]] \
+   && [[ -f "$AGENT/pipeline.mjs" ]]; then
+  PTOUT="$(node "$AGENT/selftest-pipeline.mjs" 2>&1)"; PTRC=$?
+  PTPASS_N="$(grep -c '^PIPEPASS ' <<<"$PTOUT" || true)"
+  PTFAIL_N="$(grep -c '^PIPEFAIL ' <<<"$PTOUT" || true)"
+  if (( PTRC == 0 && PTFAIL_N == 0 && PTPASS_N > 0 )); then
+    ok "pipeline:P2 骨架自测全绿(${PTPASS_N} 例;伞面接引=审 P1-1)"
+  else
+    bad "pipeline:P2 骨架自测失败(PASS=${PTPASS_N} FAIL=${PTFAIL_N})"
+    printf '%s\n' "$PTOUT" | grep '^PIPEFAIL' || true
+  fi
+  node --check "$AGENT/selftest-pipeline.mjs" 2>/dev/null \
+    && ok "pipeline:runner node 语法通过" || bad "pipeline:runner node 语法通过"
+else
+  skipok "pipeline:P2 骨架自测" "供给缺(node/node_modules/pipeline.mjs)——CI 由 npm ci 保证"
+fi
+
 echo "----"
 echo "selftest: PASS=$pass FAIL=$fail"
 (( fail == 0 )) || exit 1

@@ -1,0 +1,348 @@
+#!/usr/bin/env node
+// pipeline.mjs — 健康轮轮次状态机宿主(P2 比稿 C P0 骨架;spec #161;详设 notes/p2-design-c-pipelinefirst-2026-10-23.md §2/§4)。
+// 用法: node ops/agent/pipeline.mjs health [--round-id ID] [--fixtures DIR]          ← 跑一轮(P0 模型步恒 faux,零 API)
+//       node ops/agent/pipeline.mjs replay <round_id> [--from STAGE] [--to STAGE] [--dry] [--fixtures DIR]
+// 三层职责线(DESIGN.md §2):本文件=宿主层只编排——定义表(数据)驱动引擎,门全机检(pipeline/gates.mjs),
+// 脚本步(pipeline/steps.mjs)只测量不判断,模型步经 pipeline/faux.mjs(P0 faux provider;P3 换真 provider 零引擎改动)。
+// 契约沿用 agent.mjs spawn 契约:stdout 末行=轮次信封(现有形状只增 pipeline 扩展字段,C稿 §4.4);
+// stderr 阶段行第三次修约(C稿 §5.2):[stage] <NAME> start / done gate=PASS dur=412s artifact=01-….json /
+// fail gate=G_X code=<九词> reason=…;错误码沿用九词闭集零新词(哪一步失败由 pipeline.stages[].status 表达);
+// 用法错=纯 stderr+exit 2 不发 JSON。env 面 ∈ SPAWN_CONTRACT_ENV(agent.mjs 唯一详述点):
+// DOCS_ROOT(rounds/rules/retro 派生根)+OPS_PIPELINE(legacy|pipeline 迁移开关)+OPS_PIPELINE_BUDGET_CNY(预算门)。
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { DOCS_ROOT } from "./tools.mjs";
+import { ERROR_CODES } from "./agent.mjs";
+import * as steps from "./pipeline/steps.mjs";
+import * as gates from "./pipeline/gates.mjs";
+import { runModelStep } from "./pipeline/faux.mjs";
+
+const AGENT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const OPS_ROOT = path.join(DOCS_ROOT, "ops"); // rounds/rules/retro 派生落位(C稿 §5.2,同 queue/artifacts 判例)
+
+// ── 轮次定义表(数据非代码;C稿 §2.2 十状态;加状态须过 spec 变更+三元组铁律:无工件/无门/无失败语义=不配当状态)──
+// 每态:name/kind(script|model|bookend|terminal)/model(配置键,P0 恒 faux)/工件清单(out)/门/失败语义三元组
+// fail={retry,terminal,degrade?,perItem?}(重试上限/终态错误码∈九词闭集/降级路径);skipWhen=命名谓词闭集。
+// 注:IDLE 准入门(车道/预算/同型在飞,C稿 §2.2 十态之一)不在此表——属宿主接线,落 P5(#167);
+// 本表=跑步态集+CLOSE+FAILED,防误读十状态缺一(审后注 reviewer P2-1)。
+export const HEALTH_PIPELINE = [
+  { name: "PROBE", kind: "script", model: null,
+    out: ["01-probe-freshness.tsv", "01-probe-matrix.json", "01-probe-summary.json"],
+    gate: "G_PROBE", artifact: "01-probe-summary.json",
+    fail: { retry: 2, terminal: "infra" } }, // 暂态(超时/网络)重试≤2;门败=终态 infra(工件保留)
+  { name: "VERIFY", kind: "script", model: null,
+    out: ["02-verify-survivors.json", "02-verify-suppressed.json"],
+    gate: "G_VERIFY", artifact: "02-verify-survivors.json",
+    fail: { retry: 0, terminal: "infra" } }, // 规则文件坏=终态 infra;规则零命中=空集照常通过(降级直通)
+  { name: "TRIAGE", kind: "model", model: "health/triage",
+    out: ["03-triage-hypotheses.json", "03-triage-transcript.jsonl"],
+    gate: "G_TRIAGE", artifact: "03-triage-hypotheses.json",
+    fail: { retry: 1, terminal: "model_face" } }, // schema 违例重试≤1;幸存集空=门直过(零假设合法)
+  { name: "DISPATCH", kind: "script", model: null, skipWhen: "no_need_deep",
+    out: ["04-dispatch-bundles.json"], gate: "G_DISPATCH", artifact: "04-dispatch-bundles.json",
+    fail: { retry: 0, degrade: "budget_truncate", terminal: "infra" } }, // 预算不够=降级截尾(非失败);bug=infra
+  { name: "DEEP", kind: "model", model: "health/deep", forEach: "bundles", skipWhen: "no_need_deep",
+    out: ["05-deep-verdicts.json"], gate: "G_DEEP", artifact: "05-deep-verdicts.json",
+    fail: { retry: 1, perItem: "unresolved", terminal: "model_face" } }, // 单假设败=降级 unresolved;全败=终态
+  { name: "ITEMIZE", kind: "script", model: null,
+    out: ["06-itemize-manifest.json"], gate: "G_ITEMIZE", artifact: "06-itemize-manifest.json",
+    fail: { retry: 0, terminal: "verify_failed" } }, // 条目写败=可重入终态(条目库幂等兜底)
+  { name: "SYNTH", kind: "model", model: "health/synth",
+    out: ["07-synth-report.md", "07-synth-transcript.jsonl"], gate: "G_SYNTH", artifact: "07-synth-report.md",
+    fail: { retry: 1, terminal: "empty_text" } }, // 契约违例重试≤1;条目已落库不回滚(证据不灭失)
+  { name: "RETRO", kind: "script", model: null,
+    out: ["../retro/<round_id>.json"], gate: "G_RETRO", artifact: "retro/<round_id>.json",
+    fail: { retry: 0, degrade: "skip_retro", terminal: "ledger_failed" } }, // 候选失败=降级;台账/sandbox=终态
+  { name: "CLOSE", kind: "bookend", model: null, out: [], gate: "G_CLOSE", artifact: "(envelope)",
+    fail: { retry: 0, terminal: "infra" } }, // 信封写失败=infra;重放不入 CLOSE(原轮次时序)
+  { name: "FAILED", kind: "terminal", model: null, out: [], gate: null, artifact: null,
+    fail: { retry: 0, terminal: null } }, // 终态书挡:工件全保留,replay 可救
+];
+const byName = (n) => HEALTH_PIPELINE.find((d) => d.name === n);
+const RUNNABLE = HEALTH_PIPELINE.filter((d) => d.kind === "script" || d.kind === "model").map((d) => d.name); // replay 段闭集
+const STAGE_PREFIX = { PROBE: "01-", VERIFY: "02-", TRIAGE: "03-", DISPATCH: "04-", DEEP: "05-", ITEMIZE: "06-", SYNTH: "07-" }; // 工件序号前缀固定步序(C稿 §4.1)
+
+// ══ 引擎(通用代码,≤300 行纪律:下段至文件尾只做定义表驱动的编排,不判任何具体步)══
+const nowIso = () => new Date().toISOString();
+const roundIdNow = (type) => { const d = new Date(), p = (x) => String(x).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}-${type}`; };
+const atomicWrite = (p, text) => { fs.writeFileSync(`${p}.tmp`, text); fs.renameSync(`${p}.tmp`, p); }; // 沿 _ops_store.atomic_write_text 判例
+const j = (p) => { try { return JSON.parse(fs.readFileSync(p, "utf8")); } catch { return null; } };
+const SKIP_WHEN = { // 命名谓词闭集(定义表数据引用;新增=spec 变更)
+  no_need_deep: (ctx) => {
+    const b = j(path.join(ctx.dir, "04-dispatch-bundles.json"));
+    if (b) return !(b.bundles ?? []).length; // DISPATCH 已跑:零 bundle(零假设或预算全截尾)
+    const h = j(path.join(ctx.dir, "03-triage-hypotheses.json"));
+    return !((h?.hypotheses ?? []).some((x) => x.need_deep));
+  },
+};
+
+function mkCtx(opts, io) {
+  const type = opts.type ?? "health";
+  if (type !== "health") throw Object.assign(new Error(`P0 仅健康轮管线(discover 立项后自持定义表):${type}`), { code: "bad_round" });
+  const roundId = opts.roundId ?? roundIdNow(type);
+  if (!/^\d{4}-\d{2}-\d{2}-\d{4}-health(-r\d+)?$/.test(roundId))
+    throw Object.assign(new Error(`round_id 形状须 YYYY-MM-DD-HHMM-health:${roundId}`), { code: "bad_round" });
+  const budgetRaw = io.env.OPS_PIPELINE_BUDGET_CNY ?? process.env.OPS_PIPELINE_BUDGET_CNY ?? "0.05";
+  const budgetCny = +budgetRaw; // NaN 静默放行=审后修 P2-4:非法值退出 2 不带病跑轮
+  if (!Number.isFinite(budgetCny) || budgetCny < 0)
+    throw Object.assign(new Error(`OPS_PIPELINE_BUDGET_CNY 须为非负数,得到:${budgetRaw}`), { usage: true });
+  const fixturesDir = path.resolve(opts.fixturesDir ?? path.join(AGENT_DIR, "fixtures", "pipeline"));
+  const state = { schema: 1, round_id: roundId, type, pipeline_mode: io.env.OPS_PIPELINE ?? process.env.OPS_PIPELINE ?? "legacy",
+    status: "in_flight", stage: null, stages: [], budget_cny: budgetCny, fixtures_dir: fixturesDir, prompt_hashes: {},
+    started_at: nowIso(), updated_at: nowIso(), resume_count: 0, replay_of: opts.replayOf ?? null };
+  return { type, roundId, dir: path.join(OPS_ROOT, "rounds", roundId), env: io.env, log: io.log,
+    fixturesDir, budgetCny, opsRoot: OPS_ROOT, rulesFile: path.join(OPS_ROOT, "rules", "suppressions.json"),
+    retroFile: path.join(OPS_ROOT, "retro", `${roundId}.json`), retroAuditKey: roundId,
+    ledgerFile: io.env.LEDGER_FILE ?? process.env.LEDGER_FILE ?? path.join(DOCS_ROOT, "ops", "ledger.md"),
+    inFlightFile: path.join(fixturesDir, "in-flight.json"),
+    pkg: null, verify: null, envelope: null, usage: { input: 0, output: 0, totalTokens: 0, cost: 0 }, state };
+}
+const writeState = (ctx) => { ctx.state.updated_at = nowIso(); atomicWrite(path.join(ctx.dir, "state.json"), JSON.stringify(ctx.state, null, 2) + "\n"); };
+const addUsage = (to, from) => { for (const k of ["input", "output", "totalTokens", "cost"]) to[k] += from?.[k] ?? 0; };
+
+function composeEnvelope(ctx, { ok, code, message }) { // 现有形状只增 pipeline 扩展字段(C稿 §4.4;旧消费方透传零改)
+  const pipeline = { round_id: ctx.roundId, resumed_from: null, replayed_of: ctx.state.replay_of, stages: ctx.state.stages };
+  if (ok) return { ok: true, round: ctx.type, pkg: ctx.pkg, usage: { ...ctx.usage }, queue_writes: [],
+    verify: ctx.verify ?? { ok: true, cited: 0 }, pipeline };
+  const e = { ok: false, round: ctx.type, error: { code, message } };
+  if (ctx.pkg) e.pkg = ctx.pkg; // 包已落盘才回传(轮次失败≠工件灭失)
+  e.pipeline = pipeline;
+  return e;
+}
+function failStage(ctx, def, rec, e, gateRec) {
+  const code = ERROR_CODES.includes(e?.code) ? e.code : "infra"; // 无 code/闭集外归兜底(同 agent.mjs)
+  rec.status = "failed";
+  if (!ctx.state.stages.includes(rec)) ctx.state.stages.push(rec);
+  ctx.state.status = "failed";
+  ctx.state.stage = "FAILED"; // 终态书挡(定义表 FAILED 项)
+  writeState(ctx);
+  ctx.log(`[stage] ${def.name} fail gate=${gateRec && !gateRec.pass ? def.gate : "-"} code=${code} reason=${e?.message ?? String(e)}`);
+  return { code, message: `${def.name}:${e?.message ?? String(e)}` };
+}
+
+// 模型步执行(引擎数据循环:DEEP 逐假设独立子进程位=P4;P0 同进程 faux,循环语义已就位)
+async function runModelStage(def, ctx, rec) {
+  const io = steps.modelIO(def);
+  const items = def.forEach ? steps.forEachItems(def, ctx) : [null];
+  const usage = { input: 0, output: 0, totalTokens: 0, cost: 0 };
+  const degradedItems = [];
+  let failed = 0;
+  for (const item of items) {
+    let done = false;
+    for (let a = 0; a <= def.fail.retry && !done; a++) {
+      rec.attempts += 1;
+      try {
+        const r = await runModelStep(def, ctx, item);
+        ctx.state.prompt_hashes[`${def.name}${item ? `:${item.hid}` : ""}`] = r.prompt_sha; // replay 审计面(C稿 §4.5)
+        await io.consume(ctx, item, r);
+        addUsage(usage, r.usage);
+        done = true;
+      } catch (e) {
+        if (a === def.fail.retry) {
+          if (def.fail.perItem && items.length) { failed += 1; done = true; // 单假设降级 unresolved(不终态)
+            degradedItems.push({ hid: item?.hid ?? def.name, verdict: "unresolved", evidence: [], one_line: `重试尽降级 unresolved(${e.message})` });
+          } else throw e;
+        } else ctx.log(`[stage] ${def.name} retry(a=${a + 1}:${e.message})`);
+      }
+    }
+  }
+  if (def.fail.perItem && items.length && failed === items.length)
+    throw Object.assign(new Error(`全部 ${items.length} 假设失败(model_face)`), { code: "model_face" }); // 全败=终态(C稿 §2.2)
+  if (io.finalize) await io.finalize(ctx, { degradedItems });
+  return { usage, degraded: degradedItems.length > 0 };
+}
+
+// 段执行器(runPipeline 与 replay 共用):dry=只跑门不调模型不跑步(C稿 §4.5);
+// skippedInOriginal=原件轮里被 SKIP_WHEN 跳过的步——dry 审计对这些步跳门(审后修 P2-3):
+// 缺席工件判门败是假阴性,静轮 dry 首审即触发;原件 stages[].status=skipped 即不评其门。
+async function runStages(ctx, { fromIdx = 0, toIdx = RUNNABLE.length - 1, dry = false, skippedInOriginal = [] } = {}) {
+  for (let i = fromIdx; i <= toIdx; i++) {
+    const def = byName(RUNNABLE[i]);
+    if (dry && skippedInOriginal.includes(def.name)) {
+      const srec = { name: def.name, status: "dry-skip", attempts: 0, dur_ms: 0, usage: null };
+      ctx.state.stages.push(srec);
+      ctx.state.stage = def.name;
+      writeState(ctx);
+      ctx.log(`[stage] ${def.name} done gate=SKIP(dry:原件 skipped) dur=0s artifact=-`);
+      continue;
+    }
+    const rec = { name: def.name, status: dry ? "dry" : "done", attempts: 0, dur_ms: 0, usage: null };
+    const t0 = performance.now();
+    let gateRec = null, degraded = null;
+    try {
+      if (!dry && def.skipWhen && SKIP_WHEN[def.skipWhen]?.(ctx)) {
+        rec.status = "skipped";
+        ctx.state.stages.push(rec);
+        ctx.state.stage = def.name;
+        writeState(ctx);
+        ctx.log(`[stage] ${def.name} done gate=SKIP(${def.skipWhen}) dur=0s artifact=-`); // 转移图 TRIAGE→ITEMIZE 直达
+        continue;
+      }
+      ctx.log(`[stage] ${def.name} start`);
+      if (!dry) {
+        if (def.kind === "model") {
+          const r = await runModelStage(def, ctx, rec);
+          rec.usage = r.usage;
+          addUsage(ctx.usage, r.usage); // 顶层 usage=各模型步之和(旧字段「整轮求和」语义保持)
+          degraded = r.degraded ? { degraded: `${def.fail.perItem} 降级` } : null;
+        } else {
+          let attempt = 0;
+          for (;;) {
+            rec.attempts += 1;
+            try { degraded = (await steps.runStage(def, ctx)) ?? null; break; }
+            catch (e) {
+              if (attempt < def.fail.retry) { attempt += 1; ctx.log(`[stage] ${def.name} retry${attempt}(${e.message})`); continue; }
+              throw e;
+            }
+          }
+        }
+      }
+      if (degraded?.skipGate) gates.appendGateBypass(ctx.dir, ctx.roundId, def, degraded.degraded);
+      else {
+        gateRec = gates.evalStageGate(def, ctx);
+        gates.appendGate(ctx.dir, ctx.roundId, gateRec);
+        if (!gateRec.pass) throw Object.assign(new Error(`门败 ${def.gate}:${gateRec.reason}`), { code: def.fail.terminal });
+      }
+      rec.dur_ms = Math.round(performance.now() - t0);
+      if (degraded) rec.status = "degraded";
+      ctx.state.stages.push(rec);
+      ctx.state.stage = def.name;
+      writeState(ctx); // 每步边界原子写(C稿 §4.6)
+      ctx.log(`[stage] ${def.name} done gate=${degraded?.skipGate ? "BYPASS" : "PASS"} dur=${Math.round(rec.dur_ms / 1000)}s artifact=${def.artifact?.replace("<round_id>", ctx.roundId) ?? "-"}`);
+    } catch (e) {
+      rec.dur_ms = Math.round(performance.now() - t0);
+      return failStage(ctx, def, rec, e, gateRec);
+    }
+  }
+  return null;
+}
+
+async function finishClose(ctx, io) { // CLOSE 书挡:存在性校验→信封门→state 终写→stdout 末行(重放不入此步)
+  const def = byName("CLOSE");
+  const rec = { name: "CLOSE", status: "done", attempts: 1, dur_ms: 0, usage: null };
+  const t0 = performance.now();
+  ctx.log("[stage] CLOSE start");
+  try {
+    await steps.runStage(def, ctx);
+    ctx.state.stages.push(rec);
+    const envelope = composeEnvelope(ctx, { ok: true });
+    ctx.envelope = envelope;
+    const gr = gates.evalStageGate(def, ctx);
+    gates.appendGate(ctx.dir, ctx.roundId, gr);
+    if (!gr.pass) throw Object.assign(new Error(`门败 G_CLOSE:${gr.reason}`), { code: "infra" });
+    rec.dur_ms = Math.round(performance.now() - t0);
+    ctx.state.status = "done";
+    ctx.state.stage = "CLOSE";
+    writeState(ctx);
+    ctx.log(`[stage] CLOSE done gate=PASS dur=${Math.round(rec.dur_ms / 1000)}s artifact=(envelope)`);
+    io.stdout.write(JSON.stringify(envelope) + "\n");
+    return { ok: true, envelope, roundId: ctx.roundId, dir: ctx.dir };
+  } catch (e) {
+    const f = failStage(ctx, def, rec, e, null);
+    const envelope = composeEnvelope(ctx, { ok: false, ...f });
+    io.stdout.write(JSON.stringify(envelope) + "\n");
+    return { ok: false, envelope, roundId: ctx.roundId, dir: ctx.dir };
+  }
+}
+
+const bindIo = (opts) => {
+  const stdout = opts.stdout ?? process.stdout, stderr = opts.stderr ?? process.stderr;
+  return { env: opts.env ?? process.env, stdout, stderr, log: (l) => stderr.write(`${l}\n`) };
+};
+
+export async function runPipeline(opts = {}) {
+  const io = bindIo(opts);
+  const ctx = mkCtx(opts, io);
+  const emitFail = (code, message) => { const envelope = composeEnvelope(ctx, { ok: false, code, message });
+    io.stdout.write(JSON.stringify(envelope) + "\n"); return { ok: false, envelope, roundId: ctx.roundId, dir: ctx.dir }; };
+  if (fs.existsSync(path.join(ctx.dir, "state.json"))) return emitFail("bad_round", `rounds/${ctx.roundId} 已存在(同 id 重跑走 replay)`);
+  fs.mkdirSync(ctx.dir, { recursive: true });
+  writeState(ctx); // 轮次目录 + state.json 建立
+  const failure = await runStages(ctx);
+  if (failure) return emitFail(failure.code, failure.message);
+  return finishClose(ctx, io);
+}
+
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const copyTree = (src, dst, skip) => { // 原件零改写:只读复制(哲学①证据永不灭失)
+  for (const f of fs.readdirSync(src)) {
+    if (skip.includes(f)) continue;
+    const s = path.join(src, f), d = path.join(dst, f);
+    if (fs.statSync(s).isDirectory()) { fs.mkdirSync(d, { recursive: true }); copyTree(s, d, []); }
+    else fs.copyFileSync(s, d);
+  }
+};
+export async function runReplay(opts = {}) {
+  const io = bindIo(opts);
+  const { roundId, from = "PROBE", to = "RETRO", dry = false } = opts;
+  for (const s of [from, to]) if (!RUNNABLE.includes(s))
+    throw Object.assign(new Error(`replay 步名须 ∈ {${RUNNABLE.join("|")}}(CLOSE 属原轮时序不入重放;FAILED 非可跑步),得到:${s}`), { usage: true });
+  if (RUNNABLE.indexOf(from) > RUNNABLE.indexOf(to)) throw Object.assign(new Error(`--from(${from}) 不得晚于 --to(${to})`), { usage: true });
+  const srcDir = path.join(OPS_ROOT, "rounds", String(roundId));
+  if (!fs.existsSync(path.join(srcDir, "state.json"))) throw Object.assign(new Error(`rounds/${roundId} 无 state.json(无可重放轮次)`), { usage: true });
+  const roundsDir = path.join(OPS_ROOT, "rounds");
+  const seq = 1 + Math.max(0, ...fs.readdirSync(roundsDir)
+    .map((f) => { const m = f.match(new RegExp(`^${escapeRe(String(roundId))}-r(\\d+)$`)); return m ? +m[1] : 0; }));
+  const replayId = `${roundId}-r${seq}`;
+  const dir = path.join(roundsDir, replayId);
+  fs.mkdirSync(dir, { recursive: true });
+  // 原件零改写(哲学①):只读复制。dry=审计面,全量工件复制供门重算;非 dry 只复制段前置
+  // 工件(按序号前缀;段内输出重执行再生——itemize 幂等重入若见复制件会把 created 记成 deduped,
+  // 与段内重跑的模型步 canned 产物计数不一致,属假门败)。items/ 归 ITEMIZE 再生,不复制。
+  if (dry) copyTree(srcDir, dir, ["state.json", "gates.json"]);
+  else {
+    const prefixes = RUNNABLE.slice(0, RUNNABLE.indexOf(from)).map((n) => STAGE_PREFIX[n]).filter(Boolean);
+    for (const f of fs.readdirSync(srcDir)) {
+      if (f === "state.json" || f === "gates.json" || fs.statSync(path.join(srcDir, f)).isDirectory()) continue;
+      if (prefixes.some((p) => f.startsWith(p))) fs.copyFileSync(path.join(srcDir, f), path.join(dir, f));
+    }
+  }
+  const ctx = mkCtx({ ...opts, roundId: replayId, replayOf: roundId }, io);
+  ctx.retroAuditKey = dry ? roundId : replayId; // dry 审原件工件;重执行审重放自产
+  writeState(ctx);
+  // dry 审计对原件跳过的步跳门(审后修 P2-3):读原件 state.json 的 skipped 集
+  const origSkipped = (JSON.parse(fs.readFileSync(path.join(srcDir, "state.json"), "utf8"))?.stages ?? [])
+    .filter((s) => s?.status === "skipped").map((s) => s.name);
+  const failure = await runStages(ctx, { fromIdx: RUNNABLE.indexOf(from), toIdx: RUNNABLE.indexOf(to), dry, skippedInOriginal: origSkipped });
+  const rp = path.join(dir, "07-synth-report.md");
+  if (fs.existsSync(rp)) ctx.pkg = rp; // 重放段产物或复制件
+  const envelope = failure ? composeEnvelope(ctx, { ok: false, ...failure }) : composeEnvelope(ctx, { ok: true });
+  io.stdout.write(JSON.stringify(envelope) + "\n");
+  return { ok: !failure, envelope, roundId: replayId, dir };
+}
+
+// main(argv, io) — 可测入口(agent.mjs 同型):返回退出码 0/1/2;用法错=纯 stderr 不发 JSON
+export async function main(argv, io = {}) {
+  const env = io.env ?? process.env;
+  const stdout = io.stdout ?? process.stdout, stderr = io.stderr ?? process.stderr;
+  const usage = "用法: node ops/agent/pipeline.mjs health [--round-id ID] [--fixtures DIR]\n      node ops/agent/pipeline.mjs replay <round_id> [--from STAGE] [--to STAGE] [--dry] [--fixtures DIR]";
+  const flag = (n) => { const i = argv.indexOf(n); return i >= 0 ? argv[i + 1] : undefined; };
+  const bad = (m) => { stderr.write(`${m}\n${usage}\n`); return 2; };
+  const mode = env.OPS_PIPELINE ?? process.env.OPS_PIPELINE ?? "legacy"; // 迁移开关(P2 桥消费;本 CLI 校验值闭集并记入 state.json)
+  if (!["legacy", "pipeline"].includes(mode)) return bad(`OPS_PIPELINE 须 legacy|pipeline,得到:${mode}`);
+  const [cmd, pos] = argv;
+  const emitInfra = (e) => { const code = ERROR_CODES.includes(e?.code) ? e.code : "infra";
+    stdout.write(JSON.stringify({ ok: false, round: "health", error: { code, message: e?.message ?? String(e) } }) + "\n"); return 1; };
+  try {
+    if (cmd === "health") {
+      const r = await runPipeline({ type: "health", roundId: flag("--round-id"), fixturesDir: flag("--fixtures"), env, stdout, stderr });
+      return r.ok ? 0 : 1;
+    }
+    if (cmd === "replay") {
+      if (!pos || pos.startsWith("-")) return bad("replay 缺 <round_id>");
+      const r = await runReplay({ roundId: pos, from: flag("--from"), to: flag("--to"), dry: argv.includes("--dry"),
+        fixturesDir: flag("--fixtures"), env, stdout, stderr });
+      return r.ok ? 0 : 1;
+    }
+    return bad(`未知子命令:${cmd ?? "(无)"}`);
+  } catch (e) {
+    if (e?.usage) return bad(e.message);
+    return emitInfra(e);
+  }
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  process.exitCode = await main(process.argv.slice(2)); // exitCode 而非 exit:stdout 单行 JSON 必须完整落管(agent.mjs 同判例)
+}

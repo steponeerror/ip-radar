@@ -1,0 +1,28 @@
+{
+  "ok": true,
+  "exit_code": 0,
+  "counts": {
+    "violation": 0,
+    "pending": 0,
+    "agreement": 4
+  },
+  "layers": {
+    "truth": {
+      "status": "OK",
+      "members": 4,
+      "sampled": 4,
+      "notes": []
+    },
+    "infra": {
+      "status": "OK",
+      "members": 8,
+      "sampled": 8,
+      "notes": []
+    }
+  },
+  "buckets": {
+    "violation": [],
+    "pending": [],
+    "agreement": []
+  }
+}

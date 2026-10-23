@@ -1,0 +1,29 @@
+{
+  "seed": {
+    "id": "call_d1",
+    "tool": "fetch_url",
+    "sc": {
+      "ok": true,
+      "url": "https://cinsscore.com/list/ci-badguys.txt",
+      "method": "HEAD",
+      "status": 200,
+      "age_days": 220,
+      "trace": {
+        "cmd": "(fixture-seed)",
+        "rc": 0
+      }
+    }
+  },
+  "turns": [
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"hypothesis_id\":\"https://cinsscore.com/list/ci-badguys.txt\",\"verdict\":\"confirmed\",\"evidence\":[{\"call_id\":\"call_d1\",\"field\":\"age_days\",\"value\":220}],\"one_line\":\"复测仍 220 天冻结,证实死键嫌疑\"}"
+        }
+      ],
+      "stopReason": "stop"
+    }
+  ]
+}

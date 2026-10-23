@@ -100,6 +100,13 @@
 - **提示词层 / 装配层 / 宿主层**:运营 agent 三层(ADR 0007,2026-10-23)——提示词层=进模型的系统提示内容(角色/回路/阶段门/反模式 tell/few-shot 指针,只判断);装配层=上下文构造(锚判例预注入/按需检索/轮间 handoff 指针纪律——只指不复制防双源漂移,索引是地图不是存储);宿主层=模型外面的一切(轮次派生/工具白名单/沙箱断言/transcript 工件/retro 钩子/预算卡,只编排)。职责线:宿主只编排不判断,提示词只判断不编排,脚本只测量不判断;调用权在宿主不在模型。理念八条律与审阅清单真源 = ops/agent/DESIGN.md。锚:DESIGN.md、ADR 0007(嵌套 docs 仓)、agent.mjs+tools.mjs
 - **待审条目**:运营交互重构的新域对象(2026-10-23 裁,ADR 0006):结构化动作条目,v1 冻结十字段 {id, action, args, evidence, impact, rollback, dedup_key, severity, cause_group, status(active/snoozed/done/dismissed)};markdown 包降级为条目集的只读渲染,不再是审阅面。锚:backend/ipdb/_ops_items.py(存储/状态机)、backend/ipdb/_ops_review.py(四键审阅)、backend/ipdb/_ops_detectors.py(确定性产条)、docs/adr/0006
 - **六条硬规**:运营面视觉验收基准(spec #146):①面板等宽通栏 ②数字列右对齐 ③中文术语统一(mono 数据/UI 文案分轨不变) ④次级动作一律描边按钮 ⑤accent 纪律 = 唯一绿 accent,红/琥珀仅事件性警示 ⑥空态用基准「暂无」式居中提示。执行纪律:DOM 测得出的走行为断言(role/aria/可见文本,不断样式类名);测不出的(基线/密度/accent/右对齐)走视觉复评门——截屏对照基准(公开页/源管理页)逐条对拍,零违规是合并裁决前置。锚:spec #146(票面)、frontend/src/pages/opsTable.ts(②⑥)、frontend/src/pages/OpsSectionHead.tsx(④)
+- **轮次状态机**:健康轮的显式状态编排(P2 重造,spec #161;C 骨架)——十状态定义表(数据非代码:每态 name/是否模型步/工件清单/门/失败语义三元组;无工件无门无失败语义=不配当状态,加状态过 spec 变更;禁止嵌套子状态机),引擎=一份通用代码驱动全表;模型只在 TRIAGE/DEEP/SYNTH 三步,其余全确定性脚本步;任意步可 replay。锚:ops/agent/pipeline.mjs(HEALTH_PIPELINE)
+- **阶段门**:状态转移的唯一裁判(不信模型自报):每门 =(工件文件集)→{pass,reason} 纯函数,reason 必带数字可回算,求值留痕 gates.json(门名/布尔/耗时/输入摘要)——门的判断本身可被人审;CLOSE 与 replay 全量重跑门(自愈:状态文件与工件不一致时以工件+门为准)。锚:ops/agent/pipeline/gates.mjs
+- **幸存信号集**:VERIFY 步去噪后进入分诊的旗标子集(冻结≥180 天/不可达);被抑制部分留痕于 02-verify-suppressed.json(抑制=证据降权不灭失,翻案可从工件回)。锚:ops/agent/pipeline/steps.mjs(VERIFY)
+- **抑制规则库**:VERIFY 消费的人裁采纳规则闭集(DOCS_ROOT/ops/rules/suppressions.json;动作闭集 suppress|annotate,谓词闭集 bucket/url_shape/source/error_family,新增=spec 变更;每规则带 review_at 强制复审防磨烂);只有四键 adopt_rule 能写入(P5 闭环)。锚:同上;首批规则=P2 落地(10-23 两假异常人工判例转写)
+- **微探针**:DEEP 步闭集变体复测工具(reprobe_get/reprobe_ua/upstream_check),辨探测伪迹(10-23 GeoLite 404 类:HEAD 假死 GET 实活);P0 为 probe_hint 闭集名+登记表 seed 面,真工具 P4 落地(tools.mjs probe_variant)。锚:ops/agent/pipeline/gates.mjs(CLOSED_SETS.probe_hint)、fixtures/pipeline/deep/
+- **轮次状态文件**:rounds/<round_id>/state.json——状态机持久面:每步边界原子写(temp+rename,沿 _ops_store 判例),boot 恢复与 replay 的单一事实源;轮次目录 rounds/<round_id>/(round_id=YYYY-MM-DD-HHMM-health),replay 产物写 <round_id>-r<seq>/ 原件零改写。锚:ops/agent/pipeline.mjs(writeState/runReplay)
+- **降级(轮次语义)**:失败语义三值(重试/降级/终态)之一——跳过可选步或标 unresolved 转人裁,轮仍成功(信封 ok=true+stages 标 degraded,如 DISPATCH 预算截尾/DEEP 单假设 unresolved/RETRO 跳过);降级不是失败,与终态(九词闭集错误码)两回事。Avoid:「自愈闭环」「自动修复」(有人裁闸门,叫自愈是夸大)、「重试到底」(重试有上限,尽即终态或降级)。锚:ops/agent/pipeline.mjs(runStages 降级分支)
 
 ## It's working if
 
