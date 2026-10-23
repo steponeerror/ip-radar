@@ -44,7 +44,7 @@ inject_precedents() {
   echo "### 注入判例(检索词: ${kws[*]})"
   local hits="" rg_out rg_rc=0
   if (( ${#kws[@]} )); then
-    rg_out="$(rg -i -l -g '*.md' -g '!_schema.md' \
+    rg_out="$(rg -i -l -g '*.md' -g '!_*' \
       $(printf -- '-e %q ' "${kws[@]}") "$PRECEDENTS_DIR" 2>/dev/null)" || rg_rc=$?
   fi
   if (( rg_rc > 1 )); then

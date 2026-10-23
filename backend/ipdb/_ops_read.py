@@ -63,14 +63,14 @@ def list_precedents() -> list[str]:
     """判例文件名列表(_schema.md 排除,倒序 = 新判例先见)。"""
     _ops_store.init_ops_tree()
     names = (p.name for p in (_ops_store.ops_root() / "precedents").glob("*.md")
-             if p.name != "_schema.md")
+             if not p.name.startswith("_"))
     return sorted(names, reverse=True)
 
 
 def read_precedent(name: str) -> str:
     """判例全文逐字;_schema.md 非判例 → 不存在(列表/检索同口径)。"""
-    if name == "_schema.md":
-        raise FileNotFoundError("判例不存在: _schema.md(schema 说明非判例)")
+    if name.startswith("_"):
+        raise FileNotFoundError(f"判例不存在: {name}(_ 前缀为库内说明/索引件,非判例)")
     path = _resolve("precedents", name)
     if not path.is_file():
         raise FileNotFoundError(f"判例不存在: {name}")

@@ -38,7 +38,7 @@ SEED_COUNT = 12  # T1 种子回填下限
 def precedent_files():
     if not PRECEDENTS_DIR.is_dir():
         return []
-    return sorted(p for p in PRECEDENTS_DIR.glob("*.md") if p.name != SCHEMA_FILE)
+    return sorted(p for p in PRECEDENTS_DIR.glob("*.md") if not p.name.startswith("_"))
 
 
 def parse_frontmatter(path: Path) -> dict:
