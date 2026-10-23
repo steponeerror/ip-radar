@@ -338,6 +338,65 @@ await t("matrix 裸失败负例(#163 review P2-1):信封件落 01-probe-matrix.j
   assert.ok(g.records.every((x) => x.pass), "门不受 matrix 裸失败牵连(legacy 失败只回嵌套信封,不阻轮语义两侧一致)");
 });
 
+// ── B 三件装配层(并 #164):_INDEX 生成器/锚域词表/升格检测器 — 单元面(快,不跑整轮)──
+await t("B① _INDEX 召回地板:概念判例一行一件、留痕/下划线件排除、再生字节一致、尾部档案汇总", async () => {
+  const { buildIndexText, parsePrecedentFm } = await import("./build-index.mjs");
+  const pdir = path.join(TMP, "prec-b");
+  fs.mkdirSync(pdir, { recursive: true });
+  const mk = (name, subject, ctx = "") => fs.writeFileSync(path.join(pdir, name),
+    `---\nid: ${name.replace(/\.md$/, "")}\ndate: 2026-10-24\nsubject: ${subject}\ncontext: >\n  ${ctx}\nsuperseded_by: null\n---\n\n正文。\n`);
+  mk("2026-10-01-alpha-sunset.md", "源候选判死 — sunset 硬门(URL Last-Modified 冻结)", "threatview.io 冻结 240 天");
+  mk("2026-10-02-beta-aggregator.md", "聚合器误判 — 实测排他率立证 ziyadnz");
+  fs.writeFileSync(path.join(pdir, "2026-10-24-ruling-deadbeef.md"), "---\nid: r\nsuperseded_by: null\n---\n留痕\n");
+  fs.writeFileSync(path.join(pdir, "_schema.md"), "schema\n");
+  const files = fs.readdirSync(pdir).filter((f) => f.endsWith(".md") && !f.startsWith("_")).sort()
+    .map((name) => ({ name, fm: parsePrecedentFm(fs.readFileSync(path.join(pdir, name), "utf8")) }));
+  const concepts = files.filter((f) => !/[\d-]+-ruling-/.test(f.name));
+  const text = buildIndexText(concepts);
+  assert.equal(concepts.length, 2, "ruling 不进索引(留痕非记忆面)");
+  assert.match(text, /2026-10-01-alpha-sunset\.md \| 源候选判死 \|/);
+  assert.match(text, /2026-10-02-beta-aggregator\.md.*ziyadnz/);
+  assert.doesNotMatch(text, /ruling-deadbeef|_schema/);
+  assert.match(text, /superseded: 0 条/);
+  assert.equal(buildIndexText(concepts), text, "同库再生字节一致(派生缓存)");
+});
+
+await t("B② 锚域词表:闭包校验拒缺件锚;选锚纯函数(域词×旗标命中/空旗标零注入/HIT_CAP)", async () => {
+  const anchors = await import("./pipeline/anchors.mjs");
+  const { validateAnchors } = await import("./build-index.mjs");
+  const loaded = anchors.loadAnchors(path.join(AGENT, "anchors-health.json"));
+  assert.ok(loaded.anchors.length >= 5, `锚域 ≥5(${loaded.anchors.length})`);
+  const real = ["2026-10-23-ruling-bbe1ad6f0c.md", "2026-10-19-threatview-sunset-dead-feed.md"];
+  assert.throws(() => validateAnchors(loaded, real), /锚指向缺件/, "闭包:锚指不在库中的判例 = 编造路径,拒");
+  const flags = [{ url: "https://github.com/P3TERX/GeoLite.mmdb/releases/latest/download/", source: "geolite_city", bucket: "unreachable", error_family: "http_404" },
+    { url: "https://x/f.txt", source: "dshield", bucket: "frozen" }];
+  const picked = anchors.anchorSelect(loaded.anchors, flags);
+  assert.ok(picked.includes("2026-10-23-ruling-bbe1ad6f0c.md"), "GitHub 重定向 404 旗标选 GeoLite 判例锚");
+  assert.equal(anchors.anchorSelect(loaded.anchors, []).length, 0, "空旗标零注入(宁少算)");
+  assert.equal(anchors.anchorSelect(loaded.anchors, flags).length <= anchors.HIT_CAP, true, "铁律⑦ HIT_CAP");
+});
+
+await t("B③ 升格检测器:同源留痕≥2 且一致→候选(三门槛 pending);不一致/superseded/单条不立项;候选件幂等", async () => {
+  const pd = await import("./promote-detect.mjs");
+  const mk = (name, rec, agr, sup = null) => ({ name, recommendation: rec, ruling_agreement: agr, superseded_by: sup });
+  const r = [
+    mk("r1.md", "retry_download — urlhaus 数据停更,威胁覆盖面收缩(待审条目 2026-10-23-item-aaa)", "agreed"),
+    mk("r2.md", "不可达·建议复核: https://urlhaus.abuse.ch/downloads/csv_online/", "agreed"),
+    mk("r3.md", "retry_download — threatfox 数据停更,威胁覆盖面收缩(待审条目 2026-10-23-item-bbb)", "amended"),
+    mk("r4.md", "retry_download — threatfox 数据停更,威胁覆盖面收缩(待审条目 2026-10-23-item-ccc);忽略理由:410 已确诊", "overruled"),
+    mk("r5.md", "同文但已被取代(留痕不计数)", "agreed", "r6.md"),
+  ];
+  const cands = pd.detectCandidates(r);
+  assert.equal(cands.length, 1, "urlhaus 同源一致成组;threatfox 裁决不一致不立项;superseded 不计数");
+  assert.equal(cands[0].cause_key, "同源:urlhaus");
+  assert.deepEqual(cands[0].rulings, ["r1.md", "r2.md"]);
+  const text = pd.candidateText(cands[0], "2026-10-24T00:00:00Z");
+  const obj = JSON.parse(text);
+  assert.equal(obj.status, "proposed");
+  assert.deepEqual(obj.gates.map((g) => g.id), ["machine_checkable", "falsifiable", "non_env_specific"]);
+  assert.ok(obj.gates.every((g) => g.verdict === "pending"), "三门槛 pending 起步,人裁逐项核");
+});
+
 await t("位等价门(#163):同 stub 下 legacy health 轮工件 = 管线 PROBE 工件,逐字节 diff 空+计数两口径对拍", async () => {
   // 腿一(legacy)= agent.mjs runRound 真 Agent 循环(golden health 例同型):faux 模型点
   // health_snapshot → lib.sh feed_freshness + tools.mjs runMatrixScan 真路径,产出 ts-slug 工件;
