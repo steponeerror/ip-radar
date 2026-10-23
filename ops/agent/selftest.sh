@@ -255,6 +255,94 @@ grep -qx 'https://www.binarydefense.com/banlist.txt' <<<"$EFU" \
 [[ "$(wc -l <<<"$EFU")" -ge 50 ]] \
   && ok "urls:规模 ≥50(源覆盖面)" || bad "urls:规模 ≥50(源覆盖面)"
 
+# ---- 7b. P1 T2 降噪三刀(spec #152 §2,票 #154):TOKEN_REQUIRED 分类 / raw 重试 / URL 排除面 ----
+# 排除面真树断言(降噪刀二):实证噪音源两 URL 不再落探测面
+! grep -q 'abuseipdb.com/account' <<<"$EFU" \
+  && ok "urls:排除账号页 /account(降噪刀二)" || bad "urls:排除账号页 /account(降噪刀二)"
+! grep -q 'confirmation.aspx' <<<"$EFU" \
+  && ok "urls:排除微软下载确认页(降噪刀二)" || bad "urls:排除微软下载确认页(降噪刀二)"
+
+# 排除面 fixture 断言(注释行/行内 # 后/同行多 URL 取首/不吞 accounts.json):
+EFU_DIR="$TMP/efu-fixture"; mkdir -p "$EFU_DIR"
+cat > "$EFU_DIR/fake_source.py" <<'FIXEOF'
+# docs: https://fixture.example/comment-only.txt
+_URL = "https://fixture.example/code-feed.txt"  # see https://fixture.example/trailing.txt
+_PAGE = "https://fixture.example/account"
+_MS = "https://www.microsoft.com/en-us/download/confirmation.aspx?id=1"
+keep = "https://fixture.example/accounts.json"
+FIXEOF
+EFU_FIX="$(extract_feed_urls "$EFU_DIR" 2>/dev/null)"
+grep -qx 'https://fixture.example/code-feed.txt' <<<"$EFU_FIX" \
+  && ok "urls:代码行 URL 保留(fixture)" || bad "urls:代码行 URL 保留(fixture)"
+grep -qx 'https://fixture.example/accounts.json' <<<"$EFU_FIX" \
+  && ok "urls:accounts.json 不被 /account 模式误吞(fixture)" || bad "urls:accounts.json 不被 /account 模式误吞(fixture)"
+! grep -q 'comment-only' <<<"$EFU_FIX" \
+  && ok "urls:注释行 URL 排除(fixture)" || bad "urls:注释行 URL 排除(fixture)"
+! grep -q 'trailing' <<<"$EFU_FIX" \
+  && ok "urls:行内 # 后 URL 排除(fixture)" || bad "urls:行内 # 后 URL 排除(fixture)"
+! grep -qE '(fixture.example/account$|confirmation\.aspx)' <<<"$EFU_FIX" \
+  && ok "urls:非数据页模式排除(fixture)" || bad "urls:非数据页模式排除(fixture)"
+
+# stub curl(golden/run-golden.mjs stubCurl 判例同型:PATH 前置传输层替身,
+# 头形对齐 _ff_code 解析);子Shell隔离 PATH,不污染上方真实 http.server 断言。
+# 计数文件按 URL 哈希分铺——重试用例断言 curl 恰被调 3 次(raw)/2 次(非 raw)。
+STUB_DIR="$TMP/t2-stubs"; STUB_CNT="$TMP/t2-cnt"
+mkdir -p "$STUB_DIR" "$STUB_CNT"
+export STUB_CNT   # stub 是独立进程,计数目录须经环境传导(PATH 同理由子Shell export)
+cat > "$STUB_DIR/curl" <<'STUBEOF'
+#!/usr/bin/env bash
+# P1 T2 selftest stub:curl 传输层替身。末参=URL;tokenwall→403(鉴权墙);
+# flaky→前两次 500 第三次起 200(瞬时失败);其余→404(确定性失败)。
+url="${@: -1}"
+key="$(printf '%s' "$url" | tr -cd 'a-zA-Z0-9' | tail -c 24)"
+n=$(( $(cat "$STUB_CNT/$key" 2>/dev/null || echo 0) + 1 ))
+echo "$n" > "$STUB_CNT/$key"
+case "$url" in
+  *tokenwall*)
+    printf 'HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n'; exit 0 ;;
+  *flaky*)
+    if (( n <= 2 )); then
+      printf 'HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n\r\n'
+    else
+      printf 'HTTP/1.1 200 OK\r\nLast-Modified: %s\r\nContent-Length: 4\r\n\r\n' \
+        "$(date -u '+%a, %d %b %Y %H:%M:%S GMT')"
+    fi
+    exit 0 ;;
+esac
+printf 'HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n'
+STUBEOF
+chmod +x "$STUB_DIR/curl"
+
+# 降噪刀一:401/403 → TOKEN_REQUIRED(需令牌·正常),不算 UNREACHABLE 不进异常旗标
+T2_TOK="$( (export PATH="$STUB_DIR:$PATH"; _ff_probe 'https://api.tokenwall.example/feed.txt') 2>/dev/null)"
+[[ "$(awk -F'\t' '{print $3}' <<<"$T2_TOK")" == "TOKEN_REQUIRED" ]] \
+  && ok "probe:403 → TOKEN_REQUIRED(需令牌·正常)" || bad "probe:403 → TOKEN_REQUIRED(需令牌·正常)"
+! grep -qE '(不可达|死键)' <<<"$(freshness_flags <<<"$T2_TOK")" \
+  && ok "flags:TOKEN_REQUIRED 不进异常旗标(与 NO-LM 同待遇)" || bad "flags:TOKEN_REQUIRED 不进异常旗标(与 NO-LM 同待遇)"
+T2_TOK_N="$( (export PATH="$STUB_DIR:$PATH"; cat "$STUB_CNT/$(printf '%s' 'https://api.tokenwall.example/feed.txt' | tr -cd 'a-zA-Z0-9' | tail -c 24)") 2>/dev/null)"
+[[ "$T2_TOK_N" == 2 ]] \
+  && ok "probe:鉴权墙不重试(HEAD+Range 恰 2 次)" || bad "probe:鉴权墙不重试(HEAD+Range 恰 2 次,实得 $T2_TOK_N)"
+
+# 降噪刀三:raw.github 瞬时失败重试一轮再判;非 raw / 确定性失败不重试
+T2_RAW="$( (export PATH="$STUB_DIR:$PATH"; _ff_probe 'https://raw.githubusercontent.com/flaky-org/feed.txt') 2>/dev/null)"
+[[ "$(awk -F'\t' '{print $3}' <<<"$T2_RAW")" =~ ^[0-9]+$ ]] \
+  && ok "probe:raw 前两连 500 重试后拿到读数(降噪刀三)" || bad "probe:raw 前两连 500 重试后拿到读数(降噪刀三)"
+T2_RAW_N="$( (export PATH="$STUB_DIR:$PATH"; cat "$STUB_CNT/$(printf '%s' 'https://raw.githubusercontent.com/flaky-org/feed.txt' | tr -cd 'a-zA-Z0-9' | tail -c 24)") 2>/dev/null)"
+[[ "$T2_RAW_N" == 3 ]] \
+  && ok "probe:raw 重试恰多一轮(3 次 curl)" || bad "probe:raw 重试恰多一轮(3 次 curl,实得 $T2_RAW_N)"
+T2_NORAW="$( (export PATH="$STUB_DIR:$PATH"; _ff_probe 'https://flaky-host.example/feed.txt') 2>/dev/null)"
+[[ "$(awk -F'\t' '{print $3}' <<<"$T2_NORAW")" == "UNREACHABLE" ]] \
+  && ok "probe:非 raw 同样两连 500 → UNREACHABLE(不重试)" || bad "probe:非 raw 同样两连 500 → UNREACHABLE(不重试)"
+T2_NORAW_N="$( (export PATH="$STUB_DIR:$PATH"; cat "$STUB_CNT/$(printf '%s' 'https://flaky-host.example/feed.txt' | tr -cd 'a-zA-Z0-9' | tail -c 24)") 2>/dev/null)"
+[[ "$T2_NORAW_N" == 2 ]] \
+  && ok "probe:非 raw 恰 2 次 curl(重试仅限 raw.github)" || bad "probe:非 raw 恰 2 次 curl(重试仅限 raw.github,实得 $T2_NORAW_N)"
+T2_404="$( (export PATH="$STUB_DIR:$PATH"; _ff_probe 'https://raw.githubusercontent.com/gone-org/feed.txt') 2>/dev/null)"
+[[ "$(awk -F'\t' '{print $3}' <<<"$T2_404")" == "UNREACHABLE" ]] \
+  && ok "probe:raw 确定性 404 不重试直判 UNREACHABLE" || bad "probe:raw 确定性 404 不重试直判 UNREACHABLE"
+T2_404_N="$( (export PATH="$STUB_DIR:$PATH"; cat "$STUB_CNT/$(printf '%s' 'https://raw.githubusercontent.com/gone-org/feed.txt' | tr -cd 'a-zA-Z0-9' | tail -c 24)") 2>/dev/null)"
+[[ "$T2_404_N" == 2 ]] \
+  && ok "probe:raw 404 恰 2 次 curl(瞬时门不含 4xx)" || bad "probe:raw 404 恰 2 次 curl(瞬时门不含 4xx,实得 $T2_404_N)"
+
 # ---- 8. T4: pi-agent-core 宿主(node 单测:语义门/负例三发/SSRF/读面/队列幂等;不花 API 不真调网络) ----
 if command -v node >/dev/null 2>&1; then
   T4OUT="$(node "$AGENT/selftest-t4.mjs" 2>&1)"; T4RC=$?
