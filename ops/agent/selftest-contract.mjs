@@ -24,7 +24,11 @@ const bad = (name, err) => { fail++; console.log(`CONTRACTFAIL ${name}: ${err}`)
 async function t(name, fn) { try { await fn(); ok(name); } catch (e) { bad(name, e.message); } }
 
 const src = (f) => fs.readFileSync(path.join(AGENT, f), "utf8");
-const SRCS = { agent: src("agent.mjs"), tools: src("tools.mjs"), models: src("models.mjs"), libsh: src("lib.sh") };
+const SRCS = { agent: src("agent.mjs"), tools: src("tools.mjs"), models: src("models.mjs"), libsh: src("lib.sh"),
+  // P2 P0(spec #161):pipeline 面入扫描——OPS_PIPELINE/OPS_PIPELINE_BUDGET_CNY 的真读取方在
+  // pipeline.mjs(值闭集校验/预算门);对拍不变式(表内每项真被读/读取∈表)延展覆盖
+  pipeline: src("pipeline.mjs"), pipelineSteps: src("pipeline/steps.mjs"),
+  pipelineGates: src("pipeline/gates.mjs"), pipelineFaux: src("pipeline/faux.mjs") };
 
 // ── fixture(in-process 用;golden writePrecedents 同型:env 先于 agent.mjs import)──
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "contract-selftest-"));
@@ -55,7 +59,7 @@ const ERROR_CODES = mod.ERROR_CODES;
 const computeReads = () => {
   const reads = new Set();
   let unknownTemplate = null;
-  for (const s of [SRCS.agent, SRCS.tools, SRCS.models]) {
+  for (const s of [SRCS.agent, SRCS.tools, SRCS.models, SRCS.pipeline, SRCS.pipelineSteps, SRCS.pipelineGates, SRCS.pipelineFaux]) {
     for (const m of s.matchAll(/process\.env\.([A-Za-z_][A-Za-z0-9_]*)/g)) reads.add(m[1]);
     // 方括号字符串读形(reviewer Minor-2,T2):process.env["QUOTED_NAME"]/['X']——与点形
     // 同名集并入对拍;引号族与反引号族(下方)互不重叠。动态下标读形 process.env[expr]
@@ -91,10 +95,11 @@ await t("表对拍:扫描器收录的 env 读取面(计算模板无未知形)", 
   assert.equal(READS.unknownTemplate, null, `未收录的 process.env[··] 计算读取模板,对拍器需同步`);
 });
 
-await t("表:SPAWN_CONTRACT_ENV 名集=规格 16 项+OPS_PROBE_MAX_KEYS(tools.mjs 实读,对拍闭包补入)", () => {
+await t("表:SPAWN_CONTRACT_ENV 名集=规格 16 项+OPS_PROBE_MAX_KEYS(tools.mjs 实读,对拍闭包补入)+OPS_PIPELINE/OPS_PIPELINE_BUDGET_CNY(P2 P0 增量,pipeline.mjs 实读)", () => {
   assert.deepEqual([...tableNames()].sort(), ["DOCS_ROOT", "GH_TOKEN", "LEDGER_FILE", "OPS_AUTH", "OPS_DATA_DIR",
     "OPS_EVAL_PY", "OPS_FETCH_MAX_BYTES", "OPS_MATRIX_TIMEOUT_MS", "OPS_MODELS", "OPS_MODEL_DISCOVER",
-    "OPS_MODEL_HEALTH", "OPS_MODELS_STORE", "OPS_PROBE_CLI_TIMEOUT_MS", "OPS_PROBE_MAX_BYTES", "OPS_PROBE_MAX_KEYS",
+    "OPS_MODEL_HEALTH", "OPS_MODELS_STORE", "OPS_PIPELINE", "OPS_PIPELINE_BUDGET_CNY", "OPS_PROBE_CLI_TIMEOUT_MS",
+    "OPS_PROBE_MAX_BYTES", "OPS_PROBE_MAX_KEYS",
     "PRECEDENTS_DIR", "ZAI_CODING_CN_API_KEY"].sort());
 });
 
