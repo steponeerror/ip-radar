@@ -120,13 +120,15 @@ def atomic_write_text(path: Path | str, text: str) -> Path:
 
 
 def init_ops_tree() -> Path:
-    """初始化 ops 树(precedents/packages/artifacts + 台账/清单表头)。
+    """初始化 ops 树(precedents/packages/artifacts/items + 台账/清单表头)。
 
     幂等:目录与表头已存在即零改动,既有内容不重写、不校验(树内容归
-    导入/追加/写回路径管,init 只保证形状存在)。
+    导入/追加/写回路径管,init 只保证形状存在)。items/ = P1 待审条目库
+    (票 #153,spec #152 §1,一条一文件;旧树无此目录 = 首次调用补建,
+    既有文件零触碰)。
     """
     root = ops_root()
-    for sub in ("precedents", "packages", "artifacts"):
+    for sub in ("precedents", "packages", "artifacts", "items"):
         (root / sub).mkdir(parents=True, exist_ok=True)
     for name, header in (("ledger.md", LEDGER_HEADER), ("queue.md", QUEUE_HEADER)):
         target = root / name
@@ -334,6 +336,13 @@ def validate_precedent_entry(fm: dict) -> None:
     sb = fm["superseded_by"]
     if sb is not None and not (ops_root() / "precedents" / str(sb)).is_file():
         raise ValueError(f"superseded_by 指向不存在文件: {sb}")
+    # P1 判例扩展(票 #153,spec #152 §1):item_id = 本判例来源的待审条目
+    # id(T3 审阅四键落判时携带)。可选缺省 —— 旧判例文件零改动照常通过,
+    # 写回四律/write_ruling 语义零改动;有则须非空字符串(条目 id 形状
+    # 校验归 _ops_items,此处不跨模块 import 防环)。
+    item_id = fm.get("item_id")
+    if item_id is not None and (not isinstance(item_id, str) or not item_id.strip()):
+        raise ValueError("item_id 若有必须是非空字符串(来源待审条目 id)")
 
 
 def _frontmatter_text(text: str) -> str:

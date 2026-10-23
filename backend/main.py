@@ -44,6 +44,7 @@ from ipdb import _ops_rounds as _ipdb_ops_rounds
 from ipdb import _ops_read as _ipdb_ops_read
 from ipdb import _ops_config as _ipdb_ops_config
 from ipdb import _ops_store as _ipdb_ops_store
+from ipdb import _ops_items as _ipdb_ops_items
 from slowapi.errors import RateLimitExceeded
 from ipdb import _update as _ipdb_update
 from ipdb import _version as _ipdb_version
@@ -56,6 +57,7 @@ from ipdb._api_models import (
     EvalOverviewOut, LookupResultOut, OpsAgentConfigIn, OpsAgentConfigOut,
     OpsFileTextOut, OpsPackagesOut,
     OpsPackageOut, OpsPrecedentsOut, OpsRoundIn, OpsRulingIn, OpsRulingOut,
+    OpsItemOut, OpsItemsOut,
     SourceInfoOut,
     TaskAcceptedOut,
     TasksSnapshotOut, TokenSetIn, TokenStatusOut,
@@ -1596,6 +1598,36 @@ async def create_ops_ruling(payload: OpsRulingIn):
         raise HTTPException(422, str(e))
     except FileNotFoundError as e:
         raise ApiError(ErrorCode.not_found, str(e))
+
+
+# ── ops 待审条目读面（P1 §1，票 #153 T1；四键审阅写面 = T3，勿在此扩）──
+# 列表序 = active 先见 → severity 降序 → cause_group 升序 → 新条目先见
+# （排序真源 = _ops_items.list_items，路由不复制）；空库 = 空列表（空是
+# 真实态，沿 _ops_read 同判例）；条目库坏文件 → 500 显式失败不伪装空
+# （无证据≠清白）。
+
+
+@app.get("/api/ops/items", response_model=OpsItemsOut,
+         dependencies=[*_ADMIN_DEPS], responses=_ERRS_422_500)
+async def list_ops_items():
+    try:
+        return {"items": _ipdb_ops_items.list_items()}
+    except ValueError as e:
+        raise ApiError(ErrorCode.internal, str(e))
+
+
+@app.get("/api/ops/items/{item_id}", response_model=OpsFileTextOut,
+         dependencies=[*_ADMIN_DEPS],
+         responses={**_ERRS_422_500,
+                    "404": {"model": ErrorEnvelope,
+                            "description": "unknown item"}})
+async def read_ops_item(item_id: str):
+    try:
+        return {"text": _ipdb_ops_items.read_item(item_id)}
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    except FileNotFoundError:
+        raise ApiError(ErrorCode.not_found, f"unknown item: {item_id}")
 
 
 # ── ops agent 配置面（票 #140 立：选模型 + 填 key；票 #143 多供应商扩面：

@@ -315,6 +315,28 @@ class OpsRulingOut(_Out):
     queue_appended: bool
 
 
+class OpsItemOut(_Out):
+    """GET /api/ops/items 列表项（P1 §1，票 #153）。十字段冻结（spec #152）；
+    supersedes = 复开链指的旧条目 id（仅复开条目携带，原条目永不删）；
+    modified = ISO-UTC。审阅四键写面 = T3，不在 T1 契约内。"""
+    id: str
+    action: str
+    args: dict
+    evidence: dict
+    impact: str
+    rollback: str
+    dedup_key: dict
+    severity: str
+    cause_group: str
+    status: str
+    supersedes: Optional[str] = None
+    modified: str
+
+
+class OpsItemsOut(_Out):
+    items: list[OpsItemOut]
+
+
 # ── ops agent 配置面（票 #140 立；票 #143 多供应商扩面；永不回显约束同
 # token 面 sources-redesign T1）──
 class OpsAgentKeyStatusOut(_Out):
