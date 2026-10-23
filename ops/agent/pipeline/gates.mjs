@@ -181,7 +181,7 @@ export const GATES = {
     const s = JSON.stringify(ctx.envelope);
     if (s.includes("\n")) return fail("信封非单行", inputs);
     if (JSON.parse(s).ok !== ctx.envelope.ok) return fail("信封不可往返解析", inputs);
-    return pass("轮次信封单行 JSON(stdout 末行)", inputs);
+    return pass(`信封单行 JSON 落 stdout 末行(${s.length} 字节,${ctx.envelope.pipeline?.stages?.length ?? 0} stages)`, inputs);
   },
 };
 

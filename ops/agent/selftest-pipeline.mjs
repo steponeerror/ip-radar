@@ -1,0 +1,253 @@
+#!/usr/bin/env node
+// selftest-pipeline.mjs — P0 轮次状态机自测(spec #161 P0 验收门;零 API 零网络)。
+// 面:①全 faux 轮跑通到 CLOSE(信封 ok+gates.json 落盘+state 终态+stderr 阶段行+stdout 末行单行 JSON)
+//    ②工件清单/分区穷尽/消化条目判例(refuted 恒 low)③预算降级(截尾非失败)④失败面(坏 fixture→
+//    model_face 终态+工件保留)⑤replay:--dry 全程可跑+段重放,原件 md5 不变 ⑥CLI 契约(exit 0/1/2)。
+// fixture:golden 同型(DOCS_ROOT/precedents 指 tmp+curl stub 前置 PATH);canned 模型回合=仓内
+// fixtures/pipeline(README 配对契约)。输出 PIPEPASS/PIPEFAIL,任一 FAIL 退出非零。
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { execFile as execFileCb } from "node:child_process";
+import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
+
+const execFileP = promisify(execFileCb);
+const AGENT = path.dirname(fileURLToPath(import.meta.url));
+let pass = 0, fail = 0;
+const ok = (name) => { pass++; console.log(`PIPEPASS ${name}`); };
+const bad = (name, err) => { fail++; console.log(`PIPEFAIL ${name}: ${err}`); };
+async function t(name, fn) { try { await fn(); ok(name); } catch (e) { bad(name, e.message); } }
+
+// ── fixture(env 先于 pipeline.mjs/tools.mjs import;golden writePrecedents/stubCurl 同型)──
+const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "pipeline-selftest-"));
+const DOCS = path.join(TMP, "docs");
+const PREC = "2026-06-01-golden-aggregator.md"; // 与 fixtures/pipeline/synth.json 的引用配对(README 契约)
+fs.mkdirSync(path.join(DOCS, "ops", "precedents"), { recursive: true });
+fs.writeFileSync(path.join(DOCS, "ops", "precedents", PREC),
+  `---\nid: 2026-06-01-golden-aggregator\ndate: 2026-06-01\nsubject: fixture — 聚合器候选必须实测排他率\ncontext: >\n  聚合器形状候选,上游映射推断重叠不可信。\nhuman_ruling: >\n  实测排他率 50.0%,推翻 REJECT,立项。\nreward:\n  hard_gates:\n    exclusive_rate: "50.0%"\n  ruling_agreement: overruled\n---\n\n正文检索词:聚合器 排他率 回声 冻结 违例。\n`);
+fs.writeFileSync(path.join(DOCS, "ops", "precedents", "_schema.md"), "schema 说明(注入排除面)。\n");
+fs.mkdirSync(path.join(DOCS, "ops", "rules"), { recursive: true });
+fs.writeFileSync(path.join(DOCS, "ops", "rules", "suppressions.json"), JSON.stringify({ version: 1, rules: [
+  { id: "R1", adopted: "2026-10-24", adopted_via: "item-fixture", match: { bucket: "frozen", url_shape: "*dshield.org*" },
+    action: "suppress", note: "fixture:dshield 冻结读数为已知探测伪迹", review_at: "2027-01-24" } ] }, null, 2) + "\n");
+const STUBS = path.join(TMP, "stubs");
+fs.mkdirSync(STUBS);
+fs.writeFileSync(path.join(STUBS, "curl"), `#!/usr/bin/env bash\n# selftest stub:curl 传输层替身(golden stubCurl 同型);三冻结锚点+其余新鲜\nurl="\${@: -1}"\nd=30\ncase "$url" in\n  *cinsscore*) d=220 ;;\n  *binarydefense*) d=210 ;;\n  *dshield*) d=200 ;;\nesac\nprintf 'HTTP/1.1 200 OK\\r\\nLast-Modified: %s\\r\\nContent-Length: 4\\r\\n\\r\\n' "$(date -u -d "@$(( $(date +%s) - d * 86400 - 600 ))" '+%a, %d %b %Y %H:%M:%S GMT')"\nexit 0\n`);
+fs.chmodSync(path.join(STUBS, "curl"), 0o755);
+process.env.DOCS_ROOT = DOCS;
+process.env.PRECEDENTS_DIR = path.join(DOCS, "ops", "precedents");
+process.env.LEDGER_FILE = path.join(DOCS, "ops", "ledger.md");
+process.env.PATH = `${STUBS}:${process.env.PATH}`;
+
+const { runPipeline, HEALTH_PIPELINE } = await import("./pipeline.mjs");
+const { ERROR_CODES } = await import("./agent.mjs");
+const R1 = "2026-10-23-2340-health";
+const mkIo = () => { const buf = { stdout: "", stderr: "" };
+  return { stdout: { write: (s) => { buf.stdout += s; return true; } }, stderr: { write: (s) => { buf.stderr += s; return true; } }, buf }; };
+const j = (p) => JSON.parse(fs.readFileSync(p, "utf8"));
+const roundDir = (id) => path.join(DOCS, "ops", "rounds", id);
+const stageOf = (env, name) => env.pipeline.stages.find((s) => s.name === name);
+const treeMd5 = (dir) => [...fs.readdirSync(dir).sort().map((f) => {
+  const p = path.join(dir, f);
+  return fs.statSync(p).isDirectory() ? `${f}/:${treeMd5(p)}` : `${f}:${fs.readFileSync(p).toString("base64").slice(0, 9999)}`;
+})].join("|");
+const spawnPipe = (args, env = {}) => execFileP(process.execPath, [path.join(AGENT, "pipeline.mjs"), ...args],
+  { timeout: 300_000, maxBuffer: 32 * 1024 * 1024, env: { ...process.env, ...env } })
+  .then((r) => ({ rc: 0, ...r })).catch((e) => ({ rc: typeof e.code === "number" ? e.code : -1, stdout: e.stdout ?? "", stderr: e.stderr ?? "" }));
+
+let run1;
+await t("全 faux 轮:九执行态到 CLOSE,信封 ok+形状只增 pipeline 扩展,顶层 usage=模型步之和", async () => {
+  const io = mkIo();
+  run1 = await runPipeline({ roundId: R1, ...io });
+  assert.equal(run1.ok, true);
+  const env = run1.envelope;
+  assert.equal(env.ok, true);
+  assert.equal(env.round, "health");
+  assert.deepEqual(Object.keys(env).sort(), ["ok", "pipeline", "pkg", "queue_writes", "round", "usage", "verify"]);
+  assert.equal(env.pipeline.round_id, R1);
+  assert.equal(env.pipeline.replayed_of, null);
+  assert.deepEqual(env.pipeline.stages.map((s) => s.name), HEALTH_PIPELINE.filter((d) => d.kind !== "terminal").map((d) => d.name));
+  assert.ok(env.pipeline.stages.every((s) => ["done", "skipped", "degraded"].includes(s.status)), "成功轮 stage 状态闭集");
+  const sum = { input: 0, output: 0, totalTokens: 0, cost: 0 };
+  for (const s of env.pipeline.stages) { // 脚本步 usage=null;模型步数字;顶层=模型步之和
+    if (s.usage === null) continue;
+    for (const k of Object.keys(sum)) { assert.equal(typeof s.usage[k], "number", `${s.name}.${k}`); sum[k] += s.usage[k]; }
+  }
+  assert.equal(env.pipeline.stages.filter((s) => s.usage !== null).length, 3, "恰三个模型步带 usage");
+  assert.deepEqual(env.usage, sum);
+  assert.ok(fs.existsSync(env.pkg), "pkg(07-synth-report.md)存在");
+  assert.deepEqual(env.queue_writes, []);
+  assert.equal(env.verify.ok, true);
+  assert.equal(env.verify.cited, 1, "canned 报告引 1 fixture 判例");
+});
+
+await t("工件清单全落盘+gates.json 九记录全 PASS+state.json 终态 done/CLOSE+原子写无 .tmp 残留", async () => {
+  const d = roundDir(R1);
+  for (const f of ["01-probe-freshness.tsv", "01-probe-matrix.json", "01-probe-summary.json", "02-verify-survivors.json",
+    "02-verify-suppressed.json", "03-triage-hypotheses.json", "03-triage-transcript.jsonl", "04-dispatch-bundles.json",
+    "05-deep-verdicts.json", "06-itemize-manifest.json", "07-synth-report.md", "07-synth-transcript.jsonl", "gates.json", "state.json"])
+    assert.ok(fs.existsSync(path.join(d, f)), `工件缺:${f}`);
+  assert.ok(fs.readdirSync(d).some((f) => /^05-deep-.*\.json$/.test(f) && f !== "05-deep-verdicts.json"), "逐假设工件");
+  assert.ok(fs.readdirSync(d).some((f) => /^05-deep-.*-transcript\.jsonl$/.test(f)), "逐假设 transcript");
+  const g = j(path.join(d, "gates.json"));
+  assert.equal(g.round_id, R1);
+  assert.equal(g.records.length, 9, "8 可跑步门+G_CLOSE");
+  assert.ok(g.records.every((r) => r.pass === true), `门败:${g.records.filter((r) => !r.pass).map((r) => r.name).join(",")}`);
+  assert.ok(g.records.every((r) => typeof r.reason === "string" && /\d/.test(r.reason)), "reason 带数字可回算");
+  assert.deepEqual(g.records.map((r) => r.name), ["G_PROBE", "G_VERIFY", "G_TRIAGE", "G_DISPATCH", "G_DEEP", "G_ITEMIZE", "G_SYNTH", "G_RETRO", "G_CLOSE"]);
+  const st = j(path.join(d, "state.json"));
+  assert.equal(st.status, "done");
+  assert.equal(st.stage, "CLOSE");
+  assert.equal(st.schema, 1);
+  assert.ok(Object.keys(st.prompt_hashes).length >= 3, "模型步 prompt hash 入 state(replay 审计面)");
+  const walk = (p) => fs.readdirSync(p).flatMap((f) => { const q = path.join(p, f); return fs.statSync(q).isDirectory() ? walk(q) : [q]; });
+  assert.ok(!walk(d).some((p) => p.endsWith(".tmp")), "原子写无 .tmp 残留");
+  assert.ok(fs.existsSync(path.join(DOCS, "ops", "retro", `${R1}.json`)), "retro 工件(ops/retro/)");
+});
+
+await t("stderr 阶段行语法+stdout 末行=信封单行 JSON(恰一行)", async () => {
+  const io = mkIo();
+  const r = await runPipeline({ roundId: "2026-10-23-2341-health", ...io });
+  assert.equal(r.ok, true);
+  const se = io.buf.stderr;
+  assert.match(se, /\[stage\] PROBE start\n/, "start 行");
+  assert.match(se, /\[stage\] PROBE done gate=PASS dur=\d+s artifact=01-probe-summary\.json\n/, "done 行(gate/dur/artifact)");
+  assert.match(se, /\[stage\] CLOSE done gate=PASS dur=\d+s artifact=\(envelope\)\n/, "CLOSE done 行");
+  const lines = io.buf.stdout.split("\n");
+  assert.equal(lines.length, 2, "stdout 恰一行+末尾换行");
+  assert.equal(lines[1], "");
+  assert.deepEqual(JSON.parse(lines[0]), r.envelope, "stdout 末行=返回信封逐字");
+});
+
+await t("VERIFY 分区穷尽(旗标3=survivors2+suppressed1,R1 抑制 dshield)+G_DEEP 证据逐字回引", async () => {
+  const d = roundDir(R1);
+  const s = j(path.join(d, "01-probe-summary.json"));
+  assert.ok(s.urls_n >= 30, `urls_n=${s.urls_n}`);
+  assert.equal(s.flags.length, 3);
+  assert.equal(s.buckets.frozen, 3);
+  const sv = j(path.join(d, "02-verify-survivors.json"));
+  const sp = j(path.join(d, "02-verify-suppressed.json"));
+  assert.equal(sv.survivors.length, 2);
+  assert.equal(sp.suppressed.length, 1);
+  assert.equal(sp.suppressed[0].rule_id, "R1");
+  assert.match(sp.suppressed[0].url, /dshield/);
+  const v = j(path.join(d, "05-deep-verdicts.json"));
+  assert.equal(v.verdicts.length, 2);
+  const conf = v.verdicts.find((x) => /cinsscore/.test(x.hid));
+  const refu = v.verdicts.find((x) => /binarydefense/.test(x.hid));
+  assert.equal(conf.verdict, "confirmed");
+  assert.equal(conf.evidence[0].value, 220, "confirmed 证据值=登记表 seed 值");
+  assert.equal(refu.verdict, "refuted");
+});
+
+await t("ITEMIZE 判例:confirmed→review_freeze 原级;refuted 恒 low 消化条目(附带三小裁②)", async () => {
+  const d = roundDir(R1);
+  const m = j(path.join(d, "06-itemize-manifest.json"));
+  assert.deepEqual([m.created, m.reopened, m.deduped, m.suppressed], [2, 0, 0, 1]);
+  const items = fs.readdirSync(path.join(d, "items")).map((f) => j(path.join(d, "items", f)));
+  const c = items.find((i) => /cinsscore/.test(i.source));
+  const b = items.find((i) => /binarydefense/.test(i.source));
+  assert.equal(c.suggested_action, "review_freeze");
+  assert.equal(c.severity, "high");
+  assert.equal(b.suggested_action, "digest_ignore");
+  assert.equal(b.severity, "low", "refuted 消化条目恒 low");
+  assert.ok(items.every((i) => i.round_id === R1 && typeof i.dedup_key === "string" && i.dedup_key.length > 0));
+});
+
+await t("预算降级:0.03¥ 截尾 1 条标 unresolved(budget),DISPATCH degraded,轮仍 ok=true", async () => {
+  const io = mkIo();
+  const r = await runPipeline({ roundId: "2026-10-23-2342-health", env: { ...process.env, OPS_PIPELINE_BUDGET_CNY: "0.03" }, ...io });
+  assert.equal(r.ok, true, "降级不是失败(信封 ok=true+stages 标 degraded)");
+  const dp = stageOf(r.envelope, "DISPATCH");
+  assert.equal(dp.status, "degraded");
+  const d = roundDir("2026-10-23-2342-health");
+  const bun = j(path.join(d, "04-dispatch-bundles.json"));
+  assert.equal(bun.bundles.length, 1);
+  assert.equal(bun.truncated.length, 1);
+  assert.equal(bun.truncated[0].reason, "unresolved(budget)");
+  assert.match(bun.truncated[0].hid, /binarydefense/, "低 severity 先截");
+  const v = j(path.join(d, "05-deep-verdicts.json"));
+  assert.equal(v.verdicts.length, 1);
+  const m = j(path.join(d, "06-itemize-manifest.json"));
+  assert.equal(m.created, 2, "截尾假设转 human_ruling 条目,证据不灭失");
+});
+
+await t("失败面:坏 TRIAGE fixture → model_face 终态(attempts=2),01/02 工件保留(证据不灭失),code∈九词", async () => {
+  const badFx = path.join(TMP, "fixtures-bad");
+  fs.mkdirSync(badFx, { recursive: true });
+  for (const f of ["matrix.json", "in-flight.json", "synth.json"]) fs.copyFileSync(path.join(AGENT, "fixtures/pipeline", f), path.join(badFx, f));
+  fs.cpSync(path.join(AGENT, "fixtures/pipeline/deep"), path.join(badFx, "deep"), { recursive: true });
+  fs.writeFileSync(path.join(badFx, "triage.json"), JSON.stringify({ turns: [{ role: "assistant", content: [{ type: "text", text: "不是 JSON(schema 违例负例)" }], stopReason: "stop" }] }));
+  const io = mkIo();
+  const r = await runPipeline({ roundId: "2026-10-23-2343-health", fixturesDir: badFx, ...io });
+  assert.equal(r.ok, false);
+  const env = r.envelope;
+  assert.equal(env.error.code, "model_face");
+  assert.ok(ERROR_CODES.includes(env.error.code), "错误码 ∈ 九词闭集零新词");
+  const tr = stageOf(env, "TRIAGE");
+  assert.equal(tr.status, "failed");
+  assert.equal(tr.attempts, 2, "schema 违例重试≤1 后终态");
+  const d = roundDir("2026-10-23-2343-health");
+  assert.ok(fs.existsSync(path.join(d, "01-probe-summary.json")) && fs.existsSync(path.join(d, "02-verify-survivors.json")), "工件保留");
+  assert.equal(j(path.join(d, "state.json")).status, "failed");
+  assert.match(io.buf.stderr, /\[stage\] TRIAGE fail gate=- code=model_face reason=/, "fail 行语法");
+});
+
+await t("replay --dry 全程可跑(CLI 子进程):门全重算 PASS,产物写 -r1/,原件逐字不变", async () => {
+  const before = treeMd5(roundDir(R1));
+  const r = await spawnPipe(["replay", R1, "--dry"]);
+  assert.equal(r.rc, 0, `rc=${r.rc} stderr=${r.stderr.slice(-300)}`);
+  const env = JSON.parse(r.stdout.trim().split("\n").pop());
+  assert.equal(env.ok, true);
+  assert.equal(env.pipeline.replayed_of, R1);
+  assert.equal(env.pipeline.round_id, `${R1}-r1`);
+  assert.equal(env.pipeline.stages.length, 8, "dry 段=PROBE..RETRO(CLOSE 不入重放)");
+  assert.ok(env.pipeline.stages.every((s) => s.status === "dry"), "dry 状态词");
+  const g = j(path.join(roundDir(`${R1}-r1`), "gates.json"));
+  assert.equal(g.records.length, 8);
+  assert.ok(g.records.every((x) => x.pass), "原件工件上全门重算 PASS(自愈:以工件+门为准)");
+  assert.equal(treeMd5(roundDir(R1)), before, "原件零改写");
+});
+
+await t("replay 段重放(VERIFY..SYNTH,非 dry):前置工件复制+段内再生,原件不变", async () => {
+  const before = treeMd5(roundDir(R1));
+  const r = await spawnPipe(["replay", R1, "--from", "VERIFY", "--to", "SYNTH"]);
+  assert.equal(r.rc, 0, `rc=${r.rc} stderr=${r.stderr.slice(-300)}`);
+  const env = JSON.parse(r.stdout.trim().split("\n").pop());
+  assert.equal(env.ok, true);
+  assert.deepEqual(env.pipeline.stages.map((s) => s.name), ["VERIFY", "TRIAGE", "DISPATCH", "DEEP", "ITEMIZE", "SYNTH"]);
+  const d = roundDir(`${R1}-r2`);
+  assert.ok(fs.existsSync(path.join(d, "01-probe-summary.json")), "前置工件(PROBE 01-*)复制");
+  assert.ok(fs.existsSync(path.join(d, "07-synth-report.md")) && fs.existsSync(path.join(d, "items")), "段内产物再生");
+  assert.ok(fs.existsSync(path.join(d, "gates.json")));
+  assert.equal(treeMd5(roundDir(R1)), before, "原件零改写");
+});
+
+await t("CLI 契约:用法错/坏 OPS_PIPELINE/replay 不存在轮/--to CLOSE 均 exit 2 纯 stderr 不发 JSON", async () => {
+  const noArgs = await spawnPipe([]);
+  assert.equal(noArgs.rc, 2);
+  assert.equal(noArgs.stdout, "");
+  assert.match(noArgs.stderr, /用法:/);
+  const badMode = await spawnPipe(["health"], { OPS_PIPELINE: "bogus" });
+  assert.equal(badMode.rc, 2);
+  assert.match(badMode.stderr, /OPS_PIPELINE 须 legacy\|pipeline/);
+  const noRound = await spawnPipe(["replay", "2020-01-01-0000-health", "--dry"]);
+  assert.equal(noRound.rc, 2);
+  assert.match(noRound.stderr, /无 state\.json/);
+  const toClose = await spawnPipe(["replay", R1, "--to", "CLOSE", "--dry"]);
+  assert.equal(toClose.rc, 2);
+  assert.match(toClose.stderr, /CLOSE 属原轮时序不入重放/);
+});
+
+await t("同 id 重跑拒绝(bad_round 信封)——轮次目录不覆盖(证据不灭失)", async () => {
+  const io = mkIo();
+  const r = await runPipeline({ roundId: R1, ...io });
+  assert.equal(r.ok, false);
+  assert.equal(r.envelope.error.code, "bad_round");
+});
+
+fs.rmSync(TMP, { recursive: true, force: true });
+console.log(`pipeline-selftest: PASS=${pass} FAIL=${fail}`);
+process.exit(fail ? 1 : 0);
