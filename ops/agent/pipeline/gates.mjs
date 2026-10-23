@@ -24,7 +24,7 @@ const fail = (reason, inputs) => ({ pass: false, reason, inputs });
 const pass = (reason, inputs) => ({ pass: true, reason, inputs });
 
 export const GATES = {
-  // G_PROBE:summary 可解析 ∧ urls_n≥30(现 78)∧ attempted/urls≥0.9 ∧ TSV 行数=attempted_n(C稿 §2.2)
+  // G_PROBE:summary 可解析 ∧ urls_n≥30(现 101,清单事实层 feeds.txt)∧ attempted/urls≥0.9 ∧ TSV 行数=attempted_n(C稿 §2.2)
   G_PROBE: (ctx) => {
     const inputs = ["01-probe-summary.json", "01-probe-freshness.tsv"];
     const s = j(path.join(ctx.dir, "01-probe-summary.json"));

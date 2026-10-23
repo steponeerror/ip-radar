@@ -5,6 +5,10 @@ P0 模型步(TRIAGE/DEEP/SYNTH)经 `pipeline/faux.mjs` 用 pi-ai fauxProvider �
 slug = `hidSlug(signal_id)`)。需网络的测量腿走 `seed`(registrySeed 判例:预登记结构化返回,
 G_DEEP 从 transcript 的 `registry_seed` 行重建登记表逐字回引——golden exclusive_probe 同型)。
 
+PROBE(P1,#163 起)不再消费本目录:feed_freshness=lib.sh 真执行(curl stub),matrix=
+tools.mjs `matrixScanCli` 真扫描(OPS_EVAL_PY stub;旧 `matrix.json` 罐装件已删,回放基线
+=轮次目录里已产的 `01-probe-matrix.json` 前置复制件)。
+
 ## 本 fixture 集的配对契约(改一处须同步另一处)
 
 - **curl stub 规则**(golden `stubs.curl_age_days` / selftest-pipeline 同款):
@@ -22,7 +26,6 @@ G_DEEP 从 transcript 的 `registry_seed` 行重建登记表逐字回引——go
 
 | 文件 | 消费步 | 内容 |
 |---|---|---|
-| `matrix.json` | PROBE | P0 罐装矩阵读数(P1 接真矩阵后退役为回放基线) |
 | `in-flight.json` | VERIFY | 在飞条目集(P0 空集;P4 接 `_ops_items`) |
 | `triage.json` | TRIAGE | 2 幸存一条一假设,均 need_deep |
 | `deep/https-cinsscore.com-….json` | DEEP | seed `call_d1` fetch_url age_days=220;verdict confirmed |

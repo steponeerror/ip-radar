@@ -18,9 +18,11 @@
     "health+discover 检索词;2026-06-02-golden-matrix-nolayer.md 存在于库但不命中任何轮次检索词",
     "(负例③:存在性通过、闭集校验拦截;正例③:经轮中 search_precedents 命中后引用放行——",
     "闭集=预注入∪本会话命中,收口活时并集;检索词 NO-LAYER/读数约定 仅命中 B)。",
-    "pipeline 例(P0,spec #161):kind=pipeline 走 pipeline.mjs 真引擎跑全 faux 轮(模型步=faux",
+    "pipeline 例(spec #161):kind=pipeline 走 pipeline.mjs 真引擎跑全 faux 轮(模型步=faux",
     "provider+仓内 fixtures/pipeline canned 回合;测量腿=curl 替身+registrySeed 预登记);断言词表",
-    "增 pipeline_ok/pipeline_stage/pipeline_gates/pipeline_artifact(配对契约见 fixtures/pipeline/README.md)。"
+    "增 pipeline_ok/pipeline_stage/pipeline_gates/pipeline_artifact(配对契约见 fixtures/pipeline/README.md)。",
+    "P1 起(#163)PROBE 真跑 matrix(OPS_EVAL_PY 替身钉 stubs.matrix,同 legacy health 例);",
+    "01-probe-matrix.json 与 legacy <ts>-matrix-scan.json 同源同文(matrixScanCli/matrixArtifactText 单源)。"
   ],
   "cases": [
     {
@@ -273,14 +275,23 @@
       "tier": "faux",
       "round": "health",
       "tags": ["p0-skeleton", "positive", "pipeline"],
-      "desc": "P0 轮次状态机全十状态 faux 跑通到 CLOSE(spec #161 P0 验收面):真 extract_feed_urls+feed_freshness(curl 替身零网络)→真抑制分区(R1 压 dshield)→faux TRIAGE/DEEP/SYNTH(仓内 fixtures/pipeline,registrySeed 测量腿)→真收编/条目/台账/沙箱;九门全机检留 gates.json;信封只增 pipeline 扩展字段。",
+      "desc": "轮次状态机全十状态 faux 跑通到 CLOSE(spec #161 P0 骨架 + P1 位等价面 #163):真 extract_feed_urls+feed_freshness(curl 替身零网络)+真 matrix 扫描(OPS_EVAL_PY 替身,tools.mjs matrixScanCli 单源,01-probe-matrix.json 与 legacy <ts>-matrix-scan.json 逐字节同文)→真抑制分区(R1 压 dshield)→faux TRIAGE/DEEP/SYNTH(仓内 fixtures/pipeline,registrySeed 测量腿)→真收编/条目/台账/沙箱;九门全机检留 gates.json;信封只增 pipeline 扩展字段。",
       "stubs": {
         "curl_age_days": [
           { "match": "cinsscore", "days": 220 },
           { "match": "binarydefense", "days": 210 },
           { "match": "dshield", "days": 200 },
           { "match": "*", "days": 30 }
-        ]
+        ],
+        "matrix": {
+          "exit_code": 0,
+          "counts": { "violation": 0, "pending": 0, "agreement": 4 },
+          "layers": {
+            "truth": { "status": "OK", "members": 4, "sampled": 4, "notes": [] },
+            "infra": { "status": "OK", "members": 8, "sampled": 8, "notes": [] }
+          },
+          "buckets": { "violation": [], "pending": [], "agreement": [] }
+        }
       },
       "pipeline": {
         "rules": {
@@ -299,7 +310,11 @@
         { "kind": "pipeline_stage", "stage": "CLOSE", "status": "done" },
         { "kind": "pipeline_gates" },
         { "kind": "pipeline_artifact", "file": "01-probe-summary.json",
-          "json": { "urls_n_at_least": 30, "flags.length": 3, "buckets.frozen": 3, "attempted_n_at_least": 30 } },
+          "json": { "urls_n_at_least": 30, "flags.length": 3, "buckets.frozen": 3, "attempted_n_at_least": 30,
+            "matrix.ok": true, "matrix.exit_code": 0, "matrix.violation_n": 0 } },
+        { "kind": "pipeline_artifact", "file": "01-probe-matrix.json",
+          "json": { "exit_code": 0, "counts.violation": 0 },
+          "matches": [ "\"layers\":", "\"buckets\":" ] },
         { "kind": "pipeline_artifact", "file": "02-verify-survivors.json", "json": { "survivors.length": 2 } },
         { "kind": "pipeline_artifact", "file": "02-verify-suppressed.json", "json": { "suppressed.0.rule_id": "R1" } },
         { "kind": "pipeline_artifact", "file": "05-deep-verdicts.json", "json": { "verdicts.length": 2, "degraded.length": 0 } },

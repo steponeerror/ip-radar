@@ -161,6 +161,36 @@ const artifactPath = (dir, slug, ext) => {
   return p;
 };
 
+// ── matrix 扫描 CLI 单源(P1,#163)───────────────────────────────────────────
+// tools.mjs health_snapshot(matrix 腿)与 pipeline/steps.mjs PROBE 共用同一调用路径:
+// 位等价=同 EVAL_PY 命令+同解析+同工件序列化(matrixArtifactText);legacy 侧零行为改动
+// (runMatrixScan 只剩三分支收编的薄包装)。返回分支:
+//   {ok:true, d, rc, cmd}               读数(rc 0/1/2 都是读数,round.sh T3 判例)
+//   {ok:false, env, cmd, trace:null}     stdout 带 error 键的失败信封(无 trace,同原语义)
+//   {ok:false, env, cmd, trace:{cmd,rc}} 裸失败信封(带 trace)
+export async function matrixScanCli() {
+  const cmd = `cd backend && IP_RADAR_DATA_DIR=${DATA_DIR} ${EVAL_PY} -m ipdb._eval --matrix-scan --json --assets-dir ${DATA_DIR}/eval/assets`;
+  try {
+    const { stdout } = await execFileP(EVAL_PY,
+      ["-m", "ipdb._eval", "--matrix-scan", "--json", "--assets-dir", `${DATA_DIR}/eval/assets`],
+      { cwd: path.join(ROOT, "backend"), env: { ...process.env, IP_RADAR_DATA_DIR: DATA_DIR },
+        timeout: B.matrixTimeoutMs, maxBuffer: 32 * 1024 * 1024 });
+    const d = JSON.parse(stdout);
+    if (d.error) return { ok: false, env: envelope(d.error.code ?? "matrix_failed", d.error.message ?? ""), cmd, trace: null };
+    return { ok: true, d, rc: 0, cmd };
+  } catch (e) {
+    // rc 0/1/2 = 读数(干净/pending/violation,round.sh T3 判例);execFile 对非零退出 reject,
+    // 但 stdout 携带带 exit_code 的有效 JSON 时仍是读数不是故障
+    try {
+      const d = JSON.parse(String(e.stdout ?? ""));
+      if (typeof d.exit_code === "number") return { ok: true, d, rc: e.code ?? 0, cmd };
+      if (d.error) return { ok: false, env: envelope(d.error.code ?? "matrix_failed", d.error.message ?? ""), cmd, trace: null };
+    } catch { /* 裸失败走信封 */ }
+    return { ok: false, env: envelope("matrix_failed", String(e.stderr ?? e.message ?? "").slice(0, 300)), cmd, trace: { cmd, rc: e.code ?? 1 } };
+  }
+}
+export const matrixArtifactText = (d) => JSON.stringify(d, null, 1); // matrix 工件序列化单源:legacy <ts>-matrix-scan.json 与管线 01-probe-matrix.json 逐字节同文(#163 位等价)
+
 export function countFeedKeys(text) { // probe 键量:IPv4 去重(exclusive.py _IP_RE 同口径的 v4 面)
   return new Set(text.match(/(\d{1,3}\.){3}\d{1,3}(\/\d{1,2})?/g)?.map((t) => t.split("/")[0]) ?? []).size;
 }
@@ -637,31 +667,15 @@ export class ToolHost {
     }
   }
 
-  async runMatrixScan(arts) {
-    const cmd = `cd backend && IP_RADAR_DATA_DIR=${DATA_DIR} ${EVAL_PY} -m ipdb._eval --matrix-scan --json --assets-dir ${DATA_DIR}/eval/assets`;
-    try {
-      const { stdout } = await execFileP(EVAL_PY,
-        ["-m", "ipdb._eval", "--matrix-scan", "--json", "--assets-dir", `${DATA_DIR}/eval/assets`],
-        { cwd: path.join(ROOT, "backend"), env: { ...process.env, IP_RADAR_DATA_DIR: DATA_DIR },
-          timeout: B.matrixTimeoutMs, maxBuffer: 32 * 1024 * 1024 });
-      const d = JSON.parse(stdout);
-      if (d.error) return envelope(d.error.code ?? "matrix_failed", d.error.message ?? "");
-      return this.matrixFromResult(d, cmd, arts, 0);
-    } catch (e) {
-      // rc 0/1/2 = 读数(干净/pending/violation,round.sh T3 判例);execFile 对非零退出 reject,
-      // 但 stdout 携带带 exit_code 的有效 JSON 时仍是读数不是故障
-      try {
-        const d = JSON.parse(String(e.stdout ?? ""));
-        if (typeof d.exit_code === "number") return this.matrixFromResult(d, cmd, arts, e.code ?? 0);
-        if (d.error) return envelope(d.error.code ?? "matrix_failed", d.error.message ?? "");
-      } catch { /* 裸失败走信封 */ }
-      return { ...envelope("matrix_failed", String(e.stderr ?? e.message ?? "").slice(0, 300)), trace: { cmd, rc: e.code ?? 1 } };
-    }
+  async runMatrixScan(arts) { // 单源薄包装(P1,#163):真路径在 matrixScanCli,legacy 返回形状零改动
+    const r = await matrixScanCli();
+    if (r.ok) return this.matrixFromResult(r.d, r.cmd, arts, r.rc);
+    return r.trace ? { ...r.env, trace: r.trace } : r.env;
   }
 
   matrixFromResult(d, cmd, arts, rc) {
     const art = artifactPath(this.artifactDir, "matrix-scan", "json");
-    fs.writeFileSync(art, JSON.stringify(d, null, 1));
+    fs.writeFileSync(art, matrixArtifactText(d));
     arts?.push(art);
     return {
       ok: true, exit_code: d.exit_code, counts: d.counts,
