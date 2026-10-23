@@ -116,9 +116,16 @@ export default function OpsReviewSection({ onUnauthorized }: {
   }
 
   // 同意按钮后果文案:闭集内 = 执行后果(词条映射三动作);集外 = 仅立项
+  const actLabel = (action: string) => {
+    // sevShown 同款兜底(T5 Standards 审 P2-2):后端闭集扩员而 locale 未跟
+    // 时,退显 action 原词(mono 分轨),不落裸 i18n 键串。
+    const k = `ops.review.act.${action}`;
+    const v = t(k);
+    return v !== k ? v : action;
+  };
   const agreeLabel = (it: OpsItem) =>
     REVERSIBLE_ACTIONS.has(it.action)
-      ? t("ops.review.agree.execute", { action: t(`ops.review.act.${it.action}`) })
+      ? t("ops.review.agree.execute", { action: actLabel(it.action) })
       : t("ops.review.agree.proposal");
 
   // 回执行(verdict 分面;precedent/queued 只在响应携带时追加——宁少算)
@@ -132,7 +139,7 @@ export default function OpsReviewSection({ onUnauthorized }: {
       parts.push(t("ops.review.result.proposal", { precedent: r.precedent ?? "" }));
     } else {
       parts.push(t("ops.review.result.executed", {
-        action: t(`ops.review.act.${it.action}`), precedent: r.precedent ?? "",
+        action: actLabel(it.action), precedent: r.precedent ?? "",
       }));
     }
     if (r.queue_appended) parts.push(t("ops.review.result.queued"));
@@ -232,7 +239,7 @@ export default function OpsReviewSection({ onUnauthorized }: {
                       <div className="mt-3 flex flex-wrap gap-2">
                         <button
                           type="button"
-                          disabled={busyId === it.id}
+                          disabled={busyId != null}
                           onClick={() => submit(it, "agree")}
                           className="rounded-md border border-zinc-700 px-4 py-1.5 text-xs text-zinc-300 transition-colors hover:border-emerald-500/50 hover:text-emerald-400 disabled:opacity-40"
                         >
@@ -240,7 +247,7 @@ export default function OpsReviewSection({ onUnauthorized }: {
                         </button>
                         <button
                           type="button"
-                          disabled={busyId === it.id}
+                          disabled={busyId != null}
                           onClick={() => { setEditor(editor === "modify" ? null : "modify"); setActionError(null); }}
                           className="rounded-md border border-zinc-700 px-4 py-1.5 text-xs text-zinc-300 transition-colors hover:border-emerald-500/50 hover:text-emerald-400 disabled:opacity-40"
                         >
@@ -248,7 +255,7 @@ export default function OpsReviewSection({ onUnauthorized }: {
                         </button>
                         <button
                           type="button"
-                          disabled={busyId === it.id}
+                          disabled={busyId != null}
                           onClick={() => { setEditor(editor === "ignore" ? null : "ignore"); setActionError(null); }}
                           className="rounded-md border border-zinc-700 px-4 py-1.5 text-xs text-zinc-300 transition-colors hover:border-emerald-500/50 hover:text-emerald-400 disabled:opacity-40"
                         >
@@ -256,7 +263,7 @@ export default function OpsReviewSection({ onUnauthorized }: {
                         </button>
                         <button
                           type="button"
-                          disabled={busyId === it.id}
+                          disabled={busyId != null}
                           onClick={() => submit(it, "snooze", { wakeAt: new Date(Date.now() + 86_400_000).toISOString() })}
                           className="rounded-md border border-zinc-700 px-4 py-1.5 text-xs text-zinc-300 transition-colors hover:border-emerald-500/50 hover:text-emerald-400 disabled:opacity-40"
                         >
@@ -264,7 +271,7 @@ export default function OpsReviewSection({ onUnauthorized }: {
                         </button>
                         <button
                           type="button"
-                          disabled={busyId === it.id}
+                          disabled={busyId != null}
                           onClick={() => submit(it, "snooze", { wakeAt: new Date(Date.now() + 7 * 86_400_000).toISOString() })}
                           className="rounded-md border border-zinc-700 px-4 py-1.5 text-xs text-zinc-300 transition-colors hover:border-emerald-500/50 hover:text-emerald-400 disabled:opacity-40"
                         >
