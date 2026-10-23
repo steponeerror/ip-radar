@@ -71,7 +71,7 @@ export function normalizeRules(raw) {
 
 export function readInFlightItems(itemsDir, excludeRoundId = null) {
   return parseItemsTree(itemsDir)
-    .filter((it) => it.round_id !== excludeRoundId)
+    .filter((it) => !excludeRoundId || it.round_id !== excludeRoundId) // 无 replay 面不过滤(backend 产件无 round_id,不能被 null==null 误杀)
     .filter((it) => it.status === "active" || it.status === "snoozed")
     .map(({ id, status, dedup_key }) => ({ item_id: id, status, ...dedup_key }));
 }
