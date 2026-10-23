@@ -512,3 +512,22 @@ def test_review_route_requires_admin(admin_env, auth_client, items):
                             json={"verdict": "agree"})
     assert resp.status_code == 401
     assert resp.json()["error"]["code"] == "unauthorized"
+
+
+def test_modify_half_failure_preserves_old_args_in_500(admin_env, client_as_admin,
+                                                       items, review, monkeypatch):
+    """T4 审 P2 回归钉(票 #156 收尾批):modify 半程失败(args 已落盘、执行
+    炸)→ 500 消息必含预捕获原值——真原值不随重放灭失(哲学①)。"""
+    r = items.create_item(**_mk(args={"source": "spamhaus_drop"}))
+
+    def _boom(action, args):
+        raise RuntimeError("unknown source: gone_src")
+
+    monkeypatch.setattr(review, "_execute_action", _boom)
+    resp = client_as_admin.post(
+        f"/api/ops/items/{r['item']}/review",
+        json={"verdict": "modify", "args": {"source": "gone_src"}})
+    assert resp.status_code == 500
+    msg = resp.json()["error"]["message"]
+    assert "args 原值(预捕获)" in msg
+    assert '"source": "spamhaus_drop"' in msg

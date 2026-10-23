@@ -241,7 +241,6 @@
   "ops.pkgs.back": "← 返回报告列表",
   "ops.pkgs.empty": "暂无报告——先在轮次子页跑一轮",
   "ops.pkgs.loadFailed": "报告加载失败",
-  "ops.pkgs.refresh": "刷新",
   "ops.pkgs.title": "报告",
   "ops.prec.close": "关闭",
   "ops.prec.empty": "暂无规则",
