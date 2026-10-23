@@ -78,6 +78,7 @@ const spawnPipe = (args, env = {}) => execFileP(process.execPath, [path.join(AGE
 // 后续轮的 VERIFY;每轮一棵树=每轮一个干净世界)。fixtures 克隆+synth 补丁件同批上移。
 const cloneFixtures = (name) => { const fx = path.join(TMP, name); fs.mkdirSync(fx, { recursive: true });
   fs.copyFileSync(path.join(AGENT, "fixtures/pipeline/triage.json"), path.join(fx, "triage.json"));
+  fs.copyFileSync(path.join(AGENT, "fixtures/pipeline/synth.json"), path.join(fx, "synth.json"));
   fs.cpSync(path.join(AGENT, "fixtures/pipeline/deep"), path.join(fx, "deep"), { recursive: true });
   return fx; };
 const writeSynthFx = (fx, reportText) => fs.writeFileSync(path.join(fx, "synth.json"),
@@ -841,7 +842,9 @@ await t("RETRO 闭环实证(#167 验收):dismissed 同签→候选+adopt_rule �
   for (const f of files) dismissItem(itemsOf(T.root), f.replace(/\.md$/, "")); // 四键 ignore 模拟(人裁终态)
   // 第二轮:同签信号幸存(items 已终态不在飞)→ RETRO 产候选+至多一条 adopt_rule 待审条目
   const io2 = mkIo();
-  const r2 = await runPipeline({ roundId: "2026-10-24-0201-health", fixturesDir: cloneFixtures("fx-loop2"), env: T.env, ...io2 });
+  const fx2 = cloneFixtures("fx-loop2");
+  writeSynthFx(fx2, "## 注入判例\n- 2026-06-01-golden-aggregator.md\n\n## 异常清单\n- ciarm:同签复开(前轮被 ignore)· 建议 human_ruling\n- binarydefense:同签复开 · 建议 human_ruling\n\n抑制 1 条(规则 R1×1)。\n\n## 摘要\n- 计数: created=0 reopened=2 deduped=0 suppressed=1\n- 深验: confirmed=1 refuted=1 unresolved=0\n- 次轮:dismissed 同签复开(链指),RETRO 产候选。");
+  const r2 = await runPipeline({ roundId: "2026-10-24-0201-health", fixturesDir: fx2, env: T.env, ...io2 });
   assert.equal(r2.ok, true, `次轮:${io2.buf.stderr.slice(-200)}`);
   const retro2 = j(path.join(T.root, "ops", "retro", "2026-10-24-0201-health.json"));
   assert.equal(retro2.candidates.length, 2, "两条同签误判候选全列清单");
@@ -851,7 +854,7 @@ await t("RETRO 闭环实证(#167 验收):dismissed 同签→候选+adopt_rule �
   assert.equal(withItem.length, 1, "每轮至多一条立项(C稿 §2.2「可选一条」)");
   assert.equal(skippedCap.length, 1, "其余候选留清单不入条目");
   assert.deepEqual(retro2.candidates[0].match, { bucket: "frozen", source: "binarydefense" }, "确定性序首条=matchKey 序最小");
-  const retroItem = fs.readFileSync(path.join(itemsOf(T.root), `${withItem[0].item_id}.md`), "utf8");
+  const retroItem = fs.readFileSync(path.join(itemsOf(T.root), `${withItem[0].item.item_id}.md`), "utf8");
   assert.match(retroItem, /action: "?adopt_rule"?/, "树面 action=adopt_rule(四键写口识别词)");
   assert.match(retroItem, /probe_class: "?adopt_rule"?/);
   assert.match(retroItem, /severity: "?low"?/, "候选条目恒 low(#167 任务面)");
@@ -862,6 +865,10 @@ await t("RETRO 闭环实证(#167 验收):dismissed 同签→候选+adopt_rule �
   for (const c of retro2.candidates) rules.rules.push({ id: `R${rules.rules.length + 1}`, adopted: "2026-10-24",
     adopted_via: `item:${c.item?.item_id ?? "retro-selftest"}`, match: c.match, action: "suppress", note: c.note, review_at: "2027-01-22" });
   fs.writeFileSync(path.join(T.root, "ops", "rules", "suppressions.json"), JSON.stringify(rules, null, 2) + "\n");
+  // 采纳后自然处置面:同签复开条目(次轮重开)随人裁 ignore 终态——规则已接管该类,
+  // 复开条目不再在飞(否则 RETRO 通道矛盾面会如实报「规则压信号而条目仍开」)。
+  for (const f of fs.readdirSync(itemsOf(T.root)).filter((f) => f.endsWith(".md")))
+    dismissItem(itemsOf(T.root), f.replace(/\.md$/, "")); // 已终态(dismissed)重跑替换零变化;active→dismissed
   // 第三轮:采纳的规则在 VERIFY 生效——同签信号被压(留痕),幸存集空,RETRO 零候选(闭环合拢)
   const fx3 = cloneFixtures("fx-loop3");
   fs.writeFileSync(path.join(fx3, "triage.json"), JSON.stringify({ turns: [{ role: "assistant", content: [{ type: "text", stopReason: "stop",
@@ -881,7 +888,9 @@ await t("RETRO 闭环实证(#167 验收):dismissed 同签→候选+adopt_rule �
   assert.deepEqual(retro3.rules_due_review, [], "review_at 未到点零复审行");
   assert.deepEqual(retro3.channel_conflicts, [], "无两通道矛盾");
   const items3 = fs.readdirSync(itemsOf(T.root)).filter((f) => f.endsWith(".md"));
-  assert.equal(items3.length, 3, "2 重开条目(次轮)+1 adopt_rule 条目——三轮零新增(在飞/已裁防重)");
+  assert.equal(items3.length, 5, "2 dismissed(首轮)+2 dismissed(次轮复开,随采纳终态)+1 adopt_rule——三轮零新增(已裁防重)");
+  const retro3Item = j(path.join(T.root, "ops", "retro", "2026-10-24-0202-health.json"));
+  assert.equal(retro3Item.candidates.length, 0, "三轮 RETRO 零新候选(已裁键不重立项)");
 });
 
 await t("retroDiff 单元:review_at 到点报复审+两通道矛盾(被抑制信号在 P1 探测器通道在飞)+already_ruled 防饿死", async () => {
@@ -899,13 +908,13 @@ await t("retroDiff 单元:review_at 到点报复审+两通道矛盾(被抑制信
   assert.equal(d.rules_due_review[0].hits_n, 1);
   assert.deepEqual(d.channel_conflicts, [{ dedup_key: "ciarm|download|http_4xx", rule_id: "R9", in_flight_items: ["i-live"] }],
     "被抑制信号对照探测器通道:在飞即矛盾(仅报不裁)");
-  // already_ruled 队位让渡:首候选已裁 → 次候选获立项位(防饿死);cap 语义见闭环例
-  const candItems = [];
+  // 候选推导面:幸存旗标 × dismissed 同签条目(人判误报)→ 候选清单(立项节流/already_ruled 让渡在 RETRO 步,闭环例覆盖)
   const mk = (src) => ({ signal_id: `u-${src}`, dedup_key: `${src}|staleness|age_gt_2x_refresh`, source: src, bucket: "frozen" });
   const dd = retroDiff({ survivors: [mk("aa"), mk("bb")], suppressed: [], items: [
-    { id: "r-ruled", status: "dismissed", dedup_key: { source: "retro", probe_class: "adopt_rule", error_signature: "bucket=frozen&source=aa" } } ],
+    { id: "d-aa", status: "dismissed", dedup_key: { source: "aa", probe_class: "staleness", error_signature: "age_gt_2x_refresh" } } ],
     rules: { version: 0, rules: [] }, today: "2026-10-24" });
-  assert.equal(dd.candidates.length, 2);
+  assert.equal(dd.candidates.length, 1, "仅 dismissed 同签的 aa 成候选(bb 无 dismissed 前科不立项)");
+  assert.deepEqual(dd.candidates[0].evidence.dismissed_items, ["d-aa"], "候选证据挂 dismissed 条目(可回算)");
 });
 
 await t("超时分腿镜像(#166 审 P2-1):fold net_timeout→timeout;lib.sh _ff_probe curl rc=28 → 第4列 net_timeout", async () => {
@@ -979,9 +988,13 @@ await t("resume 三规则③(#167):模型步工件缺 → 重跑(attempts=1);DEE
   const io1 = mkIo();
   assert.equal((await runPipeline({ roundId: rid, fixturesDir: cloneFixtures("fx-res3"), env: T.env, ...io1 })).ok, true);
   const dir = path.join(T.root, "ops", "rounds", rid);
-  crashState(T.root, rid, 4); // 崩在 DEEP 前:DISPATCH 记录在,05-* 缺
+  crashState(T.root, rid, 4); // 崩在 DEEP 前:DISPATCH 记录在;DEEP 之后工件(SYNTH 07-*)按步序不可能在场,一并清
   fs.rmSync(path.join(dir, "05-deep-verdicts.json"));
   fs.rmSync(path.join(dir, "05-deep-https-cinsscore.com-list-ci-badguys.txt.json")); // 首假设工件也缺(假设级崩溃)
+  fs.rmSync(path.join(dir, "07-synth-report.md"));
+  fs.rmSync(path.join(dir, "07-synth-transcript.jsonl"));
+  // 崩溃现场 fixtures_dir 仍在(state 真源);SYNTH 重跑的计数面=恢复轮 manifest(deduped=2)
+  writeSynthFx(path.join(TMP, "fx-res3"), "## 注入判例\n- 2026-06-01-golden-aggregator.md\n\n## 异常清单\n- ciarm:恢复轮重跑 · 建议 human_ruling\n- binarydefense:恢复轮重跑 · 建议 human_ruling\n\n抑制 1 条(规则 R1×1)。\n\n## 摘要\n- 计数: created=0 reopened=0 deduped=2 suppressed=1\n- 深验: confirmed=1 refuted=1 unresolved=0\n- resume 三规则③:SYNTH 工件缺重跑。");
   const { runResume } = await import("./pipeline.mjs");
   const io2 = mkIo();
   const r = await runResume({ roundId: rid, env: T.env, ...io2 });
