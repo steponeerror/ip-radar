@@ -16,7 +16,10 @@ const transcriptName = (def, item) => def.name === "TRIAGE" ? "03-triage-transcr
   : def.name === "SYNTH" ? "07-synth-transcript.jsonl" : null;
 
 function loadFixture(def, ctx, item) {
-  const p = def.name === "DEEP" ? path.join(ctx.fixturesDir, "deep", `${hidSlug(item.hid)}.json`)
+  // P3 DEEP 桩(#165):def.stub=deep_stub 时一律吃 deep/_stub.json(unresolved 直通 canned 回合);
+  // 真开启(P4 #166 删 stub)恢复逐假设 deep/<slug>.json。缺 fixture=配置面失败(infra)。
+  const p = def.stub ? path.join(ctx.fixturesDir, "deep", "_stub.json")
+    : def.name === "DEEP" ? path.join(ctx.fixturesDir, "deep", `${hidSlug(item.hid)}.json`)
     : path.join(ctx.fixturesDir, `${def.name.toLowerCase()}.json`);
   let fx;
   try { fx = JSON.parse(fs.readFileSync(p, "utf8")); } // 缺 fixture=配置面失败(infra;P0 未接真模型)

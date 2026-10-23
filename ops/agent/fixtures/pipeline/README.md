@@ -30,15 +30,18 @@ tools.mjs `matrixScanCli` 真扫描(OPS_EVAL_PY stub;旧 `matrix.json` 罐装件
 
 | 文件 | 消费步 | 内容 |
 |---|---|---|
-| `triage.json` | TRIAGE | 2 幸存一条一假设,均 need_deep |
-| `deep/https-cinsscore.com-….json` | DEEP | seed `call_d1` fetch_url age_days=220;verdict confirmed |
-| `deep/https-www.binarydefense-….json` | DEEP | seed `call_d2` probe_variant age_days=3;verdict refuted |
-| `synth.json` | SYNTH | 三节 canned 报告(计数行 `created=2 reopened=0 deduped=0 suppressed=1`) |
+| `triage.json` | TRIAGE | 2 幸存一条一假设,均 need_deep(P3 起配真提示词 prompts/health/triage.md)|
+| `deep/_stub.json` | DEEP 桩 | P3 桩 canned 回合:全部 verdict=unresolved 直通(#166 真开启时恢复逐假设件)|
+| `synth.json` | SYNTH | 三节 canned 报告(计数行 `created=2 reopened=0 deduped=0 suppressed=1` + 深验行 `confirmed=0 refuted=0 unresolved=2`)|
+
+P0 时代的逐假设 deep 件(cinsscore confirmed/binarydefense refuted,registrySeed 演示)已随 P3 桩退役;
+A 一律(evidence call_id+field 逐字回引登记表)机制面改由 selftest-pipeline G_DEEP 单元例直构工件钉住。
+零 need_deep 轮(空转金轨迹,#162 审 P2-2 裁定①)不经本目录 canned 件:自测以专用 fixtures 目录提供
+need_deep=false 的 triage 件与 unresolved=0 的 synth 件(见 selftest-pipeline 金轨迹例)。
 
 在飞面(P2 #164)不经本目录:自测把真形条目 .md 写进各自 DOCS tmp 的 `ops/items/`
 (见 selftest-pipeline Case A;status active/snoozed = 在飞,done/dismissed 终态不算)。
 
 预算降级用例(`OPS_PIPELINE_BUDGET_CNY=0.03`):2×0.016>0.03 → binarydefense 截尾
-unresolved(budget),DEEP 只跑 cinsscore;manifest created 仍=2。canned synth 报告的四计数
-与该场景一致,但其「深验: confirmed=1 refuted=1」行为全量样本计数,降级轮不以其为断言面
-(P0 门只对四计数逐字校验)。
+unresolved(budget),DEEP 桩只跑 cinsscore;manifest created 仍=2。canned synth 报告的深验行
+unresolved=2 与该场景回算一致(1 桩 unresolved + 1 截尾 unresolved),G_SYNTH 抽检面同过。
