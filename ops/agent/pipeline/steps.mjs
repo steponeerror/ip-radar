@@ -53,8 +53,9 @@ export function normalizeRules(raw) {
   const rules = [];
   for (const r of raw.rules) {
     if (!r || typeof r !== "object") throw infra("规则项非对象");
-    for (const k of ["id", "adopted", "adopted_via", "match", "action", "note"])
+    for (const k of ["id", "adopted", "adopted_via", "action", "note"])
       if (typeof r[k] !== "string" || !r[k].trim()) throw infra(`规则 ${r.id ?? "?"} 缺字符串字段 ${k}`);
+    if (!r.match || typeof r.match !== "object" || Array.isArray(r.match)) throw infra(`规则 ${r.id ?? "?"} match 非对象`);
     if (seen.has(r.id)) throw infra(`规则 id 重复:${r.id}`);
     seen.add(r.id);
     if (!RULE_ACTIONS.includes(r.action)) throw infra(`规则动作闭集外:${r.action}(${r.id})`);
