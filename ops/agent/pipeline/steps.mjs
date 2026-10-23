@@ -1,0 +1,235 @@
+// pipeline/steps.mjs — 脚本步实现 + 模型步装配/收编(C 稿 §1 层一;P0,spec #161)。
+// 职责线(DESIGN.md §2):脚本步只测量不判断——分区/装配/收编全是确定性数据变换,判断只在上游模型步与门。
+//   PROBE = lib.sh 真执行(extract_feed_urls 只读扫描 + feed_freshness;curl 传输层=PATH 解析,
+//           测试以 stub 替身零网络——golden curl_age_days 判例);matrix=P0 fixtures 罐装(P1 接真矩阵)。
+//   VERIFY = 抑制规则库纯函数分区(留痕抑制:压掉的信号进 suppressed 工件,证据降权不灭失)。
+//   RETRO = 台账(lib.sh)+ sandbox_assert 真执行 + retro 候选 JSON(候选只产件,永不自动生效)。
+// 模型步装配:modelInput(上下文构造)/modelConsume(收编工件)供 faux.mjs 真 Agent 循环调用;
+//   DEEP 逐假设循环是引擎数据循环(本文件只供 items 枚举与收编尾,C 稿 §2.1 注)。
+import fs from "node:fs";
+import path from "node:path";
+import { execFile as execFileCb } from "node:child_process";
+import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
+import { FROZEN_DAYS } from "../tools.mjs";
+
+const execFileP = promisify(execFileCb);
+const AGENT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const LIBSH = path.join(AGENT_DIR, "lib.sh");
+// 健康轮判例检索词:同 agent.mjs KWS.health(P3 提示词层接管时随 prompts/health/* 收敛为配置,勿再分叉)
+const HEALTH_KWS = ["冻结", "死键", "不可达", "违例"];
+const HIT_CAP = 8; // 铁律⑦(同 agent.mjs)
+// P0 占位系统提示:真提示词 P3 落 prompts/health/*.md(引擎/门零改动换真);本提示不进任何判断面
+const P0_MODEL_PROMPT = (key) => `(P0 骨架占位系统提示:模型步 ${key};真提示词 P3 落 prompts/health/*.md)`;
+const EST_PER_HYP_CNY = 0.016; // C稿 §7 成本模型上限(每假设 ~0.008-0.016;预算估取上限,宁紧勿松)
+const SEV_RANK = { high: 0, medium: 1, low: 2 }; // DISPATCH 截尾序:低 severity 先丢
+const RULE_ACTIONS = ["suppress", "annotate"]; // 规则动作闭集(C稿 §4.2)
+
+const sh = (fn, args = [], timeoutMs = 600_000, env = process.env) => execFileP("bash",
+  ["-c", `. "$0"; ${fn} "$@"`, LIBSH, ...args], { timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024, env: { ...env } });
+
+const j = (p) => { try { return JSON.parse(fs.readFileSync(p, "utf8")); } catch { return null; } };
+const writeJson = (p, obj) => fs.writeFileSync(p, JSON.stringify(obj, null, 2) + "\n");
+const host = (u) => { try { return new URL(u).hostname; } catch { return u; } };
+export const hidSlug = (hid) => String(hid).replace(/[^A-Za-z0-9.-]+/g, "-").replace(/^-+|-+$/g, "");
+// P0 简签(source|bucket);P4 接 _ops_items 时对齐 source+probe_class+error_signature 全签
+const dedupKey = (f) => `${f.source ?? host(f.url ?? f.signal_id ?? "")}|${f.bucket ?? "unknown"}`;
+
+// ── 脚本步 ─────────────────────────────────────────────────────────────────
+async function PROBE(def, ctx) {
+  const urls = [...new Set((await sh("extract_feed_urls", [], 120_000, ctx.env)).stdout.split("\n").map((s) => s.trim()).filter(Boolean))].sort();
+  const tsv = (await sh("feed_freshness", urls, 1200_000, ctx.env)).stdout;
+  fs.writeFileSync(path.join(ctx.dir, "01-probe-freshness.tsv"), tsv);
+  // matrix(P0)=fixtures 罐装,失败=嵌套信封不阻轮(C稿 §2.2);P1 换真矩阵(OPS_EVAL_PY 位等价)
+  const matrix = j(path.join(ctx.fixturesDir, "matrix.json"))
+    ?? { ok: false, code: "infra", reason: "P0 matrix fixture 缺(P1 接真矩阵)" };
+  writeJson(path.join(ctx.dir, "01-probe-matrix.json"), matrix);
+  const buckets = { fresh: 0, frozen: 0, unreachable: 0, token_required: 0, no_lm: 0 };
+  const flags = [];
+  for (const line of tsv.split("\n").filter(Boolean)) {
+    const [url, lm, age] = line.split("\t");
+    const bucket = age === "UNREACHABLE" ? "unreachable" : age === "TOKEN_REQUIRED" ? "token_required"
+      : age === "NO-LM" ? "no_lm" : (/^\d+$/.test(age) && +age >= FROZEN_DAYS ? "frozen" : "fresh"); // 门线常量同源 tools.mjs
+    buckets[bucket] += 1;
+    if (bucket === "frozen" || bucket === "unreachable") // freshness_flags 同口径:仅冻结/不可达进旗标(TOKEN_REQUIRED/NO-LM 读数不旗)
+      flags.push({ signal_id: url, url, bucket, ...(bucket === "frozen" ? { age_days: +age, last_modified: lm } : {}), source: host(url) });
+  }
+  writeJson(path.join(ctx.dir, "01-probe-summary.json"), { ok: true, round_id: ctx.roundId, urls_n: urls.length,
+    attempted_n: tsv.split("\n").filter(Boolean).length, buckets, flags,
+    matrix: { ok: matrix.ok === true, exit_code: matrix.exit_code ?? null, violation_n: matrix.counts?.violation ?? null } });
+}
+
+// 抑制规则谓词闭集 bucket/url_shape/source/error_family(新增谓词=spec 变约);闭集外键=规则文件坏
+function ruleMatch(match, f) {
+  const shape = (pat, s) => new RegExp(`^${String(pat).split("*").map((x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(".*")}$`).test(s);
+  for (const [k, v] of Object.entries(match ?? {})) {
+    if (k === "bucket" && f.bucket !== v) return false;
+    else if (k === "url_shape" && !shape(v, f.url)) return false;
+    else if (k === "source" && f.source !== v) return false;
+    else if (k === "error_family" && (f.error_family ?? null) !== v) return false; // P0 旗标暂无该字段(P2 消费)
+    else if (!["bucket", "url_shape", "source", "error_family"].includes(k))
+      throw Object.assign(new Error(`抑制规则谓词闭集外:${k}`), { code: "infra" });
+  }
+  return true;
+}
+async function VERIFY(def, ctx) {
+  const summary = j(path.join(ctx.dir, "01-probe-summary.json"));
+  const rules = j(ctx.rulesFile);
+  if (!summary) throw Object.assign(new Error("01-probe-summary.json 不可解析"), { code: "infra" });
+  if (!rules || !Array.isArray(rules.rules))
+    throw Object.assign(new Error(`抑制规则库不可解析:${ctx.rulesFile}(规则零命中=空集照常过;文件坏=终态)`), { code: "infra" });
+  for (const r of rules.rules) if (!RULE_ACTIONS.includes(r.action))
+    throw Object.assign(new Error(`规则动作闭集外:${r.action}(${r.id})`), { code: "infra" });
+  const flight = new Set((j(ctx.inFlightFile) ?? []).map((i) => i.dedup_key)); // 在飞条目集(P0=fixtures;P4 接 _ops_items)
+  const survivors = [], suppressed = [];
+  for (const f of summary.flags) {
+    const rule = rules.rules.find((r) => ruleMatch(r.match, f)); // 首命中,规则序即优先级
+    const key = dedupKey(f);
+    if (rule?.action === "suppress") { suppressed.push({ ...f, dedup_key: key, rule_id: rule.id }); continue; } // 留痕抑制
+    if (flight.has(key)) { suppressed.push({ ...f, dedup_key: key, rule_id: "in_flight" }); continue; } // 在飞不重问(P1 探测器双开防线)
+    survivors.push(rule?.action === "annotate" ? { ...f, dedup_key: key, annotated_rule: rule.id } : { ...f, dedup_key: key });
+  }
+  writeJson(path.join(ctx.dir, "02-verify-survivors.json"), { survivors, rules_version: rules.version ?? 0, in_flight_n: flight.size });
+  writeJson(path.join(ctx.dir, "02-verify-suppressed.json"), { suppressed, rules_version: rules.version ?? 0 });
+}
+
+async function DISPATCH(def, ctx) {
+  const h = j(path.join(ctx.dir, "03-triage-hypotheses.json")) ?? { hypotheses: [] };
+  const sorted = [...(h.hypotheses ?? []).filter((x) => x.need_deep)]
+    .sort((a, b) => (SEV_RANK[a.severity] ?? 9) - (SEV_RANK[b.severity] ?? 9));
+  const truncated = [];
+  while (sorted.length && sorted.length * EST_PER_HYP_CNY > ctx.budgetCny + 1e-9) truncated.push(sorted.pop()); // 预算降级:severity 截尾,被截标 unresolved(budget)
+  const bundles = sorted.map((x) => ({ hid: x.signal_id, budget_cny: +(ctx.budgetCny / sorted.length).toFixed(4),
+    prompt_pkg: { hypothesis: x.hypothesis, cause_class: x.cause_class, severity: x.severity, probe_hint: x.probe_hint, url: x.signal_id } }));
+  writeJson(path.join(ctx.dir, "04-dispatch-bundles.json"), { budget_cny: ctx.budgetCny, est_per_hyp_cny: EST_PER_HYP_CNY,
+    bundles, truncated: truncated.map((x) => ({ hid: x.signal_id, severity: x.severity, reason: "unresolved(budget)" })),
+    degraded: truncated.length > 0 });
+  return truncated.length ? { degraded: `budget_truncate:${truncated.length} 条按 severity 截尾标 unresolved(budget)(预算 ${ctx.budgetCny}¥)` } : undefined;
+}
+
+const ACTION_BY = { confirmed: "review_freeze", refuted: "digest_ignore", unresolved: "human_ruling", watch: "watch" }; // 查表闭集(C稿 §2.4-4)
+async function ITEMIZE(def, ctx) {
+  const hyps = j(path.join(ctx.dir, "03-triage-hypotheses.json"))?.hypotheses ?? [];
+  const verdicts = j(path.join(ctx.dir, "05-deep-verdicts.json")) ?? { verdicts: [], degraded: [] };
+  const truncated = j(path.join(ctx.dir, "04-dispatch-bundles.json"))?.truncated ?? [];
+  const surv = new Map((j(path.join(ctx.dir, "02-verify-survivors.json"))?.survivors ?? []).map((s) => [s.signal_id, s]));
+  const rows = [];
+  for (const v of verdicts.verdicts) rows.push({ hid: v.hid, hyp: hyps.find((h) => h.signal_id === v.hid) ?? {}, outcome: v.verdict, one_line: v.one_line });
+  for (const t of truncated) rows.push({ hid: t.hid, hyp: hyps.find((h) => h.signal_id === t.hid) ?? {}, outcome: "unresolved", one_line: "预算截尾,交人裁" });
+  for (const h of hyps.filter((x) => !x.need_deep)) rows.push({ hid: h.signal_id, hyp: h, outcome: "watch", one_line: h.one_line }); // 未深验假设直入清单
+  const itemsDir = path.join(ctx.dir, "items");
+  fs.mkdirSync(itemsDir, { recursive: true });
+  let created = 0, deduped = 0;
+  const names = [];
+  for (const r of rows) {
+    const f = surv.get(r.hid) ?? {};
+    const item = { dedup_key: dedupKey(f), source: f.source ?? host(f.url ?? r.hid), bucket: f.bucket ?? "unknown",
+      verdict: r.outcome, severity: r.outcome === "refuted" ? "low" : (r.hyp.severity ?? "low"), // refuted 恒 low 消化条目(附带三小裁②,2026-10-23 裁)
+      suggested_action: ACTION_BY[r.outcome] ?? "human_ruling", one_line: r.one_line ?? r.hyp.one_line ?? "", round_id: ctx.roundId };
+    const name = `${hidSlug(item.dedup_key)}.json`;
+    const p = path.join(itemsDir, name);
+    if (fs.existsSync(p)) { deduped += 1; names.push(name); continue; } // create_item 幂等兜底同语义(P4 换真条目库);原件不改写
+    writeJson(p, item);
+    created += 1;
+    names.push(name);
+  }
+  const suppressed = j(path.join(ctx.dir, "02-verify-suppressed.json"))?.suppressed?.length ?? 0;
+  writeJson(path.join(ctx.dir, "06-itemize-manifest.json"), { created, reopened: 0, deduped, suppressed, items: names }); // reopened=P4 接条目库在飞集后启用
+}
+
+async function RETRO(def, ctx) {
+  const usage = `in=${ctx.usage.input} out=${ctx.usage.output} total=${ctx.usage.totalTokens} cost=${ctx.usage.cost.toFixed(8)}`;
+  try { await sh("ledger_append", ["health", "faux-pipeline", usage, `pipeline:${ctx.roundId}`], 120_000, ctx.env); } // 台账先记(faux 零成本仍记行)
+  catch (e) { throw Object.assign(new Error(`台账写败:${e.message}`), { code: "ledger_failed" }); }
+  try { await sh("sandbox_assert", [], 60_000, ctx.env); } // 沙箱红线真执行(backend/frontend 零改动)
+  catch (e) { throw Object.assign(new Error("sandbox_assert rc≠0(backend/frontend 污染)"), { code: "sandbox_violation" }); }
+  let degraded;
+  try { // 候选产出失败=降级(跳过 retro,轮仍成功);台账/sandbox 失败已先行终态(C稿 §2.2 语义序)
+    const s = j(path.join(ctx.dir, "01-probe-summary.json"));
+    fs.mkdirSync(path.dirname(ctx.retroFile), { recursive: true });
+    writeJson(ctx.retroFile, { round_id: ctx.roundId, generated_at: new Date().toISOString(),
+      flags_n: (s?.flags ?? []).length,
+      survivors_n: j(path.join(ctx.dir, "02-verify-survivors.json"))?.survivors?.length ?? 0,
+      suppressed_n: j(path.join(ctx.dir, "02-verify-suppressed.json"))?.suppressed?.length ?? 0,
+      verdicts_n: j(path.join(ctx.dir, "05-deep-verdicts.json"))?.verdicts?.length ?? 0,
+      candidates: [], // 候选确定性检查=P5 闭环(adopt_rule 四键通道);P0 空集起步
+      sandbox_assert_pass: true, sandbox_assert_rc: 0, degraded: false });
+  } catch (e) {
+    degraded = { degraded: `skip_retro:retro 候选写败(${e.message})——轮仍成功`, skipGate: true };
+  }
+  return degraded;
+}
+
+async function CLOSE(def, ctx) { // 书挡步:存在性校验(闭合双层的外层)+ 信封原料
+  const report = path.join(ctx.dir, "07-synth-report.md");
+  ctx.pkg = fs.existsSync(report) ? report : null;
+  if (!ctx.pkg) return;
+  try {
+    const v = await sh("verify_cited_precedents", [ctx.pkg], 120_000, ctx.env);
+    ctx.verify = { ok: true, cited: Number((v.stdout.match(/(\d+) 条判例路径全部存在/) ?? [])[1] ?? 0) };
+  } catch (e) { throw Object.assign(new Error(`判例存在性校验败:${e.message}`), { code: "verify_failed" }); }
+}
+
+// ── 模型步装配/收编(faux.mjs 真 Agent 循环的上下文与落盘;判断仍全在模型步+门)────────
+function triageInput(ctx) {
+  const sv = j(path.join(ctx.dir, "02-verify-survivors.json"));
+  const rows = (sv?.survivors ?? []).map(({ signal_id, source, bucket, age_days, url, annotated_rule }) =>
+    ({ signal_id, source, bucket, ...(age_days != null ? { age_days } : {}), url, ...(annotated_rule ? { annotated_rule } : {}) }));
+  return { systemPrompt: P0_MODEL_PROMPT("health/triage"), userMsg: JSON.stringify({ survivors: rows }) };
+}
+function triageConsume(ctx, { text }) {
+  let h;
+  try { h = JSON.parse(text); } catch { throw Object.assign(new Error("TRIAGE 输出非 JSON(schema 违例)"), { code: "model_face" }); }
+  if (!h || !Array.isArray(h.hypotheses)) throw Object.assign(new Error("TRIAGE 输出缺 hypotheses 数组"), { code: "model_face" });
+  writeJson(path.join(ctx.dir, "03-triage-hypotheses.json"), h);
+}
+const deepItems = (ctx) => (j(path.join(ctx.dir, "04-dispatch-bundles.json"))?.bundles ?? []);
+function deepInput(ctx, item) {
+  return { systemPrompt: P0_MODEL_PROMPT("health/deep"), userMsg: JSON.stringify({ hypothesis_bundle: item.prompt_pkg, budget_cny: item.budget_cny }) };
+}
+function deepConsume(ctx, item, { text }) {
+  let v;
+  try { v = JSON.parse(text); } catch { throw Object.assign(new Error(`DEEP 输出非 JSON(${item.hid})`), { code: "model_face" }); }
+  if (!v || typeof v.verdict !== "string") throw Object.assign(new Error(`DEEP 输出缺 verdict(${item.hid})`), { code: "model_face" });
+  writeJson(path.join(ctx.dir, `05-deep-${hidSlug(item.hid)}.json`), { hid: item.hid, ...v });
+}
+function deepFinalize(ctx, { degradedItems }) { // 收编尾:逐假设工件 → 单 verdicts 集(含降级项)
+  const verdicts = deepItems(ctx)
+    .map((b) => j(path.join(ctx.dir, `05-deep-${hidSlug(b.hid)}.json`)))
+    .filter(Boolean)
+    .map(({ hid, verdict, evidence, one_line }) => ({ hid, verdict, evidence: evidence ?? [], one_line: one_line ?? "" }));
+  writeJson(path.join(ctx.dir, "05-deep-verdicts.json"), { verdicts, degraded: degradedItems });
+}
+async function synthInput(ctx) {
+  const inj = await sh("inject_precedents", HEALTH_KWS, 120_000, ctx.env); // 判例注入只在 SYNTH(闭合校验面集中,C稿 §3.5)
+  const hitNames = [...inj.stdout.matchAll(/^- ([0-9]{4}-[0-9]{2}-[0-9]{2}-[^\s]+\.md)\s*$/gm)].map((m) => m[1]);
+  const injected = hitNames.slice(0, HIT_CAP);
+  const input = { injected, manifest: j(path.join(ctx.dir, "06-itemize-manifest.json")),
+    verdicts_digest: (j(path.join(ctx.dir, "05-deep-verdicts.json"))?.verdicts ?? []).map(({ hid, verdict }) => ({ hid, verdict })),
+    probe: (({ urls_n, buckets }) => ({ urls_n, buckets }))(j(path.join(ctx.dir, "01-probe-summary.json")) ?? {}) };
+  const block = hitNames.length > HIT_CAP
+    ? `${inj.stdout.split("\n").filter((l) => !/^- 202/.test(l) || injected.includes(l.slice(2).trim())).join("\n")}\n(命中 ${hitNames.length} 条,注入前 ${HIT_CAP} 条——铁律⑦)` : inj.stdout;
+  return { systemPrompt: P0_MODEL_PROMPT("health/synth"), userMsg: `${block.trim()}\n\n# 本轮输入\n${JSON.stringify(input)}`, meta: { injected } };
+}
+function synthConsume(ctx, { text }) {
+  if (!text.trim()) throw Object.assign(new Error("SYNTH 最终文本为空"), { code: "empty_text" });
+  fs.writeFileSync(path.join(ctx.dir, "07-synth-report.md"), text);
+}
+
+const SCRIPT = { PROBE, VERIFY, DISPATCH, ITEMIZE, RETRO, CLOSE };
+export async function runStage(def, ctx) {
+  const fn = SCRIPT[def.name];
+  if (!fn) throw Object.assign(new Error(`脚本步未实现:${def.name}(定义表与实现漂移)`), { code: "infra" });
+  return fn(def, ctx);
+}
+const MODEL_IO = {
+  TRIAGE: { input: triageInput, consume: triageConsume, finalize: null },
+  DEEP: { input: deepInput, consume: deepConsume, finalize: deepFinalize, items: deepItems },
+  SYNTH: { input: synthInput, consume: synthConsume, finalize: null },
+};
+export const modelIO = (def) => {
+  const io = MODEL_IO[def.name];
+  if (!io) throw Object.assign(new Error(`模型步未装配:${def.name}`), { code: "infra" });
+  return io;
+};
+export function forEachItems(def, ctx) { return modelIO(def).items?.(ctx) ?? [null]; }
