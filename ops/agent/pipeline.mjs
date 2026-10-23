@@ -19,7 +19,9 @@ import * as gates from "./pipeline/gates.mjs";
 import { runModelStep } from "./pipeline/faux.mjs";
 
 const AGENT_DIR = path.dirname(fileURLToPath(import.meta.url));
-const OPS_ROOT = path.join(DOCS_ROOT, "ops"); // rounds/rules/retro 派生落位(C稿 §5.2,同 queue/artifacts 判例)
+// ops 树 = DOCS_ROOT 派生(C稿 §5.2,同 queue/artifacts 判例);按调用 env 解析(P4 #166:
+// 条目库真写面 ops/items 共树,自测需逐轮独立 DOCS 树隔离在飞面;CLI 面=进程 env 同一拼写)。
+const opsRootOf = (env) => path.join(env.DOCS_ROOT ?? process.env.DOCS_ROOT ?? DOCS_ROOT, "ops");
 
 // ── 轮次定义表(数据非代码;C稿 §2.2 十状态;加状态须过 spec 变更+三元组铁律:无工件/无门/无失败语义=不配当状态)──
 // 每态:name/kind(script|model|bookend|terminal)/model(配置键,P0 恒 faux)/工件清单(out)/门/失败语义三元组
@@ -42,11 +44,11 @@ export const HEALTH_PIPELINE = [
   { name: "DISPATCH", kind: "script", model: null, skipWhen: "no_need_deep",
     out: ["04-dispatch-bundles.json"], gate: "G_DISPATCH", artifact: "04-dispatch-bundles.json",
     fail: { retry: 0, degrade: "budget_truncate", terminal: "infra" } }, // 预算不够=降级截尾(非失败);bug=infra
-  { name: "DEEP", kind: "model", model: "health/deep", forEach: "bundles", stub: "deep_stub",
+  { name: "DEEP", kind: "model", model: "health/deep", forEach: "bundles",
     out: ["05-deep-verdicts.json"], gate: "G_DEEP", artifact: "05-deep-verdicts.json",
-    fail: { retry: 1, perItem: "unresolved", terminal: "model_face" } }, // P3 桩(#165):全部 unresolved 直通,stages 标 degraded 注桩;
-  // 不设 skipWhen——零 need_deep 轮仍跑空转金轨迹 canned 回路(#162 审 P2-2,裁定①);真开启=P4 #166 删 stub。
-  // 单假设败=降级 unresolved;全败=终态 model_face。
+    fail: { retry: 1, perItem: "unresolved", terminal: "model_face" } }, // 真开启 P4 #166:逐假设单发新上下文(独立轮窗),
+  // 微探针闭集 ≤3/假设,evidence=A 一律选择对(宿主回填值,G_DEEP 写前语义门逐字回引);单假设败=降级 unresolved;全败=终态 model_face。
+  // 不设 skipWhen——零 need_deep 轮仍跑空转金轨迹 canned 回路(#162 审 P2-2,裁定①)。
   { name: "ITEMIZE", kind: "script", model: null,
     out: ["06-itemize-manifest.json"], gate: "G_ITEMIZE", artifact: "06-itemize-manifest.json",
     fail: { retry: 0, terminal: "verify_failed" } }, // 条目写败=可重入终态(条目库幂等兜底)
@@ -94,9 +96,10 @@ function mkCtx(opts, io) {
   const state = { schema: 1, round_id: roundId, type, pipeline_mode: io.env.OPS_PIPELINE ?? process.env.OPS_PIPELINE ?? "legacy",
     status: "in_flight", stage: null, stages: [], budget_cny: budgetCny, fixtures_dir: fixturesDir, prompt_hashes: {},
     started_at: nowIso(), updated_at: nowIso(), resume_count: 0, replay_of: opts.replayOf ?? null };
+  const OPS_ROOT = opsRootOf(io.env); // 本轮 ops 树(rounds/rules/retro/items 同根;items=条目库真写面 P4 #166)
   return { type, roundId, dir: path.join(OPS_ROOT, "rounds", roundId), env: io.env, log: io.log,
     fixturesDir, budgetCny, opsRoot: OPS_ROOT, rulesFile: path.join(OPS_ROOT, "rules", "suppressions.json"),
-    itemsDir: path.join(OPS_ROOT, "items"), // 在飞条目面真源(_ops_items 树,P2 #164;同 ops 树派生判例)
+    itemsDir: path.join(OPS_ROOT, "items"), // 在飞条目面真源(_ops_items 树,P2 #164;P4 起兼 ITEMIZE 落笔面)
     retroFile: path.join(OPS_ROOT, "retro", `${roundId}.json`), retroAuditKey: roundId,
     ledgerFile: io.env.LEDGER_FILE ?? process.env.LEDGER_FILE ?? path.join(DOCS_ROOT, "ops", "ledger.md"),
     pkg: null, verify: null, envelope: null, usage: { input: 0, output: 0, totalTokens: 0, cost: 0 }, state };
@@ -197,11 +200,6 @@ async function runStages(ctx, { fromIdx = 0, toIdx = RUNNABLE.length - 1, dry = 
           addUsage(ctx.usage, r.usage); // 顶层 usage=各模型步之和(旧字段「整轮求和」语义保持)
           degraded = r.degraded ? { degraded: `${def.fail.perItem} 降级` } : null;
           gateDone = r.gateDone; // 单发步门已在重试圈内评过留痕,不重复评
-          if (def.stub) { // 桩步降级留痕(C稿 §2.2 降级≠失败):信封 stages 标 degraded+note 注桩
-            degraded = degraded ?? {};
-            degraded.degraded = `stub:${def.stub}`;
-            rec.note = `${def.stub}:P3 桩,全部 unresolved 直通(#166 真开启)`;
-          }
         } else {
           let attempt = 0;
           for (;;) {
@@ -296,6 +294,7 @@ export async function runReplay(opts = {}) {
   for (const s of [from, to]) if (!RUNNABLE.includes(s))
     throw Object.assign(new Error(`replay 步名须 ∈ {${RUNNABLE.join("|")}}(CLOSE 属原轮时序不入重放;FAILED 非可跑步),得到:${s}`), { usage: true });
   if (RUNNABLE.indexOf(from) > RUNNABLE.indexOf(to)) throw Object.assign(new Error(`--from(${from}) 不得晚于 --to(${to})`), { usage: true });
+  const OPS_ROOT = opsRootOf(io.env);
   const srcDir = path.join(OPS_ROOT, "rounds", String(roundId));
   if (!fs.existsSync(path.join(srcDir, "state.json"))) throw Object.assign(new Error(`rounds/${roundId} 无 state.json(无可重放轮次)`), { usage: true });
   const roundsDir = path.join(OPS_ROOT, "rounds");
@@ -306,7 +305,8 @@ export async function runReplay(opts = {}) {
   fs.mkdirSync(dir, { recursive: true });
   // 原件零改写(哲学①):只读复制。dry=审计面,全量工件复制供门重算;非 dry 只复制段前置
   // 工件(按序号前缀;段内输出重执行再生——itemize 幂等重入若见复制件会把 created 记成 deduped,
-  // 与段内重跑的模型步 canned 产物计数不一致,属假门败)。items/ 归 ITEMIZE 再生,不复制。
+  // 与段内重跑的模型步 canned 产物计数不一致,属假门败)。条目真写在 ops/items 树(P4 #166),
+  // 不属轮次工件面;ITEMIZE 重放走原轮 manifest 回声(零写,replay 确定性)。
   if (dry) copyTree(srcDir, dir, ["state.json", "gates.json"]);
   else {
     const prefixes = RUNNABLE.slice(0, RUNNABLE.indexOf(from)).map((n) => STAGE_PREFIX[n]).filter(Boolean);
