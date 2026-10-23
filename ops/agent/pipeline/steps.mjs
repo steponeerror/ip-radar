@@ -1,7 +1,8 @@
 // pipeline/steps.mjs — 脚本步实现 + 模型步装配/收编(C 稿 §1 层一;P0,spec #161)。
 // 职责线(DESIGN.md §2):脚本步只测量不判断——分区/装配/收编全是确定性数据变换,判断只在上游模型步与门。
 //   PROBE = lib.sh 真执行(extract_feed_urls 只读扫描 + feed_freshness;curl 传输层=PATH 解析,
-//           测试以 stub 替身零网络——golden curl_age_days 判例);matrix=P0 fixtures 罐装(P1 接真矩阵)。
+//           测试以 stub 替身零网络——golden curl_age_days 判例)+ matrix 真扫描(tools.mjs
+//           matrixScanCli 单源,OPS_EVAL_PY 求值 CLI,stub 判例同 golden stubs.matrix;P1,#163)。
 //   VERIFY = 抑制规则库纯函数分区(留痕抑制:压掉的信号进 suppressed 工件,证据降权不灭失)。
 //   RETRO = 台账(lib.sh)+ sandbox_assert 真执行 + retro 候选 JSON(候选只产件,永不自动生效)。
 // 模型步装配:modelInput(上下文构造)/modelConsume(收编工件)供 faux.mjs 真 Agent 循环调用;
@@ -11,7 +12,7 @@ import path from "node:path";
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
-import { FROZEN_DAYS } from "../tools.mjs";
+import { FROZEN_DAYS, matrixScanCli, matrixArtifactText } from "../tools.mjs";
 
 const execFileP = promisify(execFileCb);
 const AGENT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -40,10 +41,14 @@ async function PROBE(def, ctx) {
   const urls = [...new Set((await sh("extract_feed_urls", [], 120_000, ctx.env)).stdout.split("\n").map((s) => s.trim()).filter(Boolean))].sort();
   const tsv = (await sh("feed_freshness", urls, 1200_000, ctx.env)).stdout;
   fs.writeFileSync(path.join(ctx.dir, "01-probe-freshness.tsv"), tsv);
-  // matrix(P0)=fixtures 罐装,失败=嵌套信封不阻轮(C稿 §2.2);P1 换真矩阵(OPS_EVAL_PY 位等价)
-  const matrix = j(path.join(ctx.fixturesDir, "matrix.json"))
-    ?? { ok: false, code: "infra", reason: "P0 matrix fixture 缺(P1 接真矩阵)" };
-  writeJson(path.join(ctx.dir, "01-probe-matrix.json"), matrix);
+  // matrix(P1,#163)=真扫描单源 tools.mjs matrixScanCli(legacy health_snapshot 同路径同解析;位等价门=同 stub
+  // 下两腿产物逐字节同文,自测 selftest-pipeline 位等价例)。产物路径对照:legacy=<ts>-matrix-scan.json
+  // (artifactPath ts-slug 族,ops/artifacts/);管线=01-probe-matrix.json(§4.1 序号前缀族)。
+  // 失败=嵌套信封不阻轮(C稿 §2.2,legacy 同语义);差异仅落盘面:legacy 失败不落件只回 sc 嵌套信封,
+  // 管线按 §4.1 工件契约落信封进件(证据不灭失)。
+  const m = await matrixScanCli();
+  fs.writeFileSync(path.join(ctx.dir, "01-probe-matrix.json"), m.ok ? matrixArtifactText(m.d) : JSON.stringify(m.env, null, 1));
+  const matrix = m.ok ? { ok: true, exit_code: m.d.exit_code, counts: m.d.counts } : m.env;
   const buckets = { fresh: 0, frozen: 0, unreachable: 0, token_required: 0, no_lm: 0 };
   const flags = [];
   for (const line of tsv.split("\n").filter(Boolean)) {
