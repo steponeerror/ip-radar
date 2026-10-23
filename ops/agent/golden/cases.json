@@ -17,7 +17,12 @@
     "样本(输出契约节齐全),非模型产物。fixture 判例树:2026-06-01-golden-aggregator.md 命中",
     "health+discover 检索词;2026-06-02-golden-matrix-nolayer.md 存在于库但不命中任何轮次检索词",
     "(负例③:存在性通过、闭集校验拦截;正例③:经轮中 search_precedents 命中后引用放行——",
-    "闭集=预注入∪本会话命中,收口活时并集;检索词 NO-LAYER/读数约定 仅命中 B)。"
+    "闭集=预注入∪本会话命中,收口活时并集;检索词 NO-LAYER/读数约定 仅命中 B)。",
+    "pipeline 例(spec #161):kind=pipeline 走 pipeline.mjs 真引擎跑全 faux 轮(模型步=faux",
+    "provider+仓内 fixtures/pipeline canned 回合;测量腿=curl 替身+registrySeed 预登记);断言词表",
+    "增 pipeline_ok/pipeline_stage/pipeline_gates/pipeline_artifact(配对契约见 fixtures/pipeline/README.md)。",
+    "P1 起(#163)PROBE 真跑 matrix(OPS_EVAL_PY 替身钉 stubs.matrix,同 legacy health 例);",
+    "01-probe-matrix.json 与 legacy <ts>-matrix-scan.json 同源同文(matrixScanCli/matrixArtifactText 单源)。"
   ],
   "cases": [
     {
@@ -262,6 +267,67 @@
         { "kind": "queue_file", "state": "row", "pattern": "\\| ENQUEUE \\| cand_hi \\|" },
         { "kind": "queue_file", "state": "row", "pattern": "call_probe_hi:exclusive_rate=0.25" },
         { "kind": "package", "exists": true, "matches": [ "- 队列动作: ENQUEUE:cand_hi" ] }
+      ]
+    },
+    {
+      "id": "pipeline_health_full_faux",
+      "kind": "pipeline",
+      "tier": "faux",
+      "round": "health",
+      "tags": ["p0-skeleton", "positive", "pipeline"],
+      "desc": "轮次状态机全十状态 faux 跑通到 CLOSE(spec #161 P0 骨架 + P1 位等价面 #163 + P4 DEEP/ITEMIZE 真开启 #166):真 extract_feed_urls+feed_freshness(curl 替身零网络)+真 matrix 扫描(OPS_EVAL_PY 替身,tools.mjs matrixScanCli 单源,01-probe-matrix.json 与 legacy <ts>-matrix-scan.json 逐字节同文)→真抑制分区(R1 压 dshield)→faux TRIAGE/DEEP/SYNTH(仓内 fixtures/pipeline,DEEP 逐假设微探针 seed=registrySeed 测量腿,A 一律宿主回填)→真收编/条目库桥落 ops/items/台账/沙箱;九门全机检留 gates.json;信封只增 pipeline 扩展字段。",
+      "stubs": {
+        "curl_age_days": [
+          { "match": "cinsscore", "days": 220 },
+          { "match": "binarydefense", "days": 210 },
+          { "match": "dshield", "days": 200 },
+          { "match": "*", "days": 30 }
+        ],
+        "matrix": {
+          "exit_code": 0,
+          "counts": { "violation": 0, "pending": 0, "agreement": 4 },
+          "layers": {
+            "truth": { "status": "OK", "members": 4, "sampled": 4, "notes": [] },
+            "infra": { "status": "OK", "members": 8, "sampled": 8, "notes": [] }
+          },
+          "buckets": { "violation": [], "pending": [], "agreement": [] }
+        }
+      },
+      "pipeline": {
+        "rules": {
+          "version": 1,
+          "rules": [
+            { "id": "R1", "adopted": "2026-10-24", "adopted_via": "item-fixture",
+              "match": { "bucket": "frozen", "url_shape": "*dshield.org*" },
+              "action": "suppress", "note": "fixture:dshield 冻结读数为已知探测伪迹", "review_at": "2027-01-24" }
+          ]
+        }
+      },
+      "assertions": [
+        { "kind": "pipeline_ok" },
+        { "kind": "pipeline_stage", "stage": "PROBE", "status": "done" },
+        { "kind": "pipeline_stage", "stage": "DEEP", "status": "done" },
+        { "kind": "pipeline_stage", "stage": "CLOSE", "status": "done" },
+        { "kind": "pipeline_gates" },
+        { "kind": "pipeline_artifact", "file": "01-probe-summary.json",
+          "json": { "urls_n_at_least": 30, "flags.length": 3, "buckets.frozen": 3, "attempted_n_at_least": 30,
+            "matrix.ok": true, "matrix.exit_code": 0, "matrix.violation_n": 0 } },
+        { "kind": "pipeline_artifact", "file": "01-probe-matrix.json",
+          "json": { "exit_code": 0, "counts.violation": 0 },
+          "matches": [ "\"layers\":", "\"buckets\":" ] },
+        { "kind": "pipeline_artifact", "file": "02-verify-survivors.json", "json": { "survivors.length": 2 } },
+        { "kind": "pipeline_artifact", "file": "02-verify-suppressed.json", "json": { "suppressed.0.rule_id": "R1" } },
+        { "kind": "pipeline_artifact", "file": "05-deep-verdicts.json", "json": { "verdicts.length": 2, "degraded.length": 0 } },
+        { "kind": "pipeline_artifact", "file": "06-itemize-manifest.json", "json": { "created": 2, "reopened": 0, "deduped": 0, "suppressed": 1 } },
+        { "kind": "pipeline_artifact", "file": "07-synth-report.md", "matches": [
+          "## 注入判例", "## 异常清单", "## 摘要",
+          "created=2 reopened=0 deduped=0 suppressed=1",
+          "confirmed=1 refuted=1 unresolved=0",
+          "2026-06-01-golden-aggregator.md",
+          "human_ruling"
+        ] },
+        { "kind": "pipeline_artifact", "file": "gates.json", "matches": [ "G_DEEP", "G_CLOSE", "\"pass\": true" ] },
+        { "kind": "ledger", "min_rows": 1, "last_matches": "\\| health \\| faux-pipeline \\|.*pipeline:2026-06-01-0400-health" }
       ]
     },
     {

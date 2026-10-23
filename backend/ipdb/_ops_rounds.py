@@ -33,12 +33,14 @@ spawn 层;e2e 真跑(tests/test_ops_rounds_e2e.py)不设此值。
 import json
 import logging
 import os
+import re as _re
 import shlex
 import subprocess
 import sys
 import threading
 import time
 from collections import deque
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -112,6 +114,38 @@ def _infra(round_type: str, message: str) -> dict:
             "error": {"code": "infra", "message": message}}
 
 
+def _drain_stderr(proc, on_log):
+    """stderr 泵线程(spawn_round/_spawn_resume 共用):tail 留痕 + on_log 进度回调,
+    回调炸不截断泵(进度面尽力而为)。"""
+    stderr_lines: deque[str] = deque(maxlen=_STDERR_KEEP_LINES)
+
+    def _drain() -> None:
+        for line in proc.stderr:
+            line = line.rstrip("\n")
+            stderr_lines.append(line)
+            if on_log is not None:
+                try:
+                    on_log(line)
+                except Exception:
+                    logger.warning("ops on_log 回调失败", exc_info=True)
+
+    reader = threading.Thread(target=_drain, daemon=True, name="ops-round-stderr")
+    reader.start()
+    return stderr_lines, reader
+
+
+def _stdout_envelope(stdout_text: str) -> dict | None:
+    """轮次 CLI stdout 单行 JSON 信封解析(契约违背返回 None;两 spawn 面共用)。"""
+    lines = [ln for ln in stdout_text.splitlines() if ln.strip()]
+    if len(lines) != 1:
+        return None
+    try:
+        parsed = json.loads(lines[0])
+    except ValueError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
 def spawn_round(
     round_type: str,
     input_text: str,
@@ -143,20 +177,7 @@ def spawn_round(
     except OSError as e:  # 如 node 不在 PATH(P5 镜像未装时的显式失败面)
         return _infra(round_type, f"agent 拉起失败: {e}")
 
-    stderr_lines: deque[str] = deque(maxlen=_STDERR_KEEP_LINES)
-
-    def _drain() -> None:
-        for line in proc.stderr:
-            line = line.rstrip("\n")
-            stderr_lines.append(line)
-            if on_log is not None:
-                try:
-                    on_log(line)
-                except Exception:  # 回调炸不截断 stderr 泵(进度面尽力而为)
-                    logger.warning("ops on_log 回调失败", exc_info=True)
-
-    reader = threading.Thread(target=_drain, daemon=True, name="ops-round-stderr")
-    reader.start()
+    stderr_lines, reader = _drain_stderr(proc, on_log)  # 两 spawn 面共用泵(终审 smell 收口)
 
     cancelled = threading.Event()
 
@@ -186,15 +207,7 @@ def spawn_round(
             round_type, "—", "—", "admin 取消(无轮次信封;已花用量未知,九裁决 9 留痕)")
         return {"cancelled": True, "round": round_type}
 
-    lines = [ln for ln in stdout_text.splitlines() if ln.strip()]
-    envelope = None
-    if len(lines) == 1:
-        try:
-            parsed = json.loads(lines[0])
-            if isinstance(parsed, dict):
-                envelope = parsed
-        except ValueError:
-            envelope = None
+    envelope = _stdout_envelope(stdout_text)
     if envelope is None or "ok" not in envelope:
         tail = " | ".join(list(stderr_lines)[-3:])[-_STDERR_TAIL_CHARS:]
         return _infra(round_type, f"轮次信封契约违背(rc={rc},stdout 非单行 JSON 含 ok): "
@@ -210,6 +223,183 @@ def spawn_round(
         _ops_store.append_ledger(round_type, "—", "—", note)
         return envelope
     return _infra(round_type, f"轮次信封形状非法(rc={rc}, ok={ok!r})")
+
+
+# ── P5 #167 boot 恢复扫描(C稿 §4.6;轮次路由语义零改动——独立恢复面)──────────
+# backend lifespan 启动时扫描 rounds/*/state.json 的 in_flight 轮:
+#   ① 龄 >16h(2×8h cron)→ 标 FAILED(infra, stale)+台账(陈旧快照无恢复意义);
+#   ② 自动恢复已用尽(resume_count≥1)→ 标 FAILED(infra)+台账留 replay 提示,
+#      交人(每轮至多一次自动恢复);
+#   ③ 其余 → 后台拉起 pipeline.mjs resume(经串行车道:借 manager.start_ops_round
+#      占道,恢复轮与手动/cron 轮同一互斥面;stderr stage 行经 ops_log 进 SSE)。
+# 恢复三规则在 pipeline.mjs resume 侧实施(脚本步幂等重入/工件齐补门不重花
+# token/工件缺重跑);本面只做准入裁决与处置留痕。永不抛异常(启动面尽力而为;
+# 处置失败轮保持 in_flight,下次 boot 再扫)。
+_RESUME_ARGV_HEAD = ["node", "--max-old-space-size=256",
+                     "ops/agent/pipeline.mjs", "resume"]
+_STALE_HOURS = 16.0        # 2× 8h cron 周期(C稿 §4.6 规则 5)
+_REPLAY_DIR_RE = _re.compile(r"-r\d+$")  # 重放目录不入恢复(终态语义,pipeline 侧已终态化)
+
+
+def scan_inflight_rounds(now: datetime | None = None) -> list[dict]:
+    """纯读扫描:rounds/*/state.json 的 in_flight 轮 → 处置建议清单。
+
+    action ∈ {resume, fail_stale, fail_twice, skip_unreadable};-rN 重放目录
+    与非 in_flight 轮不入清单。age_h=None 表示 updated_at 不可解析(按 stale 处置:
+    无证据≠清白,不赌陈旧态可恢复)。
+    """
+    root = _ops_store.ops_root() / "rounds"
+    if not root.is_dir():
+        return []
+    now = now or datetime.now(timezone.utc)
+    rows: list[dict] = []
+    for d in sorted(root.iterdir()):
+        if not d.is_dir() or _REPLAY_DIR_RE.search(d.name):
+            continue
+        sp = d / "state.json"
+        if not sp.is_file():
+            continue
+        try:
+            state = json.loads(sp.read_text(encoding="utf-8"))
+        except ValueError:
+            rows.append({"round_id": d.name, "dir": d,
+                         "action": "skip_unreadable"})
+            continue
+        if not isinstance(state, dict) or state.get("status") != "in_flight":
+            continue
+        try:
+            updated = datetime.fromisoformat(str(state.get("updated_at")))
+            if updated.tzinfo is None:
+                updated = updated.replace(tzinfo=timezone.utc)
+            age_h = (now - updated).total_seconds() / 3600.0
+        except ValueError:
+            age_h = None
+        if age_h is None or age_h > _STALE_HOURS:
+            rows.append({"round_id": d.name, "dir": d, "action": "fail_stale",
+                         "age_h": age_h})
+        elif (state.get("resume_count") or 0) >= 1:
+            rows.append({"round_id": d.name, "dir": d, "action": "fail_twice"})
+        else:
+            rows.append({"round_id": d.name, "dir": d, "action": "resume"})
+    return rows
+
+
+def _mark_round_failed(rd: Path, state: dict, reason: str) -> None:
+    """in_flight → FAILED(infra) 就地终态化(仅改 status/stage/updated_at 三行
+    + boot_marked 留痕字段——pipeline.mjs state schema 只增不改;原子写)。"""
+    state = dict(state)
+    now_iso = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
+    state["status"] = "failed"
+    state["stage"] = "FAILED"
+    state["updated_at"] = now_iso
+    state["boot_marked"] = {"code": "infra", "reason": reason,
+                            "marked_at": now_iso}
+    _ops_store.atomic_write_text(
+        rd / "state.json",
+        json.dumps(state, ensure_ascii=False, indent=2) + "\n")
+
+
+def _spawn_resume(round_id: str, *, on_log: Callable[[str], None] | None = None,
+                  env: dict | None = None) -> dict:
+    """拉起 pipeline.mjs resume <round_id>(boot 恢复专用;不经 IP_RADAR_OPS_AGENT_CMD
+    ——该覆盖面是轮次 spawn 契约 <round> <input> 形)。返回轮次信封(同 spawn_round
+    单行 JSON 契约;形状违背 → infra 兜底信封)。"""
+    argv = _RESUME_ARGV_HEAD + [round_id]
+    try:
+        proc = subprocess.Popen(
+            argv, cwd=str(_REPO_ROOT), stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, text=True, encoding="utf-8",
+            errors="replace", env=env or os.environ)
+    except OSError as e:
+        return _infra("health", f"resume 拉起失败: {e}")
+    stderr_tail, reader = _drain_stderr(proc, on_log)  # 同 spawn_round 泵(终审 smell 收口)
+    stdout_text = proc.stdout.read()
+    proc.stdout.close()
+    rc = proc.wait()
+    reader.join(timeout=5)
+    envelope = _stdout_envelope(stdout_text)
+    if envelope is None or "ok" not in envelope:
+        tail = " | ".join(list(stderr_tail)[-3:])[-_STDERR_TAIL_CHARS:]
+        return _infra("health", f"resume 信封契约违背(rc={rc}): {tail or '(stderr 空)'}")
+    if envelope.get("ok") is not True:
+        err = envelope.get("error")
+        if isinstance(err, dict):
+            _ops_store.append_ledger(
+                "health", "—", "—",
+                f"boot 恢复失败 error_code={err.get('code')}; {err.get('message')}")
+    return envelope
+
+
+def _run_recovery_round(manager, round_id: str) -> None:
+    """恢复轮线程入口:占串行车道(与手动/cron 轮同一互斥面)→ resume spawn → 收口。"""
+    task, busy = manager.start_ops_round("health")
+    if task is None:
+        logger.warning("boot 恢复:车道忙(%s),%s 留待下次启动扫描", busy, round_id)
+        return
+
+    def on_log(line: str) -> None:
+        manager.ops_log(task.id, line)
+
+    try:
+        env = {**os.environ, **_round_env()}
+    except RuntimeError as e:
+        manager.finish_ops_round(task.id, "failed", f"agent 配置读取失败: {e}", "infra")
+        return
+    result = _spawn_resume(round_id, on_log=on_log, env=env)
+    if result.get("ok") is True:
+        manager.finish_ops_round(task.id, "done")
+        return
+    err = result.get("error") or {}
+    manager.finish_ops_round(
+        task.id, "failed",
+        err.get("message") or json.dumps(result, ensure_ascii=False),
+        err.get("code") if isinstance(err.get("code"), str) else "infra")
+
+
+def recover_inflight_rounds(manager=None) -> list[dict]:
+    """boot 处置入口(lifespan 调用;返回处置清单供测试/日志断言)。"""
+    handled: list[dict] = []
+    try:
+        rows = scan_inflight_rounds()
+    except Exception:
+        logger.warning("boot 恢复扫描失败(轮次保持 in_flight,下次启动再扫)",
+                       exc_info=True)
+        return handled
+    for row in rows:
+        rid = row["round_id"]
+        try:
+            if row["action"] == "skip_unreadable":
+                logger.warning("boot 恢复:state.json 不可解析,跳过 %s", rid)
+                handled.append({**row, "done": False})
+            elif row["action"] in ("fail_stale", "fail_twice"):
+                state = json.loads((row["dir"] / "state.json")
+                                   .read_text(encoding="utf-8"))
+                _age = row.get("age_h")
+                age = f"{_age:.1f}h" if _age is not None else "不可解析"
+                reason = (f"in_flight 龄 {age}>16h(2×8h cron,stale)"
+                          if row["action"] == "fail_stale"
+                          else f"自动恢复已用尽(resume_count={state.get('resume_count')})")
+                _mark_round_failed(row["dir"], state, reason)
+                _ops_store.append_ledger(
+                    "health", "—", "—",
+                    f"boot 恢复:{reason} 标 FAILED(infra)——审计走 "
+                    f"node ops/agent/pipeline.mjs replay {rid}(replay 可救,交人)")
+                logger.info("boot 恢复:%s → FAILED(infra):%s", rid, reason)
+                handled.append({**row, "done": True})
+            elif row["action"] == "resume" and manager is not None:
+                threading.Thread(
+                    target=_run_recovery_round, args=(manager, rid),
+                    daemon=True, name=f"ops-boot-resume-{rid}").start()
+                logger.info("boot 恢复:%s → 后台 resume(车道互斥,SSE 可见)", rid)
+                handled.append({**row, "done": True})
+            elif row["action"] == "resume":
+                logger.info("boot 恢复:%s 可 resume 但无 manager(测试面),跳过拉起", rid)
+                handled.append({**row, "done": False})
+        except Exception:
+            logger.warning("boot 恢复处置失败:%s(轮保持 in_flight)",
+                           rid, exc_info=True)
+            handled.append({**row, "done": False})
+    return handled
 
 
 def run_round(manager, task, round_type: str, input_text: str) -> None:

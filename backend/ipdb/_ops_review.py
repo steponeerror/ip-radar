@@ -38,7 +38,9 @@ ignore, snooze} 四键 → 可逆闭集动作直接执行(或集外「仅立项�
 """
 
 import json
-from datetime import datetime, timezone
+import re
+from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 
 from . import _ops_items, _ops_store
 
@@ -48,6 +50,76 @@ REVIEW_VERDICTS = ("agree", "modify", "ignore", "snooze")
 REVERSIBLE_ACTIONS = ("retry_download", "disable_source", "pause_source")
 # 四键 → 判例 verdict 映射(snooze 不落判例,故无映射)
 _RULING_OF = {"agree": "agreed", "modify": "amended", "ignore": "overruled"}
+
+# ── adopt_rule:抑制规则库唯一写口(P5 #167;C稿 §4.2)──────────────────────
+# RETRO 步(pipeline/steps.mjs retroDiff)产 adopt_rule 候选条目仅立项;人裁
+# agree/modify 才经此处写入 rules/suppressions.json——永不自动生效(责任线
+# DESIGN.md §3;写口=本四键面是铁律)。规则可逆=删行即回;review_at 90 天
+# 到点 RETRO 报复审(防规则腐烂)。
+ADOPT_RULE_ACTION = "adopt_rule"
+# 谓词/动作闭集与 Node 侧 steps.mjs RULE_PREDICATES/RULE_ACTIONS 同词表镜像
+# (双向注释律:两侧改词表须先过 selftest-pipeline G_RETRO 闭集断言)
+RULE_PREDICATES = ("bucket", "url_shape", "source", "error_family")
+RULE_ACTIONS = ("suppress", "annotate")
+_RULE_ID_RE = re.compile(r"^R(\d+)$")
+_RULE_REVIEW_DAYS = 90
+
+
+def _rules_path() -> Path:
+    return _ops_store.ops_root() / "rules" / "suppressions.json"
+
+
+def _adopt_rule(item_id: str, args: dict, today: date) -> str:
+    """adopt_rule 条目 args → 追加进 rules/suppressions.json,返回规则 id。
+
+    args = {match: {谓词: 值…}, action: suppress|annotate, note: str}(RETRO
+    候选草案面);闭集校验失败 = 条目数据坏 → ExecutionError(500 显式,不伪装
+    配置错)。id = 现库最大 R<n> + 1;version 自增;adopted_via = 条目 id
+    (谱系可回算);review_at = adopted + 90 天(C稿 §4.2)。
+    """
+    if not isinstance(args, dict):
+        raise ExecutionError(f"adopt_rule args 必须是映射: {args!r}")
+    match = args.get("match")
+    action = args.get("action")
+    note = args.get("note")
+    if not isinstance(match, dict) or not match:
+        raise ExecutionError(f"adopt_rule args.match 必须是非空映射(谓词闭集 {'/'.join(RULE_PREDICATES)}): {match!r}")
+    for k in match:
+        if k not in RULE_PREDICATES:
+            raise ExecutionError(f"adopt_rule 谓词闭集外: {k!r}(闭集 {'/'.join(RULE_PREDICATES)})")
+    for k, v in match.items():
+        if not isinstance(v, str) or not v.strip():
+            raise ExecutionError(f"adopt_rule match.{k} 必须是非空字符串: {v!r}")
+    if action not in RULE_ACTIONS:
+        raise ExecutionError(f"adopt_rule action 闭集外: {action!r}(闭集 {'/'.join(RULE_ACTIONS)})")
+    if not isinstance(note, str) or not note.strip():
+        raise ExecutionError("adopt_rule args.note 必须是非空字符串(人读理由面)")
+    path = _rules_path()
+    if path.is_file():
+        try:
+            doc = json.loads(path.read_text(encoding="utf-8"))
+        except ValueError as e:
+            raise ExecutionError(f"抑制规则库不可解析({path}): {e}") from e
+        if not isinstance(doc, dict) or not isinstance(doc.get("rules"), list):
+            raise ExecutionError(f"抑制规则库形状非法({path}):缺 rules 数组")
+        rules = list(doc["rules"])
+        version = doc.get("version", 0)
+        if not isinstance(version, int):
+            raise ExecutionError(f"抑制规则库 version 非整数({path})")
+    else:  # 零规则起步:空库建形(规则文件缺席=合法零规则态,非坏文件)
+        rules, version = [], 0
+    ids = [int(m.group(1)) for r in rules
+           if isinstance(r, dict) and (m := _RULE_ID_RE.match(str(r.get("id", ""))))]
+    rid = f"R{(max(ids) if ids else 0) + 1}"
+    review_at = today + timedelta(days=_RULE_REVIEW_DAYS)
+    rules.append({"id": rid, "adopted": today.isoformat(),
+                  "adopted_via": f"item:{item_id}",
+                  "match": match, "action": action, "note": note,
+                  "review_at": review_at.isoformat()})
+    _ops_store.atomic_write_text(
+        path, json.dumps({"version": version + 1, "rules": rules},
+                         ensure_ascii=False, indent=2) + "\n")
+    return rid
 
 
 class ReviewValidationError(ValueError):
@@ -172,7 +244,14 @@ def review_item(item_id: str, verdict: str, *, args=None, reason=None,
     executed = False
     proposal_only = False
     if verdict in ("agree", "modify"):
-        if fm["action"] in REVERSIBLE_ACTIONS:
+        if fm["action"] == ADOPT_RULE_ACTION:
+            # P5 #167:adopt_rule 候选采纳 = 抑制规则库唯一写口(C稿 §4.2;模块头
+            # 裁记上方)。agree/modify(modify 先改 args 再采纳)均落规则;下一轮
+            # VERIFY 即生效。不属于 spec #152 可逆闭集——独立分支,词表闭集见
+            # RULE_PREDICATES/RULE_ACTIONS(与 RETRO 候选产面同词表)。
+            _adopt_rule(item_id, eff_args, today or date.today())
+            executed = True
+        elif fm["action"] in REVERSIBLE_ACTIONS:
             try:
                 _execute_action(fm["action"], eff_args)
             except ReviewValidationError:

@@ -1,0 +1,5 @@
+{
+  "turns": [
+    { "role": "assistant", "content": [ { "type": "text", "text": "{\"hypothesis_id\":\"golden-track-canned\",\"verdict\":\"unresolved\",\"evidence\":[],\"one_line\":\"金轨迹保活回路:零成本保模型步活性(#162 审 P2-2 裁定①)\"}" } ], "stopReason": "stop" }
+  ]
+}

@@ -254,7 +254,7 @@ def rg_search_precedents(keywords: Sequence[str] | str) -> list[str]:
     if not keywords or any(not k for k in keywords):
         raise ValueError("至少一个非空检索词")
     precedents = ops_root() / "precedents"
-    cmd = ["rg", "-i", "-l", "-g", "*.md", "-g", "!_schema.md"]
+    cmd = ["rg", "-i", "-l", "-g", "*.md", "-g", "!_*"]
     for kw in keywords:
         cmd += ["-e", kw]
     cmd.append(str(precedents))
@@ -397,7 +397,7 @@ def _find_current_ruling(origin: str, suggestion: str):
     needle = origin
     pdir = ops_root() / "precedents"
     for path in sorted(pdir.glob("*.md")):
-        if path.name == "_schema.md":
+        if path.name.startswith("_"):
             continue
         if needle not in path.read_text(encoding="utf-8"):
             continue

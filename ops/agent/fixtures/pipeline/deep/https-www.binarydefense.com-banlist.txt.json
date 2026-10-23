@@ -1,0 +1,6 @@
+{
+  "seed": { "id": "c-bd", "tool": "reprobe_ua", "sc": { "ok": true, "url": "https://www.binarydefense.com/banlist.txt", "method": "HEAD", "ua": "variant", "status": 200, "age_days": 5, "last_modified": "canned-5d" } },
+  "turns": [
+    { "role": "assistant", "content": [ { "type": "text", "text": "{\"hypothesis_id\":\"https://www.binarydefense.com/banlist.txt\",\"verdict\":\"refuted\",\"evidence\":[{\"call_id\":\"c-bd\",\"field\":\"age_days\"}],\"one_line\":\"换 UA 复测 age_days=5,冻结系探测假象\"}" } ], "stopReason": "stop" }
+  ]
+}

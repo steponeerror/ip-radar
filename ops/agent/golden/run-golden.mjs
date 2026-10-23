@@ -81,7 +81,20 @@ async function runCase(c, allowSmoke) {
   const { runRound } = await import("../agent.mjs");
   const { resolveField } = await import("../tools.mjs");
   let result = null, err = null;
-  if (c.tier === "faux") {
+  if (c.kind === "pipeline") {
+    // P0 轮次状态机例(spec #161):真引擎跑全 faux 轮(模型步=faux provider+仓内 fixtures/pipeline,
+    // 测量腿=curl 替身+registrySeed);抑制规则库 fixture 从用例写入(VERIFY 消费面,C稿 §4.2)
+    fs.mkdirSync(path.join(docsRoot, "ops", "rules"), { recursive: true });
+    fs.writeFileSync(path.join(docsRoot, "ops", "rules", "suppressions.json"), JSON.stringify(c.pipeline.rules, null, 2) + "\n");
+    const buf = { stdout: "", stderr: "" };
+    const { runPipeline } = await import("../pipeline.mjs");
+    try {
+      result = await runPipeline({ type: "health", roundId: "2026-06-01-0400-health",
+        stdout: { write: (s) => { buf.stdout += s; return true; } },
+        stderr: { write: (s) => { buf.stderr += s; return true; } } });
+    } catch (e) { err = e; }
+    if (result) result = { ...result, stdoutText: buf.stdout, stderrText: buf.stderr };
+  } else if (c.tier === "faux") {
     const { Agent } = await import("@earendil-works/pi-agent-core");
     const { fauxProvider, fauxAssistantMessage, fauxToolCall, fauxText, createModels } = await import("@earendil-works/pi-ai");
     const faux = fauxProvider({ models: [{ id: "faux-golden" }] });
@@ -103,8 +116,8 @@ async function runCase(c, allowSmoke) {
   const queueFile = path.join(docsRoot, "ops", "queue.md");
   const ledgerFile = path.join(docsRoot, "ops", "ledger.md");
   const packagesDir = path.join(docsRoot, "ops", "packages");
-  const newestPkg = () => fs.readdirSync(packagesDir).map((f) => path.join(packagesDir, f))
-    .filter((p) => p.endsWith(".md")).sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)[0];
+  const newestPkg = () => (fs.existsSync(packagesDir) ? fs.readdirSync(packagesDir).map((f) => path.join(packagesDir, f))
+    .filter((p) => p.endsWith(".md")).sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)[0] : undefined);
   const pkgText = (result?.pkg ?? newestPkg()) ? fs.readFileSync(result?.pkg ?? newestPkg(), "utf8") : null;
   const fails = [];
   const fail = (a, msg) => fails.push(`${a.kind} ${a.path ?? ""}${a.id ? `(${a.id})` : ""}: ${msg}`);
@@ -161,6 +174,45 @@ async function runCase(c, allowSmoke) {
           for (const re of a.matches ?? []) if (!new RegExp(re).test(pkgText)) fail(a, `包不匹配 /${re}/`);
           for (const re of a.not_matches ?? []) if (new RegExp(re).test(pkgText)) fail(a, `包不应匹配 /${re}/`);
         }
+        break;
+      }
+      case "pipeline_ok": { // P0 轮次状态机例(spec #161):信封形状只增 pipeline 扩展+usage 求和+stdout 末行
+        if (!result?.ok || !result?.envelope?.ok || err) { fail(a, `ok=${result?.ok} err=${err?.message ?? ""}`); break; }
+        const env = result.envelope;
+        if (JSON.stringify(Object.keys(env).sort()) !== JSON.stringify(["ok", "pipeline", "pkg", "queue_writes", "round", "usage", "verify"].sort()))
+          { fail(a, `信封键面:${Object.keys(env)}`); break; }
+        const sum = { input: 0, output: 0, totalTokens: 0, cost: 0 };
+        for (const s of env.pipeline.stages) if (s.usage) for (const k of Object.keys(sum)) sum[k] += s.usage[k];
+        if (JSON.stringify(env.usage) !== JSON.stringify(sum)) { fail(a, "顶层 usage≠各模型步之和"); break; }
+        if (result.stdoutText.trim().split("\n").length !== 1) { fail(a, "stdout 非单行信封"); break; }
+        if (!/\[stage\] CLOSE done gate=PASS/.test(result.stderrText)) { fail(a, "stderr 缺 CLOSE done 行"); break; }
+        break;
+      }
+      case "pipeline_stage": {
+        const s = result?.envelope?.pipeline?.stages?.find((x) => x.name === a.stage);
+        if (!s || s.status !== a.status) { fail(a, `${a.stage}=${s?.status ?? "(无)"}≠${a.status}`); break; }
+        if (a.note_matches && !new RegExp(a.note_matches).test(s.note ?? "")) { fail(a, `${a.stage}.note 不匹配 /${a.note_matches}/(=${s.note ?? "(无)"})`); break; }
+        break;
+      }
+      case "pipeline_gates": {
+        const g = JSON.parse(fs.readFileSync(path.join(result.dir, "gates.json"), "utf8"));
+        if (g.records.length !== 9) { fail(a, `门记录 ${g.records.length}≠9`); break; }
+        if (!g.records.every((r) => r.pass === true)) { fail(a, `门败:${g.records.filter((r) => !r.pass).map((r) => r.name).join(",")}`); break; }
+        break;
+      }
+      case "pipeline_artifact": {
+        const p = path.join(result.dir, a.file);
+        if (!fs.existsSync(p)) { fail(a, `工件缺:${a.file}`); break; }
+        if (a.json) {
+          const obj = JSON.parse(fs.readFileSync(p, "utf8"));
+          for (const [k, v] of Object.entries(a.json)) {
+            const atLeast = k.endsWith("_at_least");
+            const got = resolveField(obj, atLeast ? k.slice(0, -9) : k);
+            if (atLeast ? !(typeof got === "number" && got >= v) : got !== v) fail(a, `${a.file}:${k}=${JSON.stringify(got)}≠${JSON.stringify(v)}`);
+          }
+        }
+        const txtA = a.matches ? fs.readFileSync(p, "utf8") : "";
+        for (const re of a.matches ?? []) if (!new RegExp(re).test(txtA)) fail(a, `${a.file} 不匹配 /${re}/`);
         break;
       }
       default: fail(a, `未知断言种类(${a.kind})——用例集词汇表外`);

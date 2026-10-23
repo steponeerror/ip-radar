@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "anchors": [
+    {
+      "domain": "github_releases_redirect",
+      "keywords": ["github.com", "releases/latest/download", "geolite"],
+      "precedents": ["2026-10-23-ruling-bbe1ad6f0c.md"],
+      "note": "GeoLite 404 假红族(10-23 判例;抑制规则 R12 已收编确定性面,锚判例供 DEEP 深验辨伪迹)"
+    },
+    {
+      "domain": "rate_limit",
+      "keywords": ["raw.githubusercontent.com", "429", "限流"],
+      "precedents": ["2026-10-23-ruling-0db230187f.md"],
+      "note": "限流假面族(10-23 判例;R7 annotate 已收编,锚判例供深验换法复测)"
+    },
+    {
+      "domain": "abusech_migration",
+      "keywords": ["abuse.ch", "410", "threatfox", "urlhaus"],
+      "precedents": ["2026-10-23-ruling-5cb78ed45a.md", "2026-10-23-ruling-889a2778b0.md"],
+      "note": "abuse.ch 410 真死键/迁移族(#159 已迁移认证 API;人裁否决 retry 直判)"
+    },
+    {
+      "domain": "sunset",
+      "keywords": ["冻结", "死键", "sunset"],
+      "precedents": ["2026-10-19-threatview-sunset-dead-feed.md"],
+      "note": "sunset 门线判读器族(冻结 ≥180 天判死判例)"
+    },
+    {
+      "domain": "matrix_park_residual",
+      "keywords": ["firehol", "矩阵", "park"],
+      "precedents": ["2026-10-19-firehol-webserver-unsubscribe.md", "2026-10-23-ruling-0db230187f.md"],
+      "note": "矩阵 park 残差族(2026-10-19 案一裁决内常亮红,非测量故障)"
+    },
+    {
+      "domain": "aggregator_echo",
+      "keywords": ["聚合器", "排他率", "回声"],
+      "precedents": ["2026-10-18-ziyadnz-aggregator-misjudge.md"],
+      "note": "聚合器回声族(上游映射推断不可信,实测排他率立证)"
+    }
+  ]
+}

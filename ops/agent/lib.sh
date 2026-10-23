@@ -44,7 +44,7 @@ inject_precedents() {
   echo "### 注入判例(检索词: ${kws[*]})"
   local hits="" rg_out rg_rc=0
   if (( ${#kws[@]} )); then
-    rg_out="$(rg -i -l -g '*.md' -g '!_schema.md' \
+    rg_out="$(rg -i -l -g '*.md' -g '!_*' \
       $(printf -- '-e %q ' "${kws[@]}") "$PRECEDENTS_DIR" 2>/dev/null)" || rg_rc=$?
   fi
   if (( rg_rc > 1 )); then
@@ -141,37 +141,46 @@ _ff_code() {
 }
 
 # _ff_probe_once <url> — 单轮探测(HEAD 跟随重定向 → HTTP≥400/网络失败降级
-# GET Range 0-0);结果经 _PR_RC(curl rc)/_PR_CODE(最终状态码)/_PR_HDR
-# (响应头块)传出。仅 _ff_probe 内部用(feed_freshness 的 xargs 子壳内联)。
+# GET Range 0-0);结果经 _PR_RC(curl 原始 rc,28=超时,#166 审 P2-1)/_PR_CODE
+# (最终状态码)/_PR_HDR(响应头块)传出。仅 _ff_probe 内部用(feed_freshness 的
+# xargs 子壳内联)。
 _ff_probe_once() {
   local url="$1"
   _PR_RC=0
   _PR_HDR="$(curl -sS -L -A ip-lookup-tool/1.0 --max-time "$FEED_TIMEOUT_S" \
-        -I -o /dev/null -D - "$url" 2>/dev/null)" || _PR_RC=1
+        -I -o /dev/null -D - "$url" 2>/dev/null)" || _PR_RC=$?
   _PR_CODE="$(_ff_code "$_PR_HDR")"
   if (( _PR_RC )) || (( _PR_CODE >= 400 )); then    # HEAD 被拒/不支持 → GET Range 0-0
     _PR_RC=0
     _PR_HDR="$(curl -sS -L -A ip-lookup-tool/1.0 --max-time "$FEED_TIMEOUT_S" \
-          -H 'Range: bytes=0-0' -o /dev/null -D - "$url" 2>/dev/null)" || _PR_RC=1
+          -H 'Range: bytes=0-0' -o /dev/null -D - "$url" 2>/dev/null)" || _PR_RC=$?
     _PR_CODE="$(_ff_code "$_PR_HDR")"
   fi
 }
 
-# _ff_probe <url> — 单 URL 探测 → TSV 一行 url<TAB>last_modified<TAB>age_days。
-# HEAD(跟随重定向)→ HTTP≥400/网络失败降级 GET Range 0-0 → 分类三态:
+# _ff_probe <url> — 单 URL 探测 → TSV 一行 url<TAB>last_modified<TAB>age_days
+# [<TAB>error_family](仅 UNREACHABLE 行携带,P2 #164:VERIFY 抑制规则谓词闭集
+# 消费面——http_429 限流形/http_404 重定向形是 10-23 两假异常的实测族):
 #   - 401/403 → TOKEN_REQUIRED(P1 T2 降噪刀一,spec #152 §2a:匿名撞鉴权
 #     墙 = 需令牌·正常——可达且响应正常,只是无凭据;不算 UNREACHABLE 不
 #     算异常,与 NO-LM 同等待遇:读数保留,摘要如实提及计数);
-#   - 其余失败 → UNREACHABLE(任务书契约);
+#   - 其余失败 → UNREACHABLE + error_family(任务书契约):终末 HTTP 状态码
+#     ≥400 → http_<code>(精确码:404/429/500 各自成族,与抑制规则
+#     error_family 谓词值同拼写);无 HTTP 码(传输层败)→ curl rc 28
+#     (--max-time 到点)= net_timeout,其余传输层败 = net_fail(#166 审
+#     P2-1 收口:超时单列对齐 _ops_detectors._error_family 的 timeout 族,
+#     同因超时两侧同签,「在飞不双开」对超时类生效;对拍=ops-items.mjs
+#     foldErrorFamily net_timeout→timeout);
 #   - 成功 → age_days 以 Last-Modified 头 floor((now-lm)/86400),缺头/不可
 #     解析=NO-LM。
 # 恒 rc=0:不可达是读数不是故障。
 # raw.githubusercontent.com 前缀的瞬时失败(网络层/5xx/429)重试一轮再判
 # (P1 T2 降噪刀三,spec #152 §2c:该域限流抖动是 2026-10-23 实证噪音源,
 # HEAD 与 GET Range 各一次后仅对 raw.github 再来一轮,2s 间隔;确定性失败
-# 404/401/403 不重试)。
+# 404/401/403 不重试)。重试后仍 429 → UNREACHABLE+http_429(抑制规则库 R7
+# annotate 形的消费面,首批规则 #164)。
 _ff_probe() {
-  local url="$1" lm epoch age
+  local url="$1" lm epoch age fam
   _ff_probe_once "$url"
   if [[ "$url" == https://raw.githubusercontent.com/* ]] \
      && { (( _PR_RC )) || (( _PR_CODE >= 500 || _PR_CODE == 429 )); }; then
@@ -182,7 +191,10 @@ _ff_probe() {
     printf '%s\tTOKEN_REQUIRED\tTOKEN_REQUIRED\n' "$url"; return 0
   fi
   if (( _PR_RC )) || (( _PR_CODE >= 400 )); then
-    printf '%s\tUNREACHABLE\tUNREACHABLE\n' "$url"; return 0
+    if (( _PR_CODE >= 400 )); then fam="http_${_PR_CODE}"
+    elif (( _PR_RC == 28 )); then fam="net_timeout"
+    else fam="net_fail"; fi
+    printf '%s\tUNREACHABLE\tUNREACHABLE\t%s\n' "$url" "$fam"; return 0
   fi
   lm="$(printf '%s' "$_PR_HDR" | tr -d '\r' | awk 'tolower($1) ~ /^last-modified:$/ { lm = $0 }
       END { if (lm != "") { sub(/^[^:]*:[ \t]*/, "", lm); print lm } }')"
@@ -215,34 +227,33 @@ freshness_flags() {
   '
 }
 
-# extract_feed_urls — 只读扫描 backend/ipdb/_sources/*.py 的 https?:// 字面量
-# (rg;任务书自选最简可靠)。排除面(P1 T2 降噪刀二,spec #152 §2b;保守:
-# 宁可漏探不可误报——被漏探 URL 的新鲜度由 mtime 侧既有先例覆盖(scheduler
-# 槽位 + health .last_updated),误报则会以「不可达/冻结」假异常污染健康轮):
-#   1) 注释面:URL 须出现在行内首个 '#' 之前——# 起注释(Python 词法),
-#      注释 URL 是文档指针不是 feed 落点;URL 本身不含 '#'(本仓 82 URL
-#      实证),故首个 '#' 即注释界。同行多 URL 只取第一个(rg 惰性量词,
-#      漏探保守);docstring 是字符串字面量非注释,照旧保留(只切注释面,
-#      不越权扩大排除)。
-#   2) token 模板:含 {} 的占位符(ipinfo_lite/ip2location:无凭据不可测,
-#      其新鲜度由 scheduler mtime 侧覆盖;且避免占位符落包)。
-#   3) 非数据页模式(P1 T2 实证噪音源):/account($|?后缀;账号/门户页,
-#      auth 墙非 feed;不吞 /accounts.json 之类真数据路径)+ 微软
-#      download/confirmation.aspx(下载确认页,真实资产链接由源代码从该
-#      页解析,页本身非数据)。
-# 结尾 .,; 剥掉(注释里句读会并入 URL);[ ] 排除(源码正则字面量如
-# ...download/[^s] 的残片不混入;IPv6 字面量场景本仓无)。
-# 前缀剥离:rg -o 惰性匹配输出 = <行首至 # 前的非 URL 前缀>+<URL>,sed
-# 贪婪剥到最后一个 https?:(前缀无 https? 子串 → 恰剥到 URL 头;同轮修
-# 发现 2:http:// 行旧式只剥 https: 会残留前缀)。
-# 可选 $1 = 扫描根(缺省源目录;selftest fixture 隔离,PRECEDENTS_DIR 判例同型)。
+# extract_feed_urls — 读人工维护清单 ops/agent/feeds.txt(健康轮探测 URL
+# 事实层)。2026-10-23 事故重构:旧 rg 扫 backend/ipdb/_sources/*.py 字面量
+# 混入首页 URL(dataplane 静态页 Last-Modified → 伪报冻结 291 天)、多行
+# 拼接截断 URL(GeoLite 撞 GitHub 重定向 404 → 伪报不可达)、注释/
+# docstring 文档 URL,且漏探 base+文件名拼出的真端点(blocklist_de/cn_isp/
+# firehol/malicious_ip/rir_delegated 等)——扫描路径退役,事实由清单承载
+# (每行 URL + 行内 # 标源;^# 分组头;不收录形状与维护契约见清单头注释;
+# 新增/改源端点 = 同 PR 更新清单)。
+# 可选 $1 = 清单路径(缺省 $AGENT_DIR/feeds.txt;selftest fixture 隔离,
+# PRECEDENTS_DIR 判例同型)。
+# -t = 标源对模式(P2,#164):每行出 `URL<TAB>标源名`——标源名=行内 #
+# 注释首词(^[a-z0-9_]{1,32}$ 截到首个异形字符;_ops_items.dedup_key.source
+# 同形,VERIFY 在飞不重问按它对齐);无注解/异形 → "-"(消费方回落 host)。
+# 缺省(无 -t)零行为变化:只出 URL 列(legacy/位等价腿消费面,#163)。
 extract_feed_urls() {
-  local dir="${1:-$ROOT/backend/ipdb/_sources}"
-  rg -oN --no-filename '^[^#]*?https?://[^"'\''[:space:]()><,\[\]#]+' \
-    -g '*.py' "$dir" \
-    | sed -E 's/^[^#]*(https?:)/\1/' \
-    | grep -v '[{}\\]' \
-    | grep -Ev '(/account($|[/?])|download/confirmation\.aspx|/v2/files/exports/)' \
-    | sed -E 's/[.,;]+$//' \
-    | sort -u
+  local tsv=0 manifest="${AGENT_DIR}/feeds.txt"
+  if [[ "${1:-}" == "-t" ]]; then tsv=1; shift; fi
+  [[ "${1:-}" != "" ]] && manifest="$1"
+  if (( tsv )); then
+    grep -v '^#' "$manifest" | awk -F' *# *' 'NF && $1 != "" {
+      gsub(/^[ \t]+|[ \t]+$/, "", $1)
+      src = ($2 == "") ? "-" : $2
+      sub(/[^a-z0-9_].*$/, "", src)
+      if (src !~ /^[a-z0-9_]{1,32}$/) src = "-"
+      print $1 "\t" src
+    }' | sort -u
+  else
+    grep -v '^#' "$manifest" | awk 'NF { print $1 }' | sort -u
+  fi
 }

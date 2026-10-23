@@ -1,0 +1,14 @@
+{
+  "turns": [
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "## 注入判例\n- 2026-06-01-golden-aggregator.md\n\n## 异常清单\n- ciarm:cinsscore 冻结 220 天,深验 confirmed(GET 复测 age_days=220)· severity=high · 建议 human_ruling(复核)\n- binarydefense:banlist 冻结 210 天,深验 refuted(换 UA 复测 age_days=5,探测假象)· severity=low · 建议 digest_ignore(低危消化)\n\n抑制 1 条(规则 R1×1——明细见工件 02-verify-suppressed.json)。\n\n## 摘要\n- 计数: created=2 reopened=0 deduped=0 suppressed=1\n- 深验: confirmed=1 refuted=1 unresolved=0;探测桶 frozen=3\n- P4 轮:DEEP 真开启(evidence=A 一律选择对,宿主回填;条目经 ops-items 桥落四键面)。"
+        }
+      ],
+      "stopReason": "stop"
+    }
+  ]
+}

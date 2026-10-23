@@ -67,6 +67,11 @@ export const SPAWN_CONTRACT_ENV = [
   { name: "OPS_PROBE_MAX_KEYS", default: "1000000", consumer: "tools.mjs(探针键量上限;bitwire OOM 判例)", phase: "import-time" },
   { name: "OPS_PROBE_CLI_TIMEOUT_MS", default: "1800000", consumer: "tools.mjs(探针 CLI 超时)", phase: "import-time" },
   { name: "OPS_MATRIX_TIMEOUT_MS", default: "1200000", consumer: "tools.mjs(matrix 扫描超时)", phase: "import-time" },
+  // P2 P0 增量(spec #161 §5.2;agent.mjs 本体零行为变化,仅契约面):pipeline.mjs 轮次状态机宿主的 2 名。
+  // OPS_PIPELINE=迁移/回滚开关:legacy(缺省)=现状 agent.mjs 单轮路径;pipeline=状态机路径。
+  // P2 起 _ops_rounds 桥消费它选路径;P0 未接线,pipeline.mjs 仅校验值闭集并记入 state.json。
+  { name: "OPS_PIPELINE", default: "legacy", consumer: "pipeline.mjs mkCtx(值闭集校验+state.json 记录;P2 起为桥的路径开关)", phase: "call-time" },
+  { name: "OPS_PIPELINE_BUDGET_CNY", default: "0.05", consumer: "pipeline.mjs(DISPATCH 轮内预算门,G_DISPATCH 合计上限;月度累计门=P5 IDLE)", phase: "call-time" },
   { name: "GH_TOKEN", default: "(gh CLI 自身凭证链)", consumer: "gh CLI(外部自读;tools.mjs 不读,对拍豁免)", phase: "call-time" },
 ];
 
@@ -263,6 +268,14 @@ export async function main(argv, io = {}) {
   const stderr = io.stderr ?? process.stderr;
   const log = (...a) => stderr.write(a.join(" ") + "\n");
   const [round, input, ...extra] = argv;
+  // OPS_PIPELINE=pipeline 灰度开关(P5 #167 终检;agent.mjs SPAWN_CONTRACT_ENV 表同名项的
+  // 消费点):health 轮委派 pipeline.mjs 状态机路径;缺省/legacy=本文件现状路径零变化;
+  // discover 恒走 legacy(其自有管线表未立项,C稿 §5.2)。argv 透传 <round> <input>
+  // (pipeline.mjs 忽略 input——其轮次自持输入面);退出码/信封契约两路同形。
+  if ((env.OPS_PIPELINE ?? "legacy") === "pipeline" && round === "health") {
+    const { main: pipelineMain } = await import("./pipeline.mjs");
+    return pipelineMain([round, input, ...extra], { env, stdout, stderr });
+  }
   if (!round || input === undefined) { // 用法错:纯 stderr + exit 2,不发 JSON(机器契约只覆盖真轮次)
     log('用法: node ops/agent/agent.mjs <health|discover> "<本轮输入>" [追加判例检索词...]');
     return 2;
