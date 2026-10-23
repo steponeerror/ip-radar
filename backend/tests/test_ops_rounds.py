@@ -127,6 +127,142 @@ def _ledger_text(tmp_path: Path) -> str:
     return p.read_text(encoding="utf-8") if p.exists() else ""
 
 
+# ── P5 #167 boot 恢复扫描(C稿 §4.6;三规则实施在 pipeline.mjs resume,本面=准入裁决)──
+
+
+def _write_state(ops_env, round_id, *, status="in_flight", stage="TRIAGE",
+                 resume_count=0, updated_at="2026-10-24T04:05:00.000Z",
+                 **over):
+    import json as _json
+    d = ops_env / "ops" / "rounds" / round_id
+    d.mkdir(parents=True, exist_ok=True)
+    state = {"schema": 1, "round_id": round_id, "type": "health",
+             "status": status, "stage": stage, "stages": [],
+             "budget_cny": 0.05, "resume_count": resume_count,
+             "updated_at": updated_at, **over}
+    (d / "state.json").write_text(
+        _json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return d
+
+
+def test_scan_inflight_classifies_actions(rounds, ops_env):
+    """纯读扫描分类:resume / fail_stale(>16h)/ fail_twice(resume_count≥1)/
+    重放目录(-rN)与终态轮不入清单;updated_at 不可解析按 stale(不赌陈旧态)。"""
+    from datetime import datetime, timezone
+    now = datetime(2026, 10, 24, 20, 0, 0, tzinfo=timezone.utc)
+    _write_state(ops_env, "2026-10-24-0400-health")                     # 龄 16h→15h58m,resume
+    _write_state(ops_env, "2026-10-23-0400-health",
+                 updated_at="2026-10-23T04:05:00.000Z")              # 龄 ~40h,fail_stale
+    _write_state(ops_env, "2026-10-24-1200-health", resume_count=1)     # 二次崩溃
+    _write_state(ops_env, "2026-10-24-0400-health-r1")                  # 重放目录:忽略
+    _write_state(ops_env, "2026-10-22-0400-health", status="done", stage="CLOSE")
+    bad = ops_env / "ops" / "rounds" / "2026-10-24-0800-health"
+    bad.mkdir(parents=True)
+    (bad / "state.json").write_text("{not json", encoding="utf-8")
+    rows = {r["round_id"]: r["action"] for r in rounds.scan_inflight_rounds(now)}
+    assert rows["2026-10-24-0400-health"] == "resume"
+    assert rows["2026-10-23-0400-health"] == "fail_stale"
+    assert rows["2026-10-24-1200-health"] == "fail_twice"
+    assert rows["2026-10-24-0800-health"] == "skip_unreadable"
+    assert "2026-10-24-0400-health-r1" not in rows
+    assert "2026-10-22-0400-health" not in rows
+
+
+def test_recover_marks_failed_states_and_ledger(rounds, ops_env):
+    """stale/twice → state 就地终态化(failed/FAILED/boot_marked 留痕)+ 台账行带
+    replay 提示(交人);resume 无 manager 时不拉起(轮保持 in_flight 待产线接线)。"""
+    import json as _json
+    from datetime import datetime, timedelta, timezone
+    _now = datetime.now(timezone.utc)
+    stale_dir = _write_state(
+        ops_env, "2026-10-23-0400-health",
+        updated_at=(_now - timedelta(hours=17)).isoformat())   # 龄 17h>16h:不赌真实钟面
+    twice_dir = _write_state(ops_env, "2026-10-24-1200-health", resume_count=1)
+    live_dir = _write_state(ops_env, "2026-10-24-1900-health")
+    handled = rounds.recover_inflight_rounds()   # manager=None:resume 档不拉起
+    by = {h["round_id"]: h for h in handled}
+    assert by["2026-10-23-0400-health"]["done"] is True
+    assert by["2026-10-24-1200-health"]["done"] is True
+    for d, frag in ((stale_dir, "stale"), (twice_dir, "自动恢复已用尽")):
+        st = _json.loads((d / "state.json").read_text(encoding="utf-8"))
+        assert st["status"] == "failed" and st["stage"] == "FAILED"
+        assert st["boot_marked"]["code"] == "infra"
+        assert frag in st["boot_marked"]["reason"]
+    led = _ledger_text(ops_env)
+    assert led.count("boot 恢复:") == 2
+    assert "replay 2026-10-23-0400-health" in led   # 台账 replay 提示(交人)
+    live = _json.loads((live_dir / "state.json").read_text(encoding="utf-8"))
+    assert live["status"] == "in_flight"            # 无 manager 不动活轮
+
+
+class _FakeManager:
+    """恢复轮线程入口的 manager 替身(车道占用/ops_log/收口三面)。"""
+
+    def __init__(self, busy=None):
+        self.busy = busy
+        self.logs = []
+        self.finished = []
+
+    def start_ops_round(self, round_type):
+        if self.busy:
+            return None, self.busy
+        self.task_id = f"t{len(self.finished)}"
+        return type("T", (), {"id": self.task_id})(), None
+
+    def ops_log(self, task_id, line):
+        self.logs.append((task_id, line))
+
+    def finish_ops_round(self, task_id, state, error=None, error_code=None):
+        self.finished.append((task_id, state, error, error_code))
+
+
+def test_recovery_round_occupies_lane_and_settles(rounds, ops_env, monkeypatch):
+    """恢复轮与手动/cron 轮同一互斥面:占车道 → resume spawn(stderr 进 ops_log)→
+    收口 done;失败信封 → failed(error_code 透传)。"""
+    _write_state(ops_env, "2026-10-24-1900-health")
+    envelopes = [
+        {"ok": True, "round": "health"},
+        {"ok": False, "round": "health",
+         "error": {"code": "model_face", "message": "TRIAGE 重试尽"}},
+    ]
+
+    def fake_spawn(round_id, *, on_log=None, env=None):
+        assert round_id == "2026-10-24-1900-health"
+        assert on_log is not None
+        on_log("[stage] TRIAGE start")
+        return envelopes.pop(0)
+
+    monkeypatch.setattr(rounds, "_spawn_resume", fake_spawn)
+    for want, code in (("done", None), ("failed", "model_face")):
+        mgr = _FakeManager()
+        rounds._run_recovery_round(mgr, "2026-10-24-1900-health")
+        assert mgr.finished == [(mgr.task_id, want, None if want == "done" else "TRIAGE 重试尽", code)]
+        assert mgr.logs and mgr.logs[0][1] == "[stage] TRIAGE start"
+
+    mgr_busy = _FakeManager(busy="round")
+    rounds._run_recovery_round(mgr_busy, "2026-10-24-1900-health")
+    assert mgr_busy.finished == []       # 车道忙:不拉起,轮留待下次启动
+
+
+def test_recover_dispatches_resume_thread(rounds, ops_env, monkeypatch):
+    """resume 档 → 后台线程拉起 _run_recovery_round(recover 编排面);扫描面零异常总兜底。"""
+    import json as _json
+    calls = []
+
+    class _T:
+        def __init__(self, target=None, args=(), **_kw):
+            self.target, self.args = target, args
+
+        def start(self):
+            calls.append(self.args)
+
+    _write_state(ops_env, "2026-10-24-1900-health")
+    monkeypatch.setattr(rounds.threading, "Thread", _T)
+    handled = rounds.recover_inflight_rounds(manager="mgr")
+    assert calls == [("mgr", "2026-10-24-1900-health")]
+    assert handled[0]["done"] is True
+
+
 # ── A. argv 契约(纯函数;真 node 命令形状)──────────────────────────────────
 
 

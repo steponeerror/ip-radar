@@ -141,18 +141,19 @@ _ff_code() {
 }
 
 # _ff_probe_once <url> — 单轮探测(HEAD 跟随重定向 → HTTP≥400/网络失败降级
-# GET Range 0-0);结果经 _PR_RC(curl rc)/_PR_CODE(最终状态码)/_PR_HDR
-# (响应头块)传出。仅 _ff_probe 内部用(feed_freshness 的 xargs 子壳内联)。
+# GET Range 0-0);结果经 _PR_RC(curl 原始 rc,28=超时,#166 审 P2-1)/_PR_CODE
+# (最终状态码)/_PR_HDR(响应头块)传出。仅 _ff_probe 内部用(feed_freshness 的
+# xargs 子壳内联)。
 _ff_probe_once() {
   local url="$1"
   _PR_RC=0
   _PR_HDR="$(curl -sS -L -A ip-lookup-tool/1.0 --max-time "$FEED_TIMEOUT_S" \
-        -I -o /dev/null -D - "$url" 2>/dev/null)" || _PR_RC=1
+        -I -o /dev/null -D - "$url" 2>/dev/null)" || _PR_RC=$?
   _PR_CODE="$(_ff_code "$_PR_HDR")"
   if (( _PR_RC )) || (( _PR_CODE >= 400 )); then    # HEAD 被拒/不支持 → GET Range 0-0
     _PR_RC=0
     _PR_HDR="$(curl -sS -L -A ip-lookup-tool/1.0 --max-time "$FEED_TIMEOUT_S" \
-          -H 'Range: bytes=0-0' -o /dev/null -D - "$url" 2>/dev/null)" || _PR_RC=1
+          -H 'Range: bytes=0-0' -o /dev/null -D - "$url" 2>/dev/null)" || _PR_RC=$?
     _PR_CODE="$(_ff_code "$_PR_HDR")"
   fi
 }
@@ -165,7 +166,11 @@ _ff_probe_once() {
 #     算异常,与 NO-LM 同等待遇:读数保留,摘要如实提及计数);
 #   - 其余失败 → UNREACHABLE + error_family(任务书契约):终末 HTTP 状态码
 #     ≥400 → http_<code>(精确码:404/429/500 各自成族,与抑制规则
-#     error_family 谓词值同拼写);无 HTTP 码(传输层败)→ net_fail;
+#     error_family 谓词值同拼写);无 HTTP 码(传输层败)→ curl rc 28
+#     (--max-time 到点)= net_timeout,其余传输层败 = net_fail(#166 审
+#     P2-1 收口:超时单列对齐 _ops_detectors._error_family 的 timeout 族,
+#     同因超时两侧同签,「在飞不双开」对超时类生效;对拍=ops-items.mjs
+#     foldErrorFamily net_timeout→timeout);
 #   - 成功 → age_days 以 Last-Modified 头 floor((now-lm)/86400),缺头/不可
 #     解析=NO-LM。
 # 恒 rc=0:不可达是读数不是故障。
@@ -186,7 +191,9 @@ _ff_probe() {
     printf '%s\tTOKEN_REQUIRED\tTOKEN_REQUIRED\n' "$url"; return 0
   fi
   if (( _PR_RC )) || (( _PR_CODE >= 400 )); then
-    if (( _PR_CODE >= 400 )); then fam="http_${_PR_CODE}"; else fam="net_fail"; fi
+    if (( _PR_CODE >= 400 )); then fam="http_${_PR_CODE}"
+    elif (( _PR_RC == 28 )); then fam="net_timeout"
+    else fam="net_fail"; fi
     printf '%s\tUNREACHABLE\tUNREACHABLE\t%s\n' "$url" "$fam"; return 0
   fi
   lm="$(printf '%s' "$_PR_HDR" | tr -d '\r' | awk 'tolower($1) ~ /^last-modified:$/ { lm = $0 }

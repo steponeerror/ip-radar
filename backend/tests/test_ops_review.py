@@ -21,6 +21,7 @@
   422 / 执行失败 500 显式不吞(判例与状态零写)。
 """
 
+import json
 import re
 from datetime import date
 from pathlib import Path
@@ -504,6 +505,136 @@ def test_execution_failure_500_nothing_faked(admin_env, client_as_admin,
     assert _ruling_files(admin_env) == []
     assert (_parse_frontmatter(
         admin_env / "ops" / "items" / f"{r['item']}.md")["status"] == "active")
+
+
+# ── P5 #167 adopt_rule:抑制规则库唯一写口(RETRO 候选的人裁采纳面)────────────
+
+
+def _mk_adopt_rule(**over):
+    """adopt_rule 候选条目参数包(RETRO retroDiff 产面同形:args=match/action/note)。"""
+    kw = dict(
+        source="retro", probe_class="adopt_rule",
+        error_signature="bucket=unreachable&error_family=http_404&source=ciarm",
+        action="adopt_rule",
+        args={"match": {"bucket": "unreachable", "source": "ciarm",
+                        "error_family": "http_404"},
+              "action": "suppress",
+              "note": "同签信号已被四键 ignore 1 次而本轮仍幸存——机械误判候选"},
+        evidence={"round_id": "2026-10-24-0400-health",
+                  "signal_id": "https://x/ciarm.txt",
+                  "dismissed_items": ["2026-10-23-item-deadbeef01"]},
+        impact="采纳后同形信号将被 VERIFY 抑制规则压掉(留痕进 suppressed 工件)",
+        rollback="删除 rules/suppressions.json 中对应规则行即恢复",
+        severity="low", cause_group="rule_proposal",
+        summary="# 待审(adopt_rule):抑制规则候选\n\n候选草案见 args。\n",
+        today=date(2026, 10, 24),
+    )
+    kw.update(over)
+    return kw
+
+
+def _rules_doc(ops_env):
+    p = ops_env / "ops" / "rules" / "suppressions.json"
+    if not p.is_file():
+        return None
+    return json.loads(p.read_text(encoding="utf-8"))
+
+
+def test_adopt_rule_agree_writes_suppression_rule(admin_env, client_as_admin,
+                                                  items):
+    """agree → 规则进 suppressions.json(唯一写口);条目 done + 判例 agreed。
+
+    规则形状:id=R<max+1>、adopted_via=item:<id>、review_at=采纳+90 天、
+    version 自增;响应 executed=True proposal_only=False(非「仅立项」)。
+    """
+    res = items.create_item(**_mk_adopt_rule())
+    iid = res["item"]
+    r = client_as_admin.post(f"/api/ops/items/{iid}/review",
+                             json={"verdict": "agree"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["executed"] is True
+    assert body["proposal_only"] is False
+    assert body["status"] == "done"
+    doc = _rules_doc(admin_env)
+    assert doc and doc["version"] == 1 and len(doc["rules"]) == 1
+    rule = doc["rules"][0]
+    assert rule["id"] == "R1"
+    assert rule["adopted_via"] == f"item:{iid}"
+    assert rule["adopted"] == "2026-10-24"
+    assert rule["review_at"] == "2027-01-22"       # 采纳+90 天(10-24 → 次年 01-22)
+    assert rule["match"] == {"bucket": "unreachable", "source": "ciarm",
+                             "error_family": "http_404"}
+    assert rule["action"] == "suppress"
+    assert "机械误判候选" in rule["note"]
+
+
+def test_adopt_rule_second_adoption_increments_id_and_version(
+        admin_env, client_as_admin, items):
+    """既有规则库(R12/R7 形)上再采纳:id=max+1 续号、version 自增、旧规则逐字保留。"""
+    import ipdb._ops_store as ops_store
+    rules_path = admin_env / "ops" / "rules" / "suppressions.json"
+    rules_path.parent.mkdir(parents=True, exist_ok=True)
+    rules_path.write_text(json.dumps({
+        "version": 3, "rules": [
+            {"id": "R7", "adopted": "2026-10-23", "adopted_via": "item:old",
+             "match": {"bucket": "unreachable", "error_family": "http_429"},
+             "action": "annotate", "note": "既有", "review_at": "2027-01-21"},
+        ]}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    res = items.create_item(**_mk_adopt_rule())
+    iid = res["item"]
+    r = client_as_admin.post(f"/api/ops/items/{iid}/review",
+                             json={"verdict": "agree"})
+    assert r.status_code == 200
+    doc = _rules_doc(admin_env)
+    assert doc["version"] == 4
+    assert [x["id"] for x in doc["rules"]] == ["R7", "R8"]
+    assert doc["rules"][0]["note"] == "既有"
+
+
+def test_adopt_rule_modify_adopts_amended_args(admin_env, client_as_admin, items):
+    """modify → 新 args 先落条目,采纳以改后草案为准(match 放宽=人裁显式行为)。"""
+    res = items.create_item(**_mk_adopt_rule())
+    iid = res["item"]
+    new_args = {"match": {"bucket": "unreachable", "source": "ciarm"},
+                "action": "annotate", "note": "改判:降 severity 不抑制"}
+    r = client_as_admin.post(f"/api/ops/items/{iid}/review",
+                             json={"verdict": "modify", "args": new_args})
+    assert r.status_code == 200
+    assert r.json()["executed"] is True
+    rule = _rules_doc(admin_env)["rules"][0]
+    assert rule["match"] == {"bucket": "unreachable", "source": "ciarm"}
+    assert rule["action"] == "annotate"
+    fm = items.load_item(iid)
+    assert fm["args"] == new_args
+
+
+def test_adopt_rule_ignore_dismisses_without_rule_write(admin_env,
+                                                        client_as_admin, items):
+    """ignore → 候选否决(dismissed+判例 overruled),规则库零写(RETRO 不再立项同 key)。"""
+    res = items.create_item(**_mk_adopt_rule())
+    iid = res["item"]
+    r = client_as_admin.post(f"/api/ops/items/{iid}/review",
+                             json={"verdict": "ignore",
+                                   "reason": "404 是真信号,不压"})
+    assert r.status_code == 200
+    assert _rules_doc(admin_env) is None
+    assert items.load_item(iid)["status"] == "dismissed"
+
+
+def test_adopt_rule_bad_args_500_nothing_faked(admin_env, client_as_admin, items):
+    """候选 args 闭集外(谓词闭集外)→ 500 显式;判例/状态/规则库零写(不落假账)。"""
+    res = items.create_item(**_mk_adopt_rule(
+        args={"match": {"status_code": "404"}, "action": "suppress",
+              "note": "坏草案"}))
+    iid = res["item"]
+    r = client_as_admin.post(f"/api/ops/items/{iid}/review",
+                             json={"verdict": "agree"})
+    assert r.status_code == 500
+    assert "谓词闭集外" in r.json()["error"]["message"]
+    assert _rules_doc(admin_env) is None
+    assert items.load_item(iid)["status"] == "active"
+    assert _ruling_files(admin_env) == []
 
 
 def test_review_route_requires_admin(admin_env, auth_client, items):
