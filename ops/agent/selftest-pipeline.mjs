@@ -338,7 +338,7 @@ await t("G_DEEP A 一律单元例(直构工件):选择对回填/复述漂移/未
   const seed = { type: "registry_seed", call_id: "c9", tool: "reprobe_get", sc: { ok: true, age_days: 220 } };
   const writeVerdicts = (ev, extra = {}) => fs.writeFileSync(path.join(d, "05-deep-verdicts.json"),
     JSON.stringify({ verdicts: [{ hid: "https://x/f.txt", verdict: "confirmed", evidence: ev, one_line: "u" }], degraded: [], golden_track: [], ...extra }));
-  const writeTranscript = (lines) => fs.writeFileSync(path.join(d, "05-deep-x-f-txt-transcript.jsonl"), lines.map((l) => JSON.stringify(l)).join("\n") + "\n");
+  const writeTranscript = (lines) => fs.writeFileSync(path.join(d, "05-deep-https-x-f.txt-transcript.jsonl"), lines.map((l) => JSON.stringify(l)).join("\n") + "\n"); // 真 hidSlug(https://x/f.txt)=https-x-f.txt(审后修 P2-2 逐假设登记表后,手搓假名不再能借全局正则过门)
   writeTranscript([seed]);
   writeVerdicts([{ call_id: "c9", field: "age_days", value: 220 }]);
   assert.equal(GATES.G_DEEP({ dir: d }).pass, true, "宿主回填三元组逐字回引=过");
