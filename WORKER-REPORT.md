@@ -1,39 +1,44 @@
-# WORKER-REPORT — extract_feed_urls 事实层重构(feeds.txt 清单)
+# WORKER-REPORT — 票 #163 P2-P1:PROBE 拆出(lib.sh 复用 + 位等价门)
 
-分支 feature/ops-feed-manifest(基于 origin/master ed4fc2e0),commits:45697d93 + 本报告。
+分支 `feature/ops-p2-p1`(基线 d316f18e = feature/p2-health-pipeline tip,merge 后仍 up to date)。
+Commits:`36b551ab`(实现)→ `6e536b12`(自测+golden)。
 
-## 清单最终条数
-**97 条**(旧 rg 扫描 78 → 97,全 https,sort -u 无重复)。逐条与 backend/ipdb/_sources/*.py
-交叉核对:67 条字面量直存;30 条 base+文件名 f-string 按名核对(firehol ×4 / malicious_ip ×5 /
-blocklist_de ×11 / cn_isp ×10 / rir_delegated ×5 等旧扫描**漏探**真端点,本次全数补入)。
+## 改动面(全部在 ops/agent/)
 
-## 删掉的历史混入 URL(旧清单实况比对实证)
-- 首页:`https://dataplane.org/`(冻结 291 天伪报元凶)
-- 截断形(多行拼接首行):GeoLite `…/latest/download/`、`raw.githubusercontent.com/
-  CriticalPathSecurity/`、`DNSCrypt/dnscrypt-resolvers/`(含 docstring `…/master/v3/`)、
-  `ShadowWhisperer/IPs/`、`drb-ra/`、`f3cSystems/`、`mthcht/…/main/`、`ziyadnz/`、
-  `rules.emergingthreats.net/`
-- 裸 base:`lists.blocklist.de/lists`、`ispip.clang.cn`、firehol/malicious-ip base
-- 文档/许可证页:`docs.abuseipdb.com`、`creativecommons.org`、`caida.org/catalog`、
-  `github.com/proxyscrape`
-- 目录形:RIR 五个 stats 目录、裸 `peeringdb.com/api`(真端点=/ix、/ixpfx)
-- 清单头另录**刻意不收录**及理由:threatfox/urlhaus v2/files/exports(Auth-Key 路径段,
-  匿名 404 必伪报)、dbip_city 月滚 URL、ip2proxy/ipinfo {} 模板、cloud_ranges 微软确认页、
-  infra_services 内嵌无抓取。
-## 改动与新增检查
-- `ops/agent/feeds.txt`(新):分组头 + 行内 `# <source_name>` 标源 + 维护契约
-  (新增/改源端点 = 同 PR 更新清单)。
-- `ops/agent/lib.sh`:extract_feed_urls 改 `grep -v '^#' | awk 'NF{print $1}' | sort -u`
-  读清单;rg 扫描退役删除;签名与调用方零改动(tools.mjs:345 无参调用不变)。
-- `ops/agent/selftest.sh`:原断言全保留(≥50/https/binarydefense/无 {});新增
-  **EFU_BASELINE=97 防漂移**(合法缩量须同 PR 显式下调)+ 三条事故形状不回流断言
-  (dataplane 首页 / abuse.ch key 占位 / raw.githubusercontent 尾斜杠截断形);
-  fixture 由源码目录扫描改为清单文件解析面(^# 注释行/行内 # 剥除/空行/首列)。
-## 自测结果(判例:commit 后跑,沙箱干净态)
-- `source ops/agent/lib.sh; extract_feed_urls | wc -l` → **97**;非 https=0;
-  v2/files/exports、/account、confirmation、geolocation 形 = 0。
-- `bash ops/agent/selftest.sh` 全量(node_modules 装后):**PASS=97 FAIL=0**
-  (装依赖前 T4 六红 = worktree 无 node_modules 环境缺,与本改无关)。
-- 本机外网受限(github 直连超时),未做端点活体探测——清单真伪以源码为据。
-- 风险:清单是快照:源端点后续变更依赖「同 PR 更新清单」契约 + 基线断言兜底;
-abuseipdb/otx_subscribed 无凭据探测得 TOKEN_REQUIRED 读数(设计内,非异常)。
+- `tools.mjs`:matrix 扫描 CLI 抽模块级 `matrixScanCli()` + 序列化单源 `matrixArtifactText()`(indent-1、无尾换行)。`runMatrixScan()` 只剩薄包装,legacy 返回形状/信封语义(trace 有无、error 键分支)零改动。
+- `pipeline/steps.mjs` PROBE:matrix 由 fixtures 罐装换真扫描(`matrixScanCli` 单源);成功时 `01-probe-matrix.json` 与 legacy `<ts>-matrix-scan.json` 逐字节同文;失败=嵌套信封落件不阻轮。freshness 腿不变(仍是 lib.sh `extract_feed_urls`+`feed_freshness` 真执行,curl 传输层 PATH stub)。
+- `selftest-pipeline.mjs`:增⑦位等价例(legacy 腿=agent.mjs `runRound` 真 Agent 循环点 `health_snapshot`,faux 模型 golden health 例同型);curl stub 时间确定性化(Last-Modified=UTC 日界截断,同日内字符串恒定且 age_days 恒=d);新增 `OPS_EVAL_PY` stub(golden stubPy 同型)两腿共用;feeds.txt **101 URL 固定 fixture 钉死**。
+- `golden/cases.json`:pipeline 例增 `stubs.matrix` + `01-probe-summary.json` matrix 三键断言 + `01-probe-matrix.json` 断言;$comment 记对照关系。
+- `fixtures/pipeline/matrix.json` 删除(罐装件退役);README、gates.mjs 注释(78→101)同步。
+
+## 位等价验证实录(自跑,临时脚本已删)
+
+```
+[清单] URL 数 = 101
+[legacy 腿] health_snapshot ok=true urls_n=101 frozen=3 matrix_exit=0
+[legacy 腿] TSV=…/ops/artifacts/2026-10-23-232704-health-freshness.tsv
+[legacy 腿] matrix=…/ops/artifacts/2026-10-23-232704-matrix-scan.json
+[管线腿] ok=true [stage] PROBE done gate=PASS dur=0s artifact=01-probe-summary.json
+== md5 ==
+f8eb012f65c72ef5fc1a241ef79f716d  …-health-freshness.tsv        (legacy)
+f8eb012f65c72ef5fc1a241ef79f716d  …/01-probe-freshness.tsv      (管线)
+df0ca1199cfd4365a8a2d820dd936182  …-matrix-scan.json            (legacy)
+df0ca1199cfd4365a8a2d820dd936182  …/01-probe-matrix.json        (管线)
+== diff TSV ==   (diff 输出为空)   101 行 = 101 行
+== diff matrix ==(diff 输出为空)   347 B = 347 B
+```
+计数两口径对拍(sc.frozen_n 等 ↔ summary.buckets)在 selftest ⑦ 内断言,PASS。
+
+## 四门结果(commit 6e536b12 后跑)
+
+1. `node ops/agent/selftest-pipeline.mjs` → **PASS=12 FAIL=0**(含新增位等价例)
+2. `node ops/agent/selftest-contract.mjs` → **PASS=15 FAIL=0**
+3. `bash ops/agent/selftest.sh` → **PASS=100 FAIL=0**
+4. `node ops/agent/golden/run-golden.mjs` → **PASS=9 FAIL=0**(pipeline_health_full_faux 含新 matrix 断言)
+
+## 偏离与理由
+
+1. 票文「复用 lib.sh feed_freshness/**matrix**」——lib.sh 无 matrix 函数;matrix 现路径=tools.mjs `runMatrixScan`→EVAL_PY。处理:抽 `matrixScanCli` 单源两消费方共用,legacy 零行为改动(探测逻辑零重写,以单源达成复用)。
+2. matrix 产物路径对照:legacy=`<ts>-matrix-scan.json`(ts-slug 族,ops/artifacts/);管线=`01-probe-matrix.json`(§4.1 序号前缀族)——已记 steps.mjs 注释+cases.json $comment+本报告。**失败面差异**:legacy 失败不落件(sc 嵌套信封),管线按 §4.1 落信封进件(证据不灭失);不阻轮语义两侧一致。
+3. curl stub 由 golden 的 -600s 余量改为 UTC 日界截断(仅 selftest-pipeline 一处;golden 各例独立跑不受影响):位等价要求两腿先后跑字节稳定,余量型 stub 每次调用 Last-Modified 含实时秒必不等。理论残余:两腿间隙恰跨 UTC 日界(秒级窗口)→ 失败可复跑。
+4. summary.buckets 保持 P0 形状(fresh/frozen/unreachable/token_required/no_lm,无 near_band):位等价验收面=TSV+matrix 工件+计数对拍,near_band 是 legacy 摘要员口径非管线工件契约,不扩形。
