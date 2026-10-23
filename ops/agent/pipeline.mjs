@@ -24,6 +24,8 @@ const OPS_ROOT = path.join(DOCS_ROOT, "ops"); // rounds/rules/retro 派生落位
 // ── 轮次定义表(数据非代码;C稿 §2.2 十状态;加状态须过 spec 变更+三元组铁律:无工件/无门/无失败语义=不配当状态)──
 // 每态:name/kind(script|model|bookend|terminal)/model(配置键,P0 恒 faux)/工件清单(out)/门/失败语义三元组
 // fail={retry,terminal,degrade?,perItem?}(重试上限/终态错误码∈九词闭集/降级路径);skipWhen=命名谓词闭集。
+// 注:IDLE 准入门(车道/预算/同型在飞,C稿 §2.2 十态之一)不在此表——属宿主接线,落 P5(#167);
+// 本表=跑步态集+CLOSE+FAILED,防误读十状态缺一(审后注 reviewer P2-1)。
 export const HEALTH_PIPELINE = [
   { name: "PROBE", kind: "script", model: null,
     out: ["01-probe-freshness.tsv", "01-probe-matrix.json", "01-probe-summary.json"],
@@ -82,7 +84,10 @@ function mkCtx(opts, io) {
   const roundId = opts.roundId ?? roundIdNow(type);
   if (!/^\d{4}-\d{2}-\d{2}-\d{4}-health(-r\d+)?$/.test(roundId))
     throw Object.assign(new Error(`round_id 形状须 YYYY-MM-DD-HHMM-health:${roundId}`), { code: "bad_round" });
-  const budgetCny = +(io.env.OPS_PIPELINE_BUDGET_CNY ?? process.env.OPS_PIPELINE_BUDGET_CNY ?? "0.05");
+  const budgetRaw = io.env.OPS_PIPELINE_BUDGET_CNY ?? process.env.OPS_PIPELINE_BUDGET_CNY ?? "0.05";
+  const budgetCny = +budgetRaw; // NaN 静默放行=审后修 P2-4:非法值退出 2 不带病跑轮
+  if (!Number.isFinite(budgetCny) || budgetCny < 0)
+    throw Object.assign(new Error(`OPS_PIPELINE_BUDGET_CNY 须为非负数,得到:${budgetRaw}`), { usage: true });
   const fixturesDir = path.resolve(opts.fixturesDir ?? path.join(AGENT_DIR, "fixtures", "pipeline"));
   const state = { schema: 1, round_id: roundId, type, pipeline_mode: io.env.OPS_PIPELINE ?? process.env.OPS_PIPELINE ?? "legacy",
     status: "in_flight", stage: null, stages: [], budget_cny: budgetCny, fixtures_dir: fixturesDir, prompt_hashes: {},
@@ -149,10 +154,20 @@ async function runModelStage(def, ctx, rec) {
   return { usage, degraded: degradedItems.length > 0 };
 }
 
-// 段执行器(runPipeline 与 replay 共用):dry=只跑门不调模型不跑步(C稿 §4.5)
-async function runStages(ctx, { fromIdx = 0, toIdx = RUNNABLE.length - 1, dry = false } = {}) {
+// 段执行器(runPipeline 与 replay 共用):dry=只跑门不调模型不跑步(C稿 §4.5);
+// skippedInOriginal=原件轮里被 SKIP_WHEN 跳过的步——dry 审计对这些步跳门(审后修 P2-3):
+// 缺席工件判门败是假阴性,静轮 dry 首审即触发;原件 stages[].status=skipped 即不评其门。
+async function runStages(ctx, { fromIdx = 0, toIdx = RUNNABLE.length - 1, dry = false, skippedInOriginal = [] } = {}) {
   for (let i = fromIdx; i <= toIdx; i++) {
     const def = byName(RUNNABLE[i]);
+    if (dry && skippedInOriginal.includes(def.name)) {
+      const srec = { name: def.name, status: "dry-skip", attempts: 0, dur_ms: 0, usage: null };
+      ctx.state.stages.push(srec);
+      ctx.state.stage = def.name;
+      writeState(ctx);
+      ctx.log(`[stage] ${def.name} done gate=SKIP(dry:原件 skipped) dur=0s artifact=-`);
+      continue;
+    }
     const rec = { name: def.name, status: dry ? "dry" : "done", attempts: 0, dur_ms: 0, usage: null };
     const t0 = performance.now();
     let gateRec = null, degraded = null;
@@ -287,7 +302,10 @@ export async function runReplay(opts = {}) {
   const ctx = mkCtx({ ...opts, roundId: replayId, replayOf: roundId }, io);
   ctx.retroAuditKey = dry ? roundId : replayId; // dry 审原件工件;重执行审重放自产
   writeState(ctx);
-  const failure = await runStages(ctx, { fromIdx: RUNNABLE.indexOf(from), toIdx: RUNNABLE.indexOf(to), dry });
+  // dry 审计对原件跳过的步跳门(审后修 P2-3):读原件 state.json 的 skipped 集
+  const origSkipped = (JSON.parse(fs.readFileSync(path.join(srcDir, "state.json"), "utf8"))?.stages ?? [])
+    .filter((s) => s?.status === "skipped").map((s) => s.name);
+  const failure = await runStages(ctx, { fromIdx: RUNNABLE.indexOf(from), toIdx: RUNNABLE.indexOf(to), dry, skippedInOriginal: origSkipped });
   const rp = path.join(dir, "07-synth-report.md");
   if (fs.existsSync(rp)) ctx.pkg = rp; // 重放段产物或复制件
   const envelope = failure ? composeEnvelope(ctx, { ok: false, ...failure }) : composeEnvelope(ctx, { ok: true });
