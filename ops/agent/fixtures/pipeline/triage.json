@@ -1,0 +1,14 @@
+{
+  "turns": [
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"hypotheses\":[{\"signal_id\":\"https://cinsscore.com/list/ci-badguys.txt\",\"cause_class\":\"frozen_feed\",\"hypothesis\":\"若 feed 已停更,则 HEAD 复测 Last-Modified 仍冻结且内容不更新\",\"need_deep\":true,\"probe_hint\":\"reprobe_get\",\"severity\":\"high\",\"one_line\":\"cinsscore 冻结 220 天,深验复测\"},{\"signal_id\":\"https://www.binarydefense.com/banlist.txt\",\"cause_class\":\"frozen_feed\",\"hypothesis\":\"若 HEAD 读数为探测伪迹,则换 GET 复测可见新鲜 Last-Modified\",\"need_deep\":true,\"probe_hint\":\"reprobe_get\",\"severity\":\"medium\",\"one_line\":\"binarydefense 冻结 210 天,复测辨伪迹\"}],\"digest\":\"金轨迹回放:2 幸存信号(1 高危冻结 + 1 疑伪迹),深验子集 2 条。\"}"
+        }
+      ],
+      "stopReason": "stop"
+    }
+  ]
+}
