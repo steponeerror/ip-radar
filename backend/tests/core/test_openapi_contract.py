@@ -23,7 +23,7 @@ BINARY = {"/api/ops/precedents/export.zip"}
 # fastapi-users 库路由(Task 2):错误声明不经 ErrorEnvelope,见模块 docstring。
 AUTH_LIB = {"/api/auth/jwt/login", "/api/auth/jwt/logout",
             "/api/users/me", "/api/users/{id}"}
-BUSINESS_ROUTES = 36  # 票 #140 +1：ops agent 配置（GET/PUT 共路径）；P3(票 #135)前 35
+BUSINESS_ROUTES = 38  # 票 #153 +2：待审条目读面（GET /api/ops/items 与 /api/ops/items/{id}）；票 #140 +1：ops agent 配置（GET/PUT 共路径）；P3(票 #135)前 35
 
 
 class TestOpenAPIContract:
