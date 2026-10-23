@@ -244,7 +244,7 @@ else
   bad "fixture:http.server 起不来,T3 断言整组失效"
 fi
 
-# extract_feed_urls(真实 worktree 只读扫描)
+# extract_feed_urls(真实清单 ops/agent/feeds.txt;2026-10-23 事实层重构)
 EFU="$(extract_feed_urls 2>/dev/null)"
 [[ "$(awk '!/^https:\/\// && !/^http:\/\// {bad=1} END{print bad?1:0}' <<<"$EFU")" == "0" ]] \
   && ok "urls:全部 https?:// 形" || bad "urls:全部 https?:// 形"
@@ -254,35 +254,47 @@ grep -qx 'https://www.binarydefense.com/banlist.txt' <<<"$EFU" \
   && ok "urls:排除 {token} 模板(ipinfo/ip2location 占位符)" || bad "urls:排除 {token} 模板(ipinfo/ip2location 占位符)"
 [[ "$(wc -l <<<"$EFU")" -ge 50 ]] \
   && ok "urls:规模 ≥50(源覆盖面)" || bad "urls:规模 ≥50(源覆盖面)"
+# 清单基线防漂移(2026-10-23 事实层重构随建):低于基线 = 清单被误删段;
+# 源退役等合法缩量须同 PR 显式下调基线并说明缘由,不许无声缩水。
+EFU_BASELINE=101
+[[ "$(wc -l <<<"$EFU")" -ge "$EFU_BASELINE" ]] \
+  && ok "urls:清单条数 ≥ 基线 $EFU_BASELINE(防漂移)" || bad "urls:清单条数 ≥ 基线 $EFU_BASELINE(防漂移)"
+! grep -qv '^https://' <<<"$EFU" \
+  && ok "urls:清单全 https(防劣质增量,审后补 P2-2)" || bad "urls:清单全 https(防劣质增量,审后补 P2-2)"
 
 # ---- 7b. P1 T2 降噪三刀(spec #152 §2,票 #154):TOKEN_REQUIRED 分类 / raw 重试 / URL 排除面 ----
-# 排除面真树断言(降噪刀二):实证噪音源两 URL 不再落探测面
+# 排除面真树断言:清单人工维护,排除面=清单内容本身;以下钉住历史事故/噪音
+# 形状(2026-10-23 事故 + P1 T2 实证)永不经清单编辑回流。
 ! grep -q 'abuseipdb.com/account' <<<"$EFU" \
-  && ok "urls:排除账号页 /account(降噪刀二)" || bad "urls:排除账号页 /account(降噪刀二)"
+  && ok "urls:排除账号页 /account(事故形状不回流)" || bad "urls:排除账号页 /account(事故形状不回流)"
 ! grep -q 'confirmation.aspx' <<<"$EFU" \
-  && ok "urls:排除微软下载确认页(降噪刀二)" || bad "urls:排除微软下载确认页(降噪刀二)"
+  && ok "urls:排除微软下载确认页(事故形状不回流)" || bad "urls:排除微软下载确认页(事故形状不回流)"
+! grep -qxE 'https://dataplane\.org/?' <<<"$EFU" \
+  && ok "urls:排除 dataplane 首页(冻结 291 天伪报事故形状)" || bad "urls:排除 dataplane 首页(冻结 291 天伪报事故形状)"
+! grep -q 'v2/files/exports' <<<"$EFU" \
+  && ok "urls:排除 abuse.ch key 占位形状(匿名 404 伪报不可达)" || bad "urls:排除 abuse.ch key 占位形状(匿名 404 伪报不可达)"
+! grep -qE '^https://raw\.githubusercontent\.com/.*/$' <<<"$EFU" \
+  && ok "urls:raw.githubusercontent 无尾斜杠截断形(多行拼接事故形状)" || bad "urls:raw.githubusercontent 无尾斜杠截断形(多行拼接事故形状)"
 
-# 排除面 fixture 断言(注释行/行内 # 后/同行多 URL 取首/不吞 accounts.json):
-EFU_DIR="$TMP/efu-fixture"; mkdir -p "$EFU_DIR"
-cat > "$EFU_DIR/fake_source.py" <<'FIXEOF'
-# docs: https://fixture.example/comment-only.txt
-_URL = "https://fixture.example/code-feed.txt"  # see https://fixture.example/trailing.txt
-_PAGE = "https://fixture.example/account"
-_MS = "https://www.microsoft.com/en-us/download/confirmation.aspx?id=1"
-keep = "https://fixture.example/accounts.json"
+# 清单解析面 fixture(^# 全注释行/行内 # 后剥除/空行跳过/首列即 URL):
+EFU_MAN="$TMP/efu-manifest.txt"
+cat > "$EFU_MAN" <<'FIXEOF'
+# 分组头:https://fixture.example/comment-only.txt
+https://fixture.example/code-feed.txt # source_a
+
+https://fixture.example/accounts.json # source_b(行内注释含 https://fixture.example/trailing.txt,只取首列)
 FIXEOF
-EFU_FIX="$(extract_feed_urls "$EFU_DIR" 2>/dev/null)"
+EFU_FIX="$(extract_feed_urls "$EFU_MAN" 2>/dev/null)"
 grep -qx 'https://fixture.example/code-feed.txt' <<<"$EFU_FIX" \
-  && ok "urls:代码行 URL 保留(fixture)" || bad "urls:代码行 URL 保留(fixture)"
+  && ok "urls:清单 URL 保留(fixture)" || bad "urls:清单 URL 保留(fixture)"
 grep -qx 'https://fixture.example/accounts.json' <<<"$EFU_FIX" \
-  && ok "urls:accounts.json 不被 /account 模式误吞(fixture)" || bad "urls:accounts.json 不被 /account 模式误吞(fixture)"
+  && ok "urls:accounts.json 正常收录(fixture)" || bad "urls:accounts.json 正常收录(fixture)"
 ! grep -q 'comment-only' <<<"$EFU_FIX" \
-  && ok "urls:注释行 URL 排除(fixture)" || bad "urls:注释行 URL 排除(fixture)"
+  && ok "urls:^# 全注释行排除(fixture)" || bad "urls:^# 全注释行排除(fixture)"
 ! grep -q 'trailing' <<<"$EFU_FIX" \
-  && ok "urls:行内 # 后 URL 排除(fixture)" || bad "urls:行内 # 后 URL 排除(fixture)"
-! grep -qE '(fixture.example/account$|confirmation\.aspx)' <<<"$EFU_FIX" \
-  && ok "urls:非数据页模式排除(fixture)" || bad "urls:非数据页模式排除(fixture)"
-
+  && ok "urls:行内 # 后内容剥除(fixture)" || bad "urls:行内 # 后内容剥除(fixture)"
+[[ -z "$(grep '^$' <<<"$EFU_FIX")" ]] \
+  && ok "urls:空行不产出行(fixture)" || bad "urls:空行不产出行(fixture)"
 # stub curl(golden/run-golden.mjs stubCurl 判例同型:PATH 前置传输层替身,
 # 头形对齐 _ff_code 解析);子Shell隔离 PATH,不污染上方真实 http.server 断言。
 # 计数文件按 URL 哈希分铺——重试用例断言 curl 恰被调 3 次(raw)/2 次(非 raw)。
