@@ -142,6 +142,9 @@ async function VERIFY(def, ctx) {
   const raw = j(ctx.rulesFile);
   if (!raw) throw infra(`抑制规则库不可解析:${ctx.rulesFile}(规则零命中=空集照常过;文件坏=终态)`);
   const rules = normalizeRules(raw); // 闭集校验+review_at 规范化;坏=infra 终态(C稿 §2.2)
+  // 轮次时点版规则快照(#164 审 P2-6 收口,#167):replay --dry 审计读快照而非现行文件
+  // ——规则库事后演进(采纳/删除)不得改写历史轮的门判定;快照=工件面证据不灭失。
+  fs.copyFileSync(ctx.rulesFile, path.join(ctx.dir, "02-verify-rules.json"));
   const flight = inFlightKeys(readInFlightItems(ctx.itemsDir, ctx.state?.replay_of)); // 同因在飞不重问:全签(source|probe_class|error_signature,P4 #166);replay 排除原轮自己的产物(回声防线)
   const survivors = [], suppressed = [];
   for (const f of summary.flags) {
@@ -239,22 +242,103 @@ async function ITEMIZE(def, ctx) {
   writeJson(path.join(ctx.dir, "06-itemize-manifest.json"), { created, reopened, deduped, suppressed, rows: out });
 }
 
+// ── RETRO 候选推导(P5 #167;C稿 §2.2/§6-6)─────────────────────────────────
+// 机械误判→确定性检查候选:diff 本轮幸存旗标 vs 四键处置(items 树 dismissed 终态)
+// vs P1 探测器独立通道(被抑制信号对照在飞条目)——全部确定性查表,零模型。
+// 候选只产 adopt_rule 待审条目(经四键人裁采纳才进 rules/suppressions.json,
+// 写口=backend _ops_review 人裁面;永不自动生效=责任线铁律,DESIGN.md §3)。
+export const RETRO_ITEM_CAP = 1; // 每轮至多立一条待审条目(C稿 §2.2「可选一条 adopt_rule 待审条目」;候选清单全量入 retro JSON,宁少算)
+const dayIso = () => new Date().toISOString().slice(0, 10);
+const keyTriple = (dk) => `${dk.source}|${dk.probe_class}|${dk.error_signature}`;
+// 候选 match 草案:旗标 → 谓词闭集内最窄匹配(source+bucket+精确 error_family;
+// 宁少算:先窄后人裁可 modify 放宽;url_shape 归纳不在确定性面,不自动造)。
+const matchOf = (f) => ({ ...(f.source ? { source: f.source } : {}), bucket: f.bucket, ...(f.error_family ? { error_family: f.error_family } : {}) });
+const matchKey = (m) => Object.keys(m).sort().map((k) => `${k}=${m[k]}`).join("&");
+export function retroDiff({ survivors, suppressed, items, rules, today }) {
+  // ① 规则命中统计(replay 审计面同源数据):suppress 计入 suppressed,annotate 计入幸存 annotated_rule
+  const hits = new Map();
+  for (const x of suppressed ?? []) if (x.rule_id && x.rule_id !== "in_flight") hits.set(x.rule_id, (hits.get(x.rule_id) ?? 0) + 1);
+  for (const s of survivors ?? []) if (s.annotated_rule) hits.set(s.annotated_rule, (hits.get(s.annotated_rule) ?? 0) + 1);
+  const rule_hits = rules.rules.map((r) => ({ id: r.id, action: r.action, hits_n: hits.get(r.id) ?? 0, review_at: r.review_at }));
+  // ② review_at 到点报复审(C稿 §4.2:防规则腐烂;零命中/高命中均交人看)
+  const rules_due_review = rule_hits.filter((r) => r.review_at <= today);
+  // ③ 机械误判:同签信号被四键 ignore 过(dismissed=人判误报)而本轮仍幸存 → 候选 suppress 草案
+  const dismissedByKey = new Map();
+  for (const it of items ?? []) if (it.status === "dismissed") {
+    const k = keyTriple(it.dedup_key);
+    if (!dismissedByKey.has(k)) dismissedByKey.set(k, []);
+    dismissedByKey.get(k).push(it.id);
+  }
+  const seen = new Set();
+  const candidates = [];
+  for (const s of survivors ?? []) {
+    const ids = dismissedByKey.get(s.dedup_key);
+    if (!ids?.length) continue;
+    const m = matchOf(s), mk = matchKey(m);
+    if (seen.has(mk)) continue; // 同 match 形状去重(同源同族多条旗标=一条候选)
+    seen.add(mk);
+    candidates.push({ match: m, action: "suppress",
+      note: `同签信号已被四键 ignore ${ids.length} 次(条目 ${ids.join(",")})而本轮仍幸存——机械误判候选,建议采纳为抑制规则`,
+      evidence: { signal_id: s.signal_id, dedup_key: s.dedup_key, dismissed_items: ids } });
+  }
+  candidates.sort((a, b) => matchKey(a.match) < matchKey(b.match) ? -1 : 1); // 确定性序
+  // ④ 两通道矛盾(C稿 §4.6 风险 2):规则抑制的信号在 P1 探测器通道仍有在飞条目
+  //   (探测器不经过规则库)=规则可能压真信号——仅报复审,不产候选(建言不裁决)。
+  const channel_conflicts = [];
+  for (const x of suppressed ?? []) {
+    if (!x.rule_id || x.rule_id === "in_flight") continue;
+    const live = (items ?? []).filter((it) => (it.status === "active" || it.status === "snoozed")
+      && keyTriple(it.dedup_key) === x.dedup_key).map((it) => it.id);
+    if (live.length) channel_conflicts.push({ dedup_key: x.dedup_key, rule_id: x.rule_id, in_flight_items: live });
+  }
+  return { candidates, rules_due_review, rule_hits, channel_conflicts };
+}
+// 候选 → adopt_rule 待审条目(dedup:source=retro|probe_class=adopt_rule|error_signature=match 规范键;
+// 同 key 终态(done=已采纳/dismissed=已否决)在树即不再立项——已否决候选不重复打扰人裁)。
+function adoptRuleItem(ctx, cand, existingItems) {
+  const mk = matchKey(cand.match);
+  const sameKey = existingItems.filter((it) => it.dedup_key.source === "retro" && it.dedup_key.probe_class === "adopt_rule" && it.dedup_key.error_signature === mk);
+  if (sameKey.some((it) => it.status === "done" || it.status === "dismissed")) return { skipped: "already_ruled" };
+  const res = createOpsItem(ctx.itemsDir, { source: "retro", probe_class: "adopt_rule", error_signature: mk,
+    action: "adopt_rule", // 四键面识别词:agree/modify → _ops_review 采纳写规则(唯一写口);ignore → 否决
+    args: { match: cand.match, action: cand.action, note: cand.note },
+    evidence: { round_id: ctx.roundId, ...cand.evidence },
+    impact: `采纳后同形信号(${mk})将被 VERIFY 抑制规则压掉(留痕进 suppressed 工件,证据降权不灭失)`,
+    rollback: "删除 rules/suppressions.json 中对应规则行即恢复(规则库人裁可逆;review_at 90 天到点强制复审)",
+    severity: "low", cause_group: "rule_proposal",
+    summary: `# 待审(adopt_rule):抑制规则候选 ${mk}\n\n${cand.note};证据见 evidence 字段(dismissed 条目链)。\n四键:agree/modify=采纳进规则库(下一轮 VERIFY 生效);ignore=否决本候选。永不自动生效。\n` },
+    { dayIso: ctx.roundId.slice(0, 10) });
+  return { outcome: res.outcome, item_id: res.item, supersedes: res.supersedes ?? null, ...(res.echo ? { echo: true } : {}) };
+}
 async function RETRO(def, ctx) {
   const usage = `in=${ctx.usage.input} out=${ctx.usage.output} total=${ctx.usage.totalTokens} cost=${ctx.usage.cost.toFixed(8)}`;
-  try { await sh("ledger_append", ["health", "faux-pipeline", usage, `pipeline:${ctx.roundId}`], 120_000, ctx.env); } // 台账先记(faux 零成本仍记行)
-  catch (e) { throw Object.assign(new Error(`台账写败:${e.message}`), { code: "ledger_failed" }); }
+  // 幂等重入(resume #167):台账已有本轮行则零追加(crash 后恢复不双记账——回声防线)
+  let ledgerNow = null;
+  try { ledgerNow = fs.readFileSync(ctx.ledgerFile, "utf8"); } catch { /* 首轮无台账文件=正常 */ }
+  if (!(ledgerNow ?? "").includes(`pipeline:${ctx.roundId}`))
+    try { await sh("ledger_append", ["health", "faux-pipeline", usage, `pipeline:${ctx.roundId}`], 120_000, ctx.env); } // 台账先记(faux 零成本仍记行)
+    catch (e) { throw Object.assign(new Error(`台账写败:${e.message}`), { code: "ledger_failed" }); }
   try { await sh("sandbox_assert", [], 60_000, ctx.env); } // 沙箱红线真执行(backend/frontend 零改动)
   catch (e) { throw Object.assign(new Error("sandbox_assert rc≠0(backend/frontend 污染)"), { code: "sandbox_violation" }); }
   let degraded;
   try { // 候选产出失败=降级(跳过 retro,轮仍成功);台账/sandbox 失败已先行终态(C稿 §2.2 语义序)
     const s = j(path.join(ctx.dir, "01-probe-summary.json"));
+    const survivors = j(path.join(ctx.dir, "02-verify-survivors.json"))?.survivors ?? [];
+    const suppressedF = j(path.join(ctx.dir, "02-verify-suppressed.json"));
+    const rawRules = j(ctx.rulesFile);
+    const rules = rawRules ? normalizeRules(rawRules) : { version: 0, rules: [] }; // 步侧已过门,坏文件不会到这;缺席=零规则照常
+    const items = parseItemsTree(ctx.itemsDir);
+    const diff = retroDiff({ survivors, suppressed: suppressedF?.suppressed ?? [], items, rules, today: dayIso() });
+    // 待审条目:仅首条立项(RETRO_ITEM_CAP);replay 恒零写(审计重放不改生产条目面,同 ITEMIZE 回声律)
+    for (const c of diff.candidates.slice(0, RETRO_ITEM_CAP)) {
+      c.item = ctx.state?.replay_of ? { skipped: "replay" } : adoptRuleItem(ctx, c, items);
+    }
     fs.mkdirSync(path.dirname(ctx.retroFile), { recursive: true });
     writeJson(ctx.retroFile, { round_id: ctx.roundId, generated_at: new Date().toISOString(),
-      flags_n: (s?.flags ?? []).length,
-      survivors_n: j(path.join(ctx.dir, "02-verify-survivors.json"))?.survivors?.length ?? 0,
-      suppressed_n: j(path.join(ctx.dir, "02-verify-suppressed.json"))?.suppressed?.length ?? 0,
+      flags_n: (s?.flags ?? []).length, survivors_n: survivors.length, suppressed_n: suppressedF?.suppressed?.length ?? 0,
       verdicts_n: j(path.join(ctx.dir, "05-deep-verdicts.json"))?.verdicts?.length ?? 0,
-      candidates: [], // 候选确定性检查=P5 闭环(adopt_rule 四键通道);P0 空集起步
+      rules_version: rules.version,
+      ...diff, // candidates(P5 #167:机械误判→adopt_rule 候选,仅产条目永不自动生效)/rules_due_review/rule_hits/channel_conflicts
       sandbox_assert_pass: true, sandbox_assert_rc: 0, degraded: false });
   } catch (e) {
     degraded = { degraded: `skip_retro:retro 候选写败(${e.message})——轮仍成功`, skipGate: true };
@@ -383,6 +467,17 @@ export function synthInjectionBlock(injStdout, anchoredExtra, hitNames, injected
 function synthConsume(ctx, _item, { text }) {
   if (!text.trim()) throw Object.assign(new Error("SYNTH 最终文本为空"), { code: "empty_text" });
   fs.writeFileSync(path.join(ctx.dir, "07-synth-report.md"), text);
+}
+
+// 模型步工件完备判定(#167 resume 三规则②):「有 transcript(=本步工件集齐)→ 只补门
+// 评估,不重花 token」。单发步=def.out 全在场;逐假设步(DEEP)=该假设 05-deep-<hid>.json
+// + transcript 在场(聚合 verdicts 由 finalize 从逐假设工件重建,不算完备判据)。
+export function modelItemComplete(def, ctx, item) {
+  if (def.forEach) { // forEach 今日仅 DEEP;命名面=deepConsume 同源(05-deep-<slug> 族)
+    const base = path.join(ctx.dir, `05-deep-${hidSlug(item.hid)}`);
+    return fs.existsSync(`${base}.json`) && fs.existsSync(`${base}-transcript.jsonl`);
+  }
+  return def.out.every((f) => fs.existsSync(path.join(ctx.dir, f)));
 }
 
 const SCRIPT = { PROBE, VERIFY, DISPATCH, ITEMIZE, RETRO, CLOSE };

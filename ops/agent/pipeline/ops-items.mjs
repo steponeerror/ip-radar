@@ -17,9 +17,11 @@ import crypto from "node:crypto";
 // probe_class/error_signature 词表 = _ops_detectors.py 产条粒度:download(下载失败族)/
 // staleness(新鲜度族)。健康轮旗标映射:
 //   unreachable → download 族,error_signature = 折叠族映射(下方 foldErrorFamily,
-//     #164 偏离①钉死:lib.sh _ff_probe 第 4 列=精确码族 http_<code>/net_fail,
+//     #164 偏离①钉死:lib.sh _ff_probe 第 4 列=精确码族 http_<code>/net_timeout/net_fail
+//     (#166 审 P2-1:curl 超时 rc=28 分腿对齐探测器 timeout 族),
 //     _ops_detectors._error_family 条目侧=401/403 单列、其余 4xx 折叠 http_4xx、
-//     5xx→http_5xx、传输层败→network、认不出→download 兜底;两侧同因同签,在飞不双开);
+//     5xx→http_5xx、超时→timeout、传输层败→network、认不出→download 兜底;
+//     两侧同因同签(含超时腿),在飞不双开);
 //   frozen → staleness 族,error_signature="age_gt_2x_refresh"(run_staleness_detector
 //     同键:冻结 = HEAD age_days ≥ 180 > 2× 任何刷新周期(stale_days ≤30 → 周期 ≤720h),
 //     源新鲜度同因,P1 已产条在飞则健康轮不重开)。
@@ -29,6 +31,7 @@ export function foldErrorFamily(fam) {
   if (/^http_4\d\d$/.test(fam ?? "")) return "http_4xx"; // 折叠族(404/429 等同族:同族失败同因去重)
   if (/^http_5\d\d$/.test(fam ?? "")) return "http_5xx";
   if (fam === "net_fail") return "network"; // 传输层败 → network 族(DNS/连接,拼写对齐)
+  if (fam === "net_timeout") return "timeout"; // curl 超时(rc=28,lib.sh #166 审 P2-1 分腿)→ timeout;对拍=_ops_detectors._error_family 超时文本同归 timeout——同因超时两侧同签,在飞不双开对超时类生效
   return "download"; // 兜底族(=_ops_detectors._FALLBACK_FAMILY;缺第 4 列/认不出)
 }
 export function itemSignature(flag) { // 旗标 → (probe_class, error_signature) 查表,零模型

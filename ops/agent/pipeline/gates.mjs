@@ -7,7 +7,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { resolveField, closureCheck } from "../tools.mjs";
-import { normalizeRules, readInFlightItems, inFlightKeys, deepSeeds } from "./steps.mjs";
+import { normalizeRules, readInFlightItems, inFlightKeys, deepSeeds, RULE_PREDICATES, RULE_ACTIONS } from "./steps.mjs";
 import { fullDedupKey } from "./ops-items.mjs"; // 全签同因面(P4 #166;步/门同源)
 import { parseItem } from "./ops-items.mjs"; // 条目树读回(单一解析语义)
 
@@ -44,12 +44,16 @@ export const GATES = {
   },
   // G_VERIFY:survivors∪suppressed 的 signal_id = probe 旗标全集(穷尽一条不丢)∧ 每条抑制引用规则 id ∈ 规则文件闭集
   G_VERIFY: (ctx) => {
-    const inputs = ["01-probe-summary.json", "02-verify-survivors.json", "02-verify-suppressed.json", "rules/suppressions.json", "items/*.md"];
+    const inputs = ["01-probe-summary.json", "02-verify-survivors.json", "02-verify-suppressed.json", "02-verify-rules.json|rules/suppressions.json", "items/*.md"];
     const s = j(path.join(ctx.dir, "01-probe-summary.json"));
     const sv = j(path.join(ctx.dir, "02-verify-survivors.json"));
     const sp = j(path.join(ctx.dir, "02-verify-suppressed.json"));
-    const raw = j(ctx.rulesFile);
     if (!s || !sv || !sp) return fail("verify 工件不可解析", inputs);
+    // #164 审 P2-6(#167 收口):门读轮次时点版规则——VERIFY 步落 02-verify-rules.json
+    // 快照;replay --dry(复制原件工件)即审轮次时点版,规则库事后演进不改历史判定。
+    // 快照缺席(P5 前旧轮/过渡面)回落现行文件,reason 注记版本漂移风险(宁显式勿哑)。
+    const snap = path.join(ctx.dir, "02-verify-rules.json");
+    const raw = j(fs.existsSync(snap) ? snap : ctx.rulesFile);
     let rules;
     try { rules = raw ? normalizeRules(raw) : null; } // 闭集校验同源步侧单一实现
     catch { rules = null; }
@@ -223,7 +227,9 @@ export const GATES = {
     try { closureCheck(report, allowed); } catch (e) { return fail(`判例闭合违例:${e.message}`, inputs, "closure_check"); }
     return pass(`三节齐;四计数+深验三计数与工件逐字一致(confirmed=${truth.confirmed} refuted=${truth.refuted} unresolved=${truth.unresolved});判例引用闭合(注入 ${allowed.size})`, inputs);
   },
-  // G_RETRO:retro schema 过 ∧ 台账行读回存在 ∧ sandbox rc=0(rc 由 RETRO 步实测记入 retro 工件)
+  // G_RETRO:retro schema 过 ∧ 台账行读回存在 ∧ sandbox rc=0(rc 由 RETRO 步实测记入 retro 工件);
+  // P5 #167:候选确定性检查 schema(match 谓词闭集/动作闭集/证据非空——无证据即无话)与
+  // 到点复审清单/通道矛盾清单的形状面。
   G_RETRO: (ctx) => {
     const key = ctx.retroAuditKey; // replay --dry 审原件;重执行审重放自产
     const retroFile = path.join(ctx.opsRoot, "retro", `${key}.json`);
@@ -232,10 +238,26 @@ export const GATES = {
     if (!r) return fail(`retro/${key}.json 不可解析`, inputs);
     if (r.round_id !== key) return fail(`retro.round_id=${r.round_id}≠${key}`, inputs);
     if (!Array.isArray(r.candidates)) return fail("retro.candidates 非数组(候选只产条目,永不自动生效)", inputs);
+    for (const c of r.candidates ?? []) {
+      if (!c || typeof c !== "object" || !c.match || typeof c.match !== "object") return fail("候选缺 match 对象", inputs);
+      const keys = Object.keys(c.match);
+      if (!keys.length) return fail(`候选 match 空(谓词闭集 ${RULE_PREDICATES.join("/")})`, inputs);
+      for (const k of keys) if (!RULE_PREDICATES.includes(k)) return fail(`候选谓词闭集外:${k}`, inputs);
+      if (!RULE_ACTIONS.includes(c.action)) return fail(`候选动作闭集外:${c.action}`, inputs);
+      if (typeof c.note !== "string" || !c.note) return fail("候选缺 note(人读理由面)", inputs);
+      if (!c.evidence || typeof c.evidence !== "object" || !Object.keys(c.evidence).length) return fail("候选缺证据(无证据即无话)", inputs);
+      if (c.item !== undefined && (!c.item || typeof c.item !== "object")) return fail("候选 item 形状非对象(skipped/outcome 二选一)", inputs);
+    }
+    for (const d of r.rules_due_review ?? []) {
+      if (typeof d.id !== "string" || typeof d.hits_n !== "number") return fail(`到点复审行形状非法:${JSON.stringify(d).slice(0, 80)}`, inputs);
+    }
+    for (const x of r.channel_conflicts ?? []) {
+      if (typeof x.rule_id !== "string" || typeof x.dedup_key !== "string" || !Array.isArray(x.in_flight_items)) return fail(`通道矛盾行形状非法:${JSON.stringify(x).slice(0, 80)}`, inputs);
+    }
     if (r.sandbox_assert_pass !== true) return fail(`sandbox_assert rc≠0(${r.sandbox_assert_rc})`, inputs);
     const ledger = txt(ctx.ledgerFile);
     if (ledger === null || !ledger.includes(`pipeline:${key}`)) return fail("台账读回缺本轮行", inputs);
-    return pass(`retro schema 过(${(r.candidates ?? []).length} 候选);台账行读回;sandbox rc=0`, inputs);
+    return pass(`retro schema 过(${(r.candidates ?? []).length} 候选,到点复审 ${(r.rules_due_review ?? []).length},通道矛盾 ${(r.channel_conflicts ?? []).length});台账行读回;sandbox rc=0`, inputs);
   },
   // G_CLOSE:信封单行 JSON 落 stdout(书挡门;重放不入 CLOSE)
   G_CLOSE: (ctx) => {
