@@ -56,6 +56,7 @@ docker compose up -d
 | otx | `OTX_API_KEY` | <https://otx.alienvault.com/settings> |
 | otx_subscribed | `OTX_API_KEY`（与 otx 共用） | <https://otx.alienvault.com/settings> |
 | ip2proxy | `IP2PROXY_TOKEN` | <https://www.ip2location.com/> |
+| threatfox / urlhaus | `ABUSECH_AUTH_KEY`（两源共用） | <https://auth.abuse.ch/> 注册 Auth-Key;钥在导出 URL 路径内,日志已打码 |
 
 Slow npm/pip downloads (common on CN networks)? Pass mirror build-args:
 
@@ -169,8 +170,8 @@ Every dataset below belongs to its provider — thank you for keeping them open 
 | otx_subscribed | [AlienVault OTX](https://otx.alienvault.com/) | Subscribed pulse library (curated honeypots / C2 lists) | 🔑 |
 | spamhaus | [Spamhaus](https://www.spamhaus.org/drop/) | DROP/EDROP hijacked ranges | |
 | stopforumspam | [StopForumSpam](https://www.stopforumspam.com/) | Forum-spammer IPs (365-day window, report counts) | |
-| threatfox | [abuse.ch](https://threatfox.abuse.ch/) | Malware IOC feed (CSV/ZIP) | |
-| urlhaus | [abuse.ch](https://urlhaus.abuse.ch/) | Malicious URLs → IPs | |
+| threatfox | [abuse.ch](https://threatfox.abuse.ch/) | Malware IOC feed (CSV/ZIP; v2 认证导出) | 🔑 |
+| urlhaus | [abuse.ch](https://urlhaus.abuse.ch/) | Malicious URLs → IPs (v2 认证导出) | 🔑 |
 | tweetfeed `*` | [TweetFeed](https://github.com/0xDanielLopez/TweetFeed) | Crowd-sourced IOCs from X/Twitter | |
 | ipsum `*` | [IPsum](https://github.com/stamparm/ipsum) | Daily compile of many public blocklists | |
 | firehol `*` | [FireHOL](https://github.com/firehol/blocklist-ipsets) | Level1/2 + abusers/proxies/webserver sublists | |

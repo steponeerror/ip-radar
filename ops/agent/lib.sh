@@ -242,7 +242,7 @@ extract_feed_urls() {
     -g '*.py' "$dir" \
     | sed -E 's/^[^#]*(https?:)/\1/' \
     | grep -v '[{}\\]' \
-    | grep -Ev '(/account($|[/?])|download/confirmation\.aspx)' \
+    | grep -Ev '(/account($|[/?])|download/confirmation\.aspx|/v2/files/exports/)' \
     | sed -E 's/[.,;]+$//' \
     | sort -u
 }

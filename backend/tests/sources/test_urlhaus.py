@@ -7,6 +7,8 @@ preserve-signal), comment block skipped.
 """
 from pathlib import Path
 
+import pytest
+
 from ipdb._sources.urlhaus import URLhausSource
 
 SAMPLE = (
@@ -132,3 +134,105 @@ def test_urlhaus_stores_case_link(tmp_path):
     rec = s.query("1.2.3.4")[0]
     assert rec["extra"]["urlhaus_link"] == "https://urlhaus.abuse.ch/url/3907816/"
     assert rec["extra"]["reporter"] == "rep"          # 既有键不受影响
+
+
+# ── v2 认证端点迁移(票 #159,2026-10-23)──────────────────────────────
+# 旧匿名出口 https://urlhaus.abuse.ch/downloads/csv_online/ 2026-10-22 起 410;
+# 迁 https://urlhaus-api.abuse.ch/v2/files/exports/<KEY>/online.csv(online =
+# 旧 csv_online 语义,active only),Auth-Key 在 URL 路径段 → secret 打码。
+
+_KEY = "TESTKEY123"
+_KEYED_URL = f"https://urlhaus-api.abuse.ch/v2/files/exports/{_KEY}/online.csv"
+
+
+def _fake_urlopen(body: bytes, seen: list, *, final_url: str | None = None,
+                  content_length: int | None = None):
+    """urlopen 替身:seen 收集每次请求的 full_url;final_url ≠ None 模拟
+    重定向落点;content_length > len(body) 模拟传输层截断。"""
+
+    class _Resp:
+        def __init__(self):
+            self._pos = 0
+            self.headers = (
+                {"Content-Length": str(content_length)} if content_length else {})
+
+        def geturl(self):
+            return final_url or seen[-1]
+
+        def read(self, n=-1):
+            if n is None or n < 0:
+                n = len(body)
+            data = body[self._pos:self._pos + n]
+            self._pos += len(data)
+            return data
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake(req, timeout=120):
+        seen.append(req.full_url)
+        return _Resp()
+
+    return fake
+
+
+class TestURLhausAuthExport:
+    def test_download_requires_auth_key(self, tmp_path: Path, monkeypatch):
+        """缺 ABUSECH_AUTH_KEY → download() 报 RuntimeError 明文(票 #159:
+        __init__ 缺省空串,不炸 import/构建;下载时才拦)。"""
+        monkeypatch.delenv("ABUSECH_AUTH_KEY", raising=False)
+        s = URLhausSource(data_dir=tmp_path)
+        with pytest.raises(RuntimeError, match="ABUSECH_AUTH_KEY"):
+            s.download()
+
+    def test_download_uses_keyed_url_and_installs_csv(self, tmp_path: Path, monkeypatch):
+        """keyed URL 只在 download() 内拼;url class attr 保持无 key 占位;
+        下载体经守卫后原子落地 urlhaus.csv,scratch 清理。"""
+        monkeypatch.setenv("ABUSECH_AUTH_KEY", _KEY)
+        seen: list[str] = []
+        monkeypatch.setattr(
+            "urllib.request.urlopen", _fake_urlopen(SAMPLE.encode(), seen))
+        s = URLhausSource(data_dir=tmp_path)
+        s.download()
+        assert seen == [_KEYED_URL]
+        assert s.url == "https://urlhaus-api.abuse.ch/v2/files/exports/online.csv"
+        assert _KEY not in s.url
+        assert (tmp_path / "urlhaus.csv").read_text() == SAMPLE
+        assert not (tmp_path / "urlhaus.csv.dl").exists()
+
+    def test_download_rejects_200_ok_bad_body_keeps_old_evidence(self, tmp_path: Path, monkeypatch):
+        """200-OK-坏体守卫(Phase 3 step 8 惯例):v2 错误页也是 200;既非 #
+        注释块亦无 id,dateadded 列头 → RuntimeError,旧证据不灭失。"""
+        monkeypatch.setenv("ABUSECH_AUTH_KEY", _KEY)
+        old = b"# previous-good-evidence\n"
+        (tmp_path / "urlhaus.csv").write_bytes(old)
+        monkeypatch.setattr(
+            "urllib.request.urlopen",
+            _fake_urlopen(b"<html>login required</html>", []))
+        s = URLhausSource(data_dir=tmp_path)
+        with pytest.raises(RuntimeError, match="urlhaus payload"):
+            s.download()
+        assert (tmp_path / "urlhaus.csv").read_bytes() == old
+        assert not (tmp_path / "urlhaus.csv.dl").exists()
+
+    def test_download_redirect_warning_masks_key(self, tmp_path: Path, monkeypatch, caplog):
+        """重定向绊线警告串里 keyed URL 打码:key 不入日志,*** 代位
+        (票 #159 P0);正常体仍照常落地。"""
+        import logging as _logging
+        monkeypatch.setenv("ABUSECH_AUTH_KEY", _KEY)
+        monkeypatch.setattr(
+            "urllib.request.urlopen",
+            _fake_urlopen(SAMPLE.encode(), [],
+                          final_url=f"https://mirror.example/dl/{_KEY}/online.csv"))
+        s = URLhausSource(data_dir=tmp_path)
+        with caplog.at_level(_logging.WARNING, logger="ipdb._sources._download"):
+            s.download()
+        hits = [r for r in caplog.records if "redirected" in r.message]
+        assert len(hits) == 1
+        msg = hits[0].getMessage()
+        assert _KEY not in msg
+        assert "***" in msg
+        assert (tmp_path / "urlhaus.csv").read_text() == SAMPLE
