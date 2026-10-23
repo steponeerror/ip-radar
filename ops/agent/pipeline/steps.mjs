@@ -177,7 +177,7 @@ function triageInput(ctx) {
     ({ signal_id, source, bucket, ...(age_days != null ? { age_days } : {}), url, ...(annotated_rule ? { annotated_rule } : {}) }));
   return { systemPrompt: P0_MODEL_PROMPT("health/triage"), userMsg: JSON.stringify({ survivors: rows }) };
 }
-function triageConsume(ctx, { text }) {
+function triageConsume(ctx, _item, { text }) {
   let h;
   try { h = JSON.parse(text); } catch { throw Object.assign(new Error("TRIAGE 输出非 JSON(schema 违例)"), { code: "model_face" }); }
   if (!h || !Array.isArray(h.hypotheses)) throw Object.assign(new Error("TRIAGE 输出缺 hypotheses 数组"), { code: "model_face" });
@@ -211,7 +211,7 @@ async function synthInput(ctx) {
     ? `${inj.stdout.split("\n").filter((l) => !/^- 202/.test(l) || injected.includes(l.slice(2).trim())).join("\n")}\n(命中 ${hitNames.length} 条,注入前 ${HIT_CAP} 条——铁律⑦)` : inj.stdout;
   return { systemPrompt: P0_MODEL_PROMPT("health/synth"), userMsg: `${block.trim()}\n\n# 本轮输入\n${JSON.stringify(input)}`, meta: { injected } };
 }
-function synthConsume(ctx, { text }) {
+function synthConsume(ctx, _item, { text }) {
   if (!text.trim()) throw Object.assign(new Error("SYNTH 最终文本为空"), { code: "empty_text" });
   fs.writeFileSync(path.join(ctx.dir, "07-synth-report.md"), text);
 }
