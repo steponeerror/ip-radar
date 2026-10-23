@@ -139,12 +139,14 @@ function ruleMatch(match, f) {
 async function VERIFY(def, ctx) {
   const summary = j(path.join(ctx.dir, "01-probe-summary.json"));
   if (!summary) throw infra("01-probe-summary.json 不可解析");
-  const raw = j(ctx.rulesFile);
-  if (!raw) throw infra(`抑制规则库不可解析:${ctx.rulesFile}(规则零命中=空集照常过;文件坏=终态)`);
-  const rules = normalizeRules(raw); // 闭集校验+review_at 规范化;坏=infra 终态(C稿 §2.2)
+  const rulesExists = fs.existsSync(ctx.rulesFile);
+  const raw = rulesExists ? j(ctx.rulesFile) : null;
+  if (rulesExists && !raw) throw infra(`抑制规则库不可解析:${ctx.rulesFile}(规则零命中=空集照常过;文件坏=终态)`);
+  const rules = raw ? normalizeRules(raw) : { version: 0, rules: [] }; // 缺席=合法零规则态(与 _ops_review 零规则起步同口径;审后修 P1:缺席 infra 会致生产 bootstrap 死锁——init_ops_tree 不建此文件,首轮 VERIFY 必死则 adopt_rule 永不可达)
   // 轮次时点版规则快照(#164 审 P2-6 收口,#167):replay --dry 审计读快照而非现行文件
   // ——规则库事后演进(采纳/删除)不得改写历史轮的门判定;快照=工件面证据不灭失。
-  fs.copyFileSync(ctx.rulesFile, path.join(ctx.dir, "02-verify-rules.json"));
+  if (rulesExists) fs.copyFileSync(ctx.rulesFile, path.join(ctx.dir, "02-verify-rules.json"));
+  else writeJson(path.join(ctx.dir, "02-verify-rules.json"), { version: 0, rules: [] }); // 缺席时快照仍落空库形(门读快照单一口径,不留「快照缺席」分叉)
   const flight = inFlightKeys(readInFlightItems(ctx.itemsDir, ctx.state?.replay_of)); // 同因在飞不重问:全签(source|probe_class|error_signature,P4 #166);replay 排除原轮自己的产物(回声防线)
   const survivors = [], suppressed = [];
   for (const f of summary.flags) {

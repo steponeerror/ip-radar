@@ -53,10 +53,10 @@ export const GATES = {
     // 快照;replay --dry(复制原件工件)即审轮次时点版,规则库事后演进不改历史判定。
     // 快照缺席(P5 前旧轮/过渡面)回落现行文件,reason 注记版本漂移风险(宁显式勿哑)。
     const snap = path.join(ctx.dir, "02-verify-rules.json");
-    const raw = j(fs.existsSync(snap) ? snap : ctx.rulesFile);
+    const src = fs.existsSync(snap) ? snap : (fs.existsSync(ctx.rulesFile) ? ctx.rulesFile : null);
     let rules;
-    try { rules = raw ? normalizeRules(raw) : null; } // 闭集校验同源步侧单一实现
-    catch { rules = null; }
+    if (!src) rules = { version: 0, rules: [] }; // 缺席=合法零规则态(步侧/后端同口径;审后修 P1 bootstrap 死锁;坏文件仍终态)
+    else { const raw = j(src); try { rules = raw ? normalizeRules(raw) : null; } catch { rules = null; } } // 闭集校验同源步侧单一实现
     if (!rules) return fail("抑制规则库不可解析(规则零命中=空集照常过;文件坏=终态 infra 面)", inputs);
     const flagIds = (s.flags ?? []).map((f) => f.signal_id);
     const partIds = [...(sv.survivors ?? []), ...(sp.suppressed ?? [])].map((x) => x.signal_id);

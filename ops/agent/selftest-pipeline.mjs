@@ -1065,6 +1065,25 @@ await t("cron 草案 schema 校验(#167 交付③):错峰 04:00/8h+同 seam POST
   assert.ok(!doc.includes("OPS_CRON_PASSWORD=\"") || !/OPS_CRON_PASSWORD="[^\$<]/.test(doc), "草案不含真实凭据(占位形)");
 });
 
+// 审后修 P1:规则文件缺席=合法零规则态(bootstrap 死锁除根:缺席 infra 则首轮必死、adopt_rule 永不可达);坏文件仍终态。
+await t("VERIFY 缺席规则库:零抑制照常过+空库形快照(审后修 P1)", async () => {
+  const { runStage } = await import("./pipeline/steps.mjs");
+  const { GATES } = await import("./pipeline/gates.mjs");
+  const { HEALTH_PIPELINE } = await import("./pipeline.mjs");
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), "p5-norules-"));
+  fs.mkdirSync(path.join(d, "items"), { recursive: true });
+  fs.writeFileSync(path.join(d, "01-probe-summary.json"), JSON.stringify({ urls_n: 2, buckets: { fresh: 1, frozen: 1 }, matrix: { ok: true, exit_code: 0, violation_n: 0 }, flags: [{ signal_id: "https://x/a.txt", source: "a", bucket: "frozen" }, { signal_id: "https://x/b.txt", source: "b", bucket: "unreachable" }] }));
+  const def = HEALTH_PIPELINE.find((x) => x.name === "VERIFY");
+  const ctx = { dir: d, rulesFile: path.join(d, "rules-absent.json"), itemsDir: path.join(d, "items"), state: { replay_of: null }, env: {} };
+  await runStage(def, ctx); // 不抛=零抑制照常过
+  const snap = j(path.join(d, "02-verify-rules.json"));
+  assert.deepEqual(snap, { version: 0, rules: [] }, "缺席时快照落空库形");
+  const sv = j(path.join(d, "02-verify-survivors.json"));
+  assert.equal(sv.survivors.length, 2, "零规则=全部幸存");
+  assert.equal(GATES.G_VERIFY({ ...ctx, dir: d }).pass, true, "门同口径(缺席=零规则,非 infra)");
+  fs.rmSync(d, { recursive: true, force: true });
+});
+
 fs.rmSync(TMP, { recursive: true, force: true });
 console.log(`pipeline-selftest: PASS=${pass} FAIL=${fail}`);
 process.exit(fail ? 1 : 0);

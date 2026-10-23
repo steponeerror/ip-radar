@@ -89,4 +89,5 @@ esac
 1. 服务器落 `/root/.ops-cron-env`(chmod 600)+ `deploy/ops-cron.sh`(chmod +x);
 2. crontab 安装上文行(先手动 dry 一轮验证 202/409 两态);
 3. docker-compose.override.yml 增 `OPS_PIPELINE=pipeline`(灰度,待用户裁);
-4. `/var/log/ipradar-ops-cron.log` 轮转(logrotate 或按大小截断)。
+4. `/var/log/ipradar-ops-cron.log` 轮转(logrotate 或按大小截断);
+5. (可选)生产 ops 树种子 `rules/suppressions.json`:拷 docs 仓规则件或空库 `{"version":0,"rules":[]}`。注:缺席=合法零规则态(与 _ops_review 同口径;首轮 VERIFY 零抑制照常过,首条规则经 RETRO 候选→四键采纳自动建形)——种子仅为带 R12/R7 起步,非必需(审后修 P1 改口径后死锁已除)。
