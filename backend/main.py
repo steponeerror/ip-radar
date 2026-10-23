@@ -459,6 +459,21 @@ _refresh_scheduler = None
 _scheduler_stop: threading.Event | None = None
 
 
+def _ensure_ops_detectors() -> None:
+    """P1 T2 确定性探测器装配(票 #154,spec #152 §2;生产启动单点,幂等)。
+
+    下载失败探测器 → manager.on_terminal(_tasks._settle 终态缝,只读旁挂:
+    异常全吞,任务状态机零语义变化);超龄探测器 → RefreshScheduler 的
+    on_scan(在 _ensure_refresh_scheduler 构造时装配,扫描节律即探测节律)。
+    装配在 lifespan 而非 import 侧效应:测试进程 import main/_registry 零
+    激活,既有套件位等价;探测面故障经挂点独立兑错,不碰查询门/串行车道。
+    """
+    from ipdb import _ops_detectors
+    from ipdb._registry import manager
+    if getattr(manager, "on_terminal", None) is None:
+        manager.on_terminal = _ops_detectors.make_download_fail_detector()
+
+
 def _ensure_refresh_scheduler() -> None:
     """Start the background auto-refresh scheduler once per process.
 
@@ -472,12 +487,16 @@ def _ensure_refresh_scheduler() -> None:
         return
     from ipdb._scheduler import RefreshScheduler
     from ipdb._registry import enabled_offline_sources, _needs_rebuild_of
+    # P1 T2(票 #154):超龄探测器搭 scheduler 扫描节律(on_scan 只读旁挂,
+    # 扫描尾独立兑错);探测器装配统一见 _ensure_ops_detectors。
+    from ipdb import _ops_detectors
     interval = int(os.environ.get("IPRADAR_REFRESH_INTERVAL_SEC", "1800"))
     _refresh_scheduler = RefreshScheduler(
         manager=manager,
         enabled_offline_sources=enabled_offline_sources,
         needs_rebuild_of=_needs_rebuild_of,
-        interval=interval)
+        interval=interval,
+        on_scan=_ops_detectors.run_staleness_detector)
     _scheduler_stop = threading.Event()
     threading.Thread(
         target=_refresh_scheduler.start, args=(_scheduler_stop,),
@@ -576,6 +595,7 @@ async def lifespan(app: FastAPI):
     _cleanup_orphan_tmp(DATA_DIR)
     _ipdb_tokens.load()   # tokens.json → env(UI 优先裁决;须先于任何下载任务)
     _startup()
+    _ensure_ops_detectors()
     _ensure_refresh_scheduler()
     cpu, ram = _batch_pool.detect_host()
     env = os.environ
