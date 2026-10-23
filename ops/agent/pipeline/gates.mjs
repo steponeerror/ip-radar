@@ -22,7 +22,7 @@ const j = (p) => { try { return JSON.parse(fs.readFileSync(p, "utf8")); } catch 
 const txt = (p) => { try { return fs.readFileSync(p, "utf8"); } catch { return null; } };
 const jsonl = (p) => (txt(p) ?? "").split("\n").filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
 const eqSet = (a, b) => JSON.stringify([...a].sort()) === JSON.stringify([...b].sort());
-const fail = (reason, inputs) => ({ pass: false, reason, inputs });
+const fail = (reason, inputs, code) => ({ pass: false, reason, inputs, code }); // code 可选:门指定终态码(闭集内,如 closure_check;缺省=定义表 fail.terminal)
 const pass = (reason, inputs) => ({ pass: true, reason, inputs });
 
 export const GATES = {
@@ -85,8 +85,11 @@ export const GATES = {
       if (!CLOSED_SETS.probe_hint.includes(x.probe_hint)) return fail(`probe_hint 闭集外:${x.probe_hint}(${x.signal_id})`, inputs);
       if (x.need_deep === (x.probe_hint === "none")) return fail(`need_deep=${x.need_deep} 与 probe_hint=${x.probe_hint} 矛盾(${x.signal_id})`, inputs);
       if (typeof x.hypothesis !== "string" || !x.hypothesis) return fail(`hypothesis 缺(${x.signal_id};可证伪预测形是必填)`, inputs);
+      if (typeof x.need_deep !== "boolean") return fail(`need_deep 非布尔(${x.signal_id})`, inputs); // P3 #165:schema 面
+      if (typeof x.one_line !== "string" || !x.one_line) return fail(`one_line 缺(${x.signal_id};≤30 字人读行是必填)`, inputs);
     }
-    return pass(`幸存 ${svIds.length} 条一条一假设穷尽;深验子集 ${h.hypotheses.filter((x) => x.need_deep).length}`, inputs);
+    if (typeof h.digest !== "string" || !h.digest) return fail("digest 缺(输出契约必填:≤3 行信号面貌+深验子集规模)", inputs);
+    return pass(`幸存 ${svIds.length} 条一条一假设穷尽;深验子集 ${h.hypotheses.filter((x) => x.need_deep).length};闭集值全这`, inputs);
   },
   // G_DISPATCH:每个 need_deep 假设有 bundle(或入截尾)∧ 预算合计 ≤ 轮预算门
   G_DISPATCH: (ctx) => {
@@ -124,7 +127,16 @@ export const GATES = {
           return fail(`evidence 回引不符:${e.call_id}:${e.field}=${JSON.stringify(e.value)}≠登记表 ${JSON.stringify(resolveField(r.sc, e.field))}`, inputs);
       }
     }
-    return pass(`verdicts=${v.verdicts.length} degraded=${(v.degraded ?? []).length};evidence 逐字回引登记表(${reg.size} 腿,全 ∈ 只读闭集)`, inputs);
+    // 空转金轨迹(#162 审 P2-2,裁定①):零 bundle 轮 DEEP 仍须跑一条 canned 回路并留痕 golden_track;
+    // 真 bundle 轮不得混入金轨迹(不污染条目面)。金轨迹 verdict 同受闭集/证据腿约束。
+    const golden = v.golden_track ?? [];
+    for (const g of golden) {
+      if (!CLOSED_SETS.verdict.includes(g.verdict)) return fail(`金轨迹 verdict 闭集外:${g.verdict}(${g.hid})`, inputs);
+      if (g.verdict !== "unresolved" && !(g.evidence ?? []).length) return fail(`金轨迹 ${g.verdict} 无证据腿(${g.hid})`, inputs);
+    }
+    if (!need.length && !golden.length) return fail("零 bundle 轮缺空转金轨迹回路(#162 审 P2-2 裁定①)", inputs);
+    if (need.length && golden.length) return fail(`金轨迹与真假设同轮(${golden.map((g) => g.hid).join(",")})——金轨迹仅零 need_deep 轮保活`, inputs);
+    return pass(`verdicts=${v.verdicts.length} degraded=${(v.degraded ?? []).length} golden=${golden.length};evidence 逐字回引登记表(${reg.size} 腿,全 ∈ 只读闭集)`, inputs);
   },
   // G_ITEMIZE:manifest 读回与条目文件一致 ∧ dedup_key 唯一且与在飞零冲突(回声防线,源级)∧ 动作闭集
   G_ITEMIZE: (ctx) => {
@@ -150,23 +162,37 @@ export const GATES = {
     if ((sp?.suppressed ?? []).length !== m.suppressed) return fail(`suppressed=${m.suppressed}≠抑制工件 ${(sp?.suppressed ?? []).length}`, inputs);
     return pass(`created=${m.created} reopened=${m.reopened} deduped=${m.deduped} suppressed=${m.suppressed};dedup_key 唯一且零在飞冲突`, inputs);
   },
-  // G_SYNTH:三节齐 ∧ 计数与 manifest 逐字一致(P0 契约:摘要行携带四计数 k=v)∧ 判例引用闭合(复用 closureCheck)
+  // G_SYNTH:三节齐 ∧ 计数与工件逐字一致(四计数+深验三计数,#162 审 P2-5 抽检面)∧ 判例引用闭合(复用 closureCheck)
   G_SYNTH: (ctx) => {
-    const inputs = ["07-synth-report.md", "07-synth-transcript.jsonl", "06-itemize-manifest.json"];
+    const inputs = ["07-synth-report.md", "07-synth-transcript.jsonl", "06-itemize-manifest.json", "05-deep-verdicts.json", "04-dispatch-bundles.json"];
     const report = txt(path.join(ctx.dir, "07-synth-report.md"));
     const m = j(path.join(ctx.dir, "06-itemize-manifest.json"));
     if (report === null) return fail("07-synth-report.md 缺失", inputs);
     if (!m) return fail("06-itemize-manifest.json 不可解析", inputs);
     for (const sec of ["## 注入判例", "## 异常清单", "## 摘要"]) if (!report.includes(sec)) return fail(`三节缺:${sec}`, inputs);
+    { // 摘要行数门(审后补 P2:提示词声明「≤10 行(门机检)」,门必须真检)
+      const idx = report.indexOf("## 摘要");
+      const n = report.slice(idx).trim().split("\n").length - 1;
+      if (n > 10) return fail(`摘要超 10 行(实 ${n};契约 ≤10)`, inputs);
+    }
     for (const k of ["created", "reopened", "deduped", "suppressed"]) {
       const occ = [...report.matchAll(new RegExp(`\\b${k}=(\\d+)`, "g"))].map((x) => +x[1]);
-      if (!occ.length) return fail(`报告缺计数 ${k}=N(P0 契约:摘要行携带四计数)`, inputs);
+      if (!occ.length) return fail(`报告缺计数 ${k}=N(契约:摘要行携带四计数)`, inputs);
       if (occ.some((n) => n !== m[k])) return fail(`报告计数不符 manifest:${k} 报告=${[...new Set(occ)].join("/")}(工件=${m[k]})`, inputs);
     }
+    // 深验三计数抽检(#162 审 P2-5):报告数字 = verdicts ∪ degraded(重试尽降级)∪ truncated(预算截尾)回算
+    const dv = j(path.join(ctx.dir, "05-deep-verdicts.json")) ?? { verdicts: [], degraded: [] };
+    const truth = { confirmed: 0, refuted: 0, unresolved: (dv.degraded ?? []).length + (j(path.join(ctx.dir, "04-dispatch-bundles.json"))?.truncated ?? []).length };
+    for (const x of dv.verdicts ?? []) if (truth[x.verdict] !== undefined) truth[x.verdict] += 1;
+    for (const k of ["confirmed", "refuted", "unresolved"]) {
+      const occ = [...report.matchAll(new RegExp(`\\b${k}=(\\d+)`, "g"))].map((x) => +x[1]);
+      if (!occ.length) return fail(`报告缺深验计数 ${k}=N(契约:摘要必含深验计数行)`, inputs);
+      if (occ.some((n) => n !== truth[k])) return fail(`深验计数不符工件:${k} 报告=${[...new Set(occ)].join("/")}(回算=${truth[k]};verdicts∪degraded∪truncated)`, inputs);
+    }
     const head = jsonl(path.join(ctx.dir, "07-synth-transcript.jsonl")).find((l) => l.type === "input");
-    const allowed = new Set((head?.meta?.injected ?? []).map((n) => path.basename(n))); // 闭集=注入块(P0 无轮中检索工具)
-    try { closureCheck(report, allowed); } catch (e) { return fail(`判例闭合违例:${e.message}`, inputs); }
-    return pass(`三节齐;四计数与 manifest 逐字一致;判例引用闭合(注入 ${allowed.size})`, inputs);
+    const allowed = new Set((head?.meta?.injected ?? []).map((n) => path.basename(n))); // 闭集=预注入(锚选∪检索命中;P0 无轮中检索工具)
+    try { closureCheck(report, allowed); } catch (e) { return fail(`判例闭合违例:${e.message}`, inputs, "closure_check"); }
+    return pass(`三节齐;四计数+深验三计数与工件逐字一致(confirmed=${truth.confirmed} refuted=${truth.refuted} unresolved=${truth.unresolved});判例引用闭合(注入 ${allowed.size})`, inputs);
   },
   // G_RETRO:retro schema 过 ∧ 台账行读回存在 ∧ sandbox rc=0(rc 由 RETRO 步实测记入 retro 工件)
   G_RETRO: (ctx) => {
@@ -198,7 +224,7 @@ export function evalStageGate(def, ctx) {
   const t0 = performance.now();
   const g = GATES[def.gate];
   const r = g ? g(ctx) : { pass: false, reason: `未知门 ${def.gate}(定义表漂移)`, inputs: [] };
-  return { stage: def.name, name: def.gate, pass: !!r.pass, reason: r.reason, dur_ms: Math.round(performance.now() - t0), inputs: r.inputs ?? [] };
+  return { stage: def.name, name: def.gate, pass: !!r.pass, reason: r.reason, dur_ms: Math.round(performance.now() - t0), inputs: r.inputs ?? [], ...(r.code ? { code: r.code } : {}) }; // code=门指定终态码(闭集内)
 }
 export function appendGate(dir, roundId, rec) {
   const p = path.join(dir, "gates.json");

@@ -42,9 +42,11 @@ export const HEALTH_PIPELINE = [
   { name: "DISPATCH", kind: "script", model: null, skipWhen: "no_need_deep",
     out: ["04-dispatch-bundles.json"], gate: "G_DISPATCH", artifact: "04-dispatch-bundles.json",
     fail: { retry: 0, degrade: "budget_truncate", terminal: "infra" } }, // 预算不够=降级截尾(非失败);bug=infra
-  { name: "DEEP", kind: "model", model: "health/deep", forEach: "bundles", skipWhen: "no_need_deep",
+  { name: "DEEP", kind: "model", model: "health/deep", forEach: "bundles", stub: "deep_stub",
     out: ["05-deep-verdicts.json"], gate: "G_DEEP", artifact: "05-deep-verdicts.json",
-    fail: { retry: 1, perItem: "unresolved", terminal: "model_face" } }, // 单假设败=降级 unresolved;全败=终态
+    fail: { retry: 1, perItem: "unresolved", terminal: "model_face" } }, // P3 桩(#165):全部 unresolved 直通,stages 标 degraded 注桩;
+  // 不设 skipWhen——零 need_deep 轮仍跑空转金轨迹 canned 回路(#162 审 P2-2,裁定①);真开启=P4 #166 删 stub。
+  // 单假设败=降级 unresolved;全败=终态 model_face。
   { name: "ITEMIZE", kind: "script", model: null,
     out: ["06-itemize-manifest.json"], gate: "G_ITEMIZE", artifact: "06-itemize-manifest.json",
     fail: { retry: 0, terminal: "verify_failed" } }, // 条目写败=可重入终态(条目库幂等兜底)
@@ -122,7 +124,9 @@ function failStage(ctx, def, rec, e, gateRec) {
   return { code, message: `${def.name}:${e?.message ?? String(e)}` };
 }
 
-// 模型步执行(引擎数据循环:DEEP 逐假设独立子进程位=P4;P0 同进程 faux,循环语义已就位)
+// 模型步执行(引擎数据循环:DEEP 逐假设独立子进程位=P4;P0 同进程 faux,循环语义已就位)。
+// 单发步(TRIAGE/SYNTH)的门评估入重试圈:C稿 §2.2「契约违例重试≤1(同提示词重发)」——门败与
+// schema 违例同面重试;逐假设步(DEEP forEach)的门评收编尾后一次(部分态评门=假阴性嗓音)。
 async function runModelStage(def, ctx, rec) {
   const io = steps.modelIO(def);
   const items = def.forEach ? steps.forEachItems(def, ctx) : [null];
@@ -138,6 +142,11 @@ async function runModelStage(def, ctx, rec) {
         ctx.state.prompt_hashes[`${def.name}${item ? `:${item.hid}` : ""}`] = r.prompt_sha; // replay 审计面(C稿 §4.5)
         await io.consume(ctx, item, r);
         addUsage(usage, r.usage);
+        if (!def.forEach) {
+          const gateRec = gates.evalStageGate(def, ctx);
+          gates.appendGate(ctx.dir, ctx.roundId, gateRec);
+          if (!gateRec.pass) throw Object.assign(new Error(`门败 ${def.gate}:${gateRec.reason}`), { code: gateRec.code ?? def.fail.terminal, gateRec });
+        }
         done = true;
       } catch (e) {
         if (a === def.fail.retry) {
@@ -151,7 +160,7 @@ async function runModelStage(def, ctx, rec) {
   if (def.fail.perItem && items.length && failed === items.length)
     throw Object.assign(new Error(`全部 ${items.length} 假设失败(model_face)`), { code: "model_face" }); // 全败=终态(C稿 §2.2)
   if (io.finalize) await io.finalize(ctx, { degradedItems });
-  return { usage, degraded: degradedItems.length > 0 };
+  return { usage, degraded: degradedItems.length > 0, gateDone: !def.forEach }; // gateDone=门已在圈内评过留痕,runStages 不重复评
 }
 
 // 段执行器(runPipeline 与 replay 共用):dry=只跑门不调模型不跑步(C稿 §4.5);
@@ -170,7 +179,7 @@ async function runStages(ctx, { fromIdx = 0, toIdx = RUNNABLE.length - 1, dry = 
     }
     const rec = { name: def.name, status: dry ? "dry" : "done", attempts: 0, dur_ms: 0, usage: null };
     const t0 = performance.now();
-    let gateRec = null, degraded = null;
+    let gateRec = null, degraded = null, gateDone = false;
     try {
       if (!dry && def.skipWhen && SKIP_WHEN[def.skipWhen]?.(ctx)) {
         rec.status = "skipped";
@@ -187,6 +196,12 @@ async function runStages(ctx, { fromIdx = 0, toIdx = RUNNABLE.length - 1, dry = 
           rec.usage = r.usage;
           addUsage(ctx.usage, r.usage); // 顶层 usage=各模型步之和(旧字段「整轮求和」语义保持)
           degraded = r.degraded ? { degraded: `${def.fail.perItem} 降级` } : null;
+          gateDone = r.gateDone; // 单发步门已在重试圈内评过留痕,不重复评
+          if (def.stub) { // 桩步降级留痕(C稿 §2.2 降级≠失败):信封 stages 标 degraded+note 注桩
+            degraded = degraded ?? {};
+            degraded.degraded = `stub:${def.stub}`;
+            rec.note = `${def.stub}:P3 桩,全部 unresolved 直通(#166 真开启)`;
+          }
         } else {
           let attempt = 0;
           for (;;) {
@@ -200,10 +215,11 @@ async function runStages(ctx, { fromIdx = 0, toIdx = RUNNABLE.length - 1, dry = 
         }
       }
       if (degraded?.skipGate) gates.appendGateBypass(ctx.dir, ctx.roundId, def, degraded.degraded);
+      else if (gateDone) { /* 单发模型步门已在重试圈内评过留痕(见 runModelStage) */ }
       else {
         gateRec = gates.evalStageGate(def, ctx);
         gates.appendGate(ctx.dir, ctx.roundId, gateRec);
-        if (!gateRec.pass) throw Object.assign(new Error(`门败 ${def.gate}:${gateRec.reason}`), { code: def.fail.terminal });
+        if (!gateRec.pass) throw Object.assign(new Error(`门败 ${def.gate}:${gateRec.reason}`), { code: gateRec.code ?? def.fail.terminal });
       }
       rec.dur_ms = Math.round(performance.now() - t0);
       if (degraded) rec.status = "degraded";
@@ -213,7 +229,7 @@ async function runStages(ctx, { fromIdx = 0, toIdx = RUNNABLE.length - 1, dry = 
       ctx.log(`[stage] ${def.name} done gate=${degraded?.skipGate ? "BYPASS" : "PASS"} dur=${Math.round(rec.dur_ms / 1000)}s artifact=${def.artifact?.replace("<round_id>", ctx.roundId) ?? "-"}`);
     } catch (e) {
       rec.dur_ms = Math.round(performance.now() - t0);
-      return failStage(ctx, def, rec, e, gateRec);
+      return failStage(ctx, def, rec, e, e?.gateRec ?? gateRec); // 单发步门败时门记录随错误带回(fail 行 gate 名不丢)
     }
   }
   return null;

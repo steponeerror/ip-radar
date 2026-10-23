@@ -93,6 +93,9 @@ await t("全 faux 轮:九执行态到 CLOSE,信封 ok+形状只增 pipeline 扩�
     for (const k of Object.keys(sum)) { assert.equal(typeof s.usage[k], "number", `${s.name}.${k}`); sum[k] += s.usage[k]; }
   }
   assert.equal(env.pipeline.stages.filter((s) => s.usage !== null).length, 3, "恰三个模型步带 usage");
+  const deepStage = stageOf(env, "DEEP");
+  assert.equal(deepStage.status, "degraded", "DEEP 桩=降级留痕非失败(P3 #165)");
+  assert.match(deepStage.note, /deep_stub.*桩/, "信封 stages 注桩(C稿 §2.2 降级语义)");
   assert.deepEqual(env.usage, sum);
   assert.ok(fs.existsSync(env.pkg), "pkg(07-synth-report.md)存在");
   assert.deepEqual(env.queue_writes, []);
@@ -138,7 +141,7 @@ await t("stderr 阶段行语法+stdout 末行=信封单行 JSON(恰一行)", asy
   assert.deepEqual(JSON.parse(lines[0]), r.envelope, "stdout 末行=返回信封逐字");
 });
 
-await t("VERIFY 分区穷尽(旗标3=survivors2+suppressed1,R1 抑制 dshield)+G_DEEP 证据逐字回引", async () => {
+await t("VERIFY 分区穷尽(旗标3=survivors2+suppressed1,R1 抑制 dshield)+DEEP 桩 unresolved 直通", async () => {
   const d = roundDir(R1);
   const s = j(path.join(d, "01-probe-summary.json"));
   assert.ok(s.urls_n >= 30, `urls_n=${s.urls_n}`);
@@ -155,24 +158,23 @@ await t("VERIFY 分区穷尽(旗标3=survivors2+suppressed1,R1 抑制 dshield)+G
   assert.ok(sv.known_noise_digest.some((r) => r.id === "R1"), "已知误判模式 digest 入幸存工件(C稿 §3.5)");
   const v = j(path.join(d, "05-deep-verdicts.json"));
   assert.equal(v.verdicts.length, 2);
-  const conf = v.verdicts.find((x) => /cinsscore/.test(x.hid));
-  const refu = v.verdicts.find((x) => /binarydefense/.test(x.hid));
-  assert.equal(conf.verdict, "confirmed");
-  assert.equal(conf.evidence[0].value, 220, "confirmed 证据值=登记表 seed 值");
-  assert.equal(refu.verdict, "refuted");
+  assert.ok(v.verdicts.every((x) => x.verdict === "unresolved"), "P3 桩:全部 unresolved 直通(#165)");
+  assert.ok(v.verdicts.every((x) => (x.evidence ?? []).length === 0), "桩 evidence 空");
+  assert.match(v.verdicts.find((x) => /cinsscore/.test(x.hid)).one_line, /桩|待人裁/, "桩 one_line 注桩交人裁");
+  assert.deepEqual(v.golden_track, [], "真 bundle 轮无金轨迹(不混轮)");
 });
 
-await t("ITEMIZE 判例:confirmed→review_freeze 原级;refuted 恒 low 消化条目(附带三小裁②)", async () => {
+await t("ITEMIZE 桩判例:unresolved→human_ruling 交人裁,severity 承 TRIAGE 原级(建议动作查表闭集)", async () => {
   const d = roundDir(R1);
   const m = j(path.join(d, "06-itemize-manifest.json"));
   assert.deepEqual([m.created, m.reopened, m.deduped, m.suppressed], [2, 0, 0, 1]);
   const items = fs.readdirSync(path.join(d, "items")).map((f) => j(path.join(d, "items", f)));
   const c = items.find((i) => i.source === "ciarm"); // 标源名(#164),URL=cinsscore.com
   const b = items.find((i) => i.source === "binarydefense");
-  assert.equal(c.suggested_action, "review_freeze");
-  assert.equal(c.severity, "high");
-  assert.equal(b.suggested_action, "digest_ignore");
-  assert.equal(b.severity, "low", "refuted 消化条目恒 low");
+  assert.equal(c.suggested_action, "human_ruling", "桩 unresolved → 人裁通道(永不自动执行)");
+  assert.equal(c.severity, "high", "severity 承 TRIAGE 原级");
+  assert.equal(b.suggested_action, "human_ruling");
+  assert.equal(b.severity, "medium");
   assert.ok(items.every((i) => i.round_id === R1 && typeof i.dedup_key === "string" && i.dedup_key.length > 0));
 });
 
@@ -213,6 +215,96 @@ await t("失败面:坏 TRIAGE fixture → model_face 终态(attempts=2),01/02 �
   assert.ok(fs.existsSync(path.join(d, "01-probe-summary.json")) && fs.existsSync(path.join(d, "02-verify-survivors.json")), "工件保留");
   assert.equal(j(path.join(d, "state.json")).status, "failed");
   assert.match(io.buf.stderr, /\[stage\] TRIAGE fail gate=- code=model_face reason=/, "fail 行语法");
+});
+
+// ── P3 #165 新例:①空转金轨迹轮(#162 审 P2-2 裁定①)②SYNTH 判例闭合违例负例
+// ③G_SYNTH 深验三计数抽检负例(#162 审 P2-5)④G_DEEP A 一律单元例(直构工件,不依赖 faux 回合)──
+const cloneFixtures = (name) => { const fx = path.join(TMP, name); fs.mkdirSync(fx, { recursive: true });
+  fs.copyFileSync(path.join(AGENT, "fixtures/pipeline/triage.json"), path.join(fx, "triage.json"));
+  fs.cpSync(path.join(AGENT, "fixtures/pipeline/deep"), path.join(fx, "deep"), { recursive: true });
+  return fx; };
+const writeSynthFx = (fx, reportText) => fs.writeFileSync(path.join(fx, "synth.json"),
+  JSON.stringify({ turns: [{ role: "assistant", content: [{ type: "text", text: reportText }], stopReason: "stop" }] }));
+
+await t("空转金轨迹轮(#162 审 P2-2 裁定①):零 need_deep → DISPATCH skipped,DEEP 仍跑 canned faux 回路留痕 golden_track", async () => {
+  const fx = cloneFixtures("fixtures-golden");
+  fs.writeFileSync(path.join(fx, "triage.json"), JSON.stringify({ turns: [{ role: "assistant", content: [{ type: "text", stopReason: "stop",
+    text: "{\"hypotheses\":[{\"signal_id\":\"https://cinsscore.com/list/ci-badguys.txt\",\"cause_class\":\"frozen_feed\",\"hypothesis\":\"若冻结读数为探测伪迹,则换 GET 复测可见新鲜 Last-Modified\",\"need_deep\":false,\"probe_hint\":\"none\",\"severity\":\"low\",\"one_line\":\"cinsscore 冻结读数入观察名单\"},{\"signal_id\":\"https://www.binarydefense.com/banlist.txt\",\"cause_class\":\"frozen_feed\",\"hypothesis\":\"若冻结读数为探测伪迹,则换 GET 复测可见新鲜 Last-Modified\",\"need_deep\":false,\"probe_hint\":\"none\",\"severity\":\"low\",\"one_line\":\"binarydefense 冻结读数入观察名单\"}],\"digest\":\"金轨迹轮:2 幸存均入观察,零深验子集。\"}" }] }] }));
+  writeSynthFx(fx, "## 注入判例\n- 2026-06-01-golden-aggregator.md\n\n## 异常清单\n- ciarm:冻结读数入观察(watch)· severity=low · 建议 watch\n- binarydefense:冻结读数入观察(watch)· severity=low · 建议 watch\n\n抑制 1 条(规则 R1×1——明细见工件)。\n\n## 摘要\n- 计数: created=2 reopened=0 deduped=0 suppressed=1\n- 深验: confirmed=0 refuted=0 unresolved=0;零 need_deep,深验未派单\n- 空转金轨迹轮:DEEP 桩仍跑 canned 回路保活性(#162 审 P2-2 裁定①)。");
+  const io = mkIo();
+  const r = await runPipeline({ roundId: "2026-10-24-0102-health", fixturesDir: fx, ...io });
+  assert.equal(r.ok, true);
+  const env = r.envelope;
+  assert.equal(stageOf(env, "DISPATCH").status, "skipped", "零 need_deep → DISPATCH skip(转移图 TRIAGE→ITEMIZE)");
+  const deep = stageOf(env, "DEEP");
+  assert.equal(deep.status, "degraded", "DEEP 桩降级留痕");
+  assert.equal(deep.attempts, 1, "金轨迹回路跑了一条 canned 假设");
+  assert.notEqual(deep.usage, null, "模型步 usage 在场(faux 零成本)");
+  const d = roundDir("2026-10-24-0102-health");
+  const v = j(path.join(d, "05-deep-verdicts.json"));
+  assert.deepEqual(v.verdicts, [], "金轨迹 hid 不入 verdicts(不污染条目面)");
+  assert.equal(v.golden_track.length, 1);
+  assert.equal(v.golden_track[0].hid, "golden-track-canned");
+  assert.equal(v.golden_track[0].verdict, "unresolved");
+  assert.ok(fs.existsSync(path.join(d, "05-deep-golden-track-canned.json"))
+    && fs.existsSync(path.join(d, "05-deep-golden-track-canned-transcript.jsonl")), "金轨迹工件+transcript 留痕");
+  const m = j(path.join(d, "06-itemize-manifest.json"));
+  assert.deepEqual([m.created, m.reopened, m.deduped, m.suppressed], [2, 0, 0, 1], "watch 条目 2 + 抑制 1");
+  const g = j(path.join(d, "gates.json"));
+  assert.equal(g.records.length, 8, "skipped 步无门记录(PROBE..CLOSE 除 DISPATCH)");
+  assert.ok(g.records.every((x) => x.pass), "G_DEEP 机检金轨迹在场面");
+  assert.ok(g.records.find((x) => x.name === "G_DEEP").reason.includes("golden=1"), "门 reason 带数字可回算");
+});
+
+await t("SYNTH 判例闭合违例负例:报告引未注入判例 → 重试≤1 后终态 closure_check,条目已落库不回滚", async () => {
+  const fx = cloneFixtures("fixtures-closure");
+  writeSynthFx(fx, "## 注入判例\n- 2020-01-01-fabricated-precedent.md\n\n## 异常清单\n- ciarm:桩 unresolved · 建议 human_ruling\n\n抑制 1 条(规则 R1×1)。\n\n## 摘要\n- 计数: created=2 reopened=0 deduped=0 suppressed=1\n- 深验: confirmed=0 refuted=0 unresolved=2");
+  const io = mkIo();
+  const r = await runPipeline({ roundId: "2026-10-24-0103-health", fixturesDir: fx, ...io });
+  assert.equal(r.ok, false);
+  assert.equal(r.envelope.error.code, "closure_check", "门指定终态码(九词闭集零新词,C稿 §4.4 映射)");
+  const sy = stageOf(r.envelope, "SYNTH");
+  assert.equal(sy.status, "failed");
+  assert.equal(sy.attempts, 2, "契约违例重试≤1(同提示词重发)");
+  const d = roundDir("2026-10-24-0103-health");
+  assert.ok(fs.existsSync(path.join(d, "06-itemize-manifest.json")), "条目已落库不回滚(证据不灭失)");
+  const g = j(path.join(d, "gates.json"));
+  const synthGates = g.records.filter((x) => x.name === "G_SYNTH");
+  assert.equal(synthGates.length, 2, "门重试圈每评留痕(可审计)");
+  assert.ok(synthGates.every((x) => x.pass === false && /闭合违例/.test(x.reason)));
+  assert.match(io.buf.stderr, /\[stage\] SYNTH fail gate=G_SYNTH code=closure_check/, "fail 行门名随错误带回");
+});
+
+await t("G_SYNTH 深验三计数抽检负例(#162 审 P2-5):unresolved=1 ≠ 回算 2(verdicts∪degraded∪truncated)→ 终态 empty_text", async () => {
+  const fx = cloneFixtures("fixtures-verdict");
+  writeSynthFx(fx, "## 注入判例\n- 2026-06-01-golden-aggregator.md\n\n## 异常清单\n- ciarm:桩 unresolved · 建议 human_ruling\n\n抑制 1 条(规则 R1×1)。\n\n## 摘要\n- 计数: created=2 reopened=0 deduped=0 suppressed=1\n- 深验: confirmed=0 refuted=0 unresolved=1");
+  const io = mkIo();
+  const r = await runPipeline({ roundId: "2026-10-24-0104-health", fixturesDir: fx, ...io });
+  assert.equal(r.ok, false);
+  assert.equal(r.envelope.error.code, "empty_text", "计数契约违例=SYNTH 缺省终态码(闭集)");
+  const sy = stageOf(r.envelope, "SYNTH");
+  assert.equal(sy.attempts, 2);
+  const g = j(path.join(roundDir("2026-10-24-0104-health"), "gates.json"));
+  assert.match(g.records.filter((x) => x.name === "G_SYNTH")[0].reason, /深验计数不符工件:unresolved/);
+});
+
+await t("G_DEEP A 一律单元例(直构工件):evidence call_id+field 逐字回引登记表;不符/缺腿/未知 call_id 均门败", async () => {
+  const { GATES } = await import("./pipeline/gates.mjs");
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), "gdeep-unit-"));
+  fs.writeFileSync(path.join(d, "04-dispatch-bundles.json"), JSON.stringify({ budget_cny: 0.05, bundles: [{ hid: "https://x/f.txt", budget_cny: 0.016 }] }));
+  const seed = { type: "registry_seed", call_id: "c9", tool: "fetch_url", sc: { ok: true, age_days: 220 } };
+  const writeVerdicts = (ev) => fs.writeFileSync(path.join(d, "05-deep-verdicts.json"),
+    JSON.stringify({ verdicts: [{ hid: "https://x/f.txt", verdict: "confirmed", evidence: ev, one_line: "u" }], degraded: [], golden_track: [] }));
+  fs.writeFileSync(path.join(d, "05-deep-x-f-txt-transcript.jsonl"), JSON.stringify(seed) + "\n");
+  writeVerdicts([{ call_id: "c9", field: "age_days", value: 220 }]);
+  assert.equal(GATES.G_DEEP({ dir: d }).pass, true, "逐字回引=过");
+  writeVerdicts([{ call_id: "c9", field: "age_days", value: 999 }]);
+  assert.match(GATES.G_DEEP({ dir: d }).reason, /回引不符/, "复述漂移=门败(A 一律结构性消灭)");
+  writeVerdicts([{ call_id: "c404", field: "age_days", value: 220 }]);
+  assert.match(GATES.G_DEEP({ dir: d }).reason, /未知 call_id/);
+  writeVerdicts([]);
+  assert.match(GATES.G_DEEP({ dir: d }).reason, /无证据腿/, "confirmed 必带 evidence");
+  fs.rmSync(d, { recursive: true, force: true });
 });
 
 // ── P2 #164 新例:①规则库判例转写真命中(R12 形/R7 形,直调 VERIFY)②在飞真读 + R7 annotate 全链 ──
@@ -493,6 +585,32 @@ await t("同 id 重跑拒绝(bad_round 信封)——轮次目录不覆盖(证据
   const r = await runPipeline({ roundId: R1, ...io });
   assert.equal(r.ok, false);
   assert.equal(r.envelope.error.code, "bad_round");
+});
+
+// 审后修 P1 负例:注入块展示面=闭合集(anchored≥2 且 anchored∪hits>8 时,块外命中行必须滤除)
+await t("SYNTH 注入块=闭合集(命中 10/锚 2:块内仅 ∈injected 的 6 命中+锚补行,块外行必滤)", async () => {
+  const { synthInjectionBlock } = await import(path.join(AGENT, "pipeline", "steps.mjs"));
+  const hits = Array.from({ length: 10 }, (_, i) => `2026-01-${String(i + 1).padStart(2, "0")}-hit-${i}.md`);
+  const anchored = ["2026-02-01-anch-a.md", "2026-02-02-anch-b.md"];
+  const injected = [...anchored, ...hits].slice(0, 8); // 锚选在前恒⊆injected
+  const stdout = hits.map((n) => `- ${n}`).join("\n");
+  const extra = anchored.map((n) => `- ${n}\n  - 锚域 test: gist`);
+  const block = synthInjectionBlock(stdout, extra, hits, injected);
+  for (const n of hits.slice(6)) assert.ok(!block.includes(n), `块外命中行必须滤除(旧实现整块直出=审 P1): ${n}`);
+  for (const n of hits.slice(0, 6)) assert.ok(block.includes(n), `∈injected 命中保留: ${n}`);
+  for (const n of anchored) assert.ok(block.includes(n), "锚补行恒保留(锚选⊆injected)");
+});
+
+// 审后补 P2:装载对拍持久化(transcript system_sha === 提示词文件 sha;文件缺失/装载漂移即红,取代一次性手验)
+await t("模型步装载对拍:TRIAGE/SYNTH transcript system_sha=提示词文件 sha 逐字", async () => {
+  const { createHash } = await import("node:crypto");
+  const sha = (s) => createHash("sha256").update(s).digest("hex").slice(0, 16);
+  for (const [tf, pf] of [["03-triage-transcript.jsonl", "triage"], ["07-synth-transcript.jsonl", "synth"]]) {
+    const head = fs.readFileSync(path.join(run1.dir, tf), "utf8").split("\n")[0];
+    const rec = JSON.parse(head);
+    assert.equal(rec.type, "input");
+    assert.equal(rec.system_sha, sha(fs.readFileSync(path.join(AGENT, "prompts", "health", `${pf}.md`), "utf8")), `${pf} 装载漂移`);
+  }
 });
 
 fs.rmSync(TMP, { recursive: true, force: true });

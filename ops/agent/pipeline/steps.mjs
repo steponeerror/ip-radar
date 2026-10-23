@@ -13,15 +13,14 @@ import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { FROZEN_DAYS, matrixScanCli, matrixArtifactText } from "../tools.mjs";
+import { loadAnchors, anchorSelect, HIT_CAP } from "./anchors.mjs"; // 锚域词表×旗标选锚(B 三件②;P3 接线 #165)
 
 const execFileP = promisify(execFileCb);
 const AGENT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const LIBSH = path.join(AGENT_DIR, "lib.sh");
-// 健康轮判例检索词:同 agent.mjs KWS.health(P3 提示词层接管时随 prompts/health/* 收敛为配置,勿再分叉)
-const HEALTH_KWS = ["冻结", "死键", "不可达", "违例"];
-const HIT_CAP = 8; // 铁律⑦(同 agent.mjs)
-// P0 占位系统提示:真提示词 P3 落 prompts/health/*.md(引擎/门零改动换真);本提示不进任何判断面
-const P0_MODEL_PROMPT = (key) => `(P0 骨架占位系统提示:模型步 ${key};真提示词 P3 落 prompts/health/*.md)`;
+const promptFile = (key) => path.join(AGENT_DIR, "prompts", `${key}.md`); // 提示词层真源(P3,#165;C稿 §3.1)
+// DEEP 桩占位系统提示(P3:全部 unresolved 直通;真提示词 P4 #166 落 prompts/health/deep.md,C稿 §3.3)
+const DEEP_STUB_PROMPT = "(P3 桩:深验步未上线,全部假设 verdict=unresolved 直通交人裁;真提示词 P4 #166 落 prompts/health/deep.md)";
 const EST_PER_HYP_CNY = 0.016; // C稿 §7 成本模型上限(每假设 ~0.008-0.016;预算估取上限,宁紧勿松)
 const SEV_RANK = { high: 0, medium: 1, low: 2 }; // DISPATCH 截尾序:低 severity 先丢
 export const RULE_PREDICATES = ["bucket", "url_shape", "source", "error_family"]; // 匹配谓词闭集(C稿 §4.2;新增谓词=spec 变更)
@@ -202,11 +201,13 @@ async function DISPATCH(def, ctx) {
 const ACTION_BY = { confirmed: "review_freeze", refuted: "digest_ignore", unresolved: "human_ruling", watch: "watch" }; // 查表闭集(C稿 §2.4-4)
 async function ITEMIZE(def, ctx) {
   const hyps = j(path.join(ctx.dir, "03-triage-hypotheses.json"))?.hypotheses ?? [];
-  const verdicts = j(path.join(ctx.dir, "05-deep-verdicts.json")) ?? { verdicts: [], degraded: [] };
+  const verdictsFile = j(path.join(ctx.dir, "05-deep-verdicts.json")) ?? { verdicts: [], degraded: [] };
+  const verdicts = verdictsFile.verdicts, degradedVerdicts = verdictsFile.degraded;
   const truncated = j(path.join(ctx.dir, "04-dispatch-bundles.json"))?.truncated ?? [];
   const surv = new Map((j(path.join(ctx.dir, "02-verify-survivors.json"))?.survivors ?? []).map((s) => [s.signal_id, s]));
   const rows = [];
-  for (const v of verdicts.verdicts) rows.push({ hid: v.hid, hyp: hyps.find((h) => h.signal_id === v.hid) ?? {}, outcome: v.verdict, one_line: v.one_line });
+  for (const v of verdicts) rows.push({ hid: v.hid, hyp: hyps.find((h) => h.signal_id === v.hid) ?? {}, outcome: v.verdict, one_line: v.one_line });
+  for (const v of degradedVerdicts) rows.push({ hid: v.hid, hyp: hyps.find((h) => h.signal_id === v.hid) ?? {}, outcome: "unresolved", one_line: v.one_line }); // 重试尽降级 unresolved 同入清单(证据不灭失)
   for (const t of truncated) rows.push({ hid: t.hid, hyp: hyps.find((h) => h.signal_id === t.hid) ?? {}, outcome: "unresolved", one_line: "预算截尾,交人裁" });
   for (const h of hyps.filter((x) => !x.need_deep)) rows.push({ hid: h.signal_id, hyp: h, outcome: "watch", one_line: h.one_line }); // 未深验假设直入清单
   const itemsDir = path.join(ctx.dir, "items");
@@ -263,13 +264,17 @@ async function CLOSE(def, ctx) { // 书挡步:存在性校验(闭合双层的外
 }
 
 // ── 模型步装配/收编(faux.mjs 真 Agent 循环的上下文与落盘;判断仍全在模型步+门)────────
+// 空转金轨迹(#162 审 P2-2,2026-10-23 裁定①):零 need_deep 轮 DEEP 仍跑一条 canned-假设 faux 回路,
+// 零成本保模型步回路活性;金轨迹 hid 不入 verdicts(不污染条目),由 deepFinalize 收编为 golden_track。
+const GOLDEN_BUNDLE = { hid: "golden-track-canned", golden: true, budget_cny: 0,
+  prompt_pkg: { hypothesis: "金轨迹保活 canned 假设:若冻结读数为真,HEAD 复测 age_days 应保持不变", cause_class: "frozen_feed", severity: "low", probe_hint: "reprobe_get", url: "(canned)" } };
 function triageInput(ctx) {
   const sv = j(path.join(ctx.dir, "02-verify-survivors.json"));
   const rows = (sv?.survivors ?? []).map(({ signal_id, source, bucket, age_days, url, error_family, annotated_rule }) =>
     ({ signal_id, source, bucket, ...(age_days != null ? { age_days } : {}), url,
       ...(error_family ? { error_family } : {}), ...(annotated_rule ? { annotated_rule } : {}) }));
   // 已知误判模式 digest 同入(C稿 §3.5:TRIAGE 只吃机器 digest,不注入判例全文;闭集校验面不膨胀)
-  return { systemPrompt: P0_MODEL_PROMPT("health/triage"),
+  return { systemPrompt: fs.readFileSync(promptFile("health/triage"), "utf8"),
     userMsg: JSON.stringify({ survivors: rows, known_noise_digest: sv?.known_noise_digest ?? [] }) };
 }
 function triageConsume(ctx, _item, { text }) {
@@ -278,33 +283,70 @@ function triageConsume(ctx, _item, { text }) {
   if (!h || !Array.isArray(h.hypotheses)) throw Object.assign(new Error("TRIAGE 输出缺 hypotheses 数组"), { code: "model_face" });
   writeJson(path.join(ctx.dir, "03-triage-hypotheses.json"), h);
 }
-const deepItems = (ctx) => (j(path.join(ctx.dir, "04-dispatch-bundles.json"))?.bundles ?? []);
+const deepItems = (ctx) => {
+  const bundles = j(path.join(ctx.dir, "04-dispatch-bundles.json"))?.bundles ?? [];
+  return bundles.length ? bundles : [GOLDEN_BUNDLE]; // 零 bundle=金轨迹回路(#162 审 P2-2,裁定①)
+};
 function deepInput(ctx, item) {
-  return { systemPrompt: P0_MODEL_PROMPT("health/deep"), userMsg: JSON.stringify({ hypothesis_bundle: item.prompt_pkg, budget_cny: item.budget_cny }) };
+  return { systemPrompt: DEEP_STUB_PROMPT, userMsg: JSON.stringify({ hypothesis_bundle: item.prompt_pkg, budget_cny: item.budget_cny, ...(item.golden ? { golden: true } : {}) }) };
 }
 function deepConsume(ctx, item, { text }) {
   let v;
   try { v = JSON.parse(text); } catch { throw Object.assign(new Error(`DEEP 输出非 JSON(${item.hid})`), { code: "model_face" }); }
   if (!v || typeof v.verdict !== "string") throw Object.assign(new Error(`DEEP 输出缺 verdict(${item.hid})`), { code: "model_face" });
-  writeJson(path.join(ctx.dir, `05-deep-${hidSlug(item.hid)}.json`), { hid: item.hid, ...v });
+  writeJson(path.join(ctx.dir, `05-deep-${hidSlug(item.hid)}.json`), { hid: item.hid, ...(item.golden ? { golden: true } : {}), ...v });
 }
-function deepFinalize(ctx, { degradedItems }) { // 收编尾:逐假设工件 → 单 verdicts 集(含降级项)
-  const verdicts = deepItems(ctx)
-    .map((b) => j(path.join(ctx.dir, `05-deep-${hidSlug(b.hid)}.json`)))
-    .filter(Boolean)
-    .map(({ hid, verdict, evidence, one_line }) => ({ hid, verdict, evidence: evidence ?? [], one_line: one_line ?? "" }));
-  writeJson(path.join(ctx.dir, "05-deep-verdicts.json"), { verdicts, degraded: degradedItems });
+function deepFinalize(ctx, { degradedItems }) { // 收编尾:逐假设工件 → 单 verdicts 集(降级项入 degraded;金轨迹单收 golden_track)
+  const verdicts = [], golden = [];
+  for (const b of deepItems(ctx)) {
+    const f = j(path.join(ctx.dir, `05-deep-${hidSlug(b.hid)}.json`));
+    if (!f) continue;
+    const row = { hid: f.hid, verdict: f.verdict, evidence: f.evidence ?? [], one_line: f.one_line ?? "" };
+    (f.golden || b.golden ? golden : verdicts).push(row);
+  }
+  writeJson(path.join(ctx.dir, "05-deep-verdicts.json"), { verdicts, degraded: degradedItems, golden_track: golden });
 }
 async function synthInput(ctx) {
-  const inj = await sh("inject_precedents", HEALTH_KWS, 120_000, ctx.env); // 判例注入只在 SYNTH(闭合校验面集中,C稿 §3.5)
+  // 判例注入只在 SYNTH(闭合校验面集中,C稿 §3.5);检索词=锚域词表(B 三件②,P3 接线:
+  // agent.mjs KWS.health 硬编码退役,词表单一真源=anchors-health.json)+ 锚词表×幸存旗标确定性选锚。
+  const anchors = loadAnchors();
+  const flags = j(path.join(ctx.dir, "02-verify-survivors.json"))?.survivors ?? [];
+  const docsRoot = ctx.env.DOCS_ROOT ?? path.resolve(AGENT_DIR, "..", "..", "docs"); // 同 lib.sh 派生链
+  const precDir = ctx.env.PRECEDENTS_DIR ?? path.join(docsRoot, "ops", "precedents");
+  const onDisk = (n) => fs.existsSync(path.join(precDir, n)); // 锚选目标须在真源判例库在场(缺件锚宁少算不注入)
+  const anchored = [...new Set(anchorSelect(anchors.anchors, flags))].filter(onDisk);
+  const kws = [...new Set(anchors.anchors.flatMap((a) => a.keywords))];
+  const inj = await sh("inject_precedents", kws, 120_000, ctx.env);
   const hitNames = [...inj.stdout.matchAll(/^- ([0-9]{4}-[0-9]{2}-[0-9]{2}-[^\s]+\.md)\s*$/gm)].map((m) => m[1]);
-  const injected = hitNames.slice(0, HIT_CAP);
-  const input = { injected, manifest: j(path.join(ctx.dir, "06-itemize-manifest.json")),
+  const injected = [...new Set([...anchored, ...hitNames])].slice(0, HIT_CAP);
+  // 条目明细(ADR 0006:报告=条目集只读渲染;异常清单每行对应真实条目)——直读本轮 items/ 工件
+  const itemsDir = path.join(ctx.dir, "items");
+  const itemsDetail = fs.existsSync(itemsDir) ? fs.readdirSync(itemsDir).filter((f) => f.endsWith(".json")).sort()
+    .map((f) => j(path.join(itemsDir, f))).filter(Boolean)
+    .map(({ source, verdict, severity, suggested_action, one_line }) => ({ source, verdict, severity, suggested_action, one_line })) : [];
+  const input = { injected, manifest: j(path.join(ctx.dir, "06-itemize-manifest.json")), items: itemsDetail,
     verdicts_digest: (j(path.join(ctx.dir, "05-deep-verdicts.json"))?.verdicts ?? []).map(({ hid, verdict }) => ({ hid, verdict })),
-    probe: (({ urls_n, buckets }) => ({ urls_n, buckets }))(j(path.join(ctx.dir, "01-probe-summary.json")) ?? {}) };
-  const block = hitNames.length > HIT_CAP
-    ? `${inj.stdout.split("\n").filter((l) => !/^- 202/.test(l) || injected.includes(l.slice(2).trim())).join("\n")}\n(命中 ${hitNames.length} 条,注入前 ${HIT_CAP} 条——铁律⑦)` : inj.stdout;
-  return { systemPrompt: P0_MODEL_PROMPT("health/synth"), userMsg: `${block.trim()}\n\n# 本轮输入\n${JSON.stringify(input)}`, meta: { injected } };
+    probe: (({ urls_n, buckets, matrix }) => ({ urls_n, buckets, matrix }))(j(path.join(ctx.dir, "01-probe-summary.json")) ?? {}) };
+  // 锚选不在检索命中内的,以锚域 note 补一行 gist(具名引用禁裸 id,研究 #71);超帽沿铁律⑦截前 8
+  const anchoredExtra = anchored.filter((n) => !hitNames.includes(n)).map((n) => {
+    const a = anchors.anchors.find((x) => x.precedents.includes(n));
+    return `- ${n}\n  - 锚域 ${a?.domain ?? "?"}: ${a?.note ?? ""}`;
+  });
+  // 展示面=闭合集(审后修 P1):注入块里出现的命中行必须 ∈ injected(G_SYNTH 的 allowed 集为同源),
+  // 否则模型诚实引用注入块内文件名也会被 closure_check 误杀成轮终态——过滤无条件化,不分命中多寡。
+  const injectedHitN = hitNames.filter((n) => injected.includes(n)).length;
+  const block = synthInjectionBlock(inj.stdout, anchoredExtra, hitNames, injected)
+    + (hitNames.length > injectedHitN ? `\n(命中 ${hitNames.length} 条,注入 ${injectedHitN} 条——铁律⑦)` : "");
+  return { systemPrompt: fs.readFileSync(promptFile("health/synth"), "utf8"), userMsg: `${block.trim()}\n\n# 本轮输入\n${JSON.stringify(input)}`, meta: { injected } };
+}
+
+// 注入块构造(纯函数,审后修 P1 抽出钉负例):命中行仅当 ∈ injected 才展示;锚补行(锚选⊆injected 恒成立)直出。
+export function synthInjectionBlock(injStdout, anchoredExtra, hitNames, injected) {
+  const lines = injStdout.split("\n").filter((l) => {
+    const m = l.match(/^- ([0-9]{4}-[0-9]{2}-[0-9]{2}-[^\s]+\.md)\s*$/);
+    return !m || injected.includes(m[1]);
+  });
+  return `${lines.join("\n")}${anchoredExtra.length ? `\n${anchoredExtra.join("\n")}` : ""}`;
 }
 function synthConsume(ctx, _item, { text }) {
   if (!text.trim()) throw Object.assign(new Error("SYNTH 最终文本为空"), { code: "empty_text" });

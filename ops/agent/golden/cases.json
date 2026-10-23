@@ -306,7 +306,7 @@
       "assertions": [
         { "kind": "pipeline_ok" },
         { "kind": "pipeline_stage", "stage": "PROBE", "status": "done" },
-        { "kind": "pipeline_stage", "stage": "DEEP", "status": "done" },
+        { "kind": "pipeline_stage", "stage": "DEEP", "status": "degraded", "note_matches": "deep_stub" },
         { "kind": "pipeline_stage", "stage": "CLOSE", "status": "done" },
         { "kind": "pipeline_gates" },
         { "kind": "pipeline_artifact", "file": "01-probe-summary.json",
@@ -322,8 +322,9 @@
         { "kind": "pipeline_artifact", "file": "07-synth-report.md", "matches": [
           "## 注入判例", "## 异常清单", "## 摘要",
           "created=2 reopened=0 deduped=0 suppressed=1",
+          "confirmed=0 refuted=0 unresolved=2",
           "2026-06-01-golden-aggregator.md",
-          "digest_ignore"
+          "human_ruling"
         ] },
         { "kind": "pipeline_artifact", "file": "gates.json", "matches": [ "G_DEEP", "G_CLOSE", "\"pass\": true" ] },
         { "kind": "ledger", "min_rows": 1, "last_matches": "\\| health \\| faux-pipeline \\|.*pipeline:2026-06-01-0400-health" }
