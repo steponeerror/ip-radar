@@ -233,13 +233,14 @@ freshness_flags() {
 # 结尾 .,; 剥掉(注释里句读会并入 URL);[ ] 排除(源码正则字面量如
 # ...download/[^s] 的残片不混入;IPv6 字面量场景本仓无)。
 # 前缀剥离:rg -o 惰性匹配输出 = <行首至 # 前的非 URL 前缀>+<URL>,sed
-# 贪婪剥到最后一个 https:(前缀无 https: 子串 → 恰剥到 URL 头)。
+# 贪婪剥到最后一个 https?:(前缀无 https? 子串 → 恰剥到 URL 头;同轮修
+# 发现 2:http:// 行旧式只剥 https: 会残留前缀)。
 # 可选 $1 = 扫描根(缺省源目录;selftest fixture 隔离,PRECEDENTS_DIR 判例同型)。
 extract_feed_urls() {
   local dir="${1:-$ROOT/backend/ipdb/_sources}"
   rg -oN --no-filename '^[^#]*?https?://[^"'\''[:space:]()><,\[\]#]+' \
     -g '*.py' "$dir" \
-    | sed -E 's/^[^#]*https:/https:/' \
+    | sed -E 's/^[^#]*(https?:)/\1/' \
     | grep -v '[{}\\]' \
     | grep -Ev '(/account($|[/?])|download/confirmation\.aspx)' \
     | sed -E 's/[.,;]+$//' \

@@ -48,7 +48,7 @@ import time
 from pathlib import Path
 
 from . import _ops_items
-from ._scheduler import _period_of
+from ._scheduler import RefreshScheduler, _period_of
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +56,11 @@ logger = logging.getLogger(__name__)
 DOWNLOAD_FAIL_HIGH_THRESHOLD = 3
 # 超龄系数:内容年龄 > 2× 刷新周期(spec #152 §2)
 STALENESS_FACTOR = 2
+# cause_group 闭集词表(冻结于 T2,票 #154):真源 = spec #152 §2 的两类
+# 确定性探测器——下载失败/内容超龄;_ops_items 存储层只保证非空不校验
+# 闭集,新组须经 spec 裁决入此表,不许调用点散写字面。
+CAUSE_GROUPS = ("download_failure", "staleness")
+CAUSE_DOWNLOAD_FAILURE, CAUSE_STALENESS = CAUSE_GROUPS
 # 下载失败 error_signature 兜底族(= 任务失败分类码 error_code 本身)
 _FALLBACK_FAMILY = "download"
 
@@ -143,7 +148,7 @@ def make_download_fail_detector():
             rollback="重新触发下载即可恢复;无不可逆变更",
             severity=("high" if streak >= DOWNLOAD_FAIL_HIGH_THRESHOLD
                       else "medium"),
-            cause_group="download_failure",
+            cause_group=CAUSE_DOWNLOAD_FAILURE,
             summary=(
                 f"# 待审:源 {source} 下载失败(连续 {streak} 轮)\n\n"
                 f"末次错误({error_code}/{family}):{error_text[:300] or '(无消息)'}\n"
@@ -170,9 +175,13 @@ def run_staleness_detector(sources, now=None) -> None:
         path = getattr(source, "_path", None)
         if not isinstance(path, (str, Path)):
             continue
-        try:
-            mtime = Path(path).stat().st_mtime
-        except OSError:
+        # 内容 mtime 一律走规范信号源 RefreshScheduler._read_mtime(目录型源
+        # = 目录内最新文件;_scheduler.py:326-341 线上判例 2026-10-03:重写
+        # 文件不改目录 mtime,只看目录会把新鲜多 feed 源误判 46 天过期。
+        # 受影响真实源:cn_isp isp/、cloud_ranges/、rir_abuse)。None(无
+        # 文件/空目录)→ 跳过:无内容年龄证据不产。
+        mtime = RefreshScheduler._read_mtime(source)
+        if mtime is None:
             continue                       # 无文件 = 无内容年龄证据,不产
         stale_days = int(getattr(source, "stale_days", 7) or 7)
         period_s = _period_of(stale_days)
@@ -196,7 +205,7 @@ def run_staleness_detector(sources, now=None) -> None:
             impact=f"{name} 内容超龄,数据新鲜度与覆盖受损",
             rollback="刷新成功即自愈;无不可逆变更",
             severity="medium",
-            cause_group="staleness",
+            cause_group=CAUSE_STALENESS,
             summary=(
                 f"# 待审:源 {name} 内容超龄\n\n"
                 f"内容年龄 {age_h:.1f}h > 2×刷新周期 {period_h:.1f}h"

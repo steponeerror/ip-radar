@@ -12,6 +12,8 @@
 - 超龄探测器:内容年龄 > 2× 刷新周期产条(恰 2× 不产,严格大于);
   刷新周期 = 日更源 12h 槽位 / 其余 stale_days×24h(45h/12h 实证案例
   = spec §2 钉住);无数据文件不产(无内容年龄证据);幂等二次零写;
+  目录型源内容 mtime = 目录内最新文件(_read_mtime 同源,2026-10-03
+  线上判例:重写子文件不改目录 mtime);
 - _tasks 旁挂零侵入:on_terminal 默认 None;回调吃 to_dict() 只读快照、
   每任务恰一次(_settled 幂等);回调抛错全吞,任务状态机/批次计数不变;
   真探测器装配后任务照常失败且条目即时出现(spec 验收面);
@@ -248,6 +250,49 @@ def test_staleness_no_file_no_item(mod, ops_env, tmp_path):
     src = _FakeSource("never_pulled", tmp_path / "missing.txt", stale_days=1)
     mod.run_staleness_detector([src], now=now)   # 无文件 = 无内容年龄证据
     assert _read_items(ops_env) == []
+
+
+def _mk_dir_source(tmp_path, name, stale_days, child_ages_s, dir_age_s, now):
+    """目录型源(cn_isp isp/、cloud_ranges/ 同型:_path 指目录)。
+
+    子文件 mtime 与目录 mtime 脱钩(重写子文件不动目录 mtime)——复现
+    2026-10-03 线上判例形状:目录停在首建日、子文件当天刷新。
+    """
+    import os
+    d = tmp_path / name
+    d.mkdir()
+    for i, age in enumerate(child_ages_s):
+        f = d / f"feed_{i}.txt"
+        f.write_text("x")
+        os.utime(f, (now - age, now - age))
+    os.utime(d, (now - dir_age_s, now - dir_age_s))
+    return _FakeSource(name, d, stale_days)
+
+
+def test_staleness_dir_fresh_children_no_item(mod, ops_env, tmp_path):
+    """目录源回归(review 发现 1):目录 mtime 停在首建日(30 天旧)、子文件
+    刚刷新 → 不产——内容 mtime = 目录内最新文件(_read_mtime 规范信号源),
+    只看目录 mtime 会把新鲜多 feed 源误判超龄(线上判例:46 天误报)。"""
+    now = 2_000_000.0
+    src = _mk_dir_source(tmp_path, "dir_fresh_kids", stale_days=7,
+                         child_ages_s=[3600], dir_age_s=30 * 86400, now=now)
+    mod.run_staleness_detector([src], now=now)
+    assert _read_items(ops_env) == []
+
+
+def test_staleness_dir_all_children_stale_produces_item(mod, ops_env, tmp_path):
+    """目录源子文件全旧超 2× 周期 → 产条;内容年龄 = 最新子文件 mtime
+    (非目录 mtime,钉住取数路径)。"""
+    now = 2_000_000.0
+    newest = 2 * 7 * 86400 + 3600             # 337h > 2×168h 一小时
+    src = _mk_dir_source(tmp_path, "dir_all_stale", stale_days=7,
+                         child_ages_s=[newest, 3 * 7 * 86400],
+                         dir_age_s=30 * 86400, now=now)
+    mod.run_staleness_detector([src], now=now)
+    [fm] = _read_items(ops_env)
+    assert fm["dedup_key"]["source"] == "dir_all_stale"
+    assert fm["evidence"]["content_age_h"] == pytest.approx(newest / 3600.0)
+    assert fm["dedup_key"]["probe_class"] == "staleness"
 
 
 # ══ _tasks 旁挂零侵入 ══════════════════════════════════════════════════
