@@ -107,6 +107,9 @@
 - **微探针**:DEEP 步闭集变体复测工具(reprobe_get/reprobe_ua/upstream_check),辨探测伪迹(10-23 GeoLite 404 类:HEAD 假死 GET 实活);P0 为 probe_hint 闭集名+登记表 seed 面,真工具 P4 落地(tools.mjs probe_variant)。锚:ops/agent/pipeline/gates.mjs(CLOSED_SETS.probe_hint)、fixtures/pipeline/deep/
 - **轮次状态文件**:rounds/<round_id>/state.json——状态机持久面:每步边界原子写(temp+rename,沿 _ops_store 判例),boot 恢复与 replay 的单一事实源;轮次目录 rounds/<round_id>/(round_id=YYYY-MM-DD-HHMM-health),replay 产物写 <round_id>-r<seq>/ 原件零改写。锚:ops/agent/pipeline.mjs(writeState/runReplay)
 - **降级(轮次语义)**:失败语义三值(重试/降级/终态)之一——跳过可选步或标 unresolved 转人裁,轮仍成功(信封 ok=true+stages 标 degraded,如 DISPATCH 预算截尾/DEEP 单假设 unresolved/RETRO 跳过);降级不是失败,与终态(九词闭集错误码)两回事。Avoid:「自愈闭环」「自动修复」(有人裁闸门,叫自愈是夸大)、「重试到底」(重试有上限,尽即终态或降级)。锚:ops/agent/pipeline.mjs(runStages 降级分支)
+- **召回地板**:判例库 _INDEX.md(派生可再生缓存:概念判例一行一件,文件名+概念词+一行主张+关键词+状态;留痕判例不进)——库内任何概念至少一行 gist 常驻在场,检索 miss 的根治:rg 是精度工具,索引是召回保底;「索引是地图不是存储」(ADR 0007),判例文件才是唯一真源,spawn 前可再生。锚:ops/agent/build-index.mjs、docs/ops/precedents/_INDEX.md(B稿 §2.2①)
+- **锚判例域词表**:anchors-health.json——按高频域(github 重定向假红/限流假面/abuse.ch 迁移/sunset/矩阵 park 残差/聚合器回声)预置域词→判例文件闭集,宿主从旗标读数确定性选锚(零模型),命中并入注入闭集且不越 HIT_CAP;锚指向缺件=编造路径,build-index --check 拒。锚:ops/agent/anchors-health.json、ops/agent/pipeline/anchors.mjs(B稿 §2.2②)
+- **判例升格通道**:同因人裁留痕 ≥2 且 ruling_agreement 一致(键并集:文本归一全等 ∨ 源身份词相交;superseded 链不计数防谱系回声)→ retro/promotion-candidates/ 候选件(仅立项:三门槛=可机检/可证伪/非环境特异性以 pending 起步待人裁逐项核);人裁采纳(adopt_rule)才入概念判例,lineage 必列来源留痕(谱系可回算);检测器永不写判例区。锚:ops/agent/promote-detect.mjs(B稿 §3.2)
 
 ## It's working if
 
