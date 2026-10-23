@@ -476,6 +476,22 @@ def _ensure_ops_detectors() -> None:
         manager.on_terminal = _ops_detectors.make_download_fail_detector()
 
 
+def _recover_ops_rounds() -> None:
+    """P5 #167 boot 恢复扫描(lifespan 单点;C稿 §4.6)。
+
+    in_flight 管线轮的准入裁决与处置(stale/twice → FAILED(infra)+台账;
+    其余 → 后台 resume 占串行车道)全在 ipdb/_ops_rounds.recover_inflight_rounds;
+    此处只接线 + 失败不阻塞启动(恢复自身失败轮保持 in_flight,下次启动再扫)。
+    """
+    from ipdb import _ops_rounds
+    from ipdb._registry import manager
+    try:
+        _ops_rounds.recover_inflight_rounds(manager)
+    except Exception:
+        logging.getLogger(__name__).warning(
+            "ops boot 恢复接线失败(轮次保持 in_flight)", exc_info=True)
+
+
 def _ensure_refresh_scheduler() -> None:
     """Start the background auto-refresh scheduler once per process.
 
@@ -598,6 +614,7 @@ async def lifespan(app: FastAPI):
     _ipdb_tokens.load()   # tokens.json → env(UI 优先裁决;须先于任何下载任务)
     _startup()
     _ensure_ops_detectors()
+    _recover_ops_rounds()
     _ensure_refresh_scheduler()
     cpu, ram = _batch_pool.detect_host()
     env = os.environ
