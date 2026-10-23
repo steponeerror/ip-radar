@@ -256,9 +256,11 @@ grep -qx 'https://www.binarydefense.com/banlist.txt' <<<"$EFU" \
   && ok "urls:规模 ≥50(源覆盖面)" || bad "urls:规模 ≥50(源覆盖面)"
 # 清单基线防漂移(2026-10-23 事实层重构随建):低于基线 = 清单被误删段;
 # 源退役等合法缩量须同 PR 显式下调基线并说明缘由,不许无声缩水。
-EFU_BASELINE=97
+EFU_BASELINE=101
 [[ "$(wc -l <<<"$EFU")" -ge "$EFU_BASELINE" ]] \
   && ok "urls:清单条数 ≥ 基线 $EFU_BASELINE(防漂移)" || bad "urls:清单条数 ≥ 基线 $EFU_BASELINE(防漂移)"
+! grep -qv '^https://' <<<"$EFU" \
+  && ok "urls:清单全 https(防劣质增量,审后补 P2-2)" || bad "urls:清单全 https(防劣质增量,审后补 P2-2)"
 
 # ---- 7b. P1 T2 降噪三刀(spec #152 §2,票 #154):TOKEN_REQUIRED 分类 / raw 重试 / URL 排除面 ----
 # 排除面真树断言:清单人工维护,排除面=清单内容本身;以下钉住历史事故/噪音

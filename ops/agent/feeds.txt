@@ -49,6 +49,8 @@ https://raw.githubusercontent.com/ShadowWhisperer/IPs/master/Lists/Threats.csv #
 https://view.sentinel.turris.cz/greylist-data/greylist-latest.csv # turris_greylist
 https://blackip.ustc.edu.cn/list.php?txt # ustc_blackip
 https://api.abuseipdb.com/api/v2/blacklist # abuseipdb(无 key 探测=401→TOKEN_REQUIRED 读数)
+https://otx.alienvault.com/api/v1/pulses/activity # otx(无 key 探测=401→TOKEN_REQUIRED 读数;审后补 reviewer P1-1)
+https://otx.alienvault.com/api/v1/pulses/subscribed # otx_subscribed(同上;审后补 reviewer P1-1)
 
 # ── 威胁黑名单:多列表/分片源(base+文件名,旧扫描漏探面)──────
 https://raw.githubusercontent.com/firehol/blocklist-ipsets/master/firehol_level1.netset # firehol
@@ -56,6 +58,7 @@ https://raw.githubusercontent.com/firehol/blocklist-ipsets/master/firehol_level2
 https://raw.githubusercontent.com/firehol/blocklist-ipsets/master/firehol_abusers_30d.netset # firehol
 https://raw.githubusercontent.com/firehol/blocklist-ipsets/master/firehol_proxies.netset # firehol
 https://raw.githubusercontent.com/romainmarcoux/malicious-ip/master/full-300k-aa.txt # malicious_ip
+https://raw.githubusercontent.com/ziyadnz/threat-intel-ip-feeds/master/output/blacklist.csv # ziyadnz(审后补 reviewer P1-1,旧扫描截断形修全)
 https://raw.githubusercontent.com/romainmarcoux/malicious-ip/master/full-300k-ab.txt # malicious_ip
 https://raw.githubusercontent.com/romainmarcoux/malicious-ip/master/full-300k-ac.txt # malicious_ip
 https://raw.githubusercontent.com/romainmarcoux/malicious-ip/master/full-300k-ad.txt # malicious_ip
@@ -107,6 +110,7 @@ https://data.caida.org/datasets/as-organizations/latest.as-org2info.txt.gz # cai
 https://iptoasn.com/data/ip2asn-combined.tsv.gz # iptoasn
 https://github.com/P3TERX/GeoLite.mmdb/releases/latest/download/GeoLite2-City.mmdb # geolite_city
 https://www.peeringdb.com/api/ix # peeringdb
+https://www.peeringdb.com/api/ixlan # peeringdb(ixlan 表;审后补 reviewer P2-1)
 https://www.peeringdb.com/api/ixpfx # peeringdb
 https://ftp.afrinic.net/pub/stats/afrinic/delegated-afrinic-extended-latest # rir_delegated
 https://ftp.apnic.net/stats/apnic/delegated-apnic-extended-latest # rir_delegated
