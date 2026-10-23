@@ -1,8 +1,10 @@
 #!/usr/bin/env node
-// selftest-pipeline.mjs — P0 轮次状态机自测(spec #161 P0 验收门;零 API 零网络)。
+// selftest-pipeline.mjs — P0 轮次状态机自测(spec #161 P0 验收门;零 API 零网络;P1 增⑦位等价门,#163)。
 // 面:①全 faux 轮跑通到 CLOSE(信封 ok+gates.json 落盘+state 终态+stderr 阶段行+stdout 末行单行 JSON)
 //    ②工件清单/分区穷尽/消化条目判例(refuted 恒 low)③预算降级(截尾非失败)④失败面(坏 fixture→
-//    model_face 终态+工件保留)⑤replay:--dry 全程可跑+段重放,原件 md5 不变 ⑥CLI 契约(exit 0/1/2)。
+//    model_face 终态+工件保留)⑤replay:--dry 全程可跑+段重放,原件 md5 不变 ⑥CLI 契约(exit 0/1/2)
+//    ⑦位等价门(P1,#163):同 stub 下 legacy health 轮(agent.mjs runRound→tools.mjs
+//    health_snapshot 产 TSV+matrix 工件)与管线 PROBE 工件逐字节 diff 为空+计数两口径对拍。
 // fixture:golden 同型(DOCS_ROOT/precedents 指 tmp+curl stub 前置 PATH);canned 模型回合=仓内
 // fixtures/pipeline(README 配对契约)。输出 PIPEPASS/PIPEFAIL,任一 FAIL 退出非零。
 import assert from "node:assert/strict";
@@ -34,11 +36,24 @@ fs.writeFileSync(path.join(DOCS, "ops", "rules", "suppressions.json"), JSON.stri
     action: "suppress", note: "fixture:dshield 冻结读数为已知探测伪迹", review_at: "2027-01-24" } ] }, null, 2) + "\n");
 const STUBS = path.join(TMP, "stubs");
 fs.mkdirSync(STUBS);
-fs.writeFileSync(path.join(STUBS, "curl"), `#!/usr/bin/env bash\n# selftest stub:curl 传输层替身(golden stubCurl 同型);三冻结锚点+其余新鲜\nurl="\${@: -1}"\nd=30\ncase "$url" in\n  *cinsscore*) d=220 ;;\n  *binarydefense*) d=210 ;;\n  *dshield*) d=200 ;;\nesac\nprintf 'HTTP/1.1 200 OK\\r\\nLast-Modified: %s\\r\\nContent-Length: 4\\r\\n\\r\\n' "$(date -u -d "@$(( $(date +%s) - d * 86400 - 600 ))" '+%a, %d %b %Y %H:%M:%S GMT')"\nexit 0\n`);
+fs.writeFileSync(path.join(STUBS, "curl"), `#!/usr/bin/env bash\n# selftest stub:curl 传输层替身(golden stubCurl 同型);三冻结锚点+其余新鲜\nurl="\${@: -1}"\nd=30\ncase "$url" in\n  *cinsscore*) d=220 ;;\n  *binarydefense*) d=210 ;;\n  *dshield*) d=200 ;;\nesac\nprintf 'HTTP/1.1 200 OK\\r\\nLast-Modified: %s\\r\\nContent-Length: 4\\r\\n\\r\\n' "$(date -u -d "@$(( $(date +%s) / 86400 * 86400 - d * 86400 ))" '+%a, %d %b %Y %H:%M:%S GMT')"\nexit 0\n`);
 fs.chmodSync(path.join(STUBS, "curl"), 0o755);
+// matrix stub:OPS_EVAL_PY 替身(golden stubPy 同型);位等价两腿(legacy health_snapshot 腿与
+// 管线 PROBE 腿)共用同一罐装矩阵 JSON。curl stub 时间确定性=UTC 日界截断(#163 位等价判例):
+// 同 UTC 日内 Last-Modified 字符串恒定且 age_days 恒=d(日内秒数<86400),两腿先后跑字节稳定;
+// 跨日界仅两腿间隙窗口(秒级)理论可达。
+const MATRIX_CANNED = { exit_code: 0, counts: { violation: 0, pending: 0, agreement: 4 },
+  layers: { truth: { status: "OK", members: 4, sampled: 4, notes: [] }, infra: { status: "OK", members: 8, sampled: 8, notes: [] } },
+  buckets: { violation: [], pending: [], agreement: [] } };
+fs.writeFileSync(path.join(STUBS, "py-matrix"), `#!/usr/bin/env bash
+# selftest stub:OPS_EVAL_PY 替身(golden stubPy 同型);吐罐装矩阵 JSON
+printf '%s\\n' '${JSON.stringify(MATRIX_CANNED).replace(/'/g, "'\\''")}'
+`);
+fs.chmodSync(path.join(STUBS, "py-matrix"), 0o755);
 process.env.DOCS_ROOT = DOCS;
 process.env.PRECEDENTS_DIR = path.join(DOCS, "ops", "precedents");
 process.env.LEDGER_FILE = path.join(DOCS, "ops", "ledger.md");
+process.env.OPS_EVAL_PY = path.join(STUBS, "py-matrix"); // import-time 面:先于 tools.mjs 装载生效
 process.env.PATH = `${STUBS}:${process.env.PATH}`;
 
 const { runPipeline, HEALTH_PIPELINE } = await import("./pipeline.mjs");
@@ -177,7 +192,7 @@ await t("预算降级:0.03¥ 截尾 1 条标 unresolved(budget),DISPATCH degrade
 await t("失败面:坏 TRIAGE fixture → model_face 终态(attempts=2),01/02 工件保留(证据不灭失),code∈九词", async () => {
   const badFx = path.join(TMP, "fixtures-bad");
   fs.mkdirSync(badFx, { recursive: true });
-  for (const f of ["matrix.json", "in-flight.json", "synth.json"]) fs.copyFileSync(path.join(AGENT, "fixtures/pipeline", f), path.join(badFx, f));
+  for (const f of ["in-flight.json", "synth.json"]) fs.copyFileSync(path.join(AGENT, "fixtures/pipeline", f), path.join(badFx, f));
   fs.cpSync(path.join(AGENT, "fixtures/pipeline/deep"), path.join(badFx, "deep"), { recursive: true });
   fs.writeFileSync(path.join(badFx, "triage.json"), JSON.stringify({ turns: [{ role: "assistant", content: [{ type: "text", text: "不是 JSON(schema 违例负例)" }], stopReason: "stop" }] }));
   const io = mkIo();
@@ -193,6 +208,51 @@ await t("失败面:坏 TRIAGE fixture → model_face 终态(attempts=2),01/02 �
   assert.ok(fs.existsSync(path.join(d, "01-probe-summary.json")) && fs.existsSync(path.join(d, "02-verify-survivors.json")), "工件保留");
   assert.equal(j(path.join(d, "state.json")).status, "failed");
   assert.match(io.buf.stderr, /\[stage\] TRIAGE fail gate=- code=model_face reason=/, "fail 行语法");
+});
+
+await t("位等价门(#163):同 stub 下 legacy health 轮工件 = 管线 PROBE 工件,逐字节 diff 空+计数两口径对拍", async () => {
+  // 腿一(legacy)= agent.mjs runRound 真 Agent 循环(golden health 例同型):faux 模型点
+  // health_snapshot → lib.sh feed_freshness + tools.mjs runMatrixScan 真路径,产出 ts-slug 工件;
+  // 腿二(管线)= pipeline.mjs PROBE(同 lib.sh 同 matrixScanCli 单源)。两腿同 curl/OPS_EVAL_PY stub,
+  // 同清单(ops/agent/feeds.txt 101 URL 固定 fixture),先后背靠背跑(同 UTC 日,curl stub 日界截断)。
+  const { runRound } = await import("./agent.mjs");
+  const { fauxProvider, fauxAssistantMessage, fauxToolCall, fauxText, createModels } = await import("@earendil-works/pi-ai");
+  const faux = fauxProvider({ models: [{ id: "faux-eq" }] });
+  const models = createModels();
+  models.setProvider(faux.provider);
+  faux.setResponses([
+    fauxAssistantMessage([fauxToolCall("health_snapshot", {}, { id: "call_eq1" })], { stopReason: "toolUse" }),
+    fauxAssistantMessage([fauxText("## 注入判例\n- 2026-06-01-golden-aggregator.md\n\n## 异常清单\n- 位等价 fixture 轮:冻结读数 3 条(cinsscore/binarydefense/dshield),其余新鲜;全量逐行读数见工件 TSV。\n\n## 摘要\n位等价门例:本腿(legacy agent.mjs health)工件即管线 PROBE 工件的字节基线;计数与矩阵读数两腿一致。")]),
+  ]);
+  const legacy = await runRound("health", "位等价门:legacy 腿 health 轮(全量读数落工件)。", [],
+    { models: { models, resolve: () => faux.getModel() }, registrySeed: [] });
+  const sc = legacy.registry.find((r) => r.tool === "health_snapshot").sc;
+  assert.equal(sc.ok, true, `legacy health_snapshot 信封:${sc.code}`);
+  const legacyTsv = sc.artifacts.find((a) => a.endsWith("health-freshness.tsv"));
+  const legacyMatrix = sc.artifacts.find((a) => a.endsWith("matrix-scan.json"));
+  assert.ok(legacyTsv && legacyMatrix, `legacy 工件缺:${sc.artifacts.join(",")}`);
+  const io = mkIo();
+  const pipe = await runPipeline({ roundId: "2026-10-23-2344-health", ...io });
+  assert.equal(pipe.ok, true);
+  const d = roundDir("2026-10-23-2344-health");
+  const tsvA = fs.readFileSync(legacyTsv), tsvB = fs.readFileSync(path.join(d, "01-probe-freshness.tsv"));
+  assert.ok(Buffer.compare(tsvA, tsvB) === 0, `TSV 位等价破口:legacy ${tsvA.length}B vs 管线 ${tsvB.length}B`);
+  const mA = fs.readFileSync(legacyMatrix), mB = fs.readFileSync(path.join(d, "01-probe-matrix.json"));
+  assert.ok(Buffer.compare(mA, mB) === 0, `matrix 位等价破口:legacy ${mA.length}B vs 管线 ${mB.length}B`);
+  // 清单事实层钉住:101 URL 固定 fixture(清单变更须同步本例,feedfix #168 基线)
+  const manifestN = +(await execFileP("bash", ["-c", `. "${path.join(AGENT, "lib.sh")}"; extract_feed_urls | wc -l`])).stdout.trim();
+  assert.equal(manifestN, 101, `feeds.txt 清单 URL 数=${manifestN}(固定 fixture,变更须同步本例)`);
+  const summary = j(path.join(d, "01-probe-summary.json"));
+  assert.equal(summary.urls_n, manifestN);
+  assert.equal(tsvB.toString().trimEnd().split("\n").length, manifestN, "TSV 行数=清单 URL 数");
+  // 计数两口径对拍:legacy sc(frozen/near/unreachable/no_lm/token_required)↔ 管线 buckets+matrix
+  assert.deepEqual(
+    { urls_n: sc.urls_n, frozen: sc.frozen_n, unreachable: sc.unreachable_n, no_lm: sc.no_lm_n, token_required: sc.token_required_n },
+    { urls_n: summary.urls_n, frozen: summary.buckets.frozen, unreachable: summary.buckets.unreachable,
+      no_lm: summary.buckets.no_lm, token_required: summary.buckets.token_required });
+  assert.equal(sc.matrix_ok, summary.matrix.ok);
+  assert.equal(sc.matrix_exit_code, summary.matrix.exit_code);
+  assert.equal(summary.matrix.exit_code, 0);
 });
 
 await t("replay --dry 全程可跑(CLI 子进程):门全重算 PASS,产物写 -r1/,原件逐字不变", async () => {
