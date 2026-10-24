@@ -143,7 +143,7 @@ def test_anchors_cli_persists_but_stdout_envelope_unchanged(
 # ── #182(#180 租户批):公共解析器锚扩员 + anchor_sweep 巡检件 ──────────
 
 def test_public_resolver_anchors_pinned():
-    # 事故固化(ADR 0008;STANDARD.md 金标层 G-2):114DNS(cps+ziyadnz 假印证
+    # 发现固化(ADR 0008;STANDARD.md 金标层 G-2):114DNS(cps+ziyadnz 假印证
     # 事故)/223.5.5.5(阿里公共 DNS)/9.9.9.4(Quad9 未过滤变体,与 9.9.9.9
     # 区分——干净面必须覆盖未过滤腿)三新员入 clean 面。
     for ip in ("114.114.114.114", "223.5.5.5", "9.9.9.4"):
