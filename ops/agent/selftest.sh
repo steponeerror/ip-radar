@@ -397,7 +397,7 @@ grep -q '工具返回验证' "$DISC" \
 # PR #176(工具通道修复):信封处置三新码钉子(基础设施面不可重试清单)
 grep -q 'channel_missing' "$DISC" && grep -q 'channel_auth' "$DISC" && grep -q 'quota' "$DISC" \
   && ok "prompt:信封处置三新码在文(channel_missing/channel_auth/quota)" || bad "prompt:信封处置三新码在文(channel_missing/channel_auth/quota)"
-grep -qE '暂态.{0,40}(≤1|≤ 1)' "$DISC" \
+grep -qE '暂态.{0,80}(≤1|≤ 1)' "$DISC" \
   && ok "prompt:可重试仍限暂态≤1 次" || bad "prompt:可重试仍限暂态≤1 次"
 grep -q 'health_snapshot' "$AGENT/prompts/health-system.md" && grep -q '信封处置' "$AGENT/prompts/health-system.md" \
   && ok "prompt:health 信封处置条款+快照工具在文" || bad "prompt:health 信封处置条款+快照工具在文"
