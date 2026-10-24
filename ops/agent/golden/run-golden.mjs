@@ -88,6 +88,7 @@ async function runCase(c, allowSmoke) {
   // 指向自己的 fixture——不钉则 lib.sh 默认值被继承值压过,verify/台账读写错库
   process.env.PRECEDENTS_DIR = path.join(docsRoot, "ops", "precedents");
   process.env.LEDGER_FILE = path.join(docsRoot, "ops", "ledger.md");
+  process.env.OPS_SWEEP_DRY_RUN = "1"; // #184:golden 恒零外发(基线 sweep 零 finding 本不触发;防未来 finding 面)
   if (c.stubs.curl_age_days) process.env.PATH = `${stubDir}:${process.env.PATH}`, writeStub("curl", stubCurl(c.stubs.curl_age_days));
   if (c.stubs.gh) writeStub("gh", stubGh(c.stubs.gh.repos)), process.env.PATH = `${stubDir}:${process.env.PATH}`;
   if (c.stubs.matrix) process.env.OPS_EVAL_PY = writeStub("py-matrix", stubPy(c.stubs.matrix));

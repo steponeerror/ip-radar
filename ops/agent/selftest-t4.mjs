@@ -28,6 +28,8 @@ const {
   normalizeJinaRead, parseSerp, parseRss, RSS_FRESH_DAYS, classifyWebStatus, parseMcpSearchText, classifyMcpSearchError,
   // 票 #182(金标巡检 harness):ops 轮锚巡检 CLI 单源(matrixScanCli 同型;通道四码兼容)
   anchorSweepCli,
+  // 票 #184(finding 出口三件套):gh 面唯一写面 issue create + 写面闭集常量(模型工具面仍只读 search)
+  ghIssueCreate, GH_WRITE_SUBCOMMANDS,
 } = await import("./tools.mjs");
 
 // ── fixture:用户 models.json(flash 定义,无 api/baseUrl)+ models-store(glm-5.3 全量)+ auth ──
@@ -612,6 +614,40 @@ await t("anchorSweepCli:faux 查询面——读数(finding 在场仍 ok/rc 0)/er
   const r4 = await anchorSweepCli({ evalPy: stubHang, dataDir: "/tmp/d", timeoutMs: 400 });
   assert.equal(r4.ok, false);
   assert.equal(r4.env.code, "transient", "超时归四码 transient;gh/rg 兑底码不复用于 python 面");
+});
+
+// ── 票 #184(finding 出口三件套):ghIssueCreate——gh 面白名单唯一写面(issue create)──
+await t("ghIssueCreate(#184):gh 面白名单扩 issue create(唯一写面)——argv 头钉死 [issue,create]+缺省标签 needs-triage;dry-run 零 spawn 只记 cmd;失败=分类信封不抛(出口永不败轮)", async () => {
+  assert.equal(typeof ghIssueCreate, "function", "ghIssueCreate 未导出(RED 面应先红)");
+  assert.deepEqual(GH_WRITE_SUBCOMMANDS, ["issue create"], "写面闭集单员(spec #180 首批租户 Q6 授权;扩=spec 变更)");
+  const calls = [];
+  const fakeExec = async (bin, argv) => {
+    calls.push({ bin, argv });
+    if (argv.includes("FAILCASE"))
+      throw Object.assign(new Error("spawn ENOENT-ish"), { code: 1, stderr: "gh: creation failed (fixture)" });
+    return { stdout: "https://github.com/steponeerror/ip-radar/issues/190\n" };
+  };
+  const r = await ghIssueCreate({ title: "[anchor-sweep] 2 finding", body: "fixture body" }, { exec: fakeExec });
+  assert.equal(r.ok, true);
+  assert.equal(r.dry_run, false);
+  assert.equal(calls.length, 1, "真发路径恰一次 spawn");
+  assert.equal(calls[0].bin, "gh");
+  assert.deepEqual(calls[0].argv.slice(0, 2), GH_WRITE_SUBCOMMANDS[0].split(" "), "子命令白名单:issue create(gh 面唯一写面;模型工具面仍只读 search)");
+  assert.equal(calls[0].argv[calls[0].argv.indexOf("--label") + 1], "needs-triage", "缺省标签=needs-triage(人裁终局)");
+  assert.equal(r.issue_url, "https://github.com/steponeerror/ip-radar/issues/190");
+  const rd = await ghIssueCreate({ title: "t", body: "b" }, { exec: fakeExec, dryRun: true });
+  assert.equal(rd.ok, true);
+  assert.equal(rd.dry_run, true);
+  assert.equal(calls.length, 1, "dry-run 零 spawn(测试恒 dry-run 面)");
+  assert.match(rd.cmd, /^gh issue create --title/, "dry-run 记录将发命令");
+  assert.equal(rd.issue_url, null);
+  const rf = await ghIssueCreate({ title: "t", body: "FAILCASE" }, { exec: fakeExec });
+  assert.equal(rf.ok, false, "失败不抛(出口永不败轮)");
+  assert.equal(rf.error.code, "gh_error", "兑底分类同 gh_search");
+  assert.equal(rf.issue_url, null);
+  const rAuth = await ghIssueCreate({ title: "t", body: "b" },
+    { exec: async () => { throw Object.assign(new Error("x"), { code: 4, stderr: "gh: Not logged in, run gh auth login" }); } });
+  assert.equal(rAuth.error.code, "channel_auth", "通道四码兼容(凭证面=部署动作,信封自带下一步)");
 });
 
 await t("parseMcpSearchText:MCP wire 文本归一(真 fixture:provider/Sources 条目/机会式 snippet/Error 行;pi-web-access 0.44.0 实拍)", () => {

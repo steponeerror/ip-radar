@@ -126,6 +126,8 @@
 - **发现固化**:生产事故与运营 finding 当天转可执行回归金标,人验签核(agent 提名、人裁终局)——学术判例 Agentic Auditing 2026-10(发现→可执行测试→人验,$2-3/轮)。首批金标=8.8.8.8/114DNS 判例。锚:docs/adr/0008 决策3、notes 研究学术腿①
 - **预扣结算**:预算在动作前检查的原语——reserve 后动作、settle 时对账;事后 dashboard 不构成预算控制(Latentism 2026-10)。轮内现状=步前检查实报累计(budget_truncate 同语义),月度 kill switch=补课清单。锚:ops/agent/pipeline.mjs(budget_truncate)
 - **谱系混淆**:变量不对齐产生的优势/印证是伪影——源派生重复计票(回声当印证)与算力不对齐的多 agent 优势(swarm tax:同 thinking-token 预算下多 agent 优势消失)同族;工业 eval 框架均不建模源谱系,本仓独有标准条目。判例:114DNS cps+ziyadnz 假印证。锚:backend/ipdb/_logodds.py(dedup_lineage)、notes 研究(三向对撞表)
+- **finding 出口三件套**:巡检 finding(ANCHOR_SWEEP 读数 ok 且 finding>0)的三个出口(#184,spec #180 Q6)——gh issue(needs-triage 标签人裁终局,标准模板四件:来源步/锚:期望vs实得/证据指针/处置面)/告警 webhook(apprise CLI,env IP_RADAR_ALERT_URLS 与 backend _alerts.push 同 env 同形=双消费面;未配置=skip 留痕轮仍成功)/RETRO 摘要行(retro 工件 anchor_sweep 字段,G_RETRO 机检与 08 工件回算一致)。出口永不败轮(失败=失败信封记入 08-anchor-sweep-exits.json+信封 pipeline.finding_exits);dry-run 开关 OPS_SWEEP_DRY_RUN(默认关=真发;测试/golden 恒 1);replay 恒零外发(回声律同款)。**「出口只写不动作」红线**(票面钉死):从 finding 出发仅两写口——gh issue create 与 apprise 推送;无任何调权/停源/写数据面/源管理 API/规则库写口可达,由依赖面闭集结构性断言钉死(export 闭集恰三函数/spawn 目标恰 apprise/禁面符号零在场)。锚:ops/agent/pipeline/finding-exit.mjs、tools.mjs(ghIssueCreate/GH_WRITE_SUBCOMMANDS)、票 #184
+- **emit 守卫**:外发崩溃窗防重发机制(#184)——出口工件先记 phase=emitting 再外发、终记 emitted;同轮重入见 emitting/emitted 一律不重发(崩溃窗内外发状态不可知,宁少算交人工核对:issue 重复开可人关,漏发下轮补);工件缺席=首程照发。与「回声防线」的分工:回声防线管轮间重放不产新产物,emit 守卫管同轮恢复不重复外发。锚:ops/agent/pipeline/finding-exit.mjs(runFindingExits)
 
 ## It's working if
 

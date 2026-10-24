@@ -64,7 +64,7 @@ export const HEALTH_PIPELINE = [
     out: ["07-synth-report.md", "07-synth-transcript.jsonl"], gate: "G_SYNTH", artifact: "07-synth-report.md",
     fail: { retry: 1, terminal: "empty_text" } }, // 契约违例重试≤1;条目已落库不回滚(证据不灭失)
   { name: "ANCHOR_SWEEP", kind: "script", model: null,
-    out: ["08-anchor-sweep.json"], gate: "G_ANCHOR_SWEEP", artifact: "08-anchor-sweep.json",
+    out: ["08-anchor-sweep.json", "08-anchor-sweep-exits.json"], gate: "G_ANCHOR_SWEEP", artifact: "08-anchor-sweep.json",
     fail: { retry: 0, degrade: "anchor_finding", terminal: "infra" } }, // #182(#180 首批租户,加状态经 spec 授权):
   // 生产查询路径锚巡检(ANCHORS 全集,锚集真源=backend/ipdb/_eval/anchors.py);锚 finding 不持门
   // (失败=工件 finding 面,轮照常成功);求值面死=RETRO 同款降级旁路(失败信封落件证据不灭失);
@@ -122,6 +122,7 @@ const addUsage = (to, from) => { for (const k of ["input", "output", "totalToken
 
 function composeEnvelope(ctx, { ok, code, message }) { // 现有形状只增 pipeline 扩展字段(C稿 §4.4;旧消费方透传零改)
   const pipeline = { round_id: ctx.roundId, resumed_from: ctx.resumedFrom ?? null, replayed_of: ctx.state.replay_of, stages: ctx.state.stages };
+  if (ctx.state.finding_exits) pipeline.finding_exits = ctx.state.finding_exits; // #184:出口三件套信封留痕(webhook 未配置=skip 痕;RESUME 面经 state 持久)
   if (ok) return { ok: true, round: ctx.type, pkg: ctx.pkg, usage: { ...ctx.usage }, queue_writes: [],
     verify: ctx.verify ?? { ok: true, cited: 0 }, pipeline };
   const e = { ok: false, round: ctx.type, error: { code, message } };
