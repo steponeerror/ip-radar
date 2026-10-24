@@ -22,6 +22,11 @@ agent-config.json 存取 + 动态模型目录 + 状态出参。
   zai_api_key 兼容读 alias(api_keys 同家赢,旧字段原样保留不清除);
   write-only:出参只 {configured, tail4},完整 key 绝不进出参、错误消息与
   日志;空串/缺省 = 该家保持不改(无清除面);
+- tool_keys(发现通道扩槽,PR3a 2026-10-24 裁定):{toolId:key},槽闭集
+  {"jina"}(web_search s.jina.ai 消费,扩槽=代码面);同 write-only 遮蔽
+  (出参只 {configured, tail4});值非空校验(空串=422,与 api_keys「空=保持
+  不改」不同——票面明写非空校验;无清除面同);_ops_rounds._round_env 注入
+  JINA_API_KEY(与 ZAI_CODING_CN_API_KEY 同型:配置优先,改完即生效);
 - 坏文件显式报错不静默(沿 _ops_store._parse_precedent 判例):非法 JSON/
   顶层非映射/已知字段非 str/api_keys 非映射或值非 str → RuntimeError(路由
   500 / spawn infra 兜底),绝不伪装成「未配置」(无证据≠清白);未知额外键
@@ -61,7 +66,8 @@ _PROVIDER_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")  # pi provider id 形(keba
 
 _CONFIG_NAME = "agent-config.json"
 _MAX_KEY_LEN = 512  # _tokens.MAX_TOKEN_LEN 同值(管理面输入上限惯例)
-_KNOWN_FIELDS = ("model_health", "model_discover", "zai_api_key", "api_keys")
+_TOOL_KEY_IDS = ("jina",)  # 工具 key 槽闭集(发现通道 web_search,PR3a;扩槽=代码面非配置面)
+_KNOWN_FIELDS = ("model_health", "model_discover", "zai_api_key", "api_keys", "tool_keys")
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]  # 仓根(catalog.mjs 的 cwd)
 _CATALOG_SCRIPT = ("node", "ops/agent/catalog.mjs")  # 相对仓根(部署形态)
@@ -103,6 +109,14 @@ def read_config() -> dict:
                 isinstance(k, str) and isinstance(v, str) for k, v in api_keys.items()):
             raise RuntimeError("agent-config.json 字段形状坏: api_keys 必须是 {providerId: 字符串}")
         cfg["api_keys"] = dict(api_keys)
+    tool_keys = data.get("tool_keys")
+    if tool_keys is not None:
+        # 同 api_keys 读面宽容(str:str 即收,槽外 id 不在读取面拒——写面闭集校验;
+        # 前向兼容:未来扩槽不改旧文件读取)
+        if not isinstance(tool_keys, dict) or not all(
+                isinstance(k, str) and isinstance(v, str) for k, v in tool_keys.items()):
+            raise RuntimeError("agent-config.json 字段形状坏: tool_keys 必须是 {toolId: 字符串}")
+        cfg["tool_keys"] = dict(tool_keys)
     return cfg
 
 
@@ -192,14 +206,20 @@ def status() -> dict:
                                      or _MODEL_DEFAULTS["discover"].partition("/")[2]),
         "api_keys": {pid: {"configured": True, "tail4": key[-4:]}
                      for pid, key in sorted(keys.items())},
+        # tool_keys 同型遮蔽(configured+tail4,沿 api_keys 面;只报配置面——
+        # env 兑底通道经 spawn 继承透传,不在状态面伪装已配置)
+        "tool_keys": {tid: {"configured": True, "tail4": key.strip()[-4:]}
+                      for tid, key in sorted((cfg.get("tool_keys") or {}).items())},
         "catalog": cat,
         "catalog_source": source,
     }
 
 
 def update(model_health: str | None = None, model_discover: str | None = None,
-           api_keys: dict | None = None) -> dict:
-    """PUT:字段缺省 = 保持不改;api_keys 值空串/纯空白 = 该家保持不改。
+           api_keys: dict | None = None, tool_keys: dict | None = None) -> dict:
+    """PUT:字段缺省 = 保持不改;api_keys 值空串/纯空白 = 该家保持不改;
+    tool_keys 值非空校验(空串/纯空白 = 422,与 api_keys 不同——票面明写;
+    槽闭集 {"jina},槽外 id = 422 防拼写静默失效)。
 
     先全量校验再落盘(写前门:坏入参零写);模型校验用活目录(动态失败时
     即兜底闭集);返回写后 status()。入参形状(type)不在此收口——路由层
@@ -227,6 +247,21 @@ def update(model_health: str | None = None, model_discover: str | None = None,
             if len(key) > _MAX_KEY_LEN:
                 raise ValueError(f"api_keys[{pid}] 超长(>{_MAX_KEY_LEN} 字符)")  # 不回带值
             cleaned[pid] = key
+    cleaned_tools: dict[str, str] = {}
+    if tool_keys is not None:
+        if not isinstance(tool_keys, dict):
+            raise ValueError("tool_keys 必须是 {toolId: key} 映射")
+        for tid, key in tool_keys.items():
+            if tid not in _TOOL_KEY_IDS:  # 槽闭集:拼写错拒绝而非静默失效
+                raise ValueError(f"tool_keys 槽未知: {tid!r}(闭集: {'/'.join(_TOOL_KEY_IDS)})")
+            if not isinstance(key, str):
+                raise ValueError(f"tool_keys[{tid}] 必须是字符串")
+            key = key.strip()
+            if not key:  # 非空校验(PR3a 票面;与 api_keys 空=保持不改不同,无清除面同)
+                raise ValueError(f"tool_keys[{tid}] 必须非空(无清除面;清除=直接改盘)")
+            if len(key) > _MAX_KEY_LEN:
+                raise ValueError(f"tool_keys[{tid}] 超长(>{_MAX_KEY_LEN} 字符)")  # 不回带值
+            cleaned_tools[tid] = key
     cfg = read_config()  # 合并需要现状;坏文件 RuntimeError → 路由 500
     if model_health is not None:
         cfg["model_health"] = _qualified(model_health)
@@ -234,6 +269,8 @@ def update(model_health: str | None = None, model_discover: str | None = None,
         cfg["model_discover"] = _qualified(model_discover)
     if cleaned:
         cfg.setdefault("api_keys", {}).update(cleaned)
+    if cleaned_tools:
+        cfg.setdefault("tool_keys", {}).update(cleaned_tools)
     _ops_store.atomic_write_text(
         _config_path(), json.dumps(cfg, ensure_ascii=False, indent=2) + "\n")
     return status()

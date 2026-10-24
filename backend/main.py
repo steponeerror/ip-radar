@@ -1722,11 +1722,13 @@ async def read_ops_agent_config():
          dependencies=[*_ADMIN_DEPS], responses=_ERRS_422_500)
 async def update_ops_agent_config(payload: OpsAgentConfigIn):
     """字段缺省 = 保持不改；api_keys 值空串 = 该家保持不改（无清除面）；
+    tool_keys 值空串/槽外 id = 422（非空校验，PR3a）；
     目录外模型 422（消息不带 key 值）。"""
     try:
         return await asyncio.to_thread(
             _ipdb_ops_config.update,
-            payload.model_health, payload.model_discover, payload.api_keys)
+            payload.model_health, payload.model_discover, payload.api_keys,
+            payload.tool_keys)
     except ValueError as e:
         raise HTTPException(422, str(e))
     except RuntimeError as e:

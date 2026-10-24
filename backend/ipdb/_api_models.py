@@ -400,18 +400,21 @@ class OpsAgentConfigOut(_Out):
     model_health: str
     model_discover: str
     api_keys: dict[str, OpsAgentKeyStatusOut]
+    tool_keys: dict[str, OpsAgentKeyStatusOut]  # 发现通道工具 key(PR3a):同型遮蔽 configured+tail4
     catalog: dict[str, list[OpsCatalogModelOut]]
     catalog_source: str
 
 
 class OpsAgentConfigIn(BaseModel):
     """PUT 入参：字段全可省（缺省 = 保持不改）；api_keys 值空串 = 该家保持
-    不改。api_keys 故意不声明 dict[str,str]（pydantic 422 detail 回带 input
+    不改；tool_keys 值非空校验（槽闭集 {jina}）。api_keys/tool_keys 故意不声明
+    dict[str,str]（pydantic 422 detail 回带 input
     原值，非 str 值会被回显——违「永不回显」）；类型/长度/形状校验全在
     _ops_config.update（HTTPException 信封不带值）。"""
     model_health: Optional[str] = None
     model_discover: Optional[str] = None
     api_keys: Optional[dict] = None
+    tool_keys: Optional[dict] = None
 
 
 class ApiKeyOut(_Out):

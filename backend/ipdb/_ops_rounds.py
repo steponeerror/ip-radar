@@ -104,6 +104,12 @@ def _round_env() -> dict[str, str]:
         or os.environ.get("ZAI_CODING_CN_API_KEY", "").strip()
     if zai:
         env["ZAI_CODING_CN_API_KEY"] = zai  # zai env 兜底链不动(stored credential 优先)
+    # PR3a 发现通道扩槽:tool_keys.jina(agent-config)→ JINA_API_KEY 注入
+    # (web_search s.jina.ai 消费;与 ZAI_CODING_CN_API_KEY 同型:配置优先,
+    # 改完即生效;未配置不注入,override 灌 env 经继承透传保持兜底链)。
+    jina = (cfg.get("tool_keys") or {}).get("jina")
+    if jina and jina.strip():
+        env["JINA_API_KEY"] = jina.strip()
     return env
 
 
