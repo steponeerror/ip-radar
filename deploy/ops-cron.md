@@ -96,4 +96,5 @@ esac
 3. docker-compose.override.yml 增 `OPS_PIPELINE=pipeline`(灰度,待用户裁)。**前置条件更新(#170):真 provider 已接线落地(fixtures 面=faux/运行面=真调用 flash+glm-5.3,预算三闸真面同执法,选择逻辑纯函数+零网络单测)——原「模型步无条件 fauxProvider」禁令解除;剩余前置=生产段真 provider 冒烟一轮(A 一律/门全过+预算门实测数字入台账)+用户裁**(另注:真面 DEEP 微探针工具=下票,真面深验 confirmed/refuted 不可立证——verdict 预期 unresolved 占比高,GLOSSARY「微探针」缺口注记);
 4. `/var/log/ipradar-ops-cron.log` 轮转(logrotate 或按大小截断);
 5. (可选)生产 ops 树种子 `rules/suppressions.json`:拷 docs 仓规则件或空库 `{"version":0,"rules":[]}`。注:缺席=合法零规则态(与 _ops_review 同口径;首轮 VERIFY 零抑制照常过,首条规则经 RETRO 候选→四键采纳自动建形)——种子仅为带 R12/R7 起步,非必需(审后修 P1 改口径后死锁已除);
+   注(#170 审 P2-3):真面轮 crash 后 boot 会自动 resume 缺工件步(有界:每轮一次/仅缺工件步/#167 三规则)——无人值守时可能再花少量真钱,预算门 0.05¥ 硬拦,知悉即可;
 6. 生产段验收门(spec #161,部署后逐项收口,勿灭失):①P2 影子轮 N≥3(legacy 与 pipeline 并行,报告对照一致)②P3 三节报告影子对照 ③P4 剧本=人为停一个真源→条目经四键走查 ④首轮 RETRO 候选 ≥1 经采纳后下轮 VERIFY 生效(闭环)。

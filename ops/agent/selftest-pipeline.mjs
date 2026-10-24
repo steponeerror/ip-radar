@@ -770,7 +770,7 @@ await t("CLI 契约:用法错/坏 OPS_PIPELINE/replay 不存在轮/--to CLOSE �
 
 await t("同 id 重跑拒绝(bad_round 信封)——轮次目录不覆盖(证据不灭失)", async () => {
   const io = mkIo();
-  const r = await runPipeline({ roundId: R1, ...io });
+  const r = await runPipeline({ roundId: R1, fixturesDir: DEFAULT_FIXTURES_DIR, ...io }); // 审后修 P2-2:钉 faux 面——不钉则选 real 面,bad_round 检查若后移即潜伏真打 API
   assert.equal(r.ok, false);
   assert.equal(r.envelope.error.code, "bad_round");
 });
