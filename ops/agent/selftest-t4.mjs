@@ -24,8 +24,8 @@ const {
   // PR #177(工具通道修复,判例 2026-10-24-discover-dual-channel-dead):判例检索 JS 单源核心
   // 与通道错误分类器——RED 面先行(未实现时 undefined,下列各例红而不炸装载)。
   searchPrecedentsCore, classifyChannelError,
-  // PR3a 发现通道三件纯函数核(2026-10-24 裁定):归一/解析/新鲜门——离线钉死,网络面部署段真网验。
-  normalizeJinaRead, parseSerp, parseRss, RSS_FRESH_DAYS, classifyWebStatus,
+  // PR3a 发现通道三件纯函数核(2026-10-24 裁定;web_search 引擎 = pi-web-access MCP,同日中程用户令):
+  normalizeJinaRead, parseSerp, parseRss, RSS_FRESH_DAYS, classifyWebStatus, parseMcpSearchText, classifyMcpSearchError,
 } = await import("./tools.mjs");
 
 // ── fixture:用户 models.json(flash 定义,无 api/baseUrl)+ models-store(glm-5.3 全量)+ auth ──
@@ -574,19 +574,107 @@ await t("分类:402/balance→quota(quota 正则扩 PR3a);quota 文案「充值�
   assert.equal(classifyWebStatus(500, "boom", "web_read").code, "http_error", "非通道面状态归 http_error(暂态族,同 fetch_url 语义)");
 });
 
-await t("web_search:JINA_API_KEY 缺失→channel_auth 信封含 tool_keys 配置指引(零网络;欠费 402 面走 HTTP 状态分类不在此测)", async () => {
+await t("parseMcpSearchText:MCP wire 文本归一(真 fixture:provider/Sources 条目/机会式 snippet/Error 行;pi-web-access 0.44.0 实拍)", () => {
+  assert.equal(typeof parseMcpSearchText, "function", "parseMcpSearchText 未导出(RED 面应先红)");
+  const FX = `**Provider:** duckduckgo
+
+ipsets dynamically updated with firehol's update-ipsets.sh script - firehol/blocklist-ipsets
+Source: blocklist-ipsets/firehol_level1.netset at master - GitHub (https://github.com/firehol/blocklist-ipsets/blob/master/firehol_level1.netset)
+
+Level 1 provides basic security against the most well-known attackers, with the minimum of false positives.
+Source: GitHub - firehol/blocklist-ipsets: ipsets dynamically updated with ... (https://github.com/firehol/blocklist-ipsets)
+
+---
+
+**Sources:**
+1. blocklist-ipsets/firehol_level1.netset at master - GitHub
+   https://github.com/firehol/blocklist-ipsets/blob/master/firehol_level1.netset
+
+2. GitHub - firehol/blocklist-ipsets: ipsets dynamically updated with ...
+   https://github.com/firehol/blocklist-ipsets
+---
+Full search results are stored as responseId "mvm3csdaklwbz7".`;
+  const p = parseMcpSearchText(FX);
+  assert.equal(p.provider, "duckduckgo");
+  assert.equal(p.results.length, 2, "Sources 块逐条目机解");
+  assert.deepEqual(p.results.map((r) => r.url), [
+    "https://github.com/firehol/blocklist-ipsets/blob/master/firehol_level1.netset",
+    "https://github.com/firehol/blocklist-ipsets",
+  ]);
+  assert.match(p.results[0].snippet, /^ipsets dynamically/, "Source: 尾行前文=机会式 snippet");
+  assert.match(p.results[1].snippet, /false positives/);
+  assert.equal(p.error, null);
+  // 错误面:provider 失败以 Error: 行内嵌(isError:false,包内吞进 query 结果;真网实拍形)
+  const err = parseMcpSearchText("**Provider:** duckduckgo\n\nError: Configured search routing exhausted:\n  - duckduckgo [network]: fetch failed\n");
+  assert.equal(err.results.length, 0);
+  assert.match(err.error, /routing exhausted/);
+  // 零命中真形(answer 空):无 Sources 条目也无 Error → 成功零命中(宁少算不冒充失败)
+  const zero = parseMcpSearchText("**Provider:** duckduckgo\n\nNo results found.");
+  assert.equal(zero.results.length, 0);
+  assert.equal(zero.error, null);
+});
+
+await t("classifyMcpSearchError:四码同族(quota/credential/network/config 各归位;ENOENT→channel_missing rc127;超时→transient rc124;402/balance→quota;坏配置→channel_missing;兑底 io_error 带下一步)", () => {
+  assert.equal(typeof classifyMcpSearchError, "function", "classifyMcpSearchError 未导出(RED 面应先红)");
+  assert.equal(classifyMcpSearchError(new Error("jina search failed (quota): HTTP 402: Payment Required")).code, "quota");
+  assert.equal(classifyMcpSearchError(new Error("insufficient balance")).code, "quota");
+  assert.equal(classifyMcpSearchError(new Error("routing exhausted: - duckduckgo [quota]: rate limited")).code, "quota");
+  assert.equal(classifyMcpSearchError(new Error("brave search failed (credential): missing key")).code, "channel_auth");
+  assert.equal(classifyMcpSearchError(new Error("Configured search routing exhausted:\n  - duckduckgo [network]: fetch failed")).code, "transient");
+  assert.equal(classifyMcpSearchError(new Error("MCP CLI 提前退出(rc=1):Failed to parse /ops/web-search.json: Expected property name")).code, "channel_missing", "坏配置=部署面(通道不可用)");
+  const enoent = Object.assign(new Error("spawn node ENOENT"), { code: "ENOENT" });
+  assert.equal(classifyMcpSearchError(enoent).code, "channel_missing");
+  assert.equal(classifyMcpSearchError(enoent).rc, 127);
+  const to = classifyMcpSearchError(Object.assign(new Error("MCP 会话超时(>40000ms)"), { killed: true }));
+  assert.equal(to.code, "transient");
+  assert.equal(to.rc, 124);
+  assert.equal(classifyMcpSearchError(new Error("MCP 协议错误:weird")).code, "io_error");
+  for (const e of [enoent, new Error("x search failed (quota): y"), new Error("weird")]) {
+    assert.match(classifyMcpSearchError(e).reason, /下一步/, "每码文案带下一步合法动作(MCP isError 语义)");
+  }
+});
+
+await t("web_search 引擎接线:pi-web-access MCP CLI 可拉起(离线 initialize+tools/list 含 web_search;真网面部署段验)", async () => {
+  const cli = path.join(AGENT, "node_modules", "pi-web-access", "dist", "mcp-cli.js");
+  assert.ok(fs.existsSync(cli), "pi-web-access 未装配(npm ci 面;package.json pin 0.44.0)");
+  const r = await new Promise((resolve, reject) => {
+    const child = execFileCb(process.execPath, [cli], { timeout: 30_000 }, () => { /* exit 由 timeout 兑底 */ });
+    let buf = "";
+    const send = (o) => child.stdin.write(JSON.stringify(o) + "\n");
+    child.stdout.on("data", (d) => {
+      buf += d;
+      let i;
+      while ((i = buf.indexOf("\n")) >= 0) {
+        const l = buf.slice(0, i); buf = buf.slice(i + 1);
+        if (!l.trim()) continue;
+        const m = JSON.parse(l);
+        if (m.id === 1) { send({ jsonrpc: "2.0", method: "notifications/initialized" }); send({ jsonrpc: "2.0", id: 2, method: "tools/list" }); }
+        if (m.id === 2) { child.kill(); resolve(m.result); }
+      }
+    });
+    child.on("exit", () => reject(new Error("MCP CLI 提前退出(离线 initialize 不应触网)")));
+    send({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t4-selftest", version: "0" } } });
+  });
+  assert.ok(r.tools.some((tt) => tt.name === "web_search"), `MCP 工具面应含 web_search:${r.tools.map((tt) => tt.name).join(",")}`);
+});
+
+await t("web_search:坏路由配置(物化面损坏)→ channel_missing 信封(零网络;CLI 启动即崩,stderr 真因入信封)", async () => {
+  const BAD = fs.mkdtempSync(path.join(os.tmpdir(), "t4-pwa-bad-"));
+  fs.writeFileSync(path.join(BAD, "web-search.json"), "{broken json");
   const ws = host.tools.find((x) => x.name === "web_search");
-  const orig = process.env.JINA_API_KEY;
-  delete process.env.JINA_API_KEY;
+  const orig = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = BAD;
   try {
-    const r = await ws.execute("t_ws0", { query: "blocklist" });
+    const r = await ws.execute("t_ws_bad", { query: "offline" });
     const sc = r.structuredContent;
     assert.equal(sc.ok, false);
-    assert.equal(sc.code, "channel_auth");
-    assert.match(sc.reason, /JINA_API_KEY 未配置/);
-    assert.match(sc.reason, /tool_keys/, "信封带配置指引(agent-config tool_keys.jina)");
-    assert.match(sc.reason, /下一步/, "文案带下一步合法动作(MCP isError 语义)");
-  } finally { if (orig !== undefined) process.env.JINA_API_KEY = orig; }
+    assert.equal(sc.code, "channel_missing");
+    assert.match(sc.reason, /web-search\.json/, "stderr 真因(配置面)须入信封");
+    assert.equal(typeof sc.trace.rc, "number");
+  } finally {
+    if (orig !== undefined) process.env.PI_CODING_AGENT_DIR = orig; else delete process.env.PI_CODING_AGENT_DIR;
+    fs.rmSync(BAD, { recursive: true, force: true });
+  }
 });
 
 await t("web_read:目标 url 环回先拒(SSRF 同 fetch_url 规,零网络——Jina 中继不当内网探针)", async () => {

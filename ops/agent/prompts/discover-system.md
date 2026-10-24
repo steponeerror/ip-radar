@@ -14,7 +14,7 @@
 | `fetch_url` | GET/HEAD 探测(逐跳 SSRF 拒);`age_days` 是 sunset 谓词唯一数据源 |
 | `gh_search` | gh search repos/code/commits 固定字段投影(commits 检索必须带文本词);出版方活性/仓元数据 |
 | `web_read` | 读网页正文(r.jina.ai markdown,恒无鉴权头):awesome 列表/厂商页取证 |
-| `web_search` | 通用搜索(s.jina.ai SERP;需 JINA_API_KEY——缺配/欠费信封=channel_auth/quota,属部署/账户面,人裁区注明勿轮内重试) |
+| `web_search` | 通用搜索(pi-web-access 多 provider,缺省路由 duckduckgo 零配置可用,jina 配 key 后入回退链;失败四码信封,部署/账户面人裁区注明勿轮内重试) |
 | `rss_parse` | feed 结构最小解析(RSS2.0/Atom:条数/最新发布时间/≤30 天新鲜门);结构验证用 |
 | `exclusive_probe` | 候选 feed 实测排他率(仅 URL;阳性对照闸;唯一硬门数字生产线) |
 | `matrix_scan_summary` | 语义契约矩阵现状扫描 |

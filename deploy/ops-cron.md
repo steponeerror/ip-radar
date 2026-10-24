@@ -91,6 +91,30 @@ services:
   classifyChannelError;文案自带下一步),模型侧直接人裁区不重试——修复属部署动作,
   勿轮内自纠。
 
+## web_search 通道凭证(JINA_API_KEY;PR3a 发现通道薄工具)
+
+发现通道三件之一 web_search(s.jina.ai)2026 起强制 Bearer key;凭证走
+**agent-config tool_keys 扩槽**(与 GH_TOKEN 的 compose-override 面互补——
+tool_keys 是「模型运行时读」面,agent.mjs spawn env 注入):PUT 后每次 spawn
+现读,**改完即生效**(无需重启/重部署)。UI 配置面属后续批,当前经 API 配:
+
+```bash
+# 管理登录后(同上文 cron 登录法,容器内回环):
+curl -X PUT http://127.0.0.1:8000/api/ops/agent-config \
+  -H 'content-type: application/json' -b /tmp/ops-cookie.$$ \
+  -d '{"tool_keys": {"jina": "jina_<服务器本地秘密>"}}'
+```
+
+- **出参遮蔽**:GET/PUT 回显只 `{configured, tail4}`(沿 api_keys 面);完整
+  key 永不回显、永不入错误消息/日志/台账/裁决包(1113 纪律;web_search 失败
+  信封只携状态码与文案摘要)。值非空校验(空串 422);槽闭集 {"jina"}。
+- **实测事实(2026-10-24,两行为勿写反)**:r.jina.ai(web_read)裸调用无
+  Authorization 正常,带欠费 key 反 402——web_read 恒不带 key,无需配置;
+  s.jina.ai 必须 Bearer key:缺配 → channel_auth 信封(部署面);欠费 → 402
+  归 quota 信封(账户面:充值或窗口恢复后自然可用,模型侧人裁区不重试)。
+- **部署段真网验(待办)**:web_read 一发(无 key 应通);web_search 充值后
+  一发(402→quota 信封应转活)。
+
 ## FROZEN 鉴权矩阵核对(新触发源登记)
 
 - cron 是**新触发源**,不是新路由:走既有 `POST /api/ops/rounds`

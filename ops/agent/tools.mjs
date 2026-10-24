@@ -9,18 +9,20 @@
 // 失败面统一(铁律②):一切失败 = 结构化信封 {ok:false,code,reason},不抛裸栈、不静默;
 // 信封禁止入 evidence(语义门拒绝),降级人裁区。硬门数字只认 structuredContent,
 // 测量工具恒带 trace{cmd,rc,artifact}(铁律③)。
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import dns from "node:dns/promises";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { fetch as undiciFetch, Agent } from "undici";
 import { Type } from "@earendil-works/pi-ai";
 
 const execFileP = promisify(execFile);
+const nodeRequire = createRequire(import.meta.url); // ESM 下解析包内文件真路径(pi-web-access MCP CLI)
 const AGENT_DIR = path.dirname(fileURLToPath(import.meta.url));
 export const ROOT = path.resolve(AGENT_DIR, "..", ".."); // worktree 根(沙箱红线不变式:落位推导)
 export const DOCS_ROOT = process.env.DOCS_ROOT ?? path.join(ROOT, "docs"); // 符号链接 → docs 仓
@@ -47,7 +49,7 @@ const B = {
   webSearchPerRound: 6,
   rssParsePerRound: 6,
   webReadTimeoutMs: 20_000, // r.jina.ai 正文面 20s(票面;上游可 10s+)
-  webSearchTimeoutMs: 30_000, // s.jina.ai SERP 首查常 10-20s,给 30s
+  webSearchTimeoutMs: 40_000, // pi-web-access MCP:握手 ~1s + DDG 内部 30s 上限(pi-web-access 0.44.0)
 };
 const EVAL_PY = process.env.OPS_EVAL_PY ?? "/home/huxiao/dev/pi-ip-lookup-tool/backend/.venv/bin/python";
 const DATA_DIR = process.env.OPS_DATA_DIR ?? "/home/huxiao/dev/pi-ip-lookup-tool/backend/data";
@@ -338,8 +340,17 @@ export async function searchPrecedentsCore(keywords, { precedentsDir, env = proc
 // ── 发现通道三件纯函数核(PR3a 薄工具批;DESIGN §6 2026-10-24 修订裁定)──────────
 // web_read/web_search/rss_parse 的归一/解析核(离线单测面:selftest-t4 钉归一/截断/
 // 畸形行;网络层部署段真网验)。实测事实(2026-10-24,两行为勿写反):r.jina.ai 裸调用
-// (无 Authorization)正常,带欠费 key 反 402 → web_read 恒不带 key;s.jina.ai 必须
-// Bearer key(缺配=channel_auth 部署面;欠费 402=quota 账户面,充值即活,信封诚实报)。
+// (无 Authorization)正常,带欠费 key 反 402 → web_read 恒不带 key。
+// web_search 引擎 = pi-web-access(2026-10-24 用户令「用 pi-web-access 实现网络搜索」,
+// https://pi.dev/packages/pi-web-access;pin 0.44.0):多 provider 网络搜索 + 智能回退
+// 链。载体 = 包的 MCP CLI(dist/mcp-cli.js,stdio JSON-RPC)——程序化 dist/index.js
+// 只导出 pi extension 面,TS 源在 node_modules 下被 Node 拒绝类型剥离,MCP 是唯一稳定
+// 程序化口;每次调用 spawn 一发会话(无守护进程生命周期;预算 ≤6/轮,启动 ~0.3s 可
+// 接受)。provider 路由不在代码里选:配置单源 web-search.json(PI_CODING_AGENT_DIR
+// 指路,auth.json 同型判例——_ops_rounds._round_env 物化进 ops 树)的 searchRouting
+// 回退链 duckduckgo(keyless,isDuckDuckGoAvailable()≡true,零配置一发即活,离线
+// 确定性优先)→ jina(可用性 = jinaApiKey/JINA_API_KEY,充值/配置后自然入链);零配置
+// Exa MCP 需运行时拉起外部进程,不入链(确定性优先,2026-10-24 裁定)。
 export function normalizeJinaRead(rawText, { maxChars = 4000 } = {}) {
   // Jina r 缺省文本面:元数据前缀行(Title:/URL Source:/Markdown Content:,空行分隔);
   // 无前缀(上游形变)则 title=null、整文为正文(宁少算不猜)。
@@ -358,8 +369,10 @@ export function normalizeJinaRead(rawText, { maxChars = 4000 } = {}) {
 }
 
 export function parseSerp(rawJson, { num = 5 } = {}) {
-  // s.jina.ai SERP 归一:顶层数组或 {data:[…]} 两形;畸形行(非对象/缺 url)跳过不
-  // 冒充结果(宁少算);num 本地截断(truncated=服务端多回,诚实标)。
+  // SERP JSON 归一(通用形状,离线钉解析语义):顶层数组或 {data:[…]} 两形;畸形行
+  // (非对象/缺 url)跳过不冒充结果(宁少算);num 本地截断(truncated=服务端多回)。
+  // 注:web_search 引擎已换 pi-web-access MCP(PR3a 中程裁定),本画数不再被工具面
+  // 调用——保留为 SERP 归一语义钉(零死面:仅 selftest 引)。
   let rows;
   try {
     rows = JSON.parse(String(rawJson ?? ""));
@@ -439,6 +452,115 @@ function classifyWebStatus(status, bodyText, channel) {
   return { code, rc: status, reason: hint ? `${detail}——${hint}` : detail };
 }
 export { classifyWebStatus }; // 导出供 selftest-t4 状态面单测(四码语义与 classifyChannelError 同族对齐)
+
+// ── web_search 引擎:pi-web-access MCP 单发会话(2026-10-24 用户令;见上节选型注)──
+const MCP_SEARCH_CMD = "pi-web-access-mcp web_search"; // trace 展示名(真 CLI = resolveMcpCliPath)
+
+function resolveMcpCliPath() {
+  // 包无 exports 字段,子路径走 legacy 解析到真实文件;包 pin 0.44.0(package.json)
+  return nodeRequire.resolve("pi-web-access/dist/mcp-cli.js");
+}
+
+// 单发 MCP 会话:initialize → initialized → tools/call → 收应答即退。stderr 首个
+// Error: 行即时捕获(坏配置时 CLI 启动即崩,栈很长,首行是唯一真因面;尾窗只作兑底)。
+async function mcpCallToolOnce(toolName, args, timeoutMs) {
+  const cli = resolveMcpCliPath();
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [cli], { stdio: ["pipe", "pipe", "pipe"] });
+    let buf = "";
+    let stderrTail = "";
+    let stderrErrLine = null;
+    let settled = false;
+    const finish = (fn, v) => { if (!settled) { settled = true; clearTimeout(timer); child.kill(); fn(v); } };
+    const timer = setTimeout(() => finish(reject, Object.assign(new Error(`MCP 会话超时(>${timeoutMs}ms)`), { killed: true })), timeoutMs);
+    const send = (o) => child.stdin.write(JSON.stringify(o) + "\n");
+    child.on("error", (e) => finish(reject, e)); // ENOENT(spawn 面)走 classifyMcpSearchError → channel_missing
+    child.stderr?.on("data", (d) => {
+      const s = String(d);
+      stderrTail = `${stderrTail}${s}`.slice(-400);
+      if (!stderrErrLine) stderrErrLine = /(?:^|\n)(Error:[^\n]+)/.exec(s)?.[1] ?? /(Failed to parse[^\n]+)/.exec(s)?.[1] ?? null;
+    });
+    child.on("exit", (code) => finish(reject, Object.assign(
+      new Error(`MCP CLI 提前退出(rc=${code ?? "null"})${(stderrErrLine ?? stderrTail) ? `:${String(stderrErrLine ?? stderrTail).replace(/\s+/g, " ").trim().slice(0, 200)}` : ""}`),
+      { code: typeof code === "number" ? code : undefined })));
+    child.stdout.on("data", (d) => {
+      buf += d;
+      let i;
+      while ((i = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, i); buf = buf.slice(i + 1);
+        if (!line.trim()) continue;
+        let msg;
+        try { msg = JSON.parse(line); } catch { continue; }
+        if (msg.id === 1) {
+          send({ jsonrpc: "2.0", method: "notifications/initialized" });
+          send({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: toolName, arguments: args } });
+        } else if (msg.id === 2) {
+          if (msg.error) finish(resolve, { isError: true, text: `MCP 协议错误:${msg.error.message ?? ""}` });
+          else {
+            const r = msg.result ?? {};
+            finish(resolve, {
+              isError: r.isError === true,
+              text: (Array.isArray(r.content) ? r.content : []).map((c) => (c && typeof c.text === "string" ? c.text : "")).join("\n"),
+            });
+          }
+        }
+      }
+    });
+    send({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "ip-radar-ops-agent", version: "1.0" } } });
+  });
+}
+
+// pi-web-access 的 MCP wire 面只吐文本(structuredContent 被剥,formatSearchSummary
+// 语法):`**Provider:** <p>` 头 + Sources 块(`N. title\n   url`) + 段内机会式
+// `Source: t (u)` 尾行(前文=该源摘要,duckduckgo 形;无此形则 snippet 留空——宁少算)。
+// 错误面:provider 失败以 `Error: …` 行内嵌(isError:false!);真 fixture 钉死语法。
+export function parseMcpSearchText(text) {
+  const t = String(text ?? "");
+  const provider = t.match(/^\*\*Provider:\*\*\s*(.+)$/m)?.[1]?.trim() ?? null;
+  const srcIdx = t.indexOf("**Sources:**");
+  const results = [];
+  if (srcIdx >= 0) {
+    const end = t.indexOf("\n---", srcIdx);
+    const block = t.slice(srcIdx, end >= 0 ? end : undefined);
+    const re = /^(\d+)\.\s+(.*?)\r?\n\s+(\S+)\s*$/gm;
+    let m;
+    while ((m = re.exec(block)) !== null) results.push({ url: m[3].trim(), title: m[2].trim(), snippet: "" });
+  }
+  if (results.length) {
+    const byUrl = new Map(results.map((r) => [r.url, r]));
+    for (const para of t.slice(0, srcIdx >= 0 ? srcIdx : t.length).split(/\n{2,}/)) {
+      const sm = para.match(/^(?:.|\n)*?Source:\s+.*?\((https?:\/\/[^\s)]+)\)\s*$/);
+      if (!sm) continue;
+      const r = byUrl.get(sm[1]);
+      if (r && !r.snippet) r.snippet = para.replace(/Source:\s+.*$/, "").replace(/\s+/g, " ").trim().slice(0, 300);
+    }
+  }
+  const error = t.match(/^Error:\s*(.+)$/m)?.[1]?.trim() ?? null;
+  return { provider, results, error };
+}
+
+// MCP 面失败分类(四码同族;SearchProviderError.kind 词汇入判定):
+// channel_missing(spawn ENOENT/rc127、config 形坏=部署面)> quota(402/429/balance/
+// insufficient)> channel_auth(credential/auth/401/403)> transient(超时/network/aborted)
+// > io_error 兑底(解析/协议面,文案带下一步:人裁区注明勿补数)。
+const MCP_SEARCH_KINDS = new Set(["transient", "quota", "network", "credential", "config", "auth", "invalid-request", "invalid-response", "unsupported", "aborted", "unknown"]);
+export function classifyMcpSearchError(failure, { rc } = {}) {
+  const msg = String(failure?.message ?? failure ?? "");
+  let code; let rcr = typeof rc === "number" ? rc : 1;
+  if (failure?.code === "ENOENT" || rcr === 127) { code = "channel_missing"; rcr = 127; }
+  else if (failure?.killed === true || failure?.signal === "SIGTERM" || failure?.code === "ETIMEDOUT" || /timeout|超时|aborted/i.test(msg)) { code = "transient"; rcr = 124; }
+  else {
+    const kinds = [...msg.matchAll(/(?:failed \(|\[)(\w+)(?:\)|\])/g)].map((m) => m[1]).filter((k) => MCP_SEARCH_KINDS.has(k));
+    if (kinds.includes("quota") || /\b40[29]\b|balance|insufficient/i.test(msg)) code = "quota";
+    else if (kinds.includes("credential") || kinds.includes("auth") || /credential|not logged in|\b40[13]\b/i.test(msg)) code = "channel_auth";
+    else if (kinds.includes("network")) code = "transient";
+    else if (kinds.includes("config") || /Failed to parse .*web-search\.json|Invalid config/i.test(msg)) code = "channel_missing";
+    else code = "io_error";
+  }
+  const detail = `web_search 通道失败(pi-web-access MCP;rc=${rcr}):${msg.replace(/\s+/g, " ").slice(0, 200)}`;
+  const hint = CHANNEL_HINTS[code] ?? "下一步:候选移人裁区注明信封原文;勿替失败补数(无证据≠清白)";
+  return { code, rc: rcr, reason: `${detail}——${hint}` };
+}
 
 // ── 读面白名单(融合必保 4:显式拒 .env/密钥模式/.venv/data;门=实现双层之实现层)──
 const DENY_NAME = [/\.env(\.|$)/i, /\.pem$/i, /\.p12$/i, /\.key$/i, /(^|[-_.])(priv|secret|credential)s?([-_.]|$)/i];
@@ -890,10 +1012,13 @@ export class ToolHost {
   }
 
   webSearch() {
+    // 引擎 = pi-web-access MCP(2026-10-24 用户令;选型注见纯函数节);provider 路由
+    // 走物化 web-search.json 的 searchRouting 链(duckduckgo keyless 起步,jina 配 key
+    // 后入链)——零配置一发即活,取代 Jina 充值前置。契约面与本工具原规格一致。
     return {
       name: "web_search",
       label: "通用搜索",
-      description: "只读。GET s.jina.ai/<query 百分号编码> 取 SERP(通用搜索补缺)。需 Bearer JINA_API_KEY(call-time 读 env;缺配=channel_auth、欠费 402=quota——均部署/账户面,人裁区注明);num≤8 缺省 5(本地截断+truncated);每轮≤6 次。",
+      description: "只读。pi-web-access 多 provider 网络搜索(缺省路由 duckduckgo,零配置可用;jina 配 key 后入回退链):SERP 归一 {url,title,snippet}。失败四码信封(channel_missing/quota/channel_auth/transient,部署/账户面人裁区注明);num≤8 缺省 5(本地截断+truncated);每轮≤6 次。",
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
       parameters: Type.Object({
         query: Type.String({ minLength: 1, maxLength: 256 }),
@@ -901,36 +1026,33 @@ export class ToolHost {
       }),
       outputSchema: Type.Object({
         ok: Type.Boolean(), query: Type.String(), n: Type.Number(), truncated: Type.Boolean(),
+        provider: Type.Union([Type.String(), Type.Null()]),
         results: Type.Array(Type.Object({ url: Type.String(), title: Type.String(), snippet: Type.String() })),
-        trace: Type.Object({ channel: Type.String(), status: Type.Number() }),
+        trace: Type.Object({ cmd: Type.String(), rc: Type.Number() }),
       }),
       execute: async (callId, p) => {
         const num = p.num ?? 5;
-        const key = (process.env.JINA_API_KEY ?? "").trim(); // call-time 读(agent-config tool_keys.jina→_round_env 注入;配置优先改完即生效)
         try {
-          if (!key) throw Object.assign(new Error(
-            `JINA_API_KEY 未配置(agent-config tool_keys.jina;见 deploy/ops-cron.md):s.jina.ai 2026 起强制 Bearer key;余额不足属 quota(充值即活)——${CHANNEL_HINTS.channel_auth}`), { code: "channel_auth" });
-          const res = await safeFetch(`https://s.jina.ai/${encodeURIComponent(p.query)}?num=${num}`, {
-            method: "GET", maxBytes: B.fetchBytes, timeoutMs: B.webSearchTimeoutMs,
-            headers: { authorization: `Bearer ${key}` }, // 恒带 key(r 端相反:恒不带——两行为勿写反,2026-10-24 实测)
-            allowStatus: true, // 402/429→quota、401/403→channel_auth(欠费信封诚实报)
-          });
-          const text = res.body.toString("utf8");
-          if (res.status >= 400) {
-            const cls = classifyWebStatus(res.status, text, "web_search");
+          const r = await mcpCallToolOnce("web_search", { query: p.query, numResults: num }, B.webSearchTimeoutMs);
+          const parsed = parseMcpSearchText(r.text);
+          if (r.isError || (!parsed.results.length && parsed.error)) {
+            const cls = classifyMcpSearchError(parsed.error ?? r.text);
             return this.finish(callId, "web_search",
-              { ok: false, code: cls.code, reason: cls.reason, query: p.query, trace: { channel: "s.jina.ai", status: res.status } },
+              { ok: false, code: cls.code, reason: cls.reason, query: p.query, provider: parsed.provider, trace: { cmd: MCP_SEARCH_CMD, rc: cls.rc } },
               `web_search 失败信封:${cls.code}: ${cls.reason}`);
           }
-          const { results, truncated } = parseSerp(text, { num });
-          const st = { ok: true, query: p.query, n: results.length, truncated, results, trace: { channel: "s.jina.ai", status: res.status } };
-          const c = `搜索 "${p.query}" → ${results.length} 条${truncated ? "(服务端多回,本地截断)" : ""}\n`
-            + results.map((r) => `- ${r.title || r.url}\n  ${r.url}${r.snippet ? `\n  ${r.snippet}` : ""}`).join("\n");
+          const truncated = parsed.results.length > num;
+          const results = parsed.results.slice(0, num).map((x) => ({ url: x.url, title: x.title, snippet: x.snippet.slice(0, 300) }));
+          const st = { ok: true, query: p.query, n: results.length, truncated, provider: parsed.provider, results, trace: { cmd: MCP_SEARCH_CMD, rc: 0 } };
+          const c = `搜索 "${p.query}" → ${results.length} 条(provider=${parsed.provider ?? "?"}${truncated ? ";服务端多回本地截断" : ""})\n`
+            + results.map((x) => `- ${x.title || x.url}\n  ${x.url}${x.snippet ? `\n  ${x.snippet}` : ""}`).join("\n");
           return this.finish(callId, "web_search", st, c);
         } catch (e) {
-          const env = envelope(e.code ?? "network", e.message);
-          return this.finish(callId, "web_search", { ...env, query: p.query, trace: { channel: "s.jina.ai", status: 0 } },
-            `web_search 失败信封:${env.code}: ${env.reason}`);
+          // spawn 面(ENOENT/超时/CLI 启动崩——坏配置 stderr 在消息里)
+          const cls = classifyMcpSearchError(e);
+          return this.finish(callId, "web_search",
+            { ok: false, code: cls.code, reason: cls.reason, query: p.query, provider: null, trace: { cmd: MCP_SEARCH_CMD, rc: cls.rc } },
+            `web_search 失败信封:${cls.code}: ${cls.reason}`);
         }
       },
     };
