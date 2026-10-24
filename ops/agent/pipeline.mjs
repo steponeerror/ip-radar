@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // pipeline.mjs — 健康轮轮次状态机宿主(P2 比稿 C P0 骨架;spec #161;详设 notes/p2-design-c-pipelinefirst-2026-10-23.md §2/§4)。
-// 用法: node ops/agent/pipeline.mjs health [--round-id ID] [--fixtures DIR]          ← 跑一轮(P0 模型步恒 faux,零 API)
+// 用法: node ops/agent/pipeline.mjs health [--round-id ID] [--fixtures DIR]          ← 跑一轮(显式 --fixtures=faux 面;缺省=真 provider 面,#170)
 //       node ops/agent/pipeline.mjs replay <round_id> [--from STAGE] [--to STAGE] [--dry] [--fixtures DIR]
 // 三层职责线(DESIGN.md §2):本文件=宿主层只编排——定义表(数据)驱动引擎,门全机检(pipeline/gates.mjs),
-// 脚本步(pipeline/steps.mjs)只测量不判断,模型步经 pipeline/faux.mjs(P0 faux provider;P3 换真 provider 零引擎改动)。
+// 脚本步(pipeline/steps.mjs)只测量不判断,模型步经 pipeline/faux.mjs(#170:fixtures 面 faux/运行面真 provider;选择=selectModelFace,面记入 state.model_face)。
 // 契约沿用 agent.mjs spawn 契约:stdout 末行=轮次信封(现有形状只增 pipeline 扩展字段,C稿 §4.4);
 // stderr 阶段行第三次修约(C稿 §5.2):[stage] <NAME> start / done gate=PASS dur=412s artifact=01-….json /
 // fail gate=G_X code=<九词> reason=…;错误码沿用九词闭集零新词(哪一步失败由 pipeline.stages[].status 表达);
@@ -16,9 +16,10 @@ import { DOCS_ROOT } from "./tools.mjs";
 import { ERROR_CODES } from "./agent.mjs";
 import * as steps from "./pipeline/steps.mjs";
 import * as gates from "./pipeline/gates.mjs";
-import { runModelStep } from "./pipeline/faux.mjs";
+import { runModelStep, selectModelFace } from "./pipeline/faux.mjs";
 
 const AGENT_DIR = path.dirname(fileURLToPath(import.meta.url));
+export const DEFAULT_FIXTURES_DIR = path.join(AGENT_DIR, "fixtures", "pipeline"); // 缺省 fixtures 路径(自测显式引用=同路径显式面,#170)
 // ops 树 = DOCS_ROOT 派生(C稿 §5.2,同 queue/artifacts 判例);按调用 env 解析(P4 #166:
 // 条目库真写面 ops/items 共树,自测需逐轮独立 DOCS 树隔离在飞面;CLI 面=进程 env 同一拼写)。
 const opsRootOf = (env) => path.join(env.DOCS_ROOT ?? process.env.DOCS_ROOT ?? DOCS_ROOT, "ops");
@@ -99,13 +100,14 @@ function mkCtx(opts, io) {
   const budgetCny = +budgetRaw; // NaN 静默放行=审后修 P2-4:非法值退出 2 不带病跑轮
   if (!Number.isFinite(budgetCny) || budgetCny < 0)
     throw Object.assign(new Error(`OPS_PIPELINE_BUDGET_CNY 须为非负数,得到:${budgetRaw}`), { usage: true });
-  const fixturesDir = path.resolve(opts.fixturesDir ?? path.join(AGENT_DIR, "fixtures", "pipeline"));
+  const fixturesDir = path.resolve(opts.fixturesDir ?? DEFAULT_FIXTURES_DIR);
+  const modelFace = selectModelFace({ fixturesExplicit: opts.fixturesDir != null, inherited: opts.inheritedModelFace ?? null }); // 面选择(#170:显式 fixtures=faux/继承面/缺省 real;纯函数真源在 faux.mjs)
   const state = { schema: 1, round_id: roundId, type, pipeline_mode: io.env.OPS_PIPELINE ?? process.env.OPS_PIPELINE ?? "legacy",
-    status: "in_flight", stage: null, stages: [], budget_cny: budgetCny, fixtures_dir: fixturesDir, prompt_hashes: {},
+    status: "in_flight", stage: null, stages: [], budget_cny: budgetCny, fixtures_dir: fixturesDir, model_face: modelFace, prompt_hashes: {},
     started_at: nowIso(), updated_at: nowIso(), resume_count: 0, replay_of: opts.replayOf ?? null };
   const OPS_ROOT = opsRootOf(io.env); // 本轮 ops 树(rounds/rules/retro/items 同根;items=条目库真写面 P4 #166)
   return { type, roundId, dir: path.join(OPS_ROOT, "rounds", roundId), env: io.env, log: io.log,
-    fixturesDir, budgetCny, opsRoot: OPS_ROOT, ...ctxPaths(OPS_ROOT, roundId),
+    fixturesDir, modelFace, budgetCny, opsRoot: OPS_ROOT, ...ctxPaths(OPS_ROOT, roundId),
     ledgerFile: io.env.LEDGER_FILE ?? process.env.LEDGER_FILE ?? path.join(DOCS_ROOT, "ops", "ledger.md"),
     pkg: null, verify: null, envelope: null, usage: { input: 0, output: 0, totalTokens: 0, cost: 0 }, state };
 }
@@ -341,12 +343,15 @@ export async function runReplay(opts = {}) {
       if (prefixes.some((p) => f.startsWith(p))) fs.copyFileSync(path.join(srcDir, f), path.join(dir, f));
     }
   }
-  const ctx = mkCtx({ ...opts, roundId: replayId, replayOf: roundId }, io);
+  // 原件面读取(#170 继承;先于 mkCtx——面选择消费)与 skipped 集(审后修 P2-3 dry 跳门)。
+  // 面继承:真轮重放保真再花真钱;--fixtures=faux 零成本审计 override;pre-#170 轮恒 faux。
+  const origState = JSON.parse(fs.readFileSync(path.join(srcDir, "state.json"), "utf8"));
+  const origFace = origState?.model_face ?? null;
+  const origSkipped = (origState?.stages ?? [])
+    .filter((s) => s?.status === "skipped").map((s) => s.name);
+  const ctx = mkCtx({ ...opts, roundId: replayId, replayOf: roundId, inheritedModelFace: origFace ?? "faux" }, io);
   ctx.retroAuditKey = dry ? roundId : replayId; // dry 审原件工件;重执行审重放自产
   writeState(ctx);
-  // dry 审计对原件跳过的步跳门(审后修 P2-3):读原件 state.json 的 skipped 集
-  const origSkipped = (JSON.parse(fs.readFileSync(path.join(srcDir, "state.json"), "utf8"))?.stages ?? [])
-    .filter((s) => s?.status === "skipped").map((s) => s.name);
   const failure = await runStages(ctx, { fromIdx: RUNNABLE.indexOf(from), toIdx: RUNNABLE.indexOf(to), dry, skippedInOriginal: origSkipped });
   ctx.state.status = failure ? "failed" : "done"; // 重放目录必终态(#167:boot 恢复扫描不把 -rN 目录误当活轮)
   writeState(ctx);
@@ -380,7 +385,7 @@ export async function runResume(opts = {}) {
   // ctx 重建:state.json 是唯一真源(budget/fixtures 等从崩溃现场复原;usage 从零计——
   // 崩溃尝试的已花量不可回收,恢复轮 usage=下界,宁少算)
   const ctx = { type: state.type, roundId, dir, env: io.env, log: io.log,
-    budgetCny: state.budget_cny, fixturesDir: state.fixtures_dir, opsRoot: OPS_ROOT,
+    budgetCny: state.budget_cny, fixturesDir: state.fixtures_dir, modelFace: state.model_face ?? "faux", opsRoot: OPS_ROOT,
     ...ctxPaths(OPS_ROOT, roundId), // 单一形状源(mkCtx 同;终审 smell 收口)
     ledgerFile: io.env.LEDGER_FILE ?? process.env.LEDGER_FILE ?? path.join(DOCS_ROOT, "ops", "ledger.md"),
     pkg: null, verify: null, envelope: null, usage: { input: 0, output: 0, totalTokens: 0, cost: 0 }, state };
