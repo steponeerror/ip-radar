@@ -151,3 +151,14 @@ def test_other_leg_failure_still_aborts(tmp_path):
     assert "==> readout:" not in out
     assert "完成" not in out
     assert not (tmp_path / "heartbeat-marker").exists(), "半途中止不得推心跳"
+
+
+def test_agg_share_leg_in_report_family(tmp_path):
+    """agg-share 腿(终审修单 F6):工件落 model/ 子目录并入报告族。"""
+    repo = _make_repo(tmp_path)
+    stubs = _make_stubs(tmp_path)
+    rc, out = _run_monthly(repo, stubs, tmp_path)
+    assert rc == 0, out
+    assert "==> agg-share:" in out, out
+    assert list(_report_root(repo).glob("model/agg-share-*.json")), \
+        "agg-share 工件缺席=报告族缺员"

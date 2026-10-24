@@ -2,9 +2,11 @@
 # 月轮全量评估(Eval Algorithm v2 Phase 1 收口;决策 #6:手动触发,
 # 错峰可前置 nice/ionice,如 `nice -n 19 ionice -c3 bash scripts/monthly_eval.sh`)。
 # 流程:① 守卫(须在 master 且工作区 clean)② rsync 生产 volume 镜像到本地
-# ③ 镜像 manifest 守卫(S7: 塕缩即止, 先于读数)④ 六连 eval 命令
+# ③ 镜像 manifest 守卫(S7: 塕缩即止, 先于读数)④ 八连 eval 命令
 # (--model 先落盘本轮;--audit/--anchors 只读 model 历史但各落己件
-# audit-*/anchors-*.json(Phase 2 T8,清偿 Phase 1 T14 缓议);--temporal 读
+# audit-*/anchors-*.json(Phase 2 T8,清偿 Phase 1 T14 缓议);--agg-share
+# 印证对聚合器占比披露(#183/spec #180 Q4,只测量不持门 exit 恒 0,落
+# model/agg-share-*.json);--temporal 读
 # 历史落 temporal-*.json;--readout
 # 组合四层读数管线出月报 monthly-*.md + action-block.json + northstar-*.json
 # (#185 能力轨北星记录,只观测不持门))
@@ -114,6 +116,7 @@ if [ "$DRY_RUN" != 1 ] && [ "$ANCHORS_RC" != 0 ]; then
   echo "!! anchors 腿 rc=$ANCHORS_RC:回归红态(anchors-*.json 已照写留证)——红态记录≠管线中止,后续腿照跑,结尾外显此 rc"
 fi
 run_step dsem     --dsem     # DS-EM 公平对决(advisory)
+run_step agg-share --agg-share  # 印证对聚合器占比披露(#183;只测量不持门,exit 恒 0)
 run_step audit    --audit    # 谱系前向流审计(读 model 历史)
 run_step temporal --temporal # λ_s 确认率(读 model 历史,须 ≥2 轮)
 run_step readout  --readout  # 月轮四层读数(§4.2/S26: 资产+四层读数+行动区块+月报)
@@ -122,7 +125,9 @@ run_step readout  --readout  # 月轮四层读数(§4.2/S26: 资产+四层读数
 # 七命令齐全=活:七写者均查本轮工件(mtime 晚于脚本启动)。audit/anchors
 # json 落盘已清偿(Phase 2 T8,原 T14 缓议)→ 从退出码门升格报告族写者
 # (anchors 失败仍 sys.exit(1) 双保险;audit advisory 按设计不拦退出码,
-# 靠工件缺席即死把关)。
+# 靠工件缺席即死把关)。agg-share 入族(#183 终审修单 F6):exit 恒 0
+# 只测量不持门,但工件缺席即族缺员(写者身份≠门身份,同 northstar 反向
+# 面的对称律:观测件不得触活族门,族员工件缺席仍是死)。
 # 缺员即死(半途中止=死,不推心跳)。心跳落生产 volume,生产侧
 # _alerts 只认文件 mtime(IP_RADAR_EVAL_HEARTBEAT,>35d 告警;时基
 # 独立 S6,不信管线自报)。
@@ -146,10 +151,10 @@ check_family() {  # check_family <label> <subdir> <name-pattern> [排除pattern.
   fi
 }
 echo
-# 报告族 7 写者(能力轨北星件 #185 与 monthly-*.md 同腿先写、只观测
-# 不持门, 不另设族员):model/dsem/audit/anchors 落 model/ 子目录,
+# 报告族 8 写者(能力轨北星件 #185 与 monthly-*.md 同腿先写、只观测
+# 不持门, 不另设族员):model/dsem/agg-share/audit/anchors 落 model/ 子目录,
 # all/temporal/readout 落报告根(monthly-*.md 缺月轮读数即缺员)。
-echo "==> 报告族齐全校验(model/all/anchors/dsem/audit/temporal/readout)"
+echo "==> 报告族齐全校验(model/all/anchors/dsem/agg-share/audit/temporal/readout)"
 check_family model    model 'model-*.json'
 # all 腿排除: temporal-*/northstar-* 同带 ts 后缀形状但不属逐源 verdict
 # 件 —— northstar(#185 能力轨观测件)若不排除, 会顶替 all 腿满足校验
@@ -157,6 +162,7 @@ check_family model    model 'model-*.json'
 check_family all      ''     '*-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9].json' 'temporal-*' 'northstar-*'
 check_family anchors  model 'anchors-*.json'
 check_family dsem     model 'dsem-*.json'
+check_family agg-share model 'agg-share-*.json'
 check_family audit    model 'audit-*.json'
 check_family temporal ''     'temporal-*.json'
 check_family readout  ''     'monthly-*.md'
