@@ -23,7 +23,8 @@ agent-config.json 存取 + 动态模型目录 + 状态出参。
   write-only:出参只 {configured, tail4},完整 key 绝不进出参、错误消息与
   日志;空串/缺省 = 该家保持不改(无清除面);
 - tool_keys(发现通道扩槽,PR3a 2026-10-24 裁定):{toolId:key},槽闭集
-  {"jina"}(web_search s.jina.ai 消费,扩槽=代码面);同 write-only 遮蔽
+  {"jina"}(web_search 引擎已换 pi-web-access MCP(同日用户裁定);jina key 物化
+  web-search.json jinaApiKey 入回退链,扩槽=代码面);同 write-only 遮蔽
   (出参只 {configured, tail4});值非空校验(空串=422,与 api_keys「空=保持
   不改」不同——票面明写非空校验;无清除面同);_ops_rounds._round_env 注入
   JINA_API_KEY(与 ZAI_CODING_CN_API_KEY 同型:配置优先,改完即生效);

@@ -507,6 +507,12 @@ await t("normalizeJinaRead:元数据前缀剥离/Title 提取/max_chars 截断/�
   assert.equal(n3.title, null);
   assert.equal(n3.content, "裸正文无元数据前缀");
   assert.equal(n3.truncated, false);
+  // 审后修 P2 钉:Published Time 前缀行同样剥离(带日期页面真形,首发 fixture 遗漏)
+  const md4 = "Title: T\n\nURL Source: https://example.com/x\n\nPublished Time: Fri, 23 Oct 2026 22:53:33 GMT\n\nMarkdown Content:\n正文AA";
+  const n4 = normalizeJinaRead(md4, { maxChars: 1000 });
+  assert.ok(!n4.content.includes("Published Time"), "Published Time 行不得漏入正文");
+  assert.equal(n4.content, "正文AA");
+  assert.equal(n4.title, "T");
 });
 
 await t("parseSerp:数组/data 包裹两形;畸形行(字符串/null/数字/缺 url)跳过不冒充;num 本地截断+truncated;非 JSON→io_error", () => {
@@ -612,6 +618,9 @@ Full search results are stored as responseId "mvm3csdaklwbz7".`;
   const zero = parseMcpSearchText("**Provider:** duckduckgo\n\nNo results found.");
   assert.equal(zero.results.length, 0);
   assert.equal(zero.error, null);
+  // 审后修 P2 钉:wire 漂移哨——三无(provider/Sources/Error)且非空 → io_error 执出
+  // (升级后语法变形不得伪装成零命中;成功面必有 Provider 头,0.44.0 真网实拍钉)
+  assert.throws(() => parseMcpSearchText("Some totally changed format v9\nno markers at all"), (e) => e.code === "io_error");
 });
 
 await t("classifyMcpSearchError:四码同族(quota/credential/network/config 各归位;ENOENT→channel_missing rc127;超时→transient rc124;402/balance→quota;坏配置→channel_missing;兑底 io_error 带下一步)", () => {

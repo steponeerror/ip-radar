@@ -361,7 +361,10 @@ export function normalizeJinaRead(rawText, { maxChars = 4000 } = {}) {
     title = lines[0].slice("Title:".length).trim() || null;
     i = skipBlank(1);
   }
+  // 前缀族逐行可选剥离(审后修 P2:Published Time 行——真 fixture 首发遗漏,带日期页
+  // 面该元数据行会漏入正文;同 URL Source 型,出现才吃)
   if (lines[i]?.startsWith("URL Source:")) i = skipBlank(i + 1);
+  if (lines[i]?.startsWith("Published Time:")) i = skipBlank(i + 1);
   if (lines[i]?.startsWith("Markdown Content:")) i += 1;
   const body = lines.slice(i).join("\n").trim();
   const content = body.slice(0, maxChars);
@@ -474,6 +477,10 @@ async function mcpCallToolOnce(toolName, args, timeoutMs) {
     const finish = (fn, v) => { if (!settled) { settled = true; clearTimeout(timer); child.kill(); fn(v); } };
     const timer = setTimeout(() => finish(reject, Object.assign(new Error(`MCP 会话超时(>${timeoutMs}ms)`), { killed: true })), timeoutMs);
     const send = (o) => child.stdin.write(JSON.stringify(o) + "\n");
+    // stdin EPIPE 守卫(审后修 P2):child 在应答后、下条 send 前死亡时 write 触发
+    // EPIPE——未挂监听会让流错误裸崩 agent 进程(违铁律②);此处静默,结局由既有
+    // exit/error 事件携带(MCP CLI 提前退出信封),无信息丢失。
+    child.stdin.on("error", () => {});
     child.on("error", (e) => finish(reject, e)); // ENOENT(spawn 面)走 classifyMcpSearchError → channel_missing
     child.stderr?.on("data", (d) => {
       const s = String(d);
@@ -536,6 +543,13 @@ export function parseMcpSearchText(text) {
     }
   }
   const error = t.match(/^Error:\s*(.+)$/m)?.[1]?.trim() ?? null;
+  // wire 漂移哨(审后修 P2:升级后语法漂移会伪装成「零命中」):0.44.0 成功面必有
+  // **Provider:** 头(真网实拍 fixture 钉);三无(provider/Sources/Error)且文本非空
+  // = wire 变形 → io_error 信封,宁报通道异常不报假零。**包升级必须复跑真网 fixture**
+  // (selftest 钉的是 0.44.0 语法)。
+  if (!provider && !results.length && !error && t.trim()) {
+    throw Object.assign(new Error("MCP wire 文本无 Provider/Sources/Error 标记(语法漂移?pi-web-access 版本升级须复验)"), { code: "io_error" });
+  }
   return { provider, results, error };
 }
 
