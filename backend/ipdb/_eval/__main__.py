@@ -362,8 +362,10 @@ def run_readout(registry, out_dir, *, assets_dir=None, keysets_dir=None,
     from .layer_builders import PER_SOURCE_N, build_all_monthly, non_vpn_resolvers
     from .layered import assemble_four_layers, epsilon_sensitivity, layered_readout
     from .monthly import (compose_action_block, compose_monthly_md,
-                          load_dispositions, render_anchor_oc,
-                          render_consensus_diag, render_scorecard,
+                          load_anchor_green, load_dispositions,
+                          load_prev_northstar, northstar_record,
+                          render_anchor_oc, render_consensus_diag,
+                          render_northstar, render_scorecard,
                           render_steal_parking_diag)
 
     out_dir = Path(out_dir)
@@ -434,6 +436,18 @@ def run_readout(registry, out_dir, *, assets_dir=None, keysets_dir=None,
     prev_items, prev_header = _load_prev_action_block(out_dir)
     dispositions = load_dispositions(out_dir)
     today = date.today()
+    # 能力轨北星观测件(#185, STANDARD.md E-5)——只观测不持门: 零阈值
+    # 零退出码零 CI 面, 与回归轨(--anchors 失败 sys.exit(1))双轨分立
+    # (ADR 0008 决策 2)。锚读数直读本轮 --anchors 腿工件(单一真源,
+    # 月轮真实序先于本腿); 件先于月报落盘 → 报告族以 monthly-*.md 为
+    # readout 腿代表即覆盖本件存在性(monthly_eval.sh 报告族不另设腿)。
+    ns = northstar_record(
+        readout, load_anchor_green(out_dir / "model"),
+        load_prev_northstar(out_dir, run_id),
+        run_id=run_id, eval_env=eval_env(), today=today)
+    (out_dir / f"northstar-{run_id}.json").write_text(
+        json.dumps(ns, indent=1, ensure_ascii=False), encoding="utf-8")
+    north_star_lines = render_northstar(ns)
     items = compose_action_block(readout, prev_items, dispositions, today)
 
     model_dir = out_dir / "model"
@@ -461,7 +475,8 @@ def run_readout(registry, out_dir, *, assets_dir=None, keysets_dir=None,
          "prev_fingerprints": prev_fp,
          "annual": dispositions.get("last_annual_review"),
          "today": today, "epsilon": eps},
-        steal_parking_lines=render_steal_parking_diag(keysets_root))
+        steal_parking_lines=render_steal_parking_diag(keysets_root),
+        north_star_lines=north_star_lines)
     md_path = out_dir / f"monthly-{run_id}.md"
     md_path.write_text(md, encoding="utf-8")
     (out_dir / "action-block.json").write_text(json.dumps(

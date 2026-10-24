@@ -6,7 +6,8 @@
 # (--model 先落盘本轮;--audit/--anchors 只读 model 历史但各落己件
 # audit-*/anchors-*.json(Phase 2 T8,清偿 Phase 1 T14 缓议);--temporal 读
 # 历史落 temporal-*.json;--readout
-# 组合四层读数管线出月报 monthly-*.md + action-block.json)
+# 组合四层读数管线出月报 monthly-*.md + action-block.json + northstar-*.json
+# (#185 能力轨北星记录,只观测不持门))
 # ⑤ 每命令打印尾行摘要 ⑥ 报告族齐全校验 → 生产 volume 心跳推送(S5)。
 # 自验:`bash -n scripts/monthly_eval.sh`(语法);`bash scripts/monthly_eval.sh
 # --dry-run`(只打印将执行的命令不执行;dry-run 下守卫仅提示不拦截,便于预演)。
@@ -114,14 +115,15 @@ run_step readout  --readout  # 月轮四层读数(§4.2/S26: 资产+四层读数
 # 独立 S6,不信管线自报)。
 REPORT_ROOT="$REPO/backend/data/eval/monthly"
 HEARTBEAT_DST="/var/lib/docker/volumes/ip-lookup-tool_ipradar-data/_data/eval-heartbeat"
-check_family() {  # check_family <label> <subdir> <name-pattern> [排除pattern]
-  local label=$1 sub=$2 pat=$3 excl=${4:-}
+check_family() {  # check_family <label> <subdir> <name-pattern> [排除pattern...]
+  local label=$1 sub=$2 pat=$3; shift 3
   if [ "$DRY_RUN" = 1 ]; then
-    echo "  [dry-run] 报告族: $label -> ${sub:+$sub/}$pat${excl:+ 排除 $excl}"
+    echo "  [dry-run] 报告族: $label -> ${sub:+$sub/}$pat${*:+ 排除 $*}"
     return 0
   fi
   local args=(-name "$pat")
-  if [ -n "$excl" ]; then args+=(! -name "$excl"); fi
+  local excl
+  for excl in "$@"; do args+=(! -name "$excl"); done
   local f
   f=$(find "$REPORT_ROOT/${sub}" "${args[@]}" -newermt "@$START_S" \
         -print -quit 2>/dev/null)
@@ -131,11 +133,15 @@ check_family() {  # check_family <label> <subdir> <name-pattern> [排除pattern]
   fi
 }
 echo
-# 报告族 7 写者:model/dsem/audit/anchors 落 model/ 子目录,all/temporal/
-# readout 落报告根(monthly-*.md 缺月轮读数即缺员)。
+# 报告族 7 写者(能力轨北星件 #185 与 monthly-*.md 同腿先写、只观测
+# 不持门, 不另设族员):model/dsem/audit/anchors 落 model/ 子目录,
+# all/temporal/readout 落报告根(monthly-*.md 缺月轮读数即缺员)。
 echo "==> 报告族齐全校验(model/all/anchors/dsem/audit/temporal/readout)"
 check_family model    model 'model-*.json'
-check_family all      ''     '*-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9].json' 'temporal-*'
+# all 腿排除: temporal-*/northstar-* 同带 ts 后缀形状但不属逐源 verdict
+# 件 —— northstar(#185 能力轨观测件)若不排除, 会顶替 all 腿满足校验
+# → 回归族判定被观测件稀释(观测件永不持门, 亦不得反向触活报告族门)。
+check_family all      ''     '*-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9].json' 'temporal-*' 'northstar-*'
 check_family anchors  model 'anchors-*.json'
 check_family dsem     model 'dsem-*.json'
 check_family audit    model 'audit-*.json'

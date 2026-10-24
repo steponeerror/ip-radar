@@ -245,6 +245,137 @@ def render_steal_parking_diag(keyset_dir: Path) -> list[str]:
     return lines if compared else ["偷泊诊断: 无可比对"]
 
 
+# ── 能力轨北星观测件(#185;STANDARD.md E-5)──────────────────
+# 只观测不持门: 北星 = 「整体情报更准」的可计算代理(v0 两腿 = 锚集全绿率
+# + 谱系去重后 corroborated 精度月环比), 记录落 readout 腿工件, 不设阈值、
+# 不进 CI、不拦月轮退出码 —— 与回归轨(anchors-*.json 失败 sys.exit(1)
+# 判定门)双轨分立(ADR 0008 决策 2;E-2 阈值语义不同, 不得互相原谅)。
+# 代理可换(换代理≠典章版本变更), 方向恒 = 整体情报更准。
+
+
+def load_anchor_green(model_dir: Path) -> list[dict]:
+    """anchors-*.json 按文件名 ts 升序 → 全绿率读数列表
+    [{artifact, n_total, n_fail, rate}](月轮真实序: --anchors 腿先于
+    --readout 落 model/, 本轮件 = 最新一件; n_total=0 无信息量同跳)。
+    坏 JSON/非 dict/缺 n_total 形状跳过不炸(_oc_latest 同款宽容)。
+    锚读数单一真源 = 回归轨判定门工件(anchors_report 落件), 能力轨
+    只读不复算 —— 同轮月报两轨读数恒一致。"""
+    out: list[dict] = []
+    for p in sorted(Path(model_dir).glob("anchors-*.json")):
+        try:
+            d = json.loads(p.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError, ValueError):
+            continue
+        n_total = d.get("n_total") if isinstance(d, dict) else None
+        if not isinstance(n_total, int) or isinstance(n_total, bool) \
+                or n_total <= 0:
+            continue
+        n_fail = len(d.get("failures") or [])
+        out.append({"artifact": p.name, "n_total": n_total,
+                    "n_fail": n_fail,
+                    "rate": (n_total - n_fail) / n_total})
+    return out
+
+
+def load_prev_northstar(out_dir: Path, run_id: str) -> dict | None:
+    """上轮北星件: <out_dir>/northstar-*.json 排除本轮工件
+    (northstar-{run_id}.json, 同 run 重跑不喂自身环比)后的最新一件;
+    无 → None(首轮, 环比不虚构)。坏件跳过不炸(同上宽容律)。"""
+    prev = None
+    for p in sorted(Path(out_dir).glob("northstar-*.json")):
+        if p.name == f"northstar-{run_id}.json":
+            continue
+        try:
+            d = json.loads(p.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError, ValueError):
+            continue
+        if isinstance(d, dict):
+            prev = d  # 文件名升序扫描 → 末次赋值即最新
+    return prev
+
+
+def northstar_record(readout: dict, anchor_hist: list[dict],
+                     prev_ns: dict | None, *, run_id: str, eval_env: str,
+                     today: date) -> dict:
+    """北星两腿纯计算(接线方传 readout + 工件读数, 本函数不碰文件)。
+
+    ①锚集全绿率 = anchor_hist 最新一件(回归轨工件直读);
+    ②谱系去重后 corroborated 精度: OK 层 k_all 直方图 k≥2 桶求和
+    (层经交集审计互斥, 求和无回声双计 = F6 同款裁决)为 corroborated
+    总数, 派生簇独证(readout["derived_only_corroboration"], 114DNS
+    事故面 = 聚合器互证假印证)折减 → precision = (n − derived_only)/n;
+    n=0 → None(零读数≠精度 0, 无话不虚构)。月环比 = 本轮 − 前轮
+    (百分点), 任一侧值缺席(首轮件无/N/A)→ None。直方图键 int 强转
+    (str 键 JSON 往返同容), 非数键跳过。只观测不持门: 本函数及调用方
+    均不设阈值、不产退出码。"""
+    kcorr = 0
+    for block in (readout.get("layers") or {}).values():
+        if block.get("status") != "OK":
+            continue  # NO-LAYER 层无读数(缺层≠0 层)
+        for k, n in (block.get("k_all") or {}).items():
+            try:
+                if int(k) >= 2:
+                    kcorr += n
+            except (TypeError, ValueError):
+                continue
+    derived_only = readout.get("derived_only_corroboration") or 0
+    precision = (kcorr - derived_only) / kcorr if kcorr else None
+    cur = anchor_hist[-1] if anchor_hist else None
+    prev = anchor_hist[-2] if len(anchor_hist) >= 2 else None
+    prev_prec = ((prev_ns or {}).get("corroborated") or {}).get("precision")
+    return {
+        "kind": "northstar",
+        "run_id": run_id,
+        "eval_env": eval_env,
+        "generated_at": today.isoformat(),
+        "anchor_green": cur,
+        "anchor_prev": prev,
+        "anchor_green_mom_pp":
+            (cur["rate"] - prev["rate"]) * 100
+            if cur and prev and cur.get("rate") is not None
+            and prev.get("rate") is not None else None,
+        "corroborated": {"n": kcorr, "derived_only": derived_only,
+                         "precision": precision},
+        "corroborated_precision_mom_pp":
+            (precision - prev_prec) * 100
+            if precision is not None and prev_prec is not None else None,
+        "prev_northstar_present": prev_ns is not None,
+    }
+
+
+def render_northstar(ns: dict) -> list[str]:
+    """北星行(恒一行;「只观测不持门」写进行文)。N/A 哨兵分立:
+    锚读数缺席 / 零 corroborated 读数 / 首轮 / 前轮 N/A 各自显式措辞,
+    读者可区分「没算」「没件」「前轮无值」。"""
+    if ns.get("anchor_green") is None:
+        anchor = "锚集全绿率 N/A(无 anchors 工件)"
+    else:
+        g = ns["anchor_green"]
+        if ns.get("anchor_green_mom_pp") is not None:
+            mom = f"环比 {ns['anchor_green_mom_pp']:+.1f}pp"
+        elif ns.get("anchor_prev") is None:
+            mom = "环比 首轮"
+        else:
+            mom = "环比 前轮 N/A"
+        anchor = (f"锚集全绿率 {g['n_total'] - g['n_fail']}/{g['n_total']}"
+                  f"({g['rate'] * 100:.1f}%, {mom}, "
+                  f"读数源 {g['artifact']})")
+    corr = ns.get("corroborated") or {}
+    if corr.get("precision") is None:
+        prec = "corroborated 精度 N/A(零 corroborated 读数)"
+    else:
+        if ns.get("corroborated_precision_mom_pp") is not None:
+            pmom = f"环比 {ns['corroborated_precision_mom_pp']:+.1f}pp"
+        elif ns.get("prev_northstar_present") is False:
+            pmom = "环比 首轮"
+        else:
+            pmom = "环比 前轮 N/A"
+        prec = (f"corroborated 精度 {corr['precision'] * 100:.1f}%"
+                f"(corroborated {corr['n']} 读数, 派生独证 "
+                f"{corr['derived_only']}, {pmom})")
+    return [f"- 能力轨北星(E-5, 只观测不持门): {anchor}|{prec}"]
+
+
 def _fmt(v) -> str:
     return "—" if v is None else f"{v:.4f}" if isinstance(v, float) else str(v)
 
@@ -258,15 +389,17 @@ def compose_monthly_md(readout: dict, disclosures_lines: list[str],
                        scorecard_rows: list[tuple],
                        consensus_diag_lines: list[str],
                        header_meta: dict,
-                       steal_parking_lines: list[str] | None = None) -> str:
+                       steal_parking_lines: list[str] | None = None,
+                       north_star_lines: list[str] | None = None) -> str:
     """组装月轮报告 v2 markdown。头块 = 环境指纹 + 语料版本/指纹逐层 +
     S12/S17 换版注记(仅稳定层指纹实变才出, F2 趋势纪律; 共识代理层=
     滚动语料豁免, 声明行交代)+ S6 年度递减计数 +
     S30 处置状态汇总 + F7 ε 三档行; 正文 = 分层读数表(T8)/行动区块
     (S30)/R10 混杂披露/记分卡(S28)/诊断层统计(Q22, S24 锚对 OC 行由
     接线方并入 consensus_diag_lines;S34 偷泊行经 steal_parking_lines
-    并入同节 Q22 行之后, 缺省 None 不出, schema-stable)。F1: 无任何
-    总分列。"""
+    并入同节 Q22 行之后, 缺省 None 不出, schema-stable)/能力轨北星行
+    (#185 E-5, north_star_lines 缺省 None 不出, schema-stable; 只观测
+    不持门 —— 无阈值无门语义, 行文自带声明)。F1: 无任何总分列。"""
     lines: list[str] = ["# 月轮读数报告 v2", ""]
     lines.append(f"- 环境指纹(eval_env): {header_meta.get('eval_env', '—')}")
     corpus = header_meta.get("corpus") or {}
@@ -309,6 +442,9 @@ def compose_monthly_md(readout: dict, disclosures_lines: list[str],
         # 真值层 NO-LAYER → ε 三档不算(缺层≠0 层, §2.3): 显式哨兵行,
         # 不静默省略 —— 读者须能区分「没算」与「没层」。
         lines.append("- F7 ε 敏感性(真值层命中率三档): 真值层缺(N/A)")
+
+    if north_star_lines:  # 能力轨北星行(#185): 头块尾, 只观测不持门
+        lines += north_star_lines
 
     layers = readout.get("layers", {})
     lines += ["", "## 分层读数(T8)", "",

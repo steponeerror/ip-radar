@@ -25,7 +25,7 @@
 | P11 | 回归门≈100% | Anthropic 2026-01-09(回归/能力分立) | 半缺 | 锚集在而零生产调用;补课=锚巡检接线(#180) |
 | P12 | 安静失败探针 | IEEE Spectrum 2026-04 | 半缺 | 判例=8.8.8.8 门不响;补课=同 #180 接线 |
 | P13 | 事故固化 | Agentic Auditing 2026-10-22 | 半缺 | 首批金标=§四;当天固化+人验签核流程门未建制 |
-| P14 | 能力轨北星 | Anthropic 2026-01;Braintrust 2026-02(双面评测) | 半缺 | 补课=北星定稿(#180 Q5a,只爬坡不持门) |
+| P14 | 能力轨北星 | Anthropic 2026-01;Braintrust 2026-02(双面评测) | 半缺 | 定稿已落=E-5+月轮 northstar 观测件(#185);剩余=跨月趋势基线累积(首环比待第二轮月轮) |
 | P15 | 预扣结算 | Latentism 2026-10-05(reserve-then-settle) | 半缺 | 轮内步前在;补课=月度 kill switch |
 | P16 | 跨轮熔断 | Agent Internals 2026-09(通道/工具粒度) | 半缺 | 轮内 transient≤1 在;跨轮态缺 |
 | P17 | 对照对打 | Braintrust 2026-09-26(quality/latency/cost) | 半缺 | 字节等价对拍在;三轴数值门缺 |
@@ -64,6 +64,12 @@
 - 原语组成:事故固化;金标集;回归门≈100%
 - 门挂点:ops/agent/golden/cases.json;backend/ipdb/_eval/anchors.py
 - 判例链:Agentic Auditing 2026-10-22(发现→可执行测试→人验,$2-3/轮);ADR 0008 决策3;首批金标=§四 G-1/G-2
+
+#### E-5 能力轨北星(只观测不持门)
+- 主张:北星=「整体情报更准」的方向性指标,v0 可计算代理两腿=锚集全绿率(19 锚金标投影,读月轮 anchors-*.json 工件)+谱系去重后 corroborated 精度(OK 层 k≥2 命中剔除派生簇独证,114DNS 假印证面折减)月环比;代理可换(换代理≠本典章版本变更),记录落 eval 月轮 readout 腿工件(northstar-*.json+monthly-*.md 北星行)——只观测不持门:零阈值、零 CI 面、不拦月轮退出码,与回归轨(E-2)阈值语义分立不得互相原谅
+- 原语组成:能力轨北星;谱系去重;金标集
+- 门挂点:backend/ipdb/_eval/monthly.py#render_northstar;backend/tests/eval/test_eval_northstar.py;scripts/monthly_eval.sh
+- 判例链:Anthropic 2026-01-09(能力评测低通过率起步爬坡 vs 回归≈100%);Braintrust 2026-02(双面评测);ADR 0008 决策2(双轨分立);#185
 
 ### 开发过程维(D)
 
