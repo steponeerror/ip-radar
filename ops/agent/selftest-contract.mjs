@@ -247,7 +247,9 @@ await t("in-process:失败轮 closure_check 带 pkg(包已落盘,失败信封必
 });
 
 // ── c. 真 spawn 冒烟(前置-throw 两路;loadModels 之前,零 API 零网)─────────
-const spawnAgent = (args) => execFileP(process.execPath, [path.join(AGENT, "agent.mjs"), ...args], { timeout: 60_000 })
+// env 参数(2026-10-24):委派死锁回归需向子进程注入 OPS_PIPELINE/OPS_PIPELINE_BUDGET_CNY。
+const spawnAgent = (args, env = {}) => execFileP(process.execPath, [path.join(AGENT, "agent.mjs"), ...args],
+  { timeout: 60_000, env: { ...process.env, ...env } })
   .then(({ stdout, stderr }) => ({ rc: 0, stdout, stderr }))
   .catch((e) => ({ rc: typeof e.code === "number" ? e.code : -1, stdout: e.stdout ?? "", stderr: e.stderr ?? "" }));
 
@@ -266,6 +268,20 @@ await t("spawn:用法错 exit 2 + stdout 空纯 stderr", async () => {
   assert.equal(r.rc, 2);
   assert.equal(r.stdout, "", "用法错不发 JSON");
   assert.match(r.stderr, /用法:/);
+});
+
+// 2026-10-24 委派死锁回归:OPS_PIPELINE=pipeline 下 agent.mjs(主模块)动态 import
+// pipeline.mjs,若 pipeline 静态依赖图绕回 agent.mjs(ERROR_CODES 旧取法)即顶层 await
+// 死锁——形态 = rc 13 + stderr "unsettled top-level await" + stdout 空。探针选 usage
+// 前置 throw 路径(budget 非法 → pipeline mkCtx usage:true → exit 2 用法错):import
+// 可落定才能到达;零 API 零网(触发在 loadModels 之前)。e2e 不设 OPS_PIPELINE,
+// 此路径 CI 覆盖面唯一。
+await t("spawn:OPS_PIPELINE=pipeline 委派可落定(死锁回归:exit 2 用法错,非 rc13 unsettled)", async () => {
+  const r = await spawnAgent(["health", "x"], { OPS_PIPELINE: "pipeline", OPS_PIPELINE_BUDGET_CNY: "abc" });
+  assert.equal(r.rc, 2, `期望 2(usage),得到 ${r.rc}:${r.stderr.slice(0, 200)}`);
+  assert.equal(r.stdout, "", "用法错不发 JSON");
+  assert.match(r.stderr, /用法:/);
+  assert.ok(!r.stderr.includes("unsettled"), `不得再出现 unsettled top-level await:${r.stderr.slice(0, 200)}`);
 });
 
 fs.rmSync(TMP, { recursive: true, force: true });

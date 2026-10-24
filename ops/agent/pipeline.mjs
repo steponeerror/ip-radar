@@ -13,7 +13,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { DOCS_ROOT } from "./tools.mjs";
-import { ERROR_CODES } from "./agent.mjs";
+import { ERROR_CODES } from "./error-codes.mjs"; // 2026-10-24 断环:不再 import agent.mjs(委派路径顶层 await 死锁,见 error-codes.mjs 头注)
 import * as steps from "./pipeline/steps.mjs";
 import * as gates from "./pipeline/gates.mjs";
 import { runModelStep, selectModelFace } from "./pipeline/faux.mjs";
