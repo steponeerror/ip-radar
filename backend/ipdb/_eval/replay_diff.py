@@ -100,6 +100,10 @@ def check_directional(old: dict, new: dict) -> list[str]:
         if (oc.get("conf") != nc.get("conf")
                 and not nc.get("has_archive")
                 and nc.get("verdict") != "benign"):
+            # 注(#188 评审B P2):benign 豁免信任新侧 verdict 字段,其防线=
+            # precedence 恒指控胜不变式(_ACCUSING 单真源),由
+            # test_fusion_replay_gate_import.py 钉死——未来松 precedence 会
+            # 静默击穿本豁免,动前者必复跑 eval 回放套。
             problems.append(
                 f"{ctype}: conf 改变 {oc.get('conf')}->{nc.get('conf')} "
                 f"且新侧无存档/良性观测(合法成因缺失)")

@@ -660,9 +660,11 @@ def lookup(ip: str, allowed_sources: frozenset[str] | None = None, *,
     # 指控恰好是 other,但 blacklist 型指控会漏接,任意性不可接受)。
     # 宁少算不变式自动成立:良性证人不在 _ACCUSING → 不投票(组 conf 与
     # 顶层重融合池逐位不变)、corroborated 仅指控源;precedence 恒指控胜
-    # (良性不压制指控)。无指控组时良性断言以自身 ctype 成组 = 纯良性
-    # 判定面(verdict=benign, conf≈r)——区别于①无证据弃权(顶层恒
+    # (良性不压制指控)。无指控组时良性断言以自身 ctype 成组 = 纯良性面
+    # (verdict=benign, conf≈r)——区别于①无证据弃权(顶层恒
     # benign/0);纯良性组不产 STIX Indicator(_stix_export 仅指控章)。
+    # 注(#188 评审A P2 缓议):未来第二个良性源异 ctype 时会全部并入首源
+    # ctype 组、组标签失真——今日单良性源不可达,扩源时须改分组键。
     benign_obs = [o for o in observations if o.verdict == "benign"]
     groups: dict[str, list] = defaultdict(list)
     for o in observations:
