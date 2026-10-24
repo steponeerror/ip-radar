@@ -58,6 +58,7 @@
 - 原语组成:安静失败探针;回归门≈100%
 - 门挂点:backend/ipdb/_eval/anchors.py;ops/agent/pipeline/steps.mjs#ANCHOR_SWEEP;ops/agent/pipeline/gates.mjs#G_ANCHOR_SWEEP;notes/ops-agent-golden-standard-research-2026-10-24.md
 - 判例链:IEEE Spectrum 2026-04(安静失败=标准可观测性抓不住语义级退化);2026-10-24 锚门死件复盘(ADR 0008:零生产调用面)
+- 分工注记:锚巡检=行为探针(期望断言,逐 IP 二值);eval infra 层=统计分母(GLOSSARY「非指控基础设施层」词条口径)——两层分工不互替(探针红不改写分母读数,分母干净也不构成行为正确的证据)
 
 #### E-4 发现固化
 - 主张:生产事故与运营 finding 当天固化为回归轨金标,agent 提名、人验签核(人裁终局);金标增补落锚集/金标集并过本核对器,禁「就事论事修个案」
@@ -135,6 +136,7 @@
 - 原语组成:发现固化;回归门≈100%
 - 门挂点:backend/ipdb/_eval/anchors.py#ANCHORS;ops/agent/pipeline/steps.mjs#ANCHOR_SWEEP;notes/ops-agent-golden-standard-research-2026-10-24.md
 - 判例链:2026-10-24 114DNS 事故(cps_collected_iocs+ziyadnz 聚合器假印证打黑名單;ADR 0008);#182 接线(锚集扩公共解析器 16→19)
+- 分工注记:锚巡检=行为探针(期望断言,逐 IP 二值);eval infra 层=统计分母(GLOSSARY「非指控基础设施层」词条口径)——两层分工不互替(探针红不改写分母读数,分母干净也不构成行为正确的证据)
 
 #### G-3 既有 reserved/tor/hosting 锚
 - 主张:保留段短路(10.0.0.1/127.0.0.1/192.168.1.1/172.16.0.1)、tor 出口 is_tor=true(季度刷新留痕)、云边缘 is_hosting=true(52.95.116.115/20.36.253.52/34.64.121.1)
