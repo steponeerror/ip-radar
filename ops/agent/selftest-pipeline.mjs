@@ -1185,6 +1185,109 @@ await t("⑫-预算三闸真面同执法:G_DEEP 对真面工件(unresolved 过�
   fs.rmSync(d1, { recursive: true, force: true }); fs.rmSync(d2, { recursive: true, force: true });
 });
 
+// ── ⑬ #173 微探针真工具:单元面(fake fetch 层注入)+ 真面 DEEP 端到端(fake 传输层+fake fetch)──
+await t("⑬-微探针单元(fake fetch 层):三工具读数形状+Range/UA 变体在位+登记行 call_id 唯一", async () => {
+  const { mkMicroprobeHost, PROBE_UA_VARIANT, PROBE_RANGE_MAX, PROBE_TIMEOUT_MS } = await import("./pipeline/microprobes.mjs");
+  const LM = new Date(Date.now() - 220 * 86_400_000).toUTCString();
+  const calls = [];
+  const fakeFetch = async (url, opts) => { calls.push({ url, opts });
+    if (opts.method === "HEAD") throw Object.assign(new Error("HTTP 405"), { code: "http_error", status: 405 });
+    return { finalUrl: url, status: 206, headers: { "last-modified": LM, server: "nginx", "content-type": "text/plain" }, body: Buffer.from("x"), bytes: 1 }; };
+  const host = mkMicroprobeHost({ fetchImpl: fakeFetch });
+  const byName = (n) => host.tools.find((x) => x.name === n);
+  assert.deepEqual(host.tools.map((x) => x.name).sort(), ["reprobe_get", "reprobe_ua", "upstream_check"].sort(), "工具闭集=deep.md 微探针表 3 只");
+  const g = await byName("reprobe_get").execute("u1", { url: "https://example.org/feed.txt" });
+  assert.equal(calls[0].opts.method, "GET");
+  assert.equal(calls[0].opts.headers.range, `bytes=0-${PROBE_RANGE_MAX - 1}`, "GET+Range ≤256KB 在位");
+  assert.equal(calls[0].opts.timeoutMs, PROBE_TIMEOUT_MS, "超时硬上限 15s(lib.sh FEED_TIMEOUT_S 判例)");
+  assert.deepEqual(g.structuredContent, { ok: true, url: "https://example.org/feed.txt", final_url: "https://example.org/feed.txt",
+    method: "GET", status: 206, last_modified: LM, age_days: 220, bytes: 1 }, "结构化读数形状(age_days 从 Last-Modified 实算)");
+  assert.match(g.content[0].text, /^\[call_id=u1\]/, "call_id 上翻给模型(evidence 回引原料)");
+  const u = await byName("reprobe_ua").execute("u2", { url: "https://example.org/feed.txt" });
+  assert.equal(calls[1].opts.headers["user-agent"], PROBE_UA_VARIANT, "换 UA 变体复测(对照探测假象)");
+  assert.notEqual(calls[1].opts.headers["user-agent"], "ip-radar-ops-agent/1.0", "≠探测 UA(tools.mjs UA)");
+  assert.equal(u.structuredContent.ua, PROBE_UA_VARIANT);
+  assert.equal(u.structuredContent.status, 206);
+  const up = await byName("upstream_check").execute("u3", { url: "https://example.org/project" });
+  assert.equal(calls[2].opts.method, "HEAD");
+  assert.equal(calls[3].opts.method, "GET");
+  assert.equal(calls[3].opts.headers.range, "bytes=0-0", "HEAD 被拒→GET Range 0-0 降级(lib.sh _ff_probe_once 同型)");
+  assert.equal(up.structuredContent.method, "GET");
+  assert.equal(up.structuredContent.server, "nginx");
+  assert.equal(up.structuredContent.content_type, "text/plain");
+  assert.equal(host.seeds.length, 3);
+  assert.deepEqual(host.seeds.map((s) => s.call_id), ["u1", "u2", "u3"], "登记行=已执行调用(chronological)");
+  assert.ok(host.seeds.every((s) => ["reprobe_get", "reprobe_ua", "upstream_check"].includes(s.tool)), "登记行 tool ∈ 闭集(G_DEEP 执法面)");
+  assert.equal(new Set(host.seeds.map((s) => s.call_id)).size, 3, "call_id 唯一");
+});
+
+await t("⑬-失败信封形状:网络/超时族 {ok:false,code,reason} 如实落登记行,无读数字段(禁入 evidence 面=G_DEEP 执法)", async () => {
+  const { mkMicroprobeHost } = await import("./pipeline/microprobes.mjs");
+  const { resolveField } = await import("./tools.mjs");
+  const fakeFetch = async () => { throw Object.assign(new Error("fetch failed: Headers Timeout Error"), { code: "timeout" }); };
+  const host = mkMicroprobeHost({ fetchImpl: fakeFetch });
+  const r = await host.tools.find((x) => x.name === "reprobe_get").execute("f1", { url: "https://example.org/feed.txt" });
+  assert.deepEqual(r.structuredContent, { ok: false, code: "timeout", reason: "fetch failed: Headers Timeout Error" }, "失败信封={ok:false,code,reason} 错误族");
+  assert.match(r.content[0].text, /失败信封 code=timeout/);
+  assert.deepEqual(host.seeds, [{ call_id: "f1", tool: "reprobe_get", sc: { ok: false, code: "timeout", reason: "fetch failed: Headers Timeout Error" } }],
+    "失败腿留痕在登记面(deep.md:另记不占 evidence)");
+  assert.equal(resolveField(host.seeds[0].sc, "age_days"), undefined, "失败信封无读数字段(无证据即无话)");
+});
+
+await t("⑬-预算闸:第 4 次调用=明确拒绝信封(code=budget)零网络零登记(≤3 由轻载端执行,研究 #46)", async () => {
+  const { mkMicroprobeHost } = await import("./pipeline/microprobes.mjs");
+  const calls = [];
+  const fakeFetch = async (url) => { calls.push(url);
+    return { finalUrl: url, status: 200, headers: { "last-modified": new Date().toUTCString() }, body: Buffer.alloc(0), bytes: 0 }; };
+  const host = mkMicroprobeHost({ fetchImpl: fakeFetch });
+  const seq = ["reprobe_get", "reprobe_ua", "upstream_check", "reprobe_get"];
+  const rs = [];
+  for (let i = 0; i < 4; i++) rs.push(await host.tools.find((x) => x.name === seq[i]).execute(`b${i}`, { url: "https://example.org/feed.txt" }));
+  assert.ok(rs.slice(0, 3).every((r) => r.structuredContent.ok === true), "前 3 次正常执行");
+  assert.equal(rs[3].structuredContent.ok, false);
+  assert.equal(rs[3].structuredContent.code, "budget", "拒绝信封明确 code");
+  assert.match(rs[3].content[0].text, /unresolved/, "拒绝信封指明出路(转 unresolved)");
+  assert.equal(calls.length, 3, "第 4 次零网络(拒绝先于执行)");
+  assert.equal(host.seeds.length, 3, "拒绝不发登记行(G_DEEP seed 计数=已执行探测,拒绝后 unresolved 仍过门=与门双重执法)");
+});
+
+await t("⑬-真面 DEEP 端到端(fake 传输层+fake fetch):真工具调用→registry_seed 行→A 一律回填→G_DEEP 过门", async () => {
+  const { GATES } = await import("./pipeline/gates.mjs");
+  const { fauxProvider, createModels, fauxToolCall, fauxAssistantMessage } = await import("@earendil-works/pi-ai");
+  const LM = new Date(Date.now() - 220 * 86_400_000).toUTCString();
+  const fetches = [];
+  const fakeFetch = async (url, opts) => { fetches.push({ url, opts });
+    return { finalUrl: url, status: 206, headers: { "last-modified": LM }, body: Buffer.from("1.2.3.4"), bytes: 7 }; };
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), "p173-real-deep-"));
+  fs.writeFileSync(path.join(d, "04-dispatch-bundles.json"), JSON.stringify({ budget_cny: 0.05, est_per_hyp_cny: 0.016, max_hypotheses: 3,
+    bundles: [{ hid: "h1", budget_cny: 0.01, prompt_pkg: { hypothesis: "若冻结读数为真,GET 复测 age_days 保持高位", cause_class: "frozen_feed", severity: "high", probe_hint: "reprobe_get", url: "https://example.org/feed.txt", precedent_hits: [] } }], truncated: [], degraded: false }));
+  const fx = fauxProvider({ models: [{ id: "fake-transport" }] });
+  const m = createModels(); m.setProvider(fx.provider);
+  fx.setResponses([
+    fauxAssistantMessage([fauxToolCall("reprobe_get", { url: "https://example.org/feed.txt" }, { id: "call-t1" })]),
+    fauxAssistantMessage(JSON.stringify({ hypothesis_id: "h1", verdict: "confirmed", one_line: "GET 复测 age_days=220,冻结确证", evidence: [{ call_id: "call-t1", field: "age_days" }] })),
+  ]);
+  const def = HEALTH_PIPELINE.find((x) => x.name === "DEEP");
+  const ctx = { dir: d, modelFace: "real", state: { replay_of: null }, env: {}, log: () => {},
+    models: { models: m, resolve: () => fx.getModel() }, probeFetch: fakeFetch };
+  const io = steps.modelIO(def);
+  const item = io.items(ctx)[0];
+  await io.consume(ctx, item, await runModelStep(def, ctx, item));
+  await io.finalize(ctx, { degradedItems: [] });
+  assert.equal(fetches.length, 1, "真面 Agent 真执行微探针工具(fake fetch 层)");
+  assert.equal(fetches[0].opts.headers.range, `bytes=0-${256 * 1024 - 1}`, "Range 头经 Agent 真调用在位");
+  const tl = fs.readFileSync(path.join(d, "05-deep-h1-transcript.jsonl"), "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
+  const seed = tl.find((x) => x.type === "registry_seed");
+  assert.ok(seed, "真面 transcript 有 registry_seed 行");
+  assert.deepEqual([seed.call_id, seed.tool, seed.sc.ok, seed.sc.age_days], ["call-t1", "reprobe_get", true, 220],
+    "登记行与 faux 面同型 {type,call_id,tool,sc}(#173:真面开箱即用不另起炉灶)");
+  const v = j(path.join(d, "05-deep-verdicts.json"));
+  assert.deepEqual(v.verdicts[0].evidence, [{ call_id: "call-t1", field: "age_days", value: 220 }], "A 一律:宿主从登记表回填值");
+  const gate = GATES.G_DEEP({ ...ctx, budgetCny: 0.05 });
+  assert.equal(gate.pass, true, `G_DEEP 真面开箱即用(三元组逐字回引+≤3):${gate.reason}`);
+  fs.rmSync(d, { recursive: true, force: true });
+});
+
 fs.rmSync(TMP, { recursive: true, force: true });
 console.log(`pipeline-selftest: PASS=${pass} FAIL=${fail}`);
 process.exit(fail ? 1 : 0);
