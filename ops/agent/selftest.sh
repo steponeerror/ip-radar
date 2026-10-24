@@ -555,6 +555,53 @@ fi
 [[ -f "$AGENT/STANDARD.md" ]] \
   && ok "standard:典章真源 STANDARD.md 在案" || bad "standard:典章真源 STANDARD.md 在案"
 
+# ---- 14. 锚集三源对拍哨(终审修单 F8):python ANCHORS 真源 vs 双 JS 镜像集合 ----
+# 锚集真源=backend/ipdb/_eval/anchors.py(扩员只改此一处);selftest-pipeline.mjs
+# 的 SWEEP_ANCHORS 与 golden/run-golden.mjs 的 GOLDEN_SWEEP_ANCHORS 是形状钉
+# 镜像(罐装工件面)。扩员不跟(任一镜像落后真源)=红:双向集合相等逐成员
+# 对拍。python 面用 ast 文本解析零 import(CI frontend job 无 backend 依赖面)。
+if command -v python3 >/dev/null 2>&1; then
+  MIRLOG="$TMP/anchor-mirror-check.log"
+  if ROOT="$ROOT" python3 - > "$MIRLOG" 2>&1 <<'PYEOF'; then MIRRC=0; else MIRRC=$?; fi
+import ast, json, os, re
+from pathlib import Path
+root = Path(os.environ["ROOT"])
+src = (root / "backend/ipdb/_eval/anchors.py").read_text(encoding="utf-8")
+py_anchors = None
+for node in ast.parse(src).body:  # Assign 与 AnnAssign(带类型注解)两形都认
+    targets = [getattr(t, "id", None) for t in node.targets] if isinstance(node, ast.Assign) \
+        else ([getattr(node.target, "id", None)] if isinstance(node, ast.AnnAssign) else [])
+    if "ANCHORS" in targets:
+        py_anchors = sorted(tuple(a) for a in ast.literal_eval(node.value))
+        break
+assert py_anchors is not None, "anchors.py ANCHORS 不可解析(ast 文本面)"
+def js_mirror(rel, var):
+    m = re.search(re.escape(var) + r"\s*=\s*(\[\[.*?\]\])\s*;", (root / rel).read_text(encoding="utf-8"), re.S)
+    assert m, f"{rel} 找不到 {var} 数组字面量"
+    return sorted(tuple(x) for x in json.loads(m.group(1)))
+bad_mirrors = []
+for rel, var in (("ops/agent/selftest-pipeline.mjs", "SWEEP_ANCHORS"),
+                ("ops/agent/golden/run-golden.mjs", "GOLDEN_SWEEP_ANCHORS")):
+    mirror = js_mirror(rel, var)
+    if mirror != py_anchors:
+        miss = ["|".join(a) for a in py_anchors if a not in mirror]
+        extra = ["|".join(a) for a in mirror if a not in py_anchors]
+        bad_mirrors.append(f"{rel} {var} 缺={miss} 多={extra}")
+if bad_mirrors:
+    print("MIRRORFAIL 锚集镜像与 anchors.py 不一致(扩员须同改双 JS 镜像): " + "; ".join(bad_mirrors))
+    raise SystemExit(1)
+print(f"MIRRORPASS 锚集三源对拍一致({len(py_anchors)} 员;扩员须同改双 JS 镜像)")
+PYEOF
+  if (( MIRRC == 0 )) && grep -q "^MIRRORPASS " "$MIRLOG"; then
+    ok "mirror:锚集三源对拍一致(anchors.py vs SWEEP_ANCHORS/GOLDEN_SWEEP_ANCHORS,$(grep -o '[0-9]* 员' "$MIRLOG" | head -1))"
+  else
+    bad "mirror:锚集三源对拍不一致(扩员未跟镜像)"
+    grep -E 'MIRRORFAIL|Error|assert' "$MIRLOG" || true
+  fi
+else
+  bad "mirror:python3 不可用(对拍哨前置)"
+fi
+
 echo "----"
 echo "selftest: PASS=$pass FAIL=$fail"
 (( fail == 0 )) || exit 1
