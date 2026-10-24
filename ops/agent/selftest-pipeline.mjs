@@ -48,9 +48,27 @@ fs.chmodSync(path.join(STUBS, "curl"), 0o755);
 const MATRIX_CANNED = { exit_code: 0, counts: { violation: 0, pending: 0, agreement: 4 },
   layers: { truth: { status: "OK", members: 4, sampled: 4, notes: [] }, infra: { status: "OK", members: 8, sampled: 8, notes: [] } },
   buckets: { violation: [], pending: [], agreement: [] } };
+// 罐装锚巡检(#182 faux 查询面):事故判例形——8.8.8.8=myip_ms 单源指控/114DNS=
+// cps+ziyadnz 假印证双 finding(#183 整改前形状,票 #182 明示 fixture 不依赖整改);
+// 锚集镜像 anchors.py 扩员后 19 员(形状钉,门只验工件内自洽——锚集真源=python 勿在此改)。
+const SWEEP_ANCHORS = [["8.8.8.8", "clean"], ["8.8.4.4", "clean"], ["1.1.1.1", "clean"], ["1.0.0.1", "clean"],
+  ["9.9.9.9", "clean"], ["208.67.222.222", "clean"], ["114.114.114.114", "clean"], ["223.5.5.5", "clean"],
+  ["9.9.9.4", "clean"], ["10.0.0.1", "reserved"], ["127.0.0.1", "reserved"], ["192.168.1.1", "reserved"],
+  ["172.16.0.1", "reserved"], ["185.220.101.1", "tor"], ["171.25.193.78", "tor"], ["185.220.101.34", "tor"],
+  ["52.95.116.115", "hosting"], ["20.36.253.52", "hosting"], ["34.64.121.1", "hosting"]];
+const sweepIncident = (ip) => ({ ip, expect: "clean", ok: false, reason: "expected clean, got malicious",
+  verdict: "malicious", confidence: 55, accusers: ip === "8.8.8.8" ? ["myip_ms"] : ["cps_collected_iocs", "ziyadnz"] });
+const SWEEP_CANNED = { kind: "anchor_sweep", anchors: SWEEP_ANCHORS, n_total: SWEEP_ANCHORS.length, n_fail: 2,
+  failures: ["8.8.8.8", "114.114.114.114"].map((ip) => ({ ip, expect: "clean", reason: "expected clean, got malicious" })),
+  results: SWEEP_ANCHORS.map(([ip, expect]) => ip === "8.8.8.8" || ip === "114.114.114.114" ? sweepIncident(ip)
+    : { ip, expect, ok: true, reason: null, verdict: "benign", confidence: 0, accusers: [] }) };
+const SHELL_JSON = (o) => `'${JSON.stringify(o).replace(/'/g, "'\\''")}'`;
 fs.writeFileSync(path.join(STUBS, "py-matrix"), `#!/usr/bin/env bash
-# selftest stub:OPS_EVAL_PY 替身(golden stubPy 同型);吐罐装矩阵 JSON
-printf '%s\n' '${JSON.stringify(MATRIX_CANNED).replace(/'/g, "'\\''")}'
+# selftest stub:OPS_EVAL_PY 替身(golden stubPy 同型);--anchor-sweep→罐装锚巡检 JSON(#182),其余→罐装矩阵 JSON
+case " $* " in
+  *--anchor-sweep*) printf '%s\n' ${SHELL_JSON(SWEEP_CANNED)} ;;
+  *) printf '%s\n' ${SHELL_JSON(MATRIX_CANNED)} ;;
+esac
 `);
 fs.chmodSync(path.join(STUBS, "py-matrix"), 0o755);
 process.env.DOCS_ROOT = DOCS;
@@ -98,7 +116,7 @@ const mkTree = (name) => { // 逐轮独立 DOCS 树(P4 #166):precedents/rules �
   return { root, env: { ...process.env, DOCS_ROOT: root, PRECEDENTS_DIR: path.join(root, "ops", "precedents"), LEDGER_FILE: path.join(root, "ops", "ledger.md") } };
 };
 let run1;
-await t("全 faux 轮:九执行态到 CLOSE,信封 ok+形状只增 pipeline 扩展,顶层 usage=模型步之和", async () => {
+await t("全 faux 轮:十执行态到 CLOSE,信封 ok+形状只增 pipeline 扩展,顶层 usage=模型步之和", async () => {
   const io = mkIo();
   run1 = await runPipeline({ roundId: R1, fixturesDir: DEFAULT_FIXTURES_DIR, ...io }); // 显式 fixtures=faux 面(#170;同缺省路径,行为不变)
   assert.equal(run1.ok, true);
@@ -126,20 +144,21 @@ await t("全 faux 轮:九执行态到 CLOSE,信封 ok+形状只增 pipeline 扩�
   assert.equal(env.verify.cited, 1, "canned 报告引 1 fixture 判例");
 });
 
-await t("工件清单全落盘+gates.json 九记录全 PASS+state.json 终态 done/CLOSE+原子写无 .tmp 残留", async () => {
+await t("工件清单全落盘+gates.json 十记录全 PASS+state.json 终态 done/CLOSE+原子写无 .tmp 残留", async () => {
   const d = roundDir(R1);
   for (const f of ["01-probe-freshness.tsv", "01-probe-matrix.json", "01-probe-summary.json", "02-verify-survivors.json",
     "02-verify-suppressed.json", "03-triage-hypotheses.json", "03-triage-transcript.jsonl", "04-dispatch-bundles.json",
-    "05-deep-verdicts.json", "06-itemize-manifest.json", "07-synth-report.md", "07-synth-transcript.jsonl", "gates.json", "state.json"])
+    "05-deep-verdicts.json", "06-itemize-manifest.json", "07-synth-report.md", "07-synth-transcript.jsonl",
+    "08-anchor-sweep.json", "gates.json", "state.json"])
     assert.ok(fs.existsSync(path.join(d, f)), `工件缺:${f}`);
   assert.ok(fs.readdirSync(d).some((f) => /^05-deep-.*\.json$/.test(f) && f !== "05-deep-verdicts.json"), "逐假设工件");
   assert.ok(fs.readdirSync(d).some((f) => /^05-deep-.*-transcript\.jsonl$/.test(f)), "逐假设 transcript");
   const g = j(path.join(d, "gates.json"));
   assert.equal(g.round_id, R1);
-  assert.equal(g.records.length, 9, "8 可跑步门+G_CLOSE");
+  assert.equal(g.records.length, 10, "9 可跑步门(含 #182 ANCHOR_SWEEP)+G_CLOSE");
   assert.ok(g.records.every((r) => r.pass === true), `门败:${g.records.filter((r) => !r.pass).map((r) => r.name).join(",")}`);
   assert.ok(g.records.every((r) => typeof r.reason === "string" && /\d/.test(r.reason)), "reason 带数字可回算");
-  assert.deepEqual(g.records.map((r) => r.name), ["G_PROBE", "G_VERIFY", "G_TRIAGE", "G_DISPATCH", "G_DEEP", "G_ITEMIZE", "G_SYNTH", "G_RETRO", "G_CLOSE"]);
+  assert.deepEqual(g.records.map((r) => r.name), ["G_PROBE", "G_VERIFY", "G_TRIAGE", "G_DISPATCH", "G_DEEP", "G_ITEMIZE", "G_SYNTH", "G_ANCHOR_SWEEP", "G_RETRO", "G_CLOSE"]);
   const st = j(path.join(d, "state.json"));
   assert.equal(st.status, "done");
   assert.equal(st.stage, "CLOSE");
@@ -148,6 +167,43 @@ await t("工件清单全落盘+gates.json 九记录全 PASS+state.json 终态 do
   const walk = (p) => fs.readdirSync(p).flatMap((f) => { const q = path.join(p, f); return fs.statSync(q).isDirectory() ? walk(q) : [q]; });
   assert.ok(!walk(d).some((p) => p.endsWith(".tmp")), "原子写无 .tmp 残留");
   assert.ok(fs.existsSync(path.join(DOCS, "ops", "retro", `${R1}.json`)), "retro 工件(ops/retro/)");
+});
+
+await t("ANCHOR_SWEEP 巡检步(#182):事故判例 finding 在场门仍过——工件=全集投影逐锚读数+G 门不持门;步序 SYNTH 后 RETRO 前(finding 先于台账收口)", async () => {
+  const d = roundDir(R1);
+  const s = j(path.join(d, "08-anchor-sweep.json")); // 工件可查(票验收)
+  assert.equal(s.kind, "anchor_sweep");
+  assert.equal(s.n_total, SWEEP_ANCHORS.length);
+  assert.equal(s.anchors.length, s.results.length, "锚集=结果集同长(全集投影)");
+  // 投影穷尽:每锚恰一结果(ip|expect 双键)
+  const want = SWEEP_ANCHORS.map(([ip, exp]) => `${ip}|${exp}`).sort().join(",");
+  const got = s.results.map((r) => `${r.ip}|${r.expect}`).sort().join(",");
+  assert.equal(got, want, "逐锚恰一结果(丢锚/重锚即门败面)");
+  for (const r of s.results) {
+    assert.equal(typeof r.verdict, "string", `${r.ip} verdict 字符串`);
+    assert.equal(typeof r.confidence, "number", `${r.ip} confidence 数字`);
+    assert.ok(Array.isArray(r.accusers) && r.accusers.every((a) => typeof a === "string"), `${r.ip} accusers 字符串数组`);
+    assert.equal(typeof r.ok, "boolean");
+  }
+  assert.equal(s.n_fail, 2, "罐装事故判例:8.8.8.8+114DNS 双 finding(#183 整改前形状)");
+  assert.equal(s.failures.length, 2, "failures 与 n_fail 回算一致");
+  const byIp = new Map(s.results.map((r) => [r.ip, r]));
+  assert.deepEqual(byIp.get("8.8.8.8").accusers, ["myip_ms"], "事故面①:myip_ms 单源指控");
+  const r114 = byIp.get("114.114.114.114");
+  assert.deepEqual(r114.accusers, ["cps_collected_iocs", "ziyadnz"], "事故面②:双聚合器假印证");
+  assert.equal(r114.confidence, 55);
+  assert.ok(s.results.every((r) => ["8.8.8.8", "114.114.114.114"].includes(r.ip) ? !r.ok : r.ok), "finding/ok 逐锚独立");
+  const g = j(path.join(d, "gates.json"));
+  const rec = g.records.find((x) => x.name === "G_ANCHOR_SWEEP");
+  assert.equal(rec.pass, true, `finding 不持门(票义):${rec.reason}`);
+  assert.match(rec.reason, /n_total=\d+ n_fail=2/, "门 reason 带数字可回算");
+  // 步序:SYNTH → ANCHOR_SWEEP → RETRO(finding 先于台账收口;C稿 §2.2 加状态经 spec #180/#182 授权)
+  const names = j(path.join(d, "state.json")).stages.map((x) => x.name);
+  assert.equal(names.indexOf("ANCHOR_SWEEP") - names.indexOf("SYNTH"), 1, "SYNTH 后紧随");
+  assert.equal(names.indexOf("RETRO") - names.indexOf("ANCHOR_SWEEP"), 1, "RETRO 前");
+  const sw = stageOf(run1.envelope, "ANCHOR_SWEEP");
+  assert.equal(sw.status, "done", "finding 在场=正常完成非降级(读数面)");
+  assert.equal(sw.usage, null, "脚本步无 token 面");
 });
 
 await t("stderr 阶段行语法+stdout 末行=信封单行 JSON(恰一行)", async () => {
@@ -298,7 +354,7 @@ await t("空转金轨迹轮(#162 审 P2-2 裁定①):零 need_deep → DISPATCH 
   const m = j(path.join(d, "06-itemize-manifest.json"));
   assert.deepEqual([m.created, m.reopened, m.deduped, m.suppressed], [2, 0, 0, 1], "watch 条目 2 + 抑制 1(P4:真树落盘)");
   const g = j(path.join(d, "gates.json"));
-  assert.equal(g.records.length, 8, "skipped 步无门记录(PROBE..CLOSE 除 DISPATCH)");
+  assert.equal(g.records.length, 9, "skipped 步无门记录(PROBE..CLOSE 除 DISPATCH;含 #182 G_ANCHOR_SWEEP)");
   assert.ok(g.records.every((x) => x.pass), "G_DEEP 机检金轨迹在场面");
   assert.ok(g.records.find((x) => x.name === "G_DEEP").reason.includes("golden=1"), "门 reason 带数字可回算");
 });
@@ -563,8 +619,49 @@ await t("matrix 裸失败负例(#163 review P2-1):信封件落 01-probe-matrix.j
   assert.equal(s.matrix.exit_code, null);
   assert.equal(s.matrix.violation_n, null);
   const g = j(path.join(d, "gates.json"));
-  assert.equal(g.records.length, 9);
+  assert.equal(g.records.length, 10);
   assert.ok(g.records.every((x) => x.pass), "门不受 matrix 裸失败牵连(legacy 失败只回嵌套信封,不阻轮语义两侧一致)");
+  // 该 stub 无旗标分发→sweep 面同死:#182 降级旁路(stage degraded+门旁路留痕,轮仍成功)
+  const envD = JSON.parse(r.stdout.trim().split("\n").pop());
+  const sw = stageOf(envD, "ANCHOR_SWEEP");
+  assert.equal(sw.status, "degraded", "CLI 面死=降级非终态(RETRO 同款旁路形制)");
+  assert.match(g.records.find((x) => x.stage === "ANCHOR_SWEEP").reason, /门旁路/);
+  const sweepFail = j(path.join(d, "08-anchor-sweep.json"));
+  assert.equal(sweepFail.ok, false, "工件=失败信封件(证据不灭失)");
+  assert.match(sweepFail.reason, /matrix stub bare failure|channel|transient|infra/, `四码/infra 兑底信封:${sweepFail.reason}`);
+});
+
+await t("ANCHOR_SWEEP 降级旁路孤立例(#182):仅 sweep 面死(error 信封 rc 1)→ stage degraded+门旁路+工件=信封透传,其余步零牵连,轮 ok=true", async () => {
+  const STUBS4 = path.join(TMP, "stubs4");
+  fs.mkdirSync(STUBS4);
+  fs.writeFileSync(path.join(STUBS4, "py-sweep-dead"), `#!/usr/bin/env bash
+# 旗标分发死面:--anchor-sweep→error 信封 rc 1(load_db 失败同型);其余→矩阵读数照常
+case " $* " in
+  *--anchor-sweep*) printf '%s\\n' '{"error":{"code":"internal","message":"load_db failed: fixture","hint":"h"}}'; exit 1 ;;
+  *) printf '%s\\n' ${SHELL_JSON(MATRIX_CANNED)} ;;
+esac
+`);
+  fs.chmodSync(path.join(STUBS4, "py-sweep-dead"), 0o755);
+  const t0306 = mkTree("tree-sweep-deg");
+  const r = await spawnPipe(["health", "--round-id", "2026-10-24-0306-health", "--fixtures", cloneFixtures("fx-sweep-deg")],
+    { ...t0306.env, OPS_EVAL_PY: path.join(STUBS4, "py-sweep-dead") });
+  assert.equal(r.rc, 0, `rc=${r.rc} stderr=${r.stderr.slice(-400)}`);
+  const env = JSON.parse(r.stdout.trim().split("\n").pop());
+  assert.equal(env.ok, true, "巡检面死不阻断轮(不持门票义;失败=finding/信封件落盘)");
+  const sw = stageOf(env, "ANCHOR_SWEEP");
+  assert.equal(sw.status, "degraded");
+  assert.equal(stageOf(env, "PROBE").status, "done", "其余步零牵连(matrix 面照常)");
+  assert.equal(stageOf(env, "RETRO").status, "done");
+  const d = path.join(t0306.root, "ops", "rounds", "2026-10-24-0306-health");
+  const sweepFail = j(path.join(d, "08-anchor-sweep.json"));
+  assert.equal(sweepFail.ok, false, "工件=失败信封件非读数");
+  assert.equal(sweepFail.code, "internal", "python error 信封 code 透传(--json 面不裸栈)");
+  assert.match(sweepFail.reason, /load_db failed: fixture/);
+  const g = j(path.join(d, "gates.json"));
+  const rec = g.records.find((x) => x.stage === "ANCHOR_SWEEP");
+  assert.equal(rec.pass, true, "旁路记录 pass=true(降级非门败)");
+  assert.match(rec.reason, /stage degraded.*门旁路/, "RETRO 同款 degrade 旁路留痕");
+  assert.ok(g.records.filter((x) => x.name !== "G_ANCHOR_SWEEP").every((x) => x.pass), "其余门全 PASS");
 });
 
 await t("A 一律违例负例(全 faux 轮):深验 fixture 复述伪造值 999 → G_DEEP 回引不符 → model_face 终态工件保留", async () => {
@@ -725,10 +822,10 @@ await t("replay --dry 全程可跑(CLI 子进程):门全重算 PASS,产物写 -r
   assert.equal(env.ok, true);
   assert.equal(env.pipeline.replayed_of, R1);
   assert.equal(env.pipeline.round_id, `${R1}-r1`);
-  assert.equal(env.pipeline.stages.length, 8, "dry 段=PROBE..RETRO(CLOSE 不入重放)");
+  assert.equal(env.pipeline.stages.length, 9, "dry 段=PROBE..RETRO(CLOSE 不入重放;含 #182 ANCHOR_SWEEP)");
   assert.ok(env.pipeline.stages.every((s) => s.status === "dry"), "dry 状态词");
   const g = j(path.join(roundDir(`${R1}-r1`), "gates.json"));
-  assert.equal(g.records.length, 8);
+  assert.equal(g.records.length, 9, "9 可跑步门全重算(含 G_ANCHOR_SWEEP;CLOSE 不入重放)");
   assert.ok(g.records.every((x) => x.pass), "原件工件上全门重算 PASS(自愈:以工件+门为准)");
   assert.equal(treeMd5(roundDir(R1)), before, "原件零改写");
 });

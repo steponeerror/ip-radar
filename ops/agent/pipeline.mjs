@@ -63,6 +63,12 @@ export const HEALTH_PIPELINE = [
   { name: "SYNTH", kind: "model", model: "health/synth",
     out: ["07-synth-report.md", "07-synth-transcript.jsonl"], gate: "G_SYNTH", artifact: "07-synth-report.md",
     fail: { retry: 1, terminal: "empty_text" } }, // 契约违例重试≤1;条目已落库不回滚(证据不灭失)
+  { name: "ANCHOR_SWEEP", kind: "script", model: null,
+    out: ["08-anchor-sweep.json"], gate: "G_ANCHOR_SWEEP", artifact: "08-anchor-sweep.json",
+    fail: { retry: 0, degrade: "anchor_finding", terminal: "infra" } }, // #182(#180 首批租户,加状态经 spec 授权):
+  // 生产查询路径锚巡检(ANCHORS 全集,锚集真源=backend/ipdb/_eval/anchors.py);锚 finding 不持门
+  // (失败=工件 finding 面,轮照常成功);求值面死=RETRO 同款降级旁路(失败信封落件证据不灭失);
+  // 内部 bug=infra 终态。位置=SYNTH 后 RETRO 前(finding 先于台账收口,勘察件 §2.1)。
   { name: "RETRO", kind: "script", model: null,
     out: ["../retro/<round_id>.json"], gate: "G_RETRO", artifact: "retro/<round_id>.json",
     fail: { retry: 0, degrade: "skip_retro", terminal: "ledger_failed" } }, // 候选失败=降级;台账/sandbox=终态
@@ -73,7 +79,7 @@ export const HEALTH_PIPELINE = [
 ];
 const byName = (n) => HEALTH_PIPELINE.find((d) => d.name === n);
 const RUNNABLE = HEALTH_PIPELINE.filter((d) => d.kind === "script" || d.kind === "model").map((d) => d.name); // replay 段闭集
-const STAGE_PREFIX = { PROBE: "01-", VERIFY: "02-", TRIAGE: "03-", DISPATCH: "04-", DEEP: "05-", ITEMIZE: "06-", SYNTH: "07-" }; // 工件序号前缀固定步序(C稿 §4.1)
+const STAGE_PREFIX = { PROBE: "01-", VERIFY: "02-", TRIAGE: "03-", DISPATCH: "04-", DEEP: "05-", ITEMIZE: "06-", SYNTH: "07-", ANCHOR_SWEEP: "08-" }; // 工件序号前缀固定步序(C稿 §4.1;replay 前置工件复制消费,#182 补 08-)
 
 // ══ 引擎(通用代码,≤300 行纪律:下段至文件尾只做定义表驱动的编排,不判任何具体步)══
 const nowIso = () => new Date().toISOString();
