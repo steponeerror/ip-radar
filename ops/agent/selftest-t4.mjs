@@ -527,9 +527,9 @@ await t("结构钉:agent.mjs 预注入改调同源(不再 runLib inject_preceden
   assert.match(libshSrc, /inject_precedents\(\)/, "lib.sh 函数须保留:pipeline/steps.mjs synthInput 仍调用(pipeline 面冻结不触)");
 });
 
-await t("工具面:discover=7 工具、health=1 工具,全部声明 outputSchema+annotations", () => {
+await t("工具面:discover=10 工具(PR3a +发现通道三件)、health=1 工具,全部声明 outputSchema+annotations", () => {
   const d = new ToolHost("discover").tools.map((x) => x.name).sort();
-  assert.deepEqual(d, ["exclusive_probe", "fetch_url", "gh_search", "matrix_scan_summary", "queue_action", "read_file", "search_precedents"]);
+  assert.deepEqual(d, ["exclusive_probe", "fetch_url", "gh_search", "matrix_scan_summary", "queue_action", "read_file", "rss_parse", "search_precedents", "web_read", "web_search"]);
   const h = new ToolHost("health").tools.map((x) => x.name);
   assert.deepEqual(h, ["health_snapshot"]);
   for (const tool of [...new ToolHost("discover").tools, ...new ToolHost("health").tools]) {
