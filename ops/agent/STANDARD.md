@@ -159,4 +159,4 @@
 - 类:建议 人审预算化(Selective Auditing 2026-10-22:最小化人审频率+未审错误率≤阈值)
 - 类:建议 基准效度检查单(RecoAtlas 2026-05:性能随模型能力/算力/工具质量扩展)——golden 基准设计依据
 - 类:建议 结构化响应协议压漂移(Echoing 2026-03:身份漂移 70%→9%)——多 agent 会话面扩展时启用
-- 类:建议 锚巡检生产启用(#182 已接线:ops 轮 ANCHOR_SWEEP 跑 anchors 全集,失败=finding 自动开 issue needs-triage,E-3/G-2 运行面已转正)——剩余=部署后生产 cron 随 OPS_PIPELINE 灰度开启
+- 类:建议 锚巡检生产启用(#182 已接线:ops 轮 ANCHOR_SWEEP 跑 anchors 全集,失败=finding 自动开 issue needs-triage,E-3/G-2 已接线)——剩余=部署后生产 cron 随 OPS_PIPELINE 灰度开启
