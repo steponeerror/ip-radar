@@ -33,6 +33,10 @@ class ZiyadnzSource(CsvSource):
     derived = True                       # 聚合器:谱系去重用(registry derived-set,ipsum 同款)
     provenance_tier = "C"                # C=聚合派生(S21)
     authoritative_for = ()               # corroboration only (SM-F1)
+    # 载入期排除 infra_services curated 集(issue #183/ADR 0008 事故整改:
+    # 2026-10-24 114.114.114.114 与 cps 互证假印证惡意55;数据文件零改写,
+    # 关 IP_RADAR_INFRA_NOISE_FILTER 重建即复原)。
+    infra_noise_filter = True
     skip_lines = 1   # header: ip,type,is_cidr,sources,source_count,category,confidence,first_seen,last_seen
 
     def parse_row(self, row: list[str]) -> dict | None:

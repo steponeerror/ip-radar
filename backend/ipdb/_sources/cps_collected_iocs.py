@@ -29,3 +29,7 @@ class CpsCollectedIocsSource(IpListSource):
     derived = True                       # 聚合器:谱系去重用(registry derived-set,data_shield 同款)
     provenance_tier = "C"                # C=聚合派生(S21)
     authoritative_for = ()               # corroboration only (SM-F1)
+    # 载入期排除 infra_services curated 集(issue #183/ADR 0008 事故整改:
+    # 2026-10-24 114.114.114.114 与 ziyadnz 互证假印证惡意55;数据文件
+    # 零改写,关 IP_RADAR_INFRA_NOISE_FILTER 重建即复原)。
+    infra_noise_filter = True

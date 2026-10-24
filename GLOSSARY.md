@@ -18,6 +18,7 @@
 
 - **合法空**:bare-IP 多列表 feed 中 HTTP 200 + 空 body 的子列表——发布方「当前无此类条目」的声明:落 0 字节文件、下一 epoch 出清该列表条目、不计失败。仅限 200;404/超时/锚空仍是失败。firehol 等头部化格式不适用(空文件无头即坏)。锚:_sources/blocklist_de.py(download)
 - **活性锚**:同批下载中证明出版方存活的列表(blocklist_de = all.txt 聚合);锚空 = 本轮零替换 + 记真失败(fail-closed),防灾难性全空清库。判例:blocklist_de ircbot 2026-10-15(grill Q1-Q3)。锚:_sources/blocklist_de.py(download)
+- **载入期基础设施过滤**:聚合类源 rebuild 载入面排除 curated 公共基础设施单址集——聚合器转载的指控对公认解析器不构成行为证据,排除在投影层(数据文件零改写,无损管线不破)。真源=infra_services curated 集(单真相,勿查可能纪元落后的 LMDB);基类默认关,事故源显式 opt-in(infra_noise_filter=True);宁少算=仅精确单址命中,含 infra 的更大 CIDR 不排;IP_RADAR_INFRA_NOISE_FILTER=0 + 重建即复原,排除计数+条目日志化。判例:8.8.8.8(myip_ms 单源)/114.114.114.114(cps+ziyadnz 假印证)/1.1.1.1(cps)三公共解析器误报(2026-10-24 事故,ADR 0008 发现固化;哲学同族=资产弃权)。锚:_sources/_infra_filter.py
 
 ## 证据
 
@@ -59,6 +60,7 @@
 
 ## 质量闸门(eval 闭环)
 
+- **聚合器占比**:印证对的 derived 投票占比披露——生产同款重算(per-源 max 系数→dedup_lineage)后计聚合器票在 corroborated 组中的份额,纯 derived 组(互证回声,corroborated 仍 True 的现状面)点名;v0 只测量不持门、不改 corroborated 语义(grill Q2 2026-10-11 裁定),语义变更须另票过回放闸门。判例:114DNS cps+ziyadnz 纯 derived 互证(2026-10-24)。锚:_eval/agg_share.py(CLI --agg-share,落 model/agg-share-<ts>.json)
 - **循环语料**:威胁标签取自被评估系统自身(输出导出或舰队源采样)的语料:只能作新旧对照(回归),不能作独立真值(绝对尺);舰队源采样的滚动子类=共识代理层,用途见该词条(本条『只能作新旧对照』限冻结语料)。判例:top_threat_1000(融合结果导出)、benchmark 600(源采样)。锚:CONTEXT.md(质量闸门)、docs/research/2026-10-12-eval-loop-grill-outcomes.md(背景与痛点)
 - **威胁真值层**:蜜罐独立传感器观测到的攻击源 IP 构成的正样本层,是绝对读数的非循环锚。配套三闸:rir 分配日期过滤(剔重分配)、长记忆列表收录条件化子读数(离 feed 记忆回声)、k 计数排除蜜罐派生成员(knock_knock/binarydefense,双报 k_all/k_nonhoneypot);独立性组织级降级与语义=历史真值非当前真值属边界声明非闸。判例:Hornet 65 Niner(2024,CC BY 4.0)。锚:docs/adr/0002-honeypot-truth-anchor.md、grill Q6、CONTEXT.md(质量闸门)
 - **k 族**:被指控 IP 的有效指控源数(谱系去重后计数;k_nonhoneypot 剔 {knock_knock,binarydefense},与 k_all 双报);研究稿/原型之 k_eff 即 k_all(同构造:per-源 coefficient×decay 取 max+dedup_lineage 后计数;hornet 附录A/loop-prototype/yardstick §一之 k 用旧名)。锚:docs/adr/0002-honeypot-truth-anchor.md、docs/research/2026-10-12-hornet-pilot.md(附录A)
@@ -118,6 +120,26 @@
 - **判例升格通道**:同因人裁留痕 ≥2 且 ruling_agreement 一致(键并集:文本归一全等 ∨ 源身份词相交;superseded 链不计数防谱系回声)→ retro/promotion-candidates/ 候选件(仅立项:三门槛=可机检/可证伪/非环境特异性以 pending 起步待人裁逐项核);人裁采纳(adopt_rule)才入概念判例,lineage 必列来源留痕(谱系可回算);检测器永不写判例区。锚:ops/agent/promote-detect.mjs(B稿 §3.2)
 - **通道信封四码**:外部通道(gh/rg)失败的结构化分类码——channel_missing(spawn ENOENT/rc=127,通道不在运行环境)/channel_auth(凭证缺失失效:not logged in/401/403)/quota(rate limit 限流)/transient(超时/网络,唯一可重试族,同参数 ≤1 次);判定优先级 channel_missing>channel_auth>quota>transient>原兑底(gh_error/rg_infra 兼容保留);每码文案自带「下一步合法动作」(对齐 MCP isError 语义 2026-07-28:错误要能引导模型自纠或升级)——前三码属基础设施/部署面不可轮内自纠,直接人裁区;trace.rc 恒 Number(ENOENT→127/超时杀→124)。判例:2026-10-24-discover-dual-channel-dead(容器无 gh 双通道全灭,失败不可诊断面)。锚:ops/agent/tools.mjs(classifyChannelError)、prompts/discover-system.md(信封处置)、GLOSSARY 同批录入律
 - **发现通道**:discover 轮的读向补全三薄工具 web_read(r.jina.ai markdown 正文,恒无鉴权头——实测 2026-10-24:裸调用正常,带欠费 key 反 402)/ web_search(pi-web-access 多 provider 网络搜索,2026-10-24 用户令;缺省路由 keyless duckduckgo 零配置一发即活,jina 经 agent-config tool_keys 扩槽配 key 后入回退链;路由配置单源 = web-search.json 物化进 ops 树 + PI_CODING_AGENT_DIR 指路,auth.json 同型判例)/ rss_parse(本地零依赖 RSS2.0/Atom 结构解析,新鲜门 RSS_FRESH_DAYS=30);与测量工具(fetch_url/gh_search/exclusive_probe/matrix)的边界=数据形状天然隔离:产出发现线索,不进谓词硬门数字与 MEASUREMENT_TOOLS(evidence 语义门不因此放宽);agent-reach 整只不进镜像(异构故障面违 few, sharp tools)。锚:ops/agent/tools.mjs(normalizeJinaRead/parseMcpSearchText/parseRss)、prompts/discover-system.md(动作面表)、DESIGN §6(2026-10-24 裁定)
+- **黄金标准(四层)**:情报运营 agent 开发验收典章(ADR 0008,2026-10-24 用户确认;真源 STANDARD.md v0 = #181)——原语层(22 词,条文必须声明由哪些原语组成)→条文层(编号+判例链,EDD 开发环=头条)→门挂点层(CI/ops 轮/selftest 机检挂口)→金标层(回归语料);**挂不上验证手段的条目只能称建议,不得称标准**(反面教材=锚门死件;机检面=standard-check.mjs,挂 selftest 链)。结构词:条文五件套=编号+主张+原语组成+门挂点+判例链(缺一=伪标准形态);挂口族=门挂点层注册表(CI 腿/selftest 伞/golden 回归/ops 轮门四族,挂点须落族内载体,嵌套 docs 仓路径禁作挂点)。外部依据只采 2026 源。Avoid:与金族他词混用(金轨迹=空转保活、golden fixtures=字节等价基线、裁决级锚=anchors.py 锚集,均非本词)。锚:ops/agent/STANDARD.md(典章真源)、ops/agent/standard-check.mjs(门挂点核对器)、docs/adr/0008(嵌套 docs 仓)、notes/ops-agent-golden-standard-research-2026-10-24.md
+- **回归轨 / 能力轨**:评测双轨语义(ADR 0008)——回归轨=已知答案金标+行为探针,≈100% 通过才放行,持 CI+运营轮巡检(回答「agent 是否还能做会的事」);能力轨=北星指标(整体情报更准)爬坡观测,不持门;两轨阈值语义不同,不得互相原谅。出处:Anthropic evals 2026-01。锚:docs/adr/0008、backend/ipdb/_eval/anchors.py(回归轨既有件,接线=租户批)
+- **安静失败**:监控面板全绿而系统行为已错——标准可观测性(存活/延迟/错误率)抓不住语义级退化,须行为探针(活路径已知答案查询)代查(IEEE Spectrum 2026-04)。判例:锚门死件(8.8.8.8 被打恶而门不响)。锚:notes/ops-agent-golden-standard-research-2026-10-24.md(工业腿③)
+- **发现固化**:生产事故与运营 finding 当天转可执行回归金标,人验签核(agent 提名、人裁终局)——学术判例 Agentic Auditing 2026-10(发现→可执行测试→人验,$2-3/轮)。首批金标=8.8.8.8/114DNS 判例。STANDARD.md 原语层 P13 词条=本词,同概念同判例(2026-10-24 终审修单统一拼写,典章内不再用「事故固化」拼法)。锚:docs/adr/0008 决策3、notes 研究学术腿①、ops/agent/STANDARD.md 原语层(P13)
+- **预扣结算**:预算在动作前检查的原语——reserve 后动作、settle 时对账;事后 dashboard 不构成预算控制(Latentism 2026-10)。轮内现状=步前检查实报累计(budget_truncate 同语义),月度 kill switch=补课清单。锚:ops/agent/pipeline.mjs(budget_truncate)
+- **谱系混淆**:变量不对齐产生的优势/印证是伪影——源派生重复计票(回声当印证)与算力不对齐的多 agent 优势(swarm tax:同 thinking-token 预算下多 agent 优势消失)同族;工业 eval 框架均不建模源谱系,本仓独有标准条目。判例:114DNS cps+ziyadnz 假印证。锚:backend/ipdb/_logodds.py(dedup_lineage)、notes 研究(三向对撞表)
+- **信封纪律**:agent 与外部通道的失败表达契约(STANDARD 原语 P1)——失败不编造:通道失败走四码结构化分类(每码自带下一步合法动作),无证据≠清白,弃权/缺口不冒充零命中;机检面=classifyChannelError(词条「通道信封四码」=码表细则)。锚:ops/agent/STANDARD.md 原语层(P1)、ops/agent/tools.mjs
+- **状态机骨架**:运营 agent 宿主形态(STANDARD 原语 P2)——宿主=显式状态机编排全轮,模型只在 TRIAGE/DEEP/SYNTH 三步,门全机检、任意步可 replay;单 agent 优化穷尽前不建多 agent(反多 agent 化默认)。词条「轮次状态机」=其实现细则。锚:ops/agent/STANDARD.md 原语层(P2)、ops/agent/pipeline.mjs(HEALTH_PIPELINE)
+- **三层职责线**:宿主只编排、提示词只判断、脚本只测量的职责三分(STANDARD 原语 P5;词条「提示词层/装配层/宿主层」=分层细则);调用权在宿主不在模型。锚:ops/agent/STANDARD.md 原语层(P5)、ops/agent/DESIGN.md
+- **轮内预算步前检查**:预算控制在动作前(STANDARD 原语 P7)——轮内=每步调用前检查预算并实报累计(budget_truncate 与 reserve-then-settle 同语义),事后 dashboard 不构成预算控制;跨轮面=「预扣结算」词条。锚:ops/agent/STANDARD.md 原语层(P7)、ops/agent/pipeline.mjs(budget_truncate)
+- **金标集**:已知答案回归语料(STANDARD 原语 P10,faux 跑零 API 花费)——golden/cases.json 行为回路件+anchors.py 锚集(裁决级锚);生产事故与 finding 经「发现固化」入集,期望全对≈100% 才放行。锚:ops/agent/STANDARD.md 原语层(P10)、ops/agent/golden/cases.json
+- **回归门≈100%**:回归轨放行阈值语义(STANDARD 原语 P11)——已知答案金标+行为探针近乎全对才放行,与能力轨低通过率起步爬坡分立(Anthropic 2026-01);门面=CI golden+selftest+月轮 --anchors rc。锚:ops/agent/STANDARD.md 原语层(P11)
+- **跨轮熔断**:按通道/工具粒度跨轮累积的熔断器(STANDARD 原语 P16,补课腿)——轮内 transient≤1 已在,跨轮态(连续 N 轮同码失败即熔断该通道)缺。锚:ops/agent/STANDARD.md 原语层(P16)
+- **对照对打**:候选与生产变更在固定数据集上并排对打(STANDARD 原语 P17,半缺)——三轴=quality/latency/cost,过 release criteria 才放行;字节等价(回放闸门)是下限不是上限。锚:ops/agent/STANDARD.md 原语层(P17)
+- **弃权校准**:弃权语义(无证据即无话)之外的校准度量(STANDARD 原语 P19,补课腿)——弃权质量须 AUROC/ECE 分立评估(Cost-Aware Abstention 2026-10);度量缺,弃权语义已在。锚:ops/agent/STANDARD.md 原语层(P19)
+- **OTel投影**:轮信封按 OTel GenAI semconv 的外发投影(STANDARD 原语 P20,缺;另票)——内部契约不动,投影=纯读派生。锚:ops/agent/STANDARD.md 原语层(P20)
+- **跨轮级评测**:Run/Trace/Thread 三级跨轮评测(STANDARD 原语 P21,缺;LangChain 2026-06)——单轮评测之上补轮间轨迹连续性读数。锚:ops/agent/STANDARD.md 原语层(P21)
+- **失败归因图**:DeFA 式失败传播依赖图(STANDARD 原语 P22,缺)——多步 agent 误差沿依赖图分离定位到步/工具。锚:ops/agent/STANDARD.md 原语层(P22)
+- **finding 出口三件套**:巡检 finding(ANCHOR_SWEEP 读数 ok 且 finding>0)的三个出口(#184,spec #180 Q6)——gh issue(needs-triage 标签人裁终局,标准模板四件:来源步/锚:期望vs实得/证据指针/处置面)/告警 webhook(apprise CLI,env IP_RADAR_ALERT_URLS 与 backend _alerts.push 同 env 同形=双消费面;未配置=skip 留痕轮仍成功)/RETRO 摘要行(retro 工件 anchor_sweep 字段,G_RETRO 机检与 08 工件回算一致)。出口永不败轮(失败=失败信封记入 08-anchor-sweep-exits.json+信封 pipeline.finding_exits);dry-run 开关 OPS_SWEEP_DRY_RUN(默认关=真发;测试/golden 恒 1);replay 恒零外发(回声律同款)。**「出口只写不动作」红线**(票面钉死):从 finding 出发仅两写口——gh issue create 与 apprise 推送;无任何调权/停源/写数据面/源管理 API/规则库写口可达,由依赖面闭集结构性断言钉死(export 闭集恰三函数/spawn 目标恰 apprise/禁面符号零在场)。锚:ops/agent/pipeline/finding-exit.mjs、tools.mjs(ghIssueCreate/GH_WRITE_SUBCOMMANDS)、票 #184
+- **emit 守卫**:外发崩溃窗防重发机制(#184)——出口工件先记 phase=emitting 再外发、终记 emitted;同轮重入见 emitting/emitted 一律不重发(崩溃窗内外发状态不可知,宁少算交人工核对:issue 重复开可人关,漏发下轮补);工件缺席=首程照发。与「回声防线」的分工:回声防线管轮间重放不产新产物,emit 守卫管同轮恢复不重复外发。锚:ops/agent/pipeline/finding-exit.mjs(runFindingExits)
 
 ## It's working if
 

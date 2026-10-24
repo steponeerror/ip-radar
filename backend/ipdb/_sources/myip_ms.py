@@ -40,6 +40,11 @@ class MyipMsSource(IpListSource):
     provenance_tier = "B"               # B=社区(第三方自有爬虫非自采;sblam 同档)
     authoritative_for = ()               # corroboration only (SM-F1)
     honeypot_methodology = False        # 全网爬虫+滥用举报,非诱饵部署
+    # 载入期排除 infra_services curated 集(issue #183/ADR 0008 事故整改:
+    # 2026-10-24 8.8.8.8 单源惡意55 误报;哲学 = ADR 0001 资产弃权同族,
+    # 判例 = _eval/verdict.py MIXED 杠杆第一项)。数据文件零改写,关
+    # IP_RADAR_INFRA_NOISE_FILTER 重建即复原。
+    infra_noise_filter = True
 
     def parse_raw(self, raw: bytes) -> list[str]:
         """剥「deny from 」前缀 → 裸 IP 归一化文件;注释/空行/非 deny 行/

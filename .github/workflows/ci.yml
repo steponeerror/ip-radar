@@ -4,9 +4,9 @@ on:
   push:
     branches: [master, demo]   # demo = 生产分支,push 面同样过 CI(CI-F1)
     tags: ['v*']        # tag push 也跑构建验证(spec Changes Checklist)
-    paths-ignore: ["**.md", "assets/**", "LICENSE"]  # 纯文档/图片变更不跑 5 分钟 CI
+    paths-ignore: ["assets/**", "LICENSE"]  # 纯图片/LICENSE 变更不跑 5 分钟 CI;**.md 不再忽略——STANDARD.md/GLOSSARY.md 变更须过 standard-check 审计门(终审修单 M5:md 全忽略曾使审计门恰在自家目标变更上永不运行)
   pull_request:
-    paths-ignore: ["**.md", "assets/**", "LICENSE"]
+    paths-ignore: ["assets/**", "LICENSE"]
 
 permissions:
   contents: read
