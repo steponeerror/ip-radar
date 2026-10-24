@@ -116,6 +116,7 @@
 - **召回地板**:判例库 _INDEX.md(派生可再生缓存:概念判例一行一件,文件名+概念词+一行主张+关键词+状态;留痕判例不进)——库内任何概念至少一行 gist 常驻在场,检索 miss 的根治:rg 是精度工具,索引是召回保底;「索引是地图不是存储」(ADR 0007),判例文件才是唯一真源,spawn 前可再生。锚:ops/agent/build-index.mjs、docs/ops/precedents/_INDEX.md(B稿 §2.2①)
 - **锚判例域词表**:anchors-health.json——按高频域(github 重定向假红/限流假面/abuse.ch 迁移/sunset/矩阵 park 残差/聚合器回声)预置域词→判例文件闭集,宿主从旗标读数确定性选锚(零模型),命中并入注入闭集且不越 HIT_CAP;锚指向缺件=编造路径,build-index --check 拒。锚:ops/agent/anchors-health.json、ops/agent/pipeline/anchors.mjs(B稿 §2.2②)
 - **判例升格通道**:同因人裁留痕 ≥2 且 ruling_agreement 一致(键并集:文本归一全等 ∨ 源身份词相交;superseded 链不计数防谱系回声)→ retro/promotion-candidates/ 候选件(仅立项:三门槛=可机检/可证伪/非环境特异性以 pending 起步待人裁逐项核);人裁采纳(adopt_rule)才入概念判例,lineage 必列来源留痕(谱系可回算);检测器永不写判例区。锚:ops/agent/promote-detect.mjs(B稿 §3.2)
+- **通道信封四码**:外部通道(gh/rg)失败的结构化分类码——channel_missing(spawn ENOENT/rc=127,通道不在运行环境)/channel_auth(凭证缺失失效:not logged in/401/403)/quota(rate limit 限流)/transient(超时/网络,唯一可重试族,同参数 ≤1 次);判定优先级 channel_missing>channel_auth>quota>transient>原兑底(gh_error/rg_infra 兼容保留);每码文案自带「下一步合法动作」(对齐 MCP isError 语义 2026-07-28:错误要能引导模型自纠或升级)——前三码属基础设施/部署面不可轮内自纠,直接人裁区;trace.rc 恒 Number(ENOENT→127/超时杀→124)。判例:2026-10-24-discover-dual-channel-dead(容器无 gh 双通道全灭,失败不可诊断面)。锚:ops/agent/tools.mjs(classifyChannelError)、prompts/discover-system.md(信封处置)、GLOSSARY 同批录入律
 
 ## It's working if
 
