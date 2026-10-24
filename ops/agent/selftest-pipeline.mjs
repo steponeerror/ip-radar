@@ -6,6 +6,8 @@
 //    model_face 终态+工件保留)⑤replay:--dry 全程可跑+段重放,原件 md5 不变 ⑥CLI 契约(exit 0/1/2)
 //    ⑦位等价门(P1,#163):同 stub 下 legacy health 轮(agent.mjs runRound→tools.mjs
 //    health_snapshot 产 TSV+matrix 工件)与管线 PROBE 工件逐字节 diff 为空+计数两口径对拍。
+//    ⑫面选择/真面(#170):selectModelFace 纯函数(fixtures→faux/缺省→real)+真面 fake 传输层
+//    (pi-ai fauxProvider 注入 ctx.models,零网络)信封形状+失败面+预算三闸真面同执法。
 // fixture:golden 同型(DOCS_ROOT/precedents 指 tmp+curl stub 前置 PATH);canned 模型回合=仓内
 // fixtures/pipeline(README 配对契约)。输出 PIPEPASS/PIPEFAIL,任一 FAIL 退出非零。
 import assert from "node:assert/strict";
@@ -57,7 +59,8 @@ process.env.LEDGER_FILE = path.join(DOCS, "ops", "ledger.md");
 process.env.OPS_EVAL_PY = path.join(STUBS, "py-matrix"); // import-time 面:先于 tools.mjs 装载生效
 process.env.PATH = `${STUBS}:${process.env.PATH}`;
 
-const { runPipeline, HEALTH_PIPELINE } = await import("./pipeline.mjs");
+const { runPipeline, HEALTH_PIPELINE, DEFAULT_FIXTURES_DIR } = await import("./pipeline.mjs");
+const { runModelStep, selectModelFace, STEP_ROUND } = await import("./pipeline/faux.mjs"); // #170 面选择/真面注入缝直调单测面
 const { ERROR_CODES } = await import("./agent.mjs");
 const steps = await import("./pipeline/steps.mjs"); // P2 #164 直调 VERIFY 步(规则库/在飞面单元例)
 const R1 = "2026-10-23-2340-health";
@@ -97,7 +100,7 @@ const mkTree = (name) => { // 逐轮独立 DOCS 树(P4 #166):precedents/rules �
 let run1;
 await t("全 faux 轮:九执行态到 CLOSE,信封 ok+形状只增 pipeline 扩展,顶层 usage=模型步之和", async () => {
   const io = mkIo();
-  run1 = await runPipeline({ roundId: R1, ...io });
+  run1 = await runPipeline({ roundId: R1, fixturesDir: DEFAULT_FIXTURES_DIR, ...io }); // 显式 fixtures=faux 面(#170;同缺省路径,行为不变)
   assert.equal(run1.ok, true);
   const env = run1.envelope;
   assert.equal(env.ok, true);
@@ -149,7 +152,7 @@ await t("工件清单全落盘+gates.json 九记录全 PASS+state.json 终态 do
 
 await t("stderr 阶段行语法+stdout 末行=信封单行 JSON(恰一行)", async () => {
   const io = mkIo();
-  const r = await runPipeline({ roundId: "2026-10-23-2341-health", env: mkTree("tree-2341").env, ...io });
+  const r = await runPipeline({ roundId: "2026-10-23-2341-health", fixturesDir: DEFAULT_FIXTURES_DIR, env: mkTree("tree-2341").env, ...io });
   assert.equal(r.ok, true);
   const se = io.buf.stderr;
   assert.match(se, /\[stage\] PROBE start\n/, "start 行");
@@ -546,7 +549,7 @@ await t("matrix 裸失败负例(#163 review P2-1):信封件落 01-probe-matrix.j
   fs.writeFileSync(path.join(STUBS3, "py-matrix-fail"), `#!/usr/bin/env bash\necho 'boom: matrix stub bare failure' >&2\nexit 1\n`);
   fs.chmodSync(path.join(STUBS3, "py-matrix-fail"), 0o755);
   const t0101 = mkTree("tree-0101");
-  const r = await spawnPipe(["health", "--round-id", "2026-10-24-0101-health"], { ...t0101.env, OPS_EVAL_PY: path.join(STUBS3, "py-matrix-fail") });
+  const r = await spawnPipe(["health", "--round-id", "2026-10-24-0101-health", "--fixtures", DEFAULT_FIXTURES_DIR], { ...t0101.env, OPS_EVAL_PY: path.join(STUBS3, "py-matrix-fail") }); // 显式 fixtures=faux 面(#170;CLI 契约面非 provider 面)
   assert.equal(r.rc, 0, `rc=${r.rc} stderr=${r.stderr.slice(-400)}`);
   const env = JSON.parse(r.stdout.trim().split("\n").pop());
   assert.equal(env.ok, true, "matrix 失败=嵌套信封不阻轮(C稿 §2.2;证据不灭失落件)");
@@ -691,7 +694,7 @@ await t("位等价门(#163):同 stub 下 legacy health 轮工件 = 管线 PROBE 
   const legacyMatrix = sc.artifacts.find((a) => a.endsWith("matrix-scan.json"));
   assert.ok(legacyTsv && legacyMatrix, `legacy 工件缺:${sc.artifacts.join(",")}`);
   const io = mkIo();
-  const pipe = await runPipeline({ roundId: "2026-10-23-2344-health", env: mkTree("tree-2344").env, ...io });
+  const pipe = await runPipeline({ roundId: "2026-10-23-2344-health", fixturesDir: DEFAULT_FIXTURES_DIR, env: mkTree("tree-2344").env, ...io });
   assert.equal(pipe.ok, true);
   const d = path.join(mkTree("tree-2344").root, "ops", "rounds", "2026-10-23-2344-health");
   const tsvA = fs.readFileSync(legacyTsv), tsvB = fs.readFileSync(path.join(d, "01-probe-freshness.tsv"));
@@ -1032,7 +1035,7 @@ await t("双模灰度开关(#167 终检):agent.mjs OPS_PIPELINE=pipeline → 委
   const { main: agentMain } = await import("./agent.mjs");
   const T = mkTree("tree-switch");
   const ioP = mkIo();
-  const rcP = await agentMain(["health", "cron 灰度冒烟"], { env: { ...T.env, OPS_PIPELINE: "pipeline" }, ...ioP });
+  const rcP = await agentMain(["health", "cron 灰度冒烟", "--fixtures", DEFAULT_FIXTURES_DIR], { env: { ...T.env, OPS_PIPELINE: "pipeline" }, ...ioP }); // --fixtures 透传 argv→pipeline.mjs=faux 面(#170;委派契约面非 provider 面)
   assert.equal(rcP, 0, `pipeline 腿:${ioP.buf.stderr.slice(-300)}`);
   const envP = JSON.parse(ioP.buf.stdout.trim().split("\n").pop());
   assert.equal(envP.ok, true);
@@ -1082,6 +1085,104 @@ await t("VERIFY 缺席规则库:零抑制照常过+空库形快照(审后修 P1)
   assert.equal(sv.survivors.length, 2, "零规则=全部幸存");
   assert.equal(GATES.G_VERIFY({ ...ctx, dir: d }).pass, true, "门同口径(缺席=零规则,非 infra)");
   fs.rmSync(d, { recursive: true, force: true });
+});
+
+// ── ⑫ #170 真接线程:面选择纯函数 + 真面 fake 传输层(零网络;注入缝=ctx.models,agent.mjs opts.models 同型)──
+await t("⑫-面选择纯函数:显式 fixtures→faux/继承面优先/缺省→real;STEP_ROUND 映射;state.model_face 落盘", async () => {
+  assert.equal(selectModelFace({}), "real", "缺省=运行面真 provider(生产/cron 轮无 --fixtures)");
+  assert.equal(selectModelFace({ fixturesExplicit: true }), "faux", "显式 fixtures=faux 面(自测/golden)");
+  assert.equal(selectModelFace({ fixturesExplicit: true, inherited: "real" }), "faux", "显式 fixtures 赢过继承面(零成本审计 override)");
+  assert.equal(selectModelFace({ inherited: "faux" }), "faux", "继承面(replay 保真)");
+  assert.deepEqual(STEP_ROUND, { TRIAGE: "health", SYNTH: "health", DEEP: "discover" }, "步→models.mjs 轮键映射(flash/glm-5.3)");
+  const st = j(path.join(roundDir(R1), "state.json"));
+  assert.equal(st.model_face, "faux", "显式 fixtures 轮 state.model_face=faux(面入 state 审计面)");
+});
+
+await t("⑫-faux 面:真 provider 装载缝零触碰(毒缝哨兵不被调=构造不调用)+ transcript 行型不变", async () => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), "p170-faux-"));
+  fs.writeFileSync(path.join(d, "02-verify-survivors.json"), JSON.stringify({ survivors: [], known_noise_digest: [] }));
+  let seamTouched = 0;
+  const ctx = { dir: d, fixturesDir: cloneFixtures("fx-p170-faux"), modelFace: "faux", state: { replay_of: null }, env: {},
+    models: { resolve: () => { seamTouched += 1; throw new Error("faux 面不得触碰 provider 缝"); }, // 毒缝:真面首动作即读 ctx.models(providerBundle),误入真面必炸
+      models: { streamSimple: () => { seamTouched += 1; throw new Error("faux 面不得触碰传输层"); } } } };
+  const r = await runModelStep(HEALTH_PIPELINE.find((x) => x.name === "TRIAGE"), ctx, null);
+  assert.ok(Array.isArray(JSON.parse(r.text).hypotheses), "faux 面 canned 输出走通");
+  assert.equal(seamTouched, 0, "毒缝零触碰=真 provider 构造不调用(fixtures 面恒 faux)");
+  const tl = fs.readFileSync(path.join(d, "03-triage-transcript.jsonl"), "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
+  assert.equal(tl[0].type, "input");
+  assert.equal(tl[0].model, undefined, "faux 面 input 行不带 model 字段(行型逐字节不变)");
+  assert.ok(!tl.some((x) => x.type === "registry_seed"), "TRIAGE 单发步零 seed 行");
+  fs.rmSync(d, { recursive: true, force: true });
+});
+
+await t("⑫-真面信封形状(fake 传输层驱动,零网络):轮键解析+usage 数字回传+transcript model 字段+失败面", async () => {
+  const { fauxProvider, createModels } = await import("@earendil-works/pi-ai");
+  const fakeIO = (text, stopReason = "stop") => {
+    const fx = fauxProvider({ models: [{ id: "fake-transport" }] });
+    const m = createModels();
+    m.setProvider(fx.provider);
+    fx.setResponses([{ role: "assistant", content: [{ type: "text", text }], stopReason }]);
+    const resolveCalls = [];
+    return { models: { models: m, resolve: (round) => { resolveCalls.push(round); return fx.getModel(); } }, resolveCalls };
+  };
+  // TRIAGE 真面:轮键=health(flash);usage(传输层实报/估算)数字回传=信封与台账原料;transcript 带 model
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), "p170-real-"));
+  fs.writeFileSync(path.join(d, "02-verify-survivors.json"), JSON.stringify({ survivors: [], known_noise_digest: [] }));
+  const f1 = fakeIO(JSON.stringify({ hypotheses: [] }));
+  const ctx1 = { dir: d, modelFace: "real", state: { replay_of: null }, env: {}, log: () => {}, ...f1 };
+  const tri = await runModelStep(HEALTH_PIPELINE.find((x) => x.name === "TRIAGE"), ctx1, null);
+  assert.deepEqual(f1.resolveCalls, ["health"], "TRIAGE 真面→health 轮键(缺省 glm-5.3-flash)");
+  assert.ok(tri.usage.input > 0 && tri.usage.output > 0, `真 usage 数字回传:${JSON.stringify(tri.usage)}`);
+  const tl = fs.readFileSync(path.join(d, "03-triage-transcript.jsonl"), "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
+  assert.deepEqual(tl.map((x) => x.type), ["input", "message"], "真面行型:input+message,零 registry_seed(微探针缺口=下票)");
+  assert.equal(tl[0].model, "faux/fake-transport", "真面 input 行带 model 字段(provider/id)");
+  // DEEP 真面:轮键=discover(glm-5.3)
+  const f2 = fakeIO(JSON.stringify({ verdict: "unresolved", one_line: "x", evidence: [] }));
+  const ctx2 = { dir: d, modelFace: "real", state: { replay_of: null }, env: {}, log: () => {}, ...f2 };
+  await runModelStep(HEALTH_PIPELINE.find((x) => x.name === "DEEP"), ctx2,
+    { hid: "h-real", budget_cny: 0.01, prompt_pkg: { hypothesis: "h", cause_class: "frozen_feed", severity: "low", probe_hint: "reprobe_get", url: "(t)", precedent_hits: [] } });
+  assert.deepEqual(f2.resolveCalls, ["discover"], "DEEP 真面→discover 轮键(缺省 glm-5.3)");
+  assert.ok(fs.existsSync(path.join(d, "05-deep-h-real-transcript.jsonl")), "DEEP 逐假设 transcript 落盘");
+  // 失败面:stopReason=error→model_face(同 faux 路径;留痕先于失败面判定)
+  const d3 = fs.mkdtempSync(path.join(os.tmpdir(), "p170-real-err-"));
+  fs.writeFileSync(path.join(d3, "02-verify-survivors.json"), JSON.stringify({ survivors: [], known_noise_digest: [] }));
+  const f3 = fakeIO("", "error");
+  const ctx3 = { dir: d3, modelFace: "real", state: { replay_of: null }, env: {}, log: () => {}, ...f3 };
+  await assert.rejects(() => runModelStep(HEALTH_PIPELINE.find((x) => x.name === "TRIAGE"), ctx3, null),
+    (e) => /模型失败面 stopReason=error/.test(e.message) && e.code === "model_face");
+  const errTl = fs.readFileSync(path.join(d3, "03-triage-transcript.jsonl"), "utf8");
+  assert.ok(errTl.includes('"type":"input"'), "失败面 transcript 仍留痕(留痕先于失败面判定)");
+  fs.rmSync(d, { recursive: true, force: true }); fs.rmSync(d3, { recursive: true, force: true });
+});
+
+await t("⑫-预算三闸真面同执法:G_DEEP 对真面工件(unresolved 过门/伪 call_id 拒门;微探针 ≤3 恒过)", async () => {
+  const { GATES } = await import("./pipeline/gates.mjs");
+  const { fauxProvider, createModels } = await import("@earendil-works/pi-ai");
+  const mkRealDeep = async (d, verdictJson) => {
+    const fx = fauxProvider({ models: [{ id: "fake-transport" }] });
+    const m = createModels(); m.setProvider(fx.provider);
+    fx.setResponses([{ role: "assistant", content: [{ type: "text", text: verdictJson }], stopReason: "stop" }]);
+    fs.writeFileSync(path.join(d, "04-dispatch-bundles.json"), JSON.stringify({ budget_cny: 0.05, est_per_hyp_cny: 0.016, max_hypotheses: 3,
+      bundles: [{ hid: "h1", budget_cny: 0.01, prompt_pkg: { hypothesis: "h", cause_class: "frozen_feed", severity: "low", probe_hint: "reprobe_get", url: "(t)", precedent_hits: [] } }], truncated: [], degraded: false }));
+    const def = HEALTH_PIPELINE.find((x) => x.name === "DEEP");
+    const ctx = { dir: d, modelFace: "real", state: { replay_of: null }, env: {}, models: { models: m, resolve: () => fx.getModel() } };
+    const io = steps.modelIO(def);
+    const item = io.items(ctx)[0];
+    await io.consume(ctx, item, await runModelStep(def, ctx, item));
+    await io.finalize(ctx, { degradedItems: [] });
+    return { gate: GATES.G_DEEP({ ...ctx, budgetCny: 0.05 }), transcript: fs.readFileSync(path.join(d, "05-deep-h1-transcript.jsonl"), "utf8") };
+  };
+  // 正例:真面 unresolved(无探针工具→不裁)零 evidence 过门(设计内缺口下的合法态)
+  const d1 = fs.mkdtempSync(path.join(os.tmpdir(), "p170-gd-pass-"));
+  const g1 = await mkRealDeep(d1, JSON.stringify({ verdict: "unresolved", one_line: "真面无探针登记表,不裁(微探针缺口=下票)", evidence: [] }));
+  assert.equal(g1.gate.pass, true, `unresolved 零证据腿合法:${g1.gate.reason}`);
+  assert.equal(g1.transcript.split("\n").filter((l) => l.includes('"type":"registry_seed"')).length, 0, "真面零 seed 行(微探针 ≤3/假设恒过)");
+  // 负例:confirmed 伪 call_id(无登记表回引)→ G_DEEP 拒(A 一律真面同执法)
+  const d2 = fs.mkdtempSync(path.join(os.tmpdir(), "p170-gd-fail-"));
+  const g2 = await mkRealDeep(d2, JSON.stringify({ verdict: "confirmed", one_line: "x", evidence: [{ call_id: "call-x", field: "age_days" }] }));
+  assert.equal(g2.gate.pass, false, "confirmed 证据腿必须回引登记表(真面无探针=不可 confirmed)");
+  assert.match(g2.gate.reason, /未知 call_id|缺值/, `A 一律真面同执法:${g2.gate.reason}`);
+  fs.rmSync(d1, { recursive: true, force: true }); fs.rmSync(d2, { recursive: true, force: true });
 });
 
 fs.rmSync(TMP, { recursive: true, force: true });
