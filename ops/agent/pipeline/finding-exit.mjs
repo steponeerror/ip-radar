@@ -14,6 +14,8 @@
 // dry-run:OPS_SWEEP_DRY_RUN=1 时只记 cmd/payload 零外发(默认关=生产真发;测试恒 dry-run)。
 // emit 守卫(resume 防重发):出口工件先记 phase=emitting 再外发、终记 emitted;同轮重入见 emitting/emitted
 //   一律不重发(崩溃窗内外发状态不可知,宁少算交人工核对——issue 重复开可人关,漏发可下轮补)。
+//   守卫触发不改写工件(终审修单 M4):emitted 全稿存活=证据永不灭失,且守卫幂等——写回 skip 会让
+//   同窗二次崩溃的重入误判首程→重发→重复外发(issue+webhook 双重复)。
 // URL 脱敏:webhook URL 含凭据(lark://<token> 等),记录面只存 scheme+尾4(_alerts._redact_url 同律)。
 import fs from "node:fs";
 import path from "node:path";
@@ -97,11 +99,11 @@ export async function runFindingExits({ roundId, sweepD, dir, env = process.env,
   const writeArtifact = (extra) => { if (!artifactPath) return;
     fs.writeFileSync(`${artifactPath}.tmp`, JSON.stringify({ ...record, round_id: roundId, ...extra }, null, 2) + "\n");
     fs.renameSync(`${artifactPath}.tmp`, artifactPath); }; // 原子写(沿 _ops_store 判例)
-  const skipAll = (reason) => { record.reason = reason;
+  const skipAll = (reason, { keepArtifact = false } = {}) => { record.reason = reason;
     record.gh_issue = { status: "skip", reason };
     record.webhook = { status: "skip", reason };
-    writeArtifact({ phase: "skip" });
-    return record; };
+    if (!keepArtifact) writeArtifact({ phase: "skip" });
+    return record; }; // keepArtifact=守卫分支专用:工件已记 emitting/emitted 全稿,重写 skip 灭失外发证据(哲学1)
   if (!sweepD) return skipAll("anchor_sweep_degraded(求值面死,无读数即无 finding;降级旁路工件另案留痕)");
   const parsed = parseFindings(sweepD);
   record.findings_n = parsed.ok ? parsed.findings.length : (typeof sweepD.n_fail === "number" ? sweepD.n_fail : 0);
@@ -114,7 +116,8 @@ export async function runFindingExits({ roundId, sweepD, dir, env = process.env,
     try {
       const prev = JSON.parse(fs.readFileSync(artifactPath, "utf8"));
       if (prev?.round_id === roundId && (prev.phase === "emitted" || prev.phase === "emitting"))
-        return skipAll(`emit_guard(出口工件已记 phase=${prev.phase};resume 防重发,不自动重发——人工核对,漏发下轮补)`);
+        return skipAll(`emit_guard(出口工件已记 phase=${prev.phase};resume 防重发,不自动重发——人工核对,漏发下轮补)`,
+          { keepArtifact: true }); // 不重写工件(终审修单 M4):issue 草稿/issue_url/webhook_payload 全稿存活;守卫幂等
     } catch { /* 无工件=首程,照发 */ }
   }
   record.triggered = true;

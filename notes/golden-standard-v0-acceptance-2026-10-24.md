@@ -57,6 +57,6 @@
 | 预扣结算 | pipeline.mjs(budget_truncate) | grep 命中(:54 降级标记+:105-108 预算三闸真面执法) |
 | 谱系混淆 | `_logodds.py`(dedup_lineage)、notes(三向对撞表) | 函数 :93 在场;三向对撞表含「源谱系混淆模型」行 |
 | finding 出口三件套 | finding-exit.mjs、tools.mjs(ghIssueCreate/GH_WRITE_SUBCOMMANDS)、票 #184 | 两文件符号 grep 命中(tools.mjs :251/:256);票 #184 已闭 |
-| emit 守卫 | finding-exit.mjs(runFindingExits) | :94 入口+:112-132 emitting/emitted 相位逻辑在场 |
+| emit 守卫 | finding-exit.mjs(runFindingExits) | :96 入口+:114-135 emitting/emitted 相位逻辑在场(终审修单 M4 行号;守卫触发不重写工件,emitted 全稿存活) |
 
 死锚:零。standard-check(STANDARD.md 门挂点面)与本表(GLOSSARY 词条面)互补,双绿。

@@ -312,6 +312,19 @@ await t("finding 出口:gh/apprise 失败=失败信封记入不抛(出口永不�
   assert.equal(r6.gh_issue.status, "skip");
   assert.match(r6.reason, /emit/);
   assert.deepEqual(calls2, [], "已发轮重入零外发");
+  // M4(终审修单第二轮):守卫触发不重写工件——emitted 全稿存活(哲学1 证据永不灭失),且同窗
+  // 二次重入仍读 emitted 恒守卫(旧实现写回 phase=skip,二次崩溃窗守卫读 skip 误判首程→重发→重复外发)
+  const art6 = j(path.join(d, "08-anchor-sweep-exits.json"));
+  assert.equal(art6.phase, "emitted", "守卫不重写工件:phase 仍 emitted(非 skip)");
+  assert.match(art6.issue.title, /^\[anchor-sweep\]/, "issue 全稿存活(标题在场)");
+  assert.ok(art6.webhook_payload?.title, "webhook_payload 存活");
+  assert.equal(art6.gh_issue.status, "failed", "首轮失败信封同存活(证据不灭失)");
+  const calls2b = [];
+  const r6b = await fexit.runFindingExits({ roundId: "2026-10-24-0404-health", sweepD: liveSweepD, dir: d,
+    env: { OPS_SWEEP_DRY_RUN: "0" }, exec: async (...a) => { calls2b.push(a); return { stdout: "" }; } });
+  assert.match(r6b.reason, /emit_guard/, "同窗二次重入仍守卫");
+  assert.deepEqual(calls2b, [], "同窗二次重入零外发(守卫幂等)");
+  assert.equal(j(path.join(d, "08-anchor-sweep-exits.json")).phase, "emitted", "二次重入工件仍 emitted");
   // emit 守卫(中截面):同轮工件停在 emitting(外发中崩溃)→ 同样不重发(状态不可知,宁少算)
   const d7 = fs.mkdtempSync(path.join(os.tmpdir(), "fexit-g-"));
   fs.writeFileSync(path.join(d7, "08-anchor-sweep-exits.json"),
@@ -322,6 +335,9 @@ await t("finding 出口:gh/apprise 失败=失败信封记入不抛(出口永不�
   assert.equal(r7.gh_issue.status, "skip");
   assert.match(r7.reason, /emit_guard/);
   assert.deepEqual(calls3, [], "中崩窗零重发(人工核对,漏发下轮补)");
+  const art7 = j(path.join(d7, "08-anchor-sweep-exits.json"));
+  assert.equal(art7.phase, "emitting", "中崩截面工件不被守卫重写(原样留证)");
+  assert.equal(art7.findings_n, 2, "中崩截面原记录字段存活");
 });
 
 
