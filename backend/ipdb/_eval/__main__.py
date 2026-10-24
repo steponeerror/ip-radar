@@ -488,6 +488,9 @@ def main(argv=None):
                    help="ops 轮锚巡检件(#182):逐锚详查 verdict/confidence/"
                         "accusers 读数,失败=finding 不持门(rc 恒 0;判定门腿"
                         "=--anchors 月轮 rc 1,双轨分立 ADR 0008 决策2)")
+    p.add_argument("--agg-share", action="store_true",
+                   help="印证对聚合器占比披露(spec #180 Q4;issue #183):"
+                        "只测量不持门,落 model/agg-share-<ts>.json")
     p.add_argument("--dsem", action="store_true",
                    help="DS-EM fair fight: market vs declared vs pi-hat T3 (advisory)")
     p.add_argument("--temporal", action="store_true",
@@ -716,6 +719,20 @@ def main(argv=None):
                           f"accusers={','.join(r['accusers']) or '-'}")
             print(f"anchor_sweep: {sweep['n_total'] - sweep['n_fail']}"
                   f"/{sweep['n_total']} pass (findings do not gate)")
+        return
+    if args.agg_share:
+        # 印证对聚合器占比披露(spec #180 Q4;issue #183):只测量不持门
+        # (回归轨/能力轨分立,ADR 0008 决策 2)—— exit 恒 0,报告照落。
+        from .agg_share import run_agg_share
+        res = run_agg_share(registry, out_dir=REPORT_DIR)
+        if args.json:
+            print(json.dumps(res, ensure_ascii=False))
+        else:
+            share = res["derived_vote_share"]
+            print(f"agg-share: probed {res['n_probe']} IPs, "
+                  f"corroborated groups {res['n_corroborated_groups']}, "
+                  f"derived vote share {share}, "
+                  f"pure-derived echo groups {res['n_pure_derived_groups']}")
         return
     if args.dsem:
         from ipdb._merge import SOURCE_RELIABILITY

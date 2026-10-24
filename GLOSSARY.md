@@ -18,6 +18,7 @@
 
 - **合法空**:bare-IP 多列表 feed 中 HTTP 200 + 空 body 的子列表——发布方「当前无此类条目」的声明:落 0 字节文件、下一 epoch 出清该列表条目、不计失败。仅限 200;404/超时/锚空仍是失败。firehol 等头部化格式不适用(空文件无头即坏)。锚:_sources/blocklist_de.py(download)
 - **活性锚**:同批下载中证明出版方存活的列表(blocklist_de = all.txt 聚合);锚空 = 本轮零替换 + 记真失败(fail-closed),防灾难性全空清库。判例:blocklist_de ircbot 2026-10-15(grill Q1-Q3)。锚:_sources/blocklist_de.py(download)
+- **载入期基础设施过滤**:聚合类源 rebuild 载入面排除 curated 公共基础设施单址集——聚合器转载的指控对公认解析器不构成行为证据,排除在投影层(数据文件零改写,无损管线不破)。真源=infra_services curated 集(单真相,勿查可能纪元落后的 LMDB);基类默认关,事故源显式 opt-in(infra_noise_filter=True);宁少算=仅精确单址命中,含 infra 的更大 CIDR 不排;IP_RADAR_INFRA_NOISE_FILTER=0 + 重建即复原,排除计数+条目日志化。判例:8.8.8.8(myip_ms 单源)/114.114.114.114(cps+ziyadnz 假印证)/1.1.1.1(cps)三公共解析器误报(2026-10-24 事故,ADR 0008 发现固化;哲学同族=资产弃权)。锚:_sources/_infra_filter.py
 
 ## 证据
 
@@ -59,6 +60,7 @@
 
 ## 质量闸门(eval 闭环)
 
+- **聚合器占比**:印证对的 derived 投票占比披露——生产同款重算(per-源 max 系数→dedup_lineage)后计聚合器票在 corroborated 组中的份额,纯 derived 组(互证回声,corroborated 仍 True 的现状面)点名;v0 只测量不持门、不改 corroborated 语义(grill Q2 2026-10-11 裁定),语义变更须另票过回放闸门。判例:114DNS cps+ziyadnz 纯 derived 互证(2026-10-24)。锚:_eval/agg_share.py(CLI --agg-share,落 model/agg-share-<ts>.json)
 - **循环语料**:威胁标签取自被评估系统自身(输出导出或舰队源采样)的语料:只能作新旧对照(回归),不能作独立真值(绝对尺);舰队源采样的滚动子类=共识代理层,用途见该词条(本条『只能作新旧对照』限冻结语料)。判例:top_threat_1000(融合结果导出)、benchmark 600(源采样)。锚:CONTEXT.md(质量闸门)、docs/research/2026-10-12-eval-loop-grill-outcomes.md(背景与痛点)
 - **威胁真值层**:蜜罐独立传感器观测到的攻击源 IP 构成的正样本层,是绝对读数的非循环锚。配套三闸:rir 分配日期过滤(剔重分配)、长记忆列表收录条件化子读数(离 feed 记忆回声)、k 计数排除蜜罐派生成员(knock_knock/binarydefense,双报 k_all/k_nonhoneypot);独立性组织级降级与语义=历史真值非当前真值属边界声明非闸。判例:Hornet 65 Niner(2024,CC BY 4.0)。锚:docs/adr/0002-honeypot-truth-anchor.md、grill Q6、CONTEXT.md(质量闸门)
 - **k 族**:被指控 IP 的有效指控源数(谱系去重后计数;k_nonhoneypot 剔 {knock_knock,binarydefense},与 k_all 双报);研究稿/原型之 k_eff 即 k_all(同构造:per-源 coefficient×decay 取 max+dedup_lineage 后计数;hornet 附录A/loop-prototype/yardstick §一之 k 用旧名)。锚:docs/adr/0002-honeypot-truth-anchor.md、docs/research/2026-10-12-hornet-pilot.md(附录A)

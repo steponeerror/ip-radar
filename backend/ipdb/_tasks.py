@@ -607,6 +607,13 @@ class UpdateManager:
             self._set_state(task, "cancelled")
             return False
         if rc == 0:
+            # 成功路径也留痕子进程 stderr 人类可读行(如载入期 infra 排除
+            # 计数,issue #183):原先只在失败尾摘 300 字,成功即丢 ——
+            # 排除日志在生产容器将不可见。正常子进程 stderr 为空,零噪音。
+            for ln in stderr_buf:
+                if ln.strip():
+                    logger.info("rebuild child %s: %s",
+                                task.source_name, ln.rstrip())
             try:
                 source.load()
             except Exception as e:
