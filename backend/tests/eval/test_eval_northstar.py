@@ -125,7 +125,8 @@ def test_load_anchor_green_latest_two_by_filename(tmp_path):
               "2026-11-01", "n_total": 19,
               "failures": [{"ip": "8.8.8.8"}, {"ip": "1.1.1.1"}]}),
             ("anchors-20261115-000000.json", "{corrupt")):
-        (d / name).write_text(payload)
+        (d / name).write_text(payload if isinstance(payload, str)
+                              else json.dumps(payload))
     hist = load_anchor_green(d)
     assert [h["artifact"] for h in hist] == [
         "anchors-20261001-000000.json", "anchors-20261101-000000.json"]
@@ -186,15 +187,25 @@ def test_render_na_sentinels_never_fabricate():
     assert "环比 首轮" in ln              # corroborated 面前轮件缺席
 
 
-def test_render_zero_corroborated_and_prev_na():
-    ns = northstar_record(_readout_no_layers(), [_ANCHOR_CUR],
+def test_render_zero_corroborated_is_na():
+    ns = northstar_record(_readout_no_layers(), [_ANCHOR_CUR], None,
+                          run_id="r2", eval_env="monthly",
+                          today=date(2026, 11, 1))
+    ln = render_northstar(ns)[0]
+    assert "corroborated 精度 N/A(零 corroborated 读数)" in ln
+    assert "锚集全绿率 17/19(89.5%" in ln     # 锚腿独立于 corroborated 腿
+
+
+def test_render_prev_record_without_value_is_prev_na():
+    # 前轮北星件在场但前轮精度 N/A → 「前轮 N/A」非「首轮」(两态分立)
+    ns = northstar_record(_readout(), [_ANCHOR_PREV, _ANCHOR_CUR],
                           {"corroborated": {"n": 0, "derived_only": 0,
                                             "precision": None}},
                           run_id="r2", eval_env="monthly",
                           today=date(2026, 11, 1))
     ln = render_northstar(ns)[0]
-    assert "corroborated 精度 N/A(零 corroborated 读数)" in ln
-    assert "环比 前轮 N/A" in ln          # 前轮件在场但前轮值 N/A
+    assert "环比 前轮 N/A" in ln
+    assert "环比 首轮" not in ln   # 锚腿同带前轮读数 → 全行无「首轮」
 
 
 def test_render_anchor_prev_rate_none_is_prev_na():

@@ -252,11 +252,12 @@ def test_readout_writes_northstar_capability_track_record(tmp_path):
 def test_readout_northstar_second_round_mom(tmp_path):
     assets, kdir, rep = tmp_path / "assets", tmp_path / "keysets", tmp_path / "rep"
     _truth_asset(assets)
+    sources = _build_sources(tmp_path)  # 同 tmp_path 只建一次(mkdir 幂等性)
     _anchors_file(rep, "anchors-20261001-000000.json", 0)
-    run_readout(_FakeRegistry(_build_sources(tmp_path)), rep,
+    run_readout(_FakeRegistry(sources), rep,
                 assets_dir=assets, keysets_dir=kdir, run_seed=1, run_id="r1")
     _anchors_file(rep, "anchors-20261101-000000.json", 2)
-    md2, _, _ = run_readout(_CorrRegistry(_build_sources(tmp_path)), rep,
+    md2, _, _ = run_readout(_CorrRegistry(sources), rep,
                             assets_dir=assets, keysets_dir=kdir,
                             run_seed=2, run_id="r2")
     ns2 = json.loads((rep / "northstar-r2.json").read_text())
