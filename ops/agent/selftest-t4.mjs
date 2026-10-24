@@ -480,15 +480,23 @@ await t("契约对拍:JS 核心 ↔ Python rg_search_precedents 命中集相等(
     await execFileP("python3", ["-c", "import sys; sys.path.insert(0,'backend'); import ipdb._ops_store"], { cwd: ROOTDIR, timeout: 60_000 });
   } catch { pyOk = false; }
   if (!pyOk) { console.log("T4SKIP 契约对拍: python3 导入 ipdb 失败(供给缺席;backend venv 面由 backend job 保证)"); return; }
-  const pyHits = async (kws) => JSON.parse((await execFileP("python3",
-    ["-c", "import sys,json; sys.path.insert(0,'backend'); from ipdb._ops_store import rg_search_precedents; print(json.dumps(rg_search_precedents(sys.argv[1:])))", ...kws],
-    { cwd: ROOTDIR, env: { ...process.env, IP_RADAR_DATA_DIR: path.join(AGENT, "fixtures") }, timeout: 60_000 })).stdout);
-  const jsHits = async (kws) => (await searchPrecedentsCore(kws, { precedentsDir: FIXTURES_PREC })).files.map((f) => path.basename(f));
-  for (const kws of [["排他率"], ["排他率", "sunset"], ["冻结", "死键"], ["mirror"], ["不存在的词xyz"]]) {
-    const js = await jsHits(kws), py = await pyHits(kws);
-    assert.deepEqual(js, py, `命中集不等(检索词 ${kws.join(" ")}):js=${js.join(",")} py=${py.join(",")}`);
-    for (const n of js) assert.ok(!n.startsWith("_"), `_ 前缀件不得进命中(_schema/_INDEX 排除面):${n}`);
-  }
+  // 共享目录:拷 fixture 快照到标准 ops 树(<tmp>/data/ops/precedents)——Python 面扫
+  // $IP_RADAR_DATA_DIR/ops/precedents,JS 面扫同一目录(两侧根派生链不同,树形对齐)
+  const DATA = fs.mkdtempSync(path.join(os.tmpdir(), "t4-parity-data-"));
+  const PREDIR = path.join(DATA, "ops", "precedents");
+  fs.mkdirSync(PREDIR, { recursive: true });
+  for (const f of fs.readdirSync(FIXTURES_PREC)) fs.copyFileSync(path.join(FIXTURES_PREC, f), path.join(PREDIR, f));
+  try {
+    const pyHits = async (kws) => JSON.parse((await execFileP("python3",
+      ["-c", "import sys,json; sys.path.insert(0,'backend'); from ipdb._ops_store import rg_search_precedents; print(json.dumps(rg_search_precedents(sys.argv[1:])))", ...kws],
+      { cwd: ROOTDIR, env: { ...process.env, IP_RADAR_DATA_DIR: DATA }, timeout: 60_000 })).stdout);
+    const jsHits = async (kws) => (await searchPrecedentsCore(kws, { precedentsDir: PREDIR })).files.map((f) => path.basename(f));
+    for (const kws of [["排他率"], ["排他率", "sunset"], ["冻结", "死键"], ["mirror"], ["不存在的词xyz"]]) {
+      const js = await jsHits(kws), py = await pyHits(kws);
+      assert.deepEqual(js, py, `命中集不等(检索词 ${kws.join(" ")}):js=${js.join(",")} py=${py.join(",")}`);
+      for (const n of js) assert.ok(!n.startsWith("_"), `_ 前缀件不得进命中(_schema/_INDEX 排除面):${n}`);
+    }
+  } finally { fs.rmSync(DATA, { recursive: true, force: true }); }
 });
 
 await t("结构钉:agent.mjs 预注入改调同源(不再 runLib inject_precedents);lib.sh 函数保留(pipeline/steps.mjs 仍调,退役注记)", () => {

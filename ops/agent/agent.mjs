@@ -31,7 +31,7 @@ import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { Agent } from "@earendil-works/pi-agent-core";
 import { loadModels } from "./models.mjs";
-import { ToolHost, DOCS_ROOT, closureCheck } from "./tools.mjs";
+import { ToolHost, DOCS_ROOT, closureCheck, searchPrecedentsCore } from "./tools.mjs";
 
 const execFileP = promisify(execFileCb);
 const AGENT_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -50,7 +50,7 @@ const HIT_CAP = 8; // 铁律⑦
 // 作防复活绊线。
 export const SPAWN_CONTRACT_ENV = [
   { name: "DOCS_ROOT", default: "<worktree 根>/docs", consumer: "tools.mjs 模块顶(docs 根,派生包/队列/工件落位)+ lib.sh 落位", phase: "import-time" },
-  { name: "PRECEDENTS_DIR", default: "<DOCS_ROOT>/ops/precedents", consumer: "lib.sh(inject_precedents/verify_cited_precedents)", phase: "call-time" },
+  { name: "PRECEDENTS_DIR", default: "<DOCS_ROOT>/ops/precedents", consumer: "tools.mjs searchPrecedentsCore(判例检索单源,PR #176)+lib.sh(inject_precedents/verify_cited_precedents)", phase: "call-time" },
   { name: "LEDGER_FILE", default: "<DOCS_ROOT>/ops/ledger.md", consumer: "lib.sh(ledger_append)", phase: "call-time" },
   { name: "OPS_MODELS", default: "~/.pi/agent/models.json", consumer: "models.mjs loadModels(用户 models.json 路径)", phase: "call-time" },
   { name: "OPS_MODELS_STORE", default: "~/.pi/agent/models-store.json", consumer: "models.mjs loadModels(models-store 路径)", phase: "call-time" },
@@ -121,16 +121,19 @@ export async function runRound(round, input, extraKws = [], opts = {}) {
   const model = resolve(round);
   const systemPrompt = fs.readFileSync(path.join(AGENT_DIR, "prompts", `${round}-system.md`), "utf8");
 
-  // 判例预注入(rg 词法,lib.sh 复用);命中>8 截前 8(铁律⑦),全部进闭集
+  // 判例预注入(rg 词法);PR #176 起与 search_precedents 工具同源 = tools.mjs
+  // searchPrecedentsCore(单源;两路输出 golden 字节等价由 selftest-t4 钉死;失败面
+  // 分类信封 channel_missing/transient/rg_infra 而非 lib.sh 吞 stderr 形);命中>8
+  // 截前 8(铁律⑦),全部进闭集
   const kws = [...KWS[round], ...extraKws];
-  const inj = await runLib("inject_precedents", kws, 120_000, childEnv);
-  const hitNames = [...inj.stdout.matchAll(/^- ([0-9]{4}-[0-9]{2}-[0-9]{2}-[^\s]+\.md)\s*$/gm)].map((m) => m[1]);
+  const inj = await searchPrecedentsCore(kws, { env: childEnv });
+  const hitNames = inj.files.map((f) => path.basename(f));
   const truncated = hitNames.length > HIT_CAP;
   const injected = hitNames.slice(0, HIT_CAP);
   const injectBlock = truncated
-    ? inj.stdout.split("\n").filter((l) => !/^- 202/.test(l) || injected.includes(l.slice(2).trim())).join("\n")
+    ? inj.block.split("\n").filter((l) => !/^- 202/.test(l) || injected.includes(l.slice(2).trim())).join("\n")
       + `\n(命中 ${hitNames.length} 条,注入前 ${HIT_CAP} 条——铁律⑦检索深度上限)`
-    : inj.stdout;
+    : inj.block;
 
   const agent = new Agent({
     initialState: { systemPrompt, model, tools: host.tools },
