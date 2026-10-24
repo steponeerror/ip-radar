@@ -142,3 +142,40 @@ def test_clean_ip_stays_clean_no_violation():
     old = {"scalars": {"country": 60}, "classifications": {}}
     new = {"scalars": {"country": 60}, "classifications": {}}
     assert check_directional(old, new) == []
+
+
+# ── benign-abstention 合法成因(#188 三锚点②;spec 2026-09-06 §2.3 审计 F1)──
+# 良性断言源接入后:指控组池不变(conf 恒等),但纯良性/存档+良性组会
+# 落 verdict=benign 且 conf 变化;旧 clean IP 会凭空出现纯良性组——
+# 这些是 benign 弃权/断言落地后的合法回放差,不得报违例。
+
+def _snap_v(conf, verdict, has_archive=False):
+    return {"scalars": {}, "classifications": {
+        "dns": {"conf": conf, "verdict": verdict, "n_sources": 1,
+                "has_archive": has_archive,
+                "min_first_seen": None, "max_first_seen": None}}}
+
+
+def test_changed_conf_with_benign_assertion_is_legal():
+    """存档+良性组(无 informational 亦可):良性断言入组 → dedup 域收窄,
+    组 verdict 落 benign + conf 变化 = 合法成因(非存档独占)。"""
+    assert not check_directional(
+        {"scalars": {}, "classifications": {
+            "dns": {"conf": 71, "verdict": "informational"}}},
+        _snap_v(63, "benign"))
+
+
+def test_clean_ip_pure_benign_group_is_legal_not_phantom():
+    """旧 clean IP 凭空出现威胁组仍是违规;纯良性组(良性断言面)例外。"""
+    old = {"scalars": {"country": 60}, "classifications": {}}
+    new = {"scalars": {"country": 60},
+           "classifications": {"dns": {"conf": 95, "verdict": "benign"}}}
+    assert check_directional(old, new) == []
+
+
+def test_clean_ip_phantom_threat_group_still_violation_after_benign():
+    """良性例外不得松动幽灵威胁组守卫:凭空出现的指控组照报违例。"""
+    old = {"scalars": {"country": 60}, "classifications": {}}
+    new = {"scalars": {"country": 60},
+           "classifications": {"c2-server": {"conf": 50, "verdict": "malicious"}}}
+    assert check_directional(old, new) != []

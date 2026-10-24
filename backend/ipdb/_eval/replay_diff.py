@@ -1,7 +1,8 @@
 # backend/ipdb/_eval/replay_diff.py
 """离线新旧评分对比:评分语义迁移的回放对比工具,方向断言层现为
 spec 2026-09-06(verdict-aware scoring:存档退出评分,组 conf 改变 ⟹
-新侧必须 has_archive)。
+新侧 has_archive 或良性章在场;#188 benign② 断言源接入后良性组/
+良性成因列入合法回放差)。
 
   --snapshot out.json   切换前跑(旧实现),存基线
   --compare base.json   切换后跑(新实现),出 diff 报告 + 方向断言
@@ -80,12 +81,13 @@ def check_directional(old: dict, new: dict) -> list[str]:
     """spec 2026-09-06 验收断言(全换,旧 8-29 规则作废):
 
     - scalar conf:逐字节相等(红线);
-    - 组 conf 改变 ⟹ 新侧必须 has_archive(唯一合法成因:存档退出
-      投票/去重域收窄;全指控组与纯存档组数字不变,自动落入"相等"桶);
-    - 旧侧全 clean 的 IP 不得凭空出现威胁组(保留 8-29 断言 5)。
-
-    注:benign 弃权(spec §2.3 审计 F1)落地后,dedup 域收窄无
-    informational 观测亦可合法改变组 conf,本守卫暂未枚举,届时需重审此规则。"""
+    - 组 conf 改变 ⟹ 新侧 has_archive(存档退出投票/去重域收窄)
+      或良性章在场(新侧组 verdict=="benign";benign②断言源落地
+      #188,含 spec §2.3 审计 F1 预告的 benign 弃权同族成因——指控组
+      池不含良性证人(conf 恒等),verdict 落 benign 的组必是纯良性/
+      存档+良性组,其 conf 变化是断言面合法演化非计分漂移);
+    - 旧侧全 clean 的 IP 不得凭空出现威胁组(保留 8-29 断言 5);
+      纯良性组(verdict=="benign")例外——良性断言面非威胁组。"""
     problems = []
     for field, old_conf in old["scalars"].items():
         new_conf = new["scalars"].get(field)
@@ -95,13 +97,16 @@ def check_directional(old: dict, new: dict) -> list[str]:
         nc = new["classifications"].get(ctype)
         if nc is None:
             continue
-        if oc.get("conf") != nc.get("conf") and not nc.get("has_archive"):
+        if (oc.get("conf") != nc.get("conf")
+                and not nc.get("has_archive")
+                and nc.get("verdict") != "benign"):
             problems.append(
                 f"{ctype}: conf 改变 {oc.get('conf')}->{nc.get('conf')} "
-                f"且新侧无存档观测(唯一合法成因缺失)")
+                f"且新侧无存档/良性观测(合法成因缺失)")
     if not old["classifications"]:
         for ctype, nc in new["classifications"].items():
-            if nc.get("conf") is not None:
+            if (nc.get("conf") is not None
+                    and nc.get("verdict") != "benign"):
                 problems.append(
                     f"{ctype}: 旧 clean IP 凭空出现威胁组 conf={nc['conf']}")
     return problems
