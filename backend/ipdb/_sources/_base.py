@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 import lmdb
 
 from .._types import SourceHealth
+from . import _infra_filter
 # 热路径共享:函数体内缓存 import 复测 273ns/调用(2026-10-11 配对
 # A/B 修正侦察预估 1.075µs;43µs/IP 为已修正的侦察预估,非实测);提升后
 # 配对 A/B 实测 -21µs/IP(5/5 全胜)。_lmdb 仅依赖
@@ -38,6 +39,9 @@ class IpListSource:
     # 与 _source_base.Source 平行维护(仓库多套平行基类)。
     provenance_tier: str = "B"          # A 官方/自采 | B 社区 | C 聚合派生
     honeypot_methodology: bool = False  # 蜜罐法采集(k_nonhoneypot 剔除依据)
+    # 载入期基础设施噪声过滤(issue #183):True = rebuild 载入面排除
+    # infra_services curated 单址集(默认 False,事故源显式 opt-in)。
+    infra_noise_filter: bool = False
 
     def __init__(self, data_dir: Path):
         self._data_dir = data_dir
@@ -183,6 +187,9 @@ class IpListSource:
         if not self._path.exists():
             return 0
         insert_data = self.get_insert_data()
+        exclude_infra = (self.infra_noise_filter
+                         and _infra_filter.filter_enabled())
+        excluded: list[str] = []
         records = []
         covered = []
         with open(self._path, "r", encoding="utf-8") as f:
@@ -200,6 +207,10 @@ class IpListSource:
                 except (ValueError, _ipa.AddressValueError,
                         _ipa.NetmaskValueError):
                     continue
+                # 载入期 infra 噪声排除(数据文件零改写,仅挡投影;issue #183)
+                if exclude_infra and _infra_filter.is_infra_noise(net):
+                    excluded.append(str(net))
+                    continue
                 # 每条记录独立浅拷贝:共享同一 dict 会让任一记录的 extra
                 # 变更泄漏给同源全部记录(历史动因:build 期写入钩子按记录
                 # 挂 extra 键,该机制 2026-10-07 裁决 #5 删除;拷贝保留为
@@ -211,8 +222,11 @@ class IpListSource:
         cov4 = covered_ip_count(c for c in covered if ":" not in c)
         cov6 = covered_ip_count(
             (c for c in covered if ":" in c), ip_version=6)
+        if excluded:
+            _infra_filter.log_exclusions(self.name, excluded)
         return commit_dual_family(
             self, records, cov4=cov4, cov6=cov6, progress=progress)
+
     def query(self, ip: str) -> Any:
         if ":" in ip:                      # v6 查询走并行族 reader(spec §3.2)
             return self._query6(ip)
@@ -303,6 +317,9 @@ class CsvSource(IpListSource):
         from ._lmdb import covered_ip_count, rebuild_dual_family, commit_dual_family
         if not self._path.exists():
             return 0
+        exclude_infra = (self.infra_noise_filter
+                         and _infra_filter.filter_enabled())
+        excluded: list[str] = []
         # cidr_str -> list[evidence dict], deduped by full-evidence equality
         acc: dict[str, list[dict]] = {}
         with open(self._path, "r", encoding="utf-8") as f:
@@ -330,6 +347,10 @@ class CsvSource(IpListSource):
                 except (ValueError, _ipa.AddressValueError,
                         _ipa.NetmaskValueError):
                     continue
+                # 载入期 infra 噪声排除(数据文件零改写,仅挡投影;issue #183)
+                if exclude_infra and _infra_filter.is_infra_noise(net):
+                    excluded.append(str(net))
+                    continue
                 key = str(net)
                 bucket = acc.setdefault(key, [])
                 # Dedup on the FULL evidence (not just 4-tuple): two rows
@@ -343,6 +364,8 @@ class CsvSource(IpListSource):
         v6_keys = (c for c in acc if ":" in c)
         cov4 = covered_ip_count(v4_keys)
         cov6 = covered_ip_count(v6_keys, ip_version=6)
+        if excluded:
+            _infra_filter.log_exclusions(self.name, excluded)
         # DQ-2:.count 语义 = LMDB 主库键数(rebuild_lmdb commit 时从 env
         # 回写);旧「count=证据数」覆写已删——同 CIDR 多证据并单键,计数
         # 不再随证据数虚增,record_count 恒等于 env 键数。
