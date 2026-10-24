@@ -16,7 +16,7 @@ export const CLOSED_SETS = {
   severity: ["high", "medium", "low"],
   probe_hint: ["reprobe_get", "reprobe_ua", "upstream_check", "none"], // 微探针闭集(P0 预留名;真工具=P4)
   verdict: ["confirmed", "refuted", "unresolved"],
-  deep_tool: ["reprobe_get", "reprobe_ua", "upstream_check"], // 微探针闭集(P4 #166;与 probe_hint 同词表减 none;faux 工具面=registry_seed 结构化返回,真 API 不在票面)
+  deep_tool: ["reprobe_get", "reprobe_ua", "upstream_check"], // 微探针闭集(P4 #166;与 probe_hint 同词表减 none;faux 面=registry_seed 脚本化,真面工具=#173 pipeline/microprobes.mjs)
   action: ["digest_ignore", "human_ruling", "watch"], // 条目建议动作闭集(P4 #166 裁:confirmed/unresolved→human_ruling 人裁终局;refuted→digest_ignore 低危消化;watch→观察;review_freeze 退役——永不自动执行,建议面恒交人)
 };
 

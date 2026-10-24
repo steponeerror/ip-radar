@@ -1134,7 +1134,7 @@ await t("⑫-真面信封形状(fake 传输层驱动,零网络):轮键解析+usa
   assert.deepEqual(f1.resolveCalls, ["health"], "TRIAGE 真面→health 轮键(缺省 glm-5.3-flash)");
   assert.ok(tri.usage.input > 0 && tri.usage.output > 0, `真 usage 数字回传:${JSON.stringify(tri.usage)}`);
   const tl = fs.readFileSync(path.join(d, "03-triage-transcript.jsonl"), "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
-  assert.deepEqual(tl.map((x) => x.type), ["input", "message"], "真面行型:input+message,零 registry_seed(微探针缺口=下票)");
+  assert.deepEqual(tl.map((x) => x.type), ["input", "message"], "真面 TRIAGE 行型:input+message,零 registry_seed(单发步无工具面;DEEP 真面见⑬)");
   assert.equal(tl[0].model, "faux/fake-transport", "真面 input 行带 model 字段(provider/id)");
   // DEEP 真面:轮键=discover(glm-5.3)
   const f2 = fakeIO(JSON.stringify({ verdict: "unresolved", one_line: "x", evidence: [] }));
@@ -1172,9 +1172,9 @@ await t("⑫-预算三闸真面同执法:G_DEEP 对真面工件(unresolved 过�
     await io.finalize(ctx, { degradedItems: [] });
     return { gate: GATES.G_DEEP({ ...ctx, budgetCny: 0.05 }), transcript: fs.readFileSync(path.join(d, "05-deep-h1-transcript.jsonl"), "utf8") };
   };
-  // 正例:真面 unresolved(无探针工具→不裁)零 evidence 过门(设计内缺口下的合法态)
+  // 正例:真面 unresolved(零探针调用→不裁)零 evidence 过门
   const d1 = fs.mkdtempSync(path.join(os.tmpdir(), "p170-gd-pass-"));
-  const g1 = await mkRealDeep(d1, JSON.stringify({ verdict: "unresolved", one_line: "真面无探针登记表,不裁(微探针缺口=下票)", evidence: [] }));
+  const g1 = await mkRealDeep(d1, JSON.stringify({ verdict: "unresolved", one_line: "真面零探针调用,不裁", evidence: [] }));
   assert.equal(g1.gate.pass, true, `unresolved 零证据腿合法:${g1.gate.reason}`);
   assert.equal(g1.transcript.split("\n").filter((l) => l.includes('"type":"registry_seed"')).length, 0, "真面零 seed 行(微探针 ≤3/假设恒过)");
   // 负例:confirmed 伪 call_id(无登记表回引)→ G_DEEP 拒(A 一律真面同执法)
