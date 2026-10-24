@@ -33,7 +33,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends git ca-certific
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian trixie stable" > /etc/apt/sources.list.d/docker.list \
     && apt-get update && apt-get install -y --no-install-recommends docker-ce-cli docker-compose-plugin \
     && rm -rf /var/lib/apt/lists/*
-# PR #176 工具通道修复:gh CLI(gh_search 通道;判例 docs/ops/precedents/
+# PR #177 工具通道修复:gh CLI(gh_search 通道;判例 docs/ops/precedents/
 # 2026-10-24-discover-dual-channel-dead = 容器无 gh 双通道全灭的正身)。官方 tar.gz
 # pin 版本而非 apt(选型理由:gh 不在 Debian 源,cli.github.com apt 源版本随上游浮动;
 # 镜像面依赖钉版本——node>=22.19 断言同旨,升版本 = 显式改 ARG 逃不过评审)。amd64
@@ -78,7 +78,7 @@ RUN rm -rf /app/.git && git init -q -b main \
 COPY --from=frontend /build/dist ./frontend/dist
 COPY docker/entrypoint.sh /entrypoint.sh
 # P5 验收锚:node(桥 spawn 面)/rg(检索面)在此层真跑一次,缺库缺二进制构建即红;
-# PR #176 增 gh(gh_search 面;同旨)
+# PR #177 增 gh(gh_search 面;同旨)
 RUN chmod +x /entrypoint.sh \
     && node --version \
     && rg --version | head -1 \

@@ -50,7 +50,7 @@ const HIT_CAP = 8; // 铁律⑦
 // 作防复活绊线。
 export const SPAWN_CONTRACT_ENV = [
   { name: "DOCS_ROOT", default: "<worktree 根>/docs", consumer: "tools.mjs 模块顶(docs 根,派生包/队列/工件落位)+ lib.sh 落位", phase: "import-time" },
-  { name: "PRECEDENTS_DIR", default: "<DOCS_ROOT>/ops/precedents", consumer: "tools.mjs searchPrecedentsCore(判例检索单源,PR #176)+lib.sh(inject_precedents/verify_cited_precedents)", phase: "call-time" },
+  { name: "PRECEDENTS_DIR", default: "<DOCS_ROOT>/ops/precedents", consumer: "tools.mjs searchPrecedentsCore(判例检索单源,PR #177)+lib.sh(inject_precedents/verify_cited_precedents)", phase: "call-time" },
   { name: "LEDGER_FILE", default: "<DOCS_ROOT>/ops/ledger.md", consumer: "lib.sh(ledger_append)", phase: "call-time" },
   { name: "OPS_MODELS", default: "~/.pi/agent/models.json", consumer: "models.mjs loadModels(用户 models.json 路径)", phase: "call-time" },
   { name: "OPS_MODELS_STORE", default: "~/.pi/agent/models-store.json", consumer: "models.mjs loadModels(models-store 路径)", phase: "call-time" },
@@ -84,7 +84,8 @@ export const SPAWN_CONTRACT_ENV = [
 import { ERROR_CODES } from "./error-codes.mjs";
 export { ERROR_CODES };
 
-// bash 复用 lib.sh(inject_precedents/verify_cited_precedents/ledger_append/sandbox_assert);
+// bash 复用 lib.sh(verify_cited_precedents/ledger_append/sandbox_assert;inject_precedents
+// 已退役为 pipeline/steps.mjs 专用,agent 面判例预注入走 tools.mjs searchPrecedentsCore 同源);
 // env 参数 = main 注入的 io.env(缺省 process.env),fixture/契约 env 经此传导给 lib.sh 子进程
 const runLib = (fn, args = [], timeoutMs = 120_000, env = process.env) => execFileP("bash",
   ["-c", `. "$0"; ${fn} "$@"`, path.join(AGENT_DIR, "lib.sh"), ...args],
@@ -125,7 +126,7 @@ export async function runRound(round, input, extraKws = [], opts = {}) {
   const model = resolve(round);
   const systemPrompt = fs.readFileSync(path.join(AGENT_DIR, "prompts", `${round}-system.md`), "utf8");
 
-  // 判例预注入(rg 词法);PR #176 起与 search_precedents 工具同源 = tools.mjs
+  // 判例预注入(rg 词法);PR #177 起与 search_precedents 工具同源 = tools.mjs
   // searchPrecedentsCore(单源;两路输出 golden 字节等价由 selftest-t4 钉死;失败面
   // 分类信封 channel_missing/transient/rg_infra 而非 lib.sh 吞 stderr 形);命中>8
   // 截前 8(铁律⑦),全部进闭集

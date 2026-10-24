@@ -70,7 +70,7 @@
 | 裁定 | 内容 |
 |---|---|
 | 围栏观 | 剪的是打断/审批摩擦,不剪边界执法:写口 queue_action 语义门/沙箱断言/防失控界全保留;防线集中后,深围栏(写门/evidence 选择对/SSRF)随注入面扩大**加强测试** |
-| 工具面 | 原生薄工具四件套:gh_search(GH_TOKEN 入镜像,#139 提前收)/ web_read(r.jina.ai,无 key 限速可用)/ web_search(s.jina.ai,2026 起强制 JINA_API_KEY,走 agent-config 扩槽)/ rss_parse(本地解析);agent-reach 整只**不进镜像**(13 通道×异构故障面违「few, sharp tools」);错误语义对齐 MCP isError 二分:channel_missing/channel_auth/quota/transient 四码,每码带「下一步合法动作」文案 |
+| 工具面 | 原生薄工具四件套:gh_search(镜像装 gh 二进制;GH_TOKEN 经 compose override env 注入不入镜像层,#139 提前收)/ web_read(r.jina.ai,无 key 限速可用)/ web_search(s.jina.ai,2026 起强制 JINA_API_KEY,走 agent-config 扩槽)/ rss_parse(本地解析);agent-reach 整只**不进镜像**(13 通道×异构故障面违「few, sharp tools」);错误语义对齐 MCP isError 二分:channel_missing/channel_auth/quota/transient 四码,每码带「下一步合法动作」文案 |
 | 预算四界 | 迭代上限(补整轮模型调用数帽)/ 轨迹 token 预算 / 墙钟超时 / 花费帽(每轮 ¥3 ∧ 月度 ¥30,同台账并发安全双点执法:准入+环内)+ 重复检测(工具调用哈希);单发线降为告警线;取代 §4 预算卡行闸值面(8h 节奏不变) |
 | 熔断器 | 跨轮通道熔断(连续失败达阈开断 → 快速结构化 tool-unavailable 信封 → 半开探活恢复),状态持久化跨轮;宿主层职责,取代静态轮前探测;判例 01:59 重试白烧的直接解 |
 | 北极星 | 三联指标:truth 检出率主星 ∧ 误报面∧ 回声面约束;约束破线则检出率提升不算数(防堆回声源刷分,哲学③同构) |

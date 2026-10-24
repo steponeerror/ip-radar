@@ -394,7 +394,7 @@ grep -q '信封处置' "$DISC" && grep -q '禁止替失败补数' "$DISC" \
   && ok "prompt:discover 信封处置条款在文" || bad "prompt:discover 信封处置条款在文"
 grep -q '工具返回验证' "$DISC" \
   && ok "prompt:discover 工具返回验证条款在文" || bad "prompt:discover 工具返回验证条款在文"
-# PR #176(工具通道修复):信封处置三新码钉子(基础设施面不可重试清单)
+# PR #177(工具通道修复):信封处置三新码钉子(基础设施面不可重试清单)
 grep -q 'channel_missing' "$DISC" && grep -q 'channel_auth' "$DISC" && grep -q 'quota' "$DISC" \
   && ok "prompt:信封处置三新码在文(channel_missing/channel_auth/quota)" || bad "prompt:信封处置三新码在文(channel_missing/channel_auth/quota)"
 grep -qE '暂态.{0,80}(≤1|≤ 1)' "$DISC" \
@@ -505,9 +505,9 @@ else
   skipok "B三件:build-index --check+promote-detect --dry 真源面" "嵌套 docs 仓缺席(判例库真源不在场;主 checkout 在场时真跑)"
 fi
 
-# ---- 12. PR #176 工具通道修复:装配面钉子(Dockerfile gh / ops-cron GH_TOKEN 文档 / t4 新例计数) ----
+# ---- 12. PR #177 工具通道修复:装配面钉子(Dockerfile gh / ops-cron GH_TOKEN 文档 / t4 新例计数) ----
 # gh CLI 装配行在案(判例 2026-10-24-discover-dual-channel-dead:容器无 gh → gh_search 双通道全灭;
-# 装配验收锄在 docker build 层 gh --version 断言,此处只钉装配行不被无声删除)
+# 装配验收锚在 docker build 层 gh --version 断言,此处只钉装配行不被无声删除)
 grep -q 'cli/cli' "$ROOT/Dockerfile" \
   && ok "dockerfile:gh CLI 装配行在案(官方 tar.gz pin 版本)" || bad "dockerfile:gh CLI 装配行在案(官方 tar.gz pin 版本)"
 grep -q 'GH_VERSION' "$ROOT/Dockerfile" \

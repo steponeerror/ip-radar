@@ -40,7 +40,7 @@ fm_block() {
 # inject_precedents <关键词>... — rg 词法检索判例库(排除 _schema.md,frontmatter/正文皆可命中,
 # 多关键词 OR 语义扩大召回),输出 prompt 注入块;零命中显式一行「无判例」(Review Focus 2)。
 #
-# [退役注记 2026-10-24,PR #176 工具通道修复;判例 docs/ops/precedents/
+# [退役注记 2026-10-24,PR #177 工具通道修复;判例 docs/ops/precedents/
 # 2026-10-24-discover-dual-channel-dead] 判例检索单源已移 tools.mjs searchPrecedentsCore
 # (JS 原生 rg spawn,失败面四码分类信封可诊断;本函数吞 stderr 2>/dev/null 的问题只在
 # 新单源修复,本函数体零改动)。agent.mjs 宿主预注入与 search_precedents 工具已改调同源。

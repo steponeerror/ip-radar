@@ -1,6 +1,6 @@
 # fixtures/precedents — 判例库真实快照(golden 字节等价 + JS↔Python 契约对拍 fixture)
 
-PR #176「ops 工具通道修复」随建:2026-10-24 一次性拷贝嵌套 docs 仓
+PR #177「ops 工具通道修复」随建:2026-10-24 一次性拷贝嵌套 docs 仓
 `docs/ops/precedents/*.md` 全量(23 件,含 `_INDEX.md`/`_schema.md` —— `_` 前缀
 件必须在场,rg `-g '!_*'` 排除面才有真实对象)。
 

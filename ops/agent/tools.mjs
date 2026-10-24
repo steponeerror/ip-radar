@@ -198,12 +198,14 @@ export function countFeedKeys(text) { // probe 键量:IPv4 去重(exclusive.py _
   return new Set(text.match(/(\d{1,3}\.){3}\d{1,3}(\/\d{1,2})?/g)?.map((t) => t.split("/")[0]) ?? []).size;
 }
 
-// ── 通道错误分类(信封四码;PR #176 工具通道修复;判例 docs/ops/precedents/2026-10-24-discover-dual-channel-dead)──
+// ── 通道错误分类(信封四码;PR #177 工具通道修复;判例 docs/ops/precedents/2026-10-24-discover-dual-channel-dead)──
 // 2026-10-24 01:59 生产 discover 轮双通道全灭的事故面修复:旧路径 gh_search 失败一律 gh_error
 // 兑底(容器无 gh 也不可辨),且 trace.rc 在 ENOENT 时塞字符串违反 outputSchema Number 槽。
-// code additive 四码 + 原兑底(gh_error/rg_infra)兼容保留;判定优先级(规格钉死,勿调序):
-//   channel_missing(spawn ENOENT/rc=127)> channel_auth(gh stderr 含 not logged in/
-//   Authentication required/"401"/"403")> quota(含 rate limit)> transient(超时/网络)> 原兑底。
+// code additive 四码 + 原兑底(gh_error/rg_infra)兼容保留;判定优先级(2026-10-24 裁定;
+// 审后修 P2-3 调序并注明 why):channel_missing(spawn ENOENT/rc=127)> quota(stderr 含
+// rate limit;GitHub 次级限流形态=403+rate limit 文案,归此才给对「窗口恢复」指引)>
+// channel_auth(not logged in/Authentication required/gh auth login 免凭据实测报文/
+// GH_TOKEN/401/403,词边界)> transient(超时/网络)> 原兑底。
 // 每码文案带「下一步合法动作」(对齐 MCP isError 语义 2026-07-28:错误要能引导模型自纠或
 // 升级,出处注明);不可重试三码(channel_missing/channel_auth/quota)由 prompts/discover-system.md
 // 信封处置条款消费(基础设施面直接人裁区)。GLOSSARY「通道信封四码」同批录入。
@@ -221,19 +223,24 @@ export function classifyChannelError(e, bin) {
   const stderr = String(e?.stderr ?? "");
   const msg = String(e?.message ?? e ?? "");
   const exitCode = typeof e?.code === "number" ? e.code : null;
-  const timedOut = e?.killed === true || e?.signal === "SIGTERM" || /ETIMEDOUT|timed out/i.test(msg);
+  // 审后修 P2-2/P2-3(2026-10-24,PR #177):timedOut 判据只认 execFile 信号面(killed/
+  // SIGTERM/ETIMEDOUT 错误码)——旧 /timed out/i 扫 message 首行含命令行,查询词恰含该
+  // 短语会误归 transient;quota 提到 channel_auth 之前(次级限流 403+rate limit 归窗口恢复
+  // 指引);channel_auth 补真免凭据报文模式(gh auth login/GH_TOKEN 提示,2026-10-24
+  // GH_CONFIG_DIR 隔离实测)并加词边界。
+  const timedOut = e?.killed === true || e?.signal === "SIGTERM" || e?.code === "ETIMEDOUT";
   const rc = e?.code === "ENOENT" ? 127 : exitCode ?? (timedOut ? 124 : 1);
   let code;
   if (e?.code === "ENOENT" || exitCode === 127) code = "channel_missing";
-  else if (/not logged in|Authentication required|40[13]/.test(stderr)) code = "channel_auth";
   else if (/rate limit/i.test(stderr)) code = "quota";
-  else if (timedOut || e?.code === "ETIMEDOUT") code = "transient";
+  else if (/not logged in|Authentication required|gh auth login|\bGH_TOKEN\b|\b40[13]\b/.test(stderr)) code = "channel_auth";
+  else if (timedOut) code = "transient";
   else code = bin === "gh" ? "gh_error" : "rg_infra";
   const detail = `${bin} 通道失败(rc=${rc}):${(stderr || msg).slice(0, 200)}`;
   return { code, rc, reason: `${detail}——${CHANNEL_HINTS[code]}` };
 }
 
-// ── 判例检索单源(PR #176;判例 2026-10-24-discover-dual-channel-dead)────────────
+// ── 判例检索单源(PR #177;判例 2026-10-24-discover-dual-channel-dead)────────────
 // rg spawn argv 逐字对齐 backend/ipdb/_ops_store.rg_search_precedents(Python 参考实现,
 // Python 面零改动):["rg","-i","-l","-g","*.md","-g","!_*",...每词 "-e",kw,dir]。
 // 成功路径注入块与 lib.sh inject_precedents 逐字节等价(golden/inject-block.* 钉死;
@@ -555,7 +562,7 @@ export class ToolHost {
         truncated: Type.Boolean(), rg_rc: Type.Number(), trace: Type.Object({ cmd: Type.String(), rc: Type.Number() }),
       }),
       execute: async (callId, p) => {
-        // PR #176 单源改造:原生 rg spawn(searchPrecedentsCore),失败面分类信封
+        // PR #177 单源改造:原生 rg spawn(searchPrecedentsCore),失败面分类信封
         // (判例 2026-10-24-discover-dual-channel-dead:旧路径硬编码 trace rc:0 连失败
         // 路径也带、lib.sh 吞 stderr 2>/dev/null、ENOENT 塞字符串违反 Number 槽)。
         // 成功路径输出与旧 lib.sh 路径逐字节等价(golden 钉死);结构化字段只增不删。
@@ -701,7 +708,7 @@ export class ToolHost {
             results.slice(0, 30).map((r) => `- ${JSON.stringify(r)}`).join("\n");
           return this.finish(callId, "gh_search", st, c);
         } catch (e) {
-          // PR #176 分类落地(判例 2026-10-24-discover-dual-channel-dead):容器无 gh/
+          // PR #177 分类落地(判例 2026-10-24-discover-dual-channel-dead):容器无 gh/
           // 凭证缺失/限流/暂态分四码信封,每码带下一步合法动作;trace.rc 恒 Number
           // (旧 e.code ?? 1 在 ENOENT 时塞字符串违反 outputSchema Number 槽);原 gh_error
           // 兑底兼容保留;成功路径零改动。

@@ -21,7 +21,7 @@ async function t(name, fn) { try { await fn(); ok(name); } catch (e) { bad(name,
 const { loadModels } = await import("./models.mjs");
 const {
   ToolHost, checkPrivateIp, countFeedKeys, closureCheck, checkReadablePath, pinnedLookup,
-  // PR #176(工具通道修复,判例 2026-10-24-discover-dual-channel-dead):判例检索 JS 单源核心
+  // PR #177(工具通道修复,判例 2026-10-24-discover-dual-channel-dead):判例检索 JS 单源核心
   // 与通道错误分类器——RED 面先行(未实现时 undefined,下列各例红而不炸装载)。
   searchPrecedentsCore, classifyChannelError,
 } = await import("./tools.mjs");
@@ -339,7 +339,7 @@ await t("队列:模板渲染落行/幂等去重/vetoable+veto_cmd", async () => 
   assert.equal(fs.readFileSync(path.join(TMP, "queue.md"), "utf8").split("\n").filter((l) => l.includes("cand_x")).length, 1);
 });
 
-// ── PR #176 工具通道修复(判例 2026-10-24-discover-dual-channel-dead):search_precedents 单源 ──
+// ── PR #177 工具通道修复(判例 2026-10-24-discover-dual-channel-dead):search_precedents 单源 ──
 // 事故面:search_precedents 失败不可诊断(trace 硬编码 rc:0/lib.sh 吞 stderr 2>/dev/null/
 // ENOENT 塞字符串违反 outputSchema Number 槽)。本节钉:golden 字节等价(JS 核心 = lib.sh
 // 现行 = 入库快照)+ 失败面分类(信封四码)+ gh_search 分类落地 + JS↔Python 契约对拍。
@@ -442,7 +442,13 @@ await t("gh_search:分类落地(ENOENT→channel_missing rc127;not logged in→c
     assert.equal(sc.trace.rc, 1);
     mkGh("echo 'HTTP 403: rate limit exceeded' >&2; exit 1");
     sc = await withPath(`${GHSTUB}:${process.env.PATH}`);
-    assert.equal(sc.code, "channel_auth", "优先级 channel_missing>channel_auth>quota>transient>兑底");
+    assert.equal(sc.code, "quota", "403+rate limit = GitHub 次级限流归 quota(审后修 P2-3:quota 先于 channel_auth)");
+    mkGh("echo 'To get started with GitHub CLI, please run:  gh auth login' >&2; exit 1");
+    sc = await withPath(`${GHSTUB}:${process.env.PATH}`);
+    assert.equal(sc.code, "channel_auth", "真免凭据报文(2026-10-24 GH_CONFIG_DIR 隔离实测)归 channel_auth");
+    mkGh("echo 'HTTP 403: Forbidden' >&2; exit 1");
+    sc = await withPath(`${GHSTUB}:${process.env.PATH}`);
+    assert.equal(sc.code, "channel_auth", "纯 403(无限流文案)归 channel_auth(词边界防 URL/计数误配)");
     mkGh("echo 'boom' >&2; exit 7");
     sc = await withPath(`${GHSTUB}:${process.env.PATH}`);
     assert.equal(sc.code, "gh_error", "原兑底码兼容保留");
@@ -454,12 +460,12 @@ await t("gh_search:分类落地(ENOENT→channel_missing rc127;not logged in→c
   } finally { fs.rmSync(GHSTUB, { recursive: true, force: true }); }
 });
 
-await t("classifyChannelError:四码优先级闭集(channel_missing>channel_auth>quota>transient>兑底);每码文案带下一步合法动作", () => {
+await t("classifyChannelError:四码优先级闭集(channel_missing>quota>channel_auth>transient>兑底,审后修 P2-3 调序);每码文案带下一步合法动作", () => {
   assert.equal(typeof classifyChannelError, "function", "classifyChannelError 未导出(RED 面应先红)");
   const mk = (o) => Object.assign(new Error(o.msg ?? "x"), o);
   assert.equal(classifyChannelError(mk({ code: "ENOENT", msg: "spawn gh ENOENT" }), "gh").code, "channel_missing");
   assert.equal(classifyChannelError(mk({ code: 127, stderr: "whatever" }), "rg").code, "channel_missing", "rc=127 同码(spawn ENOENT 同面)");
-  assert.equal(classifyChannelError(mk({ code: 1, stderr: "HTTP 403: rate limit exceeded" }), "gh").code, "channel_auth", "auth 先于 quota");
+  assert.equal(classifyChannelError(mk({ code: 1, stderr: "HTTP 403: rate limit exceeded" }), "gh").code, "quota", "403+rate limit = 次级限流归 quota(quota 先于 channel_auth,审后修 P2-3)");
   assert.equal(classifyChannelError(mk({ code: 1, stderr: "rate limit exceeded" }), "gh").code, "quota");
   assert.equal(classifyChannelError(mk({ code: 1, killed: true, signal: "SIGTERM", msg: "Command timed out" }), "gh").code, "transient");
   assert.equal(classifyChannelError(mk({ code: 5, stderr: "weird" }), "gh").code, "gh_error", "gh 兑底保留");

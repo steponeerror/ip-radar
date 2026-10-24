@@ -67,7 +67,7 @@ esac
 如 cookie 传递在部署段实测定稿,以「登录 → 带 cookie POST → 409 即零成本跳过」
 三断言为验收面。)
 
-## gh_search 通道凭证(GH_TOKEN;PR #176 工具通道修复)
+## gh_search 通道凭证(GH_TOKEN;PR #177 工具通道修复)
 
 判例 docs/ops/precedents/2026-10-24-discover-dual-channel-dead:生产 discover 轮
 gh_search 双通道全灭,一面 = 容器无 gh(镜像面,已随 Dockerfile 装 CLI 修复);另一面
@@ -87,7 +87,7 @@ services:
   repositories / 最小权限;`gh search` 面无需任何写权限与私仓授权)。凭证泄漏面控制:
   服务器本地 override chmod 600,永不入仓、永不入日志/台账/裁决包(提示词脱敏律;
   gh 失败信封只携带 stderr 摘要,不含令牌)。
-- **失败面**:凭证缺失/失效 → `channel_missing`/`channel_auth` 分类信封(tools.mjs
+- **失败面**:凭证缺失/失效 → `channel_auth` 分类信封(二进制缺装才归 channel_missing;tools.mjs
   classifyChannelError;文案自带下一步),模型侧直接人裁区不重试——修复属部署动作,
   勿轮内自纠。
 
