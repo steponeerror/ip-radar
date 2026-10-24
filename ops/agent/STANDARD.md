@@ -22,8 +22,8 @@
 | P8 | 阶段门 | promptfoo 2026-10(CI fail-PR) | 已有 | ops/agent/pipeline/gates.mjs(gates.json 留痕) |
 | P9 | 判例升格通道 | Agentic Auditing 2026-10(人验签核平行;外部无直接对应) | 已有 | ops/agent/promote-detect.mjs |
 | P10 | 金标集 | Anthropic 2026-01(回归语义);promptfoo 2026-10(golden 数据集) | 已有 | ops/agent/golden/cases.json(faux 零花费) |
-| P11 | 回归门≈100% | Anthropic 2026-01-09(回归/能力分立) | 半缺 | 锚集在而零生产调用;补课=锚巡检接线(#180) |
-| P12 | 安静失败探针 | IEEE Spectrum 2026-04 | 半缺 | 判例=8.8.8.8 门不响;补课=同 #180 接线 |
+| P11 | 回归门≈100% | Anthropic 2026-01-09(回归/能力分立) | 半缺 | 锚集+ops 轮巡检已接线(#182 ANCHOR_SWEEP/G_ANCHOR_SWEEP);补课=生产 cron 灰度开启+223.5.5.5 残留(#188) |
+| P12 | 安静失败探针 | IEEE Spectrum 2026-04 | 半缺 | 判例=8.8.8.8 门不响;接线已落(#182);补课=生产 cron 灰度开启 |
 | P13 | 发现固化 | Agentic Auditing 2026-10-22 | 半缺 | 首批金标=§四;当天固化+人验签核流程门未建制 |
 | P14 | 能力轨北星 | Anthropic 2026-01;Braintrust 2026-02(双面评测) | 半缺 | 定稿已落=E-5+月轮 northstar 观测件(#185);剩余=跨月趋势基线累积(首环比待第二轮月轮) |
 | P15 | 预扣结算 | Latentism 2026-10-05(reserve-then-settle) | 半缺 | 轮内步前在;补课=月度 kill switch |
@@ -54,9 +54,9 @@
 - 判例链:Anthropic 2026-01-09(能力评测刻意低通过率起步爬坡 vs 回归要求≈100%);对撞表「北星=能力轨,锚=回归轨,阈值语义不同」
 
 #### E-3 安静失败探针
-- 主张:监控面板全绿不构成行为正确的证据——活路径已知答案查询(行为探针)必须挂生产查询路径巡检,失败=finding 不持门、自动开 issue 人裁;接线=租户批 #180(接线前以锚集真源+判例文件挂点在场)
+- 主张:监控面板全绿不构成行为正确的证据——活路径已知答案查询(行为探针)必须挂生产查询路径巡检,失败=finding 不持门、自动开 issue 人裁;接线已落(#182:ops 轮 ANCHOR_SWEEP 步+G_ANCHOR_SWEEP 门在案,生产查询路径逐锚读数);启用语义=生产 cron 随 OPS_PIPELINE 灰度(接线≠已启用,部署后首个巡检轮起运行面转正)
 - 原语组成:安静失败探针;回归门≈100%
-- 门挂点:backend/ipdb/_eval/anchors.py;notes/ops-agent-golden-standard-research-2026-10-24.md
+- 门挂点:backend/ipdb/_eval/anchors.py;ops/agent/pipeline/steps.mjs#ANCHOR_SWEEP;ops/agent/pipeline/gates.mjs#G_ANCHOR_SWEEP;notes/ops-agent-golden-standard-research-2026-10-24.md
 - 判例链:IEEE Spectrum 2026-04(安静失败=标准可观测性抓不住语义级退化);2026-10-24 锚门死件复盘(ADR 0008:零生产调用面)
 
 #### E-4 发现固化
@@ -118,7 +118,7 @@
 | CI 腿 | .github/workflows/ci.yml(frontend job:golden+selftest 步) | CI 三腿绿(paths-ignore **.md 不触发,故标准变更必伴代码面) |
 | selftest 伞 | ops/agent/selftest.sh(§13=本核对器+单测) | bash selftest.sh 全绿 |
 | golden 回归 | ops/agent/golden/run-golden.mjs + golden/cases.json | faux 全绿零 API 花费 |
-| ops 轮门 | backend/ipdb/_eval/anchors.py(接线=#180 租户批) | 接线前=锚集+判例文件在场核;接线后=每轮全锚巡检 |
+| ops 轮门 | backend/ipdb/_eval/anchors.py + ops/agent/pipeline/steps.mjs#ANCHOR_SWEEP(接线已落=#182) | 每轮全锚巡检(G_ANCHOR_SWEEP 门);启用=生产 cron 随 OPS_PIPELINE 灰度 |
 
 ## 四、金标层(首批)
 
@@ -130,11 +130,11 @@
 - 门挂点:backend/ipdb/_eval/anchors.py
 - 判例链:2026-10-24 8.8.8.8 事故(myip_ms 单源 rel 0.55 打惡意55;ADR 0008);anchors.py「must stay clean, any failure = rollback」
 
-#### G-2 114.114.114.114 clean(判例已固化,运行面接线=#180)
-- 主张:114DNS 公共解析器判 clean;当前验证面=判例固化在场核(本文件+研究底座),anchors.py 扩行与 ops 轮巡检接线=租户批 #180(含 223.5.5.5/9.9.9.4 同批)
+#### G-2 114.114.114.114 clean(判例已固化,ops 轮巡检已接线)
+- 主张:114DNS 公共解析器判 clean;验证面=判例固化在场核+anchors.py 扩行已落(#182:19 员含 114.114.114.114/223.5.5.5/9.9.9.4)+ops 轮 ANCHOR_SWEEP 巡检在案;启用语义=生产 cron 随 OPS_PIPELINE 灰度
 - 原语组成:发现固化;回归门≈100%
-- 门挂点:notes/ops-agent-golden-standard-research-2026-10-24.md
-- 判例链:2026-10-24 114DNS 事故(cps_collected_iocs+ziyadnz 聚合器假印证打黑名單;ADR 0008);#180 租户票(锚集扩公共解析器)
+- 门挂点:backend/ipdb/_eval/anchors.py#ANCHORS;ops/agent/pipeline/steps.mjs#ANCHOR_SWEEP;notes/ops-agent-golden-standard-research-2026-10-24.md
+- 判例链:2026-10-24 114DNS 事故(cps_collected_iocs+ziyadnz 聚合器假印证打黑名單;ADR 0008);#182 接线(锚集扩公共解析器 16→19)
 
 #### G-3 既有 reserved/tor/hosting 锚
 - 主张:保留段短路(10.0.0.1/127.0.0.1/192.168.1.1/172.16.0.1)、tor 出口 is_tor=true(季度刷新留痕)、云边缘 is_hosting=true(52.95.116.115/20.36.253.52/34.64.121.1)
@@ -157,4 +157,4 @@
 - 类:建议 人审预算化(Selective Auditing 2026-10-22:最小化人审频率+未审错误率≤阈值)
 - 类:建议 基准效度检查单(RecoAtlas 2026-05:性能随模型能力/算力/工具质量扩展)——golden 基准设计依据
 - 类:建议 结构化响应协议压漂移(Echoing 2026-03:身份漂移 70%→9%)——多 agent 会话面扩展时启用
-- 类:建议 锚巡检接线(#180 租户:ops 轮跑 anchors 全集,失败=finding 自动开 issue needs-triage)——接线后 E-3/G-2 运行面转正
+- 类:建议 锚巡检生产启用(#182 已接线:ops 轮 ANCHOR_SWEEP 跑 anchors 全集,失败=finding 自动开 issue needs-triage,E-3/G-2 运行面已转正)——剩余=部署后生产 cron 随 OPS_PIPELINE 灰度开启
