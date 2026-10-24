@@ -26,6 +26,12 @@ def _main(argv: list[str]) -> int:
         print("usage: python -m ipdb._rebuild_child <source_name>",
               file=sys.stderr, flush=True)
         return 2
+    # stderr 除 traceback 外也是人类可读日志面:载入期排除留痕
+    # (issue #183 infra noise filter 计数)是 INFO 级,不配置会落
+    # lastResort(WARNING+)之下不可见;父进程成功路径会把 stderr 行转发
+    # 到容器日志(见 _tasks._rebuild_via_subprocess)。
+    import logging
+    logging.basicConfig(level=logging.INFO)
     # registry 导入只构源对象元数据,不开 LMDB reader;数据目录经继承的
     # IP_RADAR_DATA_DIR 在本进程导入期解析,与父进程同源。
     import ipdb._registry as _registry
