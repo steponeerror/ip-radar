@@ -116,7 +116,7 @@
 
 | 挂口族 | 载体 | 核对方式 |
 |---|---|---|
-| CI 腿 | .github/workflows/ci.yml(frontend job:golden+selftest 步) | CI 三腿绿(paths-ignore **.md 不触发,故标准变更必伴代码面) |
+| CI 腿 | .github/workflows/ci.yml(frontend job:golden+selftest 步) | CI 三腿绿(paths-ignore 已去 **.md,#9f60ce23:纯典章变更亦过 standard-check) |
 | selftest 伞 | ops/agent/selftest.sh(§13=本核对器+单测) | bash selftest.sh 全绿 |
 | golden 回归 | ops/agent/golden/run-golden.mjs + golden/cases.json | faux 全绿零 API 花费 |
 | ops 轮门 | backend/ipdb/_eval/anchors.py + ops/agent/pipeline/steps.mjs#ANCHOR_SWEEP(接线已落=#182) | 每轮全锚巡检(G_ANCHOR_SWEEP 门);启用=生产 cron 随 OPS_PIPELINE 灰度 |
