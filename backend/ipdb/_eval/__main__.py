@@ -484,6 +484,9 @@ def main(argv=None):
                    help="lineage audit over persisted model history (advisory, B1)")
     p.add_argument("--anchors", action="store_true",
                    help="known-answer anchor set regression gate (spec §5.2)")
+    p.add_argument("--agg-share", action="store_true",
+                   help="印证对聚合器占比披露(spec #180 Q4;issue #183):"
+                        "只测量不持门,落 model/agg-share-<ts>.json")
     p.add_argument("--dsem", action="store_true",
                    help="DS-EM fair fight: market vs declared vs pi-hat T3 (advisory)")
     p.add_argument("--temporal", action="store_true",
@@ -694,6 +697,20 @@ def main(argv=None):
             total = len(ANCHORS)
             print(f"anchors: {total - len(fails)}/{total} pass")
         sys.exit(1 if fails else 0)
+    if args.agg_share:
+        # 印证对聚合器占比披露(spec #180 Q4;issue #183):只测量不持门
+        # (回归轨/能力轨分立,ADR 0008 决策 2)—— exit 恒 0,报告照落。
+        from .agg_share import run_agg_share
+        res = run_agg_share(registry, out_dir=REPORT_DIR)
+        if args.json:
+            print(json.dumps(res, ensure_ascii=False))
+        else:
+            share = res["derived_vote_share"]
+            print(f"agg-share: probed {res['n_probe']} IPs, "
+                  f"corroborated groups {res['n_corroborated_groups']}, "
+                  f"derived vote share {share}, "
+                  f"pure-derived echo groups {res['n_pure_derived_groups']}")
+        return
     if args.dsem:
         from ipdb._merge import SOURCE_RELIABILITY
         from .dsem_cli import run_dsem_report
