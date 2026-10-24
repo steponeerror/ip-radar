@@ -55,7 +55,7 @@ export interface ClassificationAssessment {
   algorithm: string;
   corroborated: boolean;
   reporter_total: number;
-  verdict_conflict: boolean;   // 真对立(benign×指控);今天恒 false,占位
+  verdict_conflict: boolean;   // 真对立(benign×指控同场);infra_services 良性断言源接入(#188)起真实产出
   has_archive: boolean;        // 存档章在场 → 黄色"含存档记录"
   malware_names: string[];
   details: ClassificationDetail[];
