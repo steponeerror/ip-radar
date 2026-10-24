@@ -527,6 +527,34 @@ else
   bad "t4:node 不可用(新例点名失效)"
 fi
 
+# ---- 13. 黄金标准 #181:standard-check 门挂点核对器(零依赖纯 node;语义=挂不上验证手段的条目只能称建议) ----
+# 两面:①核对器单测(selftest-standard.mjs,15 例纯内存 DI fixture);②真源面 STANDARD.md 全文核对
+# (死锚/空挂点/伪条目/建议未标类→非零退出)。挂点一律主仓相对,嵌套 docs 仓缺席不影响(CI 可跑)。
+if command -v node >/dev/null 2>&1; then
+  STDUT="$(node "$AGENT/selftest-standard.mjs" 2>&1)"; STDUTRC=$?
+  STDUT_PASS_N="$(grep -c '^STDPASS ' <<<"$STDUT" || true)"
+  STDUT_FAIL_N="$(grep -c '^STDFAIL ' <<<"$STDUT" || true)"
+  if (( STDUTRC == 0 && STDUT_FAIL_N == 0 && STDUT_PASS_N > 0 )); then
+    ok "standard:核对器单测全绿(${STDUT_PASS_N} 例,含空挂点/死锚/伪条文/建议未标类)"
+  else
+    bad "standard:核对器单测失败(PASS=${STDUT_PASS_N} FAIL=${STDUT_FAIL_N})"
+    printf '%s\n' "$STDUT" | grep '^STDFAIL' || true
+  fi
+  node --check "$AGENT/standard-check.mjs" 2>/dev/null \
+    && ok "standard:核对器 node 语法通过" || bad "standard:核对器 node 语法通过"
+  SCOUT="$(node "$AGENT/standard-check.mjs" 2>&1)"; SCRC=$?
+  if (( SCRC == 0 )); then
+    ok "standard:STANDARD.md 门挂点全绿($(grep '^standard-check:' <<<"$SCOUT" | sed 's/^standard-check: //'))"
+  else
+    bad "standard:STANDARD.md 门挂点核对失败(死锚/空挂点/伪条目/建议未标类)"
+    printf '%s\n' "$SCOUT" | grep 'STDCHK FAIL' || true
+  fi
+else
+  bad "standard:node 不可用(核对器前置)"
+fi
+[[ -f "$AGENT/STANDARD.md" ]] \
+  && ok "standard:典章真源 STANDARD.md 在案" || bad "standard:典章真源 STANDARD.md 在案"
+
 echo "----"
 echo "selftest: PASS=$pass FAIL=$fail"
 (( fail == 0 )) || exit 1
