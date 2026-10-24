@@ -77,8 +77,12 @@ export const SPAWN_CONTRACT_ENV = [
 
 // 轮次信封失败面 error.code 闭集九词(规格 §4):已知 throw 点挂 err.code,main 边界对
 // 无 code/闭集外 code(如 fs 的 ENOENT)归 infra——信封面九词恒闭。
-export const ERROR_CODES = ["bad_round", "model_face", "empty_text", "foreign_tool", "closure_check",
-  "ledger_failed", "verify_failed", "sandbox_violation", "infra"];
+// 2026-10-24 下沉 error-codes.mjs 单一真源并 re-export:pipeline.mjs 原静态 import 本文件
+// 取此常量,而 main 的 OPS_PIPELINE=pipeline 委派路径动态 import pipeline.mjs——ESM 顶层
+// await 死锁(本文件尾顶层 await 未决 → pipeline 静态依赖等本文件完成 → 环),事件循环
+// 空转,Node 报 unsettled top-level await 退出 13、stdout 无信封。详见 error-codes.mjs 头注。
+import { ERROR_CODES } from "./error-codes.mjs";
+export { ERROR_CODES };
 
 // bash 复用 lib.sh(inject_precedents/verify_cited_precedents/ledger_append/sandbox_assert);
 // env 参数 = main 注入的 io.env(缺省 process.env),fixture/契约 env 经此传导给 lib.sh 子进程
