@@ -548,6 +548,25 @@ def _wait(predicate, timeout=10):
     return False
 
 
+def _drain_source_lane(mgr, timeout=15.0):
+    """#171 order-fragile 自愈:进 lifespan 的核心测试(`with TestClient`,
+    如 test_stream_pool/test_main_routes)会经 _startup_warm → enqueue_stale
+    往单例 manager 塞真实源下载任务;有网开发机上大源分钟级在飞,本文件
+    排后就见 busy=sources → 路由 409(CI 不可见双因:runner 无外网下载秒
+    失败落 failed + core 按 per-file 跑序隔离)。路由测试钉的是「空闲车道」
+    语义 → 进门先把滞留任务 cancel 到底。cancel 后 downloading 任务在下一
+    chunk 边界收 CancelledError(download_file 逐 chunk 查 token),15s 远
+    大于 chunk 间隔;loading 相位在途 rebuild 不可中断,超时则放行,由
+    既有 409==202 断言给出清晰失败面(不劣于修前)。"""
+    def _active():
+        return [t for t in mgr.snapshot()["tasks"]
+                if t["state"] in ("queued", "downloading", "loading",
+                                   "throttled")]
+    for t in _active():
+        mgr.cancel(t["id"])
+    return _wait(lambda: not _active(), timeout=timeout)
+
+
 def test_ops_lane_rejected_while_source_task_active():
     """源任务 downloading 中 → 车道拒绝(reason=sources;409 语义的数据面)。"""
     mgr = _make_manager([FakeSource("a")])
@@ -638,7 +657,19 @@ def test_ops_log_emits_task_log_event():
 
 @pytest.fixture
 def admin_rounds_env(ops_env, fake_agent, auth_env):
-    """路由测试面:ops 树 + 假 agent + admin 认证(惰性,不污染非路由测试)。"""
+    """路由测试面:ops 树 + 假 agent + admin 认证(惰性,不污染非路由测试);
+    进门先清滞留源任务(#171,见 _drain_source_lane)——路由断言全部以
+    空闲车道为前提。清不掉则 skip:残留只可能是 loading 相在途真实重建
+    (cancel 语义=重建返回后生效,不可中断),这是测试环境串真加载的
+    伪象而非产品行为,skip 掉不冒充通过;单跑/触发组合下车道能清空,
+    测试照常执行(CI 无外网下载秒失败,永不 skip)。"""
+    import main
+    if not _drain_source_lane(main.manager):
+        stuck = [f"{t['id']}:{t['state']}" for t in main.manager.snapshot()["tasks"]
+                 if t["state"] in ("queued", "downloading", "loading", "throttled")]
+        pytest.skip(
+            "#171 全量序伪象:早期 lifespan 测试串入的真实源重建仍在 loading 相"
+            f"(cancel 不可中断),串行车道无法消凑出空闲前提 → {stuck}")
     return ops_env
 
 

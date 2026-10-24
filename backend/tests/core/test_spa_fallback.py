@@ -4,10 +4,25 @@ that isn't a real file (e.g. /sources), so opening or refreshing the Sources
 page at /sources breaks with 404."""
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 from starlette.applications import Starlette
 
 import main
+
+
+# #171 环境守卫(selftest.sh 供给守卫 / test_precedent_schema.py 嵌套仓 skip
+# 同型先例):真 dist 内容断言只在 dist 已构建环境有意义——CI frontend job
+# 先 build 并回灌 artifact、主 checkout 已构建,特性 worktree 不带未跟踪
+# 构建产物 → 环境性红。缺席时只 skip 依赖 dist 内容的两例(dist 形状契约
+# 仍由 _hermetic_client 四例钉住,404 面不需要 dist)。路径取 main 的
+# 单一形状源 _static_dir,不另拼一份(frontend/dist)。
+_DIST_READY = (main._static_dir / "index.html").is_file()
+_requires_dist = pytest.mark.skipif(
+    not _DIST_READY,
+    reason=f"frontend/dist not built at {main._static_dir} "
+           "(worktree/fresh clone); `npm run build` in frontend/ to enable",
+)
 
 
 def _hermetic_client(static_root: Path) -> TestClient:
@@ -22,6 +37,7 @@ dist/ needed, so these pin the class contract independently of the build."""
     return TestClient(app)
 
 
+@_requires_dist
 def test_client_route_deep_link_serves_index_html():
     client = TestClient(main.app)
     resp = client.get("/sources")
@@ -38,6 +54,7 @@ def test_unknown_api_route_still_404s():
     assert resp.status_code == 404
 
 
+@_requires_dist
 def test_real_static_file_served_as_file():
     """Real files (assets, favicon) must still be served with their own
     content type, not collapsed to index.html."""
