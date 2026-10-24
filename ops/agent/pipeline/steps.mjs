@@ -317,8 +317,7 @@ async function RETRO(def, ctx) {
   let ledgerNow = null;
   try { ledgerNow = fs.readFileSync(ctx.ledgerFile, "utf8"); } catch { /* 首轮无台账文件=正常 */ }
   if (!(ledgerNow ?? "").includes(`pipeline:${ctx.roundId}`))
-    try { await sh("ledger_append", ["health", "faux-pipeline", usage, `pipeline:${ctx.roundId}`], 120_000, ctx.env); } // 台账先记(faux 零成本仍记行)
-    catch (e) { throw Object.assign(new Error(`台账写败:${e.message}`), { code: "ledger_failed" }); }
+    try { await sh("ledger_append", ["health", ctx.state?.model_face === "real" ? "pipeline-real" : "faux-pipeline", usage, `pipeline:${ctx.roundId}`], 120_000, ctx.env); } catch (e) { throw Object.assign(new Error(`台账写败:${e.message}`), { code: "ledger_failed" }); } // 台账先记(#170 起真面记 pipeline-real,真 usage 数字入台账;faux 面标签不变向后兼容)
   try { await sh("sandbox_assert", [], 60_000, ctx.env); } // 沙箱红线真执行(backend/frontend 零改动)
   catch (e) { throw Object.assign(new Error("sandbox_assert rc≠0(backend/frontend 污染)"), { code: "sandbox_violation" }); }
   let degraded;

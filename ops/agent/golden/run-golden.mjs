@@ -87,9 +87,10 @@ async function runCase(c, allowSmoke) {
     fs.mkdirSync(path.join(docsRoot, "ops", "rules"), { recursive: true });
     fs.writeFileSync(path.join(docsRoot, "ops", "rules", "suppressions.json"), JSON.stringify(c.pipeline.rules, null, 2) + "\n");
     const buf = { stdout: "", stderr: "" };
-    const { runPipeline } = await import("../pipeline.mjs");
+    const { runPipeline, DEFAULT_FIXTURES_DIR } = await import("../pipeline.mjs");
     try {
       result = await runPipeline({ type: "health", roundId: "2026-06-01-0400-health",
+        fixturesDir: DEFAULT_FIXTURES_DIR, // 显式 fixtures=faux 面(#170;golden 恒零网络,同缺省路径行为不变)
         stdout: { write: (s) => { buf.stdout += s; return true; } },
         stderr: { write: (s) => { buf.stderr += s; return true; } } });
     } catch (e) { err = e; }

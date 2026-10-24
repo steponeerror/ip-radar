@@ -104,7 +104,7 @@
 - **阶段门**:状态转移的唯一裁判(不信模型自报):每门 =(工件文件集)→{pass,reason} 纯函数,reason 必带数字可回算,求值留痕 gates.json(门名/布尔/耗时/输入摘要)——门的判断本身可被人审;CLOSE 与 replay 全量重跑门(自愈:状态文件与工件不一致时以工件+门为准)。锚:ops/agent/pipeline/gates.mjs
 - **幸存信号集**:VERIFY 步去噪后进入分诊的旗标子集(冻结≥180 天/不可达);被抑制部分留痕于 02-verify-suppressed.json(抑制=证据降权不灭失,翻案可从工件回)。锚:ops/agent/pipeline/steps.mjs(VERIFY)
 - **抑制规则库**:VERIFY 消费的人裁采纳规则闭集(DOCS_ROOT/ops/rules/suppressions.json;动作闭集 suppress|annotate,谓词闭集 bucket/url_shape/source/error_family,新增=spec 变更;每规则带 review_at 强制复审防磨烂);只有四键 adopt_rule 能写入(P5 闭环)。锚:同上;首批规则=P2 落地(10-23 两假异常人工判例转写)
-- **微探针**:DEEP 步闭集变体复测工具(reprobe_get/reprobe_ua/upstream_check),辨探测伪迹(10-23 GeoLite 404 类:HEAD 假死 GET 实活);P4 起为 faux 工具+registry_seed 登记表面(G_DEEP 机检 ≤3 次/假设),真 API 工具不在 P2 票面(接真 provider 时落地)。锚:ops/agent/pipeline/gates.mjs(CLOSED_SETS.deep_tool/probe_hint)、fixtures/pipeline/deep/
+- **微探针**:DEEP 步闭集变体复测工具(reprobe_get/reprobe_ua/upstream_check),辨探测伪迹(10-23 GeoLite 404 类:HEAD 假死 GET 实活);faux 面=P4 起 registry_seed 登记表面(G_DEEP 机检 ≤3 次/假设);真 provider 已接(#170:运行面 flash/glm-5.3 真调用),但真探针工具=下票——真面 DEEP 工具面为空(tools=[]),confirmed/refuted 证据腿需真探针登记表才能过 G_DEEP(设计内缺口,#170 报告注记)。锚:ops/agent/pipeline/gates.mjs(CLOSED_SETS.deep_tool/probe_hint)、fixtures/pipeline/deep/
 - **标源**:feeds.txt 清单行的行内 `# <source_name>` 注解——探测旗标归因到源的锚(VERIFY 在飞对齐/ITEMIZE 条目 dedup_key.source 都靠它);漏注解则回落 host 撞 SOURCE_RE 形状=ITEMIZE verify_failed 终态宁响亮。锚:ops/agent/lib.sh(extract_feed_urls -t)
 - **静轮**:VERIFY 后零幸存信号的健康轮预期常态(成本模型:静轮近零 token,成本跟异常走不跟日历走)。锚:ops/agent/pipeline/anchors.mjs、gates.mjs(G_TRIAGE 空集面)
 - **回声防线**:replay/恢复路径不把原轮产物当新产物的防线族——VERIFY 排除原轮在飞条目、ITEMIZE 桥内 manifest 回声、RETRO replay 恒零写。谱系回声的轮次版。锚:pipeline/steps.mjs、ops-items.mjs
