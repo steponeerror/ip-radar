@@ -142,8 +142,12 @@ export async function safeFetch(rawUrl, { method = "GET", maxBytes, timeoutMs, h
       await finalRes.body?.cancel().catch(() => { /* HEAD 等无体请求:显式释放 */ });
     }
     if (finalRes.status >= 400 && !allowStatus) throw Object.assign(new Error(`HTTP ${finalRes.status}`), { code: "http_error", status: finalRes.status });
-    const headers = Object.fromEntries(finalRes.headers.entries());
-    return { finalUrl: url, status: finalRes.status, headers, body: buf, bytes: buf?.byteLength ?? 0 };
+    // 通道复验轮修复(2026-10-24,轮包 2026-10-24-discover-0634 实锤):原函数体 `const headers`
+    // 遮蔽参数解构的 headers(#173 微探针注入面)——函数体 const 全作用域 TDZ,构造请求头处即抛
+    // Cannot access 'headers' before initialization,fetch_url/exclusive_probe/微探针 100% 必死。
+    // 1412 轮「DEEP 探针网络失败(peeringdb 不通)」归因实为本虫(transcript 在案),非网络。
+    const resHeaders = Object.fromEntries(finalRes.headers.entries());
+    return { finalUrl: url, status: finalRes.status, headers: resHeaders, body: buf, bytes: buf?.byteLength ?? 0 };
   } finally {
     await active?.close().catch(() => { /* 消费/取消/异常后统一收口(钉址 agent 单跳即弃) */ });
   }
@@ -689,7 +693,9 @@ export class ToolHost {
         query: Type.String({ minLength: 1, maxLength: 256 }),
         kind: Type.Union([Type.Literal("repos"), Type.Literal("code"), Type.Literal("commits")]),
         limit: Type.Optional(Type.Number({ minimum: 1, maximum: 30 })),
-        page: Type.Optional(Type.Number({ minimum: 1, maximum: 5 })),
+        // page 已移除(通道复验轮修复 2026-10-24):gh 2.103.x search 无 --page 旗(repos/code
+        // 实测均拒 unknown flag)——旧 argv 恒拼 --page 故 gh_search 100% 必死,仅因前置通道先死从未暴露。
+        // 分页需求由 limit ≤30(预算面)承担。
       }),
       outputSchema: Type.Object({
         ok: Type.Boolean(), kind: Type.String(), query: Type.String(), total: Type.Number(),
@@ -697,7 +703,7 @@ export class ToolHost {
       }),
       execute: async (callId, p) => {
         const argv = ["search", p.kind, p.query, "--json", FIELDS[p.kind].join(","),
-          "--limit", String(p.limit ?? 10), "--page", String(p.page ?? 1)];
+          "--limit", String(p.limit ?? 10)];
         const cmd = `gh ${argv.map((a) => /\s/.test(a) ? `"${a}"` : a).join(" ")}`;
         try {
           const { stdout } = await execFileP("gh", argv, { timeout: B.ghTimeoutMs, maxBuffer: 8 * 1024 * 1024 });

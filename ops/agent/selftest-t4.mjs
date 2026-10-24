@@ -20,7 +20,7 @@ async function t(name, fn) { try { await fn(); ok(name); } catch (e) { bad(name,
 
 const { loadModels } = await import("./models.mjs");
 const {
-  ToolHost, checkPrivateIp, countFeedKeys, closureCheck, checkReadablePath, pinnedLookup,
+  ToolHost, checkPrivateIp, countFeedKeys, closureCheck, checkReadablePath, pinnedLookup, safeFetch,
   // PR #177(工具通道修复,判例 2026-10-24-discover-dual-channel-dead):判例检索 JS 单源核心
   // 与通道错误分类器——RED 面先行(未实现时 undefined,下列各例红而不炸装载)。
   searchPrecedentsCore, classifyChannelError,
@@ -420,7 +420,7 @@ await t("search_precedents 工具面:成功路径 hits/hit_n/truncated(铁律⑦
   } finally { process.env.PATH = origPath; }
 });
 
-await t("gh_search:分类落地(ENOENT→channel_missing rc127;not logged in→channel_auth;rate limit→quota;403+rate limit 并存→channel_auth 优先;兑底 gh_error);trace.rc 恒 Number;成功路径零改动", async () => {
+await t("gh_search:分类落地(ENOENT→channel_missing rc127;not logged in→channel_auth;rate limit→quota;403+rate limit 并存→quota 次级限流;兑底 gh_error);trace.rc 恒 Number;argv 无 --page;成功路径零改动", async () => {
   const gh = host.tools.find((x) => x.name === "gh_search");
   const GHSTUB = fs.mkdtempSync(path.join(os.tmpdir(), "t4-gh-stub-"));
   const mkGh = (body) => { fs.writeFileSync(path.join(GHSTUB, "gh"), `#!/bin/bash\n${body}\n`); fs.chmodSync(path.join(GHSTUB, "gh"), 0o755); };
@@ -453,11 +453,25 @@ await t("gh_search:分类落地(ENOENT→channel_missing rc127;not logged in→c
     sc = await withPath(`${GHSTUB}:${process.env.PATH}`);
     assert.equal(sc.code, "gh_error", "原兑底码兼容保留");
     assert.equal(sc.trace.rc, 7);
+    // 通道复验轮修复(2026-10-24):gh 2.103.x search 无 --page——argv 不得再拼(旧实现恒拼放 100% 必死)
+    mkGh("echo \"$@\" >&2; exit 1");
+    sc = await withPath(`${GHSTUB}:${process.env.PATH}`);
+    assert.equal(sc.code, "gh_error");
+    assert.equal(sc.trace.rc, 1);
+    assert.ok(!/\s--page(\s|$)/.test(sc.trace.cmd), `argv 不应再含 --page:${sc.trace.cmd}`);
     mkGh(`printf '%s' '${JSON.stringify([{ fullName: "a/b", description: "d", stargazersCount: 1, size: 3, url: "u" }])}'`);
     sc = await withPath(`${GHSTUB}:${process.env.PATH}`);
     assert.equal(sc.ok, true); // 成功路径零改动
     assert.equal(sc.total, 1);
   } finally { fs.rmSync(GHSTUB, { recursive: true, force: true }); }
+});
+
+await t("safeFetch:headers TDZ 回归(#173 注入面撞函数体旧变量名;通道复验轮 0634 实锤)", async () => {
+  // 旧虫在构造请求头处即炸(零网络路径可复现):任何调用(含 DNS 必败)都抛
+  // Cannot access 'headers' before initialization。修复后不可达主机应得网络面错误而非 TDZ。
+  const err = await safeFetch("https://nonexistent-host-opst4.invalid/x").then(() => null, (e) => e);
+  assert.ok(err instanceof Error, "不可达主机应抛错");
+  assert.ok(!/before initialization/.test(String(err?.message)), `不得再抛 TDZ:${err?.message}`);
 });
 
 await t("classifyChannelError:四码优先级闭集(channel_missing>quota>channel_auth>transient>兑底,审后修 P2-3 调序);每码文案带下一步合法动作", () => {
