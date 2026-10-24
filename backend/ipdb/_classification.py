@@ -33,6 +33,12 @@ CLASSIFICATION_TYPES = frozenset({
     "abuse-reports",
     "spam",
     "ddos",
+    # benign② 断言域(#188,2026-10-24):infra_services 良性断言的分类
+    # 面标签(服务角色),非威胁词汇 RSIT 子集——良性断言是判断面输入
+    # (与指控同场=verdict_conflict),不产 STIX Indicator;注册于此使
+    # 本表保持 classification_type 可发值的单一真源。
+    "dns",
+    "ntp",
     "other",                # fallback for unmappable values
 })
 

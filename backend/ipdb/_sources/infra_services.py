@@ -11,6 +11,11 @@ slot and the provider/identity rides `native_types`
 `attributes["service"] = (dns, "Google Public DNS")` alongside the
 existing is_proxy/is_hosting asset statements.
 
+#188 升格(2026-10-24):除资产面外同 payload 还产 benign② 良性断言
+(classification_type=服务角色, verdict="benign")——公共基础设施单址
+的良性判定面输入;与指控同场 → verdict_conflict=True(真对立出海),
+不自动压制指控(宁少算)。见 GLOSSARY「benign(两层,勿混)」②。
+
 Why a source (not a lookup table): multiple infra sources emit `service`
 (curated-static here; scanner_egress / cdn_edges feeds later) and the asset
 channel auto-merges their statements into `attributes["service"]`. `download()`
@@ -124,6 +129,13 @@ class InfraServicesSource(Source):
         return super().rebuild(progress=progress)
 
     def harvest(self):
+        # 良性断言(benign②,#188,2026-10-24):公共基础设施单址产良性断言
+        # ——同一 payload 双面:service 资产槽/native_types 照旧(资产面),
+        # classification_type=服务角色(dns/ntp)+ verdict="benign" 进
+        # 分类面。真对立(良性断言×指控同场=verdict_conflict)在
+        # _registry.lookup 分组注入面接线;宁少算不变式(良性不投票/不
+        # 压制指控)由 _merge._assess_classification 既有 _ACCUSING 池逻辑
+        # 承担。占位期(verdict="" 弃权拼写)已随本升格作废。
         for row in csv.reader(io.StringIO(self._path.read_text())):
             if not row:
                 continue
@@ -131,5 +143,6 @@ class InfraServicesSource(Source):
             yield ip, Evidence(
                 service=svc,
                 native_types={"service": provider},
-                verdict="",  # 弃权拼写:由 to_dict 特判保留,读回按 "" 处理不兑底(R17A-1)
+                classification_type=svc,
+                verdict="benign",
             )
