@@ -26,6 +26,8 @@ const {
   searchPrecedentsCore, classifyChannelError,
   // PR3a 发现通道三件纯函数核(2026-10-24 裁定;web_search 引擎 = pi-web-access MCP,同日中程用户令):
   normalizeJinaRead, parseSerp, parseRss, RSS_FRESH_DAYS, classifyWebStatus, parseMcpSearchText, classifyMcpSearchError,
+  // 票 #182(金标巡检 harness):ops 轮锚巡检 CLI 单源(matrixScanCli 同型;通道四码兼容)
+  anchorSweepCli,
 } = await import("./tools.mjs");
 
 // ── fixture:用户 models.json(flash 定义,无 api/baseUrl)+ models-store(glm-5.3 全量)+ auth ──
@@ -566,7 +568,7 @@ await t("parseRss:RSS2.0/Atom 双形状;新鲜门 30(5 天=新鲜/40 天=过期,
   }
 });
 
-await t("分类:402/balance→quota(quota 正则扩 PR3a);quota 文案「充值或窗口恢复」;403 仍 channel_auth(词边界面);HTTP 状态面同族(classifyWebStatus)", () => {
+await t("分类:402/balance→quota(quota 正则扩 PR3a);quota 文案「充值或窗口恢复」;403 仍 channel_auth(词边界面);HTTP 状态面同族", () => {
   const mk = (stderr) => Object.assign(new Error("x"), { code: 1, stderr });
   assert.equal(classifyChannelError(mk("HTTP 402: Payment Required"), "gh").code, "quota", "402 显式归 quota 不归 channel_auth");
   assert.equal(classifyChannelError(mk("insufficient balance"), "gh").code, "quota");
@@ -578,6 +580,38 @@ await t("分类:402/balance→quota(quota 正则扩 PR3a);quota 文案「充值�
   assert.match(classifyWebStatus(402, "", "web_search").reason, /充值或窗口恢复/);
   assert.equal(classifyWebStatus(403, "", "web_read").code, "channel_auth");
   assert.equal(classifyWebStatus(500, "boom", "web_read").code, "http_error", "非通道面状态归 http_error(暂态族,同 fetch_url 语义)");
+});
+
+// ── 票 #182:anchorSweepCli——ops 轮锚巡检 CLI 单源(matrixScanCli 同型;faux 查询面零网络)──
+await t("anchorSweepCli:faux 查询面——读数(finding 在场仍 ok/rc 0)/error 信封透传/ENOENT→channel_missing/超时→transient(通道四码兼容)", async () => {
+  assert.equal(typeof anchorSweepCli, "function", "anchorSweepCli 未导出(RED 面应先红)");
+  // 罐装 sweep(事故判例形:#183 整改前 114DNS=cps+ziyadnz 假印证 finding——票 #182 明示 fixture 不依赖整改)
+  const CANNED = { kind: "anchor_sweep", anchors: [["8.8.8.8", "clean"], ["114.114.114.114", "clean"]],
+    n_total: 2, n_fail: 1,
+    failures: [{ ip: "114.114.114.114", expect: "clean", reason: "expected clean, got malicious" }],
+    results: [
+      { ip: "8.8.8.8", expect: "clean", ok: true, reason: null, verdict: "benign", confidence: 0, accusers: [] },
+      { ip: "114.114.114.114", expect: "clean", ok: false, reason: "expected clean, got malicious", verdict: "malicious", confidence: 55, accusers: ["cps_collected_iocs", "ziyadnz"] }] };
+  const shell = (name, body) => { const p = path.join(TMP, name);
+    fs.writeFileSync(p, `#!/usr/bin/env bash\n${body}`); fs.chmodSync(p, 0o755); return p; };
+  const stubOk = shell("py-sweep-ok", `printf '%s\n' '${JSON.stringify(CANNED).replace(/'/g, "'\\''")}'\n`);
+  const r = await anchorSweepCli({ evalPy: stubOk, dataDir: "/tmp/d" });
+  assert.equal(r.ok, true, "finding 在场仍是读数非故障(不持门语义在 CLI 面=rc 0)");
+  assert.equal(r.rc, 0);
+  assert.deepEqual(r.d, CANNED, "读数原样透传(步侧零改写)");
+  assert.match(r.cmd, /--anchor-sweep --json/, "命令面=anchor-sweep 求值 CLI(误配 OPS_EVAL_PY 可辨)");
+  const stubErr = shell("py-sweep-err", `printf '%s\n' '{"error":{"code":"internal","message":"load_db failed: disk","hint":"h"}}'\nexit 1\n`);
+  const r2 = await anchorSweepCli({ evalPy: stubErr, dataDir: "/tmp/d" });
+  assert.equal(r2.ok, false, "error 信封=失败非读数(--json 面不裸栈,spec §5.2)");
+  assert.equal(r2.env.code, "internal", "python 侧 code 透传");
+  assert.equal(r2.env.reason, "load_db failed: disk");
+  const r3 = await anchorSweepCli({ evalPy: path.join(TMP, "no-such-python"), dataDir: "/tmp/d" });
+  assert.equal(r3.ok, false);
+  assert.equal(r3.env.code, "channel_missing", "ENOENT 归四码 channel_missing(通道四码兼容,PR #177)");
+  const stubHang = shell("py-sweep-hang", "sleep 5\n");
+  const r4 = await anchorSweepCli({ evalPy: stubHang, dataDir: "/tmp/d", timeoutMs: 400 });
+  assert.equal(r4.ok, false);
+  assert.equal(r4.env.code, "transient", "超时归四码 transient;gh/rg 兑底码不复用于 python 面");
 });
 
 await t("parseMcpSearchText:MCP wire 文本归一(真 fixture:provider/Sources 条目/机会式 snippet/Error 行;pi-web-access 0.44.0 实拍)", () => {

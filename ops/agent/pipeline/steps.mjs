@@ -12,7 +12,7 @@ import path from "node:path";
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
-import { FROZEN_DAYS, matrixScanCli, matrixArtifactText, resolveField } from "../tools.mjs";
+import { FROZEN_DAYS, matrixScanCli, matrixArtifactText, resolveField, anchorSweepCli } from "../tools.mjs";
 import { loadAnchors, anchorSelect, HIT_CAP } from "./anchors.mjs"; // 锚域词表×旗标选锚(B 三件②;DISPATCH 逐假设判例命中 ≤3,P4 #166)
 import { itemSignature, fullDedupKey, createOpsItem, parseItemsTree, CAUSE_GROUP_BY_BUCKET } from "./ops-items.mjs"; // 条目库桥(P4 #166:接 _ops_items 同空间)
 
@@ -365,6 +365,20 @@ async function CLOSE(def, ctx) { // 书挡步:存在性校验(闭合双层的外
   } catch (e) { throw Object.assign(new Error(`判例存在性校验败:${e.message}`), { code: "verify_failed" }); }
 }
 
+// ── ANCHOR_SWEEP(#182):生产查询路径锚巡检(只测量不判断;判断在门/finding 面)──
+// 求值=tools.mjs anchorSweepCli(python -m ipdb._eval --anchor-sweep --json;OPS_EVAL_PY/OPS_DATA_DIR
+// 桥=backend _round_env 注入,容器内解释器与数据面=后端查询进程同一套——读数即生产读数,
+// 零认证零网络,matrixScanCli 同型先例)。锚 finding=读数非故障(工件原样落盘交 G_ANCHOR_SWEEP
+// 验形状,不持门);求值面死=RETRO 同款降级旁路(失败信封四码/infra 落件证据不灭失,轮仍成功);
+// finding 出口三件套(gh issue/webhook/RETRO 摘要)=#180 另批,本步只落件。
+async function ANCHOR_SWEEP(def, ctx) {
+  const r = await anchorSweepCli();
+  fs.writeFileSync(path.join(ctx.dir, "08-anchor-sweep.json"),
+    r.ok ? `${JSON.stringify(r.d, null, 1)}\n` : `${JSON.stringify(r.env, null, 1)}\n`);
+  if (r.ok) return undefined; // finding 在场=读数面照常评门(不持门=门验形状不验 finding 数)
+  return { degraded: `anchor_sweep_degraded:${r.env.code}(巡检面死,失败信封落件;finding 出口三件套另批 #180)`, skipGate: true };
+}
+
 // ── 模型步装配/收编(faux.mjs 真 Agent 循环的上下文与落盘;判断仍全在模型步+门)────────
 // 空转金轨迹(#162 审 P2-2,2026-10-23 裁定①):零 need_deep 轮 DEEP 仍跑一条 canned-假设 faux 回路,
 // 零成本保模型步回路活性;金轨迹 hid 不入 verdicts(不污染条目),由 deepFinalize 收编为 golden_track。
@@ -489,7 +503,7 @@ export function modelItemComplete(def, ctx, item) {
   return def.out.every((f) => fs.existsSync(path.join(ctx.dir, f)));
 }
 
-const SCRIPT = { PROBE, VERIFY, DISPATCH, ITEMIZE, RETRO, CLOSE };
+const SCRIPT = { PROBE, VERIFY, DISPATCH, ITEMIZE, RETRO, ANCHOR_SWEEP, CLOSE };
 export async function runStage(def, ctx) {
   const fn = SCRIPT[def.name];
   if (!fn) throw Object.assign(new Error(`脚本步未实现:${def.name}(定义表与实现漂移)`), { code: "infra" });

@@ -275,7 +275,7 @@
       "tier": "faux",
       "round": "health",
       "tags": ["p0-skeleton", "positive", "pipeline"],
-      "desc": "轮次状态机全十状态 faux 跑通到 CLOSE(spec #161 P0 骨架 + P1 位等价面 #163 + P4 DEEP/ITEMIZE 真开启 #166):真 extract_feed_urls+feed_freshness(curl 替身零网络)+真 matrix 扫描(OPS_EVAL_PY 替身,tools.mjs matrixScanCli 单源,01-probe-matrix.json 与 legacy <ts>-matrix-scan.json 逐字节同文)→真抑制分区(R1 压 dshield)→faux TRIAGE/DEEP/SYNTH(仓内 fixtures/pipeline,DEEP 逐假设微探针 seed=registrySeed 测量腿,A 一律宿主回填)→真收编/条目库桥落 ops/items/台账/沙箱;九门全机检留 gates.json;信封只增 pipeline 扩展字段。",
+      "desc": "轮次状态机全状态(#182 增 ANCHOR_SWEEP 十一态)faux 跑通到 CLOSE(spec #161 P0 骨架 + P1 位等价面 #163 + P4 DEEP/ITEMIZE 真开启 #166):真 extract_feed_urls+feed_freshness(curl 替身零网络)+真 matrix 扫描(OPS_EVAL_PY 替身，tools.mjs matrixScanCli 单源，01-probe-matrix.json 与 legacy <ts>-matrix-scan.json 逐字节同文)+真锚巡检(#182：同 OPS_EVAL_PY 替身旗标分发，罐装零 finding 全集投影，08-anchor-sweep.json 落件）→真抑制分区(R1 压 dshield)→faux TRIAGE/DEEP/SYNTH(仓内 fixtures/pipeline，DEEP 逐假设微探针 seed=registrySeed 测量腿，A 一律宿主回填)→真收编/条目库桥落 ops/items/台账/沙箱；十门全机检留 gates.json；信封只增 pipeline 扩展字段。",
       "stubs": {
         "curl_age_days": [
           { "match": "cinsscore", "days": 220 },

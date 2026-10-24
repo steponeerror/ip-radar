@@ -43,6 +43,7 @@ const B = {
   probeDlTimeoutMs: 300_000,
   probeCliTimeoutMs: +(process.env.OPS_PROBE_CLI_TIMEOUT_MS ?? 1_800_000),
   matrixTimeoutMs: +(process.env.OPS_MATRIX_TIMEOUT_MS ?? 1_200_000),
+  anchorSweepTimeoutMs: +(process.env.OPS_ANCHOR_SWEEP_TIMEOUT_MS ?? 300_000), // #182:19 锚直调 lookup 远轻于 matrix 全扫(20min);5min 兑底
   hitCap: 8, // 铁律⑦:判例注入与检索命中上限 8(检索深度伤害决策)
   zeroAssetKb: 32,
   webReadPerRound: 8, // 发现通道三件预算行:防失控非省钱(2026-10-24 裁定,DESIGN §6;预算四界另批)
@@ -208,6 +209,40 @@ export async function matrixScanCli() {
   }
 }
 export const matrixArtifactText = (d) => JSON.stringify(d, null, 1); // matrix 工件序列化单源:legacy <ts>-matrix-scan.json 与管线 01-probe-matrix.json 逐字节同文(#163 位等价)
+
+// ── ops 轮锚巡检 CLI 单源(票 #182;matrixScanCli 同型先例)──────────────
+// 面向 python -m ipdb._eval --anchor-sweep --json(求值核=ipdb/_eval/anchors.py
+// anchor_sweep;OPS_EVAL_PY/OPS_DATA_DIR 桥=backend _round_env 注入,容器内
+// 解释器与数据面=后端查询进程同一套——读数即生产读数,零认证零网络)。
+// 返回分支同 matrixScanCli 三形:
+//   {ok:true, d, rc:0, cmd}               读数(锚 finding 在场仍 rc 0=读数非故障,
+//                                           不持门语义在 CLI 面)
+//   {ok:false, env, cmd, trace:null}      stdout 带 error 键的失败信封(load_db 等)
+//   {ok:false, env, cmd, trace:{cmd,rc}}  裸失败(通道四码兼容:ENOENT/超时/限流/
+//                                           鉴权族过 classifyChannelError 四码;
+//                                           gh_error/rg_infra 兑底码是 gh/rg 专属
+//                                           不复用于 python 面,兑底归 infra)
+export async function anchorSweepCli({ evalPy = EVAL_PY, dataDir = DATA_DIR, timeoutMs = B.anchorSweepTimeoutMs } = {}) {
+  const cmd = `cd backend && IP_RADAR_DATA_DIR=${dataDir} ${evalPy} -m ipdb._eval --anchor-sweep --json`;
+  try {
+    const { stdout } = await execFileP(evalPy,
+      ["-m", "ipdb._eval", "--anchor-sweep", "--json"],
+      { cwd: path.join(ROOT, "backend"), env: { ...process.env, IP_RADAR_DATA_DIR: dataDir },
+        timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024 });
+    const d = JSON.parse(stdout);
+    if (d.error) return { ok: false, env: envelope(d.error.code ?? "anchor_sweep_failed", d.error.message ?? ""), cmd, trace: null };
+    return { ok: true, d, rc: 0, cmd };
+  } catch (e) {
+    try {
+      const d = JSON.parse(String(e.stdout ?? ""));
+      if (d.error) return { ok: false, env: envelope(d.error.code ?? "anchor_sweep_failed", d.error.message ?? ""), cmd, trace: null };
+    } catch { /* 裸失败走信封 */ }
+    const c = classifyChannelError(e, "python");
+    if (["channel_missing", "channel_auth", "quota", "transient"].includes(c.code))
+      return { ok: false, env: envelope(c.code, c.reason), cmd, trace: { cmd, rc: c.rc } };
+    return { ok: false, env: envelope("infra", String(e.stderr ?? e.message ?? "").slice(0, 300)), cmd, trace: { cmd, rc: c.rc } };
+  }
+}
 
 export function countFeedKeys(text) { // probe 键量:IPv4 去重(exclusive.py _IP_RE 同口径的 v4 面)
   return new Set(text.match(/(\d{1,3}\.){3}\d{1,3}(\/\d{1,2})?/g)?.map((t) => t.split("/")[0]) ?? []).size;

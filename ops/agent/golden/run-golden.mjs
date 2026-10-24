@@ -22,6 +22,14 @@ const CASES = JSON.parse(fs.readFileSync(path.join(HERE, "cases.json"), "utf8"))
 // fixture 判例树(cases.json $comment 契约):A 命中 health+discover 检索词;B 在库但零命中(负例③)
 const PREC_A = "2026-06-01-golden-aggregator.md";
 const PREC_B = "2026-06-02-golden-matrix-nolayer.md";
+// #182 锚巡检 stub 面:罐装零 finding 全集投影(19 员镜像 anchors.py 扩员后形状;
+// 形状钉,锚集真源=python,门只验工件内自洽)。golden 基线=零 finding(事故判例双 finding 面
+// 在 selftest-pipeline SWEEP_CANNED,两处分工=golden 钉基线/selftest 钉 finding 不持门)。
+const GOLDEN_SWEEP_ANCHORS = [["8.8.8.8", "clean"], ["8.8.4.4", "clean"], ["1.1.1.1", "clean"], ["1.0.0.1", "clean"],
+  ["9.9.9.9", "clean"], ["208.67.222.222", "clean"], ["114.114.114.114", "clean"], ["223.5.5.5", "clean"],
+  ["9.9.9.4", "clean"], ["10.0.0.1", "reserved"], ["127.0.0.1", "reserved"], ["192.168.1.1", "reserved"],
+  ["172.16.0.1", "reserved"], ["185.220.101.1", "tor"], ["171.25.193.78", "tor"], ["185.220.101.34", "tor"],
+  ["52.95.116.115", "hosting"], ["20.36.253.52", "hosting"], ["34.64.121.1", "hosting"]];
 const writePrecedents = (dir) => {
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, PREC_A),
@@ -56,8 +64,14 @@ for a in "$@"; do [[ "$a" == "repos" ]] && { printf '%s\\n' '${JSON.stringify(re
 printf '[]\\n'
 `;
 const stubPy = (matrix) => `#!/usr/bin/env bash
-# golden stub: OPS_EVAL_PY 替身(matrix 例);吐罐装矩阵 JSON(runMatrixScan/matrixFromResult 真路径)。
-printf '%s\\n' '${JSON.stringify(matrix).replace(/'/g, "'\\''")}'
+# golden stub: OPS_EVAL_PY 替身(matrix 例);--anchor-sweep→罐装零 finding 锚巡检 JSON(#182,
+# 全集投影与 selftest-pipeline SWEEP_CANNED 同源形状、golden 基线零 finding),其余→罐装矩阵 JSON。
+SWEEP_OK='${JSON.stringify({ kind: "anchor_sweep", anchors: GOLDEN_SWEEP_ANCHORS, n_total: GOLDEN_SWEEP_ANCHORS.length, n_fail: 0, failures: [],
+  results: GOLDEN_SWEEP_ANCHORS.map(([ip, expect]) => ({ ip, expect, ok: true, reason: null, verdict: "benign", confidence: 0, accusers: [] })) }).replace(/'/g, "'\\''")}'
+case " $* " in
+  *--anchor-sweep*) printf '%s\\n' "$SWEEP_OK" ;;
+  *) printf '%s\\n' '${JSON.stringify(matrix).replace(/'/g, "'\\''")}' ;;
+esac
 `;
 
 async function runCase(c, allowSmoke) {
@@ -197,7 +211,7 @@ async function runCase(c, allowSmoke) {
       }
       case "pipeline_gates": {
         const g = JSON.parse(fs.readFileSync(path.join(result.dir, "gates.json"), "utf8"));
-        if (g.records.length !== 9) { fail(a, `门记录 ${g.records.length}≠9`); break; }
+        if (g.records.length !== 10) { fail(a, `门记录 ${g.records.length}≠10(9 可跑步门含 G_ANCHOR_SWEEP #182+G_CLOSE)`); break; }
         if (!g.records.every((r) => r.pass === true)) { fail(a, `门败:${g.records.filter((r) => !r.pass).map((r) => r.name).join(",")}`); break; }
         break;
       }

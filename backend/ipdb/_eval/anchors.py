@@ -14,6 +14,12 @@ ANCHORS: list[tuple[str, str]] = [
     ("8.8.8.8", "clean"), ("8.8.4.4", "clean"),
     ("1.1.1.1", "clean"), ("1.0.0.1", "clean"),
     ("9.9.9.9", "clean"), ("208.67.222.222", "clean"),
+    # 公共解析器扩员(#182/#180 租户批,STANDARD.md 金标层 G-2 同批):
+    # 114DNS=2026-10-24 事故面(cps+ziyadnz 聚合器假印证,ADR 0008);
+    # 223.5.5.5=阿里公共 DNS;9.9.9.4=Quad9 未过滤变体(与 9.9.9.9 区分,
+    # 干净面须覆盖未过滤腿)。
+    ("114.114.114.114", "clean"), ("223.5.5.5", "clean"),
+    ("9.9.9.4", "clean"),
     # reserved ranges — must return the reserved short-circuit
     ("10.0.0.1", "reserved"), ("127.0.0.1", "reserved"),
     ("192.168.1.1", "reserved"), ("172.16.0.1", "reserved"),
@@ -54,6 +60,38 @@ def run_anchors(lookup_fn) -> list[dict]:
         if why:
             failures.append({"ip": ip, "expect": expect, "reason": why})
     return failures
+
+
+def anchor_sweep(lookup_fn) -> dict:
+    """逐锚详查求值核(ops 轮 ANCHOR-SWEEP 步,#182)。
+
+    与 run_anchors/anchors_report(月轮判定门,失败 sys.exit(1) 持门)的
+    分工 = 双轨分立(ADR 0008 决策 2):本函数产 ops 轮巡检件——锚
+    expectation 失败 = finding(ok=False+reason+verdict/confidence/
+    accusers 读数),不 raise 不设退出码;判断留给管线门(G_ANCHOR_SWEEP
+    只验工件形状,finding 不持门)。锚集与判定核(_check 单源复用)
+    同源,anchors 字段即 ANCHORS 全集投影(门以此验穷尽性,不另设真源)。
+    accusers = 指控章证人去重(_ACCUSING 单一口径;票据判例面:
+    8.8.8.8=[myip_ms] 单源、114DNS=[cps,ziyadnz] 假印证)。"""
+    results, failures = [], []
+    for ip, expect in ANCHORS:
+        res = lookup_fn(ip)
+        why = _check(res, expect)
+        threat = res.get("threat") or {}
+        accusers = sorted({d["source"]
+                           for ca in (res.get("classifications") or {}).values()
+                           for d in (ca.get("details") or [])
+                           if d.get("verdict") in _ACCUSING and d.get("source")})
+        results.append({"ip": ip, "expect": expect, "ok": why is None,
+                        "reason": why,
+                        "verdict": threat.get("verdict", "unknown"),
+                        "confidence": threat.get("confidence", 0),
+                        "accusers": accusers})
+        if why:
+            failures.append({"ip": ip, "expect": expect, "reason": why})
+    return {"kind": "anchor_sweep", "anchors": [list(a) for a in ANCHORS],
+            "n_total": len(ANCHORS), "n_fail": len(failures),
+            "failures": failures, "results": results}
 
 
 def anchors_report(lookup_fn, out_dir=None, *, eval_env: str | None = None

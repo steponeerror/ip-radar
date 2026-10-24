@@ -138,3 +138,126 @@ def test_anchors_cli_persists_but_stdout_envelope_unchanged(
     assert len(files) == 1
     d = json.loads(files[0].read_text())
     assert d["kind"] == "anchors" and d["eval_env"] == "monthly"
+
+
+# ── #182(#180 租户批):公共解析器锚扩员 + anchor_sweep 巡检件 ──────────
+
+def test_public_resolver_anchors_pinned():
+    # 事故固化(ADR 0008;STANDARD.md 金标层 G-2):114DNS(cps+ziyadnz 假印证
+    # 事故)/223.5.5.5(阿里公共 DNS)/9.9.9.4(Quad9 未过滤变体,与 9.9.9.9
+    # 区分——干净面必须覆盖未过滤腿)三新员入 clean 面。
+    for ip in ("114.114.114.114", "223.5.5.5", "9.9.9.4"):
+        assert (ip, "clean") in ANCHORS, f"公共解析器锚缺:{ip}"
+
+
+def _incident(ip):
+    # 2026-10-24 事故判例的罐装查询面(勘察件 §1 实测复现,独立真源):
+    # 8.8.8.8 = myip_ms 单源指控 conf=55;114DNS = cps+ziyadnz 双聚合器
+    # corroborated=True conf=55(#183 整改前形状——fixture 不依赖整改)。
+    accusers = {"8.8.8.8": ["myip_ms"],
+               "114.114.114.114": ["cps_collected_iocs", "ziyadnz"]}[ip]
+    det = [{"source": s, "verdict": "malicious", "reliability": 0.55}
+           for s in accusers]
+    return {"is_reserved": False, "attributes": {},
+            "threat": {"verdict": "malicious", "confidence": 55,
+                       "types": ["blacklist"], "is_cdn": False},
+            "classifications": {"blacklist": {
+                "type": "blacklist", "verdict": "malicious", "detected": True,
+                "confidence": 55, "corroborated": len(accusers) >= 2,
+                "details": det, "sources": []}}}
+
+
+def test_anchor_sweep_full_projection_and_shape():
+    # 巡检件求值核:ANCHORS 全集投影,逐锚带 verdict/confidence/accusers
+    # 数字(ops 轮 G_ANCHOR_SWEEP 门消费面);零 finding 轮形状基线。
+    from ipdb._eval.anchors import anchor_sweep
+    sweep = anchor_sweep(_matching())
+    assert sweep["kind"] == "anchor_sweep"
+    assert sweep["n_total"] == len(ANCHORS)
+    assert [tuple(a) for a in sweep["anchors"]] == ANCHORS  # 单一真源投影
+    assert len(sweep["results"]) == len(ANCHORS)
+    assert sweep["n_fail"] == 0 and sweep["failures"] == []
+    for r in sweep["results"]:
+        assert set(r) == {"ip", "expect", "ok", "reason", "verdict",
+                          "confidence", "accusers"}
+        assert r["ok"] is True and r["reason"] is None
+        assert isinstance(r["verdict"], str)
+        assert isinstance(r["confidence"], int)
+        assert r["accusers"] == []
+
+
+def test_anchor_sweep_incident_finding_not_gate():
+    # 票 #182 语义:锚 expectation 失败 = finding(ok=False+reason+accusers
+    # 读数),不 raise 不 sys.exit——判定门腿是 --anchors(月轮 rc 1),双轨
+    # 分立(ADR 0008 决策 2)。
+    from ipdb._eval.anchors import anchor_sweep
+    kinds = dict(ANCHORS)
+
+    def lk(ip):
+        if ip in ("8.8.8.8", "114.114.114.114"):
+            return _incident(ip)
+        return _fake(kinds.get(ip, "clean"))(ip)
+
+    sweep = anchor_sweep(lk)  # 不 raise 即票义(不持门)
+    assert sweep["n_fail"] == 2
+    assert len(sweep["failures"]) == 2
+    by_ip = {r["ip"]: r for r in sweep["results"]}
+    r88, r114 = by_ip["8.8.8.8"], by_ip["114.114.114.114"]
+    assert r88["ok"] is False and "malicious" in r88["reason"]
+    assert r88["verdict"] == "malicious" and r88["confidence"] == 55
+    assert r88["accusers"] == ["myip_ms"]
+    assert r114["accusers"] == ["cps_collected_iocs", "ziyadnz"]
+    # 其余锚照常 ok(逐锚独立,不因 finding 中断)
+    assert all(r["ok"] for ip, r in by_ip.items()
+               if ip not in ("8.8.8.8", "114.114.114.114"))
+
+
+def test_anchor_sweep_cli_json_finding_not_gate(monkeypatch, capsys, tmp_path):
+    # --anchor-sweep --json:stdout 恰为 sweep JSON(--anchors 纯 JSON 同纪律),
+    # rc 恒 0(finding 不持门)——事故判例轮两 finding 仍 rc 0;非 json 面人读行。
+    from types import SimpleNamespace
+    import ipdb._eval.__main__ as M
+    monkeypatch.setattr(M, "REPORT_DIR", tmp_path)
+    monkeypatch.setattr(M, "_real_registry",
+                        lambda: SimpleNamespace(load_db=lambda: None,
+                                                lookup=_matching()))
+    M.main(["--anchor-sweep", "--json"])  # 无 SystemExit = rc 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["kind"] == "anchor_sweep" and out["n_fail"] == 0
+    assert out["n_total"] == len(ANCHORS)
+
+    kinds = dict(ANCHORS)
+
+    def lk(ip):
+        return _incident(ip) if ip == "114.114.114.114" \
+            else _fake(kinds.get(ip, "clean"))(ip)
+
+    monkeypatch.setattr(M, "_real_registry",
+                        lambda: SimpleNamespace(load_db=lambda: None,
+                                                lookup=lk))
+    M.main(["--anchor-sweep", "--json"])  # finding 轮仍 rc 0(不持门)
+    out = json.loads(capsys.readouterr().out)
+    assert out["n_fail"] == 1
+    assert out["failures"][0]["ip"] == "114.114.114.114"
+    M.main(["--anchor-sweep"])  # 非 json 面不炸
+    assert "114.114.114.114" in capsys.readouterr().out
+
+
+def test_anchor_sweep_cli_load_fail_envelope(monkeypatch, capsys, tmp_path):
+    # --json 下 load_db 失败走 stdout JSON 信封不裸栈(--matrix-scan 同款,
+    # spec §5.2);rc 1 = 巡检面 infra 信封(JS 侧降级旁路消费,票 #182)。
+    from types import SimpleNamespace
+    import pytest
+    import ipdb._eval.__main__ as M
+
+    def boom():
+        raise RuntimeError("disk gone")
+
+    monkeypatch.setattr(M, "REPORT_DIR", tmp_path)
+    monkeypatch.setattr(M, "_real_registry",
+                        lambda: SimpleNamespace(load_db=boom,
+                                                lookup=_matching()))
+    with pytest.raises(SystemExit) as e:
+        M.main(["--anchor-sweep", "--json"])
+    d = json.loads(capsys.readouterr().out)
+    assert d["error"]["code"] == "internal" and e.value.code == 1
