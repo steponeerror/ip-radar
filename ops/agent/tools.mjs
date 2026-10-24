@@ -198,6 +198,130 @@ export function countFeedKeys(text) { // probe 键量:IPv4 去重(exclusive.py _
   return new Set(text.match(/(\d{1,3}\.){3}\d{1,3}(\/\d{1,2})?/g)?.map((t) => t.split("/")[0]) ?? []).size;
 }
 
+// ── 通道错误分类(信封四码;PR #177 工具通道修复;判例 docs/ops/precedents/2026-10-24-discover-dual-channel-dead)──
+// 2026-10-24 01:59 生产 discover 轮双通道全灭的事故面修复:旧路径 gh_search 失败一律 gh_error
+// 兑底(容器无 gh 也不可辨),且 trace.rc 在 ENOENT 时塞字符串违反 outputSchema Number 槽。
+// code additive 四码 + 原兑底(gh_error/rg_infra)兼容保留;判定优先级(2026-10-24 裁定;
+// 审后修 P2-3 调序并注明 why):channel_missing(spawn ENOENT/rc=127)> quota(stderr 含
+// rate limit;GitHub 次级限流形态=403+rate limit 文案,归此才给对「窗口恢复」指引)>
+// channel_auth(not logged in/Authentication required/gh auth login 免凭据实测报文/
+// GH_TOKEN/401/403,词边界)> transient(超时/网络)> 原兑底。
+// 每码文案带「下一步合法动作」(对齐 MCP isError 语义 2026-07-28:错误要能引导模型自纠或
+// 升级,出处注明);不可重试三码(channel_missing/channel_auth/quota)由 prompts/discover-system.md
+// 信封处置条款消费(基础设施面直接人裁区)。GLOSSARY「通道信封四码」同批录入。
+// trace.rc 恒 Number:ENOENT→127;超时被 SIGTERM 杀(execFile code=null)→124(GNU
+// timeout(1) 惯例);其余取 execFile 退出码,兑底 1。
+const CHANNEL_HINTS = {
+  channel_missing: "下一步:该通道本轮不可用——候选直接移人裁区并注明信封内容;修复属部署动作(镜像装配该二进制),勿轮内重试",
+  channel_auth: "下一步:凭证属部署面(GH_TOKEN 配置见 deploy/ops-cron.md)——候选移人裁区注明,勿轮内重试、勿改写查询绕行",
+  quota: "下一步:配额窗口性恢复——候选移人裁区注明,勿轮内重试(限流窗口过后自然可用)",
+  transient: "下一步:可同参数重试 ≤1 次;再失败即人裁区注明信封内容,勿猜数字",
+  gh_error: "下一步:候选移人裁区注明信封原文;勿替失败补数(无证据≠清白)",
+  rg_infra: "下一步:基础设施故障非零命中(Minor-3 判例)——人裁区注明;勿当作「无判例」继续推理",
+};
+export function classifyChannelError(e, bin) {
+  const stderr = String(e?.stderr ?? "");
+  const msg = String(e?.message ?? e ?? "");
+  const exitCode = typeof e?.code === "number" ? e.code : null;
+  // 审后修 P2-2/P2-3(2026-10-24,PR #177):timedOut 判据只认 execFile 信号面(killed/
+  // SIGTERM/ETIMEDOUT 错误码)——旧 /timed out/i 扫 message 首行含命令行,查询词恰含该
+  // 短语会误归 transient;quota 提到 channel_auth 之前(次级限流 403+rate limit 归窗口恢复
+  // 指引);channel_auth 补真免凭据报文模式(gh auth login/GH_TOKEN 提示,2026-10-24
+  // GH_CONFIG_DIR 隔离实测)并加词边界。
+  const timedOut = e?.killed === true || e?.signal === "SIGTERM" || e?.code === "ETIMEDOUT";
+  const rc = e?.code === "ENOENT" ? 127 : exitCode ?? (timedOut ? 124 : 1);
+  let code;
+  if (e?.code === "ENOENT" || exitCode === 127) code = "channel_missing";
+  else if (/rate limit/i.test(stderr)) code = "quota";
+  else if (/not logged in|Authentication required|gh auth login|\bGH_TOKEN\b|\b40[13]\b/.test(stderr)) code = "channel_auth";
+  else if (timedOut) code = "transient";
+  else code = bin === "gh" ? "gh_error" : "rg_infra";
+  const detail = `${bin} 通道失败(rc=${rc}):${(stderr || msg).slice(0, 200)}`;
+  return { code, rc, reason: `${detail}——${CHANNEL_HINTS[code]}` };
+}
+
+// ── 判例检索单源(PR #177;判例 2026-10-24-discover-dual-channel-dead)────────────
+// rg spawn argv 逐字对齐 backend/ipdb/_ops_store.rg_search_precedents(Python 参考实现,
+// Python 面零改动):["rg","-i","-l","-g","*.md","-g","!_*",...每词 "-e",kw,dir]。
+// 成功路径注入块与 lib.sh inject_precedents 逐字节等价(golden/inject-block.* 钉死;
+// fmField 重实现 fm_block 拍平语义);失败面走 classifyChannelError 分类信封
+// (rc=1 = 真零命中;rc≥2/ENOENT/超时 ≠ 零命中)。agent.mjs 宿主预注入同调本函数(单源);
+// lib.sh inject_precedents 保留仅供 pipeline/steps.mjs(pipeline 面本批冻结不触;
+// 两路输出 golden 字节等价由 selftest-t4 对拍钉死)。
+export const RG_TIMEOUT_MS = 60_000; // _ops_store._RG_TIMEOUT_S 同值(两侧同签,勿单边改)
+
+export function resolvePrecedentsDir(env = process.env) {
+  // call-time 解析(契约表 PRECEDENTS_DIR phase=call-time;DOCS_ROOT 用模块顶 import-time 值兑底)
+  return env.PRECEDENTS_DIR ?? path.join(env.DOCS_ROOT ?? DOCS_ROOT, "ops", "precedents");
+}
+
+// fmField — lib.sh fm_block 的 JS 逐语义重实现(frontmatter 顶层字段拍平摘要,非 YAML 解析)。
+// 字节等价的隐藏细节(golden 钉死,以现行为准不顺手修正):
+//   - key 行内联值记入,块标示符(> / |)起头不记:折叠字段首个续行拍平后带前导空格 →
+//     「context:  」双空格是现行输出真形状;
+//   - 字段块内任何非缩进行(含空行)= 块终止(awk exit 语义:单引号多行值 key 行后空行即截断);
+//   - 续行/嵌套子键(reward 映射)两侧 [ \t] 裁剪后以单空格连接,空续行跳过。
+export function fmField(text, field) {
+  const lines = text.split("\n");
+  if (lines[0] !== "---") return ""; // NR==1 非 ---:无 frontmatter
+  let out = "", active = false;
+  for (let i = 1; i < lines.length; i++) {
+    const l = lines[i];
+    if (/^---/.test(l)) break; // frontmatter 终线
+    const m = l.match(/^([A-Za-z_][A-Za-z0-9_]*):/); // 顶层键(列 0;缩进子键不命中)
+    if (m) {
+      if (m[1] === field) {
+        active = true;
+        const rest = l.slice(m[0].length).replace(/^[ \t]+/, "").replace(/[ \t]+$/, "");
+        if (rest !== "" && !/^[|>]/.test(rest)) out += (out === "" ? "" : " ") + rest;
+      } else if (active) break; // 下一顶层键 = 本字段块结束
+      continue;
+    }
+    if (active && /^[ \t]/.test(l)) {
+      const line = l.replace(/^[ \t]+/, "").replace(/[ \t]+$/, "");
+      if (line !== "") out += " " + line; // 首续行前导空格 = 双空格细节的来源
+    } else if (active) break; // 非缩进行(含空行)= 字段块终止
+  }
+  return out;
+}
+
+// 返回 { block, files, trace }:block=注入块文本(逐字节等价 lib.sh;含尾换行);files=
+// 排序去重命中路径(sort -u 语义;词法序——判例文件名全 ASCII 日期前缀,locale 无关);
+// trace={cmd:真 argv,rc:真 rc}。失败抛 Error(.envelope={code,rc,reason} 分类信封 + .trace)。
+export async function searchPrecedentsCore(keywords, { precedentsDir, env = process.env, timeoutMs = RG_TIMEOUT_MS } = {}) {
+  const dir = path.resolve(precedentsDir ?? resolvePrecedentsDir(env));
+  // execFile(file,args) 的 args 不含二进制名(Python subprocess 全 argv 含 "rg" ——两侧逻辑
+  // argv 逐字对齐,此处拼接点不同);trace.cmd 展示含 rg 的完整逻辑 argv
+  const args = ["-i", "-l", "-g", "*.md", "-g", "!_*"];
+  for (const kw of keywords) args.push("-e", kw);
+  args.push(dir);
+  const cmd = ["rg", ...args].map((a) => (/\s/.test(a) ? `"${a}"` : a)).join(" ");
+  let stdout = "";
+  if (keywords.length) { // 零词守卫(lib.sh 同形:不跑 rg——rg 无 pattern 会 rc=2;Python 面由 ValueError 拒词,契约对拍不覆盖零词)
+    try {
+      ({ stdout } = await execFileP("rg", args, { timeout: timeoutMs, maxBuffer: 8 * 1024 * 1024, env }));
+    } catch (e) {
+      if (e.code === 1) stdout = String(e.stdout ?? ""); // rc=1 = 真零命中(Python 参考同语义;execFile 对非零退出 reject,此处置回成功面)
+      else {
+        const cls = classifyChannelError(e, "rg");
+        throw Object.assign(new Error(cls.reason), { envelope: cls, trace: { cmd, rc: cls.rc } });
+      }
+    }
+  }
+  const files = [...new Set(stdout.split("\n").filter((l) => l !== ""))].sort();
+  const kwsLine = keywords.join(" ");
+  if (!files.length) {
+    return { block: `### 注入判例(检索词: ${kwsLine})\n无判例(检索词: ${kwsLine})\n`, files, trace: { cmd, rc: 0 } };
+  }
+  const blockLines = [`### 注入判例(检索词: ${kwsLine})`];
+  for (const f of files) {
+    const text = fs.readFileSync(f, "utf8"); // rg 输出行即路径(与 lib.sh fm_block "$f" 同读法)
+    blockLines.push(`- ${path.basename(f)}`);
+    for (const field of ["context", "human_ruling", "reward"]) blockLines.push(`  - ${field}: ${fmField(text, field)}`);
+  }
+  return { block: `${blockLines.join("\n")}\n`, files, trace: { cmd, rc: 0 } };
+}
+
 // ── 读面白名单(融合必保 4:显式拒 .env/密钥模式/.venv/data;门=实现双层之实现层)──
 const DENY_NAME = [/\.env(\.|$)/i, /\.pem$/i, /\.p12$/i, /\.key$/i, /(^|[-_.])(priv|secret|credential)s?([-_.]|$)/i];
 const DENY_SEG = [".git", ".venv", "node_modules", "backend/data"];
@@ -438,23 +562,23 @@ export class ToolHost {
         truncated: Type.Boolean(), rg_rc: Type.Number(), trace: Type.Object({ cmd: Type.String(), rc: Type.Number() }),
       }),
       execute: async (callId, p) => {
-        const trace = { cmd: `inject_precedents ${p.keywords.join(" ")}`, rc: 0 };
+        // PR #177 单源改造:原生 rg spawn(searchPrecedentsCore),失败面分类信封
+        // (判例 2026-10-24-discover-dual-channel-dead:旧路径硬编码 trace rc:0 连失败
+        // 路径也带、lib.sh 吞 stderr 2>/dev/null、ENOENT 塞字符串违反 Number 槽)。
+        // 成功路径输出与旧 lib.sh 路径逐字节等价(golden 钉死);结构化字段只增不删。
         try {
-          const { stdout } = await runLib("inject_precedents", p.keywords, 60_000);
-          const all = [...stdout.matchAll(/^- ([0-9]{4}-[0-9]{2}-[0-9]{2}-[^\s]+\.md)\s*$/gm)].map((m) => m[1]);
-          if (!all.length && !stdout.includes("无判例")) {
-            const env = envelope("rg_infra", `rg rc≥2 基础设施故障≠零命中:${stdout.slice(0, 200)}`);
-            return this.finish(callId, "search_precedents", { ...env, trace }, `判例检索失败信封:${env.reason}`);
-          }
+          const { block, files, trace } = await searchPrecedentsCore(p.keywords);
+          const all = files.map((f) => path.basename(f));
           const truncated = all.length > B.hitCap;
           const hits = all.slice(0, B.hitCap);
           hits.forEach((h) => this.searchHits.add(h));
           const st = { ok: true, hits, hit_n: hits.length, truncated, rg_rc: 0, trace };
           return this.finish(callId, "search_precedents", st,
-            hits.length ? `${stdout.trim()}\n(命中 ${all.length} 条${truncated ? `,注入前 ${B.hitCap}(铁律⑦)` : ""})` : stdout.trim());
+            hits.length ? `${block.trim()}\n(命中 ${all.length} 条${truncated ? `,注入前 ${B.hitCap}(铁律⑦)` : ""})` : block.trim());
         } catch (e) {
-          const env = envelope("rg_infra", e.message);
-          return this.finish(callId, "search_precedents", { ...env, trace }, `判例检索失败信封:${env.reason}`);
+          const env = envelope(e.envelope?.code ?? "rg_infra", e.envelope?.reason ?? e.message);
+          return this.finish(callId, "search_precedents", { ...env, trace: e.trace ?? { cmd: "(未起跑)", rc: 1 } },
+            `判例检索失败信封:${env.code}: ${env.reason}`);
         }
       },
     };
@@ -584,8 +708,14 @@ export class ToolHost {
             results.slice(0, 30).map((r) => `- ${JSON.stringify(r)}`).join("\n");
           return this.finish(callId, "gh_search", st, c);
         } catch (e) {
-          const env = envelope("gh_error", `${cmd} rc≠0:${String(e.stderr ?? e.message).slice(0, 200)}`);
-          return this.finish(callId, "gh_search", { ...env, kind: p.kind, query: p.query, trace: { cmd, rc: e.code ?? 1 } }, `gh 检索失败信封:${env.reason}`);
+          // PR #177 分类落地(判例 2026-10-24-discover-dual-channel-dead):容器无 gh/
+          // 凭证缺失/限流/暂态分四码信封,每码带下一步合法动作;trace.rc 恒 Number
+          // (旧 e.code ?? 1 在 ENOENT 时塞字符串违反 outputSchema Number 槽);原 gh_error
+          // 兑底兼容保留;成功路径零改动。
+          const cls = classifyChannelError(e, "gh");
+          const env = envelope(cls.code, cls.reason);
+          return this.finish(callId, "gh_search", { ...env, kind: p.kind, query: p.query, trace: { cmd, rc: cls.rc } },
+            `gh 检索失败信封:${env.code}:${env.reason}`);
         }
       },
     };

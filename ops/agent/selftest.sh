@@ -394,6 +394,11 @@ grep -q '信封处置' "$DISC" && grep -q '禁止替失败补数' "$DISC" \
   && ok "prompt:discover 信封处置条款在文" || bad "prompt:discover 信封处置条款在文"
 grep -q '工具返回验证' "$DISC" \
   && ok "prompt:discover 工具返回验证条款在文" || bad "prompt:discover 工具返回验证条款在文"
+# PR #177(工具通道修复):信封处置三新码钉子(基础设施面不可重试清单)
+grep -q 'channel_missing' "$DISC" && grep -q 'channel_auth' "$DISC" && grep -q 'quota' "$DISC" \
+  && ok "prompt:信封处置三新码在文(channel_missing/channel_auth/quota)" || bad "prompt:信封处置三新码在文(channel_missing/channel_auth/quota)"
+grep -qE '暂态.{0,80}(≤1|≤ 1)' "$DISC" \
+  && ok "prompt:可重试仍限暂态≤1 次" || bad "prompt:可重试仍限暂态≤1 次"
 grep -q 'health_snapshot' "$AGENT/prompts/health-system.md" && grep -q '信封处置' "$AGENT/prompts/health-system.md" \
   && ok "prompt:health 信封处置条款+快照工具在文" || bad "prompt:health 信封处置条款+快照工具在文"
 
@@ -498,6 +503,28 @@ if command -v node >/dev/null 2>&1 && [[ -d "$ROOT/docs/ops/precedents" ]]; then
   fi
 else
   skipok "B三件:build-index --check+promote-detect --dry 真源面" "嵌套 docs 仓缺席(判例库真源不在场;主 checkout 在场时真跑)"
+fi
+
+# ---- 12. PR #177 工具通道修复:装配面钉子(Dockerfile gh / ops-cron GH_TOKEN 文档 / t4 新例计数) ----
+# gh CLI 装配行在案(判例 2026-10-24-discover-dual-channel-dead:容器无 gh → gh_search 双通道全灭;
+# 装配验收锚在 docker build 层 gh --version 断言,此处只钉装配行不被无声删除)
+grep -q 'cli/cli' "$ROOT/Dockerfile" \
+  && ok "dockerfile:gh CLI 装配行在案(官方 tar.gz pin 版本)" || bad "dockerfile:gh CLI 装配行在案(官方 tar.gz pin 版本)"
+grep -q 'GH_VERSION' "$ROOT/Dockerfile" \
+  && ok "dockerfile:gh 版本 pin 变量在案(镜像面依赖钉版本,node>=22.19 断言同旨)" || bad "dockerfile:gh 版本 pin 变量在案(镜像面依赖钉版本,node>=22.19 断言同旨)"
+grep -q 'GH_TOKEN' "$ROOT/deploy/ops-cron.md" \
+  && ok "deploy:ops-cron.md GH_TOKEN 凭证文档在案" || bad "deploy:ops-cron.md GH_TOKEN 凭证文档在案"
+# t4 新例面点名(golden 字节等价/失败面分类/契约对拍——红期允许 FAIL,绿期须全在汤)
+if command -v node >/dev/null 2>&1; then
+  T4NEW="$(node "$AGENT/selftest-t4.mjs" 2>&1 || true)"
+  grep -q 'search_precedents core:golden 字节等价' <<<"$T4NEW" \
+    && ok "t4:golden 字节等价例在汤" || bad "t4:golden 字节等价例在汤"
+  grep -q 'gh_search:分类落地' <<<"$T4NEW" \
+    && ok "t4:gh_search 分类例在汤" || bad "t4:gh_search 分类例在汤"
+  grep -qE '(T4PASS|T4FAIL|T4SKIP) 契约对拍' <<<"$T4NEW" \
+    && ok "t4:JS↔Python 契约对拍例在汤" || bad "t4:JS↔Python 契约对拍例在汤"
+else
+  bad "t4:node 不可用(新例点名失效)"
 fi
 
 echo "----"

@@ -35,7 +35,8 @@
 # 信封处置指令(SOTA 修正;硬约束)
 
 - 工具返回 `{ok:false, code, reason}` = 失败信封:它**不是读数**,禁止入 evidence,禁止替失败补数(「无证据≠清白」——宁空勿编)。
-- 暂态信封(如 `timeout`/`network`/`http_error`):可重试同参数调用 ≤1 次;再失败即把该候选移入人裁区并在包内注明信封内容,不猜数字。
+- `channel_missing`/`channel_auth`/`quota`(通道基础设施/部署面,信封文案自带下一步):不可重试——直接把候选移人裁区并如实注明信封内容;修复属部署动作(镜像装配 gh/rg、补 GH_TOKEN、限流窗口),勿轮内重试、勿改写查询绕行、勿当作零命中或「无判例」继续推理。
+- 暂态信封(如 `transient`/`timeout`/`network`/`http_error`):可重试同参数调用 ≤1 次;再失败即把该候选移入人裁区并在包内注明信封内容,不猜数字。
 - `control_failed`/`data_plane_missing`/`key_cap`:不可重试,直接人裁区如实注明。
 
 # 边界(硬约束)

@@ -33,6 +33,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends git ca-certific
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian trixie stable" > /etc/apt/sources.list.d/docker.list \
     && apt-get update && apt-get install -y --no-install-recommends docker-ce-cli docker-compose-plugin \
     && rm -rf /var/lib/apt/lists/*
+# PR #177 工具通道修复:gh CLI(gh_search 通道;判例 docs/ops/precedents/
+# 2026-10-24-discover-dual-channel-dead = 容器无 gh 双通道全灭的正身)。官方 tar.gz
+# pin 版本而非 apt(选型理由:gh 不在 Debian 源,cli.github.com apt 源版本随上游浮动;
+# 镜像面依赖钉版本——node>=22.19 断言同旨,升版本 = 显式改 ARG 逃不过评审)。amd64
+# 钉死(生产小机 x86_64;迁 arm 需扩 --build-arg,防无声错架构)。本地/其他运行环境
+# 无 gh = 运行时 channel_missing 分类信封可诊断降级(tools.mjs classifyChannelError),不硬依赖。
+# 独立最小层(与 apt 层分缓存);构建时断言版本号防上游 tar 偷换。
+ARG GH_VERSION=2.103.2
+RUN curl -fsSL --max-time 120 -o /tmp/gh.tgz \
+      https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz \
+    && tar -xzf /tmp/gh.tgz -C /tmp gh_${GH_VERSION}_linux_amd64/bin/gh \
+    && install -m 0755 /tmp/gh_${GH_VERSION}_linux_amd64/bin/gh /usr/local/bin/gh \
+    && rm -rf /tmp/gh.tgz /tmp/gh_${GH_VERSION}_linux_amd64 \
+    && gh --version | head -1 | grep -q "gh version ${GH_VERSION}"
 COPY backend/requirements.txt ./backend/requirements.txt
 RUN pip install --no-cache-dir -r backend/requirements.txt ${PIP_INDEX_URL:+-i $PIP_INDEX_URL}
 COPY backend/ ./backend/
@@ -63,9 +77,11 @@ RUN rm -rf /app/.git && git init -q -b main \
     && test -z "$(git status --porcelain -- backend/ frontend/)"
 COPY --from=frontend /build/dist ./frontend/dist
 COPY docker/entrypoint.sh /entrypoint.sh
-# P5 验收锚:node(桥 spawn 面)/rg(检索面)在此层真跑一次,缺库缺二进制构建即红
+# P5 验收锚:node(桥 spawn 面)/rg(检索面)在此层真跑一次,缺库缺二进制构建即红;
+# PR #177 增 gh(gh_search 面;同旨)
 RUN chmod +x /entrypoint.sh \
     && node --version \
-    && rg --version | head -1
+    && rg --version | head -1 \
+    && gh --version | head -1
 EXPOSE 8000
 ENTRYPOINT ["/entrypoint.sh"]
