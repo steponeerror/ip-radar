@@ -484,6 +484,10 @@ def main(argv=None):
                    help="lineage audit over persisted model history (advisory, B1)")
     p.add_argument("--anchors", action="store_true",
                    help="known-answer anchor set regression gate (spec §5.2)")
+    p.add_argument("--anchor-sweep", action="store_true",
+                   help="ops 轮锚巡检件(#182):逐锚详查 verdict/confidence/"
+                        "accusers 读数,失败=finding 不持门(rc 恒 0;判定门腿"
+                        "=--anchors 月轮 rc 1,双轨分立 ADR 0008 决策2)")
     p.add_argument("--dsem", action="store_true",
                    help="DS-EM fair fight: market vs declared vs pi-hat T3 (advisory)")
     p.add_argument("--temporal", action="store_true",
@@ -694,6 +698,25 @@ def main(argv=None):
             total = len(ANCHORS)
             print(f"anchors: {total - len(fails)}/{total} pass")
         sys.exit(1 if fails else 0)
+    if args.anchor_sweep:
+        # ops 轮 ANCHOR-SWEEP 求值面(#182):失败=finding 不持门(rc 恒 0);
+        # 判定门腿=--anchors(月轮 sys.exit(1)),双轨分立(ADR 0008 决策2)。
+        # stdout 恰为 sweep JSON(--anchors 纯 JSON 同纪律,无杂行);不落盘
+        # (巡检件由管线步落轮目录 08-anchor-sweep.json,本面只出读数)。
+        from .anchors import anchor_sweep
+        sweep = anchor_sweep(registry.lookup)
+        if args.json:
+            print(json.dumps(sweep, ensure_ascii=False, indent=1))
+        else:
+            for r in sweep["results"]:
+                if not r["ok"]:
+                    print(f"ANCHOR FINDING {r['ip']} ({r['expect']}): "
+                          f"{r['reason']} verdict={r['verdict']} "
+                          f"confidence={r['confidence']} "
+                          f"accusers={','.join(r['accusers']) or '-'}")
+            print(f"anchor_sweep: {sweep['n_total'] - sweep['n_fail']}"
+                  f"/{sweep['n_total']} pass (findings do not gate)")
+        return
     if args.dsem:
         from ipdb._merge import SOURCE_RELIABILITY
         from .dsem_cli import run_dsem_report
