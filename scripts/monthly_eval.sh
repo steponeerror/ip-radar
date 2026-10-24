@@ -54,9 +54,12 @@ if [ "$DRY_RUN" != 1 ]; then
   fi
 fi
 
-run_step() {  # run_step <label> <ipdb._eval args...> — 执行并打印尾行摘要
+run_step() {  # run_step <label> <ipdb._eval args...> — 执行并打印尾行摘要;rc=命令退出码
+  # 管线 rc 显式捕获后 return(不靠 set -e 在函数内炸出——调用方在 || 语境下调
+  # 用时 set -e 全程失效,靠尾命令 echo 会吞 rc;终审修单 F4 判例)
   local label=$1; shift
   local log="/tmp/monthly_eval-$label.log"
+  local rc=0
   echo
   echo "==> $label: IP_RADAR_EVAL_ENV=monthly python3 -m ipdb._eval $*"
   if [ "$DRY_RUN" = 1 ]; then return 0; fi
@@ -65,8 +68,9 @@ run_step() {  # run_step <label> <ipdb._eval args...> — 执行并打印尾行�
       IP_RADAR_DATA_DIR="$DATA_DIR" \
       IP_RADAR_EVAL_DIR="$REPO/backend/data/eval" \
       IP_RADAR_EVAL_ENV=monthly \
-      python3 -m ipdb._eval "$@" ) 2>&1 | tee "$log"
+      python3 -m ipdb._eval "$@" ) 2>&1 | tee "$log" || rc=$?
   echo "-- [$label 尾行] $(tail -n 2 "$log" | tr '\n' ' ')"
+  return "$rc"
 }
 
 echo
@@ -99,7 +103,16 @@ fi
 
 run_step model    --model    # 舰队模型 + 验收套件(落盘本轮 model-*.json)
 run_step all      --all      # 逐源 verdict 表
-run_step anchors  --anchors  # 锚点回归
+# anchors 腿:失败不阻断后续腿(终审修单 F4)——回归红态记录≠管线中止:
+# 锚点红时工件照写(anchors_report 失败也落盘 anchors-*.json,证据不灭),
+# rc 捕获进运行日志红态行,readout/月报/北星与心跳照常,结尾以此 rc 退出
+# (红态外显不吞);其余腿 set -e 语义不变(仍缺员即死不推心跳)。
+# 守卫=tests/eval/test_monthly_eval_cascade.py(密闭 harness:桩腿红绿双态)。
+ANCHORS_RC=0
+run_step anchors  --anchors  || ANCHORS_RC=$?  # 锚点回归(判定门:失败 rc=1 照写工件)
+if [ "$DRY_RUN" != 1 ] && [ "$ANCHORS_RC" != 0 ]; then
+  echo "!! anchors 腿 rc=$ANCHORS_RC:回归红态(anchors-*.json 已照写留证)——红态记录≠管线中止,后续腿照跑,结尾外显此 rc"
+fi
 run_step dsem     --dsem     # DS-EM 公平对决(advisory)
 run_step audit    --audit    # 谱系前向流审计(读 model 历史)
 run_step temporal --temporal # λ_s 确认率(读 model 历史,须 ≥2 轮)
@@ -158,3 +171,6 @@ fi
 
 echo
 echo "完成。报告目录: $REPORT_ROOT(model/ 逐轮累积)"
+# 结尾退出码:anchors 红态外显(完成≠全绿;cron/操作员以非零退出码感知
+# 回归轨红,详见 CHANGELOG「回归红态记录不等于管线中止」句)。
+exit "$ANCHORS_RC"
