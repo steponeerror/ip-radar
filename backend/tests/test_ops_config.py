@@ -233,13 +233,24 @@ def test_update_rejects_bad_tool_keys_without_echo(cfg, ops_env, fake_catalog):
 
 
 def test_round_env_injects_jina_key(cfg, ops_env, fake_catalog, monkeypatch):
-    """_round_env:tool_keys.jina 配置 → env 注入 JINA_API_KEY(与 ZAI 同型:
-    配置优先,每次 spawn 现读改完即生效);未配置不注入(env 通道经继承透传)。"""
+    """_round_env:tool_keys.jina 配置 → env 注入 JINA_API_KEY + 物化
+    web-search.json(pi-web-access MCP 路由单源:searchRouting 回退链
+    duckduckgo→jina + jinaApiKey);未配置不注入 env、链仍物化(duckduckgo
+    起步零配置一发即活);PI_CODING_AGENT_DIR 指路 ops 树(auth.json 同型)。"""
     from ipdb import _ops_rounds
     monkeypatch.delenv("JINA_API_KEY", raising=False)
-    assert "JINA_API_KEY" not in _ops_rounds._round_env()
+    monkeypatch.delenv("PI_CODING_AGENT_DIR", raising=False)
+    env = _ops_rounds._round_env()
+    assert "JINA_API_KEY" not in env
+    assert env["PI_CODING_AGENT_DIR"] == str(ops_env / "ops")
+    disk = json.loads((ops_env / "ops" / "web-search.json").read_text(encoding="utf-8"))
+    assert disk["searchRouting"]["providers"] == ["duckduckgo", "jina"]  # 回退链(选型注见 _ops_rounds)
+    assert "jinaApiKey" not in disk  # 未配 key:duckduckgo 起步,jina 可用性门后置
     cfg.update(tool_keys={"jina": "jina-env-9999"})
-    assert _ops_rounds._round_env()["JINA_API_KEY"] == "jina-env-9999"
+    env = _ops_rounds._round_env()
+    assert env["JINA_API_KEY"] == "jina-env-9999"
+    disk = json.loads((ops_env / "ops" / "web-search.json").read_text(encoding="utf-8"))
+    assert disk["jinaApiKey"] == "jina-env-9999"  # 包的 web-search.json 键名
 
 
 def test_legacy_zai_api_key_alias_read(cfg, ops_env, fake_catalog):
