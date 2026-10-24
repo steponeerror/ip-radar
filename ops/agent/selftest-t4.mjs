@@ -24,6 +24,8 @@ const {
   // PR #177(工具通道修复,判例 2026-10-24-discover-dual-channel-dead):判例检索 JS 单源核心
   // 与通道错误分类器——RED 面先行(未实现时 undefined,下列各例红而不炸装载)。
   searchPrecedentsCore, classifyChannelError,
+  // PR3a 发现通道三件纯函数核(2026-10-24 裁定;web_search 引擎 = pi-web-access MCP,同日中程用户令):
+  normalizeJinaRead, parseSerp, parseRss, RSS_FRESH_DAYS, classifyWebStatus, parseMcpSearchText, classifyMcpSearchError,
 } = await import("./tools.mjs");
 
 // ── fixture:用户 models.json(flash 定义,无 api/baseUrl)+ models-store(glm-5.3 全量)+ auth ──
@@ -490,6 +492,215 @@ await t("classifyChannelError:四码优先级闭集(channel_missing>quota>channe
   }
 });
 
+// ── PR3a 发现通道三件(web_read/web_search/rss_parse;DESIGN §6 2026-10-24 裁定)──
+await t("normalizeJinaRead:元数据前缀剥离/Title 提取/max_chars 截断/无前缀容错", () => {
+  assert.equal(typeof normalizeJinaRead, "function", "normalizeJinaRead 未导出(RED 面应先红)");
+  const md = "Title: Awesome Blocklists\n\nURL Source: https://example.com/awesome\n\nMarkdown Content:\n# heading\n\n正文内容……";
+  const n1 = normalizeJinaRead(md, { maxChars: 1000 });
+  assert.equal(n1.title, "Awesome Blocklists");
+  assert.match(n1.content, /^# heading/, "元数据三行前缀(Title/URL Source/Markdown Content)须剥离");
+  assert.equal(n1.truncated, false);
+  const n2 = normalizeJinaRead(md, { maxChars: 8 });
+  assert.equal(n2.chars_n, 8, "截断头 N 字");
+  assert.equal(n2.truncated, true);
+  const n3 = normalizeJinaRead("裸正文无元数据前缀", {});
+  assert.equal(n3.title, null);
+  assert.equal(n3.content, "裸正文无元数据前缀");
+  assert.equal(n3.truncated, false);
+  // 审后修 P2 钉:Published Time 前缀行同样剥离(带日期页面真形,首发 fixture 遗漏)
+  const md4 = "Title: T\n\nURL Source: https://example.com/x\n\nPublished Time: Fri, 23 Oct 2026 22:53:33 GMT\n\nMarkdown Content:\n正文AA";
+  const n4 = normalizeJinaRead(md4, { maxChars: 1000 });
+  assert.ok(!n4.content.includes("Published Time"), "Published Time 行不得漏入正文");
+  assert.equal(n4.content, "正文AA");
+  assert.equal(n4.title, "T");
+});
+
+await t("parseSerp:数组/data 包裹两形;畸形行(字符串/null/数字/缺 url)跳过不冒充;num 本地截断+truncated;非 JSON→io_error", () => {
+  assert.equal(typeof parseSerp, "function", "parseSerp 未导出(RED 面应先红)");
+  const rows = [
+    { title: "a", url: "https://a.example", snippet: "sa" },
+    "畸形字符串行", null, 42,
+    { title: "缺 url", snippet: "x" },
+    { title: "desc 槽", url: "https://b.example", description: "description 兜底槽" },
+  ];
+  const p1 = parseSerp(JSON.stringify(rows), { num: 5 });
+  assert.equal(p1.n, 2, "缺 url/非对象行不入结果(宁少算不冒充)");
+  assert.deepEqual(p1.results.map((r) => r.url), ["https://a.example", "https://b.example"]);
+  assert.equal(p1.results[1].snippet, "description 兜底槽");
+  assert.equal(p1.truncated, false);
+  const p2 = parseSerp(JSON.stringify({ data: rows }), { num: 1 });
+  assert.equal(p2.n, 1);
+  assert.equal(p2.truncated, true, "服务端多回本地截断须标");
+  for (const bad of ["not json", '{"data": 42}', '{"x": 1}']) {
+    assert.throws(() => parseSerp(bad, {}), (e) => e.code === "io_error");
+  }
+});
+
+await t("parseRss:RSS2.0/Atom 双形状;新鲜门 30(5 天=新鲜/40 天=过期,相对日期);CDATA 剥;坏 XML→io_error;零时间→fresh null", () => {
+  assert.equal(typeof parseRss, "function", "parseRss 未导出(RED 面应先红)");
+  assert.equal(RSS_FRESH_DAYS, 30, "独立常量 30(勿复用 FROZEN_DAYS=180,门线语义不同)");
+  const rss = `<?xml version="1.0"?><rss><channel><title>t</title>
+<item><title>旧条</title><link>https://x/1</link><pubDate>Mon, 01 Jan 2024 00:00:00 GMT</pubDate></item>
+<item><title><![CDATA[新 条]]></title><link>https://x/2</link><pubDate>${new Date(Date.now() - 5 * 86400_000).toUTCString()}</pubDate></item>
+</channel></rss>`;
+  const r1 = parseRss(rss, {});
+  assert.equal(r1.items_n, 2);
+  assert.match(r1.latest_pubdate, /GMT/);
+  assert.equal(r1.fresh, true, "最新 5 天 ≤30 天新鲜门");
+  assert.deepEqual(r1.sample, ["旧条", "新 条"], "CDATA 剥离入样本");
+  const updated40d = new Date(Date.now() - 40 * 86400_000).toISOString();
+  const atom = `<feed xmlns="http://www.w3.org/2005/Atom">
+<entry><title>atom 甲</title><link rel="alternate" href="https://y/1"/>${""}<updated>${updated40d}</updated></entry>
+<entry><title>atom 无时间</title><link href="https://y/2"/></entry>
+</feed>`;
+  const r2 = parseRss(atom, {});
+  assert.equal(r2.items_n, 2, "Atom entry 计数(自闭合 link href 形状)");
+  assert.equal(r2.fresh, false, "40 天 >30 天新鲜门");
+  assert.equal(r2.latest_pubdate, updated40d);
+  const noDates = "<rss><channel><item><title>a</title><link>u</link></item></channel></rss>";
+  const r3 = parseRss(noDates, {});
+  assert.equal(r3.latest_pubdate, null);
+  assert.equal(r3.fresh, null, "无可解析时间=缺读数≠过期(fetch_url age_days NO-LM 同型)");
+  for (const bad of ["not xml", "", "<html><body>网页非 feed</body></html>"]) {
+    assert.throws(() => parseRss(bad, {}), (e) => e.code === "io_error");
+  }
+});
+
+await t("分类:402/balance→quota(quota 正则扩 PR3a);quota 文案「充值或窗口恢复」;403 仍 channel_auth(词边界面);HTTP 状态面同族(classifyWebStatus)", () => {
+  const mk = (stderr) => Object.assign(new Error("x"), { code: 1, stderr });
+  assert.equal(classifyChannelError(mk("HTTP 402: Payment Required"), "gh").code, "quota", "402 显式归 quota 不归 channel_auth");
+  assert.equal(classifyChannelError(mk("insufficient balance"), "gh").code, "quota");
+  assert.match(classifyChannelError(mk("rate limit exceeded"), "gh").reason, /充值或窗口恢复/, "余额形态文案:充值或窗口恢复后自然可用");
+  assert.equal(classifyChannelError(mk("HTTP 403: Forbidden"), "gh").code, "channel_auth", "纯 403 不因 402 扩词误归 quota");
+  // HTTP 状态面(web_read/web_search 共用):同族四码判定
+  assert.equal(classifyWebStatus(402, "", "web_search").code, "quota");
+  assert.equal(classifyWebStatus(200, "Insufficient Balance", "web_search").code, "quota", "状态面文案含余额词同归 quota");
+  assert.match(classifyWebStatus(402, "", "web_search").reason, /充值或窗口恢复/);
+  assert.equal(classifyWebStatus(403, "", "web_read").code, "channel_auth");
+  assert.equal(classifyWebStatus(500, "boom", "web_read").code, "http_error", "非通道面状态归 http_error(暂态族,同 fetch_url 语义)");
+});
+
+await t("parseMcpSearchText:MCP wire 文本归一(真 fixture:provider/Sources 条目/机会式 snippet/Error 行;pi-web-access 0.44.0 实拍)", () => {
+  assert.equal(typeof parseMcpSearchText, "function", "parseMcpSearchText 未导出(RED 面应先红)");
+  const FX = `**Provider:** duckduckgo
+
+ipsets dynamically updated with firehol's update-ipsets.sh script - firehol/blocklist-ipsets
+Source: blocklist-ipsets/firehol_level1.netset at master - GitHub (https://github.com/firehol/blocklist-ipsets/blob/master/firehol_level1.netset)
+
+Level 1 provides basic security against the most well-known attackers, with the minimum of false positives.
+Source: GitHub - firehol/blocklist-ipsets: ipsets dynamically updated with ... (https://github.com/firehol/blocklist-ipsets)
+
+---
+
+**Sources:**
+1. blocklist-ipsets/firehol_level1.netset at master - GitHub
+   https://github.com/firehol/blocklist-ipsets/blob/master/firehol_level1.netset
+
+2. GitHub - firehol/blocklist-ipsets: ipsets dynamically updated with ...
+   https://github.com/firehol/blocklist-ipsets
+---
+Full search results are stored as responseId "mvm3csdaklwbz7".`;
+  const p = parseMcpSearchText(FX);
+  assert.equal(p.provider, "duckduckgo");
+  assert.equal(p.results.length, 2, "Sources 块逐条目机解");
+  assert.deepEqual(p.results.map((r) => r.url), [
+    "https://github.com/firehol/blocklist-ipsets/blob/master/firehol_level1.netset",
+    "https://github.com/firehol/blocklist-ipsets",
+  ]);
+  assert.match(p.results[0].snippet, /^ipsets dynamically/, "Source: 尾行前文=机会式 snippet");
+  assert.match(p.results[1].snippet, /false positives/);
+  assert.equal(p.error, null);
+  // 错误面:provider 失败以 Error: 行内嵌(isError:false,包内吞进 query 结果;真网实拍形)
+  const err = parseMcpSearchText("**Provider:** duckduckgo\n\nError: Configured search routing exhausted:\n  - duckduckgo [network]: fetch failed\n");
+  assert.equal(err.results.length, 0);
+  assert.match(err.error, /routing exhausted/);
+  // 零命中真形(answer 空):无 Sources 条目也无 Error → 成功零命中(宁少算不冒充失败)
+  const zero = parseMcpSearchText("**Provider:** duckduckgo\n\nNo results found.");
+  assert.equal(zero.results.length, 0);
+  assert.equal(zero.error, null);
+  // 审后修 P2 钉:wire 漂移哨——三无(provider/Sources/Error)且非空 → io_error 执出
+  // (升级后语法变形不得伪装成零命中;成功面必有 Provider 头,0.44.0 真网实拍钉)
+  assert.throws(() => parseMcpSearchText("Some totally changed format v9\nno markers at all"), (e) => e.code === "io_error");
+});
+
+await t("classifyMcpSearchError:四码同族(quota/credential/network/config 各归位;ENOENT→channel_missing rc127;超时→transient rc124;402/balance→quota;坏配置→channel_missing;兑底 io_error 带下一步)", () => {
+  assert.equal(typeof classifyMcpSearchError, "function", "classifyMcpSearchError 未导出(RED 面应先红)");
+  assert.equal(classifyMcpSearchError(new Error("jina search failed (quota): HTTP 402: Payment Required")).code, "quota");
+  assert.equal(classifyMcpSearchError(new Error("insufficient balance")).code, "quota");
+  assert.equal(classifyMcpSearchError(new Error("routing exhausted: - duckduckgo [quota]: rate limited")).code, "quota");
+  assert.equal(classifyMcpSearchError(new Error("brave search failed (credential): missing key")).code, "channel_auth");
+  assert.equal(classifyMcpSearchError(new Error("Configured search routing exhausted:\n  - duckduckgo [network]: fetch failed")).code, "transient");
+  assert.equal(classifyMcpSearchError(new Error("MCP CLI 提前退出(rc=1):Failed to parse /ops/web-search.json: Expected property name")).code, "channel_missing", "坏配置=部署面(通道不可用)");
+  const enoent = Object.assign(new Error("spawn node ENOENT"), { code: "ENOENT" });
+  assert.equal(classifyMcpSearchError(enoent).code, "channel_missing");
+  assert.equal(classifyMcpSearchError(enoent).rc, 127);
+  const to = classifyMcpSearchError(Object.assign(new Error("MCP 会话超时(>40000ms)"), { killed: true }));
+  assert.equal(to.code, "transient");
+  assert.equal(to.rc, 124);
+  assert.equal(classifyMcpSearchError(new Error("MCP 协议错误:weird")).code, "io_error");
+  for (const e of [enoent, new Error("x search failed (quota): y"), new Error("weird")]) {
+    assert.match(classifyMcpSearchError(e).reason, /下一步/, "每码文案带下一步合法动作(MCP isError 语义)");
+  }
+});
+
+await t("web_search 引擎接线:pi-web-access MCP CLI 可拉起(离线 initialize+tools/list 含 web_search;真网面部署段验)", async () => {
+  const cli = path.join(AGENT, "node_modules", "pi-web-access", "dist", "mcp-cli.js");
+  assert.ok(fs.existsSync(cli), "pi-web-access 未装配(npm ci 面;package.json pin 0.44.0)");
+  const r = await new Promise((resolve, reject) => {
+    const child = execFileCb(process.execPath, [cli], { timeout: 30_000 }, () => { /* exit 由 timeout 兑底 */ });
+    let buf = "";
+    const send = (o) => child.stdin.write(JSON.stringify(o) + "\n");
+    child.stdout.on("data", (d) => {
+      buf += d;
+      let i;
+      while ((i = buf.indexOf("\n")) >= 0) {
+        const l = buf.slice(0, i); buf = buf.slice(i + 1);
+        if (!l.trim()) continue;
+        const m = JSON.parse(l);
+        if (m.id === 1) { send({ jsonrpc: "2.0", method: "notifications/initialized" }); send({ jsonrpc: "2.0", id: 2, method: "tools/list" }); }
+        if (m.id === 2) { child.kill(); resolve(m.result); }
+      }
+    });
+    child.on("exit", () => reject(new Error("MCP CLI 提前退出(离线 initialize 不应触网)")));
+    send({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t4-selftest", version: "0" } } });
+  });
+  assert.ok(r.tools.some((tt) => tt.name === "web_search"), `MCP 工具面应含 web_search:${r.tools.map((tt) => tt.name).join(",")}`);
+});
+
+await t("web_search:坏路由配置(物化面损坏)→ channel_missing 信封(零网络;CLI 启动即崩,stderr 真因入信封)", async () => {
+  const BAD = fs.mkdtempSync(path.join(os.tmpdir(), "t4-pwa-bad-"));
+  fs.writeFileSync(path.join(BAD, "web-search.json"), "{broken json");
+  const ws = host.tools.find((x) => x.name === "web_search");
+  const orig = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = BAD;
+  try {
+    const r = await ws.execute("t_ws_bad", { query: "offline" });
+    const sc = r.structuredContent;
+    assert.equal(sc.ok, false);
+    assert.equal(sc.code, "channel_missing");
+    assert.match(sc.reason, /web-search\.json/, "stderr 真因(配置面)须入信封");
+    assert.equal(typeof sc.trace.rc, "number");
+  } finally {
+    if (orig !== undefined) process.env.PI_CODING_AGENT_DIR = orig; else delete process.env.PI_CODING_AGENT_DIR;
+    fs.rmSync(BAD, { recursive: true, force: true });
+  }
+});
+
+await t("web_read:目标 url 环回先拒(SSRF 同 fetch_url 规,零网络——Jina 中继不当内网探针)", async () => {
+  const wr = host.tools.find((x) => x.name === "web_read");
+  const r = await wr.execute("t_wr0", { url: "http://127.0.0.1:9/x" });
+  assert.equal(r.structuredContent.ok, false);
+  assert.equal(r.structuredContent.code, "ssrf");
+  assert.ok(!r.isError, "SSRF 拒 = 结构化信封,非异常");
+});
+
+await t("预算行:发现通道三件每轮 8/6/6(防失控非省钱,2026-10-24 裁定)", () => {
+  const b = new ToolHost("discover").budgets;
+  assert.equal(b.web_read, 8);
+  assert.equal(b.web_search, 6);
+  assert.equal(b.rss_parse, 6);
+});
+
 await t("契约对拍:JS 核心 ↔ Python rg_search_precedents 命中集相等(多词 OR/CJK/零命中/_schema 排除;共享 fixture;Python 面零改动)", async () => {
   // Python 参考实现 = backend/ipdb/_ops_store.py rg_search_precedents(argv 逐字对齐真源);
 // ops_root() = $IP_RADAR_DATA_DIR/ops → 指到 fixtures 使两侧扫同一目录。
@@ -527,9 +738,9 @@ await t("结构钉:agent.mjs 预注入改调同源(不再 runLib inject_preceden
   assert.match(libshSrc, /inject_precedents\(\)/, "lib.sh 函数须保留:pipeline/steps.mjs synthInput 仍调用(pipeline 面冻结不触)");
 });
 
-await t("工具面:discover=7 工具、health=1 工具,全部声明 outputSchema+annotations", () => {
+await t("工具面:discover=10 工具(PR3a +发现通道三件)、health=1 工具,全部声明 outputSchema+annotations", () => {
   const d = new ToolHost("discover").tools.map((x) => x.name).sort();
-  assert.deepEqual(d, ["exclusive_probe", "fetch_url", "gh_search", "matrix_scan_summary", "queue_action", "read_file", "search_precedents"]);
+  assert.deepEqual(d, ["exclusive_probe", "fetch_url", "gh_search", "matrix_scan_summary", "queue_action", "read_file", "rss_parse", "search_precedents", "web_read", "web_search"]);
   const h = new ToolHost("health").tools.map((x) => x.name);
   assert.deepEqual(h, ["health_snapshot"]);
   for (const tool of [...new ToolHost("discover").tools, ...new ToolHost("health").tools]) {

@@ -55,6 +55,13 @@ _DEFAULT_AGENT_CMD = ["node", "--max-old-space-size=256", "ops/agent/agent.mjs"]
 _REPO_ROOT = Path(__file__).resolve().parents[2]  # 仓根(agent CLI 的 cwd)
 _STDERR_TAIL_CHARS = 300  # 失败面 stderr 尾部入错误消息(定位用,不倾倒)
 _STDERR_KEEP_LINES = 20
+# PR3a web_search(pi-web-access MCP)回退链:fallbackOn = 包的全部合法回退面
+# (gemini-search.ts VALID_ROUTING_KINDS 闭集);duckduckgo keyless 起步、jina 可用性
+# 门后置——选型 why 见 _round_env 注释(2026-10-24 裁定)。
+_WEB_SEARCH_ROUTING = {
+    "providers": ["duckduckgo", "jina"],
+    "fallbackOn": ["transient", "quota", "network", "invalid-response", "unsupported"],
+}
 
 
 def _agent_argv(round_type: str, input_text: str) -> list[str]:
@@ -104,6 +111,27 @@ def _round_env() -> dict[str, str]:
         or os.environ.get("ZAI_CODING_CN_API_KEY", "").strip()
     if zai:
         env["ZAI_CODING_CN_API_KEY"] = zai  # zai env 兜底链不动(stored credential 优先)
+    # PR3a 发现通道扩槽:tool_keys.jina(agent-config)→ JINA_API_KEY 注入
+    # (web_search 的 jina provider 消费——pi-web-access 包自读 env;与
+    # ZAI_CODING_CN_API_KEY 同型:配置优先,改完即生效;未配置不注入,
+    # override 灌 env 经继承透传保持兜底链)。
+    jina = (cfg.get("tool_keys") or {}).get("jina")
+    if jina and jina.strip():
+        env["JINA_API_KEY"] = jina.strip()
+    # PR3a web_search 引擎 = pi-web-access MCP(2026-10-24 用户令「用 pi-web-access
+    # 实现网络搜索」,https://pi.dev/packages/pi-web-access;pin 0.44.0)。provider 路由
+    # 配置单源 web-search.json:物化进 ops 树 + PI_CODING_AGENT_DIR 指路(auth.json
+    # 同型判例;包自读,tools.mjs 不读)。选型 why:显式回退链 duckduckgo(keyless,
+    # isDuckDuckGoAvailable()≡true,零配置一发即活,离线确定性优先)→ jina(可用性
+    # = jinaApiKey/JINA_API_KEY,充值/配置后自然入链);零配置 Exa MCP 需运行时拉起
+    # 外部进程,不入链。每次 spawn 现读物化 = 改完即生效。
+    web_cfg = {"searchRouting": dict(_WEB_SEARCH_ROUTING)}
+    if env.get("JINA_API_KEY"):
+        web_cfg["jinaApiKey"] = env["JINA_API_KEY"]  # 包的 web-search.json 键名(jinaApiKey)
+    _ops_store.atomic_write_text(
+        root / "web-search.json",
+        json.dumps(web_cfg, ensure_ascii=False, indent=2) + "\n")
+    env["PI_CODING_AGENT_DIR"] = str(root)
     return env
 
 

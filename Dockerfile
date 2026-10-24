@@ -50,8 +50,10 @@ RUN curl -fsSL --max-time 120 -o /tmp/gh.tgz \
 COPY backend/requirements.txt ./backend/requirements.txt
 RUN pip install --no-cache-dir -r backend/requirements.txt ${PIP_INDEX_URL:+-i $PIP_INDEX_URL}
 COPY backend/ ./backend/
-# P5:运营 agent 源树 + 生产依赖(pi-agent-core/pi-ai/typebox/undici,89 包全 JS 无
-# native 二进制)。node_modules 不进构建上下文(.dockerignore 排除,本地也无需装),
+# P5:运营 agent 源树 + 生产依赖(pi-agent-core/pi-ai/typebox/undici + pi-web-access
+# 0.44.0 树,lockfile 实测 326 包全 JS 无 native 二进制;包数变更大,改锁文件时同步本注
+# ——审后修 P2 2026-10-24:旧注「89 包」已陈旧)。node_modules 不进构建上下文
+# (.dockerignore 排除,本地也无需装),
 # 由 opsagent 层 npm ci 注入;node 二进制经 PATH 供 P2 桥 spawn(node --max-old-
 # space-size=256 ops/agent/agent.mjs,cwd=/app)。
 COPY ops/ ./ops/

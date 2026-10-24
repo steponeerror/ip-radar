@@ -91,6 +91,42 @@ services:
   classifyChannelError;文案自带下一步),模型侧直接人裁区不重试——修复属部署动作,
   勿轮内自纠。
 
+## web_search 引擎与通道凭证(pi-web-access;PR3a 发现通道薄工具)
+
+发现通道三件之一 web_search 已由 **pi-web-access**(2026-10-24 用户令「用
+pi-web-access 实现网络搜索」,https://pi.dev/packages/pi-web-access;镜像内
+pin 0.44.0,ops/agent/package.json + Dockerfile npm ci 自动带入)驱动:多 provider
+网络搜索 + 智能回退链,**零配置一发即活**(缺省路由 keyless DuckDuckGo——正式
+取代 Jina 充值前置)。工具契约面不变(归一 SERP/每轮预算/失败四码信封)。
+
+### provider 路由(配置单源:web-search.json 物化)
+
+桥侧 `_round_env` **每次 spawn 现读物化** ops 树 `web-search.json` +
+`PI_CODING_AGENT_DIR` 指路(auth.json 同型判例):回退链
+`duckduckgo(keyless,零配置)→ jina(可用性 = jinaApiKey/JINA_API_KEY,
+充值/配置后自然入链)`;零配置 Exa MCP 需运行时拉起外部进程,不入链
+(确定性优先,2026-10-24 裁定)。改完即生效,无需重启/重部署。
+
+### jina key(可选,入回退链;agent-config tool_keys 扩槽)
+
+UI 配置面属后续批,当前经 API 配(管理登录后,容器内回环):
+
+```bash
+curl -X PUT http://127.0.0.1:8000/api/ops/agent-config \
+  -H 'content-type: application/json' -b /tmp/ops-cookie.$$ \
+  -d '{"tool_keys": {"jina": "jina_<服务器本地秘密>"}}'
+```
+
+- **出参遮蔽**:GET/PUT 回显只 `{configured, tail4}`(沿 api_keys 面);完整 key
+  永不回显、永不入错误消息/日志/台账/裁决包(1113 纪律;失败信封只携状态码
+  /stderr 真因摘要,不含令牌)。值非空校验(空串 422);槽闭集 {"jina"}。
+- **实测事实(2026-10-24,两行为勿写反)**:r.jina.ai(web_read)裸调用无
+  Authorization 正常,带欠费 key 反 402——web_read 恒不带 key,无需配置;
+  s.jina.ai(现作为 jina provider 经 pi-web-access)需 key:欠费 → quota 信封
+  (账户面:充值或窗口恢复后自然可用,模型侧人裁区不重试),缺配不入链不报错。
+- **部署段真网验(待办)**:web_read 一发(无 key 应通);web_search 一发
+  (零配置 DDG 应活——已开发机预验一发;充值后再验 jina 入链)。
+
 ## FROZEN 鉴权矩阵核对(新触发源登记)
 
 - cron 是**新触发源**,不是新路由:走既有 `POST /api/ops/rounds`

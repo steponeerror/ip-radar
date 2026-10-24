@@ -95,11 +95,11 @@ await t("表对拍:扫描器收录的 env 读取面(计算模板无未知形)", 
   assert.equal(READS.unknownTemplate, null, `未收录的 process.env[··] 计算读取模板,对拍器需同步`);
 });
 
-await t("表:SPAWN_CONTRACT_ENV 名集=规格 16 项+OPS_PROBE_MAX_KEYS(tools.mjs 实读,对拍闭包补入)+OPS_PIPELINE/OPS_PIPELINE_BUDGET_CNY(P2 P0 增量,pipeline.mjs 实读)", () => {
-  assert.deepEqual([...tableNames()].sort(), ["DOCS_ROOT", "GH_TOKEN", "LEDGER_FILE", "OPS_AUTH", "OPS_DATA_DIR",
+await t("表:SPAWN_CONTRACT_ENV 名集=规格 16 项+OPS_PROBE_MAX_KEYS(tools.mjs 实读,对拍闭包补入)+OPS_PIPELINE/OPS_PIPELINE_BUDGET_CNY(P2 P0 增量,pipeline.mjs 实读)+JINA_API_KEY/PI_CODING_AGENT_DIR(PR3a pi-web-access 外部自读,同 GH_TOKEN 豁免型)", () => {
+  assert.deepEqual([...tableNames()].sort(), ["DOCS_ROOT", "GH_TOKEN", "JINA_API_KEY", "LEDGER_FILE", "OPS_AUTH", "OPS_DATA_DIR",
     "OPS_EVAL_PY", "OPS_FETCH_MAX_BYTES", "OPS_MATRIX_TIMEOUT_MS", "OPS_MODELS", "OPS_MODEL_DISCOVER",
     "OPS_MODEL_HEALTH", "OPS_MODELS_STORE", "OPS_PIPELINE", "OPS_PIPELINE_BUDGET_CNY", "OPS_PROBE_CLI_TIMEOUT_MS",
-    "OPS_PROBE_MAX_BYTES", "OPS_PROBE_MAX_KEYS",
+    "OPS_PROBE_MAX_BYTES", "OPS_PROBE_MAX_KEYS", "PI_CODING_AGENT_DIR",
     "PRECEDENTS_DIR", "ZAI_CODING_CN_API_KEY"].sort());
 });
 
@@ -112,8 +112,9 @@ await t("表:元素形状 {name,default,consumer,phase}/phase 闭集/名唯一",
   }
 });
 
-await t("表对拍:表内每项真被读(GH_TOKEN 豁免——gh CLI 自读,tools.mjs 不读)", () => {
-  const missing = [...tableNames()].filter((n) => n !== "GH_TOKEN" && !READS.reads.has(n));
+await t("表对拍:表内每项真被读(GH_TOKEN/JINA_API_KEY/PI_CODING_AGENT_DIR 豁免——外部自读:gh CLI/pi-web-access 包在子进程读,tools.mjs 不读)", () => {
+  const EXTERN = new Set(["GH_TOKEN", "JINA_API_KEY", "PI_CODING_AGENT_DIR"]); // PR3a 后两名同 GH_TOKEN 豁免型
+  const missing = [...tableNames()].filter((n) => !EXTERN.has(n) && !READS.reads.has(n));
   assert.deepEqual(missing, [], "表内名字无人读(死表项)");
 });
 

@@ -73,6 +73,10 @@ export const SPAWN_CONTRACT_ENV = [
   { name: "OPS_PIPELINE", default: "legacy", consumer: "pipeline.mjs mkCtx(值闭集校验+state.json 记录;P2 起为桥的路径开关)", phase: "call-time" },
   { name: "OPS_PIPELINE_BUDGET_CNY", default: "0.05", consumer: "pipeline.mjs(DISPATCH 轮内预算门,G_DISPATCH 合计上限;月度累计门=P5 IDLE)", phase: "call-time" },
   { name: "GH_TOKEN", default: "(gh CLI 自身凭证链)", consumer: "gh CLI(外部自读;tools.mjs 不读,对拍豁免)", phase: "call-time" },
+  // PR3a 发现通道 web_search 引擎 = pi-web-access MCP(2026-10-24 用户令;pin 0.44.0):
+  // 两名均外部自读(包/子进程,tools.mjs 不读,同 GH_TOKEN 豁免型)。
+  { name: "JINA_API_KEY", default: "(无:未配则 jina 不入回退链,duckduckgo 起步)", consumer: "pi-web-access 包(外部自读;jina provider 可用性门)", phase: "call-time" },
+  { name: "PI_CODING_AGENT_DIR", default: "~/.pi/agent", consumer: "pi-web-access 包(外部自读;web-search.json 路由配置指路,_round_env 物化进 ops 树)", phase: "call-time" },
 ];
 
 // 轮次信封失败面 error.code 闭集九词(规格 §4):已知 throw 点挂 err.code,main 边界对

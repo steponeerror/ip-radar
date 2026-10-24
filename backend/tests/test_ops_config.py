@@ -10,8 +10,9 @@
   IP_RADAR_OPS_CATALOG_CMD 测试面注入假 dump),dump 失败兜底 #140 五值闭集
   (catalog_source=fallback 显式标注);PUT 未知 provider/模型 422,先校验后
   落盘(坏入参零写);
-- key 永不回显:GET/PUT 出参 api_keys 只 {configured, tail4}(沿 TokenStatus
-  先例);响应/错误消息绝无完整 key;空串/缺省 = 保持不改(无清除面);
+- key 永不回显:GET/PUT 出参 api_keys/tool_keys 只 {configured, tail4}(沿
+  TokenStatus 先例);响应/错误消息绝无完整 key;api_keys 空串/缺省 = 保持
+  不改(无清除面);tool_keys 值非空校验(空串 422;槽闭集 {jina},PR3a);
 - 优先级链:配置 > 进程 effective env > models.mjs 缺省(env 兜底链不动);
 - 目录缓存 TTL:同窗两次 status 只 dump 一次;
 - 坏文件显式报错不静默(非法 JSON/非映射/字段非 str/api_keys 非映射 →
@@ -202,6 +203,56 @@ def test_update_rejects_bad_api_keys_without_echo(cfg, ops_env, fake_catalog):
     assert not (ops_env / "ops" / CONFIG_FILE).exists()
 
 
+def test_update_tool_keys_persists_and_masks(cfg, ops_env, fake_catalog):
+    """PR3a 发现通道扩槽:tool_keys={jina:key} 写盘往返;出参只 configured+
+    tail4(同 api_keys 遮蔽面);未涉字段保留。"""
+    st = cfg.update(tool_keys={"jina": "jina-live-KEY9988"})
+    assert st["tool_keys"] == {"jina": {"configured": True, "tail4": "9988"}}
+    assert "jina-live-KEY9988" not in json.dumps(st, ensure_ascii=False)
+    disk = json.loads((ops_env / "ops" / CONFIG_FILE).read_text(encoding="utf-8"))
+    assert disk["tool_keys"] == {"jina": "jina-live-KEY9988"}
+    cfg.update(api_keys={"fake-prov": "sk-x-AAAA"})  # 未涉字段保留
+    assert cfg.status()["tool_keys"]["jina"]["tail4"] == "9988"
+
+
+def test_update_rejects_bad_tool_keys_without_echo(cfg, ops_env, fake_catalog):
+    """值空串/纯空白 = 422(非空校验,与 api_keys「空=保持不改」不同——票面
+    明写);槽外 id = 422(防拼写静默失效);超长拒;坏入参零写;消息不回带 key 值。"""
+    for bad in ("", "   "):
+        with pytest.raises(ValueError) as ei:
+            cfg.update(tool_keys={"jina": bad})
+        assert "非空" in str(ei.value)
+    with pytest.raises(ValueError) as ei2:
+        cfg.update(tool_keys={"unknown-tool": "sk-x"})
+    assert "unknown-tool" in str(ei2.value)  # 槽名可回(非密)
+    long_key = "j" * 513
+    with pytest.raises(ValueError) as ei3:
+        cfg.update(tool_keys={"jina": long_key})
+    assert long_key not in str(ei3.value)
+    assert not (ops_env / "ops" / CONFIG_FILE).exists()  # 坏入参零写
+
+
+def test_round_env_injects_jina_key(cfg, ops_env, fake_catalog, monkeypatch):
+    """_round_env:tool_keys.jina 配置 → env 注入 JINA_API_KEY + 物化
+    web-search.json(pi-web-access MCP 路由单源:searchRouting 回退链
+    duckduckgo→jina + jinaApiKey);未配置不注入 env、链仍物化(duckduckgo
+    起步零配置一发即活);PI_CODING_AGENT_DIR 指路 ops 树(auth.json 同型)。"""
+    from ipdb import _ops_rounds
+    monkeypatch.delenv("JINA_API_KEY", raising=False)
+    monkeypatch.delenv("PI_CODING_AGENT_DIR", raising=False)
+    env = _ops_rounds._round_env()
+    assert "JINA_API_KEY" not in env
+    assert env["PI_CODING_AGENT_DIR"] == str(ops_env / "ops")
+    disk = json.loads((ops_env / "ops" / "web-search.json").read_text(encoding="utf-8"))
+    assert disk["searchRouting"]["providers"] == ["duckduckgo", "jina"]  # 回退链(选型注见 _ops_rounds)
+    assert "jinaApiKey" not in disk  # 未配 key:duckduckgo 起步,jina 可用性门后置
+    cfg.update(tool_keys={"jina": "jina-env-9999"})
+    env = _ops_rounds._round_env()
+    assert env["JINA_API_KEY"] == "jina-env-9999"
+    disk = json.loads((ops_env / "ops" / "web-search.json").read_text(encoding="utf-8"))
+    assert disk["jinaApiKey"] == "jina-env-9999"  # 包的 web-search.json 键名
+
+
 def test_legacy_zai_api_key_alias_read(cfg, ops_env, fake_catalog):
     """旧 zai_api_key 兼容读 alias:视作 api_keys['zai-coding-cn'];新 api_keys
     同家并存时 api_keys 赢;update 不改写/不清除旧字段。"""
@@ -260,6 +311,12 @@ def test_corrupt_config_raises_loud(cfg, ops_env, fake_catalog):
     p.write_text(json.dumps({"api_keys": {"fake-prov": 99}}), encoding="utf-8")
     with pytest.raises(RuntimeError):
         cfg.status()
+    p.write_text(json.dumps({"tool_keys": ["not", "a", "map"]}), encoding="utf-8")
+    with pytest.raises(RuntimeError):
+        cfg.status()
+    p.write_text(json.dumps({"tool_keys": {"jina": 99}}), encoding="utf-8")
+    with pytest.raises(RuntimeError):
+        cfg.status()
 
 
 # ── B. 路由层(GET/PUT /api/ops/agent-config;鉴权/形状/422/永不回显)──
@@ -284,8 +341,33 @@ def test_get_route_shape_defaults(admin_env, client_as_admin):
     assert body["model_health"] == DEFAULT_HEALTH
     assert body["model_discover"] == DEFAULT_DISCOVER
     assert body["api_keys"] == {}
+    assert body["tool_keys"] == {}  # PR3a:未配置 = 空映射(真实现态)
     assert body["catalog"] == FAKE_CATALOG
     assert body["catalog_source"] == "dynamic"
+
+
+def test_put_tool_keys_roundtrip_no_key_echo(admin_env, client_as_admin):
+    """PUT tool_keys → 遮蔽回显;GET 同形;盘上真落 key(同 api_keys 面)。"""
+    r = client_as_admin.put("/api/ops/agent-config",
+                            json={"tool_keys": {"jina": "jina-route-SECRET-7777"}})
+    assert r.status_code == 200
+    assert "jina-route-SECRET-7777" not in r.text
+    assert r.json()["tool_keys"]["jina"] == {"configured": True, "tail4": "7777"}
+    g = client_as_admin.get("/api/ops/agent-config")
+    assert g.status_code == 200
+    assert "jina-route-SECRET-7777" not in g.text
+    assert g.json()["tool_keys"]["jina"]["tail4"] == "7777"
+    disk = json.loads((admin_env / "ops" / CONFIG_FILE).read_text(encoding="utf-8"))
+    assert disk["tool_keys"]["jina"] == "jina-route-SECRET-7777"
+
+
+def test_put_tool_keys_blank_or_unknown_slot_422(admin_env, client_as_admin):
+    """值空串 = 422(非空校验);槽外 id = 422;均零写。"""
+    for bad in ({"jina": ""}, {"unknown-tool": "sk-x"}):
+        r = client_as_admin.put("/api/ops/agent-config", json={"tool_keys": bad})
+        assert r.status_code == 422
+        assert r.json()["error"]["code"] == "validation_error"
+        assert not (admin_env / "ops" / CONFIG_FILE).exists()  # 坏入参零写
 
 
 def test_put_then_get_roundtrip_no_key_echo(admin_env, client_as_admin):
