@@ -1,0 +1,41 @@
+### 注入判例(检索词: 排他率 聚合器 许可 体量 冻结 sunset)
+- 2026-10-18-bitwire-bulk-size-oom-risk.md
+  - context:  bitwire-it/ipblocklist inbound 4,580,659 键(2h 更),数据 CC BY-NC-SA 4.0 (README License 节,代码 MIT;扫编表初版误记 MIT 已正),排他 48.3%; 波 1+队列候选全落后复算 31%——真增量 = 尾巴 ~16 小一手源。小机 964MB RAM: 大源 rebuild 曾触发宿主全局 OOM(每 ~94min 杀容器一次)。
+  - human_ruling:  用户简报将 bitware-it 列入 tails 轮预出局名单未碰(2026-10-19); 尾巴 16 小源按档直接调查(dossier §预出局名单)。
+  - reward:  hard_gates: keys_inbound: 4580659 exclusive_rate: "48.3%" exclusive_after_wave1_replay: "31%" host_ram_mb: 964 ruling_agreement: agreed production_delta: null
+- 2026-10-18-borestad-tos-default-reject.md
+  - context:  borestad/blocklist-abuseipdb · s100-30d = AbuseIPDB s100 数据转贴, 128,084 键,排他 54.7%,NO-LIC(无许可文件),AbuseIPDB ToS 约束存疑。 池内已有 abuseipdb 直采(token 配置面)。
+  - human_ruling:  用户简报将 borestad 列入 tails 轮预出局名单,未再翻案(2026-10-19)。
+  - reward:  hard_gates: keys: 128084 exclusive_rate: "54.7%" ruling_agreement: agreed production_delta: null
+- 2026-10-18-doh-ipv4-dual-flag.md
+  - context:  dibdot/DoH-IP-blocklists doh-ipv4 排他 98.7%(296/300,seed 20261018, 对照 20/20)过 25% 门线,但双 FLAG:①语义槽——DoH = 策略封锁的合法 DNS 基建,非威胁指控;②许可 GPL-3.0。doh-ipv6 1,387 键未测 (探针 CLI 提取 v4-only 已知限)。
+  - human_ruling: 待用户裁决(截至 2026-10-19 未裁)。
+  - reward:  hard_gates: exclusive_rate: "98.7%" exclusive_n: "296/300" ruling_agreement: pending production_delta: null
+- 2026-10-18-malicious-ip-mapping-vs-key-overlap.md
+  - context:  候选 romainmarcoux/malicious-ip(1,003,608 IP,小时更,MIT)按 README 上游映射 推断「它聚合的出版方我们都有 → ~100% 重叠」判 REJECT。
+  - human_ruling:  用户质疑后实测键级排他率:联合体排他 82.7%(248/300,seed 20261018, binarydefense 对照 20/20);头部 40k 片排他仅 20.7%(多源印证段池内已覆盖), 尾部单源片 89.7%(增量真身);排他样本云/CDN/DNS warninglist 命中 0%。 推翻 REJECT,波 1 立项(PR #125:Source 子类 5 片联合体,r=0.50 地板, derived+tier C,波 1 物化 1,021,274 键)。
+  - reward:  hard_gates: union_exclusive_rate: "82.7%" union_exclusive_n: "248/300" probe_seed: 20261018 control_gate: "20/20" keys_judgement_day: 1003608 head_40k_exclusive_rate: "20.7%" tail_single_source_exclusive_rate: "89.7%" ruling_agreement: overruled production_delta: null
+- 2026-10-18-ziyadnz-aggregator-misjudge.md
+  - context:  2026-10-10 蜜罐批候选 ziyadnz/threat-intel-ip-feeds(120,510 键,日更) 按「池内源聚合器全已注册」映射推断 REJECT。同批 rtbh(接受侧)跑了探针, 拒绝侧没跑——纪律不对称。
+  - human_ruling:  重审实测 = 44.7% Uniq(134/300,seed 20261018,对照 20/20),带逐 IP 出处列 (sources/source_count/confidence,谱系可逐行声明)。翻案,波 1 立项 (PR #125:CsvSource,r=0.55,derived+tier C,波 1 物化 123,107 键)。 同批 EndlessFractal REJECT 理由同款错误但结论碰巧对(实为安全新闻 RSS 非 IP 清单)。
+  - reward:  hard_gates: exclusive_rate: "44.7%" exclusive_n: "134/300" probe_seed: 20261018 control_gate: "20/20" keys_judgement_day: 120510 ruling_agreement: overruled production_delta: null
+- 2026-10-19-cloudzy-asset-axis-hosting.md
+  - context:  Cloudzy(伊朗 VPS 商,RouterHosting 系)地址段标签,asset 轴候选: 排他 98.0%(294/300,段级真空白,键不换手不衰减),3,578 键,MIT(随 CPS 仓), 池内零覆盖(nordvpn/x4bnet_vpn 同构先例)。
+  - human_ruling:  波 3 裁决入池(PR #128:gate N/A-ASSET,0 旗标,asset 段标签无威胁语义, ②全零位移)。
+  - reward:  hard_gates: exclusive_rate: "98.0%" exclusive_n: "294/300" keys: 3578 r: 0.90 ruling_agreement: agreed production_delta: null
+- 2026-10-19-cps-snapshot-paradox.md
+  - context:  CPS 镜像类子清单批量探针(N=300,seed 20261018):排他率与新鲜度反相关。 活镜像 binarydefense 0.7%(2/300)、tor-exit 0.3%(1/300)≈0; 陈旧快照 alienvault 97.7%(293/300)、abuse-ch-ipblocklist 95.3%(286/300)、 log4j 88.7%(266/300)超高。
+  - human_ruling:  用户波次裁决采用该判读器:log4j 88.7% 读作死键嫌疑不入池,除非两日 diff 证 CPS 仍在追加;threatview.io 直连判死同判读器复刻。
+  - reward:  hard_gates: live_mirror_binarydefense: "0.7% (2/300)" live_mirror_tor_exit: "0.3% (1/300)" stale_snapshot_alienvault: "97.7% (293/300)" stale_snapshot_abusech: "95.3% (286/300)" stale_snapshot_log4j: "88.7% (266/300)" segment_label_cloudzy: "98.0% (294/300)" own_collection_cps_iocs: "70.3% (211/300)" ruling_agreement: agreed production_delta: null
+- 2026-10-19-threatview-sunset-dead-feed.md
+  - context:  tails-discover 轮将 threatview.io 直连列为下批 discover 首选(C2 轴第二证人): 其 CPS 镜像 cobaltstrike_ips 57.0% 排他(171/300),池内 threatfox 仅盖 1/3, 快照多一手陈化(2,087 行仅 804 唯一)。
+  - human_ruling:  直连核查判死:两条已知 URL Last-Modified 均 2026-02-08(8 个月冻结), sunset 硬门;CPS 镜像 57% 排他 = 死键假象(快照悖论直连复刻)。 复活触发器 = Last-Modified 前进或两日 diff 显追加。
+  - reward:  hard_gates: last_modified: "2026-02-08" frozen_months: 8 mirror_exclusive_rate: "57.0%" mirror_exclusive_n: "171/300" ruling_agreement: overruled production_delta: null
+- 2026-10-19-ustc-myip-incremental-queue-signoff.md
+  - context:  ustc blackip(中科大校园自保黑名单)排他 47.0%(141/300,纯单 IP 口径; 混合 CIDR 口径 31.3% 失真判例),无许可声明;myip.ms(自有爬虫 htaccess 黑名单)排他 46.0%(138/300),© 头无再分发授权 + 已知限流封禁。 两源均卡许可签核项(tails 轮留档)。
+  - human_ruling:  2026-10-19 用户裁决「有增量价值的都入队」——许可签核由本裁决覆盖, 两源进波 4(PR #130 已合并:gate 双 POSITIVE-VERIFIED 0 旗标, ustc OC 0.7814/fp 0,myip OC 0.5941/fp 1/41/infra Δ+0.0021 不显著)。
+  - reward:  hard_gates: ustc_exclusive_rate: "47.0%" ustc_exclusive_n: "141/300" myip_exclusive_rate: "46.0%" myip_exclusive_n: "138/300" ustc_gate_oc: 0.7814 myip_gate_oc: 0.5941 ruling_agreement: agreed production_delta: null
+- 2026-10-23-ruling-da5b2d4576.md
+  - context: 裁决包 ops/packages/2026-10-23-health-1209.md 的建议(见 recommendation 逐字)经 admin 人裁三动作落判例;决策时事实面与硬门实测数字以该包为准,本条不复制(宁少算勿多算,防双源漂移)。
+  - human_ruling: '人裁修正,修正案逐字:
+  - reward:  hard_gates: package: ops/packages/2026-10-23-health-1209.md round: health ruling_agreement: amended production_delta: null

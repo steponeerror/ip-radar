@@ -7,7 +7,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { execFile as execFileCb } from "node:child_process";
+import { promisify } from "node:util";
 
+const execFileP = promisify(execFileCb);
 const AGENT = path.dirname(fileURLToPath(import.meta.url));
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "t4-selftest-"));
 let pass = 0, fail = 0;
@@ -18,6 +21,9 @@ async function t(name, fn) { try { await fn(); ok(name); } catch (e) { bad(name,
 const { loadModels } = await import("./models.mjs");
 const {
   ToolHost, checkPrivateIp, countFeedKeys, closureCheck, checkReadablePath, pinnedLookup,
+  // PR #176(工具通道修复,判例 2026-10-24-discover-dual-channel-dead):判例检索 JS 单源核心
+  // 与通道错误分类器——RED 面先行(未实现时 undefined,下列各例红而不炸装载)。
+  searchPrecedentsCore, classifyChannelError,
 } = await import("./tools.mjs");
 
 // ── fixture:用户 models.json(flash 定义,无 api/baseUrl)+ models-store(glm-5.3 全量)+ auth ──
@@ -331,6 +337,166 @@ await t("队列:模板渲染落行/幂等去重/vetoable+veto_cmd", async () => 
   assert.equal(r2.structuredContent.appended, false);
   assert.equal(r2.structuredContent.dedup, true);
   assert.equal(fs.readFileSync(path.join(TMP, "queue.md"), "utf8").split("\n").filter((l) => l.includes("cand_x")).length, 1);
+});
+
+// ── PR #176 工具通道修复(判例 2026-10-24-discover-dual-channel-dead):search_precedents 单源 ──
+// 事故面:search_precedents 失败不可诊断(trace 硬编码 rc:0/lib.sh 吞 stderr 2>/dev/null/
+// ENOENT 塞字符串违反 outputSchema Number 槽)。本节钉:golden 字节等价(JS 核心 = lib.sh
+// 现行 = 入库快照)+ 失败面分类(信封四码)+ gh_search 分类落地 + JS↔Python 契约对拍。
+// fixture = fixtures/precedents 真实判例库快照(23 件含 _schema/_INDEX,排除面有真实对象)。
+const FIXTURES_PREC = path.join(AGENT, "fixtures", "precedents");
+const GOLDEN_KWS = fs.readFileSync(path.join(AGENT, "golden", "inject-block.discover-kws.golden.txt"), "utf8");
+const GOLDEN_ZERO = fs.readFileSync(path.join(AGENT, "golden", "inject-block.zerohit.golden.txt"), "utf8");
+const DISCOVER_KWS = ["排他率", "聚合器", "许可", "体量", "冻结", "sunset"];
+const libshInject = async (kws) => (await execFileP("bash",
+  ["-c", '. "$0"; inject_precedents "$@"', path.join(AGENT, "lib.sh"), ...kws],
+  { env: { ...process.env, PRECEDENTS_DIR: FIXTURES_PREC }, timeout: 60_000 })).stdout;
+
+await t("search_precedents core:golden 字节等价(JS 核心 = lib.sh 现行输出 = 入库快照;含折叠字段双空格/空行截断隐藏细节)", async () => {
+  assert.equal(typeof searchPrecedentsCore, "function", "searchPrecedentsCore 未导出(RED 面应先红)");
+  const { block } = await searchPrecedentsCore(DISCOVER_KWS, { precedentsDir: FIXTURES_PREC });
+  assert.equal(block, GOLDEN_KWS, "JS 核心注入块与 golden 快照不逐字节等价");
+  // lib.sh 退役注记后仍是 pipeline/steps.mjs 面真源:两路输出恒同文(字节对拍)
+  assert.equal(await libshInject(DISCOVER_KWS), GOLDEN_KWS, "lib.sh 现行输出与 golden 快照漂移(golden 须同 PR 显式重钉)");
+});
+
+await t("search_precedents core:零命中块字节等价 + 空词守卫(lib.sh 同形,不 spawn)", async () => {
+  const zero = await searchPrecedentsCore(["不存在的词xyz"], { precedentsDir: FIXTURES_PREC });
+  assert.equal(zero.block, GOLDEN_ZERO, "零命中块「无判例」行不等");
+  assert.deepEqual(zero.files, []);
+  assert.equal(zero.trace.rc, 0);
+  const empty = await searchPrecedentsCore([], { precedentsDir: FIXTURES_PREC }); // lib.sh 零词守卫:不跑 rg 恒「无判例」
+  assert.equal(empty.block, "### 注入判例(检索词: )\n无判例(检索词: )\n");
+});
+
+await t("search_precedents core:失败面分类(ENOENT→channel_missing+rc127 Number;超时→transient;rc≥2→rg_infra 兑底)", async () => {
+  const STUB = fs.mkdtempSync(path.join(os.tmpdir(), "t4-rg-stub-"));
+  const mkRg = (body) => { fs.writeFileSync(path.join(STUB, "rg"), `#!/bin/bash\n${body}\n`); fs.chmodSync(path.join(STUB, "rg"), 0o755); };
+  try {
+    // ENOENT(容器无 rg 判例同面):env 注入面隔裹 PATH,不动全局
+    await assert.rejects(
+      searchPrecedentsCore(["排他率"], { precedentsDir: FIXTURES_PREC, env: { ...process.env, PATH: "/nonexistent-ops-t4" } }),
+      (e) => e.envelope?.code === "channel_missing" && e.trace?.rc === 127 && typeof e.trace?.rc === "number");
+    // 超时(测试注入 timeoutMs 300ms + 沉睡 stub;生产 60s)
+    mkRg("sleep 30");
+    await assert.rejects(
+      searchPrecedentsCore(["排他率"], { precedentsDir: FIXTURES_PREC, env: { ...process.env, PATH: `${STUB}:${process.env.PATH}` }, timeoutMs: 300 }),
+      (e) => e.envelope?.code === "transient");
+    // rc≥2 = 基础设施故障≠零命中(Minor-3 判例,兑底码保留)
+    mkRg("echo 'rg 检索失败' >&2; exit 3");
+    await assert.rejects(
+      searchPrecedentsCore(["排他率"], { precedentsDir: FIXTURES_PREC, env: { ...process.env, PATH: `${STUB}:${process.env.PATH}` } }),
+      (e) => e.envelope?.code === "rg_infra" && e.trace?.rc === 3);
+  } finally { fs.rmSync(STUB, { recursive: true, force: true }); }
+});
+
+await t("search_precedents 工具面:成功路径 hits/hit_n/truncated(铁律⑦)+ 闭集登记;失败信封带分类 code+真 rc Number+下一步提示", async () => {
+  const sp = host.tools.find((x) => x.name === "search_precedents");
+  const origPrec = process.env.PRECEDENTS_DIR;
+  process.env.PRECEDENTS_DIR = FIXTURES_PREC;
+  try {
+    const r1 = await sp.execute("t_sp1", { keywords: ["排他率"] });
+    const sc1 = r1.structuredContent;
+    assert.equal(sc1.ok, true);
+    assert.ok(sc1.hit_n > 0 && sc1.hit_n <= 8, "命中入闭集且≤8");
+    assert.equal(sc1.trace.rc, 0);
+    assert.match(sc1.trace.cmd, /^rg -i -l/, "trace.cmd = 真 argv(不再硬编码 inject_precedents 行)");
+    for (const h of sc1.hits) assert.ok(host.searchHits.has(h), "命中须进闭集登记");
+    const r2 = await sp.execute("t_sp2", { keywords: DISCOVER_KWS });
+    assert.equal(r2.structuredContent.truncated, true, "多词并集>8 须截断标记");
+    assert.equal(r2.structuredContent.hit_n, 8);
+  } finally { process.env.PRECEDENTS_DIR = origPrec; }
+  // 失败面(全局 PATH 临时指走;execute 走 process.env,同步改后 await 恢复)
+  const origPath = process.env.PATH;
+  process.env.PATH = "/nonexistent-ops-t4";
+  try {
+    const r = await sp.execute("t_sp3", { keywords: ["排他率"] });
+    const sc = r.structuredContent;
+    assert.equal(sc.ok, false);
+    assert.equal(sc.code, "channel_missing");
+    assert.ok(typeof sc.trace.rc === "number", "trace.rc 恒 Number(ENOENT 不得塞字符串——事故面)");
+    assert.equal(sc.trace.rc, 127);
+    assert.match(sc.reason, /人裁/, "每码文案带下一步合法动作");
+  } finally { process.env.PATH = origPath; }
+});
+
+await t("gh_search:分类落地(ENOENT→channel_missing rc127;not logged in→channel_auth;rate limit→quota;403+rate limit 并存→channel_auth 优先;兑底 gh_error);trace.rc 恒 Number;成功路径零改动", async () => {
+  const gh = host.tools.find((x) => x.name === "gh_search");
+  const GHSTUB = fs.mkdtempSync(path.join(os.tmpdir(), "t4-gh-stub-"));
+  const mkGh = (body) => { fs.writeFileSync(path.join(GHSTUB, "gh"), `#!/bin/bash\n${body}\n`); fs.chmodSync(path.join(GHSTUB, "gh"), 0o755); };
+  const run = async () => (await gh.execute("t_gh", { query: "blocklist", kind: "repos" })).structuredContent;
+  const withPath = async (p) => { const o = process.env.PATH; process.env.PATH = p; try { return await run(); } finally { process.env.PATH = o; } };
+  try {
+    let sc = await withPath("/nonexistent-ops-t4"); // 判例 2026-10-24:容器无 gh 全灭面
+    assert.equal(sc.code, "channel_missing");
+    assert.equal(sc.trace.rc, 127);
+    assert.ok(typeof sc.trace.rc === "number");
+    mkGh("echo 'gh: To get started, run: gh auth login. fatal: not logged in' >&2; exit 4");
+    sc = await withPath(`${GHSTUB}:${process.env.PATH}`);
+    assert.equal(sc.code, "channel_auth");
+    assert.equal(sc.trace.rc, 4);
+    assert.match(sc.reason, /GH_TOKEN|人裁/);
+    mkGh("echo 'API rate limit exceeded' >&2; exit 1");
+    sc = await withPath(`${GHSTUB}:${process.env.PATH}`);
+    assert.equal(sc.code, "quota");
+    assert.equal(sc.trace.rc, 1);
+    mkGh("echo 'HTTP 403: rate limit exceeded' >&2; exit 1");
+    sc = await withPath(`${GHSTUB}:${process.env.PATH}`);
+    assert.equal(sc.code, "channel_auth", "优先级 channel_missing>channel_auth>quota>transient>兑底");
+    mkGh("echo 'boom' >&2; exit 7");
+    sc = await withPath(`${GHSTUB}:${process.env.PATH}`);
+    assert.equal(sc.code, "gh_error", "原兑底码兼容保留");
+    assert.equal(sc.trace.rc, 7);
+    mkGh(`printf '%s' '${JSON.stringify([{ fullName: "a/b", description: "d", stargazersCount: 1, size: 3, url: "u" }])}'`);
+    sc = await withPath(`${GHSTUB}:${process.env.PATH}`);
+    assert.equal(sc.ok, true); // 成功路径零改动
+    assert.equal(sc.total, 1);
+  } finally { fs.rmSync(GHSTUB, { recursive: true, force: true }); }
+});
+
+await t("classifyChannelError:四码优先级闭集(channel_missing>channel_auth>quota>transient>兑底);每码文案带下一步合法动作", () => {
+  assert.equal(typeof classifyChannelError, "function", "classifyChannelError 未导出(RED 面应先红)");
+  const mk = (o) => Object.assign(new Error(o.msg ?? "x"), o);
+  assert.equal(classifyChannelError(mk({ code: "ENOENT", msg: "spawn gh ENOENT" }), "gh").code, "channel_missing");
+  assert.equal(classifyChannelError(mk({ code: 127, stderr: "whatever" }), "rg").code, "channel_missing", "rc=127 同码(spawn ENOENT 同面)");
+  assert.equal(classifyChannelError(mk({ code: 1, stderr: "HTTP 403: rate limit exceeded" }), "gh").code, "channel_auth", "auth 先于 quota");
+  assert.equal(classifyChannelError(mk({ code: 1, stderr: "rate limit exceeded" }), "gh").code, "quota");
+  assert.equal(classifyChannelError(mk({ code: 1, killed: true, signal: "SIGTERM", msg: "Command timed out" }), "gh").code, "transient");
+  assert.equal(classifyChannelError(mk({ code: 5, stderr: "weird" }), "gh").code, "gh_error", "gh 兑底保留");
+  assert.equal(classifyChannelError(mk({ code: 5, stderr: "weird" }), "rg").code, "rg_infra", "rg 兑底保留");
+  for (const e of [mk({ code: "ENOENT" }), mk({ code: 1, stderr: "not logged in" }), mk({ code: 1, stderr: "rate limit" }),
+    mk({ code: 1, killed: true, signal: "SIGTERM" }), mk({ code: 5, stderr: "weird" })]) {
+    assert.match(classifyChannelError(e, "gh").reason, /下一步/, "错误文案须能引导模型自纠或升级(MCP isError 语义,2026-07-28)");
+  }
+});
+
+await t("契约对拍:JS 核心 ↔ Python rg_search_precedents 命中集相等(多词 OR/CJK/零命中/_schema 排除;共享 fixture;Python 面零改动)", async () => {
+  // Python 参考实现 = backend/ipdb/_ops_store.py rg_search_precedents(argv 逐字对齐真源);
+// ops_root() = $IP_RADAR_DATA_DIR/ops → 指到 fixtures 使两侧扫同一目录。
+// 供给守卫:python3 导入 ipdb 失败 → T4SKIP(不计数不计红,环境缺席非契约破坏)。
+  const ROOTDIR = path.resolve(AGENT, "..", "..");
+  let pyOk = true;
+  try {
+    await execFileP("python3", ["-c", "import sys; sys.path.insert(0,'backend'); import ipdb._ops_store"], { cwd: ROOTDIR, timeout: 60_000 });
+  } catch { pyOk = false; }
+  if (!pyOk) { console.log("T4SKIP 契约对拍: python3 导入 ipdb 失败(供给缺席;backend venv 面由 backend job 保证)"); return; }
+  const pyHits = async (kws) => JSON.parse((await execFileP("python3",
+    ["-c", "import sys,json; sys.path.insert(0,'backend'); from ipdb._ops_store import rg_search_precedents; print(json.dumps(rg_search_precedents(sys.argv[1:])))", ...kws],
+    { cwd: ROOTDIR, env: { ...process.env, IP_RADAR_DATA_DIR: path.join(AGENT, "fixtures") }, timeout: 60_000 })).stdout);
+  const jsHits = async (kws) => (await searchPrecedentsCore(kws, { precedentsDir: FIXTURES_PREC })).files.map((f) => path.basename(f));
+  for (const kws of [["排他率"], ["排他率", "sunset"], ["冻结", "死键"], ["mirror"], ["不存在的词xyz"]]) {
+    const js = await jsHits(kws), py = await pyHits(kws);
+    assert.deepEqual(js, py, `命中集不等(检索词 ${kws.join(" ")}):js=${js.join(",")} py=${py.join(",")}`);
+    for (const n of js) assert.ok(!n.startsWith("_"), `_ 前缀件不得进命中(_schema/_INDEX 排除面):${n}`);
+  }
+});
+
+await t("结构钉:agent.mjs 预注入改调同源(不再 runLib inject_precedents);lib.sh 函数保留(pipeline/steps.mjs 仍调,退役注记)", () => {
+  const agentSrc = fs.readFileSync(path.join(AGENT, "agent.mjs"), "utf8");
+  assert.ok(!agentSrc.includes('runLib("inject_precedents"'), "宿主预注入应改调 tools.mjs searchPrecedentsCore(同源单源)");
+  assert.ok(agentSrc.includes("searchPrecedentsCore"), "预注入须走 JS 核心");
+  const libshSrc = fs.readFileSync(path.join(AGENT, "lib.sh"), "utf8");
+  assert.match(libshSrc, /inject_precedents\(\)/, "lib.sh 函数须保留:pipeline/steps.mjs synthInput 仍调用(pipeline 面冻结不触)");
 });
 
 await t("工具面:discover=7 工具、health=1 工具,全部声明 outputSchema+annotations", () => {
