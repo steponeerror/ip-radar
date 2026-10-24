@@ -10,13 +10,16 @@
 // 本文件仍是唯一替换点:引擎(pipeline.mjs)只在 mkCtx/runReplay/runResume 记录面选择(state.model_face),
 // 工件契约(transcript 行型)与门零改动——真面 input 行仅增 model 字段(门不读该行;faux 面行型逐字节不变)。
 // IO 全留痕(裁定「模型 I/O 全留痕可查看」):transcript 工件 = input 头(真面含 model 名;含 SYNTH
-// 判例注入名,G_SYNTH 闭合校验面)+ registry_seed 行(faux 面微探针登记;真面工具空=零行)+ 逐回合
-// assistant 消息。微探针缺口(#170 票面注记):本票只接模型 provider,真探针工具不在票面——真面 DEEP
-// tools=[],confirmed/refuted 证据腿需真探针登记表才能过 G_DEEP,属设计内缺口,留给下票,勿强做。
+// 判例注入名,G_SYNTH 闭合校验面)+ registry_seed 行(微探针登记;faux 面=fx.seeds 脚本化,
+// 真面=微探针工具实测登记 #173)+ 逐回合 assistant 消息。#173 起真面 DEEP 装三只只读微探针
+// (pipeline/microprobes.mjs,deep.md 工具闭集):真工具调用发 registry_seed 行(同 faux 面行型),
+// confirmed/refuted 证据腿在真面可产合法登记表——#170 的设计内缺口(真面 tools=[] 编造 call_id
+// 被 G_DEEP 门败,2026-10-24 生产冒烟实证)已闭合;TRIAGE/SYNTH 提示词无工具面,恒 tools=[]。
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { loadModels } from "../models.mjs";
+import { mkMicroprobeHost } from "./microprobes.mjs";
 import { hidSlug, modelIO } from "./steps.mjs";
 
 const sha = (s) => crypto.createHash("sha256").update(s).digest("hex").slice(0, 16);
@@ -96,14 +99,16 @@ async function runFauxStep(def, ctx, item, input) {
 }
 
 async function runRealStep(def, ctx, item, input) {
-  // 真 provider 路径(#170):经 pi-agent-core Agent 真调用(legacy agent.mjs 同型);tools=[] 见头注微探针缺口。
+  // 真 provider 路径(#170):经 pi-agent-core Agent 真调用(legacy agent.mjs 同型装配)。
+  // DEEP 真面装微探针闭集三只(#173);ctx.probeFetch=自测注入缝(fake fetch 层,缺省 safeFetch 真网络)。
   const { Agent } = await import("@earendil-works/pi-agent-core");
   let bundle, model;
   try {
     bundle = await providerBundle(ctx);
     model = bundle.resolve(STEP_ROUND[def.name]); // 步→轮键映射;未装载模型=配置面失败
   } catch (e) { throw Object.assign(new Error(`真 provider 装载失败(${def.name}):${e.message}`), { code: "infra" }); }
-  const agent = new Agent({ initialState: { systemPrompt: input.systemPrompt, model, tools: [] },
+  const probes = def.name === "DEEP" ? mkMicroprobeHost({ fetchImpl: ctx.probeFetch }) : null;
+  const agent = new Agent({ initialState: { systemPrompt: input.systemPrompt, model, tools: probes?.tools ?? [] },
     streamFn: bundle.models.streamSimple.bind(bundle.models) });
   const rec = { usage: { input: 0, output: 0, totalTokens: 0, cost: 0 }, messages: [] };
   agent.subscribe((ev) => {
@@ -118,7 +123,8 @@ async function runRealStep(def, ctx, item, input) {
   await agent.prompt(input.userMsg);
   const lines = [
     JSON.stringify({ type: "input", stage: def.name, model: `${model.provider}/${model.id}`, system_sha: sha(input.systemPrompt), user_sha: sha(input.userMsg), meta: input.meta ?? null }), // 真面增 model 字段(门不读 input 行;faux 面行型不变)
-    ...rec.messages.map((m) => JSON.stringify({ type: "message", ...m })), // 真面无工具=零 registry_seed 行(微探针缺口,头注)
+    ...(probes?.seeds ?? []).map((sd) => JSON.stringify({ type: "registry_seed", call_id: sd.call_id, tool: sd.tool, sc: sd.sc })), // 真面微探针登记行(#173:行型与 faux 面同型;≤3 由工具面预算闸先拒,门重算双执法)
+    ...rec.messages.map((m) => JSON.stringify({ type: "message", ...m })), // 零探针步(TRIAGE/SYNTH/无调用 DEEP)=零 seed 行
   ];
   fs.writeFileSync(path.join(ctx.dir, transcriptName(def, item)), lines.join("\n") + "\n"); // 留痕先于失败面判定(同 faux)
   const assistant = [...agent.state.messages].reverse().find((m) => m.role === "assistant");
