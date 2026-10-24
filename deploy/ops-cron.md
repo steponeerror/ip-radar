@@ -81,6 +81,10 @@ esac
 
 - 容器 env `OPS_PIPELINE=pipeline`(docker-compose.override.yml)→ agent.mjs 对
   health 轮委派 pipeline.mjs 状态机路径(P5 #167 接线);discover 恒 legacy。
+- 模型步面(#170):生产/cron 轮(无 `--fixtures`)真 provider——TRIAGE/SYNTH=
+  `OPS_MODEL_HEALTH`(缺省 glm-5.3-flash),DEEP=`OPS_MODEL_DISCOVER`(缺省 glm-5.3);
+  手测/重放带 `--fixtures` 则 faux 零成本(重放缺省继承原件面)。真面 DEEP 微探针
+  工具=下票(工具面空,深验 verdict 预期 unresolved 占比高,见 GLOSSARY「微探针」)。
 - 回滚 = 去掉该 env(缺省 legacy);boot 恢复扫描独立于此开关(state.json 只属于
   pipeline 轮;遗留 in_flight 轮的恢复仍走 pipeline.mjs resume,把已开的轮跑完)。
 - 切换验收:驾驶舱 SSE 可见 `[stage] PROBE start` 行族 + 信封 `pipeline.stages`。
@@ -89,7 +93,7 @@ esac
 
 1. 服务器落 `/root/.ops-cron-env`(chmod 600)+ `deploy/ops-cron.sh`(chmod +x);
 2. crontab 安装上文行(先手动 dry 一轮验证 202/409 两态);
-3. docker-compose.override.yml 增 `OPS_PIPELINE=pipeline`(灰度,待用户裁)。**前置条件(Spec 终审 P1):模型步现仍无条件 fauxProvider——faux.mjs 是唯一替换点,真 provider 接线 PR 落地并过门之前禁止切本开关**(照切则生产轮 TRIAGE=罐装假设,G_TRIAGE 穷尽门必红,每轮 model_face 终态);
+3. docker-compose.override.yml 增 `OPS_PIPELINE=pipeline`(灰度,待用户裁)。**前置条件更新(#170):真 provider 已接线落地(fixtures 面=faux/运行面=真调用 flash+glm-5.3,预算三闸真面同执法,选择逻辑纯函数+零网络单测)——原「模型步无条件 fauxProvider」禁令解除;剩余前置=生产段真 provider 冒烟一轮(A 一律/门全过+预算门实测数字入台账)+用户裁**(另注:真面 DEEP 微探针工具=下票,真面深验 confirmed/refuted 不可立证——verdict 预期 unresolved 占比高,GLOSSARY「微探针」缺口注记);
 4. `/var/log/ipradar-ops-cron.log` 轮转(logrotate 或按大小截断);
 5. (可选)生产 ops 树种子 `rules/suppressions.json`:拷 docs 仓规则件或空库 `{"version":0,"rules":[]}`。注:缺席=合法零规则态(与 _ops_review 同口径;首轮 VERIFY 零抑制照常过,首条规则经 RETRO 候选→四键采纳自动建形)——种子仅为带 R12/R7 起步,非必需(审后修 P1 改口径后死锁已除);
 6. 生产段验收门(spec #161,部署后逐项收口,勿灭失):①P2 影子轮 N≥3(legacy 与 pipeline 并行,报告对照一致)②P3 三节报告影子对照 ③P4 剧本=人为停一个真源→条目经四键走查 ④首轮 RETRO 候选 ≥1 经采纳后下轮 VERIFY 生效(闭环)。

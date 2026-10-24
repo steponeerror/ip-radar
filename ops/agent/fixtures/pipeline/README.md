@@ -1,5 +1,8 @@
 # fixtures/pipeline — 模型步 canned 回合集(spec #161 P0;复用律:golden 与 selftest 共用同一份)
 
+#170 起本目录=faux 面专用:仅显式传 `--fixtures`/`opts.fixturesDir` 时消费;运行面
+(生产/cron 轮无 --fixtures)走真 provider(models.mjs 装载,不读本目录)。
+
 P4(#166)起三模型步全真装配形态:TRIAGE/SYNTH 单发、DEEP 逐假设 `deep/<slug>.json`
 (slug = `hidSlug(signal_id)`,faux provider 真 Agent 循环)。微探针 = `seed`/`seeds`
 登记表脚本化(registrySeed 判例:预登记结构化返回,G_DEEP 从 transcript 的 `registry_seed`

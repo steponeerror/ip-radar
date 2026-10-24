@@ -32,7 +32,7 @@ const ctxPaths = (OPS_ROOT, roundId) => ({
 });
 
 // ── 轮次定义表(数据非代码;C稿 §2.2 十状态;加状态须过 spec 变更+三元组铁律:无工件/无门/无失败语义=不配当状态)──
-// 每态:name/kind(script|model|bookend|terminal)/model(配置键,P0 恒 faux)/工件清单(out)/门/失败语义三元组
+// 每态:name/kind(script|model|bookend|terminal)/model(提示词键;执行面选择=faux.mjs selectModelFace,#170)/工件清单(out)/门/失败语义三元组
 // fail={retry,terminal,degrade?,perItem?}(重试上限/终态错误码∈九词闭集/降级路径);skipWhen=命名谓词闭集。
 // 注:IDLE 准入门(车道/预算/同型在飞,C稿 §2.2 十态之一)不在此表——属宿主接线,落 P5(#167);
 // 本表=跑步态集+CLOSE+FAILED,防误读十状态缺一(审后注 reviewer P2-1)。
