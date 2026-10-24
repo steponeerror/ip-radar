@@ -90,7 +90,10 @@ export function pinnedLookup(validatedAddrs) {
 }
 
 // 手动逐跳重定向:每一跳都过 SSRF 门并钉地址(融合必保:D1 逐跳复检)。
-async function safeFetch(rawUrl, { method = "GET", maxBytes, timeoutMs }) {
+// headers/allowStatus 注入面(#173 微探针专用,既有调用面零改):headers 合并覆盖(Range/UA 变体);
+// allowStatus=true 时 ≥400 不抛错照常返回——状态码本身是读数(UA 拦截/限流/死键的判别信号,
+// 同 lib.sh 把 http_<code>/TOKEN_REQUIRED 当读数的口径),网络/超时/跳数上限才是失败信封。
+export async function safeFetch(rawUrl, { method = "GET", maxBytes, timeoutMs, headers = {}, allowStatus = false } = {}) {
   let url = rawUrl, hops = 0, finalRes, active = null;
   try {
     for (;;) {
@@ -100,7 +103,7 @@ async function safeFetch(rawUrl, { method = "GET", maxBytes, timeoutMs }) {
       try {
         r = await undiciFetch(url, {
           method, redirect: "manual", signal: AbortSignal.timeout(timeoutMs),
-          headers: { "user-agent": UA }, dispatcher: hop,
+          headers: { "user-agent": UA, ...headers }, dispatcher: hop,
         });
       } catch (e) {
         await hop.close().catch(() => { /* 本跳失败即弃 */ });
@@ -138,7 +141,7 @@ async function safeFetch(rawUrl, { method = "GET", maxBytes, timeoutMs }) {
     } else {
       await finalRes.body?.cancel().catch(() => { /* HEAD 等无体请求:显式释放 */ });
     }
-    if (finalRes.status >= 400) throw Object.assign(new Error(`HTTP ${finalRes.status}`), { code: "http_error", status: finalRes.status });
+    if (finalRes.status >= 400 && !allowStatus) throw Object.assign(new Error(`HTTP ${finalRes.status}`), { code: "http_error", status: finalRes.status });
     const headers = Object.fromEntries(finalRes.headers.entries());
     return { finalUrl: url, status: finalRes.status, headers, body: buf, bytes: buf?.byteLength ?? 0 };
   } finally {
