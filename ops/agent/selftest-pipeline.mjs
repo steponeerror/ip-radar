@@ -57,11 +57,12 @@ const SWEEP_ANCHORS = [["8.8.8.8", "clean"], ["8.8.4.4", "clean"], ["1.1.1.1", "
   ["172.16.0.1", "reserved"], ["185.220.101.1", "tor"], ["171.25.193.78", "tor"], ["185.220.101.34", "tor"],
   ["52.95.116.115", "hosting"], ["20.36.253.52", "hosting"], ["34.64.121.1", "hosting"]];
 const sweepIncident = (ip) => ({ ip, expect: "clean", ok: false, reason: "expected clean, got malicious",
-  verdict: "malicious", confidence: 55, accusers: ip === "8.8.8.8" ? ["myip_ms"] : ["cps_collected_iocs", "ziyadnz"] });
+  verdict: "malicious", confidence: 55, conflict: false,
+  accusers: ip === "8.8.8.8" ? ["myip_ms"] : ["cps_collected_iocs", "ziyadnz"] });
 const SWEEP_CANNED = { kind: "anchor_sweep", anchors: SWEEP_ANCHORS, n_total: SWEEP_ANCHORS.length, n_fail: 2,
   failures: ["8.8.8.8", "114.114.114.114"].map((ip) => ({ ip, expect: "clean", reason: "expected clean, got malicious" })),
   results: SWEEP_ANCHORS.map(([ip, expect]) => ip === "8.8.8.8" || ip === "114.114.114.114" ? sweepIncident(ip)
-    : { ip, expect, ok: true, reason: null, verdict: "benign", confidence: 0, accusers: [] }) };
+    : { ip, expect, ok: true, reason: null, verdict: "benign", confidence: 0, accusers: [], conflict: false }) };
 const SHELL_JSON = (o) => `'${JSON.stringify(o).replace(/'/g, "'\\''")}'`;
 fs.writeFileSync(path.join(STUBS, "py-matrix"), `#!/usr/bin/env bash
 # selftest stub:OPS_EVAL_PY 替身(golden stubPy 同型);--anchor-sweep→罐装锚巡检 JSON(#182),其余→罐装矩阵 JSON
@@ -210,10 +211,12 @@ await t("ANCHOR_SWEEP 巡检步(#182):事故判例 finding 在场门仍过——
 
 // ── 票 #184(finding 出口三件套)单元例:纯函数面+出口编排(dry-run/skip/失败面;零网络零外发)──
 // 真扫活 finding 判例形(#184 票面指针:#182 首扫 n_fail=4 中的两新 finding,2026-10-24;
-// 与 #182 罐装事故判例(8.8.8.8/114DNS 整改前形状)分立——本批钉的是「整改后仍活的出口租户」)
+// 与 #182 罐装事故判例(8.8.8.8/114DNS 整改前形状)分立——本批钉的是「整改后仍活的出口租户」;
+// #188 benign② 终态:223.5.5.5=tweetfeed 指控× infra_services 良性断言同场 → conflict=true
+// 留痕人裁(锚仍 finding,宁少算不自动压制)
 const LIVE_FINDINGS = [
-  { ip: "1.1.1.1", expect: "clean", verdict: "malicious", confidence: 55, accusers: ["cps_collected_iocs"] },
-  { ip: "223.5.5.5", expect: "clean", verdict: "malicious", confidence: 55, accusers: ["tweetfeed"] } ];
+  { ip: "1.1.1.1", expect: "clean", verdict: "malicious", confidence: 55, accusers: ["cps_collected_iocs"], conflict: false },
+  { ip: "223.5.5.5", expect: "clean", verdict: "malicious", confidence: 55, accusers: ["tweetfeed"], conflict: true } ];
 const liveSweepD = { kind: "anchor_sweep", n_total: 19, n_fail: 2, results: [
   ...LIVE_FINDINGS.map((f) => ({ ...f, ok: false })),
   { ip: "8.8.8.8", expect: "clean", ok: true, verdict: "benign", confidence: 0, accusers: [] }] };
@@ -221,7 +224,8 @@ await t("finding 出口:parseFindings——形状自洽才投影(坏行/计数�
   assert.equal(typeof fexit.parseFindings, "function", "parseFindings 未导出(RED 面应先红)");
   const p = fexit.parseFindings(liveSweepD);
   assert.equal(p.ok, true);
-  assert.deepEqual(p.findings, LIVE_FINDINGS, "投影恰指控行(ip/expect/verdict/confidence/accusers)");
+  assert.deepEqual(p.findings, LIVE_FINDINGS, "投影恰指控行(ip/expect/verdict/confidence/accusers/conflict)");
+  assert.equal(p.findings.find((f) => f.ip === "223.5.5.5").conflict, true, "#188 终态:良性断言×指控同场 conflict 留痕出海");
   const badRow = { n_fail: 1, results: [{ ip: "1.1.1.1", expect: "clean", ok: false, verdict: "malicious" }] };
   assert.equal(fexit.parseFindings(badRow).ok, false, "finding 行缺 confidence/accusers=形状破,出口不动作");
   const mismatch = { n_fail: 2, results: liveSweepD.results.slice(0, 1) };
@@ -234,13 +238,30 @@ await t("finding 出口:issue 模板四件(来源步/锚:期望vs实得/证据�
   assert.match(dft.body, /## 来源步/, "模板件①来源步");
   assert.match(dft.body, /ANCHOR_SWEEP/);
   assert.match(dft.body, /## 锚:期望 vs 实得/, "模板件②锚:期望vs实得");
-  assert.match(dft.body, /1\.1\.1\.1\(expect=clean\):实得 verdict=malicious confidence=55 指控源=cps_collected_iocs/);
-  assert.match(dft.body, /223\.5\.5\.5.*tweetfeed/);
+  assert.match(dft.body, /1\.1\.1\.1\(expect=clean\):实得 verdict=malicious confidence=55 指控源=cps_collected_iocs\n/, "非对立行不带对立标记(词表律:一处一拼)");
+  assert.match(dft.body, /223\.5\.5\.5.*tweetfeed.*对立=verdict_conflict.*留痕人裁.*宁少算不自动压制指控/, "#188 终态:对立标记随行出海(issue=人裁面)");
   assert.match(dft.body, /## 证据指针/, "模板件③证据指针");
   assert.match(dft.body, /08-anchor-sweep\.json/);
   assert.deepEqual(dft.labels, ["needs-triage"], "模板件④标签=needs-triage");
   assert.match(dft.body, /只写不动作/, "处置面自声明:出口只写不动作");
 });
+await t("G_ANCHOR_SWEEP conflict 形状面单元例(直构工件,#188):conflict 非布尔/缺席=门败;留痕行(conflict=true)不持门照常过", async () => {
+  const { GATES } = await import("./pipeline/gates.mjs");
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), "ganchor-unit-"));
+  const row = (ip, o = {}) => ({ ip, expect: "clean", ok: true, reason: null, verdict: "benign", confidence: 0, accusers: [], ...o });
+  const write = (results) => { const fails = results.filter((r) => !r.ok).map((r) => ({ ip: r.ip, expect: r.expect, reason: r.reason }));
+    fs.writeFileSync(path.join(d, "08-anchor-sweep.json"),
+    JSON.stringify({ kind: "anchor_sweep", anchors: results.map((r) => [r.ip, r.expect]), n_total: results.length, n_fail: fails.length, failures: fails, results })); };
+  write([row("8.8.8.8")]);
+  assert.equal(GATES.G_ANCHOR_SWEEP({ dir: d }).pass, false, "conflict 缺席(#188 前工件)=门败——形状面严格");
+  assert.match(GATES.G_ANCHOR_SWEEP({ dir: d }).reason, /conflict 非布尔/);
+  write([row("8.8.8.8", { conflict: 1 })]);
+  assert.equal(GATES.G_ANCHOR_SWEEP({ dir: d }).pass, false, "conflict 非布尔=门败");
+  write([row("8.8.8.8", { conflict: true }), row("223.5.5.5", { ok: false, reason: "expected clean, got malicious", verdict: "malicious", confidence: 55, accusers: ["tweetfeed"], conflict: true })]);
+  const g = GATES.G_ANCHOR_SWEEP({ dir: d });
+  assert.equal(g.pass, true, "conflict=true 留痕行不持门照常过(宁少算)");
+  assert.match(g.reason, /conflicts=2/, "门 reason 带 conflicts 计数可回算");
+});;
 await t("finding 出口:runFindingExits——dry-run 双出口零外发只记 cmd/payload;webhook 未配置=skip 留痕;finding=0/降级/replay=不触发", async () => {
   assert.equal(typeof fexit.runFindingExits, "function", "runFindingExits 未导出(RED 面应先红)");
   const calls = [];

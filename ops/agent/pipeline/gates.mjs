@@ -228,7 +228,8 @@ export const GATES = {
     return pass(`三节齐;四计数+深验三计数与工件逐字一致(confirmed=${truth.confirmed} refuted=${truth.refuted} unresolved=${truth.unresolved});判例引用闭合(注入 ${allowed.size})`, inputs);
   },
   // G_ANCHOR_SWEEP(#182):工件可解析 ∧ 全集穷尽(anchors 投影=results 逐锚恰一)∧ 逐锚带
-  // verdict/confidence 数字+accusers 字符串组 ∧ n_fail/failures 回算一致。锚 finding 不持门
+  // verdict/confidence 数字+accusers 字符串组+conflict 布尔(#188 benign②:良性断言×指控同场
+  // 留痕,不持门不压制)∧ n_fail/failures 回算一致。锚 finding 不持门
   // (票义:失败=finding 落件,轮照常成功)——门只验形状面;锚集真源=python anchors.py,
   // 工件 anchors 字段即其投影,门验工件内自洽不复制真源(谱系单一真源律)。求值面死走
   // 降级旁路(appendGateBypass,RETRO 同款),不进本门。
@@ -246,11 +247,13 @@ export const GATES = {
       if (typeof r.verdict !== "string" || !r.verdict) return fail(`verdict 缺(${r.ip})`, inputs);
       if (typeof r.confidence !== "number") return fail(`confidence 非数字(${r.ip})`, inputs);
       if (!Array.isArray(r.accusers) || !r.accusers.every((a) => typeof a === "string")) return fail(`accusers 非字符串数组(${r.ip})`, inputs);
+      if (typeof r.conflict !== "boolean") return fail(`conflict 非布尔(${r.ip};#188 benign② 留痕字段)`, inputs);
     }
     const nFail = s.results.filter((r) => !r.ok).length;
     if (s.n_fail !== nFail) return fail(`n_fail=${s.n_fail}≠回算 ${nFail}`, inputs);
     if ((s.failures ?? []).length !== nFail) return fail(`failures=${(s.failures ?? []).length}≠回算 ${nFail}`, inputs);
-    return pass(`n_total=${s.results.length} n_fail=${nFail} findings=${nFail}(不持门);逐锚 verdict/confidence/accusers 齐`, inputs);
+    const nConflict = s.results.filter((r) => r.conflict).length;
+    return pass(`n_total=${s.results.length} n_fail=${nFail} findings=${nFail}(不持门);conflicts=${nConflict}(留痕不持门);逐锚 verdict/confidence/accusers/conflict 齐`, inputs);
   },
   // G_RETRO:retro schema 过 ∧ 台账行读回存在 ∧ sandbox rc=0(rc 由 RETRO 步实测记入 retro 工件);
   // P5 #167:候选确定性检查 schema(match 谓词闭集/动作闭集/证据非空——无证据即无话)与
