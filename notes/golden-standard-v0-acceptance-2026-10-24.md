@@ -6,9 +6,9 @@
 
 ## ①「STANDARD.md 每条条文的门挂点可机检存在」 — 绿
 
-- 真跑(worktree 内,2026-10-24):`node ops/agent/standard-check.mjs` = **OK=43 FAIL=0**(条文=14 金标=3 建议=12 挂点=25 原语=22,已有10/半缺9/缺3)
+- 真跑(worktree 内,2026-10-24):`node ops/agent/standard-check.mjs` = **OK=47 FAIL=0**(条文=14 金标=3 建议=12 挂点=29 原语=22,已有10/半缺9/缺3;终审修单 M2 同步——#186 时点原跑 43 OK/挂点 25,F2 措辞修后挂点升格 47/29,主树复跑核真)
 - 核对器语义(#181):每条文门挂点路径存在+`#锚词` fragment 在文核对;死锚/空挂点/伪条目(原语组成表外词)/未标类建议 → 非零退出;嵌套 docs 仓路径禁作挂点(CI checkout 缺席判例)
-- 挂 selftest 链 §13(#181 落地时 15 例单测);#185 合并复核复跑仍 43 OK 0 FAIL
+- 挂 selftest 链 §13(#181 落地时 15 例单测);#185 合并复核复跑仍 43 OK 0 FAIL,终审修单 F2 后复跑 47 OK 0 FAIL(挂点 25→29)
 
 ## ②「金锚巡检在 ops 轮真跑一轮全绿:8.8.8.8/114.114.114.114 判 clean」 — 占位:部署后 ops 轮真跑(现据=消融旁证,1 gap 在案=定向票 #188)
 
@@ -42,7 +42,7 @@
 |---|---|---|
 | benign② 后续票 | ✅ 已开 #188(needs-triage) | 三锚点+infra_services 升格定向+223.5.5.5 承接 |
 | CHANGELOG 汇总条目 | ✅ 本 commit | 引 PR #187,各票细条已分票入册 |
-| GLOSSARY 锚核对 | ✅ 10 词条全活 | 下表;standard-check 43 OK 0 FAIL |
+| GLOSSARY 锚核对 | ✅ 10 词条全活 | 下表;standard-check 47 OK 0 FAIL(F2 后;#186 时点 43 OK)|
 
 ### GLOSSARY 本批新铸词条锚核对(逐条真验:文件在场+符号 grep 命中;文档锚=路径+节名 grep 可命中)
 
