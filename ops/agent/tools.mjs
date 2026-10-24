@@ -341,17 +341,18 @@ export async function searchPrecedentsCore(keywords, { precedentsDir, env = proc
 // (无 Authorization)正常,带欠费 key 反 402 → web_read 恒不带 key;s.jina.ai 必须
 // Bearer key(缺配=channel_auth 部署面;欠费 402=quota 账户面,充值即活,信封诚实报)。
 export function normalizeJinaRead(rawText, { maxChars = 4000 } = {}) {
-  // Jina r 缺省文本面:元数据前缀行(Title:/URL Source:/Markdown Content:);
+  // Jina r 缺省文本面:元数据前缀行(Title:/URL Source:/Markdown Content:,空行分隔);
   // 无前缀(上游形变)则 title=null、整文为正文(宁少算不猜)。
   const lines = String(rawText ?? "").split("\n");
-  let title = null, start = 0;
+  const skipBlank = (i) => { while (lines[i] !== undefined && lines[i].trim() === "") i++; return i; };
+  let title = null, i = 0;
   if (lines[0]?.startsWith("Title:")) {
     title = lines[0].slice("Title:".length).trim() || null;
-    start = 1;
+    i = skipBlank(1);
   }
-  if (lines[start]?.startsWith("URL Source:")) start += 1;
-  if (lines[start]?.startsWith("Markdown Content:")) start += 1;
-  const body = lines.slice(start).join("\n").trim();
+  if (lines[i]?.startsWith("URL Source:")) i = skipBlank(i + 1);
+  if (lines[i]?.startsWith("Markdown Content:")) i += 1;
+  const body = lines.slice(i).join("\n").trim();
   const content = body.slice(0, maxChars);
   return { title, content, chars_n: content.length, truncated: body.length > content.length };
 }
@@ -437,6 +438,7 @@ function classifyWebStatus(status, bodyText, channel) {
   const hint = CHANNEL_HINTS[code];
   return { code, rc: status, reason: hint ? `${detail}——${hint}` : detail };
 }
+export { classifyWebStatus }; // 导出供 selftest-t4 状态面单测(四码语义与 classifyChannelError 同族对齐)
 
 // ── 读面白名单(融合必保 4:显式拒 .env/密钥模式/.venv/data;门=实现双层之实现层)──
 const DENY_NAME = [/\.env(\.|$)/i, /\.pem$/i, /\.p12$/i, /\.key$/i, /(^|[-_.])(priv|secret|credential)s?([-_.]|$)/i];
@@ -907,7 +909,7 @@ export class ToolHost {
         const key = (process.env.JINA_API_KEY ?? "").trim(); // call-time 读(agent-config tool_keys.jina→_round_env 注入;配置优先改完即生效)
         try {
           if (!key) throw Object.assign(new Error(
-            "JINA_API_KEY 未配置(agent-config tool_keys.jina;见 deploy/ops-cron.md):s.jina.ai 2026 起强制 Bearer key——缺配属部署面;余额不足属 quota(充值即活)"), { code: "channel_auth" });
+            `JINA_API_KEY 未配置(agent-config tool_keys.jina;见 deploy/ops-cron.md):s.jina.ai 2026 起强制 Bearer key;余额不足属 quota(充值即活)——${CHANNEL_HINTS.channel_auth}`), { code: "channel_auth" });
           const res = await safeFetch(`https://s.jina.ai/${encodeURIComponent(p.query)}?num=${num}`, {
             method: "GET", maxBytes: B.fetchBytes, timeoutMs: B.webSearchTimeoutMs,
             headers: { authorization: `Bearer ${key}` }, // 恒带 key(r 端相反:恒不带——两行为勿写反,2026-10-24 实测)

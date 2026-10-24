@@ -24,6 +24,8 @@ const {
   // PR #177(工具通道修复,判例 2026-10-24-discover-dual-channel-dead):判例检索 JS 单源核心
   // 与通道错误分类器——RED 面先行(未实现时 undefined,下列各例红而不炸装载)。
   searchPrecedentsCore, classifyChannelError,
+  // PR3a 发现通道三件纯函数核(2026-10-24 裁定):归一/解析/新鲜门——离线钉死,网络面部署段真网验。
+  normalizeJinaRead, parseSerp, parseRss, RSS_FRESH_DAYS, classifyWebStatus,
 } = await import("./tools.mjs");
 
 // ── fixture:用户 models.json(flash 定义,无 api/baseUrl)+ models-store(glm-5.3 全量)+ auth ──
@@ -488,6 +490,118 @@ await t("classifyChannelError:四码优先级闭集(channel_missing>quota>channe
     mk({ code: 1, killed: true, signal: "SIGTERM" }), mk({ code: 5, stderr: "weird" })]) {
     assert.match(classifyChannelError(e, "gh").reason, /下一步/, "错误文案须能引导模型自纠或升级(MCP isError 语义,2026-07-28)");
   }
+});
+
+// ── PR3a 发现通道三件(web_read/web_search/rss_parse;DESIGN §6 2026-10-24 裁定)──
+await t("normalizeJinaRead:元数据前缀剥离/Title 提取/max_chars 截断/无前缀容错", () => {
+  assert.equal(typeof normalizeJinaRead, "function", "normalizeJinaRead 未导出(RED 面应先红)");
+  const md = "Title: Awesome Blocklists\n\nURL Source: https://example.com/awesome\n\nMarkdown Content:\n# heading\n\n正文内容……";
+  const n1 = normalizeJinaRead(md, { maxChars: 1000 });
+  assert.equal(n1.title, "Awesome Blocklists");
+  assert.match(n1.content, /^# heading/, "元数据三行前缀(Title/URL Source/Markdown Content)须剥离");
+  assert.equal(n1.truncated, false);
+  const n2 = normalizeJinaRead(md, { maxChars: 8 });
+  assert.equal(n2.chars_n, 8, "截断头 N 字");
+  assert.equal(n2.truncated, true);
+  const n3 = normalizeJinaRead("裸正文无元数据前缀", {});
+  assert.equal(n3.title, null);
+  assert.equal(n3.content, "裸正文无元数据前缀");
+  assert.equal(n3.truncated, false);
+});
+
+await t("parseSerp:数组/data 包裹两形;畸形行(字符串/null/数字/缺 url)跳过不冒充;num 本地截断+truncated;非 JSON→io_error", () => {
+  assert.equal(typeof parseSerp, "function", "parseSerp 未导出(RED 面应先红)");
+  const rows = [
+    { title: "a", url: "https://a.example", snippet: "sa" },
+    "畸形字符串行", null, 42,
+    { title: "缺 url", snippet: "x" },
+    { title: "desc 槽", url: "https://b.example", description: "description 兜底槽" },
+  ];
+  const p1 = parseSerp(JSON.stringify(rows), { num: 5 });
+  assert.equal(p1.n, 2, "缺 url/非对象行不入结果(宁少算不冒充)");
+  assert.deepEqual(p1.results.map((r) => r.url), ["https://a.example", "https://b.example"]);
+  assert.equal(p1.results[1].snippet, "description 兜底槽");
+  assert.equal(p1.truncated, false);
+  const p2 = parseSerp(JSON.stringify({ data: rows }), { num: 1 });
+  assert.equal(p2.n, 1);
+  assert.equal(p2.truncated, true, "服务端多回本地截断须标");
+  for (const bad of ["not json", '{"data": 42}', '{"x": 1}']) {
+    assert.throws(() => parseSerp(bad, {}), (e) => e.code === "io_error");
+  }
+});
+
+await t("parseRss:RSS2.0/Atom 双形状;新鲜门 30(5 天=新鲜/40 天=过期,相对日期);CDATA 剥;坏 XML→io_error;零时间→fresh null", () => {
+  assert.equal(typeof parseRss, "function", "parseRss 未导出(RED 面应先红)");
+  assert.equal(RSS_FRESH_DAYS, 30, "独立常量 30(勿复用 FROZEN_DAYS=180,门线语义不同)");
+  const rss = `<?xml version="1.0"?><rss><channel><title>t</title>
+<item><title>旧条</title><link>https://x/1</link><pubDate>Mon, 01 Jan 2024 00:00:00 GMT</pubDate></item>
+<item><title><![CDATA[新 条]]></title><link>https://x/2</link><pubDate>${new Date(Date.now() - 5 * 86400_000).toUTCString()}</pubDate></item>
+</channel></rss>`;
+  const r1 = parseRss(rss, {});
+  assert.equal(r1.items_n, 2);
+  assert.match(r1.latest_pubdate, /GMT/);
+  assert.equal(r1.fresh, true, "最新 5 天 ≤30 天新鲜门");
+  assert.deepEqual(r1.sample, ["旧条", "新 条"], "CDATA 剥离入样本");
+  const updated40d = new Date(Date.now() - 40 * 86400_000).toISOString();
+  const atom = `<feed xmlns="http://www.w3.org/2005/Atom">
+<entry><title>atom 甲</title><link rel="alternate" href="https://y/1"/>${""}<updated>${updated40d}</updated></entry>
+<entry><title>atom 无时间</title><link href="https://y/2"/></entry>
+</feed>`;
+  const r2 = parseRss(atom, {});
+  assert.equal(r2.items_n, 2, "Atom entry 计数(自闭合 link href 形状)");
+  assert.equal(r2.fresh, false, "40 天 >30 天新鲜门");
+  assert.equal(r2.latest_pubdate, updated40d);
+  const noDates = "<rss><channel><item><title>a</title><link>u</link></item></channel></rss>";
+  const r3 = parseRss(noDates, {});
+  assert.equal(r3.latest_pubdate, null);
+  assert.equal(r3.fresh, null, "无可解析时间=缺读数≠过期(fetch_url age_days NO-LM 同型)");
+  for (const bad of ["not xml", "", "<html><body>网页非 feed</body></html>"]) {
+    assert.throws(() => parseRss(bad, {}), (e) => e.code === "io_error");
+  }
+});
+
+await t("分类:402/balance→quota(quota 正则扩 PR3a);quota 文案「充值或窗口恢复」;403 仍 channel_auth(词边界面);HTTP 状态面同族(classifyWebStatus)", () => {
+  const mk = (stderr) => Object.assign(new Error("x"), { code: 1, stderr });
+  assert.equal(classifyChannelError(mk("HTTP 402: Payment Required"), "gh").code, "quota", "402 显式归 quota 不归 channel_auth");
+  assert.equal(classifyChannelError(mk("insufficient balance"), "gh").code, "quota");
+  assert.match(classifyChannelError(mk("rate limit exceeded"), "gh").reason, /充值或窗口恢复/, "余额形态文案:充值或窗口恢复后自然可用");
+  assert.equal(classifyChannelError(mk("HTTP 403: Forbidden"), "gh").code, "channel_auth", "纯 403 不因 402 扩词误归 quota");
+  // HTTP 状态面(web_read/web_search 共用):同族四码判定
+  assert.equal(classifyWebStatus(402, "", "web_search").code, "quota");
+  assert.equal(classifyWebStatus(200, "Insufficient Balance", "web_search").code, "quota", "状态面文案含余额词同归 quota");
+  assert.match(classifyWebStatus(402, "", "web_search").reason, /充值或窗口恢复/);
+  assert.equal(classifyWebStatus(403, "", "web_read").code, "channel_auth");
+  assert.equal(classifyWebStatus(500, "boom", "web_read").code, "http_error", "非通道面状态归 http_error(暂态族,同 fetch_url 语义)");
+});
+
+await t("web_search:JINA_API_KEY 缺失→channel_auth 信封含 tool_keys 配置指引(零网络;欠费 402 面走 HTTP 状态分类不在此测)", async () => {
+  const ws = host.tools.find((x) => x.name === "web_search");
+  const orig = process.env.JINA_API_KEY;
+  delete process.env.JINA_API_KEY;
+  try {
+    const r = await ws.execute("t_ws0", { query: "blocklist" });
+    const sc = r.structuredContent;
+    assert.equal(sc.ok, false);
+    assert.equal(sc.code, "channel_auth");
+    assert.match(sc.reason, /JINA_API_KEY 未配置/);
+    assert.match(sc.reason, /tool_keys/, "信封带配置指引(agent-config tool_keys.jina)");
+    assert.match(sc.reason, /下一步/, "文案带下一步合法动作(MCP isError 语义)");
+  } finally { if (orig !== undefined) process.env.JINA_API_KEY = orig; }
+});
+
+await t("web_read:目标 url 环回先拒(SSRF 同 fetch_url 规,零网络——Jina 中继不当内网探针)", async () => {
+  const wr = host.tools.find((x) => x.name === "web_read");
+  const r = await wr.execute("t_wr0", { url: "http://127.0.0.1:9/x" });
+  assert.equal(r.structuredContent.ok, false);
+  assert.equal(r.structuredContent.code, "ssrf");
+  assert.ok(!r.isError, "SSRF 拒 = 结构化信封,非异常");
+});
+
+await t("预算行:发现通道三件每轮 8/6/6(防失控非省钱,2026-10-24 裁定)", () => {
+  const b = new ToolHost("discover").budgets;
+  assert.equal(b.web_read, 8);
+  assert.equal(b.web_search, 6);
+  assert.equal(b.rss_parse, 6);
 });
 
 await t("契约对拍:JS 核心 ↔ Python rg_search_precedents 命中集相等(多词 OR/CJK/零命中/_schema 排除;共享 fixture;Python 面零改动)", async () => {
