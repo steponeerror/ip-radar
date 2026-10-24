@@ -244,6 +244,29 @@ export async function anchorSweepCli({ evalPy = EVAL_PY, dataDir = DATA_DIR, tim
   }
 }
 
+// ── gh 面子命令白名单(票 #184;spec #180 首批租户 Q6 授权写通道)──────────────────
+// search=只读模型工具(ghSearch,每轮≤15);issue create=gh 面唯一写面,仅 finding 出口脚本步
+// (pipeline/finding-exit.mjs)消费——模型工具面零新增写口(MEASUREMENT_TOOLS 不动,evidence
+// 语义门不受污染);写面闭集扩张=spec 变更。标签缺省 needs-triage(triage-labels 五默认角色,人裁终局)。
+export const GH_WRITE_SUBCOMMANDS = ["issue create"];
+
+// ghIssueCreate——开 gh issue(出口只写不动作两写口之一;失败永不抛,分类信封同 gh_search 四码)。
+// dryRun=只记将发命令零 spawn(OPS_SWEEP_DRY_RUN 面的执行侧;测试恒 dry-run)。
+// 返回:{ok,dry_run,cmd,issue_url(真发成功=gh stdout 末行 URL;否则 null),error?:{code,reason}}。
+export async function ghIssueCreate({ title, body, labels = ["needs-triage"] } = {}, { dryRun = false, exec = execFileP, timeoutMs = B.ghTimeoutMs } = {}) {
+  const argv = ["issue", "create", "--title", String(title ?? ""), "--body", String(body ?? ""),
+    ...labels.flatMap((l) => ["--label", String(l)])];
+  const cmd = `gh ${argv.map((a) => (/\s/.test(a) ? `"${a}"` : a)).join(" ")}`;
+  if (dryRun) return { ok: true, dry_run: true, cmd, issue_url: null };
+  try {
+    const { stdout } = await exec("gh", argv, { timeout: timeoutMs, maxBuffer: 8 * 1024 * 1024 });
+    return { ok: true, dry_run: false, cmd, issue_url: String(stdout ?? "").trim().split("\n").pop() || null };
+  } catch (e) {
+    const cls = classifyChannelError(e, "gh");
+    return { ok: false, dry_run: false, cmd, issue_url: null, error: { code: cls.code, reason: cls.reason.slice(0, 300) } };
+  }
+}
+
 export function countFeedKeys(text) { // probe 键量:IPv4 去重(exclusive.py _IP_RE 同口径的 v4 面)
   return new Set(text.match(/(\d{1,3}\.){3}\d{1,3}(\/\d{1,2})?/g)?.map((t) => t.split("/")[0]) ?? []).size;
 }

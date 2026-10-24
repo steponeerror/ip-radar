@@ -258,7 +258,7 @@ export const GATES = {
   G_RETRO: (ctx) => {
     const key = ctx.retroAuditKey; // replay --dry 审原件;重执行审重放自产
     const retroFile = path.join(ctx.opsRoot, "retro", `${key}.json`);
-    const inputs = [`retro/${key}.json`, "(ledger)"];
+    const inputs = [`retro/${key}.json`, "08-anchor-sweep.json(#184 出口③摘要源)", "(ledger)"];
     const r = j(retroFile);
     if (!r) return fail(`retro/${key}.json 不可解析`, inputs);
     if (r.round_id !== key) return fail(`retro.round_id=${r.round_id}≠${key}`, inputs);
@@ -280,6 +280,14 @@ export const GATES = {
       if (typeof x.rule_id !== "string" || typeof x.dedup_key !== "string" || !Array.isArray(x.in_flight_items)) return fail(`通道矛盾行形状非法:${JSON.stringify(x).slice(0, 80)}`, inputs);
     }
     if (r.sandbox_assert_pass !== true) return fail(`sandbox_assert rc≠0(${r.sandbox_assert_rc})`, inputs);
+    // #184 出口③机检:08 巡检工件在场(读数或降级信封)→ retro.anchor_sweep 摘要必须在场且与工件回算一致
+    // (无验证手段不得称出口;降级轮摘要须记 degraded;缺席/不符=门败)
+    const sweepArt = j(path.join(ctx.dir, "08-anchor-sweep.json"));
+    if (sweepArt && Array.isArray(sweepArt.results)) {
+      if (!r.anchor_sweep || r.anchor_sweep.status !== "ok" || r.anchor_sweep.n_fail !== sweepArt.n_fail)
+        return fail(`retro.anchor_sweep 摘要缺席/n_fail 不符(工件=${sweepArt.n_fail},retro=${r.anchor_sweep?.n_fail ?? "(缺)"}——出口③机检)`, inputs);
+    } else if (sweepArt && (!r.anchor_sweep || r.anchor_sweep.status !== "degraded"))
+      return fail("retro.anchor_sweep 摘要未记巡检降级态(08 工件=失败信封;出口③机检)", inputs);
     const ledger = txt(ctx.ledgerFile);
     if (ledger === null || !ledger.includes(`pipeline:${key}`)) return fail("台账读回缺本轮行", inputs);
     return pass(`retro schema 过(${(r.candidates ?? []).length} 候选,到点复审 ${(r.rules_due_review ?? []).length},通道矛盾 ${(r.channel_conflicts ?? []).length});台账行读回;sandbox rc=0`, inputs);
@@ -291,6 +299,14 @@ export const GATES = {
     const s = JSON.stringify(ctx.envelope);
     if (s.includes("\n")) return fail("信封非单行", inputs);
     if (JSON.parse(s).ok !== ctx.envelope.ok) return fail("信封不可往返解析", inputs);
+    // #184:finding 出口三件套信封留痕机检——ANCHOR_SWEEP 已跑(done/degraded)则
+    // pipeline.finding_exits 必在场(gh_issue/webhook 状态面;未配置=skip 痕是票面语义非可选)
+    const sweepStage = (ctx.envelope.pipeline?.stages ?? []).find((x) => x.name === "ANCHOR_SWEEP");
+    if (sweepStage && ["done", "degraded"].includes(sweepStage.status)) {
+      const fe = ctx.envelope.pipeline.finding_exits;
+      if (!fe || typeof fe.triggered !== "boolean" || !fe.gh_issue || !fe.webhook)
+        return fail("finding 出口信封留痕缺席(#184:gh_issue/webhook 状态面须在场;未配置=skip 痕)", inputs);
+    }
     return pass(`信封单行 JSON 落 stdout 末行(${s.length} 字节,${ctx.envelope.pipeline?.stages?.length ?? 0} stages)`, inputs);
   },
 };
