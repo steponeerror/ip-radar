@@ -78,6 +78,10 @@ process.env.LEDGER_FILE = path.join(DOCS, "ops", "ledger.md");
 process.env.OPS_EVAL_PY = path.join(STUBS, "py-matrix"); // import-time 面:先于 tools.mjs 装载生效
 process.env.OPS_SWEEP_DRY_RUN = "1"; // #184:测试恒 dry-run(gh/webhook 出口零外发,只记 cmd/payload;票面默认关=生产真发)
 process.env.PATH = `${STUBS}:${process.env.PATH}`;
+// 门契约单源(#194 C3):门清单/门数/门序一律 import pipeline/gates.mjs 派生值,禁手抄
+// 数字/名单(评审D P2:门记录数硬编码三处判例,漏改=旧门面全绿假象);
+// env 后动态 import(同 tools.mjs 面:先落位 env 再装载)。
+const { GATE_SEQUENCE, GATE_COUNT } = await import("./pipeline/gates.mjs");
 
 const { runPipeline, HEALTH_PIPELINE, DEFAULT_FIXTURES_DIR } = await import("./pipeline.mjs");
 const { runModelStep, selectModelFace, STEP_ROUND } = await import("./pipeline/faux.mjs"); // #170 面选择/真面注入缝直调单测面
@@ -147,6 +151,14 @@ await t("全 faux 轮:十执行态到 CLOSE,信封 ok+形状只增 pipeline 扩�
   assert.equal(env.verify.cited, 1, "canned 报告引 1 fixture 判例");
 });
 
+await t("门契约单源(#194 C3):GATES 注册键序=HEALTH_PIPELINE 执行序双射;GATE_COUNT 派生(单侧加/删门即红=门面假绿判例)", async () => {
+  const { GATES } = await import("./pipeline/gates.mjs");
+  const { HEALTH_PIPELINE } = await import("./pipeline.mjs");
+  assert.deepEqual(GATE_SEQUENCE, HEALTH_PIPELINE.map((d) => d.gate).filter(Boolean), "注册键序=执行序");
+  assert.equal(GATE_COUNT, GATE_SEQUENCE.length, "门数=名单长(禁手写数字)");
+  assert.equal(Object.keys(GATES).length, GATE_COUNT);
+});
+
 await t("工件清单全落盘+gates.json 十记录全 PASS+state.json 终态 done/CLOSE+原子写无 .tmp 残留", async () => {
   const d = roundDir(R1);
   for (const f of ["01-probe-freshness.tsv", "01-probe-matrix.json", "01-probe-summary.json", "02-verify-survivors.json",
@@ -158,10 +170,10 @@ await t("工件清单全落盘+gates.json 十记录全 PASS+state.json 终态 do
   assert.ok(fs.readdirSync(d).some((f) => /^05-deep-.*-transcript\.jsonl$/.test(f)), "逐假设 transcript");
   const g = j(path.join(d, "gates.json"));
   assert.equal(g.round_id, R1);
-  assert.equal(g.records.length, 10, "9 可跑步门(含 #182 ANCHOR_SWEEP)+G_CLOSE");
+  assert.equal(g.records.length, GATE_COUNT, "9 可跑步门(含 #182 ANCHOR_SWEEP)+G_CLOSE");
   assert.ok(g.records.every((r) => r.pass === true), `门败:${g.records.filter((r) => !r.pass).map((r) => r.name).join(",")}`);
   assert.ok(g.records.every((r) => typeof r.reason === "string" && /\d/.test(r.reason)), "reason 带数字可回算");
-  assert.deepEqual(g.records.map((r) => r.name), ["G_PROBE", "G_VERIFY", "G_TRIAGE", "G_DISPATCH", "G_DEEP", "G_ITEMIZE", "G_SYNTH", "G_ANCHOR_SWEEP", "G_RETRO", "G_CLOSE"]);
+  assert.deepEqual(g.records.map((r) => r.name), GATE_SEQUENCE);
   const st = j(path.join(d, "state.json"));
   assert.equal(st.status, "done");
   assert.equal(st.stage, "CLOSE");
@@ -590,7 +602,7 @@ await t("空转金轨迹轮(#162 审 P2-2 裁定①):零 need_deep → DISPATCH 
   const m = j(path.join(d, "06-itemize-manifest.json"));
   assert.deepEqual([m.created, m.reopened, m.deduped, m.suppressed], [2, 0, 0, 1], "watch 条目 2 + 抑制 1(P4:真树落盘)");
   const g = j(path.join(d, "gates.json"));
-  assert.equal(g.records.length, 9, "skipped 步无门记录(PROBE..CLOSE 除 DISPATCH;含 #182 G_ANCHOR_SWEEP)");
+  assert.equal(g.records.length, GATE_COUNT - 1, "skipped 步无门记录(PROBE..CLOSE 除 DISPATCH;含 #182 G_ANCHOR_SWEEP)");
   assert.ok(g.records.every((x) => x.pass), "G_DEEP 机检金轨迹在场面");
   assert.ok(g.records.find((x) => x.name === "G_DEEP").reason.includes("golden=1"), "门 reason 带数字可回算");
 });
@@ -855,7 +867,7 @@ await t("matrix 裸失败负例(#163 review P2-1):信封件落 01-probe-matrix.j
   assert.equal(s.matrix.exit_code, null);
   assert.equal(s.matrix.violation_n, null);
   const g = j(path.join(d, "gates.json"));
-  assert.equal(g.records.length, 10);
+  assert.equal(g.records.length, GATE_COUNT);
   assert.ok(g.records.every((x) => x.pass), "门不受 matrix 裸失败牵连(legacy 失败只回嵌套信封,不阻轮语义两侧一致)");
   // 该 stub 无旗标分发→sweep 面同死:#182 降级旁路(stage degraded+门旁路留痕,轮仍成功)
   const envD = JSON.parse(r.stdout.trim().split("\n").pop());
@@ -1066,10 +1078,10 @@ await t("replay --dry 全程可跑(CLI 子进程):门全重算 PASS,产物写 -r
   assert.equal(env.ok, true);
   assert.equal(env.pipeline.replayed_of, R1);
   assert.equal(env.pipeline.round_id, `${R1}-r1`);
-  assert.equal(env.pipeline.stages.length, 9, "dry 段=PROBE..RETRO(CLOSE 不入重放;含 #182 ANCHOR_SWEEP)");
+  assert.equal(env.pipeline.stages.length, GATE_COUNT - 1, "dry 段=PROBE..RETRO(CLOSE 不入重放;含 #182 ANCHOR_SWEEP)");
   assert.ok(env.pipeline.stages.every((s) => s.status === "dry"), "dry 状态词");
   const g = j(path.join(roundDir(`${R1}-r1`), "gates.json"));
-  assert.equal(g.records.length, 9, "9 可跑步门全重算(含 G_ANCHOR_SWEEP;CLOSE 不入重放)");
+  assert.equal(g.records.length, GATE_COUNT - 1, "可跑步门全重算(含 G_ANCHOR_SWEEP;CLOSE 不入重放)");
   assert.ok(g.records.every((x) => x.pass), "原件工件上全门重算 PASS(自愈:以工件+门为准)");
   assert.equal(treeMd5(roundDir(R1)), before, "原件零改写");
 });

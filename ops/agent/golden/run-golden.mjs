@@ -97,6 +97,7 @@ async function runCase(c, allowSmoke) {
 
   const { runRound } = await import("../agent.mjs");
   const { resolveField } = await import("../tools.mjs");
+  const { GATE_COUNT } = await import("../pipeline/gates.mjs"); // 门数单源(#194 C3):禁手抄 10(评审D P2 硬编码判例);env 后动态 import 同上两行
   let result = null, err = null;
   if (c.kind === "pipeline") {
     // P0 轮次状态机例(spec #161):真引擎跑全 faux 轮(模型步=faux provider+仓内 fixtures/pipeline,
@@ -214,7 +215,7 @@ async function runCase(c, allowSmoke) {
       }
       case "pipeline_gates": {
         const g = JSON.parse(fs.readFileSync(path.join(result.dir, "gates.json"), "utf8"));
-        if (g.records.length !== 10) { fail(a, `门记录 ${g.records.length}≠10(9 可跑步门含 G_ANCHOR_SWEEP #182+G_CLOSE)`); break; }
+        if (g.records.length !== GATE_COUNT) { fail(a, `门记录 ${g.records.length}≠${GATE_COUNT}(可跑步门含 G_ANCHOR_SWEEP #182+G_CLOSE;单源 GATE_COUNT)`); break; }
         if (!g.records.every((r) => r.pass === true)) { fail(a, `门败:${g.records.filter((r) => !r.pass).map((r) => r.name).join(",")}`); break; }
         break;
       }
