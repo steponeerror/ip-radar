@@ -267,8 +267,9 @@ def test_append_queue_concurrent_same_key_exactly_one_row(store, ops_env):
 _NODE_QUEUE_LOCK = BACKEND_DIR.parent / "ops" / "agent" / "tools" / "queue-lock.mjs"
 
 
-@pytest.mark.skipif(shutil.which("node") is None or not _NODE_QUEUE_LOCK.exists(),
-                    reason="node 或 queue-lock.mjs 不在供给面(backend CI 无 node 供给时跳过)")
+@pytest.mark.skipif(shutil.which("node") is None or not _NODE_QUEUE_LOCK.exists()
+                    or shutil.which("flock") is None,
+                    reason="node/flock 或 queue-lock.mjs 不在供给面(backend CI 无 node 供给时跳过)")
 def test_append_queue_mixed_python_node_race(store, ops_env):
     """#139 挂账②:python append_queue × node flock(1) 临界段并发 → 不丢不重。"""
     per_side, qfile = 8, ops_env / "ops" / "queue.md"
@@ -282,8 +283,10 @@ def test_append_queue_mixed_python_node_race(store, ops_env):
                 "source": src, "predicate": "sunset_frozen",
                 "evidence": [{"call_id": "c", "field": "age_days", "value": 300}]}
     nds = [subprocess.Popen(
-        ["node", str(_NODE_QUEUE_LOCK), "--append",
-         json.dumps(_node_payload(f"nd_{i}"), ensure_ascii=False)],
+        # 生产路径同形:flock(1) 包装临界段子进程(与 python fcntl.flock 同
+        # flock(2) 锁域)——直调 --append 无锁,不测互操面;选项须在锁文件前
+        ["flock", "-w", "30", str(qfile) + ".lock", "node", str(_NODE_QUEUE_LOCK),
+         "--append", json.dumps(_node_payload(f"nd_{i}"), ensure_ascii=False)],
         cwd=BACKEND_DIR.parent, env=env, stdout=subprocess.PIPE, text=True)
         for i in range(per_side)]
     assert py.wait() == 0

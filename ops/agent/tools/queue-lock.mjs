@@ -85,7 +85,7 @@ export async function appendQueueRowLocked(payload, opts = {}) {
   try {
     r = await execFileP(
       "flock",
-      [queueLockPath(payload.queueFile), "-w", String(LOCK_WAIT_S),
+      ["-w", String(LOCK_WAIT_S), queueLockPath(payload.queueFile),
         process.execPath, SELF, "--append", JSON.stringify(payload)],
       { timeout: (LOCK_WAIT_S + 30) * 1000, maxBuffer: 64 * 1024, env: opts.env });
   } catch (e) {

@@ -8,6 +8,7 @@ import path from "node:path";
 import { Type } from "@earendil-works/pi-ai";
 import { B, ROOT, DOCS_ROOT, ts, artifactPath } from "./shared.mjs";
 import { envelope } from "./envelope.mjs";
+import { appendQueueRowLocked } from "./queue-lock.mjs";
 
 export const PREDICATES = ["sunset_frozen", "mirror_echo", "zero_asset"]; // discover 谓词表闭集
 export const MEASUREMENT_TOOLS = new Set(["fetch_url", "gh_search", "exclusive_probe", "matrix_scan_summary"]);
@@ -147,26 +148,26 @@ export const registryMethods = {
         // 预算计数走真实路径:queue_action 不经 finish()(非测量工具,不进登记表),
         // 若不在此计数 spent 永不增长、10/轮上限永不触发(评审 Important-1,2026-10-19)
         this.budgetSpend("queue_action");
-        // 幂等去重:同 action+source 已在队列 → 返回既有事实,不双写
-        let existing = "";
-        try { existing = fs.readFileSync(this.queueFile, "utf8"); } catch { /* 首建 */ }
-        const dedupRe = new RegExp(`\\| \\d{4}-\\d{2}-\\d{2} \\| [^|]+ \\| ${p.action} \\| ${p.source} \\|`);
-        const dedup = dedupRe.test(existing);
-        let lineN = existing ? existing.trimEnd().split("\n").length : 0;
         const rel = path.relative(ROOT, this.queueFile);
         const vetoCmd = `sed -i '/| ${p.action} | ${p.source} |/d' ${rel}`;
+        // #139 挂账②:临界段(读-判重-写)整体入 flock 子进程——与 python
+        // append_queue(POST /api/ops/ruling)跨进程互斥,同容器两进程丢行窗
+        // 关闭;锁不可得 = fail-closed 信封,绝不无锁写(取舍/契约见
+        // tools/queue-lock.mjs 模块头)。锁外仅保留与 queue.md 无争的面:
+        // veto_cmd 计算/rationale 工件落盘。
+        const lock = await appendQueueRowLocked({
+          queueFile: this.queueFile, round: this.round, action: p.action, source: p.source,
+          predicate: p.predicate ?? null, evidence: p.evidence,
+        });
+        if (lock.ok === false) {
+          // 信封面也不经 finish()(queue_action 非测量工具不入登记表,预钞已手工
+          // 计;finish 会二次计数+入登记表,破坏两不变式)——铁律②结构化信封手返
+          const envr = envelope(lock.code ?? "io_error", lock.reason);
+          return { content: [{ type: "text", text: `入队失败信封:${envr.code}: ${envr.reason}(fail-closed,未写 queue.md)` }],
+            details: {}, structuredContent: { ...envr, action: p.action, source: p.source } };
+        }
+        const dedup = lock.dedup;
         if (!dedup) {
-          if (!existing) {
-            fs.mkdirSync(path.dirname(this.queueFile), { recursive: true });
-            fs.writeFileSync(this.queueFile,
-              "# 源生命周期动作队列(queue_action 唯一写口;行由 host 模板渲染,rationale 只落工件)\n\n"
-              + "| 日期 | 轮次 | action | source | predicate | evidence | vetoable |\n|---|---|---|---|---|---|---|\n");
-            lineN = 4;
-          }
-          const ev = p.evidence.map((e) => `${e.call_id}:${e.field}=${JSON.stringify(e.value)}`).join(";");
-          const row = `| ${new Date().toISOString().slice(0, 10)} | ${this.round} | ${p.action} | ${p.source} | ${p.predicate ?? "—"} | ${ev} | 是(否决=删除本行) |`;
-          fs.appendFileSync(this.queueFile, `${row}\n`);
-          lineN += 1;
           const rpath = artifactPath(this.artifactDir, "queue-rationale", "md");
           fs.appendFileSync(rpath, `## ${ts()} ${p.action} ${p.source}\n- predicate: ${p.predicate ?? "(无)"}\n- evidence: ${JSON.stringify(p.evidence)}\n- rationale(模型原话,仅人裁阅读,不进队列行):\n\n${p.rationale}\n\n`);
           this.artifacts.push(rpath);
