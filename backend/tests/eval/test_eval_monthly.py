@@ -20,8 +20,10 @@ from ipdb._eval.monthly import (
     compose_action_block,
     compose_monthly_md,
     load_dispositions,
+    load_leg_status,
     render_anchor_oc,
     render_consensus_diag,
+    render_leg_status,
     render_scorecard,
     render_steal_parking_diag,
 )
