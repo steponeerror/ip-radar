@@ -52,7 +52,7 @@ b4e6994c  feat(#199 A4): 重复调用哈希双面注入
 ## 遗留
 
 - **P15 典章翻正 + P16 典章面 + GLOSSARY「预算四界/双点执法/调用哈希」铸词**:交付 B 落地后同批收口(spec 典章流程节;偏离 4)。
-- **CHANGELOG 已写双语条**(本批 commit);若合并方要求 CHANGELOG 与典章同批,可摘出。
+- **CHANGELOG 双语条**:原计划随 b00ad909 落但该 commit 实只含本报告(虚报,merger P1 拦下);已由主会话单写者补 commit(勘误本行,见后续 docs commit)。
 - 生产激活注记:六旋钮经 `_ops_rounds._SPAWN_ENV_PREFIXES=("OPS_","PI_")` 自动进 spawn 白名单(C4 面零改动);`OPS_PIPELINE_MONTHLY_CAP_CNY` 默认 30 即生效,拒跑面留痕行经 lib.sh flock 同锁域。
 - 冒烟建议(合并后):真跑一轮 health 确认 09-budget.json 落盘 + 台账 memory_peak_bytes 行(下轮自然落)同场。
 
