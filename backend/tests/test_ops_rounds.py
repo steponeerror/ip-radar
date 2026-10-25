@@ -404,6 +404,7 @@ def test_spawn_env_exactly_contract_face(
     monkeypatch.setenv("GH_TOKEN", "gh-contract-token-1")
     rounds.spawn_round("health", "输入")
     env = _read_dump(fake_agent[1])["env"]
+    env.pop("LC_CTYPE", None)  # python 假 agent PEP 538 locale 强注(C.UTF-8)非桥透传面;真实 node agent 无此注入
     assert env["GH_TOKEN"] == "gh-contract-token-1"      # 契约员透传
     extra = [k for k in env if k not in SPAWN_ENV_EXACT
              and not (k.startswith("OPS_") or k.startswith("PI_"))]

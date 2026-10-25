@@ -106,6 +106,7 @@ def _round_env() -> dict[str, str]:
         _ops_store.atomic_write_text(auth_path, json.dumps(
             {pid: {"type": "api_key", "key": key} for pid, key in keys.items()},
             ensure_ascii=False, indent=2) + "\n")
+        auth_path.chmod(0o600)  # C4 附带(#196):密钥件 0600 钉住契约(mkstemp 已隐式,防漂移)
         env["OPS_AUTH"] = str(auth_path)
     zai = keys.get("zai-coding-cn") \
         or os.environ.get("ZAI_CODING_CN_API_KEY", "").strip()
@@ -131,8 +132,35 @@ def _round_env() -> dict[str, str]:
     _ops_store.atomic_write_text(
         root / "web-search.json",
         json.dumps(web_cfg, ensure_ascii=False, indent=2) + "\n")
+    (root / "web-search.json").chmod(0o600)  # C4 附带(#196):jinaApiKey 承载件 0600 钉住
     env["PI_CODING_AGENT_DIR"] = str(root)
     return env
+
+
+# C4(#196)spawn env 白名单:契约单源 = ops/agent/agent.mjs SPAWN_CONTRACT_ENV
+# (OPS_*/PI_* 前缀名 + 精确名 ZAI_CODING_CN_API_KEY/JINA_API_KEY/GH_TOKEN/
+# DOCS_ROOT/PRECEDENTS_DIR/LEDGER_FILE/IP_RADAR_ALERT_URLS)。此前
+# {**os.environ, **_round_env()} 全量继承把 ADMIN_PASSWORD/JWT_SECRET 等
+# 仓外密钥全传子进程,违 least-privilege(arch 评审 C4)。契约外一概不透传;
+# 改契约表须同步本面 + test_ops_rounds 白名单对拍(独立真源)。运行必需非密钥
+# 面:PATH/HOME(node/gh CLI 找位)、TMPDIR(os.tmpdir)、IP_RADAR_DATA_DIR
+# (数据面单根,_ops_store 同名回路面)。IP_RADAR_ALERT_URLS = #184 finding
+# webhook 出口契约员(与 backend _alerts.push 双消费面,agent 侧自读),保留。
+_SPAWN_ENV_EXACT = frozenset({
+    "PATH", "HOME", "TMPDIR",
+    "GH_TOKEN", "IP_RADAR_DATA_DIR", "IP_RADAR_ALERT_URLS",
+    "ZAI_CODING_CN_API_KEY", "JINA_API_KEY",
+    "DOCS_ROOT", "PRECEDENTS_DIR", "LEDGER_FILE",
+})
+_SPAWN_ENV_PREFIXES = ("OPS_", "PI_")
+
+
+def _spawn_env() -> dict[str, str]:
+    """白名单 env 构造(C4 #196):契约面+运行必需面,叠加 _round_env 桥注入
+    (override 语义保持:桥注入赢白名单面)。"""
+    base = {k: v for k, v in os.environ.items()
+            if k in _SPAWN_ENV_EXACT or k.startswith(_SPAWN_ENV_PREFIXES)}
+    return {**base, **_round_env()}
 
 
 def _infra(round_type: str, message: str) -> dict:
@@ -190,7 +218,7 @@ def spawn_round(
     """
     argv = _agent_argv(round_type, input_text)
     try:
-        env = {**os.environ, **_round_env()}
+        env = _spawn_env()  # C4(#196):显式白名单,废止 {**os.environ} 全量继承
     except RuntimeError as e:  # agent-config.json 坏文件(读面显式报错不静默)
         return _infra(round_type, f"agent 配置读取失败: {e}")
     try:
@@ -344,7 +372,7 @@ def _spawn_resume(round_id: str, *, on_log: Callable[[str], None] | None = None,
         proc = subprocess.Popen(
             argv, cwd=str(_REPO_ROOT), stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, text=True, encoding="utf-8",
-            errors="replace", env=env or os.environ)
+            errors="replace", env=env or _spawn_env())  # C4(#196):回落面同白名单
     except OSError as e:
         return _infra("health", f"resume 拉起失败: {e}")
     # C1(#196):Popen 后异常逃生 → 终止子进程防孤儿(收口在 _run_recovery_round)
@@ -384,7 +412,7 @@ def _run_recovery_round(manager, round_id: str) -> None:
     # C1(#196):恢复轮线程入口同面兑底——占道后链上任何异常也落终态+放车道。
     try:
         try:
-            env = {**os.environ, **_round_env()}
+            env = _spawn_env()  # C4(#196):同 spawn_round 白名单面
         except RuntimeError as e:
             manager.finish_ops_round(task.id, "failed", f"agent 配置读取失败: {e}", "infra")
             return
