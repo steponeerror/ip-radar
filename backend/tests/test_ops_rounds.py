@@ -60,12 +60,16 @@ def ops_env(tmp_path, monkeypatch):
     return tmp_path
 
 
-# 假 agent(python 解释器形态):FAKE_MODE = success|sleep|usage|garbage|multiline|
-# failure;FAKE_OUT 落 argv+env 快照;FAKE_PKG 模拟「包已落盘」的失败面。
+# 假 agent(python 解释器形态):mode = success|sleep|usage|garbage|multiline|failure;
+# out 落 argv+env 快照;pkg 模拟「包已落盘」的失败面。驱动参数走同目录
+# fake-agent-cfg.json 而非 env(#196 C4 前置:spawn env 即将收白名单,测试钩子
+# 不得依赖 os.environ 继承进子进程)。
 FAKE_AGENT_PY = r"""
 import json, os, sys, time
-mode = os.environ.get("FAKE_MODE", "success")
-out = os.environ.get("FAKE_OUT")
+cfg = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                  "fake-agent-cfg.json"), encoding="utf-8"))
+mode = cfg.get("mode", "success")
+out = cfg.get("out")
 if out:
     with open(out, "w", encoding="utf-8") as f:
         json.dump({"argv": sys.argv[1:], "env": dict(os.environ)}, f)
@@ -84,7 +88,7 @@ if mode == "multiline":
     print(json.dumps({"ok": True, "round": sys.argv[1]}))
     sys.exit(0)
 if mode == "failure":
-    pkg = os.environ.get("FAKE_PKG")
+    pkg = cfg.get("pkg")
     if pkg:
         with open(pkg, "w", encoding="utf-8") as f:
             f.write("# fake pkg")
@@ -103,14 +107,28 @@ sys.exit(0)
 
 @pytest.fixture
 def fake_agent(tmp_path, monkeypatch):
-    """假 agent 落 tmp + IP_RADAR_OPS_AGENT_CMD 指向它;返回 (script, dump_path)。"""
+    """假 agent 落 tmp + IP_RADAR_OPS_AGENT_CMD 指向它;返回 (script, dump_path)。
+    模式/驱动参数走 _fake_agent_set(cfg 文件),不经 env 继承(#196 C4 前置)。"""
     script = tmp_path / "fake-agent.py"
     script.write_text(FAKE_AGENT_PY, encoding="utf-8")
     dump = tmp_path / "child-dump.json"
+    (tmp_path / "fake-agent-cfg.json").write_text(
+        json.dumps({"mode": "success", "out": str(dump), "pkg": None}),
+        encoding="utf-8")
     monkeypatch.setenv("IP_RADAR_OPS_AGENT_CMD",
                        f"{sys.executable} {script}")
-    monkeypatch.setenv("FAKE_OUT", str(dump))
     return script, dump
+
+
+def _fake_agent_set(script: Path, mode: str, pkg=None) -> None:
+    """切换假 agent 模式(改写同目录 cfg;pkg 传 str 路径时写入驱动面)。
+    独立于 env 继承——spawn env 白名单落地后子进程只见契约面。"""
+    cfg_path = script.parent / "fake-agent-cfg.json"
+    cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+    cfg["mode"] = mode
+    if pkg is not None:
+        cfg["pkg"] = str(pkg)
+    cfg_path.write_text(json.dumps(cfg), encoding="utf-8")
 
 
 def _read_dump(dump_path: Path) -> dict:
@@ -177,8 +195,10 @@ def test_recover_marks_failed_states_and_ledger(rounds, ops_env):
     stale_dir = _write_state(
         ops_env, "2026-10-23-0400-health",
         updated_at=(_now - timedelta(hours=17)).isoformat())   # 龄 17h>16h:不赌真实钟面
-    twice_dir = _write_state(ops_env, "2026-10-24-1200-health", resume_count=1)
-    live_dir = _write_state(ops_env, "2026-10-24-1900-health")
+    twice_dir = _write_state(ops_env, "2026-10-24-1200-health", resume_count=1,
+                             updated_at=_now.isoformat())   # 新鲜+resume_count≥1:fail_twice
+    live_dir = _write_state(ops_env, "2026-10-24-1900-health",
+                           updated_at=_now.isoformat())   # 新鲜 in_flight:不动(钟面相对化,防时间炸弹)
     handled = rounds.recover_inflight_rounds()   # manager=None:resume 档不拉起
     by = {h["round_id"]: h for h in handled}
     assert by["2026-10-23-0400-health"]["done"] is True
@@ -247,6 +267,7 @@ def test_recovery_round_occupies_lane_and_settles(rounds, ops_env, monkeypatch):
 def test_recover_dispatches_resume_thread(rounds, ops_env, monkeypatch):
     """resume 档 → 后台线程拉起 _run_recovery_round(recover 编排面);扫描面零异常总兜底。"""
     import json as _json
+    from datetime import datetime, timezone
     calls = []
 
     class _T:
@@ -256,7 +277,8 @@ def test_recover_dispatches_resume_thread(rounds, ops_env, monkeypatch):
         def start(self):
             calls.append(self.args)
 
-    _write_state(ops_env, "2026-10-24-1900-health")
+    _write_state(ops_env, "2026-10-24-1900-health",
+                 updated_at=datetime.now(timezone.utc).isoformat())   # 新鲜:resume 档(钟面相对化,防时间炸弹)
     monkeypatch.setattr(rounds.threading, "Thread", _T)
     handled = rounds.recover_inflight_rounds(manager="mgr")
     assert calls == [("mgr", "2026-10-24-1900-health")]
@@ -314,12 +336,11 @@ def test_spawn_success_envelope_roundtrip(rounds, ops_env, fake_agent):
         ledger  # 桥零追加(表头可有可无,数据行必无)
 
 
-def test_spawn_failure_envelope_ledger_keeps_pkg(rounds, ops_env, fake_agent, monkeypatch):
+def test_spawn_failure_envelope_ledger_keeps_pkg(rounds, ops_env, fake_agent):
     """失败信封:code/pkg 落台账(轮次失败≠工件灭失,规格 §3);包文件原样在盘。"""
     pkg = ops_env / "ops" / "packages" / "2026-10-20-health-fake.md"
     pkg.parent.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setenv("FAKE_MODE", "failure")
-    monkeypatch.setenv("FAKE_PKG", str(pkg))
+    _fake_agent_set(fake_agent[0], "failure", pkg=pkg)
     result = rounds.spawn_round("health", "输入")
     assert result["ok"] is False
     assert result["error"]["code"] == FAILURE_CODES_SAMPLE
@@ -330,9 +351,9 @@ def test_spawn_failure_envelope_ledger_keeps_pkg(rounds, ops_env, fake_agent, mo
     assert str(pkg) in ledger, "失败信封 pkg 必须落台账"
 
 
-def test_spawn_usage_error_exit2_maps_infra(rounds, ops_env, fake_agent, monkeypatch):
+def test_spawn_usage_error_exit2_maps_infra(rounds, ops_env, fake_agent):
     """exit 2 = 用法错(纯 stderr 无 JSON,契约面)→ 桥侧 infra 兜底 + 台账。"""
-    monkeypatch.setenv("FAKE_MODE", "usage")
+    _fake_agent_set(fake_agent[0], "usage")
     result = rounds.spawn_round("health", "输入")
     assert result["ok"] is False
     assert result["error"]["code"] == "infra"
@@ -340,18 +361,18 @@ def test_spawn_usage_error_exit2_maps_infra(rounds, ops_env, fake_agent, monkeyp
     assert "infra" in _ledger_text(ops_env)
 
 
-def test_spawn_garbage_stdout_maps_infra(rounds, ops_env, fake_agent, monkeypatch):
+def test_spawn_garbage_stdout_maps_infra(rounds, ops_env, fake_agent):
     """rc=1 但 stdout 非 JSON → infra 兜底信封 + 台账(不静默丢弃)。"""
-    monkeypatch.setenv("FAKE_MODE", "garbage")
+    _fake_agent_set(fake_agent[0], "garbage")
     result = rounds.spawn_round("health", "输入")
     assert result["ok"] is False
     assert result["error"]["code"] == "infra"
     assert "infra" in _ledger_text(ops_env)
 
 
-def test_spawn_multiline_stdout_is_contract_violation(rounds, ops_env, fake_agent, monkeypatch):
+def test_spawn_multiline_stdout_is_contract_violation(rounds, ops_env, fake_agent):
     """stdout 必须单行 JSON(GLOSSARY「轮次信封」):多行 = 契约违背 → infra。"""
-    monkeypatch.setenv("FAKE_MODE", "multiline")
+    _fake_agent_set(fake_agent[0], "multiline")
     result = rounds.spawn_round("health", "输入")
     assert result["ok"] is False
     assert result["error"]["code"] == "infra"
@@ -365,11 +386,11 @@ def test_spawn_streams_stderr_to_on_log(rounds, ops_env, fake_agent):
     assert logs == ["[turn 1] fake progress"]
 
 
-def test_spawn_cancelled_token_terminates_child(rounds, ops_env, fake_agent, monkeypatch):
+def test_spawn_cancelled_token_terminates_child(rounds, ops_env, fake_agent):
     """admin 取消(经任务链 cancel 路由的 CancelToken)→ 子进程终止、cancelled 面
     + 台账行(九裁决 9:取消的轮次也可能已花真钱,必须留痕)。"""
     from ipdb._sources._download import CancelToken
-    monkeypatch.setenv("FAKE_MODE", "sleep")
+    _fake_agent_set(fake_agent[0], "sleep")
     token = CancelToken()
     token.cancel()
     t0 = time.monotonic()
@@ -732,10 +753,10 @@ def test_rounds_route_accepts_and_runs_to_done(admin_rounds_env, ops_env,
     assert ledger.count("\n") == 4, "成功轮桥不追加台账行(只有表头)"
 
 
-def test_rounds_route_busy_round_409(admin_rounds_env, client_as_admin, monkeypatch):
+def test_rounds_route_busy_round_409(admin_rounds_env, fake_agent, client_as_admin):
     """ops 轮在飞(sleep 假 agent)→ 第二发 409 eval_busy(一轮一车道)。"""
     import main
-    monkeypatch.setenv("FAKE_MODE", "sleep")
+    _fake_agent_set(fake_agent[0], "sleep")
     r1 = _post_rounds(client_as_admin, {"type": "health", "input": "x"})
     assert r1.status_code == 202
     task_id = r1.json()["task_id"]
@@ -768,14 +789,13 @@ def test_rounds_route_busy_sources_409(admin_rounds_env, client_as_admin, monkey
 
 
 def test_rounds_route_failure_envelope_marks_task_failed(
-        admin_rounds_env, ops_env, client_as_admin, monkeypatch):
+        admin_rounds_env, fake_agent, ops_env, client_as_admin):
     """失败信封 → 任务 failed 且 error_code = 信封 code(九词闭集透传)+
     台账行;包不灭失。"""
     import main
     pkg = ops_env / "ops" / "packages" / "2026-10-20-health-route-fake.md"
     pkg.parent.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setenv("FAKE_MODE", "failure")
-    monkeypatch.setenv("FAKE_PKG", str(pkg))
+    _fake_agent_set(fake_agent[0], "failure", pkg=pkg)
     r = _post_rounds(client_as_admin, {"type": "health", "input": "x"})
     assert r.status_code == 202
     task_id = r.json()["task_id"]
