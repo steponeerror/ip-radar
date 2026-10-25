@@ -30,6 +30,22 @@ PY_STUB = textwrap.dedent(
     # cascade-test stub:按 argv 模拟 ipdb._eval 各腿(工件照写;rc 按 *_MODE)
     # mirror_check 步真脚本不带 IP_RADAR_EVAL_DIR → 该分支不展开工件路径
     if [[ "$*" == *"ipdb._eval.mirror_check"* ]]; then exit 0; fi
+    # #193 腿级状态件写手桩:shell 侧 write_leg_status 经 python3 heredoc
+    # 调用(无 -m ipdb._eval);模拟真写手 argv 形状(path 腿 rc ...)落 JSON
+    # python3 - args 调用形:$1="-" $2=path —— 守卫查 $2
+    if [ "$#" -ge 2 ] && [[ "$2" == *leg-status-*.json ]]; then
+      out_doc="$2"; shift 2
+      { printf '{"schema":"leg-status/1","legs":{'
+        sep=""
+        while [ "$#" -ge 2 ]; do
+          printf '%s"%s":%s' "$sep" "$1" "$2"
+          sep=","
+          shift 2
+        done
+        printf '}}'
+      } > "$out_doc"
+      exit 0
+    fi
     ts="$(date -u +%Y%m%d-%H%M%S)"
     out="${IP_RADAR_EVAL_DIR:?}/monthly"
     mkdir -p "$out/model"
