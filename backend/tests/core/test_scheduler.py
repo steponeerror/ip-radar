@@ -97,25 +97,32 @@ def test_needs_rebuild_of_detects_stale_mmdb(tmp_path):
     class _FakeOffline:
         def __init__(self, p):
             self._path = p
-            self._mmdb_path = Path(str(p) + ".mmdb")
+            self._lmdb_base = Path(str(p) + ".lmdb")   # C2/ADR 0009:族契约属性
 
     raw = tmp_path / "raw.txt"
-    mmdb = tmp_path / "raw.txt.mmdb"
+    from ipdb._sources._lmdb import HARVEST_REV, ptr_path, rev_path
+    base = Path(str(raw) + ".lmdb")
 
-    # raw exists, mmdb missing -> needs rebuild
+    # raw exists, 族 ptr 缺失 -> needs rebuild
     raw.write_text("x")
     f = _FakeOffline(raw)
     assert _needs_rebuild_of(f) is True
 
-    # mmdb newer than raw -> does not need rebuild
-    mmdb.write_text("x")
+    # ptr 新于 raw + .rev 戳匹配 -> does not need rebuild
+    ptr_path(base).write_text("1")
+    rev_path(base).write_text(str(HARVEST_REV))
     fut = time.time() + 100
     import os
-    os.utime(mmdb, (fut, fut))
+    os.utime(ptr_path(base), (fut, fut))
     assert _needs_rebuild_of(f) is False
 
-    # raw newer than mmdb -> needs rebuild
+    # raw newer than ptr -> needs rebuild(mtime 腿)
     os.utime(raw, (fut + 200, fut + 200))
+    assert _needs_rebuild_of(f) is True
+
+    # .rev 戳漂移(代码代演进,mtime 收敛)-> needs rev-leg rebuild
+    os.utime(ptr_path(base), (fut + 400, fut + 400))
+    rev_path(base).write_text(str(HARVEST_REV - 1))
     assert _needs_rebuild_of(f) is True
 
 
@@ -137,6 +144,7 @@ class SchedFakeSource:
         from pathlib import Path
         self._path = Path(path)
         self._mmdb_path = mmdb_path or Path(str(path) + ".mmdb")
+        self._lmdb_base = Path(str(path) + ".lmdb")  # C2:族契约(needs_convert 对象)
         if mtime is not None:
             self.set_mtime(mtime)
 

@@ -112,7 +112,10 @@ class InfraServicesSource(Source):
         rebuild 后 ptr 更新即收敛;同内容不再写,无循环。epoch 损坏遇内容
         变更亦借此自愈(bump 直接入重建队列,不再 load_error 永久瘫痪)。
         (e) 零记录守卫交互:_DATA 若退化到零行,_lmdb 零记录守卫拒提交保旧
-        epoch,needs_convert 维持 True 走退避重试——可见失败非静默。"""
+        epoch,needs_convert 维持 True 走退避重试——可见失败非静默。
+        (f) C2 后(ADR 0009,issue #192)harvest 代码演进已由 .rev 版本戳腿
+        统一触发重建,本投影同步机制保留:职责是 _DATA→csv 真相源一致性,
+        与版本戳正交。"""
         if not self._path.exists() or self._path.read_text() != _DATA:
             self.download()
 

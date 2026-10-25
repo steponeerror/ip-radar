@@ -415,11 +415,12 @@ def enabled_offline_sources() -> list:
 
 
 def _needs_rebuild_of(source) -> bool:
-    """Per-source: True if the MMDB (or its v6 ptr sidecar) is missing or
-    older than the raw file.
+    """Per-source: True if any family env (v4/v6) is missing, older than
+    the raw file, or stamped with a stale harvest code revision (.rev,
+    ADR 0009).
 
     Single-source form of sources_needing_rebuild, using the same
-    needs_convert check. Returns False for sources lacking _path/_mmdb_path
+    needs_convert check. Returns False for sources lacking _path/_lmdb_base
     (defensive; real offline sources always set them) and for by-design
     LMDB-less sources (lmdb_backed=False; ptr 永不存在 ≠ 需重建)."""
     if not getattr(source, "lmdb_backed", True):
@@ -428,20 +429,22 @@ def _needs_rebuild_of(source) -> bool:
         return False
     from ._sources._lmdb import needs_convert
     raw_path = getattr(source, "_path", None)
-    mmdb_path = getattr(source, "_mmdb_path", None)
-    if raw_path is None or mmdb_path is None:
+    lmdb_base = getattr(source, "_lmdb_base", None)
+    if raw_path is None or lmdb_base is None:
         return False
     raw = Path(raw_path)
-    mmdb = Path(mmdb_path)
+    base = Path(lmdb_base)
     if not raw.exists():
         return False
-    v6_ptr = getattr(source, "_mmdb6_path", None)
-    if v6_ptr is not None:
+    v6_base = getattr(source, "_lmdb6_base", None)
+    if v6_base is not None:
         # Q3(spec §8): v6 ptr 缺失 ⇒ v6-aware 代码从未重建过此源 → 触发。
         # rebuild 必写 v6 ptr(空数据=空 env),故不会对 C 类源反复触发。
-        if needs_convert(raw, Path(v6_ptr)):
+        # (C2/ADR 0009:比较对象从 ptr 改为族 base —— ptr mtime + .rev
+        # harvest 版本戳双腿,与 _converged_count 跳过判定恒一致不变。)
+        if needs_convert(raw, Path(v6_base)):
             return True
-    return needs_convert(raw, mmdb)
+    return needs_convert(raw, base)
 
 
 def set_source_enabled(name: str, enabled: bool) -> dict:

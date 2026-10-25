@@ -38,7 +38,7 @@ class IPinfoLiteSource:
         self._gz_path = data_dir / "ipinfo_lite.csv.gz"
         self._data_dir = data_dir
         self._lmdb_base = data_dir / "ipinfo_lite.csv.lmdb"
-        # registry 的 needs_convert 比较对象:ptr 文件(mtime 随重建刷新)
+        # scheduler 快照契约名(名保留);needs_convert 比较对象 = _lmdb_base 族(C2/ADR 0009)
         self._mmdb_path = ptr_path_for(self._lmdb_base)
         # _reader 实为 lmdb readonly env(open_env_read 产物),非 maxminddb.Reader
         self._reader: Optional[object] = None
