@@ -65,12 +65,12 @@ def test_projection_rematerializes_on_content_drift(tmp_path, monkeypatch):
     assert s.rebuild() == 1           # 活纪元建于旧 _DATA
     new_data = "8.8.8.8,dns,Google Public DNS\n203.0.113.9,dns,New Row\n"
     monkeypatch.setattr(infra_mod, "_DATA", new_data)   # 模拟新版代码
-    assert not needs_convert(csv_path, s._mmdb_path)    # 死锁态:csv 老 ptr 新
+    assert not needs_convert(csv_path, s._lmdb_base)    # 死锁态:csv 老 ptr 新
     m0 = csv_path.stat().st_mtime_ns
     assert s.load() == 1              # 旧 epoch 照常 mmap(重建交给调度器)
     assert csv_path.read_text() == new_data             # 投影已追平真相
     assert csv_path.stat().st_mtime_ns > m0   # mtime bump = rebuild 入队信号
-    assert needs_convert(csv_path, s._mmdb_path)   # → 一次 rebuild 在队
+    assert needs_convert(csv_path, s._lmdb_base)   # → 一次 rebuild 在队
 
 
 def test_projection_no_rewrite_when_content_matches(tmp_path):
@@ -115,8 +115,8 @@ def test_projection_converges_after_one_rebuild(tmp_path, monkeypatch):
     # 重建路径同样同步投影(未经 load 直入 rebuild 也不采到旧 csv)
     assert s.rebuild() == 32
     assert s.query("203.0.113.9")[0]["service"] == "dns"
-    assert not needs_convert(csv_path, s._mmdb_path)   # ptr 已新 → 收敛
+    assert not needs_convert(csv_path, s._lmdb_base)   # ptr+戳已新 → 收敛
     m1 = csv_path.stat().st_mtime_ns
     s.load()                        # 收敛后零写,无循环
     assert csv_path.stat().st_mtime_ns == m1
-    assert not needs_convert(csv_path, s._mmdb_path)
+    assert not needs_convert(csv_path, s._lmdb_base)

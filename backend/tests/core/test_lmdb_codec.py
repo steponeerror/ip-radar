@@ -235,6 +235,35 @@ def test_rebuild_dual_family_converged_family_skipped(tmp_path):
     for _, e in calls: e.close()
 
 
+    # 场景 B:两族 ptr 均 ≥ raw → 双跳,零 reader 回调零新纪元零 harvest
+    os.utime(ptr_path(v6), (FUT, FUT))
+    calls = []
+    made.clear()
+    n4, n6 = rebuild_dual_family(
+        factory, v4, v6,
+        reader_setter4=lambda e: calls.append(("r4", e)),
+        reader_setter6=lambda e: calls.append(("r6", e)),
+        raw=raw)
+    assert calls == []
+    assert made == []
+    assert (n4, n6) == (1, 1)
+    assert read_ptr(v4) == 1 and read_ptr(v6) == 2
+
+    # 场景 C:raw 新于两族 ptr(新下载落地)→ 两族均重建
+    os.utime(raw, (FUT + 100, FUT + 100))
+    calls = []
+    made.clear()
+    n4, n6 = rebuild_dual_family(
+        factory, v4, v6,
+        reader_setter4=lambda e: calls.append(("r4", e)),
+        reader_setter6=lambda e: calls.append(("r6", e)),
+        raw=raw)
+    assert [c[0] for c in calls] == ["r4", "r6"]
+    assert made == [1, 1]                      # 两族各跑一遭 harvest
+    assert read_ptr(v4) == 2 and read_ptr(v6) == 3
+    for _, e in calls: e.close()
+
+
 def test_rev_sidecar_stamp_and_drift_rebuilds(tmp_path):
     """C2(ADR 0009,issue #192):rebuild 必给两族盖章 .rev=HARVEST_REV;
     戳匹配 + mtime 收敛 → 双跳(harvest 零调用);仅 v4 戳漂移(模拟
@@ -278,34 +307,6 @@ def test_rev_sidecar_stamp_and_drift_rebuilds(tmp_path):
     assert made == [1]                        # 只跑了 v4 的 harvest
     assert [c[0] for c in calls] == ["r4"]    # 只有 v4 reader 换代
     assert read_ptr(v4) == 2 and read_ptr(v6) == 1
-    for _, e in calls: e.close()
-
-    # 场景 B:两族 ptr 均 ≥ raw → 双跳,零 reader 回调零新纪元零 harvest
-    os.utime(ptr_path(v6), (FUT, FUT))
-    calls = []
-    made.clear()
-    n4, n6 = rebuild_dual_family(
-        factory, v4, v6,
-        reader_setter4=lambda e: calls.append(("r4", e)),
-        reader_setter6=lambda e: calls.append(("r6", e)),
-        raw=raw)
-    assert calls == []
-    assert made == []
-    assert (n4, n6) == (1, 1)
-    assert read_ptr(v4) == 1 and read_ptr(v6) == 2
-
-    # 场景 C:raw 新于两族 ptr(新下载落地)→ 两族均重建
-    os.utime(raw, (FUT + 100, FUT + 100))
-    calls = []
-    made.clear()
-    n4, n6 = rebuild_dual_family(
-        factory, v4, v6,
-        reader_setter4=lambda e: calls.append(("r4", e)),
-        reader_setter6=lambda e: calls.append(("r6", e)),
-        raw=raw)
-    assert [c[0] for c in calls] == ["r4", "r6"]
-    assert made == [1, 1]                      # 两族各跑一遭 harvest
-    assert read_ptr(v4) == 2 and read_ptr(v6) == 3
     for _, e in calls: e.close()
 
 
