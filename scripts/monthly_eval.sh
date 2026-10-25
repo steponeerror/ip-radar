@@ -2,11 +2,14 @@
 # 月轮全量评估(Eval Algorithm v2 Phase 1 收口;决策 #6:手动触发,
 # 错峰可前置 nice/ionice,如 `nice -n 19 ionice -c3 bash scripts/monthly_eval.sh`)。
 # 流程:① 守卫(须在 master 且工作区 clean)② rsync 生产 volume 镜像到本地
-# ③ 镜像 manifest 守卫(S7: 塕缩即止, 先于读数)④ 六连 eval 命令
+# ③ 镜像 manifest 守卫(S7: 塕缩即止, 先于读数)④ 八连 eval 命令
 # (--model 先落盘本轮;--audit/--anchors 只读 model 历史但各落己件
-# audit-*/anchors-*.json(Phase 2 T8,清偿 Phase 1 T14 缓议);--temporal 读
+# audit-*/anchors-*.json(Phase 2 T8,清偿 Phase 1 T14 缓议);--agg-share
+# 印证对聚合器占比披露(#183/spec #180 Q4,只测量不持门 exit 恒 0,落
+# model/agg-share-*.json);--temporal 读
 # 历史落 temporal-*.json;--readout
-# 组合四层读数管线出月报 monthly-*.md + action-block.json)
+# 组合四层读数管线出月报 monthly-*.md + action-block.json + northstar-*.json
+# (#185 能力轨北星记录,只观测不持门))
 # ⑤ 每命令打印尾行摘要 ⑥ 报告族齐全校验 → 生产 volume 心跳推送(S5)。
 # 自验:`bash -n scripts/monthly_eval.sh`(语法);`bash scripts/monthly_eval.sh
 # --dry-run`(只打印将执行的命令不执行;dry-run 下守卫仅提示不拦截,便于预演)。
@@ -53,9 +56,12 @@ if [ "$DRY_RUN" != 1 ]; then
   fi
 fi
 
-run_step() {  # run_step <label> <ipdb._eval args...> — 执行并打印尾行摘要
+run_step() {  # run_step <label> <ipdb._eval args...> — 执行并打印尾行摘要;rc=命令退出码
+  # 管线 rc 显式捕获后 return(不靠 set -e 在函数内炸出——调用方在 || 语境下调
+  # 用时 set -e 全程失效,靠尾命令 echo 会吞 rc;终审修单 F4 判例)
   local label=$1; shift
   local log="/tmp/monthly_eval-$label.log"
+  local rc=0
   echo
   echo "==> $label: IP_RADAR_EVAL_ENV=monthly python3 -m ipdb._eval $*"
   if [ "$DRY_RUN" = 1 ]; then return 0; fi
@@ -64,8 +70,9 @@ run_step() {  # run_step <label> <ipdb._eval args...> — 执行并打印尾行�
       IP_RADAR_DATA_DIR="$DATA_DIR" \
       IP_RADAR_EVAL_DIR="$REPO/backend/data/eval" \
       IP_RADAR_EVAL_ENV=monthly \
-      python3 -m ipdb._eval "$@" ) 2>&1 | tee "$log"
+      python3 -m ipdb._eval "$@" ) 2>&1 | tee "$log" || rc=$?
   echo "-- [$label 尾行] $(tail -n 2 "$log" | tr '\n' ' ')"
+  return "$rc"
 }
 
 echo
@@ -98,8 +105,18 @@ fi
 
 run_step model    --model    # 舰队模型 + 验收套件(落盘本轮 model-*.json)
 run_step all      --all      # 逐源 verdict 表
-run_step anchors  --anchors  # 锚点回归
+# anchors 腿:失败不阻断后续腿(终审修单 F4)——回归红态记录≠管线中止:
+# 锚点红时工件照写(anchors_report 失败也落盘 anchors-*.json,证据不灭),
+# rc 捕获进运行日志红态行,readout/月报/北星与心跳照常,结尾以此 rc 退出
+# (红态外显不吞);其余腿 set -e 语义不变(仍缺员即死不推心跳)。
+# 守卫=tests/eval/test_monthly_eval_cascade.py(密闭 harness:桩腿红绿双态)。
+ANCHORS_RC=0
+run_step anchors  --anchors  || ANCHORS_RC=$?  # 锚点回归(判定门:失败 rc=1 照写工件)
+if [ "$DRY_RUN" != 1 ] && [ "$ANCHORS_RC" != 0 ]; then
+  echo "!! anchors 腿 rc=$ANCHORS_RC:回归红态(anchors-*.json 已照写留证)——红态记录≠管线中止,后续腿照跑,结尾外显此 rc"
+fi
 run_step dsem     --dsem     # DS-EM 公平对决(advisory)
+run_step agg-share --agg-share  # 印证对聚合器占比披露(#183;只测量不持门,exit 恒 0)
 run_step audit    --audit    # 谱系前向流审计(读 model 历史)
 run_step temporal --temporal # λ_s 确认率(读 model 历史,须 ≥2 轮)
 run_step readout  --readout  # 月轮四层读数(§4.2/S26: 资产+四层读数+行动区块+月报)
@@ -108,20 +125,23 @@ run_step readout  --readout  # 月轮四层读数(§4.2/S26: 资产+四层读数
 # 七命令齐全=活:七写者均查本轮工件(mtime 晚于脚本启动)。audit/anchors
 # json 落盘已清偿(Phase 2 T8,原 T14 缓议)→ 从退出码门升格报告族写者
 # (anchors 失败仍 sys.exit(1) 双保险;audit advisory 按设计不拦退出码,
-# 靠工件缺席即死把关)。
+# 靠工件缺席即死把关)。agg-share 入族(#183 终审修单 F6):exit 恒 0
+# 只测量不持门,但工件缺席即族缺员(写者身份≠门身份,同 northstar 反向
+# 面的对称律:观测件不得触活族门,族员工件缺席仍是死)。
 # 缺员即死(半途中止=死,不推心跳)。心跳落生产 volume,生产侧
 # _alerts 只认文件 mtime(IP_RADAR_EVAL_HEARTBEAT,>35d 告警;时基
 # 独立 S6,不信管线自报)。
 REPORT_ROOT="$REPO/backend/data/eval/monthly"
 HEARTBEAT_DST="/var/lib/docker/volumes/ip-lookup-tool_ipradar-data/_data/eval-heartbeat"
-check_family() {  # check_family <label> <subdir> <name-pattern> [排除pattern]
-  local label=$1 sub=$2 pat=$3 excl=${4:-}
+check_family() {  # check_family <label> <subdir> <name-pattern> [排除pattern...]
+  local label=$1 sub=$2 pat=$3; shift 3
   if [ "$DRY_RUN" = 1 ]; then
-    echo "  [dry-run] 报告族: $label -> ${sub:+$sub/}$pat${excl:+ 排除 $excl}"
+    echo "  [dry-run] 报告族: $label -> ${sub:+$sub/}$pat${*:+ 排除 $*}"
     return 0
   fi
   local args=(-name "$pat")
-  if [ -n "$excl" ]; then args+=(! -name "$excl"); fi
+  local excl
+  for excl in "$@"; do args+=(! -name "$excl"); done
   local f
   f=$(find "$REPORT_ROOT/${sub}" "${args[@]}" -newermt "@$START_S" \
         -print -quit 2>/dev/null)
@@ -131,13 +151,18 @@ check_family() {  # check_family <label> <subdir> <name-pattern> [排除pattern]
   fi
 }
 echo
-# 报告族 7 写者:model/dsem/audit/anchors 落 model/ 子目录,all/temporal/
-# readout 落报告根(monthly-*.md 缺月轮读数即缺员)。
-echo "==> 报告族齐全校验(model/all/anchors/dsem/audit/temporal/readout)"
+# 报告族 8 写者(能力轨北星件 #185 与 monthly-*.md 同腿先写、只观测
+# 不持门, 不另设族员):model/dsem/agg-share/audit/anchors 落 model/ 子目录,
+# all/temporal/readout 落报告根(monthly-*.md 缺月轮读数即缺员)。
+echo "==> 报告族齐全校验(model/all/anchors/dsem/agg-share/audit/temporal/readout)"
 check_family model    model 'model-*.json'
-check_family all      ''     '*-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9].json' 'temporal-*'
+# all 腿排除: temporal-*/northstar-* 同带 ts 后缀形状但不属逐源 verdict
+# 件 —— northstar(#185 能力轨观测件)若不排除, 会顶替 all 腿满足校验
+# → 回归族判定被观测件稀释(观测件永不持门, 亦不得反向触活报告族门)。
+check_family all      ''     '*-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9].json' 'temporal-*' 'northstar-*'
 check_family anchors  model 'anchors-*.json'
 check_family dsem     model 'dsem-*.json'
+check_family agg-share model 'agg-share-*.json'
 check_family audit    model 'audit-*.json'
 check_family temporal ''     'temporal-*.json'
 check_family readout  ''     'monthly-*.md'
@@ -152,3 +177,6 @@ fi
 
 echo
 echo "完成。报告目录: $REPORT_ROOT(model/ 逐轮累积)"
+# 结尾退出码:anchors 红态外显(完成≠全绿;cron/操作员以非零退出码感知
+# 回归轨红,详见 CHANGELOG「回归红态记录不等于管线中止」句)。
+exit "$ANCHORS_RC"

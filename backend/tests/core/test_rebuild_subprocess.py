@@ -136,3 +136,40 @@ def test_manager_subprocess_lane_done_ptr_advances_and_rc2_fails(
     assert _wait_terminal(mgr, bad) == "failed"
     assert bad.error                         # stderr 尾部非空
     assert bad.error_code == "rebuild"       # 子进程车道构建失败码(2026-10-17 裁定)
+
+
+def test_child_infra_exclusion_log_survives_lanes(tmp_path, monkeypatch, caplog):
+    """issue #183 排除留痕在两条 rebuild 车道都可见:
+    - 子进程车道:child basicConfig(INFO)→ stderr 带 infra noise filter 行
+      (否则 logger.info 落 lastResort(WARNING+)之下,生产容器永不可见);
+    - 父进程成功路径:stderr 人类可读行转发父 logger.info(原先只在失败
+      尾摘 300 字,成功即丢)。
+    源选 myip_ms:事故源之一(infra_noise_filter=True)。"""
+    import logging as _logging
+    import subprocess as _sp
+    import sys as _sys
+    from ipdb._sources.myip_ms import MyipMsSource
+    monkeypatch.setenv("IP_RADAR_DATA_DIR", str(tmp_path))
+    raw = tmp_path / "myip_ms"
+    raw.write_text("8.8.8.8\n203.0.113.7\n")
+
+    # 子进程车道:排除计数日志随 stderr 落地(关不掉的审计面)
+    r = _sp.run([_sys.executable, "-m", "ipdb._rebuild_child", "myip_ms"],
+                cwd=str(BACKEND), capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stderr[-400:]
+    assert "OK 1" in r.stdout                    # 8.8.8.8 载入面被排
+    assert "infra noise filter" in r.stderr
+    assert "8.8.8.8/32" in r.stderr
+
+    # 父进程车道:成功路径的 stderr 行转发到父 logger(容器日志面)
+    monkeypatch.setenv("IP_RADAR_REBUILD_SUBPROCESS", "1")
+    src = MyipMsSource(tmp_path)
+    mgr = _make_manager({"myip_ms": src})
+    fut = time.time() + 10
+    os.utime(raw, (fut, fut))                    # 族级增量:mtime 前移再重建
+    with caplog.at_level(_logging.INFO, logger="ipdb._tasks"):
+        task = mgr.enqueue_one_detached("myip_ms", rebuild_only=True)
+        assert _wait_terminal(mgr, task) == "done"
+    assert any("infra noise filter" in rec.getMessage() and "myip_ms" in
+               rec.getMessage() for rec in caplog.records)
+    assert src._count == 1

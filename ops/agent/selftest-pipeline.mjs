@@ -48,21 +48,41 @@ fs.chmodSync(path.join(STUBS, "curl"), 0o755);
 const MATRIX_CANNED = { exit_code: 0, counts: { violation: 0, pending: 0, agreement: 4 },
   layers: { truth: { status: "OK", members: 4, sampled: 4, notes: [] }, infra: { status: "OK", members: 8, sampled: 8, notes: [] } },
   buckets: { violation: [], pending: [], agreement: [] } };
+// 罐装锚巡检(#182 faux 查询面):事故判例形——8.8.8.8=myip_ms 单源指控/114DNS=
+// cps+ziyadnz 假印证双 finding(#183 整改前形状,票 #182 明示 fixture 不依赖整改);
+// 锚集镜像 anchors.py 扩员后 19 员(形状钉,门只验工件内自洽——锚集真源=python 勿在此改)。
+const SWEEP_ANCHORS = [["8.8.8.8", "clean"], ["8.8.4.4", "clean"], ["1.1.1.1", "clean"], ["1.0.0.1", "clean"],
+  ["9.9.9.9", "clean"], ["208.67.222.222", "clean"], ["114.114.114.114", "clean"], ["223.5.5.5", "clean"],
+  ["9.9.9.4", "clean"], ["10.0.0.1", "reserved"], ["127.0.0.1", "reserved"], ["192.168.1.1", "reserved"],
+  ["172.16.0.1", "reserved"], ["185.220.101.1", "tor"], ["171.25.193.78", "tor"], ["185.220.101.34", "tor"],
+  ["52.95.116.115", "hosting"], ["20.36.253.52", "hosting"], ["34.64.121.1", "hosting"]];
+const sweepIncident = (ip) => ({ ip, expect: "clean", ok: false, reason: "expected clean, got malicious",
+  verdict: "malicious", confidence: 55, accusers: ip === "8.8.8.8" ? ["myip_ms"] : ["cps_collected_iocs", "ziyadnz"] });
+const SWEEP_CANNED = { kind: "anchor_sweep", anchors: SWEEP_ANCHORS, n_total: SWEEP_ANCHORS.length, n_fail: 2,
+  failures: ["8.8.8.8", "114.114.114.114"].map((ip) => ({ ip, expect: "clean", reason: "expected clean, got malicious" })),
+  results: SWEEP_ANCHORS.map(([ip, expect]) => ip === "8.8.8.8" || ip === "114.114.114.114" ? sweepIncident(ip)
+    : { ip, expect, ok: true, reason: null, verdict: "benign", confidence: 0, accusers: [] }) };
+const SHELL_JSON = (o) => `'${JSON.stringify(o).replace(/'/g, "'\\''")}'`;
 fs.writeFileSync(path.join(STUBS, "py-matrix"), `#!/usr/bin/env bash
-# selftest stub:OPS_EVAL_PY 替身(golden stubPy 同型);吐罐装矩阵 JSON
-printf '%s\n' '${JSON.stringify(MATRIX_CANNED).replace(/'/g, "'\\''")}'
+# selftest stub:OPS_EVAL_PY 替身(golden stubPy 同型);--anchor-sweep→罐装锚巡检 JSON(#182),其余→罐装矩阵 JSON
+case " $* " in
+  *--anchor-sweep*) printf '%s\n' ${SHELL_JSON(SWEEP_CANNED)} ;;
+  *) printf '%s\n' ${SHELL_JSON(MATRIX_CANNED)} ;;
+esac
 `);
 fs.chmodSync(path.join(STUBS, "py-matrix"), 0o755);
 process.env.DOCS_ROOT = DOCS;
 process.env.PRECEDENTS_DIR = path.join(DOCS, "ops", "precedents");
 process.env.LEDGER_FILE = path.join(DOCS, "ops", "ledger.md");
 process.env.OPS_EVAL_PY = path.join(STUBS, "py-matrix"); // import-time 面:先于 tools.mjs 装载生效
+process.env.OPS_SWEEP_DRY_RUN = "1"; // #184:测试恒 dry-run(gh/webhook 出口零外发,只记 cmd/payload;票面默认关=生产真发)
 process.env.PATH = `${STUBS}:${process.env.PATH}`;
 
 const { runPipeline, HEALTH_PIPELINE, DEFAULT_FIXTURES_DIR } = await import("./pipeline.mjs");
 const { runModelStep, selectModelFace, STEP_ROUND } = await import("./pipeline/faux.mjs"); // #170 面选择/真面注入缝直调单测面
 const { ERROR_CODES } = await import("./agent.mjs");
 const steps = await import("./pipeline/steps.mjs"); // P2 #164 直调 VERIFY 步(规则库/在飞面单元例)
+const fexit = await import("./pipeline/finding-exit.mjs"); // #184 finding 出口三件套(直调单测面;RED 面应先红)
 const R1 = "2026-10-23-2340-health";
 const mkIo = () => { const buf = { stdout: "", stderr: "" };
   return { stdout: { write: (s) => { buf.stdout += s; return true; } }, stderr: { write: (s) => { buf.stderr += s; return true; } }, buf }; };
@@ -98,7 +118,7 @@ const mkTree = (name) => { // 逐轮独立 DOCS 树(P4 #166):precedents/rules �
   return { root, env: { ...process.env, DOCS_ROOT: root, PRECEDENTS_DIR: path.join(root, "ops", "precedents"), LEDGER_FILE: path.join(root, "ops", "ledger.md") } };
 };
 let run1;
-await t("全 faux 轮:九执行态到 CLOSE,信封 ok+形状只增 pipeline 扩展,顶层 usage=模型步之和", async () => {
+await t("全 faux 轮:十执行态到 CLOSE,信封 ok+形状只增 pipeline 扩展,顶层 usage=模型步之和", async () => {
   const io = mkIo();
   run1 = await runPipeline({ roundId: R1, fixturesDir: DEFAULT_FIXTURES_DIR, ...io }); // 显式 fixtures=faux 面(#170;同缺省路径,行为不变)
   assert.equal(run1.ok, true);
@@ -126,20 +146,21 @@ await t("全 faux 轮:九执行态到 CLOSE,信封 ok+形状只增 pipeline 扩�
   assert.equal(env.verify.cited, 1, "canned 报告引 1 fixture 判例");
 });
 
-await t("工件清单全落盘+gates.json 九记录全 PASS+state.json 终态 done/CLOSE+原子写无 .tmp 残留", async () => {
+await t("工件清单全落盘+gates.json 十记录全 PASS+state.json 终态 done/CLOSE+原子写无 .tmp 残留", async () => {
   const d = roundDir(R1);
   for (const f of ["01-probe-freshness.tsv", "01-probe-matrix.json", "01-probe-summary.json", "02-verify-survivors.json",
     "02-verify-suppressed.json", "03-triage-hypotheses.json", "03-triage-transcript.jsonl", "04-dispatch-bundles.json",
-    "05-deep-verdicts.json", "06-itemize-manifest.json", "07-synth-report.md", "07-synth-transcript.jsonl", "gates.json", "state.json"])
+    "05-deep-verdicts.json", "06-itemize-manifest.json", "07-synth-report.md", "07-synth-transcript.jsonl",
+    "08-anchor-sweep.json", "08-anchor-sweep-exits.json", "gates.json", "state.json"])
     assert.ok(fs.existsSync(path.join(d, f)), `工件缺:${f}`);
   assert.ok(fs.readdirSync(d).some((f) => /^05-deep-.*\.json$/.test(f) && f !== "05-deep-verdicts.json"), "逐假设工件");
   assert.ok(fs.readdirSync(d).some((f) => /^05-deep-.*-transcript\.jsonl$/.test(f)), "逐假设 transcript");
   const g = j(path.join(d, "gates.json"));
   assert.equal(g.round_id, R1);
-  assert.equal(g.records.length, 9, "8 可跑步门+G_CLOSE");
+  assert.equal(g.records.length, 10, "9 可跑步门(含 #182 ANCHOR_SWEEP)+G_CLOSE");
   assert.ok(g.records.every((r) => r.pass === true), `门败:${g.records.filter((r) => !r.pass).map((r) => r.name).join(",")}`);
   assert.ok(g.records.every((r) => typeof r.reason === "string" && /\d/.test(r.reason)), "reason 带数字可回算");
-  assert.deepEqual(g.records.map((r) => r.name), ["G_PROBE", "G_VERIFY", "G_TRIAGE", "G_DISPATCH", "G_DEEP", "G_ITEMIZE", "G_SYNTH", "G_RETRO", "G_CLOSE"]);
+  assert.deepEqual(g.records.map((r) => r.name), ["G_PROBE", "G_VERIFY", "G_TRIAGE", "G_DISPATCH", "G_DEEP", "G_ITEMIZE", "G_SYNTH", "G_ANCHOR_SWEEP", "G_RETRO", "G_CLOSE"]);
   const st = j(path.join(d, "state.json"));
   assert.equal(st.status, "done");
   assert.equal(st.stage, "CLOSE");
@@ -148,6 +169,256 @@ await t("工件清单全落盘+gates.json 九记录全 PASS+state.json 终态 do
   const walk = (p) => fs.readdirSync(p).flatMap((f) => { const q = path.join(p, f); return fs.statSync(q).isDirectory() ? walk(q) : [q]; });
   assert.ok(!walk(d).some((p) => p.endsWith(".tmp")), "原子写无 .tmp 残留");
   assert.ok(fs.existsSync(path.join(DOCS, "ops", "retro", `${R1}.json`)), "retro 工件(ops/retro/)");
+});
+
+await t("ANCHOR_SWEEP 巡检步(#182):事故判例 finding 在场门仍过——工件=全集投影逐锚读数+G 门不持门;步序 SYNTH 后 RETRO 前(finding 先于台账收口)", async () => {
+  const d = roundDir(R1);
+  const s = j(path.join(d, "08-anchor-sweep.json")); // 工件可查(票验收)
+  assert.equal(s.kind, "anchor_sweep");
+  assert.equal(s.n_total, SWEEP_ANCHORS.length);
+  assert.equal(s.anchors.length, s.results.length, "锚集=结果集同长(全集投影)");
+  // 投影穷尽:每锚恰一结果(ip|expect 双键)
+  const want = SWEEP_ANCHORS.map(([ip, exp]) => `${ip}|${exp}`).sort().join(",");
+  const got = s.results.map((r) => `${r.ip}|${r.expect}`).sort().join(",");
+  assert.equal(got, want, "逐锚恰一结果(丢锚/重锚即门败面)");
+  for (const r of s.results) {
+    assert.equal(typeof r.verdict, "string", `${r.ip} verdict 字符串`);
+    assert.equal(typeof r.confidence, "number", `${r.ip} confidence 数字`);
+    assert.ok(Array.isArray(r.accusers) && r.accusers.every((a) => typeof a === "string"), `${r.ip} accusers 字符串数组`);
+    assert.equal(typeof r.ok, "boolean");
+  }
+  assert.equal(s.n_fail, 2, "罐装事故判例:8.8.8.8+114DNS 双 finding(#183 整改前形状)");
+  assert.equal(s.failures.length, 2, "failures 与 n_fail 回算一致");
+  const byIp = new Map(s.results.map((r) => [r.ip, r]));
+  assert.deepEqual(byIp.get("8.8.8.8").accusers, ["myip_ms"], "事故面①:myip_ms 单源指控");
+  const r114 = byIp.get("114.114.114.114");
+  assert.deepEqual(r114.accusers, ["cps_collected_iocs", "ziyadnz"], "事故面②:双聚合器假印证");
+  assert.equal(r114.confidence, 55);
+  assert.ok(s.results.every((r) => ["8.8.8.8", "114.114.114.114"].includes(r.ip) ? !r.ok : r.ok), "finding/ok 逐锚独立");
+  const g = j(path.join(d, "gates.json"));
+  const rec = g.records.find((x) => x.name === "G_ANCHOR_SWEEP");
+  assert.equal(rec.pass, true, `finding 不持门(票义):${rec.reason}`);
+  assert.match(rec.reason, /n_total=\d+ n_fail=2/, "门 reason 带数字可回算");
+  // 步序:SYNTH → ANCHOR_SWEEP → RETRO(finding 先于台账收口;C稿 §2.2 加状态经 spec #180/#182 授权)
+  const names = j(path.join(d, "state.json")).stages.map((x) => x.name);
+  assert.equal(names.indexOf("ANCHOR_SWEEP") - names.indexOf("SYNTH"), 1, "SYNTH 后紧随");
+  assert.equal(names.indexOf("RETRO") - names.indexOf("ANCHOR_SWEEP"), 1, "RETRO 前");
+  const sw = stageOf(run1.envelope, "ANCHOR_SWEEP");
+  assert.equal(sw.status, "done", "finding 在场=正常完成非降级(读数面)");
+  assert.equal(sw.usage, null, "脚本步无 token 面");
+});
+
+// ── 票 #184(finding 出口三件套)单元例:纯函数面+出口编排(dry-run/skip/失败面;零网络零外发)──
+// 真扫活 finding 判例形(#184 票面指针:#182 首扫 n_fail=4 中的两新 finding,2026-10-24;
+// 与 #182 罐装事故判例(8.8.8.8/114DNS 整改前形状)分立——本批钉的是「整改后仍活的出口租户」)
+const LIVE_FINDINGS = [
+  { ip: "1.1.1.1", expect: "clean", verdict: "malicious", confidence: 55, accusers: ["cps_collected_iocs"] },
+  { ip: "223.5.5.5", expect: "clean", verdict: "malicious", confidence: 55, accusers: ["tweetfeed"] } ];
+const liveSweepD = { kind: "anchor_sweep", n_total: 19, n_fail: 2, results: [
+  ...LIVE_FINDINGS.map((f) => ({ ...f, ok: false })),
+  { ip: "8.8.8.8", expect: "clean", ok: true, verdict: "benign", confidence: 0, accusers: [] }] };
+await t("finding 出口:parseFindings——形状自洽才投影(坏行/计数不符=不动作宁少算,门接管)", async () => {
+  assert.equal(typeof fexit.parseFindings, "function", "parseFindings 未导出(RED 面应先红)");
+  const p = fexit.parseFindings(liveSweepD);
+  assert.equal(p.ok, true);
+  assert.deepEqual(p.findings, LIVE_FINDINGS, "投影恰指控行(ip/expect/verdict/confidence/accusers)");
+  const badRow = { n_fail: 1, results: [{ ip: "1.1.1.1", expect: "clean", ok: false, verdict: "malicious" }] };
+  assert.equal(fexit.parseFindings(badRow).ok, false, "finding 行缺 confidence/accusers=形状破,出口不动作");
+  const mismatch = { n_fail: 2, results: liveSweepD.results.slice(0, 1) };
+  assert.equal(fexit.parseFindings(mismatch).ok, false, "n_fail≠回算=工件自洽破,出口不动作(G_ANCHOR_SWEEP 拦)");
+});
+await t("finding 出口:issue 模板四件(来源步/锚:期望vs实得/证据指针/needs-triage)——真扫活 finding 判例形", async () => {
+  assert.equal(typeof fexit.findingIssueDraft, "function", "findingIssueDraft 未导出(RED 面应先红)");
+  const dft = fexit.findingIssueDraft({ roundId: "2026-10-24-0400-health", findings: LIVE_FINDINGS, nTotal: 19 });
+  assert.match(dft.title, /^\[anchor-sweep\] 2 finding\(2026-10-24-0400-health\)$/);
+  assert.match(dft.body, /## 来源步/, "模板件①来源步");
+  assert.match(dft.body, /ANCHOR_SWEEP/);
+  assert.match(dft.body, /## 锚:期望 vs 实得/, "模板件②锚:期望vs实得");
+  assert.match(dft.body, /1\.1\.1\.1\(expect=clean\):实得 verdict=malicious confidence=55 指控源=cps_collected_iocs/);
+  assert.match(dft.body, /223\.5\.5\.5.*tweetfeed/);
+  assert.match(dft.body, /## 证据指针/, "模板件③证据指针");
+  assert.match(dft.body, /08-anchor-sweep\.json/);
+  assert.deepEqual(dft.labels, ["needs-triage"], "模板件④标签=needs-triage");
+  assert.match(dft.body, /只写不动作/, "处置面自声明:出口只写不动作");
+});
+await t("finding 出口:runFindingExits——dry-run 双出口零外发只记 cmd/payload;webhook 未配置=skip 留痕;finding=0/降级/replay=不触发", async () => {
+  assert.equal(typeof fexit.runFindingExits, "function", "runFindingExits 未导出(RED 面应先红)");
+  const calls = [];
+  const fakeExec = async (bin, argv) => { calls.push({ bin, argv }); return { stdout: "" }; };
+  const d1 = fs.mkdtempSync(path.join(os.tmpdir(), "fexit-1-"));
+  const d2 = fs.mkdtempSync(path.join(os.tmpdir(), "fexit-2-"));
+  const d3 = fs.mkdtempSync(path.join(os.tmpdir(), "fexit-3-"));
+  const d4 = fs.mkdtempSync(path.join(os.tmpdir(), "fexit-4-"));
+  const d5 = fs.mkdtempSync(path.join(os.tmpdir(), "fexit-5-"));
+  // ①dry-run+webhook 未配置(测试环境缺省面)
+  const r1 = await fexit.runFindingExits({ roundId: "2026-10-24-0400-health", sweepD: liveSweepD, dir: d1, env: { OPS_SWEEP_DRY_RUN: "1" } });
+  assert.equal(r1.triggered, true, "触发面=finding>0(#184 要点)");
+  assert.equal(r1.findings_n, 2);
+  assert.equal(r1.dry_run, true);
+  assert.equal(r1.gh_issue.status, "dry_run", "dry-run:gh 只记将发命令");
+  assert.match(r1.gh_issue.cmd_head, /gh issue create --title/, "cmd 留痕可审计");
+  assert.equal(r1.webhook.status, "skip", "IP_RADAR_ALERT_URLS 未配置=降级跳过不报错");
+  assert.match(r1.webhook.reason, /IP_RADAR_ALERT_URLS/, "skip 痕点名 env(信封留痕同源)");
+  assert.deepEqual(calls, [], "dry-run+未配置=零 spawn 零外发");
+  // ①续:出口工件全稿留痕(证据不灭失;含 issue 标题/正文/标签)
+  const art1 = j(path.join(d1, "08-anchor-sweep-exits.json"));
+  assert.equal(art1.phase, "emitted");
+  assert.equal(art1.issue.labels[0], "needs-triage");
+  assert.match(art1.issue.body, /## 锚:期望 vs 实得/);
+  assert.equal(art1.webhook_payload.title, art1.issue.title, "webhook 与 issue 同稿同源(单一事实)");
+  // ②dry-run+webhook 配置(payload 留痕+URL 脱敏)
+  const r2 = await fexit.runFindingExits({ roundId: "2026-10-24-0401-health", sweepD: liveSweepD, dir: d2,
+    env: { OPS_SWEEP_DRY_RUN: "1", IP_RADAR_ALERT_URLS: "https://hooks.example/x.json lark://1234/abcdef99" } });
+  assert.equal(r2.webhook.status, "dry_run");
+  assert.equal(r2.webhook.urls_n, 2, "逗号/空白分隔同 _alerts.py apprise 同形");
+  assert.ok(r2.webhook.urls_redacted.every((u) => !u.includes("abcdef99")), "URL 脱敏(凭据不入记录;_alerts._redact_url 同律)");
+  assert.deepEqual(calls, [], "dry-run 零外发");
+  // ③finding=0(金标全绿轮)
+  const r3 = await fexit.runFindingExits({ roundId: "2026-10-24-0402-health", sweepD: { n_fail: 0, results: liveSweepD.results.filter((x) => x.ok) }, dir: d3, env: {} });
+  assert.equal(r3.triggered, false);
+  assert.equal(r3.gh_issue.status, "skip");
+  assert.equal(r3.webhook.status, "skip");
+  // ④sweep 降级(求值面死→无读数即无 finding)
+  const r4 = await fexit.runFindingExits({ roundId: "2026-10-24-0403-health", sweepD: null, dir: d4, env: {} });
+  assert.equal(r4.triggered, false);
+  assert.match(r4.reason, /degraded/);
+  // ⑤replay 零外发(审计重放不改生产出口面;ITEMIZE 回声律同款)
+  const r5 = await fexit.runFindingExits({ roundId: "2026-10-24-0400-health-r1", sweepD: liveSweepD, dir: d5, env: {}, replayOf: "2026-10-24-0400-health" });
+  assert.equal(r5.triggered, false, "replay 不外发");
+  assert.match(r5.reason, /replay/);
+  assert.equal(r5.gh_issue.status, "skip");
+  assert.match(r5.gh_issue.reason, /replay/);
+  assert.equal(r5.webhook.status, "skip");
+  assert.deepEqual(calls, [], "全程零 spawn(①-⑤)");
+});
+await t("finding 出口:gh/apprise 失败=失败信封记入不抛(出口永不败轮);emit 守卫防重发", async () => {
+  const fakeExec = async (bin) => {
+    if (bin === "gh") throw Object.assign(new Error("spawn"), { code: 1, stderr: "gh: GraphQL: Projects (classic) is being deprecated" });
+    if (bin === "apprise") throw Object.assign(new Error("spawn"), { code: 1, stderr: "apprise: Could not load notification (fixture)" });
+    throw new Error(`unexpected bin ${bin}`);
+  };
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), "fexit-f-"));
+  const r = await fexit.runFindingExits({ roundId: "2026-10-24-0404-health", sweepD: liveSweepD, dir: d,
+    env: { OPS_SWEEP_DRY_RUN: "0", IP_RADAR_ALERT_URLS: "https://hooks.example/x.json" }, exec: fakeExec });
+  assert.equal(r.triggered, true, "触发面=finding>0(与通道成败分立)");
+  assert.equal(r.gh_issue.status, "failed");
+  assert.equal(r.gh_issue.code, "gh_error");
+  assert.equal(r.webhook.status, "failed");
+  assert.ok(!r.webhook.reason.includes("hooks.example/x.json"), "失败 reason 不裸 URL(脱敏)");
+  // emit 守卫:同轮同 dir 已 emitted → 重入不再外发(resume 崩溃窗防重发;宁少算交人工核对)
+  const calls2 = [];
+  const r6 = await fexit.runFindingExits({ roundId: "2026-10-24-0404-health", sweepD: liveSweepD, dir: d,
+    env: { OPS_SWEEP_DRY_RUN: "0" }, exec: async (...a) => { calls2.push(a); return { stdout: "" }; } });
+  assert.equal(r6.gh_issue.status, "skip");
+  assert.match(r6.reason, /emit/);
+  assert.deepEqual(calls2, [], "已发轮重入零外发");
+  // M4(终审修单第二轮):守卫触发不重写工件——emitted 全稿存活(哲学1 证据永不灭失),且同窗
+  // 二次重入仍读 emitted 恒守卫(旧实现写回 phase=skip,二次崩溃窗守卫读 skip 误判首程→重发→重复外发)
+  const art6 = j(path.join(d, "08-anchor-sweep-exits.json"));
+  assert.equal(art6.phase, "emitted", "守卫不重写工件:phase 仍 emitted(非 skip)");
+  assert.match(art6.issue.title, /^\[anchor-sweep\]/, "issue 全稿存活(标题在场)");
+  assert.ok(art6.webhook_payload?.title, "webhook_payload 存活");
+  assert.equal(art6.gh_issue.status, "failed", "首轮失败信封同存活(证据不灭失)");
+  const calls2b = [];
+  const r6b = await fexit.runFindingExits({ roundId: "2026-10-24-0404-health", sweepD: liveSweepD, dir: d,
+    env: { OPS_SWEEP_DRY_RUN: "0" }, exec: async (...a) => { calls2b.push(a); return { stdout: "" }; } });
+  assert.match(r6b.reason, /emit_guard/, "同窗二次重入仍守卫");
+  assert.deepEqual(calls2b, [], "同窗二次重入零外发(守卫幂等)");
+  assert.equal(j(path.join(d, "08-anchor-sweep-exits.json")).phase, "emitted", "二次重入工件仍 emitted");
+  // emit 守卫(中截面):同轮工件停在 emitting(外发中崩溃)→ 同样不重发(状态不可知,宁少算)
+  const d7 = fs.mkdtempSync(path.join(os.tmpdir(), "fexit-g-"));
+  fs.writeFileSync(path.join(d7, "08-anchor-sweep-exits.json"),
+    JSON.stringify({ round_id: "2026-10-24-0405-health", phase: "emitting", findings_n: 2 }) + "\n");
+  const calls3 = [];
+  const r7 = await fexit.runFindingExits({ roundId: "2026-10-24-0405-health", sweepD: liveSweepD, dir: d7,
+    env: { OPS_SWEEP_DRY_RUN: "0" }, exec: async (...a) => { calls3.push(a); return { stdout: "" }; } });
+  assert.equal(r7.gh_issue.status, "skip");
+  assert.match(r7.reason, /emit_guard/);
+  assert.deepEqual(calls3, [], "中崩窗零重发(人工核对,漏发下轮补)");
+  const art7 = j(path.join(d7, "08-anchor-sweep-exits.json"));
+  assert.equal(art7.phase, "emitting", "中崩截面工件不被守卫重写(原样留证)");
+  assert.equal(art7.findings_n, 2, "中崩截面原记录字段存活");
+});
+
+
+await t("finding 出口三件套轮内接线(#184):dry-run faux 轮三出口全绿——信封 pipeline.finding_exits 留痕(gh dry_run/webhook skip)+RETRO 摘要行+出口工件", async () => {
+  // 依托 R1 全 faux 轮(罐装事故判例 2 finding;OPS_SWEEP_DRY_RUN=1 fixture 恒 dry-run)
+  const env = run1.envelope;
+  const fe = env.pipeline.finding_exits;
+  assert.ok(fe, "信封 pipeline.finding_exits 在场(只增 pipeline 扩展字段;顶层键面不变)");
+  assert.equal(fe.triggered, true, "触发面=ANCHOR_SWEEP finding>0");
+  assert.equal(fe.findings_n, 2);
+  assert.equal(fe.dry_run, true, "测试恒 dry-run");
+  assert.equal(fe.gh_issue.status, "dry_run");
+  assert.equal(fe.webhook.status, "skip", "IP_RADAR_ALERT_URLS 未配置=降级跳过不报错,轮仍成功");
+  assert.equal(fe.retrospective_summary.status, "counted", "出口③:RETRO 摘要行计入");
+  assert.equal(fe.retrospective_summary.n_fail, 2);
+  // 出口工件:全稿留痕(证据不灭失)+脱敏面
+  const art = j(path.join(roundDir(R1), "08-anchor-sweep-exits.json"));
+  assert.equal(art.phase, "emitted");
+  assert.deepEqual(art.issue.labels, ["needs-triage"]);
+  assert.match(art.issue.body, /## 来源步[\s\S]*## 锚:期望 vs 实得[\s\S]*## 证据指针/, "模板三节齐");
+  assert.match(art.issue.body, /8\.8\.8\.8.*myip_ms/, "事故判例形入稿");
+  assert.equal(art.webhook_payload.title, art.issue.title);
+  // RETRO 摘要工件:finding 计入(出口③真源)
+  const retro = j(path.join(DOCS, "ops", "retro", `${R1}.json`));
+  assert.equal(retro.anchor_sweep.status, "ok");
+  assert.equal(retro.anchor_sweep.n_fail, 2);
+  assert.equal(retro.anchor_sweep.findings.length, 2);
+  assert.deepEqual(retro.anchor_sweep.findings.map((f) => f.ip).sort(), ["114.114.114.114", "8.8.8.8"]);
+  // state 留痕(resume 面不丢)
+  const st = j(path.join(roundDir(R1), "state.json"));
+  assert.equal(st.finding_exits.findings_n, 2);
+});
+await t("finding 出口:webhook 配置面轮内 dry-run(IP_RADAR_ALERT_URLS→payload 留痕/URL 脱敏零泄漏)", async () => {
+  const t9 = mkTree("tree-exits-webhook");
+  const r = await runPipeline({ roundId: "2026-10-24-0406-health", fixturesDir: cloneFixtures("fx-exits-wh"),
+    env: { ...t9.env, IP_RADAR_ALERT_URLS: "https://hooks.example/h.json mailto:alerts@example.com" }, ...mkIo() });
+  assert.equal(r.ok, true, `轮仍成功:${r.envelope?.error?.message ?? ""}`);
+  const fe = r.envelope.pipeline.finding_exits;
+  assert.equal(fe.triggered, true);
+  assert.equal(fe.webhook.status, "dry_run");
+  assert.equal(fe.webhook.urls_n, 2, "逗号/空白分隔多 URL 同 _alerts.py apprise 同形");
+  const d = path.join(t9.root, "ops", "rounds", "2026-10-24-0406-health");
+  const art = j(path.join(d, "08-anchor-sweep-exits.json"));
+  const flat = JSON.stringify(fe) + JSON.stringify(art);
+  assert.ok(!flat.includes("hooks.example/h.json") && !flat.includes("mailto:alerts@example.com"), "凭据 URL 零泄漏(信封+工件全脱敏)");
+});
+await t("出口只写不动作(结构性,#184):finding 出口模块依赖面闭集——spawn 目标恰 apprise(gh 在 tools.mjs,argv 钉 [issue,create])、禁面符号零在场(调权/停源/写数据面/源管理 API)", async () => {
+  const srcExit = fs.readFileSync(path.join(AGENT, "pipeline", "finding-exit.mjs"), "utf8");
+  // a) 公开面闭集(依赖面测试:export 恰三函数,无隐藏写口)
+  assert.deepEqual(Object.keys(fexit).sort(), ["findingIssueDraft", "parseFindings", "runFindingExits"], "export 闭集(新增写口须过 spec)");
+  // b) spawn 目标白名单:模块内直接 exec 恰 apprise(webhook 出口;gh 面=tools.mjs ghIssueCreate,t4 argv 捕获钉死)
+  const spawnTargets = [...srcExit.matchAll(/[^.\w]exec\w*\(\s*"([a-z0-9_-]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(spawnTargets, ["apprise"], `spawn 目标白名单(实测:${spawnTargets.join(",")})`);
+  // c) 禁面符号:从 finding 出发不可达的动作面(调权/停源/写数据面/源管理 API/规则库写口)
+  const banned = ["/api/sources", "_calibrated", "reliability", "rebuild", "lmdb", "IP_RADAR_DATA_DIR",
+    "adopt_rule", "suppressions", "write_ruling", "PATCH /api"];
+  for (const b of banned) assert.ok(!srcExit.includes(b), `禁面符号在场:${b}(出口只写不动作红线)`);
+  // d) 接线面锚词:步侧出口接线与 RETRO 摘要在案(漂移绊线)
+  const stepsSrc = fs.readFileSync(path.join(AGENT, "pipeline", "steps.mjs"), "utf8");
+  assert.match(stepsSrc, /runFindingExits/, "ANCHOR_SWEEP 步接线出口");
+  assert.match(stepsSrc, /anchor_sweep/, "RETRO 摘要行(出口③)读工件计数");
+});
+await t("G_RETRO 出口③机检单元例(直构工件):08 工件在场→retro.anchor_sweep 缺席/n_fail 不符=门败;降级工件→须记 degraded", async () => {
+  const { GATES } = await import("./pipeline/gates.mjs");
+  const d = roundDir(R1);
+  const retroPath = path.join(DOCS, "ops", "retro", `${R1}.json`);
+  const orig = fs.readFileSync(retroPath, "utf8");
+  const ctxLike = { dir: d, opsRoot: path.join(DOCS, "ops"), retroAuditKey: R1,
+    rulesFile: path.join(DOCS, "ops", "rules", "suppressions.json"), itemsDir: path.join(DOCS, "ops", "items"),
+    ledgerFile: path.join(DOCS, "ops", "ledger.md") };
+  try {
+    const retro = j(retroPath);
+    assert.equal(GATES.G_RETRO(ctxLike).pass, true, "基线(带 anchor_sweep 摘要)过");
+    const bad = { ...retro, anchor_sweep: { ...retro.anchor_sweep, n_fail: 0 } };
+    fs.writeFileSync(retroPath, JSON.stringify(bad, null, 2) + "\n");
+    assert.match(GATES.G_RETRO(ctxLike).reason, /anchor_sweep/, "n_fail 不符=门败(摘要行机检)");
+    const noSum = { ...retro };
+    delete noSum.anchor_sweep;
+    fs.writeFileSync(retroPath, JSON.stringify(noSum, null, 2) + "\n");
+    assert.match(GATES.G_RETRO(ctxLike).reason, /anchor_sweep/, "摘要缺席=门败(出口③无验证手段不得称出口)");
+  } finally { fs.writeFileSync(retroPath, orig); }
 });
 
 await t("stderr 阶段行语法+stdout 末行=信封单行 JSON(恰一行)", async () => {
@@ -298,7 +569,7 @@ await t("空转金轨迹轮(#162 审 P2-2 裁定①):零 need_deep → DISPATCH 
   const m = j(path.join(d, "06-itemize-manifest.json"));
   assert.deepEqual([m.created, m.reopened, m.deduped, m.suppressed], [2, 0, 0, 1], "watch 条目 2 + 抑制 1(P4:真树落盘)");
   const g = j(path.join(d, "gates.json"));
-  assert.equal(g.records.length, 8, "skipped 步无门记录(PROBE..CLOSE 除 DISPATCH)");
+  assert.equal(g.records.length, 9, "skipped 步无门记录(PROBE..CLOSE 除 DISPATCH;含 #182 G_ANCHOR_SWEEP)");
   assert.ok(g.records.every((x) => x.pass), "G_DEEP 机检金轨迹在场面");
   assert.ok(g.records.find((x) => x.name === "G_DEEP").reason.includes("golden=1"), "门 reason 带数字可回算");
 });
@@ -563,9 +834,58 @@ await t("matrix 裸失败负例(#163 review P2-1):信封件落 01-probe-matrix.j
   assert.equal(s.matrix.exit_code, null);
   assert.equal(s.matrix.violation_n, null);
   const g = j(path.join(d, "gates.json"));
-  assert.equal(g.records.length, 9);
+  assert.equal(g.records.length, 10);
   assert.ok(g.records.every((x) => x.pass), "门不受 matrix 裸失败牵连(legacy 失败只回嵌套信封,不阻轮语义两侧一致)");
+  // 该 stub 无旗标分发→sweep 面同死:#182 降级旁路(stage degraded+门旁路留痕,轮仍成功)
+  const envD = JSON.parse(r.stdout.trim().split("\n").pop());
+  const sw = stageOf(envD, "ANCHOR_SWEEP");
+  assert.equal(sw.status, "degraded", "CLI 面死=降级非终态(RETRO 同款旁路形制)");
+  assert.match(g.records.find((x) => x.stage === "ANCHOR_SWEEP").reason, /门旁路/);
+  const sweepFail = j(path.join(d, "08-anchor-sweep.json"));
+  assert.equal(sweepFail.ok, false, "工件=失败信封件(证据不灭失)");
+  assert.match(sweepFail.reason, /matrix stub bare failure|channel|transient|infra/, `四码/infra 兑底信封:${sweepFail.reason}`);
 });
+
+await t("ANCHOR_SWEEP 降级旁路孤立例(#182):仅 sweep 面死(error 信封 rc 1)→ stage degraded+门旁路+工件=信封透传,其余步零牵连,轮 ok=true", async () => {
+  const STUBS4 = path.join(TMP, "stubs4");
+  fs.mkdirSync(STUBS4);
+  fs.writeFileSync(path.join(STUBS4, "py-sweep-dead"), `#!/usr/bin/env bash
+# 旗标分发死面:--anchor-sweep→error 信封 rc 1(load_db 失败同型);其余→矩阵读数照常
+case " $* " in
+  *--anchor-sweep*) printf '%s\\n' '{"error":{"code":"internal","message":"load_db failed: fixture","hint":"h"}}'; exit 1 ;;
+  *) printf '%s\\n' ${SHELL_JSON(MATRIX_CANNED)} ;;
+esac
+`);
+  fs.chmodSync(path.join(STUBS4, "py-sweep-dead"), 0o755);
+  const t0306 = mkTree("tree-sweep-deg");
+  const r = await spawnPipe(["health", "--round-id", "2026-10-24-0306-health", "--fixtures", cloneFixtures("fx-sweep-deg")],
+    { ...t0306.env, OPS_EVAL_PY: path.join(STUBS4, "py-sweep-dead") });
+  assert.equal(r.rc, 0, `rc=${r.rc} stderr=${r.stderr.slice(-400)}`);
+  const env = JSON.parse(r.stdout.trim().split("\n").pop());
+  assert.equal(env.ok, true, "巡检面死不阻断轮(不持门票义;失败=finding/信封件落盘)");
+  const sw = stageOf(env, "ANCHOR_SWEEP");
+  assert.equal(sw.status, "degraded");
+  assert.equal(stageOf(env, "PROBE").status, "done", "其余步零牵连(matrix 面照常)");
+  assert.equal(stageOf(env, "RETRO").status, "done");
+  const d = path.join(t0306.root, "ops", "rounds", "2026-10-24-0306-health");
+  const sweepFail = j(path.join(d, "08-anchor-sweep.json"));
+  assert.equal(sweepFail.ok, false, "工件=失败信封件非读数");
+  assert.equal(sweepFail.code, "internal", "python error 信封 code 透传(--json 面不裸栈)");
+  assert.match(sweepFail.reason, /load_db failed: fixture/);
+  const g = j(path.join(d, "gates.json"));
+  const rec = g.records.find((x) => x.stage === "ANCHOR_SWEEP");
+  assert.equal(rec.pass, true, "旁路记录 pass=true(降级非门败)");
+  assert.match(rec.reason, /stage degraded.*门旁路/, "RETRO 同款 degrade 旁路留痕");
+  assert.ok(g.records.filter((x) => x.name !== "G_ANCHOR_SWEEP").every((x) => x.pass), "其余门全 PASS");
+  // #184:求值面死→出口不触发(无读数即无 finding;信封留 skip 痕)+RETRO 摘要记降级态
+  const fe = env.pipeline.finding_exits;
+  assert.equal(fe.triggered, false, "降级轮零出口(无证据即无话)");
+  assert.match(fe.reason, /anchor_sweep_degraded/, "skip 痕点名降级因");
+  assert.equal(fe.retrospective_summary.status, "degraded", "出口③:RETRO 摘要记降级态");
+  const retroDeg = j(path.join(t0306.root, "ops", "retro", "2026-10-24-0306-health.json"));
+  assert.equal(retroDeg.anchor_sweep.status, "degraded");
+});
+
 
 await t("A 一律违例负例(全 faux 轮):深验 fixture 复述伪造值 999 → G_DEEP 回引不符 → model_face 终态工件保留", async () => {
   const fx = cloneFixtures("fixtures-arule");
@@ -725,10 +1045,10 @@ await t("replay --dry 全程可跑(CLI 子进程):门全重算 PASS,产物写 -r
   assert.equal(env.ok, true);
   assert.equal(env.pipeline.replayed_of, R1);
   assert.equal(env.pipeline.round_id, `${R1}-r1`);
-  assert.equal(env.pipeline.stages.length, 8, "dry 段=PROBE..RETRO(CLOSE 不入重放)");
+  assert.equal(env.pipeline.stages.length, 9, "dry 段=PROBE..RETRO(CLOSE 不入重放;含 #182 ANCHOR_SWEEP)");
   assert.ok(env.pipeline.stages.every((s) => s.status === "dry"), "dry 状态词");
   const g = j(path.join(roundDir(`${R1}-r1`), "gates.json"));
-  assert.equal(g.records.length, 8);
+  assert.equal(g.records.length, 9, "9 可跑步门全重算(含 G_ANCHOR_SWEEP;CLOSE 不入重放)");
   assert.ok(g.records.every((x) => x.pass), "原件工件上全门重算 PASS(自愈:以工件+门为准)");
   assert.equal(treeMd5(roundDir(R1)), before, "原件零改写");
 });
@@ -749,6 +1069,25 @@ await t("replay 段重放(VERIFY..SYNTH,非 dry):前置工件复制+段内再生
   assert.deepEqual([rm2.created, rm2.reopened, rm2.deduped], [2, 0, 0], "manifest 回声原轮 outcome");
   assert.ok(rm2.rows.every((x) => x.echo === true), "行级 echo 标记");
   assert.ok(fs.existsSync(path.join(d, "gates.json")));
+  assert.equal(treeMd5(roundDir(R1)), before, "原件零改写");
+});
+
+await t("finding 出口:replay 零外发(段重放 ANCHOR_SWEEP..RETRO:finding 在场仍 skip 留痕,同 ITEMIZE 回声律)", async () => {
+  const before = treeMd5(roundDir(R1));
+  const r = await spawnPipe(["replay", R1, "--from", "ANCHOR_SWEEP", "--to", "RETRO"]);
+  assert.equal(r.rc, 0, `rc=${r.rc} stderr=${r.stderr.slice(-300)}`);
+  const env = JSON.parse(r.stdout.trim().split("\n").pop());
+  assert.equal(env.ok, true);
+  const fe = env.pipeline.finding_exits;
+  assert.ok(fe, "信封留痕在场(replay 面也记 skip 痕)");
+  assert.equal(fe.triggered, false, "审计重放零外发(不改生产出口面)");
+  assert.match(fe.reason, /replay/);
+  assert.equal(fe.gh_issue.status, "skip");
+  assert.match(fe.gh_issue.reason, /replay/);
+  assert.equal(fe.webhook.status, "skip");
+  const d = roundDir(`${R1}-r3`);
+  const art = j(path.join(d, "08-anchor-sweep-exits.json"));
+  assert.equal(art.phase, "skip", "重放侧出口工件=skip 记录(零外发可审计)");
   assert.equal(treeMd5(roundDir(R1)), before, "原件零改写");
 });
 

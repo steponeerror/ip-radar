@@ -12,8 +12,9 @@ import path from "node:path";
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
-import { FROZEN_DAYS, matrixScanCli, matrixArtifactText, resolveField } from "../tools.mjs";
+import { FROZEN_DAYS, matrixScanCli, matrixArtifactText, resolveField, anchorSweepCli } from "../tools.mjs";
 import { loadAnchors, anchorSelect, HIT_CAP } from "./anchors.mjs"; // 锚域词表×旗标选锚(B 三件②;DISPATCH 逐假设判例命中 ≤3,P4 #166)
+import { runFindingExits } from "./finding-exit.mjs"; // #184 finding 出口三件套(gh issue+webhook;RETRO 摘要行在本文件 RETRO)
 import { itemSignature, fullDedupKey, createOpsItem, parseItemsTree, CAUSE_GROUP_BY_BUCKET } from "./ops-items.mjs"; // 条目库桥(P4 #166:接 _ops_items 同空间)
 
 const execFileP = promisify(execFileCb);
@@ -328,6 +329,16 @@ async function RETRO(def, ctx) {
     const rawRules = j(ctx.rulesFile);
     const rules = rawRules ? normalizeRules(rawRules) : { version: 0, rules: [] }; // 步侧已过门,坏文件不会到这;缺席=零规则照常
     const items = parseItemsTree(ctx.itemsDir);
+    // #184 出口③:finding 计入 RETRO 摘要工件(读 08 工件只计数零出口动作;G_RETRO 机检与工件回算一致)。
+    // 降级轮(08=失败信封)记 status=degraded(诚实面:求值面死非零 finding);resume 旧轮防御:出口记录缺席则补初始化。
+    const sweepArt = j(path.join(ctx.dir, "08-anchor-sweep.json"));
+    const anchorSweep = sweepArt && Array.isArray(sweepArt.results)
+      ? { status: "ok", n_total: sweepArt.results.length, n_fail: sweepArt.n_fail,
+          findings: sweepArt.results.filter((x) => !x.ok).map(({ ip, expect, verdict, confidence, accusers }) => ({ ip, expect, verdict, confidence, accusers })) }
+      : { status: "degraded" };
+    if (!ctx.state.finding_exits)
+      ctx.state.finding_exits = { triggered: false, findings_n: 0, dry_run: false, reason: "resume_legacy_round(#184 前状态文件无出口记录)", gh_issue: { status: "skip", reason: "legacy" }, webhook: { status: "skip", reason: "legacy" } };
+    ctx.state.finding_exits.retrospective_summary = { status: anchorSweep.status === "ok" ? "counted" : anchorSweep.status, n_fail: anchorSweep.n_fail ?? null };
     const diff = retroDiff({ survivors, suppressed: suppressedF?.suppressed ?? [], items, rules, today: dayIso() });
     // 待审条目:首条未裁候选立项(RETRO_ITEM_CAP=一次尝试/轮);replay 恒零写
     // (审计重放不改生产条目面,同 ITEMIZE 回声律)。
@@ -346,6 +357,7 @@ async function RETRO(def, ctx) {
     writeJson(ctx.retroFile, { round_id: ctx.roundId, generated_at: new Date().toISOString(),
       flags_n: (s?.flags ?? []).length, survivors_n: survivors.length, suppressed_n: suppressedF?.suppressed?.length ?? 0,
       verdicts_n: j(path.join(ctx.dir, "05-deep-verdicts.json"))?.verdicts?.length ?? 0,
+      anchor_sweep: anchorSweep, // #184 出口③:巡检 finding 摘要行(G_RETRO 机检:与 08 工件回算一致)
       rules_version: rules.version,
       ...diff, // candidates(P5 #167:机械误判→adopt_rule 候选,仅产条目永不自动生效)/rules_due_review/rule_hits/channel_conflicts
       sandbox_assert_pass: true, sandbox_assert_rc: 0, degraded: false });
@@ -363,6 +375,23 @@ async function CLOSE(def, ctx) { // 书挡步:存在性校验(闭合双层的外
     const v = await sh("verify_cited_precedents", [ctx.pkg], 120_000, ctx.env);
     ctx.verify = { ok: true, cited: Number((v.stdout.match(/(\d+) 条判例路径全部存在/) ?? [])[1] ?? 0) };
   } catch (e) { throw Object.assign(new Error(`判例存在性校验败:${e.message}`), { code: "verify_failed" }); }
+}
+
+// ── ANCHOR_SWEEP(#182):生产查询路径锚巡检(只测量不判断;判断在门/finding 面)──
+// 求值=tools.mjs anchorSweepCli(python -m ipdb._eval --anchor-sweep --json;OPS_EVAL_PY/OPS_DATA_DIR
+// 桥=backend _round_env 注入,容器内解释器与数据面=后端查询进程同一套——读数即生产读数,
+// 零认证零网络,matrixScanCli 同型先例)。锚 finding=读数非故障(工件原样落盘交 G_ANCHOR_SWEEP
+// 验形状,不持门);求值面死=RETRO 同款降级旁路(失败信封四码/infra 落件证据不灭失,轮仍成功);
+// #184 finding 出口三件套接线:gh issue+webhook 在本步触发(finding>0;只写不动作,出口永不败轮;
+// replay 恒零外发),RETRO 摘要行由 RETRO 步读本工件计数(出口③)。
+async function ANCHOR_SWEEP(def, ctx) {
+  const r = await anchorSweepCli();
+  fs.writeFileSync(path.join(ctx.dir, "08-anchor-sweep.json"),
+    r.ok ? `${JSON.stringify(r.d, null, 1)}\n` : `${JSON.stringify(r.env, null, 1)}\n`);
+  ctx.state.finding_exits = await runFindingExits({ roundId: ctx.roundId, sweepD: r.ok ? r.d : null, dir: ctx.dir,
+    env: ctx.env, replayOf: ctx.state?.replay_of ?? null }); // #184:信封 pipeline.finding_exits 留痕(skip/failed 同合法态)
+  if (r.ok) return undefined; // finding 在场=读数面照常评门(不持门=门验形状不验 finding 数)
+  return { degraded: `anchor_sweep_degraded:${r.env.code}(巡检面死,失败信封落件;出口三件套零触发)`, skipGate: true };
 }
 
 // ── 模型步装配/收编(faux.mjs 真 Agent 循环的上下文与落盘;判断仍全在模型步+门)────────
@@ -489,7 +518,7 @@ export function modelItemComplete(def, ctx, item) {
   return def.out.every((f) => fs.existsSync(path.join(ctx.dir, f)));
 }
 
-const SCRIPT = { PROBE, VERIFY, DISPATCH, ITEMIZE, RETRO, CLOSE };
+const SCRIPT = { PROBE, VERIFY, DISPATCH, ITEMIZE, RETRO, ANCHOR_SWEEP, CLOSE };
 export async function runStage(def, ctx) {
   const fn = SCRIPT[def.name];
   if (!fn) throw Object.assign(new Error(`脚本步未实现:${def.name}(定义表与实现漂移)`), { code: "infra" });

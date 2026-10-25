@@ -362,8 +362,10 @@ def run_readout(registry, out_dir, *, assets_dir=None, keysets_dir=None,
     from .layer_builders import PER_SOURCE_N, build_all_monthly, non_vpn_resolvers
     from .layered import assemble_four_layers, epsilon_sensitivity, layered_readout
     from .monthly import (compose_action_block, compose_monthly_md,
-                          load_dispositions, render_anchor_oc,
-                          render_consensus_diag, render_scorecard,
+                          load_anchor_green, load_dispositions,
+                          load_prev_northstar, northstar_record,
+                          render_anchor_oc, render_consensus_diag,
+                          render_northstar, render_scorecard,
                           render_steal_parking_diag)
 
     out_dir = Path(out_dir)
@@ -434,6 +436,18 @@ def run_readout(registry, out_dir, *, assets_dir=None, keysets_dir=None,
     prev_items, prev_header = _load_prev_action_block(out_dir)
     dispositions = load_dispositions(out_dir)
     today = date.today()
+    # 能力轨北星观测件(#185, STANDARD.md E-5)——只观测不持门: 零阈值
+    # 零退出码零 CI 面, 与回归轨(--anchors 失败 sys.exit(1))双轨分立
+    # (ADR 0008 决策 2)。锚读数直读本轮 --anchors 腿工件(单一真源,
+    # 月轮真实序先于本腿); 件先于月报落盘 → 报告族以 monthly-*.md 为
+    # readout 腿代表即覆盖本件存在性(monthly_eval.sh 报告族不另设腿)。
+    ns = northstar_record(
+        readout, load_anchor_green(out_dir / "model"),
+        load_prev_northstar(out_dir, run_id),
+        run_id=run_id, eval_env=eval_env(), today=today)
+    (out_dir / f"northstar-{run_id}.json").write_text(
+        json.dumps(ns, indent=1, ensure_ascii=False), encoding="utf-8")
+    north_star_lines = render_northstar(ns)
     items = compose_action_block(readout, prev_items, dispositions, today)
 
     model_dir = out_dir / "model"
@@ -461,7 +475,8 @@ def run_readout(registry, out_dir, *, assets_dir=None, keysets_dir=None,
          "prev_fingerprints": prev_fp,
          "annual": dispositions.get("last_annual_review"),
          "today": today, "epsilon": eps},
-        steal_parking_lines=render_steal_parking_diag(keysets_root))
+        steal_parking_lines=render_steal_parking_diag(keysets_root),
+        north_star_lines=north_star_lines)
     md_path = out_dir / f"monthly-{run_id}.md"
     md_path.write_text(md, encoding="utf-8")
     (out_dir / "action-block.json").write_text(json.dumps(
@@ -484,6 +499,13 @@ def main(argv=None):
                    help="lineage audit over persisted model history (advisory, B1)")
     p.add_argument("--anchors", action="store_true",
                    help="known-answer anchor set regression gate (spec §5.2)")
+    p.add_argument("--anchor-sweep", action="store_true",
+                   help="ops 轮锚巡检件(#182):逐锚详查 verdict/confidence/"
+                        "accusers 读数,失败=finding 不持门(rc 恒 0;判定门腿"
+                        "=--anchors 月轮 rc 1,双轨分立 ADR 0008 决策2)")
+    p.add_argument("--agg-share", action="store_true",
+                   help="印证对聚合器占比披露(spec #180 Q4;issue #183):"
+                        "只测量不持门,落 model/agg-share-<ts>.json")
     p.add_argument("--dsem", action="store_true",
                    help="DS-EM fair fight: market vs declared vs pi-hat T3 (advisory)")
     p.add_argument("--temporal", action="store_true",
@@ -694,6 +716,39 @@ def main(argv=None):
             total = len(ANCHORS)
             print(f"anchors: {total - len(fails)}/{total} pass")
         sys.exit(1 if fails else 0)
+    if args.anchor_sweep:
+        # ops 轮 ANCHOR-SWEEP 求值面(#182):失败=finding 不持门(rc 恒 0);
+        # 判定门腿=--anchors(月轮 sys.exit(1)),双轨分立(ADR 0008 决策2)。
+        # stdout 恰为 sweep JSON(--anchors 纯 JSON 同纪律,无杂行);不落盘
+        # (巡检件由管线步落轮目录 08-anchor-sweep.json,本面只出读数)。
+        from .anchors import anchor_sweep
+        sweep = anchor_sweep(registry.lookup)
+        if args.json:
+            print(json.dumps(sweep, ensure_ascii=False, indent=1))
+        else:
+            for r in sweep["results"]:
+                if not r["ok"]:
+                    print(f"ANCHOR FINDING {r['ip']} ({r['expect']}): "
+                          f"{r['reason']} verdict={r['verdict']} "
+                          f"confidence={r['confidence']} "
+                          f"accusers={','.join(r['accusers']) or '-'}")
+            print(f"anchor_sweep: {sweep['n_total'] - sweep['n_fail']}"
+                  f"/{sweep['n_total']} pass (findings do not gate)")
+        return
+    if args.agg_share:
+        # 印证对聚合器占比披露(spec #180 Q4;issue #183):只测量不持门
+        # (回归轨/能力轨分立,ADR 0008 决策 2)—— exit 恒 0,报告照落。
+        from .agg_share import run_agg_share
+        res = run_agg_share(registry, out_dir=REPORT_DIR)
+        if args.json:
+            print(json.dumps(res, ensure_ascii=False))
+        else:
+            share = res["derived_vote_share"]
+            print(f"agg-share: probed {res['n_probe']} IPs, "
+                  f"corroborated groups {res['n_corroborated_groups']}, "
+                  f"derived vote share {share}, "
+                  f"pure-derived echo groups {res['n_pure_derived_groups']}")
+        return
     if args.dsem:
         from ipdb._merge import SOURCE_RELIABILITY
         from .dsem_cli import run_dsem_report

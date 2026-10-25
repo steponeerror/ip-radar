@@ -527,6 +527,81 @@ else
   bad "t4:node 不可用(新例点名失效)"
 fi
 
+# ---- 13. 黄金标准 #181:standard-check 门挂点核对器(零依赖纯 node;语义=挂不上验证手段的条目只能称建议) ----
+# 两面:①核对器单测(selftest-standard.mjs,15 例纯内存 DI fixture);②真源面 STANDARD.md 全文核对
+# (死锚/空挂点/伪条目/建议未标类→非零退出)。挂点一律主仓相对,嵌套 docs 仓缺席不影响(CI 可跑)。
+if command -v node >/dev/null 2>&1; then
+  STDUT="$(node "$AGENT/selftest-standard.mjs" 2>&1)"; STDUTRC=$?
+  STDUT_PASS_N="$(grep -c '^STDPASS ' <<<"$STDUT" || true)"
+  STDUT_FAIL_N="$(grep -c '^STDFAIL ' <<<"$STDUT" || true)"
+  if (( STDUTRC == 0 && STDUT_FAIL_N == 0 && STDUT_PASS_N > 0 )); then
+    ok "standard:核对器单测全绿(${STDUT_PASS_N} 例,含空挂点/死锚/伪条文/建议未标类)"
+  else
+    bad "standard:核对器单测失败(PASS=${STDUT_PASS_N} FAIL=${STDUT_FAIL_N})"
+    printf '%s\n' "$STDUT" | grep '^STDFAIL' || true
+  fi
+  node --check "$AGENT/standard-check.mjs" 2>/dev/null \
+    && ok "standard:核对器 node 语法通过" || bad "standard:核对器 node 语法通过"
+  SCOUT="$(node "$AGENT/standard-check.mjs" 2>&1)"; SCRC=$?
+  if (( SCRC == 0 )); then
+    ok "standard:STANDARD.md 门挂点全绿($(grep '^standard-check:' <<<"$SCOUT" | sed 's/^standard-check: //'))"
+  else
+    bad "standard:STANDARD.md 门挂点核对失败(死锚/空挂点/伪条目/建议未标类)"
+    printf '%s\n' "$SCOUT" | grep 'STDCHK FAIL' || true
+  fi
+else
+  bad "standard:node 不可用(核对器前置)"
+fi
+[[ -f "$AGENT/STANDARD.md" ]] \
+  && ok "standard:典章真源 STANDARD.md 在案" || bad "standard:典章真源 STANDARD.md 在案"
+
+# ---- 14. 锚集三源对拍哨(终审修单 F8):python ANCHORS 真源 vs 双 JS 镜像集合 ----
+# 锚集真源=backend/ipdb/_eval/anchors.py(扩员只改此一处);selftest-pipeline.mjs
+# 的 SWEEP_ANCHORS 与 golden/run-golden.mjs 的 GOLDEN_SWEEP_ANCHORS 是形状钉
+# 镜像(罐装工件面)。扩员不跟(任一镜像落后真源)=红:双向集合相等逐成员
+# 对拍。python 面用 ast 文本解析零 import(CI frontend job 无 backend 依赖面)。
+if command -v python3 >/dev/null 2>&1; then
+  MIRLOG="$TMP/anchor-mirror-check.log"
+  if ROOT="$ROOT" python3 - > "$MIRLOG" 2>&1 <<'PYEOF'; then MIRRC=0; else MIRRC=$?; fi
+import ast, json, os, re
+from pathlib import Path
+root = Path(os.environ["ROOT"])
+src = (root / "backend/ipdb/_eval/anchors.py").read_text(encoding="utf-8")
+py_anchors = None
+for node in ast.parse(src).body:  # Assign 与 AnnAssign(带类型注解)两形都认
+    targets = [getattr(t, "id", None) for t in node.targets] if isinstance(node, ast.Assign) \
+        else ([getattr(node.target, "id", None)] if isinstance(node, ast.AnnAssign) else [])
+    if "ANCHORS" in targets:
+        py_anchors = sorted(tuple(a) for a in ast.literal_eval(node.value))
+        break
+assert py_anchors is not None, "anchors.py ANCHORS 不可解析(ast 文本面)"
+def js_mirror(rel, var):
+    m = re.search(re.escape(var) + r"\s*=\s*(\[\[.*?\]\])\s*;", (root / rel).read_text(encoding="utf-8"), re.S)
+    assert m, f"{rel} 找不到 {var} 数组字面量"
+    return sorted(tuple(x) for x in json.loads(m.group(1)))
+bad_mirrors = []
+for rel, var in (("ops/agent/selftest-pipeline.mjs", "SWEEP_ANCHORS"),
+                ("ops/agent/golden/run-golden.mjs", "GOLDEN_SWEEP_ANCHORS")):
+    mirror = js_mirror(rel, var)
+    if mirror != py_anchors:
+        miss = ["|".join(a) for a in py_anchors if a not in mirror]
+        extra = ["|".join(a) for a in mirror if a not in py_anchors]
+        bad_mirrors.append(f"{rel} {var} 缺={miss} 多={extra}")
+if bad_mirrors:
+    print("MIRRORFAIL 锚集镜像与 anchors.py 不一致(扩员须同改双 JS 镜像): " + "; ".join(bad_mirrors))
+    raise SystemExit(1)
+print(f"MIRRORPASS 锚集三源对拍一致({len(py_anchors)} 员;扩员须同改双 JS 镜像)")
+PYEOF
+  if (( MIRRC == 0 )) && grep -q "^MIRRORPASS " "$MIRLOG"; then
+    ok "mirror:锚集三源对拍一致(anchors.py vs SWEEP_ANCHORS/GOLDEN_SWEEP_ANCHORS,$(grep -o '[0-9]* 员' "$MIRLOG" | head -1))"
+  else
+    bad "mirror:锚集三源对拍不一致(扩员未跟镜像)"
+    grep -E 'MIRRORFAIL|Error|assert' "$MIRLOG" || true
+  fi
+else
+  bad "mirror:python3 不可用(对拍哨前置)"
+fi
+
 echo "----"
 echo "selftest: PASS=$pass FAIL=$fail"
 (( fail == 0 )) || exit 1

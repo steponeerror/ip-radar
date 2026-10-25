@@ -41,10 +41,11 @@ def test_cps_collected_iocs_rebuild_dedupes_and_queries(tmp_path: Path):
 
 def test_cps_collected_iocs_record_is_evidence_contract(tmp_path: Path):
     from ipdb._evidence import Evidence
-    (tmp_path / "cps_collected_iocs.txt").write_text("9.9.9.9\n")
+    # 样本 IP 避开 curated infra 集(cps 载入面排 infra 噪声,issue #183)
+    (tmp_path / "cps_collected_iocs.txt").write_text("45.148.65.28\n")
     s = CpsCollectedIocsSource(data_dir=tmp_path)
     s.rebuild()
-    rec = s.query("9.9.9.9")[0]
+    rec = s.query("45.148.65.28")[0]
     assert rec == Evidence(
         classification_type="blacklist", verdict="malicious", reliability=0.50,
     ).to_dict()

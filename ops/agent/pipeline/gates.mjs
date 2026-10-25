@@ -227,13 +227,38 @@ export const GATES = {
     try { closureCheck(report, allowed); } catch (e) { return fail(`判例闭合违例:${e.message}`, inputs, "closure_check"); }
     return pass(`三节齐;四计数+深验三计数与工件逐字一致(confirmed=${truth.confirmed} refuted=${truth.refuted} unresolved=${truth.unresolved});判例引用闭合(注入 ${allowed.size})`, inputs);
   },
+  // G_ANCHOR_SWEEP(#182):工件可解析 ∧ 全集穷尽(anchors 投影=results 逐锚恰一)∧ 逐锚带
+  // verdict/confidence 数字+accusers 字符串组 ∧ n_fail/failures 回算一致。锚 finding 不持门
+  // (票义:失败=finding 落件,轮照常成功)——门只验形状面;锚集真源=python anchors.py,
+  // 工件 anchors 字段即其投影,门验工件内自洽不复制真源(谱系单一真源律)。求值面死走
+  // 降级旁路(appendGateBypass,RETRO 同款),不进本门。
+  G_ANCHOR_SWEEP: (ctx) => {
+    const inputs = ["08-anchor-sweep.json"];
+    const s = j(path.join(ctx.dir, "08-anchor-sweep.json"));
+    if (!s || !Array.isArray(s.anchors) || !Array.isArray(s.results)) return fail("08-anchor-sweep.json 不可解析(缺 anchors/results 数组)", inputs);
+    if (s.anchors.length !== s.results.length) return fail(`anchors=${s.anchors.length}≠results=${s.results.length}(全集投影破)`, inputs);
+    const want = s.anchors.map((a) => `${a[0]}|${a[1]}`).sort().join(",");
+    const got = s.results.map((r) => `${r.ip}|${r.expect}`).sort().join(",");
+    if (want !== got) return fail(`投影不穷尽(丢锚/重锚):${got.slice(0, 80)}`, inputs);
+    for (const r of s.results) {
+      if (typeof r.ip !== "string" || typeof r.expect !== "string") return fail(`锚行 ip/expect 非字符串:${JSON.stringify(r).slice(0, 60)}`, inputs);
+      if (typeof r.ok !== "boolean") return fail(`ok 非布尔(${r.ip})`, inputs);
+      if (typeof r.verdict !== "string" || !r.verdict) return fail(`verdict 缺(${r.ip})`, inputs);
+      if (typeof r.confidence !== "number") return fail(`confidence 非数字(${r.ip})`, inputs);
+      if (!Array.isArray(r.accusers) || !r.accusers.every((a) => typeof a === "string")) return fail(`accusers 非字符串数组(${r.ip})`, inputs);
+    }
+    const nFail = s.results.filter((r) => !r.ok).length;
+    if (s.n_fail !== nFail) return fail(`n_fail=${s.n_fail}≠回算 ${nFail}`, inputs);
+    if ((s.failures ?? []).length !== nFail) return fail(`failures=${(s.failures ?? []).length}≠回算 ${nFail}`, inputs);
+    return pass(`n_total=${s.results.length} n_fail=${nFail} findings=${nFail}(不持门);逐锚 verdict/confidence/accusers 齐`, inputs);
+  },
   // G_RETRO:retro schema 过 ∧ 台账行读回存在 ∧ sandbox rc=0(rc 由 RETRO 步实测记入 retro 工件);
   // P5 #167:候选确定性检查 schema(match 谓词闭集/动作闭集/证据非空——无证据即无话)与
   // 到点复审清单/通道矛盾清单的形状面。
   G_RETRO: (ctx) => {
     const key = ctx.retroAuditKey; // replay --dry 审原件;重执行审重放自产
     const retroFile = path.join(ctx.opsRoot, "retro", `${key}.json`);
-    const inputs = [`retro/${key}.json`, "(ledger)"];
+    const inputs = [`retro/${key}.json`, "08-anchor-sweep.json(#184 出口③摘要源)", "(ledger)"];
     const r = j(retroFile);
     if (!r) return fail(`retro/${key}.json 不可解析`, inputs);
     if (r.round_id !== key) return fail(`retro.round_id=${r.round_id}≠${key}`, inputs);
@@ -255,6 +280,14 @@ export const GATES = {
       if (typeof x.rule_id !== "string" || typeof x.dedup_key !== "string" || !Array.isArray(x.in_flight_items)) return fail(`通道矛盾行形状非法:${JSON.stringify(x).slice(0, 80)}`, inputs);
     }
     if (r.sandbox_assert_pass !== true) return fail(`sandbox_assert rc≠0(${r.sandbox_assert_rc})`, inputs);
+    // #184 出口③机检:08 巡检工件在场(读数或降级信封)→ retro.anchor_sweep 摘要必须在场且与工件回算一致
+    // (无验证手段不得称出口;降级轮摘要须记 degraded;缺席/不符=门败)
+    const sweepArt = j(path.join(ctx.dir, "08-anchor-sweep.json"));
+    if (sweepArt && Array.isArray(sweepArt.results)) {
+      if (!r.anchor_sweep || r.anchor_sweep.status !== "ok" || r.anchor_sweep.n_fail !== sweepArt.n_fail)
+        return fail(`retro.anchor_sweep 摘要缺席/n_fail 不符(工件=${sweepArt.n_fail},retro=${r.anchor_sweep?.n_fail ?? "(缺)"}——出口③机检)`, inputs);
+    } else if (sweepArt && (!r.anchor_sweep || r.anchor_sweep.status !== "degraded"))
+      return fail("retro.anchor_sweep 摘要未记巡检降级态(08 工件=失败信封;出口③机检)", inputs);
     const ledger = txt(ctx.ledgerFile);
     if (ledger === null || !ledger.includes(`pipeline:${key}`)) return fail("台账读回缺本轮行", inputs);
     return pass(`retro schema 过(${(r.candidates ?? []).length} 候选,到点复审 ${(r.rules_due_review ?? []).length},通道矛盾 ${(r.channel_conflicts ?? []).length});台账行读回;sandbox rc=0`, inputs);
@@ -266,6 +299,14 @@ export const GATES = {
     const s = JSON.stringify(ctx.envelope);
     if (s.includes("\n")) return fail("信封非单行", inputs);
     if (JSON.parse(s).ok !== ctx.envelope.ok) return fail("信封不可往返解析", inputs);
+    // #184:finding 出口三件套信封留痕机检——ANCHOR_SWEEP 已跑(done/degraded)则
+    // pipeline.finding_exits 必在场(gh_issue/webhook 状态面;未配置=skip 痕是票面语义非可选)
+    const sweepStage = (ctx.envelope.pipeline?.stages ?? []).find((x) => x.name === "ANCHOR_SWEEP");
+    if (sweepStage && ["done", "degraded"].includes(sweepStage.status)) {
+      const fe = ctx.envelope.pipeline.finding_exits;
+      if (!fe || typeof fe.triggered !== "boolean" || !fe.gh_issue || !fe.webhook)
+        return fail("finding 出口信封留痕缺席(#184:gh_issue/webhook 状态面须在场;未配置=skip 痕)", inputs);
+    }
     return pass(`信封单行 JSON 落 stdout 末行(${s.length} 字节,${ctx.envelope.pipeline?.stages?.length ?? 0} stages)`, inputs);
   },
 };

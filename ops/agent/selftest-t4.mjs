@@ -26,6 +26,10 @@ const {
   searchPrecedentsCore, classifyChannelError,
   // PR3a 发现通道三件纯函数核(2026-10-24 裁定;web_search 引擎 = pi-web-access MCP,同日中程用户令):
   normalizeJinaRead, parseSerp, parseRss, RSS_FRESH_DAYS, classifyWebStatus, parseMcpSearchText, classifyMcpSearchError,
+  // 票 #182(金标巡检 harness):ops 轮锚巡检 CLI 单源(matrixScanCli 同型;通道四码兼容)
+  anchorSweepCli,
+  // 票 #184(finding 出口三件套):gh 面唯一写面 issue create + 写面闭集常量(模型工具面仍只读 search)
+  ghIssueCreate, GH_WRITE_SUBCOMMANDS,
 } = await import("./tools.mjs");
 
 // ── fixture:用户 models.json(flash 定义,无 api/baseUrl)+ models-store(glm-5.3 全量)+ auth ──
@@ -566,7 +570,7 @@ await t("parseRss:RSS2.0/Atom 双形状;新鲜门 30(5 天=新鲜/40 天=过期,
   }
 });
 
-await t("分类:402/balance→quota(quota 正则扩 PR3a);quota 文案「充值或窗口恢复」;403 仍 channel_auth(词边界面);HTTP 状态面同族(classifyWebStatus)", () => {
+await t("分类:402/balance→quota(quota 正则扩 PR3a);quota 文案「充值或窗口恢复」;403 仍 channel_auth(词边界面);HTTP 状态面同族", () => {
   const mk = (stderr) => Object.assign(new Error("x"), { code: 1, stderr });
   assert.equal(classifyChannelError(mk("HTTP 402: Payment Required"), "gh").code, "quota", "402 显式归 quota 不归 channel_auth");
   assert.equal(classifyChannelError(mk("insufficient balance"), "gh").code, "quota");
@@ -578,6 +582,72 @@ await t("分类:402/balance→quota(quota 正则扩 PR3a);quota 文案「充值�
   assert.match(classifyWebStatus(402, "", "web_search").reason, /充值或窗口恢复/);
   assert.equal(classifyWebStatus(403, "", "web_read").code, "channel_auth");
   assert.equal(classifyWebStatus(500, "boom", "web_read").code, "http_error", "非通道面状态归 http_error(暂态族,同 fetch_url 语义)");
+});
+
+// ── 票 #182:anchorSweepCli——ops 轮锚巡检 CLI 单源(matrixScanCli 同型;faux 查询面零网络)──
+await t("anchorSweepCli:faux 查询面——读数(finding 在场仍 ok/rc 0)/error 信封透传/ENOENT→channel_missing/超时→transient(通道四码兼容)", async () => {
+  assert.equal(typeof anchorSweepCli, "function", "anchorSweepCli 未导出(RED 面应先红)");
+  // 罐装 sweep(事故判例形:#183 整改前 114DNS=cps+ziyadnz 假印证 finding——票 #182 明示 fixture 不依赖整改)
+  const CANNED = { kind: "anchor_sweep", anchors: [["8.8.8.8", "clean"], ["114.114.114.114", "clean"]],
+    n_total: 2, n_fail: 1,
+    failures: [{ ip: "114.114.114.114", expect: "clean", reason: "expected clean, got malicious" }],
+    results: [
+      { ip: "8.8.8.8", expect: "clean", ok: true, reason: null, verdict: "benign", confidence: 0, accusers: [] },
+      { ip: "114.114.114.114", expect: "clean", ok: false, reason: "expected clean, got malicious", verdict: "malicious", confidence: 55, accusers: ["cps_collected_iocs", "ziyadnz"] }] };
+  const shell = (name, body) => { const p = path.join(TMP, name);
+    fs.writeFileSync(p, `#!/usr/bin/env bash\n${body}`); fs.chmodSync(p, 0o755); return p; };
+  const stubOk = shell("py-sweep-ok", `printf '%s\n' '${JSON.stringify(CANNED).replace(/'/g, "'\\''")}'\n`);
+  const r = await anchorSweepCli({ evalPy: stubOk, dataDir: "/tmp/d" });
+  assert.equal(r.ok, true, "finding 在场仍是读数非故障(不持门语义在 CLI 面=rc 0)");
+  assert.equal(r.rc, 0);
+  assert.deepEqual(r.d, CANNED, "读数原样透传(步侧零改写)");
+  assert.match(r.cmd, /--anchor-sweep --json/, "命令面=anchor-sweep 求值 CLI(误配 OPS_EVAL_PY 可辨)");
+  const stubErr = shell("py-sweep-err", `printf '%s\n' '{"error":{"code":"internal","message":"load_db failed: disk","hint":"h"}}'\nexit 1\n`);
+  const r2 = await anchorSweepCli({ evalPy: stubErr, dataDir: "/tmp/d" });
+  assert.equal(r2.ok, false, "error 信封=失败非读数(--json 面不裸栈,spec §5.2)");
+  assert.equal(r2.env.code, "internal", "python 侧 code 透传");
+  assert.equal(r2.env.reason, "load_db failed: disk");
+  const r3 = await anchorSweepCli({ evalPy: path.join(TMP, "no-such-python"), dataDir: "/tmp/d" });
+  assert.equal(r3.ok, false);
+  assert.equal(r3.env.code, "channel_missing", "ENOENT 归四码 channel_missing(通道四码兼容,PR #177)");
+  const stubHang = shell("py-sweep-hang", "sleep 5\n");
+  const r4 = await anchorSweepCli({ evalPy: stubHang, dataDir: "/tmp/d", timeoutMs: 400 });
+  assert.equal(r4.ok, false);
+  assert.equal(r4.env.code, "transient", "超时归四码 transient;gh/rg 兑底码不复用于 python 面");
+});
+
+// ── 票 #184(finding 出口三件套):ghIssueCreate——gh 面白名单唯一写面(issue create)──
+await t("ghIssueCreate(#184):gh 面白名单扩 issue create(唯一写面)——argv 头钉死 [issue,create]+缺省标签 needs-triage;dry-run 零 spawn 只记 cmd;失败=分类信封不抛(出口永不败轮)", async () => {
+  assert.equal(typeof ghIssueCreate, "function", "ghIssueCreate 未导出(RED 面应先红)");
+  assert.deepEqual(GH_WRITE_SUBCOMMANDS, ["issue create"], "写面闭集单员(spec #180 首批租户 Q6 授权;扩=spec 变更)");
+  const calls = [];
+  const fakeExec = async (bin, argv) => {
+    calls.push({ bin, argv });
+    if (argv.includes("FAILCASE"))
+      throw Object.assign(new Error("spawn ENOENT-ish"), { code: 1, stderr: "gh: creation failed (fixture)" });
+    return { stdout: "https://github.com/steponeerror/ip-radar/issues/190\n" };
+  };
+  const r = await ghIssueCreate({ title: "[anchor-sweep] 2 finding", body: "fixture body" }, { exec: fakeExec });
+  assert.equal(r.ok, true);
+  assert.equal(r.dry_run, false);
+  assert.equal(calls.length, 1, "真发路径恰一次 spawn");
+  assert.equal(calls[0].bin, "gh");
+  assert.deepEqual(calls[0].argv.slice(0, 2), GH_WRITE_SUBCOMMANDS[0].split(" "), "子命令白名单:issue create(gh 面唯一写面;模型工具面仍只读 search)");
+  assert.equal(calls[0].argv[calls[0].argv.indexOf("--label") + 1], "needs-triage", "缺省标签=needs-triage(人裁终局)");
+  assert.equal(r.issue_url, "https://github.com/steponeerror/ip-radar/issues/190");
+  const rd = await ghIssueCreate({ title: "t", body: "b" }, { exec: fakeExec, dryRun: true });
+  assert.equal(rd.ok, true);
+  assert.equal(rd.dry_run, true);
+  assert.equal(calls.length, 1, "dry-run 零 spawn(测试恒 dry-run 面)");
+  assert.match(rd.cmd, /^gh issue create --title/, "dry-run 记录将发命令");
+  assert.equal(rd.issue_url, null);
+  const rf = await ghIssueCreate({ title: "t", body: "FAILCASE" }, { exec: fakeExec });
+  assert.equal(rf.ok, false, "失败不抛(出口永不败轮)");
+  assert.equal(rf.error.code, "gh_error", "兑底分类同 gh_search");
+  assert.equal(rf.issue_url, null);
+  const rAuth = await ghIssueCreate({ title: "t", body: "b" },
+    { exec: async () => { throw Object.assign(new Error("x"), { code: 4, stderr: "gh: Not logged in, run gh auth login" }); } });
+  assert.equal(rAuth.error.code, "channel_auth", "通道四码兼容(凭证面=部署动作,信封自带下一步)");
 });
 
 await t("parseMcpSearchText:MCP wire 文本归一(真 fixture:provider/Sources 条目/机会式 snippet/Error 行;pi-web-access 0.44.0 实拍)", () => {

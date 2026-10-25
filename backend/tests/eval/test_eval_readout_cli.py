@@ -10,6 +10,8 @@ import base64
 import json
 from pathlib import Path
 
+import pytest
+
 from ipdb._eval.__main__ import run_readout
 from ipdb._eval.assets import AssetMeta, fingerprint, save_asset
 
@@ -188,3 +190,89 @@ def test_readout_truth_layer_anchors_asof_and_epsilon(tmp_path):
     assert "ε=0.00 → 0.2500" in text
     assert "真值层缺" not in text                   # ε 哨兵行不误发
     assert readout["degraded"] is False
+
+
+# ── 能力轨北星观测件(#185;STANDARD.md E-5, 只观测不持门)──────
+
+
+class _CorrRegistry(_FakeRegistry):
+    """双证人变体: .1 IP 由 src_a+src_b 同时指控 → k_all=2(corroborated);
+    两源均非聚合簇(LINEAGE_CLUSTERS 表外)→ derived_only 恒 0
+    (corroborated 精度=100%,114DNS 假印证面的反例面)。"""
+
+    def lookup(self, ip, asof=None):
+        res = super().lookup(ip, asof=asof)
+        if ip.endswith(".1"):
+            res["classifications"]["proxy"]["details"].append(
+                {"source": "src_b", "verdict": "malicious"})
+        return res
+
+
+def _truth_asset(assets):
+    members = ["10.100.0.1", "192.0.2.7"]
+    save_asset(assets / "truth", members, AssetMeta(
+        version="v-t", kind="truth", fingerprint=fingerprint(members),
+        member_count=len(members), params={}, eval_env="monthly",
+        created_at="2026-10-01"))
+
+
+def _anchors_file(rep, name, n_fail):
+    """月轮真实序: --anchors 先于 --readout 落 model/anchors-*.json
+    (回归轨判定门工件 = 能力轨锚读数的单一真源)。"""
+    m = rep / "model"
+    m.mkdir(parents=True, exist_ok=True)
+    (m / name).write_text(json.dumps(
+        {"kind": "anchors", "eval_env": "monthly",
+         "generated_at": "2026-10-01", "n_total": 19,
+         "failures": [{"ip": f"10.0.0.{i}"} for i in range(n_fail)]}))
+
+
+def test_readout_writes_northstar_capability_track_record(tmp_path):
+    # readout 腿落 northstar-<run_id>.json + monthly-*.md 北星行;
+    # 单源 fixture 全部命中 k=1 → corroborated 面零读数 → N/A 不虚构
+    assets, kdir, rep = tmp_path / "assets", tmp_path / "keysets", tmp_path / "rep"
+    _truth_asset(assets)
+    reg = _FakeRegistry(_build_sources(tmp_path))
+    _anchors_file(rep, "anchors-20261001-000000.json", 0)
+    md, _, _ = run_readout(reg, rep, assets_dir=assets, keysets_dir=kdir,
+                           run_seed=1, run_id="r1")
+    ns = json.loads((rep / "northstar-r1.json").read_text())
+    assert ns["kind"] == "northstar" and ns["run_id"] == "r1"
+    assert ns["anchor_green"]["n_total"] == 19
+    assert ns["anchor_green"]["rate"] == 1.0
+    assert ns["corroborated"]["n"] == 0
+    assert ns["corroborated"]["precision"] is None
+    text = md.read_text()
+    assert "能力轨北星" in text and "只观测不持门" in text
+    assert "19/19(100.0%" in text
+    assert "零 corroborated 读数" in text
+    assert "环比 首轮" in text
+
+
+def test_readout_northstar_second_round_mom(tmp_path):
+    assets, kdir, rep = tmp_path / "assets", tmp_path / "keysets", tmp_path / "rep"
+    _truth_asset(assets)
+    sources = _build_sources(tmp_path)  # 同 tmp_path 只建一次(mkdir 幂等性)
+    _anchors_file(rep, "anchors-20261001-000000.json", 0)
+    run_readout(_FakeRegistry(sources), rep,
+                assets_dir=assets, keysets_dir=kdir, run_seed=1, run_id="r1")
+    _anchors_file(rep, "anchors-20261101-000000.json", 2)
+    md2, _, _ = run_readout(_CorrRegistry(sources), rep,
+                            assets_dir=assets, keysets_dir=kdir,
+                            run_seed=2, run_id="r2")
+    ns2 = json.loads((rep / "northstar-r2.json").read_text())
+    assert ns2["anchor_green"]["artifact"] == "anchors-20261101-000000.json"
+    assert ns2["anchor_green"]["n_fail"] == 2
+    assert ns2["anchor_green"]["rate"] == pytest.approx(17 / 19)
+    assert ns2["anchor_green_mom_pp"] == pytest.approx((17 / 19 - 1) * 100)
+    # 双源变体: 10.101.0.1 必入 consensus 采样面(src_b 键集 10 全采)→
+    # corroborated n≥1; 非聚合双源 → derived_only=0 → 精度 100%
+    assert ns2["corroborated"]["n"] >= 1
+    assert ns2["corroborated"]["derived_only"] == 0
+    assert ns2["corroborated"]["precision"] == 1.0
+    assert ns2["corroborated_precision_mom_pp"] is None  # r1 轮精度 N/A
+    text = md2.read_text()
+    assert "17/19(89.5%" in text
+    assert "corroborated 精度 100.0%" in text
+    assert "环比 -10.5pp" in text
+    assert "环比 前轮 N/A" in text

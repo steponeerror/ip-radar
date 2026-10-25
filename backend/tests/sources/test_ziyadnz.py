@@ -23,9 +23,9 @@ SAMPLE = (
     "2026-10-17T00:00:00+00:00,2026-10-17T00:00:00+00:00\n"
     "1.10.16.0/20,ipv4,True,Spamhaus DROP,1,infrastructure,20,"
     "2026-10-16T00:00:00+00:00,2026-10-16T00:00:00+00:00\n"
-    "9.9.9.9,ipv4,False,CINS Army|SGB (Turkiye),2,scanner,40,"
+    "45.148.65.28,ipv4,False,CINS Army|SGB (Turkiye),2,scanner,40,"
     "2026-10-15T00:00:00+00:00,2026-10-15T00:00:00+00:00\n"
-    "9.9.9.9,ipv4,False,CINS Army,1,multi-source,50,"
+    "45.148.65.28,ipv4,False,CINS Army,1,multi-source,50,"
     "2026-10-14T00:00:00+00:00,2026-10-14T00:00:00+00:00\n"
     "2001:db8::1,ipv6,False,SomeSource,1,crowd-sourced,20,"
     "2026-10-13T00:00:00+00:00,2026-10-13T00:00:00+00:00\n"
@@ -42,7 +42,8 @@ def test_ziyadnz_loads_blacklist_csv(tmp_path: Path):
     (tmp_path / "ziyadnz.csv").write_text(SAMPLE)
     s = ZiyadnzSource(data_dir=tmp_path)
     # CsvSource 口径:distinct CIDR keys —— 1.2.3.4/32 + 5.6.7.8/32 +
-    # 9.9.9.9/32(双证据并一键)+ 1.10.16.0/20;表头/v6/脏行/空行全弃。
+    # 45.148.65.28/32(双证据并一键)+ 1.10.16.0/20;表头/v6/脏行/空行全弃
+    # (样本 IP 避开 curated infra 集:ziyadnz 载入面排 infra 噪声,issue #183)。
     assert s.rebuild() == 4
     # DQ-2(b2843b13):record_count = env 主库键数;证据行 6 ≠ 键数 4。
     assert s.health().record_count == 4
@@ -73,7 +74,7 @@ def test_ziyadnz_multi_evidence_cidr_survives(tmp_path: Path):
     (tmp_path / "ziyadnz.csv").write_text(SAMPLE)
     s = ZiyadnzSource(data_dir=tmp_path)
     s.rebuild()
-    evs = s.query("9.9.9.9")
+    evs = s.query("45.148.65.28")
     # same CIDR, distinct evidence rows — both survive (Convention 3, no pre-collapse)
     assert len(evs) == 2
     assert {tuple(e["extra"]["sources"]) for e in evs} == {

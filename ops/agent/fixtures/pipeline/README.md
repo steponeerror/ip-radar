@@ -9,10 +9,17 @@ P4(#166)起三模型步全真装配形态:TRIAGE/SYNTH 单发、DEEP 逐假设 `
 行重建登记表逐字回引;`≤3/假设` 由 G_DEEP 机检,`fx.seed` 单腿向后兼容 `fx.seeds` 多腿)。
 **A 一律**:canned evidence 只给 `{call_id, field}` 选择对,值由宿主回填(deepConsume);
 
-PROBE(P1,#163 起)不消费本目录:feed_freshness=lib.sh 真执行(curl stub),matrix=
-tools.mjs `matrixScanCli` 真扫描(OPS_EVAL_PY stub)。
+PROBE(P1,#163 起)不消费本目录：feed_freshness=lib.sh 真执行(curl stub),matrix=
+tools.mjs `matrixScanCli` 真扫描(OPS_EVAL_PY stub)。ANCHOR_SWEEP(#182)同样不消费本目录：
+`anchorSweepCli` 真扫描,OPS_EVAL_PY stub **按旗标分发**(`--anchor-sweep`→罐装锚巡检 JSON,
+其余→罐装矩阵 JSON;selftest-pipeline py-matrix 与 golden stubPy 同款)。
 
 ## 本 fixture 集的配对契约(改一处须同步另一处)
+
+- **OPS_EVAL_PY stub 旗标分发**(#182):`--anchor-sweep` → 罐装 anchor_sweep JSON。
+  selftest-pipeline 面=事故判例形(8.8.8.8=myip_ms 单源/114DNS=cps+ziyadnz 假印证双
+  finding,#183 整改前形状——钉「finding 不持门」语义);golden 面=零 finding 基线(钉全绿
+  基线)。锚集镜像 anchors.py 扩员后 19 员(形状钉;锚集真源=python,门只验工件内自洽)。
 
 - **curl stub 规则**(golden `stubs.curl_age_days` / selftest-pipeline 同款):
   `cinsscore→220 天` `binarydefense→210 天` `dshield→200 天` `其余→30 天`。
