@@ -333,6 +333,37 @@ def test_recovery_round_crash_settles_task(rounds, ops_env, monkeypatch):
     assert mgr.logs, "兑底路径留痕 task_log(不吞异常信息)"
 
 
+# ── #139 挂账①:轮次内存峰值(cgroup 读数三态 + run_round 收口面台账行)──
+
+
+def test_read_memory_peak_cgroup_v2(rounds, tmp_path, monkeypatch):
+    """cgroup v2 可读:memory.peak(P5 容器内即容器峰值高水位)。"""
+    v2 = tmp_path / "cgroup2" / "memory.peak"
+    v2.parent.mkdir()
+    v2.write_text("838860800\n", encoding="utf-8")
+    monkeypatch.setattr(rounds, "_CGROUP_V2_PEAK", v2)
+    monkeypatch.setattr(rounds, "_CGROUP_V1_PEAK", tmp_path / "cgroup1" / "nope")
+    assert rounds.read_memory_peak() == 838860800
+
+
+def test_read_memory_peak_cgroup_v1_fallback(rounds, tmp_path, monkeypatch):
+    """v2 不可读 → 回退 cgroup v1 memory.max_usage_in_bytes(旧内核容器)。"""
+    v1 = tmp_path / "cgroup1" / "memory" / "memory.max_usage_in_bytes"
+    v1.parent.mkdir(parents=True)
+    v1.write_text("1048576\n", encoding="utf-8")
+    monkeypatch.setattr(rounds, "_CGROUP_V2_PEAK", tmp_path / "cgroup2" / "nope")
+    monkeypatch.setattr(rounds, "_CGROUP_V1_PEAK", v1)
+    assert rounds.read_memory_peak() == 1048576
+
+
+def test_read_memory_peak_absent_returns_none(rounds, tmp_path, monkeypatch):
+    """两代路径皆不可读(开发机裸机无 cgroup/无权限)→ None 不抛:
+    缺读数≠零用量,绝不虚构(测量建言/宁少算)。"""
+    monkeypatch.setattr(rounds, "_CGROUP_V2_PEAK", tmp_path / "cgroup2" / "nope")
+    monkeypatch.setattr(rounds, "_CGROUP_V1_PEAK", tmp_path / "cgroup1" / "nope")
+    assert rounds.read_memory_peak() is None
+
+
 # ── A. argv 契约(纯函数;真 node 命令形状)──────────────────────────────────
 
 

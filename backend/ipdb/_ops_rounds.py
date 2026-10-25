@@ -499,6 +499,31 @@ def _settle_crash(manager, task_id: str, exc: BaseException,
         logger.exception("C1 兑底 finish_ops_round 失败(task %s)——车道释放链断,需人工介入", task_id)
 
 
+# ── #139 挂账①:轮次内存峰值采集(cgroup 读数,桥侧;agent 冻结面零触碰)──
+# 冷启动验收 #5 需要轮次内存峰值,此前以 docker stats 人工替代(runbook §7);
+# 挂账原判「agent 冻结面不可动」已过时(hotfix #196/C2 均动过本文件),改在
+# 桥侧读容器自身 cgroup。cgroup v2 容器内 /sys/fs/cgroup/memory.peak 即容器
+# 自创建累计高水位(单调不回落);cgroup v1 无此文件,回退
+# memory/memory.max_usage_in_bytes(语义同为累计高水位)。两者皆不可读
+# (开发机裸机无 cgroup 或无权限)→ None 不抛:缺读数≠零用量,绝不虚构
+# (测量建言/宁少算)。路径钉模块常量:测试/P5 特殊拓扑 monkeypatch 此面。
+_CGROUP_V2_PEAK = Path("/sys/fs/cgroup/memory.peak")
+_CGROUP_V1_PEAK = Path("/sys/fs/cgroup/memory/memory.max_usage_in_bytes")
+
+
+def read_memory_peak() -> int | None:
+    """cgroup 内存峰值高水位读数(v2 → v1 回退;皆不可读 → None,不抛)。
+
+    #139 挂账①(冷启动验收 #5;原 docker stats 人工替代口径见 runbook §7)。
+    """
+    for path in (_CGROUP_V2_PEAK, _CGROUP_V1_PEAK):
+        try:
+            return int(path.read_text(encoding="ascii").strip())
+        except (OSError, ValueError):  # 缺文件/无权限/非整数(含解码错):回退下一面
+            continue
+    return None
+
+
 def run_round(manager, task, round_type: str, input_text: str) -> None:
     """ops 轮线程入口(路由侧 threading.Thread 拉起):spawn → 收口。
 
