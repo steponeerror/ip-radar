@@ -380,9 +380,12 @@ fi
   && ok "t4:npm install 已落位" || bad "t4:npm install 已落位"
 git -C "$ROOT" check-ignore -q "$AGENT/node_modules" \
   && ok "t4:node_modules 已入 .gitignore" || bad "t4:node_modules 已入 .gitignore"
-node --check "$AGENT/agent.mjs" 2>/dev/null && node --check "$AGENT/tools.mjs" 2>/dev/null \
-  && node --check "$AGENT/models.mjs" 2>/dev/null \
-  && ok "t4:agent/tools/models 三模块 node 语法通过" || bad "t4:agent/tools/models 三模块 node 语法通过"
+toolsSyntax=0
+for f in "$AGENT/agent.mjs" "$AGENT/tools.mjs" "$AGENT"/tools/*.mjs "$AGENT/models.mjs"; do
+  node --check "$f" 2>/dev/null || toolsSyntax=1
+done
+[[ $toolsSyntax -eq 0 ]] \
+  && ok "t4:agent/tools(含 tools/ 六面)/models node 语法通过" || bad "t4:agent/tools(含 tools/ 六面)/models node 语法通过"
 
 # ---- 9. T4: 提示词条款钉子(谓词表三条/自动入队/信封处置/验证条款;health 信封条款) ----
 DISC="$AGENT/prompts/discover-system.md"

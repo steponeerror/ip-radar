@@ -857,6 +857,49 @@ await t("修正④:smoke 层 fixture 树保全(台账/包=记账工件不灭失)
   assert.ok(!fs.existsSync(fauxTmp), "faux 一次性树照旧清理");
 });
 
+// ── 票 #195(C6 tools.mjs 分层)结构断言:门面 re-export 闭集 + 单向依赖 ──────
+// 纯结构重构零行为:红期先钉公共 API 面(冻结字面 = bde7f061 拆分前 export 面实测,
+// bde7f061..ed84145a 间未动)——拆分后门面漂移(漏 re-export/误删/多导)即红。
+const C6_EXPORT_FACE = [
+  "DOCS_ROOT", "FROZEN_DAYS", "GH_WRITE_SUBCOMMANDS", "RG_TIMEOUT_MS", "ROOT", "RSS_FRESH_DAYS",
+  "ResultRegistry", "ToolHost", "anchorSweepCli", "checkPrivateIp", "checkReadablePath",
+  "classifyChannelError", "classifyMcpSearchError", "classifyWebStatus", "closureCheck",
+  "countFeedKeys", "fmField", "ghIssueCreate", "matrixArtifactText", "matrixScanCli",
+  "normalizeJinaRead", "parseMcpSearchText", "parseRss", "parseSerp", "pinnedLookup",
+  "resolveField", "resolvePrecedentsDir", "safeFetch", "searchPrecedentsCore",
+];
+
+await t("C6-1:门面 re-export 闭集 = 拆分前公共 API 面(29 名逐名相等,bde7f061 冻结字面)", async () => {
+  const face = await import("./tools.mjs");
+  assert.deepEqual(Object.keys(face).sort(), [...C6_EXPORT_FACE].sort());
+});
+
+await t("C6-2:tools.mjs 只剩门面——零 outputSchema 工具实现,ToolHost 宿主+注册编排留驻", () => {
+  const src = fs.readFileSync(path.join(AGENT, "tools.mjs"), "utf8");
+  assert.ok(!/outputSchema\s*:/.test(src), "具体工具实现须移面文件(tools/*.mjs)");
+  assert.ok(/class ToolHost/.test(src) && /this\.tools\s*=/.test(src), "ToolHost 宿主与注册编排留门面");
+  assert.ok(/from "\.\/tools\//.test(src), "门面 re-export 自 ./tools/ 面文件");
+});
+
+await t("C6-3:面文件单向依赖——六面在场、职责分层(shared/envelope 叶,面不互指不回导入门面)", () => {
+  const DEPS = {
+    shared: [],
+    envelope: [],
+    registry: ["shared", "envelope"],
+    precedents: ["shared", "envelope"],
+    measurement: ["shared", "envelope"],
+    discovery: ["shared", "envelope"],
+  };
+  for (const [f, allowed] of Object.entries(DEPS)) {
+    const p = path.join(AGENT, "tools", `${f}.mjs`);
+    assert.ok(fs.existsSync(p), `面文件缺席:${p}`);
+    const s = fs.readFileSync(p, "utf8");
+    assert.ok(!/from\s+"\.\.\/tools(\.mjs)?"/.test(s), `${f}.mjs 不得回导入门面`);
+    const imports = [...s.matchAll(new RegExp('from\\s+"\\./(\\w+)\\.mjs"', "g"))].map((m) => m[1]).filter((x) => x in DEPS);
+    assert.deepEqual([...new Set(imports)].sort(), [...allowed].sort(), `${f}.mjs 面内依赖漂移(许 ${allowed.join("/") || "无"})`);
+  }
+});
+
 fs.rmSync(TMP, { recursive: true, force: true });
 console.log(`t4-selftest: PASS=${pass} FAIL=${fail}`);
 process.exit(fail ? 1 : 0);
