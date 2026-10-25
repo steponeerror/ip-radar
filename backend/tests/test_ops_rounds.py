@@ -285,6 +285,54 @@ def test_recover_dispatches_resume_thread(rounds, ops_env, monkeypatch):
     assert handled[0]["done"] is True
 
 
+# ── B4. #196 C1:轮次线程兜底(链上异常也落终态+放车道,不停摆源 worker)──
+
+
+def test_run_round_crash_settles_task_and_frees_lane(
+        rounds, ops_env, fake_agent, monkeypatch):
+    """C1 兑底(#196):链上未捕获异常(磁盘满 OSError 注入 append_ledger)不得
+    撕线程——ops task 落 failed 终态、_ops_active 清空、车道可再占(源 worker
+    车道不停摆至容器重启);失败原因照实进 task error,不吞异常信息。"""
+    _fake_agent_set(fake_agent[0], "failure")  # 失败信封路径 → spawn_round 内 append_ledger
+
+    def disk_full(*_a, **_k):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(rounds._ops_store, "append_ledger", disk_full)
+    mgr = _make_manager([])
+    task, busy = mgr.start_ops_round("health")
+    assert task is not None and busy is None
+    t = threading.Thread(target=rounds.run_round,
+                         args=(mgr, task, "health", "体检输入"), daemon=True)
+    t.start()
+    t.join(timeout=15)
+    assert not t.is_alive(), "run_round 线程必须收口退出,不得死挂"
+    snap = {row["id"]: row for row in mgr.snapshot()["tasks"]}
+    assert snap[task.id]["state"] == "failed"
+    assert snap[task.id]["error_code"] == "infra"
+    assert "No space left on device" in (snap[task.id].get("error") or "")
+    assert mgr._ops_active is None, "车道必须释放(_ops_active 清空)"
+    again, again_busy = mgr.start_ops_round("health")  # 车道可再占 = 源 worker 不停摆
+    assert again is not None and again_busy is None
+    mgr.finish_ops_round(again.id, "done")
+
+
+def test_recovery_round_crash_settles_task(rounds, ops_env, monkeypatch):
+    """C1 兑底(#196):boot 恢复轮线程同面——_spawn_resume 抛 OSError → 任务落
+    failed/infra 终态,原因照实透出且留 task_log 痕,不静默不裸抛。"""
+    def disk_full(*_a, **_k):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(rounds, "_spawn_resume", disk_full)
+    mgr = _FakeManager()
+    rounds._run_recovery_round(mgr, "2026-10-24-1900-health")
+    assert len(mgr.finished) == 1
+    task_id, state, error, code = mgr.finished[0]
+    assert state == "failed" and code == "infra"
+    assert "No space left on device" in error
+    assert mgr.logs, "兑底路径留痕 task_log(不吞异常信息)"
+
+
 # ── A. argv 契约(纯函数;真 node 命令形状)──────────────────────────────────
 
 
