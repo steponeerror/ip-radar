@@ -314,6 +314,18 @@ export const GATES = {
   },
 };
 
+// 门契约单源(#194 C3,评审D P2):门清单/门数/门序一律从上方 GATES 注册键序派生——加门/删门/
+// 调序只改 GATES 一处,消费方(run-golden.mjs 门数断言、selftest-pipeline.mjs 门数与序断言)
+// import 派生值,手抄数字/名单残留=漂移面(门记录数字面量硬编码三处判例:漏改一处=旧门
+// 面全绿假象)。键序即管线执行序(pipeline.mjs HEALTH_PIPELINE 的 def.gate 序);selftest-pipeline
+// 另有双射不变式测试钉住「注册键序 ↔ 执行序」一致——任一侧单改即红。不另建
+// gates-contract.mjs:契约即注册表本体,单源分居两文件=伪单源(dispatch 两个选一,并入)。
+export const GATE_SEQUENCE = Object.keys(GATES); // 十门有序名单(禁手抄)
+export const GATE_COUNT = GATE_SEQUENCE.length; // 门数派生(禁手写数字)
+export const GATE_NAMES = Object.freeze(Object.fromEntries(
+  GATE_SEQUENCE.map((g) => [g.replace(/^G_/, ""), g]), // 每门名常量 {PROBE:"G_PROBE",…}(派生)
+));
+
 // 求值 + 留痕(gates.json 追加;门自身可审计——哲学:门的判断也能被人审)
 export function evalStageGate(def, ctx) {
   const t0 = performance.now();
