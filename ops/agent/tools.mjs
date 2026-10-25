@@ -18,6 +18,7 @@ import { precedentsMethods } from "./tools/precedents.mjs";
 import { measurementMethods } from "./tools/measurement.mjs";
 import { discoveryMethods } from "./tools/discovery.mjs";
 import * as budget from "./pipeline/budget.mjs"; // #199 A4:同参调用哈希(零环:budget 只依赖 node 内置)
+import { mkBreaker, BREAKER_CHANNELS } from "./tools/breaker.mjs"; // #199 B:跨轮通道熔断(零环:breaker 只依赖 node 内置+lib.sh)
 
 export class ToolHost {
   constructor(round, opts = {}) {
@@ -37,6 +38,10 @@ export class ToolHost {
     // 旋钮读面单源 budget.mjs,构造期读 process.env=轮次调用期)
     this.dupRegistry = new Map();
     this.dupLimit = opts.dupLimit ?? budget.readBudgetKnobs(process.env).dupCallLimit;
+    // #199 B:跨轮通道熔断器(五通道闭集;状态=DOCS_ROOT/ops/breaker.json 跨轮持久;旋钮构造期
+    // 读 env=轮次调用期;file/env 经 opts 注入=测试缝)。信封出口单源=本类 beforeToolCall/finish
+    // 一层包,注册表/测量/发现面不逐点撒。
+    this.breaker = mkBreaker({ file: opts.breakerFile, env: opts.env, round, ledgerFile: opts.breakerLedgerFile });
     this.tools = round === "health" ? [this.healthSnapshot()] : [
       this.searchPrecedents(), this.readFile(), this.fetchUrl(), this.ghSearch(),
       this.exclusiveProbe(), this.matrixScanSummary(), this.queueAction(),
@@ -51,6 +56,14 @@ export class ToolHost {
     const dup = budget.dupRecord(this.dupRegistry, toolCall.name, args, this.dupLimit);
     if (dup.blocked)
       return { block: true, code: "repeat_storm", reason: `同参调用第 ${dup.count} 次≥拦截线 ${this.dupLimit}(OPS_PIPELINE_DUP_CALL_LIMIT);同参数重发不会出新读数——改参数(换 URL/方法/检索词)或升级人裁` };
+    // #199 B:熔断判读(顺序自决:dup→breaker→cap;被拦调用零执行零花费,不占每轮计数帽)。
+    // 开断中=结构化 code=channel_open 信封,非裸错(铁律⑥:失败可证伪,带剩窗秒数)。
+    if (BREAKER_CHANNELS.includes(toolCall.name)) {
+      const v = this.breaker.verdict(toolCall.name);
+      if (v.action === "block")
+        return { block: true, code: "channel_open",
+          reason: `通道 ${toolCall.name} 熔断开断中(连续通道级失败达阈值 OPS_BREAKER_THRESHOLD,冷却剩 ${v.probe_in_flight ? "探活在飞" : `${v.retryAfterS}s`};OPS_BREAKER_COOLDOWN_S):开断期该通道零调用——改用非通道工具(本地读面/判例检索)或升级人裁;冷却窗后自动放行一次半开探活` };
+    }
     const max = this.budgets[toolCall.name];
     if (max !== undefined && (this.spent[toolCall.name] ?? 0) >= max) {
       return { block: true, reason: `预算超限:${toolCall.name} 每轮上限 ${max} 次已用满;升级人裁区` };
@@ -125,6 +138,10 @@ export class ToolHost {
     if (structured?.artifact) this.artifacts.push(structured.artifact);
     if (structured?.artifacts) this.artifacts.push(...structured.artifacts);
     this.budgetSpend(name);
+    // #199 B:通道面结果回熔断器(成功清零/计数码累连续;转移时台账+events 留痕)。
+    // 只认 finish 出口的信封码(envelope.mjs 分类单源),不信调用方复述。
+    if (BREAKER_CHANNELS.includes(name) && structured && typeof structured.ok === "boolean")
+      this.breaker.record(name, { ok: structured.ok, code: structured.code });
     return { content: [{ type: "text", text: `[call_id=${callId}] ${contentText}` }], details, structuredContent: structured };
   }
 }

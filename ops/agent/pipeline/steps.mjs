@@ -16,6 +16,7 @@ import { FROZEN_DAYS, matrixScanCli, matrixArtifactText, resolveField, anchorSwe
 import { loadAnchors, anchorSelect, HIT_CAP } from "./anchors.mjs"; // 锚域词表×旗标选锚(B 三件②;DISPATCH 逐假设判例命中 ≤3,P4 #166)
 import { runFindingExits } from "./finding-exit.mjs"; // #184 finding 出口三件套(gh issue+webhook;RETRO 摘要行在本文件 RETRO)
 import * as budget from "./budget.mjs"; // #199 A5:09-budget.json 读数面(零环:budget 只依赖 node 内置)
+import { mkBreaker, readBreakerKnobs } from "../tools/breaker.mjs"; // #199 B:breaker 观察快照(只读零写;零环:breaker 只依赖 node 内置+lib.sh)
 import { itemSignature, fullDedupKey, createOpsItem, parseItemsTree, CAUSE_GROUP_BY_BUCKET } from "./ops-items.mjs"; // 条目库桥(P4 #166:接 _ops_items 同空间)
 
 const execFileP = promisify(execFileCb);
@@ -373,6 +374,13 @@ async function CLOSE(def, ctx) { // 书挡步:存在性校验(闭合双层的外
   // 报告缺席轮的谱系/审计面不随早退丢。读数=环内执法同一 ctx 计数面(usage 快照/调用数/
   // 墙钟/dup_top3 观察+月度准入投影);门面 G_CLOSE 做回声哨对拍(环内已执法,门只防工件漂移)。
   const knobs = ctx.budgetKnobs ?? budget.readBudgetKnobs(ctx.env ?? {});
+  // #199 B:breaker 快照只读观察面(回声律:不造文件——状态文件仅在通道面首次结算时创建,
+  // 生产首轮自动建 CHANGELOG 注记);旋钮生效值随快照落盘=可证伪。轮始校验同 budget 判例
+  // (mkCtx 读一次,非法=用法错 exit 2 不带病跑轮)。
+  const breakerFace = mkBreaker({
+    file: path.join(ctx.opsRoot ?? path.dirname(ctx.dir), "breaker.json"),
+    env: ctx.env ?? {}, round: ctx.roundId ?? "health", knobs: ctx.breakerKnobs ?? readBreakerKnobs(ctx.env ?? {}),
+  });
   writeJson(path.join(ctx.dir, "09-budget.json"), {
     round_id: ctx.roundId,
     generated_at: new Date().toISOString(),
@@ -391,6 +399,7 @@ async function CLOSE(def, ctx) { // 书挡步:存在性校验(闭合双层的外
       wall_s: Number(budget.elapsedWallS(ctx.state?.started_at).toFixed(1)),
       dup_top3: budget.dupTop(ctx.dupRegistry ?? new Map(), 3),
       monthly: ctx.state?.monthly_admission ?? null, // A2 准入留痕(replay 面无准入=null)
+      breaker: breakerFace.snapshot(), // #199 B:五通道闭集态+生效旋钮(观察不裁决,G_CLOSE 不对拍帽——无帽可拍)
     },
   });
   const report = path.join(ctx.dir, "07-synth-report.md");

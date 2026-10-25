@@ -18,6 +18,7 @@ import * as steps from "./pipeline/steps.mjs";
 import * as gates from "./pipeline/gates.mjs";
 import { runModelStep, selectModelFace } from "./pipeline/faux.mjs";
 import * as budget from "./pipeline/budget.mjs"; // #199 A1:预算四界旋钮+执法纯函数(单源)
+import { readBreakerKnobs } from "./tools/breaker.mjs"; // #199 B:P16 跨轮熔断旋钮(轮始校验同 budget 判例;零环)
 
 const AGENT_DIR = path.dirname(fileURLToPath(import.meta.url));
 export const DEFAULT_FIXTURES_DIR = path.join(AGENT_DIR, "fixtures", "pipeline"); // 缺省 fixtures 路径(自测显式引用=同路径显式面,#170)
@@ -108,6 +109,7 @@ function mkCtx(opts, io) {
   if (!Number.isFinite(budgetCny) || budgetCny < 0)
     throw Object.assign(new Error(`OPS_PIPELINE_BUDGET_CNY 须为非负数,得到:${budgetRaw}`), { usage: true });
   const budgetKnobs = budget.readBudgetKnobs(io.env); // 四界旋钮(#199 A1;校验同 BUDGET_CNY 判例:非法=用法错 exit 2 不带病跑轮)
+  const breakerKnobs = readBreakerKnobs(io.env); // #199 B:熔断旋钮轮始校验(非法=用法错 exit 2 同判例;快照消费=CLOSE)
   const fixturesDir = path.resolve(opts.fixturesDir ?? DEFAULT_FIXTURES_DIR);
   const modelFace = selectModelFace({ fixturesExplicit: opts.fixturesDir != null, inherited: opts.inheritedModelFace ?? null }); // 面选择(#170:显式 fixtures=faux/继承面/缺省 real;纯函数真源在 faux.mjs)
   const state = { schema: 1, round_id: roundId, type, pipeline_mode: io.env.OPS_PIPELINE ?? process.env.OPS_PIPELINE ?? "legacy",
@@ -115,7 +117,7 @@ function mkCtx(opts, io) {
     started_at: nowIso(), updated_at: nowIso(), resume_count: 0, replay_of: opts.replayOf ?? null };
   const OPS_ROOT = opsRootOf(io.env); // 本轮 ops 树(rounds/rules/retro/items 同根;items=条目库真写面 P4 #166)
   return { type, roundId, dir: path.join(OPS_ROOT, "rounds", roundId), env: io.env, log: io.log,
-    fixturesDir, modelFace, budgetCny, budgetKnobs, modelCalls: 0, dupRegistry: new Map(), opsRoot: OPS_ROOT, ...ctxPaths(OPS_ROOT, roundId),
+    fixturesDir, modelFace, budgetCny, budgetKnobs, breakerKnobs, modelCalls: 0, dupRegistry: new Map(), opsRoot: OPS_ROOT, ...ctxPaths(OPS_ROOT, roundId),
     ledgerFile: io.env.LEDGER_FILE ?? process.env.LEDGER_FILE ?? path.join(DOCS_ROOT, "ops", "ledger.md"),
     pkg: null, verify: null, envelope: null, usage: { input: 0, output: 0, totalTokens: 0, cost: 0 }, state };
 }
@@ -428,7 +430,7 @@ export async function runResume(opts = {}) {
   // 崩溃尝试的已花量不可回收,恢复轮 usage=下界,宁少算)
   const ctx = { type: state.type, roundId, dir, env: io.env, log: io.log,
     // resume 重开调用登记表(观察面从零起;断点前已花量不可回收,同 usage 下界口径)
-    budgetCny: state.budget_cny, budgetKnobs: state.budget_knobs ?? budget.readBudgetKnobs(io.env), modelCalls: 0, dupRegistry: new Map(), fixturesDir: state.fixtures_dir, modelFace: state.model_face ?? "faux", opsRoot: OPS_ROOT,
+    budgetCny: state.budget_cny, budgetKnobs: state.budget_knobs ?? budget.readBudgetKnobs(io.env), breakerKnobs: readBreakerKnobs(io.env), modelCalls: 0, dupRegistry: new Map(), fixturesDir: state.fixtures_dir, modelFace: state.model_face ?? "faux", opsRoot: OPS_ROOT,
     ...ctxPaths(OPS_ROOT, roundId), // 单一形状源(mkCtx 同;终审 smell 收口)
     ledgerFile: io.env.LEDGER_FILE ?? process.env.LEDGER_FILE ?? path.join(DOCS_ROOT, "ops", "ledger.md"),
     pkg: null, verify: null, envelope: null, usage: { input: 0, output: 0, totalTokens: 0, cost: 0 }, state };

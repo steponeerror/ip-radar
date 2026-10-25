@@ -133,7 +133,7 @@ await t("models:未知 provider/模型 显式报错(错误面含 provider 名与
 });
 
 // ── 语义门(伪 evidence 登记表;beforeToolCall 直调,不建 Agent)──────────────────
-const host = new ToolHost("discover");
+const host = new ToolHost("discover", { breakerFile: path.join(TMP, "breaker-host.json") }); // #199 B:通道工具直跑 execute 会落 breaker 态,隔离入 TMP
 const gate = (args) => host.beforeToolCall({
   assistantMessage: { content: [] },
   toolCall: { id: "call_gate", name: "queue_action", arguments: args },
@@ -935,6 +935,118 @@ const C6_EXPORT_FACE = [
   "resolveField", "resolvePrecedentsDir", "safeFetch", "searchPrecedentsCore",
 ];
 
+
+// ── #199 交付B:跨轮通道熔断器(纯核 + 有态壳 + ToolHost 接线)────────────────
+const BK = await import("./tools/breaker.mjs");
+
+await t("breaker 闭集:通道恰五员/计数码恰三员(channel_missing,channel_auth,quota)/状态词三;旋钮缺省 3 与 21600", () => {
+  assert.deepEqual([...BK.BREAKER_CHANNELS].sort(), ["fetch_url", "gh_search", "rss_parse", "web_read", "web_search"]);
+  assert.deepEqual([...BK.BREAKER_COUNTED_CODES].sort(), ["channel_auth", "channel_missing", "quota"], "宁少算:transient/gh_error/io_error/http_error/network 不计");
+  assert.deepEqual([...BK.BREAKER_STATE_VOCAB].sort(), ["closed", "half_open", "open"]);
+  const k = BK.readBreakerKnobs({});
+  assert.deepEqual(k, { threshold: 3, cooldownS: 21600 });
+  assert.deepEqual(BK.readBreakerKnobs({ OPS_BREAKER_THRESHOLD: "2", OPS_BREAKER_COOLDOWN_S: "60" }), { threshold: 2, cooldownS: 60 });
+  assert.throws(() => BK.readBreakerKnobs({ OPS_BREAKER_THRESHOLD: "-1" }), (e) => e.usage === true, "负值=用法错");
+  assert.throws(() => BK.readBreakerKnobs({ OPS_BREAKER_COOLDOWN_S: "abc" }), (e) => e.usage === true, "非数=用法错");
+});
+
+await t("breaker 纯核:parse fail-closed(坏 JSON/错版本/野通道/野状态词→null);verdict 四态;grantProbe", () => {
+  const good = JSON.stringify({ version: 1, channels: { gh_search: { state: "open", consec: 3, opened_at: 1000 } } });
+  assert.equal(BK.parseBreakerState(good).channels.gh_search.state, "open");
+  for (const bad of ["{", "null", JSON.stringify({ version: 2, channels: {} }),
+    JSON.stringify({ version: 1, channels: { evil: { state: "open", consec: 1 } } }),
+    JSON.stringify({ version: 1, channels: { gh_search: { state: "zombie", consec: 1 } } }),
+    JSON.stringify({ version: 1, channels: { gh_search: { state: "open", consec: -1 } } })])
+    assert.equal(BK.parseBreakerState(bad), null, `fail-closed→null:${bad.slice(0, 30)}`);
+  const K = { threshold: 3, cooldownS: 100 };
+  const open = { version: 1, channels: { gh_search: { state: "open", consec: 3, opened_at: 1000 } } };
+  assert.equal(BK.verdictFor({ version: 1, channels: {} }, "gh_search", 9999, K).action, "allow", "闭路放行");
+  assert.equal(BK.verdictFor(open, "gh_search", 2000, K).action, "block", "冷却未到=拦");
+  assert.ok(BK.verdictFor(open, "gh_search", 2000, K).retryAfterS > 0, "拦带剩窗秒");
+  assert.equal(BK.verdictFor(open, "gh_search", 1000 + 100_000, K).action, "probe", "冷却到=半开探活");
+  const half = BK.grantProbe(open, "gh_search", 5000);
+  assert.equal(half.channels.gh_search.state, "half_open");
+  assert.equal(BK.verdictFor(half, "gh_search", 5001, K).action, "block", "探活在飞=余名额闭");
+  assert.equal(BK.verdictFor(open, "gh_search", 0, { ...K, threshold: 0 }).action, "allow", "threshold=0 禁用");
+});
+
+await t("breaker 纯核:applyResult——连续计数码第 threshold 次开断/成功清零/半开恢复/半开重开/非计数不困死", () => {
+  const K = { threshold: 3, cooldownS: 100 };
+  const S0 = { version: 1, channels: {} };
+  let r = BK.applyResult(S0, "web_read", { ok: false, code: "channel_missing" }, 1, K);
+  assert.equal(r.state.channels.web_read.consec, 1); assert.equal(r.transition, null);
+  r = BK.applyResult(r.state, "web_read", { ok: false, code: "quota" }, 2, K);
+  assert.equal(r.state.channels.web_read.consec, 2); assert.equal(r.state.channels.web_read.state, "closed");
+  r = BK.applyResult(r.state, "web_read", { ok: false, code: "transient" }, 3, K); // 非计数:不进连续
+  assert.equal(r.state.channels.web_read.consec, 2);
+  r = BK.applyResult(r.state, "web_read", { ok: true, code: null }, 4, K); // 成功清零
+  assert.equal(r.state.channels.web_read.consec, 0);
+  r = BK.applyResult(S0, "web_read", { ok: false, code: "channel_auth" }, 5, K);
+  r = BK.applyResult(r.state, "web_read", { ok: false, code: "channel_missing" }, 6, K);
+  r = BK.applyResult(r.state, "web_read", { ok: false, code: "quota" }, 7, K); // 第 3 连续→开断
+  assert.equal(r.transition, "opened"); assert.equal(r.state.channels.web_read.state, "open");
+  assert.equal(r.state.channels.web_read.opened_at, 7);
+  assert.ok(r.state.events.some((e) => e.transition === "opened" && e.channel === "web_read"), "events 环留痕");
+  const half = BK.grantProbe(r.state, "web_read", 8);
+  const rec = BK.applyResult(half, "web_read", { ok: true }, 9, K); // 半开探活成功→恢复
+  assert.equal(rec.transition, "recovered"); assert.equal(rec.state.channels.web_read.state, "closed");
+  assert.equal(rec.state.channels.web_read.consec, 0);
+  const half2 = BK.grantProbe(r.state, "web_read", 10);
+  const re = BK.applyResult(half2, "web_read", { ok: false, code: "quota" }, 11, K); // 探活败且计数码→重开新整窗
+  assert.equal(re.transition, "reopened"); assert.equal(re.state.channels.web_read.state, "open");
+  assert.equal(re.state.channels.web_read.opened_at, 11, "重开=新整窗(无指数退避)");
+  const half3 = BK.grantProbe(r.state, "web_read", 12);
+  const back = BK.applyResult(half3, "web_read", { ok: false, code: "transient" }, 13, K); // 探活败非计数→退回原 opened_at
+  assert.equal(back.transition, null); assert.equal(back.state.channels.web_read.state, "open");
+  assert.equal(back.state.channels.web_read.opened_at, 7, "原窗保留,下个冷却窗再探(不困死)");
+  const no = BK.applyResult({ version: 1, channels: {} }, "fetch_url", { ok: false, code: "http_error" }, 1, K);
+  assert.equal(no.changed, false, "闭路非计数失败零状态变=零写");
+});
+
+await t("breaker 有态壳:计数开断落盘跨壳持久;冷却到 probe 探活翻转半开;恢复闭路;坏文件 fail-closed 重置闭路;台账留痕 opened/recovered", async () => {
+  const bf = path.join(TMP, "breaker-shell.json");
+  const lg = path.join(TMP, "ledger-shell.md");
+  const b = BK.mkBreaker({ file: bf, env: {}, round: "discover", ledgerFile: lg, log: () => {} });
+  assert.equal(b.verdict("gh_search").action, "allow");
+  for (let i = 0; i < 3; i++) b.record("gh_search", { ok: false, code: "channel_missing" });
+  const st = JSON.parse(fs.readFileSync(bf, "utf8"));
+  assert.equal(st.channels.gh_search.state, "open", "3 连续落盘开断");
+  assert.ok(st.events.some((e) => e.transition === "opened"));
+  const b2 = BK.mkBreaker({ file: bf, env: {}, round: "discover", ledgerFile: lg }); // 跨轮=新壳同文件
+  const v2 = b2.verdict("gh_search");
+  assert.equal(v2.action, "block", "跨壳开断仍拦(剩窗)");
+  st.channels.gh_search.opened_at = Date.now() - 21700_000; // 背书冷却已过
+  fs.writeFileSync(bf, JSON.stringify(st));
+  assert.equal(b2.verdict("gh_search").action, "probe", "冷却到=放行探活");
+  assert.equal(JSON.parse(fs.readFileSync(bf, "utf8")).channels.gh_search.state, "half_open", "名额授予即落盘");
+  b2.record("gh_search", { ok: true });
+  assert.equal(JSON.parse(fs.readFileSync(bf, "utf8")).channels.gh_search.state, "closed", "探活成功=恢复闭路");
+  const ledger = fs.readFileSync(lg, "utf8");
+  assert.ok(/breaker_opened channel=gh_search/.test(ledger), "台账留痕开断");
+  assert.ok(/breaker_recovered channel=gh_search/.test(ledger), "台账留痕恢复");
+  fs.writeFileSync(bf, "{{corrupt");
+  assert.equal(BK.mkBreaker({ file: bf, env: {} }).verdict("gh_search").action, "allow", "坏文件=fail-closed 重置闭路不炸轮");
+  assert.equal(fs.readFileSync(bf, "utf8"), "{{corrupt", "allow 路径零写(坏文件不被静默覆写——宁少算:重置态不回写)");
+});
+
+await t("breaker 宿主接线:开断中通道调用=结构化 code=channel_open 拦(零执行);非通道工具不拦;成功结算清零跨轮", async () => {
+  const bf = path.join(TMP, "breaker-host2.json");
+  const env = { OPS_BREAKER_THRESHOLD: "2", OPS_BREAKER_COOLDOWN_S: "60" };
+  const h = new ToolHost("discover", { breakerFile: bf, env, breakerLedgerFile: path.join(TMP, "ledger-host2.md") }); // 台账隔离(转移留痕不落真树)
+  // 预置开断态(上一轮遗留):两连计数失败
+  h.finish("c1", "fetch_url", { ok: false, code: "quota", reason: "x" }, "t");
+  h.finish("c2", "fetch_url", { ok: false, code: "quota", reason: "x" }, "t");
+  const blocked = await h.beforeToolCall({ assistantMessage: { content: [] }, toolCall: { id: "c3", name: "fetch_url", arguments: {} }, args: {}, context: { messages: [], tools: [] } });
+  assert.ok(blocked?.block && blocked.code === "channel_open", `开断拦=结构化 channel_open:${JSON.stringify(blocked).slice(0, 80)}`);
+  assert.ok(/冷却剩 \d+s|探活在飞/.test(blocked.reason), "拦因带剩窗(可证伪)");
+  const other = await h.beforeToolCall({ assistantMessage: { content: [] }, toolCall: { id: "c4", name: "search_precedents", arguments: { keywords: ["x"] } }, args: { keywords: ["x"] }, context: { messages: [], tools: [] } });
+  assert.equal(other, undefined, "非通道工具不受熔断拦");
+  const h2 = new ToolHost("discover", { breakerFile: bf, env, breakerLedgerFile: path.join(TMP, "ledger-host2.md") }); // 跨轮:新宿主同状态文件
+  h2.finish("c5", "fetch_url", { ok: true, total: 1 }, "t"); // 探活语义外的成功也清零(通道活=证据)
+  const after = await h2.beforeToolCall({ assistantMessage: { content: [] }, toolCall: { id: "c6", name: "fetch_url", arguments: {} }, args: {}, context: { messages: [], tools: [] } });
+  assert.equal(after, undefined, "成功清零后放行(跨轮恢复)");
+});
+
 await t("C6-1:门面 re-export 闭集 = 拆分前公共 API 面(29 名逐名相等,bde7f061 冻结字面)", async () => {
   const face = await import("./tools.mjs");
   assert.deepEqual(Object.keys(face).sort(), [...C6_EXPORT_FACE].sort());
@@ -955,6 +1067,7 @@ await t("C6-3:面文件单向依赖——六面在场、职责分层(shared/enve
     precedents: ["shared", "envelope"],
     measurement: ["shared", "envelope"],
     discovery: ["shared", "envelope"],
+    breaker: ["shared"], // #199 B:熔断面(零环:node 内置+lib.sh;仅 shared 的 DOCS_ROOT 缺省)
   };
   for (const [f, allowed] of Object.entries(DEPS)) {
     const p = path.join(AGENT, "tools", `${f}.mjs`);
