@@ -106,6 +106,7 @@ def _round_env() -> dict[str, str]:
         _ops_store.atomic_write_text(auth_path, json.dumps(
             {pid: {"type": "api_key", "key": key} for pid, key in keys.items()},
             ensure_ascii=False, indent=2) + "\n")
+        auth_path.chmod(0o600)  # C4 附带(#196):密钥件 0600 钉住契约(mkstemp 已隐式,防漂移)
         env["OPS_AUTH"] = str(auth_path)
     zai = keys.get("zai-coding-cn") \
         or os.environ.get("ZAI_CODING_CN_API_KEY", "").strip()
@@ -131,8 +132,35 @@ def _round_env() -> dict[str, str]:
     _ops_store.atomic_write_text(
         root / "web-search.json",
         json.dumps(web_cfg, ensure_ascii=False, indent=2) + "\n")
+    (root / "web-search.json").chmod(0o600)  # C4 附带(#196):jinaApiKey 承载件 0600 钉住
     env["PI_CODING_AGENT_DIR"] = str(root)
     return env
+
+
+# C4(#196)spawn env 白名单:契约单源 = ops/agent/agent.mjs SPAWN_CONTRACT_ENV
+# (OPS_*/PI_* 前缀名 + 精确名 ZAI_CODING_CN_API_KEY/JINA_API_KEY/GH_TOKEN/
+# DOCS_ROOT/PRECEDENTS_DIR/LEDGER_FILE/IP_RADAR_ALERT_URLS)。此前
+# {**os.environ, **_round_env()} 全量继承把 ADMIN_PASSWORD/JWT_SECRET 等
+# 仓外密钥全传子进程,违 least-privilege(arch 评审 C4)。契约外一概不透传;
+# 改契约表须同步本面 + test_ops_rounds 白名单对拍(独立真源)。运行必需非密钥
+# 面:PATH/HOME(node/gh CLI 找位)、TMPDIR(os.tmpdir)、IP_RADAR_DATA_DIR
+# (数据面单根,_ops_store 同名回路面)。IP_RADAR_ALERT_URLS = #184 finding
+# webhook 出口契约员(与 backend _alerts.push 双消费面,agent 侧自读),保留。
+_SPAWN_ENV_EXACT = frozenset({
+    "PATH", "HOME", "TMPDIR",
+    "GH_TOKEN", "IP_RADAR_DATA_DIR", "IP_RADAR_ALERT_URLS",
+    "ZAI_CODING_CN_API_KEY", "JINA_API_KEY",
+    "DOCS_ROOT", "PRECEDENTS_DIR", "LEDGER_FILE",
+})
+_SPAWN_ENV_PREFIXES = ("OPS_", "PI_")
+
+
+def _spawn_env() -> dict[str, str]:
+    """白名单 env 构造(C4 #196):契约面+运行必需面,叠加 _round_env 桥注入
+    (override 语义保持:桥注入赢白名单面)。"""
+    base = {k: v for k, v in os.environ.items()
+            if k in _SPAWN_ENV_EXACT or k.startswith(_SPAWN_ENV_PREFIXES)}
+    return {**base, **_round_env()}
 
 
 def _infra(round_type: str, message: str) -> dict:
@@ -190,7 +218,7 @@ def spawn_round(
     """
     argv = _agent_argv(round_type, input_text)
     try:
-        env = {**os.environ, **_round_env()}
+        env = _spawn_env()  # C4(#196):显式白名单,废止 {**os.environ} 全量继承
     except RuntimeError as e:  # agent-config.json 坏文件(读面显式报错不静默)
         return _infra(round_type, f"agent 配置读取失败: {e}")
     try:
@@ -205,52 +233,59 @@ def spawn_round(
     except OSError as e:  # 如 node 不在 PATH(P5 镜像未装时的显式失败面)
         return _infra(round_type, f"agent 拉起失败: {e}")
 
-    stderr_lines, reader = _drain_stderr(proc, on_log)  # 两 spawn 面共用泵(终审 smell 收口)
+    # C1(#196):Popen 后整段异常逃生而 → 终止子进程防孤儿(任务兑底在
+    # 线程入口 _settle_crash,不在此重复收口)
+    try:
+        stderr_lines, reader = _drain_stderr(proc, on_log)  # 两 spawn 面共用泵(终审 smell 收口)
 
-    cancelled = threading.Event()
+        cancelled = threading.Event()
 
-    def _watch_cancel() -> None:
-        while proc.poll() is None:
-            if cancel_token is not None and cancel_token.is_cancelled():
-                cancelled.set()
-                proc.terminate()
-                return
-            time.sleep(0.2)
+        def _watch_cancel() -> None:
+            while proc.poll() is None:
+                if cancel_token is not None and cancel_token.is_cancelled():
+                    cancelled.set()
+                    proc.terminate()
+                    return
+                time.sleep(0.2)
 
-    watcher: Optional[threading.Thread] = None
-    if cancel_token is not None:
-        watcher = threading.Thread(target=_watch_cancel, daemon=True,
-                                   name="ops-round-cancel")
-        watcher.start()
+        watcher: Optional[threading.Thread] = None
+        if cancel_token is not None:
+            watcher = threading.Thread(target=_watch_cancel, daemon=True,
+                                       name="ops-round-cancel")
+            watcher.start()
 
-    stdout_text = proc.stdout.read()
-    proc.stdout.close()
-    rc = proc.wait()
-    reader.join(timeout=5)
-    if watcher is not None:
-        watcher.join(timeout=5)
+        stdout_text = proc.stdout.read()
+        proc.stdout.close()
+        rc = proc.wait()
+        reader.join(timeout=5)
+        if watcher is not None:
+            watcher.join(timeout=5)
 
-    if cancelled.is_set():
-        _ops_store.append_ledger(
-            round_type, "—", "—", "admin 取消(无轮次信封;已花用量未知,九裁决 9 留痕)")
-        return {"cancelled": True, "round": round_type}
+        if cancelled.is_set():
+            _ops_store.append_ledger(
+                round_type, "—", "—", "admin 取消(无轮次信封;已花用量未知,九裁决 9 留痕)")
+            return {"cancelled": True, "round": round_type}
 
-    envelope = _stdout_envelope(stdout_text)
-    if envelope is None or "ok" not in envelope:
-        tail = " | ".join(list(stderr_lines)[-3:])[-_STDERR_TAIL_CHARS:]
-        return _infra(round_type, f"轮次信封契约违背(rc={rc},stdout 非单行 JSON 含 ok): "
-                                  f"{tail or '(stderr 空)'}")
-    ok = envelope.get("ok")
-    if rc == 0 and ok is True:
-        return envelope  # 成功面:agent 侧已记账(lib.sh),桥零追加
-    err = envelope.get("error")
-    if rc == 1 and ok is False and isinstance(err, dict) \
-            and isinstance(err.get("code"), str):
-        pkg = envelope.get("pkg")
-        note = f"spawn error_code={err['code']}" + (f"; pkg={pkg}" if pkg else "")
-        _ops_store.append_ledger(round_type, "—", "—", note)
-        return envelope
-    return _infra(round_type, f"轮次信封形状非法(rc={rc}, ok={ok!r})")
+        envelope = _stdout_envelope(stdout_text)
+        if envelope is None or "ok" not in envelope:
+            tail = " | ".join(list(stderr_lines)[-3:])[-_STDERR_TAIL_CHARS:]
+            return _infra(round_type, f"轮次信封契约违背(rc={rc},stdout 非单行 JSON 含 ok): "
+                                      f"{tail or '(stderr 空)'}")
+        ok = envelope.get("ok")
+        if rc == 0 and ok is True:
+            return envelope  # 成功面:agent 侧已记账(lib.sh),桥零追加
+        err = envelope.get("error")
+        if rc == 1 and ok is False and isinstance(err, dict) \
+                and isinstance(err.get("code"), str):
+            pkg = envelope.get("pkg")
+            note = f"spawn error_code={err['code']}" + (f"; pkg={pkg}" if pkg else "")
+            _ops_store.append_ledger(round_type, "—", "—", note)
+            return envelope
+        return _infra(round_type, f"轮次信封形状非法(rc={rc}, ok={ok!r})")
+    except BaseException:
+        if proc.poll() is None:
+            proc.terminate()  # 异常逃生不留守孤儿 agent 进程
+        raise
 
 
 # ── P5 #167 boot 恢复扫描(C稿 §4.6;轮次路由语义零改动——独立恢复面)──────────
@@ -337,25 +372,31 @@ def _spawn_resume(round_id: str, *, on_log: Callable[[str], None] | None = None,
         proc = subprocess.Popen(
             argv, cwd=str(_REPO_ROOT), stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, text=True, encoding="utf-8",
-            errors="replace", env=env or os.environ)
+            errors="replace", env=env or _spawn_env())  # C4(#196):回落面同白名单
     except OSError as e:
         return _infra("health", f"resume 拉起失败: {e}")
-    stderr_tail, reader = _drain_stderr(proc, on_log)  # 同 spawn_round 泵(终审 smell 收口)
-    stdout_text = proc.stdout.read()
-    proc.stdout.close()
-    rc = proc.wait()
-    reader.join(timeout=5)
-    envelope = _stdout_envelope(stdout_text)
-    if envelope is None or "ok" not in envelope:
-        tail = " | ".join(list(stderr_tail)[-3:])[-_STDERR_TAIL_CHARS:]
-        return _infra("health", f"resume 信封契约违背(rc={rc}): {tail or '(stderr 空)'}")
-    if envelope.get("ok") is not True:
-        err = envelope.get("error")
-        if isinstance(err, dict):
-            _ops_store.append_ledger(
-                "health", "—", "—",
-                f"boot 恢复失败 error_code={err.get('code')}; {err.get('message')}")
-    return envelope
+    # C1(#196):Popen 后异常逃生 → 终止子进程防孤儿(收口在 _run_recovery_round)
+    try:
+        stderr_tail, reader = _drain_stderr(proc, on_log)  # 同 spawn_round 泵(终审 smell 收口)
+        stdout_text = proc.stdout.read()
+        proc.stdout.close()
+        rc = proc.wait()
+        reader.join(timeout=5)
+        envelope = _stdout_envelope(stdout_text)
+        if envelope is None or "ok" not in envelope:
+            tail = " | ".join(list(stderr_tail)[-3:])[-_STDERR_TAIL_CHARS:]
+            return _infra("health", f"resume 信封契约违背(rc={rc}): {tail or '(stderr 空)'}")
+        if envelope.get("ok") is not True:
+            err = envelope.get("error")
+            if isinstance(err, dict):
+                _ops_store.append_ledger(
+                    "health", "—", "—",
+                    f"boot 恢复失败 error_code={err.get('code')}; {err.get('message')}")
+        return envelope
+    except BaseException:
+        if proc.poll() is None:
+            proc.terminate()  # 异常逃生不留守孤儿 agent 进程
+        raise
 
 
 def _run_recovery_round(manager, round_id: str) -> None:
@@ -368,20 +409,25 @@ def _run_recovery_round(manager, round_id: str) -> None:
     def on_log(line: str) -> None:
         manager.ops_log(task.id, line)
 
+    # C1(#196):恢复轮线程入口同面兑底——占道后链上任何异常也落终态+放车道。
     try:
-        env = {**os.environ, **_round_env()}
-    except RuntimeError as e:
-        manager.finish_ops_round(task.id, "failed", f"agent 配置读取失败: {e}", "infra")
-        return
-    result = _spawn_resume(round_id, on_log=on_log, env=env)
-    if result.get("ok") is True:
-        manager.finish_ops_round(task.id, "done")
-        return
-    err = result.get("error") or {}
-    manager.finish_ops_round(
-        task.id, "failed",
-        err.get("message") or json.dumps(result, ensure_ascii=False),
-        err.get("code") if isinstance(err.get("code"), str) else "infra")
+        try:
+            env = _spawn_env()  # C4(#196):同 spawn_round 白名单面
+        except RuntimeError as e:
+            manager.finish_ops_round(task.id, "failed", f"agent 配置读取失败: {e}", "infra")
+            return
+        result = _spawn_resume(round_id, on_log=on_log, env=env)
+        if result.get("ok") is True:
+            manager.finish_ops_round(task.id, "done")
+            return
+        err = result.get("error") or {}
+        manager.finish_ops_round(
+            task.id, "failed",
+            err.get("message") or json.dumps(result, ensure_ascii=False),
+            err.get("code") if isinstance(err.get("code"), str) else "infra")
+    except Exception as e:
+        logger.exception("boot 恢复轮线程未捕获异常(%s)", round_id)
+        _settle_crash(manager, task.id, e, "health")
 
 
 def recover_inflight_rounds(manager=None) -> list[dict]:
@@ -430,26 +476,55 @@ def recover_inflight_rounds(manager=None) -> list[dict]:
     return handled
 
 
+def _settle_crash(manager, task_id: str, exc: BaseException,
+                  round_type: str = "health") -> None:
+    """C1 兑底收口(#196):轮次线程链上未捕获异常(磁盘满 OSError 等)→
+    任务落 failed 终态 + 释放串行车道,源 worker 车道不停摆至容器重启。
+    失败原因照实三面留痕(task error/task_log/台账 best-effort——注入面自身
+    在炸时台账可能再败,不赌),不吞异常信息;兑底自身再炸只记日志,
+    绝不二次撕链(finish 最后走,车道必放)。"""
+    reason = f"轮次线程异常兑底: {exc!r}"
+    try:
+        manager.ops_log(task_id, reason)
+    except Exception:
+        logger.exception("C1 兑底 ops_log 失败(task %s,原因已保 task error 面)", task_id)
+    try:
+        _ops_store.append_ledger(round_type, "—", "—",
+                                 f"spawn error_code=infra; {reason}")
+    except Exception:
+        logger.exception("C1 兑底台账留痕失败(task %s;磁盘满等注入面未恢复时预期)", task_id)
+    try:
+        manager.finish_ops_round(task_id, "failed", reason, "infra")
+    except Exception:
+        logger.exception("C1 兑底 finish_ops_round 失败(task %s)——车道释放链断,需人工介入", task_id)
+
+
 def run_round(manager, task, round_type: str, input_text: str) -> None:
     """ops 轮线程入口(路由侧 threading.Thread 拉起):spawn → 收口。
 
     ops 树形状初始化在 spawn_round 内(单一拼写,幂等)。任务态收口走
     manager.finish_ops_round(done/failed/cancelled;error_code =
     信封 error.code 九词闭集透传);stderr 行经 manager.ops_log 进任务链 SSE。
-    """
+    C1(#196):线程入口整体兑底——链上任何未捕获异常(如磁盘满 OSError)
+    也落终态+放车道,不得卡 running 撕停摆源 worker。"""
     def on_log(line: str) -> None:
         manager.ops_log(task.id, line)
 
-    result = spawn_round(round_type, input_text, on_log=on_log,
-                         cancel_token=task.token)
-    if result.get("cancelled"):
-        manager.finish_ops_round(task.id, "cancelled")
-        return
-    if result.get("ok") is True:
-        manager.finish_ops_round(task.id, "done")
-        return
-    err = result.get("error") or {}
-    manager.finish_ops_round(
-        task.id, "failed",
-        err.get("message") or json.dumps(result, ensure_ascii=False),
-        err.get("code") if isinstance(err.get("code"), str) else "infra")
+    try:
+        result = spawn_round(round_type, input_text, on_log=on_log,
+                             cancel_token=task.token)
+        if result.get("cancelled"):
+            manager.finish_ops_round(task.id, "cancelled")
+            return
+        if result.get("ok") is True:
+            manager.finish_ops_round(task.id, "done")
+            return
+        err = result.get("error") or {}
+        manager.finish_ops_round(
+            task.id, "failed",
+            err.get("message") or json.dumps(result, ensure_ascii=False),
+            err.get("code") if isinstance(err.get("code"), str) else "infra")
+    except Exception as e:
+        logger.exception("ops 轮线程未捕获异常(task %s, round_type=%s)",
+                         task.id, round_type)
+        _settle_crash(manager, task.id, e, round_type)
