@@ -335,14 +335,11 @@ export async function runPipeline(opts = {}) {
     io.stdout.write(JSON.stringify(envelope) + "\n"); return { ok: false, envelope, roundId: ctx.roundId, dir: ctx.dir }; };
   // #199 A2 月度 kill switch 准入:mkCtx 后、建轮目录前(拒跑零侧写:无目录无 state);
   // 读数入 state(A5 CLOSE 工件面)。est=本轮预算(BUDGET_CNY 准告警线上界,宁少算口径)。
-  const admission = await budget.monthlyAdmission({ ledgerFile: ctx.ledgerFile, capCny: ctx.budgetKnobs.monthlyCapCny, estCny: ctx.budgetCny });
-  if (!admission.ok) {
-    ctx.log(`[admission] budget_monthly refused month=${admission.month} spend=${admission.spend} est=${admission.est} cap=${admission.cap} skipped=${admission.skipped}`);
-    try { await budget.appendRefusalTrace(ctx.ledgerFile, { est: ctx.budgetCny, cap: ctx.budgetKnobs.monthlyCapCny }, io.env); }
-    catch (e) { ctx.log(`[admission] 拒跑留痕行写败(不翻转裁决):${e.message}`); } // 台账写败不吞拒跑:宁拒不跑
-    return emitFail("budget_monthly", `月度预算拒跑:当月已花 ¥${admission.spend} + 本轮预算 ¥${admission.est} > 月帽 ¥${admission.cap}(OPS_PIPELINE_MONTHLY_CAP_CNY;当月 ${admission.counted} 行计入,${admission.skipped} 行缺 cost 跳过不猜)`);
-  }
-  ctx.state.monthly_admission = admission; // A5 CLOSE 工件读数面(观察非裁决)
+  // #203 C2:拒跑块(文案/[admission] log/台账留痕行)收口 budget.mjs admitOrRefuse 留痕外壳
+  // (与 agent.mjs legacy 面同壳同文案);本面只映射出口=emitFail 信封(exit 1)。
+  const admission = await budget.admitOrRefuse({ ledgerFile: ctx.ledgerFile, capCny: ctx.budgetKnobs.monthlyCapCny, estCny: ctx.budgetCny, env: io.env, log: ctx.log });
+  if (admission.refused) return emitFail(admission.code, admission.message);
+  ctx.state.monthly_admission = admission.admission; // A5 CLOSE 工件读数面(观察非裁决)
   if (fs.existsSync(path.join(ctx.dir, "state.json"))) return emitFail("bad_round", `rounds/${ctx.roundId} 已存在(同 id 重跑走 replay)`);
   fs.mkdirSync(ctx.dir, { recursive: true });
   writeState(ctx); // 轮次目录 + state.json 建立
