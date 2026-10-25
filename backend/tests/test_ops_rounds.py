@@ -73,6 +73,10 @@ out = cfg.get("out")
 if out:
     with open(out, "w", encoding="utf-8") as f:
         json.dump({"argv": sys.argv[1:], "env": dict(os.environ)}, f)
+bump = cfg.get("mem_bump")  # #139 挂账①:轮中抬写假 cgroup memory.peak(钉终值读时序)
+if bump:
+    with open(bump[0], "w", encoding="utf-8") as f:
+        f.write(str(bump[1]))
 print("[turn 1] fake progress", file=sys.stderr)
 if mode == "sleep":
     time.sleep(30)
@@ -362,6 +366,116 @@ def test_read_memory_peak_absent_returns_none(rounds, tmp_path, monkeypatch):
     monkeypatch.setattr(rounds, "_CGROUP_V2_PEAK", tmp_path / "cgroup2" / "nope")
     monkeypatch.setattr(rounds, "_CGROUP_V1_PEAK", tmp_path / "cgroup1" / "nope")
     assert rounds.read_memory_peak() is None
+
+
+def _fake_cgroup(rounds, tmp_path, monkeypatch, v2_bytes=None, v1_bytes=None):
+    """假 cgroup 树落 tmp_path + monkeypatch 模块路径常量;v2_bytes/v1_bytes
+    均缺省 = 两代皆不可读(None 态)。"""
+    v2 = tmp_path / "cgroup2" / "memory.peak"
+    v1 = tmp_path / "cgroup1" / "memory" / "memory.max_usage_in_bytes"
+    if v2_bytes is not None:
+        v2.parent.mkdir(parents=True, exist_ok=True)
+        v2.write_text(f"{v2_bytes}\n", encoding="utf-8")
+    if v1_bytes is not None:
+        v1.parent.mkdir(parents=True, exist_ok=True)
+        v1.write_text(f"{v1_bytes}\n", encoding="utf-8")
+    monkeypatch.setattr(rounds, "_CGROUP_V2_PEAK", v2)
+    monkeypatch.setattr(rounds, "_CGROUP_V1_PEAK", v1)
+    return v2
+
+
+def _run_round_to_finish(rounds, mgr, round_type="health", input_text="体检输入"):
+    """拉起 run_round 线程并等待收口退出(#139 测试面;复用 C1 崩溃测试同型)。"""
+    task, busy = mgr.start_ops_round(round_type)
+    assert task is not None and busy is None
+    t = threading.Thread(target=rounds.run_round,
+                         args=(mgr, task, round_type, input_text), daemon=True)
+    t.start()
+    t.join(timeout=15)
+    assert not t.is_alive(), "run_round 线程必须收口退出,不得死挂"
+    return task
+
+
+def test_run_round_writes_memory_peak_row_success(
+        rounds, ops_env, fake_agent, monkeypatch):
+    """#139 挂账①:成功轮收口面写内存峰值独立行(memory_peak_bytes=终值;
+    轮内未破高水位时标注上界语义,不把容器历史峰值虚构或轮内峰值)。"""
+    _fake_cgroup(rounds, ops_env, monkeypatch, v2_bytes=838860800)
+    mgr = _make_manager([])
+    task = _run_round_to_finish(rounds, mgr)
+    snap = {row["id"]: row for row in mgr.snapshot()["tasks"]}
+    assert snap[task.id]["state"] == "done"
+    led = _ledger_text(ops_env)
+    assert "memory_peak_bytes=838860800" in led, led
+    # 独立行:既有 5 列形状零改动(轮次=health,model/用量=—);加列=改 T4 冻结表头
+    assert any(" | health | — | — | memory_peak_bytes=" in ln
+               for ln in led.splitlines()), led
+    assert "(=轮始基线" in led  # 静态假文件:终值=基线,标注上界语义
+
+
+def test_run_round_memory_peak_growth_attributed(
+        rounds, ops_env, fake_agent, monkeypatch):
+    """终值>基线(假 agent 轮中抬写假 memory.peak)→ 轮内破高:行记轮内真实
+    峰值且无上界标注;时序钉死——终值读在 spawn 收口之后(子进程写完才读)。"""
+    v2 = _fake_cgroup(rounds, ops_env, monkeypatch, v2_bytes=100)
+    cfg_path = fake_agent[0].parent / "fake-agent-cfg.json"
+    cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+    cfg["mem_bump"] = [str(v2), 200]
+    cfg_path.write_text(json.dumps(cfg), encoding="utf-8")
+    mgr = _make_manager([])
+    task = _run_round_to_finish(rounds, mgr)
+    snap = {row["id"]: row for row in mgr.snapshot()["tasks"]}
+    assert snap[task.id]["state"] == "done"
+    led = _ledger_text(ops_env)
+    assert "memory_peak_bytes=200" in led, led
+    assert "(=轮始基线" not in led  # 破高:无上界标注
+
+
+def test_run_round_writes_memory_peak_row_on_failure(
+        rounds, ops_env, fake_agent, monkeypatch):
+    """失败信封轮(fail 轮):spawn error 行与内存峰值行同落台账——收口面
+    finally 不挑结果(轮次失败≠工件灭失,规格 §3;峰值面同理)。"""
+    _fake_cgroup(rounds, ops_env, monkeypatch, v2_bytes=838860800)
+    _fake_agent_set(fake_agent[0], "failure")
+    mgr = _make_manager([])
+    task = _run_round_to_finish(rounds, mgr)
+    snap = {row["id"]: row for row in mgr.snapshot()["tasks"]}
+    assert snap[task.id]["state"] == "failed"
+    assert snap[task.id]["error_code"] == "closure_check"
+    led = _ledger_text(ops_env)
+    assert "closure_check" in led and "memory_peak_bytes=838860800" in led, led
+
+
+def test_run_round_writes_memory_peak_row_on_crash_settle(
+        rounds, ops_env, fake_agent, monkeypatch):
+    """兜底路径(C1 #196 异常兑底):_settle_crash 台账行 + finally 内存峰值行
+    都在;线程照旧收口退出(内存行写失败也不得反向撕线程,同 C1 判例)。"""
+    _fake_cgroup(rounds, ops_env, monkeypatch, v2_bytes=838860800)
+
+    def boom(*_a, **_k):
+        raise OSError(5, "Input/output error")
+
+    monkeypatch.setattr(rounds, "spawn_round", boom)
+    mgr = _make_manager([])
+    task = _run_round_to_finish(rounds, mgr)
+    snap = {row["id"]: row for row in mgr.snapshot()["tasks"]}
+    assert snap[task.id]["state"] == "failed"
+    assert snap[task.id]["error_code"] == "infra"
+    led = _ledger_text(ops_env)
+    assert "spawn error_code=infra" in led, led
+    assert "memory_peak_bytes=838860800" in led, led
+
+
+def test_run_round_no_memory_row_when_cgroup_unreadable(
+        rounds, ops_env, fake_agent, monkeypatch):
+    """两代 cgroup 皆缺(开发机裸机)→ 成功轮零内存行:缺读数不虚构(None
+    不落行;台账不添「peak=0」式伪证)。"""
+    _fake_cgroup(rounds, ops_env, monkeypatch)  # 两代皆缺
+    mgr = _make_manager([])
+    task = _run_round_to_finish(rounds, mgr)
+    snap = {row["id"]: row for row in mgr.snapshot()["tasks"]}
+    assert snap[task.id]["state"] == "done"
+    assert "memory_peak_bytes" not in _ledger_text(ops_env)
 
 
 # ── A. argv 契约(纯函数;真 node 命令形状)──────────────────────────────────

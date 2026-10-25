@@ -21,7 +21,8 @@
   契约违背 → infra 兜底信封;
 - 一切失败面与 admin 取消落台账(_ops_store.append_ledger;轮次失败≠工件
   灭失,规格 §3;九裁决 9:取消的轮次也可能已花真钱,留痕);成功面桥零追加
-  (agent 侧 lib.sh 自记真实 usage,双记=回声);
+  (agent 侧 lib.sh 自记真实 usage,双记=回声);例外=内存峰值独立行
+  (#139 挂账①:agent 侧无采集,桥侧 cgroup 读数是唯一记录,非回声);
 - stderr 进度行([turn]/[tool],契约面)逐行回调 on_log(run_ops_round 接任务链
   SSE 的 task_log 事件)。
 
@@ -524,6 +525,30 @@ def read_memory_peak() -> int | None:
     return None
 
 
+def _record_memory_peak(round_type: str, base: int | None) -> None:
+    """轮次收口面:内存峰值独立行入台账(#139 挂账①;best-effort 不抛)。
+
+    行形状决定:独立行(append_ledger 既有 5 列)而非加列——台账表头 T4 冻结
+    (node 侧 lib.sh ledger_append 首建同串),加列=改冻结契约;老行/agent 侧行
+    无此列,前向兼容=缺行即缺省,不虚构。「成功面桥零追加」口径限 usage 双记
+    =回声;内存峰值 agent 侧无采集(#139 立项缺口),本行是唯一记录,非回声。
+    cgroup 峰值为累计高水位:终值>基线 → 轮内破高,终值即轮内峰值;相等 →
+    轮内未破,终值是容器历史峰值上界,行内标注(不把上界虚构或轮内峰值)。
+    写盘失败只记日志:收口链(finish/兑底)已走完,不得反向撕线程(C1 同判例)。
+    """
+    peak = read_memory_peak()
+    if peak is None:
+        return  # 缺读数不虚构:两代 cgroup 皆不可读(裸机开发机)→ 零行
+    note = f"memory_peak_bytes={peak}"
+    if base is not None and peak == base:
+        note += f"(=轮始基线 {base},容器累计高水位,轮内未破)"
+    try:
+        _ops_store.append_ledger(round_type, "—", "—", note)
+    except Exception:
+        logger.warning("#139 内存峰值台账行写入失败(轮 %s,峰值 %d)",
+                       round_type, peak, exc_info=True)
+
+
 def run_round(manager, task, round_type: str, input_text: str) -> None:
     """ops 轮线程入口(路由侧 threading.Thread 拉起):spawn → 收口。
 
@@ -531,10 +556,13 @@ def run_round(manager, task, round_type: str, input_text: str) -> None:
     manager.finish_ops_round(done/failed/cancelled;error_code =
     信封 error.code 九词闭集透传);stderr 行经 manager.ops_log 进任务链 SSE。
     C1(#196):线程入口整体兑底——链上任何未捕获异常(如磁盘满 OSError)
-    也落终态+放车道,不得卡 running 撕停摆源 worker。"""
+    也落终态+放车道,不得卡 running 撕停摆源 worker。
+    #139 挂账①:轮始记 cgroup 峰值基线,收口面 finally(一切含兑底路径)
+    写终值入台账(_record_memory_peak;冷启动验收 #5 的机读替代)。"""
     def on_log(line: str) -> None:
         manager.ops_log(task.id, line)
 
+    peak_base = read_memory_peak()  # 轮始基线(容器累计高水位现值)
     try:
         result = spawn_round(round_type, input_text, on_log=on_log,
                              cancel_token=task.token)
@@ -553,3 +581,6 @@ def run_round(manager, task, round_type: str, input_text: str) -> None:
         logger.exception("ops 轮线程未捕获异常(task %s, round_type=%s)",
                          task.id, round_type)
         _settle_crash(manager, task.id, e, round_type)
+    finally:
+        # #139 挂账①:一切收口路径(成功/失败/取消/兑底)同写终值
+        _record_memory_peak(round_type, peak_base)
