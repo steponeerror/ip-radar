@@ -146,19 +146,16 @@ export async function runRound(round, input, extraKws = [], opts = {}) {
   const log = (...a) => (opts.stderr ?? process.stderr).write(a.join(" ") + "\n");
   // #199 A2 月度 kill switch 准入(与 pipeline.mjs runPipeline 同面共享 budget.mjs,双面同裁决):
   // 先于模型装载/工具构建——拒跑零花费。est=OPS_PIPELINE_BUDGET_CNY(与 mkCtx 同读同校验)。
+  // #203 C2:拒跑块(文案/[admission] log/台账留痕行)收口 budget.mjs admitOrRefuse 留痕外壳
+  // (与 pipeline 面同壳同文案);本面只映射出口=throw {code}(main 兜底信封 exit 1)。
   const budgetKnobs = budget.readBudgetKnobs(childEnv);
   const estRaw = childEnv.OPS_PIPELINE_BUDGET_CNY ?? process.env.OPS_PIPELINE_BUDGET_CNY ?? "0.05";
   const estCny = +estRaw;
   if (!Number.isFinite(estCny) || estCny < 0)
     throw Object.assign(new Error(`OPS_PIPELINE_BUDGET_CNY 须为非负数,得到:${estRaw}`), { usage: true });
   const ledgerFile = childEnv.LEDGER_FILE ?? process.env.LEDGER_FILE ?? path.join(DOCS_ROOT, "ops", "ledger.md");
-  const admission = await budget.monthlyAdmission({ ledgerFile, capCny: budgetKnobs.monthlyCapCny, estCny });
-  if (!admission.ok) {
-    log(`[admission] budget_monthly refused month=${admission.month} spend=${admission.spend} est=${admission.est} cap=${admission.cap} skipped=${admission.skipped}`);
-    try { await budget.appendRefusalTrace(ledgerFile, { est: estCny, cap: budgetKnobs.monthlyCapCny }, childEnv); }
-    catch (e) { log(`[admission] 拒跑留痕行写败(不翻转裁决):${e.message}`); }
-    throw Object.assign(new Error(`月度预算拒跑:当月已花 ¥${admission.spend} + 本轮预算 ¥${admission.est} > 月帽 ¥${admission.cap}(OPS_PIPELINE_MONTHLY_CAP_CNY;当月 ${admission.counted} 行计入,${admission.skipped} 行缺 cost 跳过不猜)`), { code: "budget_monthly" });
-  }
+  const admission = await budget.admitOrRefuse({ ledgerFile, capCny: budgetKnobs.monthlyCapCny, estCny, env: childEnv, log });
+  if (admission.refused) throw Object.assign(new Error(admission.message), { code: admission.code });
   const host = new ToolHost(round);
   const { models, resolve } = opts.models ?? await loadModels();
   for (const seed of opts.registrySeed ?? []) host.registry.register(seed.id, seed.tool, seed.sc);

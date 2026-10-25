@@ -82,6 +82,9 @@ export function monthSpendOfLedgerText(text, month) {
 }
 
 // 纯函数:准入裁决(等号=帽内放行;est=本轮预算上界,宁少算口径)。
+// 容差口径唯一真源集中此一处(#203 C2 P2 附注):现行=精确比较无 ε(spend+est>cap 才拒,
+// spec 钉「等号放行」);轮预算面 gates.mjs/steps.mjs 的 +1e-9 灰尘容差是其各自面的先例,
+// 不入本面;若将来月帽要加 ε,只许加在此处(admitOrRefuse 外壳与双面不得另立容差)。
 export const admitMonthly = ({ spendCny, estCny, capCny }) => {
   const projected = spendCny + estCny;
   return { ok: projected <= capCny, projected };
@@ -110,6 +113,28 @@ export async function appendRefusalTrace(ledgerFile, { est, cap }, env = process
   const round = "health"; // 双面拒跑都发生在 health 轮(discover 未立项)
   return execFileP("bash", ["-c", `. "$0"; ledger_append "$@"`, LIBSH, round, "—", "—",
     `budget_monthly refused est=${est} cap=${cap}`], { timeout: 120_000, maxBuffer: 32 * 1024 * 1024, env: { ...env, LEDGER_FILE: ledgerFile } });
+}
+
+// —— 拒跑块单源(#203 C2):admitOrRefuse 留痕外壳 + refusalOf 纯文案 ——
+// 收口判例:拒跑块(文案/台账留痕行/[admission] log)曾双面逐字复制(agent.mjs runRound ↔
+// pipeline.mjs runPipeline,#200 Spec 轴核),漂移靠人记;单源后两面只映射出口——agent 面
+// throw {code}(main 兜底信封 exit 1)、pipeline 面 emitFail(code, message)(信封 exit 1),
+// 出口形状不属本壳(信封纪律:两面行为/日志/台账行/exit code 逐字不变)。
+// 纯函数面:裁决真源仍是 admitMonthly(容差语义见其注);refusalOf 只做文案单源。
+export const refusalOf = (a) => ({
+  code: "budget_monthly",
+  message: `月度预算拒跑:当月已花 ¥${a.spend} + 本轮预算 ¥${a.est} > 月帽 ¥${a.cap}(OPS_PIPELINE_MONTHLY_CAP_CNY;当月 ${a.counted} 行计入,${a.skipped} 行缺 cost 跳过不猜)`,
+});
+// 留痕外壳:monthlyAdmission 读→裁;拒跑则 [admission] log + 台账留痕行(写败只 log 不
+// 翻转裁决——宁拒不跑),返回 {refused:true, code, message};放行返回 {refused:false,
+// admission}(读数对象原样回传,state.monthly_admission/09-budget.json 观察面字节不变)。
+export async function admitOrRefuse({ ledgerFile, capCny, estCny, env, log }) {
+  const admission = await monthlyAdmission({ ledgerFile, capCny, estCny });
+  if (admission.ok) return { refused: false, admission };
+  log(`[admission] budget_monthly refused month=${admission.month} spend=${admission.spend} est=${admission.est} cap=${admission.cap} skipped=${admission.skipped}`);
+  try { await appendRefusalTrace(ledgerFile, { est: estCny, cap: capCny }, env); }
+  catch (e) { log(`[admission] 拒跑留痕行写败(不翻转裁决):${e.message}`); } // 台账写败不吞拒跑:宁拒不跑
+  return { refused: true, ...refusalOf(admission) };
 }
 
 // (调用哈希面见 A4 段——同文件追加,不另起炉灶)

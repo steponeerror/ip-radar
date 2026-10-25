@@ -1816,6 +1816,44 @@ await t("A2-双面共享:legacy 面 runRound 同一拒跑码+台账留痕(准入
   assert.ok(led.includes("budget_monthly refused est=0.05 cap=0.05"), `legacy 面同留痕:${led}`);
 });
 
+await t("A2-拒跑块单源(#203 C2):admitOrRefuse 外壳——文案/[admission] log/台账行逐字钉死+放行面原样回传", async () => {
+  const { admitOrRefuse, refusalOf, monthNow } = await import(path.join(AGENT, "pipeline/budget.mjs"));
+  const tree = mkTree("budget-admit-shell");
+  const m = monthNow();
+  fs.mkdirSync(path.dirname(tree.env.LEDGER_FILE), { recursive: true });
+  fs.writeFileSync(tree.env.LEDGER_FILE, `# 运营轮次台账\n\n| 日期 | 轮次 | model | 用量 | 备注 |\n|---|---|---|---|---|\n| ${m}-01 | health | pipeline-real | in=1 out=1 total=2 cost=0.04 | pipeline:old |\n`);
+  const logs = [];
+  const r = await admitOrRefuse({ ledgerFile: tree.env.LEDGER_FILE, capCny: 0.05, estCny: 0.05, env: tree.env, log: (l) => logs.push(l) });
+  assert.equal(r.refused, true);
+  assert.equal(r.code, "budget_monthly");
+  assert.equal(r.message, "月度预算拒跑:当月已花 ¥0.04 + 本轮预算 ¥0.05 > 月帽 ¥0.05(OPS_PIPELINE_MONTHLY_CAP_CNY;当月 1 行计入,0 行缺 cost 跳过不猜)", "拒跑文案=收口前双面逐字基线(改文案=改契约,须过票)");
+  assert.deepEqual(logs, [`[admission] budget_monthly refused month=${m} spend=0.04 est=0.05 cap=0.05 skipped=0`], "[admission] log 行单源逐字");
+  const led = fs.readFileSync(tree.env.LEDGER_FILE, "utf8");
+  assert.ok(led.includes("budget_monthly refused est=0.05 cap=0.05"), `台账留痕行:${led}`);
+  const ok = await admitOrRefuse({ ledgerFile: tree.env.LEDGER_FILE, capCny: 1, estCny: 0.05, env: tree.env, log: (l) => logs.push(l) });
+  assert.equal(ok.refused, false, "帽内放行");
+  assert.equal(ok.admission.spend, 0.04, "读数原样回传(state.monthly_admission/09-budget.json 面字节不变)");
+  assert.equal(logs.length, 1, "放行零日志(拒跑才留痕)");
+  assert.equal(refusalOf({ spend: 0.04, est: 0.05, cap: 0.05, counted: 1, skipped: 0 }).code, "budget_monthly", "纯文案函数 code 面");
+});
+
+await t("C3-ctx 形状单源(#204):ctxShape 闭集键钉死(mkCtx 与 runResume 同构造;缺/多字段即红)", async () => {
+  const { ctxShape } = await import("./pipeline.mjs");
+  const state = { schema: 1 };
+  const c = ctxShape({ type: "health", roundId: "2026-10-25-2110-health", opsRoot: "/ops", env: {}, log: () => {}, fixturesDir: "/fx", modelFace: "faux", budgetCny: 0.05, budgetKnobs: { monthlyCapCny: 30 }, breakerKnobs: {}, state });
+  assert.deepEqual(Object.keys(c).sort(), ["breakerKnobs", "budgetCny", "budgetKnobs", "dir", "dupRegistry", "envelope", "env", "fixturesDir", "itemsDir", "ledgerFile", "log", "modelCalls", "modelFace", "opsRoot", "pkg", "retroAuditKey", "retroFile", "roundId", "rulesFile", "state", "type", "usage", "verify"].sort(), "键集=两消费面(gates/steps)所读闭集+ctxPaths 四键;手抄重建回潮=键漂移即红");
+  assert.ok(c.dir === path.join("/ops", "rounds", "2026-10-25-2110-health"), "dir 自算(resume argv String 面与 mkCtx 字符串面同算)");
+  assert.equal(c.modelCalls, 0); assert.ok(c.dupRegistry instanceof Map);
+  assert.deepEqual(c.usage, { input: 0, output: 0, totalTokens: 0, cost: 0 }, "调用登记/用量每次新建");
+  assert.equal(c.state, state, "state 传引用不克隆");
+});
+
+await t("C3-ctx 唯一构造点(#204):dupRegistry/modelCalls/usage 零字面在 pipeline.mjs 恰一处(绕 ctxShape 手抄回潮=第二处即红)", async () => {
+  const src = fs.readFileSync(path.join(AGENT, "pipeline.mjs"), "utf8");
+  for (const lit of ["dupRegistry: new Map()", "modelCalls: 0", "usage: { input: 0"])
+    assert.equal(src.split(lit).length - 1, 1, `「${lit}」须恰出现 1 次(仅 ctxShape;第 2 处=手抄重建回潮)`);
+});
+
 // ── A4(#199):重复调用哈希 ──
 await t("A4-纯函数:canonical 键序无关+dupKey 同参同键/异参异键+计数第 limit 次拦/limit=0 停用+dupTop 排序", async () => {
   const { canonicalJson, dupKey, dupRecord, dupTop } = await import(path.join(AGENT, "pipeline/budget.mjs"));
