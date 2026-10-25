@@ -172,15 +172,16 @@ await t("门契约单源(#194 C3):GATES 注册键序=HEALTH_PIPELINE 执行序�
   assert.equal(Object.keys(GATES).length, GATE_COUNT);
 });
 
-await t("工件清单全落盘+gates.json 十记录全 PASS+state.json 终态 done/CLOSE+原子写无 .tmp 残留", async () => {
+await t("工件名表单源(#202 C1):ARTIFACT_NAMES 双向闭包——清单全落盘∧轮目录实际工件集合=名表∪DEEP 参数族(名表加项不更新写出面=红;步面新写工件不入表=红;09-budget.json 手抄三层判例收口)+gates.json 十记录全 PASS+state.json 终态 done/CLOSE+原子写无 .tmp 残留", async () => {
+  const { ARTIFACTS, ARTIFACT_NAMES, DEEP_ARTIFACT_RE, DEEP_TRANSCRIPT_RE } = await import("./artifacts.mjs"); // 工件名单一真源(禁手抄清单)
   const d = roundDir(R1);
-  for (const f of ["01-probe-freshness.tsv", "01-probe-matrix.json", "01-probe-summary.json", "02-verify-survivors.json",
-    "02-verify-suppressed.json", "03-triage-hypotheses.json", "03-triage-transcript.jsonl", "04-dispatch-bundles.json",
-    "05-deep-verdicts.json", "06-itemize-manifest.json", "07-synth-report.md", "07-synth-transcript.jsonl",
-    "08-anchor-sweep.json", "08-anchor-sweep-exits.json", "09-budget.json", "gates.json", "state.json"])
+  for (const f of ARTIFACT_NAMES)
     assert.ok(fs.existsSync(path.join(d, f)), `工件缺:${f}`);
-  assert.ok(fs.readdirSync(d).some((f) => /^05-deep-.*\.json$/.test(f) && f !== "05-deep-verdicts.json"), "逐假设工件");
-  assert.ok(fs.readdirSync(d).some((f) => /^05-deep-.*-transcript\.jsonl$/.test(f)), "逐假设 transcript");
+  const parametric = fs.readdirSync(d).filter((f) => !ARTIFACT_NAMES.includes(f)); // 名表外=逐假设参数族闭包面
+  for (const f of parametric)
+    assert.ok(DEEP_ARTIFACT_RE.test(f) || DEEP_TRANSCRIPT_RE.test(f), `轮目录工件不在名表∪参数族闭包:${f}(新工件须先入 artifacts.mjs——名表与写出面双向哨)`);
+  assert.ok(parametric.some((f) => DEEP_ARTIFACT_RE.test(f) && f !== ARTIFACTS.DEEP_VERDICTS), "逐假设工件");
+  assert.ok(parametric.some((f) => DEEP_TRANSCRIPT_RE.test(f)), "逐假设 transcript");
   const g = j(path.join(d, "gates.json"));
   assert.equal(g.round_id, R1);
   assert.equal(g.records.length, GATE_COUNT, "9 可跑步门(含 #182 ANCHOR_SWEEP)+G_CLOSE");
