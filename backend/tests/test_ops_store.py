@@ -305,6 +305,40 @@ def test_append_queue_mixed_python_node_race(store, ops_env):
 # ── 台账(ledger.md,T4 冻结形状) ──────────────────────────────────
 
 
+_LEDGER_RACE_DRIVER = (
+    "import sys; from ipdb._ops_store import append_ledger\n"
+    "n = int(sys.argv[1]); tag = sys.argv[2]\n"
+    "for i in range(n):\n"
+    "    append_ledger(round_='health', model='pipeline-real',\n"
+    "                 usage=f'in=1 out=1 total=2 cost=0.0000000{i:02d}',\n"
+    "                 note=f'race:{tag}{i}')\n"
+)
+
+
+def _spawn_ledger_appenders(ops_env, per_proc, tags):
+    env = {**os.environ, "IP_RADAR_DATA_DIR": str(ops_env)}
+    procs = [subprocess.Popen([sys.executable, "-c", _LEDGER_RACE_DRIVER,
+                               str(per_proc), tag], cwd=BACKEND_DIR, env=env)
+             for tag in tags]
+    for p in procs:
+        assert p.wait() == 0, "子进程 append_ledger 崩(锁/写路径异常)"
+
+
+def test_append_ledger_concurrent_no_lost_rows(store, ops_env):
+    """#199 A3:台账双写面加锁——两子进程并发 append_ledger → 行数恰 2N 零丢行。
+
+    与 queue 同形制(#139 挂账②):append_ledger 是读-建头-写三段(缺文件建表头
+    后整写回),无锁时两进程互窗后写覆盖前写;修后 flock(LOCK_EX) 全段串行化。
+    修前实证见 A-REPORT(#199 交付A)。锁文件随首次写创建、不删除。
+    """
+    _spawn_ledger_appenders(ops_env, 40, ("la_", "lb_"))
+    text = (ops_env / "ops" / "ledger.md").read_text(encoding="utf-8")
+    rows = [l for l in text.splitlines() if l.startswith("| 2026-")]
+    assert len(rows) == 80, f"丢行/重行:期望 80,实际 {len(rows)}"
+    assert text.count(LEDGER_HEADER) == 1, "表头重建多次(建头窗未入锁)"
+    assert (ops_env / "ops" / "ledger.md.lock").exists(), "锁文件应随首次 append 创建"
+
+
 def test_append_ledger_header_then_rows(store, ops_env):
     store.append_ledger(round_="health", model="glm-5.3-flash",
                         usage="in=671 out=859 total=5882 cost=0.00064598",

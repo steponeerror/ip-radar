@@ -29,6 +29,9 @@ const SRCS = { agent: src("agent.mjs"), tools: src("tools.mjs"), models: src("mo
   // pipeline.mjs(值闭集校验/预算门);对拍不变式(表内每项真被读/读取∈表)延展覆盖
   pipeline: src("pipeline.mjs"), pipelineSteps: src("pipeline/steps.mjs"),
   pipelineGates: src("pipeline/gates.mjs"), pipelineFaux: src("pipeline/faux.mjs"),
+  // 票 #199 交付A(P15 预算四界):旋钮单源读面入扫描——六 OPS_PIPELINE_* 真读方在
+  // budget.mjs readBudgetKnobs(引擎检查点/双面准入/调用哈希同面)
+  pipelineBudget: src("pipeline/budget.mjs"),
   // 票 #184(finding 出口三件套):出口模块入扫描——OPS_SWEEP_DRY_RUN/IP_RADAR_ALERT_URLS 真读方
   pipelineFindingExit: src("pipeline/finding-exit.mjs"),
   // 票 #195(C6 tools.mjs 分层):面文件入扫描——env 读取面(DOCS_ROOT/OPS_EVAL_PY/
@@ -37,6 +40,9 @@ const SRCS = { agent: src("agent.mjs"), tools: src("tools.mjs"), models: src("mo
   toolsShared: src("tools/shared.mjs"), toolsEnvelope: src("tools/envelope.mjs"),
   toolsRegistry: src("tools/registry.mjs"), toolsPrecedents: src("tools/precedents.mjs"),
   toolsMeasurement: src("tools/measurement.mjs"), toolsDiscovery: src("tools/discovery.mjs"),
+  // 票 #199 交付B(P16 跨轮熔断):旋钮单源读面入扫描——OPS_BREAKER_* 真读方在
+  // tools/breaker.mjs readBreakerKnobs(宿主接线/09-budget.json 快照同面)
+  toolsBreaker: src("tools/breaker.mjs"),
   // #139 挂账②:锁基建入扫描(零 env 读取,现状无表项;未来若读 env 会被
   // 「读取∈表」不变式拦下,防静默扩面)
   toolsQueueLock: src("tools/queue-lock.mjs") };
@@ -70,7 +76,7 @@ const ERROR_CODES = mod.ERROR_CODES;
 const computeReads = () => {
   const reads = new Set();
   let unknownTemplate = null;
-  for (const s of [SRCS.agent, SRCS.tools, SRCS.models, SRCS.pipeline, SRCS.pipelineSteps, SRCS.pipelineGates, SRCS.pipelineFaux, SRCS.pipelineFindingExit, SRCS.toolsShared, SRCS.toolsEnvelope, SRCS.toolsRegistry, SRCS.toolsPrecedents, SRCS.toolsMeasurement, SRCS.toolsDiscovery, SRCS.toolsQueueLock]) {
+  for (const s of [SRCS.agent, SRCS.tools, SRCS.models, SRCS.pipeline, SRCS.pipelineSteps, SRCS.pipelineGates, SRCS.pipelineFaux, SRCS.pipelineBudget, SRCS.pipelineFindingExit, SRCS.toolsShared, SRCS.toolsEnvelope, SRCS.toolsRegistry, SRCS.toolsPrecedents, SRCS.toolsMeasurement, SRCS.toolsDiscovery, SRCS.toolsBreaker, SRCS.toolsQueueLock]) {
     for (const m of s.matchAll(/process\.env\.([A-Za-z_][A-Za-z0-9_]*)/g)) reads.add(m[1]);
     // 方括号字符串读形(reviewer Minor-2,T2):process.env["QUOTED_NAME"]/['X']——与点形
     // 同名集并入对拍;引号族与反引号族(下方)互不重叠。动态下标读形 process.env[expr]
@@ -106,12 +112,15 @@ await t("表对拍:扫描器收录的 env 读取面(计算模板无未知形)", 
   assert.equal(READS.unknownTemplate, null, `未收录的 process.env[··] 计算读取模板,对拍器需同步`);
 });
 
-await t("表:SPAWN_CONTRACT_ENV 名集=规格 16 项+OPS_PROBE_MAX_KEYS(tools 面实读,C6 分层后 env 读取单源 tools/shared.mjs;对拍闭包补入)+OPS_PIPELINE/OPS_PIPELINE_BUDGET_CNY(P2 P0 增量,pipeline.mjs 实读)+OPS_ANCHOR_SWEEP_TIMEOUT_MS(#182 anchorSweepCli 实读)+JINA_API_KEY/PI_CODING_AGENT_DIR(PR3a pi-web-access 外部自读,同 GH_TOKEN 豁免型)+OPS_SWEEP_DRY_RUN/IP_RADAR_ALERT_URLS(#184 finding 出口,pipeline/finding-exit.mjs 实读)", () => {
+await t("表:SPAWN_CONTRACT_ENV 名集=规格 16 项+…(增补链见 agent.mjs 注;#199 交付A 尾部再追 OPS_PIPELINE_MAX_MODEL_CALLS/OPS_PIPELINE_TOKEN_BUDGET/OPS_PIPELINE_WALL_CLOCK_S/OPS_PIPELINE_SPEND_CAP_CNY/OPS_PIPELINE_MONTHLY_CAP_CNY/OPS_PIPELINE_DUP_CALL_LIMIT——pipeline/budget.mjs readBudgetKnobs 单源实读)", () => {
   assert.deepEqual([...tableNames()].sort(), ["DOCS_ROOT", "GH_TOKEN", "IP_RADAR_ALERT_URLS", "JINA_API_KEY", "LEDGER_FILE", "OPS_ANCHOR_SWEEP_TIMEOUT_MS", "OPS_AUTH", "OPS_DATA_DIR",
     "OPS_EVAL_PY", "OPS_FETCH_MAX_BYTES", "OPS_MATRIX_TIMEOUT_MS", "OPS_MODELS", "OPS_MODEL_DISCOVER",
     "OPS_MODEL_HEALTH", "OPS_MODELS_STORE", "OPS_PIPELINE", "OPS_PIPELINE_BUDGET_CNY", "OPS_PROBE_CLI_TIMEOUT_MS",
     "OPS_PROBE_MAX_BYTES", "OPS_PROBE_MAX_KEYS", "OPS_SWEEP_DRY_RUN", "PI_CODING_AGENT_DIR",
-    "PRECEDENTS_DIR", "ZAI_CODING_CN_API_KEY"].sort());
+    "PRECEDENTS_DIR", "ZAI_CODING_CN_API_KEY",
+    "OPS_PIPELINE_MAX_MODEL_CALLS", "OPS_PIPELINE_TOKEN_BUDGET", "OPS_PIPELINE_WALL_CLOCK_S",
+    "OPS_PIPELINE_SPEND_CAP_CNY", "OPS_PIPELINE_MONTHLY_CAP_CNY", "OPS_PIPELINE_DUP_CALL_LIMIT",
+    "OPS_BREAKER_THRESHOLD", "OPS_BREAKER_COOLDOWN_S"].sort()); // #199 交付B:tools/breaker.mjs readBreakerKnobs 单源实读
 });
 
 await t("表:元素形状 {name,default,consumer,phase}/phase 闭集/名唯一", () => {
@@ -139,9 +148,10 @@ await t("表对拍:OPS_*|ZAI_*|DOCS_ROOT/PRECEDENTS_DIR/LEDGER_FILE 读取 ∈ �
   assert.ok(!tableNames().has("PI_BIN") && !tableNames().has("RUN_PI_RAW_OUT"), "fixture 面名字不得入表");
 });
 
-await t("表:error.code 闭集九词(ERROR_CODES 导出面)", () => {
+await t("表:error.code 闭集 14 词(ERROR_CODES 导出面;#199 交付A 9→13,交付B 13→14 channel_open)", () => {
   assert.deepEqual([...ERROR_CODES].sort(), ["bad_round", "closure_check", "empty_text", "foreign_tool", "infra",
-    "ledger_failed", "model_face", "sandbox_violation", "verify_failed"].sort());
+    "ledger_failed", "model_face", "sandbox_violation", "verify_failed",
+    "budget_exceeded", "wall_clock_exceeded", "budget_monthly", "repeat_storm", "channel_open"].sort());
 });
 
 // ── b. in-process main(faux provider,golden 同型;零 API)──────────────────
@@ -319,6 +329,26 @@ await t("锁路径对拍:python QUEUE_LOCK_NAME ↔ node queueLockPath 同源同
   // 接线钉死:registry 面真消费锁封装(漂移 = queue_action 绕开跨进程锁,竞态窗复活)
   assert.match(SRCS.toolsRegistry, /appendQueueRowLocked/,
     "registry.mjs queueAction 未消费 appendQueueRowLocked(竞态窗复活)");
+});
+
+await t("锁路径对拍:python LEDGER_LOCK_NAME ↔ node ledgerLockPath 同源同址(#199 A3)", async () => {
+  const py = fs.readFileSync(path.join(AGENT, "..", "..", "backend", "ipdb", "_ops_store.py"), "utf8");
+  const m = py.match(/LEDGER_LOCK_NAME = "([^"]+)"/);
+  assert.ok(m, "_ops_store.py 缺 LEDGER_LOCK_NAME 字面量(锁路径契约漂移)");
+  assert.equal(m[1], "ledger.md.lock", "python 台账锁名漂移(须 = ledger.md+'.lock')");
+  assert.ok(py.includes("ops_root() / LEDGER_LOCK_NAME"),
+    "ledger_lock_path 必须 = ops_root()/LEDGER_LOCK_NAME(与 ledger.md 同目录)");
+  const { ledgerLockPath } = await import("./pipeline/budget.mjs");
+  // 生产同址链同 queue 哨:桥注入 LEDGER_FILE=ops_root()/ledger.md → node 派生
+  // 锁路径与 python 同一文件,读写互认互斥;月度读面/拒跑留痕行同域。
+  assert.equal(ledgerLockPath(path.join(DOCS, "ops", "ledger.md")), path.join(DOCS, "ops", m[1]),
+    "node 锁路径 = ledger.md 同目录同名+.lock,须与 python ops_root()/LEDGER_LOCK_NAME 同址");
+  assert.match(SRCS.pipelineBudget, /readLedgerTextLocked[\s\S]*?execFileP\("flock"/,
+    "月度读面须经 flock 持锁(绕开=准入读到撕裂行)");
+  assert.match(SRCS.libsh, /ledger_append\(\)[\s\S]*?flock "\$LEDGER_FILE\.lock"/,
+    "lib.sh 写面 ledger_append 须持 flock(双写面缺一即竞态窗)");
+  assert.match(py, /def append_ledger[\s\S]*?with _ledger_lock\(\):/,
+    "python 写面 append_ledger 须持 _ledger_lock");
 });
 
 fs.rmSync(TMP, { recursive: true, force: true });

@@ -129,7 +129,8 @@
 - **回归轨 / 能力轨**:评测双轨语义(ADR 0008)——回归轨=已知答案金标+行为探针,≈100% 通过才放行,持 CI+运营轮巡检(回答「agent 是否还能做会的事」);能力轨=北星指标(整体情报更准)爬坡观测,不持门;两轨阈值语义不同,不得互相原谅。出处:Anthropic evals 2026-01。锚:docs/adr/0008、backend/ipdb/_eval/anchors.py(回归轨既有件,接线=租户批)
 - **安静失败**:监控面板全绿而系统行为已错——标准可观测性(存活/延迟/错误率)抓不住语义级退化,须行为探针(活路径已知答案查询)代查(IEEE Spectrum 2026-04)。判例:锚门死件(8.8.8.8 被打恶而门不响)。锚:notes/ops-agent-golden-standard-research-2026-10-24.md(工业腿③)
 - **发现固化**:生产事故与运营 finding 当天转可执行回归金标,人验签核(agent 提名、人裁终局)——学术判例 Agentic Auditing 2026-10(发现→可执行测试→人验,$2-3/轮)。首批金标=8.8.8.8/114DNS 判例。STANDARD.md 原语层 P13 词条=本词,同概念同判例(2026-10-24 终审修单统一拼写,典章内不再用「事故固化」拼法)。锚:docs/adr/0008 决策3、notes 研究学术腿①、ops/agent/STANDARD.md 原语层(P13)
-- **预扣结算**:预算在动作前检查的原语——reserve 后动作、settle 时对账;事后 dashboard 不构成预算控制(Latentism 2026-10)。轮内现状=步前检查实报累计(budget_truncate 同语义),月度 kill switch=补课清单。锚:ops/agent/pipeline.mjs(budget_truncate)
+- **预扣结算**:预算在动作前检查的原语——reserve 后动作、settle 对账,事后 dashboard 不构成预算控制(Latentism 2026-10)。轮内=步前检查实报累计(budget_truncate 同语义),月度 kill switch 已接线(#199 交付A 双面准入)。锚:ops/agent/pipeline.mjs(budget_truncate)
+- **预算四界**:整轮预算四机械界+同参拦——轮内模型调用数帽/轨迹 token 预算/墙钟超时/花费帽(每轮 ∧ 月度 kill switch)+工具调用哈希重复检测;单发线降为告警线(Formation 四界论 2026-09;STANDARD 原语 P15 面)。实现=#199 交付A:pipeline/budget.mjs readBudgetKnobs 单源(六 OPS_PIPELINE_* 旋钮),双点执法(步前准入+环内),读数面 09-budget.json+G_CLOSE 回声哨。锚:ops/agent/pipeline/budget.mjs、ops/agent/STANDARD.md 原语层(P15)
 - **谱系混淆**:变量不对齐产生的优势/印证是伪影——源派生重复计票(回声当印证)与算力不对齐的多 agent 优势(swarm tax:同 thinking-token 预算下多 agent 优势消失)同族;工业 eval 框架均不建模源谱系,本仓独有标准条目。判例:114DNS cps+ziyadnz 假印证。锚:backend/ipdb/_logodds.py(dedup_lineage)、notes 研究(三向对撞表)
 - **信封纪律**:agent 与外部通道的失败表达契约(STANDARD 原语 P1)——失败不编造:通道失败走四码结构化分类(每码自带下一步合法动作),无证据≠清白,弃权/缺口不冒充零命中;机检面=classifyChannelError(词条「通道信封四码」=码表细则,实体在 tools/envelope.mjs)。锚:ops/agent/STANDARD.md 原语层(P1)、ops/agent/tools/envelope.mjs
 - **状态机骨架**:运营 agent 宿主形态(STANDARD 原语 P2)——宿主=显式状态机编排全轮,模型只在 TRIAGE/DEEP/SYNTH 三步,门全机检、任意步可 replay;单 agent 优化穷尽前不建多 agent(反多 agent 化默认)。词条「轮次状态机」=其实现细则。锚:ops/agent/STANDARD.md 原语层(P2)、ops/agent/pipeline.mjs(HEALTH_PIPELINE)
@@ -137,7 +138,7 @@
 - **轮内预算步前检查**:预算控制在动作前(STANDARD 原语 P7)——轮内=每步调用前检查预算并实报累计(budget_truncate 与 reserve-then-settle 同语义),事后 dashboard 不构成预算控制;跨轮面=「预扣结算」词条。锚:ops/agent/STANDARD.md 原语层(P7)、ops/agent/pipeline.mjs(budget_truncate)
 - **金标集**:已知答案回归语料(STANDARD 原语 P10,faux 跑零 API 花费)——golden/cases.json 行为回路件+anchors.py 锚集(裁决级锚);生产事故与 finding 经「发现固化」入集,期望全对≈100% 才放行。锚:ops/agent/STANDARD.md 原语层(P10)、ops/agent/golden/cases.json
 - **回归门≈100%**:回归轨放行阈值语义(STANDARD 原语 P11)——已知答案金标+行为探针近乎全对才放行,与能力轨低通过率起步爬坡分立(Anthropic 2026-01);门面=CI golden+selftest+月轮 --anchors rc。锚:ops/agent/STANDARD.md 原语层(P11)
-- **跨轮熔断**:按通道/工具粒度跨轮累积的熔断器(STANDARD 原语 P16,补课腿)——轮内 transient≤1 已在,跨轮态(连续 N 轮同码失败即熔断该通道)缺。锚:ops/agent/STANDARD.md 原语层(P16)
+- **跨轮熔断**:按通道粒度跨轮累积的熔断器(STANDARD 原语 P16)——恰五通道闭集{gh_search,web_read,web_search,rss_parse,fetch_url}连续 3 次计数码失败(channel_missing/channel_auth/quota;宁少算:transient/infra 不计)即开断 6h,半开探活恢复;开断中调用=结构化 channel_open 信封零 spawn。实现=#199 交付B:ops/agent/tools/breaker.mjs(ops/breaker.json 跨轮态原子写;坏文件 fail-closed 重置闭路不炸轮),快照入 09-budget.json readings.breaker。锚:ops/agent/STANDARD.md 原语层(P16)、ops/agent/tools/breaker.mjs
 - **对照对打**:候选与生产变更在固定数据集上并排对打(STANDARD 原语 P17,半缺)——三轴=quality/latency/cost,过 release criteria 才放行;字节等价(回放闸门)是下限不是上限。锚:ops/agent/STANDARD.md 原语层(P17)
 - **弃权校准**:弃权语义(无证据即无话)之外的校准度量(STANDARD 原语 P19,补课腿)——弃权质量须 AUROC/ECE 分立评估(Cost-Aware Abstention 2026-10);度量缺,弃权语义已在。锚:ops/agent/STANDARD.md 原语层(P19)
 - **OTel投影**:轮信封按 OTel GenAI semconv 的外发投影(STANDARD 原语 P20,缺;另票)——内部契约不动,投影=纯读派生。锚:ops/agent/STANDARD.md 原语层(P20)

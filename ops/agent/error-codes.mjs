@@ -9,5 +9,9 @@
 // agent.mjs re-export 保导出面契约(selftest-contract「ERROR_CODES 导出面」)。
 // 事故与裁决:2026-10-24 判例 2026-10-24-discover-dual-channel-dead 同日;
 // 回归测试 = selftest-contract「委派可落定」spawn 探针(usage 前置 throw,零网)。
+// 闭集 14 词(#199 交付A 9→13:budget_exceeded/wall_clock_exceeded=A1 四界,budget_monthly
+// =A2 月度准入,repeat_storm=A4 同参拦;#199 交付B 13→14:channel_open=跨轮熔断开断拦,
+// 同 repeat_storm 形=beforeToolCall 结构化拦非轮终态错)。
 export const ERROR_CODES = ["bad_round", "model_face", "empty_text", "foreign_tool", "closure_check",
-  "ledger_failed", "verify_failed", "sandbox_violation", "infra"];
+  "ledger_failed", "verify_failed", "sandbox_violation", "infra",
+  "budget_exceeded", "wall_clock_exceeded", "budget_monthly", "repeat_storm", "channel_open"];

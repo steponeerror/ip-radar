@@ -89,10 +89,42 @@ QUEUE_HEADER = (
 # node queueLockPath 实跑值对拍,形制同 selftest.sh §14)。
 QUEUE_LOCK_NAME = "queue.md.lock"
 
+# 台账锁(#199 交付A A3):ledger.md 双写面(python append_ledger × bash lib.sh
+# ledger_append,node 轮次经 spawn 调)互斥锁名;形制同 QUEUE_LOCK_NAME——同目录
+# 同名+.lock,与 node 侧 budget.mjs readLedgerTextLocked(flock(1) 读面)/lib.sh
+# flock(1) 写面同一 flock(2) 锁域互认互斥。对拍哨 = selftest-contract.mjs
+# 「锁路径对拍:python LEDGER_LOCK_NAME」(形制同 queue 哨)。
+LEDGER_LOCK_NAME = "ledger.md.lock"
+
 
 def queue_lock_path() -> Path:
     """queue.md 跨进程互斥锁文件路径(与 queue.md 同目录)。"""
     return ops_root() / QUEUE_LOCK_NAME
+
+
+def ledger_lock_path() -> Path:
+    """ledger.md 跨进程互斥锁文件路径(与 ledger.md 同目录;#199 交付A A3)。"""
+    return ops_root() / LEDGER_LOCK_NAME
+
+
+@contextmanager
+def _ledger_lock():
+    """ledger.md 跨进程排它锁(fcntl.flock(2),LOCK_EX;#199 交付A A3)。
+
+    为什么锁:append_ledger 是读(缺文件建头)-写两段,与 node 轮次侧 lib.sh
+    ledger_append(bash)同构,同容器两进程并发互窗后写覆盖前写(修前实证 2×40
+    并发丢行近半,期望 80 实际 40——同 #139 queue 判形);月度准入读面
+    (budget.mjs readLedgerTextLocked)同锁域读,读不交错写。锁形制同
+    _queue_lock:O_CREAT 常驻不删,flock 挂 open file description 进程死即释。
+    """
+    lock = ledger_lock_path()
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(lock, os.O_CREAT | os.O_RDWR, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(fd)
 
 
 @contextmanager
@@ -283,7 +315,8 @@ def append_ledger(
     d = (today or date.today()).isoformat()
     row = f"| {d} | {round_} | {model} | {usage} | {note} |\n"
     lpath = ops_root() / "ledger.md"
-    _append_row_with_header(lpath, LEDGER_HEADER, row)
+    with _ledger_lock():  # #199 A3:读-建头-写全段入锁(双写面互斥;形制同 append_queue)
+        _append_row_with_header(lpath, LEDGER_HEADER, row)
     return lpath
 
 

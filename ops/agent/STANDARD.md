@@ -8,7 +8,7 @@
 
 ## 一、原语层(22 词)
 
-状态语义:**已有**=机制在场且接线活;**半缺**=部分在场;**缺**=无。半缺 9+缺 3 即补课清单(ADR 0008 后果节),逐项落 §五建议区。22=v0 冻结闭集——增删原语=STANDARD 版本变更(词汇表律:铸词同 PR 录入 GLOSSARY)。
+状态语义:**已有**=机制在场且接线活;**半缺**=部分在场;**缺**=无。半缺+缺项即补课清单(ADR 0008 后果节),逐项落 §五建议区;现状计数以原语表为准(不在此重复计数,防典章滞后——#187/#199 判例)。22=v0 冻结闭集——增删原语=STANDARD 版本变更(词汇表律:铸词同 PR 录入 GLOSSARY)。
 
 | # | 原语 | 2026 出处(研究底座) | 内部状态 | 内部锚 / 补课 |
 |---|---|---|---|---|
@@ -26,8 +26,8 @@
 | P12 | 安静失败探针 | IEEE Spectrum 2026-04 | 半缺 | 判例=8.8.8.8 门不响;接线已落(#182);补课=生产 cron 灰度开启 |
 | P13 | 发现固化 | Agentic Auditing 2026-10-22 | 半缺 | 首批金标=§四;当天固化+人验签核流程门未建制 |
 | P14 | 能力轨北星 | Anthropic 2026-01;Braintrust 2026-02(双面评测) | 半缺 | 定稿已落=E-5+月轮 northstar 观测件(#185);剩余=跨月趋势基线累积(首环比待第二轮月轮) |
-| P15 | 预扣结算 | Latentism 2026-10-05(reserve-then-settle) | 半缺 | 轮内步前在;补课=月度 kill switch |
-| P16 | 跨轮熔断 | Agent Internals 2026-09(通道/工具粒度) | 半缺 | 轮内 transient≤1 在;跨轮态缺 |
+| P15 | 预扣结算 | Latentism 2026-10-05(reserve-then-settle) | 已有 | 四界环内执法+月度 kill switch 双面准入(#199 交付A:budget.mjs 单源旋钮/G_CLOSE 回声哨/09-budget.json 读数面) |
+| P16 | 跨轮熔断 | Agent Internals 2026-09(通道/工具粒度) | 已有 | 五通道闭集跨轮熔断+半开探活(#199 交付B:breaker.mjs 跨轮态/计数码恰三员宁少算/channel_open 信封拦/09-budget.json 快照) |
 | P17 | 对照对打 | Braintrust 2026-09-26(quality/latency/cost) | 半缺 | 字节等价对拍在;三轴数值门缺 |
 | P18 | EDD开发环 | web.dev 2026-01-29(OpenAI EDD 日期 unknown 不计) | 半缺 | selftest/TDD 在;灰度影子轮 N≥3 门待验收 |
 | P19 | 弃权校准 | Cost-Aware Abstention 2026-10(AUROC/ECE 分立) | 半缺 | 弃权语义在(无证据即无话);校准度量缺 |
@@ -100,9 +100,9 @@
 - 判例链:swarm tax 2026-05(变量不对齐的优势=伪影);114DNS 事故(cps_collected_iocs+ziyadnz 聚合器假印证,ADR 0008);对撞表独有列(工业 eval 框架均不建模源谱系)
 
 #### D-5 预扣结算
-- 主张:预算在动作前检查(reserve 后动作、settle 对账),事后 dashboard 不构成预算控制;轮内=步前检查实报累计,跨轮熔断与月度 kill switch=补课腿(P15/P16)
+- 主张:预算在动作前检查(reserve 后动作、settle 对账),事后 dashboard 不构成预算控制;轮内=步前检查实报累计,月度 kill switch 与跨轮熔断已接线(P15/P16;#199 交付A readBudgetKnobs 单源/交付B breaker.mjs 跨轮态)
 - 原语组成:轮内预算步前检查;预扣结算;跨轮熔断
-- 门挂点:ops/agent/pipeline.mjs#budget_truncate
+- 门挂点:ops/agent/pipeline.mjs#budget_truncate;ops/agent/tools/breaker.mjs#mkBreaker
 - 判例链:Latentism 2026-10-05(预算帽调用前检查);对撞表「若实现是事后记账则被推翻(待核)→ 轮内已核=步前检查实报」(2026-10-24 预算核验判例)
 
 #### D-6 信封纪律
@@ -151,8 +151,6 @@
 
 - 类:建议 三轴数值对打门(quality/latency/cost release criteria;P17)——E-1 在建腿,建制后转正
 - 类:建议 灰度影子轮 N≥3 门(P18)——#176-178 影子轮判例在案,灰度验收门三件待做
-- 类:建议 月度预算 kill switch(P15 缺面)——跨月熔断另票
-- 类:建议 跨轮熔断器(P16)——按通道/工具粒度装
 - 类:建议 跨轮级评测 Run/Trace/Thread 三级补全(P21)
 - 类:建议 弃权单独校准 AUROC/ECE 分立(P19)
 - 类:建议 失败归因图 DeFA 式(P22)——多步误差分离定位
