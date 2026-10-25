@@ -34,14 +34,16 @@ P3 人裁写回(票 #135,写回四律 = 计划书 Global Constraints + 原 T5 �
   append_queue 入队(action+source 去重幂等);其余 verdict/动词零队列写
   (不发明闭集外动词);幂等路径也调 append_queue —— 去重下真零写,且自愈
   「判例已落、队列中途失或多」的崩殘态;
-- 竞态窗口:模块锁关进程内窗(先查后写 + 原子写);多进程部署下窗口残留
-  (uvicorn 单 worker 单容器形态下不可达,报告已说明);
+- 竞态窗口:queue.md 写口持跨进程 flock(_queue_lock,与 node 侧
+  tools/queue-lock.mjs 的 flock(1) 同锁域互认,#139 挂账②双边闭环);旧判
+  「多进程部署下窗口残留」已由双边锁关闭;
 - P1 §3 审阅四键(票 #155):write_ruling 增 item_id 来源(与 package 互斥),
   四律同构复用:lineage/hard_gates 指针 = ops/items/<id>.md(证据在条目里
   不复制),幂等键首槽 = item:<id>(与包名空间隔离),队列行轮次列 =
   "review"(审阅动作非轮次产物);包来源路径字节零变化。
 """
 
+import fcntl
 import hashlib
 import json
 import os
@@ -50,6 +52,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+from contextlib import contextmanager
 from datetime import date
 from pathlib import Path
 from typing import Any, Sequence
@@ -77,6 +80,46 @@ QUEUE_HEADER = (
     "| 日期 | 轮次 | action | source | predicate | evidence | vetoable |\n"
     "|---|---|---|---|---|---|---|\n"
 )
+
+# #139 挂账②:queue.md 跨进程互斥锁文件名(= queue.md 同名 + .lock)。对称契约:
+# node 侧 ops/agent/tools/queue-lock.mjs QUEUE_LOCK_SUFFIX=".lock" 从其 queueFile
+# 落位(DOCS_ROOT/ops/queue.md)同式推导;生产形态 P2 桥 _ops_rounds._round_env
+# 注入 DOCS_ROOT=ops_root().parent 使两侧落位同址同文件。路径漂移防线 =
+# selftest-contract.mjs「锁路径对拍」哨(抽本文件 QUEUE_LOCK_NAME 字面量与
+# node queueLockPath 实跑值对拍,形制同 selftest.sh §14)。
+QUEUE_LOCK_NAME = "queue.md.lock"
+
+
+def queue_lock_path() -> Path:
+    """queue.md 跨进程互斥锁文件路径(与 queue.md 同目录)。"""
+    return ops_root() / QUEUE_LOCK_NAME
+
+
+@contextmanager
+def _queue_lock():
+    """queue.md 跨进程排它锁(fcntl.flock(2),LOCK_EX)。
+
+    为什么锁:append_queue 是读-判重-写三段,node agent 的 queue_action(轮次中)
+    是同构读-改-写,同容器两进程(uvicorn × node 轮次)并发时互窗存在——旧模块锁
+    只关进程内窗(#139 挂账②原判「单边修是假修」,现双边闭环:node 侧 spawn
+    util-linux flock(1),与本侧 fcntl.flock 同一 flock(2) 锁域,互认互斥)。
+    为什么这窗口:锁必须覆盖 读 existing → 去重判 → 原子写 全段,缺任何一段都
+    留窗(读后写前的判重结果会被他方写失效)。
+    为什么 flock 不用 O_EXCL 判龄:锁挂在 open file description 上由内核管理,
+    进程死锁即自动释放,无 stale 判龄协议的「>30s 强接误杀活锁」竞态;锁文件
+    不存在则 O_CREAT 创建,close 即释放,不删除(空文件常驻无害)。
+    fcntl 面向 POSIX:容器 Linux 限定(#139 语境=单容器生产形态),可接受。
+    锁序:write_ruling 先持 threading._ruling_lock 再进本锁(恒 threading→flock,
+    本锁内不再取其他锁,无倒置死锁面)。
+    """
+    lock = queue_lock_path()
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(lock, os.O_CREAT | os.O_RDWR, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(fd)  # close 即释放 flock,不删锁文件
 
 _RG_TIMEOUT_S = 60  # ops/agent tools.mjs search_precedents 同值
 
@@ -206,19 +249,22 @@ def append_queue(
         raise ValueError(f"source 形状非法(^[a-z0-9_]{{1,32}}$): {source!r}")
 
     qpath = ops_root() / "queue.md"
-    existing = _read_if_exists(qpath)
-    # T4 去重判式逐字:任意日期/轮次的同 action+source 行已存在即去重
-    dedup_re = re.compile(
-        r"\| \d{4}-\d{2}-\d{2} \| [^|]+ \| " + re.escape(action)
-        + r" \| " + re.escape(source) + r" \|")
-    dedup = dedup_re.search(existing) is not None
-    if not dedup:
-        ev = ";".join(f"{c}:{f}={json.dumps(v, ensure_ascii=False)}"
-                      for c, f, v in evidence)
-        d = (today or date.today()).isoformat()
-        row = (f"| {d} | {round_} | {action} | {source} | {predicate if predicate else '—'} "
-               f"| {ev} | 是(否决=删除本行) |\n")
-        _append_row_with_header(qpath, QUEUE_HEADER, row)
+    # #139 挂账②:读-判重-写全段持跨进程锁(窗口论证见 _queue_lock;幂等去重
+    # 逻辑不动,只包锁)——无锁窗口 = 他方写使本方判重结果失效,丢行/重行。
+    with _queue_lock():
+        existing = _read_if_exists(qpath)
+        # T4 去重判式逐字:任意日期/轮次的同 action+source 行已存在即去重
+        dedup_re = re.compile(
+            r"\| \d{4}-\d{2}-\d{2} \| [^|]+ \| " + re.escape(action)
+            + r" \| " + re.escape(source) + r" \|")
+        dedup = dedup_re.search(existing) is not None
+        if not dedup:
+            ev = ";".join(f"{c}:{f}={json.dumps(v, ensure_ascii=False)}"
+                          for c, f, v in evidence)
+            d = (today or date.today()).isoformat()
+            row = (f"| {d} | {round_} | {action} | {source} | {predicate if predicate else '—'} "
+                   f"| {ev} | 是(否决=删除本行) |\n")
+            _append_row_with_header(qpath, QUEUE_HEADER, row)
     return {"appended": not dedup, "dedup": dedup}
 
 

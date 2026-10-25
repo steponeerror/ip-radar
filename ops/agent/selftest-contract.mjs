@@ -36,7 +36,10 @@ const SRCS = { agent: src("agent.mjs"), tools: src("tools.mjs"), models: src("mo
   // tools/shared.mjs;对拍不变式(表内每项真被读/读取∈表)随面延展覆盖
   toolsShared: src("tools/shared.mjs"), toolsEnvelope: src("tools/envelope.mjs"),
   toolsRegistry: src("tools/registry.mjs"), toolsPrecedents: src("tools/precedents.mjs"),
-  toolsMeasurement: src("tools/measurement.mjs"), toolsDiscovery: src("tools/discovery.mjs") };
+  toolsMeasurement: src("tools/measurement.mjs"), toolsDiscovery: src("tools/discovery.mjs"),
+  // #139 挂账②:锁基建入扫描(零 env 读取,现状无表项;未来若读 env 会被
+  // 「读取∈表」不变式拦下,防静默扩面)
+  toolsQueueLock: src("tools/queue-lock.mjs") };
 
 // ── fixture(in-process 用;golden writePrecedents 同型:env 先于 agent.mjs import)──
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "contract-selftest-"));
@@ -67,7 +70,7 @@ const ERROR_CODES = mod.ERROR_CODES;
 const computeReads = () => {
   const reads = new Set();
   let unknownTemplate = null;
-  for (const s of [SRCS.agent, SRCS.tools, SRCS.models, SRCS.pipeline, SRCS.pipelineSteps, SRCS.pipelineGates, SRCS.pipelineFaux, SRCS.pipelineFindingExit, SRCS.toolsShared, SRCS.toolsEnvelope, SRCS.toolsRegistry, SRCS.toolsPrecedents, SRCS.toolsMeasurement, SRCS.toolsDiscovery]) {
+  for (const s of [SRCS.agent, SRCS.tools, SRCS.models, SRCS.pipeline, SRCS.pipelineSteps, SRCS.pipelineGates, SRCS.pipelineFaux, SRCS.pipelineFindingExit, SRCS.toolsShared, SRCS.toolsEnvelope, SRCS.toolsRegistry, SRCS.toolsPrecedents, SRCS.toolsMeasurement, SRCS.toolsDiscovery, SRCS.toolsQueueLock]) {
     for (const m of s.matchAll(/process\.env\.([A-Za-z_][A-Za-z0-9_]*)/g)) reads.add(m[1]);
     // 方括号字符串读形(reviewer Minor-2,T2):process.env["QUOTED_NAME"]/['X']——与点形
     // 同名集并入对拍;引号族与反引号族(下方)互不重叠。动态下标读形 process.env[expr]
@@ -291,6 +294,31 @@ await t("spawn:OPS_PIPELINE=pipeline 委派可落定(死锁回归:exit 2 用法�
   assert.equal(r.stdout, "", "用法错不发 JSON");
   assert.match(r.stderr, /用法:/);
   assert.ok(!r.stderr.includes("unsettled"), `不得再出现 unsettled top-level await:${r.stderr.slice(0, 200)}`);
+});
+
+// ── #139 挂账②:锁路径跨语言对拍哨(形制同 selftest.sh §14 锚集对拍:python 文本解析 ↔ JS 实跑) ──
+// 两侧锁文件必须同源同址(python ops_root()/QUEUE_LOCK_NAME ↔ node
+// queueFile+".lock"),锁路径推导各自实现会漂移=双边锁开窗(互不互认)。
+// CI frontend job 无 backend python 依赖 → 文本解析 _ops_store.py 抽字面量,
+// 不 import ipdb(同 §14 python heredoc 不得依赖的裁例)。
+await t("锁路径对拍:python QUEUE_LOCK_NAME ↔ node queueLockPath 同源同址(#139 挂账②)", async () => {
+  const py = fs.readFileSync(path.join(AGENT, "..", "..", "backend", "ipdb", "_ops_store.py"), "utf8");
+  const m = py.match(/QUEUE_LOCK_NAME = "([^"]+)"/);
+  assert.ok(m, "_ops_store.py 缺 QUEUE_LOCK_NAME 字面量(锁路径契约漂移)");
+  assert.equal(m[1], "queue.md.lock", "python 锁名漂移(须 = queue.md+'.lock')");
+  assert.ok(py.includes("ops_root() / QUEUE_LOCK_NAME"),
+    "queue_lock_path 必须 = ops_root()/QUEUE_LOCK_NAME(与 queue.md 同目录)");
+  const { queueLockPath } = await import("./tools/queue-lock.mjs");
+  // 生产同址链:P2 桥 _ops_rounds._round_env 注入 DOCS_ROOT=ops_root().parent →
+  // node 默认 queueFile=DOCS_ROOT/ops/queue.md ≡ python ops_root()/queue.md 同一文件,
+  // 锁路径同理同址才互认互斥
+  const h = new (await import("./tools.mjs")).ToolHost("discover", { artifactDir: TMP });
+  assert.equal(h.queueFile, path.join(DOCS, "ops", "queue.md"), "host 默认 queueFile 落位漂移");
+  assert.equal(queueLockPath(h.queueFile), path.join(DOCS, "ops", m[1]),
+    "node 锁路径 = queue.md 同目录同名+.lock,须与 python ops_root()/QUEUE_LOCK_NAME 同址");
+  // 接线钉死:registry 面真消费锁封装(漂移 = queue_action 绕开跨进程锁,竞态窗复活)
+  assert.match(SRCS.toolsRegistry, /appendQueueRowLocked/,
+    "registry.mjs queueAction 未消费 appendQueueRowLocked(竞态窗复活)");
 });
 
 fs.rmSync(TMP, { recursive: true, force: true });

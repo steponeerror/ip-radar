@@ -7,7 +7,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { execFile as execFileCb } from "node:child_process";
+import { execFile as execFileCb, spawn as spawnCb } from "node:child_process";
 import { promisify } from "node:util";
 
 const execFileP = promisify(execFileCb);
@@ -343,6 +343,72 @@ await t("队列:模板渲染落行/幂等去重/vetoable+veto_cmd", async () => 
   assert.equal(r2.structuredContent.appended, false);
   assert.equal(r2.structuredContent.dedup, true);
   assert.equal(fs.readFileSync(path.join(TMP, "queue.md"), "utf8").split("\n").filter((l) => l.includes("cand_x")).length, 1);
+});
+
+// ── #139 挂账②:queue.md 跨进程锁(queue-lock.mjs;python append_queue 对称双边) ──
+// 修前实证(python 两子进程 2×40 无锁):丢行近半;临界段 = 读-判重-写全段入
+// flock(1) 子进程(与 fcntl.flock 同 flock(2) 锁域,混语互操测试在
+// backend/tests/test_ops_store.py),本节钉 node 面:真子进程互斥/持锁方死内核
+// 即释/fail-closed 信封。锁路径对拍哨在 selftest-contract.mjs。
+const { appendQueueRowLocked, queueLockPath, LOCK_WAIT_S } = await import("./tools/queue-lock.mjs");
+const QUEUE_PAYLOAD = (tmp, src) => ({
+  queueFile: path.join(tmp, "queue.md"), round: "discover", action: "REJECT",
+  source: src, predicate: "sunset_frozen",
+  evidence: [{ call_id: "c1", field: "age_days", value: 300 }],
+});
+
+await t("队列锁:跨子进程并发 append 恰 N 行(不丢不重)+锁文件落位", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "q139-"));
+  try {
+    const N = 8; // 每路 = 一个真 flock 子进程(生产路径同形:每次入队 spawn 一个)
+    const rs = await Promise.all(Array.from({ length: N }, (_, i) =>
+      appendQueueRowLocked(QUEUE_PAYLOAD(tmp, `lock_src_${i}`))));
+    assert.ok(rs.every((r) => r.ok === true && r.appended === true), JSON.stringify(rs));
+    const rows = fs.readFileSync(path.join(tmp, "queue.md"), "utf8")
+      .split("\n").filter((l) => /^\| 2026-/.test(l));
+    assert.equal(rows.length, N, `丢行/重行:期望 ${N},实际 ${rows.length}`);
+    assert.ok(fs.existsSync(queueLockPath(path.join(tmp, "queue.md"))), "锁文件应随首次写创建");
+  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+});
+
+await t("队列锁:同键跨子进程并发恰 1 行(判重也在锁内)", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "q139-"));
+  try {
+    const rs = await Promise.all(Array.from({ length: 6 }, () =>
+      appendQueueRowLocked(QUEUE_PAYLOAD(tmp, "same_key"))));
+    assert.equal(rs.filter((r) => r.appended).length, 1, JSON.stringify(rs));
+    const rows = fs.readFileSync(path.join(tmp, "queue.md"), "utf8")
+      .split("\n").filter((l) => /^\| 2026-/.test(l));
+    assert.equal(rows.length, 1);
+  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+});
+
+await t("队列锁:持锁进程被杀内核即释(无 stale 判龄,接管不等 30s)", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "q139-"));
+  try {
+    const lock = queueLockPath(path.join(tmp, "queue.md"));
+    // 持锁方全灭模拟:flock(1) fork 后子进程继承锁 fd,杀整进程组才是真死
+    // (单杀 flock 父进程,已 fork 的 sleep 子进程仍持 open file description 锁)
+    const holder = spawnCb("flock", [lock, "sleep", "30"], { detached: true });
+    await new Promise((r) => setTimeout(r, 300)); // 等 flock 真拿到锁
+    process.kill(-holder.pid, "SIGKILL"); // 内核释放 open file description 上的锁
+    const t0 = Date.now();
+    const r = await appendQueueRowLocked(QUEUE_PAYLOAD(tmp, "after_kill"));
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.ok(Date.now() - t0 < LOCK_WAIT_S * 1000, "接管耗时应远小于锁等待上限");
+  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+});
+
+await t("队列锁:锁通道缺失 fail-closed(无锁绝不写,铁律②信封)", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "q139-"));
+  try {
+    const r = await appendQueueRowLocked(QUEUE_PAYLOAD(tmp, "no_channel"),
+      { env: { ...process.env, PATH: "/nonexistent-139" } }); // flock(1) 不可寻
+    assert.equal(r.ok, false);
+    assert.equal(r.code, "io_error");
+    assert.match(r.reason, /flock/);
+    assert.ok(!fs.existsSync(path.join(tmp, "queue.md")), "fail-closed 不得写 queue.md");
+  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 });
 
 // ── PR #177 工具通道修复(判例 2026-10-24-discover-dual-channel-dead):search_precedents 单源 ──

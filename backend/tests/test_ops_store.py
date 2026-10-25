@@ -11,7 +11,9 @@ ops 根解析 $IP_RADAR_DATA_DIR/ops(回落沿 _registry.DATA_DIR 惯例)、树�
 不从被测模块导入常量,防套套逻辑。
 """
 
+import json
 import os
+import shutil
 import subprocess
 import sys
 from datetime import date
@@ -204,6 +206,100 @@ def test_append_queue_validates_frozen_closed_sets(store, ops_env, kwargs):
     with pytest.raises(ValueError):
         store.append_queue(**kwargs)
     assert not (ops_env / "ops" / "queue.md").exists()
+
+
+# ── #139 挂账②:queue.md 跨进程竞态双边锁(queue.md.lock) ────────────────
+
+# 子进程驱动:每进程串行 append N 个不同 source(复现 POST /api/ops/ruling 与
+# node agent 轮次两进程并发写口的互窗;真子进程而非线程,锁面=进程间 flock)
+_QUEUE_RACE_DRIVER = (
+    "import sys; from ipdb._ops_store import append_queue\n"
+    "n = int(sys.argv[1]); tag = sys.argv[2]\n"
+    "for i in range(n):\n"
+    "    append_queue(round_='discover', action='REJECT', source=f'{tag}{i}',\n"
+    "                 predicate='sunset_frozen', evidence=[('c', 'age_days', 300)])\n"
+)
+
+
+def _spawn_appenders(ops_env, per_proc, tags):
+    env = {**os.environ, "IP_RADAR_DATA_DIR": str(ops_env)}
+    procs = [subprocess.Popen([sys.executable, "-c", _QUEUE_RACE_DRIVER,
+                               str(per_proc), tag], cwd=BACKEND_DIR, env=env)
+             for tag in tags]
+    for p in procs:
+        assert p.wait() == 0, "子进程 append 崩殈(锁/写路径异常)"
+
+
+def _queue_rows(ops_env):
+    q = (ops_env / "ops" / "queue.md").read_text(encoding="utf-8")
+    return [l for l in q.splitlines() if l.startswith("| 2026-")]
+
+
+def test_append_queue_concurrent_processes_no_lost_rows(store, ops_env):
+    """#139 挂账②:两子进程并发 append 不同 source → 行数恰 2N(不丢不重)。
+
+    修前实证(2×40 并发,无锁):期望 80 实际 40~41,丢行近半——读-判重-写
+    全段互窗,后写覆盖前写;持锁后全段串行化,行数恰等。锁文件随首次写创建。
+    """
+    _spawn_appenders(ops_env, 8, ("aaa_", "bbb_"))
+    rows = _queue_rows(ops_env)
+    assert len(rows) == 16, f"丢行/重行:期望 16,实际 {len(rows)}"
+    assert (ops_env / "ops" / "queue.md").read_text(encoding="utf-8").count(QUEUE_HEADER) == 1
+    assert (ops_env / "ops" / "queue.md.lock").exists(), "锁文件应随首次 append 创建"
+
+
+def test_append_queue_concurrent_same_key_exactly_one_row(store, ops_env):
+    """#139 挂账②:两子进程并发 append 同 action+source 键 → 每键恰 1 行。
+
+    去重判(读 existing)也须在锁内:无锁时两进程同时读到「不在队列」→ 双写
+    同键两行;判重+写入全段持锁后互斥,键唯一。
+    """
+    _spawn_appenders(ops_env, 6, ("same_", "same_"))
+    rows = _queue_rows(ops_env)
+    assert len(rows) == 6, f"同键双写:期望 6,实际 {len(rows)}"
+    assert sum(1 for l in rows if "| same_3 |" in l) == 1
+
+
+# 混语互操(#139 挂账②双边闭环的终验):node 侧临界段经 util-linux flock(1)
+# 子进程执行,与本侧 fcntl.flock 同一 flock(2) 锁域——两语言写口真互斥才证明
+# 双边锁闭环(单边锁只关自家窗)。供给面:node 可执行 + queue-lock.mjs 自含
+# (零仓依赖);backend CI 无 node 供给时跳过(ubuntu-latest 预装 node,本地必跑)。
+_NODE_QUEUE_LOCK = BACKEND_DIR.parent / "ops" / "agent" / "tools" / "queue-lock.mjs"
+
+
+@pytest.mark.skipif(shutil.which("node") is None or not _NODE_QUEUE_LOCK.exists()
+                    or shutil.which("flock") is None,
+                    reason="node/flock 或 queue-lock.mjs 不在供给面(backend CI 无 node 供给时跳过)")
+def test_append_queue_mixed_python_node_race(store, ops_env):
+    """#139 挂账②:python append_queue × node flock(1) 临界段并发 → 不丢不重。"""
+    # 前提同生产:init_ops_tree 先建 ops/ 目录。flock(1) 对锁文件 O_CREAT,但
+    # 父目录缺失时 cannot open → fail-closed 不写 queue.md;不预建则 node 子进程
+    # 与 python 首笔 append(惰性建目录)赛跑,前者可能先撞缺目录。
+    (ops_env / "ops").mkdir(parents=True, exist_ok=True)
+    per_side, qfile = 8, ops_env / "ops" / "queue.md"
+    env = {**os.environ, "IP_RADAR_DATA_DIR": str(ops_env)}
+    py = subprocess.Popen([sys.executable, "-c", _QUEUE_RACE_DRIVER, str(per_side), "py_"],
+                          cwd=BACKEND_DIR, env=env)
+    # node 侧:每 append 一个 queue-lock.mjs --append 子进程(与生产路径同形:
+    # registry.mjs 每次入队 spawn 一个 flock 包装的临界段子进程)
+    def _node_payload(src):
+        return {"queueFile": str(qfile), "round": "discover", "action": "REJECT",
+                "source": src, "predicate": "sunset_frozen",
+                "evidence": [{"call_id": "c", "field": "age_days", "value": 300}]}
+    nds = [subprocess.Popen(
+        # 生产路径同形:flock(1) 包装临界段子进程(与 python fcntl.flock 同
+        # flock(2) 锁域)——直调 --append 无锁,不测互操面;选项须在锁文件前
+        ["flock", "-w", "30", str(qfile) + ".lock", "node", str(_NODE_QUEUE_LOCK),
+         "--append", json.dumps(_node_payload(f"nd_{i}"), ensure_ascii=False)],
+        cwd=BACKEND_DIR.parent, env=env, stdout=subprocess.PIPE, text=True)
+        for i in range(per_side)]
+    assert py.wait() == 0
+    outs = [n.communicate(timeout=60)[0] for n in nds]
+    assert all(n.returncode == 0 for n in nds), "\n".join(outs)
+    assert sum(json.loads(o.splitlines()[-1])["appended"] for o in outs) == per_side
+    rows = _queue_rows(ops_env)
+    assert len(rows) == 2 * per_side, f"混语丢行:期望 {2 * per_side},实际 {len(rows)}"
+    assert sum(1 for l in rows if "| py_3 |" in l) == 1
 
 
 # ── 台账(ledger.md,T4 冻结形状) ──────────────────────────────────
