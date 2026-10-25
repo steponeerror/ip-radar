@@ -17,6 +17,7 @@
 // 只数已执行探测,拒绝后模型转 unresolved 轮仍过门=与门双重执法不互相误杀。
 import { Type } from "@earendil-works/pi-ai";
 import { safeFetch } from "../tools.mjs";
+import { dupRecord } from "./budget.mjs"; // #199 A4:同参调用哈希(零环:budget 只依赖 node 内置)
 
 export const PROBE_TIMEOUT_MS = 15_000; // 超时硬上限(lib.sh FEED_TIMEOUT_S=15 判例,量级 ~15s)
 export const PROBE_RANGE_MAX = 256 * 1024; // GET Range ≤256KB(票面:feed 头读数不需要整文件)
@@ -31,7 +32,7 @@ const ageOf = (lm) => (lm ? Math.max(0, Math.floor((Date.now() - Date.parse(lm))
 // fetchImpl=测试注入缝(自测 fake 传输层经 ctx.probeFetch 传导,零网络);缺省=safeFetch 真网络。
 // 返回 { tools, seeds }:tools=pi-agent-core AgentTool 面(initialState.tools 直装);
 // seeds=登记行(chronological){call_id,tool,sc}——faux.mjs 据此发 registry_seed transcript 行。
-export function mkMicroprobeHost({ fetchImpl = safeFetch, budget = 3 } = {}) {
+export function mkMicroprobeHost({ fetchImpl = safeFetch, budget = 3, dupRegistry = new Map(), dupLimit = 3 } = {}) {
   const seeds = [];
   const take = (callId, tool, sc, text) => { // 统一收口:登记(失败信封也登记——被引时 G_DEEP 识别 ok:false)+call_id 上翻给模型
     seeds.push({ call_id: callId, tool, sc });
@@ -42,6 +43,18 @@ export function mkMicroprobeHost({ fetchImpl = safeFetch, budget = 3 } = {}) {
     structuredContent: { ok: false, code: "budget", reason: `微探针 ≤${budget} 次/假设已用满;被拦即 unresolved(deep.md 预算段)` },
   });
   const guard = (callId) => (seeds.length >= budget ? rejectOver(callId) : null);
+  // #199 A4 同参白烧拦(判例 2026-10-24 01:59 同参重发零新读数):第 dupLimit 次同参调用拒
+  // (code=repeat_storm);与 budget 闸同形——不执行不入登记;dupLimit=0 停用;registry
+  // 由 faux.mjs 从 ctx 传入(轮次级,跨假设累计;观察面 dup_top3 入 09-budget.json,A5)。
+  const rejectDup = (callId, count) => ({
+    content: [{ type: "text", text: `[call_id=${callId}] 拒绝信封:同参调用第 ${count} 次≥拦截线 ${dupLimit}。同参数重发不会出新读数(2026-10-24 01:59 同参白烧判例)——换 URL/换工具/换 UA 变体,或转 unresolved/升级人裁。被拦不算你的失败。` }],
+    structuredContent: { ok: false, code: "repeat_storm", reason: `同参调用第 ${count} 次≥拦截线 ${dupLimit}(OPS_PIPELINE_DUP_CALL_LIMIT);未执行不入登记` },
+  });
+  const dupGuard = (callId, tool, p) => {
+    if (!(dupLimit > 0)) return null;
+    const rec = dupRecord(dupRegistry, tool, p, dupLimit);
+    return rec.blocked ? rejectDup(callId, rec.count) : null;
+  };
 
   const reprobeGet = () => ({
     name: "reprobe_get",
@@ -54,6 +67,7 @@ export function mkMicroprobeHost({ fetchImpl = safeFetch, budget = 3 } = {}) {
       last_modified: Type.Union([Type.String(), Type.Null()]), age_days: Type.Union([Type.Number(), Type.Null()]), bytes: Type.Number(),
     }),
     execute: async (callId, p) => {
+      const dj = dupGuard(callId, "reprobe_get", p); if (dj) return dj;
       const rej = guard(callId); if (rej) return rej;
       try {
         const res = await fetchImpl(p.url, { method: "GET", maxBytes: PROBE_RANGE_MAX, timeoutMs: PROBE_TIMEOUT_MS,
@@ -82,6 +96,7 @@ export function mkMicroprobeHost({ fetchImpl = safeFetch, budget = 3 } = {}) {
       age_days: Type.Union([Type.Number(), Type.Null()]), bytes: Type.Number(),
     }),
     execute: async (callId, p) => {
+      const dj = dupGuard(callId, "reprobe_ua", p); if (dj) return dj;
       const rej = guard(callId); if (rej) return rej;
       try {
         const res = await fetchImpl(p.url, { method: "GET", maxBytes: PROBE_RANGE_MAX, timeoutMs: PROBE_TIMEOUT_MS,
@@ -110,6 +125,7 @@ export function mkMicroprobeHost({ fetchImpl = safeFetch, budget = 3 } = {}) {
       last_modified: Type.Union([Type.String(), Type.Null()]), age_days: Type.Union([Type.Number(), Type.Null()]),
     }),
     execute: async (callId, p) => {
+      const dj = dupGuard(callId, "upstream_check", p); if (dj) return dj;
       const rej = guard(callId); if (rej) return rej;
       const read = (res, via) => {
         const lm = res.headers["last-modified"] ?? null;

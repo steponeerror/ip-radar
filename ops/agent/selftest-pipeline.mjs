@@ -177,7 +177,7 @@ await t("工件清单全落盘+gates.json 十记录全 PASS+state.json 终态 do
   for (const f of ["01-probe-freshness.tsv", "01-probe-matrix.json", "01-probe-summary.json", "02-verify-survivors.json",
     "02-verify-suppressed.json", "03-triage-hypotheses.json", "03-triage-transcript.jsonl", "04-dispatch-bundles.json",
     "05-deep-verdicts.json", "06-itemize-manifest.json", "07-synth-report.md", "07-synth-transcript.jsonl",
-    "08-anchor-sweep.json", "08-anchor-sweep-exits.json", "gates.json", "state.json"])
+    "08-anchor-sweep.json", "08-anchor-sweep-exits.json", "09-budget.json", "gates.json", "state.json"])
     assert.ok(fs.existsSync(path.join(d, f)), `工件缺:${f}`);
   assert.ok(fs.readdirSync(d).some((f) => /^05-deep-.*\.json$/.test(f) && f !== "05-deep-verdicts.json"), "逐假设工件");
   assert.ok(fs.readdirSync(d).some((f) => /^05-deep-.*-transcript\.jsonl$/.test(f)), "逐假设 transcript");
@@ -1695,6 +1695,221 @@ await t("⑬-真面 DEEP 端到端(fake 传输层+fake fetch):真工具调用→
   const gate = GATES.G_DEEP({ ...ctx, budgetCny: 0.05 });
   assert.equal(gate.pass, true, `G_DEEP 真面开箱即用(三元组逐字回引+≤3):${gate.reason}`);
   fs.rmSync(d, { recursive: true, force: true });
+});
+
+// ── #199 交付A(A1):预算四界环内执法 ——————————————————————————————
+// 红测先行:四界环内执法落地前,超帽旋钮不拦任何调用(轮照常成功),下列断言必红。
+await t("A1-纯函数:调用帽/token/墙钟界判定边界", async () => {
+  const budget = await import("./pipeline/budget.mjs");
+  assert.equal(budget.overCallsCap(11, 12), false, "第 12 次调用=帽内放行");
+  assert.equal(budget.overCallsCap(12, 12), true, "第 13 次调用将超帽");
+  assert.equal(budget.overTokenBudget(200000, 200000), false, "等号=预算内");
+  assert.equal(budget.overTokenBudget(200001, 200000), true);
+  assert.ok(budget.elapsedWallS(new Date(Date.now() - 5000).toISOString()) > 4, "流逝秒≥4");
+  assert.equal(budget.overWallClock(new Date().toISOString(), 1800), false);
+  const knobs = budget.readBudgetKnobs({});
+  assert.deepEqual(knobs, { maxModelCalls: 12, tokenBudget: 200000, wallClockS: 1800, spendCapCny: 3, monthlyCapCny: 30, dupCallLimit: 3 }, "缺省旋钮生产口径");
+  assert.throws(() => budget.readBudgetKnobs({ OPS_PIPELINE_TOKEN_BUDGET: "abc" }), (e) => e.usage === true, "非法旋钮=用法错(不带病跑轮)");
+});
+await t("A1-①③:墙钟 0 触界=首步边界拦(先于任何模型调用)", async () => {
+  const tree = mkTree("budget-wall");
+  const io = mkIo();
+  const r = await runPipeline({ roundId: "2026-10-25-1701-health", fixturesDir: DEFAULT_FIXTURES_DIR, env: { ...tree.env, OPS_PIPELINE_WALL_CLOCK_S: "0.0001" }, ...io });
+  assert.equal(r.ok, false);
+  assert.equal(r.envelope.error.code, "wall_clock_exceeded");
+  const p = stageOf(r.envelope, "PROBE");
+  assert.equal(p.status, "failed");
+  assert.ok(!fs.existsSync(path.join(tree.root, "ops", "rounds", "2026-10-25-1701-health", "01-probe-summary.json")), "墙钟先于步体:零工件推进");
+});
+await t("A1-②:token 预算=1 → 首模型步结算后终态 budget_exceeded 且不重试", async () => {
+  const tree = mkTree("budget-token");
+  const io = mkIo();
+  const r = await runPipeline({ roundId: "2026-10-25-1702-health", fixturesDir: DEFAULT_FIXTURES_DIR, env: { ...tree.env, OPS_PIPELINE_TOKEN_BUDGET: "1" }, ...io });
+  assert.equal(r.ok, false);
+  assert.equal(r.envelope.error.code, "budget_exceeded");
+  const tri = stageOf(r.envelope, "TRIAGE");
+  assert.equal(tri.status, "failed");
+  assert.equal(tri.attempts, 1, "违界即停:不烧重试(宁少算)");
+  assert.ok(fs.existsSync(path.join(tree.root, "ops", "rounds", "2026-10-25-1702-health", "03-triage-hypotheses.json")), "哲学①:已花 token 的工件证据留存");
+});
+await t("A1-①:调用数帽=1 → DEEP 首调用前拦 budget_exceeded", async () => {
+  const tree = mkTree("budget-calls");
+  const io = mkIo();
+  const r = await runPipeline({ roundId: "2026-10-25-1703-health", fixturesDir: DEFAULT_FIXTURES_DIR, env: { ...tree.env, OPS_PIPELINE_MAX_MODEL_CALLS: "1" }, ...io });
+  assert.equal(r.ok, false);
+  assert.equal(r.envelope.error.code, "budget_exceeded");
+  assert.equal(stageOf(r.envelope, "TRIAGE").status, "done", "帽内调用照常");
+  assert.equal(stageOf(r.envelope, "DEEP").status, "failed");
+});
+await t("A1-旋钮校验:非法值=CLI exit 2 纯用法错(mkCtx 判例同形)", async () => {
+  const tree = mkTree("budget-usage2");
+  const r = await spawnPipe(["health", "--round-id", "2026-10-25-1704-health", "--fixtures", DEFAULT_FIXTURES_DIR], { ...tree.env, OPS_PIPELINE_TOKEN_BUDGET: "abc" });
+  assert.equal(r.rc, 2);
+  assert.ok(!r.stdout.trim(), "用法错=纯 stderr 零信封");
+});
+
+// ── A2(#199):月度 kill switch 准入 ──
+await t("A2-纯函数:台账月度花费解析(当月计/跨月不计/缺 cost 跳过不猜/空文件 0)+准入等号放行/超帽拒", async () => {
+  const { monthSpendOfLedgerText, admitMonthly, monthNow } = await import(path.join(AGENT, "pipeline/budget.mjs"));
+  const m = monthNow();
+  const prevM = `${m.slice(0, 5)}${m.slice(5, 7) === "01" ? "12" : String(+m.slice(5, 7) - 1).padStart(2, "0")}`; // 跨月=上月
+  const text = [
+    "# 运营轮次台账", "",
+    "| 日期 | 轮次 | model | 用量 | 备注 |", "|---|---|---|---|---|",
+    `| ${m}-01 | health | pipeline-real | in=1 out=1 total=2 cost=0.02 | pipeline:x |`,
+    `| ${m}-02 | health | pipeline-real | in=1 out=1 total=2 cost=0.02 | pipeline:y |`,
+    `| ${prevM}-30 | health | pipeline-real | in=1 out=1 total=2 cost=99 | pipeline:z |`,
+    `| ${m}-03 | health | pipeline-real | — | 手工行缺用量 |`,
+  ].join("\n");
+  const r = monthSpendOfLedgerText(text, m);
+  assert.equal(r.spend, 0.04, `当月合计应为 0.04:${JSON.stringify(r)}`);
+  assert.equal(r.counted, 2); assert.equal(r.skipped, 1, "缺 cost 行跳过且计数不猜");
+  assert.deepEqual(monthSpendOfLedgerText("", m), { spend: 0, counted: 0, skipped: 0 }, "空文件=0 起步");
+  assert.equal(admitMonthly({ spendCny: 0.04, estCny: 0.06, capCny: 0.1 }).ok, true, "等号(0.04+0.06=0.10=帽)放行");
+  assert.equal(admitMonthly({ spendCny: 0.04, estCny: 0.06, capCny: 0.09 }).ok, false, "超帽拒");
+});
+
+await t("A2-pipeline 面:超月帽拒跑(ok:false code=budget_monthly+台账留痕行+不建轮目录)", async () => {
+  const { monthNow } = await import(path.join(AGENT, "pipeline/budget.mjs"));
+  const tree = mkTree("budget-month");
+  const m = monthNow();
+  fs.mkdirSync(path.dirname(tree.env.LEDGER_FILE), { recursive: true });
+  fs.writeFileSync(tree.env.LEDGER_FILE, `# 运营轮次台账\n\n| 日期 | 轮次 | model | 用量 | 备注 |\n|---|---|---|---|---|\n| ${m}-01 | health | pipeline-real | in=1 out=1 total=2 cost=0.04 | pipeline:old |\n`);
+  const io = mkIo();
+  const rid = "2026-10-25-1705-health";
+  const r = await runPipeline({ roundId: rid, fixturesDir: DEFAULT_FIXTURES_DIR, env: { ...tree.env, OPS_PIPELINE_MONTHLY_CAP_CNY: "0.05", OPS_PIPELINE_BUDGET_CNY: "0.05" }, ...io });
+  assert.equal(r.ok, false);
+  assert.equal(r.envelope.error.code, "budget_monthly");
+  assert.equal(JSON.parse(io.buf.stdout).error.code, "budget_monthly");
+  assert.equal(fs.existsSync(path.join(tree.root, "ops", "rounds", rid)), false, "拒跑不建轮目录");
+  const led = fs.readFileSync(tree.env.LEDGER_FILE, "utf8");
+  assert.ok(led.includes("budget_monthly refused est=0.05 cap=0.05"), `台账应含拒跑留痕行:${led}`);
+  assert.equal(led.split("\n").filter((l) => l.startsWith("|")).length, 4, "表头 2 行+旧 1 行+留痕 1 行");
+});
+
+await t("A2-pipeline 面:月帽内放行对照(同一台账零改动照跑全绿)", async () => {
+  const { monthNow } = await import(path.join(AGENT, "pipeline/budget.mjs"));
+  const tree = mkTree("budget-month-ok");
+  const m = monthNow();
+  fs.mkdirSync(path.dirname(tree.env.LEDGER_FILE), { recursive: true });
+  fs.writeFileSync(tree.env.LEDGER_FILE, `# 运营轮次台账\n\n| 日期 | 轮次 | model | 用量 | 备注 |\n|---|---|---|---|---|\n| ${m}-01 | health | pipeline-real | in=1 out=1 total=2 cost=0.04 | pipeline:old |\n`);
+  const io = mkIo();
+  const r = await runPipeline({ roundId: "2026-10-25-1706-health", fixturesDir: DEFAULT_FIXTURES_DIR, env: { ...tree.env, OPS_PIPELINE_MONTHLY_CAP_CNY: "0.2", OPS_PIPELINE_BUDGET_CNY: "0.05" }, ...io });
+  assert.equal(r.ok, true, `帽内应放行:${r.envelope?.error?.message ?? ""}`);
+});
+
+await t("A2-双面共享:legacy 面 runRound 同一拒跑码+台账留痕(准入先于模型装载)", async () => {
+  const { monthNow } = await import(path.join(AGENT, "pipeline/budget.mjs"));
+  const tree = mkTree("budget-month-legacy");
+  const m = monthNow();
+  fs.mkdirSync(path.dirname(tree.env.LEDGER_FILE), { recursive: true });
+  fs.writeFileSync(tree.env.LEDGER_FILE, `# 运营轮次台账\n\n| 日期 | 轮次 | model | 用量 | 备注 |\n|---|---|---|---|---|\n| ${m}-01 | health | pipeline-real | in=1 out=1 total=2 cost=0.04 | pipeline:old |\n`);
+  const { runRound } = await import(path.join(AGENT, "agent.mjs"));
+  const poison = { models: {}, resolve: () => { throw new Error("拒跑轮不应装载模型"); } }; // 毒缝哨兵:准入先于模型
+  await assert.rejects(
+    runRound("health", "月帽拒跑探针", [], { models: poison, env: { ...tree.env, OPS_PIPELINE_MONTHLY_CAP_CNY: "0.05", OPS_PIPELINE_BUDGET_CNY: "0.05" }, stderr: { write: () => true } }),
+    (e) => e.code === "budget_monthly");
+  const led = fs.readFileSync(tree.env.LEDGER_FILE, "utf8");
+  assert.ok(led.includes("budget_monthly refused est=0.05 cap=0.05"), `legacy 面同留痕:${led}`);
+});
+
+// ── A4(#199):重复调用哈希 ──
+await t("A4-纯函数:canonical 键序无关+dupKey 同参同键/异参异键+计数第 limit 次拦/limit=0 停用+dupTop 排序", async () => {
+  const { canonicalJson, dupKey, dupRecord, dupTop } = await import(path.join(AGENT, "pipeline/budget.mjs"));
+  assert.equal(canonicalJson({ b: 1, a: 2 }), canonicalJson({ a: 2, b: 1 }), "键序无关");
+  assert.equal(dupKey("fetch_url", { url: "https://a.example/x", method: "HEAD" }),
+    dupKey("fetch_url", { method: "HEAD", url: "https://a.example/x" }), "同参重排序同键");
+  assert.notEqual(dupKey("fetch_url", { url: "https://a.example/x" }), dupKey("fetch_url", { url: "https://a.example/y" }));
+  assert.notEqual(dupKey("fetch_url", { url: "https://a.example/x" }), dupKey("web_read", { url: "https://a.example/x" }));
+  const reg = new Map();
+  assert.deepEqual(dupRecord(reg, "t", { k: 1 }, 3), { count: 1, blocked: false });
+  assert.deepEqual(dupRecord(reg, "t", { k: 1 }, 3), { count: 2, blocked: false }, "合法重试≤2 不受影响");
+  assert.deepEqual(dupRecord(reg, "t", { k: 1 }, 3), { count: 3, blocked: true }, "第 3 次同参拦");
+  const reg0 = new Map();
+  for (let i = 1; i <= 5; i++) assert.equal(dupRecord(reg0, "t", { k: 1 }, 0).blocked, false, "limit=0 停用");
+  const regT = new Map();
+  dupRecord(regT, "a", {}, 99); dupRecord(regT, "a", {}, 99); dupRecord(regT, "a", {}, 99);
+  dupRecord(regT, "b", {}, 99); dupRecord(regT, "b", {}, 99);
+  dupRecord(regT, "c", {}, 99);
+  const top = dupTop(regT, 2);
+  assert.deepEqual(top.map((x) => [x.tool, x.count]), [["a", 3], ["b", 2]], "dupTop 按计数降序取前 N");
+});
+
+await t("A4-legacy 面:ToolHost beforeToolCall 第 3 次同参拦(code=repeat_storm)/异参不拦/合法重试≤2 放行", async () => {
+  const { ToolHost } = await import(path.join(AGENT, "tools.mjs"));
+  const host = new ToolHost("discover");
+  const call = { toolCall: { name: "fetch_url" }, args: { url: "https://a.example/x", method: "HEAD" } };
+  assert.equal(await host.beforeToolCall(call), undefined, "第 1 次放行");
+  assert.equal(await host.beforeToolCall(call), undefined, "第 2 次(瞬态重试)放行");
+  const blocked = await host.beforeToolCall(call);
+  assert.equal(blocked.block, true);
+  assert.equal(blocked.code, "repeat_storm");
+  assert.ok(blocked.reason.includes("同参"), `拒因应说明同参白烧形:${blocked.reason}`);
+  assert.equal(await host.beforeToolCall({ toolCall: { name: "fetch_url" }, args: { url: "https://a.example/y" } }), undefined, "换参数即新调用面");
+});
+
+await t("A4-微探针面:第 3 次同参=repeat_storm 拒绝信封,不执行不入登记(与 budget 闸同形)", async () => {
+  const { mkMicroprobeHost } = await import(path.join(AGENT, "pipeline/microprobes.mjs"));
+  let fetches = 0;
+  const fakeFetch = async () => { fetches += 1; return { status: 200, headers: {}, finalUrl: "https://a.example/x", bytes: 3 }; };
+  const host = mkMicroprobeHost({ fetchImpl: fakeFetch, dupLimit: 3 });
+  const tool = host.tools.find((x) => x.name === "reprobe_get");
+  const r1 = await tool.execute("c1", { url: "https://a.example/x" });
+  const r2 = await tool.execute("c2", { url: "https://a.example/x" });
+  assert.equal(r1.structuredContent.ok, true); assert.equal(r2.structuredContent.ok, true);
+  const r3 = await tool.execute("c3", { url: "https://a.example/x" });
+  assert.equal(r3.structuredContent.ok, false);
+  assert.equal(r3.structuredContent.code, "repeat_storm");
+  assert.equal(fetches, 2, "第 3 次零网络——未发生测量不入登记");
+  assert.equal(host.seeds.length, 2, "拒绝信封不发登记行");
+});
+
+// ── A5(#199):09-budget.json 工件+G_CLOSE 回声哨 ──
+await t("A5-工件:全 faux 轮 09-budget.json 落盘(七旋钮生效值+四界读数+monthly 投影),G_CLOSE inputs 含它", async () => {
+  // 独立树(mkTree):共享 DOCS 树在文件尾已积 in-flight 条目,VERIFY 幸存集会被先前轮吃空
+  // (survivors=0≠假设=2 假败)——A5 测试不落共享树,判例=位等价测试用净树。
+  const R = "2026-10-25-1706-health";
+  const io = mkIo();
+  const t = mkTree("budget-a5");
+  const r = await runPipeline({ roundId: R, fixturesDir: DEFAULT_FIXTURES_DIR, env: t.env, ...io });
+  assert.equal(r.ok, true);
+  const p = path.join(t.root, "ops", "rounds", R, "09-budget.json");
+  const b = j(p);
+  assert.ok(b, "09-budget.json 必须落盘(CLOSE 步,先于 pkg 存在性早退)");
+  assert.deepEqual(Object.keys(b.env).sort(), ["OPS_PIPELINE_BUDGET_CNY", "OPS_PIPELINE_DUP_CALL_LIMIT", "OPS_PIPELINE_MAX_MODEL_CALLS",
+    "OPS_PIPELINE_MONTHLY_CAP_CNY", "OPS_PIPELINE_SPEND_CAP_CNY", "OPS_PIPELINE_TOKEN_BUDGET", "OPS_PIPELINE_WALL_CLOCK_S"], "env=七旋钮生效值");
+  assert.equal(b.env.OPS_PIPELINE_TOKEN_BUDGET, 200000);
+  assert.equal(b.env.OPS_PIPELINE_MAX_MODEL_CALLS, 12);
+  assert.ok(Number.isFinite(b.readings.usage.totalTokens) && b.readings.usage.totalTokens > 0, "usage 快照(轮次累计)");
+  assert.equal(b.readings.usage.totalTokens, r.envelope.usage.totalTokens, "读数=信封 usage 同源");
+  assert.ok(Number.isFinite(b.readings.model_calls) && b.readings.model_calls >= 3, "模型调用计数(TRIAGE+DEEP+SYNTH)");
+  assert.ok(Number.isFinite(b.readings.wall_s) && b.readings.wall_s >= 0, "墙钟读数");
+  assert.ok(Array.isArray(b.readings.dup_top3), "dup_top3 观察面");
+  assert.ok(b.readings.monthly && Number.isFinite(b.readings.monthly.projected)
+    && b.readings.monthly.projected <= b.readings.monthly.cap, "月度准入投影(A2 留痕)");
+  const g = j(path.join(t.root, "ops", "rounds", R, "gates.json"));
+  const gc = g.records.find((x) => x.name === "G_CLOSE");
+  assert.ok(gc.inputs.includes("09-budget.json"), "G_CLOSE inputs 挂 09-budget.json(回声哨)");
+});
+
+await t("A5-回声哨:篡改 09-budget.json 读数超帽 → G_CLOSE 复评门败(reason 带数字);未篡改复评仍过", async () => {
+  const R = "2026-10-25-1707-health";
+  const io = mkIo();
+  const t = mkTree("budget-a5-echo");
+  const r = await runPipeline({ roundId: R, fixturesDir: DEFAULT_FIXTURES_DIR, env: t.env, ...io });
+  assert.equal(r.ok, true);
+  const def = { name: "CLOSE", gate: "G_CLOSE" };
+  const ctxLite = { dir: path.join(t.root, "ops", "rounds", R), envelope: r.envelope };
+  const gates = await import("./pipeline/gates.mjs");
+  assert.equal(gates.evalStageGate(def, ctxLite).pass, true, "未篡改复评=过(回声与环内一致)");
+  const p = path.join(ctxLite.dir, "09-budget.json");
+  const b = j(p);
+  b.readings.usage.totalTokens = b.env.OPS_PIPELINE_TOKEN_BUDGET + 1; // 篡改:读数超帽
+  fs.writeFileSync(p, JSON.stringify(b, null, 2) + "\n");
+  const rec = gates.evalStageGate(def, ctxLite);
+  assert.equal(rec.pass, false, "读数超帽=门败(工件漂移/篡改哨)");
+  assert.ok(rec.reason.includes("200001") || /超帽|读数/.test(rec.reason), `reason 须带数字与判定:${rec.reason}`);
+  assert.ok(rec.inputs.includes("09-budget.json"));
 });
 
 fs.rmSync(TMP, { recursive: true, force: true });

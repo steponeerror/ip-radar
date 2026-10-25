@@ -107,7 +107,12 @@ async function runRealStep(def, ctx, item, input) {
     bundle = await providerBundle(ctx);
     model = bundle.resolve(STEP_ROUND[def.name]); // 步→轮键映射;未装载模型=配置面失败
   } catch (e) { throw Object.assign(new Error(`真 provider 装载失败(${def.name}):${e.message}`), { code: "infra" }); }
-  const probes = def.name === "DEEP" ? mkMicroprobeHost({ fetchImpl: ctx.probeFetch }) : null;
+  const probes = def.name === "DEEP"
+    ? mkMicroprobeHost({ // #199 A4:registry/dupLimit 从 ctx 传导(轮次级累计;旋钮单源 budget.mjs)
+        fetchImpl: ctx.probeFetch,
+        dupRegistry: ctx.dupRegistry ?? new Map(),
+        dupLimit: ctx.budgetKnobs?.dupCallLimit ?? 3 })
+    : null;
   const agent = new Agent({ initialState: { systemPrompt: input.systemPrompt, model, tools: probes?.tools ?? [] },
     streamFn: bundle.models.streamSimple.bind(bundle.models) });
   const rec = { usage: { input: 0, output: 0, totalTokens: 0, cost: 0 }, messages: [] };

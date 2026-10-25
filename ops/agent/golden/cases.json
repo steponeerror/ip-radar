@@ -327,6 +327,11 @@
           "human_ruling"
         ] },
         { "kind": "pipeline_artifact", "file": "gates.json", "matches": [ "G_DEEP", "G_CLOSE", "\"pass\": true" ] },
+        { "kind": "pipeline_artifact", "file": "09-budget.json",
+          "json": { "round_id": "2026-06-01-0400-health", "env.OPS_PIPELINE_MAX_MODEL_CALLS": 12, "env.OPS_PIPELINE_TOKEN_BUDGET": 200000,
+            "env.OPS_PIPELINE_WALL_CLOCK_S": 1800, "env.OPS_PIPELINE_SPEND_CAP_CNY": 3, "env.OPS_PIPELINE_MONTHLY_CAP_CNY": 30,
+            "env.OPS_PIPELINE_DUP_CALL_LIMIT": 3, "readings.model_calls": 4, "readings.monthly.ok": true },
+          "matches": [ "\"usage\":", "\"dup_top3\":", "\"wall_s\":" ] },
         { "kind": "ledger", "min_rows": 1, "last_matches": "\\| health \\| faux-pipeline \\|.*pipeline:2026-06-01-0400-health" }
       ]
     },
