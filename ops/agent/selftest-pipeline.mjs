@@ -16,6 +16,7 @@ import os from "node:os";
 import path from "node:path";
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
+import { GOLDEN_SWEEP_ANCHORS, ANCHOR_ROW_KEYS, anchorRow } from "./anchor-mirror.mjs"; // #194 C3-2 锚镜像单源(纯常量模块,env 零依赖可静态 import)
 import { fileURLToPath } from "node:url";
 
 const execFileP = promisify(execFileCb);
@@ -50,20 +51,32 @@ const MATRIX_CANNED = { exit_code: 0, counts: { violation: 0, pending: 0, agreem
   buckets: { violation: [], pending: [], agreement: [] } };
 // 罐装锚巡检(#182 faux 查询面):事故判例形——8.8.8.8=myip_ms 单源指控/114DNS=
 // cps+ziyadnz 假印证双 finding(#183 整改前形状,票 #182 明示 fixture 不依赖整改);
-// 锚集镜像 anchors.py 扩员后 19 员(形状钉,门只验工件内自洽——锚集真源=python 勿在此改)。
-const SWEEP_ANCHORS = [["8.8.8.8", "clean"], ["8.8.4.4", "clean"], ["1.1.1.1", "clean"], ["1.0.0.1", "clean"],
-  ["9.9.9.9", "clean"], ["208.67.222.222", "clean"], ["114.114.114.114", "clean"], ["223.5.5.5", "clean"],
-  ["9.9.9.4", "clean"], ["10.0.0.1", "reserved"], ["127.0.0.1", "reserved"], ["192.168.1.1", "reserved"],
-  ["172.16.0.1", "reserved"], ["185.220.101.1", "tor"], ["171.25.193.78", "tor"], ["185.220.101.34", "tor"],
-  ["52.95.116.115", "hosting"], ["20.36.253.52", "hosting"], ["34.64.121.1", "hosting"]];
-const sweepIncident = (ip) => ({ ip, expect: "clean", ok: false, reason: "expected clean, got malicious",
+// 锚集+行键集+罐装行构造器单源=#194 C3-2 合一至 anchor-mirror.mjs(锚集真源仍=
+// python anchors.py,§14 哨对拍单源;此文件/run-golden 禁再手抄副本,镜像测试钉零副本)。
+const sweepIncident = (ip) => anchorRow({ ip, expect: "clean", ok: false, reason: "expected clean, got malicious",
   verdict: "malicious", confidence: 55, conflict: false,
   accusers: ip === "8.8.8.8" ? ["myip_ms"] : ["cps_collected_iocs", "ziyadnz"] });
-const SWEEP_CANNED = { kind: "anchor_sweep", anchors: SWEEP_ANCHORS, n_total: SWEEP_ANCHORS.length, n_fail: 2,
+const SWEEP_CANNED = { kind: "anchor_sweep", anchors: GOLDEN_SWEEP_ANCHORS, n_total: GOLDEN_SWEEP_ANCHORS.length, n_fail: 2,
   failures: ["8.8.8.8", "114.114.114.114"].map((ip) => ({ ip, expect: "clean", reason: "expected clean, got malicious" })),
-  results: SWEEP_ANCHORS.map(([ip, expect]) => ip === "8.8.8.8" || ip === "114.114.114.114" ? sweepIncident(ip)
-    : { ip, expect, ok: true, reason: null, verdict: "benign", confidence: 0, accusers: [], conflict: false }) };
+  results: GOLDEN_SWEEP_ANCHORS.map(([ip, expect]) => ip === "8.8.8.8" || ip === "114.114.114.114" ? sweepIncident(ip)
+    : anchorRow({ ip, expect })) };
 const SHELL_JSON = (o) => `'${JSON.stringify(o).replace(/'/g, "'\\''")}'`;
+// 折叠族全值域金表(#194 C3-3,伞票 #191 C3 ③):行=[输入码,期望族],覆盖 foldErrorFamily
+// 全词面(含兜底);§14 哨抽本表末列与 _ops_detectors._error_family 返回词汇集合对拍
+// (py 输入域=(error_code,error_text) 文本面、JS=error_code 直入,输入域不同——对拍面=
+// 输出词汇集合相等,同因同签两侧同词面)。加族先改 python 真源,哨红后再跟本表+词面断言。
+const FOLD_GOLDEN = [
+  ["http_401", "http_401"],
+  ["http_403", "http_403"],
+  ["http_404", "http_4xx"],
+  ["http_429", "http_4xx"],
+  ["http_500", "http_5xx"],
+  ["http_503", "http_5xx"],
+  ["net_fail", "network"],
+  ["net_timeout", "timeout"],
+  ["", "download"],
+  ["weird_code", "download"]
+];
 fs.writeFileSync(path.join(STUBS, "py-matrix"), `#!/usr/bin/env bash
 # selftest stub:OPS_EVAL_PY 替身(golden stubPy 同型);--anchor-sweep→罐装锚巡检 JSON(#182),其余→罐装矩阵 JSON
 case " $* " in
@@ -184,14 +197,32 @@ await t("工件清单全落盘+gates.json 十记录全 PASS+state.json 终态 do
   assert.ok(fs.existsSync(path.join(DOCS, "ops", "retro", `${R1}.json`)), "retro 工件(ops/retro/)");
 });
 
+await t("锚镜像单源(#194 C3-2):JS 侧锚集唯一定义点=anchor-mirror.mjs;run-golden/selftest-pipeline 源文本零手抄副本+行键集闭合(副本再起即红)", async () => {
+  const srcSelf = fs.readFileSync(new URL(import.meta.url), "utf8");
+  const srcGolden = fs.readFileSync(new URL("./golden/run-golden.mjs", import.meta.url), "utf8");
+  const srcMirror = fs.readFileSync(new URL("./anchor-mirror.mjs", import.meta.url), "utf8");
+  const reAnchorArr = /(?:GOLDEN_SWEEP_ANCHORS|SWEEP_ANCHORS)\s*=\s*\[\[/; // 数组字面量形态(§14 哨同正则面)
+  assert.ok(!reAnchorArr.test(srcSelf), "selftest-pipeline 不再自带锚数组手抄副本");
+  assert.ok(!reAnchorArr.test(srcGolden), "run-golden 不再自带锚数组手抄副本");
+  assert.equal((srcMirror.match(/GOLDEN_SWEEP_ANCHORS\s*=\s*\[\[/g) ?? []).length, 1, "唯一定义点=anchor-mirror.mjs(恰一处)");
+  assert.equal(GOLDEN_SWEEP_ANCHORS.length, new Set(GOLDEN_SWEEP_ANCHORS.map(([ip]) => ip)).size, "锚 ip 去重(全集成员性)");
+  for (const [ip, expect] of GOLDEN_SWEEP_ANCHORS) {
+    assert.ok(/^\d+\.\d+\.\d+\.\d+$/.test(ip ?? ""), `锚 ip 形状:${ip}`);
+    assert.ok(typeof expect === "string" && expect.length > 0, `锚 expect 非空串:${ip}`);
+  }
+  // 行键集闭合:罐装行构造器产出键集=声明键集(多写/漏写即 throw 或红;C3-4 与 python 行键对拍在 §14 形状哨)
+  assert.deepEqual(Object.keys(anchorRow({ ip: "0.0.0.0", expect: "clean" })).sort(), [...ANCHOR_ROW_KEYS].sort());
+  assert.throws(() => anchorRow({ ip: "0.0.0.0", expect: "clean", rogue_key: 1 }), /锚集漂移|键集/);
+});
+
 await t("ANCHOR_SWEEP 巡检步(#182):事故判例 finding 在场门仍过——工件=全集投影逐锚读数+G 门不持门;步序 SYNTH 后 RETRO 前(finding 先于台账收口)", async () => {
   const d = roundDir(R1);
   const s = j(path.join(d, "08-anchor-sweep.json")); // 工件可查(票验收)
   assert.equal(s.kind, "anchor_sweep");
-  assert.equal(s.n_total, SWEEP_ANCHORS.length);
+  assert.equal(s.n_total, GOLDEN_SWEEP_ANCHORS.length);
   assert.equal(s.anchors.length, s.results.length, "锚集=结果集同长(全集投影)");
   // 投影穷尽:每锚恰一结果(ip|expect 双键)
-  const want = SWEEP_ANCHORS.map(([ip, exp]) => `${ip}|${exp}`).sort().join(",");
+  const want = GOLDEN_SWEEP_ANCHORS.map(([ip, exp]) => `${ip}|${exp}`).sort().join(",");
   const got = s.results.map((r) => `${r.ip}|${r.expect}`).sort().join(",");
   assert.equal(got, want, "逐锚恰一结果(丢锚/重锚即门败面)");
   for (const r of s.results) {
@@ -199,6 +230,7 @@ await t("ANCHOR_SWEEP 巡检步(#182):事故判例 finding 在场门仍过——
     assert.equal(typeof r.confidence, "number", `${r.ip} confidence 数字`);
     assert.ok(Array.isArray(r.accusers) && r.accusers.every((a) => typeof a === "string"), `${r.ip} accusers 字符串数组`);
     assert.equal(typeof r.ok, "boolean");
+    assert.deepEqual(Object.keys(r).sort(), [...ANCHOR_ROW_KEYS].sort(), `${r.ip} 行键集=ANCHOR_ROW_KEYS(#194 C3-4;§14 哨与 anchors.py 行键对拍)`);
   }
   assert.equal(s.n_fail, 2, "罐装事故判例:8.8.8.8+114DNS 双 finding(#183 整改前形状)");
   assert.equal(s.failures.length, 2, "failures 与 n_fail 回算一致");
@@ -1290,6 +1322,11 @@ await t("retroDiff 单元:review_at 到点报复审+两通道矛盾(被抑制信
     rules: { version: 0, rules: [] }, today: "2026-10-24" });
   assert.equal(dd.candidates.length, 1, "仅 dismissed 同签的 aa 成候选(bb 无 dismissed 前科不立项)");
   assert.deepEqual(dd.candidates[0].evidence.dismissed_items, ["d-aa"], "候选证据挂 dismissed 条目(可回算)");
+});
+
+await t("折叠族全值域对拍(#194 C3-3):foldErrorFamily 逐行=FOLD_GOLDEN 金表;输出词汇=py _error_family 返回词汇(§14 哨同面,单侧加族双哨齐红)", async () => {
+  const { foldErrorFamily } = await import("./pipeline/ops-items.mjs");
+  for (const [input, want] of FOLD_GOLDEN) assert.equal(foldErrorFamily(input), want, `fold(${JSON.stringify(input)})=${want}`);
 });
 
 await t("超时分腿镜像(#166 审 P2-1):fold net_timeout→timeout;lib.sh _ff_probe curl rc=28 → 第4列 net_timeout", async () => {

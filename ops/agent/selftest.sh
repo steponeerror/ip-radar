@@ -436,6 +436,8 @@ if command -v node >/dev/null 2>&1 && [[ -d "$AGENT/node_modules/@earendil-works
     && ok "golden:smoke 真模型层零触发(冒烟层隔离面)" || bad "golden:smoke 真模型层零触发(冒烟层隔离面)"
   node --check "$AGENT/golden/run-golden.mjs" 2>/dev/null \
     && ok "golden:runner node 语法通过" || bad "golden:runner node 语法通过"
+  node --check "$AGENT/anchor-mirror.mjs" 2>/dev/null \
+    && ok "golden:锚镜像单源模块 node 语法通过(#194 C3-2)" || bad "golden:锚镜像单源模块 node 语法通过(#194 C3-2)"
   node -e 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))' "$AGENT/golden/cases.json" 2>/dev/null \
     && ok "golden:用例集 json 可解析" || bad "golden:用例集 json 可解析"
 else
@@ -555,11 +557,11 @@ fi
 [[ -f "$AGENT/STANDARD.md" ]] \
   && ok "standard:典章真源 STANDARD.md 在案" || bad "standard:典章真源 STANDARD.md 在案"
 
-# ---- 14. 锚集三源对拍哨(终审修单 F8):python ANCHORS 真源 vs 双 JS 镜像集合 ----
-# 锚集真源=backend/ipdb/_eval/anchors.py(扩员只改此一处);selftest-pipeline.mjs
-# 的 SWEEP_ANCHORS 与 golden/run-golden.mjs 的 GOLDEN_SWEEP_ANCHORS 是形状钉
-# 镜像(罐装工件面)。扩员不跟(任一镜像落后真源)=红:双向集合相等逐成员
-# 对拍。python 面用 ast 文本解析零 import(CI frontend job 无 backend 依赖面)。
+# ---- 14. 锚集对拍哨(终审修单 F8;#194 C3-2 改单源)+行键形状哨(C3-4)+折叠族全值域对拍哨(C3-3) ----
+# 锚集真源=backend/ipdb/_eval/anchors.py(扩员只改此一处);JS 侧唯一定义点=
+# ops/agent/anchor-mirror.mjs GOLDEN_SWEEP_ANCHORS(#194 C3-2 合一:此前双 JS 手抄
+# 副本互不同步,漂移即门面假绿;selftest-pipeline 另有镜像测试钉两消费文件零手抄副本)。
+# python 面用 ast 文本解析零 import(CI frontend job 无 backend 依赖面)。
 if command -v python3 >/dev/null 2>&1; then
   MIRLOG="$TMP/anchor-mirror-check.log"
   if ROOT="$ROOT" python3 - > "$MIRLOG" 2>&1 <<'PYEOF'; then MIRRC=0; else MIRRC=$?; fi
@@ -580,23 +582,71 @@ def js_mirror(rel, var):
     assert m, f"{rel} 找不到 {var} 数组字面量"
     return sorted(tuple(x) for x in json.loads(m.group(1)))
 bad_mirrors = []
-for rel, var in (("ops/agent/selftest-pipeline.mjs", "SWEEP_ANCHORS"),
-                ("ops/agent/golden/run-golden.mjs", "GOLDEN_SWEEP_ANCHORS")):
+# #194 C3-2:JS 侧单源=anchor-mirror.mjs 一处(消费文件零手抄副本由 selftest-pipeline 镜像测试钉)
+for rel, var in (("ops/agent/anchor-mirror.mjs", "GOLDEN_SWEEP_ANCHORS"),):
     mirror = js_mirror(rel, var)
     if mirror != py_anchors:
         miss = ["|".join(a) for a in py_anchors if a not in mirror]
         extra = ["|".join(a) for a in mirror if a not in py_anchors]
         bad_mirrors.append(f"{rel} {var} 缺={miss} 多={extra}")
 if bad_mirrors:
-    print("MIRRORFAIL 锚集镜像与 anchors.py 不一致(扩员须同改双 JS 镜像): " + "; ".join(bad_mirrors))
+    print("MIRRORFAIL 锚集镜像与 anchors.py 不一致(扩员须同改 JS 单源 anchor-mirror.mjs): " + "; ".join(bad_mirrors))
     raise SystemExit(1)
-print(f"MIRRORPASS 锚集三源对拍一致({len(py_anchors)} 员;扩员须同改双 JS 镜像)")
+print(f"MIRRORPASS 锚集对拍一致({len(py_anchors)} 员;python 真源 vs anchor-mirror.mjs 单源)")
+
+# ---- C3-4 行键形状哨:anchors.py anchor_sweep 行键 vs JS ANCHOR_ROW_KEYS 集合对拍 ----
+# 锚巡检工件行键跨语言同词面(G_ANCHOR_SWEEP 门逐字段机检面;#189 判例=桩漏 conflict 门败)。
+py_keys = None
+for node in ast.walk(ast.parse(src)):
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "append":
+        f = node.func.value
+        if isinstance(f, ast.Name) and f.id == "results" and node.args and isinstance(node.args[0], ast.Dict):
+            keys = {k.value if isinstance(k, ast.Constant) else ast.dump(k) for k in node.args[0].keys}
+            if all(isinstance(k, ast.Constant) for k in node.args[0].keys):
+                py_keys = keys
+                break
+assert py_keys, "anchors.py anchor_sweep results.append 行键不可解析(ast 文本面)"
+m = re.search(r"ANCHOR_ROW_KEYS\s*=\s*(\[[^\]]*\])\s*;", (root / "ops/agent/anchor-mirror.mjs").read_text(encoding="utf-8"))
+assert m, "anchor-mirror.mjs 找不到 ANCHOR_ROW_KEYS 数组字面量"
+js_keys = set(json.loads(m.group(1)))
+if js_keys != py_keys:
+    print(f"SHAPEFAIL 锚行键集漂移:py={sorted(py_keys)} vs js={sorted(js_keys)}(行键跨语言同词面,单侧加键即红)")
+    raise SystemExit(1)
+print(f"SHAPEPASS 锚行键集一致({len(py_keys)} 键:python anchor_sweep vs JS ANCHOR_ROW_KEYS)")
+
+# ---- C3-3 折叠族全值域对拍哨:py _error_family 返回词汇 vs JS 金表输出词汇 ----
+# py 侧=backend/ipdb/_ops_detectors.py _error_family(金常量);JS 侧=ops-items.mjs
+# foldErrorFamily(输入域不同:py=(error_code,error_text)文本面,JS=error_code 直入)——
+# 全值域对拍=输出词汇集合相等(两侧同因同签;伞票 #191 C3 ③)。
+py_fam_vocab, fam_fn = set(), None
+for node in ast.walk(ast.parse((root / "backend/ipdb/_ops_detectors.py").read_text(encoding="utf-8"))):
+    if isinstance(node, ast.FunctionDef) and node.name == "_error_family":
+        fam_fn = node
+        break
+assert fam_fn, "_ops_detectors.py 找不到 _error_family"
+for node in ast.walk(fam_fn):
+    if isinstance(node, ast.Return) and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+        py_fam_vocab.add(node.value.value)  # 字面返回族(http_4xx/http_5xx/timeout/network)
+    if isinstance(node, ast.Return) and isinstance(node.value, ast.JoinedStr):  # f-string:http_{status} 且 status in (401,403)
+        if re.search(r"status\s+in\s+\(\s*401\s*,\s*403\s*\)", ast.unparse(fam_fn)):
+            py_fam_vocab.update(("http_401", "http_403"))
+for node in ast.walk(ast.parse((root / "backend/ipdb/_ops_detectors.py").read_text(encoding="utf-8"))):
+    if isinstance(node, ast.Assign) and any(getattr(t, "id", None) == "_FALLBACK_FAMILY" for t in node.targets):
+        py_fam_vocab.add(node.value.value)  # 兜底族 download
+assert py_fam_vocab, "_error_family 返回词汇不可解析"
+m = re.search(r"FOLD_GOLDEN\s*=\s*(\[.*?\])\s*;\n", (root / "ops/agent/selftest-pipeline.mjs").read_text(encoding="utf-8"), re.S)
+assert m, "selftest-pipeline.mjs 找不到 FOLD_GOLDEN 金表字面量"
+js_fam_vocab = {row[-1] for row in json.loads(re.sub(r",(\s*[\\]}])", r"\1", m.group(1)))}  # 金表每行末列=期望族(全值域;容忍尾逗号)
+if js_fam_vocab != py_fam_vocab:
+    print(f"FOLDFAIL 折叠族词汇漂移:py={sorted(py_fam_vocab)} vs js={sorted(js_fam_vocab)}(同因同签两侧同词面,单侧加族即红)")
+    raise SystemExit(1)
+print(f"FOLDPASS 折叠族词汇一致({len(py_fam_vocab)} 族:py _error_family vs JS FOLD_GOLDEN 全值域)")
 PYEOF
-  if (( MIRRC == 0 )) && grep -q "^MIRRORPASS " "$MIRLOG"; then
-    ok "mirror:锚集三源对拍一致(anchors.py vs SWEEP_ANCHORS/GOLDEN_SWEEP_ANCHORS,$(grep -o '[0-9]* 员' "$MIRLOG" | head -1))"
+  if (( MIRRC == 0 )) && grep -q "^MIRRORPASS " "$MIRLOG" && grep -q "^SHAPEPASS " "$MIRLOG" && grep -q "^FOLDPASS " "$MIRLOG"; then
+    ok "mirror:锚集对拍一致(anchors.py vs anchor-mirror.mjs 单源)+行键集一致+折叠族词汇一致,$(grep -o '[0-9]* 员' "$MIRLOG" | head -1)"
   else
-    bad "mirror:锚集三源对拍不一致(扩员未跟镜像)"
-    grep -E 'MIRRORFAIL|Error|assert' "$MIRLOG" || true
+    bad "mirror:锚集/行键/折叠族对拍不一致(单源镜像漂移或键集/词汇漂移)"
+    grep -E 'MIRRORFAIL|SHAPEFAIL|FOLDFAIL|Error|assert' "$MIRLOG" || true
   fi
 else
   bad "mirror:python3 不可用(对拍哨前置)"
