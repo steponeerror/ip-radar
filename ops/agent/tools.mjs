@@ -17,6 +17,7 @@ import { PREDICATES, MEASUREMENT_TOOLS, resolveField, ResultRegistry, registryMe
 import { precedentsMethods } from "./tools/precedents.mjs";
 import { measurementMethods } from "./tools/measurement.mjs";
 import { discoveryMethods } from "./tools/discovery.mjs";
+import * as budget from "./pipeline/budget.mjs"; // #199 A4:同参调用哈希(零环:budget 只依赖 node 内置)
 
 export class ToolHost {
   constructor(round, opts = {}) {
@@ -32,6 +33,10 @@ export class ToolHost {
       : { health_snapshot: 2 };
     this.queueFile = opts.queueFile ?? path.join(DOCS_ROOT, "ops/queue.md");
     this.artifactDir = opts.artifactDir ?? path.join(DOCS_ROOT, "ops/artifacts");
+    // #199 A4:同参调用哈希登记(attempt 即计;第 limit 次同参拦 code=repeat_storm;
+    // 旋钮读面单源 budget.mjs,构造期读 process.env=轮次调用期)
+    this.dupRegistry = new Map();
+    this.dupLimit = opts.dupLimit ?? budget.readBudgetKnobs(process.env).dupCallLimit;
     this.tools = round === "health" ? [this.healthSnapshot()] : [
       this.searchPrecedents(), this.readFile(), this.fetchUrl(), this.ghSearch(),
       this.exclusiveProbe(), this.matrixScanSummary(), this.queueAction(),
@@ -41,6 +46,11 @@ export class ToolHost {
 
   budgetSpend(name) { this.spent[name] = (this.spent[name] ?? 0) + 1; }
   async beforeToolCall({ toolCall, args }) {
+    // #199 A4:同参白烧拦(判例 2026-10-24 01:59 同参重发零新读数)先于每工具计数帽:
+    // 第 limit 次同参调用即拒(未执行零花费);合法瞬态重试≤2 不受影响。
+    const dup = budget.dupRecord(this.dupRegistry, toolCall.name, args, this.dupLimit);
+    if (dup.blocked)
+      return { block: true, code: "repeat_storm", reason: `同参调用第 ${dup.count} 次≥拦截线 ${this.dupLimit}(OPS_PIPELINE_DUP_CALL_LIMIT);同参数重发不会出新读数——改参数(换 URL/方法/检索词)或升级人裁` };
     const max = this.budgets[toolCall.name];
     if (max !== undefined && (this.spent[toolCall.name] ?? 0) >= max) {
       return { block: true, reason: `预算超限:${toolCall.name} 每轮上限 ${max} 次已用满;升级人裁区` };

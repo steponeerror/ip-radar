@@ -115,7 +115,7 @@ function mkCtx(opts, io) {
     started_at: nowIso(), updated_at: nowIso(), resume_count: 0, replay_of: opts.replayOf ?? null };
   const OPS_ROOT = opsRootOf(io.env); // 本轮 ops 树(rounds/rules/retro/items 同根;items=条目库真写面 P4 #166)
   return { type, roundId, dir: path.join(OPS_ROOT, "rounds", roundId), env: io.env, log: io.log,
-    fixturesDir, modelFace, budgetCny, budgetKnobs, modelCalls: 0, opsRoot: OPS_ROOT, ...ctxPaths(OPS_ROOT, roundId),
+    fixturesDir, modelFace, budgetCny, budgetKnobs, modelCalls: 0, dupRegistry: new Map(), opsRoot: OPS_ROOT, ...ctxPaths(OPS_ROOT, roundId),
     ledgerFile: io.env.LEDGER_FILE ?? process.env.LEDGER_FILE ?? path.join(DOCS_ROOT, "ops", "ledger.md"),
     pkg: null, verify: null, envelope: null, usage: { input: 0, output: 0, totalTokens: 0, cost: 0 }, state };
 }
@@ -427,7 +427,8 @@ export async function runResume(opts = {}) {
   // ctx 重建:state.json 是唯一真源(budget/fixtures 等从崩溃现场复原;usage 从零计——
   // 崩溃尝试的已花量不可回收,恢复轮 usage=下界,宁少算)
   const ctx = { type: state.type, roundId, dir, env: io.env, log: io.log,
-    budgetCny: state.budget_cny, budgetKnobs: state.budget_knobs ?? budget.readBudgetKnobs(io.env), modelCalls: 0, fixturesDir: state.fixtures_dir, modelFace: state.model_face ?? "faux", opsRoot: OPS_ROOT,
+    // resume 重开调用登记表(观察面从零起;断点前已花量不可回收,同 usage 下界口径)
+    budgetCny: state.budget_cny, budgetKnobs: state.budget_knobs ?? budget.readBudgetKnobs(io.env), modelCalls: 0, dupRegistry: new Map(), fixturesDir: state.fixtures_dir, modelFace: state.model_face ?? "faux", opsRoot: OPS_ROOT,
     ...ctxPaths(OPS_ROOT, roundId), // 单一形状源(mkCtx 同;终审 smell 收口)
     ledgerFile: io.env.LEDGER_FILE ?? process.env.LEDGER_FILE ?? path.join(DOCS_ROOT, "ops", "ledger.md"),
     pkg: null, verify: null, envelope: null, usage: { input: 0, output: 0, totalTokens: 0, cost: 0 }, state };

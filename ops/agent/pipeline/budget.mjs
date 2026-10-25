@@ -109,3 +109,30 @@ export async function appendRefusalTrace(ledgerFile, { est, cap }, env = process
 }
 
 // (调用哈希面见 A4 段——同文件追加,不另起炉灶)
+import { createHash } from "node:crypto";
+
+// —— 重复调用哈希(A4;双面注入:tools.mjs ToolHost.beforeToolCall / microprobes.mjs)——
+// 同参白烧判例(2026-10-24 01:59:真面同参数重发连环烧 token零新读数):第 limit 次同参调用
+// 拦(code=repeat_storm);合法瞬态重试≤2 不受影响(第 1 次+1 重试=2 < 3)。计数面入
+// 09-budget.json dup_top3(A5;观察非裁决)。0=停用。
+// canonicalJson:递归键序稳定化(数组保序——顺序是语义);undefined 归一 null(与 JSON.stringify 同)。
+export function canonicalJson(v) {
+  if (Array.isArray(v)) return `[${v.map(canonicalJson).join(",")}]`;
+  if (v && typeof v === "object")
+    return `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${canonicalJson(v[k])}`).join(",")}}`;
+  return JSON.stringify(v) ?? "null";
+}
+// 键=sha256(tool + "\n" + canonicalJson(args)) 前 16 hex(观察面非安全面:碰撞率足够低)。
+export const dupKey = (tool, args) =>
+  createHash("sha256").update(`${tool}\n${canonicalJson(args ?? {})}`).digest("hex").slice(0, 16);
+// 记录一次调用尝试(尝试即计——执行前拦;返回 blocked=第 limit 次及以后)。registry=Map(key→{tool,key,count})。
+export function dupRecord(registry, tool, args, limit) {
+  const key = dupKey(tool, args);
+  const prev = registry.get(key) ?? { tool, key, count: 0 };
+  prev.count += 1;
+  registry.set(key, prev);
+  return { count: prev.count, blocked: limit > 0 && prev.count >= limit };
+}
+// 观察面:计数前 N 降序(09-budget.json dup_top3;A5 工件面)。
+export const dupTop = (registry, n = 3) =>
+  [...registry.values()].sort((a, b) => b.count - a.count).slice(0, n).map((r) => ({ tool: r.tool, key: r.key, count: r.count }));

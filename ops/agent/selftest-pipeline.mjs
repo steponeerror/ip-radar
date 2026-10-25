@@ -1813,6 +1813,57 @@ await t("A2-双面共享:legacy 面 runRound 同一拒跑码+台账留痕(准入
   assert.ok(led.includes("budget_monthly refused est=0.05 cap=0.05"), `legacy 面同留痕:${led}`);
 });
 
+// ── A4(#199):重复调用哈希 ──
+await t("A4-纯函数:canonical 键序无关+dupKey 同参同键/异参异键+计数第 limit 次拦/limit=0 停用+dupTop 排序", async () => {
+  const { canonicalJson, dupKey, dupRecord, dupTop } = await import(path.join(AGENT, "pipeline/budget.mjs"));
+  assert.equal(canonicalJson({ b: 1, a: 2 }), canonicalJson({ a: 2, b: 1 }), "键序无关");
+  assert.equal(dupKey("fetch_url", { url: "https://a.example/x", method: "HEAD" }),
+    dupKey("fetch_url", { method: "HEAD", url: "https://a.example/x" }), "同参重排序同键");
+  assert.notEqual(dupKey("fetch_url", { url: "https://a.example/x" }), dupKey("fetch_url", { url: "https://a.example/y" }));
+  assert.notEqual(dupKey("fetch_url", { url: "https://a.example/x" }), dupKey("web_read", { url: "https://a.example/x" }));
+  const reg = new Map();
+  assert.deepEqual(dupRecord(reg, "t", { k: 1 }, 3), { count: 1, blocked: false });
+  assert.deepEqual(dupRecord(reg, "t", { k: 1 }, 3), { count: 2, blocked: false }, "合法重试≤2 不受影响");
+  assert.deepEqual(dupRecord(reg, "t", { k: 1 }, 3), { count: 3, blocked: true }, "第 3 次同参拦");
+  const reg0 = new Map();
+  for (let i = 1; i <= 5; i++) assert.equal(dupRecord(reg0, "t", { k: 1 }, 0).blocked, false, "limit=0 停用");
+  const regT = new Map();
+  dupRecord(regT, "a", {}, 99); dupRecord(regT, "a", {}, 99); dupRecord(regT, "a", {}, 99);
+  dupRecord(regT, "b", {}, 99); dupRecord(regT, "b", {}, 99);
+  dupRecord(regT, "c", {}, 99);
+  const top = dupTop(regT, 2);
+  assert.deepEqual(top.map((x) => [x.tool, x.count]), [["a", 3], ["b", 2]], "dupTop 按计数降序取前 N");
+});
+
+await t("A4-legacy 面:ToolHost beforeToolCall 第 3 次同参拦(code=repeat_storm)/异参不拦/合法重试≤2 放行", async () => {
+  const { ToolHost } = await import(path.join(AGENT, "tools.mjs"));
+  const host = new ToolHost("discover");
+  const call = { toolCall: { name: "fetch_url" }, args: { url: "https://a.example/x", method: "HEAD" } };
+  assert.equal(await host.beforeToolCall(call), undefined, "第 1 次放行");
+  assert.equal(await host.beforeToolCall(call), undefined, "第 2 次(瞬态重试)放行");
+  const blocked = await host.beforeToolCall(call);
+  assert.equal(blocked.block, true);
+  assert.equal(blocked.code, "repeat_storm");
+  assert.ok(blocked.reason.includes("同参"), `拒因应说明同参白烧形:${blocked.reason}`);
+  assert.equal(await host.beforeToolCall({ toolCall: { name: "fetch_url" }, args: { url: "https://a.example/y" } }), undefined, "换参数即新调用面");
+});
+
+await t("A4-微探针面:第 3 次同参=repeat_storm 拒绝信封,不执行不入登记(与 budget 闸同形)", async () => {
+  const { mkMicroprobeHost } = await import(path.join(AGENT, "pipeline/microprobes.mjs"));
+  let fetches = 0;
+  const fakeFetch = async () => { fetches += 1; return { status: 200, headers: {}, finalUrl: "https://a.example/x", bytes: 3 }; };
+  const host = mkMicroprobeHost({ fetchImpl: fakeFetch, dupLimit: 3 });
+  const tool = host.tools.find((x) => x.name === "reprobe_get");
+  const r1 = await tool.execute("c1", { url: "https://a.example/x" });
+  const r2 = await tool.execute("c2", { url: "https://a.example/x" });
+  assert.equal(r1.structuredContent.ok, true); assert.equal(r2.structuredContent.ok, true);
+  const r3 = await tool.execute("c3", { url: "https://a.example/x" });
+  assert.equal(r3.structuredContent.ok, false);
+  assert.equal(r3.structuredContent.code, "repeat_storm");
+  assert.equal(fetches, 2, "第 3 次零网络——未发生测量不入登记");
+  assert.equal(host.seeds.length, 2, "拒绝信封不发登记行");
+});
+
 fs.rmSync(TMP, { recursive: true, force: true });
 console.log(`pipeline-selftest: PASS=${pass} FAIL=${fail}`);
 process.exit(fail ? 1 : 0);
