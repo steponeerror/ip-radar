@@ -103,23 +103,66 @@ if [ "$DRY_RUN" != 1 ]; then
       python3 -m ipdb._eval.mirror_check "$DATA_DIR" "$MIRROR_MANIFEST" )
 fi
 
-run_step model    --model    # 舰队模型 + 验收套件(落盘本轮 model-*.json)
-run_step all      --all      # 逐源 verdict 表
-# anchors 腿:失败不阻断后续腿(终审修单 F4)——回归红态记录≠管线中止:
-# 锚点红时工件照写(anchors_report 失败也落盘 anchors-*.json,证据不灭),
-# rc 捕获进运行日志红态行,readout/月报/北星与心跳照常,结尾以此 rc 退出
-# (红态外显不吞);其余腿 set -e 语义不变(仍缺员即死不推心跳)。
-# 守卫=tests/eval/test_monthly_eval_cascade.py(密闭 harness:桩腿红绿双态)。
-ANCHORS_RC=0
-run_step anchors  --anchors  || ANCHORS_RC=$?  # 锚点回归(判定门:失败 rc=1 照写工件)
-if [ "$DRY_RUN" != 1 ] && [ "$ANCHORS_RC" != 0 ]; then
-  echo "!! anchors 腿 rc=$ANCHORS_RC:回归红态(anchors-*.json 已照写留证)——红态记录≠管线中止,后续腿照跑,结尾外显此 rc"
-fi
-run_step dsem     --dsem     # DS-EM 公平对决(advisory)
-run_step agg-share --agg-share  # 印证对聚合器占比披露(#183;只测量不持门,exit 恒 0)
-run_step audit    --audit    # 谱系前向流审计(读 model 历史)
-run_step temporal --temporal # λ_s 确认率(读 model 历史,须 ≥2 轮)
-run_step readout  --readout  # 月轮四层读数(§4.2/S26: 资产+四层读数+行动区块+月报)
+REPORT_ROOT="$REPO/backend/data/eval/monthly"
+# ── 腿级 rc 分离(#193 C5,承 F4 anchors 判例推广到全腿):任一腿红
+# 不中止后续腿(红态记录≠管线中止),工件照写留证;缺员即死不变
+# (工件缺席=半途中止=死,不推心跳)。腿级状态落 leg-status-*.json
+# (报告根,机器可读:render 前件 readout=null 供月报嵌「在飞」,结尾
+# 定稿;_alerts 只认心跳 mtime,腿级红必须长在工件里,评审D P1-3)。
+# 结尾退出码=腿序首个非零(红态外显不吞)。
+LEG_ORDER=(model all anchors dsem agg-share audit temporal readout)
+declare -A LEG_RC=()
+for _leg in "${LEG_ORDER[@]}"; do LEG_RC[$_leg]=0; done
+run_step model    --model    || LEG_RC[model]=$?      # 舰队模型+验收套件(model-*.json)
+run_step all      --all      || LEG_RC[all]=$?        # 逐源 verdict 表
+run_step anchors  --anchors  || LEG_RC[anchors]=$?    # 锚点回归(判定门:失败 rc=1 照写工件)
+run_step dsem     --dsem     || LEG_RC[dsem]=$?       # DS-EM 公平对决(advisory)
+run_step agg-share --agg-share || LEG_RC[agg-share]=$?  # 印证对聚合器占比披露(#183;只测量不持门,exit 恒 0)
+run_step audit    --audit    || LEG_RC[audit]=$?      # 谱系前向流审计(读 model 历史)
+run_step temporal --temporal || LEG_RC[temporal]=$?   # λ_s 确认率(读 model 历史,须 ≥2 轮)
+
+write_leg_status() {  # write_leg_status <readout_rc|null> — 腿级状态件(#193 C5)
+  # 落报告根 leg-status-<ts>.json(ts 形制同族);all 腿校验须排除本件
+  # (同形状不得顶替逐源 verdict 件,观测件永不触活族门)。
+  [ "$DRY_RUN" = 1 ] && return 0
+  local path="$REPORT_ROOT/leg-status-$(date -u +%Y%m%d-%H%M%S).json"
+  local argv=("$path")
+  local leg rc="readout=$1"  # readout 位由调用方显式给(null=在飞)
+  for leg in "${LEG_ORDER[@]}"; do
+    if [ "$leg" = readout ]; then argv+=("$leg" "$1"); else argv+=("$leg" "${LEG_RC[$leg]}"); fi
+  done
+  python3 - "${argv[@]}" <<'PYEOF'
+import json, sys
+from datetime import datetime, timezone
+from pathlib import Path
+path = Path(sys.argv[1])
+legs = {}
+for i in range(2, len(sys.argv), 2):
+    name, rc = sys.argv[i], sys.argv[i + 1]
+    legs[name] = None if rc == "null" else int(rc)
+doc = {
+    "schema": "leg-status/1",
+    "generated_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    "legs": legs,
+    "red_legs": sorted(k for k, v in legs.items() if v not in (0, None)),
+}
+path.write_text(json.dumps(doc, ensure_ascii=False, indent=1) + "\n",
+                encoding="utf-8")
+PYEOF
+  echo "==> 腿级状态件: $path"
+}
+
+# render 前件:readout 腿在飞(null)——月报 render_leg_status 读最新件嵌行
+write_leg_status null
+run_step readout  --readout   || LEG_RC[readout]=$?  # 月轮四层读数(§4.2/S26)月报+北星
+write_leg_status "${LEG_RC[readout]}"  # 定稿件(机器可读面完整)
+
+# 红态行(红腿逐个点名,输出面可见;证据在工件,此处外显不吞)
+for _leg in "${LEG_ORDER[@]}"; do
+  if [ "$DRY_RUN" != 1 ] && [ "${LEG_RC[$_leg]}" != 0 ]; then
+    echo "!! $_leg 腿 rc=${LEG_RC[$_leg]}:红态记录(工件照写留证)——红态记录≠管线中止,腿级状态入 leg-status 工件,结尾外显此 rc"
+  fi
+done
 
 # ── S5(裁决 A / spec §4.1):报告族齐全校验 → 心跳推送 ──
 # 七命令齐全=活:七写者均查本轮工件(mtime 晚于脚本启动)。audit/anchors
@@ -131,7 +174,6 @@ run_step readout  --readout  # 月轮四层读数(§4.2/S26: 资产+四层读数
 # 缺员即死(半途中止=死,不推心跳)。心跳落生产 volume,生产侧
 # _alerts 只认文件 mtime(IP_RADAR_EVAL_HEARTBEAT,>35d 告警;时基
 # 独立 S6,不信管线自报)。
-REPORT_ROOT="$REPO/backend/data/eval/monthly"
 HEARTBEAT_DST="/var/lib/docker/volumes/ip-lookup-tool_ipradar-data/_data/eval-heartbeat"
 check_family() {  # check_family <label> <subdir> <name-pattern> [排除pattern...]
   local label=$1 sub=$2 pat=$3; shift 3
@@ -139,7 +181,11 @@ check_family() {  # check_family <label> <subdir> <name-pattern> [排除pattern.
     echo "  [dry-run] 报告族: $label -> ${sub:+$sub/}$pat${*:+ 排除 $*}"
     return 0
   fi
-  local args=(-name "$pat")
+  # #193: -maxdepth 1 —— find 默认递归会让 model/ 子目录同形状件(如
+  # agg-share-<ts>.json)顶替根 all 腿校验;各腿工件只落自身层,
+  # 限深=逐腿只在自身层验在场(腿级状态件同形状防顶替,观测件永不
+  # 触活族门)。
+  local args=("-maxdepth" "1" -name "$pat")
   local excl
   for excl in "$@"; do args+=(! -name "$excl"); done
   local f
@@ -159,7 +205,7 @@ check_family model    model 'model-*.json'
 # all 腿排除: temporal-*/northstar-* 同带 ts 后缀形状但不属逐源 verdict
 # 件 —— northstar(#185 能力轨观测件)若不排除, 会顶替 all 腿满足校验
 # → 回归族判定被观测件稀释(观测件永不持门, 亦不得反向触活报告族门)。
-check_family all      ''     '*-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9].json' 'temporal-*' 'northstar-*'
+check_family all      ''     '*-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9].json' 'temporal-*' 'northstar-*' 'leg-status-*'
 check_family anchors  model 'anchors-*.json'
 check_family dsem     model 'dsem-*.json'
 check_family agg-share model 'agg-share-*.json'
@@ -176,7 +222,12 @@ else
 fi
 
 echo
+
 echo "完成。报告目录: $REPORT_ROOT(model/ 逐轮累积)"
-# 结尾退出码:anchors 红态外显(完成≠全绿;cron/操作员以非零退出码感知
-# 回归轨红,详见 CHANGELOG「回归红态记录不等于管线中止」句)。
-exit "$ANCHORS_RC"
+# 结尾退出码(#193 C5):腿序首个非零外显(完成≠全绿;cron/操作员以
+# 非零退出码感知腿级红;红腿明细在 leg-status 工件与月报腿级行)。
+AGG_RC=0
+for _leg in "${LEG_ORDER[@]}"; do
+  if [ "${LEG_RC[$_leg]}" != 0 ]; then AGG_RC=${LEG_RC[$_leg]}; break; fi
+done
+exit "$AGG_RC"

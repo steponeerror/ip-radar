@@ -23,10 +23,11 @@
 
 import json
 import re
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
+from ipdb._ops_review import _RULE_REVIEW_DAYS
 import yaml
 
 # ── 独立真源字面(spec #152 §3 / 判例固定形同 test_ops_ruling)──
@@ -561,8 +562,8 @@ def test_adopt_rule_agree_writes_suppression_rule(admin_env, client_as_admin,
     rule = doc["rules"][0]
     assert rule["id"] == "R1"
     assert rule["adopted_via"] == f"item:{iid}"
-    assert rule["adopted"] == "2026-10-24"
-    assert rule["review_at"] == "2027-01-22"       # 采纳+90 天(10-24 → 次年 01-22)
+    assert rule["adopted"] == date.today().isoformat()
+    assert rule["review_at"] == (date.today() + timedelta(days=_RULE_REVIEW_DAYS)).isoformat()  # 采纳+90 天
     assert rule["match"] == {"bucket": "unreachable", "source": "ciarm",
                              "error_family": "http_404"}
     assert rule["action"] == "suppress"
