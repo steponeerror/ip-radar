@@ -372,6 +372,55 @@ def test_spawn_env_injects_ops_tree_and_fences(rounds, ops_env, fake_agent):
     assert dump["argv"][-2:] == ["health", "输入"]
 
 
+# C4(#196)spawn env 白名单面(独立真源硬编码,不从被测模块导入——防套套逻辑):
+# 契约单源 = ops/agent/agent.mjs SPAWN_CONTRACT_ENV(OPS_*/PI_* 前缀 + 精确名)
+# + 运行必需(PATH/HOME/TMPDIR/IP_RADAR_DATA_DIR)。IP_RADAR_ALERT_URLS 是
+# #184 finding webhook 出口契约员(与 backend _alerts.push 双消费面),保留透传。
+SPAWN_ENV_EXACT = {"PATH", "HOME", "TMPDIR", "GH_TOKEN",
+                   "IP_RADAR_DATA_DIR", "IP_RADAR_ALERT_URLS",
+                   "ZAI_CODING_CN_API_KEY", "JINA_API_KEY",
+                   "DOCS_ROOT", "PRECEDENTS_DIR", "LEDGER_FILE"}
+
+
+def test_spawn_env_allowlist_excludes_secrets(
+        rounds, ops_env, fake_agent, monkeypatch):
+    """C4(#196):子进程 env = 显式白名单(契约面),全量继承废止——仓外密钥
+    (ADMIN_PASSWORD/JWT_SECRET 等)绝不透传子进程(least-privilege)。"""
+    monkeypatch.setenv("ADMIN_PASSWORD", "boot-admin-pass-xyz")
+    monkeypatch.setenv("JWT_SECRET", "boot-jwt-secret-xyz")
+    monkeypatch.setenv("SOME_RANDOM_SECRET", "not-in-contract")
+    rounds.spawn_round("health", "输入")
+    env = _read_dump(fake_agent[1])["env"]
+    for k in ("ADMIN_PASSWORD", "JWT_SECRET", "SOME_RANDOM_SECRET"):
+        assert k not in env, f"契约外 env {k} 透传子进程"
+    assert env["DOCS_ROOT"] == str(ops_env)              # 桥注入面在场
+    assert env["ZAI_CODING_CN_API_KEY"] == "zai-secret-key-1234"
+
+
+def test_spawn_env_exactly_contract_face(
+        rounds, ops_env, fake_agent, monkeypatch):
+    """C4(#196):子进程 env 键集恰为白名单面(前缀 OPS_/PI_ + 精确名集),
+    契约外一概不透传;契约员 GH_TOKEN 保留(gh CLI 自读)。"""
+    monkeypatch.setenv("GH_TOKEN", "gh-contract-token-1")
+    rounds.spawn_round("health", "输入")
+    env = _read_dump(fake_agent[1])["env"]
+    assert env["GH_TOKEN"] == "gh-contract-token-1"      # 契约员透传
+    extra = [k for k in env if k not in SPAWN_ENV_EXACT
+             and not (k.startswith("OPS_") or k.startswith("PI_"))]
+    assert extra == [], f"白名单外 env 透传子进程: {extra}"
+
+
+def test_round_env_secret_files_0600(rounds, ops_env, fake_agent):
+    """C4 附带(#196):物化密钥件(auth.json/web-search.json)权限 0600——
+    mkstemp 面已隐式满足,显式钉住契约防实现漂移(arch 评审 C4 附带项)。"""
+    _plant_agent_config(ops_env, {"api_keys": {"zai-coding-cn": "sk-zai-1"},
+                                  "tool_keys": {"jina": "jina-key-1"}})
+    rounds.spawn_round("health", "输入")
+    for name in ("auth.json", "web-search.json"):
+        mode = (ops_env / "ops" / name).stat().st_mode & 0o777
+        assert mode == 0o600, f"{name} 权限 {oct(mode)} ≠ 0600"
+
+
 def test_spawn_success_envelope_roundtrip(rounds, ops_env, fake_agent):
     """成功信封逐字段透传;桥不追加台账行(agent 侧 lib.sh 自记,双记=回声);
     树形状初始化幂等建头(裁④),但零数据行。"""
