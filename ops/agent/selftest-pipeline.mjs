@@ -1836,6 +1836,23 @@ await t("A2-拒跑块单源(#203 C2):admitOrRefuse 外壳——文案/[admission
   assert.equal(refusalOf({ spend: 0.04, est: 0.05, cap: 0.05, counted: 1, skipped: 0 }).code, "budget_monthly", "纯文案函数 code 面");
 });
 
+await t("C3-ctx 形状单源(#204):ctxShape 闭集键钉死(mkCtx 与 runResume 同构造;缺/多字段即红)", async () => {
+  const { ctxShape } = await import("./pipeline.mjs");
+  const state = { schema: 1 };
+  const c = ctxShape({ type: "health", roundId: "2026-10-25-2110-health", opsRoot: "/ops", env: {}, log: () => {}, fixturesDir: "/fx", modelFace: "faux", budgetCny: 0.05, budgetKnobs: { monthlyCapCny: 30 }, breakerKnobs: {}, state });
+  assert.deepEqual(Object.keys(c).sort(), ["breakerKnobs", "budgetCny", "budgetKnobs", "dir", "dupRegistry", "envelope", "env", "fixturesDir", "itemsDir", "ledgerFile", "log", "modelCalls", "modelFace", "opsRoot", "pkg", "retroAuditKey", "retroFile", "roundId", "rulesFile", "state", "type", "usage", "verify"].sort(), "键集=两消费面(gates/steps)所读闭集+ctxPaths 四键;手抄重建回潮=键漂移即红");
+  assert.ok(c.dir === path.join("/ops", "rounds", "2026-10-25-2110-health"), "dir 自算(resume argv String 面与 mkCtx 字符串面同算)");
+  assert.equal(c.modelCalls, 0); assert.ok(c.dupRegistry instanceof Map);
+  assert.deepEqual(c.usage, { input: 0, output: 0, totalTokens: 0, cost: 0 }, "调用登记/用量每次新建");
+  assert.equal(c.state, state, "state 传引用不克隆");
+});
+
+await t("C3-ctx 唯一构造点(#204):dupRegistry/modelCalls/usage 零字面在 pipeline.mjs 恰一处(绕 ctxShape 手抄回潮=第二处即红)", async () => {
+  const src = fs.readFileSync(path.join(AGENT, "pipeline.mjs"), "utf8");
+  for (const lit of ["dupRegistry: new Map()", "modelCalls: 0", "usage: { input: 0"])
+    assert.equal(src.split(lit).length - 1, 1, `「${lit}」须恰出现 1 次(仅 ctxShape;第 2 处=手抄重建回潮)`);
+});
+
 // ── A4(#199):重复调用哈希 ──
 await t("A4-纯函数:canonical 键序无关+dupKey 同参同键/异参异键+计数第 limit 次拦/limit=0 停用+dupTop 排序", async () => {
   const { canonicalJson, dupKey, dupRecord, dupTop } = await import(path.join(AGENT, "pipeline/budget.mjs"));

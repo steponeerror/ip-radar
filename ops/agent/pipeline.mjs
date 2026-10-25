@@ -33,6 +33,23 @@ const ctxPaths = (OPS_ROOT, roundId) => ({
   retroFile: path.join(OPS_ROOT, "retro", `${roundId}.json`), retroAuditKey: roundId,
 });
 
+// ctx 形状唯一真源(#204 C3):mkCtx(校验后的新值)与 runResume(state 复原+缺旋钮补 env)
+// 共用本构造——此前 runResume 手工重建 ctx 与 mkCtx 形状漂移靠人记(终审 smell:加字段两处改)。
+// 职责边界:旋钮值校验留 mkCtx 进本函数前(不放松不前移);本函数零校验零补齐——resume 的
+// state.budget_cny 可为 undefined(旧轮)须原样过。state 传引用不克隆;modelCalls/dupRegistry/
+// usage 每次新建(resume 重开=usage 从零计,断点前已花量不可回收,宁少算口径)。
+export const ctxShape = ({ type, roundId, opsRoot, env, log, fixturesDir, modelFace, budgetCny, budgetKnobs, breakerKnobs, state }) => ({
+  type, roundId,
+  dir: path.join(opsRoot, "rounds", String(roundId)), // String():resume argv 面与 mkCtx 字符串面同算
+  env, log, fixturesDir, modelFace, budgetCny, budgetKnobs, breakerKnobs,
+  modelCalls: 0, dupRegistry: new Map(), opsRoot,
+  ...ctxPaths(opsRoot, roundId), // 派生路径单源(含 retroAuditKey;replay 面事后覆写不受影响)
+  ledgerFile: env.LEDGER_FILE ?? process.env.LEDGER_FILE ?? path.join(DOCS_ROOT, "ops", "ledger.md"),
+  pkg: null, verify: null, envelope: null,
+  usage: { input: 0, output: 0, totalTokens: 0, cost: 0 },
+  state,
+});
+
 // ── 轮次定义表(数据非代码;C稿 §2.2 十状态;加状态须过 spec 变更+三元组铁律:无工件/无门/无失败语义=不配当状态)──
 // 每态:name/kind(script|model|bookend|terminal)/model(提示词键;执行面选择=faux.mjs selectModelFace,#170)/工件清单(out)/门/失败语义三元组
 // fail={retry,terminal,degrade?,perItem?}(重试上限/终态错误码∈九词闭集/降级路径);skipWhen=命名谓词闭集。
@@ -116,10 +133,7 @@ function mkCtx(opts, io) {
     status: "in_flight", stage: null, stages: [], budget_cny: budgetCny, budget_knobs: budgetKnobs, fixtures_dir: fixturesDir, model_face: modelFace, prompt_hashes: {},
     started_at: nowIso(), updated_at: nowIso(), resume_count: 0, replay_of: opts.replayOf ?? null };
   const OPS_ROOT = opsRootOf(io.env); // 本轮 ops 树(rounds/rules/retro/items 同根;items=条目库真写面 P4 #166)
-  return { type, roundId, dir: path.join(OPS_ROOT, "rounds", roundId), env: io.env, log: io.log,
-    fixturesDir, modelFace, budgetCny, budgetKnobs, breakerKnobs, modelCalls: 0, dupRegistry: new Map(), opsRoot: OPS_ROOT, ...ctxPaths(OPS_ROOT, roundId),
-    ledgerFile: io.env.LEDGER_FILE ?? process.env.LEDGER_FILE ?? path.join(DOCS_ROOT, "ops", "ledger.md"),
-    pkg: null, verify: null, envelope: null, usage: { input: 0, output: 0, totalTokens: 0, cost: 0 }, state };
+  return ctxShape({ type, roundId, opsRoot: OPS_ROOT, env: io.env, log: io.log, fixturesDir, modelFace, budgetCny, budgetKnobs, breakerKnobs, state }); // 形状单源(#204 C3);旋钮校验全部在上,不前移不放松
 }
 const writeState = (ctx) => { ctx.state.updated_at = nowIso(); atomicWrite(path.join(ctx.dir, "state.json"), JSON.stringify(ctx.state, null, 2) + "\n"); };
 const addUsage = (to, from) => { for (const k of ["input", "output", "totalTokens", "cost"]) to[k] += from?.[k] ?? 0; };
@@ -424,13 +438,12 @@ export async function runResume(opts = {}) {
   if ((state.resume_count ?? 0) >= 1)
     throw infra(`自动恢复已用尽(resume_count=${state.resume_count};每轮至多一次,二次崩溃=FAILED(infra) 交人,replay 提示见台账)`);
   // ctx 重建:state.json 是唯一真源(budget/fixtures 等从崩溃现场复原;usage 从零计——
-  // 崩溃尝试的已花量不可回收,恢复轮 usage=下界,宁少算)
-  const ctx = { type: state.type, roundId, dir, env: io.env, log: io.log,
-    // resume 重开调用登记表(观察面从零起;断点前已花量不可回收,同 usage 下界口径)
-    budgetCny: state.budget_cny, budgetKnobs: state.budget_knobs ?? budget.readBudgetKnobs(io.env), breakerKnobs: readBreakerKnobs(io.env), modelCalls: 0, dupRegistry: new Map(), fixturesDir: state.fixtures_dir, modelFace: state.model_face ?? "faux", opsRoot: OPS_ROOT,
-    ...ctxPaths(OPS_ROOT, roundId), // 单一形状源(mkCtx 同;终审 smell 收口)
-    ledgerFile: io.env.LEDGER_FILE ?? process.env.LEDGER_FILE ?? path.join(DOCS_ROOT, "ops", "ledger.md"),
-    pkg: null, verify: null, envelope: null, usage: { input: 0, output: 0, totalTokens: 0, cost: 0 }, state };
+  // 崩溃尝试的已花量不可回收,恢复轮 usage=下界,宁少算;调用登记表同理重开从零起)。
+  // 形状=ctxShape 单源(#204 C3,与 mkCtx 同构造);值面=state 复原+缺旋钮补 env 读取
+  // (budget_knobs/model_face 缺省回读零漂移;budget_cny 不校验不补——旧轮 undefined 保持 undefined)。
+  const ctx = ctxShape({ type: state.type, roundId, opsRoot: OPS_ROOT, env: io.env, log: io.log,
+    budgetCny: state.budget_cny, budgetKnobs: state.budget_knobs ?? budget.readBudgetKnobs(io.env), breakerKnobs: readBreakerKnobs(io.env),
+    fixturesDir: state.fixtures_dir, modelFace: state.model_face ?? "faux", state });
   const pending = RUNNABLE.filter((n) => !state.stages.some((r) => r.name === n && ["done", "skipped", "degraded", "dry"].includes(r.status)));
   ctx.resumedFrom = pending[0] ?? null; // 信封 resumed_from(恢复起点;全记录齐=仅 CLOSE 收口)
   ctx.resuming = true; // 引擎旗:模型步工件齐者补门不重跑(runModelStage/runStages 消费)
