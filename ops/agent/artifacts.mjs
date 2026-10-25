@@ -37,3 +37,4 @@ export const deepTranscriptName = (slug) => `05-deep-${slug}-transcript.jsonl`;
 // 参数族枚举/匹配面(gates G_DEEP 巡检、steps deepSeeds 过滤、闭包哨差集判定)。
 export const DEEP_ARTIFACT_RE = /^05-deep-.*\.json$/; // 注意:05-deep-verdicts.json 也命中(固定表先行扣除)
 export const DEEP_TRANSCRIPT_RE = /^05-deep-.*-transcript\.jsonl$/;
+export const DEEP_TRANSCRIPT_GLOB = "05-deep-*-transcript.jsonl"; // 参数族通配标签(仅 gates inputs 声明面;非单文件名)
