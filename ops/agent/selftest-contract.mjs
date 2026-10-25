@@ -30,7 +30,13 @@ const SRCS = { agent: src("agent.mjs"), tools: src("tools.mjs"), models: src("mo
   pipeline: src("pipeline.mjs"), pipelineSteps: src("pipeline/steps.mjs"),
   pipelineGates: src("pipeline/gates.mjs"), pipelineFaux: src("pipeline/faux.mjs"),
   // 票 #184(finding 出口三件套):出口模块入扫描——OPS_SWEEP_DRY_RUN/IP_RADAR_ALERT_URLS 真读方
-  pipelineFindingExit: src("pipeline/finding-exit.mjs") };
+  pipelineFindingExit: src("pipeline/finding-exit.mjs"),
+  // 票 #195(C6 tools.mjs 分层):面文件入扫描——env 读取面(DOCS_ROOT/OPS_EVAL_PY/
+  // OPS_DATA_DIR/OPS_FETCH_MAX_BYTES/OPS_PROBE_* 等)真读方自 tools.mjs 移入
+  // tools/shared.mjs;对拍不变式(表内每项真被读/读取∈表)随面延展覆盖
+  toolsShared: src("tools/shared.mjs"), toolsEnvelope: src("tools/envelope.mjs"),
+  toolsRegistry: src("tools/registry.mjs"), toolsPrecedents: src("tools/precedents.mjs"),
+  toolsMeasurement: src("tools/measurement.mjs"), toolsDiscovery: src("tools/discovery.mjs") };
 
 // ── fixture(in-process 用;golden writePrecedents 同型:env 先于 agent.mjs import)──
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "contract-selftest-"));
@@ -61,7 +67,7 @@ const ERROR_CODES = mod.ERROR_CODES;
 const computeReads = () => {
   const reads = new Set();
   let unknownTemplate = null;
-  for (const s of [SRCS.agent, SRCS.tools, SRCS.models, SRCS.pipeline, SRCS.pipelineSteps, SRCS.pipelineGates, SRCS.pipelineFaux, SRCS.pipelineFindingExit]) {
+  for (const s of [SRCS.agent, SRCS.tools, SRCS.models, SRCS.pipeline, SRCS.pipelineSteps, SRCS.pipelineGates, SRCS.pipelineFaux, SRCS.pipelineFindingExit, SRCS.toolsShared, SRCS.toolsEnvelope, SRCS.toolsRegistry, SRCS.toolsPrecedents, SRCS.toolsMeasurement, SRCS.toolsDiscovery]) {
     for (const m of s.matchAll(/process\.env\.([A-Za-z_][A-Za-z0-9_]*)/g)) reads.add(m[1]);
     // 方括号字符串读形(reviewer Minor-2,T2):process.env["QUOTED_NAME"]/['X']——与点形
     // 同名集并入对拍;引号族与反引号族(下方)互不重叠。动态下标读形 process.env[expr]
@@ -97,7 +103,7 @@ await t("表对拍:扫描器收录的 env 读取面(计算模板无未知形)", 
   assert.equal(READS.unknownTemplate, null, `未收录的 process.env[··] 计算读取模板,对拍器需同步`);
 });
 
-await t("表:SPAWN_CONTRACT_ENV 名集=规格 16 项+OPS_PROBE_MAX_KEYS(tools.mjs 实读,对拍闭包补入)+OPS_PIPELINE/OPS_PIPELINE_BUDGET_CNY(P2 P0 增量,pipeline.mjs 实读)+OPS_ANCHOR_SWEEP_TIMEOUT_MS(#182 anchorSweepCli 实读)+JINA_API_KEY/PI_CODING_AGENT_DIR(PR3a pi-web-access 外部自读,同 GH_TOKEN 豁免型)+OPS_SWEEP_DRY_RUN/IP_RADAR_ALERT_URLS(#184 finding 出口,pipeline/finding-exit.mjs 实读)", () => {
+await t("表:SPAWN_CONTRACT_ENV 名集=规格 16 项+OPS_PROBE_MAX_KEYS(tools 面实读,C6 分层后 env 读取单源 tools/shared.mjs;对拍闭包补入)+OPS_PIPELINE/OPS_PIPELINE_BUDGET_CNY(P2 P0 增量,pipeline.mjs 实读)+OPS_ANCHOR_SWEEP_TIMEOUT_MS(#182 anchorSweepCli 实读)+JINA_API_KEY/PI_CODING_AGENT_DIR(PR3a pi-web-access 外部自读,同 GH_TOKEN 豁免型)+OPS_SWEEP_DRY_RUN/IP_RADAR_ALERT_URLS(#184 finding 出口,pipeline/finding-exit.mjs 实读)", () => {
   assert.deepEqual([...tableNames()].sort(), ["DOCS_ROOT", "GH_TOKEN", "IP_RADAR_ALERT_URLS", "JINA_API_KEY", "LEDGER_FILE", "OPS_ANCHOR_SWEEP_TIMEOUT_MS", "OPS_AUTH", "OPS_DATA_DIR",
     "OPS_EVAL_PY", "OPS_FETCH_MAX_BYTES", "OPS_MATRIX_TIMEOUT_MS", "OPS_MODELS", "OPS_MODEL_DISCOVER",
     "OPS_MODEL_HEALTH", "OPS_MODELS_STORE", "OPS_PIPELINE", "OPS_PIPELINE_BUDGET_CNY", "OPS_PROBE_CLI_TIMEOUT_MS",
