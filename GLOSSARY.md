@@ -8,6 +8,8 @@
 ## 存储
 
 - **epoch**:一次 rebuild 产出的不可变数据目录(`<base>.<n>`),建后永不原地写。锚:backend/ipdb/_sources/_lmdb.py(epoch helpers)
+- **物化谓词**:族是否必须重物化的判定 `needs_convert(raw, base)`,三腿:ptr 缺失 ∨ harvest 版本戳不匹配 ∨ ptr mtime < raw mtime;数据未变+代码未变 = False(增量跳写),任一腿触发 = True(真重建)。锚:_lmdb.py:372(needs_convert,ADR 0009)
+- **harvest 版本戳**:`.rev` sidecar 里存的 harvest 代码代号(rebuild 原子盖章),对照 `HARVEST_REV` 常量;任何 harvest 语义改动必须 bump 常量,否则代码演进静默休眠(2026-10-10/2026-10-25 两起事故判例;存量族缺 .rev = 不匹配 → 首跑自愈重建)。锚:_lmdb.py:337(HARVEST_REV)、:325(rev_path,ADR 0009)
 - **ptr**:指向当前 live epoch 的指针文件,唯一事实源;写侧换 ptr 即原子切换,读侧跟随,读者永不见半状态。锚:_lmdb.py(read_ptr)
 - **族**:v4/v6 双套平行 LMDB 存储(base/ptr/reader/disjoint 全套独立);族必须显式声明——小 v6 整数数值上落在 v4 范围,按数值分派会错编 key。锚:_lmdb.py(lookup)、_source_base.py
 - **disjoint 快路径**:排序区间两两不相交的库可走 O(1) 回扫;前提经 detect_disjoint O(n) 验证才许走,否则保守退到逐前缀 LPM 探测(嵌套库)。算法按数据形状选择,前提显式验证。锚:_lmdb.py(lookup/detect_disjoint)
