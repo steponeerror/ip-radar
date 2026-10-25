@@ -179,11 +179,12 @@ def test_anchor_sweep_full_projection_and_shape():
     assert sweep["n_fail"] == 0 and sweep["failures"] == []
     for r in sweep["results"]:
         assert set(r) == {"ip", "expect", "ok", "reason", "verdict",
-                          "confidence", "accusers"}
+                          "confidence", "accusers", "conflict"}
         assert r["ok"] is True and r["reason"] is None
         assert isinstance(r["verdict"], str)
         assert isinstance(r["confidence"], int)
         assert r["accusers"] == []
+        assert r["conflict"] is False  # 零冲突基线(#188 新员)
 
 
 def test_anchor_sweep_incident_finding_not_gate():
@@ -210,6 +211,42 @@ def test_anchor_sweep_incident_finding_not_gate():
     # 其余锚照常 ok(逐锚独立,不因 finding 中断)
     assert all(r["ok"] for ip, r in by_ip.items()
                if ip not in ("8.8.8.8", "114.114.114.114"))
+
+
+def test_anchor_sweep_conflict_marker_not_suppression():
+    # #188 benign②终态形状:223.5.5.5 = tweetfeed 指控× infra_services
+    # 良性断言同场 → 分类组 verdict_conflict=True → 巡检件 conflict 留痕;
+    # 宁少算:良性断言不自动压制指控,锚仍 finding(ok=False,人裁)。
+    from ipdb._eval.anchors import anchor_sweep
+    kinds = dict(ANCHORS)
+
+    def lk(ip):
+        if ip == "223.5.5.5":
+            return {  # 主体注入面生产形状(a00e2df9:_registry.lookup)
+                "is_reserved": False, "attributes": {},
+                "threat": {"verdict": "malicious", "confidence": 50,
+                           "types": ["other"], "is_cdn": False},
+                "classifications": {"other": {
+                    "type": "other", "verdict": "malicious",
+                    "detected": True, "confidence": 50,
+                    "corroborated": False, "verdict_conflict": True,
+                    "details": [
+                        {"source": "tweetfeed", "verdict": "malicious",
+                         "reliability": 0.5},
+                        {"source": "infra_services", "verdict": "benign",
+                         "reliability": 0.8}],
+                    "sources": []}}}
+        return _fake(kinds.get(ip, "clean"))(ip)
+
+    sweep = anchor_sweep(lk)
+    by_ip = {r["ip"]: r for r in sweep["results"]}
+    r = by_ip["223.5.5.5"]
+    assert r["conflict"] is True          # 对立留痕出海
+    assert r["ok"] is False and "malicious" in r["reason"]  # 锚仍 finding
+    assert r["accusers"] == ["tweetfeed"]  # 良性断言不进指控证人列
+    # conflict 不传染:其余锚(含同扫 clean 锚)conflict 恒 False
+    assert all(not x["conflict"] for i, x in by_ip.items() if i != "223.5.5.5")
+    assert sweep["n_fail"] == 1           # 仅该锚 finding,不放大门面
 
 
 def test_anchor_sweep_cli_json_finding_not_gate(monkeypatch, capsys, tmp_path):

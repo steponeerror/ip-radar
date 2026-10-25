@@ -36,7 +36,9 @@ const redactUrl = (u) => {
 };
 
 // 巡检读数 → finding 投影(纯函数):只取指控行(ok=false)且逐行形状自洽(ip/expect/verdict/confidence/
-// accusers 与 G_ANCHOR_SWEEP 门同字段);任何坏行或 n_fail≠回算 → {ok:false}(出口不动作,门接管)。
+// accusers 与 G_ANCHOR_SWEEP 门同字段);conflict(#188 benign②)=良性断言×指控同场留痕标记,
+// 容缺投影(r.conflict===true;旧工件无字段=false,严格形状校验归 G_ANCHOR_SWEEP 门)。
+// 任何坏行或 n_fail≠回算 → {ok:false}(出口不动作,门接管)。
 export function parseFindings(d) {
   const rows = Array.isArray(d?.results) ? d.results : [];
   const findings = [];
@@ -45,7 +47,8 @@ export function parseFindings(d) {
     if (typeof r.ip !== "string" || typeof r.expect !== "string" || typeof r.verdict !== "string" || !r.verdict
       || typeof r.confidence !== "number" || !Array.isArray(r.accusers) || !r.accusers.every((a) => typeof a === "string"))
       return { ok: false, reason: `finding 行形状非法(ip=${r?.ip ?? "?"})——工件自洽交 G_ANCHOR_SWEEP 拦,出口不动作(宁少算)` };
-    findings.push({ ip: r.ip, expect: r.expect, verdict: r.verdict, confidence: r.confidence, accusers: r.accusers });
+    findings.push({ ip: r.ip, expect: r.expect, verdict: r.verdict, confidence: r.confidence, accusers: r.accusers,
+      conflict: r.conflict === true });
   }
   if (d && typeof d.n_fail === "number" && d.n_fail !== findings.length)
     return { ok: false, reason: `n_fail=${d.n_fail}≠finding 回算 ${findings.length}——工件自洽交 G_ANCHOR_SWEEP 拦,出口不动作` };
@@ -60,7 +63,7 @@ export function findingIssueDraft({ roundId, findings, nTotal }) {
     "ANCHOR_SWEEP(ops 健康轮生产查询路径锚巡检,#182;锚 finding 不持门——本 issue 是 finding 出口,只写不动作,#180 首批租户 Q6)",
     "",
     "## 锚:期望 vs 实得",
-    ...findings.map((f) => `- ${f.ip}(expect=${f.expect}):实得 verdict=${f.verdict} confidence=${f.confidence} 指控源=${f.accusers.join(", ") || "(无)"}`),
+    ...findings.map((f) => `- ${f.ip}(expect=${f.expect}):实得 verdict=${f.verdict} confidence=${f.confidence} 指控源=${f.accusers.join(", ") || "(无)"}${f.conflict ? " 对立=verdict_conflict(良性断言×指控同场,#188 留痕人裁——宁少算不自动压制指控)" : ""}`),
     "",
     "## 证据指针",
     `- 巡检工件:ops/rounds/${roundId}/08-anchor-sweep.json(n_total=${nTotal},n_fail=${findings.length})`,

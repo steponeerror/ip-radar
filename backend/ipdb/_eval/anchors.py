@@ -72,7 +72,12 @@ def anchor_sweep(lookup_fn) -> dict:
     只验工件形状,finding 不持门)。锚集与判定核(_check 单源复用)
     同源,anchors 字段即 ANCHORS 全集投影(门以此验穷尽性,不另设真源)。
     accusers = 指控章证人去重(_ACCUSING 单一口径;票据判例面:
-    8.8.8.8=[myip_ms] 单源、114DNS=[cps,ziyadnz] 假印证)。"""
+    8.8.8.8=[myip_ms] 单源、114DNS=[cps,ziyadnz] 假印证)。
+    conflict(#188,2026-10-24):该锚任一分类组 verdict_conflict=True
+    (良性断言×指控同场,benign②)。留痕不持门——finding 出口带标记
+    人裁(宁少算:良性断言是判断面输入,不自动压制指控,锚仍
+    finding;223.5.5.5 生产形状 = tweetfeed 指控 × infra_services 良性
+    断言)。"""
     results, failures = [], []
     for ip, expect in ANCHORS:
         res = lookup_fn(ip)
@@ -82,11 +87,13 @@ def anchor_sweep(lookup_fn) -> dict:
                            for ca in (res.get("classifications") or {}).values()
                            for d in (ca.get("details") or [])
                            if d.get("verdict") in _ACCUSING and d.get("source")})
+        conflict = any(ca.get("verdict_conflict")
+                       for ca in (res.get("classifications") or {}).values())
         results.append({"ip": ip, "expect": expect, "ok": why is None,
                         "reason": why,
                         "verdict": threat.get("verdict", "unknown"),
                         "confidence": threat.get("confidence", 0),
-                        "accusers": accusers})
+                        "accusers": accusers, "conflict": conflict})
         if why:
             failures.append({"ip": ip, "expect": expect, "reason": why})
     return {"kind": "anchor_sweep", "anchors": [list(a) for a in ANCHORS],

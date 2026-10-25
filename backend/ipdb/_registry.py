@@ -651,9 +651,32 @@ def lookup(ip: str, allowed_sources: frozenset[str] | None = None, *,
     is_isp = any(field_values.get("is_isp", {}).values())
 
     # Group observations by classification_type and assess each group.
+    #
+    # benign② 良性断言注入(#188,2026-10-24):verdict=="benign" 的观测
+    # 不按自身 ctype 独立分组,而是 type-agnostic 注入每个指控组同场 ——
+    # 任意指控类型 × 良性断言 = 真对立,由 _assess_classification 既有
+    # benign×指控逻辑产 verdict_conflict(spec 2026-09-06 设计的机制面,
+    # 本票只接线;固定 ctype(如 other)方案否决:223.5.5.5 的 tweetfeed
+    # 指控恰好是 other,但 blacklist 型指控会漏接,任意性不可接受)。
+    # 宁少算不变式自动成立:良性证人不在 _ACCUSING → 不投票(组 conf 与
+    # 顶层重融合池逐位不变)、corroborated 仅指控源;precedence 恒指控胜
+    # (良性不压制指控)。无指控组时良性断言以自身 ctype 成组 = 纯良性面
+    # (verdict=benign, conf≈r)——区别于①无证据弃权(顶层恒
+    # benign/0);纯良性组不产 STIX Indicator(_stix_export 仅指控章)。
+    # 注(#188 评审A P2 缓议):未来第二个良性源异 ctype 时会全部并入首源
+    # ctype 组、组标签失真——今日单良性源不可达,扩源时须改分组键。
+    benign_obs = [o for o in observations if o.verdict == "benign"]
     groups: dict[str, list] = defaultdict(list)
     for o in observations:
+        if o.verdict == "benign":
+            continue
         groups[o.classification_type].append(o)
+    if benign_obs:
+        if groups:
+            for grp in groups.values():
+                grp.extend(benign_obs)
+        else:
+            groups[benign_obs[0].classification_type].extend(benign_obs)
     classifications = {
         ctype: _assess_classification(grp, asof=asof)
         for ctype, grp in groups.items()

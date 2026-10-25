@@ -84,7 +84,7 @@ class ClassificationAssessment:
     sources: list  # list[SourceAttribution]
     corroborated: bool                       # >=2 independent sources(现状注记:纯 derived 组互证仍算印证,grill Q2 2026-10-11;披露面 _eval/agg_share.py,issue #183)
     reporter_total: int = 0
-    verdict_conflict: bool = False           # 真对立:benign × 指控同场(spec 2026-09-06;今天恒 False,占位)
+    verdict_conflict: bool = False           # 真对立:benign × 指控同场(spec 2026-09-06;benign②源接入 #188 起真实产出:infra_services 良性断言与指控同场即 True,如 223.5.5.5)
     has_archive: bool = False                # 组内存档章在场(informational;只展示不计分,黄灯数据源)
     malware_names: list[str] = field(default_factory=list)   # de-duplicated, e.g. ["win.vidar"]
     details: list[dict] = field(default_factory=list)        # per-source rich info

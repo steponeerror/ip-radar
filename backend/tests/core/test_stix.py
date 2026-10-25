@@ -1,4 +1,6 @@
 """Tests for STIX 2.1 export adapter."""
+import json
+
 import pytest
 from ipdb._stix_export import to_stix_bundle
 from ipdb._types import (
@@ -95,6 +97,36 @@ def test_stix_surfaces_extra_details_malware_names_verdict_conflict():
     assert ext["verdict_conflict"] is False   # 非良性混场无真对立(值断言)
     assert {d["source"]: d["verdict"] for d in ext["details"]} == {
         "reportedip": "malicious", "stopforumspam": "informational"}
+
+
+@pytest.mark.skipif(not _HAS_STIX2, reason="stix2 not installed")
+def test_stix_benign_opposition_verdict_conflict_round_trip():
+    """#188 三锚点①:真实对立数据(benign 断言 × 指控同场,经合并面
+    _assess_classification 真实产出)→ STIX Indicator extension 的
+    verdict_conflict=True 序列化往返(json 文本)不灭——真对立出海链路锚。"""
+    from ipdb._merge import _assess_classification
+    from ipdb._types import EvidenceObservation
+    # 223.5.5.5 生产形状(tweetfeed 指控 × infra_services 良性断言同场)
+    group = [
+        EvidenceObservation(source="tweetfeed", classification_type="other",
+                            verdict="malicious", reliability=0.5),
+        EvidenceObservation(source="infra_services", classification_type="dns",
+                            verdict="benign", reliability=0.95),
+    ]
+    ca = _assess_classification(group)
+    assert ca.verdict_conflict is True          # 合并面真对立成立(前置)
+    assert ca.verdict == "malicious"            # 良性断言不压制指控(宁少算)
+    assert ca.confidence == 50                  # 池=指控源,良性证人不计分
+    lr = _result()
+    lr.classifications = {"other": ca}
+    parsed = to_stix_bundle(lr)          # 返回值即 JSON 化 dict(文本面)
+    assert parsed is not None
+    parsed = json.loads(json.dumps(parsed))   # 文本往返模拟下游消费
+    ind = next(o for o in parsed["objects"] if o["type"] == "indicator")
+    ext = ind["extensions"][next(iter(ind["extensions"]))]
+    assert ext["verdict_conflict"] is True      # 真对立标记出海且往返不灭
+    assert {d["source"]: d["verdict"] for d in ext["details"]} == {
+        "tweetfeed": "malicious", "infra_services": "benign"}
 
 
 @pytest.mark.skipif(not _HAS_STIX2, reason="stix2 not installed")

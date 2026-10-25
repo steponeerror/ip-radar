@@ -65,9 +65,11 @@ printf '[]\\n'
 `;
 const stubPy = (matrix) => `#!/usr/bin/env bash
 # golden stub: OPS_EVAL_PY 替身(matrix 例);--anchor-sweep→罐装零 finding 锚巡检 JSON(#182,
-# 全集投影与 selftest-pipeline SWEEP_CANNED 同源形状、golden 基线零 finding),其余→罐装矩阵 JSON。
+# 全集投影与 selftest-pipeline SWEEP_CANNED 同源形状、golden 基线零 finding;#188 起逐行带
+# conflict 布尔——G_ANCHOR_SWEEP 门形状面必查字段,缺席即门败(golden 桩漏带即 CI 红,判例
+# 2026-10-25 #189 首跑),其余→罐装矩阵 JSON。
 SWEEP_OK='${JSON.stringify({ kind: "anchor_sweep", anchors: GOLDEN_SWEEP_ANCHORS, n_total: GOLDEN_SWEEP_ANCHORS.length, n_fail: 0, failures: [],
-  results: GOLDEN_SWEEP_ANCHORS.map(([ip, expect]) => ({ ip, expect, ok: true, reason: null, verdict: "benign", confidence: 0, accusers: [] })) }).replace(/'/g, "'\\''")}'
+  results: GOLDEN_SWEEP_ANCHORS.map(([ip, expect]) => ({ ip, expect, ok: true, reason: null, verdict: "benign", confidence: 0, accusers: [], conflict: false })) }).replace(/'/g, "'\\''")}'
 case " $* " in
   *--anchor-sweep*) printf '%s\\n' "$SWEEP_OK" ;;
   *) printf '%s\\n' '${JSON.stringify(matrix).replace(/'/g, "'\\''")}' ;;

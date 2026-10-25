@@ -32,9 +32,12 @@ def test_infra_services_loads_and_routes(tmp_path):
     assert s.query("216.239.35.0")[0]["service"] == "ntp"
     # not in feed
     assert s.query("1.2.3.4") == {}
-    # asset-only source: verdict="" 弃权拼写由 to_dict 特判保留(R17A-1),
-    # 读回按 "" 处理不兑底 malicious(旧断言「verdict 键缺席」随之反转)
-    assert r["verdict"] == ""
+    # benign② 良性断言(#188,2026-10-24):verdict="benign" + 断言域
+    # ctype=服务角色(dns/ntp);弃权拼写 "" 期已随升格作废
+    # (R17A-1 特判保留历史仅适用于其他 asset-only 源)
+    assert r["verdict"] == "benign"
+    assert r["classification_type"] == "dns"
+    assert s.query("216.239.35.0")[0]["classification_type"] == "ntp"
 
 
 def test_infra_services_health_loaded_not_stale(tmp_path):
