@@ -1697,6 +1697,57 @@ await t("⑬-真面 DEEP 端到端(fake 传输层+fake fetch):真工具调用→
   fs.rmSync(d, { recursive: true, force: true });
 });
 
+// ── #199 交付A(A1):预算四界环内执法 ——————————————————————————————
+// 红测先行:四界环内执法落地前,超帽旋钮不拦任何调用(轮照常成功),下列断言必红。
+await t("A1-纯函数:调用帽/token/墙钟界判定边界", async () => {
+  const budget = await import("./pipeline/budget.mjs");
+  assert.equal(budget.overCallsCap(11, 12), false, "第 12 次调用=帽内放行");
+  assert.equal(budget.overCallsCap(12, 12), true, "第 13 次调用将超帽");
+  assert.equal(budget.overTokenBudget(200000, 200000), false, "等号=预算内");
+  assert.equal(budget.overTokenBudget(200001, 200000), true);
+  assert.ok(budget.elapsedWallS(new Date(Date.now() - 5000).toISOString()) > 4, "流逝秒≥4");
+  assert.equal(budget.overWallClock(new Date().toISOString(), 1800), false);
+  const knobs = budget.readBudgetKnobs({});
+  assert.deepEqual(knobs, { maxModelCalls: 12, tokenBudget: 200000, wallClockS: 1800, spendCapCny: 3, monthlyCapCny: 30, dupCallLimit: 3 }, "缺省旋钮生产口径");
+  assert.throws(() => budget.readBudgetKnobs({ OPS_PIPELINE_TOKEN_BUDGET: "abc" }), (e) => e.usage === true, "非法旋钮=用法错(不带病跑轮)");
+});
+await t("A1-①③:墙钟 0 触界=首步边界拦(先于任何模型调用)", async () => {
+  const tree = mkTree("budget-wall");
+  const io = mkIo();
+  const r = await runPipeline({ roundId: "2026-10-25-1701-health", fixturesDir: DEFAULT_FIXTURES_DIR, env: { ...tree.env, OPS_PIPELINE_WALL_CLOCK_S: "0.0001" }, ...io });
+  assert.equal(r.ok, false);
+  assert.equal(r.envelope.error.code, "wall_clock_exceeded");
+  const p = stageOf(r.envelope, "PROBE");
+  assert.equal(p.status, "failed");
+  assert.ok(!fs.existsSync(path.join(tree.root, "ops", "rounds", "2026-10-25-1701-health", "01-probe-summary.json")), "墙钟先于步体:零工件推进");
+});
+await t("A1-②:token 预算=1 → 首模型步结算后终态 budget_exceeded 且不重试", async () => {
+  const tree = mkTree("budget-token");
+  const io = mkIo();
+  const r = await runPipeline({ roundId: "2026-10-25-1702-health", fixturesDir: DEFAULT_FIXTURES_DIR, env: { ...tree.env, OPS_PIPELINE_TOKEN_BUDGET: "1" }, ...io });
+  assert.equal(r.ok, false);
+  assert.equal(r.envelope.error.code, "budget_exceeded");
+  const tri = stageOf(r.envelope, "TRIAGE");
+  assert.equal(tri.status, "failed");
+  assert.equal(tri.attempts, 1, "违界即停:不烧重试(宁少算)");
+  assert.ok(fs.existsSync(path.join(tree.root, "ops", "rounds", "2026-10-25-1702-health", "03-triage-hypotheses.json")), "哲学①:已花 token 的工件证据留存");
+});
+await t("A1-①:调用数帽=1 → DEEP 首调用前拦 budget_exceeded", async () => {
+  const tree = mkTree("budget-calls");
+  const io = mkIo();
+  const r = await runPipeline({ roundId: "2026-10-25-1703-health", fixturesDir: DEFAULT_FIXTURES_DIR, env: { ...tree.env, OPS_PIPELINE_MAX_MODEL_CALLS: "1" }, ...io });
+  assert.equal(r.ok, false);
+  assert.equal(r.envelope.error.code, "budget_exceeded");
+  assert.equal(stageOf(r.envelope, "TRIAGE").status, "done", "帽内调用照常");
+  assert.equal(stageOf(r.envelope, "DEEP").status, "failed");
+});
+await t("A1-旋钮校验:非法值=CLI exit 2 纯用法错(mkCtx 判例同形)", async () => {
+  const tree = mkTree("budget-usage2");
+  const r = await spawnPipe(["health", "--round-id", "2026-10-25-1704-health", "--fixtures", DEFAULT_FIXTURES_DIR], { ...tree.env, OPS_PIPELINE_TOKEN_BUDGET: "abc" });
+  assert.equal(r.rc, 2);
+  assert.ok(!r.stdout.trim(), "用法错=纯 stderr 零信封");
+});
+
 fs.rmSync(TMP, { recursive: true, force: true });
 console.log(`pipeline-selftest: PASS=${pass} FAIL=${fail}`);
 process.exit(fail ? 1 : 0);

@@ -78,6 +78,15 @@ export const SPAWN_CONTRACT_ENV = [
   // P2 起 _ops_rounds 桥消费它选路径;P0 未接线,pipeline.mjs 仅校验值闭集并记入 state.json。
   { name: "OPS_PIPELINE", default: "legacy", consumer: "pipeline.mjs mkCtx(值闭集校验+state.json 记录;P2 起为桥的路径开关)", phase: "call-time" },
   { name: "OPS_PIPELINE_BUDGET_CNY", default: "0.05", consumer: "pipeline.mjs(DISPATCH 轮内预算门,G_DISPATCH 合计上限;月度累计门=P5 IDLE)", phase: "call-time" },
+  // #199 交付A(P15 预算四界):六旋钮真读方=pipeline/budget.mjs readBudgetKnobs(单源读面,
+  // 引擎检查点/双面准入/调用哈希同面;非法值=用法错 exit 2)。OPS_PIPELINE_BUDGET_CNY 语义
+  // 升格为准告警线(DISPATCH 截断忠告行;真执法=四界,spec #199 A5 注记)。
+  { name: "OPS_PIPELINE_MAX_MODEL_CALLS", default: "12", consumer: "pipeline/budget.mjs(四界①整轮模型调用数帽,runModelStage attempt 前查)", phase: "call-time" },
+  { name: "OPS_PIPELINE_TOKEN_BUDGET", default: "200000", consumer: "pipeline/budget.mjs(四界②整轮 token 轨迹预算,结算后查)", phase: "call-time" },
+  { name: "OPS_PIPELINE_WALL_CLOCK_S", default: "1800", consumer: "pipeline/budget.mjs(四界③整轮墙钟秒,步边界+逐假设前查)", phase: "call-time" },
+  { name: "OPS_PIPELINE_SPEND_CAP_CNY", default: "3", consumer: "pipeline/budget.mjs(四界④整轮花费帽,结算后查)", phase: "call-time" },
+  { name: "OPS_PIPELINE_MONTHLY_CAP_CNY", default: "30", consumer: "pipeline/budget.mjs(月度 kill switch 帽,双面准入拒跑 code=budget_monthly)", phase: "call-time" },
+  { name: "OPS_PIPELINE_DUP_CALL_LIMIT", default: "3", consumer: "pipeline/budget.mjs(同参调用拦截线,双面工具注入拦 code=repeat_storm;0=停用)", phase: "call-time" },
   { name: "GH_TOKEN", default: "(gh CLI 自身凭证链)", consumer: "gh CLI(外部自读;tools.mjs 不读,对拍豁免)", phase: "call-time" },
   // PR3a 发现通道 web_search 引擎 = pi-web-access MCP(2026-10-24 用户令;pin 0.44.0):
   // 两名均外部自读(包/子进程,tools.mjs 不读,同 GH_TOKEN 豁免型)。

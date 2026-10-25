@@ -17,6 +17,7 @@ import { ERROR_CODES } from "./error-codes.mjs"; // 2026-10-24 断环:不再 imp
 import * as steps from "./pipeline/steps.mjs";
 import * as gates from "./pipeline/gates.mjs";
 import { runModelStep, selectModelFace } from "./pipeline/faux.mjs";
+import * as budget from "./pipeline/budget.mjs"; // #199 A1:预算四界旋钮+执法纯函数(单源)
 
 const AGENT_DIR = path.dirname(fileURLToPath(import.meta.url));
 export const DEFAULT_FIXTURES_DIR = path.join(AGENT_DIR, "fixtures", "pipeline"); // 缺省 fixtures 路径(自测显式引用=同路径显式面,#170)
@@ -106,14 +107,15 @@ function mkCtx(opts, io) {
   const budgetCny = +budgetRaw; // NaN 静默放行=审后修 P2-4:非法值退出 2 不带病跑轮
   if (!Number.isFinite(budgetCny) || budgetCny < 0)
     throw Object.assign(new Error(`OPS_PIPELINE_BUDGET_CNY 须为非负数,得到:${budgetRaw}`), { usage: true });
+  const budgetKnobs = budget.readBudgetKnobs(io.env); // 四界旋钮(#199 A1;校验同 BUDGET_CNY 判例:非法=用法错 exit 2 不带病跑轮)
   const fixturesDir = path.resolve(opts.fixturesDir ?? DEFAULT_FIXTURES_DIR);
   const modelFace = selectModelFace({ fixturesExplicit: opts.fixturesDir != null, inherited: opts.inheritedModelFace ?? null }); // 面选择(#170:显式 fixtures=faux/继承面/缺省 real;纯函数真源在 faux.mjs)
   const state = { schema: 1, round_id: roundId, type, pipeline_mode: io.env.OPS_PIPELINE ?? process.env.OPS_PIPELINE ?? "legacy",
-    status: "in_flight", stage: null, stages: [], budget_cny: budgetCny, fixtures_dir: fixturesDir, model_face: modelFace, prompt_hashes: {},
+    status: "in_flight", stage: null, stages: [], budget_cny: budgetCny, budget_knobs: budgetKnobs, fixtures_dir: fixturesDir, model_face: modelFace, prompt_hashes: {},
     started_at: nowIso(), updated_at: nowIso(), resume_count: 0, replay_of: opts.replayOf ?? null };
   const OPS_ROOT = opsRootOf(io.env); // 本轮 ops 树(rounds/rules/retro/items 同根;items=条目库真写面 P4 #166)
   return { type, roundId, dir: path.join(OPS_ROOT, "rounds", roundId), env: io.env, log: io.log,
-    fixturesDir, modelFace, budgetCny, opsRoot: OPS_ROOT, ...ctxPaths(OPS_ROOT, roundId),
+    fixturesDir, modelFace, budgetCny, budgetKnobs, modelCalls: 0, opsRoot: OPS_ROOT, ...ctxPaths(OPS_ROOT, roundId),
     ledgerFile: io.env.LEDGER_FILE ?? process.env.LEDGER_FILE ?? path.join(DOCS_ROOT, "ops", "ledger.md"),
     pkg: null, verify: null, envelope: null, usage: { input: 0, output: 0, totalTokens: 0, cost: 0 }, state };
 }
@@ -145,6 +147,8 @@ function failStage(ctx, def, rec, e, gateRec) {
 // 单发步(TRIAGE/SYNTH)的门评估入重试圈:C稿 §2.2「契约违例重试≤1(同提示词重发)」——门败与
 // schema 违例同面重试;逐假设步(DEEP forEach)的门评收编尾后一次(部分态评门=假阴性嗓音)。
 async function runModelStage(def, ctx, rec) {
+  ctx.budgetKnobs ??= budget.readBudgetKnobs(ctx.env ?? {}); // 手撞 ctx/resume 重建面兑底(#199 A1;幂等)
+  ctx.modelCalls ??= 0;
   const io = steps.modelIO(def);
   const items = def.forEach ? steps.forEachItems(def, ctx) : [null];
   const usage = { input: 0, output: 0, totalTokens: 0, cost: 0 };
@@ -155,11 +159,24 @@ async function runModelStage(def, ctx, rec) {
     let done = false;
     for (let a = 0; a <= def.fail.retry && !done; a++) {
       rec.attempts += 1;
+      // #199 A1 四界检查点①③:attempt 前查调用数帽与墙钟(违界即停:不重试不降级,哲学①已写工件照留)
+      if (budget.overCallsCap(ctx.modelCalls, ctx.budgetKnobs.maxModelCalls))
+        throw Object.assign(new Error(`预算四界①:模型调用将超帽(已计 ${ctx.modelCalls}+1 > ${ctx.budgetKnobs.maxModelCalls},OPS_PIPELINE_MAX_MODEL_CALLS)`), { code: "budget_exceeded", fatalBudget: true });
+      if (budget.overWallClock(ctx.state.started_at, ctx.budgetKnobs.wallClockS))
+        throw Object.assign(new Error(`预算四界③:墙钟 ${budget.elapsedWallS(ctx.state.started_at).toFixed(1)}s 超帽 ${ctx.budgetKnobs.wallClockS}s(OPS_PIPELINE_WALL_CLOCK_S)`), { code: "wall_clock_exceeded", fatalBudget: true });
+      ctx.modelCalls += 1;
       try {
         const r = await runModelStep(def, ctx, item);
         ctx.state.prompt_hashes[`${def.name}${item ? `:${item.hid}` : ""}`] = r.prompt_sha; // replay 审计面(C稿 §4.5)
         await io.consume(ctx, item, r);
         addUsage(usage, r.usage);
+        // #199 A1 四界检查点②④:结算后查 token 轨迹与花费帽(轮内累计=已入库 ctx.usage+本步未收编 usage)
+        const roundTokens = ctx.usage.totalTokens + usage.totalTokens;
+        const roundCost = ctx.usage.cost + usage.cost;
+        if (budget.overTokenBudget(roundTokens, ctx.budgetKnobs.tokenBudget))
+          throw Object.assign(new Error(`预算四界②:token 轨迹 ${roundTokens} 超预算 ${ctx.budgetKnobs.tokenBudget}(OPS_PIPELINE_TOKEN_BUDGET)`), { code: "budget_exceeded", fatalBudget: true });
+        if (budget.overSpendCap(roundCost, ctx.budgetKnobs.spendCapCny))
+          throw Object.assign(new Error(`预算四界④:花费 ¥${roundCost.toFixed(8)} 超帽 ¥${ctx.budgetKnobs.spendCapCny}(OPS_PIPELINE_SPEND_CAP_CNY)`), { code: "budget_exceeded", fatalBudget: true });
         if (!def.forEach) {
           const gateRec = gates.evalStageGate(def, ctx);
           gates.appendGate(ctx.dir, ctx.roundId, gateRec);
@@ -167,6 +184,7 @@ async function runModelStage(def, ctx, rec) {
         }
         done = true;
       } catch (e) {
+        if (e?.fatalBudget) throw e; // #199 A1:违界即停——重试=再烧 token、perItem 降级=继续跑后续假设,均违宁少算
         if (a === def.fail.retry) {
           if (def.fail.perItem && items.length) { failed += 1; done = true; // 单假设降级 unresolved(不终态)
             degradedItems.push({ hid: item?.hid ?? def.name, verdict: "unresolved", evidence: [], one_line: `重试尽降级 unresolved(${e.message})` });
@@ -200,6 +218,13 @@ async function runStages(ctx, { fromIdx = 0, toIdx = RUNNABLE.length - 1, dry = 
       writeState(ctx);
       ctx.log(`[stage] ${def.name} done gate=SKIP(dry:原件 skipped) dur=0s artifact=-`);
       continue;
+    }
+    // #199 A1 四界检查点③(步边界):墙钟超=终态先于步体(已记录步零重入/dry 零调用不查;
+    // resume 沿原 started_at 续算——恢复晚于帽即拒,同 16h 陈旧防线语义)
+    ctx.budgetKnobs ??= budget.readBudgetKnobs(ctx.env ?? {});
+    if (!dry && budget.overWallClock(ctx.state.started_at, ctx.budgetKnobs.wallClockS)) {
+      const wrec = { name: def.name, status: "done", attempts: 0, dur_ms: 0, usage: null };
+      return failStage(ctx, def, wrec, Object.assign(new Error(`预算四界③:墙钟 ${budget.elapsedWallS(ctx.state.started_at).toFixed(1)}s 超帽 ${ctx.budgetKnobs.wallClockS}s(OPS_PIPELINE_WALL_CLOCK_S)`), { code: "wall_clock_exceeded" }), null);
     }
     const rec = { name: def.name, status: dry ? "dry" : "done", attempts: 0, dur_ms: 0, usage: null };
     const t0 = performance.now();
@@ -392,7 +417,7 @@ export async function runResume(opts = {}) {
   // ctx 重建:state.json 是唯一真源(budget/fixtures 等从崩溃现场复原;usage 从零计——
   // 崩溃尝试的已花量不可回收,恢复轮 usage=下界,宁少算)
   const ctx = { type: state.type, roundId, dir, env: io.env, log: io.log,
-    budgetCny: state.budget_cny, fixturesDir: state.fixtures_dir, modelFace: state.model_face ?? "faux", opsRoot: OPS_ROOT,
+    budgetCny: state.budget_cny, budgetKnobs: state.budget_knobs ?? budget.readBudgetKnobs(io.env), modelCalls: 0, fixturesDir: state.fixtures_dir, modelFace: state.model_face ?? "faux", opsRoot: OPS_ROOT,
     ...ctxPaths(OPS_ROOT, roundId), // 单一形状源(mkCtx 同;终审 smell 收口)
     ledgerFile: io.env.LEDGER_FILE ?? process.env.LEDGER_FILE ?? path.join(DOCS_ROOT, "ops", "ledger.md"),
     pkg: null, verify: null, envelope: null, usage: { input: 0, output: 0, totalTokens: 0, cost: 0 }, state };
