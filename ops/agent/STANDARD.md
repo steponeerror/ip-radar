@@ -12,12 +12,12 @@
 
 | # | 原语 | 2026 出处(研究底座) | 内部状态 | 内部锚 / 补课 |
 |---|---|---|---|---|
-| P1 | 信封纪律 | FlowGuard 2026-07;EpiSEM-Bench 2026-10 | 已有 | ops/agent/tools.mjs(classifyChannelError 四码) |
+| P1 | 信封纪律 | FlowGuard 2026-07;EpiSEM-Bench 2026-10 | 已有 | ops/agent/tools/envelope.mjs(classifyChannelError 四码) |
 | P2 | 状态机骨架 | Gartner 2026-10;swarm tax 2026-05 | 已有 | ops/agent/pipeline.mjs(HEALTH_PIPELINE,模型只在三步) |
 | P3 | 谱系去重 | swarm tax 2026-05(算力对齐同构);对撞表独有列 | 已有 | backend/ipdb/_logodds.py(dedup_lineage) |
 | P4 | 回放闸门 | Braintrust 2026-09;promptfoo 2026-10 | 已有 | ops/agent/golden(字节等价)+PROBE 位等价判例(#169) |
 | P5 | 三层职责线 | Microsoft 2026-06;ACM Queue 2026-10 | 已有 | ops/agent/DESIGN.md(ADR 0007) |
-| P6 | 工具白名单 | MCP-ITP 2026-01;NSA CSI 2026-06;MCP spec 2026-07 | 已有 | ops/agent/tools.mjs(MEASUREMENT_TOOLS 闭集) |
+| P6 | 工具白名单 | MCP-ITP 2026-01;NSA CSI 2026-06;MCP spec 2026-07 | 已有 | ops/agent/tools/registry.mjs(MEASUREMENT_TOOLS 闭集) |
 | P7 | 轮内预算步前检查 | Latentism 2026-10(调用前检查印证) | 已有 | ops/agent/pipeline.mjs(budget_truncate) |
 | P8 | 阶段门 | promptfoo 2026-10(CI fail-PR) | 已有 | ops/agent/pipeline/gates.mjs(gates.json 留痕) |
 | P9 | 判例升格通道 | Agentic Auditing 2026-10(人验签核平行;外部无直接对应) | 已有 | ops/agent/promote-detect.mjs |
@@ -89,7 +89,7 @@
 #### D-3 工具白名单+证据最小权
 - 主张:测量面=闭集白名单,发现产物不进谓词硬门数字(evidence 语义门不因发现通道放宽);模型可调工具最小权——借道合法高权工具作恶是实证攻击面(MCP-ITP 84.2% ASR/0.3% 检出)
 - 原语组成:工具白名单
-- 门挂点:ops/agent/tools.mjs#MEASUREMENT_TOOLS
+- 门挂点:ops/agent/tools/registry.mjs#MEASUREMENT_TOOLS
 - 判例链:MCP-ITP 2026-01(隐式投毒);NSA CSI 2026-06;MCP Specification 2026-07-28;PR #179 判例(发现通道三件不入 MEASUREMENT_TOOLS)
 
 #### D-4 谱系去重
@@ -107,7 +107,7 @@
 #### D-6 信封纪律
 - 主张:失败不编造——通道失败走四码结构化分类(每码自带下一步合法动作),无证据≠清白,弃权/缺口不冒充零命中;wire 漂移哨钉语法面
 - 原语组成:信封纪律;弃权校准
-- 门挂点:ops/agent/tools.mjs#classifyChannelError;ops/agent/error-codes.mjs
+- 门挂点:ops/agent/tools/envelope.mjs#classifyChannelError;ops/agent/error-codes.mjs
 - 判例链:FlowGuard 2026-07(语义信号≠证据);EpiSEM-Bench 2026-10(每句都真也可能不安全);判例 2026-10-24-discover-dual-channel-dead;PR #179 wire 漂移哨(非空无标记文本归 io_error 不冒充零命中)
 
 ## 三、门挂点层
