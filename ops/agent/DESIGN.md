@@ -71,7 +71,7 @@
 |---|---|
 | 围栏观 | 剪的是打断/审批摩擦,不剪边界执法:写口 queue_action 语义门/沙箱断言/防失控界全保留;防线集中后,深围栏(写门/evidence 选择对/SSRF)随注入面扩大**加强测试** |
 | 工具面 | 原生薄工具四件套:gh_search(镜像装 gh 二进制;GH_TOKEN 经 compose override env 注入不入镜像层,#139 提前收)/ web_read(r.jina.ai,无 key 限速可用)/ **web_search(pi-web-access 0.44.0 MCP 多 provider 回退链,2026-10-24 用户裁定取代 s.jina.ai 直连;缺省路由 duckduckgo keyless,jina key 经 agent-config tool_keys 扩槽入回退链)**/ rss_parse(本地解析);agent-reach 整只**不进镜像**(13 通道×异构故障面违「few, sharp tools」);错误语义对齐 MCP isError 二分:channel_missing/channel_auth/quota/transient 四码,每码带「下一步合法动作」文案 |
-| 预算四界 | 迭代上限(补整轮模型调用数帽)/ 轨迹 token 预算 / 墙钟超时 / 花费帽(每轮 ¥3 ∧ 月度 ¥30,同台账并发安全双点执法:准入+环内)+ 重复检测(工具调用哈希);单发线降为告警线;取代 §4 预算卡行闸值面(8h 节奏不变) |
+| 预算四界 | **【状态:未实现——仅 G_DISPATCH 单点真门(OPS_PIPELINE_BUDGET_CNY 缺省 ¥0.05)在产;四界全量+双点执法+哈希待 PR3b 落地,落地后翻正此标注】**迭代上限(补整轮模型调用数帽)/ 轨迹 token 预算 / 墙钟超时 / 花费帽(每轮 ¥3 ∧ 月度 ¥30,同台账并发安全双点执法:准入+环内)+ 重复检测(工具调用哈希);单发线降为告警线;取代 §4 预算卡行闸值面(8h 节奏不变) |
 | 熔断器 | 跨轮通道熔断(连续失败达阈开断 → 快速结构化 tool-unavailable 信封 → 半开探活恢复),状态持久化跨轮;宿主层职责,取代静态轮前探测;判例 01:59 重试白烧的直接解 |
 | 北极星 | 三联指标:truth 检出率主星 ∧ 误报面∧ 回声面约束;约束破线则检出率提升不算数(防堆回声源刷分,哲学③同构) |
 | 实绩回流 | eval 月轮 → 实绩摘要工件 + 逐源待审条目(MC/CG/fp_proxy 实绩 vs 入池排他率预测,偏差大=建议降权/退役只进人裁);目标卡自动草稿+人审定稿注入每轮 prompt;discover 默认对失分轴(truth 层 k=0 清单/缺失 ctype)找源;判例库红线不动(host 永不自动写) |
