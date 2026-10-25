@@ -272,6 +272,10 @@ _NODE_QUEUE_LOCK = BACKEND_DIR.parent / "ops" / "agent" / "tools" / "queue-lock.
                     reason="node/flock 或 queue-lock.mjs 不在供给面(backend CI 无 node 供给时跳过)")
 def test_append_queue_mixed_python_node_race(store, ops_env):
     """#139 挂账②:python append_queue × node flock(1) 临界段并发 → 不丢不重。"""
+    # 前提同生产:init_ops_tree 先建 ops/ 目录。flock(1) 对锁文件 O_CREAT,但
+    # 父目录缺失时 cannot open → fail-closed 不写 queue.md;不预建则 node 子进程
+    # 与 python 首笔 append(惰性建目录)赛跑,前者可能先撞缺目录。
+    (ops_env / "ops").mkdir(parents=True, exist_ok=True)
     per_side, qfile = 8, ops_env / "ops" / "queue.md"
     env = {**os.environ, "IP_RADAR_DATA_DIR": str(ops_env)}
     py = subprocess.Popen([sys.executable, "-c", _QUEUE_RACE_DRIVER, str(per_side), "py_"],
