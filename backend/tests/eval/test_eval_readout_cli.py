@@ -276,3 +276,34 @@ def test_readout_northstar_second_round_mom(tmp_path):
     assert "corroborated 精度 100.0%" in text
     assert "环比 -10.5pp" in text
     assert "环比 前轮 N/A" in text
+
+
+def test_readout_embeds_leg_status_lines(tmp_path):
+    """#193 C5 接线: 月轮壳在 readout 腿前写 leg-status-*.json(腿级 rc,
+    readout=null=在飞), run_readout 须把它渲染进月报头块——腿级红随
+    月报工件可见(_alerts 只认心跳 mtime, 红态必须长在工件里)。"""
+    assets, kdir, rep = tmp_path / "assets", tmp_path / "keysets", tmp_path / "rep"
+    rep.mkdir()
+    (rep / "leg-status-20261025-010101.json").write_text(
+        json.dumps({"schema": "leg-status/1", "generated_utc": "2026-10-25T01:01:01+00:00",
+                    "legs": {"model": 0, "all": 0, "anchors": 1, "dsem": 0,
+                             "agg-share": 0, "audit": 0, "temporal": 0,
+                             "readout": None}}),
+        encoding="utf-8")
+    reg = _FakeRegistry(_build_sources(tmp_path))
+    md, _, _ = run_readout(reg, rep, assets_dir=assets, keysets_dir=kdir,
+                           run_seed=1, run_id="r9")
+    text = md.read_text(encoding="utf-8")
+    assert "腿级状态" in text
+    assert "anchors" in text and "1" in text.split("腿级状态")[1].splitlines()[0]
+    assert "进行中" in text            # readout=null → 渲染时在飞
+
+
+def test_readout_without_leg_status_file_omits_section(tmp_path):
+    """旧轮/手工跑无 leg-status 件 → 头块不出该节(schema-stable,
+    同 steal_parking/north_star 缺省律)。"""
+    assets, kdir, rep = tmp_path / "assets", tmp_path / "keysets", tmp_path / "rep"
+    reg = _FakeRegistry(_build_sources(tmp_path))
+    md, _, _ = run_readout(reg, rep, assets_dir=assets, keysets_dir=kdir,
+                           run_seed=1, run_id="r10")
+    assert "腿级状态" not in md.read_text(encoding="utf-8")

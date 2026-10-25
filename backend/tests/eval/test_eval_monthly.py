@@ -20,8 +20,10 @@ from ipdb._eval.monthly import (
     compose_action_block,
     compose_monthly_md,
     load_dispositions,
+    load_leg_status,
     render_anchor_oc,
     render_consensus_diag,
+    render_leg_status,
     render_scorecard,
     render_steal_parking_diag,
 )
@@ -404,3 +406,51 @@ def test_md_steal_parking_lines_after_consensus_default_none():
     default = compose_monthly_md(_readout(), [], [], [], ["- 池大小: 570"],
                                  _header_meta())
     assert "偷泊" not in default  # 缺省 None → 节不变(schema-stable)
+
+
+# ── #193 C5: 腿级状态件读法 + 月报腿级行 ───────────────────────
+
+def test_load_leg_status_picks_latest_and_skips_bad(tmp_path):
+    """月轮壳写 leg-status-<ts>.json(readout 渲染前件);读法同
+    load_prev_northstar 形制: 排序 glob 取最新, 坏件跳过不炸(宽容律)。"""
+    (tmp_path / "leg-status-20261024-010101.json").write_text(
+        "{ bad json", encoding="utf-8")
+    (tmp_path / "leg-status-20261024-010102.json").write_text(
+        json.dumps({"schema": "leg-status/1",
+                    "legs": {"model": 0, "anchors": 1, "readout": None}}),
+        encoding="utf-8")
+    leg = load_leg_status(tmp_path)
+    assert leg is not None
+    assert leg["legs"]["anchors"] == 1 and leg["legs"]["readout"] is None
+
+
+def test_load_leg_status_missing_returns_none(tmp_path):
+    assert load_leg_status(tmp_path) is None  # 首轮无件 → 不虚构
+
+
+def test_render_leg_status_red_named_null_in_flight():
+    lines = render_leg_status({"schema": "leg-status/1",
+                               "legs": {"model": 0, "anchors": 1,
+                                        "readout": None}})
+    joined = "\n".join(lines)
+    assert "anchors=rc1" in joined      # 红腿带 rc 点名
+    assert "进行中" in joined            # readout null=渲染时本腿在飞
+    assert "model=rc0" in joined        # 绿腿全景一行(rcN 紧凑形)
+    assert any("腿级红" in l for l in lines)   # 红腿单独点名一行
+
+
+def test_render_leg_status_all_green_no_red_callout():
+    lines = render_leg_status({"schema": "leg-status/1",
+                               "legs": {"model": 0, "readout": None}})
+    assert not any("腿级红" in l for l in lines)
+
+
+def test_md_leg_status_lines_position_and_default_none():
+    md = compose_monthly_md(
+        _readout(), [], [], [], ["- 池大小: 570"], _header_meta(),
+        north_star_lines=["- 北星: x"],
+        leg_status_lines=["- 腿级状态: model=0 | anchors=1"])
+    assert md.index("北星") < md.index("腿级状态") < md.index("## 分层读数")
+    default = compose_monthly_md(_readout(), [], [], [], ["- 池大小: 570"],
+                                 _header_meta())
+    assert "腿级状态" not in default   # 缺省 None 不出(schema-stable)

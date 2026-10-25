@@ -77,7 +77,8 @@
 #### D-1 对照对打门
 - 主张:候选与生产变更在固定数据集上对照对打,过 release criteria 才放行;字节等价是下限不是上限——评分实现改动必过回放闸门(融合层位等价对照)
 - 原语组成:回放闸门;对照对打
-- 门挂点:ops/agent/golden/run-golden.mjs;ops/agent/selftest-t4.mjs#golden
+- 门挂点:ops/agent/golden/run-golden.mjs;ops/agent/selftest-t4.mjs#golden;scripts/fusion_replay_gate.py#gate_rc
+- 判例补:#193 C5 回放门 rc 机检化(rc 0=全绿/1=真 FAIL/2=语料不足,空语料 vacuous PASS 不冒充绿)
 - 判例链:Braintrust 2026-09-26;promptfoo 2026-10-02(golden 数据集+断言不达标 fail PR);PROBE 位等价判例(PR #169)
 
 #### D-2 最简架构默认
