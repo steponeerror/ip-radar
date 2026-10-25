@@ -47,11 +47,15 @@ export const overCallsCap = (calls, cap) => calls + 1 > cap;
 export const overTokenBudget = (totalTokens, cap) => totalTokens > cap;
 export const overSpendCap = (cost, cap) => cost > cap;
 // ③墙钟:started_at(ISO)起的流逝秒(毫秒精度;不可解析起点的退化轮=0 不误杀)。
+// 帽=0 语义=零预算即拒(t=0 也超)——与 DUP_CALL_LIMIT/THRESHOLD 的「0=停用」分立:那两处是拦截线,
+// 本处是预算帽(帽为零=什么都不许);停用墙钟=设大值。判例:2026-10-26 CI 首步边界与轮始同毫秒,
+// 0.0001 帽竞态假绿(0>0 为假),改零帽+本特例后确定性无时序窗。
 export function elapsedWallS(startedAtIso, now = Date.now()) {
   const t0 = Date.parse(startedAtIso);
   return Number.isFinite(t0) ? Math.max(0, (now - t0) / 1000) : 0;
 }
-export const overWallClock = (startedAtIso, cap, now = Date.now()) => elapsedWallS(startedAtIso, now) > cap;
+export const overWallClock = (startedAtIso, cap, now = Date.now()) =>
+  cap === 0 ? true : elapsedWallS(startedAtIso, now) > cap;
 
 // —— 月度 kill switch 准入(A2;双面共享:pipeline.mjs runPipeline / agent.mjs runRound)——
 // 容器本地月(monthNow:YYYY-MM);读台账当月行 Σcost(锁内读,与 A3 锁同域

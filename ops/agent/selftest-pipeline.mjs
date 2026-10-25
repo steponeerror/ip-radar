@@ -1707,14 +1707,16 @@ await t("A1-纯函数:调用帽/token/墙钟界判定边界", async () => {
   assert.equal(budget.overTokenBudget(200001, 200000), true);
   assert.ok(budget.elapsedWallS(new Date(Date.now() - 5000).toISOString()) > 4, "流逝秒≥4");
   assert.equal(budget.overWallClock(new Date().toISOString(), 1800), false);
+  const t0 = new Date().toISOString();
+  assert.equal(budget.overWallClock(t0, 0, Date.parse(t0)), true, "帽=0 零预算:t=0 也拒(确定性,同毫秒竞态判例 2026-10-26 CI)");
   const knobs = budget.readBudgetKnobs({});
   assert.deepEqual(knobs, { maxModelCalls: 12, tokenBudget: 200000, wallClockS: 1800, spendCapCny: 3, monthlyCapCny: 30, dupCallLimit: 3 }, "缺省旋钮生产口径");
   assert.throws(() => budget.readBudgetKnobs({ OPS_PIPELINE_TOKEN_BUDGET: "abc" }), (e) => e.usage === true, "非法旋钮=用法错(不带病跑轮)");
 });
-await t("A1-①③:墙钟 0 触界=首步边界拦(先于任何模型调用)", async () => {
+await t("A1-①③:墙钟帽=0 零预算即拒=首步边界拦(先于任何模型调用;与 DUP/THRESHOLD 的 0=停用区分:拦截线 vs 预算帽)", async () => {
   const tree = mkTree("budget-wall");
   const io = mkIo();
-  const r = await runPipeline({ roundId: "2026-10-25-1701-health", fixturesDir: DEFAULT_FIXTURES_DIR, env: { ...tree.env, OPS_PIPELINE_WALL_CLOCK_S: "0.0001" }, ...io });
+  const r = await runPipeline({ roundId: "2026-10-25-1701-health", fixturesDir: DEFAULT_FIXTURES_DIR, env: { ...tree.env, OPS_PIPELINE_WALL_CLOCK_S: "0" }, ...io });
   assert.equal(r.ok, false);
   assert.equal(r.envelope.error.code, "wall_clock_exceeded");
   const p = stageOf(r.envelope, "PROBE");
