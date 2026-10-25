@@ -101,6 +101,7 @@ export const SPAWN_CONTRACT_ENV = [
 // await 死锁(本文件尾顶层 await 未决 → pipeline 静态依赖等本文件完成 → 环),事件循环
 // 空转,Node 报 unsettled top-level await 退出 13、stdout 无信封。详见 error-codes.mjs 头注。
 import { ERROR_CODES } from "./error-codes.mjs";
+import * as budget from "./pipeline/budget.mjs"; // #199 A2:月度准入双面共享(零环:budget 只依赖 node 内置)
 export { ERROR_CODES };
 
 // bash 复用 lib.sh(verify_cited_precedents/ledger_append/sandbox_assert;inject_precedents
@@ -139,6 +140,21 @@ export async function runRound(round, input, extraKws = [], opts = {}) {
   const childEnv = opts.env ?? process.env; // main io.env 注入(契约 env 面 → lib.sh 子进程)
   // stderr 进度行入契约:语法见模块头 spawn 契约段([turn]/[tool]+参数摘要/[tool-result])。
   const log = (...a) => (opts.stderr ?? process.stderr).write(a.join(" ") + "\n");
+  // #199 A2 月度 kill switch 准入(与 pipeline.mjs runPipeline 同面共享 budget.mjs,双面同裁决):
+  // 先于模型装载/工具构建——拒跑零花费。est=OPS_PIPELINE_BUDGET_CNY(与 mkCtx 同读同校验)。
+  const budgetKnobs = budget.readBudgetKnobs(childEnv);
+  const estRaw = childEnv.OPS_PIPELINE_BUDGET_CNY ?? process.env.OPS_PIPELINE_BUDGET_CNY ?? "0.05";
+  const estCny = +estRaw;
+  if (!Number.isFinite(estCny) || estCny < 0)
+    throw Object.assign(new Error(`OPS_PIPELINE_BUDGET_CNY 须为非负数,得到:${estRaw}`), { usage: true });
+  const ledgerFile = childEnv.LEDGER_FILE ?? process.env.LEDGER_FILE ?? path.join(DOCS_ROOT, "ops", "ledger.md");
+  const admission = await budget.monthlyAdmission({ ledgerFile, capCny: budgetKnobs.monthlyCapCny, estCny });
+  if (!admission.ok) {
+    log(`[admission] budget_monthly refused month=${admission.month} spend=${admission.spend} est=${admission.est} cap=${admission.cap} skipped=${admission.skipped}`);
+    try { await budget.appendRefusalTrace(ledgerFile, { est: estCny, cap: budgetKnobs.monthlyCapCny }, childEnv); }
+    catch (e) { log(`[admission] 拒跑留痕行写败(不翻转裁决):${e.message}`); }
+    throw Object.assign(new Error(`月度预算拒跑:当月已花 ¥${admission.spend} + 本轮预算 ¥${admission.est} > 月帽 ¥${admission.cap}(OPS_PIPELINE_MONTHLY_CAP_CNY;当月 ${admission.counted} 行计入,${admission.skipped} 行缺 cost 跳过不猜)`), { code: "budget_monthly" });
+  }
   const host = new ToolHost(round);
   const { models, resolve } = opts.models ?? await loadModels();
   for (const seed of opts.registrySeed ?? []) host.registry.register(seed.id, seed.tool, seed.sc);
@@ -311,6 +327,7 @@ export async function main(argv, io = {}) {
   try {
     r = await runRound(round, input, extra, { models: io.models, env, stderr });
   } catch (e) {
+    if (e?.usage) { log(e.message); return 2; } // #199 A2:旋钮非法=用法错 exit 2 纯 stderr(mkCtx 判例同形)
     log(`round 失败:${e.message}`);
     stdout.write(JSON.stringify(failureEnvelope(round, e)) + "\n");
     return 1;

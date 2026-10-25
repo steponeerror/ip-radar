@@ -1748,6 +1748,71 @@ await t("A1-旋钮校验:非法值=CLI exit 2 纯用法错(mkCtx 判例同形)",
   assert.ok(!r.stdout.trim(), "用法错=纯 stderr 零信封");
 });
 
+// ── A2(#199):月度 kill switch 准入 ──
+await t("A2-纯函数:台账月度花费解析(当月计/跨月不计/缺 cost 跳过不猜/空文件 0)+准入等号放行/超帽拒", async () => {
+  const { monthSpendOfLedgerText, admitMonthly, monthNow } = await import(path.join(AGENT, "pipeline/budget.mjs"));
+  const m = monthNow();
+  const prevM = `${m.slice(0, 5)}${m.slice(5, 7) === "01" ? "12" : String(+m.slice(5, 7) - 1).padStart(2, "0")}`; // 跨月=上月
+  const text = [
+    "# 运营轮次台账", "",
+    "| 日期 | 轮次 | model | 用量 | 备注 |", "|---|---|---|---|---|",
+    `| ${m}-01 | health | pipeline-real | in=1 out=1 total=2 cost=0.02 | pipeline:x |`,
+    `| ${m}-02 | health | pipeline-real | in=1 out=1 total=2 cost=0.02 | pipeline:y |`,
+    `| ${prevM}-30 | health | pipeline-real | in=1 out=1 total=2 cost=99 | pipeline:z |`,
+    `| ${m}-03 | health | pipeline-real | — | 手工行缺用量 |`,
+  ].join("\n");
+  const r = monthSpendOfLedgerText(text, m);
+  assert.equal(r.spend, 0.04, `当月合计应为 0.04:${JSON.stringify(r)}`);
+  assert.equal(r.counted, 2); assert.equal(r.skipped, 1, "缺 cost 行跳过且计数不猜");
+  assert.deepEqual(monthSpendOfLedgerText("", m), { spend: 0, counted: 0, skipped: 0 }, "空文件=0 起步");
+  assert.equal(admitMonthly({ spendCny: 0.04, estCny: 0.06, capCny: 0.1 }).ok, true, "等号(0.04+0.06=0.10=帽)放行");
+  assert.equal(admitMonthly({ spendCny: 0.04, estCny: 0.06, capCny: 0.09 }).ok, false, "超帽拒");
+});
+
+await t("A2-pipeline 面:超月帽拒跑(ok:false code=budget_monthly+台账留痕行+不建轮目录)", async () => {
+  const { monthNow } = await import(path.join(AGENT, "pipeline/budget.mjs"));
+  const tree = mkTree("budget-month");
+  const m = monthNow();
+  fs.mkdirSync(path.dirname(tree.env.LEDGER_FILE), { recursive: true });
+  fs.writeFileSync(tree.env.LEDGER_FILE, `# 运营轮次台账\n\n| 日期 | 轮次 | model | 用量 | 备注 |\n|---|---|---|---|---|\n| ${m}-01 | health | pipeline-real | in=1 out=1 total=2 cost=0.04 | pipeline:old |\n`);
+  const io = mkIo();
+  const rid = "2026-10-25-1705-health";
+  const r = await runPipeline({ roundId: rid, fixturesDir: DEFAULT_FIXTURES_DIR, env: { ...tree.env, OPS_PIPELINE_MONTHLY_CAP_CNY: "0.05", OPS_PIPELINE_BUDGET_CNY: "0.05" }, ...io });
+  assert.equal(r.ok, false);
+  assert.equal(r.envelope.error.code, "budget_monthly");
+  assert.equal(JSON.parse(io.buf.stdout).error.code, "budget_monthly");
+  assert.equal(fs.existsSync(path.join(tree.root, "ops", "rounds", rid)), false, "拒跑不建轮目录");
+  const led = fs.readFileSync(tree.env.LEDGER_FILE, "utf8");
+  assert.ok(led.includes("budget_monthly refused est=0.05 cap=0.05"), `台账应含拒跑留痕行:${led}`);
+  assert.equal(led.split("\n").filter((l) => l.startsWith("|")).length, 4, "表头 2 行+旧 1 行+留痕 1 行");
+});
+
+await t("A2-pipeline 面:月帽内放行对照(同一台账零改动照跑全绿)", async () => {
+  const { monthNow } = await import(path.join(AGENT, "pipeline/budget.mjs"));
+  const tree = mkTree("budget-month-ok");
+  const m = monthNow();
+  fs.mkdirSync(path.dirname(tree.env.LEDGER_FILE), { recursive: true });
+  fs.writeFileSync(tree.env.LEDGER_FILE, `# 运营轮次台账\n\n| 日期 | 轮次 | model | 用量 | 备注 |\n|---|---|---|---|---|\n| ${m}-01 | health | pipeline-real | in=1 out=1 total=2 cost=0.04 | pipeline:old |\n`);
+  const io = mkIo();
+  const r = await runPipeline({ roundId: "2026-10-25-1706-health", fixturesDir: DEFAULT_FIXTURES_DIR, env: { ...tree.env, OPS_PIPELINE_MONTHLY_CAP_CNY: "0.2", OPS_PIPELINE_BUDGET_CNY: "0.05" }, ...io });
+  assert.equal(r.ok, true, `帽内应放行:${r.envelope?.error?.message ?? ""}`);
+});
+
+await t("A2-双面共享:legacy 面 runRound 同一拒跑码+台账留痕(准入先于模型装载)", async () => {
+  const { monthNow } = await import(path.join(AGENT, "pipeline/budget.mjs"));
+  const tree = mkTree("budget-month-legacy");
+  const m = monthNow();
+  fs.mkdirSync(path.dirname(tree.env.LEDGER_FILE), { recursive: true });
+  fs.writeFileSync(tree.env.LEDGER_FILE, `# 运营轮次台账\n\n| 日期 | 轮次 | model | 用量 | 备注 |\n|---|---|---|---|---|\n| ${m}-01 | health | pipeline-real | in=1 out=1 total=2 cost=0.04 | pipeline:old |\n`);
+  const { runRound } = await import(path.join(AGENT, "agent.mjs"));
+  const poison = { models: {}, resolve: () => { throw new Error("拒跑轮不应装载模型"); } }; // 毒缝哨兵:准入先于模型
+  await assert.rejects(
+    runRound("health", "月帽拒跑探针", [], { models: poison, env: { ...tree.env, OPS_PIPELINE_MONTHLY_CAP_CNY: "0.05", OPS_PIPELINE_BUDGET_CNY: "0.05" }, stderr: { write: () => true } }),
+    (e) => e.code === "budget_monthly");
+  const led = fs.readFileSync(tree.env.LEDGER_FILE, "utf8");
+  assert.ok(led.includes("budget_monthly refused est=0.05 cap=0.05"), `legacy 面同留痕:${led}`);
+});
+
 fs.rmSync(TMP, { recursive: true, force: true });
 console.log(`pipeline-selftest: PASS=${pass} FAIL=${fail}`);
 process.exit(fail ? 1 : 0);

@@ -8,6 +8,14 @@
 // (不重试——重试=再烧 token;不逐假设降级——降级=继续跑后续假设),已写工件/台账照留
 // (哲学①证据永不灭失:已花 token 的证据留存,failStage 落终态)。
 // (月度准入/调用哈希面见 A2/A4 段——同文件追加,不另起炉灶)
+import fs from "node:fs";
+import path from "node:path";
+import { execFile as execFileCb } from "node:child_process";
+import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
+
+const execFileP = promisify(execFileCb);
+const LIBSH = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "lib.sh"); // ops/agent/lib.sh(steps.mjs sh() 同形)
 
 // 旋钮读面(#199;名字=env 键,缺省=生产口径;改缺省=spec 变更须过票)。点形字面读是刻意的:
 // 对拍扫描器(computeReads)只认 process.env.NAME 字面点形,计算下标 env[name] 是已声明盲区
@@ -44,3 +52,58 @@ export function elapsedWallS(startedAtIso, now = Date.now()) {
   return Number.isFinite(t0) ? Math.max(0, (now - t0) / 1000) : 0;
 }
 export const overWallClock = (startedAtIso, cap, now = Date.now()) => elapsedWallS(startedAtIso, now) > cap;
+
+// —— 月度 kill switch 准入(A2;双面共享:pipeline.mjs runPipeline / agent.mjs runRound)——
+// 容器本地月(monthNow:YYYY-MM);读台账当月行 Σcost(锁内读,与 A3 锁同域
+// <ledger>.lock);Σ+本轮预算 est > 月帽 → 拒跑(信封 code=budget_monthly + exit 1 +
+// 台账留痕行)。无台账/空文件 = 0 起步照跑;缺 cost 行跳过不猜(无证据即无话),
+// 跳过数入读数面(09-budget.json A5 观察面)。
+export const monthNow = (now = new Date()) => `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+
+// 纯函数:台账文本 → 当月花费读数。行形 `| 日期 | 轮次 | model | 用量 | 备注 |`
+// (日期=YYYY-MM-DD;cost= 在用量列)。表头/分隔行/异形日期不计不入 skipped;
+// 当月行缺 cost= → skipped+1(不猜零:无法计 = 记缺口,不是免费)。
+export function monthSpendOfLedgerText(text, month) {
+  let spend = 0, counted = 0, skipped = 0;
+  for (const line of String(text ?? "").split("\n")) {
+    if (!line.startsWith("|")) continue;
+    const cells = line.split("|").map((c) => c.trim());
+    const date = cells[1] ?? "";
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !date.startsWith(`${month}-`)) continue;
+    const m = /(?:^|\s)cost=([0-9]+(?:\.[0-9]+)?)/.exec(cells[4] ?? "");
+    if (!m) { skipped += 1; continue; }
+    spend += +m[1]; counted += 1;
+  }
+  return { spend, counted, skipped };
+}
+
+// 纯函数:准入裁决(等号=帽内放行;est=本轮预算上界,宁少算口径)。
+export const admitMonthly = ({ spendCny, estCny, capCny }) => {
+  const projected = spendCny + estCny;
+  return { ok: projected <= capCny, projected };
+};
+
+// 锁内读台账全文(#139 锁形制:flock(1) 同锁域 <ledger>.lock,与 lib.sh/_ops_store 双写面互斥;
+// 无台账 = "" 起步)。cat 经 flock 持锁窗口,读与写不交错。
+export async function readLedgerTextLocked(ledgerFile) {
+  if (!fs.existsSync(ledgerFile)) return "";
+  return (await execFileP("flock", ["-w", "30", `${ledgerFile}.lock`, "cat", ledgerFile],
+    { timeout: 60_000, maxBuffer: 16 * 1024 * 1024 })).stdout;
+}
+
+// 准入全流程(读→解→裁;月帽/本轮预算由调用方给,双面各自同形调)。
+export async function monthlyAdmission({ ledgerFile, capCny, estCny, now = new Date() }) {
+  const month = monthNow(now);
+  const { spend, counted, skipped } = monthSpendOfLedgerText(await readLedgerTextLocked(ledgerFile), month);
+  const verdict = admitMonthly({ spendCny: spend, estCny, capCny });
+  return { ...verdict, month, spend, counted, skipped, est: estCny, cap: capCny };
+}
+
+// 拒跑留痕行(经 lib.sh ledger_append 写,表头自建/A3 后自带锁;model/用量列=—,备注列=拒跑读数)。
+export async function appendRefusalTrace(ledgerFile, { est, cap }, env = process.env) {
+  const round = "health"; // 双面拒跑都发生在 health 轮(discover 未立项)
+  return execFileP("bash", ["-c", `. "$0"; ledger_append "$@"`, LIBSH, round, "—", "—",
+    `budget_monthly refused est=${est} cap=${cap}`], { timeout: 120_000, maxBuffer: 32 * 1024 * 1024, env: { ...env, LEDGER_FILE: ledgerFile } });
+}
+
+// (调用哈希面见 A4 段——同文件追加,不另起炉灶)

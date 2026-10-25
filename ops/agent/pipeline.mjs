@@ -331,6 +331,16 @@ export async function runPipeline(opts = {}) {
   const ctx = mkCtx(opts, io);
   const emitFail = (code, message) => { const envelope = composeEnvelope(ctx, { ok: false, code, message });
     io.stdout.write(JSON.stringify(envelope) + "\n"); return { ok: false, envelope, roundId: ctx.roundId, dir: ctx.dir }; };
+  // #199 A2 月度 kill switch 准入:mkCtx 后、建轮目录前(拒跑零侧写:无目录无 state);
+  // 读数入 state(A5 CLOSE 工件面)。est=本轮预算(BUDGET_CNY 准告警线上界,宁少算口径)。
+  const admission = await budget.monthlyAdmission({ ledgerFile: ctx.ledgerFile, capCny: ctx.budgetKnobs.monthlyCapCny, estCny: ctx.budgetCny });
+  if (!admission.ok) {
+    ctx.log(`[admission] budget_monthly refused month=${admission.month} spend=${admission.spend} est=${admission.est} cap=${admission.cap} skipped=${admission.skipped}`);
+    try { await budget.appendRefusalTrace(ctx.ledgerFile, { est: ctx.budgetCny, cap: ctx.budgetKnobs.monthlyCapCny }, io.env); }
+    catch (e) { ctx.log(`[admission] 拒跑留痕行写败(不翻转裁决):${e.message}`); } // 台账写败不吞拒跑:宁拒不跑
+    return emitFail("budget_monthly", `月度预算拒跑:当月已花 ¥${admission.spend} + 本轮预算 ¥${admission.est} > 月帽 ¥${admission.cap}(OPS_PIPELINE_MONTHLY_CAP_CNY;当月 ${admission.counted} 行计入,${admission.skipped} 行缺 cost 跳过不猜)`);
+  }
+  ctx.state.monthly_admission = admission; // A5 CLOSE 工件读数面(观察非裁决)
   if (fs.existsSync(path.join(ctx.dir, "state.json"))) return emitFail("bad_round", `rounds/${ctx.roundId} 已存在(同 id 重跑走 replay)`);
   fs.mkdirSync(ctx.dir, { recursive: true });
   writeState(ctx); // 轮次目录 + state.json 建立
