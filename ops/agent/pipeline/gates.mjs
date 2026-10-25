@@ -297,11 +297,33 @@ export const GATES = {
   },
   // G_CLOSE:信封单行 JSON 落 stdout(书挡门;重放不入 CLOSE)
   G_CLOSE: (ctx) => {
-    const inputs = ["(stdout 轮次信封)"];
+    const inputs = ["(stdout 轮次信封)", "09-budget.json"];
     if (!ctx.envelope) return fail("信封未组装", inputs);
     const s = JSON.stringify(ctx.envelope);
     if (s.includes("\n")) return fail("信封非单行", inputs);
     if (JSON.parse(s).ok !== ctx.envelope.ok) return fail("信封不可往返解析", inputs);
+    // #199 A5:预算四界回声哨——环内已执法(runModelStage/runStages 检查点,违界即停),
+    // 门只对拍 09-budget.json 读数 ≤ 生效帽(防工件漂移/篡改;非二次执法)。
+    const BUDGET_ENV_KEYS = ["OPS_PIPELINE_BUDGET_CNY", "OPS_PIPELINE_MAX_MODEL_CALLS", "OPS_PIPELINE_TOKEN_BUDGET",
+      "OPS_PIPELINE_WALL_CLOCK_S", "OPS_PIPELINE_SPEND_CAP_CNY", "OPS_PIPELINE_MONTHLY_CAP_CNY", "OPS_PIPELINE_DUP_CALL_LIMIT"];
+    const b = j(path.join(ctx.dir, "09-budget.json"));
+    if (!b || !b.env || !b.readings) return fail("09-budget.json 缺席/形状坏(env+readings 必在场)", inputs);
+    const missEnv = BUDGET_ENV_KEYS.filter((k) => !(k in b.env) || !Number.isFinite(b.env[k]));
+    if (missEnv.length) return fail(`预算旋钮生效值缺席:${missEnv.join(",")}`, inputs);
+    const r = b.readings;
+    if (!r.usage || !Number.isFinite(r.usage.totalTokens) || !Number.isFinite(r.usage.cost)
+      || !Number.isFinite(r.model_calls) || !Number.isFinite(r.wall_s) || !Array.isArray(r.dup_top3))
+      return fail("预算读数形状坏(usage/model_calls/wall_s/dup_top3)", inputs);
+    if (r.model_calls > b.env.OPS_PIPELINE_MAX_MODEL_CALLS)
+      return fail(`读数超帽:model_calls=${r.model_calls} > ${b.env.OPS_PIPELINE_MAX_MODEL_CALLS}(OPS_PIPELINE_MAX_MODEL_CALLS)`, inputs);
+    if (r.usage.totalTokens > b.env.OPS_PIPELINE_TOKEN_BUDGET)
+      return fail(`读数超帽:totalTokens=${r.usage.totalTokens} > ${b.env.OPS_PIPELINE_TOKEN_BUDGET}(OPS_PIPELINE_TOKEN_BUDGET)`, inputs);
+    if (r.usage.cost > b.env.OPS_PIPELINE_SPEND_CAP_CNY)
+      return fail(`读数超帽:cost=${r.usage.cost} > ${b.env.OPS_PIPELINE_SPEND_CAP_CNY}(OPS_PIPELINE_SPEND_CAP_CNY)`, inputs);
+    if (r.wall_s > b.env.OPS_PIPELINE_WALL_CLOCK_S)
+      return fail(`读数超帽:wall_s=${r.wall_s} > ${b.env.OPS_PIPELINE_WALL_CLOCK_S}(OPS_PIPELINE_WALL_CLOCK_S)`, inputs);
+    if (r.monthly && Number.isFinite(r.monthly.projected) && r.monthly.projected > b.env.OPS_PIPELINE_MONTHLY_CAP_CNY)
+      return fail(`读数超帽:月度投影 ${r.monthly.projected} > ${b.env.OPS_PIPELINE_MONTHLY_CAP_CNY}(OPS_PIPELINE_MONTHLY_CAP_CNY;replay 面 monthly=null 不查)`, inputs);
     // #184:finding 出口三件套信封留痕机检——ANCHOR_SWEEP 已跑(done/degraded)则
     // pipeline.finding_exits 必在场(gh_issue/webhook 状态面;未配置=skip 痕是票面语义非可选)
     const sweepStage = (ctx.envelope.pipeline?.stages ?? []).find((x) => x.name === "ANCHOR_SWEEP");

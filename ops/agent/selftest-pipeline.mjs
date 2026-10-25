@@ -177,7 +177,7 @@ await t("工件清单全落盘+gates.json 十记录全 PASS+state.json 终态 do
   for (const f of ["01-probe-freshness.tsv", "01-probe-matrix.json", "01-probe-summary.json", "02-verify-survivors.json",
     "02-verify-suppressed.json", "03-triage-hypotheses.json", "03-triage-transcript.jsonl", "04-dispatch-bundles.json",
     "05-deep-verdicts.json", "06-itemize-manifest.json", "07-synth-report.md", "07-synth-transcript.jsonl",
-    "08-anchor-sweep.json", "08-anchor-sweep-exits.json", "gates.json", "state.json"])
+    "08-anchor-sweep.json", "08-anchor-sweep-exits.json", "09-budget.json", "gates.json", "state.json"])
     assert.ok(fs.existsSync(path.join(d, f)), `工件缺:${f}`);
   assert.ok(fs.readdirSync(d).some((f) => /^05-deep-.*\.json$/.test(f) && f !== "05-deep-verdicts.json"), "逐假设工件");
   assert.ok(fs.readdirSync(d).some((f) => /^05-deep-.*-transcript\.jsonl$/.test(f)), "逐假设 transcript");
@@ -1862,6 +1862,54 @@ await t("A4-微探针面:第 3 次同参=repeat_storm 拒绝信封,不执行不�
   assert.equal(r3.structuredContent.code, "repeat_storm");
   assert.equal(fetches, 2, "第 3 次零网络——未发生测量不入登记");
   assert.equal(host.seeds.length, 2, "拒绝信封不发登记行");
+});
+
+// ── A5(#199):09-budget.json 工件+G_CLOSE 回声哨 ──
+await t("A5-工件:全 faux 轮 09-budget.json 落盘(七旋钮生效值+四界读数+monthly 投影),G_CLOSE inputs 含它", async () => {
+  // 独立树(mkTree):共享 DOCS 树在文件尾已积 in-flight 条目,VERIFY 幸存集会被先前轮吃空
+  // (survivors=0≠假设=2 假败)——A5 测试不落共享树,判例=位等价测试用净树。
+  const R = "2026-10-25-1706-health";
+  const io = mkIo();
+  const t = mkTree("budget-a5");
+  const r = await runPipeline({ roundId: R, fixturesDir: DEFAULT_FIXTURES_DIR, env: t.env, ...io });
+  assert.equal(r.ok, true);
+  const p = path.join(t.root, "ops", "rounds", R, "09-budget.json");
+  const b = j(p);
+  assert.ok(b, "09-budget.json 必须落盘(CLOSE 步,先于 pkg 存在性早退)");
+  assert.deepEqual(Object.keys(b.env).sort(), ["OPS_PIPELINE_BUDGET_CNY", "OPS_PIPELINE_DUP_CALL_LIMIT", "OPS_PIPELINE_MAX_MODEL_CALLS",
+    "OPS_PIPELINE_MONTHLY_CAP_CNY", "OPS_PIPELINE_SPEND_CAP_CNY", "OPS_PIPELINE_TOKEN_BUDGET", "OPS_PIPELINE_WALL_CLOCK_S"], "env=七旋钮生效值");
+  assert.equal(b.env.OPS_PIPELINE_TOKEN_BUDGET, 200000);
+  assert.equal(b.env.OPS_PIPELINE_MAX_MODEL_CALLS, 12);
+  assert.ok(Number.isFinite(b.readings.usage.totalTokens) && b.readings.usage.totalTokens > 0, "usage 快照(轮次累计)");
+  assert.equal(b.readings.usage.totalTokens, r.envelope.usage.totalTokens, "读数=信封 usage 同源");
+  assert.ok(Number.isFinite(b.readings.model_calls) && b.readings.model_calls >= 3, "模型调用计数(TRIAGE+DEEP+SYNTH)");
+  assert.ok(Number.isFinite(b.readings.wall_s) && b.readings.wall_s >= 0, "墙钟读数");
+  assert.ok(Array.isArray(b.readings.dup_top3), "dup_top3 观察面");
+  assert.ok(b.readings.monthly && Number.isFinite(b.readings.monthly.projected)
+    && b.readings.monthly.projected <= b.readings.monthly.cap, "月度准入投影(A2 留痕)");
+  const g = j(path.join(t.root, "ops", "rounds", R, "gates.json"));
+  const gc = g.records.find((x) => x.name === "G_CLOSE");
+  assert.ok(gc.inputs.includes("09-budget.json"), "G_CLOSE inputs 挂 09-budget.json(回声哨)");
+});
+
+await t("A5-回声哨:篡改 09-budget.json 读数超帽 → G_CLOSE 复评门败(reason 带数字);未篡改复评仍过", async () => {
+  const R = "2026-10-25-1707-health";
+  const io = mkIo();
+  const t = mkTree("budget-a5-echo");
+  const r = await runPipeline({ roundId: R, fixturesDir: DEFAULT_FIXTURES_DIR, env: t.env, ...io });
+  assert.equal(r.ok, true);
+  const def = { name: "CLOSE", gate: "G_CLOSE" };
+  const ctxLite = { dir: path.join(t.root, "ops", "rounds", R), envelope: r.envelope };
+  const gates = await import("./pipeline/gates.mjs");
+  assert.equal(gates.evalStageGate(def, ctxLite).pass, true, "未篡改复评=过(回声与环内一致)");
+  const p = path.join(ctxLite.dir, "09-budget.json");
+  const b = j(p);
+  b.readings.usage.totalTokens = b.env.OPS_PIPELINE_TOKEN_BUDGET + 1; // 篡改:读数超帽
+  fs.writeFileSync(p, JSON.stringify(b, null, 2) + "\n");
+  const rec = gates.evalStageGate(def, ctxLite);
+  assert.equal(rec.pass, false, "读数超帽=门败(工件漂移/篡改哨)");
+  assert.ok(rec.reason.includes("200001") || /超帽|读数/.test(rec.reason), `reason 须带数字与判定:${rec.reason}`);
+  assert.ok(rec.inputs.includes("09-budget.json"));
 });
 
 fs.rmSync(TMP, { recursive: true, force: true });

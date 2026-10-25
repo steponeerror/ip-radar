@@ -15,6 +15,7 @@ import { fileURLToPath } from "node:url";
 import { FROZEN_DAYS, matrixScanCli, matrixArtifactText, resolveField, anchorSweepCli } from "../tools.mjs";
 import { loadAnchors, anchorSelect, HIT_CAP } from "./anchors.mjs"; // 锚域词表×旗标选锚(B 三件②;DISPATCH 逐假设判例命中 ≤3,P4 #166)
 import { runFindingExits } from "./finding-exit.mjs"; // #184 finding 出口三件套(gh issue+webhook;RETRO 摘要行在本文件 RETRO)
+import * as budget from "./budget.mjs"; // #199 A5:09-budget.json 读数面(零环:budget 只依赖 node 内置)
 import { itemSignature, fullDedupKey, createOpsItem, parseItemsTree, CAUSE_GROUP_BY_BUCKET } from "./ops-items.mjs"; // 条目库桥(P4 #166:接 _ops_items 同空间)
 
 const execFileP = promisify(execFileCb);
@@ -368,6 +369,30 @@ async function RETRO(def, ctx) {
 }
 
 async function CLOSE(def, ctx) { // 书挡步:存在性校验(闭合双层的外层)+ 信封原料
+  // #199 A5:预算四界读数工件(09-budget.json)。先于 pkg 存在性早退——预算面必落:
+  // 报告缺席轮的谱系/审计面不随早退丢。读数=环内执法同一 ctx 计数面(usage 快照/调用数/
+  // 墙钟/dup_top3 观察+月度准入投影);门面 G_CLOSE 做回声哨对拍(环内已执法,门只防工件漂移)。
+  const knobs = ctx.budgetKnobs ?? budget.readBudgetKnobs(ctx.env ?? {});
+  writeJson(path.join(ctx.dir, "09-budget.json"), {
+    round_id: ctx.roundId,
+    generated_at: new Date().toISOString(),
+    env: { // 生效值(含 OPS_PIPELINE_BUDGET_CNY:语义=DISPATCH 准告警线,真执法=A1 四界)
+      OPS_PIPELINE_BUDGET_CNY: ctx.budgetCny,
+      OPS_PIPELINE_MAX_MODEL_CALLS: knobs.maxModelCalls,
+      OPS_PIPELINE_TOKEN_BUDGET: knobs.tokenBudget,
+      OPS_PIPELINE_WALL_CLOCK_S: knobs.wallClockS,
+      OPS_PIPELINE_SPEND_CAP_CNY: knobs.spendCapCny,
+      OPS_PIPELINE_MONTHLY_CAP_CNY: knobs.monthlyCapCny,
+      OPS_PIPELINE_DUP_CALL_LIMIT: knobs.dupCallLimit,
+    },
+    readings: {
+      usage: { ...ctx.usage },
+      model_calls: ctx.modelCalls ?? 0,
+      wall_s: Number(budget.elapsedWallS(ctx.state?.started_at).toFixed(1)),
+      dup_top3: budget.dupTop(ctx.dupRegistry ?? new Map(), 3),
+      monthly: ctx.state?.monthly_admission ?? null, // A2 准入留痕(replay 面无准入=null)
+    },
+  });
   const report = path.join(ctx.dir, "07-synth-report.md");
   ctx.pkg = fs.existsSync(report) ? report : null;
   if (!ctx.pkg) return;
