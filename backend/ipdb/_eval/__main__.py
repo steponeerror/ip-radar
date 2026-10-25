@@ -363,8 +363,9 @@ def run_readout(registry, out_dir, *, assets_dir=None, keysets_dir=None,
     from .layered import assemble_four_layers, epsilon_sensitivity, layered_readout
     from .monthly import (compose_action_block, compose_monthly_md,
                           load_anchor_green, load_dispositions,
-                          load_prev_northstar, northstar_record,
-                          render_anchor_oc, render_consensus_diag,
+                          load_leg_status, load_prev_northstar,
+                          northstar_record, render_anchor_oc,
+                          render_consensus_diag, render_leg_status,
                           render_northstar, render_scorecard,
                           render_steal_parking_diag)
 
@@ -448,6 +449,10 @@ def run_readout(registry, out_dir, *, assets_dir=None, keysets_dir=None,
     (out_dir / f"northstar-{run_id}.json").write_text(
         json.dumps(ns, indent=1, ensure_ascii=False), encoding="utf-8")
     north_star_lines = render_northstar(ns)
+    # 腿级状态行(#193 C5): 月轮壳在 readout 腿前写 leg-status-*.json,
+    # 此处渲染进月报 —— 腿级红随工件可见(_alerts 只认心跳 mtime, 红态
+    # 必须长在工件里); 无件(首轮/手工跑)不出该节, schema-stable
+    leg_status_lines = render_leg_status(load_leg_status(out_dir)) or None
     items = compose_action_block(readout, prev_items, dispositions, today)
 
     model_dir = out_dir / "model"
@@ -476,7 +481,8 @@ def run_readout(registry, out_dir, *, assets_dir=None, keysets_dir=None,
          "annual": dispositions.get("last_annual_review"),
          "today": today, "epsilon": eps},
         steal_parking_lines=render_steal_parking_diag(keysets_root),
-        north_star_lines=north_star_lines)
+        north_star_lines=north_star_lines,
+        leg_status_lines=leg_status_lines)
     md_path = out_dir / f"monthly-{run_id}.md"
     md_path.write_text(md, encoding="utf-8")
     (out_dir / "action-block.json").write_text(json.dumps(

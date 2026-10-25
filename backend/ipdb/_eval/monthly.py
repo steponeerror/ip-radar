@@ -294,6 +294,43 @@ def load_prev_northstar(out_dir: Path, run_id: str) -> dict | None:
     return prev
 
 
+def load_leg_status(out_dir: Path) -> dict | None:
+    """腿级状态件(#193 C5): <out_dir>/leg-status-*.json 最新一件;
+    月轮壳在 readout 腿前写入(腿名→rc, readout=null=本腿在飞),
+    接线方渲染进月报头块 —— 腿级红随工件可见(_alerts 只认心跳
+    mtime, 红态必须长在工件里, 评审D P1-3)。无件 → None(首轮/
+    手工跑不虚构); 坏件跳过不炸(同 load_prev_northstar 宽容律)。"""
+    latest = None
+    for p in sorted(Path(out_dir).glob("leg-status-*.json")):
+        try:
+            d = json.loads(p.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError, ValueError):
+            continue
+        if isinstance(d, dict):
+            latest = d  # 文件名升序扫描 → 末次赋值即最新
+    return latest
+
+
+def render_leg_status(leg: dict | None) -> list[str]:
+    """月报腿级行(#193 C5): 全景一行(腿名=rcN, null→渲染中在飞)
+    + 红腿单独点名行(仅有红时出)。只观测不持门 —— 红态外显靠月轮壳
+    结尾聚合退出码, 本行只长在工件里供人/机读。"""
+    if not leg:
+        return []
+    legs = leg.get("legs") or {}
+    if not legs:
+        return []
+    cells = " | ".join(
+        f"{name}=" + ("进行中(在飞)" if rc is None else f"rc{rc}")
+        for name, rc in legs.items())
+    lines = [f"- 腿级状态(#193 C5): {cells}"]
+    red = [f"{k}(rc{v})" for k, v in legs.items() if v not in (0, None)]
+    if red:
+        lines.append(f"- 腿级红: {', '.join(red)} —— 红态记录≠管线中止"
+                     "(机器可读件 leg-status-*.json)")
+    return lines
+
+
 def northstar_record(readout: dict, anchor_hist: list[dict],
                      prev_ns: dict | None, *, run_id: str, eval_env: str,
                      today: date) -> dict:
@@ -390,7 +427,8 @@ def compose_monthly_md(readout: dict, disclosures_lines: list[str],
                        consensus_diag_lines: list[str],
                        header_meta: dict,
                        steal_parking_lines: list[str] | None = None,
-                       north_star_lines: list[str] | None = None) -> str:
+                       north_star_lines: list[str] | None = None,
+                       leg_status_lines: list[str] | None = None) -> str:
     """组装月轮报告 v2 markdown。头块 = 环境指纹 + 语料版本/指纹逐层 +
     S12/S17 换版注记(仅稳定层指纹实变才出, F2 趋势纪律; 共识代理层=
     滚动语料豁免, 声明行交代)+ S6 年度递减计数 +
@@ -399,7 +437,9 @@ def compose_monthly_md(readout: dict, disclosures_lines: list[str],
     接线方并入 consensus_diag_lines;S34 偷泊行经 steal_parking_lines
     并入同节 Q22 行之后, 缺省 None 不出, schema-stable)/能力轨北星行
     (#185 E-5, north_star_lines 缺省 None 不出, schema-stable; 只观测
-    不持门 —— 无阈值无门语义, 行文自带声明)。F1: 无任何总分列。"""
+    不持门 —— 无阈值无门语义, 行文自带声明)/腿级状态行(#193 C5,
+    leg_status_lines 缺省 None 不出, schema-stable; 腿级红随工件可见,
+    红态外显靠月轮壳结尾聚合退出码)。F1: 无任何总分列。"""
     lines: list[str] = ["# 月轮读数报告 v2", ""]
     lines.append(f"- 环境指纹(eval_env): {header_meta.get('eval_env', '—')}")
     corpus = header_meta.get("corpus") or {}
@@ -445,6 +485,8 @@ def compose_monthly_md(readout: dict, disclosures_lines: list[str],
 
     if north_star_lines:  # 能力轨北星行(#185): 头块尾, 只观测不持门
         lines += north_star_lines
+    if leg_status_lines:  # 腿级状态行(#193 C5): 北星行后, 同律只观测
+        lines += leg_status_lines
 
     layers = readout.get("layers", {})
     lines += ["", "## 分层读数(T8)", "",

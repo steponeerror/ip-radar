@@ -49,7 +49,7 @@ def test_ipinfo_lite_mmdb_path_points_at_ptr(tmp_path):
     s = IPinfoLiteSource(tmp_path)
     assert s._mmdb_path.name == "ipinfo_lite.csv.lmdb.ptr"
     (tmp_path / "ipinfo_lite.csv").write_text("network\n1.0.0.0/24\n")
-    assert needs_convert(tmp_path / "ipinfo_lite.csv", s._mmdb_path) is True
+    assert needs_convert(tmp_path / "ipinfo_lite.csv", s._lmdb_base) is True
 
 
 def test_ipinfo_lite_query_returns_three_new_keys(tmp_path):

@@ -7,13 +7,12 @@ def test_sources_needing_rebuild_uses_needs_convert(tmp_path, monkeypatch):
     import ipdb._registry as reg
     # 构造一个 needs_convert=True 的源
     (tmp_path / "raw.txt").write_text("1.2.3.0/24\n")
-    (tmp_path / "raw.txt.mmdb").write_bytes(b"")   # 空/旧 mmdb
     import ipdb._sources._lmdb as lmdb_storage
-    monkeypatch.setattr(lmdb_storage, "needs_convert", lambda r, m: True)
-    # monkeypatch _enabled_sources 返回一个假源
+    monkeypatch.setattr(lmdb_storage, "needs_convert", lambda r, b: True)
+    # monkeypatch _enabled_sources 返回一个假源(_lmdb_base 族契约,C2/ADR 0009)
     class _S:
         name = "t"; _path = tmp_path / "raw.txt"
-        _mmdb_path = tmp_path / "raw.txt.mmdb"
+        _lmdb_base = tmp_path / "raw.txt.lmdb"
     monkeypatch.setattr(reg, "_enabled_sources", lambda: [_S()])
     assert "t" in reg.sources_needing_rebuild()
 

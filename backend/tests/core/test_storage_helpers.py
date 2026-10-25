@@ -16,12 +16,67 @@ def test_needs_convert_respects_mtime(tmp_path):
     raw.write_text("8.8.8.0/24\n")
     base = tmp_path / "raw.csv.lmdb"
     ptr = tmp_path / "raw.csv.lmdb.ptr"
-    assert needs_convert(raw, ptr) is True            # no ptr yet
+    assert needs_convert(raw, base) is True             # no ptr yet
     build_lmdb([("8.8.8.0/24", {"v": 1})], base)
     os.utime(ptr, (raw.stat().st_mtime + 100,) * 2)   # ptr strictly newer (deterministic)
-    assert needs_convert(raw, ptr) is False
+    assert needs_convert(raw, base) is False
     os.utime(raw, (ptr.stat().st_mtime + 100,) * 2)   # raw strictly newer
-    assert needs_convert(raw, ptr) is True
+    assert needs_convert(raw, base) is True
+
+
+def test_needs_convert_respects_harvest_rev(tmp_path):
+    """C2 物化谓词代码代腿(ADR 0009,issue #192)。
+
+    判例两起同形:harvest 代码演进(滤码/良性断言)不动 csv mtime,
+    旧谓词(ptr mtime≥raw 即跳)恒 False → 投影静默休眠
+    (2026-10-10 csv 删改仪式 / 2026-10-25 benign②)。
+    """
+    from ipdb._sources._lmdb import HARVEST_REV, rev_path
+
+    raw = tmp_path / "raw.csv"
+    raw.write_text("8.8.8.0/24\n")
+    base = tmp_path / "raw.csv.lmdb"
+    ptr = tmp_path / "raw.csv.lmdb.ptr"
+    build_lmdb([("8.8.8.0/24", {"v": 1})], base)
+    os.utime(ptr, (raw.stat().st_mtime + 100,) * 2)        # mtime 全程收敛
+    assert rev_path(base).read_text().strip() == str(HARVEST_REV)  # rebuild 必盖章
+    assert needs_convert(raw, base) is False                # 戳匹配 + 收敛
+
+    rev_path(base).unlink()                                 # 存量族形态:无 .rev
+    assert needs_convert(raw, base) is True                 # → 不匹配,重建自愈
+
+    rev_path(base).write_text(str(HARVEST_REV - 1))         # 代码代落后于常量
+    assert needs_convert(raw, base) is True
+
+    rev_path(base).write_text(str(HARVEST_REV))             # 恢复匹配 → 不触发
+    assert needs_convert(raw, base) is False
+
+
+def test_registry_rebuild_ignition_on_rev_drift(tmp_path):
+    """_needs_rebuild_of 触发车道必须与跳过判定同谓词:版本戳漂移单独
+    即可点火(mtime 零变化),恢复匹配即熄火。"""
+    from ipdb._registry import _needs_rebuild_of
+    from ipdb._sources._lmdb import HARVEST_REV, rev_path
+
+    raw = tmp_path / "raw.csv"
+    raw.write_text("8.8.8.0/24\n")
+    base = tmp_path / "raw.csv.lmdb"
+    ptr = tmp_path / "raw.csv.lmdb.ptr"
+    build_lmdb([("8.8.8.0/24", {"v": 1})], base)
+    os.utime(ptr, (raw.stat().st_mtime + 100,) * 2)
+
+    class _Src:  # 最小桩:_needs_rebuild_of 契约属性
+        _path = raw
+        _lmdb_base = base
+        lmdb_backed = True
+
+    assert _needs_rebuild_of(_Src()) is False             # 戳匹配 + 收敛
+    rev_path(base).write_text(str(HARVEST_REV - 1))       # 仅代码代漂移
+    assert _needs_rebuild_of(_Src()) is True              # 点火:零 mtime 变化
+    rev_path(base).unlink()                               # 存量族无 .rev
+    assert _needs_rebuild_of(_Src()) is True
+    rev_path(base).write_text(str(HARVEST_REV))
+    assert _needs_rebuild_of(_Src()) is False             # 熄火
 
 
 def test_reload_leaves_prior_reader_to_refcount(tmp_path, monkeypatch):

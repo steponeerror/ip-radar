@@ -67,8 +67,8 @@ class Source:
         self._data_dir = data_dir
         self._path = data_dir / self.filename
         self._lmdb_base = data_dir / f"{self.filename}.lmdb"
-        # registry/scheduler 的 needs_convert 比较对象(名保留):ptr 文件
-        # (mtime 随重建刷新,与旧 .mmdb 同语义)
+        # scheduler 快照契约名(名保留):ptr 文件;C2 后 needs_convert 的
+        # 比较对象是 _lmdb_base 族(ptr mtime + .rev harvest 版本戳,ADR 0009)
         from ._sources._lmdb import ptr_path as _ptr_path
         self._mmdb_path = _ptr_path(self._lmdb_base)
         self._reader = None      # LMDB env (readonly, lock=False)

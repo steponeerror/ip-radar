@@ -216,6 +216,40 @@ def fmt_ip(v: int) -> str:
     return str(ipaddress.IPv4Address(v))
 
 
+def gate_rc(c2_pass, c2_strict_n, c2_loose_n, c3_pass, c4_pass):
+    """rc 聚合单源(#193 C5,评审D P1-1「回放门=死门」修):
+
+    rc 0 = 全 PASS 且语料充分;rc 1 = 任一腿真 FAIL(真 FAIL 优先于
+    语料不足——带病≠没测);rc 2 = 无真 FAIL 但语料不足/空语料
+    (vacuous PASS 不冒充绿;与真 FAIL 区分,消费者可分「红」与
+    「没测成」)。返回 (rc, fail_legs, insufficient_legs);调用方
+    main() 末尾照单返回(报告与机器可读摘要同步落 gate 块)。
+
+    语料下限:C2 严格/宽两口径各需 N≥1(任一口径空 = 判据半 vacuous
+    = 没测成);C3/C4 的 pass=None(benign 语料空/ρ NaN)同律归
+    insufficient。既有早退 rc:数据目录缺失=2、benign 对拍失配=3,
+    与本函数分立(入口面 vs 判据面)。"""
+    fail_legs: list[str] = []
+    insufficient_legs: list[str] = []
+    if c2_pass is False:
+        fail_legs.append("C2")
+    if c2_strict_n < 1 or c2_loose_n < 1:
+        insufficient_legs.append("C2")
+    if c3_pass is False:
+        fail_legs.append("C3")
+    elif c3_pass is None:
+        insufficient_legs.append("C3")
+    if c4_pass is False:
+        fail_legs.append("C4")
+    elif c4_pass is None:
+        insufficient_legs.append("C4")
+    if fail_legs:
+        return 1, fail_legs, insufficient_legs
+    if insufficient_legs:
+        return 2, fail_legs, insufficient_legs
+    return 0, fail_legs, insufficient_legs
+
+
 def main() -> int:
     # 内存红线(R3-F3):4GiB 匿名堆硬顶在 main() 首行设置 —— CLI 跑语义
     # 不变,而 import 本模块零副作用(测试/工具可安全 import,不钳调用方
@@ -447,6 +481,11 @@ def main() -> int:
     c3_rate_new = benign_ge70_new / benign_n if benign_n else None
     c3_pass = None if benign_n == 0 else (c3_rate_new <= c3_rate_old)
     c4_pass = None if (rho_old != rho_old or rho_new != rho_new) else (rho_new >= rho_old)
+    # rc 聚合(#193 C5):判据→退出码单源(0=全绿/1=真 FAIL/2=语料不足);
+    # 空/半空语料=vacuous PASS 不得冒充绿(评审D P1-1 空语料下限护栏)
+    rc, fail_legs, insufficient_legs = gate_rc(
+        c2_pass=c2_pass, c2_strict_n=c2_strict_n, c2_loose_n=c2_loose_n,
+        c3_pass=c3_pass, c4_pass=c4_pass)
 
     def bucket(h: list[int]) -> list[int]:
         return [sum(h[b * 10:(b + 1) * 10]) for b in range(11)]  # 0-9,...,90-99,100
@@ -481,6 +520,8 @@ def main() -> int:
         "movers70": {"n": n_movers70, "n_down": n_movers_down,
                      "dump": args.dump_movers or None},
         "k_hist_top": dict(sorted(k_hist.items(), key=lambda kv: -kv[1])[:8]),
+        "gate": {"rc": rc, "fail_legs": fail_legs,
+                 "insufficient_legs": insufficient_legs},
     }
 
     # ── Markdown 报告 ──
@@ -534,6 +575,12 @@ def main() -> int:
                  f"vs 新 {summary['C4']['rho_all_new']}")
     lines.append(f"- k 分布 top: {summary['k_hist_top']}")
     lines.append("")
+    lines.append("### 门裁决(#193 C5 rc 机检化)")
+    lines.append("")
+    lines.append(f"- **rc={rc}**(0=全 PASS 且语料充分 / 1=真 FAIL / 2=语料不足)"
+                 f";FAIL 腿: {fail_legs or '无'};语料不足腿: {insufficient_legs or '无'}"
+                 ";真 FAIL 优先于语料不足")
+    lines.append("")
     lines.append("## 分数直方图(10 分桶,指控并集)")
     lines.append("")
     lines.append("| 分数段 | 旧(选角) | 新(融合) |")
@@ -571,12 +618,17 @@ def main() -> int:
         log(f"报告已写: {args.report}")
     else:
         print(report)
+    why = ";".join(x for x in (
+        ("真 FAIL: " + ",".join(fail_legs)) if fail_legs else "",
+        ("语料不足: " + ",".join(insufficient_legs)) if insufficient_legs else "",
+    ) if x)
     log(f"完成: {elapsed:,.0f}s | VmHWM {hwm_kb/1e6:.2f}GB | "
         f"C2={'PASS' if c2_pass else 'FAIL'} "
         f"C3={'PASS' if c3_pass else 'FAIL' if c3_pass is not None else 'N/A'} "
-        f"C4={'PASS' if c4_pass else 'FAIL' if c4_pass is not None else 'N/A'}")
-    return 0
-
+        f"C4={'PASS' if c4_pass else 'FAIL' if c4_pass is not None else 'N/A'} "
+        f"| 门裁决 rc={rc}"
+        + (f"({why})" if why else ""))
+    return rc
 
 
 if __name__ == "__main__":

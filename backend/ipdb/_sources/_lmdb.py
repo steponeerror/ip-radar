@@ -11,6 +11,8 @@ never Path.with_suffix: it would eat the ``.lmdb`` segment):
                                entries 回写,非流式行数——重复行/同起点 CIDR
                                碰撞下行数 > 键数,旧行为 UI record_count 虚高)
     <base>.disjoint        epoch-bound disjoint flag (<epoch> <0|1>)
+    <base>.rev             harvest 版本戳 = HARVEST_REV(ADR 0009,C2;
+                           rebuild 必写,needs_convert 代码代腿比较对象)
 
 key = start_ip 4-byte big-endian; value = JSON [end_ip_int, ref_id] —
 evidence payloads are interned into a "payloads" sub-db (write side drops
@@ -320,6 +322,21 @@ def disjoint_path(base: Path) -> Path:
     return Path(f"{base}.disjoint")     # 与 count_path/cov_path 同构,STRING concat
 
 
+def rev_path(base: Path) -> Path:
+    return base.parent / (base.name + ".rev")   # 同上,STRING concat
+
+
+# ── harvest 版本戳(ADR 0009 / issue #192,2026-10-25)──
+# mtime 只代理「数据内容」,代理不了「代码版本」:harvest 代码演进(滤码/
+# 良性断言等)不动 csv mtime → 旧谓词(ptr mtime ≥ raw 即整族跳写)恒
+# False → 新纪元永不建 → 投影静默休眠(2026-10-10 csv 删改仪式 / 2026-
+# 10-25 benign② 两起生产事故同形)。任何改变 harvest 语义的改动(parse/
+# 过滤/提交面,backend/ipdb/_sources/** 与 _base/_source_base 的 rebuild
+# 路径)必须 bump 此常量(单调 +1);存量族 .rev 缺失 = 不匹配 → 首跑
+# 一次全量重建自愈(部署注记见 CHANGELOG)。详见 docs/adr/0009。
+HARVEST_REV = 1
+
+
 def env_dir(base: Path, epoch: int) -> Path:
     return base.parent / f"{base.name}.{epoch}"
 
@@ -352,11 +369,23 @@ def read_disjoint_flag(base: Path, current_epoch: int) -> bool:
     return parse_disjoint_sidecar(base, current_epoch) is True
 
 
-def needs_convert(raw_path: Path, ptr_like_path: Path) -> bool:
-    """True if the ptr is missing or older than the raw file."""
-    if not ptr_like_path.exists():
+def needs_convert(raw_path: Path, base: Path) -> bool:
+    """物化谓词(ADR 0009):True = 该族必须重物化。
+
+    三触发腿:ptr 缺失 ∨ .rev harvest 版本戳 ≠ 当前代码代(HARVEST_REV;
+    代码变)∨ ptr mtime < raw mtime(数据变)。前两腿治「代码演进不
+    bump mtime 的静默休眠」;mtime 腿保数据增量语义。存量族无 .rev =
+    不匹配 → 一次重建自愈(#192 部署注记:首跑全量重建属预期)。
+    """
+    ptr = ptr_path(base)
+    if not ptr.exists():
         return True
-    return ptr_like_path.stat().st_mtime < raw_path.stat().st_mtime
+    try:
+        if rev_path(base).read_text().strip() != str(HARVEST_REV):
+            return True
+    except OSError:                     # 缺失/不可读 = 不匹配,重建自愈
+        return True
+    return ptr.stat().st_mtime < raw_path.stat().st_mtime
 
 
 def next_epoch(base: Path) -> int:
@@ -756,6 +785,8 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
         staged.append((_write_staged(
             disjoint_path(base), f"{epoch} {1 if disjoint else 0}"),
             disjoint_path(base)))
+        staged.append((_write_staged(rev_path(base), str(HARVEST_REV)),
+                       rev_path(base)))           # ADR 0009:rebuild 必盖章
         for s, final in staged:                      # sidecars commit first
             os.replace(s, final)
         p_staged = _write_staged(ptr_path(base), str(epoch))
@@ -792,12 +823,13 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
 def _converged_count(base: Path, raw: Path | None) -> int | None:
     """族级增量的跳过判定 + 跳过族返回计数(2026-10-14 收敛批)。
 
-    None(不跳过,照建)= raw 未给出 / 族 ptr 落后于 raw / count sidecar
-    缺失或不可解析。sidecar 缺失不跳:rebuild 即自愈(既有契约,
+    None(不跳过,照建)= raw 未给出 / 族 ptr 落后于 raw / .rev 版本戳
+    不匹配(ADR 0009,代码代腿) / count sidecar 缺失或不可解析。sidecar
+    缺失不跳:rebuild 即自愈(既有契约,
     test_base_*_reconverts_when_count_sidecar_missing)—— ptr 在而计数
     丢失时跳过会把 owner._count 静默归 0。ptr 存在 ⇒ sidecar 先于 ptr
     提交(见 rebuild_lmdb 提交序),理论恒在。"""
-    if raw is None or needs_convert(raw, ptr_path(base)):
+    if raw is None or needs_convert(raw, base):
         return None
     try:
         return int(count_path(base).read_text().strip())
@@ -829,9 +861,10 @@ def rebuild_dual_family(records, v4_base: Path, v6_base: Path, *,
     返回 (n4, n6) = 各族提交后的主库键数(DQ-2:键数即 .count 真值,供
     owner._count 直采;CsvSource 旧 count4/count6 证据数覆写通道已删)。
     raw: 原始数据路径(族级增量,2026-10-14 收敛批)。给出时每族先判
-    needs_convert(raw, 族ptr):ptr ≥ raw mtime(该族已收敛)→ 跳过 —— 不建
-    新纪元不动 reader,返回计数取现有 count sidecar。重试场景(v6 被
-    memory valve 中止)只重做未收敛族,v4 不再每次全量重做;与 registry
+    needs_convert(raw, 族 base):ptr ≥ raw mtime 且 .rev 版本戳匹配
+    (ADR 0009;该族已收敛)→ 跳过 —— 不建新纪元不动 reader,返回计数取
+    现有 count sidecar。重试场景(v6 被 memory valve 中止)只重做未收敛族,
+    v4 不再每次全量重做;与 registry
     _needs_rebuild_of 同谓词,触发车道与跳过判定恒一致。v6 ptr 缺失
     照建(needs_convert 对缺 ptr 恒 True,Q3 不变量不破)。
     """

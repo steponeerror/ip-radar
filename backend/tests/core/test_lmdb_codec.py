@@ -234,6 +234,7 @@ def test_rebuild_dual_family_converged_family_skipped(tmp_path):
     assert made == [1]                         # 跳过的族不白跑 harvest(PEP 289 延迟)
     for _, e in calls: e.close()
 
+
     # 场景 B:两族 ptr 均 ≥ raw → 双跳,零 reader 回调零新纪元零 harvest
     os.utime(ptr_path(v6), (FUT, FUT))
     calls = []
@@ -260,6 +261,52 @@ def test_rebuild_dual_family_converged_family_skipped(tmp_path):
     assert [c[0] for c in calls] == ["r4", "r6"]
     assert made == [1, 1]                      # 两族各跑一遭 harvest
     assert read_ptr(v4) == 2 and read_ptr(v6) == 3
+    for _, e in calls: e.close()
+
+
+def test_rev_sidecar_stamp_and_drift_rebuilds(tmp_path):
+    """C2(ADR 0009,issue #192):rebuild 必给两族盖章 .rev=HARVEST_REV;
+    戳匹配 + mtime 收敛 → 双跳(harvest 零调用);仅 v4 戳漂移(模拟
+    harvest 代码演进,mtime 全程不动)→ 仅 v4 重建,v6 不白跑。"""
+    import os
+    from ipdb._sources._lmdb import (HARVEST_REV, rebuild_dual_family,
+                                     read_ptr, ptr_path, rev_path)
+    raw = tmp_path / "s.txt"
+    raw.write_text("x")
+    v4, v6 = tmp_path / "s.lmdb", tmp_path / "s.v6.lmdb"
+    envs = []
+    rebuild_dual_family(
+        [("10.0.0.0/24", [{}]), ("2001:db8::/32", [{}])],
+        v4, v6, reader_setter4=envs.append, reader_setter6=envs.append,
+        raw=raw)
+    for e in envs: e.close()
+    assert rev_path(v4).read_text().strip() == str(HARVEST_REV)   # 两族均盖章
+    assert rev_path(v6).read_text().strip() == str(HARVEST_REV)
+    FUT = 2e9
+    os.utime(ptr_path(v4), (FUT, FUT))       # mtime 收敛,后续场景不再动 mtime
+    os.utime(ptr_path(v6), (FUT, FUT))
+
+    made = []
+
+    def factory():
+        made.append(1)
+        return iter([("10.9.0.0/24", [{}]), ("2001:db9::/32", [{}])])
+
+    calls = []
+    rebuild_dual_family(factory, v4, v6,
+                        reader_setter4=lambda e: calls.append(("r4", e)),
+                        reader_setter6=lambda e: calls.append(("r6", e)),
+                        raw=raw)
+    assert made == [] and calls == []         # 双收敛:双跳,零 harvest
+
+    rev_path(v4).write_text(str(HARVEST_REV - 1))   # 仅 v4 代码代漂移
+    rebuild_dual_family(factory, v4, v6,
+                        reader_setter4=lambda e: calls.append(("r4", e)),
+                        reader_setter6=lambda e: calls.append(("r6", e)),
+                        raw=raw)
+    assert made == [1]                        # 只跑了 v4 的 harvest
+    assert [c[0] for c in calls] == ["r4"]    # 只有 v4 reader 换代
+    assert read_ptr(v4) == 2 and read_ptr(v6) == 1
     for _, e in calls: e.close()
 
 
