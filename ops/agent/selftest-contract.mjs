@@ -327,6 +327,26 @@ await t("锁路径对拍:python QUEUE_LOCK_NAME ↔ node queueLockPath 同源同
     "registry.mjs queueAction 未消费 appendQueueRowLocked(竞态窗复活)");
 });
 
+await t("锁路径对拍:python LEDGER_LOCK_NAME ↔ node ledgerLockPath 同源同址(#199 A3)", async () => {
+  const py = fs.readFileSync(path.join(AGENT, "..", "..", "backend", "ipdb", "_ops_store.py"), "utf8");
+  const m = py.match(/LEDGER_LOCK_NAME = "([^"]+)"/);
+  assert.ok(m, "_ops_store.py 缺 LEDGER_LOCK_NAME 字面量(锁路径契约漂移)");
+  assert.equal(m[1], "ledger.md.lock", "python 台账锁名漂移(须 = ledger.md+'.lock')");
+  assert.ok(py.includes("ops_root() / LEDGER_LOCK_NAME"),
+    "ledger_lock_path 必须 = ops_root()/LEDGER_LOCK_NAME(与 ledger.md 同目录)");
+  const { ledgerLockPath } = await import("./pipeline/budget.mjs");
+  // 生产同址链同 queue 哨:桥注入 LEDGER_FILE=ops_root()/ledger.md → node 派生
+  // 锁路径与 python 同一文件,读写互认互斥;月度读面/拒跑留痕行同域。
+  assert.equal(ledgerLockPath(path.join(DOCS, "ops", "ledger.md")), path.join(DOCS, "ops", m[1]),
+    "node 锁路径 = ledger.md 同目录同名+.lock,须与 python ops_root()/LEDGER_LOCK_NAME 同址");
+  assert.match(SRCS.pipelineBudget, /readLedgerTextLocked[\s\S]*?execFileP\("flock"/,
+    "月度读面须经 flock 持锁(绕开=准入读到撕裂行)");
+  assert.match(SRCS.libsh, /ledger_append\(\)[\s\S]*?flock "\$LEDGER_FILE\.lock"/,
+    "lib.sh 写面 ledger_append 须持 flock(双写面缺一即竞态窗)");
+  assert.match(py, /def append_ledger[\s\S]*?with _ledger_lock\(\):/,
+    "python 写面 append_ledger 须持 _ledger_lock");
+});
+
 fs.rmSync(TMP, { recursive: true, force: true });
 console.log(`contract-selftest: PASS=${pass} FAIL=${fail}`);
 process.exit(fail ? 1 : 0);

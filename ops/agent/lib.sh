@@ -114,13 +114,16 @@ verify_cited_precedents() {
 
 # ledger_append <轮次> <model> <用量行> — 追加台账一行;文件不存在则建表头(幂等:已存在不重建)。
 # 用量记 pi 实报,不自行估算(九裁决 9)。
-ledger_append() {
+ledger_append() { # #199 A3:建头+追加全段入锁(与 python _ops_store.append_ledger
+  # /node budget.mjs 读面同一 flock 锁域 "$LEDGER_FILE.lock",#139 形制;锁文件常驻不删)
   local round="$1" model="$2" usage="$3" note="${4:-}"
-  if [[ ! -f "$LEDGER_FILE" ]]; then
-    mkdir -p "$(dirname "$LEDGER_FILE")"
-    { echo "# 运营轮次台账"; echo; echo "| 日期 | 轮次 | model | 用量 | 备注 |"; echo "|---|---|---|---|---|"; } > "$LEDGER_FILE"
-  fi
-  echo "| $(date +%F) | $round | $model | $usage | $note |" >> "$LEDGER_FILE"
+  mkdir -p "$(dirname "$LEDGER_FILE")"
+  flock "$LEDGER_FILE.lock" bash -c '
+    if [[ ! -f "$1" ]]; then
+      { echo "# 运营轮次台账"; echo; echo "| 日期 | 轮次 | model | 用量 | 备注 |"; echo "|---|---|---|---|---|"; } > "$1"
+    fi
+    echo "| $(date +%F) | $2 | $3 | $4 | $5 |" >> "$1"
+  ' _ "$LEDGER_FILE" "$round" "$model" "$usage" "$note"
 }
 
 # sandbox_assert — 沙箱红线(Review Focus 1):worktree 根 git status 的 backend/ frontend/ 必须零改动;

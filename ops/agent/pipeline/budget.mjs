@@ -83,11 +83,13 @@ export const admitMonthly = ({ spendCny, estCny, capCny }) => {
   return { ok: projected <= capCny, projected };
 };
 
+export const ledgerLockPath = (ledgerFile) => `${ledgerFile}.lock`; // 与 python _ops_store.LEDGER_LOCK_NAME /lib.sh "$LEDGER_FILE.lock" 同锁域(对拍哨钉)
+
 // 锁内读台账全文(#139 锁形制:flock(1) 同锁域 <ledger>.lock,与 lib.sh/_ops_store 双写面互斥;
 // 无台账 = "" 起步)。cat 经 flock 持锁窗口,读与写不交错。
 export async function readLedgerTextLocked(ledgerFile) {
   if (!fs.existsSync(ledgerFile)) return "";
-  return (await execFileP("flock", ["-w", "30", `${ledgerFile}.lock`, "cat", ledgerFile],
+  return (await execFileP("flock", ["-w", "30", ledgerLockPath(ledgerFile), "cat", ledgerFile],
     { timeout: 60_000, maxBuffer: 16 * 1024 * 1024 })).stdout;
 }
 
