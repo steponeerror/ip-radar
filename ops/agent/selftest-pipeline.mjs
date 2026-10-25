@@ -1892,6 +1892,27 @@ await t("A5-工件:全 faux 轮 09-budget.json 落盘(七旋钮生效值+四界�
   assert.ok(gc.inputs.includes("09-budget.json"), "G_CLOSE inputs 挂 09-budget.json(回声哨)");
 });
 
+
+// ── B(#199):breaker 快照入 09-budget.json(观察面) ──
+await t("B-快照:全 faux 轮 09-budget.json 含 readings.breaker(五通道闭集态+生效旋钮);快照只读零写——轮后无 ops/breaker.json(回声律)", async () => {
+  const R = "2026-10-25-1710-health";
+  const io = mkIo();
+  const t = mkTree("breaker-snap");
+  const r = await runPipeline({ roundId: R, fixturesDir: DEFAULT_FIXTURES_DIR, env: t.env, ...io });
+  assert.equal(r.ok, true);
+  const b = j(path.join(t.root, "ops", "rounds", R, "09-budget.json"));
+  const bk = b.readings.breaker;
+  assert.ok(bk, "readings.breaker 必在(breaker 面)");
+  assert.deepEqual(Object.keys(bk.channels).sort(), ["fetch_url", "gh_search", "rss_parse", "web_read", "web_search"], "五通道闭集恒全列");
+  for (const ch of Object.values(bk.channels)) {
+    assert.equal(ch.state, "closed", "缺省闭路");
+    assert.equal(ch.consec, 0);
+  }
+  assert.equal(bk.threshold, 3); assert.equal(bk.cooldown_s, 21600, "生效旋钮随快照落盘=可证伪");
+  assert.ok(/breaker\.json$/.test(bk.file), "快照带状态文件路径");
+  assert.ok(!fs.existsSync(path.join(t.root, "ops", "breaker.json")), "快照只读不造文件(回声律/重放零写判例)");
+});
+
 await t("A5-回声哨:篡改 09-budget.json 读数超帽 → G_CLOSE 复评门败(reason 带数字);未篡改复评仍过", async () => {
   const R = "2026-10-25-1707-health";
   const io = mkIo();

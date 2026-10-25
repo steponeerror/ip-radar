@@ -87,6 +87,10 @@ export const SPAWN_CONTRACT_ENV = [
   { name: "OPS_PIPELINE_SPEND_CAP_CNY", default: "3", consumer: "pipeline/budget.mjs(四界④整轮花费帽,结算后查)", phase: "call-time" },
   { name: "OPS_PIPELINE_MONTHLY_CAP_CNY", default: "30", consumer: "pipeline/budget.mjs(月度 kill switch 帽,双面准入拒跑 code=budget_monthly)", phase: "call-time" },
   { name: "OPS_PIPELINE_DUP_CALL_LIMIT", default: "3", consumer: "pipeline/budget.mjs(同参调用拦截线,双面工具注入拦 code=repeat_storm;0=停用)", phase: "call-time" },
+  // #199 交付B(P16 跨轮熔断):tools/breaker.mjs 旋钮(构造期读=轮次调用期);
+  // state 面=DOCS_ROOT/ops/breaker.json 由 DOCS_ROOT 行派生,不另立行。
+  { name: "OPS_BREAKER_THRESHOLD", default: "3", consumer: "tools/breaker.mjs(通道连续计数码失败开断阈;计数码闭集=channel_missing/channel_auth/quota;0=停用),拦 code=channel_open", phase: "call-time" },
+  { name: "OPS_BREAKER_COOLDOWN_S", default: "21600", consumer: "tools/breaker.mjs(开断冷却秒,半开探活窗口;重开=新整窗无指数退避)", phase: "call-time" },
   { name: "GH_TOKEN", default: "(gh CLI 自身凭证链)", consumer: "gh CLI(外部自读;tools.mjs 不读,对拍豁免)", phase: "call-time" },
   // PR3a 发现通道 web_search 引擎 = pi-web-access MCP(2026-10-24 用户令;pin 0.44.0):
   // 两名均外部自读(包/子进程,tools.mjs 不读,同 GH_TOKEN 豁免型)。
