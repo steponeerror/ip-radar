@@ -3,8 +3,10 @@
 // 校验器——仓律零新 npm 依赖;SHORTLIST 模型产出的结构化候选必须过形才进下游)
 // ②证据存在性校验(evidence_ptr 指向的工件键/URL 必须在给定工件集合真在场,缺=
 // 候选丢弃+留痕清单——哲学③宁少算:证据不在场的候选不修不猜,只丢并留痕)
-// ③候选卡行写入器(ENQUEUE 面的行形制:queue.md 一行 PROPOSE,走 #139 flock 路径
-// appendQueueRowLocked;#0006 人裁交互律不动——只写不动作,开票/接源全人裁)。
+// ③候选卡行写入器(queue.md 三写口之一:action=PROPOSE 候选卡行,走 #139 flock
+// 路径 appendQueueRowLocked;表头首行句 #217 T3.5 已翻正三写口如实描述——
+// 「queue_action 唯一写口」旧句随本写口+ENQUEUE 候选行两新写口退役;
+// #0006 人裁交互律不动——只写不动作,开票/接源全人裁)。
 // 消费方:T1(发现轮管线骨架,并行工位)SHORTLIST/ENQUEUE 步;接线协议见 worktree
 // 根 DP-T3-REPORT.md。本文件零仓依赖(queue-lock 是 tools/ 自含零 node_modules 面)。
 import { createHash } from "node:crypto";

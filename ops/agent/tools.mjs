@@ -5,7 +5,10 @@
 // 2026-10-24 裁定;融合必保 6 条 = tool-critic-1/2 并集;铁律①-⑦ 见各面文件注释。
 //
 // 结构性红线(铁律⑥):零内建工具——本面只注册下列领域工具,agent 无 bash/write/edit;
-// 唯一写口 = queue_action(append-only,恒 vetoable,幂等去重),包/台账/判例写回全在 host。
+// 写口注记:queue_action 是 ops 轮动作词面;发现轮两写口(ENQUEUE 候选行/候选卡
+// appendCandidateCard,均 PROPOSE)在 pipeline 侧另路同入 queue.md——表头三写口句
+// 见 queue-lock.mjs QUEUE_HEADER(#217 T3.5 翻正);本文件消费 appendQueueRowLocked
+// 同 #139 flock 路径,包/台账/判例写回全在 host。
 // 警察函数(校验/沙箱/台账)不注册为工具(被审计者不持审计工具)。
 //
 // 失败面统一(铁律②):一切失败 = 结构化信封 {ok:false,code,reason},不抛裸栈、不静默;

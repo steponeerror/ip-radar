@@ -352,6 +352,32 @@ await t("锁路径对拍:python LEDGER_LOCK_NAME ↔ node ledgerLockPath 同源�
     "python 写面 append_ledger 须持 _ledger_lock");
 });
 
+// ── #217 T3.5:queue.md 表头跨语言三抄对拍哨(形制同锁路径哨)──
+// 表头首行句随三写口翻正(queue_action / 发现轮 ENQUEUE 候选行 / 候选卡
+// appendCandidateCard)后,"唯一写口"旧句不再是事实——三抄面(python
+// _ops_store.QUEUE_HEADER / node queue-lock.mjs QUEUE_HEADER / node 侧首建实写串)
+// 任一漂移=表头撒谎或双源分叉,哨红。
+await t("表头对拍:python QUEUE_HEADER ↔ node QUEUE_HEADER ↔ 首建实写串三抄逐字同(#217 T3.5)", async () => {
+  const py = fs.readFileSync(path.join(AGENT, "..", "..", "backend", "ipdb", "_ops_store.py"), "utf8");
+  const pyBlock = py.match(/QUEUE_HEADER = \(([\s\S]*?)\n\)/);
+  assert.ok(pyBlock, "_ops_store.py 缺 QUEUE_HEADER 拼串(表头契约漂移)");
+  const pyHeader = (pyBlock[1].match(/"((?:[^"\\]|\\.)*)"/g) ?? []).map((x) => JSON.parse(x)).join("");
+  const nodeSrc = fs.readFileSync(path.join(AGENT, "tools/queue-lock.mjs"), "utf8");
+  const nodeBlock = nodeSrc.match(/const QUEUE_HEADER =\s*\n?\s*((?:"(?:[^"\\]|\\.)*"\s*\+?\s*\n?\s*)+);/);
+  assert.ok(nodeBlock, "queue-lock.mjs 缺 QUEUE_HEADER 常量(表头契约漂移)");
+  const nodeHeader = (nodeBlock[1].match(/"((?:[^"\\]|\\.)*)"/g) ?? []).map((x) => JSON.parse(x)).join("");
+  assert.equal(pyHeader, nodeHeader, "python/node 表头双抄分叉(任一侧改句未同批)");
+  assert.match(pyHeader, /三写口.*queue_action.*ENQUEUE.*appendCandidateCard/s,
+    "表头首行句须如实描述三写口(#217;回退到「唯一写口」旧句=哨红)");
+  // 首建实写面:appendQueueRowLocked 惰性首建写出的文件头 = 双抄头(实跑非只源)
+  const { appendQueueRowLocked } = await import("./tools/queue-lock.mjs");
+  const qf = path.join(TMP, "hdr", "queue.md");
+  fs.mkdirSync(path.dirname(qf), { recursive: true }); // flock 先开锁文件:父目录须在场(生产 ops/ 恒在)
+  await appendQueueRowLocked({ queueFile: qf, round: "r", action: "PROPOSE", source: "hdr_probe", predicate: null, evidence: [{ call_id: "measure-1", field: "evidence_local_ok", value: true }] });
+  const written = fs.readFileSync(qf, "utf8");
+  assert.ok(written.startsWith(nodeHeader), "首建实写串与 QUEUE_HEADER 常量分叉(渲染面漂移)");
+});
+
 fs.rmSync(TMP, { recursive: true, force: true });
 console.log(`contract-selftest: PASS=${pass} FAIL=${fail}`);
 process.exit(fail ? 1 : 0);

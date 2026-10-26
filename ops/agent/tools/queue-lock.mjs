@@ -47,10 +47,11 @@ export function queueLockPath(queueFile) {
   return queueFile + QUEUE_LOCK_SUFFIX;
 }
 
-// T4 冻结表头(逐字;与 python _ops_store.QUEUE_HEADER 跨语言双抄是冻结形状的
-// 既定双源,§14 哨对拍钉死不漂移)
+// 表头(T4 冻结列面;首行句 #217 T3.5 翻正:原「queue_action 唯一写口」随发现轮
+// 两新写口(ENQUEUE 候选行/appendCandidateCard 候选卡,均 PROPOSE)不再真——三写口
+// 如实描述;与 python _ops_store.QUEUE_HEADER 跨语言双抄,§14 形制对拍哨钉死不漂移)
 const QUEUE_HEADER =
-  "# 源生命周期动作队列(queue_action 唯一写口;行由 host 模板渲染,rationale 只落工件)\n\n"
+  "# 源生命周期动作队列(三写口:ops 轮 queue_action · 发现轮 ENQUEUE 候选行 · 发现轮候选卡 appendCandidateCard;后两路 action=PROPOSE 一词一拼;行由 host 模板渲染,rationale 只落工件)\n\n"
   + "| 日期 | 轮次 | action | source | predicate | evidence | vetoable |\n"
   + "|---|---|---|---|---|---|---|\n";
 
