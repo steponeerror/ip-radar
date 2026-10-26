@@ -188,7 +188,11 @@ def _parse(data: bytes, fmt: str):
                 yield cidr
     elif fmt == "xpanse":
         text = data.decode("utf-8", errors="ignore")
-        for token in _CIDR_TOKEN_RE.findall(text):
-            cidr = _norm_cidr(token)
-            if cidr:
-                yield cidr
+        found = [c for c in (_norm_cidr(t) for t in _CIDR_TOKEN_RE.findall(text)) if c]
+        # 零命中即页面改版嫌疑——炸响拒绝静默缩水(排除面同表,Spec 终审 P2;
+        # 宁多勿无:页面新增 CIDR 属合法更新,不设上限)。
+        if not found:
+            raise ValueError(
+                "Xpanse page yielded 0 CIDR — layout change suspected, "
+                "refusing silent exclusion-face shrink")
+        yield from found

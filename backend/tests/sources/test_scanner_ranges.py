@@ -14,6 +14,8 @@ Offline: fixtures only, no network.
 """
 import json
 
+import pytest
+
 from ipdb._evidence import Evidence
 from ipdb._sources.scanner_ranges import (
     _FEEDS,
@@ -81,6 +83,7 @@ def test_feeds_complete_66_misp_plus_1_xpanse():
     # 红线锚:OpenFilters 镜像/-nt-/GreyNoise 一概不接(spec 定案)。
     assert not any("openfilters" in f[1] for f in _FEEDS)
     assert not any("-nt-" in f[0] for f in _FEEDS)
+    assert not any("greynoise" in f[1].lower() for f in _FEEDS)  # API-only 红线外(spec 定案 1;Spec 终审 P2 补齐)
 
 
 def test_parse_misp_list_json_dual_family_and_garbage():
@@ -126,6 +129,13 @@ def test_parse_xpanse_html_nine_cidr_verbatim():
 </body></html>
 """.encode()
     assert sorted(_parse(html, "xpanse")) == sorted(XPANSE_CIDRS)
+
+
+def test_parse_xpanse_zero_cidr_raises():
+    """零命中守卫:页面改版提不出任何 CIDR 时炸响,拒绝排除面
+    无声缩水(与 loader 缺 CSV raise 同律;Spec 终审 P2)。"""
+    with pytest.raises(ValueError, match="0 CIDR"):
+        list(_parse(b"<html><body>docs redesign, no ranges here</body></html>", "xpanse"))
 
 
 def test_scanner_ranges_loads_and_routes(tmp_path):
