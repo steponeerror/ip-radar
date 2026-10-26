@@ -89,6 +89,8 @@ def _round_env() -> dict[str, str]:
         "DOCS_ROOT": str(root.parent),
         "PRECEDENTS_DIR": str(root / "precedents"),
         "LEDGER_FILE": str(root / "ledger.md"),
+        # 2026-10-26:C4 白名单剔 LANG→子进程 bash 退 C locale,%q 对 CJK 输出 ANSI-C 包裹致 rg 解析炸(健康轮 SYNTH 全灭回归);bash 面 locale 敏感行为需确定性:继承操作员 LANG,缺省 C.UTF-8。
+        "LANG": os.environ.get("LANG") or "C.UTF-8",
         "OPS_EVAL_PY": sys.executable,
         "OPS_DATA_DIR": str(_registry.DATA_DIR),
     }
