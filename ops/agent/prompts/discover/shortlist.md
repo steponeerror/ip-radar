@@ -15,8 +15,9 @@ NEEDS.md 缺口行(T1 无 web 面;T3 #209 接线)。你的任务:从候选宇宙
 字段:
 - `name`:候选名(与输入候选同名,不改写)。
 - `url`:数据源 URL(输入有的透传;无则 null)。
-- `quote`:**逐字引用**的原文 span(从输入候选的行文/首记列原样摘录,禁改写禁拼接)——T2 #208
-  将做 span 级逐字回引校验,改写即红。
+- `quote`:**逐字引用**的原文 span(从输入候选的行文/首记列原样摘录,禁改写禁拼接)——T2 #208 已落地
+  G_SHORTLIST span 级逐字回引门:quote 须在 d1-scan 对应证据面(经 evidence_ptr 三形解析)中找到逐字 span;
+  幽灵 URL(引不存在的 URL)/半真 URL(前缀子串或超集串)/改写引文(大小写或标点改写)均门败。
 - `evidence_ptr`:输入候选的 evidence_ptr 原样透传(registry 面=repo 相对模块路径;needs 面=NEEDS.md 行锚)。
 - `source_channel`:输入候选同值透传。
 - `exclusivity_estimate`:排他率预估(0-1;信息不足以估则 null——**宁少算勿多算**)。

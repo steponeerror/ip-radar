@@ -21,6 +21,7 @@ import { itemSignature, fullDedupKey, createOpsItem, parseItemsTree, CAUSE_GROUP
 import { ARTIFACTS as A, deepArtifactName, deepTranscriptName, DEEP_TRANSCRIPT_RE } from "../artifacts.mjs"; // 工件名表单源(#202 C1):步写出/读面禁手抄工件名(磁盘名字节冻结,位等价判例)
 import { appendQueueRowLocked } from "../tools/queue-lock.mjs"; // #139 flock 互锁队列写口(#207 T1 ENQUEUE 消费;与 python 侧 append_queue 同构互锁)
 import { CANDIDATE_ACTION } from "./discover-candidate.mjs"; // #210 T4:action 词单源 PROPOSE(一词一拼,与 T3 appendCandidateCard 同源;T1 面此路死路——MEASURE 恒 control_executable:null,三判据不过即全 skip,行永不写;词先对齐防活路拼写分叉)
+import { scanEvidenceFace } from "./citation.mjs"; // #208 T2:证据面三形解析(透传/工件/URL)→span 级存在性
 
 const execFileP = promisify(execFileCb);
 const AGENT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -607,6 +608,19 @@ export function modelItemComplete(def, ctx, item) {
 // needs 面=NEEDS.md 行锚——候选可原样回算。同 commit 重扫逐字节同(确定性,无网络无时钟入候选面)。
 const NEEDS_STATUS = ["open", "候选"]; // 缺口行状态闭集(已立项/已闭不入候选宇宙)
 async function SCAN(def, ctx) {
+  // #208 T2 faux 缝:显式 faux 面(缺省真面)且 fixture 在场→候选宇宙=罐装钉死。理由:
+  // span 门使罐装 quote 与 NEEDS.md 原文耦合,真仓演进会破门(ops CI 随文案红);
+  // faux=罐装 I/O 是仓律(#170 面选择);真轮(缺省)不受影响。证据永不灭失不破:
+  // 罐装宇宙自带 text 面,span 回引在轮工件内可回算。
+  if (ctx.modelFace === "faux" && typeof ctx.fixturesDir === "string") {
+    const fxPath = path.join(ctx.fixturesDir, A.DISCOVER_SCAN);
+    if (fs.existsSync(fxPath)) {
+      const fx = JSON.parse(fs.readFileSync(fxPath, "utf8"));
+      writeJson(path.join(ctx.dir, A.DISCOVER_SCAN), { round_id: ctx.roundId, generated_at: new Date().toISOString(),
+        candidates: fx.candidates, channels: fx.channels });
+      return;
+    }
+  }
   const repoRoot = path.resolve(AGENT_DIR, "..", "..");
   const registry = fs.existsSync(path.join(repoRoot, "backend", "ipdb", "_sources"))
     ? fs.readdirSync(path.join(repoRoot, "backend", "ipdb", "_sources")).filter((f) => f.endsWith(".py") && !f.startsWith("_")).sort()
@@ -621,7 +635,8 @@ async function SCAN(def, ctx) {
       if (cells.length < 5 || !NEEDS_STATUS.includes(cells[3])) continue;
       const url = (cells[1].match(/https?:\/\/\S+/) ?? [null])[0];
       needsRows.push({ name: cells[1].replace(/https?:\/\/\S+/g, "").replace(/\s+/g, " ").trim() || url,
-        url, evidence_ptr: `NEEDS.md:L${i + 1}`, source_channel: "needs", status: cells[3] });
+        url, evidence_ptr: `NEEDS.md:L${i + 1}`, source_channel: "needs", status: cells[3],
+        text: lines[i].trim() }); // #208 T2:原文行快照入工件——span 门(逐字回引)对账面在轮工件内,回放可回算;registry 面结构性(canonicalJson 面),不带 text
     }
   }
   writeJson(path.join(ctx.dir, A.DISCOVER_SCAN), { round_id: ctx.roundId, generated_at: new Date().toISOString(),
@@ -636,12 +651,13 @@ async function SCAN(def, ctx) {
 async function MEASURE(def, ctx) {
   const scan = j(path.join(ctx.dir, A.DISCOVER_SCAN)) ?? { candidates: [] };
   const shortlist = j(path.join(ctx.dir, A.DISCOVER_SHORTLIST)) ?? { candidates: [] };
-  const scanPtrs = new Set(scan.candidates.map((c) => c.evidence_ptr));
   const results = shortlist.candidates.map((c) => ({
     candidate: candidateSlug(c.name), name: c.name,
-    evidence_local_ok: scanPtrs.has(c.evidence_ptr),
+    // #208 T2:存在性从「指针集合相等」升格为三形解析(scanEvidenceFace:透传/工件/URL)
+    // ——T1 自报语义「是否在 SCAN 宇宙内可解析」的真实现;幽灵指针/幽灵 URL=not ok。
+    evidence_local_ok: scanEvidenceFace(scan, c.evidence_ptr).ok,
     status: "uncertainty", // T1 全 hold(测量面未接线);T3 接线后按实测分
-    uncertainty_reason: "measure 面未接线(T3 #209):存在性=SCAN 指针本地回算,网络测量+阳性对照留待接线",
+    uncertainty_reason: "measure 面未接线(T3 #209):存在性=SCAN 宇宙三形指针解析(citation.mjs),网络测量+阳性对照留待接线",
     exclusivity_estimate: c.exclusivity_estimate ?? null, control_executable: null }));
   writeJson(path.join(ctx.dir, A.DISCOVER_MEASURE), { round_id: ctx.roundId, generated_at: new Date().toISOString(),
     results, n: results.length, hold_n: results.length });
