@@ -1974,6 +1974,66 @@ await t("A5-回声哨:篡改 09-budget.json 读数超帽 → G_CLOSE 复评门�
   assert.ok(rec.inputs.includes("09-budget.json"));
 });
 
+// ── T3(#209):发现轮结构化候选面(schema+证据存在性+候选卡行)──────────────────
+await t("T3-候选schema:缺键/错型/未知键/坏通道词/坏evidence_ptr形状=拒;正例过(notes可缺省)", async () => {
+  const cand = await import("./pipeline/discover-candidate.mjs");
+  const CANDIDATE_OK = { name: "Feodo Tracker", url: "https://feodotracker.abuse.ch/", source_channel: "web",
+    quote: "Tracking botnet C2 servers", evidence_ptr: "d1-scan.json#/entries/0", exclusivity_estimate: 0.4, notes: "" };
+  assert.equal(cand.validateCandidate(CANDIDATE_OK).ok, true, "正例须过");
+  const noUrl = { ...CANDIDATE_OK }; delete noUrl.url;
+  const r1 = cand.validateCandidate(noUrl);
+  assert.equal(r1.ok, false, "缺 url=拒");
+  assert.ok(r1.reason.includes("url"), `拒因须点名 url:${r1.reason}`);
+  assert.equal(cand.validateCandidate({ ...CANDIDATE_OK, exclusivity_estimate: "0.5" }).ok, false, "排他率字符串=错型拒");
+  assert.equal(cand.validateCandidate({ ...CANDIDATE_OK, exclusivity_estimate: 1.5 }).ok, false, "排他率>1=拒");
+  assert.equal(cand.validateCandidate({ ...CANDIDATE_OK, source_channel: "manual" }).ok, false, "通道词闭集外=拒");
+  assert.equal(cand.validateCandidate({ ...CANDIDATE_OK, score: 9 }).ok, false, "未知键=拒");
+  assert.equal(cand.validateCandidate({ ...CANDIDATE_OK, evidence_ptr: "d1-scan.json 条目0" }).ok, false, "evidence_ptr 非两形=拒");
+  const noNotes = { ...CANDIDATE_OK }; delete noNotes.notes;
+  assert.equal(cand.validateCandidate(noNotes).ok, true, "notes 缺省可过");
+});
+await t("T3-证据存在性:指针缺段/工件不在集合/URL不在场=丢弃留痕;在场=留", async () => {
+  const cand = await import("./pipeline/discover-candidate.mjs");
+  const CANDIDATE_OK = { name: "Feodo Tracker", url: "https://feodotracker.abuse.ch/", source_channel: "web",
+    quote: "Tracking botnet C2 servers", evidence_ptr: "d1-scan.json#/entries/0", exclusivity_estimate: 0.4, notes: "" };
+  const artifacts = { "d1-scan.json": { entries: [
+    { name: "Feodo Tracker", url: "https://feodotracker.abuse.ch/", channel: "web" },
+    { name: "SSL Blacklist", url: "https://sslbl.abuse.ch/", channel: "web" }] } };
+  const cs = [
+    CANDIDATE_OK,
+    { ...CANDIDATE_OK, name: "幽灵条目", evidence_ptr: "d1-scan.json#/entries/9" },
+    { ...CANDIDATE_OK, name: "外件", evidence_ptr: "d9-nope.json#/x" },
+    { ...CANDIDATE_OK, name: "URL在场", evidence_ptr: "https://feodotracker.abuse.ch/" },
+    { ...CANDIDATE_OK, name: "URL幽灵", evidence_ptr: "https://ghost.example.com/" },
+  ];
+  const r = cand.filterCandidatesByEvidence(cs, artifacts);
+  assert.deepEqual(r.kept.map((c) => c.name), ["Feodo Tracker", "URL在场"], "宁少算:缺证据只丢不修");
+  assert.equal(r.dropped.length, 3, "丢弃=3 且留痕");
+  assert.ok(r.dropped.every((d) => d.reason && typeof d.evidence_ptr === "string"), "留痕行须带 reason+evidence_ptr");
+  assert.ok(r.dropped.some((d) => d.reason.includes("不在场")), `留痕须言明不在场:${JSON.stringify(r.dropped)}`);
+});
+await t("T3-候选卡行:PROPOSE 落 queue.md(#139 flock 路径)幂等;坏候选=零写", async () => {
+  const cand = await import("./pipeline/discover-candidate.mjs");
+  const CANDIDATE_OK = { name: "Feodo Tracker", url: "https://feodotracker.abuse.ch/", source_channel: "web",
+    quote: "Tracking botnet C2 servers", evidence_ptr: "d1-scan.json#/entries/0", exclusivity_estimate: 0.4, notes: "" };
+  const queueFile = path.join(TMP, "docs", "ops", "queue-card.md");
+  const bad = await cand.appendCandidateCard({ ...CANDIDATE_OK, quote: "" }, { round: "2026-10-26-0001-discover", queueFile });
+  assert.equal(bad.ok, false, "坏候选拒写");
+  assert.equal(fs.existsSync(queueFile), false, "拒写=零文件(宁少算)");
+  const r1 = await cand.appendCandidateCard(CANDIDATE_OK, { round: "2026-10-26-0001-discover", queueFile });
+  assert.deepEqual([r1.ok, r1.appended], [true, true], "首写落行");
+  const r2 = await cand.appendCandidateCard(CANDIDATE_OK, { round: "2026-10-26-0001-discover", queueFile });
+  assert.deepEqual([r2.ok, r2.appended, r2.dedup], [true, false, true], "同候选再写=幂等 dedup(action+source 判重)");
+  const rows = fs.readFileSync(queueFile, "utf8").split("\n").filter((l) => l.startsWith("| 20"));
+  assert.equal(rows.length, 1, "恰一行候选卡");
+  assert.match(rows[0], /\| PROPOSE \| [a-z0-9_]{1,32} \| — \|/, "action=PROPOSE+source slug 形+predicate 恒 —");
+  assert.ok(rows[0].includes('candidate:name="Feodo Tracker"') && rows[0].includes("exclusivity_estimate=0.4"), "evidence 面=指针卡字段");
+  assert.ok(rows[0].endsWith("| 是(否决=删除本行) |"), "vetoable 列冻结形");
+  const r3 = await cand.appendCandidateCard({ ...CANDIDATE_OK, name: "SSL Blacklist", url: "https://sslbl.abuse.ch/" },
+    { round: "2026-10-26-0001-discover", queueFile });
+  assert.equal(r3.appended, true, "同 host 异 url 候选不互撞(slug 含 url 短哈希)");
+});
+
 fs.rmSync(TMP, { recursive: true, force: true });
 console.log(`pipeline-selftest: PASS=${pass} FAIL=${fail}`);
 process.exit(fail ? 1 : 0);
