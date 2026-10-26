@@ -11,6 +11,13 @@ import re
 from dataclasses import dataclass, field, asdict
 from ipaddress import IPv4Address
 
+# SR-T2 D2(#213 / ADR 0011): benchmark 装配侧剔除自报段 —— 取表走
+# layer_builders.scanner_ranges_prefixes(原始 CSV 直读), 段匹配复用
+# truth_layer.apply_scanner_filter; import 方向 corpus → truth_layer/
+# layer_builders 单向无环(两模块均只 import .assets)。
+from .layer_builders import scanner_ranges_prefixes
+from .truth_layer import apply_scanner_filter
+
 _IP_RE = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}(?:/\d+)?\b")
 
 
@@ -93,10 +100,27 @@ def build_benchmark(sources, per_type_n: int,
     `sources` are baseline sources (candidate excluded). Each threat source
     contributes IPs bucketed by its classification_type. benign/reserved
     strata are the small known lists below (fixed; grow the lists, not knobs).
+
+    ADR 0011 装配侧剔除(#213): scanner_ranges 源不入采样宇宙(成员=
+    厂商自报的段本身, 非指控观测, 入语料=自证污染); 其 CSV 在场时,
+    采样/封顶后对 benchmark 每个分层过一遍自报段前缀 —— 其他 scanner
+    源采出的段内 IP 同剔(census 2026-10-26 实测 80.2% 扫描器 IP 已在
+    自报段)。宁少算不回补; v6 前缀值域与 v4 永不重叠, 混排安全
+    (truth_layer.apply_scanner_filter)。无 scanner_ranges 源或其 CSV
+    缺失 → 行为与现状逐位一致(排除器不启动)。benign/reserved 是固定
+    小名单非采样面, 不动。
     """
     rng = rng or random.Random()
     bench: dict[str, list[str]] = {}
+    selfdecl: list[str] = []
     for s in sources:
+        if getattr(s, "name", None) == "scanner_ranges":
+            # 排除前缀只从在场 CSV 载入(缺文件=无排除=现状; D1 loader 的
+            # raise 语义属 truth 装配侧, 这里 is_file 前置走 noop 分支)
+            path = getattr(s, "_path", None)
+            if path is not None and path.is_file():
+                selfdecl = scanner_ranges_prefixes(path)
+            continue
         ctype = getattr(s, "classification_type", None)
         if not ctype:
             continue
@@ -106,6 +130,9 @@ def build_benchmark(sources, per_type_n: int,
     for k in list(bench.keys()):
         rng.shuffle(bench[k])
         bench[k] = bench[k][:per_type_n]
+    if selfdecl:
+        for k in list(bench.keys()):
+            bench[k], _dropped = apply_scanner_filter(bench[k], selfdecl)
     return Corpus(
         benchmark=bench,
         benign=["8.8.8.8", "1.1.1.1", "9.9.9.9", "208.67.222.222"],
