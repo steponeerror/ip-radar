@@ -87,6 +87,12 @@ export const SPAWN_CONTRACT_ENV = [
   { name: "OPS_PIPELINE_SPEND_CAP_CNY", default: "3", consumer: "pipeline/budget.mjs(四界④整轮花费帽,结算后查)", phase: "call-time" },
   { name: "OPS_PIPELINE_MONTHLY_CAP_CNY", default: "30", consumer: "pipeline/budget.mjs(月度 kill switch 帽,双面准入拒跑 code=budget_monthly)", phase: "call-time" },
   { name: "OPS_PIPELINE_DUP_CALL_LIMIT", default: "3", consumer: "pipeline/budget.mjs(同参调用拦截线,双面工具注入拦 code=repeat_storm;0=停用)", phase: "call-time" },
+  // #207 T1(发现轮管线骨架):三旋钮独立真读方=pipeline/budget.mjs readDiscoverKnobs(单源读面;
+  // 月帽不另立行——OPS_PIPELINE_MONTHLY_CAP_CNY 同键共享,admitOrRefuse 同一函数);
+  // dup 面沿 OPS_PIPELINE_DUP_CALL_LIMIT(T3 #209 工具注入接线时消费)。
+  { name: "OPS_DISCOVER_MAX_MODEL_CALLS", default: "30", consumer: "pipeline/budget.mjs readDiscoverKnobs(发现轮①整轮模型调用数帽,runModelStage attempt 前查)", phase: "call-time" },
+  { name: "OPS_DISCOVER_WALL_CLOCK_S", default: "3600", consumer: "pipeline/budget.mjs readDiscoverKnobs(发现轮③整轮墙钟秒,步边界+逐候选前查)", phase: "call-time" },
+  { name: "OPS_DISCOVER_SPEND_CAP_CNY", default: "5", consumer: "pipeline/budget.mjs readDiscoverKnobs(发现轮④整轮花费帽,结算后查)", phase: "call-time" },
   // #199 交付B(P16 跨轮熔断):tools/breaker.mjs 旋钮(构造期读=轮次调用期);
   // state 面=DOCS_ROOT/ops/breaker.json 由 DOCS_ROOT 行派生,不另立行。
   { name: "OPS_BREAKER_THRESHOLD", default: "3", consumer: "tools/breaker.mjs(通道连续计数码失败开断阈;计数码闭集=channel_missing/channel_auth/quota;0=停用),拦 code=channel_open", phase: "call-time" },
