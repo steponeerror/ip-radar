@@ -27,6 +27,7 @@ OLD_CATEGORIES = {
     "cps_collected_iocs": "threat",  # 波3 T3 CPS 自有聚合(2026-10-19,derived 聚合源)
     "ustc_blackip": "threat",   # 波4 T1 USTC 校园自保黑名单(2026-10-19,非 derived)
     "myip_ms": "threat",        # 波4 T2 myip.ms htaccess 黑名单(2026-10-19,非 derived)
+    "scanner_ranges": "threat", # SR-T1 扫描器厂商自报段(2026-10-26,MISP 66+Xpanse,非 derived)
     "cloudzy": "asset",         # 波3 T2 Cloudzy VPS 段标签(2026-10-19,asset 轴非 derived)
     "ip2proxy": "asset", "tor_exits": "asset", "x4bnet_vpn": "asset",
     "proxyscrape": "asset", "infra_services": "asset", "cdn_edges": "asset",
@@ -63,6 +64,7 @@ OLD_RELIABILITY = {
     "cps_collected_iocs": 0.50,  # 波3 T3 CPS 自有聚合(2026-10-19)
     "ustc_blackip": 0.55,       # 波4 T1 USTC 校园自保黑名单(2026-10-19)
     "myip_ms": 0.55,            # 波4 T2 myip.ms htaccess 黑名单(2026-10-19)
+    "scanner_ranges": 0.90,    # SR-T1 扫描器厂商自报段(2026-10-26,MISP 镜像一跳折档)
     "cloudzy": 0.90,            # 波3 T2 Cloudzy VPS 段标签(2026-10-19)
     "drb_ra": 0.50, "hookzof": 0.50, "thespeedx": 0.50,
     "protonvpn": 0.75, "nordvpn": 0.75,
@@ -90,12 +92,12 @@ OLD_AUTHORITATIVE = {
 _PHANTOM_AXES = ("is_malicious", "is_hosting", "is_mobile")
 
 def test_categories_match_snapshot():
-    # 50 = rir_abuse 入册后实测 len(SOURCE_CATEGORIES)
+    # 51 = scanner_ranges 入册后实测 len(SOURCE_CATEGORIES)(50 = rir_abuse 入册后口径)
     live = dict(r.SOURCE_CATEGORIES)
     assert live == OLD_CATEGORIES
 
 def test_reliability_match_snapshot():
-    # 公开源快照全等锁死(43 源口径)
+    # 公开源快照全等锁死(44 源口径;43 = myip_ms 入册后口径)
     live = dict(m.SOURCE_RELIABILITY)
     assert live == OLD_RELIABILITY
 

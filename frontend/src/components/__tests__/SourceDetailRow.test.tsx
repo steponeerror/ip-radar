@@ -86,6 +86,22 @@ describe("SourceDetailRow", () => {
     expect(screen.getByText(/\[16\]/)).toBeInTheDocument();
   });
 
+  it("renders the full scanner self-declared-range label chip (SR-T3 #214)", () => {
+    // spec §5:scanner 证人行 native 标签「研究扫描 · <厂商/机构>(自报段)」
+    // 全文原样出 chip(通用 native_categories 渲染,零新 UI 机制;钉法照上例)。
+    // 验收例 = Stretchoid(40.124.175.29):标签全文一字不差地可见。
+    const d: ClassificationDetail = {
+      source: "scanner_ranges",
+      verdict: "malicious",
+      reliability: 0.9,
+      native_categories: ["研究扫描 · Stretchoid(自报段)"],
+    };
+    renderWithI18n(<SourceDetailRow detail={d} />);
+    expect(
+      screen.getByText("[研究扫描 · Stretchoid(自报段)]")
+    ).toBeInTheDocument();
+  });
+
   it("ignores retired extra.native_type (fallback removed)", () => {
     const d: ClassificationDetail = { ...base, extra: { native_type: "PUB" } };
     renderWithI18n(<SourceDetailRow detail={d} />);
