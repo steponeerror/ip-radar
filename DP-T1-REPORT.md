@@ -37,7 +37,7 @@ spec:/tmp/discover-pipeline-spec.md T1 节(权威);ADR 0010;票 #207(伞 #206)�
 2. `41662317` 旋钮族单源+月帽共享+SPAWN_CONTRACT_ENV 三名
 3. `615a648c` 步/门/faux 面+四门+canned fixture+prompt+台账标签
 4. `f52669fc` DISCOVER_PIPELINE 六步表+引擎 per-type 化+selftest 8 新例+健康轮断言 per-type 化
-5. `0a1b1e4c` golden 门数 per-type 派生+本报告
+5. `1a9f102d` golden 门数 per-type 派生+本报告
 
 ## 红测真红记载(实现前捕获,PASS=81 FAIL=8)
 
