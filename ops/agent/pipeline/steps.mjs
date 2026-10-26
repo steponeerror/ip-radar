@@ -20,6 +20,7 @@ import { mkBreaker, readBreakerKnobs } from "../tools/breaker.mjs"; // #199 B:br
 import { itemSignature, fullDedupKey, createOpsItem, parseItemsTree, CAUSE_GROUP_BY_BUCKET } from "./ops-items.mjs"; // 条目库桥(P4 #166:接 _ops_items 同空间)
 import { ARTIFACTS as A, deepArtifactName, deepTranscriptName, DEEP_TRANSCRIPT_RE } from "../artifacts.mjs"; // 工件名表单源(#202 C1):步写出/读面禁手抄工件名(磁盘名字节冻结,位等价判例)
 import { appendQueueRowLocked } from "../tools/queue-lock.mjs"; // #139 flock 互锁队列写口(#207 T1 ENQUEUE 消费;与 python 侧 append_queue 同构互锁)
+import { CANDIDATE_ACTION } from "./discover-candidate.mjs"; // #210 T4:action 词单源 PROPOSE(一词一拼,与 T3 appendCandidateCard 同源;T1 面此路死路——MEASURE 恒 control_executable:null,三判据不过即全 skip,行永不写;词先对齐防活路拼写分叉)
 
 const execFileP = promisify(execFileCb);
 const AGENT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -668,7 +669,10 @@ async function ENQUEUE(def, ctx) {
   const queueFile = path.join(ctx.opsRoot, "queue.md");
   for (const row of enqueued) {
     const m = byCand.get(row.candidate);
-    const r = await appendQueueRowLocked({ queueFile, round: ctx.roundId, action: "ENQUEUE", source: row.candidate, predicate: null,
+    // #210 T4:action 词统一 PROPOSE(死路面也先对齐)——运营轮 ENQUEUE/REJECT 闭集是
+    // python 写面(_ops_store.QUEUE_ACTIONS)的人裁动作词;发现轮候选行=提案非动作,与
+    // T3 appendCandidateCard 一词一拼,python 读面无程序解析行消费方(PROPOSE 行无破坏)。
+    const r = await appendQueueRowLocked({ queueFile, round: ctx.roundId, action: CANDIDATE_ACTION, source: row.candidate, predicate: null,
       evidence: [
         { call_id: "d3-measure", field: "evidence_local_ok", value: true },
         { call_id: "d3-measure", field: "exclusivity_estimate", value: m.exclusivity_estimate },
