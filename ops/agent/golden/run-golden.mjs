@@ -93,7 +93,8 @@ async function runCase(c, allowSmoke) {
 
   const { runRound } = await import("../agent.mjs");
   const { resolveField } = await import("../tools.mjs");
-  const { GATE_COUNT } = await import("../pipeline/gates.mjs"); // 门数单源(#194 C3):禁手抄 10(评审D P2 硬编码判例);env 后动态 import 同上两行
+  const { HEALTH_PIPELINE } = await import("../pipeline.mjs"); // #207 T1:健康轮门数从轮型定义表派生(gates.GATE_COUNT 已含发现轮四门,非健康轮面;与 selftest-pipeline 同判例);env 后动态 import 同上两行
+  const GATE_COUNT = HEALTH_PIPELINE.filter((d) => d.gate).length;
   let result = null, err = null;
   if (c.kind === "pipeline") {
     // P0 轮次状态机例(spec #161):真引擎跑全 faux 轮(模型步=faux provider+仓内 fixtures/pipeline,

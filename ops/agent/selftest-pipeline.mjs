@@ -96,7 +96,13 @@ process.env.PATH = `${STUBS}:${process.env.PATH}`;
 // env 后动态 import(同 tools.mjs 面:先落位 env 再装载)。
 const { GATE_SEQUENCE, GATE_COUNT } = await import("./pipeline/gates.mjs");
 
-const { runPipeline, HEALTH_PIPELINE, DEFAULT_FIXTURES_DIR } = await import("./pipeline.mjs");
+const { runPipeline, HEALTH_PIPELINE, DISCOVER_PIPELINE, DEFAULT_FIXTURES_DIR } = await import("./pipeline.mjs");
+// #207 T1:门契约 per-type 化——GATE_SEQUENCE=双管线执行序并集(注册表键序双射面);健康轮门数/
+// 门序不再从 GATE_COUNT/GATE_SEQUENCE 取(发现轮四门入注册表后两者已非健康轮面),改从
+// HEALTH_PIPELINE 派生单源(与 golden/run-golden.mjs 同判例)。
+const SEQ_OF = (pipe) => pipe.map((d) => d.gate).filter(Boolean);
+const HEALTH_GATES_SEQ = SEQ_OF(HEALTH_PIPELINE);
+const HEALTH_GATE_COUNT = HEALTH_GATES_SEQ.length;
 const { runModelStep, selectModelFace, STEP_ROUND } = await import("./pipeline/faux.mjs"); // #170 面选择/真面注入缝直调单测面
 const { ERROR_CODES } = await import("./agent.mjs");
 const steps = await import("./pipeline/steps.mjs"); // P2 #164 直调 VERIFY 步(规则库/在飞面单元例)
@@ -164,30 +170,30 @@ await t("全 faux 轮:十执行态到 CLOSE,信封 ok+形状只增 pipeline 扩�
   assert.equal(env.verify.cited, 1, "canned 报告引 1 fixture 判例");
 });
 
-await t("门契约单源(#194 C3):GATES 注册键序=HEALTH_PIPELINE 执行序双射;GATE_COUNT 派生(单侧加/删门即红=门面假绿判例)", async () => {
+await t("门契约单源(#194 C3;#207 T1 per-type):GATES 注册键序=双管线执行序并集双射;GATE_COUNT 派生(单侧加/删门即红=门面假绿判例)", async () => {
   const { GATES } = await import("./pipeline/gates.mjs");
   const { HEALTH_PIPELINE } = await import("./pipeline.mjs");
-  assert.deepEqual(GATE_SEQUENCE, HEALTH_PIPELINE.map((d) => d.gate).filter(Boolean), "注册键序=执行序");
+  assert.deepEqual(GATE_SEQUENCE, [...new Set([...SEQ_OF(HEALTH_PIPELINE), ...SEQ_OF(DISCOVER_PIPELINE)])], "注册键序=双管线执行序并集(health 先 discover 后)");
   assert.equal(GATE_COUNT, GATE_SEQUENCE.length, "门数=名单长(禁手写数字)");
   assert.equal(Object.keys(GATES).length, GATE_COUNT);
 });
 
 await t("工件名表单源(#202 C1):ARTIFACT_NAMES 双向闭包——清单全落盘∧轮目录实际工件集合=名表∪DEEP 参数族(名表加项不更新写出面=红;步面新写工件不入表=红;09-budget.json 手抄三层判例收口)+gates.json 十记录全 PASS+state.json 终态 done/CLOSE+原子写无 .tmp 残留", async () => {
-  const { ARTIFACTS, ARTIFACT_NAMES, DEEP_ARTIFACT_RE, DEEP_TRANSCRIPT_RE } = await import("./artifacts.mjs"); // 工件名单一真源(禁手抄清单)
+  const { ARTIFACTS, ARTIFACT_NAMES, HEALTH_ARTIFACT_NAMES, DEEP_ARTIFACT_RE, DEEP_TRANSCRIPT_RE } = await import("./artifacts.mjs"); // 工件名单一真源(禁手抄清单);#207 T1:健康轮闭包面=HEALTH_ARTIFACT_NAMES(ARTIFACT_NAMES 已含发现轮四名)
   const d = roundDir(R1);
-  for (const f of ARTIFACT_NAMES)
+  for (const f of HEALTH_ARTIFACT_NAMES)
     assert.ok(fs.existsSync(path.join(d, f)), `工件缺:${f}`);
-  const parametric = fs.readdirSync(d).filter((f) => !ARTIFACT_NAMES.includes(f)); // 名表外=逐假设参数族闭包面
+  const parametric = fs.readdirSync(d).filter((f) => !HEALTH_ARTIFACT_NAMES.includes(f)); // 名表外=逐假设参数族闭包面
   for (const f of parametric)
     assert.ok(DEEP_ARTIFACT_RE.test(f) || DEEP_TRANSCRIPT_RE.test(f), `轮目录工件不在名表∪参数族闭包:${f}(新工件须先入 artifacts.mjs——名表与写出面双向哨)`);
   assert.ok(parametric.some((f) => DEEP_ARTIFACT_RE.test(f) && f !== ARTIFACTS.DEEP_VERDICTS), "逐假设工件");
   assert.ok(parametric.some((f) => DEEP_TRANSCRIPT_RE.test(f)), "逐假设 transcript");
   const g = j(path.join(d, "gates.json"));
   assert.equal(g.round_id, R1);
-  assert.equal(g.records.length, GATE_COUNT, "9 可跑步门(含 #182 ANCHOR_SWEEP)+G_CLOSE");
+  assert.equal(g.records.length, HEALTH_GATE_COUNT, "9 可跑步门(含 #182 ANCHOR_SWEEP)+G_CLOSE(#207 T1 起从 HEALTH_PIPELINE 派生)");
   assert.ok(g.records.every((r) => r.pass === true), `门败:${g.records.filter((r) => !r.pass).map((r) => r.name).join(",")}`);
   assert.ok(g.records.every((r) => typeof r.reason === "string" && /\d/.test(r.reason)), "reason 带数字可回算");
-  assert.deepEqual(g.records.map((r) => r.name), GATE_SEQUENCE);
+  assert.deepEqual(g.records.map((r) => r.name), HEALTH_GATES_SEQ);
   const st = j(path.join(d, "state.json"));
   assert.equal(st.status, "done");
   assert.equal(st.stage, "CLOSE");
@@ -635,7 +641,7 @@ await t("空转金轨迹轮(#162 审 P2-2 裁定①):零 need_deep → DISPATCH 
   const m = j(path.join(d, "06-itemize-manifest.json"));
   assert.deepEqual([m.created, m.reopened, m.deduped, m.suppressed], [2, 0, 0, 1], "watch 条目 2 + 抑制 1(P4:真树落盘)");
   const g = j(path.join(d, "gates.json"));
-  assert.equal(g.records.length, GATE_COUNT - 1, "skipped 步无门记录(PROBE..CLOSE 除 DISPATCH;含 #182 G_ANCHOR_SWEEP)");
+  assert.equal(g.records.length, HEALTH_GATE_COUNT - 1, "skipped 步无门记录(PROBE..CLOSE 除 DISPATCH;含 #182 G_ANCHOR_SWEEP)");
   assert.ok(g.records.every((x) => x.pass), "G_DEEP 机检金轨迹在场面");
   assert.ok(g.records.find((x) => x.name === "G_DEEP").reason.includes("golden=1"), "门 reason 带数字可回算");
 });
@@ -900,7 +906,7 @@ await t("matrix 裸失败负例(#163 review P2-1):信封件落 01-probe-matrix.j
   assert.equal(s.matrix.exit_code, null);
   assert.equal(s.matrix.violation_n, null);
   const g = j(path.join(d, "gates.json"));
-  assert.equal(g.records.length, GATE_COUNT);
+  assert.equal(g.records.length, HEALTH_GATE_COUNT);
   assert.ok(g.records.every((x) => x.pass), "门不受 matrix 裸失败牵连(legacy 失败只回嵌套信封,不阻轮语义两侧一致)");
   // 该 stub 无旗标分发→sweep 面同死:#182 降级旁路(stage degraded+门旁路留痕,轮仍成功)
   const envD = JSON.parse(r.stdout.trim().split("\n").pop());
@@ -1111,10 +1117,10 @@ await t("replay --dry 全程可跑(CLI 子进程):门全重算 PASS,产物写 -r
   assert.equal(env.ok, true);
   assert.equal(env.pipeline.replayed_of, R1);
   assert.equal(env.pipeline.round_id, `${R1}-r1`);
-  assert.equal(env.pipeline.stages.length, GATE_COUNT - 1, "dry 段=PROBE..RETRO(CLOSE 不入重放;含 #182 ANCHOR_SWEEP)");
+  assert.equal(env.pipeline.stages.length, HEALTH_GATE_COUNT - 1, "dry 段=PROBE..RETRO(CLOSE 不入重放;含 #182 ANCHOR_SWEEP)");
   assert.ok(env.pipeline.stages.every((s) => s.status === "dry"), "dry 状态词");
   const g = j(path.join(roundDir(`${R1}-r1`), "gates.json"));
-  assert.equal(g.records.length, GATE_COUNT - 1, "可跑步门全重算(含 G_ANCHOR_SWEEP;CLOSE 不入重放)");
+  assert.equal(g.records.length, HEALTH_GATE_COUNT - 1, "可跑步门全重算(含 G_ANCHOR_SWEEP;CLOSE 不入重放)");
   assert.ok(g.records.every((x) => x.pass), "原件工件上全门重算 PASS(自愈:以工件+门为准)");
   assert.equal(treeMd5(roundDir(R1)), before, "原件零改写");
 });
@@ -1503,7 +1509,7 @@ await t("⑫-面选择纯函数:显式 fixtures→faux/继承面优先/缺省→
   assert.equal(selectModelFace({ fixturesExplicit: true }), "faux", "显式 fixtures=faux 面(自测/golden)");
   assert.equal(selectModelFace({ fixturesExplicit: true, inherited: "real" }), "faux", "显式 fixtures 赢过继承面(零成本审计 override)");
   assert.equal(selectModelFace({ inherited: "faux" }), "faux", "继承面(replay 保真)");
-  assert.deepEqual(STEP_ROUND, { TRIAGE: "health", SYNTH: "health", DEEP: "discover" }, "步→models.mjs 轮键映射(flash/glm-5.3)");
+  assert.deepEqual(STEP_ROUND, { TRIAGE: "health", SYNTH: "health", DEEP: "discover", SHORTLIST: "discover" }, "步→models.mjs 轮键映射(flash/glm-5.3;SHORTLIST=#207 T1 发现轮)");
   const st = j(path.join(roundDir(R1), "state.json"));
   assert.equal(st.model_face, "faux", "显式 fixtures 轮 state.model_face=faux(面入 state 审计面)");
 });
@@ -1972,6 +1978,118 @@ await t("A5-回声哨:篡改 09-budget.json 读数超帽 → G_CLOSE 复评门�
   assert.equal(rec.pass, false, "读数超帽=门败(工件漂移/篡改哨)");
   assert.ok(rec.reason.includes("200001") || /超帽|读数/.test(rec.reason), `reason 须带数字与判定:${rec.reason}`);
   assert.ok(rec.inputs.includes("09-budget.json"));
+});
+
+// ── 发现轮 T1(#207;spec /tmp/discover-pipeline-spec.md T1 节;六步骨架+旋钮族+台账)──
+const RD = "2026-10-26-0940-discover";
+const budget = await import("./pipeline/budget.mjs");
+
+await t("发现轮旋钮族(#207 T1):readDiscoverKnobs 缺省 30 调用/3600s/¥5;月帽共享 OPS_PIPELINE_MONTHLY_CAP_CNY(同键同值,不另立月门);负值/非数字 usage 拒", async () => {
+  const k = budget.readDiscoverKnobs({});
+  assert.deepEqual([k.maxModelCalls, k.wallClockS, k.spendCapCny], [30, 3600, 5], "spec T4 首月缺省");
+  assert.equal(k.monthlyCapCny, budget.readBudgetKnobs({}).monthlyCapCny, "月帽共享:与 health 同键同源");
+  const ov = { OPS_DISCOVER_MAX_MODEL_CALLS: "3", OPS_PIPELINE_MONTHLY_CAP_CNY: "0.5" };
+  assert.deepEqual([budget.readDiscoverKnobs(ov).maxModelCalls, budget.readDiscoverKnobs(ov).monthlyCapCny], [3, 0.5], "env 覆盖生效(月帽键=OPS_PIPELINE_MONTHLY_CAP_CNY)");
+  assert.throws(() => budget.readDiscoverKnobs({ OPS_DISCOVER_MAX_MODEL_CALLS: "-1" }), /OPS_DISCOVER_MAX_MODEL_CALLS 须为非负数/, "负值拒");
+  assert.throws(() => budget.readDiscoverKnobs({ OPS_DISCOVER_SPEND_CAP_CNY: "abc" }), /OPS_DISCOVER_SPEND_CAP_CNY/, "非数字拒");
+});
+
+await t("双面拒跑留痕轮标签(#207 T1):appendRefusalTrace round 参数化——discover 轮留痕行轮次列=discover(原硬编码 health 注释「discover 未立项」随立项退役)", async () => {
+  const tr = mkTree("refusal-round");
+  fs.writeFileSync(tr.env.LEDGER_FILE, "| 日期 | 轮次 | model | 用量 | 备注 |\n|---|---|---|---|---|\n");
+  await budget.appendRefusalTrace(tr.env.LEDGER_FILE, { est: 0.05, cap: 30 }, tr.env, "discover");
+  assert.match(fs.readFileSync(tr.env.LEDGER_FILE, "utf8"), /\| discover \| — \| — \| [^|]*budget_monthly refused/, "留痕行轮次列=discover");
+});
+
+await t("发现轮月帽共享执法(#207 T1):台账当月已花 ¥30+est>0 → discover 轮拒跑 budget_monthly(同一 admitOrRefuse),留痕行 round=discover,轮目录不建", async () => {
+  const tr = mkTree("discover-monthly");
+  fs.writeFileSync(tr.env.LEDGER_FILE, "| 日期 | 轮次 | model | 用量 | 备注 |\n|---|---|---|---|---|\n| 2026-10-26 | discover | glm-5.3 | in=1 out=1 total=2 cost=30 | 满帽 |\n");
+  const r = await runPipeline({ roundId: RD, fixturesDir: DEFAULT_FIXTURES_DIR, env: tr.env, ...mkIo() });
+  assert.equal(r.ok, false);
+  assert.equal(r.envelope.error.code, "budget_monthly", "拒跑码与 health 同源(refusalOf 单源)");
+  assert.match(fs.readFileSync(tr.env.LEDGER_FILE, "utf8"), /\| discover \| — \| — \| [^|]*budget_monthly refused/, "拒跑留痕 round=discover");
+  assert.ok(!fs.existsSync(path.join(tr.root, "ops", "rounds", RD)), "拒跑不开轮目录");
+});
+
+await t("round-id 后缀校验(#207 T1):discover 轮型拒 -health 后缀 id;health 轮型拒 -discover 后缀 id(双面 bad_round,后缀集=轮型集)", async () => {
+  const tr = mkTree("roundid-suffix");
+  await assert.rejects(() => runPipeline({ type: "discover", roundId: "2026-10-26-0941-health", env: tr.env, ...mkIo() }), /形状须 YYYY-MM-DD-HHMM-discover/);
+  await assert.rejects(() => runPipeline({ type: "health", roundId: "2026-10-26-0941-discover", env: tr.env, ...mkIo() }), /形状须 YYYY-MM-DD-HHMM-health/); // 显式 type:缺省由后缀推断(推断面已由上例反证)
+});
+
+let runD;
+await t("发现轮全 faux 六步(#207 T1):SCAN..CLOSE 全绿,信封 round=discover,台账行标签 pipeline-discover:<id>,09-budget.json env 面=三旋钮+est+共享月帽(无 token 界),gates 记录=发现轮门序全 PASS,信封 pkg=null(无报告步)", async () => {
+  const tr = mkTree("discover-full");
+  runD = { tr, r: await runPipeline({ roundId: RD, fixturesDir: DEFAULT_FIXTURES_DIR, env: tr.env, ...mkIo() }) };
+  const r = runD.r;
+  assert.equal(r.ok, true, r.envelope?.error?.message ?? "");
+  assert.equal(r.envelope.round, "discover");
+  assert.deepEqual(r.envelope.pipeline.stages.map((s) => s.name), ["SCAN", "SHORTLIST", "MEASURE", "ENQUEUE", "RETRO", "CLOSE"], "六步执行态");
+  assert.equal(j(path.join(tr.root, "ops", "rounds", RD, "state.json")).status, "done");
+  assert.ok(fs.readFileSync(tr.env.LEDGER_FILE, "utf8").includes(`pipeline-discover:${RD}`), "台账标签 pipeline-discover(#207)");
+  const b = j(path.join(tr.root, "ops", "rounds", RD, "09-budget.json"));
+  assert.deepEqual(Object.keys(b.env).sort(), ["OPS_DISCOVER_MAX_MODEL_CALLS", "OPS_DISCOVER_SPEND_CAP_CNY", "OPS_DISCOVER_WALL_CLOCK_S", "OPS_PIPELINE_BUDGET_CNY", "OPS_PIPELINE_MONTHLY_CAP_CNY"], "env 面 5 键");
+  assert.equal(b.env.OPS_DISCOVER_MAX_MODEL_CALLS, 30, "旋钮读数落盘可证伪");
+  const g = j(path.join(tr.root, "ops", "rounds", RD, "gates.json"));
+  assert.ok(g.records.every((x) => x.pass === true), g.records.filter((x) => !x.pass).map((x) => `${x.name}:${x.reason}`).join(";"));
+  assert.deepEqual(g.records.map((x) => x.name), ["G_SCAN", "G_SHORTLIST", "G_MEASURE", "G_ENQUEUE", "G_RETRO", "G_CLOSE"], "发现轮门序");
+  assert.equal(r.envelope.pkg, null, "发现轮无报告步");
+  assert.ok(fs.existsSync(path.join(tr.root, "ops", "retro", `${RD}.json`)), "retro 工件(ops/retro/,同 health 律)");
+});
+
+await t("发现轮工件闭包+SCAN 确定性(#207 T1):轮目录=发现轮固定面(d1-d4+09/gates/state)∪shortlist transcript;候选宇宙两面=源注册表(≥40 已接源,repo 相对 evidence 指针)+NEEDS 缺口行(open/候选),web 面占位留痕;独立树重扫候选名单逐字节同", async () => {
+  const d = path.join(runD.tr.root, "ops", "rounds", RD);
+  const { ARTIFACTS, discoverArtifactNames } = await import("./artifacts.mjs");
+  assert.deepEqual(fs.readdirSync(d).sort(), [...discoverArtifactNames(), "d2-shortlist-transcript.jsonl"].sort(), "固定面闭包");
+  const scan = j(path.join(d, ARTIFACTS.DISCOVER_SCAN));
+  const reg = scan.candidates.filter((c) => c.source_channel === "source_registry");
+  const needs = scan.candidates.filter((c) => c.source_channel === "needs");
+  assert.ok(reg.length >= 40, `源注册表面 ≥40(实际 ${reg.length})`);
+  assert.ok(needs.length >= 1, "NEEDS 缺口行面 ≥1");
+  assert.ok(reg.every((c) => /^backend\/ipdb\/_sources\/[a-z0-9_]+\.py$/.test(c.evidence_ptr)), "registry 指针=repo 相对模块路径");
+  assert.ok(needs.every((c) => /^NEEDS\.md:L\d+$/.test(c.evidence_ptr) && ["open", "候选"].includes(c.status)), "needs 指针=NEEDS.md 行锚+缺口状态闭集");
+  assert.equal(scan.channels.web.status, "placeholder", "web 面占位留痕(T3 #209 接线)");
+  const tr2 = mkTree("discover-scan-det");
+  await runPipeline({ roundId: "2026-10-26-0942-discover", fixturesDir: DEFAULT_FIXTURES_DIR, env: tr2.env, ...mkIo() });
+  const s2 = j(path.join(tr2.root, "ops", "rounds", "2026-10-26-0942-discover", ARTIFACTS.DISCOVER_SCAN));
+  assert.equal(JSON.stringify(s2.candidates), JSON.stringify(scan.candidates), "SCAN 确定性(零模型零网络,同 commit 名单同)");
+});
+
+await t("SHORTLIST 解析失败降级(#207 T1):canned 文本非 JSON → 轮仍全绿(不炸轮),d2-shortlist 候选空+degraded 留痕,MEASURE 零行,ENQUEUE 零入队", async () => {
+  const fx = path.join(TMP, "fx-degrade"); fs.mkdirSync(fx, { recursive: true });
+  fs.writeFileSync(path.join(fx, "shortlist.json"), JSON.stringify({ turns: [{ role: "assistant", content: [{ type: "text", text: "本回合模型输出非 JSON(罐装解析失败面)" }], stopReason: "stop" }] }));
+  const tr = mkTree("discover-degrade");
+  const r = await runPipeline({ roundId: "2026-10-26-0943-discover", fixturesDir: fx, env: tr.env, ...mkIo() });
+  assert.equal(r.ok, true, "解析失败不炸轮(spec T1)");
+  const d = path.join(tr.root, "ops", "rounds", "2026-10-26-0943-discover");
+  const sh = j(path.join(d, "d2-shortlist.json"));
+  assert.deepEqual(sh.candidates, [], "降级空清单");
+  assert.match(sh.degraded, /shortlist_parse/, "降级留痕");
+  assert.deepEqual(j(path.join(d, "d3-measure.json")).results, []);
+  assert.equal(j(path.join(d, "d4-enqueue.json")).n_enqueued, 0);
+});
+
+await t("ENQUEUE 写路(#207 T1):直调步——三判据全过候选经 #139 flock 路径落 queue.md 行(source 形 ^[a-z0-9_]{1,32}$,evidence 带 d3 读数);判据不过=skipped 留痕不落行;重跑=幂等去重", async () => {
+  const tr = mkTree("enqueue-unit");
+  const { ARTIFACTS } = await import("./artifacts.mjs");
+  const dir = path.join(tr.root, "ops", "rounds", RD); fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, ARTIFACTS.DISCOVER_SHORTLIST), JSON.stringify({ round_id: RD, candidates: [
+    { name: "rdns_hf_parquet", url: "https://ip.thc.org", evidence_ptr: "NEEDS.md:L14" },
+    { name: "skip_no_ev", url: null, evidence_ptr: "NEEDS.md:L999" }] }));
+  fs.writeFileSync(path.join(dir, ARTIFACTS.DISCOVER_MEASURE), JSON.stringify({ round_id: RD, results: [
+    { candidate: "rdns_hf_parquet", evidence_local_ok: true, exclusivity_estimate: 0.42, control_executable: true },
+    { candidate: "skip_no_ev", evidence_local_ok: false, exclusivity_estimate: 0.9, control_executable: true }] }));
+  const ctx = { type: "discover", roundId: RD, dir, opsRoot: path.join(tr.root, "ops"), env: tr.env, log: () => {}, usage: { input: 0, output: 0, totalTokens: 0, cost: 0 } };
+  const steps2 = await import("./pipeline/steps.mjs");
+  await steps2.runStage({ name: "ENQUEUE" }, ctx);
+  const q = fs.readFileSync(path.join(tr.root, "ops", "queue.md"), "utf8");
+  assert.match(q, /\| ENQUEUE \| rdns_hf_parquet \|/, "行落(action+source)");
+  assert.ok(!q.includes("skip_no_ev"), "证据未过候选不落行");
+  await steps2.runStage({ name: "ENQUEUE" }, ctx);
+  assert.equal(fs.readFileSync(path.join(tr.root, "ops", "queue.md"), "utf8").split("| ENQUEUE | rdns_hf_parquet |").length - 1, 1, "重跑去重不双写");
+  const e4 = j(path.join(dir, ARTIFACTS.DISCOVER_ENQUEUE));
+  assert.equal(e4.n_enqueued, 1);
+  assert.equal(e4.n_skipped, 1);
 });
 
 // ── T3(#209):发现轮结构化候选面(schema+证据存在性+候选卡行)──────────────────

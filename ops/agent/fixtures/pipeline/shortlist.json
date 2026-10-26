@@ -1,0 +1,14 @@
+{
+  "turns": [
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"candidates\":[{\"name\":\"rDNS 主机名\",\"url\":\"https://ip.thc.org\",\"quote\":\"ip.thc.org 月度全量 parquet(49.5GB,HF+镜像双源实测活;FLAG=商用条款模糊+小机 1B 行重建未裁)\",\"evidence_ptr\":\"NEEDS.md:L14\",\"source_channel\":\"needs\",\"exclusivity_estimate\":null,\"notes\":\"T1 罐装:排他率/阳性对照留 MEASURE(T3 #209 接线后实测)\"},{\"name\":\"carrier / is_isp 出中国段\",\"url\":null,\"quote\":\"IPinfo carrier 批量库 1.18MB CSV 存在但 standard 付费 token 档,无免费路径\",\"evidence_ptr\":\"NEEDS.md:L17\",\"source_channel\":\"needs\",\"exclusivity_estimate\":null,\"notes\":\"T1 罐装:同上,MEASURE 未接线恒 hold\"}]}"
+        }
+      ],
+      "stopReason": "stop"
+    }
+  ]
+}
