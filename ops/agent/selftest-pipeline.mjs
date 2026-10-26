@@ -2044,8 +2044,11 @@ await t("发现轮工件闭包+SCAN 确定性(#207 T1):轮目录=发现轮固定
   const scan = j(path.join(d, ARTIFACTS.DISCOVER_SCAN));
   const reg = scan.candidates.filter((c) => c.source_channel === "source_registry");
   const needs = scan.candidates.filter((c) => c.source_channel === "needs");
-  assert.ok(reg.length >= 40, `源注册表面 ≥40(实际 ${reg.length})`);
-  assert.ok(needs.length >= 1, "NEEDS 缺口行面 ≥1");
+  // #208 T2:faux 轮宇宙=fixtures/d1-scan.json 钉死(seam 仅 modelFace=faux 生效)——罐装 span 例
+  // 不随真仓 NEEDS.md 演进破门;真面 SCAN(≥40)由下方「SCAN 真面直调」例钉。
+  assert.equal(reg.length, 1, "faux 轮候选宇宙=fixture 钉死(registry 1 条)");
+  assert.equal(needs.length, 2, "faux 轮 needs 2 条");
+  assert.ok(needs.every((c) => typeof c.text === "string" && c.text.includes("|")), "needs 条目带 text 原文行证据面(#208 T2:证据永不灭失,面入 d1)");
   assert.ok(reg.every((c) => /^backend\/ipdb\/_sources\/[a-z0-9_]+\.py$/.test(c.evidence_ptr)), "registry 指针=repo 相对模块路径");
   assert.ok(needs.every((c) => /^NEEDS\.md:L\d+$/.test(c.evidence_ptr) && ["open", "候选"].includes(c.status)), "needs 指针=NEEDS.md 行锚+缺口状态闭集");
   assert.equal(scan.channels.web.status, "placeholder", "web 面占位留痕(T3 #209 接线)");
@@ -2053,6 +2056,21 @@ await t("发现轮工件闭包+SCAN 确定性(#207 T1):轮目录=发现轮固定
   await runPipeline({ roundId: "2026-10-26-0942-discover", fixturesDir: DEFAULT_FIXTURES_DIR, env: tr2.env, ...mkIo() });
   const s2 = j(path.join(tr2.root, "ops", "rounds", "2026-10-26-0942-discover", ARTIFACTS.DISCOVER_SCAN));
   assert.equal(JSON.stringify(s2.candidates), JSON.stringify(scan.candidates), "SCAN 确定性(零模型零网络,同 commit 名单同)");
+});
+
+await t("T2-SCAN 真面直调(#208):modelFace 非 faux=扫真仓(registry ≥40+needs 行带 text 原文面+G_SCAN 过);text 面=行原文快照(证据永不灭失:quote span 回引在轮工件内可回算)", async () => {
+  const tr = mkTree("scan-realfaced");
+  const dir = path.join(tr.root, "ops", "rounds", "2026-10-26-0944-discover"); fs.mkdirSync(dir, { recursive: true });
+  const ctx = { type: "discover", roundId: "2026-10-26-0944-discover", dir, opsRoot: path.join(tr.root, "ops"), env: tr.env, fixturesDir: DEFAULT_FIXTURES_DIR, log: () => {}, usage: { input: 0, output: 0, totalTokens: 0, cost: 0 } }; // modelFace 缺席≠faux → 真面扫描(判例:faux seam 须显式面才生效)
+  await (await import("./pipeline/steps.mjs")).runStage({ name: "SCAN" }, ctx);
+  const { ARTIFACTS } = await import("./artifacts.mjs");
+  const s = j(path.join(dir, ARTIFACTS.DISCOVER_SCAN));
+  const regN = s.candidates.filter((c) => c.source_channel === "source_registry").length;
+  const needs = s.candidates.filter((c) => c.source_channel === "needs");
+  assert.ok(regN >= 40, `真面 registry ≥40(实际 ${regN})`);
+  assert.ok(needs.length >= 1 && needs.every((c) => typeof c.text === "string" && c.text.trim().length > 0), "真面 needs 行全带原文 text 面");
+  const { GATES } = await import("./pipeline/gates.mjs");
+  assert.equal(GATES.G_SCAN(ctx).pass, true, "真面工件过 G_SCAN");
 });
 
 await t("SHORTLIST 解析失败降级(#207 T1):canned 文本非 JSON → 轮仍全绿(不炸轮),d2-shortlist 候选空+degraded 留痕,MEASURE 零行,ENQUEUE 零入队", async () => {
@@ -2092,6 +2110,75 @@ await t("ENQUEUE 写路(#207 T1):直调步——三判据全过候选经 #139 fl
   assert.equal(e4.n_skipped, 1);
 });
 
+// ── T2(#208):四门强化+span 级回引+哨 ─────────────────────────────────
+await t("T2-spanMatcher 三负例判例(#208):幽灵 URL/半真 URL(前缀子串+超集)/改写引文(大小写+标点)=全拒;恰等与逐字 span=收;非串/空串=拒", async () => {
+  const { spanMatcher } = await import("./pipeline/citation.mjs");
+  const FACE = "| rDNS 主机名 | 反查 IP→域名 | 候选 | ip.thc.org 月度全量 parquet(49.5GB,HF+镜像双源实测活;FLAG=商用条款模糊+小机 1B 行重建未裁) 2026-10-24 记 |";
+  // 负例① 幽灵 URL:quote 引不在证据面的 URL
+  assert.equal(spanMatcher("见 https://ghost.example.com/x 提供月度 parquet", FACE), false, "幽灵 URL=拒");
+  // 负例② 半真 URL 之(a) 前缀子串:面内是 https://ip.thc.org,quote 只引 https://ip.thc
+  assert.equal(spanMatcher("https://ip.thc 提供月度全量 parquet(49.5GB,HF+镜像双源实测活;FLAG=商用条款模糊+小机 1B 行重建未裁)", FACE), false, "前缀子串半真 URL=拒(URL 边界律)");
+  // 负例② 之(b) 超集串:面内 https://ip.thc.org,quote 引 https://ip.thc.org/extra
+  assert.equal(spanMatcher("https://ip.thc.org/extra 提供 parquet(49.5GB,HF+镜像双源实测活;FLAG=商用条款模糊+小机 1B 行重建未裁)", FACE), false, "超集半真 URL=拒");
+  // 负例③ 改写引文:大小写改写
+  assert.equal(spanMatcher("IP.THC.ORG 月度全量 PARQUET(49.5GB,HF+镜像双源实测活;FLAG=商用条款模糊+小机 1B 行重建未裁)", FACE), false, "大小写改写=拒");
+  // 负例③ 改写引文:标点改写(中文逗号替空格)
+  assert.equal(spanMatcher("ip.thc.org 月度全量 parquet(49.5GB,HF+镜像双源实测活,FLAG=商用条款模糊+小机 1B 行重建未裁)", FACE), false, "标点改写=拒");
+  // 正例:恰等整句 + 逐字 span(句中片段,URL 后随中文=定界在场)
+  assert.equal(spanMatcher(FACE, FACE), true, "恰等=收");
+  assert.equal(spanMatcher("ip.thc.org 月度全量 parquet(49.5GB,HF+镜像双源实测活;FLAG=商用条款模糊+小机 1B 行重建未裁)", FACE), true, "逐字 span=收");
+  // 非串/空串拒
+  assert.equal(spanMatcher("", FACE), false, "空 quote=拒");
+  assert.equal(spanMatcher(null, FACE), false, "非串 quote=拒");
+  assert.equal(spanMatcher(FACE, null), false, "非串证据面=拒");
+});
+
+await t("T2-scanEvidenceFace 三形解析(#208):透传形(NEEDS.md:L14/registry 路径)→条目 text 面;工件形(d1-scan.json#/candidates/N)→所指值/条目面;URL 形→URL 逐字在场的条目面;幽灵指针/外件/幽灵 URL=拒", async () => {
+  const { scanEvidenceFace } = await import("./pipeline/citation.mjs");
+  const scan = { candidates: [
+    { name: "feodo_tracker", evidence_ptr: "backend/ipdb/_sources/feodo_tracker.py", source_channel: "source_registry", status: "integrated" },
+    { name: "rDNS 主机名", url: "https://ip.thc.org", evidence_ptr: "NEEDS.md:L14", source_channel: "needs", status: "候选", text: "| rDNS 主机名 | 反查 | 候选 | ip.thc.org 月度全量 parquet |" },
+    { name: "Feodo Tracker", url: "https://feodotracker.abuse.ch/", evidence_ptr: "https://feodotracker.abuse.ch/", source_channel: "web", status: "候选" }] };
+  const f1 = scanEvidenceFace(scan, "NEEDS.md:L14");
+  assert.equal(f1.ok, true); assert.ok(f1.text.includes("ip.thc.org 月度全量 parquet"), "透传形→条目 text 面");
+  const f1b = scanEvidenceFace(scan, "backend/ipdb/_sources/feodo_tracker.py");
+  assert.equal(f1b.ok, true); assert.ok(!f1b.text.includes("text"), "registry 透传形→canonicalJson 面(无 text 键)");
+  const f2 = scanEvidenceFace(scan, "d1-scan.json#/candidates/1");
+  assert.equal(f2.ok, true); assert.ok(f2.text.includes("rDNS 主机名"), "工件形→所指值面");
+  const f3 = scanEvidenceFace(scan, "https://feodotracker.abuse.ch/");
+  assert.equal(f3.ok, true); assert.ok(f3.text.includes("Feodo Tracker"), "URL 形→URL 在场条目面");
+  assert.equal(scanEvidenceFace(scan, "NEEDS.md:L999").ok, false, "透传形不在宇宙=拒");
+  assert.equal(scanEvidenceFace(scan, "d9-nope.json#/x").ok, false, "外件指针=拒");
+  assert.equal(scanEvidenceFace(scan, "https://ghost.example.com/").ok, false, "幽灵 URL=拒");
+  assert.equal(scanEvidenceFace(scan, "指 针 含空白").ok, false, "三形外=拒");
+});
+
+await t("T2-四门篡改红期(#208):G_SCAN 指针自洽/G_SHORTLIST span 改写/G_MEASURE 数字漂移/G_ENQUEUE 幽灵入队——篡改即门败(reason 带候选名+数字);未篡改原轮四门全绿对照", async () => {
+  const { GATES } = await import("./pipeline/gates.mjs");
+  const base = path.join(runD.tr.root, "ops", "rounds", RD);
+  const { ARTIFACTS } = await import("./artifacts.mjs");
+  const ctxLike = (dir) => ({ type: "discover", roundId: RD, dir, opsRoot: path.join(runD.tr.root, "ops"), envelope: runD.r.envelope });
+  const tamper = (name, gate, doctor, why) => {
+    const dir = path.join(TMP, `t2-tamper-${name}`);
+    fs.rmSync(dir, { recursive: true, force: true }); fs.cpSync(base, dir, { recursive: true });
+    doctor(dir);
+    const rec = GATES[gate](ctxLike(dir));
+    assert.equal(rec.pass, false, `${name} 篡改须门败(得 ${rec.reason})`);
+    assert.ok(why.test(rec.reason), `${name} reason 面具名(得 ${rec.reason})`);
+  };
+  // 对照:未篡改轮四门全绿(闭包绿先钉)
+  for (const g of ["G_SCAN", "G_SHORTLIST", "G_MEASURE", "G_ENQUEUE"]) assert.equal(GATES[g](ctxLike(base)).pass, true, `对照:${g} 原轮须绿`);
+  // ① G_SCAN:needs 条目指针改非行锚形(自洽破)
+  tamper("scan", "G_SCAN", (dir) => { const p = path.join(dir, ARTIFACTS.DISCOVER_SCAN); const s = j(p); s.candidates.find((c) => c.source_channel === "needs").evidence_ptr = "NEEDS.md:行14"; fs.writeFileSync(p, JSON.stringify(s, null, 2)); }, /指针形|自洽/);
+  // ② G_SHORTLIST:quote 标点改写(逐字 span 破)
+  tamper("shortlist", "G_SHORTLIST", (dir) => { const p = path.join(dir, ARTIFACTS.DISCOVER_SHORTLIST); const s = j(p); s.candidates[0].quote = s.candidates[0].quote.replace("(", "\uff08"); // 标点改写:半角→全角 U+FF08
+    fs.writeFileSync(p, JSON.stringify(s, null, 2)); }, /逐字|span/);
+  // ③ G_MEASURE:排他率数字漂移(工件 0.9 vs shortlist null)
+  tamper("measure", "G_MEASURE", (dir) => { const p = path.join(dir, ARTIFACTS.DISCOVER_MEASURE); const s = j(p); s.results[0].exclusivity_estimate = 0.9; fs.writeFileSync(p, JSON.stringify(s, null, 2)); }, /排他率/);
+  // ④ G_ENQUEUE:幽灵入队行(不在 shortlist)
+  tamper("enqueue", "G_ENQUEUE", (dir) => { const p = path.join(dir, ARTIFACTS.DISCOVER_ENQUEUE); const s = j(p); s.enqueued.unshift({ candidate: "ghost_cand", name: "幽灵候选", reasons: [] }); s.n_enqueued += 1; fs.writeFileSync(p, JSON.stringify(s, null, 2)); }, /shortlist|测量/);
+});
+
 // ── T3(#209):发现轮结构化候选面(schema+证据存在性+候选卡行)──────────────────
 await t("T3-候选schema:缺键/错型/未知键/坏通道词/坏evidence_ptr形状=拒;正例过(notes可缺省)", async () => {
   const cand = await import("./pipeline/discover-candidate.mjs");
@@ -2109,6 +2196,10 @@ await t("T3-候选schema:缺键/错型/未知键/坏通道词/坏evidence_ptr形
   assert.equal(cand.validateCandidate({ ...CANDIDATE_OK, evidence_ptr: "d1-scan.json 条目0" }).ok, false, "evidence_ptr 非两形=拒");
   const noNotes = { ...CANDIDATE_OK }; delete noNotes.notes;
   assert.equal(cand.validateCandidate(noNotes).ok, true, "notes 缺省可过");
+  // #208 T2 处置裁定(2026-10-26 交管):T3 discover-candidate.mjs 不动(其校验器=独立候选面,
+  // url/排他率必填律保留);发现轮 needs 面(url:null/排他率:null/透传形指针 NEEDS.md:L14)
+  // 的收留裁决在 gates.mjs G_SHORTLIST 门面(四门篡改例+全链六步例钉)与 citation.mjs
+  // scanEvidenceFace(span 解析)——两协议分立,非冲突。
 });
 await t("T3-证据存在性:指针缺段/工件不在集合/URL不在场=丢弃留痕;在场=留", async () => {
   const cand = await import("./pipeline/discover-candidate.mjs");
