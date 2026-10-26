@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { screen, fireEvent } from "@testing-library/react";
 import { renderWithI18n } from "../../test/i18nTestUtils";
+import { ensureOpenCC } from "../../i18n/opencc";
 import { SourceDetailRow } from "../SourceDetailRow";
 import type { ClassificationDetail } from "../../api";
 
@@ -86,20 +87,28 @@ describe("SourceDetailRow", () => {
     expect(screen.getByText(/\[16\]/)).toBeInTheDocument();
   });
 
-  it("renders the full scanner self-declared-range label chip (SR-T3 #214)", () => {
+  it("renders the full scanner self-declared-range label chip (SR-T3 #214)", async () => {
     // spec §5:scanner 证人行 native 标签「研究扫描 · <厂商/机构>(自报段)」
-    // 全文原样出 chip(通用 native_categories 渲染,零新 UI 机制;钉法照上例)。
-    // 验收例 = Stretchoid(40.124.175.29):标签全文一字不差地可见。
+    // 全文出 chip(通用 native_categories 渲染,零新 UI 机制;钉法照上例)。
+    // 2026-10-26 i18n 裁定:展示面跟 locale 走(zh-CN 必须与后端原字面量逐字一致,
+    // zh-TW 由 OpenCC 派生,en 英文;非自报段形状仍原样透传)。
+    await ensureOpenCC();  // 转换器同步就绪再渲染(生产路径 = Provider 异步武装后重渲染)
     const d: ClassificationDetail = {
       source: "scanner_ranges",
       verdict: "malicious",
       reliability: 0.9,
       native_categories: ["研究扫描 · Stretchoid(自报段)"],
     };
-    renderWithI18n(<SourceDetailRow detail={d} />);
-    expect(
-      screen.getByText("[研究扫描 · Stretchoid(自报段)]")
-    ).toBeInTheDocument();
+    const cases = [
+      ["en", "[Research scanning · Stretchoid (self-declared range)]"],
+      ["zh-CN", "[研究扫描 · Stretchoid(自报段)]"],
+      ["zh-TW", "[研究掃描 · Stretchoid(自報段)]"],
+    ] as const;
+    for (const [locale, expected] of cases) {
+      const { unmount } = renderWithI18n(<SourceDetailRow detail={d} />, { locale });
+      expect(screen.getByText(expected)).toBeInTheDocument();
+      unmount();
+    }
   });
 
   it("ignores retired extra.native_type (fallback removed)", () => {

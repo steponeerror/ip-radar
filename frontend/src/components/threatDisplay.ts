@@ -1,5 +1,20 @@
 import type { LookupResult, ThreatSummary } from "../api";
 
+// scanner_ranges 自报段标签本地化(2026-10-26 用户裁定):后端冻结格式
+// 「研究扫描 · <厂商>(自报段)」(scanner_ranges 批 #214 契约钉死,简体数据直出)
+// 在 zh-TW/en 界面须跟语言走。模式命中 → 拆厂商名经 t() 重组;不命中
+// (sw_scanners 计数形「12 · X(3)」等)原样透传——数据面零改,展示面本地化。
+const SELF_DECLARED_RE = /^研究扫描 · (.+)\(自报段\)$/;
+
+export function localizeScannerLabel(
+  label: string,
+  t: (key: string, vars?: Record<string, string | number>) => string,
+): string {
+  const m = label.match(SELF_DECLARED_RE);
+  if (!m) return label;
+  return t("class.scannerSelfDeclared", { vendor: m[1] });
+}
+
 export function confColor(conf: number): string {
   if (conf >= 70) return "bg-emerald-500";
   if (conf >= 30) return "bg-amber-500";

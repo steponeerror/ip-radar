@@ -3,6 +3,7 @@ import { apiFetch, type LookupResult } from "../api";
 import {
   confTextColor, VERDICT_STYLE, VERDICT_RANK, verdictLabelKey,
   normType, classLabel, familyShort, threatSummary, SCORE_SEMANTICS,
+  localizeScannerLabel,
 } from "./threatDisplay";
 import { useI18n } from "../i18n";
 import { IpDetailPanel } from "./IpDetailPanel";
@@ -159,6 +160,8 @@ function VerdictCell({ summary }: { summary: ReturnType<typeof threatSummary> })
 // scanner 厂商自报段标签(scanner_ranges 批,PR #216):标签列只显自报段声明源的
 // native_categories(「研究扫描 · X(自报段)」);sw_scanners 等计数型标签仅进展开面板,
 // 不进标签列(噪声守门,2026-10-26 用户裁「多加一个标签」)。去重 + 封顶 3 溢出 +N。
+// 展示面经 localizeScannerLabel 跟 locale 走(2026-10-26 用户裁「适配多语言」);
+// 去重键用后端原字面量,与语言无关。
 const VENDOR_TAG_SOURCE = "scanner_ranges";
 const VENDOR_TAG_CAP = 3;
 
@@ -227,7 +230,7 @@ function ThreatTags({
             {shown.map((v) => (
               <span key={`vendor-${v.label}`} title={v.source}
                 className="rounded bg-orange-500/10 px-1.5 py-0.5 text-[11px] text-orange-300 ring-1 ring-orange-500/20">
-                {v.label}
+                {localizeScannerLabel(v.label, t)}
               </span>
             ))}
             {rest > 0 && <span className="text-[10px] text-zinc-500">+{rest}</span>}

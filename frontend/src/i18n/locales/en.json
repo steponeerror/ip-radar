@@ -64,6 +64,7 @@
   "cdn.notice": "Public infrastructure — banning not recommended",
   "cidrHint.label": "Supports IPv4/IPv6 and CIDR ranges, e.g. 1.2.3.0/24",
   "class.abuse_reports": "Abuse reports",
+  "class.scannerSelfDeclared": "Research scanning · {vendor} (self-declared range)",
   "class.blacklist": "Blacklist",
   "class.infected_system": "Infected System",
   "class.botnet_cc": "C2",

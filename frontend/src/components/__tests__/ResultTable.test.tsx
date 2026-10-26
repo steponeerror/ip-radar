@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { screen, fireEvent, within, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithI18n } from "../../test/i18nTestUtils";
+import { ensureOpenCC } from "../../i18n/opencc";
 import { ResultTable } from "../ResultTable";
 import type { ClassificationAssessment, LookupResult } from "../../api";
 
@@ -405,9 +406,29 @@ describe("ResultTable scanner vendor tag", () => {
       ]) } };
     renderWithI18n(<ResultTable results={[r]} />);
     const tds = screen.getByText("162.142.125.11").closest("tr")!.querySelectorAll("td");
-    const chip = within(tds[6]).getByText("研究扫描 · Censys(自报段)");
+    // 默认 en:chip 文案跟 locale 走(2026-10-26 用户裁「适配多语言」)
+    const chip = within(tds[6]).getByText("Research scanning · Censys (self-declared range)");
     expect(chip.getAttribute("title")).toContain("scanner_ranges");
     expect(within(tds[6]).getByText("Scanner")).toBeInTheDocument();  // 分类 chip 仍在
+  });
+
+  it("localizes the vendor chip per locale (zh-CN byte-identical / zh-TW derived)", async () => {
+    await ensureOpenCC();  // 转换器同步就绪再渲染(生产路径 = Provider 异步武装后重渲染)
+    const r: LookupResult = { ...baseResult, ip: "162.142.125.11",
+      classifications: { scanner: caScanner([
+        { source: "scanner_ranges", reliability: 0.9, verdict: "malicious",
+          native_categories: ["研究扫描 · Censys(自报段)"] },
+      ]) } };
+    const cases = [
+      ["zh-CN", "研究扫描 · Censys(自报段)"],
+      ["zh-TW", "研究掃描 · Censys(自報段)"],
+    ] as const;
+    for (const [locale, expected] of cases) {
+      const { unmount } = renderWithI18n(<ResultTable results={[r]} />, { locale });
+      const tds = screen.getByText("162.142.125.11").closest("tr")!.querySelectorAll("td");
+      expect(within(tds[6]).getByText(expected)).toBeInTheDocument();
+      unmount();
+    }
   });
 
   it("does not surface native labels from other scanner sources (noise guard)", () => {
