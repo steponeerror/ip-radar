@@ -8,6 +8,8 @@ run_seed 纪律(采样层必填 kw-only)+ 逐字节确定性 + 宁少算(输入�
 import json
 from pathlib import Path
 
+import pytest
+
 from ipdb._eval.assets import fingerprint, load_asset
 from ipdb._eval.layer_builders import (
     CLOUD_SAMPLE_N,
@@ -16,6 +18,7 @@ from ipdb._eval.layer_builders import (
     build_infra_asset,
     build_neutral_asset,
     non_vpn_resolvers,
+    scanner_ranges_prefixes,
 )
 from ipdb._eval.layered import assemble_four_layers
 
@@ -149,6 +152,47 @@ def test_infra_skips_v6_blocks_honest_fewer_and_counts(tmp_path):
     assert (a / "ips.txt").read_bytes() == (b / "ips.txt").read_bytes()
     _, loaded = load_asset(a)
     assert loaded.params["skipped_v6_blocks"] == 2
+
+
+# ── SR-T2 D1: scanner_ranges 前缀供给(truth 侧排除器) ──────────
+
+
+def test_scanner_ranges_prefixes_reads_first_column_tokens(tmp_path):
+    # 逐行取首列(逗号前)strip:CIDR/裸 IP/v6 原样透传;空行与纯空白行跳过;
+    # 坏 token 不在 loader 拦(归 apply_scanner_filter 侧 ip_network 炸 ——
+    # 「坏快照不许静默缩水」:坏行混进真表时炸出来,不许静默缩成半张表)
+    csv = tmp_path / "scanner_ranges.csv"
+    csv.write_text(
+        "40.124.175.0/24,Stretchoid\n"
+        "2600:1f00::/24,Amazon\n"
+        "198.51.100.7,BareVendor\n"
+        "\n"
+        "   \n"
+        "not-a-token,BadVendor\n"
+        "144.86.173.0/24,Palo Alto Xpanse\n",
+        encoding="utf-8",
+    )
+    assert scanner_ranges_prefixes(csv) == [
+        "40.124.175.0/24", "2600:1f00::/24", "198.51.100.7",
+        "not-a-token", "144.86.173.0/24",
+    ]
+
+
+def test_scanner_ranges_prefixes_missing_csv_raises(tmp_path):
+    # 缺失裁定(implementer 定):显式索取的排除清单缺席 = 装配错误 →
+    # FileNotFoundError,不静默回空表(否则与 legacy scanlist 合表后排除面
+    # 无声缩水,语料悄然重染);纯空表组合另有 gates_health scanner_ok
+    # 的 DEGRADED 拒出版兜底(truth_layer S9)。benchmark 侧要「缺文件即
+    # 无排除」语义,由调用方(corpus.build_benchmark)自行 is_file 前置。
+    with pytest.raises(FileNotFoundError):
+        scanner_ranges_prefixes(tmp_path / "nope.csv")
+
+
+def test_scanner_ranges_prefixes_blank_csv_returns_empty(tmp_path):
+    # 空表(文件在、零 token)如实回空:诚实输入,下游闸兜底
+    csv = tmp_path / "scanner_ranges.csv"
+    csv.write_text("\n \n", encoding="utf-8")
+    assert scanner_ranges_prefixes(csv) == []
 
 
 def test_build_all_monthly_layout_matches_four_layer_assembler(tmp_path):
