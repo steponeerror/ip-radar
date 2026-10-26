@@ -21,7 +21,7 @@
 - **合法空**:bare-IP 多列表 feed 中 HTTP 200 + 空 body 的子列表——发布方「当前无此类条目」的声明:落 0 字节文件、下一 epoch 出清该列表条目、不计失败。仅限 200;404/超时/锚空仍是失败。firehol 等头部化格式不适用(空文件无头即坏)。锚:_sources/blocklist_de.py(download)
 - **活性锚**:同批下载中证明出版方存活的列表(blocklist_de = all.txt 聚合);锚空 = 本轮零替换 + 记真失败(fail-closed),防灾难性全空清库。判例:blocklist_de ircbot 2026-10-15(grill Q1-Q3)。锚:_sources/blocklist_de.py(download)
 - **载入期基础设施过滤**:聚合类源 rebuild 载入面排除 curated 公共基础设施单址集——聚合器转载的指控对公认解析器不构成行为证据,排除在投影层(数据文件零改写,无损管线不破)。真源=infra_services curated 集(单真相,勿查可能纪元落后的 LMDB);基类默认关,事故源显式 opt-in(infra_noise_filter=True);宁少算=仅精确单址命中,含 infra 的更大 CIDR 不排;IP_RADAR_INFRA_NOISE_FILTER=0 + 重建即复原,排除计数+条目日志化。判例:8.8.8.8(myip_ms 单源)/114.114.114.114(cps+ziyadnz 假印证)/1.1.1.1(cps)三公共解析器误报(2026-10-24 事故,ADR 0008 发现固化;哲学同族=资产弃权)。锚:_sources/_infra_filter.py
-- **自报段**:IP 段由扫描主体自己公布、经机构镜像(MISP warninglists,CC0;Xpanse 直读)到达的厂商声明——身份证据非行为观测;镜像同源(OpenFilters/internet-scanners)只接一路防回声,与三方自采观测面(sw_scanners)无谱系重叠;兼作 eval 真值层排除清单(ADR 0011)。判例:scanner_ranges 接入 grill 2026-10-26。锚:_sources/scanner_ranges.py(SDD 批落地时校准)
+- **自报段**:IP 段由扫描主体自己公布、经机构镜像(MISP warninglists,CC0;Xpanse 直读)到达的厂商声明——身份证据非行为观测;镜像同源(OpenFilters/internet-scanners)只接一路防回声,与三方自采观测面(sw_scanners)无谱系重叠;兼作 eval 真值层排除清单(ADR 0011)。判例:scanner_ranges 接入 grill 2026-10-26。锚:backend/ipdb/_sources/scanner_ranges.py:129(下载面 _FEEDS 66+1,harvest 证人 :150)
 
 ## 证据
 
@@ -32,7 +32,7 @@
 - **benign(两层,勿混)**:①指控缺席 = 弃权——观测级弃权拼写 verdict=""(R17A-1,序列化特判保留,勿兑底 malicious),顶层无指控观测时缺省序列化 verdict="benign"、confidence=0(_types.threat_summary);不投票、不亮黄灯,是「无证据」不是「判良性」——弃权绝不作良性背书(见「无证据≠清白」)。②良性断言 = 非指控信号源明确断言 benign(infra_services 升格为首个此类源,#188:curated 公共 DNS/NTP 单址双面 harvest——service 资产面照旧+classification_type=服务角色(dns/ntp)+verdict="benign";弃权拼写 "" 期作废);与指控同场才算真对立(verdict_conflict=True——良性断言 type-agnostic 注入每个指控组同场,注入面在 _registry.lookup);宁少算:良性证人不投票(组 conf/顶层重融合不变)、不压制指控 verdict(precedence 恒指控胜)、不产 STIX Indicator;conflict 留痕人裁不自动压制(锚巡检 conflict 投影/finding 出口 issue 标记);无指控组时以自身 ctype 成纯良性面(verdict=benign conf≈r,区别于①弃权 benign/0)。锚:_evidence.py(to_dict 弃权特判)、_types.py(threat_summary)、_merge.py(_assess_classification)、_registry.py(lookup 分组注入)、_sources/infra_services.py(harvest 双面)
 - **资产弃权**:源只陈述基础设施属性(proxy/hosting/tor),不构成滥用指控——verdict="" 不计票、不产 STIX Indicator,仅走 attributes 通道。判例:cloud_ranges(首创)→ip2proxy DCH(SM-F2)→ip2proxy VPN/PUB/TOR(ADR 0001,2026-10-12)。锚:_sources/ip2proxy.py(_proxy_evidence)
 - **行为源**:以观测到的滥用行为(扫描/爆破/C2 回连/举报)立证的源,如 bruteforce/ciarm/abuseipdb;与资产属性源相对——「挂着代理」由资产弃权陈述,「在作恶」由行为源指控。锚:_sources/bruteforce.py
-- **公开研究扫描**:scanner 分类的自报段证人形态——verdict=malicious 是行为类型断言(词表 "aggressive scanning"),非独立过错指控,意图活在 native 标签「研究扫描 · <厂商/机构>(自报段)」里;与行为源指控构成独立两票(观测线独立,corroborated 合法);改判权留用户,非良性断言(自报不构成良性背书,无证据≠清白)。判例:grill Q3 2026-10-26(用户裁「还是恶意但打标签,用户自己评估」)。锚:_sources/scanner_ranges.py(SDD 批落地时校准)
+- **公开研究扫描**:scanner 分类的自报段证人形态——verdict=malicious 是行为类型断言(词表 "aggressive scanning"),非独立过错指控,意图活在 native 标签「研究扫描 · <厂商/机构>(自报段)」里;与行为源指控构成独立两票(观测线独立,corroborated 合法);改判权留用户,非良性断言(自报不构成良性背书,无证据≠清白)。判例:grill Q3 2026-10-26(用户裁「还是恶意但打标签,用户自己评估」)。锚:backend/ipdb/_sources/scanner_ranges.py:150-161(harvest 构造 native_categories=["研究扫描 · <厂商/机构>(自报段)"] :161)
 - **无证据≠清白**:conf 0 = 无源命中,不是"干净";缺数据直说缺。锚:_api_models.py(FieldOut)
 
 ## 融合
