@@ -11,6 +11,7 @@ import { normalizeRules, readInFlightItems, inFlightKeys, deepSeeds, RULE_PREDIC
 import { fullDedupKey } from "./ops-items.mjs"; // 全签同因面(P4 #166;步/门同源)
 import { parseItem } from "./ops-items.mjs"; // 条目树读回(单一解析语义)
 import { ARTIFACTS as A, DEEP_TRANSCRIPT_RE, DEEP_TRANSCRIPT_GLOB } from "../artifacts.mjs"; // 工件名表单源(#202 C1):门读面/inputs 声明禁手抄工件名(磁盘名字节冻结,位等价判例)
+import { scanEvidenceFace, spanMatcher } from "./citation.mjs"; // #208 T2:证据面三形解析+span 逐字回引(G_SHORTLIST/G_MEASURE 消费)
 
 export const CLOSED_SETS = {
   cause_class: ["frozen_feed", "dead_endpoint", "auth_wall", "rate_limit", "probe_artifact", "matrix_violation", "unknown"], // C稿 §3.2 草案 1
@@ -353,9 +354,9 @@ export const GATES = {
     return pass(`信封单行 JSON 落 stdout 末行(${s.length} 字节,${ctx.envelope.pipeline?.stages?.length ?? 0} stages)`, inputs);
   },
 
-  // ── 发现轮四门(#207 T1 最小形状版;T2 #208 强化:G_SHORTLIST span 逐字回引/G_MEASURE 数字复算/G_ENQUEUE 对账)──
-  // G_SCAN:候选宇宙快照可解析+候选数组+行形状(name/指针/渠道闭集)+channels 在场(确定性面:
-  // 零模型零网络,门验形状不验发现质量——宁少算勿多算)。
+  // ── 发现轮四门(#207 T1 骨架;#208 T2 强化:span 逐字回引/数字复算/对账收严/条目自洽哨)──
+  // G_SCAN:候选宇宙快照可解析+行形状+channels 计数+#208 条目自洽哨(指针形与渠道自洽——
+  // needs 面=NEEDS.md 行锚+text 原文面在场;registry 面=repo 相对模块路径+name=文件词干)。
   G_SCAN: (ctx) => {
     const inputs = [A.DISCOVER_SCAN];
     const d = j(path.join(ctx.dir, A.DISCOVER_SCAN));
@@ -367,6 +368,18 @@ export const GATES = {
       if (typeof c.evidence_ptr !== "string" || !c.evidence_ptr) return fail(`候选 ${c.name} 缺 evidence_ptr(证据永不灭失:候选须可原样回算)`, inputs);
       if (!CH.includes(c.source_channel)) return fail(`候选 ${c.name} 渠道闭集外:${c.source_channel}`, inputs);
       if (typeof c.status !== "string" || !c.status) return fail(`候选 ${c.name} 缺 status`, inputs);
+      // #208 指针形自洽哨(同律子集于 citation.mjs 三形,但此处钉「形与渠道」互证:
+      // needs 条目行锚指向原文面、registry 条目路径指向真模块——防篡改面漂移)
+      if (c.source_channel === "needs") {
+        if (!/^NEEDS\.md:L\d+$/.test(c.evidence_ptr))
+          return fail(`needs 条目 ${c.name} 指针形不自洽:${c.evidence_ptr}(须 NEEDS.md:L<行号>)`, inputs);
+        if (typeof c.text !== "string" || !c.text.trim())
+          return fail(`needs 条目 ${c.name} 缺 text 原文面(#208:span 回引对账面须入轮工件)`, inputs);
+      } else if (c.source_channel === "source_registry") {
+      const stem = /^backend\/ipdb\/_sources\/([A-Za-z0-9_-]+)\.py$/.exec(c.evidence_ptr);
+      if (!stem || stem[1] !== c.name)
+        return fail(`registry 条目指针形不自洽:${c.evidence_ptr}(须 backend/ipdb/_sources/<name>.py 且 name=文件词干)`, inputs);
+      }
     }
     if (!d.channels || !d.channels.registry || !d.channels.needs || d.channels.web?.status !== "placeholder")
       return fail("channels 面缺席/坏形(registry/needs/web 三渠道留痕必在场;web=T3 占位)", inputs);
@@ -374,55 +387,104 @@ export const GATES = {
     const needsN = d.candidates.filter((c) => c.source_channel === "needs").length;
     if (d.channels.registry.n !== regN || d.channels.needs.n !== needsN)
       return fail(`渠道计数不符(registry 工件=${d.channels.registry.n}/实数=${regN};needs 工件=${d.channels.needs.n}/实数=${needsN})`, inputs);
-    return pass(`候选宇宙 ${d.candidates.length} 条(registry ${regN}+needs ${needsN},web=placeholder);行形状全过`, inputs);
+    return pass(`候选宇宙 ${d.candidates.length} 条(registry ${regN}+needs ${needsN},web=placeholder);行形状+指针自洽哨全过`, inputs);
   },
-  // G_SHORTLIST:结构化候选可解析+数组(空合法:零候选/降级均留痕不炸轮,spec T1);span 级逐字回引=T2 #208。
+  // G_SHORTLIST(#208 T2 span 语义门):结构化候选可解析+数组(空合法:零候选/降级留痕不炸轮);
+  // 每条候选 shape 面(七键闭集)+quote 对证据面(scanEvidenceFace 经 evidence_ptr 解析,
+  // 三形:透传/工件/URL)逐字 span(spanMatcher:改写/幽灵 URL/半真 URL=门败,reason 带
+  // 候选名+指针)。needs 面 url:null/排他率:null 合法(透传契约;T3 校验器分立不碰)。
   G_SHORTLIST: (ctx) => {
-    const inputs = [A.DISCOVER_SHORTLIST, "(d2-shortlist-transcript.jsonl)"];
+    const inputs = [A.DISCOVER_SHORTLIST, A.DISCOVER_SCAN, "(d2-shortlist-transcript.jsonl)"];
     const d = j(path.join(ctx.dir, A.DISCOVER_SHORTLIST));
+    const scan = j(path.join(ctx.dir, A.DISCOVER_SCAN));
     if (!d) return fail(`${A.DISCOVER_SHORTLIST} 不可解析`, inputs);
     if (!Array.isArray(d.candidates)) return fail("candidates 非数组", inputs);
     if (d.degraded !== undefined && typeof d.degraded !== "string") return fail("degraded 留痕非字符串", inputs);
+    const FIELDS = ["name", "url", "source_channel", "quote", "evidence_ptr", "exclusivity_estimate", "notes"]; // 七键闭集(T3 同名面;门面独立校验不 import T3 私有律)
     for (const c of d.candidates) {
-      if (!c || typeof c.name !== "string" || !c.name) return fail("候选缺 name", inputs);
-      if (typeof c.evidence_ptr !== "string" || !c.evidence_ptr) return fail(`候选 ${c.name} 缺 evidence_ptr(T2 #208 span 逐字回引强化面)`, inputs);
+      if (!c || typeof c !== "object") return fail("候选非对象", inputs);
+      const unknown = Object.keys(c).filter((k) => !FIELDS.includes(k));
+      if (unknown.length) return fail(`候选 ${c?.name} 未知键 ${unknown.join(",")}(闭集:${FIELDS.join("/")})`, inputs);
+      for (const k of ["name", "quote", "evidence_ptr", "source_channel"])
+        if (typeof c[k] !== "string" || !c[k].trim()) return fail(`候选 ${c?.name} ${k} 缺失或非非空串`, inputs);
+      if (!(c.url === null || (typeof c.url === "string" && /^https?:\/\/\S+$/.test(c.url))))
+        return fail(`候选 ${c.name} url 须 http(s) 或 null(needs 无 URL 候选合法;强造=幽灵温床)`, inputs);
+      if (!(c.exclusivity_estimate === null || (typeof c.exclusivity_estimate === "number" && Number.isFinite(c.exclusivity_estimate) && c.exclusivity_estimate >= 0 && c.exclusivity_estimate <= 1)))
+        return fail(`候选 ${c.name} exclusivity_estimate 须 [0,1] 数或 null(宁少算勿多算)`, inputs);
+      // span 语义门(核心):证据面解析+逐字回引
+      if (!scan) return fail(`${A.DISCOVER_SCAN} 不可解析(span 对账面缺席)`, inputs);
+      const face = scanEvidenceFace(scan, c.evidence_ptr);
+      if (!face.ok) return fail(`候选 ${c.name}:证据指针 ${c.evidence_ptr} 在 d1-scan 候选宇宙不可解析(${face.reason})`, inputs);
+      if (!spanMatcher(c.quote, face.text))
+        return fail(`候选 ${c.name}:quote 非证据面逐字 span(指针 ${c.evidence_ptr};改写/幽灵 URL/半真 URL=门败——spec T2 三负例)`, inputs);
     }
-    return pass(`结构化候选 ${d.candidates.length} 条${d.degraded ? `(降级留痕:${d.degraded.slice(0, 60)})` : ""};span 回引=T2 #208`, inputs);
+    return pass(`结构化候选 ${d.candidates.length} 条${d.degraded ? `(降级留痕:${d.degraded.slice(0, 60)})` : ""};span 逐字回引全过(#208 T2)`, inputs);
   },
-  // G_MEASURE:测量面可解析+行形状(candidate/存在性布尔/hold 状态/排他率 null-able);数字复算=T2 #208。
+  // G_MEASURE(#208 T2 数字复算):测量面可解析+行形状;行⊆shortlist 对账+存在性宿主重算
+  // (scanEvidenceFace)+排他率透传复算(shortlist 值??null)+hold 计数——工件漂移即门败。
   G_MEASURE: (ctx) => {
-    const inputs = [A.DISCOVER_MEASURE];
+    const inputs = [A.DISCOVER_MEASURE, A.DISCOVER_SHORTLIST, A.DISCOVER_SCAN];
     const d = j(path.join(ctx.dir, A.DISCOVER_MEASURE));
+    const sh = j(path.join(ctx.dir, A.DISCOVER_SHORTLIST));
+    const scan = j(path.join(ctx.dir, A.DISCOVER_SCAN));
     if (!d) return fail(`${A.DISCOVER_MEASURE} 不可解析`, inputs);
     if (!Array.isArray(d.results)) return fail("results 非数组", inputs);
+    const byName = new Map((sh?.candidates ?? []).map((c) => [String(c?.name ?? "").toLowerCase(), c]));
     for (const m of d.results) {
       if (!m || typeof m.candidate !== "string" || !m.candidate) return fail("测量行缺 candidate", inputs);
       if (typeof m.evidence_local_ok !== "boolean") return fail(`测量行 ${m.candidate} 缺 evidence_local_ok 布尔`, inputs);
       if (m.status !== "uncertainty" && m.status !== "measured") return fail(`测量行 ${m.candidate} 状态闭集外:${m.status}`, inputs);
       if (!(m.exclusivity_estimate === null || Number.isFinite(m.exclusivity_estimate))) return fail(`测量行 ${m.candidate} exclusivity_estimate 非 number|null`, inputs);
       if (!(m.control_executable === null || typeof m.control_executable === "boolean")) return fail(`测量行 ${m.candidate} control_executable 非 boolean|null`, inputs);
+      // #208 对账:测量行 ⊄ shortlist = 门败(无源读数)
+      const sc = byName.get(String(m.name ?? "").toLowerCase());
+      if (!sc) return fail(`测量行 ${m.candidate} ⊄ shortlist(name=${m.name} 对不上——无源读数)`, inputs);
+      // #208 存在性宿主重算:工件布 vs scanEvidenceFace 真值
+      if (scan) {
+        const want = scanEvidenceFace(scan, sc.evidence_ptr).ok;
+        if (m.evidence_local_ok !== want)
+          return fail(`存在性复算不符:行 ${m.candidate} 工件=${m.evidence_local_ok}/宿主重算=${want}(指针 ${sc.evidence_ptr})`, inputs);
+      }
+      // #208 排他率透传复算:测量行=shortlist 候选值??null(模型无权在测量面改估)
+      const wantEx = sc.exclusivity_estimate ?? null;
+      if (m.exclusivity_estimate !== wantEx)
+        return fail(`排他率透传不符:行 ${m.candidate} 工件=${m.exclusivity_estimate}/shortlist=${wantEx}(测量面无改估权)`, inputs);
     }
     const holdN = d.results.filter((m) => m.status === "uncertainty").length;
     if (d.hold_n !== holdN) return fail(`hold 计数不符(工件=${d.hold_n}/实数=${holdN})`, inputs);
-    return pass(`测量 ${d.results.length} 行(uncertainty hold ${holdN};T1 本地存在性面,复算=T2 #208)`, inputs);
+    return pass(`测量 ${d.results.length} 行(uncertainty hold ${holdN});存在性+排他率宿主复算全符(#208 T2)`, inputs);
   },
-  // G_ENQUEUE:入队对账——enqueued 行⊆shortlist 候选(slug 对账)+计数回算+门槛常量在场(判据在代码不在 prompt)。
+  // G_ENQUEUE(#208 T2 对账收严):入队行⊆shortlist∩measure 合格面(三判据宿主重算)+
+  // 穷尽哨(shortlist 候选必须在 enqueued∪skipped 有行——证据永不灭失:不静默丢候选)+
+  // 计数回算+门槛常量在场(判据在代码不在 prompt)。
   G_ENQUEUE: (ctx) => {
-    const inputs = [A.DISCOVER_ENQUEUE, A.DISCOVER_SHORTLIST, "(queue.md #139)"];
+    const inputs = [A.DISCOVER_ENQUEUE, A.DISCOVER_SHORTLIST, A.DISCOVER_MEASURE, "(queue.md #139)"];
     const d = j(path.join(ctx.dir, A.DISCOVER_ENQUEUE));
     const sh = j(path.join(ctx.dir, A.DISCOVER_SHORTLIST));
+    const me = j(path.join(ctx.dir, A.DISCOVER_MEASURE));
     if (!d) return fail(`${A.DISCOVER_ENQUEUE} 不可解析`, inputs);
     if (!Array.isArray(d.enqueued) || !Array.isArray(d.skipped)) return fail("enqueued/skipped 非数组", inputs);
     if (d.n_enqueued !== d.enqueued.length || d.n_skipped !== d.skipped.length)
       return fail(`计数不符(enqueued ${d.n_enqueued}≠${d.enqueued.length};skipped ${d.n_skipped}≠${d.skipped.length})`, inputs);
     if (d.gate_exclusivity !== ENQUEUE_EXCLUSIVITY_GATE) return fail(`门槛常量不符:工件=${d.gate_exclusivity}/代码=${ENQUEUE_EXCLUSIVITY_GATE}(判据单源在代码)`, inputs);
     const shSet = new Set((sh?.candidates ?? []).map((c) => String(c.name).toLowerCase()));
+    const mByCand = new Map((me?.results ?? []).map((r) => [String(r.candidate), r]));
     for (const row of d.enqueued) {
       if (!shSet.has(String(row.name ?? "").toLowerCase())) return fail(`入队行 ${row.candidate} ⊄ shortlist 候选(对账;T2 #208 强化)`, inputs);
       if (!Array.isArray(row.reasons) || row.reasons.length) return fail(`入队行 ${row.candidate} 带拒因(矛盾面)`, inputs);
+      // #208 三判据宿主重算(入队⊆shortlist∩measure 合格面)
+      const m = mByCand.get(String(row.candidate ?? ""));
+      if (!m) return fail(`入队行 ${row.candidate} 无测量行(入队⊆shortlist∩measure 合格面)`, inputs);
+      if (m.evidence_local_ok !== true || !((m.exclusivity_estimate ?? -1) >= ENQUEUE_EXCLUSIVITY_GATE) || m.control_executable !== true)
+        return fail(`入队行 ${row.candidate} 判据复算不过(证据=${m.evidence_local_ok}/排他率=${m.exclusivity_estimate}(门≥${ENQUEUE_EXCLUSIVITY_GATE})/对照=${m.control_executable}——三判据宿主重算)`, inputs);
     }
     for (const row of d.skipped) if (!Array.isArray(row.reasons) || !row.reasons.length) return fail(`skipped 行 ${row.candidate} 缺拒因(无证据即无话:不入队须留理由)`, inputs);
-    return pass(`入队 ${d.n_enqueued}/skipped ${d.n_skipped};门槛=排他率≥${ENQUEUE_EXCLUSIVITY_GATE}(常量);对账⊆shortlist 过`, inputs);
+    // #208 穷尽哨:shortlist 候选必须在 enqueued∪skipped 有行(不静默丢候选)
+    const covered = new Set([...d.enqueued, ...d.skipped].map((r) => String(r.name ?? "").toLowerCase()));
+    for (const c of sh?.candidates ?? [])
+      if (!covered.has(String(c?.name ?? "").toLowerCase()))
+        return fail(`shortlist 候选 ${c?.name} 在 ${A.DISCOVER_ENQUEUE} 无行(enqueued∪skipped 须穷尽——证据永不灭失:不静默丢候选)`, inputs);
+    return pass(`入队 ${d.n_enqueued}/skipped ${d.n_skipped};门槛=排他率≥${ENQUEUE_EXCLUSIVITY_GATE}(常量);⊆shortlist∩measure 合格面+穷尽哨过(#208 T2)`, inputs);
   },
 };
 

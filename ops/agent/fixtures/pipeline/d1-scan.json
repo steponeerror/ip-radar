@@ -1,0 +1,13 @@
+{
+  "_comment": "#208 T2:发现轮 faux 面 SCAN 宇宙罐装(steps.mjs SCAN faux 缝消费;缺省真面不受影响)。needs 条目带 text=原文行快照(span 门对账面入轮工件——证据永不灭失);registry 条目结构性(无 text,canonicalJson 面)。text 面须与 shortlist.json 罐装 quote 构成逐字 span(改 quote 或 text 即 span 门红——篡改哨自检)。",
+  "candidates": [
+    { "name": "feodo_tracker", "url": null, "evidence_ptr": "backend/ipdb/_sources/feodo_tracker.py", "source_channel": "source_registry", "status": "integrated" },
+    { "name": "rDNS 主机名", "url": "https://ip.thc.org", "evidence_ptr": "NEEDS.md:L14", "source_channel": "needs", "status": "候选", "text": "| rDNS 主机名 | 反查 IP→域名,现链路零覆盖 | 候选 | ip.thc.org 月度全量 parquet(49.5GB,HF+镜像双源实测活;FLAG=商用条款模糊+小机 1B 行重建未裁) 2026-10-24 记 |" },
+    { "name": "carrier / is_isp 出中国段", "url": null, "evidence_ptr": "NEEDS.md:L17", "source_channel": "needs", "status": "open", "text": "| carrier / is_isp 出中国段 | ASN/运营商属性标注 | open | IPinfo carrier 批量库 1.18MB CSV 存在但 standard 付费 token 档,无免费路径 |" }
+  ],
+  "channels": {
+    "registry": { "status": "ok", "n": 1 },
+    "needs": { "status": "ok", "n": 2 },
+    "web": { "status": "placeholder", "n": 0, "note": "T3 #209 接线(PR3a web_search 渠道;T1 只留占位留痕)" }
+  }
+}
