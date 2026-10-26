@@ -382,3 +382,50 @@ describe("ResultTable STIX export (fetch+blob, Q1-B companion)", () => {
     vi.unstubAllGlobals();
   });
 });
+
+// --- scanner 厂商自报段标签(scanner_ranges native_categories → 标签列 chip)---
+
+describe("ResultTable scanner vendor tag", () => {
+  const caScanner = (details: ClassificationAssessment["details"]): ClassificationAssessment => ({
+    type: "scanner", verdict: "malicious", detected: true, confidence: 90,
+    algorithm: "logodds", corroborated: true, reporter_total: 0,
+    verdict_conflict: false, has_archive: false, malware_names: [],
+    details, sources: [],
+  });
+
+  it("renders the 自报段 vendor chip in the tags column (source in title)", () => {
+    const r: LookupResult = { ...baseResult, ip: "162.142.125.11",
+      classifications: { scanner: caScanner([
+        { source: "scanner_ranges", reliability: 0.9, verdict: "malicious",
+          native_categories: ["研究扫描 · Censys(自报段)"] },
+        { source: "sw_scanners", reliability: 0.55, verdict: "malicious" },
+      ]) } };
+    renderWithI18n(<ResultTable results={[r]} />);
+    const tds = screen.getByText("162.142.125.11").closest("tr")!.querySelectorAll("td");
+    const chip = within(tds[6]).getByText("研究扫描 · Censys(自报段)");
+    expect(chip.getAttribute("title")).toContain("scanner_ranges");
+    expect(within(tds[6]).getByText("Scanner")).toBeInTheDocument();  // 分类 chip 仍在
+  });
+
+  it("does not surface native labels from other scanner sources (noise guard)", () => {
+    const r: LookupResult = { ...baseResult, ip: "40.124.175.29",
+      classifications: { scanner: caScanner([
+        { source: "sw_scanners", reliability: 0.55, verdict: "malicious",
+          native_categories: ["12 · Stretchoid(3)"] },
+      ]) } };
+    renderWithI18n(<ResultTable results={[r]} />);
+    const row = screen.getByText("40.124.175.29").closest("tr")!;
+    expect(within(row).getByText("Scanner")).toBeInTheDocument();
+    expect(within(row).queryByText("12 · Stretchoid(3)")).not.toBeInTheDocument();
+  });
+
+  it("renders no vendor chip when scanner_ranges has no native_categories", () => {
+    const r: LookupResult = { ...baseResult, ip: "203.0.113.77",
+      classifications: { scanner: caScanner([
+        { source: "scanner_ranges", reliability: 0.9, verdict: "malicious" },
+      ]) } };
+    renderWithI18n(<ResultTable results={[r]} />);
+    const row = screen.getByText("203.0.113.77").closest("tr")!;
+    expect(within(row).queryByText(/自报段/)).not.toBeInTheDocument();
+  });
+});
