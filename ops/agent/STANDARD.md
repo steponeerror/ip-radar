@@ -111,6 +111,12 @@
 - 门挂点:ops/agent/tools/envelope.mjs#classifyChannelError;ops/agent/error-codes.mjs
 - 判例链:FlowGuard 2026-07(语义信号≠证据);EpiSEM-Bench 2026-10(每句都真也可能不安全);判例 2026-10-24-discover-dual-channel-dead;PR #179 wire 漂移哨(非空无标记文本归 io_error 不冒充零命中)
 
+#### D-7 发现与运营同律
+- 主张:发现轮=第六种轮型,与运营轮同宿主/同台账/同工件树(六步 SCAN→SHORTLIST→MEASURE→ENQUEUE→RETRO→CLOSE),四门全机检——G_SCAN 候选宇宙形状/G_SHORTLIST span 级逐字回引(URL 幻觉即拒)/G_MEASURE 宿主数字复算/G_ENQUEUE 入队对账;模型零裁决:入队判据(排他率≥0.25+证据存在性+阳性对照)是代码常量不在 prompt,模型无权改;ENQUEUE 只写不动作——候选行经 #139 双边 flock 写 queue.md,开票/接源全人裁,action 词统一 PROPOSE(提案非动作,与运营轮 ENQUEUE/REJECT 人裁闭集分立,一词一拼);北星两腿(入队→落地转化率+排他率分布)同 E-5 只观测不持门
+- 原语组成:状态机骨架;阶段门;三层职责线;工具白名单
+- 门挂点:ops/agent/pipeline.mjs#DISCOVER_PIPELINE;ops/agent/pipeline/gates.mjs#G_SCAN;ops/agent/pipeline/gates.mjs#G_SHORTLIST;ops/agent/pipeline/gates.mjs#G_MEASURE;ops/agent/pipeline/gates.mjs#G_ENQUEUE;ops/agent/pipeline/discovery-host.mjs#mkDiscoveryHost;ops/agent/pipeline/discover-candidate.mjs#CANDIDATE_ACTION;backend/ipdb/_eval/monthly.py#load_discover_proposals
+- 判例链:ADR 0010(发现轮管线化七决策);伞 #206 与 #207-#210;判例 2026-10-26-scanner-ranges-census(排他率口径实测);#210 T4(PROPOSE 统一+北星两腿);spanMatcher 挂点(citation.mjs)随 #208 合流补挂(T2 未合流前挂死锚即伪标准)
+
 ## 三、门挂点层
 
 挂口族注册表(条文门挂点必须落在族内载体上;挂点路径一律主仓相对,嵌套 docs 仓文件禁作挂点——CI checkout 无 docs/;`#锚词` fragment 须在文件文本内;空挂点/死锚=核对器非零退出):
