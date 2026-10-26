@@ -1035,7 +1035,7 @@
         "pipeline",
         "discover"
       ],
-      "desc": "发现轮状态机全链 faux 跑通到 CLOSE(spec 发现管线化 T1 #207 + T2 #208):真 SCAN(源注册表+NEEDS 缺口行,needs 条目带 text 原文行快照=证据永不灭失)→faux SHORTLIST(罐装 2 候选,quote=NEEDS 行逐字 span)→真 MEASURE(scanEvidenceFace 三形存在性重算+排他率透传)→真 ENQUEUE(零入队——罐装候选排他率 null/控制面 null,宁少算不入队)→RETRO/CLOSE;四门强化面(G_SCAN 指针自洽/G_SHORTLIST span 级逐字回引/G_MEASURE 数字复算/G_ENQUEUE 三判据+穷尽哨)全机检留 gates.json。",
+      "desc": "发现轮状态机全链 faux 跑通到 CLOSE(spec 发现管线化 T1 #207 + T2 #208 + T3.5 #217 工具面真接线):真 SCAN(源注册表+NEEDS 缺口行,needs 条目带 text 原文行快照=证据永不灭失)→faux SHORTLIST(罐装 2 候选,quote=NEEDS 行逐字 span)→真 MEASURE(#217 接线:存在性重算+宿主补发 web_read 罐装读数——rDNS 候选三面全算出 measured/控制面阳性对照 ok,carrier 无 URL+排他率 null=uncertainty 显式原因勿虚构)→真 ENQUEUE(#217 正例:三判据活路 1 入队 PROPOSE 候选行落 queue.md,1 skip 留痕)→RETRO/CLOSE(#217 readings.discover_channels 读数第三键);四门强化面(G_SCAN 指针自洽/G_SHORTLIST span 级逐字回引/G_MEASURE 数字复算/G_ENQUEUE 三判据+穷尽哨)全机检留 gates.json。",
       "stubs": {},
       "pipeline": {
         "round": "discover",
@@ -1106,12 +1106,16 @@
           "kind": "pipeline_artifact",
           "file": "d3-measure.json",
           "json": {
-            "hold_n": 2,
+            "hold_n": 1,
             "results.length": 2,
-            "results.0.evidence_local_ok": true
+            "results.0.evidence_local_ok": true,
+            "results.0.status": "measured",
+            "results.0.control_executable": true,
+            "results.0.exclusivity_estimate": 0.42
           },
           "matches": [
-            "rDNS 主机名"
+            "rDNS 主机名",
+            "measure-1"
           ]
         },
         {
@@ -1119,9 +1123,14 @@
           "file": "d4-enqueue.json",
           "json": {
             "gate_exclusivity": 0.25,
-            "n_enqueued": 0,
-            "n_skipped": 2
+            "n_enqueued": 1,
+            "n_skipped": 1
           }
+        },
+        {
+          "kind": "queue_file",
+          "state": "row",
+          "pattern": "\\| 2026-06-01-0400-discover \\| PROPOSE \\| rdns \\|"
         },
         {
           "kind": "pipeline_artifact",
@@ -1132,7 +1141,10 @@
             "env.OPS_DISCOVER_SPEND_CAP_CNY": 5,
             "env.OPS_DISCOVER_WALL_CLOCK_S": 3600,
             "env.OPS_PIPELINE_BUDGET_CNY": 0.05,
-            "env.OPS_PIPELINE_MONTHLY_CAP_CNY": 30
+            "env.OPS_PIPELINE_MONTHLY_CAP_CNY": 30,
+            "readings.discover_channels.channels.web_read.calls": 1,
+            "readings.discover_channels.calls_total": 1,
+            "readings.discover_channels.blocked_total": 0
           },
           "matches": [
             "\"usage\":"
