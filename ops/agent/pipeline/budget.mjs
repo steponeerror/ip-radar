@@ -43,14 +43,16 @@ export function readBudgetKnobs(env = process.env) {
 // 发现轮旋钮族(#207 T1;ADR 0010;spec /tmp/discover-pipeline-spec.md T4 首月缺省):三旋钮独立
 // (轮内调用帽/墙钟/花费帽,宁少算:发现轮无 token 界——不预设轨迹预算,四界只执①③④);月帽
 // 共享 OPS_PIPELINE_MONTHLY_CAP_CNY 同键同源(月帽是全 agent 面共享底线,不另立月门:admitOrRefuse
-// 同一函数消费,双拒跑同码同文案)。dup 面沿 OPS_PIPELINE_DUP_CALL_LIMIT(readBudgetKnobs),
-// T3 工具注入面接线时消费;哈希 dupKey 沿用不另立。
+// 同一函数消费,双拒跑同码同文案)。dup 面沿 OPS_PIPELINE_DUP_CALL_LIMIT 同键同缺省
+// (#217 T3.5 接线消费:发现工具宿主 mkDiscoveryHost dupLimit;原「T3 接线时消费」注记兑现);
+// 哈希 dupKey 沿用不另立。
 export function readDiscoverKnobs(env = process.env) {
   return {
     maxModelCalls: readKnob("OPS_DISCOVER_MAX_MODEL_CALLS", env.OPS_DISCOVER_MAX_MODEL_CALLS ?? process.env.OPS_DISCOVER_MAX_MODEL_CALLS, "30"), // ①整轮模型调用数帽(30 调用)
     wallClockS: readKnob("OPS_DISCOVER_WALL_CLOCK_S", env.OPS_DISCOVER_WALL_CLOCK_S ?? process.env.OPS_DISCOVER_WALL_CLOCK_S, "3600"), // ③整轮墙钟秒
     spendCapCny: readKnob("OPS_DISCOVER_SPEND_CAP_CNY", env.OPS_DISCOVER_SPEND_CAP_CNY ?? process.env.OPS_DISCOVER_SPEND_CAP_CNY, "5"), // ④整轮花费帽 ¥
     monthlyCapCny: readKnob("OPS_PIPELINE_MONTHLY_CAP_CNY", env.OPS_PIPELINE_MONTHLY_CAP_CNY ?? process.env.OPS_PIPELINE_MONTHLY_CAP_CNY, "30"), // 月帽共享(与 readBudgetKnobs 同键同缺省)
+    dupCallLimit: readKnob("OPS_PIPELINE_DUP_CALL_LIMIT", env.OPS_PIPELINE_DUP_CALL_LIMIT ?? process.env.OPS_PIPELINE_DUP_CALL_LIMIT, "3"), // 同参调用拦截线(#217 T3.5:发现宿主 dupLimit 消费;同键同缺省不另立)
   };
 }
 

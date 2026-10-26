@@ -1,0 +1,11 @@
+{
+  "_comment": "#217 T3.5:faux 面 MEASURE 罐装读数表(web_read 探测面;零网络律)。web_reads 按 url 罐装:ok=true 行=罐装成功读数;ok=false 行=罐装失败面(死链/鉴权模拟);未罐装 url=io_error 未罐装信封(诚实面,不虚构)。本罐只装 d2 shortlist.json 出现的 rDNS 候选 URL,供全轮例走通 SHORTLIST→MEASURE→PROPOSE 正路。",
+  "web_reads": [
+    {
+      "url": "https://ip.thc.org",
+      "ok": true,
+      "title": "ip.thc.org rDNS 数据页(faux 罐装)",
+      "content": "ip.thc.org rDNS 月度全量 parquet 发布页(faux 罐装正文,零网络):每月全量反向解析主机名数据,49.5GB parquet,HF+镜像双源实测活;商用条款模糊+小机 1B 行重建未裁(NEEDS.md:L14 同文)。"
+    }
+  ]
+}

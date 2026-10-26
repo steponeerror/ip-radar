@@ -17,10 +17,14 @@
 //     直调(执行同样过守卫链、同样登记 seed)。
 //   - CLOSE:readings 面 discover_channels=discoverChannelReadings(host.channelCounts)
 //     (键名由 T1 定,构造器只出值);breaker 快照仍走既有 readings.breaker。
+import fs from "node:fs";
+import path from "node:path";
+import { Type } from "@earendil-works/pi-ai";
 import { discoveryMethods } from "../tools/discovery.mjs";
-import { BREAKER_CHANNELS } from "../tools/breaker.mjs";
+import { BREAKER_CHANNELS, mkBreaker, readBreakerKnobs } from "../tools/breaker.mjs";
 import { B } from "../tools/shared.mjs";
 import { dupRecord } from "./budget.mjs";
+import { ARTIFACTS as A, DISCOVER_SHORTLIST_TRANSCRIPT } from "../artifacts.mjs"; // 工件名单源(C1 判例:回放读面禁手抄磁盘名)
 
 // 发现宿主工具闭集(=BREAKER_CHANNELS 的 web 三员;gh_search 留 legacy 面,spec T3)
 export const DISCOVERY_TOOLS = Object.freeze(["web_read", "web_search", "rss_parse"]);
@@ -106,6 +110,100 @@ export function mkDiscoveryHost({
     return tool.execute(`measure-${(seq += 1)}`, args);
   }
   return { tools, seeds, channelCounts, call };
+}
+
+// ── 接线面(#217 T3.5;头注接线协议的落地消费点)────────────────────────
+// breaker 态文件路径单源:CLOSE 观察快照(steps.mjs)与发现宿主 record 读写共用同一文件
+// ——两处各自手拼=漂移即双态(一文件一拼)。ctx 面与 steps.mjs CLOSE 原判例同形。
+export const breakerFileOf = (ctx) => path.join(ctx.opsRoot ?? path.dirname(ctx.dir), "breaker.json");
+
+// 轮级发现宿主单例:惰性建于 ctx.discoverHost——SHORTLIST(真面工具直装 initialState.tools)
+// 与 MEASURE(host.call 补发 measure-N)共用同一实例=同守卫链同配额面。dupRegistry=ctx 级
+// Map(与模型调用同 registry,dup 判例 #199 A4 同律);dupLimit=发现旋钮 dupCallLimit
+// (readDiscoverKnobs,#217 T3.5 追键);breaker=轮级 mkBreaker() 绑 ops/breaker.json(与
+// CLOSE 快照同文件同旋钮)。resume 后宿主缺席=常态(已录步跳过),CLOSE 读数走工件回放
+// (replayDiscoverSeeds)。测试缝:methods 注假实现面(缺省真面=网络/spawn 不可离线测)。
+export function ensureDiscoverHost(ctx, { methods = discoveryMethods } = {}) {
+  if (ctx.discoverHost) return ctx.discoverHost;
+  ctx.discoverHost = mkDiscoveryHost({
+    dupRegistry: ctx.dupRegistry ?? new Map(),
+    dupLimit: ctx.budgetKnobs?.dupCallLimit ?? 3,
+    breaker: mkBreaker({
+      file: breakerFileOf(ctx), env: ctx.env ?? {}, round: ctx.roundId ?? "discover",
+      knobs: ctx.breakerKnobs ?? readBreakerKnobs(ctx.env ?? {}), ledgerFile: ctx.ledgerFile, log: ctx.log,
+    }),
+    methods,
+  });
+  return ctx.discoverHost;
+}
+
+// faux 罐装方法面(零网络律):fixtures measure.json web_reads 表→web_read 罐装读数
+// (未罐装 URL=io_error 未罐装信封;罐 ok:false 行=罐装失败面,供测试确定性模拟死链/鉴权);
+// web_search/rss_parse faux 面恒 io_error 未罐装——faux 宇宙只罐 MEASURE 消费的读面,
+// 不罐不虚构。方法形状与 discoveryMethods 同构(name/label/description/annotations/
+// parameters/execute;this.finish 收口同注入协议)。
+export function fixtureDiscoveryMethods(fx = {}) {
+  const reads = new Map((Array.isArray(fx.web_reads) ? fx.web_reads : []).map((r) => [String(r?.url ?? ""), r]));
+  const miss = (code, reason) => ({ ok: false, code, reason });
+  const cannedFail = (r, url) => ({ ok: false, code: String(r?.code ?? "channel_missing"), reason: String(r?.reason ?? "faux 罐装失败面(measure.json web_reads ok:false)"), url, trace: { channel: "faux", status: Number(r?.status ?? 0) } });
+  const uncanned = (url) => ({ ok: false, code: "io_error", reason: `faux 未罐装该 URL(零网络律;fixtures measure.json web_reads 补)`, url, trace: { channel: "faux", status: 0 } });
+  // 注意方法形:this=适配器(Object.assign 挂 adapter 后经 adapter.<factory>() 调用,
+  // execute 箭头捕获方法 this——与 discoveryMethods 同注入协议,勿改成脱对象工厂函数;
+  // notCannedTool 须常规函数:.call(this) 传导 adapter 进闭包(箭头函数 .call 无效)
+  function notCannedTool(tool) {
+    return {
+    name: tool, label: `${tool}(faux 未罐装)`,
+    description: "faux 面恒 io_error 未罐装(零网络;MEASURE 面不消费本工具)",
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+    parameters: Type.Object({ query: Type.String({ maxLength: 500 }) }),
+    execute: async (callId) => this.finish(callId, tool, miss("io_error", `faux 未罐装 ${tool}(零网络律)`),
+        `${tool} 失败信封(faux):io_error: 未罐装`),
+    };
+  }
+  return {
+    webRead() {
+      return {
+        name: "web_read", label: "网页正文读(faux 罐装)",
+        description: "faux 面罐装读数(measure.json web_reads 表;未罐装=io_error,罐 ok:false=罐装失败面;零网络)",
+        annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+        parameters: Type.Object({ url: Type.String({ pattern: "^https?://", maxLength: 500 }) }),
+        execute: async (callId, p) => {
+          const r = reads.get(p.url);
+          if (!r) return this.finish(callId, "web_read", uncanned(p.url), `web_read 失败信封(faux):io_error: 未罐装 ${p.url}`);
+          if (r.ok !== true) return this.finish(callId, "web_read", cannedFail(r, p.url), `web_read 失败信封(faux):${r.code}: ${r.reason}`);
+          const content = String(r.content ?? "");
+          return this.finish(callId, "web_read",
+            { ok: true, url: p.url, title: r.title ?? null, content, chars_n: content.length, truncated: Boolean(r.truncated ?? false), trace: { channel: "faux", status: 200 } },
+            `读(faux 罐装) ${p.url};title=${r.title ?? "(无)"};chars=${content.length}\n${content}`);
+        },
+      };
+    },
+    webSearch() { return notCannedTool.call(this, "web_search"); },
+    rssParse() { return notCannedTool.call(this, "rss_parse"); },
+  };
+}
+
+// 工件回放重算(证据永不灭失):宿主缺席(resume 后 MEASURE 已录跳过)时 CLOSE 读数面的
+// 回放源=d2 transcript registry_seed 行(真面 SHORTLIST 工具调用留痕)+ d3-measure.json
+// tool_seeds(MEASURE 补发留痕)。被拒不入种子(头注律)→回放面恒宁少算(blocked 观察面
+// 不回放);坏行跳过不掷错(回放是补面非门面——门面吞坏行才是假读数,回放面宁少算)。
+// 工具名过滤=DISCOVERY_TOOLS 闭集(健康轮 probe 工具不混入)。
+export function replayDiscoverSeeds(ctx) {
+  const rows = [];
+  try {
+    for (const line of fs.readFileSync(path.join(ctx.dir, DISCOVER_SHORTLIST_TRANSCRIPT), "utf8").split("\n")) {
+      if (!line.trim()) continue;
+      let o; try { o = JSON.parse(line); } catch { continue; } // 坏行跳过(宁少算)
+      if (o?.type === "registry_seed" && DISCOVERY_TOOLS.includes(o.tool) && o.sc && typeof o.sc.ok === "boolean")
+        rows.push({ tool: o.tool, ok: o.sc.ok });
+    }
+  } catch { /* transcript 缺席=零真面工具调用(faux 轮常态) */ }
+  let m = null;
+  try { m = JSON.parse(fs.readFileSync(path.join(ctx.dir, A.DISCOVER_MEASURE), "utf8")); } catch { /* 缺席=步未达 */ }
+  if (m && Array.isArray(m.tool_seeds))
+    for (const s of m.tool_seeds)
+      if (s && DISCOVERY_TOOLS.includes(s.tool) && s.sc && typeof s.sc.ok === "boolean") rows.push({ tool: s.tool, ok: s.sc.ok });
+  return rows;
 }
 
 // 纯聚合:种子行(registry_seed 面 {tool, sc:{ok}})或扁平行 {tool, ok} → 通道分列
