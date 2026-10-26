@@ -21,7 +21,7 @@
 - **合法空**:bare-IP 多列表 feed 中 HTTP 200 + 空 body 的子列表——发布方「当前无此类条目」的声明:落 0 字节文件、下一 epoch 出清该列表条目、不计失败。仅限 200;404/超时/锚空仍是失败。firehol 等头部化格式不适用(空文件无头即坏)。锚:_sources/blocklist_de.py(download)
 - **活性锚**:同批下载中证明出版方存活的列表(blocklist_de = all.txt 聚合);锚空 = 本轮零替换 + 记真失败(fail-closed),防灾难性全空清库。判例:blocklist_de ircbot 2026-10-15(grill Q1-Q3)。锚:_sources/blocklist_de.py(download)
 - **载入期基础设施过滤**:聚合类源 rebuild 载入面排除 curated 公共基础设施单址集——聚合器转载的指控对公认解析器不构成行为证据,排除在投影层(数据文件零改写,无损管线不破)。真源=infra_services curated 集(单真相,勿查可能纪元落后的 LMDB);基类默认关,事故源显式 opt-in(infra_noise_filter=True);宁少算=仅精确单址命中,含 infra 的更大 CIDR 不排;IP_RADAR_INFRA_NOISE_FILTER=0 + 重建即复原,排除计数+条目日志化。判例:8.8.8.8(myip_ms 单源)/114.114.114.114(cps+ziyadnz 假印证)/1.1.1.1(cps)三公共解析器误报(2026-10-24 事故,ADR 0008 发现固化;哲学同族=资产弃权)。锚:_sources/_infra_filter.py
-- **自报段**:IP 段由扫描主体自己公布、经机构镜像(MISP warninglists,CC0;Xpanse 直读)到达的厂商声明——身份证据非行为观测;镜像同源(OpenFilters/internet-scanners)只接一路防回声,与三方自采观测面(sw_scanners)无谱系重叠;兼作 eval 真值层排除清单(ADR 0011)。判例:scanner_ranges 接入 grill 2026-10-26。锚:backend/ipdb/_sources/scanner_ranges.py:129(下载面 _FEEDS 66+1,harvest 证人 :150)
+- **自报段**:IP 段由扫描主体自己公布、经机构镜像(MISP warninglists,CC0;Xpanse 直读)到达的厂商声明——身份证据非行为观测;镜像同源(OpenFilters/internet-scanners)只接一路防回声,与三方自采观测面(sw_scanners)无谱系重叠;兼作 eval 真值层排除清单(ADR 0011)。判例:scanner_ranges 接入 grill 2026-10-26。锚:backend/ipdb/_sources/scanner_ranges.py:129(下载面 _FEEDS 66+1 表在 :119,harvest 证人 :150)
 
 ## 证据
 
