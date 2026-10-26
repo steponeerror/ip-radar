@@ -363,6 +363,33 @@ describe("OpsPage — 驾驶舱卡(票 #142)", () => {
     expect(screen.queryByText("[turn 1] stopReason=toolUse usage(in=100 out=20)")).toBeNull();
   });
 
+  it("在飞:展开钮带行数计数(单行时展开/收起也有可见差,2026-10-26 修)", () => {
+    renderOps({
+      tasks: [opsTask("running")],
+      logs: { t1: ["[stage] TRIAGE start", "[stage] TRIAGE done gate=PASS"] },
+    });
+    const btn = screen.getByRole("button", { name: /show full log/i });
+    expect(btn.textContent).toMatch(/2/); // 计数 = 尾里还有多少行
+    fireEvent.click(btn);
+    expect(screen.getByRole("button", { name: /collapse log/i }).textContent).toMatch(/2/);
+  });
+
+  it("新一轮起跑:展开态复位收起(全新日志面不跨轮携带,2026-10-26 修)", () => {
+    const { rerenderOps } = renderOps({
+      tasks: [opsTask("running")],
+      logs: { t1: ["[turn 1] l1", "[tool] l2"] },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /show full log/i }));
+    expect(screen.getByText("[turn 1] l1")).toBeTruthy(); // 展开在
+    // 轮终(下降沿)→ 新轮起跑(上升沿 t2):展开复位,只显末行
+    rerenderOps({ tasks: [opsTask("failed")], logs: {} });
+    const t2 = { ...opsTask("running"), id: "t2" };
+    rerenderOps({ tasks: [t2], logs: { t2: ["[stage] PROBE start"] } });
+    expect(screen.getByRole("button", { name: /show full log/i })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /collapse log/i })).toBeNull();
+    expect(screen.getByText("[stage] PROBE start")).toBeTruthy(); // 收起面=末行
+  });
+
   it("轮结束(done,内存日志优先):摘要卡 = 包名 + usage/cost + 跳「档案·报告」", () => {
     const done = opsTask("done");
     renderOps({

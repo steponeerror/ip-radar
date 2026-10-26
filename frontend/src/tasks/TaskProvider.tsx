@@ -36,12 +36,33 @@ export function TaskProvider({ children, onUnauthorized }: {
   // 若也置位,resync 快照将几乎总被丢弃(SSE 溢出丢掉 done 事件时,UI
   // 中的 batch 会永远卡在 running)。
 
+  // 快照日志尾播种(2026-10-26 修,backend snapshot "logs" 面):中途开页/
+  // SSE 重连恢复订阅前已发的 task_log 行。合并律 = 尾更长才替换:同 task
+  // 的 append-only 流,后端尾 ⊇ 订阅前收到的行前缀;更短的旧快照(fetch/
+  // SSE 竞态)不得缩水已收行。尽力而为面,不追加合并防重。
+  const seedLogs = (incoming?: Record<string, string[]>) => {
+    if (!incoming) return;
+    setLogs((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const [tid, lines] of Object.entries(incoming)) {
+        if (!Array.isArray(lines) || lines.length === 0) continue;
+        if (!next[tid] || lines.length > next[tid].length) {
+          next[tid] = lines;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  };
+
   const applyEvent = (e: TaskEvent) => {
     if (SAW_EVENTS.has(e.type)) sseSawRef.current = true;
     if (e.type === "snapshot" && e.data) {
       tasksRef.current = Object.fromEntries(e.data.tasks.map((t) => [t.id, t]));
       setTasks(Object.values(tasksRef.current));
       setBatch(e.data.batch ?? null);
+      seedLogs(e.data.logs);
     } else if (e.type === "task" && e.task) {
       const prev = tasksRef.current[e.task.id];
       if (prev && (e.task.state === "failed" || e.task.state === "cancelled")) {
@@ -82,6 +103,7 @@ export function TaskProvider({ children, onUnauthorized }: {
         tasksRef.current = Object.fromEntries(snap.tasks.map((t) => [t.id, t]));
         setTasks(Object.values(tasksRef.current));
         setBatch(snap.batch);
+        seedLogs(snap.logs);
       } catch (e) {
         // 会话中 401:踢回登录页(卸壳即断 SSE 重连);其余错误吞下 —
         // 之前这里是未处理 rejection。

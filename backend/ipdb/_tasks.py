@@ -17,6 +17,11 @@ from ._sources._download import CancelledError, CancelToken
 
 logger = logging.getLogger(__name__)
 
+# ops 轮 stderr 日志尾窗(2026-10-26 修):= 前端 TaskProvider
+# LOG_KEEP_LINES 同值——尾随快照出后前端同窗截留,两端窗口一致防
+# 播种面反复增缩。进度面非存档,证据本体在包/台账(哲学 1)。
+_OPS_LOG_KEEP = 200
+
 
 @dataclass
 class Task:
@@ -102,6 +107,15 @@ class UpdateManager:
         # 时 worker 全局停摆(轮次与源更新互斥,964MB 小机 OOM 前科),
         # finish_ops_round 的 notify_all 放行。
         self._ops_active: Optional[str] = None
+
+        # ops 轮 stderr 日志尾(2026-10-26 修,驾驶舱「展开全量日志」中途
+        # 开页只见订阅后行的根因):task_log 即时流之外的有界留存,快照面
+        # 携带(snapshot() "logs" 键,键=task_id)——中途开页/SSE 重连可
+        # 播种订阅前已发行。窗=前端 TaskProvider LOG_KEEP_LINES 同值(200);
+        # 证据本体在包/台账,这里只是即时进度面(哲学 1)。生命周期同
+        # _tasks 的 ops 面:start 建、下一轮 start 清扫(终态后仍随快照出,
+        # 供轮后开页播「上一轮」尾行)。
+        self._ops_logs: dict[str, deque[str]] = {}
 
         self._queue: deque[str] = deque()
         self._queue_cv = threading.Condition()
@@ -214,7 +228,10 @@ class UpdateManager:
                 by_source[t.source_name] = t
             tasks = [t.to_dict() for t in by_source.values()]
             batch = self._batches[self._active_batch].to_dict() if self._active_batch else None
-            return {"tasks": tasks, "batch": batch}
+            # ops 日志尾随快照出(键=task_id;源任务无此面)——中途开页/
+            # SSE 重连播种订阅前已发行(__init__ _ops_logs 注释)。
+            logs = {tid: list(lines) for tid, lines in self._ops_logs.items()}
+            return {"tasks": tasks, "batch": batch, "logs": logs}
 
     # --- batch control (Task 4) / pause / cancel / bus: added in later tasks ---
     def enqueue_batch(self, source_names: list[str]) -> str:
@@ -406,9 +423,11 @@ class UpdateManager:
             for tid in stale:
                 self._tasks.pop(tid, None)
                 self._prog.pop(tid, None)
+                self._ops_logs.pop(tid, None)
             task = Task(id=uuid.uuid4().hex[:12], source_name="ops", host=None,
                         state="running")
             self._tasks[task.id] = task
+            self._ops_logs[task.id] = deque(maxlen=_OPS_LOG_KEEP)
             self._ops_active = task.id
             self._emit({"type": "task", "task": task.to_dict()})
             return task, None
@@ -429,7 +448,13 @@ class UpdateManager:
             self._queue_cv.notify_all()
 
     def ops_log(self, task_id: str, line: str) -> None:
-        """轮次 stderr 进度行([turn]/[tool],spawn 契约面)→ 事件总线 → SSE。"""
+        """轮次 stderr 进度行([turn]/[tool],spawn 契约面)→ 事件总线 → SSE;
+        同步入有界日志尾(快照面,__init__ _ops_logs 注释)。未知 task_id
+        (恢复轮替身等)只发事件不建尾——尾随 start_ops_round 生命周期。"""
+        with self._lock:
+            tail = self._ops_logs.get(task_id)
+            if tail is not None:
+                tail.append(line)
         self._emit({"type": "task_log", "task_id": task_id, "line": line})
 
     # --- internals ---
