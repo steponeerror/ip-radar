@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import gzip
 import json
+import re
 from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
@@ -294,6 +295,61 @@ def load_prev_northstar(out_dir: Path, run_id: str) -> dict | None:
     return prev
 
 
+# 发现轮候选行判式(#210 T4): 行形状 = T4 冻结 7 列, 判重键 action+source
+# 与写面(_ops_store.append_queue / queue-lock.mjs appendQueueRowCore)同构;
+# source 形状 ^[a-z0-9_]{1,32}$ 同写面 —— 严格行正则 = 宁少算: 表头/分隔
+# 行/散文行不入读数。
+_PROPOSE_ROW_RE = re.compile(
+    r"^\|\s*\d{4}-\d{2}-\d{2}\s*\|[^|]+\|\s*PROPOSE\s*\|"
+    r"\s*([a-z0-9_]{1,32})\s*\|")
+
+
+def load_discover_proposals(ops_dir: Path) -> list[str] | None:
+    """发现轮北星①分母: queue.md PROPOSE 候选行 source 读数。
+
+    <ops_dir>/queue.md = node 写面同件(#139 flock 域); 只读永不写
+    (ENQUEUE 只写不动作的读侧影子)。判重键 action+source 同写面 ——
+    同 slug 跨轮多行只取一员(转化的分母是「提案过多少源」非行数);
+    运营轮 ENQUEUE/REJECT 行不入(闭集分立, discover-candidate.mjs
+    CANDIDATE_ACTION 注)。缺件或无 PROPOSE 行 → None(无提案记录 ≠
+    零提案 ≠ 转化率 0%, 三态分立不虚构)。"""
+    qpath = Path(ops_dir) / "queue.md"
+    if not qpath.is_file():
+        return None
+    rows = []
+    for line in qpath.read_text(encoding="utf-8").splitlines():
+        m = _PROPOSE_ROW_RE.match(line)
+        if m:
+            rows.append(m.group(1))
+    # 判重键 action+source 同写面: 同 slug 跨轮多行只取一员(首现序,
+    # 人工维护面/历史行双保险; discover_conversion 内再独立去重一次)
+    return list(dict.fromkeys(rows)) or None
+
+
+def load_discover_exclusivity(ops_dir: Path) -> list[float]:
+    """发现轮北星②输入: rounds/*-discover*/d3-measure.json 的
+    results[].exclusivity_estimate 读数袋(逐件升序, 轮序稳定)。
+
+    round-id 后缀 -discover(-rN)? 同 pipeline.mjs 轮型派生; 非发现轮
+    目录不入(宁少算)。None/缺键/非数读数跳过(缺读数 ≠ 0); 坏件跳过
+    不炸(同 load_prev_northstar 宽容律)。无 rounds/无件 → [](分布面
+    N/A 哨兵)。只读永不写。"""
+    rounds = Path(ops_dir) / "rounds"
+    if not rounds.is_dir():
+        return []
+    xs: list[float] = []
+    for mf in sorted(rounds.glob("*-discover*/d3-measure.json")):
+        try:
+            data = json.loads(mf.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError, ValueError):
+            continue
+        for r in (data.get("results") or []):
+            v = r.get("exclusivity_estimate") if isinstance(r, dict) else None
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                xs.append(float(v))
+    return xs
+
+
 def load_leg_status(out_dir: Path) -> dict | None:
     """腿级状态件(#193 C5): <out_dir>/leg-status-*.json 最新一件;
     月轮壳在 readout 腿前写入(腿名→rc, readout=null=本腿在飞),
@@ -333,8 +389,9 @@ def render_leg_status(leg: dict | None) -> list[str]:
 
 def northstar_record(readout: dict, anchor_hist: list[dict],
                      prev_ns: dict | None, *, run_id: str, eval_env: str,
-                     today: date) -> dict:
-    """北星两腿纯计算(接线方传 readout + 工件读数, 本函数不碰文件)。
+                     today: date, proposed: list[str] | None = None,
+                     landed=None, exclusivity: list[float] | None = None) -> dict:
+    """北星纯计算(接线方传 readout + 工件读数, 本函数不碰文件)。
 
     ①锚集全绿率 = anchor_hist 最新一件(回归轨工件直读);
     ②谱系去重后 corroborated 精度: OK 层 k_all 直方图 k≥2 桶求和
@@ -343,8 +400,12 @@ def northstar_record(readout: dict, anchor_hist: list[dict],
     事故面 = 聚合器互证假印证)折减 → precision = (n − derived_only)/n;
     n=0 → None(零读数≠精度 0, 无话不虚构)。月环比 = 本轮 − 前轮
     (百分点), 任一侧值缺席(首轮件无/N/A)→ None。直方图键 int 强转
-    (str 键 JSON 往返同容), 非数键跳过。只观测不持门: 本函数及调用方
-    均不设阈值、不产退出码。"""
+    (str 键 JSON 往返同容), 非数键跳过。
+    ③发现轨两腿(#210 T4, ADR 0010): proposed/landed/exclusivity 三读数
+    由接线方注入(queue.md PROPOSE 行 / 源注册表 / d3-measure 工件),
+    本函数只做 discover_conversion / exclusivity_distribution 纯计算;
+    读数缺席 → 各腿 None(无话不虚构), 不设阈值不产退出码。
+    只观测不持门: 本函数及调用方均不设阈值、不产退出码。"""
     kcorr = 0
     for block in (readout.get("layers") or {}).values():
         if block.get("status") != "OK":
@@ -377,7 +438,50 @@ def northstar_record(readout: dict, anchor_hist: list[dict],
             (precision - prev_prec) * 100
             if precision is not None and prev_prec is not None else None,
         "prev_northstar_present": prev_ns is not None,
+        # #210 T4 发现轨两腿(ADR 0010): 零持门同 E-5 —— 只进观测件,
+        # 不设阈值/不进回归族/CI 零改; 读数缺席 = None(N/A 哨兵)。
+        "discover": {
+            "conversion": discover_conversion(proposed, landed),
+            "exclusivity": exclusivity_distribution(exclusivity),
+        },
     }
+
+
+# 发现轨北星①(#210 T4, ADR 0010 决策⑤): 入队→落地转化率 =
+# queue.md PROPOSE 提案(去重 action+source)vs 源接入落地(注册表源名)。
+# 提案 slug 与注册表模块名同名(如 blocklist_de)即算落地 —— 逐字匹配,
+# 名不同 = 漏匹配(宁少算); 无提案记录 → None(无话不虚构, ≠ 0%)。
+def discover_conversion(proposed, landed) -> dict | None:
+    distinct = list(dict.fromkeys(proposed or []))
+    if not distinct:
+        return None
+    landed_set = set(landed or ())
+    hits = sum(1 for s in distinct if s in landed_set)
+    return {"proposed": len(distinct), "landed": hits,
+            "rate": hits / len(distinct)}
+
+
+# 发现轨北星②(#210 T4, ADR 0010 决策⑤): 排他率分布 = 发现轮
+# d3-measure 工件 results[].exclusivity_estimate 聚合; 桶沿含 ENQUEUE
+# 门槛 0.25(steps.mjs ENQUEUE_EXCLUSIVITY_GATE 同值, 跨语言双抄形状
+# = QUEUE_HEADER 判例; 判据常量, 改动需 ADR 0010 同批)。零读数 → None。
+def exclusivity_distribution(values) -> dict | None:
+    xs = [float(v) for v in (values or []) if v is not None]
+    if not xs:
+        return None
+    buckets = {"[0,0.25)": 0, "[0.25,0.5)": 0, "[0.5,0.75)": 0, "[0.75,1]": 0}
+    for x in xs:
+        if x < 0.25:
+            buckets["[0,0.25)"] += 1
+        elif x < 0.5:
+            buckets["[0.25,0.5)"] += 1
+        elif x < 0.75:
+            buckets["[0.5,0.75)"] += 1
+        else:
+            buckets["[0.75,1]"] += 1
+    return {"n": len(xs), "mean": sum(xs) / len(xs), "buckets": buckets,
+            "ge_gate": buckets["[0.25,0.5)"] + buckets["[0.5,0.75)"]
+            + buckets["[0.75,1]"]}
 
 
 def render_northstar(ns: dict) -> list[str]:
@@ -410,7 +514,26 @@ def render_northstar(ns: dict) -> list[str]:
         prec = (f"corroborated 精度 {corr['precision'] * 100:.1f}%"
                 f"(corroborated {corr['n']} 读数, 派生独证 "
                 f"{corr['derived_only']}, {pmom})")
-    return [f"- 能力轨北星(E-5, 只观测不持门): {anchor}|{prec}"]
+    # 发现轨行(#210 T4, ADR 0010): 两腿各自 N/A 哨兵 —— 转化率无提案记录
+    # ≠ 0%; 分布零读数 ≠ 全零桶(无话不虚构, 与能力轨同律)。
+    disc = ns.get("discover") or {}
+    conv = disc.get("conversion")
+    if conv is None:
+        conv_s = "入队→落地转化率 N/A(无 PROPOSE 提案记录)"
+    else:
+        conv_s = (f"入队→落地转化率 {conv['landed']}/{conv['proposed']}"
+                  f"({conv['rate'] * 100:.1f}%)")
+    ex = disc.get("exclusivity")
+    if ex is None:
+        ex_s = "排他率分布 N/A(零 d3-measure 排他率读数)"
+    else:
+        b = ex["buckets"]
+        ex_s = (f"排他率分布 n={ex['n']} mean={ex['mean']:.2f} "
+                f"(0–0.25:{b['[0,0.25)']} 0.25–0.5:{b['[0.25,0.5)']} "
+                f"0.5–0.75:{b['[0.5,0.75)']} 0.75–1:{b['[0.75,1]']} "
+                f"≥gate(0.25){ex['ge_gate']}/{ex['n']})")
+    return [f"- 能力轨北星(E-5, 只观测不持门): {anchor}|{prec}",
+            f"- 发现轨北星(ADR 0010, 只观测不持门): {conv_s}|{ex_s}"]
 
 
 def _fmt(v) -> str:

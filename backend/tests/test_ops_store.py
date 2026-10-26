@@ -29,9 +29,9 @@ LEDGER_HEADER = (
     "| 日期 | 轮次 | model | 用量 | 备注 |\n"
     "|---|---|---|---|---|\n"
 )
-# T4 tools.mjs queueAction 首建表头(逐字)
+# 表头(逐字;首行句 #217 T3.5 翻正三写口——与 _ops_store.QUEUE_HEADER/node QUEUE_HEADER 三抄对拍)
 QUEUE_HEADER = (
-    "# 源生命周期动作队列(queue_action 唯一写口;行由 host 模板渲染,rationale 只落工件)\n\n"
+    "# 源生命周期动作队列(三写口:ops 轮 queue_action · 发现轮 ENQUEUE 候选行 · 发现轮候选卡 appendCandidateCard;后两路 action=PROPOSE 一词一拼;行由 host 模板渲染,rationale 只落工件)\n\n"
     "| 日期 | 轮次 | action | source | predicate | evidence | vetoable |\n"
     "|---|---|---|---|---|---|---|\n"
 )

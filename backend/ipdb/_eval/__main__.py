@@ -362,12 +362,14 @@ def run_readout(registry, out_dir, *, assets_dir=None, keysets_dir=None,
     from .layer_builders import PER_SOURCE_N, build_all_monthly, non_vpn_resolvers
     from .layered import assemble_four_layers, epsilon_sensitivity, layered_readout
     from .monthly import (compose_action_block, compose_monthly_md,
-                          load_anchor_green, load_dispositions,
+                          load_anchor_green, load_discover_exclusivity,
+                          load_discover_proposals, load_dispositions,
                           load_leg_status, load_prev_northstar,
                           northstar_record, render_anchor_oc,
                           render_consensus_diag, render_leg_status,
                           render_northstar, render_scorecard,
                           render_steal_parking_diag)
+    from .._ops_store import ops_root  # #210 T4:发现轨北星读面 ops 树根(单源)
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -445,7 +447,15 @@ def run_readout(registry, out_dir, *, assets_dir=None, keysets_dir=None,
     ns = northstar_record(
         readout, load_anchor_green(out_dir / "model"),
         load_prev_northstar(out_dir, run_id),
-        run_id=run_id, eval_env=eval_env(), today=today)
+        run_id=run_id, eval_env=eval_env(), today=today,
+        # #210 T4 发现轨两腿注入(ADR 0010 决策⑤, 同 E-5 零持门):
+        # 分子分母读 ops 树(queue.md PROPOSE 行 / rounds/*-discover*/
+        # d3-measure.json;ops_root 单源 = 生产 P2 桥与 node DOCS_ROOT/ops
+        # 同址同文件), 落地面 = 本轮真注册表源名集合; 读面只读永不写,
+        # 缺件 → None → N/A 哨兵(无话不虚构)。
+        proposed=load_discover_proposals(ops_root()),
+        landed=set(srcs),
+        exclusivity=load_discover_exclusivity(ops_root()))
     (out_dir / f"northstar-{run_id}.json").write_text(
         json.dumps(ns, indent=1, ensure_ascii=False), encoding="utf-8")
     north_star_lines = render_northstar(ns)

@@ -20,6 +20,8 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { loadModels } from "../models.mjs";
 import { mkMicroprobeHost } from "./microprobes.mjs";
+import { ensureDiscoverHost } from "./discovery-host.mjs"; // #217 T3.5:SHORTLIST 真面工具注入(发现宿主=ctx 级单例,与 MEASURE 同守卫链同配额面)
+import { DISCOVER_SHORTLIST_TRANSCRIPT } from "../artifacts.mjs"; // 工件名单源(回放读面共用)
 import { hidSlug, modelIO } from "./steps.mjs";
 
 const sha = (s) => crypto.createHash("sha256").update(s).digest("hex").slice(0, 16);
@@ -32,11 +34,12 @@ export function selectModelFace({ fixturesExplicit = false, inherited = null } =
 
 // 步→models.mjs 轮键映射(#170):TRIAGE/SYNTH=health 轻模型(flash),DEEP=discover 重模型(glm-5.3);
 // env 旋钮 OPS_MODEL_HEALTH/OPS_MODEL_DISCOVER 与 legacy 轮同一拼写(models.mjs resolve 闭集 health|discover)。
-export const STEP_ROUND = { TRIAGE: "health", SYNTH: "health", DEEP: "discover" };
+export const STEP_ROUND = { TRIAGE: "health", SYNTH: "health", DEEP: "discover", SHORTLIST: "discover" }; // #207 T1:发现轮 SHORTLIST 同 OPS_MODEL_DISCOVER 键
 
 const transcriptName = (def, item) => def.name === "TRIAGE" ? "03-triage-transcript.jsonl"
   : def.name === "DEEP" ? `05-deep-${hidSlug(item.hid)}-transcript.jsonl`
-  : def.name === "SYNTH" ? "07-synth-transcript.jsonl" : null;
+  : def.name === "SYNTH" ? "07-synth-transcript.jsonl"
+  : def.name === "SHORTLIST" ? DISCOVER_SHORTLIST_TRANSCRIPT : null; // #207 T1:发现轮模型步留痕(#217 T3.5 起名单源 artifacts.mjs——CLOSE 回放读面共用,不入 ARTIFACTS 固定表同 health transcript 面)
 
 function loadFixture(def, ctx, item) {
   // DEEP 逐假设 fixture(P4 #166 真开启):deep/<slug>.json,slug=hidSlug(hid);金轨迹轮=golden-track-canned。
@@ -112,7 +115,9 @@ async function runRealStep(def, ctx, item, input) {
         fetchImpl: ctx.probeFetch,
         dupRegistry: ctx.dupRegistry ?? new Map(),
         dupLimit: ctx.budgetKnobs?.dupCallLimit ?? 3 })
-    : null;
+    : def.name === "SHORTLIST"
+      ? ensureDiscoverHost(ctx) // #217 T3.5:SHORTLIST 真面直装发现工具三件(头注接线协议;dupRegistry=ctx 级同 registry、breaker=轮级同文件——与 MEASURE 同宿主单例;faux 面工具恒 [] 不注入,罐装宇宙零网络)
+      : null;
   const agent = new Agent({ initialState: { systemPrompt: input.systemPrompt, model, tools: probes?.tools ?? [] },
     streamFn: bundle.models.streamSimple.bind(bundle.models) });
   const rec = { usage: { input: 0, output: 0, totalTokens: 0, cost: 0 }, messages: [] };

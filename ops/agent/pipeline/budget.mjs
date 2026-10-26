@@ -40,6 +40,22 @@ export function readBudgetKnobs(env = process.env) {
   };
 }
 
+// 发现轮旋钮族(#207 T1;ADR 0010;spec /tmp/discover-pipeline-spec.md T4 首月缺省):三旋钮独立
+// (轮内调用帽/墙钟/花费帽,宁少算:发现轮无 token 界——不预设轨迹预算,四界只执①③④);月帽
+// 共享 OPS_PIPELINE_MONTHLY_CAP_CNY 同键同源(月帽是全 agent 面共享底线,不另立月门:admitOrRefuse
+// 同一函数消费,双拒跑同码同文案)。dup 面沿 OPS_PIPELINE_DUP_CALL_LIMIT 同键同缺省
+// (#217 T3.5 接线消费:发现工具宿主 mkDiscoveryHost dupLimit;原「T3 接线时消费」注记兑现);
+// 哈希 dupKey 沿用不另立。
+export function readDiscoverKnobs(env = process.env) {
+  return {
+    maxModelCalls: readKnob("OPS_DISCOVER_MAX_MODEL_CALLS", env.OPS_DISCOVER_MAX_MODEL_CALLS ?? process.env.OPS_DISCOVER_MAX_MODEL_CALLS, "30"), // ①整轮模型调用数帽(30 调用)
+    wallClockS: readKnob("OPS_DISCOVER_WALL_CLOCK_S", env.OPS_DISCOVER_WALL_CLOCK_S ?? process.env.OPS_DISCOVER_WALL_CLOCK_S, "3600"), // ③整轮墙钟秒
+    spendCapCny: readKnob("OPS_DISCOVER_SPEND_CAP_CNY", env.OPS_DISCOVER_SPEND_CAP_CNY ?? process.env.OPS_DISCOVER_SPEND_CAP_CNY, "5"), // ④整轮花费帽 ¥
+    monthlyCapCny: readKnob("OPS_PIPELINE_MONTHLY_CAP_CNY", env.OPS_PIPELINE_MONTHLY_CAP_CNY ?? process.env.OPS_PIPELINE_MONTHLY_CAP_CNY, "30"), // 月帽共享(与 readBudgetKnobs 同键同缺省)
+    dupCallLimit: readKnob("OPS_PIPELINE_DUP_CALL_LIMIT", env.OPS_PIPELINE_DUP_CALL_LIMIT ?? process.env.OPS_PIPELINE_DUP_CALL_LIMIT, "3"), // 同参调用拦截线(#217 T3.5:发现宿主 dupLimit 消费;同键同缺省不另立)
+  };
+}
+
 // —— 四界环内执法(纯函数;pipeline.mjs runModelStage/runStages 检查点调用)——
 // ①调用数帽:attempt 前查(calls=已计调用数;calls+1=本次将成第几次;> 帽即违界)。
 export const overCallsCap = (calls, cap) => calls + 1 > cap;
@@ -109,8 +125,7 @@ export async function monthlyAdmission({ ledgerFile, capCny, estCny, now = new D
 }
 
 // 拒跑留痕行(经 lib.sh ledger_append 写,表头自建/A3 后自带锁;model/用量列=—,备注列=拒跑读数)。
-export async function appendRefusalTrace(ledgerFile, { est, cap }, env = process.env) {
-  const round = "health"; // 双面拒跑都发生在 health 轮(discover 未立项)
+export async function appendRefusalTrace(ledgerFile, { est, cap }, env = process.env, round = "health") { // round 参数化(#207):发现轮立项后拒跑留痕轮次列随轮型,不再硬编码
   return execFileP("bash", ["-c", `. "$0"; ledger_append "$@"`, LIBSH, round, "—", "—",
     `budget_monthly refused est=${est} cap=${cap}`], { timeout: 120_000, maxBuffer: 32 * 1024 * 1024, env: { ...env, LEDGER_FILE: ledgerFile } });
 }
@@ -128,11 +143,11 @@ export const refusalOf = (a) => ({
 // 留痕外壳:monthlyAdmission 读→裁;拒跑则 [admission] log + 台账留痕行(写败只 log 不
 // 翻转裁决——宁拒不跑),返回 {refused:true, code, message};放行返回 {refused:false,
 // admission}(读数对象原样回传,state.monthly_admission/09-budget.json 观察面字节不变)。
-export async function admitOrRefuse({ ledgerFile, capCny, estCny, env, log }) {
+export async function admitOrRefuse({ ledgerFile, capCny, estCny, env, log, round = "health" }) { // round 只影响留痕轮次列(#207);裁决真源 admitMonthly 与两面出口形状不变
   const admission = await monthlyAdmission({ ledgerFile, capCny, estCny });
   if (admission.ok) return { refused: false, admission };
   log(`[admission] budget_monthly refused month=${admission.month} spend=${admission.spend} est=${admission.est} cap=${admission.cap} skipped=${admission.skipped}`);
-  try { await appendRefusalTrace(ledgerFile, { est: estCny, cap: capCny }, env); }
+  try { await appendRefusalTrace(ledgerFile, { est: estCny, cap: capCny }, env, round); }
   catch (e) { log(`[admission] 拒跑留痕行写败(不翻转裁决):${e.message}`); } // 台账写败不吞拒跑:宁拒不跑
   return { refused: true, ...refusalOf(admission) };
 }

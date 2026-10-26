@@ -93,7 +93,10 @@ async function runCase(c, allowSmoke) {
 
   const { runRound } = await import("../agent.mjs");
   const { resolveField } = await import("../tools.mjs");
-  const { GATE_COUNT } = await import("../pipeline/gates.mjs"); // 门数单源(#194 C3):禁手抄 10(评审D P2 硬编码判例);env 后动态 import 同上两行
+  const { HEALTH_PIPELINE, DISCOVER_PIPELINE } = await import("../pipeline.mjs"); // #207 T1:健康轮门数从轮型定义表派生(gates.GATE_COUNT 已含发现轮四门,非健康轮面;与 selftest-pipeline 同判例);env 后动态 import 同上两行
+  // #208 T2:轮型从用例派生(缺省=健康;pipeline.discover=发现轮全 faux 例),门数仍单源=对应轮型表可跑步门数,零手抄
+  const roundType = c.kind === "pipeline" && c.pipeline?.round === "discover" ? "discover" : "health";
+  const GATE_COUNT = (roundType === "discover" ? DISCOVER_PIPELINE : HEALTH_PIPELINE).filter((d) => d.gate).length;
   let result = null, err = null;
   if (c.kind === "pipeline") {
     // P0 轮次状态机例(spec #161):真引擎跑全 faux 轮(模型步=faux provider+仓内 fixtures/pipeline,
@@ -103,7 +106,8 @@ async function runCase(c, allowSmoke) {
     const buf = { stdout: "", stderr: "" };
     const { runPipeline, DEFAULT_FIXTURES_DIR } = await import("../pipeline.mjs");
     try {
-      result = await runPipeline({ type: "health", roundId: "2026-06-01-0400-health",
+      const roundId = `2026-06-01-0400-${roundType}`; // #208 T2:发现轮例用 -discover 后缀(轮 id 律 ^…-discover$);健康例原字面不变(位等价)
+      result = await runPipeline({ type: roundType, roundId,
         fixturesDir: DEFAULT_FIXTURES_DIR, // 显式 fixtures=faux 面(#170;golden 恒零网络,同缺省路径行为不变)
         stdout: { write: (s) => { buf.stdout += s; return true; } },
         stderr: { write: (s) => { buf.stderr += s; return true; } } });

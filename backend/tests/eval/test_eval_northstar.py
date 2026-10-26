@@ -18,7 +18,11 @@ import pytest
 
 from ipdb._eval.monthly import (
     compose_monthly_md,
+    discover_conversion,
+    exclusivity_distribution,
     load_anchor_green,
+    load_discover_exclusivity,
+    load_discover_proposals,
     load_prev_northstar,
     northstar_record,
     render_northstar,
@@ -167,7 +171,7 @@ def test_render_full_values_one_line():
                           run_id="r2", eval_env="monthly",
                           today=date(2026, 11, 1))
     lines = render_northstar(ns)
-    assert len(lines) == 1  # 能力轨记录 = 一行
+    assert len(lines) == 2  # 能力轨行 + 发现轨行(#210 T4 后恒两行)
     ln = lines[0]
     assert ln.startswith("- ")
     assert "能力轨北星" in ln and "E-5" in ln and "只观测不持门" in ln
@@ -241,3 +245,150 @@ def test_md_places_north_star_line_in_header_before_layers():
 
 def test_md_without_north_star_lines_is_schema_stable():
     assert "能力轨北星" not in _md_min()
+
+
+# ── #210 T4 发现轨北星:PROPOSE→落地转化率 + 排他率分布(ADR 0010;零持门)──
+# fixtures 手算独立真值(勿用被测实现回算):
+# - 提案输入含重复行(foo_bar ×2)+未落地 nope_src → distinct 3 员,
+#   落地命中 {foo_bar,baz_qux} 2 员 → 转化率 2/3。
+# - 排他率读数 [0.1, 0.25, 0.3, 0.6, 0.9, None] → n=5(Null 跳过),
+#   mean=(0.1+0.25+0.3+0.6+0.9)/5=0.43;桶 [0,0.25)=1、[0.25,0.5)=2、
+#   [0.5,0.75)=1、[0.75,1]=1(0.25 归 ≥gate 桶 = ENQUEUE 门槛同沿)→
+#   ge_gate = 2+1+1 = 4。
+
+def test_discover_conversion_pure_hand_computed():
+    assert discover_conversion(
+        ["foo_bar", "baz_qux", "foo_bar", "nope_src"],
+        {"foo_bar", "baz_qux", "other"}) == \
+        {"proposed": 3, "landed": 2, "rate": 2 / 3}
+
+
+def test_discover_conversion_no_proposals_is_none_not_fabricated():
+    # 无 PROPOSE 提案记录 → None(无话不虚构,≠ 转化率 0%)
+    assert discover_conversion(None, {"foo_bar"}) is None
+    assert discover_conversion([], {"foo_bar"}) is None
+
+
+def test_exclusivity_distribution_pure_hand_computed():
+    got = exclusivity_distribution([0.1, 0.25, 0.3, 0.6, 0.9, None])
+    assert got["n"] == 5                       # Null 读数跳过 ≠ 0
+    assert got["mean"] == pytest.approx(0.43)
+    assert got["buckets"] == {"[0,0.25)": 1, "[0.25,0.5)": 2,
+                              "[0.5,0.75)": 1, "[0.75,1]": 1}
+    assert got["ge_gate"] == 4                 # ≥0.25(ENQUEUE 门槛沿):0.25/0.3/0.6/0.9
+
+
+def test_exclusivity_distribution_empty_is_none():
+    # 零 d3-measure 排他率读数 → None(分布 N/A,不虚构全零桶)
+    assert exclusivity_distribution(None) is None
+    assert exclusivity_distribution([]) is None
+
+
+def test_record_discover_section_defaults_to_na_sentinels():
+    ns = northstar_record(_readout(), [_ANCHOR_CUR], None,
+                          run_id="r1", eval_env="monthly",
+                          today=date(2026, 11, 1))
+    assert ns["discover"] == {"conversion": None, "exclusivity": None}
+
+
+def test_record_discover_section_with_readings():
+    ns = northstar_record(_readout(), [_ANCHOR_CUR], None,
+                          run_id="r1", eval_env="monthly",
+                          today=date(2026, 11, 1),
+                          proposed=["foo_bar", "baz_qux"],
+                          landed={"foo_bar"},
+                          exclusivity=[0.3, 0.9])
+    assert ns["discover"]["conversion"] == \
+        {"proposed": 2, "landed": 1, "rate": 0.5}
+    assert ns["discover"]["exclusivity"]["n"] == 2
+
+
+def test_render_discover_line_sentinels_never_fabricate():
+    ns = northstar_record(_readout_no_layers(), [], None,
+                          run_id="r1", eval_env="monthly",
+                          today=date(2026, 10, 1))
+    lines = render_northstar(ns)
+    assert len(lines) == 2                     # 能力轨行 + 发现轨行
+    assert "发现轨北星" in lines[1] and "ADR 0010" in lines[1]
+    assert "只观测不持门" in lines[1]
+    assert "入队→落地转化率 N/A(无 PROPOSE 提案记录)" in lines[1]
+    assert "排他率分布 N/A(零 d3-measure 排他率读数)" in lines[1]
+
+
+def test_render_discover_line_full_values():
+    ns = northstar_record(_readout(), [_ANCHOR_CUR], None,
+                          run_id="r1", eval_env="monthly",
+                          today=date(2026, 11, 1),
+                          proposed=["foo_bar", "baz_qux"],
+                          landed={"foo_bar"},
+                          exclusivity=[0.1, 0.25, 0.3, 0.6, 0.9])
+    ln = render_northstar(ns)[1]
+    assert "入队→落地转化率 1/2(50.0%)" in ln
+    assert "排他率分布 n=5 mean=0.43" in ln
+    assert "≥gate(0.25)4/5" in ln
+
+
+# ── load_discover_proposals / load_discover_exclusivity: 工件读面 ──
+
+
+def _mk_queue(ops_dir, rows):
+    ops_dir.mkdir(parents=True, exist_ok=True)
+    (ops_dir / "queue.md").write_text(
+        "# 源生命周期动作队列(三写口:ops 轮 queue_action · 发现轮 ENQUEUE 候选行 · 发现轮候选卡 appendCandidateCard;后两路 action=PROPOSE 一词一拼;行由 host 模板渲染,rationale 只落工件)\n\n"
+        "| 日期 | 轮次 | action | source | predicate | evidence | vetoable |\n"
+        "|---|---|---|---|---|---|---|\n" + "".join(rows), encoding="utf-8")
+
+
+def test_load_discover_proposals_dedup_and_missing(tmp_path):
+    ops = tmp_path / "ops"
+    _mk_queue(ops, [
+        "| 2026-10-26 | 2026-10-26-0900-discover | PROPOSE | foo_bar | — "
+        "| candidate:name=\"Foo Bar\" | 是(否决=删除本行) |\n",
+        "| 2026-10-26 | 2026-10-26-0900-discover | PROPOSE | baz_qux | — "
+        "| candidate:name=\"Baz\" | 是(否决=删除本行) |\n",
+        "| 2026-10-27 | 2026-10-27-0900-discover | PROPOSE | foo_bar | — "
+        "| candidate:name=\"Foo Bar\" | 是(否决=删除本行) |\n",
+        "| 2026-10-27 | r-ops | ENQUEUE | legacy_src | sunset_frozen | x | 是 |\n",
+    ])
+    # 判重键 action+source(写面同键)→ foo_bar 一员;ENQUEUE(运营轮动作词)不入
+    assert load_discover_proposals(ops) == ["foo_bar", "baz_qux"]
+
+
+def test_load_discover_proposals_missing_or_none(tmp_path):
+    # 缺件 → None(无提案记录 ≠ 空列表:前者是不出节,后者是零提案)
+    assert load_discover_proposals(tmp_path / "ops") is None
+    ops = tmp_path / "ops2"
+    _mk_queue(ops, [
+        "| 2026-10-27 | r-ops | ENQUEUE | legacy_src | sunset_frozen | x | 是 |\n",
+    ])
+    assert load_discover_proposals(ops) is None   # 有 queue.md 无 PROPOSE 行
+
+
+def test_load_discover_exclusivity_aggregates_discover_rounds(tmp_path):
+    ops = tmp_path / "ops"
+    d1 = ops / "rounds" / "2026-10-26-0900-discover"
+    d2 = ops / "rounds" / "2026-10-27-0900-discover-r1"
+    d3 = ops / "rounds" / "2026-10-27-1000"      # 非发现轮:不入
+    for d in (d1, d2, d3):
+        d.mkdir(parents=True)
+    (d1 / "d3-measure.json").write_text(json.dumps(
+        {"round_id": "2026-10-26-0900-discover", "results": [
+            {"candidate": "foo_bar", "exclusivity_estimate": 0.42},
+            {"candidate": "baz_qux", "exclusivity_estimate": None}]}),
+        encoding="utf-8")
+    (d2 / "d3-measure.json").write_text(json.dumps(
+        {"round_id": "2026-10-27-0900-discover-r1", "results": [
+            {"candidate": "foo_bar", "exclusivity_estimate": 0.9}]}),
+        encoding="utf-8")
+    (d3 / "d3-measure.json").write_text(json.dumps(
+        {"results": [{"exclusivity_estimate": 0.99}]}), encoding="utf-8")
+    assert sorted(load_discover_exclusivity(ops)) == pytest.approx([0.42, 0.9])
+
+
+def test_load_discover_exclusivity_bad_artifact_skipped(tmp_path):
+    ops = tmp_path / "ops"
+    d = ops / "rounds" / "2026-10-26-0900-discover"
+    d.mkdir(parents=True)
+    (d / "d3-measure.json").write_text("{corrupt", encoding="utf-8")
+    assert load_discover_exclusivity(ops) == []   # 坏件跳过不虚构
+    assert load_discover_exclusivity(tmp_path / "no-such") == []

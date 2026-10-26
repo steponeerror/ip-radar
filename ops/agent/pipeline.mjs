@@ -46,6 +46,7 @@ export const ctxShape = ({ type, roundId, opsRoot, env, log, fixturesDir, modelF
   ...ctxPaths(opsRoot, roundId), // 派生路径单源(含 retroAuditKey;replay 面事后覆写不受影响)
   ledgerFile: env.LEDGER_FILE ?? process.env.LEDGER_FILE ?? path.join(DOCS_ROOT, "ops", "ledger.md"),
   pkg: null, verify: null, envelope: null,
+  discoverHost: null, // #217 T3.5:轮级发现宿主惰性单例位(SHORTLIST 直装/MEASURE 补发共用;discover 轮专用,health 恒 null)
   usage: { input: 0, output: 0, totalTokens: 0, cost: 0 },
   state,
 });
@@ -96,9 +97,41 @@ export const HEALTH_PIPELINE = [
   { name: "FAILED", kind: "terminal", model: null, out: [], gate: null, artifact: null,
     fail: { retry: 0, terminal: null } }, // 终态书挡:工件全保留,replay 可救
 ];
-const byName = (n) => HEALTH_PIPELINE.find((d) => d.name === n);
-const RUNNABLE = HEALTH_PIPELINE.filter((d) => d.kind === "script" || d.kind === "model").map((d) => d.name); // replay 段闭集
-const STAGE_PREFIX = { PROBE: "01-", VERIFY: "02-", TRIAGE: "03-", DISPATCH: "04-", DEEP: "05-", ITEMIZE: "06-", SYNTH: "07-", ANCHOR_SWEEP: "08-" }; // 工件序号前缀固定步序(C稿 §4.1;replay 前置工件复制消费,#182 补 08-)
+// 发现轮管线定义表(#207 T1;spec /tmp/discover-pipeline-spec.md T1 节;ADR 0010 六步骨架):
+// SCAN(确定性候选宇宙快照,零模型零网络)→SHORTLIST(模型结构化候选,解析失败=降级空清单
+// 留痕不炸轮,spec T1)→MEASURE(确定性存在性测量,超时/未测=uncertainty hold 行,不炸轮)→
+// ENQUEUE(只写不动作:#139 flock 路径写 queue.md,入队判据=代码常量模型无权改)→
+// RETRO/CLOSE(同 health 律:台账幂等/sandbox 红线/09-budget.json 同形快照;月帽共享同门)。
+// T2 #208 强化四门(span 逐字回引/数字复算/对账);T3 #209 接模型调用与工具注入面(本票只留接线点)。
+export const DISCOVER_PIPELINE = [
+  { name: "SCAN", kind: "script", model: null,
+    out: ["d1-scan.json"], gate: "G_SCAN", artifact: "d1-scan.json",
+    fail: { retry: 0, terminal: "infra" } }, // 候选宇宙=registry+needs 两面(web=T3 占位);读败=infra
+  { name: "SHORTLIST", kind: "model", model: "discover/shortlist",
+    out: ["d2-shortlist.json", "d2-shortlist-transcript.jsonl"], gate: "G_SHORTLIST", artifact: "d2-shortlist.json",
+    fail: { retry: 1, terminal: "model_face" } }, // 面级失败重试≤1;JSON 解析失败=consume 内降级空清单(步 done,零候选合法);span 逐字回引=T2 #208
+  { name: "MEASURE", kind: "script", model: null,
+    out: ["d3-measure.json"], gate: "G_MEASURE", artifact: "d3-measure.json",
+    fail: { retry: 0, terminal: "infra" } }, // T1 本地存在性面(测量面死/超时=uncertainty hold 留痕);探针接线=T3 #209
+  { name: "ENQUEUE", kind: "script", model: null,
+    out: ["d4-enqueue.json"], gate: "G_ENQUEUE", artifact: "d4-enqueue.json",
+    fail: { retry: 0, terminal: "infra" } }, // 只写不动作(#139);queue 写败=fail-closed infra(证据不灭失)
+  { name: "RETRO", kind: "script", model: null,
+    out: ["../retro/<round_id>.json"], gate: "G_RETRO", artifact: "retro/<round_id>.json",
+    fail: { retry: 0, degrade: "skip_retro", terminal: "ledger_failed" } }, // 同 health 律:候选写败=降级;台账/sandbox=终态;台账标签 pipeline-discover(LEDGER_TAGS 单源)
+  { name: "CLOSE", kind: "bookend", model: null, out: [], gate: "G_CLOSE", artifact: "(envelope)",
+    fail: { retry: 0, terminal: "infra" } }, // 09-budget.json 同形快照(env 面 per-type=三旋钮+est+共享月帽)
+  { name: "FAILED", kind: "terminal", model: null, out: [], gate: null, artifact: null,
+    fail: { retry: 0, terminal: null } }, // 终态书挡:工件全保留,replay 可救
+];
+export const PIPELINES = { health: HEALTH_PIPELINE, discover: DISCOVER_PIPELINE }; // 轮型→定义表(#207 T1);byName/RUNNABLE/STAGE_PREFIX 一律 per-type 派生
+const byNameOf = (type) => (n) => PIPELINES[type ?? "health"].find((d) => d.name === n);
+const runnableOf = (type) => PIPELINES[type ?? "health"].filter((d) => d.kind === "script" || d.kind === "model").map((d) => d.name); // replay 段闭集(per-type)
+const STAGE_PREFIXES = { // 工件序号前缀固定步序(C稿 §4.1;replay 前置工件复制消费;per-type #207 T1:发现轮=d1-d4)
+  health: { PROBE: "01-", VERIFY: "02-", TRIAGE: "03-", DISPATCH: "04-", DEEP: "05-", ITEMIZE: "06-", SYNTH: "07-", ANCHOR_SWEEP: "08-" },
+  discover: { SCAN: "d1-", SHORTLIST: "d2-", MEASURE: "d3-", ENQUEUE: "d4-" }, // RETRO 工件在 ops/retro/ 无轮内前缀
+};
+export const typeOfRoundId = (id) => /-discover(-r\d+)?$/.test(String(id)) ? "discover" : "health"; // 后缀集=轮型集(#207 T1);round-id 后缀即轮型声明面
 
 // ══ 引擎(通用代码,≤300 行纪律:下段至文件尾只做定义表驱动的编排,不判任何具体步)══
 const nowIso = () => new Date().toISOString();
@@ -116,16 +149,16 @@ const SKIP_WHEN = { // 命名谓词闭集(定义表数据引用;新增=spec 变�
 };
 
 function mkCtx(opts, io) {
-  const type = opts.type ?? "health";
-  if (type !== "health") throw Object.assign(new Error(`P0 仅健康轮管线(discover 立项后自持定义表):${type}`), { code: "bad_round" });
+  const type = opts.type ?? typeOfRoundId(opts.roundId ?? ""); // 轮型:显式优先,缺省由 round-id 后缀推断(#207 T1);两者不符由下方正则拦
+  if (!PIPELINES[type]) throw Object.assign(new Error(`轮型须 health|discover(后缀集=轮型集):${type}`), { code: "bad_round" });
   const roundId = opts.roundId ?? roundIdNow(type);
-  if (!/^\d{4}-\d{2}-\d{2}-\d{4}-health(-r\d+)?$/.test(roundId))
-    throw Object.assign(new Error(`round_id 形状须 YYYY-MM-DD-HHMM-health:${roundId}`), { code: "bad_round" });
+  if (!new RegExp(`^\\d{4}-\\d{2}-\\d{2}-\\d{4}-${type}(-r\\d+)?$`).test(roundId))
+    throw Object.assign(new Error(`round_id 形状须 YYYY-MM-DD-HHMM-${type}:${roundId}`), { code: "bad_round" });
   const budgetRaw = io.env.OPS_PIPELINE_BUDGET_CNY ?? process.env.OPS_PIPELINE_BUDGET_CNY ?? "0.05";
   const budgetCny = +budgetRaw; // NaN 静默放行=审后修 P2-4:非法值退出 2 不带病跑轮
   if (!Number.isFinite(budgetCny) || budgetCny < 0)
     throw Object.assign(new Error(`OPS_PIPELINE_BUDGET_CNY 须为非负数,得到:${budgetRaw}`), { usage: true });
-  const budgetKnobs = budget.readBudgetKnobs(io.env); // 四界旋钮(#199 A1;校验同 BUDGET_CNY 判例:非法=用法错 exit 2 不带病跑轮)
+  const budgetKnobs = type === "discover" ? budget.readDiscoverKnobs(io.env) : budget.readBudgetKnobs(io.env); // #207 T1:发现轮旋钮族单源读面(月帽共享同键);非法=用法错 exit 2 不带病跑轮(同 #199 判例)
   const breakerKnobs = readBreakerKnobs(io.env); // #199 B:熔断旋钮轮始校验(非法=用法错 exit 2 同判例;快照消费=CLOSE)
   const fixturesDir = path.resolve(opts.fixturesDir ?? DEFAULT_FIXTURES_DIR);
   const modelFace = selectModelFace({ fixturesExplicit: opts.fixturesDir != null, inherited: opts.inheritedModelFace ?? null }); // 面选择(#170:显式 fixtures=faux/继承面/缺省 real;纯函数真源在 faux.mjs)
@@ -163,8 +196,11 @@ function failStage(ctx, def, rec, e, gateRec) {
 // 单发步(TRIAGE/SYNTH)的门评估入重试圈:C稿 §2.2「契约违例重试≤1(同提示词重发)」——门败与
 // schema 违例同面重试;逐假设步(DEEP forEach)的门评收编尾后一次(部分态评门=假阴性嗓音)。
 async function runModelStage(def, ctx, rec) {
-  ctx.budgetKnobs ??= budget.readBudgetKnobs(ctx.env ?? {}); // 手撞 ctx/resume 重建面兑底(#199 A1;幂等)
+  ctx.budgetKnobs ??= (ctx.type === "discover" ? budget.readDiscoverKnobs : budget.readBudgetKnobs)(ctx.env ?? {}); // 手撞 ctx/resume 重建面兑底(#199 A1 幂等;per-type #207 T1)
   ctx.modelCalls ??= 0;
+  const knobSrc = ctx.type === "discover" // #207 T1:报错文案指认 per-type 旋钮名(发现轮=OPS_DISCOVER_*;月帽共享同键)
+    ? { calls: "OPS_DISCOVER_MAX_MODEL_CALLS", wall: "OPS_DISCOVER_WALL_CLOCK_S", spend: "OPS_DISCOVER_SPEND_CAP_CNY" }
+    : { calls: "OPS_PIPELINE_MAX_MODEL_CALLS", wall: "OPS_PIPELINE_WALL_CLOCK_S", spend: "OPS_PIPELINE_SPEND_CAP_CNY" };
   const io = steps.modelIO(def);
   const items = def.forEach ? steps.forEachItems(def, ctx) : [null];
   const usage = { input: 0, output: 0, totalTokens: 0, cost: 0 };
@@ -177,9 +213,9 @@ async function runModelStage(def, ctx, rec) {
       rec.attempts += 1;
       // #199 A1 四界检查点①③:attempt 前查调用数帽与墙钟(违界即停:不重试不降级,哲学①已写工件照留)
       if (budget.overCallsCap(ctx.modelCalls, ctx.budgetKnobs.maxModelCalls))
-        throw Object.assign(new Error(`预算四界①:模型调用将超帽(已计 ${ctx.modelCalls}+1 > ${ctx.budgetKnobs.maxModelCalls},OPS_PIPELINE_MAX_MODEL_CALLS)`), { code: "budget_exceeded", fatalBudget: true });
+        throw Object.assign(new Error(`预算四界①:模型调用将超帽(已计 ${ctx.modelCalls}+1 > ${ctx.budgetKnobs.maxModelCalls},${knobSrc.calls})`), { code: "budget_exceeded", fatalBudget: true });
       if (budget.overWallClock(ctx.state.started_at, ctx.budgetKnobs.wallClockS))
-        throw Object.assign(new Error(`预算四界③:墙钟 ${budget.elapsedWallS(ctx.state.started_at).toFixed(1)}s 超帽 ${ctx.budgetKnobs.wallClockS}s(OPS_PIPELINE_WALL_CLOCK_S)`), { code: "wall_clock_exceeded", fatalBudget: true });
+        throw Object.assign(new Error(`预算四界③:墙钟 ${budget.elapsedWallS(ctx.state.started_at).toFixed(1)}s 超帽 ${ctx.budgetKnobs.wallClockS}s(${knobSrc.wall})`), { code: "wall_clock_exceeded", fatalBudget: true });
       ctx.modelCalls += 1;
       try {
         const r = await runModelStep(def, ctx, item);
@@ -189,10 +225,11 @@ async function runModelStage(def, ctx, rec) {
         // #199 A1 四界检查点②④:结算后查 token 轨迹与花费帽(轮内累计=已入库 ctx.usage+本步未收编 usage)
         const roundTokens = ctx.usage.totalTokens + usage.totalTokens;
         const roundCost = ctx.usage.cost + usage.cost;
-        if (budget.overTokenBudget(roundTokens, ctx.budgetKnobs.tokenBudget))
+        // #207 T1:发现轮无 token 界(旋钮族只有调用数/墙钟/花费三界;tokenBudget undefined 即跳过)
+        if (ctx.budgetKnobs.tokenBudget !== undefined && budget.overTokenBudget(roundTokens, ctx.budgetKnobs.tokenBudget))
           throw Object.assign(new Error(`预算四界②:token 轨迹 ${roundTokens} 超预算 ${ctx.budgetKnobs.tokenBudget}(OPS_PIPELINE_TOKEN_BUDGET)`), { code: "budget_exceeded", fatalBudget: true });
         if (budget.overSpendCap(roundCost, ctx.budgetKnobs.spendCapCny))
-          throw Object.assign(new Error(`预算四界④:花费 ¥${roundCost.toFixed(8)} 超帽 ¥${ctx.budgetKnobs.spendCapCny}(OPS_PIPELINE_SPEND_CAP_CNY)`), { code: "budget_exceeded", fatalBudget: true });
+          throw Object.assign(new Error(`预算四界④:花费 ¥${roundCost.toFixed(8)} 超帽 ¥${ctx.budgetKnobs.spendCapCny}(${knobSrc.spend})`), { code: "budget_exceeded", fatalBudget: true });
         if (!def.forEach) {
           const gateRec = gates.evalStageGate(def, ctx);
           gates.appendGate(ctx.dir, ctx.roundId, gateRec);
@@ -218,10 +255,12 @@ async function runModelStage(def, ctx, rec) {
 // 段执行器(runPipeline 与 replay 共用):dry=只跑门不调模型不跑步(C稿 §4.5);
 // skippedInOriginal=原件轮里被 SKIP_WHEN 跳过的步——dry 审计对这些步跳门(审后修 P2-3):
 // 缺席工件判门败是假阴性,静轮 dry 首审即触发;原件 stages[].status=skipped 即不评其门。
-async function runStages(ctx, { fromIdx = 0, toIdx = RUNNABLE.length - 1, dry = false, skippedInOriginal = [], resume = false } = {}) {
+async function runStages(ctx, { fromIdx = 0, toIdx = null, dry = false, skippedInOriginal = [], resume = false } = {}) {
+  const runnable = runnableOf(ctx.type), byname = byNameOf(ctx.type); // per-type 步序(#207 T1;health 面不变)
+  if (toIdx === null) toIdx = runnable.length - 1;
   const recordedAs = (name) => ctx.state.stages.find((r) => r.name === name && ["done", "skipped", "degraded", "dry"].includes(r.status));
   for (let i = fromIdx; i <= toIdx; i++) {
-    const def = byName(RUNNABLE[i]);
+    const def = byname(runnable[i]);
     if (resume && recordedAs(def.name)) { // resume:已记录步零重入(幂等;state 与工件一致以工件+门为准的例外=已过关步)
       ctx.state.stage = def.name;
       ctx.log(`[stage] ${def.name} done gate=SKIP(resume:已记录${recordedAs(def.name).status}) dur=0s artifact=-`);
@@ -237,10 +276,11 @@ async function runStages(ctx, { fromIdx = 0, toIdx = RUNNABLE.length - 1, dry = 
     }
     // #199 A1 四界检查点③(步边界):墙钟超=终态先于步体(已记录步零重入/dry 零调用不查;
     // resume 沿原 started_at 续算——恢复晚于帽即拒,同 16h 陈旧防线语义)
-    ctx.budgetKnobs ??= budget.readBudgetKnobs(ctx.env ?? {});
+    ctx.budgetKnobs ??= (ctx.type === "discover" ? budget.readDiscoverKnobs : budget.readBudgetKnobs)(ctx.env ?? {});
     if (!dry && budget.overWallClock(ctx.state.started_at, ctx.budgetKnobs.wallClockS)) {
+      const wallKnob = ctx.type === "discover" ? "OPS_DISCOVER_WALL_CLOCK_S" : "OPS_PIPELINE_WALL_CLOCK_S"; // #207 T1 文案 per-type
       const wrec = { name: def.name, status: "done", attempts: 0, dur_ms: 0, usage: null };
-      return failStage(ctx, def, wrec, Object.assign(new Error(`预算四界③:墙钟 ${budget.elapsedWallS(ctx.state.started_at).toFixed(1)}s 超帽 ${ctx.budgetKnobs.wallClockS}s(OPS_PIPELINE_WALL_CLOCK_S)`), { code: "wall_clock_exceeded" }), null);
+      return failStage(ctx, def, wrec, Object.assign(new Error(`预算四界③:墙钟 ${budget.elapsedWallS(ctx.state.started_at).toFixed(1)}s 超帽 ${ctx.budgetKnobs.wallClockS}s(${wallKnob})`), { code: "wall_clock_exceeded" }), null);
     }
     const rec = { name: def.name, status: dry ? "dry" : "done", attempts: 0, dur_ms: 0, usage: null };
     const t0 = performance.now();
@@ -310,7 +350,7 @@ async function runStages(ctx, { fromIdx = 0, toIdx = RUNNABLE.length - 1, dry = 
 }
 
 async function finishClose(ctx, io) { // CLOSE 书挡:存在性校验→信封门→state 终写→stdout 末行(重放不入此步)
-  const def = byName("CLOSE");
+  const def = byNameOf(ctx.type)("CLOSE"); // per-type(#207 T1;两轮型同书挡形制)
   const rec = { name: "CLOSE", status: "done", attempts: 1, dur_ms: 0, usage: null };
   const t0 = performance.now();
   ctx.log("[stage] CLOSE start");
@@ -351,7 +391,7 @@ export async function runPipeline(opts = {}) {
   // 读数入 state(A5 CLOSE 工件面)。est=本轮预算(BUDGET_CNY 准告警线上界,宁少算口径)。
   // #203 C2:拒跑块(文案/[admission] log/台账留痕行)收口 budget.mjs admitOrRefuse 留痕外壳
   // (与 agent.mjs legacy 面同壳同文案);本面只映射出口=emitFail 信封(exit 1)。
-  const admission = await budget.admitOrRefuse({ ledgerFile: ctx.ledgerFile, capCny: ctx.budgetKnobs.monthlyCapCny, estCny: ctx.budgetCny, env: io.env, log: ctx.log });
+  const admission = await budget.admitOrRefuse({ ledgerFile: ctx.ledgerFile, capCny: ctx.budgetKnobs.monthlyCapCny, estCny: ctx.budgetCny, env: io.env, log: ctx.log, round: ctx.type }); // #207 T1:月帽共享 OPS_PIPELINE_MONTHLY_CAP_CNY 同一裁决函数,只留痕轮次列 per-type
   if (admission.refused) return emitFail(admission.code, admission.message);
   ctx.state.monthly_admission = admission.admission; // A5 CLOSE 工件读数面(观察非裁决)
   if (fs.existsSync(path.join(ctx.dir, "state.json"))) return emitFail("bad_round", `rounds/${ctx.roundId} 已存在(同 id 重跑走 replay)`);
@@ -373,10 +413,13 @@ const copyTree = (src, dst, skip) => { // 原件零改写:只读复制(哲学①
 };
 export async function runReplay(opts = {}) {
   const io = bindIo(opts);
-  const { roundId, from = "PROBE", to = "RETRO", dry = false } = opts;
-  for (const s of [from, to]) if (!RUNNABLE.includes(s))
+  const { roundId, from = null, to = "RETRO", dry = false } = opts;
+  const type = typeOfRoundId(roundId); // 后缀集=轮型集(#207 T1);发现轮重放闭集同构
+  const RUNNABLE = runnableOf(type), STAGE_PREFIX = STAGE_PREFIXES[type];
+  const fromStage = from ?? RUNNABLE[0]; // 缺省=首步(health=PROBE/discover=SCAN)
+  for (const s of [fromStage, to]) if (!RUNNABLE.includes(s))
     throw Object.assign(new Error(`replay 步名须 ∈ {${RUNNABLE.join("|")}}(CLOSE 属原轮时序不入重放;FAILED 非可跑步),得到:${s}`), { usage: true });
-  if (RUNNABLE.indexOf(from) > RUNNABLE.indexOf(to)) throw Object.assign(new Error(`--from(${from}) 不得晚于 --to(${to})`), { usage: true });
+  if (RUNNABLE.indexOf(fromStage) > RUNNABLE.indexOf(to)) throw Object.assign(new Error(`--from(${fromStage}) 不得晚于 --to(${to})`), { usage: true });
   const OPS_ROOT = opsRootOf(io.env);
   const srcDir = path.join(OPS_ROOT, "rounds", String(roundId));
   if (!fs.existsSync(path.join(srcDir, "state.json"))) throw Object.assign(new Error(`rounds/${roundId} 无 state.json(无可重放轮次)`), { usage: true });
@@ -392,7 +435,7 @@ export async function runReplay(opts = {}) {
   // 不属轮次工件面;ITEMIZE 重放走原轮 manifest 回声(零写,replay 确定性)。
   if (dry) copyTree(srcDir, dir, ["state.json", "gates.json"]);
   else {
-    const prefixes = RUNNABLE.slice(0, RUNNABLE.indexOf(from)).map((n) => STAGE_PREFIX[n]).filter(Boolean);
+    const prefixes = RUNNABLE.slice(0, RUNNABLE.indexOf(fromStage)).map((n) => STAGE_PREFIX[n]).filter(Boolean);
     for (const f of fs.readdirSync(srcDir)) {
       if (f === "state.json" || f === "gates.json" || fs.statSync(path.join(srcDir, f)).isDirectory()) continue;
       if (prefixes.some((p) => f.startsWith(p))) fs.copyFileSync(path.join(srcDir, f), path.join(dir, f));
@@ -407,10 +450,10 @@ export async function runReplay(opts = {}) {
   const ctx = mkCtx({ ...opts, roundId: replayId, replayOf: roundId, inheritedModelFace: origFace ?? "faux" }, io);
   ctx.retroAuditKey = dry ? roundId : replayId; // dry 审原件工件;重执行审重放自产
   writeState(ctx);
-  const failure = await runStages(ctx, { fromIdx: RUNNABLE.indexOf(from), toIdx: RUNNABLE.indexOf(to), dry, skippedInOriginal: origSkipped });
+  const failure = await runStages(ctx, { fromIdx: RUNNABLE.indexOf(fromStage), toIdx: RUNNABLE.indexOf(to), dry, skippedInOriginal: origSkipped });
   ctx.state.status = failure ? "failed" : "done"; // 重放目录必终态(#167:boot 恢复扫描不把 -rN 目录误当活轮)
   writeState(ctx);
-  const rp = path.join(dir, "07-synth-report.md");
+  const rp = path.join(dir, ctx.type === "discover" ? "d4-enqueue.json" : "07-synth-report.md"); // per-type 末步工件(#207 T1;发现轮无报告步)
   if (fs.existsSync(rp)) ctx.pkg = rp; // 重放段产物或复制件
   const envelope = failure ? composeEnvelope(ctx, { ok: false, ...failure }) : composeEnvelope(ctx, { ok: true });
   io.stdout.write(JSON.stringify(envelope) + "\n");
@@ -424,8 +467,8 @@ export async function runReplay(opts = {}) {
 export async function runResume(opts = {}) {
   const io = bindIo(opts);
   const { roundId } = opts;
-  if (!/^\d{4}-\d{2}-\d{2}-\d{4}-health$/.test(String(roundId)))
-    throw Object.assign(new Error(`resume 目标须原件轮 id(YYYY-MM-DD-HHMM-health,-rN 重放目录不入恢复):${roundId}`), { usage: true });
+  if (!/^\d{4}-\d{2}-\d{2}-\d{4}-(health|discover)$/.test(String(roundId)))
+    throw Object.assign(new Error(`resume 目标须原件轮 id(YYYY-MM-DD-HHMM-health|discover,-rN 重放目录不入恢复):${roundId}`), { usage: true });
   const OPS_ROOT = opsRootOf(io.env);
   const dir = path.join(OPS_ROOT, "rounds", String(roundId));
   const state = j(path.join(dir, "state.json"));
@@ -442,9 +485,9 @@ export async function runResume(opts = {}) {
   // 形状=ctxShape 单源(#204 C3,与 mkCtx 同构造);值面=state 复原+缺旋钮补 env 读取
   // (budget_knobs/model_face 缺省回读零漂移;budget_cny 不校验不补——旧轮 undefined 保持 undefined)。
   const ctx = ctxShape({ type: state.type, roundId, opsRoot: OPS_ROOT, env: io.env, log: io.log,
-    budgetCny: state.budget_cny, budgetKnobs: state.budget_knobs ?? budget.readBudgetKnobs(io.env), breakerKnobs: readBreakerKnobs(io.env),
+    budgetCny: state.budget_cny, budgetKnobs: state.budget_knobs ?? (state.type === "discover" ? budget.readDiscoverKnobs(io.env) : budget.readBudgetKnobs(io.env)), breakerKnobs: readBreakerKnobs(io.env), // #207 T1:旋钮回退读面 per-type
     fixturesDir: state.fixtures_dir, modelFace: state.model_face ?? "faux", state });
-  const pending = RUNNABLE.filter((n) => !state.stages.some((r) => r.name === n && ["done", "skipped", "degraded", "dry"].includes(r.status)));
+  const pending = runnableOf(state.type).filter((n) => !state.stages.some((r) => r.name === n && ["done", "skipped", "degraded", "dry"].includes(r.status))); // 步序 per-type(#207 T1)
   ctx.resumedFrom = pending[0] ?? null; // 信封 resumed_from(恢复起点;全记录齐=仅 CLOSE 收口)
   ctx.resuming = true; // 引擎旗:模型步工件齐者补门不重跑(runModelStage/runStages 消费)
   state.resume_count = (state.resume_count ?? 0) + 1;
@@ -463,17 +506,23 @@ export async function runResume(opts = {}) {
 export async function main(argv, io = {}) {
   const env = io.env ?? process.env;
   const stdout = io.stdout ?? process.stdout, stderr = io.stderr ?? process.stderr;
-  const usage = "用法: node ops/agent/pipeline.mjs health [--round-id ID] [--fixtures DIR]\n      node ops/agent/pipeline.mjs replay <round_id> [--from STAGE] [--to STAGE] [--dry] [--fixtures DIR]\n      node ops/agent/pipeline.mjs resume <round_id>(crash 恢复,C稿 §4.6;boot 扫描/运维手用)";
+  const usage = "用法: node ops/agent/pipeline.mjs health [--round-id ID] [--fixtures DIR]\n      node ops/agent/pipeline.mjs discover [--round-id ID] [--fixtures DIR](发现轮 #207 T1)\n      node ops/agent/pipeline.mjs replay <round_id> [--from STAGE] [--to STAGE] [--dry] [--fixtures DIR]\n      node ops/agent/pipeline.mjs resume <round_id>(crash 恢复,C稿 §4.6;boot 扫描/运维手用)";
   const flag = (n) => { const i = argv.indexOf(n); return i >= 0 ? argv[i + 1] : undefined; };
   const bad = (m) => { stderr.write(`${m}\n${usage}\n`); return 2; };
   const mode = env.OPS_PIPELINE ?? process.env.OPS_PIPELINE ?? "legacy"; // 迁移开关(P2 桥消费;本 CLI 校验值闭集并记入 state.json)
   if (!["legacy", "pipeline"].includes(mode)) return bad(`OPS_PIPELINE 须 legacy|pipeline,得到:${mode}`);
   const [cmd, pos] = argv;
+  let curRound = "health"; // emitInfra 面轮型(#207 T1:discover 子命令报错不再误报 health)
   const emitInfra = (e) => { const code = ERROR_CODES.includes(e?.code) ? e.code : "infra";
-    stdout.write(JSON.stringify({ ok: false, round: "health", error: { code, message: e?.message ?? String(e) } }) + "\n"); return 1; };
+    stdout.write(JSON.stringify({ ok: false, round: curRound, error: { code, message: e?.message ?? String(e) } }) + "\n"); return 1; };
   try {
     if (cmd === "health") {
       const r = await runPipeline({ type: "health", roundId: flag("--round-id"), fixturesDir: flag("--fixtures"), env, stdout, stderr });
+      return r.ok ? 0 : 1;
+    }
+    if (cmd === "discover") { // #207 T1:发现轮 CLI 入口(--round-id 缺省=当日 HHMM-discover 自造)
+      curRound = "discover";
+      const r = await runPipeline({ type: "discover", roundId: flag("--round-id"), fixturesDir: flag("--fixtures"), env, stdout, stderr });
       return r.ok ? 0 : 1;
     }
     if (cmd === "resume") {

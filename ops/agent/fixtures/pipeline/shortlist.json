@@ -1,0 +1,14 @@
+{
+  "turns": [
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"candidates\":[{\"name\":\"rDNS 主机名\",\"url\":\"https://ip.thc.org\",\"quote\":\"ip.thc.org 月度全量 parquet(49.5GB,HF+镜像双源实测活;FLAG=商用条款模糊+小机 1B 行重建未裁)\",\"evidence_ptr\":\"NEEDS.md:L14\",\"source_channel\":\"needs\",\"exclusivity_estimate\":0.42,\"notes\":\"#217 T3.5 罐装:模型估值 0.42(≥门槛 0.25);URL 探测/阳性对照走 measure.json 罐装 web_read\"},{\"name\":\"carrier / is_isp 出中国段\",\"url\":null,\"quote\":\"IPinfo carrier 批量库 1.18MB CSV 存在但 standard 付费 token 档,无免费路径\",\"evidence_ptr\":\"NEEDS.md:L17\",\"source_channel\":\"needs\",\"exclusivity_estimate\":null,\"notes\":\"#217 T3.5 罐装:无 URL+排他率 null=双面不可算,钉 uncertainty hold 面\"}]}"
+        }
+      ],
+      "stopReason": "stop"
+    }
+  ]
+}

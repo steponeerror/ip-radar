@@ -7,10 +7,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import { resolveField, closureCheck } from "../tools.mjs";
-import { normalizeRules, readInFlightItems, inFlightKeys, deepSeeds, RULE_PREDICATES, RULE_ACTIONS } from "./steps.mjs";
+import { normalizeRules, readInFlightItems, inFlightKeys, deepSeeds, RULE_PREDICATES, RULE_ACTIONS, LEDGER_TAGS, ENQUEUE_EXCLUSIVITY_GATE } from "./steps.mjs"; // LEDGER_TAGS/ENQUEUE_EXCLUSIVITY_GATE=步/门同源(#207 T1:台账标签与入队门槛单源)
 import { fullDedupKey } from "./ops-items.mjs"; // 全签同因面(P4 #166;步/门同源)
 import { parseItem } from "./ops-items.mjs"; // 条目树读回(单一解析语义)
 import { ARTIFACTS as A, DEEP_TRANSCRIPT_RE, DEEP_TRANSCRIPT_GLOB } from "../artifacts.mjs"; // 工件名表单源(#202 C1):门读面/inputs 声明禁手抄工件名(磁盘名字节冻结,位等价判例)
+import { scanEvidenceFace, spanMatcher } from "./citation.mjs"; // #208 T2:证据面三形解析+span 逐字回引(G_SHORTLIST/G_MEASURE 消费)
 
 export const CLOSED_SETS = {
   cause_class: ["frozen_feed", "dead_endpoint", "auth_wall", "rate_limit", "probe_artifact", "matrix_violation", "unknown"], // C稿 §3.2 草案 1
@@ -262,11 +263,21 @@ export const GATES = {
   G_RETRO: (ctx) => {
     const key = ctx.retroAuditKey; // replay --dry 审原件;重执行审重放自产
     const retroFile = path.join(ctx.opsRoot, "retro", `${key}.json`);
-    const inputs = [`retro/${key}.json`, `${A.ANCHOR_SWEEP}(#184 出口③摘要源)`, "(ledger)"];
+    const isDiscover = ctx.type === "discover"; // #207 T1:发现轮 retro 体=计数面(无规则/条目 diff 面)
+    const inputs = [`retro/${key}.json`, ...(isDiscover ? [] : [`${A.ANCHOR_SWEEP}(#184 出口③摘要源)`]), "(ledger)"];
     const r = j(retroFile);
     if (!r) return fail(`retro/${key}.json 不可解析`, inputs);
     if (r.round_id !== key) return fail(`retro.round_id=${r.round_id}≠${key}`, inputs);
     if (!Array.isArray(r.candidates)) return fail("retro.candidates 非数组(候选只产条目,永不自动生效)", inputs);
+    if (isDiscover) { // 发现轮面(#207 T1):计数回算+沙箱+台账标签;规则/候选/出口面不适用
+      const cnt = r.counts ?? {};
+      for (const k of ["scan_n", "shortlist_n", "measure_hold_n", "enqueue_n"])
+        if (!Number.isFinite(cnt[k])) return fail(`retro.counts.${k} 缺席/非数字(计数面=d1-d4 工件回算)`, inputs);
+      if (r.sandbox_assert_pass !== true) return fail(`sandbox_assert rc≠0(${r.sandbox_assert_rc})`, inputs);
+      const ledger = txt(ctx.ledgerFile);
+      if (ledger === null || !ledger.includes(`${LEDGER_TAGS.discover}:${key}`)) return fail("台账读回缺本轮行(pipeline-discover)", inputs);
+      return pass(`发现轮 retro 计数面过(scan=${cnt.scan_n}/shortlist=${cnt.shortlist_n}/hold=${cnt.measure_hold_n}/enqueue=${cnt.enqueue_n});台账行读回(pipeline-discover);sandbox rc=0`, inputs);
+    }
     for (const c of r.candidates ?? []) {
       if (!c || typeof c !== "object" || !c.match || typeof c.match !== "object") return fail("候选缺 match 对象", inputs);
       const keys = Object.keys(c.match);
@@ -293,7 +304,7 @@ export const GATES = {
     } else if (sweepArt && (!r.anchor_sweep || r.anchor_sweep.status !== "degraded"))
       return fail("retro.anchor_sweep 摘要未记巡检降级态(08 工件=失败信封;出口③机检)", inputs);
     const ledger = txt(ctx.ledgerFile);
-    if (ledger === null || !ledger.includes(`pipeline:${key}`)) return fail("台账读回缺本轮行", inputs);
+    if (ledger === null || !ledger.includes(`${LEDGER_TAGS[ctx.type ?? "health"]}:${key}`)) return fail("台账读回缺本轮行", inputs);
     return pass(`retro schema 过(${(r.candidates ?? []).length} 候选,到点复审 ${(r.rules_due_review ?? []).length},通道矛盾 ${(r.channel_conflicts ?? []).length});台账行读回;sandbox rc=0`, inputs);
   },
   // G_CLOSE:信封单行 JSON 落 stdout(书挡门;重放不入 CLOSE)
@@ -305,8 +316,15 @@ export const GATES = {
     if (JSON.parse(s).ok !== ctx.envelope.ok) return fail("信封不可往返解析", inputs);
     // #199 A5:预算四界回声哨——环内已执法(runModelStage/runStages 检查点,违界即停),
     // 门只对拍 09-budget.json 读数 ≤ 生效帽(防工件漂移/篡改;非二次执法)。
-    const BUDGET_ENV_KEYS = ["OPS_PIPELINE_BUDGET_CNY", "OPS_PIPELINE_MAX_MODEL_CALLS", "OPS_PIPELINE_TOKEN_BUDGET",
-      "OPS_PIPELINE_WALL_CLOCK_S", "OPS_PIPELINE_SPEND_CAP_CNY", "OPS_PIPELINE_MONTHLY_CAP_CNY", "OPS_PIPELINE_DUP_CALL_LIMIT"];
+    // #207 T1:发现轮 env 面=三旋钮+est+共享月帽(无 token 界;键集 per-type 与 steps 写面互锁)。
+    const isDiscover = ctx.type === "discover";
+    const BUDGET_ENV_KEYS = isDiscover
+      ? ["OPS_PIPELINE_BUDGET_CNY", "OPS_DISCOVER_MAX_MODEL_CALLS", "OPS_DISCOVER_WALL_CLOCK_S", "OPS_DISCOVER_SPEND_CAP_CNY", "OPS_PIPELINE_MONTHLY_CAP_CNY"]
+      : ["OPS_PIPELINE_BUDGET_CNY", "OPS_PIPELINE_MAX_MODEL_CALLS", "OPS_PIPELINE_TOKEN_BUDGET",
+        "OPS_PIPELINE_WALL_CLOCK_S", "OPS_PIPELINE_SPEND_CAP_CNY", "OPS_PIPELINE_MONTHLY_CAP_CNY", "OPS_PIPELINE_DUP_CALL_LIMIT"];
+    const CAP = isDiscover // 读数≤帽对拍键 per-type(发现轮帽=OPS_DISCOVER_* 同源)
+      ? { calls: "OPS_DISCOVER_MAX_MODEL_CALLS", spend: "OPS_DISCOVER_SPEND_CAP_CNY", wall: "OPS_DISCOVER_WALL_CLOCK_S", month: "OPS_PIPELINE_MONTHLY_CAP_CNY" }
+      : { calls: "OPS_PIPELINE_MAX_MODEL_CALLS", spend: "OPS_PIPELINE_SPEND_CAP_CNY", wall: "OPS_PIPELINE_WALL_CLOCK_S", month: "OPS_PIPELINE_MONTHLY_CAP_CNY" };
     const b = j(path.join(ctx.dir, A.BUDGET));
     if (!b || !b.env || !b.readings) return fail(`${A.BUDGET} 缺席/形状坏(env+readings 必在场)`, inputs);
     const missEnv = BUDGET_ENV_KEYS.filter((k) => !(k in b.env) || !Number.isFinite(b.env[k]));
@@ -315,16 +333,16 @@ export const GATES = {
     if (!r.usage || !Number.isFinite(r.usage.totalTokens) || !Number.isFinite(r.usage.cost)
       || !Number.isFinite(r.model_calls) || !Number.isFinite(r.wall_s) || !Array.isArray(r.dup_top3))
       return fail("预算读数形状坏(usage/model_calls/wall_s/dup_top3)", inputs);
-    if (r.model_calls > b.env.OPS_PIPELINE_MAX_MODEL_CALLS)
-      return fail(`读数超帽:model_calls=${r.model_calls} > ${b.env.OPS_PIPELINE_MAX_MODEL_CALLS}(OPS_PIPELINE_MAX_MODEL_CALLS)`, inputs);
-    if (r.usage.totalTokens > b.env.OPS_PIPELINE_TOKEN_BUDGET)
+    if (r.model_calls > b.env[CAP.calls])
+      return fail(`读数超帽:model_calls=${r.model_calls} > ${b.env[CAP.calls]}(${CAP.calls})`, inputs);
+    if (!isDiscover && r.usage.totalTokens > b.env.OPS_PIPELINE_TOKEN_BUDGET) // 发现轮无 token 界(不预设轨迹预算)
       return fail(`读数超帽:totalTokens=${r.usage.totalTokens} > ${b.env.OPS_PIPELINE_TOKEN_BUDGET}(OPS_PIPELINE_TOKEN_BUDGET)`, inputs);
-    if (r.usage.cost > b.env.OPS_PIPELINE_SPEND_CAP_CNY)
-      return fail(`读数超帽:cost=${r.usage.cost} > ${b.env.OPS_PIPELINE_SPEND_CAP_CNY}(OPS_PIPELINE_SPEND_CAP_CNY)`, inputs);
-    if (r.wall_s > b.env.OPS_PIPELINE_WALL_CLOCK_S)
-      return fail(`读数超帽:wall_s=${r.wall_s} > ${b.env.OPS_PIPELINE_WALL_CLOCK_S}(OPS_PIPELINE_WALL_CLOCK_S)`, inputs);
-    if (r.monthly && Number.isFinite(r.monthly.projected) && r.monthly.projected > b.env.OPS_PIPELINE_MONTHLY_CAP_CNY)
-      return fail(`读数超帽:月度投影 ${r.monthly.projected} > ${b.env.OPS_PIPELINE_MONTHLY_CAP_CNY}(OPS_PIPELINE_MONTHLY_CAP_CNY;replay 面 monthly=null 不查)`, inputs);
+    if (r.usage.cost > b.env[CAP.spend])
+      return fail(`读数超帽:cost=${r.usage.cost} > ${b.env[CAP.spend]}(${CAP.spend})`, inputs);
+    if (r.wall_s > b.env[CAP.wall])
+      return fail(`读数超帽:wall_s=${r.wall_s} > ${b.env[CAP.wall]}(${CAP.wall})`, inputs);
+    if (r.monthly && Number.isFinite(r.monthly.projected) && r.monthly.projected > b.env[CAP.month])
+      return fail(`读数超帽:月度投影 ${r.monthly.projected} > ${b.env[CAP.month]}(${CAP.month};replay 面 monthly=null 不查)`, inputs);
     // #184:finding 出口三件套信封留痕机检——ANCHOR_SWEEP 已跑(done/degraded)则
     // pipeline.finding_exits 必在场(gh_issue/webhook 状态面;未配置=skip 痕是票面语义非可选)
     const sweepStage = (ctx.envelope.pipeline?.stages ?? []).find((x) => x.name === "ANCHOR_SWEEP");
@@ -334,6 +352,139 @@ export const GATES = {
         return fail("finding 出口信封留痕缺席(#184:gh_issue/webhook 状态面须在场;未配置=skip 痕)", inputs);
     }
     return pass(`信封单行 JSON 落 stdout 末行(${s.length} 字节,${ctx.envelope.pipeline?.stages?.length ?? 0} stages)`, inputs);
+  },
+
+  // ── 发现轮四门(#207 T1 骨架;#208 T2 强化:span 逐字回引/数字复算/对账收严/条目自洽哨)──
+  // G_SCAN:候选宇宙快照可解析+行形状+channels 计数+#208 条目自洽哨(指针形与渠道自洽——
+  // needs 面=NEEDS.md 行锚+text 原文面在场;registry 面=repo 相对模块路径+name=文件词干)。
+  G_SCAN: (ctx) => {
+    const inputs = [A.DISCOVER_SCAN];
+    const d = j(path.join(ctx.dir, A.DISCOVER_SCAN));
+    if (!d) return fail(`${A.DISCOVER_SCAN} 不可解析`, inputs);
+    if (!Array.isArray(d.candidates)) return fail("candidates 非数组", inputs);
+    const CH = ["source_registry", "needs"]; // T1 渠道闭集(web=T3 #209 接线后入集)
+    for (const c of d.candidates) {
+      if (!c || typeof c.name !== "string" || !c.name) return fail("候选缺 name", inputs);
+      if (typeof c.evidence_ptr !== "string" || !c.evidence_ptr) return fail(`候选 ${c.name} 缺 evidence_ptr(证据永不灭失:候选须可原样回算)`, inputs);
+      if (!CH.includes(c.source_channel)) return fail(`候选 ${c.name} 渠道闭集外:${c.source_channel}`, inputs);
+      if (typeof c.status !== "string" || !c.status) return fail(`候选 ${c.name} 缺 status`, inputs);
+      // #208 指针形自洽哨(同律子集于 citation.mjs 三形,但此处钉「形与渠道」互证:
+      // needs 条目行锚指向原文面、registry 条目路径指向真模块——防篡改面漂移)
+      if (c.source_channel === "needs") {
+        if (!/^NEEDS\.md:L\d+$/.test(c.evidence_ptr))
+          return fail(`needs 条目 ${c.name} 指针形不自洽:${c.evidence_ptr}(须 NEEDS.md:L<行号>)`, inputs);
+        if (typeof c.text !== "string" || !c.text.trim())
+          return fail(`needs 条目 ${c.name} 缺 text 原文面(#208:span 回引对账面须入轮工件)`, inputs);
+      } else if (c.source_channel === "source_registry") {
+      const stem = /^backend\/ipdb\/_sources\/([A-Za-z0-9_-]+)\.py$/.exec(c.evidence_ptr);
+      if (!stem || stem[1] !== c.name)
+        return fail(`registry 条目指针形不自洽:${c.evidence_ptr}(须 backend/ipdb/_sources/<name>.py 且 name=文件词干)`, inputs);
+      }
+    }
+    if (!d.channels || !d.channels.registry || !d.channels.needs || d.channels.web?.status !== "placeholder")
+      return fail("channels 面缺席/坏形(registry/needs/web 三渠道留痕必在场;web=T3 占位)", inputs);
+    const regN = d.candidates.filter((c) => c.source_channel === "source_registry").length;
+    const needsN = d.candidates.filter((c) => c.source_channel === "needs").length;
+    if (d.channels.registry.n !== regN || d.channels.needs.n !== needsN)
+      return fail(`渠道计数不符(registry 工件=${d.channels.registry.n}/实数=${regN};needs 工件=${d.channels.needs.n}/实数=${needsN})`, inputs);
+    return pass(`候选宇宙 ${d.candidates.length} 条(registry ${regN}+needs ${needsN},web=placeholder);行形状+指针自洽哨全过`, inputs);
+  },
+  // G_SHORTLIST(#208 T2 span 语义门):结构化候选可解析+数组(空合法:零候选/降级留痕不炸轮);
+  // 每条候选 shape 面(七键闭集)+quote 对证据面(scanEvidenceFace 经 evidence_ptr 解析,
+  // 三形:透传/工件/URL)逐字 span(spanMatcher:改写/幽灵 URL/半真 URL=门败,reason 带
+  // 候选名+指针)。needs 面 url:null/排他率:null 合法(透传契约;T3 校验器分立不碰)。
+  G_SHORTLIST: (ctx) => {
+    const inputs = [A.DISCOVER_SHORTLIST, A.DISCOVER_SCAN, "(d2-shortlist-transcript.jsonl)"];
+    const d = j(path.join(ctx.dir, A.DISCOVER_SHORTLIST));
+    const scan = j(path.join(ctx.dir, A.DISCOVER_SCAN));
+    if (!d) return fail(`${A.DISCOVER_SHORTLIST} 不可解析`, inputs);
+    if (!Array.isArray(d.candidates)) return fail("candidates 非数组", inputs);
+    if (d.degraded !== undefined && typeof d.degraded !== "string") return fail("degraded 留痕非字符串", inputs);
+    const FIELDS = ["name", "url", "source_channel", "quote", "evidence_ptr", "exclusivity_estimate", "notes"]; // 七键闭集(T3 同名面;门面独立校验不 import T3 私有律)
+    for (const c of d.candidates) {
+      if (!c || typeof c !== "object") return fail("候选非对象", inputs);
+      const unknown = Object.keys(c).filter((k) => !FIELDS.includes(k));
+      if (unknown.length) return fail(`候选 ${c?.name} 未知键 ${unknown.join(",")}(闭集:${FIELDS.join("/")})`, inputs);
+      for (const k of ["name", "quote", "evidence_ptr", "source_channel"])
+        if (typeof c[k] !== "string" || !c[k].trim()) return fail(`候选 ${c?.name} ${k} 缺失或非非空串`, inputs);
+      if (!(c.url === null || (typeof c.url === "string" && /^https?:\/\/\S+$/.test(c.url))))
+        return fail(`候选 ${c.name} url 须 http(s) 或 null(needs 无 URL 候选合法;强造=幽灵温床)`, inputs);
+      if (!(c.exclusivity_estimate === null || (typeof c.exclusivity_estimate === "number" && Number.isFinite(c.exclusivity_estimate) && c.exclusivity_estimate >= 0 && c.exclusivity_estimate <= 1)))
+        return fail(`候选 ${c.name} exclusivity_estimate 须 [0,1] 数或 null(宁少算勿多算)`, inputs);
+      // span 语义门(核心):证据面解析+逐字回引
+      if (!scan) return fail(`${A.DISCOVER_SCAN} 不可解析(span 对账面缺席)`, inputs);
+      const face = scanEvidenceFace(scan, c.evidence_ptr);
+      if (!face.ok) return fail(`候选 ${c.name}:证据指针 ${c.evidence_ptr} 在 d1-scan 候选宇宙不可解析(${face.reason})`, inputs);
+      if (!spanMatcher(c.quote, face.text))
+        return fail(`候选 ${c.name}:quote 非证据面逐字 span(指针 ${c.evidence_ptr};改写/幽灵 URL/半真 URL=门败——spec T2 三负例)`, inputs);
+    }
+    return pass(`结构化候选 ${d.candidates.length} 条${d.degraded ? `(降级留痕:${d.degraded.slice(0, 60)})` : ""};span 逐字回引全过(#208 T2)`, inputs);
+  },
+  // G_MEASURE(#208 T2 数字复算):测量面可解析+行形状;行⊆shortlist 对账+存在性宿主重算
+  // (scanEvidenceFace)+排他率透传复算(shortlist 值??null)+hold 计数——工件漂移即门败。
+  G_MEASURE: (ctx) => {
+    const inputs = [A.DISCOVER_MEASURE, A.DISCOVER_SHORTLIST, A.DISCOVER_SCAN];
+    const d = j(path.join(ctx.dir, A.DISCOVER_MEASURE));
+    const sh = j(path.join(ctx.dir, A.DISCOVER_SHORTLIST));
+    const scan = j(path.join(ctx.dir, A.DISCOVER_SCAN));
+    if (!d) return fail(`${A.DISCOVER_MEASURE} 不可解析`, inputs);
+    if (!Array.isArray(d.results)) return fail("results 非数组", inputs);
+    const byName = new Map((sh?.candidates ?? []).map((c) => [String(c?.name ?? "").toLowerCase(), c]));
+    for (const m of d.results) {
+      if (!m || typeof m.candidate !== "string" || !m.candidate) return fail("测量行缺 candidate", inputs);
+      if (typeof m.evidence_local_ok !== "boolean") return fail(`测量行 ${m.candidate} 缺 evidence_local_ok 布尔`, inputs);
+      if (m.status !== "uncertainty" && m.status !== "measured") return fail(`测量行 ${m.candidate} 状态闭集外:${m.status}`, inputs);
+      if (!(m.exclusivity_estimate === null || Number.isFinite(m.exclusivity_estimate))) return fail(`测量行 ${m.candidate} exclusivity_estimate 非 number|null`, inputs);
+      if (!(m.control_executable === null || typeof m.control_executable === "boolean")) return fail(`测量行 ${m.candidate} control_executable 非 boolean|null`, inputs);
+      // #208 对账:测量行 ⊄ shortlist = 门败(无源读数)
+      const sc = byName.get(String(m.name ?? "").toLowerCase());
+      if (!sc) return fail(`测量行 ${m.candidate} ⊄ shortlist(name=${m.name} 对不上——无源读数)`, inputs);
+      // #208 存在性宿主重算:工件布 vs scanEvidenceFace 真值
+      if (scan) {
+        const want = scanEvidenceFace(scan, sc.evidence_ptr).ok;
+        if (m.evidence_local_ok !== want)
+          return fail(`存在性复算不符:行 ${m.candidate} 工件=${m.evidence_local_ok}/宿主重算=${want}(指针 ${sc.evidence_ptr})`, inputs);
+      }
+      // #208 排他率透传复算:测量行=shortlist 候选值??null(模型无权在测量面改估)
+      const wantEx = sc.exclusivity_estimate ?? null;
+      if (m.exclusivity_estimate !== wantEx)
+        return fail(`排他率透传不符:行 ${m.candidate} 工件=${m.exclusivity_estimate}/shortlist=${wantEx}(测量面无改估权)`, inputs);
+    }
+    const holdN = d.results.filter((m) => m.status === "uncertainty").length;
+    if (d.hold_n !== holdN) return fail(`hold 计数不符(工件=${d.hold_n}/实数=${holdN})`, inputs);
+    return pass(`测量 ${d.results.length} 行(uncertainty hold ${holdN});存在性+排他率宿主复算全符(#208 T2)`, inputs);
+  },
+  // G_ENQUEUE(#208 T2 对账收严):入队行⊆shortlist∩measure 合格面(三判据宿主重算)+
+  // 穷尽哨(shortlist 候选必须在 enqueued∪skipped 有行——证据永不灭失:不静默丢候选)+
+  // 计数回算+门槛常量在场(判据在代码不在 prompt)。
+  G_ENQUEUE: (ctx) => {
+    const inputs = [A.DISCOVER_ENQUEUE, A.DISCOVER_SHORTLIST, A.DISCOVER_MEASURE, "(queue.md #139)"];
+    const d = j(path.join(ctx.dir, A.DISCOVER_ENQUEUE));
+    const sh = j(path.join(ctx.dir, A.DISCOVER_SHORTLIST));
+    const me = j(path.join(ctx.dir, A.DISCOVER_MEASURE));
+    if (!d) return fail(`${A.DISCOVER_ENQUEUE} 不可解析`, inputs);
+    if (!Array.isArray(d.enqueued) || !Array.isArray(d.skipped)) return fail("enqueued/skipped 非数组", inputs);
+    if (d.n_enqueued !== d.enqueued.length || d.n_skipped !== d.skipped.length)
+      return fail(`计数不符(enqueued ${d.n_enqueued}≠${d.enqueued.length};skipped ${d.n_skipped}≠${d.skipped.length})`, inputs);
+    if (d.gate_exclusivity !== ENQUEUE_EXCLUSIVITY_GATE) return fail(`门槛常量不符:工件=${d.gate_exclusivity}/代码=${ENQUEUE_EXCLUSIVITY_GATE}(判据单源在代码)`, inputs);
+    const shSet = new Set((sh?.candidates ?? []).map((c) => String(c.name).toLowerCase()));
+    const mByCand = new Map((me?.results ?? []).map((r) => [String(r.candidate), r]));
+    for (const row of d.enqueued) {
+      if (!shSet.has(String(row.name ?? "").toLowerCase())) return fail(`入队行 ${row.candidate} ⊄ shortlist 候选(对账;T2 #208 强化)`, inputs);
+      if (!Array.isArray(row.reasons) || row.reasons.length) return fail(`入队行 ${row.candidate} 带拒因(矛盾面)`, inputs);
+      // #208 三判据宿主重算(入队⊆shortlist∩measure 合格面)
+      const m = mByCand.get(String(row.candidate ?? ""));
+      if (!m) return fail(`入队行 ${row.candidate} 无测量行(入队⊆shortlist∩measure 合格面)`, inputs);
+      if (m.evidence_local_ok !== true || !((m.exclusivity_estimate ?? -1) >= ENQUEUE_EXCLUSIVITY_GATE) || m.control_executable !== true)
+        return fail(`入队行 ${row.candidate} 判据复算不过(证据=${m.evidence_local_ok}/排他率=${m.exclusivity_estimate}(门≥${ENQUEUE_EXCLUSIVITY_GATE})/对照=${m.control_executable}——三判据宿主重算)`, inputs);
+    }
+    for (const row of d.skipped) if (!Array.isArray(row.reasons) || !row.reasons.length) return fail(`skipped 行 ${row.candidate} 缺拒因(无证据即无话:不入队须留理由)`, inputs);
+    // #208 穷尽哨:shortlist 候选必须在 enqueued∪skipped 有行(不静默丢候选)
+    const covered = new Set([...d.enqueued, ...d.skipped].map((r) => String(r.name ?? "").toLowerCase()));
+    for (const c of sh?.candidates ?? [])
+      if (!covered.has(String(c?.name ?? "").toLowerCase()))
+        return fail(`shortlist 候选 ${c?.name} 在 ${A.DISCOVER_ENQUEUE} 无行(enqueued∪skipped 须穷尽——证据永不灭失:不静默丢候选)`, inputs);
+    return pass(`入队 ${d.n_enqueued}/skipped ${d.n_skipped};门槛=排他率≥${ENQUEUE_EXCLUSIVITY_GATE}(常量);⊆shortlist∩measure 合格面+穷尽哨过(#208 T2)`, inputs);
   },
 };
 

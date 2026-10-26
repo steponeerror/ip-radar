@@ -112,7 +112,7 @@ await t("表对拍:扫描器收录的 env 读取面(计算模板无未知形)", 
   assert.equal(READS.unknownTemplate, null, `未收录的 process.env[··] 计算读取模板,对拍器需同步`);
 });
 
-await t("表:SPAWN_CONTRACT_ENV 名集=规格 16 项+…(增补链见 agent.mjs 注;#199 交付A 尾部再追 OPS_PIPELINE_MAX_MODEL_CALLS/OPS_PIPELINE_TOKEN_BUDGET/OPS_PIPELINE_WALL_CLOCK_S/OPS_PIPELINE_SPEND_CAP_CNY/OPS_PIPELINE_MONTHLY_CAP_CNY/OPS_PIPELINE_DUP_CALL_LIMIT——pipeline/budget.mjs readBudgetKnobs 单源实读)", () => {
+await t("表:SPAWN_CONTRACT_ENV 名集=规格 16 项+…(增补链见 agent.mjs 注;#199 交付A 尾部再追 OPS_PIPELINE_MAX_MODEL_CALLS/OPS_PIPELINE_TOKEN_BUDGET/OPS_PIPELINE_WALL_CLOCK_S/OPS_PIPELINE_SPEND_CAP_CNY/OPS_PIPELINE_MONTHLY_CAP_CNY/OPS_PIPELINE_DUP_CALL_LIMIT——pipeline/budget.mjs readBudgetKnobs 单源实读;#207 T1 再追 OPS_DISCOVER_MAX_MODEL_CALLS/OPS_DISCOVER_WALL_CLOCK_S/OPS_DISCOVER_SPEND_CAP_CNY——readDiscoverKnobs 单源实读,月帽共享不另立行)", () => {
   assert.deepEqual([...tableNames()].sort(), ["DOCS_ROOT", "GH_TOKEN", "IP_RADAR_ALERT_URLS", "JINA_API_KEY", "LEDGER_FILE", "OPS_ANCHOR_SWEEP_TIMEOUT_MS", "OPS_AUTH", "OPS_DATA_DIR",
     "OPS_EVAL_PY", "OPS_FETCH_MAX_BYTES", "OPS_MATRIX_TIMEOUT_MS", "OPS_MODELS", "OPS_MODEL_DISCOVER",
     "OPS_MODEL_HEALTH", "OPS_MODELS_STORE", "OPS_PIPELINE", "OPS_PIPELINE_BUDGET_CNY", "OPS_PROBE_CLI_TIMEOUT_MS",
@@ -120,6 +120,7 @@ await t("表:SPAWN_CONTRACT_ENV 名集=规格 16 项+…(增补链见 agent.mjs 
     "PRECEDENTS_DIR", "ZAI_CODING_CN_API_KEY",
     "OPS_PIPELINE_MAX_MODEL_CALLS", "OPS_PIPELINE_TOKEN_BUDGET", "OPS_PIPELINE_WALL_CLOCK_S",
     "OPS_PIPELINE_SPEND_CAP_CNY", "OPS_PIPELINE_MONTHLY_CAP_CNY", "OPS_PIPELINE_DUP_CALL_LIMIT",
+    "OPS_DISCOVER_MAX_MODEL_CALLS", "OPS_DISCOVER_WALL_CLOCK_S", "OPS_DISCOVER_SPEND_CAP_CNY", // #207 T1 发现轮三旋钮
     "OPS_BREAKER_THRESHOLD", "OPS_BREAKER_COOLDOWN_S"].sort()); // #199 交付B:tools/breaker.mjs readBreakerKnobs 单源实读
 });
 
@@ -349,6 +350,32 @@ await t("锁路径对拍:python LEDGER_LOCK_NAME ↔ node ledgerLockPath 同源�
     "lib.sh 写面 ledger_append 须持 flock(双写面缺一即竞态窗)");
   assert.match(py, /def append_ledger[\s\S]*?with _ledger_lock\(\):/,
     "python 写面 append_ledger 须持 _ledger_lock");
+});
+
+// ── #217 T3.5:queue.md 表头跨语言三抄对拍哨(形制同锁路径哨)──
+// 表头首行句随三写口翻正(queue_action / 发现轮 ENQUEUE 候选行 / 候选卡
+// appendCandidateCard)后,"唯一写口"旧句不再是事实——三抄面(python
+// _ops_store.QUEUE_HEADER / node queue-lock.mjs QUEUE_HEADER / node 侧首建实写串)
+// 任一漂移=表头撒谎或双源分叉,哨红。
+await t("表头对拍:python QUEUE_HEADER ↔ node QUEUE_HEADER ↔ 首建实写串三抄逐字同(#217 T3.5)", async () => {
+  const py = fs.readFileSync(path.join(AGENT, "..", "..", "backend", "ipdb", "_ops_store.py"), "utf8");
+  const pyBlock = py.match(/QUEUE_HEADER = \(([\s\S]*?)\n\)/);
+  assert.ok(pyBlock, "_ops_store.py 缺 QUEUE_HEADER 拼串(表头契约漂移)");
+  const pyHeader = (pyBlock[1].match(/"((?:[^"\\]|\\.)*)"/g) ?? []).map((x) => JSON.parse(x)).join("");
+  const nodeSrc = fs.readFileSync(path.join(AGENT, "tools/queue-lock.mjs"), "utf8");
+  const nodeBlock = nodeSrc.match(/const QUEUE_HEADER =\s*\n?\s*((?:"(?:[^"\\]|\\.)*"\s*\+?\s*\n?\s*)+);/);
+  assert.ok(nodeBlock, "queue-lock.mjs 缺 QUEUE_HEADER 常量(表头契约漂移)");
+  const nodeHeader = (nodeBlock[1].match(/"((?:[^"\\]|\\.)*)"/g) ?? []).map((x) => JSON.parse(x)).join("");
+  assert.equal(pyHeader, nodeHeader, "python/node 表头双抄分叉(任一侧改句未同批)");
+  assert.match(pyHeader, /三写口.*queue_action.*ENQUEUE.*appendCandidateCard/s,
+    "表头首行句须如实描述三写口(#217;回退到「唯一写口」旧句=哨红)");
+  // 首建实写面:appendQueueRowLocked 惰性首建写出的文件头 = 双抄头(实跑非只源)
+  const { appendQueueRowLocked } = await import("./tools/queue-lock.mjs");
+  const qf = path.join(TMP, "hdr", "queue.md");
+  fs.mkdirSync(path.dirname(qf), { recursive: true }); // flock 先开锁文件:父目录须在场(生产 ops/ 恒在)
+  await appendQueueRowLocked({ queueFile: qf, round: "r", action: "PROPOSE", source: "hdr_probe", predicate: null, evidence: [{ call_id: "measure-1", field: "evidence_local_ok", value: true }] });
+  const written = fs.readFileSync(qf, "utf8");
+  assert.ok(written.startsWith(nodeHeader), "首建实写串与 QUEUE_HEADER 常量分叉(渲染面漂移)");
 });
 
 fs.rmSync(TMP, { recursive: true, force: true });
