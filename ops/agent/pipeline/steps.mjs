@@ -19,6 +19,7 @@ import * as budget from "./budget.mjs"; // #199 A5:09-budget.json 读数面(零�
 import { mkBreaker, readBreakerKnobs } from "../tools/breaker.mjs"; // #199 B:breaker 观察快照(只读零写;零环:breaker 只依赖 node 内置+lib.sh)
 import { itemSignature, fullDedupKey, createOpsItem, parseItemsTree, CAUSE_GROUP_BY_BUCKET } from "./ops-items.mjs"; // 条目库桥(P4 #166:接 _ops_items 同空间)
 import { ARTIFACTS as A, deepArtifactName, deepTranscriptName, DEEP_TRANSCRIPT_RE } from "../artifacts.mjs"; // 工件名表单源(#202 C1):步写出/读面禁手抄工件名(磁盘名字节冻结,位等价判例)
+import { appendQueueRowLocked } from "../tools/queue-lock.mjs"; // #139 flock 互锁队列写口(#207 T1 ENQUEUE 消费;与 python 侧 append_queue 同构互锁)
 
 const execFileP = promisify(execFileCb);
 const AGENT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -32,6 +33,9 @@ export const RULE_PREDICATES = ["bucket", "url_shape", "source", "error_family"]
 export const RULE_ACTIONS = ["suppress", "annotate"]; // 规则动作闭集(C稿 §4.2)
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const infra = (msg) => Object.assign(new Error(msg), { code: "infra" });
+// 台账行标签单源(#207 T1):steps RETRO 写面与 gates G_RETRO 读回检查同源,禁各自手抄
+// (health=pipeline 历史名字节冻结;discover=pipeline-discover,票面铸词)。
+export const LEDGER_TAGS = { health: "pipeline", discover: "pipeline-discover" };
 // review_at 缺省 = 采纳日 +90 天(C稿 §4.2:防规则磨烂成新噪音;RETRO P5 到点报人复审)
 const addDaysIso = (iso, n) => { const d = new Date(`${iso}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 
@@ -318,14 +322,29 @@ function adoptRuleItem(ctx, cand) {
 async function RETRO(def, ctx) {
   const usage = `in=${ctx.usage.input} out=${ctx.usage.output} total=${ctx.usage.totalTokens} cost=${ctx.usage.cost.toFixed(8)}`;
   // 幂等重入(resume #167):台账已有本轮行则零追加(crash 后恢复不双记账——回声防线)
+  const ledgerTag = LEDGER_TAGS[ctx.type ?? "health"]; // #207 T1:轮型→标签单源
   let ledgerNow = null;
   try { ledgerNow = fs.readFileSync(ctx.ledgerFile, "utf8"); } catch { /* 首轮无台账文件=正常 */ }
-  if (!(ledgerNow ?? "").includes(`pipeline:${ctx.roundId}`))
-    try { await sh("ledger_append", ["health", ctx.state?.model_face === "real" ? "pipeline-real" : "faux-pipeline", usage, `pipeline:${ctx.roundId}`], 120_000, ctx.env); } catch (e) { throw Object.assign(new Error(`台账写败:${e.message}`), { code: "ledger_failed" }); } // 台账先记(#170 起真面记 pipeline-real,真 usage 数字入台账;faux 面标签不变向后兼容)
+  if (!(ledgerNow ?? "").includes(`${ledgerTag}:${ctx.roundId}`))
+    try { await sh("ledger_append", [ctx.type ?? "health", ctx.state?.model_face === "real" ? "pipeline-real" : "faux-pipeline", usage, `${ledgerTag}:${ctx.roundId}`], 120_000, ctx.env); } catch (e) { throw Object.assign(new Error(`台账写败:${e.message}`), { code: "ledger_failed" }); } // 台账先记(#170 起真面记 pipeline-real;faux 面标签不变向后兼容;轮次列=轮型)
   try { await sh("sandbox_assert", [], 60_000, ctx.env); } // 沙箱红线真执行(backend/frontend 零改动)
   catch (e) { throw Object.assign(new Error("sandbox_assert rc≠0(backend/frontend 污染)"), { code: "sandbox_violation" }); }
   let degraded;
   try { // 候选产出失败=降级(跳过 retro,轮仍成功);台账/sandbox 失败已先行终态(C稿 §2.2 语义序)
+    fs.mkdirSync(path.dirname(ctx.retroFile), { recursive: true });
+    if (ctx.type === "discover") { // 发现轮 retro 体(#207 T1):计数面=d1-d4 工件回算;无规则/条目 diff 面(健康轮律不适用)
+      const scan = j(path.join(ctx.dir, A.DISCOVER_SCAN));
+      const shortlist = j(path.join(ctx.dir, A.DISCOVER_SHORTLIST));
+      const measure = j(path.join(ctx.dir, A.DISCOVER_MEASURE));
+      const enqueue = j(path.join(ctx.dir, A.DISCOVER_ENQUEUE));
+      writeJson(ctx.retroFile, { round_id: ctx.roundId, type: "discover", generated_at: new Date().toISOString(),
+        counts: { scan_n: scan?.candidates?.length ?? 0, shortlist_n: shortlist?.candidates?.length ?? 0,
+          measure_hold_n: measure?.hold_n ?? 0, enqueue_n: enqueue?.n_enqueued ?? 0 },
+        degraded_traces: [shortlist?.degraded].filter(Boolean), // 降级留痕集中面(SHORTLIST 解析失败等)
+        candidates: [], // T1 无 retro 候选(T2 #208 强化门时随面扩展)
+        sandbox_assert_pass: true, sandbox_assert_rc: 0, degraded: false });
+      return undefined;
+    }
     const s = j(path.join(ctx.dir, A.PROBE_SUMMARY));
     const survivors = j(path.join(ctx.dir, A.VERIFY_SURVIVORS))?.survivors ?? [];
     const suppressedF = j(path.join(ctx.dir, A.VERIFY_SUPPRESSED));
@@ -374,7 +393,8 @@ async function CLOSE(def, ctx) { // 书挡步:存在性校验(闭合双层的外
   // #199 A5:预算四界读数工件(09-budget.json)。先于 pkg 存在性早退——预算面必落:
   // 报告缺席轮的谱系/审计面不随早退丢。读数=环内执法同一 ctx 计数面(usage 快照/调用数/
   // 墙钟/dup_top3 观察+月度准入投影);门面 G_CLOSE 做回声哨对拍(环内已执法,门只防工件漂移)。
-  const knobs = ctx.budgetKnobs ?? budget.readBudgetKnobs(ctx.env ?? {});
+  const isDiscover = ctx.type === "discover";
+  const knobs = ctx.budgetKnobs ?? (isDiscover ? budget.readDiscoverKnobs(ctx.env ?? {}) : budget.readBudgetKnobs(ctx.env ?? {})); // #207 T1:发现轮旋钮族同面(轮始已校验,此为回退面)
   // #199 B:breaker 快照只读观察面(回声律:不造文件——状态文件仅在通道面首次结算时创建,
   // 生产首轮自动建 CHANGELOG 注记);旋钮生效值随快照落盘=可证伪。轮始校验同 budget 判例
   // (mkCtx 读一次,非法=用法错 exit 2 不带病跑轮)。
@@ -385,15 +405,19 @@ async function CLOSE(def, ctx) { // 书挡步:存在性校验(闭合双层的外
   writeJson(path.join(ctx.dir, A.BUDGET), {
     round_id: ctx.roundId,
     generated_at: new Date().toISOString(),
-    env: { // 生效值(含 OPS_PIPELINE_BUDGET_CNY:语义=DISPATCH 准告警线,真执法=A1 四界)
-      OPS_PIPELINE_BUDGET_CNY: ctx.budgetCny,
-      OPS_PIPELINE_MAX_MODEL_CALLS: knobs.maxModelCalls,
-      OPS_PIPELINE_TOKEN_BUDGET: knobs.tokenBudget,
-      OPS_PIPELINE_WALL_CLOCK_S: knobs.wallClockS,
-      OPS_PIPELINE_SPEND_CAP_CNY: knobs.spendCapCny,
-      OPS_PIPELINE_MONTHLY_CAP_CNY: knobs.monthlyCapCny,
-      OPS_PIPELINE_DUP_CALL_LIMIT: knobs.dupCallLimit,
-    },
+    env: isDiscover // 生效值 per-type(#207 T1):发现轮=三旋钮+est+共享月帽(无 token 界——发现轮不预设轨迹预算);健康轮 7 键面字节不变(位等价)
+      ? { OPS_PIPELINE_BUDGET_CNY: ctx.budgetCny, OPS_DISCOVER_MAX_MODEL_CALLS: knobs.maxModelCalls,
+          OPS_DISCOVER_WALL_CLOCK_S: knobs.wallClockS, OPS_DISCOVER_SPEND_CAP_CNY: knobs.spendCapCny,
+          OPS_PIPELINE_MONTHLY_CAP_CNY: knobs.monthlyCapCny }
+      : { // 生效值(含 OPS_PIPELINE_BUDGET_CNY:语义=DISPATCH 准告警线,真执法=A1 四界)
+        OPS_PIPELINE_BUDGET_CNY: ctx.budgetCny,
+        OPS_PIPELINE_MAX_MODEL_CALLS: knobs.maxModelCalls,
+        OPS_PIPELINE_TOKEN_BUDGET: knobs.tokenBudget,
+        OPS_PIPELINE_WALL_CLOCK_S: knobs.wallClockS,
+        OPS_PIPELINE_SPEND_CAP_CNY: knobs.spendCapCny,
+        OPS_PIPELINE_MONTHLY_CAP_CNY: knobs.monthlyCapCny,
+        OPS_PIPELINE_DUP_CALL_LIMIT: knobs.dupCallLimit,
+      },
     readings: {
       usage: { ...ctx.usage },
       model_calls: ctx.modelCalls ?? 0,
@@ -403,6 +427,7 @@ async function CLOSE(def, ctx) { // 书挡步:存在性校验(闭合双层的外
       breaker: breakerFace.snapshot(), // #199 B:五通道闭集态+生效旋钮(观察不裁决,G_CLOSE 不对拍帽——无帽可拍)
     },
   });
+  if (isDiscover) { ctx.pkg = null; return; } // 发现轮无报告步/无判例校验面(#207 T1;信封 pkg=null 恒)
   const report = path.join(ctx.dir, A.SYNTH_REPORT);
   ctx.pkg = fs.existsSync(report) ? report : null;
   if (!ctx.pkg) return;
@@ -542,6 +567,27 @@ function synthConsume(ctx, _item, { text }) {
   fs.writeFileSync(path.join(ctx.dir, A.SYNTH_REPORT), text);
 }
 
+// 发现轮 SHORTLIST(#207 T1):输入=SCAN 候选宇宙;输出=结构化候选(JSON,span 级引用=T2 #208 强化)。
+// 解析失败=降级空清单留痕不炸轮(spec T1 明律:零候选合法面,同 TRIAGE 零假设;不重试不 model_face)。
+function shortlistInput(ctx) {
+  const scan = j(path.join(ctx.dir, A.DISCOVER_SCAN)) ?? { candidates: [] };
+  return { systemPrompt: fs.readFileSync(promptFile("discover/shortlist"), "utf8"),
+    userMsg: JSON.stringify({ candidates: scan.candidates, note: "T1 候选宇宙=registry+needs 两面(web 面 T3 #209 接线);产出结构化候选 JSON" }) };
+}
+function shortlistConsume(ctx, _item, { text }) {
+  let out;
+  try {
+    const body = (text.match(/\{[\s\S]*\}/) ?? [])[0]; // 散文/围栏包裹的 JSON 体宽容提取(提取不出仍走降级)
+    if (!body) throw new Error("无 JSON 体");
+    const parsed = JSON.parse(body);
+    if (!Array.isArray(parsed?.candidates)) throw new Error("candidates 非数组");
+    out = { round_id: ctx.roundId, candidates: parsed.candidates };
+  } catch (e) {
+    out = { round_id: ctx.roundId, candidates: [], degraded: `shortlist_parse:${e.message}(降级空清单留痕,轮不炸;spec T1)` };
+  }
+  writeJson(path.join(ctx.dir, A.DISCOVER_SHORTLIST), out);
+}
+
 // 模型步工件完备判定(#167 resume 三规则②):「有 transcript(=本步工件集齐)→ 只补门
 // 评估,不重花 token」。单发步=def.out 全在场;逐假设步(DEEP)=该假设 05-deep-<hid>.json
 // + transcript 在场(聚合 verdicts 由 finalize 从逐假设工件重建,不算完备判据)。
@@ -553,7 +599,87 @@ export function modelItemComplete(def, ctx, item) {
   return def.out.every((f) => fs.existsSync(path.join(ctx.dir, f)));
 }
 
-const SCRIPT = { PROBE, VERIFY, DISPATCH, ITEMIZE, RETRO, ANCHOR_SWEEP, CLOSE };
+// ── 发现轮四步(#207 T1;spec /tmp/discover-pipeline-spec.md T1 节;ADR 0010 六步骨架)──────────
+// SCAN:确定性候选宇宙快照(零模型零网络):两面=已接源注册表(backend/ipdb/_sources/*.py,下划线
+// 前缀=内部模块非源)+ NEEDS.md 缺口行(AGENTS.md:NEEDS=「想问而无槽」index;状态 open/候选=缺口)。
+// web 渠道=T3 #209 接线占位(留痕不炸轮)。证据永不灭失:registry 面指针=repo 相对模块路径,
+// needs 面=NEEDS.md 行锚——候选可原样回算。同 commit 重扫逐字节同(确定性,无网络无时钟入候选面)。
+const NEEDS_STATUS = ["open", "候选"]; // 缺口行状态闭集(已立项/已闭不入候选宇宙)
+async function SCAN(def, ctx) {
+  const repoRoot = path.resolve(AGENT_DIR, "..", "..");
+  const registry = fs.existsSync(path.join(repoRoot, "backend", "ipdb", "_sources"))
+    ? fs.readdirSync(path.join(repoRoot, "backend", "ipdb", "_sources")).filter((f) => f.endsWith(".py") && !f.startsWith("_")).sort()
+      .map((f) => ({ name: f.replace(/\.py$/, ""), url: null, evidence_ptr: `backend/ipdb/_sources/${f}`, source_channel: "source_registry", status: "integrated" }))
+    : [];
+  const needsRows = [];
+  const needsFile = path.join(repoRoot, "NEEDS.md");
+  if (fs.existsSync(needsFile)) {
+    const lines = fs.readFileSync(needsFile, "utf8").split("\n");
+    for (let i = 0; i < lines.length; i++) {
+      const cells = lines[i].split("|").map((c) => c.trim());
+      if (cells.length < 5 || !NEEDS_STATUS.includes(cells[3])) continue;
+      const url = (cells[1].match(/https?:\/\/\S+/) ?? [null])[0];
+      needsRows.push({ name: cells[1].replace(/https?:\/\/\S+/g, "").replace(/\s+/g, " ").trim() || url,
+        url, evidence_ptr: `NEEDS.md:L${i + 1}`, source_channel: "needs", status: cells[3] });
+    }
+  }
+  writeJson(path.join(ctx.dir, A.DISCOVER_SCAN), { round_id: ctx.roundId, generated_at: new Date().toISOString(),
+    candidates: [...registry, ...needsRows],
+    channels: { registry: { status: "ok", n: registry.length }, needs: { status: "ok", n: needsRows.length },
+      web: { status: "placeholder", n: 0, note: "T3 #209 接线(PR3a web_search 渠道;T1 只留占位留痕)" } } });
+}
+
+// MEASURE:确定性存在性测量(T1 最小面=本地证据存在性:shortlist 候选 evidence_ptr 是否在
+// SCAN 宇宙内可解析);探针/对照接线=T3 #209。超时/未测=uncertainty hold(无证据≠清白:
+// 不入队也不除名,留痕待复测),不炸轮。
+async function MEASURE(def, ctx) {
+  const scan = j(path.join(ctx.dir, A.DISCOVER_SCAN)) ?? { candidates: [] };
+  const shortlist = j(path.join(ctx.dir, A.DISCOVER_SHORTLIST)) ?? { candidates: [] };
+  const scanPtrs = new Set(scan.candidates.map((c) => c.evidence_ptr));
+  const results = shortlist.candidates.map((c) => ({
+    candidate: candidateSlug(c.name), name: c.name,
+    evidence_local_ok: scanPtrs.has(c.evidence_ptr),
+    status: "uncertainty", // T1 全 hold(测量面未接线);T3 接线后按实测分
+    uncertainty_reason: "measure 面未接线(T3 #209):存在性=SCAN 指针本地回算,网络测量+阳性对照留待接线",
+    exclusivity_estimate: c.exclusivity_estimate ?? null, control_executable: null }));
+  writeJson(path.join(ctx.dir, A.DISCOVER_MEASURE), { round_id: ctx.roundId, generated_at: new Date().toISOString(),
+    results, n: results.length, hold_n: results.length });
+}
+
+// ENQUEUE:只写不动作(#139):过三判据(证据存在性全过+排他率≥0.25+阳性对照可执行)的候选
+// 经 queue-lock(#139 flock 路径,与 python append_queue 同构互锁)写 queue.md 一行候选卡;
+// 不开票不接源。判据=常量(spec:判据在代码不在 prompt,模型无权改)。写败=fail-closed infra
+// (证据不灭失优先于轮成功)。
+export const ENQUEUE_EXCLUSIVITY_GATE = 0.25; // spec T1:排他率预估门槛(常量,步/门同源导出;模型无权改判据——判据在代码不在 prompt;T4 北星校准走旋钮前不动)
+const candidateSlug = (name) => String(name).toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 32) || "cand"; // queue source 面 ^[a-z0-9_]{1,32}$ 适配
+async function ENQUEUE(def, ctx) {
+  const shortlist = j(path.join(ctx.dir, A.DISCOVER_SHORTLIST)) ?? { candidates: [] };
+  const measure = j(path.join(ctx.dir, A.DISCOVER_MEASURE)) ?? { results: [] };
+  const byCand = new Map(measure.results.map((r) => [r.candidate, r]));
+  const enqueued = []; const skipped = [];
+  for (const c of shortlist.candidates) {
+    const m = byCand.get(candidateSlug(c.name));
+    const reasons = [];
+    if (!m || m.evidence_local_ok !== true) reasons.push("evidence");
+    if (!m || !((m.exclusivity_estimate ?? -1) >= ENQUEUE_EXCLUSIVITY_GATE)) reasons.push("exclusivity");
+    if (!m || m.control_executable !== true) reasons.push("control");
+    (reasons.length ? skipped : enqueued).push({ candidate: candidateSlug(c.name), name: c.name, reasons });
+  }
+  const queueFile = path.join(ctx.opsRoot, "queue.md");
+  for (const row of enqueued) {
+    const m = byCand.get(row.candidate);
+    const r = await appendQueueRowLocked({ queueFile, round: ctx.roundId, action: "ENQUEUE", source: row.candidate, predicate: null,
+      evidence: [
+        { call_id: "d3-measure", field: "evidence_local_ok", value: true },
+        { call_id: "d3-measure", field: "exclusivity_estimate", value: m.exclusivity_estimate },
+        { call_id: "d3-measure", field: "control_executable", value: true }] }, { env: ctx.env ?? {} });
+    if (!r.ok) throw infra(`queue 写败(${row.candidate}):${r.code ?? "io_error"}`); // fail-closed
+  }
+  writeJson(path.join(ctx.dir, A.DISCOVER_ENQUEUE), { round_id: ctx.roundId, generated_at: new Date().toISOString(),
+    gate_exclusivity: ENQUEUE_EXCLUSIVITY_GATE, enqueued, skipped, n_enqueued: enqueued.length, n_skipped: skipped.length });
+}
+
+const SCRIPT = { PROBE, VERIFY, DISPATCH, ITEMIZE, RETRO, ANCHOR_SWEEP, CLOSE, SCAN, MEASURE, ENQUEUE };
 export async function runStage(def, ctx) {
   const fn = SCRIPT[def.name];
   if (!fn) throw Object.assign(new Error(`脚本步未实现:${def.name}(定义表与实现漂移)`), { code: "infra" });
@@ -563,6 +689,7 @@ const MODEL_IO = {
   TRIAGE: { input: triageInput, consume: triageConsume, finalize: null },
   DEEP: { input: deepInput, consume: deepConsume, finalize: deepFinalize, items: deepItems },
   SYNTH: { input: synthInput, consume: synthConsume, finalize: null },
+  SHORTLIST: { input: shortlistInput, consume: shortlistConsume, finalize: null }, // #207 T1:发现轮唯一模型步;零工具注入(T3 #209 接线点)
 };
 export const modelIO = (def) => {
   const io = MODEL_IO[def.name];

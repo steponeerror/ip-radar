@@ -1,4 +1,4 @@
-// 工件名表单源(#202 C1 / spec C1):健康轮轮目录工件名的唯一真源。
+// 工件名表单源(#202 C1 / spec C1;#207 T1 扩双管线):轮目录工件名的唯一真源(健康轮+发现轮)。
 // 为什么:gates.mjs(inputs 声明/读面)、steps.mjs(写出面)、selftest-pipeline.mjs(清单面)三层
 // 曾各持手抄字符串(同名字符串 ~70 处),漂移即静默错位;单源后漂移由闭包哨
 // (selftest「工件名表单源」测)双向拦截:名表加项不更新写出面=红;步面新写工件不入表=红。
@@ -26,10 +26,22 @@ export const ARTIFACTS = Object.freeze({
   BUDGET: "09-budget.json",
   GATES: "gates.json",
   STATE: "state.json",
+  // 发现轮四步工件(#207 T1;spec /tmp/discover-pipeline-spec.md T1 节):
+  // d1 候选宇宙快照/ d2 模型结构化候选/ d3 确定性测量/ d4 入队留痕。
+  // d2-shortlist-transcript.jsonl 是步侧产物不入名表(faux.mjs transcriptName 同 health TRIAGE_TRANSCRIPT 面:名表=轮目录固定业务面,transcript 由步面管)。
+  DISCOVER_SCAN: "d1-scan.json",
+  DISCOVER_SHORTLIST: "d2-shortlist.json",
+  DISCOVER_MEASURE: "d3-measure.json",
+  DISCOVER_ENQUEUE: "d4-enqueue.json",
 });
 
-// 名表闭包面(清单遍历/闭包哨差集都用它;禁止 Object.keys 当名字用)。
+// 名表闭包面(清单遍历/闭包哨差集都用它;禁止 Object.keys 当名字用)。全量 22 名。
 export const ARTIFACT_NAMES = Object.freeze(Object.values(ARTIFACTS));
+
+// 轮型固定面派生(#207 T1):闭包哨/门对拍按轮型取面,不拿全量 22 名错拍他轮目录。
+const DISCOVER_FIXED = ["DISCOVER_SCAN", "DISCOVER_SHORTLIST", "DISCOVER_MEASURE", "DISCOVER_ENQUEUE"];
+export const HEALTH_ARTIFACT_NAMES = Object.freeze(ARTIFACT_NAMES.filter((n) => !DISCOVER_FIXED.some((k) => ARTIFACTS[k] === n))); // 健康轮 18 固定名(位等价:与 #202 C1 表逐字节同)
+export const discoverArtifactNames = () => DISCOVER_FIXED.map((k) => ARTIFACTS[k]).concat([ARTIFACTS.BUDGET, ARTIFACTS.GATES, ARTIFACTS.STATE]); // 发现轮 7 固定名(d1-d4+09/gates/state)
 
 // 逐假设 DEEP 参数族:名字由假设 slug 拼出(slug=hidSlug(url)),不入固定表。
 export const deepArtifactName = (slug) => `05-deep-${slug}.json`;

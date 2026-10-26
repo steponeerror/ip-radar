@@ -49,6 +49,7 @@ tools.mjs `matrixScanCli` 真扫描(OPS_EVAL_PY stub)。ANCHOR_SWEEP(#182)同样
 | `deep/https-www.binarydefense.com-banlist.txt.json` | DEEP | refuted;seed c-bd reprobe_ua age_days=5 |
 | `deep/golden-track-canned.json` | DEEP 金轨迹 | unresolved 直通(零 need_deep 轮保活,#162 审 P2-2 裁定①)|
 | `synth.json` | SYNTH | 三节 canned 报告(计数行 + 深验行 `confirmed=1 refuted=1 unresolved=0`)|
+| `shortlist.json` | SHORTLIST(发现轮,#207 T1) | 2 结构化候选(NEEDS.md:L14 rDNS parquet 候选/L17 carrier open;exclusivity=null→ENQUEUE 恒 skip,罐装轮零入队;prompts/discover/shortlist.md) |
 
 P3 桩件 `deep/_stub.json` 已随真开启退役(#166);`review_freeze` 动作词随 confirmed→human_ruling
 裁决退役(P4:人裁终局,建议面恒交人)。

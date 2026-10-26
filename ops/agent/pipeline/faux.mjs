@@ -32,11 +32,12 @@ export function selectModelFace({ fixturesExplicit = false, inherited = null } =
 
 // 步→models.mjs 轮键映射(#170):TRIAGE/SYNTH=health 轻模型(flash),DEEP=discover 重模型(glm-5.3);
 // env 旋钮 OPS_MODEL_HEALTH/OPS_MODEL_DISCOVER 与 legacy 轮同一拼写(models.mjs resolve 闭集 health|discover)。
-export const STEP_ROUND = { TRIAGE: "health", SYNTH: "health", DEEP: "discover" };
+export const STEP_ROUND = { TRIAGE: "health", SYNTH: "health", DEEP: "discover", SHORTLIST: "discover" }; // #207 T1:发现轮 SHORTLIST 同 OPS_MODEL_DISCOVER 键
 
 const transcriptName = (def, item) => def.name === "TRIAGE" ? "03-triage-transcript.jsonl"
   : def.name === "DEEP" ? `05-deep-${hidSlug(item.hid)}-transcript.jsonl`
-  : def.name === "SYNTH" ? "07-synth-transcript.jsonl" : null;
+  : def.name === "SYNTH" ? "07-synth-transcript.jsonl"
+  : def.name === "SHORTLIST" ? "d2-shortlist-transcript.jsonl" : null; // #207 T1:发现轮模型步留痕(不入 artifacts 名表,同 health transcript 面由步面管)
 
 function loadFixture(def, ctx, item) {
   // DEEP 逐假设 fixture(P4 #166 真开启):deep/<slug>.json,slug=hidSlug(hid);金轨迹轮=golden-track-canned。
