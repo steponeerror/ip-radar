@@ -43,6 +43,12 @@ const DISCOVER_FIXED = ["DISCOVER_SCAN", "DISCOVER_SHORTLIST", "DISCOVER_MEASURE
 export const HEALTH_ARTIFACT_NAMES = Object.freeze(ARTIFACT_NAMES.filter((n) => !DISCOVER_FIXED.some((k) => ARTIFACTS[k] === n))); // 健康轮 18 固定名(位等价:与 #202 C1 表逐字节同)
 export const discoverArtifactNames = () => DISCOVER_FIXED.map((k) => ARTIFACTS[k]).concat([ARTIFACTS.BUDGET, ARTIFACTS.GATES, ARTIFACTS.STATE]); // 发现轮 7 固定名(d1-d4+09/gates/state)
 
+// 发现轮 SHORTLIST transcript 名(#217 T3.5):real/faux 同名;不入 ARTIFACTS 固定表(表=健康轮 18 名
+// 位等价冻结面)也不入 discoverArtifactNames(闭包哨测试以额外名单独钉)。单源理由:faux.mjs
+// transcriptName(写出面)与 discovery-host.mjs replayDiscoverSeeds(CLOSE 回放读面)共用,
+// 两处手抄=回放读不到留痕。字节冻结(磁盘名位等价判例同固定表)。
+export const DISCOVER_SHORTLIST_TRANSCRIPT = "d2-shortlist-transcript.jsonl";
+
 // 逐假设 DEEP 参数族:名字由假设 slug 拼出(slug=hidSlug(url)),不入固定表。
 export const deepArtifactName = (slug) => `05-deep-${slug}.json`;
 export const deepTranscriptName = (slug) => `05-deep-${slug}-transcript.jsonl`;

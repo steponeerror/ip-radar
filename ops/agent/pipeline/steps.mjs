@@ -20,8 +20,9 @@ import { mkBreaker, readBreakerKnobs } from "../tools/breaker.mjs"; // #199 B:br
 import { itemSignature, fullDedupKey, createOpsItem, parseItemsTree, CAUSE_GROUP_BY_BUCKET } from "./ops-items.mjs"; // 条目库桥(P4 #166:接 _ops_items 同空间)
 import { ARTIFACTS as A, deepArtifactName, deepTranscriptName, DEEP_TRANSCRIPT_RE } from "../artifacts.mjs"; // 工件名表单源(#202 C1):步写出/读面禁手抄工件名(磁盘名字节冻结,位等价判例)
 import { appendQueueRowLocked } from "../tools/queue-lock.mjs"; // #139 flock 互锁队列写口(#207 T1 ENQUEUE 消费;与 python 侧 append_queue 同构互锁)
-import { CANDIDATE_ACTION } from "./discover-candidate.mjs"; // #210 T4:action 词单源 PROPOSE(一词一拼,与 T3 appendCandidateCard 同源;T1 面此路死路——MEASURE 恒 control_executable:null,三判据不过即全 skip,行永不写;词先对齐防活路拼写分叉)
+import { CANDIDATE_ACTION } from "./discover-candidate.mjs"; // #210 T4:action 词单源 PROPOSE(一词一拼,与 T3 appendCandidateCard 同源;#217 T3.5 接线后 MEASURE 可出 control_executable:true——三判据活路,候选行真写入)
 import { scanEvidenceFace } from "./citation.mjs"; // #208 T2:证据面三形解析(透传/工件/URL)→span 级存在性
+import { ensureDiscoverHost, fixtureDiscoveryMethods, discoverChannelReadings, aggregateChannelCalls, replayDiscoverSeeds, breakerFileOf } from "./discovery-host.mjs"; // #217 T3.5:MEASURE 宿主补发/faux 罐装方法面/CLOSE 读数构造+回放重算/breaker 文件名单源
 
 const execFileP = promisify(execFileCb);
 const AGENT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -401,7 +402,7 @@ async function CLOSE(def, ctx) { // 书挡步:存在性校验(闭合双层的外
   // 生产首轮自动建 CHANGELOG 注记);旋钮生效值随快照落盘=可证伪。轮始校验同 budget 判例
   // (mkCtx 读一次,非法=用法错 exit 2 不带病跑轮)。
   const breakerFace = mkBreaker({
-    file: path.join(ctx.opsRoot ?? path.dirname(ctx.dir), "breaker.json"),
+    file: breakerFileOf(ctx), // #217 T3.5:与发现宿主同文件名单源(discovery-host.mjs breakerFileOf;原步内手拼表达式同形收口)
     env: ctx.env ?? {}, round: ctx.roundId ?? "health", knobs: ctx.breakerKnobs ?? readBreakerKnobs(ctx.env ?? {}),
   });
   writeJson(path.join(ctx.dir, A.BUDGET), {
@@ -427,6 +428,12 @@ async function CLOSE(def, ctx) { // 书挡步:存在性校验(闭合双层的外
       dup_top3: budget.dupTop(ctx.dupRegistry ?? new Map(), 3),
       monthly: ctx.state?.monthly_admission ?? null, // A2 准入留痕(replay 面无准入=null)
       breaker: breakerFace.snapshot(), // #199 B:五通道闭集态+生效旋钮(观察不裁决,G_CLOSE 不对拍帽——无帽可拍)
+      // #217 T3.5:发现轮配额第三读数键(纯增量;健康轮不展开=字节不变位等价)。活宿主优先
+      // (含 blocked 观察面);宿主缺席(resume 后 MEASURE 已录跳过)=工件回放重算(d2 transcript
+      // registry_seed+d3 tool_seeds;被拒不入种子=回放面恒宁少算;证据永不灭失:读数可回算)。
+      ...(isDiscover ? { discover_channels: ctx.discoverHost
+        ? discoverChannelReadings(ctx.discoverHost.channelCounts)
+        : discoverChannelReadings(aggregateChannelCalls(replayDiscoverSeeds(ctx))) } : {}),
     },
   });
   if (isDiscover) { ctx.pkg = null; return; } // 发现轮无报告步/无判例校验面(#207 T1;信封 pkg=null 恒)
@@ -645,22 +652,47 @@ async function SCAN(def, ctx) {
       web: { status: "placeholder", n: 0, note: "T3 #209 接线(PR3a web_search 渠道;T1 只留占位留痕)" } } });
 }
 
-// MEASURE:确定性存在性测量(T1 最小面=本地证据存在性:shortlist 候选 evidence_ptr 是否在
-// SCAN 宇宙内可解析);探针/对照接线=T3 #209。超时/未测=uncertainty hold(无证据≠清白:
-// 不入队也不除名,留痕待复测),不炸轮。
+// MEASURE(#217 T3.5 真接线):确定性测量步(零模型),两测量面:
+//   ①证据存在性:scanEvidenceFace 本地重算(d1 工件零网络;#208 T2 三形);
+//   ②URL 探测:发现宿主 host.call("web_read") 真证据面补发(有 url 候选;faux 面=measure.json
+//     罐装读数零网络,未罐装=io_error 诚实面,永不真联网)。
+// 排他率=SHORTLIST 估值透传(G_MEASURE 钉:测量面无改估权——勿虚构);control_executable=
+// 该候选自身探测的阳性对照:web_read 执行且 ok=true→true;执行且 ok=false(死链/鉴权/4xx)
+// →false(实测量非不可算);宿主拒绝(dup/breaker/cap)或无 url→null=不可算。三面全可算才
+// status=measured;任一不可算=uncertainty hold+显式原因(无证据即无话:不入队也不除名,
+// 被拒≠清白),不炸轮。tool_seeds=宿主种子快照(CLOSE 回放重算面;被拒不入种子=宁少算)。
+const MEASURE_GUARD_CODES = new Set(["repeat_storm", "channel_open", "budget"]); // 宿主拒绝码(ERROR_CODES 三员);执行失败面另有分类码(channel_missing/channel_auth/io_error 等)
 async function MEASURE(def, ctx) {
   const scan = j(path.join(ctx.dir, A.DISCOVER_SCAN)) ?? { candidates: [] };
   const shortlist = j(path.join(ctx.dir, A.DISCOVER_SHORTLIST)) ?? { candidates: [] };
-  const results = shortlist.candidates.map((c) => ({
-    candidate: candidateSlug(c.name), name: c.name,
-    // #208 T2:存在性从「指针集合相等」升格为三形解析(scanEvidenceFace:透传/工件/URL)
-    // ——T1 自报语义「是否在 SCAN 宇宙内可解析」的真实现;幽灵指针/幽灵 URL=not ok。
-    evidence_local_ok: scanEvidenceFace(scan, c.evidence_ptr).ok,
-    status: "uncertainty", // T1 全 hold(测量面未接线);T3 接线后按实测分
-    uncertainty_reason: "measure 面未接线(T3 #209):存在性=SCAN 宇宙三形指针解析(citation.mjs),网络测量+阳性对照留待接线",
-    exclusivity_estimate: c.exclusivity_estimate ?? null, control_executable: null }));
+  // faux 面方法恒罐装(零网络律:fixture 缺 measure.json=全 io_error 未罐装,不落真网络);
+  // 真面=discoveryMethods 真网络(spawn/fetch)。
+  const fauxFace = ctx.modelFace === "faux" && typeof ctx.fixturesDir === "string";
+  const host = ensureDiscoverHost(ctx, fauxFace
+    ? { methods: fixtureDiscoveryMethods(j(path.join(ctx.fixturesDir, "measure.json")) ?? {}) } : {});
+  const results = [];
+  for (const c of shortlist.candidates) {
+    const evidence_local_ok = scanEvidenceFace(scan, c.evidence_ptr).ok; // ①本地重算(幽灵指针/幽灵 URL=not ok)
+    let url_read_ok = null, url_read_code = null; // ②探测三态:true/false=实测量,null=不可算(无 url/被拒/无结构面)
+    if (c.url) {
+      const sc = (await host.call("web_read", { url: c.url }))?.structuredContent;
+      if (sc?.ok === true) url_read_ok = true;
+      else if (sc && !MEASURE_GUARD_CODES.has(sc.code)) { url_read_ok = false; url_read_code = sc.code ?? null; }
+      else url_read_code = sc?.code ?? "no_structured"; // 守卫拒绝/无结构面=不可算非清白
+    }
+    const unresolved = [];
+    if (!c.url) unresolved.push("无 URL 候选:控制面不可算(不发探测)");
+    else if (url_read_ok === null) unresolved.push(`URL 探测不可算(宿主拒绝/无结构面 code=${url_read_code};被拒≠清白)`);
+    if (c.exclusivity_estimate == null) unresolved.push("排他率缺 SHORTLIST 估值(测量面无改估权,勿虚构)");
+    results.push({ candidate: candidateSlug(c.name), name: c.name, evidence_local_ok,
+      url_read_ok, url_read_code, control_executable: url_read_ok,
+      status: unresolved.length ? "uncertainty" : "measured",
+      uncertainty_reason: unresolved.length ? unresolved.join(";") : null,
+      exclusivity_estimate: c.exclusivity_estimate ?? null });
+  }
   writeJson(path.join(ctx.dir, A.DISCOVER_MEASURE), { round_id: ctx.roundId, generated_at: new Date().toISOString(),
-    results, n: results.length, hold_n: results.length });
+    results, n: results.length, hold_n: results.filter((r) => r.status === "uncertainty").length,
+    tool_seeds: [...host.seeds] });
 }
 
 // ENQUEUE:只写不动作(#139):过三判据(证据存在性全过+排他率≥0.25+阳性对照可执行)的候选
@@ -709,7 +741,7 @@ const MODEL_IO = {
   TRIAGE: { input: triageInput, consume: triageConsume, finalize: null },
   DEEP: { input: deepInput, consume: deepConsume, finalize: deepFinalize, items: deepItems },
   SYNTH: { input: synthInput, consume: synthConsume, finalize: null },
-  SHORTLIST: { input: shortlistInput, consume: shortlistConsume, finalize: null }, // #207 T1:发现轮唯一模型步;零工具注入(T3 #209 接线点)
+  SHORTLIST: { input: shortlistInput, consume: shortlistConsume, finalize: null }, // #207 T1:发现轮唯一模型步;#217 T3.5 真面工具注入=发现宿主(faux.mjs runRealStep 直装,与 MEASURE 同单例)
 };
 export const modelIO = (def) => {
   const io = MODEL_IO[def.name];

@@ -46,6 +46,7 @@ export const ctxShape = ({ type, roundId, opsRoot, env, log, fixturesDir, modelF
   ...ctxPaths(opsRoot, roundId), // 派生路径单源(含 retroAuditKey;replay 面事后覆写不受影响)
   ledgerFile: env.LEDGER_FILE ?? process.env.LEDGER_FILE ?? path.join(DOCS_ROOT, "ops", "ledger.md"),
   pkg: null, verify: null, envelope: null,
+  discoverHost: null, // #217 T3.5:轮级发现宿主惰性单例位(SHORTLIST 直装/MEASURE 补发共用;discover 轮专用,health 恒 null)
   usage: { input: 0, output: 0, totalTokens: 0, cost: 0 },
   state,
 });
