@@ -94,4 +94,59 @@ describe("TaskProvider ops SSE face (running state + task_log)", () => {
     expect(text).not.toContain("line-0|");
     expect(text.split("|")).toHaveLength(200);
   });
+
+  it("seeds log lines from a snapshot's logs face (mid-round page open, 2026-10-26 fix)", async () => {
+    const es = makeFakeEventSource();
+    (globalThis as { EventSource?: unknown }).EventSource = es.FakeEventSource;
+    render(<TaskProvider><Probe /></TaskProvider>);
+    await screen.findByText("0");
+    await act(async () => {
+      es.fireMessage({
+        type: "snapshot",
+        data: {
+          tasks: [{ id: "t1", source: "ops", host: null, state: "running", error: null, batch_id: null }],
+          batch: null,
+          logs: { t1: ["[stage] PROBE start", "[stage] TRIAGE start"] },
+        },
+      });
+    });
+    expect(screen.getByTestId("logs").textContent)
+      .toBe("[stage] PROBE start|[stage] TRIAGE start");
+    // 播种后后续 task_log 照常追加在尾之后(同一条 append-only 流)
+    await act(async () => {
+      es.fireMessage({ type: "task_log", task_id: "t1", line: "[stage] TRIAGE done gate=PASS" });
+    });
+    expect(screen.getByTestId("logs").textContent)
+      .toBe("[stage] PROBE start|[stage] TRIAGE start|[stage] TRIAGE done gate=PASS");
+  });
+
+  it("snapshot seeding never shrinks already-received lines (fetch/SSE race)", async () => {
+    const es = makeFakeEventSource();
+    (globalThis as { EventSource?: unknown }).EventSource = es.FakeEventSource;
+    render(<TaskProvider><Probe /></TaskProvider>);
+    await screen.findByText("0");
+    await act(async () => {
+      es.fireMessage({
+        type: "snapshot",
+        data: {
+          tasks: [{ id: "t1", source: "ops", host: null, state: "running", error: null, batch_id: null }],
+          batch: null,
+          logs: { t1: ["only-one-stale-line"] },
+        },
+      });
+      es.fireMessage({ type: "task_log", task_id: "t1", line: "l0" });
+      es.fireMessage({ type: "task_log", task_id: "t1", line: "l1" });
+      es.fireMessage({ type: "task_log", task_id: "t1", line: "l2" });
+      // 竞态回放:更短的旧快照尾再来 → 已收 3 行不缩水
+      es.fireMessage({
+        type: "snapshot",
+        data: {
+          tasks: [{ id: "t1", source: "ops", host: null, state: "running", error: null, batch_id: null }],
+          batch: null,
+          logs: { t1: ["stale-again"] },
+        },
+      });
+    });
+    expect(screen.getByTestId("logs").textContent).toBe("only-one-stale-line|l0|l1|l2");
+  });
 });

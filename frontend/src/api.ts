@@ -434,7 +434,7 @@ export async function fetchEvalModel(): Promise<EvalModel | null> {
 // /api/events SSE 消息负载(backend 任务流协议)。可选字段容缺:老事件/
 // 边界事件可能缺 task/batch;消费方(TaskProvider.applyEvent)自行窄化。
 export type TaskEvent =
-  | { type: "snapshot"; data?: { tasks: TaskState[]; batch: BatchState | null } }
+  | { type: "snapshot"; data?: { tasks: TaskState[]; batch: BatchState | null; logs?: Record<string, string[]> } }
   | { type: "task"; task?: TaskState }
   | { type: "task_progress"; task_id?: string; received?: number; total?: number }
   | { type: "task_log"; task_id?: string; line?: string } // ops 轮 stderr [turn]/[tool]/[tool-result] 行(P2;票 #142 修约后含参数摘要与完成行)
@@ -466,6 +466,9 @@ export interface BatchState {
 export interface TasksSnapshot {
   tasks: TaskState[];
   batch: BatchState | null;
+  // ops 轮日志尾(2026-10-26 修,backend snapshot "logs" 面,键=task_id):
+  // 中途开页/SSE 重连播种订阅前已发的 task_log 行;源任务无此面。
+  logs?: Record<string, string[]>;
 }
 
 export async function getTasks(): Promise<TasksSnapshot> {

@@ -916,6 +916,46 @@ def test_ops_log_emits_task_log_event():
     assert logs[0]["line"].startswith("[turn 1]")
 
 
+def test_ops_log_tail_snapshot_and_sweep():
+    """ops stderr 行留存日志尾:快照携带 logs 面;终态后仍在(轮后开页可播);
+    下一轮 start 清扫(2026-10-26 修,驾驶舱中途开页只见订阅后行的根因)。"""
+    mgr = _make_manager([])
+    t1, _ = mgr.start_ops_round("health")
+    for i in range(3):
+        mgr.ops_log(t1.id, f"line-{i}")
+    mgr.finish_ops_round(t1.id, "done")
+    snap = mgr.snapshot()
+    assert snap["logs"][t1.id] == ["line-0", "line-1", "line-2"], "终态任务尾仍随快照出"
+    t2, _ = mgr.start_ops_round("health")
+    assert t1.id not in mgr.snapshot()["logs"], "下一轮清扫上一轮日志尾"
+    mgr.finish_ops_round(t2.id, "done")
+
+
+def test_ops_log_tail_caps_at_200():
+    """日志尾窗 = _OPS_LOG_KEEP(200,与前端 LOG_KEEP_LINES 同值):更早行滑出。"""
+    mgr = _make_manager([])
+    t1, _ = mgr.start_ops_round("health")
+    for i in range(205):
+        mgr.ops_log(t1.id, f"line-{i}")
+    mgr.finish_ops_round(t1.id, "done")
+    tail = mgr.snapshot()["logs"][t1.id]
+    assert len(tail) == 200 and tail[0] == "line-5" and tail[-1] == "line-204"
+
+
+def test_ops_log_unknown_task_emits_without_tail():
+    """未知 task_id(恢复轮替身等):事件仍发(即时流不因尾缺失丢行),尾面不建。"""
+    mgr = _make_manager([])
+    events = []
+    orig = mgr._emit
+    mgr._emit = events.append
+    try:
+        mgr.ops_log("nope", "orphan-line")
+    finally:
+        mgr._emit = orig
+    assert events and events[0]["type"] == "task_log"
+    assert "nope" not in mgr.snapshot()["logs"]
+
+
 # ── D. 路由层(鉴权/校验/202/409/失败面)────────────────────────────────────
 
 

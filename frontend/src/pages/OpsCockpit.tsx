@@ -109,15 +109,20 @@ export function OpsCockpit({ onGoRulings, onUnauthorized }: {
       .finally(() => setLedgerDone(true));
   }, [hasSummary, onUnauthorized]);
 
+  // 可折叠全量日志(声明前置:下方 running 翻转 adjust 引用 setExpanded)
+  const [expanded, setExpanded] = useState(false);
+
   // 已耗时:任务面无创建时间戳(桥零改),自本页首见 running 起计(ref 写读均限
   // effect/回调,Date.now 不入 render);每秒走字。running 翻转时归零显 00:00
-  // (纯 state 的 render-time adjust),真值由首个 tick 接管。
+  // (纯 state 的 render-time adjust),真值由首个 tick 接管。上升沿顺带收起
+  // 展开态:新一轮 = 全新日志面,展开不跨轮携带(2026-10-26 修)。
   const startedRef = useRef<number | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [prevRunning, setPrevRunning] = useState<boolean | null>(null);
   if (prevRunning !== running) {
     setPrevRunning(running);
     setElapsedMs(0);
+    if (running) setExpanded(false);
   }
   useEffect(() => {
     if (!running) { startedRef.current = null; return; }
@@ -130,7 +135,6 @@ export function OpsCockpit({ onGoRulings, onUnauthorized }: {
   }, [running]);
 
   // 可折叠全量日志:展开时自动滚底(新行落底即视)
-  const [expanded, setExpanded] = useState(false);
   const logRef = useRef<HTMLPreElement>(null);
   useEffect(() => {
     const el = logRef.current;
@@ -200,6 +204,9 @@ export function OpsCockpit({ onGoRulings, onUnauthorized }: {
                   className="mt-1 rounded-md border border-zinc-700 px-3 py-1 text-[11px] text-zinc-300 transition-colors hover:border-emerald-500/50 hover:text-emerald-400"
                 >
                   {expanded ? t("ops.cockpit.logHide") : t("ops.cockpit.logShow")}
+                  {/* 行数入钮(2026-10-26 修):展开/收起在仅一行时视觉无差,
+                      计数 = 「还有多少行」的显性可供性 */}
+                  <span className="ml-1.5 font-mono text-zinc-500">{logLen}</span>
                 </button>
               )}
               {expanded && (
