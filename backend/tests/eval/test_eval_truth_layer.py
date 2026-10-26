@@ -3,6 +3,7 @@ import ipaddress
 import pytest
 
 from ipdb._eval.assets import fingerprint, load_asset
+from ipdb._eval.layer_builders import scanner_ranges_prefixes
 from ipdb._eval.truth_layer import (
     TruthLayerDegradedError,
     apply_rir_filter,
@@ -93,6 +94,40 @@ def test_build_happy_path_publishes_truth_asset(tmp_path):
     assert meta.params["scanlist_fingerprint"] == fingerprint(["10.0.0.0/8"])
     members, loaded = load_asset(out)
     assert members == ["5.1.0.5", "9.9.9.9"] and loaded.kind == "truth"
+
+
+def test_scanner_ranges_join_two_arm_exclusion_and_fingerprint(tmp_path):
+    # SR-T2 D3(#213 / ADR 0011): ops 两臂对照 —— arm A legacy scanlist,
+    # arm B legacy+自报段(D1 scanner_ranges_prefixes 供表);同 raw/rir
+    # 输入,验证装配侧剔除生效 + 语料版本随附(S12: 成员指纹与
+    # scanlist_fingerprint 两臂皆变)。v6 前缀混排过 build_truth_layer
+    # 不炸(值域与 v4 永不重叠)。
+    csv = tmp_path / "scanner_ranges.csv"
+    csv.write_text("40.124.175.0/24,Stretchoid\n2600:1f00::/24,Amazon\n",
+                   encoding="utf-8")
+    legacy = ["10.0.0.0/8"]  # 不覆盖 40.124.175.29(census 例证 IP)
+    raw = ["40.124.175.29", "5.1.0.5", "9.9.9.9"]
+    a_dir, b_dir = tmp_path / "a", tmp_path / "b"
+    meta_a = build_truth_layer(raw, _BIG_RANGES, legacy, a_dir, "v1")
+    meta_b = build_truth_layer(raw, _BIG_RANGES,
+                               legacy + scanner_ranges_prefixes(csv),
+                               b_dir, "v1")
+    mem_a, load_a = load_asset(a_dir)
+    mem_b, load_b = load_asset(b_dir)
+    # 40.124.175.29:arm A 在场(污染),arm B 剔除;段外成员两臂同存
+    assert mem_a == ["40.124.175.29", "5.1.0.5", "9.9.9.9"]  # 去重定序
+    assert mem_b == ["5.1.0.5", "9.9.9.9"]
+    # removed_by_scanner_filter 差值精确(arm A legacy 不覆盖该 IP → 0)
+    assert meta_a.params["removed_by_scanner_filter"] == 0
+    assert meta_b.params["removed_by_scanner_filter"] == 1
+    # S12 换版随附:语料指纹与 scanlist 指纹两臂皆变
+    assert meta_a.fingerprint != meta_b.fingerprint
+    assert meta_a.params["scanlist_fingerprint"] != \
+        meta_b.params["scanlist_fingerprint"]
+    # 两臂 load_asset 往返一致(指纹闸: 证据永不灭失)
+    assert load_a.fingerprint == meta_a.fingerprint
+    assert load_b.fingerprint == meta_b.fingerprint
+    assert load_a.kind == load_b.kind == "truth"
 
 
 def test_parse_accepts_delegated_extended_8th_field():

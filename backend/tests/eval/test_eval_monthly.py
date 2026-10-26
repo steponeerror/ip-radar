@@ -8,6 +8,8 @@ fixtures 全 fake, 无引擎/DB 依赖: readout 手工按 T8 layered_readout 输
 """
 import gzip
 import json
+import tempfile
+from pathlib import Path
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -391,6 +393,37 @@ def test_md_reset_note_excludes_rolling_consensus():
     md2 = compose_monthly_md(_readout(), [], [], [], [], hm2)
     assert "换版=趋势重置" not in md2
     assert "滚动语料" in md2
+
+
+def test_md_reset_note_truth_two_arm_scanner_ranges_join():
+    """SR-T2 D3(#213 / ADR 0011): S17 趋势重置注记 —— ops 两臂真指纹换版。"""
+    with tempfile.TemporaryDirectory() as td:
+        from ipdb._eval.layer_builders import scanner_ranges_prefixes
+        from ipdb._eval.truth_layer import build_truth_layer
+        tmp = Path(td)
+        csv = tmp / "scanner_ranges.csv"
+        csv.write_text("40.124.175.0/24,Stretchoid\n2600:1f00::/24,Amazon\n",
+                       encoding="utf-8")
+        # 与 test_eval_truth_layer._BIG_RANGES 同构: 10.0.0.0 起步 10k 段
+        base = 167_772_160  # int("10.0.0.0")
+        big = [(base + i * 256, 256, "20000101") for i in range(10_000)]
+        raw = ["40.124.175.29", "5.1.0.5", "9.9.9.9"]
+        legacy = ["10.0.0.0/8"]
+        a_dir, b_dir = tmp / "a", tmp / "b"
+        meta_a = build_truth_layer(raw, big, legacy, a_dir, "v1")
+        meta_b = build_truth_layer(raw, big,
+                                   legacy + scanner_ranges_prefixes(csv),
+                                   b_dir, "v1")
+        assert meta_a.fingerprint != meta_b.fingerprint  # 换版前提
+        md = compose_monthly_md(
+            _readout(), [], [], [], [],
+            _header_meta(corpus={"truth": {"version": meta_b.version,
+                                            "fingerprint": meta_b.fingerprint}},
+                         prev_fingerprints={"truth": meta_a.fingerprint}))
+        reset = [ln for ln in md.splitlines() if "换版=趋势重置" in ln]
+        assert reset, "换版未出注记行"
+        assert "truth" in reset[0] and meta_a.fingerprint in reset[0] \
+            and meta_b.fingerprint in reset[0]
 
 
 def test_md_empty_action_block_renders_placeholder():
