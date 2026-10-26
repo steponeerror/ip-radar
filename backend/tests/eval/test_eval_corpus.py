@@ -1,5 +1,5 @@
 # backend/test_eval_corpus.py
-import json, tempfile, os, random
+import ipaddress, json, tempfile, os, random
 from pathlib import Path
 from ipdb._eval.corpus import Corpus, sample_source_ips, build_benchmark, stable_seed
 
@@ -78,6 +78,56 @@ def test_sample_respects_run_seed_over_rng(tmp_path):
     b = sample_source_ips(src, 100, random.Random(1), run_seed=42)  # 外部 rng 被覆盖
     assert a == b
     assert sample_source_ips(src, 100, random.Random(0), run_seed=43) != a
+
+
+# ── SR-T2 D2: benchmark 装配侧剔除自报段(ADR 0011) ────────────
+
+def test_build_benchmark_excludes_selfdeclared_members_all_strata(tmp_path):
+    # ①scanner_ranges 源不入采样宇宙(成员=厂商声明的段本身,非指控观测,
+    # 入语料=自证污染);②采样/封顶后逐分层剔自报段成员 —— 其他源采出的
+    # 段内 IP 同剔(census 实测 80.2% 扫描器 IP 已在自报段)。逐 IP 判定用
+    # ipaddress 独立算(非 apply_scanner_filter 回声,防 tautology)。
+    sr_csv = tmp_path / "scanner_ranges.csv"
+    sr_csv.write_text("40.124.175.0/24,Stretchoid\n203.0.113.0/24,Xpanse\n")
+    sr = _FakeSource("scanner_ranges", sr_csv, classification_type="scanner")
+    sw_raw = tmp_path / "sw.txt"
+    sw_raw.write_text("40.124.175.29\n203.0.113.5\n198.51.100.7\n192.0.2.9\n")
+    sw = _FakeSource("sw_scanners", sw_raw, classification_type="scanner")
+    et_raw = tmp_path / "et.txt"
+    et_raw.write_text("40.124.175.30\n198.51.100.8\n")
+    et = _FakeSource("et", et_raw, classification_type="exploit-traffic")
+    bench = build_benchmark([sr, sw, et], per_type_n=10, rng=random.Random(0))
+    nets = [ipaddress.ip_network(p) for p in
+            ("40.124.175.0/24", "203.0.113.0/24")]
+    for ips in bench.benchmark.values():  # 任一分层零自报段成员
+        for ip in ips:
+            assert not any(ipaddress.ip_address(ip) in n for n in nets), ip
+    # 段外成员存活;scanner 分层只余 sw 的段外两个(sr 零贡献)
+    assert set(bench.benchmark["scanner"]) == {"198.51.100.7", "192.0.2.9"}
+    assert set(bench.benchmark["exploit-traffic"]) == {"198.51.100.8"}
+
+
+def test_build_benchmark_without_scanner_ranges_source_unchanged(tmp_path):
+    # 回归臂:sources 无 scanner_ranges 源 → 行为与现状一致:段内 IP 照旧
+    # 入语料(排除器只在自报段源在场时启动,ADR 0011 只接管在场源)
+    raw = tmp_path / "sw.txt"
+    raw.write_text("40.124.175.29\n198.51.100.7\n")
+    src = _FakeSource("sw", raw, classification_type="scanner")
+    bench = build_benchmark([src], per_type_n=10, rng=random.Random(0))
+    assert set(bench.benchmark["scanner"]) == {"40.124.175.29", "198.51.100.7"}
+
+
+def test_build_benchmark_scanner_ranges_missing_csv_noop(tmp_path):
+    # 回归臂:CSV 缺失(源未下载)→ 源跳过 + 排除器不启动 = 现状
+    # (sample_source_ips 对缺文件本就返 [];前缀只从在场 CSV 载入,
+    # 不走 D1 的 raise 语义 —— loader 的 raise 是 truth 装配侧契约)
+    sr = _FakeSource("scanner_ranges", tmp_path / "nope.csv",
+                     classification_type="scanner")
+    raw = tmp_path / "sw.txt"
+    raw.write_text("40.124.175.29\n198.51.100.7\n")
+    sw = _FakeSource("sw", raw, classification_type="scanner")
+    bench = build_benchmark([sr, sw], per_type_n=10, rng=random.Random(0))
+    assert set(bench.benchmark["scanner"]) == {"40.124.175.29", "198.51.100.7"}
 
 
 def test_run_for_source_records_run_seed(tmp_path):
