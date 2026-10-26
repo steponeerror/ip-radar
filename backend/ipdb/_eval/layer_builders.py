@@ -4,6 +4,9 @@
 威胁真值层归 truth_layer.py(T4, 自带 rir/扫描/健康度三闸); 本模块产
 其余三层资产, 全部经 assets.save_asset 落 <out_dir>/ips.txt+meta.json
 (版本化+指纹, 装配走 layered.assemble_four_layers 的 <root>/<kind>/ 布局)。
+truth 侧唯一例外: scanner_ranges_prefixes(自报段排除清单供给, SR-T2
+#213 / ADR 0011)寄住在此 —— 供 ops 离线组装 scanlist 时取表, truth ETL
+本体仍在 truth_layer.py。
 
 - 中性层(spec §2.1 600 静态): neutral_ips.json 原样包装, 无采样 → 无
   run_seed(W0 静态资产逐轮恒定, S36 只辖采样路径)。
@@ -186,6 +189,32 @@ def build_consensus_asset(out_dir: Path, *, version: str, run_seed: int,
     )
     save_asset(Path(out_dir), out, meta)
     return meta
+
+
+def scanner_ranges_prefixes(csv_path: Path) -> list[str]:
+    """自报段前缀表供给: 逐行读 scanner_ranges 中间件 CSV 首列(SR-T2 #213)。
+
+    ADR 0011: eval 真值语料装配侧剔除自报段成员 —— ops 离线组装 scanlist
+    时以 legacy 清单 + 本表喂 build_truth_layer(scanner_prefixes=...),
+    换版经 scanlist_fingerprint(S12)/趋势重置(S17)自动留痕。原始 CSV
+    直读(无损管线: 原始证据可回算), 勿从 LMDB 反解 CIDR(EXPLORE §4)。
+
+    行格式 cidr,vendor: 取首列(逗号前)strip 后 token; 空/纯空白行跳过;
+    token 原样透传(含裸 IP 与坏 token) —— 归一与坏值拦截归
+    apply_scanner_filter 侧 ip_network(「坏快照不许静默缩水」,
+    parse_rir_delegated 同款哲学)。CSV 缺失 → FileNotFoundError: 显式
+    索取的排除清单缺席是装配错误, 静默回空表会与 legacy 合表后无声
+    缩小排除面(语料悄然重染); 纯空表组合另有 gates_health
+    scanner_ok 的 DEGRADED 拒出版兜底(truth_layer S9)。benchmark 装配
+    侧(corpus.build_benchmark)要「缺文件即无排除」语义, 自行 is_file
+    前置判断。
+    """
+    out: list[str] = []
+    for line in Path(csv_path).read_text(encoding="utf-8").splitlines():
+        token = line.split(",", 1)[0].strip()
+        if token:
+            out.append(token)
+    return out
 
 
 def build_all_monthly(assets_root: Path, *, version: str, run_seed: int,
