@@ -1984,14 +1984,15 @@ await t("A5-回声哨:篡改 09-budget.json 读数超帽 → G_CLOSE 复评门�
 const RD = "2026-10-26-0940-discover";
 const budget = await import("./pipeline/budget.mjs");
 
-await t("发现轮旋钮族(#207 T1):readDiscoverKnobs 缺省 30 调用/3600s/¥5;月帽共享 OPS_PIPELINE_MONTHLY_CAP_CNY(同键同值,不另立月门);负值/非数字 usage 拒", async () => {
+await t("发现轮旋钮族(#207 T1+#217 T3.5):readDiscoverKnobs 缺省 30 调用/3600s/¥5/dup 3;月帽共享 OPS_PIPELINE_MONTHLY_CAP_CNY(同键同值,不另立月门);dup 拦截线沿 OPS_PIPELINE_DUP_CALL_LIMIT 同键同值(宿主接线消费点);负值/非数字 usage 拒", async () => {
   const k = budget.readDiscoverKnobs({});
-  assert.deepEqual([k.maxModelCalls, k.wallClockS, k.spendCapCny], [30, 3600, 5], "spec T4 首月缺省");
+  assert.deepEqual([k.maxModelCalls, k.wallClockS, k.spendCapCny, k.dupCallLimit], [30, 3600, 5, 3], "spec T4 首月缺省(dup 面=#217 T3.5 追键,沿 health 同键同缺省)");
   assert.equal(k.monthlyCapCny, budget.readBudgetKnobs({}).monthlyCapCny, "月帽共享:与 health 同键同源");
-  const ov = { OPS_DISCOVER_MAX_MODEL_CALLS: "3", OPS_PIPELINE_MONTHLY_CAP_CNY: "0.5" };
-  assert.deepEqual([budget.readDiscoverKnobs(ov).maxModelCalls, budget.readDiscoverKnobs(ov).monthlyCapCny], [3, 0.5], "env 覆盖生效(月帽键=OPS_PIPELINE_MONTHLY_CAP_CNY)");
+  const ov = { OPS_DISCOVER_MAX_MODEL_CALLS: "3", OPS_PIPELINE_MONTHLY_CAP_CNY: "0.5", OPS_PIPELINE_DUP_CALL_LIMIT: "5" };
+  assert.deepEqual([budget.readDiscoverKnobs(ov).maxModelCalls, budget.readDiscoverKnobs(ov).monthlyCapCny, budget.readDiscoverKnobs(ov).dupCallLimit], [3, 0.5, 5], "env 覆盖生效(月帽键=OPS_PIPELINE_MONTHLY_CAP_CNY;dup 键=OPS_PIPELINE_DUP_CALL_LIMIT 不另立)");
   assert.throws(() => budget.readDiscoverKnobs({ OPS_DISCOVER_MAX_MODEL_CALLS: "-1" }), /OPS_DISCOVER_MAX_MODEL_CALLS 须为非负数/, "负值拒");
   assert.throws(() => budget.readDiscoverKnobs({ OPS_DISCOVER_SPEND_CAP_CNY: "abc" }), /OPS_DISCOVER_SPEND_CAP_CNY/, "非数字拒");
+  assert.throws(() => budget.readDiscoverKnobs({ OPS_PIPELINE_DUP_CALL_LIMIT: "x" }), /OPS_PIPELINE_DUP_CALL_LIMIT 须为非负数/, "dup 旋钮非数字拒(#217 T3.5)");
 });
 
 await t("双面拒跑留痕轮标签(#207 T1):appendRefusalTrace round 参数化——discover 轮留痕行轮次列=discover(原硬编码 health 注释「discover 未立项」随立项退役)", async () => {
