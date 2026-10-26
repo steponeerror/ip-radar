@@ -71,10 +71,10 @@
 |---|---|
 | 围栏观 | 剪的是打断/审批摩擦,不剪边界执法:写口 queue_action 语义门/沙箱断言/防失控界全保留;防线集中后,深围栏(写门/evidence 选择对/SSRF)随注入面扩大**加强测试** |
 | 工具面 | 原生薄工具四件套:gh_search(镜像装 gh 二进制;GH_TOKEN 经 compose override env 注入不入镜像层,#139 提前收)/ web_read(r.jina.ai,无 key 限速可用)/ **web_search(pi-web-access 0.44.0 MCP 多 provider 回退链,2026-10-24 用户裁定取代 s.jina.ai 直连;缺省路由 duckduckgo keyless,jina key 经 agent-config tool_keys 扩槽入回退链)**/ rss_parse(本地解析);agent-reach 整只**不进镜像**(13 通道×异构故障面违「few, sharp tools」);错误语义对齐 MCP isError 二分:channel_missing/channel_auth/quota/transient 四码,每码带「下一步合法动作」文案 |
-| 预算四界 | **【状态:已落地——#199 交付A:pipeline/budget.mjs readBudgetKnobs 单源(六 OPS_PIPELINE_* 旋钮),双点执法(步前准入+环内)+同参哈希拦,G_CLOSE 回声哨对拍 09-budget.json 读数】**迭代上限(补整轮模型调用数帽)/ 轨迹 token 预算 / 墙钟超时 / 花费帽(每轮 ¥3 ∧ 月度 ¥30,同台账并发安全双点执法:准入+环内)+ 重复检测(工具调用哈希);单发线降为告警线;取代 §4 预算卡行闸值面(8h 节奏不变) |
+| 预算四界 | **【状态:已落地——#199 交付A:pipeline/budget.mjs readBudgetKnobs 单源(六 OPS_PIPELINE_* 旋钮),双点执法(步前准入+环内)+同参哈希拦,G_CLOSE 回声哨对拍 09-budget.json 读数;发现轮管线化后(ADR 0010,#207 T1)增 OPS_DISCOVER_* 独立旋钮族 30 调用/3600s/¥5,月帽与运营轮共享 ¥30(admitOrRefuse 同面)】**迭代上限(补整轮模型调用数帽)/ 轨迹 token 预算 / 墙钟超时 / 花费帽(每轮 ¥3 ∧ 月度 ¥30,同台账并发安全双点执法:准入+环内)+ 重复检测(工具调用哈希);单发线降为告警线;取代 §4 预算卡行闸值面(8h 节奏不变) |
 | 熔断器 | 跨轮熔断(连续失败达阈开断 → 快速结构化 tool-unavailable 信封 → 半开探活恢复),状态持久化跨轮;宿主层职责,取代静态轮前探测;判例 01:59 重试白烧的直接解。已落地 #199 交付B(tools/breaker.mjs:五通道闭集/计数码恰三员宁少算/fail-closed 坏文件重置闭路/半开探活/channel_open 信封零 spawn,快照入 09-budget.json) |
-| 北极星 | 三联指标:truth 检出率主星 ∧ 误报面∧ 回声面约束;约束破线则检出率提升不算数(防堆回声源刷分,哲学③同构) |
-| 实绩回流 | eval 月轮 → 实绩摘要工件 + 逐源待审条目(MC/CG/fp_proxy 实绩 vs 入池排他率预测,偏差大=建议降权/退役只进人裁);目标卡自动草稿+人审定稿注入每轮 prompt;discover 默认对失分轴(truth 层 k=0 清单/缺失 ctype)找源;判例库红线不动(host 永不自动写) |
+| 北极星 | 三联指标:truth 检出率主星 ∧ 误报面∧ 回声面约束;约束破线则检出率提升不算数(防堆回声源刷分,哲学③同构);发现侧两腿(入队→落地转化率+排他率分布,ADR 0010 决策⑤)同零持门律落月轮观测件(#210 T4:northstar discover 节+发现轨行) |
+| 实绩回流 | eval 月轮 → 实绩摘要工件 + 逐源待审条目(MC/CG/fp_proxy 实绩 vs 入池排他率预测,偏差大=建议降权/退役只进人裁);目标卡自动草稿+人审定稿注入每轮 prompt;discover 默认对失分轴(truth 层 k=0 清单/缺失 ctype)找源——已升格为发现轮管线(六步四门,ADR 0010;ENQUEUE 只写不动作,候选行 PROPOSE,开票/接源全人裁);判例库红线不动(host 永不自动写) |
 | 对齐节奏 | 注意力预算制(arXiv 2026-08 倒 U:升级率过高反而更不安全):goal card 周更 + eval 月轮 + **积压才推**(active>10 或 >48h 未审 → lark digest);digest 含疲劳遥测(批准量/平均批准耗时/override 率),耗时随量单调降 = 控制表演化警报 |
 
 ## 附录 A:运营提示词审阅清单(SDD task review 执审;新/改提示词 PR 必过)

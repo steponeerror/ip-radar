@@ -2087,7 +2087,7 @@ await t("SHORTLIST 解析失败降级(#207 T1):canned 文本非 JSON → 轮仍�
   assert.equal(j(path.join(d, "d4-enqueue.json")).n_enqueued, 0);
 });
 
-await t("ENQUEUE 写路(#207 T1):直调步——三判据全过候选经 #139 flock 路径落 queue.md 行(source 形 ^[a-z0-9_]{1,32}$,evidence 带 d3 读数);判据不过=skipped 留痕不落行;重跑=幂等去重", async () => {
+await t("ENQUEUE 写路(#207 T1;#210 T4 action 词统一 PROPOSE):直调步——三判据全过候选经 #139 flock 路径落 queue.md 行(action=PROPOSE 与 T3 候选卡一词一拼,source 形 ^[a-z0-9_]{1,32}$,evidence 带 d3 读数);判据不过=skipped 留痕不落行;重跑=幂等去重", async () => {
   const tr = mkTree("enqueue-unit");
   const { ARTIFACTS } = await import("./artifacts.mjs");
   const dir = path.join(tr.root, "ops", "rounds", RD); fs.mkdirSync(dir, { recursive: true });
@@ -2101,10 +2101,10 @@ await t("ENQUEUE 写路(#207 T1):直调步——三判据全过候选经 #139 fl
   const steps2 = await import("./pipeline/steps.mjs");
   await steps2.runStage({ name: "ENQUEUE" }, ctx);
   const q = fs.readFileSync(path.join(tr.root, "ops", "queue.md"), "utf8");
-  assert.match(q, /\| ENQUEUE \| rdns_hf_parquet \|/, "行落(action+source)");
+  assert.match(q, /\| PROPOSE \| rdns_hf_parquet \|/, "行落(action=PROPOSE+source;#210 T4 统一词)");
   assert.ok(!q.includes("skip_no_ev"), "证据未过候选不落行");
   await steps2.runStage({ name: "ENQUEUE" }, ctx);
-  assert.equal(fs.readFileSync(path.join(tr.root, "ops", "queue.md"), "utf8").split("| ENQUEUE | rdns_hf_parquet |").length - 1, 1, "重跑去重不双写");
+  assert.equal(fs.readFileSync(path.join(tr.root, "ops", "queue.md"), "utf8").split("| PROPOSE | rdns_hf_parquet |").length - 1, 1, "重跑去重不双写");
   const e4 = j(path.join(dir, ARTIFACTS.DISCOVER_ENQUEUE));
   assert.equal(e4.n_enqueued, 1);
   assert.equal(e4.n_skipped, 1);
