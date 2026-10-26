@@ -10,6 +10,7 @@ import { resolveField, closureCheck } from "../tools.mjs";
 import { normalizeRules, readInFlightItems, inFlightKeys, deepSeeds, RULE_PREDICATES, RULE_ACTIONS } from "./steps.mjs";
 import { fullDedupKey } from "./ops-items.mjs"; // 全签同因面(P4 #166;步/门同源)
 import { parseItem } from "./ops-items.mjs"; // 条目树读回(单一解析语义)
+import { ARTIFACTS as A, DEEP_TRANSCRIPT_RE, DEEP_TRANSCRIPT_GLOB } from "../artifacts.mjs"; // 工件名表单源(#202 C1):门读面/inputs 声明禁手抄工件名(磁盘名字节冻结,位等价判例)
 
 export const CLOSED_SETS = {
   cause_class: ["frozen_feed", "dead_endpoint", "auth_wall", "rate_limit", "probe_artifact", "matrix_violation", "unknown"], // C稿 §3.2 草案 1
@@ -30,11 +31,11 @@ const pass = (reason, inputs) => ({ pass: true, reason, inputs });
 export const GATES = {
   // G_PROBE:summary 可解析 ∧ urls_n≥30(现 101,清单事实层 feeds.txt)∧ attempted/urls≥0.9 ∧ TSV 行数=attempted_n(C稿 §2.2)
   G_PROBE: (ctx) => {
-    const inputs = ["01-probe-summary.json", "01-probe-freshness.tsv"];
-    const s = j(path.join(ctx.dir, "01-probe-summary.json"));
-    if (!s) return fail("01-probe-summary.json 不可解析", inputs);
-    const tsv = txt(path.join(ctx.dir, "01-probe-freshness.tsv"));
-    if (tsv === null) return fail("01-probe-freshness.tsv 缺失", inputs);
+    const inputs = [A.PROBE_SUMMARY, A.PROBE_FRESHNESS_TSV];
+    const s = j(path.join(ctx.dir, A.PROBE_SUMMARY));
+    if (!s) return fail(`${A.PROBE_SUMMARY} 不可解析`, inputs);
+    const tsv = txt(path.join(ctx.dir, A.PROBE_FRESHNESS_TSV));
+    if (tsv === null) return fail(`${A.PROBE_FRESHNESS_TSV} 缺失`, inputs);
     const rows = tsv.split("\n").filter(Boolean).length;
     const ratio = s.urls_n ? s.attempted_n / s.urls_n : 0;
     if (!(s.urls_n >= 30)) return fail(`urls_n=${s.urls_n}<30`, inputs);
@@ -44,15 +45,15 @@ export const GATES = {
   },
   // G_VERIFY:survivors∪suppressed 的 signal_id = probe 旗标全集(穷尽一条不丢)∧ 每条抑制引用规则 id ∈ 规则文件闭集
   G_VERIFY: (ctx) => {
-    const inputs = ["01-probe-summary.json", "02-verify-survivors.json", "02-verify-suppressed.json", "02-verify-rules.json|rules/suppressions.json", "items/*.md"];
-    const s = j(path.join(ctx.dir, "01-probe-summary.json"));
-    const sv = j(path.join(ctx.dir, "02-verify-survivors.json"));
-    const sp = j(path.join(ctx.dir, "02-verify-suppressed.json"));
+    const inputs = [A.PROBE_SUMMARY, A.VERIFY_SURVIVORS, A.VERIFY_SUPPRESSED, `${A.VERIFY_RULES}|rules/suppressions.json`, "items/*.md"];
+    const s = j(path.join(ctx.dir, A.PROBE_SUMMARY));
+    const sv = j(path.join(ctx.dir, A.VERIFY_SURVIVORS));
+    const sp = j(path.join(ctx.dir, A.VERIFY_SUPPRESSED));
     if (!s || !sv || !sp) return fail("verify 工件不可解析", inputs);
     // #164 审 P2-6(#167 收口):门读轮次时点版规则——VERIFY 步落 02-verify-rules.json
     // 快照;replay --dry(复制原件工件)即审轮次时点版,规则库事后演进不改历史判定。
     // 快照缺席(P5 前旧轮/过渡面)回落现行文件,reason 注记版本漂移风险(宁显式勿哑)。
-    const snap = path.join(ctx.dir, "02-verify-rules.json");
+    const snap = path.join(ctx.dir, A.VERIFY_RULES);
     const src = fs.existsSync(snap) ? snap : (fs.existsSync(ctx.rulesFile) ? ctx.rulesFile : null);
     let rules;
     if (!src) rules = { version: 0, rules: [] }; // 缺席=合法零规则态(步侧/后端同口径;审后修 P1 bootstrap 死锁;坏文件仍终态)
@@ -78,10 +79,10 @@ export const GATES = {
   },
   // G_TRIAGE:schema 过 ∧ 闭集 ∧ 假设覆盖全部幸存 signal_id(一条一假设,吞并即门败);幸存集空=门直过
   G_TRIAGE: (ctx) => {
-    const inputs = ["02-verify-survivors.json", "03-triage-hypotheses.json"];
-    const sv = j(path.join(ctx.dir, "02-verify-survivors.json"));
-    const h = j(path.join(ctx.dir, "03-triage-hypotheses.json"));
-    if (!h || !Array.isArray(h.hypotheses)) return fail("03-triage-hypotheses.json 不可解析/缺 hypotheses 数组", inputs);
+    const inputs = [A.VERIFY_SURVIVORS, A.TRIAGE_HYPOTHESES];
+    const sv = j(path.join(ctx.dir, A.VERIFY_SURVIVORS));
+    const h = j(path.join(ctx.dir, A.TRIAGE_HYPOTHESES));
+    if (!h || !Array.isArray(h.hypotheses)) return fail(`${A.TRIAGE_HYPOTHESES} 不可解析/缺 hypotheses 数组`, inputs);
     const svIds = (sv?.survivors ?? []).map((x) => x.signal_id);
     const hIds = h.hypotheses.map((x) => x.signal_id);
     if (!eqSet(svIds, hIds)) return fail(`假设不穷尽幸存集:survivors=${svIds.length}≠假设=${hIds.length}(一条一假设,吞并/漏签即门败)`, inputs);
@@ -99,10 +100,10 @@ export const GATES = {
   },
   // G_DISPATCH:每个 need_deep 假设有 bundle(或入截尾)∧ 预算合计 ≤ 轮预算门
   G_DISPATCH: (ctx) => {
-    const inputs = ["03-triage-hypotheses.json", "04-dispatch-bundles.json"];
-    const h = j(path.join(ctx.dir, "03-triage-hypotheses.json"));
-    const d = j(path.join(ctx.dir, "04-dispatch-bundles.json"));
-    if (!d || !Array.isArray(d.bundles)) return fail("04-dispatch-bundles.json 不可解析", inputs);
+    const inputs = [A.TRIAGE_HYPOTHESES, A.DISPATCH_BUNDLES];
+    const h = j(path.join(ctx.dir, A.TRIAGE_HYPOTHESES));
+    const d = j(path.join(ctx.dir, A.DISPATCH_BUNDLES));
+    if (!d || !Array.isArray(d.bundles)) return fail(`${A.DISPATCH_BUNDLES} 不可解析`, inputs);
     const need = (h?.hypotheses ?? []).filter((x) => x.need_deep).map((x) => x.signal_id);
     const got = [...d.bundles.map((b) => b.hid), ...(d.truncated ?? []).map((t) => t.hid)];
     if (!eqSet(need, got)) return fail(`need_deep ${need.length} 条≠bundles∪truncated ${got.length}(截尾也须留痕)`, inputs);
@@ -112,16 +113,16 @@ export const GATES = {
   },
   // G_DEEP:每假设 verdict ∈ 闭集 ∧ evidence 三元组逐字回引本步登记表(A 一律:call_id+field 选择对,宿主回填值)
   G_DEEP: (ctx) => {
-    const inputs = ["04-dispatch-bundles.json", "05-deep-verdicts.json", "05-deep-*-transcript.jsonl"];
-    const d = j(path.join(ctx.dir, "04-dispatch-bundles.json"));
-    const v = j(path.join(ctx.dir, "05-deep-verdicts.json"));
-    if (!v || !Array.isArray(v.verdicts)) return fail("05-deep-verdicts.json 不可解析", inputs);
+    const inputs = [A.DISPATCH_BUNDLES, A.DEEP_VERDICTS, DEEP_TRANSCRIPT_GLOB];
+    const d = j(path.join(ctx.dir, A.DISPATCH_BUNDLES));
+    const v = j(path.join(ctx.dir, A.DEEP_VERDICTS));
+    if (!v || !Array.isArray(v.verdicts)) return fail(`${A.DEEP_VERDICTS} 不可解析`, inputs);
     const need = (d?.bundles ?? []).map((b) => b.hid);
     const got = [...v.verdicts.map((x) => x.hid), ...(v.degraded ?? []).map((x) => x.hid)];
     if (!eqSet(need, got)) return fail(`深验不穷尽 bundle:${need.length}≠${got.length}`, inputs);
     const reg = deepSeeds(ctx.dir); // 登记表重建:各假设 transcript 的 registry_seed 行(P4 faux 工具面;deepConsume 宿主回填同源单一解析)
     const seedN = new Map(); // 微探针计数:transcript → seed 行数(≤3/假设,deep.md 预算段机检面)
-    for (const f of fs.readdirSync(ctx.dir).filter((f) => /^05-deep-.*-transcript\.jsonl$/.test(f)))
+    for (const f of fs.readdirSync(ctx.dir).filter((f) => DEEP_TRANSCRIPT_RE.test(f)))
       seedN.set(f, jsonl(path.join(ctx.dir, f)).filter((r) => r.type === "registry_seed").length);
     for (const [f, n] of seedN) if (n > 3) return fail(`微探针超 3 次/假设:${f} seed=${n}(预算段硬约束)`, inputs);
     for (const r of reg.values()) if (!CLOSED_SETS.deep_tool.includes(r.tool))
@@ -155,9 +156,9 @@ export const GATES = {
   // G_ITEMIZE:manifest 计数=rows 对账 ∧ 行穷尽(verdicts∪degraded∪truncated∪未深验)∧ 真条目树
   // 读回一致(文件在场/dedup_key 同签/复开链指)∧ 动作/severity 闭集 ∧ refuted 恒 low(三小裁②)
   G_ITEMIZE: (ctx) => {
-    const inputs = ["06-itemize-manifest.json", "02-verify-suppressed.json", "ops-items/*.md"];
-    const m = j(path.join(ctx.dir, "06-itemize-manifest.json"));
-    if (!m || !Array.isArray(m.rows)) return fail("06-itemize-manifest.json 不可解析/缺 rows(P4 #166:rows=轮内条目面)", inputs);
+    const inputs = [A.ITEMIZE_MANIFEST, A.VERIFY_SUPPRESSED, "ops-items/*.md"];
+    const m = j(path.join(ctx.dir, A.ITEMIZE_MANIFEST));
+    if (!m || !Array.isArray(m.rows)) return fail(`${A.ITEMIZE_MANIFEST} 不可解析/缺 rows(P4 #166:rows=轮内条目面)`, inputs);
     for (const k of ["created", "reopened", "deduped", "suppressed"]) if (typeof m[k] !== "number") return fail(`manifest.${k} 非数字`, inputs);
     const tally = { created: 0, reopened: 0, deduped: 0 };
     for (const r of m.rows) {
@@ -168,10 +169,10 @@ export const GATES = {
     }
     if (tally.created !== m.created || tally.reopened !== m.reopened || tally.deduped !== m.deduped)
       return fail(`计数≠rows 对账:created ${m.created}/${tally.created} reopened ${m.reopened}/${tally.reopened} deduped ${m.deduped}/${tally.deduped}`, inputs);
-    const hyps = j(path.join(ctx.dir, "03-triage-hypotheses.json"))?.hypotheses ?? [];
-    const dv = j(path.join(ctx.dir, "05-deep-verdicts.json")) ?? { verdicts: [], degraded: [] };
+    const hyps = j(path.join(ctx.dir, A.TRIAGE_HYPOTHESES))?.hypotheses ?? [];
+    const dv = j(path.join(ctx.dir, A.DEEP_VERDICTS)) ?? { verdicts: [], degraded: [] };
     const want = [...(dv.verdicts ?? []).map((x) => x.hid), ...(dv.degraded ?? []).map((x) => x.hid),
-      ...(j(path.join(ctx.dir, "04-dispatch-bundles.json"))?.truncated ?? []).map((x) => x.hid),
+      ...(j(path.join(ctx.dir, A.DISPATCH_BUNDLES))?.truncated ?? []).map((x) => x.hid),
       ...hyps.filter((x) => !x.need_deep).map((x) => x.signal_id)];
     if (!eqSet(want, m.rows.map((r) => r.hid))) return fail(`条目行不穷尽:want ${want.length}≠rows ${m.rows.length}(verdicts∪degraded∪truncated∪未深验)`, inputs);
     const seen = new Set();
@@ -191,17 +192,17 @@ export const GATES = {
       if (r.outcome === "reopened" && (it.supersedes ?? null) !== (r.supersedes ?? null)) return fail(`复开链指不符:${r.item_id} 树=${it.supersedes} 行=${r.supersedes}`, inputs);
       if (r.outcome === "created" && it.supersedes && !r.echo) return fail(`created 行携带链指(形状漂移):${r.item_id} supersedes=${it.supersedes}`, inputs);
     }
-    const sp = j(path.join(ctx.dir, "02-verify-suppressed.json"));
+    const sp = j(path.join(ctx.dir, A.VERIFY_SUPPRESSED));
     if ((sp?.suppressed ?? []).length !== m.suppressed) return fail(`suppressed=${m.suppressed}≠抑制工件 ${(sp?.suppressed ?? []).length}`, inputs);
     return pass(`rows=${m.rows.length} created=${m.created} reopened=${m.reopened} deduped=${m.deduped} suppressed=${m.suppressed};真条目树读回同签,复开链指齐,零同轮双开`, inputs);
   },
   // G_SYNTH:三节齐 ∧ 计数与工件逐字一致(四计数+深验三计数,#162 审 P2-5 抽检面)∧ 判例引用闭合(复用 closureCheck)
   G_SYNTH: (ctx) => {
-    const inputs = ["07-synth-report.md", "07-synth-transcript.jsonl", "06-itemize-manifest.json", "05-deep-verdicts.json", "04-dispatch-bundles.json"];
-    const report = txt(path.join(ctx.dir, "07-synth-report.md"));
-    const m = j(path.join(ctx.dir, "06-itemize-manifest.json"));
-    if (report === null) return fail("07-synth-report.md 缺失", inputs);
-    if (!m) return fail("06-itemize-manifest.json 不可解析", inputs);
+    const inputs = [A.SYNTH_REPORT, A.SYNTH_TRANSCRIPT, A.ITEMIZE_MANIFEST, A.DEEP_VERDICTS, A.DISPATCH_BUNDLES];
+    const report = txt(path.join(ctx.dir, A.SYNTH_REPORT));
+    const m = j(path.join(ctx.dir, A.ITEMIZE_MANIFEST));
+    if (report === null) return fail(`${A.SYNTH_REPORT} 缺失`, inputs);
+    if (!m) return fail(`${A.ITEMIZE_MANIFEST} 不可解析`, inputs);
     for (const sec of ["## 注入判例", "## 异常清单", "## 摘要"]) if (!report.includes(sec)) return fail(`三节缺:${sec}`, inputs);
     { // 摘要行数门(审后补 P2:提示词声明「≤10 行(门机检)」,门必须真检)
       const idx = report.indexOf("## 摘要");
@@ -214,15 +215,15 @@ export const GATES = {
       if (occ.some((n) => n !== m[k])) return fail(`报告计数不符 manifest:${k} 报告=${[...new Set(occ)].join("/")}(工件=${m[k]})`, inputs);
     }
     // 深验三计数抽检(#162 审 P2-5):报告数字 = verdicts ∪ degraded(重试尽降级)∪ truncated(预算截尾)回算
-    const dv = j(path.join(ctx.dir, "05-deep-verdicts.json")) ?? { verdicts: [], degraded: [] };
-    const truth = { confirmed: 0, refuted: 0, unresolved: (dv.degraded ?? []).length + (j(path.join(ctx.dir, "04-dispatch-bundles.json"))?.truncated ?? []).length };
+    const dv = j(path.join(ctx.dir, A.DEEP_VERDICTS)) ?? { verdicts: [], degraded: [] };
+    const truth = { confirmed: 0, refuted: 0, unresolved: (dv.degraded ?? []).length + (j(path.join(ctx.dir, A.DISPATCH_BUNDLES))?.truncated ?? []).length };
     for (const x of dv.verdicts ?? []) if (truth[x.verdict] !== undefined) truth[x.verdict] += 1;
     for (const k of ["confirmed", "refuted", "unresolved"]) {
       const occ = [...report.matchAll(new RegExp(`\\b${k}=(\\d+)`, "g"))].map((x) => +x[1]);
       if (!occ.length) return fail(`报告缺深验计数 ${k}=N(契约:摘要必含深验计数行)`, inputs);
       if (occ.some((n) => n !== truth[k])) return fail(`深验计数不符工件:${k} 报告=${[...new Set(occ)].join("/")}(回算=${truth[k]};verdicts∪degraded∪truncated)`, inputs);
     }
-    const head = jsonl(path.join(ctx.dir, "07-synth-transcript.jsonl")).find((l) => l.type === "input");
+    const head = jsonl(path.join(ctx.dir, A.SYNTH_TRANSCRIPT)).find((l) => l.type === "input");
     const allowed = new Set((head?.meta?.injected ?? []).map((n) => path.basename(n))); // 闭集=预注入(锚选∪检索命中;P0 无轮中检索工具)
     try { closureCheck(report, allowed); } catch (e) { return fail(`判例闭合违例:${e.message}`, inputs, "closure_check"); }
     return pass(`三节齐;四计数+深验三计数与工件逐字一致(confirmed=${truth.confirmed} refuted=${truth.refuted} unresolved=${truth.unresolved});判例引用闭合(注入 ${allowed.size})`, inputs);
@@ -234,9 +235,9 @@ export const GATES = {
   // 工件 anchors 字段即其投影,门验工件内自洽不复制真源(谱系单一真源律)。求值面死走
   // 降级旁路(appendGateBypass,RETRO 同款),不进本门。
   G_ANCHOR_SWEEP: (ctx) => {
-    const inputs = ["08-anchor-sweep.json"];
-    const s = j(path.join(ctx.dir, "08-anchor-sweep.json"));
-    if (!s || !Array.isArray(s.anchors) || !Array.isArray(s.results)) return fail("08-anchor-sweep.json 不可解析(缺 anchors/results 数组)", inputs);
+    const inputs = [A.ANCHOR_SWEEP];
+    const s = j(path.join(ctx.dir, A.ANCHOR_SWEEP));
+    if (!s || !Array.isArray(s.anchors) || !Array.isArray(s.results)) return fail(`${A.ANCHOR_SWEEP} 不可解析(缺 anchors/results 数组)`, inputs);
     if (s.anchors.length !== s.results.length) return fail(`anchors=${s.anchors.length}≠results=${s.results.length}(全集投影破)`, inputs);
     const want = s.anchors.map((a) => `${a[0]}|${a[1]}`).sort().join(",");
     const got = s.results.map((r) => `${r.ip}|${r.expect}`).sort().join(",");
@@ -261,7 +262,7 @@ export const GATES = {
   G_RETRO: (ctx) => {
     const key = ctx.retroAuditKey; // replay --dry 审原件;重执行审重放自产
     const retroFile = path.join(ctx.opsRoot, "retro", `${key}.json`);
-    const inputs = [`retro/${key}.json`, "08-anchor-sweep.json(#184 出口③摘要源)", "(ledger)"];
+    const inputs = [`retro/${key}.json`, `${A.ANCHOR_SWEEP}(#184 出口③摘要源)`, "(ledger)"];
     const r = j(retroFile);
     if (!r) return fail(`retro/${key}.json 不可解析`, inputs);
     if (r.round_id !== key) return fail(`retro.round_id=${r.round_id}≠${key}`, inputs);
@@ -285,7 +286,7 @@ export const GATES = {
     if (r.sandbox_assert_pass !== true) return fail(`sandbox_assert rc≠0(${r.sandbox_assert_rc})`, inputs);
     // #184 出口③机检:08 巡检工件在场(读数或降级信封)→ retro.anchor_sweep 摘要必须在场且与工件回算一致
     // (无验证手段不得称出口;降级轮摘要须记 degraded;缺席/不符=门败)
-    const sweepArt = j(path.join(ctx.dir, "08-anchor-sweep.json"));
+    const sweepArt = j(path.join(ctx.dir, A.ANCHOR_SWEEP));
     if (sweepArt && Array.isArray(sweepArt.results)) {
       if (!r.anchor_sweep || r.anchor_sweep.status !== "ok" || r.anchor_sweep.n_fail !== sweepArt.n_fail)
         return fail(`retro.anchor_sweep 摘要缺席/n_fail 不符(工件=${sweepArt.n_fail},retro=${r.anchor_sweep?.n_fail ?? "(缺)"}——出口③机检)`, inputs);
@@ -297,7 +298,7 @@ export const GATES = {
   },
   // G_CLOSE:信封单行 JSON 落 stdout(书挡门;重放不入 CLOSE)
   G_CLOSE: (ctx) => {
-    const inputs = ["(stdout 轮次信封)", "09-budget.json"];
+    const inputs = ["(stdout 轮次信封)", A.BUDGET];
     if (!ctx.envelope) return fail("信封未组装", inputs);
     const s = JSON.stringify(ctx.envelope);
     if (s.includes("\n")) return fail("信封非单行", inputs);
@@ -306,8 +307,8 @@ export const GATES = {
     // 门只对拍 09-budget.json 读数 ≤ 生效帽(防工件漂移/篡改;非二次执法)。
     const BUDGET_ENV_KEYS = ["OPS_PIPELINE_BUDGET_CNY", "OPS_PIPELINE_MAX_MODEL_CALLS", "OPS_PIPELINE_TOKEN_BUDGET",
       "OPS_PIPELINE_WALL_CLOCK_S", "OPS_PIPELINE_SPEND_CAP_CNY", "OPS_PIPELINE_MONTHLY_CAP_CNY", "OPS_PIPELINE_DUP_CALL_LIMIT"];
-    const b = j(path.join(ctx.dir, "09-budget.json"));
-    if (!b || !b.env || !b.readings) return fail("09-budget.json 缺席/形状坏(env+readings 必在场)", inputs);
+    const b = j(path.join(ctx.dir, A.BUDGET));
+    if (!b || !b.env || !b.readings) return fail(`${A.BUDGET} 缺席/形状坏(env+readings 必在场)`, inputs);
     const missEnv = BUDGET_ENV_KEYS.filter((k) => !(k in b.env) || !Number.isFinite(b.env[k]));
     if (missEnv.length) return fail(`预算旋钮生效值缺席:${missEnv.join(",")}`, inputs);
     const r = b.readings;
@@ -356,7 +357,7 @@ export function evalStageGate(def, ctx) {
   return { stage: def.name, name: def.gate, pass: !!r.pass, reason: r.reason, dur_ms: Math.round(performance.now() - t0), inputs: r.inputs ?? [], ...(r.code ? { code: r.code } : {}) }; // code=门指定终态码(闭集内)
 }
 export function appendGate(dir, roundId, rec) {
-  const p = path.join(dir, "gates.json");
+  const p = path.join(dir, A.GATES);
   const cur = j(p) ?? { round_id: roundId, records: [] };
   cur.round_id = roundId;
   cur.records.push(rec);

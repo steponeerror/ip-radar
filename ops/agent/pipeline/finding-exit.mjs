@@ -22,10 +22,11 @@ import path from "node:path";
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
 import { ghIssueCreate } from "../tools.mjs";
+import { ARTIFACTS } from "../artifacts.mjs";
 
 const execFileP = promisify(execFileCb);
 const APPRISE_TIMEOUT_MS = 15_000; // apprise CLI 单批推送超时(防挂轮;库面 _alerts 无此面,CLI 面必须有)
-const EXITS_ARTIFACT = "08-anchor-sweep-exits.json";
+const EXITS_ARTIFACT = ARTIFACTS.ANCHOR_SWEEP_EXITS; // 工件名表单源(#202 伞收口:第四写面并入;C1 merger 发现)
 
 // URL 脱敏(_alerts._redact_url 同律):只留 scheme+尾 4 字符;余段 ≤8 只留 ***
 const redactUrl = (u) => {

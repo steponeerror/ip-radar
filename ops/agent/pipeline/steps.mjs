@@ -18,6 +18,7 @@ import { runFindingExits } from "./finding-exit.mjs"; // #184 finding 出口三�
 import * as budget from "./budget.mjs"; // #199 A5:09-budget.json 读数面(零环:budget 只依赖 node 内置)
 import { mkBreaker, readBreakerKnobs } from "../tools/breaker.mjs"; // #199 B:breaker 观察快照(只读零写;零环:breaker 只依赖 node 内置+lib.sh)
 import { itemSignature, fullDedupKey, createOpsItem, parseItemsTree, CAUSE_GROUP_BY_BUCKET } from "./ops-items.mjs"; // 条目库桥(P4 #166:接 _ops_items 同空间)
+import { ARTIFACTS as A, deepArtifactName, deepTranscriptName, DEEP_TRANSCRIPT_RE } from "../artifacts.mjs"; // 工件名表单源(#202 C1):步写出/读面禁手抄工件名(磁盘名字节冻结,位等价判例)
 
 const execFileP = promisify(execFileCb);
 const AGENT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -99,14 +100,14 @@ async function PROBE(def, ctx) {
   const srcOf = new Map(pairs);
   const urls = [...new Set(pairs.map(([u]) => u))].sort();
   const tsv = (await sh("feed_freshness", urls, 1200_000, ctx.env)).stdout;
-  fs.writeFileSync(path.join(ctx.dir, "01-probe-freshness.tsv"), tsv);
+  fs.writeFileSync(path.join(ctx.dir, A.PROBE_FRESHNESS_TSV), tsv);
   // matrix(P1,#163)=真扫描单源 tools.mjs matrixScanCli(legacy health_snapshot 同路径同解析;位等价门=同 stub
   // 下两腿产物逐字节同文,自测 selftest-pipeline 位等价例)。产物路径对照:legacy=<ts>-matrix-scan.json
   // (artifactPath ts-slug 族,ops/artifacts/);管线=01-probe-matrix.json(§4.1 序号前缀族)。
   // 失败=嵌套信封不阻轮(C稿 §2.2,legacy 同语义);差异仅落盘面:legacy 失败不落件只回 sc 嵌套信封,
   // 管线按 §4.1 工件契约落信封进件(证据不灭失)。
   const m = await matrixScanCli();
-  fs.writeFileSync(path.join(ctx.dir, "01-probe-matrix.json"), m.ok ? matrixArtifactText(m.d) : JSON.stringify(m.env, null, 1));
+  fs.writeFileSync(path.join(ctx.dir, A.PROBE_MATRIX), m.ok ? matrixArtifactText(m.d) : JSON.stringify(m.env, null, 1));
   const matrix = m.ok ? { ok: true, exit_code: m.d.exit_code, counts: m.d.counts } : m.env;
   const buckets = { fresh: 0, frozen: 0, unreachable: 0, token_required: 0, no_lm: 0 };
   const flags = [];
@@ -123,7 +124,7 @@ async function PROBE(def, ctx) {
         ...(bucket === "unreachable" && fam ? { error_family: fam } : {}) }); // http_<code>/net_fail(lib.sh _ff_probe 四列,P2 消费)
     }
   }
-  writeJson(path.join(ctx.dir, "01-probe-summary.json"), { ok: true, round_id: ctx.roundId, urls_n: urls.length,
+  writeJson(path.join(ctx.dir, A.PROBE_SUMMARY), { ok: true, round_id: ctx.roundId, urls_n: urls.length,
     attempted_n: tsv.split("\n").filter(Boolean).length, buckets, flags,
     matrix: { ok: matrix.ok === true, exit_code: matrix.exit_code ?? null, violation_n: matrix.counts?.violation ?? null } });
 }
@@ -140,16 +141,16 @@ function ruleMatch(match, f) {
   return true;
 }
 async function VERIFY(def, ctx) {
-  const summary = j(path.join(ctx.dir, "01-probe-summary.json"));
-  if (!summary) throw infra("01-probe-summary.json 不可解析");
+  const summary = j(path.join(ctx.dir, A.PROBE_SUMMARY));
+  if (!summary) throw infra(`${A.PROBE_SUMMARY} 不可解析`);
   const rulesExists = fs.existsSync(ctx.rulesFile);
   const raw = rulesExists ? j(ctx.rulesFile) : null;
   if (rulesExists && !raw) throw infra(`抑制规则库不可解析:${ctx.rulesFile}(规则零命中=空集照常过;文件坏=终态)`);
   const rules = raw ? normalizeRules(raw) : { version: 0, rules: [] }; // 缺席=合法零规则态(与 _ops_review 零规则起步同口径;审后修 P1:缺席 infra 会致生产 bootstrap 死锁——init_ops_tree 不建此文件,首轮 VERIFY 必死则 adopt_rule 永不可达)
   // 轮次时点版规则快照(#164 审 P2-6 收口,#167):replay --dry 审计读快照而非现行文件
   // ——规则库事后演进(采纳/删除)不得改写历史轮的门判定;快照=工件面证据不灭失。
-  if (rulesExists) fs.copyFileSync(ctx.rulesFile, path.join(ctx.dir, "02-verify-rules.json"));
-  else writeJson(path.join(ctx.dir, "02-verify-rules.json"), { version: 0, rules: [] }); // 缺席时快照仍落空库形(门读快照单一口径,不留「快照缺席」分叉)
+  if (rulesExists) fs.copyFileSync(ctx.rulesFile, path.join(ctx.dir, A.VERIFY_RULES));
+  else writeJson(path.join(ctx.dir, A.VERIFY_RULES), { version: 0, rules: [] }); // 缺席时快照仍落空库形(门读快照单一口径,不留「快照缺席」分叉)
   const flight = inFlightKeys(readInFlightItems(ctx.itemsDir, ctx.state?.replay_of)); // 同因在飞不重问:全签(source|probe_class|error_signature,P4 #166);replay 排除原轮自己的产物(回声防线)
   const survivors = [], suppressed = [];
   for (const f of summary.flags) {
@@ -164,19 +165,19 @@ async function VERIFY(def, ctx) {
   }
   // known_noise_digest:已知误判模式机器格式(C稿 §3.5——TRIAGE 不注入判例全文,只吃本 digest;
   // 含 review_at 供 RETRO P5 到点复审)。
-  writeJson(path.join(ctx.dir, "02-verify-survivors.json"), { survivors,
+  writeJson(path.join(ctx.dir, A.VERIFY_SURVIVORS), { survivors,
     known_noise_digest: rules.rules.map(({ id, action, match, note, review_at }) => ({ id, action, match, note, review_at })),
     rules_version: rules.version, in_flight_n: flight.size });
-  writeJson(path.join(ctx.dir, "02-verify-suppressed.json"), { suppressed, rules_version: rules.version });
+  writeJson(path.join(ctx.dir, A.VERIFY_SUPPRESSED), { suppressed, rules_version: rules.version });
 }
 
 async function DISPATCH(def, ctx) {
-  const h = j(path.join(ctx.dir, "03-triage-hypotheses.json")) ?? { hypotheses: [] };
+  const h = j(path.join(ctx.dir, A.TRIAGE_HYPOTHESES)) ?? { hypotheses: [] };
   const sorted = [...(h.hypotheses ?? []).filter((x) => x.need_deep)]
     .sort((a, b) => (SEV_RANK[a.severity] ?? 9) - (SEV_RANK[b.severity] ?? 9));
   // 每假设新上下文的 bundle 装配面(C稿 §2.4-1):hid/假设全文/≤3 相关判例命中(锚域词表×该
   // 假设旗标确定性选锚,缺件锄宁少算不注入)/预算余额;TRIAGE→DEEP 隔真脚本步,门永远有件可查。
-  const surv = new Map((j(path.join(ctx.dir, "02-verify-survivors.json"))?.survivors ?? []).map((s) => [s.signal_id, s]));
+  const surv = new Map((j(path.join(ctx.dir, A.VERIFY_SURVIVORS))?.survivors ?? []).map((s) => [s.signal_id, s]));
   const anchors = loadAnchors();
   const precDir = ctx.env.PRECEDENTS_DIR ?? path.join(ctx.env.DOCS_ROOT ?? process.env.DOCS_ROOT ?? AGENT_DIR, "ops", "precedents");
   const hitsOf = (x) => {
@@ -191,7 +192,7 @@ async function DISPATCH(def, ctx) {
   }
   const bundles = sorted.map((x) => ({ hid: x.signal_id, budget_cny: Math.floor((ctx.budgetCny / sorted.length) * 1e4) / 1e4, // 审后修 P1-1:toFixed 四舍五入 n=3 时各 0.0167 合计 0.0501>0.05 必砸 G_DISPATCH;改 floor 下取
     prompt_pkg: { hypothesis: x.hypothesis, cause_class: x.cause_class, severity: x.severity, probe_hint: x.probe_hint, url: x.signal_id, precedent_hits: hitsOf(x) } }));
-  writeJson(path.join(ctx.dir, "04-dispatch-bundles.json"), { budget_cny: ctx.budgetCny, est_per_hyp_cny: EST_PER_HYP_CNY, max_hypotheses: MAX_DEEP_HYPOTHESES,
+  writeJson(path.join(ctx.dir, A.DISPATCH_BUNDLES), { budget_cny: ctx.budgetCny, est_per_hyp_cny: EST_PER_HYP_CNY, max_hypotheses: MAX_DEEP_HYPOTHESES,
     bundles, truncated: truncated.map(({ x, reason }) => ({ hid: x.signal_id, severity: x.severity, reason })),
     degraded: truncated.length > 0 });
   return truncated.length ? { degraded: `dispatch_truncate:${truncated.length} 条按 severity 截尾(${truncated.filter((t) => t.reason === "unresolved(budget)").length} 预算/${truncated.filter((t) => t.reason === "unresolved(dispatch_cap)").length} 上限;预算 ${ctx.budgetCny}¥/上限 ${MAX_DEEP_HYPOTHESES})` } : undefined;
@@ -205,11 +206,11 @@ const IMPACT_BY_BUCKET = {
   frozen: (f) => `${f.source} 情报源冻结(Last-Modified ${f.age_days} 天无更新),威胁情报新鲜度受损`,
   unreachable: (f) => `${f.source} 情报源不可达(${f.error_family ?? "未知族"}),威胁覆盖面收缩`, };
 async function ITEMIZE(def, ctx) {
-  const hyps = j(path.join(ctx.dir, "03-triage-hypotheses.json"))?.hypotheses ?? [];
-  const verdictsFile = j(path.join(ctx.dir, "05-deep-verdicts.json")) ?? { verdicts: [], degraded: [] };
+  const hyps = j(path.join(ctx.dir, A.TRIAGE_HYPOTHESES))?.hypotheses ?? [];
+  const verdictsFile = j(path.join(ctx.dir, A.DEEP_VERDICTS)) ?? { verdicts: [], degraded: [] };
   const verdicts = verdictsFile.verdicts, degradedVerdicts = verdictsFile.degraded;
-  const truncated = j(path.join(ctx.dir, "04-dispatch-bundles.json"))?.truncated ?? [];
-  const surv = new Map((j(path.join(ctx.dir, "02-verify-survivors.json"))?.survivors ?? []).map((s) => [s.signal_id, s]));
+  const truncated = j(path.join(ctx.dir, A.DISPATCH_BUNDLES))?.truncated ?? [];
+  const surv = new Map((j(path.join(ctx.dir, A.VERIFY_SURVIVORS))?.survivors ?? []).map((s) => [s.signal_id, s]));
   const rows = [];
   for (const v of verdicts) rows.push({ hid: v.hid, hyp: hyps.find((h) => h.signal_id === v.hid) ?? {}, outcome: v.verdict, one_line: v.one_line, deep_evidence: v.evidence ?? [] });
   for (const v of degradedVerdicts) rows.push({ hid: v.hid, hyp: hyps.find((h) => h.signal_id === v.hid) ?? {}, outcome: "unresolved", one_line: v.one_line, deep_evidence: [] }); // 重试尽降级 unresolved 同入清单(证据不灭失)
@@ -217,7 +218,7 @@ async function ITEMIZE(def, ctx) {
   for (const h of hyps.filter((x) => !x.need_deep)) rows.push({ hid: h.signal_id, hyp: h, outcome: "watch", one_line: h.one_line, deep_evidence: [] }); // 未深验假设直入清单
   // replay 确定性:原轮 manifest 在场时逐 hid 回声原 outcome(审计重放不改生产条目面);
   // 缺席(原轮 ITEMIZE 半程崩溃重放)走桥内文件回声救回部分写入。
-  const origByHid = new Map((ctx.state?.replay_of ? j(path.join(ctx.opsRoot, "rounds", ctx.state.replay_of, "06-itemize-manifest.json"))?.rows ?? [] : []).map((r) => [r.hid, r]));
+  const origByHid = new Map((ctx.state?.replay_of ? j(path.join(ctx.opsRoot, "rounds", ctx.state.replay_of, A.ITEMIZE_MANIFEST))?.rows ?? [] : []).map((r) => [r.hid, r]));
   let created = 0, reopened = 0, deduped = 0;
   const out = [];
   for (const r of rows) {
@@ -243,8 +244,8 @@ async function ITEMIZE(def, ctx) {
       one_line: r.one_line ?? r.hyp.one_line ?? "", dedup_key: { source: f.source, ...sig },
       item_id: res.item, outcome: res.outcome, supersedes: res.supersedes, ...(res.echo ? { echo: true } : {}) });
   }
-  const suppressed = j(path.join(ctx.dir, "02-verify-suppressed.json"))?.suppressed?.length ?? 0;
-  writeJson(path.join(ctx.dir, "06-itemize-manifest.json"), { created, reopened, deduped, suppressed, rows: out });
+  const suppressed = j(path.join(ctx.dir, A.VERIFY_SUPPRESSED))?.suppressed?.length ?? 0;
+  writeJson(path.join(ctx.dir, A.ITEMIZE_MANIFEST), { created, reopened, deduped, suppressed, rows: out });
 }
 
 // ── RETRO 候选推导(P5 #167;C稿 §2.2/§6-6)─────────────────────────────────
@@ -325,15 +326,15 @@ async function RETRO(def, ctx) {
   catch (e) { throw Object.assign(new Error("sandbox_assert rc≠0(backend/frontend 污染)"), { code: "sandbox_violation" }); }
   let degraded;
   try { // 候选产出失败=降级(跳过 retro,轮仍成功);台账/sandbox 失败已先行终态(C稿 §2.2 语义序)
-    const s = j(path.join(ctx.dir, "01-probe-summary.json"));
-    const survivors = j(path.join(ctx.dir, "02-verify-survivors.json"))?.survivors ?? [];
-    const suppressedF = j(path.join(ctx.dir, "02-verify-suppressed.json"));
+    const s = j(path.join(ctx.dir, A.PROBE_SUMMARY));
+    const survivors = j(path.join(ctx.dir, A.VERIFY_SURVIVORS))?.survivors ?? [];
+    const suppressedF = j(path.join(ctx.dir, A.VERIFY_SUPPRESSED));
     const rawRules = j(ctx.rulesFile);
     const rules = rawRules ? normalizeRules(rawRules) : { version: 0, rules: [] }; // 步侧已过门,坏文件不会到这;缺席=零规则照常
     const items = parseItemsTree(ctx.itemsDir);
     // #184 出口③:finding 计入 RETRO 摘要工件(读 08 工件只计数零出口动作;G_RETRO 机检与工件回算一致)。
     // 降级轮(08=失败信封)记 status=degraded(诚实面:求值面死非零 finding);resume 旧轮防御:出口记录缺席则补初始化。
-    const sweepArt = j(path.join(ctx.dir, "08-anchor-sweep.json"));
+    const sweepArt = j(path.join(ctx.dir, A.ANCHOR_SWEEP));
     const anchorSweep = sweepArt && Array.isArray(sweepArt.results)
       ? { status: "ok", n_total: sweepArt.results.length, n_fail: sweepArt.n_fail,
           findings: sweepArt.results.filter((x) => !x.ok).map(({ ip, expect, verdict, confidence, accusers }) => ({ ip, expect, verdict, confidence, accusers })) }
@@ -358,7 +359,7 @@ async function RETRO(def, ctx) {
     fs.mkdirSync(path.dirname(ctx.retroFile), { recursive: true });
     writeJson(ctx.retroFile, { round_id: ctx.roundId, generated_at: new Date().toISOString(),
       flags_n: (s?.flags ?? []).length, survivors_n: survivors.length, suppressed_n: suppressedF?.suppressed?.length ?? 0,
-      verdicts_n: j(path.join(ctx.dir, "05-deep-verdicts.json"))?.verdicts?.length ?? 0,
+      verdicts_n: j(path.join(ctx.dir, A.DEEP_VERDICTS))?.verdicts?.length ?? 0,
       anchor_sweep: anchorSweep, // #184 出口③:巡检 finding 摘要行(G_RETRO 机检:与 08 工件回算一致)
       rules_version: rules.version,
       ...diff, // candidates(P5 #167:机械误判→adopt_rule 候选,仅产条目永不自动生效)/rules_due_review/rule_hits/channel_conflicts
@@ -381,7 +382,7 @@ async function CLOSE(def, ctx) { // 书挡步:存在性校验(闭合双层的外
     file: path.join(ctx.opsRoot ?? path.dirname(ctx.dir), "breaker.json"),
     env: ctx.env ?? {}, round: ctx.roundId ?? "health", knobs: ctx.breakerKnobs ?? readBreakerKnobs(ctx.env ?? {}),
   });
-  writeJson(path.join(ctx.dir, "09-budget.json"), {
+  writeJson(path.join(ctx.dir, A.BUDGET), {
     round_id: ctx.roundId,
     generated_at: new Date().toISOString(),
     env: { // 生效值(含 OPS_PIPELINE_BUDGET_CNY:语义=DISPATCH 准告警线,真执法=A1 四界)
@@ -402,7 +403,7 @@ async function CLOSE(def, ctx) { // 书挡步:存在性校验(闭合双层的外
       breaker: breakerFace.snapshot(), // #199 B:五通道闭集态+生效旋钮(观察不裁决,G_CLOSE 不对拍帽——无帽可拍)
     },
   });
-  const report = path.join(ctx.dir, "07-synth-report.md");
+  const report = path.join(ctx.dir, A.SYNTH_REPORT);
   ctx.pkg = fs.existsSync(report) ? report : null;
   if (!ctx.pkg) return;
   try {
@@ -420,7 +421,7 @@ async function CLOSE(def, ctx) { // 书挡步:存在性校验(闭合双层的外
 // replay 恒零外发),RETRO 摘要行由 RETRO 步读本工件计数(出口③)。
 async function ANCHOR_SWEEP(def, ctx) {
   const r = await anchorSweepCli();
-  fs.writeFileSync(path.join(ctx.dir, "08-anchor-sweep.json"),
+  fs.writeFileSync(path.join(ctx.dir, A.ANCHOR_SWEEP),
     r.ok ? `${JSON.stringify(r.d, null, 1)}\n` : `${JSON.stringify(r.env, null, 1)}\n`);
   ctx.state.finding_exits = await runFindingExits({ roundId: ctx.roundId, sweepD: r.ok ? r.d : null, dir: ctx.dir,
     env: ctx.env, replayOf: ctx.state?.replay_of ?? null }); // #184:信封 pipeline.finding_exits 留痕(skip/failed 同合法态)
@@ -434,7 +435,7 @@ async function ANCHOR_SWEEP(def, ctx) {
 const GOLDEN_BUNDLE = { hid: "golden-track-canned", golden: true, budget_cny: 0,
   prompt_pkg: { hypothesis: "金轨迹保活 canned 假设:若冻结读数为真,HEAD 复测 age_days 应保持不变", cause_class: "frozen_feed", severity: "low", probe_hint: "reprobe_get", url: "(canned)", precedent_hits: [] } };
 function triageInput(ctx) {
-  const sv = j(path.join(ctx.dir, "02-verify-survivors.json"));
+  const sv = j(path.join(ctx.dir, A.VERIFY_SURVIVORS));
   const rows = (sv?.survivors ?? []).map(({ signal_id, source, bucket, age_days, url, error_family, annotated_rule }) =>
     ({ signal_id, source, bucket, ...(age_days != null ? { age_days } : {}), url,
       ...(error_family ? { error_family } : {}), ...(annotated_rule ? { annotated_rule } : {}) }));
@@ -446,18 +447,18 @@ function triageConsume(ctx, _item, { text }) {
   let h;
   try { h = JSON.parse(text); } catch { throw Object.assign(new Error("TRIAGE 输出非 JSON(schema 违例)"), { code: "model_face" }); }
   if (!h || !Array.isArray(h.hypotheses)) throw Object.assign(new Error("TRIAGE 输出缺 hypotheses 数组"), { code: "model_face" });
-  writeJson(path.join(ctx.dir, "03-triage-hypotheses.json"), h);
+  writeJson(path.join(ctx.dir, A.TRIAGE_HYPOTHESES), h);
 }
 const deepItems = (ctx) => {
-  const bundles = j(path.join(ctx.dir, "04-dispatch-bundles.json"))?.bundles ?? [];
+  const bundles = j(path.join(ctx.dir, A.DISPATCH_BUNDLES))?.bundles ?? [];
   return bundles.length ? bundles : [GOLDEN_BUNDLE]; // 零 bundle=金轨迹回路(#162 审 P2-2,裁定①)
 };
 // DEEP 登记表重建(P4 #166):逐假设 transcript 的 registry_seed 行 → Map(call_id → {tool, sc});
 // 宿主回填(G_DEEP 写前语义门同源重算)与门重算共用本面(单一解析语义,不另起炉灶)。
 export function deepSeeds(dir, hid = null) {
   const m = new Map();
-  const files = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => /^05-deep-.*-transcript\.jsonl$/.test(f)
-    && (hid === null || f === `05-deep-${hidSlug(hid)}-transcript.jsonl`)) : [];
+  const files = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => DEEP_TRANSCRIPT_RE.test(f)
+    && (hid === null || f === deepTranscriptName(hidSlug(hid)))) : [];
   for (const f of files)
     for (const line of fs.readFileSync(path.join(dir, f), "utf8").split("\n").filter(Boolean)) {
       let r; try { r = JSON.parse(line); } catch { continue; }
@@ -483,23 +484,23 @@ function deepConsume(ctx, item, { text }) {
   const seeds = deepSeeds(ctx.dir, item.hid);
   const evidence = (v.evidence ?? []).map((e) => ({ call_id: e.call_id, field: e.field,
     value: e.value !== undefined ? e.value : resolveField(seeds.get(e.call_id)?.sc, e.field) }));
-  writeJson(path.join(ctx.dir, `05-deep-${hidSlug(item.hid)}.json`), { hid: item.hid, ...(item.golden ? { golden: true } : {}), ...v, evidence });
+  writeJson(path.join(ctx.dir, deepArtifactName(hidSlug(item.hid))), { hid: item.hid, ...(item.golden ? { golden: true } : {}), ...v, evidence });
 }
 function deepFinalize(ctx, { degradedItems }) { // 收编尾:逐假设工件 → 单 verdicts 集(降级项入 degraded;金轨迹单收 golden_track)
   const verdicts = [], golden = [];
   for (const b of deepItems(ctx)) {
-    const f = j(path.join(ctx.dir, `05-deep-${hidSlug(b.hid)}.json`));
+    const f = j(path.join(ctx.dir, deepArtifactName(hidSlug(b.hid))));
     if (!f) continue;
     const row = { hid: f.hid, verdict: f.verdict, evidence: f.evidence ?? [], one_line: f.one_line ?? "" };
     (f.golden || b.golden ? golden : verdicts).push(row);
   }
-  writeJson(path.join(ctx.dir, "05-deep-verdicts.json"), { verdicts, degraded: degradedItems, golden_track: golden });
+  writeJson(path.join(ctx.dir, A.DEEP_VERDICTS), { verdicts, degraded: degradedItems, golden_track: golden });
 }
 async function synthInput(ctx) {
   // 判例注入只在 SYNTH(闭合校验面集中,C稿 §3.5);检索词=锚域词表(B 三件②,P3 接线:
   // agent.mjs KWS.health 硬编码退役,词表单一真源=anchors-health.json)+ 锚词表×幸存旗标确定性选锚。
   const anchors = loadAnchors();
-  const flags = j(path.join(ctx.dir, "02-verify-survivors.json"))?.survivors ?? [];
+  const flags = j(path.join(ctx.dir, A.VERIFY_SURVIVORS))?.survivors ?? [];
   const docsRoot = ctx.env.DOCS_ROOT ?? path.resolve(AGENT_DIR, "..", "..", "docs"); // 同 lib.sh 派生链
   const precDir = ctx.env.PRECEDENTS_DIR ?? path.join(docsRoot, "ops", "precedents");
   const onDisk = (n) => fs.existsSync(path.join(precDir, n)); // 锚选目标须在真源判例库在场(缺件锚宁少算不注入)
@@ -510,11 +511,11 @@ async function synthInput(ctx) {
   const injected = [...new Set([...anchored, ...hitNames])].slice(0, HIT_CAP);
   // 条目明细(ADR 0006:报告=条目集只读渲染;异常清单每行对应真实条目)——直读本轮 manifest rows
   // (P4 #166:真条目在 ops/items 树,轮内产物面=manifest 行,item_id 供四键走查对号)
-  const rows = j(path.join(ctx.dir, "06-itemize-manifest.json"))?.rows ?? [];
+  const rows = j(path.join(ctx.dir, A.ITEMIZE_MANIFEST))?.rows ?? [];
   const itemsDetail = rows.map(({ source, verdict, severity, suggested_action, one_line, item_id }) => ({ source, verdict, severity, suggested_action, one_line, item_id }));
-  const input = { injected, manifest: j(path.join(ctx.dir, "06-itemize-manifest.json")), items: itemsDetail,
-    verdicts_digest: (j(path.join(ctx.dir, "05-deep-verdicts.json"))?.verdicts ?? []).map(({ hid, verdict }) => ({ hid, verdict })),
-    probe: (({ urls_n, buckets, matrix }) => ({ urls_n, buckets, matrix }))(j(path.join(ctx.dir, "01-probe-summary.json")) ?? {}) };
+  const input = { injected, manifest: j(path.join(ctx.dir, A.ITEMIZE_MANIFEST)), items: itemsDetail,
+    verdicts_digest: (j(path.join(ctx.dir, A.DEEP_VERDICTS))?.verdicts ?? []).map(({ hid, verdict }) => ({ hid, verdict })),
+    probe: (({ urls_n, buckets, matrix }) => ({ urls_n, buckets, matrix }))(j(path.join(ctx.dir, A.PROBE_SUMMARY)) ?? {}) };
   // 锚选不在检索命中内的,以锚域 note 补一行 gist(具名引用禁裸 id,研究 #71);超帽沿铁律⑦截前 8
   const anchoredExtra = anchored.filter((n) => !hitNames.includes(n)).map((n) => {
     const a = anchors.anchors.find((x) => x.precedents.includes(n));
@@ -538,16 +539,16 @@ export function synthInjectionBlock(injStdout, anchoredExtra, hitNames, injected
 }
 function synthConsume(ctx, _item, { text }) {
   if (!text.trim()) throw Object.assign(new Error("SYNTH 最终文本为空"), { code: "empty_text" });
-  fs.writeFileSync(path.join(ctx.dir, "07-synth-report.md"), text);
+  fs.writeFileSync(path.join(ctx.dir, A.SYNTH_REPORT), text);
 }
 
 // 模型步工件完备判定(#167 resume 三规则②):「有 transcript(=本步工件集齐)→ 只补门
 // 评估,不重花 token」。单发步=def.out 全在场;逐假设步(DEEP)=该假设 05-deep-<hid>.json
 // + transcript 在场(聚合 verdicts 由 finalize 从逐假设工件重建,不算完备判据)。
 export function modelItemComplete(def, ctx, item) {
-  if (def.forEach) { // forEach 今日仅 DEEP;命名面=deepConsume 同源(05-deep-<slug> 族)
-    const base = path.join(ctx.dir, `05-deep-${hidSlug(item.hid)}`);
-    return fs.existsSync(`${base}.json`) && fs.existsSync(`${base}-transcript.jsonl`);
+  if (def.forEach) { // forEach 今日仅 DEEP;命名面=deepConsume 同源(05-deep-<slug> 族,名表参数族工厂)
+    return fs.existsSync(path.join(ctx.dir, deepArtifactName(hidSlug(item.hid))))
+      && fs.existsSync(path.join(ctx.dir, deepTranscriptName(hidSlug(item.hid))));
   }
   return def.out.every((f) => fs.existsSync(path.join(ctx.dir, f)));
 }
