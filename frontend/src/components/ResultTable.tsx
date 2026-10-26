@@ -153,6 +153,26 @@ function VerdictCell({ summary }: { summary: ReturnType<typeof threatSummary> })
   );
 }
 
+// scanner 厂商自报段标签(scanner_ranges 批,PR #216):标签列只显自报段声明源的
+// native_categories(「研究扫描 · X(自报段)」);sw_scanners 等计数型标签仅进展开面板,
+// 不进标签列(噪声守门,2026-10-26 用户裁「多加一个标签」)。去重 + 封顶 3 溢出 +N。
+const VENDOR_TAG_SOURCE = "scanner_ranges";
+const VENDOR_TAG_CAP = 3;
+
+function scannerVendorTags(r: LookupResult): { label: string; source: string }[] {
+  const out: { label: string; source: string }[] = [];
+  for (const [type, ca] of Object.entries(r.classifications)) {
+    if (normType(type) !== "scanner" || !ca.detected) continue;
+    for (const d of ca.details) {
+      if (d.source !== VENDOR_TAG_SOURCE) continue;
+      for (const nc of d.native_categories ?? []) {
+        if (nc && !out.some((v) => v.label === nc)) out.push({ label: nc, source: d.source });
+      }
+    }
+  }
+  return out;
+}
+
 // 标签列 = 该 IP 全部事实类徽章的家:威胁 chips 在前、资产 chips 在后、源数/存档/冲突殿后。
 // CDN 徽章合并裁定(防同列重复):threat.is_cdn 且存在 cdn-role service chip 时,不再渲染
 // 独立 CDN 徽章,该 chip 的 title 换成 cdn.notice(劝禁语义进 tooltip,provider 仍在 chip 文本);
@@ -194,6 +214,23 @@ function ThreatTags({
           </Tooltip>
         );
       })}
+      {(() => {
+        const vendors = scannerVendorTags(r);
+        const shown = vendors.slice(0, VENDOR_TAG_CAP);
+        const rest = vendors.length - shown.length;
+        if (shown.length === 0) return null;
+        return (
+          <>
+            {shown.map((v) => (
+              <span key={`vendor-${v.label}`} title={v.source}
+                className="rounded bg-orange-500/10 px-1.5 py-0.5 text-[11px] text-orange-300 ring-1 ring-orange-500/20">
+                {v.label}
+              </span>
+            ))}
+            {rest > 0 && <span className="text-[10px] text-zinc-500">+{rest}</span>}
+          </>
+        );
+      })()}
       {badges.map((a, i) => (
           <span key={`asset-${a.key}`}
             className={`${i === 0 ? "" : "ml-1.5"} rounded px-1.5 py-0.5 text-[11px] bg-sky-500/12 text-sky-400 ring-1 ring-sky-500/20`}
