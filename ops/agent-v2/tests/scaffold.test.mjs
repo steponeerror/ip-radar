@@ -17,20 +17,22 @@ import { HARNESS_SETTINGS, resolveDbPath, ROOT } from "../entry.mjs";
 
 const V2_DIR = path.resolve(import.meta.dirname, ".."); // ops/agent-v2
 
-test("registry 红线:发现轮工具闭集三只只读、无内建 CodingTools;任务面=内建+ops.discover-round", () => {
+test("registry 红线:零内建 CodingTools;工具面=T4 微探针三只+T3 发现轮三只闭集;任务面=内建+三只轮任务", () => {
   const snapshot = buildRegistry().snapshot();
-  // ops 红线(spec 背景节 + t1-notes §1.2):v2 不安装任何内建 coding 工具面。
-  // T3(#227)起新基线:发现轮三只只读通道工具经 "ops-discover-tools" 扩展入 registry
-  // (仅发现轮会话选装;root 面钉 [] 见 entry.mjs)。CodingTools/read/write/edit/bash 仍一概不装。
+  // ops 红线(spec 背景节 + t1-notes §1.2):v2 不安装任何内建 coding 工具面
+  // (CodingTools/read/write/edit/bash 一概不装)。工具闭集=T3+T4 并批并集:
+  //   ops 扩展 = T4 微探针三只(replay 全 unsafe;仅健康轮真 DEEP 面选装)
+  //   ops-discover-tools = T3 发现轮三只只读通道工具(仅发现轮会话选装;root 面钉 [] 见 entry.mjs)
   const tools = snapshot.tools().map((t) => t.tool); // 快照元素={extension,tool} 包裹形(1.4.0)
-  const names = tools.map((t) => t.name).sort();
-  assert.deepEqual(names, ["rss_parse", "web_read", "web_search"], "工具面=发现轮闭集三只(多=越权,少=门红)");
-  for (const t of tools)
-    assert.equal(t.annotations?.readOnlyHint, true, `${t.name} 非只读——发现轮闭集红线`);
+  assert.deepEqual(tools.map((t) => t.name).sort(), ["reprobe_get", "reprobe_ua", "rss_parse", "upstream_check", "web_read", "web_search"], "工具面=两批闭集并集(多=越权,少=门红)");
+  for (const name of ["reprobe_get", "reprobe_ua", "upstream_check"])
+    assert.equal(tools.find((t) => t.name === name)?.replay, "unsafe", `${name} 必须 replay:unsafe(真网络重放=出网动作)`);
+  for (const name of ["rss_parse", "web_read", "web_search"])
+    assert.equal(tools.find((t) => t.name === name)?.annotations?.readOnlyHint, true, `${name} 非只读——发现轮闭集红线`);
   assert.deepEqual(snapshot.installed().map((e) => e.name), ["ops", "ops-discover-tools"]);
-  // 任务面:内建三任务 + ops.discover-round@1(T3 首只;T4 #228 增健康轮)。
-  const taskNames = (s) => s.tasks().map((t) => `${t.definition.name}@${t.definition.version}`).sort();
-  assert.deepEqual(taskNames(snapshot), [...taskNames(createRegistry().snapshot()), "ops.discover-round@1"].sort());
+  // 任务面:内建三 + T3 发现轮 + T4 健康轮两只(命名形制随各自票面,不改写)。
+  const names = (s) => s.tasks().map((t) => `${t.definition.name}@${t.definition.version}`).sort();
+  assert.deepEqual(names(snapshot), [...names(createRegistry().snapshot()), "ops.discover-round@1", "ops-health-round@1", "ops-model-round@1"].sort());
 });
 
 test("compaction 默认关(t1-notes 风险5:自动摘要改写上下文,shadow 对拍期禁用)", () => {
