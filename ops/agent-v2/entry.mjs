@@ -18,6 +18,7 @@ import { Harness } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { loadModels, parseModelRef } from "./models.mjs";
 import { buildRegistry } from "./registry.mjs";
+import { admitRound, postModelCall, preModelCall, stepBoundary, sumUsageState } from "./tasks/budget-guard.mjs"; // 票 #226 双点执法接线(定案 3:entry/tasks 层,不 hook 化)
 
 export const ROOT = path.resolve(import.meta.dirname, "..", ".."); // 仓根(与 ops/agent/tools/shared.mjs 同推导)
 
@@ -58,8 +59,26 @@ const lastAssistantText = (view) => (view.entries.filter((e) => e.kind === "pi.a
 
 // 一轮 = root conversation 一次 submit(spec 术语映射「轮次」;root 复用
 // ROOT_CONVERSATION_ID,月轮→conversation 粒度是 T3/T4 决策,t1-notes 建议4)。
+// 双点执法(票 #226;定案 3,旧 pipeline.mjs 检查点同构):步前准入(月度 kill switch,
+// 拒跑零花费先于 harness 开启)+ 环内检查(步前①③、结算后②④;轮增量口径见
+// budget-guard.sumUsageDoc 注)。违界即停不重试(宁少算),已花 token 证据照留信封(哲学①)。
 export async function runRound(opts) {
+  const env = opts.env ?? process.env;
+  const roundType = opts.round ?? "health";
+  const log = (l) => process.stderr.write(`${l}\n`);
   const requestId = opts.requestId ?? requestIdFor(opts.roundId, opts.stage);
+  // —— 步前准入(月帽 ¥30 ∧ est;拒跑留痕在旧 admitOrRefuse 内,原样)——
+  const admission = await admitRound({ env, log, roundType, ledgerFile: opts.ledgerFile });
+  if (admission.refused)
+    return { round: opts.roundId, requestId, status: "refused", code: admission.code, message: admission.message,
+      budget: { admission: admission.admission } };
+  // —— 环内·步前检查(相位边界③ + 首次 attempt ①③;轮始 elapsed≈0,零帽面拒)——
+  const startedAtIso = new Date().toISOString(); // 墙钟起算点(旧 state.started_at 同位;相位级 startedAt 由 T3/T4 checkpoint 持有)
+  const pre = [stepBoundary({ roundType, knobs: admission.knobs, startedAtIso }),
+    preModelCall({ roundType, knobs: admission.knobs, modelCalls: 0, startedAtIso })].find((d) => !d.ok);
+  if (pre)
+    return { round: opts.roundId, requestId, status: "failed", code: pre.code, message: pre.message,
+      budget: { knobs: admission.knobs } };
   const { harness, models, resolve } = await openHarness(opts);
   const context = BACKGROUND_CONTEXT;
   harness.resume(); // 幂等:崩溃遗留提交/任务续跑(submit/wait 亦自动使能调度)
@@ -69,6 +88,7 @@ export async function runRound(opts) {
       : resolve(opts.round ?? "health"); // 缺省 flash 档(OPS_MODEL_HEALTH 可覆盖,同源)
     if (!model) throw new Error(`模型未装载:${opts.modelRef ?? opts.round ?? "health"}`);
     const root = await harness.root(context, { agent: { model: { provider: model.provider, modelId: model.id } } });
+    const usageBefore = sumUsageState(await harness.usage(context)); // 轮增量基线(环内口径,预算自算保留)
     process.stderr.write(`[v2] submit requestId=${requestId} model=${model.provider}/${model.id}\n`);
     const sub = await root.submit({ type: "input", content: opts.content, requestId }, context);
     if (opts.crashAfterSubmit) {
@@ -76,16 +96,24 @@ export async function runRound(opts) {
       process.kill(process.pid, "SIGKILL");
     }
     const settled = await sub.wait(context);
+    const usageState = await harness.usage(context);
+    const after = sumUsageState(usageState);
+    const roundUsage = { totalTokens: after.totalTokens - usageBefore.totalTokens, costCny: after.costCny - usageBefore.costCny };
+    // —— 环内·结算后查(②④;违界即停:status 翻 failed+code,证据照留)——
+    const post = postModelCall({ roundType, knobs: admission.knobs, totalTokens: roundUsage.totalTokens, costCny: roundUsage.costCny });
+    if (!post.ok) log(`[v2] budget ${post.code}: ${post.message}`);
     const view = await root.context(context);
     const envelope = {
       round: opts.roundId,
       requestId,
-      status: settled.status,
+      status: post.ok ? settled.status : "failed",
       model: `${model.provider}/${model.id}`,
       answer: lastAssistantText(view),
-      usage: await harness.usage(context),
+      usage: usageState,
+      ...(post.ok ? {} : { code: post.code, message: post.message }),
+      budget: { round_usage: roundUsage, admission: admission.admission },
     };
-    process.stderr.write(`[v2] settled status=${settled.status}\n`);
+    process.stderr.write(`[v2] settled status=${envelope.status}\n`);
     return envelope;
   } finally {
     await harness.close(context);
@@ -118,7 +146,13 @@ async function main() {
     process.exit(2);
   }
   process.stderr.write(`[v2] harness open db=${parsed.opts.dbPath ?? resolveDbPath()}\n`);
-  const envelope = await runRound(parsed.opts);
+  let envelope;
+  try {
+    envelope = await runRound(parsed.opts);
+  } catch (e) {
+    if (e?.usage) { process.stderr.write(`${e.message}\n`); process.exit(2); } // 旋钮/est 非法=用法错 exit 2 不带病跑轮(旧 agent.mjs main 同判例)
+    throw e;
+  }
   process.stdout.write(`${JSON.stringify(envelope)}\n`); // stdout 末行单行信封(T5 冻结形状)
   process.exit(envelope.status === "done" ? 0 : 1);
 }
