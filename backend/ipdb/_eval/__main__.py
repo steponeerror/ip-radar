@@ -522,6 +522,11 @@ def main(argv=None):
     p.add_argument("--agg-share", action="store_true",
                    help="印证对聚合器占比披露(spec #180 Q4;issue #183):"
                         "只测量不持门,落 model/agg-share-<ts>.json")
+    p.add_argument("--sinkhole-probe", action="store_true",
+                   help="sinkhole 污染探针(ADR 0013/#233):指控源命中"
+                        "MISP sinkholes 语料(203 项 eval-only)记污染分"
+                        "不记恶意分;只测量不持门,落 model/sinkhole-"
+                        "probe-<ts>.json")
     p.add_argument("--dsem", action="store_true",
                    help="DS-EM fair fight: market vs declared vs pi-hat T3 (advisory)")
     p.add_argument("--temporal", action="store_true",
@@ -764,6 +769,19 @@ def main(argv=None):
                   f"corroborated groups {res['n_corroborated_groups']}, "
                   f"derived vote share {share}, "
                   f"pure-derived echo groups {res['n_pure_derived_groups']}")
+        return
+    if args.sinkhole_probe:
+        # sinkhole 污染探针(ADR 0013/#233 T2):只测量不持门(同 agg-share
+        # 律,ADR 0008 决策 2)—— exit 恒 0,报告照落;月轮接线归 T4。
+        from .sinkhole_probe import run_sinkhole_probe
+        res = run_sinkhole_probe(registry, out_dir=REPORT_DIR)
+        if args.json:
+            print(json.dumps(res, ensure_ascii=False))
+        else:
+            print(f"sinkhole-probe: probed {res['n_probe']} IPs, "
+                  f"sinkhole members {res['n_members']} "
+                  f"(cidr {res['n_members_cidr']}, ip {res['n_members_ip']}), "
+                  f"polluted sources {len(res['polluted_sources'])}")
         return
     if args.dsem:
         from ipdb._merge import SOURCE_RELIABILITY
