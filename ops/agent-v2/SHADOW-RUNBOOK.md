@@ -53,3 +53,11 @@ v2 无生产流量 → 回退=停 v2 cron 即可,零数据迁移。SQLite 库/�
 2. 切换 cron:旧 `pipeline.mjs` cron 下线,`run-health.mjs` 接同一轮 id 序列与生产台账世界(`DOCS_ROOT`/`LEDGER_FILE` 指生产)。
 3. 首两周双观察:v2 信封/台账行抽查 + 月度准入读数对拍(月帽口径 ENVELOPE.md)。
 4. 观察期满后旧管线代码退役(单独 PR,先归档后删)。
+
+## 实际接线(2026-10-28 置备;小机 203.88.124.85)
+
+- v2 宿 = 生产容器 `ip-lookup-tool-ipradar-1`(node 22.23.4,Dockerfile `opsagent-v2` 层烘焙依赖;与旧管线同环境同凭证链)。
+- 影子世界 = 容器内 `/app/data/ops-shadow`(`ipradar-data` 卷内,随卷持久):`docs/` 影子 ops 树(首跑由 `deploy/ops-shadow-cron.sh` 自种,幂等)+ `docs/ops/agent-v2.sqlite`(缺省落位,DOCS_ROOT 推导)。
+- cron(小机 root):`30 4-23/8 * * * /opt/ip-lookup-tool/deploy/ops-shadow-cron.sh >> /var/log/ipradar-ops-shadow.log 2>&1`——旧轮 04/12/20 整点,v2 错峰 30 分;发现轮 shadow=手触(旧发现轮无 cron,同节拍)。
+- 凭证:只读消费生产物化件 `/app/data/ops/auth.json`(OPS_AUTH);模型引用从 `agent-config.json` 现读注入。breaker.json 随影子世界自种(跨轮输入面);影子台账从零起卷,月帽独立于生产。
+- 观察面(每窗人工/例行):`tail /var/log/ipradar-ops-shadow.log` 信封行;对拍闸门与本节以上 SAME 门槛不变。

@@ -21,6 +21,17 @@ COPY ops/agent/package.json ops/agent/package-lock.json ./
 RUN node -e 'const [maj,min]=process.versions.node.split(".").map(Number);if(maj!==22||min<19){console.error("node >=22.19 required (ops/agent/engines), got "+process.versions.node);process.exit(1)}' \
     && npm ci ${NPM_REGISTRY:+--registry $NPM_REGISTRY}
 
+# ── shadow 期(2026-10-28,SHADOW-RUNBOOK):ops/agent-v2(Pi Durable)依赖层 ──
+# 同 opsagent 同旨同基镜像(pi-durable@1.4.0 三包 exact;同 node>=22.19 断言)。
+# v2 models.mjs 零复制 re-export 旧管线,pi-ai 实装仍从 ops/agent/node_modules
+# 解析(scaffold 测断言两处同版);本层只供 v2 自有依赖(pi-durable/chord)。
+FROM node:22-bookworm-slim AS opsagent-v2
+WORKDIR /opsagent-v2
+ARG NPM_REGISTRY=""
+COPY ops/agent-v2/package.json ops/agent-v2/package-lock.json ./
+RUN node -e 'const [maj,min]=process.versions.node.split(".").map(Number);if(maj!==22||min<19){console.error("node >=22.19 required (ops/agent-v2), got "+process.versions.node);process.exit(1)}' \
+    && npm ci ${NPM_REGISTRY:+--registry $NPM_REGISTRY}
+
 FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1 IP_RADAR_DATA_DIR=/app/data
 WORKDIR /app
@@ -58,6 +69,7 @@ COPY backend/ ./backend/
 # space-size=256 ops/agent/agent.mjs,cwd=/app)。
 COPY ops/ ./ops/
 COPY --from=opsagent /opsagent/node_modules ./ops/agent/node_modules
+COPY --from=opsagent-v2 /opsagent-v2/node_modules ./ops/agent-v2/node_modules
 COPY --from=opsagent /usr/local/bin/node /usr/local/bin/node
 COPY .gitignore ./.gitignore
 # 版本自描述:构建上下文含 .git(.dockerignore 已放行)
