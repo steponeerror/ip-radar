@@ -110,7 +110,15 @@ def clean_anchor_fp(lookup_fn, anchors=ANCHORS) -> dict:
     单个 lookup 失败原样上抛,不 except-continue(2026-10-10 假零判例)。
     被控判定 = 分类组级 verdict ∈ _ACCUSING(与 anchors._check 判定门
     同一单源口径;anchor_sweep 的裸 detail 集合是巡检留痕面,本读数走
-    生产合并语义)。"""
+    生产合并语义)。
+
+    活体首例留痕(dev 数据 2026-10-28,成因三分类均待人裁,报告同批):
+    ①193.0.14.129 k.root = cps_collected_iocs(114DNS 事故同源聚合器;
+    T1 预检门发现,用户裁决挂起);②223.5.5.5 AliDNS = tweetfeed 众包
+    单推指控(reporter+推文 URL 在 raw_accusers.extra,教科书真误列
+    候选;生产形状另含 infra_services 良性断言 conflict 面,dev 库
+    未装时 conflict=False 是数据条件非逻辑缺失)。单测用确定性
+    fixture 钉形状(照 T2 测试先例),不断言活数据。"""
     clean = [(ip, exp) for ip, exp in anchors if exp == "clean"]
     accused: list[dict] = []
     for ip, _exp in clean:
@@ -293,6 +301,7 @@ def run_anchor_readouts(registry, out_dir=None, *,
             "leave_out": LEAVE_OUT, "n_probe": 0, "k_hit": 0,
             "recall": None, "cp95": {"level": CP_LEVEL, "lo": None,
                                      "hi": None},
+            "zero_event_upper_95": None,   # schema 与 ok 形状同键集(稳定)
             "n_self_echo": 0, "census": None, "members": [],
             "note": ("scanner_ranges CSV absent — explicit missing layer, "
                      "not a zero readout (票 #233 验收); " + _HADES_NOTE),

@@ -46,10 +46,18 @@ def _binom_cdf(k, n, p):
 
 def test_clopper_pearson_matches_binomial_tail_definition():
     """CP 界由二项尾概率定义:θ_L 使 P(X≤k-1)=1-α/2,θ_U 使 P(X≤k)=α/2
-    (Clopper & Pearson 1934)。beta_ppf 路线须满足代数定义(非实现自证)。"""
+    (Clopper & Pearson 1934)。beta_ppf 路线须满足代数定义(非实现自证)。
+    两参数化 = 两读数真值形状:(3,22) 手算例 +(241,300) 真数据首读数
+    (t3-artifacts scanner-recall 2026-10-28,k_hit/n_probe 原值钉测)。"""
     lo, hi = clopper_pearson(3, 22)
     assert abs(_binom_cdf(2, 22, lo) - 0.975) < 1e-6
     assert abs(_binom_cdf(3, 22, hi) - 0.025) < 1e-6
+    lo, hi = clopper_pearson(241, 300)
+    assert abs(_binom_cdf(240, 300, lo) - 0.975) < 1e-6
+    assert abs(_binom_cdf(241, 300, hi) - 0.025) < 1e-6
+    # 与真数据首读数工件逐位对拍(漂移即 beta_ppf/clopper 算术回归)
+    assert abs(lo - 0.753777191) < 1e-8
+    assert abs(hi - 0.846784997) < 1e-8
 
 
 def test_clopper_pearson_degenerate_closed_forms():
@@ -96,6 +104,8 @@ def test_clean_anchor_fp_kroot_live_sample_pinned():
     assert hit["groups"][0]["pool"] == ["cps_collected_iocs"]
     # census 随件:N 全量(非采样)+ 成员清单可回算
     assert res["members"] == ["193.0.14.129", "8.8.8.8", "1.1.1.1"]
+    # 零事件上界仅 k==0 有值(k>0 → None,消费面注记字段)
+    assert res["zero_event_upper_95"] is None
 
 
 def test_clean_anchor_fp_lineage_dedup_keeps_raw_evidence():
@@ -261,6 +271,9 @@ def test_run_anchor_readouts_missing_csv_explicit_layer(tmp_path):
     sr = res["scanner_recall"]
     assert sr["status"] == "missing" and sr["recall"] is None
     assert sr["n_probe"] == 0
+    # schema 稳定:missing 形状与 ok 形状同键集(census/members 占位),
+    # 消费面(月轮腿/报告面)按键取值不 KeyError(缺省不出节纪律)
+    assert sr["zero_event_upper_95"] is None and sr["cp95"]["lo"] is None
     assert list((tmp_path / "model").glob("scanner-recall-*.json"))
 
 
