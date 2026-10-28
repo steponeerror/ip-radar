@@ -1,0 +1,33 @@
+{
+ "kind": "sinkhole_ranges_provenance",
+ "generated": "2026-10-28",
+ "misp": {
+  "list": "lists/sinkholes/list.json",
+  "url": "https://raw.githubusercontent.com/MISP/misp-warninglists/main/lists/sinkholes/list.json",
+  "version": 20261014,
+  "sha256": "de791ba3fcbf7fe087ba6c55103212d781a538e574282716df60d8609d1b3c7f",
+  "file_commit_sha": "f8d976e7948baacc523af1eed75896aae0462bac",
+  "file_commit_date": "2026-10-14T13:51:07Z",
+  "repo_note": "MISP/warninglists 已更名 MISP/misp-warninglists(旧名 API/raw 404)"
+ },
+ "upstream": {
+  "repo": "brakmic/Sinkholes",
+  "url": "https://raw.githubusercontent.com/brakmic/Sinkholes/main/Sinkholes_List.json",
+  "commit_sha": "1a284cd902e4bf023f1e45aa79a5d7d3dfff5abf",
+  "commit_date": "2026-05-25T17:12:33Z",
+  "rows": 168,
+  "sha256": "6b6836e1ab60b0a743531229605be4a8b0aca8c6ca519525b9039653ad65e21b",
+  "lineage": "Lesley Carhart 2017 汇总 + grettir/malware-sinkholes 2026 补充; per-entry Organization/Whois/Notes"
+ },
+ "entries": {
+  "total": 203,
+  "ip": 186,
+  "cidr": 17
+ },
+ "notes": [
+  "union-never-replace: MISP 203 = 上游 168 ∪ 手工遗产(36/107 不在上游)",
+  "单 IP 层(186)有重指派残余风险:已退役 sinkhole IP 永驻列表",
+  "eval-only: 永不进 LMDB/产品源(ADR 0013);运行期零网络",
+  "详溯: notes/sinkholes-provenance-2026-10-28.md"
+ ]
+}
