@@ -610,6 +610,16 @@ def compose_monthly_md(readout: dict, disclosures_lines: list[str],
         lines += north_star_lines
     if leg_status_lines:  # 腿级状态行(#193 C5): 北星行后, 同律只观测
         lines += leg_status_lines
+    # 锚读数族可操纵面常驻注记(#233 交付块4 / ADR 0013 / HADES
+    # NDSS'25): 锚/探针成员资格是公开知识, 读数可被针对性投毒操纵 →
+    # 只测量不持门、eval 不回流权重(声明 r 人审)。静态披露行, 不随
+    # 数据变、无专门可选参数(共识滚动豁免声明行同律), 落点=腿级行
+    # 之后(头块尾);工件面同口径注记在 anchor_readouts.py
+    # _HADES_NOTE / sinkhole_probe.py note。
+    lines.append("- 锚读数族(锚误报/扫描召回/sinkhole 探针)可操纵面注记"
+                 "(HADES NDSS'25 式投毒): 锚/探针成员资格是公开知识, "
+                 "读数仅 advisory、人裁终局; 只测量不持门, eval 不回流权重"
+                 "(声明 r; ADR 0013)")
 
     layers = readout.get("layers", {})
     lines += ["", "## 分层读数(T8)", "",
