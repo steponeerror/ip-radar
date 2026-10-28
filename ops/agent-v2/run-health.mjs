@@ -77,7 +77,7 @@ export async function runHealthRound(opts) {
     const outcome = settled.state.outcome;
     if (outcome?.status === "completed") return { status: "completed", envelope: outcome.result.envelope, taskId };
     if (outcome?.status === "failed") return { status: "failed", envelope: outcome.result?.envelope ?? failEnvelope(outcome.error?.code ?? "infra", outcome.error?.message ?? "健康轮失败"), taskId };
-    return { status: "parked", envelope: failEnvelope("infra", `任务未终态:${JSON.stringify(settled.state.summary ?? {})}`), taskId };
+    return { status: "parked", envelope: failEnvelope("infra", `任务未终态:${JSON.stringify(settled.state.outcome?.error ?? settled.state.summary ?? {})}`), taskId }; // P2-⑫ 带真错:outcome.error 优先(纯 summary 面在 restartLimit 停摆时无错因可查),summary 兑底
   } finally {
     await harness.close(context);
   }
@@ -91,21 +91,23 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const args = process.argv.slice(2);
   const roundId = args[0] && !args[0].startsWith("--") ? args[0] : undefined // 位置首参=roundId(终审修复:flag 先于位置参时原 find 会把 flag 值误当 id);
   const flag = (n) => { const i = args.indexOf(`--${n}`); return i >= 0 ? args[i + 1] : undefined; };
-  if (!roundId) { usage(); process.exit(2); }
-  try {
-    const r = await runHealthRound({
-      roundId,
-      fixturesDir: flag("fixtures") ? path.resolve(flag("fixtures")) : null,
-      dbPath: flag("db"),
-      fromPhase: flag("from-phase"),
-      toPhase: flag("to-phase"),
-      model: flag("model"),
-    });
-    process.stdout.write(`${JSON.stringify(r.envelope)}\n`); // stdout 末行单行旧形信封(唯一 stdout 内容)
-    process.exit(r.status === "completed" ? 0 : 1);
-  } catch (e) {
-    if (e?.usage) { usage(); process.exit(2); }
-    process.stderr.write(`${e.stack ?? e}\n`);
-    process.exit(3); // T5 冻结:运行期异常≠unanswered(旧 N1 缺口),cron 层可区分
+  if (!roundId) { usage(); process.exitCode = 2; } // exitCode 而非 exit:stdout 写入异步落管,process.exit 可截断单行信封(旧 pipeline.mjs:547 判例)
+  else {
+    try {
+      const r = await runHealthRound({
+        roundId,
+        fixturesDir: flag("fixtures") ? path.resolve(flag("fixtures")) : null,
+        dbPath: flag("db"),
+        fromPhase: flag("from-phase"),
+        toPhase: flag("to-phase"),
+        model: flag("model"),
+      });
+      process.stdout.write(`${JSON.stringify(r.envelope)}\n`); // stdout 末行单行旧形信封(唯一 stdout 内容)
+      process.exitCode = r.status === "completed" ? 0 : 1;
+    } catch (e) {
+      if (e?.usage) usage(); // 用法错=纯 stderr+exit 2,不发 JSON
+      else process.stderr.write(`${e.stack ?? e}\n`);
+      process.exitCode = e?.usage ? 2 : 3; // 3=T5 冻结:运行期异常≠unanswered(旧 N1 缺口),cron 层可区分
+    }
   }
 }

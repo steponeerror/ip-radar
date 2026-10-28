@@ -146,18 +146,19 @@ async function main() {
   const parsed = parseArgs(process.argv.slice(2));
   if (parsed.error) {
     process.stderr.write(`用法错:${parsed.error}\nnode entry.mjs <roundId> --content TEXT [--db PATH] [--model provider/modelId] [--round health|discover] [--stage NAME] [--crash-after-submit]\n`);
-    process.exit(2);
+    process.exitCode = 2; // exitCode 而非 exit:stdout 写入异步落管,process.exit 可截断单行信封(旧 pipeline.mjs:547 判例)
+    return;
   }
   process.stderr.write(`[v2] harness open db=${parsed.opts.dbPath ?? resolveDbPath()}\n`);
   let envelope;
   try {
     envelope = await runRound(parsed.opts);
   } catch (e) {
-    if (e?.usage) { process.stderr.write(`${e.message}\n`); process.exit(2); } // 旋钮/est 非法=用法错 exit 2 不带病跑轮(旧 agent.mjs main 同判例)
+    if (e?.usage) { process.stderr.write(`${e.message}\n`); process.exitCode = 2; return; } // 旋钮/est 非法=用法错 exit 2 不带病跑轮(旧 agent.mjs main 同判例);exitCode 判例同上
     throw e;
   }
   process.stdout.write(`${JSON.stringify(envelope)}\n`); // stdout 末行单行信封(T5 冻结形状)
-  process.exit(envelope.status === "done" ? 0 : 1);
+  process.exitCode = envelope.status === "done" ? 0 : 1;
 }
 
 // 直接执行(非 import)才跑 CLI;测试 import runRound/openHarness 不触发。

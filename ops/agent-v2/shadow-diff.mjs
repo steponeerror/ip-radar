@@ -144,6 +144,15 @@ export async function shadowDiff(opts = {}) {
     report.files.push({ file: f, verdict: a === b ? "SAME" : "DIFF", ...(a === b ? {} : { hint: firstDiff(a, b) }) });
     if (a !== b) report.verdict = "DIFF";
   }
+  // P2-⑪ NEW 侧残余文件哨:白名单(state.json 已滤+01-/02- 罐装种子+09-budget.json CLOSE
+  // 落件声明+.v2-claim.json 健康轮轮目录认领件(健康轮跨库撞轮守卫的落件,ENVELOPE/RUNBOOK
+  // 已声明))之外、又不在 COMPARABLE 闭集的文件 = 未声明新面 → DIFF 记 ONLY-NEW-EXTRA。
+  // 防「闭集外新面盲」:COMPARABLE 只防已知面漂移,新落件若无此哨则静默漏过。
+  for (const f of newFiles)
+    if (!COMPARABLE.some((p) => f.startsWith(p)) && !/^0[12]-/.test(f) && f !== "09-budget.json" && f !== ".v2-claim.json") {
+      report.files.push({ file: f, verdict: "ONLY-NEW-EXTRA", hint: "闭集外未声明新面" });
+      report.verdict = "DIFF";
+    }
   const artifactN = report.files.length; // 可比工件条目数(不含后续台账行;P1-1 空集判据)
   // 台账行(RETRO 写面;行形 | 日期 | 轮次 | model | 用量 | 备注 |)。语义面=行存在+
   // 日期/轮次/model/备注轮 id;usage 计数细胞归一(两套 harness 计量边界合法差),
@@ -174,11 +183,21 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const args = process.argv.slice(2);
   const flag = (n) => { const i = args.indexOf(`--${n}`); return i >= 0 ? args[i + 1] : undefined; };
   const roundId = args[0] && !args[0].startsWith("--") ? args[0] : undefined // 位置首参=roundId(终审修复:flag 先于位置参时原 find 会把 flag 值误当 id);
-  if (!roundId) { process.stderr.write("用法:node shadow-diff.mjs <roundId> [--fixtures DIR] [--keep]\n"); process.exit(2); }
-  const r = await shadowDiff({ roundId, fixturesDir: flag("fixtures") ? path.resolve(flag("fixtures")) : undefined, keep: args.includes("--keep") }).catch((e) => { process.stderr.write(`${e.stack ?? e}\n`); process.exit(3); }); // P1-2:运行期异常 exit 3(与 DIFF 的 1 分码)
-  for (const f of r.files) process.stdout.write(`${f.verdict.padEnd(9)} ${f.file}${f.hint ? `  ${f.hint}` : ""}\n`);
-  if (!r.sides.old.envelope?.ok) process.stdout.write(`OLD envelope: ${JSON.stringify(r.sides.old.envelope)}\n`);
-  if (!r.sides.new.envelope?.ok) process.stdout.write(`NEW envelope: ${JSON.stringify(r.sides.new.envelope)}\n`);
-  process.stdout.write(`VERDICT ${r.verdict}(old.exit=${r.sides.old.code} new.exit=${r.sides.new.code})\n`);
-  process.exit(r.verdict === "SAME" ? 0 : 1);
+  if (!roundId) { process.stderr.write("用法:node shadow-diff.mjs <roundId> [--fixtures DIR] [--keep]\n"); process.exitCode = 2; } // exitCode 而非 exit:stdout 写入异步落管,process.exit 可截断报告行(旧 pipeline.mjs:547 判例)
+  else {
+    let r;
+    try {
+      r = await shadowDiff({ roundId, fixturesDir: flag("fixtures") ? path.resolve(flag("fixtures")) : undefined, keep: args.includes("--keep") });
+    } catch (e) { // P1-2:运行期异常 exit 3(与 DIFF 的 1 分码)
+      process.stderr.write(`${e.stack ?? e}\n`);
+      process.exitCode = 3;
+    }
+    if (r) {
+      for (const f of r.files) process.stdout.write(`${f.verdict.padEnd(9)} ${f.file}${f.hint ? `  ${f.hint}` : ""}\n`);
+      if (!r.sides.old.envelope?.ok) process.stdout.write(`OLD envelope: ${JSON.stringify(r.sides.old.envelope)}\n`);
+      if (!r.sides.new.envelope?.ok) process.stdout.write(`NEW envelope: ${JSON.stringify(r.sides.new.envelope)}\n`);
+      process.stdout.write(`VERDICT ${r.verdict}(old.exit=${r.sides.old.code} new.exit=${r.sides.new.code})\n`);
+      process.exitCode = r.verdict === "SAME" ? 0 : 1;
+    }
+  }
 }

@@ -62,7 +62,7 @@ export async function runDiscoverRound(opts) {
   if (admission.refused)
     return { status: "refused", code: admission.code, message: admission.message, budget: { admission: admission.admission } };
   const modelRef = opts.modelRef ?? (fixturesDir ? { provider: "faux", modelId: "faux-discover-shortlist" } : null);
-  if (!modelRef) throw new Error("模型面缺:real 面须 --model provider/modelId(或经 opts.modelRef)");
+  if (!modelRef) throw Object.assign(new Error("模型面缺:real 面须 --model provider/modelId(或经 opts.modelRef)"), { usage: true }); // P0-⑥ 用法错 exit 2(裸 Error 会落 exit 3,与 ENVELOPE.md 码表不符)
   const { harness } = await openHarness({
     dbPath: opts.dbPath,
     env,
@@ -132,25 +132,36 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const args = process.argv.slice(2);
   const roundId = args[0] && !args[0].startsWith("--") ? args[0] : undefined // 位置首参=roundId(终审修复:flag 先于位置参时原 find 会把 flag 值误当 id);
   const flag = (name) => { const i = args.indexOf(`--${name}`); return i >= 0 ? args[i + 1] : undefined; };
-  if (!roundId) { usage(); process.exit(2); }
-  const modelRefArg = flag("model");
-  if (flag("crash-after-phase")) process.env.OPS_V2_CRASH_AFTER_PHASE = flag("crash-after-phase");
-  try {
-    const r = await runDiscoverRound({
-      roundId,
-      fixturesDir: flag("fixtures") ? path.resolve(flag("fixtures")) : null,
-      dbPath: flag("db"),
-      modelRef: modelRefArg ? { provider: modelRefArg.split("/")[0], modelId: modelRefArg.split("/")[1] } : undefined,
-    });
-    // stdout 末行=旧形轮次信封(ENVELOPE.md 冻结面;wrapper 状态走 exit 码+stderr,不口 stdout)
-    const out = r.status === "completed" ? r.envelope
-      : r.status === "refused" ? { ok: false, round: "discover", error: { code: r.code, message: r.message } }
-      : { ok: false, round: "discover", error: { code: r.error?.code ?? "infra", message: r.error?.message ?? "发现轮失败" } };
-    process.stdout.write(`${JSON.stringify(out)}\n`);
-    process.exit(r.status === "completed" ? 0 : 1);
-  } catch (e) {
-    if (e?.usage) { usage(); process.exit(2); }
-    process.stderr.write(`${e.stack ?? e}\n`);
-    process.exit(3); // T5 冻结(ENVELOPE.md):运行期异常与轮次未成分码,cron 层可区分
+  if (!roundId) { usage(); process.exitCode = 2; } // exitCode 而非 exit:stdout 写入异步落管,process.exit 可截断单行信封(旧 pipeline.mjs:547 判例)
+  else {
+    if (flag("crash-after-phase")) process.env.OPS_V2_CRASH_AFTER_PHASE = flag("crash-after-phase");
+    try {
+      // --model 校验(run-health 同律,P0-⑥):无斜杠/空段=用法错 exit 2,不带病开库
+      let modelRef;
+      const modelRefArg = flag("model");
+      if (modelRefArg) {
+        const i = modelRefArg.indexOf("/");
+        if (i <= 0 || i >= modelRefArg.length - 1) throw Object.assign(new Error(`--model 须 provider/modelId,得到:${modelRefArg}`), { usage: true });
+        modelRef = { provider: modelRefArg.slice(0, i), modelId: modelRefArg.slice(i + 1) };
+      }
+      const r = await runDiscoverRound({
+        roundId,
+        fixturesDir: flag("fixtures") ? path.resolve(flag("fixtures")) : null,
+        dbPath: flag("db"),
+        modelRef,
+      });
+      // stdout 末行=旧形轮次信封(ENVELOPE.md 冻结面;wrapper 状态走 exit 码+stderr,不口 stdout)。
+      // P0-①:任务域失败三元组的真码在 error.detail.code(finishFailed 的 scriptPhase 包装
+      // 面),顶层 error.code 仅启动器层失败有——读序 detail.code → code → infra 兜底。
+      const out = r.status === "completed" ? r.envelope
+        : r.status === "refused" ? { ok: false, round: "discover", error: { code: r.code, message: r.message } }
+        : { ok: false, round: "discover", error: { code: r.error?.detail?.code ?? r.error?.code ?? "infra", message: r.error?.message ?? "发现轮失败" } };
+      process.stdout.write(`${JSON.stringify(out)}\n`);
+      process.exitCode = r.status === "completed" ? 0 : 1;
+    } catch (e) {
+      if (e?.usage) usage(); // 用法错=纯 stderr+exit 2,不发 JSON
+      else process.stderr.write(`${e.stack ?? e}\n`);
+      process.exitCode = e?.usage ? 2 : 3; // 3=T5 冻结(ENVELOPE.md):运行期异常与轮次未成分码,cron 层可区分
+    }
   }
 }
