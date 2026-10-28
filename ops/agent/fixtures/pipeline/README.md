@@ -19,7 +19,7 @@ tools.mjs `matrixScanCli` 真扫描(OPS_EVAL_PY stub)。ANCHOR_SWEEP(#182)同样
 - **OPS_EVAL_PY stub 旗标分发**(#182):`--anchor-sweep` → 罐装 anchor_sweep JSON。
   selftest-pipeline 面=事故判例形(8.8.8.8=myip_ms 单源/114DNS=cps+ziyadnz 假印证双
   finding,#183 整改前形状——钉「finding 不持门」语义);golden 面=零 finding 基线(钉全绿
-  基线)。锚集镜像 anchors.py 扩员后 19 员(形状钉;锚集真源=python,门只验工件内自洽)。
+  基线)。锚集镜像 anchors.py 扩员后 32 员(形状钉;锚集真源=python,门只验工件内自洽;#233 根 letter +13)。
 
 - **curl stub 规则**(golden `stubs.curl_age_days` / selftest-pipeline 同款):
   `cinsscore→220 天` `binarydefense→210 天` `dshield→200 天` `其余→30 天`。
