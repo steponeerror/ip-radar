@@ -7,9 +7,11 @@
 // 末行=轮次信封 JSON(旧契约形;T5 冻结前不增删)。
 // 模型面:缺省=real(loadModels resolve("discover"));--fixtures DIR / FAUX_FIXTURES=faux
 // (fauxProvider 罐装 shortlist turns,零网络零花费——同旧 pipeline.mjs 显式 fixtures 律)。
+// 轮 id 形状律(P2-5 对称面,旧 mkCtx:156 同律):YYYY-MM-DD-HHMM-discover(-rN),
+// 先于准入拒跑(note-9 同序:调用方错不被月帽掩蔽)。
 // 用法:node run-discover.mjs <roundId> [--fixtures DIR] [--db PATH] [--model provider/modelId]
 //        [--crash-after-phase PHASE](SIGKILL 自杀面=resume 测试;任务内 crashHook 消费 env)
-// 退出码:0=completed;1=failed/refused;2=用法错。
+// 退出码:0=completed;1=failed/refused;2=用法错;3=运行期异常(ENVELOPE.md 冻结面)。
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -52,6 +54,9 @@ export async function runDiscoverRound(opts) {
   const roundId = opts.roundId;
   const fixturesDir = opts.fixturesDir ?? null;
   const log = (l) => (opts.stderr ?? process.stderr).write(`${l}\n`);
+  // 轮 id 形状律(P2-5,旧 mkCtx:156 同律;先于准入——note-9 同序):
+  if (!/^\d{4}-\d{2}-\d{2}-\d{4}-discover(-r\d+)?$/.test(roundId ?? ""))
+    return { status: "failed", error: { code: "bad_round", message: `round_id 形状须 YYYY-MM-DD-HHMM-discover:${roundId}` } };
   // —— 步前准入(月度 kill switch;与 entry.runRound 同壳,budget-guard 单源)——
   const admission = await admitRound({ env, log, roundType: "discover", ledgerFile: opts.ledgerFile });
   if (admission.refused)
@@ -137,11 +142,15 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       dbPath: flag("db"),
       modelRef: modelRefArg ? { provider: modelRefArg.split("/")[0], modelId: modelRefArg.split("/")[1] } : undefined,
     });
-    process.stdout.write(`${JSON.stringify(r)}\n`); // stdout 末行单行 JSON(旧契约)
+    // stdout 末行=旧形轮次信封(ENVELOPE.md 冻结面;wrapper 状态走 exit 码+stderr,不口 stdout)
+    const out = r.status === "completed" ? r.envelope
+      : r.status === "refused" ? { ok: false, round: "discover", error: { code: r.code, message: r.message } }
+      : { ok: false, round: "discover", error: { code: r.error?.code ?? "infra", message: r.error?.message ?? "发现轮失败" } };
+    process.stdout.write(`${JSON.stringify(out)}\n`);
     process.exit(r.status === "completed" ? 0 : 1);
   } catch (e) {
     if (e?.usage) { usage(); process.exit(2); }
     process.stderr.write(`${e.stack ?? e}\n`);
-    process.exit(1);
+    process.exit(3); // T5 冻结(ENVELOPE.md):运行期异常与轮次未成分码,cron 层可区分
   }
 }

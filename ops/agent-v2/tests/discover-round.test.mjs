@@ -136,7 +136,8 @@ test("相位头 SIGKILL 崩溃 → 同库 resume 续跑到 CLOSE(相位边界恢
   const { stdout } = await execFile(process.execPath, [path.join(HERE, "run-discover.mjs"), ROUND, "--fixtures", FIXTURES, "--db", db], { env });
   const line = stdout.trim().split("\n").filter((l) => l.startsWith("{")).pop();
   const r = JSON.parse(line);
-  assert.equal(r.status, "completed", JSON.stringify(r.error ?? r));
-  assert.deepEqual(r.envelope.pipeline.stages.map((s) => s.name), ["SCAN", "SHORTLIST", "MEASURE", "ENQUEUE", "RETRO", "CLOSE"], "恢复后每步恰一次");
+  // T5 冻结面(stdout 末行=旧形信封):completed ⟺ ok:true(envelope.mjs 信封纪律)
+  assert.equal(r.ok, true, JSON.stringify(r.error ?? r));
+  assert.deepEqual(r.pipeline.stages.map((s) => s.name), ["SCAN", "SHORTLIST", "MEASURE", "ENQUEUE", "RETRO", "CLOSE"], "恢复后每步恰一次");
   fs.rmSync(tree.tmp, { recursive: true, force: true });
 });

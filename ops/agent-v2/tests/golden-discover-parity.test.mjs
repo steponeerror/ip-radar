@@ -48,8 +48,9 @@ test("golden 对拍 pipeline_discover_full_faux:旧 runPipeline vs v2 发现轮�
   const { stdout } = await execFile(process.execPath, [path.join(V2, "run-discover.mjs"), ROUND,
     "--fixtures", FIXTURES, "--db", path.join(tmpB, "v2.sqlite")], { env: envB });
   const newR = JSON.parse(stdout.trim().split("\n").filter((l) => l.startsWith("{")).pop());
-  assert.equal(newR.status, "completed", `v2 例应终态 completed(失败面可读):${JSON.stringify(newR.error ?? newR).slice(0, 300)}`);
-  const newEnv = newR.envelope;
+  // T5 冻结面(stdout 末行=旧形信封):completed ⟺ ok:true
+  assert.equal(newR.ok, true, `v2 例应终态 ok(失败面可读):${JSON.stringify(newR.error ?? newR).slice(0, 300)}`);
+  const newEnv = newR;
 
   // —— 逐工件 diff 清单(核心面硬断言等价;观察面打印留报告)——
   const dirA = path.join(envA.DOCS_ROOT, "ops", "rounds", ROUND);

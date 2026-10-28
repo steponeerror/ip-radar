@@ -91,9 +91,19 @@ export function discoveryTools() {
     replay: DISCOVERY_REPLAY[name], // 逐工具声明(头注裁语);缺省本就是 unsafe,显式写出=报告与断言可对拍
     execute: async (args, api, context) => {
       const host = roundHosts.get(api.conversationId);
-      if (!host)
+      // stderr 进度行(票 #142 语法,T5 冻结;ENVELOPE.md 契约面):[tool] 参数摘要 + [tool-result] 完成行
+      const argSum = [args.url, args.query].filter(Boolean).join(" ").slice(0, 120);
+      process.stderr.write(`[tool] ${name}(${api.callId}) ${argSum}\n`);
+      if (!host) {
+        process.stderr.write(`[tool-result] ${name}(${api.callId}) fail code=channel_open\n`);
         return { output: [{ type: "text", text: `[call_id=${api.callId}] 拒绝信封(code=channel_open):发现宿主未就绪(会话 ${api.conversationId} 无轮级宿主——SHORTLIST 相位先建宿主再提交)` }], structuredContent: { ok: false, code: "channel_open", reason: "发现宿主未就绪" } };
+      }
       const r = await executeDiscoveryTool(host, name, api.callId, args);
+      const sc = r.structuredContent ?? {};
+      const okSum = name === "web_search" ? `total=${sc.total ?? "?"}` : name === "rss_parse" ? `entries=${sc.entries_n ?? sc.n ?? "?"}` : `bytes=${sc.bytes ?? "?"}`;
+      process.stderr.write(sc.ok === false
+        ? `[tool-result] ${name}(${api.callId}) fail code=${sc.code}\n`
+        : `[tool-result] ${name}(${api.callId}) ok ${okSum}\n`);
       return { output: r.content, structuredOutput: r.structuredContent };
     },
   }));

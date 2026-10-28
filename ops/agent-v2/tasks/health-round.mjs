@@ -69,12 +69,34 @@ const mkAbort = (name) => async (_t, runtime, context) => {
 // 不传(缺省 PROBE 全十态);测试/faux 审计用前置工件面从指定相位起步(零网络红线下
 // PROBE 的真探测/矩阵面不可入测试)。闭集=RUNNABLE+CLOSE(WAIT_MODEL=join 态/FAILED=终态
 // 书挡,不可起步);非法=bad_round(闭集成员)。
-const startPhaseOf = (p) => {
+const startPhaseOf = (p, input) => {
   if (p == null) return "PROBE";
   if (![...RUNNABLE, "CLOSE"].includes(p))
     throw Object.assign(new Error(`fromPhase 须 ∈ {${[...RUNNABLE, "CLOSE"].join("|")}}:${p}`), { code: "bad_round" });
+  // toPhase(旧 pipeline.mjs replay --to 镜像;shadow 载具用):停在 toPhase 完成后(含其门+台账),
+  // 不入 CLOSE 书挡。默认 CLOSE=全链。合法性:toPhase 须晚于 fromPhase(否则零相位空转)。
+  const tp = input?.toPhase ?? "CLOSE";
+  if (![...RUNNABLE, "CLOSE"].includes(tp))
+    throw Object.assign(new Error(`toPhase 须 ∈ {${[...RUNNABLE, "CLOSE"].join("|")}}:${tp}`), { code: "bad_round" });
+  if (RUNNABLE.includes(tp) && RUNNABLE.indexOf(tp) <= RUNNABLE.indexOf(p))
+    throw Object.assign(new Error(`toPhase(${tp}) 须晚于 fromPhase(${p})`), { code: "bad_round" });
   return p;
 };
+// 停笔点统一书挡(相位完成、门已过后):终态 completed + 信封(旧 replay --to 同义:
+// 不落 09-budget/G_CLOSE,信封 stages 止于停笔相位)。P2-4:与 stageDone 同一 commit
+// 原子落(两笔问隔窗崩溃会越 toPhase 直入 CLOSE,违冻结口径)——故本函数只出 commit
+// 载荷,由调用方合入唯一一笔 commit。
+function stopOutcome(input, ck, def) {
+  const fin = rebuildRoundCtx(input, ck);
+  fin.state.status = "done";
+  fin.state.stage = def.name;
+  fin.state.updated_at = nowIso();
+  const envelope = composeEnvelope(fin, { ok: true });
+  return {
+    status: "terminal",
+    outcome: { status: "completed", result: { round_id: input.roundId, envelope, dir: fin.dir, usage: fin.usage } },
+  };
+}
 
 // —— 模型相位共通:创建子任务(逐假设一实例)后转 WAIT_MODEL ——
 let MODELS_BUNDLE = null; // 轮内缓存(旧 providerBundle 同型:目录只装载一次)
@@ -207,7 +229,11 @@ async function waitModel(input, ck, runtime, context) {
       return void await runtime.commit(() => ({ status: "terminal", outcome: { status: "failed", error: { code: gateRec.code ?? def.fail.terminal, message: `门败 ${def.gate}:${gateRec.reason}` } } }), context);
   }
   const rec = { name: def.name, status: degradedItems.length ? "degraded" : "done", attempts: 1, dur_ms: 0, usage };
-  await runtime.commit((tx, cur) => ({ status: "running", checkpoint: stageDone({ ...cur.state.checkpoint, usage, modelCalls, state: { ...cur.state.checkpoint.state, prompt_hashes: promptHashes } }, rec, cur.state.checkpoint.spawnPhase) }), context);
+  const finCk = stageDone({ ...ck, usage, modelCalls, state: { ...ck.state, prompt_hashes: promptHashes } }, rec, ck.spawnPhase);
+  // toPhase 停笔(模型相位版;与 stageDone 同 commit 原子落——P2-4)
+  if (input.toPhase && input.toPhase === def.name)
+    return void await runtime.commit(() => stopOutcome(input, finCk, def), context);
+  await runtime.commit(() => ({ status: "running", checkpoint: finCk }), context);
 }
 
 // —— 脚本相位执行体(零复制 steps.runStage + 门 + retry/degrade/终态;旧 runStages 同语义)——
@@ -246,6 +272,9 @@ async function runScriptPhase(def, input, ck, runtime, context) {
   // ANCHOR_SWEEP 写 finding_exits 入 state(旧步内 ctx.state 直写;v2 面同步回 checkpoint)
   const nextCk = stageDone(ck, rec);
   if (ctx.state.finding_exits != null) nextCk.state = { ...nextCk.state, finding_exits: ctx.state.finding_exits };
+  // toPhase 停笔(脚本相位版;与 stageDone 同 commit 原子落——P2-4:停在门后,不丢台账/工件)
+  if (input.toPhase && input.toPhase === def.name)
+    return void await runtime.commit(() => stopOutcome(input, nextCk, def), context);
   await runtime.commit(() => ({ status: "running", checkpoint: nextCk }), context);
 }
 
@@ -298,7 +327,7 @@ export const OPS_HEALTH_ROUND = defineTask({
   name: "ops-health-round",
   version: 1,
   initial: (input) => ({
-    phase: startPhaseOf(input.fromPhase), attempt: 0, children: null, childConvs: null, spawnPhase: null, failed: null,
+    phase: startPhaseOf(input.fromPhase, input), attempt: 0, children: null, childConvs: null, spawnPhase: null, failed: null,
     startedAtIso: new Date().toISOString(),
     budgetCny: (() => { const raw = process.env.OPS_PIPELINE_BUDGET_CNY ?? "0.05"; const v = +raw; if (!Number.isFinite(v) || v < 0) throw Object.assign(new Error(`OPS_PIPELINE_BUDGET_CNY 须为非负数,得到:${raw}`), { usage: true }); return v; })(),
     budgetKnobs: roundKnobs(process.env, "health"), // 轮始校验(旧 mkCtx 同判例:非法 throw usage)
