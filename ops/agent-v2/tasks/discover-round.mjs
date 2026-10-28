@@ -182,7 +182,12 @@ async function scriptPhase(task, runtime, context, phase) {
   if (!b.ok) return finishFailed(runtime, context, { message: b.message, detail: { code: b.code, stage: STAGE_OF_PHASE[phase] } });
   const def = defOf(STAGE_OF_PHASE[phase]);
   const ctx = buildCtx(input, cur);
-  if (phase === "scan") bootstrapRoundDir(ctx, cur); // 建轮同义(bad_round 域错→终态,同下)
+  if (phase === "scan") {
+    try { bootstrapRoundDir(ctx, cur); } // 建轮同义(bad_round 域错→终态,同下)
+    catch (e) { // P0-① 实测面:原裸抛逃逸 handler → 框架 fault+重启循环,真码永不落 outcome、信封恒 infra——收进同款 finishFailed(detail.code)终态
+      return finishFailed(runtime, context, { message: `${def.name}:${e.message}`, detail: { code: e.code ?? "infra", stage: def.name } });
+    }
+  }
   // dup 登记表跨相位同对象(CLOSE dup_top3 读数面;旧 ctx.dupRegistry 单例律)
   const dup = roundDupRegistries.get(runtime.conversationId);
   if (dup) ctx.dupRegistry = dup;

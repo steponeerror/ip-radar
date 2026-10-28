@@ -24,7 +24,7 @@ function tmpTree(prefix) {
   return { tmp, docsRoot: path.join(tmp, "docs"), opsRoot: path.join(tmp, "docs", "ops") };
 }
 
-async function runRound(tree, db) {
+async function runRound(tree, db, fixturesDir = FIXTURES) { // fixturesDir 可覆盖(P0-③ 重试测:罐装短表首回合空文本)
   // 任务侧 env=process.env 现读(旧律,buildCtx 注);in-proc 测试须同步设进程环境(于 finally 还原)。
   const keys = ["DOCS_ROOT", "LEDGER_FILE"];
   const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
@@ -33,7 +33,7 @@ async function runRound(tree, db) {
   try {
     return await runDiscoverRound({
       roundId: ROUND,
-      fixturesDir: FIXTURES,
+      fixturesDir,
       dbPath: db ?? path.join(tree.tmp, "v2.sqlite"),
       env: { ...process.env },
       stderr: { write: () => true },
@@ -66,7 +66,7 @@ test("全链 faux 轮:信封 ok + 六步工件 + PROPOSE 队列行 + 门全绿 +
   for (const f of ["d1-scan.json", "d2-shortlist.json", "d2-shortlist-transcript.jsonl", "d3-measure.json", "d4-enqueue.json", "09-budget.json", "gates.json", "state.json"])
     assert.ok(fs.existsSync(path.join(dir, f)), `工件缺:${f}`);
   const gates = JSON.parse(fs.readFileSync(path.join(dir, "gates.json"), "utf8"));
-  assert.deepEqual(gates.records.map((x) => [x.stage, x.pass]).filter(([s]) => s !== "RETRO" || true).length >= 6, true);
+  assert.equal(gates.records.length, 6, "六步各一门留痕(appendGateBypass 降级旁路同入 records;P2-⑨ 原恒真 filter 删)");
   for (const rec of gates.records) assert.equal(rec.pass, true, `${rec.stage} 门红:${rec.reason}`);
   const queue = fs.readFileSync(path.join(tree.opsRoot, "queue.md"), "utf8");
   assert.match(queue, /\| 2026-06-01-0400-discover \| PROPOSE \| rdns \|/, "PROPOSE 队列行缺失");
@@ -92,7 +92,57 @@ test("同库同轮重放=复用任务零双写;跨库新任务撞轮目录=bad_r
   const foreign = await runRound(tree, path.join(tree.tmp, "v2-foreign.sqlite"));
   assert.equal(foreign.status, "failed");
   assert.match(foreign.error.message, /已存在/);
+  assert.equal(foreign.error.detail?.code, "bad_round", "建轮守卫域错经 finishFailed 落 detail.code(P0-①)");
   fs.rmSync(tree.tmp, { recursive: true, force: true });
+});
+
+test("P0-① CLI 级跨库撞轮:失败信封 error.code=bad_round 非 infra(detail.code 塌缩修复)", async () => {
+  const tree = tmpTree("v2-disc-cli-badround-");
+  const env = { ...process.env, DOCS_ROOT: tree.docsRoot, LEDGER_FILE: path.join(tree.opsRoot, "ledger.md") };
+  const run = (db) => execFile(process.execPath, [path.join(HERE, "run-discover.mjs"), ROUND, "--fixtures", FIXTURES, "--db", db], { env }).catch((e) => e);
+  try {
+    const r1 = await run(path.join(tree.tmp, "a.sqlite"));
+    assert.equal(JSON.parse(r1.stdout.trim().split("\n").pop()).ok, true, "首轮应成功");
+    const r2 = await run(path.join(tree.tmp, "b.sqlite")); // 换库=新任务撞已有轮目录
+    assert.equal(r2.code, 1, `stderr:\n${r2.stderr ?? ""}`);
+    const env2 = JSON.parse(r2.stdout.trim().split("\n").pop());
+    assert.equal(env2.ok, false);
+    assert.equal(env2.error.code, "bad_round", `真码应从 detail.code 透出而非 infra:\n${r2.stdout}`);
+    assert.match(env2.error.message, /已存在/);
+  } finally { fs.rmSync(tree.tmp, { recursive: true, force: true }); }
+});
+
+test("P0-⑥ run-discover --model 校验:缺斜杠/空段 → exit 2;real 面漏 --model → exit 2", async () => {
+  const tree = tmpTree("v2-disc-model-");
+  const env = { ...process.env, DOCS_ROOT: tree.docsRoot, LEDGER_FILE: path.join(tree.opsRoot, "ledger.md") };
+  const run = (args) => execFile(process.execPath, [path.join(HERE, "run-discover.mjs"), ...args], { env }).catch((e) => e);
+  try {
+    assert.equal((await run([ROUND, "--model", "noprovider"])).code, 2, "--model 缺斜杠=用法错");
+    assert.equal((await run([ROUND, "--model", "prov/"])).code, 2, "--model 空段=用法错");
+    const r3 = await run([ROUND]); // real 面无 --model(不带 --fixtures)
+    assert.equal(r3.code, 2, "real 面 --model 缺=用法错(原裸 Error 落 exit 3)");
+    assert.equal(r3.stdout.trim(), "", "用法错不发信封");
+  } finally { fs.rmSync(tree.tmp, { recursive: true, force: true }); }
+});
+
+test("P0-③ SHORTLIST empty_text 首败重试:attempt 即调用同计,attempts=2 后成", async () => {
+  const tree = tmpTree("v2-disc-retry-");
+  // 罐装短表首回合零文本块(empty_text 面)→ 重发新 requestId;次回合=原好回合
+  const fxDir = path.join(tree.tmp, "fixtures");
+  fs.cpSync(FIXTURES, fxDir, { recursive: true });
+  const shortlist = JSON.parse(fs.readFileSync(path.join(fxDir, "shortlist.json"), "utf8"));
+  fs.writeFileSync(path.join(fxDir, "shortlist.json"), JSON.stringify({ ...shortlist, turns: [{ role: "assistant", content: [] }, ...shortlist.turns] }));
+  try {
+    const r = await runRound(tree, path.join(tree.tmp, "v2.sqlite"), fxDir);
+    assert.equal(r.status, "completed", JSON.stringify(r.error ?? r));
+    const short = r.envelope.pipeline.stages.find((s) => s.name === "SHORTLIST");
+    assert.equal(short.attempts, 2, "首败重试后第二轮成功");
+    // 重试同计面:usageNow=会话累计(含失败回合)且仍过花费/预算门;模型调用计数在
+    // 健康轮同型修复面断言(health-e2e:readings.model_calls 5)
+    const budget = JSON.parse(fs.readFileSync(path.join(tree.opsRoot, "rounds", ROUND, "09-budget.json"), "utf8"));
+    assert.equal(budget.readings.model_calls, 2, "失败 attempt 同计(旧律 budget.mjs:34)");
+    fs.rmSync(tree.tmp, { recursive: true, force: true });
+  } catch (e) { fs.rmSync(tree.tmp, { recursive: true, force: true }); throw e; }
 });
 
 test("breaker 写侧随迁:失败 verdict 经宿主适配器落 breaker.json(通道计数+consec)", async () => {
