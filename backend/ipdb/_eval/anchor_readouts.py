@@ -276,14 +276,18 @@ def scanner_recall(lookup_fn, prefixes, *, n: int = SCANNER_PROBE_N) -> dict:
         "members": members,                    # per-成员命中明细留痕
         "note": (_HADES_NOTE + "; truth = vendor self-reported segments "
                  "(scanner_ranges); recall measures pool sensitivity to "
-                 "known scanners — never seen = blind-spot evidence"),
+                 "known scanners — never seen = blind-spot evidence; "
+                 "SANS ISC 观测佐证=v1(其 shodan 列表实测混 Rapid7 Sonar "
+                 "段,带污染注记,ADR 0013 采纳排序)"),
     }
 
 
 def run_anchor_readouts(registry, out_dir=None, *,
                         eval_env: str | None = None) -> dict:
     """CLI 装配:双读数 + 落 <out_dir>/model/anchor-fp-<ts>.json 与
-    scanner-recall-<ts>.json(anchors/agg-share 报告族同形,ts 形制
+    scanner-recall-<ts>.json(anchors/agg-share 报告族同形,另注 eval_env+
+    generated_at 两加性键(T3 评审 P2 注记;agg-share/sinkhole-probe 裸 res
+    不带——族内两种信封并存,消费面按键取值不破),ts 形制
     %Y%m%d-%H%M%S)。scanner_ranges 源不在册或 CSV 缺失 → 读数B 显式
     缺层(status=missing,recall=None)不报 0(票 #233 验收:零数据=
     显式缺层);读数A 照常(锚表在代码内,不依赖数据面)。只测量不持门:
