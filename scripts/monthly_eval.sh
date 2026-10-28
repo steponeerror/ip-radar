@@ -209,7 +209,7 @@ check_family() {  # check_family <label> <subdir> <name-pattern> [排除pattern.
   f=$(find "$REPORT_ROOT/${sub}" "${args[@]}" -newermt "@$START_S" \
         -print -quit 2>/dev/null)
   if [ -z "$f" ]; then
-    echo "拒绝: 报告族不齐($label)" >&2
+    echo "拒绝: 报告族不齐($label: $pat)" >&2
     exit 1
   fi
 }

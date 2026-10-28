@@ -28,6 +28,7 @@
   "union-never-replace: MISP 203 = 上游 168 ∪ 手工遗产(36/107 不在上游)",
   "单 IP 层(186)有重指派残余风险:已退役 sinkhole IP 永驻列表",
   "eval-only: 永不进 LMDB/产品源(ADR 0013);运行期零网络",
-  "详溯: notes/sinkholes-provenance-2026-10-28.md"
+  "详溯: notes/sinkholes-provenance-2026-10-28.md",
+ "双覆盖口径: 16/186 裸 IP 同落 CIDR 条目内(union 遗产),sinkhole_match 裸 IP 精确匹配优先→恒归 ip 弱层(hits_cidr 强层分子系统性略低,方向偏保守;T2 评审 P2 注记)"
  ]
 }
