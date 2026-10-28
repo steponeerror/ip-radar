@@ -53,3 +53,18 @@ v2 无生产流量 → 回退=停 v2 cron 即可,零数据迁移。SQLite 库/�
 2. 切换 cron:旧 `pipeline.mjs` cron 下线,`run-health.mjs` 接同一轮 id 序列与生产台账世界(`DOCS_ROOT`/`LEDGER_FILE` 指生产)。
 3. 首两周双观察:v2 信封/台账行抽查 + 月度准入读数对拍(月帽口径 ENVELOPE.md)。
 4. 观察期满后旧管线代码退役(单独 PR,先归档后删)。
+
+## 实际接线(2026-10-28 置备;小机 203.88.124.85)
+
+- v2 宿 = 生产容器 `ip-lookup-tool-ipradar-1`(node 22.23.4,Dockerfile `opsagent-v2` 层烘焙依赖)。env 面逐键白名单(不笼统说「同环境」):`DOCS_ROOT=<影子根>/docs`、`OPS_AUTH=/app/data/ops/auth.json`(生产件只读)、`OPS_EVAL_PY`/`OPS_DATA_DIR`(桥 _round_env 同源两键,shared.mjs 加载期常量,容器内不物化必死 PROBE)、`OPS_SWEEP_DRY_RUN=1`(影子零外发)、`OPS_MODEL_HEALTH`/`OPS_MODEL_DISCOVER`(agent-config.json 现读,缺配置不注)、`LANG=C.UTF-8`;并 `unset IP_RADAR_ADMIN_PASSWORD IP_RADAR_API_JWT_SECRET IP_RADAR_ALERT_URLS GH_TOKEN`(docker exec 继承容器全量 env,管理密钥不带进模型进程;GH_TOKEN 摘除=gh 出口双保险)。
+- 影子世界 = 容器内 `/app/data/ops-shadow`(`ipradar-data` 卷内,随卷持久):`docs/` 影子 ops 树(首跑由 `deploy/ops-shadow-cron.sh` 自种,幂等:种入 `docs/ops.tmp` 后 `mv` 终位,同卷 rename 原子,中断不留半树;种子剔除 rounds/、ledger.md、ledger.md.lock、queue.md、auth.json、web-search.json、agent-config.json——影子从零起卷、种子零密钥)+ `docs/ops/agent-v2.sqlite`(缺省落位,DOCS_ROOT 推导)。
+- cron(小机 root):`40 4-23/8 * * * /opt/ip-lookup-tool/deploy/ops-shadow-cron.sh >> /var/log/ipradar-ops-shadow.log 2>&1`——旧轮 04/12/20 整点,v2 错峰 40 分(旧轮墙钟帽 1800s 恰 30 分,+30 仍可能踩旧轮尾巴,退到 40);发现轮 shadow=手触(旧发现轮无 cron,同节拍)。
+- 凭证:只读消费生产物化件 `/app/data/ops/auth.json`(OPS_AUTH;exec 前预检,未物化=打一行明确 skip 退出 0,下窗自愈,同旧 ops-cron 409 跳过判例);模型引用从 `agent-config.json` 现读注入。breaker.json 随影子世界自种(跨轮输入面);影子台账从零起卷,月帽独立于生产。
+- 观察面(每窗人工/例行):`tail /var/log/ipradar-ops-shadow.log` 信封行;对拍闸门与本节以上 SAME 门槛不变。
+
+### 部署验收清单(装 cron 后逐项过)
+
+1. `crontab -l` 核对:`40 4-23/8 * * *` 行在位,脚本路径与日志重定向同上条。
+2. 手动跑一轮:直接执行 `/opt/ip-lookup-tool/deploy/ops-shadow-cron.sh`;核日志信封行 + 容器内影子树落件(`ls /app/data/ops-shadow/docs/ops`:precedents/items/rules/breaker.json 在,rounds/ledger.md/auth.json/web-search.json/agent-config.json 无)。
+3. 人为制造失败核退出码链:如 `OPS_SHADOW_CONTAINER=不存在的容器名` 跑一次;确认日志出现「v2 健康轮退出码 N」行且 N≠0、脚本退出码同为 N(rc 透传,信封语义 ENVELOPE.md)。
+4. 生产面零写确认:跑轮前后容器内 `git -C /app status --porcelain -- backend/ frontend/` 为空,且生产 `/app/data/ops` 树(`ledger.md`/`rounds/`/`queue.md`)内容不变——影子轮不写生产面。
