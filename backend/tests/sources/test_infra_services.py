@@ -5,13 +5,15 @@ from ipdb._sources._lmdb import needs_convert
 
 def test_infra_services_loads_and_routes(tmp_path):
     s = InfraServicesSource(data_dir=tmp_path)
-    # 43 总行 = 22 既有行(2026-10-10 根 13 行迁出至 root_servers 源)+ 21 新行:
+    # 56 总行 = 43 行(2026-10-10 根 13 行迁出 root_servers 源后的 22 既有
+    # + 21 新行,见下)+ 根 letter 13 行回补(2026-10-28,ADR 0013 良性断言
+    # 面;root_servers 抓取源持资产/IANA 背书面,两观测线独立合法两票):
     # 中文公共 DNS 9 行(AliDNS/DNSPod/114DNS/百度)+ 既有 5 家 resolver 的
     # IPv6 对 10 行(OpenDNS v6 经 ARIN RDAP OPENDNS-V6-NET-1 核验;
     # ControlD IPv6 无可核背书,宁少算不入)+ AliDNS v6 2 行(含于中文 9 行)
-    # + Yandex 基础对 2 行。31 v4 + 12 v6 = 43 总行
+    # + Yandex 基础对 2 行。44 v4 + 12 v6 = 56 总行
     # (双族计数,n4 口径,同 test_reportedip 惯例:IPv6 行入 v6 族)
-    assert s.rebuild() == 31
+    assert s.rebuild() == 44
     # DNS resolver — service slot + provider on _native_types (→ AssetStatement.native_type)
     r = s.query("8.8.8.8")[0]
     assert r["service"] == "dns"
@@ -26,8 +28,14 @@ def test_infra_services_loads_and_routes(tmp_path):
     assert s.query("2400:3200::1")[0]["_native_types"] == {"service": "AliDNS"}
     assert s.query("2620:fe::fe")[0]["_native_types"] == {"service": "Quad9"}
     assert s.query("2620:119:35::35")[0]["_native_types"] == {"service": "Cisco OpenDNS"}
-    # 根服务器 13 行已迁出(infra_services 不再收录,→ root_servers 源)
-    assert s.query("198.41.0.4") == {}
+    # 根 letter 13 行回补(ADR 0013 良性断言单址面;标签同 root_servers 源
+    # 「<letter> root server」拼写;取数 internic root.zone 2026-10-28)
+    r_root = s.query("198.41.0.4")[0]
+    assert r_root["service"] == "dns"
+    assert r_root["_native_types"] == {"service": "a root server"}
+    assert r_root["verdict"] == "benign"
+    assert r_root["classification_type"] == "dns"
+    assert s.query("202.12.27.33")[0]["_native_types"] == {"service": "m root server"}
     # NTP
     assert s.query("216.239.35.0")[0]["service"] == "ntp"
     # not in feed
@@ -45,8 +53,8 @@ def test_infra_services_health_loaded_not_stale(tmp_path):
     s.rebuild()
     h = s.health()
     assert h.loaded is True
-    assert h.record_count == 31     # 31 v4 + 12 v6 = 43 总行(双族计数,n4 口径)
-    assert h.covered_ips == 31      # 31 个 /32 单址 → 31 covered IPs(v4 口径)
+    assert h.record_count == 44     # 44 v4 + 12 v6 = 56 总行(双族计数,n4 口径)
+    assert h.covered_ips == 44      # 44 个 /32 单址 → 44 covered IPs(v4 口径)
     assert h.covered_v6_nets == 12  # 12 个 /128 单址 → 12 covered v6 nets
     assert h.is_stale is False      # stale_days=36500 (curated static)
 
@@ -113,7 +121,8 @@ def test_projection_converges_after_one_rebuild(tmp_path, monkeypatch):
     csv_path = tmp_path / "infra_services.csv"
     assert csv_path.read_text() == infra_mod._DATA
     # 重建路径同样同步投影(未经 load 直入 rebuild 也不采到旧 csv)
-    assert s.rebuild() == 32
+    # 45 = 44 v4 单址(含根 letter 13 行回补,#233)+ 1 漂移测试行
+    assert s.rebuild() == 45
     assert s.query("203.0.113.9")[0]["service"] == "dns"
     assert not needs_convert(csv_path, s._lmdb_base)   # ptr+戳已新 → 收敛
     m1 = csv_path.stat().st_mtime_ns

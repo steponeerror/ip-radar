@@ -150,6 +150,20 @@ def test_public_resolver_anchors_pinned():
         assert (ip, "clean") in ANCHORS, f"公共解析器锚缺:{ip}"
 
 
+def test_root_letter_anchors_pinned():
+    # 根 letter 锚扩员(#233 交付块1,ADR 0013):谓词限定锚——根服务器
+    # 沦陷指控不得出现。独立真源 = internic root.zone 2026-10-28 取数
+    # (24976 行,13 A 记录逐字;https://www.internic.net/domain/root.zone)。
+    # 预检门发现(ADR 0008 发现固化,照常入表不改期望,finding 留痕人裁):
+    # k=193.0.14.129 当前本地 DB 被 cps_collected_iocs 指控
+    # (malicious/50,2026-10-28)——干净锚误报率读数的活体首例。
+    for ip in ("198.41.0.4", "170.247.170.2", "192.33.4.12", "199.7.91.13",
+               "192.203.230.10", "192.5.5.241", "192.112.36.4", "198.97.190.53",
+               "192.36.148.17", "192.58.128.30", "193.0.14.129", "199.7.83.42",
+               "202.12.27.33"):
+        assert (ip, "clean") in ANCHORS, f"根 letter 锚缺:{ip}"
+
+
 def _incident(ip):
     # 2026-10-24 事故判例的罐装查询面(勘察件 §1 实测复现,独立真源):
     # 8.8.8.8 = myip_ms 单源指控 conf=55;114DNS = cps+ziyadnz 双聚合器

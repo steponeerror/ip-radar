@@ -4,8 +4,13 @@ Stable, canonical IPs operated by well-known public services: DNS resolvers
 — international providers plus Chinese public DNS (AliDNS/DNSPod/114DNS/
 Baidu Public DNS) with IPv6 companions for the major resolvers — and public
 NTP servers. The 13 DNS root servers moved out to the dedicated root_servers
-fetched source (2026-10-10 batch) and are no longer curated here. Data is
-hardcoded (no remote download); the service role rides the `service` asset
+fetched source (2026-10-10 batch, asset/IANA-endorsement face, verdict ""
+abstention); the root letter addresses re-enter this curated face 2026-10-28
+(#233, ADR 0013) as benign② assertions — the two observation lines are
+deliberately independent legal votes (label spelling shared: "<letter> root
+server"). Data is
+hardcoded (no remote download; root rows sourced from internic root.zone
+2026-10-28); the service role rides the `service` asset
 slot and the provider/identity rides `native_types`
 (→ AssetStatement.native_type), so a lookup of e.g. 8.8.8.8 surfaces
 `attributes["service"] = (dns, "Google Public DNS")` alongside the
@@ -67,6 +72,19 @@ _DATA = """\
 2620:119:35::35,dns,Cisco OpenDNS
 2a10:50c0::ad1:ff,dns,AdGuard DNS
 2a10:50c0::ad2:ff,dns,AdGuard DNS
+198.41.0.4,dns,a root server
+170.247.170.2,dns,b root server
+192.33.4.12,dns,c root server
+199.7.91.13,dns,d root server
+192.203.230.10,dns,e root server
+192.5.5.241,dns,f root server
+192.112.36.4,dns,g root server
+198.97.190.53,dns,h root server
+192.36.148.17,dns,i root server
+192.58.128.30,dns,j root server
+193.0.14.129,dns,k root server
+199.7.83.42,dns,l root server
+202.12.27.33,dns,m root server
 216.239.35.0,ntp,Google NTP
 216.239.35.4,ntp,Google NTP
 216.239.35.8,ntp,Google NTP
