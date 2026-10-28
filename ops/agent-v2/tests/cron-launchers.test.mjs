@@ -1,0 +1,107 @@
+// cron-launchers.test.mjs — cron 入口 CLI 冻结面(票 #229 T5 任务书①:exit 码表 0/1/2/3、
+// 信封形状、stderr 进度行、幂等复用、toPhase 停笔、拒跑信封)。子进程真 CLI 面(spawn
+// run-health.mjs),世界=shadow-diff seedWorld 导出面(判例+规则+01/02 前置工件+永败
+// eval stub);CLOSE 面全链在此钉(shadow 对拍载具停笔 RETRO,CLOSE 同构由本测补)。
+// run-discover.mjs 同律,其信封面已由 golden-discover-parity 测钉,此处不重复。
+import test from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import { spawn } from "node:child_process";
+import { seedWorld } from "../shadow-diff.mjs";
+
+const HERE = import.meta.dirname;
+const AGENT = path.resolve(HERE, "..", "..", "agent");
+const FIXTURES = path.join(AGENT, "fixtures", "pipeline");
+const today = new Date().toISOString().slice(0, 10);
+const hhmm = String(new Date().getHours()).padStart(2, "0") + String(new Date().getMinutes()).padStart(2, "0");
+
+function cli(args, world, extraEnv = {}) {
+  return new Promise((resolve) => {
+    const p = spawn("node", [path.join(HERE, "..", "run-health.mjs"), ...args],
+      { env: { ...world.env, ...extraEnv }, cwd: path.resolve(HERE, "..", "..") });
+    let out = "", err = "";
+    p.stdout.on("data", (d) => (out += d));
+    p.stderr.on("data", (d) => (err += d));
+    p.on("close", (code) => resolve({ code, out, err }));
+  });
+}
+const lastLine = (s) => s.trimEnd().split("\n").at(-1);
+
+test("run-health 全链:exit 0,stdout 末行=旧形成功信封,CLOSE 门在,gates 有 G_CLOSE", async () => {
+  const id = `${today}-${hhmm}-health`;
+  const w = seedWorld(id);
+  try {
+    // from-phase TRIAGE:零网络红线(PROBE/VERIFY=真探测面不可入测试;CLOSE 同构是本测目标)
+    const r = await cli([id, "--from-phase", "TRIAGE", "--fixtures", FIXTURES, "--db", path.join(w.tmp, "s.sqlite")], w);
+    assert.equal(r.code, 0, `stderr:\n${r.err}`);
+    const env = JSON.parse(lastLine(r.out));
+    assert.equal(env.ok, true);
+    assert.equal(env.round, "health");
+    assert.equal(env.pipeline.round_id, id);
+    assert.ok(env.pipeline.stages.some((s) => s.name === "CLOSE"), "stages 含 CLOSE");
+    assert.ok(env.usage && "cost" in env.usage, "信封带 usage.cost");
+    assert.match(r.err, /\[v2-health\] round=/, "stderr 进度行");
+    const gates = fs.readFileSync(path.join(w.roundDir, "gates.json"), "utf8");
+    assert.match(gates, /G_CLOSE/, "gates.json 有 G_CLOSE");
+    assert.ok(fs.existsSync(path.join(w.roundDir, "09-budget.json")), "09-budget.json 落件");
+    assert.match(fs.readFileSync(path.join(w.ops, "ledger.md"), "utf8"), new RegExp(`\\| ${today} \\| health \\|`), "台账兼容行");
+  } finally { fs.rmSync(w.tmp, { recursive: true, force: true }); }
+});
+
+test("run-health 幂等:同库同轮复用任务,二次运行零新建同信封", async () => {
+  const id = `${today}-${hhmm}b-health`;
+  const w = seedWorld(id);
+  try {
+    const db = path.join(w.tmp, "s.sqlite");
+    const r1 = await cli([id, "--from-phase", "TRIAGE", "--fixtures", FIXTURES, "--db", db], w);
+    const r2 = await cli([id, "--from-phase", "TRIAGE", "--fixtures", FIXTURES, "--db", db], w);
+    assert.equal(r1.code, 0); assert.equal(r2.code, 0);
+    assert.match(r2.err, /复用任务/, "stderr 报复用");
+    assert.equal(lastLine(r1.out), lastLine(r2.out), "两次信封逐字同");
+  } finally { fs.rmSync(w.tmp, { recursive: true, force: true }); }
+});
+
+test("run-health --to-phase RETRO:停笔 RETRO,无 G_CLOSE/09-budget,台账行仍在", async () => {
+  const id = `${today}-${hhmm}c-health`;
+  const w = seedWorld(id);
+  try {
+    const r = await cli([id, "--from-phase", "TRIAGE", "--to-phase", "RETRO", "--fixtures", FIXTURES, "--db", path.join(w.tmp, "s.sqlite")], w);
+    assert.equal(r.code, 0, `stderr:\n${r.err}`);
+    const env = JSON.parse(lastLine(r.out));
+    assert.equal(env.ok, true);
+    assert.ok(!env.pipeline.stages.some((s) => s.name === "CLOSE"), "stages 止于 RETRO");
+    const gates = fs.readFileSync(path.join(w.roundDir, "gates.json"), "utf8");
+    assert.doesNotMatch(gates, /G_CLOSE/);
+    assert.ok(!fs.existsSync(path.join(w.roundDir, "09-budget.json")));
+    assert.match(fs.readFileSync(path.join(w.ops, "ledger.md"), "utf8"), new RegExp(`\\| ${today} \\| health \\|`), "RETRO 台账行");
+  } finally { fs.rmSync(w.tmp, { recursive: true, force: true }); }
+});
+
+test("run-health 拒跑:月帽打满 → exit 1 + {ok:false,round:health,error.code=budget_monthly}", async () => {
+  const id = `${today}-${hhmm}d-health`;
+  const w = seedWorld(id);
+  try {
+    fs.writeFileSync(path.join(w.ops, "ledger.md"),
+      `| ${today} | health | faux-pipeline | in=1 out=1 total=2 cost=30.00000000 | pipeline:spent | test |\n`);
+    const r = await cli([id, "--fixtures", FIXTURES, "--db", path.join(w.tmp, "s.sqlite")], w);
+    assert.equal(r.code, 1);
+    const env = JSON.parse(lastLine(r.out));
+    assert.equal(env.ok, false);
+    assert.equal(env.round, "health");
+    assert.equal(env.error.code, "budget_monthly");
+    assert.match(r.err, /\[admission\] budget_monthly refused/);
+  } finally { fs.rmSync(w.tmp, { recursive: true, force: true }); }
+});
+
+test("run-health 用法错:缺 roundId → exit 2;非法 toPhase → exit 2", async () => {
+  const w = seedWorld(`${today}-${hhmm}e-health`);
+  try {
+    const r1 = await cli([], w);
+    assert.equal(r1.code, 2);
+    const r2 = await cli([`${today}-${hhmm}e-health`, "--fixtures", FIXTURES, "--db", path.join(w.tmp, "s.sqlite"), "--to-phase", "NOPE"], w);
+    assert.equal(r2.code, 2);
+    const r3 = await cli([`${today}-${hhmm}e-health`, "--fixtures", FIXTURES, "--db", path.join(w.tmp, "s.sqlite"), "--from-phase", "RETRO", "--to-phase", "TRIAGE"], w);
+    assert.equal(r3.code, 2, "toPhase 早于 fromPhase 拒");
+  } finally { fs.rmSync(w.tmp, { recursive: true, force: true }); }
+});

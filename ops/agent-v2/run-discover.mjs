@@ -137,11 +137,15 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       dbPath: flag("db"),
       modelRef: modelRefArg ? { provider: modelRefArg.split("/")[0], modelId: modelRefArg.split("/")[1] } : undefined,
     });
-    process.stdout.write(`${JSON.stringify(r)}\n`); // stdout 末行单行 JSON(旧契约)
+    // stdout 末行=旧形轮次信封(ENVELOPE.md 冻结面;wrapper 状态走 exit 码+stderr,不口 stdout)
+    const out = r.status === "completed" ? r.envelope
+      : r.status === "refused" ? { ok: false, round: "discover", error: { code: r.code, message: r.message } }
+      : { ok: false, round: "discover", error: { code: r.error?.code ?? "infra", message: r.error?.message ?? "发现轮失败" } };
+    process.stdout.write(`${JSON.stringify(out)}\n`);
     process.exit(r.status === "completed" ? 0 : 1);
   } catch (e) {
     if (e?.usage) { usage(); process.exit(2); }
     process.stderr.write(`${e.stack ?? e}\n`);
-    process.exit(1);
+    process.exit(3); // T5 冻结(ENVELOPE.md):运行期异常与轮次未成分码,cron 层可区分
   }
 }
