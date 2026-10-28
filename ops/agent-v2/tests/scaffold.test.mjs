@@ -17,16 +17,22 @@ import { HARNESS_SETTINGS, resolveDbPath, ROOT } from "../entry.mjs";
 
 const V2_DIR = path.resolve(import.meta.dirname, ".."); // ops/agent-v2
 
-test("registry 红线:工具面=微探针三只闭集、仅 ops 扩展、任务面=内建+T4 两任务(不装内建 CodingTools)", () => {
+test("registry 红线:零内建 CodingTools;工具面=T4 微探针三只+T3 发现轮三只闭集;任务面=内建+三只轮任务", () => {
   const snapshot = buildRegistry().snapshot();
-  // ops 红线(spec 背景节 + t1-notes §1.2):v2 不安装任何内建 coding 工具面;
-  // T4(#228)起工具闭集=微探针三只(replay 全 unsafe);T3 通道工具后续同扩展接入后此闭集同步扩。
-  assert.deepEqual(snapshot.tools().map((t) => t.tool.name).sort(), ["reprobe_get", "reprobe_ua", "upstream_check"]);
-  assert.ok(snapshot.tools().every((t) => t.tool.replay === "unsafe"), "微探针三只必须 replay:unsafe(真网络重放=出网动作)");
-  assert.deepEqual(snapshot.installed().map((e) => e.name), ["ops"]);
-  // 自有任务闭集:内建三 + T4 两只(ops-model-round/ops-health-round)。
+  // ops 红线(spec 背景节 + t1-notes §1.2):v2 不安装任何内建 coding 工具面
+  // (CodingTools/read/write/edit/bash 一概不装)。工具闭集=T3+T4 并批并集:
+  //   ops 扩展 = T4 微探针三只(replay 全 unsafe;仅健康轮真 DEEP 面选装)
+  //   ops-discover-tools = T3 发现轮三只只读通道工具(仅发现轮会话选装;root 面钉 [] 见 entry.mjs)
+  const tools = snapshot.tools().map((t) => t.tool); // 快照元素={extension,tool} 包裹形(1.4.0)
+  assert.deepEqual(tools.map((t) => t.name).sort(), ["reprobe_get", "reprobe_ua", "rss_parse", "upstream_check", "web_read", "web_search"], "工具面=两批闭集并集(多=越权,少=门红)");
+  for (const name of ["reprobe_get", "reprobe_ua", "upstream_check"])
+    assert.equal(tools.find((t) => t.name === name)?.replay, "unsafe", `${name} 必须 replay:unsafe(真网络重放=出网动作)`);
+  for (const name of ["rss_parse", "web_read", "web_search"])
+    assert.equal(tools.find((t) => t.name === name)?.annotations?.readOnlyHint, true, `${name} 非只读——发现轮闭集红线`);
+  assert.deepEqual(snapshot.installed().map((e) => e.name), ["ops", "ops-discover-tools"]);
+  // 任务面:内建三 + T3 发现轮 + T4 健康轮两只(命名形制随各自票面,不改写)。
   const names = (s) => s.tasks().map((t) => `${t.definition.name}@${t.definition.version}`).sort();
-  assert.deepEqual(names(snapshot), [...names(createRegistry().snapshot()), "ops-health-round@1", "ops-model-round@1"].sort());
+  assert.deepEqual(names(snapshot), [...names(createRegistry().snapshot()), "ops.discover-round@1", "ops-health-round@1", "ops-model-round@1"].sort());
 });
 
 test("compaction 默认关(t1-notes 风险5:自动摘要改写上下文,shadow 对拍期禁用)", () => {
