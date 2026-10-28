@@ -17,15 +17,20 @@ import { HARNESS_SETTINGS, resolveDbPath, ROOT } from "../entry.mjs";
 
 const V2_DIR = path.resolve(import.meta.dirname, ".."); // ops/agent-v2
 
-test("registry 红线:零工具、仅 ops 扩展、零自有任务(不装内建 CodingTools)", () => {
+test("registry 红线:发现轮工具闭集三只只读、无内建 CodingTools;任务面=内建+ops.discover-round", () => {
   const snapshot = buildRegistry().snapshot();
-  // ops 红线(spec 背景节 + t1-notes §1.2):v2 不安装任何内建 coding 工具面;
-  // T3/T4 的领域工具(defineTool)经 tasks/ 同扩展接入,当前骨架必须为空。
-  assert.deepEqual(snapshot.tools(), [], "工具面必须为空:CodingTools/read/write/edit/bash 一概不装");
-  assert.deepEqual(snapshot.installed().map((e) => e.name), ["ops"]);
-  // 自有任务零:与裸 createRegistry() 的内建任务集完全一致(内建 generation/tool/compaction 三任务保留)。
-  const names = (s) => s.tasks().map((t) => `${t.definition.name}@${t.definition.version}`).sort();
-  assert.deepEqual(names(snapshot), names(createRegistry().snapshot()));
+  // ops 红线(spec 背景节 + t1-notes §1.2):v2 不安装任何内建 coding 工具面。
+  // T3(#227)起新基线:发现轮三只只读通道工具经 "ops-discover-tools" 扩展入 registry
+  // (仅发现轮会话选装;root 面钉 [] 见 entry.mjs)。CodingTools/read/write/edit/bash 仍一概不装。
+  const tools = snapshot.tools().map((t) => t.tool); // 快照元素={extension,tool} 包裹形(1.4.0)
+  const names = tools.map((t) => t.name).sort();
+  assert.deepEqual(names, ["rss_parse", "web_read", "web_search"], "工具面=发现轮闭集三只(多=越权,少=门红)");
+  for (const t of tools)
+    assert.equal(t.annotations?.readOnlyHint, true, `${t.name} 非只读——发现轮闭集红线`);
+  assert.deepEqual(snapshot.installed().map((e) => e.name), ["ops", "ops-discover-tools"]);
+  // 任务面:内建三任务 + ops.discover-round@1(T3 首只;T4 #228 增健康轮)。
+  const taskNames = (s) => s.tasks().map((t) => `${t.definition.name}@${t.definition.version}`).sort();
+  assert.deepEqual(taskNames(snapshot), [...taskNames(createRegistry().snapshot()), "ops.discover-round@1"].sort());
 });
 
 test("compaction 默认关(t1-notes 风险5:自动摘要改写上下文,shadow 对拍期禁用)", () => {

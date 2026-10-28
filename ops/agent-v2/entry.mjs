@@ -44,7 +44,8 @@ export const HARNESS_SETTINGS = { compaction: { enabled: false } };
 
 export async function openHarness(opts = {}) {
   const dbPath = opts.dbPath ?? resolveDbPath();
-  const { models, resolve } = await loadModels(); // 旧管线装载器原样(定案 7;凭证零入日志)
+  const bundle = opts.models ?? (await loadModels()); // 旧管线装载器原样(定案 7;凭证零入日志);opts.models 注入缝=faux/金轨迹面(同旧 agent.mjs opts.models 缝)
+  const { models, resolve } = bundle;
   const storage = await openNodeSqliteStorage(dbPath);
   const harness = await Harness.open(storage, {
     models,
@@ -87,7 +88,9 @@ export async function runRound(opts) {
       ? models.getModel(parseModelRef(opts.modelRef).provider, parseModelRef(opts.modelRef).model)
       : resolve(opts.round ?? "health"); // 缺省 flash 档(OPS_MODEL_HEALTH 可覆盖,同源)
     if (!model) throw new Error(`模型未装载:${opts.modelRef ?? opts.round ?? "health"}`);
-    const root = await harness.root(context, { agent: { model: { provider: model.provider, modelId: model.id } } });
+    // root 会话显式零选装(agent.js selectExtensions:未存名单时缺省=全部已装;registry
+    // 装发现轮工具扩展后不钉空=root 骨架面静默获得 web 三工具,违背「发现工具仅发现轮选装」)
+    const root = await harness.root(context, { agent: { model: { provider: model.provider, modelId: model.id }, extensions: [] } });
     const usageBefore = sumUsageState(await harness.usage(context)); // 轮增量基线(环内口径,预算自算保留)
     process.stderr.write(`[v2] submit requestId=${requestId} model=${model.provider}/${model.id}\n`);
     const sub = await root.submit({ type: "input", content: opts.content, requestId }, context);
