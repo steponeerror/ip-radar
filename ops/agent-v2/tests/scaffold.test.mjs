@@ -17,15 +17,16 @@ import { HARNESS_SETTINGS, resolveDbPath, ROOT } from "../entry.mjs";
 
 const V2_DIR = path.resolve(import.meta.dirname, ".."); // ops/agent-v2
 
-test("registry 红线:零工具、仅 ops 扩展、零自有任务(不装内建 CodingTools)", () => {
+test("registry 红线:工具面=微探针三只闭集、仅 ops 扩展、任务面=内建+T4 两任务(不装内建 CodingTools)", () => {
   const snapshot = buildRegistry().snapshot();
   // ops 红线(spec 背景节 + t1-notes §1.2):v2 不安装任何内建 coding 工具面;
-  // T3/T4 的领域工具(defineTool)经 tasks/ 同扩展接入,当前骨架必须为空。
-  assert.deepEqual(snapshot.tools(), [], "工具面必须为空:CodingTools/read/write/edit/bash 一概不装");
+  // T4(#228)起工具闭集=微探针三只(replay 全 unsafe);T3 通道工具后续同扩展接入后此闭集同步扩。
+  assert.deepEqual(snapshot.tools().map((t) => t.tool.name).sort(), ["reprobe_get", "reprobe_ua", "upstream_check"]);
+  assert.ok(snapshot.tools().every((t) => t.tool.replay === "unsafe"), "微探针三只必须 replay:unsafe(真网络重放=出网动作)");
   assert.deepEqual(snapshot.installed().map((e) => e.name), ["ops"]);
-  // 自有任务零:与裸 createRegistry() 的内建任务集完全一致(内建 generation/tool/compaction 三任务保留)。
+  // 自有任务闭集:内建三 + T4 两只(ops-model-round/ops-health-round)。
   const names = (s) => s.tasks().map((t) => `${t.definition.name}@${t.definition.version}`).sort();
-  assert.deepEqual(names(snapshot), names(createRegistry().snapshot()));
+  assert.deepEqual(names(snapshot), [...names(createRegistry().snapshot()), "ops-health-round@1", "ops-model-round@1"].sort());
 });
 
 test("compaction 默认关(t1-notes 风险5:自动摘要改写上下文,shadow 对拍期禁用)", () => {
