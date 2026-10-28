@@ -97,7 +97,9 @@ async function runSide(cmd, args, env, label) {
 }
 
 // —— 归一化(窄面:时间/时长/tmp 路径;语义字段零归一)——
-function normalizeText(t, base) {
+// 导出面(#232):golden 全集对拍测试复用同一归一化(勿 fork;基座=TS/dur_ms/tmp/-rN,
+// usage 三计数等 JSON 数值面由调用方按票面窄面在其上叠一层)。
+export function normalizeText(t, base) {
   return t
     .replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z/g, "<TS>")
     .replace(/"generated_at":\s*"<TS>"/g, '"generated_at":"<TS>"')
