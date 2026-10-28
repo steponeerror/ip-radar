@@ -61,7 +61,7 @@ const stageDone = (ck, rec, phase) => ({ ...ck, phase: nextPhase(phase ?? ck.pha
 function nextPhase(p) { const i = RUNNABLE.indexOf(p); return i >= 0 && i + 1 < RUNNABLE.length ? RUNNABLE[i + 1] : "CLOSE"; }
 const failTerm = (ck, phase, code, message) => ({ ...ck, phase: "FAILED", failed: { code, message: `${phase}:${message}` } });
 
-const mkAbort = (name) => async (_t, runtime, context) => {
+const mkAbort = () => async (_t, runtime, context) => { // 终审小项:无参名(name 未用)
   await runtime.commit(() => ({ status: "terminal", outcome: { status: "aborted" } }), context);
 };
 
@@ -204,7 +204,7 @@ async function waitModel(input, ck, runtime, context) {
       }
       if (def.fail.perItem) degradedItems.push({ hid: hid ?? def.name, verdict: "unresolved", evidence: [], one_line: `重试尽降级 unresolved(${o.error?.message ?? "?"})` });
       else
-        return void await runtime.commit(() => ({ status: "terminal", outcome: { status: "failed", error: { code: o.state.outcome.error?.code ?? "model_face", message: `${def.name}:${o.state.outcome.error?.message ?? "?"}` } } }), context);
+        return void await runtime.commit(() => ({ status: "terminal", outcome: { status: "failed", error: { code: o.error?.code ?? "model_face", message: `${def.name}:${o.error?.message ?? "?"}` } } }), context); // 终审修复:TaskOutcome 无 .state 包裹(类型面同注),原 o.state.outcome 会 TypeError→框架 fault
     }
   }
   // —— P1-4 WAIT_MODEL 收口复查①②④(轮级累计口径;并行子任务 pre/post 各自只见基数,

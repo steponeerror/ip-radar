@@ -69,20 +69,20 @@ export async function runDiscoverRound(opts) {
     registry: opts.registry,
     models: fixturesDir ? await fauxBundle(fixturesDir) : undefined,
   });
-    const context = BACKGROUND_CONTEXT;
-    try {
-      harness.resume();
-      // 幂等键律(v2 口径,对应旧「同 id 重跑走 replay」):同库同轮已有任务→复用续跑/重放
-      // (requestId 幂等零新模型调用,零双写);跨库新任务撞已有轮目录仍被任务内建轮守卫拦
-      // (bad_round,tasks/discover-round.mjs bootstrapRoundDir)。
-      const index = await harness.snapshot(RoundsDoc, context);
-      const prior = index?.rounds?.[roundId];
-      let taskId, conversationId;
-      if (prior && typeof prior.taskId === "number") {
-        taskId = prior.taskId;
-        conversationId = prior.conversationId;
-        log(`[v2-discover] round=${roundId} 复用任务 ${taskId}(checkpoint 续跑/终态重放,零新建)`);
-      } else {
+  const context = BACKGROUND_CONTEXT;
+  try {
+    harness.resume();
+    // 幂等键律(v2 口径,对应旧「同 id 重跑走 replay」):同库同轮已有任务→复用续跑/重放
+    // (requestId 幂等零新模型调用,零双写);跨库新任务撞已有轮目录仍被任务内建轮守卫拦
+    // (bad_round,tasks/discover-round.mjs bootstrapRoundDir)。
+    const index = await harness.snapshot(RoundsDoc, context);
+    const prior = index?.rounds?.[roundId];
+    let taskId, conversationId;
+    if (prior && typeof prior.taskId === "number") {
+      taskId = prior.taskId;
+      conversationId = prior.conversationId;
+      log(`[v2-discover] round=${roundId} 复用任务 ${taskId}(checkpoint 续跑/终态重放,零新建)`);
+    } else {
       // 轮会话:ownerless(一轮一会话;粒度决策=spec 定案 5「一轮=一次任务运行」,
       // 详见 tasks/discover-round.mjs 头注)。agent 面钉死=旧模型步语义:全新上下文+
       // 提示词+工具闭集;extensions 显式=[DISCOVER_TOOLS_EXTENSION](未显式=缺省全装,
@@ -112,13 +112,13 @@ export async function runDiscoverRound(opts) {
         return id;
       }, context);
       conversationId = conv.id;
-      }
-      log(`[v2-discover] round=${roundId} task=${taskId} conv=${conversationId} model=${modelRef.provider}/${modelRef.modelId}`);
-      const settled = await harness.waitForTask(taskId, context);
+    }
+    log(`[v2-discover] round=${roundId} task=${taskId} conv=${conversationId} model=${modelRef.provider}/${modelRef.modelId}`);
+    const settled = await harness.waitForTask(taskId, context);
     const outcome = settled.state.outcome;
     if (outcome?.status === "completed") return { status: "completed", envelope: outcome.result, taskId, conversationId };
     if (outcome) return { status: "failed", error: outcome.error, taskId, conversationId };
-    return { status: "parked", taskId, conversationId: conv.id, state: settled.state }; // restartLimit 面等(restartCount 连击);报告级,CLI 退 1
+    return { status: "parked", taskId, conversationId, state: settled.state }; // restartLimit 面等(restartCount 连击);报告级,CLI 退 1(终审硬违修复:原引 else 块内 conv,复用路径 ReferenceError)
   } finally {
     await harness.close(context);
   }
@@ -130,7 +130,7 @@ function usage() {
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
-  const roundId = args.find((a, i) => i === 0 || !a.startsWith("--"));
+  const roundId = args[0] && !args[0].startsWith("--") ? args[0] : undefined // 位置首参=roundId(终审修复:flag 先于位置参时原 find 会把 flag 值误当 id);
   const flag = (name) => { const i = args.indexOf(`--${name}`); return i >= 0 ? args[i + 1] : undefined; };
   if (!roundId) { usage(); process.exit(2); }
   const modelRefArg = flag("model");

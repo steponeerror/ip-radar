@@ -173,7 +173,7 @@ function firstDiff(a, b) {
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
   const flag = (n) => { const i = args.indexOf(`--${n}`); return i >= 0 ? args[i + 1] : undefined; };
-  const roundId = args.find((a, i) => i === 0 || !a.startsWith("--"));
+  const roundId = args[0] && !args[0].startsWith("--") ? args[0] : undefined // 位置首参=roundId(终审修复:flag 先于位置参时原 find 会把 flag 值误当 id);
   if (!roundId) { process.stderr.write("用法:node shadow-diff.mjs <roundId> [--fixtures DIR] [--keep]\n"); process.exit(2); }
   const r = await shadowDiff({ roundId, fixturesDir: flag("fixtures") ? path.resolve(flag("fixtures")) : undefined, keep: args.includes("--keep") }).catch((e) => { process.stderr.write(`${e.stack ?? e}\n`); process.exit(3); }); // P1-2:运行期异常 exit 3(与 DIFF 的 1 分码)
   for (const f of r.files) process.stdout.write(`${f.verdict.padEnd(9)} ${f.file}${f.hint ? `  ${f.hint}` : ""}\n`);

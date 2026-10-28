@@ -148,7 +148,7 @@ export const OPS_MODEL_ROUND = defineTask({
       try {
         // requestId:仅 attempt 0 携带(崩溃幂等);重试重发不带(要新调用)
         const draft = { type: "input", content: modelInput.userMsg, ...(ck.attempt === 0 ? { requestId: modelRequestId(input.roundId, input.stage, input.hid) } : {}) };
-        const base = 0; // 一次性会话前提(健康轮每模型步实例建新 conversation):基线恒 0;复用会话须换 entry 游标(票面注记)
+        // 一次性会话前提(健康轮每模型步实例建新 conversation):usageSince 基线恒 0;复用会话须换 entry 游标(票面注记)。终审删除局部 base=0(遮蔽外层 roundBase 快照同名异义且无消费)
         const sub = await conv.submit(draft, context);
         const settled = await sub.wait(context);
         if (settled.status !== "done")
@@ -174,7 +174,7 @@ export const OPS_MODEL_ROUND = defineTask({
         if (!def.forEach) {
           const gateRec = evalStageGate(def, ctx);
           appendGate(ctx.dir, ctx.roundId, gateRec);
-          if (!gateRec.pass) throw Object.assign(new Error(`门败 ${def.gate}:${gateRec.reason}`), { code: gateRec.code ?? def.fail.terminal });
+          if (!gateRec.pass) throw Object.assign(new Error(`门败 ${def.gate}:${gateRec.reason}`), { code: gateRec.code ?? def.fail.terminal, gateRec }); // 终审修复:附 gateRec(旧 pipeline.mjs:236 同律)——带闭集错误码的门败保留「与 schema 违例同面重试」语义
         }
         return void await runtime.commit(() => ({
           status: "terminal",

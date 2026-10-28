@@ -11,12 +11,13 @@ node ops/agent-v2/shadow-diff.mjs <YYYY-MM-DD-HHMM-health>   # 退出 0=全 SAME
 cd ops/agent-v2 && node --test 'tests/*.test.mjs'
 ```
 
-双轨 cron 形态(shadow 期):旧 `pipeline.mjs` cron 照跑(生产真源);v2 侧 `run-health.mjs` 每日一轮 `--db` 独库(默认 `docs/ops/agent-v2.sqlite`),轮 id 独立命名,台账各自世界——**shadow 期 v2 不写生产台账、不进生产轮目录**。
+双轨 cron 形态(shadow 期):旧 `pipeline.mjs` cron 照跑(生产真源);v2 侧双轮型——健康轮 `run-health.mjs` 每日一轮、发现轮 `run-discover.mjs` 按旧发现轮节拍(周频/手触),各 `--db` 独库(缺省 `docs/ops/agent-v2.sqlite`),轮 id 独立命名,台账/queue 各自世界——**shadow 期 v2 不写生产台账与 queue、不进生产轮目录**。操作面差异:发现轮 real 面强制 `--model provider/modelId` 显式(旧管线自动 resolve;模型清单见 models.mjs),健康轮缺省自动 resolve 同旧。
 
 ## SAME 门槛
 
 - `shadow-diff.mjs` 退出 0(可比工件闭集 + 台账行,归一化窄面见其头注)。
-- 全量测试套 38/38 绿。
+- 全量测试套 40/40 绿。
+- **golden 全集新旧逐条一致(票 #232,切流硬门槛)**:当前分支覆盖 1 例(discover full faux)+罐装健康截段(shadow-diff);全集(neg/boundary/health_full_faux 等 ~10 例)补齐前不得切流。
 - 连续一个完整月轮周期内:零 infra 信封(v2 侧)、零对拍 DIFF、SIGKILL/断电恢复演练至少一次通过(`tests/resume.test.mjs` + 人工 kill 面板)。
 
 ## 已知差异面(声明,非缺陷)

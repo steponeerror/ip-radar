@@ -25,3 +25,7 @@
 ## 台账兼容行(月度准入消费面)
 
 成功轮台账行由 RETRO 步写(与旧管线同点、同形):`| 日期 | 轮次 | model | in=N out=N total=N cost=0.00000000 | pipeline:<round_id> |`。月度准入(`monthSpendOfLedgerText`)与前端 `opsLedger.ts` 解析面零改动——v2 轮天然流出兼容行,`tests/cron-launchers.test.mjs` 与 `tests/shadow-health-parity.test.mjs` 双钉。
+
+## queue.md 兼容面(发现轮;终审补声明)
+
+spec 定案 4 裁「ledger/queue 不再自维护,对下游兼容输出由 T5 保证」:v2 发现轮 ENQUEUE 步零复制 `steps.runStage` 仍写 `queue.md` PROPOSE 行(同点同形,golden 对拍硬断言钉住)——与台账同属对下游兼容输出面,消费方(人工审阅队列)零改动。健康轮不写 queue(旧同律)。
