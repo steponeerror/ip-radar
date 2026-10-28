@@ -89,7 +89,24 @@ async function claimRoundDir(task, runtime, context) {
     }), context);
     return false;
   }
-  if (!claim) fs.writeFileSync(claimFile, JSON.stringify({ token, taskId: runtime.taskId }, null, 2) + "\n");
+  if (!claim) {
+    // 复核 P2-1:排他写(flag wx)闭同相位头并发窗——两库同轮同时启动时,败者在此即拒,
+    // 不再等下一相位头才识破(EEXIST=赢家已写,重读比对);胜者零感知。
+    try {
+      fs.writeFileSync(claimFile, JSON.stringify({ token, taskId: runtime.taskId }, null, 2) + "\n", { flag: "wx" });
+    } catch (e) {
+      if (e?.code !== "EEXIST") throw e;
+      let winner = null;
+      try { winner = JSON.parse(fs.readFileSync(claimFile, "utf8")); } catch { /* 竞读败则按异主拒,宁拒不跑 */ }
+      if (!winner || winner.token !== token) {
+        await runtime.commit(() => ({
+          status: "terminal",
+          outcome: { status: "failed", error: { code: "bad_round", message: `rounds/${input.roundId} 并发认领败(赢家 taskId=${winner?.taskId ?? "?"};claim 写排他 wx)` } },
+        }), context);
+        return false;
+      }
+    }
+  }
   return true;
 }
 const claimGuard = (h) => async (task, runtime, context) => {
@@ -381,5 +398,5 @@ export const OPS_HEALTH_ROUND = defineTask({
     state: { stages: [], prompt_hashes: {}, ...(input.monthlyAdmission != null ? { monthly_admission: input.monthlyAdmission } : {}) },
   }),
   phases: PHASES,
-  abort: mkAbort("ops-health-round"),
+  abort: mkAbort(),
 });

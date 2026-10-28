@@ -34,6 +34,10 @@ const CINS_SLUG = "https-cinsscore.com-list-ci-badguys.txt";
 
 // 可比工件闭集(前缀级;05-deep-* 双侧展开)。09-budget/state.json/envelope 不入(上方声明)。
 const COMPARABLE = ["03-", "04-", "05-", "06-", "07-", "08-", "gates.json"]; // 01/02=罐装种子面;09-budget=NEW CLOSE 落件,载具停笔前不存在,不入
+// 残余哨判定(导出面=哨正例单测):NEW 侧文件不在闭集且不在声明白名单 → 未声明新面。
+// 白名单=01-/02- 罐装种子 + 09-budget.json(CLOSE 落件) + .v2-claim.json(跨库撞轮认领件)。
+export const isUndeclaredNewFile = (f) =>
+  !COMPARABLE.some((p) => f.startsWith(p)) && !/^0[12]-/.test(f) && f !== "09-budget.json" && f !== ".v2-claim.json";
 
 // —— 世界种子(health-e2e.test.mjs seedWorld 同契约:判例+规则+01/02 前置工件+永败 eval stub;
 // 导出面=cron-launchers 测试复用同世界形状)——
@@ -144,12 +148,12 @@ export async function shadowDiff(opts = {}) {
     report.files.push({ file: f, verdict: a === b ? "SAME" : "DIFF", ...(a === b ? {} : { hint: firstDiff(a, b) }) });
     if (a !== b) report.verdict = "DIFF";
   }
-  // P2-⑪ NEW 侧残余文件哨:白名单(state.json 已滤+01-/02- 罐装种子+09-budget.json CLOSE
-  // 落件声明+.v2-claim.json 健康轮轮目录认领件(健康轮跨库撞轮守卫的落件,ENVELOPE/RUNBOOK
-  // 已声明))之外、又不在 COMPARABLE 闭集的文件 = 未声明新面 → DIFF 记 ONLY-NEW-EXTRA。
-  // 防「闭集外新面盲」:COMPARABLE 只防已知面漂移,新落件若无此哨则静默漏过。
+  // P2-⑪ NEW 侧残余文件哨:白名单(01-/02- 罐装种子+09-budget.json CLOSE 落件声明+
+  // .v2-claim.json 健康轮轮目录认领件声明)之外、又不在 COMPARABLE 闭集的文件 =
+  // 未声明新面 → DIFF 记 ONLY-NEW-EXTRA。防「闭集外新面盲」:COMPARABLE 只防已知面
+  // 漂移,新落件若无此哨则静默漏过。判定函数导出供哨正例单测(复核 P2-2)。
   for (const f of newFiles)
-    if (!COMPARABLE.some((p) => f.startsWith(p)) && !/^0[12]-/.test(f) && f !== "09-budget.json" && f !== ".v2-claim.json") {
+    if (isUndeclaredNewFile(f)) {
       report.files.push({ file: f, verdict: "ONLY-NEW-EXTRA", hint: "闭集外未声明新面" });
       report.verdict = "DIFF";
     }

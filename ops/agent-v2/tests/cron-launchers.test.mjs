@@ -14,7 +14,6 @@ const HERE = import.meta.dirname;
 const AGENT = path.resolve(HERE, "..", "..", "agent");
 const FIXTURES = path.join(AGENT, "fixtures", "pipeline");
 const today = new Date().toISOString().slice(0, 10);
-const hhmm = String(new Date().getHours()).padStart(2, "0") + String(new Date().getMinutes()).padStart(2, "0");
 // 测试用轮 id:同分钟+序数偏移(形状律 \d{4} 只验数字面,1870 等仍合法;字母后缀会进 HHMM 段违形状)
 const rid = (n = 0) => { const d = new Date(); return `${today}-${String(d.getHours()).padStart(2, "0")}${String((d.getMinutes() + n) % 100).padStart(2, "0")}-health`; }; // 分钟位+n(mod 100),保 \d{4} 形状
 
