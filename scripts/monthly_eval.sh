@@ -2,11 +2,13 @@
 # 月轮全量评估(Eval Algorithm v2 Phase 1 收口;决策 #6:手动触发,
 # 错峰可前置 nice/ionice,如 `nice -n 19 ionice -c3 bash scripts/monthly_eval.sh`)。
 # 流程:① 守卫(须在 master 且工作区 clean)② rsync 生产 volume 镜像到本地
-# ③ 镜像 manifest 守卫(S7: 塕缩即止, 先于读数)④ 八连 eval 命令
+# ③ 镜像 manifest 守卫(S7: 塕缩即止, 先于读数)④ 十连 eval 命令
 # (--model 先落盘本轮;--audit/--anchors 只读 model 历史但各落己件
 # audit-*/anchors-*.json(Phase 2 T8,清偿 Phase 1 T14 缓议);--agg-share
 # 印证对聚合器占比披露(#183/spec #180 Q4,只测量不持门 exit 恒 0,落
-# model/agg-share-*.json);--temporal 读
+# model/agg-share-*.json);--sinkhole-probe 污染探针+#233 锚读数族
+# 双读数(ADR 0013,只测量不持门,落 model/sinkhole-probe-*.json +
+# anchor-fp-*.json + scanner-recall-*.json);--temporal 读
 # 历史落 temporal-*.json;--readout
 # 组合四层读数管线出月报 monthly-*.md + action-block.json + northstar-*.json
 # (#185 能力轨北星记录,只观测不持门))
@@ -110,7 +112,14 @@ REPORT_ROOT="$REPO/backend/data/eval/monthly"
 # (报告根,机器可读:render 前件 readout=null 供月报嵌「在飞」,结尾
 # 定稿;_alerts 只认心跳 mtime,腿级红必须长在工件里,评审D P1-3)。
 # 结尾退出码=腿序首个非零(红态外显不吞)。
-LEG_ORDER=(model all anchors dsem agg-share audit temporal readout)
+# ── #233 T4(ADR 0013):锚读数族两腿入序。位置内聚度:sinkhole-probe
+# 紧随 agg-share(同源 raw 采样面,复用 agg_share.probe_ips,只测量
+# 不持门同律);anchor-readouts 承其后(锚/自报段 lookup 面,与
+# --anchors 判定门腿同锚族但只测量,不插判定门与 advisory 腿之间);两
+# 新腿均不读 model 历史 → 置于历史读者(audit/temporal)之前,readout
+# 组装面殿后不变。两腿均不进判定门(只测量,exit 恒 0;红=崩溃即
+# 工件缺席,报告族缺员即死把关)。
+LEG_ORDER=(model all anchors dsem agg-share sinkhole-probe anchor-readouts audit temporal readout)
 declare -A LEG_RC=()
 for _leg in "${LEG_ORDER[@]}"; do LEG_RC[$_leg]=0; done
 run_step model    --model    || LEG_RC[model]=$?      # 舰队模型+验收套件(model-*.json)
@@ -118,6 +127,11 @@ run_step all      --all      || LEG_RC[all]=$?        # 逐源 verdict 表
 run_step anchors  --anchors  || LEG_RC[anchors]=$?    # 锚点回归(判定门:失败 rc=1 照写工件)
 run_step dsem     --dsem     || LEG_RC[dsem]=$?       # DS-EM 公平对决(advisory)
 run_step agg-share --agg-share || LEG_RC[agg-share]=$?  # 印证对聚合器占比披露(#183;只测量不持门,exit 恒 0)
+run_step sinkhole-probe --sinkhole-probe || LEG_RC[sinkhole-probe]=$?  # 污染探针(#233 T2/ADR 0013;只测量不持门,exit 恒 0,落 model/sinkhole-probe-*.json)
+# #233 T3 评审 P2#4 月轮首跑核对项:monthly 全源物化下 scanner-recall
+# 工件的 n_self_echo 应>0(dev 库 0=数据条件非机制失效;机制由 T3 单测钉,
+# 读数留痕 model/scanner-recall-*.json,首跑后人工核对该件)。
+run_step anchor-readouts --anchor-readouts || LEG_RC[anchor-readouts]=$?  # 锚读数族双读数(#233 T3/ADR 0013;只测量不持门,一腿双工件 anchor-fp+scanner-recall;scanner_ranges CSV 缺失→missing 形状照写照绿=缺层≠0)
 run_step audit    --audit    || LEG_RC[audit]=$?      # 谱系前向流审计(读 model 历史)
 run_step temporal --temporal || LEG_RC[temporal]=$?   # λ_s 确认率(读 model 历史,须 ≥2 轮)
 
@@ -165,12 +179,15 @@ for _leg in "${LEG_ORDER[@]}"; do
 done
 
 # ── S5(裁决 A / spec §4.1):报告族齐全校验 → 心跳推送 ──
-# 七命令齐全=活:七写者均查本轮工件(mtime 晚于脚本启动)。audit/anchors
+# 命令族齐全=活:逐腿写者均查本轮工件(mtime 晚于脚本启动)。audit/anchors
 # json 落盘已清偿(Phase 2 T8,原 T14 缓议)→ 从退出码门升格报告族写者
 # (anchors 失败仍 sys.exit(1) 双保险;audit advisory 按设计不拦退出码,
 # 靠工件缺席即死把关)。agg-share 入族(#183 终审修单 F6):exit 恒 0
 # 只测量不持门,但工件缺席即族缺员(写者身份≠门身份,同 northstar 反向
 # 面的对称律:观测件不得触活族门,族员工件缺席仍是死)。
+# sinkhole-probe/anchor-readouts 同律入族(#233 T4,ADR 0013 只测量不
+# 持门;anchor-readouts 一腿双工件,anchor-fp 与 scanner-recall 两件
+# 均须本轮在场)。
 # 缺员即死(半途中止=死,不推心跳)。心跳落生产 volume,生产侧
 # _alerts 只认文件 mtime(IP_RADAR_EVAL_HEARTBEAT,>35d 告警;时基
 # 独立 S6,不信管线自报)。
@@ -197,10 +214,11 @@ check_family() {  # check_family <label> <subdir> <name-pattern> [排除pattern.
   fi
 }
 echo
-# 报告族 8 写者(能力轨北星件 #185 与 monthly-*.md 同腿先写、只观测
-# 不持门, 不另设族员):model/dsem/agg-share/audit/anchors 落 model/ 子目录,
+# 报告族 10 写者(能力轨北星件 #185 与 monthly-*.md 同腿先写、只观测
+# 不持门, 不另设族员):model/dsem/agg-share/sinkhole-probe/
+# anchor-readouts/audit/anchors 落 model/ 子目录,
 # all/temporal/readout 落报告根(monthly-*.md 缺月轮读数即缺员)。
-echo "==> 报告族齐全校验(model/all/anchors/dsem/agg-share/audit/temporal/readout)"
+echo "==> 报告族齐全校验(model/all/anchors/dsem/agg-share/sinkhole-probe/anchor-readouts/audit/temporal/readout)"
 check_family model    model 'model-*.json'
 # all 腿排除: temporal-*/northstar-* 同带 ts 后缀形状但不属逐源 verdict
 # 件 —— northstar(#185 能力轨观测件)若不排除, 会顶替 all 腿满足校验
@@ -209,6 +227,10 @@ check_family all      ''     '*-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0
 check_family anchors  model 'anchors-*.json'
 check_family dsem     model 'dsem-*.json'
 check_family agg-share model 'agg-share-*.json'
+check_family sinkhole-probe model 'sinkhole-probe-*.json'
+# anchor-readouts 一腿双工件:两件分别验在场(缺任一=族缺员)
+check_family anchor-readouts model 'anchor-fp-*.json'
+check_family anchor-readouts model 'scanner-recall-*.json'
 check_family audit    model 'audit-*.json'
 check_family temporal ''     'temporal-*.json'
 check_family readout  ''     'monthly-*.md'

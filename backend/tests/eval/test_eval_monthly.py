@@ -440,6 +440,21 @@ def test_md_steal_parking_lines_after_consensus_default_none():
     assert "偷泊" not in default  # 缺省 None → 节不变(schema-stable)
 
 
+def test_md_anchor_family_hades_note_static_line():
+    """#233 交付块4(ADR 0013):锚读数族可操纵面注记 = 头块常驻静态
+    披露行(HADES NDSS'25 式投毒),不随数据变、无可选参数(共识豁免
+    行同律);落点=腿级行之后(头块尾)。"""
+    md = compose_monthly_md(_readout(), [], [], [], [], _header_meta())
+    note = [l for l in md.splitlines() if "HADES" in l]
+    assert note and "NDSS'25" in note[0], md
+    assert "人裁终局" in note[0]          # 与声明 r 同口径
+    assert "不持门" in note[0]
+    # 落点:腿级行之后(头块尾静态注记)
+    md2 = compose_monthly_md(_readout(), [], [], [], [], _header_meta(),
+                             leg_status_lines=["- 腿级状态(#193 C5): model=rc0"])
+    assert md2.index("腿级状态") < md2.index("HADES")
+
+
 # ── #193 C5: 腿级状态件读法 + 月报腿级行 ───────────────────────
 
 def test_load_leg_status_picks_latest_and_skips_bad(tmp_path):
