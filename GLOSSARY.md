@@ -151,6 +151,13 @@
 - **失败归因图**:DeFA 式失败传播依赖图(STANDARD 原语 P22,缺)——多步 agent 误差沿依赖图分离定位到步/工具。锚:ops/agent/STANDARD.md 原语层(P22)
 - **finding 出口三件套**:巡检 finding(ANCHOR_SWEEP 读数 ok 且 finding>0)的三个出口(#184,spec #180 Q6)——gh issue(needs-triage 标签人裁终局,标准模板四件:来源步/锚:期望vs实得/证据指针/处置面)/告警 webhook(apprise CLI,env IP_RADAR_ALERT_URLS 与 backend _alerts.push 同 env 同形=双消费面;未配置=skip 留痕轮仍成功)/RETRO 摘要行(retro 工件 anchor_sweep 字段,G_RETRO 机检与 08 工件回算一致)。出口永不败轮(失败=失败信封记入 08-anchor-sweep-exits.json+信封 pipeline.finding_exits);dry-run 开关 OPS_SWEEP_DRY_RUN(默认关=真发;测试/golden 恒 1);replay 恒零外发(回声律同款)。**「出口只写不动作」红线**(票面钉死):从 finding 出发仅两写口——gh issue create 与 apprise 推送;无任何调权/停源/写数据面/源管理 API/规则库写口可达,由依赖面闭集结构性断言钉死(export 闭集恰三函数/spawn 目标恰 apprise/禁面符号零在场)。锚:ops/agent/pipeline/finding-exit.mjs、tools/measurement.mjs(ghIssueCreate)、tools/registry.mjs(GH_WRITE_SUBCOMMANDS)、票 #184
 - **emit 守卫**:外发崩溃窗防重发机制(#184)——出口工件先记 phase=emitting 再外发、终记 emitted;同轮重入见 emitting/emitted 一律不重发(崩溃窗内外发状态不可知,宁少算交人工核对:issue 重复开可人关,漏发下轮补);工件缺席=首程照发。与「回声防线」的分工:回声防线管轮间重放不产新产物,emit 守卫管同轮恢复不重复外发。锚:ops/agent/pipeline/finding-exit.mjs(runFindingExits)
+- **conversation**:会话——不可变 transcript 记录的宿主与提交面;运营轮宿主 = root conversation,子代理 = 自有 conversation(不共享主轮上下文)。Pi Durable 域词(ADR 0012)。锚:docs/adr/0012(嵌套 docs 仓)
+- **task**:持久任务——相位化的工作单元,提交后由框架驱动至终态、进程崩溃可续;ops 管线轮(健康十态/发现六步)整体相位化为 task,失败三元组(重试/降级/终态)落 task 终态语义。Pi Durable 域词(ADR 0012)。锚:docs/adr/0012(嵌套 docs 仓)
+- **checkpoint**:task 相位的持久快照——崩溃恢复的最小续跑点;v2 起替代手搓轮次状态文件(该词条记旧管线)。Pi Durable 域词(ADR 0012)。锚:docs/adr/0012(嵌套 docs 仓)
+- **replay:safe**:工具崩溃恢复重放的安全声明(缺省 unsafe)——声明该工具重放不产生重复副作用,责任在工具作者;带外部写副作用的工具不得声明。Pi Durable 域词(ADR 0012)。锚:docs/adr/0012(嵌套 docs 仓)
+- **轮次**:运营 agent 的一次完整任务运行(健康轮/发现轮同此基义;复合词轮次信封/轮次状态机沿用)——Pi Durable 迁移定稿(ADR 0012):一轮 = 对 root conversation 的一次 submit。锚:docs/adr/0012(嵌套 docs 仓)、docs/superpowers/specs/2026-10-28-ops-agent-pidurable-migration-design.md(术语映射)
+- **台账**:运营轮历史的留痕真源——旧管线自维护 ledger.md/queue.md;Pi Durable 迁移定稿(ADR 0012)= storage 里的 transcript+task 记录,ledger.md 停写,对下游的兼容输出(月轮评估)由 T5 承接;UI 别名「台账→历史」(ADR 0006)不变。锚:docs/adr/0012(嵌套 docs 仓)
+- **熔断**:通道失败的开断机制,细则与五通道闭集见「跨轮熔断」——Pi Durable 迁移定稿(ADR 0012):仍为自有 breaker.json 文件、读写逻辑随迁,不 hook/memo 化;与预算四界同属自持执法面。锚:docs/adr/0012(嵌套 docs 仓)、ops/agent/tools/breaker.mjs
 
 ## It's working if
 
