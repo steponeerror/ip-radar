@@ -24,7 +24,7 @@ import { loadFauxFixture, fauxFixtureSeeds, transcriptFile } from "../faux-face.
 import { ERROR_CODES } from "../../agent/error-codes.mjs";
 import { buildRoundCtx, opsRootOf, sha16 } from "../round-ctx.mjs";
 import { roundKnobs, preModelCall, postModelCall } from "./budget-guard.mjs"; // 票 #226 环内执法面
-import { bindProbeHost, unbindProbeHost } from "../tools/probes.mjs";
+import { bindProbeHost, unbindProbeHost, boundProbeHost } from "../tools/probes.mjs"; // +boundProbeHost:71 真面分支消费(漏 import=TRIAGE ReferenceError,faux 面不达故测试盲,2026-10-28 首次真面冒烟咬住)
 
 export const MODEL_STAGES = ["TRIAGE", "DEEP", "SYNTH"]; // stage 闭集(票 #228 Q1)
 
