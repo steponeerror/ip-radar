@@ -29,7 +29,8 @@ export const knobNames = (roundType) => roundType === "discover"
   : { calls: "OPS_PIPELINE_MAX_MODEL_CALLS", wall: "OPS_PIPELINE_WALL_CLOCK_S", spend: "OPS_PIPELINE_SPEND_CAP_CNY" };
 
 // 台账路径推导(旧 agent.mjs runRound 同形:LEDGER_FILE > DOCS_ROOT/ops/ledger.md;
-// 月帽是全 agent 面共享底线,shadow 期与旧管线读同一 ledger.md,同裁决同留痕)。
+// 月帽是全 agent 面共享底线,同裁决同留痕。shadow 期实际接线:DOCS_ROOT 指影子根,
+// v2 轮读写影子世界自种清零的独立 ledger.md,不碰生产台账;切流后才指生产根)。
 export function resolveLedgerPath(env = process.env) {
   return env.LEDGER_FILE ?? process.env.LEDGER_FILE
     ?? path.join(env.DOCS_ROOT ?? path.join(ROOT, "docs"), "ops", "ledger.md");

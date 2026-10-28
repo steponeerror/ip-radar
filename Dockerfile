@@ -92,10 +92,13 @@ RUN rm -rf /app/.git && git init -q -b main \
 COPY --from=frontend /build/dist ./frontend/dist
 COPY docker/entrypoint.sh /entrypoint.sh
 # P5 验收锚:node(桥 spawn 面)/rg(检索面)在此层真跑一次,缺库缺二进制构建即红;
-# PR #177 增 gh(gh_search 面;同旨)
+# PR #177 增 gh(gh_search 面;同旨)。v2 依赖冒烟:registry.mjs 全链(93 包纯 JS
+# + node:sqlite 内建面,opsagent-v2/opsagent 双 node_modules 合解析)在此层真载入
+# 一次——加载期即验依赖树完整与 node 版本面,registry 只定义不实例化,零 DB/网络副作用。
 RUN chmod +x /entrypoint.sh \
     && node --version \
     && rg --version | head -1 \
-    && gh --version | head -1
+    && gh --version | head -1 \
+    && node -e 'import("./ops/agent-v2/registry.mjs").then(()=>console.log("v2 registry import ok"))'
 EXPOSE 8000
 ENTRYPOINT ["/entrypoint.sh"]
