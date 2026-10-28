@@ -83,17 +83,19 @@ const startPhaseOf = (p, input) => {
   return p;
 };
 // 停笔点统一书挡(相位完成、门已过后):终态 completed + 信封(旧 replay --to 同义:
-// 不落 09-budget/G_CLOSE,信封 stages 止于停笔相位)。
-async function stopAtPhase(input, ck, runtime, context, def) {
+// 不落 09-budget/G_CLOSE,信封 stages 止于停笔相位)。P2-4:与 stageDone 同一 commit
+// 原子落(两笔问隔窗崩溃会越 toPhase 直入 CLOSE,违冻结口径)——故本函数只出 commit
+// 载荷,由调用方合入唯一一笔 commit。
+function stopOutcome(input, ck, def) {
   const fin = rebuildRoundCtx(input, ck);
   fin.state.status = "done";
   fin.state.stage = def.name;
   fin.state.updated_at = nowIso();
   const envelope = composeEnvelope(fin, { ok: true });
-  await runtime.commit(() => ({
+  return {
     status: "terminal",
     outcome: { status: "completed", result: { round_id: input.roundId, envelope, dir: fin.dir, usage: fin.usage } },
-  }), context);
+  };
 }
 
 // —— 模型相位共通:创建子任务(逐假设一实例)后转 WAIT_MODEL ——
@@ -228,9 +230,10 @@ async function waitModel(input, ck, runtime, context) {
   }
   const rec = { name: def.name, status: degradedItems.length ? "degraded" : "done", attempts: 1, dur_ms: 0, usage };
   const finCk = stageDone({ ...ck, usage, modelCalls, state: { ...ck.state, prompt_hashes: promptHashes } }, rec, ck.spawnPhase);
+  // toPhase 停笔(模型相位版;与 stageDone 同 commit 原子落——P2-4)
+  if (input.toPhase && input.toPhase === def.name)
+    return void await runtime.commit(() => stopOutcome(input, finCk, def), context);
   await runtime.commit(() => ({ status: "running", checkpoint: finCk }), context);
-  // toPhase 停笔(模型相位版;载具镜像旧 replay --to)
-  if (input.toPhase && input.toPhase === def.name) await stopAtPhase(input, finCk, runtime, context, def);
 }
 
 // —— 脚本相位执行体(零复制 steps.runStage + 门 + retry/degrade/终态;旧 runStages 同语义)——
@@ -269,9 +272,10 @@ async function runScriptPhase(def, input, ck, runtime, context) {
   // ANCHOR_SWEEP 写 finding_exits 入 state(旧步内 ctx.state 直写;v2 面同步回 checkpoint)
   const nextCk = stageDone(ck, rec);
   if (ctx.state.finding_exits != null) nextCk.state = { ...nextCk.state, finding_exits: ctx.state.finding_exits };
+  // toPhase 停笔(脚本相位版;与 stageDone 同 commit 原子落——P2-4:停在门后,不丢台账/工件)
+  if (input.toPhase && input.toPhase === def.name)
+    return void await runtime.commit(() => stopOutcome(input, nextCk, def), context);
   await runtime.commit(() => ({ status: "running", checkpoint: nextCk }), context);
-  // toPhase 停笔(脚本相位版;载具镜像旧 replay --to:停在门后,不丢台账/工件)
-  if (input.toPhase && input.toPhase === def.name) await stopAtPhase(input, nextCk, runtime, context, def);
 }
 
 // —— CLOSE 书挡(旧 finishClose 同序:存在性校验→09-budget.json→信封→G_CLOSE→终态)——

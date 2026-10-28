@@ -23,7 +23,7 @@ cd ops/agent-v2 && node --test 'tests/*.test.mjs'
 
 | 差异 | 性质 | 处置 |
 |---|---|---|
-| v2 `state.json` 是 checkpoint 镜像(真源=SQLite) | 实现细节 | 不入对拍面 |
+| v2 健康轮无 state.json(真源=SQLite checkpoint+工件;仅发现轮落 state.json 兼容旧面) | 实现细节 | 不入对拍面 |
 | 09-budget.json 仅 v2 落件(CLOSE 步) | v2 专属预算落件 | 不入对拍面 |
 | 台账 usage 计数(in/out/total)计量边界差 | 两套 harness 合法差 | 对拍归一;cost 细胞逐字比(ENVELOPE.md §usage) |
 | 对拍载具停笔 RETRO(旧 replay 不入 CLOSE) | 载具结构 | CLOSE 面由 `tests/cron-launchers.test.mjs` 钉(G_CLOSE/09-budget/信封) |

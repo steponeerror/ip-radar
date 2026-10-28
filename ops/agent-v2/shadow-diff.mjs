@@ -85,9 +85,10 @@ async function runSide(cmd, args, env, label) {
     p.on("close", (code) => resolve({ code, out, err }));
   });
   const lines = r.out.trimEnd().split("\n");
-  const envelope = lines.length ? JSON.parse(lines.at(-1)) : null;
+  let envelope = null;
+  try { envelope = lines.length ? JSON.parse(lines.at(-1)) : null; } catch { envelope = null; } // P2-6:末行非 JSON=信封缺失,不炸诊断
   if (r.code === 3) throw new Error(`${label} 运行期异常(exit 3):\n${r.err.split("\n").slice(-6).join("\n")}`);
-  if (r.code !== 0) process.stderr.write(`[${label}] exit=${r.code} envelope=${JSON.stringify(r.envelope)}\n[${label}] stderr 尾:\n${r.err.split("\n").filter(Boolean).slice(-8).join("\n")}\n`);
+  if (r.code !== 0) process.stderr.write(`[${label}] exit=${r.code} envelope=${JSON.stringify(envelope)}\n[${label}] stderr 尾:\n${r.err.split("\n").filter(Boolean).slice(-8).join("\n")}\n`);
   return { code: r.code, envelope, stderr: r.err };
 }
 
@@ -123,7 +124,14 @@ export async function shadowDiff(opts = {}) {
   const oldReplayDir = fs.readdirSync(rounds).filter((f) => new RegExp(`${roundId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}-r\\d+$`).test(f)).sort().at(-1);
   const oldDir = path.join(rounds, oldReplayDir ?? `${roundId}-rX`);
   const newDir = path.join(neu.ops, "rounds", roundId);
-  const report = { roundId, sides: { old: { code: oldR.code, ok: oldR.envelope?.ok }, new: { code: newR.code, ok: newR.envelope?.ok } }, files: [], verdict: "SAME" };
+  const report = { roundId, sides: { old: { code: oldR.code, envelope: oldR.envelope }, new: { code: newR.code, envelope: newR.envelope } }, files: [], verdict: "SAME" };
+  // P1-1:双面皆败(或任一面信封非 ok)=闸门失败,不得假 SAME;可比集空/台账行缺同理。
+  // 实证:双面同因败(如共享 steps 回归)可比集空 → 旧版 VERDICT SAME exit 0。
+  const sideOk = (s) => s.envelope?.ok === true;
+  if (!sideOk(oldR) || !sideOk(newR)) {
+    report.verdict = "DIFF";
+    report.files.push({ file: "(envelope)", verdict: "SIDE-FAILED", hint: `old.ok=${oldR.envelope?.ok}(${oldR.envelope?.error?.code ?? "?"}) new.ok=${newR.envelope?.ok}(${newR.envelope?.error?.code ?? "?"})` });
+  }
   const oldFiles = filesOf(oldDir).filter((f) => f !== "state.json");
   const newFiles = filesOf(newDir).filter((f) => f !== "state.json");
   const names = [...new Set([...oldFiles, ...newFiles])].filter((f) => COMPARABLE.some((p) => f.startsWith(p)));
@@ -136,6 +144,7 @@ export async function shadowDiff(opts = {}) {
     report.files.push({ file: f, verdict: a === b ? "SAME" : "DIFF", ...(a === b ? {} : { hint: firstDiff(a, b) }) });
     if (a !== b) report.verdict = "DIFF";
   }
+  const artifactN = report.files.length; // 可比工件条目数(不含后续台账行;P1-1 空集判据)
   // 台账行(RETRO 写面;行形 | 日期 | 轮次 | model | 用量 | 备注 |)。语义面=行存在+
   // 日期/轮次/model/备注轮 id;usage 计数细胞归一(两套 harness 计量边界合法差),
   // cost 细胞逐字比(faux 恒 0;生产 shadow 期 cost 差即真 DIFF——月度准入只吃 cost)。
@@ -145,6 +154,10 @@ export async function shadowDiff(opts = {}) {
   const ledSame = normLedger(oldLed).trim() === normLedger(newLed).trim();
   report.files.push({ file: "ledger.md", verdict: ledSame ? "SAME" : "DIFF", ...(ledSame ? {} : { hint: `OLD:[${oldLed.trim().split("\n").at(-1)}] NEW:[${newLed.trim().split("\n").at(-1)}]` }) });
   if (!ledSame) report.verdict = "DIFF";
+  if (sideOk(oldR) && sideOk(newR) && artifactN === 0) {
+    report.verdict = "DIFF"; // P1-1:双面 ok 但可比集空=闸门失败(种子/闭集漂移),不假 SAME
+    report.files.push({ file: "(comparable-set)", verdict: "EMPTY", hint: "双面 ok 但可比工件集为空" });
+  }
   if (opts.keep) report.keepDirs = { old: old.tmp, new: neu.tmp };
   else { fs.rmSync(old.tmp, { recursive: true, force: true }); fs.rmSync(neu.tmp, { recursive: true, force: true }); }
   return report;
@@ -162,10 +175,10 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const flag = (n) => { const i = args.indexOf(`--${n}`); return i >= 0 ? args[i + 1] : undefined; };
   const roundId = args.find((a, i) => i === 0 || !a.startsWith("--"));
   if (!roundId) { process.stderr.write("用法:node shadow-diff.mjs <roundId> [--fixtures DIR] [--keep]\n"); process.exit(2); }
-  const r = await shadowDiff({ roundId, fixturesDir: flag("fixtures") ? path.resolve(flag("fixtures")) : undefined, keep: args.includes("--keep") });
+  const r = await shadowDiff({ roundId, fixturesDir: flag("fixtures") ? path.resolve(flag("fixtures")) : undefined, keep: args.includes("--keep") }).catch((e) => { process.stderr.write(`${e.stack ?? e}\n`); process.exit(3); }); // P1-2:运行期异常 exit 3(与 DIFF 的 1 分码)
   for (const f of r.files) process.stdout.write(`${f.verdict.padEnd(9)} ${f.file}${f.hint ? `  ${f.hint}` : ""}\n`);
-  if (!r.sides.old.ok) process.stdout.write(`OLD envelope: ${JSON.stringify(r.sides.old.envelope)}\n`);
-  if (!r.sides.new.ok) process.stdout.write(`NEW envelope: ${JSON.stringify(r.sides.new.envelope)}\n`);
+  if (!r.sides.old.envelope?.ok) process.stdout.write(`OLD envelope: ${JSON.stringify(r.sides.old.envelope)}\n`);
+  if (!r.sides.new.envelope?.ok) process.stdout.write(`NEW envelope: ${JSON.stringify(r.sides.new.envelope)}\n`);
   process.stdout.write(`VERDICT ${r.verdict}(old.exit=${r.sides.old.code} new.exit=${r.sides.new.code})\n`);
   process.exit(r.verdict === "SAME" ? 0 : 1);
 }

@@ -15,6 +15,8 @@ const AGENT = path.resolve(HERE, "..", "..", "agent");
 const FIXTURES = path.join(AGENT, "fixtures", "pipeline");
 const today = new Date().toISOString().slice(0, 10);
 const hhmm = String(new Date().getHours()).padStart(2, "0") + String(new Date().getMinutes()).padStart(2, "0");
+// 测试用轮 id:同分钟+序数偏移(形状律 \d{4} 只验数字面,1870 等仍合法;字母后缀会进 HHMM 段违形状)
+const rid = (n = 0) => { const d = new Date(); return `${today}-${String(d.getHours()).padStart(2, "0")}${String((d.getMinutes() + n) % 100).padStart(2, "0")}-health`; }; // 分钟位+n(mod 100),保 \d{4} 形状
 
 function cli(args, world, extraEnv = {}) {
   return new Promise((resolve) => {
@@ -29,7 +31,7 @@ function cli(args, world, extraEnv = {}) {
 const lastLine = (s) => s.trimEnd().split("\n").at(-1);
 
 test("run-health 全链:exit 0,stdout 末行=旧形成功信封,CLOSE 门在,gates 有 G_CLOSE", async () => {
-  const id = `${today}-${hhmm}-health`;
+  const id = rid();
   const w = seedWorld(id);
   try {
     // from-phase TRIAGE:零网络红线(PROBE/VERIFY=真探测面不可入测试;CLOSE 同构是本测目标)
@@ -50,7 +52,7 @@ test("run-health 全链:exit 0,stdout 末行=旧形成功信封,CLOSE 门在,gat
 });
 
 test("run-health 幂等:同库同轮复用任务,二次运行零新建同信封", async () => {
-  const id = `${today}-${hhmm}b-health`;
+  const id = rid(1);
   const w = seedWorld(id);
   try {
     const db = path.join(w.tmp, "s.sqlite");
@@ -63,7 +65,7 @@ test("run-health 幂等:同库同轮复用任务,二次运行零新建同信封"
 });
 
 test("run-health --to-phase RETRO:停笔 RETRO,无 G_CLOSE/09-budget,台账行仍在", async () => {
-  const id = `${today}-${hhmm}c-health`;
+  const id = rid(2);
   const w = seedWorld(id);
   try {
     const r = await cli([id, "--from-phase", "TRIAGE", "--to-phase", "RETRO", "--fixtures", FIXTURES, "--db", path.join(w.tmp, "s.sqlite")], w);
@@ -79,7 +81,7 @@ test("run-health --to-phase RETRO:停笔 RETRO,无 G_CLOSE/09-budget,台账行�
 });
 
 test("run-health 拒跑:月帽打满 → exit 1 + {ok:false,round:health,error.code=budget_monthly}", async () => {
-  const id = `${today}-${hhmm}d-health`;
+  const id = rid(3);
   const w = seedWorld(id);
   try {
     fs.writeFileSync(path.join(w.ops, "ledger.md"),
@@ -94,14 +96,39 @@ test("run-health 拒跑:月帽打满 → exit 1 + {ok:false,round:health,error.c
   } finally { fs.rmSync(w.tmp, { recursive: true, force: true }); }
 });
 
-test("run-health 用法错:缺 roundId → exit 2;非法 toPhase → exit 2", async () => {
-  const w = seedWorld(`${today}-${hhmm}e-health`);
+test("run-health 用法错:缺 roundId → exit 2;非法 toPhase → exit 2;非法 --model → exit 2", async () => {
+  const w = seedWorld(rid(4));
   try {
     const r1 = await cli([], w);
     assert.equal(r1.code, 2);
-    const r2 = await cli([`${today}-${hhmm}e-health`, "--fixtures", FIXTURES, "--db", path.join(w.tmp, "s.sqlite"), "--to-phase", "NOPE"], w);
+    const r2 = await cli([rid(4), "--fixtures", FIXTURES, "--db", path.join(w.tmp, "s.sqlite"), "--to-phase", "NOPE"], w);
     assert.equal(r2.code, 2);
-    const r3 = await cli([`${today}-${hhmm}e-health`, "--fixtures", FIXTURES, "--db", path.join(w.tmp, "s.sqlite"), "--from-phase", "RETRO", "--to-phase", "TRIAGE"], w);
+    const r3 = await cli([rid(4), "--fixtures", FIXTURES, "--db", path.join(w.tmp, "s.sqlite"), "--from-phase", "RETRO", "--to-phase", "TRIAGE"], w);
     assert.equal(r3.code, 2, "toPhase 早于 fromPhase 拒");
+    const r4 = await cli([rid(4), "--fixtures", FIXTURES, "--db", path.join(w.tmp, "s.sqlite"), "--model", "noprovider"], w);
+    assert.equal(r4.code, 2, "--model 缺 provider/modelId 斜杠拒");
   } finally { fs.rmSync(w.tmp, { recursive: true, force: true }); }
+});
+
+test("P2-5 轮 id 形状律:非 YYYY-MM-DD-HHMM-health → exit 1 bad_round(先于准入,note-9 序)", async () => {
+  const w = seedWorld("x");
+  try {
+    const r = await cli(["2026-10-28-heath-typo", "--fixtures", FIXTURES, "--db", path.join(w.tmp, "s.sqlite")], w);
+    assert.equal(r.code, 1);
+    const env = JSON.parse(lastLine(r.out));
+    assert.equal(env.error.code, "bad_round");
+    assert.doesNotMatch(r.err, /\[admission\]/, "形状错不触发准入拒跑(序:校验先于准入)");
+  } finally { fs.rmSync(w.tmp, { recursive: true, force: true }); }
+});
+
+test("P1-1 对拍闸门:双面皆败 → SIDE-FAILED 判 DIFF exit 1(不假 SAME)", async () => {
+  // 评审员实证面:双面同因败(缺 fixtures)旧版 VERDICT SAME exit 0——闸门自身失败语义回归钉
+  const r = await new Promise((resolve) => {
+    const p = spawn("node", [path.join(HERE, "..", "shadow-diff.mjs"), rid(5), "--fixtures", "/tmp/definitely-missing-fixtures-t229"],
+      { cwd: path.resolve(HERE, "..", "..") });
+    let out = ""; p.stdout.on("data", (d) => (out += d)); p.on("error", (e) => resolve({ code: -1, out: String(e) })); p.on("close", (code) => resolve({ code, out }));
+  });
+  assert.equal(r.code, 1, `双面同因败不得 exit 0:\n${r.out}`);
+  assert.match(r.out, /SIDE-FAILED/);
+  assert.match(r.out, /VERDICT DIFF/);
 });

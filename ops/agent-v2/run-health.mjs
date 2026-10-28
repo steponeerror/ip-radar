@@ -26,9 +26,10 @@ export async function runHealthRound(opts) {
   const env = opts.env ?? process.env;
   const roundId = opts.roundId;
   const log = (l) => (opts.stderr ?? process.stderr).write(`${l}\n`);
-  const admission = await admitRound({ env, log, roundType: "health", ledgerFile: opts.ledgerFile });
-  if (admission.refused)
-    return { status: "refused", envelope: failEnvelope(admission.code, admission.message) };
+  // 轮 id 形状律(P2-5,旧 mkCtx 同律):YYYY-MM-DD-HHMM-health(-rN);note-9:用法/形状校验
+  // 先于准入——非法轮次是调用方错(exit 1 bad_round),不被月帽拒跑掩蔽。
+  if (!/^\d{4}-\d{2}-\d{2}-\d{4}-health(-r\d+)?$/.test(roundId ?? ""))
+    return { status: "failed", envelope: failEnvelope("bad_round", `round_id 形状须 YYYY-MM-DD-HHMM-health:${roundId}`) };
   const fixturesDir = opts.fixturesDir ?? null;
   const fromPhase = opts.fromPhase ?? "PROBE";
   if (!HEALTH_PHASES.includes(fromPhase)) throw Object.assign(new Error(`--from-phase 须 ∈ {${HEALTH_PHASES.join("|")}},得到:${fromPhase}`), { usage: true });
@@ -36,6 +37,17 @@ export async function runHealthRound(opts) {
   if (![...HEALTH_PHASES, "CLOSE"].includes(toPhase)) throw Object.assign(new Error(`--to-phase 须 ∈ {${[...HEALTH_PHASES, "CLOSE"].join("|")}},得到:${toPhase}`), { usage: true });
   if (HEALTH_PHASES.includes(toPhase) && HEALTH_PHASES.indexOf(toPhase) <= HEALTH_PHASES.indexOf(fromPhase))
     throw Object.assign(new Error(`--to-phase(${toPhase}) 须晚于 --from-phase(${fromPhase})`), { usage: true }); // CLI 层早拒(exit 2);任务 initial 同闭集重复校验=深防御
+  // --model(P1-3):provider/modelId → 任务 input.modelRef(real 面显式覆盖;faux 面被 spawn 内
+  // faux 分派优先,同 E2E 注入面优先级)
+  let modelRef = null;
+  if (opts.model) {
+    const i = opts.model.indexOf("/");
+    if (i <= 0 || i >= opts.model.length - 1) throw Object.assign(new Error(`--model 须 provider/modelId,得到:${opts.model}`), { usage: true });
+    modelRef = { provider: opts.model.slice(0, i), modelId: opts.model.slice(i + 1) };
+  }
+  const admission = await admitRound({ env, log, roundType: "health", ledgerFile: opts.ledgerFile });
+  if (admission.refused)
+    return { status: "refused", envelope: failEnvelope(admission.code, admission.message) };
   const { harness } = await openHarness({ dbPath: opts.dbPath, env }); // 模型装载不在此分叉:faux 分派在任务 spawn 内(faux-face),real 走缺省 loadModels
   const context = (await import("@earendil-works/chord/context")).BACKGROUND_CONTEXT;
   try {
@@ -50,7 +62,7 @@ export async function runHealthRound(opts) {
       const root = await harness.root(context); // 任务挂 root 会话(E2E 判例:root.commit tx 的 conversationId 隐式;Session 级 commit 需显式——TaskOptions 文档律)
       taskId = await root.commit(async (tx) => {
         const id = await tx.createTask(OPS_HEALTH_ROUND, {
-          roundId, fromPhase, ...(toPhase !== "CLOSE" ? { toPhase } : {}),
+          roundId, fromPhase, ...(toPhase !== "CLOSE" ? { toPhase } : {}), ...(modelRef ? { modelRef } : {}),
           modelFace: fixturesDir ? "faux" : "real",
           fixturesDir,
           monthlyAdmission: admission.admission ?? null, // P1-5 读数链:submitter→input→initial→09-budget monthly
@@ -73,7 +85,7 @@ export async function runHealthRound(opts) {
 
 // ── CLI(cron 面;stdout 末行=旧形信封,wrapper 信息走 stderr——ENVELOPE.md 冻结)──
 function usage() {
-  process.stderr.write(`用法:node run-health.mjs <roundId> [--fixtures DIR] [--db PATH] [--model provider/modelId] [--from-phase PHASE]\n`);
+  process.stderr.write(`用法:node run-health.mjs <YYYY-MM-DD-HHMM-health> [--fixtures DIR] [--db PATH] [--model provider/modelId] [--from-phase PHASE] [--to-phase PHASE]\n`);
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
@@ -87,6 +99,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       dbPath: flag("db"),
       fromPhase: flag("from-phase"),
       toPhase: flag("to-phase"),
+      model: flag("model"),
     });
     process.stdout.write(`${JSON.stringify(r.envelope)}\n`); // stdout 末行单行旧形信封(唯一 stdout 内容)
     process.exit(r.status === "completed" ? 0 : 1);
