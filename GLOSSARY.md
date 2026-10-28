@@ -155,8 +155,8 @@
 - **task**:持久任务——相位化的工作单元,提交后由框架驱动至终态、进程崩溃可续;ops 管线轮(健康十态/发现六步)整体相位化为 task,失败三元组(重试/降级/终态)落 task 终态语义。Pi Durable 域词(ADR 0012)。锚:docs/adr/0012(嵌套 docs 仓)
 - **checkpoint**:task 相位的持久快照——崩溃恢复的最小续跑点;v2 起替代手搓轮次状态文件(该词条记旧管线)。Pi Durable 域词(ADR 0012)。锚:docs/adr/0012(嵌套 docs 仓)
 - **replay:safe**:工具崩溃恢复重放的安全声明(缺省 unsafe)——声明该工具重放不产生重复副作用,责任在工具作者;带外部写副作用的工具不得声明。Pi Durable 域词(ADR 0012)。锚:docs/adr/0012(嵌套 docs 仓)
-- **轮次**:运营 agent 的一次完整任务运行(健康轮/发现轮同此基义;复合词轮次信封/轮次状态机沿用)——Pi Durable 迁移定稿(ADR 0012):一轮 = 对 root conversation 的一次 submit。锚:docs/adr/0012(嵌套 docs 仓)、docs/superpowers/specs/2026-10-28-ops-agent-pidurable-migration-design.md(术语映射)
-- **台账**:运营轮历史的留痕真源——旧管线自维护 ledger.md/queue.md;Pi Durable 迁移定稿(ADR 0012)= storage 里的 transcript+task 记录,ledger.md 停写,对下游的兼容输出(月轮评估)由 T5 承接;UI 别名「台账→历史」(ADR 0006)不变。锚:docs/adr/0012(嵌套 docs 仓)
+- **轮次**:运营 agent 的一次完整任务运行(健康轮/发现轮同此基义;复合词轮次信封/轮次状态机沿用)——Pi Durable 迁移定稿(ADR 0012):一轮 = 对 root conversation 的一次 submit(发现轮例外:一轮 = 一 ownerless 会话,tasks/discover-round.mjs:16-24 决策——旧发现轮每模型步全新 Agent 上下文、跨轮零渗漏旧律保持)。锚:docs/adr/0012(嵌套 docs 仓)、docs/superpowers/specs/2026-10-28-ops-agent-pidurable-migration-design.md(术语映射)
+- **台账**:运营轮历史的留痕真源——旧管线自维护 ledger.md/queue.md;Pi Durable 迁移定稿(ADR 0012)= storage 里的 transcript+task 记录,ledger.md 降级为兼容输出面,不再作真源(RETRO 兼容行照写,见 ops/agent-v2/ENVELOPE.md),对下游的兼容输出(月轮评估)由 T5 承接;UI 别名「台账→历史」(ADR 0006)不变。锚:docs/adr/0012(嵌套 docs 仓)
 - **熔断**:通道失败的开断机制,细则与五通道闭集见「跨轮熔断」——Pi Durable 迁移定稿(ADR 0012):仍为自有 breaker.json 文件、读写逻辑随迁,不 hook/memo 化;与预算四界同属自持执法面。锚:docs/adr/0012(嵌套 docs 仓)、ops/agent/tools/breaker.mjs
 
 ## It's working if
