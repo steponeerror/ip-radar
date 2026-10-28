@@ -132,7 +132,7 @@ test("golden 对拍 pipeline_health_full_faux:旧 runPipeline 全链 vs v2 run-h
     for (const f of [...new Set([...oldFiles, ...newFiles])].sort()) {
       const inComparable = COMPARABLE.some((p) => f.startsWith(p));
       const o = oldFiles.includes(f), n = newFiles.includes(f);
-      if (!inComparable) { rows.push(`SKIP ${f}(闭集外${o && !n ? ",旧侧" : ""})`); continue; } // 结构性差异面(如 -rN 镜像)不假 SAME 不计 DIFF
+      if (!inComparable) { rows.push(`UNDECLARED ${f}(闭集外${o && !n ? ",旧侧" : ""}——结构性差异面须显式声明后入集,见 shadow-diff isUndeclaredNewFile 同哨)`); continue; } // 残余哨(P1:SKIP 仅记日志不断言→闭集外新面无哨;与 shadow-diff.mjs:158 同判据)
       if (o && !n) { rows.push(`ONLY-OLD ${f}`); }
       else if (!o && n) { rows.push(`ONLY-NEW ${f}`); }
       else {
@@ -146,7 +146,7 @@ test("golden 对拍 pipeline_health_full_faux:旧 runPipeline 全链 vs v2 run-h
         }
       }
     }
-    const bad = rows.filter((r) => /^(DIFF|ONLY-)/.test(r));
+    const bad = rows.filter((r) => /^(DIFF|ONLY-|UNDECLARED)/.test(r));
     // 信封相位序列/状态(旧 runPipeline 信封 vs v2;resumed/usage 已知差异面不入)
     assert.deepEqual(newR.pipeline.stages.map((s) => [s.name, s.status]), oldEnv.pipeline.stages.map((s) => [s.name, s.status]), "相位序列/状态不等价");
     // 台账行(RETRO 写面;usage 计数归一,cost 逐字——shadow-diff normLedger 同法)

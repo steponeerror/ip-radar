@@ -24,7 +24,12 @@ test("legacy 判断器 8 例回归钉:判断器面断言词汇表外零漂移(ru
   // 逐例子进程(= runner 自身隔离形态:DOCS_ROOT/PATH env 每例独立,零网络全 faux);
   // 8 例复用 runner 的世界置备/断言评估零复制——本钉只派生与判绿,不 fork 判断逻辑。
   for (const id of JUDGE_IDS) {
-    const { stdout } = await execFile(process.execPath, [RUNNER, "--case", id], { timeout: 300_000, maxBuffer: 32 * 1024 * 1024 });
+    let stdout = "";
+    try {
+      ({ stdout } = await execFile(process.execPath, [RUNNER, "--case", id], { timeout: 300_000, maxBuffer: 32 * 1024 * 1024 }));
+    } catch (e) { // runner 非零退出时 execFile 先拒——捕获后仍走 match,让 GOLDENFAIL 明细面世(P2)
+      stdout = e.stdout ?? String(e);
+    }
     assert.match(stdout, new RegExp(`^GOLDENPASS ${id}$`, "m"), `判断器例 ${id} 未 GOLDENPASS:\n${stdout.slice(0, 800)}`);
   }
 });
@@ -32,6 +37,8 @@ test("legacy 判断器 8 例回归钉:判断器面断言词汇表外零漂移(ru
 test("管线例判断面回归钉:faux 层全 10 例(8 判断器+2 管线)= runner 缺省层 PASS=10 FAIL=0", async () => {
   // 父进程模式逐例派生子进程(runner 缺省=faux 层;与上行互补:钉选层缺省恒 faux,
   // 防 smoke 层误进 CI——修正③判例面)。smoke 例零凭证零网络永不入本钉。
-  const { stdout } = await execFile(process.execPath, [RUNNER], { timeout: 600_000, maxBuffer: 32 * 1024 * 1024 });
-  assert.match(stdout, /^golden: PASS=10 FAIL=0$/m, `faux 层非全绿:\n${stdout.slice(-1200)}`);
+  const { stdout: sum } = await (async () => { try {
+    return await execFile(process.execPath, [RUNNER], { timeout: 600_000, maxBuffer: 32 * 1024 * 1024 });
+  } catch (e) { return { stdout: e.stdout ?? String(e) }; } })(); // 同上:非零退出时保 stdout 入断言消息(P2)
+  assert.match(sum, /^golden: PASS=10 FAIL=0$/m, `faux 层非全绿:\n${sum.slice(-1200)}`);
 });
