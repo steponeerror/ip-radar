@@ -527,6 +527,11 @@ def main(argv=None):
                         "MISP sinkholes 语料(203 项 eval-only)记污染分"
                         "不记恶意分;只测量不持门,落 model/sinkhole-"
                         "probe-<ts>.json")
+    p.add_argument("--anchor-readouts", action="store_true",
+                   help="锚读数族双读数(#233 交付块3,ADR 0013):干净锚"
+                        "误报率(census+CP95)+扫描锚召回(scanner_ranges "
+                        "leave-out,段成员稳定采样);只测量不持门,落 "
+                        "model/anchor-fp-<ts>.json + scanner-recall-<ts>.json")
     p.add_argument("--dsem", action="store_true",
                    help="DS-EM fair fight: market vs declared vs pi-hat T3 (advisory)")
     p.add_argument("--temporal", action="store_true",
@@ -782,6 +787,30 @@ def main(argv=None):
                   f"sinkhole members {res['n_members']} "
                   f"(cidr {res['n_members_cidr']}, ip {res['n_members_ip']}), "
                   f"polluted sources {len(res['polluted_sources'])}")
+        return
+    if args.anchor_readouts:
+        # 锚读数族双读数(#233 交付块3,ADR 0013):只测量不持门——
+        # exit 恒 0,读数工件照落;单旗双读数 = 同族同装载面同月轮腿
+        # (票块3「两读数+月轮腿」一腿),拆旗无独立运维价值。
+        from .anchor_readouts import run_anchor_readouts
+        res = run_anchor_readouts(registry, out_dir=REPORT_DIR)
+        if args.json:
+            print(json.dumps(res, ensure_ascii=False, default=str))
+        else:
+            fp = res["clean_anchor_fp"]
+            print(f"anchor-fp: {fp['k']}/{fp['n']} clean anchors accused "
+                  f"(fp_rate={fp['fp_rate']}, CP95 "
+                  f"[{fp['cp95']['lo']}, {fp['cp95']['hi']}]; 只测量不持门)")
+            sr = res["scanner_recall"]
+            if sr["status"] == "ok":
+                print(f"scanner-recall: {sr['k_hit']}/{sr['n_probe']} "
+                      f"probed members recalled (recall={sr['recall']}, "
+                      f"CP95 [{sr['cp95']['lo']}, {sr['cp95']['hi']}], "
+                      f"leave-out {sr['leave_out']}, "
+                      f"self_echo={sr['n_self_echo']}; 只测量不持门)")
+            else:
+                print("scanner-recall: scanner_ranges CSV 缺失——"
+                      "显式缺层不报 0")
         return
     if args.dsem:
         from ipdb._merge import SOURCE_RELIABILITY
