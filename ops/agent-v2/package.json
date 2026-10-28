@@ -1,0 +1,17 @@
+{
+  "name": "ip-radar-ops-agent-v2",
+  "private": true,
+  "type": "module",
+  "description": "ops agent v2 骨架 — pi-durable@1.4.0 薄适配层 + SQLite + cron 式入口(票 #225;spec docs/superpowers/specs/2026-10-28-ops-agent-pidurable-migration-design.md 定案 1/5/6/7;shadow 期与旧管线 ops/agent/ 共存)",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@earendil-works/chord": "1.4.0",
+    "@earendil-works/pi-ai": "1.4.0",
+    "@earendil-works/pi-durable": "1.4.0"
+  }
+}
