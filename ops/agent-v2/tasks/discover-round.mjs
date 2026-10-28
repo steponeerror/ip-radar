@@ -77,7 +77,7 @@ function buildCtx(input, checkpoint) {
     roundId: input.roundId,
     opsRoot: resolveOpsRoot(env),
     env,
-    log: (line) => process.stdout.write(`[discover:${checkpoint.phase}] ${line}\n`),
+    log: (line) => process.stderr.write(`[discover:${checkpoint.phase}] ${line}\n`), // P2-⑦ stdout 只留末行信封(ENVELOPE.md 冻结面);进度行走 stderr(run-health/model-round 同律)
     fixturesDir: input.fixturesDir,
     modelFace: input.modelFace,
     budgetCny: input.budgetCny,
@@ -246,7 +246,10 @@ async function shortlistSubmit(task, runtime, context, s) {
   const settled = await submission.wait(context); // 恰好一次;同 key 崩溃重放不双花
   if (settled.status !== "done") { // unanswered(中止/机故障)→ 旧 retry≤1:attempt+1 新 requestId 再来
     if (attempt >= 2) return finishFailed(runtime, context, { message: `SHORTLIST:submission_${settled.status}`, detail: { code: "model_face", stage: "SHORTLIST" } });
-    return advance(runtime, context, cur, { attempt: attempt + 1 }, s.ctx);
+    // P0-③ attempt 即调用(旧律 budget.mjs:34「重试同计」):失败 attempt 同步入账 modelCalls,
+    // 否则相位边界提交的 cur.modelCalls+1 会漏掉全部失败回合;usage 不补(UsageDoc 会话
+    // 累计面,失败回合 usage 已自然含在下一次 usageNow 读数里)
+    return advance(runtime, context, cur, { attempt: attempt + 1, modelCalls: cur.modelCalls + 1 }, s.ctx);
   }
 
   // 答案提取:会话上下文=最后一条 assistant 文本(旧 runRealStep text 面)
@@ -254,7 +257,7 @@ async function shortlistSubmit(task, runtime, context, s) {
   const messages = view.entries.filter((e) => e.kind === "pi.assistant").flatMap((e) => e.model);
   const last = messages[messages.length - 1];
   const text = last?.content?.filter((c) => c.type === "text").map((c) => c.text).join("") ?? "";
-  if (!text && attempt < 2) return advance(runtime, context, cur, { attempt: attempt + 1 }, s.ctx); // empty_text 面重发(新 requestId)
+  if (!text && attempt < 2) return advance(runtime, context, cur, { attempt: attempt + 1, modelCalls: cur.modelCalls + 1 }, s.ctx); // empty_text 面重发(新 requestId);P0-③ 同上:失败 attempt 同计
   if (!text) return finishFailed(runtime, context, { message: "SHORTLIST:empty_text", detail: { code: "empty_text", stage: "SHORTLIST" } });
 
   const usageNow = await roundUsage(runtime, s.convId, context);
@@ -338,5 +341,8 @@ export const discoverRoundTask = defineTask({
     enqueue: (task, runtime, context) => scriptPhase(task, runtime, context, "enqueue"),
     retro: (task, runtime, context) => scriptPhase(task, runtime, context, "retro"),
     close: (task, runtime, context) => scriptPhase(task, runtime, context, "close"),
+  },
+  abort: async (_task, runtime, context) => { // P2-⑧ 中止终态留痕(model-round/health-round mkAbort 同款;缺省=框架 fault 面无终态,信封永不落)
+    await runtime.commit(() => ({ status: "terminal", outcome: { status: "aborted" } }), context);
   },
 });

@@ -159,7 +159,7 @@ export const OPS_MODEL_ROUND = defineTask({
         if (stopReason === "error" || stopReason === "aborted")
           throw Object.assign(new Error(`模型失败面 stopReason=${stopReason}`), { code: "model_face" }); // 旧 runModelStep 同判据
         const text = lastAssistantText(view).trim();
-        const usage = usageSince(view, base);
+        const usage = usageSince(view, 0); // P2-⑬ 显式游标 0:一次性会话全量(上方前提);原传 base 对象是靠 slice(NaN) 兑回 0 的暗病,不留
         ctx.modelCalls = ck.modelCalls + 1;
         await io.consume(ctx, item, { text }); // 零复制:收编落盘(03-triage-hypotheses/05-deep-<hid>/07-synth)
         // —— 结算后查②④(旧检查点同构;P1-4:轮内累计=轮基数+本会话累计——会话含重试
@@ -191,7 +191,11 @@ export const OPS_MODEL_ROUND = defineTask({
         if (retryable && ck.attempt < def.fail.retry)
           return void await runtime.commit((tx, cur) => ({
             status: "running",
-            checkpoint: { ...cur.state.checkpoint, attempt: cur.state.checkpoint.attempt + 1 },
+            // P0-③ attempt 即调用(旧律 budget.mjs:34「重试同计」):失败 attempt 的调用
+            // 数随重试 checkpoint 同步入账,否则成功面 ck.modelCalls+1 会漏掉全部失败回合
+            // (P1-4 收口/09-budget 轮累计随之少算);usage 不在此补——结算面
+            // usageSince(view,0) 按会话全量计,失败回合 usage 已含。
+            checkpoint: { ...cur.state.checkpoint, attempt: cur.state.checkpoint.attempt + 1, modelCalls: cur.state.checkpoint.modelCalls + 1 },
           }), context);
         return void await runtime.commit(() => ({ status: "terminal", outcome: { status: "failed", error: { code, message: `${input.stage}:${e?.message ?? String(e)}` } } }), context);
       }
