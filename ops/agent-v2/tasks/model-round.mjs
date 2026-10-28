@@ -132,8 +132,12 @@ export const OPS_MODEL_ROUND = defineTask({
       if (def.forEach && !item)
         return void await runtime.commit(() => ({ status: "terminal", outcome: { status: "failed", error: { code: "bad_round", message: `hid=${input.hid} 不在 04-dispatch-bundles(或金轨迹回退)` } } }), context);
       const modelInput = await io.input(ctx, item); // 零复制:旧装配面(提示词/上下文判例注入单源)
-      // —— attempt 前查①③(budget-guard 环内;旧 runModelStage 检查点同构,违界即停不重试)——
-      const pre = preModelCall({ roundType: "health", knobs, modelCalls: ck.modelCalls, startedAtIso: ck.startedAtIso });
+      // —— attempt 前查①③(budget-guard 环内;旧 runModelStage 检查点同构,违界即停不重试;
+      // P1-4:①③以轮累计为基——roundBase=健康轮 spawn 时点快照(轮调用数/轮 usage/轮
+      // started_at;直建子任务缺省=自身起点)。并行兄弟各自只见基数,全网约東在健康轮
+      // WAIT_MODEL 收口 ①②④复查(宁多算不漏记口径)——
+      const base = input.roundBase ?? { modelCalls: 0, usage: null, startedAtIso: ck.startedAtIso };
+      const pre = preModelCall({ roundType: "health", knobs, modelCalls: (base.modelCalls ?? 0) + ck.modelCalls, startedAtIso: base.startedAtIso ?? ck.startedAtIso });
       if (!pre.ok)
         return void await runtime.commit(() => ({ status: "terminal", outcome: { status: "failed", error: { code: pre.code, message: `${input.stage}:${pre.message}` } } }), context);
       // —— 微探针绑定(仅 DEEP;旧 faux.mjs runRealStep 同口径:≤3/假设+轮次级 dup registry)——
@@ -158,9 +162,10 @@ export const OPS_MODEL_ROUND = defineTask({
         const usage = usageSince(view, base);
         ctx.modelCalls = ck.modelCalls + 1;
         await io.consume(ctx, item, { text }); // 零复制:收编落盘(03-triage-hypotheses/05-deep-<hid>/07-synth)
-        // —— 结算后查②④(旧检查点同构;轮内累计=checkpoint.usage+本 attempt)——
-        const totalTokens = (ck.usage?.totalTokens ?? 0) + usage.totalTokens;
-        const costCny = (ck.usage?.cost ?? 0) + usage.cost;
+        // —— 结算后查②④(旧检查点同构;P1-4:轮内累计=轮基数+本会话累计——会话含重试
+        // 回合全计(宁多算不漏记);旧=ctx.usage(轮)+步内累计,同口径面)——
+        const totalTokens = (base.usage?.totalTokens ?? 0) + usage.totalTokens;
+        const costCny = (base.usage?.cost ?? 0) + usage.cost;
         const post = postModelCall({ roundType: "health", knobs, totalTokens, costCny });
         if (!post.ok)
           return void await runtime.commit(() => ({ status: "terminal", outcome: { status: "failed", error: { code: post.code, message: `${input.stage}:${post.message}` } } }), context);
@@ -199,4 +204,11 @@ export const OPS_MODEL_ROUND = defineTask({
 
 // 会话读面入口在相位 handler 内直用 runtime.context(convId, ctx)(ContextView.entries);
 // 本文件不再另设包装(单一读面,与 entry.mjs lastAssistantText 同形工具函数在上)。
+
+// 会话 transcript 计量面(健康轮 WAIT_MODEL 收口消费;P1-4 failed 子任务花费留痕——
+// 宁多算不漏记:result 缺席时从会话实计,重试回合全计;completed 子任务走 result.usage
+// 权威面不经此)。
+export const conversationUsage = (view) => usageSince(view, 0);
+export const conversationModelCalls = (view) =>
+  view.entries.filter((e) => e.kind === "pi.assistant").reduce((n, e) => n + (e.model ?? []).length, 0);
 

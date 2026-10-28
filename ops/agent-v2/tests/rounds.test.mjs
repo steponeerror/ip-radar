@@ -18,7 +18,7 @@ import * as v2breaker from "../breaker.mjs"; // 零复制 re-export seam(被测�
 import { BREAKER_CHANNELS, mkBreaker, readBreakerKnobs } from "../../agent/tools/breaker.mjs"; // 旧真源(对拍基准)
 import { OPS_PROBE_TOOLS, bindProbeHost, unbindProbeHost } from "../tools/probes.mjs";
 import { OPS_MODEL_ROUND, modelRequestId, MODEL_STAGES } from "../tasks/model-round.mjs";
-import { OPS_HEALTH_ROUND, RUNNABLE } from "../tasks/health-round.mjs";
+import { OPS_HEALTH_ROUND, RUNNABLE, rebuildRoundCtx } from "../tasks/health-round.mjs";
 import { buildRegistry } from "../registry.mjs";
 import { HEALTH_PIPELINE } from "../../agent/pipeline.mjs";
 
@@ -145,4 +145,16 @@ test("轮始旋钮非法=usage 错不带病跑轮(旧 mkCtx 同判例;OPS_PIPELI
   } finally {
     if (prev === undefined) delete process.env.OPS_PIPELINE_BUDGET_CNY; else process.env.OPS_PIPELINE_BUDGET_CNY = prev;
   }
+});
+
+// P1-5:admission 读数入链(submitter 链面——input.monthlyAdmission → initial →
+// ck.state.monthly_admission → rebuildRoundCtx 透传 → CLOSE 09-budget.json readings.monthly)
+test("P1-5:initial 接 monthlyAdmission 读数入 state.monthly_admission;缺席=不设(replay 面旧同形)", () => {
+  const adm = { ok: true, projected: 0.06, month: "2026-10", spend: 0.01, counted: 1, skipped: 0, est: 0.05, cap: 30 }; // admitOrRefuse 返回 admission 读数对象(budget.mjs monthlyAdmission 同形)
+  const ck = OPS_HEALTH_ROUND.definition.initial({ roundId: "r-p15-health", monthlyAdmission: adm });
+  assert.deepEqual(ck.state.monthly_admission, adm, "读数对象原样入 checkpoint(旧 ctx.state.monthly_admission 同位)");
+  assert.equal(OPS_HEALTH_ROUND.definition.initial({ roundId: "r2-health" }).state.monthly_admission, undefined, "缺席=不设键(09-budget readings.monthly=null,旧 replay 面同形)");
+  // 重建面透传断言(rebuildRoundCtx:monthly_admission 有值才镜像)
+  const rebuilt = rebuildRoundCtx({ roundId: "r-p15-health", modelFace: "faux" }, ck);
+  assert.deepEqual(rebuilt.state.monthly_admission, adm, "rebuildRoundCtx 透传(旧 state.json 全字段镜像面)");
 });

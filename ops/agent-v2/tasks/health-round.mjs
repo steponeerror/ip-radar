@@ -23,8 +23,8 @@ import { readBreakerKnobs } from "../../agent/tools/breaker.mjs"; // 零复制�
 import { ERROR_CODES } from "../../agent/error-codes.mjs";
 import { loadModels } from "../models.mjs"; // 零复制 seam(定案 7:装载器不动)
 import { buildRoundCtx, opsRootOf, composeEnvelope, skipWhenNoNeedDeep } from "../round-ctx.mjs";
-import { roundKnobs, stepBoundary } from "./budget-guard.mjs";
-import { OPS_MODEL_ROUND } from "./model-round.mjs";
+import { roundKnobs, stepBoundary, postModelCall, knobNames } from "./budget-guard.mjs"; // P1-4:收口复查①②④ 面
+import { OPS_MODEL_ROUND, conversationUsage, conversationModelCalls } from "./model-round.mjs"; // P1-4:failed 子任务留痕计量面
 
 const nowIso = () => new Date().toISOString();
 const defOf = (n) => HEALTH_PIPELINE.find((d) => d.name === n);
@@ -55,7 +55,7 @@ export function rebuildRoundCtx(input, ck) {
 }
 
 // —— 阶段记录/终态面(旧 failStage/writeState 同语义,载体=checkpoint 而非 state.json)——
-const stageDone = (ck, rec, phase) => ({ ...ck, phase: nextPhase(phase ?? ck.phase), attempt: 0, children: null, spawnPhase: null, state: { ...ck.state, stages: [...(ck.state?.stages ?? []), rec], prompt_hashes: { ...(ck.state?.prompt_hashes ?? {}) }, stage: phase ?? ck.phase }, modelCalls: ck.modelCalls, usage: ck.usage });
+const stageDone = (ck, rec, phase) => ({ ...ck, phase: nextPhase(phase ?? ck.phase), attempt: 0, children: null, childConvs: null, spawnPhase: null, state: { ...ck.state, stages: [...(ck.state?.stages ?? []), rec], prompt_hashes: { ...(ck.state?.prompt_hashes ?? {}) }, stage: phase ?? ck.phase }, modelCalls: ck.modelCalls, usage: ck.usage });
 function nextPhase(p) { const i = RUNNABLE.indexOf(p); return i >= 0 && i + 1 < RUNNABLE.length ? RUNNABLE[i + 1] : "CLOSE"; }
 const failTerm = (ck, phase, code, message) => ({ ...ck, phase: "FAILED", failed: { code, message: `${phase}:${message}` } });
 
@@ -76,7 +76,12 @@ async function spawnModelChildren(def, input, ck, runtime, context) {
   const ctx = rebuildRoundCtx(input, ck);
   const items = def.forEach ? steps.forEachItems(def, ctx) : [null]; // DEEP=bundles(零 bundle=金轨迹回退,旧 deepItems)
   const childIds = [];
+  const childConvs = {}; // taskId → convId(P1-4:WAIT_MODEL 收口读 failed 子任务会话留痕计量)
   const modelRef = await stepModelRef(def, input); // 装载先于 commit(异步 IO 不入事务)
+  // P1-4:轮级基数快照(spawn 时点轮累计)随 input 入子任务——子任务 pre①③/post②④
+  // 以轮为基(旧 runModelStage 轮累计执法同口径;并行兄弟各自只见基数,全网收口在本轮
+  // WAIT_MODEL ①②④复查)
+  const roundBase = { modelCalls: ck.modelCalls ?? 0, usage: ck.usage ?? null, startedAtIso: ck.startedAtIso };
   await runtime.commit(async (tx, cur) => {
     for (const item of items) {
       // 每子任务一自有 conversation(api-map §3「子代理=自有 conversation」;并行 submit 不撞 busy)
@@ -92,14 +97,16 @@ async function spawnModelChildren(def, input, ck, runtime, context) {
       const id = tx.createTask(OPS_MODEL_ROUND, {
         roundId: input.roundId, stage: def.name, ...(item ? { hid: item.hid } : {}),
         fixturesDir: input.fixturesDir ?? null, modelFace: input.modelFace ?? "faux",
+        roundBase,
       }, { ownership: { kind: "conversation" }, conversationId: conv.id });
       childIds.push(id);
+      childConvs[String(id)] = conv.id;
     }
     // MF2:spawn 与 wait 同一 commit(框架 README §Child Tasks Canonical 模式;types.d.ts
     // outcomes「rejects when one is missing or not terminal. Used after a wait」)——提交
     // waiting+on+policy,子任务全 settle 后才恢复 WAIT_MODEL 相位;逐假设败=降级面,故
     // allSettled 非 failFast(旧 runModelStage perItem 语义对应)。
-    return { status: "waiting", checkpoint: { ...cur.state.checkpoint, phase: "WAIT_MODEL", children: childIds, spawnPhase: def.name }, on: childIds, policy: "allSettled" };
+    return { status: "waiting", checkpoint: { ...cur.state.checkpoint, phase: "WAIT_MODEL", children: childIds, childConvs, spawnPhase: def.name }, on: childIds, policy: "allSettled" };
   }, context);
 }
 
@@ -125,11 +132,33 @@ async function waitModel(input, ck, runtime, context) {
       promptHashes[key] = r.prompt_sha; // replay 审计面(旧 runModelStage prompt_hashes 同位)
     } else if (o.state.outcome.status === "failed") {
       failedN += 1;
+      // P1-4 failed 子任务花费留痕(哨面宁多算不漏记):result 缺席 → 从其会话 transcript
+      // 实计(pi.assistant usage 求和/调用数=assistant 消息数;重试回合全计)——失败重试
+      // 已花的钱不从轮账面消失(09-budget.json 读数与真实花费不背离)。读败只 stderr 注记
+      // 不阻轮(缺口显式可见,不静默归零)。
+      const convId = ck.childConvs?.[String(ids[i])];
+      if (convId != null) {
+        try {
+          const view = await runtime.context(convId, context);
+          const cu = conversationUsage(view);
+          for (const k of ["input", "output", "totalTokens", "cost"]) usage[k] += cu[k];
+          modelCalls += conversationModelCalls(view);
+        } catch (e) { process.stderr.write(`[waitModel] failed 子任务留痕读败(conv=${convId}):${e?.message ?? e}\n`); }
+      }
       if (def.fail.perItem) degradedItems.push({ hid: hid ?? def.name, verdict: "unresolved", evidence: [], one_line: `重试尽降级 unresolved(${o.state.outcome.error?.message ?? "?"})` });
       else
         return void await runtime.commit(() => ({ status: "terminal", outcome: { status: "failed", error: { code: o.state.outcome.error?.code ?? "model_face", message: `${def.name}:${o.state.outcome.error?.message ?? "?"}` } } }), context);
     }
   }
+  // —— P1-4 WAIT_MODEL 收口复查①②④(轮级累计口径;并行子任务 pre/post 各自只见基数,
+  // 收口补全网;违界即停不降级——旧 fatalBudget 同语义。①口径=已计>帽,不预支 +1
+  // (overCallsCap 的 attempt-前查口径归子任务;帽内恰满的轮不误杀)——
+  const knobs4 = ck.budgetKnobs ?? roundKnobs(process.env, "health");
+  if (modelCalls > knobs4.maxModelCalls)
+    return void await runtime.commit(() => ({ status: "terminal", outcome: { status: "failed", error: { code: "budget_exceeded", message: `预算四界①(收口):轮累计模型调用 ${modelCalls} > ${knobs4.maxModelCalls}(${knobNames("health").calls})` } } }), context);
+  const post = postModelCall({ roundType: "health", knobs: knobs4, totalTokens: usage.totalTokens, costCny: usage.cost });
+  if (!post.ok)
+    return void await runtime.commit(() => ({ status: "terminal", outcome: { status: "failed", error: { code: post.code, message: `${def.name}:${post.message}` } } }), context);
   if (def.fail.perItem && failedN === (def.forEach ? steps.forEachItems(def, ctx).length : 1) && failedN > 0) {
     const msg = `全部 ${failedN} 假设失败(model_face)`; // 旧 runModelStage 全败=终态(C稿 §2.2)
     return void await runtime.commit(() => ({ status: "terminal", outcome: { status: "failed", error: { code: "model_face", message: msg } } }), context);
@@ -234,13 +263,17 @@ export const OPS_HEALTH_ROUND = defineTask({
   name: "ops-health-round",
   version: 1,
   initial: (input) => ({
-    phase: "PROBE", attempt: 0, children: null, spawnPhase: null, failed: null,
+    phase: "PROBE", attempt: 0, children: null, childConvs: null, spawnPhase: null, failed: null,
     startedAtIso: new Date().toISOString(),
     budgetCny: (() => { const raw = process.env.OPS_PIPELINE_BUDGET_CNY ?? "0.05"; const v = +raw; if (!Number.isFinite(v) || v < 0) throw Object.assign(new Error(`OPS_PIPELINE_BUDGET_CNY 须为非负数,得到:${raw}`), { usage: true }); return v; })(),
     budgetKnobs: roundKnobs(process.env, "health"), // 轮始校验(旧 mkCtx 同判例:非法 throw usage)
     breakerKnobs: readBreakerKnobs(process.env), // #199 B 同判例
     modelCalls: 0, usage: { input: 0, output: 0, totalTokens: 0, cost: 0 },
-    state: { stages: [], prompt_hashes: {} },
+    // P1-5:admission 读数入链——submitter(Entry/T5)把 admitRound 的 admission 读数对象
+    // 入任务 input.monthlyAdmission → initial → ck.state.monthly_admission(rebuildRoundCtx
+    // 已透传)→ CLOSE 09-budget.json readings.monthly(旧轮=月度准入投影对象;缺席=null
+    // =replay 面旧同形)。旧 pipeline.mjs:396 ctx.state.monthly_admission 同位。
+    state: { stages: [], prompt_hashes: {}, ...(input.monthlyAdmission != null ? { monthly_admission: input.monthlyAdmission } : {}) },
   }),
   phases: PHASES,
   abort: mkAbort("ops-health-round"),
