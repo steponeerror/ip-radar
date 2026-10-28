@@ -7,7 +7,7 @@ spec 定案 2 安全轨的运维面:旧管线原地不动,v2 在 `ops/agent-v2/`
 ```bash
 # 对拍闸门(罐装世界,零网络,~1min):旧 replay vs v2 checkpoint 任务
 node ops/agent-v2/shadow-diff.mjs <YYYY-MM-DD-HHMM-health>   # 退出 0=全 SAME
-# 全量测试套(46 测,含 parity + cron-launchers + E2E + SIGKILL resume + 重试/跨库/exit 码面)
+# 全量测试套(50 测,含 parity + cron-launchers + E2E + SIGKILL resume + 重试/跨库/exit 码面 + golden 三面)
 cd ops/agent-v2 && node --test 'tests/*.test.mjs'
 ```
 
@@ -17,7 +17,7 @@ cd ops/agent-v2 && node --test 'tests/*.test.mjs'
 
 - `shadow-diff.mjs` 退出 0(可比工件闭集 + 台账行,归一化窄面见其头注)。
 - 全量测试套 46/46 绿。
-- **golden 全集新旧逐条一致(票 #232,切流硬门槛)**:当前分支覆盖 1 例(discover full faux)+罐装健康截段(shadow-diff);全集(neg/boundary/health_full_faux 等 ~10 例)补齐前不得切流。
+- **golden 对拍(#232 已收口,切流硬门槛)**:管线面 2/2 位等价对拍(`pipeline_health_full_faux`+`pipeline_discover_full_faux`,tests/golden-health-parity/golden-discover-parity,归一化窄面同 shadow-diff)+ legacy 判断器 8 例回归钉(golden-judge-regression:判断器例驱动 legacy agent.mjs runRound 面,spec T3 明示不迁 v2——钉的是 v2 依赖世界保持 GOLDENPASS,非管线对拍;切流删旧时随 legacy 面退役)+ smoke 例凭证门(golden-smoke-gated:选层门恒钉,OLD 面双门手跑,NEW=N/A)。
 - 连续一个完整月轮周期内:零 infra 信封(v2 侧)、零对拍 DIFF、SIGKILL/断电恢复演练至少一次通过(`tests/resume.test.mjs` + 人工 kill 面板)。
 
 ## 已知差异面(声明,非缺陷)

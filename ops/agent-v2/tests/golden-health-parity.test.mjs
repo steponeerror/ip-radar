@@ -121,7 +121,8 @@ test("golden 对拍 pipeline_health_full_faux:旧 runPipeline 全链 vs v2 run-h
     const norm = (t) => normalizeText(t, base)
       .replace(/"(input|output|totalTokens)":\s*\d+/g, '"$1": N')
       .replace(/"wall_s":\s*[\d.]+/g, '"wall_s": 0')
-      .replace(/(Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d{1,2} [A-Z][a-z]{2} \d{4} \d{2}:\d{2}:\d{2} GMT/g, "<HTTP-DATE>"); // stub curl Last-Date 毫秒漂移(金样自身 600s 余量同设计;语义面=age_days/分桶,逐字比不变)
+      .replace(/\d+ 字节/g, "N 字节") // G_CLOSE reason 信封字节数=usage 数位下游(golden-discover-parity 同规则;shadow-diff 停笔 RETRO 不遇此面)
+      .replace(/(Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d{1,2} [A-Z][a-z]{2} \d{4} \d{2}:\d{2}:\d{2} GMT/g, "<HTTP-DATE>"); // stub curl Last-Modified 毫秒漂移(金样自身 600s 余量同设计;语义面=age_days/分桶,逐字比不变)
     const dirA = path.join(old.ops, "rounds", ROUND);
     const dirB = path.join(neu.ops, "rounds", ROUND);
     const filesOf = (d) => fs.existsSync(d) ? fs.readdirSync(d).filter((f) => !fs.statSync(path.join(d, f)).isDirectory()) : [];
