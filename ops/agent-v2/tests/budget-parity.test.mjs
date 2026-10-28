@@ -15,9 +15,9 @@ import * as oldBudget from "../../agent/pipeline/budget.mjs"; // 旧管线真源
 import * as v2Budget from "../budget.mjs"; // v2 零复制接线面
 import {
   admitRound, knobNames, postModelCall, preModelCall,
-  roundKnobs, stepBoundary, sumUsageState,
+  resolveLedgerPath, roundKnobs, stepBoundary, sumUsageState,
 } from "../tasks/budget-guard.mjs";
-import { runRound } from "../entry.mjs";
+import { ROOT, runRound } from "../entry.mjs";
 
 const V2_DIR = path.resolve(import.meta.dirname, "..");
 const ENTRY = path.join(V2_DIR, "entry.mjs");
@@ -252,6 +252,17 @@ test("月帽月读数对拍:monthNow/monthSpendOfLedgerText(v2 面=旧面)", () 
   ].join("\n");
   assert.deepEqual(v2Budget.monthSpendOfLedgerText(sample, month), oldBudget.monthSpendOfLedgerText(sample, month));
   assert.deepEqual(oldBudget.monthSpendOfLedgerText(sample, month), { spend: 3.75, counted: 2, skipped: 0 });
+});
+
+test("台账落位:LEDGER_FILE > DOCS_ROOT/ops/ledger.md > <仓根>/docs/ops/ledger.md(旧 agent.mjs runRound 同推导;#226 F1 钉死)", () => {
+  // scaffold.test.mjs db 落位断言同模式。期望仓根取自 entry.mjs ROOT——entry 居 ops/agent-v2/ 浅一层,
+  // 两层上移=仓根;budget-guard 居 tasks/ 子层须三层上移,推导深度不同而落点须同仓根(旧面缺省
+  // = ops/agent/tools/shared.mjs DOCS_ROOT(仓根/docs)+ "ops/ledger.md";漂移=缺省 env 下月帽读到
+  // 不存在文件,Σcost=0,¥30 kill switch 静默失效——F1 即此)。
+  assert.equal(resolveLedgerPath({ LEDGER_FILE: "/tmp/ledger-x.md" }), "/tmp/ledger-x.md");
+  assert.equal(resolveLedgerPath({ DOCS_ROOT: "/d" }), path.join("/d", "ops", "ledger.md"));
+  assert.equal(resolveLedgerPath({}), path.join(ROOT, "docs", "ops", "ledger.md"),
+    `缺省台账漂移:得 ${resolveLedgerPath({})},须 <仓根>/docs/ops/ledger.md`);
 });
 
 test("同参哈希对拍:dupKey/canonicalJson/dupRecord(v2 面=旧面;第 limit 次同参即拦)", () => {

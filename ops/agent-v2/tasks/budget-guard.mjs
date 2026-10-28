@@ -16,7 +16,7 @@
 import path from "node:path";
 import * as budget from "../budget.mjs"; // 零复制 seam(单一真源=旧管线 budget.mjs)
 
-const ROOT = path.resolve(import.meta.dirname, "..", ".."); // 仓根(与 entry.mjs ROOT 同推导;不 import entry 防环)
+const ROOT = path.resolve(import.meta.dirname, "..", "..", ".."); // 仓根(本文件居 tasks/ 子层,三层上移;entry.mjs 居浅一层故两层,两处落点须同仓根——对拍由 budget-parity 台账落位测试钉死。不 import entry 防环)
 
 // per-type 旋钮读面(pipeline.mjs mkCtx 同选择:discover→readDiscoverKnobs,其余→readBudgetKnobs;
 // 月帽/dup 两键两族共享同键同缺省)。非法值 throw {usage:true} → CLI 用法错 exit 2(不带病跑轮)。
