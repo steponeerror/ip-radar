@@ -13,6 +13,7 @@
 // startedAt 入 checkpoint——resume 沿原起算点续算,不重置)。requestId 幂等=子任务首 attempt 键。
 // 旧管线零改动红线;tasks/index.mjs 冲突(T3 同面)预期内留给 merger。
 import fs from "node:fs";
+import path from "node:path"; // MF1:rebuildRoundCtx 建轮目录用 path.join(漏 import 首相位即 ReferenceError;旧遗漏修复)
 import { defineTask, configure } from "@earendil-works/pi-durable";
 import { HEALTH_PIPELINE } from "../../agent/pipeline.mjs";
 import * as steps from "../../agent/pipeline/steps.mjs";
@@ -94,7 +95,11 @@ async function spawnModelChildren(def, input, ck, runtime, context) {
       }, { ownership: { kind: "conversation" }, conversationId: conv.id });
       childIds.push(id);
     }
-    return { status: "running", checkpoint: { ...cur.state.checkpoint, phase: "WAIT_MODEL", children: childIds, spawnPhase: def.name } };
+    // MF2:spawn 与 wait 同一 commit(框架 README §Child Tasks Canonical 模式;types.d.ts
+    // outcomes「rejects when one is missing or not terminal. Used after a wait」)——提交
+    // waiting+on+policy,子任务全 settle 后才恢复 WAIT_MODEL 相位;逐假设败=降级面,故
+    // allSettled 非 failFast(旧 runModelStage perItem 语义对应)。
+    return { status: "waiting", checkpoint: { ...cur.state.checkpoint, phase: "WAIT_MODEL", children: childIds, spawnPhase: def.name }, on: childIds, policy: "allSettled" };
   }, context);
 }
 

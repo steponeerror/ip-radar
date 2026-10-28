@@ -20,6 +20,7 @@ import { HEALTH_PIPELINE } from "../../agent/pipeline.mjs"; // 零复制:定义�
 import { modelIO, forEachItems } from "../../agent/pipeline/steps.mjs"; // 零复制:模型步装配/收编/逐假设枚举
 import { evalStageGate, appendGate } from "../../agent/pipeline/gates.mjs"; // 零复制:单发步门(G_TRIAGE/G_SYNTH)
 import { hidSlug } from "../../agent/pipeline/steps.mjs";
+import { loadFauxFixture, fauxFixtureSeeds, transcriptFile } from "../faux-face.mjs"; // MF3:faux 面分派件(fixture/seeds/transcript 名,旧 faux.mjs 位等价副本)
 import { ERROR_CODES } from "../../agent/error-codes.mjs";
 import { buildRoundCtx, opsRootOf, sha16 } from "../round-ctx.mjs";
 import { roundKnobs, preModelCall, postModelCall } from "./budget-guard.mjs"; // 票 #226 环内执法面
@@ -53,6 +54,37 @@ const usageSince = (view, n0) => {
   }
   return u;
 };
+
+// transcript 工件留痕(MF3;旧 faux.mjs runFauxStep/runRealStep 的 transcript 写盘副作用面,
+// 行型以旧源为准位等价:faux.mjs:87-94(faux 面)/faux.mjs:135-139(真面)——
+//   input 行:{type:"input",stage,model(仅真面:provider/modelId),system_sha,user_sha,meta}
+//   registry_seed 行:faux 面=fixture seeds(call_id=sd.id);真面=微探针宿主登记行(call_id=sd.call_id)
+//   message 行:逐 assistant 消息 {type:"message",role,content,stopReason}
+// 留痕先于失败面判定与 io.consume(旧同序:faux.mjs「留痕先于失败面判定」)。DEEP 的
+// deepConsume 宿主回填与 G_DEEP/G_SYNTH 门读面(deepSeeds/07 input 行 meta)都吃本工件——
+// 零复制链条的 transcript 半在此接回。v2 偏差(注明):重试同会话→message 行含全部 attempt
+// 回合(旧=每 attempt 新 Agent 重写单回合文件);门读面不读 message 行,证据不灭失优先。
+async function writeTranscript(def, input, item, modelInput, view, ctx, runtime, context) {
+  const face = input.modelFace ?? "faux";
+  const seeds = face === "faux"
+    ? fauxFixtureSeeds(loadFauxFixture(def, input.fixturesDir, item)) // 缺 fixture=infra(旧 loadFixture 同判例)
+    : (boundProbeHost(runtime.conversationId)?.seeds ?? []); // 真面=宿主登记行(seeds 必从宿主内存取,t1-notes 结论)
+  let modelField = null;
+  if (face !== "faux") {
+    const am = (await runtime.agent(context))?.model ?? null; // 本会话 agent 面(configure 时模型真源)
+    if (am) modelField = `${am.provider}/${am.modelId}`;
+  }
+  const tf = transcriptFile(def, item);
+  if (!tf) throw Object.assign(new Error(`transcript 名未装配:${def.name}`), { code: "infra" });
+  const lines = [
+    JSON.stringify({ type: "input", stage: input.stage, ...(modelField ? { model: modelField } : {}),
+      system_sha: sha16(modelInput.systemPrompt), user_sha: sha16(modelInput.userMsg), meta: modelInput.meta ?? null }),
+    ...seeds.map((sd) => JSON.stringify({ type: "registry_seed", call_id: sd.call_id, tool: sd.tool, sc: sd.sc })),
+    ...view.entries.filter((e) => e.kind === "pi.assistant").flatMap((e) => e.model ?? [])
+      .map((m) => JSON.stringify({ type: "message", role: "assistant", content: m.content, stopReason: m.stopReason ?? null })),
+  ];
+  fs.writeFileSync(path.join(ctx.dir, tf), lines.join("\n") + "\n");
+}
 
 // ctx 重建(checkpoint 是唯一真源;旧 runResume ctxShape 同构面):modelFace 缺省 faux(零网络安全缺省,
 // 旧 runModelStep 同缺省);工件面=opsRoot/rounds/<roundId>(旧同形)。
@@ -118,6 +150,7 @@ export const OPS_MODEL_ROUND = defineTask({
         if (settled.status !== "done")
           throw Object.assign(new Error(`submission ${settled.status}`), { code: "model_face" });
         const view = await runtime.context(runtime.conversationId, context); // ContextView.entries=已提交可见 transcript(旧 faux 读面同源)
+        await writeTranscript(def, input, item, modelInput, view, ctx, runtime, context); // MF3:留痕先于失败面判定与 io.consume(旧同序)
         const stopReason = lastStopReason(view);
         if (stopReason === "error" || stopReason === "aborted")
           throw Object.assign(new Error(`模型失败面 stopReason=${stopReason}`), { code: "model_face" }); // 旧 runModelStep 同判据

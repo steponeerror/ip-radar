@@ -76,8 +76,10 @@ test("ops-model-round E2E:TRIAGE 一发→03-triage-hypotheses.json 落盘→G_T
       { signal_id: "https://cinsscore.com/list/ci-badguys.txt", source: "cinsscore", bucket: "frozen", age_days: 220, url: "https://cinsscore.com/list/ci-badguys.txt" },
       { signal_id: "https://www.binarydefense.com/banlist.txt", source: "binarydefense", bucket: "frozen", age_days: 210, url: "https://www.binarydefense.com/banlist.txt" },
     ], known_noise_digest: [] }, null, 2) + "\n");
-  // canned 回合=旧 fixtures/pipeline/triage.json 同型(G_TRIAGE 闭集值全过)
-  const canned = JSON.parse(fs.readFileSync(path.resolve(import.meta.dirname, "..", "..", "agent", "fixtures", "pipeline", "triage.json"), "utf8"));
+  // canned 回合=旧 fixtures/pipeline/triage.json 同型(G_TRIAGE 闭集值全过);fixturesDir=同源
+  // (MF3 后 faux 面 transcript 种子/fixture 必件——旧 loadFixture 同判例)
+  const fixturesDir = path.resolve(import.meta.dirname, "..", "..", "agent", "fixtures", "pipeline");
+  const canned = JSON.parse(fs.readFileSync(path.join(fixturesDir, "triage.json"), "utf8"));
   const systemPrompt = fs.readFileSync(path.resolve(import.meta.dirname, "..", "..", "agent", "prompts", "health", "triage.md"), "utf8");
 
   const { fauxProvider: fp, createModels: cm } = { fauxProvider, createModels };
@@ -93,7 +95,7 @@ test("ops-model-round E2E:TRIAGE 一发→03-triage-hypotheses.json 落盘→G_T
     const m = faux.getModel();
     const opsExt = buildRegistry().snapshot().installed().find((e) => e.name === "ops"); // AgentChange.extensions 要 Extension 对象(applyChange names() 读 .name;存态才是字符串)
     const root = await harness.root(context, { agent: { model: { provider: m.provider, modelId: m.id }, extensions: [opsExt], instructions: systemPrompt, modelTools: [] } });
-    const taskId = await root.commit((tx) => tx.createTask(OPS_MODEL_ROUND, { roundId, stage: "TRIAGE", modelFace: "faux" }, { ownership: { kind: "conversation" } }), context);
+    const taskId = await root.commit((tx) => tx.createTask(OPS_MODEL_ROUND, { roundId, stage: "TRIAGE", modelFace: "faux", fixturesDir }, { ownership: { kind: "conversation" } }), context);
     const settled = await harness.waitForTask(taskId, context);
     const outcome = settled.state.outcome;
     assert.equal(outcome.status, "completed", `任务未完成:${JSON.stringify(outcome)}`);
@@ -101,6 +103,16 @@ test("ops-model-round E2E:TRIAGE 一发→03-triage-hypotheses.json 落盘→G_T
     assert.match(outcome.result.prompt_sha, /^[0-9a-f]{16}$/);
     const h = JSON.parse(fs.readFileSync(path.join(roundDir, "03-triage-hypotheses.json"), "utf8"));
     assert.equal(h.hypotheses.length, 2, "收编工件(零复制 triageConsume)落盘");
+    // MF3 钉住:transcript 工件行型位等价(旧 faux.mjs:87-94——input 行无 model 字段/
+    // 零 registry_seed/assistant message 行;门与 DEEP 宿主回填的读面)
+    const tl = fs.readFileSync(path.join(roundDir, "03-triage-transcript.jsonl"), "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
+    assert.deepEqual(tl.map((x) => x.type), ["input", "message"], "TRIAGE transcript 行型:input+message(单发步零 seed 行)");
+    assert.equal(tl[0].model, undefined, "faux 面 input 行不带 model 字段(旧行型逐字节不变)");
+    assert.equal(tl[0].stage, "TRIAGE");
+    assert.match(tl[0].system_sha, /^[0-9a-f]{16}$/);
+    assert.equal(tl[0].meta, null, "TRIAGE 无判例注入面 meta=null(旧 input.meta ?? null 同形)");
+    assert.equal(tl[1].role, "assistant");
+    assert.equal(tl[1].stopReason, "stop");
     const gatesLog = JSON.parse(fs.readFileSync(path.join(roundDir, "gates.json"), "utf8"));
     const g = (Array.isArray(gatesLog) ? gatesLog : gatesLog.records ?? []).find((r) => r.gate === "G_TRIAGE" || r.name === "G_TRIAGE");
     assert.ok(g, "gates.json 落 G_TRIAGE 记录");
