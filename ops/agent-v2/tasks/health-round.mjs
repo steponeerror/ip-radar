@@ -14,6 +14,7 @@
 // 旧管线零改动红线;tasks/index.mjs 冲突(T3 同面)预期内留给 merger。
 import fs from "node:fs";
 import path from "node:path"; // MF1:rebuildRoundCtx 建轮目录用 path.join(漏 import 首相位即 ReferenceError;旧遗漏修复)
+import { randomUUID } from "node:crypto";
 import { defineTask, configure } from "@earendil-works/pi-durable";
 import { HEALTH_PIPELINE } from "../../agent/pipeline.mjs";
 import * as steps from "../../agent/pipeline/steps.mjs";
@@ -68,26 +69,31 @@ const mkAbort = () => async (_t, runtime, context) => { // 终审小项:无参�
 // P0-④ 跨库撞轮目录守卫:v2 健康轮无 state.json(实现细节,RUNBOOK 已知差异表),
 // 跨库新任务撞已有轮目录无守卫(同库复用走 run-health HealthRoundsDoc 不触发;
 // --from-phase TRIAGE 的前置工件 01-/02- 合法,故不能以「目录非空」判)。认领件
-// .v2-claim.json{taskId} 落轮目录:每相位头核认领,异主 → bad_round 终态(旧
+// .v2-claim.json{token,taskId} 落轮目录:每相位头核认领,异主 → bad_round 终态(旧
 // discover bootstrapRoundDir 同义;该件已入 shadow-diff 白名单+RUNBOOK 差异表)。
-async function claimRoundDir(input, runtime, context) {
+// 认领键=checkpoint 携带的随机 token 而非裸 taskId——taskId 是 per-db 计数器,
+// 两库各自新建任务会数值相撞(db1/task1 vs db2/task1),裸 id 判同主即失效;
+// token 随 checkpoint 持久,同任务 resume 恒自识,异任务(任意库)恒异主。
+async function claimRoundDir(task, runtime, context) {
+  const input = task.input;
+  const token = task.state.checkpoint?.claimToken ?? null;
   const dir = path.join(opsRootOf(process.env), "rounds", String(input.roundId));
   fs.mkdirSync(dir, { recursive: true });
   const claimFile = path.join(dir, ".v2-claim.json");
   let claim = null;
   try { claim = JSON.parse(fs.readFileSync(claimFile, "utf8")); } catch { /* 无=全新 */ }
-  if (claim && claim.taskId !== runtime.taskId) {
+  if (claim && claim.token !== token) {
     await runtime.commit(() => ({
       status: "terminal",
-      outcome: { status: "failed", error: { code: "bad_round", message: `rounds/${input.roundId} 已被任务 ${claim.taskId} 认领(跨库撞轮目录;同库重跑走 HealthRoundsDoc 复用)` } },
+      outcome: { status: "failed", error: { code: "bad_round", message: `rounds/${input.roundId} 已被任务认领(跨库撞轮目录;同库重跑走 HealthRoundsDoc 复用;claim.taskId=${claim.taskId ?? "?"})` } },
     }), context);
     return false;
   }
-  if (!claim) fs.writeFileSync(claimFile, JSON.stringify({ taskId: runtime.taskId }, null, 2) + "\n");
+  if (!claim) fs.writeFileSync(claimFile, JSON.stringify({ token, taskId: runtime.taskId }, null, 2) + "\n");
   return true;
 }
 const claimGuard = (h) => async (task, runtime, context) => {
-  if (!(await claimRoundDir(task.input, runtime, context))) return; // 异主 → 已落 bad_round 终态,本相位不执行
+  if (!(await claimRoundDir(task, runtime, context))) return; // 异主 → 已落 bad_round 终态,本相位不执行
   return h(task, runtime, context);
 };
 
@@ -362,6 +368,7 @@ export const OPS_HEALTH_ROUND = defineTask({
   version: 1,
   initial: (input) => ({
     phase: startPhaseOf(input.fromPhase, input), attempt: 0, children: null, childConvs: null, spawnPhase: null, failed: null,
+    claimToken: randomUUID(), // P0-④ 轮目录认领键(见 claimRoundDir;裸 taskId per-db 撞号,不可作键)
     startedAtIso: new Date().toISOString(),
     budgetCny: (() => { const raw = process.env.OPS_PIPELINE_BUDGET_CNY ?? "0.05"; const v = +raw; if (!Number.isFinite(v) || v < 0) throw Object.assign(new Error(`OPS_PIPELINE_BUDGET_CNY 须为非负数,得到:${raw}`), { usage: true }); return v; })(),
     budgetKnobs: roundKnobs(process.env, "health"), // 轮始校验(旧 mkCtx 同判例:非法 throw usage)

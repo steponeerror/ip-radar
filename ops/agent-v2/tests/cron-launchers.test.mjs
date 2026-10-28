@@ -40,6 +40,7 @@ test("run-health 全链:exit 0,stdout 末行=旧形成功信封,CLOSE 门在,gat
     const env = JSON.parse(lastLine(r.out));
     assert.equal(env.ok, true);
     assert.equal(env.round, "health");
+    assert.deepEqual(Object.keys(env).sort(), ["ok", "pipeline", "pkg", "queue_writes", "round", "usage", "verify"].sort(), "健康成功信封键闭集(P2-⑩;ENVELOPE.md 冻结面)");
     assert.equal(env.pipeline.round_id, id);
     assert.ok(env.pipeline.stages.some((s) => s.name === "CLOSE"), "stages 含 CLOSE");
     assert.ok(env.usage && "cost" in env.usage, "信封带 usage.cost");
@@ -107,6 +108,34 @@ test("run-health 用法错:缺 roundId → exit 2;非法 toPhase → exit 2;非�
     assert.equal(r3.code, 2, "toPhase 早于 fromPhase 拒");
     const r4 = await cli([rid(4), "--fixtures", FIXTURES, "--db", path.join(w.tmp, "s.sqlite"), "--model", "noprovider"], w);
     assert.equal(r4.code, 2, "--model 缺 provider/modelId 斜杠拒");
+  } finally { fs.rmSync(w.tmp, { recursive: true, force: true }); }
+});
+
+test("P0-④ 健康轮跨库撞轮目录:同轮 id 换新 db → exit 1 bad_round,台账不双写", async () => {
+  const id = rid(6);
+  const w = seedWorld(id);
+  try {
+    const r1 = await cli([id, "--from-phase", "TRIAGE", "--fixtures", FIXTURES, "--db", path.join(w.tmp, "s1.sqlite")], w);
+    assert.equal(r1.code, 0, `首轮应成功:\n${r1.err}`);
+    assert.ok(fs.existsSync(path.join(w.roundDir, ".v2-claim.json")), "认领件落轮目录");
+    const r2 = await cli([id, "--from-phase", "TRIAGE", "--fixtures", FIXTURES, "--db", path.join(w.tmp, "s2.sqlite")], w); // 新库=新任务撞异主认领
+    assert.equal(r2.code, 1);
+    const env2 = JSON.parse(lastLine(r2.out));
+    assert.equal(env2.error.code, "bad_round", `跨库撞轮须 bad_round:\n${r2.out}`);
+    assert.match(env2.error.message, /认领/);
+    const ledger = fs.readFileSync(path.join(w.ops, "ledger.md"), "utf8");
+    assert.equal((ledger.match(/\| health \|/g) ?? []).length, 1, "拒轮不写台账,首轮一行不双写");
+  } finally { fs.rmSync(w.tmp, { recursive: true, force: true }); }
+});
+
+test("P2-⑩ 运行期异常:--db 指不可写路径(父路径是文件)→ exit 3,stdout 零信封", async () => {
+  const w = seedWorld(rid(7));
+  try {
+    fs.writeFileSync(path.join(w.tmp, "file-not-dir"), "x"); // 父路径是文件 → 开库 ENOTDIR → launcher 异常面
+    const r = await cli([rid(7), "--from-phase", "TRIAGE", "--fixtures", FIXTURES, "--db", path.join(w.tmp, "file-not-dir", "s.sqlite")], w);
+    assert.equal(r.code, 3);
+    assert.equal(r.out.trim(), "", "运行期异常不发 JSON 信封(ENVELOPE.md 码表:3=launcher 自身)");
+    assert.ok(r.err.includes("Error"), "stderr 带栈");
   } finally { fs.rmSync(w.tmp, { recursive: true, force: true }); }
 });
 

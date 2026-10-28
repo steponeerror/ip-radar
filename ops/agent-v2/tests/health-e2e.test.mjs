@@ -112,6 +112,10 @@ test("健康轮链路 E2E:TRIAGE→WAIT_MODEL(join)→DEEP(evidence)→SYNTH→�
       assert.ok(env.pipeline.stages.every((s) => ["done", "skipped", "degraded"].includes(s.status)), `成功轮 stage 状态闭集:${JSON.stringify(env.pipeline.stages)}`);
       assert.equal(env.pipeline.stages.find((s) => s.name === "ANCHOR_SWEEP").status, "degraded", "锚巡检面死=降级旁路(零网络世界)");
       assert.ok(env.usage.totalTokens > 0, `轮 usage 数字回传(faux 估算面):${JSON.stringify(env.usage)}`);
+      // P0-⑤ 求和律(旧 pipeline_ok 断言面):各步 usage 增量之和 == 信封 usage(脚本步 null 不计)
+      const sum = { input: 0, output: 0, totalTokens: 0, cost: 0 };
+      for (const s of env.pipeline.stages) if (s.usage) for (const k of Object.keys(sum)) sum[k] += s.usage[k];
+      assert.deepEqual(sum, env.usage, "各步求和==信封 usage(P0-⑤ 语义回旧律)");
       // —— MF3 transcript 面:TRIAGE 行型(faux 面无 model 字段/零 seed 行)——
       const tt = jsonlOf(path.join(w.roundDir, "03-triage-transcript.jsonl"));
       assert.deepEqual(tt.map((x) => x.type), ["input", "message"]);
@@ -155,6 +159,44 @@ test("健康轮链路 E2E:TRIAGE→WAIT_MODEL(join)→DEEP(evidence)→SYNTH→�
   }
 });
 
+// P0-③ attempt 即调用(旧律 budget.mjs:34「重试同计」):TRIAGE 首回合 stopReason=error
+// (旧 runModelStep 失败面同判据)→ model_face 重试;重试 commit 同步 modelCalls+1,
+// 成功面 ck.modelCalls+1 自动含失败回合 → 轮累计 5(TRIAGE 2 + DEEP×2 + SYNTH 1)。
+// 修复前:重试不计数 → 4(失败回合丢账)。
+test("P0-③ attempt 即调用:TRIAGE model_face 首败重试同计,轮累计=5 非 4", async () => {
+  const roundId = "2026-10-28-e2e-retry-health";
+  const w = seedWorld({ roundId });
+  const fxDir = path.join(w.tmp, "fixtures-retry");
+  fs.cpSync(FIXTURES, fxDir, { recursive: true }); // DEEP/SYNTH 面仍用原罐装回合
+  const triage = jsonOf(path.join(fxDir, "triage.json"));
+  fs.writeFileSync(path.join(fxDir, "triage.json"), JSON.stringify({ ...triage, turns: [{ role: "assistant", content: [], stopReason: "error" }, ...triage.turns] }));
+  const storage = await openNodeSqliteStorage(path.join(w.tmp, "t.sqlite"));
+  const context = BACKGROUND_CONTEXT;
+  try {
+    const harness = await Harness.open(storage, { models: createModels(), registry: buildRegistry() }, context);
+    try {
+      harness.resume();
+      const root = await harness.root(context);
+      const taskId = await root.commit((tx) => tx.createTask(OPS_HEALTH_ROUND, {
+        roundId, fromPhase: "TRIAGE", modelFace: "faux", fixturesDir: fxDir,
+      }, { ownership: { kind: "conversation" } }), context);
+      const settled = await harness.waitForTask(taskId, context);
+      const outcome = settled.state.outcome;
+      assert.equal(outcome.status, "completed", `重试后应全链完成:${JSON.stringify(outcome)}`);
+      const budget = jsonOf(path.join(w.roundDir, "09-budget.json"));
+      assert.equal(budget.readings.model_calls, 5, "失败 attempt 同计:TRIAGE 2+DEEP×2+SYNTH 1(旧律 budget.mjs:34)");
+      // P0-⑤ 求和律在重试轮同样成立(增量口径与重试回合无关)
+      const env = outcome.result.envelope;
+      const sum = { input: 0, output: 0, totalTokens: 0, cost: 0 };
+      for (const s of env.pipeline.stages) if (s.usage) for (const k of Object.keys(sum)) sum[k] += s.usage[k];
+      assert.deepEqual(sum, env.usage);
+    } finally { await harness.close(context); }
+  } finally {
+    await storage.close(context);
+    w.restore();
+    fs.rmSync(w.tmp, { recursive: true, force: true });
+  }
+});
 // P1-4 ①收口复查钉负例:调用帽 2 < 实际 3(TRIAGE+DEEP×2 各自 pre 只见基数全放行)→
 // WAIT_MODEL 收口按轮累计终态 budget_exceeded(违界即停不降级;SYNTH 不再 spawn)。
 test("P1-4 ①收口:并行子任务穿透基数后 WAIT_MODEL 按轮累计终态 budget_exceeded", async () => {
