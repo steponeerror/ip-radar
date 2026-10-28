@@ -37,13 +37,15 @@ export const fauxFixtureSeeds = (fx) =>
   (fx.seeds ?? (fx.seed ? [fx.seed] : [])).map((sd) => ({ call_id: sd.id, tool: sd.tool, sc: sd.sc }));
 
 // 旧 runFauxStep provider 装配(faux.mjs:76-79)+ v2 唯一名(见头注);返回 modelRef
-// (configure 面 {provider,modelId};faux.getModel().provider 即唯一名)。
+// (configure 面 {provider,modelId};真源=faux.getModel()——其 .provider 即唯一名字串,
+// 勿用 faux.provider(那是 provider 对象非 id 字串)。
 export function mkFauxFace(def, { roundId, stage, hid = null }) {
   const faux = fauxProvider({
     provider: `faux-${hidSlug(`${roundId}-${stage}${hid != null ? `-${hid}` : ""}`)}`,
     models: [{ id: `faux-${def.model.replace(/\//g, "-")}` }],
   });
-  return { faux, modelRef: { provider: faux.provider, modelId: faux.getModel().id } };
+  const m = faux.getModel();
+  return { faux, modelRef: { provider: m.provider, modelId: m.id } };
 }
 
 // 旧 faux.mjs transcriptName 逐字副本(健康轮三步;SHORTLIST=发现轮面不在本票范围,

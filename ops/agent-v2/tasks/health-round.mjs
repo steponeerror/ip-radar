@@ -25,6 +25,8 @@ import { loadModels } from "../models.mjs"; // 零复制 seam(定案 7:装载器
 import { buildRoundCtx, opsRootOf, composeEnvelope, skipWhenNoNeedDeep } from "../round-ctx.mjs";
 import { roundKnobs, stepBoundary, postModelCall, knobNames } from "./budget-guard.mjs"; // P1-4:收口复查①②④ 面
 import { OPS_MODEL_ROUND, conversationUsage, conversationModelCalls } from "./model-round.mjs"; // P1-4:failed 子任务留痕计量面
+import { mkFauxFace, loadFauxFixture } from "../faux-face.mjs"; // 修复⑥:faux 面分派件(旧 faux.mjs 位等价副本)
+import { OPS_PROBE_TOOLS } from "../tools/probes.mjs"; // DEEP 真面探针闭集(AgentChange.modelTools 要 ToolRegistration 对象非名字串——applyChange names() 映射 .name)
 
 const nowIso = () => new Date().toISOString();
 const defOf = (n) => HEALTH_PIPELINE.find((d) => d.name === n);
@@ -63,6 +65,17 @@ const mkAbort = (name) => async (_t, runtime, context) => {
   await runtime.commit(() => ({ status: "terminal", outcome: { status: "aborted" } }), context);
 };
 
+// 起步相位缝(修复⑥ E2E 面;旧 pipeline.mjs replay --from STAGE 同义语义):生产 cron
+// 不传(缺省 PROBE 全十态);测试/faux 审计用前置工件面从指定相位起步(零网络红线下
+// PROBE 的真探测/矩阵面不可入测试)。闭集=RUNNABLE+CLOSE(WAIT_MODEL=join 态/FAILED=终态
+// 书挡,不可起步);非法=bad_round(闭集成员)。
+const startPhaseOf = (p) => {
+  if (p == null) return "PROBE";
+  if (![...RUNNABLE, "CLOSE"].includes(p))
+    throw Object.assign(new Error(`fromPhase 须 ∈ {${[...RUNNABLE, "CLOSE"].join("|")}}:${p}`), { code: "bad_round" });
+  return p;
+};
+
 // —— 模型相位共通:创建子任务(逐假设一实例)后转 WAIT_MODEL ——
 let MODELS_BUNDLE = null; // 轮内缓存(旧 providerBundle 同型:目录只装载一次)
 async function stepModelRef(def, input) {
@@ -77,24 +90,46 @@ async function spawnModelChildren(def, input, ck, runtime, context) {
   const items = def.forEach ? steps.forEachItems(def, ctx) : [null]; // DEEP=bundles(零 bundle=金轨迹回退,旧 deepItems)
   const childIds = [];
   const childConvs = {}; // taskId → convId(P1-4:WAIT_MODEL 收口读 failed 子任务会话留痕计量)
-  const modelRef = await stepModelRef(def, input); // 装载先于 commit(异步 IO 不入事务)
+  // faux 面分派(修复⑥/审查 P2-4 最小接面,只接分派不动 T5 台账兼容面):显式 modelRef
+  // (测试注入面)优先;否则 modelFace 缺省 faux(零网络安全缺省,rebuildCtx 同口径;生产
+  // cron 须显式传 real)→ 逐子任务一 fauxProvider 罐装回合(旧 runFauxStep 每步 new
+  // Agent 同义;provider 唯一名防并行串台,见 faux-face.mjs 头注),注册进 harness
+  // Models(runtime.models 面);真面路径不变(loadModels 真装载)。进程内注册=崩溃重启
+  // 后在飞子任务 provider 不可复现(faux 面限制:测试/审计面,生产不走;宁少算不静默切真面)。
+  const explicitRef = input.modelRef ?? null;
+  const fauxFace = !explicitRef && (input.modelFace ?? "faux") === "faux";
+  const modelRef = explicitRef ?? (fauxFace ? null : await stepModelRef(def, input)); // 装载先于 commit(异步 IO 不入事务)
+  const fauxRefs = new Map(); // items 索引 → modelRef(faux 面逐子任务)
+  if (fauxFace) {
+    items.forEach((item, i) => {
+      const { faux, modelRef: ref } = mkFauxFace(def, { roundId: input.roundId, stage: def.name, hid: item?.hid });
+      faux.setResponses(loadFauxFixture(def, input.fixturesDir, item).turns); // 缺 fixture=infra(旧 loadFixture 同判例,提交前抛)
+      runtime.models.setProvider(faux.provider);
+      fauxRefs.set(i, ref);
+    });
+  }
   // P1-4:轮级基数快照(spawn 时点轮累计)随 input 入子任务——子任务 pre①③/post②④
   // 以轮为基(旧 runModelStage 轮累计执法同口径;并行兄弟各自只见基数,全网收口在本轮
   // WAIT_MODEL ①②④复查)
   const roundBase = { modelCalls: ck.modelCalls ?? 0, usage: ck.usage ?? null, startedAtIso: ck.startedAtIso };
   await runtime.commit(async (tx, cur) => {
-    for (const item of items) {
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
       // 每子任务一自有 conversation(api-map §3「子代理=自有 conversation」;并行 submit 不撞 busy)
       const conv = await tx.createConversation({ ownership: { kind: "task", taskId: cur.id } });
       const io = steps.modelIO(def);
       const minput = await io.input(rebuildRoundCtx(cur.input, cur.state.checkpoint), item); // 装配单源(与子任务内同函数)
       await configure(tx, conv.id, {
-        model: modelRef,
+        model: fauxRefs.get(i) ?? modelRef,
         extensions: [runtime.registry.extension("ops")].filter(Boolean), // AgentChange 要 Extension 对象(applyChange names();存态才是字符串)
         instructions: minput.systemPrompt, // 旧提示词文件全文=会话 instructions(单源 prompts/health/*.md)
-        ...(def.forEach ? { modelTools: ["reprobe_get", "reprobe_ua", "upstream_check"] } : { modelTools: [] }), // TRIAGE/SYNTH 无探针面=旧 tools=[]
+        // 真 DEEP=微探针闭集三只(旧 runRealStep 同面;modelTools 传 ToolRegistration 对象,
+        // 框架 applyChange 存名字串——旧代码传名字串会 map 出 undefined 存储炸 strict JSON,
+        // 执行面暴露的第四处暗病,随 E2E 一并修复);faux 面恒 [](旧 runFauxStep tools=[] 同义:
+        // 罐装回合无工具面,种子=fixture registry_seed 行由 model-round 落盘)
+        ...(def.forEach && !fauxFace ? { modelTools: OPS_PROBE_TOOLS } : { modelTools: [] }),
       });
-      const id = tx.createTask(OPS_MODEL_ROUND, {
+      const id = await tx.createTask(OPS_MODEL_ROUND, {
         roundId: input.roundId, stage: def.name, ...(item ? { hid: item.hid } : {}),
         fixturesDir: input.fixturesDir ?? null, modelFace: input.modelFace ?? "faux",
         roundBase,
@@ -125,12 +160,12 @@ async function waitModel(input, ck, runtime, context) {
     const o = outcomes[i];
     const hid = def.forEach ? steps.forEachItems(def, ctx)[i]?.hid : null;
     const key = `${def.name}${hid ? `:${hid}` : ""}`;
-    if (o.state.outcome.status === "completed") {
-      const r = o.state.outcome.result;
+    if (o.status === "completed") { // TaskOutcome 面值即 {status,result|error,reason}(types.d.ts:510;无 .state 包裹)
+      const r = o.result;
       for (const k of ["input", "output", "totalTokens", "cost"]) usage[k] += r.usage?.[k] ?? 0;
       modelCalls += r.modelCalls ?? 1;
       promptHashes[key] = r.prompt_sha; // replay 审计面(旧 runModelStage prompt_hashes 同位)
-    } else if (o.state.outcome.status === "failed") {
+    } else if (o.status === "failed") {
       failedN += 1;
       // P1-4 failed 子任务花费留痕(哨面宁多算不漏记):result 缺席 → 从其会话 transcript
       // 实计(pi.assistant usage 求和/调用数=assistant 消息数;重试回合全计)——失败重试
@@ -145,7 +180,7 @@ async function waitModel(input, ck, runtime, context) {
           modelCalls += conversationModelCalls(view);
         } catch (e) { process.stderr.write(`[waitModel] failed 子任务留痕读败(conv=${convId}):${e?.message ?? e}\n`); }
       }
-      if (def.fail.perItem) degradedItems.push({ hid: hid ?? def.name, verdict: "unresolved", evidence: [], one_line: `重试尽降级 unresolved(${o.state.outcome.error?.message ?? "?"})` });
+      if (def.fail.perItem) degradedItems.push({ hid: hid ?? def.name, verdict: "unresolved", evidence: [], one_line: `重试尽降级 unresolved(${o.error?.message ?? "?"})` });
       else
         return void await runtime.commit(() => ({ status: "terminal", outcome: { status: "failed", error: { code: o.state.outcome.error?.code ?? "model_face", message: `${def.name}:${o.state.outcome.error?.message ?? "?"}` } } }), context);
     }
@@ -263,7 +298,7 @@ export const OPS_HEALTH_ROUND = defineTask({
   name: "ops-health-round",
   version: 1,
   initial: (input) => ({
-    phase: "PROBE", attempt: 0, children: null, childConvs: null, spawnPhase: null, failed: null,
+    phase: startPhaseOf(input.fromPhase), attempt: 0, children: null, childConvs: null, spawnPhase: null, failed: null,
     startedAtIso: new Date().toISOString(),
     budgetCny: (() => { const raw = process.env.OPS_PIPELINE_BUDGET_CNY ?? "0.05"; const v = +raw; if (!Number.isFinite(v) || v < 0) throw Object.assign(new Error(`OPS_PIPELINE_BUDGET_CNY 须为非负数,得到:${raw}`), { usage: true }); return v; })(),
     budgetKnobs: roundKnobs(process.env, "health"), // 轮始校验(旧 mkCtx 同判例:非法 throw usage)
