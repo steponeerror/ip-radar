@@ -65,6 +65,32 @@ const mkAbort = () => async (_t, runtime, context) => { // 终审小项:无参�
   await runtime.commit(() => ({ status: "terminal", outcome: { status: "aborted" } }), context);
 };
 
+// P0-④ 跨库撞轮目录守卫:v2 健康轮无 state.json(实现细节,RUNBOOK 已知差异表),
+// 跨库新任务撞已有轮目录无守卫(同库复用走 run-health HealthRoundsDoc 不触发;
+// --from-phase TRIAGE 的前置工件 01-/02- 合法,故不能以「目录非空」判)。认领件
+// .v2-claim.json{taskId} 落轮目录:每相位头核认领,异主 → bad_round 终态(旧
+// discover bootstrapRoundDir 同义;该件已入 shadow-diff 白名单+RUNBOOK 差异表)。
+async function claimRoundDir(input, runtime, context) {
+  const dir = path.join(opsRootOf(process.env), "rounds", String(input.roundId));
+  fs.mkdirSync(dir, { recursive: true });
+  const claimFile = path.join(dir, ".v2-claim.json");
+  let claim = null;
+  try { claim = JSON.parse(fs.readFileSync(claimFile, "utf8")); } catch { /* 无=全新 */ }
+  if (claim && claim.taskId !== runtime.taskId) {
+    await runtime.commit(() => ({
+      status: "terminal",
+      outcome: { status: "failed", error: { code: "bad_round", message: `rounds/${input.roundId} 已被任务 ${claim.taskId} 认领(跨库撞轮目录;同库重跑走 HealthRoundsDoc 复用)` } },
+    }), context);
+    return false;
+  }
+  if (!claim) fs.writeFileSync(claimFile, JSON.stringify({ taskId: runtime.taskId }, null, 2) + "\n");
+  return true;
+}
+const claimGuard = (h) => async (task, runtime, context) => {
+  if (!(await claimRoundDir(task.input, runtime, context))) return; // 异主 → 已落 bad_round 终态,本相位不执行
+  return h(task, runtime, context);
+};
+
 // 起步相位缝(修复⑥ E2E 面;旧 pipeline.mjs replay --from STAGE 同义语义):生产 cron
 // 不传(缺省 PROBE 全十态);测试/faux 审计用前置工件面从指定相位起步(零网络红线下
 // PROBE 的真探测/矩阵面不可入测试)。闭集=RUNNABLE+CLOSE(WAIT_MODEL=join 态/FAILED=终态
@@ -173,7 +199,10 @@ async function waitModel(input, ck, runtime, context) {
   const outcomes = await runtime.outcomes(ids, context); // 全 terminal 才返回(failFast 不用:逐假设败=降级面)
   const def = defOf(ck.spawnPhase);
   const ctx = rebuildRoundCtx(input, ck);
-  const usage = { input: ck.usage?.input ?? 0, output: ck.usage?.output ?? 0, totalTokens: ck.usage?.totalTokens ?? 0, cost: ck.usage?.cost ?? 0 };
+  // P0-⑤:usage 从轮累计基线起步(终值=新轮累计;基线 null 按字段 0),本步增量=终值−基线
+  // (恢复旧「各步 usage 求和==信封 usage」律;旧 golden pipeline_ok 断言面)。
+  const base = { input: ck.usage?.input ?? 0, output: ck.usage?.output ?? 0, totalTokens: ck.usage?.totalTokens ?? 0, cost: ck.usage?.cost ?? 0 };
+  const usage = { ...base };
   let modelCalls = ck.modelCalls ?? 0;
   const promptHashes = { ...(ck.state?.prompt_hashes ?? {}) };
   const degradedItems = [];
@@ -228,7 +257,8 @@ async function waitModel(input, ck, runtime, context) {
     if (!gateRec.pass)
       return void await runtime.commit(() => ({ status: "terminal", outcome: { status: "failed", error: { code: gateRec.code ?? def.fail.terminal, message: `门败 ${def.gate}:${gateRec.reason}` } } }), context);
   }
-  const rec = { name: def.name, status: degradedItems.length ? "degraded" : "done", attempts: 1, dur_ms: 0, usage };
+  const stepUsage = { input: usage.input - base.input, output: usage.output - base.output, totalTokens: usage.totalTokens - base.totalTokens, cost: usage.cost - base.cost }; // 本步增量(P0-⑤)
+  const rec = { name: def.name, status: degradedItems.length ? "degraded" : "done", attempts: 1, dur_ms: 0, usage: stepUsage };
   const finCk = stageDone({ ...ck, usage, modelCalls, state: { ...ck.state, prompt_hashes: promptHashes } }, rec, ck.spawnPhase);
   // toPhase 停笔(模型相位版;与 stageDone 同 commit 原子落——P2-4)
   if (input.toPhase && input.toPhase === def.name)
@@ -314,14 +344,18 @@ async function runFailed(input, ck, runtime, context) {
 }
 
 // —— 相位表:十态 + WAIT_MODEL join + FAILED 书挡 ——
-const PHASES = { WAIT_MODEL: (t, r, c) => waitModel(t.input, t.state.checkpoint, r, c), FAILED: (t, r, c) => runFailed(t.input, t.state.checkpoint, r, c) };
+// 全部轮目录工作相位套 claimGuard(P0-④;FAILED 纯书挡不碰轮目录,不套)。
+const PHASES = {
+  WAIT_MODEL: claimGuard((t, r, c) => waitModel(t.input, t.state.checkpoint, r, c)),
+  FAILED: (t, r, c) => runFailed(t.input, t.state.checkpoint, r, c),
+};
 for (const name of RUNNABLE) {
   const def = defOf(name);
-  PHASES[name] = MODEL_PHASES.has(name)
+  PHASES[name] = claimGuard(MODEL_PHASES.has(name)
     ? (t, r, c) => spawnModelChildren(def, t.input, t.state.checkpoint, r, c)
-    : (t, r, c) => runScriptPhase(def, t.input, t.state.checkpoint, r, c);
+    : (t, r, c) => runScriptPhase(def, t.input, t.state.checkpoint, r, c));
 }
-PHASES.CLOSE = (t, r, c) => runClose(t.input, t.state.checkpoint, r, c);
+PHASES.CLOSE = claimGuard((t, r, c) => runClose(t.input, t.state.checkpoint, r, c));
 
 export const OPS_HEALTH_ROUND = defineTask({
   name: "ops-health-round",
