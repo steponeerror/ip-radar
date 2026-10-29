@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # 月轮全量评估(Eval Algorithm v2 Phase 1 收口;决策 #6:手动触发,
 # 错峰可前置 nice/ionice,如 `nice -n 19 ionice -c3 bash scripts/monthly_eval.sh`)。
+# 断史红线(2026-10-29 判例):temporal 腿需 ≥2 个 model 轮历史——必须在带
+# backend/data/eval/monthly/ 累积历史的副本上跑(仓主 worktree 即有;干净
+# worktree 会断供致 rc=2 insufficient rounds 且不落工件,报告族被拒)。
 # 流程:① 守卫(须在 master 且工作区 clean)② rsync 生产 volume 镜像到本地
 # ③ 镜像 manifest 守卫(S7: 塕缩即止, 先于读数)④ 十连 eval 命令
 # (--model 先落盘本轮;--audit/--anchors 只读 model 历史但各落己件
