@@ -24,6 +24,7 @@ import lmdb
 
 from ._types import SourceHealth
 from ._evidence import Evidence
+from ._sources import _infra_filter   # namespace pkg:无 __init__ 环,模块级安全
 from ._sources._download import (
     warn_if_redirected, atomic_write_bytes, redact_url)
 # 热路径共享:函数体内缓存 import 复测 273ns/调用(2026-10-11 配对
@@ -62,6 +63,11 @@ class Source:
     # 设计上无 per-IP LMDB 面的源置 False(caida_asorg:文件即持久层);
     # 2026-10-14 demo 幻影环:ptr 永不存在被当 needs_rebuild → 每 30min 全量重抓
     lmdb_backed: bool = True
+    # 载入期基础设施噪声过滤(issue #183):True = rebuild 载入面排除
+    # infra_services curated 单址集(默认 False,事故源显式 opt-in;
+    # 与 _sources/_base.py 平行维护)。2026-10-29 tweetfeed 接入时落地
+    # harvest 车道接线——此前该 flag 仅 IpListSource/CsvSource 车道生效。
+    infra_noise_filter: bool = False
 
     def __init__(self, data_dir: Path):
         self._data_dir = data_dir
@@ -176,9 +182,27 @@ class Source:
         # 衰减计(decay_factor(None)=1.0=最大权重)。中央检查按 distinct 值
         # 去重,单/双遍 harvest(factory 被 rebuild_dual_family 调两次)不双计。
         bad_fs: set[str] = set()
+        # 载入期 infra 噪声排除(issue #183;harvest 车道,与
+        # _sources/_base.py 的 IpListSource/CsvSource 车道平行):排除只挡
+        # 投影,数据文件零改写;宁少算 = 仅 curated 单址精确指控,更大
+        # CIDR 不排。single_evidence 双遍 harvest 的重复 append 由
+        # log_exclusions 的 set 去重吸收。
+        exclude_infra = (self.infra_noise_filter
+                         and _infra_filter.filter_enabled())
+        excluded: list[str] = []
 
         def _harvest_checked():
+            import ipaddress as _ipa
             for cidr, ev in self.harvest():
+                if exclude_infra:
+                    try:
+                        net = _ipa.ip_network(str(cidr), strict=False)
+                    except (ValueError, _ipa.AddressValueError,
+                            _ipa.NetmaskValueError):
+                        net = None
+                    if net is not None and _infra_filter.is_infra_noise(net):
+                        excluded.append(str(net))
+                        continue
                 fs = getattr(ev, "first_seen", None)
                 if fs and parse_first_seen(fs) is None:
                     bad_fs.add(str(fs))
@@ -219,6 +243,8 @@ class Source:
         self._count = n4
         self._count6 = n6
         self._loaded_at = time.time()
+        if excluded:
+            _infra_filter.log_exclusions(self.name, excluded)
         if bad_fs:
             logger.warning(
                 "%s: %d distinct unparseable first_seen value(s), e.g. %s — "
