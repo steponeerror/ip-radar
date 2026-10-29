@@ -20,6 +20,18 @@ ANCHORS: list[tuple[str, str]] = [
     # 干净面须覆盖未过滤腿)。
     ("114.114.114.114", "clean"), ("223.5.5.5", "clean"),
     ("9.9.9.4", "clean"),
+    # DNS 根服务器 13 letter 地址(#233 交付块1,ADR 0013 谓词限定锚:
+    # 沦陷指控不得出现;infra_services 良性断言面同批扩员,两观测线独立
+    # 合法两票)。取数:https://www.internic.net/domain/root.zone
+    # 2026-10-28(24976 行,13 A 记录);季度随 root.zone 复核(仿 tor 锚
+    # 刷新纪律)—— letter↔地址映射变更时逐条更新。
+    ("198.41.0.4", "clean"), ("170.247.170.2", "clean"),
+    ("192.33.4.12", "clean"), ("199.7.91.13", "clean"),
+    ("192.203.230.10", "clean"), ("192.5.5.241", "clean"),
+    ("192.112.36.4", "clean"), ("198.97.190.53", "clean"),
+    ("192.36.148.17", "clean"), ("192.58.128.30", "clean"),
+    ("193.0.14.129", "clean"), ("199.7.83.42", "clean"),
+    ("202.12.27.33", "clean"),
     # reserved ranges — must return the reserved short-circuit
     ("10.0.0.1", "reserved"), ("127.0.0.1", "reserved"),
     ("192.168.1.1", "reserved"), ("172.16.0.1", "reserved"),

@@ -23,7 +23,7 @@ const CASES = JSON.parse(fs.readFileSync(path.join(HERE, "cases.json"), "utf8"))
 // fixture 判例树(cases.json $comment 契约):A 命中 health+discover 检索词;B 在库但零命中(负例③)
 const PREC_A = "2026-06-01-golden-aggregator.md";
 const PREC_B = "2026-06-02-golden-matrix-nolayer.md";
-// #182 锚巡检 stub 面:罐装零 finding 全集投影(19 员锚集=#194 C3-2 单源
+// #182 锚巡检 stub 面:罐装零 finding 全集投影(32 员锚集=#194 C3-2 单源
 // anchor-mirror.mjs,锚集真源=python,门只验工件自洽)。golden 基线=零 finding(事故
 // 判例双 finding 面在 selftest-pipeline SWEEP_CANNED,两处分工=golden 钉基线/selftest 钉 finding 不持门)。
 const writePrecedents = (dir) => {

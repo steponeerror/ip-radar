@@ -1,7 +1,8 @@
 """monthly_eval.sh 锚腿级联语义守卫(2026-10-24 终审修单 F4)。
 
 契约(TDD 先行,#193 C5 全腿版,承 2026-10-24 F4 anchors 判例推广):
-  ① 任一腿红(model/all/anchors/dsem/audit/temporal/readout)不中止
+  ① 任一腿红(model/all/anchors/dsem/agg-share/sinkhole-probe/
+     anchor-readouts/audit/temporal/readout)不中止
      后续腿,工件照写留证(证据不灭);
   ② 红态可见三面:运行日志红态行 + 腿级状态件 leg-status-*.json
      (机器可读,报告根)+ 结尾以腿序首个非零 rc 退出(红态外显不吞);
@@ -16,6 +17,7 @@ harness 全密闭:临时 git 仓(master+clean 过守卫)+ PATH 桩(python3/rsync
 ssh);python3 桩按 argv 模拟各腿(anchors 按 ANCHORS_MODE 决定 rc,失败也
 照写工件=anchors_report 真实形状);ssh 桩以标记文件记录心跳推送。
 """
+import json
 import os
 import subprocess
 import textwrap
@@ -54,6 +56,16 @@ PY_STUB = textwrap.dedent(
     if leg model;     then printf '{"kind":"model"}'      > "$out/model/model-$ts.json"; MODEL_RC="${MODEL_MODE:-0}"; fi
     if leg all;       then if [ "${ALL_SKIP:-0}" != 1 ]; then printf '{"kind":"all"}' > "$out/all-$ts.json"; ALL_RC="${ALL_MODE:-0}"; fi; fi
     if leg agg-share; then printf '{"kind":"agg-share"}'  > "$out/model/agg-share-$ts.json"; fi
+    if leg sinkhole-probe; then printf '{"kind":"sinkhole_probe"}' > "$out/model/sinkhole-probe-$ts.json"; SINKHOLE_PROBE_RC="${SINKHOLE_PROBE_MODE:-0}"; fi
+    if leg anchor-readouts; then
+      # 双工件:#233 T4 一腿双写者(anchor-fp+scanner-recall,两件均须本轮
+      # 在场);scanner-recall 缺层形状(status=missing)照写照绿=缺层≠0
+      printf '{"kind":"clean_anchor_fp"}' > "$out/model/anchor-fp-$ts.json"
+      if [ "${ANCHOR_READOUTS_SKIP_RECALL:-0}" != 1 ]; then
+        printf '{"kind":"scanner_recall","status":"%s"}' "${ANCHOR_READOUTS_STATUS:-ok}" > "$out/model/scanner-recall-$ts.json"
+      fi
+      ANCHOR_READOUTS_RC="${ANCHOR_READOUTS_MODE:-0}"
+    fi
     if leg dsem;      then printf '{"kind":"dsem"}'       > "$out/model/dsem-$ts.json"; DSEM_RC="${DSEM_MODE:-0}"; fi
     if leg audit;     then printf '{"kind":"audit"}'      > "$out/model/audit-$ts.json"; AUDIT_RC="${AUDIT_MODE:-0}"; fi
     if leg temporal;  then printf '{"kind":"temporal"}'   > "$out/temporal-$ts.json"; TEMPORAL_RC="${TEMPORAL_MODE:-0}"; fi
@@ -67,7 +79,7 @@ PY_STUB = textwrap.dedent(
     # future-stamp:stub 秒级跑完,同秒 mtime 会假阴 -newermt(真月轮=分钟级无此界)
     find "$out" -type f -exec touch -d "@$(( $(date +%s) + 2 ))" {} + 2>/dev/null || true
     # 腿 rc 聚合退出(红腿外显自身 rc;#193 各腿不再互断)
-    for v in MODEL_RC ALL_RC ANCHORS_RC DSEM_RC AUDIT_RC TEMPORAL_RC READOUT_RC; do
+    for v in MODEL_RC ALL_RC ANCHORS_RC DSEM_RC SINKHOLE_PROBE_RC ANCHOR_READOUTS_RC AUDIT_RC TEMPORAL_RC READOUT_RC; do
       [ "${!v:-0}" = 0 ] || exit "${!v}"
     done
     exit 0
@@ -108,6 +120,10 @@ def _run_monthly(repo: Path, stubs: Path, tmp_path: Path, *args: str,
                  model_mode: str = "0", all_mode: str = "0",
                  audit_mode: str = "0", temporal_mode: str = "0",
                  readout_mode: str = "0", all_skip: bool = False,
+                 sinkhole_probe_mode: str = "0",
+                 anchor_readouts_mode: str = "0",
+                 anchor_readouts_status: str = "ok",
+                 anchor_readouts_skip_recall: bool = False,
                  ) -> tuple[int, str]:
     env = dict(os.environ)
     env["PATH"] = f"{stubs}:{env['PATH']}"
@@ -120,6 +136,10 @@ def _run_monthly(repo: Path, stubs: Path, tmp_path: Path, *args: str,
     env["AUDIT_MODE"] = audit_mode
     env["TEMPORAL_MODE"] = temporal_mode
     env["READOUT_MODE"] = readout_mode
+    env["SINKHOLE_PROBE_MODE"] = sinkhole_probe_mode
+    env["ANCHOR_READOUTS_MODE"] = anchor_readouts_mode
+    env["ANCHOR_READOUTS_STATUS"] = anchor_readouts_status
+    env["ANCHOR_READOUTS_SKIP_RECALL"] = "1" if anchor_readouts_skip_recall else "0"
     env["ALL_SKIP"] = "1" if all_skip else "0"
     r = subprocess.run(["bash", "scripts/monthly_eval.sh", "stub-host", *args],
                        cwd=repo, env=env, capture_output=True, text=True, timeout=120)
@@ -214,7 +234,7 @@ def test_multi_red_aggregates_first_nonzero_in_leg_order(tmp_path):
 
 
 def test_green_round_writes_leg_status_with_all_legs(tmp_path):
-    """全绿轮:leg-status 件在(8 腿全 rc=0,readout 定稿件非 null)。
+    """全绿轮:leg-status 件在(10 腿全 rc=0,readout 定稿件非 null)。
     渲染前件(readout=null 供月报嵌「在飞」)被定稿件覆盖或共存,
     最新件=定稿件。"""
     repo = _make_repo(tmp_path)
@@ -223,6 +243,7 @@ def test_green_round_writes_leg_status_with_all_legs(tmp_path):
     assert rc == 0, out
     leg = _latest_leg_status(_report_root(repo))
     for name in ("model", "all", "anchors", "dsem", "agg-share",
+                 "sinkhole-probe", "anchor-readouts",
                  "audit", "temporal", "readout"):
         assert leg["legs"][name] == 0, f"{name} 腿绿轮须 rc=0: {leg}"
 
@@ -260,3 +281,67 @@ def test_agg_share_leg_in_report_family(tmp_path):
     assert "==> agg-share:" in out, out
     assert list(_report_root(repo).glob("model/agg-share-*.json")), \
         "agg-share 工件缺席=报告族缺员"
+
+
+def test_sinkhole_probe_leg_in_report_family(tmp_path):
+    """#233 T4(T2 探针)接线:sinkhole-probe 腿进 LEG_ORDER+报告族
+    (model/ 工件),腿级状态件 rc=0(只测量不持门,agg-share 同律)。"""
+    repo = _make_repo(tmp_path)
+    stubs = _make_stubs(tmp_path)
+    rc, out = _run_monthly(repo, stubs, tmp_path)
+    assert rc == 0, out
+    assert "==> sinkhole-probe:" in out, out
+    assert list(_report_root(repo).glob("model/sinkhole-probe-*.json")), \
+        "sinkhole-probe 工件缺席=报告族缺员"
+    leg = _latest_leg_status(_report_root(repo))
+    assert leg["legs"]["sinkhole-probe"] == 0, leg
+
+
+def test_anchor_readouts_leg_in_report_family_two_artifacts(tmp_path):
+    """#233 T4(T3 双读数)接线:anchor-readouts 一腿双工件(anchor-fp+
+    scanner-recall)均入报告族;scanner-recall 缺层形状(status=missing)
+    照写照绿——缺层语义在工件内(缺层≠0,recall=None),腿级 rc 不因
+    数据缺层变红(T3 run_anchor_readouts missing 形状的腿级传递)。"""
+    repo = _make_repo(tmp_path)
+    stubs = _make_stubs(tmp_path)
+    rc, out = _run_monthly(repo, stubs, tmp_path,
+                           anchor_readouts_status="missing")
+    assert rc == 0, out
+    assert "==> anchor-readouts:" in out, out
+    root = _report_root(repo)
+    assert list(root.glob("model/anchor-fp-*.json")), \
+        "anchor-fp 工件缺席=报告族缺员"
+    sr = list(root.glob("model/scanner-recall-*.json"))
+    assert sr, "scanner-recall 工件缺席=报告族缺员"
+    assert json.loads(sr[-1].read_text(encoding="utf-8"))["status"] == "missing"
+    leg = _latest_leg_status(root)
+    assert leg["legs"]["anchor-readouts"] == 0, leg
+
+
+def test_anchor_readouts_missing_one_artifact_is_family_death(tmp_path):
+    """一腿双写者:scanner-recall 缺席(anchor-fp 在场)→ 报告族缺员
+    即死,不推心跳(写者身份≠门身份;两件均须本轮在场)。"""
+    repo = _make_repo(tmp_path)
+    stubs = _make_stubs(tmp_path)
+    rc, out = _run_monthly(repo, stubs, tmp_path,
+                           anchor_readouts_skip_recall=True)
+    assert rc != 0, out
+    assert "报告族不齐" in out, out
+    assert not (tmp_path / "heartbeat-marker").exists(), "缺员即死不推心跳"
+
+
+def test_sinkhole_probe_red_cascades_like_other_legs(tmp_path):
+    """#193 C5 全腿语义对新腿同律(#233 T4):sinkhole-probe 腿红
+    (rc=2,工件照写形态)→ 后续腿照跑、leg-status 留红、结尾外显 rc=2、
+    报告族齐全照推心跳(腿级红≠缺员)。"""
+    repo = _make_repo(tmp_path)
+    stubs = _make_stubs(tmp_path)
+    rc, out = _run_monthly(repo, stubs, tmp_path, sinkhole_probe_mode="2")
+    assert rc == 2, f"腿红须外显自身 rc(2),实得 {rc}\n{out}"
+    assert "红态" in out, out
+    for leg in ("anchor-readouts", "audit", "temporal", "readout"):
+        assert f"==> {leg}:" in out, f"sinkhole-probe 红中止了后续腿 {leg}\n{out}"
+    assert "完成" in out, out
+    leg = _latest_leg_status(_report_root(repo))
+    assert leg["legs"]["sinkhole-probe"] == 2, leg
+    assert (tmp_path / "heartbeat-marker").exists(), "腿级红≠缺员,须照推心跳"

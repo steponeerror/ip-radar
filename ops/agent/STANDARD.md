@@ -139,7 +139,7 @@
 - 判例链:2026-10-24 8.8.8.8 事故(myip_ms 单源 rel 0.55 打惡意55;ADR 0008);anchors.py「must stay clean, any failure = rollback」
 
 #### G-2 114.114.114.114 clean(判例已固化,ops 轮巡检已接线)
-- 主张:114DNS 公共解析器判 clean;验证面=判例固化在场核+anchors.py 扩行已落(#182:19 员含 114.114.114.114/223.5.5.5/9.9.9.4)+ops 轮 ANCHOR_SWEEP 巡检在案;启用语义=生产 cron 随 OPS_PIPELINE 灰度
+- 主张:114DNS 公共解析器判 clean;验证面=判例固化在场核+anchors.py 扩行已落(#182:19 员含 114.114.114.114/223.5.5.5/9.9.9.4;#233 根 letter 锚再扩 13 员,现 32 员)+ops 轮 ANCHOR_SWEEP 巡检在案;启用语义=生产 cron 随 OPS_PIPELINE 灰度
 - 原语组成:发现固化;回归门≈100%
 - 门挂点:backend/ipdb/_eval/anchors.py#ANCHORS;ops/agent/pipeline/steps.mjs#ANCHOR_SWEEP;notes/ops-agent-golden-standard-research-2026-10-24.md
 - 判例链:2026-10-24 114DNS 事故(cps_collected_iocs+ziyadnz 聚合器假印证打黑名單;ADR 0008);#182 接线(锚集扩公共解析器 16→19)
