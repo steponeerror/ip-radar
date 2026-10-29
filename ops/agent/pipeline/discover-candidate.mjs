@@ -8,7 +8,7 @@
 // 「queue_action 唯一写口」旧句随本写口+ENQUEUE 候选行两新写口退役;
 // #0006 人裁交互律不动——只写不动作,开票/接源全人裁)。
 // 消费方:T1(发现轮管线骨架,并行工位)SHORTLIST/ENQUEUE 步;接线协议见 worktree
-// 根 DP-T3-REPORT.md。本文件零仓依赖(queue-lock 是 tools/ 自含零 node_modules 面)。
+// 根 reports/DP-T3-REPORT.md。本文件零仓依赖(queue-lock 是 tools/ 自含零 node_modules 面)。
 import { createHash } from "node:crypto";
 import { appendQueueRowLocked } from "../tools/queue-lock.mjs";
 
@@ -131,7 +131,7 @@ export function filterCandidatesByEvidence(candidates, artifacts) {
 // 候选卡=发现轮 pre-验证提案(排他率是预估非实测)。#0006 人裁交互律:只写不动作,
 // 人裁否决=删行(veto_cmd 同形)。queue.md 冻结表头不动;表头注释「queue_action 唯一
 // 写口」措辞自本写入器起过时——表头是跨语言双源冻结形状(#139 哨对拍),改词须
-// python 侧同批;留 T4/合流批裁决(见 DP-T3-REPORT.md 余项)。
+// python 侧同批;留 T4/合流批裁决(见 reports/DP-T3-REPORT.md 余项)。
 export const CANDIDATE_ACTION = "PROPOSE";
 
 // source 列(slug):host slug + url md5 前 6 位。判重键=action+source(appendQueueRowCore

@@ -9,7 +9,7 @@
 // 纯聚合 aggregateChannelCalls(种子行→计数,回放/对账可算)+构造器
 // discoverChannelReadings(T1 CLOSE 进 09-budget.json readings 用;breaker 态快照沿用
 // steps.mjs 既有 readings.breaker 面,不重造)。
-// 接线协议(T1/T3 合流面,详见 worktree 根 DP-T3-REPORT.md):
+// 接线协议(T1/T3 合流面,详见仓根 reports/DP-T3-REPORT.md):
 //   mkDiscoveryHost({dupRegistry, dupLimit, budgets, breaker, methods}) → {tools, seeds, channelCounts, call}
 //   - SHORTLIST(模型步):tools 直装 initialState.tools;dupRegistry 传 ctx 级 Map(
 //     与模型调用同 registry,dup 判例 #199 A4 同律);breaker 传轮级 mkBreaker() 实例。

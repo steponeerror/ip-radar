@@ -8,8 +8,10 @@ from pathlib import Path
 from ops_screenshot_common import VERSION, build_handle_api, open_admin, serve_dist, sync_playwright
 
 PORT = 4180
-OUT_SEARCH = Path(__file__).resolve().parents[1] / "ops-settings-t150.png"
-OUT_EMPTY = Path(__file__).resolve().parents[1] / "ops-settings-t150-empty.png"
+OUT_DIR = Path(__file__).resolve().parents[1] / "assets" / "verification"
+OUT_DIR.mkdir(parents=True, exist_ok=True)
+OUT_SEARCH = OUT_DIR / "ops-settings-t150.png"
+OUT_EMPTY = OUT_DIR / "ops-settings-t150-empty.png"
 
 # 目录夹具:两家供应商(zai 已配置带价三型 + openrouter 未配置一型带价),
 # 模型行参考成本提示有价/无价(glm-4.6v)对照

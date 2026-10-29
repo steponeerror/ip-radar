@@ -10,8 +10,10 @@ from ops_screenshot_common import PKGS, VERSION, build_handle_api, open_admin, s
 PORT = 4179
 EMPTY = "--empty" in sys.argv
 SUFFIX = "-empty" if EMPTY else ""
-OUT_ARCHIVE = Path(__file__).resolve().parents[1] / f"ops-archive-t149{SUFFIX}.png"
-OUT_RULINGS = Path(__file__).resolve().parents[1] / f"ops-rulings-t149{SUFFIX}.png"
+OUT_DIR = Path(__file__).resolve().parents[1] / "assets" / "verification"
+OUT_DIR.mkdir(parents=True, exist_ok=True)
+OUT_ARCHIVE = OUT_DIR / f"ops-archive-t149{SUFFIX}.png"
+OUT_RULINGS = OUT_DIR / f"ops-rulings-t149{SUFFIX}.png"
 
 # 判例夹具:文件名日期前缀(行相对时间源)+ 无日期名(不显时间对照)
 PRECEDENTS = [

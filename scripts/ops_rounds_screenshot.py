@@ -1,12 +1,14 @@
 # 票 #148 验收截屏脚本:轮次子 tab 全页(驾驶舱单卡 + 过往轮次表)。
 # 纯前端 mock 面(共享骨架 = ops_screenshot_common),不起后端。
-# 产出 工作树根 ops-rounds-t148.png(不提交,报告路径)。
+# 产出 assets/verification/ops-rounds-t148.png(不提交,报告路径)。
 from pathlib import Path
 
 from ops_screenshot_common import VERSION, build_handle_api, open_admin, serve_dist, sync_playwright
 
 PORT = 4178
-OUT = Path(__file__).resolve().parents[1] / "ops-rounds-t148.png"
+OUT_DIR = Path(__file__).resolve().parents[1] / "assets" / "verification"
+OUT_DIR.mkdir(parents=True, exist_ok=True)
+OUT = OUT_DIR / "ops-rounds-t148.png"
 
 # 轮次态夹具:失败任务在飞历史(上一轮结果卡走内存失败面——人话化错误 +
 # 可展开原始信封的验收面)

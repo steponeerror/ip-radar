@@ -329,7 +329,7 @@ def test_append_ledger_concurrent_no_lost_rows(store, ops_env):
 
     与 queue 同形制(#139 挂账②):append_ledger 是读-建头-写三段(缺文件建表头
     后整写回),无锁时两进程互窗后写覆盖前写;修后 flock(LOCK_EX) 全段串行化。
-    修前实证见 A-REPORT(#199 交付A)。锁文件随首次写创建、不删除。
+    修前实证见 reports/A-REPORT.md(#199 交付A)。锁文件随首次写创建、不删除。
     """
     _spawn_ledger_appenders(ops_env, 40, ("la_", "lb_"))
     text = (ops_env / "ops" / "ledger.md").read_text(encoding="utf-8")
