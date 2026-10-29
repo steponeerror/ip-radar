@@ -44,6 +44,13 @@ class TweetFeedSource(Source):
     stale_days = 1
     reliability = 0.50              # 收源红线 r≥0.5(spec §3.4);校准阶段重估 — crowd-sourced researcher reports
     authoritative_for = ()
+    # 载入期排除 infra_services curated 单址集(issue #183/ADR 0008 同族;
+    # 2026-10-29 人裁真误列整改:223.5.5.5(AliDNS)被单推误列——Winos/
+    # ValleyRat 推文的 URL 主机被抽成 ip 型 IOC,实测本地 data/tweetfeed.csv
+    # 全量 curated 命中恰此 1 行:2026-02-09 reporter skocherhan
+    # x.com/skocherhan/status/2020854107163037900;无 NTP/根服务器等其他
+    # 命中。数据文件零改写,关 IP_RADAR_INFRA_NOISE_FILTER 重建即复原)。
+    infra_noise_filter = True
 
     def harvest(self):
         """Yield (ip, Evidence) per IP-type row. Non-IP rows (domain/url/hash)
