@@ -52,8 +52,11 @@ inject_precedents() {
   echo "### 注入判例(检索词: ${kws[*]})"
   local hits="" rg_out rg_rc=0
   if (( ${#kws[@]} )); then
+    # 2026-10-26 判例:C4 白名单丢 LANG→C locale 下 %q 给 CJK 包 $'..' 字面量→rg 反向引用 rc=2(线上 10-25-1900 起健康轮 SYNTH 全灭);argv 直传与 locale 解耦
+    local rg_args=() kw
+    for kw in "${kws[@]}"; do rg_args+=(-e "$kw"); done
     rg_out="$(rg -i -l -g '*.md' -g '!_*' \
-      $(printf -- '-e %q ' "${kws[@]}") "$PRECEDENTS_DIR" 2>/dev/null)" || rg_rc=$?
+      "${rg_args[@]}" "$PRECEDENTS_DIR" 2>/dev/null)" || rg_rc=$?
   fi
   if (( rg_rc > 1 )); then
     # 评审 Minor-3:rc≥2 = 目录缺失/非法检索词等基础设施故障,必须报错,

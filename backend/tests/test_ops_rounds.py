@@ -521,10 +521,13 @@ def test_spawn_env_injects_ops_tree_and_fences(rounds, ops_env, fake_agent):
 # 契约单源 = ops/agent/agent.mjs SPAWN_CONTRACT_ENV(OPS_*/PI_* 前缀 + 精确名)
 # + 运行必需(PATH/HOME/TMPDIR/IP_RADAR_DATA_DIR)。IP_RADAR_ALERT_URLS 是
 # #184 finding webhook 出口契约员(与 backend _alerts.push 双消费面),保留透传。
+# LANG = _round_env 桥注入面(2026-10-26 判例:C4 白名单剔 LANG→子进程 bash 退
+# C locale,%q 给 CJK 包 ANSI-C 字面量→rg rc=2 健康轮 SYNTH 全灭;继承操作员值
+# 缺省 C.UTF-8,DOCS_ROOT 族同型)。
 SPAWN_ENV_EXACT = {"PATH", "HOME", "TMPDIR", "GH_TOKEN",
                    "IP_RADAR_DATA_DIR", "IP_RADAR_ALERT_URLS",
                    "ZAI_CODING_CN_API_KEY", "JINA_API_KEY",
-                   "DOCS_ROOT", "PRECEDENTS_DIR", "LEDGER_FILE"}
+                   "DOCS_ROOT", "PRECEDENTS_DIR", "LEDGER_FILE", "LANG"}
 
 
 def test_spawn_env_allowlist_excludes_secrets(
@@ -554,6 +557,17 @@ def test_spawn_env_exactly_contract_face(
     extra = [k for k in env if k not in SPAWN_ENV_EXACT
              and not (k.startswith("OPS_") or k.startswith("PI_"))]
     assert extra == [], f"白名单外 env 透传子进程: {extra}"
+
+
+def test_round_env_lang_locale_determinism(rounds, ops_env, monkeypatch):
+    """2026-10-26 判例:C4 白名单剔 LANG→子进程 bash 退 C locale,%q 给 CJK 检索词
+    包 ANSI-C 字面量→rg 反向引用 rc=2(线上 10-25-1900 起健康轮 SYNTH 全灭)——
+    桥注入 LANG 钉 bash 面 locale 确定性:os.environ 无 LANG 缺省 C.UTF-8,
+    有值继承操作员原值。"""
+    monkeypatch.delenv("LANG", raising=False)
+    assert rounds._round_env()["LANG"] == "C.UTF-8"
+    monkeypatch.setenv("LANG", "zh_CN.UTF-8")
+    assert rounds._round_env()["LANG"] == "zh_CN.UTF-8"
 
 
 def test_round_env_secret_files_0600(rounds, ops_env, fake_agent):

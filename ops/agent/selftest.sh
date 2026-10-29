@@ -92,6 +92,19 @@ OUT="$(inject_precedents 排他率 2>&1)"
 OUT="$(inject_precedents 不存在的词xyz 2>&1)"
 [[ "$OUT" == *"无判例(检索词: 不存在的词xyz)"* ]]   && ok "inject:零命中显式无判例行" || bad "inject:零命中显式无判例行"
 
+# C-locale 回归钉(2026-10-26 判例:C4 spawn 白名单丢 LANG→子进程 bash 退 C locale,
+# %q 给 CJK 检索词包 $'..' ANSI-C 字面量→rg 反向引用 parse error rc=2 报「基础设施
+# 故障」,线上 10-25-1900 起健康轮 SYNTH 步全灭):env -i 子壳(仅 PATH)带 CJK 词
+# 调用必须正常检索命中,绝不 rc=2。
+OUT="$(env -i PATH="$PATH" PRECEDENTS_DIR="$FIXDIR" bash -c \
+  ". \"$AGENT/lib.sh\"; inject_precedents 排他率 不存在的词xyz" 2>&1)"; CJK_RC=$?
+[[ "$OUT" == "### 注入判例(检索词: 排他率 不存在的词xyz)"* ]] \
+  && ok "inject:C-locale CJK 检索不炸(首行注入判例头)" || bad "inject:C-locale CJK 检索不炸(首行注入判例头)"
+[[ "$OUT" == *"2026-01-01-fixture-aggregator.md"* ]] \
+  && ok "inject:C-locale CJK 词真命中(判例行在场)" || bad "inject:C-locale CJK 词真命中(判例行在场)"
+[[ "$OUT" != *"rg 检索失败"* && "$CJK_RC" == 0 ]] \
+  && ok "inject:C-locale 零基础设施故障行且 rc=0" || bad "inject:C-locale 零基础设施故障行且 rc=0"
+
 # 真实判例库冒烟(只读):frontmatter 解析对 12 条种子成立。子壳隔离:bash 对
 # 「VAR=x 函数调用」的前缀赋值会在函数返回后泄漏到当前 shell(非 POSIX 模式)。
 # docs 符号链接缺席(CI checkout)→ SKIP 显式计 PASS(T2 守卫,理由见 skipok 注释)。
