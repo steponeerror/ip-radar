@@ -44,8 +44,8 @@ docker exec "$CONTAINER" sh -c '
     cp -a "$OPS" "$SH/docs/ops.tmp"
     rm -rf "$SH/docs/ops.tmp/rounds" "$SH/docs/ops.tmp/ledger.md" \
            "$SH/docs/ops.tmp/ledger.md.lock" "$SH/docs/ops.tmp/queue.md" \
-           "$SH/docs/ops.tmp/auth.json" "$SH/docs/ops.tmp/web-search.json" \
-           "$SH/docs/ops.tmp/agent-config.json"
+           "$SH/docs/ops.tmp"/auth.json* "$SH/docs/ops.tmp"/web-search.json* \
+           "$SH/docs/ops.tmp"/agent-config.json*   # 通配含 .bak 密钥兄弟件(首次部署实咬:auth.json.bak-1113fix 随种入影)
     mv "$SH/docs/ops.tmp" "$SH/docs/ops"
     echo "[$(date -u -Is)] ops-shadow: 影子世界已自种(precedents/rules/items/breaker 随卷,轮次状态与密钥面剔除)"
   fi
