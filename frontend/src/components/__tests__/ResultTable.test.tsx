@@ -167,25 +167,28 @@ describe("ResultTable archive signal", () => {
   });
 
   it("appends the archive suffix to the verdict-cell tooltip", async () => {
+    // A1 (2026-10-03, 移植 4049f692):informational 不再进判断列徽章,归档 tooltip 覆盖改骑 benign。
     const r: LookupResult = { ...baseResult,
-      classifications: { proxy: { ...caProxy, has_archive: true } } };
+      classifications: { proxy: { ...caProxy, verdict: "benign", has_archive: true } } };
     renderWithI18n(<ResultTable results={[r]} />);
     // tooltip 内容聚焦后才挂载(Base UI 按需渲染),无 role,只能按文本断言
-    const badge = await focusBadgeByTab(screen.getByText("Informational"));
+    const badge = await focusBadgeByTab(screen.getByText("Benign"));
     expect(badge).toHaveFocus();
-    expect(await screen.findByText("Informational · incl. archive")).toBeVisible();
+    expect(await screen.findByText("Benign · incl. archive")).toBeVisible();
   });
 
   it("shows no archive badge or tooltip suffix when has_archive is false", async () => {
-    const r: LookupResult = { ...baseResult, classifications: { proxy: caProxy } };
+    // A1 (2026-10-03, 移植 4049f692):informational 不再进判断列徽章,该用例改骑 benign。
+    const r: LookupResult = { ...baseResult,
+      classifications: { proxy: { ...caProxy, verdict: "benign" } } };
     renderWithI18n(<ResultTable results={[r]} />);
     expect(screen.queryByText("incl. archive")).not.toBeInTheDocument();
-    const badge = await focusBadgeByTab(screen.getByText("Informational"));
+    const badge = await focusBadgeByTab(screen.getByText("Benign"));
     expect(badge).toHaveFocus();
     // 徽章与 tooltip 内容同串,Base UI 1.8 弹层不带 role,按 registry 槽位定位弹层容器
-    const popup = await screen.findByText("Informational", { selector: "[data-slot='tooltip-content']" });
+    const popup = await screen.findByText("Benign", { selector: "[data-slot='tooltip-content']" });
     expect(popup).toBeVisible();
-    expect(popup).toHaveTextContent(/^Informational$/);
+    expect(popup).toHaveTextContent(/^Benign$/);
   });
 });
 
@@ -427,5 +430,35 @@ describe("ResultTable scanner vendor tag", () => {
     renderWithI18n(<ResultTable results={[r]} />);
     const row = screen.getByText("203.0.113.77").closest("tr")!;
     expect(within(row).queryByText(/自报段/)).not.toBeInTheDocument();
+  });
+});
+
+// --- A1 (2026-10-03, 移植 4049f692):informational verdict 退位判断列,与 clean 同形渲染 '-' ---
+// 判断列只保留有指控立场的 verdict;informational 仍进标签列(分类 chip)与详情面板(源级徽章)。
+
+describe("VerdictCell informational demotion (A1)", () => {
+  it("informational-only row (hasThreats=true) renders '-' in the verdict column, no badge", () => {
+    const r: LookupResult = { ...baseResult, ip: "203.0.113.10",
+      classifications: { proxy: caProxy } };  // informational + detected + conf 60 → hasThreats=true
+    renderWithI18n(<ResultTable results={[r]} />);
+    const tds = screen.getByText("203.0.113.10").closest("tr")!.querySelectorAll("td");
+    expect(within(tds[5]).getByText("-")).toBeInTheDocument();
+    expect(screen.queryByText("Informational")).not.toBeInTheDocument();
+  });
+
+  it("classification chip stays in the tags column (no regression outside the verdict cell)", () => {
+    const r: LookupResult = { ...baseResult, ip: "203.0.113.10",
+      classifications: { proxy: caProxy } };
+    renderWithI18n(<ResultTable results={[r]} />);
+    const tds = screen.getByText("203.0.113.10").closest("tr")!.querySelectorAll("td");
+    expect(within(tds[6]).getByText("Proxy")).toBeInTheDocument();
+  });
+
+  it("malicious row keeps its badge (control)", () => {
+    const r: LookupResult = { ...baseResult, ip: "203.0.113.11",
+      classifications: { proxy: { ...caProxy, verdict: "malicious" } } };
+    renderWithI18n(<ResultTable results={[r]} />);
+    const tds = screen.getByText("203.0.113.11").closest("tr")!.querySelectorAll("td");
+    expect(within(tds[5]).getByText("Malicious")).toBeInTheDocument();
   });
 });

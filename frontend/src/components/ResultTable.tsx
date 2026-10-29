@@ -137,7 +137,10 @@ function VerdictCell({ summary }: { summary: ReturnType<typeof threatSummary> })
       </Tooltip>
     );
   }
-  if (!summary.hasThreats) return <span className="text-zinc-700 text-[11px]">-</span>;
+  // A1 (2026-10-03, 移植 4049f692):informational 是"有证据但无指控立场",不配占判断列徽章,
+  // 与 hasThreats=false 同形退位渲染 '-';源级 informational 徽章(SourceDetailRow)不受影响。
+  if (!summary.hasThreats || summary.verdict === "informational")
+    return <span className="text-zinc-700 text-[11px]">-</span>;
   return (
     <Tooltip>
       <TooltipTrigger
