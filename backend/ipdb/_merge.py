@@ -274,12 +274,13 @@ def _assess_classification(
     # F2/S37 时钟锚:asof 非空时衰减按锚刻而非墙钟(月度读数可复现);
     # None → coefficient 默认墙钟,现网行为逐位不变。
     _now = _lo.asof_to_now(asof)
-    by_source: dict[str, float] = {}
-    for o in pool:
-        c = _lo.coefficient(o.reliability, o.first_seen, ctype, now=_now)
-        if o.source not in by_source or c > by_source[o.source]:
-            by_source[o.source] = c
-    deduped = _lo.dedup_lineage(list(by_source.items()))
+    # 指控池循环单源化(issue #244,_logodds.accuser_pool):指控章判定
+    # 在上方 voters-else-回退池调用方预滤(回退池含非指控观测,helper 不
+    # 再滤);排序口径插入序→sorted(2026-10-30 grill Q2 人裁,仅池列表
+    # 序,Σ/conf/计数不变,回放闸门把关)
+    deduped = _lo.accuser_pool(
+        ((o.source, o.reliability, o.first_seen) for o in pool),
+        ctype, now=_now)
     confidence = _lo.assertion_confidence([c for _, c in deduped])
     # 已印证只数指控源(决策 8):谱系去重后的独立投票源 ≥2。
     # 现状注记(issue #183,2026-10-24):纯 derived 组互证(如 ziyadnz+

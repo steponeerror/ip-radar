@@ -109,7 +109,8 @@ def test_clean_anchor_fp_kroot_live_sample_pinned():
 
 
 def test_clean_anchor_fp_lineage_dedup_keeps_raw_evidence():
-    """agg_share.py:49-66 先例:同源 max 系数 → dedup_lineage,禁裸
+    """指控池单源化先例(_logodds.accuser_pool,issue #244):同源
+    max 系数 → dedup_lineage,禁裸
     detail.source。谱系锚回声(spamhaus→emerging_threats)不双计(宁少算,
     回声不是印证),原始证据仍无损留痕。"""
     anchored = _payload([("blacklist", "malicious", True, [
