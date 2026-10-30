@@ -7,8 +7,8 @@ Seam = 源生命周期公开面(rebuild → query),同 test_myip_ms 形制;覆�
 - 证据永不灭失:数据文件零改写,排除只发生在载入(rebuild)面;
   IP_RADAR_INFRA_NOISE_FILTER=0 重建即复原原摄取;
 - 排除留痕:计数 + 被排条目进 rebuild 日志;
-- 四事故源声明 infra_noise_filter=True(myip_ms/ziyadnz/cps_collected_iocs
-  + tweetfeed 2026-10-29 人裁接入);基类默认 False(显式 opt-in,
+- 五事故源声明 infra_noise_filter=True(myip_ms/ziyadnz/cps_collected_iocs
+  + tweetfeed/dataplane 2026-10-29 人裁接入);基类默认 False(显式 opt-in,
   不是全局行为变更)。harvest 车道(Source 基类)与 IpListSource/CsvSource
   车道同款接线。
 """
@@ -150,11 +150,12 @@ def test_off_by_default_for_undeclaring_sources(tmp_path):
 
 def test_incident_sources_declare_filter():
     from ipdb._sources.cps_collected_iocs import CpsCollectedIocsSource
+    from ipdb._sources.dataplane import DataplaneSource
     from ipdb._sources.myip_ms import MyipMsSource
     from ipdb._sources.tweetfeed import TweetFeedSource
     from ipdb._sources.ziyadnz import ZiyadnzSource
     for cls in (MyipMsSource, ZiyadnzSource, CpsCollectedIocsSource,
-                TweetFeedSource):
+                TweetFeedSource, DataplaneSource):
         assert cls.infra_noise_filter is True, cls.__name__
 
 

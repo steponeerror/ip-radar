@@ -53,6 +53,14 @@ class DataplaneSource(Source):
     stale_days = 1                        # hourly refresh
     reliability = 0.70
     authoritative_for = ()
+    # 载入期排除 infra_services curated 单址集(issue #183/ADR 0008 同族;
+    # 判例 2026-10-29-ruling-kroot-dataplane-dnsrd(docs/ops/precedents/,
+    # 2026-10-29 人裁):k.root 193.0.14.129 被 dnsrd 信号指控——根服不
+    # 主动扫描,系伪造源反射假象打传感器的典型画像,真误列,与 cps/
+    # tweetfeed 同律;实测刷新后 dataplane.txt 全量 curated 命中恰此
+    # 1 行(dnsrd)。数据文件零改写,关 IP_RADAR_INFRA_NOISE_FILTER
+    # 重建即复原。
+    infra_noise_filter = True
 
     SIGNALS = {
         "sshpwauth": "https://dataplane.org/signals/sshpwauth.txt",
