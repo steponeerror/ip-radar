@@ -469,6 +469,25 @@ def cleanup_stale(base: Path) -> None:
                 shutil.rmtree(child, ignore_errors=True)
 
 
+def load_v6_side_state(base: Path) -> tuple[object | None, bool, int, int]:
+    """v6 族 sidecar 解析单源点(#243,2026-10-30):ptr 缺失 = 无 v6 数据,
+    不是错误;旧数据目录(无 v6 sidecar)静默零态。返回 (reader6,
+    disjoint6, count6, covered_v6_nets) — IpListSource/ipinfo_lite 的
+    _load_v6_side 逐字拷贝由此收敛;Source(_source_base)侧同款拷贝不动,
+    归「两基类合一」票。副作用调用序照旧拷贝:read_disjoint_flag 先于
+    open_env_read。"""
+    cleanup_stale(base)
+    e6 = read_ptr(base)
+    if e6 is None:
+        return None, False, 0, 0
+    disjoint6 = read_disjoint_flag(base, e6)
+    reader6 = open_env_read(env_dir(base, e6))
+    cp6, vp6 = count_path(base), cov_path(base)
+    count6 = int(cp6.read_text().strip()) if cp6.exists() else 0
+    covered_v6_nets = int(vp6.read_text().strip()) if vp6.exists() else 0
+    return reader6, disjoint6, count6, covered_v6_nets
+
+
 def cleanup_legacy_mmdb(base: Path) -> None:
     """迁移一次性清理:删 MMDB 时代旧命名孤儿文件。
 
