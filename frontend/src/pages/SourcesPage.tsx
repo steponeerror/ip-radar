@@ -11,6 +11,7 @@ import {
   setSourceEnabled,
 } from "../api";
 import type { BatchState, EvalModelScore, SourceInfo, TaskState, TokenStatus } from "../api";
+import { isTaskActive, isTaskTerminal } from "../tasks/progress";
 import { useI18n } from "../i18n";
 
 // 源页重设计(2026-10-17 grill 裁决)三级扫读结构:组头(可收起 button)→
@@ -221,11 +222,10 @@ export default function SourcesPage({ tasks, batch, onUnauthorized }: SourcesPag
     for (const sn of tk.sources) tokenBySource.set(sn, tk);
   }
 
-  // Debounce-refetch: when the count of finished tasks (done/failed/cancelled)
-  // changes, re-sync the source list after 500ms so health/record_count updates.
-  const doneCount = tasks.filter(
-    (tk) => tk.state === "done" || tk.state === "failed" || tk.state === "cancelled",
-  ).length;
+  // Debounce-refetch: when the count of finished tasks (done/failed/cancelled,
+  // isTaskTerminal) changes, re-sync the source list after 500ms so health/
+  // record_count updates.
+  const doneCount = tasks.filter(isTaskTerminal).length;
   useEffect(() => {
     if (doneCount === 0) return;
     const id = setTimeout(() => { void fetchSources(); }, 500);
@@ -420,15 +420,11 @@ export default function SourcesPage({ tasks, batch, onUnauthorized }: SourcesPag
                       // Per-row phase comes from the tasks prop (AdminPage passes
                       // the SSE-driven context state down). A row is "busy" when
                       // a task for this source is in any of the four idempotent
-                      // enqueue states (backend _enqueue_one: re-clicking during
-                      // throttled is a silent no-op, hence throttled must read as
-                      // busy too).
+                      // enqueue states (isTaskActive; rationale in progress.ts:
+                      // re-clicking during throttled is a silent no-op, hence
+                      // throttled must read as busy too).
                       const phase = phaseBySource.get(s.name);
-                      const busy =
-                        phase?.state === "queued" ||
-                        phase?.state === "throttled" ||
-                        phase?.state === "downloading" ||
-                        phase?.state === "loading";
+                      const busy = phase != null && isTaskActive(phase);
                       const label = busy && phase ? phaseLabel(phase) : null;
                       // 详情层诊断值:fmtHours 档位 + ≥1000d「从不」裁决;
                       // cadence 为 null 时直出 "—",不套 cadence 模板

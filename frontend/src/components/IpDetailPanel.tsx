@@ -2,6 +2,7 @@ import type { LookupResult, MergedField } from "../api";
 import { confColor, confTextColor, ALGORITHM_ICONS, SCORE_SEMANTICS } from "./threatDisplay";
 import { useI18n } from "../i18n";
 import { ClassificationBlock } from "./ClassificationBlock";
+import { foldServiceStatements, serviceChipKey } from "./serviceFold";
 
 // 每个信息区块统一的淡色渐变底 + 左侧色条:用同一种颜色过渡划清各信息边界
 // (客户反馈区块间无边界不清晰;统一色,不做分色分组)。
@@ -123,25 +124,10 @@ export function IpDetailPanel({ r }: { r: LookupResult }) {
       carrier: "asset.carrier", is_anycast: "asset.is_anycast",
     }[key];
     if (key === "service") {
-      // 折并(grill 2026-10-11 五裁 b/a/a/a/a):按归一 value(源侧写死的角色词
-      // dns/ntp/cdn/cloud)分组,chip 正文只显角色词,证人 source · native 逐行
-      // 进悬停——同 #105 as_org 折并同构(展示层合一、后端零动、证据不灭失);
-      // Map 首见序稳定,不按可靠性挑赢家(零选择算法,宁少算)。
-      const byRole = new Map<string, typeof stmts>();
-      for (const s of stmts) {
-        const v = String(s.value);   // attributes 值可布尔(is_*),service 恒字符串
-        const g = byRole.get(v) ?? [];
-        g.push(s);
-        byRole.set(v, g);
-      }
-      for (const [value, group] of byRole) {
-        identityChips.push({
-          text: value,
-          detail: group
-            .map((s) => `${s.source} · ${s.native_type ?? s.value}`)
-            .join("\n"),
-          key: `service-${value}`,
-        });
+      // 折并(规则与出处见 serviceFold.ts;同 #105 as_org 折并同构):
+      // chip 正文只显角色词,证人 source · native 逐行进悬停。
+      for (const { value, detail } of foldServiceStatements(stmts)) {
+        identityChips.push({ text: value, detail, key: serviceChipKey(value) });
       }
     } else if (labelKey && stmts[0]) {
       const s = stmts[0];
