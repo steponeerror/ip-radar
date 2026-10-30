@@ -6,9 +6,9 @@
 权重(声明 r 人审)——HADES(NDSS'25)式投毒动机弱,v0 仅注记可操纵面。
 
 - 读数A 干净锚误报率:census N = 全部 expect=clean 锚(全量非采样,锚集
-  本身就小);指控池按生产合并语义重算(agg_share.py:49-66 先例:同源
-  取 max 系数 → dedup_lineage,禁裸 detail.source——镜像对会双计,违
-  「宁少算」);被控锚 accusers 留 dedup 后读数,原始指控 detail 三元组
+  本身就小);指控池按生产合并语义重算(_logodds.accuser_pool 单源化,
+  issue #244:同源取 max 系数 → dedup_lineage,禁裸 detail.source——
+  镜像对会双计,违「宁少算」);被控锚 accusers 留 dedup 后读数,原始指控 detail 三元组
   原样留痕(无损红线:原始证据可回算)。成因三分类(真误列/伪造源摄入/
   消费端误读)按 ADR 0013 是人裁解释框架——v0 只输出 accuser 证据面,
   不做自动归类。
@@ -38,7 +38,7 @@ from .corpus import stable_seed
 from .layer_builders import scanner_ranges_prefixes
 from .model import beta_ppf
 from .truth_layer import apply_scanner_filter
-from .._logodds import coefficient, dedup_lineage
+from .._logodds import accuser_pool
 from .._types import _ACCUSING
 
 CP_LEVEL = 0.95                      # 精确界置信水平(统计约定,非门阈值)
@@ -82,23 +82,22 @@ def _zero_event_upper(k: int, n: int, level: float = CP_LEVEL):
 
 
 def _group_accusers(ca: dict, ctype: str) -> dict:
-    """单分类组指控池重算(生产 _merge 同款,agg_share.py:49-66 先例):
-    同源取 max 系数 → dedup_lineage(谱系去重防镜像回声双计,宁少算)。
-    raw_accusers = 原始指控 detail 三元组原样留痕(无损红线);pool =
-    dedup 后证人集(读数口径)。"""
-    by_source: dict[str, float] = {}
+    """单分类组指控池重算(生产 _merge 同款):同源取 max 系数 →
+    dedup_lineage(谱系去重防镜像回声双计,宁少算;循环体单源化
+    issue #244 —— _logodds.accuser_pool)。raw_accusers = 原始指控
+    detail 三元组原样留痕(无损红线);pool = dedup 后证人集(读数
+    口径)。"""
     raw: list[dict] = []
+    entries: list[tuple[str, float, str | None]] = []
     for d in ca.get("details") or ():
         if d.get("verdict") not in _ACCUSING:
             continue
         src = d.get("source")
         if not src:
             continue
-        c = coefficient(d.get("reliability", 0.5), d.get("first_seen"), ctype)
-        if src not in by_source or c > by_source[src]:
-            by_source[src] = c
+        entries.append((src, d.get("reliability", 0.5), d.get("first_seen")))
         raw.append(d)
-    deduped = dedup_lineage(sorted(by_source.items()))
+    deduped = accuser_pool(entries, ctype)
     return {"type": ctype, "group_verdict": ca.get("verdict"),
             "conflict": bool(ca.get("verdict_conflict")),
             "raw_accusers": raw, "pool": [s for s, _ in deduped]}
