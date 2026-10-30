@@ -52,7 +52,7 @@
 - **平滑淡出**:纯存档组(无指控源)的 confidence 退回全量 Σ 而非跳变——数字渐变,不闪断。锚:_merge.py(_assess_classification)、tests/core/test_archive_abstention.py
 - **合并策略**:四种标量策略——加权投票(city)/ log-odds 多类别(country/asn)/ 权威(as_name)/ 最长前缀(ip_range);威胁断言走独立路径 _assess_classification(谱系去重+按源衰减),不在标量策略表内。算法跟着字段语义走。锚:_merge.py、_registry.py(_strategies)
 - **受控词表**:classification_type 用 IntelMQ 词汇作跨源印证轴——可比性是 schema 保证的,不是模型保证的。锚:_classification.py
-- **折并**:展示层合并规则——归一判定值一致的多源展示合一(正文只显归一值,证人逐行下沉悬停/行内 chips),后端载荷、置信度、算法零动,证据不灭失;不按可靠性挑正文赢家(零选择算法,宁少算)。判例:#105 as_org(2026-10-11)、service chip 泛化(同日,按源侧写死的角色词分组)。锚:frontend/src/components/IpDetailPanel.tsx(orgDup/service 分支)
+- **折并**:展示层合并规则——归一判定值一致的多源展示合一(正文只显归一值,证人逐行下沉悬停/行内 chips),后端载荷、置信度、算法零动,证据不灭失;不按可靠性挑正文赢家(零选择算法,宁少算)。判例:#105 as_org(2026-10-11)、service chip 泛化(同日,按源侧写死的角色词分组)。锚:frontend/src/components/serviceFold.ts(service 腿共享模块,2026-10-30 抽取)、frontend/src/components/IpDetailPanel.tsx(orgDup 腿)
 
 ## 性能与验证
 
