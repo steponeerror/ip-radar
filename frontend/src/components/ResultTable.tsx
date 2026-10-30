@@ -7,6 +7,9 @@ import {
 } from "./threatDisplay";
 import { useI18n } from "../i18n";
 import { IpDetailPanel } from "./IpDetailPanel";
+import {
+  foldServiceStatements, serviceChipKey, SERVICE_CHIP_KEY_PREFIX,
+} from "./serviceFold";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 
 type TFn = (key: string, vars?: Record<string, string | number>) => string;
@@ -44,24 +47,11 @@ function assetBadges(r: LookupResult, t: TFn): { label: string; detail: string; 
       if (classTypes.has(ctype[key])) continue;
     }
     if (key === "service") {
-      // 折并(2026-10-11 五裁,同 IpDetailPanel):按归一角色词分组,chip 正文只显
-      // 角色,证人 source · native 逐行进 title;key=service-<角色> 保住 ThreatTags
-      // 的 cdn 压制判据(startsWith("service-") && label === "cdn")。
-      const byRole = new Map<string, typeof stmts>();
-      for (const s of stmts) {
-        const v = String(s.value);
-        const g = byRole.get(v) ?? [];
-        g.push(s);
-        byRole.set(v, g);
-      }
-      for (const [value, group] of byRole) {
-        out.push({
-          label: value,
-          detail: group
-            .map((s) => `${s.source} · ${s.native_type ?? s.value}`)
-            .join("\n"),
-          key: `service-${value}`,
-        });
+      // 折并(2026-10-11 五裁,规则与出处见 serviceFold.ts;同 IpDetailPanel):
+      // chip 正文只显角色,证人 source · native 逐行进 title;key 前缀常量保住
+      // ThreatTags 的 cdn 压制判据(SERVICE_CHIP_KEY_PREFIX && label === "cdn")。
+      for (const { value, detail } of foldServiceStatements(stmts)) {
+        out.push({ label: value, detail, key: serviceChipKey(value) });
       }
       continue;
     }
@@ -197,7 +187,7 @@ function ThreatTags({
     const ca = r.classifications[t];
     return ca.detected && ca.confidence > 0;
   });
-  const hasCdnServiceChip = badges.some((a) => a.key.startsWith("service-") && a.label === "cdn");
+  const hasCdnServiceChip = badges.some((a) => a.key.startsWith(SERVICE_CHIP_KEY_PREFIX) && a.label === "cdn");
   const showCdnBadge = r.threat?.is_cdn && !hasCdnServiceChip;
   if (keys.length === 0 && badges.length === 0 && !showCdnBadge) {
     return <span className="text-zinc-700 text-[11px]">-</span>;
@@ -240,7 +230,7 @@ function ThreatTags({
       {badges.map((a, i) => (
           <span key={`asset-${a.key}`}
             className={`${i === 0 ? "" : "ml-1.5"} rounded px-1.5 py-0.5 text-[11px] bg-sky-500/12 text-sky-400 ring-1 ring-sky-500/20`}
-            title={r.threat?.is_cdn && a.key.startsWith("service-") && a.label === "cdn" ? t("cdn.notice") : a.detail}>
+            title={r.threat?.is_cdn && a.key.startsWith(SERVICE_CHIP_KEY_PREFIX) && a.label === "cdn" ? t("cdn.notice") : a.detail}>
             {a.key === "carrier" ? `${a.label}: ${a.detail}` : a.label}
           </span>
         ))}
