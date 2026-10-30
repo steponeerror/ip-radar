@@ -9,19 +9,12 @@ brute-force > infected-system > spam > scanner > blacklist 裁决 classification
 import logging
 import os
 import shutil
-import time
 from pathlib import Path
-
-import lmdb
 
 from ._base import IpListSource
 from ._download import download_file, CancelToken, CancelledError
 from .._types import SourceHealth
 from .._classification import BLOCKLIST_DE_MAP
-# query() 覆写内联 import 提升:缓存 import 实测 273ns/调用
-# (PR-2 #111 T3 侦察遗留姊妹件;_lmdb 无反向 import,模块级安全)
-from ._lmdb import (
-    ip_to_int, lookup, read_ptr, open_env_read, read_disjoint_flag)
 
 _BASE_URL = "https://lists.blocklist.de/lists"
 
@@ -129,27 +122,6 @@ class BlocklistDeSource(IpListSource):
             raise RuntimeError(
                 f"all blocklist_de lists failed to download: {self._lists}")
 
-    def load(self) -> int:
-        """纯 mmap:打开已有 LMDB env,读 sidecar,不重建。"""
-        from ._lmdb import (read_ptr, open_env_read, cleanup_stale, count_path,
-                            cov_path, read_disjoint_flag)
-        cleanup_stale(self._lmdb_base)
-        epoch = read_ptr(self._lmdb_base)
-        if epoch is None:
-            self._reader = None
-            self._disjoint = False
-            self._load_v6_side()                  # v6 状态照常解析(v4 缺 ≠ v6 缺)
-            return 0
-        self._disjoint = read_disjoint_flag(self._lmdb_base, epoch)
-        self._reader = open_env_read(
-            self._lmdb_base.parent / f"{self._lmdb_base.name}.{epoch}")
-        cp, vp = count_path(self._lmdb_base), cov_path(self._lmdb_base)
-        self._count = int(cp.read_text().strip()) if cp.exists() else 0
-        self._covered_ips = int(vp.read_text().strip()) if vp.exists() else 0
-        self._load_v6_side()
-        self._loaded_at = time.time()
-        return self._count
-
     def rebuild(self, progress=None) -> int:
         """重建 LMDB(唯一重建入口)。多列表累积:同 CIDR 按优先级裁决
         classification_type,全部认领列表名进 native_categories。"""
@@ -201,28 +173,6 @@ class BlocklistDeSource(IpListSource):
             (c for c in acc.keys() if ":" in c), ip_version=6)
         return commit_dual_family(
             self, records, cov4=cov4, cov6=cov6, progress=progress)
-    def query(self, ip: str):
-        if ":" in ip:                      # v6 查询走并行族 reader(spec §3.2)
-            return self._query6(ip)
-        if self._reader is None:
-            return {}
-        ip_int = ip_to_int(ip)
-        try:
-            node = lookup(self._reader, ip_int, disjoint=self._disjoint)
-        except (lmdb.Error, OSError):
-            # 撞上刚 close 的旧 env:读 ptr 重开重试一次(与 MMDB 时代同模式)
-            epoch = read_ptr(self._lmdb_base)
-            self._reader = (open_env_read(
-                self._lmdb_base.parent / f"{self._lmdb_base.name}.{epoch}")
-                if epoch is not None else None)
-            if self._reader is None:
-                return {}
-            self._disjoint = read_disjoint_flag(self._lmdb_base, epoch)
-            node = lookup(self._reader, ip_int, disjoint=self._disjoint)
-        if node is None:
-            return {}
-        return node
-
     def health(self) -> SourceHealth:
         import time
         mtimes = []

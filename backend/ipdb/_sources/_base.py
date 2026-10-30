@@ -15,7 +15,7 @@ from . import _infra_filter
 # stdlib/lmdb/orjson,无对本模块的反向 import,模块级提升安全(PR-2 Task 3)
 from ._lmdb import (
     ip_to_int, ip_to_int6, lookup, read_ptr, open_env_read,
-    read_disjoint_flag)
+    read_disjoint_flag, load_v6_side_state)
 
 logger = logging.getLogger(__name__)
 
@@ -158,27 +158,11 @@ class IpListSource:
         return self._count
 
     def _load_v6_side(self) -> None:
-        """v6 族 sidecar 解析(additive):ptr 缺失 = 无 v6 数据,不是错误。
-        早退/正常两条 v4 路径共用;旧数据目录(无 v6 sidecar)静默零态。
-        (与 Source._load_v6_side 平行维护。)"""
-        from ._lmdb import (
-            read_ptr, open_env_read, cleanup_stale, count_path, cov_path,
-            read_disjoint_flag)
-        cleanup_stale(self._lmdb6_base)
-        e6 = read_ptr(self._lmdb6_base)
-        if e6 is None:
-            self._reader6 = None
-            self._disjoint6 = False
-            self._count6 = 0
-            self._covered_v6_nets = 0
-        else:
-            self._disjoint6 = read_disjoint_flag(self._lmdb6_base, e6)
-            self._reader6 = open_env_read(
-                self._lmdb6_base.parent / f"{self._lmdb6_base.name}.{e6}")
-            cp6, vp6 = count_path(self._lmdb6_base), cov_path(self._lmdb6_base)
-            self._count6 = int(cp6.read_text().strip()) if cp6.exists() else 0
-            self._covered_v6_nets = (
-                int(vp6.read_text().strip()) if vp6.exists() else 0)
+        """v6 族 sidecar 解析(additive):早退/正常两条 v4 路径共用;旧数据
+        目录(无 v6 sidecar)静默零态。实现收敛至 _lmdb.load_v6_side_state
+        单源点(#243,与 Source 基类侧拷贝的合一同归后续票)。"""
+        (self._reader6, self._disjoint6, self._count6,
+         self._covered_v6_nets) = load_v6_side_state(self._lmdb6_base)
 
     def rebuild(self, progress=None) -> int:
         """重建 LMDB(唯一入口,经 manager 队列调用)。新 epoch + ptr swap。"""
