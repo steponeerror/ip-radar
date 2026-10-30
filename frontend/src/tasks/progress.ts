@@ -19,13 +19,13 @@ export function isIndeterminate(t: TaskState): boolean {
 // ——— 任务状态谓词(#245 收编;此前 SourcesPage/BatchPanel/BatchMiniBar 三处内联散推)———
 
 // 终态(done/failed/cancelled):SourcesPage 防抖重拉计数用。
-const TERMINAL_TASK_STATES = ["done", "failed", "cancelled"];
+const TERMINAL_TASK_STATES: readonly TaskState["state"][] = ["done", "failed", "cancelled"];
 
 // 活动(忙碌)任务态 = 四个幂等入队相位(backend _enqueue_one:throttled 期间
 // 重复点击为静默 no-op,故 throttled 必须读作忙碌)——收编自 BatchPanel 私有
 // ACTIVE_TASK_STATES,与 SourcesPage 行内 busy 同集;不含 ops 轮 running 相位
 // (source="ops",轮次不阻查询门)。
-const ACTIVE_TASK_STATES = ["queued", "throttled", "downloading", "loading"];
+const ACTIVE_TASK_STATES: readonly TaskState["state"][] = ["queued", "throttled", "downloading", "loading"];
 
 export function isTaskTerminal(t: TaskState): boolean {
   return TERMINAL_TASK_STATES.includes(t.state);

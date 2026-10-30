@@ -108,3 +108,16 @@ def test_unknown_verdict_abstains_but_shows():
     assert ca.verdict == "malicious"
     assert ca.has_archive is False
     assert ca.corroborated is False   # 唯一 voter 是 a,单源不足 2 不亮(决策 8)
+
+
+def test_details_insertion_order_does_not_change_readout():
+    """排序口径统一 sorted(issue #244):同组观测乱序喂入(details 插入序
+    打乱),confidence 与 corroborated 逐位不变。"""
+    group = [obs("spamhaus", "malicious", 0.90, FS),
+             obs("abuseipdb", "malicious", 0.70, FS),
+             obs("reportedip", "suspicious", 0.60, FS)]
+    rev = list(reversed(group))
+    assert _assess_classification(rev).confidence \
+        == _assess_classification(group).confidence
+    assert _assess_classification(rev).corroborated is True
+    assert _assess_classification(group).corroborated is True

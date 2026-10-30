@@ -43,7 +43,7 @@ def accuser_pool(entries: Iterable[tuple[str, float, str | None]],
 
 ### 回放闸门(`scripts/fusion_replay_gate.py`)
 
-同语料同参数(`--data .eval-prod-data --stride 10 --limit 1000000`,43 指控源起点并集 1,000,001、实际 lookup 10 万次系统抽样)改动前/后各跑一遍,主仓 venv 解释器:
+同语料同参数(`--data .eval-prod-data --stride 10 --limit 1000000`,43 指控源起点并集 1,000,001、实际 lookup 10 万次系统抽样)改动前/后各跑一遍,主仓 venv 解释器。语料/数据面标识:主仓根 `.eval-prod-data/`(生产 LMDB 快照镜像,未随本票重建),目录时间 2026-10-29 21:31、`.lmdb.*` 家族目录 708 个、顶层条目 129 —— 后人复现回放对照以此为准(起点并集 1,000,001 与下表各计数即指纹):
 
 | 读数 | 改动前 | 改动后 |
 |---|---|---|

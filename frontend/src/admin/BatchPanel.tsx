@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useTasks } from "../tasks/useTasks";
 import { useI18n } from "../i18n";
-import { stagedFrac, isIndeterminate, isTaskActive } from "../tasks/progress";
+import { stagedFrac, isIndeterminate, isTaskActive, isBatchLive } from "../tasks/progress";
 
 // Task 9:DbStatusBar 的活动面板原样迁入 /admin 任务区(管理面收敛,
 // spec §9)。批量进度/暂停/恢复/终止/逐任务取消全部依赖任务上下文 ——
@@ -66,7 +66,7 @@ export function BatchPanel({ onUnauthorized }: { onUnauthorized?: () => void } =
 
   const taskActive = tasks.some(isTaskActive);
   const active = taskActive
-    || (batch != null && batch.state !== "done")
+    || isBatchLive(batch)
     || (recentlyDone && batch?.state === "done");
 
   // 会话中 401(cookie 过期/服务端重启)踢回登录页;其余错误落横幅。

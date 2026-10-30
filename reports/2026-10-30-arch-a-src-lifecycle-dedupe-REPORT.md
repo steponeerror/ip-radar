@@ -59,5 +59,5 @@ firehol / blocklist_de 的 4 处照抄覆写(load ×2、query ×2)已删,子类�
 
 ## 遗留与建议
 
-- 无行为遗留;唯一外部依赖 = `/tmp/issue243/` 下基线/after 两份 snapshot 属临时工件(未入仓),票面要求的「备查」以此报告 §验证结果 + CI 位等价烟测(`scripts/ci_bitidentity_smoke.sh`,PR CI 自动跑)双保险。
+- 无行为遗留;唯一外部依赖 = `/tmp/issue243/` 下基线/after 两份 snapshot 属临时工件(未入仓),票面要求的「备查」以此报告把关。口径收窄(终审 P2):CI 位等价烟测(`scripts/ci_bitidentity_smoke.sh`,PR CI 自动跑)跑的是合成库,**不含 firehol/blocklist_de** —— 此两类的等价证据是删前逐行 diff(§等价性论证)+ 一次性本地全量 bench(§验证结果),CI 烟测不为其背书。
 - 后续票建议:两基类合一(harvest/Evidence vs parse_raw/fields 钩子调和)时,把 Source 侧 `_load_v6_side` 一并收敛到 `load_v6_side_state`,并复评 §顺手核 清单。

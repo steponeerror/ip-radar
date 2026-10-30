@@ -36,7 +36,7 @@
 ## 三、行为零变化论证(哲学 6「一切声明可证伪」)
 
 - 两组件渲染路径等价:foldServiceStatements 的分组序=Map 首见序(与原内联 `for...of byRole` 同序),detail 串拼接式逐字符相同,key 生成值相同;组件推入对象逐字段同构。既有渲染测试全绿作位等价回放。
-- 谓词:三处内联与收编后的谓词在各自类型域(TaskState 七态 / BatchState 三态)上真值表一致;tsc 严格模式通过。
+- 谓词:三处内联与收编后的谓词在各自类型域(TaskState 8 态 = 源任务 7 态 + ops running / BatchState 三态)上真值表一致;tsc 严格模式通过。
 
 ## 四、测试结果
 
