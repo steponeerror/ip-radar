@@ -73,10 +73,6 @@ class DataplaneSource(Source):
         "ntpmode7": "https://dataplane.org/signals/ntpmode7.txt",
     }
 
-    @property
-    def download_host(self) -> str | None:
-        return "dataplane.org"
-
     def download(self, token=None) -> None:
         """逐信号拉取 join 单文件(SA-F1):成功 parts join 原子写 + 失败信号
         记 self.last_partial_failure;全挂 raise。join 文件无法新旧混合,

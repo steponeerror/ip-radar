@@ -472,9 +472,9 @@ def cleanup_stale(base: Path) -> None:
 def load_v6_side_state(base: Path) -> tuple[object | None, bool, int, int]:
     """v6 族 sidecar 解析单源点(#243,2026-10-30):ptr 缺失 = 无 v6 数据,
     不是错误;旧数据目录(无 v6 sidecar)静默零态。返回 (reader6,
-    disjoint6, count6, covered_v6_nets) — IpListSource/ipinfo_lite 的
-    _load_v6_side 逐字拷贝由此收敛;Source(_source_base)侧同款拷贝不动,
-    归「两基类合一」票。副作用调用序照旧拷贝:read_disjoint_flag 先于
+    disjoint6, count6, covered_v6_nets) — 三个消费方(IpListSource/ipinfo_lite/
+    Source 经 #248 SourceBase 底座)的 _load_v6_side 均已收敛到本单源点。
+    副作用调用序照旧拷贝:read_disjoint_flag 先于
     open_env_read。"""
     cleanup_stale(base)
     e6 = read_ptr(base)

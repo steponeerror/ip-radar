@@ -133,10 +133,6 @@ class RirDelegatedSource(Source):
         super().__init__(data_dir)   # _path/_lmdb_base 全由 filename 推导(目录形)
         self.last_partial_failure: list[str] = []
 
-    @property
-    def download_host(self) -> str | None:
-        return None                                  # 五 host,无单一权威
-
     def download(self, token=None) -> None:
         """五家逐个:fetch → scratch → 守卫 → os.replace 原子落地。
 

@@ -19,7 +19,6 @@ import datetime
 import logging
 import math
 import zipfile
-from urllib.parse import urlparse
 
 from .._source_base import Source
 from .._evidence import Evidence
@@ -90,10 +89,6 @@ class StopForumSpamSource(Source):
                 shutil.rmtree(child, ignore_errors=True)
             else:
                 child.unlink(missing_ok=True)
-
-    @property
-    def download_host(self) -> str | None:
-        return urlparse(self.url).hostname
 
     def download(self, token: CancelToken | None = None) -> None:
         self._data_dir.mkdir(parents=True, exist_ok=True)

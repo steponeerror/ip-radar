@@ -1,5 +1,6 @@
 # backend/ipdb/_source_base.py
-"""Unified Source base for complex/bespoke sources.
+"""A-family Source base for complex/bespoke sources(挂源底座 SourceBase,
+_sources/_base.py,#248;与 B 家族 IpListSource 共享生命周期底座)。
 
 Hooks (override what you need):
   download()           — default simple GET to self.url → self._path.
@@ -10,92 +11,38 @@ Hooks (override what you need):
                          expansion (one input row → many CIDRs).
   normalize(raw)       — optional per-source classification/field mapping.
 
-Shared: LMDB write from harvest (epoch/ptr swap), mmap query,
-health (file-mtime staleness), HTTP get with retries + auth header +
-atomic tmp→rename write.
+Shared(底座 SourceBase 提供):LMDB write from harvest (epoch/ptr swap),
+mmap query, health (file-mtime staleness), HTTP get with retries + auth
+header + atomic tmp→rename write,__init__ 状态槽与 v6 双族 sidecar。
 """
 import logging
 import time
 import urllib.request
-from pathlib import Path
-from typing import Any, Iterator
+from typing import Iterator
 
-import lmdb
-
-from ._types import SourceHealth
 from ._evidence import Evidence
 from ._sources import _infra_filter   # namespace pkg:无 __init__ 环,模块级安全
+# 底座(#248):生命周期(__init__/load/query/_query6/health/_http_get/
+# download_host)与两家族同款类属性收敛在 _sources/_base.SourceBase;
+# 本模块只留 A 家族钩子(download/harvest/normalize)与 harvest 驱动的
+# rebuild。import 方向与既有 _lmdb/_download 一致(ipdb 层 → _sources 内部)。
+from ._sources._base import SourceBase
 from ._sources._download import (
     warn_if_redirected, atomic_write_bytes, redact_url)
-# 热路径共享:函数体内缓存 import 复测 273ns/调用(2026-10-11 配对
-# A/B 修正侦察预估 1.075µs;43µs/IP 为已修正的侦察预估,非实测);提升后
-# 配对 A/B 实测 -21µs/IP(5/5 全胜)。_lmdb 仅依赖
-# stdlib/lmdb/orjson,无对本模块的反向 import,模块级提升安全(PR-2 Task 3;
-# 与 _sources/_base.py 平行维护)
-from ._sources._lmdb import (
-    ip_to_int, ip_to_int6, lookup, read_ptr, open_env_read,
-    read_disjoint_flag)
 
 logger = logging.getLogger(__name__)
 
 
-class Source:
-    name: str
-    fields: tuple[str, ...]
-    url: str = ""
-    filename: str = ""
-    stale_days: int = 7
-    reliability: float = 0.5
-    # ── 元数据契约(spec 2026-08-28 §5.1):源文件是唯一真相 ──
-    category: str = "other"            # geo_asn | threat | asset | other
-    authoritative_for: tuple = ()      # 本源权威的字段名(反转成 AUTHORITATIVE_SOURCES)
-    # eval 元数据(S21/S33,2026-10-14 eval-loop phase1):纯元数据,不参与
-    # 抓取/解析/合并;仅偏离默认的源在类内覆写(与 _sources/_base.py 平行维护)。
-    provenance_tier: str = "B"          # A 官方/自采 | B 社区 | C 聚合派生
-    honeypot_methodology: bool = False  # 蜜罐法采集(k_nonhoneypot 剔除依据)
+class Source(SourceBase):
     # When True, rebuild() streams one (cidr, [evidence]) per harvest yield
     # straight into rebuild_lmdb instead of accumulating a full acc dict. Safe
     # only for sources whose harvest yields each CIDR at most once (geo/asset
     # lists like ip2proxy/iptoasn); insert_network overwrites idempotently, so
     # a stray duplicate is harmless. Multi-evidence threat sources must leave
     # this False — they rely on acc to group several evidence per CIDR.
+    # 仅 A 家族 rebuild 消费(#248 裁决 5),留在 Source 不上底座。
     single_evidence: bool = False
-    # 设计上无 per-IP LMDB 面的源置 False(caida_asorg:文件即持久层);
-    # 2026-10-14 demo 幻影环:ptr 永不存在被当 needs_rebuild → 每 30min 全量重抓
-    lmdb_backed: bool = True
-    # 载入期基础设施噪声过滤(issue #183):True = rebuild 载入面排除
-    # infra_services curated 单址集(默认 False,事故源显式 opt-in;
-    # 与 _sources/_base.py 平行维护)。2026-10-29 tweetfeed 接入时落地
-    # harvest 车道接线——此前该 flag 仅 IpListSource/CsvSource 车道生效。
-    infra_noise_filter: bool = False
 
-    def __init__(self, data_dir: Path):
-        self._data_dir = data_dir
-        self._path = data_dir / self.filename
-        self._lmdb_base = data_dir / f"{self.filename}.lmdb"
-        # scheduler 快照契约名(名保留):ptr 文件;C2 后 needs_convert 的
-        # 比较对象是 _lmdb_base 族(ptr mtime + .rev harvest 版本戳,ADR 0009)
-        from ._sources._lmdb import ptr_path as _ptr_path
-        self._mmdb_path = _ptr_path(self._lmdb_base)
-        self._reader = None      # LMDB env (readonly, lock=False)
-        self._disjoint = False   # epoch-bound sidecar flag(load/retry 时重读)
-        self._count = 0
-        self._covered_ips = 0
-        self._loaded_at = 0.0
-        # SA-F1 部分失败信号(cloud_ranges 模式,A1/Task 3):download() 把
-        # 失败子项名记入此列表(空 = 全绿);RefreshScheduler._partial_failure_of
-        # 消费(done-但-部分失败 → backoff 封顶重试,spec §2.3)。
-        # cloud_ranges 在自己 __init__ 里重复声明同名属性,赋值覆写零冲突。
-        self.last_partial_failure: list[str] = []
-        # v6 并行族(spec §3.2):base/ptr/reader/disjoint 全套独立 sidecar
-        self._lmdb6_base = data_dir / f"{self.filename}.v6.lmdb"
-        self._mmdb6_path = _ptr_path(self._lmdb6_base)
-        self._reader6 = None
-        self._disjoint6 = False
-        self._count6 = 0
-        self._covered_v6_nets = 0
-
-    # ── hooks ──
     def download(self, token=None) -> None:
         """Default: simple GET → self._path. Override for bespoke fetch.
 
@@ -119,52 +66,6 @@ class Source:
     def normalize(self, raw: Evidence) -> Evidence:
         """Optional per-source classification/field mapping. Default: passthrough."""
         return raw
-
-    # ── shared lifecycle ──
-    def load(self) -> int:
-        """纯 mmap:加载现有 LMDB env(若有),永不重建。读 sidecar。"""
-        from ._sources._lmdb import (
-            read_ptr, open_env_read, cleanup_stale, count_path, cov_path,
-            read_disjoint_flag)
-        cleanup_stale(self._lmdb_base)
-        epoch = read_ptr(self._lmdb_base)
-        if epoch is None:
-            self._reader = None
-            self._disjoint = False
-            self._load_v6_side()                  # v6 状态照常解析(v4 缺 ≠ v6 缺)
-            return 0
-        self._disjoint = read_disjoint_flag(self._lmdb_base, epoch)
-        self._reader = open_env_read(
-            self._lmdb_base.parent / f"{self._lmdb_base.name}.{epoch}")
-        cp, vp = count_path(self._lmdb_base), cov_path(self._lmdb_base)
-        self._count = int(cp.read_text().strip()) if cp.exists() else 0
-        # cov 只读,缺失则 0,不触发 harvest(rebuild 负责)
-        self._covered_ips = int(vp.read_text().strip()) if vp.exists() else 0
-        self._load_v6_side()
-        self._loaded_at = time.time()
-        return self._count
-
-    def _load_v6_side(self) -> None:
-        """v6 族 sidecar 解析(additive):ptr 缺失 = 无 v6 数据,不是错误。
-        早退/正常两条 v4 路径共用;旧数据目录(无 v6 sidecar)静默零态。"""
-        from ._sources._lmdb import (
-            read_ptr, open_env_read, cleanup_stale, count_path, cov_path,
-            read_disjoint_flag)
-        cleanup_stale(self._lmdb6_base)
-        e6 = read_ptr(self._lmdb6_base)
-        if e6 is None:
-            self._reader6 = None
-            self._disjoint6 = False
-            self._count6 = 0
-            self._covered_v6_nets = 0
-        else:
-            self._disjoint6 = read_disjoint_flag(self._lmdb6_base, e6)
-            self._reader6 = open_env_read(
-                self._lmdb6_base.parent / f"{self._lmdb6_base.name}.{e6}")
-            cp6, vp6 = count_path(self._lmdb6_base), cov_path(self._lmdb6_base)
-            self._count6 = int(cp6.read_text().strip()) if cp6.exists() else 0
-            self._covered_v6_nets = (
-                int(vp6.read_text().strip()) if vp6.exists() else 0)
 
     def rebuild(self, progress=None) -> int:
         """重建 LMDB(唯一入口,经 manager 队列调用)。新 epoch + ptr swap。
@@ -251,78 +152,3 @@ class Source:
                 "time-decay silently disabled for those rows",
                 self.name, len(bad_fs), sorted(bad_fs)[:3])
         return n4
-    def query(self, ip: str) -> Any:
-        if ":" in ip:                      # v6 查询走并行族 reader(spec §3.2)
-            return self._query6(ip)
-        if self._reader is None:
-            return {}
-        ip_int = ip_to_int(ip)
-        try:
-            result = lookup(self._reader, ip_int, disjoint=self._disjoint)
-        except (lmdb.Error, OSError):
-            # 撞上刚 close 的旧 env:读 ptr 重开重试一次(与 MMDB 时代同模式)
-            epoch = read_ptr(self._lmdb_base)
-            self._reader = (open_env_read(
-                self._lmdb_base.parent / f"{self._lmdb_base.name}.{epoch}")
-                if epoch is not None else None)
-            if self._reader is None:
-                return {}
-            self._disjoint = read_disjoint_flag(self._lmdb_base, epoch)
-            result = lookup(self._reader, ip_int, disjoint=self._disjoint)
-        return result if result is not None else {}
-
-    def _query6(self, ip: str) -> Any:
-        """v6 版 query():与 v4 同构(ptr 重开重试),独立族状态。
-        无 v6 env(源无 v6 数据/旧目录)安静返回 {}——与该源不存在同体验。"""
-        if self._reader6 is None:
-            return {}
-        ip_int = ip_to_int6(ip)
-        try:
-            result = lookup(self._reader6, ip_int, disjoint=self._disjoint6,
-                            ip_version=6)
-        except (lmdb.Error, OSError):
-            # 撞上刚 close 的旧 env:读 ptr 重开重试一次(与 v4 同模式)
-            epoch = read_ptr(self._lmdb6_base)
-            self._reader6 = (open_env_read(
-                self._lmdb6_base.parent / f"{self._lmdb6_base.name}.{epoch}")
-                if epoch is not None else None)
-            if self._reader6 is None:
-                return {}
-            self._disjoint6 = read_disjoint_flag(self._lmdb6_base, epoch)
-            result = lookup(self._reader6, ip_int, disjoint=self._disjoint6,
-                            ip_version=6)
-        return result if result is not None else {}
-
-    def health(self) -> SourceHealth:
-        # convention 4: staleness from FILE mtime, not _loaded_at
-        file_mtime = self._path.stat().st_mtime if self._path.exists() else None
-        last_updated = (time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(file_mtime))
-                        if file_mtime else None)
-        is_stale = file_mtime is None or (
-            time.time() - file_mtime > self.stale_days * 86400)
-        return SourceHealth(
-            name=self.name, loaded=self._reader is not None,
-            record_count=self._count, last_updated=last_updated, is_stale=is_stale,
-            covered_ips=self._covered_ips,
-            covered_v6_nets=self._covered_v6_nets)
-
-    # ── HTTP helper for subclasses ──
-    @staticmethod
-    def _http_get(url: str, *, headers: dict | None = None,
-                  timeout: int = 120, retries: int = 3) -> bytes:
-        h = {"User-Agent": "ip-lookup-tool/1.0"}
-        if headers:
-            h.update(headers)
-        last = None
-        for attempt in range(1, retries + 1):
-            try:
-                req = urllib.request.Request(url, headers=h)
-                with urllib.request.urlopen(req, timeout=timeout) as resp:
-                    warn_if_redirected(url, resp)
-                    return resp.read()
-            except Exception as e:
-                last = e
-                if attempt == retries:
-                    raise
-                time.sleep(2 ** attempt)
-        raise RuntimeError(f"unreachable: {last}")
