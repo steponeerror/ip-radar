@@ -51,7 +51,7 @@ cp .env .env.local   # 编辑 .env.local 填入密钥
 docker compose up -d
 ```
 
-四个变量，去哪申请（`.env` 里也有同样的注释）：
+五个变量，去哪申请（`.env` 里也有同样的注释）：
 
 | 源 | 变量 | 申请 |
 |---|---|---|
@@ -60,6 +60,7 @@ docker compose up -d
 | otx | `OTX_API_KEY` | <https://otx.alienvault.com/settings> |
 | otx_subscribed | `OTX_API_KEY`（与 otx 共用） | <https://otx.alienvault.com/settings> |
 | ip2proxy | `IP2PROXY_TOKEN` | <https://www.ip2location.com/> |
+| threatfox / urlhaus | `ABUSECH_AUTH_KEY`（两源共用） | <https://auth.abuse.ch/> 注册 Auth-Key；密钥在导出 URL 路径内，日志已打码 |
 
 npm/pip 下载慢（国内网络常见）——传镜像 build-args：
 
