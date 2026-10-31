@@ -42,6 +42,7 @@ class FireholBlocklistSource(IpListSource):
     name = "firehol"
     category = "threat"
     url = ""  # unused — custom download() handles multiple URLs
+    url_exempt = True  # #253:url 有意空串(多端点走 _BASE_URL),护栏豁免
     filename = "firehol"  # directory name
     fields = ("is_malicious",)
     classification_type = "blacklist"   # 类级回退(未列入 _LIST_SPEC 的列表)

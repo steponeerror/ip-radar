@@ -31,6 +31,7 @@ class BlocklistDeSource(IpListSource):
     name = "blocklist_de"
     category = "threat"
     url = ""  # unused — custom download() handles multiple URLs
+    url_exempt = True  # #253:url 有意空串(多端点走 _BASE_URL),护栏豁免
     filename = "blocklist_de"  # directory name
     fields = ("is_malicious",)
     classification_type = "blacklist"   # 兜底（无映射子列表 / all.txt）

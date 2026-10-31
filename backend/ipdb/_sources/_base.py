@@ -232,6 +232,14 @@ class IpListSource(SourceBase):
     (源底座,#248);本类只保留 B 家族取数钩子与 download 落盘契约。
     """
 
+    # url 非空护栏的显式豁免(#253,ADR 0014 护栏弱化声明的还原动作):
+    # True = url 有意为空串/None(多端点/分片取数走定制 download(),真
+    # URL 在模块常量,如 firehol 的 _BASE_URL、blocklist_de 的 _BASE_URL);
+    # 消费方 _validate.metadata_problems 按 IpListSource 家族门控——B 家族
+    # 漏定义 url 且未豁免 = registry 发现期启动即拒(空 url 走本类默认
+    # download() 必坏)。2026-10-31 普查:现役豁免源仅 firehol/blocklist_de。
+    url_exempt: bool = False
+
     # ── Overridable hooks ──
 
     def parse_raw(self, raw: bytes) -> list[str]:

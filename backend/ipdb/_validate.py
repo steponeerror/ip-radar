@@ -13,6 +13,7 @@ mistakes: bad classification_type, unknown field_map targets, duplicate targets.
 from collections import Counter
 from ._classification import CLASSIFICATION_TYPES
 from ._evidence import ALL_KNOWN
+from ._sources._base import IpListSource
 
 # 权威轴合法字段 = 路由槽(SM-F1 幻影修剪:is_malicious(classification
 # verdict 轴,无证据键生产者)与 is_mobile(非 ASSET_SLOTS、无生产者)
@@ -23,6 +24,26 @@ _AUTHORITY_FIELDS = ALL_KNOWN
 def metadata_problems(source) -> list[str]:
     """元数据契约检查:违规时 registry 启动即 raise(spec §5.1)。"""
     problems: list[str] = []
+    # B 家族 url/filename 非空护栏(#253):源底座上收(#248/#250)把
+    # IpListSource 侧裸注解(url: str / filename: str,漏定义 __init__ 即
+    # AttributeError)换成 SourceBase 空串默认——漏定义从「启动即炸」退化
+    # 成「静默空路径」(filename="" 时 _path = data_dir 本身,空目录读写)。
+    # 本块还原该闸,仅门控 IpListSource 家族(CsvSource 经继承命中);
+    # A 家族/直挂底座源不查(2026-10-31 裁决 B1:票面口径即 B 家族,A 家
+    # 族新增保护另开票),duck-type 源桩(test_validate._Fake 等,无
+    # url/filename 属性)同不受扰。普查同期实测:61 源 filename 全非空;
+    # url 空串仅 firehol/blocklist_de(B 家族,均 url_exempt)。
+    if isinstance(source, IpListSource):
+        if not (getattr(source, "filename", None) or "").strip():
+            problems.append(
+                "filename is empty — B-family source must define a data-file "
+                "anchor (empty path silently resolves to the data directory "
+                "itself; #253)")
+        url = (getattr(source, "url", None) or "").strip()
+        if not url and not getattr(source, "url_exempt", False):
+            problems.append(
+                "url is empty — define url, or set url_exempt = True for a "
+                "custom multi-endpoint download() (#253)")
     cat = getattr(source, "category", None)
     if cat not in ("geo_asn", "threat", "asset", "other"):
         problems.append(f"category {cat!r} invalid (need geo_asn|threat|asset|other)")

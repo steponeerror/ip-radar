@@ -98,7 +98,8 @@ def _discover_sources(data_dir: Path) -> list:
                     if probs:
                         raise RuntimeError(
                             f"元数据契约违规(source {inst.name}): {probs} —— "
-                            f"修复源文件的 category/reliability/authoritative_for")
+                            f"修复源类属性(category/reliability/authoritative_for/"
+                            f"url/filename,见 _validate.metadata_problems)")
                     for prob in validate_source(inst):
                         logger.warning(f"source {inst.name}: {prob}")
                 sources.extend(instances)
