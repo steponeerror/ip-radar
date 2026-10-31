@@ -51,7 +51,7 @@ cp .env .env.local   # 编辑 .env.local 填入密钥
 docker compose up -d
 ```
 
-五个变量，去哪申请（`.env` 里也有同样的注释）：
+五个变量，去哪申请（`.env` 里有同样的注释；ABUSECH_AUTH_KEY 样例暂缺待补）：
 
 | 源 | 变量 | 申请 |
 |---|---|---|

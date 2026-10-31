@@ -28,7 +28,7 @@
 - **按 RAM 分档的安全窗口**(6 GB 以下 30 分钟、12 GB 以下 20 分钟、其余 15 分钟)保证构建卡死也不会把查询永久锁住——窗口过后,容器以现有覆盖度开闸。需要的话用 `IP_RADAR_COLD_START_TIMEOUT`(秒)覆盖。
 - **后续启动几秒内从 `ipradar-data` 卷加载。**冷启动只发生一次。
 
-首次构建需要时间与磁盘:数据卷预算 **≥ 6 GB**。内存方面,构建并发会迁就主机 RAM;小内存机器会磨一阵 swap 但能恢复。五个 key 源(AbuseIPDB、OTX ×2、IP2Proxy、IPinfo)在往 `.env.local` 填 key 之前保持熄灭——对照 README [Quick Start](README.md#quick-start) 的表格。
+首次构建需要时间与磁盘:数据卷预算 **≥ 6 GB**。内存方面,构建并发会迁就主机 RAM;小内存机器会磨一阵 swap 但能恢复。七个 key 源（AbuseIPDB、OTX ×2、IP2Proxy、IPinfo、ThreatFox、URLhaus）在往 `.env.local` 填 key 之前保持熄灭--对照 README [Quick Start](README.md#quick-start) 的表格。
 
 页面底部状态栏实时显示库的状态:
 
@@ -185,7 +185,7 @@ Key 是用 `IP_RADAR_API_JWT_SECRET` 签名的 JWT;以 `Authorization: Bearer <k
 四条路径,按费力程度排:
 
 1. **拨一个开关。**已禁用(或想静音)的源在[管理台 Sources tab](#5-管理台)是一个开关。零代码、零重启。
-2. **点亮 key 源。**五个 key 源往 `.env.local` 填上 API key、重启即激活——key 名与注册链接表在 README [Quick Start](README.md#quick-start)。
+2. **点亮 key 源。**七个 key 源往 `.env.local` 填上 API key、重启即激活--key 名与注册链接表在 README [Quick Start](README.md#quick-start)。
 3. **让 AI agent 接一个新源。**仓库自带三个 agent skill(`.pi/skills/`,由读项目级 skill 的 agent 加载,如 [pi](https://github.com/earendil-works/pi))。各一句话:*"Find me threat-intel sources worth adding"*(discover → 评分候选表)、*"Add GreyNoise"*(端到端接入一个指定源)、*"Check the health of all sources"*(管理/调优闭环)。
 4. **手写源模块。**一个源就是 `backend/ipdb/_sources/` 里的一个 Python 文件，实现一个小约定——按固定模板(map-first)解析、原始证据原样保留存档、注册条目、测试。读一个小模块（如 [`backend/ipdb/_sources/bruteforce.py`](backend/ipdb/_sources/bruteforce.py) 加它的测试）就是全部入门；照着形状与守卫镜像即可。
 

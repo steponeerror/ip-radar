@@ -111,7 +111,7 @@ OVERALL: PASS
 | MANUAL.md:24 | `56 of the 61 sources` → `54 of the 61 sources` |
 | MANUAL.zh-CN.md:24 | `61 个源中的 56 个` → `61 个源中的 54 个` |
 
-**改后复核**:旧表述全量清扫零残留(`grep '5 keyed|除 5 个|5 个密钥源|56 of the 61|61 个源中的 56|剩下 5 个'` 四文件零命中);`🔑 = 7` 的行恰为代码里 7 个读密钥 env 的源。审查第 1 轮 P1-1 勘正:裁决时以为「Quick Start 密钥表本就与真相一致」只对 en 成立(6 行/5 变量),zh 表是 #159 前旧状态(4 变量、ABUSECH_AUTH_KEY 整行缺席)——已随审查修 `review-r1` 补行并改导语「四个→五个变量」,双语表至此一致;另 `.env` 样例至今缺 ABUSECH_AUTH_KEY 行(#159 遗留,票外挂账)。
+**改后复核**:旧表述清扫——数字形态(grep `5 keyed|除 5 个|5 个密钥源|56 of the 61|61 个源中的 56|剩下 5 个`)当时四文件零命中,但该模式漏了拼写形态:环第 2 轮复审员抓出 MANUAL 双语 4 处「five keyed/五个 key 源」(:31/:188)残留,系同一旧分区,`review-r2` 已修(five→seven、五→七,:31 枚举补 ThreatFox、URLhaus),补模式 `five keyed|五个 key` 后四文件零命中。`🔑 = 7` 的行恰为代码里 7 个读密钥 env 的源。审查第 1 轮 P1-1 勘正:裁决时以为「Quick Start 密钥表本就与真相一致」只对 en 成立(6 行/5 变量),zh 表是 #159 前旧状态(4 变量、ABUSECH_AUTH_KEY 整行缺席)——已随审查修 `review-r1` 补行并改导语「四个→五个变量」,双语表至此一致;另 `.env` 样例至今缺 ABUSECH_AUTH_KEY 行(#159 遗留,票外挂账)。
 
 ---
 
@@ -134,4 +134,6 @@ cd /home/huxiao/dev/pi-ip-lookup-tool/.worktrees/tkt-misc/backend
 ## 提交
 
 - da4c7200 — #249 threatfox.py 覆写删除(1 文件,−5 行)
-- (本提交)— #251 四文件:README 双语表行 16+16、mermaid 改序、密钥分区口径 9 处 + 本报告
+- b6f97f3a — #251 四文件:README 双语表行 16+16、mermaid 改序、密钥分区口径 9 处 + 本报告
+- review-r1 — 审查修:zh Quick Start 补 ABUSECH_AUTH_KEY 行+导语四→五、本报告勘正披露
+- review-r2(本提交)— 环第 2 轮:MANUAL 双语 4 处 five/五→seven/七(:31 枚举补 ThreatFox、URLhaus)、README.zh:54 `.env` 括号注如实化(ABUSECH 样例待补)、本报告零残留声明勘正+提交清单补全
