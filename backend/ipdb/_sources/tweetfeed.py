@@ -10,26 +10,44 @@ the reporter handle in ``extra`` (Convention 1 + the preserve-signal Principle).
 """
 import csv
 import logging
+from collections import Counter
 
 from .._source_base import Source
 from .._evidence import Evidence
-from .._classification import normalize, TWEETFEED_MAP
+from .._classification import CLASSIFICATION_TYPES, TWEETFEED_MAP
 
 logger = logging.getLogger(__name__)
 
+# 聚合摘要的 Top-N 截断(#241):unknown hashtag 计数后只报 Top-N;
+# 首现逐 tag DEBUG 留痕,信息不灭失(哲学 1)。N=10 = 票面口径。
+_TOP_N = 10
 
-def _classify_tag(raw_tag: str) -> str:
+
+def _classify_tag(raw_tag: str, unknown: Counter) -> str:
     """First mappable hashtag wins; empty / all-unmappable → ``other``.
 
     Convention 2 (don't force-fit): an unmappable tag (#ransomware, #APT…) falls
     to ``other`` with the raw tag preserved in ``tags``. An *empty* tag is an
     uncategorized-but-flagged IP → also ``other`` (the IP's signal is
     preserved; it is not dropped).
+
+    映射判定与 ``_classification.normalize()`` 同语义复制(strip().lower()
+    → TWEETFEED_MAP → 词表成员校验,分类结果位等价,测试钉住),但不走
+    它的逐键 WARN 绊线:#241 重建期 unknown hashtag 逐键 WARN 刷屏
+    (全量语料实测 54 条/次重建,逐条进容器日志),改往调用方传入的
+    ``unknown`` Counter 计数,harvest 结束发一条聚合摘要 WARN。计数只含
+    本函数实际扫过的前缀未映射 tag——与旧绊线触发集一致(首个可映射
+    tag 之后的 tag 本就不被检查,不计入)。
     """
     for tag in (raw_tag or "").split():
-        ctype = normalize(tag, TWEETFEED_MAP)
-        if ctype != "other":
-            return ctype
+        key = tag.strip().lower()
+        mapped = TWEETFEED_MAP.get(key)
+        if mapped and mapped in CLASSIFICATION_TYPES:
+            return mapped
+        if unknown[key] == 0:
+            logger.debug("tweetfeed: first unmapped hashtag %r this pass "
+                         "(counting; aggregate summary at end of parse)", key)
+        unknown[key] += 1
     return "other"
 
 
@@ -56,7 +74,13 @@ class TweetFeedSource(Source):
         """Yield (ip, Evidence) per IP-type row. Non-IP rows (domain/url/hash)
         are dropped — noise for an IP tool. Tag → classification via
         ``_classify_tag``; hashtag list in ``tags`` + reporter preserved in
-        ``extra``."""
+        ``extra``.
+
+        #241:本遍解析的 unmapped hashtag 累积进 ``unknown`` 计数器,解析
+        正常跑完(生成器被完整消费)后发一条聚合摘要 WARN(总命中数 +
+        distinct + Top-N 及各自计数);逐键 WARN 绊线不再走。消费方中途
+        弃置生成器 = 本遍未完成,不发摘要。"""
+        unknown: Counter = Counter()
         with open(self._path, "r", encoding="utf-8") as f:
             for row in csv.reader(f):
                 if len(row) < 5:
@@ -69,7 +93,7 @@ class TweetFeedSource(Source):
                 tweet_url = row[5].strip() if len(row) > 5 else ""
                 tags = raw_tag.split() if raw_tag else []
                 yield ip, Evidence(
-                    classification_type=_classify_tag(raw_tag),
+                    classification_type=_classify_tag(raw_tag, unknown),
                     verdict="malicious",
                     first_seen=first_seen,
                     tags=tags,
@@ -78,3 +102,11 @@ class TweetFeedSource(Source):
                         "tweet_url": tweet_url,
                     },
                 )
+        if unknown:
+            top = unknown.most_common(_TOP_N)
+            logger.warning(
+                "tweetfeed: %d unmapped-hashtag hit(s), %d distinct tag(s) "
+                "-> 'other' (top %d: %s) — upstream may have added/renamed "
+                "tags; full first-seen trail at DEBUG",
+                sum(unknown.values()), len(unknown), len(top),
+                ", ".join(f"{tag}={count}" for tag, count in top))
