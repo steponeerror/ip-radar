@@ -76,22 +76,22 @@ def old_rule(result) -> int:
     return max(v.confidence for v in detected if v.verdict == worst.verdict)
 
 
-def fusion_pool(result, coefficient, accusing_verdicts) -> dict[str, float]:
-    """镜像 _types.threat_summary 的指控章池化循环（同源跨组取 max）；
-    指控章集合用 _types._ACCUSING live 导入（与本脚本重算交叉核对，
-    失配会计入 xcheck_bad，防镜像与实现漂移）。"""
-    pool: dict[str, float] = {}
-    for v in result.classifications.values():
-        if v.verdict not in accusing_verdicts:
-            continue
-        for d in v.details:
-            if d.get("verdict") not in accusing_verdicts:
-                continue
-            c = coefficient(d["reliability"], d.get("first_seen"), v.type)
-            src = d["source"]
-            if src not in pool or c > pool[src]:
-                pool[src] = c
-    return pool
+def fusion_pool(result, accuser_pool, asof_to_now, accusing_verdicts):
+    """镜像 _types.threat_summary 的指控池(同源跨组取 max);指控章集合用
+    _types._ACCUSING live 导入（与本脚本重算交叉核对，
+    失配会计入 xcheck_bad，防镜像与实现漂移）。池化数学单源化到
+    _logodds.accuser_pool 后(issue #246 同改),本函数只剩入口构造:
+    组级 + detail 级双滤与跨组 ctype 携带(第 4 元);asof 锚同生产
+    ——回放 lookup 未传 asof → None → 墙钟,与生产 None 路径同刻。
+    返回 dedup+sorted 后池列表(池非空 ⟹ dedup 非空:现行谱系表下
+    最强非 derived 源必存活)。"""
+    return accuser_pool(
+        ((d["source"], d["reliability"], d.get("first_seen"), v.type)
+         for v in result.classifications.values()
+         if v.verdict in accusing_verdicts
+         for d in v.details
+         if d.get("verdict") in accusing_verdicts),
+        now=asof_to_now(result.asof))
 
 
 def spearman_from_contingency(counts: dict[tuple[int, int], int]) -> float:
@@ -371,22 +371,23 @@ def main() -> int:
                 result = reg.lookup(ip)
                 new_conf = result.threat_summary()["confidence"]   # 生产融合实现（worktree 代码）
                 old_conf = old_rule(result)
-                pool = fusion_pool(result, _lo.coefficient, _types._ACCUSING)
+                # 指控池镜像已返回 dedup+sorted 后列表(issue #246 单源化
+                # 同改,池化数学在 _logodds.accuser_pool)
+                deduped = fusion_pool(result, _lo.accuser_pool, _lo.asof_to_now,
+                                      _types._ACCUSING)
             except Exception as e:                          # 单 IP 失败不终止整轮
                 n_err += 1
                 if n_err <= 5:
                     log(f"lookup 错误 {ip}: {e!r}")
                 continue
 
-            n_accused += 1 if pool else 0
+            n_accused += 1 if deduped else 0
             # 交叉核对:本地镜像池化重算 == 生产 threat_summary(防脚本镜像漂移)
-            if pool:
-                mine = _lo.assertion_confidence(
-                    [c for _, c in _lo.dedup_lineage(list(pool.items()))])
+            if deduped:
+                mine = _lo.assertion_confidence([c for _, c in deduped])
                 if mine != new_conf:
                     xcheck_bad += 1
 
-            deduped = _lo.dedup_lineage(list(pool.items())) if pool else []
             k = len(deduped)
 
             # C2:恒等计数(严格/宽两口径)
@@ -412,7 +413,7 @@ def main() -> int:
             hist_new[new_conf] += 1
             cont_old[(old_conf, k)] = cont_old.get((old_conf, k), 0) + 1
             cont_new[(new_conf, k)] = cont_new.get((new_conf, k), 0) + 1
-            if pool:                                          # 判据主口径：指控语料
+            if deduped:                                      # 判据主口径：指控语料
                 cont_acc_old[(old_conf, k)] = cont_acc_old.get((old_conf, k), 0) + 1
                 cont_acc_new[(new_conf, k)] = cont_acc_new.get((new_conf, k), 0) + 1
             k_hist[k] += 1
