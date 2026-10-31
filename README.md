@@ -40,9 +40,9 @@ cd ip-radar
 docker compose up -d --build
 ```
 
-Open http://127.0.0.1:8000. The container is reachable within seconds — a banner at the top tracks the keyless feeds' download/build progress live (all but the 5 keyed sources, including geo/city/ASN, the major blocklists and cloud ranges), and queries unlock automatically once the build settles. Subsequent starts load from the `ipradar-data` volume in seconds.
+Open http://127.0.0.1:8000. The container is reachable within seconds — a banner at the top tracks the keyless feeds' download/build progress live (all but the 7 keyed sources, including geo/city/ASN, the major blocklists and cloud ranges), and queries unlock automatically once the build settles. Subsequent starts load from the `ipradar-data` volume in seconds.
 
-**All but 5 feeds need zero API keys.** To light up the 5 keyed sources, drop the keys into `.env.local` (gitignored, overrides `.env`):
+**All but 7 feeds need zero API keys.** To light up the 7 keyed sources (they share 5 keys — OTX across two feeds, abuse.ch across two), drop the keys into `.env.local` (gitignored, overrides `.env`):
 
 ```bash
 cp .env .env.local   # then open .env.local in any editor, fill keys
@@ -100,15 +100,15 @@ Everything after `docker compose up` — reading the results page, the admin con
 
 ```mermaid
 flowchart TD
-    A["Public sources<br/>(keyless auto + 5 keyed)"] --> B["Cold-start download /<br/>30-min scan · per-source 12h staggered refresh slots"]
+    A["Public sources<br/>(keyless auto + 7 keyed)"] --> B["Cold-start download /<br/>30-min scan · per-source 12h staggered refresh slots"]
     B --> C["Per-source parsers<br/>(classification pipeline)"]
-    C --> D["Fusion<br/>(log-odds · corroboration · decay)"]
-    D --> E["LMDB store<br/>(named volume · mmap)"]
+    C --> D["LMDB store<br/>(named volume · mmap)"]
+    D --> E["Fusion at query time<br/>(log-odds · corroboration · decay)"]
     E --> F["FastAPI"]
     F --> G["React UI"]
 ```
 
-Fused, stored, and queried on your own machine — your lookups never leave it.
+Stored, fused, and queried on your own machine — your lookups never leave it.
 
 ## API
 
@@ -191,6 +191,16 @@ Every dataset below belongs to its provider — thank you for keeping them open 
 | drb_ra `*` | [C2IntelFeeds](https://github.com/drb-ra/C2IntelFeeds) | Aggregated C2 IPs (30-day hunts) | |
 | knock_knock | [Knock-Knock](https://knock-knock.net/blocklist) | 13-protocol honeypot attacker blocklist (month window) | |
 | rtbh | [RTBH.com.tr](https://www.rtbh.com.tr/) | Turkish 54-sensor DDoS-source RTBH list | |
+| scanner_ranges | [MISP warninglists](https://github.com/MISP/misp-warninglists) · [Palo Alto Xpanse](https://cortex-docs.paloaltonetworks.com/cortex-xpanse/reference/scanning-activity) | Scanner vendors' self-reported ranges — 66 MISP `*-scanning` lists + Xpanse's official page | |
+| sw_scanners | [ShadowWhisperer/IPs](https://github.com/ShadowWhisperer/IPs) | Self-collected scanner IP list (vendor-tagged rows, daily) | |
+| sw_threats | [ShadowWhisperer/IPs](https://github.com/ShadowWhisperer/IPs) | Self-collected threat IP list (per-row category / first-seen) | |
+| myip_ms | [myip.ms](https://myip.ms/) | Active blacklist from own web crawlers + user abuse reports (10-day rolling window) | |
+| sblam | [Sblam!](https://sblam.com/) | Form-spam blacklist (form-honeypot sensor network) | |
+| data_shield `*` | [duggytuxy/Data-Shield](https://github.com/duggytuxy/Data-Shield_IPv4_Blocklist) | Aggregated daily IPv4 blocklist (~90k bare IPs) | |
+| ziyadnz `*` | [ziyadnz/threat-intel-ip-feeds](https://github.com/ziyadnz/threat-intel-ip-feeds) | Daily per-IP aggregation of ~10 public feeds (per-row source lineage kept) | |
+| cps_collected_iocs `*` | [CriticalPathSecurity](https://github.com/CriticalPathSecurity/Public-Intelligence-Feeds) | CPS's own collected-IOC aggregate (bare IPs) | |
+| malicious_ip `*` | [romainmarcoux/malicious-ip](https://github.com/romainmarcoux/malicious-ip) | Five-shard union blocklist (~1M distinct IPs, regenerated hourly) | |
+| ustc_blackip | [USTC](https://blackip.ustc.edu.cn/) | Campus self-protection blacklist (~15 years running; unban needs human review) | |
 
 ### Geo & ASN
 
@@ -201,6 +211,9 @@ Every dataset below belongs to its provider — thank you for keeping them open 
 | iptoasn | [IPtoASN](https://iptoasn.com/) | ASN + AS-name ranges | |
 | cn_isp | [clang.cn ISP ranges](https://ispip.clang.cn/) | China ISP classification (mainland + HK/MO/TW) | |
 | ipinfo_lite | [IPinfo](https://ipinfo.io/) | Country / ASN / ranges enrichment | 🔑 |
+| rir_delegated | [AFRINIC](https://ftp.afrinic.net/pub/stats/afrinic/) · [APNIC](https://ftp.apnic.net/stats/apnic/) · [ARIN](https://ftp.arin.net/pub/stats/arin/) · [LACNIC](https://ftp.lacnic.net/pub/stats/lacnic/) · [RIPE NCC](https://ftp.ripe.net/pub/stats/ripencc/) | Delegated-extended registry files — allocation date / registry country / status per range | |
+| rir_abuse | [RIPE NCC](https://ftp.ripe.net/ripe/dbase/) · [AFRINIC](https://ftp.afrinic.net/pub/dbase/) | Registry abuse-mailbox contacts per netblock (RPSL full dumps) | |
+| caida_asorg | [CAIDA](https://www.caida.org/catalog/datasets/as-organizations/) | AS-to-organization mapping (monthly snapshots, joined at query time) | |
 
 ### Network Assets
 
@@ -220,6 +233,9 @@ Every dataset below belongs to its provider — thank you for keeping them open 
 | infra_services | curated | Public DNS resolvers / NTP infrastructure (root servers moved to `root_servers`) | |
 | root_servers | [IANA](https://www.internic.net/domain/named.root) | IANA root hints (named.root) | |
 | dns_public | [DNSCrypt](https://github.com/DNSCrypt/dnscrypt-resolvers) | Community public DNS resolver endpoints (public-resolvers.md, sdns stamps decoded) | |
+| peeringdb | [PeeringDB](https://www.peeringdb.com/) | IX fabric prefixes + IX names (open API; fetched at download, zero online at query time) | |
+| cloudzy | [Cloudzy (CPS mirror)](https://github.com/CriticalPathSecurity/Public-Intelligence-Feeds) | Cloudzy VPS / hosting ranges (asset statement, no accusation) | |
+| anycast_census | [UT-Dallas Anycast Census](https://manycast.net/) | Measured anycast /24 prefixes (~41k; partial prefixes excluded) | |
 
 ## Development
 
