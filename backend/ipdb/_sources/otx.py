@@ -24,7 +24,6 @@ import os
 import re
 import time
 import urllib.request
-from urllib.parse import urlparse
 
 from .._source_base import Source
 from .._evidence import Evidence
@@ -87,9 +86,6 @@ class OtxSource(Source):
         super().__init__(data_dir)
         self._cursor_path = data_dir / "otx_last_fetch.txt"
 
-    @property
-    def download_host(self) -> str | None:
-        return urlparse(_ACTIVITY_URL).hostname
 
     # ── Download (REST pagination with modified_since) ──
 

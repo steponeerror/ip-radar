@@ -153,10 +153,6 @@ class RirAbuseSource(Source):
     reliability = 0.85            # 注册局一手,但占位 role 实测存在(重扫 quality 扣 1)
     single_evidence = True        # 数 M CIDR → stream load(OOM 守卫)
 
-    @property
-    def download_host(self) -> str | None:
-        return None                                  # 双 host,无单一权威
-
     def download(self, token=None) -> None:
         """两家逐个:fetch → scratch → 流式解压守卫 → os.replace 原子落地
         (rir_delegated 同款)。部分失败:保留旧文件记 last_partial_failure;

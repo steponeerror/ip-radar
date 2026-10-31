@@ -7,7 +7,6 @@ top-20 attacking class C subnets). Direct source replaces what firehol's
 aggregate drops (spec 2026-08-19 §4.5 D8/Q14-A).
 """
 import logging
-from urllib.parse import urlparse
 
 from .._source_base import Source
 from .._evidence import Evidence
@@ -26,10 +25,6 @@ class DshieldSource(Source):
     verdict = "malicious"
     stale_days = 1
     reliability = 0.70
-
-    @property
-    def download_host(self) -> str | None:
-        return urlparse(self.url).hostname
 
     def download(self, token: CancelToken | None = None) -> None:
         self._data_dir.mkdir(parents=True, exist_ok=True)

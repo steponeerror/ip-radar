@@ -2,7 +2,6 @@ import gzip
 import logging
 import shutil
 from pathlib import Path
-from urllib.parse import urlparse
 
 from .._evidence import Evidence
 from .._source_base import Source
@@ -25,10 +24,6 @@ class IPtoASNSource(Source):
 
     def __init__(self, data_dir: Path):
         super().__init__(data_dir)
-
-    @property
-    def download_host(self) -> str | None:
-        return urlparse(_TSV_URL).hostname
 
     def download(self, token: CancelToken | None = None) -> None:
         gz_path = self._data_dir / "ip-to-asn.tsv.gz"

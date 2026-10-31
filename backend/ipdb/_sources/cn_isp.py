@@ -33,6 +33,8 @@ class ChineseISPSource(Source):
     name = "cn_isp"
     category = "geo_asn"
     fields = ("country_code", "carrier", "is_isp", "ip_range")
+    url = ""  # 多文件源:download() 迭代 _ISP_FILES,无单一权威 URL,
+              # 底座 download_host 随空 url 返回 None
     stale_days = 7
     reliability = 0.85
     filename = "cn_isp"   # Source base sets _lmdb_base = data_dir/"cn_isp.lmdb"
@@ -45,13 +47,6 @@ class ChineseISPSource(Source):
         # 任一 feed 重写前进,与 cloud_ranges 目录同机制);否则种子/content_age/
         # reconcile 全失明 → cn_isp 恒报 stale 误警且永不自愈(2026-10-03 线上)。
         self._path = self._isp_dir
-
-    @property
-    def download_host(self) -> str | None:
-        # No single canonical URL — download() iterates _ISP_FILES under _ISP_BASE_URL.
-        # Exposed for source-update UX; callers wanting a single host can derive it
-        # from _ISP_BASE_URL. Returned as None because there's no ONE primary URL.
-        return None
 
     def download(self, token: CancelToken | None = None) -> None:
         """逐 feed 下载(SA-F1,cloud_ranges 模式):单 feed 失败/空响应 →
