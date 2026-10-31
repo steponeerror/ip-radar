@@ -5,6 +5,7 @@ brief 两处算术笔误已修正并留痕:
 - dedup 场景1 注释要求「derived 弱于非 derived」,系数应为 0.59 而非 0.69
 """
 import math
+import random
 from datetime import datetime, timedelta, timezone
 
 from ipdb._logodds import (
@@ -249,3 +250,42 @@ def test_accuser_pool_cross_group_with_asof_anchor():
     assert past == accuser_pool(entries, now=asof_to_now(
         (t0 - timedelta(days=20)).timestamp()))
     assert accuser_pool(entries, now=asof_to_now(t0.timestamp())) == fresh
+
+
+def test_dedup_lineage_never_empties_nonempty_pool():
+    """现行谱系表(DERIVED_SOURCES/LINEAGE_ANCHORS)下,dedup_lineage
+    对任何非空源池输出非空(PR #250 第 1 轮审查 B席 P2-1;#246 把
+    threat_summary 判空从 `if pool:` 改 `if deduped:` 所依赖的不变式)。
+    穷举现行两表构造的全部相关池(derived 成员 ∪ 锚表键 ∪ 锚表值 ∪
+    一个普通非 derived 源),系数剖面取全相等(「≥ 即剔」的并列最坏
+    面)/升序/降序/随机种子三抽;只断言性质(非空 + 确有池被剔小、
+    断言非平凡),不镜像实现。未来谱系表改出可整池剔空的形态(如互为
+    锚的环)即红。表扩张超过 15 名时退化为分层采样(单/双源全量 +
+    随机池)。"""
+    import ipdb._logodds as lo
+    universe = sorted(set(lo.DERIVED_SOURCES) | set(lo.LINEAGE_ANCHORS)
+                      | set(lo.LINEAGE_ANCHORS.values()) | {"blocklist_de"})
+    assert len(universe) >= 5          # 现行表非退化(防空表误跑成恒真)
+    n = len(universe)
+    rng = random.Random(20261031)
+    if n <= 15:
+        subsets = range(1, 1 << n)     # 全部非空子集(位掩码)
+    else:                              # 表扩张:分层采样保时效
+        subsets = [1 << i for i in range(n)]
+        subsets += [(1 << i) | (1 << j)
+                    for i in range(n) for j in range(i + 1, n)]
+        subsets += [rng.getrandbits(n) or 1 for _ in range(20000)]
+    profiles = [
+        [1.0] * n,                                     # 全相等:并列最坏面
+        [float(i + 1) for i in range(n)],              # 升序
+        [float(n - i) for i in range(n)],              # 降序
+    ] + [[rng.uniform(0.05, 2.5) for _ in range(n)] for _ in range(3)]
+    shrank = 0
+    for mask in subsets:
+        for coeffs in profiles:
+            pool = [(universe[i], coeffs[i])
+                    for i in range(n) if mask >> i & 1]
+            out = dedup_lineage(pool)
+            assert out, f"非空池被剔空: {pool}"
+            shrank += len(out) < len(pool)
+    assert shrank > 0                  # 现行表下确有剔除发生(断言非平凡)

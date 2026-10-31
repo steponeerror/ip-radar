@@ -46,8 +46,17 @@ class SourceBase:
     # url/filename 空串默认(原 Source 侧形态,合一沿用):漏定义的子类
     # 构造不炸、落空路径/空 URL;原 IpListSource 侧为裸注解(漏定义
     # __init__ 即 AttributeError),61 个现存子类全部显式定义,取空串
-    # 默认零差异(唯一 API 层可见翻转 = ipinfo_lite url null→"",
-    # 前端 s.url 真值判空,显示不变)。
+    # 默认零差异。上收后 API 层可见翻转共两处(PR #250 第 1 轮审查
+    # C 席 P1,2026-10-31 逐源实测核对):
+    # ① ipinfo_lite url null→""(前端 s.url 真值判空,显示不变);
+    # ② A 家族 11 个未覆写 download_host 且 url 非空的源(tweetfeed/
+    #    urlhaus/bruteforce/cloudzy/dns_public/reportedip/caida_asorg/
+    #    geolite_city/root_servers/dbip_city/anycast_census),任务侧
+    #    host 从 None 翻为真实主机名(_tasks.py:174 getattr 落到本
+    #    property);其中 cloudzy/dns_public/reportedip/tweetfeed 四源
+    #    同为 raw.githubusercontent.com,加入既有 15 源共享 host 锁组
+    #    (_tasks.py:461-467),download/rebuild 从不串行变串行——对齐
+    #    B 家族同 host 源既有调度行为,裁定良性接受。
     url: str = ""
     filename: str = ""
     stale_days: int = 7

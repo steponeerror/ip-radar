@@ -1,7 +1,7 @@
 # #248 两基类抽共享底座(SourceBase)实现报告
 
 - 日期:2026-10-31 | 分支:`ticket/source-base-unify`(基于 master@a3a1e8f9)| 票:#248
-- 一句话结论:**已按票面七条裁决落地「形态 A:抽共享底座、钩子分家」,61 个源类行为零变化**——bench 逐字节相同、回放闸门 C2 同语料同计数零失配、全量测试除基线同红的 1 个环境失败外全绿、61 源发现冒烟全实例化、两个 LMDB 读侧委托测试与 patch `_http_get` 的测试文件全绿。
+- 一句话结论:**已按票面七条裁决落地「形态 A:抽共享底座、钩子分家」;查询/融合行为零变化(bench 逐字节相同、回放闸门 C2 同语料同计数零失配钉死),另有两处已声明的 API 层可见翻转(ipinfo_lite url null→""、继承 Source 的 11 个源 download_host None→真实主机名,详见 §五)**——全量测试除基线同红的 1 个环境失败外全绿、61 源发现冒烟全实例化、两个 LMDB 读侧委托测试与 patch `_http_get` 的测试文件全绿。
 
 ## 一、改了什么(结构)
 
@@ -13,9 +13,9 @@
 | `load` / `_load_v6_side` | 纯 mmap 载入;v6 侧统一委托 `_lmdb.load_v6_side_state`(#243 的单源点 helper,原 `Source` 侧还留着 #243 之前的逐字拷贝,本票消除) |
 | `query` / `_query6` | 带旧 env 撞死重试的双族查询 |
 | `health` | 文件 mtime 判陈旧 |
-| `_http_get`(staticmethod) | 重试 + UA 头 + 重定向绊线;保持 staticmethod,patch 锚 `Source._http_get` 对 A 家族经继承仍命中 |
+| `_http_get`(staticmethod) | 重试 + UA 头 + 重定向绊线;保持 staticmethod,patch 锚 `Source._http_get` 对 A 家族经继承仍命中(A 家族=继承 Source 的源类;B 家族=继承 IpListSource/CsvSource 的源类) |
 | `download_host`(property) | 从 URL 取主机名 |
-| 类属性 | name/fields/url/filename/stale_days/reliability/category/authoritative_for/provenance_tier/honeypot_methodology/infra_noise_filter + `lmdb_backed=True`(按裁决 5 上收;消费方 `_registry.py:426` 本来就是 getattr 鸭子型取默认 True,上收后同值) |
+| 类属性 | name/fields/url/filename/stale_days/reliability/category/authoritative_for/provenance_tier/honeypot_methodology/infra_noise_filter + `lmdb_backed=True`(按裁决 5 上收;消费方 `_registry.py:426` 本来就是 getattr 鸭子型取默认 True,上收后同值;鸭子型=只看对象有没有需要的属性/方法、不查继承关系) |
 
 两基类挂底座,各自只剩取数钩子:
 
@@ -68,16 +68,17 @@
 5. **LMDB 往返 + patch 锚测试不降级** ✅
    - `tests/sources/test_iplist_v6.py`、`tests/sources/test_ipinfo_v6.py` 与 7 个 patch `Source._http_get` 的测试文件(test_cloudzy/test_dns_public/test_dataplane/test_malicious_ip/test_root_servers/test_cloud_ranges/test_sibling_files)+ `tests/source_infra/test_source_base.py` + 顺带的 test_ipinfo_lite_rebuild/test_firehol_lists/test_blocklist_de_lists 合跑:**103 passed**(其中 test_sibling_files 按第三节换锚,其余文件一行未改)。
 
-## 五、已知行为面说明(均为零功能差异,记录在案)
+## 五、已知行为面说明(查询/融合面零变化;可见翻转如实披露)
 
+- **任务侧 host 翻转(PR #250 第 1 轮审查 C 席 P1,良性裁定)**:继承 Source 且从未覆写 download_host、url 非空的 11 个源——tweetfeed/urlhaus/bruteforce/cloudzy/dns_public/reportedip/caida_asorg/geolite_city/root_servers/dbip_city/anycast_census——挂底座前 `_tasks.py:174` 的 `getattr(source, "download_host", None)` 落默认 None,挂底座后经底座 property 返回真实主机名(在 merge-base a3a1e8f9 与 HEAD 逐源实例化对比实测,翻转恰 11 个、其余源值变化 0;工件 `/tmp/dh-flip.txt`,临时未入仓)。影响两处:①任务快照/`to_dict` 的 host 字段从 null 变主机名;②其中 cloudzy/dns_public/reportedip/tweetfeed 四源同属 raw.githubusercontent.com,加入既有 15 源共享 host 锁组(`_tasks.py:461-467`),这四源的 download+rebuild 从不串行变串行——与 B 家族同 host 源的既有调度行为一致,已裁定良性接受。
 - **sources API 里 ipinfo_lite 的 `url` 字段从 `null` 变 `""`**:挂底座后继承空串默认(与 A 家族无 url 源的既有形态一致);前端 `SourcesPage.tsx:620` 用真值判空(`s.url ? 链接 : 占位`),两者显示完全相同。B 家族 32 个源全部显式定义 url,不受影响。
 - `Source._load_v6_side` 从内联六步拷贝改为委托 `load_v6_side_state`:路径构造已核对逐值等价(`env_dir(base, e)` 与原内联 `base.parent / f"{base.name}.{e}"` 同一表达式),#243 已为该 helper 落过等价判例。
 - threatfox.py 的 `parse_row`(裁决 6,legacy helper 名字碰撞)未动;caida_asorg 的 `lmdb_backed = False` 覆写不受上收影响。
 
 ## 六、遗留与后续
 
-- **ADR 延后另写**(票面裁决 7):「为什么分底座不合成单类」——本报告可引用的实测数字:两基类重复消除后净 −238 行(17 件 +222/−460)、61 源零行为变化(bench 位等价 + C2 零失配)、`_source_base.py` 328→153 行。类 docstring 已留决策摘要。
+- **ADR 延后另写**(票面裁决 7):「为什么分底座不合成单类」——本报告可引用的实测数字:两基类重复消除后净 −238 行(17 件 +222/−460)、61 源查询/融合零行为变化(bench 位等价 + C2 零失配;host/url 两处可见翻转见 §五)、`_source_base.py` 328→153 行。类 docstring 已留决策摘要。
 - CI 位等价烟测语料不含 firehol/blocklist_de(#243 终审已知口径),本票沿用 #243 同款证据组合(本地全量 bench + 逐行等价论证)把关。
-- 工件在 `/tmp/issue248/`(临时,未入仓,同 #243 判例):bench 两份、replay 三份、smoke61.txt、两轮测试 tail。
+- 工件在 `/tmp/issue248/`(临时,未入仓,同 #243 判例):bench 两份、replay 三份、smoke61.txt、两轮测试 tail;另 host 翻转实测清单 `/tmp/dh-flip.txt`(第 1 轮审查后补)。
 
 > **审查后补记(合并前)**:P2-2 的工件时刻偏差(实现轮 replay 工件生成于提交前、code_commit 钉基线)已由审查员在已提交代码 d3050866 上复跑闭环——C2 判据段与基线工件 diff 为空(严格 92,694/失配 0);P2-1/P2-4 两处一行级修正随本 housekeeping 提交带上。skip↔pass 波动的 `-rs` 工件要求与 P2-5 前瞻性 API 翻转记录归档在审查报告。
