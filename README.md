@@ -133,7 +133,7 @@ The other management endpoints (sources / eval / update-db / tasks / events, …
 
 ### Public-demo guard (opt-in)
 
-For any instance exposed to the public internet, an opt-in guard middleware hides the write/internal surface from anonymous visitors. Three knobs, all off by default (zero behavior change for self-hosting): `IP_RADAR_PUBLIC_DEMO=1` enables it; `IP_RADAR_DEMO_ADMIN_IPS` and `IP_RADAR_DEMO_TRUST_XFF=1` control the maintainer bypass. Full endpoint semantics, exemptions, and the XFF-trust security premise: [`deploy/README.md`](deploy/README.md).
+For any instance exposed to the public internet, an opt-in guard middleware hides the write/internal surface from anonymous visitors. Three knobs, all off by default (zero behavior change for self-hosting): `IP_RADAR_PUBLIC_DEMO=1` enables it; `IP_RADAR_DEMO_ADMIN_IPS` and `IP_RADAR_DEMO_TRUST_XFF=1` control the maintainer exemption. Full endpoint semantics, exemptions, and the XFF-trust security premise: [`deploy/README.md`](deploy/README.md).
 
 ### Fail2ban integration: ask before you ban
 
@@ -275,7 +275,7 @@ copying-direction verdicts over persisted model history, advisory),
 `--anchors` (known-answer regression gate; exit 1 on any failure), and
 `--dsem` (DS-EM fair fight: market vs declared vs π̂, advisory; π̂ = the
 underlying truth-rate estimate computed by the eval harness). The
-admin console's Sources tab mirrors this dual track — measured θ
+admin console's Sources tab shows the same two numbers side by side — measured θ
 (90% CI) beside each source's declared `r`.
 
 ## Tests

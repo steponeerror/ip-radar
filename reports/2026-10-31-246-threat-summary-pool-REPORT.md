@@ -84,7 +84,7 @@ backend $ .venv(主仓)/bin/python -m pytest tests -q
 
 ### ③ helper 级新测试(裁决验收第三条)
 
-见上文改动明细第 4 条;`pytest tests/core/test_logodds.py -q` → 21 passed(含既有 4 条 accuser_pool 测试全数保留通过)。
+见上文改动明细第 4 条;`pytest tests/core/test_logodds.py -q` → 20 passed(含既有 4 条 accuser_pool 测试全数保留通过)。
 
 ## 边界与风险声明
 

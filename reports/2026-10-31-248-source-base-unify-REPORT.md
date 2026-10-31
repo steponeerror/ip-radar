@@ -19,10 +19,10 @@
 
 两基类挂底座,各自只剩取数钩子:
 
-- `Source(_source_base.py,328→153 行)`:A 家族钩子 `download/harvest/normalize` + harvest 驱动的 rebuild;`single_evidence` 按裁决 5 留在 Source 不上底座(只有它的 rebuild 消费)。
+- `Source(_source_base.py,328→154 行)`:A 家族钩子 `download/harvest/normalize` + harvest 驱动的 rebuild;`single_evidence` 按裁决 5 留在 Source 不上底座(只有它的 rebuild 消费)。
 - `IpListSource(_sources/_base.py)`:B 家族钩子 `parse_raw/get_insert_data` + B 契约 download(暂存→解析→规范化明单,失败保留旧文件)+ 明单行驱动 rebuild;`CsvSource` 不动。
 - download 落盘契约分叉按裁决 2 **原样保留**,底座 docstring 里有对表说明。
-- `ipinfo_lite.py(304→222 行)`按裁决 3 挂底座:删掉手抄的 `__init__` 全套状态槽、`load`、`_load_v6_side`、`health`;自有的 `_url` property(token 门控)、`download`(gzip 解压流式落地)、`rebuild`、带 `_shape` 整形的 `query/_query6`、硬编码 `download_host="ipinfo.io"` 全部保留。路径经核对与原手抄逐值相同(`_path/_lmdb_base/v6 族`由 `filename="ipinfo_lite.csv"` 派生)。
+- `ipinfo_lite.py(278→217 行)`按裁决 3 挂底座:删掉手抄的 `__init__` 全套状态槽、`load`、`_load_v6_side`、`health`;自有的 `_url` property(token 门控)、`download`(gzip 解压流式落地)、`rebuild`、带 `_shape` 整形的 `query/_query6`、硬编码 `download_host="ipinfo.io"` 全部保留。路径经核对与原手抄逐值相同(`_path/_lmdb_base/v6 族`由 `filename="ipinfo_lite.csv"` 派生)。
 
 子类侧改动(全在裁决 4 授权范围内):
 
@@ -30,7 +30,7 @@
 - **13 处手抄 `download_host` 中删了 10 处**(cloud_ranges/cn_isp/dataplane/iptoasn/otx/otx_subscribed/rir_abuse/rir_delegated/dshield/stopforumspam),**保留 3 处**(ip2proxy/malicious_ip/peeringdb)——见下节;B 侧 blocklist_de/firehol 的多端点覆写本就非重复,未动。
 - GLOSSARY.md 录「源底座」词条(裁决 7)。
 
-净变化:17 件 +222/−460(含测试与 GLOSSARY)。
+净变化:17 件 +222/-460(含测试与 GLOSSARY)。
 
 ## 二、3 处 download_host 为什么没删(票面细节裁决记录)
 
@@ -77,7 +77,7 @@
 
 ## 六、遗留与后续
 
-- **ADR 延后另写**(票面裁决 7):「为什么分底座不合成单类」——本报告可引用的实测数字:两基类重复消除后净 −238 行(17 件 +222/−460)、61 源查询/融合零行为变化(bench 位等价 + C2 零失配;host/url 两处可见翻转见 §五)、`_source_base.py` 328→153 行。类 docstring 已留决策摘要。
+- **ADR 延后另写**(票面裁决 7):「为什么分底座不合成单类」——本报告可引用的实测数字:两基类重复消除后净 -238 行(17 件 +222/-460)、61 源查询/融合零行为变化(bench 位等价 + C2 零失配;host/url 两处可见翻转见 §五)、`_source_base.py` 328→154 行。类 docstring 已留决策摘要。
 - CI 位等价烟测语料不含 firehol/blocklist_de(#243 终审已知口径),本票沿用 #243 同款证据组合(本地全量 bench + 逐行等价论证)把关。
 - 工件在 `/tmp/issue248/`(临时,未入仓,同 #243 判例):bench 两份、replay 三份、smoke61.txt、两轮测试 tail;另 host 翻转实测清单 `/tmp/dh-flip.txt`(第 1 轮审查后补)。
 

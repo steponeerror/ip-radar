@@ -146,7 +146,7 @@ After sign-in you get three tabs (plus a floating task-progress pill that mirror
 
 ### Sources (default tab)
 
-![The admin Sources tab: 61 sources, health, r/θ dual track, toggles](assets/manual/04-admin-sources.png)
+![The admin Sources tab: 61 sources, health, r/θ side by side, toggles](assets/manual/04-admin-sources.png)
 
 Every source in one list, grouped into **Geo & ASN data / Threat intel / Asset attributes**, with columns:
 
@@ -314,7 +314,7 @@ curl -s -b jar.txt -N http://127.0.0.1:8000/api/events
 
 **Behind a reverse proxy, rate limits bite everyone at once** — the limiter sees the proxy's IP. Set `IP_RADAR_PROXY_HEADERS=1` (and `IP_RADAR_FORWARDED_ALLOW_IPS` to your proxy's range) so per-IP buckets see real clients.
 
-**Admin page 404s or looks locked down** — on instances with `IP_RADAR_PUBLIC_DEMO=1`, the write/internal surface (including `/admin` login from non-bypass IPs) is hidden from anonymous visitors; maintainer bypass is `IP_RADAR_DEMO_ADMIN_IPS` — full semantics in [`deploy/README.md`](deploy/README.md). On normal self-hosts, make sure the admin env block is uncommented.
+**Admin page 404s or looks locked down** — on instances with `IP_RADAR_PUBLIC_DEMO=1`, the write/internal surface (including `/admin` login from non-exempt IPs) is hidden from anonymous visitors; the maintainer exemption is `IP_RADAR_DEMO_ADMIN_IPS` — full semantics in [`deploy/README.md`](deploy/README.md). On normal self-hosts, make sure the admin env block is uncommented.
 
 **Update banner claims an update that isn't there** — that's the deploy-side tag cache: on the server, `git fetch --tags` before build, else `git describe` falls back to an older baseline (v1.4.2 field note).
 
