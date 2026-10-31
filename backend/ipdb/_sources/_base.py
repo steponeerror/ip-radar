@@ -30,8 +30,10 @@ logger = logging.getLogger(__name__)
 class SourceBase:
     """源底座(issue #248,形态 A:抽共享底座、钩子分家):Source(A 家族,
     _source_base.py)与 IpListSource(B 家族,本文件)逐字重复的
-    __init__/load/_load_v6_side/query/_query6/health 及 _http_get/
-    download_host 收敛于此;两家族的取数钩子协议与 download 落盘契约
+    __init__/load/_load_v6_side/query/_query6/health 收敛于此;另将
+    _http_get/download_host 原属单侧的两项上收底座(_http_get 原只在 A
+    侧、download_host 原只在 B 侧,非两家族逐字重复——PR #250 第 1 轮
+    审查勘正);两家族的取数钩子协议与 download 落盘契约
     (A=原始字节直写 _path;B=暂存→parse_raw→规范化明单,失败保留旧文件)
     原样留在各自基类,底座对表不裁决(统一是另一张语义票)。
 
