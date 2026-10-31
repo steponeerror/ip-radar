@@ -10,6 +10,7 @@ IntelMQ develop@bbe452a 2026-04 — 审计 2026-09-05(官方 allowed_values
 迁往官方型 infected-system)。上游词表改版时重跑对照。
 """
 import logging
+from collections import Counter
 
 # IntelMQ classification.type subset relevant to IP threat intel. Extensible.
 
@@ -275,4 +276,57 @@ def normalize(raw_type, mapping: dict) -> str:
         logger.warning("unmapped native value %r -> 'other' "
                        "(upstream may have added/renamed a category)", key)
     return "other"
+
+
+# ── 未映射键聚合计数车道(#241 tweetfeed 首创,#254 下沉共享)──────────
+# 起因:urlhaus 走共享 normalize() 的逐键 WARN 绊线,生产容器重建窗口
+# 实测 296 条(2026-10-31 #241 副产物);tweetfeed 同型问题已内联修 (#241,
+# PR #255),本节把「计数代替告警 + 末尾一条摘要」下沉为共享件,两源
+# 同调,避免第三份同型拷贝。计数集与旧绊线触发集严格一致(键非空且
+# mapping 无此键);mapping 命中但值不在词表的键两车道都不告警不计数。
+
+def normalize_counted(raw_type, mapping: dict, unknown: Counter,
+                      *, logger=None, label: str = "", hits: str = "") -> str:
+    """normalize() 的聚合计数车道:映射判定同语义,未命中键计入 unknown。
+
+    返回值与 normalize() 逐键一致(位等价由 tweetfeed/urlhaus 的镜像测试
+    钉住);唯一差异 = 未命中键不走逐键 WARN 绊线,改计入调用方传入的
+    unknown Counter——调用方在解析完整遍结束后发一条聚合摘要
+    (unmapped_summary),生成器被中途弃置则摘要不发(#241 契约)。
+    logger 传入时,每 distinct 键首现发一条 DEBUG 留痕(哲学 1,信息
+    不灭失;label/hits 用于消息文案,如 "tweetfeed: first unmapped
+    hashtag '#x' this pass")。
+    """
+    key = (raw_type or "").strip().lower()
+    mapped = mapping.get(key)
+    if mapped and mapped in CLASSIFICATION_TYPES:
+        return mapped
+    if key and mapped is None:
+        if logger is not None and unknown[key] == 0:
+            logger.debug("%s: first unmapped %s %r this pass "
+                         "(counting; aggregate summary at end of parse)",
+                         label, hits, key)
+        unknown[key] += 1
+    return "other"
+
+
+def unmapped_summary(unknown: Counter, *, logger, label: str, hits: str,
+                     item: str, top_n: int = 10) -> None:
+    """聚合计数摘要(一条 WARN):总命中数 + distinct + Top-N 及计数。
+
+    #241 票面口径:Top-N 默认 10;unknown 为空零噪音不发。消息形如
+    "label: N unmapped-{hits} hit(s), D distinct {item}(s) -> 'other'
+    (top K: k1=c1, ...) — upstream may have added/renamed {item}s; ..."
+    (hits = 被计名词,如 hashtag/tag;item = distinct 键名词,复数取
+    item+'s——tweetfeed 侧两词不同名系沿用 #241 已合文案,测试钉住)。
+    """
+    if not unknown:
+        return
+    top = unknown.most_common(top_n)
+    logger.warning(
+        "%s: %d unmapped-%s hit(s), %d distinct %s(s) -> 'other' "
+        "(top %d: %s) — upstream may have added/renamed %ss; "
+        "full first-seen trail at DEBUG",
+        label, sum(unknown.values()), hits, len(unknown), item, len(top),
+        ", ".join(f"{k}={v}" for k, v in top), item)
 

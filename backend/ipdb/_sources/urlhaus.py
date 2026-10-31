@@ -31,12 +31,14 @@ import csv
 import ipaddress
 import logging
 import os
+from collections import Counter
 from pathlib import Path
 from urllib.parse import urlparse
 
 from .._source_base import Source
 from .._evidence import Evidence
-from .._classification import normalize, URLHAUS_MAP, URLHAUS_THREAT_MAP
+from .._classification import (
+    URLHAUS_MAP, URLHAUS_THREAT_MAP, normalize_counted, unmapped_summary)
 from ._download import (
     CancelToken, atomic_write_bytes, download_file, redact_url)
 
@@ -65,17 +67,24 @@ def _host_ip(url: str) -> str | None:
     return host
 
 
-def _classify(tags_raw: str) -> tuple[str, str | None]:
+def _classify(tags_raw: str, unknown: Counter) -> tuple[str, str | None]:
     """Return (classification, malware_name). First mappable tag wins
     (mirai/Mozi/hajime → infected-system, with the matched family as malware_name);
     otherwise the ``malware-distribution`` base — every URLhaus row serves
-    malware by definition, so nothing lands in ``other``."""
+    malware by definition, so nothing lands in ``other``.
+
+    #254(接 #241 tweetfeed 模式,经共享 normalize_counted 下沉):未映射
+    token(含 32-bit/elf/mips 等文件噪声)不再逐键 WARN(生产重建窗口实
+    测 296 条),改计入 ``unknown``,harvest 末发一条聚合摘要;计数集与
+    旧绊线触发集一致(键非空、非 none、mapping 无此键)。返回值与旧逐
+    token 调 normalize() 位等价(测试镜像钉住)。"""
     for tag in (tags_raw or "").split(","):
         tok = tag.strip()
         key = tok.lower()
         if not key or key == "none":
             continue
-        ctype = normalize(key, URLHAUS_MAP)
+        ctype = normalize_counted(key, URLHAUS_MAP, unknown,
+                                  logger=logger, label="urlhaus", hits="tag")
         if ctype != "other":
             return ctype, tok          # original-case family name for display
     return "malware-distribution", None
@@ -137,7 +146,14 @@ class URLhausSource(Source):
         Native tags are extracted from ``tags``, filtered for arch noise,
         exclude the matched malware family, and stored in the ``tags`` slot.
         The raw ``threat`` value is stored in ``native_categories``; reporter
-        and url_status are preserved in ``extra``."""
+        and url_status are preserved in ``extra``.
+
+        #254:本遍解析的未映射键(tags token + 无可映射 threat 值,如
+        malware_download)累积进 ``unknown`` 计数器,解析正常跑完(生成器
+        被完整消费)后发一条聚合摘要 WARN(总命中数 + distinct + Top-N);
+        逐键 WARN 绊线不再走(消费方中途弃置生成器 = 本遍未完成,不发
+        摘要,#241 契约同款)。分类返回值逐键位等价。"""
+        unknown: Counter = Counter()
         with open(self._path, "r", encoding="utf-8") as f:
             for row in csv.reader(f):
                 if not row or row[0].startswith("#"):     # comment / header block
@@ -149,12 +165,14 @@ class URLhausSource(Source):
                     continue                               # domain host → filter
                 threat = row[5].strip().strip('"')
                 tags_raw = row[6].strip().strip('"')
-                tag_ctype, malware_name = _classify(tags_raw)
+                tag_ctype, malware_name = _classify(tags_raw, unknown)
                 # threat 是上游显式定性字段，优先于 tags 映射；
                 # malware_download 等无可映射值时走 tags 兜底。
                 ctype = tag_ctype
                 if threat:
-                    threat_ctype = normalize(threat, URLHAUS_THREAT_MAP)
+                    threat_ctype = normalize_counted(
+                        threat, URLHAUS_THREAT_MAP, unknown,
+                        logger=logger, label="urlhaus", hits="tag")
                     if threat_ctype != "other":
                         ctype = threat_ctype
                 # Split tags, filter noise, exclude matched family
@@ -177,3 +195,5 @@ class URLhausSource(Source):
                            if len(row) > 7 and row[7].strip().strip('"') else {}),
                     },
                 )
+        unmapped_summary(unknown, logger=logger, label="urlhaus",
+                         hits="tag", item="tag")

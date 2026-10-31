@@ -236,3 +236,122 @@ class TestURLhausAuthExport:
         assert _KEY not in msg
         assert "***" in msg
         assert (tmp_path / "urlhaus.csv").read_text() == SAMPLE
+
+
+# ── #254 未映射键聚合计数(接 #241 tweetfeed 模式,经共享 normalize_counted/
+# unmapped_summary 下沉;分类返回值位等价,详见镜像测试)──────────
+
+
+def _row(rid: int, ip: str, threat: str, tags: str) -> str:
+    return (f'"{rid}","2026-08-01","http://{ip}/p","online",'
+            f'"2026-08-05","{threat}","{tags}","u","r"\n')
+
+
+def test_urlhaus_unknown_keys_aggregate_into_one_summary(tmp_path, caplog):
+    """#254 主体:重建期未映射键(tags token + 无可映射 threat 值)不再
+    逐键 WARN(normalize 绊线在 urlhaus 车道不被触发),解析结束一条聚合
+    摘要 WARN(总命中 + distinct + Top-N 同键合并计数);首现 DEBUG 留痕;
+    分类结果不变。计数集 = 旧绊线触发集:malware_download 这类设计内
+    兜底值旧实现本就 WARN(每行一次),新实现照计不丢观测面。"""
+    import logging
+    (tmp_path / "urlhaus.csv").write_text(
+        "# id,dateadded,url,url_status,last_online,threat,tags,urlhaus_link,reporter\n"
+        + _row(1, "1.2.3.4", "malware_download", "32-bit,elf,Mozi")   # 32-bit/elf 计,Mozi 映射截断
+        + _row(2, "5.6.7.8", "malware_download", "CoinMiner")          # CoinMiner + threat 计
+        + _row(3, "9.10.11.12", "credential_phishing", "mirai")       # 全可映射,零计数
+        + _row(4, "203.0.113.9", "", ""))                            # 空键不计
+    s = URLhausSource(data_dir=tmp_path)
+    with caplog.at_level(logging.DEBUG, logger="ipdb"):
+        assert s.rebuild() == 4
+    # 逐键绊线静默:urlhaus 解析路径不再产出任何 unmapped WARN
+    assert not [r for r in caplog.records
+                if r.levelno >= logging.WARNING
+                and "unmapped native value" in r.getMessage()]
+    warns = [r for r in caplog.records
+             if r.levelno == logging.WARNING
+             and r.name == "ipdb._sources.urlhaus"]
+    assert len(warns) == 1
+    msg = warns[0].getMessage()
+    # 总命中 = 32-bit 1 + elf 1 + coinminer 1 + malware_download 2(两行
+    # threat 同键合并)= 5;distinct = 4。
+    assert "5 unmapped-tag hit(s)" in msg
+    assert "4 distinct tag(s)" in msg
+    assert "malware_download=2" in msg
+    # 首现 DEBUG 留痕:每 distinct 键恰一条(哲学 1,信息不灭失)
+    dbg = [r for r in caplog.records
+           if r.levelno == logging.DEBUG
+           and r.name == "ipdb._sources.urlhaus"]
+    assert len(dbg) == 4
+    # 分类结果不变(位等价的行为面)
+    assert s.query("1.2.3.4")[0]["classification_type"] == "infected-system"
+    assert s.query("5.6.7.8")[0]["classification_type"] == "malware-distribution"
+    assert s.query("9.10.11.12")[0]["classification_type"] == "phishing"
+    assert s.query("203.0.113.9")[0]["classification_type"] == "malware-distribution"
+
+
+def test_urlhaus_unknown_summary_topn_cap_and_ordering(tmp_path, caplog):
+    """#254:distinct > Top-N(10)时摘要只列前 10,按计数降序;总数照发。"""
+    import logging
+    lines = ["# id,dateadded,url,url_status,last_online,threat,tags,urlhaus_link,reporter\n"]
+    n = 0
+    for i in range(12):                     # fam00×12 … fam11×1,名次 = i
+        for j in range(12 - i):
+            n += 1
+            lines.append(_row(n, f"10.{i}.{j}.1", "", f"fam{i:02d}"))
+    (tmp_path / "urlhaus.csv").write_text("".join(lines))
+    s = URLhausSource(data_dir=tmp_path)
+    with caplog.at_level(logging.WARNING, logger="ipdb._sources.urlhaus"):
+        assert s.rebuild() == 78             # 12+11+…+1
+    warns = [r for r in caplog.records if r.name == "ipdb._sources.urlhaus"]
+    assert len(warns) == 1
+    msg = warns[0].getMessage()
+    assert "78 unmapped-tag hit(s)" in msg
+    assert "12 distinct tag(s)" in msg
+    assert "top 10" in msg
+    assert "fam00=12" in msg and "fam09=3" in msg
+    assert "fam10=" not in msg and "fam11=" not in msg   # 截断在 N=10
+    assert msg.index("fam00=12") < msg.index("fam01=11") < msg.index("fam09=3")
+
+
+def test_urlhaus_no_unknown_keys_means_no_summary(tmp_path, caplog):
+    """#254:全可映射语料(tags+threat 双路)零未映射 → 摘要也不发。"""
+    import logging
+    (tmp_path / "urlhaus.csv").write_text(
+        "# id,dateadded,url,url_status,last_online,threat,tags,urlhaus_link,reporter\n"
+        + _row(1, "1.2.3.4", "credential_phishing", "mirai")
+        + _row(2, "5.6.7.8", "credential_phishing", "hajime")
+    )
+    s = URLhausSource(data_dir=tmp_path)
+    with caplog.at_level(logging.WARNING, logger="ipdb._sources.urlhaus"):
+        assert s.rebuild() == 2
+    assert not [r for r in caplog.records
+                if r.name == "ipdb._sources.urlhaus"]
+
+
+def test_urlhaus_classify_parity_with_normalize():
+    """#254 分类位等价:_classify 走共享 normalize_counted 后,对同一输入
+    必须产出与旧「逐 token 调 normalize()」实现一致的 (ctype, tok)
+    (含 URLHAUS_MAP 全键 + 空值/none/大小写/前后缀未映射 token/逗号
+    空档等边角;malware_name 保留原大写)。"""
+    from collections import Counter
+    from ipdb._classification import URLHAUS_MAP, normalize
+    from ipdb._sources.urlhaus import _classify
+
+    def _old_classify(tags_raw):             # 改前实现逐字镜像(#254 基线)
+        for tag in (tags_raw or "").split(","):
+            tok = tag.strip()
+            key = tok.lower()
+            if not key or key == "none":
+                continue
+            ctype = normalize(key, URLHAUS_MAP)
+            if ctype != "other":
+                return ctype, tok
+        return "malware-distribution", None
+
+    battery = [
+        "", "   ", None, "mirai", "Mozi", "HAJIME", "32-bit,elf,mips,Mozi",
+        "None", "none,NONE", "mirai,TrickBot", " UnknownFam ", "elf,hajime",
+        ",,", " Mozi ", "CoinMiner", "telekopye,phishing-view",
+    ]
+    for raw in battery + [",".join(URLHAUS_MAP)]:
+        assert _classify(raw, Counter()) == _old_classify(raw), raw
