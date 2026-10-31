@@ -42,16 +42,16 @@ cd ip-radar
 docker compose up -d --build
 ```
 
-打开 http://127.0.0.1:8000。首次启动数秒内容器即可访问——页面顶部横幅会实时展示免密钥源（除 5 个密钥源外全部，含地理/城市/ASN、主要封禁列表与云网段）的下载/构建进度，构建完成后查询自动解锁；之后每次启动都从 `ipradar-data` 卷秒级加载。
+打开 http://127.0.0.1:8000。首次启动数秒内容器即可访问——页面顶部横幅会实时展示免密钥源（除 7 个密钥源外全部，含地理/城市/ASN、主要封禁列表与云网段）的下载/构建进度，构建完成后查询自动解锁；之后每次启动都从 `ipradar-data` 卷秒级加载。
 
-想开 5 个密钥源（ipinfo_lite / abuseipdb / otx / otx_subscribed / ip2proxy）？把密钥写进 `.env.local`（已 gitignore，盖过 `.env`）：
+想开 7 个密钥源（ipinfo_lite / abuseipdb / otx / otx_subscribed / ip2proxy / threatfox / urlhaus，共 5 个密钥：OTX 两源共用、abuse.ch 两源共用）？把密钥写进 `.env.local`（已 gitignore，盖过 `.env`）：
 
 ```bash
 cp .env .env.local   # 编辑 .env.local 填入密钥
 docker compose up -d
 ```
 
-四个变量，去哪申请（`.env` 里也有同样的注释）：
+五个变量，去哪申请（`.env` 里有同样的注释；ABUSECH_AUTH_KEY 样例暂缺待补）：
 
 | 源 | 变量 | 申请 |
 |---|---|---|
@@ -60,6 +60,7 @@ docker compose up -d
 | otx | `OTX_API_KEY` | <https://otx.alienvault.com/settings> |
 | otx_subscribed | `OTX_API_KEY`（与 otx 共用） | <https://otx.alienvault.com/settings> |
 | ip2proxy | `IP2PROXY_TOKEN` | <https://www.ip2location.com/> |
+| threatfox / urlhaus | `ABUSECH_AUTH_KEY`（两源共用） | <https://auth.abuse.ch/> 注册 Auth-Key；密钥在导出 URL 路径内，日志已打码 |
 
 npm/pip 下载慢（国内网络常见）——传镜像 build-args：
 
@@ -89,7 +90,7 @@ docker compose build --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn
 
 ## 特性
 
-- **开箱即用，除 5 个密钥源外全部免密钥** —— 首次启动自动下载构建，数百万条记录入库（确切数量以 `/api/db-status` 实测为准）；剩下 5 个 🔑 源想开的话，密钥填法见[快速开始](#快速开始)。
+- **开箱即用，除 7 个密钥源外全部免密钥** —— 首次启动自动下载构建，数百万条记录入库（确切数量以 `/api/db-status` 实测为准）；剩下 7 个 🔑 源想开的话，密钥填法见[快速开始](#快速开始)。
 - **冷启动不挡路** —— 容器数秒就能打开，免密钥源的下载/构建进度在页面顶部横幅实时滚动，建完查询自动解锁——绝不拿着半份数据先给结论。
 - **一份结论，不是一堆列表** —— 单 IP 一句话结论，逐源证据摆给你看，0-100 置信度（log-odds 贝叶斯融合：源可靠性转对数几率系数、威胁断言按 60 天半衰期衰减、交叉佐证；0 = 无证据，而非清白；标量字段不衰减，city/ip_range 保留原语义）。
 - **地理 · 城市 · ASN** —— GeoLite2 + DB-IP 两票给城市，iptoasn 给自治域，CN ISP 归属（含港澳台）也认得。
@@ -105,15 +106,15 @@ docker compose build --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn
 
 ```mermaid
 flowchart TD
-    A["Public sources<br/>(keyless auto + 5 keyed)"] --> B["Cold-start download /<br/>30-min scan · per-source 12h staggered refresh slots"]
+    A["Public sources<br/>(keyless auto + 7 keyed)"] --> B["Cold-start download /<br/>30-min scan · per-source 12h staggered refresh slots"]
     B --> C["Per-source parsers<br/>(classification pipeline)"]
-    C --> D["Fusion<br/>(log-odds · corroboration · decay)"]
-    D --> E["LMDB store<br/>(named volume · mmap)"]
+    C --> D["LMDB store<br/>(named volume · mmap)"]
+    D --> E["Fusion at query time<br/>(log-odds · corroboration · decay)"]
     E --> F["FastAPI"]
     F --> G["React UI"]
 ```
 
-融合、存储、查询，全在你本地——你的查询不发给任何第三方。
+存储、融合、查询，全在你本地——你的查询不发给任何第三方。
 
 ## 使用
 
@@ -175,8 +176,8 @@ curl -s http://127.0.0.1:8000/api/db-status
 | otx_subscribed | [AlienVault OTX](https://otx.alienvault.com/) | Subscribed pulse library (curated honeypots / C2 lists) | 🔑 |
 | spamhaus | [Spamhaus](https://www.spamhaus.org/drop/) | DROP/EDROP hijacked ranges | |
 | stopforumspam | [StopForumSpam](https://www.stopforumspam.com/) | Forum-spammer IPs (365-day window, report counts) | |
-| threatfox | [abuse.ch](https://threatfox.abuse.ch/) | Malware IOC feed (CSV/ZIP) | |
-| urlhaus | [abuse.ch](https://urlhaus.abuse.ch/) | Malicious URLs → IPs | |
+| threatfox | [abuse.ch](https://threatfox.abuse.ch/) | Malware IOC feed (CSV/ZIP) | 🔑 |
+| urlhaus | [abuse.ch](https://urlhaus.abuse.ch/) | Malicious URLs → IPs | 🔑 |
 | tweetfeed `*` | [TweetFeed](https://github.com/0xDanielLopez/TweetFeed) | Crowd-sourced IOCs from X/Twitter | |
 | ipsum `*` | [IPsum](https://github.com/stamparm/ipsum) | Daily compile of many public blocklists | |
 | firehol `*` | [FireHOL](https://github.com/firehol/blocklist-ipsets) | Level1/2 + abusers/proxies/webserver 子列表 | |
@@ -196,6 +197,16 @@ curl -s http://127.0.0.1:8000/api/db-status
 | drb_ra `*` | [C2IntelFeeds](https://github.com/drb-ra/C2IntelFeeds) | Aggregated C2 IPs (30-day hunts) | |
 | knock_knock | [Knock-Knock](https://knock-knock.net/blocklist) | 13-protocol honeypot attacker blocklist (month window) | |
 | rtbh | [RTBH.com.tr](https://www.rtbh.com.tr/) | Turkish 54-sensor DDoS-source RTBH list | |
+| scanner_ranges | [MISP warninglists](https://github.com/MISP/misp-warninglists) · [Palo Alto Xpanse](https://cortex-docs.paloaltonetworks.com/cortex-xpanse/reference/scanning-activity) | 扫描器厂商自报的网段——66 份 MISP `*-scanning` 列表 + Xpanse 官方页 | |
+| sw_scanners | [ShadowWhisperer/IPs](https://github.com/ShadowWhisperer/IPs) | 自采策展的扫描器 IP 清单（逐行带厂商名，日更） | |
+| sw_threats | [ShadowWhisperer/IPs](https://github.com/ShadowWhisperer/IPs) | 自采策展的威胁 IP 清单（逐行带类别和首次出现时间） | |
+| myip_ms | [myip.ms](https://myip.ms/) | 自有爬虫全网抓取加用户举报汇成的活跃黑名单（10 天滚动窗） | |
+| sblam | [Sblam!](https://sblam.com/) | 表单垃圾黑名单（表单陷阱传感器网络） | |
+| data_shield `*` | [duggytuxy/Data-Shield](https://github.com/duggytuxy/Data-Shield_IPv4_Blocklist) | 每日聚合的 IPv4 封禁清单（约 9 万条裸 IP） | |
+| ziyadnz `*` | [ziyadnz/threat-intel-ip-feeds](https://github.com/ziyadnz/threat-intel-ip-feeds) | 把约 10 个公开源聚成每日逐 IP 清单（每行保留出处） | |
+| cps_collected_iocs `*` | [CriticalPathSecurity](https://github.com/CriticalPathSecurity/Public-Intelligence-Feeds) | CPS 公司自有 IOC 的汇总（裸 IP 清单） | |
+| malicious_ip `*` | [romainmarcoux/malicious-ip](https://github.com/romainmarcoux/malicious-ip) | 五个分片合并的封禁清单（约 100 万条唯一 IP，逐小时重建） | |
+| ustc_blackip | [USTC](https://blackip.ustc.edu.cn/) | 中国科大的校园自保黑名单（运行约 15 年，解封要人工复议） | |
 
 ### 地理与 ASN
 
@@ -206,6 +217,9 @@ curl -s http://127.0.0.1:8000/api/db-status
 | iptoasn | [IPtoASN](https://iptoasn.com/) | ASN + AS-name ranges | |
 | cn_isp | [clang.cn ISP ranges](https://ispip.clang.cn/) | China ISP classification (mainland + HK/MO/TW) | |
 | ipinfo_lite | [IPinfo](https://ipinfo.io/) | Country / ASN / ranges enrichment | 🔑 |
+| rir_delegated | [AFRINIC](https://ftp.afrinic.net/pub/stats/afrinic/) · [APNIC](https://ftp.apnic.net/stats/apnic/) · [ARIN](https://ftp.arin.net/pub/stats/arin/) · [LACNIC](https://ftp.lacnic.net/pub/stats/lacnic/) · [RIPE NCC](https://ftp.ripe.net/pub/stats/ripencc/) | 五大 RIR 每日发布的注册分配文件——每段 IP 的分配日期、注册国、状态 | |
+| rir_abuse | [RIPE NCC](https://ftp.ripe.net/ripe/dbase/) · [AFRINIC](https://ftp.afrinic.net/pub/dbase/) | 注册库里的 abuse 投诉邮箱（按网段，来自 RPSL 全量导出） | |
+| caida_asorg | [CAIDA](https://www.caida.org/catalog/datasets/as-organizations/) | ASN 到组织名的映射（月度快照，查询时拼接） | |
 
 ### 网络资产
 
@@ -225,6 +239,9 @@ curl -s http://127.0.0.1:8000/api/db-status
 | infra_services | curated | Public DNS resolvers / NTP infrastructure (root servers moved to `root_servers`) | |
 | root_servers | [IANA](https://www.internic.net/domain/named.root) | IANA root hints (named.root) | |
 | dns_public | [DNSCrypt](https://github.com/DNSCrypt/dnscrypt-resolvers) | Community public DNS resolver endpoints (public-resolvers.md, sdns stamps decoded) | |
+| peeringdb | [PeeringDB](https://www.peeringdb.com/) | IX 交换中心的 fabric 前缀和名称（下载期一次拉全，查询期零在线） | |
+| cloudzy | [Cloudzy（CPS 镜像）](https://github.com/CriticalPathSecurity/Public-Intelligence-Feeds) | Cloudzy 的 VPS 托管网段（资产陈述，不作指控） | |
+| anycast_census | [UT-Dallas Anycast Census](https://manycast.net/) | 主动测量得到的任播 /24 前缀（约 4.1 万条，混播前缀已剔除） | |
 
 ## 开发
 

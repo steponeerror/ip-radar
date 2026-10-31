@@ -21,14 +21,14 @@ All examples below assume the default deployment: one container on `http://127.0
 
 ## 1. First run
 
-After `docker compose up -d --build`, the container is reachable within seconds — but it is not finished yet. On first start it downloads and builds every keyless feed (56 of the 61 sources) into millions of records. What you will see:
+After `docker compose up -d --build`, the container is reachable within seconds — but it is not finished yet. On first start it downloads and builds every keyless feed (54 of the 61 sources) into millions of records. What you will see:
 
 - **A progress banner at the top** tracks the download/build progress of the keyless feeds, live. It disappears (or goes quiet) once the build settles.
 - **Queries hold until the keyless build settles.** Until then, lookups answer `503` with `X-IPRadar-Reason: warming` — the tool refuses to serve verdicts on a half-built dataset. This is deliberate: never a verdict on partial evidence.
 - **A safety window, tiered by RAM** (30 min under 6 GB, 20 min under 12 GB, 15 min above), guarantees a stalled build can't lock queries forever — after the window, the container serves whatever coverage exists. Override with `IP_RADAR_COLD_START_TIMEOUT` (seconds) if you need to.
 - **Subsequent starts load from the `ipradar-data` volume in seconds.** The cold start happens once.
 
-Expect the first build to take a while and to consume disk: budget **≥ 6 GB** for the data volume. RAM-wise the build bends its concurrency to what the host has; on small boxes it will grind swap but recover. The five keyed sources (AbuseIPDB, OTX ×2, IP2Proxy, IPinfo) stay dark until you add keys to `.env.local` — see the README [Quick Start](README.md#quick-start) table.
+Expect the first build to take a while and to consume disk: budget **≥ 6 GB** for the data volume. RAM-wise the build bends its concurrency to what the host has; on small boxes it will grind swap but recover. The seven keyed sources (AbuseIPDB, OTX ×2, IP2Proxy, IPinfo, ThreatFox, URLhaus) stay dark until you add keys to `.env.local` — see the README [Quick Start](README.md#quick-start) table.
 
 The status bar at the bottom of the page shows the live state of the store:
 
@@ -185,7 +185,7 @@ The 61 shipped sources aren't a ceiling. The whole loop — grow the pool, measu
 Four paths, in order of effort:
 
 1. **Flip a toggle.** Sources you've disabled (or want to quiet) are one switch on the [Sources tab](#5-the-admin-console). No code, no restart.
-2. **Light up a keyed source.** The five keyed feeds activate by adding their API keys to `.env.local` and restarting — table with key names and signup links in the README [Quick Start](README.md#quick-start).
+2. **Light up a keyed source.** The seven keyed feeds activate by adding their API keys to `.env.local` and restarting — table with key names and signup links in the README [Quick Start](README.md#quick-start).
 3. **Let an AI agent wire in a new source.** The repo ships three agent skills (`.pi/skills/`, loaded by agents that read project-level skills, e.g. [pi](https://github.com/earendil-works/pi)). One sentence each: *"Find me threat-intel sources worth adding"* (discover → scored shortlist), *"Add GreyNoise"* (implements one named source end-to-end), *"Check the health of all sources"* (manage/tune loop).
 4. **Hand-write a source module.** A source is one Python file in `backend/ipdb/_sources/` implementing a small contract — map-first parsing into the lossless evidence record, a registry entry, tests. Reading one small existing module (e.g. [`backend/ipdb/_sources/bruteforce.py`](backend/ipdb/_sources/bruteforce.py) plus its test) is the whole onboarding; mirror the shape and the guards.
 

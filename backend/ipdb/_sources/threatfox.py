@@ -32,7 +32,6 @@ import logging
 import os
 import zipfile
 from pathlib import Path
-from urllib.parse import urlparse
 
 from .._source_base import Source
 from .._evidence import Evidence
@@ -69,10 +68,6 @@ class ThreatFoxSource(Source):
         # (不在 import/注册时炸,源仍可离线加载旧证据)。
         super().__init__(data_dir)
         self._auth_key = os.environ.get("ABUSECH_AUTH_KEY", "")
-
-    @property
-    def download_host(self) -> str | None:
-        return urlparse(self.url).hostname
 
     def _keyed_url(self) -> str:
         # url attr 是无 key 占位(…/exports/full.csv.zip);v2 端点把 Auth-Key
