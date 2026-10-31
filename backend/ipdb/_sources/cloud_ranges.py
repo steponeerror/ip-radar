@@ -239,11 +239,6 @@ class CloudRangesSource(Source):
         # _BACKOFF_SECONDS 封顶的 backoff 重试而非 +stale_days(spec §2.3)。
         self.last_partial_failure: list[str] = []
 
-    @property
-    def download_host(self) -> str | None:
-        # 单源多 host(五家出版方各自域名),无单一权威主机 — cn_isp 先例。
-        return None
-
     def _cleanup_legacy(self) -> None:
         """删除五个旧单源时代的数据文件及其 LMDB sidecar(含 v6 变体)。
 

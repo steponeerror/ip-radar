@@ -102,11 +102,6 @@ class OtxSubscribedSource(Source):
     provenance_tier = "C"   # C=聚合派生(S21):订阅 pulse 平台聚合(同 otx)
     authoritative_for = ()
 
-    @property
-    def download_host(self) -> str | None:
-        from urllib.parse import urlparse
-        return urlparse(_SUBSCRIBED_URL).hostname
-
     def _fetch_json_page(self, page: int, headers: dict) -> dict | None:
         """取第 page 页(limit=1);失败(含 504 HTML)返回 None(原因入 debug 日志)。"""
         url = f"{_SUBSCRIBED_URL}?limit=1&page={page}"

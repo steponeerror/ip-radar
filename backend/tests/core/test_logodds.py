@@ -5,11 +5,12 @@ brief 两处算术笔误已修正并留痕:
 - dedup 场景1 注释要求「derived 弱于非 derived」,系数应为 0.59 而非 0.69
 """
 import math
-from datetime import datetime, timezone
+import random
+from datetime import datetime, timedelta, timezone
 
 from ipdb._logodds import (
     logit, decay_factor, coefficient, dedup_lineage, accuser_pool,
-    assertion_confidence, multicategory_posterior,
+    assertion_confidence, multicategory_posterior, asof_to_now,
 )
 
 
@@ -203,3 +204,88 @@ def test_accuser_pool_now_anchor_passthrough():
     assert stale[0][1] < fresh[0][1]
     assert accuser_pool([("s", 0.7, "not-a-date")], "blacklist") == \
         [("s", logit(0.7))]
+
+
+def test_accuser_pool_per_entry_ctype_cross_group(monkeypatch):
+    """跨组池化(issue #246,_types.threat_summary 判例):entry 携第 4 元
+    ctype,衰减按各证据自己类型的半衰期;第 4 元缺省回退形参 ctype。
+    DECAY_OVERRIDES 现为空表(全类型 60d,两路径同值——零行为变更),
+    注入 override 后分道:钉语义,不钉空表现状。"""
+    now = datetime(2026, 10, 31, tzinfo=timezone.utc)
+    fs = "2026-10-01T00:00:00+00:00"          # 龄 30d
+    # 空表现状:跨组两源同 r 同刻,ctype 异名但同半衰期 → 与显式单
+    # ctype 直算逐位相同(收编前后零行为变更的护栏)
+    assert accuser_pool(
+        [("abuseipdb", 0.9, fs, "scanner"), ("threatfox", 0.9, fs, "c2-server")],
+        now=now)[0][1] == coefficient(0.9, fs, "scanner", now=now)
+    # 注入 scanner 半衰期 600d → 30d 龄仅衰 ~3.4%,显著高于 60d 半衰期
+    # 的 0.707 衰减;无 override 的 c2-server 与缺省回退形参的 zeta
+    # 同刻同 r 同 h → 系数逐位相同
+    monkeypatch.setattr("ipdb._logodds.DECAY_OVERRIDES", {"scanner": 600.0})
+    out = accuser_pool(
+        [("abuseipdb", 0.9, fs, "scanner"),   # 第 4 元 scanner(600d)
+         ("threatfox", 0.9, fs, "c2-server"),  # 第 4 元无 override(60d)
+         ("zeta", 0.9, fs)],                   # 缺省回退形参 blacklist(60d)
+        "blacklist", now=now)
+    assert out == [
+        ("abuseipdb", coefficient(0.9, fs, "scanner", now=now)),
+        ("threatfox", coefficient(0.9, fs, "c2-server", now=now)),
+        ("zeta", coefficient(0.9, fs, "blacklist", now=now)),
+    ]
+    assert out[0][1] > out[1][1] == out[2][1]
+
+
+def test_accuser_pool_cross_group_with_asof_anchor():
+    """跨组池化 × asof 时钟锚(F2/S37)联合直断——生产 _types.threat_summary
+    的调用形态(4 元组 + now=asof_to_now(asof)):锚回拨 → 证据更
+    「年轻」→ 系数更高;epoch 秒锚经 asof_to_now 与 datetime 锚同刻
+    (生产链路:_types.asof → helper now,月度读数可复现)。"""
+    t0 = datetime(2026, 10, 31, tzinfo=timezone.utc)
+    fs = "2026-10-01T00:00:00+00:00"
+    entries = [("abuseipdb", 0.9, fs, "scanner"),
+               ("threatfox", 0.9, fs, "c2-server")]
+    fresh = accuser_pool(entries, now=t0)                     # 龄 30d
+    past = accuser_pool(entries, now=t0 - timedelta(days=20))  # 锚回拨 20d → 龄 10d
+    assert past[0][1] > fresh[0][1]
+    assert past == accuser_pool(entries, now=asof_to_now(
+        (t0 - timedelta(days=20)).timestamp()))
+    assert accuser_pool(entries, now=asof_to_now(t0.timestamp())) == fresh
+
+
+def test_dedup_lineage_never_empties_nonempty_pool():
+    """现行谱系表(DERIVED_SOURCES/LINEAGE_ANCHORS)下,dedup_lineage
+    对任何非空源池输出非空(PR #250 第 1 轮审查 B席 P2-1;#246 把
+    threat_summary 判空从 `if pool:` 改 `if deduped:` 所依赖的不变式)。
+    穷举现行两表构造的全部相关池(derived 成员 ∪ 锚表键 ∪ 锚表值 ∪
+    一个普通非 derived 源),系数剖面取全相等(「≥ 即剔」的并列最坏
+    面)/升序/降序/随机种子三抽;只断言性质(非空 + 确有池被剔小、
+    断言非平凡),不镜像实现。未来谱系表改出可整池剔空的形态(如互为
+    锚的环)即红。表扩张超过 15 名时退化为分层采样(单/双源全量 +
+    随机池)。"""
+    import ipdb._logodds as lo
+    universe = sorted(set(lo.DERIVED_SOURCES) | set(lo.LINEAGE_ANCHORS)
+                      | set(lo.LINEAGE_ANCHORS.values()) | {"blocklist_de"})
+    assert len(universe) >= 5          # 现行表非退化(防空表误跑成恒真)
+    n = len(universe)
+    rng = random.Random(20261031)
+    if n <= 15:
+        subsets = range(1, 1 << n)     # 全部非空子集(位掩码)
+    else:                              # 表扩张:分层采样保时效
+        subsets = [1 << i for i in range(n)]
+        subsets += [(1 << i) | (1 << j)
+                    for i in range(n) for j in range(i + 1, n)]
+        subsets += [rng.getrandbits(n) or 1 for _ in range(20000)]
+    profiles = [
+        [1.0] * n,                                     # 全相等:并列最坏面
+        [float(i + 1) for i in range(n)],              # 升序
+        [float(n - i) for i in range(n)],              # 降序
+    ] + [[rng.uniform(0.05, 2.5) for _ in range(n)] for _ in range(3)]
+    shrank = 0
+    for mask in subsets:
+        for coeffs in profiles:
+            pool = [(universe[i], coeffs[i])
+                    for i in range(n) if mask >> i & 1]
+            out = dedup_lineage(pool)
+            assert out, f"非空池被剔空: {pool}"
+            shrank += len(out) < len(pool)
+    assert shrank > 0                  # 现行表下确有剔除发生(断言非平凡)

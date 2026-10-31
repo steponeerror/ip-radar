@@ -139,21 +139,24 @@ class LookupResult:
             # coefficient → dedup_lineage → assertion_confidence 流水线;
             # 单指控组时数字恰好退化为该组 confidence(恒等)。asof
             # (F2/S37)随查询锚入 → to_dict() 时免重查引擎,快照可复算。
+            # 池化循环单源化(issue #246,_logodds.accuser_pool——此前为
+            # 第 6 份同构内联拷贝):跨组 ctype 逐 detail 携带作第 4 元
+            # (各证据按自己类型的半衰期衰减);指控章判定(组级 +
+            # detail 级双滤)在生成器内预滤,形态留调用方(#244 判例:
+            # 判定面各异,helper 不吞)。排序口径随 helper 统一 sorted:
+            # 此前插入序喂 dedup_lineage,仅 Σ 浮点求和顺序有理论 ulp
+            # 缝,confidence 为 round 后整数,回放闸门 C2 前后对照把关。
             _now = _lo.asof_to_now(self.asof)
-            pool: dict[str, float] = {}
-            for v in self.classifications.values():
-                if v.verdict not in _ACCUSING:
-                    continue
-                for d in v.details:
-                    if d.get("verdict") not in _ACCUSING:
-                        continue
-                    c = _lo.coefficient(d["reliability"], d.get("first_seen"), v.type,
-                                        now=_now)
-                    src = d["source"]
-                    if src not in pool or c > pool[src]:
-                        pool[src] = c
-            if pool:
-                deduped = _lo.dedup_lineage(list(pool.items()))
+            deduped = _lo.accuser_pool(
+                ((d["source"], d["reliability"], d.get("first_seen"), v.type)
+                 for v in self.classifications.values()
+                 if v.verdict in _ACCUSING
+                 for d in v.details
+                 if d.get("verdict") in _ACCUSING),
+                now=_now)
+            # 池非空 ⟹ dedup 非空(现行谱系表下最强非 derived 源必存活,
+            # 不会被剔除),以 deduped 判空与旧 if pool: 等价
+            if deduped:
                 confidence = _lo.assertion_confidence([c for _, c in deduped])
             else:
                 # 空池边界:detected 但无指控证据(纯存档组/无 details 的旧载荷)

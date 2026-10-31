@@ -4,24 +4,29 @@ import os
 import shutil
 import time
 from pathlib import Path
-from typing import Optional
 
 import lmdb
 
+# 源底座(#248):本类原为唯一无基类源,手抄全套生命周期;现挂
+# SourceBase(load/_load_v6_side/health 随底座),自有 download/parse/rebuild
+# 与 query 整形(_shape)保留。
+from ._base import SourceBase
 from ._download import download_file, CancelToken
-from ._lmdb import ptr_path as ptr_path_for
-# query()/_query6 覆写内联 import 提升:缓存 import 实测 273ns/调用
+# query()/_query6() 覆写内联 import 提升:缓存 import 实测 273ns/调用
 # (PR-2 #111 T3 侦察遗留姊妹件;_lmdb 无反向 import,模块级安全)
 from ._lmdb import (
     ip_to_int, ip_to_int6, lookup, read_ptr, open_env_read,
-    read_disjoint_flag, load_v6_side_state)
+    read_disjoint_flag)
 
 logger = logging.getLogger(__name__)
 
 
-class IPinfoLiteSource:
+class IPinfoLiteSource(SourceBase):
     name = "ipinfo_lite"
     category = "geo_asn"
+    # 底座 __init__ 由此派生 _path/_lmdb_base/v6 族路径(与原手抄同值,
+    # #248 收编;url 无类属性 — 取数走 _url property 读 IPINFO_TOKEN)
+    filename = "ipinfo_lite.csv"
     fields = ("country_code", "asn", "as_name", "ip_range")
     stale_days = 7
     reliability = 0.95
@@ -29,31 +34,11 @@ class IPinfoLiteSource:
     # country/asn/as_name/ip_range/as_domain,is_mobile 更不在 ASSET_SLOTS;
     # is_hosting 真生产者是 ip2proxy(DCH)/cloud_ranges(未声明,有意不扩面)。
     authoritative_for = ()
-    # eval 元数据(S21/S33):唯一无基类源,手抄两基类同款默认 B/False。
-    provenance_tier: str = "B"
-    honeypot_methodology: bool = False
+    # eval 元数据(S21/S33):默认 B/False 随源底座继承(原手抄同款值)。
 
     def __init__(self, data_dir: Path):
-        self._path = data_dir / "ipinfo_lite.csv"
+        super().__init__(data_dir)
         self._gz_path = data_dir / "ipinfo_lite.csv.gz"
-        self._data_dir = data_dir
-        self._lmdb_base = data_dir / "ipinfo_lite.csv.lmdb"
-        # scheduler 快照契约名(名保留);needs_convert 比较对象 = _lmdb_base 族(C2/ADR 0009)
-        self._mmdb_path = ptr_path_for(self._lmdb_base)
-        # _reader 实为 lmdb readonly env(open_env_read 产物),非 maxminddb.Reader
-        self._reader: Optional[object] = None
-        self._disjoint = False   # epoch-bound sidecar flag(load/retry 时重读)
-        self._count: int = 0
-        self._covered_ips: int = 0
-        self._loaded_at: float = 0.0
-        # v6 并行族(spec §3.2):base/ptr/reader/disjoint 全套独立 sidecar
-        # (本类不继承 Source/IpListSource,与 _base.py 平行维护)
-        self._lmdb6_base = data_dir / "ipinfo_lite.csv.v6.lmdb"
-        self._mmdb6_path = ptr_path_for(self._lmdb6_base)
-        self._reader6: Optional[object] = None
-        self._disjoint6 = False
-        self._count6: int = 0
-        self._covered_v6_nets: int = 0
 
     @property
     def _url(self) -> str:
@@ -102,33 +87,6 @@ class IPinfoLiteSource:
         finally:
             if self._gz_path.exists():
                 self._gz_path.unlink(missing_ok=True)
-
-    def load(self) -> int:
-        from ._lmdb import (read_ptr, open_env_read, cleanup_stale, count_path,
-                            cov_path, read_disjoint_flag)
-        cleanup_stale(self._lmdb_base)
-        epoch = read_ptr(self._lmdb_base)
-        if epoch is None:
-            self._reader = None
-            self._disjoint = False
-            self._load_v6_side()                  # v6 状态照常解析(v4 缺 ≠ v6 缺)
-            return 0
-        self._disjoint = read_disjoint_flag(self._lmdb_base, epoch)
-        self._reader = open_env_read(
-            self._lmdb_base.parent / f"{self._lmdb_base.name}.{epoch}")
-        cp, vp = count_path(self._lmdb_base), cov_path(self._lmdb_base)
-        self._count = int(cp.read_text().strip()) if cp.exists() else 0
-        self._covered_ips = int(vp.read_text().strip()) if vp.exists() else 0
-        self._load_v6_side()
-        self._loaded_at = time.time()
-        return self._count
-
-    def _load_v6_side(self) -> None:
-        """v6 族 sidecar 解析(additive):早退/正常两条 v4 路径共用;旧数据
-        目录(无 v6 sidecar)静默零态。本类无基类,原逐字拷贝收敛至
-        _lmdb.load_v6_side_state 单源点(#243)。"""
-        (self._reader6, self._disjoint6, self._count6,
-         self._covered_v6_nets) = load_v6_side_state(self._lmdb6_base)
 
     def rebuild(self, progress=None) -> int:
         import ipaddress as _ipa
@@ -197,6 +155,7 @@ class IPinfoLiteSource:
         self._count6 = n6
         self._loaded_at = time.time()
         return n4
+
     @staticmethod
     def _shape(node: dict) -> dict:
         """node → 对外 dict(v4/v6 两族共用):补 ip_range 槽、剔内部键。"""
@@ -234,8 +193,8 @@ class IPinfoLiteSource:
     def _query6(self, ip: str) -> dict:
         """v6 版 query():与 v4 同构(lookup+重试+整形),独立族状态。
         无 v6 env(源无 v6 数据/旧目录)安静返回 {}——与该源不存在同体验。
-        (与 IpListSource._query6 平行维护;本类 query 有 node→dict 整形,
-        v6 侧同形,否则 v6 结果丢 ip_range 槽。)"""
+        (覆写底座 _query6:本源查询有 node→dict 整形,v6 侧同形,否则 v6
+        结果丢 ip_range 槽。)"""
         if self._reader6 is None:
             return {}
         ip_int = ip_to_int6(ip)
@@ -256,23 +215,3 @@ class IPinfoLiteSource:
         if node is None:
             return {}
         return self._shape(node)
-
-    def health(self):
-        from .._types import SourceHealth
-
-        file_mtime = None
-        last_updated = None
-        if self._path.exists():
-            file_mtime = self._path.stat().st_mtime
-            last_updated = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(file_mtime))
-        is_stale = file_mtime is None or (
-            time.time() - file_mtime > self.stale_days * 86400)
-        return SourceHealth(
-            name=self.name,
-            loaded=self._reader is not None,
-            record_count=self._count,
-            last_updated=last_updated,
-            is_stale=is_stale,
-            covered_ips=self._covered_ips,
-            covered_v6_nets=self._covered_v6_nets,
-        )

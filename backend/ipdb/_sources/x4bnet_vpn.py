@@ -1,5 +1,4 @@
 """X4BNet VPN list source — IpListSource subclass."""
-from .._source_base import Source
 from ._base import IpListSource
 from ._download import atomic_write_bytes, redact_url
 
@@ -25,14 +24,14 @@ class X4BNetVPNSource(IpListSource):
         import logging
         self._data_dir.mkdir(parents=True, exist_ok=True)
         try:
-            v4 = Source._http_get(self.url)
+            v4 = self._http_get(self.url)
             if not v4.strip():
                 raise RuntimeError(f"empty response from {redact_url(self.url)}")
         except Exception:
             self.last_partial_failure = ["v4"]
             raise
         try:
-            v6 = Source._http_get(self._V6_URL)
+            v6 = self._http_get(self._V6_URL)
             if not v6.strip():
                 raise RuntimeError(f"empty v6 sibling from {redact_url(self._V6_URL)}")
         except Exception as e:
