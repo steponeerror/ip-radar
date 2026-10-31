@@ -42,6 +42,7 @@ class Source(SourceBase):
     # this False — they rely on acc to group several evidence per CIDR.
     # 仅 A 家族 rebuild 消费(#248 裁决 5),留在 Source 不上底座。
     single_evidence: bool = False
+
     def download(self, token=None) -> None:
         """Default: simple GET → self._path. Override for bespoke fetch.
 
