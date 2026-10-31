@@ -79,3 +79,6 @@ result10k.ndjson
 
 # T4: ops agent npm 依赖不入库(ADR 0004 宿主)
 ops/agent/node_modules/
+
+# 一次性 eval/回放工件,放置规范定 dev/ 不入库(review #244 P2-2)
+dev/

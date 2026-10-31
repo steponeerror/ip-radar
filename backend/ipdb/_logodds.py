@@ -5,6 +5,7 @@
 方向不变强度衰减;多类别带背景质量(未观测答案的隐含概率)。
 """
 import math
+from collections.abc import Iterable
 from datetime import datetime, timezone
 
 DEFAULT_HALF_LIFE_DAYS: float = 60.0
@@ -113,6 +114,32 @@ def dedup_lineage(coeffs: list[tuple[str, float]]) -> list[tuple[str, float]]:
                 continue
         kept.append((s, c))
     return kept
+
+
+def accuser_pool(entries: Iterable[tuple[str, float, str | None]],
+                 ctype: str | None = None, *,
+                 now: datetime | None = None) -> list[tuple[str, float]]:
+    """指控池核心循环,单源化(issue #244;GLOSSARY「指控池」「k 族」):
+    逐源 coefficient(r, first_seen, ctype)×decay 取 max → dedup_lineage,
+    排序口径统一 sorted()(2026-10-30 grill Q2 人裁;此前 eval 四份
+    sorted、生产 _merge 插入序漂移——统一仅动池列表序,Σ/conf 与
+    计数不变,回放闸门把关)。
+
+    entries = (source, reliability, first_seen) 三元组。指控章判定
+    (verdict ∈ _ACCUSING)留在调用方执行——判定面各异,不许吞:
+    ① eval detail 级滤(agg_share/sinkhole_probe/anchor_readouts);
+    ② metrics 缺 verdict 键兜底 malicious(旧快照兼容);
+    ③ 生产 _merge voters-else-回退池调用方预滤(纯存档组退回全量
+    Σ,决策 5/乙——回退池含非指控观测,不可在本函数再滤)。
+    now 非 None = F2/S37 时钟锚(生产 _merge 传 asof;eval 快照重算
+    走默认墙钟)。
+    """
+    by_source: dict[str, float] = {}
+    for src, r, first_seen in entries:
+        c = coefficient(r, first_seen, ctype, now=now)
+        if src not in by_source or c > by_source[src]:
+            by_source[src] = c
+    return dedup_lineage(sorted(by_source.items()))
 
 
 def assertion_confidence(coeffs: list[float]) -> int:

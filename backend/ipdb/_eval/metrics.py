@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .ablation import Snapshot
-from .._logodds import coefficient, dedup_lineage
+from .._logodds import accuser_pool
 
 # _ACCUSING 私有名跨模块借道(EV-F1):指控章单一口径 —— 生产 _merge/
 # _stix_export 同一集合;本地等义副本会漂移,借道优于复制。
@@ -49,25 +49,20 @@ def mc(baseline: Snapshot, candidate: Snapshot, candidate_src: str,
 
 
 def _effective_votes(snapshot: Snapshot, ip: str, ctype: str) -> int:
-    """谱系去重后的有效源票数——生产同款数学(_assess_classification):
-    只数指控票(malicious/suspicious),再逐源取最强系数
-    coefficient(r, first_seen, ctype),最后 dedup_lineage。存档
+    """谱系去重后的有效源票数——生产同款数学(_assess_classification,
+    循环体单源化 issue #244 —— _logodds.accuser_pool):只数指控票
+    (malicious/suspicious),再逐源取最强系数,最后 dedup_lineage。存档
     (informational)票只展示不计分,镜像生产 corroboration 口径
     (spec 2026-09-06 决策 8);缺 verdict 键兑底 malicious = 生产读
-    路径同口径(旧快照兼容)。"""
+    路径同口径(旧快照兼容;与另外三个 eval 消费面「缺键即滤」不同,
+    属各自口径,不可在 helper 内吞并)。"""
     ca = (snapshot.get(ip, {}).get("classifications") or {}).get(ctype, {})
-    by_source: dict[str, float] = {}
-    for d in ca.get("details", []):
-        src = d.get("source")
-        if not src:
-            continue
-        v = d.get("verdict", "malicious")
-        if v not in _ACCUSING:
-            continue
-        c = coefficient(d.get("reliability", 0.5), d.get("first_seen"), ctype)
-        if src not in by_source or c > by_source[src]:
-            by_source[src] = c
-    return len(dedup_lineage(list(by_source.items())))
+    # 边缘差异(兑底 malicious)显式留在调用点:accuser_pool 不做指控章判定
+    return len(accuser_pool(
+        ((d["source"], d.get("reliability", 0.5), d.get("first_seen"))
+         for d in ca.get("details", [])
+         if d.get("verdict", "malicious") in _ACCUSING and d.get("source")),
+        ctype))
 
 
 def cg(baseline: Snapshot, candidate: Snapshot, candidate_src: str) -> Metric:

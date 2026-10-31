@@ -8,7 +8,7 @@ import math
 from datetime import datetime, timezone
 
 from ipdb._logodds import (
-    logit, decay_factor, coefficient, dedup_lineage,
+    logit, decay_factor, coefficient, dedup_lineage, accuser_pool,
     assertion_confidence, multicategory_posterior,
 )
 
@@ -161,3 +161,45 @@ def test_dedup_lineage_drop12_echo_42_208(monkeypatch):
     assert [s for s, _ in baseline] == ["emerging_threats", "spamhaus"]  # 3→2
     monkeypatch.undo()
     assert dedup_lineage(coeffs) == [("spamhaus", logit(0.9))]  # →1
+
+
+def test_accuser_pool_max_per_source_and_sorted():
+    """同源多条观测只计最强单条断言(spec §3.3 宁少算);输出按源名
+    sorted(issue #244 排序口径统一,grill Q2 2026-10-30)。"""
+    entries = [
+        ("spamhaus", 0.5, None),        # 同源两条,弱者在先
+        ("abuseipdb", 0.7, None),
+        ("spamhaus", 0.9, None),        # 强者胜出
+    ]
+    pool = accuser_pool(entries, "blacklist")
+    assert pool == [("abuseipdb", logit(0.7)), ("spamhaus", logit(0.9))]
+
+
+def test_accuser_pool_insertion_order_irrelevant():
+    """插入序不影响池内容与序位(生产 _merge 从插入序改 sorted 的
+    行为面钉子:仅池列表序变化,集合与逐位系数不变)。"""
+    a = [("zeta", 0.8, None), ("alpha", 0.6, None), ("mid", 0.7, None)]
+    assert accuser_pool(a, "blacklist") == accuser_pool(reversed(a), "blacklist")
+    assert [s for s, _ in accuser_pool(a, "blacklist")] == ["alpha", "mid", "zeta"]
+
+
+def test_accuser_pool_dedup_integration():
+    """derived 弱于最强非 derived → 剔(与直调 dedup_lineage 同判);
+    无 first_seen → 不衰减。"""
+    pool = accuser_pool(
+        [("firehol", 0.5, None), ("spamhaus", 0.9, None)], "blacklist")
+    assert pool == [("spamhaus", logit(0.9))]
+
+
+def test_accuser_pool_now_anchor_passthrough():
+    """now(时钟锚 F2/S37)透传 coefficient:同 entries 不同锚刻
+    衰减不同;None → 墙钟默认路径同直调。"""
+    now = datetime(2026, 8, 29, tzinfo=timezone.utc)
+    fresh = accuser_pool(
+        [("s", 0.85, "2026-08-28T00:00:00+00:00")], "blacklist", now=now)
+    stale = accuser_pool(
+        [("s", 0.85, "2020-08-28T00:00:00+00:00")], "blacklist", now=now)
+    assert fresh == [("s", coefficient(0.85, "2026-08-28T00:00:00+00:00", now=now))]
+    assert stale[0][1] < fresh[0][1]
+    assert accuser_pool([("s", 0.7, "not-a-date")], "blacklist") == \
+        [("s", logit(0.7))]

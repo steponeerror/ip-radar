@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useTasks } from "../tasks/useTasks";
 import { useI18n } from "../i18n";
-import { stagedFrac, isIndeterminate } from "../tasks/progress";
+import { stagedFrac, isIndeterminate, isTaskActive, isBatchLive } from "../tasks/progress";
 
 // Task 9:DbStatusBar 的活动面板原样迁入 /admin 任务区(管理面收敛,
 // spec §9)。批量进度/暂停/恢复/终止/逐任务取消全部依赖任务上下文 ——
@@ -17,8 +17,6 @@ const BADGE: Record<string, string> = {
   failed: "text-red-400 border-red-400/30 bg-red-400/10",
   cancelled: "text-zinc-500 border-zinc-700 bg-zinc-800/50",
 };
-
-const ACTIVE_TASK_STATES = ["queued", "throttled", "downloading", "loading"];
 
 // (模块内部使用;原 DbStatusBar 的导出面已随迁移收窄)
 const fmtBytes = (n: number): string => {
@@ -66,9 +64,9 @@ export function BatchPanel({ onUnauthorized }: { onUnauthorized?: () => void } =
     }
   }, [batch?.state]);
 
-  const taskActive = tasks.some((t) => ACTIVE_TASK_STATES.includes(t.state));
+  const taskActive = tasks.some(isTaskActive);
   const active = taskActive
-    || (batch != null && batch.state !== "done")
+    || isBatchLive(batch)
     || (recentlyDone && batch?.state === "done");
 
   // 会话中 401(cookie 过期/服务端重启)踢回登录页;其余错误落横幅。
@@ -115,7 +113,7 @@ export function BatchPanel({ onUnauthorized }: { onUnauthorized?: () => void } =
   // tasks so terminal tasks accumulated from prior batches don't clutter the panel.
   const visibleTasks = batch
     ? tasks.filter((t) => t.batch_id === batch.id)
-    : tasks.filter((t) => ACTIVE_TASK_STATES.includes(t.state));
+    : tasks.filter(isTaskActive);
 
   // Overall progress across visible tasks: averages each task's staged
   // fraction (download 0→0.5, rebuild 0.5→1) so the top bar moves
@@ -245,7 +243,7 @@ export function BatchPanel({ onUnauthorized }: { onUnauthorized?: () => void } =
                 <button
                   className="text-zinc-500 hover:text-red-400 disabled:opacity-30"
                   onClick={() => run(() => cancelTask(task.id))}
-                  disabled={!ACTIVE_TASK_STATES.includes(task.state)}
+                  disabled={!isTaskActive(task)}
                   aria-label={t("admin.tasks.cancelTask", { source: task.source })}
                 >
                   ✕

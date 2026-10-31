@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useTasks } from "../tasks/useTasks";
 import { useI18n } from "../i18n";
-import { stagedFrac } from "../tasks/progress";
+import { stagedFrac, isBatchLive } from "../tasks/progress";
 
 // 全局迷你进度条(修复:tab 化把「源管理」的动作与「任务」的反馈拆到两个
 // tab,更新时无任何可见进度)。batch 运行/暂停时常驻 sticky 区,任何 tab
@@ -25,7 +25,7 @@ export function BatchMiniBar({ onOpen }: { onOpen: () => void }) {
     }
   }, [batch?.state]);
 
-  const live = batch != null && (batch.state === "running" || batch.state === "paused");
+  const live = isBatchLive(batch);
   if (!batch || (!live && !linger)) return null;
 
   const visible = tasks.filter((tk) => tk.batch_id === batch.id);

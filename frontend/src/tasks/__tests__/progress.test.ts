@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { stagedFrac, isIndeterminate } from "../progress";
-import type { TaskState } from "../../api";
+import { stagedFrac, isIndeterminate, isTaskTerminal, isTaskActive, isBatchLive } from "../progress";
+import type { BatchState, TaskState } from "../../api";
 
 const t = (over: Partial<TaskState>): TaskState => ({
   id: "t1", source: "s", host: null, state: "queued",
@@ -55,5 +55,30 @@ describe("isIndeterminate", () => {
     expect(isIndeterminate(t({ state: "downloading", total: 100 }))).toBe(false);
     expect(isIndeterminate(t({ state: "done" }))).toBe(false);
     expect(isIndeterminate(t({ state: "queued" }))).toBe(false);
+  });
+});
+
+describe("任务状态谓词(#245 收编,原三处内联散推)", () => {
+  it("isTaskTerminal:仅 done/failed/cancelled", () => {
+    for (const s of ["done", "failed", "cancelled"] as const)
+      expect(isTaskTerminal(t({ state: s }))).toBe(true);
+    for (const s of ["queued", "throttled", "downloading", "loading", "running"] as const)
+      expect(isTaskTerminal(t({ state: s }))).toBe(false);
+  });
+
+  it("isTaskActive:四幂等入队相位;不含 ops 轮 running 与终态", () => {
+    for (const s of ["queued", "throttled", "downloading", "loading"] as const)
+      expect(isTaskActive(t({ state: s }))).toBe(true);
+    for (const s of ["running", "done", "failed", "cancelled"] as const)
+      expect(isTaskActive(t({ state: s }))).toBe(false);
+  });
+
+  it("isBatchLive:running/paused;done 与 null 不 live", () => {
+    const b = (state: BatchState["state"]): BatchState =>
+      ({ id: "b1", state, done: 0, total: 3 });
+    expect(isBatchLive(b("running"))).toBe(true);
+    expect(isBatchLive(b("paused"))).toBe(true);
+    expect(isBatchLive(b("done"))).toBe(false);
+    expect(isBatchLive(null)).toBe(false);
   });
 });

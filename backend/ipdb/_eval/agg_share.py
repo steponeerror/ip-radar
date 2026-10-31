@@ -26,7 +26,7 @@ import json
 
 from .corpus import sample_source_ips, stable_seed
 from .exclusive import DEFAULT_SEED, sample_keys
-from .._logodds import DERIVED_SOURCES, coefficient, dedup_lineage
+from .._logodds import DERIVED_SOURCES, accuser_pool
 from .._types import _ACCUSING
 
 SAMPLE_PER_SOURCE = 100      # 每指控源采样上限(raw 文件口径)
@@ -51,19 +51,13 @@ def corroboration_agg_share(lookup_fn, probe_ips: list[str]) -> dict:
                 continue
             if not ca.get("corroborated"):
                 continue
-            # 指控池重算(生产 _merge 同款:同源取 max 系数 → dedup_lineage)
-            by_source: dict[str, float] = {}
-            for d in ca.get("details") or ():
-                if d.get("verdict") not in _ACCUSING:
-                    continue
-                src = d.get("source")
-                if not src:
-                    continue
-                c = coefficient(d.get("reliability", 0.5),
-                                d.get("first_seen"), ctype)
-                if src not in by_source or c > by_source[src]:
-                    by_source[src] = c
-            deduped = dedup_lineage(sorted(by_source.items()))
+            # 指控池重算(生产 _merge 同款:同源取 max 系数 → dedup_lineage;
+            # 循环体单源化 issue #244 —— _logodds.accuser_pool)
+            deduped = accuser_pool(
+                ((d["source"], d.get("reliability", 0.5), d.get("first_seen"))
+                 for d in ca.get("details") or ()
+                 if d.get("verdict") in _ACCUSING and d.get("source")),
+                ctype)
             if len(deduped) < 2:
                 continue      # corroborated 旗与镜像重算不一致 → 不计入
             accusers = {s for s, _ in deduped}

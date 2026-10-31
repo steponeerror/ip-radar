@@ -12,9 +12,9 @@ SHA256 + 上游 brakmic/Sinkholes @ 1a284cd9)被指控源命中记污染分不�
   复用:per-source stable_seed + 容量帽截断,同 seed 逐字节可复算);
 - 成员判定 = 精确裸 IP 相等 + CIDR 线性包含(203 条无性能问题,勿引
   truth_layer 二分机 —— 规模不配机械;探针采样面 v4-only);
-- 污染归因 = lookup 载荷指控池按生产同款重算(by_source 取 max 系数 →
-  dedup_lineage,agg_share.py:49-66 逐字先例),per-IP accuser 并集内
-  的源才记命中 —— 裸用 detail.source 会让镜像对(firehol/greensnow)
+- 污染归因 = lookup 载荷指控池按生产同款重算(_logodds.accuser_pool
+  单源化,issue #244:同源取 max 系数 → dedup_lineage),per-IP accuser
+  并集内的源才记命中 —— 裸用 detail.source 会让镜像对(firehol/greensnow)
   双计,违「宁少算」;同源同 IP 多指控组只记一次;
 - 分层 = CIDR 基(强信号)vs 单 IP 基(弱信号:union-never-replace 政
   策让已退役 sinkhole IP 永驻列表,存在回收重指派残余风险 —— provenance
@@ -33,7 +33,7 @@ from pathlib import Path
 
 from .agg_share import SAMPLE_PER_SOURCE, TOTAL_CAP, probe_ips
 from .exclusive import DEFAULT_SEED
-from .._logodds import coefficient, dedup_lineage
+from .._logodds import accuser_pool
 from .._types import _ACCUSING
 
 SINKHOLE_ASSET = Path(__file__).parent / "sinkhole_ranges.json"
@@ -99,20 +99,14 @@ def sinkhole_probe(lookup_fn, probe_ips: list[str],
         payload = lookup_fn(ip)
         accusers_ip: set[str] = set()      # per-IP 并集:同源多组只记一次
         for ctype, ca in (payload.get("classifications") or {}).items():
-            # 指控池重算(生产 _merge 同款:同源取 max 系数 → dedup_lineage;
-            # agg_share.py:49-66 逐字先例 —— 裸用 detail.source 镜像对双计)
-            by_source: dict[str, float] = {}
-            for d in ca.get("details") or ():
-                if d.get("verdict") not in _ACCUSING:
-                    continue
-                src = d.get("source")
-                if not src:
-                    continue
-                c = coefficient(d.get("reliability", 0.5),
-                                d.get("first_seen"), ctype)
-                if src not in by_source or c > by_source[src]:
-                    by_source[src] = c
-            accusers_ip |= {s for s, _ in dedup_lineage(sorted(by_source.items()))}
+            # 指控池重算(生产 _merge 同款:同源取 max 系数 → dedup_lineage,
+            # 循环体单源化 issue #244 —— _logodds.accuser_pool —— 裸用
+            # detail.source 镜像对双计)
+            accusers_ip |= {s for s, _ in accuser_pool(
+                ((d["source"], d.get("reliability", 0.5), d.get("first_seen"))
+                 for d in ca.get("details") or ()
+                 if d.get("verdict") in _ACCUSING and d.get("source")),
+                ctype)}
         for src in sorted(accusers_ip):
             hits[src] = hits.get(src, 0) + 1
             if is_cidr:
