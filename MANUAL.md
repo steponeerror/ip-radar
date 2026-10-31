@@ -21,7 +21,7 @@ All examples below assume the default deployment: one container on `http://127.0
 
 ## 1. First run
 
-After `docker compose up -d --build`, the container is reachable within seconds — but it is not finished yet. On first start it downloads and builds every keyless feed (44 of the 49 sources) into millions of records. What you will see:
+After `docker compose up -d --build`, the container is reachable within seconds — but it is not finished yet. On first start it downloads and builds every keyless feed (56 of the 61 sources) into millions of records. What you will see:
 
 - **A progress banner at the top** tracks the download/build progress of the keyless feeds, live. It disappears (or goes quiet) once the build settles.
 - **Queries hold until the keyless build settles.** Until then, lookups answer `503` with `X-IPRadar-Reason: warming` — the tool refuses to serve verdicts on a half-built dataset. This is deliberate: never a verdict on partial evidence.
@@ -146,7 +146,7 @@ After sign-in you get three tabs (plus a floating task-progress pill that mirror
 
 ### Sources (default tab)
 
-![The admin Sources tab: 49 sources, health, r/θ dual track, toggles](assets/manual/04-admin-sources.png)
+![The admin Sources tab: 61 sources, health, r/θ dual track, toggles](assets/manual/04-admin-sources.png)
 
 Every source in one list, grouped into **Geo & ASN data / Threat intel / Asset attributes**, with columns:
 
@@ -178,7 +178,7 @@ The public page's top banner includes a **Check for updates** button and, when a
 
 ## 6. Source lifecycle: add → evaluate → tune
 
-The 49 shipped sources aren't a ceiling. The whole loop — grow the pool, measure whether a source actually helps, adjust or retire it — is designed to be run by the self-hoster, with a human deciding at every step that matters.
+The 61 shipped sources aren't a ceiling. The whole loop — grow the pool, measure whether a source actually helps, adjust or retire it — is designed to be run by the self-hoster, with a human deciding at every step that matters.
 
 ### Add
 
@@ -197,11 +197,11 @@ Two consumers of evaluation, same numbers:
 - **The eval CLI**, run from `backend/` of your clone:
 
 ```bash
-python -m ipdb._eval --model          # fleet corroboration-contrast model + acceptance suite
+python -m ipdb._eval --model          # corroboration-contrast model over the fleet (= all other enabled sources) + acceptance suite
 python -m ipdb._eval --all            # evaluate every source
 python -m ipdb._eval --audit          # lineage audit over persisted model history (advisory)
 python -m ipdb._eval --anchors        # known-answer regression gate; exit 1 on any failure
-python -m ipdb._eval --dsem           # DS-EM fair fight: market vs declared vs π̂ (advisory)
+python -m ipdb._eval --dsem           # DS-EM fair fight: market vs declared vs π̂ (advisory; π̂ = truth-rate estimate from the eval harness)
 python -m ipdb._eval --help           # full flag list (temporal, demand, readout, …)
 ```
 

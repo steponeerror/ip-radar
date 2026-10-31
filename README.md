@@ -4,7 +4,7 @@
 
 ![IP Radar — self-hosted IP intelligence](assets/social-preview.png)
 
-**Pull 49 public sources into your own box — a full IP profile, not just a threat verdict.** Every lookup comes back with a plain-words verdict — evidence, confidence, geo · city · ASN, cloud/hosting, proxy · VPN · Tor, service identity, all at once. One command, self-hosted.
+**Pull 61 public sources into your own box — a full IP profile, not just a threat verdict.** Every lookup comes back with a plain-words verdict — evidence, confidence, geo · city · ASN, cloud/hosting, proxy · VPN · Tor, service identity, all at once. One command, self-hosted.
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 ![Docker](https://img.shields.io/badge/Docker-one%20container-2496ED?logo=docker&logoColor=white)
@@ -202,7 +202,7 @@ Every dataset below belongs to its provider — thank you for keeping them open 
 | cn_isp | [clang.cn ISP ranges](https://ispip.clang.cn/) | China ISP classification (mainland + HK/MO/TW) | |
 | ipinfo_lite | [IPinfo](https://ipinfo.io/) | Country / ASN / ranges enrichment | 🔑 |
 
-### Asset & Network Surface
+### Network Assets
 
 | Source | Provider | Contributes | 🔑 |
 |---|---|---|---|
@@ -250,14 +250,15 @@ cd frontend && npm run dev
 
 The eval layer emits two kinds of reliability numbers side by side: the
 declared `r` (hand-set per source, production-authoritative) and measured
-θ (independent-corroboration posterior, advisory). θ is never an accuracy
+θ — a reliability estimate derived from how much independent sources corroborate each other (advisory). θ is never an accuracy
 claim and never feeds the production weights automatically — adopting a
 measured value requires a human-reviewed PR referencing the eval report.
 
 Run it from `backend/` via `python -m ipdb._eval`: `--audit` (lineage audit —
 copying-direction verdicts over persisted model history, advisory),
 `--anchors` (known-answer regression gate; exit 1 on any failure), and
-`--dsem` (DS-EM fair fight: market vs declared vs π̂, advisory). The
+`--dsem` (DS-EM fair fight: market vs declared vs π̂, advisory; π̂ = the
+underlying truth-rate estimate computed by the eval harness). The
 admin console's Sources tab mirrors this dual track — measured θ
 (90% CI) beside each source's declared `r`.
 

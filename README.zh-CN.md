@@ -4,7 +4,7 @@
 
 ![IP Radar — 自托管的 IP 情报](assets/social-preview.png)
 
-把 49 个公开情报源搬回家：查任何 IP，拿一份全面的画像——说人话的裁决、逐源证据、置信度，加上地理·城市·ASN、云/托管、代理/VPN/Tor、服务身份，一次看全。一条命令，自己部署。
+把 61 个公开情报源搬回家：查任何 IP，拿一份全面的画像——一句话结论、逐源证据、置信度，加上地理·城市·ASN、云/托管、代理/VPN/Tor、服务身份，一次看全。一条命令，自己部署。
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 ![Docker](https://img.shields.io/badge/Docker-one%20container-2496ED?logo=docker&logoColor=white)
@@ -19,7 +19,7 @@
 <p align="center">
 <table>
   <tr>
-    <td width="50%" align="center"><img src="assets/hero-malicious.png" alt="恶意 IP 查询结果"><br><sub>☠️ 恶意 IP：逐源证据 + 置信度裁决</sub></td>
+    <td width="50%" align="center"><img src="assets/hero-malicious.png" alt="恶意 IP 查询结果"><br><sub>☠️ 恶意 IP：逐源证据 + 置信度结论</sub></td>
     <td width="50%" align="center"><img src="assets/feature-geo.png" alt="干净 IP 的地理富化"><br><sub>🌱 干净 IP：地理 · 城市 · ASN 富化</sub></td>
   </tr>
 </table>
@@ -82,24 +82,26 @@ docker compose build --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn
 
 <p align="center">
   <img src="assets/desktop-hero.png" alt="IP Radar Desktop —— 托盘伴侣"><br>
-  <sub>🖥️ 托盘常驻 —— 热键一按，剪贴板 IP 出并列裁决，批量也行</sub>
+  <sub>🖥️ 托盘常驻 —— 热键一按，剪贴板 IP 出各源并排结论，批量也行</sub>
 </p>
 
-[IP Radar Desktop](https://github.com/steponeerror/ip-radar-desktop) 把同样的查询搬到桌面：常驻系统托盘，全局热键一按，剪贴板里的 IP 直接出各源并列裁决，整份 IP 清单一次性批量查。Linux / macOS / Windows 安装包在 [Releases 页](https://github.com/steponeerror/ip-radar-desktop/releases)。
+[IP Radar Desktop](https://github.com/steponeerror/ip-radar-desktop) 把同样的查询搬到桌面：常驻系统托盘，全局热键一按，剪贴板里的 IP 直接出各源并排结论，整份 IP 清单一次性批量查。Linux / macOS / Windows 安装包在 [Releases 页](https://github.com/steponeerror/ip-radar-desktop/releases)。
 
 ## 特性
 
 - **开箱即用，除 5 个密钥源外全部免密钥** —— 首次启动自动下载构建，数百万条记录入库（确切数量以 `/api/db-status` 实测为准）；剩下 5 个 🔑 源想开的话，密钥填法见[快速开始](#快速开始)。
 - **冷启动不挡路** —— 容器数秒就能打开，免密钥源的下载/构建进度在页面顶部横幅实时滚动，建完查询自动解锁——绝不拿着半份数据先给结论。
-- **一份裁决，不是一堆列表** —— 单 IP 一句话结论，逐源证据摆给你看，0-100 置信度（log-odds 贝叶斯融合：源可靠性转对数几率系数、威胁断言按 60 天半衰期衰减、交叉佐证；0 = 无证据，而非清白；标量字段不衰减，city/ip_range 保留原语义）。
+- **一份结论，不是一堆列表** —— 单 IP 一句话结论，逐源证据摆给你看，0-100 置信度（log-odds 贝叶斯融合：源可靠性转对数几率系数、威胁断言按 60 天半衰期衰减、交叉佐证；0 = 无证据，而非清白；标量字段不衰减，city/ip_range 保留原语义）。
 - **地理 · 城市 · ASN** —— GeoLite2 + DB-IP 两票给城市，iptoasn 给自治域，CN ISP 归属（含港澳台）也认得。
 - **代理 · VPN · Tor · CDN · 云，一眼认出来** —— 实检代理列表、VPN 网段（含 NordVPN、ProtonVPN）、Tor 出口、三大 CDN 边缘、五家云厂商托管网段（AWS · Google · Azure · Oracle · Alibaba，单源五 feed、逐家健康可见），都标得清清楚楚；知名基础设施还会亮出服务身份（8.8.8.8 → DNS · Google Public DNS）。
 - **IPv6 也能查** —— 裸 v6 / 小段 v6 CIDR 直接查，地理·城市·ASN·VPN·CDN·封禁段对 v6 生效；地理/城市/ASN、云厂商网段、CDN 边缘、DROPv6 等源原生覆盖 v6；多数威胁列表上游本就无 v6 数据，如实显示无记录。
 - **日间/夜间主题切换** —— 明暗一键切换，选择自动记忆、首帧前恢复不闪屏。
-- **一个容器跑全栈，内存自己看着办** —— `docker compose up -d --build` 就有；并发按宿主机内存自动收敛，后台自动刷新按源错峰：日更源每天 2 次、周更源每周 1 次，各源固定时刻错开。
+- **一个容器跑全栈，内存自己看着办** —— `docker compose up -d --build` 就有；并发数按宿主机内存自动升降（吃紧调低、宽裕回升），后台自动刷新按源错峰：日更源每天 2 次、周更源每周 1 次，各源固定时刻错开。
 - **STIX 2.1 导出** —— `/api/lookup/{ip}/stix` 一键导出；镜像自带 `stix2`（requirements 预装），开箱即用。
 
 ## 架构
+
+一句话：公开源自动下载 → 逐源解析分类入库（LMDB）→ 查询时多源加权融合 → FastAPI + React 界面。
 
 ```mermaid
 flowchart TD
@@ -115,7 +117,7 @@ flowchart TD
 
 ## 使用
 
-打开 http://127.0.0.1:8000，随手输一个 IP：裁决、逐源证据、地理/ASN 一起回来。API 也能直接用。程序化调用需 API key——先在 `docker-compose.yml` 解锁 admin env 注释块并重启，再到 `/admin` 签发；同源网页免 key；程序化调用加 `-H "Authorization: Bearer <key>"`。
+打开 http://127.0.0.1:8000，随手输一个 IP：结论、逐源证据、地理/ASN 一起回来。API 也能直接用。程序化调用需 API key——先在 `docker-compose.yml` 解锁 admin env 注释块并重启，再到 `/admin` 签发；同源网页免 key；程序化调用加 `-H "Authorization: Bearer <key>"`。
 
 ```bash
 # 核心查询（需 key，见上）
@@ -136,15 +138,15 @@ curl -s http://127.0.0.1:8000/api/db-status
 
 ### 公开演示守卫（可选）
 
-面向任何公网暴露实例的可选守卫中间件，对匿名访客隐藏写入/内部面。三个旋钮默认全关（自托管零行为变化）：`IP_RADAR_PUBLIC_DEMO=1` 开启；`IP_RADAR_DEMO_ADMIN_IPS` 与 `IP_RADAR_DEMO_TRUST_XFF=1` 控制维护者旁路。完整端点语义、豁免规则与 XFF 信任安全前提见 [`deploy/README.md`](deploy/README.md)。
+面向任何公网暴露实例的可选守卫中间件，对匿名访客隐藏写入/内部面。三个旋钮默认全关（自托管零行为变化）：`IP_RADAR_PUBLIC_DEMO=1` 开启；`IP_RADAR_DEMO_ADMIN_IPS` 与 `IP_RADAR_DEMO_TRUST_XFF=1` 控制维护者例外通道（绕过演示限制）。完整端点语义、豁免规则与 XFF 信任安全前提见 [`deploy/README.md`](deploy/README.md)。
 
 ### Fail2ban 集成：拉黑前先问一句
 
-`scripts/fail2ban/ipradar.conf` 提供一个 fail2ban action：ban 之前先查本地 IP Radar 裁决——确认恶意（confidence ≥ 70 可调）则记入长封名单；CDN/基础设施边缘直接跳过 ban 留日志，不再误封 Cloudflare。装法与参数见 [`scripts/fail2ban/README.md`](scripts/fail2ban/README.md)。
+`scripts/fail2ban/ipradar.conf` 提供一个 fail2ban action：ban 之前先查本地 IP Radar 的结论——确认恶意（confidence ≥ 70 可调）则记入长封名单；CDN/基础设施边缘直接跳过 ban 留日志，不再误封 Cloudflare。装法与参数见 [`scripts/fail2ban/README.md`](scripts/fail2ban/README.md)。
 
 ### Graylog 集成：日志富化
 
-用 Graylog 内置 Lookup Table（HTTP JSONPath adapter）把日志里的源 IP 换成国家、ASN 和融合威胁裁决（`threat.verdict` / `threat.confidence`）——无插件、查询不出网、无限量。配置步骤与 pipeline 规则见 [`integrations/graylog/README.md`](integrations/graylog/README.md)。
+用 Graylog 内置 Lookup Table（HTTP JSONPath adapter）把日志里的源 IP 换成国家、ASN 和融合后的威胁结论（`threat.verdict` / `threat.confidence`）——无插件、查询不出网、无限量。配置步骤与 pipeline 规则见 [`integrations/graylog/README.md`](integrations/graylog/README.md)。
 
 ### Wazuh 集成：告警富化（VirusTotal 集成的本地替代）
 
@@ -205,7 +207,7 @@ curl -s http://127.0.0.1:8000/api/db-status
 | cn_isp | [clang.cn ISP ranges](https://ispip.clang.cn/) | China ISP classification (mainland + HK/MO/TW) | |
 | ipinfo_lite | [IPinfo](https://ipinfo.io/) | Country / ASN / ranges enrichment | 🔑 |
 
-### 资产与网络面
+### 网络资产
 
 | 源 | 提供方 | 贡献 | 🔑 |
 |---|---|---|---|
@@ -219,7 +221,7 @@ curl -s http://127.0.0.1:8000/api/db-status
 | hookzof | [hookzof](https://github.com/hookzof/socks5_list) | Live-checked SOCKS5 proxies | |
 | thespeedx | [TheSpeedX](https://github.com/TheSpeedX/PROXY-List) | Live-checked HTTP proxies | |
 | cdn_edges | [CloudFront](https://ip-ranges.amazonaws.com/ip-ranges.json) · [Cloudflare](https://www.cloudflare.com/ips-v4) · [Fastly](https://api.fastly.com/public-ip-list) | CDN edge ranges | |
-| cloud_ranges | [AWS](https://ip-ranges.amazonaws.com/ip-ranges.json) · [Google](https://www.gstatic.com/ipranges/goog.json) · [Azure](https://www.microsoft.com/en-us/download/details.aspx?id=56519) · [Oracle](https://docs.oracle.com/iaas/tools/public_ip_ranges.json) · [Alibaba](https://cloud-ip-ranges.com/) | 云 / 托管网段 —— 单源五 feed（各发布方一家一 feed）；部分失败容忍（单家挂保留旧快照） | |
+| cloud_ranges | [AWS](https://ip-ranges.amazonaws.com/ip-ranges.json) · [Google](https://www.gstatic.com/ipranges/goog.json) · [Azure](https://www.microsoft.com/en-us/download/details.aspx?id=56519) · [Oracle](https://docs.oracle.com/iaas/tools/public_ip_ranges.json) · [Alibaba](https://cloud-ip-ranges.com/) | 云 / 托管网段 —— 单一来源、五家各一份订阅文件（feed）；部分失败容忍（单家挂保留旧快照） | |
 | infra_services | curated | Public DNS resolvers / NTP infrastructure (root servers moved to `root_servers`) | |
 | root_servers | [IANA](https://www.internic.net/domain/named.root) | IANA root hints (named.root) | |
 | dns_public | [DNSCrypt](https://github.com/DNSCrypt/dnscrypt-resolvers) | Community public DNS resolver endpoints (public-resolvers.md, sdns stamps decoded) | |
@@ -252,13 +254,15 @@ cd frontend && npm run dev
 ### 评估层
 
 评估层并排给出两种可靠性数字：声明的 `r`（逐源手工设定，生产权威）与实测
-θ（独立印证后验，advisory）。θ 从不是准确率声明，也从不自动写入生产权重——
+θ（由各源互相印证的程度推算出的可靠性参考值，仅供参考）。θ 从不是准确率声明，
+也从不自动写入生产权重——
 采纳实测值必须走一个人审 PR，并在 diff 里引用评估报告。
 
-在 `backend/` 下用 `python -m ipdb._eval` 驱动：`--audit`（谱系审计——基于
-持久化模型历史的镜像方向裁决，advisory）、`--anchors`（已知答案回归闸，
-任一失败退出码 1）、`--dsem`（DS-EM 公平对决：市场 vs 声明 vs π̂，
-advisory）。admin 控制台的数据源页同样双轨展示——实测 θ（90% CI）与各源声明 `r` 并列。
+在 `backend/` 下用 `python -m ipdb._eval` 驱动：`--audit`（谱系审计：源与源之间谁抄了谁，以历次保存的模型文件为证据，只报告不干预，
+仅供参考）、`--anchors`（已知答案回归检查，任一失败退出码 1）、
+`--dsem`（DS-EM 公平对决：市场 vs 声明 r vs π̂；π̂ = 评估程序从各源相互印证结构估出的
+真实比例估计，仅供参考）。admin 控制台的数据源页同样并排展示这两种
+数字——实测 θ（90% CI）与各源声明 `r`。
 
 ## 测试
 
@@ -285,7 +289,7 @@ git pull && docker compose up -d --build
 
 ### 备份与恢复
 
-全部状态都在同一个 named volume（`ipradar-data` → `/app/data`）：各源原始下载、LMDB epoch 目录及其四边车、SQLite 双库 `auth.db`/`alerts.db`。重建从不原地写，停容器拷卷即得完整一致的备份。停机/热拷两种做法、恢复核对步骤、什么真正不可再生：见《使用手册》[备份与恢复](MANUAL.zh-CN.md#备份与恢复)。
+全部状态都在同一个 named volume（`ipradar-data` → `/app/data`）：各源原始下载、LMDB epoch 目录（每次重建生成的新版本目录）及其伴随文件（.ptr/.count 等 sidecar，即数据库旁边的状态小文件）、SQLite 双库 `auth.db`/`alerts.db`。重建从不原地写，停容器拷卷即得完整一致的备份。停机/热拷两种做法、恢复核对步骤、什么真正不可再生：见《使用手册》[备份与恢复](MANUAL.zh-CN.md#备份与恢复)。
 
 ### 来源告警（可选）
 

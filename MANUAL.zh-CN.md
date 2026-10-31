@@ -2,7 +2,7 @@
 
 [English](MANUAL.md) | **简体中文**
 
-本手册面向已经(或即将)部署 IP Radar 的人:怎么查、怎么读懂返回结果、怎么用管理台、完整的 API 面,以及日常运维。安装步骤、数据源目录与项目介绍见 [README](README.md)——本手册是它链接过来的深度参考。
+本手册面向已经(或即将)部署 IP Radar 的人:怎么查、怎么读懂返回结果、怎么用管理台、完整的 API 清单,以及日常运维。安装步骤、数据源目录与项目介绍见 [README](README.md)——本手册是它链接过来的深度参考。
 
 以下示例均假设默认部署:单容器跑在 `http://127.0.0.1:8000`,数据落在 `ipradar-data` 卷。截图取自英文深色主题;界面另有简体中文、繁體中文与浅色主题(右上角切换)。
 
@@ -21,10 +21,10 @@
 
 ## 1. 首次启动
 
-`docker compose up -d --build` 之后,容器几秒内即可访问——但还没就绪。首次启动会把全部无 key 源(49 个源中的 44 个)下载并构建成数百万条记录。你会看到:
+`docker compose up -d --build` 之后,容器几秒内即可访问——但还没就绪。首次启动会把全部无 key 源(61 个源中的 56 个)下载并构建成数百万条记录。你会看到:
 
-- **顶部进度横幅**实时跟踪无 key 源的下载/构建进度,构建收敛后横幅退场。
-- **查询在无 key 源构建收敛前保持关闭。**在此之前,查询返回 `503` 与 `X-IPRadar-Reason: warming`——工具拒绝在半成品数据集上给判定。这是刻意的:绝不在残缺证据上出结论。
+- **顶部进度横幅**实时跟踪无 key 源的下载/构建进度,构建完成后横幅消失。
+- **查询在无 key 源构建完成前保持关闭。**在此之前,查询返回 `503` 与 `X-IPRadar-Reason: warming`——工具拒绝在半成品数据集上给判定。这是刻意的:绝不在残缺证据上出结论。
 - **按 RAM 分档的安全窗口**(6 GB 以下 30 分钟、12 GB 以下 20 分钟、其余 15 分钟)保证构建卡死也不会把查询永久锁住——窗口过后,容器以现有覆盖度开闸。需要的话用 `IP_RADAR_COLD_START_TIMEOUT`(秒)覆盖。
 - **后续启动几秒内从 `ipradar-data` 卷加载。**冷启动只发生一次。
 
@@ -55,7 +55,7 @@
 
 **行容量**:表格最多渲染 **50,000** 个展开行。超过后界面切换模式,结果直接流成 CSV 下载而不再进表格——同一个查询,零 DOM 开销。(真正的天花板是 React 状态内存,约 5 万行 × ~2 KB。)
 
-**分歧工具**(表格上方按钮):**Disagreements first** 重排,让源与源互相矛盾的行(国家不同、ASN 不同)浮到最前;**Expand disagreements** 恰好把这些字段的逐源证据就地展开。对分诊流来说这是快车道:需要人看的行,就是机器吵翻的行。
+**分歧工具**(表格上方按钮):**Disagreements first** 重排,让源与源互相矛盾的行(国家不同、ASN 不同)浮到最前;**Expand disagreements** 恰好把这些字段的逐源证据就地展开。对「先粗筛再处理」的排查流程来说这是捷径:需要人看的行,就是机器吵翻的行。
 
 **主题与语言**:☀/🌙 切换深浅主题,记忆跨访问(首帧前恢复——不闪错主题)。EN / 简体 / 繁體 切换界面语言。
 
@@ -101,10 +101,10 @@
 
 | 徽标 | 算法 | 用于 | 含义 |
 |---|---|---|---|
-| σ P | `logodds` | 国家、ASN、逐类型威胁 | log-odds 贝叶斯融合的后验概率 |
+| σ P | `logodds` | 国家、ASN、逐类型威胁 | 把各源证据按可靠性换算后合并得到的最终概率 |
 | ▮ share | `voting` | 城市(及多选项投票字段) | 跨源加权投票份额 |
 | ★ r | `authority` | AS 组织、AS 名称 | 单一可信源,置信度 = 其可靠性 |
-| ◇ fixed | `specificity` | IP 网段 | 固定锚——最具体的覆盖网段胜出 |
+| ◇ fixed | `specificity` | IP 网段 | 固定规则——最具体的覆盖网段胜出 |
 
 `sources[]` 拆解就是该字段的全部证据——谁说了什么、可靠性多少。`alternatives[]` 是落选候选及其概率——不用展开任何东西就能发现一个有争议的字段。
 
@@ -146,7 +146,7 @@
 
 ### Sources(默认 tab)
 
-![管理台 Sources tab:49 源、健康、r/θ 双轨、开关](assets/manual/04-admin-sources.png)
+![管理台 Sources tab:61 源、健康、r/θ 并排、开关](assets/manual/04-admin-sources.png)
 
 全部源一张清单,按 **Geo & ASN data / Threat intel / Asset attributes** 分组,列有:
 
@@ -154,7 +154,7 @@
 - **Covered IPs**——已加载快照覆盖的地址空间量。
 - **Updated**——上次刷新的墙钟年龄,悬停显示内容年龄与刷新节奏(`26h · every 12h`——内容年龄是上游数据的内部时间戳,才是诚实的那个)。
 - **Status**——`fresh` / `stale` / `off`。`stale` 表示刷新槽已到或逾期——多个源同时 stale 往往意味着调度器卡住或上游死了。
-- **Eval / r / θ**——可靠性双轨。**r** 是声明的、生产权威的权重(手工设定,只能经人工评审 PR 变更)。**θ** 是评估层实测的佐证后验——顾问性质,绝不自动回流进融合。某源 θ 长期低于其 r 就是在超额宣称;见[生命周期章](#6-源生命周期加--评--调)。
+- **Eval / r / θ**——两种可靠性数字并排。**r** 是声明的、生产权威的权重(手工设定,只能经人工评审 PR 变更)。**θ** 是评估程序按各源互相印证的程度算出的可靠性参考值——只展示,绝不自动写进生产权重。某源 θ 长期低于其 r 就是在超额宣称;见[生命周期章](#6-源生命周期加--评--调)。
 - **Actions**——开关启停源(停用的源保留数据,但不再刷新、不再贡献);**Update** 按钮立即强制单源刷新(按钮标签就是实时状态:`Queued`、`Downloading… 42%`、`Loading…`)。
 - 顶部 **Refresh all** 把全部启用源排一次批量刷新——与 `POST /api/update-db` 同一件事。
 
@@ -170,7 +170,7 @@ Key 是用 `IP_RADAR_API_JWT_SECRET` 签名的 JWT;以 `Authorization: Bearer <k
 
 ![Tasks tab:进行中的批量任务、逐源进度、失败原因与控制](assets/manual/06-admin-tasks.png)
 
-所有下载/构建的任务流:每行一个源刷新,实时状态(`Queued → Downloading → Loading → Done/Failed`)、上游报告时的字节/百分比进度,以及最有用的部分——**明文失败原因**:`OTX_API_KEY not set — register at … and add the key to .env` 直接告诉你缺哪个旋钮;`urlopen error … Connection reset by peer` 是上游抖动,会沿退避梯重试。运行中的任务可逐个 **取消**(✕);批量任务顶部有 **Pause / Abort / Collapse** 控制。本 tab 经 SSE 实时更新——不用刷页。
+所有下载/构建的任务流:每行一个源刷新,实时状态(`Queued → Downloading → Loading → Done/Failed`)、上游报告时的字节/百分比进度,以及最有用的部分——**明文失败原因**:`OTX_API_KEY not set — register at … and add the key to .env` 直接告诉你缺哪个旋钮;`urlopen error … Connection reset by peer` 是上游抖动,会按逐级加长的间隔重试。运行中的任务可逐个 **取消**(✕);批量任务顶部有 **Pause / Abort / Collapse** 控制。本 tab 经 SSE 实时更新——不用刷页。
 
 ### 更新横幅(公开页)
 
@@ -178,7 +178,7 @@ Key 是用 `IP_RADAR_API_JWT_SECRET` 签名的 JWT;以 `Authorization: Bearer <k
 
 ## 6. 源生命周期:加 → 评 → 调
 
-自带的 49 个源不是天花板。整条闭环——扩充池子、测量一个源是否真有用、调整或退役——就是为自托管者设计的,每一步要紧的决策都留给人。
+自带的 61 个源不是天花板。整条闭环——扩充池子、测量一个源是否真有用、调整或退役——就是为自托管者设计的,每一步要紧的决策都留给人。
 
 ### 加(Add)
 
@@ -187,7 +187,7 @@ Key 是用 `IP_RADAR_API_JWT_SECRET` 签名的 JWT;以 `Authorization: Bearer <k
 1. **拨一个开关。**已禁用(或想静音)的源在[管理台 Sources tab](#5-管理台)是一个开关。零代码、零重启。
 2. **点亮 key 源。**五个 key 源往 `.env.local` 填上 API key、重启即激活——key 名与注册链接表在 README [Quick Start](README.md#quick-start)。
 3. **让 AI agent 接一个新源。**仓库自带三个 agent skill(`.pi/skills/`,由读项目级 skill 的 agent 加载,如 [pi](https://github.com/earendil-works/pi))。各一句话:*"Find me threat-intel sources worth adding"*(discover → 评分候选表)、*"Add GreyNoise"*(端到端接入一个指定源)、*"Check the health of all sources"*(管理/调优闭环)。
-4. **手写源模块。**一个源就是 `backend/ipdb/_sources/` 里的一个 Python 文件，实现一个小契约——map-first 解析进无损证据记录、注册条目、测试。读一个小模块（如 [`backend/ipdb/_sources/bruteforce.py`](backend/ipdb/_sources/bruteforce.py) 加它的测试）就是全部入门；照着形状与守卫镜像即可。
+4. **手写源模块。**一个源就是 `backend/ipdb/_sources/` 里的一个 Python 文件，实现一个小约定——按固定模板(map-first)解析、原始证据原样保留存档、注册条目、测试。读一个小模块（如 [`backend/ipdb/_sources/bruteforce.py`](backend/ipdb/_sources/bruteforce.py) 加它的测试）就是全部入门；照着形状与守卫镜像即可。
 
 ### 评(Evaluate)
 
@@ -197,25 +197,25 @@ Key 是用 `IP_RADAR_API_JWT_SECRET` 签名的 JWT;以 `Authorization: Bearer <k
 - **评估 CLI**,在克隆的 `backend/` 下运行:
 
 ```bash
-python -m ipdb._eval --model          # 舰队佐证对照模型 + 验收套件
+python -m ipdb._eval --model          # 全体启用源(评估某一源时不含它自己)的相互印证对照模型 + 验收套件
 python -m ipdb._eval --all            # 评估全部源
-python -m ipdb._eval --audit          # 谱系审计:持久化模型史上的拷贝方向判定(顾问)
-python -m ipdb._eval --anchors        # 已知答案回归闸;任一失败即 exit 1
-python -m ipdb._eval --dsem           # DS-EM 公平对决:市场 vs 声明 vs π̂(顾问)
+python -m ipdb._eval --audit          # 谱系审计:源与源之间谁抄了谁,以历次保存的模型文件为证据(只报告,仅供参考)
+python -m ipdb._eval --anchors        # 已知答案回归检查;任一失败即 exit 1
+python -m ipdb._eval --dsem           # DS-EM 公平对决:市场 vs 声明 r vs π̂(π̂ = 评估程序算出的真实比例估计;仅供参考)
 python -m ipdb._eval --help           # 全部旗标(temporal、demand、readout…)
 ```
 
-旗标背后的哲学:**测量建言,人裁终局。**θ 是佐证后验——量的是独立印证,不是正确性。任何实测值都不会自动回流生产权重;采纳一个实测值必须走人工评审 PR 并引用评估报告。`--anchors` 闸是唯一硬失败模式——它钉住已知答案,防止重构让融合悄悄漂移。
+旗标背后的哲学:**测量建言,人裁终局。**θ 是按各源互相印证的程度算出的参考值——量的是印证,不是正确性。任何实测值都不会自动回流生产权重;采纳一个实测值必须走人工评审 PR 并引用评估报告。`--anchors` 回归检查是唯一硬失败模式——它钉住已知答案,防止重构让融合悄悄漂移。
 
 ### 调(Tune)
 
 - **某源超额宣称**(θ 持续低于其 r):在引用评估报告的 PR 里下调声明 r,或在 Sources tab 先停用再想。
-- **某源冗余或有害**(净影响评估说移除它能改善舰队):停用,想清楚后删模块。
-- **上游沉默了**:日落检测的故事——feed 冻结、内容年龄增长而墙钟刷新「成功」。准入闸(`--gate`/sentinel 机制,维护者级——见模块 help)的存在就是防止冻死的 feed 被意外重新收编;`Updated` 列的内容年龄数字是你的用户级信号。
+- **某源冗余或有害**(净影响评估说移除它能改善整体表现):停用,想清楚后删模块。
+- **上游沉默了**:日落检测的故事——feed 冻结、内容年龄增长而墙钟刷新「成功」。准入检查(`--gate`/sentinel 机制,维护者级——见模块 help)的存在就是防止冻死的 feed 被意外重新收编;`Updated` 列的内容年龄数字是你的用户级信号。
 
 ### 退役(Retire)
 
-停用保留数据(重新启用即刻生效);删除模块则在下次启动时把源从注册表移除。无论哪种,退役任何带权重的源后重跑一遍 `--anchors` 和 `--model`——舰队的佐证结构变了,而这道闸很便宜。
+停用保留数据(重新启用即刻生效);删除模块则在下次启动时把源从注册表移除。无论哪种,退役任何带权重的源后重跑一遍 `--anchors` 和 `--model`——全体源的相互印证结构变了,而这个检查跑起来很快。
 
 ## 7. API 参考
 
@@ -251,7 +251,7 @@ python -m ipdb._eval --help           # 全部旗标(temporal、demand、readout
 | `GET /api/tasks` | 任务快照(状态、进度、错误) | admin |
 | `POST /api/tasks/{task_id}/cancel` | 取消单个任务 | admin |
 | `GET /api/events` | 任务/批量事件的 SSE 流 | admin |
-| `GET /api/eval` · `/api/eval/model` · `/api/eval/{source}` | 评估总览 / 舰队模型 / 单源报告 | admin |
+| `GET /api/eval` · `/api/eval/model` · `/api/eval/{source}` | 评估总览 / 整体模型 / 单源报告 | admin |
 | `POST /api/eval/{source}/run` | 触发一次评估(202 Accepted) | admin |
 | `POST /api/admin/keys` · `GET` · `PATCH /{sub}` · `DELETE /{sub}` | API key 增删改查 | admin |
 | `POST /api/auth/jwt/login` / `logout` | 管理会话(HttpOnly cookie) | — |
@@ -308,13 +308,13 @@ curl -s -b jar.txt -N http://127.0.0.1:8000/api/events
 
 **key 源一直失败**——Tasks tab 的失败文本会点名缺的环境变量(`OTX_API_KEY not set…`)。key 放进 `.env.local`(gitignored),然后 `docker compose up -d` 生效。
 
-**某源连续几天 `stale`**——看该行的内容年龄 vs 刷新节奏。内容年龄增长而刷新「成功」= 上游冻结(见[退役](#6-源生命周期加--评--调))。墙钟年龄增长且带失败 = 看失败文本;瞬时网络错误沿退避梯重试(连续三次真失败触发告警——若已配置,见[运维](#9-运维))。
+**某源连续几天 `stale`**——看该行的内容年龄 vs 刷新节奏。内容年龄增长而刷新「成功」= 上游冻结(见[退役](#6-源生命周期加--评--调))。墙钟年龄增长且带失败 = 看失败文本;瞬时网络错误按逐级加长的间隔重试(连续三次真失败触发告警——若已配置,见[运维](#9-运维))。
 
 **磁盘渐满**——每次刷新先落新 epoch 目录再翻指针,大重建期间新旧两份并存。6 GB 是底线;全开大 geo 源的忙碌机器多给些。
 
 **反代后面所有限流一起炸**——限流器看到的是反代 IP。设 `IP_RADAR_PROXY_HEADERS=1`(并把 `IP_RADAR_FORWARDED_ALLOW_IPS` 设为反代网段),让逐 IP 桶看到真实客户端。
 
-**管理台 404 或像被锁**——开了 `IP_RADAR_PUBLIC_DEMO=1` 的实例对匿名访客隐藏写/内部面(含非旁路 IP 的 `/admin` 登录);维护者旁路是 `IP_RADAR_DEMO_ADMIN_IPS`——完整语义见 [`deploy/README.md`](deploy/README.md)。普通自托管则确认 admin 环境块已取消注释。
+**管理台 404 或像被锁**——开了 `IP_RADAR_PUBLIC_DEMO=1` 的实例对匿名访客隐藏写/内部面(含非例外通道 IP 的 `/admin` 登录);维护者例外通道是 `IP_RADAR_DEMO_ADMIN_IPS`——完整语义见 [`deploy/README.md`](deploy/README.md)。普通自托管则确认 admin 环境块已取消注释。
 
 **更新横幅谎报有更新**——部署侧 tag 缓存问题:服务器上先 `git fetch --tags` 再构建,否则 `git describe` 回落旧基线(v1.4.2 现场记录)。
 
@@ -338,7 +338,7 @@ git pull && docker compose up -d --build
 
 ### 备份与恢复
 
-全部状态在一个命名卷里(`ipradar-data` → `/app/data`):逐源原始下载、LMDB epoch 目录及其 `.ptr/.count/.cov/.disjoint` 边车、SQLite 双件 `auth.db`/`alerts.db`。重建从不原地写——新 epoch 落地,指针原子翻转。
+全部状态在一个命名卷里(`ipradar-data` → `/app/data`):逐源原始下载、LMDB epoch 目录(每次重建生成的新版本目录)及其 `.ptr/.count/.cov/.disjoint` 伴随文件、SQLite 双件 `auth.db`/`alerts.db`。重建从不原地写——新 epoch 落地,指针原子翻转。
 
 **停机拷贝(最简,恒一致):**
 
@@ -349,7 +349,7 @@ docker run --rm -v ipradar-data:/data -v "$PWD:/backup" alpine \
 docker compose start ipradar      # 永远不要 `down -v` ——那会删卷
 ```
 
-**热拷贝(按源,停不了机时):**先拷 epoch 目录、最后拷边车,再确认 `.ptr` 没在拷贝中翻转(翻了就重拷该源)。SQLite 双件用 `sqlite3 <db> ".backup /target"`——写入中途的 `-journal` 伴文件会让裸拷贝撕裂。
+**热拷贝(按源,停不了机时):**先拷 epoch 目录、最后拷伴随文件,再确认 `.ptr` 没在拷贝中翻转(翻了就重拷该源)。SQLite 双件用 `sqlite3 <db> ".backup /target"`——写入中途的 `-journal` 伴文件会让裸拷贝撕裂。
 
 **恢复:**把卷拷回去,`docker compose up -d`,然后核对启动行 `Loaded <count> <source> + …` 与备份前的 `/api/db-status` 一致。
 
@@ -361,7 +361,7 @@ docker compose start ipradar      # 永远不要 `down -v` ——那会删卷
 
 ### 维护者注记
 
-发版两个坑:release commit 必须含至少一个非 markdown 文件变更(CI 的 `paths-ignore` 跳过纯 `**.md` 推送,纯 md 的发版 commit 不会触发 tag↔CHANGELOG↔GitHub Release 一致性闸);部署服务器上构建前先 `git fetch --tags`,否则版本端点回落旧基线、横幅谎报更新。
+发版两个坑:release commit 必须含至少一个非 markdown 文件变更(CI 的 `paths-ignore` 跳过纯 `**.md` 推送,纯 md 的发版 commit 不会触发 tag↔CHANGELOG↔GitHub Release 一致性检查闸);部署服务器上构建前先 `git fetch --tags`,否则版本端点回落旧基线、横幅谎报更新。
 
 ## 10. 周边生态
 
