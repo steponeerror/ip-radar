@@ -116,7 +116,8 @@ def dedup_lineage(coeffs: list[tuple[str, float]]) -> list[tuple[str, float]]:
     return kept
 
 
-def accuser_pool(entries: Iterable[tuple[str, float, str | None]],
+def accuser_pool(entries: Iterable[tuple[str, float, str | None]
+                                   | tuple[str, float, str | None, str | None]],
                  ctype: str | None = None, *,
                  now: datetime | None = None) -> list[tuple[str, float]]:
     """指控池核心循环,单源化(issue #244;GLOSSARY「指控池」「k 族」):
@@ -125,18 +126,25 @@ def accuser_pool(entries: Iterable[tuple[str, float, str | None]],
     sorted、生产 _merge 插入序漂移——统一仅动池列表序,Σ/conf 与
     计数不变,回放闸门把关)。
 
-    entries = (source, reliability, first_seen) 三元组。指控章判定
-    (verdict ∈ _ACCUSING)留在调用方执行——判定面各异,不许吞:
+    entries = (source, reliability, first_seen) 三元组,或携第 4 元
+    ctype 的四元组(issue #246 跨组池化:_types.threat_summary 把多个
+    指控组的 detail 池进一个池,逐 detail 携所属组 ctype——衰减按
+    各证据自己类型的半衰期;第 4 元缺省回退形参 ctype。组内单
+    ctype 调用面(_merge/eval 五面)仍走三元组 + ctype 形参)。
+    指控章判定(verdict ∈ _ACCUSING)留在调用方执行——判定面各异,
+    不许吞:
     ① eval detail 级滤(agg_share/sinkhole_probe/anchor_readouts);
     ② metrics 缺 verdict 键兜底 malicious(旧快照兼容);
     ③ 生产 _merge voters-else-回退池调用方预滤(纯存档组退回全量
-    Σ,决策 5/乙——回退池含非指控观测,不可在本函数再滤)。
-    now 非 None = F2/S37 时钟锚(生产 _merge 传 asof;eval 快照重算
-    走默认墙钟)。
+    Σ,决策 5/乙——回退池含非指控观测,不可在本函数再滤);
+    ④ 生产 _types.threat_summary 组级 + detail 级双滤(跨组池化)。
+    now 非 None = F2/S37 时钟锚(生产 _merge/_types 传 asof;eval
+    快照重算走默认墙钟)。
     """
     by_source: dict[str, float] = {}
-    for src, r, first_seen in entries:
-        c = coefficient(r, first_seen, ctype, now=now)
+    for src, r, first_seen, *per_entry in entries:
+        c = coefficient(r, first_seen, per_entry[0] if per_entry else ctype,
+                        now=now)
         if src not in by_source or c > by_source[src]:
             by_source[src] = c
     return dedup_lineage(sorted(by_source.items()))
