@@ -44,9 +44,6 @@ ARTIFACT_PREFIX = "truth-v2-readout"
 # 附录节里成员点名上限: 报告行可读性;逐成员完整清单永远在工件里
 _MD_EXAMPLE_CAP = 5
 
-# 附录节里成员点名上限: 报告行可读性;逐成员完整清单永远在工件里
-_MD_EXAMPLE_CAP = 5
-
 
 def latest_truth_v2_dir(corpus_root: Path) -> Path | None:
     """语料根(T1 out_root)→ 最新版本目录(文件名序, 月度重切口径
