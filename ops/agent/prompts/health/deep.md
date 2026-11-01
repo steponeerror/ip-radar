@@ -10,7 +10,7 @@
 # 输入
 
 用户消息 = 单 JSON:假设包(hypothesis=假设全文 / cause_class / severity / probe_hint=微探针提示 /
-url / precedent_hits ≤3 条相关判例命中——DISPATCH 锚域词表装配,背景参考,不要求引用)
+url / precedent_hits ≤3 条相关判例命中——DISPATCH 判例速查表装配,背景参考,不要求引用)
 + 本假设预算余额(budget_cny)。
 
 # 微探针闭集(3 只,全只读)

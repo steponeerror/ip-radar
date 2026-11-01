@@ -1870,6 +1870,37 @@ await t("A2-now 注入缝(#268,#267 评审环缓办收口):admitOrRefuse 认注�
   assert.equal(miss.admission.month, monthNow(nextMonth), "月键随注入 now 换月");
 });
 
+await t("A2-now 透传钉子(#269 评审B):runPipeline/runRound 两面 opts.now 透传到准入——2024-05 冻结台账拒跑(删透传=月键回退墙钟月 spend=0 放行即红)", async () => {
+  // 负例形同上例 admitOrRefuse 缝,但钉的是两面调用方的透传行(pipeline.mjs runPipeline /
+  // agent.mjs runRound 的 now: opts.now):上方各例用 new Date() 冻结,透传被删时月键回退
+  // 墙钟月恰与 fixture 同月 → 假绿;本例冻结史前月 2024-05(与跑测墙钟月必不相同)→
+  // 透传被删则 fixture 行不计入当月 → spend=0 等号放行 → 拒跑断言红(钉子必须真能咬人)。
+  const { monthNow } = await import(path.join(AGENT, "pipeline/budget.mjs"));
+  const frozen = new Date(2024, 4, 15, 12, 0, 0); // 本地时区构造(与 monthNow 的 getMonth 同口径,跨时区确定)
+  const m = monthNow(frozen);
+  const mkFrozenLedger = (tree) => {
+    fs.mkdirSync(path.dirname(tree.env.LEDGER_FILE), { recursive: true });
+    fs.writeFileSync(tree.env.LEDGER_FILE, `# 运营轮次台账\n\n| 日期 | 轮次 | model | 用量 | 备注 |\n|---|---|---|---|---|\n| ${m}-01 | health | pipeline-real | in=1 out=1 total=2 cost=0.04 | pipeline:old |\n`);
+  };
+  // ① pipeline 面:runPipeline opts.now 透传 → 2024-05 台账计费 → 拒跑 budget_monthly
+  const tp = mkTree("budget-now-passthru-pipe");
+  mkFrozenLedger(tp);
+  const rp = await runPipeline({ roundId: "2024-05-15-0406-health", fixturesDir: DEFAULT_FIXTURES_DIR, env: { ...tp.env, OPS_PIPELINE_MONTHLY_CAP_CNY: "0.05", OPS_PIPELINE_BUDGET_CNY: "0.05" }, ...mkIo(), now: frozen });
+  assert.equal(rp.ok, false, "拒跑(预算月帽生效)");
+  assert.equal(rp.envelope.error.code, "budget_monthly", "拒跑码同 A2 面(单源 refusalOf)");
+  assert.equal(fs.existsSync(path.join(tp.root, "ops", "rounds", "2024-05-15-0406-health")), false, "拒跑不建轮目录");
+  // ② legacy 面:runRound opts.now 同形透传 → 同一冻结台账拒跑(准入先于模型装载,毒缝哨兵)
+  const tl = mkTree("budget-now-passthru-legacy");
+  mkFrozenLedger(tl);
+  const { runRound } = await import(path.join(AGENT, "agent.mjs"));
+  const poison = { models: {}, resolve: () => { throw new Error("拒跑轮不应装载模型"); } }; // 透传被删→放行→毒缝抛无 code 错,断言即红
+  await assert.rejects(
+    runRound("health", "月帽拒跑探针", [], { models: poison, env: { ...tl.env, OPS_PIPELINE_MONTHLY_CAP_CNY: "0.05", OPS_PIPELINE_BUDGET_CNY: "0.05" }, stderr: { write: () => true }, now: frozen }),
+    (e) => e.code === "budget_monthly");
+  const led = fs.readFileSync(tl.env.LEDGER_FILE, "utf8");
+  assert.ok(led.includes("budget_monthly refused est=0.05 cap=0.05"), `legacy 面同留痕:${led}`);
+});
+
 await t("C3-ctx 形状单源(#204):ctxShape 闭集键钉死(mkCtx 与 runResume 同构造;缺/多字段即红)", async () => {
   const { ctxShape } = await import("./pipeline.mjs");
   const state = { schema: 1 };
