@@ -55,10 +55,8 @@ CREATE TABLE IF NOT EXISTS alert_state (
 
 
 def _db_path() -> Path:
-    env = os.environ.get("IP_RADAR_ALERTS_DB")
-    if env:
-        return Path(env)
-    return _registry._STATE_PATH.parent / "alerts.db"
+    return _registry.env_path_or_state_sibling(
+        "IP_RADAR_ALERTS_DB", "alerts.db")
 
 
 def _heartbeat_path() -> Path | None:
