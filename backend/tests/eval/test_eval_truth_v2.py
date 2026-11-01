@@ -408,3 +408,224 @@ def test_publish_clears_stale_sentinel_same_month(tmp_path):
     assert r2["status"] == "published"
     assert sorted(p.name for p in vdir.iterdir()) == [
         "ips.txt", "meta.json", "provenance.json"]
+
+
+# ── 10. honyport 日 CSV 组件(issue #265: 表头探测 + 窗边界 + 双组件端到端) ─
+
+
+def _hp_csv(hp_dir, day: date, rows: list[tuple], name: str | None = None):
+    """写一份合成 honyport 日 CSV(逐字照服务器 exporter 实测格式 #265:
+    六列表头 ip,service,protocol,events,first_seen,last_seen, 时间戳
+    ISO 8601 Z;文件名 honeypot_attackers-<YYYY-MM-DD>.csv, 采集日取自
+    文件名而非表头)。rows=六元组, 离线合成不碰真数据。"""
+    hp_dir.mkdir(parents=True, exist_ok=True)
+    p = hp_dir / (name or f"honeyport_attackers-{day.isoformat()}.csv")
+    p.write_text(
+        "ip,service,protocol,events,first_seen,last_seen\n"
+        + "".join(",".join(str(c) for c in r) + "\n" for r in rows),
+        encoding="utf-8")
+    return p
+
+
+def _hp_row(ip: str, events=1, service="beelzebub/Microsoft SQL Server 2019",
+            protocol=""):
+    return (ip, service, protocol, events,
+            "2026-11-01T06:12:19Z", "2026-11-01T06:12:34Z")
+
+
+def test_parse_honyport_day_from_filename_events_accumulate(tmp_path):
+    """采集日取文件名(表头无 captured_at);同 IP 多 service 行 events
+    累加(成员判定只看 IP 集合, 行为计数如实; #265 实测样例同 IP 可
+    跨 service 多行)。"""
+    from ipdb._eval.truth_v2 import parse_honyport_csv
+    p = _hp_csv(tmp_path, date(2026, 11, 1), [
+        _hp_row("60.20.14.95", events=29),
+        _hp_row("60.20.14.95", events=24, service="beelzebub/Redis 7.0.12"),
+        _hp_row("202.175.115.114", events=2),
+    ])
+    day, rows = parse_honyport_csv(p)
+    assert day == date(2026, 11, 1)
+    assert rows == {"60.20.14.95": 53, "202.175.115.114": 2}
+
+
+def test_parse_honyport_quoted_service_field_survives(tmp_path):
+    """service 字段含逗号(exporter CSV 引号包裹)→ csv.reader 正确
+    分列, 不把引号字段拆成坏行。"""
+    from ipdb._eval.truth_v2 import parse_honyport_csv
+    p = _hp_csv(tmp_path, date(2026, 11, 1), [])
+    p.write_text(
+        "ip,service,protocol,events,first_seen,last_seen\n"
+        '60.20.14.95,"beelzebub/x, y",,29,'
+        "2026-11-01T06:12:19Z,2026-11-01T06:12:34Z\n",
+        encoding="utf-8")
+    _, rows = parse_honyport_csv(p)
+    assert rows == {"60.20.14.95": 29}
+
+
+def test_parse_honyport_fail_loud_family(tmp_path):
+    """tamper-red 族: 文件名无日期段/坏表头/列数错/非整数 events/非 v4/
+    坏时间戳 → ValueError(坏 CSV 不许静默缩水, parse_snapshot_csv
+    同款哲学)。"""
+    from ipdb._eval.truth_v2 import parse_honyport_csv
+    # 文件名缺 -YYYY-MM-DD 段
+    p = _hp_csv(tmp_path, date(2026, 11, 1), [_hp_row("1.2.3.4")],
+                name="honeyport_attackers.csv")
+    with pytest.raises(ValueError, match="日期"):
+        parse_honyport_csv(p)
+    # 未知表头(六列但列名不对)
+    p = _hp_csv(tmp_path, date(2026, 11, 1), [_hp_row("1.2.3.4")],
+                name="honeypot_attackers-2026-11-01.csv")
+    p.write_text("ip,svc,proto,n,first,last\n1.2.3.4,s,,1,"
+                 "2026-11-01T06:12:19Z,2026-11-01T06:12:34Z\n",
+                 encoding="utf-8")
+    with pytest.raises(ValueError, match="header"):
+        parse_honyport_csv(p)
+    # 列数错(5 列)
+    p = _hp_csv(tmp_path, date(2026, 11, 1), [],
+                name="honeypot_attackers-2026-11-01.csv")
+    p.write_text("ip,service,protocol,events,first_seen,last_seen\n"
+                 "1.2.3.4,s,,1,2026-11-01T06:12:19Z\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="6"):
+        parse_honyport_csv(p)
+    # events 非整数
+    p = _hp_csv(tmp_path, date(2026, 11, 1), [],
+                name="honeypot_attackers-2026-11-01.csv")
+    p.write_text("ip,service,protocol,events,first_seen,last_seen\n"
+                 "1.2.3.4,s,,twenty,2026-11-01T06:12:19Z,"
+                 "2026-11-01T06:12:34Z\n", encoding="utf-8")
+    with pytest.raises(ValueError):
+        parse_honyport_csv(p)
+    # 非 v4 地址
+    p = _hp_csv(tmp_path, date(2026, 11, 1), [],
+                name="honeypot_attackers-2026-11-01.csv")
+    p.write_text("ip,service,protocol,events,first_seen,last_seen\n"
+                 "not-an-ip,s,,1,2026-11-01T06:12:19Z,"
+                 "2026-11-01T06:12:34Z\n", encoding="utf-8")
+    with pytest.raises(ValueError):
+        parse_honyport_csv(p)
+    # 坏时间戳(first_seen 非 ISO 8601)
+    p = _hp_csv(tmp_path, date(2026, 11, 1), [],
+                name="honeypot_attackers-2026-11-01.csv")
+    p.write_text("ip,service,protocol,events,first_seen,last_seen\n"
+                 "1.2.3.4,s,,1,Nov-1,2026-11-01T06:12:34Z\n",
+                 encoding="utf-8")
+    with pytest.raises(ValueError, match="timestamp"):
+        parse_honyport_csv(p)
+
+
+def test_load_snapshots_sniffs_both_formats_rejects_unknown(tmp_path):
+    """同一组件目录逐文件表头探测(#265): 快照格式与 honyport 日 CSV
+    并存可用;未知表头 ValueError fail-loud。"""
+    from ipdb._eval.truth_v2 import load_snapshots
+    mixed = tmp_path / "mixed"
+    _snap(mixed, date(2026, 11, 1), [("45.70.1.1", 3)])
+    _hp_csv(mixed, date(2026, 10, 31), [_hp_row("45.71.1.1", events=4)])
+    out = load_snapshots(mixed)
+    # 文件名序(字典序): '2026-11-01.csv' < 'honeyport_attackers-…',
+    # 与格式无关 —— 排序键是文件名不是采集日
+    assert [(d, sorted(r)) for _, d, r in out] == [
+        (date(2026, 11, 1), ["45.70.1.1"]),
+        (date(2026, 10, 31), ["45.71.1.1"]),
+    ]
+    bad = tmp_path / "bad"
+    bad.mkdir()
+    (bad / "x.csv").write_text("ip,count\n1.2.3.4,5\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="header"):
+        load_snapshots(bad)
+
+
+def test_honyport_window_boundary_day_files(tmp_path):
+    """窗归属边界(#265 验收线: 边界日前后各一 fixture): 文件名日 =
+    窗起点当日(2026-08-04)的日 CSV 计入本版; 前一日(2026-08-03)的
+    属上一版不进 —— 归属规则与快照面同律, 只是采集日来源换文件名。
+    断言落在组件级 provenance 计数上: honyport 起步个位数 IP 必不过
+    组件闸, 出版 ips 只由 smallbox 贡献(窗归属与组件闸正交, #265)。"""
+    ctx = _context(tmp_path)
+    honey = tmp_path / "honyport"
+    _hp_csv(honey, date(2026, 11, 1), [_hp_row("45.72.1.1")])  # 锚日
+    _hp_csv(honey, date(2026, 8, 4), [_hp_row("45.73.3.3")])   # 窗起点当日
+    _hp_csv(honey, date(2026, 8, 3), [_hp_row("45.74.4.4")])   # 前一日
+    ctx["components"]["honyport"] = honey
+    res = run_truth_v2(ctx["components"], rir_dir=ctx["rir_dir"],
+                       scanner_csv=ctx["scanner_csv"],
+                       allowlist=ctx["allowlist"],
+                       out_root=tmp_path / "out", eval_env="monthly")
+    assert res["status"] == "published"        # smallbox 过闸照常出版
+    members, _ = load_asset(res["asset_dir"])
+    assert not any(ip.startswith("45.7") for ip in members)  # 哨兵组件零漏入
+    prov = json.loads((res["asset_dir"] / "provenance.json").read_text())
+    hp = prov["inputs"]["components"]["honyport"]
+    assert hp["n_snapshots"] == 3
+    assert hp["n_snapshots_in_window"] == 2      # 锚日 + 窗起点当日
+    assert hp["raw_unique"] == 3 and hp["removed_by_window"] == 1
+    assert hp["member_count"] == 2               # 前一日 IP 已被窗剔
+
+
+def test_two_components_end_to_end_union(tmp_path):
+    """两组件(快照 smallbox + 日 CSV honyport)并存端到端(#265 验收
+    线): 双双过闸 → 成员=两组件并集, provenance 双 gate_passed。"""
+    ctx = _context(tmp_path)               # smallbox: 185.60/16 ×1,000
+    honey = tmp_path / "honyport"
+    _hp_csv(honey, date(2026, 11, 1),
+            [_hp_row(ip, events=2) for ip in _ips(1_000, base="185.63")])
+    ctx["components"]["honyport"] = honey
+    res = run_truth_v2(ctx["components"], rir_dir=ctx["rir_dir"],
+                       scanner_csv=ctx["scanner_csv"],
+                       allowlist=ctx["allowlist"],
+                       out_root=tmp_path / "out", eval_env="monthly")
+    assert res["status"] == "published"
+    members, meta = load_asset(res["asset_dir"])
+    assert res["member_count"] == 2_000   # 1,000 + 1,000 互异基段并集
+    assert sum(1 for ip in members if ip.startswith("185.63.")) == 1_000
+    comp = {n: st["gate_passed"] for n, st in res["components"].items()}
+    assert comp == {"smallbox": True, "honyport": True}
+
+
+def test_honyport_tiny_component_sentinel_union_with_smallbox(tmp_path):
+    """honyport 起步个位数 IP = 恒哨兵(#265 验收线: 合法态): 该组件
+    不过闸不装配, smallbox 照常出版, honyport 成员零漏入。"""
+    ctx = _context(tmp_path)
+    honey = tmp_path / "honyport"
+    _hp_csv(honey, date(2026, 11, 1), [_hp_row(ip) for ip in (
+        "45.75.1.1", "45.75.1.2", "45.75.1.3")])
+    ctx["components"]["honyport"] = honey
+    res = run_truth_v2(ctx["components"], rir_dir=ctx["rir_dir"],
+                       scanner_csv=ctx["scanner_csv"],
+                       allowlist=ctx["allowlist"],
+                       out_root=tmp_path / "out", eval_env="monthly")
+    assert res["status"] == "published"          # smallbox 过闸即出版
+    members, _ = load_asset(res["asset_dir"])
+    assert not any(ip.startswith("45.75.") for ip in members)
+    assert res["components"]["honyport"] == {
+        "gate_passed": False, "member_count": 3}
+
+
+def test_tamper_honyport_input_changes_pins(tmp_path):
+    """tamper-red(#265): 改一行 honyport 日 CSV → 输入 sha256 pin 变。
+    成员指纹不变是正确的(honyport 个位数不过闸, 出版成员只由
+    smallbox 决定)—— 换证留痕的证据面是组件输入 pin 与组件计数。"""
+    ctx = _context(tmp_path)
+    honey = tmp_path / "honyport"
+    _hp_csv(honey, date(2026, 10, 31), [_hp_row("45.76.1.1", events=5)])
+    ctx["components"]["honyport"] = honey
+    r1 = run_truth_v2(ctx["components"], rir_dir=ctx["rir_dir"],
+                      scanner_csv=ctx["scanner_csv"], allowlist=None,
+                      out_root=tmp_path / "o1", eval_env="monthly")
+    assert r1["fingerprint"]  # smallbox 出版在先, 指纹面存在
+    p = honey / "honeyport_attackers-2026-10-31.csv"
+    p.write_text(p.read_text() +
+                 "45.77.7.7,s,,9,2026-11-01T06:12:19Z,"
+                 "2026-11-01T06:12:34Z\n", encoding="utf-8")
+    r2 = run_truth_v2(ctx["components"], rir_dir=ctx["rir_dir"],
+                      scanner_csv=ctx["scanner_csv"], allowlist=None,
+                      out_root=tmp_path / "o2", eval_env="monthly")
+    p1 = json.loads((tmp_path / "o1" / r1["version"] /
+                     "provenance.json").read_text())
+    p2 = json.loads((tmp_path / "o2" / r2["version"] /
+                     "provenance.json").read_text())
+    h1 = p1["inputs"]["components"]["honyport"]
+    h2 = p2["inputs"]["components"]["honyport"]
+    assert h1["files"][0]["sha256"] != h2["files"][0]["sha256"]
+    assert h1["raw_unique"] == 1 and h2["raw_unique"] == 2
+    assert r1["fingerprint"] == r2["fingerprint"]  # 哨兵组件不入出版面
+

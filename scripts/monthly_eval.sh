@@ -5,7 +5,8 @@
 # backend/data/eval/monthly/ 累积历史的副本上跑(仓主 worktree 即有;干净
 # worktree 会断供致 rc=2 insufficient rounds 且不落工件,报告族被拒)。
 # 流程:① 守卫(须在 master 且工作区 clean)② rsync 生产 volume 镜像到本地
-# (+truth-v2 周快照面拉取, ADR 0017 T0 采集器/#262 T3 接线)
+# (+truth-v2 周快照面拉取, ADR 0017 T0 采集器/#262 T3 接线;+honyport
+# 日 CSV 面拉取, ADR 0017 §2 第二组件/issue #265)
 # ③ 镜像 manifest 守卫(S7: 塕缩即止, 先于读数)④ 十二连 eval 命令
 # (--model 先落盘本轮;--audit/--anchors 只读 model 历史但各落己件
 # audit-*/anchors-*.json(Phase 2 T8,清偿 Phase 1 T14 缓议);--agg-share
@@ -118,6 +119,45 @@ if [ "$DRY_RUN" != 1 ]; then
   [ "$rc" = 24 ] && echo "-- rsync rc=24(源侧活动文件消失,活镜像可容忍)"
 fi
 
+# ── honyport 日 CSV 面拉取(issue #265, ADR 0017 §2 第二组件):服务器
+# /opt/honyport/out/ 蜜罐舰队日 CSV(表头 ip,service,protocol,events,
+# first_seen,last_seen, 文件名 honeypot_attackers-<YYYY-MM-DD>.csv)。与
+# 快照面的差异: 远端目录缺席 = 合法态(数据未到/舰队未上线), 跳过拉取
+# 且不传 honyport 组件参数 —— 组件闸哨兵吸收起步个位数 IP(#265 验收线
+# 「缺目录=哨兵不持死」);目录在场则 rsync 容忍规则与快照面同律(rc=24
+# 良性), 其余非零照 fail-loud。探测用 ssh test -d: rc=255(ssh 自身连
+# 接/认证失败)与目录缺席(rc=1)分开 —— 网络断不得伪装成哨兵态静默
+# 跳过(静默缩水)。
+HONYPORT_CSV_DIR="$(realpath -m "${TRUTH_V2_HONYPORT_DIR:-$DATA_DIR/truth-v2-honyport}")"
+RSYNC_HP_SRC="$PROD_HOST:/opt/honyport/out/"
+HP_COMPONENT_ARG=()   # 远端目录在场才填充;空 = truth-v2 腿只跑 smallbox
+if [ "$DRY_RUN" = 1 ]; then
+  echo
+  echo "==> rsync(honyport 日 CSV 面): $RSYNC_HP_SRC -> $HONYPORT_CSV_DIR/"
+  echo "  [dry-run] 实跑时先 ssh 探测远端 /opt/honyport/out:在场→rsync+传"
+  echo "  honyport 组件参数;缺席→只跑 smallbox(哨兵态不持死,#265)"
+else
+  hp_probe_rc=0
+  ssh "$PROD_HOST" test -d /opt/honyport/out 2>/dev/null || hp_probe_rc=$?
+  if [ "$hp_probe_rc" = 255 ]; then
+    echo "拒绝: honyport 面探测 ssh 失败(rc=255, 连接/认证)" >&2; exit 1
+  elif [ "$hp_probe_rc" != 0 ]; then
+    echo
+    echo "==> honyport 面: 远端 /opt/honyport/out 缺席, 不接 honyport 组件"
+    echo "    (合法哨兵态不持死: 数据未到, 组件闸哨兵吸收;#265/ADR 0017 §2)"
+  else
+    echo
+    echo "==> rsync(honyport 日 CSV 面): $RSYNC_HP_SRC -> $HONYPORT_CSV_DIR/"
+    mkdir -p "$HONYPORT_CSV_DIR"
+    rsync -az --partial --info=progress2 "$RSYNC_HP_SRC" "$HONYPORT_CSV_DIR/" && rc=0 || rc=$?
+    if [ "$rc" != 0 ] && [ "$rc" != 24 ]; then
+      echo "拒绝: honyport 日 CSV 面 rsync 失败 (rc=$rc)" >&2; exit 1
+    fi
+    [ "$rc" = 24 ] && echo "-- rsync rc=24(源侧活动文件消失,活镜像可容忍)"
+    HP_COMPONENT_ARG=(--truth-v2-component "honyport=$HONYPORT_CSV_DIR")
+  fi
+fi
+
 # 守卫序(S7): rsync 后、读数前校验 manifest(文件数+字节+epoch 指纹+抽样
 # sha256);源塔缩(binarydefense 6347→382 式)或半截 rsync → 退出非零,
 # set -e 在任何 eval 读数前中止。manifest 只在通过时落盘,失败保留旧档
@@ -155,8 +195,9 @@ REPORT_ROOT="$REPO/backend/data/eval/monthly"
 # 同语义)。入族的真实成本 = LEG_ORDER 与写者计数/文档同步(#261 评审
 # P2-2 措辞照准确机制: 观测腿在合法缺数据态也落件,不存在「缺件持
 # 死」;只有崩溃(如采集面断供)才缺件即死——那正是要人见的事)。
-# honyport CSV 就绪后经 --truth-v2-component honyport=<dir> 同位并接
-# (ADR 0017 §2 接口预留;ADR 0017 §7: 永不入池)。
+# honyport 日 CSV 面已接线(#265): 远端 /opt/honyport/out 在场才传
+# --truth-v2-component honyport=<dir>(上文 rsync 面填充 HP_COMPONENT_ARG);
+# 缺席 = 只跑 smallbox, 组件闸哨兵吸收不持死(ADR 0017 §2;§7: 永不入池)。
 LEG_ORDER=(model all anchors dsem agg-share sinkhole-probe anchor-readouts truth-v2 truth-v2-readout audit temporal readout)
 declare -A LEG_RC=()
 for _leg in "${LEG_ORDER[@]}"; do LEG_RC[$_leg]=0; done
@@ -171,9 +212,11 @@ run_step sinkhole-probe --sinkhole-probe || LEG_RC[sinkhole-probe]=$?  # 污染�
 # 读数留痕 model/scanner-recall-*.json,首跑后人工核对该件)。
 run_step anchor-readouts --anchor-readouts || LEG_RC[anchor-readouts]=$?  # 锚读数族双读数(#233 T3/ADR 0013;只测量不持门,一腿双工件 anchor-fp+scanner-recall;scanner_ranges CSV 缺失→missing 形状照写照绿=缺层≠0)
 # 快照面默认 = 本地镜像内 truth-v2-capture/(上文 rsync 拉取);
-# rir/scanner 缺省 <data_dir>/ 镜像内既有件(与三闸 ops 面同源)。
+# rir/scanner 缺省 <data_dir>/ 镜像内既有件(与三闸 ops 面同源);
+# honyport 组件(#265): 远端目录在场才传(HP_COMPONENT_ARG, 上文填充)。
 run_step truth-v2 --truth-v2 \
   --truth-v2-component "smallbox=$TRUTH_V2_CAPTURE_DIR/snapshots" \
+  "${HP_COMPONENT_ARG[@]}" \
   --ops-allowlist "$TRUTH_V2_CAPTURE_DIR/ops_allowlist.txt" \
   || LEG_RC[truth-v2]=$?  # 真值语料 v2 构建腿(ADR 0017/#260 T1;published/哨兵两态均落 model/truth-v2-build-*.json + report_dir/truth-v2/<version>/)
 run_step truth-v2-readout --truth-v2-readout || LEG_RC[truth-v2-readout]=$?  # v2 读数腿一腿三工件(#261 T2 附录 + #262 T3 并排对照/换卷触发;只观测不持门)
