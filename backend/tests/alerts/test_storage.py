@@ -49,6 +49,24 @@ def test_default_path_next_to_state(tmp_path, monkeypatch):
     assert (tmp_path / "alerts.db").exists()
 
 
+def test_db_path_env_override(tmp_path, monkeypatch):
+    # #258 折并钉子:env 覆写直读(纯路径解析,不落盘)
+    from ipdb import _alerts
+    monkeypatch.setenv("IP_RADAR_ALERTS_DB", str(tmp_path / "overridden.db"))
+    assert _alerts._db_path() == tmp_path / "overridden.db"
+
+
+def test_db_path_default_and_empty_env_fall_back(tmp_path, monkeypatch):
+    # #258 折并钉子:缺省回退 _STATE_PATH 同目录;空串 env 视同未设
+    # (负例:钉 `if env:` 真值语义而非 is not None,折并前后零变化)
+    from ipdb import _alerts, _registry
+    monkeypatch.setattr(_registry, "_STATE_PATH", tmp_path / "source_state.json")
+    monkeypatch.delenv("IP_RADAR_ALERTS_DB", raising=False)
+    assert _alerts._db_path() == tmp_path / "alerts.db"
+    monkeypatch.setenv("IP_RADAR_ALERTS_DB", "")
+    assert _alerts._db_path() == tmp_path / "alerts.db"
+
+
 def test_empty_db_observed_none_idempotent(alerts_db):
     from ipdb import _alerts
     assert _alerts.observed_interval_h("otx", now=1_000_000.0) is None

@@ -39,6 +39,17 @@ _STATE_PATH = Path(os.environ.get(
     "SOURCE_STATE_PATH", str(DATA_DIR / "source_state.json")))
 
 
+def env_path_or_state_sibling(env_var: str, filename: str) -> Path:
+    """env 覆写的 db 路径解析(#258 折并自 _alerts._db_path/_auth._auth_db_path
+    同形五连,dryer 1.00 对,出处 notes/ub-mode-2026-10-31.md):env_var 非空
+    → Path(env 值);否则落 _STATE_PATH 同目录下 filename。_STATE_PATH 按
+    模块全局动态解析(测试 monkeypatch 本属性即换根,勿在导入期捕获)。"""
+    env = os.environ.get(env_var)
+    if env:
+        return Path(env)
+    return _STATE_PATH.parent / filename
+
+
 def _load_private_names() -> frozenset[str]:
     raw = os.environ.get("IP_RADAR_PRIVATE_SOURCES", "")
     return frozenset(s.strip() for s in raw.split(",") if s.strip())
