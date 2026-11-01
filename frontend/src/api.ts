@@ -416,11 +416,6 @@ async function requestVoid(url: string, init: RequestInit, fallback: string): Pr
   if (!res.ok) return throwApiError(res, fallback);
 }
 
-async function jsonOrThrow(res: Response, fallback: string) {
-  if (!res.ok) return throwApiError(res, fallback);
-  return res.json();
-}
-
 export async function getSources(): Promise<SourceInfo[]> {
   return requestJson("/api/sources", undefined, "Failed to load sources");
 }
@@ -613,7 +608,7 @@ export interface UpdateStatus {
   at?: string | null;
 }
 
-// 不走 jsonOrThrow:202/409 都算"已接受",调用方按 status 分支;网络层错误才 reject
+// 不走 requestJson:202/409 都算"已接受",调用方按 status 分支;网络层错误才 reject
 export async function postUpdate(token: string): Promise<{ ok: boolean; status: number; body: unknown }> {
   const res = await fetch("/api/update", {
     method: "POST",
@@ -736,12 +731,11 @@ export async function startOpsRound(
   type: OpsRoundType,
   input: string,
 ): Promise<{ task_id: string }> {
-  const res = await fetch("/api/ops/rounds", {
+  return requestJson("/api/ops/rounds", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ type, input }),
-  });
-  return jsonOrThrow(res, "Failed to start ops round");
+  }, "Failed to start ops round");
 }
 
 export interface OpsPackageInfo {
@@ -751,21 +745,22 @@ export interface OpsPackageInfo {
 }
 
 export async function listOpsPackages(): Promise<OpsPackageInfo[]> {
-  const r = await jsonOrThrow(await fetch("/api/ops/packages"), "Failed to load packages");
+  const r = await requestJson<{ packages: OpsPackageInfo[] }>("/api/ops/packages", undefined, "Failed to load packages");
   return r.packages;
 }
 
 // 包/台账/判例全文逐字(OpsFileTextOut.text;渲染归本层)。
 export async function readOpsPackage(name: string): Promise<string> {
-  const r = await jsonOrThrow(
-    await fetch(`/api/ops/packages/${encodeURIComponent(name)}`),
+  const r = await requestJson<{ text: string }>(
+    `/api/ops/packages/${encodeURIComponent(name)}`,
+    undefined,
     "Failed to load package",
   );
   return r.text;
 }
 
 export async function readOpsLedger(): Promise<string> {
-  const r = await jsonOrThrow(await fetch("/api/ops/ledger"), "Failed to load ledger");
+  const r = await requestJson<{ text: string }>("/api/ops/ledger", undefined, "Failed to load ledger");
   return r.text;
 }
 
@@ -774,13 +769,14 @@ export async function listOpsPrecedents(kws = ""): Promise<string[]> {
   const url = kws
     ? `/api/ops/precedents?kws=${encodeURIComponent(kws)}`
     : "/api/ops/precedents";
-  const r = await jsonOrThrow(await fetch(url), "Failed to load precedents");
+  const r = await requestJson<{ precedents: string[] }>(url, undefined, "Failed to load precedents");
   return r.precedents;
 }
 
 export async function readOpsPrecedent(name: string): Promise<string> {
-  const r = await jsonOrThrow(
-    await fetch(`/api/ops/precedents/${encodeURIComponent(name)}`),
+  const r = await requestJson<{ text: string }>(
+    `/api/ops/precedents/${encodeURIComponent(name)}`,
+    undefined,
     "Failed to load precedent",
   );
   return r.text;
@@ -802,15 +798,14 @@ export async function postOpsRuling(
   verdict: OpsRulingVerdict,
   amendment?: string,
 ): Promise<OpsRulingResult> {
-  const res = await fetch("/api/ops/ruling", {
+  return requestJson("/api/ops/ruling", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       package: pkg, suggestion, verdict,
       ...(verdict === "amended" ? { amendment } : {}),
     }),
-  });
-  return jsonOrThrow(res, "Failed to record ruling");
+  }, "Failed to record ruling");
 }
 
 // 导出 = 全量判例 + 台账(确定性 zip);鉴权同 cookie,Blob 落地下载。
@@ -842,14 +837,15 @@ export interface OpsItem {
 }
 
 export async function getOpsItems(): Promise<OpsItem[]> {
-  const r = await jsonOrThrow(await fetch("/api/ops/items"), "Failed to load review items");
+  const r = await requestJson<{ items: OpsItem[] }>("/api/ops/items", undefined, "Failed to load review items");
   return r.items;
 }
 
 // 条目全文逐字(OpsFileTextOut.text;渲染归本层)。
 export async function readOpsItem(itemId: string): Promise<string> {
-  const r = await jsonOrThrow(
-    await fetch(`/api/ops/items/${encodeURIComponent(itemId)}`),
+  const r = await requestJson<{ text: string }>(
+    `/api/ops/items/${encodeURIComponent(itemId)}`,
+    undefined,
     "Failed to load review item",
   );
   return r.text;
@@ -877,7 +873,7 @@ export async function postOpsReview(
   verdict: OpsReviewVerdict,
   extra?: { args?: Record<string, unknown>; reason?: string; wakeAt?: string },
 ): Promise<OpsItemReviewResult> {
-  const res = await fetch(`/api/ops/items/${encodeURIComponent(itemId)}/review`, {
+  return requestJson(`/api/ops/items/${encodeURIComponent(itemId)}/review`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -886,8 +882,7 @@ export async function postOpsReview(
       ...(extra?.reason != null ? { reason: extra.reason } : {}),
       ...(extra?.wakeAt != null ? { wake_at: extra.wakeAt } : {}),
     }),
-  });
-  return jsonOrThrow(res, "Failed to submit review");
+  }, "Failed to submit review");
 }
 
 // ── ops agent 配置面(票 #140 立;票 #143 多供应商形状;契约真源 = backend
@@ -923,7 +918,7 @@ export interface OpsAgentConfig {
 }
 
 export async function getOpsAgentConfig(): Promise<OpsAgentConfig> {
-  return jsonOrThrow(await fetch("/api/ops/agent-config"), "Failed to load agent config");
+  return requestJson("/api/ops/agent-config", undefined, "Failed to load agent config");
 }
 
 // PUT:字段缺省 = 保持不改;api_keys 逐家 {providerId:key},未输入/空串家 =
@@ -931,7 +926,7 @@ export async function getOpsAgentConfig(): Promise<OpsAgentConfig> {
 export async function putOpsAgentConfig(
   payload: { model_health: string; model_discover: string; api_keys?: Record<string, string> },
 ): Promise<OpsAgentConfig> {
-  const res = await fetch("/api/ops/agent-config", {
+  return requestJson("/api/ops/agent-config", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -940,8 +935,7 @@ export async function putOpsAgentConfig(
       ...(payload.api_keys && Object.keys(payload.api_keys).length
         ? { api_keys: payload.api_keys } : {}),
     }),
-  });
-  return jsonOrThrow(res, "Failed to save agent config");
+  }, "Failed to save agent config");
 }
 
 // ── token 界面配置(sources-redesign T3;契约见 backend/main.py admin_token_*
