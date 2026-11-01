@@ -16,11 +16,20 @@
 | .github/workflows/ci.yml:37 | 金轨迹集注释→标准答案集回归探针 | 73c4c133 |
 | docs/CODEMAP.md(主检出绝对路径) | 中文面旧词清零(收口人复核 rg 零命中) | 同批(主检出文件) |
 
-## 验证(收口人代跑)
+## 验证(收口人代跑;覆盖面以实测为准)
 
 - 合并树(queue-batch 已并入)四套 selftest:**pipeline 105/0、contract 19/0、standard 15/0、t4 63/0**。
-- 旧词终扫:票面词表(信封纪律/状态机骨架/回放闸门/判例升格/金标集/金轨迹/消融/位等价/无损管线/指控章/市场先验/喷泉源等)rg ops/agent 全域 + ci.yml → 仅 STANDARD.md 2 处残留(步前检查),已由收口人补改(下节)后归零。
-- 主检出 docs/CODEMAP.md 旧词 rg = 0。
+- 旧词扫描(诚实口径):本批扫描面 = ops/agent 典章 md 面(STANDARD/DESIGN/ENVELOPE/SHADOW-RUNBOOK/prompts/deploy/ci.yml)+selftest.sh 标签,终扫归零;docs/CODEMAP.md 经评审补改 5 处后归零(见下)。收口人首扫词表偏窄(漏语料/背景质量/裸θ),被评审员宽词表证伪后已补——教训:扫旧词必须以 GLOSSARY「改名对照」全表为准。
+- 主检出 docs/CODEMAP.md 旧词(嵌套 docs 仓,单独提交):评审抓出 5 处漏网(:20/:133 裸θ、:47 背景质量、:132/:137 语料、:143 「锚:」过期引用),已补改并复扫。
+
+## 真实延后面(未被本批收编,记录在案供后续票接手)
+
+- agent v1 代码注释 ~20 处旧词(agent.mjs/artifacts.mjs/promote-detect.mjs/gates.mjs 等)。
+- agent-v2「信封」族 ~65 处/19 文件:纯注释可改,输出字符串面(probes.mjs:52、discovery-tools.mjs:88/99)因与 v1 字节级一致冻结不能改——ENVELOPE.md 已加术语注声明切流退役时一并清。
+- selftest.sh 钉子 grep 模式外的标签面已随本批复改;ops/agent/fixtures/pipeline/README.md:50「DEEP 金轨迹」仍存(拒用闸扩面前置清理项)。
+- fixtures/precedents/2026-10-24 历史判例中的「信封纪律」按历史引文保留。
+- deploy/ops-shadow-cron.sh:19/:30/:72 注释仍存旧称。
+- 拒用闸 LIVING_DOCS 尚未纳入 ops/*.md 扫描面(test_glossary_anchors.py:162 注释已同步本批状态);扩面前先清 fixtures/pipeline/README.md:50。
 
 ## 收口补刀(STANDARD.md :103/:106)
 

@@ -382,7 +382,7 @@ if command -v node >/dev/null 2>&1; then
   fi
   # 负例三发逐项点名(验收 c 针脚:三发各自必须在汤)
   grep -q 'T4PASS 负例①' <<<"$T4OUT" && ok "t4:负例①无实测 ENQUEUE 被门挡" || bad "t4:负例①无实测 ENQUEUE 被门挡"
-  grep -q 'T4PASS 负例②' <<<"$T4OUT" && ok "t4:负例②失败信封作 evidence 被拒" || bad "t4:负例②失败信封作 evidence 被拒"
+  grep -q 'T4PASS 负例②' <<<"$T4OUT" && ok "t4:负例②失败结果单作 evidence 被拒" || bad "t4:负例②失败结果单作 evidence 被拒"
   grep -q 'T4PASS 负例③' <<<"$T4OUT" && ok "t4:负例③编造判例路径被闭合校验拦" || bad "t4:负例③编造判例路径被闭合校验拦"
 else
   bad "t4:node 不可用(宿主运行前置)"
@@ -400,25 +400,25 @@ done
 [[ $toolsSyntax -eq 0 ]] \
   && ok "t4:agent/tools(含 tools/ 六面)/models node 语法通过" || bad "t4:agent/tools(含 tools/ 六面)/models node 语法通过"
 
-# ---- 9. T4: 提示词条款钉子(谓词表三条/自动入队/信封处置/验证条款;health 信封条款) ----
+# ---- 9. T4: 提示词条款钉子(谓词表三条/自动入队/结果单处置/验证条款;health 结果单条款) ----
 DISC="$AGENT/prompts/discover-system.md"
 grep -q 'sunset_frozen' "$DISC" && grep -q 'mirror_echo' "$DISC" && grep -q 'zero_asset' "$DISC" \
   && ok "prompt:discover 谓词表三条在文" || bad "prompt:discover 谓词表三条在文"
 grep -q '0.25' "$DISC" && grep -q 'control_pass' "$DISC" \
   && ok "prompt:discover 自动入队条件在文" || bad "prompt:discover 自动入队条件在文"
 grep -q '失败结果单处置' "$DISC" && grep -q '禁止替失败补数' "$DISC" \
-  && ok "prompt:discover 信封处置条款在文" || bad "prompt:discover 信封处置条款在文"
+  && ok "prompt:discover 结果单处置条款在文" || bad "prompt:discover 结果单处置条款在文"
 grep -q '工具返回验证' "$DISC" \
   && ok "prompt:discover 工具返回验证条款在文" || bad "prompt:discover 工具返回验证条款在文"
-# PR #177(工具通道修复):信封处置三新码钉子(基础设施面不可重试清单)
+# PR #177(工具通道修复):结果单处置三新码钉子(基础设施面不可重试清单)
 grep -q 'channel_missing' "$DISC" && grep -q 'channel_auth' "$DISC" && grep -q 'quota' "$DISC" \
-  && ok "prompt:信封处置三新码在文(channel_missing/channel_auth/quota)" || bad "prompt:信封处置三新码在文(channel_missing/channel_auth/quota)"
+  && ok "prompt:结果单处置三新码在文(channel_missing/channel_auth/quota)" || bad "prompt:结果单处置三新码在文(channel_missing/channel_auth/quota)"
 grep -qE '暂态.{0,80}(≤1|≤ 1)' "$DISC" \
   && ok "prompt:可重试仍限暂态≤1 次" || bad "prompt:可重试仍限暂态≤1 次"
 grep -q 'health_snapshot' "$AGENT/prompts/health-system.md" && grep -q '失败结果单处置' "$AGENT/prompts/health-system.md" \
-  && ok "prompt:health 信封处置条款+快照工具在文" || bad "prompt:health 信封处置条款+快照工具在文"
+  && ok "prompt:health 结果单处置条款+快照工具在文" || bad "prompt:health 结果单处置条款+快照工具在文"
 
-# ---- 10. T6: 金轨迹集(faux provider 跑真回路:Agent 循环+语义门+收口四件;不花 API) ----
+# ---- 10. T6: 标准答案集(faux provider 跑真回路:Agent 循环+语义门+收口四件;不花 API) ----
 # 真模型用例=smoke 层单列,仅 --smoke 手跑,本钩子永不触发(计划书 Task 6 Step 2)。
 # 供给检查:node+依赖缺供则显式 SKIP 计 PASS(Info-3,T3 与 T2 守卫统一计数形;CI 侧由 npm ci 保证供给)。
 if command -v node >/dev/null 2>&1 && [[ -d "$AGENT/node_modules/@earendil-works/pi-agent-core" ]] \
@@ -443,7 +443,7 @@ if command -v node >/dev/null 2>&1 && [[ -d "$AGENT/node_modules/@earendil-works
   grep -q 'GOLDENPASS neg1_enqueue_without_measurement' <<<"$GOLDOUT" \
     && ok "golden:负例①无实测 ENQUEUE 被门挡零写队列" || bad "golden:负例①无实测 ENQUEUE 被门挡零写队列"
   grep -q 'GOLDENPASS neg2_failed_envelope_as_evidence' <<<"$GOLDOUT" \
-    && ok "golden:负例②失败信封入 evidence 被拒" || bad "golden:负例②失败信封入 evidence 被拒"
+    && ok "golden:负例②失败结果单入 evidence 被拒" || bad "golden:负例②失败结果单入 evidence 被拒"
   grep -q 'GOLDENPASS neg3_fabricated_precedent_citation' <<<"$GOLDOUT" \
     && ok "golden:负例③编造判例引用被闭合校验拦(轮次失败+台账已记账)" || bad "golden:负例③编造判例引用被闭合校验拦(轮次失败+台账已记账)"
   grep -q 'GOLDENPASS boundary_enqueue_rate_24_9' <<<"$GOLDOUT" && grep -q 'GOLDENPASS boundary_enqueue_rate_25_0' <<<"$GOLDOUT" \
@@ -457,7 +457,7 @@ if command -v node >/dev/null 2>&1 && [[ -d "$AGENT/node_modules/@earendil-works
   node -e 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))' "$AGENT/golden/cases.json" 2>/dev/null \
     && ok "golden:用例集 json 可解析" || bad "golden:用例集 json 可解析"
 else
-  skipok "golden:金轨迹集" "供给缺(node/node_modules/rg/git)——CI 由 npm ci 保证"
+  skipok "golden:标准答案集" "供给缺(node/node_modules/rg/git)——CI 由 npm ci 保证"
 fi
 
 # ---- 11. Task 1: spawn 契约(表对拍/in-process faux main/真 spawn 冒烟;零 API) ----
@@ -476,9 +476,9 @@ if command -v node >/dev/null 2>&1 && [[ -d "$AGENT/node_modules/@earendil-works
   grep -q 'CONTRACTPASS 表对拍:表内每项真被读' <<<"$CTOUT" \
     && ok "contract:env 表双向对拍(SPAWN_CONTRACT_ENV ↔ 生产文件真读)" || bad "contract:env 表双向对拍(SPAWN_CONTRACT_ENV ↔ 生产文件真读)"
   grep -q 'CONTRACTPASS in-process:成功轮 stdout 单行 JSON' <<<"$CTOUT" \
-    && ok "contract:成功轮轮次信封(stdout 单行 JSON 逐字段)" || bad "contract:成功轮轮次信封(stdout 单行 JSON 逐字段)"
+    && ok "contract:成功轮轮次结果单(stdout 单行 JSON 逐字段)" || bad "contract:成功轮轮次结果单(stdout 单行 JSON 逐字段)"
   grep -q 'CONTRACTPASS in-process:失败轮 model_face' <<<"$CTOUT" \
-    && ok "contract:失败轮信封(code=model_face/empty_text,pkg 缺席)" || bad "contract:失败轮信封(code=model_face/empty_text,pkg 缺席)"
+    && ok "contract:失败轮结果单(code=model_face/empty_text,pkg 缺席)" || bad "contract:失败轮结果单(code=model_face/empty_text,pkg 缺席)"
   grep -q 'CONTRACTPASS spawn:badround' <<<"$CTOUT" \
     && ok "contract:真 spawn 冒烟(badround exit1+bad_round;用法错 exit2 无 JSON)" || bad "contract:真 spawn 冒烟(badround exit1+bad_round;用法错 exit2 无 JSON)"
   node --check "$AGENT/selftest-contract.mjs" 2>/dev/null \
@@ -545,7 +545,7 @@ else
   bad "t4:node 不可用(新例点名失效)"
 fi
 
-# ---- 13. 黄金标准 #181:standard-check 门挂点核对器(零依赖纯 node;语义=挂不上验证手段的条目只能称建议) ----
+# ---- 13. 验收标准 #181:standard-check 门挂点核对器(零依赖纯 node;语义=挂不上验证手段的条目只能称建议) ----
 # 两面:①核对器单测(selftest-standard.mjs,15 例纯内存 DI fixture);②真源面 STANDARD.md 全文核对
 # (死锚/空挂点/伪条目/建议未标类→非零退出)。挂点一律主仓相对,嵌套 docs 仓缺席不影响(CI 可跑)。
 if command -v node >/dev/null 2>&1; then

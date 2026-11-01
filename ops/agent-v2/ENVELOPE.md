@@ -1,6 +1,8 @@
 # ENVELOPE.md — 轮次结果单契约(冻结面)
 
-票 #229 T5 任务书②裁定。本文件冻结 cron 入口 stdout 的结果单形状与 usage 口径;动此面前先过同数据重跑比对(golden + shadow 对拍),否则视为破坏字节级一致红线。
+票 #229 T5 任务书②裁定。本文件冻结 cron 入口 stdout 的结果单形状与 usage 口径；动此面前先过同数据重跑比对(golden + shadow 对拍)，否则视为破坏字节级一致红线。
+
+> 术语注（#259）：本契约面已改称「轮次结果单」；代码注释/输出字符串面（如 composeEnvelope、probes/discovery-tools 输出）因与 agent v1 字节级一致冻结暂存旧称，切流退役时一并清理。
 
 ## stdout 契约(cron 面,`run-health.mjs` / `run-discover.mjs` 同律)
 
