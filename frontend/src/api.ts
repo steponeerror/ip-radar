@@ -642,12 +642,11 @@ export interface AdminUserRead {
 // ipradar_admin,勿解析 json;失败走统一信封 throwApiError(status/code/
 // retry_after 随 Error 走)。表单编码 username/password 是 fastapi-users 约定。
 export async function adminLogin(email: string, password: string): Promise<void> {
-  const res = await fetch("/api/auth/jwt/login", {
+  await requestVoid("/api/auth/jwt/login", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ username: email, password }),
-  });
-  if (!res.ok) return throwApiError(res, "Login failed");
+  }, "Login failed");
 }
 
 export async function adminLogout(): Promise<void> {
@@ -677,7 +676,7 @@ export interface ApiKeyMetaInfo {
 
 // 列表按创建时间倒序(最新在前),从不返回 key 本体。
 export async function listAdminKeys(): Promise<ApiKeyMetaInfo[]> {
-  return jsonOrThrow(await fetch("/api/admin/keys"), "Failed to list keys");
+  return requestJson("/api/admin/keys", undefined, "Failed to list keys");
 }
 
 // 201 返回 {key, meta}:完整 JWT 仅此一次,调用方必须当场展示给用户。
@@ -687,12 +686,11 @@ export async function createAdminKey(
   expiresDays?: number,
   sources?: string[] | null,
 ): Promise<{ key: string; meta: ApiKeyMetaInfo }> {
-  const res = await fetch("/api/admin/keys", {
+  return requestJson("/api/admin/keys", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name, expires_days: expiresDays, sources }),
-  });
-  return jsonOrThrow(res, "Failed to create key");
+  }, "Failed to create key");
 }
 
 // 编辑源集合 = PATCH {"sources": [...] | null};null = 重置为全部公开源。
@@ -700,38 +698,34 @@ export async function setAdminKeySources(
   sub: string,
   sources: string[] | null,
 ): Promise<ApiKeyMetaInfo> {
-  const res = await fetch(`/api/admin/keys/${encodeURIComponent(sub)}`, {
+  return requestJson(`/api/admin/keys/${encodeURIComponent(sub)}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ sources }),
-  });
-  return jsonOrThrow(res, "Failed to update key sources");
+  }, "Failed to update key sources");
 }
 
 // 吊销 = PATCH {disabled:true};返回更新后的 meta。
 export async function revokeAdminKey(sub: string): Promise<ApiKeyMetaInfo> {
-  const res = await fetch(`/api/admin/keys/${encodeURIComponent(sub)}`, {
+  return requestJson(`/api/admin/keys/${encodeURIComponent(sub)}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ disabled: true }),
-  });
-  return jsonOrThrow(res, "Failed to revoke key");
+  }, "Failed to revoke key");
 }
 
 // 启用 = PATCH {disabled:false}(revokeAdminKey 镜像,同一端点);返回更新后的 meta。
 export async function enableAdminKey(sub: string): Promise<ApiKeyMetaInfo> {
-  const res = await fetch(`/api/admin/keys/${encodeURIComponent(sub)}`, {
+  return requestJson(`/api/admin/keys/${encodeURIComponent(sub)}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ disabled: false }),
-  });
-  return jsonOrThrow(res, "Failed to enable key");
+  }, "Failed to enable key");
 }
 
 // DELETE 成功是 204 无 body。
 export async function deleteAdminKey(sub: string): Promise<void> {
-  const res = await fetch(`/api/admin/keys/${encodeURIComponent(sub)}`, { method: "DELETE" });
-  if (!res.ok) return throwApiError(res, "Failed to delete key");
+  await requestVoid(`/api/admin/keys/${encodeURIComponent(sub)}`, { method: "DELETE" }, "Failed to delete key");
 }
 
 // ── ops 运营面(P4,票 #136;契约真源 = backend/main.py ops 路由 +
@@ -965,22 +959,20 @@ export interface TokenStatus {
 }
 
 export async function getAdminTokens(): Promise<TokenStatus[]> {
-  return jsonOrThrow(await fetch("/api/admin/tokens"), "Failed to list tokens");
+  return requestJson("/api/admin/tokens", undefined, "Failed to list tokens");
 }
 
 // PUT 成功是 204 无 body;未知 var/空值 → 422(信封 validation_error)。
 export async function putAdminToken(envVar: string, value: string): Promise<void> {
-  const res = await fetch(`/api/admin/tokens/${encodeURIComponent(envVar)}`, {
+  await requestVoid(`/api/admin/tokens/${encodeURIComponent(envVar)}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ value }),
-  });
-  if (!res.ok) return throwApiError(res, "Failed to save token");
+  }, "Failed to save token");
 }
 
 // 清除 = DELETE;回落启动快照语义见 _tokens.clear_token(204 无 body)。
 export async function clearAdminToken(envVar: string): Promise<void> {
-  const res = await fetch(`/api/admin/tokens/${encodeURIComponent(envVar)}`, { method: "DELETE" });
-  if (!res.ok) return throwApiError(res, "Failed to clear token");
+  await requestVoid(`/api/admin/tokens/${encodeURIComponent(envVar)}`, { method: "DELETE" }, "Failed to clear token");
 }
 
