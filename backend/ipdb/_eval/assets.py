@@ -16,8 +16,9 @@ import json
 from dataclasses import dataclass, asdict
 from pathlib import Path
 
-# GLOSSARY 质量闸门四层词汇: kind 枚举(spec 任务书接口块)
-KINDS = frozenset({"truth", "infra", "neutral", "consensus"})
+# GLOSSARY 质量闸门四层词汇: kind 枚举(spec 任务书接口块); truth_v2 = 自建
+# 真值语料(ADR 0017, T1)与 Hornet truth 分立目录, T3 并排对照用
+KINDS = frozenset({"truth", "truth_v2", "infra", "neutral", "consensus"})
 
 
 @dataclass
