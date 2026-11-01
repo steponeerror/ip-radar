@@ -197,7 +197,7 @@ Every dataset below belongs to its provider — thank you for keeping them open 
 | myip_ms | [myip.ms](https://myip.ms/) | Active blacklist from own web crawlers + user abuse reports (10-day rolling window) | |
 | sblam | [Sblam!](https://sblam.com/) | Form-spam blacklist (form-honeypot sensor network) | |
 | data_shield `*` | [duggytuxy/Data-Shield](https://github.com/duggytuxy/Data-Shield_IPv4_Blocklist) | Aggregated daily IPv4 blocklist (~90k bare IPs) | |
-| ziyadnz `*` | [ziyadnz/threat-intel-ip-feeds](https://github.com/ziyadnz/threat-intel-ip-feeds) | Daily per-IP aggregation of ~10 public feeds (per-row source lineage kept) | |
+| ziyadnz `*` | [ziyadnz/threat-intel-ip-feeds](https://github.com/ziyadnz/threat-intel-ip-feeds) | Daily per-IP aggregation of ~10 public feeds (per-row source provenance kept) | |
 | cps_collected_iocs `*` | [CriticalPathSecurity](https://github.com/CriticalPathSecurity/Public-Intelligence-Feeds) | CPS's own collected-IOC aggregate (bare IPs) | |
 | malicious_ip `*` | [romainmarcoux/malicious-ip](https://github.com/romainmarcoux/malicious-ip) | Five-shard union blocklist (~1M distinct IPs, regenerated hourly) | |
 | ustc_blackip | [USTC](https://blackip.ustc.edu.cn/) | Campus self-protection blacklist (~15 years running; unban needs human review) | |
@@ -266,16 +266,16 @@ cd frontend && npm run dev
 
 The eval layer emits two kinds of reliability numbers side by side: the
 declared `r` (hand-set per source, production-authoritative) and measured
-θ — a reliability estimate derived from how much independent sources corroborate each other (advisory). θ is never an accuracy
+cross-source consistency (θ) — a reliability estimate derived from how much independent sources corroborate each other (advisory). It is never an accuracy
 claim and never feeds the production weights automatically — adopting a
 measured value requires a human-reviewed PR referencing the eval report.
 
-Run it from `backend/` via `python -m ipdb._eval`: `--audit` (lineage audit —
+Run it from `backend/` via `python -m ipdb._eval`: `--audit` (source-overlap audit —
 copying-direction verdicts over persisted model history, advisory),
 `--anchors` (known-answer regression gate; exit 1 on any failure), and
 `--dsem` (DS-EM fair fight: market vs declared vs π̂, advisory; π̂ = the
 underlying truth-rate estimate computed by the eval harness). The
-admin console's Sources tab shows the same two numbers side by side — measured θ
+admin console's Sources tab shows the same two numbers side by side — measured cross-source consistency (θ)
 (90% CI) beside each source's declared `r`.
 
 ## Tests

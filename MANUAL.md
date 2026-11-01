@@ -104,7 +104,7 @@ Four fusion algorithms exist, and every fused value badges which one produced it
 | σ P | `logodds` | country, ASN, per-type threat | posterior probability via log-odds Bayesian fusion |
 | ▮ share | `voting` | city (and other multi-option votes) | weighted vote share across sources |
 | ★ r | `authority` | AS org, AS name | single trusted source; confidence = its reliability |
-| ◇ fixed | `specificity` | IP range | fixed anchors — most specific covering range wins |
+| ◇ fixed | `specificity` | IP range | fixed reference ranges — most specific covering range wins |
 
 The `sources[]` breakdown is the full evidence for that field — who said what, at what reliability. `alternatives[]` are the losing candidates with their probabilities, which is how you notice a contested field without expanding anything.
 
@@ -146,7 +146,7 @@ After sign-in you get three tabs (plus a floating task-progress pill that mirror
 
 ### Sources (default tab)
 
-![The admin Sources tab: 61 sources, health, r/θ side by side, toggles](assets/manual/04-admin-sources.png)
+![The admin Sources tab: 61 sources, health, r/consistency (θ) side by side, toggles](assets/manual/04-admin-sources.png)
 
 Every source in one list, grouped into **Geo & ASN data / Threat intel / Asset attributes**, with columns:
 
@@ -154,7 +154,7 @@ Every source in one list, grouped into **Geo & ASN data / Threat intel / Asset a
 - **Covered IPs** — how much address space the loaded snapshot covers.
 - **Updated** — wall-clock age of the last refresh, with content age and refresh cadence on hover (`26h · every 12h` — content age is the upstream data's internal timestamp, which is the honest one).
 - **Status** — `fresh` / `stale` / `off`. `stale` means the refresh slot is due or overdue — watch it across many sources to spot a stuck scheduler or a dead feed.
-- **Eval / r / θ** — the dual reliability track. **r** is the declared, production-authoritative weight (hand-set, changed only by human-reviewed PR). **θ** is the *measured* corroboration posterior from the eval layer — advisory, never auto-fed into fusion. A source whose θ sits far below its r is over-claiming; see [the lifecycle chapter](#6-source-lifecycle-add--evaluate--tune).
+- **Eval / r / cross-source consistency (θ)** — the dual reliability track. **r** is the declared, production-authoritative weight (hand-set, changed only by human-reviewed PR). **Cross-source consistency (θ)** is the *measured* corroboration estimate from the eval layer — advisory, never auto-fed into fusion. A source whose score sits far below its r is over-claiming; see [the lifecycle chapter](#6-source-lifecycle-add--evaluate--tune).
 - **Actions** — the toggle enables/disables the source (disabled sources keep their data but stop refreshing and stop contributing); the **Update** button forces an immediate single-source refresh (its state is a live button label: `Queued`, `Downloading… 42%`, `Loading…`).
 - **Refresh all** at the top enqueues a batch refresh of every enabled source — same thing `POST /api/update-db` does.
 
@@ -193,29 +193,29 @@ Four paths, in order of effort:
 
 Two consumers of evaluation, same numbers:
 
-- **The admin console** shows each source's measured θ (90% CI) beside its declared r, and `/api/eval*` serves the report cards behind it (admin-only; see [API reference](#7-api-reference)).
+- **The admin console** shows each source's measured cross-source consistency (θ) (90% CI) beside its declared r, and `/api/eval*` serves the report cards behind it (admin-only; see [API reference](#7-api-reference)).
 - **The eval CLI**, run from `backend/` of your clone:
 
 ```bash
-python -m ipdb._eval --model          # corroboration-contrast model over the fleet (= all other enabled sources) + acceptance suite
+python -m ipdb._eval --model          # corroboration-contrast model over the pool (= all other enabled sources) + acceptance suite
 python -m ipdb._eval --all            # evaluate every source
-python -m ipdb._eval --audit          # lineage audit over persisted model history (advisory)
+python -m ipdb._eval --audit          # source-overlap audit over persisted model history (advisory)
 python -m ipdb._eval --anchors        # known-answer regression gate; exit 1 on any failure
 python -m ipdb._eval --dsem           # DS-EM fair fight: market vs declared vs π̂ (advisory; π̂ = truth-rate estimate from the eval harness)
 python -m ipdb._eval --help           # full flag list (temporal, demand, readout, …)
 ```
 
-The philosophy the flags encode: **measurements advise, humans decide.** θ is a corroboration posterior — it measures independent agreement, not correctness. Nothing measured ever flows into production weights automatically; adopting a measured value is a human-reviewed PR referencing the eval report. The `--anchors` gate is the one hard failure mode — it pins known answers so refactors can't silently drift the fusion.
+The philosophy the flags encode: **measurements advise, humans decide.** Cross-source consistency (θ) is a corroboration measure — it measures independent agreement, not correctness. Nothing measured ever flows into production weights automatically; adopting a measured value is a human-reviewed PR referencing the eval report. The `--anchors` gate is the one hard failure mode — it pins known answers so refactors can't silently drift the fusion.
 
 ### Tune
 
-- **A source over-claims** (θ persistently below its r): lower the declared r in a PR referencing the eval report, or disable it from the Sources tab while you decide.
-- **A source is redundant or harmful** (net-impact eval says removing it improves the fleet): disable, then delete the module if you're sure.
+- **A source over-claims** (cross-source consistency (θ) persistently below its r): lower the declared r in a PR referencing the eval report, or disable it from the Sources tab while you decide.
+- **A source is redundant or harmful** (net-impact eval says removing it improves the pool): disable, then delete the module if you're sure.
 - **A source went quiet upstream**: the sunset detection story — feeds freeze, content age grows while wall-clock refreshes "succeed". The admission gate (`--gate`/sentinel machinery, maintainer-grade — see the module help) exists so a frozen feed can't be re-admitted by accident; the `Updated` column's content-age number is your user-level signal.
 
 ### Retire
 
-Disabling keeps the data (re-enable is instant); deleting the module removes the source from the registry on next start. Either way, re-run `--anchors` and a `--model` pass after retiring anything that carried weight — the fleet's corroboration structure changed, and the gate is cheap.
+Disabling keeps the data (re-enable is instant); deleting the module removes the source from the registry on next start. Either way, re-run `--anchors` and a `--model` pass after retiring anything that carried weight — the source pool's corroboration structure changed, and the gate is cheap.
 
 ## 7. API reference
 
@@ -251,7 +251,7 @@ Disable entirely with `IP_RADAR_RATELIMIT=0` (not recommended on anything reacha
 | `GET /api/tasks` | Task snapshot (states, progress, errors) | admin |
 | `POST /api/tasks/{task_id}/cancel` | Cancel one task | admin |
 | `GET /api/events` | SSE stream of task/batch events | admin |
-| `GET /api/eval` · `/api/eval/model` · `/api/eval/{source}` | Eval overview / fleet model / per-source report | admin |
+| `GET /api/eval` · `/api/eval/model` · `/api/eval/{source}` | Eval overview / pool model / per-source report | admin |
 | `POST /api/eval/{source}/run` | Trigger an eval run (202 Accepted) | admin |
 | `POST /api/admin/keys` · `GET` · `PATCH /{sub}` · `DELETE /{sub}` | API key CRUD | admin |
 | `POST /api/auth/jwt/login` / `logout` | Admin session (HTTP-only cookie) | — |
@@ -368,5 +368,5 @@ Two traps when cutting a release: the release commit must include at least one n
 - **[IP Radar Desktop](https://github.com/steponeerror/ip-radar-desktop)** — tray-resident companion app: one global hotkey looks up whatever IP is on your clipboard, every source's verdict side by side, whole lists in one shot. Installers for Linux/macOS/Windows on its Releases page.
 - **Integrations** — each ships its own README: [fail2ban](scripts/fail2ban/README.md) (triage every ban against the local verdict first; CDN edges skip the ban, confirmed-malicious go long-ban), [Graylog](integrations/graylog/README.md) (lookup tables turning source IPs into country/ASN/fused verdict, no plugin), [Wazuh](integrations/wazuh/README.md) (enrich every IP-bearing alert into an ECS `threat.indicator` follow-up).
 - **AI skills** — the three source-lifecycle skills live in `.pi/skills/` (`discover-intel-sources`, `add-intel-source`, `manage-intel-source`); see [the lifecycle chapter](#6-source-lifecycle-add--evaluate--tune) and the README table.
-- **Eval report cards** — every source's θ history and report cards are served in the admin console (`/api/eval*`), no separate artifacts to keep.
+- **Eval report cards** — every source's cross-source consistency (θ) history and report cards are served in the admin console (`/api/eval*`), no separate artifacts to keep.
 - **Live demo** — [ipradar.huxiao0207.dpdns.org](https://ipradar.huxiao0207.dpdns.org), read-only mode (queries fully working).
