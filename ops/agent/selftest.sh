@@ -406,7 +406,7 @@ grep -q 'sunset_frozen' "$DISC" && grep -q 'mirror_echo' "$DISC" && grep -q 'zer
   && ok "prompt:discover 谓词表三条在文" || bad "prompt:discover 谓词表三条在文"
 grep -q '0.25' "$DISC" && grep -q 'control_pass' "$DISC" \
   && ok "prompt:discover 自动入队条件在文" || bad "prompt:discover 自动入队条件在文"
-grep -q '信封处置' "$DISC" && grep -q '禁止替失败补数' "$DISC" \
+grep -q '失败结果单处置' "$DISC" && grep -q '禁止替失败补数' "$DISC" \
   && ok "prompt:discover 信封处置条款在文" || bad "prompt:discover 信封处置条款在文"
 grep -q '工具返回验证' "$DISC" \
   && ok "prompt:discover 工具返回验证条款在文" || bad "prompt:discover 工具返回验证条款在文"
@@ -415,7 +415,7 @@ grep -q 'channel_missing' "$DISC" && grep -q 'channel_auth' "$DISC" && grep -q '
   && ok "prompt:信封处置三新码在文(channel_missing/channel_auth/quota)" || bad "prompt:信封处置三新码在文(channel_missing/channel_auth/quota)"
 grep -qE '暂态.{0,80}(≤1|≤ 1)' "$DISC" \
   && ok "prompt:可重试仍限暂态≤1 次" || bad "prompt:可重试仍限暂态≤1 次"
-grep -q 'health_snapshot' "$AGENT/prompts/health-system.md" && grep -q '信封处置' "$AGENT/prompts/health-system.md" \
+grep -q 'health_snapshot' "$AGENT/prompts/health-system.md" && grep -q '失败结果单处置' "$AGENT/prompts/health-system.md" \
   && ok "prompt:health 信封处置条款+快照工具在文" || bad "prompt:health 信封处置条款+快照工具在文"
 
 # ---- 10. T6: 金轨迹集(faux provider 跑真回路:Agent 循环+语义门+收口四件;不花 API) ----
