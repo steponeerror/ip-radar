@@ -2004,7 +2004,10 @@ await t("双面拒跑留痕轮标签(#207 T1):appendRefusalTrace round 参数化
 
 await t("发现轮月帽共享执法(#207 T1):台账当月已花 ¥30+est>0 → discover 轮拒跑 budget_monthly(同一 admitOrRefuse),留痕行 round=discover,轮目录不建", async () => {
   const tr = mkTree("discover-monthly");
-  fs.writeFileSync(tr.env.LEDGER_FILE, "| 日期 | 轮次 | model | 用量 | 备注 |\n|---|---|---|---|---|\n| 2026-10-26 | discover | glm-5.3 | in=1 out=1 total=2 cost=30 | 满帽 |\n");
+  // 日期须派生当月(#266):月帽按墙钟当月求和,硬编码 2026-10-26 过月翻页即不计入当月、
+  // 花费归零不拒跑,断言假红;修法同 A2 先例(#199,上方 monthNow 派生)。日取 26=每月都有的日子。
+  const m = budget.monthNow();
+  fs.writeFileSync(tr.env.LEDGER_FILE, `| 日期 | 轮次 | model | 用量 | 备注 |\n|---|---|---|---|---|\n| ${m}-26 | discover | glm-5.3 | in=1 out=1 total=2 cost=30 | 满帽 |\n`);
   const r = await runPipeline({ roundId: RD, fixturesDir: DEFAULT_FIXTURES_DIR, env: tr.env, ...mkIo() });
   assert.equal(r.ok, false);
   assert.equal(r.envelope.error.code, "budget_monthly", "拒跑码与 health 同源(refusalOf 单源)");
