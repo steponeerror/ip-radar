@@ -1,12 +1,12 @@
 // golden-health-parity.test.mjs — golden 对拍补齐(票 #232;ops/agent/golden/cases.json
 // 健康轮管线例 pipeline_health_full_faux):旧引擎(ops/agent/pipeline.mjs runPipeline,
 // in-proc)vs 新任务面(ops/agent-v2 run-health.mjs 全链 PROBE→CLOSE,子进程)逐工件
-// 位等价对拍。与 golden-discover-parity.test.mjs(#227 T3)合成「管线面 golden 2/2」。
+// 字节级一致对拍。与 golden-discover-parity.test.mjs(#227 T3)合成「管线面 golden 2/2」。
 // 世界=f run-golden.mjs runCase 同构(fixture 判例树 + curl/OPS_EVAL_PY stub + 抑制规则
 // fixture,出处:run-golden.mjs writePrecedents/stubCurl/stubPy;用例数据单源=cases.json
 // 运行时读,不手抄)。归一化=shadow-diff.mjs normalizeText(导出面,#232 复用勿 fork)
 // + 票面窄面叠层(usage 三计数/wall_s:ENVELOPE.md §usage 计量边界合法差,cost 逐字)。
-// 口径裁决(父会话 2026-10-28,A+C):管线面=位等价对拍;判断器 8 例=legacy 面回归钉
+// 口径裁决(父会话 2026-10-28,A+C):管线面=字节级一致对拍;判断器 8 例=legacy 面回归钉
 // (golden-judge-regression.test.mjs),不在此文件。
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -88,7 +88,7 @@ function seedSide(tag) {
 // .v2-claim.json(跨库撞轮认领件,shadow-diff isUndeclaredNewFile 同声明)。
 const COMPARABLE = ["01-", "02-", "03-", "04-", "05-", "06-", "07-", "08-", "09-budget.json", "gates.json"];
 
-test("golden 对拍 pipeline_health_full_faux:旧 runPipeline 全链 vs v2 run-health 全链,工件闭集位等价", async () => {
+test("golden 对拍 pipeline_health_full_faux:旧 runPipeline 全链 vs v2 run-health 全链,工件闭集字节级一致", async () => {
   const old = seedSide("old");
   const neu = seedSide("new");
   try {
@@ -115,7 +115,7 @@ test("golden 对拍 pipeline_health_full_faux:旧 runPipeline 全链 vs v2 run-h
     const newR = JSON.parse(stdout.trim().split("\n").filter((l) => l.startsWith("{")).pop());
     assert.equal(newR.ok, true, `v2 例应终态 ok(失败面可读):${JSON.stringify(newR.error ?? newR).slice(0, 300)}`);
 
-    // —— 逐工件位等价(归一化窄面:TS/dur_ms/tmp/-rN=shadow-diff 单源;usage 三计数/
+    // —— 逐工件字节级一致(归一化窄面:TS/dur_ms/tmp/-rN=shadow-diff 单源;usage 三计数/
     // wall_s=票面合法差叠层;cost 逐字)——
     const base = { oldTmp: old.tmp, newTmp: neu.tmp, roundId: ROUND };
     const norm = (t) => normalizeText(t, base)
@@ -156,7 +156,7 @@ test("golden 对拍 pipeline_health_full_faux:旧 runPipeline 全链 vs v2 run-h
     assert.equal(ledB, ledA, "台账新旧不等价(归一化后)");
     // 双侧可比集非空(空集=闸门失败,shadow-diff P1-1 同判据)
     assert.ok(rows.some((r) => r.startsWith("SAME")), `可比工件集为空或全异:\n${rows.join("\n")}`);
-    assert.deepEqual(bad, [], `golden pipeline_health_full_faux 位等价破口:\n${rows.join("\n")}`);
+    assert.deepEqual(bad, [], `golden pipeline_health_full_faux 字节级一致破口:\n${rows.join("\n")}`);
     console.log(`[golden-parity] pipeline_health_full_faux 逐件清单:\n  ${rows.join("\n  ")}`);
   } finally {
     fs.rmSync(old.tmp, { recursive: true, force: true });

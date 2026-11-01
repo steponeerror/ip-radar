@@ -44,7 +44,7 @@ export const HARNESS_SETTINGS = { compaction: { enabled: false } };
 
 export async function openHarness(opts = {}) {
   const dbPath = opts.dbPath ?? resolveDbPath();
-  const bundle = opts.models ?? (await loadModels()); // 旧管线装载器原样(定案 7;凭证零入日志);opts.models 注入缝=faux/金轨迹面(同旧 agent.mjs opts.models 缝)
+  const bundle = opts.models ?? (await loadModels()); // 旧管线装载器原样(定案 7;凭证零入日志);opts.models 注入缝=faux/保活任务面(同旧 agent.mjs opts.models 缝)
   const { models, resolve } = bundle;
   const storage = await openNodeSqliteStorage(dbPath);
   const harness = await Harness.open(storage, {

@@ -103,7 +103,7 @@ test("ops-model-round E2E:TRIAGE 一发→03-triage-hypotheses.json 落盘→G_T
     assert.match(outcome.result.prompt_sha, /^[0-9a-f]{16}$/);
     const h = JSON.parse(fs.readFileSync(path.join(roundDir, "03-triage-hypotheses.json"), "utf8"));
     assert.equal(h.hypotheses.length, 2, "收编工件(零复制 triageConsume)落盘");
-    // MF3 钉住:transcript 工件行型位等价(旧 faux.mjs:87-94——input 行无 model 字段/
+    // MF3 钉住:transcript 工件行型字节级一致(旧 faux.mjs:87-94——input 行无 model 字段/
     // 零 registry_seed/assistant message 行;门与 DEEP 宿主回填的读面)
     const tl = fs.readFileSync(path.join(roundDir, "03-triage-transcript.jsonl"), "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
     assert.deepEqual(tl.map((x) => x.type), ["input", "message"], "TRIAGE transcript 行型:input+message(单发步零 seed 行)");
