@@ -86,8 +86,8 @@ services:
 - **粒度建议**:fine-grained PAT,只读 public 仓检索粒度(Repository access = Public
   repositories / 最小权限;`gh search` 面无需任何写权限与私仓授权)。凭证泄漏面控制:
   服务器本地 override chmod 600,永不入仓、永不入日志/台账/裁决包(提示词脱敏律;
-  gh 失败信封只携带 stderr 摘要,不含令牌)。
-- **失败面**:凭证缺失/失效 → `channel_auth` 分类信封(二进制缺装才归 channel_missing;tools.mjs
+  gh 失败结果单只携带 stderr 摘要,不含令牌)。
+- **失败面**:凭证缺失/失效 → `channel_auth` 分类结果单(二进制缺装才归 channel_missing;tools.mjs
   classifyChannelError;文案自带下一步),模型侧直接人裁区不重试——修复属部署动作,
   勿轮内自纠。
 
@@ -97,7 +97,7 @@ services:
 pi-web-access 实现网络搜索」,https://pi.dev/packages/pi-web-access;镜像内
 pin 0.44.0,ops/agent/package.json + Dockerfile npm ci 自动带入)驱动:多 provider
 网络搜索 + 智能回退链,**零配置一发即活**(缺省路由 keyless DuckDuckGo——正式
-取代 Jina 充值前置)。工具契约面不变(归一 SERP/每轮预算/失败四码信封)。
+取代 Jina 充值前置)。工具契约面不变(归一 SERP/每轮预算/失败四码结果单)。
 
 ### provider 路由(配置单源:web-search.json 物化)
 
@@ -118,11 +118,11 @@ curl -X PUT http://127.0.0.1:8000/api/ops/agent-config \
 ```
 
 - **出参遮蔽**:GET/PUT 回显只 `{configured, tail4}`(沿 api_keys 面);完整 key
-  永不回显、永不入错误消息/日志/台账/裁决包(1113 纪律;失败信封只携状态码
+  永不回显、永不入错误消息/日志/台账/裁决包(1113 纪律;失败结果单只携状态码
   /stderr 真因摘要,不含令牌)。值非空校验(空串 422);槽闭集 {"jina"}。
 - **实测事实(2026-10-24,两行为勿写反)**:r.jina.ai(web_read)裸调用无
   Authorization 正常,带欠费 key 反 402——web_read 恒不带 key,无需配置;
-  s.jina.ai(现作为 jina provider 经 pi-web-access)需 key:欠费 → quota 信封
+  s.jina.ai(现作为 jina provider 经 pi-web-access)需 key:欠费 → quota 结果单
   (账户面:充值或窗口恢复后自然可用,模型侧人裁区不重试),缺配不入链不报错。
 - **部署段真网验(待办)**:web_read 一发(无 key 应通);web_search 一发
   (零配置 DDG 应活——已开发机预验一发;充值后再验 jina 入链)。
@@ -147,13 +147,13 @@ curl -X PUT http://127.0.0.1:8000/api/ops/agent-config \
   工具=下票(工具面空,深验 verdict 预期 unresolved 占比高,见 GLOSSARY「微探针」)。
 - 回滚 = 去掉该 env(缺省 legacy);boot 恢复扫描独立于此开关(state.json 只属于
   pipeline 轮;遗留 in_flight 轮的恢复仍走 pipeline.mjs resume,把已开的轮跑完)。
-- 切换验收:驾驶舱 SSE 可见 `[stage] PROBE start` 行族 + 信封 `pipeline.stages`。
+- 切换验收:驾驶舱 SSE 可见 `[stage] PROBE start` 行族 + 结果单 `pipeline.stages`。
 
 ## 部署段清单(本票不做,登记待办)
 
 1. 服务器落 `/root/.ops-cron-env`(chmod 600)+ `deploy/ops-cron.sh`(chmod +x);
 2. crontab 安装上文行(先手动 dry 一轮验证 202/409 两态);
-3. docker-compose.override.yml 增 `OPS_PIPELINE=pipeline`(灰度,待用户裁)。**前置条件更新(#170):真 provider 已接线落地(fixtures 面=faux/运行面=真调用 flash+glm-5.3,预算三闸真面同执法,选择逻辑纯函数+零网络单测)——原「模型步无条件 fauxProvider」禁令解除;剩余前置=生产段真 provider 冒烟一轮(A 一律/门全过+预算门实测数字入台账)+用户裁**(另注:真面 DEEP 微探针工具=下票,真面深验 confirmed/refuted 不可立证——verdict 预期 unresolved 占比高,GLOSSARY「微探针」缺口注记);
+3. docker-compose.override.yml 增 `OPS_PIPELINE=pipeline`(灰度,待用户裁)。**前置条件更新(#170):真 provider 已接线落地(fixtures 面=faux/运行面=真调用 flash+glm-5.3,预算三闸真面同执法,选择逻辑纯函数+零网络单测)——原「模型步无条件 fauxProvider」禁令解除;剩余前置=生产段真 provider 冒烟一轮(A 引用不抄录/门全过+预算门实测数字入台账)+用户裁**(另注:真面 DEEP 微探针工具=下票,真面深验 confirmed/refuted 不可立证——verdict 预期 unresolved 占比高,GLOSSARY「微探针」缺口注记);
 4. `/var/log/ipradar-ops-cron.log` 轮转(logrotate 或按大小截断);
 5. (可选)生产 ops 树种子 `rules/suppressions.json`:拷 docs 仓规则件或空库 `{"version":0,"rules":[]}`。注:缺席=合法零规则态(与 _ops_review 同口径;首轮 VERIFY 零抑制照常过,首条规则经 RETRO 候选→四键采纳自动建形)——种子仅为带 R12/R7 起步,非必需(审后修 P1 改口径后死锁已除);
    注(#170 审 P2-3):真面轮 crash 后 boot 会自动 resume 缺工件步(有界:每轮一次/仅缺工件步/#167 三规则)——无人值守时可能再花少量真钱,预算门 0.05¥ 硬拦,知悉即可;
