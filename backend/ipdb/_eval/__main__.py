@@ -564,7 +564,7 @@ def main(argv=None):
     p.add_argument("--truth-v2-component", action="append", default=None,
                    metavar="NAME=DIR",
                    help="真值组件(可重复): smallbox=<周快照目录>; honyport "
-                        "CSV 就绪后同名机制并入(接口预留, ADR 0017 §2)")
+                        "CSV 已落地同名机制并入(#265, ADR 0017 §2)")
     p.add_argument("--ops-allowlist", default=None, metavar="PATH",
                    help="自家运维源白名单(一行一个 v4; ADR 0017 §8);"
                         "缺省 = 无白名单")

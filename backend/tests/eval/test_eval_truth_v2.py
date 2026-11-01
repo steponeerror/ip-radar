@@ -419,7 +419,7 @@ def _hp_csv(hp_dir, day: date, rows: list[tuple], name: str | None = None):
     ISO 8601 Z;文件名 honeypot_attackers-<YYYY-MM-DD>.csv, 采集日取自
     文件名而非表头)。rows=六元组, 离线合成不碰真数据。"""
     hp_dir.mkdir(parents=True, exist_ok=True)
-    p = hp_dir / (name or f"honeyport_attackers-{day.isoformat()}.csv")
+    p = hp_dir / (name or f"honeypot_attackers-{day.isoformat()}.csv")
     p.write_text(
         "ip,service,protocol,events,first_seen,last_seen\n"
         + "".join(",".join(str(c) for c in r) + "\n" for r in rows),
@@ -469,7 +469,7 @@ def test_parse_honyport_fail_loud_family(tmp_path):
     from ipdb._eval.truth_v2 import parse_honyport_csv
     # 文件名缺 -YYYY-MM-DD 段
     p = _hp_csv(tmp_path, date(2026, 11, 1), [_hp_row("1.2.3.4")],
-                name="honeyport_attackers.csv")
+                name="honeypot_attackers.csv")
     with pytest.raises(ValueError, match="日期"):
         parse_honyport_csv(p)
     # 未知表头(六列但列名不对)
@@ -521,7 +521,7 @@ def test_load_snapshots_sniffs_both_formats_rejects_unknown(tmp_path):
     _snap(mixed, date(2026, 11, 1), [("45.70.1.1", 3)])
     _hp_csv(mixed, date(2026, 10, 31), [_hp_row("45.71.1.1", events=4)])
     out = load_snapshots(mixed)
-    # 文件名序(字典序): '2026-11-01.csv' < 'honeyport_attackers-…',
+    # 文件名序(字典序): '2026-11-01.csv' < 'honeypot_attackers-…',
     # 与格式无关 —— 排序键是文件名不是采集日
     assert [(d, sorted(r)) for _, d, r in out] == [
         (date(2026, 11, 1), ["45.70.1.1"]),
@@ -612,7 +612,7 @@ def test_tamper_honyport_input_changes_pins(tmp_path):
                       scanner_csv=ctx["scanner_csv"], allowlist=None,
                       out_root=tmp_path / "o1", eval_env="monthly")
     assert r1["fingerprint"]  # smallbox 出版在先, 指纹面存在
-    p = honey / "honeyport_attackers-2026-10-31.csv"
+    p = honey / "honeypot_attackers-2026-10-31.csv"
     p.write_text(p.read_text() +
                  "45.77.7.7,s,,9,2026-11-01T06:12:19Z,"
                  "2026-11-01T06:12:34Z\n", encoding="utf-8")

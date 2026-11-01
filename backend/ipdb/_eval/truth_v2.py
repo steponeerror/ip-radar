@@ -46,7 +46,7 @@ ASSET_KIND = "truth_v2"
 
 # 组件 CSV 两种表头(表头即格式声明, load_snapshots 逐文件探测):
 # T0 周快照(scripts/truth_v2_weekly_snapshot.sh)与 honyport 日 CSV
-# (服务器 /opt/honyport/out/honeyport_attackers-<YYYY-MM-DD>.csv,
+# (服务器 /opt/honyport/out/honeypot_attackers-<YYYY-MM-DD>.csv,
 # 表头逐字照 2026-11-01 实测样例, issue #265)
 SNAPSHOT_HEADER = "ip,attempts"
 HONYPORT_HEADER = "ip,service,protocol,events,first_seen,last_seen"
@@ -93,7 +93,7 @@ def parse_snapshot_csv(path: Path) -> tuple[date, dict[str, int]]:
 
 
 # honyport 日 CSV 文件名模式: <prefix>-YYYY-MM-DD.csv(采集日取文件名,
-# 表头无 captured_at; #265 实测文件名 honeyport_attackers-<日期>.csv)
+# 表头无 captured_at; #265 实测文件名 honeypot_attackers-<日期>.csv)
 _HP_NAME_RE = re.compile(r"^(.+)-(\d{4}-\d{2}-\d{2})$")
 
 

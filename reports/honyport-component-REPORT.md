@@ -30,7 +30,7 @@
 
 ### 1.4 测试
 
-- backend/tests/eval/test_eval_truth_v2.py:+9 测(第 10 节),全离线合成 fixture:
+- backend/tests/eval/test_eval_truth_v2.py:+8 测(第 10 节),全离线合成 fixture:
   1. `test_parse_honyport_day_from_filename_events_accumulate`(文件名取日+多 service 行累加,IP 集照实测样例)
   2. `test_parse_honyport_quoted_service_field_survives`(引号 service 字段 csv.reader 分列)
   3. `test_parse_honyport_fail_loud_family`(tamper-red 六负例:无日期文件名/坏表头/5 列/非整数 events/非 v4/坏时间戳)
@@ -67,7 +67,7 @@
 
 ```bash
 cd backend
-env -u IP_RADAR_EVAL_ENV python -m pytest tests/eval/test_eval_truth_v2.py -q        # 29 passed(20 既有+9 新)
+env -u IP_RADAR_EVAL_ENV python -m pytest tests/eval/test_eval_truth_v2.py -q        # 29 passed(21 既有+8 新)
 env -u IP_RADAR_EVAL_ENV python -m pytest tests/eval/test_monthly_eval_cascade.py -q # 14 passed
 env -u IP_RADAR_EVAL_ENV python -m pytest tests/eval -q                              # 588 passed
 env -u IP_RADAR_EVAL_ENV python -m pytest tests/core -q                              # 741 passed 8 skipped 1 failed(基线 NEEDS 拒用词,非本单)
