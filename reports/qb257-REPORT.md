@@ -41,7 +41,7 @@
 - `cd frontend && npx tsc --noEmit`:绿(零输出)
 - `cd frontend && npm test`(vitest run):**43 文件 / 451 用例全绿**,每个 commit 均跑过一遍
 - `npx eslint src/api.ts`:rc=0
-- 行为零变化自查:全 diff 人工过目——URL 模板字面量、init 对象(method/headers/body)、fallback 文案、encodeURIComponent 位置逐字保持;`patchAdminKey` 的 `JSON.stringify(payload)` 与原三处内联字面量产物字节相同(含 `{"sources":null}` 分支);位等价不适用(票面:前端无 bench),以测试面 + 类型面把关。
+- 行为零变化自查:全 diff 人工过目——URL 模板字面量、init 对象(method/headers/body)、fallback 文案、encodeURIComponent 位置逐字保持;`patchAdminKey` 的 `JSON.stringify(payload)` 与原三处内联字面量产物字节相同(含 `{"sources":null}` 分支);字节级一致不适用(票面:前端无 bench;旧称位等价,已退役),以测试面 + 类型面把关。
 
 ## 过程插曲(自纠)
 

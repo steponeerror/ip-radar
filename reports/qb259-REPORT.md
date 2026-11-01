@@ -9,7 +9,7 @@
 | ops/agent STANDARD.md 典章面 | 旧词→新词(改名对照真源)+ 机检挂点同步 | 2af7b060 |
 | ops/agent DESIGN.md | 旧词→新词 | 0f8bda5a |
 | agent-v2/ENVELOPE.md | 轮次信封契约→轮次结果单契约 | dce6221c |
-| agent-v2/SHADOW-RUNBOOK.md | 位等价→字节级一致、信封→结果单 | 806429d1 |
+| agent-v2/SHADOW-RUNBOOK.md | 字节级一致(原名位等价,已退役)、信封→结果单 | 806429d1 |
 | agent-v2 代码注释位 | 等价→字节级一致、金轨迹→保活任务、兑底→兜底 | 94c5918b |
 | prompts 六件 + selftest.sh 钉子 | 旧词→新词 + 提示词钉子同步 | c825846d |
 | deploy/ops-cron.md 等 7 处 | 失败信封→失败结果单等 | 4ae71d48 |
@@ -30,6 +30,14 @@
 - fixtures/precedents/2026-10-24 历史判例中的「信封纪律」按历史引文保留。
 - deploy/ops-shadow-cron.sh:19/:30/:72 注释仍存旧称。
 - 拒用闸 LIVING_DOCS 尚未纳入 ops/*.md 扫描面(test_glossary_anchors.py:162 注释已同步本批状态);扩面前先清 fixtures/pipeline/README.md:50。
+
+> #269 评审环(B/C 角)延后账补录(2026-11-01,五项):
+
+- selftest-*.mjs 标签/测名面旧词(selftest-t4.mjs ~26 行、selftest-contract.mjs ~10 行、selftest-pipeline.mjs 各测名/断言文案;部分与冻结输出串耦合,清理须连重跑对拍)。
+- 后端基线既有注释 backend/ipdb/_alerts.py:75/:191/:256/:259「位等价」×4(基线预存,非本批引入)。
+- scripts/fusion_replay_gate.py「语料」~20 处(回放数据义)、scripts/monthly_eval.sh:16/:223 模块自称「真值语料 v2」。
+- v1 旧词计数修正:上录「agent v1 代码注释 ~20 处」不止——含 selftest-pipeline.mjs 标签 ~13、golden/cases.json ~20、steps/gates/anchors.mjs,合计 50+。
+- fixtures/pipeline/README.md 除 :50 外再补两处已知答案义漂变形::14「罐装锚巡检」、:22「锚集镜像/锚集真源」。
 
 ## 收口补刀(STANDARD.md :103/:106)
 
