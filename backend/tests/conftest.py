@@ -140,3 +140,18 @@ def rate_limit_off():
     _ratelimit.limiter.enabled = False
     yield
     _ratelimit.limiter.enabled = False
+
+
+# ── eval env 钉住(全套件 autouse;truth-v2 终审 P2 合一)──
+# eval 面(CLI/装配函数)在 import 期快照解析 IP_RADAR_EVAL_ENV /
+# IP_RADAR_EVAL_DIR,ambient 非法值(如空串,跑过月轮命令的 shell 常见)
+# 会让测试假红。autouse 先删这两个变量,测试函数期对 shell 环境零依赖
+# ——注意是「函数期」(评审环条目 4h 改口): 收集期模块 import 发生在
+# 本 fixture 之前, import 期冻结的模块常量(REPORT_DIR)不在保护范围,
+# 模块级代码不得读这两个变量(需要的测试都在函数内 import/monkeypatch)。
+# 原为三个 truth_v2 测试文件各持一份(T2 评审 P2-1),终审 P2 收敛于此。
+# 需要设值的测试在用例内 monkeypatch.setenv 即可(在 fixture 之后生效)。
+@pytest.fixture(autouse=True)
+def _pin_env(monkeypatch):
+    monkeypatch.delenv("IP_RADAR_EVAL_ENV", raising=False)
+    monkeypatch.delenv("IP_RADAR_EVAL_DIR", raising=False)

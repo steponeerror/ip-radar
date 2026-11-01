@@ -278,6 +278,23 @@ def load_anchor_green(model_dir: Path) -> list[dict]:
     return out
 
 
+def load_truth_v2_readout(model_dir: Path) -> dict | None:
+    """v2 附录读数腿工件最新一件: truth-v2-readout-*.json 按文件名 ts
+    升序扫描取末次(月轮真实序: --truth-v2-readout 腿先于 --readout 落
+    model/, 本轮件 = 最新一件; load_anchor_green 同律)。坏 JSON 跳过
+    不炸(load_prev_northstar 宽容律);无件 → None(附录渲染 N/A 哨兵,
+    缺读数不静默省略, issue #261 验收线)。"""
+    prev = None
+    for p in sorted(Path(model_dir).glob("truth-v2-readout-*.json")):
+        try:
+            d = json.loads(p.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError, ValueError):
+            continue
+        if isinstance(d, dict):
+            prev = d  # 文件名升序扫描 → 末次赋值即最新
+    return prev
+
+
 def load_prev_northstar(out_dir: Path, run_id: str) -> dict | None:
     """上轮北星件: <out_dir>/northstar-*.json 排除本轮工件
     (northstar-{run_id}.json, 同 run 重跑不喂自身环比)后的最新一件;
@@ -551,7 +568,8 @@ def compose_monthly_md(readout: dict, disclosures_lines: list[str],
                        header_meta: dict,
                        steal_parking_lines: list[str] | None = None,
                        north_star_lines: list[str] | None = None,
-                       leg_status_lines: list[str] | None = None) -> str:
+                       leg_status_lines: list[str] | None = None,
+                       truth_v2_lines: list[str] | None = None) -> str:
     """组装月轮报告 v2 markdown。头块 = 环境指纹 + 语料版本/指纹逐层 +
     S12/S17 换版注记(仅稳定层指纹实变才出, F2 趋势纪律; 共识代理层=
     滚动语料豁免, 声明行交代)+ S6 年度递减计数 +
@@ -562,7 +580,9 @@ def compose_monthly_md(readout: dict, disclosures_lines: list[str],
     (#185 E-5, north_star_lines 缺省 None 不出, schema-stable; 只观测
     不持门 —— 无阈值无门语义, 行文自带声明)/腿级状态行(#193 C5,
     leg_status_lines 缺省 None 不出, schema-stable; 腿级红随工件可见,
-    红态外显靠月轮壳结尾聚合退出码)。F1: 无任何总分列。"""
+    红态外显靠月轮壳结尾聚合退出码)/真值语料 v2 附录节(#261 T2,
+    truth_v2_lines 缺省 None 不出 schema-stable; run_readout 恒传——
+    缺件/哨兵态渲染 N/A 哨兵不静默省略)。F1: 无任何总分列。"""
     lines: list[str] = ["# 月轮读数报告 v2", ""]
     lines.append(f"- 环境指纹(eval_env): {header_meta.get('eval_env', '—')}")
     corpus = header_meta.get("corpus") or {}
@@ -665,6 +685,11 @@ def compose_monthly_md(readout: dict, disclosures_lines: list[str],
               *consensus_diag_lines]
     if steal_parking_lines:  # S34 偷泊列: Q22 行之后, 只报人裁
         lines += steal_parking_lines
+    if truth_v2_lines:
+        # 真值语料 v2 附录节(#261 T2, ADR 0017 §4): 只观测不持门,
+        # 主判定权仍归 Hornet;run_readout 恒传(缺件/哨兵态渲染 N/A
+        # 哨兵不静默省略), 直接调用方缺省 None 不出(schema-stable)
+        lines += ["", *truth_v2_lines]
 
     # 声明 r(report.py 脚注纪律同款斜体行): 测量建言, 人裁终局
     lines += ["", "_声明 r: 本报告为测量建言,人裁终局;读数不自动触发任何"

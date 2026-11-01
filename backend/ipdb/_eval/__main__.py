@@ -366,7 +366,7 @@ def run_readout(registry, out_dir, *, assets_dir=None, keysets_dir=None,
                           load_discover_proposals, load_dispositions,
                           load_leg_status, load_prev_northstar,
                           northstar_record, render_anchor_oc,
-                          render_consensus_diag, render_leg_status,
+                          load_truth_v2_readout, render_consensus_diag, render_leg_status,
                           render_northstar, render_scorecard,
                           render_steal_parking_diag)
     from .._ops_store import ops_root  # #210 T4:发现轨北星读面 ops 树根(单源)
@@ -463,6 +463,13 @@ def run_readout(registry, out_dir, *, assets_dir=None, keysets_dir=None,
     # 此处渲染进月报 —— 腿级红随工件可见(_alerts 只认心跳 mtime, 红态
     # 必须长在工件里); 无件(首轮/手工跑)不出该节, schema-stable
     leg_status_lines = render_leg_status(load_leg_status(out_dir)) or None
+    # v2 附录节(#261 T2, ADR 0017 §4): 读最新腿工件嵌月报(件先于月报
+    # 落盘, northstar 读 anchors 工件同律);主判定分离 —— 本管线只读
+    # 附录工件、永不直读 truth-v2 语料件(删语料件月报字节不变, 负例
+    # 测试钉住);缺件 → None → 渲染 N/A 哨兵不静默省略。
+    from .truth_v2_readout import render_truth_v2_appendix
+    truth_v2_lines = render_truth_v2_appendix(
+        load_truth_v2_readout(out_dir / "model"))
     items = compose_action_block(readout, prev_items, dispositions, today)
 
     model_dir = out_dir / "model"
@@ -492,7 +499,8 @@ def run_readout(registry, out_dir, *, assets_dir=None, keysets_dir=None,
          "today": today, "epsilon": eps},
         steal_parking_lines=render_steal_parking_diag(keysets_root),
         north_star_lines=north_star_lines,
-        leg_status_lines=leg_status_lines)
+        leg_status_lines=leg_status_lines,
+        truth_v2_lines=truth_v2_lines)
     md_path = out_dir / f"monthly-{run_id}.md"
     md_path.write_text(md, encoding="utf-8")
     (out_dir / "action-block.json").write_text(json.dumps(
@@ -532,10 +540,40 @@ def main(argv=None):
                         "误报率(census+CP95)+扫描锚召回(scanner_ranges "
                         "leave-out,段成员稳定采样);只测量不持门,落 "
                         "model/anchor-fp-<ts>.json + scanner-recall-<ts>.json")
+    p.add_argument("--truth-v2-readout", action="store_true",
+                   help="真值语料 v2 读数腿(ADR 0017 §4 §5/#261 T2+T3):"
+                        "①附录读数——对出版 v2 语料逐成员查池, 试算 θ̂ 与"
+                        "独有指控核查, 落 model/truth-v2-readout-<ts>.json, "
+                        "月报 readout 腿读最新件嵌附录节;②并排对照——同轮"
+                        "对 Hornet 现行卷与 v2 卷各实算 θ̂/k 记分+32 锚回归"
+                        "(#262), 落 model/truth-v2-parallel-<ts>.json;③换卷"
+                        "触发判定——逐轮锚回归工件判连续两轮全绿(人裁执行"
+                        "不自动换), 落 model/truth-v2-swap-<ts>.json。全部只"
+                        "观测不持门(缺件/哨兵态 rc 恒 0 渲染 N/A, 工件照写)")
     p.add_argument("--dsem", action="store_true",
                    help="DS-EM fair fight: market vs declared vs pi-hat T3 (advisory)")
     p.add_argument("--temporal", action="store_true",
                    help="λ_s prequential confirmation rate over model history (W1)")
+    p.add_argument("--truth-v2", action="store_true",
+                   help="真值语料 v2 构建器(ADR 0017/#260 T1): 周快照 CSV"
+                        "→ 90 天滚动窗→清洗链→组件闸→版本化双 pin 资产;"
+                        "纯文件零网络, 产物落 report_dir/truth-v2/<version>/;"
+                        "全部组件不过闸→哨兵 status.json 不 raise;published/"
+                        "哨兵两态均落 model/truth-v2-build-<ts>.json 摘要件"
+                        "(月轮报告族写者, #262 T3 接线)")
+    p.add_argument("--truth-v2-component", action="append", default=None,
+                   metavar="NAME=DIR",
+                   help="真值组件(可重复): smallbox=<周快照目录>; honyport "
+                        "CSV 已落地同名机制并入(#265, ADR 0017 §2)")
+    p.add_argument("--ops-allowlist", default=None, metavar="PATH",
+                   help="自家运维源白名单(一行一个 v4; ADR 0017 §8);"
+                        "缺省 = 无白名单")
+    p.add_argument("--scanner-csv", default=None, metavar="PATH",
+                   help="scanner_ranges.csv 路径(缺省 <data_dir>/"
+                        "scanner_ranges.csv; 缺件 raise 不静默缩水)")
+    p.add_argument("--rir-dir", default=None, metavar="DIR",
+                   help="rir_delegated 数据面目录(缺省 <data_dir>/"
+                        "rir_delegated; 滚动 cutoff 用, ADR 0017 §6)")
     p.add_argument("--demand", action="store_true",
                    help="答案率探针:双队列(舰队语料+随机可路由)per-field "
                         "answer-rate(罗盘批 2026-10-10,discover Step 1 四输入之一)")
@@ -607,6 +645,83 @@ def main(argv=None):
               f"vs below λ={fmt(pre['below']['lam'])}, "
               f"Fisher p={pre['fisher_p']:.4f}, direction={pre['direction']}")
         print(f"  report: {rep.get('report_path')}")
+        return
+
+    # ── --truth-v2 真值语料 v2 构建器(ADR 0017/#260 T1)──────────
+    # 纯文件面(周快照 CSV + rir 数据面 + scanner csv), 不碰 registry/
+    # DB → 前置于 load_db(--temporal 同律);坏输入族(缺件/坏快照/坏
+    # 组件拼写)→ §5.2 信封 rc=2(--matrix-scan 先例);全部组件不过闸 =
+    # 合法读数(哨兵件), rc 恒 0(ADR 0017 §4: 不足=不装配不 raise)。
+    if args.truth_v2:
+        from .truth_v2 import run_truth_v2
+        comps: dict[str, Path] = {}
+        for spec in args.truth_v2_component or []:
+            name, eq, d = spec.partition("=")
+            if not eq or not name or not d:
+                msg = (f"bad --truth-v2-component {spec!r}: 期望 NAME=DIR")
+                if args.json:
+                    _json_error("truth_v2_failed", msg,
+                                "例: --truth-v2-component smallbox=dev/truth-v2/snapshots",
+                                rc=2)
+                print(f"拒绝: {msg}", file=sys.stderr)
+                sys.exit(2)
+            if name in comps:
+                msg = f"duplicate --truth-v2-component {name!r}"
+                if args.json:
+                    _json_error("truth_v2_failed", msg,
+                                "每组件只传一次", rc=2)
+                print(f"拒绝: {msg}", file=sys.stderr)
+                sys.exit(2)
+            comps[name] = Path(d)
+        data_dir = registry_data_dir()
+        try:
+            res = run_truth_v2(
+                comps,
+                rir_dir=(Path(args.rir_dir) if args.rir_dir
+                         else data_dir / "rir_delegated"),
+                scanner_csv=(Path(args.scanner_csv) if args.scanner_csv
+                             else data_dir / "scanner_ranges.csv"),
+                allowlist=(Path(args.ops_allowlist)
+                           if args.ops_allowlist else None),
+                out_root=report_dir() / "truth-v2",   # 产物按 report_dir 约定
+                eval_env=eval_env())
+        except (ValueError, OSError) as e:
+            if args.json:
+                _json_error("truth_v2_failed", str(e),
+                            "核对快照/rir/scanner 输入路径与文件格式", rc=2)
+            print(f"拒绝: {e}", file=sys.stderr)
+            sys.exit(2)
+        if args.json:
+            print(json.dumps(res, ensure_ascii=False, indent=1))
+        else:
+            gate = ", ".join(
+                f"{n}:{'pass' if st['gate_passed'] else 'FAIL'}"
+                f"({st['member_count']})" for n, st in res["components"].items())
+            print(f"truth-v2: {res['status']} version={res['version']} "
+                  f"members={res['member_count']} "
+                  f"window={res['window']['start']}..{res['window']['end']}")
+            print(f"  component-gate(≥1000): {gate}")
+            print(f"  out: {res['out_dir'] if 'out_dir' in res else res['asset_dir']}")
+        # 构建腿摘要件(monthly_eval.sh 报告族写者, #262 T3 接线):
+        # published/哨兵两态恒落 model/truth-v2-build-<ts>.json —— 写者
+        # 身份≠门身份, rc 恒 0 语义不变;坏输入族早退(rc=2)不落件 =
+        # 族缺员即死把关, 与 anchor-readouts「崩溃即工件缺席」同语义。
+        import datetime as _dt
+        d = report_dir() / "model"
+        d.mkdir(parents=True, exist_ok=True)
+        ts = _dt.datetime.now(_dt.timezone.utc).strftime("%Y%m%d-%H%M%S")
+        build_art = d / f"truth-v2-build-{ts}.json"
+        build_art.write_text(json.dumps(
+            {"kind": "truth_v2_build", "eval_env": eval_env(),
+             "generated_utc": _dt.datetime.now(
+                 _dt.timezone.utc).isoformat(timespec="seconds"),
+             **{k: v for k, v in res.items()
+                if k in ("status", "version", "member_count", "window",
+                         "components")},
+             "out": str(res["out_dir"]) if "out_dir" in res
+             else str(res["asset_dir"])},
+            ensure_ascii=False, indent=1), encoding="utf-8")
+        print(f"  artifact: {build_art}")
         return
 
     registry = _real_registry()
@@ -811,6 +926,64 @@ def main(argv=None):
             else:
                 print("scanner-recall: scanner_ranges CSV 缺失——"
                       "显式缺层不报 0")
+        return
+    if args.truth_v2_readout:
+        # v2 读数腿(#261 T2 + #262 T3): 只观测不持门 —— 无阈值、不进
+        # 回归族、缺件/哨兵态 rc 恒 0(观测腿律)。一腿三工件(anchor-
+        # readouts 一腿双工件先例): ①附录读数 model/truth-v2-readout-
+        # <ts>.json(run_readout 读最新件嵌月报附录节, northstar 读 anchors
+        # 工件同律: 件先于月报落盘);②并排对照 model/truth-v2-parallel-
+        # <ts>.json(同轮 Hornet/v2 双卷实算 + 32 锚回归单跑共用);③换卷
+        # 触发判定 model/truth-v2-swap-<ts>.json(输入=逐轮锚回归工件,
+        # 判定不触发任何自动动作, 人裁执行)。构建/读数两腿已入
+        # monthly_eval.sh LEG_ORDER(2026-11-01 #262 T3 接线, 腿序注释
+        # 见彼处)。坏出版件照炸 = 操作失败族(不装假零, sinkhole_probe
+        # 同款立场)。
+        from .truth_v2_readout import run_truth_v2_readout
+        from .truth_v2_parallel import run_truth_v2_parallel, run_truth_v2_swap
+        # report_dir() call-time 解析(REPORT_DIR 常量 import 期冻结,
+        # 测试 monkeypatch env 后常量不会跟着变 —— truth-v2 构建器 handler
+        # 同律)
+        rd = report_dir()
+        res = run_truth_v2_readout(registry, out_dir=rd)
+        par = run_truth_v2_parallel(
+            registry, out_dir=rd,
+            assets_root=(Path(args.assets_dir) if args.assets_dir
+                         else None))
+        swap = run_truth_v2_swap(
+            rd / "model", out_dir=rd,
+            assets_root=(Path(args.assets_dir) if args.assets_dir
+                         else None))
+        if args.json:
+            print(json.dumps({"readout": res, "parallel": par, "swap": swap},
+                             ensure_ascii=False, indent=1))
+        else:
+            r = res.get("readout") or {}
+            if res["status"] == "published":
+                th = r["theta_hat_pool"]
+                th_s = (f"{th['value']:.4f}" if th["value"] is not None
+                        else "N/A")
+                print(f"truth-v2-readout: {res['status']} "
+                      f"version={res['corpus']['version']} "
+                      f"members={res['corpus']['member_count']} "
+                      f"hits={r['hits']}/{res['corpus']['member_count']} "
+                      f"θ̂试算={th_s} 独证={len(r['unique_accusations'])} "
+                      f"全池无指控={len(r['blind_spots'])}(只观测不持门)")
+            else:
+                print(f"truth-v2-readout: {res['status']} → "
+                      f"附录 N/A(只观测不持门)")
+            print(f"  artifact: {res.get('artifact')}")
+            a = par["anchors"]
+            print(f"truth-v2-parallel: hornet={par['hornet']['status']} "
+                  f"v2={par['v2']['status']} 锚回归="
+                  f"{a['n_total'] - a['n_fail']}/{a['n_total']}"
+                  f"(引擎判定门同轮单跑两卷共用;对照只观测不持门)")
+            print(f"  artifact: {par.get('artifact')}")
+            print(f"truth-v2-swap: 触发条件"
+                  f"{'满足' if swap['trigger_met'] else '不满足'}"
+                  f"({swap['rounds_seen']} 轮锚回归在案;人裁执行, "
+                  f"判定不触发自动动作)")
+            print(f"  artifact: {swap.get('artifact')}")
         return
     if args.dsem:
         from ipdb._merge import SOURCE_RELIABILITY

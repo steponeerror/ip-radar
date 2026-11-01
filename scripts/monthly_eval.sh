@@ -5,13 +5,20 @@
 # backend/data/eval/monthly/ 累积历史的副本上跑(仓主 worktree 即有;干净
 # worktree 会断供致 rc=2 insufficient rounds 且不落工件,报告族被拒)。
 # 流程:① 守卫(须在 master 且工作区 clean)② rsync 生产 volume 镜像到本地
-# ③ 镜像 manifest 守卫(S7: 塕缩即止, 先于读数)④ 十连 eval 命令
+# (+truth-v2 周快照面拉取, ADR 0017 T0 采集器/#262 T3 接线;+honyport
+# 日 CSV 面拉取, ADR 0017 §2 第二组件/issue #265)
+# ③ 镜像 manifest 守卫(S7: 塕缩即止, 先于读数)④ 十二连 eval 命令
 # (--model 先落盘本轮;--audit/--anchors 只读 model 历史但各落己件
 # audit-*/anchors-*.json(Phase 2 T8,清偿 Phase 1 T14 缓议);--agg-share
 # 印证对聚合器占比披露(#183/spec #180 Q4,只测量不持门 exit 恒 0,落
 # model/agg-share-*.json);--sinkhole-probe 污染探针+#233 锚读数族
 # 双读数(ADR 0013,只测量不持门,落 model/sinkhole-probe-*.json +
-# anchor-fp-*.json + scanner-recall-*.json);--temporal 读
+# anchor-fp-*.json + scanner-recall-*.json);--truth-v2 真值语料 v2
+# 构建腿(ADR 0017/#262 T3 接线,周快照→滚动窗→组件闸→版本化双 pin,
+# published/哨兵两态均落 model/truth-v2-build-*.json);--truth-v2-readout
+# v2 读数腿一腿三工件(#261 T2 附录读数 + #262 T3 并排对照 + 换卷触发
+# 判定,均只观测不持门,落 model/truth-v2-{readout,parallel,swap}-*.json);
+# --temporal 读
 # 历史落 temporal-*.json;--readout
 # 组合四层读数管线出月报 monthly-*.md + action-block.json + northstar-*.json
 # (#185 能力轨北星记录,只观测不持门))
@@ -94,6 +101,65 @@ if [ "$DRY_RUN" != 1 ]; then
   [ "$rc" = 24 ] && echo "-- rsync rc=24(源侧活动文件消失,活镜像可容忍)"
 fi
 
+# ── truth-v2 周快照面拉取(ADR 0017 T0 采集器 / #262 T3 接线):小机
+# auth.log 周快照在服务器 /opt/ip-truth-capture/(卷外, 周日 04:17 cron),
+# 单独拉到本地镜像供 --truth-v2 构建腿消费;rc 容忍与卷镜像同律
+# (rc=24 源侧活文件消失良性)。采集断供 → 构建腿 rc=2 坏输入族
+# fail-loud(不静默跳过: 真值层断供是采集健康事故, 须人见)。
+TRUTH_V2_CAPTURE_DIR="$(realpath -m "${TRUTH_V2_CAPTURE_DIR:-$DATA_DIR/truth-v2-capture}")"
+RSYNC_TV2_SRC="$PROD_HOST:/opt/ip-truth-capture/"
+echo
+echo "==> rsync(truth-v2 快照面): $RSYNC_TV2_SRC -> $TRUTH_V2_CAPTURE_DIR/"
+if [ "$DRY_RUN" != 1 ]; then
+  mkdir -p "$TRUTH_V2_CAPTURE_DIR"
+  rsync -az --partial --info=progress2 "$RSYNC_TV2_SRC" "$TRUTH_V2_CAPTURE_DIR/" && rc=0 || rc=$?
+  if [ "$rc" != 0 ] && [ "$rc" != 24 ]; then
+    echo "拒绝: truth-v2 快照面 rsync 失败 (rc=$rc)" >&2; exit 1
+  fi
+  [ "$rc" = 24 ] && echo "-- rsync rc=24(源侧活动文件消失,活镜像可容忍)"
+fi
+
+# ── honyport 日 CSV 面拉取(issue #265, ADR 0017 §2 第二组件):服务器
+# /opt/honyport/out/ 蜜罐舰队日 CSV(表头 ip,service,protocol,events,
+# first_seen,last_seen, 文件名 honeypot_attackers-<YYYY-MM-DD>.csv)。与
+# 快照面的差异: 远端目录缺席 = 合法态(数据未到/舰队未上线), 跳过拉取
+# 且不传 honyport 组件参数 —— 组件闸哨兵吸收起步个位数 IP(#265 验收线
+# 「缺目录=哨兵不持死」);目录在场则 rsync 容忍规则与快照面同律(rc=24
+# 良性), 其余非零照 fail-loud。探测用 ssh test -d: rc=255(ssh 自身连
+# 接/认证失败)与目录缺席(rc=1)分开 —— 网络断不得伪装成哨兵态静默
+# 跳过(静默缩水)。
+HONYPORT_CSV_DIR="$(realpath -m "${TRUTH_V2_HONYPORT_DIR:-$DATA_DIR/truth-v2-honyport}")"
+RSYNC_HP_SRC="$PROD_HOST:/opt/honyport/out/"
+HP_COMPONENT_ARG=()   # 远端目录在场才填充;空 = truth-v2 腿只跑 smallbox
+                      # (展开处用 ${A[@]+"${A[@]}"} 形: bash<4.4 set -u 下空
+                      #  数组裸展开报 unbound variable, 评审环条目 5a)
+if [ "$DRY_RUN" = 1 ]; then
+  echo
+  echo "==> rsync(honyport 日 CSV 面): $RSYNC_HP_SRC -> $HONYPORT_CSV_DIR/"
+  echo "  [dry-run] 实跑时先 ssh 探测远端 /opt/honyport/out:在场→rsync+传"
+  echo "  honyport 组件参数;缺席→只跑 smallbox(哨兵态不持死,#265)"
+else
+  hp_probe_rc=0
+  ssh "$PROD_HOST" test -d /opt/honyport/out 2>/dev/null || hp_probe_rc=$?
+  if [ "$hp_probe_rc" = 255 ]; then
+    echo "拒绝: honyport 面探测 ssh 失败(rc=255, 连接/认证)" >&2; exit 1
+  elif [ "$hp_probe_rc" != 0 ]; then
+    echo
+    echo "==> honyport 面: 远端 /opt/honyport/out 缺席, 不接 honyport 组件"
+    echo "    (合法哨兵态不持死: 数据未到, 组件闸哨兵吸收;#265/ADR 0017 §2)"
+  else
+    echo
+    echo "==> rsync(honyport 日 CSV 面): $RSYNC_HP_SRC -> $HONYPORT_CSV_DIR/"
+    mkdir -p "$HONYPORT_CSV_DIR"
+    rsync -az --partial --info=progress2 "$RSYNC_HP_SRC" "$HONYPORT_CSV_DIR/" && rc=0 || rc=$?
+    if [ "$rc" != 0 ] && [ "$rc" != 24 ]; then
+      echo "拒绝: honyport 日 CSV 面 rsync 失败 (rc=$rc)" >&2; exit 1
+    fi
+    [ "$rc" = 24 ] && echo "-- rsync rc=24(源侧活动文件消失,活镜像可容忍)"
+    HP_COMPONENT_ARG=(--truth-v2-component "honyport=$HONYPORT_CSV_DIR")
+  fi
+fi
+
 # 守卫序(S7): rsync 后、读数前校验 manifest(文件数+字节+epoch 指纹+抽样
 # sha256);源塔缩(binarydefense 6347→382 式)或半截 rsync → 退出非零,
 # set -e 在任何 eval 读数前中止。manifest 只在通过时落盘,失败保留旧档
@@ -122,7 +188,19 @@ REPORT_ROOT="$REPO/backend/data/eval/monthly"
 # 新腿均不读 model 历史 → 置于历史读者(audit/temporal)之前,readout
 # 组装面殿后不变。两腿均不进判定门(只测量,exit 恒 0;红=崩溃即
 # 工件缺席,报告族缺员即死把关)。
-LEG_ORDER=(model all anchors dsem agg-share sinkhole-probe anchor-readouts audit temporal readout)
+# ── #262 T3(ADR 0017):truth-v2 构建/读数两腿入序。位置:构建腿在
+# 读数腿前(其产物 = 读数腿输入);读数腿在 anchors 判定门后(换卷
+# 触发判定读逐轮 anchors-*.json 工件, 须见本轮件)、历史读者
+# (audit/temporal)前(#233 T4 同律: 不读 model 历史的新观测腿前置)。
+# 零持门不变:两腿 rc 恒 0 语义照旧(缺件/哨兵态工件照写);红=崩溃
+# 即工件缺席,报告族缺员即死把关(与 sinkhole-probe/anchor-readouts
+# 同语义)。入族的真实成本 = LEG_ORDER 与写者计数/文档同步(#261 评审
+# P2-2 措辞照准确机制: 观测腿在合法缺数据态也落件,不存在「缺件持
+# 死」;只有崩溃(如采集面断供)才缺件即死——那正是要人见的事)。
+# honyport 日 CSV 面已接线(#265): 远端 /opt/honyport/out 在场才传
+# --truth-v2-component honyport=<dir>(上文 rsync 面填充 HP_COMPONENT_ARG);
+# 缺席 = 只跑 smallbox, 组件闸哨兵吸收不持死(ADR 0017 §2;§7: 永不入池)。
+LEG_ORDER=(model all anchors dsem agg-share sinkhole-probe anchor-readouts truth-v2 truth-v2-readout audit temporal readout)
 declare -A LEG_RC=()
 for _leg in "${LEG_ORDER[@]}"; do LEG_RC[$_leg]=0; done
 run_step model    --model    || LEG_RC[model]=$?      # 舰队模型+验收套件(model-*.json)
@@ -135,6 +213,15 @@ run_step sinkhole-probe --sinkhole-probe || LEG_RC[sinkhole-probe]=$?  # 污染�
 # 工件的 n_self_echo 应>0(dev 库 0=数据条件非机制失效;机制由 T3 单测钉,
 # 读数留痕 model/scanner-recall-*.json,首跑后人工核对该件)。
 run_step anchor-readouts --anchor-readouts || LEG_RC[anchor-readouts]=$?  # 锚读数族双读数(#233 T3/ADR 0013;只测量不持门,一腿双工件 anchor-fp+scanner-recall;scanner_ranges CSV 缺失→missing 形状照写照绿=缺层≠0)
+# 快照面默认 = 本地镜像内 truth-v2-capture/(上文 rsync 拉取);
+# rir/scanner 缺省 <data_dir>/ 镜像内既有件(与三闸 ops 面同源);
+# honyport 组件(#265): 远端目录在场才传(HP_COMPONENT_ARG, 上文填充)。
+run_step truth-v2 --truth-v2 \
+  --truth-v2-component "smallbox=$TRUTH_V2_CAPTURE_DIR/snapshots" \
+  ${HP_COMPONENT_ARG[@]+"${HP_COMPONENT_ARG[@]}"} \
+  --ops-allowlist "$TRUTH_V2_CAPTURE_DIR/ops_allowlist.txt" \
+  || LEG_RC[truth-v2]=$?  # 真值语料 v2 构建腿(ADR 0017/#260 T1;published/哨兵两态均落 model/truth-v2-build-*.json + report_dir/truth-v2/<version>/)
+run_step truth-v2-readout --truth-v2-readout || LEG_RC[truth-v2-readout]=$?  # v2 读数腿一腿三工件(#261 T2 附录 + #262 T3 并排对照/换卷触发;只观测不持门)
 run_step audit    --audit    || LEG_RC[audit]=$?      # 谱系前向流审计(读 model 历史)
 run_step temporal --temporal || LEG_RC[temporal]=$?   # λ_s 确认率(读 model 历史,须 ≥2 轮)
 
@@ -190,7 +277,10 @@ done
 # 面的对称律:观测件不得触活族门,族员工件缺席仍是死)。
 # sinkhole-probe/anchor-readouts 同律入族(#233 T4,ADR 0013 只测量不
 # 持门;anchor-readouts 一腿双工件,anchor-fp 与 scanner-recall 两件
-# 均须本轮在场)。
+# 均须本轮在场)。truth-v2 构建腿与 v2 读数腿同律入族(#262 T3,ADR
+# 0017 只测量不持门: 构建腿 published/哨兵两态均落 truth-v2-build 件;
+# 读数腿一腿三工件 readout/parallel/swap 均恒落——观测腿在合法缺
+# 数据态也落件,不存在「缺件持死」,缺员即死只辖崩溃事故)。
 # 缺员即死(半途中止=死,不推心跳)。心跳落生产 volume,生产侧
 # _alerts 只认文件 mtime(IP_RADAR_EVAL_HEARTBEAT,>35d 告警;时基
 # 独立 S6,不信管线自报)。
@@ -217,11 +307,11 @@ check_family() {  # check_family <label> <subdir> <name-pattern> [排除pattern.
   fi
 }
 echo
-# 报告族 10 写者(能力轨北星件 #185 与 monthly-*.md 同腿先写、只观测
+# 报告族 12 写者(能力轨北星件 #185 与 monthly-*.md 同腿先写、只观测
 # 不持门, 不另设族员):model/dsem/agg-share/sinkhole-probe/
-# anchor-readouts/audit/anchors 落 model/ 子目录,
-# all/temporal/readout 落报告根(monthly-*.md 缺月轮读数即缺员)。
-echo "==> 报告族齐全校验(model/all/anchors/dsem/agg-share/sinkhole-probe/anchor-readouts/audit/temporal/readout)"
+# anchor-readouts/truth-v2/truth-v2-readout/audit/anchors 落 model/
+# 子目录,all/temporal/readout 落报告根(monthly-*.md 缺月轮读数即缺员)。
+echo "==> 报告族齐全校验(model/all/anchors/dsem/agg-share/sinkhole-probe/anchor-readouts/truth-v2/truth-v2-readout/audit/temporal/readout)"
 check_family model    model 'model-*.json'
 # all 腿排除: temporal-*/northstar-* 同带 ts 后缀形状但不属逐源 verdict
 # 件 —— northstar(#185 能力轨观测件)若不排除, 会顶替 all 腿满足校验
@@ -234,6 +324,12 @@ check_family sinkhole-probe model 'sinkhole-probe-*.json'
 # anchor-readouts 一腿双工件:两件分别验在场(缺任一=族缺员)
 check_family anchor-readouts model 'anchor-fp-*.json'
 check_family anchor-readouts model 'scanner-recall-*.json'
+# truth-v2 构建腿: 摘要件恒在(published/哨兵两态均落;崩溃=缺员即死)
+check_family truth-v2 model 'truth-v2-build-*.json'
+# v2 读数腿一腿三工件: 三件分别验在场(缺任一=族缺员)
+check_family truth-v2-readout model 'truth-v2-readout-*.json'
+check_family truth-v2-readout model 'truth-v2-parallel-*.json'
+check_family truth-v2-readout model 'truth-v2-swap-*.json'
 check_family audit    model 'audit-*.json'
 check_family temporal ''     'temporal-*.json'
 check_family readout  ''     'monthly-*.md'
