@@ -391,6 +391,31 @@ export interface SourceInfo {
   health: SourceHealth;
 }
 
+// ── 取数助手(票 #257 折并)──
+// 同形取数样板「fetch → 非 ok 抛信封错 → 按形状取结果」曾逐字拷贝 34 处
+// (dryer 0.82 阈值报 23 对,2026-10-31 普查,票 #257),收编为两个助手:
+//   requestJson —— 返回 JSON body 的端点;
+//   requestVoid —— 成功无 body 的控制端点(204)。void 端点不读 json():
+//                  空 body 会抛 SyntaxError,故与 requestJson 分立。
+// init 为 undefined 时保持单参 fetch(url)——既有测试按此调用形状断言
+// (TaskProvider 重同步钉 /api/tasks 单参、ops 面钉 calls[0][1] undefined)。
+// 语义不同不收编(见各自注释):apiFetch 演示头通道(getDbStatus/流式)、
+// blob 下载、202/409 同吃、adminMe 401→null 降级、adminLogout 静默容错。
+async function requestJson<T>(
+  url: string,
+  init: RequestInit | undefined,
+  fallback: string,
+): Promise<T> {
+  const res = init === undefined ? await fetch(url) : await fetch(url, init);
+  if (!res.ok) return throwApiError(res, fallback);
+  return res.json();
+}
+
+async function requestVoid(url: string, init: RequestInit, fallback: string): Promise<void> {
+  const res = await fetch(url, init);
+  if (!res.ok) return throwApiError(res, fallback);
+}
+
 async function jsonOrThrow(res: Response, fallback: string) {
   if (!res.ok) return throwApiError(res, fallback);
   return res.json();
@@ -472,43 +497,37 @@ export interface TasksSnapshot {
 }
 
 export async function getTasks(): Promise<TasksSnapshot> {
-  const res = await fetch("/api/tasks");
-  if (!res.ok) return throwApiError(res, "Failed to load tasks");
-  return res.json();
+  return requestJson("/api/tasks", undefined, "Failed to load tasks");
 }
 
 export async function enqueueBatch(): Promise<{ batch_id: string | null; refreshed?: number }> {
-  const res = await fetch("/api/update-db", { method: "POST" });
-  if (!res.ok) return throwApiError(res, "Failed to start batch");
-  return res.json();
+  return requestJson("/api/update-db", { method: "POST" }, "Failed to start batch");
 }
 
 export async function enqueueSingle(name: string): Promise<{ task_id: string }> {
-  const res = await fetch(`/api/sources/${encodeURIComponent(name)}/update`, { method: "POST" });
-  if (!res.ok) return throwApiError(res, `Failed to update ${name}`);
-  return res.json();
+  return requestJson(
+    `/api/sources/${encodeURIComponent(name)}/update`,
+    { method: "POST" },
+    `Failed to update ${name}`,
+  );
 }
 
 // 控制类端点成功无业务 body;失败必须 reject(U7:此前非 ok 静默吞掉,
 // 按钮点击零反馈)。reject 走统一信封 throwApiError(status+code+message)。
 export async function cancelTask(id: string): Promise<void> {
-  const res = await fetch(`/api/tasks/${encodeURIComponent(id)}/cancel`, { method: "POST" });
-  if (!res.ok) return throwApiError(res, "Failed to cancel task");
+  await requestVoid(`/api/tasks/${encodeURIComponent(id)}/cancel`, { method: "POST" }, "Failed to cancel task");
 }
 
 export async function cancelBatch(): Promise<void> {
-  const res = await fetch("/api/update-db/cancel", { method: "POST" });
-  if (!res.ok) return throwApiError(res, "Failed to cancel batch");
+  await requestVoid("/api/update-db/cancel", { method: "POST" }, "Failed to cancel batch");
 }
 
 export async function pauseBatch(): Promise<void> {
-  const res = await fetch("/api/update-db/pause", { method: "POST" });
-  if (!res.ok) return throwApiError(res, "Failed to pause batch");
+  await requestVoid("/api/update-db/pause", { method: "POST" }, "Failed to pause batch");
 }
 
 export async function resumeBatch(): Promise<void> {
-  const res = await fetch("/api/update-db/resume", { method: "POST" });
-  if (!res.ok) return throwApiError(res, "Failed to resume batch");
+  await requestVoid("/api/update-db/resume", { method: "POST" }, "Failed to resume batch");
 }
 
 /**
