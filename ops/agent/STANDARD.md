@@ -100,10 +100,10 @@
 - 判例链:swarm tax 2026-05(变量不对齐的优势=伪影);114DNS 事故(cps_collected_iocs+ziyadnz 聚合器假印证,ADR 0008);对撞表独有列(工业 eval 框架均不建模源转载关系)
 
 #### D-5 预扣结算
-- 主张:预算在动作前检查(reserve 后动作、settle 对账),事后 dashboard 不构成预算控制;轮内=步前检查实报累计,月度 kill switch 与跨轮熔断已接线(P15/P16;#199 交付A readBudgetKnobs 单源/交付B breaker.mjs 跨轮态)
+- 主张:预算在动作前检查(reserve 后动作、settle 对账),事后 dashboard 不构成预算控制;轮内=预扣结算实报累计,月度 kill switch 与跨轮熔断已接线(P15/P16;#199 交付A readBudgetKnobs 单源/交付B breaker.mjs 跨轮态)
 - 原语组成:预扣结算;预算四界;跨轮熔断
 - 门挂点:ops/agent/pipeline.mjs#budget_truncate;ops/agent/tools/breaker.mjs#mkBreaker
-- 判例链:Latentism 2026-10-05(预算帽调用前检查);对撞表「若实现是事后记账则被推翻(待核)→ 轮内已核=步前检查实报」(2026-10-24 预算核验判例)
+- 判例链:Latentism 2026-10-05(预算帽调用前检查);对撞表「若实现是事后记账则被推翻(待核)→ 轮内已核=预扣结算实报(旧称步前检查,已并入 P7)」(2026-10-24 预算核验判例)
 
 #### D-6 通道错误四码
 - 主张:失败不编造——通道失败走四码结构化分类(每码自带下一步合法动作),无证据≠清白,弃权/缺口不冒充零命中;wire 漂移哨钉语法面
