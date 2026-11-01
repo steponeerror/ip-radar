@@ -381,3 +381,30 @@ def test_cli_truth_v2_bad_component_spec_fails_loud(tmp_path, monkeypatch, capsy
               "--rir-dir", str(ctx["rir_dir"]),
               "--scanner-csv", str(ctx["scanner_csv"])])
     assert ei.value.code == 2                 # 坏输入信封 rc=2(matrix_scan 同款)
+
+
+# ── 9. T1 评审 P2-1: 同月先哨兵后过闸, 版本目录只留出版三件 ────
+
+
+def test_publish_clears_stale_sentinel_same_month(tmp_path):
+    """同月先 999(哨兵)后 ≥1,000(过闸): publish 分支清掉 stale
+    status.json —— 版本目录终态 = 出版三件(ips/meta/provenance),
+    哨兵残件不得冒充「同月既 insufficient 又 published」(P2-1)。"""
+    from ipdb._eval.truth_v2 import run_truth_v2 as _run
+    ctx = _context(tmp_path, n_pass=MIN_COMPONENT_IPS - 1)
+    out_root = tmp_path / "out"
+    r1 = _run(ctx["components"], rir_dir=ctx["rir_dir"],
+              scanner_csv=ctx["scanner_csv"], allowlist=None,
+              out_root=out_root, eval_env="monthly")
+    assert r1["status"] == "insufficient"
+    vdir = out_root / r1["version"]
+    assert (vdir / "status.json").is_file()
+    # 同月补 1 IP 过闸重跑 → publish 清哨兵, 目录只剩出版三件
+    _snap(ctx["components"]["smallbox"], date(2026, 10, 31),
+          [("45.68.8.8", 11)])
+    r2 = _run(ctx["components"], rir_dir=ctx["rir_dir"],
+              scanner_csv=ctx["scanner_csv"], allowlist=None,
+              out_root=out_root, eval_env="monthly")
+    assert r2["status"] == "published"
+    assert sorted(p.name for p in vdir.iterdir()) == [
+        "ips.txt", "meta.json", "provenance.json"]

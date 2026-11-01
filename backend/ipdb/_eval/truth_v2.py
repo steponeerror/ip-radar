@@ -280,6 +280,12 @@ def run_truth_v2(components: dict[str, Path], *, rir_dir: Path,
                                for n, st in comp_stats.items()},
                 "out_dir": vdir}
 
+    # 同月先哨兵后过闸(P2-1): publish 前清 stale status.json —— 版本
+    # 目录终态只留出版三件, 哨兵残件不得冒充「同月既 insufficient 又
+    # published」(T1 评审 P2-1, issue #260 评论)
+    vdir.mkdir(parents=True, exist_ok=True)
+    (vdir / "status.json").unlink(missing_ok=True)
+
     meta = AssetMeta(
         version=version,
         kind=ASSET_KIND,
