@@ -1,7 +1,7 @@
 # Source Archetypes — 选择器 + 范例索引
 
 原型选择靠判据，代码事实靠现场发现。本文件不复述代码——每个原型给：
-判据（什么格式选它）+ 该读的真实范例（1-2 个锚点文件）+ 该 grep 的钩子。
+判据（什么格式选它）+ 该读的真实范例（1-2 个范例文件）+ 该 grep 的钩子。
 写源之前把范例文件**通读**，抄真实代码，不抄记忆中的骨架。
 
 基类现场发现（不要背清单）：
@@ -21,7 +21,7 @@ ls backend/ipdb/_sources/                        # 全部真实范例
 
 **判据：** 每行一个 IP 或 CIDR（可有 `#` 注释 / `CIDR ; note` 尾注），
 无每行元数据。多数封禁列表即此。
-**锚点范例：** 通读 `binarydefense.py`（20 行，最小完整源）；带 auth 头
+**范例文件：** 通读 `binarydefense.py`（20 行，最小完整源）；带 auth 头
 `download()` 覆写 + JSON 空数据守卫看 `abuseipdb.py`。
 **覆写面（按需）：** `grep "def " backend/ipdb/_sources/_base.py` 查看
 `parse_raw`（正则提取行）/ `get_insert_data`（非标准存储形状，罕见）/
@@ -35,7 +35,7 @@ rebuild 静默清空该源）。
 **判据：** 固定列形状 + 每行少量元数据（时间戳/计数/标签），无行级
 控制流。你只实现 `parse_row(row) -> dict | None`，读文件/IP 归一/
 按 CIDR 累积 + 全证据去重（convention 3）全由基类 `rebuild()` 做。
-**锚点范例：** 通读 `ipsum.py`（37 行，最小 CsvSource + reporter_count
+**范例文件：** 通读 `ipsum.py`（37 行，最小 CsvSource + reporter_count
 + 阈值过滤行）；富行路由（city/asn → canonical、anonymity → extra）
 看 `proxyscrape.py`。行内 per-row 分类（threat 列）目前无 CsvSource
 范例，活范例是 harvest 系的 `threatfox.py` / `urlhaus.py`。
@@ -53,7 +53,7 @@ comment 的两行是两条独立证据，都必须存活（convention 3）。
 
 **判据（灰区表，任一命中即弃简单基类）：**
 
-| 触发 | 锚点范例 |
+| 触发 | 范例文件 |
 |---|---|
 | 行过滤（按值/阈值丢弃） | `ip2proxy.py`（SES/WEB 丢弃） |
 | 条件字段路由 | `reportedip.py`（per-code 分组） |
@@ -98,7 +98,7 @@ POST/JSON-body 需手写 HTTP）。
 `rebuild()` 跨文件累积并裁决；`health()` 取跨文件 **max** mtime
 （convention 4）。历史布局是单文件时必须带 `_cleanup_legacy`（旧文件+
 LMDB sidecar 两形态：epoch 目录 rmtree、ptr/count/cov 文件 unlink）。
-**锚点范例：** 通读 `blocklist_de.py`（优先级裁决分类 + native_categories
+**范例文件：** 通读 `blocklist_de.py`（优先级裁决分类 + native_categories
 并集）；per-list tags 归属 + mtime 门控看 `firehol.py`。
 **实现后必跑：** `python scripts/audit_lmdb_invariants.py`（**从仓库根**，
 脚本在 `scripts/` 不在 `backend/`；目录源是 same-start/nested CIDR 冲突

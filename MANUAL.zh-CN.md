@@ -146,7 +146,7 @@
 
 ### Sources(默认 tab)
 
-![管理台 Sources tab:61 源、健康、r/θ 并排、开关](assets/manual/04-admin-sources.png)
+![管理台 Sources tab:61 源、健康、r/源间一致率(θ) 并排、开关](assets/manual/04-admin-sources.png)
 
 全部源一张清单,按 **Geo & ASN data / Threat intel / Asset attributes** 分组,列有:
 
@@ -154,7 +154,7 @@
 - **Covered IPs**——已加载快照覆盖的地址空间量。
 - **Updated**——上次刷新的墙钟年龄,悬停显示内容年龄与刷新节奏(`26h · every 12h`——内容年龄是上游数据的内部时间戳,才是诚实的那个)。
 - **Status**——`fresh` / `stale` / `off`。`stale` 表示刷新槽已到或逾期——多个源同时 stale 往往意味着调度器卡住或上游死了。
-- **Eval / r / θ**——两种可靠性数字并排。**r** 是声明的、生产权威的权重(手工设定,只能经人工评审 PR 变更)。**θ** 是评估程序按各源互相印证的程度算出的可靠性参考值——只展示,绝不自动写进生产权重。某源 θ 长期低于其 r 就是在超额宣称;见[生命周期章](#6-源生命周期加--评--调)。
+- **Eval / r / 源间一致率(θ)**——两种可靠性数字并排。**r** 是声明的、生产权威的权重(手工设定,只能经人工评审 PR 变更)。**源间一致率(θ)** 是评估程序按各源互相印证的程度算出的可靠性参考值——只展示,绝不自动写进生产权重。某源源间一致率(θ)长期低于其 r 就是在超额宣称;见[生命周期章](#6-源生命周期加--评--调)。
 - **Actions**——开关启停源(停用的源保留数据,但不再刷新、不再贡献);**Update** 按钮立即强制单源刷新(按钮标签就是实时状态:`Queued`、`Downloading… 42%`、`Loading…`)。
 - 顶部 **Refresh all** 把全部启用源排一次批量刷新——与 `POST /api/update-db` 同一件事。
 
@@ -193,23 +193,23 @@ Key 是用 `IP_RADAR_API_JWT_SECRET` 签名的 JWT;以 `Authorization: Bearer <k
 
 评估的两个消费面,数字同源:
 
-- **管理台**在每个源旁展示实测 θ(90% CI)与其声明 r,`/api/eval*` 提供背后的报告卡(仅 admin;见 [API 参考](#7-api-参考))。
+- **管理台**在每个源旁展示实测源间一致率(θ)(90% CI)与其声明 r,`/api/eval*` 提供背后的报告卡(仅 admin;见 [API 参考](#7-api-参考))。
 - **评估 CLI**,在克隆的 `backend/` 下运行:
 
 ```bash
 python -m ipdb._eval --model          # 全体启用源(评估某一源时不含它自己)的相互印证对照模型 + 验收套件
 python -m ipdb._eval --all            # 评估全部源
-python -m ipdb._eval --audit          # 谱系审计:源与源之间谁抄了谁,以历次保存的模型文件为证据(只报告,仅供参考)
+python -m ipdb._eval --audit          # 转载关系审计:源与源之间谁抄了谁,以历次保存的模型文件为证据(只报告,仅供参考)
 python -m ipdb._eval --anchors        # 已知答案回归检查;任一失败即 exit 1
 python -m ipdb._eval --dsem           # DS-EM 公平对决:市场 vs 声明 r vs π̂(π̂ = 评估程序算出的真实比例估计;仅供参考)
 python -m ipdb._eval --help           # 全部旗标(temporal、demand、readout…)
 ```
 
-旗标背后的哲学:**测量建言,人裁终局。**θ 是按各源互相印证的程度算出的参考值——量的是印证,不是正确性。任何实测值都不会自动回流生产权重;采纳一个实测值必须走人工评审 PR 并引用评估报告。`--anchors` 回归检查是唯一硬失败模式——它钉住已知答案,防止重构让融合悄悄漂移。
+旗标背后的哲学:**测量建言,人裁终局。**源间一致率(θ)是按各源互相印证的程度算出的参考值——量的是印证,不是正确性。任何实测值都不会自动回流生产权重;采纳一个实测值必须走人工评审 PR 并引用评估报告。`--anchors` 回归检查是唯一硬失败模式——它钉住已知答案,防止重构让融合悄悄漂移。
 
 ### 调(Tune)
 
-- **某源超额宣称**(θ 持续低于其 r):在引用评估报告的 PR 里下调声明 r,或在 Sources tab 先停用再想。
+- **某源超额宣称**(源间一致率(θ)持续低于其 r):在引用评估报告的 PR 里下调声明 r,或在 Sources tab 先停用再想。
 - **某源冗余或有害**(净影响评估说移除它能改善整体表现):停用,想清楚后删模块。
 - **上游沉默了**:日落检测的故事——feed 冻结、内容年龄增长而墙钟刷新「成功」。准入检查(`--gate`/sentinel 机制,维护者级——见模块 help)的存在就是防止冻死的 feed 被意外重新收编;`Updated` 列的内容年龄数字是你的用户级信号。
 
@@ -368,5 +368,5 @@ docker compose start ipradar      # 永远不要 `down -v` ——那会删卷
 - **[IP Radar Desktop](https://github.com/steponeerror/ip-radar-desktop)**——常驻托盘的伴侣应用:一个全局热键查询剪贴板里的任何 IP,逐源判定并排看,整张列表一发入魂。Linux/macOS/Windows 安装包在其 Releases 页。
 - **集成**——各带自己的 README:[fail2ban](scripts/fail2ban/README.md)(先过本地判定再封禁;CDN 边缘跳过、确认恶意长封)、[Graylog](integrations/graylog/README.md)(查表把源 IP 变成国家/ASN/融合判定,零插件)、[Wazuh](integrations/wazuh/README.md)(把每条含 IP 告警富化成 ECS `threat.indicator` 后续告警)。
 - **AI skills**——三个源生命周期 skill 在 `.pi/skills/`(`discover-intel-sources`、`add-intel-source`、`manage-intel-source`);见[生命周期章](#6-源生命周期加--评--调)与 README 表格。
-- **评估报告卡**——每个源的 θ 历史与报告卡都在管理台里看（`/api/eval*`），无需另存文件。
+- **评估报告卡**——每个源的源间一致率(θ)历史与报告卡都在管理台里看（`/api/eval*`），无需另存文件。
 - **在线演示**——[ipradar.huxiao0207.dpdns.org](https://ipradar.huxiao0207.dpdns.org)，只读模式（查询完全可用）。

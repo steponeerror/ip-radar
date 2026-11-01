@@ -308,7 +308,7 @@ s = next(s for s in _sources if s.name == "<name>")   # discovery found it?
 print(s.health())                                      # loaded/stale sane?
 ```
 
-若跑模型套件(`python -m ipdb._eval --model`):模型的冷启动语义 = 市场先验(新源无独立印证记录属预期,不降分)。
+若跑模型套件(`python -m ipdb._eval --model`):模型的冷启动语义 = 同池基准(新源无独立印证记录属预期,不降分)。
 
 **物化生效性哨兵(Q18,spec §3.2)——收录前最后一关。** 上面的测试只证明源模块对手工样例的行为,不证明物化后的引擎真的能看到数据。跑编排脚本一次走完:离线驱动唯一写路径 `download() → rebuild()` → 从源自身原始文件采 20 个已知成员回查引擎(threat:须由**本源自身**具名指控,他源回声不算;asset:须带本源 AssetStatement;geo_asn:标量轴 N/A → 键集 coverage 口径)→ 给出 gate 提示与 epoch 清理/回滚指引(旧物化产物保留至 gate 过后再清,脚本不自动删除):
 
@@ -318,7 +318,7 @@ bash scripts/materialize_source.sh <name>        # fetch→rebuild→sentinel;�
 
 哨兵 20/20(geo_asn 为 N/A+coverage)后跑接入关,gate 报告附 PR(人裁终局):`cd backend && IP_RADAR_EVAL_ENV=gate IP_RADAR_DATA_DIR=<repo>/.eval-gate-mirror python -m ipdb._eval --gate <name>`。gate 实跑协议:测量数据目录必须指向 `.eval-gate-mirror` 同步出的镜像目录(monthly_eval.sh run_step 同款接线——不设 IP_RADAR_DATA_DIR 会读本地 dev 数据,现在会拒跑 rc=3);候选物化也落同一镜像工作副本(`IP_RADAR_DATA_DIR=<repo>/.eval-gate-mirror bash scripts/materialize_source.sh <name>`);`--gate` 的前置 sync 自动保留候选文件(`--exclude=<name>` / `<name>.*`,与候选豁免同口径;仅覆盖 filename==name house style 源,filename≠源名的老源会被 gate 以 rc=3 拒绝,不支持镜像流),镜像内**其他**本地改动(非生产、非候选)仍会被 `--delete-after` 清除。
 
-**接入关(Q4,spec §3.1)——哨兵过了才是硬门,gate 报告必附 PR。** gate 双口径分节作答:①candidate-stratum 自域判别力(verdict 8 态 + 消融指标族——候选自己行不行)②四层舰队净影响(ON/OFF 同语料同 run_seed 的配对 delta——加进舰队搬动了什么);两问各答各节,可拆着下结论(演示 B 判例)。报告「强制人裁」节的每一行 mandatory_review 旗标(基础三态 NEGATIVE/MIXED/NO-DATA + S1 抄尺 / S2 好得可疑 / S3 OC≥0.9 / S4 层 delta 显著恶化)= PR 人裁清单项,逐项处置留痕;触发集只升旗不自动动作(声明 r:测量建言,人裁终局)。跑 gate 前镜像 epoch 失配会拒跑(rc=3,S7 fail-closed)。gate 语义全景(共识层两场景 / OC 敏感带 / 同批串行纳入)见 manage-intel-source 的 `references/eval-harness.md`(gate 语义节)。
+**接入关(Q4,spec §3.1)——哨兵过了才是硬门,gate 报告必附 PR。** gate 两问分报分节作答:①candidate-stratum 自域判别力(verdict 8 态 + 去源对比指标族——候选自己行不行)②四层源池净影响(ON/OFF 同测试集同 run_seed 的配对 delta——加进源池搬动了什么);两问各答各节,可拆着下结论(演示 B 判例)。报告「强制人裁」节的每一行 mandatory_review 旗标(基础三态 NEGATIVE/MIXED/NO-DATA + S1 疑似抄答案(测试集污染) / S2 好得可疑 / S3 重合度(OC)≥0.9 / S4 层 delta 显著恶化)= PR 人裁清单项,逐项处置留痕;触发集只升旗不自动动作(声明 r:测量建言,人裁终局)。跑 gate 前镜像 epoch 失配会拒跑(rc=3,S7 fail-closed)。gate 语义全景(共识测试集装配两场景 / OC 敏感带 / 同批串行纳入)见 manage-intel-source 的 `references/eval-harness.md`(gate 语义节)。
 
 **语义矩阵闸(ADR 0003,2026-10-19 起接入关第三节)——gate 过后、PR 前,候选镜像上跑一次矩阵扫描**:`cd backend && IP_RADAR_EVAL_ENV=gate IP_RADAR_DATA_DIR=<repo>/.eval-gate-mirror python -m ipdb._eval --matrix-scan`。看的是:候选有没有把**新的残差指控**带进非法格(当前 parked 基线 = 6 格:infra×{malicious,suspicious}×{score,stix,UI},涉 tweetfeed/malicious_ip/firehol-ip2proxy/danmeuk_tor/cps_collected_iocs)。证据栏出现**候选源名** = 新违例 → PR「强制人裁」节加一行(处置 = 接受 park 或撤源;格不动——矩阵语义与源生杀分治,判例 cps_collected_iocs 波 3)。rc2 但证据栏无候选源名 = 既有 parked,不算新账。资产格与 consensus archival 已合法化(2026-10-19 案二/案三),不因候选变。
 
