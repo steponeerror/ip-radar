@@ -422,16 +422,15 @@ async function jsonOrThrow(res: Response, fallback: string) {
 }
 
 export async function getSources(): Promise<SourceInfo[]> {
-  return jsonOrThrow(await fetch("/api/sources"), "Failed to load sources");
+  return requestJson("/api/sources", undefined, "Failed to load sources");
 }
 
 export async function setSourceEnabled(name: string, enabled: boolean): Promise<SourceInfo> {
-  const res = await fetch(`/api/sources/${encodeURIComponent(name)}`, {
+  return requestJson(`/api/sources/${encodeURIComponent(name)}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ enabled }),
-  });
-  return jsonOrThrow(res, "Failed to update source");
+  }, "Failed to update source");
 }
 
 // A2 双轨展示:模型评估最新报告里的每源实测 θ(印证率,advisory)。
@@ -450,8 +449,8 @@ export interface EvalModel {
 
 // 无模型报告时返回 null(页面渲染 θ 列为 —);HTTP 错误照常抛出,由调用方降级。
 export async function fetchEvalModel(): Promise<EvalModel | null> {
-  const res = await jsonOrThrow(await fetch("/api/eval/model"), "Failed to load eval model");
-  return (res as { latest?: EvalModel })?.latest ?? null;
+  const res = await requestJson<{ latest?: EvalModel }>("/api/eval/model", undefined, "Failed to load eval model");
+  return res?.latest ?? null;
 }
 
 // --- Task client: enqueue / control / subscribe (SSE) ---
@@ -593,10 +592,7 @@ export interface VersionInfo {
 }
 
 export async function getVersion(refresh = false): Promise<VersionInfo> {
-  return jsonOrThrow(
-    await fetch(`/api/version${refresh ? "?refresh=1" : ""}`),
-    "Failed to check version",
-  );
+  return requestJson(`/api/version${refresh ? "?refresh=1" : ""}`, undefined, "Failed to check version");
 }
 
 let publicDemoCache: Promise<boolean> | null = null;
@@ -627,7 +623,7 @@ export async function postUpdate(token: string): Promise<{ ok: boolean; status: 
 }
 
 export async function getUpdateStatus(): Promise<UpdateStatus> {
-  return jsonOrThrow(await fetch("/api/update/status"), "Failed to get update status");
+  return requestJson("/api/update/status", undefined, "Failed to get update status");
 }
 
 // --- Admin session (three-tier auth, spec 2026-09-21 §9) ---
