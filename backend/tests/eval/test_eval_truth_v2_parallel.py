@@ -270,6 +270,37 @@ def test_swap_trigger_not_met_anchor_set_shape_change(tmp_path):
     assert "n_total=19" in "\n".join(res["evidence"])
 
 
+def test_swap_trigger_same_month_rerun_not_two_rounds(tmp_path):
+    """轮粒度 = 月(评审环条目 2): 同月手工重跑 + 月轮各绿一次仍只算
+    一轮 —— 不得把「同月重跑照绿」当连续两轮误判满足换卷。"""
+    from ipdb._eval.truth_v2_parallel import run_truth_v2_swap
+    md = tmp_path / "out" / "model"
+    _write_anchors_round(md, "anchors-20261101-041700.json")   # 月轮
+    _write_anchors_round(md, "anchors-20261102-093000.json")   # 同月手工重跑
+    res = run_truth_v2_swap(md, out_dir=tmp_path / "out")
+    assert res["trigger_met"] is False
+    assert res["rounds_seen"] == 1
+    assert "不足" in "\n".join(res["evidence"])
+
+
+def test_swap_trigger_month_dedupe_takes_last_within_month(tmp_path):
+    """同月多件取末件(评审环条目 2): 月内先红后绿(重跑修好)→ 该月按
+    末件算绿;与上一月绿轮相连 → 满足。末件口径 = 修好后的真态, 不是首跑。"""
+    from ipdb._eval.truth_v2_parallel import run_truth_v2_swap
+    md = tmp_path / "out" / "model"
+    _write_anchors_round(md, "anchors-20261001-041700.json")   # 上月绿
+    _write_anchors_round(md, "anchors-20261101-041700.json",   # 本月首跑红
+                         failures=[{"ip": "8.8.8.8", "expect": "clean",
+                                    "reason": "expected clean, got malicious"}])
+    _write_anchors_round(md, "anchors-20261105-041700.json")   # 本月末件绿
+    res = run_truth_v2_swap(md, out_dir=tmp_path / "out")
+    assert res["trigger_met"] is True
+    assert res["rounds_seen"] == 2
+    ev = "\n".join(res["evidence"])
+    assert "anchors-20261105-041700.json" in ev    # 末件逃依据行
+    assert "anchors-20261101-041700.json" not in ev  # 首跑被月内去重
+
+
 def test_swap_trigger_loader_tolerance(tmp_path):
     """坏 JSON / n_total 无信息量形状跳过不炸(load_anchor_green 同律)。"""
     from ipdb._eval.truth_v2_parallel import load_anchor_rounds

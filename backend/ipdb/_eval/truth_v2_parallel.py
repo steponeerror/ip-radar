@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import json
+import re
 from pathlib import Path
 
 from .anchors import ANCHORS, run_anchors
@@ -36,13 +37,20 @@ PARALLEL_PREFIX = "truth-v2-parallel"
 SWAP_PREFIX = "truth-v2-swap"
 
 
+# 轮归属月从工件名提取(评审环条目 2): anchors-YYYYMMDD-HHMMSS.json
+# → YYYYMM;非标名不归类, 各自成轮(不误并不同月的手写件)
+_ROUND_MONTH_RE = re.compile(r"^anchors-(\d{6})")
+
+
 def load_anchor_rounds(model_dir: Path) -> list[dict]:
     """anchors-*.json 按文件名 ts 升序 → 逐轮锚回归结果
     [{artifact, generated_at, n_total, n_fail}](换卷触发判定的输入面)。
-    坏 JSON / 非 dict / n_total 无信息量形状跳过不炸(monthly.
-    load_anchor_green 同律宽容);锚读数单一真源 = 回归轨判定门工件,
-    本模块只读不复算。"""
-    out: list[dict] = []
+    轮粒度 = 月(评审环条目 2): 同月多件(如手工重跑 + 月轮)按文件名序
+    只取末件 —— 「连续两轮」= 连续两个轮月, 同月重跑不得顶一轮;
+    末件口径 = 该月最后一次跑的真态。坏 JSON / 非 dict / n_total 无信息量
+    形状跳过不炸(monthly.load_anchor_green 同律宽容);锚读数单一真源 =
+    回归轨判定门工件, 本模块只读不复算。"""
+    by_month: dict[str, dict] = {}
     for p in sorted(Path(model_dir).glob("anchors-*.json")):
         try:
             d = json.loads(p.read_text(encoding="utf-8"))
@@ -52,23 +60,27 @@ def load_anchor_rounds(model_dir: Path) -> list[dict]:
         if not isinstance(n_total, int) or isinstance(n_total, bool) \
                 or n_total <= 0:
             continue
-        out.append({"artifact": p.name,
-                    "generated_at": str(d.get("generated_at") or ""),
-                    "n_total": n_total,
-                    "n_fail": len(d.get("failures") or [])})
-    return out
+        m = _ROUND_MONTH_RE.match(p.name)
+        key = m.group(1) if m else p.name
+        by_month[key] = {"artifact": p.name,
+                         "generated_at": str(d.get("generated_at") or ""),
+                         "n_total": n_total,
+                         "n_fail": len(d.get("failures") or [])}
+    return list(by_month.values())   # dict 保插入序 = 文件名序(月序)
 
 
 def swap_trigger_from_rounds(rounds: list[dict], *, n_expected: int) -> dict:
     """纯判定(issue #262 验收线): 逐轮锚回归结果 → 布尔 + 依据行。
 
-    规则 = 连续两轮(最近两轮)32 锚全绿 → 满足换卷条件(ADR 0017 §5
-    「并排两轮 32 锚全绿、人裁执行」)。全绿 = n_fail==0 且 n_total 与
-    当前锚集同形(n_total != len(ANCHORS) 的历史轮, 如锚集扩员前的旧
-    轮, 不算「32 锚全绿」, 依据行明示形状失配)。判定不触发任何自动
-    动作 —— 换卷(真值指纹变化 + Hornet 退役为存档比对)由人裁执行。"""
+    规则 = 连续两轮(最近两个月轮, 同月重跑去重后)32 锚全绿 → 满足
+    换卷条件(ADR 0017 §5 「并排两轮 32 锚全绿、人裁执行」)。全绿 =
+    n_fail==0 且 n_total 与当前锚集同形(n_total != len(ANCHORS) 的历史轮,
+    如锚集扩员前的旧轮, 不算「32 锚全绿」, 依据行明示形状失配)。判定不
+    触发任何自动动作 —— 换卷(真值指纹变化 + Hornet 退役为存档比对)由
+    人裁执行。"""
     evidence: list[str] = [
-        f"rule: 连续两轮 {n_expected} 锚回归全绿(最近两轮)→ 满足换卷条件"
+        f"rule: 连续两轮 {n_expected} 锚回归全绿(最近两轮; 轮粒度=月, "
+        "同月重跑取末件)→ 满足换卷条件"
         "(ADR 0017 §5);换卷由人裁执行, 本判定不触发任何自动动作"]
     if len(rounds) < 2:
         evidence.append(f"判定: 不满足 —— 锚回归轮数不足"
