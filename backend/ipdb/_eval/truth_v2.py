@@ -147,6 +147,11 @@ def _sha256_file(path: Path) -> str:
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
+def _without_members(st: dict) -> dict:
+    """组件状态件去 members 键(终审 P2:正文/status/meta 三处同形收敛)。"""
+    return {k: v for k, v in st.items() if k != "members"}
+
+
 def _clean_component(snapshots: list[tuple[Path, date, dict[str, int]]],
                      w_start: date, w_end: date,
                      allowlist: list[str], scanner_prefixes: list[str],
@@ -230,7 +235,7 @@ def run_truth_v2(components: dict[str, Path], *, rir_dir: Path,
                  "captured_at": day.isoformat()}
                 for p, day, _ in snapshots[name]],
             "gate_passed": st["gate_passed"],
-            **{k: v for k, v in st.items() if k != "members"},
+            **_without_members(st),
         }
 
     inputs_pin = {
@@ -263,7 +268,7 @@ def run_truth_v2(components: dict[str, Path], *, rir_dir: Path,
             "window": {"start": w_start.isoformat(),
                        "end": w_end.isoformat(), "days": WINDOW_DAYS},
             "min_component_ips": MIN_COMPONENT_IPS,
-            "components": {n: {k: v for k, v in st.items() if k != "members"}
+            "components": {n: _without_members(st)
                            for n, st in comp_stats.items()},
             "inputs": inputs_pin,
             "note": ("no component cleared the 1,000-IP component gate; "
@@ -301,7 +306,7 @@ def run_truth_v2(components: dict[str, Path], *, rir_dir: Path,
             "scanlist_fingerprint": inputs_pin["scanner_ranges"]["fingerprint"],
             "allowlist_fingerprint": fingerprint(list(allowlist)),
             "components": {
-                n: {k: v for k, v in st.items() if k != "members"}
+                n: _without_members(st)
                 for n, st in comp_stats.items()},
         },
         eval_env=eval_env,

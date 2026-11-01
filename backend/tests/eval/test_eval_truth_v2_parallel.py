@@ -19,16 +19,6 @@ from test_eval_truth_v2_readout import _publish_corpus, _write_sentinel
 from test_eval_truth_v2 import _context
 
 
-@pytest.fixture(autouse=True)
-def _pin_env(monkeypatch):
-    """T2 评审 P2-1 flake 修同款:本文件测试经 CLI/装配面懒 import
-    __main__(import 期 REPORT_DIR 快照解析 env)——ambient
-    IP_RADAR_EVAL_ENV 非法(如空串)时假红。autouse 钉 env,测试对
-    shell 环境零依赖。"""
-    monkeypatch.delenv("IP_RADAR_EVAL_ENV", raising=False)
-    monkeypatch.delenv("IP_RADAR_EVAL_DIR", raising=False)
-
-
 # ── fixtures: 富假 registry(锚四类期望 + 语料指控表) ──────────
 
 _RESERVED = {"10.0.0.1", "127.0.0.1", "192.168.1.1", "172.16.0.1"}
