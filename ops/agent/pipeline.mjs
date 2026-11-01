@@ -391,7 +391,7 @@ export async function runPipeline(opts = {}) {
   // 读数入 state(A5 CLOSE 工件面)。est=本轮预算(BUDGET_CNY 准告警线上界,宁少算口径)。
   // #203 C2:拒跑块(文案/[admission] log/台账留痕行)收口 budget.mjs admitOrRefuse 留痕外壳
   // (与 agent.mjs legacy 面同壳同文案);本面只映射出口=emitFail 信封(exit 1)。
-  const admission = await budget.admitOrRefuse({ ledgerFile: ctx.ledgerFile, capCny: ctx.budgetKnobs.monthlyCapCny, estCny: ctx.budgetCny, env: io.env, log: ctx.log, round: ctx.type }); // #207 T1:月帽共享 OPS_PIPELINE_MONTHLY_CAP_CNY 同一裁决函数,只留痕轮次列 per-type
+  const admission = await budget.admitOrRefuse({ ledgerFile: ctx.ledgerFile, capCny: ctx.budgetKnobs.monthlyCapCny, estCny: ctx.budgetCny, env: io.env, log: ctx.log, round: ctx.type, now: opts.now }); // #207 T1:月帽共享 OPS_PIPELINE_MONTHLY_CAP_CNY 同一裁决函数,只留痕轮次列 per-type;#268:now 透传(测试冻结月键;缺省 undefined→budget 缺省 new Date(),生产 CLI/golden 调用面零行为变化)
   if (admission.refused) return emitFail(admission.code, admission.message);
   ctx.state.monthly_admission = admission.admission; // A5 CLOSE 工件读数面(观察非裁决)
   if (fs.existsSync(path.join(ctx.dir, "state.json"))) return emitFail("bad_round", `rounds/${ctx.roundId} 已存在(同 id 重跑走 replay)`);
