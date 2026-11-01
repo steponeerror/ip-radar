@@ -265,6 +265,9 @@ def _clean_component(snapshots: list[tuple[Path, date, dict[str, int]]],
             1 for _, day, _ in snapshots if w_start <= day <= w_end),
         "raw_unique": len(raw),
         "removed_by_window": len(raw) - len(in_window),
+        # attempts 跨快照重叠期重复计入(评审环条目 5b, 周快照 zcat 全量
+        # 轮转日志的已知语义): 相邻快照覆盖期同 IP 的 attempts 逐件再计
+        # —— 只作量级读数, 非去重行为量;成员判定只看 IP 集合不受影响。
         "n_attempts_in_window": sum(sum(rows.values())
                                     for _, day, rows in snapshots
                                     if w_start <= day <= w_end),
@@ -433,6 +436,9 @@ def run_truth_v2(components: dict[str, Path], *, rir_dir: Path,
             "honyport 日 CSV 组件经表头探测同位并入(六列表头, 采集日取"
             "文件名; issue #265; ADR 0017 §2)",
             "输入快照来源: scripts/truth_v2_weekly_snapshot.sh(T0 采集器)",
+            "attempts 计数跨快照重叠期重复计入(周快照每份 zcat 全量轮转"
+            "日志, 相邻快照覆盖期同 IP 重复累计): n_attempts_in_window "
+            "只作量级读数, 非去重行为量(评审环条目 5b)",
         ],
     }
     (vdir / "provenance.json").write_text(

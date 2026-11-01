@@ -14,6 +14,7 @@ import pytest
 from ipdb._eval.anchors import run_anchors
 from ipdb._eval.assets import AssetMeta, fingerprint, save_asset
 from ipdb._eval.truth_v2_readout import (
+    _asof_from_created,
     render_truth_v2_appendix,
     run_truth_v2_readout,
     truth_v2_corpus_readout,
@@ -107,7 +108,8 @@ def _write_sentinel(out_dir: Path, version="truthv2-202610"):
 def test_published_readout_theta_unique_blindspot(tmp_path):
     out = tmp_path / "out"
     _publish_corpus(out)
-    res = run_truth_v2_readout(_FakeRegistry(_ACCUSERS), out_dir=out)
+    reg = _FakeRegistry(_ACCUSERS)
+    res = run_truth_v2_readout(reg, out_dir=out)
     assert res["status"] == "published"
     assert res["corpus"]["version"] == "truthv2-202610"
     assert res["corpus"]["fingerprint"] == fingerprint(_MEMBERS)
@@ -141,6 +143,39 @@ def test_published_readout_theta_unique_blindspot(tmp_path):
     arts = list((out / "model").glob("truth-v2-readout-*.json"))
     assert len(arts) == 1
     assert json.loads(arts[0].read_text())["status"] == "published"
+    # asof 透传断言(评审环 4b): 全部 6 个成员读数都锚在语料 created_at
+    # (2026-10-31)的 epoch —— 不随引擎现态漂移
+    assert reg.asof_seen == [_asof_from_created("2026-10-31")] * 6
+
+
+def test_honeypot_methodology_config_seed_pinned():
+    """config.HONEYPOT_METHODOLOGY 种子钉测(评审环 4c): 种子三源
+    (knock_knock/binarydefense/sblam)真被剔出 k_nonhoneypot —— 本测试
+    sources=[](无源属性可兜底), 种子被合并面丢掉时这条当红, k 双报
+    不会静默退化成 k_all。"""
+    from ipdb._eval import config
+    accusers = {"203.0.113.10": ["knock_knock", "binarydefense", "sblam",
+                                "s1"]}
+    r = truth_v2_corpus_readout(_FakeRegistry(accusers).lookup,
+                                ["203.0.113.10"], sources=[])
+    assert set(config.HONEYPOT_METHODOLOGY) <= set(r["honeypot_excluded"])
+    assert r["k_all_hist"] == {"4": 1}          # 四源全计
+    assert r["k_nonhoneypot_hist"] == {"1": 1}  # 三蜜罐源剔后只剩 s1
+
+
+def test_prev_month_published_then_insufficient_no_fallback(tmp_path):
+    """换月方向(评审环 4d): 上月 published + 本月 insufficient → 读最新
+    版目录(哨兵态), 附录 N/A —— 不回退旧卷把上月语料冒充现态(与
+    test_render_appends_sentinel_version_boundary 恰为对偶方向)。"""
+    out = tmp_path / "out"
+    _publish_corpus(out, version="truthv2-202609")   # 上月出版
+    _write_sentinel(out, version="truthv2-202610")   # 本月哨兵(最新)
+    res = run_truth_v2_readout(_FakeRegistry(_ACCUSERS), out_dir=out)
+    assert res["status"] == "insufficient"
+    assert res["corpus"] is None and res["readout"] is None
+    text = "\n".join(render_truth_v2_appendix(res))
+    assert "N/A" in text and "insufficient" in text
+    assert "truthv2-202609" not in text      # 旧卷不得出场
 
 
 def test_corpus_readout_asof_anchored_to_created_at(tmp_path):
@@ -221,8 +256,11 @@ def test_cli_missing_and_sentinel_rc_zero(tmp_path, monkeypatch, capsys):
     monkeypatch.delenv("IP_RADAR_EVAL_ENV", raising=False)
     monkeypatch.setattr(M, "_real_registry",
                         lambda: _FakeRegistry(_ACCUSERS))
+    # --assets-dir 显式指 tmp(评审环 4g): 并排/换卷两翼不传会读仓内
+    # 真资产根(_ASSETS_ROOT_DEFAULT), 随机器 hornet 卷漂移
+    assets_arg = ["--assets-dir", str(tmp_path / "assets")]
     # 缺件: 正常返回(无 SystemExit)
-    M.main(["--truth-v2-readout"])
+    M.main(["--truth-v2-readout", *assets_arg])
     out1 = capsys.readouterr().out
     assert "no-corpus" in out1 and "只观测不持门" in out1
     art1 = list((tmp_path / "rep" / "dev" / "model")
@@ -231,11 +269,11 @@ def test_cli_missing_and_sentinel_rc_zero(tmp_path, monkeypatch, capsys):
     assert json.loads(art1[0].read_text())["status"] == "no-corpus"
     # 哨兵态: 同律 rc 0
     _write_sentinel(tmp_path / "rep" / "dev")
-    M.main(["--truth-v2-readout"])
+    M.main(["--truth-v2-readout", *assets_arg])
     assert "insufficient" in capsys.readouterr().out
     # 出版: 同律 rc 0
     _publish_corpus(tmp_path / "rep" / "dev")
-    M.main(["--truth-v2-readout"])
+    M.main(["--truth-v2-readout", *assets_arg])
     out3 = capsys.readouterr().out
     assert "published" in out3 and "θ̂" in out3
     arts = sorted((tmp_path / "rep" / "dev" / "model")

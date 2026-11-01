@@ -371,6 +371,9 @@ def test_version_monthly_and_double_pin(tmp_path):
     _, meta = load_asset(vdir)
     assert meta.kind == "truth_v2" and meta.eval_env == "monthly"
     assert meta.params["window_end"] == "2026-11-01"
+    # created_at 直断言 = 锚日串(评审环 4a): 若实现退回墙钟, 赶在锚日
+    # 同一秒跑测试会假绿 —— 直比锚日串取消该同秒假绿窗
+    assert meta.created_at == "2026-11-01"
 
 
 def test_same_input_rerun_byte_identical(tmp_path):
@@ -706,6 +709,34 @@ def test_honyport_tiny_component_sentinel_union_with_smallbox(tmp_path):
     assert not any(ip.startswith("45.75.") for ip in members)
     assert res["components"]["honyport"] == {
         "gate_passed": False, "member_count": 3}
+
+
+def test_cross_component_overlap_ip_union_and_attempts(tmp_path):
+    """跨组件同 IP 去重(评审环 4e): 重叠 IP 在出版并集里只算一次
+    (member_count);行为计数分头计入各组件(n_attempts_in_window 不跨
+    组件合并)—— 成员判定看 IP 集合, 计数按组件如实披露, 不作全局去重。"""
+    ctx = _context(tmp_path)
+    overlap = "45.82.1.1"
+    _snap(ctx["components"]["smallbox"], date(2026, 10, 30),
+          [(overlap, 10)])                        # smallbox 侧重叠 IP
+    honey = tmp_path / "honyport"
+    _hp_csv(honey, date(2026, 10, 30),
+            [_hp_row(ip, events=5) for ip in _ips(1_000, base="185.63")]
+            + [_hp_row(overlap, events=7)])       # honyport 侧同一 IP
+    ctx["components"]["honyport"] = honey
+    res = run_truth_v2(ctx["components"], rir_dir=ctx["rir_dir"],
+                       scanner_csv=ctx["scanner_csv"], allowlist=None,
+                       out_root=tmp_path / "out", eval_env="monthly")
+    assert res["status"] == "published"           # 双双过闸(各 1,001)
+    members, _ = load_asset(res["asset_dir"])
+    assert members.count(overlap) == 1            # 并集去重恰一次
+    assert res["member_count"] == 2_001           # 1,000 + 1,000 + 重叠 1
+    prov = json.loads((res["asset_dir"] / "provenance.json").read_text())
+    comps = prov["inputs"]["components"]
+    assert comps["smallbox"]["member_count"] == 1_001   # 组件级分头数
+    assert comps["honyport"]["member_count"] == 1_001
+    assert comps["smallbox"]["n_attempts_in_window"] == 1_000 * 3 + 10
+    assert comps["honyport"]["n_attempts_in_window"] == 1_000 * 5 + 7
 
 
 def test_tamper_honyport_input_changes_pins(tmp_path):

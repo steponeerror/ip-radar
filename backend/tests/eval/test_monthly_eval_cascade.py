@@ -145,6 +145,8 @@ def _run_monthly(repo: Path, stubs: Path, tmp_path: Path, *args: str,
                  anchor_readouts_mode: str = "0",
                  anchor_readouts_status: str = "ok",
                  anchor_readouts_skip_recall: bool = False,
+                 truth_v2_mode: str = "0",
+                 truth_v2_readout_mode: str = "0",
                  ) -> tuple[int, str]:
     env = dict(os.environ)
     env["PATH"] = f"{stubs}:{env['PATH']}"
@@ -162,6 +164,8 @@ def _run_monthly(repo: Path, stubs: Path, tmp_path: Path, *args: str,
     env["ANCHOR_READOUTS_STATUS"] = anchor_readouts_status
     env["ANCHOR_READOUTS_SKIP_RECALL"] = "1" if anchor_readouts_skip_recall else "0"
     env["ALL_SKIP"] = "1" if all_skip else "0"
+    env["TRUTH_V2_MODE"] = truth_v2_mode
+    env["TRUTH_V2_READOUT_MODE"] = truth_v2_readout_mode
     r = subprocess.run(["bash", "scripts/monthly_eval.sh", "stub-host", *args],
                        cwd=repo, env=env, capture_output=True, text=True, timeout=120)
     return r.returncode, r.stdout + r.stderr
@@ -372,6 +376,44 @@ def test_truth_v2_legs_in_report_family(tmp_path):
     leg = _latest_leg_status(root)
     assert leg["legs"]["truth-v2"] == 0, leg
     assert leg["legs"]["truth-v2-readout"] == 0, leg
+
+
+def test_truth_v2_leg_red_cascades_like_other_legs(tmp_path):
+    """truth-v2 构建腿红(评审环条目 6)同律级联(#193 C5 全腿语义):
+    rc=2(工件照写形态)→ 后续腿照跑、leg-status 留红、结尾外显 rc=2、
+    报告族齐全照推心跳(腿级红≠缺员)—— 照 sinkhole-probe 同型。"""
+    repo = _make_repo(tmp_path)
+    stubs = _make_stubs(tmp_path)
+    rc, out = _run_monthly(repo, stubs, tmp_path, truth_v2_mode="2")
+    assert rc == 2, f"腿红须外显自身 rc(2),实得 {rc}\n{out}"
+    assert "红态" in out, out
+    for leg in ("truth-v2-readout", "audit", "temporal", "readout"):
+        assert f"==> {leg}:" in out, f"truth-v2 红中止了后续腿 {leg}\n{out}"
+    assert "完成" in out, out
+    root = _report_root(repo)
+    assert list(root.glob("model/truth-v2-build-*.json")), "红腿工件须照写留证"
+    leg = _latest_leg_status(root)
+    assert leg["legs"]["truth-v2"] == 2, leg
+    assert (tmp_path / "heartbeat-marker").exists(), "腿级红≠缺员,须照推心跳"
+
+
+def test_truth_v2_readout_leg_red_cascades_like_other_legs(tmp_path):
+    """truth-v2-readout 读数腿红(评审环条目 6)同律: rc=2(三工件照写
+    形态)→ 后续腿照跑、结尾外显、心跳照推 —— 观测腿红≠缺员。"""
+    repo = _make_repo(tmp_path)
+    stubs = _make_stubs(tmp_path)
+    rc, out = _run_monthly(repo, stubs, tmp_path, truth_v2_readout_mode="2")
+    assert rc == 2, f"腿红须外显自身 rc(2),实得 {rc}\n{out}"
+    assert "红态" in out, out
+    for leg in ("audit", "temporal", "readout"):
+        assert f"==> {leg}:" in out, f"truth-v2-readout 红中止了后续腿 {leg}\n{out}"
+    root = _report_root(repo)
+    for pat in ("truth-v2-readout-*", "truth-v2-parallel-*",
+                "truth-v2-swap-*"):
+        assert list(root.glob(f"model/{pat}")), f"红腿 {pat} 工件须照写留证"
+    leg = _latest_leg_status(root)
+    assert leg["legs"]["truth-v2-readout"] == 2, leg
+    assert (tmp_path / "heartbeat-marker").exists(), "腿级红≠缺员,须照推心跳"
 
 
 def test_sinkhole_probe_red_cascades_like_other_legs(tmp_path):

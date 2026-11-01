@@ -131,6 +131,8 @@ fi
 HONYPORT_CSV_DIR="$(realpath -m "${TRUTH_V2_HONYPORT_DIR:-$DATA_DIR/truth-v2-honyport}")"
 RSYNC_HP_SRC="$PROD_HOST:/opt/honyport/out/"
 HP_COMPONENT_ARG=()   # 远端目录在场才填充;空 = truth-v2 腿只跑 smallbox
+                      # (展开处用 ${A[@]+"${A[@]}"} 形: bash<4.4 set -u 下空
+                      #  数组裸展开报 unbound variable, 评审环条目 5a)
 if [ "$DRY_RUN" = 1 ]; then
   echo
   echo "==> rsync(honyport 日 CSV 面): $RSYNC_HP_SRC -> $HONYPORT_CSV_DIR/"
@@ -216,7 +218,7 @@ run_step anchor-readouts --anchor-readouts || LEG_RC[anchor-readouts]=$?  # 锚�
 # honyport 组件(#265): 远端目录在场才传(HP_COMPONENT_ARG, 上文填充)。
 run_step truth-v2 --truth-v2 \
   --truth-v2-component "smallbox=$TRUTH_V2_CAPTURE_DIR/snapshots" \
-  "${HP_COMPONENT_ARG[@]}" \
+  ${HP_COMPONENT_ARG[@]+"${HP_COMPONENT_ARG[@]}"} \
   --ops-allowlist "$TRUTH_V2_CAPTURE_DIR/ops_allowlist.txt" \
   || LEG_RC[truth-v2]=$?  # 真值语料 v2 构建腿(ADR 0017/#260 T1;published/哨兵两态均落 model/truth-v2-build-*.json + report_dir/truth-v2/<version>/)
 run_step truth-v2-readout --truth-v2-readout || LEG_RC[truth-v2-readout]=$?  # v2 读数腿一腿三工件(#261 T2 附录 + #262 T3 并排对照/换卷触发;只观测不持门)

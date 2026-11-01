@@ -33,11 +33,16 @@ class _AnchorsRegistry:
     def __init__(self, accusers: dict[str, list[str]]):
         self.accusers = accusers
         self.sources = []
+        self.asof_seen: list[float] = []   # asof 透传记录(评审环 4b)
+        self.calls: dict[str, int] = {}    # 逐 IP lookup 计数(评审环 4f)
 
     def load_db(self):                     # CLI 面注册表契约(no-op, 离线)
         pass
 
     def lookup(self, ip, asof=None):
+        self.calls[ip] = self.calls.get(ip, 0) + 1
+        if asof is not None:
+            self.asof_seen.append(asof)
         if ip in _RESERVED:
             return {"ip": ip, "is_reserved": True, "classifications": {}}
         if ip in _TOR or ip in _HOSTING:
@@ -123,6 +128,12 @@ def test_parallel_dual_corpus_end_to_end(tmp_path):
     a = res["anchors"]
     assert a["n_total"] == len(ANCHORS) == 32 and a["n_fail"] == 0
     assert a["all_green"] is True
+    # asof 透传断言(评审环 4b): 两卷读数各自锚在卷 created_at(Hornet
+    # 2026-09-30 ×4 成员, v2 2026-10-31 ×4);锚回归不带 asof(不计数)
+    from ipdb._eval.truth_v2_readout import _asof_from_created
+    assert reg.asof_seen == (
+        [_asof_from_created("2026-09-30")] * 4
+        + [_asof_from_created("2026-10-31")] * 4)
     # 工件落盘可复核
     arts = list((out / "model").glob("truth-v2-parallel-*.json"))
     assert len(arts) == 1
@@ -319,14 +330,32 @@ def test_swap_trigger_loader_tolerance(tmp_path):
 # ── 3. CLI 接线: 一腿三工件 + 构建腿工件 ───────────────────────
 
 
+def test_parallel_anchors_single_run_each_anchor_lookup_once(tmp_path):
+    """「同轮单跑」计数断言(评审环 4f): 每锚 lookup 恰一次 —— 若接线
+    退化成同轮跑两遍(回声照绿), 计数当场翻倍变红, 不得靠全绿表象混过。"""
+    from ipdb._eval.truth_v2_parallel import run_truth_v2_parallel
+    assets = tmp_path / "assets"
+    _publish_hornet(assets)
+    out = tmp_path / "out"
+    _publish_corpus(out, members=_V2_MEMBERS)
+    reg = _AnchorsRegistry({**_HORNET_ACCUSERS, **_V2_ACCUSERS})
+    run_truth_v2_parallel(reg, out_dir=out, assets_root=assets)
+    for ip, _expect in ANCHORS:
+        assert reg.calls.get(ip) == 1, \
+            f"anchor {ip} looked up {reg.calls.get(ip)} times (期望恰 1)"
+
+
 def test_cli_readout_leg_writes_three_artifacts(tmp_path, monkeypatch,
                                                 capsys):
     """--truth-v2-readout(T3 扩展): 附录读数 + 并排对照 + 换卷触发判定
-    一腿三工件(anchor-readouts 一腿双工件先例);缺件态 rc 恒 0。"""
+    一腿三工件(anchor-readouts 一腿双工件先例);缺件态 rc 恒 0。
+    --assets-dir 显式指到 tmp(评审环 4g): 不传会落 _ASSETS_ROOT_DEFAULT
+    (仓内真资产根), 随机器资产漂移(hornet 卷读数跟着机器走)。"""
     import ipdb._eval.__main__ as M
     monkeypatch.setenv("IP_RADAR_EVAL_DIR", str(tmp_path / "rep"))
     monkeypatch.setattr(M, "_real_registry", lambda: _AnchorsRegistry({}))
-    M.main(["--truth-v2-readout"])
+    M.main(["--truth-v2-readout",
+            "--assets-dir", str(tmp_path / "assets")])
     out = capsys.readouterr().out
     assert "no-corpus" in out                          # T2 附录行保留
     assert "truth-v2-parallel" in out and "truth-v2-swap" in out
