@@ -160,7 +160,7 @@ export async function runRound(round, input, extraKws = [], opts = {}) {
   if (!Number.isFinite(estCny) || estCny < 0)
     throw Object.assign(new Error(`OPS_PIPELINE_BUDGET_CNY 须为非负数,得到:${estRaw}`), { usage: true });
   const ledgerFile = childEnv.LEDGER_FILE ?? process.env.LEDGER_FILE ?? path.join(DOCS_ROOT, "ops", "ledger.md");
-  const admission = await budget.admitOrRefuse({ ledgerFile, capCny: budgetKnobs.monthlyCapCny, estCny, env: childEnv, log });
+  const admission = await budget.admitOrRefuse({ ledgerFile, capCny: budgetKnobs.monthlyCapCny, estCny, env: childEnv, log, now: opts.now }); // #268:now 透传(测试冻结月键;缺省 undefined→budget 缺省 new Date(),生产 main 调用面零行为变化)
   if (admission.refused) throw Object.assign(new Error(admission.message), { code: admission.code });
   const host = new ToolHost(round);
   const { models, resolve } = opts.models ?? await loadModels();

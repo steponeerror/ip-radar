@@ -143,8 +143,8 @@ export const refusalOf = (a) => ({
 // 留痕外壳:monthlyAdmission 读→裁;拒跑则 [admission] log + 台账留痕行(写败只 log 不
 // 翻转裁决——宁拒不跑),返回 {refused:true, code, message};放行返回 {refused:false,
 // admission}(读数对象原样回传,state.monthly_admission/09-budget.json 观察面字节不变)。
-export async function admitOrRefuse({ ledgerFile, capCny, estCny, env, log, round = "health" }) { // round 只影响留痕轮次列(#207);裁决真源 admitMonthly 与两面出口形状不变
-  const admission = await monthlyAdmission({ ledgerFile, capCny, estCny });
+export async function admitOrRefuse({ ledgerFile, capCny, estCny, env, log, round = "health", now = new Date() }) { // round 只影响留痕轮次列(#207);裁决真源 admitMonthly 与两面出口形状不变;now 注入缝(#268,#267 评审环缓办收口):测试冻结月键单次取定(fixture 写入与准入裁决同 now,跨月末午夜零竞态),缺省 new Date()=纯缝零行为变化(生产调用面不传同旧)
+  const admission = await monthlyAdmission({ ledgerFile, capCny, estCny, now }); // #268:now 透传 monthlyAdmission(月键=monthNow(now))
   if (admission.ok) return { refused: false, admission };
   log(`[admission] budget_monthly refused month=${admission.month} spend=${admission.spend} est=${admission.est} cap=${admission.cap} skipped=${admission.skipped}`);
   try { await appendRefusalTrace(ledgerFile, { est: estCny, cap: capCny }, env, round); }
