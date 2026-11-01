@@ -31,7 +31,7 @@
 | 测试集治理双缺口(固定复用过拟合+活测试集漂移)如何治理 | 2026-10-13 | 已立项(2026-10-14 eval 闭环 Phase 1 落地治理机制) | 对抗审查第1轮:固定测试集逐月复用×声明 r 回流(人审 PR)=未申报适应性过拟合通道;四层误报侧测试集含 dns_public 活抓取名单(seed 只冻采样不冻活列表)=尺漂移;已裁落地:测试集版本化(S12)+换版=趋势重置(S17)+run 级采样 seed(S36,月轮报告 v2 报头携带指纹变列);轮换/seed-bump 未采纳为独立机制 |
 | grace period(融合语义防抖) | 2026-10-12 | open | grill Q19 裁另立 NEEDS,industry 启示 5(docs/research/2026-10-12-industry-loop-practices.md) |
 | 月轮 action block 对接指针 | 2026-10-12 | open | grill Q9:每轮 action block 在此留一行指针,裁毕置已闭 |
-| 非 SSH 攻击类型(C2/DDoS/spam)的真值来源(蜜罐真值层现仅 SSH 攻击源) | 2026-10-13 | open | 对抗审查第4轮:多类型蜜罐/传感器测试集候选;ADR 0002 已自认边界,不扩本批(第4轮 2026-10-13) |
+| 非 SSH 攻击类型(C2/DDoS/spam)的真值来源(蜜罐真值层现仅 SSH 攻击源) | 2026-10-13 | open | 对抗审查第4轮:多类型蜜罐/传感器测试集候选;ADR 0002 已自认边界,不扩本批(第4轮 2026-10-13);2026-11-01:honyport 舰队已上线出数(Beelzebub,多协议诱饵,exporter 日 CSV),接入面=真值语料构建器 --truth-v2-component(ADR 0017 §2/§7,永不入池) |
 | 资产弃权扩展评估 | 2026-10-13 | open | 闭环原型演示 A 的 recommended_action(asset-abstention-expansion-evaluation),Q9 指针机制仅覆盖月轮 action block,现无追踪落点(对抗审查第5轮)|
 | 真值层再锁定策略 | 2026-10-14 | 已闭 | 真值层 v2 批落地(2026-11-01):ADR 0017(docs/adr/0017-truth-layer-v2-self-run-corpus.md,自建行为观测、90 天滚动窗口测试集接棒 Hornet 静态卷)+spec docs/research/2026-11-01-truth-layer-v2-spec.md+工单 #260/#261/#262/#263;静态 2024 卷过渡期留任对照,换卷=并排连续两轮 32 锚全绿+人裁执行;原开放因(静态卷只出不进/存活率触发线)由滚动窗口与换卷触发器消解 |
 | 第13轮第三份对抗报告未入当轮宪章裁决 | 2026-10-14 | open | 台账 Round 13 节已预留补裁槽位;报告送达裁决员时须补裁,勿静默吸收 |
