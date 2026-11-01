@@ -100,7 +100,14 @@ PY_STUB = textwrap.dedent(
     """
 )
 RSYNC_STUB = "#!/usr/bin/env bash\nexit 0\n"
-SSH_STUB = '#!/usr/bin/env bash\ntouch "${HEARTBEAT_MARKER:?}"\n'
+# ssh 桩两种调用形: ①honyport 面目录探测(monthly_eval.sh `ssh … test -d
+# /opt/honyport/out`, #265)→ rc 1 = 远端目录缺席(哨兵分支, 不心跳);
+# ②生产 volume 心跳推送(printf > …)→ touch 标记文件。
+SSH_STUB = (
+    "#!/usr/bin/env bash\n"
+    'if [[ "$*" == *"test -d"* ]]; then exit 1; fi\n'
+    'touch "${HEARTBEAT_MARKER:?}"\n'
+)
 
 
 def _make_repo(tmp_path: Path) -> Path:

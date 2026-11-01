@@ -2,9 +2,10 @@
 
 与 v1 truth_layer.py(Hornet 静态卷)的分界: v1 输入=蜜罐静态 IP 名单+
 冻结 cutoff(2024-07-02); v2 输入=小机周快照目录(T0 采集器产物,
-scripts/truth_v2_weekly_snapshot.sh 格式)+ 预留的 honyport CSV 组件,
-cutoff 随窗滚动。本模块只做 eval 侧纯文件语料, 不碰 LMDB/rebuild,
-运行期零网络(ADR 0017 §7: 真值数据永不入池/private_sources)。
+scripts/truth_v2_weekly_snapshot.sh 格式)+ honyport 蜜罐日 CSV 组件
+(表头探测, issue #265), cutoff 随窗滚动。本模块只做 eval 侧纯文件语料,
+不碰 LMDB/rebuild, 运行期零网络(ADR 0017 §7: 真值数据永不入池/
+private_sources)。
 
 管线(issue #260 验收线):
   周快照 CSV → 90 天滚动窗(窗界=全组件最新快照日锚定, 数据派生保字节
@@ -24,10 +25,12 @@ v1 的 MIN_RIR_RANGES=10_000 段闸不套用(ADR 0017 §6: 量闸以组件 1,000
 """
 from __future__ import annotations
 
+import csv
 import hashlib
 import ipaddress
 import json
-from datetime import date, timedelta
+import re
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from .assets import AssetMeta, fingerprint, save_asset
@@ -40,6 +43,13 @@ WINDOW_DAYS = 90
 MIN_COMPONENT_IPS = 1_000
 # 资产 kind(assets.KINDS 同步扩展; 与 Hornet 的 truth 分立, T3 并排对照用)
 ASSET_KIND = "truth_v2"
+
+# 组件 CSV 两种表头(表头即格式声明, load_snapshots 逐文件探测):
+# T0 周快照(scripts/truth_v2_weekly_snapshot.sh)与 honyport 日 CSV
+# (服务器 /opt/honyport/out/honeyport_attackers-<YYYY-MM-DD>.csv,
+# 表头逐字照 2026-11-01 实测样例, issue #265)
+SNAPSHOT_HEADER = "ip,attempts"
+HONYPORT_HEADER = "ip,service,protocol,events,first_seen,last_seen"
 
 
 def window_bounds(anchor: date) -> tuple[date, date]:
@@ -68,7 +78,7 @@ def parse_snapshot_csv(path: Path) -> tuple[date, dict[str, int]]:
                     captured = part.split("=", 1)[1]
             continue
         if not in_body:
-            if line.strip() == "ip,attempts":
+            if line.strip() == SNAPSHOT_HEADER:
                 in_body = True
             continue
         if not line.strip():
@@ -82,9 +92,76 @@ def parse_snapshot_csv(path: Path) -> tuple[date, dict[str, int]]:
     return date.fromisoformat(captured[:10]), rows
 
 
+# honyport 日 CSV 文件名模式: <prefix>-YYYY-MM-DD.csv(采集日取文件名,
+# 表头无 captured_at; #265 实测文件名 honeyport_attackers-<日期>.csv)
+_HP_NAME_RE = re.compile(r"^(.+)-(\d{4}-\d{2}-\d{2})$")
+
+
+def parse_honyport_csv(path: Path) -> tuple[date, dict[str, int]]:
+    """honyport 蜜罐日 CSV → (采集日, {ip: events 累计})(issue #265)。
+
+    表头逐字 `ip,service,protocol,events,first_seen,last_seen`(2026-11-01
+    服务器实测); 采集日取文件名 `-YYYY-MM-DD` 段(表头无日期); protocol
+    可空, service 可含逗号(exporter 引号包裹, 故用 csv.reader 分列)。同
+    IP 多 service 行 events 累加 —— 成员判定只看 IP 集合, 行为计数如实。
+    坏文件名/坏表头/列数错/非 v4/非整数 events/坏 ISO 8601 时间戳一律
+    ValueError(坏 CSV 不许静默缩水, parse_snapshot_csv 同款哲学)。时间
+    戳本身不入证据, 仅格式校验拦半截行。
+    """
+    m = _HP_NAME_RE.match(Path(path).stem)
+    if not m:
+        raise ValueError(
+            f"honyport csv {path}: 文件名缺 -YYYY-MM-DD 日期段")
+    day = date.fromisoformat(m.group(2))
+    rows: dict[str, int] = {}
+    with Path(path).open(encoding="utf-8", newline="") as f:
+        reader = csv.reader(f)
+        header = next(reader, None)
+        if header != HONYPORT_HEADER.split(","):
+            raise ValueError(f"honyport csv {path}: bad header {header!r}")
+        for row in reader:
+            if not row or all(not c.strip() for c in row):
+                continue
+            if len(row) != 6:
+                raise ValueError(
+                    f"honyport csv {path}: row has {len(row)} fields (期望 6): {row!r}")
+            ip_s, _svc, _proto, events_s, first_s, last_s = row
+            for tag, ts in (("first_seen", first_s), ("last_seen", last_s)):
+                try:
+                    datetime.fromisoformat(ts.strip().replace("Z", "+00:00"))
+                except ValueError as e:
+                    raise ValueError(
+                        f"honyport csv {path}: bad {tag} timestamp {ts!r}") from e
+            ip = str(ipaddress.IPv4Address(ip_s.strip()))
+            rows[ip] = rows.get(ip, 0) + int(events_s.strip())
+    return day, rows
+
+
+def _parse_component_csv(path: Path) -> tuple[date, dict[str, int]]:
+    """逐文件表头探测(issue #265): 快照表头 → 快照解析; honyport 六列
+    表头 → 日 CSV 解析; 未知表头 ValueError fail-loud。选表头探测而非
+    显式组件类型参数: 表头是数据自带的声明, 精确匹配零模糊; 显式参数
+    反要校验「声明与数据相符」, 而校验手段就是表头探测(一套机制不做
+    两遍); --truth-v2-component name=dir 调用面保持不变(ADR 0017 §2)。"""
+    for line in Path(path).read_text(encoding="utf-8").splitlines():
+        if line.startswith("#") or not line.strip():
+            continue
+        head = line.strip()
+        if head == SNAPSHOT_HEADER:
+            return parse_snapshot_csv(path)
+        if head == HONYPORT_HEADER:
+            return parse_honyport_csv(path)
+        raise ValueError(
+            f"{path}: unrecognized component CSV header {head!r} "
+            f"(期望 {SNAPSHOT_HEADER!r} 或 {HONYPORT_HEADER!r})")
+    raise ValueError(f"{path}: empty component CSV")
+
+
 def load_snapshots(snap_dir: Path) -> list[tuple[Path, date, dict[str, int]]]:
     """组件目录 → 按文件名序的 [(路径, 采集日, 行)]。目录缺席 → FileNotFound
-    Error; 空目录 → ValueError(锚日无从派生 = 输入面坏, fail-loud)。"""
+    Error; 空目录 → ValueError(锚日无从派生 = 输入面坏, fail-loud)。
+    逐文件按表头探测格式(快照 / honyport 日 CSV, issue #265): 同目录
+    混存两格式合法, 未知表头 ValueError。"""
     d = Path(snap_dir)
     if not d.is_dir():
         raise FileNotFoundError(f"snapshots dir not found: {d}")
@@ -93,7 +170,7 @@ def load_snapshots(snap_dir: Path) -> list[tuple[Path, date, dict[str, int]]]:
         raise ValueError(f"no snapshots (*.csv) under {d}")
     out = []
     for p in files:
-        day, rows = parse_snapshot_csv(p)
+        day, rows = _parse_component_csv(p)
         out.append((p, day, rows))
     return out
 
@@ -326,7 +403,8 @@ def run_truth_v2(components: dict[str, Path], *, rir_dir: Path,
                    "corpus = union of passing components"),
         "notes": [
             "真值↔考生互斥: 本语料永不入池/private_sources(ADR 0017 §7)",
-            "honyport CSV 组件经 --truth-v2-component name=dir 并入(接口预留)",
+            "honyport 日 CSV 组件经表头探测同位并入(六列表头, 采集日取"
+            "文件名; issue #265; ADR 0017 §2)",
             "输入快照来源: scripts/truth_v2_weekly_snapshot.sh(T0 采集器)",
         ],
     }
