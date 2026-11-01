@@ -26,7 +26,7 @@ import { loadModels } from "../models.mjs"; // 零复制 seam(定案 7:装载器
 import { buildRoundCtx, opsRootOf, composeEnvelope, skipWhenNoNeedDeep } from "../round-ctx.mjs";
 import { roundKnobs, stepBoundary, postModelCall, knobNames } from "./budget-guard.mjs"; // P1-4:收口复查①②④ 面
 import { OPS_MODEL_ROUND, conversationUsage, conversationModelCalls } from "./model-round.mjs"; // P1-4:failed 子任务留痕计量面
-import { mkFauxFace, loadFauxFixture } from "../faux-face.mjs"; // 修复⑥:faux 面分派件(旧 faux.mjs 位等价副本)
+import { mkFauxFace, loadFauxFixture } from "../faux-face.mjs"; // 修复⑥:faux 面分派件(旧 faux.mjs 字节级一致副本)
 import { OPS_PROBE_TOOLS } from "../tools/probes.mjs"; // DEEP 真面探针闭集(AgentChange.modelTools 要 ToolRegistration 对象非名字串——applyChange names() 映射 .name)
 
 const nowIso = () => new Date().toISOString();
@@ -158,7 +158,7 @@ async function stepModelRef(def, input) {
 }
 async function spawnModelChildren(def, input, ck, runtime, context) {
   const ctx = rebuildRoundCtx(input, ck);
-  const items = def.forEach ? steps.forEachItems(def, ctx) : [null]; // DEEP=bundles(零 bundle=金轨迹回退,旧 deepItems)
+  const items = def.forEach ? steps.forEachItems(def, ctx) : [null]; // DEEP=bundles(零 bundle=保活回退,旧 deepItems)
   const childIds = [];
   const childConvs = {}; // taskId → convId(P1-4:WAIT_MODEL 收口读 failed 子任务会话留痕计量)
   // faux 面分派(修复⑥/审查 P2-4 最小接面,只接分派不动 T5 台账兼容面):显式 modelRef

@@ -26,7 +26,7 @@
 | 层 | 职责 | 内容 |
 |---|---|---|
 | **提示词层** | 判断 | 系统提示内容:角色/回路/阶段门/反模式 tell/few-shot 指针 |
-| **装配层** | 上下文构造 | 锚判例预注入/按需检索/轮间 handoff 指针纪律(只指不复制,防双源漂移);索引是地图不是存储(派生可再生) |
+| **装配层** | 上下文构造 | 判例速查表预注入/按需检索/轮间 handoff 指针纪律(只指不复制,防双源漂移);索引是地图不是存储(派生可再生) |
 | **宿主层** | 编排与防线 | 轮次派生/工具白名单/沙箱断言/transcript 工件/retro 钩子/预算卡;调用权在宿主不在模型(MP disable-model-invocation 精神) |
 
 职责线:**宿主层只编排不判断,提示词层只判断不编排,脚本步只测量不判断。**
@@ -54,12 +54,12 @@
 
 三稿入仓:[A 工具面](../../notes/p2-design-a-toolfirst-2026-10-23.md) / [B 记忆面](../../notes/p2-design-b-memoryfirst-2026-10-23.md) / [C 流程面](../../notes/p2-design-c-pipelinefirst-2026-10-23.md)。
 
-**定案 = C 骨架 + B 三件 + A 一律**:
-- **C 骨架**:轮次状态机宿主(≤10 状态,定义表数据化),模型只在 TRIAGE/DEEP/SYNTH 三步;全部阶段门=纯函数机检(gates.json 留痕);任意步可 replay;信封零新错误词;P0-P5 增量迁移(位等价/影子对照/OPS_PIPELINE=legacy 一键回滚)。
-- **B 三件**(并入装配层):`_INDEX.md` 召回地板(派生可再生)/锚判例域词表/判例升格通道(同因留痕≥2+三门槛+人裁)。
-- **A 一律**(进 G_DEEP 写前门):evidence 只收 `call_id+field` 选择对,宿主回填值——结构性消灭复述漂移。
+**定案 = C 骨架 + B 三件 + A 引用不抄录**:
+- **C 骨架**:轮次状态机宿主(≤10 状态,定义表数据化),模型只在 TRIAGE/DEEP/SYNTH 三步;全部阶段门=纯函数机检(gates.json 留痕);任意步可 replay;结果单零新错误词;P0-P5 增量迁移(字节级一致/影子对照/OPS_PIPELINE=legacy 一键回滚)。
+- **B 三件**(并入装配层):检索保底两件①`_INDEX.md` 总索引(派生可再生)②判例速查表;③判例转正通道(同因留痕≥2+三门槛+人裁)。
+- **A 引用不抄录**(进 G_DEEP 写前门):evidence 只收 `call_id+field` 选择对,宿主回填值——结构性消灭复述漂移。
 
-附带三小裁(全「是」):①空转金轨迹保活(每轮 DEEP 至少跑一条 canned-假设 faux 回路,零成本保活性);②refuted 也产低危消化条目(severity=low,四键面默认折叠,判例来源多一轴);③cron 首窗 04:00 起错峰。
+附带三小裁(全「是」):①空转保活任务(每轮 DEEP 至少跑一条 canned-假设 faux 回路,零成本保活性);②refuted 也产低危消化条目(severity=low,四键面默认折叠,判例来源多一轴);③cron 首窗 04:00 起错峰。
 
 实施 spec:GitHub issue 见仓;DESIGN.md 为理念层真源,C 稿为结构层详设(冲突时以本文件裁定为准)。
 
@@ -72,9 +72,9 @@
 | 围栏观 | 剪的是打断/审批摩擦,不剪边界执法:写口 queue_action 语义门/沙箱断言/防失控界全保留;防线集中后,深围栏(写门/evidence 选择对/SSRF)随注入面扩大**加强测试** |
 | 工具面 | 原生薄工具四件套:gh_search(镜像装 gh 二进制;GH_TOKEN 经 compose override env 注入不入镜像层,#139 提前收)/ web_read(r.jina.ai,无 key 限速可用)/ **web_search(pi-web-access 0.44.0 MCP 多 provider 回退链,2026-10-24 用户裁定取代 s.jina.ai 直连;缺省路由 duckduckgo keyless,jina key 经 agent-config tool_keys 扩槽入回退链)**/ rss_parse(本地解析);agent-reach 整只**不进镜像**(13 通道×异构故障面违「few, sharp tools」);错误语义对齐 MCP isError 二分:channel_missing/channel_auth/quota/transient 四码,每码带「下一步合法动作」文案 |
 | 预算四界 | **【状态:已落地——#199 交付A:pipeline/budget.mjs readBudgetKnobs 单源(六 OPS_PIPELINE_* 旋钮),双点执法(步前准入+环内)+同参哈希拦,G_CLOSE 回声哨对拍 09-budget.json 读数;发现轮管线化后(ADR 0010,#207 T1)增 OPS_DISCOVER_* 独立旋钮族 30 调用/3600s/¥5,月帽与运营轮共享 ¥30(admitOrRefuse 同面)】**迭代上限(补整轮模型调用数帽)/ 轨迹 token 预算 / 墙钟超时 / 花费帽(每轮 ¥3 ∧ 月度 ¥30,同台账并发安全双点执法:准入+环内)+ 重复检测(工具调用哈希);单发线降为告警线;取代 §4 预算卡行闸值面(8h 节奏不变) |
-| 熔断器 | 跨轮熔断(连续失败达阈开断 → 快速结构化 tool-unavailable 信封 → 半开探活恢复),状态持久化跨轮;宿主层职责,取代静态轮前探测;判例 01:59 重试白烧的直接解。已落地 #199 交付B(tools/breaker.mjs:五通道闭集/计数码恰三员宁少算/fail-closed 坏文件重置闭路/半开探活/channel_open 信封零 spawn,快照入 09-budget.json) |
-| 北极星 | 三联指标:truth 检出率主星 ∧ 误报面∧ 回声面约束;约束破线则检出率提升不算数(防堆回声源刷分,哲学③同构);发现侧两腿(入队→落地转化率+排他率分布,ADR 0010 决策⑤)同零持门律落月轮观测件(#210 T4:northstar discover 节+发现轨行) |
-| 实绩回流 | eval 月轮 → 实绩摘要工件 + 逐源待审条目(MC/CG/fp_proxy 实绩 vs 入池排他率预测,偏差大=建议降权/退役只进人裁);目标卡自动草稿+人审定稿注入每轮 prompt;discover 默认对失分轴(truth 层 k=0 清单/缺失 ctype)找源——已升格为发现轮管线(六步四门,ADR 0010;ENQUEUE 只写不动作,候选行 PROPOSE,开票/接源全人裁);判例库红线不动(host 永不自动写) |
+| 熔断器 | 跨轮熔断(连续失败达阈开断 → 快速结构化 tool-unavailable 结果单 → 半开探活恢复),状态持久化跨轮;宿主层职责,取代静态轮前探测;判例 01:59 重试白烧的直接解。已落地 #199 交付B(tools/breaker.mjs:五通道闭集/计数码恰三员宁少算/fail-closed 坏文件重置闭路/半开探活/channel_open 结果单零 spawn,快照入 09-budget.json) |
+| 主指标 | 三联指标:truth 检出率为主 ∧ 误报面∧ 回声面约束;约束破线则检出率提升不算数(防堆回声源刷分,哲学③同构);发现侧两项(入队→落地转化率+独占率分布,ADR 0010 决策⑤)同零持门律落月轮观测件(#210 T4:northstar discover 节+发现轨行) |
+| 实绩回流 | eval 月轮 → 实绩摘要工件 + 逐源待审条目(MC/CG/fp_proxy 实绩 vs 入池独占率预测,偏差大=建议降权/退役只进人裁);目标卡自动草稿+人审定稿注入每轮 prompt;discover 默认对失分轴(truth 层 k=0 清单/缺失 ctype)找源——已升格为发现轮管线(六步四门,ADR 0010;ENQUEUE 只写不动作,候选行 PROPOSE,开票/接源全人裁);判例库红线不动(host 永不自动写) |
 | 对齐节奏 | 注意力预算制(arXiv 2026-08 倒 U:升级率过高反而更不安全):goal card 周更 + eval 月轮 + **积压才推**(active>10 或 >48h 未审 → lark digest);digest 含疲劳遥测(批准量/平均批准耗时/override 率),耗时随量单调降 = 控制表演化警报 |
 
 ## 附录 A:运营提示词审阅清单(SDD task review 执审;新/改提示词 PR 必过)
@@ -85,6 +85,6 @@
 - [ ] 信息阶梯:必读内联/分支挂指针/环境可查物不复述
 - [ ] 结论挂信号(call_id/工件指针);evidence 选择制(宿主回填)
 - [ ] 工具白名单声明在案,全只读;预算声明在案
-- [ ] 脱敏令在案;失败信封处置(禁补数)在案
+- [ ] 脱敏令在案;失败结果单处置(禁补数)在案
 - [ ] 判例引用闭合(预注入∪命中);推荐裁决 ➡️ 非阻塞
 - [ ] AI 生成声明由宿主渲染,不占模型 token

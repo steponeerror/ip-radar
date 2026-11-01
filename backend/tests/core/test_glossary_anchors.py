@@ -159,7 +159,7 @@ def _living_text(rel: str) -> str:
     return "\n".join(living)
 
 
-# 活文档扫描面 = 中文文档面。代码标识符/CHANGELOG/notes/ADR/ops-agent 延后批不在内(#259)
+# 活文档扫描面 = 中文文档面。代码标识符/CHANGELOG/notes/ADR 不在内;ops/agent md 面 #259 已改名但未入扫描面（收面前置=先清 ops/agent/fixtures/pipeline/README.md:50 等存旧词文件）
 LIVING_DOCS = [
     "GLOSSARY.md", "CONTEXT.md", "NEEDS.md",
     "README.md", "README.zh-CN.md", "MANUAL.md", "MANUAL.zh-CN.md",

@@ -77,7 +77,7 @@ export async function runHealthRound(opts) {
     const outcome = settled.state.outcome;
     if (outcome?.status === "completed") return { status: "completed", envelope: outcome.result.envelope, taskId };
     if (outcome?.status === "failed") return { status: "failed", envelope: outcome.result?.envelope ?? failEnvelope(outcome.error?.code ?? "infra", outcome.error?.message ?? "健康轮失败"), taskId };
-    return { status: "parked", envelope: failEnvelope("infra", `任务未终态:${JSON.stringify(settled.state.outcome?.error ?? settled.state.summary ?? {})}`), taskId }; // P2-⑫ 带真错:outcome.error 优先(纯 summary 面在 restartLimit 停摆时无错因可查),summary 兑底
+    return { status: "parked", envelope: failEnvelope("infra", `任务未终态:${JSON.stringify(settled.state.outcome?.error ?? settled.state.summary ?? {})}`), taskId }; // P2-⑫ 带真错:outcome.error 优先(纯 summary 面在 restartLimit 停摆时无错因可查),summary 兜底
   } finally {
     await harness.close(context);
   }

@@ -8,7 +8,7 @@
 // replay 不入 CLOSE),其同构由 launcher 测试钉(run-health 全链信封/G_CLOSE)。
 // 对拍面 = 可比工件闭集 + 台账行;归一化只抹时间/时长/tmp 路径、replay -rN 后缀与台账
 // usage 计数(两套 harness 计量边界不同:in/out/total 合法差;cost 细胞逐字比,faux 恒 0;
-// 台账语义面=行存在+日期/轮次/model/备注轮 id);语义字段一律逐字比(位等价闸门,收口
+// 台账语义面=行存在+日期/轮次/model/备注轮 id);语义字段一律逐字比(字节级一致闸门,收口
 // T3 遗留「归一化宽缝」)。
 // 结构性白名单(声明面,非归一化):两侧 state.json 各为实现细节(OLD=磁盘状态机,
 // NEW=checkpoint 镜像)不入对拍面;NEW 09-budget.json 只在 CLOSE 落件=载具停笔前不存在,

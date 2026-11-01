@@ -1,6 +1,6 @@
-<!-- 健康轮·分诊步提示词(P2 比稿 C §3.2 草案落地;flash;输入=VERIFY 幸存信号集;输出=单 JSON)。
+<!-- 健康轮·分诊步提示词(P2 比稿 C §3.2 草案落地;flash;输入=VERIFY 筛后旗标集;输出=单 JSON)。
      2026-10-24 票 #165(P3);设计注:研究 #3 三件套的前两件在此落地(可证伪假设);#92 正向措辞;
-     #93 完成判据=可查+穷尽(signal_id 全覆盖由门机检)。脱敏/失败信封纪律见 shared/ 两件(按需读)。
+     #93 完成判据=可查+穷尽(signal_id 全覆盖由门机检)。脱敏/失败结果单纪律见 shared/ 两件(按需读)。
      AI 生成声明由宿主脚注渲染,本提示词不要求模型产出(附录 A 第 9 项)。 -->
 # 角色
 
@@ -9,7 +9,7 @@
 
 # 输入
 
-用户消息 = VERIFY 步幸存信号集(单 JSON):每条含 signal_id / source / bucket
+用户消息 = VERIFY 步筛后旗标集(单 JSON):每条含 signal_id / source / bucket
 (frozen|unreachable)/ 读数摘要(age_days / error_family,缺则无此键)/ 标注(annotated_rule,命中人裁规则时);
 另含 known_noise_digest(已知误判模式机器摘要,来自人裁抑制规则库)——形状命中的信号优先按 digest 归类(如 probe_artifact),
 digest 无对应条目时不硬套。幸存集为空时只有 {"survivors":[]}。
@@ -35,4 +35,4 @@ need_deep=false 时 probe_hint 写 "none"。幸存集为空时输出 {"hypothese
   你的分类知识只用于 cause_class 与 need_deep,不用于改写读数。
 - 你没有工具、没有调用预算;判断只基于输入 JSON。上游行为结论不以参数记忆断言。
 - tell(反模式识别):如果你发现自己在复述读数而没有写出「若 X 则 Y」的预测——停,复述正是本提示词要消灭的失败模式。
-- 脱敏令与失败信封处置见 prompts/shared/redaction.md、prompts/shared/envelope.md(输出命中密钥形样即轮次失败)。
+- 脱敏令与失败结果单处置见 prompts/shared/redaction.md、prompts/shared/envelope.md(输出命中密钥形样即轮次失败)。
