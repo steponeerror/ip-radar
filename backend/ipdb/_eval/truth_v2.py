@@ -274,8 +274,10 @@ def run_truth_v2(components: dict[str, Path], *, rir_dir: Path,
 
     输出布局 out_root/<version>/: 过闸 → ips.txt + meta.json +
     provenance.json(S12 版本化 + 双 pin sidecar); 全组件不过闸 → 仅
-    status.json 哨兵(不 raise, ADR 0017 §4)。created_at = 锚日(数据
-    派生)而非墙钟 —— 同输入重跑字节级一致。互斥红线: 产物只在 eval
+    status.json 哨兵(不 raise, ADR 0017 §4), 且同月旧出版三件一并清掉
+    (published⇄insufficient 两态切换互清残件, 读数腿 probe 才不会把
+    陈旧语料当现态)。created_at = 锚日(数据派生)而非墙钟 —— 同输入
+    重跑字节级一致。互斥红线: 产物只在 eval
     语料目录, 永不写 private_sources/池(ADR 0017 §7)。
     """
     if not components:
@@ -338,6 +340,12 @@ def run_truth_v2(components: dict[str, Path], *, rir_dir: Path,
     if not members:
         # 组件闸全败: 不装配 + 哨兵状态件 + 不 raise(ADR 0017 §4)
         vdir.mkdir(parents=True, exist_ok=True)
+        # 状态机镜像(评审环条目 1, P1): 同月先出版后跌回不足时清掉旧出版
+        # 三件 —— probe(truth_v2_readout)只认 ips.txt+meta.json 在场即当
+        # published, 残件会把陈旧语料冒充现态;与下方 publish 分支清 stale
+        # 哨兵(T1 评审 P2-1)互为镜像, 两态切换不留对方的残件。
+        for stale in ("ips.txt", "meta.json", "provenance.json"):
+            (vdir / stale).unlink(missing_ok=True)
         status = {
             "kind": f"{ASSET_KIND}_status",
             "status": "insufficient",

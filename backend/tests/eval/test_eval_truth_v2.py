@@ -410,6 +410,34 @@ def test_publish_clears_stale_sentinel_same_month(tmp_path):
         "ips.txt", "meta.json", "provenance.json"]
 
 
+def test_insufficient_clears_stale_published_same_month(tmp_path):
+    """状态机镜像缺口负例(评审环条目 1, P1): 同月先 published 后跌回
+    不足 → 旧出版三件必须清掉, 版本目录终态恰 ["status.json"]。
+    probe 只认 ips.txt+meta.json 在场即当 published, 残件会把陈旧语料
+    冒充现态(publish 分支清 stale 哨兵的镜像面)。"""
+    from ipdb._eval.truth_v2 import run_truth_v2 as _run
+    ctx = _context(tmp_path, n_pass=MIN_COMPONENT_IPS)
+    out_root = tmp_path / "out"
+    r1 = _run(ctx["components"], rir_dir=ctx["rir_dir"],
+              scanner_csv=ctx["scanner_csv"], allowlist=None,
+              out_root=out_root, eval_env="monthly")
+    assert r1["status"] == "published"
+    vdir = out_root / r1["version"]
+    assert (vdir / "ips.txt").is_file()
+    # 同锚月跌回不足(换 999 份快照重跑): 出版三件清, 只剩哨兵
+    snap_b = tmp_path / "snapshots_b"
+    _snap(snap_b, date(2026, 11, 1),
+          [(ip, 3) for ip in _ips(MIN_COMPONENT_IPS - 1)])
+    r2 = _run({"smallbox": snap_b}, rir_dir=ctx["rir_dir"],
+              scanner_csv=ctx["scanner_csv"], allowlist=None,
+              out_root=out_root, eval_env="monthly")
+    assert r2["status"] == "insufficient"
+    assert sorted(p.name for p in vdir.iterdir()) == ["status.json"]
+    # 读数腿探测面同证: 残件不清会把陈旧语料冒充 published 现态
+    from ipdb._eval.truth_v2_readout import probe_truth_v2_corpus
+    assert probe_truth_v2_corpus(out_root)["status"] == "insufficient"
+
+
 # ── 10. honyport 日 CSV 组件(issue #265: 表头探测 + 窗边界 + 双组件端到端) ─
 
 
