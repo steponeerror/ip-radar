@@ -19,6 +19,17 @@ from ipdb._eval.truth_v2_readout import (
     truth_v2_corpus_readout,
 )
 
+
+@pytest.fixture(autouse=True)
+def _pin_env(monkeypatch):
+    """T2 评审 P2-1 flake 修:本文件多数测试不经 CLI 直调装配函数,"
+    "函数内懒 import __main__ 时才解析 env(import 期 REPORT_DIR 快照)"
+    "——ambient IP_RADAR_EVAL_ENV 非法(如空串, 跑过月轮命令的 shell 常"
+    "见)时 import 期就 raise, 测试假红。autouse 钉 env(先于函数体内"
+    "import 生效), 测试对 shell 环境零依赖。"""
+    monkeypatch.delenv("IP_RADAR_EVAL_ENV", raising=False)
+    monkeypatch.delenv("IP_RADAR_EVAL_DIR", raising=False)
+
 # ── fixtures ─────────────────────────────────────────────────
 
 
@@ -320,3 +331,57 @@ def test_appendix_section_isolated_from_main_verdict_sections(tmp_path):
     assert with_text.split(header)[0] == without_text.split(header)[0]
     assert "truthv2-202610" in with_text
     assert "N/A" in without_text and "无 truth-v2-readout 工件" in without_text
+
+
+# ── 5. T2 评审 P2-3/P2-5 顺手修(#261 评论末段, #262 T3 承修) ────
+
+
+def test_k_hist_keys_numeric_order():
+    """P2-3: k 直方图键按数值序(非字符串字典序)——"2" 排在 "10" 前
+    (layered int 键同口径;渲染与工件可读性)。"""
+    # 两个成员: 一个 12 源同指控(k=12), 一个 2 源(k=2) → 键序 ["2","12"]
+    accusers = {"203.0.113.10": [f"src{i}" for i in range(12)],
+                "203.0.113.11": ["s1", "s2"]}
+    r = truth_v2_corpus_readout(_FakeRegistry(accusers).lookup,
+                                ["203.0.113.10", "203.0.113.11"],
+                                sources=[])
+    assert list(r["k_all_hist"]) == ["2", "12"]
+    assert list(r["k_nonhoneypot_hist"]) == ["2", "12"]
+    # 渲染同行数值序
+    assert _fmt_hist_public(r["k_all_hist"]) == "2:1, 12:1"
+
+
+def _fmt_hist_public(h):
+    from ipdb._eval.truth_v2_readout import _fmt_hist
+    return _fmt_hist(h)
+
+
+def test_theta_hat_derived_only_disclosure():
+    """P2-5: θ̂/k 印证不剔声明派生簇 —— 派生簇内互证仍计入 k, 计数
+    单列披露(derived_only_corroboration, layered F6 同款判定);附录
+    渲染带披露行(T3 对照读数喂换卷人裁, 依据行须可同读)。"""
+    from ipdb._eval import config
+    a, b = sorted(config.LINEAGE_CLUSTERS)[:2]     # 声明派生簇内两源
+    accusers = {
+        "203.0.113.10": [a, b],        # 全属声明派生簇 → 派生簇独证
+        "203.0.113.11": ["s1", "s2"],  # 独立源互证 → 不计
+        "203.0.113.12": [a, "s1"],     # 混合(不全属派生簇)→ 不计
+    }
+    r = truth_v2_corpus_readout(_FakeRegistry(accusers).lookup,
+                                ["203.0.113.10", "203.0.113.11",
+                                 "203.0.113.12"], sources=[])
+    assert r["derived_only_corroboration"] == 1
+    # θ̂ 不折减: 派生簇内互证照样计入 k(n=2, k=2)
+    ps = {row["source"]: row for row in r["per_source"]}
+    assert ps[a]["k"] == 2 and ps[a]["theta_hat"] == pytest.approx(3 / 4)
+    lines = "\n".join(render_truth_v2_appendix({
+        "status": "published",
+        "corpus": {"version": "truthv2-202610",
+                   "fingerprint": fingerprint(_MEMBERS),
+                   "member_count": 3,
+                   "window": {"window_start": "2026-08-04",
+                              "window_end": "2026-10-31",
+                              "window_days": 90}},
+        "readout": r, "artifact": "/tmp/x.json"}))
+    assert "派生簇独证 1 个" in lines
+    assert "不剔派生簇" in lines

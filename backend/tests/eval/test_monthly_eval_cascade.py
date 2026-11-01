@@ -2,8 +2,8 @@
 
 契约(TDD 先行,#193 C5 全腿版,承 2026-10-24 F4 anchors 判例推广):
   ① 任一腿红(model/all/anchors/dsem/agg-share/sinkhole-probe/
-     anchor-readouts/audit/temporal/readout)不中止
-     后续腿,工件照写留证(证据不灭);
+     anchor-readouts/truth-v2/truth-v2-readout/audit/temporal/readout)
+     不中止后续腿,工件照写留证(证据不灭);
   ② 红态可见三面:运行日志红态行 + 腿级状态件 leg-status-*.json
      (机器可读,报告根)+ 结尾以腿序首个非零 rc 退出(红态外显不吞);
   ③ 心跳照推:腿级红≠缺员,报告族齐全(工件在场)即活;缺员即死
@@ -66,6 +66,20 @@ PY_STUB = textwrap.dedent(
       fi
       ANCHOR_READOUTS_RC="${ANCHOR_READOUTS_MODE:-0}"
     fi
+    if leg truth-v2; then
+      # #262 T3 构建腿写者: published/哨兵两态均落摘要件(坏输入崩溃
+      # 不落件 = 族缺员即死, 与真实现同语义)
+      printf '{"kind":"truth_v2_build"}' > "$out/model/truth-v2-build-$ts.json"
+      TRUTH_V2_RC="${TRUTH_V2_MODE:-0}"
+    fi
+    if leg truth-v2-readout; then
+      # #262 T3 读数腿一腿三工件(readout/parallel/swap, 均恒落;
+      # anchor-readouts 一腿双工件同律)
+      printf '{"kind":"truth_v2_readout"}' > "$out/model/truth-v2-readout-$ts.json"
+      printf '{"kind":"truth_v2_parallel"}' > "$out/model/truth-v2-parallel-$ts.json"
+      printf '{"kind":"truth_v2_swap_trigger"}' > "$out/model/truth-v2-swap-$ts.json"
+      TRUTH_V2_READOUT_RC="${TRUTH_V2_READOUT_MODE:-0}"
+    fi
     if leg dsem;      then printf '{"kind":"dsem"}'       > "$out/model/dsem-$ts.json"; DSEM_RC="${DSEM_MODE:-0}"; fi
     if leg audit;     then printf '{"kind":"audit"}'      > "$out/model/audit-$ts.json"; AUDIT_RC="${AUDIT_MODE:-0}"; fi
     if leg temporal;  then printf '{"kind":"temporal"}'   > "$out/temporal-$ts.json"; TEMPORAL_RC="${TEMPORAL_MODE:-0}"; fi
@@ -79,7 +93,7 @@ PY_STUB = textwrap.dedent(
     # future-stamp:stub 秒级跑完,同秒 mtime 会假阴 -newermt(真月轮=分钟级无此界)
     find "$out" -type f -exec touch -d "@$(( $(date +%s) + 2 ))" {} + 2>/dev/null || true
     # 腿 rc 聚合退出(红腿外显自身 rc;#193 各腿不再互断)
-    for v in MODEL_RC ALL_RC ANCHORS_RC DSEM_RC SINKHOLE_PROBE_RC ANCHOR_READOUTS_RC AUDIT_RC TEMPORAL_RC READOUT_RC; do
+    for v in MODEL_RC ALL_RC ANCHORS_RC DSEM_RC SINKHOLE_PROBE_RC ANCHOR_READOUTS_RC TRUTH_V2_RC TRUTH_V2_READOUT_RC AUDIT_RC TEMPORAL_RC READOUT_RC; do
       [ "${!v:-0}" = 0 ] || exit "${!v}"
     done
     exit 0
@@ -234,7 +248,7 @@ def test_multi_red_aggregates_first_nonzero_in_leg_order(tmp_path):
 
 
 def test_green_round_writes_leg_status_with_all_legs(tmp_path):
-    """全绿轮:leg-status 件在(10 腿全 rc=0,readout 定稿件非 null)。
+    """全绿轮:leg-status 件在(12 腿全 rc=0,readout 定稿件非 null)。
     渲染前件(readout=null 供月报嵌「在飞」)被定稿件覆盖或共存,
     最新件=定稿件。"""
     repo = _make_repo(tmp_path)
@@ -243,7 +257,8 @@ def test_green_round_writes_leg_status_with_all_legs(tmp_path):
     assert rc == 0, out
     leg = _latest_leg_status(_report_root(repo))
     for name in ("model", "all", "anchors", "dsem", "agg-share",
-                 "sinkhole-probe", "anchor-readouts",
+                 "sinkhole-probe", "anchor-readouts", "truth-v2",
+                 "truth-v2-readout",
                  "audit", "temporal", "readout"):
         assert leg["legs"][name] == 0, f"{name} 腿绿轮须 rc=0: {leg}"
 
@@ -328,6 +343,28 @@ def test_anchor_readouts_missing_one_artifact_is_family_death(tmp_path):
     assert rc != 0, out
     assert "报告族不齐" in out, out
     assert not (tmp_path / "heartbeat-marker").exists(), "缺员即死不推心跳"
+
+
+def test_truth_v2_legs_in_report_family(tmp_path):
+    """#262 T3 接线(ADR 0017):truth-v2 构建腿(摘要件 published/哨兵
+    两态均落)+ 读数腿一腿三工件(readout/parallel/swap 均恒落)入
+    LEG_ORDER+报告族;两腿 rc=0(只测量不持门, sinkhole-probe 同律)。"""
+    repo = _make_repo(tmp_path)
+    stubs = _make_stubs(tmp_path)
+    rc, out = _run_monthly(repo, stubs, tmp_path)
+    assert rc == 0, out
+    assert "==> truth-v2:" in out, out
+    assert "==> truth-v2-readout:" in out, out
+    root = _report_root(repo)
+    assert list(root.glob("model/truth-v2-build-*.json")), \
+        "truth-v2-build 工件缺席=报告族缺员"
+    for pat in ("truth-v2-readout-*.json", "truth-v2-parallel-*.json",
+                "truth-v2-swap-*.json"):
+        assert list(root.glob(f"model/{pat}")), \
+            f"{pat} 工件缺席=报告族缺员(一腿三工件缺任一即族缺员)"
+    leg = _latest_leg_status(root)
+    assert leg["legs"]["truth-v2"] == 0, leg
+    assert leg["legs"]["truth-v2-readout"] == 0, leg
 
 
 def test_sinkhole_probe_red_cascades_like_other_legs(tmp_path):

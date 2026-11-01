@@ -44,6 +44,9 @@ ARTIFACT_PREFIX = "truth-v2-readout"
 # 附录节里成员点名上限: 报告行可读性;逐成员完整清单永远在工件里
 _MD_EXAMPLE_CAP = 5
 
+# 附录节里成员点名上限: 报告行可读性;逐成员完整清单永远在工件里
+_MD_EXAMPLE_CAP = 5
+
 
 def latest_truth_v2_dir(corpus_root: Path) -> Path | None:
     """语料根(T1 out_root)→ 最新版本目录(文件名序, 月度重切口径
@@ -67,13 +70,21 @@ def _asof_from_created(created_at: str) -> float:
 
 def truth_v2_corpus_readout(lookup_fn, members: list[str], *,
                             sources=None, asof=None) -> dict:
-    """纯计算: v2 语料成员 × 池指控 → 附录读数结构(模块 docstring 口径)。
+    """纯计算: 语料成员 × 池指控 → 读数结构(模块 docstring 口径)。
+
+    T3 并排对照(truth_v2_parallel)对 Hornet 卷与 v2 卷同源复用本函数
+    —— 同一函数、同一 lookup = 对照口径同源, 两卷读数可直接并排。
 
     单个 lookup 失败原样上抛(不 except-continue, 假零判例)。"""
     honeypot = set(config.HONEYPOT_METHODOLOGY)
     for s in sources or ():
         if getattr(s, "honeypot_methodology", False):
             honeypot.add(s.name)
+    # 声明派生簇(config.LINEAGE_CLUSTERS, layered F6 同款判定): θ̂/k 的
+    # 印证计数不剔派生簇内互证 —— 派生对(转载关系)互证仍计入 k, 计数
+    # 单列披露不折减。T3 对照读数喂换卷人裁时, 该计数应同读(issue #261
+    # 评审 P2-5: derived-only 披露)。
+    derived = set(config.LINEAGE_CLUSTERS)
 
     accusers: dict[str, set[str]] = {}
     for ip in members:
@@ -88,6 +99,7 @@ def truth_v2_corpus_readout(lookup_fn, members: list[str], *,
     per_source: dict[str, dict] = {}
     unique_accusations: list[dict] = []
     blind_spots: list[str] = []
+    derived_only = 0
     for ip in sorted(members):
         acc = accusers.get(ip, set())
         if not acc:
@@ -95,6 +107,8 @@ def truth_v2_corpus_readout(lookup_fn, members: list[str], *,
         if len(acc) == 1:
             unique_accusations.append(
                 {"ip": ip, "source": next(iter(acc))})
+        if len(acc) >= 2 and acc <= derived:
+            derived_only += 1               # k≥2 且指控源全属声明派生簇
         for hist, pool in ((k_all_hist, acc),
                            (k_nh_hist, acc - honeypot)):
             key = str(len(pool))
@@ -119,8 +133,12 @@ def truth_v2_corpus_readout(lookup_fn, members: list[str], *,
         "n_members": len(members),
         "hits": hits,
         "rate": hits / len(members) if members else None,
-        "k_all_hist": dict(sorted(k_all_hist.items())),
-        "k_nonhoneypot_hist": dict(sorted(k_nh_hist.items())),
+        # 键按数值序(非字符串字典序): "2" 排在 "10" 前(issue #261 评审
+        # P2-3;layered k 直方图 int 键同口径)
+        "k_all_hist": dict(sorted(k_all_hist.items(),
+                                  key=lambda kv: int(kv[0]))),
+        "k_nonhoneypot_hist": dict(sorted(k_nh_hist.items(),
+                                          key=lambda kv: int(kv[0]))),
         "honeypot_excluded": sorted(honeypot),
         "theta_hat_pool": {
             "n_hits": hits, "n_corroborated": n_corr,
@@ -129,6 +147,7 @@ def truth_v2_corpus_readout(lookup_fn, members: list[str], *,
         "per_source": rows,
         "unique_accusations": unique_accusations,
         "blind_spots": blind_spots,
+        "derived_only_corroboration": derived_only,
         "asof": asof,
     }
 
@@ -147,12 +166,40 @@ def _sentinel_facts(status_path: Path) -> dict:
     }
 
 
+def probe_truth_v2_corpus(corpus_root: Path) -> dict:
+    """语料现场探测(单一真源: T2 附录读数与 T3 并排对照共用)。
+
+    返回 {status, members, meta, sentinel, dir};status ∈
+    no-corpus(构建器从未跑过)/ insufficient(组件闸哨兵态)/ published。
+    出版件走 load_asset 指纹闸(坏件照炸, 不装假零);空出版集 = 坏
+    出版 invariant, ValueError;残缺版本目录(三件与哨兵皆无)= 残缺
+    出版, ValueError fail-loud。"""
+    vdir = latest_truth_v2_dir(corpus_root)
+    if vdir is None:
+        return {"status": "no-corpus", "members": None, "meta": None,
+                "sentinel": None, "dir": None}
+    if (vdir / "ips.txt").is_file() and (vdir / "meta.json").is_file():
+        from .assets import load_asset
+        members, meta = load_asset(vdir)   # 指纹闸: 坏件照炸(不装假零)
+        if not members:
+            raise ValueError(              # 出版不变量: 空集=坏出版
+                f"empty published truth-v2 corpus: {vdir}")
+        return {"status": "published", "members": members, "meta": meta,
+                "sentinel": None, "dir": vdir}
+    if (vdir / "status.json").is_file():
+        return {"status": "insufficient", "members": None, "meta": None,
+                "sentinel": _sentinel_facts(vdir / "status.json"),
+                "dir": vdir}
+    raise ValueError(                      # 残缺出版 = 操作失败 fail-loud
+        f"incomplete truth-v2 version dir (no ips.txt/meta.json/"
+        f"status.json): {vdir}")
+
+
 def run_truth_v2_readout(registry, out_dir=None, *,
                          corpus_root: Path | None = None) -> dict:
     """CLI 装配: 探测语料现场 → 纯计算/哨兵 → 工件恒落
     <out_dir>/model/truth-v2-readout-<ts>.json(agg-share/anchors 报告族
     同形;缺件与哨兵态也落件 —— 读数留痕, 零持门不因缺输入少证据)。"""
-    from .assets import load_asset
     from .__main__ import eval_env as _current_env
     env = _current_env()
     out_dir = Path(out_dir) if out_dir is not None else None
@@ -170,31 +217,22 @@ def run_truth_v2_readout(registry, out_dir=None, *,
                  "不进回归族、不拦月轮退出码;主判定权仍归 Hornet"),
         "corpus": None, "sentinel": None, "readout": None,
     }
-    vdir = latest_truth_v2_dir(corpus_root)
-    if vdir is None:
-        res["status"] = "no-corpus"            # 构建器从未跑过: N/A 不虚构
-    elif (vdir / "ips.txt").is_file() and (vdir / "meta.json").is_file():
-        members, meta = load_asset(vdir)       # 指纹闸: 坏件照炸(不装假零)
-        if not members:
-            raise ValueError(                  # 出版不变量: 空集=坏出版
-                f"empty published truth-v2 corpus: {vdir}")
-        res["status"] = "published"
+    probed = probe_truth_v2_corpus(corpus_root)
+    res["status"] = probed["status"]
+    if probed["status"] == "published":
+        meta = probed["meta"]
         res["corpus"] = {
             "version": meta.version, "fingerprint": meta.fingerprint,
             "member_count": meta.member_count,
             "window": {k: meta.params.get(k) for k in
                        ("window_start", "window_end", "window_days")},
-            "created_at": meta.created_at, "asset_dir": str(vdir)}
+            "created_at": meta.created_at,
+            "asset_dir": str(probed["dir"])}
         res["readout"] = truth_v2_corpus_readout(
-            registry.lookup, members, sources=registry.sources,
+            registry.lookup, probed["members"], sources=registry.sources,
             asof=_asof_from_created(meta.created_at))
-    elif (vdir / "status.json").is_file():
-        res["status"] = "insufficient"         # 组件闸哨兵态(ADR 0017 §4)
-        res["sentinel"] = _sentinel_facts(vdir / "status.json")
-    else:
-        raise ValueError(                      # 残缺出版 = 操作失败 fail-loud
-            f"incomplete truth-v2 version dir (no ips.txt/meta.json/"
-            f"status.json): {vdir}")
+    elif probed["status"] == "insufficient":
+        res["sentinel"] = probed["sentinel"]   # 组件闸哨兵态(ADR 0017 §4)
 
     if out_dir is not None:
         d = out_dir / "model"
@@ -266,6 +304,9 @@ def render_truth_v2_appendix(res: dict | None) -> list[str]:
         + (f"池级 {th['value']:.4f}(印证 ≥2 源 {th['n_corroborated']}"
            f" / 命中 {th['n_hits']})" if th["value"] is not None
            else "池级 N/A(零命中, 无证据不冒充先验值)"),
+        f"- 派生簇独证 {r['derived_only_corroboration']} 个(k≥2 且指控源"
+        "全属声明派生簇;θ̂/k 印证不剔派生簇, 换卷对照读数须同读此数"
+        "——issue #261 评审 P2-5)",
         f"- 独有指控核查: 单源独证 {len(uniq)} 个"
         + (f"(归属 {_example(solo_by_src)};逐成员清单在工件)"
            if uniq else "(无)")
