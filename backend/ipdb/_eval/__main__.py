@@ -366,7 +366,7 @@ def run_readout(registry, out_dir, *, assets_dir=None, keysets_dir=None,
                           load_discover_proposals, load_dispositions,
                           load_leg_status, load_prev_northstar,
                           northstar_record, render_anchor_oc,
-                          render_consensus_diag, render_leg_status,
+                          load_truth_v2_readout, render_consensus_diag, render_leg_status,
                           render_northstar, render_scorecard,
                           render_steal_parking_diag)
     from .._ops_store import ops_root  # #210 T4:发现轨北星读面 ops 树根(单源)
@@ -463,6 +463,13 @@ def run_readout(registry, out_dir, *, assets_dir=None, keysets_dir=None,
     # 此处渲染进月报 —— 腿级红随工件可见(_alerts 只认心跳 mtime, 红态
     # 必须长在工件里); 无件(首轮/手工跑)不出该节, schema-stable
     leg_status_lines = render_leg_status(load_leg_status(out_dir)) or None
+    # v2 附录节(#261 T2, ADR 0017 §4): 读最新腿工件嵌月报(件先于月报
+    # 落盘, northstar 读 anchors 工件同律);主判定分离 —— 本管线只读
+    # 附录工件、永不直读 truth-v2 语料件(删语料件月报字节不变, 负例
+    # 测试钉住);缺件 → None → 渲染 N/A 哨兵不静默省略。
+    from .truth_v2_readout import render_truth_v2_appendix
+    truth_v2_lines = render_truth_v2_appendix(
+        load_truth_v2_readout(out_dir / "model"))
     items = compose_action_block(readout, prev_items, dispositions, today)
 
     model_dir = out_dir / "model"
@@ -492,7 +499,8 @@ def run_readout(registry, out_dir, *, assets_dir=None, keysets_dir=None,
          "today": today, "epsilon": eps},
         steal_parking_lines=render_steal_parking_diag(keysets_root),
         north_star_lines=north_star_lines,
-        leg_status_lines=leg_status_lines)
+        leg_status_lines=leg_status_lines,
+        truth_v2_lines=truth_v2_lines)
     md_path = out_dir / f"monthly-{run_id}.md"
     md_path.write_text(md, encoding="utf-8")
     (out_dir / "action-block.json").write_text(json.dumps(
@@ -532,6 +540,12 @@ def main(argv=None):
                         "误报率(census+CP95)+扫描锚召回(scanner_ranges "
                         "leave-out,段成员稳定采样);只测量不持门,落 "
                         "model/anchor-fp-<ts>.json + scanner-recall-<ts>.json")
+    p.add_argument("--truth-v2-readout", action="store_true",
+                   help="真值语料 v2 附录读数腿(ADR 0017 §4/#261 T2):"
+                        "对出版 v2 语料逐成员查池, 试算 θ̂ 与独有指控"
+                        "核查;只观测不持门(缺件/哨兵态 rc 恒 0 渲染"
+                        " N/A), 落 model/truth-v2-readout-<ts>.json, 月报"
+                        " readout 腿读最新件嵌附录节")
     p.add_argument("--dsem", action="store_true",
                    help="DS-EM fair fight: market vs declared vs pi-hat T3 (advisory)")
     p.add_argument("--temporal", action="store_true",
@@ -886,6 +900,37 @@ def main(argv=None):
             else:
                 print("scanner-recall: scanner_ranges CSV 缺失——"
                       "显式缺层不报 0")
+        return
+    if args.truth_v2_readout:
+        # v2 附录读数腿(#261 T2, ADR 0017 §4): 只观测不持门 —— 无阈值、
+        # 不进回归族、缺件/哨兵态 rc 恒 0(观测腿律);工件恒落 model/
+        # truth-v2-readout-<ts>.json, run_readout 读最新件嵌月报附录节
+        # (northstar 读 anchors 工件同律: 件先于月报落盘, 月轮壳腿序
+        # 见 scripts/monthly_eval.sh 注)。坏出版件照炸 = 操作失败族
+        # (不装假零, sinkhole_probe 同款立场)。
+        from .truth_v2_readout import run_truth_v2_readout
+        # report_dir() call-time 解析(REPORT_DIR 常量 import 期冻结,
+        # 测试 monkeypatch env 后常量不会跟着变 —— truth-v2 构建器 handler
+        # 同律)
+        res = run_truth_v2_readout(registry, out_dir=report_dir())
+        if args.json:
+            print(json.dumps(res, ensure_ascii=False, indent=1))
+        else:
+            r = res.get("readout") or {}
+            if res["status"] == "published":
+                th = r["theta_hat_pool"]
+                th_s = (f"{th['value']:.4f}" if th["value"] is not None
+                        else "N/A")
+                print(f"truth-v2-readout: {res['status']} "
+                      f"version={res['corpus']['version']} "
+                      f"members={res['corpus']['member_count']} "
+                      f"hits={r['hits']}/{res['corpus']['member_count']} "
+                      f"θ̂试算={th_s} 独证={len(r['unique_accusations'])} "
+                      f"全池无指控={len(r['blind_spots'])}(只观测不持门)")
+            else:
+                print(f"truth-v2-readout: {res['status']} → "
+                      f"附录 N/A(只观测不持门)")
+            print(f"  artifact: {res.get('artifact')}")
         return
     if args.dsem:
         from ipdb._merge import SOURCE_RELIABILITY
