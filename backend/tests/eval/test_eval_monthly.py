@@ -425,6 +425,45 @@ def test_md_reset_note_truth_two_arm_scanner_ranges_join():
             and meta_b.fingerprint in reset[0]
 
 
+def test_md_reset_note_corpus_swap_hornet_to_v2(tmp_path):
+    """#262 T3: 换卷(真值指纹变化, Hornet→v2)月趋势线重置 —— S17 既有
+    判例的扩展用例: 换卷由人裁执行(truth-v2-swap 判定只建言), 执行后
+    月报 truth 指纹 = v2 卷指纹 → 换版注记必须点亮(趋势断言仅限指纹
+    未变窗口, ADR 0017 §5「换版即 S17 趋势重置」)。两造指纹都出自
+    真实构建器(v1 三闸 ETL / T1 快照装配), 非手拼。"""
+    from test_eval_truth_v2 import MIN_COMPONENT_IPS, _context
+    from ipdb._eval.assets import load_asset
+    from ipdb._eval.truth_layer import build_truth_layer
+    from ipdb._eval.truth_v2 import run_truth_v2
+
+    # Hornet 现行卷: v1 三闸 ETL 出的 truth 资产
+    base = 167_772_160  # int("10.0.0.0")
+    big = [(base + i * 256, 256, "20000101") for i in range(10_000)]
+    hornet_dir = tmp_path / "hornet"
+    meta_h = build_truth_layer(
+        ["40.124.175.29", "5.1.0.5", "9.9.9.9"], big, ["10.0.0.0/8"],
+        hornet_dir, "hornet-202609")
+    # v2 卷: T1 构建器对合成周快照装配出版(过组件闸)
+    ctx = _context(tmp_path / "v2", n_pass=MIN_COMPONENT_IPS)
+    res_v2 = run_truth_v2(ctx["components"], rir_dir=ctx["rir_dir"],
+                          scanner_csv=ctx["scanner_csv"], allowlist=None,
+                          out_root=tmp_path / "v2out", eval_env="monthly")
+    assert res_v2["status"] == "published"
+    meta_v2 = load_asset(res_v2["asset_dir"])[1]
+    assert meta_h.fingerprint != meta_v2.fingerprint  # 换卷前提(指纹实变)
+
+    # 换卷执行后(truth 层 = v2 卷): 月报趋势重置注记点亮
+    md = compose_monthly_md(
+        _readout(), [], [], [], [],
+        _header_meta(corpus={"truth": {"version": meta_v2.version,
+                                        "fingerprint": meta_v2.fingerprint}},
+                     prev_fingerprints={"truth": meta_h.fingerprint}))
+    reset = [ln for ln in md.splitlines() if "换版=趋势重置" in ln]
+    assert reset, "换卷后未出趋势重置注记"
+    assert meta_h.fingerprint in reset[0] and meta_v2.fingerprint in reset[0]
+    assert "指纹未变窗口" in md       # 趋势断言辖域声明行仍在
+
+
 def test_md_empty_action_block_renders_placeholder():
     md = compose_monthly_md(_readout(), [], [], [], [], _header_meta())
     assert "OPEN 0 / CARRIED 0 / DONE 0" in md
