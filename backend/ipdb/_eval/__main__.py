@@ -536,6 +536,24 @@ def main(argv=None):
                    help="DS-EM fair fight: market vs declared vs pi-hat T3 (advisory)")
     p.add_argument("--temporal", action="store_true",
                    help="λ_s prequential confirmation rate over model history (W1)")
+    p.add_argument("--truth-v2", action="store_true",
+                   help="真值语料 v2 构建器(ADR 0017/#260 T1): 周快照 CSV"
+                        "→ 90 天滚动窗→清洗链→组件闸→版本化双 pin 资产;"
+                        "纯文件零网络, 产物落 report_dir/truth-v2/<version>/;"
+                        "全部组件不过闸→哨兵 status.json 不 raise")
+    p.add_argument("--truth-v2-component", action="append", default=None,
+                   metavar="NAME=DIR",
+                   help="真值组件(可重复): smallbox=<周快照目录>; honyport "
+                        "CSV 就绪后同名机制并入(接口预留, ADR 0017 §2)")
+    p.add_argument("--ops-allowlist", default=None, metavar="PATH",
+                   help="自家运维源白名单(一行一个 v4; ADR 0017 §8);"
+                        "缺省 = 无白名单")
+    p.add_argument("--scanner-csv", default=None, metavar="PATH",
+                   help="scanner_ranges.csv 路径(缺省 <data_dir>/"
+                        "scanner_ranges.csv; 缺件 raise 不静默缩水)")
+    p.add_argument("--rir-dir", default=None, metavar="DIR",
+                   help="rir_delegated 数据面目录(缺省 <data_dir>/"
+                        "rir_delegated; 滚动 cutoff 用, ADR 0017 §6)")
     p.add_argument("--demand", action="store_true",
                    help="答案率探针:双队列(舰队语料+随机可路由)per-field "
                         "answer-rate(罗盘批 2026-10-10,discover Step 1 四输入之一)")
@@ -607,6 +625,63 @@ def main(argv=None):
               f"vs below λ={fmt(pre['below']['lam'])}, "
               f"Fisher p={pre['fisher_p']:.4f}, direction={pre['direction']}")
         print(f"  report: {rep.get('report_path')}")
+        return
+
+    # ── --truth-v2 真值语料 v2 构建器(ADR 0017/#260 T1)──────────
+    # 纯文件面(周快照 CSV + rir 数据面 + scanner csv), 不碰 registry/
+    # DB → 前置于 load_db(--temporal 同律);坏输入族(缺件/坏快照/坏
+    # 组件拼写)→ §5.2 信封 rc=2(--matrix-scan 先例);全部组件不过闸 =
+    # 合法读数(哨兵件), rc 恒 0(ADR 0017 §4: 不足=不装配不 raise)。
+    if args.truth_v2:
+        from .truth_v2 import run_truth_v2
+        comps: dict[str, Path] = {}
+        for spec in args.truth_v2_component or []:
+            name, eq, d = spec.partition("=")
+            if not eq or not name or not d:
+                msg = (f"bad --truth-v2-component {spec!r}: 期望 NAME=DIR")
+                if args.json:
+                    _json_error("truth_v2_failed", msg,
+                                "例: --truth-v2-component smallbox=dev/truth-v2/snapshots",
+                                rc=2)
+                print(f"拒绝: {msg}", file=sys.stderr)
+                sys.exit(2)
+            if name in comps:
+                msg = f"duplicate --truth-v2-component {name!r}"
+                if args.json:
+                    _json_error("truth_v2_failed", msg,
+                                "每组件只传一次", rc=2)
+                print(f"拒绝: {msg}", file=sys.stderr)
+                sys.exit(2)
+            comps[name] = Path(d)
+        data_dir = registry_data_dir()
+        try:
+            res = run_truth_v2(
+                comps,
+                rir_dir=(Path(args.rir_dir) if args.rir_dir
+                         else data_dir / "rir_delegated"),
+                scanner_csv=(Path(args.scanner_csv) if args.scanner_csv
+                             else data_dir / "scanner_ranges.csv"),
+                allowlist=(Path(args.ops_allowlist)
+                           if args.ops_allowlist else None),
+                out_root=report_dir() / "truth-v2",   # 产物按 report_dir 约定
+                eval_env=eval_env())
+        except (ValueError, OSError) as e:
+            if args.json:
+                _json_error("truth_v2_failed", str(e),
+                            "核对快照/rir/scanner 输入路径与文件格式", rc=2)
+            print(f"拒绝: {e}", file=sys.stderr)
+            sys.exit(2)
+        if args.json:
+            print(json.dumps(res, ensure_ascii=False, indent=1))
+        else:
+            gate = ", ".join(
+                f"{n}:{'pass' if st['gate_passed'] else 'FAIL'}"
+                f"({st['member_count']})" for n, st in res["components"].items())
+            print(f"truth-v2: {res['status']} version={res['version']} "
+                  f"members={res['member_count']} "
+                  f"window={res['window']['start']}..{res['window']['end']}")
+            print(f"  component-gate(≥1000): {gate}")
+            print(f"  out: {res['out_dir'] if 'out_dir' in res else res['asset_dir']}")
         return
 
     registry = _real_registry()
