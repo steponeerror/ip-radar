@@ -391,22 +391,41 @@ export interface SourceInfo {
   health: SourceHealth;
 }
 
-async function jsonOrThrow(res: Response, fallback: string) {
+// ── 取数助手(票 #257 折并)──
+// 同形取数样板「fetch → 非 ok 抛信封错 → 按形状取结果」曾逐字拷贝 34 处
+// (dryer 0.82 阈值报 23 对,2026-10-31 普查,票 #257),收编为两个助手:
+//   requestJson —— 返回 JSON body 的端点;
+//   requestVoid —— 成功无 body 的控制端点(204)。void 端点不读 json():
+//                  空 body 会抛 SyntaxError,故与 requestJson 分立。
+// init 为 undefined 时保持单参 fetch(url)——既有测试按此调用形状断言
+// (TaskProvider 重同步钉 /api/tasks 单参、ops 面钉 calls[0][1] undefined)。
+// 语义不同不收编(见各自注释):apiFetch 演示头通道(getDbStatus/流式)、
+// blob 下载、202/409 同吃、adminMe 401→null 降级、adminLogout 静默容错。
+async function requestJson<T>(
+  url: string,
+  init: RequestInit | undefined,
+  fallback: string,
+): Promise<T> {
+  const res = init === undefined ? await fetch(url) : await fetch(url, init);
   if (!res.ok) return throwApiError(res, fallback);
   return res.json();
 }
 
+async function requestVoid(url: string, init: RequestInit, fallback: string): Promise<void> {
+  const res = await fetch(url, init);
+  if (!res.ok) return throwApiError(res, fallback);
+}
+
 export async function getSources(): Promise<SourceInfo[]> {
-  return jsonOrThrow(await fetch("/api/sources"), "Failed to load sources");
+  return requestJson("/api/sources", undefined, "Failed to load sources");
 }
 
 export async function setSourceEnabled(name: string, enabled: boolean): Promise<SourceInfo> {
-  const res = await fetch(`/api/sources/${encodeURIComponent(name)}`, {
+  return requestJson(`/api/sources/${encodeURIComponent(name)}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ enabled }),
-  });
-  return jsonOrThrow(res, "Failed to update source");
+  }, "Failed to update source");
 }
 
 // A2 双轨展示:模型评估最新报告里的每源实测 θ(印证率,advisory)。
@@ -425,8 +444,8 @@ export interface EvalModel {
 
 // 无模型报告时返回 null(页面渲染 θ 列为 —);HTTP 错误照常抛出,由调用方降级。
 export async function fetchEvalModel(): Promise<EvalModel | null> {
-  const res = await jsonOrThrow(await fetch("/api/eval/model"), "Failed to load eval model");
-  return (res as { latest?: EvalModel })?.latest ?? null;
+  const res = await requestJson<{ latest?: EvalModel }>("/api/eval/model", undefined, "Failed to load eval model");
+  return res?.latest ?? null;
 }
 
 // --- Task client: enqueue / control / subscribe (SSE) ---
@@ -472,43 +491,37 @@ export interface TasksSnapshot {
 }
 
 export async function getTasks(): Promise<TasksSnapshot> {
-  const res = await fetch("/api/tasks");
-  if (!res.ok) return throwApiError(res, "Failed to load tasks");
-  return res.json();
+  return requestJson("/api/tasks", undefined, "Failed to load tasks");
 }
 
 export async function enqueueBatch(): Promise<{ batch_id: string | null; refreshed?: number }> {
-  const res = await fetch("/api/update-db", { method: "POST" });
-  if (!res.ok) return throwApiError(res, "Failed to start batch");
-  return res.json();
+  return requestJson("/api/update-db", { method: "POST" }, "Failed to start batch");
 }
 
 export async function enqueueSingle(name: string): Promise<{ task_id: string }> {
-  const res = await fetch(`/api/sources/${encodeURIComponent(name)}/update`, { method: "POST" });
-  if (!res.ok) return throwApiError(res, `Failed to update ${name}`);
-  return res.json();
+  return requestJson(
+    `/api/sources/${encodeURIComponent(name)}/update`,
+    { method: "POST" },
+    `Failed to update ${name}`,
+  );
 }
 
 // 控制类端点成功无业务 body;失败必须 reject(U7:此前非 ok 静默吞掉,
 // 按钮点击零反馈)。reject 走统一信封 throwApiError(status+code+message)。
 export async function cancelTask(id: string): Promise<void> {
-  const res = await fetch(`/api/tasks/${encodeURIComponent(id)}/cancel`, { method: "POST" });
-  if (!res.ok) return throwApiError(res, "Failed to cancel task");
+  await requestVoid(`/api/tasks/${encodeURIComponent(id)}/cancel`, { method: "POST" }, "Failed to cancel task");
 }
 
 export async function cancelBatch(): Promise<void> {
-  const res = await fetch("/api/update-db/cancel", { method: "POST" });
-  if (!res.ok) return throwApiError(res, "Failed to cancel batch");
+  await requestVoid("/api/update-db/cancel", { method: "POST" }, "Failed to cancel batch");
 }
 
 export async function pauseBatch(): Promise<void> {
-  const res = await fetch("/api/update-db/pause", { method: "POST" });
-  if (!res.ok) return throwApiError(res, "Failed to pause batch");
+  await requestVoid("/api/update-db/pause", { method: "POST" }, "Failed to pause batch");
 }
 
 export async function resumeBatch(): Promise<void> {
-  const res = await fetch("/api/update-db/resume", { method: "POST" });
-  if (!res.ok) return throwApiError(res, "Failed to resume batch");
+  await requestVoid("/api/update-db/resume", { method: "POST" }, "Failed to resume batch");
 }
 
 /**
@@ -574,10 +587,7 @@ export interface VersionInfo {
 }
 
 export async function getVersion(refresh = false): Promise<VersionInfo> {
-  return jsonOrThrow(
-    await fetch(`/api/version${refresh ? "?refresh=1" : ""}`),
-    "Failed to check version",
-  );
+  return requestJson(`/api/version${refresh ? "?refresh=1" : ""}`, undefined, "Failed to check version");
 }
 
 let publicDemoCache: Promise<boolean> | null = null;
@@ -598,7 +608,7 @@ export interface UpdateStatus {
   at?: string | null;
 }
 
-// 不走 jsonOrThrow:202/409 都算"已接受",调用方按 status 分支;网络层错误才 reject
+// 不走 requestJson:202/409 都算"已接受",调用方按 status 分支;网络层错误才 reject
 export async function postUpdate(token: string): Promise<{ ok: boolean; status: number; body: unknown }> {
   const res = await fetch("/api/update", {
     method: "POST",
@@ -608,7 +618,7 @@ export async function postUpdate(token: string): Promise<{ ok: boolean; status: 
 }
 
 export async function getUpdateStatus(): Promise<UpdateStatus> {
-  return jsonOrThrow(await fetch("/api/update/status"), "Failed to get update status");
+  return requestJson("/api/update/status", undefined, "Failed to get update status");
 }
 
 // --- Admin session (three-tier auth, spec 2026-09-21 §9) ---
@@ -623,12 +633,11 @@ export interface AdminUserRead {
 // ipradar_admin,勿解析 json;失败走统一信封 throwApiError(status/code/
 // retry_after 随 Error 走)。表单编码 username/password 是 fastapi-users 约定。
 export async function adminLogin(email: string, password: string): Promise<void> {
-  const res = await fetch("/api/auth/jwt/login", {
+  await requestVoid("/api/auth/jwt/login", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ username: email, password }),
-  });
-  if (!res.ok) return throwApiError(res, "Login failed");
+  }, "Login failed");
 }
 
 export async function adminLogout(): Promise<void> {
@@ -658,7 +667,7 @@ export interface ApiKeyMetaInfo {
 
 // 列表按创建时间倒序(最新在前),从不返回 key 本体。
 export async function listAdminKeys(): Promise<ApiKeyMetaInfo[]> {
-  return jsonOrThrow(await fetch("/api/admin/keys"), "Failed to list keys");
+  return requestJson("/api/admin/keys", undefined, "Failed to list keys");
 }
 
 // 201 返回 {key, meta}:完整 JWT 仅此一次,调用方必须当场展示给用户。
@@ -668,12 +677,11 @@ export async function createAdminKey(
   expiresDays?: number,
   sources?: string[] | null,
 ): Promise<{ key: string; meta: ApiKeyMetaInfo }> {
-  const res = await fetch("/api/admin/keys", {
+  return requestJson("/api/admin/keys", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name, expires_days: expiresDays, sources }),
-  });
-  return jsonOrThrow(res, "Failed to create key");
+  }, "Failed to create key");
 }
 
 // 编辑源集合 = PATCH {"sources": [...] | null};null = 重置为全部公开源。
@@ -681,38 +689,36 @@ export async function setAdminKeySources(
   sub: string,
   sources: string[] | null,
 ): Promise<ApiKeyMetaInfo> {
-  const res = await fetch(`/api/admin/keys/${encodeURIComponent(sub)}`, {
+  return patchAdminKey(sub, { sources }, "Failed to update key sources");
+}
+
+// admin 密钥面共用同一 PATCH 端点(/api/admin/keys/:sub),载荷单键
+// (sources / disabled);返回更新后的 meta。
+function patchAdminKey(
+  sub: string,
+  payload: Record<string, unknown>,
+  fallback: string,
+): Promise<ApiKeyMetaInfo> {
+  return requestJson(`/api/admin/keys/${encodeURIComponent(sub)}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ sources }),
-  });
-  return jsonOrThrow(res, "Failed to update key sources");
+    body: JSON.stringify(payload),
+  }, fallback);
 }
 
 // 吊销 = PATCH {disabled:true};返回更新后的 meta。
 export async function revokeAdminKey(sub: string): Promise<ApiKeyMetaInfo> {
-  const res = await fetch(`/api/admin/keys/${encodeURIComponent(sub)}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ disabled: true }),
-  });
-  return jsonOrThrow(res, "Failed to revoke key");
+  return patchAdminKey(sub, { disabled: true }, "Failed to revoke key");
 }
 
 // 启用 = PATCH {disabled:false}(revokeAdminKey 镜像,同一端点);返回更新后的 meta。
 export async function enableAdminKey(sub: string): Promise<ApiKeyMetaInfo> {
-  const res = await fetch(`/api/admin/keys/${encodeURIComponent(sub)}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ disabled: false }),
-  });
-  return jsonOrThrow(res, "Failed to enable key");
+  return patchAdminKey(sub, { disabled: false }, "Failed to enable key");
 }
 
 // DELETE 成功是 204 无 body。
 export async function deleteAdminKey(sub: string): Promise<void> {
-  const res = await fetch(`/api/admin/keys/${encodeURIComponent(sub)}`, { method: "DELETE" });
-  if (!res.ok) return throwApiError(res, "Failed to delete key");
+  await requestVoid(`/api/admin/keys/${encodeURIComponent(sub)}`, { method: "DELETE" }, "Failed to delete key");
 }
 
 // ── ops 运营面(P4,票 #136;契约真源 = backend/main.py ops 路由 +
@@ -727,12 +733,11 @@ export async function startOpsRound(
   type: OpsRoundType,
   input: string,
 ): Promise<{ task_id: string }> {
-  const res = await fetch("/api/ops/rounds", {
+  return requestJson("/api/ops/rounds", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ type, input }),
-  });
-  return jsonOrThrow(res, "Failed to start ops round");
+  }, "Failed to start ops round");
 }
 
 export interface OpsPackageInfo {
@@ -742,22 +747,23 @@ export interface OpsPackageInfo {
 }
 
 export async function listOpsPackages(): Promise<OpsPackageInfo[]> {
-  const r = await jsonOrThrow(await fetch("/api/ops/packages"), "Failed to load packages");
+  const r = await requestJson<{ packages: OpsPackageInfo[] }>("/api/ops/packages", undefined, "Failed to load packages");
   return r.packages;
+}
+
+// OpsFileTextOut 系全文端点(GET → 单字段 {text}):包/台账/判例/待审条目
+// 四端点共用;渲染归本层。
+async function requestText(url: string, fallback: string): Promise<string> {
+  return (await requestJson<{ text: string }>(url, undefined, fallback)).text;
 }
 
 // 包/台账/判例全文逐字(OpsFileTextOut.text;渲染归本层)。
 export async function readOpsPackage(name: string): Promise<string> {
-  const r = await jsonOrThrow(
-    await fetch(`/api/ops/packages/${encodeURIComponent(name)}`),
-    "Failed to load package",
-  );
-  return r.text;
+  return requestText(`/api/ops/packages/${encodeURIComponent(name)}`, "Failed to load package");
 }
 
 export async function readOpsLedger(): Promise<string> {
-  const r = await jsonOrThrow(await fetch("/api/ops/ledger"), "Failed to load ledger");
-  return r.text;
+  return requestText("/api/ops/ledger", "Failed to load ledger");
 }
 
 // kws:空串 = 全量倒序;非空 = 词法检索(逗号/空白分隔多词,后端 rg OR)。
@@ -765,16 +771,12 @@ export async function listOpsPrecedents(kws = ""): Promise<string[]> {
   const url = kws
     ? `/api/ops/precedents?kws=${encodeURIComponent(kws)}`
     : "/api/ops/precedents";
-  const r = await jsonOrThrow(await fetch(url), "Failed to load precedents");
+  const r = await requestJson<{ precedents: string[] }>(url, undefined, "Failed to load precedents");
   return r.precedents;
 }
 
 export async function readOpsPrecedent(name: string): Promise<string> {
-  const r = await jsonOrThrow(
-    await fetch(`/api/ops/precedents/${encodeURIComponent(name)}`),
-    "Failed to load precedent",
-  );
-  return r.text;
+  return requestText(`/api/ops/precedents/${encodeURIComponent(name)}`, "Failed to load precedent");
 }
 
 export type OpsRulingVerdict = "agreed" | "overruled" | "amended";
@@ -793,15 +795,14 @@ export async function postOpsRuling(
   verdict: OpsRulingVerdict,
   amendment?: string,
 ): Promise<OpsRulingResult> {
-  const res = await fetch("/api/ops/ruling", {
+  return requestJson("/api/ops/ruling", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       package: pkg, suggestion, verdict,
       ...(verdict === "amended" ? { amendment } : {}),
     }),
-  });
-  return jsonOrThrow(res, "Failed to record ruling");
+  }, "Failed to record ruling");
 }
 
 // 导出 = 全量判例 + 台账(确定性 zip);鉴权同 cookie,Blob 落地下载。
@@ -833,17 +834,13 @@ export interface OpsItem {
 }
 
 export async function getOpsItems(): Promise<OpsItem[]> {
-  const r = await jsonOrThrow(await fetch("/api/ops/items"), "Failed to load review items");
+  const r = await requestJson<{ items: OpsItem[] }>("/api/ops/items", undefined, "Failed to load review items");
   return r.items;
 }
 
 // 条目全文逐字(OpsFileTextOut.text;渲染归本层)。
 export async function readOpsItem(itemId: string): Promise<string> {
-  const r = await jsonOrThrow(
-    await fetch(`/api/ops/items/${encodeURIComponent(itemId)}`),
-    "Failed to load review item",
-  );
-  return r.text;
+  return requestText(`/api/ops/items/${encodeURIComponent(itemId)}`, "Failed to load review item");
 }
 
 export type OpsReviewVerdict = "agree" | "modify" | "ignore" | "snooze";
@@ -868,7 +865,7 @@ export async function postOpsReview(
   verdict: OpsReviewVerdict,
   extra?: { args?: Record<string, unknown>; reason?: string; wakeAt?: string },
 ): Promise<OpsItemReviewResult> {
-  const res = await fetch(`/api/ops/items/${encodeURIComponent(itemId)}/review`, {
+  return requestJson(`/api/ops/items/${encodeURIComponent(itemId)}/review`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -877,8 +874,7 @@ export async function postOpsReview(
       ...(extra?.reason != null ? { reason: extra.reason } : {}),
       ...(extra?.wakeAt != null ? { wake_at: extra.wakeAt } : {}),
     }),
-  });
-  return jsonOrThrow(res, "Failed to submit review");
+  }, "Failed to submit review");
 }
 
 // ── ops agent 配置面(票 #140 立;票 #143 多供应商形状;契约真源 = backend
@@ -914,7 +910,7 @@ export interface OpsAgentConfig {
 }
 
 export async function getOpsAgentConfig(): Promise<OpsAgentConfig> {
-  return jsonOrThrow(await fetch("/api/ops/agent-config"), "Failed to load agent config");
+  return requestJson("/api/ops/agent-config", undefined, "Failed to load agent config");
 }
 
 // PUT:字段缺省 = 保持不改;api_keys 逐家 {providerId:key},未输入/空串家 =
@@ -922,7 +918,7 @@ export async function getOpsAgentConfig(): Promise<OpsAgentConfig> {
 export async function putOpsAgentConfig(
   payload: { model_health: string; model_discover: string; api_keys?: Record<string, string> },
 ): Promise<OpsAgentConfig> {
-  const res = await fetch("/api/ops/agent-config", {
+  return requestJson("/api/ops/agent-config", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -931,8 +927,7 @@ export async function putOpsAgentConfig(
       ...(payload.api_keys && Object.keys(payload.api_keys).length
         ? { api_keys: payload.api_keys } : {}),
     }),
-  });
-  return jsonOrThrow(res, "Failed to save agent config");
+  }, "Failed to save agent config");
 }
 
 // ── token 界面配置(sources-redesign T3;契约见 backend/main.py admin_token_*
@@ -946,22 +941,20 @@ export interface TokenStatus {
 }
 
 export async function getAdminTokens(): Promise<TokenStatus[]> {
-  return jsonOrThrow(await fetch("/api/admin/tokens"), "Failed to list tokens");
+  return requestJson("/api/admin/tokens", undefined, "Failed to list tokens");
 }
 
 // PUT 成功是 204 无 body;未知 var/空值 → 422(信封 validation_error)。
 export async function putAdminToken(envVar: string, value: string): Promise<void> {
-  const res = await fetch(`/api/admin/tokens/${encodeURIComponent(envVar)}`, {
+  await requestVoid(`/api/admin/tokens/${encodeURIComponent(envVar)}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ value }),
-  });
-  if (!res.ok) return throwApiError(res, "Failed to save token");
+  }, "Failed to save token");
 }
 
 // 清除 = DELETE;回落启动快照语义见 _tokens.clear_token(204 无 body)。
 export async function clearAdminToken(envVar: string): Promise<void> {
-  const res = await fetch(`/api/admin/tokens/${encodeURIComponent(envVar)}`, { method: "DELETE" });
-  if (!res.ok) return throwApiError(res, "Failed to clear token");
+  await requestVoid(`/api/admin/tokens/${encodeURIComponent(envVar)}`, { method: "DELETE" }, "Failed to clear token");
 }
 
