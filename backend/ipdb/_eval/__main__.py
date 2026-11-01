@@ -702,10 +702,10 @@ def main(argv=None):
                   f"window={res['window']['start']}..{res['window']['end']}")
             print(f"  component-gate(≥1000): {gate}")
             print(f"  out: {res['out_dir'] if 'out_dir' in res else res['asset_dir']}")
-        # 构建腿摘要件(monthly_eval.sh 报告族写者, #262 T3 接线): "
-        # published/哨兵两态恒落 model/truth-v2-build-<ts>.json —— 写者"
-        # 身份≠门身份, rc 恒 0 语义不变;坏输入族早退(rc=2)不落件 = "
-        # 族缺员即死把关, 与 anchor-readouts「崩溃即工件缺席」同语义。"
+        # 构建腿摘要件(monthly_eval.sh 报告族写者, #262 T3 接线):
+        # published/哨兵两态恒落 model/truth-v2-build-<ts>.json —— 写者
+        # 身份≠门身份, rc 恒 0 语义不变;坏输入族早退(rc=2)不落件 =
+        # 族缺员即死把关, 与 anchor-readouts「崩溃即工件缺席」同语义。
         import datetime as _dt
         d = report_dir() / "model"
         d.mkdir(parents=True, exist_ok=True)

@@ -19,17 +19,6 @@ from ipdb._eval.truth_v2_readout import (
     truth_v2_corpus_readout,
 )
 
-
-@pytest.fixture(autouse=True)
-def _pin_env(monkeypatch):
-    """T2 评审 P2-1 flake 修:本文件多数测试不经 CLI 直调装配函数,"
-    "函数内懒 import __main__ 时才解析 env(import 期 REPORT_DIR 快照)"
-    "——ambient IP_RADAR_EVAL_ENV 非法(如空串, 跑过月轮命令的 shell 常"
-    "见)时 import 期就 raise, 测试假红。autouse 钉 env(先于函数体内"
-    "import 生效), 测试对 shell 环境零依赖。"""
-    monkeypatch.delenv("IP_RADAR_EVAL_ENV", raising=False)
-    monkeypatch.delenv("IP_RADAR_EVAL_DIR", raising=False)
-
 # ── fixtures ─────────────────────────────────────────────────
 
 

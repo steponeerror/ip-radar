@@ -25,16 +25,6 @@ from ipdb._eval.truth_v2 import (
 )
 
 
-@pytest.fixture(autouse=True)
-def _pin_env(monkeypatch):
-    """T2 评审 P2-1 flake 修同款(test_eval_truth_v2_readout 同律):CLI "
-    "测试在函数体内 import __main__(import 期 REPORT_DIR 快照解析"
-    "env)——ambient IP_RADAR_EVAL_ENV 非法时假红;autouse 钉 env 先于"
-    "函数体 import 生效。"""
-    monkeypatch.delenv("IP_RADAR_EVAL_ENV", raising=False)
-    monkeypatch.delenv("IP_RADAR_EVAL_DIR", raising=False)
-
-
 def _ip(s: str) -> int:
     return int(ipaddress.IPv4Address(s))
 
