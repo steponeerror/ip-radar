@@ -689,29 +689,31 @@ export async function setAdminKeySources(
   sub: string,
   sources: string[] | null,
 ): Promise<ApiKeyMetaInfo> {
+  return patchAdminKey(sub, { sources }, "Failed to update key sources");
+}
+
+// admin 密钥面共用同一 PATCH 端点(/api/admin/keys/:sub),载荷单键
+// (sources / disabled);返回更新后的 meta。
+function patchAdminKey(
+  sub: string,
+  payload: Record<string, unknown>,
+  fallback: string,
+): Promise<ApiKeyMetaInfo> {
   return requestJson(`/api/admin/keys/${encodeURIComponent(sub)}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ sources }),
-  }, "Failed to update key sources");
+    body: JSON.stringify(payload),
+  }, fallback);
 }
 
 // 吊销 = PATCH {disabled:true};返回更新后的 meta。
 export async function revokeAdminKey(sub: string): Promise<ApiKeyMetaInfo> {
-  return requestJson(`/api/admin/keys/${encodeURIComponent(sub)}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ disabled: true }),
-  }, "Failed to revoke key");
+  return patchAdminKey(sub, { disabled: true }, "Failed to revoke key");
 }
 
 // 启用 = PATCH {disabled:false}(revokeAdminKey 镜像,同一端点);返回更新后的 meta。
 export async function enableAdminKey(sub: string): Promise<ApiKeyMetaInfo> {
-  return requestJson(`/api/admin/keys/${encodeURIComponent(sub)}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ disabled: false }),
-  }, "Failed to enable key");
+  return patchAdminKey(sub, { disabled: false }, "Failed to enable key");
 }
 
 // DELETE 成功是 204 无 body。
@@ -749,19 +751,19 @@ export async function listOpsPackages(): Promise<OpsPackageInfo[]> {
   return r.packages;
 }
 
+// OpsFileTextOut 系全文端点(GET → 单字段 {text}):包/台账/判例/待审条目
+// 四端点共用;渲染归本层。
+async function requestText(url: string, fallback: string): Promise<string> {
+  return (await requestJson<{ text: string }>(url, undefined, fallback)).text;
+}
+
 // 包/台账/判例全文逐字(OpsFileTextOut.text;渲染归本层)。
 export async function readOpsPackage(name: string): Promise<string> {
-  const r = await requestJson<{ text: string }>(
-    `/api/ops/packages/${encodeURIComponent(name)}`,
-    undefined,
-    "Failed to load package",
-  );
-  return r.text;
+  return requestText(`/api/ops/packages/${encodeURIComponent(name)}`, "Failed to load package");
 }
 
 export async function readOpsLedger(): Promise<string> {
-  const r = await requestJson<{ text: string }>("/api/ops/ledger", undefined, "Failed to load ledger");
-  return r.text;
+  return requestText("/api/ops/ledger", "Failed to load ledger");
 }
 
 // kws:空串 = 全量倒序;非空 = 词法检索(逗号/空白分隔多词,后端 rg OR)。
@@ -774,12 +776,7 @@ export async function listOpsPrecedents(kws = ""): Promise<string[]> {
 }
 
 export async function readOpsPrecedent(name: string): Promise<string> {
-  const r = await requestJson<{ text: string }>(
-    `/api/ops/precedents/${encodeURIComponent(name)}`,
-    undefined,
-    "Failed to load precedent",
-  );
-  return r.text;
+  return requestText(`/api/ops/precedents/${encodeURIComponent(name)}`, "Failed to load precedent");
 }
 
 export type OpsRulingVerdict = "agreed" | "overruled" | "amended";
@@ -843,12 +840,7 @@ export async function getOpsItems(): Promise<OpsItem[]> {
 
 // 条目全文逐字(OpsFileTextOut.text;渲染归本层)。
 export async function readOpsItem(itemId: string): Promise<string> {
-  const r = await requestJson<{ text: string }>(
-    `/api/ops/items/${encodeURIComponent(itemId)}`,
-    undefined,
-    "Failed to load review item",
-  );
-  return r.text;
+  return requestText(`/api/ops/items/${encodeURIComponent(itemId)}`, "Failed to load review item");
 }
 
 export type OpsReviewVerdict = "agree" | "modify" | "ignore" | "snooze";
