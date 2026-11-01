@@ -30,7 +30,7 @@ import hashlib
 import ipaddress
 import json
 import re
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from .assets import AssetMeta, fingerprint, save_asset
@@ -50,6 +50,18 @@ ASSET_KIND = "truth_v2"
 # 表头逐字照 2026-11-01 实测样例, issue #265)
 SNAPSHOT_HEADER = "ip,attempts"
 HONYPORT_HEADER = "ip,service,protocol,events,first_seen,last_seen"
+
+
+def _reject_future_capture_day(day: date, path: Path) -> None:
+    """未来日期守卫(评审环条目 3①): 采集日 > 今日+1(UTC)→ ValueError。
+    蜜罐/采集主机时钟前漂会把「未来」当最新快照日, 劫持锚日与版本月
+    (锚日=全组件最新采集日, 从数据派生不查墙钟才保重跑一致 —— 本守卫
+    只拦数据侧荒谬值, 不改变正常路径的确定性);+1 容忍跨日时区缝。"""
+    limit = datetime.now(timezone.utc).date() + timedelta(days=1)
+    if day > limit:
+        raise ValueError(
+            f"{path}: capture day {day.isoformat()} is in the future "
+            f"(UTC today+1 = {limit.isoformat()})")
 
 
 def window_bounds(anchor: date) -> tuple[date, date]:
@@ -89,7 +101,9 @@ def parse_snapshot_csv(path: Path) -> tuple[date, dict[str, int]]:
         raise ValueError(f"snapshot {path}: missing captured_at header")
     if not in_body:
         raise ValueError(f"snapshot {path}: missing 'ip,attempts' header")
-    return date.fromisoformat(captured[:10]), rows
+    day = date.fromisoformat(captured[:10])
+    _reject_future_capture_day(day, path)
+    return day, rows
 
 
 # honyport 日 CSV 文件名模式: <prefix>-YYYY-MM-DD.csv(采集日取文件名,
@@ -113,6 +127,7 @@ def parse_honyport_csv(path: Path) -> tuple[date, dict[str, int]]:
         raise ValueError(
             f"honyport csv {path}: 文件名缺 -YYYY-MM-DD 日期段")
     day = date.fromisoformat(m.group(2))
+    _reject_future_capture_day(day, path)
     rows: dict[str, int] = {}
     with Path(path).open(encoding="utf-8", newline="") as f:
         reader = csv.reader(f)
@@ -375,6 +390,10 @@ def run_truth_v2(components: dict[str, Path], *, rir_dir: Path,
     # published」(T1 评审 P2-1, issue #260 评论)
     vdir.mkdir(parents=True, exist_ok=True)
     (vdir / "status.json").unlink(missing_ok=True)
+    # 同月重出版覆盖旧版(评审环条目 3③/评审 B-P2, 既裁语义): 版本目录
+    # 名只到月粒度, 同锚月第二次过闸直接覆盖 ips/meta/provenance 三件
+    # —— 后跑者赢, 输入 pin 全量换新(provenance 落的是本次输入非增量);
+    # 不做同月多版共存, 重算即现态(测试钉住: 目录恰一套三件)。
 
     meta = AssetMeta(
         version=version,

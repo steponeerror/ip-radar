@@ -130,6 +130,86 @@ def test_window_boundary_ip_attribution(tmp_path):
     assert meta.params["window_start"] == "2026-08-04"
 
 
+# ── 2b. 锚日派生卫生(评审环条目 3: 未来日期守卫/跨组件锚/同月覆盖) ──
+
+
+def test_snapshot_future_capture_day_rejected(tmp_path):
+    """未来日期守卫(评审环条目 3①): 采集日 > 今日+1(UTC)→ ValueError。
+    蜜罐/采集主机时钟前漂会把「未来」当最新快照日, 劫持锚日与版本月;
+    今日+1 当日容忍(跨日时区缝)。"""
+    from datetime import datetime, timedelta, timezone
+    today = datetime.now(timezone.utc).date()
+    p = _snap(tmp_path, today + timedelta(days=2), [("1.2.3.4", 5)])
+    with pytest.raises(ValueError, match="future"):
+        parse_snapshot_csv(p)
+    # 容忍界 = 今日+1(时区跨日缝), 不炸
+    ok = _snap(tmp_path, today + timedelta(days=1), [("1.2.3.4", 5)])
+    day, rows = parse_snapshot_csv(ok)
+    assert day == today + timedelta(days=1) and rows == {"1.2.3.4": 5}
+
+
+def test_honyport_future_day_from_filename_rejected(tmp_path):
+    """同守卫的 honyport 面(评审环条目 3①): 采集日取文件名, 文件名日
+    > 今日+1(UTC)同样 ValueError —— 蜜罐主机时钟前漂不得顶锚日。"""
+    from datetime import datetime, timedelta, timezone
+    from ipdb._eval.truth_v2 import parse_honyport_csv
+    today = datetime.now(timezone.utc).date()
+    p = _hp_csv(tmp_path, today + timedelta(days=2), [_hp_row("1.2.3.4")])
+    with pytest.raises(ValueError, match="future"):
+        parse_honyport_csv(p)
+
+
+def test_anchor_takes_newest_across_components(tmp_path):
+    """跨组件锚(评审环条目 3②): honyport 日频快照新于 smallbox 周频时
+    锚日取 honyport —— 生产必现面(日 CSV 天天落, 周快照每周落), 锚日/
+    窗界/版本月都由最新组件日定, 不偏爱首个组件。"""
+    snap = tmp_path / "snapshots"
+    _snap(snap, date(2026, 10, 24),
+          [(ip, 3) for ip in _ips(MIN_COMPONENT_IPS)])
+    honey = tmp_path / "honyport"
+    _hp_csv(honey, date(2026, 10, 31), [_hp_row("45.79.1.1")])
+    rir = tmp_path / "rir"
+    _rir_file(rir, "ripencc", _OLD_ALL)
+    scan = tmp_path / "scanner_ranges.csv"
+    scan.write_text("185.61.0.0/16,Stretchoid\n2600:1f00::/24,Amazon\n",
+                    encoding="utf-8")
+    res = run_truth_v2({"smallbox": snap, "honyport": honey},
+                       rir_dir=rir, scanner_csv=scan, allowlist=None,
+                       out_root=tmp_path / "out", eval_env="monthly")
+    assert res["status"] == "published"    # smallbox 过闸(honyport 哨兵)
+    _, meta = load_asset(res["asset_dir"])
+    assert meta.created_at == "2026-10-31"  # 锚日 = honyport 最新日非 10-24
+    assert meta.params["window_end"] == "2026-10-31"
+    assert res["version"] == "truthv2-202610"
+
+
+def test_same_month_republish_overwrites_old_version(tmp_path):
+    """同月重出版覆盖旧版(评审环条目 3③/评审 B-P2, 既裁语义钉住):
+    版本目录名只到月粒度, 同锚月第二次过闸装配直接覆盖三件 —— 后跑者
+    赢, 目录永远只有一套现态(不做同月多版共存)。"""
+    ctx = _context(tmp_path)
+    out_root = tmp_path / "out"
+    r1 = run_truth_v2(ctx["components"], rir_dir=ctx["rir_dir"],
+                      scanner_csv=ctx["scanner_csv"], allowlist=None,
+                      out_root=out_root, eval_env="monthly")
+    vdir = out_root / r1["version"]
+    n1 = r1["member_count"]
+    # 同锚月补一份快照(10-31 < 锚日 11-01)带新 IP → 重跑换成员
+    _snap(ctx["components"]["smallbox"], date(2026, 10, 31),
+          [("45.81.1.1", 9)])
+    r2 = run_truth_v2(ctx["components"], rir_dir=ctx["rir_dir"],
+                      scanner_csv=ctx["scanner_csv"], allowlist=None,
+                      out_root=out_root, eval_env="monthly")
+    assert r2["status"] == "published"
+    assert r2["version"] == r1["version"]     # 同月 → 同版本目录
+    assert r2["member_count"] == n1 + 1
+    assert r2["fingerprint"] != r1["fingerprint"]
+    members, _ = load_asset(vdir)
+    assert len(members) == n1 + 1 and "45.81.1.1" in members
+    assert sorted(p.name for p in vdir.iterdir()) == [
+        "ips.txt", "meta.json", "provenance.json"]   # 恰一套现态
+
+
 # ── 3. 组件闸 ≥1,000(负例:999 不装配,哨兵件不 raise) ─────────
 
 
