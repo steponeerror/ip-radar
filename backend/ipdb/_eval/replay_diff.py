@@ -140,6 +140,21 @@ def _diff_rows(ip: str, old: dict, new: dict) -> list[tuple]:
     return rows
 
 
+def _eval_face():
+    """恒禁用红线接线(终审 P0 修复轮 2,spec 2026-11-02 §3):闸②必须
+    吃 _real_registry() 的 namespace——它携 sources 面(裸模块无此属性,
+    喂裸模块 = excluded 恒空 = 静默 no-op,轮 1 修复即踩此坑被定点复审
+    抓回)且 toggle 闭包重绑裸模块 _disabled,后续 reg.lookup 才真禁。
+    闸①保持裸模块 _bind 剥离(有效路径;勿改 _bind(ns)——namespace
+    无 _sources)。"""
+    import ipdb._registry as reg
+    from .__main__ import _real_registry, force_eval_excluded
+    ns = _real_registry()
+    ns.load_db()
+    force_eval_excluded(ns)
+    return reg
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="python -m ipdb._eval.replay_diff")
     p.add_argument("--snapshot", metavar="OUT.json", help="存当前实现评分基线")
@@ -147,16 +162,7 @@ def main(argv=None):
     args = p.parse_args(argv)
     if not (args.snapshot or args.compare):
         p.error("need --snapshot or --compare")
-    import ipdb._registry as reg
-    # 恒禁用红线(终审 P0,spec 2026-11-02 §3):replay_diff 曾双闸皆旁路
-    # ——裸注册表采样会把 eval_excluded 源(honyport)既当考生样本来源
-    # (sample_ips 按 classification_type 抽 5 IP)又当计分证人(reg.lookup
-    # 出分),任何已物化 honyport 数据的主机跑评分迁移回放即触发;评分
-    # 引擎位等价语义不变,只是把该源从评估面两道移出:采样面剥离(闸①,
-    # _bind)+ lookup 禁用(闸②,force_eval_excluded)。
-    from .__main__ import force_eval_excluded
-    reg.load_db()
-    force_eval_excluded(reg)
+    reg = _eval_face()
     ips = sample_ips(_bind(reg))
     if args.snapshot:
         data = {}

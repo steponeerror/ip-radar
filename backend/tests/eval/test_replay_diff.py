@@ -47,6 +47,22 @@ def test_sample_ips_skips_eval_excluded_via_bind(monkeypatch, tmp_path):
     assert rd.sample_ips(_bind(_Reg())) == []  # 唯一源被剥 → 零采样,不报错
 
 
+def test_eval_face_wiring_disables_honyport(monkeypatch):
+    """钉闸②接线形态(终审 P0 轮 2):_eval_face 必须经 _real_registry()
+    namespace 施禁——若回退成喂裸模块(force_eval_excluded 读 sources 面,
+    裸模块无此属性 → excluded 恒空 no-op),honyport 留在启用集,本例红。"""
+    import ipdb._registry as reg
+    from ipdb._eval.replay_diff import _eval_face
+
+    monkeypatch.setattr(reg, "load_db", lambda: None)   # 免重载 LMDB
+    monkeypatch.setattr(reg, "_disabled", set(reg._disabled))  # 快照可恢复
+    if not any(getattr(s, "eval_excluded", False) for s in reg._sources):
+        pytest.skip("无 eval_excluded 源注册(树外环境)")
+    assert any(s.name == "honyport" for s in reg._enabled_sources())  # 前置:在场且启用
+    _eval_face()
+    assert "honyport" not in [s.name for s in reg._enabled_sources()]  # 真禁,非 no-op
+
+
 # ── snapshot_entry:每 IP 的可比视图 ──
 
 def test_snapshot_entry_scalars_picks_confidence():
