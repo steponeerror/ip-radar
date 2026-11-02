@@ -56,7 +56,7 @@
 #### E-3 安静失败探针
 - 主张:监控面板全绿不构成行为正确的证据——活路径已知答案查询(行为探针)必须挂生产查询路径巡检,失败=finding 不持门、自动开 issue 人裁;接线已落(#182:ops 轮 ANCHOR_SWEEP 步+G_ANCHOR_SWEEP 门在案,生产查询路径逐已知答案IP读数);启用语义=生产 cron 随 OPS_PIPELINE 灰度(接线≠已启用,部署后首个巡检轮起运行面转正)
 - 原语组成:安静失败探针;放行阈值≈100%
-- 门挂点:backend/ipdb/_eval/anchors.py;ops/agent/pipeline/steps.mjs#ANCHOR_SWEEP;ops/agent/pipeline/gates.mjs#G_ANCHOR_SWEEP;notes/ops-agent-golden-standard-research-2026-10-24.md
+- 门挂点:backend/ipdb/_eval/anchors.py;ops/agent/pipeline/steps.mjs#ANCHOR_SWEEP;ops/agent/pipeline/gates.mjs#G_ANCHOR_SWEEP
 - 判例链:IEEE Spectrum 2026-04(安静失败=标准可观测性抓不住语义级退化);2026-10-24 已知答案门死件复盘(ADR 0008:零生产调用面)
 - 分工注记:已知答案巡检=行为探针(期望断言,逐 IP 二值);eval infra 层=统计分母(GLOSSARY「已知基础设施层」词条口径)——两层分工不互替(探针红不改写分母读数,分母干净也不构成行为正确的证据)
 
@@ -141,7 +141,7 @@
 #### G-2 114.114.114.114 clean(判例已固化,ops 轮巡检已接线)
 - 主张:114DNS 公共解析器判 clean;验证面=判例固化在场核+anchors.py 扩行已落(#182:19 员含 114.114.114.114/223.5.5.5/9.9.9.4;#233 根 letter 已知答案IP 再扩 13 员,现 32 员)+ops 轮 ANCHOR_SWEEP 巡检在案;启用语义=生产 cron 随 OPS_PIPELINE 灰度
 - 原语组成:发现固化;放行阈值≈100%
-- 门挂点:backend/ipdb/_eval/anchors.py#ANCHORS;ops/agent/pipeline/steps.mjs#ANCHOR_SWEEP;notes/ops-agent-golden-standard-research-2026-10-24.md
+- 门挂点:backend/ipdb/_eval/anchors.py#ANCHORS;ops/agent/pipeline/steps.mjs#ANCHOR_SWEEP
 - 判例链:2026-10-24 114DNS 事故(cps_collected_iocs+ziyadnz 聚合器假印证打黑名單;ADR 0008);#182 接线(已知答案集扩公共解析器 16→19)
 - 分工注记:已知答案巡检=行为探针(期望断言,逐 IP 二值);eval infra 层=统计分母(GLOSSARY「已知基础设施层」词条口径)——两层分工不互替(探针红不改写分母读数,分母干净也不构成行为正确的证据)
 
