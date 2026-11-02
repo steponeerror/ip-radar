@@ -77,6 +77,8 @@ misp-docker/
 
 # 根目录 AGENTS.md 含服务器部署细节,不入库(留磁盘)
 AGENTS.md
+# .mcp.json 是本地 agent 工具链配置(playwright+codegraph),非产品件,不入库(2026-11-02 用户裁)
+/.mcp.json
 ips10k.json
 result10k.ndjson
 
