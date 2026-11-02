@@ -67,7 +67,10 @@ baseline-pytest.txt
 .superpowers/
 
 # docs/ = nested private repository (own .git; history lives there, not here)
+# notes/, reports/ = moved to the docs repo 2026-11-02; banned here to prevent re-adding
 /docs/
+/notes/
+/reports/
 
 # Nested separate repository (has its own .git)
 misp-docker/
