@@ -148,7 +148,15 @@ def main(argv=None):
     if not (args.snapshot or args.compare):
         p.error("need --snapshot or --compare")
     import ipdb._registry as reg
+    # 恒禁用红线(终审 P0,spec 2026-11-02 §3):replay_diff 曾双闸皆旁路
+    # ——裸注册表采样会把 eval_excluded 源(honyport)既当考生样本来源
+    # (sample_ips 按 classification_type 抽 5 IP)又当计分证人(reg.lookup
+    # 出分),任何已物化 honyport 数据的主机跑评分迁移回放即触发;评分
+    # 引擎位等价语义不变,只是把该源从评估面两道移出:采样面剥离(闸①,
+    # _bind)+ lookup 禁用(闸②,force_eval_excluded)。
+    from .__main__ import force_eval_excluded
     reg.load_db()
+    force_eval_excluded(reg)
     ips = sample_ips(_bind(reg))
     if args.snapshot:
         data = {}
@@ -203,7 +211,11 @@ def main(argv=None):
 
 def _bind(reg):
     from types import SimpleNamespace
-    return SimpleNamespace(sources=reg._sources)
+    # 闸①同款:采样面剥 eval_excluded 源(终审 P0;真注册表经
+    # __main__._real_registry 剥离,此处库式调用方同律)。
+    return SimpleNamespace(
+        sources=[s for s in reg._sources
+                 if not getattr(s, "eval_excluded", False)])
 
 
 if __name__ == "__main__":

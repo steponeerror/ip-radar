@@ -1,7 +1,7 @@
 # backend/tests/eval/test_replay_diff.py — replay_diff 快照脚本纯函数测试
 import pytest
 
-from ipdb._eval.replay_diff import main, sample_ips, snapshot_entry
+from ipdb._eval.replay_diff import _bind, main, sample_ips, snapshot_entry
 
 
 class _FakeSource:
@@ -13,6 +13,38 @@ class _FakeSource:
 class _FakeRegistry:
     def __init__(self, sources):
         self.sources = sources
+
+
+# ── 恒禁用红线:eval_excluded 源不入回放采样面(终审 P0)──
+
+def test_bind_strips_eval_excluded_sources():
+    class _Src:
+        def __init__(self, name, excluded=False):
+            self.name = name
+            self.classification_type = "scanner"
+            self.eval_excluded = excluded
+
+    class _Reg:
+        _sources = [_Src("turris_greylist"), _Src("honyport", excluded=True)]
+
+    names = [s.name for s in _bind(_Reg()).sources]
+    assert names == ["turris_greylist"]  # honyport 被剥,不当考生样本来源
+
+
+def test_sample_ips_skips_eval_excluded_via_bind(monkeypatch, tmp_path):
+    from ipdb._eval import replay_diff as rd
+
+    class _Src:
+        name = "honyport"
+        classification_type = "scanner"
+        eval_excluded = True
+
+    class _Reg:
+        _sources = [_Src()]
+
+    # 语料面置空(真仓语料在场时 corpus.all_ips 会贡献 IP,与剥源断言无关)
+    monkeypatch.setattr(rd, "CORPUS_PATH", tmp_path / "absent.json")
+    assert rd.sample_ips(_bind(_Reg())) == []  # 唯一源被剥 → 零采样,不报错
 
 
 # ── snapshot_entry:每 IP 的可比视图 ──

@@ -4,6 +4,11 @@
 
 ## Unreleased
 
+### 新增 Added
+
+  - **honyport 自建蜜罐观测源接入查询池(2026-11-02,#271/#272/#273/#274)**:网页查 IP 现在能看到自家蜜罐的观测证据——「30 天内观测到攻击,共 X 次」+服务列表+最后观测时间;源以标准 CsvSource 轨道入池(category=threat/classification=scanner/reliability 0.85),数据链 = 服务器日 CSV → 每日 03:10 聚合脚本(30 天窗+扫描段/白名单过滤,计数自报)→ 挂载目录 → 容器 rebuild;评估面恒禁用(ADR 0017 §7 修订):源声明 eval_excluded,三道闸(registry 剥离/toggle 强禁/采样宇宙剔除)+回放器同律,θ/消融/verdict/锚回归/融合读数全不测它,月报记分卡单列「评估禁用源」行+导语注脚;Sources 页 θ 列显「评估禁用」徽标;附验收一键回归脚本(规格 §6 五条)。手法档案展示另立二期(#279)。门:backend 2434 绿、frontend 456+tsc 0、脚本 32+验收 5 PASS、四单任务评审+整分支终审
+  - **honeyport self-run honeypot source joins the query pool (2026-11-02, #271/#272/#273/#274)**: Querying an IP on the web UI now surfaces first-party honeypot evidence — "observed attacking within 30 days, X events total" + service list + last-seen time. The source rides the standard CsvSource track (category=threat / classification=scanner / reliability 0.85); data chain = server daily CSVs → 03:10 daily aggregation script (30-day window + scanner-range/allowlist filtering with self-reported counts) → mounted dir → container rebuild. The eval side is permanently excluded (ADR 0017 §7 amended): the source declares eval_excluded, enforced by three gates (registry strip / forced toggle / sampling-universe skip) plus the same rule in the scoring-replay tool — θ/ablation/verdict/anchor-regression/fusion readouts never measure it, the monthly scorecard carries a dedicated "eval-excluded" row + footnote; Sources page shows an "评估禁用" badge in the θ column; a one-command acceptance script covers the spec's five checks. Techniques-display deferred to phase 2 (#279). Gates: backend 2434 green, frontend 456 + tsc 0, scripts 32 + acceptance 5 PASS, four ticket reviews + whole-branch final review
+
 ### 调整 Changed
 
   - **重建期日志治理+源护栏+README 补齐四小批(2026-10-30/31,PR #252/#255,#241/#249/#251/#253/#254)**:①未映射标签告警从逐条刷屏改一次摘要:tweetfeed 与 urlhaus 重建时,无法归类的 hashtag/tag 不再每键一条 WARN,而是计数收集、结束时发一条摘要(总数+去重数+Top-10);判定逻辑与落库逐字节不变(双源双面位等价实测,urlhaus 单次重建 325 条→1 条),共享归一化 normalize() 及其余调用方维持原状;②B 家族(明单/CSV 源)发现期补 url/filename 非空护栏:漏定义从「静默写坏路径」变回「启动即拒」,多端点设计的 firehol/blocklist_de 以显式 url_exempt 豁免,A 家族不在本票范围;③threatfox 手抄的 download_host 覆写删除;④README 双语源表补齐 61 行、架构图顺序勘正、密钥分区勘正为 61=54 免密钥+7 需密钥(threatfox/urlhaus 自 #159 起必须 ABUSECH_AUTH_KEY)。验证:tests/sources+core 1158 绿、61 源发现冒烟、#241 的 8 测试零改动全绿、双源 harvest/查询双面 cmp 逐字节同
