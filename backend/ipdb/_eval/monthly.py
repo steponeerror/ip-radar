@@ -134,6 +134,8 @@ def render_scorecard(model_history: list[dict], sources, *,
     → "—"。90d 均分: generated_at ≥ today-90d 各报告该源非 None θ 的均值
     (report.py 脚注纪律同款 .3f)。冗余度%: oc_latest(源名 → 该源最新
     --all verdict JSON metrics.oc.value, 接线方装配)缺 → "N/A"。
+    评估禁用源(eval_excluded,spec 2026-11-02 §3):不进 θ/冗余度/均分
+    行,单列一行「评估禁用源: <name>」(源清单含禁用行,验收 §6-5)。
     """
     today = today or date.today()
     hist = sorted(model_history, key=lambda r: r.get("generated_at", ""))
@@ -148,6 +150,12 @@ def render_scorecard(model_history: list[dict], sources, *,
     cutoff = (today - timedelta(days=90)).isoformat()
     rows = []
     for s in sources:
+        if getattr(s, "eval_excluded", False):
+            # 评估面恒禁用: 无任何 θ/消融/verdict 记录, 档位三列不适用;
+            # provenance 列如实(自采 A/社区 B/聚合 C), 谱系信息不因禁用丢失
+            rows.append((f"评估禁用源: {s.name}", "—", "—", "—",
+                         getattr(s, "provenance_tier", "—")))
+            continue
         ths = [sc.get("theta")
                for r in hist if r.get("generated_at", "") >= cutoff
                for sc in r.get("scores", [])
@@ -569,7 +577,8 @@ def compose_monthly_md(readout: dict, disclosures_lines: list[str],
                        steal_parking_lines: list[str] | None = None,
                        north_star_lines: list[str] | None = None,
                        leg_status_lines: list[str] | None = None,
-                       truth_v2_lines: list[str] | None = None) -> str:
+                       truth_v2_lines: list[str] | None = None,
+                       eval_excluded_names: list[str] | None = None) -> str:
     """组装月轮报告 v2 markdown。头块 = 环境指纹 + 语料版本/指纹逐层 +
     S12/S17 换版注记(仅稳定层指纹实变才出, F2 趋势纪律; 共识代理层=
     滚动语料豁免, 声明行交代)+ S6 年度递减计数 +
@@ -640,6 +649,14 @@ def compose_monthly_md(readout: dict, disclosures_lines: list[str],
                  "(HADES NDSS'25 式投毒): 锚/探针成员资格是公开知识, "
                  "读数仅 advisory、人裁终局; 只测量不持门, eval 不回流权重"
                  "(声明 r; ADR 0013)")
+    # 评估禁用源导语注脚(spec 2026-11-02 §3,honyport #272): 评估融合读数
+    # 少一源 → 系统性低于线上, 口径差一次说明不做双列对照(grill 裁决);
+    # 缺省 None/空 → 不出行(schema-stable, 既有调用零变化)。
+    if eval_excluded_names:
+        lines.append(f"- 注脚: 评估融合读数不含评估禁用源"
+                     f"({', '.join(eval_excluded_names)}), 系统性低于线上;")
+        lines.append(f"  逐源行见记分卡「评估禁用源」(查询面正常出证, "
+                     "评估面恒禁用)")
 
     layers = readout.get("layers", {})
     lines += ["", "## 分层读数(T8)", "",

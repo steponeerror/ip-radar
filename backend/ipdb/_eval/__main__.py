@@ -197,6 +197,27 @@ def _real_registry():
     )
 
 
+def eval_excluded_names(sources) -> list[str]:
+    """评估面恒禁用源名(spec 2026-11-02 §3):源类属性 eval_excluded 声明。
+
+    月报记分卡「评估禁用源」行与导语注脚同源此面(单一真源)。"""
+    return [s.name for s in sources if getattr(s, "eval_excluded", False)]
+
+
+def force_eval_excluded(registry) -> set[str]:
+    """启动即对 eval_excluded 源强制禁用(in-memory,永不落盘)。
+
+    经 registry.toggle(消融同通道:重赋值 _disabled,registry 身份键控
+    缓存即刻失效)——θ/消融/verdict/锚回归/融合读数全模式的 lookup
+    都在禁用态下运行(spec 2026-11-02 §3)。返回禁用名集(空 = 无
+    此类源,现有行为零变化)。sources/toggle 宽容缺席:lookup-only
+    测试替身不携源面(真 _real_registry 全模式恒有)。"""
+    excluded = set(eval_excluded_names(getattr(registry, "sources", ())))
+    for name in sorted(excluded):
+        registry.toggle(name, False)
+    return excluded
+
+
 def run_for_source(source_name: str, registry=None, corpus_path=CORPUS_PATH,
                    out_dir=None, benign=None, run_seed: int | None = None):
     registry = registry or _real_registry()
@@ -500,7 +521,8 @@ def run_readout(registry, out_dir, *, assets_dir=None, keysets_dir=None,
         steal_parking_lines=render_steal_parking_diag(keysets_root),
         north_star_lines=north_star_lines,
         leg_status_lines=leg_status_lines,
-        truth_v2_lines=truth_v2_lines)
+        truth_v2_lines=truth_v2_lines,
+        eval_excluded_names=eval_excluded_names(registry.sources))
     md_path = out_dir / f"monthly-{run_id}.md"
     md_path.write_text(md, encoding="utf-8")
     (out_dir / "action-block.json").write_text(json.dumps(
@@ -725,6 +747,26 @@ def main(argv=None):
         return
 
     registry = _real_registry()
+
+    # ── 评估面恒禁用(spec 2026-11-02 §3,honyport #272)────────────
+    # eval_excluded 源全模式启动即强制禁用:θ/消融/verdict 不测它,锚点
+    # 回归与融合级读数的 lookup 投票也不含它(toggle 通道与消融同款
+    # in-memory 重赋值,不落盘)。honeyport 观测同时是真值语料组件
+    # (ADR 0017),同源双用会自证,故评估面永不启用它;下方 --source/
+    # --gate/--sentinel 对禁用源 fail-loud 拒跑(消融 finally 会 re-enable
+    # 候选,恒禁用红线不允许该路径存在)。
+    excluded = force_eval_excluded(registry)
+    if excluded:
+        print(f"eval: eval-excluded sources force-disabled: "
+              f"{', '.join(sorted(excluded))}", file=sys.stderr)
+    if args.source is not None and args.source in excluded:
+        msg = (f"{args.source} is eval-excluded — evaluation is permanently "
+               f"disabled for this source (spec 2026-11-02 §3)")
+        if args.json:
+            _json_error("eval_excluded_source", msg,
+                        "评估禁用源不进 θ/消融/verdict;查月报记分卡「评估禁用源」行")
+        print(f"拒绝: {msg}", file=sys.stderr)
+        sys.exit(1)
 
     # ── --exclusive 排他率探针(2026-10-18 malicious-ip 82.7%/ziyadnz 44.7%
     # 两起翻案 /tmp 探针产品化;协议逐字见 exclusive.py 模块注释)────────
@@ -1056,6 +1098,14 @@ def main(argv=None):
         from .gate_mirror import (GateMirrorMisalignedError,
                                   check_measurement_alignment,
                                   ensure_gate_mirror)
+        # 评估禁用源拒跑(先于镜像前置,便宜失败):gate 会对候选做
+        # 双口径评估且消融 finally 会 re-enable —— 恒禁用红线不允许。
+        if args.gate in excluded:
+            _gate_cli_fail(
+                1, "eval_excluded_source",
+                f"{args.gate} is eval-excluded — 恒禁用源不走接入关评估",
+                "评估禁用源不进 θ/消融/verdict(spec 2026-11-02 §3)",
+                args.json)
         try:
             with _gate_env():
                 # review-loop r2 P1: preserve(--exclude=<name> / <name>.*)
@@ -1149,6 +1199,17 @@ def main(argv=None):
             print(f"  report: {res['report']['md']}")
         sys.exit(0 if res["all_match"] else 1)
     if args.sentinel is not None:
+        # 评估禁用源拒跑(先于探针):禁用态下哨兵 lookup 读不到本源证据,
+        # 读数恒假阴性 —— 不出误导读数,直接拒。
+        if args.sentinel in excluded:
+            msg = (f"{args.sentinel} is eval-excluded — evaluation is "
+                   f"permanently disabled for this source "
+                   f"(spec 2026-11-02 §3)")
+            if args.json:
+                _json_error("eval_excluded_source", msg,
+                            "评估禁用源不进评估面;查询面验证走 #273 验收脚本")
+            print(f"拒绝: {msg}", file=sys.stderr)
+            sys.exit(1)
         # 生效性哨兵 CLI(Q18 §3.2; materialize_source.sh 2/3 透传本 rc):
         #   pass=True → rc 0;pass=False → rc 1(探针失配或 fail-closed 通道
         #   NO-MEMBERS/UNKNOWN-CATEGORY/NO-ASSET-AXIS);pass=None(N/A,
@@ -1195,6 +1256,11 @@ def main(argv=None):
         if args.json:
             results = []
             for s in registry.sources:
+                # 评估禁用源:不评估,只出禁用行(源清单含禁用行,验收 §6-5;
+                # 无 θ/消融/verdict 记录)
+                if s.name in excluded:
+                    results.append({"source": s.name, "eval_excluded": True})
+                    continue
                 try:
                     _, js, _ = run_for_source(s.name, registry=registry)
                     results.append(json.loads(Path(js).read_text()))
@@ -1204,6 +1270,9 @@ def main(argv=None):
             print(json.dumps(results, ensure_ascii=False))
             return
         for s in registry.sources:
+            if s.name in excluded:
+                print(f"{s.name:<20} eval-excluded(评估面恒禁用)")
+                continue
             _, _, v = run_for_source(s.name, registry=registry)
             print(f"{s.name:<20} {v.state}")
         return
