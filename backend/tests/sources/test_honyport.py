@@ -64,6 +64,12 @@ def _source(tmp_path: Path, csv_text: str | None = AGGREGATE) -> HonyportSource:
 # ── download(本地挂载目录取件,不走 HTTP)──────────────────────
 
 
+def test_source_decl_pins():
+    """元数据逐字钉(#272 评审 P2-2):stale_days 无测试钉,防规格漂移。"""
+    assert HonyportSource.stale_days == 2
+    assert HonyportSource.name == "honyport"
+
+
 def test_download_dir_absent_silent_absent(tmp_path, monkeypatch):
     """目录缺席 → 静默跳过报 absent:不抛、不落文件(私有源遮蔽先例,
     开发机无挂载不受扰——零失败任务噪声)。"""

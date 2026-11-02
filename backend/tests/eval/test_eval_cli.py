@@ -86,3 +86,26 @@ def test_real_registry_toggle_visible_to_enabled_sources(monkeypatch):
     assert name not in [s.name for s in reg._enabled_sources()]   # 立即可见
     _real_registry().toggle(name, True)
     assert name in [s.name for s in reg._enabled_sources()]       # 往返恢复
+
+
+def test_real_registry_strips_eval_excluded_sources(monkeypatch):
+    """恒禁用红线隔离闸①(#272 P2-1):_real_registry 必须把 eval_excluded
+    源从 sources 面剥离并透出到 eval_excluded_sources —— 读原始文件的面
+    (键集快照/consensus 层/origin/demand/model suite)只吃 namespace
+    .sources,toggle 拦不住;此段被误删时现有 CLI 测试(全部替身内联)
+    仍全绿,故必须打真注册表直测。monkeypatch 充当快照,终结恢复。"""
+    import ipdb._registry as reg_mod
+    from ipdb._eval.__main__ import _real_registry
+
+    excluded = [s for s in reg_mod._sources
+                if getattr(s, "eval_excluded", False)]
+    assert any(s.name == "honyport" for s in excluded), \
+        "honyport 必须声明 eval_excluded=True(#272 规格 §3)"
+    monkeypatch.setattr(reg_mod, "_sources", list(reg_mod._sources))
+
+    ns = _real_registry()
+    names = [s.name for s in ns.sources]
+    assert "honyport" not in names
+    assert "honyport" in [s.name for s in ns.eval_excluded_sources]
+    # 可评估面与禁用面互斥不重不漏(真注册表形状)
+    assert not (set(names) & {s.name for s in ns.eval_excluded_sources})
