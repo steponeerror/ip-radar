@@ -20,7 +20,7 @@ import { HEALTH_PIPELINE } from "../../agent/pipeline.mjs"; // 零复制:定义�
 import { modelIO, forEachItems } from "../../agent/pipeline/steps.mjs"; // 零复制:模型步装配/收编/逐假设枚举
 import { evalStageGate, appendGate } from "../../agent/pipeline/gates.mjs"; // 零复制:单发步门(G_TRIAGE/G_SYNTH)
 import { hidSlug } from "../../agent/pipeline/steps.mjs";
-import { loadFauxFixture, fauxFixtureSeeds, transcriptFile } from "../faux-face.mjs"; // MF3:faux 面分派件(fixture/seeds/transcript 名,旧 faux.mjs 位等价副本)
+import { loadFauxFixture, fauxFixtureSeeds, transcriptFile } from "../faux-face.mjs"; // MF3:faux 面分派件(fixture/seeds/transcript 名,旧 faux.mjs 字节级一致副本)
 import { ERROR_CODES } from "../../agent/error-codes.mjs";
 import { buildRoundCtx, opsRootOf, sha16 } from "../round-ctx.mjs";
 import { roundKnobs, preModelCall, postModelCall } from "./budget-guard.mjs"; // 票 #226 环内执法面
@@ -56,7 +56,7 @@ const usageSince = (view, n0) => {
 };
 
 // transcript 工件留痕(MF3;旧 faux.mjs runFauxStep/runRealStep 的 transcript 写盘副作用面,
-// 行型以旧源为准位等价:faux.mjs:87-94(faux 面)/faux.mjs:135-139(真面)——
+// 行型以旧源为准字节级一致:faux.mjs:87-94(faux 面)/faux.mjs:135-139(真面)——
 //   input 行:{type:"input",stage,model(仅真面:provider/modelId),system_sha,user_sha,meta}
 //   registry_seed 行:faux 面=fixture seeds(call_id=sd.id);真面=微探针宿主登记行(call_id=sd.call_id)
 //   message 行:逐 assistant 消息 {type:"message",role,content,stopReason}
@@ -124,13 +124,13 @@ export const OPS_MODEL_ROUND = defineTask({
       const def = defOf(input.stage);
       if (!def) throw Object.assign(new Error(`stage 须 ∈ {${MODEL_STAGES.join("|")}}:${input.stage}`), { code: "bad_round" });
       const ctx = rebuildCtx(input, ck);
-      const knobs = ck.budgetKnobs ?? roundKnobs(process.env, "health"); // #199 A1 幂等:resume 重建面兑底同判例
+      const knobs = ck.budgetKnobs ?? roundKnobs(process.env, "health"); // #199 A1 幂等:resume 重建面兜底同判例
       const io = modelIO(def);
       const item = def.forEach
         ? forEachItems(def, ctx).find((b) => b.hid === input.hid) ?? null
         : null;
       if (def.forEach && !item)
-        return void await runtime.commit(() => ({ status: "terminal", outcome: { status: "failed", error: { code: "bad_round", message: `hid=${input.hid} 不在 04-dispatch-bundles(或金轨迹回退)` } } }), context);
+        return void await runtime.commit(() => ({ status: "terminal", outcome: { status: "failed", error: { code: "bad_round", message: `hid=${input.hid} 不在 04-dispatch-bundles(或保活任务回退)` } } }), context);
       const modelInput = await io.input(ctx, item); // 零复制:旧装配面(提示词/上下文判例注入单源)
       // —— attempt 前查①③(budget-guard 环内;旧 runModelStage 检查点同构,违界即停不重试;
       // P1-4:①③以轮累计为基——roundBase=健康轮 spawn 时点快照(轮调用数/轮 usage/轮

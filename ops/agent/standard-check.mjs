@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// standard-check.mjs — STANDARD.md 门挂点核对器(#181;黄金标准四层之「门挂点层」机检面)。
+// standard-check.mjs — STANDARD.md 门挂点核对器(#181;验收标准四层之「门挂点层」机检面)。
 // 语义(票 #181/ADR 0008):挂不上验证手段的条目只能称建议,不得称标准——
 //   条文(#### X-n)必须带门挂点且指向的文件/测试真实存在,否则非零退出;
 //   「建议」类无门挂点,必须显式标「类:建议」;组合不出原语的条目=伪条目。
@@ -18,7 +18,7 @@ const SECTION_KEYS = [
   ["primitives", "原语层"],
   ["articles", "条文层"],
   ["gates", "门挂点层"],
-  ["goldens", "金标层"],
+  ["goldens", "标准答案层"],
   ["advice", "建议区"],
 ];
 const REQUIRED_SECTIONS = SECTION_KEYS.map(([, kw]) => kw);
@@ -143,7 +143,7 @@ export function checkStandard(text, opts = {}) {
   const statusCount = { 已有: 0, 半缺: 0, 缺: 0 };
   for (const p of primitives) statusCount[p.status] = (statusCount[p.status] ?? 0) + 1;
 
-  // ③ 条文(含金标 G-):字段齐备 + 原语闭包 + 门挂点存在
+  // ③ 条文(含标准答案 G-):字段齐备 + 原语闭包 + 门挂点存在
   let mountTotal = 0;
   let nArticles = 0;
   let nGoldens = 0;
@@ -155,7 +155,7 @@ export function checkStandard(text, opts = {}) {
     }
     if (articleIds.has(a.id)) fail("article", `条文编号重复:${a.id}`);
     articleIds.add(a.id);
-    nArticles += 1; // 条文体计数含金标 G- 门挂点同律
+    nArticles += 1; // 条文体计数含标准答案 G- 门挂点同律
     if (a.sectionKind === "goldens") nGoldens += 1;
 
     for (const f of ARTICLE_FIELDS) {
@@ -256,7 +256,7 @@ function main() {
   const { articles, goldens, advice, mounts, primitives, statusCount } = r.counts;
   console.log(
     `standard-check: OK=${r.results.length - r.results.filter((x) => !x.ok).length} FAIL=${r.results.filter((x) => !x.ok).length} ` +
-      `条文=${articles} 金标=${goldens} 建议=${advice} 挂点=${mounts} 原语=${primitives}(已有${statusCount["已有"] ?? 0}/半缺${statusCount["半缺"] ?? 0}/缺${statusCount["缺"] ?? 0})`,
+      `条文=${articles} 标准答案=${goldens} 建议=${advice} 挂点=${mounts} 原语=${primitives}(已有${statusCount["已有"] ?? 0}/半缺${statusCount["半缺"] ?? 0}/缺${statusCount["缺"] ?? 0})`,
   );
   process.exit(r.exitCode);
 }

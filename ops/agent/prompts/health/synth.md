@@ -8,7 +8,7 @@
 
 # 输入
 
-1. 用户消息 = 判例注入块(锚域词表×幸存旗标选锚 + 检索命中;命中判例带 context/human_ruling gist)+ 本轮输入摘要;
+1. 用户消息 = 判例注入块(判例速查表从筛后旗标集确定性选判例 + 检索命中;命中判例带 context/human_ruling gist)+ 本轮输入摘要;
 2. 条目清单(单 JSON):created/reopened/deduped/suppressed 四计数 + 每条 id/source/one_line/severity/verdict/建议动作;
 3. DEEP 步 verdicts 摘要(hid × verdict)+ PROBE 门读数(urls_n / 各桶计数 / matrix.ok)。
 

@@ -27,3 +27,21 @@ async def test_no_env_no_superuser(tmp_path, monkeypatch):
     await _auth.bootstrap_admin()
     assert await _auth.get_superuser_count() == 0
     assert not _auth.admin_configured()
+
+
+def test_auth_db_path_env_override(tmp_path, monkeypatch):
+    # #258 折并钉子:env 覆写直读(纯路径解析,不建库)
+    from ipdb import _auth
+    monkeypatch.setenv("IP_RADAR_AUTH_DB", str(tmp_path / "overridden.db"))
+    assert _auth._auth_db_path() == tmp_path / "overridden.db"
+
+
+def test_auth_db_path_default_and_empty_env_fall_back(tmp_path, monkeypatch):
+    # #258 折并钉子:缺省回退 _STATE_PATH 同目录;空串 env 视同未设
+    # (负例:钉 `if env:` 真值语义而非 is not None,折并前后零变化)
+    from ipdb import _auth, _registry
+    monkeypatch.setattr(_registry, "_STATE_PATH", tmp_path / "source_state.json")
+    monkeypatch.delenv("IP_RADAR_AUTH_DB", raising=False)
+    assert _auth._auth_db_path() == tmp_path / "auth.db"
+    monkeypatch.setenv("IP_RADAR_AUTH_DB", "")
+    assert _auth._auth_db_path() == tmp_path / "auth.db"

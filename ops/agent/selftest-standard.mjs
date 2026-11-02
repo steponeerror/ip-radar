@@ -4,7 +4,7 @@
 //   ①条文(#### X-n)缺门挂点字段/空挂点值 → FAIL ②挂点路径不存在(死锚)→ FAIL
 //   ③挂点 path#fragment 片段不在文件内 → FAIL ④原语组成 token 不在原语表(伪条目)→ FAIL
 //   ⑤建议区条目必须显式「类:建议」⑥条文体(#### X-n)不得进建议区
-//   ⑦原语表计数/状态词表/重名 ⑧金标条目同受门挂点律 ⑨docs/(嵌套仓)不得作门挂点(CI 缺席判例)
+//   ⑦原语表计数/状态词表/重名 ⑧标准答案条目同受门挂点律 ⑨docs/(嵌套仓)不得作门挂点(CI 缺席判例)
 // 输出契约:STDPASS/STDFAIL 行 + 末行 selftest-standard: PASS=n FAIL=m(同 T4 形)。
 
 import { checkStandard } from "./standard-check.mjs";
@@ -27,8 +27,8 @@ const VALID_DOC = `# STANDARD.md — 合成有效样例
 
 | # | 原语 | 2026 出处 | 内部状态 | 内部锚 / 补课 |
 |---|---|---|---|---|
-| P1 | 谱系去重 | swarm tax 2026-05 | 已有 | backend/ipdb/_logodds.py |
-| P2 | 金标集 | Anthropic 2026-01 | 已有 | ops/agent/golden/cases.json |
+| P1 | 转载去重 | swarm tax 2026-05 | 已有 | backend/ipdb/_logodds.py |
+| P2 | 标准答案集 | Anthropic 2026-01 | 已有 | ops/agent/golden/cases.json |
 
 ## 二、条文层(首批两维)
 
@@ -36,7 +36,7 @@ const VALID_DOC = `# STANDARD.md — 合成有效样例
 
 #### E-1 合成头条
 - 主张:先写失败评测再动 agent。
-- 原语组成:金标集;谱系去重
+- 原语组成:标准答案集;转载去重
 - 门挂点:ops/agent/golden/run-golden.mjs;ops/agent/pipeline.mjs#HEALTH_PIPELINE
 - 判例链:web.dev 2026-01-29;ADR 0008
 
@@ -44,7 +44,7 @@ const VALID_DOC = `# STANDARD.md — 合成有效样例
 
 #### D-1 合成开发条
 - 主张:门全机检,留痕可回算。
-- 原语组成:谱系去重
+- 原语组成:转载去重
 - 门挂点:ops/agent/gates.mjs
 - 判例链:promptfoo 2026-10-02
 
@@ -52,17 +52,17 @@ const VALID_DOC = `# STANDARD.md — 合成有效样例
 
 挂口族:CI/selftest/ops 轮门。
 
-## 四、金标层(首批)
+## 四、标准答案层(首批)
 
-#### G-1 合成金标
+#### G-1 合成标准答案
 - 主张:8.8.8.8 判 clean。
-- 原语组成:金标集
+- 原语组成:标准答案集
 - 门挂点:backend/ipdb/_eval/anchors.py
 - 判例链:ADR 0008 决策3
 
 ## 五、建议区(无门挂点,显式标类)
 
-- 类:建议 OTel 投影——轮信封外发词汇对齐(补课后转正)。
+- 类:建议 OTel 投影——轮次结果单外发词汇对齐(补课后转正)。
 `;
 
 const VALID_FILES = {
@@ -124,14 +124,14 @@ expectFail(
 // ---- 6. 伪条目:原语组成含表外 token ----
 expectFail(
   "伪条目被拒(原语组成表外词)", 
-  VALID_DOC.replace("原语组成:金标集;谱系去重", "原语组成:金标集;未铸原语"),
+  VALID_DOC.replace("原语组成:标准答案集;转载去重", "原语组成:标准答案集;未铸原语"),
   "伪条目",
 );
 
 // ---- 7. 建议未标类 ----
 expectFail(
   "建议区未标类被拒(无门挂点必须显式「类:建议」)", 
-  VALID_DOC.replace("- 类:建议 OTel 投影——轮信封外发词汇对齐(补课后转正)。", "- OTel 投影——轮信封外发词汇对齐。"),
+  VALID_DOC.replace("- 类:建议 OTel 投影——轮次结果单外发词汇对齐(补课后转正)。", "- OTel 投影——轮次结果单外发词汇对齐。"),
   "类:建议",
 );
 
@@ -139,8 +139,8 @@ expectFail(
 expectFail(
   "条文体混入建议区被拒(挂不上门不得称条文)", 
   VALID_DOC.replace(
-    "- 类:建议 OTel 投影——轮信封外发词汇对齐(补课后转正)。",
-    "#### E-9 藏进建议区的伪条文\n- 主张:绕过门挂点。\n- 原语组成:金标集\n- 判例链:无",
+    "- 类:建议 OTel 投影——轮次结果单外发词汇对齐(补课后转正)。",
+    "#### E-9 藏进建议区的伪条文\n- 主张:绕过门挂点。\n- 原语组成:标准答案集\n- 判例链:无",
   ),
   "建议区",
 );
@@ -148,27 +148,27 @@ expectFail(
 // ---- 9. 原语计数不符(v0 闭集 22;合成样例注入 3 行对 2) ----
 expectFail(
   "原语计数闭集被钉(22 词 v0 冻结;缺行被拒)", 
-  VALID_DOC.replace("| P2 | 金标集 | Anthropic 2026-01 | 已有 | ops/agent/golden/cases.json |", ""),
+  VALID_DOC.replace("| P2 | 标准答案集 | Anthropic 2026-01 | 已有 | ops/agent/golden/cases.json |", ""),
   "原语计数",
 );
 
 // ---- 10. 状态词表外 ----
 expectFail(
   "原语状态词表被钉(已有/半缺/缺之外被拒)", 
-  VALID_DOC.replace("| P2 | 金标集 | Anthropic 2026-01 | 已有 |", "| P2 | 金标集 | Anthropic 2026-01 | 想要 |"),
+  VALID_DOC.replace("| P2 | 标准答案集 | Anthropic 2026-01 | 已有 |", "| P2 | 标准答案集 | Anthropic 2026-01 | 想要 |"),
   "状态",
 );
 
 // ---- 11. 原语重名 ----
 expectFail(
   "原语重名被拒(一词一义)", 
-  VALID_DOC.replace("| P2 | 金标集 |", "| P2 | 谱系去重 |"),
+  VALID_DOC.replace("| P2 | 标准答案集 |", "| P2 | 转载去重 |"),
   "重名",
 );
 
-// ---- 12. 金标缺门挂点(金标层同受门挂点律) ----
+// ---- 12. 标准答案缺门挂点(标准答案层同受门挂点律) ----
 expectFail(
-  "金标条目缺门挂点被拒", 
+  "标准答案条目缺门挂点被拒", 
   VALID_DOC.replace("- 门挂点:backend/ipdb/_eval/anchors.py\n- 判例链:ADR 0008 决策3", "- 判例链:ADR 0008 决策3"),
   "G-1",
 );
@@ -183,7 +183,7 @@ expectFail(
 // ---- 14. 缺节:建议区整节被删 ----
 expectFail(
   "必备节缺失被拒(建议区不得静默消失)", 
-  VALID_DOC.replace("## 五、建议区(无门挂点,显式标类)\n\n- 类:建议 OTel 投影——轮信封外发词汇对齐(补课后转正)。\n", ""),
+  VALID_DOC.replace("## 五、建议区(无门挂点,显式标类)\n\n- 类:建议 OTel 投影——轮次结果单外发词汇对齐(补课后转正)。\n", ""),
   "建议区",
 );
 
@@ -192,7 +192,7 @@ expectFail(
   const r = run(VALID_DOC);
   const nArticles = r.counts.articles;
   const nAdvice = r.counts.advice;
-  if (nArticles === 3 && nAdvice === 1) ok("计数面:条文3(2条文+1金标)/建议1,建议不冒充条文");
+  if (nArticles === 3 && nAdvice === 1) ok("计数面:条文3(2条文+1标准答案)/建议1,建议不冒充条文");
   else bad(`计数面:条文3/建议1,实得条文=${nArticles} 建议=${nAdvice}`);
 }
 

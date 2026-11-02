@@ -46,10 +46,8 @@ class AccessToken(SQLAlchemyBaseAccessTokenTableUUID, Base):
 
 
 def _auth_db_path() -> Path:
-    env = os.environ.get("IP_RADAR_AUTH_DB")
-    if env:
-        return Path(env)
-    return _registry._STATE_PATH.parent / "auth.db"
+    return _registry.env_path_or_state_sibling(
+        "IP_RADAR_AUTH_DB", "auth.db")
 
 
 # ponytail: 按路径字符串缓存引擎/会话工厂;测试多路径各一份,生产单路径单实例

@@ -1,7 +1,7 @@
 // faux-face.mjs — faux 面分派接线(票 #228 修复 ⑥;审查 P2-4 最小接面:只接 faux
 // provider 分派,不动 T5 台账兼容面)。旧真源 = ops/agent/pipeline/faux.mjs(零改动
 // 红线;loadFixture/transcriptName/fauxProvider 装配是私有面不 export → 本文件按旧源
-// 逐字重实现,行型/路径/判例位等价,出处逐处标注):
+// 逐字重实现,行型/路径/判例字节级一致,出处逐处标注):
 //   fixture 路径/缺件判例      = 旧 faux.mjs loadFixture(faux.mjs:69-79)
 //   provider 装配 + 罐装回合   = 旧 runFauxStep(faux.mjs:76-79;models id 同式
 //     `faux-${def.model 斜杠转横线}`);v2 偏差:provider 名加轮次/步/假设唯一后缀——

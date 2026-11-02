@@ -1781,12 +1781,13 @@ await t("A2-纯函数:台账月度花费解析(当月计/跨月不计/缺 cost �
 await t("A2-pipeline 面:超月帽拒跑(ok:false code=budget_monthly+台账留痕行+不建轮目录)", async () => {
   const { monthNow } = await import(path.join(AGENT, "pipeline/budget.mjs"));
   const tree = mkTree("budget-month");
-  const m = monthNow();
+  const now = new Date(); // #268:月键单次取定——fixture 写入与准入裁决(runPipeline opts→admitOrRefuse 注入缝)共用同一冻结 now,恰跨月末午夜也零竞态
+  const m = monthNow(now);
   fs.mkdirSync(path.dirname(tree.env.LEDGER_FILE), { recursive: true });
   fs.writeFileSync(tree.env.LEDGER_FILE, `# 运营轮次台账\n\n| 日期 | 轮次 | model | 用量 | 备注 |\n|---|---|---|---|---|\n| ${m}-01 | health | pipeline-real | in=1 out=1 total=2 cost=0.04 | pipeline:old |\n`);
   const io = mkIo();
   const rid = "2026-10-25-1705-health";
-  const r = await runPipeline({ roundId: rid, fixturesDir: DEFAULT_FIXTURES_DIR, env: { ...tree.env, OPS_PIPELINE_MONTHLY_CAP_CNY: "0.05", OPS_PIPELINE_BUDGET_CNY: "0.05" }, ...io });
+  const r = await runPipeline({ roundId: rid, fixturesDir: DEFAULT_FIXTURES_DIR, env: { ...tree.env, OPS_PIPELINE_MONTHLY_CAP_CNY: "0.05", OPS_PIPELINE_BUDGET_CNY: "0.05" }, ...io, now }); // #268:冻结 now 透传准入
   assert.equal(r.ok, false);
   assert.equal(r.envelope.error.code, "budget_monthly");
   assert.equal(JSON.parse(io.buf.stdout).error.code, "budget_monthly");
@@ -1799,24 +1800,26 @@ await t("A2-pipeline 面:超月帽拒跑(ok:false code=budget_monthly+台账留�
 await t("A2-pipeline 面:月帽内放行对照(同一台账零改动照跑全绿)", async () => {
   const { monthNow } = await import(path.join(AGENT, "pipeline/budget.mjs"));
   const tree = mkTree("budget-month-ok");
-  const m = monthNow();
+  const now = new Date(); // #268:冻结 now(月键单次取定,同上例)
+  const m = monthNow(now);
   fs.mkdirSync(path.dirname(tree.env.LEDGER_FILE), { recursive: true });
   fs.writeFileSync(tree.env.LEDGER_FILE, `# 运营轮次台账\n\n| 日期 | 轮次 | model | 用量 | 备注 |\n|---|---|---|---|---|\n| ${m}-01 | health | pipeline-real | in=1 out=1 total=2 cost=0.04 | pipeline:old |\n`);
   const io = mkIo();
-  const r = await runPipeline({ roundId: "2026-10-25-1706-health", fixturesDir: DEFAULT_FIXTURES_DIR, env: { ...tree.env, OPS_PIPELINE_MONTHLY_CAP_CNY: "0.2", OPS_PIPELINE_BUDGET_CNY: "0.05" }, ...io });
+  const r = await runPipeline({ roundId: "2026-10-25-1706-health", fixturesDir: DEFAULT_FIXTURES_DIR, env: { ...tree.env, OPS_PIPELINE_MONTHLY_CAP_CNY: "0.2", OPS_PIPELINE_BUDGET_CNY: "0.05" }, ...io, now }); // #268:冻结 now 透传准入
   assert.equal(r.ok, true, `帽内应放行:${r.envelope?.error?.message ?? ""}`);
 });
 
 await t("A2-双面共享:legacy 面 runRound 同一拒跑码+台账留痕(准入先于模型装载)", async () => {
   const { monthNow } = await import(path.join(AGENT, "pipeline/budget.mjs"));
   const tree = mkTree("budget-month-legacy");
-  const m = monthNow();
+  const now = new Date(); // #268:冻结 now(月键单次取定,同 A2 pipeline 面例)
+  const m = monthNow(now);
   fs.mkdirSync(path.dirname(tree.env.LEDGER_FILE), { recursive: true });
   fs.writeFileSync(tree.env.LEDGER_FILE, `# 运营轮次台账\n\n| 日期 | 轮次 | model | 用量 | 备注 |\n|---|---|---|---|---|\n| ${m}-01 | health | pipeline-real | in=1 out=1 total=2 cost=0.04 | pipeline:old |\n`);
   const { runRound } = await import(path.join(AGENT, "agent.mjs"));
   const poison = { models: {}, resolve: () => { throw new Error("拒跑轮不应装载模型"); } }; // 毒缝哨兵:准入先于模型
   await assert.rejects(
-    runRound("health", "月帽拒跑探针", [], { models: poison, env: { ...tree.env, OPS_PIPELINE_MONTHLY_CAP_CNY: "0.05", OPS_PIPELINE_BUDGET_CNY: "0.05" }, stderr: { write: () => true } }),
+    runRound("health", "月帽拒跑探针", [], { models: poison, env: { ...tree.env, OPS_PIPELINE_MONTHLY_CAP_CNY: "0.05", OPS_PIPELINE_BUDGET_CNY: "0.05" }, stderr: { write: () => true }, now }), // #268:冻结 now 透传准入(runRound opts→admitOrRefuse)
     (e) => e.code === "budget_monthly");
   const led = fs.readFileSync(tree.env.LEDGER_FILE, "utf8");
   assert.ok(led.includes("budget_monthly refused est=0.05 cap=0.05"), `legacy 面同留痕:${led}`);
@@ -1825,22 +1828,77 @@ await t("A2-双面共享:legacy 面 runRound 同一拒跑码+台账留痕(准入
 await t("A2-拒跑块单源(#203 C2):admitOrRefuse 外壳——文案/[admission] log/台账行逐字钉死+放行面原样回传", async () => {
   const { admitOrRefuse, refusalOf, monthNow } = await import(path.join(AGENT, "pipeline/budget.mjs"));
   const tree = mkTree("budget-admit-shell");
-  const m = monthNow();
+  const now = new Date(); // #268:冻结 now(月键单次取定;直接注入 admitOrRefuse——下方月键断言因此确定性)
+  const m = monthNow(now);
   fs.mkdirSync(path.dirname(tree.env.LEDGER_FILE), { recursive: true });
   fs.writeFileSync(tree.env.LEDGER_FILE, `# 运营轮次台账\n\n| 日期 | 轮次 | model | 用量 | 备注 |\n|---|---|---|---|---|\n| ${m}-01 | health | pipeline-real | in=1 out=1 total=2 cost=0.04 | pipeline:old |\n`);
   const logs = [];
-  const r = await admitOrRefuse({ ledgerFile: tree.env.LEDGER_FILE, capCny: 0.05, estCny: 0.05, env: tree.env, log: (l) => logs.push(l) });
+  const r = await admitOrRefuse({ ledgerFile: tree.env.LEDGER_FILE, capCny: 0.05, estCny: 0.05, env: tree.env, log: (l) => logs.push(l), now }); // #268:注入缝直用
   assert.equal(r.refused, true);
   assert.equal(r.code, "budget_monthly");
   assert.equal(r.message, "月度预算拒跑:当月已花 ¥0.04 + 本轮预算 ¥0.05 > 月帽 ¥0.05(OPS_PIPELINE_MONTHLY_CAP_CNY;当月 1 行计入,0 行缺 cost 跳过不猜)", "拒跑文案=收口前双面逐字基线(改文案=改契约,须过票)");
   assert.deepEqual(logs, [`[admission] budget_monthly refused month=${m} spend=0.04 est=0.05 cap=0.05 skipped=0`], "[admission] log 行单源逐字");
   const led = fs.readFileSync(tree.env.LEDGER_FILE, "utf8");
   assert.ok(led.includes("budget_monthly refused est=0.05 cap=0.05"), `台账留痕行:${led}`);
-  const ok = await admitOrRefuse({ ledgerFile: tree.env.LEDGER_FILE, capCny: 1, estCny: 0.05, env: tree.env, log: (l) => logs.push(l) });
+  const ok = await admitOrRefuse({ ledgerFile: tree.env.LEDGER_FILE, capCny: 1, estCny: 0.05, env: tree.env, log: (l) => logs.push(l), now }); // #268:注入缝直用
   assert.equal(ok.refused, false, "帽内放行");
   assert.equal(ok.admission.spend, 0.04, "读数原样回传(state.monthly_admission/09-budget.json 面字节不变)");
   assert.equal(logs.length, 1, "放行零日志(拒跑才留痕)");
   assert.equal(refusalOf({ spend: 0.04, est: 0.05, cap: 0.05, counted: 1, skipped: 0 }).code, "budget_monthly", "纯文案函数 code 面");
+});
+
+await t("A2-now 注入缝(#268,#267 评审环缓办收口):admitOrRefuse 认注入 now 定月键——月对上照拒/错位月 spend=0 放行(缝真生效非摆设)", async () => {
+  const { admitOrRefuse, monthNow } = await import(path.join(AGENT, "pipeline/budget.mjs"));
+  // 固定史前月做证(2024-05):与跑测时真实墙钟月必不相同——若 now 缝没生效,月键回退墙钟月
+  // ≠fixture 月 → spend=0 → 放行 → ①拒跑断言红(修复前红证即此例,对照 reports/qbclk-REPORT.md)。
+  const frozen = new Date(2024, 4, 15, 12, 0, 0); // 本地时区构造,与 monthNow 的 getMonth 同口径,跨时区确定
+  const m = monthNow(frozen);
+  const tree = mkTree("budget-now-seam");
+  fs.mkdirSync(path.dirname(tree.env.LEDGER_FILE), { recursive: true });
+  fs.writeFileSync(tree.env.LEDGER_FILE, `# 运营轮次台账\n\n| 日期 | 轮次 | model | 用量 | 备注 |\n|---|---|---|---|---|\n| ${m}-01 | health | pipeline-real | in=1 out=1 total=2 cost=0.04 | pipeline:old |\n`);
+  const logs = [];
+  // ① 注入 now=fixture 月:当月花费 0.04 计入 → 拒跑;月键确来自注入 now 的直接证据=[admission] log 行 month=。
+  const hit = await admitOrRefuse({ ledgerFile: tree.env.LEDGER_FILE, capCny: 0.05, estCny: 0.05, env: tree.env, log: (l) => logs.push(l), now: frozen });
+  assert.equal(hit.refused, true, "月对上(注入 now=fixture 月)→ spend 计入 → 拒跑(缝没生效则 spend=0 放行,此断言红)");
+  assert.match(logs[0] ?? "", new RegExp(`month=${m} `), "月键来自注入 now,非墙钟([admission] log 行)");
+  // ② 注入 now=次月(恰跨月末午夜形):月帽求和换月 → 台账 2024-05 行不计入 → spend=0 →
+  // 等号放行(0+0.05≤0.05)——#266 同向「花费归零」机制在注入面可复现,证明缝两侧都真接线。
+  const nextMonth = new Date(2024, 5, 1, 0, 0, 30);
+  const miss = await admitOrRefuse({ ledgerFile: tree.env.LEDGER_FILE, capCny: 0.05, estCny: 0.05, env: tree.env, log: (l) => logs.push(l), now: nextMonth });
+  assert.equal(miss.refused, false, "月错位(注入 now=次月)→ spend=0 → 等号放行");
+  assert.equal(miss.admission.spend, 0, "花费归零读数(错位月行不计入)");
+  assert.equal(miss.admission.month, monthNow(nextMonth), "月键随注入 now 换月");
+});
+
+await t("A2-now 透传钉子(#269 评审B):runPipeline/runRound 两面 opts.now 透传到准入——2024-05 冻结台账拒跑(删透传=月键回退墙钟月 spend=0 放行即红)", async () => {
+  // 负例形同上例 admitOrRefuse 缝,但钉的是两面调用方的透传行(pipeline.mjs runPipeline /
+  // agent.mjs runRound 的 now: opts.now):上方各例用 new Date() 冻结,透传被删时月键回退
+  // 墙钟月恰与 fixture 同月 → 假绿;本例冻结史前月 2024-05(与跑测墙钟月必不相同)→
+  // 透传被删则 fixture 行不计入当月 → spend=0 等号放行 → 拒跑断言红(钉子必须真能咬人)。
+  const { monthNow } = await import(path.join(AGENT, "pipeline/budget.mjs"));
+  const frozen = new Date(2024, 4, 15, 12, 0, 0); // 本地时区构造(与 monthNow 的 getMonth 同口径,跨时区确定)
+  const m = monthNow(frozen);
+  const mkFrozenLedger = (tree) => {
+    fs.mkdirSync(path.dirname(tree.env.LEDGER_FILE), { recursive: true });
+    fs.writeFileSync(tree.env.LEDGER_FILE, `# 运营轮次台账\n\n| 日期 | 轮次 | model | 用量 | 备注 |\n|---|---|---|---|---|\n| ${m}-01 | health | pipeline-real | in=1 out=1 total=2 cost=0.04 | pipeline:old |\n`);
+  };
+  // ① pipeline 面:runPipeline opts.now 透传 → 2024-05 台账计费 → 拒跑 budget_monthly
+  const tp = mkTree("budget-now-passthru-pipe");
+  mkFrozenLedger(tp);
+  const rp = await runPipeline({ roundId: "2024-05-15-0406-health", fixturesDir: DEFAULT_FIXTURES_DIR, env: { ...tp.env, OPS_PIPELINE_MONTHLY_CAP_CNY: "0.05", OPS_PIPELINE_BUDGET_CNY: "0.05" }, ...mkIo(), now: frozen });
+  assert.equal(rp.ok, false, "拒跑(预算月帽生效)");
+  assert.equal(rp.envelope.error.code, "budget_monthly", "拒跑码同 A2 面(单源 refusalOf)");
+  assert.equal(fs.existsSync(path.join(tp.root, "ops", "rounds", "2024-05-15-0406-health")), false, "拒跑不建轮目录");
+  // ② legacy 面:runRound opts.now 同形透传 → 同一冻结台账拒跑(准入先于模型装载,毒缝哨兵)
+  const tl = mkTree("budget-now-passthru-legacy");
+  mkFrozenLedger(tl);
+  const { runRound } = await import(path.join(AGENT, "agent.mjs"));
+  const poison = { models: {}, resolve: () => { throw new Error("拒跑轮不应装载模型"); } }; // 透传被删→放行→毒缝抛无 code 错,断言即红
+  await assert.rejects(
+    runRound("health", "月帽拒跑探针", [], { models: poison, env: { ...tl.env, OPS_PIPELINE_MONTHLY_CAP_CNY: "0.05", OPS_PIPELINE_BUDGET_CNY: "0.05" }, stderr: { write: () => true }, now: frozen }),
+    (e) => e.code === "budget_monthly");
+  const led = fs.readFileSync(tl.env.LEDGER_FILE, "utf8");
+  assert.ok(led.includes("budget_monthly refused est=0.05 cap=0.05"), `legacy 面同留痕:${led}`);
 });
 
 await t("C3-ctx 形状单源(#204):ctxShape 闭集键钉死(mkCtx 与 runResume 同构造;缺/多字段即红)", async () => {
@@ -2006,9 +2064,11 @@ await t("发现轮月帽共享执法(#207 T1):台账当月已花 ¥30+est>0 → 
   const tr = mkTree("discover-monthly");
   // 日期须派生当月(#266):月帽按墙钟当月求和,硬编码 2026-10-26 过月翻页即不计入当月、
   // 花费归零不拒跑,断言假红;修法同 A2 先例(#199,上方 monthNow 派生)。日取 26=每月都有的日子。
-  const m = budget.monthNow();
+  // #268:fixture 与准入共用同一冻结 now(经 runPipeline opts 透传),毫秒~秒跨月竞态窗也关死。
+  const now = new Date();
+  const m = budget.monthNow(now);
   fs.writeFileSync(tr.env.LEDGER_FILE, `| 日期 | 轮次 | model | 用量 | 备注 |\n|---|---|---|---|---|\n| ${m}-26 | discover | glm-5.3 | in=1 out=1 total=2 cost=30 | 满帽 |\n`);
-  const r = await runPipeline({ roundId: RD, fixturesDir: DEFAULT_FIXTURES_DIR, env: tr.env, ...mkIo() });
+  const r = await runPipeline({ roundId: RD, fixturesDir: DEFAULT_FIXTURES_DIR, env: tr.env, ...mkIo(), now }); // #268:冻结 now 透传准入
   assert.equal(r.ok, false);
   assert.equal(r.envelope.error.code, "budget_monthly", "拒跑码与 health 同源(refusalOf 单源)");
   assert.match(fs.readFileSync(tr.env.LEDGER_FILE, "utf8"), /\| discover \| — \| — \| [^|]*budget_monthly refused/, "拒跑留痕 round=discover");

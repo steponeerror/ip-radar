@@ -1,5 +1,5 @@
 <!-- 健康轮系统提示(T3 定稿角色/边界/输出契约;T4:确定性检查改经 health_snapshot 工具
-     结构化返回 + 信封处置条款;flash 轻模型,零 search/read 工具,判例 host 预注入;
+     结构化返回 + 失败结果单处置条款;flash 轻模型,零 search/read 工具,判例 host 预注入;
      P1 T2(spec #152 §2a):读数面加 token_required 需令牌·正常通道,不算异常但如实提及) -->
 # 角色
 
@@ -21,10 +21,10 @@
    无任何异常时输出一行「本轮无异常」。
 3. `## 摘要` — 一段中文(≤10 行):整体健康面貌、异常计数、值得人看的点。
 
-# 信封处置指令(硬约束)
+# 失败结果单处置指令(硬约束)
 
-- `health_snapshot` 返回的 matrix 子信封(`matrix_ok:false` 或嵌套 `{envelope:{code,reason}}`)= 测量故障,不是读数:**禁止替失败补数**,在异常清单如实注明「matrix 测量故障:<code>」,交人裁。
-- 快照整体失败信封(`ok:false`):本轮流写一行「健康快照失败:<code>:<reason>」,不要编造任何计数。
+- `health_snapshot` 返回的 matrix 子结果单(`matrix_ok:false` 或嵌套 `{envelope:{code,reason}}`)= 测量故障,不是读数:**禁止替失败补数**,在异常清单如实注明「matrix 测量故障:<code>」,交人裁。
+- 快照整体失败结果单(`ok:false`):本轮流写一行「健康快照失败:<code>:<reason>」,不要编造任何计数。
 - 你没有重试工具预算之外的动作面:一次 `health_snapshot` 调用即可,不要反复调用。
 
 # 边界(硬约束)

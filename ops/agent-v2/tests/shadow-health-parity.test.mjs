@@ -1,4 +1,4 @@
-// shadow-health-parity.test.mjs — shadow 对拍闸门(票 #229 T5 任务书③:健康轮 faux 位等价)。
+// shadow-health-parity.test.mjs — shadow 对拍闸门(票 #229 T5 任务书③:健康轮 faux 字节级一致)。
 // 跑 shadow-diff.mjs CLI 全程:OLD=旧管线 replay(罐装世界断点进,零网络),NEW=run-health
 // --from-phase TRIAGE --to-phase RETRO;断言 VERDICT SAME(可比工件闭集+台账行,归一化窄面
 // 见 shadow-diff.mjs 头注)。运行期异常/任一面失败=测试红(exit 3 语义透传)。
@@ -21,7 +21,7 @@ test("残余哨判定(复核 P2-2 正例):闭集/白名单放行,未声明新面
     assert.equal(isUndeclaredNewFile(bad), true, `${bad} 应捕获为未声明新面`);
 });
 
-test("shadow 对拍:旧 replay vs v2 checkpoint 任务,可比面全 SAME(位等价闸门)", async () => {
+test("shadow 对拍:旧 replay vs v2 checkpoint 任务,可比面全 SAME(字节级一致闸门)", async () => {
   const d = new Date();
   // 旧轮 id 形状律硬约束 YYYY-MM-DD-HHMM-health(bad_round 判例):秒位不可入 id;
   // 世界各自隔离 tmp,同分钟重跑无冲突。
