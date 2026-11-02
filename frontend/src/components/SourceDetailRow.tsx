@@ -20,6 +20,14 @@ function extraHref(key: string, v: unknown): string | null {
   return null;
 }
 
+// honyport 自建蜜罐观测可读行(#273;spec 2026-11-02 §1 证据语义:只报
+// 事实「30 天内观测到攻击,共 X 次」+ 服务列表 + 最后观测,不评 severity)。
+// 字段契约 = backend HonyportSource.parse_row(#272,tests/sources/
+// test_honyport.py::test_query_evidence_shape):服务 → native_categories
+// 列表、last_seen ISO 串、计数 → extra.total_events。按源名点名(该文案
+// 的 30 天窗口语义仅此源成立)。
+const HONYPORT = "honyport";
+
 export function SourceDetailRow({ detail: d }: { detail: ClassificationDetail }) {
   const { t } = useI18n();
   const [showExtra, setShowExtra] = useState(false);
@@ -27,6 +35,10 @@ export function SourceDetailRow({ detail: d }: { detail: ClassificationDetail })
   const extraKeys = d.extra ? Object.keys(d.extra) : [];
   const hasExtra = extraKeys.length > 0;
   const hasTags = !!(d.tags && d.tags.length > 0);
+  const honeypotEvents =
+    d.source === HONYPORT && typeof d.extra?.total_events === "number"
+      ? d.extra.total_events
+      : null;
 
   return (
     <div className="text-[10px] leading-relaxed">
@@ -54,6 +66,20 @@ export function SourceDetailRow({ detail: d }: { detail: ClassificationDetail })
           <span className="text-zinc-700 ml-1">last {fmtDate(d.last_seen)}</span>
         )}
       </div>
+
+      {honeypotEvents != null && (
+        <div className="ml-3 text-zinc-300">
+          <span>{t("sourceDetail.honeypotObserved", { n: honeypotEvents })}</span>
+          {nativeChips.length > 0 && (
+            <span>
+              {" · "}{t("sourceDetail.honeypotServices")}: {nativeChips.join(", ")}
+            </span>
+          )}
+          {d.last_seen && (
+            <span>{" · "}{t("sourceDetail.honeypotLastSeen")} {fmtDate(d.last_seen)}</span>
+          )}
+        </div>
+      )}
 
       {(d.malware_name || d.comment) && (
         <div className="ml-3">
