@@ -32,7 +32,6 @@ import ipaddress
 import logging
 import os
 from collections import Counter
-from pathlib import Path
 from urllib.parse import urlparse
 
 from .._source_base import Source
@@ -111,7 +110,9 @@ class URLhausSource(Source):
         # 2026-11-02:__init__ 期捕获使 web 面填值到不了 download()——实例
         # 先于 _tokens.load() 构造,热更即断,重启也救不回)。未配置在
         # download() 报错(票 #159:不在 import/注册时炸,源仍可离线加载旧证据)。
-        auth_key = os.environ.get("ABUSECH_AUTH_KEY", "")
+        # 对齐 otx/ip2proxy 多数模式:粘贴尾空白不再拼进 keyed URL;
+        # 纯空白视同未设 → 走「须设」报错(更对)。
+        auth_key = os.environ.get("ABUSECH_AUTH_KEY", "").strip()
         if not auth_key:
             raise RuntimeError(
                 "urlhaus: abuse.ch 已迁 Auth-Key(旧匿名出口 410,票 #159)"

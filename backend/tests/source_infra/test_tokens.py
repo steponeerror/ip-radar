@@ -3,7 +3,7 @@
 裁决基线(plan 2026-10-17 grill,已冻结):
 - UI 值优先于 .env:load() 覆盖 os.environ;tokens.json 落 DATA_DIR(数据卷)
 - token 完整值永不回显:出参仅 configured+tail4(≤4 字符);日志不打值
-- 清除回落 _BOOT_SNAPSHOT(启动快照;.env 四 key 保留不动是其前提)
+- 清除回落 _BOOT_SNAPSHOT(启动快照;.env 五 key 保留不动是其前提)
 - 源侧一律使用点读取:env 热更即时生效,无需重建实例
 """
 import json
@@ -27,7 +27,7 @@ DUAL_SOURCE_VARS = {"OTX_API_KEY": ["otx", "otx_subscribed"],
 
 @pytest.fixture
 def token_env(tmp_path, monkeypatch):
-    """DATA_DIR 指向 tmp + 四个受管 env 清零(monkeypatch 自动还原 environ)。"""
+    """DATA_DIR 指向 tmp + 五个受管 env 清零(monkeypatch 自动还原 environ)。"""
     for var in MANAGED_VARS:
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setattr(_registry, "DATA_DIR", tmp_path)
@@ -135,6 +135,10 @@ def test_status_reports_configured_and_tail4_only(token_env, monkeypatch):
     assert by_var["IPINFO_TOKEN"]["tail4"] is None
     assert by_var["OTX_API_KEY"]["sources"] == ["otx", "otx_subscribed"]
     assert by_var["ABUSECH_AUTH_KEY"]["sources"] == ["threatfox", "urlhaus"]
+    # 死常量复活(终审 P2):DUAL_SOURCE_VARS 与 store 冻结集对账——
+    # 恰好是「一 key 双源」的 var 闭集,值也逐字对齐,漂移即红。
+    assert DUAL_SOURCE_VARS == {v: list(s) for v, s in _tokens.MANAGED.items()
+                                if len(s) == 2}
     assert "supersecret-token" not in json.dumps(out)
 
 
