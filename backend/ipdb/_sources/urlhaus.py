@@ -104,28 +104,26 @@ class URLhausSource(Source):
     reliability = 0.55            # abuse.ch — curated/confirmed malware URLs
     authoritative_for = ()
 
-    def __init__(self, data_dir: Path):
-        # 约定 5:源在 __init__ 读自己的 env,注册表只传 data_dir。v2 迁移
-        # (票 #159):旧匿名出口 410,Auth-Key 缺省空串 → download() 时报错
-        # (不在 import/注册时炸,源仍可离线加载旧证据)。
-        super().__init__(data_dir)
-        self._auth_key = os.environ.get("ABUSECH_AUTH_KEY", "")
-
     def download(self, token: CancelToken | None = None) -> None:
         """v2 认证端点(票 #159):keyed URL → scratch 下载 → 200-OK-坏体守卫
         → 原子落地;坏体不替换旧证据(danmeuk_tor 的 scratch 先例同构)。"""
-        if not self._auth_key:
+        # 使用点读取(T1 裁决基线「源侧一律使用点读取」;票 #276 B 裁决
+        # 2026-11-02:__init__ 期捕获使 web 面填值到不了 download()——实例
+        # 先于 _tokens.load() 构造,热更即断,重启也救不回)。未配置在
+        # download() 报错(票 #159:不在 import/注册时炸,源仍可离线加载旧证据)。
+        auth_key = os.environ.get("ABUSECH_AUTH_KEY", "")
+        if not auth_key:
             raise RuntimeError(
                 "urlhaus: abuse.ch 已迁 Auth-Key(旧匿名出口 410,票 #159)"
                 "——须设 ABUSECH_AUTH_KEY 环境变量")
         self._data_dir.mkdir(parents=True, exist_ok=True)
         prefix, _, fname = self.url.rpartition("/")
-        keyed_url = f"{prefix}/{self._auth_key}/{fname}"
+        keyed_url = f"{prefix}/{auth_key}/{fname}"
         scratch = self._path.with_name(self._path.name + ".dl")
         try:
             download_file(keyed_url, scratch, token=token,
                           headers={"User-Agent": "ip-lookup-tool/1.0"},
-                          secret=self._auth_key)
+                          secret=auth_key)
             data = scratch.read_bytes()
             if not data.strip():
                 raise RuntimeError(f"Empty response from {redact_url(self.url)}")

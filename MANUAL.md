@@ -28,7 +28,7 @@ After `docker compose up -d --build`, the container is reachable within seconds 
 - **A safety window, tiered by RAM** (30 min under 6 GB, 20 min under 12 GB, 15 min above), guarantees a stalled build can't lock queries forever — after the window, the container serves whatever coverage exists. Override with `IP_RADAR_COLD_START_TIMEOUT` (seconds) if you need to.
 - **Subsequent starts load from the `ipradar-data` volume in seconds.** The cold start happens once.
 
-Expect the first build to take a while and to consume disk: budget **≥ 6 GB** for the data volume. RAM-wise the build bends its concurrency to what the host has; on small boxes it will grind swap but recover. The seven keyed sources (AbuseIPDB, OTX ×2, IP2Proxy, IPinfo, ThreatFox, URLhaus) stay dark until you add keys to `.env.local` — see the README [Quick Start](README.md#quick-start) table.
+Expect the first build to take a while and to consume disk: budget **≥ 6 GB** for the data volume. RAM-wise the build bends its concurrency to what the host has; on small boxes it will grind swap but recover. The seven keyed sources (AbuseIPDB, OTX ×2, IP2Proxy, IPinfo, ThreatFox, URLhaus — five keys: the OTX and abuse.ch pairs share one each) stay dark until you add keys to `.env.local` or paste them into the admin console's Sources-tab key fields — see the README [Quick Start](README.md#quick-start) table.
 
 The status bar at the bottom of the page shows the live state of the store:
 
@@ -157,6 +157,8 @@ Every source in one list, grouped into **Geo & ASN data / Threat intel / Asset a
 - **Eval / r / cross-source consistency (θ)** — the dual reliability track. **r** is the declared, production-authoritative weight (hand-set, changed only by human-reviewed PR). **Cross-source consistency (θ)** is the *measured* corroboration estimate from the eval layer — advisory, never auto-fed into fusion. A source whose score sits far below its r is over-claiming; see [the lifecycle chapter](#6-source-lifecycle-add--evaluate--tune).
 - **Actions** — the toggle enables/disables the source (disabled sources keep their data but stop refreshing and stop contributing); the **Update** button forces an immediate single-source refresh (its state is a live button label: `Queued`, `Downloading… 42%`, `Loading…`).
 - **Refresh all** at the top enqueues a batch refresh of every enabled source — same thing `POST /api/update-db` does.
+
+**Keyed-source tokens** — the five source keys (AbuseIPDB, IPinfo, IP2Proxy, OTX ×2 sharing one key, ThreatFox + URLhaus sharing one abuse.ch key) can be filled right here: a source whose token is unset shows a key field in its row. A pasted key takes effect from the next refresh — no restart — and is stored on the data volume (`tokens.json`, which takes precedence over `.env.local`). Stored keys are never echoed back: the UI only ever shows *configured* plus the last 4 characters, and clearing a key falls back to the startup `.env` value (or is removed outright when there was none).
 
 ### API Keys
 

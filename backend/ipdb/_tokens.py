@@ -1,11 +1,12 @@
 """Managed-token store — admin UI 配置的源 token 存取(sources-redesign T1)。
 
-冻结映射(plan 2026-10-17 Global Constraint):四个 env var,OTX 双源共享一 key。
+冻结映射(plan 2026-10-17 Global Constraint;2026-11-02 用户扩裁 #276):五个 env var,
+OTX 双源、abuse.ch 双源各共享一 key。
 grill 裁决落地:
 - UI 值优先于 .env:load() **覆盖** os.environ;tokens.json 落 DATA_DIR
   (数据卷,容器重建留存)。部署零变化门槛:文件初始不存在 → 环境与现状逐字节等价。
 - 完整值永不回显:status() 只出 configured + tail4;日志不打值。
-- 清除回落启动快照:server `.env` 四 key 保留不动是回落语义的前提。
+- 清除回落启动快照:server `.env` 启动值保留不动是回落语义的前提。
 """
 import json
 import logging
@@ -16,12 +17,14 @@ from . import _registry
 
 logger = logging.getLogger(__name__)
 
-# env var → 消费源名(冻结;os.environ 是唯一 effective 真相,源侧使用点读取)
+# env var → 消费源名(冻结;os.environ 是唯一 effective 真相,源侧使用点读取)。
+# 2026-11-02 用户扩裁 #276:ABUSECH_AUTH_KEY 入表,一 key 双源同 OTX 模式。
 MANAGED: dict[str, list[str]] = {
     "ABUSEIPDB_API_KEY": ["abuseipdb"],
     "IPINFO_TOKEN": ["ipinfo_lite"],
     "IP2PROXY_TOKEN": ["ip2proxy"],
     "OTX_API_KEY": ["otx", "otx_subscribed"],
+    "ABUSECH_AUTH_KEY": ["threatfox", "urlhaus"],
 }
 
 # 启动快照:模块导入期捕获,先于任何 mutation。「清除」回落 .env 注入的启动值;

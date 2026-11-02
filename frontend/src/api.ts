@@ -931,7 +931,8 @@ export async function putOpsAgentConfig(
 }
 
 // ── token 界面配置(sources-redesign T3;契约见 backend/main.py admin_token_*
-// 与 ipdb/_tokens.py 冻结映射:OTX_API_KEY 一 key 双源)。硬约束:status 只出
+// 与 ipdb/_tokens.py 冻结映射:OTX_API_KEY 与 ABUSECH_AUTH_KEY 均一 key 双源,
+// 后者 2026-11-02 扩裁入表 #276)。硬约束:status 只出
 // configured + tail4,完整值永不回显 —— 前端无既有值可回填,输入框恒空。
 export interface TokenStatus {
   env_var: string;

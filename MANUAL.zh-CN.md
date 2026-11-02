@@ -28,7 +28,7 @@
 - **按 RAM 分档的安全窗口**(6 GB 以下 30 分钟、12 GB 以下 20 分钟、其余 15 分钟)保证构建卡死也不会把查询永久锁住——窗口过后,容器以现有覆盖度开闸。需要的话用 `IP_RADAR_COLD_START_TIMEOUT`(秒)覆盖。
 - **后续启动几秒内从 `ipradar-data` 卷加载。**冷启动只发生一次。
 
-首次构建需要时间与磁盘:数据卷预算 **≥ 6 GB**。内存方面,构建并发会迁就主机 RAM;小内存机器会磨一阵 swap 但能恢复。七个 key 源（AbuseIPDB、OTX ×2、IP2Proxy、IPinfo、ThreatFox、URLhaus）在往 `.env.local` 填 key 之前保持熄灭——对照 README [Quick Start](README.md#quick-start) 的表格。
+首次构建需要时间与磁盘:数据卷预算 **≥ 6 GB**。内存方面,构建并发会迁就主机 RAM;小内存机器会磨一阵 swap 但能恢复。七个 key 源（AbuseIPDB、OTX ×2、IP2Proxy、IPinfo、ThreatFox、URLhaus——共 5 个 key:OTX 与 abuse.ch 两对源各共用一个）在往 `.env.local` 填 key、或在管理台 Sources 页 key 字段粘贴之前保持熄灭——对照 README [Quick Start](README.md#quick-start) 的表格。
 
 页面底部状态栏实时显示库的状态:
 
@@ -157,6 +157,8 @@
 - **Eval / r / 源间一致率(θ)**——两种可靠性数字并排。**r** 是声明的、生产权威的权重(手工设定,只能经人工评审 PR 变更)。**源间一致率(θ)** 是评估程序按各源互相印证的程度算出的可靠性参考值——只展示,绝不自动写进生产权重。某源源间一致率(θ)长期低于其 r 就是在超额宣称;见[生命周期章](#6-源生命周期加--评--调)。
 - **Actions**——开关启停源(停用的源保留数据,但不再刷新、不再贡献);**Update** 按钮立即强制单源刷新(按钮标签就是实时状态:`Queued`、`Downloading… 42%`、`Loading…`)。
 - 顶部 **Refresh all** 把全部启用源排一次批量刷新——与 `POST /api/update-db` 同一件事。
+
+**密钥源 token**——五个源密钥（AbuseIPDB、IPinfo、IP2Proxy、OTX ×2 共用一个 key、ThreatFox + URLhaus 共用一个 abuse.ch key）可以就地填:token 未配置的源,行内会出现 key 字段。粘贴的 key 从下一次刷新起生效——无需重启——并持久化在数据卷（`tokens.json`,优先于 `.env.local`）。已存 key 永不回显:界面只显示*已配置*与末 4 位;清除则回落启动时 `.env` 注入的值（没有启动值就直接移除）。
 
 ### API Keys
 
