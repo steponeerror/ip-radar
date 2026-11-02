@@ -189,19 +189,38 @@ def _real_registry():
             reg._disabled = reg._disabled | {name}
 
     from types import SimpleNamespace
+    # 恒禁用红线(spec 2026-11-02 §3):eval_excluded 源从评估面源清单剥离。
+    # 评估侧读原始文件的面(键集快照/consensus 层/benchmark 采样/origin/
+    # demand/model suite)不看 registry 禁用态,单靠 toggle 拦不住 —— 在此
+    # 单一choke point 剥离;禁用面对象经 eval_excluded_sources 透出
+    # (记分卡行/注脚/拒跑集仍可用,不丢谱系信息)。
+    _excluded = [s for s in reg._sources if getattr(s, "eval_excluded", False)]
+    _excluded_names = {s.name for s in _excluded}
     return SimpleNamespace(
-        sources=reg._sources,
+        sources=[s for s in reg._sources if s.name not in _excluded_names],
+        eval_excluded_sources=_excluded,
         load_db=reg.load_db,
         lookup=lookup,
         toggle=toggle,
     )
 
 
-def eval_excluded_names(sources) -> list[str]:
-    """评估面恒禁用源名(spec 2026-11-02 §3):源类属性 eval_excluded 声明。
+def _eval_source_faces(registry) -> tuple[list, list]:
+    """评估面源双拆(恒禁用红线,spec 2026-11-02 §3)→ (可评估面, 禁用面)。
 
-    月报记分卡「评估禁用源」行与导语注脚同源此面(单一真源)。"""
-    return [s.name for s in sources if getattr(s, "eval_excluded", False)]
+    真注册表经 _real_registry 已剥离并携拆面 eval_excluded_sources;
+    lookup-only 测试替身可能把禁用源直接放 .sources(无拆面属性)—— 按
+    类属性兜一道,两种形状归一(名字互斥)。记分卡禁用行/导语注脚/
+    --all 禁用行都吃禁用面。"""
+    srcs = list(getattr(registry, "sources", ()))
+    excluded = list(getattr(registry, "eval_excluded_sources", ()))
+    ex_names = {s.name for s in excluded}
+    for s in srcs:
+        if getattr(s, "eval_excluded", False) and s.name not in ex_names:
+            excluded.append(s)
+            ex_names.add(s.name)
+    evaluable = [s for s in srcs if s.name not in ex_names]
+    return evaluable, excluded
 
 
 def force_eval_excluded(registry) -> set[str]:
@@ -209,13 +228,14 @@ def force_eval_excluded(registry) -> set[str]:
 
     经 registry.toggle(消融同通道:重赋值 _disabled,registry 身份键控
     缓存即刻失效)——θ/消融/verdict/锚回归/融合读数全模式的 lookup
-    都在禁用态下运行(spec 2026-11-02 §3)。返回禁用名集(空 = 无
-    此类源,现有行为零变化)。sources/toggle 宽容缺席:lookup-only
-    测试替身不携源面(真 _real_registry 全模式恒有)。"""
-    excluded = set(eval_excluded_names(getattr(registry, "sources", ())))
-    for name in sorted(excluded):
+    都在禁用态下运行(spec 2026-11-02 §3);读原始文件的键集/语料/资产
+    面另由 _real_registry 剥离(两道都拦,缺一即漏)。返回禁用名集
+    (空 = 无此类源,现有行为零变化)。sources/toggle 宽容缺席:
+    lookup-only 测试替身不携源面(真 _real_registry 全模式恒有)。"""
+    _, excluded = _eval_source_faces(registry)
+    for name in sorted(s.name for s in excluded):
         registry.toggle(name, False)
-    return excluded
+    return {s.name for s in excluded}
 
 
 def run_for_source(source_name: str, registry=None, corpus_path=CORPUS_PATH,
@@ -397,8 +417,11 @@ def run_readout(registry, out_dir, *, assets_dir=None, keysets_dir=None,
     run_seed = secrets.randbits(64) if run_seed is None else run_seed
     run_id = run_id or datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
 
-    srcs = {s.name: s for s in registry.sources}
-    threat_srcs = [s for s in registry.sources
+    # 恒禁用源双拆(spec 2026-11-02 §3):读原始文件的面(键集/consensus
+    # 层/记分卡)全走可评估面;替身形状把禁用源内联在 .sources 也能归一。
+    evaluable, excluded_srcs = _eval_source_faces(registry)
+    srcs = {s.name: s for s in evaluable}
+    threat_srcs = [s for s in evaluable
                    if getattr(s, "category", None) == "threat"]
     assets_root = (Path(assets_dir) if assets_dir else _ASSETS_ROOT_DEFAULT)
     source_keysets = {s.name: _source_ips(s) for s in threat_srcs}
@@ -416,7 +439,7 @@ def run_readout(registry, out_dir, *, assets_dir=None, keysets_dir=None,
     keysets_root = (Path(keysets_dir) if keysets_dir else
                     _REPO_ROOT / "backend" / "data" / "eval" / "keysets")
     export_source_keysets(
-        registry.sources, keysets_root, run_id,
+        evaluable, keysets_root, run_id,
         corpus_fingerprint=fingerprint(
             [f"{k}:{m.fingerprint}" for k, m in sorted(metas.items())]))
     long_memory = long_memory_ips(keysets_root)
@@ -431,7 +454,7 @@ def run_readout(registry, out_dir, *, assets_dir=None, keysets_dir=None,
         asof = created.timestamp()
     readout = layered_readout(registry.lookup, layers, out_dir=out_dir,
                               run_id=run_id, asof=asof,
-                              sources=registry.sources,
+                              sources=evaluable,
                               long_memory=long_memory)
     eps = (epsilon_sensitivity(truth.hit_members, n=len(truth.members),
                                seed=run_seed)
@@ -511,7 +534,7 @@ def run_readout(registry, out_dir, *, assets_dir=None, keysets_dir=None,
             f"run_seed={run_seed}(S36: 采样 seed 逐字节可复现, 逐资产真值在"
             " meta.params.run_seed —— infra 输入指纹未变时沿用前轮 seed,"
             " 冻结采样防指纹噪声)"]),
-        items, render_scorecard(history, registry.sources,
+        items, render_scorecard(history, evaluable + excluded_srcs,
                                 oc_latest=_oc_latest(out_dir)),
         render_consensus_diag(stats) + render_anchor_oc(keysets_root),
         {"eval_env": eval_env(), "corpus": corpus,
@@ -522,7 +545,7 @@ def run_readout(registry, out_dir, *, assets_dir=None, keysets_dir=None,
         north_star_lines=north_star_lines,
         leg_status_lines=leg_status_lines,
         truth_v2_lines=truth_v2_lines,
-        eval_excluded_names=eval_excluded_names(registry.sources))
+        eval_excluded_names=[s.name for s in excluded_srcs])
     md_path = out_dir / f"monthly-{run_id}.md"
     md_path.write_text(md, encoding="utf-8")
     (out_dir / "action-block.json").write_text(json.dumps(
@@ -1253,28 +1276,28 @@ def main(argv=None):
                       f"covered={c} (n={cov['n']}, hits={cov['hits']})")
         sys.exit(0 if r["pass"] is not False else 1)
     if args.all:
+        # 源清单含禁用行(验收 §6-5;真注册表 sources 已剥离,禁用行从
+        # 禁用面补;替身形状禁用源内联 .sources,faces 归一)
+        _evaluable, _excluded_srcs = _eval_source_faces(registry)
         if args.json:
             results = []
-            for s in registry.sources:
-                # 评估禁用源:不评估,只出禁用行(源清单含禁用行,验收 §6-5;
-                # 无 θ/消融/verdict 记录)
-                if s.name in excluded:
-                    results.append({"source": s.name, "eval_excluded": True})
-                    continue
+            for s in _evaluable:
                 try:
                     _, js, _ = run_for_source(s.name, registry=registry)
                     results.append(json.loads(Path(js).read_text()))
                 except Exception as e:
                     results.append({"source": s.name, "error": {
                         "code": "internal", "message": str(e), "hint": _JSON_HINT}})
+            for s in _excluded_srcs:
+                # 评估禁用源:不评估,只出禁用行(无 θ/消融/verdict 记录)
+                results.append({"source": s.name, "eval_excluded": True})
             print(json.dumps(results, ensure_ascii=False))
             return
-        for s in registry.sources:
-            if s.name in excluded:
-                print(f"{s.name:<20} eval-excluded(评估面恒禁用)")
-                continue
+        for s in _evaluable:
             _, _, v = run_for_source(s.name, registry=registry)
             print(f"{s.name:<20} {v.state}")
+        for s in _excluded_srcs:
+            print(f"{s.name:<20} eval-excluded(评估面恒禁用)")
         return
     if not args.source:
         if args.json:

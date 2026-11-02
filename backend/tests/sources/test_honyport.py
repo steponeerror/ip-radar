@@ -1,6 +1,6 @@
 """honyport 自建蜜罐观测源(spec 2026-11-02 §2.3,issue #272)。
 
-样例 = §2.1 冻结聚合格式的 verbatim-shaped 件(头 4 注释行 + 列头 +
+样例 = §2.1 冻结聚合格式的 verbatim-shaped 件(头 5 注释行 + 列头 +
 真实观测行;IP/计数取自主检出 dev/honyport-fixtures/ 两天真件,2026-11-02
 榜首 14.112.37.157 MSSQL 11,663 次 / 195.178.110.218 SSH)。覆盖:
 - download:目录缺席静默 absent(开发机不受扰);目录在场取最新合法件

@@ -2,7 +2,8 @@
 
 数据链(spec 2026-11-02 docs/research/2026-11-02-honyport-query-source-spec.md
 §2,honyport 仓 aggregate cron):exporter 日 CSV → 每日 03:10 聚合出
-``honeypot-observed-YYYY-MM-DD.csv``(格式冻结 §2.1:4 行注释头 + 列头
+``honeypot-observed-YYYY-MM-DD.csv``(格式冻结 §2.1:5 行注释头(generated_at/
+window_days/source_files/scanner_filtered/allowlist_filtered)+ 列头
 ``ip,first_seen,last_seen,services,total_events``;行 = last_seen 落在
 [文件名日−29d, 文件名日];#271 经 docker bind mount 把
 /opt/honyport/aggregate 挂进容器)。本源 download() 从挂载目录取最新合法

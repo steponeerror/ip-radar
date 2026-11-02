@@ -114,6 +114,11 @@ def build_benchmark(sources, per_type_n: int,
     bench: dict[str, list[str]] = {}
     selfdecl: list[str] = []
     for s in sources:
+        if getattr(s, "eval_excluded", False):
+            # 恒禁用源不入采样宇宙(spec 2026-11-02 §3:honyport 观测同
+            # 时是真值语料组件,入语料=同源双用自证;与下方 scanner_ranges
+            # 剔除同哲学的装配侧闸,保护库式调用方)
+            continue
         if getattr(s, "name", None) == "scanner_ranges":
             # 排除前缀只从在场 CSV 载入(缺文件=无排除=现状; D1 loader 的
             # raise 语义属 truth 装配侧, 这里 is_file 前置走 noop 分支)
