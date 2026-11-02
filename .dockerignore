@@ -16,7 +16,6 @@ backend/tests
 *.zip
 docs
 misp-docker
-release
 .claude
 .superpowers
 .playwright-mcp
