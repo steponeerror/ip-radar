@@ -21,7 +21,10 @@ import urllib.request
 from typing import Iterator
 
 from ._evidence import Evidence
-from ._sources import _infra_filter   # namespace pkg:无 __init__ 环,模块级安全
+# #291 三车道收尾共享件:载入期 infra 过滤+排除记账(InfraNoiseGate;
+# 覆盖数 v4/v6 分流 covered_counts 为 B/C 预扫描口径,A 车道用 covered=Auto
+# 写库循环内统计,不经该件)。namespace pkg:无 __init__ 环,模块级安全。
+from ._sources._rebuild_tail import InfraNoiseGate
 # 底座(#248):生命周期(__init__/load/query/_query6/health/_http_get/
 # download_host)与两家族同款类属性收敛在 _sources/_base.SourceBase;
 # 本模块只留 A 家族钩子(download/harvest/normalize)与 harvest 驱动的
@@ -88,21 +91,19 @@ class Source(SourceBase):
         # 投影,数据文件零改写;宁少算 = 仅 curated 单址精确指控,更大
         # CIDR 不排。single_evidence 双遍 harvest 的重复 append 由
         # log_exclusions 的 set 去重吸收。
-        exclude_infra = (self.infra_noise_filter
-                         and _infra_filter.filter_enabled())
-        excluded: list[str] = []
+        # 过滤+记账收共享 #291(InfraNoiseGate,三车道同源)。
+        gate = InfraNoiseGate(self.name, self.infra_noise_filter)
 
         def _harvest_checked():
             import ipaddress as _ipa
             for cidr, ev in self.harvest():
-                if exclude_infra:
+                if gate.enabled:
                     try:
                         net = _ipa.ip_network(str(cidr), strict=False)
                     except (ValueError, _ipa.AddressValueError,
                             _ipa.NetmaskValueError):
                         net = None
-                    if net is not None and _infra_filter.is_infra_noise(net):
-                        excluded.append(str(net))
+                    if net is not None and gate.blocks(net):
                         continue
                 fs = getattr(ev, "first_seen", None)
                 if fs and parse_first_seen(fs) is None:
@@ -144,8 +145,7 @@ class Source(SourceBase):
         self._count = n4
         self._count6 = n6
         self._loaded_at = time.time()
-        if excluded:
-            _infra_filter.log_exclusions(self.name, excluded)
+        gate.flush()
         if bad_fs:
             logger.warning(
                 "%s: %d distinct unparseable first_seen value(s), e.g. %s — "
