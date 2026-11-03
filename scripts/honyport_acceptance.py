@@ -591,7 +591,7 @@ def check_6_techniques(fixtures: Path | None, _scanner: Path | None,
                 return "FAIL", detail + [
                     f"{KNOWN_IP} 锚不符: commands={t['commands']!r}(spec "
                     "§1 真样例 uname 命令应在场), cves="
-                    f"{t['cves']!r}(萤罐id/服务形态应零 CVE)"]
+                    f"{t['cves']!r}(蜜罐服务id/服务形态应零 CVE)"]
             anchors.append(f"{KNOWN_IP}: commands 含真样例 uname 行, "
                            "cves=[](beelzebub/ssh 形态零 CVE)")
         else:

@@ -149,6 +149,18 @@ class HonyportSource(CsvSource):
         # 二期双件:techniques JSON 可缺席(§3 容忍),在场才拷
         latest_json = self._latest_named(src_dir, _TECHNIQUES_NAME_RE)
         if latest_json is None:
+            # 残影清理(终审 P2 Spec 轴):回一期(有 CSV 无 JSON)时
+            # 顺手清掉 data_dir 旧 techniques 件 —— 不清则 cron 断供后
+            # 旧件被每次 rebuild 无限期合并,查询面退不回一期形状
+            # (宁少算:陈值不算证据)
+            try:
+                self._techniques_path.unlink()
+                logger.info(
+                    f"{self.name}: removed stale "
+                    f"{self._techniques_path.name} (no techniques JSON "
+                    f"upstream — back to phase-1 shape)")
+            except FileNotFoundError:
+                pass
             logger.info(
                 f"{self.name}: no honeypot_techniques JSON in {src_dir} — "
                 f"techniques stay empty (spec 2026-11-03 §3 tolerance)")
@@ -276,6 +288,19 @@ class HonyportSource(CsvSource):
                     f"{self._techniques_path.name} — want exactly "
                     f"{sorted(_TECHNIQUES_IP_KEYS)} (frozen, spec "
                     f"2026-11-03 §1)")
+            # 值类型闸(终审 P2,双轴同报):字段级 isinstance 拒收 ——
+            # 字符串会被 list() 逐字拆成静默缩水、None/int 抛裸
+            # TypeError,都不符「格式漂移必须可见」的 RuntimeError 契约;
+            # 冻结格式八值字段皆数组(events/first_seen/last_seen 不
+            # 出海,不在此闸;cves 为合成键,真源 = services)
+            for k in ("services", *_TECHNIQUES_FIELDS):
+                if k != "cves" and not isinstance(entry[k], list):
+                    raise RuntimeError(
+                        f"{self.name}: field {ip}.{k} not a list "
+                        f"({type(entry[k]).__name__}) in "
+                        f"{self._techniques_path.name} — frozen format "
+                        f"wants arrays (spec 2026-11-03 §1; final-review "
+                        f"P2 value-type gate)")
             out[ip] = {
                 k: (self._extract_cves(entry["services"]) if k == "cves"
                     else list(entry[k]))
@@ -285,7 +310,7 @@ class HonyportSource(CsvSource):
     @staticmethod
     def _extract_cves(services: list) -> list[str]:
         """services 的唯一出口(回声禁令):「事件id/CVE1,CVE2」剥事件
-        id 前缀、逗号拆分;只认 CVE 词形(「萤罐id/服务」形态自然落空)。
+        id 前缀、逗号拆分;只认 CVE 词形(「蜜罐服务id/服务」形态自然落空)。
         去重保序(宁少算:同一 CVE 多事件不双计)。"""
         cves: list[str] = []
         for item in services:

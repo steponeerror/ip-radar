@@ -2,7 +2,7 @@
 二期 techniques 检查项扩展 = issue #284)。
 
 跑法(仓根;须用带 backend 三方库的解释器,验收脚本要打查询面):
-  backend/.venv/bin/python -m pytest scripts/test_honyport_acceptance.py -q
+  backend/.venv/bin/python(worktree 语境指向主检出 venv) -m pytest scripts/test_honyport_acceptance.py -q
 
 钉四面(harness 自身的诚实性;被测链路的契约各自有 pytest 正本,#272/#271/#282):
 - 绿跑:合成夹具(含已知攻击 IP 195.178.110.218 两天双写法行 + 二期

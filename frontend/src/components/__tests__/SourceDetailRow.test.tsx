@@ -269,6 +269,33 @@ describe("SourceDetailRow", () => {
     expect(document.body.textContent ?? "").toContain("protocols: tcp");
   });
 
+  it("honyport techniques: non-array values degrade to absent, no crash (\u7ec8\u5ba1 P2-B1)", () => {
+    // \u7ec8\u5ba1 P2-B1:\u540e\u7aef _load_techniques \u5df2\u6309\u503c\u7c7b\u578b\u95f8 fail-loud
+    // \u62d2\u6536\u975e\u6570\u7ec4\u5b57\u6bb5(honyport.py \u7ec8\u5ba1\u4fee\u590d\u6279)\uff1b\u524d\u7aef\u9632\u7ebf\u7167\u65e7 =
+    // nonEmptyStrings \u7684 Array.isArray \u68c0\u67e5 + techniquesView \u7684
+    // typeof \u68c0\u67e5\uff1a\u7578\u5f62\u503c\u4e00\u5f8b\u6309\u7f3a\u5e2d\u5904\u7406\uff0c\u4e0d\u6e32\u67d3\u4e0d\u70b8\u884c\uff0c\u5065\u5eb7\u5b57\u6bb5\u7167\u5e38\u3002
+    const { unmount } = renderWithI18n(
+      <SourceDetailRow
+        detail={techniquesDetail({
+          commands: "oops-not-an-array",
+          cves: ["CVE-2026-109618"],
+          user_agents: [],
+          protocols: [], statuses: [], actions: [], stages: [], paths: [],
+        })}
+      />,
+    );
+    let text = document.body.textContent ?? "";
+    expect(text).not.toContain("oops-not-an-array");   // \u7578\u5f62\u5b57\u6bb5\u4e0d\u6e32\u67d3
+    expect(text).not.toContain("commands:");           // \u6309\u7f3a\u5e2d\uff0c\u975e\u9010\u5b57\u62c6\u5f00\u5217
+    expect(text).toContain("CVE-2026-109618");          // \u5065\u5eb7\u5b57\u6bb5\u7167\u5e38
+    unmount();
+    // techniques \u6574\u4f53\u4e3a\u5b57\u7b26\u4e32\uff1a\u540c\u6837\u964d\u7ea7\u4e3a\u65e0 techniques UI\uff0c\u4e0d\u5d29
+    renderWithI18n(<SourceDetailRow detail={techniquesDetail("not-an-object")} />);
+    text = document.body.textContent ?? "";
+    expect(text).not.toContain("commands:");
+    expect(screen.queryByRole("button", { name: /techniques detail/i })).toBeNull();
+  });
+
   it("honyport techniques key excluded from generic extra fold (#283)", () => {
     renderWithI18n(<SourceDetailRow detail={techniquesDetail(fullTechniques)} />);
     const toggle = screen.getByRole("button", { name: /extra 1 keys/i });  // techniques 不计入

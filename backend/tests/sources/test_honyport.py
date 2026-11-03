@@ -13,8 +13,9 @@
 - 二期 techniques(spec 2026-11-03 §1/§3,issue #282):双件下载、
   extra.techniques 八字段契约、CVE 提取、回声禁令(JSON services
   不整列表出海)、坏件 fail-loud、缺 JSON 容忍、基座缺席不补行。
-  真样例锚 2026-11-03 自服务器 /opt/honyport/out 取样(verbatim,
-  dev/honyport-fixtures/ 留两真件):109.105.210.2 CVE 件(11-03 件
+  真样例锚 2026-11-03 自服务器 /opt/honyport/out 取样,逐字内嵌为
+  下方自写夹具;主检出 dev/honyport-fixtures/ 另存两件参考拷贝
+  (gitignore 不入仓,终审修复批落件):109.105.210.2 CVE 件(11-03 件
   逐字,真服务器聚合 CSV 中该 IP 被 scanner 过滤不在基座 —— 测试
   基座构造其 CSV 行以钉合并路径)+ 195.178.110.218 commands 件
   (11-02 件逐字,命令取锚两条)。
@@ -55,11 +56,12 @@ WINDOW = (
 )
 
 
-def _agg_dir(tmp_path: Path, files: dict[str, str]) -> Path:
-    d = tmp_path / "aggregate"
+def _agg_dir(tmp_path: Path, files: dict[str, str],
+             name: str = "aggregate") -> Path:
+    d = tmp_path / name
     d.mkdir()
-    for name, text in files.items():
-        (d / name).write_text(text, encoding="utf-8")
+    for fname, text in files.items():
+        (d / fname).write_text(text, encoding="utf-8")
     return d
 
 
@@ -213,7 +215,7 @@ _TECH_CVE_ENTRY = {
 }
 
 # commands 件真样例(195.178.110.218,服务器 2026-11-02 件,SSH 矿机
-# 探测;命令截锚两条,余字段逐字)——「萤罐id/服务」形态锚(beelzebub/ssh)
+# 探测;命令截锚两条,余字段逐字)——「蜜罐服务id/服务」形态锚(beelzebub/ssh)
 _TECH_SSH_ENTRY = {
     "events": 481,
     "first_seen": "2026-11-01T09:26:11Z",
@@ -285,6 +287,31 @@ def test_download_without_techniques_json_phase1_unchanged(
     assert "techniques" not in s.query("195.178.110.218")[0]["extra"]
 
 
+def test_download_without_json_clears_stale_techniques_copy(
+        tmp_path, monkeypatch):
+    """残影清理(终审 P2 Spec 轴):「有 CSV 无 JSON」回一期时,data_dir
+    旧 techniques 件必须顺手清走 —— 不清则 cron 断供后旧件被每次 rebuild
+    无限期合并,查询面永远退不回一期形状(宁少算:陈值不算证据)。"""
+    good = _techniques_json({"109.105.210.2": _TECH_CVE_ENTRY,
+                             "195.178.110.218": _TECH_SSH_ENTRY})
+    # 第一天:双件齐全 → techniques 出海
+    monkeypatch.setenv(AGGREGATE_DIR_ENV, str(_agg_dir(tmp_path, {
+        "honeypot-observed-2026-11-02.csv": AGGREGATE_TECH,
+        "honeypot_techniques-2026-11-02.json": good}, name="day1")))
+    s = HonyportSource(data_dir=tmp_path)
+    s.download()
+    s.rebuild()
+    assert "techniques" in s.query("195.178.110.218")[0]["extra"]
+    # 第二天:techniques cron 断供(挂载目录只剩 CSV)→ 残影被清、
+    # 查询面退回一期形状
+    monkeypatch.setenv(AGGREGATE_DIR_ENV, str(_agg_dir(tmp_path, {
+        "honeypot-observed-2026-11-03.csv": AGGREGATE_TECH}, name="day2")))
+    s.download()
+    assert not (tmp_path / "honyport_techniques.json").exists()
+    s.rebuild()
+    assert s.query("195.178.110.218")[0]["extra"] == {"total_events": 962}
+
+
 def test_download_techniques_without_csv_base_fails_loud(
         tmp_path, monkeypatch):
     """挂载目录只有 JSON 无合法 CSV → 基座缺席 fail-loud(JSON 不救场:
@@ -320,7 +347,7 @@ def test_query_techniques_cve_shape(tmp_path):
 
 
 def test_query_techniques_commands_shape(tmp_path):
-    """commands 件:命令逐字保留(真样例锚);「萤罐id/服务」形态
+    """commands 件:命令逐字保留(真样例锚);「蜜罐服务id/服务」形态
     (beelzebub/ssh)不产 CVE;protocols/statuses 原样出海。"""
     s = _tech_source(tmp_path)
     s.rebuild()
@@ -334,7 +361,7 @@ def test_query_techniques_commands_shape(tmp_path):
     assert tech["statuses"] == ["Start", "Stateless"]
     assert tech["commands"] is not _TECH_SSH_ENTRY["commands"]  # 拷贝非引用
     blob = json.dumps(rec, ensure_ascii=False, default=str)
-    assert "beelzebub" not in blob                      # 回声禁令:萤罐 id 不出海
+    assert "beelzebub" not in blob                      # 回声禁令:蜜罐服务 id 不出海
 
 
 def test_techniques_ip_not_in_csv_base_not_emitted(tmp_path):
@@ -390,6 +417,20 @@ def test_rebuild_techniques_ip_keyset_drift_fails_loud(tmp_path, mutate):
         s.rebuild()
 
 
+@pytest.mark.parametrize("field", ["commands", "services"])
+@pytest.mark.parametrize("bad_value", ["oops-string", None, 3])
+def test_rebuild_techniques_field_value_not_list_fails_loud(
+        tmp_path, field, bad_value):
+    """per-IP 字段值非数组 = 坏件 fail-loud(终审 P2 值类型闸,双轴同报):
+    字符串会被 list() 逐字拆成静默缩水、None/int 抛裸 TypeError —— 都
+    不符「格式漂移必须可见」的 RuntimeError 契约,逐字段 isinstance 拒收。"""
+    entry = dict(_TECH_CVE_ENTRY)
+    entry[field] = bad_value
+    s = _tech_source(tmp_path, ips={"109.105.210.2": entry})
+    with pytest.raises(RuntimeError, match="not a list"):
+        s.rebuild()
+
+
 def test_rebuild_techniques_bad_json_fails_loud(tmp_path):
     s = _tech_source(tmp_path)
     (tmp_path / "honyport_techniques.json").write_text(
@@ -400,7 +441,7 @@ def test_rebuild_techniques_bad_json_fails_loud(tmp_path):
 
 def test_extract_cves_forms():
     """services 两形态:「事件id/CVE 列表」剥前缀逗号拆分(去重保序);
-    「萤罐id/服务」与无斜杠元素自然落空(宁少算:同 CVE 不双计)。"""
+    「蜜罐服务id/服务」与无斜杠元素自然落空(宁少算:同 CVE 不双计)。"""
     extract = HonyportSource._extract_cves
     assert extract(["php2shell-2026/CVE-2026-109618,CVE-2026-109619"]) == [
         "CVE-2026-109618", "CVE-2026-109619"]
