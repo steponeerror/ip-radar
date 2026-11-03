@@ -225,7 +225,7 @@ _CHECKS: tuple[tuple[str, re.Pattern, tuple[str, ...], str], ...] = (
     # MANUAL.zh-CN.md
     ("MANUAL.zh-CN.md", re.compile(r"（(\d+) 个源中的 (\d+) 个）"),
      ("public_total", "keyless_public"), "公开源总数/免钥公开源数"),
-    ("MANUAL.zh-CN.md", re.compile(r"([0-9一二三四五六七八九十]+)个?key 源"),
+    ("MANUAL.zh-CN.md", re.compile(r"([0-9一二三四五六七八九十]+)\s*个?\s*key\s*源"),
      ("keyed",), "带钥源数(数词)"),
     ("MANUAL.zh-CN.md", re.compile(r"共 (\d+) 个 key[:：]"), ("key_envs",),
      "密钥变量数"),
