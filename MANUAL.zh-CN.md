@@ -146,7 +146,7 @@
 
 ### Sources(默认 tab)
 
-![管理台 Sources tab:60 源、健康、r/源间一致率(θ) 并排、开关](assets/manual/04-admin-sources.png)
+![管理台 Sources tab:61 源(60 公开 + 1 私有蜜罐)、健康、r/源间一致率(θ) 并排、开关](assets/manual/04-admin-sources.png)
 
 全部源一张清单,按 **Geo & ASN data / Threat intel / Asset attributes** 分组,列有:
 
