@@ -472,7 +472,7 @@ export interface TaskState {
   batch_id: string | null;
   received?: number;   // 阶段内进度(相位语义):downloading=字节,loading=记录数
   total?: number;      // 分母;0/缺失=未知(Content-Length 缺失或生成器路径)
-  frozenFrac?: number; // 终态冻结分数(TaskProvider 在 failed/cancelled 事件时落位)
+  frozenFrac?: number; // 终态冻结分数(taskEvents 的 applyEvent 在 failed/cancelled 事件时拷贝落位)
 }
 
 export interface BatchState {

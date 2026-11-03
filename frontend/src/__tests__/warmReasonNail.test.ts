@@ -8,7 +8,9 @@
 // backend/tests/test_ops_rounds.py 的 _OPS_LOG_KEEP 钉子,此为其前端侧)。
 // 期望值全部来自独立已知好值(API 契约与既有 header 断言),非回算。
 //
-// node 环境原因:文件读取要真 fs(jsdom 下 import.meta.url 是 http: 协议)。
+// node 环境原因:文件读取要真 fs——不可用 new URL(rel, import.meta.url):
+// Vite 会静态改写该模式为 dev-server URL(http://localhost/@fs/...),
+// fileURLToPath 拒收(机制归因同 taskEvents.test.ts 的 LOG_KEEP_LINES 钉子)。
 // node:* 导入的类型面:tsconfig.app.json types 数组已收录 "node"
 // (#292 初版曾用 tasks/__tests__/node-stdlib-stubs.d.ts 最小 ambient 声明钉住,
 // types 数组收进 node 后该 stub 已删);
@@ -29,7 +31,7 @@ const mainPy = read("backend/main.py");
 const lookupView = read("frontend/src/LookupView.tsx");
 
 function extractConst(source: string, name: string): string {
-  const m = source.match(new RegExp(`${name} = "([^"]+)"`));
+  const m = source.match(new RegExp(`^${name} = "([^"]+)"`, "m"));
   if (!m) throw new Error(`${name} not found in backend gate module`);
   return m[1];
 }

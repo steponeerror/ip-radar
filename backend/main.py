@@ -142,6 +142,10 @@ ENRICH_CHUNK = 100
 # ── #294 冷启动门:状态机住 ipdb._coldstart,main 只留接线 ──
 # 门的历史形态 = 本文件模块级全局变量(_BUILD_DEADLINE/_coverage_episode
 # + _coverage_building/_db_ready,规则与裁决记录见 ipdb/_coldstart.py)。
+# 状态驱动按构造覆盖全部入队门(cold-start thread、banner Retry via
+# /api/update-db、single-source update、registry PATCH-enable、scheduler
+# refresh)——deadline 只界窗不逐门设臂,免逐门显式臂窗的论证靠这份枚举
+# (论证与裁决记录见 ipdb/_coldstart.py)。
 # 探针全部调用点解析:db_loaded/enabled_sources 经 lambda 走 registry 模块
 # 属性(单点 patch 同时到达本门与 lookup() 内部检查);tasks_active 接
 # manager 活跃口径(queued/downloading/loading/throttled + paused 批保活
@@ -475,7 +479,7 @@ def _is_cold_start() -> bool:
 
 def _cold_start_background():
     """Cold start reduced to enqueueing the build batch: the integral gate
-    (_db_ready) is driven by live task state, so this thread needs no
+    (_cold_gate.db_ready) is driven by live task state, so this thread needs no
     blocking waits — settle and deadline handling live in the gate itself.
     An exception here only abandons the build attempt: zero sources loaded
     → gate holds → WarmupBanner shows failure/retry, with a log record."""
