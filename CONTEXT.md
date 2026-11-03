@@ -111,7 +111,7 @@ _Avoid_: 表格行(混淆 grid 行概念)
 _Avoid_: 弹窗、抽屉
 
 **token 源**:
-下载需要 API key 的源:abuseipdb/ip2proxy/ipinfo_lite/otx(+otx_subscribed 共用 OTX key),共 4 key 5 行;peeringdb 走免 key 节流 API 不算。现行 key 存服务器 .env,改由管理界面填写。
+下载需要 API key 的源:abuseipdb/ip2proxy/ipinfo_lite/otx(+otx_subscribed 共用 OTX key),共 4 key 5 行。现行 key 存服务器 .env,改由管理界面填写。
 _Avoid_: 密钥源、付费源
 
 ### 质量闸门

@@ -30,7 +30,7 @@ const fail = (reason, inputs, code) => ({ pass: false, reason, inputs, code }); 
 const pass = (reason, inputs) => ({ pass: true, reason, inputs });
 
 export const GATES = {
-  // G_PROBE:summary 可解析 ∧ urls_n≥30(现 101,清单事实层 feeds.txt)∧ attempted/urls≥0.9 ∧ TSV 行数=attempted_n(C稿 §2.2)
+  // G_PROBE:summary 可解析 ∧ urls_n≥30(现 98,清单事实层 feeds.txt;2026-11-03 源 peeringdb 下线 101→98)∧ attempted/urls≥0.9 ∧ TSV 行数=attempted_n(C稿 §2.2)
   G_PROBE: (ctx) => {
     const inputs = [A.PROBE_SUMMARY, A.PROBE_FRESHNESS_TSV];
     const s = j(path.join(ctx.dir, A.PROBE_SUMMARY));

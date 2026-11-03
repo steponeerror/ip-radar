@@ -40,7 +40,6 @@ OLD_CATEGORIES = {
     "root_servers": "asset",
     "dns_public": "asset",
     "rir_delegated": "geo_asn",
-    "peeringdb": "asset",
     "caida_asorg": "geo_asn",      # b/asorg-anycast 2026-10-10
     "anycast_census": "asset",    # b/asorg-anycast 2026-10-10
     "rir_abuse": "geo_asn",       # rir-abuse 2026-10-18(类 3 槽位挂 geo_asn 族)
@@ -76,7 +75,6 @@ OLD_RELIABILITY = {
     "root_servers": 0.99,
     "dns_public": 0.90,
     "rir_delegated": 0.99,
-    "peeringdb": 0.85,
     "caida_asorg": 0.8,            # b/asorg-anycast 2026-10-10
     "anycast_census": 0.9,         # b/asorg-anycast 2026-10-10
     "rir_abuse": 0.85,             # rir-abuse 2026-10-18(占位 role 实测在)

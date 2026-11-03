@@ -1068,7 +1068,7 @@ await t("位等价门(#163):同 stub 下 legacy health 轮工件 = 管线 PROBE 
   // 腿一(legacy)= agent.mjs runRound 真 Agent 循环(golden health 例同型):faux 模型点
   // health_snapshot → lib.sh feed_freshness + tools.mjs runMatrixScan 真路径,产出 ts-slug 工件;
   // 腿二(管线)= pipeline.mjs PROBE(同 lib.sh 同 matrixScanCli 单源)。两腿同 curl/OPS_EVAL_PY stub,
-  // 同清单(ops/agent/feeds.txt 101 URL 固定 fixture),先后背靠背跑(同 UTC 日,curl stub 日界截断)。
+  // 同清单(ops/agent/feeds.txt 98 URL 固定 fixture),先后背靠背跑(同 UTC 日,curl stub 日界截断)。
   const { runRound } = await import("./agent.mjs");
   const { fauxProvider, fauxAssistantMessage, fauxToolCall, fauxText, createModels } = await import("@earendil-works/pi-ai");
   const faux = fauxProvider({ models: [{ id: "faux-eq" }] });
@@ -1093,9 +1093,9 @@ await t("位等价门(#163):同 stub 下 legacy health 轮工件 = 管线 PROBE 
   assert.ok(Buffer.compare(tsvA, tsvB) === 0, `TSV 位等价破口:legacy ${tsvA.length}B vs 管线 ${tsvB.length}B`);
   const mA = fs.readFileSync(legacyMatrix), mB = fs.readFileSync(path.join(d, "01-probe-matrix.json"));
   assert.ok(Buffer.compare(mA, mB) === 0, `matrix 位等价破口:legacy ${mA.length}B vs 管线 ${mB.length}B`);
-  // 清单事实层钉住:101 URL 固定 fixture(清单变更须同步本例,feedfix #168 基线)
+  // 清单事实层钉住:98 URL 固定 fixture(清单变更须同步本例,feedfix #168 基线;2026-11-03 源 peeringdb 下线 101→98)
   const manifestN = +(await execFileP("bash", ["-c", `. "${path.join(AGENT, "lib.sh")}"; extract_feed_urls | wc -l`])).stdout.trim();
-  assert.equal(manifestN, 101, `feeds.txt 清单 URL 数=${manifestN}(固定 fixture,变更须同步本例)`);
+  assert.equal(manifestN, 98, `feeds.txt 清单 URL 数=${manifestN}(固定 fixture,变更须同步本例)`);
   const summary = j(path.join(d, "01-probe-summary.json"));
   assert.equal(summary.urls_n, manifestN);
   assert.equal(tsvB.toString().trimEnd().split("\n").length, manifestN, "TSV 行数=清单 URL 数");
