@@ -54,6 +54,12 @@ jobs:
       - name: Ops agent selftest (lib.sh + gate units + contract)
         working-directory: ops/agent
         run: bash selftest.sh
+      # 说人话闸单测(pi 扩展 plain-language-gate 的纯扫描函数):词表语义与
+      # ~/.pi/agent/scripts/check_plain_language.py 逐条对齐,防两侧漂移
+      # (2026-11-03 黑话复发诊断的机制腿)。node ≥22.18 默认剥类型。
+      - name: Plain-language gate unit tests
+        working-directory: .
+        run: node --test scripts/test_plain_language_gate.mjs
 
   backend:
     # needs frontend: SPA fallback tests assert on frontend/dist contents
@@ -83,6 +89,15 @@ jobs:
           done
       - name: Tests — remaining suites whole-dir
         run: python -m pytest tests/eval tests/evidence tests/lookup tests/source_infra tests/sources tests/auth tests/alerts -q   # auth/alerts 入闸(R3-F1);本地整目录合跑无跨文件污染
+      # 源数字闸(ADR 0018 机器比对腿):登记表(_sources/ 目录自动发现 + _tokens.py
+      # MANAGED)派生 公开源/免钥/带钥/密钥变量 四数,与 README(双语)/MANUAL(双语)/
+      # CONTEXT/GLOSSARY 文档宣称数比对,不符即红。stdlib-only,秒级,零新依赖;
+      # 单测 scripts/test_check_source_counts.py 同步入闸(评审 P2-3:防检查器被改坏
+      # 成恒绿而 CI 无感;取代 test_honyport_aggregate.py 纯手跑先例)。
+      - name: Source-count doc gate (ADR 0018)
+        run: |
+          python ../scripts/check_source_counts.py
+          python -m pytest ../scripts/test_check_source_counts.py -q
       - name: Bit-identity smoke (R3-F2①) — bench_lookup snapshot/compare round-trip
         run: ../scripts/ci_bitidentity_smoke.sh
       - name: Full suite in one process (reference only — flake tracking, do not gate)
