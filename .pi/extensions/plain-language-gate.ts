@@ -6,8 +6,9 @@
  * (2026-11-03 诊断结论:提醒拗不过语料且无检查门)。本扩展把同一套
  * 词表语义移植成 pi 扩展的自动挂钩,不依赖记忆。
  *
- * 拦截点:message_end + role==assistant,返回 { message } 在消息尾部
- * 追加一个简短警示块(列命中词,不改原内容)。实证依据(1.5.0 源码):
+ * 拦截点:message_end + role==assistant,返回 { message } 在消息头部
+ * 插入一个简短警示块(列命中词,不改原内容;尾部会被子代理工作流
+ * 的「取末段文本」捕获顶掉正文,2026-11-03 实弹判例)。实证依据(1.5.0 源码):
  * dist/core/agent-session.js 的 _handleAgentEvent 对每种模式统一执行
  *   await this._emitExtensionEvent(event);   // 扩展先行,message_end
  *                                            // 的 replacement 在此原

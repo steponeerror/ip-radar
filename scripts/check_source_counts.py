@@ -12,7 +12,7 @@
 reports/retro-p0-batch-2026-11-03.md):
 - 公开源总数 = 登记实例数 − eval_excluded=True 的实例数。eval_excluded 是
   honyport 一类「本地自建观测、非公网拉取源」今天唯一的机器可读标记
-  (backend/ipdb/_sources/honyport.py:78);该标记语义是「评估面恒禁用」,
+  (backend/ipdb/_sources/honyport.py:116,行号随二期改动漂移过、以文件内 eval_excluded 实文为准);该标记语义是「评估面恒禁用」,
   与「非公开源」当前恰好 1:1——若未来出现「评估禁用但仍算公开源」的源,
   本闸会在此处先红,提示拆口径。
 - 带钥源数/密钥变量数 = backend/ipdb/_tokens.py 的 MANAGED 冻结映射
