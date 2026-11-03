@@ -43,6 +43,12 @@ def _zai_available() -> bool:
 
 
 pytestmark = [
+    # env_dep(retro P1-5 首例,2026-11-03):四重环境依赖——真花钱模型
+    # (glm-5.3-flash ~$0.001/发)+ zai 凭证 + node + 干净 worktree
+    # sandbox 红线(未提交改动同批跑 = sandbox_violation 红,见模块
+    # docstring)。无环境必跳、脏 worktree 必红,均与代码回归无关;
+    # scripts/pytest-ipradar --no-env-dep 可整体退场。
+    pytest.mark.env_dep,
     pytest.mark.skipif(shutil.which("node") is None,
                        reason="node 不在 PATH(后端 CI runner 无 node;P5 镜像形态才有)"),
     pytest.mark.skipif(not _zai_available(),
