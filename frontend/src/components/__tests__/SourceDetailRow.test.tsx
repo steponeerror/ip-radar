@@ -176,4 +176,136 @@ describe("SourceDetailRow", () => {
     renderWithI18n(<SourceDetailRow detail={honyportDetail({ source: "feodo" })} />);
     expect(document.body.textContent ?? "").not.toContain("30 days");
   });
+
+  // honyport 二期手法明细(#283;spec 2026-11-03 §4):消费 extra.techniques
+  // 八字段(契约 = backend HonyportSource._TECHNIQUES_FIELDS,票 A 冻结)。
+  // 主渲染 commands(前 3 + 共 N 条截断计数)、CVE 纯文本徽标(不链接
+  // 外站,纯本地红线精神)、user_agents 直列;protocols/statuses/
+  // actions/stages/paths 进折叠;空字段一律不渲染;文案沿用一期「30 天内
+  // 观测到」只报事实口径。
+  const fullTechniques = {
+    commands: [
+      "/bin/./uname -s -v -n -r -m",
+      "lspci | grep x | cut -f5- -d ' '",
+      "nvidia-smi",
+      "curl http://x/1",
+      "wget http://x/2",
+    ],
+    cves: ["CVE-2026-109618", "CVE-2026-109619"],   // 真样例锚(spec §1,109.105.210.2)
+    user_agents: ["python-requests/2.31.0"],          // 真样例锚(spec §1)
+    protocols: ["tcp"],
+    statuses: ["401"],
+    actions: ["brute-force"],
+    stages: ["exploit"],
+    paths: ["/phpmyadmin/"],
+  };
+  const techniquesDetail = (techniques: unknown): ClassificationDetail =>
+    honyportDetail({ extra: { total_events: 11663, techniques } });
+
+  it("honyport techniques: commands truncated to first 3 + total count (#283)", () => {
+    renderWithI18n(<SourceDetailRow detail={techniquesDetail(fullTechniques)} />);
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("commands: /bin/./uname -s -v -n -r -m");
+    expect(text).toContain("nvidia-smi");
+    expect(text).not.toContain("curl http://x/1");   // 第 4 条起截断
+    expect(text).not.toContain("wget http://x/2");
+    expect(text).toContain("5 total");               // 共 N 条计数(en 口径对齐一期 {n} total)
+  });
+
+  it("honyport techniques: CVE badges are plain text, never links (#283)", () => {
+    renderWithI18n(<SourceDetailRow detail={techniquesDetail(fullTechniques)} />);
+    const badge = screen.getByText("CVE-2026-109618");
+    expect(badge.tagName).toBe("SPAN");              // 纯文本徽标,非 <a>
+    expect(screen.queryByRole("link")).toBeNull();   // 不链接外站(纯本地红线)
+    expect(screen.getByText("CVE-2026-109619")).toBeInTheDocument();
+  });
+
+  it("honyport techniques: user_agents listed directly (#283)", () => {
+    renderWithI18n(<SourceDetailRow detail={techniquesDetail(fullTechniques)} />);
+    expect(document.body.textContent ?? "").toContain(
+      "user agents: python-requests/2.31.0");
+  });
+
+  it("honyport techniques: five minor fields behind fold toggle (#283)", () => {
+    renderWithI18n(<SourceDetailRow detail={techniquesDetail(fullTechniques)} />);
+    expect(document.body.textContent ?? "").not.toContain("protocols: tcp");
+    fireEvent.click(screen.getByRole("button", { name: /techniques detail/i }));
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("protocols: tcp");
+    expect(text).toContain("statuses: 401");
+    expect(text).toContain("actions: brute-force");
+    expect(text).toContain("stages: exploit");
+    expect(text).toContain("paths: /phpmyadmin/");
+  });
+
+  it("honyport techniques: empty fields render nothing (#283)", () => {
+    renderWithI18n(
+      <SourceDetailRow
+        detail={techniquesDetail({
+          commands: ["/bin/sh"], cves: [], user_agents: [],
+          protocols: [], statuses: [], actions: [], stages: [], paths: [],
+        })}
+      />,
+    );
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("commands: /bin/sh");
+    expect(text).not.toContain("CVE:");
+    expect(text).not.toContain("user agents:");
+    expect(screen.queryByRole("button", { name: /techniques detail/i })).toBeNull();
+    expect(text.match(/ total/g) ?? []).toHaveLength(1);  // 仅观测行计数,无截断计数
+  });
+
+  it("honyport techniques: fold renders when main trio all empty (#283)", () => {
+    renderWithI18n(
+      <SourceDetailRow
+        detail={techniquesDetail({
+          commands: [], cves: [], user_agents: [],
+          protocols: ["tcp"], statuses: [], actions: [], stages: [], paths: [],
+        })}
+      />,
+    );
+    expect(document.body.textContent ?? "").not.toContain("commands:");
+    fireEvent.click(screen.getByRole("button", { name: /techniques detail/i }));
+    expect(document.body.textContent ?? "").toContain("protocols: tcp");
+  });
+
+  it("honyport techniques key excluded from generic extra fold (#283)", () => {
+    renderWithI18n(<SourceDetailRow detail={techniquesDetail(fullTechniques)} />);
+    const toggle = screen.getByRole("button", { name: /extra 1 keys/i });  // techniques 不计入
+    fireEvent.click(toggle);
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("total_events: 11663");
+    expect(text).not.toContain('"techniques"');   // 可读渲染替代原始 JSON,同一事实不双列
+  });
+
+  it("honyport without techniques keeps phase-1 shape (#283)", () => {
+    renderWithI18n(<SourceDetailRow detail={honyportDetail()} />);
+    const text = document.body.textContent ?? "";
+    expect(text).not.toContain("commands:");
+    expect(screen.queryByRole("button", { name: /techniques detail/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /extra 1 keys/i })).toBeInTheDocument();
+  });
+
+  it("non-honyport extra.techniques gets no techniques UI (#283)", () => {
+    renderWithI18n(
+      <SourceDetailRow detail={{ ...techniquesDetail(fullTechniques), source: "feodo" }} />,
+    );
+    const text = document.body.textContent ?? "";
+    expect(text).not.toContain("commands: ");
+    expect(text).not.toContain("user agents:");
+    expect(screen.queryByRole("button", { name: /techniques detail/i })).toBeNull();
+  });
+
+  it("honyport techniques: zh-CN verbatim copy (#283)", () => {
+    expect(translate("zh-CN", "sourceDetail.honeypotCommands")).toBe("命令");
+    expect(translate("zh-CN", "sourceDetail.honeypotCves")).toBe("CVE");
+    expect(translate("zh-CN", "sourceDetail.honeypotUserAgents")).toBe("浏览器标识");
+    expect(translate("zh-CN", "sourceDetail.honeypotTotal", { n: 6 })).toBe("共 6 条");
+    expect(translate("zh-CN", "sourceDetail.honeypotTechniques")).toBe("手法明细");
+    expect(translate("zh-CN", "sourceDetail.honeypotProtocols")).toBe("协议");
+    expect(translate("zh-CN", "sourceDetail.honeypotStatuses")).toBe("状态");
+    expect(translate("zh-CN", "sourceDetail.honeypotActions")).toBe("动作");
+    expect(translate("zh-CN", "sourceDetail.honeypotStages")).toBe("阶段");
+    expect(translate("zh-CN", "sourceDetail.honeypotPaths")).toBe("路径");
+  });
 });
