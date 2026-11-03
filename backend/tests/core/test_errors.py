@@ -37,12 +37,12 @@ class TestErrorEnvelope:
         (building=True)把本类 gate 测试 503 化。"""
         import math
         import main
-        self._orig_deadline = main._BUILD_DEADLINE
-        self._orig_episode = main._coverage_episode
-        main._BUILD_DEADLINE = math.inf
-        main._coverage_episode = False
+        self._orig_deadline = main._cold_gate.deadline
+        self._orig_episode = main._cold_gate.episode
+        main._cold_gate.deadline = math.inf
+        main._cold_gate.episode = False
         self._p_loaded = patch("ipdb._registry._db_loaded", return_value=True)
-        self._p_building = patch.object(main, "_coverage_building",
+        self._p_building = patch.object(main._cold_gate, "coverage_building",
                                         return_value=False)
         self._p_loaded.start()
         self._p_building.start()
@@ -51,8 +51,8 @@ class TestErrorEnvelope:
         import main
         self._p_loaded.stop()
         self._p_building.stop()
-        main._BUILD_DEADLINE = self._orig_deadline
-        main._coverage_episode = self._orig_episode
+        main._cold_gate.deadline = self._orig_deadline
+        main._cold_gate.episode = self._orig_episode
 
     def test_unknown_route_404_envelope(self):
         """Starlette 默认 404(路由不存在)也走信封。"""

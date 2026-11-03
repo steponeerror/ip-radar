@@ -125,7 +125,7 @@
 - **去源对比**:eval 的净影响实验——去掉一个源跑 baseline vs candidate,看它挣不挣得下位置。出处:_eval/ablation.py(run_ablation)
 - **结构重复**:逐字换名拷贝的代码段——变量名/字段名/字面量不同,调用形状与操作符相同;dryer 可测(阈值 0.82,≥0.9 强信号)。「同思路加料的派生」(如带跨组池化/asof 锚的变体)控制流形状变了指纹即失配,工具不报,仍靠人审与转载关系分析;与「镜像对」(证据域:同一内容两源重复发布)相区分——一个在代码,一个在数据。豁免类别(报告跳过,2026-10-31 分类裁定):源家族 parse/harvest 同构(39 对,残余归「两基类合一」后续票)、第三方 UI 原语(ui/dialog.tsx 等)、API 契约模型声明形(_api_models.py)、防环直查与锁+原子写惯用形(_ops_items↔_ops_store)、限流三桶配置形(_ratelimit.py,每桶 docstring 即 spec 锚)。真重复两批待折:api.ts 取数样板(23 对)、env 路径覆写五连(_alerts/_auth)。判例:ub-mode 评估 2026-10-31;折并批前后 113→78 对,指控池 6 份拷贝全程未报 = 边界实证。出处:notes/ub-mode-2026-10-31.md(dryer 实测)
 - **资源预算**:每种资源有上限——内存对数据量平坦(mmap)、LRU 有界、探测有界、进程弹性降级;系统拒绝 OOM 自己。压榨 = 消除浪费,不是增加机械。出处:_memory_valve.py、_batch_pool.py
-- **冷启动门**:无需 API key 的源建完前,查询端点 503(warming up)——永不给半个数据集上的判定;建库窗口有超时放行的可用性逃生口。出处:backend/main.py(require_ready/_db_ready)
+- **冷启动门**:无需 API key 的源建完前,查询端点 503(warming up)——永不给半个数据集上的判定;建库窗口有超时放行的可用性逃生口。出处:backend/ipdb/_coldstart.py(ColdStartGate)+ backend/main.py(require_ready)
 
 ## 质量闸门(eval 闭环)
 

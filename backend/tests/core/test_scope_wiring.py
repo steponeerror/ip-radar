@@ -32,7 +32,7 @@ def _lru_hygiene():
 @pytest.fixture(autouse=True)
 def _hermetic_gate(monkeypatch):
     """密闭积分门(同 test_query_gating 先例):本文件测 scope 不测门。"""
-    monkeypatch.setattr(main, "_coverage_building", lambda: False)
+    monkeypatch.setattr(main._cold_gate, "coverage_building", lambda: False)
 
 
 @pytest.fixture()

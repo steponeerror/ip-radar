@@ -27,7 +27,7 @@ def client(tiny_db):
 def _hermetic_gate(monkeypatch):
     """密闭门(test_query_gating 先例):全量跑序里早期 lifespan 测试武装
     warming 门,真实 503 会污染本文件的 200 断言。"""
-    monkeypatch.setattr(main, "_coverage_building", lambda: False)
+    monkeypatch.setattr(main._cold_gate, "coverage_building", lambda: False)
 
 
 @pytest.fixture()

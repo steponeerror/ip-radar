@@ -14,8 +14,11 @@ from urllib.parse import urlparse
 import lmdb
 
 from .._types import SourceHealth
-from . import _infra_filter
 from ._download import warn_if_redirected
+# #291 三车道收尾共享件:载入期 infra 过滤+排除记账(InfraNoiseGate)
+# 与覆盖数 v4/v6 分流(covered_counts);本文件 B/C 两车道与 A 车道
+# (_source_base.py)同源使用,同一段逻辑只存在一份。
+from ._rebuild_tail import InfraNoiseGate, covered_counts
 # 热路径共享:函数体内缓存 import 复测 273ns/调用(2026-10-11 配对
 # A/B 修正侦察预估 1.075µs;43µs/IP 为已修正的侦察预估,非实测);提升后
 # 配对 A/B 实测 -21µs/IP(5/5 全胜)。_lmdb 仅依赖
@@ -309,13 +312,11 @@ class IpListSource(SourceBase):
     def rebuild(self, progress=None) -> int:
         """重建 LMDB(唯一入口,经 manager 队列调用)。新 epoch + ptr swap。"""
         import ipaddress as _ipa
-        from ._lmdb import covered_ip_count, rebuild_dual_family, commit_dual_family
+        from ._lmdb import commit_dual_family
         if not self._path.exists():
             return 0
         insert_data = self.get_insert_data()
-        exclude_infra = (self.infra_noise_filter
-                         and _infra_filter.filter_enabled())
-        excluded: list[str] = []
+        gate = InfraNoiseGate(self.name, self.infra_noise_filter)
         records = []
         covered = []
         with open(self._path, "r", encoding="utf-8") as f:
@@ -333,9 +334,9 @@ class IpListSource(SourceBase):
                 except (ValueError, _ipa.AddressValueError,
                         _ipa.NetmaskValueError):
                     continue
-                # 载入期 infra 噪声排除(数据文件零改写,仅挡投影;issue #183)
-                if exclude_infra and _infra_filter.is_infra_noise(net):
-                    excluded.append(str(net))
+                # 载入期 infra 噪声排除(数据文件零改写,仅挡投影;issue #183;
+                # 过滤+记账收共享 #291)
+                if gate.blocks(net):
                     continue
                 # 每条记录独立浅拷贝:共享同一 dict 会让任一记录的 extra
                 # 变更泄漏给同源全部记录(历史动因:build 期写入钩子按记录
@@ -345,11 +346,8 @@ class IpListSource(SourceBase):
                 # extra 仍被共享。
                 records.append((str(net), [dict(insert_data)]))
                 covered.append(str(net))
-        cov4 = covered_ip_count(c for c in covered if ":" not in c)
-        cov6 = covered_ip_count(
-            (c for c in covered if ":" in c), ip_version=6)
-        if excluded:
-            _infra_filter.log_exclusions(self.name, excluded)
+        cov4, cov6 = covered_counts(covered)
+        gate.flush()
         return commit_dual_family(
             self, records, cov4=cov4, cov6=cov6, progress=progress)
 
@@ -376,12 +374,10 @@ class CsvSource(IpListSource):
         """重建 LMDB(唯一入口,经 manager 队列调用)。新 epoch + ptr swap。"""
         import csv as _csv
         import ipaddress as _ipa
-        from ._lmdb import covered_ip_count, rebuild_dual_family, commit_dual_family
+        from ._lmdb import commit_dual_family
         if not self._path.exists():
             return 0
-        exclude_infra = (self.infra_noise_filter
-                         and _infra_filter.filter_enabled())
-        excluded: list[str] = []
+        gate = InfraNoiseGate(self.name, self.infra_noise_filter)
         # cidr_str -> list[evidence dict], deduped by full-evidence equality
         acc: dict[str, list[dict]] = {}
         with open(self._path, "r", encoding="utf-8") as f:
@@ -409,9 +405,9 @@ class CsvSource(IpListSource):
                 except (ValueError, _ipa.AddressValueError,
                         _ipa.NetmaskValueError):
                     continue
-                # 载入期 infra 噪声排除(数据文件零改写,仅挡投影;issue #183)
-                if exclude_infra and _infra_filter.is_infra_noise(net):
-                    excluded.append(str(net))
+                # 载入期 infra 噪声排除(数据文件零改写,仅挡投影;issue #183;
+                # 过滤+记账收共享 #291)
+                if gate.blocks(net):
                     continue
                 key = str(net)
                 bucket = acc.setdefault(key, [])
@@ -422,12 +418,8 @@ class CsvSource(IpListSource):
                 if any(parsed == o for o in bucket):
                     continue
                 bucket.append(parsed)
-        v4_keys = (c for c in acc if ":" not in c)
-        v6_keys = (c for c in acc if ":" in c)
-        cov4 = covered_ip_count(v4_keys)
-        cov6 = covered_ip_count(v6_keys, ip_version=6)
-        if excluded:
-            _infra_filter.log_exclusions(self.name, excluded)
+        cov4, cov6 = covered_counts(acc)
+        gate.flush()
         # DQ-2:.count 语义 = LMDB 主库键数(rebuild_lmdb commit 时从 env
         # 回写);旧「count=证据数」覆写已删——同 CIDR 多证据并单键,计数
         # 不再随证据数虚增,record_count 恒等于 env 键数。

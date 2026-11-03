@@ -17,8 +17,9 @@ from ._sources._download import CancelledError, CancelToken
 
 logger = logging.getLogger(__name__)
 
-# ops 轮 stderr 日志尾窗(2026-10-26 修):= 前端 TaskProvider
-# LOG_KEEP_LINES 同值——尾随快照出后前端同窗截留,两端窗口一致防
+# ops 轮 stderr 日志尾窗(2026-10-26 修):= 前端
+# frontend/src/tasks/taskEvents.ts 的 LOG_KEEP_LINES 同值(#292 常数
+# 已从 TaskProvider 迁出)——尾随快照出后前端同窗截留,两端窗口一致防
 # 播种面反复增缩。进度面非存档,证据本体在包/台账(哲学 1)。
 _OPS_LOG_KEEP = 200
 
