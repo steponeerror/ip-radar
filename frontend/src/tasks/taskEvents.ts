@@ -105,6 +105,8 @@ export function applyResync(state: TaskEventsState, snap: TasksSnapshot): TaskEv
   if (state.sseSaw) return state; // an SSE event landed mid-fetch — it's fresher
   return {
     tasks: Object.fromEntries(snap.tasks.map((t) => [t.id, t])),
+    // batch 归一:快照缺批字段时落 null(React 态口径;旧内联两处
+    // 一处可能留 undefined,统一由这里归一)。
     batch: snap.batch ?? null,
     logs: seedLogs(state.logs, snap.logs),
     sseSaw: state.sseSaw,

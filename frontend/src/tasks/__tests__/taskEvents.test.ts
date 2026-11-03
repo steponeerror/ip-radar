@@ -215,7 +215,7 @@ describe("LOG_KEEP_LINES 两端单源(机读对拍 backend/ipdb/_tasks.py)", () 
       dirname(fileURLToPath(import.meta.url)),
       "../../../../backend/ipdb/_tasks.py",
     );
-    const m = readFileSync(pyPath, "utf8").match(/_OPS_LOG_KEEP\s*=\s*(\d+)/);
+    const m = readFileSync(pyPath, "utf8").match(/^\s*_OPS_LOG_KEEP\s*=\s*(\d+)/m);
     expect(m).not.toBeNull();
     expect(LOG_KEEP_LINES).toBe(Number(m![1]));
   });

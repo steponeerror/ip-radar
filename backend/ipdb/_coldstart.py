@@ -72,7 +72,8 @@ class ColdStartGate:
         """有在飞离线任务、且其目标仍有未加载读器 → 覆盖构建中。
         已加载源的刷新/重建永不门控(安定部署例行刷新期间照常服务)。
         paused 批保活语义在 tasks_active 探针里(queued/downloading/
-        loading/throttled/paused 口径,main 接 manager.has_active_offline_tasks)。"""
+        loading/throttled 四态口径,paused 批的任务借四态保活;探针内即
+        含此语义,main 接 manager.has_active_offline_tasks)。"""
         if not self.tasks_active():
             return False
         loaded = {s.name for s in self.enabled_sources() if s.health().loaded}

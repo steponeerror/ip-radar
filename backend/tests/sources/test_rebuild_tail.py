@@ -172,6 +172,7 @@ def test_harvest_lane_routes_through_shared_gate(tmp_path, spy_gate):
         filename = "s.csv"
         fields = ("is_malicious",)
         infra_noise_filter = True
+        single_evidence = True  # 钉流式 factory 形态×共享 gate 组合(#291 评审 P2-1)
 
         def harvest(self):
             yield "8.8.8.8", Evidence(classification_type="blacklist",

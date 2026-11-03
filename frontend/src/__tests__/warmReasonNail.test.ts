@@ -9,8 +9,9 @@
 // 期望值全部来自独立已知好值(API 契约与既有 header 断言),非回算。
 //
 // node 环境原因:文件读取要真 fs(jsdom 下 import.meta.url 是 http: 协议)。
-// node:* 导入的类型面走 frontend/src/tasks/__tests__/node-stdlib-stubs.d.ts
-// (#292 立的最小 ambient 声明,tsconfig.app.json types 闭集不含 node);
+// node:* 导入的类型面:tsconfig.app.json types 数组已收录 "node"
+// (#292 初版曾用 tasks/__tests__/node-stdlib-stubs.d.ts 最小 ambient 声明钉住,
+// types 数组收进 node 后该 stub 已删);
 // 本文件与其同用一套定位姿势:join(dirname(fileURLToPath(import.meta.url)))
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
