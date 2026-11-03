@@ -8,7 +8,7 @@
  *
  * 拦截点:message_end + role==assistant,返回 { message } 在消息尾部
  * 追加一个简短警示块(列命中词,不改原内容)。实证依据(1.5.0 源码):
- * dist/core/agent-session.js 的 _emitAgentEvent 对每种模式统一执行
+ * dist/core/agent-session.js 的 _handleAgentEvent 对每种模式统一执行
  *   await this._emitExtensionEvent(event);   // 扩展先行,message_end
  *                                            // 的 replacement 在此原
  *                                            // 地改写同一个 message 对象
