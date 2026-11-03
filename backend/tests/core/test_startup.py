@@ -18,8 +18,8 @@ def test_startup_cold_branch_opens_window_and_starts_thread():
     # deadline while the fake background below does nothing — save/restore
     # so no armed window leaks into other test files (mirrors
     # TestLifespanColdStartNonBlocking in test_main_routes.py).
-    saved_deadline = main._BUILD_DEADLINE
-    main._BUILD_DEADLINE = math.inf
+    saved_deadline = main._cold_gate.deadline
+    main._cold_gate.deadline = math.inf
     try:
         started = threading.Event()
         def _fake_background():
@@ -29,18 +29,18 @@ def test_startup_cold_branch_opens_window_and_starts_thread():
              patch.object(main, "_startup_warm") as warm:
             main._startup()
         warm.assert_not_called()
-        assert main._BUILD_DEADLINE > time.time()  # cold branch arms the window
+        assert main._cold_gate.deadline > time.time()  # cold branch arms the window
         time.sleep(0.05)  # let the daemon thread spin up and set the Event
         assert started.is_set(), "background _cold_start_background thread not started"
     finally:
-        main._BUILD_DEADLINE = saved_deadline
+        main._cold_gate.deadline = saved_deadline
 
 
 def test_startup_warm_branch_calls_startup_warm():
     import math
     import main
-    saved_deadline = main._BUILD_DEADLINE
-    main._BUILD_DEADLINE = math.inf
+    saved_deadline = main._cold_gate.deadline
+    main._cold_gate.deadline = math.inf
     try:
         with patch.object(main, "_is_cold_start", return_value=False), \
              patch.object(main, "_startup_warm") as warm, \
@@ -48,9 +48,9 @@ def test_startup_warm_branch_calls_startup_warm():
             main._startup()
         warm.assert_called_once()
         cold_bg.assert_not_called()   # warm branch must not spawn a background build
-        assert main._BUILD_DEADLINE == math.inf  # warm branch never arms the window
+        assert main._cold_gate.deadline == math.inf  # warm branch never arms the window
     finally:
-        main._BUILD_DEADLINE = saved_deadline
+        main._cold_gate.deadline = saved_deadline
 
 
 # ── _startup_warm body ────────────────────────────────────────────────
@@ -194,7 +194,7 @@ def test_orphan_tmp_cleaned_on_startup(tmp_path):
 
 def test_cold_start_timeout_scales_with_memory(monkeypatch):
     """超时按 total 分档:<6G→1800, <12G→1200, ≥12G→900。"""
-    from main import _cold_start_timeout
+    from ipdb._coldstart import _cold_start_timeout
     monkeypatch.setenv("IP_RADAR_COLD_START_TIMEOUT", "")
     assert _cold_start_timeout(4.0) == 1800
     assert _cold_start_timeout(8.0) == 1200

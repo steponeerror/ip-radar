@@ -28,7 +28,7 @@ def _hermetic_gate(monkeypatch):
     """密闭门(同 test_stream_pool 先例):全量跑序里早期 lifespan 测试往
     单例 manager 塞真实重建任务,真 _coverage_building 会对本文件误报
     warming 503(时序 flake)。本文件测鉴权不测门。"""
-    monkeypatch.setattr(main, "_coverage_building", lambda: False)
+    monkeypatch.setattr(main._cold_gate, "coverage_building", lambda: False)
 
 
 def _issue(name):

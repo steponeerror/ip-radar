@@ -219,7 +219,7 @@ def test_lookup_single_runs_via_to_thread(monkeypatch):
     load_db()
     # 密闭:_coverage_building 走真 manager,早期 lifespan 测试残留的过期
     # 重建任务(测试环境双载 load_db 使个别源 unloaded)会误扣门。
-    with patch.object(main_mod, "_coverage_building", return_value=False):
+    with patch.object(main_mod._cold_gate, "coverage_building", return_value=False):
         called_via = []
         orig_to_thread = asyncio.to_thread
         async def spy_to_thread(fn, *a, **kw):
@@ -241,7 +241,7 @@ def test_lookup_stix_runs_via_to_thread(monkeypatch):
     import main as main_mod
     from ipdb import load_db
     load_db()
-    with patch.object(main_mod, "_coverage_building", return_value=False):
+    with patch.object(main_mod._cold_gate, "coverage_building", return_value=False):
         called_via = []
         orig_to_thread = asyncio.to_thread
         async def spy_to_thread(fn, *a, **kw):
@@ -304,15 +304,15 @@ class TestWarmingUpGate:
         so a test that arms the window can never leak it into other files."""
         import math
         import main
-        self._orig_deadline = main._BUILD_DEADLINE
-        self._orig_episode = main._coverage_episode
-        main._BUILD_DEADLINE = math.inf
-        main._coverage_episode = False
+        self._orig_deadline = main._cold_gate.deadline
+        self._orig_episode = main._cold_gate.episode
+        main._cold_gate.deadline = math.inf
+        main._cold_gate.episode = False
 
     def teardown_method(self):
         import main
-        main._BUILD_DEADLINE = self._orig_deadline
-        main._coverage_episode = self._orig_episode
+        main._cold_gate.deadline = self._orig_deadline
+        main._cold_gate.episode = self._orig_episode
 
     def test_db_status_has_warming_up_field(self):
         resp = self.client.get("/api/db-status")
@@ -349,7 +349,7 @@ class TestWarmingUpGate:
         from ipdb import load_db
         load_db()
         with patch("ipdb._registry._db_loaded", return_value=True), \
-             patch.object(main, "_coverage_building", return_value=False):
+             patch.object(main._cold_gate, "coverage_building", return_value=False):
             r = self.client.get("/api/lookup/8.8.8.8")
             assert r.status_code == 200
 
@@ -372,9 +372,9 @@ class TestWarmingUpGate:
         import main
         from ipdb import load_db
         load_db()  # real readers exist so the post-settle lookup returns 200
-        main._BUILD_DEADLINE = time.time() + 600
+        main._cold_gate.deadline = time.time() + 600
         with patch("ipdb._registry._db_loaded", return_value=True), \
-             patch.object(main, "_coverage_building", return_value=True):
+             patch.object(main._cold_gate, "coverage_building", return_value=True):
             r1 = self.client.post("/api/query/stream", json={"ips": ["8.8.8.8"]})
             assert r1.status_code == 503
             r2 = self.client.post("/api/upload/stream",
@@ -386,7 +386,7 @@ class TestWarmingUpGate:
             assert r4.status_code == 503
         # build settles → gate opens
         with patch("ipdb._registry._db_loaded", return_value=True), \
-             patch.object(main, "_coverage_building", return_value=False):
+             patch.object(main._cold_gate, "coverage_building", return_value=False):
             r5 = self.client.get("/api/lookup/8.8.8.8")
             assert r5.status_code == 200
 
@@ -394,14 +394,14 @@ class TestWarmingUpGate:
         """db-status warming_up reflects the integral gate: True mid-build
         even when _db_loaded() is already True; False once the build settles."""
         import main
-        main._BUILD_DEADLINE = time.time() + 600
+        main._cold_gate.deadline = time.time() + 600
         with patch("ipdb._registry._db_loaded", return_value=True), \
-             patch.object(main, "_coverage_building", return_value=True):
+             patch.object(main._cold_gate, "coverage_building", return_value=True):
             resp = self.client.get("/api/db-status")
             assert resp.status_code == 200
             assert resp.json()["warming_up"] is True
         with patch("ipdb._registry._db_loaded", return_value=True), \
-             patch.object(main, "_coverage_building", return_value=False):
+             patch.object(main._cold_gate, "coverage_building", return_value=False):
             resp = self.client.get("/api/db-status")
             assert resp.status_code == 200
             assert resp.json()["warming_up"] is False
@@ -413,10 +413,10 @@ class TestWarmingUpGate:
         import main
         from ipdb import load_db
         load_db()
-        main._coverage_episode = True     # episode already in progress
-        main._BUILD_DEADLINE = time.time() - 1  # already elapsed
+        main._cold_gate.episode = True     # episode already in progress
+        main._cold_gate.deadline = time.time() - 1  # already elapsed
         with patch("ipdb._registry._db_loaded", return_value=True), \
-             patch.object(main, "_coverage_building", return_value=True):
+             patch.object(main._cold_gate, "coverage_building", return_value=True):
             r = self.client.get("/api/lookup/8.8.8.8")
             assert r.status_code == 200
 
@@ -428,12 +428,12 @@ class TestWarmingUpGate:
         import main
         # warm view: deadline never armed (inf), no episode
         with patch("ipdb._registry._db_loaded", return_value=True), \
-             patch.object(main, "_coverage_building", return_value=True):
+             patch.object(main._cold_gate, "coverage_building", return_value=True):
             r = self.client.get("/api/lookup/8.8.8.8")
             assert r.status_code == 503                    # held...
-            assert main._BUILD_DEADLINE != math.inf        # ...but bounded
+            assert main._cold_gate.deadline != math.inf        # ...but bounded
             # episode continues, window elapses → releases (pause wedge ends)
-            main._BUILD_DEADLINE = time.time() - 1
+            main._cold_gate.deadline = time.time() - 1
             r2 = self.client.get("/api/lookup/8.8.8.8")
             assert r2.status_code == 200
 
@@ -443,12 +443,12 @@ class TestWarmingUpGate:
         source must arm a fresh window and hold — previously the stale
         deadline let mid-build queries serve partial-coverage verdicts."""
         import main
-        main._BUILD_DEADLINE = time.time() - 86400        # yesterday's window
+        main._cold_gate.deadline = time.time() - 86400        # yesterday's window
         with patch("ipdb._registry._db_loaded", return_value=True), \
-             patch.object(main, "_coverage_building", return_value=True):
+             patch.object(main._cold_gate, "coverage_building", return_value=True):
             r = self.client.get("/api/lookup/8.8.8.8")
             assert r.status_code == 503                    # no partial verdicts
-            assert main._BUILD_DEADLINE > time.time()      # fresh window armed
+            assert main._cold_gate.deadline > time.time()      # fresh window armed
 
     def test_unloaded_rebuild_refreshes_stale_deadline(self):
         """Regression (review F1): a rebuild starting from zero coverage
@@ -459,15 +459,15 @@ class TestWarmingUpGate:
         _db_loaded() True mid-rebuild."""
         import main
         with patch("ipdb._registry._db_loaded", return_value=False), \
-             patch.object(main, "_coverage_building", return_value=True), \
-             patch.object(main, "_window_sec", return_value=600):
-            main._BUILD_DEADLINE = time.time() - 1  # stale
+             patch.object(main._cold_gate, "coverage_building", return_value=True), \
+             patch.object(main._cold_gate, "window_sec", return_value=600):
+            main._cold_gate.deadline = time.time() - 1  # stale
             r = self.client.get("/api/lookup/8.8.8.8")
             assert r.status_code == 503
-            assert main._BUILD_DEADLINE > time.time()  # lazily re-armed
+            assert main._cold_gate.deadline > time.time()  # lazily re-armed
         # first source lands → still held within the fresh window
         with patch("ipdb._registry._db_loaded", return_value=True), \
-             patch.object(main, "_coverage_building", return_value=True):
+             patch.object(main._cold_gate, "coverage_building", return_value=True):
             r2 = self.client.get("/api/lookup/8.8.8.8")
             assert r2.status_code == 503
 
@@ -507,7 +507,7 @@ class TestWarmingUpGate:
 
         with patch("ipdb._registry._db_loaded", return_value=True), \
              patch("ipdb._registry._enabled_sources", return_value=srcs), \
-             patch.object(main, "_build_tasks_active", side_effect=fake_active):
+             patch.object(main._cold_gate, "tasks_active", side_effect=fake_active):
             r = self.client.get("/api/lookup/8.8.8.8")
         assert r.status_code == 200
         # the loaded-set filter was actually consulted, not skipped
@@ -524,9 +524,9 @@ class TestWarmingUpGate:
         import main
         from ipdb import load_db
         load_db()
-        main._coverage_episode = True          # continuing episode
+        main._cold_gate.episode = True          # continuing episode
         expired = time.time() - 10
-        main._BUILD_DEADLINE = expired
+        main._cold_gate.deadline = expired
         built = {"b"}                          # uncovered source being built
 
         def fake_active(source_filter=None):
@@ -537,17 +537,17 @@ class TestWarmingUpGate:
         srcs = [_GateSrc("a", True), _GateSrc("b", False)]
         with patch("ipdb._registry._db_loaded", return_value=True), \
              patch("ipdb._registry._enabled_sources", return_value=srcs), \
-             patch.object(main, "_build_tasks_active", side_effect=fake_active):
+             patch.object(main._cold_gate, "tasks_active", side_effect=fake_active):
             r1 = self.client.get("/api/lookup/8.8.8.8")
             assert r1.status_code == 200            # expired window releases
-            assert main._BUILD_DEADLINE == expired  # no re-arm mid-episode
+            assert main._cold_gate.deadline == expired  # no re-arm mid-episode
 
             # newcomer: source c flips to uncovered-building mid-episode
             built.add("c")
             srcs.append(_GateSrc("c", False))
             r2 = self.client.get("/api/lookup/8.8.8.8")
             assert r2.status_code == 200            # inherits episode clock
-            assert main._BUILD_DEADLINE == expired  # still no fresh window
+            assert main._cold_gate.deadline == expired  # still no fresh window
 
 
 class TestLifespanColdStartNonBlocking:
@@ -559,14 +559,14 @@ class TestLifespanColdStartNonBlocking:
         armed window leaks into the next test."""
         import math
         import main
-        main._BUILD_DEADLINE = math.inf
-        main._coverage_episode = False
+        main._cold_gate.deadline = math.inf
+        main._cold_gate.episode = False
 
     def teardown_method(self):
         import math
         import main
-        main._BUILD_DEADLINE = math.inf
-        main._coverage_episode = False
+        main._cold_gate.deadline = math.inf
+        main._cold_gate.episode = False
 
     def test_cold_start_branch_starts_background_thread(self, monkeypatch):
         """When _is_cold_start() is True, lifespan yields without waiting on
@@ -597,7 +597,7 @@ class TestLifespanColdStartNonBlocking:
         # load_db 使个别源 unloaded → 真 _coverage_building 误判扣门。
         # 生产单载下这些源 loaded,重建不扣门。
         with patch.object(main, "_is_cold_start", return_value=False), \
-             patch.object(main, "_coverage_building", return_value=False):
+             patch.object(main._cold_gate, "coverage_building", return_value=False):
             with TestClient(main.app) as client:
                 load_db()  # warm path 走 _startup_warm → load_db
                 r = client.get("/api/db-status")
@@ -637,7 +637,7 @@ def test_query_stream_non_list_ips_returns_400_not_500():
     from ipdb import load_db
     load_db()
     with patch("ipdb._registry._db_loaded", return_value=True), \
-         patch.object(main, "_coverage_building", return_value=False):
+         patch.object(main._cold_gate, "coverage_building", return_value=False):
         client = TestClient(main.app, headers=SAME_ORIGIN)
         r = client.post("/api/query/stream", json={"ips": 5})
         assert r.status_code == 400
@@ -739,7 +739,7 @@ def test_get_lookup_classified_ip_details_is_list(tmp_path, monkeypatch):
     # 同文件早先测试可能在 manager 留在途任务并武装 build-window → 503 warming;
     # 本测试目标是序列化契约非门控:掐断 coverage-building 恒 False
     # (同时断掉 re-arm 与 hold 两个分支)
-    monkeypatch.setattr(main, "_coverage_building", lambda: False)
+    monkeypatch.setattr(main._cold_gate, "coverage_building", lambda: False)
     r = c.get("/api/lookup/9.9.9.9")
     assert r.status_code == 200, r.text
     det = r.json()["classifications"]["blacklist"]["details"]

@@ -184,7 +184,7 @@ def client(tiny_db):
 @pytest.fixture(autouse=True)
 def _hermetic_gate(monkeypatch):
     """warming 门密闭(同 test_query_gating 先例,防全量跑序时序 flake)。"""
-    monkeypatch.setattr(main, "_coverage_building", lambda: False)
+    monkeypatch.setattr(main._cold_gate, "coverage_building", lambda: False)
 
 
 def _b64u(b: bytes) -> str:
