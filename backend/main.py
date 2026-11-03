@@ -2,7 +2,6 @@ import asyncio
 import ipaddress
 import json
 import logging
-import math
 import multiprocessing
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
@@ -34,6 +33,7 @@ from ipdb import (
     manager, stale_source_names,
 )
 from ipdb import _batch_pool
+from ipdb import _coldstart
 from ipdb._cidr import expand_inputs
 from ipdb import _registry as _ipdb_registry
 from ipdb import _auth as _ipdb_auth
@@ -139,100 +139,53 @@ async def _read_body_capped(request: Request, cap: int) -> bytes:
     return b"".join(chunks)
 ENRICH_CHUNK = 100
 
-# Integral build-gate state. The gate itself is state-driven (see _db_ready):
-# queries hold while offline tasks are actively building sources the DB has
-# no loaded reader for — by construction this covers every enqueue door
-# (cold-start thread, banner Retry via /api/update-db, single-source update,
-# registry PATCH-enable, scheduler refresh). _BUILD_DEADLINE only bounds the
-# window: past it the gate releases (超时即放行 — a wedged or paused build
-# must not hold the server hostage). Armed at cold start; every NEW build
-# episode arms a fresh window via the _coverage_episode transition, while a
-# continuing episode keeps its original (expiring) deadline.
-_BUILD_DEADLINE = math.inf
-# True while the last _db_ready() probe saw coverage being built — detects
-# build-episode STARTS (False→True) so each new episode gets a fresh
-# deadline, while a CONTINUING episode keeps (and can outlive) its own.
-_coverage_episode = False
-_build_window_sec: float | None = None
+# ── #294 冷启动门:状态机住 ipdb._coldstart,main 只留接线 ──
+# 门的历史形态 = 本文件模块级全局变量(_BUILD_DEADLINE/_coverage_episode
+# + _coverage_building/_db_ready,规则与裁决记录见 ipdb/_coldstart.py)。
+# 探针全部调用点解析:db_loaded/enabled_sources 经 lambda 走 registry 模块
+# 属性(单点 patch 同时到达本门与 lookup() 内部检查);tasks_active 接
+# manager 活跃口径(queued/downloading/loading/throttled + paused 批保活
+# 语义照旧)。require_ready 与 db-status 的 warming_up 共用同一扇门实例
+# 的单一真相。
+def _compute_window_sec() -> float:
+    """窗口秒 = 内存分档策略(env 覆盖,住 _coldstart);psutil 惰性导入。"""
+    import psutil
+    return _coldstart._cold_start_timeout(
+        psutil.virtual_memory().total / 1e9)
 
 
-def _window_sec() -> float:
-    """Cold-start window policy timeout (memory-tiered), computed once."""
-    global _build_window_sec
-    if _build_window_sec is None:
-        import psutil
-        _build_window_sec = _cold_start_timeout(
-            psutil.virtual_memory().total / 1e9)
-    return _build_window_sec
+_cold_gate = _coldstart.ColdStartGate(
+    now=time.time,
+    tasks_active=manager.has_active_offline_tasks,
+    db_loaded=lambda: _ipdb_registry._db_loaded(),
+    enabled_sources=lambda: _ipdb_registry._enabled_sources(),
+    compute_window_sec=_compute_window_sec)
 
 
 class SourceEnabledPatch(BaseModel):
     enabled: bool
 
 
-def _build_tasks_active(source_filter=None) -> bool:
-    """Any queued/downloading/loading/throttled offline task, optionally
-    restricted to sources matching `source_filter(name)`. Paused batches
-    keep their tasks in these states by design."""
-    return manager.has_active_offline_tasks(source_filter)
-
-
-def _coverage_building() -> bool:
-    """True while offline tasks are in flight whose sources still lack a
-    loaded reader — i.e. queryable coverage is actively being constructed.
-    Refresh/rebuild of already-loaded sources never gates queries (a
-    settled 27/28 deployment stays servable during routine refresh)."""
-    if not _build_tasks_active():
-        return False
-    loaded = {s.name for s in _ipdb_registry._enabled_sources()
-              if s.health().loaded}
-    return _build_tasks_active(lambda n: n not in loaded)
-
-
-def _db_ready() -> bool:
-    """Integral gate, by state: (a) nothing loaded → hold; (b) coverage is
-    being built (in-flight tasks on sources with no loaded reader) within
-    the armed deadline → hold — so neither the first cold batch nor any
-    later rebuild can open the gate onto partial coverage mid-build (the
-    first source's rebuild hot-swap flipping _db_loaded() True is NOT
-    sufficient). Past the deadline the window force-releases.
-
-    Deadline lifecycle: a NEW build episode (warm-boot PATCH-enable, a
-    day-2 rebuild after the cold window naturally elapsed, a retry after
-    a settle) arms a fresh window on its first probe; a CONTINUING
-    episode keeps its original deadline, so the 超时即放行 release cannot
-    slide forever (a paused build still releases at its deadline).
-    Reuses _db_loaded() for the loaded check."""
-    global _BUILD_DEADLINE, _coverage_episode
-    building = _coverage_building()
-    if building and not _coverage_episode:
-        _BUILD_DEADLINE = time.time() + _window_sec()
-    _coverage_episode = building
-    if not _ipdb_registry._db_loaded():
-        return False  # zero coverage: hold (never serve empty-DB clean verdicts)
-    if building and time.time() < _BUILD_DEADLINE:
-        return False
-    return True
-
-
 def require_ready():
     """Gate query endpoints during DB construction. Zero enabled sources is
     reported honestly via a machine-readable header (that state is not
-    "warming"); otherwise delegates to _db_ready() so this gate and
-    db-status's warming_up field share a single source of truth for "is the
-    DB queryable".
+    "warming"); otherwise delegates to the gate so this gate and db-status's
+    warming_up field share a single source of truth for "is the DB
+    queryable" — both read _cold_gate.blocking_reason().
 
-    Resolves _db_loaded via the registry module attribute at call time (not a
-    name bound at import) so a single patched reference reaches both this gate
-    and lookup()'s internal check identically."""
-    if not _ipdb_registry._enabled_sources():
+    The gate's db_loaded/enabled_sources probes resolve the registry module
+    attributes at call time (not names bound at import) so a single patched
+    reference reaches both this gate and lookup()'s internal check
+    identically."""
+    reason = _cold_gate.blocking_reason()
+    if reason is _coldstart.REASON_NO_SOURCES:
         raise HTTPException(
             503, detail="no data sources enabled",
-            headers={"X-IPRadar-Reason": "no-sources"})
-    if not _db_ready():
+            headers={"X-IPRadar-Reason": _coldstart.REASON_NO_SOURCES})
+    if reason is _coldstart.REASON_WARMING:
         raise HTTPException(
             503, detail="database is warming up",
-            headers={"X-IPRadar-Reason": "warming"})
+            headers={"X-IPRadar-Reason": _coldstart.REASON_WARMING})
 
 
 async def _emit_chunks(src, total, done_start=0, allowed=None):
@@ -429,21 +382,6 @@ def _cleanup_orphan_tmp(data_dir: Path) -> None:
             pass
 
 
-def _cold_start_timeout(total_gb: float) -> int:
-    """超时分档(B2)。env 覆盖。"""
-    env_val = os.environ.get("IP_RADAR_COLD_START_TIMEOUT", "").strip()
-    if env_val:
-        try:
-            return int(env_val)
-        except ValueError:
-            pass
-    if total_gb < 6:
-        return 1800
-    if total_gb < 12:
-        return 1200
-    return 900
-
-
 _valve_stop: threading.Event | None = None
 
 
@@ -584,10 +522,9 @@ def _startup_warm():
 
 
 def _startup():
-    global _BUILD_DEADLINE
     _ipdb_update.reconcile_on_startup()  # F2:启动对账上次更新结果
     if _is_cold_start():
-        _BUILD_DEADLINE = time.time() + _window_sec()
+        _cold_gate.arm_from_now()  # 冷启预臂:窗锚进程起点(慢启动兜底)
         threading.Thread(daemon=True, target=_cold_start_background,
                          name="cold-start").start()
     else:
@@ -686,9 +623,9 @@ _HTTP_FALLBACK_CODE = {
 def _reason_code(headers: dict | None):
     """X-IPRadar-Reason 头 → (语义码, retry_after);无头返回 None。"""
     reason = (headers or {}).get("X-IPRadar-Reason")
-    if reason == "warming":
+    if reason == _coldstart.REASON_WARMING:
         return "warming", RETRY_AFTER_WARMING
-    if reason == "no-sources":
+    if reason == _coldstart.REASON_NO_SOURCES:
         return "no_sources", None
     return None
 
@@ -1021,7 +958,7 @@ async def db_status(request: Request):
     # 合法凭证按其集合;私源计数绝不向未点名者泄露。
     status = await asyncio.to_thread(get_status, await _soft_scope(request))
     # 全源禁用不是 warming:报 False 隐藏横幅,查询走 require_ready 的诚实报错
-    status["warming_up"] = bool(_ipdb_registry._enabled_sources()) and not _db_ready()
+    status["warming_up"] = _cold_gate.blocking_reason() == _coldstart.REASON_WARMING
     return status
 
 

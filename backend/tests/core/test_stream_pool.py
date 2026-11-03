@@ -25,7 +25,7 @@ def _hermetic_gate(monkeypatch):
     早期 lifespan 测试会往单例 manager 塞真实重建任务,而测试环境重复
     load_db 使个别源报告 unloaded(生产单进程单载无此态),二者相遇会
     误扣门。本文件只测流式扇出,不测门。"""
-    monkeypatch.setattr(main, "_coverage_building", lambda: False)
+    monkeypatch.setattr(main._cold_gate, "coverage_building", lambda: False)
 
 
 def _drain_stream(client, ips):

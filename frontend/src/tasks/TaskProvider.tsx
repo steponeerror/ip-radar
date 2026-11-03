@@ -5,13 +5,15 @@ import {
   cancelTask as apiCancelTask, cancelBatch as apiCancelBatch, pauseBatch, resumeBatch,
 } from "../api";
 import { TasksContext, type TasksCtxValue, type TaskConnection } from "./useTasks";
-import { stagedFrac } from "./progress";
+import {
+  applyEvent, applyResync, beginResync, initialTaskEventsState, type TaskEventsState,
+} from "./taskEvents";
 
-const SAW_EVENTS = new Set(["snapshot", "task", "batch", "done"]);
-
-// task_log 保留末 N 行/任务(ops 轮进度流;源任务无此事件)。有界防内存
-// 无限增长——证据本体在包/台账,这里只是即时进度面。
-const LOG_KEEP_LINES = 200;
+// 事件归并本体(applyEvent/seedLogs/SAW_EVENTS 竞态律/LOG_KEEP_LINES)是
+// ./taskEvents.ts 的纯函数(票 #292);本组件只剩 React 壳:ref 持单份归并
+// 态、新态镜像进 useState、resync/subscribe 生命周期、401/onUnauthorized、
+// context value 组装。归并律的行为基线 = __tests__/taskEvents.test.ts +
+// 本目录四个 TaskProvider/progress 测试(零改动跑绿)。
 
 export function TaskProvider({ children, onUnauthorized }: {
   children: ReactNode;
@@ -19,91 +21,45 @@ export function TaskProvider({ children, onUnauthorized }: {
 }) {
   const [tasks, setTasks] = useState<TaskState[]>([]);
   const [batch, setBatch] = useState<BatchState | null>(null);
-  // ops 轮 task_log 行(task_id → 末 200 行);快照不含此面(SSE 即时流)。
+  // ops 轮 task_log 行(task_id → 末 LOG_KEEP_LINES 行);快照不含此面(SSE
+  // 即时流)。
   const [logs, setLogs] = useState<Record<string, string[]>>({});
   // U8:SSE 流连接态。onerror → reconnecting,恢复(onopen)→ connected;
   // 初始 connected(宁少算:首连失败也会先经 onerror 置位,不预支连接中文案)。
   const [connection, setConnection] = useState<TaskConnection>("connected");
-  const tasksRef = useRef<Record<string, TaskState>>({});
-  // True while a getTasks() fetch is in flight AND an SSE event has since
-  // arrived. Prevents a slow getTasks() snapshot (e.g. cold-start first load)
-  // from overwriting a fresher SSE event with stale state. Reset at every
-  // fetch start so reconnect-time resyncs still apply when no SSE interleaves.
-  const sseSawRef = useRef(false);
+  // 归并态壳:tasks 字典/batch/logs/sseSaw 单份(sseSaw 非 React 面,纯函数
+  // 状态里带着,竞态语义见 taskEvents.ts)。
+  const stateRef = useRef<TaskEventsState>(initialTaskEventsState());
 
-  // 仅状态事件使能 saw(这类事件会取代快照);task_progress 只携带字节
-  // 计数、不含快照会过期的状态 — 下载洪峰期 ~0.15s 一次的 progress tick
-  // 若也置位,resync 快照将几乎总被丢弃(SSE 溢出丢掉 done 事件时,UI
-  // 中的 batch 会永远卡在 running)。
-
-  // 快照日志尾播种(2026-10-26 修,backend snapshot "logs" 面):中途开页/
-  // SSE 重连恢复订阅前已发的 task_log 行。合并律 = 尾更长才替换:同 task
-  // 的 append-only 流,后端尾 ⊇ 订阅前收到的行前缀;更短的旧快照(fetch/
-  // SSE 竞态)不得缩水已收行。尽力而为面,不追加合并防重。
-  const seedLogs = (incoming?: Record<string, string[]>) => {
-    if (!incoming) return;
-    setLogs((prev) => {
-      let changed = false;
-      const next = { ...prev };
-      for (const [tid, lines] of Object.entries(incoming)) {
-        if (!Array.isArray(lines) || lines.length === 0) continue;
-        if (!next[tid] || lines.length > next[tid].length) {
-          next[tid] = lines;
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
-    });
+  // 把纯函数新态镜像进 React:子引用没变的面不 setState —— 与原实现逐分支
+  // setTasks/setBatch/setLogs 的调用面等价(如 task_log 只碰 logs)。
+  const commit = (prev: TaskEventsState, next: TaskEventsState) => {
+    stateRef.current = next;
+    if (next.tasks !== prev.tasks) setTasks(Object.values(next.tasks));
+    if (next.batch !== prev.batch) setBatch(next.batch);
+    if (next.logs !== prev.logs) setLogs(next.logs);
   };
 
-  const applyEvent = (e: TaskEvent) => {
-    if (SAW_EVENTS.has(e.type)) sseSawRef.current = true;
-    if (e.type === "snapshot" && e.data) {
-      tasksRef.current = Object.fromEntries(e.data.tasks.map((t) => [t.id, t]));
-      setTasks(Object.values(tasksRef.current));
-      setBatch(e.data.batch ?? null);
-      seedLogs(e.data.logs);
-    } else if (e.type === "task" && e.task) {
-      const prev = tasksRef.current[e.task.id];
-      if (prev && (e.task.state === "failed" || e.task.state === "cancelled")) {
-        // 终态丢失死亡相位,冻结最后非终态分数供 stagedFrac 读取
-        e.task.frozenFrac = stagedFrac(prev);
-      }
-      tasksRef.current[e.task.id] = e.task;
-      setTasks(Object.values(tasksRef.current));
-    } else if (e.type === "task_progress" && e.task_id) {
-      const ex = tasksRef.current[e.task_id];
-      if (ex) {
-        tasksRef.current[e.task_id] = { ...ex, received: e.received, total: e.total };
-        setTasks(Object.values(tasksRef.current));
-      }
-    } else if (e.type === "task_log" && e.task_id) {
-      // 不入 SAW_EVENTS:task_log 不携带快照会过期的任务状态,不抢 resync。
-      const tid = e.task_id; // 窄化提出闭包(setLogs 回调内不保留属性收窄)
-      const line = e.line ?? "";
-      setLogs((prev) => {
-        const next = [...(prev[tid] ?? []), line];
-        return { ...prev, [tid]: next.slice(-LOG_KEEP_LINES) };
-      });
-    } else if (e.type === "batch" && e.batch) {
-      setBatch(e.batch);
-    } else if (e.type === "done") {
-      setBatch(e.batch ?? null);
-    }
+  const apply = (e: TaskEvent) => {
+    const prev = stateRef.current;
+    const next = applyEvent(prev, e);
+    if (next !== prev) commit(prev, next);
   };
 
   useEffect(() => {
     let alive = true;
     const resync = async () => {
-      sseSawRef.current = false; // this fetch wins unless SSE interleaves
+      const prev = stateRef.current;
+      const begun = beginResync(prev); // this fetch wins unless SSE interleaves
+      stateRef.current = begun; // 只可能清 sseSaw(非 React 面,无需镜像)
       try {
         const snap = await getTasks();
         if (!alive) return;
-        if (sseSawRef.current) return; // an SSE event landed mid-fetch — it's fresher
-        tasksRef.current = Object.fromEntries(snap.tasks.map((t) => [t.id, t]));
-        setTasks(Object.values(tasksRef.current));
-        setBatch(snap.batch);
-        seedLogs(snap.logs);
+        const cur = stateRef.current;
+        // fetch 期间 SSE 落过状态事件 → sseSaw=true → applyResync 原样返回
+        // (快照更旧,整体作废,fresher wins)。
+        const next = applyResync(cur, snap);
+        if (next !== cur) commit(cur, next);
       } catch (e) {
         // 会话中 401:踢回登录页(卸壳即断 SSE 重连);其余错误吞下 —
         // 之前这里是未处理 rejection。
@@ -122,7 +78,7 @@ export function TaskProvider({ children, onUnauthorized }: {
     // onopen = (重)连接成功:先清 U8 断线态再重拉快照(初始连接同经此路径);
     // 第四参 onerror = 流断开、浏览器原生重连中 → 置 reconnecting。
     const unsub = subscribeTasks(
-      applyEvent,
+      apply,
       () => { setConnection("connected"); resync(); },
       onUnauthorized,
       () => setConnection("reconnecting"),
