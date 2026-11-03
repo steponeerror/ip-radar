@@ -269,7 +269,8 @@ grep -qx 'https://www.binarydefense.com/banlist.txt' <<<"$EFU" \
   && ok "urls:规模 ≥50(源覆盖面)" || bad "urls:规模 ≥50(源覆盖面)"
 # 清单基线防漂移(2026-10-23 事实层重构随建):低于基线 = 清单被误删段;
 # 源退役等合法缩量须同 PR 显式下调基线并说明缘由,不许无声缩水。
-EFU_BASELINE=101
+# 2026-11-03 下调 101→98:peeringdb 退役(#285 用户令,删 3 行 URL)当时漏随缩,致 master 自 dc73766c 红至今;本 PR 补缩。
+EFU_BASELINE=98
 [[ "$(wc -l <<<"$EFU")" -ge "$EFU_BASELINE" ]] \
   && ok "urls:清单条数 ≥ 基线 $EFU_BASELINE(防漂移)" || bad "urls:清单条数 ≥ 基线 $EFU_BASELINE(防漂移)"
 ! grep -qv '^https://' <<<"$EFU" \
