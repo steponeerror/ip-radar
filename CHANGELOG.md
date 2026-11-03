@@ -4,6 +4,11 @@
 
 ## Unreleased
 
+### 新增 Added
+
+  - **honyport 自建蜜罐观测源接入查询池(2026-11-02,#271/#272/#273/#274)**:网页查 IP 现在能看到自家蜜罐的观测证据——「30 天内观测到攻击,共 X 次」+服务列表+最后观测时间;源以标准 CsvSource 轨道入池(category=threat/classification=scanner/reliability 0.85),数据链 = 服务器日 CSV → 每日 03:10 聚合脚本(30 天窗+扫描段/白名单过滤,计数自报)→ 挂载目录 → 容器 rebuild;评估面恒禁用(ADR 0017 §7 修订):源声明 eval_excluded,三道闸(registry 剥离/toggle 强禁/采样宇宙剔除)+回放器同律,θ/消融/verdict/锚回归/融合读数全不测它,月报记分卡单列「评估禁用源」行+导语注脚;Sources 页 θ 列显「评估禁用」徽标;附验收一键回归脚本(规格 §6 五条)。手法档案展示另立二期(#279)。门:backend 2434 绿、frontend 456+tsc 0、脚本 32+验收 5 PASS、四单任务评审+整分支终审
+  - **honeyport self-run honeypot source joins the query pool (2026-11-02, #271/#272/#273/#274)**: Querying an IP on the web UI now surfaces first-party honeypot evidence — "observed attacking within 30 days, X events total" + service list + last-seen time. The source rides the standard CsvSource track (category=threat / classification=scanner / reliability 0.85); data chain = server daily CSVs → 03:10 daily aggregation script (30-day window + scanner-range/allowlist filtering with self-reported counts) → mounted dir → container rebuild. The eval side is permanently excluded (ADR 0017 §7 amended): the source declares eval_excluded, enforced by three gates (registry strip / forced toggle / sampling-universe skip) plus the same rule in the scoring-replay tool — θ/ablation/verdict/anchor-regression/fusion readouts never measure it, the monthly scorecard carries a dedicated "eval-excluded" row + footnote; Sources page shows an "评估禁用" badge in the θ column; a one-command acceptance script covers the spec's five checks. Techniques-display deferred to phase 2 (#279). Gates: backend 2434 green, frontend 456 + tsc 0, scripts 32 + acceptance 5 PASS, four ticket reviews + whole-branch final review
+
 ### 调整 Changed
 
   - **ABUSECH_AUTH_KEY 进 web 管理台 token 填写面(2026-11-02,#276)**:threatfox/urlhaus 共用的 abuse.ch Auth-Key 此前只能改服务器 .env 且须重启才生效,现与其余四个受管 key 同面:web 管理页填入即写 tokens.json(DATA_DIR 数据卷)并即时注入环境,下次刷新直接生效;store 面数据驱动,MANAGED 冻结集 4→5,一 key 双源照 OTX 模式(threatfox/urlhaus 同亮灭);两源 key 读取从 __init__ 期捕获移到 download() 使用点(web 面填值可达下载路径,热更不断);红线不变:完整值永不回显(仅 configured+tail4)、清除回落启动快照

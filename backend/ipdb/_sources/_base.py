@@ -70,6 +70,11 @@ class SourceBase:
     # 抓取/解析/合并;仅偏离默认的源在类内覆写。
     provenance_tier: str = "B"          # A 官方/自采 | B 社区 | C 聚合派生
     honeypot_methodology: bool = False  # 蜜罐法采集(k_nonhoneypot 剔除依据)
+    # 评估面恒禁用(spec 2026-11-02 §3,honyport #272):True = 该源永不
+    # 参与评估跑批任何一面(被批改:θ/消融/verdict;批改:锚回归/融合
+    # 读数的 lookup 投票)——评估 CLI 启动即强制禁用。纯元数据,
+    # 抓取/解析/合并/查询面零参与;月报记分卡对它单列「评估禁用源」行。
+    eval_excluded: bool = False
     # 设计上无 per-IP LMDB 面的源置 False(caida_asorg:文件即持久层);
     # 2026-10-14 demo 幻影环:ptr 永不存在被当 needs_rebuild → 每 30min 全量重抓。
     # 消费方 _registry.needs_rebuild 为 getattr 鸭子型(默认 True),上收后

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { screen, fireEvent } from "@testing-library/react";
 import { renderWithI18n } from "../../test/i18nTestUtils";
 import { ensureOpenCC } from "../../i18n/opencc";
+import { translate } from "../../i18n/translate";
 import { SourceDetailRow } from "../SourceDetailRow";
 import type { ClassificationDetail } from "../../api";
 
@@ -131,5 +132,48 @@ describe("SourceDetailRow", () => {
     expect(tweet.href).toBe("https://x.com/p/1");
     // non-link values render as bare JSON text (no quotes stripped)
     expect(screen.getByText((c, el) => c === "80" && el?.className.includes("break-all") === false)).toBeTruthy();
+  });
+
+  // honyport 自建蜜罐观测可读行(#273;spec 2026-11-02 §1 证据语义:只报
+  // 事实「30 天内观测到攻击,共 X 次」+ 服务列表 + 最后观测,不评
+  // severity)。字段契约 = backend HonyportSource.parse_row(#272,
+  // tests/sources/test_honyport.py::test_query_evidence_shape):服务 →
+  // native_categories 列表、last_seen ISO 串、计数 → extra.total_events。
+  const honyportDetail = (over: Partial<ClassificationDetail> = {}): ClassificationDetail => ({
+    source: "honyport",
+    verdict: "malicious",
+    reliability: 0.85,
+    native_categories: ["mssql", "ssh"],
+    last_seen: "2026-11-01T17:53:43Z",
+    extra: { total_events: 11663 },
+    ...over,
+  });
+
+  it("honyport: observed line renders count + service list + last seen (#273)", () => {
+    renderWithI18n(<SourceDetailRow detail={honyportDetail()} />);
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("Observed attacks in the last 30 days: 11663 total");
+    expect(text).toContain("services: mssql, ssh");
+    expect(text).toContain("last seen 2026-11-01");
+  });
+
+  it("honyport: zh-CN verbatim copy 「30 天内观测到攻击,共 X 次」(#273)", () => {
+    expect(translate("zh-CN", "sourceDetail.honeypotObserved", { n: 962 }))
+      .toBe("30 天内观测到攻击,共 962 次");
+    expect(translate("zh-CN", "sourceDetail.honeypotServices")).toBe("服务");
+    expect(translate("zh-CN", "sourceDetail.honeypotLastSeen")).toBe("最后观测");
+  });
+
+  it("honyport without extra.total_events renders generic row only", () => {
+    renderWithI18n(<SourceDetailRow detail={honyportDetail({ extra: undefined })} />);
+    const text = document.body.textContent ?? "";
+    expect(text).not.toContain("30 days");
+    expect(text).not.toContain("last seen");   // 通用行只有「last <date>」
+    expect(text).toContain("last 2026-11-01"); // 通用槽照常
+  });
+
+  it("non-honyport source carrying total_events extra gets no observed line", () => {
+    renderWithI18n(<SourceDetailRow detail={honyportDetail({ source: "feodo" })} />);
+    expect(document.body.textContent ?? "").not.toContain("30 days");
   });
 });

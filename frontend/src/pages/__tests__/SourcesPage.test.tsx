@@ -332,6 +332,23 @@ describe("SourcesPage detail layer (expanded region)", () => {
     expect(container.querySelector('[data-detail="period"]')!.textContent).toBe("every 7.2d");
   });
 
+  // 评估禁用源 θ 行(#273;spec 2026-11-02 §3:honyport 查询池照常成员、
+  // 评估面恒禁用 → 永无 θ/评估 verdict)。category=threat 照常进威胁组;
+  // θ 无数据时以「评估禁用」徽标替代 —(文案四字钉死,不造新词;徽标样式
+  // 复用评估 verdict 徽标中性档)。
+  it("eval-excluded source (honyport): threat group as usual, θ row shows 「评估禁用」 badge (#273)", async () => {
+    vi.mocked(getSources).mockResolvedValueOnce([src("honyport")]);
+    const { container } = renderPage();
+    await expandGroup();               // 威胁组头存在且 honyport 在组内(category=threat)
+    expect(screen.getByText("honyport")).toBeInTheDocument();
+    openDetail("honyport");
+    const theta = container.querySelector('[data-detail="theta"]')!;
+    expect(theta.textContent).toBe("eval-excluded");
+    expect(theta.className).toContain("rounded-md");   // 现有徽标样式复用
+    expect(screen.getByTitle(/permanently excluded from evaluation/i)).toBeInTheDocument();
+    expect(translate("zh-CN", "sources.evalExcluded")).toBe("评估禁用");
+  });
+
   it("renders 'never' for age/period ≥1000d, zh-CN verbatim '从不'", async () => {
     vi.mocked(getSources).mockResolvedValueOnce([
       src("ancient", {}, { content_age_h: 30_000, refresh_period_h: 26_280 }),

@@ -110,6 +110,17 @@ function evalBadgeClass(verdict: string): string {
   return "text-zinc-500 border-zinc-700 bg-zinc-800/50";
 }
 
+// 评估禁用源(spec 2026-11-02 §3:查询池照常成员,评估面恒禁用 → 永无
+// θ/评估 verdict;当前 = honyport,backend HonyportSource.eval_excluded)。
+// /api/sources 树上契约不携该标志(#272),前端按源名点名,仅展示面。
+// θ 无数据时以「评估禁用」徽标替 —(文案四字钉死,不造新词)。
+const EVAL_EXCLUDED_SOURCES = new Set(["honyport"]);
+
+// 徽标样式复用:评估 verdict 徽标中性档同款(zinc 灰 —— 禁用 ≠ NO-DATA
+// 死源红,不得用告警色)。
+const EVAL_EXCLUDED_BADGE =
+  "rounded-md border border-zinc-700 bg-zinc-800/50 px-2 py-0.5 text-zinc-500";
+
 function loadExpandedGroups(): Record<string, boolean> {
   try {
     const raw = localStorage.getItem(GROUPS_LS_KEY);
@@ -581,6 +592,14 @@ export default function SourcesPage({ tasks, batch, onUnauthorized }: SourcesPag
                                     θ {ms.theta.toFixed(2)}
                                     {ms.ci_lo != null &&
                                       ` [${ms.ci_lo.toFixed(2)}–${ms.ci_hi!.toFixed(2)}]`}
+                                  </span>
+                                ) : EVAL_EXCLUDED_SOURCES.has(s.name) ? (
+                                  <span
+                                    data-detail="theta"
+                                    className={EVAL_EXCLUDED_BADGE}
+                                    title={t("sources.evalExcludedTitle")}
+                                  >
+                                    {t("sources.evalExcluded")}
                                   </span>
                                 ) : (
                                   <span data-detail="theta" className="text-zinc-600">—</span>

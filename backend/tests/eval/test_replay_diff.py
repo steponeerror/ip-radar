@@ -1,7 +1,7 @@
 # backend/tests/eval/test_replay_diff.py — replay_diff 快照脚本纯函数测试
 import pytest
 
-from ipdb._eval.replay_diff import main, sample_ips, snapshot_entry
+from ipdb._eval.replay_diff import _bind, main, sample_ips, snapshot_entry
 
 
 class _FakeSource:
@@ -13,6 +13,54 @@ class _FakeSource:
 class _FakeRegistry:
     def __init__(self, sources):
         self.sources = sources
+
+
+# ── 恒禁用红线:eval_excluded 源不入回放采样面(终审 P0)──
+
+def test_bind_strips_eval_excluded_sources():
+    class _Src:
+        def __init__(self, name, excluded=False):
+            self.name = name
+            self.classification_type = "scanner"
+            self.eval_excluded = excluded
+
+    class _Reg:
+        _sources = [_Src("turris_greylist"), _Src("honyport", excluded=True)]
+
+    names = [s.name for s in _bind(_Reg()).sources]
+    assert names == ["turris_greylist"]  # honyport 被剥,不当考生样本来源
+
+
+def test_sample_ips_skips_eval_excluded_via_bind(monkeypatch, tmp_path):
+    from ipdb._eval import replay_diff as rd
+
+    class _Src:
+        name = "honyport"
+        classification_type = "scanner"
+        eval_excluded = True
+
+    class _Reg:
+        _sources = [_Src()]
+
+    # 语料面置空(真仓语料在场时 corpus.all_ips 会贡献 IP,与剥源断言无关)
+    monkeypatch.setattr(rd, "CORPUS_PATH", tmp_path / "absent.json")
+    assert rd.sample_ips(_bind(_Reg())) == []  # 唯一源被剥 → 零采样,不报错
+
+
+def test_eval_face_wiring_disables_honyport(monkeypatch):
+    """钉闸②接线形态(终审 P0 轮 2):_eval_face 必须经 _real_registry()
+    namespace 施禁——若回退成喂裸模块(force_eval_excluded 读 sources 面,
+    裸模块无此属性 → excluded 恒空 no-op),honyport 留在启用集,本例红。"""
+    import ipdb._registry as reg
+    from ipdb._eval.replay_diff import _eval_face
+
+    monkeypatch.setattr(reg, "load_db", lambda: None)   # 免重载 LMDB
+    monkeypatch.setattr(reg, "_disabled", set(reg._disabled))  # 快照可恢复
+    if not any(getattr(s, "eval_excluded", False) for s in reg._sources):
+        pytest.skip("无 eval_excluded 源注册(树外环境)")
+    assert any(s.name == "honyport" for s in reg._enabled_sources())  # 前置:在场且启用
+    _eval_face()
+    assert "honyport" not in [s.name for s in reg._enabled_sources()]  # 真禁,非 no-op
 
 
 # ── snapshot_entry:每 IP 的可比视图 ──

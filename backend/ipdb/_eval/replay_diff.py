@@ -140,6 +140,21 @@ def _diff_rows(ip: str, old: dict, new: dict) -> list[tuple]:
     return rows
 
 
+def _eval_face():
+    """恒禁用红线接线(终审 P0 修复轮 2,spec 2026-11-02 §3):闸②必须
+    吃 _real_registry() 的 namespace——它携 sources 面(裸模块无此属性,
+    喂裸模块 = excluded 恒空 = 静默 no-op,轮 1 修复即踩此坑被定点复审
+    抓回)且 toggle 闭包重绑裸模块 _disabled,后续 reg.lookup 才真禁。
+    闸①保持裸模块 _bind 剥离(有效路径;勿改 _bind(ns)——namespace
+    无 _sources)。"""
+    import ipdb._registry as reg
+    from .__main__ import _real_registry, force_eval_excluded
+    ns = _real_registry()
+    ns.load_db()
+    force_eval_excluded(ns)
+    return reg
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="python -m ipdb._eval.replay_diff")
     p.add_argument("--snapshot", metavar="OUT.json", help="存当前实现评分基线")
@@ -147,8 +162,7 @@ def main(argv=None):
     args = p.parse_args(argv)
     if not (args.snapshot or args.compare):
         p.error("need --snapshot or --compare")
-    import ipdb._registry as reg
-    reg.load_db()
+    reg = _eval_face()
     ips = sample_ips(_bind(reg))
     if args.snapshot:
         data = {}
@@ -203,7 +217,11 @@ def main(argv=None):
 
 def _bind(reg):
     from types import SimpleNamespace
-    return SimpleNamespace(sources=reg._sources)
+    # 闸①同款:采样面剥 eval_excluded 源(终审 P0;真注册表经
+    # __main__._real_registry 剥离,此处库式调用方同律)。
+    return SimpleNamespace(
+        sources=[s for s in reg._sources
+                 if not getattr(s, "eval_excluded", False)])
 
 
 if __name__ == "__main__":

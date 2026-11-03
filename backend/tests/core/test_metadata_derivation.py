@@ -17,6 +17,7 @@ OLD_CATEGORIES = {
     "reportedip": "threat",
     "siberkapan": "threat", "turris_greylist": "threat",
     "threatcluster": "threat", "drb_ra": "threat",
+    "honyport": "threat",      # 蜜罐观测查询源(#272,2026-11-02,eval_excluded)
     "knock_knock": "threat", "rtbh": "threat",
     "ziyadnz": "threat",        # 波1 聚合源(2026-10-18)
     "malicious_ip": "threat",   # 波1 T2 5 片联合体(2026-10-18)
@@ -67,6 +68,7 @@ OLD_RELIABILITY = {
     "scanner_ranges": 0.90,    # SR-T1 扫描器厂商自报段(2026-10-26,MISP 镜像一跳折档)
     "cloudzy": 0.90,            # 波3 T2 Cloudzy VPS 段标签(2026-10-19)
     "drb_ra": 0.50, "hookzof": 0.50, "thespeedx": 0.50,
+    "honyport": 0.85,          # 蜜罐观测查询源(#272,自建直接观测无转载链)
     "protonvpn": 0.75, "nordvpn": 0.75,
     "cloud_ranges": 0.95,
     "dbip_city": 0.80,
