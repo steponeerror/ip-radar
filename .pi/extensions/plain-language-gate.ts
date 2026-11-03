@@ -74,10 +74,12 @@ export function parseLexicon(text: string): Lexicon {
 	return { banned, explain };
 }
 
-/** 移植 scan():先剥引用/标题行,再逐词逐行子串匹配;EXPLAIN 裸奔才红 */
+/** 移植 scan():先剥引用/标题行,再逐词逐行子串匹配;EXPLAIN 裸奔才红
+ * 行切分与空白集对齐 python splitlines()/lstrip():CRLF/孤立 CR 也切行,
+ * 前导空白含 NBSP/NEL/LS/PS(评审 P2-1,与 check_plain_language.py 对齐) */
 export function scanText(text: string, lexicon: Lexicon): ScanHit[] {
-	const lines = text.split("\n").filter((ln) => {
-		const stripped = ln.replace(/^\s+/, "");
+	const lines = text.split(/\r\n|\r|\n/).filter((ln) => {
+		const stripped = ln.replace(/^[\s\xA0\x85\u2028\u2029]+/, "");
 		return !(stripped.startsWith(">") || stripped.startsWith("#"));
 	});
 	const hits: ScanHit[] = [];

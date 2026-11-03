@@ -172,3 +172,16 @@ test("formatWarning:去重列词", () => {
 	assert.equal([...warning.matchAll(/收官/g)].length, 1, "禁词只列一次");
 	assert.ok(warning.includes("挂点"));
 });
+
+// 评审 P2-1:行切分/空白集与 python splitlines()/lstrip() 对齐的边界
+test("CRLF 与孤立 CR 文本照常逐行扫(CRLF 词表行不逃逸)", () => {
+  const lex = { banned: ["前沿"], explain: [] };
+  const hits = scanText("第一行\r\n第二行 前沿\r第三行", lex);
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0].term, "前沿");
+});
+test("NBSP 前缀的引用行同样豁免(python lstrip 含 \\xa0)", () => {
+  const lex = { banned: ["前沿"], explain: [] };
+  assert.equal(scanText("\u00A0> 引用里的 前沿", lex).length, 0);
+  assert.equal(scanText("\u2028# 标题里的 前沿", lex).length, 0);
+});
