@@ -56,6 +56,7 @@ done
 die() { echo "worktree-init: 错误:$*" >&2; exit 1; }
 
 # --- 目标校验:必须是 git worktree 的根目录 ---
+TARGET=$(cd "$TARGET" && pwd)   # 归一(尾斜杠/相对路径形态,评审 P2-1)
 git -C "$TARGET" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
   || die "$TARGET 不是 git 工作树(先 git worktree add 再来)"
 TOP=$(git -C "$TARGET" rev-parse --show-toplevel)

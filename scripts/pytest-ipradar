@@ -8,8 +8,9 @@
 #   - 该目录带 tests/__init__.py(正则包);本仓 backend/tests 无 __init__.py
 #     (namespace 包,靠 cwd 进 sys.path 导入)。Python 导入规则:路径上任何
 #     位置的「正则包」无条件压过 namespace portions → `from tests.conftest
-#     import KEY_JWT_SECRET`(tests/auth/test_security_matrix.py:12、
-#     tests/lookup/test_benign_assertion.py)被劫到
+#     import KEY_JWT_SECRET`(tests/auth/test_security_matrix.py:29、
+#     tests/lookup/test_benign_assertion.py:14 的 from tests.lookup.
+#     test_lookup_pipeline import …)被劫到
 #     /home/huxiao/dev/sopagent/tests/conftest.py,报
 #     "ImportError: cannot import name 'KEY_JWT_SECRET' from 'tests.conftest'"
 #   - 后果:--collect-only 全量 = 2418 collected + 2 errors;干净环境
@@ -53,10 +54,12 @@ NO_ENV_DEP=0
 for a in "$@"; do
   case "$a" in
     --no-env-dep) NO_ENV_DEP=1 ;;
-    -h|--help)    usage; exit 0 ;;
+    -h|--help)    if [ "${#ARGS[@]}" -eq 0 ]; then usage; exit 0; else ARGS+=("$a"); fi ;;
     *)            ARGS+=("$a") ;;
   esac
 done
+# 剥首个裸 `--`(评审 P2-2:让 `-- --help` 等隔商语法真正透传给 pytest 本身)
+if [ "${ARGS[0]-}" = "--" ]; then ARGS=("${ARGS[@]:1}"); fi
 if [ "$NO_ENV_DEP" -eq 1 ]; then
   for a in "${ARGS[@]+"${ARGS[@]}"}"; do
     case "$a" in
