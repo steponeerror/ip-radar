@@ -57,6 +57,15 @@ die() { echo "worktree_init: 错误:$*" >&2; exit 1; }
 
 # --- 目标校验:必须是 git worktree 的根目录 ---
 TARGET=$(cd "$TARGET" && pwd)   # 归一(尾斜杠/相对路径形态,评审 P2-1)
+# 主检出定位(供 docs 链接防自指,2026-11-03 事故判例)
+_COMMON=$(git -C "$TARGET" rev-parse --git-common-dir)
+case "$_COMMON" in /*) ;; *) _COMMON="$TARGET/$_COMMON" ;; esac
+MAIN_CHECKOUT=$(cd "$(dirname "$_COMMON")" && pwd)
+# 防自指(2026-11-03 事故判例):目标是主检出时,后续 docs 链接会指向自身,
+# 把主检出的真 docs 嵌套仓变成自环链接 → 在任何接线动作之前拒绝
+if [ "$TARGET" = "$MAIN_CHECKOUT" ]; then
+  die "目标就是主检出,本脚本面向新建 worktree;主检出无需接线"
+fi
 git -C "$TARGET" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
   || die "$TARGET 不是 git 工作树(先 git worktree add 再来)"
 TOP=$(git -C "$TARGET" rev-parse --show-toplevel)
@@ -91,7 +100,7 @@ else
 fi
 
 echo "==> [docs] 判例库符号链接(可选件)"
-if [ -e "$TARGET/docs" ]; then
+if [ -e "$TARGET/docs" ] || [ -L "$TARGET/docs" ]; then
   echo "    目标已有 docs/,跳过"
 else
   COMMON=$(git -C "$TARGET" rev-parse --git-common-dir)

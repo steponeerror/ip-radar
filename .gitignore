@@ -59,9 +59,10 @@ baseline-pytest.txt
 # Design scratch (superpowers brainstorm/plans/specs)
 .superpowers/
 
-# docs/ = nested private repository (own .git; history lives there, not here)
-# notes/, reports/ = moved to the docs repo 2026-11-02; banned here to prevent re-adding
-/docs/
+# docs = nested private repository (own .git; history lives there, not here)
+#  2026-11-03 判例:`/docs/` 只匹配目录,worktree 里的 docs 符号链接乘 git add -A
+#  上车进 master,checkout 时覆盖主检出真仓 → 改成无尾斜杠形态,链接与目录都拦
+/docs
 /notes/
 /reports/
 
