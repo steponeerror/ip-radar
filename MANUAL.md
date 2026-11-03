@@ -180,7 +180,7 @@ The public page's top banner includes a **Check for updates** button and, when a
 
 ## 6. Source lifecycle: add → evaluate → tune
 
-The 61 shipped sources aren't a ceiling. The whole loop — grow the pool, measure whether a source actually helps, adjust or retire it — is designed to be run by the self-hoster, with a human deciding at every step that matters.
+The 60 shipped sources aren't a ceiling. The whole loop — grow the pool, measure whether a source actually helps, adjust or retire it — is designed to be run by the self-hoster, with a human deciding at every step that matters.
 
 ### Add
 
