@@ -174,11 +174,14 @@ test("formatWarning:去重列词", () => {
 });
 
 // 评审 P2-1:行切分/空白集与 python splitlines()/lstrip() 对齐的边界
-test("CRLF 与孤立 CR 文本照常逐行扫(CRLF 词表行不逃逸)", () => {
+// (评审 P2-3:补 parseLexicon 的 CRLF 词表解析路径断言)
+test("CRLF 与孤立 CR 文本照常逐行扫(词表与文本两路)", () => {
 	const lex = { banned: ["前沿"], explain: [] };
 	const hits = scanText("第一行\r\n第二行 前沿\r第三行", lex);
 	assert.equal(hits.length, 1);
 	assert.equal(hits[0].term, "前沿");
+	const crlfLex = parseLexicon("[BANNED]\r\n前沿\r\n");
+	assert.deepEqual(crlfLex, lex, "CRLF 词表行解析不残留 \\r");
 });
 test("NBSP 前缀的引用行同样豁免(python lstrip 含 \\xa0)", () => {
 	const lex = { banned: ["前沿"], explain: [] };

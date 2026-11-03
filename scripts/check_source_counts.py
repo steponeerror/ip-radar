@@ -8,7 +8,8 @@
   管也不改动 —— 它们是防误删源的绊线,本闸只管「文档宣称数 vs 派生实数」;
 - GitHub About 是仓外对象,不做机器闸。
 
-口径(与文档实际使用数对齐,口径矛盾见 reports):
+口径(与文档实际使用数对齐,口径矛盾的展开与全批决策记录见 docs 仓
+reports/retro-p0-batch-2026-11-03.md):
 - 公开源总数 = 登记实例数 − eval_excluded=True 的实例数。eval_excluded 是
   honyport 一类「本地自建观测、非公网拉取源」今天唯一的机器可读标记
   (backend/ipdb/_sources/honyport.py:78);该标记语义是「评估面恒禁用」,
@@ -18,7 +19,10 @@
   (env var → 消费源名)展平;免钥公开源数 = 公开总数 − 带钥(带钥源全公开)。
 
 实现纪律:stdlib-only(ast/re,秒级,CI backend job 零新依赖);静态解析不导入
-ipdb(导入即实例化全部源并加载 .env,非幂等且慢)。模式匹配是「宁少算」面:
+ipdb(导入即实例化全部源并加载 .env,非幂等且慢)。已知镜像边界(两向漂移
+均朝红、fail-loud,不违宁少算;评审 P2 记录):静态只认类体自有赋值,registry
+用 hasattr 含继承——继承其体源类不重写 name/fields 的新增会少算误红;registry
+实例化失败即跳过而静态照计——会多算误红。两情形出现时先红,提示拆机制。模式匹配是「宁少算」面:
 文档改写后某句不再命中正则 = 该句退出比对(不红);命中而数字错 = 红。
 跑法(仓根):python3 scripts/check_source_counts.py   # 退出码 0=绿,1=红并列 file:line
 """

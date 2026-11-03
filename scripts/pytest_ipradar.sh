@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# pytest-ipradar — 本地 pytest 包装器,免疫 _editable_impl_sopagent.pth 污染(retro P1-4 固化)。
+# pytest_ipradar.sh — 本地 pytest 包装器,免疫 _editable_impl_sopagent.pth 污染(retro P1-4 固化)。
 #
 # 污染机制(2026-11-03 实测,证据链):
 #   - 另一项目 sopagent 以 pip editable 装进系统 python(PATH 上的 python3 =
@@ -21,7 +21,7 @@
 # 机制:启动后先扫 site-packages 的 *.pth,取其注入且带 tests/__init__.py 的
 # 目录(即会遮蔽本仓 tests 命名空间的外来根),从 sys.path 剥离,再进
 # pytest.main()。判据:pth 在场时 wrapper 收集数 == 干净环境收集数(验收时
-# 实测 2456 == 2456,0 errors)。参数原样透传 pytest。
+# 实测 2458 == 2458,0 errors,2026-11-03 集成分支复验)。参数原样透传 pytest。
 #
 # 解释器选择:backend/.venv 优先(README「Tests」正路);没有 venv 时退回
 # PATH 上的 python3(须自带依赖;本机 miniforge 恰有全套后端依赖)。两条路
@@ -33,12 +33,12 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-用法: scripts/pytest-ipradar [PYTEST_ARGS...] [--no-env-dep]
+用法: scripts/pytest_ipradar.sh [PYTEST_ARGS...] [--no-env-dep]
   本仓 pytest 包装器:剥离 .pth 注入的外来 tests 正则包路径后跑 pytest,
   参数原样透传(在 backend/ 目录下调用,同 README 用法)。
   --no-env-dep  追加 -m 'not env_dep',跳过环境依赖用例(见 backend/pytest.ini);
                 与显式 -m 同给会报错(两道 -m 互相覆盖,不猜用户意图)
-  -h/--help     本说明(要 pytest 自身 --help:scripts/pytest-ipradar -- --help)
+  -h/--help     本说明(要 pytest 自身 --help:scripts/pytest_ipradar.sh -- --help)
 EOF
 }
 
@@ -63,7 +63,7 @@ if [ "${ARGS[0]-}" = "--" ]; then ARGS=("${ARGS[@]:1}"); fi
 if [ "$NO_ENV_DEP" -eq 1 ]; then
   for a in "${ARGS[@]+"${ARGS[@]}"}"; do
     case "$a" in
-      -m|-m*) echo "pytest-ipradar:--no-env-dep 与显式 -m 同给会互相覆盖,拒绝执行(把 --no-env-dep 去掉,自己写完整 -m 表达式)" >&2; exit 2 ;;
+      -m|-m*) echo "pytest_ipradar:--no-env-dep 与显式 -m 同给会互相覆盖,拒绝执行(把 --no-env-dep 去掉,自己写完整 -m 表达式)" >&2; exit 2 ;;
     esac
   done
   ARGS+=(-m "not env_dep")
@@ -92,7 +92,7 @@ if shadowing:
     sys.path[:] = [
         q for q in sys.path if os.path.realpath(q) not in shadowing
     ]
-    print("pytest-ipradar: 已剥离外来 tests 正则包路径: %s" % ", ".join(sorted(shadowing)), file=sys.stderr)
+    print("pytest_ipradar: 已剥离外来 tests 正则包路径: %s" % ", ".join(sorted(shadowing)), file=sys.stderr)
 
 import pytest
 sys.exit(int(pytest.main(sys.argv[1:])))

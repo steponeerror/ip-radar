@@ -3,9 +3,11 @@
 跑法(仓根): python3 -m pytest scripts/test_check_source_counts.py -q
 
 覆盖矩阵(任务口径):
-- 当前仓绿:真实登记表派生 60/53/7/5 + honyport 口径钉死;真五文档零错误;
-- 文档数字被改后红:每条比对腿各造一处 fixture 改坏(副本上改,不动真文件),
+- 当前仓绿:真实登记表派生 60/53/7/5 + honyport 口径钉死;真六文档零错误;
+- 文档数字被改后红:代表性比对腿各造一处 fixture 改坏(副本上改,不动真文件),
   含数字腿、带钥源表名集/变量映射腿、zh 行内名单腿;
+- 腿激活钉死(评审 P2):_CHECKS 每条正则必须在真文档上至少命中一次——
+  文档改写致正则悬空时,是激活测试红逼更新正则,不是闸面静默缩水;
 - 派生面:合成迷你登记表(eval_excluded 减员、带钥×私源重叠、MANAGED 指向
   未注册源、同名重复注册)fail-loud。
 """
@@ -221,3 +223,15 @@ def test_new_leg_glossary_registered_total_red(tmp_path):
     """评审 P2-2 增补腿:GLOSSARY 源底座条活计数(登记总数口径,含私有源)。"""
     errs = _mutated_copy(tmp_path, "GLOSSARY.md", r"全部 61 个源", "全部 60 个源")
     assert any("登记源总数" in e for e in errs), errs
+
+
+def test_all_check_legs_active_on_real_docs():
+    """评审 P2:激活钉死——_CHECKS 每条 (文件, 正则) 必须在真文档至少命中一次。
+
+    没有它,文档改写致某条正则悬空时闸面会静默缩水(宁少算=失配退出比对),
+    test_real_docs_all_green 在「激活」与「悬空」两态下都绿,无法区分。"""
+    for fname, pattern, _expects, _what in csc._CHECKS:
+        text = (REPO / fname).read_text(encoding="utf-8")
+        assert any(pattern.search(ln) for ln in text.splitlines()), (
+            f"{fname} 的比对腿已悬空(正则 {pattern.pattern!r} 在真文档零命中)——"
+            f"文档已改写,请更新该腿或其期望")

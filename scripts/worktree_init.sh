@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# worktree-init.sh — 全新 worktree 一键接线本地开发环境(retro P1-3 固化,2026-11-03)。
+# worktree_init.sh — 全新 worktree 一键接线本地开发环境(retro P1-3 固化,2026-11-03)。
 # 为什么:git worktree 只带 tracked 文件,本地开发要的未跟踪件全缺。2026-11-03 在
 # 草稿 worktree rb-b-scratch(基点 dc73766c)实测缺件清单:
 #   - backend/.venv:缺(README「Tests」节正路 = python3 -m venv + pip install
@@ -20,7 +20,7 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-用法: scripts/worktree-init.sh [TARGET_DIR] [--no-frontend] [--no-backend]
+用法: scripts/worktree_init.sh [TARGET_DIR] [--no-frontend] [--no-backend]
   TARGET_DIR     目标 worktree 根目录,默认当前目录。必须在 worktree 根上调用
                  (子目录会报错);脚本只写 TARGET_DIR 内的路径
   --no-frontend  跳过 frontend 接线(npm ci)
@@ -53,7 +53,7 @@ for arg in "$@"; do
 done
 [ -n "$TARGET" ] || TARGET=$PWD
 
-die() { echo "worktree-init: 错误:$*" >&2; exit 1; }
+die() { echo "worktree_init: 错误:$*" >&2; exit 1; }
 
 # --- 目标校验:必须是 git worktree 的根目录 ---
 TARGET=$(cd "$TARGET" && pwd)   # 归一(尾斜杠/相对路径形态,评审 P2-1)

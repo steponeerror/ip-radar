@@ -167,7 +167,7 @@ export default function plainLanguageGate(pi: ExtensionAPI): void {
 			if (ctx.hasUI) {
 				try {
 					ctx.ui.notify(
-						`plain-language-gate:助手回复命中自造压缩词,已在消息尾部加警示(${gated.content.length} 块)`,
+						`plain-language-gate:助手回复命中自造压缩词,已在消息头部插入 1 块警示`,
 						"warning",
 					);
 				} catch {
