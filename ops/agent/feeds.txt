@@ -109,9 +109,6 @@ https://manycast.net/api/v1/export/IPv4-latest.csv.gz # anycast_census
 https://data.caida.org/datasets/as-organizations/latest.as-org2info.txt.gz # caida_asorg
 https://iptoasn.com/data/ip2asn-combined.tsv.gz # iptoasn
 https://github.com/P3TERX/GeoLite.mmdb/releases/latest/download/GeoLite2-City.mmdb # geolite_city
-https://www.peeringdb.com/api/ix # peeringdb
-https://www.peeringdb.com/api/ixlan # peeringdb(ixlan 表;审后补 reviewer P2-1)
-https://www.peeringdb.com/api/ixpfx # peeringdb
 https://ftp.afrinic.net/pub/stats/afrinic/delegated-afrinic-extended-latest # rir_delegated
 https://ftp.apnic.net/stats/apnic/delegated-apnic-extended-latest # rir_delegated
 https://ftp.arin.net/pub/stats/arin/delegated-arin-extended-latest # rir_delegated

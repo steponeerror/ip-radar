@@ -4,6 +4,11 @@
 
 ## Unreleased
 
+### 移除 Removed
+
+  - **移除情报源 peeringdb(公开源口径 61→60,2026-11-03 用户裁决)**:IX fabric 前缀/名称源整体下线——源文件+测试整删,源注册靠 _sources/ 目录自动发现,零接线改动;快照测试 OLD_CATEGORIES/OLD_RELIABILITY 同步少一键;ops feeds.txt 清单 101→98 URL(删 ix/ixlan/ixpfx 三行),selftest 固定 fixture 断言与 gates.mjs 注释计数同步;README 双语源表删行、口径句与 MANUAL 活计数同步 61→60(免 key 54→53,密钥源 7/5 key 分区不变);GitHub About 口径同步(60 public intel sources, 53/60 no API key);CONTEXT token 源句去 peeringdb 从句,NEEDS「IX fabric」行转已移除、「ASN 业务类型」备注改需重新立项;历史注释(lmdb 共库事故、冷启持门判例、ops TDZ 归因)为判例记录,保留不随源删
+  - **Remove the peeringdb intel source (public-source tally 61→60, 2026-11-03 user ruling)**: the IX-fabric-prefixes/names source goes offline wholesale — source file and tests deleted outright; the registry discovers sources by scanning _sources/, so zero wiring changes; the snapshot tests' OLD_CATEGORIES/OLD_RELIABILITY sync to one fewer key; the ops feeds.txt manifest drops 101→98 URLs (ix/ixlan/ixpfx rows removed), with the selftest fixed-fixture assertion and the gates.mjs comment count following; both READMEs lose their table row with tally sentences and MANUAL's live counts synced 61→60 (keyless 54→53; the 7-keyed-sources/5-keys partition unchanged); the GitHub About blurb follows the new caliber (60 public intel sources, 53/60 no API key); CONTEXT's token-source sentence loses its peeringdb clause, NEEDS's IX-fabric row flips to removed and the ASN-business-type note now requires a fresh ticket; historical comments (the LMDB shared-db incident, the cold-start gate-holding precedent, the ops TDZ attribution) stay as precedent records, not deleted with the source
+
 ### 新增 Added
 
   - **honyport 自建蜜罐观测源接入查询池(2026-11-02,#271/#272/#273/#274)**:网页查 IP 现在能看到自家蜜罐的观测证据——「30 天内观测到攻击,共 X 次」+服务列表+最后观测时间;源以标准 CsvSource 轨道入池(category=threat/classification=scanner/reliability 0.85),数据链 = 服务器日 CSV → 每日 03:10 聚合脚本(30 天窗+扫描段/白名单过滤,计数自报)→ 挂载目录 → 容器 rebuild;评估面恒禁用(ADR 0017 §7 修订):源声明 eval_excluded,三道闸(registry 剥离/toggle 强禁/采样宇宙剔除)+回放器同律,θ/消融/verdict/锚回归/融合读数全不测它,月报记分卡单列「评估禁用源」行+导语注脚;Sources 页 θ 列显「评估禁用」徽标;附验收一键回归脚本(规格 §6 五条)。手法档案展示另立二期(#279)。门:backend 2434 绿、frontend 456+tsc 0、脚本 32+验收 5 PASS、四单任务评审+整分支终审

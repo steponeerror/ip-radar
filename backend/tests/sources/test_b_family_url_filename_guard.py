@@ -113,11 +113,11 @@ def test_real_exempted_sources_clean(tmp_path: Path):
 
 
 def test_discovery_smoke_all_real_sources(tmp_path: Path):
-    """62 源真实发现冒烟:护栏对现役 roster 零误伤(发现期 raise 即本测红)。"""
+    """61 源真实发现冒烟:护栏对现役 roster 零误伤(发现期 raise 即本测红)。"""
     import ipdb._registry as reg
     sources = reg._discover_sources(tmp_path)
     names = {s.name for s in sources}
-    assert len(sources) == 62          # 本票时点 roster;增删源时同步
+    assert len(sources) == 61          # 本票时点 roster;增删源时同步(2026-11-03 peeringdb 下线 62→61)
     assert {"firehol", "blocklist_de", "malicious_ip", "urlhaus"} <= names
     for s in sources:
         assert metadata_problems(s) == [], s.name

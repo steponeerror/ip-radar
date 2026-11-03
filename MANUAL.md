@@ -21,7 +21,7 @@ All examples below assume the default deployment: one container on `http://127.0
 
 ## 1. First run
 
-After `docker compose up -d --build`, the container is reachable within seconds — but it is not finished yet. On first start it downloads and builds every keyless feed (54 of the 61 sources) into millions of records. What you will see:
+After `docker compose up -d --build`, the container is reachable within seconds — but it is not finished yet. On first start it downloads and builds every keyless feed (53 of the 60 sources) into millions of records. What you will see:
 
 - **A progress banner at the top** tracks the download/build progress of the keyless feeds, live. It disappears (or goes quiet) once the build settles.
 - **Queries hold until the keyless build settles.** Until then, lookups answer `503` with `X-IPRadar-Reason: warming` — the tool refuses to serve verdicts on a half-built dataset. This is deliberate: never a verdict on partial evidence.
@@ -146,7 +146,7 @@ After sign-in you get three tabs (plus a floating task-progress pill that mirror
 
 ### Sources (default tab)
 
-![The admin Sources tab: 61 sources, health, r/consistency (θ) side by side, toggles](assets/manual/04-admin-sources.png)
+![The admin Sources tab: 60 sources, health, r/consistency (θ) side by side, toggles](assets/manual/04-admin-sources.png)
 
 Every source in one list, grouped into **Geo & ASN data / Threat intel / Asset attributes**, with columns:
 

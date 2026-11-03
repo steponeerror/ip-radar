@@ -9,7 +9,7 @@
 | 查解析器 IP 说不出是什么(service) | <2026-10-10 | 已闭 | dns_public + root_servers,PR #97/#98(普查判例) |
 | IP 所在时区 | 2026-10-10 | 已立项（2026-10-10 信息维度批，geolite harvest 透传） | GeoLite2 mmdb 自带 time_zone,harvest 现丢弃;库内扩展非新源(census 矩阵行 1) |
 | IP 的注册分配元数据(RIR/分配日期/allocated·assigned·available) | 2026-10-10 | 已立项（2026-10-10 信息维度批，新源 rir_delegated） | rir_delegated:五 RIR delegated-extended,日更免登录(census 矩阵行 2) |
-| IP 是否 IX 交换点 fabric | 2026-10-10 | 已立项（2026-10-10 信息维度批，新源 peeringdb） | peeringdb ixpfx:开放 API 批量落地,otx 先例(census 矩阵行 4) |
+| IP 是否 IX 交换点 fabric | 2026-10-10 | 已移除(2026-11-03 源下线,需求暂无证人) | peeringdb ixpfx:开放 API 批量落地,otx 先例(census 矩阵行 4;2026-11-03 用户裁决源下线) |
 | ASN 的组织级名称(独立于 ASN 名) | 2026-10-10 | 已闭 | caida_asorg 已交付(PR #101,2026-10-10 双锚批) |
 | rDNS 主机名 | 2026-10-10 | 候选 | 2026-10-18 重扫:免费批量路径出现 = ip.thc.org 月度全量 parquet(49.5GB,HF+镜像双源实测活;FLAG=商用条款模糊+小机 1B 行重建未裁);ELLIO/InternetData/Rapid7 商业关门(docs/research/2026-10-18-rdns-abuse-contact-rescan.md) |
 | abuse contact | 2026-10-10 | 已闭 | rir_abuse 已交付(本 PR;RIPE+AFRINIC 全库 dump,RPSL 离线链 inetnum→abuse-c→role→abuse-mailbox);调研 docs/research/2026-10-18-rdns-abuse-contact-rescan.md |
@@ -21,7 +21,7 @@
 | TLD 权威服务器 | 2026-10-10 | open | CZDS 账号门槛 |
 | NTP 基础设施角色 | 2026-10-10 | open | 仅三方小列表(jauderho,活但量薄);NTP Pool 无批量。2026-10-10 二轮:jauderho/public-ntp-servers(BSD-3,活)输出仅 hostname 键配置(ntp.toml/ntp-sources.yml),无 IP 面 → 需在线解析,红线拒 |
 | anycast | 2026-10-10 | 已闭 | anycast_census 已交付(PR #101);anycatch 弃置维持:license 真空(无 LICENSE 文件、issue #5 追问 3.5 个月零回复、站点无 ToS,2026-10-10 查证),复活路径=书面许可 |
-| ASN 业务类型(ISP/content/edu) | 2026-10-10 | 候选 | CAIDA as-classification 已死(官方 legacy、下载关闭,2026-10-10 查证);其真值本就是 PeeringDB 自报 info_type → 正路 = peeringdb 既有源扩展(org/net 端点 join,闸门判例),立项另裁 |
+| ASN 业务类型(ISP/content/edu) | 2026-10-10 | 候选 | CAIDA as-classification 已死(官方 legacy、下载关闭,2026-10-10 查证);其真值本就是 PeeringDB 自报 info_type,原 peeringdb 扩展路径已随源下线失效(2026-11-03)→ 该候选需重新立项 |
 | 攻击者 IP 第一方测量(蜜罐/传感网) | 2026-10-10 | 已闭 | knock_knock 已交付(PR #104,blacklist=binarydefense 双生判例) |
 | DDoS 攻击源 | 2026-10-10 | 已闭 | rtbh 已交付(PR #104,ddos 槽首个专职证人;许可用户签核 2026-10-10) |
 | IP 是否研究扫描器(Censys/Shodan 等已知扫描段) | 2026-10-12 | 已交付待合(SDD 批 PR #216:#212 源接入+#213 eval 排除+#214 标签钉测+#215 文档收口;ADR 0011;报告 docs/research/2026-10-26-scanner-ranges-census.md) | 官方公布段静态文件→attributes 通道,cdn.notice 同构判例;兼作蜜罐真值层排除清单(测试集版本随附);通道裁定=MISP warninglists -scanning 66 列表(CC0)+Xpanse 直读,80.2% 池内污染实测,grill 全裁 2026-10-26(恶意保持+「公开研究扫描/自报段」标签人裁;eval 测试集装配侧排除,ADR 0011;单批三件套);truth ops runbook 换源接线(legacy censys+Xpanse+Shadowserver 手合资产→scanner_ranges loader)留 ops 轮人裁 |
