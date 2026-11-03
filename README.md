@@ -42,7 +42,7 @@ docker compose up -d --build
 
 Open http://127.0.0.1:8000. The container is reachable within seconds — a banner at the top tracks the keyless feeds' download/build progress live (all but the 7 keyed sources, including geo/city/ASN, the major blocklists and cloud ranges), and queries unlock automatically once the build settles. Subsequent starts load from the `ipradar-data` volume in seconds.
 
-**All but 7 feeds need zero API keys.** To light up the 7 keyed sources (they share 5 keys — OTX across two feeds, abuse.ch across two), drop the keys into `.env.local` (gitignored, overrides `.env`):
+**All but 7 feeds need zero API keys.** To light up the 7 keyed sources (they share 5 keys — OTX across two feeds, abuse.ch across two), drop the keys into `.env.local` (gitignored, overrides `.env`) — or paste them into the admin console's Sources-tab key fields (a key filled on the web page takes effect on the next refresh, no restart):
 
 ```bash
 cp .env .env.local   # then open .env.local in any editor, fill keys

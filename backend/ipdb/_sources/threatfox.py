@@ -31,7 +31,6 @@ import io
 import logging
 import os
 import zipfile
-from pathlib import Path
 
 from .._source_base import Source
 from .._evidence import Evidence
@@ -62,31 +61,31 @@ class ThreatFoxSource(Source):
     provenance_tier = "A"                 # A=官方一手(S21):abuse.ch 运营方直接发布
     skip_lines = 9
 
-    def __init__(self, data_dir: Path):
-        # 约定 5:源在 __init__ 读自己的 env,注册表只传 data_dir。v2 迁移
-        # (票 #159):旧匿名出口 410,Auth-Key 缺省空串 → download() 时报错
-        # (不在 import/注册时炸,源仍可离线加载旧证据)。
-        super().__init__(data_dir)
-        self._auth_key = os.environ.get("ABUSECH_AUTH_KEY", "")
-
-    def _keyed_url(self) -> str:
+    def _keyed_url(self, auth_key: str) -> str:
         # url attr 是无 key 占位(…/exports/full.csv.zip);v2 端点把 Auth-Key
         # 作为路径段插在文件名前(票 #159 实测)。keyed URL 只在此拼,不入
         # self.url——注册表 roster/日志/测试断言面只见占位。
         prefix, _, fname = self.url.rpartition("/")
-        return f"{prefix}/{self._auth_key}/{fname}"
+        return f"{prefix}/{auth_key}/{fname}"
 
     def download(self, token: CancelToken | None = None) -> None:
-        if not self._auth_key:
+        # 使用点读取(T1 裁决基线「源侧一律使用点读取」;票 #276 B 裁决
+        # 2026-11-02:__init__ 期捕获使 web 面填值到不了 download()——实例
+        # 先于 _tokens.load() 构造,热更即断,重启也救不回)。未配置在
+        # download() 报错(票 #159:不在 import/注册时炸,源仍可离线加载旧证据)。
+        # 对齐 otx/ip2proxy 多数模式:粘贴尾空白不再拼进 keyed URL;
+        # 纯空白视同未设 → 走「须设」报错(更对)。
+        auth_key = os.environ.get("ABUSECH_AUTH_KEY", "").strip()
+        if not auth_key:
             raise RuntimeError(
                 "threatfox: abuse.ch 已迁 Auth-Key(旧匿名出口 410,票 #159)"
                 "——须设 ABUSECH_AUTH_KEY 环境变量")
         self._data_dir.mkdir(parents=True, exist_ok=True)
         zip_path = self._data_dir / "threatfox.zip"
         try:
-            download_file(self._keyed_url(), zip_path, token=token,
+            download_file(self._keyed_url(auth_key), zip_path, token=token,
                           headers={"User-Agent": "ip-lookup-tool/1.0"},
-                          secret=self._auth_key)
+                          secret=auth_key)
             data = zip_path.read_bytes()
             if not data.strip():
                 raise RuntimeError(f"Empty response from {redact_url(self.url)}")

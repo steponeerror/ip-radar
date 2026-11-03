@@ -44,7 +44,7 @@ docker compose up -d --build
 
 打开 http://127.0.0.1:8000。首次启动数秒内容器即可访问——页面顶部横幅会实时展示免密钥源（除 7 个密钥源外全部，含地理/城市/ASN、主要封禁列表与云网段）的下载/构建进度，构建完成后查询自动解锁；之后每次启动都从 `ipradar-data` 卷秒级加载。
 
-想开 7 个密钥源（ipinfo_lite / abuseipdb / otx / otx_subscribed / ip2proxy / threatfox / urlhaus，共 5 个密钥：OTX 两源共用、abuse.ch 两源共用）？把密钥写进 `.env.local`（已 gitignore，盖过 `.env`）：
+想开 7 个密钥源（ipinfo_lite / abuseipdb / otx / otx_subscribed / ip2proxy / threatfox / urlhaus，共 5 个密钥：OTX 两源共用、abuse.ch 两源共用）？把密钥写进 `.env.local`（已 gitignore，盖过 `.env`），或粘贴进管理台 Sources 页的源 key 字段（页面填的密钥下一次刷新即生效，无需重启）：
 
 ```bash
 cp .env .env.local   # 编辑 .env.local 填入密钥
