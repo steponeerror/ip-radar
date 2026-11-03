@@ -335,6 +335,12 @@ def rev_path(base: Path) -> Path:
 # 路径)必须 bump 此常量(单调 +1);存量族 .rev 缺失 = 不匹配 → 首跑
 # 一次全量重建自愈(部署注记见 CHANGELOG)。详见 docs/adr/0009。
 HARVEST_REV = 1
+# 欠账登记(issue #240,2026-11-03 裁 C 案):#239 在 Source.rebuild 落地
+# infra_noise_filter 属本纪律覆盖面,但未 bump(仍 =1)。无实际休眠面——
+# flag 是 per-source opt-in,未声明者投影零变化;唯一声明者 tweetfeed 已在
+# 生产外科收敛(admin 单源刷新,留痕行见 #240)。下次真实 harvest 语义
+# 变更时一并 bump(单调 +1),本注释在此之前保留,勿因「stamp 与代码代
+# 不一致」误判全族已收敛。
 
 
 def env_dir(base: Path, epoch: int) -> Path:
