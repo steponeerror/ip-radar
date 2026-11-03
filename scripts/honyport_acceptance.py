@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
-"""honyport 一期验收一键回归(issue #274,规格 §6 五条)。
+"""honyport 一期验收一键回归(issue #274,规格 §6 五条;
+二期 techniques 检查项 = issue #284,spec 2026-11-03 §5)。
 
-规格: docs/research/2026-11-02-honyport-query-source-spec.md §6(权威)。
+规格: docs/research/2026-11-02-honyport-query-source-spec.md §6(权威);
+二期: docs/research/2026-11-03-honyport-techniques-spec.md §5。
 把五条验收钉成一键可跑的回归脚本 —— 全程离线本地(tmp 数据目录 + 夹具,
 零生产接触、零网络);#272/#271 pytest 已钉住的缝不抄实现,断言 pytest
 件存在 + 跑 pytest 子集(§6-1 基面 / §6-3 载入侧窗闸 / §6-5 评估面)。
@@ -31,6 +33,15 @@
        (tests/eval/test_eval_excluded.py 全件 + 真注册表剥离闸直测,后者
        钉 --all 禁用行/拒跑/记分卡)。真 --all 跑批需 DB/语料,非离线,
        不在此跑(离线红线,spec §6 脚本化的本意)。
+  §6-6(二期 #284)techniques 件在场:锚 IP 出证 extra.techniques
+       —— 夹具目录有 honeypot_techniques-*.json 时取最新合法件,合成
+       基座(锚 IP 109.105.210.2 真聚合件被扫描段滤除,#282 同法特构造
+       基座行;窗/扫描段面归 §6-3/§6-2)→ download 双件 → rebuild →
+       查询:八字段形状、七字段直透、CVE 独立回算、回声禁令(JSON
+       services 整串与 "services" 键不出海)、次新独有 IP 无键(只认
+       最新件)、无条目 IP 一期形状不变、spec §1 两锚特断;缺 JSON
+       → [SKIP] + 降级跑 pytest 钉件(test_honyport.py -k 'techniques
+       or cve'),不红(开发机语义:真样例取样属部署面 #284)。
 
 跑法(仓根;要打查询面须带 backend 三方库 → 用 backend/.venv 解释器):
   backend/.venv/bin/python scripts/honyport_acceptance.py \
@@ -42,6 +53,7 @@ from __future__ import annotations
 import argparse
 import csv
 import io
+import json
 import os
 import re
 import subprocess
@@ -66,6 +78,8 @@ TITLES = {
     3: "last_seen 超窗行 rebuild 后无证",
     4: "次日聚合件重跑 materialize,键集与计数复算一致",
     5: "评估跑批源清单含禁用行,honyport 无 θ/消融/verdict 记录",
+    6: "techniques 件在场:锚 IP 出证 extra.techniques + CVE 剥取 + 回声禁令"
+       "(二期 spec 2026-11-03 §5)",
 }
 
 
@@ -436,14 +450,175 @@ def check_5_eval_disabled(_fixtures: Path | None, _scanner: Path | None,
         "(CLI 拒跑 + --all 只出禁用行 + 记分卡单列,pytest 正本钉住)"]
 
 
+# ── §6-6(二期 #284)techniques 件在场:锚 IP 出证 ─────────
+
+
+# 二期 spec 2026-11-03 §2 件名样(与 backend _TECHNIQUES_NAME_RE 同式;
+# 验收侧独立持有,不从实现导入 —— 断言的是契约而非实现)
+TECHNIQUES_JSON_RE = re.compile(
+    r"^honeypot_techniques-(\d{4}-\d{2}-\d{2})\.json$")
+# 二期 spec §3 extra.techniques 八字段(冻结;独立列,同上)
+TECH_FIELDS = ("commands", "user_agents", "cves", "protocols",
+               "statuses", "actions", "stages", "paths")
+CVE_IP = "109.105.210.2"      # spec §1 CVE 形态锚(php2shell 件)
+CVE_TOKEN_RE = re.compile(r"^CVE-\d{4}-\d{4,}$")   # spec §1 CVE 词形
+
+
+def _cve_oracle(services: list) -> list[str]:
+    """CVE 剥取独立回算(spec §1:「/」前是事件 id,后是逗号分隔 CVE
+    列表;只认 CVE 词形,去重保序)—— 不经 _extract_cves 代码路径
+    (§6-1 独立回算同纪律)。"""
+    out: list[str] = []
+    for item in services:
+        for token in str(item).partition("/")[2].split(","):
+            cve = token.strip()
+            if CVE_TOKEN_RE.fullmatch(cve) and cve not in out:
+                out.append(cve)
+    return out
+
+
+def check_6_techniques(fixtures: Path | None, _scanner: Path | None,
+                       tmp: Path) -> tuple[str, list[str]]:
+    detail: list[str] = []
+    cands: list[tuple[str, Path]] = []
+    for p in sorted(fixtures.iterdir()) if fixtures else []:
+        m = TECHNIQUES_JSON_RE.match(p.name)
+        if m and p.is_file():
+            cands.append((m.group(1), p))
+    if not cands:
+        ok, tail = pytest_run(
+            ["tests/sources/test_honyport.py", "-k", "techniques or cve"])
+        detail.append(
+            "真 techniques JSON 缺席(开发机语义:真样例取样属部署面"
+            " #284)→ 降级跑 pytest 钉件 test_honyport.py -k 'techniques "
+            f"or cve': {tail}")
+        return ("FAIL" if not ok else "SKIP"), detail
+    cands.sort()
+    D, latest = cands[-1]              # 文件名日期挑最新(download 同法)
+    ips = json.loads(latest.read_text(encoding="utf-8"))["ips"]
+    prev_only = (set(json.loads(cands[-2][1].read_text(encoding="utf-8"))
+                     ["ips"]) - set(ips)) if len(cands) >= 2 else set()
+    detail.append(f"夹具 {len(cands)} 份 techniques JSON,最新合法件 = "
+                  f"{latest.name}(次新独有对照 {sorted(prev_only) or '无'})")
+    # 基座 = 脚手架:本项只测 JSON 通道,基座日 CSV 由脚本合成(最新件
+    # 全体 IP + 次新独有 IP + 一枚无 JSON 条目 IP)。锚 IP 109.105.210.2
+    # 在真服务器聚合件里被扫描段滤除(#282 测试同法特构造基座行);
+    # 窗/扫描段面归 §6-3/§6-2,此处空扫描段表 + 窗内行。
+    plain = "9.9.9.9"
+    d = tmp / "daily"
+    d.mkdir()
+    rows = [(ip, "beelzebub/ssh", 1, f"{D}T01:00:00Z", f"{D}T01:01:00Z")
+            for ip in list(ips) + sorted(prev_only)]
+    rows.append((plain, "beelzebub/mssql", 2,
+                 f"{D}T02:00:00Z", f"{D}T02:02:00Z"))
+    write_daily(d, D, rows)
+    scan = tmp / "scanner-empty.csv"
+    scan.write_text("", encoding="utf-8")    # 空表 = 零滤除(§6-2 另测)
+    agg_dir = tmp / "agg"
+    run_aggregate(d, agg_dir, scan, D)
+    for _, p in cands:               # 双件同目录:聚合 CSV + 全部合法 JSON
+        (agg_dir / p.name).write_bytes(p.read_bytes())
+    (agg_dir / "scratch.tmp").write_text("杂件不匹配名样", encoding="utf-8")
+    data = tmp / "src"
+    data.mkdir()
+    s = HonyportSource(data_dir=data)
+    old_env = os.environ.get(AGGREGATE_DIR_ENV)
+    try:
+        os.environ[AGGREGATE_DIR_ENV] = str(agg_dir)
+        s.download()                 # 双件:CSV 基座 + 最新合法 JSON
+        n = s.rebuild()
+        # ① 全体 JSON IP:八字段形状 + 七字段直透 + CVE 独立回算 +
+        #    回声禁令(JSON services 整串与 "services" 键零出海)
+        for ip, entry in ips.items():
+            recs = s.query(ip)
+            if not recs:
+                return "FAIL", detail + [
+                    f"{ip}: 基座行在场但 query 无证(rebuild={n})"]
+            rec = recs[0]
+            tech = rec.get("extra", {}).get("techniques")
+            if not isinstance(tech, dict):
+                return "FAIL", detail + [
+                    f"{ip}: extra.techniques 缺席: {rec.get('extra')!r}"]
+            if set(tech) != set(TECH_FIELDS):
+                return "FAIL", detail + [
+                    f"{ip}: techniques 字段集 {sorted(tech)} ≠ 冻结八字段"
+                    f" {list(TECH_FIELDS)}(spec 2026-11-03 §3)"]
+            for k in TECH_FIELDS:
+                want = (_cve_oracle(entry["services"]) if k == "cves"
+                        else list(entry[k]))
+                if tech[k] != want:
+                    return "FAIL", detail + [
+                        f"{ip}: techniques[{k}]={tech[k]!r} ≠ 独立回算 "
+                        f"{want!r}"]
+            blob = json.dumps(rec, ensure_ascii=False, default=str)
+            leak = [x for x in entry["services"] if str(x) in blob]
+            if leak or '"services"' in blob:
+                return "FAIL", detail + [
+                    f"{ip}: 回声禁令破: JSON services 出海 {leak} 或键"
+                    f"在场={'\"services\"' in blob}(spec §3 整列表不出海)"]
+        # ② 只认最新件:次新独有 IP 出证而无 techniques 键
+        for ip in sorted(prev_only):
+            recs = s.query(ip)
+            has_key = bool(recs) and "techniques" in recs[0]["extra"]
+            if not recs or has_key:
+                return "FAIL", detail + [
+                    f"{ip}(仅次新件): 出证={bool(recs)}, techniques 键"
+                    f"在场={has_key}(应出证而无键 —— 只认最新件)"]
+        # ③ 无 JSON 条目 IP:一期 evidence 形状不变(techniques 键整体缺席)
+        rec = s.query(plain)[0]
+        if rec["extra"] != {"total_events": 2}:
+            return "FAIL", detail + [
+                f"{plain}(无 JSON 条目): extra={rec['extra']!r} ≠ 一期形状"
+                " {'total_events': 2}(spec §3 不填空 dict)"]
+        # ④ spec §1 两锚特断(在场才跑;泛化 ① 已覆盖全体 IP)
+        anchors = []
+        if CVE_IP in ips:
+            t = s.query(CVE_IP)[0]["extra"]["techniques"]
+            if t["cves"] != ["CVE-2026-109618", "CVE-2026-109619"] \
+                    or "python-requests/2.31.0" not in t["user_agents"]:
+                return "FAIL", detail + [
+                    f"{CVE_IP} 锚不符: cves={t['cves']!r}(spec §1 冻结 = "
+                    "[CVE-2026-109618, CVE-2026-109619]), user_agents="
+                    f"{t['user_agents']!r}"]
+            anchors.append(f"{CVE_IP}: cves={t['cves']}(事件 id 剥取,逗号"
+                           "拆分), user_agents 含 python-requests/2.31.0")
+        else:
+            anchors.append(f"{CVE_IP} 不在最新件,锚断言未跑(泛化 ① 已覆盖)")
+        if KNOWN_IP in ips:
+            t = s.query(KNOWN_IP)[0]["extra"]["techniques"]
+            if "/bin/./uname -s -v -n -r -m" not in t["commands"] \
+                    or t["cves"] != []:
+                return "FAIL", detail + [
+                    f"{KNOWN_IP} 锚不符: commands={t['commands']!r}(spec "
+                    "§1 真样例 uname 命令应在场), cves="
+                    f"{t['cves']!r}(萤罐id/服务形态应零 CVE)"]
+            anchors.append(f"{KNOWN_IP}: commands 含真样例 uname 行, "
+                           "cves=[](beelzebub/ssh 形态零 CVE)")
+        else:
+            anchors.append(f"{KNOWN_IP} 不在最新件,锚断言未跑(泛化 ① 已覆盖)")
+        return "PASS", detail + [
+            f"download 双件 → rebuild={n}:最新件 {len(ips)} IP 全部出证,"
+            "八字段形状 + 七字段直透 + CVE 独立回算逐 IP 一致;",
+            "回声禁令:JSON services 整串与 \"services\" 键零出海;",
+            f"次新独有 {sorted(prev_only) or '无'} 出证而无 techniques 键"
+            f"(只认最新件); {plain} 无条目一期形状不变;",
+            *anchors]
+    finally:
+        if old_env is None:
+            os.environ.pop(AGGREGATE_DIR_ENV, None)
+        else:
+            os.environ[AGGREGATE_DIR_ENV] = old_env
+
+
 CHECKS = {1: check_1_known_ip, 2: check_2_scanner_zero_leak,
           3: check_3_over_window, 4: check_4_next_day_recompute,
-          5: check_5_eval_disabled}
+          5: check_5_eval_disabled, 6: check_6_techniques}
 
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
-        description="honyport 一期验收一键回归(#274,规格 §6 五条)")
+        description="honyport 验收一键回归(#274 一期规格 §6 五条 + "
+                    "#284 二期 techniques 检查项)")
     ap.add_argument("--fixtures", type=Path,
                     default=REPO / "dev" / "honyport-fixtures",
                     help="真夹具目录(dev/honyport-fixtures,可缺 → §6-1 "
@@ -471,8 +646,9 @@ def main(argv: list[str] | None = None) -> int:
             say(f"[{status}] §6-{num} {TITLES[num]}")
             for ln in detail:
                 say(f"       {ln}")
-    say(f"honyport 验收(#274, 规格 §6): {counts['PASS']} PASS / "
-        f"{counts['FAIL']} FAIL / {counts['SKIP']} SKIP")
+    say(f"honyport 验收(#274 一期五条 + #284 二期 techniques): "
+        f"{counts['PASS']} PASS / {counts['FAIL']} FAIL / "
+        f"{counts['SKIP']} SKIP")
     return 1 if counts["FAIL"] else 0
 
 
