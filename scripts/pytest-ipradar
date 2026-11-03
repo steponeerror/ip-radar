@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# pytest-ipradar — 本地 pytest 包装器,免疫 _editable_impl_sopagent.pth 污染(retro P1-4 固化)。
+#
+# 污染机制(2026-11-03 实测,证据链):
+#   - 另一项目 sopagent 以 pip editable 装进系统 python(PATH 上的 python3 =
+#     miniforge3/3.13),留下 site-packages/_editable_impl_sopagent.pth,内容一行:
+#     /home/huxiao/dev/sopagent
+#   - 该目录带 tests/__init__.py(正则包);本仓 backend/tests 无 __init__.py
+#     (namespace 包,靠 cwd 进 sys.path 导入)。Python 导入规则:路径上任何
+#     位置的「正则包」无条件压过 namespace portions → `from tests.conftest
+#     import KEY_JWT_SECRET`(tests/auth/test_security_matrix.py:12、
+#     tests/lookup/test_benign_assertion.py)被劫到
+#     /home/huxiao/dev/sopagent/tests/conftest.py,报
+#     "ImportError: cannot import name 'KEY_JWT_SECRET' from 'tests.conftest'"
+#   - 后果:--collect-only 全量 = 2418 collected + 2 errors;干净环境
+#     (backend/.venv,3.12,无 pth)= 2456 collected + 0 errors;差 38 恰好
+#     等于两个报错文件自身的用例数。若 sopagent 的 conftest 恰有同名符号,
+#     则更糟:静默导入错误代码(假绿/漏收集)。
+#
+# 机制:启动后先扫 site-packages 的 *.pth,取其注入且带 tests/__init__.py 的
+# 目录(即会遮蔽本仓 tests 命名空间的外来根),从 sys.path 剥离,再进
+# pytest.main()。判据:pth 在场时 wrapper 收集数 == 干净环境收集数(验收时
+# 实测 2456 == 2456,0 errors)。参数原样透传 pytest。
+#
+# 解释器选择:backend/.venv 优先(README「Tests」正路);没有 venv 时退回
+# PATH 上的 python3(须自带依赖;本机 miniforge 恰有全套后端依赖)。两条路
+# 都过同一套 sys.path 清洗(venv 本就干净,清洗为 no-op)。
+#
+# 便捷开关 --no-env-dep := 追加 -m 'not env_dep'(环境依赖用例退场;
+# marker 定义见 backend/pytest.ini)。与显式 -m 同用会静默互相覆盖 → 直接报错。
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+用法: scripts/pytest-ipradar [PYTEST_ARGS...] [--no-env-dep]
+  本仓 pytest 包装器:剥离 .pth 注入的外来 tests 正则包路径后跑 pytest,
+  参数原样透传(在 backend/ 目录下调用,同 README 用法)。
+  --no-env-dep  追加 -m 'not env_dep',跳过环境依赖用例(见 backend/pytest.ini);
+                与显式 -m 同给会报错(两道 -m 互相覆盖,不猜用户意图)
+  -h/--help     本说明(要 pytest 自身 --help:scripts/pytest-ipradar -- --help)
+EOF
+}
+
+REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+if [ -x "$REPO_ROOT/backend/.venv/bin/python" ]; then
+  PY="$REPO_ROOT/backend/.venv/bin/python"
+else
+  PY=python3
+fi
+
+ARGS=()
+NO_ENV_DEP=0
+for a in "$@"; do
+  case "$a" in
+    --no-env-dep) NO_ENV_DEP=1 ;;
+    -h|--help)    usage; exit 0 ;;
+    *)            ARGS+=("$a") ;;
+  esac
+done
+if [ "$NO_ENV_DEP" -eq 1 ]; then
+  for a in "${ARGS[@]+"${ARGS[@]}"}"; do
+    case "$a" in
+      -m|-m*) echo "pytest-ipradar:--no-env-dep 与显式 -m 同给会互相覆盖,拒绝执行(把 --no-env-dep 去掉,自己写完整 -m 表达式)" >&2; exit 2 ;;
+    esac
+  done
+  ARGS+=(-m "not env_dep")
+fi
+
+exec "$PY" -c '
+import glob, os, site, sys
+
+# --- 剥离 .pth 注入且会遮蔽本仓 tests 命名空间的外来根(机制见文件头)---
+injected = set()
+for sd in list(site.getsitepackages()) + [site.getusersitepackages()]:
+    for pth in glob.glob(os.path.join(sd, "*.pth")):
+        try:
+            with open(pth, encoding="utf-8", errors="replace") as f:
+                lines = f.read().splitlines()
+        except OSError:
+            continue
+        for ln in lines:
+            ln = ln.strip()
+            if not ln or ln.startswith("#") or ln.startswith("import ") or ln.startswith("import\t"):
+                continue  # .pth 只可能两种行:路径 或 import 语句;只关心路径行
+            injected.add(os.path.realpath(ln))
+
+shadowing = {p for p in injected if os.path.isfile(os.path.join(p, "tests", "__init__.py"))}
+if shadowing:
+    sys.path[:] = [
+        q for q in sys.path if os.path.realpath(q) not in shadowing
+    ]
+    print("pytest-ipradar: 已剥离外来 tests 正则包路径: %s" % ", ".join(sorted(shadowing)), file=sys.stderr)
+
+import pytest
+sys.exit(int(pytest.main(sys.argv[1:])))
+' "${ARGS[@]+"${ARGS[@]}"}"
