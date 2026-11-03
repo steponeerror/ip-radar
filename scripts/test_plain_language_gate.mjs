@@ -2,7 +2,7 @@
  * scripts/test_plain_language_gate.mjs — plain-language-gate 纯函数门测试。
  *
  * 覆盖:.pi/extensions/plain-language-gate.ts 的词表解析与扫描语义
- * (check_plain_language.py 忠实移植)+ 消息门(尾部追加警示块/放行)。
+ * (check_plain_language.py 忠实移植)+ 消息门(命中在头部插警示块/放行)。
  * fixture 词表内联,不依赖机器上的全局词表(CI 可跑)。
  *
  * 运行:node --test scripts/test_plain_language_gate.mjs
@@ -105,14 +105,14 @@ test("extractText:只取 text 块,块间换行", () => {
 	assert.equal(extractText(content), "第一段含票①\n第二段正常");
 });
 
-test("gateAssistantMessage:BANNED 命中 → 尾部追加警示块,原内容不动", () => {
+test("gateAssistantMessage:BANNED 命中 → 头部插入警示块,原内容不动", () => {
 	const original = [{ type: "text", text: "这批活收官了。" }];
 	const gated = gateAssistantMessage({ role: "assistant", content: original }, FIXTURE_LEXICON);
 	assert.ok(gated);
 	assert.equal(gated.role, "assistant");
-	assert.equal(gated.content.length, 2); // 原块 + 警示块
-	assert.deepEqual(gated.content[0], original[0]); // 原块不改
-	const warning = gated.content[1];
+	assert.equal(gated.content.length, 2); // 警示块 + 原块
+	assert.deepEqual(gated.content[1], original[0]); // 原块不改且仍在末尾(工作流捕获取末段)
+	const warning = gated.content[0];
 	assert.equal(warning.type, "text");
 	assert.ok(warning.text.startsWith("[plain-language-gate] "), warning.text);
 	assert.ok(warning.text.includes("收官"), "警示列命中词");
@@ -125,7 +125,7 @@ test("gateAssistantMessage:EXPLAIN 裸奔也警示,禁词/解释词分列", () =
 		FIXTURE_LEXICON,
 	);
 	assert.ok(gated);
-	const warning = gated.content.at(-1).text;
+	const warning = gated.content[0].text;
 	assert.ok(warning.includes("禁词:「收官」"), warning);
 	assert.ok(warning.includes("解释的词:「挂点」"), warning);
 });
@@ -175,13 +175,13 @@ test("formatWarning:去重列词", () => {
 
 // 评审 P2-1:行切分/空白集与 python splitlines()/lstrip() 对齐的边界
 test("CRLF 与孤立 CR 文本照常逐行扫(CRLF 词表行不逃逸)", () => {
-  const lex = { banned: ["前沿"], explain: [] };
-  const hits = scanText("第一行\r\n第二行 前沿\r第三行", lex);
-  assert.equal(hits.length, 1);
-  assert.equal(hits[0].term, "前沿");
+	const lex = { banned: ["前沿"], explain: [] };
+	const hits = scanText("第一行\r\n第二行 前沿\r第三行", lex);
+	assert.equal(hits.length, 1);
+	assert.equal(hits[0].term, "前沿");
 });
 test("NBSP 前缀的引用行同样豁免(python lstrip 含 \\xa0)", () => {
-  const lex = { banned: ["前沿"], explain: [] };
-  assert.equal(scanText("\u00A0> 引用里的 前沿", lex).length, 0);
-  assert.equal(scanText("\u2028# 标题里的 前沿", lex).length, 0);
+	const lex = { banned: ["前沿"], explain: [] };
+	assert.equal(scanText("\u00A0> 引用里的 前沿", lex).length, 0);
+	assert.equal(scanText("\u2028# 标题里的 前沿", lex).length, 0);
 });

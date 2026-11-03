@@ -203,7 +203,7 @@ _CHECKS: tuple[tuple[str, re.Pattern, tuple[str, ...], str], ...] = (
     ("README.md", re.compile(r"the (\d+) keyed sources \(they share (\d+) keys"),
      ("keyed", "key_envs"), "带钥源数/密钥变量数"),
     ("README.md", re.compile(r"keyless auto \+ (\d+) keyed"), ("keyed",),
-     "带钥源数(mermaid)"),
+     "带钥源数(mermaid,评审 P2-1 补 zh 孪生腿时同批)"),
     # README.zh-CN.md
     ("README.zh-CN.md", re.compile(r"把 (\d+) 个公开情报源"), ("public_total",),
      "公开源总数"),

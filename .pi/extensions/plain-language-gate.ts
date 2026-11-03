@@ -125,9 +125,11 @@ export function extractText(content: unknown): string {
 }
 
 /**
- * 对一条 assistant 形状的消息执行门逻辑,命中时返回追加了警示 text 块的
- * 新消息对象(同 role,原 content 不动,警示块接在尾部);未命中/无文本/
- * 已含幂等标记返回 undefined(= 不替换)。
+ * 对一条 assistant 形状的消息执行门逻辑,命中时返回在头部插入警示 text 块的
+ * 新消息对象(同 role,原 content 不动)。放头部不放尾部:2026-11-03 实弹判例,
+ * 子代理工作流捕获输出时只取最后一段 text,警示块放尾部会把正文从捕获里顶掉
+ * (终审报告因此丢了一次);放头部则正文仍是末块,捕获与 TUI 阅读都不受损。
+ * 未命中/无文本/已含幂等标记返回 undefined(= 不替换)。
  */
 export function gateAssistantMessage(
 	message: { role: string; content: unknown },
@@ -142,7 +144,7 @@ export function gateAssistantMessage(
 	if (hits.length === 0) return undefined;
 	return {
 		...message,
-		content: [...message.content, { type: "text", text: formatWarning(hits) } satisfies TextBlock],
+		content: [{ type: "text", text: formatWarning(hits) } satisfies TextBlock, ...message.content],
 	};
 }
 
