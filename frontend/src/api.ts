@@ -451,7 +451,7 @@ export async function fetchEvalModel(): Promise<EvalModel | null> {
 // --- Task client: enqueue / control / subscribe (SSE) ---
 
 // /api/events SSE 消息负载(backend 任务流协议)。可选字段容缺:老事件/
-// 边界事件可能缺 task/batch;消费方(TaskProvider.applyEvent)自行窄化。
+// 边界事件可能缺 task/batch;消费方(taskEvents 的 applyEvent)自行窄化。
 export type TaskEvent =
   | { type: "snapshot"; data?: { tasks: TaskState[]; batch: BatchState | null; logs?: Record<string, string[]> } }
   | { type: "task"; task?: TaskState }
