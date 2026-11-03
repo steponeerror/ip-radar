@@ -9,18 +9,18 @@
 // 期望值全部来自独立已知好值(API 契约与既有 header 断言),非回算。
 //
 // node 环境原因:文件读取要真 fs(jsdom 下 import.meta.url 是 http: 协议)。
-// ts 指令原因:tsconfig.app.json types 白名单不含 node,显式 node:fs
-// 导入报 TS2591;又不能把 node 加进全局 types —— node 全局类型会泄漏
-// 污染 setInterval 等 DOM 全局(误伤 WarmingProvider)。若将来 node
-// 类型正式入列,下行 expect-error 变 unused 自动报错提醒清理。
-// @ts-expect-error TS2591: node:fs 在 types 白名单外(见上注)
+// node:* 导入的类型面走 frontend/src/tasks/__tests__/node-stdlib-stubs.d.ts
+// (#292 立的最小 ambient 声明,tsconfig.app.json types 闭集不含 node);
+// 本文件与其同用一套定位姿势:join(dirname(fileURLToPath(import.meta.url)))
 import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, it, expect } from "vitest";
 
-const repoRoot = new URL("../../..", import.meta.url); // src/__tests__/ → 仓根
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "../../.."); // src/__tests__/ → 仓根
 
 function read(rel: string): string {
-  return readFileSync(new URL(rel, repoRoot), "utf8");
+  return readFileSync(join(repoRoot, rel), "utf8");
 }
 
 const gatePy = read("backend/ipdb/_coldstart.py");
