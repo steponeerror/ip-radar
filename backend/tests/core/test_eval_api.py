@@ -22,8 +22,8 @@ def _tiny_db_gate(tiny_db, monkeypatch):
     deadline 置 0(已过期)+ episode 置 True(不再重新武装)→ 门放行,
     本模块对顺序污染免疫。monkeypatch 保证洞测后还原。"""
     import main
-    monkeypatch.setattr(main, "_BUILD_DEADLINE", 0.0)
-    monkeypatch.setattr(main, "_coverage_episode", True)
+    monkeypatch.setattr(main._cold_gate, "deadline", 0.0)
+    monkeypatch.setattr(main._cold_gate, "episode", True)
 
 
 def _write_report(d: Path, source: str, at: str, state: str = "POSITIVE-VERIFIED",
