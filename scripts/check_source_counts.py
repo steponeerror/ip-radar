@@ -39,6 +39,7 @@ DOC_FILES = (
     "MANUAL.md",
     "MANUAL.zh-CN.md",
     "CONTEXT.md",
+    "GLOSSARY.md",   # 评审 P2-2:源底座条的活计数(登记总数口径)同属漂移面,入闸
 )
 
 # 英文/中文数词(文档里 keyed/keys 有拼写数词形态,如 "The seven keyed sources")
@@ -145,7 +146,7 @@ def _expected_var(name: str, managed: dict[str, list[str]]) -> str | None:
 
 
 def _keyed_table_errors(lines: list[str], anchor_re: re.Pattern,
-                        counts: dict, path: Path, seen: set[int]) -> list[str]:
+                        counts: dict, path: Path) -> list[str]:
     """锚句之后的第一个表格 = 带钥源表;核对源名集合与逐源 env var 映射。
     合并行(threatfox / urlhaus)按 '/' 拆开对集合。"""
     errors: list[str] = []
@@ -171,7 +172,6 @@ def _keyed_table_errors(lines: list[str], anchor_re: re.Pattern,
             if not nm:
                 continue
             got_names.add(nm)
-            seen.add(lineno)
             m = re.match(r"`([A-Z][A-Z0-9_]+)`", cells[1])
             want = _expected_var(nm, counts["managed"])
             if m and want and m.group(1) != want:
@@ -211,11 +211,19 @@ _CHECKS: tuple[tuple[str, re.Pattern, tuple[str, ...], str], ...] = (
      "带钥源数"),
     ("README.zh-CN.md", re.compile(r"想开 (\d+) 个密钥源（([^，）]+)，共 (\d+) 个密钥"),
      ("keyed", None, "key_envs"), "带钥源数/密钥变量数"),
+    ("README.zh-CN.md", re.compile(r"剩下 (\d+) 个 🔑 源"), ("keyed",),
+     "带钥源数(尾句,评审 P2-1)"),
+    ("README.zh-CN.md", re.compile(r"([0-9一二三四五六七八九十]+)\s*个变量"),
+     ("key_envs",), "密钥变量数(数词,评审 P2-1)"),
+    ("README.zh-CN.md", re.compile(r"keyless auto \+ (\d+) keyed"), ("keyed",),
+     "带钥源数(mermaid,评审 P2-1)"),
     # MANUAL.md
     ("MANUAL.md", re.compile(r"\((\d+) of the (\d+) sources\)"),
      ("keyless_public", "public_total"), "免钥公开源数/公开源总数"),
     ("MANUAL.md", re.compile(r"The ([a-z]+) keyed sources \(.*?([a-z]+) keys"),
      ("keyed", "key_envs"), "带钥源数/密钥变量数(数词)"),
+    ("MANUAL.md", re.compile(r"the ([a-z]+) source keys"), ("key_envs",),
+     "密钥变量数(数词,评审 P2-1)"),
     ("MANUAL.md", re.compile(r": (\d+) sources, health"), ("public_total",),
      "公开源总数(截图 alt)"),
     ("MANUAL.md", re.compile(r"The (\d+) shipped sources"), ("public_total",),
@@ -229,6 +237,8 @@ _CHECKS: tuple[tuple[str, re.Pattern, tuple[str, ...], str], ...] = (
      ("keyed",), "带钥源数(数词)"),
     ("MANUAL.zh-CN.md", re.compile(r"共 (\d+) 个 key[:：]"), ("key_envs",),
      "密钥变量数"),
+    ("MANUAL.zh-CN.md", re.compile(r"([0-9一二三四五六七八九十]+)\s*个源密钥"),
+     ("key_envs",), "密钥变量数(数词,评审 P2-1)"),
     ("MANUAL.zh-CN.md", re.compile(r"tab[:：](\d+) 源"), ("public_total",),
      "公开源总数(截图 alt)"),
     ("MANUAL.zh-CN.md", re.compile(r"自带的 (\d+) 个源"), ("public_total",),
@@ -236,6 +246,9 @@ _CHECKS: tuple[tuple[str, re.Pattern, tuple[str, ...], str], ...] = (
     # CONTEXT.md(词汇表「token 源」条的活计数)
     ("CONTEXT.md", re.compile(r"共 (\d+) key (\d+) 行"),
      ("key_envs", "keyed"), "密钥变量数/带钥源数"),
+    # GLOSSARY.md(源底座条的活计数,登记总数口径=含私有源,评审 P2-2)
+    ("GLOSSARY.md", re.compile(r"全部 (\d+) 个源"), ("registered",),
+     "登记源总数"),
 )
 
 
@@ -255,7 +268,10 @@ def check_doc(path: Path, counts: dict) -> list[str]:
                 if key is None:
                     continue   # 名单组(keyed name list),后面单独核
                 actual = (len(counts["key_envs"])
-                          if key == "key_envs" else counts[key])
+                          if key == "key_envs"
+                          else len(counts["registered"])
+                          if key == "registered"
+                          else counts[key])
                 got = _num(m.group(g))
                 if got is None:
                     errors.append(f"{path.name}:{i}: {what}: 数词「{m.group(g)}」无法解析")
@@ -267,10 +283,10 @@ def check_doc(path: Path, counts: dict) -> list[str]:
         if path.name == "README.md":
             errors += _keyed_table_errors(
                 lines, re.compile(r"All but (\d+) feeds need zero API keys"),
-                counts, path, set())
+                counts, path)
         if path.name == "README.zh-CN.md":
             errors += _keyed_table_errors(
-                lines, re.compile(r"想开 (\d+) 个密钥源"), counts, path, set())
+                lines, re.compile(r"想开 (\d+) 个密钥源"), counts, path)
             m = re.search(r"想开 (\d+) 个密钥源（([^，）]+)，", "\n".join(lines))
             if m:
                 names = {n.strip() for n in m.group(2).split("/") if n.strip()}

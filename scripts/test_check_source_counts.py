@@ -194,3 +194,30 @@ def test_missing_doc_file_fails_loud(tmp_path):
         shutil.copy(REPO / rel, root / rel)
     (root / "CONTEXT.md").unlink()
     assert csc.main(["--root", str(root)]) == 1   # 扫描面收缩必须显式改闸,不许静默
+
+
+def test_new_legs_zh_tail_mermaid_var_red(tmp_path):
+    """评审 P2-1 增补腿:zh 尾句 7 🔑、mermaid 7 keyed、五个变量(数词)。"""
+    errs = _mutated_copy(tmp_path, "README.zh-CN.md", r"剩下 7 个 🔑 源",
+                         "剩下 6 个 🔑 源")
+    assert any("尾句" in e for e in errs), errs
+    errs = _mutated_copy(tmp_path, "README.zh-CN.md", r"keyless auto \+ 7 keyed",
+                         "keyless auto + 8 keyed")
+    assert any("mermaid" in e for e in errs), errs
+    errs = _mutated_copy(tmp_path, "README.zh-CN.md", "五个变量", "四个变量")
+    assert any("密钥变量数(数词" in e for e in errs), errs
+
+
+def test_new_legs_manual_key_envs_word_red(tmp_path):
+    """评审 P2-1 增补腿:MANUAL 双语 five source keys / 五个源密钥(数词)。"""
+    errs = _mutated_copy(tmp_path, "MANUAL.md", "the five source keys",
+                         "the six source keys")
+    assert any("密钥变量数(数词" in e for e in errs), errs
+    errs = _mutated_copy(tmp_path, "MANUAL.zh-CN.md", "五个源密钥", "六个源密钥")
+    assert any("密钥变量数(数词" in e for e in errs), errs
+
+
+def test_new_leg_glossary_registered_total_red(tmp_path):
+    """评审 P2-2 增补腿:GLOSSARY 源底座条活计数(登记总数口径,含私有源)。"""
+    errs = _mutated_copy(tmp_path, "GLOSSARY.md", r"全部 61 个源", "全部 60 个源")
+    assert any("登记源总数" in e for e in errs), errs
