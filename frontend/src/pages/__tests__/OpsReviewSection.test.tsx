@@ -85,7 +85,8 @@ const rowOf = async (frag: string) => {
 };
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  // #304-⑦:clear 只清调用史不剥实现,换 reset;夹具在下方补播,行为不变
+  vi.resetAllMocks();
   // 只伪 Date(相对时间/稍后 wake_at 计算确定性),定时器保真——
   // testing-library 的 waitFor 依赖真定时器,全量伪时会卡死异步查询
   vi.useFakeTimers({ toFake: ["Date"] });

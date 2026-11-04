@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { screen, waitFor, fireEvent } from "@testing-library/react";
 import LookupView from "../LookupView";
 import { renderWithI18n } from "../test/i18nTestUtils";
@@ -14,6 +14,9 @@ vi.mock("../api", async () => {
     uploadFileStream: vi.fn(),
   };
 });
+
+// #304-⑦:显式复位——工厂是裸 vi.fn,各用例自种实现,reset 只断跨用例泄漏链
+afterEach(() => { vi.resetAllMocks(); });
 
 function renderLookup() {
   return renderWithI18n(<LookupView />);

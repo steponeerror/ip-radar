@@ -9,8 +9,9 @@ import { getDbStatus, type DbStatus } from "../../api";
 // 静态冷启动提示:标题+提示语,消除依赖任务上下文的进度/重试/失败去抖
 // (数据不可得;清除由 WarmingProvider 的 db-status 轮询驱动,~5s 延迟)。
 
-// fake timers 若因断言失败泄漏(afterEach 兜底恢复,防污染后续测试)
-afterEach(() => { vi.useRealTimers(); });
+// fake timers 若因断言失败泄漏(afterEach 兜底恢复,防污染后续测试);
+// #304-⑦:顺带显式复位 mock(工厂是裸 vi.fn,各用例自种实现,reset 不改行为)
+afterEach(() => { vi.useRealTimers(); vi.resetAllMocks(); });
 
 vi.mock("../../api", async () => {
   const real = await vi.importActual<typeof import("../../api")>("../../api");
