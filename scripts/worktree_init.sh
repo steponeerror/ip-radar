@@ -23,16 +23,24 @@
 # 本会话的既有登记在接线开始前即拒(--force 覆盖)。owner=$PI_SESSION_ID(有则),
 # 否则 hostname:PID——后者每次运行必变,无 PI_SESSION_ID 的环境重跑会被自己的旧
 # 登记拦下(--force 过;--release 可收尾)。
+# 自验(2026-11-04):登记流 E2E 于临时 scratch worktree 实跑——全量接线登记/同会话
+# 重入放行/外会话接线前拒/--force 翻 owner/无 PI_SESSION_ID 记 hostname:PID/坏表
+# 拒盲写/--list/--release(含目标目录已删的按路径释放);跑后零残留(worktree+分支+表全清)。
 set -euo pipefail
 
 usage() {
   cat <<'EOF'
 用法: scripts/worktree_init.sh [TARGET_DIR] [--no-frontend] [--no-backend] [--force]
+       scripts/worktree_init.sh --list
+       scripts/worktree_init.sh --release <path>
   TARGET_DIR     目标 worktree 根目录,默认当前目录。必须在 worktree 根上调用
                  (子目录会报错);脚本只写 TARGET_DIR 内的路径
   --no-frontend  跳过 frontend 接线(npm ci)
   --no-backend   跳过 backend 接线(venv + pip install)
   --force        目标已登记且 owner 非本会话时强制接线并改写登记
+  --list         打印在用 worktree 登记表(主检出 .worktrees/registry.json)
+  --release <path> 从登记表移除一条(收尾清理;path 用登记时的绝对路径,
+                 目标目录已删也能按路径释放)
 
 步骤:
   1. backend:  python3 -m venv backend/.venv(已存在跳过)
@@ -51,6 +59,8 @@ EOF
 }
 
 TARGET=
+MODE=init
+RELEASE_PATH=
 NO_FRONTEND=0
 NO_BACKEND=0
 FORCE=0
@@ -59,8 +69,13 @@ while [ $# -gt 0 ]; do
     --no-frontend) NO_FRONTEND=1; shift ;;
     --no-backend)  NO_BACKEND=1; shift ;;
     --force)       FORCE=1; shift ;;
+    --list)        MODE=list; shift ;;
+    --release)     MODE=release
+                   [ $# -ge 2 ] || { echo "worktree_init: --release 需要一个路径参数" >&2; exit 2; }
+                   RELEASE_PATH=$2; shift 2 ;;
     -h|--help)     usage; exit 0 ;;
-    *) if [ -n "$TARGET" ]; then usage >&2; exit 2; fi; TARGET=$1; shift ;;
+    *) if [ "$MODE" != init ] || [ -n "$TARGET" ]; then usage >&2; exit 2; fi
+       TARGET=$1; shift ;;
   esac
 done
 [ -n "$TARGET" ] || TARGET=$PWD
@@ -79,6 +94,8 @@ main_checkout_of() {
 #   check <target> <owner>          被外会话占用→stdout "owner|started_at" rc=1;
 #                                   表损坏/结构不对 rc=2(拒绝盲写,证据不灭失)
 #   set <target> <branch> <owner>   写登记(os.replace 原子替换,防并行会话撕裂读)
+#   del <target>                     移除登记(不在表 rc=1);表空连文件删,不留空壳
+#   list                             逐行 path/branch/owner/started_at(表空提示)
 registry_ctl() {
   python3 - "$@" <<'PYEOF'
 import json, os, sys
@@ -119,6 +136,23 @@ elif op == "set":
     }
     reg.parent.mkdir(parents=True, exist_ok=True)
     save(doc)
+elif op == "del":
+    doc = load()
+    if sys.argv[3] not in doc["entries"]:
+        print(f"不在登记表:{sys.argv[3]}", file=sys.stderr)
+        sys.exit(1)
+    del doc["entries"][sys.argv[3]]
+    if doc["entries"]:
+        save(doc)
+    else:
+        reg.unlink()  # 表空连文件删,不留空壳
+elif op == "list":
+    entries = load()["entries"]
+    if not entries:
+        print("(登记表空)")
+    for path in sorted(entries):
+        e = entries[path]
+        print(f"{path}\t{e.get('branch', '?')}\t{e.get('owner', '?')}\t{e.get('started_at', '?')}")
 else:
     print(f"未知子命令:{op}", file=sys.stderr)
     sys.exit(2)
@@ -127,6 +161,24 @@ PYEOF
 
 # 本会话身份:PI_SESSION_ID 有则用之;否则 hostname:PID(跨次必变,见头注释)
 if [ -n "${PI_SESSION_ID:-}" ]; then OWNER=$PI_SESSION_ID; else OWNER="$(hostname):$$"; fi
+
+# --- --list / --release:不接线,只动登记表;在任何仓内目录可调用 ---
+if [ "$MODE" != init ]; then
+  git rev-parse --git-common-dir >/dev/null 2>&1 \
+    || die "--list/--release 须在仓库内调用(靠 git 定位主检出)"
+  REGISTRY=$(main_checkout_of "$PWD")/.worktrees/registry.json
+  if [ "$MODE" = list ]; then
+    registry_ctl "$REGISTRY" list
+    exit 0
+  fi
+  # release:目标目录可能已被 git worktree remove 删掉 → 存在则 cd 归一,
+  # 不存在则 realpath 归一,两种部与登记键同形(绝对物理路径)
+  if [ -d "$RELEASE_PATH" ]; then RELEASE_PATH=$(cd "$RELEASE_PATH" && pwd); fi
+  RELEASE_PATH=$(python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$RELEASE_PATH")
+  registry_ctl "$REGISTRY" del "$RELEASE_PATH"
+  echo "==> [registry] 已释放:$RELEASE_PATH"
+  exit 0
+fi
 
 # --- 目标校验:必须是 git worktree 的根目录 ---
 TARGET=$(cd "$TARGET" && pwd)   # 归一(尾斜杠/相对路径形态,评审 P2-1)
@@ -149,7 +201,7 @@ if [ "$FORCE" -eq 0 ]; then
   check_rc=0; foreign=$(registry_ctl "$REGISTRY" check "$TARGET" "$OWNER") || check_rc=$?
   case "$check_rc" in
     0) ;;
-    1) die "$TARGET 已被其他会话占用(owner=${foreign%%|*},登记于 ${foreign#*|})。确认对方已收尾后 --force 覆盖" ;;
+    1) die "$TARGET 已被其他会话占用(owner=${foreign%%|*},登记于 ${foreign#*|})。确认对方已收尾后 --force 覆盖,或 scripts/worktree_init.sh --release $TARGET" ;;
     2) die "登记表异常,先人工核 $REGISTRY 再来" ;;
     *) die "登记表检查失败(rc=$check_rc)" ;;
   esac
@@ -205,3 +257,4 @@ echo "==> [registry] 已登记在用:owner=$OWNER,branch=$BRANCH"
 echo "==> 完成。聚焦门验证(复制执行):"
 echo "    cd $TARGET/backend  && .venv/bin/python -m pytest tests/test_ops_config.py -q"
 echo "    cd $TARGET/frontend && npm test -- src/__tests__/api.test.ts"
+echo "    收尾清理:scripts/worktree_init.sh --release $TARGET"
