@@ -6,6 +6,8 @@
 // 零依赖纯 node(容器/CI 自带 node 即可跑);真源=ops/agent/STANDARD.md;
 // 本核对器自身挂 selftest 链(selftest.sh §13)。挂点路径一律主仓相对——
 // 嵌套 docs 仓文件不可作门挂点(CI checkout 无 docs/,判例=test_precedent_schema.py skip 形)。
+// 附腿(#304④):根目录 AGENTS.md(本地不入库,CI checkout 无此文件)在场时,
+// 校验其中反引号内引用的仓内路径真实存在;缺席时该腿跳过(打印一行,不算账)。
 
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -233,6 +235,32 @@ export function checkStandard(text, opts = {}) {
   };
 }
 
+// ---- #304④:根 AGENTS.md 引用路径存在性机检腿 ----
+// 抽取面宁少算:只认「≥2 段 + 纯路径字符」的反引号 span。URL(含 ://)、~ 家目录、
+// 绝对路径、带空格/通配符的整串命令、单段目录引用(`dev/`/`reports/` 仓内仓外语义
+// 两可)一律不认——宁少算不误伤;实测主检出 AGENTS.md 抽得 8 引用全在场(2026-11-04)。
+const AGENT_PATH_RE = /^[A-Za-z0-9._@-]+(?:\/[A-Za-z0-9._@-]+)+\/?$/;
+
+export function extractAgentPathRefs(text) {
+  const spans = [];
+  for (const m of text.matchAll(/`([^`\n]+)`/g)) spans.push(m[1]);
+  return [...new Set(spans.filter((s) => AGENT_PATH_RE.test(s)))];
+}
+
+export function checkAgentsRefs(text, opts = {}) {
+  const exists = opts.exists ?? existsSync;
+  const results = [];
+  const refs = extractAgentPathRefs(text);
+  for (const p of refs) {
+    if (!exists(p)) {
+      results.push({ ok: false, code: "agents-ref", msg: `AGENTS.md 引用路径不存在:${p}(悬空引用——改文或改路径)` });
+    } else {
+      results.push({ ok: true, code: "agents-ref", msg: `AGENTS.md 引用路径在场:${p}` });
+    }
+  }
+  return { results, counts: { refs: refs.length }, exitCode: results.some((r) => !r.ok) ? 1 : 0 };
+}
+
 // ---- CLI:核对真源 STANDARD.md ----
 function main() {
   const argv = process.argv.slice(2);
@@ -254,11 +282,30 @@ function main() {
     console.log(`${res.ok ? "STDCHK OK  " : "STDCHK FAIL"} [${res.code}] ${res.msg}`);
   }
   const { articles, goldens, advice, mounts, primitives, statusCount } = r.counts;
+  let totalOk = r.results.length - r.results.filter((x) => !x.ok).length;
+  let totalFail = r.results.filter((x) => !x.ok).length;
+  let agentsSeg;
+  // #304④ 附腿:根 AGENTS.md 在场才核对(本地不入库件,CI checkout 无此文件);缺席即跳过
+  const agentsPath = path.join(rootArg, "AGENTS.md");
+  if (existsSync(agentsPath)) {
+    const ar = checkAgentsRefs(readFileSync(agentsPath, "utf8"), {
+      exists: (p) => existsSync(path.join(rootArg, p)),
+    });
+    for (const res of ar.results) {
+      console.log(`${res.ok ? "STDCHK OK  " : "STDCHK FAIL"} [${res.code}] ${res.msg}`);
+    }
+    totalOk += ar.results.length - ar.results.filter((x) => !x.ok).length;
+    totalFail += ar.results.filter((x) => !x.ok).length;
+    agentsSeg = ` AGENTS引用=${ar.counts.refs}`;
+  } else {
+    console.log("STDCHK OK   [agents-ref] 根 AGENTS.md 不在场,引用路径腿跳过(#304④)");
+    agentsSeg = " AGENTS引用=跳过";
+  }
   console.log(
-    `standard-check: OK=${r.results.length - r.results.filter((x) => !x.ok).length} FAIL=${r.results.filter((x) => !x.ok).length} ` +
-      `条文=${articles} 标准答案=${goldens} 建议=${advice} 挂点=${mounts} 原语=${primitives}(已有${statusCount["已有"] ?? 0}/半缺${statusCount["半缺"] ?? 0}/缺${statusCount["缺"] ?? 0})`,
+    `standard-check: OK=${totalOk} FAIL=${totalFail} ` +
+      `条文=${articles} 标准答案=${goldens} 建议=${advice} 挂点=${mounts} 原语=${primitives}(已有${statusCount["已有"] ?? 0}/半缺${statusCount["半缺"] ?? 0}/缺${statusCount["缺"] ?? 0})${agentsSeg}`,
   );
-  process.exit(r.exitCode);
+  process.exit(totalFail > 0 ? 1 : 0);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

@@ -105,9 +105,33 @@ jobs:
           python -m pytest ../scripts/test_check_source_counts.py -q
       - name: Bit-identity smoke (R3-F2①) — bench_lookup snapshot/compare round-trip
         run: ../scripts/ci_bitidentity_smoke.sh
+      # #304③:全量单进程参考跑 tee 留档——下一少一非门控步从 pytest 输出提取 SKIP 计数
+      # 打进 job 摘要(docs 嵌套仓缺席的静默 skip 判例形=tests/ 根 test_precedent_schema.py
+      # 模块级 skip,只被本全量跑碰到,门控两步不碰它,故只 tee 本步);pipefail 保
+      # pytest 退出码照常呈现,continue-on-error 语义不变(不改变现有门控判定)。
       - name: Full suite in one process (reference only — flake tracking, do not gate)
-        run: python -m pytest tests -q
+        run: set -o pipefail && python -m pytest tests -q 2>&1 | tee "$RUNNER_TEMP/pytest-fullsuite.log"
         continue-on-error: true
+      # #304③:SKIP 计数可见性件——本身不持门(if: always + grep 宽容,无输出也不红);
+      # 计数含全量跑内一切 skip(不止 docs 缺席),汇总行原文并列供人判成因。
+      - name: Pytest SKIP count to job summary (docs-repo absence visibility, not a gate)
+        if: always()
+        run: |
+          log="$RUNNER_TEMP/pytest-fullsuite.log"
+          {
+            echo "## Pytest SKIP 计数(docs 嵌套仓缺席可见性;不持门)"
+            echo
+            if [ -f "$log" ]; then
+              skipped="$(grep -oE '[0-9]+ skipped' "$log" | awk '{s+=$1} END{print s+0}')"
+              echo "- 全量单进程参考跑 skipped 合计: ${skipped}"
+              echo "- pytest 汇总行原文:"
+              echo '```'
+              grep -E '[0-9]+ (passed|failed|error|skipped)' "$log" || echo "(未捕获到 pytest 汇总行)"
+              echo '```'
+            else
+              echo "- (全量参考步未运行或未留档,无可计)"
+            fi
+          } | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Dependency audit (pip-audit)
         run: |
           pip install pip-audit
