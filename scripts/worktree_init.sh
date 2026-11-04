@@ -16,15 +16,23 @@
 # 管理器自身行为,不算越界。幂等:venv/node_modules 已存在即跳过;pip install
 # 重复跑是 no-op(Requirement already satisfied)。
 # 自验(2026-11-03):bash -n;rb-b-scratch 全新态跑通 + 双聚焦门绿;重复跑幂等跳过。
+# 在用登记表(#299 清单锁,2026-11-04):接线成功后把 {path, branch, started_at,
+# owner} 登记进主检出 .worktrees/registry.json(本地件,.gitignore 的 .worktrees/
+# 兜底不入 git)。为什么:2026-10 起多次发生集成分支 worktree 被并行会话当草稿扫掉/
+# 抢占(#299 判例)——先登记后用,把「我以为没人用」变成跨会话可查的事实;owner 非
+# 本会话的既有登记在接线开始前即拒(--force 覆盖)。owner=$PI_SESSION_ID(有则),
+# 否则 hostname:PID——后者每次运行必变,无 PI_SESSION_ID 的环境重跑会被自己的旧
+# 登记拦下(--force 过;--release 可收尾)。
 set -euo pipefail
 
 usage() {
   cat <<'EOF'
-用法: scripts/worktree_init.sh [TARGET_DIR] [--no-frontend] [--no-backend]
+用法: scripts/worktree_init.sh [TARGET_DIR] [--no-frontend] [--no-backend] [--force]
   TARGET_DIR     目标 worktree 根目录,默认当前目录。必须在 worktree 根上调用
                  (子目录会报错);脚本只写 TARGET_DIR 内的路径
   --no-frontend  跳过 frontend 接线(npm ci)
   --no-backend   跳过 backend 接线(venv + pip install)
+  --force        目标已登记且 owner 非本会话时强制接线并改写登记
 
 步骤:
   1. backend:  python3 -m venv backend/.venv(已存在跳过)
@@ -33,6 +41,8 @@ usage() {
                强制重装:rm -rf frontend/node_modules 后再跑)
   3. docs:     主检出有嵌套 docs/ 而目标没有 → 符号链接 docs -> 主检出 docs
                (让 test_precedent_schema.py 真跑而非跳过)
+  4. registry: 接线全部成功后登记在用(主检出 .worktrees/registry.json,
+               #299 清单锁);owner 非本会话的既有登记在接线开始前拒绝
 
 跑完后的聚焦门(手动执行验证):
   cd <TARGET>/backend  && .venv/bin/python -m pytest tests/test_ops_config.py -q
@@ -43,24 +53,85 @@ EOF
 TARGET=
 NO_FRONTEND=0
 NO_BACKEND=0
-for arg in "$@"; do
-  case "$arg" in
-    --no-frontend) NO_FRONTEND=1 ;;
-    --no-backend)  NO_BACKEND=1 ;;
+FORCE=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --no-frontend) NO_FRONTEND=1; shift ;;
+    --no-backend)  NO_BACKEND=1; shift ;;
+    --force)       FORCE=1; shift ;;
     -h|--help)     usage; exit 0 ;;
-    *) if [ -n "$TARGET" ]; then usage >&2; exit 2; fi; TARGET=$arg ;;
+    *) if [ -n "$TARGET" ]; then usage >&2; exit 2; fi; TARGET=$1; shift ;;
   esac
 done
 [ -n "$TARGET" ] || TARGET=$PWD
 
 die() { echo "worktree_init: 错误:$*" >&2; exit 1; }
 
+# 主检出定位(供 docs 链接防自指 2026-11-03 事故判例 + 登记表落位;dir 须在 git 工作树内)
+main_checkout_of() {
+  local common
+  common=$(git -C "$1" rev-parse --git-common-dir)
+  case "$common" in /*) ;; *) common="$1/$common" ;; esac
+  (cd "$(dirname "$common")" && pwd)
+}
+
+# 登记表读写(json 用 python3,先例 monthly_eval.sh write_leg_status):
+#   check <target> <owner>          被外会话占用→stdout "owner|started_at" rc=1;
+#                                   表损坏/结构不对 rc=2(拒绝盲写,证据不灭失)
+#   set <target> <branch> <owner>   写登记(os.replace 原子替换,防并行会话撕裂读)
+registry_ctl() {
+  python3 - "$@" <<'PYEOF'
+import json, os, sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+reg, op = Path(sys.argv[1]), sys.argv[2]
+
+def load():
+    if not reg.exists():
+        return {"schema": "worktree-registry/1", "entries": {}}
+    try:
+        doc = json.loads(reg.read_text(encoding="utf-8"))
+    except ValueError as exc:
+        print(f"登记表损坏,拒绝盲写({reg}):{exc}", file=sys.stderr)
+        sys.exit(2)
+    if not isinstance(doc, dict) or not isinstance(doc.get("entries"), dict):
+        print(f"登记表结构不对,拒绝盲写({reg})", file=sys.stderr)
+        sys.exit(2)
+    return doc
+
+def save(doc):
+    tmp = reg.with_name(reg.name + ".tmp")
+    tmp.write_text(json.dumps(doc, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    os.replace(tmp, reg)
+
+if op == "check":
+    e = load()["entries"].get(sys.argv[3])
+    if e and e.get("owner") != sys.argv[4]:
+        print(f"{e.get('owner', '?')}|{e.get('started_at', '?')}")
+        sys.exit(1)
+elif op == "set":
+    doc = load()
+    doc["entries"][sys.argv[3]] = {
+        "branch": sys.argv[4],
+        "started_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "owner": sys.argv[5],
+    }
+    reg.parent.mkdir(parents=True, exist_ok=True)
+    save(doc)
+else:
+    print(f"未知子命令:{op}", file=sys.stderr)
+    sys.exit(2)
+PYEOF
+}
+
+# 本会话身份:PI_SESSION_ID 有则用之;否则 hostname:PID(跨次必变,见头注释)
+if [ -n "${PI_SESSION_ID:-}" ]; then OWNER=$PI_SESSION_ID; else OWNER="$(hostname):$$"; fi
+
 # --- 目标校验:必须是 git worktree 的根目录 ---
 TARGET=$(cd "$TARGET" && pwd)   # 归一(尾斜杠/相对路径形态,评审 P2-1)
-# 主检出定位(供 docs 链接防自指,2026-11-03 事故判例)
-_COMMON=$(git -C "$TARGET" rev-parse --git-common-dir)
-case "$_COMMON" in /*) ;; *) _COMMON="$TARGET/$_COMMON" ;; esac
-MAIN_CHECKOUT=$(cd "$(dirname "$_COMMON")" && pwd)
+# 主检出定位(供 docs 链接防自指 2026-11-03 事故判例 + 登记表落位)
+MAIN_CHECKOUT=$(main_checkout_of "$TARGET")
 # 防自指(2026-11-03 事故判例):目标是主检出时,后续 docs 链接会指向自身,
 # 把主检出的真 docs 嵌套仓变成自环链接 → 在任何接线动作之前拒绝
 if [ "$TARGET" = "$MAIN_CHECKOUT" ]; then
@@ -71,6 +142,18 @@ git -C "$TARGET" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
 TOP=$(git -C "$TARGET" rev-parse --show-toplevel)
 [ "$TOP" = "$TARGET" ] || die "请在 worktree 根目录调用(当前 toplevel:$TOP)"
 echo "==> 目标 worktree:$TARGET"
+REGISTRY=$MAIN_CHECKOUT/.worktrees/registry.json
+
+# --- 在用检查(#299 清单锁):外会话占用在接线开始前就拒,省下 venv/npm 的几分钟 ---
+if [ "$FORCE" -eq 0 ]; then
+  check_rc=0; foreign=$(registry_ctl "$REGISTRY" check "$TARGET" "$OWNER") || check_rc=$?
+  case "$check_rc" in
+    0) ;;
+    1) die "$TARGET 已被其他会话占用(owner=${foreign%%|*},登记于 ${foreign#*|})。确认对方已收尾后 --force 覆盖" ;;
+    2) die "登记表异常,先人工核 $REGISTRY 再来" ;;
+    *) die "登记表检查失败(rc=$check_rc)" ;;
+  esac
+fi
 
 if [ "$NO_BACKEND" -eq 0 ]; then
   echo "==> [backend] 接线 .venv + 依赖"
@@ -113,6 +196,11 @@ else
     echo "    主检出($MAIN)无 docs/,跳过(test_precedent_schema.py 将跳过)"
   fi
 fi
+
+# 接线全部成功才登记(#299 清单锁):中途失败 set -e 早退,不会留下假登记
+BRANCH=$(git -C "$TARGET" rev-parse --abbrev-ref HEAD)
+registry_ctl "$REGISTRY" set "$TARGET" "$BRANCH" "$OWNER"
+echo "==> [registry] 已登记在用:owner=$OWNER,branch=$BRANCH"
 
 echo "==> 完成。聚焦门验证(复制执行):"
 echo "    cd $TARGET/backend  && .venv/bin/python -m pytest tests/test_ops_config.py -q"
