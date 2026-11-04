@@ -146,7 +146,7 @@ After sign-in you get three tabs (plus a floating task-progress pill that mirror
 
 ### Sources (default tab)
 
-![The admin Sources tab: 60 sources, health, r/consistency (θ) side by side, toggles](assets/manual/04-admin-sources.png)
+![The admin Sources tab: 61 sources (60 public + 1 private honeypot), health, r/consistency (θ) side by side, toggles](assets/manual/04-admin-sources.png)
 
 Every source in one list, grouped into **Geo & ASN data / Threat intel / Asset attributes**, with columns:
 

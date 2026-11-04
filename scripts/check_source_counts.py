@@ -228,8 +228,9 @@ _CHECKS: tuple[tuple[str, re.Pattern, tuple[str, ...], str], ...] = (
      ("keyed", "key_envs"), "带钥源数/密钥变量数(数词)"),
     ("MANUAL.md", re.compile(r"the ([a-z]+) source keys"), ("key_envs",),
      "密钥变量数(数词,评审 P2-1)"),
-    ("MANUAL.md", re.compile(r": (\d+) sources, health"), ("public_total",),
-     "公开源总数(截图 alt)"),
+    ("MANUAL.md", re.compile(r"tab: (\d+) sources"), ("registered",),
+     "注册源总数(截图 alt;2026-11-03 修订:Sources 页显示的是注册口径——"
+     "公开 + eval_excluded 蜜罐,与 §首启 53-of-60 公开口径并存,ADR 0018 修订)"),
     ("MANUAL.md", re.compile(r"The (\d+) shipped sources"), ("public_total",),
      "公开源总数"),
     ("MANUAL.md", re.compile(r"The ([a-z]+) keyed feeds"), ("keyed",),
@@ -243,8 +244,8 @@ _CHECKS: tuple[tuple[str, re.Pattern, tuple[str, ...], str], ...] = (
      "密钥变量数"),
     ("MANUAL.zh-CN.md", re.compile(r"([0-9一二三四五六七八九十]+)\s*个源密钥"),
      ("key_envs",), "密钥变量数(数词,评审 P2-1)"),
-    ("MANUAL.zh-CN.md", re.compile(r"tab[:：](\d+) 源"), ("public_total",),
-     "公开源总数(截图 alt)"),
+    ("MANUAL.zh-CN.md", re.compile(r"tab[:：](\d+) 源"), ("registered",),
+     "注册源总数(截图 alt;2026-11-03 口径同英文版修订)"),
     ("MANUAL.zh-CN.md", re.compile(r"自带的 (\d+) 个源"), ("public_total",),
      "公开源总数"),
     # CONTEXT.md(词汇表「token 源」条的活计数)
