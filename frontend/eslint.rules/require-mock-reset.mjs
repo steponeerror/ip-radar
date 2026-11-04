@@ -2,6 +2,9 @@
 // mockResolvedValue/mockImplementation 及未消费的 Once 队列都会带进后续用例。
 // 语义:测试文件出现 vi.mock( 而全文件无 mockReset/mockRestore/
 // vi.resetAllMocks/vi.restoreAllMocks 任一调用 → 报在首处 vi.mock。
+// 粒度:文件内任意复位调用即满足,非按 mock 精确匹配(已知假阴性形态,
+// 活例 AdminPage.test.tsx:39——mockFetch.mockReset 放行全文件,同文件
+// readOpsPrecedent 等其余 vi.mock 未复位不报;按 mock 精确匹配需另立规则)。
 // clearAllMocks/mockClear 只清调用史、不剥实现,不算复位,故不采认;
 // 工厂内联默认值的存量文件在 eslint.config.js 豁免区列名写理由,不再新增。
 const ALL_RESET_CALLEES = new Set(["vi.resetAllMocks", "vi.restoreAllMocks"]);

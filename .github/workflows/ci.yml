@@ -97,12 +97,13 @@ jobs:
       # 源数字闸(ADR 0018 机器比对腿):登记表(_sources/ 目录自动发现 + _tokens.py
       # MANAGED)派生 公开源/免钥/带钥/密钥变量 四数,与 README(双语)/MANUAL(双语)/
       # CONTEXT/GLOSSARY 文档宣称数比对,不符即红。stdlib-only,秒级,零新依赖;
-      # 单测 scripts/test_check_source_counts.py 同步入闸(评审 P2-3:防检查器被改坏
-      # 成恒绿而 CI 无感;取代 test_honyport_aggregate.py 纯手跑先例)。
+      # 单测整目录入闸 pytest ../scripts(评审 P2-3:防检查器被改坏成恒绿而 CI 无感;
+      # #304② 起 probe-egress 单测与 honyport acceptance/aggregate 两件随目录收进闸,
+      # 不再点名单文件)。
       - name: Source-count doc gate (ADR 0018)
         run: |
           python ../scripts/check_source_counts.py
-          python -m pytest ../scripts/test_check_source_counts.py -q
+          python -m pytest ../scripts -q
       - name: Bit-identity smoke (R3-F2①) — bench_lookup snapshot/compare round-trip
         run: ../scripts/ci_bitidentity_smoke.sh
       # #304③:全量单进程参考跑 tee 留档——下一少一非门控步从 pytest 输出提取 SKIP 计数

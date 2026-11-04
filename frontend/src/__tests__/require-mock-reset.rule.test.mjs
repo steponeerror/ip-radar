@@ -2,6 +2,9 @@
 // 规则只查调用形态,不涉 TS 语法)。本文件是 .mjs:eslint 与被测规则均无仓内类型,
 // 进 TS 编译门只会逼出 declare-module 妥协,故按 JS 测 JS;vitest include 已含 mjs 腿。
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Linter } from "eslint";
 import rule from "../../eslint.rules/require-mock-reset.mjs";
 
@@ -66,5 +69,21 @@ describe("require-mock-reset(#304-⑦)", () => {
 
   it("注释里提到 mockReset(无真实调用)→ 仍报:按 AST 调用查,注释不算", () => {
     expect(lint(withViMock(`// 这里应该 mockReset\n`))).toHaveLength(1);
+  });
+
+  it("eslint.config.js 豁免区文件数 ≤5(豁免清单只进不出纪律的机检背书,tri-fe 评审 P2)", () => {
+    // 读真源配置,数唯一把规则关 'off' 的块里 files: [...] 的 src/ 条目;
+    // 超 5 = 有新文件进了豁免区,须先过裁决。>0 是激活钉:配置改引号/改写法
+    // 导致零命中时,静默恒绿与真零豁免区分不开(同 check_source_counts 激活钉思想)。
+    // 定位姿势同 warmReasonNail:fileURLToPath(vitest 下 import.meta.url 非 file: 协议)
+    const cfgPath = join(dirname(fileURLToPath(import.meta.url)), "../../eslint.config.js");
+    const cfg = readFileSync(cfgPath, "utf8");
+    const offAt = cfg.indexOf("'ipradar/require-mock-reset': 'off'");
+    expect(offAt).toBeGreaterThan(-1);
+    const filesAt = cfg.lastIndexOf("files: [", offAt);
+    const zone = cfg.slice(filesAt, cfg.indexOf("]", filesAt));
+    const exempted = zone.match(/'src\/[^']+'/g) ?? [];
+    expect(exempted.length).toBeGreaterThan(0);
+    expect(exempted.length).toBeLessThanOrEqual(5);
   });
 });

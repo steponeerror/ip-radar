@@ -23,6 +23,9 @@ vi.mock("../../api", async () => {
 
 const PKG_NAME = "2026-10-20-discover-1030.md";
 
+// tri-fe 评审 P2:两处补播的判例全文逐字重复,提为文件内共享常量
+const PRECEDENT_TEXT = "# 判例:blocklist-de-legit\n\nid: 2026-10-18-blocklist-de-legit\n";
+
 const PKG_TEXT = [
   "# 裁决包",
   "",
@@ -89,7 +92,7 @@ describe("OpsPackagesSection — list → detail", () => {
   });
 
   it("detail shows the report verbatim (evidence call_id+field=value / trace) with precedent refs clickable", async () => {
-    vi.mocked(readOpsPrecedent).mockResolvedValue("# 判例:blocklist-de-legit\n\nid: 2026-10-18-blocklist-de-legit\n");
+    vi.mocked(readOpsPrecedent).mockResolvedValue(PRECEDENT_TEXT);
     renderSection();
     await openDetail();
     // 证据三元组(call_id:field=value)与 trace 全文在场(逐字)
@@ -160,7 +163,7 @@ describe("OpsPackagesSection — 旧包档案化(票 #156,只读)", () => {
     renderSection();
     await openDetail();
     // #304-⑦:此前依赖上一用例泄漏的 readOpsPrecedent 实现(reset 后断链),显式补播
-    vi.mocked(readOpsPrecedent).mockResolvedValue("# 判例:blocklist-de-legit\n\nid: 2026-10-18-blocklist-de-legit\n");
+    vi.mocked(readOpsPrecedent).mockResolvedValue(PRECEDENT_TEXT);
     fireEvent.click(screen.getByRole("button", { name: "2026-10-18-blocklist-de-legit.md" }));
     await screen.findByText(/# 判例:blocklist-de-legit/);
     expect(vi.mocked(postOpsRuling)).not.toHaveBeenCalled();

@@ -48,6 +48,12 @@ while [ $# -gt 0 ]; do
         echo "用法错:--timeout 需要一个秒数参数(如 --timeout 15)" >&2
         exit 2
       fi
+      # 数值校验(tri-ci 评审 P2):非数值漏到探测期会变「不可达 rc 0」
+      # (探测件不持门,curl --max-time 拒参被 probe_one 吞掉),须在参数面拦下
+      if ! [[ "$2" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+        echo "用法错:--timeout 须为数值秒数,得到「$2」(见 --help)" >&2
+        exit 2
+      fi
       TIMEOUT_S="$2"
       shift 2
       ;;

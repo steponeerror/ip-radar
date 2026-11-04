@@ -6,7 +6,7 @@
 - --list:默认四通道清单(exa.ai/r.jina.ai/api.github.com/raw.githubusercontent.com,
   事实源=docs 仓 notes 两篇研究注记,见脚本头注)全打印且恰四条;
 - 位置参数追加端点进清单(去重保序),非 http(s) 端点拒收(用法错非零退出);
-- --timeout 缺值拒收;--help 零退出。
+- --timeout 缺值/非数值拒收(非数值若漏到探测期会变「不可达 rc 0」,须在参数面拦下);--help 零退出。
 默认清单被改丢通道时测试红(端点事实钉死,防清单静默缩水)。
 """
 import subprocess
@@ -56,6 +56,15 @@ def test_timeout_requires_value():
     r = run("--list", "--timeout")
     assert r.returncode != 0
     assert "--timeout" in (r.stderr + r.stdout)
+
+
+def test_timeout_non_numeric_is_usage_error_exit_2():
+    # tri-ci 评审 P2:非数值必须在参数面 exit 2——探测件不持门(不可达也 rc 0),
+    # 若漏到探测期,curl --max-time 拒参会被 probe_one 吞成「不可达 rc 0」的假观测
+    r = run("--list", "--timeout", "15s")
+    assert r.returncode == 2
+    assert "--timeout" in (r.stderr + r.stdout)
+    assert "用法错" in (r.stderr + r.stdout)
 
 
 def test_help_exits_zero():
