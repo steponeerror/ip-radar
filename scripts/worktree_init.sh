@@ -19,8 +19,9 @@
 # 在用登记表(#299 清单锁,2026-11-04):接线成功后把 {path, branch, started_at,
 # owner} 登记进主检出 .worktrees/registry.json(本地件,.gitignore 的 .worktrees/
 # 兜底不入 git)。为什么:2026-10 起多次发生集成分支 worktree 被并行会话当草稿扫掉/
-# 抢占(#299 判例)——先登记后用,把「我以为没人用」变成跨会话可查的事实;owner 非
-# 本会话的既有登记在接线开始前即拒(--force 覆盖)。owner=$PI_SESSION_ID(有则),
+# 抢占(#299 判例)——接线前查表、接线成功后登记,把「我以为没人用」变成跨会话可查的事实;owner 非
+# 本会话的既有登记在接线开始前即拒(--force 覆盖)。已知窗口(评审 P2-1,刻意取舍):查表在接线前、登记在成功后,
+# 接线进行中(分钟级 venv/npm)的第二会话仍会漏拦——换「半路失败不留假登记」。owner=$PI_SESSION_ID(有则),
 # 否则 hostname:PID——后者每次运行必变,无 PI_SESSION_ID 的环境重跑会被自己的旧
 # 登记拦下(--force 过;--release 可收尾)。
 # 自验(2026-11-04):登记流 E2E 于临时 scratch worktree 实跑——全量接线登记/同会话
@@ -118,7 +119,8 @@ def load():
     return doc
 
 def save(doc):
-    tmp = reg.with_name(reg.name + ".tmp")
+    # pid 后缀防两会话共用同名 tmp 交错写(评审 P2-2,os.replace 原子性保住,不再产坏表)
+    tmp = reg.with_name(f"{reg.name}.{os.getpid()}.tmp")
     tmp.write_text(json.dumps(doc, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     os.replace(tmp, reg)
 
@@ -172,7 +174,8 @@ if [ "$MODE" != init ]; then
     exit 0
   fi
   # release:目标目录可能已被 git worktree remove 删掉 → 存在则 cd 归一,
-  # 不存在则 realpath 归一,两种部与登记键同形(绝对物理路径)
+  # 不存在则 realpath 归一;登记键也是物理路径(TARGET pwd -P),两处同形
+  [ -n "$TARGET" ] && { echo "worktree-init: 错误:--release 不接目标参数" >&2; usage >&2; exit 2; }
   if [ -d "$RELEASE_PATH" ]; then RELEASE_PATH=$(cd "$RELEASE_PATH" && pwd); fi
   RELEASE_PATH=$(python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$RELEASE_PATH")
   registry_ctl "$REGISTRY" del "$RELEASE_PATH"
@@ -181,7 +184,7 @@ if [ "$MODE" != init ]; then
 fi
 
 # --- 目标校验:必须是 git worktree 的根目录 ---
-TARGET=$(cd "$TARGET" && pwd)   # 归一(尾斜杠/相对路径形态,评审 P2-1)
+TARGET=$(cd "$TARGET" && pwd -P)  # 归一(尾斜杠/相对路径/symlink→物理路径,与 --release 键同形,评审 P2-1/P2-3)
 # 主检出定位(供 docs 链接防自指 2026-11-03 事故判例 + 登记表落位)
 MAIN_CHECKOUT=$(main_checkout_of "$TARGET")
 # 防自指(2026-11-03 事故判例):目标是主检出时,后续 docs 链接会指向自身,
