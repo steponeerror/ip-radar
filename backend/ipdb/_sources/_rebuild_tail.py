@@ -52,7 +52,9 @@ class InfraNoiseGate:
 
 
 def covered_counts(cidr_strs) -> tuple[int, int]:
-    """预扫描覆盖数 v4/v6 分流(#291 收共享;B/C 车道口径)。
+    """预扫描覆盖数 v4/v6 分流(#291 收共享;B/C 车道口径;#310 起五个
+    bespoke 预扫描 rebuild —— tor_exits/abuseipdb/spamhaus/blocklist_de/
+    cn_isp —— 的手抄双 genexp 亦折入此处)。
 
     cidr_strs 须可重复迭代(v4/v6 两遍分流各扫一遍,与原车道两条
     genexp 同内存剖面,零物化;B 传 list、C 传 acc dict)。非法条目由

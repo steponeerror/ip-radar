@@ -50,7 +50,8 @@ class SpamhausSource(IpListSource):
         """重建 LMDB。覆写基类：保留 `;` 后的 SBL 案件编号 → extra.sbl_id
         （基类直接截断丢弃）。"""
         import ipaddress as _ipa
-        from ._lmdb import covered_ip_count, rebuild_dual_family, commit_dual_family
+        from ._lmdb import rebuild_dual_family, commit_dual_family
+        from ._rebuild_tail import covered_counts
         from .._evidence import Evidence
         if not self._path.exists():
             return 0
@@ -83,8 +84,6 @@ class SpamhausSource(IpListSource):
                 ).to_dict()
                 records.append((str(net), [ev]))
                 covered.append(str(net))
-        cov4 = covered_ip_count(c for c in covered if ":" not in c)
-        cov6 = covered_ip_count(
-            (c for c in covered if ":" in c), ip_version=6)
+        cov4, cov6 = covered_counts(covered)
         return commit_dual_family(
             self, records, cov4=cov4, cov6=cov6, progress=progress)
