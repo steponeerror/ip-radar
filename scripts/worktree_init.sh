@@ -34,7 +34,9 @@
 # 矛盾($PWD 默认行使守卫恒真)——修复后于 /tmp scratch 仓复验八形态:纯 --list/
 # 纯 --release 查表与报不在表/<dir> --list 与 <dir> --release 拒 rc 2/无位置参数默认
 # $PWD 验到参数解析层/非 git 仓目标友好报错 rc 1(非 git fatal 128)/坏表(条目值
-# 非对象)--list rc 2 且 init 查表报「登记表异常」不误报占用。
+# 非对象)--list rc 2 且 init 查表报「登记表异常」不误报占用。模式旗标互斥
+# (复审 P2):--release X --list 两序均拒 rc 2(曾静默丢 RELEASE_PATH);--force
+# 等接线修饰旗标与 --list/--release 可共存(无副作用,语义为忽略)。
 set -euo pipefail
 
 usage() {
@@ -78,8 +80,10 @@ while [ $# -gt 0 ]; do
     --no-frontend) NO_FRONTEND=1; shift ;;
     --no-backend)  NO_BACKEND=1; shift ;;
     --force)       FORCE=1; shift ;;
-    --list)        MODE=list; shift ;;
-    --release)     MODE=release
+    --list)        [ "$MODE" = init ] || { usage >&2; exit 2; } # 模式旗标互斥(复审 P2:混用如 --release X --list 曾静默丢 RELEASE_PATH)
+                   MODE=list; shift ;;
+    --release)     [ "$MODE" = init ] || { usage >&2; exit 2; } # 同上:先保证此前未选过模式
+                   MODE=release
                    [ $# -ge 2 ] || { echo "worktree_init: --release 需要一个路径参数" >&2; exit 2; }
                    RELEASE_PATH=$2; shift 2 ;;
     -h|--help)     usage; exit 0 ;;
