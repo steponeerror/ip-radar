@@ -16,15 +16,42 @@
 # 管理器自身行为,不算越界。幂等:venv/node_modules 已存在即跳过;pip install
 # 重复跑是 no-op(Requirement already satisfied)。
 # 自验(2026-11-03):bash -n;rb-b-scratch 全新态跑通 + 双聚焦门绿;重复跑幂等跳过。
+# 在用登记表(#299 清单锁,2026-11-04):接线成功后把 {path, branch, started_at,
+# owner} 登记进主检出 .worktrees/registry.json(本地件,.gitignore 的 .worktrees/
+# 兜底不入 git)。为什么:2026-10 起多次发生集成分支 worktree 被并行会话当草稿扫掉/
+# 抢占(#299 判例)——接线前查表、接线成功后登记,把「我以为没人用」变成跨会话可查的事实;owner 非
+# 本会话的既有登记在接线开始前即拒(--force 覆盖)。已知窗口一(评审 P2-1,刻意取舍):查表在接线前、登记在成功后,
+# 接线进行中(分钟级 venv/npm)的第二会话仍会漏拦——换「半路失败不留假登记」。已知窗口二
+# (评审 P2-2,同样如实入档不实现锁):登记表读写是 load-modify-save、无文件锁——
+# 两会话近同时 set/del 不同目标时后写覆盖先写,先写方的登记静默丢失(该 worktree 回到
+# 未登记态);单人本机多会话下窗口极窄,代价与锁的复杂度相抵,选不 flock。owner=$PI_SESSION_ID(有则),
+# 否则 hostname:PID——后者每次运行必变,无 PI_SESSION_ID 的环境重跑会被自己的旧
+# 登记拦下(--force 过;--release 可收尾)。
+# 自验(2026-11-04):登记流 E2E 于临时 scratch worktree 实跑——全量接线登记/同会话
+# 重入放行/外会话接线前拒/--force 翻 owner/无 PI_SESSION_ID 记 hostname:PID/坏表
+# 拒盲写/--list;跑后零残留(worktree+分支+表全清)。勘误(同日终审 P0):原记录
+# 的「--release(含目标目录已删的按路径释放)」与纯 `--release <path>` 必败的实况
+# 矛盾($PWD 默认行使守卫恒真)——修复后于 /tmp scratch 仓复验八形态:纯 --list/
+# 纯 --release 查表与报不在表/<dir> --list 与 <dir> --release 拒 rc 2/无位置参数默认
+# $PWD 验到参数解析层/非 git 仓目标友好报错 rc 1(非 git fatal 128)/坏表(条目值
+# 非对象)--list rc 2 且 init 查表报「登记表异常」不误报占用。模式旗标互斥
+# (复审 P2):--release X --list 两序均拒 rc 2(曾静默丢 RELEASE_PATH);--force
+# 等接线修饰旗标与 --list/--release 可共存(无副作用,语义为忽略)。
 set -euo pipefail
 
 usage() {
   cat <<'EOF'
-用法: scripts/worktree_init.sh [TARGET_DIR] [--no-frontend] [--no-backend]
+用法: scripts/worktree_init.sh [TARGET_DIR] [--no-frontend] [--no-backend] [--force]
+       scripts/worktree_init.sh --list
+       scripts/worktree_init.sh --release <path>
   TARGET_DIR     目标 worktree 根目录,默认当前目录。必须在 worktree 根上调用
                  (子目录会报错);脚本只写 TARGET_DIR 内的路径
   --no-frontend  跳过 frontend 接线(npm ci)
   --no-backend   跳过 backend 接线(venv + pip install)
+  --force        目标已登记且 owner 非本会话时强制接线并改写登记
+  --list         打印在用 worktree 登记表(主检出 .worktrees/registry.json)
+  --release <path> 从登记表移除一条(收尾清理;path 用登记时的绝对路径,
+                 目标目录已删也能按路径释放)
 
 步骤:
   1. backend:  python3 -m venv backend/.venv(已存在跳过)
@@ -33,6 +60,8 @@ usage() {
                强制重装:rm -rf frontend/node_modules 后再跑)
   3. docs:     主检出有嵌套 docs/ 而目标没有 → 符号链接 docs -> 主检出 docs
                (让 test_precedent_schema.py 真跑而非跳过)
+  4. registry: 接线全部成功后登记在用(主检出 .worktrees/registry.json,
+               #299 清单锁);owner 非本会话的既有登记在接线开始前拒绝
 
 跑完后的聚焦门(手动执行验证):
   cd <TARGET>/backend  && .venv/bin/python -m pytest tests/test_ops_config.py -q
@@ -41,36 +70,170 @@ EOF
 }
 
 TARGET=
+MODE=init
+RELEASE_PATH=
 NO_FRONTEND=0
 NO_BACKEND=0
-for arg in "$@"; do
-  case "$arg" in
-    --no-frontend) NO_FRONTEND=1 ;;
-    --no-backend)  NO_BACKEND=1 ;;
+FORCE=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --no-frontend) NO_FRONTEND=1; shift ;;
+    --no-backend)  NO_BACKEND=1; shift ;;
+    --force)       FORCE=1; shift ;;
+    --list)        [ "$MODE" = init ] || { usage >&2; exit 2; } # 模式旗标互斥(复审 P2:混用如 --release X --list 曾静默丢 RELEASE_PATH)
+                   MODE=list; shift ;;
+    --release)     [ "$MODE" = init ] || { usage >&2; exit 2; } # 同上:先保证此前未选过模式
+                   MODE=release
+                   [ $# -ge 2 ] || { echo "worktree_init: --release 需要一个路径参数" >&2; exit 2; }
+                   RELEASE_PATH=$2; shift 2 ;;
     -h|--help)     usage; exit 0 ;;
-    *) if [ -n "$TARGET" ]; then usage >&2; exit 2; fi; TARGET=$arg ;;
+    *) if [ "$MODE" != init ] || [ -n "$TARGET" ]; then usage >&2; exit 2; fi
+       TARGET=$1; shift ;;
   esac
 done
-[ -n "$TARGET" ] || TARGET=$PWD
 
 die() { echo "worktree_init: 错误:$*" >&2; exit 1; }
 
+# 主检出定位(供 docs 链接防自指 2026-11-03 事故判例 + 登记表落位;dir 须在 git 工作树内)
+main_checkout_of() {
+  local common
+  common=$(git -C "$1" rev-parse --git-common-dir)
+  case "$common" in /*) ;; *) common="$1/$common" ;; esac
+  (cd "$(dirname "$common")" && pwd)
+}
+
+# 登记表读写(json 用 python3,先例 monthly_eval.sh write_leg_status):
+#   check <target> <owner>          被外会话占用→stdout "owner|started_at" rc=1;
+#                                   表损坏/结构不对 rc=2(拒绝盲写,证据不灭失)
+#   set <target> <branch> <owner>   写登记(os.replace 原子替换,防并行会话撕裂读)
+#   del <target>                     移除登记(不在表 rc=1);表空连文件删,不留空壳
+#   list                             逐行 path/branch/owner/started_at(表空提示)
+registry_ctl() {
+  python3 - "$@" <<'PYEOF'
+import json, os, sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+reg, op = Path(sys.argv[1]), sys.argv[2]
+
+def load():
+    if not reg.exists():
+        return {"schema": "worktree-registry/1", "entries": {}}
+    try:
+        doc = json.loads(reg.read_text(encoding="utf-8"))
+    except ValueError as exc:
+        print(f"登记表损坏,拒绝盲写({reg}):{exc}", file=sys.stderr)
+        sys.exit(2)
+    if not isinstance(doc, dict) or not isinstance(doc.get("entries"), dict):
+        print(f"登记表结构不对,拒绝盲写({reg})", file=sys.stderr)
+        sys.exit(2)
+    # entries 逐条校验(评审 R2-P2-3):"/path": "bob" 这类非对象坏值若漏过,
+    # check/list 里 e.get 会 AttributeError 崩成 rc 1,被当「外会话占用」误报
+    if not all(isinstance(v, dict) for v in doc["entries"].values()):
+        print(f"登记表结构不对(条目值非对象),拒绝盲写({reg})", file=sys.stderr)
+        sys.exit(2)
+    return doc
+
+def save(doc):
+    # pid 后缀防两会话共用同名 tmp 交错写(评审 P2-2,os.replace 原子性保住,不再产坏表)
+    tmp = reg.with_name(f"{reg.name}.{os.getpid()}.tmp")
+    tmp.write_text(json.dumps(doc, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    os.replace(tmp, reg)
+
+if op == "check":
+    e = load()["entries"].get(sys.argv[3])
+    if e and e.get("owner") != sys.argv[4]:
+        print(f"{e.get('owner', '?')}|{e.get('started_at', '?')}")
+        sys.exit(1)
+elif op == "set":
+    doc = load()
+    doc["entries"][sys.argv[3]] = {
+        "branch": sys.argv[4],
+        "started_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "owner": sys.argv[5],
+    }
+    reg.parent.mkdir(parents=True, exist_ok=True)
+    save(doc)
+elif op == "del":
+    doc = load()
+    if sys.argv[3] not in doc["entries"]:
+        print(f"不在登记表:{sys.argv[3]}", file=sys.stderr)
+        sys.exit(1)
+    del doc["entries"][sys.argv[3]]
+    if doc["entries"]:
+        save(doc)
+    else:
+        reg.unlink()  # 表空连文件删,不留空壳
+elif op == "list":
+    entries = load()["entries"]
+    if not entries:
+        print("(登记表空)")
+    for path in sorted(entries):
+        e = entries[path]
+        print(f"{path}\t{e.get('branch', '?')}\t{e.get('owner', '?')}\t{e.get('started_at', '?')}")
+else:
+    print(f"未知子命令:{op}", file=sys.stderr)
+    sys.exit(2)
+PYEOF
+}
+
+# 本会话身份:PI_SESSION_ID 有则用之;否则 hostname:PID(跨次必变,见头注释)
+if [ -n "${PI_SESSION_ID:-}" ]; then OWNER=$PI_SESSION_ID; else OWNER="$(hostname):$$"; fi
+
+# --- --list / --release:不接线,只动登记表;在任何仓内目录可调用 ---
+if [ "$MODE" != init ]; then
+  # 守卫覆盖 --list 与 --release 两形态(评审 R2-P2-4),且必须先于下方
+  # TARGET=$PWD 默认行求值——终审 P0:原默认行在本分支前无条件执行,把纯
+  # `--release <path>` 的 TARGET 顶成非空,守卫恒真必拒,--release 100% 不可用
+  [ -n "$TARGET" ] && { echo "worktree_init: 错误:--list/--release 不接目标目录参数" >&2; usage >&2; exit 2; }
+  git rev-parse --git-common-dir >/dev/null 2>&1 \
+    || die "--list/--release 须在仓库内调用(靠 git 定位主检出)"
+  REGISTRY=$(main_checkout_of "$PWD")/.worktrees/registry.json
+  if [ "$MODE" = list ]; then
+    registry_ctl "$REGISTRY" list
+    exit 0
+  fi
+  # release:目标目录可能已被 git worktree remove 删掉 → 存在则 cd 归一,
+  # 不存在则 realpath 归一;登记键也是物理路径(TARGET pwd -P),两处同形
+  if [ -d "$RELEASE_PATH" ]; then RELEASE_PATH=$(cd "$RELEASE_PATH" && pwd); fi
+  RELEASE_PATH=$(python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$RELEASE_PATH")
+  registry_ctl "$REGISTRY" del "$RELEASE_PATH"
+  echo "==> [registry] 已释放:$RELEASE_PATH"
+  exit 0
+fi
+
+# init 默认目标 = 当前目录(须在上方 MODE!=init 块之后:--list/--release 的
+# 「不接目标参数」守卫才不会被 $PWD 默认值顶成恒真,终审 P0 修复)
+[ -n "$TARGET" ] || TARGET=$PWD
+
 # --- 目标校验:必须是 git worktree 的根目录 ---
-TARGET=$(cd "$TARGET" && pwd)   # 归一(尾斜杠/相对路径形态,评审 P2-1)
-# 主检出定位(供 docs 链接防自指,2026-11-03 事故判例)
-_COMMON=$(git -C "$TARGET" rev-parse --git-common-dir)
-case "$_COMMON" in /*) ;; *) _COMMON="$TARGET/$_COMMON" ;; esac
-MAIN_CHECKOUT=$(cd "$(dirname "$_COMMON")" && pwd)
+TARGET=$(cd "$TARGET" && pwd -P)  # 归一(尾斜杠/相对路径/symlink→物理路径,与 --release 键同形,评审 P2-1/P2-3)
+# 非 git 仓目标在此友好拒绝(评审 R2-P2-2):不先拦,下面 main_checkout_of 里
+# 的裸 git 会以原始 fatal rc 128 退出,原序中这句友好 die 永不可达
+git -C "$TARGET" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+  || die "$TARGET 不是 git 工作树(先 git worktree add 再来)"
+# 主检出定位(供 docs 链接防自指 2026-11-03 事故判例 + 登记表落位)
+MAIN_CHECKOUT=$(main_checkout_of "$TARGET")
 # 防自指(2026-11-03 事故判例):目标是主检出时,后续 docs 链接会指向自身,
 # 把主检出的真 docs 嵌套仓变成自环链接 → 在任何接线动作之前拒绝
 if [ "$TARGET" = "$MAIN_CHECKOUT" ]; then
   die "目标就是主检出,本脚本面向新建 worktree;主检出无需接线"
 fi
-git -C "$TARGET" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
-  || die "$TARGET 不是 git 工作树(先 git worktree add 再来)"
 TOP=$(git -C "$TARGET" rev-parse --show-toplevel)
 [ "$TOP" = "$TARGET" ] || die "请在 worktree 根目录调用(当前 toplevel:$TOP)"
 echo "==> 目标 worktree:$TARGET"
+REGISTRY=$MAIN_CHECKOUT/.worktrees/registry.json
+
+# --- 在用检查(#299 清单锁):外会话占用在接线开始前就拒,省下 venv/npm 的几分钟 ---
+if [ "$FORCE" -eq 0 ]; then
+  check_rc=0; foreign=$(registry_ctl "$REGISTRY" check "$TARGET" "$OWNER") || check_rc=$?
+  case "$check_rc" in
+    0) ;;
+    1) die "$TARGET 已被其他会话占用(owner=${foreign%%|*},登记于 ${foreign#*|})。确认对方已收尾后 --force 覆盖,或 scripts/worktree_init.sh --release $TARGET" ;;
+    2) die "登记表异常,先人工核 $REGISTRY 再来" ;;
+    *) die "登记表检查失败(rc=$check_rc)" ;;
+  esac
+fi
 
 if [ "$NO_BACKEND" -eq 0 ]; then
   echo "==> [backend] 接线 .venv + 依赖"
@@ -103,9 +266,9 @@ echo "==> [docs] 判例库符号链接(可选件)"
 if [ -e "$TARGET/docs" ] || [ -L "$TARGET/docs" ]; then
   echo "    目标已有 docs/,跳过"
 else
-  COMMON=$(git -C "$TARGET" rev-parse --git-common-dir)
-  case "$COMMON" in /*) ;; *) COMMON="$TARGET/$COMMON" ;; esac
-  MAIN=$(cd "$(dirname "$COMMON")" && pwd)
+  # 与开头 MAIN_CHECKOUT 同输入(TARGET)同输出(main_checkout_of 的推导,已逐行核对)
+  # ——不重复内联一份(评审 R3-P2-5)
+  MAIN=$MAIN_CHECKOUT
   if [ -d "$MAIN/docs" ]; then
     ln -s "$MAIN/docs" "$TARGET/docs"
     echo "    已链接 docs -> $MAIN/docs(test_precedent_schema.py 将真跑)"
@@ -114,6 +277,12 @@ else
   fi
 fi
 
+# 接线全部成功才登记(#299 清单锁):中途失败 set -e 早退,不会留下假登记
+BRANCH=$(git -C "$TARGET" rev-parse --abbrev-ref HEAD)
+registry_ctl "$REGISTRY" set "$TARGET" "$BRANCH" "$OWNER"
+echo "==> [registry] 已登记在用:owner=$OWNER,branch=$BRANCH"
+
 echo "==> 完成。聚焦门验证(复制执行):"
 echo "    cd $TARGET/backend  && .venv/bin/python -m pytest tests/test_ops_config.py -q"
 echo "    cd $TARGET/frontend && npm test -- src/__tests__/api.test.ts"
+echo "    收尾清理:scripts/worktree_init.sh --release $TARGET"

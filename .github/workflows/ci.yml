@@ -60,6 +60,11 @@ jobs:
       - name: Plain-language gate unit tests
         working-directory: .
         run: node --test scripts/test_plain_language_gate.mjs
+      # #305:bash 工具软提醒扩展单测(curl 外链/apt/npm -g/pip 关键词纯函数,
+      # 内网与 venv 白名单;同上 node ≥22.18 默认剥类型直 import .ts)
+      - name: Bash tool reminder unit tests
+        working-directory: .
+        run: node --test scripts/test_bash_tool_reminder.mjs
 
   backend:
     # needs frontend: SPA fallback tests assert on frontend/dist contents
