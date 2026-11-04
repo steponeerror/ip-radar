@@ -87,6 +87,11 @@ export function isInternalHost(host: string): boolean {
 		// IPv6 字面量:仅环回/未指定/链路本地算内网
 		return host === "::1" || host === "::" || host.startsWith("fe80:");
 	}
+	if (host.startsWith("127.")) {
+		// 点分缩写环回(127.1 = 127.0.0.1):进不了四段正则但绝不公网,
+		// 须在四段判定前短路(评审 R1-P2-2),否则被当外链误提醒
+		return true;
+	}
 	const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
 	if (v4) {
 		// v4[0] 是整串匹配,数字只取捕获组,否则首元变 NaN 全白名单失效
@@ -174,10 +179,16 @@ export function remindBashResult(command: string, content: unknown): TextBlock[]
 	return [{ type: "text", text: buildReminderBlock(hits) }, ...content];
 }
 
-/** notify 单行文本(TUI 通知要短,细节在工具结果头部的提醒块里) */
-function notifyText(hits: BashReminderHit[]): string {
+/** notify 按类拼句(R1-P2-1):只装包命中不带 web-read 句,只抓网页不带装包句 */
+const NOTIFY_SENTENCE: Record<BashReminderKind, string> = {
+	"web-fetch": "读网页优先 web-read",
+	"package-install": "禁擅自装包先问",
+};
+
+export function notifyText(hits: BashReminderHit[]): string {
 	const kinds = [...new Set(hits.map((h) => h.kind))];
-	return `${MARKER} bash 命中软提醒(${kinds.join("+")}):读网页优先 web-read;禁擅自装包先问。详见工具结果头部,命令未被拦。`;
+	const tips = kinds.map((k) => NOTIFY_SENTENCE[k]).join(";");
+	return `${MARKER} bash 命中软提醒(${kinds.join("+")}):${tips}。详见工具结果头部,命令未被拦。`;
 }
 
 function bashCommandOf(input: unknown): string | undefined {

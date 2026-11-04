@@ -3,7 +3,8 @@
  *
  * 覆盖:.pi/extensions/bash-tool-reminder.ts 的关键词匹配(curl/wget 外链
  * + 内网白名单 / apt / npm 全局 / pip venv 判别)、变形容错(大小写/引号/
- * 复合命令)与结果块插投(头部插入/原块保留/幂等)。
+ * 复合命令)、结果块插投(头部插入/原块保留/幂等)、notify 按类拼句与
+ * structuredContent 回带(stub-pi 捕获件回放 handler,终审 R3-P2-4)。
  *
  * 运行:node --test scripts/test_bash_tool_reminder.mjs
  * (node ≥22.18 直接 import .ts;本仓 CI/本地 node v22.23.2)
@@ -16,7 +17,9 @@ import {
 	matchBashReminders,
 	buildReminderBlock,
 	remindBashResult,
+	notifyText,
 } from "../.pi/extensions/bash-tool-reminder.ts";
+import bashToolReminder from "../.pi/extensions/bash-tool-reminder.ts";
 
 const kinds = (cmd) => matchBashReminders(cmd).map((h) => h.kind);
 const evidences = (cmd) => matchBashReminders(cmd).map((h) => h.evidence);
@@ -62,6 +65,7 @@ test("curl 无 URL(--version 等)→ 不命中", () => {
 test("localhost / 127.x / ::1 不算外链", () => {
 	assert.deepEqual(matchBashReminders("curl -s http://localhost:8000/api/version"), []);
 	assert.deepEqual(matchBashReminders("curl -s http://127.0.0.1:8000/api/version"), []);
+	assert.deepEqual(matchBashReminders("curl http://127.1:8000/"), []); // 点分缩写环回 127.1=127.0.0.1(R1-P2-2)
 	assert.deepEqual(matchBashReminders("curl -s http://[::1]:8000/api/version"), []);
 });
 
@@ -74,6 +78,7 @@ test("RFC1918 与链路本地不算外链", () => {
 
 test("172.16-31 边界:172.15/172.32 是公网要命中,172.16-31 不命中", () => {
 	assert.equal(matchBashReminders("curl http://172.15.0.1/").length, 1);
+	assert.equal(matchBashReminders("curl http://172.16.0.1/").length, 0); // 下边界本值(R3-P2-3 补例)
 	assert.equal(matchBashReminders("curl http://172.31.255.1/").length, 0);
 	assert.equal(matchBashReminders("curl http://172.32.0.1/").length, 1);
 });
@@ -173,6 +178,7 @@ test("干净命令零命中", () => {
 
 test("空串/非串输入零命中", () => {
 	assert.deepEqual(matchBashReminders(""), []);
+	assert.deepEqual(matchBashReminders(undefined), []); // undefined 入参直接回 [](R3-P2-2 补例)
 });
 
 // ---- 提醒块与结果插投 ----
@@ -222,4 +228,60 @@ test("remindBashResult:未命中 / 非数组 content → undefined(不硬改形�
 	assert.equal(remindBashResult("ls -la", [{ type: "text", text: "ok" }]), undefined);
 	assert.equal(remindBashResult("curl -s https://example.com", "raw string"), undefined);
 	assert.equal(remindBashResult("curl -s http://localhost:8000/x", [{ type: "text", text: "ok" }]), undefined);
+});
+
+// ---- notify 按类拼句(R1-P2-1)----
+
+test("notifyText:按命中类拼句——仅装包命中不带 web-read 句,仅抓网页不带装包句", () => {
+	const onlyPkg = notifyText([{ kind: "package-install", evidence: "pip install requests" }]);
+	assert.ok(!onlyPkg.includes("web-read"), onlyPkg);
+	assert.ok(onlyPkg.includes("禁擅自装包"));
+	const onlyWeb = notifyText([{ kind: "web-fetch", evidence: "https://example.com" }]);
+	assert.ok(onlyWeb.includes("web-read"));
+	assert.ok(!onlyWeb.includes("禁擅自装包"), onlyWeb);
+	const both = notifyText([
+		{ kind: "web-fetch", evidence: "https://example.com" },
+		{ kind: "package-install", evidence: "apt install jq" },
+	]);
+	assert.ok(both.includes("web-read") && both.includes("禁擅自装包"));
+	assert.ok(both.startsWith("[bash-tool-reminder] "));
+});
+
+// ---- tool_result 回带分支(stub-pi 捕获 handler 回放,终审 R3-P2-4)----
+
+/** 最小 pi 桩:只捕获 on() 注册的 handler,不依赖 ExtensionAPI 运行时 */
+function captureHandlers() {
+	const handlers = {};
+	bashToolReminder({ on: (name, handler) => (handlers[name] = handler) });
+	return handlers;
+}
+
+test("tool_result 回带:structuredContent 在场时补丁同回带,缺席只含 content", async () => {
+	const handlers = captureHandlers();
+	assert.ok(typeof handlers["tool_result"] === "function");
+	const withStructured = await handlers["tool_result"](
+		{
+			toolName: "bash",
+			input: { command: "curl -s https://example.com/x" },
+			content: [{ type: "text", text: "ok" }],
+			structuredContent: { exitCode: 0 },
+		},
+		{ hasUI: false },
+	);
+	assert.ok(withStructured, "命中时须返回补丁");
+	assert.ok(withStructured.content[0].text.startsWith("[bash-tool-reminder] "));
+	assert.deepEqual(withStructured.content[1], { type: "text", text: "ok" }); // 原块保留
+	assert.deepEqual(withStructured.structuredContent, { exitCode: 0 }); // 同回带,不丢
+
+	const withoutStructured = await handlers["tool_result"](
+		{
+			toolName: "bash",
+			input: { command: "curl -s https://example.com/x" },
+			content: [{ type: "text", text: "ok" }],
+		},
+		{ hasUI: false },
+	);
+	assert.ok(withoutStructured);
+	assert.ok(withoutStructured.content[0].text.startsWith("[bash-tool-reminder] "));
+	assert.equal("structuredContent" in withoutStructured, false); // 缺席时不得凭空造键
 });

@@ -20,13 +20,21 @@
 # owner} 登记进主检出 .worktrees/registry.json(本地件,.gitignore 的 .worktrees/
 # 兜底不入 git)。为什么:2026-10 起多次发生集成分支 worktree 被并行会话当草稿扫掉/
 # 抢占(#299 判例)——接线前查表、接线成功后登记,把「我以为没人用」变成跨会话可查的事实;owner 非
-# 本会话的既有登记在接线开始前即拒(--force 覆盖)。已知窗口(评审 P2-1,刻意取舍):查表在接线前、登记在成功后,
-# 接线进行中(分钟级 venv/npm)的第二会话仍会漏拦——换「半路失败不留假登记」。owner=$PI_SESSION_ID(有则),
+# 本会话的既有登记在接线开始前即拒(--force 覆盖)。已知窗口一(评审 P2-1,刻意取舍):查表在接线前、登记在成功后,
+# 接线进行中(分钟级 venv/npm)的第二会话仍会漏拦——换「半路失败不留假登记」。已知窗口二
+# (评审 P2-2,同样如实入档不实现锁):登记表读写是 load-modify-save、无文件锁——
+# 两会话近同时 set/del 不同目标时后写覆盖先写,先写方的登记静默丢失(该 worktree 回到
+# 未登记态);单人本机多会话下窗口极窄,代价与锁的复杂度相抵,选不 flock。owner=$PI_SESSION_ID(有则),
 # 否则 hostname:PID——后者每次运行必变,无 PI_SESSION_ID 的环境重跑会被自己的旧
 # 登记拦下(--force 过;--release 可收尾)。
 # 自验(2026-11-04):登记流 E2E 于临时 scratch worktree 实跑——全量接线登记/同会话
 # 重入放行/外会话接线前拒/--force 翻 owner/无 PI_SESSION_ID 记 hostname:PID/坏表
-# 拒盲写/--list/--release(含目标目录已删的按路径释放);跑后零残留(worktree+分支+表全清)。
+# 拒盲写/--list;跑后零残留(worktree+分支+表全清)。勘误(同日终审 P0):原记录
+# 的「--release(含目标目录已删的按路径释放)」与纯 `--release <path>` 必败的实况
+# 矛盾($PWD 默认行使守卫恒真)——修复后于 /tmp scratch 仓复验八形态:纯 --list/
+# 纯 --release 查表与报不在表/<dir> --list 与 <dir> --release 拒 rc 2/无位置参数默认
+# $PWD 验到参数解析层/非 git 仓目标友好报错 rc 1(非 git fatal 128)/坏表(条目值
+# 非对象)--list rc 2 且 init 查表报「登记表异常」不误报占用。
 set -euo pipefail
 
 usage() {
@@ -79,7 +87,6 @@ while [ $# -gt 0 ]; do
        TARGET=$1; shift ;;
   esac
 done
-[ -n "$TARGET" ] || TARGET=$PWD
 
 die() { echo "worktree_init: 错误:$*" >&2; exit 1; }
 
@@ -115,6 +122,11 @@ def load():
         sys.exit(2)
     if not isinstance(doc, dict) or not isinstance(doc.get("entries"), dict):
         print(f"登记表结构不对,拒绝盲写({reg})", file=sys.stderr)
+        sys.exit(2)
+    # entries 逐条校验(评审 R2-P2-3):"/path": "bob" 这类非对象坏值若漏过,
+    # check/list 里 e.get 会 AttributeError 崩成 rc 1,被当「外会话占用」误报
+    if not all(isinstance(v, dict) for v in doc["entries"].values()):
+        print(f"登记表结构不对(条目值非对象),拒绝盲写({reg})", file=sys.stderr)
         sys.exit(2)
     return doc
 
@@ -166,6 +178,10 @@ if [ -n "${PI_SESSION_ID:-}" ]; then OWNER=$PI_SESSION_ID; else OWNER="$(hostnam
 
 # --- --list / --release:不接线,只动登记表;在任何仓内目录可调用 ---
 if [ "$MODE" != init ]; then
+  # 守卫覆盖 --list 与 --release 两形态(评审 R2-P2-4),且必须先于下方
+  # TARGET=$PWD 默认行求值——终审 P0:原默认行在本分支前无条件执行,把纯
+  # `--release <path>` 的 TARGET 顶成非空,守卫恒真必拒,--release 100% 不可用
+  [ -n "$TARGET" ] && { echo "worktree_init: 错误:--list/--release 不接目标目录参数" >&2; usage >&2; exit 2; }
   git rev-parse --git-common-dir >/dev/null 2>&1 \
     || die "--list/--release 须在仓库内调用(靠 git 定位主检出)"
   REGISTRY=$(main_checkout_of "$PWD")/.worktrees/registry.json
@@ -175,7 +191,6 @@ if [ "$MODE" != init ]; then
   fi
   # release:目标目录可能已被 git worktree remove 删掉 → 存在则 cd 归一,
   # 不存在则 realpath 归一;登记键也是物理路径(TARGET pwd -P),两处同形
-  [ -n "$TARGET" ] && { echo "worktree-init: 错误:--release 不接目标参数" >&2; usage >&2; exit 2; }
   if [ -d "$RELEASE_PATH" ]; then RELEASE_PATH=$(cd "$RELEASE_PATH" && pwd); fi
   RELEASE_PATH=$(python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$RELEASE_PATH")
   registry_ctl "$REGISTRY" del "$RELEASE_PATH"
@@ -183,8 +198,16 @@ if [ "$MODE" != init ]; then
   exit 0
 fi
 
+# init 默认目标 = 当前目录(须在上方 MODE!=init 块之后:--list/--release 的
+# 「不接目标参数」守卫才不会被 $PWD 默认值顶成恒真,终审 P0 修复)
+[ -n "$TARGET" ] || TARGET=$PWD
+
 # --- 目标校验:必须是 git worktree 的根目录 ---
 TARGET=$(cd "$TARGET" && pwd -P)  # 归一(尾斜杠/相对路径/symlink→物理路径,与 --release 键同形,评审 P2-1/P2-3)
+# 非 git 仓目标在此友好拒绝(评审 R2-P2-2):不先拦,下面 main_checkout_of 里
+# 的裸 git 会以原始 fatal rc 128 退出,原序中这句友好 die 永不可达
+git -C "$TARGET" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+  || die "$TARGET 不是 git 工作树(先 git worktree add 再来)"
 # 主检出定位(供 docs 链接防自指 2026-11-03 事故判例 + 登记表落位)
 MAIN_CHECKOUT=$(main_checkout_of "$TARGET")
 # 防自指(2026-11-03 事故判例):目标是主检出时,后续 docs 链接会指向自身,
@@ -192,8 +215,6 @@ MAIN_CHECKOUT=$(main_checkout_of "$TARGET")
 if [ "$TARGET" = "$MAIN_CHECKOUT" ]; then
   die "目标就是主检出,本脚本面向新建 worktree;主检出无需接线"
 fi
-git -C "$TARGET" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
-  || die "$TARGET 不是 git 工作树(先 git worktree add 再来)"
 TOP=$(git -C "$TARGET" rev-parse --show-toplevel)
 [ "$TOP" = "$TARGET" ] || die "请在 worktree 根目录调用(当前 toplevel:$TOP)"
 echo "==> 目标 worktree:$TARGET"
@@ -241,9 +262,9 @@ echo "==> [docs] 判例库符号链接(可选件)"
 if [ -e "$TARGET/docs" ] || [ -L "$TARGET/docs" ]; then
   echo "    目标已有 docs/,跳过"
 else
-  COMMON=$(git -C "$TARGET" rev-parse --git-common-dir)
-  case "$COMMON" in /*) ;; *) COMMON="$TARGET/$COMMON" ;; esac
-  MAIN=$(cd "$(dirname "$COMMON")" && pwd)
+  # 与开头 MAIN_CHECKOUT 同输入(TARGET)同输出(main_checkout_of 的推导,已逐行核对)
+  # ——不重复内联一份(评审 R3-P2-5)
+  MAIN=$MAIN_CHECKOUT
   if [ -d "$MAIN/docs" ]; then
     ln -s "$MAIN/docs" "$TARGET/docs"
     echo "    已链接 docs -> $MAIN/docs(test_precedent_schema.py 将真跑)"
