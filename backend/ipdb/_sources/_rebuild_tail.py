@@ -1,7 +1,13 @@
 """三条 rebuild 车道末尾共享收尾(issue #291,折并深度=中档票面裁决):
 「载入期 infra 过滤+排除记账」与「覆盖数 v4/v6 分流」收成一份,三车道
 (A=Source/_source_base.py,B=IpListSource/C=CsvSource/_sources/_base.py)
-import 本模块,不再各抄一遍。
+import 本模块,不再各抄一遍;#310 起五个 bespoke 预扫描源
+(tor_exits/abuseipdb/spamhaus/blocklist_de/cn_isp)的手抄 v4/v6 覆盖数
+双 genexp 也换用本模块 covered_counts,同形不再各抄。
+
+换装验收留痕(#310):改前改后 5 源 × 69 个 rebuild 产物 sha256 全等
+(零漂移),harness 同 rev 两跑 byte-identical 自证
+(git_rev=a5c9c1ba,PYTHONHASHSEED=0)。
 
 车道差异按票面裁决保留,勿在此「统一」:
 - commit 双形态:A 流式 factory(rebuild_dual_family 调用两次做族分区,
@@ -52,7 +58,9 @@ class InfraNoiseGate:
 
 
 def covered_counts(cidr_strs) -> tuple[int, int]:
-    """预扫描覆盖数 v4/v6 分流(#291 收共享;B/C 车道口径)。
+    """预扫描覆盖数 v4/v6 分流(#291 收共享;B/C 车道口径;#310 起五个
+    bespoke 预扫描 rebuild —— tor_exits/abuseipdb/spamhaus/blocklist_de/
+    cn_isp —— 的手抄双 genexp 亦折入此处)。
 
     cidr_strs 须可重复迭代(v4/v6 两遍分流各扫一遍,与原车道两条
     genexp 同内存剖面,零物化;B 传 list、C 传 acc dict)。非法条目由

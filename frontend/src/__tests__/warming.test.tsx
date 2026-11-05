@@ -14,7 +14,7 @@ vi.mock("../api", () => ({
 describe("WarmingProvider", () => {
   it("stops polling after the first warming_up=false (steady state is silent)", async () => {
     vi.useFakeTimers();
-    vi.mocked(getDbStatus).mockClear();
+    vi.mocked(getDbStatus).mockReset();
     let warming = true;
     vi.mocked(getDbStatus).mockImplementation(() => Promise.resolve({ warming_up: warming } as DbStatus));
     renderWithI18n(<WarmingProvider><span>probe</span></WarmingProvider>);
@@ -32,7 +32,7 @@ describe("WarmingProvider", () => {
 
   it("recheck re-arms polling when warming reappears (backend restart, F2)", async () => {
     vi.useFakeTimers();
-    vi.mocked(getDbStatus).mockClear();
+    vi.mocked(getDbStatus).mockReset();
     let warming = false;
     vi.mocked(getDbStatus).mockImplementation(() => Promise.resolve({ warming_up: warming } as DbStatus));
     let recheck: (() => Promise<boolean>) | null = null;

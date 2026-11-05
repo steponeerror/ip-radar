@@ -5,9 +5,10 @@
 //   ③挂点 path#fragment 片段不在文件内 → FAIL ④原语组成 token 不在原语表(伪条目)→ FAIL
 //   ⑤建议区条目必须显式「类:建议」⑥条文体(#### X-n)不得进建议区
 //   ⑦原语表计数/状态词表/重名 ⑧标准答案条目同受门挂点律 ⑨docs/(嵌套仓)不得作门挂点(CI 缺席判例)
+//   ⑩#304④:根 AGENTS.md(本地不入库)引用路径存在性腿——在场校验/缺席跳过/抽取面宁少算
 // 输出契约:STDPASS/STDFAIL 行 + 末行 selftest-standard: PASS=n FAIL=m(同 T4 形)。
 
-import { checkStandard } from "./standard-check.mjs";
+import { checkAgentsRefs, checkStandard, extractAgentPathRefs } from "./standard-check.mjs";
 
 let pass = 0;
 let fail = 0;
@@ -194,6 +195,46 @@ expectFail(
   const nAdvice = r.counts.advice;
   if (nArticles === 3 && nAdvice === 1) ok("计数面:条文3(2条文+1标准答案)/建议1,建议不冒充条文");
   else bad(`计数面:条文3/建议1,实得条文=${nArticles} 建议=${nAdvice}`);
+}
+
+// ---- 16. #304④:AGENTS.md 引用路径腿 — 绿例(在场且全存在) ----
+{
+  const doc = "探码先 `ops/agent/STANDARD.md`,任务链 `frontend/src/tasks/TaskProvider.tsx`,命令 `gh pr checks --watch` 勿轮询。";
+  const r = checkAgentsRefs(doc, mkFs({ "ops/agent/STANDARD.md": "x", "frontend/src/tasks/TaskProvider.tsx": "x" }));
+  const fails = r.results.filter((x) => !x.ok);
+  if (r.exitCode === 0 && fails.length === 0 && r.counts.refs === 2) ok("agents-ref:绿例(引用全在场,含空格命令 span 不认)");
+  else bad("agents-ref:绿例", `exit=${r.exitCode} refs=${r.counts.refs} fails=${fails.map((f) => f.msg).join(" | ") || "(无)"}`);
+}
+
+// ---- 17. #304④:AGENTS.md 引用路径腿 — 死引用被拒 ----
+{
+  const doc = "挂点见 `ops/agent/never-lands.mjs`。";
+  const r = checkAgentsRefs(doc, mkFs({}));
+  const hit = r.results.find((x) => !x.ok && x.msg.includes("引用路径不存在"));
+  if (r.exitCode !== 0 && hit) ok("agents-ref:死引用被拒(悬空引用非零退出)");
+  else bad("agents-ref:死引用被拒", `exit=${r.exitCode} fails=${r.results.filter((x) => !x.ok).map((f) => f.msg).join(" | ") || "(无)"}`);
+}
+
+// ---- 18. #304④:抽取面宁少算 — URL/家目录/绝对路径/带空格命令/单段目录不认 ----
+{
+  const doc = [
+    "`https://ipradar.example.org` 与 `http://exa.ai` 不认;",
+    "`~/.pi/agent/scripts/plain_lexicon.txt` 不认;",
+    "`/api/version` 不认;",
+    "`git worktree add .worktrees/t -b b origin/master` 不认(带空格整串命令);",
+    "`dev/`、`reports/` 不认(单段目录引用,仓内仓外语义两可);",
+    "`ops/agent/DESIGN.md` 认;`ops/agent/DESIGN.md` 去重后只计一次。",
+  ].join("");
+  const refs = extractAgentPathRefs(doc);
+  if (refs.length === 1 && refs[0] === "ops/agent/DESIGN.md") ok("agents-ref:抽取面宁少算+去重(URL/~/绝对/命令/单段不认)");
+  else bad("agents-ref:抽取面宁少算", `实得 ${JSON.stringify(refs)}`);
+}
+
+// ---- 19. #304④:空文档/无反引号 — 零引用恒绿 ----
+{
+  const r = checkAgentsRefs("纯文本无任何反引号。", mkFs({}));
+  if (r.exitCode === 0 && r.counts.refs === 0 && r.results.length === 0) ok("agents-ref:零引用恒绿(无话不算账)");
+  else bad("agents-ref:零引用恒绿", `exit=${r.exitCode} refs=${r.counts.refs}`);
 }
 
 console.log(`selftest-standard: PASS=${pass} FAIL=${fail}`);

@@ -23,6 +23,7 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
-    include: ["src/**/*.test.{ts,tsx}"],
+    // mjs 腿:#304-⑦ 本地 eslint 规则的单测是 .mjs(eslint/规则本体均无仓内类型)
+    include: ["src/**/*.test.{ts,tsx,mjs}"],
   },
 });

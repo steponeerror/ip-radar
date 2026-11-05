@@ -127,7 +127,8 @@ class BlocklistDeSource(IpListSource):
         """重建 LMDB(唯一重建入口)。多列表累积:同 CIDR 按优先级裁决
         classification_type,全部认领列表名进 native_categories。"""
         import ipaddress as _ipa
-        from ._lmdb import covered_ip_count, rebuild_dual_family, commit_dual_family
+        from ._lmdb import rebuild_dual_family, commit_dual_family
+        from ._rebuild_tail import covered_counts
         from .._evidence import Evidence
         if not self._path.exists():
             return 0
@@ -169,9 +170,7 @@ class BlocklistDeSource(IpListSource):
             for cidr, info in acc.items()
         ]
 
-        cov4 = covered_ip_count(c for c in acc.keys() if ":" not in c)
-        cov6 = covered_ip_count(
-            (c for c in acc.keys() if ":" in c), ip_version=6)
+        cov4, cov6 = covered_counts(acc)
         return commit_dual_family(
             self, records, cov4=cov4, cov6=cov6, progress=progress)
     def health(self) -> SourceHealth:

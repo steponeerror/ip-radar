@@ -103,7 +103,8 @@ class ChineseISPSource(Source):
 
     def rebuild(self, progress=None) -> int:
         import ipaddress as _ipa
-        from ._lmdb import covered_ip_count, rebuild_dual_family, commit_dual_family
+        from ._lmdb import rebuild_dual_family, commit_dual_family
+        from ._rebuild_tail import covered_counts
 
         best: dict[str, dict] = {}
         for isp_name, (country, label) in _ISP_FILES.items():
@@ -125,9 +126,7 @@ class ChineseISPSource(Source):
                     if existing and existing["isp"] != "其他" and label == "其他":
                         continue
                     best[line] = {"country_code": country, "isp": label, "_net": line}
-        cov4 = covered_ip_count(c for c in best.keys() if ":" not in c)
-        cov6 = covered_ip_count(
-            (c for c in best.keys() if ":" in c), ip_version=6)
+        cov4, cov6 = covered_counts(best)
         return commit_dual_family(
             self, best.items(), cov4=cov4, cov6=cov6, progress=progress)
     def query(self, ip: str) -> dict:

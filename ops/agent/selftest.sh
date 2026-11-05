@@ -547,7 +547,7 @@ else
 fi
 
 # ---- 13. 验收标准 #181:standard-check 门挂点核对器(零依赖纯 node;语义=挂不上验证手段的条目只能称建议) ----
-# 两面:①核对器单测(selftest-standard.mjs,15 例纯内存 DI fixture);②真源面 STANDARD.md 全文核对
+# 两面:①核对器单测(selftest-standard.mjs,19 例纯内存 DI fixture);②真源面 STANDARD.md 全文核对
 # (死锚/空挂点/伪条目/建议未标类→非零退出)。挂点一律主仓相对,嵌套 docs 仓缺席不影响(CI 可跑)。
 if command -v node >/dev/null 2>&1; then
   STDUT="$(node "$AGENT/selftest-standard.mjs" 2>&1)"; STDUTRC=$?
