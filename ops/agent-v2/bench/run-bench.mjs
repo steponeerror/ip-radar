@@ -22,7 +22,7 @@ import { DISCOVER_TOOLS_EXTENSION } from "../registry.mjs";
 import { openHarness } from "../entry.mjs";
 import { admitRound } from "../tasks/budget-guard.mjs";
 import { discoverRoundTask } from "../tasks/discover-round.mjs";
-import { fauxBundle, shortlistPromptPath } from "../run-discover.mjs"; // durable 底座件零 fork(faux 罐装/提示词路径单源)
+import { fauxBundle, shortlistBenchPromptPath } from "../run-discover.mjs"; // durable 底座件零 fork(faux 罐装/基准提示词路径单源,票 #319:SHORTLIST 相位换 shortlist-bench.md)
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", ".."); // ops/agent-v2/bench → 仓根
 
@@ -76,12 +76,13 @@ export async function runBenchRound(opts) {
       conversationId = prior.conversationId;
       log(`[v2-bench] round=${roundId} 复用任务 ${taskId}(checkpoint 续跑/终态重放,零新建)`);
     } else {
-      // 轮会话 agent 面同真实轮(model+shortlist 提示词+发现工具闭集;提示词变体=票 B)。
+      // 轮会话 agent 面同真实轮(model+shortlist 提示词+发现工具闭集;提示词=基准变体
+      // shortlist-bench.md,票 #319:搜索+筛选职责/无回声防线/转录行第四证据面)。
       const conv = await harness.createConversation({
         ownership: { kind: "ownerless" },
         agent: {
           model: modelRef,
-          instructions: fs.readFileSync(shortlistPromptPath(), "utf8"),
+          instructions: fs.readFileSync(shortlistBenchPromptPath(), "utf8"),
           extensions: [DISCOVER_TOOLS_EXTENSION],
         },
       }, context);

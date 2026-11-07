@@ -35,6 +35,14 @@ export function shortlistPromptPath() {
   return path.join(path.resolve(import.meta.dirname, "..", ".."), "ops", "agent", "prompts", `${def.model}.md`);
 }
 
+// SHORTLIST 基准提示词路径(票 #319,spec §3.2):shortlistPromptPath 同式推导,-bench 后缀
+// (discover/shortlist-bench.md)。bench 轮双消费:run-bench 会话 instructions + tasks/
+// discover-round transcript system_sha/prompt_hashes——单源本函数,drift 由 bench 接线测试钉。
+export function shortlistBenchPromptPath() {
+  const def = DISCOVER_PIPELINE.find((d) => d.name === "SHORTLIST");
+  return path.join(path.resolve(import.meta.dirname, "..", ".."), "ops", "agent", "prompts", `${def.model}-bench.md`);
+}
+
 // faux 模型面(旧 faux.mjs runFauxStep 同构:faux-discover-<键> + fixtures turns 罐装)
 export async function fauxBundle(fixturesDir) {
   const { fauxProvider, createModels } = await import("@earendil-works/pi-ai");
