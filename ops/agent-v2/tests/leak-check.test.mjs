@@ -135,4 +135,8 @@ test("CLI:红文件 exit 1 且报 文件:行+源名;净文件 exit 0;roster 取�
   assert.equal(bad.code, 2, "roster 取不到 exit 2");
   const dirArg = await cli([dir, "--roster-file", rosterFile]); // 显式传目录→递归扫全(不剔除名单载体)
   assert.equal(dirArg.code, 1, "目录参数递归扫描,内含红文件与 roster 本体均命中");
+  const empty = path.join(dir, "empty-roster.txt");
+  fs.writeFileSync(empty, ""); // 评审 P2:空 roster fail-open——空件/空输出都不得零针扫零命中装绿
+  const failClosed = await cli([path.join(dir, "clean.md"), "--roster-file", empty]);
+  assert.equal(failClosed.code, 2, "空 roster 文件 exit 2(fail-closed,不带病开闸)");
 });
