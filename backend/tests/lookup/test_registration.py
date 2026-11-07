@@ -51,6 +51,14 @@ def test_registration_partial_keys_and_absent(monkeypatch):
     assert r2.registration is None
 
 
+def test_registration_all_projection_keys_absent_null(monkeypatch):
+    """#315 规格 §3 T1:extra 在场但投影四键全缺 → None(空 dict or None
+    兑底;宁少算,不虚构空块)。"""
+    r = _lookup_with(monkeypatch, [
+        _Src("rir_delegated", extra={"foo": "bar"})])
+    assert r.registration is None
+
+
 def test_registration_never_pollutes_country(monkeypatch):
     """reg_country ≠ 地理国:不进 country_code 融合(专线纪律)。"""
     r = _lookup_with(monkeypatch, [
