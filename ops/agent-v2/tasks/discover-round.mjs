@@ -50,6 +50,7 @@ import { readBreakerKnobs } from "../../agent/tools/breaker.mjs"; // 零复制(�
 import { preModelCall, postModelCall, stepBoundary } from "./budget-guard.mjs"; // T2 执法面(文案/界值零漂移;token/cost 之和在本文件 roundUsage 逐字段展开)
 import { ensureRoundHost, roundDupRegistries } from "../tools/discovery-tools.mjs"; // 轮级发现宿主(工具面+熔断写侧随迁)
 import { benchScan } from "../bench/scan.mjs"; // bench SCAN 变体(票 #318:候选宇宙=仅 NEEDS 面;real 面走 runStage 旧步不受影响)
+import { shortlistBenchPromptPath } from "../run-discover.mjs"; // bench SHORTLIST 基准提示词路径(票 #319;函数声明面循环安全:run-discover↔tasks 仅运行时互引)
 
 const sha = (s) => crypto.createHash("sha256").update(s).digest("hex").slice(0, 16);
 
@@ -111,7 +112,10 @@ function buildCtx(input, checkpoint) {
   });
   ctx.modelCalls = checkpoint.modelCalls;
   ctx.usage = { ...checkpoint.usage };
-  if (isBench(input)) ctx.ledgerFile = path.join(input.benchOpsRoot, "ledger.md"); // bench 台账随沙箱派生(runner admitRound 同路径;防 env 兜底漏到真实 docs)
+  if (isBench(input)) { // bench 台账随沙箱派生(runner admitRound 同路径;防 env 兜底漏到真实 docs);
+    ctx.ledgerFile = path.join(input.benchOpsRoot, "ledger.md");
+    ctx.bench = true; // bench 旗标(G_SHORTLIST 第四证据面开关,票 #319:转录行指针仅 bench 轮可过;真实轮恒缺席=零漂移)
+  }
   return ctx;
 }
 
@@ -239,8 +243,12 @@ async function shortlistPhase(task, runtime, context) {
   const ctx = buildCtx(input, cur);
   const io = modelIO(def);
   const { systemPrompt, userMsg } = io.input(ctx); // 旧输入构造零复制(d1-scan.json 候选宇宙)
+  // bench 轮会话 instructions=基准提示词 shortlist-bench.md(run-bench 创建会话时装,票 #319);
+  // v1 步 readFileSync 面装的是真实提示词——transcript system_sha/prompt_hashes 须哈希实际
+  // 指令面,bench 轮在此换面(真实轮零变化)。
+  const sys = isBench(input) ? fs.readFileSync(shortlistBenchPromptPath(), "utf8") : systemPrompt;
   const convId = runtime.conversationId; // 绑定会话=轮会话(启动器创建;头注「轮会话来源」)
-  return shortlistSubmit(task, runtime, context, { ctx, def, io, systemPrompt, userMsg, convId });
+  return shortlistSubmit(task, runtime, context, { ctx, def, io, systemPrompt: sys, userMsg, convId });
 }
 
 // 提交腿(attempt 循环=旧 retry≤1 面;requestId 纪律见头注)

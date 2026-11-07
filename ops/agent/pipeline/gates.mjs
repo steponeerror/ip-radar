@@ -10,8 +10,8 @@ import { resolveField, closureCheck } from "../tools.mjs";
 import { normalizeRules, readInFlightItems, inFlightKeys, deepSeeds, RULE_PREDICATES, RULE_ACTIONS, LEDGER_TAGS, ENQUEUE_EXCLUSIVITY_GATE } from "./steps.mjs"; // LEDGER_TAGS/ENQUEUE_EXCLUSIVITY_GATE=步/门同源(#207 T1:台账标签与入队门槛单源)
 import { fullDedupKey } from "./ops-items.mjs"; // 全签同因面(P4 #166;步/门同源)
 import { parseItem } from "./ops-items.mjs"; // 条目树读回(单一解析语义)
-import { ARTIFACTS as A, DEEP_TRANSCRIPT_RE, DEEP_TRANSCRIPT_GLOB } from "../artifacts.mjs"; // 工件名表单源(#202 C1):门读面/inputs 声明禁手抄工件名(磁盘名字节冻结,位等价判例)
-import { scanEvidenceFace, spanMatcher } from "./citation.mjs"; // #208 T2:证据面三形解析+span 逐字回引(G_SHORTLIST/G_MEASURE 消费)
+import { ARTIFACTS as A, DEEP_TRANSCRIPT_RE, DEEP_TRANSCRIPT_GLOB, DISCOVER_SHORTLIST_TRANSCRIPT } from "../artifacts.mjs"; // 工件名表单源(#202 C1):门读面/inputs 声明禁手抄工件名(磁盘名字节冻结,位等价判例)
+import { scanEvidenceFace, spanMatcher, benchTranscriptFace, transcriptPtrCall } from "./citation.mjs"; // #208 T2:证据面三形解析+span 逐字回引(G_SHORTLIST/G_MEASURE 消费);#319:bench 第四证据面(转录行)
 
 export const CLOSED_SETS = {
   cause_class: ["frozen_feed", "dead_endpoint", "auth_wall", "rate_limit", "probe_artifact", "matrix_violation", "unknown"], // C稿 §3.2 草案 1
@@ -389,14 +389,19 @@ export const GATES = {
       return fail(`渠道计数不符(registry 工件=${d.channels.registry.n}/实数=${regN};needs 工件=${d.channels.needs.n}/实数=${needsN})`, inputs);
     return pass(`候选宇宙 ${d.candidates.length} 条(registry ${regN}+needs ${needsN},web=placeholder);行形状+指针自洽哨全过`, inputs);
   },
-  // G_SHORTLIST(#208 T2 span 语义门):结构化候选可解析+数组(空合法:零候选/降级留痕不炸轮);
-  // 每条候选 shape 面(七键闭集)+quote 对证据面(scanEvidenceFace 经 evidence_ptr 解析,
-  // 三形:透传/工件/URL)逐字 span(spanMatcher:改写/幽灵 URL/半真 URL=门败,reason 带
-  // 候选名+指针)。needs 面 url:null/排他率:null 合法(透传契约;T3 校验器分立不碰)。
+  // G_SHORTLIST(#208 T2 span 语义门;#319 bench 第四证据面):结构化候选可解析+数组(空合法:零候选/降级留痕不炸轮);
+  // 每条候选 shape 面(七键闭集)+quote 对证据面逐字 span(spanMatcher:改写/幽灵 URL/半真 URL=门败,
+  // reason 带候选名+指针)。证据面:真实模式三形(透传/工件/URL,scanEvidenceFace);bench 轮
+  // (ctx.bench 旗标,run-bench input.benchOpsRoot→tasks/discover-round buildCtx 置位)另收
+  // d2-shortlist-transcript.jsonl:call/<call_id> 转录指针(工具转录行=web 搜来候选的证据面,
+  // 票 #319/spec §3.2)——真实模式不经此路(转录指针照旧走三形解析→拒,零漂移);
+  // bench 内 needs 行锚照走三形(考题两半:靠 NEEDS 提示找到/纯 web 搜到)。
+  // needs 面 url:null/排他率:null 合法(透传契约;T3 校验器分立不碰)。
   G_SHORTLIST: (ctx) => {
     const inputs = [A.DISCOVER_SHORTLIST, A.DISCOVER_SCAN, "(d2-shortlist-transcript.jsonl)"];
     const d = j(path.join(ctx.dir, A.DISCOVER_SHORTLIST));
     const scan = j(path.join(ctx.dir, A.DISCOVER_SCAN));
+    const benchRows = ctx.bench ? jsonl(path.join(ctx.dir, DISCOVER_SHORTLIST_TRANSCRIPT)) : null; // bench 转录行(缺席=[]→转录指针恒拒,宁拒勿假)
     if (!d) return fail(`${A.DISCOVER_SHORTLIST} 不可解析`, inputs);
     if (!Array.isArray(d.candidates)) return fail("candidates 非数组", inputs);
     if (d.degraded !== undefined && typeof d.degraded !== "string") return fail("degraded 留痕非字符串", inputs);
@@ -411,10 +416,12 @@ export const GATES = {
         return fail(`候选 ${c.name} url 须 http(s) 或 null(needs 无 URL 候选合法;强造=幽灵温床)`, inputs);
       if (!(c.exclusivity_estimate === null || (typeof c.exclusivity_estimate === "number" && Number.isFinite(c.exclusivity_estimate) && c.exclusivity_estimate >= 0 && c.exclusivity_estimate <= 1)))
         return fail(`候选 ${c.name} exclusivity_estimate 须 [0,1] 数或 null(宁少算勿多算)`, inputs);
-      // span 语义门(核心):证据面解析+逐字回引
+      // span 语义门(核心):证据面解析+逐字回引(真实三形;bench 另收转录指针第四面)
       if (!scan) return fail(`${A.DISCOVER_SCAN} 不可解析(span 对账面缺席)`, inputs);
-      const face = scanEvidenceFace(scan, c.evidence_ptr);
-      if (!face.ok) return fail(`候选 ${c.name}:证据指针 ${c.evidence_ptr} 在 d1-scan 候选宇宙不可解析(${face.reason})`, inputs);
+      const tp = ctx.bench ? transcriptPtrCall(c.evidence_ptr) : null; // 转录指针形判(真实轮恒 null=零漂移)
+      const face = tp !== null ? benchTranscriptFace(benchRows, c.evidence_ptr) : scanEvidenceFace(scan, c.evidence_ptr);
+      if (!face.ok)
+        return fail(`候选 ${c.name}:证据指针 ${c.evidence_ptr} ${tp !== null ? "转录行不可用" : "在 d1-scan 候选宇宙不可解析"}(${face.reason})`, inputs);
       if (!spanMatcher(c.quote, face.text))
         return fail(`候选 ${c.name}:quote 非证据面逐字 span(指针 ${c.evidence_ptr};改写/幽灵 URL/半真 URL=门败——spec T2 三负例)`, inputs);
     }
