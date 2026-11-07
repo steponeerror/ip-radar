@@ -49,11 +49,16 @@ def test_t1_read_side_does_not_clamp():
 # ── T2 对象身份不变式(规格 §2.1;填装侧原位不动)──
 
 def test_t2_apply_calibrated_keeps_object_identity(tmp_path):
+    """填装侧原位不动:表对象经 _apply_calibrated 后身份不变。断言必须走
+    模块属性(merge_mod.SOURCE_RELIABILITY)而非本模块 import 进来的名字——
+    后者上的 id() 比较在重赋值下恒真,抓不住坏实现(#324 评审 P2-1)。"""
+    import ipdb._merge as merge_mod
     f = tmp_path / "_calibrated.json"
     f.write_text(json.dumps({"spamhaus": {"default": 0.91}}))
-    before = id(SOURCE_RELIABILITY)
+    before = merge_mod.SOURCE_RELIABILITY
     _registry._apply_calibrated(f)
-    assert id(SOURCE_RELIABILITY) == before
+    assert merge_mod.SOURCE_RELIABILITY is before   # 重赋值即红(#324 评审 P2-1)
+    assert merge_mod.SOURCE_RELIABILITY is SOURCE_RELIABILITY
     assert SOURCE_RELIABILITY["spamhaus"] == 0.91
 
 

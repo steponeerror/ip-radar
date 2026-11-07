@@ -59,7 +59,9 @@ def to_observation(
 
 # ── Source reliability and authority maps ──
 # 运行时由 _registry 从源 attr 派生填充(spec 2026-08-28 §5.1)。
-# 对象身份不变:__init__/_stix_export/_to_attributions 的既有 import 靠它,
+# 对象身份不变:ipdb/__init__ re-export 绑定同一对象(tests/core/
+# test_metadata_derivation.py:113 身份断言;#317 收口后读点一律走
+# effective_reliability,_stix_export/_to_attributions 不再 import 表本体),
 # 严禁重新赋值——只允许 clear()+update()。
 #
 # 治理红线(2026-09-02 修正案,落地记录见 CHANGELOG.md):
@@ -76,7 +78,8 @@ def effective_reliability(
     """有效 r 单一解析入口(#293):SOURCE_RELIABILITY 表(含 _calibrated.json
     导入期覆盖)命中 > payload_r > attr_r > 0.5;读侧不做任何钳制(钳制在
     填装侧)。对象身份不变式单点持有:表只许 clear+update 原地改,严禁
-    重新赋值(ipdb/__init__ re-export 与 _eval/audit 值绑定靠同对象)。"""
+    重新赋值(ipdb/__init__ re-export 绑定同一对象;_eval/audit 绑的是
+    _logodds.DERIVED_SOURCES,不依赖本表身份)。"""
     r = SOURCE_RELIABILITY.get(name)
     if r is not None:
         return r
