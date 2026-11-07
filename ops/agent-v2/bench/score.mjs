@@ -4,7 +4,7 @@
 // 答案表 = `python -m ipdb._registry --roster` + 源模块声明的下载 URL/发布者(机械派生,
 // 禁手工第二份清单,规格 §2 Q12);免考 = exam-rules.json 冻结 8(Q8);别名 = aliases.json
 // (版本化,人工裁决一次入一条,Q3)。匹配四层(Q3):完整 URL → 发布者/域名 → 名字归一化 → 别名。
-// otx 与 otx_subscribed 同发布者双记;github 家族(raw.githubusercontent.com/github.com)
+// otx 与 otx_subscribed 同发布者双记;github 家族(raw.githubusercontent.com/github.com) 禁词引用:匹配器判据引用
 // 多源共用主机,按 repo 路径段(owner/repo)区分不误并。确定性门:同工件目录重跑字节级同分。
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -12,19 +12,20 @@ import path from "node:path";
 import process from "node:process";
 import { parseArgs } from "node:util";
 import { pathToFileURL } from "node:url";
+import { parseRoster } from "./roster.mjs"; // roster 行解析单源(终审 P2-2:与 leak-check 同源,失败语义同构 fail-closed)
 
 export const BENCH_DIR = import.meta.dirname;
 export const D2_SHORTLIST = "d2-shortlist.json";
 
 // github 家族 = 同仓多源共用主机,host 相等不足以并/分,按 repo 路径段区分
 // (规格 §3.3「raw.githubusercontent 12 行按 repo 路径段区分不误并」;家族含
-// github.com 仓页 URL——模型常给仓页而非 raw 直链,同一 repo 才算同发布面)。
-const GITHUB_FAMILY = new Set(["github.com", "raw.githubusercontent.com"]);
+// github.com 仓页 URL——模型常给仓页而非 raw 直链,同一 repo 才算同发布面)。 禁词引用:匹配器判据引用
+const GITHUB_FAMILY = new Set(["github.com", "raw.githubusercontent.com"]); // 禁词引用:匹配器判据引用(github 家族区分判据,leak 面行级豁免)
 const CATEGORY_ORDER = ["threat", "geo_asn", "asset"];
 
 // ── 归一化(匹配键的机械定义,测试钉死)──
 
-// 名字归一化:小写、去点去下划线去连字符(规格 Q3;「Blocklist.de」对 blocklist_de 需归一)。
+// 名字归一化:小写、去点去下划线去连字符(规格 Q3;「Blocklist.de」对 blocklist_de 需归一)。 禁词引用:匹配器判据引用
 export function normalizeName(s) {
   return String(s ?? "").toLowerCase().replace(/[._-]+/g, "");
 }
@@ -51,21 +52,9 @@ export function normalizeUrl(u) {
 
 // ── 答案表:roster dump × 免考规则 × URL 声明(机械派生)──
 
-// roster 行:`name | category | download_host | fields [| 子列表]`(roster() 的固定格式,
-// 子列表键并入 fields 供参考;host '-' = 无下载面)。
-export function parseRoster(text) {
-  const rows = [];
-  for (const line of String(text ?? "").split("\n")) {
-    const t = line.trim();
-    if (!t) continue;
-    const parts = t.split("|").map((p) => p.trim());
-    if (parts.length < 4) throw new Error(`roster 行列数不足(须 ≥4:name|category|host|fields):${t}`);
-    const [name, category, host, ...rest] = parts;
-    rows.push({ name, category, host, fields: rest.flatMap((c) => c.split(",")).filter(Boolean) });
-  }
-  if (!rows.length) throw new Error("roster 输出为空");
-  return rows;
-}
+// roster 行解析在 ./roster.mjs 单源(终审 P2-2 抽出;失败语义不变:坏行列数<4 throw、
+// 零有效行 throw)。此处仅再导出保接口(bench-score 测试导入面)。
+export { parseRoster };
 
 // roster 命令之外的第二取数面:源模块声明的下载 URL(python -c 机械 dump,见 DUMP_URLS_SCRIPT)。
 // 交叉校验:name 集合与 host 逐源一致——不一致即红,不给静默漂移留门(roster 单源纪律,Q12)。
@@ -97,6 +86,14 @@ export function buildAnswerTable({ rosterText, urlDumpJson, examRules, aliases }
     }
     if (!rosterNames.has(e.name)) throw new Error(`免考名单源不在 roster(冻结名单对不上现实):${e.name}`);
   }
+  // 反向完备性(终审 P2-4):roster 里 download_host='-' 的源 = 内部/派生数据集,盲搜原理
+  // 不可召回(spec Q8)——必须全部出现在 exam-rules 名单(exempt∪reclaimed 全体条目;捞回
+  // 项经用户裁决进分母是明示的,不算静默污染)。违者 throw 带名单:否则新源静默落入考题
+  // 分母,recall 永久污染且无人知道。
+  const listedNames = new Set(entries.map((e) => e.name));
+  const unlistedDash = rows.filter((r) => r.host === "-" && !listedNames.has(r.name)).map((r) => r.name);
+  if (unlistedDash.length)
+    throw new Error(`roster 含 download_host='-' 源但不在 exam-rules 免考∪捞回名单(盲搜原理不可召回,须裁一次入名单,不得静默入分母):${unlistedDash.join(", ")}`);
   // reclaim 非空 = 用户已裁决捞回 → 进考题分母;null = 免考不入分母(D 版 _doc 口径)
   const exemptNames = new Set(entries.filter((e) => e.reclaim == null).map((e) => e.name));
   const aliasEntries = Object.entries(aliases.aliases ?? {});
@@ -130,7 +127,7 @@ export function buildAnswerTable({ rosterText, urlDumpJson, examRules, aliases }
 }
 
 // 匹配器:四层,1 完整 URL → 2 发布者/域名 → 3 名字归一化 → 4 别名表;先高层后低层,
-// 返回首个命中的层号(1|2|3|4),未中返回 null。逐答案独立匹配——otx/otx_subscribed
+// 返回首个命中的层号(1|2|3|4),未中返回 null。逐答案独立匹配——otx/otx_subscribed 禁词引用:匹配器判据引用
 // 同发布者,一条候选 URL 在第 2 层同时命中两源(规格:「同发布者双记」)。
 export function matchLayer(answer, cand) {
   const key = normalizeUrl(cand?.url);
@@ -138,7 +135,7 @@ export function matchLayer(answer, cand) {
     // L1 完整 URL:与源模块声明的任一下载 URL 归一化后全等
     if (answer.urls.some((u) => normalizeUrl(u)?.full === key.full)) return 1;
     // L2 发布者/域名:github 家族按 repo 路径段(owner/repo)区分,不同 repo 不并;
-    // 其余主机 host 相等即同发布面(otx 双记走本支)
+    // 其余主机 host 相等即同发布面(otx 双记走本支) 禁词引用:匹配器判据引用
     if (GITHUB_FAMILY.has(answer.host)) {
       if (GITHUB_FAMILY.has(key.host) && key.repo && answer.repos.includes(key.repo)) return 2;
     } else if (key.host === answer.host) {
@@ -292,12 +289,12 @@ export function runScoring(artifactsDir, { rosterText, urlDumpJson, examRules, a
 
 // 源模块声明的下载 URL 机械 dump(答案表第二取数面,规格 Q12;与 roster 同源 import,禁手工清单):
 // 每源取 url 类属性 + 模块源文本中 hostname 与本源 download host 一致的 http(s) 字面量
-// (多端点源 url 为空串、真实地址在模块常量里,如 firehol 的 _BASE_URL)。host 口径与 roster() 逐字同。
+// (多端点源 url 为空串、真实地址在模块常量里,如 firehol 的 _BASE_URL)。host 口径与 roster() 逐字同。 禁词引用:匹配器判据引用
 const DUMP_URLS_SCRIPT = `
 import inspect, json, re, sys
 from urllib.parse import urlparse
 from ipdb import _registry
-GITHUB = {"github.com", "raw.githubusercontent.com"}
+GITHUB = {"github.com", "raw.githubusercontent.com"}  # 禁词引用:匹配器判据引用(与 JS 侧 GITHUB_FAMILY 同判据;Python 注释行)
 def same_host(lit, host):
     if lit == host:
         return True
