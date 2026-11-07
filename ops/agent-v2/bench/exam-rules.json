@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "exempt": [
+    "cdn_edges",
+    "cloud_ranges",
+    "cn_isp",
+    "honyport",
+    "infra_services",
+    "rir_abuse",
+    "rir_delegated",
+    "scanner_ranges"
+  ],
+  "note": "免考 = roster download_host 为 '-':内部/派生数据集,盲搜原理上搜不到(规格 2026-11-07-rediscover-bench-spec.md §2 Q8 冻结)。增删须用户裁决一次入本文件,禁实现者自行增删。"
+}
