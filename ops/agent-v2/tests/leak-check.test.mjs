@@ -102,6 +102,56 @@ test("defaultScanSurface:基准提示词在才扫;bench/ 下 exam-rules/aliases 
   assert.deepEqual(defaultScanSurface(bare).map((p) => path.relative(bare, p)), ["ops/agent-v2/bench/README.md"]);
 });
 
+// ── 真仓默认面(终审 P1:leak gate 对自家默认面恒红)──
+// 根因:score.mjs 匹配器判据行(源名/域名针字面量)在缺省扫描面内、未带行级豁免标记 →
+// 跑默认面必 exit 1。本测试用真仓文件(defaultScanSurface() 缺省面)+ 模拟真 roster 针集
+// 的 fixture(行形取自真实 roster dump:otx/otx_subscribed 共享 host、firehol raw 直链、
+// binarydefense 三段域名、geolite_city 仓页 host、blocklist_de 名字归一),钉死「豁免标记
+// 完整,真仓面不再恒红」。匹配语义零削弱:针生成逻辑不动,免考名照样红/合成红夹具照红
+// 由上文测试钉,本测试只加不减。
+test("真仓默认面:fixture roster(otx/firehol/binarydefense/github 家族)对 defaultScanSurface 零命中", async () => {
+  const { defaultScanSurface } = await import("../bench/leak-check.mjs");
+  const files = defaultScanSurface();
+  assert.ok(files.length > 0, "真仓默认面非空(基准提示词 + bench 目录)");
+  const fixtureRoster = [
+    "otx | threat | otx.alienvault.com | is_malicious",
+    "otx_subscribed | threat | otx.alienvault.com | is_malicious",
+    "blocklist_de | threat | lists.blocklist.de | is_malicious",
+    "binarydefense | threat | www.binarydefense.com | is_malicious",
+    "firehol | threat | raw.githubusercontent.com | is_malicious",
+    "geolite_city | geo_asn | github.com | city,country_code",
+  ].join("\n");
+  const r = runLeakCheck({ rosterText: fixtureRoster, files });
+  assert.deepEqual(r.hits.map((h) => `${h.file}:${h.line} [${h.source}/${h.kind}]`), [], "真仓默认面有未豁免的针命中(豁免标记缺/漏)");
+  assert.equal(r.ok, true);
+});
+
+// ── roster 解析单源(终审 P2-2:两解析器失败语义分叉——旧 leak-check 版 3 列宽容/坏行静默跳,
+// score 版 ≥4 列/坏行 throw;同一 --roster 输入格式漂移时打分器红、漏题闸静默少针)──
+test("roster 坏行(列数<4)= throw(fail-closed):格式漂移时漏题闸同样红,不静默少针", () => {
+  const noPipe = FIXTURE_ROSTER + "\nbroken line without pipes\n";
+  assert.throws(() => runLeakCheck({ rosterText: noPipe, files: [] }), /列数不足/);
+  const threeCol = FIXTURE_ROSTER + "\nname | category | hostonly\n"; // 旧 leak-check 版宽容收的 3 列形
+  assert.throws(() => runLeakCheck({ rosterText: threeCol, files: [] }), /列数不足/);
+});
+
+// 单源钉:score.mjs 暴露的解析器与 bench/roster.mjs 同一函数(任一侧重新手抄解析器即红)
+test("roster 解析器单源:score.mjs 的 parseRoster === bench/roster.mjs 的 parseRoster", async () => {
+  const { parseRoster: fromScore } = await import("../bench/score.mjs");
+  const rosterMod = await import("../bench/roster.mjs");
+  assert.equal(fromScore, rosterMod.parseRoster);
+});
+
+// ── 基准提示词路径单源(终审 P2-1:leak-check 与 run-discover 双处手抄漂移 → 提示词改名后
+// 缺省面 existsSync 空集放行、漏题闸静默装绿)──
+test("基准提示词路径单源:leak-check 缺省面取的路径 = run-discover shortlistBenchPromptPath,且真仓在", async () => {
+  const { shortlistBenchPromptPath: leakPath, defaultScanSurface } = await import("../bench/leak-check.mjs");
+  const { shortlistBenchPromptPath: runnerPath } = await import("../run-discover.mjs");
+  assert.equal(leakPath(), runnerPath(), "两处基准提示词路径不同源(改名后漏题闸缺省面会空集放行)");
+  assert.ok(fs.existsSync(runnerPath()), "基准提示词在真仓(票 #319 产物)");
+  assert.ok(defaultScanSurface().includes(leakPath()), "缺省扫描面含基准提示词");
+});
+
 // ── exam-rules.json 初始文件(票面:免考 8 冻结值;理由字段可空;捞回裁决留位)──
 test("exam-rules.json:免考 8 与冻结值一致;每条含 reason(可空串)与 reclaim 留位(null)", async () => {
   const frozen8 = ["cdn_edges", "cloud_ranges", "cn_isp", "honyport", "infra_services", "rir_abuse", "rir_delegated", "scanner_ranges"]; // 票 #321 冻结值(= roster download_host '-' 集,spec Q8)

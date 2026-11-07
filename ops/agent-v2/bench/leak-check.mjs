@@ -18,6 +18,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { DISCOVER_SHORTLIST_BENCH_PROMPT } from "../../agent/artifacts.mjs"; // 基准提示词路径单源(终审 P2-1:与 run-discover.mjs 同源消费)
+import { parseRoster } from "./roster.mjs"; // roster 行解析单源(终审 P2-2:与 score.mjs 同源,失败语义同构 fail-closed)
 
 export const ROOT = path.resolve(import.meta.dirname, "..", "..", ".."); // ops/agent-v2/bench → 仓根(3 层;4 层病同 tasks/discover-round.mjs:61 钉死款)
 
@@ -26,8 +28,11 @@ export const EXEMPT_MARKER = "禁词引用"; // #308 判例字样,与 .git/hooks
 // 基准面名单载体文件名(§3.3:免考规则与别名表)——缺省扫描面剔除
 export const ROSTER_CARRIER_FILES = new Set(["exam-rules.json", "aliases.json"]);
 
+// 基准提示词路径:文件名单源 DISCOVER_SHORTLIST_BENCH_PROMPT(ops/agent/artifacts.mjs;
+// run-discover.mjs shortlistBenchPromptPath 同源消费——双处手抄漂移曾致提示词改名后
+// 本面 existsSync 空集放行、漏题闸静默装绿,终审 P2-1)。
 export function shortlistBenchPromptPath(root = ROOT) {
-  return path.join(root, "ops", "agent", "prompts", "discover", "shortlist-bench.md");
+  return path.join(root, "ops", "agent", "prompts", DISCOVER_SHORTLIST_BENCH_PROMPT);
 }
 
 // ── 归一化与匹配 ──
@@ -35,32 +40,20 @@ export function squeeze(text) {
   return text.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
-// roster 行形:`name | category | download_host | fields`(python -m ipdb._registry --roster);
-// download_host '-' = 免考(Q8),折成 null(域名无针,源名仍红)。
-// 解析零条即 throw(评审 P2 fail-closed):空 --roster-file/BENCH_ROSTER_FILE/spawn 空输出
-// 都不得零针扫零命中装绿——名单取数坏了就 exit 2,不带病开闸。
-export function parseRoster(text) {
-  const entries = [];
-  for (const raw of text.split("\n")) {
-    const line = raw.trim();
-    if (!line || line.startsWith("#")) continue;
-    const [name, category, host] = line.split(/\s*\|\s*/);
-    if (!name || !category) continue;
-    entries.push({ name: name.trim(), category: category.trim(), host: host && host.trim() !== "-" ? host.trim() : null });
-  }
-  if (entries.length === 0) throw new Error("roster 解析零条:名单取数面坏了(空文件/空输出),拒绝零针开闸");
-  return entries;
-}
+// roster 行解析在 ./roster.mjs 单源(终审 P2-2 抽出,与 score.mjs 同源):坏行列数<4 throw、
+// 零有效行 throw——名单取数坏了就红,不带病开闸;download_host '-' 原样保留,'-' 免考
+// 语义(Q8)在 buildNeedles 内折无域名针(源名仍红)。
 
 // 每源漏题针:名字归一化形 + 下载域名(全域名 + 去 www 类首段后的父域;三段以上才剥,
 // 且只剥一段——再剥会把多级域名剥到公共后缀,误红一片。
 export function buildNeedles(entries) {
   return entries.map((e) => {
     const domains = new Set();
-    if (e.host) {
-      const sq = squeeze(e.host);
+    const host = e.host && e.host !== "-" ? e.host : null; // '-' = 免考无下载面(Q8):无域名针(源名针照常红)
+    if (host) {
+      const sq = squeeze(host);
       domains.add(sq);
-      const labels = e.host.split(".");
+      const labels = host.split(".");
       if (labels.length >= 3) domains.add(squeeze(labels.slice(1).join(".")));
     }
     return { source: e.name, name: squeeze(e.name), domains: [...domains] };
@@ -100,6 +93,17 @@ export function loadRosterText(opts = {}) {
   return r.stdout;
 }
 
+// 目录递归收集(缺省面/显式面共底座,差一个名单载体剔除集——终审 P2-5 提取,行为不变;
+// 排序确定)。缺省面传 ROSTER_CARRIER_FILES,显式面(用户点名要扫就扫全)传 null。
+function walkFiles(dir, out, excludeNames) {
+  for (const ent of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+    const p = path.join(dir, ent.name);
+    if (ent.isDirectory()) walkFiles(p, out, excludeNames);
+    else if (ent.isFile() && !(excludeNames && excludeNames.has(ent.name))) out.push(p);
+  }
+  return out;
+}
+
 // 缺省扫描面:基准提示词(在才扫;票 B 未落=空集放行)+ bench/ 下除名单载体外全部
 // 文本文件(递归;排序确定)。leak-check.mjs 自身也在面内——自扫自红,名单零硬编码。
 export function defaultScanSurface(root = ROOT) {
@@ -107,15 +111,7 @@ export function defaultScanSurface(root = ROOT) {
   const prompt = shortlistBenchPromptPath(root);
   if (fs.existsSync(prompt)) files.push(prompt);
   const benchDir = path.join(root, "ops", "agent-v2", "bench");
-  const walk = (dir) => {
-    if (!fs.existsSync(dir)) return;
-    for (const ent of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
-      const p = path.join(dir, ent.name);
-      if (ent.isDirectory()) walk(p);
-      else if (ent.isFile() && !ROSTER_CARRIER_FILES.has(ent.name)) files.push(p);
-    }
-  };
-  walk(benchDir);
+  if (fs.existsSync(benchDir)) walkFiles(benchDir, files, ROSTER_CARRIER_FILES);
   return files.sort();
 }
 
@@ -143,16 +139,6 @@ function usage() {
   process.stderr.write("用法:node leak-check.mjs [路径...] [--roster-file PATH] [--python BIN]\n  缺省扫描面=基准提示词(在才扫)+ ops/agent-v2/bench/ 除 exam-rules.json/aliases.json 外全部\n  名单缺省 spawn python -m ipdb._registry --roster(cwd=<root>/backend);env IPDB_PYTHON 换解释器\n  退出码:0=绿 1=红(命中) 2=用法/名单取数失败\n");
 }
 
-// 目录递归收集(explicit 面不剔除名单载体——用户点名要扫就扫全;缺省面才剔除)
-function walkFiles(dir, out) {
-  for (const ent of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
-    const p = path.join(dir, ent.name);
-    if (ent.isDirectory()) walkFiles(p, out);
-    else if (ent.isFile()) out.push(p);
-  }
-  return out;
-}
-
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
   const VALUE_FLAGS = new Set(["--roster-file", "--python"]);
@@ -166,7 +152,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   } else {
     try {
       const files = explicit.length
-        ? explicit.flatMap((p) => { const ap = path.resolve(p); return fs.statSync(ap).isDirectory() ? walkFiles(ap, []) : [ap]; })
+        ? explicit.flatMap((p) => { const ap = path.resolve(p); return fs.statSync(ap).isDirectory() ? walkFiles(ap, [], null) : [ap]; })
         : defaultScanSurface();
       const r = runLeakCheck({ rosterFile: flag("roster-file"), pythonBin: flag("python"), files });
       const rel = (f) => { const r = path.relative(process.cwd(), f); return r && !r.startsWith("..") ? r : f; };

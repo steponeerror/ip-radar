@@ -77,6 +77,20 @@ test("buildAnswerTable:免考名单里的名字不在 roster = 红(冻结名单�
   assert.throws(() => buildAnswerTable({ rosterText: ROSTER, urlDumpJson: URL_DUMP, examRules: { version: 1, exempt: ["cn_isp"] }, aliases: ALIASES }), /name/); // 裸字符串旧形状拒绝
 });
 
+test("buildAnswerTable 反向完备性:roster 新增 host='-' 源不在 exam-rules 免考∪捞回名单 = 红(盲搜原理不可召回,不得静默入分母)", () => {
+  // roster 未来新增 download_host='-' 的内部/派生源时,若无反向检查会静默落入考题分母
+  // (spec Q8:盲搜原理不可召回 → recall 永久污染);dump 同步补齐以先过 dump 交叉校验,
+ // 确保红的里是本检查(而非 dump 缺源)。
+  const rosterText = ROSTER + "\nhidden_dash | threat | - | is_malicious";
+  const dump = JSON.stringify({ ...JSON.parse(URL_DUMP), hidden_dash: { host: "-", urls: [] } });
+  assert.throws(
+    () => buildAnswerTable({ rosterText, urlDumpJson: dump, examRules: RULES, aliases: ALIASES }),
+    /hidden_dash/,
+  );
+  // 在名单(免考或捞回)则放行:免考正例由主 fixture(cn_isp host='-')钉;捞回正例
+  // 由 reclaim 语义测试钉(exempt_a host='-' 进免考栏,不在分母)。
+});
+
 test("reclaim 语义:reclaim 非空 = 用户已裁决捞回 → 进考题分母参与召回;null = 免考不入分母(D 版 _doc 口径)", () => {
   const roster = ["exempt_a | threat | - | is_malicious", "reclaimed_b | threat | feed.example.org | is_malicious", "plain_c | threat | other.example.org | is_malicious"].join("\n");
   const dump = JSON.stringify({
