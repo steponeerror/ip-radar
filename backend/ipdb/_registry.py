@@ -578,7 +578,10 @@ def _location_trigger(source, item, extra) -> bool:
     return source.name == "geolite_city" and bool(extra)
 
 
-def _location_collect(source, item, extra):
+def _whole_extra_collect(source, item, extra):
+    # location/registration 两旁路共用(#315 评审 P2):原 _location_collect
+    # 与 _registration_collect 函数体同为 return extra,收编一个可调用对象,
+    # _BYPASS_SPECS 两表项同引;整块 extra 原样入 stash。
     return extra
 
 
@@ -608,10 +611,6 @@ def _registration_trigger(source, item, extra) -> bool:
     return source.name == "rir_delegated" and bool(extra)
 
 
-def _registration_collect(source, item, extra):
-    return extra
-
-
 def _registration_resolve(stash: dict, city: MergedField):
     # 读出语义(逐字保留,信息维度批 2026-10-10):stash 非空 →
     # next(iter()) 首插入值(dict 保序);投影 (registry, reg_country,
@@ -632,10 +631,10 @@ _BYPASS_SPECS: tuple[_BypassSpec, ...] = (
                 trigger=_city_zh_trigger, collect=_city_zh_collect,
                 resolve=_city_zh_resolve),
     _BypassSpec(key="location",
-                trigger=_location_trigger, collect=_location_collect,
+                trigger=_location_trigger, collect=_whole_extra_collect,
                 resolve=_location_resolve),
     _BypassSpec(key="registration",
-                trigger=_registration_trigger, collect=_registration_collect,
+                trigger=_registration_trigger, collect=_whole_extra_collect,
                 resolve=_registration_resolve),
 )
 
