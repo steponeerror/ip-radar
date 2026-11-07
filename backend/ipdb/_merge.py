@@ -70,6 +70,23 @@ SOURCE_RELIABILITY: dict[str, float] = {}
 AUTHORITATIVE_SOURCES: dict[str, list[str]] = {}
 
 
+def effective_reliability(
+    name: str, *, payload_r: float | None = None, attr_r: float | None = None
+) -> float:
+    """有效 r 单一解析入口(#293):SOURCE_RELIABILITY 表(含 _calibrated.json
+    导入期覆盖)命中 > payload_r > attr_r > 0.5;读侧不做任何钳制(钳制在
+    填装侧)。对象身份不变式单点持有:表只许 clear+update 原地改,严禁
+    重新赋值(ipdb/__init__ re-export 与 _eval/audit 值绑定靠同对象)。"""
+    r = SOURCE_RELIABILITY.get(name)
+    if r is not None:
+        return r
+    if payload_r is not None:
+        return payload_r
+    if attr_r is not None:
+        return attr_r
+    return 0.5
+
+
 # ── Attribution builder ──
 
 def _to_attributions(
@@ -79,7 +96,7 @@ def _to_attributions(
     attributions = []
     auth_list = AUTHORITATIVE_SOURCES.get(field, [])
     for src, value in source_values.items():
-        rel = SOURCE_RELIABILITY.get(src, 0.5)
+        rel = effective_reliability(src)
         auth = src in auth_list
         attributions.append(SourceAttribution(src, value, rel, auth))
     return attributions
