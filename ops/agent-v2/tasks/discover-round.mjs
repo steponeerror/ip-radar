@@ -49,6 +49,7 @@ import * as gates from "../../agent/pipeline/gates.mjs"; // 零复制:门评估+
 import { readBreakerKnobs } from "../../agent/tools/breaker.mjs"; // 零复制(写侧经宿主适配器,见 tools/discovery-tools.mjs)
 import { preModelCall, postModelCall, stepBoundary } from "./budget-guard.mjs"; // T2 执法面(文案/界值零漂移;token/cost 之和在本文件 roundUsage 逐字段展开)
 import { ensureRoundHost, roundDupRegistries } from "../tools/discovery-tools.mjs"; // 轮级发现宿主(工具面+熔断写侧随迁)
+import { benchScan } from "../bench/scan.mjs"; // bench SCAN 变体(票 #318:候选宇宙=仅 NEEDS 面;real 面走 runStage 旧步不受影响)
 
 const sha = (s) => crypto.createHash("sha256").update(s).digest("hex").slice(0, 16);
 
@@ -69,13 +70,19 @@ function crashHook(phase) {
   if (process.env.OPS_V2_CRASH_AFTER_PHASE === phase) process.kill(process.pid, "SIGKILL");
 }
 
+// bench 模式开关(票 #318,spec §3.1):input.benchOpsRoot 在场即 bench 盲测轮——
+// opsRoot=沙箱 dev/bench-rediscover/<roundId>/(随 opsRoot 派生的 breaker/工件树全落沙箱),
+// 台账随沙箱派生(breaker 三转移留痕面 mkBreaker 经 ctx.ledgerFile);SCAN=bench 变体,
+// 相位截断 SCAN→SHORTLIST→CLOSE。real 轮(benchOpsRoot 缺席)行为零变化(golden 对拍钉)。
+const isBench = (input) => typeof input?.benchOpsRoot === "string";
+
 // ── 旧 ctx 重建(checkpoint→ctxShape;每相位一次,环境现读)──
 function buildCtx(input, checkpoint) {
   const env = process.env; // 旧律:env 现读不入档(凭证红线;DOCS_ROOT 等由启动进程环境携带)
   const ctx = ctxShape({
     type: "discover",
     roundId: input.roundId,
-    opsRoot: resolveOpsRoot(env),
+    opsRoot: isBench(input) ? input.benchOpsRoot : resolveOpsRoot(env), // bench:沙箱 opsRoot(轮始冻结,恢复不改址)
     env,
     log: (line) => process.stderr.write(`[discover:${checkpoint.phase}] ${line}\n`), // P2-⑦ stdout 只留末行信封(ENVELOPE.md 冻结面);进度行走 stderr(run-health/model-round 同律)
     fixturesDir: input.fixturesDir,
@@ -104,6 +111,7 @@ function buildCtx(input, checkpoint) {
   });
   ctx.modelCalls = checkpoint.modelCalls;
   ctx.usage = { ...checkpoint.usage };
+  if (isBench(input)) ctx.ledgerFile = path.join(input.benchOpsRoot, "ledger.md"); // bench 台账随沙箱派生(runner admitRound 同路径;防 env 兜底漏到真实 docs)
   return ctx;
 }
 
@@ -178,6 +186,8 @@ async function scriptPhase(task, runtime, context, phase) {
   const input = task.input;
   const cur = task.state.checkpoint;
   crashHook(phase);
+  if (isBench(input) && phase !== "scan" && phase !== "close") // fail-closed 防御:bench 轮相位截断后 measure/enqueue/retro 不可达,唯有 checkpoint 异物/篡改可至;真面 MEASURE=真网络探测,宁可终态不可误跑
+    return finishFailed(runtime, context, { message: `BENCH:${STAGE_OF_PHASE[phase]} 相位越界(bench 轮=SCAN→SHORTLIST→CLOSE 截断)`, detail: { code: "infra", stage: STAGE_OF_PHASE[phase] } });
   const b = stepBoundary({ roundType: "discover", knobs: input.knobs, startedAtIso: cur.startedAtIso }); // ③(每相位头;遗留2 脚本面)
   if (!b.ok) return finishFailed(runtime, context, { message: b.message, detail: { code: b.code, stage: STAGE_OF_PHASE[phase] } });
   const def = defOf(STAGE_OF_PHASE[phase]);
@@ -196,7 +206,7 @@ async function scriptPhase(task, runtime, context, phase) {
   const t0 = Date.now();
   let rec;
   try {
-    rec = await runStage(def, ctx); // 零复制旧步(RETRO 可能 {degraded}
+    rec = isBench(input) && phase === "scan" ? benchScan(ctx) : await runStage(def, ctx); // bench SCAN 变体(零复制旧步;RETRO 可能 {degraded}
   } catch (e) { // 域失败=终态(旧 fail 三元组;handler 不抛=pi-durable fault 不消耗 restart)
     return finishFailed(runtime, context, { message: `${def.name}:${e.message}`, detail: { code: e.code ?? "infra", stage: def.name } });
   }
@@ -289,7 +299,7 @@ async function shortlistSubmit(task, runtime, context, s) {
   if (!gate.pass) return finishFailed(runtime, context, { message: `GATE:SHORTLIST:${gate.reason}`, detail: { code: gate.code ?? "infra", stage: "SHORTLIST" } });
 
   const checkpoint = {
-    ...cur, phase: "measure", attempt: 1,
+    ...cur, phase: isBench(input) ? "close" : "measure", attempt: 1, // bench 相位截断(#318):SHORTLIST 后直达 CLOSE(MEASURE/ENQUEUE/RETRO 跳过)
     stages: [...cur.stages, { name: "SHORTLIST", status: "done", attempts: attempt, dur_ms: 0, usage: { ...usageNow } }],
     modelCalls: s.ctx.modelCalls,
     usage: { ...usageNow },
