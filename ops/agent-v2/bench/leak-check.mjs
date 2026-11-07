@@ -37,6 +37,8 @@ export function squeeze(text) {
 
 // roster 行形:`name | category | download_host | fields`(python -m ipdb._registry --roster);
 // download_host '-' = 免考(Q8),折成 null(域名无针,源名仍红)。
+// 解析零条即 throw(评审 P2 fail-closed):空 --roster-file/BENCH_ROSTER_FILE/spawn 空输出
+// 都不得零针扫零命中装绿——名单取数坏了就 exit 2,不带病开闸。
 export function parseRoster(text) {
   const entries = [];
   for (const raw of text.split("\n")) {
@@ -46,6 +48,7 @@ export function parseRoster(text) {
     if (!name || !category) continue;
     entries.push({ name: name.trim(), category: category.trim(), host: host && host.trim() !== "-" ? host.trim() : null });
   }
+  if (entries.length === 0) throw new Error("roster 解析零条:名单取数面坏了(空文件/空输出),拒绝零针开闸");
   return entries;
 }
 
