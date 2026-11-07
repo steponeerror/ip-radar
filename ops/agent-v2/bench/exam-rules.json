@@ -1,14 +1,13 @@
 {
-  "version": 1,
+  "_doc": "重发现基准免考规则文件(票 #321;spec docs/research/2026-11-07-rediscover-bench-spec.md §3.3/Q8)。免考判据 = roster download_host 为 '-'(内部/派生数据集,盲搜原理上搜不到);名单机械源自 python -m ipdb._registry --roster,禁手工第二份清单(Q12)。捞回 = 个别源用户裁决一次后记在对应条目 reclaim 字段({\"date\":\"YYYY-MM-DD\",\"ruling\":\"一句话裁决\"}),同时该源进考题分母。注意:免考≠可以写进提示词——leak-check.mjs 对全 roster 名单(含免考源名)扫描,出现即红。",
   "exempt": [
-    "cdn_edges",
-    "cloud_ranges",
-    "cn_isp",
-    "honyport",
-    "infra_services",
-    "rir_abuse",
-    "rir_delegated",
-    "scanner_ranges"
-  ],
-  "note": "免考 = roster download_host 为 '-':内部/派生数据集,盲搜原理上搜不到(规格 2026-11-07-rediscover-bench-spec.md §2 Q8 冻结)。增删须用户裁决一次入本文件,禁实现者自行增删。"
+    { "name": "cdn_edges", "reason": "内部派生 CDN 边缘段聚合,无外部下载源", "reclaim": null },
+    { "name": "cloud_ranges", "reason": "内部派生云商地址段聚合,无外部下载源", "reclaim": null },
+    { "name": "cn_isp", "reason": "内部派生中国 ISP 网段面,无外部下载源", "reclaim": null },
+    { "name": "honyport", "reason": "自有蜜罐数据集,无外部下载源", "reclaim": null },
+    { "name": "infra_services", "reason": "内部派生基础设施服务面,无外部下载源", "reclaim": null },
+    { "name": "rir_abuse", "reason": "RIR 数据派生 abuse 联系面,无外部下载源", "reclaim": null },
+    { "name": "rir_delegated", "reason": "RIR delegated 数据派生,无外部下载源", "reclaim": null },
+    { "name": "scanner_ranges", "reason": "内部派生扫描器网段,无外部下载源", "reclaim": null }
+  ]
 }

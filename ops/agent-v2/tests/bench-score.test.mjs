@@ -36,7 +36,7 @@ const URL_DUMP = JSON.stringify({
   cn_isp: { host: "-", urls: [] },
 });
 
-const RULES = { version: 1, exempt: ["cn_isp"] };
+const RULES = { version: 1, exempt: [{ name: "cn_isp", reason: "内部派生,无外部下载源", reclaim: null }] };
 const ALIASES = { version: 1, aliases: { "alienvault otx": "otx" } };
 
 test("normalizeName:小写去点去下划线去连字符(规格 Q3)", () => {
@@ -72,13 +72,37 @@ test("buildAnswerTable:urlDump 与 roster 名单/host 不一致即红(roster 单
   assert.throws(() => buildAnswerTable({ rosterText: ROSTER, urlDumpJson: JSON.stringify(missingName), examRules: RULES, aliases: ALIASES }), /roster/);
 });
 
-test("buildAnswerTable:免考名单里的名字不在 roster = 红(冻结名单对不上现实)", () => {
-  assert.throws(() => buildAnswerTable({ rosterText: ROSTER, urlDumpJson: URL_DUMP, examRules: { version: 1, exempt: ["no_such_source"] }, aliases: ALIASES }), /no_such_source/);
+test("buildAnswerTable:免考名单里的名字不在 roster = 红(冻结名单对不上现实);条目缺 name = 红", () => {
+  assert.throws(() => buildAnswerTable({ rosterText: ROSTER, urlDumpJson: URL_DUMP, examRules: { version: 1, exempt: [{ name: "no_such_source", reason: "x", reclaim: null }] }, aliases: ALIASES }), /no_such_source/);
+  assert.throws(() => buildAnswerTable({ rosterText: ROSTER, urlDumpJson: URL_DUMP, examRules: { version: 1, exempt: ["cn_isp"] }, aliases: ALIASES }), /name/); // 裸字符串旧形状拒绝
 });
 
-test("免考名单文件 = 规格冻结 8 名,不得增删(Q8)", () => {
+test("reclaim 语义:reclaim 非空 = 用户已裁决捞回 → 进考题分母参与召回;null = 免考不入分母(D 版 _doc 口径)", () => {
+  const roster = ["exempt_a | threat | - | is_malicious", "reclaimed_b | threat | feed.example.org | is_malicious", "plain_c | threat | other.example.org | is_malicious"].join("\n");
+  const dump = JSON.stringify({
+    exempt_a: { host: "-", urls: [] },
+    reclaimed_b: { host: "feed.example.org", urls: ["https://feed.example.org/b.txt"] },
+    plain_c: { host: "other.example.org", urls: ["https://other.example.org/c.txt"] },
+  });
+  const rules = {
+    version: 1,
+    exempt: [
+      { name: "exempt_a", reason: "内部派生", reclaim: null },
+      { name: "reclaimed_b", reason: "内部派生", reclaim: { date: "2026-11-07", ruling: "用户裁决捞回" } },
+    ],
+  };
+  const t = buildAnswerTable({ rosterText: roster, urlDumpJson: dump, examRules: rules, aliases: { version: 1, aliases: {} } });
+  assert.deepEqual(t.exam.map((a) => a.name), ["reclaimed_b", "plain_c"]); // 捞回进考题
+  assert.deepEqual(t.exempt.map((a) => a.name), ["exempt_a"]);
+  const r = scoreRound(t, [{ name: "plain_c", url: "https://other.example.org/c.txt", source_channel: "web" }]);
+  assert.deepEqual(r.recall, { found: 1, total: 2, pct: 50 }); // reclaimed_b 在分母且未搜到 → 扣分
+  assert.deepEqual(r.unfound, [{ name: "reclaimed_b", host: "feed.example.org" }]);
+});
+
+test("免考名单文件 = 规格冻结 8 名,不得增删(Q8);形状 = D 版对象条目", () => {
   const rules = JSON.parse(fs.readFileSync(path.join(BENCH_DIR, "exam-rules.json"), "utf8"));
-  assert.deepEqual([...rules.exempt].sort(), [
+  assert.ok(Array.isArray(rules.exempt));
+  assert.deepEqual([...rules.exempt.map((e) => e.name)].sort(), [
     "cdn_edges", "cloud_ranges", "cn_isp", "honyport",
     "infra_services", "rir_abuse", "rir_delegated", "scanner_ranges",
   ]);
@@ -198,6 +222,20 @@ test("renderMarkdown:六栏齐(总召回/按 category/needs vs web/免考/表外
   assert.match(md, /BrandNew Feed \| https:\/\/brandnew\.example\.net\/feed\.csv/);
   assert.match(md, /未搜到\(1\)/);
   assert.match(md, /missing_one\(example\.org\)/);
+});
+
+test("renderMarkdown P2-3:表格单元格内 | 转义为 \\|(命中明细候选名 + 表外新候选名/URL/备注)", () => {
+  const cands = [
+    { name: "Weird|Name", url: "https://otx.alienvault.com/api/v1/pulses/activity", quote: "q", evidence_ptr: "t.jsonl:L1", source_channel: "web", exclusivity_estimate: null, notes: "" },
+    { name: "Out|Side", url: "https://x.example.org/a|b.csv", quote: "q", evidence_ptr: "t.jsonl:L2", source_channel: "web", exclusivity_estimate: null, notes: "note|pipe" },
+  ];
+  const md = renderMarkdown(scoreRound(table(), cands));
+  const hit = md.split("\n").find((l) => l.includes("| otx |"));
+  assert.ok(hit, "命中明细缺 otx 行");
+  assert.match(hit, /\| otx \| L1 \| Weird\\\|Name \| web \|/, "命中明细候选名列竖线未转义");
+  const row = md.split("\n").find((l) => l.includes("Out"));
+  assert.ok(row, "表外新候选行缺失");
+  assert.match(row, /\| Out\\\|Side \| https:\/\/x\.example\.org\/a\\\|b\.csv \| note\\\|pipe \|/, "表外新候选行竖线未转义");
 });
 
 test("runScoring:读 d2-shortlist.json 打分落盘 report.md/report.json;重跑字节级同分(确定性门)", () => {

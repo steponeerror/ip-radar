@@ -69,6 +69,8 @@ export function parseRoster(text) {
 
 // roster 命令之外的第二取数面:源模块声明的下载 URL(python -c 机械 dump,见 DUMP_URLS_SCRIPT)。
 // 交叉校验:name 集合与 host 逐源一致——不一致即红,不给静默漂移留门(roster 单源纪律,Q12)。
+// exam-rules 形状(票 D #321 定稿):exempt = [{name, reason, reclaim}];reclaim 非空
+// ({date, ruling},用户裁决一次) = 捞回进考题分母参与召回;null = 免考不入分母。
 export function buildAnswerTable({ rosterText, urlDumpJson, examRules, aliases }) {
   const rows = parseRoster(rosterText);
   let dump;
@@ -88,9 +90,15 @@ export function buildAnswerTable({ rosterText, urlDumpJson, examRules, aliases }
   for (const r of rows) {
     if (!(r.name in dump)) throw new Error(`url dump 缺 roster 源:${r.name}`);
   }
-  for (const ex of examRules.exempt ?? []) {
-    if (!rosterNames.has(ex)) throw new Error(`免考名单源不在 roster(冻结名单对不上现实):${ex}`);
+  const entries = examRules.exempt ?? [];
+  for (const e of entries) {
+    if (!e || typeof e.name !== "string" || !e.name) {
+      throw new Error(`exam-rules.exempt 条目缺 name(D 形状 {name,reason,reclaim}):${JSON.stringify(e)}`);
+    }
+    if (!rosterNames.has(e.name)) throw new Error(`免考名单源不在 roster(冻结名单对不上现实):${e.name}`);
   }
+  // reclaim 非空 = 用户已裁决捞回 → 进考题分母;null = 免考不入分母(D 版 _doc 口径)
+  const exemptNames = new Set(entries.filter((e) => e.reclaim == null).map((e) => e.name));
   const aliasEntries = Object.entries(aliases.aliases ?? {});
   const build = (row) => {
     const urls = [...new Set(dump[row.name].urls ?? [])];
@@ -116,8 +124,8 @@ export function buildAnswerTable({ rosterText, urlDumpJson, examRules, aliases }
   };
   return {
     rosterTotal: rows.length,
-    exam: rows.filter((r) => !examRules.exempt?.includes(r.name)).map(build),
-    exempt: rows.filter((r) => examRules.exempt?.includes(r.name)).map(build),
+    exam: rows.filter((r) => !exemptNames.has(r.name)).map(build),
+    exempt: rows.filter((r) => exemptNames.has(r.name)).map(build),
   };
 }
 
@@ -215,6 +223,8 @@ export function scoreRound(table, candidates) {
 }
 
 export function renderMarkdown(r) {
+  // 表格单元格内的 | 转义(评审 P2-3):候选名/URL/备注可能带竖线,不转会拆列
+  const esc = (s) => String(s ?? "").replaceAll("|", "\\|");
   const lines = [];
   lines.push(`# 重发现基准打分报告`);
   lines.push("");
@@ -240,13 +250,13 @@ export function renderMarkdown(r) {
   lines.push(`## 命中明细`);
   lines.push(`| 源 | 层 | 命中候选 | 渠道 |`);
   lines.push(`| --- | --- | --- | --- |`);
-  for (const f of r.found) lines.push(`| ${f.answer} | L${f.layer} | ${f.via.name} | ${f.via.source_channel ?? "-"} |`);
+  for (const f of r.found) lines.push(`| ${esc(f.answer)} | L${f.layer} | ${esc(f.via.name)} | ${esc(f.via.source_channel ?? "-")} |`);
   lines.push("");
   lines.push(`## 表外新候选(${r.newCandidates.length})`);
   if (r.newCandidates.length) {
     lines.push(`| 名 | URL | 一句 |`);
     lines.push(`| --- | --- | --- |`);
-    for (const c of r.newCandidates) lines.push(`| ${c.name} | ${c.url ?? "-"} | ${c.note || "-"} |`);
+    for (const c of r.newCandidates) lines.push(`| ${esc(c.name)} | ${esc(c.url ?? "-")} | ${esc(c.note || "-")} |`);
   } else {
     lines.push("- (无)");
   }
