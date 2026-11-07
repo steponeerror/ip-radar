@@ -9,7 +9,7 @@ import time
 from collections import defaultdict
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, NamedTuple
 
 from dotenv import load_dotenv
 from ipdb._source_state import load_disabled, save_disabled
@@ -519,6 +519,127 @@ def _order_asset_stmts(stmts: list) -> list:
     ))
 
 
+# ── lookup() 旁路登记表(#315;裁决链 ADR 0019(#289 裁③)→ #290 形状四问全批)──
+# 收编对象 = 收集环里三对按源名/按键写死的旁路(2026-08-16 city_zh 别名
+# → 08-25 geolite_city 坐标 → 10-10 rir_delegated 注册块三份同形拷贝,
+# 配对病 = 每对「收集 if + 组装读出」两处人肉对齐)。读出语义逐字保留
+# (冻结规格 §1 表第三列);改语义另立票过字节级门。
+# 新增旁路合同(规格 §2.3):在本表加一项 + LookupResult 需要时加字段,
+# 收集环与组装段零改动——T3 守门测试(tests/lookup/test_bypass_registry.py)
+# 机械钉死这一点。
+# as_org 查询期 join(_org_hook_sources 接线,见 lookup 内)与本表是同一
+# 模式(查询期收集→胜者解出后读出的旁路注入)的两个实例;#290 Q3 裁定
+# 不并入:join 的输入是 ASN 键(键源无 CIDR 面,进不了 per-IP 收集环),
+# 只能在 asn 胜者解出后钩入,形状不同。
+
+
+class _BypassSpec(NamedTuple):
+    """旁路声明表项(四要素,规格 §2.1 冻结):
+    key     — LookupResult 出海字段名(city_zh/location/registration);
+    trigger — 收集环内判断本条要不要抓(source/item/extra 三参,签名冻结);
+    collect — 抓什么入 stash[key][source.name](city_zh 抓 zh 字符串,
+              另两对抓整个 extra dict);
+    resolve — 组装段读出(stash = 本旁路「源名→值」dict,插入序保留;
+              city = 融合后的 city MergedField,仅 city_zh/location 用到,
+              签名统一带)。"""
+
+    key: str
+    trigger: Callable[[Any, dict[str, Any], dict[str, Any]], bool]
+    collect: Callable[[Any, dict[str, Any], dict[str, Any]], Any]
+    resolve: Callable[[dict, MergedField], Any]
+
+
+def _city_zh_trigger(source, item, extra) -> bool:
+    # 原形:if "city" in item → zh = extra.get("city_zh");任意源可贡献
+    # 别名,不限城市源。
+    return "city" in item and bool(extra.get("city_zh"))
+
+
+def _city_zh_collect(source, item, extra):
+    return extra.get("city_zh")
+
+
+def _city_zh_resolve(stash: dict, city: MergedField):
+    # 读出语义(逐字保留,spec 2026-08-16):display-only;city.value
+    # 非 None 非 N/A 且 stash 非空时,候选 = city.sources 中值==胜值且
+    # 在 stash 的源,按 (-reliability, 源名) 排序取首的 zh;否则 None。
+    if city.value in (None, "N/A") or not stash:
+        return None
+    winners = [s for s in city.sources
+               if s.value == city.value and s.source in stash]
+    if not winners:
+        return None
+    best = sorted(winners, key=lambda s: (-s.reliability, s.source))[0]
+    return stash[best.source]
+
+
+def _location_trigger(source, item, extra) -> bool:
+    # 原形:坐标仅 geolite 产;按源名收集,胜者匹配时读出(同 city_zh 旁路点)。
+    return source.name == "geolite_city" and bool(extra)
+
+
+def _location_collect(source, item, extra):
+    return extra
+
+
+def _location_resolve(stash: dict, city: MergedField):
+    # 读出语义(逐字保留,spec 2026-08-25 §4.2):扫 city.sources,首个
+    # 「geolite_city 源且值==胜值」即 break——不管该源 extra 在不在、
+    # lat/lon 全不全都 break(匹配了就不看后续);extra 有 lat+lon 才建
+    # 块;accuracy_radius/time_zone 缺键即省略(time_zone 仅在块成立时
+    # 捎带:无定位即无时区语义,信息维度批 2026-10-10)。
+    for s in city.sources:
+        if s.source == "geolite_city" and s.value == city.value:
+            ex = stash.get(s.source) or {}
+            if ex.get("lat") is not None and ex.get("lon") is not None:
+                location = {"lat": ex["lat"], "lon": ex["lon"]}
+                if ex.get("accuracy_radius") is not None:
+                    location["accuracy_radius"] = ex["accuracy_radius"]
+                if ex.get("time_zone") is not None:
+                    location["time_zone"] = ex["time_zone"]
+                return location
+            return None
+    return None
+
+
+def _registration_trigger(source, item, extra) -> bool:
+    # 原形:注册分配元数据单证人,不进任何合并策略
+    # (reg_country ≠ 地理国,绝不进 country 融合)。
+    return source.name == "rir_delegated" and bool(extra)
+
+
+def _registration_collect(source, item, extra):
+    return extra
+
+
+def _registration_resolve(stash: dict, city: MergedField):
+    # 读出语义(逐字保留,信息维度批 2026-10-10):stash 非空 →
+    # next(iter()) 首插入值(dict 保序);投影 (registry, reg_country,
+    # alloc_date, status) 在场键,键缺席即省略;全缺 → None。
+    # city 参数本旁路用不到,签名统一带(规格 §2.1 要素4)。
+    if not stash:
+        return None
+    ex = next(iter(stash.values()))
+    return {k: ex[k] for k in
+            ("registry", "reg_country", "alloc_date", "status")
+            if k in ex} or None
+
+
+# 表序 = (city_zh, location, registration),与原组装顺序一致(to_dict 键序
+# 由 LookupResult 自身构造决定,字节输出不依赖表序,保序只为可读)。
+_BYPASS_SPECS: tuple[_BypassSpec, ...] = (
+    _BypassSpec(key="city_zh",
+                trigger=_city_zh_trigger, collect=_city_zh_collect,
+                resolve=_city_zh_resolve),
+    _BypassSpec(key="location",
+                trigger=_location_trigger, collect=_location_collect,
+                resolve=_location_resolve),
+    _BypassSpec(key="registration",
+                trigger=_registration_trigger, collect=_registration_collect,
+                resolve=_registration_resolve),
+)
+
+
 def lookup(ip: str, allowed_sources: frozenset[str] | None = None, *,
           asof: float | None = None) -> LookupResult:
     """Look up an IP address and return a typed LookupResult.
@@ -548,9 +669,9 @@ def lookup(ip: str, allowed_sources: frozenset[str] | None = None, *,
     field_extras: dict[str, dict[str, dict]] = {}
     observations = []
     attributes: dict[str, list] = defaultdict(list)
-    city_zh_map: dict[str, str] = {}
-    geolite_extras: dict[str, dict] = {}
-    rir_extras: dict[str, dict] = {}
+    # 旁路 stash(#315):{旁路key: {源名: 值}},插入序保留;替代原三个
+    # 局部 dict(city_zh_map/geolite_extras/rir_extras),每查一次分配
+    stash: dict[str, dict] = {spec.key: {} for spec in _BYPASS_SPECS}
     for source in _enabled_sources():
         if allowed_sources is not None and source.name not in allowed_sources:
             continue
@@ -571,17 +692,14 @@ def lookup(ip: str, allowed_sources: frozenset[str] | None = None, *,
             if extra:
                 for key in _CTX_SLOTS & item.keys():
                     field_extras.setdefault(key, {})[source.name] = extra
-            if "city" in item:
-                zh = extra.get("city_zh")
-                if zh:
-                    city_zh_map[source.name] = zh
-            # 坐标仅 geolite 产;按源名收集,胜者匹配时读出(同 city_zh 旁路点)
-            if source.name == "geolite_city" and extra:
-                geolite_extras[source.name] = extra
-            # rir_delegated 旁路(同 city_zh/坐标同族):注册分配元数据单证人,
-            # 不进任何合并策略(reg_country ≠ 地理国,绝不进 country 融合)
-            if source.name == "rir_delegated" and extra:
-                rir_extras[source.name] = extra
+            # 旁路收集(表驱动,#315):三段按源名/按键写死的 if 收编为
+            # _BYPASS_SPECS 逐项 trigger→collect,仍在 allowed_sources
+            # 过滤之后的循环内(白名单语义不变);每 item 至多表长次 trigger
+            # 检查(与原三次 if 同量级)。触发/抓取语义逐项见表项。
+            for spec in _BYPASS_SPECS:
+                if spec.trigger(source, item, extra):
+                    stash[spec.key][source.name] = spec.collect(
+                        source, item, extra)
             if "classification_type" in item:
                 # DM-1 声明 r 生效:表优先(SOURCE_RELIABILITY 含
                 # _calibrated.json 运行时覆盖,表优先 → 后校准即真生效,
@@ -697,46 +815,18 @@ def lookup(ip: str, allowed_sources: frozenset[str] | None = None, *,
         for ctype, grp in groups.items()
     }
 
-    # city_zh: display-only; among sources whose value == winning city value,
-    # highest reliability then smallest source name; else None (spec 2026-08-16).
-    city_zh = None
-    if city.value not in (None, "N/A") and city_zh_map:
-        winners = [s for s in city.sources
-                   if s.value == city.value and s.source in city_zh_map]
-        if winners:
-            best = sorted(winners, key=lambda s: (-s.reliability, s.source))[0]
-            city_zh = city_zh_map[best.source]
-
-    # geolite lat/lon 旁路(同 city_zh;display-only,无合并语义)。
-    # time_zone 同路捎带(信息维度批 2026-10-10):仅在 location 块成立时
-    # 附带(lat/lon 缺席则块不存在,tz 不独立成块——无定位即无时区语义)。
-    location = None
-    for s in city.sources:
-        if s.source == "geolite_city" and s.value == city.value:
-            ex = (geolite_extras.get(s.source) or {})
-            if ex.get("lat") is not None and ex.get("lon") is not None:
-                location = {"lat": ex["lat"], "lon": ex["lon"]}
-                if ex.get("accuracy_radius") is not None:
-                    location["accuracy_radius"] = ex["accuracy_radius"]
-                if ex.get("time_zone") is not None:
-                    location["time_zone"] = ex["time_zone"]
-            break
-
-    # registration 顶层信息块(信息维度批,单证人,无合并语义):
-    # {registry, reg_country?, alloc_date?, status?};键缺席即省略。
-    registration = None
-    if rir_extras:
-        ex = next(iter(rir_extras.values()))
-        registration = {k: ex[k] for k in
-                        ("registry", "reg_country", "alloc_date", "status")
-                        if k in ex} or None
+    # 旁路读出(表驱动,#315):三段读出收编为逐项 resolve,赋给同名
+    # LookupResult 字段;读出语义逐字保留在各表项 resolve 内(city =
+    # 融合后的 city MergedField,仅别名/坐标两项用到)。
+    bypass_values = {spec.key: spec.resolve(stash[spec.key], city)
+                     for spec in _BYPASS_SPECS}
 
     return LookupResult(
         ip=ip,
         country=country,
         city=city,
-        city_zh=city_zh,
-        location=location,
+        city_zh=bypass_values["city_zh"],
+        location=bypass_values["location"],
         asn=asn,
         as_name=as_name,
         as_org=as_org,
@@ -744,7 +834,7 @@ def lookup(ip: str, allowed_sources: frozenset[str] | None = None, *,
         org_name=org_name,
         ip_range=ip_range,
         is_isp=is_isp,
-        registration=registration,
+        registration=bypass_values["registration"],
         classifications=classifications,
         attributes=dict(attributes),
         asof=asof,
