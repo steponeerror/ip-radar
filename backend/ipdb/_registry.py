@@ -524,9 +524,11 @@ def _order_asset_stmts(stmts: list) -> list:
 # → 08-25 geolite_city 坐标 → 10-10 rir_delegated 注册块三份同形拷贝,
 # 配对病 = 每对「收集 if + 组装读出」两处人肉对齐)。读出语义逐字保留
 # (冻结规格 §1 表第三列);改语义另立票过字节级门。
-# 新增旁路合同(规格 §2.3):在本表加一项 + LookupResult 需要时加字段,
-# 收集环与组装段零改动——T3 守门测试(tests/lookup/test_bypass_registry.py)
-# 机械钉死这一点。
+# 新增旁路合同(规格 §2.3,精确版):源名字面量只许活在表项 trigger
+# 里(守门测试钉);复用既有出海字段的新旁路 = 仅在本表加一项;需新
+# 出海字段 = 另加 _types.py 的 LookupResult 字段 + lookup() 出海 kwarg
+# 一行。守门测试(tests/lookup/test_bypass_registry.py)钉的是源名字面
+# 量缺席 + 表形/表序/key⊆出海字段,钉不了未来改动次数。
 # as_org 查询期 join(_org_hook_sources 接线,见 lookup 内)与本表是同一
 # 模式(查询期收集→胜者解出后读出的旁路注入)的两个实例;#290 Q3 裁定
 # 不并入:join 的输入是 ASN 键(键源无 CIDR 面,进不了 per-IP 收集环),
