@@ -25,7 +25,7 @@ from ._merge import (
     _to_attributions,
     to_observation,
     _assess_classification,
-    SOURCE_RELIABILITY,   # needed for get_status / scalar strategies
+    effective_reliability,   # 有效 r 单一解析入口(#317);表本体只经 _merge_mod 填装
 )
 
 _app_dir = Path(__file__).parent.parent
@@ -509,13 +509,13 @@ def _order_asset_stmts(stmts: list) -> list:
 
     def _coeff(s):
         sign = 1 if s.value else -1
-        return sign * _lo.logit(SOURCE_RELIABILITY.get(s.source, 0.5))
+        return sign * _lo.logit(effective_reliability(s.source))
 
     p_true = _lo.assertion_confidence([_coeff(s) for s in stmts])
     map_value = p_true >= 50
     return sorted(stmts, key=lambda s: (
         0 if s.value is map_value else 1,
-        -SOURCE_RELIABILITY.get(s.source, 0.5),
+        -effective_reliability(s.source),
     ))
 
 
@@ -711,7 +711,7 @@ def lookup(ip: str, allowed_sources: frozenset[str] | None = None, *,
                 # cloud_ranges 无 classification_type,永不入观测)——表优先
                 # 因此零漂移;未来源若 per-row r≠attr 且带 classification_type,
                 # 将被表静默覆盖,须先扩 _calibrated 语义再引入。
-                r_live = SOURCE_RELIABILITY.get(source.name)
+                # 优先序本体在 _merge.effective_reliability docstring(#317)。
                 observations.append(to_observation(
                     source.name, item,
                     classification_type=item["classification_type"],
@@ -719,9 +719,10 @@ def lookup(ip: str, allowed_sources: frozenset[str] | None = None, *,
                     # 显式 ""(弃权拼写)已由 Evidence.to_dict 特判保留,
                     # 读回按 "" 处理不兑底(R17A-1)。
                     verdict=item.get("verdict", "malicious"),
-                    reliability=(r_live if r_live is not None
-                                 else item.get("reliability",
-                                               getattr(source, "reliability", 0.5)))))
+                    reliability=effective_reliability(
+                        source.name,
+                        payload_r=item.get("reliability"),
+                        attr_r=getattr(source, "reliability", None))))
             native_types = item.get("_native_types") or {}
             for akey in ASSET_SLOTS:            # schema-driven, was _ASSET_KEYS
                 if akey in item:

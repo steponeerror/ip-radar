@@ -173,8 +173,8 @@ def to_stix_bundle(lr: LookupResult) -> dict | None:
 
 
 def _get_src_reliability(name: str) -> float:
-    from ._merge import SOURCE_RELIABILITY
-    return SOURCE_RELIABILITY.get(name, 0.5)
+    from ._merge import effective_reliability
+    return effective_reliability(name)
 
 
 def _is_authoritative(name: str) -> list[str]:
