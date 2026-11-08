@@ -17,8 +17,9 @@
 #
 # 三护栏(golden + v2 全套 + leak gate;过不了不进花钱评估):smoke() 全跑,run() 复跑
 # 落 guards.json 回执,score() 载入 extra,guards() 非补偿执法——回执缺失=不可接受。
-# 冻结门(#327):NEEDS.md(考题宇宙)与验证面(golden/selftest*/fixtures/v2-tests)
-# 两道 git diff 对 incumbent 分支必为空——评估器不许候选改;演化可编面另表
+# 冻结门(#327):NEEDS.md(考题宇宙)与验证面(golden/selftest*/fixtures/v2-tests
+# +leak gate 执法件 leak-check.mjs/exam-rules.json,Standards P1 修批)两道 git diff
+# 对 incumbent 分支必为空——评估器不许候选改;演化可编面另表
 # EDIT_ALLOWLIST(策略面 43 文件,#327 Q1 推翻 #322 R5 全放开)。
 import fnmatch
 import json
@@ -66,6 +67,9 @@ BENCH_PYTHON = os.environ.get("IPRADAR_BENCH_PYTHON",
 #   + ops/agent-v2/{tools,tasks,bench}/** 21 + ops/agent/{agent.mjs,models.mjs} 2
 # 其余(v1 根散件/验证面/环境面/文档面)一律只读;验证面另有 _guardrails 冻结门,
 # 不靠本表拒绝。名单外输入 fail-closed(edit_allowed 返回 False)。
+# 双匹配器互指(Spec 轴 P2-1):运行时真身是 dev/rrsi rrsi/propose.py _allowed(同一张
+# 表消费;语义微差:彼侧多剥 harness 目录名前缀、少反斜杠归一,分歧方向均为拒;改 glob
+# 时两侧同改)。
 EDIT_ALLOWLIST = (
     "ops/agent/pipeline/**",
     "ops/agent/prompts/**",
@@ -209,12 +213,19 @@ def _roster_dump(runs_dir: Path) -> Path:
 # ── 冻结门(#327:两道门同律同机;git pathspec 语义实测 2026-11-08:* 跨目录、目录递归、
 # 对 ref 的 diff 工作树+已提交改动均可见、pathspec 无匹配 rc0 不误报)──────────────
 NEEDS_GATE_PATHS = ("domains/ipradar/harness/NEEDS.md",)
-# 验证面=给自己打分的面(golden 基线 / selftest / pipeline+precedents 夹具 / v2 测试)
+# 验证面=给自己打分的面(golden 基线 / selftest / pipeline+precedents 夹具 / v2 测试)。
+# Standards P1 修批(#327,评审 1e9e66fb):验证面四类之外,leak gate 自身执法件同律
+# 冻结——检查器 leak-check.mjs(护栏③在候选 worktree 内跑候选副本,可编不改门=
+# 候选恒零命中后往 prompts 注考题名照拿回执)+ exam-rules.json(exempt 免考名单=
+# 打分面数据:score.mjs 考题分母由它派生,名单载体留在被告可编面=门上留缝)。
+# 「给自己打分的面」含给自己站岗的面。
 VERIFICATION_GATE_PATHS = (
     "domains/ipradar/harness/ops/agent/golden",
     "domains/ipradar/harness/ops/agent/selftest*",
     "domains/ipradar/harness/ops/agent/fixtures",
     "domains/ipradar/harness/ops/agent-v2/tests",
+    "domains/ipradar/harness/ops/agent-v2/bench/leak-check.mjs",
+    "domains/ipradar/harness/ops/agent-v2/bench/exam-rules.json",
 )
 
 def _frozen(root: Path, paths: tuple[str, ...]) -> bool:
@@ -253,7 +264,8 @@ def _guardrails(root: Path, runs_dir: Path, log_dir: Path) -> dict:
     # 候选可改给自己打分的分(test-edit 洞);从「靠模型自觉」变「靠结构」。NEEDS 同律。
     if not _frozen(root, VERIFICATION_GATE_PATHS):
         raise RuntimeError("验证面被候选改动:评估器冻结(golden/selftest*/fixtures/"
-                           "v2-tests 对 evolve/ipradar 的 git diff 须为空,票 #327 Q2)")
+                           "v2-tests+leak gate 执法件(leak-check.mjs/exam-rules.json)"
+                           "对 evolve/ipradar 的 git diff 须为空,票 #327 Q2+Standards P1)")
     out["verification_frozen"] = True
     # ③ leak gate:默认面 exit 0(考题针零命中;行级豁免「禁词引用:原因」判例 #308)。
     # roster 经 --roster-file 注入(worktree 无 backend/,spawn 面断)
@@ -302,10 +314,12 @@ class IpRadarDomain(Domain):
         ),
         "proposer": (
             "域:ip-radar 盲测重发现基准——用基准轮(沙箱,faux 或真实 GLM)度量发现管线的"
-            "搜索与召回能力,奖励=逐源 0/1 召回。开放面=ops/agent + ops/agent-v2 发现管线;"
-            "约束读 PATTERNS.md(零漂移红线:真实轮路径行为字节不变,golden 钉;考题名/域名"
-            "禁入提示词与代码;编辑预算须可归因)。提升召回的合法杠杆:候选宇宙覆盖、检索词"
-            "策略、短名单聚合与去重、四层匹配上下游的对齐——不是把答案写进提示词。"
+            "搜索与召回能力,奖励=逐源 0/1 召回。开放面=策略面 43 文件白名单(七条 glob:"
+            "pipeline/prompts/v2 tools+tasks+bench/v1 入口与模型),名单外一律只读,"
+            "验证面另有冻结门;约束读 PATTERNS.md(零漂移红线:真实轮路径行为字节不变,"
+            "golden 钉;考题名/域名禁入提示词与代码;编辑预算须可归因)。提升召回的"
+            "合法杠杆:候选宇宙覆盖、检索词策略、短名单聚合与去重、四层匹配上下游的"
+            "对齐——不是把答案写进提示词。"
         ),
         "critic": (
             "域:ip-radar 盲测重发现基准。审查候选 diff:①考题泄漏(critic_patterns = 53 源"

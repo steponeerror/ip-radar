@@ -260,6 +260,8 @@ if all(rep["has"].values()):
                       ("ops/agent/selftest-pipeline.mjs", "st\\n"),
                       ("ops/agent/fixtures/pipeline/d1-scan.json", "f\\n"),
                       ("ops/agent-v2/tests/x.test.mjs", "t\\n"),
+                      ("ops/agent-v2/bench/leak-check.mjs", "lc\\n"),
+                      ("ops/agent-v2/bench/exam-rules.json", "er\\n"),
                       ("ops/agent/prompts/discover-system.md", "p\\n")):
         p = h / rel
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -296,6 +298,20 @@ if all(rep["has"].values()):
     git("add", "-A")
     git("-c", "commit.gpgsign=false", "commit", "-q", "-m", "cand")
     rep["gateCommittedRed"] = vf()
+    git("reset", "-q", "--hard", "evolve/ipradar")
+    #    leak gate 执法面(Standards P1 修批,评审 1e9e66fb):两条新 pathspec 各自独立验
+    #    「提交态红/清白绿」——逐条 hard reset 隔离,红只归因该文件,不与 golden 红叠加。
+    rep["gateLeakEnforce"] = {}
+    for rel in ("ops/agent-v2/bench/leak-check.mjs",
+                "ops/agent-v2/bench/exam-rules.json"):
+        p = h / rel
+        p.write_text(p.read_text() + "touched\\n")
+        git("add", "-A")
+        git("-c", "commit.gpgsign=false", "commit", "-q", "-m",
+            "cand-" + Path(rel).name)
+        red = vf()
+        git("reset", "-q", "--hard", "evolve/ipradar")
+        rep["gateLeakEnforce"][rel] = [red, vf()]
 # ③ guards() 非补偿执法:receipt 缺 verification_frozen = 不可接受(与 needs_frozen 同律)
 from types import SimpleNamespace
 ok = {"golden": True, "v2_test": True, "leak_gate": True,
@@ -346,4 +362,20 @@ test("adapter 边界收口(#327):白名单 43 文件面 + 验证面冻结门红�
     "receipt 缺 verification_frozen=不可接受(非补偿执法,#327 与 needs_frozen 同律)",
   );
   assert.ok(boundaryProbe.guardsNoReceipt.length > 0, "无 receipt=不可接受");
+});
+
+// —— #327 Standards P1 修批:leak gate 自身执法件入冻结门(评审 1e9e66fb P1)——
+// 护栏③在候选 worktree 内跑候选副本 leak-check.mjs;它被 EDIT_ALLOWLIST 的 bench/**
+// 放行可编、又不在冻结门 → 候选可把检查器改成恒零命中再往 prompts 注考题名,五腿回执
+// 照绿。exam-rules.json 同类利用面:exempt 免考名单是打分面数据(score.mjs 的考题分母
+// 由它派生),名单载体留在被告可编面=门上留缝。两文件与验证面同律冻结。
+test("验证面冻结门含 leak gate 执法件:leak-check.mjs 提交态红/清白绿(#327 Standards P1)", { skip: boundaryProbe ? false : `dev/rrsi venv 面不可用(${boundaryProbeErr?.message})` }, () => {
+  const [red, clean] = boundaryProbe.gateLeakEnforce["ops/agent-v2/bench/leak-check.mjs"];
+  assert.equal(red, false, "leak-check.mjs 提交态改动须门红(给自己站岗的面与给自己打分的面同律冻结)");
+  assert.equal(clean, true, "reset 回 incumbent 后清白树须门绿(rc0)");
+});
+test("验证面冻结门含 leak gate 执法件:exam-rules.json 提交态红/清白绿(#327 Standards P1)", { skip: boundaryProbe ? false : `dev/rrsi venv 面不可用(${boundaryProbeErr?.message})` }, () => {
+  const [red, clean] = boundaryProbe.gateLeakEnforce["ops/agent-v2/bench/exam-rules.json"];
+  assert.equal(red, false, "exam-rules.json 提交态改动须门红(exempt 免考名单=打分面数据,不得留在被告可编面)");
+  assert.equal(clean, true, "reset 回 incumbent 后清白树须门绿(rc0)");
 });
