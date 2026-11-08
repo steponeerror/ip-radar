@@ -465,6 +465,19 @@ DOMAIN = IpRadarDomain()
 # 走 env ZAI_CODING_CN_BASE_URL(缺省 https://open.bigmodel.cn/api/coding/paas/v4)/
 # ZAI_CODING_CN_API_KEY(auth.json 凭证店同源,ops/agent/models.mjs 判例)。
 # scripts/glm-smoke.py 经此面真调一次(票 #325 冒烟留痕)。
+def _shim_log(msg: str) -> None:
+    """垫片尝试日志(append RRSI_SHIM_LOG 或 runs/litellm-shim.log;每次尝试一行,排查
+    挂死/空回不再盲等——判例 2026-11-08:round0 analyst 挂 28min 零可观测)。"""
+    try:
+        import time as _t
+        p = Path(os.environ.get("RRSI_SHIM_LOG") or "runs/litellm-shim.log")
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with open(p, "a") as f:
+            f.write(f"{_t.strftime('%H:%M:%S')} {msg}\n")
+    except Exception:  # noqa: BLE001 - 日志面尽力而为
+        pass
+
+
 def _zai_api_key() -> str:
     """zai 凭据:env ZAI_CODING_CN_API_KEY 优先;缺席兑底凭据店 ~/.pi/agent/auth.json
     的 zai-coding-cn 键(判例 #304-⑤:GLM 凭据只此一家,不设第二真源)。driver 进程
@@ -494,23 +507,35 @@ def _install_litellm_shim() -> bool:
             msgs.append({"role": "system", "content": cache_prefix})
         msgs.append({"role": "user", "content": prompt})
         mdl = model or CFG.get("proposer_model")
+        _shim_log(f"start model={mdl} prompt={len(prompt)}ch sys={len(system or '')}ch json_only={json_only}")
         last = None
+        # 硬墙钟(判例 2026-11-08:endpoint 对个别请求滴流挂死,read 超时不触发,单请求
+        # 28min+ 0.1% CPU;线程隔离 + future 墙钟强断,被弃线程自然消亡不阻塞重试链)。
+        import concurrent.futures as _cf
+        import time as _time
+        _pool = _cf.ThreadPoolExecutor(max_workers=1)
         for i in range(max_retries):
+            t0 = _time.monotonic()
             try:
-                rsp = litellm.completion(
+                fut = _pool.submit(
+                    litellm.completion,
                     model=mdl, messages=msgs, max_tokens=max_tokens,
-                    timeout=300,  # 硬超时(判例:analyst 大提示词单请求挂 28min+,0.1% CPU;不设限演化会整晚卡死)
+                    timeout=300,  # 单请求上限(双保险)
                     base_url=os.environ.get(
                         "ZAI_CODING_CN_BASE_URL",
                         "https://open.bigmodel.cn/api/coding/paas/v4"),
                     api_key=_zai_api_key())
+                rsp = fut.result(timeout=330)
                 txt = rsp.choices[0].message.content or ""
                 if txt.strip():
+                    _shim_log(f"ok attempt={i} {_time.monotonic()-t0:.1f}s resp={len(txt)}ch")
                     return rllm.extract_json(txt) if json_only else txt
+                _shim_log(f"empty attempt={i} {_time.monotonic()-t0:.1f}s")
                 last = RuntimeError("empty response")  # 空回=重试(上游同律;编码端点偶发空 content)
             except Exception as e:  # noqa: BLE001
+                _shim_log(f"err attempt={i} {_time.monotonic()-t0:.1f}s {e!r}"[:220])
                 last = e
-                time.sleep(min(2 ** i, 30))
+                _time.sleep(min(2 ** i, 30))
         raise RuntimeError(f"litellm-zai generate 失败({mdl}):{last!r}")
 
     _orig = getattr(rllm, "_vertex_generate_original", None) or rllm.generate
