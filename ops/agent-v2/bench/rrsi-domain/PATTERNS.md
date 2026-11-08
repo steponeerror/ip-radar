@@ -4,9 +4,18 @@
 
 ## 开放面(只许改这里)
 
-- `ops/agent/`(发现管线 v1:提示词、工具、fixtures;v1 已记弃用意向,但被 v2
-  复用的面——models.mjs re-export、prompts、fixtures——仍是有效演化面)
-- `ops/agent-v2/`(durable 底座与基准全套:entry/registry/tasks/bench)
+策略面白名单 43 文件,#327 Q1 裁定(七条 glob,与 adapter.py EDIT_ALLOWLIST
+同一张表;read/edit/write 三动作同表,越名单即拒):
+
+- `ops/agent/pipeline/**`(11 文件)
+- `ops/agent/prompts/**`(9 文件)
+- `ops/agent-v2/tools/**` + `ops/agent-v2/tasks/**` + `ops/agent-v2/bench/**`(21 文件)
+- `ops/agent/agent.mjs`、`ops/agent/models.mjs`(v1 入口与模型面,v2 经 re-export 复用)
+
+名单外一律只读。叠加冻结门:验证面(golden/selftest*/fixtures/v2-tests)、
+leak gate 执法件(leak-check.mjs/exam-rules.json)与 NEEDS.md 对 incumbent 分支的
+git diff 必须为空——编辑在名单内但落冻结面的动作(如改 `bench/leak-check.mjs`)
+会被评估拒收(guards 回执 verification_frozen 腿)。
 
 ## 免碰面(一概不碰)
 

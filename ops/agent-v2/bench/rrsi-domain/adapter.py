@@ -7,6 +7,8 @@
 #   任务 x = 考题源(61 roster − 8 免考 = 53;ops/agent-v2/bench/exam-rules.json 免考面);
 #   trial  = 一次盲搜轮(ops/agent-v2/bench/run-bench.mjs,沙箱 dev/bench-rediscover/<roundId>/);
 #   奖励 r(x, τ) = score.mjs 四层匹配命中该源 = 1,未命中 = 0(逐源 0/1);
+#   门红轮 = 该轮零召回(gate-red.json 标记:模型侧引用不合规被 G_* 拒=适应度信号,
+#   非 infra 崩溃——rrsi 把崩溃标 infra 等人手 reevaluate,演化断链;#322 首跑判例);
 #   劈分   = data/split.jsonl 冻结件(40 演化/13 留出,tests/rrsi-split.test.mjs 钉不变式);
 #   S      = 召回率。#322 验收四行数 = H0/终版 × 演化/留出。
 #
@@ -15,6 +17,11 @@
 #
 # 三护栏(golden + v2 全套 + leak gate;过不了不进花钱评估):smoke() 全跑,run() 复跑
 # 落 guards.json 回执,score() 载入 extra,guards() 非补偿执法——回执缺失=不可接受。
+# 冻结门(#327):NEEDS.md(考题宇宙)与验证面(golden/selftest*/fixtures/v2-tests
+# +leak gate 执法件 leak-check.mjs/exam-rules.json,Standards P1 修批)两道 git diff
+# 对 incumbent 分支必为空——评估器不许候选改;演化可编面另表
+# EDIT_ALLOWLIST(策略面 43 文件,#327 Q1 推翻 #322 R5 全放开)。
+import fnmatch
 import json
 import os
 import subprocess
@@ -50,6 +57,34 @@ IPRADAR = _find_ipradar_repo()
 # worktree 判例(AGENTS.md 2026-11-03):worktree 无 venv,backend 解释器用主检出绝对路径
 BENCH_PYTHON = os.environ.get("IPRADAR_BENCH_PYTHON",
                               "/home/huxiao/dev/pi-ip-lookup-tool/backend/.venv/bin/python")
+
+# ── 演化可编面白名单(票 #327 Q1 裁定 2026-11-08;推翻 #322 R5「开放面 v1+v2 全放开」)──
+# 主仓=声明与单源;dev/rrsi Workspace 以 getattr(domain, "edit_allowlist", None) 消费
+# (read/edit/write 三动作同表,越名单即拒)。fnmatch 语义:* 跨目录分隔符;路径相对
+# harness 根。构成=策略面 43 文件(调研笔记 docs/notes/ops-tree-as-harness-2026-11-08.md:
+# 验证/环境/文档面 72% 是演化不该碰的):
+#   ops/agent/pipeline/** 11 + ops/agent/prompts/** 9
+#   + ops/agent-v2/{tools,tasks,bench}/** 21 + ops/agent/{agent.mjs,models.mjs} 2
+# 其余(v1 根散件/验证面/环境面/文档面)一律只读;验证面另有 _guardrails 冻结门,
+# 不靠本表拒绝。名单外输入 fail-closed(edit_allowed 返回 False)。
+# 双匹配器互指(Spec 轴 P2-1):运行时真身是 dev/rrsi rrsi/propose.py _allowed(同一张
+# 表消费;语义微差:彼侧多剥 harness 目录名前缀、少反斜杠归一,分歧方向均为拒;改 glob
+# 时两侧同改)。
+EDIT_ALLOWLIST = (
+    "ops/agent/pipeline/**",
+    "ops/agent/prompts/**",
+    "ops/agent-v2/tools/**",
+    "ops/agent-v2/tasks/**",
+    "ops/agent-v2/bench/**",
+    "ops/agent/agent.mjs",
+    "ops/agent/models.mjs",
+)
+
+def edit_allowed(rel) -> bool:
+    """路径(相对 harness 根)是否落在演化可编白名单内;反斜杠归一 /,fnmatch 语义,
+    名单外 fail-closed。"""
+    r = str(rel).replace("\\", "/").lstrip("/")
+    return any(fnmatch.fnmatch(r, p) for p in EDIT_ALLOWLIST)
 
 # ── 冻结劈分(答案分发面;名单漂移由 tests/rrsi-split.test.mjs 红)────────────
 def _load_split():
@@ -108,6 +143,49 @@ def _run(cmd, cwd, env=None, timeout=1800, check=True, log=None):
         raise RuntimeError(f"{cmd[:3]}... rc={r.returncode} in {cwd}\n{tail}")
     return r
 
+def _last_envelope(log_path: Path):
+    """log 尾部最后一个 JSON 错误信封(run-bench CLI stdout 末行,ENVELOPE.md 冻结面)。
+    日志追加写,取末尾最后一个含 error 键的 JSON 行;无则 None。"""
+    try:
+        lines = Path(log_path).read_text(errors="replace").splitlines()
+    except OSError:
+        return None
+    for ln in reversed(lines):
+        s = ln.strip()
+        if s.startswith("{") and s.endswith("}"):
+            try:
+                v = json.loads(s)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(v, dict) and "error" in v:
+                return v
+    return None
+
+
+def _is_gate_red(envelope) -> bool:
+    """门红判:信封 error.message 以 GATE: 开头(discover-round.mjs:226/307 单源拼
+    `GATE:<门名>:` 前缀)=模型侧产物被拒,非 infra。"""
+    msg = (envelope or {}).get("error", {}).get("message", "")
+    return isinstance(msg, str) and msg.startswith("GATE:")
+
+
+def _harness_tree_id(root: Path) -> str:
+    """候选 worktree HEAD 的 harness 子树 tree id(domains/ipradar/harness)——同代码同 id。
+    沙箱根按它分目录:重跑同一化身=复用沙箱走 durable replay(零新模型调用);换了化身
+    (harness 被演化编辑)=新沙箱,旧轮不会错挂(#322 首跑后续:heldout 重评须随冠军新代码
+    重跑,不能重放旧冠军的轮)。10 位十六进制。"""
+    r = _run(["git", "rev-parse", "HEAD:domains/ipradar/harness"], cwd=root)
+    return r.stdout.strip()[:10]
+
+
+def _bench_root_for(runs_dir: Path, job: str) -> Path:
+    """job → 沙箱根:优先 .jobmap 指针(_bench_round 写);缺席兑底旧路径(旧跑/smoke)。"""
+    jm = Path(runs_dir) / "bench" / ".jobmap" / job
+    if jm.exists():
+        return Path(jm.read_text().strip())
+    return Path(runs_dir) / "bench" / job
+
+
 def _round_id(job: str, trial: int = 0) -> str:
     """job → 确定性轮 id(形状律 YYYY-MM-DD-HHMM-discover(-r\\d+);同 job 重跑复用同
     沙箱=run-bench resume 语义)。trial 序编进字节序,保 k>1 时各试次独立沙箱。"""
@@ -115,10 +193,11 @@ def _round_id(job: str, trial: int = 0) -> str:
     return f"2000-01-01-0000-discover-r{n}"
 
 def _artifacts_dir(runs_dir: Path, job: str, k: int) -> Path:
-    """score.mjs 的工件目录:<runs>/bench/<job>/<roundId>/rounds/<roundId>/(run-bench
-    落件形状,tests/bench-round.test.mjs CLI 冒烟钉)。k>1 取末试次(打分输入=最终轮)。"""
+    """score.mjs 的工件目录:<benchRoot>/<roundId>/rounds/<roundId>/(run-bench 落件形状,
+    tests/bench-round.test.mjs CLI 冒烟钉)。k>1 取末试次(打分输入=最终轮)。沙箱根经
+    _bench_root_for 解析(化身后缀 + jobmap,2026-11-08 判例)。"""
     rid = _round_id(job, k - 1)
-    return Path(runs_dir) / "bench" / job / rid / "rounds" / rid
+    return _bench_root_for(Path(runs_dir), job) / rid / "rounds" / rid
 
 def _roster_dump(runs_dir: Path) -> Path:
     """roster dump 单源取数:`python -m ipdb._registry --roster`(score/leak 同源);
@@ -130,6 +209,31 @@ def _roster_dump(runs_dir: Path) -> Path:
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(r.stdout)
     return p
+
+# ── 冻结门(#327:两道门同律同机;git pathspec 语义实测 2026-11-08:* 跨目录、目录递归、
+# 对 ref 的 diff 工作树+已提交改动均可见、pathspec 无匹配 rc0 不误报)──────────────
+NEEDS_GATE_PATHS = ("domains/ipradar/harness/NEEDS.md",)
+# 验证面=给自己打分的面(golden 基线 / selftest / pipeline+precedents 夹具 / v2 测试)。
+# Standards P1 修批(#327,评审 1e9e66fb):验证面四类之外,leak gate 自身执法件同律
+# 冻结——检查器 leak-check.mjs(护栏③在候选 worktree 内跑候选副本,可编不改门=
+# 候选恒零命中后往 prompts 注考题名照拿回执)+ exam-rules.json(exempt 免考名单=
+# 打分面数据:score.mjs 考题分母由它派生,名单载体留在被告可编面=门上留缝)。
+# 「给自己打分的面」含给自己站岗的面。
+VERIFICATION_GATE_PATHS = (
+    "domains/ipradar/harness/ops/agent/golden",
+    "domains/ipradar/harness/ops/agent/selftest*",
+    "domains/ipradar/harness/ops/agent/fixtures",
+    "domains/ipradar/harness/ops/agent-v2/tests",
+    "domains/ipradar/harness/ops/agent-v2/bench/leak-check.mjs",
+    "domains/ipradar/harness/ops/agent-v2/bench/exam-rules.json",
+)
+
+def _frozen(root: Path, paths: tuple[str, ...]) -> bool:
+    """git diff --quiet evolve/ipradar -- <paths>:True=面未被候选改动(冻结完好)。
+    工作树与已提交(commit_path)改动对 incumbent 分支均可见;红由调用方判语义。"""
+    r = _run(["git", "diff", "--quiet", "evolve/ipradar", "--", *paths],
+             cwd=root, check=False)
+    return r.returncode == 0
 
 def _guardrails(root: Path, runs_dir: Path, log_dir: Path) -> dict:
     """三护栏(票面:golden + v2 全套 + leak gate;候选 worktree 内跑,主检出 venv 判例)。
@@ -151,12 +255,18 @@ def _guardrails(root: Path, runs_dir: Path, log_dir: Path) -> dict:
     out["v2_test"] = True
     # NEEDS.md 冻结门:考题宇宙输入面(bench SCAN 真面读它;真台账本就合法提及已交付
     # 源名,故不用 leak 针扫原文,而用 git diff 对 incumbent 冻结——候选增改一行即红)
-    r = _run(["git", "diff", "--quiet", "evolve/ipradar", "--",
-              "domains/ipradar/harness/NEEDS.md"], cwd=root, check=False)
-    if r.returncode != 0:
+    if not _frozen(root, NEEDS_GATE_PATHS):
         raise RuntimeError("NEEDS.md 被候选改动:考题宇宙输入面冻结(bench 沙箱读它作"
                            "候选宇宙,改它=注入考题提示)")
     out["needs_frozen"] = True
+    # 验证面冻结门(#327 Q2 方案 a):golden/selftest*/fixtures/v2-tests 照常 vendor,
+    # 但对 incumbent 的 git diff 必须为空——护栏在候选 worktree 内跑,测试面可编=
+    # 候选可改给自己打分的分(test-edit 洞);从「靠模型自觉」变「靠结构」。NEEDS 同律。
+    if not _frozen(root, VERIFICATION_GATE_PATHS):
+        raise RuntimeError("验证面被候选改动:评估器冻结(golden/selftest*/fixtures/"
+                           "v2-tests+leak gate 执法件(leak-check.mjs/exam-rules.json)"
+                           "对 evolve/ipradar 的 git diff 须为空,票 #327 Q2+Standards P1)")
+    out["verification_frozen"] = True
     # ③ leak gate:默认面 exit 0(考题针零命中;行级豁免「禁词引用:原因」判例 #308)。
     # roster 经 --roster-file 注入(worktree 无 backend/,spawn 面断)
     _run(["node", "bench/leak-check.mjs", "--roster-file",
@@ -167,11 +277,16 @@ def _guardrails(root: Path, runs_dir: Path, log_dir: Path) -> dict:
 
 class IpRadarDomain(Domain):
     name = "ipradar"
-    # 开放面=发现管线全部(ops/agent + ops/agent-v2,#322 裁决)。框架只认单目录 →
-    # bootstrap 把两目录 vendored 进 harness/ops/,harness 即「仓根镜像」单目录;
-    # PATTERNS.md 限定免碰面(真实轮路径零漂移红线)。tree hash 只盖开放面,
-    # 域文件/RRSI 核心的提交不误报为 harness 变化(gitops.py 语义)。
+    # harness=发现管线两目录镜像(ops/agent + ops/agent-v2,#322 裁决;#327 Q2 起验证面
+    # 照常 vendor 但落冻结门)。框架只认单目录 → bootstrap 把两目录 vendored 进
+    # harness/ops/,harness 即「仓根镜像」单目录;PATTERNS.md 限定免碰面(真实轮路径
+    # 零漂移红线)。tree hash 只盖 vendoring 面,域文件/RRSI 核心的提交不误报为
+    # harness 变化(gitops.py 语义)。
     harness_path = "harness"
+    # 演化可编面白名单(#327 Q1,推翻 #322 R5 全放开):策略面 43 文件,read/edit/
+    # write 三动作同表,名单外只读;dev/rrsi Workspace 以 getattr 消费本属性,
+    # 语义/构成见 EDIT_ALLOWLIST 注释。
+    edit_allowlist = EDIT_ALLOWLIST
     source_exts = {".py", ".txt", ".md", ".json", ".mjs"}
     critic_patterns = buildCriticPatterns(_ROWS)
     component_signals = [
@@ -199,10 +314,12 @@ class IpRadarDomain(Domain):
         ),
         "proposer": (
             "域:ip-radar 盲测重发现基准——用基准轮(沙箱,faux 或真实 GLM)度量发现管线的"
-            "搜索与召回能力,奖励=逐源 0/1 召回。开放面=ops/agent + ops/agent-v2 发现管线;"
-            "约束读 PATTERNS.md(零漂移红线:真实轮路径行为字节不变,golden 钉;考题名/域名"
-            "禁入提示词与代码;编辑预算须可归因)。提升召回的合法杠杆:候选宇宙覆盖、检索词"
-            "策略、短名单聚合与去重、四层匹配上下游的对齐——不是把答案写进提示词。"
+            "搜索与召回能力,奖励=逐源 0/1 召回。开放面=策略面 43 文件白名单(七条 glob:"
+            "pipeline/prompts/v2 tools+tasks+bench/v1 入口与模型),名单外一律只读,"
+            "验证面另有冻结门;约束读 PATTERNS.md(零漂移红线:真实轮路径行为字节不变,"
+            "golden 钉;考题名/域名禁入提示词与代码;编辑预算须可归因)。提升召回的"
+            "合法杠杆:候选宇宙覆盖、检索词策略、短名单聚合与去重、四层匹配上下游的"
+            "对齐——不是把答案写进提示词。"
         ),
         "critic": (
             "域:ip-radar 盲测重发现基准。审查候选 diff:①考题泄漏(critic_patterns = 53 源"
@@ -236,7 +353,20 @@ class IpRadarDomain(Domain):
         agent_v2 = harness / "ops" / "agent-v2"
         mode = os.environ.get("IPRADAR_BENCH_MODE", "faux")
         log_dir = Path(runs_dir) / "logs"
-        env = {"OPS_BENCH_ROOT": str(Path(runs_dir) / "bench" / job),
+        # 环境先于首轮:backend 探针链接 + node_modules 幂等装配(baseline 的 wt/incumbent
+        # 是新 worktree,不预先装配首轮就 ERR_MODULE_NOT_FOUND——#322 首跑踩坑二补入)
+        _ensure_backend_link(root)
+        for _d in (harness / "ops" / "agent", harness / "ops" / "agent-v2"):
+            if not (_d / "node_modules").is_dir():
+                _run(["npm", "ci", "--no-fund", "--no-audit"], cwd=_d,
+                     log=log_dir / "npm-ci.log", timeout=900)
+        sha = _harness_tree_id(root)
+        bench_root = Path(runs_dir) / "bench" / f"{job}-{sha}"
+        # jobmap 先写后跑:score/load_trial 经 _bench_root_for 找根;轮中崩溃也留指路。
+        jm = Path(runs_dir) / "bench" / ".jobmap" / job
+        jm.parent.mkdir(parents=True, exist_ok=True)
+        jm.write_text(str(bench_root) + "\n")
+        env = {"OPS_BENCH_ROOT": str(bench_root),
                # DOCS_ROOT 防御性指沙箱(v2 测试同律:真实 docs 树零触碰)
                "DOCS_ROOT": str(Path(runs_dir) / "docs-ro" / job)}
         flags = []
@@ -249,12 +379,34 @@ class IpRadarDomain(Domain):
             flags += ["--fixtures", str(harness / "ops" / "agent" / "fixtures" / "pipeline")]
         for trial in range(k):
             rid = _round_id(job, trial)
-            _run(["node", "bench/run-bench.mjs", rid, *flags], cwd=agent_v2, env=env,
-                 log=log_dir / f"{log_prefix or job}.log")
+            logf = log_dir / f"{log_prefix or job}.log"
+            r = _run(["node", "bench/run-bench.mjs", rid, *flags], cwd=agent_v2,
+                     env=env, log=logf, check=False)
+            if r.returncode == 0:
+                continue
+            # 门红=模型侧引用不合规被 G_* 拒(适应度信号):落 gate-red.json 标记计 0 分续跑,
+            # 不炸评估(rrsi 把崩溃标 infra 等人手 reevaluate,演化断链);非门红面才 raise。
+            envelope = _last_envelope(logf)
+            if _is_gate_red(envelope):
+                red = Path(runs_dir) / "bench" / job / rid / "rounds" / rid / "gate-red.json"
+                red.parent.mkdir(parents=True, exist_ok=True)
+                red.write_text(json.dumps({"code": "gate_red", "envelope": envelope},
+                                          ensure_ascii=False, indent=1) + "\n")
+                continue
+            tail = ""
+            try:
+                tail = logf.read_text(errors="replace")[-1500:]
+            except OSError:
+                pass
+            raise RuntimeError(
+                f"node bench/run-bench.mjs {rid} rc={r.returncode} in {agent_v2}\n{tail}")
         return _artifacts_dir(runs_dir, job, k)
 
     def run(self, root, runs_dir, job, ids, k, log_prefix=""):
         root, runs_dir = Path(root), Path(runs_dir)
+        # jobs/<job> 目录预建(上游 loop.Run 只建到 jobs/ 一层,EvalResult.save 不 mkdir——
+        # #322 首跑判例:基准轮全绿后在 ev.save 栽 FileNotFoundError)。
+        (runs_dir / "jobs" / job).mkdir(parents=True, exist_ok=True)
         art = self._bench_round(root, runs_dir, job, ids, k, log_prefix)
         # 三护栏复跑落回执:score 载入 extra,guards 非补偿执法(回执缺失=不可接受)。
         self._write_guards_receipt(root, runs_dir, job, art)
@@ -266,6 +418,27 @@ class IpRadarDomain(Domain):
 
     def score(self, runs_dir, job, ids, k):
         art = _artifacts_dir(Path(runs_dir), job, k)
+        # 门红轮=零召回(轮产物被拒,无 admissible 短清单;宁拒勿假)。k>1 时标记只落
+        # 被拒试次目录,本分支覆盖末试次被拒(rrsi.json k=1);guards 回执照常载入。
+        red = art / "gate-red.json"
+        guards_receipt = None
+        gp = art / "guards.json"
+        if gp.exists():
+            guards_receipt = json.loads(gp.read_text())
+        if red.exists():
+            env = json.loads(red.read_text())
+            msg = str(env.get("envelope", {}).get("error", {}).get("message", ""))[:200]
+            report_md = art / "report.md"
+            report_md.write_text(
+                "# gate red(轮产物被拒,计零召回)\n\n" + json.dumps(env, ensure_ascii=False, indent=1) + "\n")
+            per = {t: TaskResult(rewards=[0.0] * k, tokens=[None] * k, missing=0,
+                                 extra={"gate_red": True}) for t in ids}
+            extra = {"recall": {"found": 0, "total": len(ids), "pct": 0.0},
+                     "unfound": list(ids), "new_candidates": 0, "gate_red": msg,
+                     "guards": guards_receipt,
+                     "guards_ok": bool(guards_receipt and all(guards_receipt.values())),
+                     "report_md": str(report_md)}
+            return per, extra
         # score.mjs:答案表机械派生(主检出 backend roster,候选不可染指)+ 确定性门
         log = Path(runs_dir) / "logs" / f"{job}-score.log"
         _run(["node", "bench/score.mjs", str(art), "--python", BENCH_PYTHON,
@@ -300,10 +473,10 @@ class IpRadarDomain(Domain):
     def guards(self, incumbent, candidate) -> list[str]:
         out = []
         g = (candidate.extra or {}).get("guards") or {}
-        for leg in ("golden", "v2_test", "leak_gate", "needs_frozen"):
+        for leg in ("golden", "v2_test", "leak_gate", "needs_frozen", "verification_frozen"):
             if g.get(leg) is not True:
                 out.append(f"guardrail {leg} has no passing receipt "
-                           f"(三护栏+NEEDS 冻结全过才可接受,票 #325)")
+                           f"(三护栏+冻结面(NEEDS.md/验证面)全过才可接受,票 #325/#327)")
         return out
 
     # ---- evidence ----------------------------------------------------------
@@ -363,6 +536,33 @@ DOMAIN = IpRadarDomain()
 # 走 env ZAI_CODING_CN_BASE_URL(缺省 https://open.bigmodel.cn/api/coding/paas/v4)/
 # ZAI_CODING_CN_API_KEY(auth.json 凭证店同源,ops/agent/models.mjs 判例)。
 # scripts/glm-smoke.py 经此面真调一次(票 #325 冒烟留痕)。
+def _shim_log(msg: str) -> None:
+    """垫片尝试日志(append RRSI_SHIM_LOG 或 runs/litellm-shim.log;每次尝试一行,排查
+    挂死/空回不再盲等——判例 2026-11-08:round0 analyst 挂 28min 零可观测)。"""
+    try:
+        import time as _t
+        p = Path(os.environ.get("RRSI_SHIM_LOG") or "runs/litellm-shim.log")
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with open(p, "a") as f:
+            f.write(f"{_t.strftime('%H:%M:%S')} {msg}\n")
+    except Exception:  # noqa: BLE001 - 日志面尽力而为
+        pass
+
+
+def _zai_api_key() -> str:
+    """zai 凭据:env ZAI_CODING_CN_API_KEY 优先;缺席兑底凭据店 ~/.pi/agent/auth.json
+    的 zai-coding-cn 键(判例 #304-⑤:GLM 凭据只此一家,不设第二真源)。driver 进程
+    通常不带该 env——垫片自取,免得每个调用方都得配。"""
+    k = os.environ.get("ZAI_CODING_CN_API_KEY")
+    if k:
+        return k
+    try:
+        auth = json.loads((Path.home() / ".pi" / "agent" / "auth.json").read_text())
+        return str(auth.get("zai-coding-cn", {}).get("key", ""))
+    except Exception:  # noqa: BLE001 - 兑底失败=空串,litellm 会报缺凭证(如实)
+        return ""
+
+
 def _install_litellm_shim() -> bool:
     if os.environ.get("RRSI_LLM_BACKEND") != "litellm-zai":
         return False
@@ -378,23 +578,53 @@ def _install_litellm_shim() -> bool:
             msgs.append({"role": "system", "content": cache_prefix})
         msgs.append({"role": "user", "content": prompt})
         mdl = model or CFG.get("proposer_model")
+        _shim_log(f"start model={mdl} prompt={len(prompt)}ch sys={len(system or '')}ch json_only={json_only}")
         last = None
+        # 硬墙钟(判例 2026-11-08:endpoint 对个别请求滴流挂死,read 超时不触发,单请求
+        # 28min+ 0.1% CPU;线程隔离 + future 墙钟强断,被弃线程自然消亡不阻塞重试链)。
+        import concurrent.futures as _cf
+        import time as _time
+        _pool = _cf.ThreadPoolExecutor(max_workers=1)
         for i in range(max_retries):
+            t0 = _time.monotonic()
             try:
-                rsp = litellm.completion(
+                fut = _pool.submit(
+                    litellm.completion,
                     model=mdl, messages=msgs, max_tokens=max_tokens,
+                    timeout=300,  # 单请求上限(双保险)
+                    # 关思考(实测 2026-11-08:同一 analyst 提示词,开思考滴流生成 >300s 零 content;
+                    # 关后 141s finish=stop 正常 JSON。四角色都是 JSON 执行器,思考纯烧时)
+                    extra_body={"thinking": {"type": "disabled"}},
                     base_url=os.environ.get(
                         "ZAI_CODING_CN_BASE_URL",
                         "https://open.bigmodel.cn/api/coding/paas/v4"),
-                    api_key=os.environ.get("ZAI_CODING_CN_API_KEY", ""))
+                    api_key=_zai_api_key())
+                # 墙钟随提示词大小自适应(#322 首跑判例:170KB+ 会话端点偶发滴流,
+                # 330s 太紧掐死慢而活的回包;小提示词维持 330s 防挂死)
+                _wall = 600 if len(prompt) >= 100_000 else 330
+                rsp = fut.result(timeout=_wall)
                 txt = rsp.choices[0].message.content or ""
-                return rllm.extract_json(txt) if json_only else txt
+                if txt.strip():
+                    _shim_log(f"ok attempt={i} {_time.monotonic()-t0:.1f}s resp={len(txt)}ch")
+                    return rllm.extract_json(txt) if json_only else txt
+                _shim_log(f"empty attempt={i} {_time.monotonic()-t0:.1f}s")
+                last = RuntimeError("empty response")  # 空回=重试(上游同律;编码端点偶发空 content)
             except Exception as e:  # noqa: BLE001
+                _shim_log(f"err attempt={i} {_time.monotonic()-t0:.1f}s {e!r}"[:220])
                 last = e
-                time.sleep(min(2 ** i, 30))
+                _time.sleep(min(2 ** i, 30))
         raise RuntimeError(f"litellm-zai generate 失败({mdl}):{last!r}")
 
+    _orig = getattr(rllm, "_vertex_generate_original", None) or rllm.generate
+    rllm._vertex_generate_original = _orig
     rllm.generate = generate
+    # 直绑面补丁(#322 首跑判例):analyst/propose 等 `from .llm import generate` 在本垫片
+    # 安装前已 import,名字绑在原 Vertex 实现上——round0 analyst 即 ZeroDivisionError
+    # (无 GCP 项目,÷0)。凡已载入 rrsi.* 子模块里 generate 绑定原函数的,一并改指垫片。
+    import sys as _sys
+    for _n, _m in list(_sys.modules.items()):
+        if _n.startswith("rrsi") and getattr(_m, "generate", None) is _orig:
+            _m.generate = generate
     return True
 
 SHIM_ON = _install_litellm_shim()

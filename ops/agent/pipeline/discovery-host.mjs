@@ -60,7 +60,9 @@ export function mkDiscoveryHost({
   // 通道计数+熔断回写+call_id 上翻(tools.mjs finish 同判例:模型看不到运行时 id)
   const adapter = {
     finish(callId, name, structured, contentText) {
-      seeds.push({ call_id: callId, tool: name, sc: structured });
+      // text=模型可见文本面原样入行(#322 首跑判例:bench span 门对账此面;canonicalJson
+      // 转义形引号会变 \" =假红。sc 结构面留值查询用,DEEP 重建/golden 不受多键影响)。
+      seeds.push({ call_id: callId, tool: name, sc: structured, text: contentText });
       const c = cell(name);
       c.executed += 1;
       if (structured?.ok === true) c.ok += 1; else c.failed += 1;

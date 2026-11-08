@@ -2,6 +2,8 @@
 // 2026-11-07-rediscover-bench-spec.md §3.2)测试面:
 //   ①bench 模式 span 门第四证据面(G_SHORTLIST:quote 逐字出自 d2-shortlist-transcript.jsonl
 //     工具转录行——web 转录逐字命中过/幽灵 URL 拒/改写引文拒/非工具行拒);
+//     call id 双面等效(宿主 call_<hex> × 模型流 c-<hex>)与证据面=row.text 模型可见
+//     文本面优先(#322 首跑判例 2026-11-08:提示词示例 c- 形被拒 + canonicalJson 转义假红);
 //   ②真实模式零漂移(转录指针无 bench 旗标=透传形幽灵指针照拒;needs 三形在 bench 照活);
 //   ③基准提示词形状(无回声防线措辞/10 类分类法指导/字段契约齐/三工具/转录指针形);
 //   ④接线(bench 轮会话 instructions=shortlist-bench.md;transcript system_sha 哈希基准面)。
@@ -96,6 +98,73 @@ test("bench span 门:未知 call_id 拒(转录无此工具行)", () => {
     const r = GATES.G_SHORTLIST({ dir, bench: true });
     assert.equal(r.pass, false);
     assert.match(r.reason, /无对应工具转录行/);
+  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+});
+
+// 转录行可注入版夹具(双面等效/文本面用例专用:首尾行同 transcriptLines,中间换 seed)
+function benchRoundDirTx(seedRowObj, candidates) {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "v2-bench-span-"));
+  const dir = path.join(tmp, "rounds", ROUND);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, "d1-scan.json"), JSON.stringify(scanArt, null, 2) + "\n");
+  fs.writeFileSync(path.join(dir, "d2-shortlist-transcript.jsonl"),
+    [transcriptLines[0], JSON.stringify(seedRowObj), transcriptLines[2]].join("\n") + "\n");
+  fs.writeFileSync(path.join(dir, "d2-shortlist.json"), JSON.stringify({ round_id: ROUND, candidates }, null, 2) + "\n");
+  return { tmp, dir };
+}
+
+test("bench span 门:call id 双面等效——宿主 call_<hex> 行 × 模型 c-<hex> 指针=同一调用过门(#322 首跑判例)", () => {
+  const hex = "2314d27627e64cf68250e20c";
+  const seed = JSON.parse(seedRow);
+  seed.call_id = `call_${hex}`;
+  const { tmp, dir } = benchRoundDirTx(seed, [
+    webCandidate({ evidence_ptr: TRANSCRIPT_PTR(`c-${hex}`) }), // 消息流 tool_use 面(提示词输出示例形)
+    webCandidate({ name: "Example Org(前缀面)", evidence_ptr: TRANSCRIPT_PTR(`call_${hex}`) }), // 宿主面前样绿
+  ]);
+  try {
+    const r = GATES.G_SHORTLIST({ dir, bench: true });
+    assert.equal(r.pass, true, r.reason);
+  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test("bench span 门:双面等效不吞幽灵——异 hex 体的 c- 形照拒", () => {
+  const seed = JSON.parse(seedRow);
+  seed.call_id = "call_2314d27627e64cf68250e20c";
+  const { tmp, dir } = benchRoundDirTx(seed, [webCandidate({ evidence_ptr: TRANSCRIPT_PTR("c-deadbeefdeadbeefdeadbeef") })]);
+  try {
+    const r = GATES.G_SHORTLIST({ dir, bench: true });
+    assert.equal(r.pass, false);
+    assert.match(r.reason, /无对应工具转录行/);
+  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test("bench span 门:证据面=模型可见文本面(row.text 原文优先;canonicalJson 转义形假红判例)", () => {
+  const hex = "2314d27627e64cf68250e20c";
+  const seed = { type: "registry_seed", call_id: `call_${hex}`, tool: "web_read",
+    sc: { ok: true, url: "https://sgb.example/api", content: "{\"totalCount\":501602,\"count\":20}", truncated: false },
+    text: `[call_id=call_${hex}] {"totalCount":501602,"count":20}` };
+  const { tmp, dir } = benchRoundDirTx(seed, [
+    // quote 含原始双引号:在 text 面逐字在场;在 canonicalJson 面必然被 \" 转义=旧门假红
+    webCandidate({ quote: "{\"totalCount\":501602,\"count\":20}", evidence_ptr: TRANSCRIPT_PTR(`c-${hex}`) }),
+  ]);
+  try {
+    const r = GATES.G_SHORTLIST({ dir, bench: true });
+    assert.equal(r.pass, true, r.reason);
+  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test("bench span 门:文本面优先即唯一面——quote 仅在 sc 在场而 text 缺席=红(不并集)", () => {
+  const hex = "2314d27627e64cf68250e20c";
+  const seed = { type: "registry_seed", call_id: `call_${hex}`, tool: "web_search",
+    sc: { ok: true, results: [{ url: "https://example.org/blocklist", snippet: "Daily updated list of abusive hosts" }] },
+    text: `[call_id=call_${hex}] 短文本面(模型只见此面)` };
+  const { tmp, dir } = benchRoundDirTx(seed, [
+    webCandidate({ quote: "Daily updated list of abusive hosts", evidence_ptr: TRANSCRIPT_PTR(`call_${hex}`) }),
+  ]);
+  try {
+    const r = GATES.G_SHORTLIST({ dir, bench: true });
+    assert.equal(r.pass, false);
+    assert.match(r.reason, /逐字 span/);
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 });
 

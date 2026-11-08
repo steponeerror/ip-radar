@@ -49,13 +49,13 @@
 - `name`:候选名(发布方通用称呼;搜到的名字原样,不改写)。
 - `url`:数据源 URL(下载面或发布页;确无 URL 则 null)。
 - `quote`:**逐字引用**的原文 span——从工具返回文本(url/title/snippet/正文/feed 条目)
-  原样摘录,禁改写禁拼接禁翻译。span 门做逐字校验:大小写/标点改写、引工具没返回过的
-  URL(幽灵 URL)、半真 URL(前缀子串或超集串)均门败。quote 短而定位准即可(一条
-  snippet/一个标题/一个 URL 足矣),避免跨引号与反斜杠字符摘录(转录以 JSON 存档,
-  这类字符原样对不上)。
+  原样摘录,禁改写禁拼接禁翻译。span 门对工具返回原文逐字校验:大小写/标点改写、引工具
+  没返回过的 URL(幽灵 URL)、半真 URL(前缀子串或超集串)均门败。quote 短而定位准即可(一条
+  snippet/一个标题/一个 URL 足矣)。
 - `evidence_ptr`:证据定位,两形:
   - web 搜来的候选:`d2-shortlist-transcript.jsonl:call/<call_id>`(<call_id>=工具返回
-    `[call_id=…]` 前缀里的编号,逐字符照抄);
+    `[call_id=…]` 前缀里的编号,逐字符照抄;你消息流里 tool_use 块的 `c-…` 形同体等效,
+    两形皆可);
   - 缺口行线索选中的候选:透传输入行锚(形如 `NEEDS.md:L14`)。
 - `source_channel`:证据渠道(web_search/web_read/rss_parse/needs)。
 - `exclusivity_estimate`:独占率预估(0-1;信息不足以估则 null——**宁少算勿多算**)。

@@ -16,11 +16,23 @@ import { ARTIFACTS, DISCOVER_SHORTLIST_TRANSCRIPT } from "../artifacts.mjs"; // 
 
 // bench 第四证据面(票 #319,spec docs/research/2026-11-07-rediscover-bench-spec.md §3.2):
 // evidence_ptr 指向 SHORTLIST transcript 的工具转录行。指针形 = d2-shortlist-transcript.jsonl:call/<call_id>
-// (call_id=模型可见面——工具返回 [call_id=…] 前缀;行号面模型不可数,弃);面文本 = 该行
-// canonicalJson(字段值与原始行字节等价——键序/空白差异不影响值内逐字 span;证据永不灭失:
-// quote 逐字子串可回算);仅 type=registry_seed 行合法(input/message 行非工具证据——自引不是印证)。
+// (call_id 两面等效:宿主注入面 `call_<hex>`——工具返回 [call_id=…] 前缀与转录行 call_id 即此形;
+// 模型消息流 tool_use 块面 `c-<hex>`——提供方流原样,提示词输出示例自身即 c- 形。同 hex 体
+// = 同一运行时调用,非幽灵——#322 首跑判例 2026-11-08:模型照示例写 c- 形被拒,round 被杀);
+// 面文本 = 该行 text(模型可见文本面=工具返回原文;#322 首跑判例:canonicalJson 把内层引号
+// 转成 \" 使逐字 span 恒红=假红),缺 text 的行兑底 canonicalJson(结构性面,确定性同源;
+// 证据永不灭失:quote 逐字子串可回算);仅 type=registry_seed 行合法(input/message 行非工具
+// 证据——自引不是印证)。
 // 零 IO 律保持:行数组由门读盘传入(gates.mjs jsonl() 同源);仅 bench 轮可至(G_SHORTLIST 旗标门)。
 const TRANSCRIPT_PTR_RE = new RegExp(`^${DISCOVER_SHORTLIST_TRANSCRIPT.replace(/[.]/g, "\\.")}:call/([^\\s#\/]+)$`);
+
+// call id 双面等效(同上判例):剥 `call_`/`c-` 前缀比 hex 体;两形皆非的 id 原串比(照旧拒幽灵)。
+const CALL_ID_FACES = /^(?:call_|c-)([0-9a-f]{8,})$/;
+function callIdBody(id) {
+  if (typeof id !== "string") return id;
+  const m = CALL_ID_FACES.exec(id);
+  return m ? m[1] : id;
+}
 
 export function transcriptPtrCall(ptr) {
   if (typeof ptr !== "string") return null;
@@ -32,9 +44,12 @@ export function transcriptPtrCall(ptr) {
 export function benchTranscriptFace(rows, ptr) {
   const callId = transcriptPtrCall(ptr);
   if (callId === null) return { ok: false, reason: `转录指针形外:${ptr}(须 ${DISCOVER_SHORTLIST_TRANSCRIPT}:call/<call_id>)` };
-  const row = Array.isArray(rows) ? rows.find((r) => r && r.type === "registry_seed" && r.call_id === callId) : null;
+  const row = Array.isArray(rows)
+    ? rows.find((r) => r && r.type === "registry_seed" && (r.call_id === callId || callIdBody(r.call_id) === callIdBody(callId)))
+    : null;
   if (!row) return { ok: false, reason: `转录指针 ${ptr} 无对应工具转录行(未知 call_id;input/message 行非工具证据)` };
-  return { ok: true, text: canonicalJson(row), row };
+  const text = typeof row.text === "string" && row.text.length > 0 ? row.text : canonicalJson(row);
+  return { ok: true, text, row };
 }
 
 // 指针形分类(#208 T2 统一律):T3 两形(url/artifact)优先;其 null 再验透传形(scan)——
