@@ -1,4 +1,4 @@
-// rrsi-domain.test.mjs — RRSI 域四件套结构不变式(票 #325;adapter.py/SKILL.md/PATTERNS.md/rrsi.json)。
+// rrsi-domain.test.mjs — RRSI 域结构不变式(票 #325 + #327;adapter.py/SKILL.md/PATTERNS.md/rrsi.json)。
 // 域级行为正确性由 bootstrap 门兜底(scripts/bootstrap-rrsi.sh → rrsi pytest + rrsi.py --domain
 // ipradar smoke 绿,含 faux 轮+打分真跑);本测试钉的是「提案者宪法的机检面」——宪法文件
 // 一旦漂移(丢零漂移红线/丢豁免判例/开放面越界/密钥入仓),演化轮的提案者就失去了护栏,
@@ -62,6 +62,8 @@ test("adapter.py 接线面:三护栏+faux 门+leak 同源针+主检出取数判�
     "npm",                      // 护栏②v2 全套(npm test)
     "leak-check.mjs",           // 护栏③leak gate
     "needs_frozen",             // 考题宇宙输入面 NEEDS.md 冻结门(bench SCAN 真面读它)
+    "verification_frozen",      // 验证面冻结门(#327 Q2:评估器不许候选改)
+    "EDIT_ALLOWLIST",           // 演化可编面白名单单源(#327 Q1:策略面 43 文件,dev/rrsi Workspace 消费)
     "faux",                     // 本票禁真实搜索轮:缺省 faux,real 须显式 env
     "ZAI_CODING_CN_API_KEY",    // 模型面 env 引用
     "ipdb._registry",           // roster 单源取数面
@@ -196,4 +198,152 @@ test("adapter 门红面:_last_envelope 末行信封;GATE: 前缀判门红;score 
   assert.deepEqual(adapterProbe.recall, { found: 0, total: 2, pct: 0.0 });
   assert.equal(adapterProbe.gateRedExtra, "GATE:SHORTLIST:x");
   assert.deepEqual(adapterProbe.unfound, ["src_a", "src_b"]);
+});
+
+// —— #327 harness 边界收口:演化编辑白名单(策略面 43 文件)+ 验证面冻结门 ——
+// Q1 裁定(推翻 #322 R5 全放开):可编面收窄到策略面 43 文件,read/edit/write 同表;
+// Q2 方案 a:验证面(golden/selftest*/fixtures/v2-tests)照常 vendor + git diff 冻结门,
+// NEEDS.md 门同律同机——「候选可改给自己打分的测试」从靠模型自觉变靠结构(调研笔记
+// docs/notes/ops-tree-as-harness-2026-11-08.md:护栏在候选 worktree 内跑)。
+// 探针同 adapter 门红面判例(dev/rrsi venv 导入 adapter;CI 无 python 面 → skip);
+// 实现缺失以 hasattr 报告回传:红是真红,skip 只留给环境不可用。
+const BOUNDARY_PROBE_PY = `
+import importlib.util, json, os, subprocess, sys, tempfile
+from pathlib import Path
+spec = importlib.util.spec_from_file_location("adapter_probe", sys.argv[1])
+m = importlib.util.module_from_spec(spec)
+sys.modules["adapter_probe"] = m
+spec.loader.exec_module(m)
+rep = {}
+# ① 实现在场性(缺=真红非 skip)+ DOMAIN 类属性暴露(dev/rrsi Workspace getattr 消费)
+rep["has"] = {n: hasattr(m, n) for n in ("EDIT_ALLOWLIST", "edit_allowed", "_frozen",
+                                         "NEEDS_GATE_PATHS", "VERIFICATION_GATE_PATHS")}
+rep["domainAttr"] = getattr(m.DOMAIN, "edit_allowlist", None) is getattr(m, "EDIT_ALLOWLIST", None)
+if rep["has"]["edit_allowed"]:
+    allow = ("ops/agent/pipeline/steps.mjs",
+             "ops/agent/prompts/discover-system.md",
+             "ops/agent/prompts/discover/shortlist.md",
+             "ops/agent/agent.mjs",
+             "ops/agent/models.mjs",
+             "ops/agent-v2/tools/probes.mjs",
+             "ops/agent-v2/tasks/discover-round.mjs",
+             "ops/agent-v2/bench/score.mjs",
+             "ops/agent-v2/bench/rrsi-domain/adapter.py")
+    deny = ("ops/agent/golden/cases.json",
+            "ops/agent/selftest-pipeline.mjs",
+            "ops/agent/fixtures/pipeline/d1-scan.json",
+            "ops/agent-v2/tests/rrsi-domain.test.mjs",
+            "ops/agent/package-lock.json",
+            "ops/agent-v2/package-lock.json",
+            "README.md",
+            "ops/agent/pipeline.mjs",
+            "ops/agent/tools.mjs",
+            "ops/agent-v2/entry.mjs",
+            "ops/agent/feeds.txt")
+    rep["allow"] = {p: bool(m.edit_allowed(p)) for p in allow}
+    rep["deny"] = {p: bool(m.edit_allowed(p)) for p in deny}
+    rep["normBackslash"] = bool(m.edit_allowed("ops\\\\agent\\\\prompts\\\\discover-system.md"))
+    # 构成计数(source_exts 面,同调研笔记口径;split.jsonl 的 .jsonl 不入)
+    exts = {".py", ".txt", ".md", ".json", ".mjs"}
+    ops = Path(sys.argv[2])
+    files = ["ops/" + str(p.relative_to(ops)) for base in ("agent", "agent-v2")
+             for p in (ops / base).rglob("*")
+             if p.is_file() and "node_modules" not in p.parts and p.suffix in exts]
+    rep["allowlistCount"] = sum(1 for f in files if m.edit_allowed(f))
+if all(rep["has"].values()):
+    # ② 冻结门红性:临时 git 仓(incumbent 分支 evolve/ipradar)真改文件验门;
+    #    四红例各盖一条 pathspec(golden 目录 / selftest* glob / fixtures 深层 / v2 tests)
+    d = Path(tempfile.mkdtemp(prefix="gate327-"))
+    h = d / "domains" / "ipradar" / "harness"
+    for rel, body in (("NEEDS.md", "n\\n"),
+                      ("ops/agent/golden/cases.json", "g\\n"),
+                      ("ops/agent/selftest-pipeline.mjs", "st\\n"),
+                      ("ops/agent/fixtures/pipeline/d1-scan.json", "f\\n"),
+                      ("ops/agent-v2/tests/x.test.mjs", "t\\n"),
+                      ("ops/agent/prompts/discover-system.md", "p\\n")):
+        p = h / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(body)
+    env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+           "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+    def git(*a):
+        subprocess.run(["git", *a], cwd=d, check=True, capture_output=True, env=env)
+    git("init", "-q")
+    git("add", "-A")
+    git("-c", "commit.gpgsign=false", "commit", "-q", "-m", "incumbent")
+    git("branch", "evolve/ipradar")
+    def vf():
+        return m._frozen(d, m.VERIFICATION_GATE_PATHS)
+    def nf():
+        return m._frozen(d, m.NEEDS_GATE_PATHS)
+    rep["gateClean"] = vf()
+    rep["gateRed"] = {}
+    for rel in ("ops/agent/golden/cases.json",
+                "ops/agent/selftest-pipeline.mjs",
+                "ops/agent/fixtures/pipeline/d1-scan.json",
+                "ops/agent-v2/tests/x.test.mjs"):
+        p = h / rel
+        p.write_text(p.read_text() + "touched\\n")
+        rep["gateRed"][rel] = vf()
+        git("checkout", "-q", "--", ".")
+    (h / "ops/agent/prompts/discover-system.md").write_text("p2\\n")
+    rep["gatePolicyEditGreen"] = vf()
+    git("checkout", "-q", "--", ".")
+    (h / "NEEDS.md").write_text("n2\\n")
+    rep["gateNeedsOnly"] = [nf(), vf()]
+    git("checkout", "-q", "--", ".")
+    (h / "ops/agent/golden/cases.json").write_text("g2\\n")
+    git("add", "-A")
+    git("-c", "commit.gpgsign=false", "commit", "-q", "-m", "cand")
+    rep["gateCommittedRed"] = vf()
+# ③ guards() 非补偿执法:receipt 缺 verification_frozen = 不可接受(与 needs_frozen 同律)
+from types import SimpleNamespace
+ok = {"golden": True, "v2_test": True, "leak_gate": True,
+      "needs_frozen": True, "verification_frozen": True}
+rep["guardsAllPass"] = m.DOMAIN.guards(None, SimpleNamespace(extra={"guards": dict(ok)}))
+rep["guardsMissingNewLeg"] = m.DOMAIN.guards(
+    None, SimpleNamespace(extra={"guards": {k: v for k, v in ok.items()
+                                            if k != "verification_frozen"}}))
+rep["guardsNoReceipt"] = m.DOMAIN.guards(None, SimpleNamespace(extra={}))
+print(json.dumps(rep, ensure_ascii=False))
+`;
+
+let boundaryProbe = null;
+let boundaryProbeErr = null;
+try {
+  boundaryProbe = JSON.parse(execFileSync(
+    process.env.RRSI_ADAPTER_PYTHON ?? "/home/huxiao/dev/pi-ip-lookup-tool/dev/rrsi/.venv/bin/python",
+    ["-c", BOUNDARY_PROBE_PY, ADAPTER_PY, path.resolve(HERE, "..", "..")],
+    { encoding: "utf8", env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" } }));
+} catch (e) {
+  boundaryProbeErr = e; // dev/rrsi venv 面不可用 → skip(同 adapter 门红面判例)
+}
+
+test("adapter 边界收口(#327):白名单 43 文件面 + 验证面冻结门红性 + guards 新腿", { skip: boundaryProbe ? false : `dev/rrsi venv 面不可用(${boundaryProbeErr?.message})` }, () => {
+  assert.ok(Object.values(boundaryProbe.has).every(Boolean), `API 缺席(#327 实现面):${JSON.stringify(boundaryProbe.has)}`);
+  assert.equal(boundaryProbe.domainAttr, true, "DOMAIN 须类属性暴露 edit_allowlist(dev/rrsi Workspace getattr 消费)");
+  for (const [p, v] of Object.entries(boundaryProbe.allow))
+    assert.equal(v, true, `白名单内路径须可编:${p}`);
+  for (const [p, v] of Object.entries(boundaryProbe.deny))
+    assert.equal(v, false, `名单外路径须拒(只读):${p}`);
+  assert.equal(boundaryProbe.normBackslash, true, "反斜杠路径须归一(\\ → /)");
+  assert.equal(
+    boundaryProbe.allowlistCount, 43,
+    "策略面构成=43 文件(#327 裁定:pipeline 11+prompts 9+v2 tools/tasks/bench 21+v1 入口/模型 2;source_exts 计数面;漂移须重裁并同步 EDIT_ALLOWLIST 注释与本测)",
+  );
+  assert.equal(boundaryProbe.gateClean, true, "净树=冻结完好(rc0)");
+  for (const [rel, v] of Object.entries(boundaryProbe.gateRed))
+    assert.equal(v, false, `验证面改动须门红:${rel}`);
+  assert.equal(boundaryProbe.gatePolicyEditGreen, true, "策略面改动不得触发验证面门(可编面与冻结面正交)");
+  assert.deepEqual(
+    boundaryProbe.gateNeedsOnly, [false, true],
+    "NEEDS.md 改动只红 NEEDS 门、不红验证面门(两门正交)",
+  );
+  assert.equal(boundaryProbe.gateCommittedRed, false, "提交态改动须仍红(真实路径:候选 commit_path 提交后 guards 才跑)");
+  assert.deepEqual(boundaryProbe.guardsAllPass, [], "五腿全过 receipt=可接受");
+  assert.ok(
+    boundaryProbe.guardsMissingNewLeg.some((s) => s.includes("verification_frozen")),
+    "receipt 缺 verification_frozen=不可接受(非补偿执法,#327 与 needs_frozen 同律)",
+  );
+  assert.ok(boundaryProbe.guardsNoReceipt.length > 0, "无 receipt=不可接受");
 });

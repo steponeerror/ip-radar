@@ -17,6 +17,10 @@
 #
 # 三护栏(golden + v2 全套 + leak gate;过不了不进花钱评估):smoke() 全跑,run() 复跑
 # 落 guards.json 回执,score() 载入 extra,guards() 非补偿执法——回执缺失=不可接受。
+# 冻结门(#327):NEEDS.md(考题宇宙)与验证面(golden/selftest*/fixtures/v2-tests)
+# 两道 git diff 对 incumbent 分支必为空——评估器不许候选改;演化可编面另表
+# EDIT_ALLOWLIST(策略面 43 文件,#327 Q1 推翻 #322 R5 全放开)。
+import fnmatch
 import json
 import os
 import subprocess
@@ -52,6 +56,31 @@ IPRADAR = _find_ipradar_repo()
 # worktree 判例(AGENTS.md 2026-11-03):worktree 无 venv,backend 解释器用主检出绝对路径
 BENCH_PYTHON = os.environ.get("IPRADAR_BENCH_PYTHON",
                               "/home/huxiao/dev/pi-ip-lookup-tool/backend/.venv/bin/python")
+
+# ── 演化可编面白名单(票 #327 Q1 裁定 2026-11-08;推翻 #322 R5「开放面 v1+v2 全放开」)──
+# 主仓=声明与单源;dev/rrsi Workspace 以 getattr(domain, "edit_allowlist", None) 消费
+# (read/edit/write 三动作同表,越名单即拒)。fnmatch 语义:* 跨目录分隔符;路径相对
+# harness 根。构成=策略面 43 文件(调研笔记 docs/notes/ops-tree-as-harness-2026-11-08.md:
+# 验证/环境/文档面 72% 是演化不该碰的):
+#   ops/agent/pipeline/** 11 + ops/agent/prompts/** 9
+#   + ops/agent-v2/{tools,tasks,bench}/** 21 + ops/agent/{agent.mjs,models.mjs} 2
+# 其余(v1 根散件/验证面/环境面/文档面)一律只读;验证面另有 _guardrails 冻结门,
+# 不靠本表拒绝。名单外输入 fail-closed(edit_allowed 返回 False)。
+EDIT_ALLOWLIST = (
+    "ops/agent/pipeline/**",
+    "ops/agent/prompts/**",
+    "ops/agent-v2/tools/**",
+    "ops/agent-v2/tasks/**",
+    "ops/agent-v2/bench/**",
+    "ops/agent/agent.mjs",
+    "ops/agent/models.mjs",
+)
+
+def edit_allowed(rel) -> bool:
+    """路径(相对 harness 根)是否落在演化可编白名单内;反斜杠归一 /,fnmatch 语义,
+    名单外 fail-closed。"""
+    r = str(rel).replace("\\", "/").lstrip("/")
+    return any(fnmatch.fnmatch(r, p) for p in EDIT_ALLOWLIST)
 
 # ── 冻结劈分(答案分发面;名单漂移由 tests/rrsi-split.test.mjs 红)────────────
 def _load_split():
@@ -177,6 +206,24 @@ def _roster_dump(runs_dir: Path) -> Path:
         p.write_text(r.stdout)
     return p
 
+# ── 冻结门(#327:两道门同律同机;git pathspec 语义实测 2026-11-08:* 跨目录、目录递归、
+# 对 ref 的 diff 工作树+已提交改动均可见、pathspec 无匹配 rc0 不误报)──────────────
+NEEDS_GATE_PATHS = ("domains/ipradar/harness/NEEDS.md",)
+# 验证面=给自己打分的面(golden 基线 / selftest / pipeline+precedents 夹具 / v2 测试)
+VERIFICATION_GATE_PATHS = (
+    "domains/ipradar/harness/ops/agent/golden",
+    "domains/ipradar/harness/ops/agent/selftest*",
+    "domains/ipradar/harness/ops/agent/fixtures",
+    "domains/ipradar/harness/ops/agent-v2/tests",
+)
+
+def _frozen(root: Path, paths: tuple[str, ...]) -> bool:
+    """git diff --quiet evolve/ipradar -- <paths>:True=面未被候选改动(冻结完好)。
+    工作树与已提交(commit_path)改动对 incumbent 分支均可见;红由调用方判语义。"""
+    r = _run(["git", "diff", "--quiet", "evolve/ipradar", "--", *paths],
+             cwd=root, check=False)
+    return r.returncode == 0
+
 def _guardrails(root: Path, runs_dir: Path, log_dir: Path) -> dict:
     """三护栏(票面:golden + v2 全套 + leak gate;候选 worktree 内跑,主检出 venv 判例)。
     任一红即整门红——过不了的候选不进花钱评估(smoke 拦)也不可接受(guards 拦)。"""
@@ -197,12 +244,17 @@ def _guardrails(root: Path, runs_dir: Path, log_dir: Path) -> dict:
     out["v2_test"] = True
     # NEEDS.md 冻结门:考题宇宙输入面(bench SCAN 真面读它;真台账本就合法提及已交付
     # 源名,故不用 leak 针扫原文,而用 git diff 对 incumbent 冻结——候选增改一行即红)
-    r = _run(["git", "diff", "--quiet", "evolve/ipradar", "--",
-              "domains/ipradar/harness/NEEDS.md"], cwd=root, check=False)
-    if r.returncode != 0:
+    if not _frozen(root, NEEDS_GATE_PATHS):
         raise RuntimeError("NEEDS.md 被候选改动:考题宇宙输入面冻结(bench 沙箱读它作"
                            "候选宇宙,改它=注入考题提示)")
     out["needs_frozen"] = True
+    # 验证面冻结门(#327 Q2 方案 a):golden/selftest*/fixtures/v2-tests 照常 vendor,
+    # 但对 incumbent 的 git diff 必须为空——护栏在候选 worktree 内跑,测试面可编=
+    # 候选可改给自己打分的分(test-edit 洞);从「靠模型自觉」变「靠结构」。NEEDS 同律。
+    if not _frozen(root, VERIFICATION_GATE_PATHS):
+        raise RuntimeError("验证面被候选改动:评估器冻结(golden/selftest*/fixtures/"
+                           "v2-tests 对 evolve/ipradar 的 git diff 须为空,票 #327 Q2)")
+    out["verification_frozen"] = True
     # ③ leak gate:默认面 exit 0(考题针零命中;行级豁免「禁词引用:原因」判例 #308)。
     # roster 经 --roster-file 注入(worktree 无 backend/,spawn 面断)
     _run(["node", "bench/leak-check.mjs", "--roster-file",
@@ -213,11 +265,16 @@ def _guardrails(root: Path, runs_dir: Path, log_dir: Path) -> dict:
 
 class IpRadarDomain(Domain):
     name = "ipradar"
-    # 开放面=发现管线全部(ops/agent + ops/agent-v2,#322 裁决)。框架只认单目录 →
-    # bootstrap 把两目录 vendored 进 harness/ops/,harness 即「仓根镜像」单目录;
-    # PATTERNS.md 限定免碰面(真实轮路径零漂移红线)。tree hash 只盖开放面,
-    # 域文件/RRSI 核心的提交不误报为 harness 变化(gitops.py 语义)。
+    # harness=发现管线两目录镜像(ops/agent + ops/agent-v2,#322 裁决;#327 Q2 起验证面
+    # 照常 vendor 但落冻结门)。框架只认单目录 → bootstrap 把两目录 vendored 进
+    # harness/ops/,harness 即「仓根镜像」单目录;PATTERNS.md 限定免碰面(真实轮路径
+    # 零漂移红线)。tree hash 只盖 vendoring 面,域文件/RRSI 核心的提交不误报为
+    # harness 变化(gitops.py 语义)。
     harness_path = "harness"
+    # 演化可编面白名单(#327 Q1,推翻 #322 R5 全放开):策略面 43 文件,read/edit/
+    # write 三动作同表,名单外只读;dev/rrsi Workspace 以 getattr 消费本属性,
+    # 语义/构成见 EDIT_ALLOWLIST 注释。
+    edit_allowlist = EDIT_ALLOWLIST
     source_exts = {".py", ".txt", ".md", ".json", ".mjs"}
     critic_patterns = buildCriticPatterns(_ROWS)
     component_signals = [
@@ -402,10 +459,10 @@ class IpRadarDomain(Domain):
     def guards(self, incumbent, candidate) -> list[str]:
         out = []
         g = (candidate.extra or {}).get("guards") or {}
-        for leg in ("golden", "v2_test", "leak_gate", "needs_frozen"):
+        for leg in ("golden", "v2_test", "leak_gate", "needs_frozen", "verification_frozen"):
             if g.get(leg) is not True:
                 out.append(f"guardrail {leg} has no passing receipt "
-                           f"(三护栏+NEEDS 冻结全过才可接受,票 #325)")
+                           f"(三护栏+冻结面(NEEDS.md/验证面)全过才可接受,票 #325/#327)")
         return out
 
     # ---- evidence ----------------------------------------------------------
