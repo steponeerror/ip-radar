@@ -236,6 +236,13 @@ class IpRadarDomain(Domain):
         agent_v2 = harness / "ops" / "agent-v2"
         mode = os.environ.get("IPRADAR_BENCH_MODE", "faux")
         log_dir = Path(runs_dir) / "logs"
+        # 环境先于首轮:backend 探针链接 + node_modules 幂等装配(baseline 的 wt/incumbent
+        # 是新 worktree,不预先装配首轮就 ERR_MODULE_NOT_FOUND——#322 首跑踩坑二补入)
+        _ensure_backend_link(root)
+        for _d in (harness / "ops" / "agent", harness / "ops" / "agent-v2"):
+            if not (_d / "node_modules").is_dir():
+                _run(["npm", "ci", "--no-fund", "--no-audit"], cwd=_d,
+                     log=log_dir / "npm-ci.log", timeout=900)
         env = {"OPS_BENCH_ROOT": str(Path(runs_dir) / "bench" / job),
                # DOCS_ROOT 防御性指沙箱(v2 测试同律:真实 docs 树零触碰)
                "DOCS_ROOT": str(Path(runs_dir) / "docs-ro" / job)}
