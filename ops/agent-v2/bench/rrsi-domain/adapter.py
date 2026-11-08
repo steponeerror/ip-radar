@@ -499,6 +499,7 @@ def _install_litellm_shim() -> bool:
             try:
                 rsp = litellm.completion(
                     model=mdl, messages=msgs, max_tokens=max_tokens,
+                    timeout=300,  # 硬超时(判例:analyst 大提示词单请求挂 28min+,0.1% CPU;不设限演化会整晚卡死)
                     base_url=os.environ.get(
                         "ZAI_CODING_CN_BASE_URL",
                         "https://open.bigmodel.cn/api/coding/paas/v4"),
