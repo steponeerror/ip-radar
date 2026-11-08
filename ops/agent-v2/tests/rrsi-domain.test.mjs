@@ -16,9 +16,9 @@ const DOMAIN_DIR = path.resolve(HERE, "..", "bench", "rrsi-domain");
 
 const read = (name) => fs.readFileSync(path.join(DOMAIN_DIR, name), "utf8");
 
-test("rrsi.json 超参钉死:T=5/k=1/每轮 2 候选/delta=0.05 带理由;模型串指 zai glm-5.3-flash 且零密钥", () => {
+test("rrsi.json 超参钉死:T=25/k=1/每轮 2 候选/delta=0.05 带理由;模型串指 zai glm-5.3-flash 且零密钥", () => {
   const cfg = JSON.parse(read("rrsi.json"));
-  assert.equal(cfg.T, 5, "T=5(#322 裁决:约 13 轮预算 → 演化 5 轮留出 8 轮的量级起点)");
+  assert.equal(cfg.T, 25, "T=25(#322 续跑 2026-11-08:用户令 faster iteration,T 5→10→25,链条 bde8b3d3/69fba439;原 T=5=约 13 轮预算的量级起点)");
   assert.equal(cfg.k, 1, "k=1(每源单轮;bench 轮即一次盲搜,重复试验无新信息)");
   assert.equal(cfg.m, 2, "m=2(每轮 2 候选,#322 裁决)");
   assert.equal(cfg.delta, 0.05, "delta 手设 0.05");
