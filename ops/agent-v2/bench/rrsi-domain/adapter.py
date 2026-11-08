@@ -528,7 +528,10 @@ def _install_litellm_shim() -> bool:
                         "ZAI_CODING_CN_BASE_URL",
                         "https://open.bigmodel.cn/api/coding/paas/v4"),
                     api_key=_zai_api_key())
-                rsp = fut.result(timeout=330)
+                # 墙钟随提示词大小自适应(#322 首跑判例:170KB+ 会话端点偶发滴流,
+                # 330s 太紧掐死慢而活的回包;小提示词维持 330s 防挂死)
+                _wall = 600 if len(prompt) >= 100_000 else 330
+                rsp = fut.result(timeout=_wall)
                 txt = rsp.choices[0].message.content or ""
                 if txt.strip():
                     _shim_log(f"ok attempt={i} {_time.monotonic()-t0:.1f}s resp={len(txt)}ch")
