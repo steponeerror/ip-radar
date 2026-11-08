@@ -14,6 +14,7 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { parseRoster } from "../bench/roster.mjs";
 import { runLeakCheck, loadRosterText, EXEMPT_MARKER } from "../bench/leak-check.mjs";
+import { largestRemainder } from "../bench/rrsi-domain/split-lib.mjs"; // #325 F2:分席算法单源对账
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DOMAIN_DIR = path.resolve(HERE, "..", "bench", "rrsi-domain");
@@ -136,6 +137,63 @@ test("gen-split.mjs 确定性:同种子同输入双跑字节级一致;最大余�
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
+test("gen-split.mjs 冻结件拒绝覆盖:目标已存在且 frozen=true 时 exit 1(#325 F2)", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rrsi-split-frozen-"));
+  const rosterPath = path.join(tmp, "roster.txt");
+  const rulesPath = path.join(tmp, "exam-rules.json");
+  const outPath = path.join(tmp, "split.jsonl");
+  // 10 考题 fixture(与确定性测试同形),先跑一次生成,再把产物首行改 frozen=true 模拟冻结件
+  fs.writeFileSync(rosterPath, [
+    "za1 | threat | z1.example | f", "zb2 | threat | z2.example | f",
+    "zc3 | threat | z3.example | f", "zd4 | threat | z4.example | f",
+    "ze5 | threat | z5.example | f", "zf6 | geo_asn | z6.example | f",
+    "zg7 | geo_asn | z7.example | f", "zh8 | asset | z8.example | f",
+    "zi9 | asset | z9.example | f", "zj0 | asset | z0.example | f",
+  ].join("\n") + "\n");
+  fs.writeFileSync(rulesPath, JSON.stringify({ exempt: [] }, null, 2));
+  const gen = (out) => execFileSync(process.execPath, [
+    GEN_PATH, "--roster-file", rosterPath, "--exam-rules", rulesPath,
+    "--out", out, "--evolve", "7", "--heldout", "3", "--seed", "20261108",
+  ]);
+  gen(outPath);
+  const frozen = fs.readFileSync(outPath, "utf8").split("\n");
+  frozen[0] = frozen[0].replace("\"frozen\":false", "\"frozen\":true");
+  fs.writeFileSync(outPath, frozen.join("\n"));
+  const before = fs.readFileSync(outPath, "utf8");
+  // 覆盖已冻结件 → exit 1 + 提示(答案分发面禁静默重写)
+  let rc = 0, stderr = "";
+  try {
+    gen(outPath);
+  } catch (e) {
+    rc = e.status ?? 0;
+    stderr = String(e.stderr ?? "");
+  }
+  assert.equal(rc, 1, "冻结件覆盖须 exit 1");
+  assert.ok(stderr.includes("拒绝覆盖"), "提示须写明拒绝覆盖与须先手工改回 false");
+  assert.equal(fs.readFileSync(outPath, "utf8"), before, "冻结件不得被改动");
+  // frozen=false(或首行非 JSON)→ 正常覆盖,不拦
+  frozen[0] = frozen[0].replace("\"frozen\":true", "\"frozen\":false");
+  fs.writeFileSync(outPath, frozen.join("\n"));
+  gen(outPath);
+  assert.ok(fs.readFileSync(outPath, "utf8").split("\n")[0].includes("\"frozen\":false"), "未冻结件重生成正常覆写");
+  fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+test("split.jsonl 分席重算复现(#325 F2):行计数经 largestRemainder(·,13) = meta.heldoutSeats;留出行各类计数 = 分席值", () => {
+  // 劈分是盲测的答案分发面,meta 自称「类别分层最大余数法」就必须可重算复现——
+  // 冻结件若是旧逻辑/手工调过的产物(席位与当前生成器对当前考题计数不符),此处红。
+  const { meta, rows } = loadSplit();
+  const counts = {};
+  for (const r of rows) counts[r.category] = (counts[r.category] ?? 0) + 1;
+  const seats = largestRemainder(counts, meta.heldout);
+  const seatsObj = Object.fromEntries([...seats.entries()]);
+  assert.deepEqual(seatsObj, meta.heldoutSeats,
+    `meta.heldoutSeats 不是当前生成器对考题计数的分席产物:重算 ${JSON.stringify(seatsObj)} ≠ meta ${JSON.stringify(meta.heldoutSeats)}(#325 F2:出处链断裂)`);
+  const held = countsBy(rows.filter((r) => r.set === "heldout"), "category");
+  for (const [c, n] of Object.entries(meta.heldoutSeats))
+    assert.equal(held.get(c) ?? 0, n, `留出行类别 ${c} 计数 ≠ 分席值`);
+});
+
 // roster 交叉面:考题宇宙随 roster 演进而漂移时,冻结名单必须红——CI 无 roster 取数面
 // (无 python 解释器/无 BENCH_ROSTER_FILE)按 smoke-glm 判例 skip;本地/验收跑必绿。
 let rosterText = null;
@@ -172,7 +230,9 @@ test("split.jsonl 名单 ⊆ 真 roster 考题集,类别一致,且域目录过 l
   const files = [];
   const walk = (dir) => {
     for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (e.name === "node_modules") continue;
+      // __pycache__ 跳过(#325 F1 判例):pyc 是源码的编译派生物,行级豁免标记不随编译
+      // 存活(critic_needles 的共享基建豁免词汇表会以字面量进 pyc)——扫 authored 源即可。
+      if (e.name === "node_modules" || e.name === "__pycache__") continue;
       const p = path.join(dir, e.name);
       if (e.isDirectory()) walk(p);
       else files.push(p);

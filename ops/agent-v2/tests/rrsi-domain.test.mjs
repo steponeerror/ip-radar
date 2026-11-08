@@ -2,11 +2,13 @@
 // 域级行为正确性由 bootstrap 门兜底(scripts/bootstrap-rrsi.sh → rrsi pytest + rrsi.py --domain
 // ipradar smoke 绿,含 faux 轮+打分真跑);本测试钉的是「提案者宪法的机检面」——宪法文件
 // 一旦漂移(丢零漂移红线/丢豁免判例/开放面越界/密钥入仓),演化轮的提案者就失去了护栏,
-// 必须红。CI 无 python/rrsi 面,adapter 逻辑不可 import——只做内容断言(与 smoke-glm 判例同律)。
+// 必须红。CI 无 python/rrsi 面,adapter 逻辑不可 import——只做内容断言(与 smoke-glm 判例同律);
+// 例外(#325 F1):critic_needles.py 标准库自足,spawn python3 导入断言针形,python3 不可用则 skip。
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -69,4 +71,67 @@ test("adapter.py 接线面:三护栏+faux 门+leak 同源针+主检出取数判�
   }
   assert.ok(!/[0-9a-f]{32,}/i.test(py.replace(/glm[-a-z0-9.]*|bigmodel|anthropic|vertex/gi, "")), "疑似密钥串入 adapter");
   assert.ok(py.includes("harness_path"), "Domain.harness_path 须显式(开放面单目录)");
+});
+
+// ── critic 针形(#325 F1 修复;评审 rrsi-a-review.md P1)──────────────────────
+// 旧全等针 `^(?:挤压形)$`(^…$ 一头一尾卡死)对框架 critic.py precheck(对【原始 diff】re.search,无
+// MULTILINE、无行折叠)永不命中——考题名硬编码全漏,确定性泄漏筛层形同虚设。
+// 本测 spawn python3 导入 critic_needles.buildCriticPatterns(标准库自足,零 RRSI 依赖)
+// 验真针形:环视形(不卡整段)+ RAW 原文形 + 假 diff 命中 + 共享基建 host 豁免。
+// PYTHONDONTWRITEBYTECODE:防 __pycache__/*.pyc 落进域目录(豁免标记不随编译存活,
+// 会误红 leak 面)。
+const CRITIC_PROBE_PY = `
+import importlib.util, json, re, sys
+spec = importlib.util.spec_from_file_location("critic_needles", sys.argv[1])
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+BS, DQ = chr(92), chr(34)
+PREFIX = "(?<" + "!" + "[" + BS + "w-])(?:"
+SUFFIX = ")(?!" + "[" + BS + "w-])"
+rows = [json.loads(l) for l in open(sys.argv[2], encoding="utf-8").read().splitlines()[1:] if l.strip()]
+pats = mod.buildCriticPatterns(rows)
+joined = chr(10).join(p for p, _ in pats)
+rep = {"total": len(pats),
+       "anchored": [p for p, _ in pats if p.startswith("^") or p.endswith("$")],
+       "infraInPats": {h: (h in joined) for h in tuple(getattr(mod, "SHARED_INFRA_HOSTS", ()))},
+       "known": {}, "fakeDiff": {}}
+for name in ("binarydefense", "blocklist_de", "urlhaus"):
+    pat = next((p for p, w in pats if ("泄漏源 " + name) in w), None)
+    rep["known"][name] = {
+        "present": pat is not None,
+        "nonAnchored": bool(pat) and not pat.startswith("^") and not pat.endswith("$"),
+        "lookaround": bool(pat) and pat.startswith(PREFIX) and pat.endswith(SUFFIX),
+        "hasRawName": bool(pat) and re.escape(name) in pat}
+for d in ("const SRC = " + DQ + "blocklist_de" + DQ + ";",
+          "const FEEDS = [" + DQ + "binarydefense" + DQ + "];"):
+    rep["fakeDiff"][d] = sum(1 for p, _ in pats if re.search(p, d))
+print(json.dumps(rep, ensure_ascii=False))
+`;
+
+let criticProbe = null;
+let criticProbeErr = null;
+try {
+  criticProbe = JSON.parse(execFileSync(
+    process.env.RRSI_TEST_PYTHON ?? "python3",
+    ["-c", CRITIC_PROBE_PY, path.join(DOMAIN_DIR, "critic_needles.py"), path.join(DOMAIN_DIR, "data", "split.jsonl")],
+    { encoding: "utf8", env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" } }));
+} catch (e) {
+  criticProbeErr = e; // python3 面不可用 → skip(smoke-glm 判例;本地/验收跑必绿)
+}
+
+test("critic 针形(#325 F1):环视形+RAW 原文形;考题名假 diff 命中;共享基建 host 豁免", { skip: criticProbe ? false : `python3 面不可用(${criticProbeErr?.message})` }, () => {
+  assert.equal(criticProbe.total, 53, "每考题一行一针(53 行)");
+  assert.deepEqual(criticProbe.anchored, [], "全等形 ^(?:…)$ 一头一尾卡死,对原始 diff re.search 永不命中——禁止复活(#325 F1)");
+  for (const [name, k] of Object.entries(criticProbe.known)) {
+    assert.ok(k.present, `缺针:${name}`);
+    assert.ok(k.nonAnchored, `${name} 针不得卡死整段(禁 ^…$ 形)`);
+    assert.ok(k.lookaround, `${name} 针须 (?<![\\w-])(?:…)(?![\\w-]) 环视形`);
+    assert.ok(k.hasRawName, `${name} 针须含 RAW 原文名形(挤压形只作附加 alternation)`);
+  }
+  for (const [diff, hits] of Object.entries(criticProbe.fakeDiff)) {
+    assert.ok(hits >= 1, `含考题名的假 diff 须命中至少一针:${diff}`);
+  }
+  for (const [host, inPats] of Object.entries(criticProbe.infraInPats)) {
+    assert.equal(inPats, false, `共享基建 host ${host} 不得入针(候选 diff 合法提及=常态,入针每轮误拦走 repair)`);
+  }
 });

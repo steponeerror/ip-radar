@@ -19,6 +19,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { parseRoster } from "../roster.mjs";
+import { largestRemainder } from "./split-lib.mjs"; // #325 F2:分席算法单源(split-lib.mjs,与测试共用)
 
 const DEFAULT_SEED = 20261108;
 
@@ -65,23 +66,7 @@ function shuffled(arr, rng) {
   return a;
 }
 
-// 最大余数法分席:N 个考题、H 个留出名额 → 每类份额;余数并列按类别字典序(确定性)
-function largestRemainder(countsByCategory, H) {
-  const cats = Object.keys(countsByCategory).sort();
-  const N = cats.reduce((s, c) => s + countsByCategory[c], 0);
-  const base = new Map(cats.map((c) => [c, Math.floor((countsByCategory[c] * H) / N)]));
-  let left = H - cats.reduce((s, c) => s + base.get(c), 0);
-  const order = cats
-    .map((c) => ({ c, rem: (countsByCategory[c] * H) / N - base.get(c) }))
-    .sort((x, y) => y.rem - x.rem || (x.c < y.c ? -1 : 1));
-  for (const { c } of order) {
-    if (left <= 0) break;
-    base.set(c, base.get(c) + 1);
-    left -= 1;
-  }
-  if (left !== 0) throw new Error(`分席不闭合:left=${left}(H=${H},N=${N})`);
-  return base;
-}
+// 最大余数法分席:已迁 split-lib.mjs(#325 F2 抽出单源,gen-split 与 rrsi-split 测试共用)
 
 const args = parseArgs(process.argv.slice(2));
 const examRules = JSON.parse(fs.readFileSync(args.examRules ?? path.join(import.meta.dirname, "..", "exam-rules.json"), "utf8"));
@@ -136,6 +121,17 @@ const meta = {
 };
 
 const outPath = args.out ?? path.join(import.meta.dirname, "data", "split.jsonl");
+// 冻结件拒绝覆盖(#325 F2):劈分是答案分发面,已冻结(frozen=true)的名单禁被静默
+// 重写——重劈须重走 #322 裁决,先手工把 meta.frozen 改回 false 确认意图。
+if (fs.existsSync(outPath)) {
+  const head = fs.readFileSync(outPath, "utf8").split("\n")[0];
+  let frozenHead = false;
+  try { frozenHead = JSON.parse(head).frozen === true; } catch { /* 非法首行当未冻结件放行 */ }
+  if (frozenHead) {
+    console.error(`拒绝覆盖:${outPath} 是已冻结劈分件(frozen=true)。重劈须重走 #322 裁决——先手工把 meta.frozen 改回 false 再跑。`);
+    process.exit(1);
+  }
+}
 const lines = [JSON.stringify(meta), ...rows.map((r) => JSON.stringify(r))];
 fs.mkdirSync(path.dirname(outPath), { recursive: true });
 fs.writeFileSync(outPath, lines.join("\n") + "\n");

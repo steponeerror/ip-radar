@@ -17,7 +17,6 @@
 # 落 guards.json 回执,score() 载入 extra,guards() 非补偿执法——回执缺失=不可接受。
 import json
 import os
-import re
 import subprocess
 import sys
 import time
@@ -25,6 +24,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent.parent.parent))  # RRSI 仓根(domains/<name>/ → 仓根)
+sys.path.insert(0, str(HERE))                      # 域目录(critic_needles 同目录模块)
 from rrsi.domain import Domain       # noqa: E402
 from rrsi.evaluate import TaskResult  # noqa: E402
 
@@ -61,26 +61,11 @@ def _load_split():
 
 _SPLIT_META, _ROWS = _load_split()
 
-# ── 考题针(critic_patterns):与 bench/leak-check.mjs buildNeedles 同源逻辑 ────
-# squeeze=小写+剔除非字母数字(漏题闸同折);针=源名归一形 + 下载域名(≥3 段才剥一段
-# 成父域)。同源=同一份 split.jsonl + 同一折叠规则;JS 侧真源在 leak-check.mjs,本处
-# 只给 RRSI 审查者(critic)扫候选 diff 用——考题名硬编码进 harness 即拒。
-def _squeeze(text: str) -> str:
-    return re.sub(r"[^a-z0-9]", "", text.lower())
-
-def _exam_needles():
-    pats = []
-    for r in _ROWS:
-        alts = [_squeeze(r["name"])]
-        host = r.get("host")
-        if host and host != "-":
-            alts.append(_squeeze(host))
-            labels = host.split(".")
-            if len(labels) >= 3:
-                alts.append(_squeeze(".".join(labels[1:])))
-        pats.append(("^(?:" + "|".join(re.escape(a) for a in alts if a) + ")$",
-                     f"考题针:泄漏源 {r['name']} 的名字/下载域名"))
-    return pats
+# ── 考题针(critic_patterns):构造单源在 critic_needles.py(#325 F1 抽出,标准库自足 ──
+# 可测)。数据面与 bench/leak-check.mjs buildNeedles 同源 = 同一份 split.jsonl + 同一
+# 折叠规则(名字/host/≥3 段剥一段父域);匹配面各异:leak 闸折行做子串,critic.py
+# precheck 对【原始 diff】re.search(无 MULTILINE 无行折叠)——针形见 critic_needles.py。
+from critic_needles import buildCriticPatterns  # noqa: E402
 
 def _ensure_backend_link(root: Path) -> None:
     """harness/backend → 主检出 backend 的符号链接 + git exclude 双保险。
@@ -188,7 +173,7 @@ class IpRadarDomain(Domain):
     # 域文件/RRSI 核心的提交不误报为 harness 变化(gitops.py 语义)。
     harness_path = "harness"
     source_exts = {".py", ".txt", ".md", ".json", ".mjs"}
-    critic_patterns = _exam_needles()
+    critic_patterns = buildCriticPatterns(_ROWS)
     component_signals = [
         ("prompt",        [r"prompts[/\\]", r"shortlist", r"SYSTEM_PROMPT", r"提示词"]),
         ("scan",          [r"bench[/\\]scan\.mjs", r"candidate_universe", r"候选宇宙"]),
@@ -221,7 +206,7 @@ class IpRadarDomain(Domain):
         ),
         "critic": (
             "域:ip-radar 盲测重发现基准。审查候选 diff:①考题泄漏(critic_patterns = 53 源"
-            "名字/域名针,与 leak gate 同源);②真实轮零漂移红线破坏(golden/护栏会红,直接"
+            "名字/域名原文针,环视形(不卡整段、词边界内即命中);数据面与 leak gate 同源);②真实轮零漂移红线破坏(golden/护栏会红,直接"
             "拒绝);③答案硬编码/特判(对具体源名打补丁=benchmark 专属拟合);④沙箱纪律"
             "(沙箱外落件/读真实运营面台账)。宁严勿松。"
         ),
