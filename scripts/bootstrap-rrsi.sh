@@ -36,6 +36,8 @@ if [ ! -x "$RRSI_DIR/.venv/bin/python" ]; then
 fi
 log "pip install -e .[dev]"
 "$RRSI_DIR/.venv/bin/pip" install -q -e "$RRSI_DIR[dev]"
+# litellm:四角色 GLM 面(RRSI_LLM_BACKEND=litellm-zai)的运行依赖,上游 [dev] 不含——#322 首跑踩坑补入
+"$RRSI_DIR/.venv/bin/pip" install -q litellm
 
 # ── 3. 域接线(vendored 拷贝;node_modules 不带,候选 worktree 各自 npm ci)──
 log "同步域目录 + 开放面"
