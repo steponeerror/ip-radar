@@ -11,7 +11,7 @@
 #   S      = 召回率。#322 验收四行数 = H0/终版 × 演化/留出。
 #
 # 本票(#325)红线:不跑任何真实搜索轮——run() 缺省 faux(--fixtures 罐装,零网络零花费);
-# real 是 #322 的花钱面,须显式 env IPRADAR_BENCH_MODE=real 才放行(且模型面=生产 GLM)。
+# real 是 #322 的花钱面,须显式 env IPRADAR_BENCH_MODE=real 才放行(模型面缺省=四角色同款 glm-5.3-flash,R4 裁决)。
 #
 # 三护栏(golden + v2 全套 + leak gate;过不了不进花钱评估):smoke() 全跑,run() 复跑
 # 落 guards.json 回执,score() 载入 extra,guards() 非补偿执法——回执缺失=不可接受。
@@ -256,8 +256,10 @@ class IpRadarDomain(Domain):
                "DOCS_ROOT": str(Path(runs_dir) / "docs-ro" / job)}
         flags = []
         if mode == "real":
+            # #322 R4 裁决:四角色(含冻结搜索策略)全 glm-5.3-flash——与生产 discover 的
+            # glm-5.3 不同面,跨模型迁移有论文先例;env IPRADAR_BENCH_MODEL 可覆盖复裁。
             flags += ["--model", os.environ.get("IPRADAR_BENCH_MODEL",
-                                                "zai-coding-cn/glm-5.3")]
+                                                "zai-coding-cn/glm-5.3-flash")]
         else:
             flags += ["--fixtures", str(harness / "ops" / "agent" / "fixtures" / "pipeline")]
         for trial in range(k):
