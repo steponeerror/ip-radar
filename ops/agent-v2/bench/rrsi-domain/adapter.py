@@ -309,6 +309,9 @@ class IpRadarDomain(Domain):
 
     def run(self, root, runs_dir, job, ids, k, log_prefix=""):
         root, runs_dir = Path(root), Path(runs_dir)
+        # jobs/<job> 目录预建(上游 loop.Run 只建到 jobs/ 一层,EvalResult.save 不 mkdir——
+        # #322 首跑判例:基准轮全绿后在 ev.save 栽 FileNotFoundError)。
+        (runs_dir / "jobs" / job).mkdir(parents=True, exist_ok=True)
         art = self._bench_round(root, runs_dir, job, ids, k, log_prefix)
         # 三护栏复跑落回执:score 载入 extra,guards 非补偿执法(回执缺失=不可接受)。
         self._write_guards_receipt(root, runs_dir, job, art)
