@@ -465,6 +465,20 @@ DOMAIN = IpRadarDomain()
 # 走 env ZAI_CODING_CN_BASE_URL(缺省 https://open.bigmodel.cn/api/coding/paas/v4)/
 # ZAI_CODING_CN_API_KEY(auth.json 凭证店同源,ops/agent/models.mjs 判例)。
 # scripts/glm-smoke.py 经此面真调一次(票 #325 冒烟留痕)。
+def _zai_api_key() -> str:
+    """zai 凭据:env ZAI_CODING_CN_API_KEY 优先;缺席兑底凭据店 ~/.pi/agent/auth.json
+    的 zai-coding-cn 键(判例 #304-⑤:GLM 凭据只此一家,不设第二真源)。driver 进程
+    通常不带该 env——垫片自取,免得每个调用方都得配。"""
+    k = os.environ.get("ZAI_CODING_CN_API_KEY")
+    if k:
+        return k
+    try:
+        auth = json.loads((Path.home() / ".pi" / "agent" / "auth.json").read_text())
+        return str(auth.get("zai-coding-cn", {}).get("key", ""))
+    except Exception:  # noqa: BLE001 - 兑底失败=空串,litellm 会报缺凭证(如实)
+        return ""
+
+
 def _install_litellm_shim() -> bool:
     if os.environ.get("RRSI_LLM_BACKEND") != "litellm-zai":
         return False
@@ -488,9 +502,11 @@ def _install_litellm_shim() -> bool:
                     base_url=os.environ.get(
                         "ZAI_CODING_CN_BASE_URL",
                         "https://open.bigmodel.cn/api/coding/paas/v4"),
-                    api_key=os.environ.get("ZAI_CODING_CN_API_KEY", ""))
+                    api_key=_zai_api_key())
                 txt = rsp.choices[0].message.content or ""
-                return rllm.extract_json(txt) if json_only else txt
+                if txt.strip():
+                    return rllm.extract_json(txt) if json_only else txt
+                last = RuntimeError("empty response")  # 空回=重试(上游同律;编码端点偶发空 content)
             except Exception as e:  # noqa: BLE001
                 last = e
                 time.sleep(min(2 ** i, 30))
