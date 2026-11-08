@@ -521,6 +521,9 @@ def _install_litellm_shim() -> bool:
                     litellm.completion,
                     model=mdl, messages=msgs, max_tokens=max_tokens,
                     timeout=300,  # 单请求上限(双保险)
+                    # 关思考(实测 2026-11-08:同一 analyst 提示词,开思考滴流生成 >300s 零 content;
+                    # 关后 141s finish=stop 正常 JSON。四角色都是 JSON 执行器,思考纯烧时)
+                    extra_body={"thinking": {"type": "disabled"}},
                     base_url=os.environ.get(
                         "ZAI_CODING_CN_BASE_URL",
                         "https://open.bigmodel.cn/api/coding/paas/v4"),
