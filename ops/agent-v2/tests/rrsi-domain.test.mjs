@@ -95,15 +95,15 @@ rep = {"total": len(pats),
        "anchored": [p for p, _ in pats if p.startswith("^") or p.endswith("$")],
        "infraInPats": {h: (h in joined) for h in tuple(getattr(mod, "SHARED_INFRA_HOSTS", ()))},
        "known": {}, "fakeDiff": {}}
-for name in ("binarydefense", "blocklist_de", "urlhaus"):
+for name in ("binarydefense", "blocklist_de", "urlhaus"): # 禁词引用:考题名作夹具数据(针形断言用,非泄漏)
     pat = next((p for p, w in pats if ("泄漏源 " + name) in w), None)
     rep["known"][name] = {
         "present": pat is not None,
         "nonAnchored": bool(pat) and not pat.startswith("^") and not pat.endswith("$"),
         "lookaround": bool(pat) and pat.startswith(PREFIX) and pat.endswith(SUFFIX),
         "hasRawName": bool(pat) and re.escape(name) in pat}
-for d in ("const SRC = " + DQ + "blocklist_de" + DQ + ";",
-          "const FEEDS = [" + DQ + "binarydefense" + DQ + "];"):
+for d in ("const SRC = " + DQ + "blocklist_de" + DQ + ";", # 禁词引用:假 diff 夹具数据(命中断言用)
+          "const FEEDS = [" + DQ + "binarydefense" + DQ + "];"): # 禁词引用:假 diff 夹具数据(命中断言用)
     rep["fakeDiff"][d] = sum(1 for p, _ in pats if re.search(p, d))
 print(json.dumps(rep, ensure_ascii=False))
 `;
@@ -134,4 +134,66 @@ test("critic 针形(#325 F1):环视形+RAW 原文形;考题名假 diff 命中;�
   for (const [host, inPats] of Object.entries(criticProbe.infraInPats)) {
     assert.equal(inPats, false, `共享基建 host ${host} 不得入针(候选 diff 合法提及=常态,入针每轮误拦走 repair)`);
   }
+});
+
+// —— adapter 门红面(#322 首跑判例 2026-11-08:门红=模型侧不合规,计 0 分不炸跑)——
+// adapter.py import 即拉 rrsi 包(site-packages),须 dev/rrsi venv 解释器;CI 无此面 → skip
+// (smoke-glm 判例;本地/验收跑必绿)。零网络零花钱:只测纯分类与 score 合成分支。
+const ADAPTER_PY = path.join(DOMAIN_DIR, "adapter.py");
+let adapterProbe = null;
+let adapterProbeErr = null;
+try {
+  adapterProbe = JSON.parse(execFileSync(
+    process.env.RRSI_ADAPTER_PYTHON ?? "/home/huxiao/dev/pi-ip-lookup-tool/dev/rrsi/.venv/bin/python",
+    ["-c", `
+import importlib.util, json, sys, tempfile
+from pathlib import Path
+spec = importlib.util.spec_from_file_location("adapter_probe", ${JSON.stringify(ADAPTER_PY)})
+m = importlib.util.module_from_spec(spec)
+sys.modules["adapter_probe"] = m
+spec.loader.exec_module(m)
+rep = {}
+# ① _last_envelope:末行 JSON 信封;噪声行/无信封 → None
+with tempfile.NamedTemporaryFile("w", suffix=".log", delete=False) as f:
+    f.write("noise line\\n{\\\"ok\\\":false,\\\"round\\\":\\\"discover\\\",\\\"error\\\":{\\\"code\\\":\\\"infra\\\",\\\"message\\\":\\\"GATE:SHORTLIST:x\\\"}}\\n")
+    lp = Path(f.name)
+rep["lastEnv"] = (m._last_envelope(lp) or {}).get("error", {}).get("message", "")
+lp.unlink()
+with tempfile.NamedTemporaryFile("w", suffix=".log", delete=False) as f:
+    f.write("no json here\\n")
+    lp2 = Path(f.name)
+rep["noEnv"] = m._last_envelope(lp2)
+lp2.unlink()
+# ② _is_gate_red
+rep["gate"] = m._is_gate_red({"error": {"message": "GATE:SHORTLIST:x"}})
+rep["notGate"] = m._is_gate_red({"error": {"message": "model channel_open"}})
+rep["none"] = m._is_gate_red(None)
+# ③ score() gate-red 合成:gate-red.json 在 → 全任务 0 分 + extra.gate_red + guards 照载
+runs = Path(tempfile.mkdtemp())
+rid = m._round_id("jobx", 0)
+art = m._artifacts_dir(runs, "jobx", 1)
+art.mkdir(parents=True)
+(art / "gate-red.json").write_text(json.dumps(
+    {"code": "gate_red", "envelope": {"error": {"code": "infra", "message": "GATE:SHORTLIST:x"}}}))
+per, extra = m.DOMAIN.score(runs, "jobx", ["src_a", "src_b"], 1)
+rep["rewards"] = per["src_a"].rewards
+rep["recall"] = extra["recall"]
+rep["gateRedExtra"] = extra["gate_red"]
+rep["unfound"] = extra["unfound"]
+print(json.dumps(rep, ensure_ascii=False))
+`, ], { encoding: "utf8", env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" } }));
+} catch (e) {
+  adapterProbeErr = e; // dev/rrsi venv 面不可用 → skip
+}
+
+test("adapter 门红面:_last_envelope 末行信封;GATE: 前缀判门红;score 合成零召回", { skip: adapterProbe ? false : `dev/rrsi venv 面不可用(${adapterProbeErr?.message})` }, () => {
+  assert.equal(adapterProbe.lastEnv, "GATE:SHORTLIST:x");
+  assert.equal(adapterProbe.noEnv, null);
+  assert.equal(adapterProbe.gate, true);
+  assert.equal(adapterProbe.notGate, false);
+  assert.equal(adapterProbe.none, false);
+  assert.deepEqual(adapterProbe.rewards, [0.0]);
+  assert.deepEqual(adapterProbe.recall, { found: 0, total: 2, pct: 0.0 });
+  assert.equal(adapterProbe.gateRedExtra, "GATE:SHORTLIST:x");
+  assert.deepEqual(adapterProbe.unfound, ["src_a", "src_b"]);
 });

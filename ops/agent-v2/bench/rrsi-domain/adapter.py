@@ -7,6 +7,8 @@
 #   任务 x = 考题源(61 roster − 8 免考 = 53;ops/agent-v2/bench/exam-rules.json 免考面);
 #   trial  = 一次盲搜轮(ops/agent-v2/bench/run-bench.mjs,沙箱 dev/bench-rediscover/<roundId>/);
 #   奖励 r(x, τ) = score.mjs 四层匹配命中该源 = 1,未命中 = 0(逐源 0/1);
+#   门红轮 = 该轮零召回(gate-red.json 标记:模型侧引用不合规被 G_* 拒=适应度信号,
+#   非 infra 崩溃——rrsi 把崩溃标 infra 等人手 reevaluate,演化断链;#322 首跑判例);
 #   劈分   = data/split.jsonl 冻结件(40 演化/13 留出,tests/rrsi-split.test.mjs 钉不变式);
 #   S      = 召回率。#322 验收四行数 = H0/终版 × 演化/留出。
 #
@@ -107,6 +109,32 @@ def _run(cmd, cwd, env=None, timeout=1800, check=True, log=None):
         tail = "" if log is not None else (r.stdout + r.stderr)[-1500:]
         raise RuntimeError(f"{cmd[:3]}... rc={r.returncode} in {cwd}\n{tail}")
     return r
+
+def _last_envelope(log_path: Path):
+    """log 尾部最后一个 JSON 错误信封(run-bench CLI stdout 末行,ENVELOPE.md 冻结面)。
+    日志追加写,取末尾最后一个含 error 键的 JSON 行;无则 None。"""
+    try:
+        lines = Path(log_path).read_text(errors="replace").splitlines()
+    except OSError:
+        return None
+    for ln in reversed(lines):
+        s = ln.strip()
+        if s.startswith("{") and s.endswith("}"):
+            try:
+                v = json.loads(s)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(v, dict) and "error" in v:
+                return v
+    return None
+
+
+def _is_gate_red(envelope) -> bool:
+    """门红判:信封 error.message 以 GATE: 开头(discover-round.mjs:226/307 单源拼
+    `GATE:<门名>:` 前缀)=模型侧产物被拒,非 infra。"""
+    msg = (envelope or {}).get("error", {}).get("message", "")
+    return isinstance(msg, str) and msg.startswith("GATE:")
+
 
 def _round_id(job: str, trial: int = 0) -> str:
     """job → 确定性轮 id(形状律 YYYY-MM-DD-HHMM-discover(-r\\d+);同 job 重跑复用同
@@ -256,8 +284,27 @@ class IpRadarDomain(Domain):
             flags += ["--fixtures", str(harness / "ops" / "agent" / "fixtures" / "pipeline")]
         for trial in range(k):
             rid = _round_id(job, trial)
-            _run(["node", "bench/run-bench.mjs", rid, *flags], cwd=agent_v2, env=env,
-                 log=log_dir / f"{log_prefix or job}.log")
+            logf = log_dir / f"{log_prefix or job}.log"
+            r = _run(["node", "bench/run-bench.mjs", rid, *flags], cwd=agent_v2,
+                     env=env, log=logf, check=False)
+            if r.returncode == 0:
+                continue
+            # 门红=模型侧引用不合规被 G_* 拒(适应度信号):落 gate-red.json 标记计 0 分续跑,
+            # 不炸评估(rrsi 把崩溃标 infra 等人手 reevaluate,演化断链);非门红面才 raise。
+            envelope = _last_envelope(logf)
+            if _is_gate_red(envelope):
+                red = Path(runs_dir) / "bench" / job / rid / "rounds" / rid / "gate-red.json"
+                red.parent.mkdir(parents=True, exist_ok=True)
+                red.write_text(json.dumps({"code": "gate_red", "envelope": envelope},
+                                          ensure_ascii=False, indent=1) + "\n")
+                continue
+            tail = ""
+            try:
+                tail = logf.read_text(errors="replace")[-1500:]
+            except OSError:
+                pass
+            raise RuntimeError(
+                f"node bench/run-bench.mjs {rid} rc={r.returncode} in {agent_v2}\n{tail}")
         return _artifacts_dir(runs_dir, job, k)
 
     def run(self, root, runs_dir, job, ids, k, log_prefix=""):
@@ -273,6 +320,27 @@ class IpRadarDomain(Domain):
 
     def score(self, runs_dir, job, ids, k):
         art = _artifacts_dir(Path(runs_dir), job, k)
+        # 门红轮=零召回(轮产物被拒,无 admissible 短清单;宁拒勿假)。k>1 时标记只落
+        # 被拒试次目录,本分支覆盖末试次被拒(rrsi.json k=1);guards 回执照常载入。
+        red = art / "gate-red.json"
+        guards_receipt = None
+        gp = art / "guards.json"
+        if gp.exists():
+            guards_receipt = json.loads(gp.read_text())
+        if red.exists():
+            env = json.loads(red.read_text())
+            msg = str(env.get("envelope", {}).get("error", {}).get("message", ""))[:200]
+            report_md = art / "report.md"
+            report_md.write_text(
+                "# gate red(轮产物被拒,计零召回)\n\n" + json.dumps(env, ensure_ascii=False, indent=1) + "\n")
+            per = {t: TaskResult(rewards=[0.0] * k, tokens=[None] * k, missing=0,
+                                 extra={"gate_red": True}) for t in ids}
+            extra = {"recall": {"found": 0, "total": len(ids), "pct": 0.0},
+                     "unfound": list(ids), "new_candidates": 0, "gate_red": msg,
+                     "guards": guards_receipt,
+                     "guards_ok": bool(guards_receipt and all(guards_receipt.values())),
+                     "report_md": str(report_md)}
+            return per, extra
         # score.mjs:答案表机械派生(主检出 backend roster,候选不可染指)+ 确定性门
         log = Path(runs_dir) / "logs" / f"{job}-score.log"
         _run(["node", "bench/score.mjs", str(art), "--python", BENCH_PYTHON,
