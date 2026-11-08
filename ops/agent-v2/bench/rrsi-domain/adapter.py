@@ -136,6 +136,23 @@ def _is_gate_red(envelope) -> bool:
     return isinstance(msg, str) and msg.startswith("GATE:")
 
 
+def _harness_tree_id(root: Path) -> str:
+    """候选 worktree HEAD 的 harness 子树 tree id(domains/ipradar/harness)——同代码同 id。
+    沙箱根按它分目录:重跑同一化身=复用沙箱走 durable replay(零新模型调用);换了化身
+    (harness 被演化编辑)=新沙箱,旧轮不会错挂(#322 首跑后续:heldout 重评须随冠军新代码
+    重跑,不能重放旧冠军的轮)。10 位十六进制。"""
+    r = _run(["git", "rev-parse", "HEAD:domains/ipradar/harness"], cwd=root)
+    return r.stdout.strip()[:10]
+
+
+def _bench_root_for(runs_dir: Path, job: str) -> Path:
+    """job → 沙箱根:优先 .jobmap 指针(_bench_round 写);缺席兑底旧路径(旧跑/smoke)。"""
+    jm = Path(runs_dir) / "bench" / ".jobmap" / job
+    if jm.exists():
+        return Path(jm.read_text().strip())
+    return Path(runs_dir) / "bench" / job
+
+
 def _round_id(job: str, trial: int = 0) -> str:
     """job → 确定性轮 id(形状律 YYYY-MM-DD-HHMM-discover(-r\\d+);同 job 重跑复用同
     沙箱=run-bench resume 语义)。trial 序编进字节序,保 k>1 时各试次独立沙箱。"""
@@ -143,10 +160,11 @@ def _round_id(job: str, trial: int = 0) -> str:
     return f"2000-01-01-0000-discover-r{n}"
 
 def _artifacts_dir(runs_dir: Path, job: str, k: int) -> Path:
-    """score.mjs 的工件目录:<runs>/bench/<job>/<roundId>/rounds/<roundId>/(run-bench
-    落件形状,tests/bench-round.test.mjs CLI 冒烟钉)。k>1 取末试次(打分输入=最终轮)。"""
+    """score.mjs 的工件目录:<benchRoot>/<roundId>/rounds/<roundId>/(run-bench 落件形状,
+    tests/bench-round.test.mjs CLI 冒烟钉)。k>1 取末试次(打分输入=最终轮)。沙箱根经
+    _bench_root_for 解析(化身后缀 + jobmap,2026-11-08 判例)。"""
     rid = _round_id(job, k - 1)
-    return Path(runs_dir) / "bench" / job / rid / "rounds" / rid
+    return _bench_root_for(Path(runs_dir), job) / rid / "rounds" / rid
 
 def _roster_dump(runs_dir: Path) -> Path:
     """roster dump 单源取数:`python -m ipdb._registry --roster`(score/leak 同源);
@@ -271,7 +289,13 @@ class IpRadarDomain(Domain):
             if not (_d / "node_modules").is_dir():
                 _run(["npm", "ci", "--no-fund", "--no-audit"], cwd=_d,
                      log=log_dir / "npm-ci.log", timeout=900)
-        env = {"OPS_BENCH_ROOT": str(Path(runs_dir) / "bench" / job),
+        sha = _harness_tree_id(root)
+        bench_root = Path(runs_dir) / "bench" / f"{job}-{sha}"
+        # jobmap 先写后跑:score/load_trial 经 _bench_root_for 找根;轮中崩溃也留指路。
+        jm = Path(runs_dir) / "bench" / ".jobmap" / job
+        jm.parent.mkdir(parents=True, exist_ok=True)
+        jm.write_text(str(bench_root) + "\n")
+        env = {"OPS_BENCH_ROOT": str(bench_root),
                # DOCS_ROOT 防御性指沙箱(v2 测试同律:真实 docs 树零触碰)
                "DOCS_ROOT": str(Path(runs_dir) / "docs-ro" / job)}
         flags = []
@@ -472,7 +496,16 @@ def _install_litellm_shim() -> bool:
                 time.sleep(min(2 ** i, 30))
         raise RuntimeError(f"litellm-zai generate 失败({mdl}):{last!r}")
 
+    _orig = getattr(rllm, "_vertex_generate_original", None) or rllm.generate
+    rllm._vertex_generate_original = _orig
     rllm.generate = generate
+    # 直绑面补丁(#322 首跑判例):analyst/propose 等 `from .llm import generate` 在本垫片
+    # 安装前已 import,名字绑在原 Vertex 实现上——round0 analyst 即 ZeroDivisionError
+    # (无 GCP 项目,÷0)。凡已载入 rrsi.* 子模块里 generate 绑定原函数的,一并改指垫片。
+    import sys as _sys
+    for _n, _m in list(_sys.modules.items()):
+        if _n.startswith("rrsi") and getattr(_m, "generate", None) is _orig:
+            _m.generate = generate
     return True
 
 SHIM_ON = _install_litellm_shim()
