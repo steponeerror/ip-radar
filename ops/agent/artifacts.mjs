@@ -49,6 +49,13 @@ export const discoverArtifactNames = () => DISCOVER_FIXED.map((k) => ARTIFACTS[k
 // 两处手抄=回放读不到留痕。字节冻结(磁盘名位等价判例同固定表)。
 export const DISCOVER_SHORTLIST_TRANSCRIPT = "d2-shortlist-transcript.jsonl";
 
+// 发现轮 SHORTLIST 基准提示词路径(票 #319 基准 B;spec §3.2):相对 prompts 根的路径(含 .md)。
+// 单源理由(DISCOVER_SHORTLIST_TRANSCRIPT 同律):ops/agent-v2/run-discover.mjs
+// shortlistBenchPromptPath(会话 instructions/system_sha 面)与 ops/agent-v2/bench/leak-check.mjs
+// 缺省扫描面两处消费——双处手抄漂移曾致提示词改名后 leak 缺省面 existsSync 空集放行、
+// 漏题闸静默装绿(终审 P2-1);改名/迁移只改本行,两侧同变。
+export const DISCOVER_SHORTLIST_BENCH_PROMPT = "discover/shortlist-bench.md";
+
 // 逐假设 DEEP 参数族:名字由假设 slug 拼出(slug=hidSlug(url)),不入固定表。
 export const deepArtifactName = (slug) => `05-deep-${slug}.json`;
 export const deepTranscriptName = (slug) => `05-deep-${slug}-transcript.jsonl`;

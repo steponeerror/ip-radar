@@ -12,7 +12,30 @@
 // (皆零规范化),作用面不同。
 
 import { evidencePtrForm, resolveEvidencePtr } from "./discover-candidate.mjs"; // 形律/指针解析=T3 导出面复用(单源);containsExactString 未导出→此处同律复刻
-import { ARTIFACTS } from "../artifacts.mjs";
+import { ARTIFACTS, DISCOVER_SHORTLIST_TRANSCRIPT } from "../artifacts.mjs"; // 转录名单源(不入 ARTIFACTS 固定表=位等价冻结面,单独导出)
+
+// bench 第四证据面(票 #319,spec docs/research/2026-11-07-rediscover-bench-spec.md §3.2):
+// evidence_ptr 指向 SHORTLIST transcript 的工具转录行。指针形 = d2-shortlist-transcript.jsonl:call/<call_id>
+// (call_id=模型可见面——工具返回 [call_id=…] 前缀;行号面模型不可数,弃);面文本 = 该行
+// canonicalJson(字段值与原始行字节等价——键序/空白差异不影响值内逐字 span;证据永不灭失:
+// quote 逐字子串可回算);仅 type=registry_seed 行合法(input/message 行非工具证据——自引不是印证)。
+// 零 IO 律保持:行数组由门读盘传入(gates.mjs jsonl() 同源);仅 bench 轮可至(G_SHORTLIST 旗标门)。
+const TRANSCRIPT_PTR_RE = new RegExp(`^${DISCOVER_SHORTLIST_TRANSCRIPT.replace(/[.]/g, "\\.")}:call/([^\\s#\/]+)$`);
+
+export function transcriptPtrCall(ptr) {
+  if (typeof ptr !== "string") return null;
+  const m = TRANSCRIPT_PTR_RE.exec(ptr);
+  return m ? m[1] : null;
+}
+
+// benchTranscriptFace(rows, ptr) → {ok:true,text,row} | {ok:false,reason};rows=已解析转录行数组。
+export function benchTranscriptFace(rows, ptr) {
+  const callId = transcriptPtrCall(ptr);
+  if (callId === null) return { ok: false, reason: `转录指针形外:${ptr}(须 ${DISCOVER_SHORTLIST_TRANSCRIPT}:call/<call_id>)` };
+  const row = Array.isArray(rows) ? rows.find((r) => r && r.type === "registry_seed" && r.call_id === callId) : null;
+  if (!row) return { ok: false, reason: `转录指针 ${ptr} 无对应工具转录行(未知 call_id;input/message 行非工具证据)` };
+  return { ok: true, text: canonicalJson(row), row };
+}
 
 // 指针形分类(#208 T2 统一律):T3 两形(url/artifact)优先;其 null 再验透传形(scan)——
 // 输入候选原样回传的 repo 相对路径/行锚(NEEDS.md:L14、backend/ipdb/_sources/x.py)。
