@@ -27,7 +27,8 @@ import { execFileSync } from "node:child_process";
 const ROOT = path.resolve(import.meta.dirname, "..", "..", "..", ".."); // add-domain → 仓根(4 层)
 const SUMMARY_TAIL = 15; // 失败摘要尾行数(门命令尾部输出同律)
 
-function loadUniverse(universePath) {
+// 单源导出(#334:考题卡生成器同面消费——frozen 闸+行序读面禁第二份)
+export function loadUniverse(universePath) {
   const lines = fs.readFileSync(universePath ?? path.join(import.meta.dirname, "data", "universe.jsonl"), "utf8").split("\n").filter(Boolean);
   const meta = JSON.parse(lines[0]);
   if (meta.frozen !== true)

@@ -36,11 +36,13 @@ import { largestRemainder, mulberry32, shuffled } from "../rrsi-domain/split-lib
 const DEFAULT_SEED = 20261111;
 const EXEMPTION = "禁词引用:#308 判例——加源考题答案键载体行,行级豁免";
 
-// 源模块元数据机械 dump(url 面 + 原型族):url attr(多端点源为空串)+ 模块源文本中
+// 源模块元数据机械 dump(url 面 + 原型族 + stale_days;#334 起 stale_days 入 dump 面供
+// 考题卡生成器派生 cadence——meta dump 单源不另立):url attr(多端点源为空串)+ 模块源文本中
 // hostname 与本源 download host 一致的 http(s) 字面量(同 score.mjs DUMP_URLS_SCRIPT
 // 判据——多端点源 url="" 真实地址在 _BASE_URL 常量);archetype = MRO 首个
-// 命中的原型族名(CsvSource/IpListSource/Source,spec 验收「3 个原型族」同词表)。
-const DUMP_META_SCRIPT = `
+// 命中的原型族名(CsvSource/IpListSource/Source,spec 验收「3 个原型族」同词表);
+// stale_days = 源声明的鲜活度预算日数(无声明 null,卡生成器如实记未知)。
+export const DUMP_META_SCRIPT = `
 import inspect, json, re, sys
 from urllib.parse import urlparse
 from ipdb import _registry
@@ -63,7 +65,8 @@ for s in _registry._sources:
         if lh and lh == host:
             urls.append(lit)
     out[s.name] = {"urls": sorted(set(urls)),
-                   "archetype": next((a for a in ARCH if a in [k.__name__ for k in cls.__mro__]), "other")}
+                   "archetype": next((a for a in ARCH if a in [k.__name__ for k in cls.__mro__]), "other"),
+                   "stale_days": getattr(s, "stale_days", None)}
 print(json.dumps(out))
 `;
 
