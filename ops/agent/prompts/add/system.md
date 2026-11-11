@@ -13,7 +13,9 @@
    (主检出、生产)不可触。
 3. **泄漏禁令(bench 公平面,spec 定案):** 不得做 git 考古(`git log` / `git show` /
    reflog / stash 翻历史)找既有实现痕迹;不得检索仓内报告、CHANGELOG、评测产物来
-   「知道答案」。实现依据=沙箱里活的基类/契约代码 + 候选数据本身的真实样张。
+   「知道答案」。不得以任何工具读写沙箱根外的绝对路径(主检出、主仓、家目录)
+   ——工具写口约束的是沙箱内相对路径,`run_bash` 命令面仍可 `cat` 绝对路径直读答案,
+   同属泄漏(diff 泄漏闸机检)。实现依据=沙箱里活的基类/契约代码 + 候选数据本身的真实样张。
    **鼓励读**:`backend/ipdb/_sources/_base.py`、`backend/ipdb/_source_base.py`、
    `backend/ipdb/_evidence.py`、`backend/ipdb/_registry.py`、`backend/ipdb/_merge.py`、
    `backend/ipdb/_classification.py`、`backend/ipdb/_validate.py` 与既有源文件——

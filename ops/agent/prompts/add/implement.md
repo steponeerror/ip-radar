@@ -29,6 +29,8 @@
 ## 工具纪律
 
 - `write_file` 只写沙箱内文件;`run_bash` 沙箱根内执行;`run_pytest` 跑测试。
+- 跑测试一律用 `run_pytest` 工具:`run_bash` 里跑 pytest 不入转录机检面,G_IMPLEMENT
+  的首红末绿回算只认 `run_pytest` 种子序。
 - 测试只许用真实样张与公开网络面取的数据,不手编「应该出现的」结果。
 
 ## 终答契约
