@@ -516,26 +516,52 @@ async function runVerify(ctx) {
 
 // 真实面探活(4 组合 GET/HEAD × UA 有无):last-modified 内时间戳=鲜活度证据面;
 // 「响应了」不算证据(sunset 冻结文件也 200——技能 Phase 1 鲜活度门同律)。
+// #341 ② 限流退避与重试(主会话 2026-11-12 令,票 #341 修件 2):同 host 高频 4 组合
+// 疑似被限流(feeds.dshield.org 实测 last-modified 缺席→fail-closed 误红)——①组合间
+// 短退避(首组合零等待,后续每组合前 comboDelayMs,缺省 300ms);②失败组合一次重试
+// (重试前 retryDelayMs,缺省 750ms)。失败判据=限流签名:传输错/status 429 或 503;
+// 200-无 header 是稳定答案不重试(对天然无 last-modified 的源重试=双倍打,与退避初衷
+// 相反)。重试终面原位覆盖,首轮失败以 first_error 留痕(证据不灭失)。参数面
+// opts={sleepImpl,comboDelayMs,retryDelayMs} 注入=测试零真实等待。
 // github 家族活性证据回退(#339 ①,P3 前置阻断件):直接探活拿不到证据(无 last-modified
 // 或连接失败——本机 raw.githubusercontent.com TCP 被墙即此态)且 URL 属家族(GITHUB_
 // FAMILY_HOSTS,#337 F4 常量复用)时,转 api.github.com commits API 取最新 commit 的
 // committer date(发布方活性证据,主会话裁定 2026-11-12;api.github.com 本机可达,
 // stamparm/ipsum 实测 2026-11-11)。证据优先级 last_modified > github_commit;API 失败
 // /无 commit = fail-closed none(无证据即无话)。fetchImpl 注入=测试面零网络。
-export async function probeLiveness(url, fetchImpl = fetch) {
+export async function probeLiveness(url, fetchImpl = fetch, opts = {}) {
+  const { sleepImpl = (ms) => new Promise((r) => setTimeout(r, ms)), comboDelayMs = 300, retryDelayMs = 750 } = opts;
   const combos = [];
+  const hit = async (method, ua) => {
+    const r = await fetchImpl(url, {
+      method, redirect: "manual", signal: AbortSignal.timeout(15_000),
+      headers: ua ? { "user-agent": "ip-radar-add-round/1.0" } : {},
+    });
+    return { method, ua, status: r.status, last_modified: r.headers.get("last-modified") };
+  };
   if (url) {
+    let first = true;
     for (const method of ["GET", "HEAD"]) {
       for (const ua of [true, false]) {
+        if (!first) await sleepImpl(comboDelayMs); // 组合间短退避(#341 ②)
+        first = false;
         try {
-          const res = await fetchImpl(url, {
-            method, redirect: "manual", signal: AbortSignal.timeout(15_000),
-            headers: ua ? { "user-agent": "ip-radar-add-round/1.0" } : {},
-          });
-          combos.push({ method, ua, status: res.status, last_modified: res.headers.get("last-modified") });
+          combos.push(await hit(method, ua));
         } catch (e) {
           combos.push({ method, ua, error: String(e?.cause?.message ?? e?.message ?? e).slice(0, 160) });
         }
+      }
+    }
+    // 失败组合一次重试(#341 ②:限流签名=传输错/429/503;仅一次,不无限)
+    for (const c of combos) {
+      if (!(c.error != null || c.status === 429 || c.status === 503)) continue;
+      await sleepImpl(retryDelayMs);
+      const firstError = c.error ?? `HTTP ${c.status}`;
+      try {
+        const again = await hit(c.method, c.ua);
+        Object.assign(c, again, { retried: true, first_error: firstError });
+      } catch (e) {
+        Object.assign(c, { retried: true, first_error: firstError, error: String(e?.cause?.message ?? e?.message ?? e).slice(0, 160) });
       }
     }
   }
