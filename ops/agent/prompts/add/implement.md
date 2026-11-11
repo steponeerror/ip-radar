@@ -6,7 +6,9 @@
 ## TDD 硬序(门会机检,跳步=终态)
 
 1. 先写 `backend/tests/sources/test_<stem>.py`:用交接单 `samples` 里的真实样张做夹具,
-   断言解析/查询行为(模块尚不存在)。
+   断言解析/查询行为(模块尚不存在)。**样张是预告不是全集**:列表型源的输入面
+   通用惯例是裸 IP 与 CIDR(/nn)记法并存、注释/表头行跳过——解析器两类都处理,
+   测试各形态至少一条断言(仓内 roster 惯例,不是某源特性)。
 2. 跑 `run_pytest`,**亲眼看它以正确理由红**(ModuleNotFoundError:ipdb._sources.<stem>
    或等价)——这是必经一步,不是仪式。
 3. 再写 `backend/ipdb/_sources/<stem>.py` 实现转绿。
@@ -29,7 +31,8 @@
 - 字段路由按 `_evidence.py` 三层槽位(CORE_FIELDS/SCALAR_SLOTS/RICH_SLOTS)逐字段
   落定,交接单 `field_routing` 只是草案,冲突以槽位规则为准。**逐列落位:样张每一列
   都要找到兄弟源同名列的既有映射照抄**(如 AS 名称列→as_name、国家码列→country
-  类既有惯例),拿不准的列查槽位定义,**不默认塞 extra**。
+  类既有惯例),拿不准的列查槽位定义,**不默认塞 extra**。计数/次数类列
+  (hits/reports/出现次数)同样查槽位与兄弟源同列惯例落位。
 
 ## 工具纪律
 
