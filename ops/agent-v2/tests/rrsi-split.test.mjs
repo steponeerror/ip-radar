@@ -14,7 +14,7 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { parseRoster } from "../bench/roster.mjs";
 import { runLeakCheck, loadRosterText, EXEMPT_MARKER } from "../bench/leak-check.mjs";
-import { largestRemainder } from "../bench/rrsi-domain/split-lib.mjs"; // #325 F2:分席算法单源对账
+import { largestRemainder, mulberry32, shuffled } from "../bench/rrsi-domain/split-lib.mjs"; // #325 F2:分席算法单源对账;#339 ④ 对拍面
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DOMAIN_DIR = path.resolve(HERE, "..", "bench", "rrsi-domain");
@@ -135,6 +135,42 @@ test("gen-split.mjs 确定性:同种子同输入双跑字节级一致;最大余�
   assert.equal(hsum, 3);
   for (const line of nameLines) assert.ok(line.includes(EXEMPTION), "生成行必须带豁免标记(冻结件同律)");
   fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+// ── mulberry32/shuffled 跨实现对拍(#339 ④;Standards 终审判断 2)──
+// split-lib.mjs 导出款(gen-universe 消费)与 gen-split.mjs 内联款(输出由本文件冻结钉住)
+// 是两份独立拷贝,header 有「逐字节同算法」之约无牙;本测双钉:源码逐字对拍 + 同种子
+// 同序列行为对拍。钉住现状型守测(两实现当前一致,无红相可先观察——防的是单方漂移)。
+function extractFn(src, name) {
+  const start = src.indexOf(`function ${name}(`);
+  assert.ok(start >= 0, `gen-split.mjs 缺内联 function ${name}`);
+  const open = src.indexOf("{", start);
+  let depth = 0;
+  for (let i = open; i < src.length; i++) {
+    if (src[i] === "{") depth += 1;
+    else if (src[i] === "}") { depth -= 1; if (depth === 0) return src.slice(start, i + 1); }
+  }
+  assert.fail(`function ${name} 花括号不闭合`);
+}
+
+test("mulberry32/shuffled 跨实现对拍(#339 ④):split-lib 导出款与 gen-split 内联款同种子同序列", () => {
+  const genSrc = fs.readFileSync(GEN_PATH, "utf8");
+  const seq = (fn, seed) => { const r = fn(seed); return Array.from({ length: 1000 }, () => r()); };
+  const shuffle = (fn, seed) => fn(["a", "b", "c", "d", "e", "f", "g", "h"], mulberry32(seed));
+  for (const name of ["mulberry32", "shuffled"]) {
+    const inlineSrc = extractFn(genSrc, name);
+    const inlineFn = new Function(`${inlineSrc}; return ${name};`)();
+    const libFn = name === "mulberry32" ? mulberry32 : shuffled;
+    // 源码逐字对拍(toString 不含 export 前缀;逐字节同=header 之约落机检)
+    assert.equal(inlineSrc, String(libFn), `${name}:gen-split 内联款与 split-lib 导出款源码须逐字节同`);
+    // 行为对拍:同种子同序列逐值相同(多种子)
+    if (name === "mulberry32")
+      for (const seed of [0, 1, 42, 20261108, 0xdeadbeef])
+        assert.deepEqual(seq(inlineFn, seed), seq(libFn, seed), `mulberry32 种子 ${seed} 序列漂移`);
+    else
+      for (const seed of [0, 7, 20261108])
+        assert.deepEqual(shuffle(inlineFn, seed), shuffle(libFn, seed), `shuffled 种子 ${seed} 序列漂移`);
+  }
 });
 
 test("gen-split.mjs 冻结件拒绝覆盖:目标已存在且 frozen=true 时 exit 1(#325 F2)", () => {

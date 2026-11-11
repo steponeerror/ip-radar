@@ -63,7 +63,7 @@ test("adapter.py 接线面:三护栏+faux 门+leak 同源针+主检出取数判�
     "leak-check.mjs",           // 护栏③leak gate
     "needs_frozen",             // 考题宇宙输入面 NEEDS.md 冻结门(bench SCAN 真面读它)
     "verification_frozen",      // 验证面冻结门(#327 Q2:评估器不许候选改)
-    "EDIT_ALLOWLIST",           // 演化可编面白名单单源(#327 Q1:策略面 43 文件,dev/rrsi Workspace 消费)
+    "EDIT_ALLOWLIST",           // 演化可编面白名单单源(#327 Q1;策略面构成数以 adapter.py EDIT_ALLOWLIST 注释为单源,allowlistCount 断言钉现值,#339 评审裁定指针式去数)
     "faux",                     // 本票禁真实搜索轮:缺省 faux,real 须显式 env
     "ZAI_CODING_CN_API_KEY",    // 模型面 env 引用
     "ipdb._registry",           // roster 单源取数面
@@ -200,8 +200,8 @@ test("adapter 门红面:_last_envelope 末行信封;GATE: 前缀判门红;score 
   assert.deepEqual(adapterProbe.unfound, ["src_a", "src_b"]);
 });
 
-// —— #327 harness 边界收口:演化编辑白名单(策略面 43 文件)+ 验证面冻结门 ——
-// Q1 裁定(推翻 #322 R5 全放开):可编面收窄到策略面 43 文件,read/edit/write 同表;
+// —— #327 harness 边界收口:演化编辑白名单(策略面 48 文件)+ 验证面冻结门 ——
+// Q1 裁定(推翻 #322 R5 全放开):可编面收窄到策略面 48 文件,read/edit/write 同表;
 // Q2 方案 a:验证面(golden/selftest*/fixtures/v2-tests)照常 vendor + git diff 冻结门,
 // NEEDS.md 门同律同机——「候选可改给自己打分的测试」从靠模型自觉变靠结构(调研笔记
 // docs/notes/ops-tree-as-harness-2026-11-08.md:护栏在候选 worktree 内跑)。
@@ -335,7 +335,7 @@ try {
   boundaryProbeErr = e; // dev/rrsi venv 面不可用 → skip(同 adapter 门红面判例)
 }
 
-test("adapter 边界收口(#327):白名单 43 文件面 + 验证面冻结门红性 + guards 新腿", { skip: boundaryProbe ? false : `dev/rrsi venv 面不可用(${boundaryProbeErr?.message})` }, () => {
+test("adapter 边界收口(#327):白名单 48 文件面 + 验证面冻结门红性 + guards 新腿", { skip: boundaryProbe ? false : `dev/rrsi venv 面不可用(${boundaryProbeErr?.message})` }, () => {
   assert.ok(Object.values(boundaryProbe.has).every(Boolean), `API 缺席(#327 实现面):${JSON.stringify(boundaryProbe.has)}`);
   assert.equal(boundaryProbe.domainAttr, true, "DOMAIN 须类属性暴露 edit_allowlist(dev/rrsi Workspace getattr 消费)");
   for (const [p, v] of Object.entries(boundaryProbe.allow))
@@ -344,8 +344,8 @@ test("adapter 边界收口(#327):白名单 43 文件面 + 验证面冻结门红�
     assert.equal(v, false, `名单外路径须拒(只读):${p}`);
   assert.equal(boundaryProbe.normBackslash, true, "反斜杠路径须归一(\\ → /)");
   assert.equal(
-    boundaryProbe.allowlistCount, 43,
-    "策略面构成=43 文件(#327 裁定:pipeline 11+prompts 9+v2 tools/tasks/bench 21+v1 入口/模型 2;source_exts 计数面;漂移须重裁并同步 EDIT_ALLOWLIST 注释与本测)",
+    boundaryProbe.allowlistCount, 54,
+    "策略面构成=54 文件(#327 原裁 43;#333 P2a +4 加源基准器 add-domain;#332 P1 2026-11-11 +5 加源轮 tasks/add-round.mjs+tools/add-tools.mjs+prompts/add/ 三只;#334 P2b 2026-11-11 +2 考题卡生成器+试跑接线器 bench/add-domain/{gen-exam-cards,run-trial}.mjs:pipeline 11+prompts 12+v2 tools/tasks/bench 29+v1 入口/模型 2;source_exts 计数面;漂移须重裁并同步 EDIT_ALLOWLIST 注释与本测)",
   );
   assert.equal(boundaryProbe.gateClean, true, "净树=冻结完好(rc0)");
   for (const [rel, v] of Object.entries(boundaryProbe.gateRed))

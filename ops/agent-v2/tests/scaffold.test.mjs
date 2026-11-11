@@ -17,22 +17,30 @@ import { HARNESS_SETTINGS, resolveDbPath, ROOT } from "../entry.mjs";
 
 const V2_DIR = path.resolve(import.meta.dirname, ".."); // ops/agent-v2
 
-test("registry 红线:零内建 CodingTools;工具面=T4 微探针三只+T3 发现轮三只闭集;任务面=内建+三只轮任务", () => {
+test("registry 红线:零内建 CodingTools;工具面=T4 微探针三只+T3 发现轮三只+P1 加源轮三只闭集;任务面=内建+四只轮任务", () => {
   const snapshot = buildRegistry().snapshot();
   // ops 红线(spec 背景节 + t1-notes §1.2):v2 不安装任何内建 coding 工具面
-  // (CodingTools/read/write/edit/bash 一概不装)。工具闭集=T3+T4 并批并集:
+  // (CodingTools/read/write/edit/bash 一概不装)。工具闭集=三批闭集并集:
   //   ops 扩展 = T4 微探针三只(replay 全 unsafe;仅健康轮真 DEEP 面选装)
   //   ops-discover-tools = T3 发现轮三只只读通道工具(仅发现轮会话选装;root 面钉 [] 见 entry.mjs)
+  //   ops-add-tools = #332 P1 加源轮三只编码工具(write_file/run_bash/run_pytest;
+  //     仅加源轮会话选装——#331 定案 7 对「不装 CodingTools」红线的轮型化修正,
+  //     沙箱根内的写/执行面;root/发现轮面仍零编码工具)
   const tools = snapshot.tools().map((t) => t.tool); // 快照元素={extension,tool} 包裹形(1.4.0)
-  assert.deepEqual(tools.map((t) => t.name).sort(), ["reprobe_get", "reprobe_ua", "rss_parse", "upstream_check", "web_read", "web_search"], "工具面=两批闭集并集(多=越权,少=门红)");
+  assert.deepEqual(tools.map((t) => t.name).sort(), ["reprobe_get", "reprobe_ua", "rss_parse", "run_bash", "run_pytest", "upstream_check", "web_read", "web_search", "write_file"], "工具面=三批闭集并集(多=越权,少=门红)");
   for (const name of ["reprobe_get", "reprobe_ua", "upstream_check"])
     assert.equal(tools.find((t) => t.name === name)?.replay, "unsafe", `${name} 必须 replay:unsafe(真网络重放=出网动作)`);
   for (const name of ["rss_parse", "web_read", "web_search"])
     assert.equal(tools.find((t) => t.name === name)?.annotations?.readOnlyHint, true, `${name} 非只读——发现轮闭集红线`);
-  assert.deepEqual(snapshot.installed().map((e) => e.name), ["ops", "ops-discover-tools"]);
-  // 任务面:内建三 + T3 发现轮 + T4 健康轮两只(命名形制随各自票面,不改写)。
+  // 加源轮三只(#331 定案 7):沙箱内写/执行面——写同内容=幂等重放安全;
+  // run_bash 任意副作用=unsafe;三只均非只读
+  assert.deepEqual(Object.fromEntries(["write_file", "run_bash", "run_pytest"].map((n) => [n, tools.find((t) => t.name === n)?.replay])), { write_file: "safe", run_bash: "unsafe", run_pytest: "safe" }, "加源轮 replay 声明(写幂等/pytest 重跑安全/任意 bash unsafe)");
+  for (const name of ["write_file", "run_bash", "run_pytest"])
+    assert.notEqual(tools.find((t) => t.name === name)?.annotations?.readOnlyHint, true, `${name} 是写/执行面非只读`);
+  assert.deepEqual(snapshot.installed().map((e) => e.name), ["ops", "ops-discover-tools", "ops-add-tools"], "安装序:ops 骨架→T3 发现轮工具→P1 加源轮工具(registry.mjs install 行序)");
+  // 任务面:内建三 + T3 发现轮 + T4 健康轮两只 + P1 加源轮(命名形制随各自票面,不改写)。
   const names = (s) => s.tasks().map((t) => `${t.definition.name}@${t.definition.version}`).sort();
-  assert.deepEqual(names(snapshot), [...names(createRegistry().snapshot()), "ops.discover-round@1", "ops-health-round@1", "ops-model-round@1"].sort());
+  assert.deepEqual(names(snapshot), [...names(createRegistry().snapshot()), "ops.add-round@1", "ops.discover-round@1", "ops-health-round@1", "ops-model-round@1"].sort());
 });
 
 test("compaction 默认关(t1-notes 风险5:自动摘要改写上下文,shadow 对拍期禁用)", () => {

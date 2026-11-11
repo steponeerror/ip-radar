@@ -6,5 +6,6 @@
 import { discoverRoundTask } from "./discover-round.mjs"; // 票 #227 T3:发现轮(旧六步语义逐相位映射)
 import { OPS_MODEL_ROUND } from "./model-round.mjs"; // 票 #228 T4:单模型步(stage∈TRIAGE/DEEP/SYNTH)
 import { OPS_HEALTH_ROUND } from "./health-round.mjs"; // 票 #228 T4:健康轮十态相位机
+import { addRoundTask } from "./add-round.mjs"; // 票 #332 P1:加源轮六相位(VERIFY→DOSSIER→IMPLEMENT→GATE→REPORT→CLOSE)
 
-export const TASKS = [discoverRoundTask, OPS_MODEL_ROUND, OPS_HEALTH_ROUND];
+export const TASKS = [discoverRoundTask, OPS_MODEL_ROUND, OPS_HEALTH_ROUND, addRoundTask];

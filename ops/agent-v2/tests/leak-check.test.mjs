@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import { runLeakCheck } from "../bench/leak-check.mjs";
 
 // fixture roster:6 源 = 名字归一化对(blocklist_de)+ 共享 host 双记(otx/otx_subscribed)
@@ -102,6 +103,106 @@ test("defaultScanSurface:基准提示词在才扫;bench/ 下 exam-rules/aliases 
   assert.deepEqual(defaultScanSurface(bare).map((p) => path.relative(bare, p)), ["ops/agent-v2/bench/README.md"]);
 });
 
+// ── 加源域扫描面(#334 交付面 3:轮提示词不得含考题名单)──
+// 缺省面扩收 ops/agent/prompts/add/(加源轮提示词,bench 形态装载 system+implement,
+// 生产形态另装载 dossier——三件全收);目录在才扫(同基准提示词律),真仓在场由
+// 下方单源钉死测试把门(改名/移位→钉死测试红,不静默装绿——终审 P2-1 同款防线)。
+test("加源域缺省面:prompts/add/ 在才扫递归;含考题名的提示词被拦(红绿自证红端)", async () => {
+  const { defaultScanSurface } = await import("../bench/leak-check.mjs");
+  const root = tmpFixture({
+    "ops/agent/prompts/add/system.md": "实现候选源;参考既有源(如 binarydefense)风格\n", // 裸考题名=红
+    "ops/agent/prompts/add/implement.md": "TDD 硬序:先写测试亲眼看红\n",
+  });
+  const files = defaultScanSurface(root);
+  assert.deepEqual(files.map((p) => path.relative(root, p)).sort(), ["ops/agent/prompts/add/implement.md", "ops/agent/prompts/add/system.md"]);
+  const r = runLeakCheck({ rosterText: FIXTURE_ROSTER, files });
+  assert.equal(r.ok, false, "含考题名(binarydefense)的提示词必须被拦");
+  assert.ok(r.hits.some((h) => h.source === "binarydefense" && h.file.endsWith("system.md")));
+  const clean = tmpFixture({ "ops/agent/prompts/add/system.md": "通用提示词,零考题名\n" });
+  assert.equal(runLeakCheck({ rosterText: FIXTURE_ROSTER, files: defaultScanSurface(clean) }).ok, true);
+});
+
+test("加源域提示词路径单源钉死:真仓 add 三件在缺省面(P1 改名/移位→本测试红,不静默装绿)", async () => {
+  const { defaultScanSurface, addPromptsDir } = await import("../bench/leak-check.mjs");
+  const files = defaultScanSurface().map((p) => p.replaceAll("\\", "/"));
+  for (const f of ["system.md", "dossier.md", "implement.md"])
+    assert.ok(files.some((p) => p === `${addPromptsDir().replaceAll("\\", "/")}/${f}`), `缺省面须含 ops/agent/prompts/add/${f}`);
+  assert.ok(fs.existsSync(addPromptsDir()), "真仓 prompts/add 在(P1 #332 产物)");
+});
+
+// ── 轮产出 diff 泄漏针(#334 交付面 3:diff 不得引用被剥路径)──
+// 被剥路径 = 答案树在主检出侧的绝对路径面(backend/ipdb、backend/tests、主检 .git);
+// 沙箱内相对路径是轮的合法工作面(IMPLEMENT 就该写 backend/tests/...),不红;
+// venv 解释器绝对路径合法入提示词,不红(它是测试跑法,不是答案树)。
+test("checkRoundDiffLeak:引用主检出答案树绝对路径=红;沙箱相对路径/venv 路径=绿", async () => {
+  const { checkRoundDiffLeak } = await import("../bench/leak-check.mjs");
+  const repoRoot = "/home/x/main-checkout";
+  const name = "some_question";
+  const red = checkRoundDiffLeak({
+    repoRoot,
+    files: [
+      { path: "notes.md", text: `答案在这: ${repoRoot}/backend/tests/sources/test_${name}.py 抄之\n` },
+      { path: "backend/ipdb/_sources/other.py", text: "干净实现\n" },
+    ],
+  });
+  assert.equal(red.ok, false);
+  assert.equal(red.hits.length, 1);
+  assert.equal(red.hits[0].file, "notes.md");
+  assert.equal(red.hits[0].line, 1);
+  const green = checkRoundDiffLeak({
+    repoRoot,
+    files: [
+      { path: `backend/tests/sources/test_${name}.py`, text: "def test_x():\n    assert True\n" }, // 沙箱相对路径=轮的合法产出
+      { path: "backend/ipdb/_sources/x.py", text: "from .._base import Source\n" },
+      { path: "run.md", text: `pytest 解释器(绝对路径):${repoRoot}/backend/.venv/bin/python\n` }, // venv=非答案树
+    ],
+  });
+  assert.equal(green.ok, true);
+  assert.deepEqual(green.hits, []);
+});
+
+// ── F5 针根补主检出(票 #337):worktree 跑法下主检答案树也要被针 ──
+// git-common-dir 推导同 run-add.mjs resolveAddPython 沙箱解释器算式:worktree 检出的
+// .git 是文件指向主检 .git,rev-parse --git-common-dir=主检 .git,dirname 即主检根;
+// 主检出自身时同算式退化为自身(去重后单根)。
+test("checkRoundDiffLeak 针根补主检出(#337 F5):git-common-dir 推导,主检答案树/.git 绝对路径=红;双根并存;注入面等价", async () => {
+  const { checkRoundDiffLeak } = await import("../bench/leak-check.mjs");
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "leak-mainroot-"));
+  const main = path.join(tmp, "main");
+  fs.mkdirSync(path.join(main, "backend", "ipdb"), { recursive: true });
+  fs.writeFileSync(path.join(main, "README.md"), "main\n");
+  const git = (...a) => execFileSync("git", ["-C", main, ...a], { stdio: "ignore" });
+  git("init", "-q");
+  git("add", "-A", "-f");
+  git("-c", "user.email=f@x.example", "-c", "user.name=f", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "root");
+  const wt = path.join(tmp, "wt");
+  execFileSync("git", ["-C", main, "worktree", "add", "-q", "--detach", wt]);
+  try {
+    // 主检答案树绝对路径(不传 mainRoot,纯 git-common-dir 推导面)→ 红
+    const red = checkRoundDiffLeak({ repoRoot: wt, files: [{ path: "notes.md", text: `看主检出:${main}/backend/ipdb/_sources/q.py\n` }] });
+    assert.equal(red.ok, false, "worktree 跑法下主检答案树必须被针(针根补主检出)");
+    assert.equal(red.hits[0].needle, path.join(main, "backend", "ipdb"));
+    // worktree 自身根照旧红(双根并存,非回退)
+    const redWt = checkRoundDiffLeak({ repoRoot: wt, files: [{ path: "n.md", text: `${wt}/backend/tests/sources/test_q.py\n` }] });
+    assert.equal(redWt.ok, false);
+    assert.equal(redWt.hits[0].needle, path.join(wt, "backend", "tests"));
+    // 主检 .git 考古面 → 红
+    const redGit = checkRoundDiffLeak({ repoRoot: wt, files: [{ path: "n.md", text: `git --git-dir=${main}/.git log --all\n` }] });
+    assert.equal(redGit.ok, false, "主检 .git 考古面=红");
+    assert.equal(redGit.hits[0].needle, path.join(main, ".git"));
+    // 沙箱相对路径照旧绿
+    const green = checkRoundDiffLeak({ repoRoot: wt, files: [{ path: "backend/ipdb/_sources/q.py", text: "from .._base import Source\n" }] });
+    assert.equal(green.ok, true);
+    // 显式 mainRoot 注入面等价(测试注入口;非 git 根的 repoRoot 也可用)
+    const pinned = checkRoundDiffLeak({ repoRoot: wt, mainRoot: main, files: [{ path: "n.md", text: `${main}/backend/ipdb/x.py\n` }] });
+    assert.equal(pinned.ok, false);
+    assert.equal(pinned.hits[0].needle, path.join(main, "backend", "ipdb"));
+  } finally {
+    execFileSync("git", ["-C", main, "worktree", "remove", "--force", wt], { stdio: "ignore" });
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 // ── 真仓默认面(终审 P1:leak gate 对自家默认面恒红)──
 // 根因:score.mjs 匹配器判据行(源名/域名针字面量)在缺省扫描面内、未带行级豁免标记 →
 // 跑默认面必 exit 1。本测试用真仓文件(defaultScanSurface() 缺省面)+ 模拟真 roster 针集
@@ -179,6 +280,12 @@ test("CLI:红文件 exit 1 且报 文件:行+源名;净文件 exit 0;roster 取�
   const red = await cli([path.join(dir, "red.md"), "--roster-file", rosterFile]);
   assert.equal(red.code, 1, "红文件 exit 1");
   assert.ok(red.stdout.includes("red.md:1") && red.stdout.includes("blocklist_de"), "stdout 报 文件:行 与源名");
+  // #334 红绿自证红端:构造一个含考题名的加源轮提示词 → 必被拦(exit≠0)
+  fs.writeFileSync(path.join(dir, "add-prompt.md"), "# 加源轮提示词\n实现候选源,风格参考 binarydefense 即可\n");
+  const evilPrompt = await cli([path.join(dir, "add-prompt.md"), "--roster-file", rosterFile]);
+  assert.notEqual(evilPrompt.code, 0, "含考题名的提示词必须被拦");
+  assert.equal(evilPrompt.code, 1);
+  assert.ok(evilPrompt.stdout.includes("binarydefense"), "命中报源名");
   const clean = await cli([path.join(dir, "clean.md"), "--roster-file", rosterFile]);
   assert.equal(clean.code, 0, "净文件 exit 0");
   const bad = await cli([path.join(dir, "clean.md"), "--roster-file", path.join(dir, "nope.txt")]);
