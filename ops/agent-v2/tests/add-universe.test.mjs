@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 import { parseRoster } from "../bench/roster.mjs";
 import { largestRemainder } from "../bench/rrsi-domain/split-lib.mjs";
 import { loadRosterText, runLeakCheck, EXEMPT_MARKER } from "../bench/leak-check.mjs";
-import { buildUniverse, renderUniverseJsonl, heldoutSeatsFor } from "../bench/add-domain/gen-universe.mjs";
+import { buildUniverse, renderUniverseJsonl, heldoutSeatsFor, DUMP_META_SCRIPT } from "../bench/add-domain/gen-universe.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DOMAIN_DIR = path.resolve(HERE, "..", "bench", "add-domain");
@@ -293,4 +293,45 @@ test("universe.jsonl 名单 ⊆ 真 roster 考题宇宙(免考/无key/无逐源�
   const result = runLeakCheck({ rosterText, files });
   assert.deepEqual(result.hits, [], `域目录 leak 命中:${result.hits.map((h) => h.text.slice(0, 60)).join("; ")}`);
   assert.equal(result.scannedFiles.length, files.length, "扫描覆盖不足");
+});
+
+// ── #338:url dump 运行时判据面(python 条件面;多行字面量判例 = 真 sw 双题源)──
+
+const BACKEND_DIR = path.resolve(DOMAIN_DIR, "..", "..", "..", "..", "backend");
+
+// dump 取数解释器:IPDB_PYTHON 覆写 → python3 可 import ipdb(worktree backend 作 cwd,-c 模式
+// sys.path[0]=cwd;loadRosterText 同律)。不可用 = 条件 skip(CI 供不起真 backend 依赖面)。
+function resolveDumpPython() {
+  const bin = process.env.IPDB_PYTHON ?? "python3";
+  try {
+    execFileSync(bin, ["-c", "import ipdb"], { cwd: BACKEND_DIR, stdio: "ignore" });
+    return bin;
+  } catch {
+    return null;
+  }
+}
+const DUMP_PY = resolveDumpPython();
+const SKIP_DUMP = DUMP_PY ? false : "无 dump 取数面(python3 无法 import ipdb;CI 判例,同 SKIP_ROSTER 律)";
+
+function dumpMeta() {
+  return JSON.parse(execFileSync(DUMP_PY, ["-c", DUMP_META_SCRIPT], { cwd: BACKEND_DIR, encoding: "utf8" }));
+}
+
+test("DUMP_META_SCRIPT url 判据 = 运行时类属性(#338):多行字面量源 dump 完整拼接 URL;多端点源 url='' 字面量兜底不回退", { skip: SKIP_DUMP }, () => {
+  const dump = dumpMeta();
+  // sw 双题 = 多行字符串字面量判例(backend/ipdb/_sources/sw_scanners.py: url=("…/IPs/"
+  // "master/Lists/Scanners.csv")):旧判据把同 host 字面量并集进 urls,单行正则在换行处截断
+  // → 证据面同折为 …/IPs/ 前缀(F4 路径键保守红,结构性零分,#337 报告复算段);运行时值
+  // 已拼接完整,判据取运行时类属性(唯一真值,无截断孪生项)
+  assert.deepEqual(dump.sw_scanners.urls,
+    ["https://raw.githubusercontent.com/ShadowWhisperer/IPs/master/Lists/Scanners.csv"],
+    "sw_scanners:多行字面量 → 完整拼接 URL(单条,无截断孪生)");
+  assert.deepEqual(dump.sw_threats.urls,
+    ["https://raw.githubusercontent.com/ShadowWhisperer/IPs/master/Lists/Threats.csv"],
+    "sw_threats:多行字面量 → 完整拼接 URL(单条,无截断孪生)");
+  // 多端点源 url attr 空串(真实地址在模块常量,firehol 同款)→ 字面量兜底扫描仍在:
+  // url 面缺失 = buildUniverse 考题 url 面红(fail-closed,禁整支删——malicious_ip 是考题)
+  assert.deepEqual(dump.malicious_ip.urls,
+    ["https://raw.githubusercontent.com/romainmarcoux/malicious-ip/master"],
+    "malicious_ip:url attr 空串 → 字面量兜底面保留");
 });

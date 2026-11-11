@@ -37,11 +37,16 @@ const DEFAULT_SEED = 20261111;
 const EXEMPTION = "禁词引用:#308 判例——加源考题答案键载体行,行级豁免";
 
 // 源模块元数据机械 dump(url 面 + 原型族 + stale_days;#334 起 stale_days 入 dump 面供
-// 考题卡生成器派生 cadence——meta dump 单源不另立):url attr(多端点源为空串)+ 模块源文本中
-// hostname 与本源 download host 一致的 http(s) 字面量(同 score.mjs DUMP_URLS_SCRIPT
-// 判据——多端点源 url="" 真实地址在 _BASE_URL 常量);archetype = MRO 首个
-// 命中的原型族名(CsvSource/IpListSource/Source,spec 验收「3 个原型族」同词表);
-// stale_days = 源声明的鲜活度预算日数(无声明 null,卡生成器如实记未知)。
+// 考题卡生成器派生 cadence——meta dump 单源不另立)。url 判据 = 运行时类属性值
+// (#338:多行字符串字面量在运行时已拼接完整;旧判据 url attr+同 host 字面量并集,
+// 单行正则在换行处截断 → sw_scanners/sw_threats 双题证据面同折为 …/IPs/ 前缀, 禁词引用:#338 判例真实源名——判据依据,非考题名单载体
+// F4 路径键比对保守红,结构性零分——#337 报告复算段记档)。多端点源 url attr 为
+// 空串、真实地址在模块常量(firehol/malicious_ip 同款)→ 字面量兜底扫描仅剩此一支 禁词引用:判据引用——多端点源实例名,非考题名单载体
+// (url 面缺失 = buildUniverse 考题 url 面红,fail-closed,禁整支删)。score.mjs
+// DUMP_URLS_SCRIPT 仍 attr+字面量并集(rrsi 域答案表);#338 起两判据有意分置,
+// 不再互为同源约束。archetype = MRO 首个命中的原型族名(CsvSource/IpListSource/
+// Source,spec 验收「3 个原型族」同词表);stale_days = 源声明的鲜活度预算日数
+// (无声明 null,卡生成器如实记未知)。
 export const DUMP_META_SCRIPT = `
 import inspect, json, re, sys
 from urllib.parse import urlparse
@@ -57,13 +62,15 @@ for s in _registry._sources:
     url = getattr(s, "url", None)
     urls = [url] if isinstance(url, str) and url else []
     host = getattr(s, "download_host", None) or (urlparse(url).hostname if url else None) or "-"
-    for lit in re.findall(r"https?://[A-Za-z0-9._~:/?#\\[\\]@!$&'()*+,;=%-]+", src):
-        try:
-            lh = urlparse(lit).hostname
-        except Exception:
-            continue
-        if lh and lh == host:
-            urls.append(lit)
+    if not urls:
+        # 多端点源兜底:url attr 空串,真实地址在模块常量(firehol/malicious_ip 同款) 禁词引用:判据引用——多端点源实例名(score.mjs DUMP_URLS_SCRIPT 注释同款)
+        for lit in re.findall(r"https?://[A-Za-z0-9._~:/?#\\[\\]@!$&'()*+,;=%-]+", src):
+            try:
+                lh = urlparse(lit).hostname
+            except Exception:
+                continue
+            if lh and lh == host:
+                urls.append(lit)
     out[s.name] = {"urls": sorted(set(urls)),
                    "archetype": next((a for a in ARCH if a in [k.__name__ for k in cls.__mro__]), "other"),
                    "stale_days": getattr(s, "stale_days", None)}
