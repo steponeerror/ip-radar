@@ -146,6 +146,29 @@ function githubPathKey(url) {
   return segs.length ? segs.join("/") : null;
 }
 
+// github 家族 commits API 面参数(#339 ① 活性证据回退的查询构造):owner/repo 取路径
+// 前两段(保留原大小写——API 接受任意大小写 owner/repo);文件路径剥 ref 段(raw 形
+// ref=第 3 段;github.com 形 blob|raw|tree 前缀后接 ref;codeload 归档无文件粒度;
+// 仓根/归档=path 空 → repo 级最新 commit)。家族判定复用 #337 F4 常量
+// GITHUB_FAMILY_HOSTS;非家族/缺 owner-repo 对/非 URL → null(不回退,fail-closed)。
+export function githubCommitsQuery(url) {
+  let u;
+  try { u = new URL(String(url ?? "")); } catch { return null; }
+  const host = u.hostname.toLowerCase();
+  const stripped = host.startsWith("www.") ? host.slice(4) : host;
+  if (!GITHUB_FAMILY_HOSTS.has(stripped)) return null;
+  const segs = u.pathname.split("/").filter(Boolean);
+  if (segs.length < 2) return null;
+  const [owner, repo, ...rest] = segs;
+  let fileSegs = rest;
+  if (stripped === "raw.githubusercontent.com") fileSegs = rest.slice(1); // /<owner>/<repo>/<ref>/<路径…>
+  else if (stripped === "codeload.github.com") fileSegs = []; // zip|tar.gz/<ref>:整仓归档
+  else if (["blob", "raw", "tree"].includes(rest[0])) fileSegs = rest.slice(2); // /blob/<ref>/<路径…>
+  const q = new URLSearchParams({ per_page: "1" });
+  if (fileSegs.length) q.set("path", fileSegs.join("/"));
+  return { api: `https://api.github.com/repos/${owner}/${repo}/commits?${q}`, path: fileSegs.join("/") };
+}
+
 export function rosterCollisions(candidate, rosterLines, rosterUrls = new Map()) {
   const stripWww = (h) => (h.startsWith("www.") ? h.slice(4) : h);
   // 候选面:URL 形取 hostname(家族另取路径键);裸 host 形(旧测试面)整串当 host
@@ -181,7 +204,8 @@ export function rosterCollisions(candidate, rosterLines, rosterUrls = new Map())
 
 // 鲜活度门(定案 8 VERIFY 行):数据内时间戳 ≤30d 过;无内部时间戳=fail-closed
 // (file-mtime/「URL 响应了」不算活性证据——sunset 源冻结文件也 200;发布方活性证据
-// 面=GitHub commit/变更对抓,属基准接线后的真实轮深度,P1 不接入不谎报)。
+// 面=github 家族 commits API 已接 #339 ① probeLiveness 回退,basis=github_commit;
+// 变更对抓等深水面仍不接入不谎报)。
 export function freshnessOf(liveness, nowMs = Date.now()) {
   const age = liveness?.age_days;
   if (typeof age === "number" && Number.isFinite(age)) {
@@ -492,13 +516,19 @@ async function runVerify(ctx) {
 
 // 真实面探活(4 组合 GET/HEAD × UA 有无):last-modified 内时间戳=鲜活度证据面;
 // 「响应了」不算证据(sunset 冻结文件也 200——技能 Phase 1 鲜活度门同律)。
-async function probeLiveness(url) {
+// github 家族活性证据回退(#339 ①,P3 前置阻断件):直接探活拿不到证据(无 last-modified
+// 或连接失败——本机 raw.githubusercontent.com TCP 被墙即此态)且 URL 属家族(GITHUB_
+// FAMILY_HOSTS,#337 F4 常量复用)时,转 api.github.com commits API 取最新 commit 的
+// committer date(发布方活性证据,主会话裁定 2026-11-12;api.github.com 本机可达,
+// stamparm/ipsum 实测 2026-11-11)。证据优先级 last_modified > github_commit;API 失败
+// /无 commit = fail-closed none(无证据即无话)。fetchImpl 注入=测试面零网络。
+export async function probeLiveness(url, fetchImpl = fetch) {
   const combos = [];
   if (url) {
     for (const method of ["GET", "HEAD"]) {
       for (const ua of [true, false]) {
         try {
-          const res = await fetch(url, {
+          const res = await fetchImpl(url, {
             method, redirect: "manual", signal: AbortSignal.timeout(15_000),
             headers: ua ? { "user-agent": "ip-radar-add-round/1.0" } : {},
           });
@@ -511,12 +541,45 @@ async function probeLiveness(url) {
   }
   const newest = combos.map((c) => c.last_modified).filter(Boolean).map((s) => new Date(s))
     .filter((d) => !Number.isNaN(d.getTime())).sort((a, b) => b - a)[0] ?? null;
+  const fromLm = newest ? { last_modified: newest.toISOString(), age_days: Math.floor((Date.now() - newest.getTime()) / 86_400_000), basis: "last_modified" } : null;
+  const gh = fromLm ? null : await githubCommitEvidence(url, fetchImpl); // 优先级:last_modified 在场不触 API
+  const fromGh = gh?.date ? { age_days: Math.floor((Date.now() - gh.date.getTime()) / 86_400_000), basis: "github_commit" } : null;
+  const evidence = fromLm ?? fromGh;
   return {
     combos,
-    last_modified: newest?.toISOString() ?? null,
-    age_days: newest ? Math.floor((Date.now() - newest.getTime()) / 86_400_000) : undefined,
-    basis: newest ? "last_modified" : "none",
+    last_modified: fromLm?.last_modified ?? null,
+    age_days: evidence?.age_days,
+    basis: evidence?.basis ?? "none",
+    github_commit: gh?.evidence ?? null, // 回退证据留痕(api/status/日期或 error;证据不灭失)
   };
+}
+
+// 家族 commits API 活性证据(#339 ①):GET <api>?path=<文件路径>&per_page=1,取
+// commit[0].commit.committer.date。失败面(网络/非 200/非 JSON/空数组/缺 committer
+// date)统一 fail-closed 返回无 date 的证据记录;非家族 URL → null。
+async function githubCommitEvidence(url, fetchImpl) {
+  const q = githubCommitsQuery(url);
+  if (!q) return null;
+  const ev = { api: q.api, status: null, committer_date: null };
+  try {
+    const res = await fetchImpl(q.api, {
+      method: "GET", redirect: "manual", signal: AbortSignal.timeout(15_000),
+      headers: { "user-agent": "ip-radar-add-round/1.0", accept: "application/vnd.github+json" },
+    });
+    ev.status = res.status;
+    if (res.status !== 200) return ev;
+    const body = await res.json().catch(() => null);
+    const d = Array.isArray(body) ? body[0]?.commit?.committer?.date : null;
+    const t = d ? new Date(d).getTime() : NaN;
+    if (Number.isFinite(t)) {
+      ev.committer_date = new Date(t).toISOString();
+      return { date: new Date(t), evidence: ev };
+    }
+    return ev;
+  } catch (e) {
+    ev.error = String(e?.cause?.message ?? e?.message ?? e).slice(0, 160);
+    return ev;
+  }
 }
 
 function phaseAfter(phase) {
