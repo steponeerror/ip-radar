@@ -220,7 +220,8 @@ export async function runTrial(opts) {
     });
   }
 
-  // ③ 轮产出 diff 泄漏闸(diff 不得引用被剥路径——主检答案树绝对路径面)
+  // ③ 轮产出 diff 泄漏闸(diff 不得引用被剥路径;#337 F5 针根双面:repoRoot+
+  // git-common-dir 推导主检出根——worktree 跑法下主检答案树同被针)
   const leak = checkRoundDiffLeak({
     repoRoot: repo, name,
     files: sandboxChangedFiles(sandbox, rootSha),

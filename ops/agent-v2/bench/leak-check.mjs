@@ -135,14 +135,29 @@ export function defaultScanSurface(root = ROOT) {
 // venv 解释器绝对路径合法入提示词(buildUserMsg 亲手给的跑法),不红——答案树外的
 // 主检路径不禁。相对形引用主检答案(`git -C` 相对路径考古)在 diff 层不可区分于沙箱
 // 自身合法相对路径,靠提示词禁令兜——不追求物理剥净(spec 原话)。
+// 针根双面(票 #337 F5):repoRoot(沙箱构建源仓,worktree 跑法下=worktree)+ 主检出根
+// (git-common-dir 推导;worktree 检出的 .git 文件指向主检 .git,dirname 即主检根,
+// 主检出自身时同算式退化为自身去重——与 run-add.mjs resolveAddPython 沙箱解释器推导
+// 同一算式;此前只盖 repoRoot,worktree 跑法下主检答案树不被针)。mainRoot 显式注入
+// 口仅供测试钉面;推导失败(非 git 根)=只针 repoRoot 单根。
 // files = [{path, text}](沙箱内相对 path + 全文 text);返回 {ok, hits:[{file,line,needle,text}]}。
-export function checkRoundDiffLeak({ repoRoot, name, files }) {
+export function mainCheckoutRoot(repoRoot) {
+  const r = spawnSync("git", ["-C", String(repoRoot), "rev-parse", "--path-format=absolute", "--git-common-dir"], { encoding: "utf8" });
+  const out = String(r.stdout ?? "").trim();
+  if (r.error || r.status !== 0 || !out) return null;
+  return path.dirname(path.resolve(out));
+}
+
+export function checkRoundDiffLeak({ repoRoot, mainRoot, name, files }) {
   const root = path.resolve(String(repoRoot ?? ""));
   if (!root || root === "/") throw new Error("checkRoundDiffLeak 须给主检出 repoRoot(被剥路径针的基准)");
-  const treeNeedles = [...new Set([path.join(root, "backend", "ipdb"), path.join(root, "backend", "tests")])]
+  const roots = [root];
+  const main = mainRoot ? path.resolve(String(mainRoot)) : mainCheckoutRoot(root);
+  if (main && main !== "/" && !roots.includes(main)) roots.push(main); // F5 针根补主检出(去重:主检出自身退化形)
+  const treeNeedles = [...new Set(roots.flatMap((r) => [path.join(r, "backend", "ipdb"), path.join(r, "backend", "tests")]))]
     .map((p) => ({ raw: p, sq: squeeze(p) }));
   // 主检 .git 针:带后缀边界——<root>/.gitignore/.github 等同前缀真路径不误红
-  const gitRe = new RegExp(root.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\/\\.git(?![\\w.-])");
+  const gitRes = roots.map((r) => ({ root: r, re: new RegExp(r.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\/\\.git(?![\\w.-])") }));
   void name; // 被剥路径按树前缀禁,不按题名拼(题名形 test_<name>.py 属沙箱合法产出面)
   const hits = [];
   for (const f of files ?? []) {
@@ -151,8 +166,8 @@ export function checkRoundDiffLeak({ repoRoot, name, files }) {
       const sq = squeeze(lines[i]);
       for (const n of treeNeedles)
         if (sq.includes(n.sq)) hits.push({ file: f.path, line: i + 1, needle: n.raw, text: lines[i].trim().slice(0, 120) });
-      if (gitRe.test(lines[i]))
-        hits.push({ file: f.path, line: i + 1, needle: path.join(root, ".git"), text: lines[i].trim().slice(0, 120) });
+      for (const g of gitRes)
+        if (g.re.test(lines[i])) hits.push({ file: f.path, line: i + 1, needle: path.join(g.root, ".git"), text: lines[i].trim().slice(0, 120) });
     }
   }
   return { ok: hits.length === 0, hits };

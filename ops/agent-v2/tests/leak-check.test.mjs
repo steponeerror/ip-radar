@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import { runLeakCheck } from "../bench/leak-check.mjs";
 
 // fixture roster:6 源 = 名字归一化对(blocklist_de)+ 共享 host 双记(otx/otx_subscribed)
@@ -158,6 +159,48 @@ test("checkRoundDiffLeak:引用主检出答案树绝对路径=红;沙箱相对�
   });
   assert.equal(green.ok, true);
   assert.deepEqual(green.hits, []);
+});
+
+// ── F5 针根补主检出(票 #337):worktree 跑法下主检答案树也要被针 ──
+// git-common-dir 推导同 run-add.mjs resolveAddPython 沙箱解释器算式:worktree 检出的
+// .git 是文件指向主检 .git,rev-parse --git-common-dir=主检 .git,dirname 即主检根;
+// 主检出自身时同算式退化为自身(去重后单根)。
+test("checkRoundDiffLeak 针根补主检出(#337 F5):git-common-dir 推导,主检答案树/.git 绝对路径=红;双根并存;注入面等价", async () => {
+  const { checkRoundDiffLeak } = await import("../bench/leak-check.mjs");
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "leak-mainroot-"));
+  const main = path.join(tmp, "main");
+  fs.mkdirSync(path.join(main, "backend", "ipdb"), { recursive: true });
+  fs.writeFileSync(path.join(main, "README.md"), "main\n");
+  const git = (...a) => execFileSync("git", ["-C", main, ...a], { stdio: "ignore" });
+  git("init", "-q");
+  git("add", "-A", "-f");
+  git("-c", "user.email=f@x.example", "-c", "user.name=f", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "root");
+  const wt = path.join(tmp, "wt");
+  execFileSync("git", ["-C", main, "worktree", "add", "-q", "--detach", wt]);
+  try {
+    // 主检答案树绝对路径(不传 mainRoot,纯 git-common-dir 推导面)→ 红
+    const red = checkRoundDiffLeak({ repoRoot: wt, name: "q", files: [{ path: "notes.md", text: `看主检出:${main}/backend/ipdb/_sources/q.py\n` }] });
+    assert.equal(red.ok, false, "worktree 跑法下主检答案树必须被针(针根补主检出)");
+    assert.equal(red.hits[0].needle, path.join(main, "backend", "ipdb"));
+    // worktree 自身根照旧红(双根并存,非回退)
+    const redWt = checkRoundDiffLeak({ repoRoot: wt, name: "q", files: [{ path: "n.md", text: `${wt}/backend/tests/sources/test_q.py\n` }] });
+    assert.equal(redWt.ok, false);
+    assert.equal(redWt.hits[0].needle, path.join(wt, "backend", "tests"));
+    // 主检 .git 考古面 → 红
+    const redGit = checkRoundDiffLeak({ repoRoot: wt, name: "q", files: [{ path: "n.md", text: `git --git-dir=${main}/.git log --all\n` }] });
+    assert.equal(redGit.ok, false, "主检 .git 考古面=红");
+    assert.equal(redGit.hits[0].needle, path.join(main, ".git"));
+    // 沙箱相对路径照旧绿
+    const green = checkRoundDiffLeak({ repoRoot: wt, name: "q", files: [{ path: "backend/ipdb/_sources/q.py", text: "from .._base import Source\n" }] });
+    assert.equal(green.ok, true);
+    // 显式 mainRoot 注入面等价(测试注入口;非 git 根的 repoRoot 也可用)
+    const pinned = checkRoundDiffLeak({ repoRoot: wt, mainRoot: main, name: "q", files: [{ path: "n.md", text: `${main}/backend/ipdb/x.py\n` }] });
+    assert.equal(pinned.ok, false);
+    assert.equal(pinned.hits[0].needle, path.join(main, "backend", "ipdb"));
+  } finally {
+    execFileSync("git", ["-C", main, "worktree", "remove", "--force", wt], { stdio: "ignore" });
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
 });
 
 // ── 真仓默认面(终审 P1:leak gate 对自家默认面恒红)──
