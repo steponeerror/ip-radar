@@ -202,7 +202,7 @@ export function rosterCollisions(candidate, rosterLines, rosterUrls = new Map())
   return [...new Set(hits)];
 }
 
-// 鲜活度门(定案 8 VERIFY 行):数据内时间戳 ≤30d 过;无内部时间戳=fail-closed
+// 鲜活度门(定案 8 VERIFY 行):数据内时间戳 ≤30d 过;无活性证据(last-modified/github commits API 均未取得)=fail-closed
 // (file-mtime/「URL 响应了」不算活性证据——sunset 源冻结文件也 200;发布方活性证据
 // 面=github 家族 commits API 已接 #339 ① probeLiveness 回退,basis=github_commit;
 // 变更对抓等深水面仍不接入不谎报)。
@@ -212,7 +212,7 @@ export function freshnessOf(liveness, nowMs = Date.now()) {
     if (age <= 30) return { ok: true, basis: liveness.basis ?? "age_days", age_days: age };
     return { ok: false, basis: liveness.basis ?? "age_days", age_days: age, reason: `数据内部时间戳 age_days=${age}>30(sunset 嫌疑)` };
   }
-  return { ok: false, basis: "none", reason: "无内部时间戳(发布方活性证据面未接入;无证据即无话,fail-closed)" };
+  return { ok: false, basis: "none", reason: "无活性证据(直接探活无 last-modified 且发布方活性证据未取得或非家族;无证据即无话,fail-closed)" };
 }
 
 // 交接单形状(定案 2:实抓样本 3-5 行/格式/auth/cadence/字段路由草案)
@@ -550,7 +550,7 @@ export async function probeLiveness(url, fetchImpl = fetch) {
     last_modified: fromLm?.last_modified ?? null,
     age_days: evidence?.age_days,
     basis: evidence?.basis ?? "none",
-    github_commit: gh?.evidence ?? null, // 回退证据留痕(api/status/日期或 error;证据不灭失)
+    github_commit: gh?.evidence ?? gh ?? null, // 回退证据留痕(成败面都留 api/status/日期或 error;证据不灭失,#339 评审 P1:失败面裸 ev 也入档,与未尝试可分诊)
   };
 }
 

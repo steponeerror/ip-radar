@@ -404,7 +404,7 @@ test("鲜活度门:内部时间戳 ≤30d 过;>30d 或无证据=不过(响应≠
   assert.match(stale.reason, /45/);
   const none = freshnessOf({}, now);
   assert.equal(none.ok, false);
-  assert.match(none.reason, /无内部时间戳/);
+  assert.match(none.reason, /无活性证据/); // #339 评审 P1(c):失败面文案随证据面接线改口径
 });
 
 test("交接单形状:样本 3-5 行+必填面;缺面/越界=拒", () => {

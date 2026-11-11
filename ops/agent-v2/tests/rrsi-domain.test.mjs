@@ -63,7 +63,7 @@ test("adapter.py 接线面:三护栏+faux 门+leak 同源针+主检出取数判�
     "leak-check.mjs",           // 护栏③leak gate
     "needs_frozen",             // 考题宇宙输入面 NEEDS.md 冻结门(bench SCAN 真面读它)
     "verification_frozen",      // 验证面冻结门(#327 Q2:评估器不许候选改)
-    "EDIT_ALLOWLIST",           // 演化可编面白名单单源(#327 Q1:策略面 48 文件(#332 P1 +5),dev/rrsi Workspace 消费)
+    "EDIT_ALLOWLIST",           // 演化可编面白名单单源(#327 Q1;策略面构成数以 adapter.py EDIT_ALLOWLIST 注释为单源,allowlistCount 断言钉现值,#339 评审裁定指针式去数)
     "faux",                     // 本票禁真实搜索轮:缺省 faux,real 须显式 env
     "ZAI_CODING_CN_API_KEY",    // 模型面 env 引用
     "ipdb._registry",           // roster 单源取数面

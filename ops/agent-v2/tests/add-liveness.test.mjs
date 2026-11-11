@@ -54,15 +54,16 @@ test("probeLiveness github 家族回退:直接探活失败 → commits API 得�
 
 test("回退红面:API 无 commit(空数组/非 200)/连接失败 = fail-closed none(无证据即无话)", async () => {
   for (const face of [
-    { label: "空 commits(路径不在仓)", respond: () => res({ json: [] }) },
-    { label: "非 200(限流 403)", respond: () => res({ status: 403, json: { message: "rate limit" } }) },
-    { label: "API 连接失败", respond: undefined },
+    { label: "空 commits(路径不在仓)", respond: () => res({ json: [] }), trace: (g, lbl) => { assert.equal(g.status, 200, lbl + " 留痕"); assert.equal(g.committer_date, null, lbl + " 留痕"); } },
+    { label: "非 200(限流 403)", respond: () => res({ status: 403, json: { message: "rate limit" } }), trace: (g, lbl) => { assert.equal(g.status, 403, lbl + " 留痕"); } },
+    { label: "API 连接失败", respond: undefined, trace: (g, lbl) => { assert.ok(g.error, lbl + " 留痕 error"); } },
   ]) {
     const f = stubFetch(face.respond ? [{ match: (u) => u.startsWith(`${GH_API}?`), respond: face.respond }] : []);
     const live = await probeLiveness(RAW_URL, f.impl);
     assert.equal(live.basis, "none", face.label);
     assert.equal(live.age_days, undefined, face.label);
     assert.equal(freshnessOf(live).ok, false, face.label);
+    face.trace(live.github_commit, face.label); // #339 评审 P1:失败面留痕也在档(api/status/日期或 error),与未尝试可分诊
   }
 });
 
