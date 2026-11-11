@@ -43,13 +43,13 @@ export function extractClassificationImports(sourceText) {
 // ── _classification.py 顶层赋值块剥离 ──
 // 块 = 顶层的 `NAME = …` / `NAME: T = …` 赋值(括号深度回零收口);紧邻上方的连续 #
 // 注释行随块剥(判据注释 = 答案面的一部分)。剥后:目标名不得再出现、3+ 连续空行折 2。
-// 剥不掉(名字不在文件)= missing 记账,调用方 throw——静默半剥会留下「源文件已写、
-// 映射表丢失」的假沙箱。
+// import 面里的共享函数/类(def/class 定义,如 normalize)不形如赋值,自然保留——
+// 留存判据 = 剥后文本仍含该名(可导入);完全消失 = absent 记账,调用方 throw:
+// 那 .是「源文件 import 但 _classification 无此定义」的真漂移,静默半剥会留下假沙箱。
 export function stripClassificationMaps(text, names) {
   const lines = text.split("\n");
   const targets = new Set(names);
   const stripped = [];
-  const missing = [...targets];
   const remove = new Set(); // 行下标
   let depth = 0;
   let i = 0;
@@ -73,7 +73,6 @@ export function stripClassificationMaps(text, names) {
       } while (d > 0 && j < lines.length);
       for (let k = start; k < i; k++) remove.add(k);
       stripped.push(m[1]);
-      missing.splice(missing.indexOf(m[1]), 1);
       i = j;
       continue;
     }
@@ -92,7 +91,9 @@ export function stripClassificationMaps(text, names) {
   }
   let out = squeezed.join("\n");
   if (!out.endsWith("\n")) out += "\n";
-  return { text: out, stripped, missing };
+  // absent = 既没剥成赋值块、剥后文本也不再含的 import 名(共享 def/class 保留 → 不在列)
+  const absent = [...targets].filter((n) => !stripped.includes(n) && !new RegExp(`\\b${n}\\b`).test(out));
+  return { text: out, stripped, absent };
 }
 
 // ── 沙箱构建 ──
@@ -142,9 +143,9 @@ export function buildSandbox(opts) {
   if (wanted.length && fs.existsSync(clsAbs)) {
     const cls = fs.readFileSync(clsAbs, "utf8");
     // 只剥顶层赋值名:import 面里的共享函数(normalize 等)不形如赋值,自然保留
-    const { text, stripped, missing } = stripClassificationMaps(cls, wanted);
-    if (missing.length)
-      throw new Error(`剥离清单漂移:${name} 源文件 import ${missing.join(", ")} 但 _classification.py 无此顶层赋值——半剥沙箱禁用,须人裁`);
+    const { text, stripped, absent } = stripClassificationMaps(cls, wanted);
+    if (absent.length)
+      throw new Error(`剥离清单漂移:${name} 源文件 import ${absent.join(", ")} 但 _classification.py 无此定义(赋值块/共享函数都非)——半剥沙箱禁用,须人裁`);
     // 剥后目标名不得再出现(引用面残留 = import 炸)
     for (const n of stripped)
       if (text.includes(n)) throw new Error(`剥后 _classification.py 仍含 ${n}(剥离不净,禁用)`);

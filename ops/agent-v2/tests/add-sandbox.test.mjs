@@ -88,17 +88,23 @@ test("stripClassificationMaps:剥该源赋值块+紧邻判据注释;他源块/�
     "    return mapping.get(raw, 'other')",
     "",
   ].join("\n");
-  const { text, stripped, missing } = stripClassificationMaps(src, ["ALPHA_MAP"]);
+  const { text, stripped, absent } = stripClassificationMaps(src, ["ALPHA_MAP"]);
   assert.deepEqual(stripped, ["ALPHA_MAP"]);
-  assert.deepEqual(missing, []);
+  assert.deepEqual(absent, []);
   assert.ok(!text.includes("ALPHA_MAP"), "目标赋值块须剥净");
   assert.ok(!text.includes(ALPHA_MAP_COMMENT), "紧邻判据注释随块剥(注释即答案面)");
   assert.ok(text.includes("BETA_MAP"), "他源块保留");
   assert.ok(text.includes("CLASSIFICATION_TYPES"), "共享词表保留");
   assert.ok(text.includes("def normalize"), "共享函数保留");
-  // 目标不在文件 → missing 记账(调用方 throw,防静默半剥)
+  // 目标不在文件 → absent 记账(调用方 throw,防静默半剥)
   const drift = stripClassificationMaps(src, ["GHOST_MAP"]);
-  assert.deepEqual(drift.missing, ["GHOST_MAP"]);
+  assert.deepEqual(drift.absent, ["GHOST_MAP"]);
+  // 真实边(dataplane 形):import 面含共享函数名 normalize + 同源映射表——
+  // 函数自然保留不入 absent,只剥赋值块
+  const mixed = stripClassificationMaps(src, ["ALPHA_MAP", "normalize"]);
+  assert.deepEqual(mixed.stripped, ["ALPHA_MAP"]);
+  assert.deepEqual(mixed.absent, []);
+  assert.ok(mixed.text.includes("def normalize"));
 });
 
 test("buildSandbox:剥答案三件套 + 无历史单根提交 + 考题闸", () => {
