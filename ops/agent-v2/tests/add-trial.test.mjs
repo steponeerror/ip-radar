@@ -198,6 +198,8 @@ test("admitTrialSpend 拒跑双面:STOP 文件在场=拒(bench_stop);台账累�
     const under = admitTrialSpend({ spendDir: dir });
     assert.equal(under.ok, true);
     assert.equal(under.total, 39.9);
+    writeSpendLedger(dir, [{ cost_cny: 40 }]); // #337 评审 P2-1:等值面钉死——严格大于才拦,==帽放行是故意语义
+    assert.equal(admitTrialSpend({ spendDir: dir }).ok, true, "累计==帽仍放行(追加后才拦后续)");
     assert.equal(admitTrialSpend({ spendDir: dir, env: { ADD_BENCH_SPEND_CAP_CNY: "39" } }).ok, false, "env 覆写收紧后同台账=拒");
     writeSpendLedger(dir, [{ cost_cny: 20 }, { cost_cny: 20.5 }]);
     const cap = admitTrialSpend({ spendDir: dir });

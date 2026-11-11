@@ -33,7 +33,7 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { buildSandbox } from "./build-sandbox.mjs";
 import { scoreQuestion } from "./score.mjs";
-import { checkRoundDiffLeak } from "../leak-check.mjs";
+import { checkRoundDiffLeak, mainCheckoutRoot } from "../leak-check.mjs";
 // 加载序锚(同 gen-exam-cards.mjs):tasks/add-round ↔ run-add ↔ registry ↔ tasks/index
 // 有环;先拉 run-add 侧再拉 add-round(与 P1 测试/启动器同序),倒序撞 addRoundTask TDZ。
 import { runAddRound, resolveAddPython } from "../../run-add.mjs";
@@ -92,7 +92,15 @@ export function sandboxChangedFiles(sandbox, rootSha) {
 // 追加本轮花费(信封 usage.cost,失败轮信封缺席记 0 留痕,round_status 如实记);
 // faux 路零花费,不查帽不记账。帽缺省 40(基准帽 #331 spec),env ADD_BENCH_SPEND_CAP_CNY
 // 可覆写;「累计超帽」= 追加后总额严格大于帽才拦后续(trial 内部花费由 OPS_ADD_* 腿帽约束)。
+// 锚点鐾主检出（#337 评审 P2-2）：本仓惯例 worktree 跑基准且完删树，台账随删即灭失、帽静默归零，
+// 违「证据永不灭失」；懒锚（首用解析，勿模块顶层 spawnSync）mainCheckoutRoot(ROOT) ?? ROOT，
+// 与 resolveAddPython 同算式（git-common-dir 推导，F5 同源）。SPEND_DIR 常量仅参考位/测试
+// 定位；运行面一律走 spendDirFor()。
 export const SPEND_DIR = path.join(ROOT, "dev", "add-bench");
+export function spendDirFor() {
+  const base = mainCheckoutRoot(ROOT) ?? ROOT;
+  return path.join(base, "dev", "add-bench");
+}
 export const SPEND_LEDGER_FILE = path.join(SPEND_DIR, "spend.json");
 export const SPEND_STOP_FILE = path.join(SPEND_DIR, "STOP");
 
@@ -120,7 +128,7 @@ export function spendTotalCny(ledgerPath = SPEND_LEDGER_FILE) {
 
 // 真实 trial 准入(拒跑双面):STOP 文件在场即拒(bench_stop,人工停跑面);台账累计超帽即拒
 // (spend_cap)。返回 {ok:true,cap,total} 或 {ok:false,code,message}。
-export function admitTrialSpend({ spendDir = SPEND_DIR, env = process.env } = {}) {
+export function admitTrialSpend({ spendDir = spendDirFor(), env = process.env } = {}) {
   if (fs.existsSync(path.join(spendDir, "STOP")))
     return { ok: false, code: "bench_stop", message: "STOP 文件在场(dev/add-bench/STOP):基准停跑,真实 trial 拒跑(移除该文件恢复)" };
   const cap = spendCapCny(env);
@@ -131,7 +139,7 @@ export function admitTrialSpend({ spendDir = SPEND_DIR, env = process.env } = {}
 }
 
 // 单次 trial 后追加本轮花费(共享台账累计面;faux 不调本函数)
-export function appendSpend({ ledgerPath = SPEND_LEDGER_FILE, name, roundId, roundStatus, costCny, now = new Date() }) {
+export function appendSpend({ ledgerPath = path.join(spendDirFor(), "spend.json"), name, roundId, roundStatus, costCny, now = new Date() }) {
   const p = path.resolve(ledgerPath);
   let entries = [];
   if (fs.existsSync(p)) {
@@ -171,7 +179,7 @@ export async function runTrial(opts) {
   // ⓪ F3 花费帽准入(真实面;拒跑双面:STOP 文件/台账累计超帽)——在开沙箱前拦,
   // 拒跑零建面零花费;faux 面零花费,不查帽不记账(#337)。
   if (!opts.fixturesDir) {
-    const admit = admitTrialSpend({ spendDir: opts.spendDir ? path.resolve(opts.spendDir) : SPEND_DIR });
+    const admit = admitTrialSpend({ spendDir: opts.spendDir ? path.resolve(opts.spendDir) : spendDirFor() });
     if (!admit.ok) throw Object.assign(new Error(admit.message), { code: admit.code });
   }
 
@@ -214,7 +222,7 @@ export async function runTrial(opts) {
   // 花费未知不伪造——月帽 admitRound 台账保有权威逐轮记录,本面不猜)。faux 不记账。
   if (!opts.fixturesDir) {
     appendSpend({
-      ledgerPath: path.join(opts.spendDir ? path.resolve(opts.spendDir) : SPEND_DIR, "spend.json"),
+      ledgerPath: path.join(opts.spendDir ? path.resolve(opts.spendDir) : spendDirFor(), "spend.json"),
       name, roundId, roundStatus: round?.status ?? "failed",
       costCny: Number(round?.envelope?.usage?.cost ?? 0),
     });
