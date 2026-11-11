@@ -88,6 +88,8 @@ export function sandboxChangedFiles(sandbox, rootSha) {
 // ── 一 trial(程序面;CLI 与测试共用)───────────────────────────────────
 // 返回 {ok,name,roundId,round:{status,error?,sandbox?,usage?},leak,score,pass,sandbox,trialFile};
 // ok = 轮 completed ∧ leak 绿 ∧ score.pass=1(三面全记,判交调用方/P3 聚合)。
+// 串行契约:runTrial 直接改写 process.env(DOCS_ROOT/LEDGER_FILE 等)并在 finally 恢复,
+// 并行调用会互相踩踏——本文件所有入口按串行设计(#334 评审 F6 记档)。
 export async function runTrial(opts) {
   const { name, runDir, cardPath } = opts;
   if (!name || !runDir || !cardPath)

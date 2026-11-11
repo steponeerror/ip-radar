@@ -20,7 +20,7 @@
 # 冻结门(#327):NEEDS.md(考题宇宙)与验证面(golden/selftest*/fixtures/v2-tests
 # +leak gate 执法件 leak-check.mjs/exam-rules.json,Standards P1 修批)两道 git diff
 # 对 incumbent 分支必为空——评估器不许候选改;演化可编面另表
-# EDIT_ALLOWLIST(策略面 52 文件,#327 Q1 推翻 #322 R5 全放开)。
+# EDIT_ALLOWLIST(策略面 54 文件,#327 Q1 推翻 #322 R5 全放开;#333 +4、#332 +5、#334 +2)。
 import fnmatch
 import json
 import os
@@ -285,7 +285,7 @@ class IpRadarDomain(Domain):
     # 零漂移红线)。tree hash 只盖 vendoring 面,域文件/RRSI 核心的提交不误报为
     # harness 变化(gitops.py 语义)。
     harness_path = "harness"
-    # 演化可编面白名单(#327 Q1,推翻 #322 R5 全放开):策略面 52 文件(#333 +4、#332 +5),read/edit/
+    # 演化可编面白名单(#327 Q1,推翻 #322 R5 全放开):策略面 54 文件(#333 +4、#332 +5、#334 +2),read/edit/
     # write 三动作同表,名单外只读;dev/rrsi Workspace 以 getattr 消费本属性,
     # 语义/构成见 EDIT_ALLOWLIST 注释。
     edit_allowlist = EDIT_ALLOWLIST

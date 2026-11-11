@@ -103,8 +103,7 @@ test("faux trial 全链:剥答案沙箱→bench 轮(DOSSIER 跳过)→钥匙装�
     // 沙箱布局:<runDir>/<题>/sandbox(P2a 打分器扫描位);答案剥净+实现者产物在场
     const sandbox = r.sandbox;
     assert.equal(sandbox, path.join(fx.tmp, "run-01", NAME, "sandbox"));
-    assert.ok(!fs.existsSync(path.join(sandbox, "backend", "ipdb", "_sources", `${NAME}.py`)) || true); // 剥后由轮重写:以内容面断言
-    const srcInSandbox = fs.readFileSync(path.join(sandbox, "backend", "ipdb", "_sources", `${NAME}.py`), "utf8");
+    const srcInSandbox = fs.readFileSync(path.join(sandbox, "backend", "ipdb", "_sources", `${NAME}.py`), "utf8"); // 剥后由轮重写:以内容面断言(初查 existsSync 断言为永真死行,#334 评审 F2 已删)
     assert.match(srcInSandbox, /parse_lines/, "实现者源应在沙箱(罐装 turns 真执行)");
     assert.ok(srcInSandbox !== ANSWER_SRC, "沙箱源是轮产出,不是 repo 答案拷贝");
     // 打分钥匙装回:沙箱测试文件 == repo 真钥匙(打分器唯一写入面)
