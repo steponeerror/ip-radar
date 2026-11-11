@@ -35,6 +35,15 @@ export function shortlistBenchPromptPath(root = ROOT) {
   return path.join(root, "ops", "agent", "prompts", DISCOVER_SHORTLIST_BENCH_PROMPT);
 }
 
+// ── 加源域扫描面(票 #334 交付面 3:轮提示词不得含考题名单)──
+// 轮提示词目录 = ops/agent/prompts/add/(P1 #332 三件 system/dossier/implement;
+// bench 形态装载 system+implement,生产形态另装载 dossier,三件全收)。在才扫(同
+// 基准提示词律);真仓在场由 leak-check.test.mjs 单源钉死测试把门——改名/移位→钉死
+// 测试红,不静默装绿(终审 P2-1 同款防线)。
+export function addPromptsDir(root = ROOT) {
+  return path.join(root, "ops", "agent", "prompts", "add");
+}
+
 // ── 归一化与匹配 ──
 export function squeeze(text) {
   return text.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -106,13 +115,47 @@ function walkFiles(dir, out, excludeNames) {
 
 // 缺省扫描面:基准提示词(在才扫;票 B 未落=空集放行)+ bench/ 下除名单载体外全部
 // 文本文件(递归;排序确定)。leak-check.mjs 自身也在面内——自扫自红,名单零硬编码。
+// #334:加源轮提示词目录 prompts/add/ 同律在才扫(轮提示词不得含考题名单)。
 export function defaultScanSurface(root = ROOT) {
   const files = [];
   const prompt = shortlistBenchPromptPath(root);
   if (fs.existsSync(prompt)) files.push(prompt);
+  const addPrompts = addPromptsDir(root);
+  if (fs.existsSync(addPrompts)) walkFiles(addPrompts, files, null); // 轮提示词面:全收(无名单载体)
   const benchDir = path.join(root, "ops", "agent-v2", "bench");
   if (fs.existsSync(benchDir)) walkFiles(benchDir, files, ROSTER_CARRIER_FILES);
   return files.sort();
+}
+
+// ── 轮产出 diff 泄漏针(票 #334 交付面 3:diff 不得引用被剥路径)──
+// 被剥路径的可达面 = 答案树在主检出侧的绝对路径:剥答案沙箱由主检出 git archive 构建,
+// 轮 diff(相对根提交的变更文件)引用主检答案树/主检 .git(考古面)即泄漏证据。
+// 针 = 主检 backend/ipdb 与 backend/tests 两前缀 + 主检 .git(归一化子串匹配,大小写/
+// 分隔符折叠);沙箱内相对路径(backend/tests/... 是 IMPLEMENT 合法产出面)不红;
+// venv 解释器绝对路径合法入提示词(buildUserMsg 亲手给的跑法),不红——答案树外的
+// 主检路径不禁。相对形引用主检答案(`git -C` 相对路径考古)在 diff 层不可区分于沙箱
+// 自身合法相对路径,靠提示词禁令兜——不追求物理剥净(spec 原话)。
+// files = [{path, text}](沙箱内相对 path + 全文 text);返回 {ok, hits:[{file,line,needle,text}]}。
+export function checkRoundDiffLeak({ repoRoot, name, files }) {
+  const root = path.resolve(String(repoRoot ?? ""));
+  if (!root || root === "/") throw new Error("checkRoundDiffLeak 须给主检出 repoRoot(被剥路径针的基准)");
+  const treeNeedles = [...new Set([path.join(root, "backend", "ipdb"), path.join(root, "backend", "tests")])]
+    .map((p) => ({ raw: p, sq: squeeze(p) }));
+  // 主检 .git 针:带后缀边界——<root>/.gitignore/.github 等同前缀真路径不误红
+  const gitRe = new RegExp(root.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\/\\.git(?![\\w.-])");
+  void name; // 被剥路径按树前缀禁,不按题名拼(题名形 test_<name>.py 属沙箱合法产出面)
+  const hits = [];
+  for (const f of files ?? []) {
+    const lines = String(f.text ?? "").split("\n");
+    for (let i = 0; i < lines.length; i++) {
+      const sq = squeeze(lines[i]);
+      for (const n of treeNeedles)
+        if (sq.includes(n.sq)) hits.push({ file: f.path, line: i + 1, needle: n.raw, text: lines[i].trim().slice(0, 120) });
+      if (gitRe.test(lines[i]))
+        hits.push({ file: f.path, line: i + 1, needle: path.join(root, ".git"), text: lines[i].trim().slice(0, 120) });
+    }
+  }
+  return { ok: hits.length === 0, hits };
 }
 
 // ── 程序面(CLI 与测试共用)──
