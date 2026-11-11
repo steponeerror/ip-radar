@@ -323,7 +323,11 @@ export const ADD_GATES = {
     const r = implementSummaryShape(a.summary);
     if (!r.ok) return gateFail(`实现摘要:${r.reason}`, inputs, "model_face");
     if (a.summary.name !== a.stem) return gateFail(`stem 漂移:${a.summary.name}≠${a.stem}(文件名契约钉死)`, inputs, "model_face");
-    for (const rel of [a.summary.test_file, a.summary.source_file]) {
+    // 评审修批(#332 评审 P2):路径逐字钉死 stem 契约——任意在场路径即过会让偏航拖到 GATE 才暴露
+    const canonical = { test_file: `backend/tests/sources/test_${a.stem}.py`, source_file: `backend/ipdb/_sources/${a.stem}.py` };
+    for (const key of ["test_file", "source_file"]) {
+      const rel = a.summary[key];
+      if (rel !== canonical[key]) return gateFail(`路径契约:${key}=${rel}≠${canonical[key]}(stem 逐字)`, inputs, "model_face");
       const target = insideSandbox(ctx.sandboxRoot, rel);
       if (!target || !fs.existsSync(target)) return gateFail(`声明文件不在沙箱:${rel}`, inputs, "model_face");
     }

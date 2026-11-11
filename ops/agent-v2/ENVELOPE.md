@@ -29,7 +29,7 @@
 
 ## 台账兼容行(月度准入消费面)
 
-成功轮台账行由 RETRO 步写(与旧管线同点、同形):`| 日期 | 轮次 | model | in=N out=N total=N cost=0.00000000 | pipeline:<round_id> |`。月度准入(`monthSpendOfLedgerText`)与前端 `opsLedger.ts` 解析面零改动——v2 轮天然流出兼容行,`tests/cron-launchers.test.mjs` 与 `tests/shadow-health-parity.test.mjs` 双钉。加源轮 CLOSE 步经 lib.sh `ledger_append` 写同形行,标签 `pipeline-add:<round_id>`(轮次列=real/faux-pipeline);旧 `LEDGER_TAGS` 闭集零改动(属主红线),消费面只读 cost 列不受标签词影响。
+成功轮台账行由 RETRO 步写(与旧管线同点、同形):`| 日期 | 轮次 | model | in=N out=N total=N cost=0.00000000 | pipeline:<round_id> |`。月度准入(`monthSpendOfLedgerText`)与前端 `opsLedger.ts` 解析面零改动——v2 轮天然流出兼容行,`tests/cron-launchers.test.mjs` 与 `tests/shadow-health-parity.test.mjs` 双钉。加源轮 CLOSE 步经 lib.sh `ledger_append` 写同形行,标签 `pipeline-add:<round_id>`(轮次列=add,model 列=real/faux-pipeline);旧 `LEDGER_TAGS` 闭集零改动(属主红线),消费面只读 cost 列不受标签词影响。
 
 ## queue.md 兼容面(发现轮;终审补声明)
 

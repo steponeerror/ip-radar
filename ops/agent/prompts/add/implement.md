@@ -36,7 +36,7 @@
 实现转绿后,终答单条 JSON(不要围栏、不要散文):
 
 ```json
-{"name": "<stem 对应源名,与交接单 name 一致>", "test_file": "backend/tests/sources/test_<stem>.py", "source_file": "backend/ipdb/_sources/<stem>.py", "red_observed": true, "green_observed": true, "notes": "一句话:红的原因/绿的依据/残留"}
+{"name": "<stem>(逐字=钉死的 stem;勿填交接单人类可读名)", "test_file": "backend/tests/sources/test_<stem>.py", "source_file": "backend/ipdb/_sources/<stem>.py", "red_observed": true, "green_observed": true, "notes": "一句话:红的原因/绿的依据/残留"}
 ```
 
 - `test_file`/`source_file` 相对沙箱根;门会验文件真在场与 stem 一致。
