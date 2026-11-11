@@ -65,23 +65,31 @@ export function scoreQuestion({ name, sandbox, repo, python, timeoutMs = 600000 
   return { name, pass, summary };
 }
 
-// 多 run 聚合:每 run 一个 S;k run → mean/stdev/band + 逐题跨次计数
-export function scoreRuns({ runs, repo, python, universePath, timeoutMs }) {
+// 多 run 聚合:每 run 一个 S;k run → mean/stdev/band + 逐题跨次计数。
+// only = 题集子集(端到端单题验证面/崩题补分面):分母改 only 单源,子集仍须
+// universe 内(表外题红);k 个 run 须同含子集全部题(缺题红,同全集律)。
+export function scoreRuns({ runs, repo, python, universePath, timeoutMs, only }) {
   if (!runs?.length) throw new Error("须给 --runs DIR(一次基准重复 = 一个 run 目录)");
   const universe = loadUniverse(universePath);
   const uniNames = new Set(universe.map((r) => r.name));
+  let exam = universe;
+  if (only?.length) {
+    for (const n of only) if (!uniNames.has(n)) throw new Error(`only 题不在 universe 名单:${n}(子集仍须 universe 单源)`);
+    exam = universe.filter((r) => only.includes(r.name));
+  }
+  const examNames = new Set(exam.map((r) => r.name));
   const runResults = runs.map((runDir) => {
     const questions = [];
-    for (const row of universe) {
+    for (const row of exam) {
       const sandbox = path.join(runDir, row.name, "sandbox");
       if (!fs.existsSync(sandbox))
         throw new Error(`run 目录布局漂移:${runDir} 缺题 ${row.name} 的 sandbox/(k 次重复须同题集;缺题禁静默跳过)`);
       questions.push(scoreQuestion({ name: row.name, sandbox, repo, python, timeoutMs }));
     }
-    // 表外题混入 = 分母污染(例如旧宇宙残留),红
+    // 表外题混入 = 分母污染(例如旧宇宙残留),红;only 子集面时子集外题同律
     for (const ent of fs.readdirSync(runDir, { withFileTypes: true })) {
-      if (ent.isDirectory() && !uniNames.has(ent.name))
-        throw new Error(`run 目录含表外题:${path.join(runDir, ent.name)} 不在 universe 名单(分母须 universe 单源)`);
+      if (ent.isDirectory() && !examNames.has(ent.name))
+        throw new Error(`run 目录含表外题:${path.join(runDir, ent.name)} 不在考题面(分母须 universe 单源)`);
     }
     const passed = questions.filter((q) => q.pass === 1).length;
     return { runDir: path.basename(path.resolve(runDir)), S: questions.length ? passed / questions.length : 0, questions };
@@ -138,7 +146,7 @@ export function renderMarkdown(res) {
 
 // ── CLI ──
 function parseArgs(argv) {
-  const out = { runs: [], repo: null, python: null, universe: null, outDir: null, timeoutMs: null };
+  const out = { runs: [], repo: null, python: null, universe: null, outDir: null, timeoutMs: null, only: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const next = () => argv[++i];
@@ -148,11 +156,12 @@ function parseArgs(argv) {
     else if (a === "--universe") out.universe = next();
     else if (a === "--out-dir") out.outDir = next();
     else if (a === "--timeout-ms") out.timeoutMs = Number(next());
+    else if (a === "--only") out.only = next().split(",").map((s) => s.trim()).filter(Boolean);
     else if (a === "--help" || a === "-h") out.help = true;
     else { console.error(`未知参数:${a}`); process.exit(2); }
   }
   if (out.help || !out.runs.length) {
-    console.error("用法:node score.mjs --runs DIR [DIR ...] [--repo DIR] [--python BIN] [--universe PATH] [--out-dir DIR] [--timeout-ms 600000]");
+    console.error("用法:node score.mjs --runs DIR [DIR ...] [--repo DIR] [--python BIN] [--universe PATH] [--out-dir DIR] [--timeout-ms 600000] [--only 名,名,...]");
     process.exit(out.help ? 0 : 2);
   }
   return out;
@@ -167,6 +176,7 @@ export function main(argv = process.argv.slice(2)) {
     python,
     universePath: args.universe,
     timeoutMs: args.timeoutMs ?? 600000,
+    only: args.only,
   });
   const outDir = args.outDir ?? path.dirname(path.resolve(args.runs[0]));
   fs.mkdirSync(outDir, { recursive: true });

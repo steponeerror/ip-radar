@@ -115,6 +115,20 @@ test("scoreRuns:fail-closed——钥匙缺失/布局漂移/表外题均红", () 
   fs.rmSync(fx.tmp, { recursive: true, force: true });
 });
 
+test("scoreRuns:only 子集面——只考指定题(端到端单题验证面),表外 only 题红", () => {
+  const fx = makeFixture();
+  // 只考 q1:q2 无 sandbox 也合法(子集分母 = only 单源)
+  fs.rmSync(path.join(fx.runDir, "q2"), { recursive: true, force: true });
+  const res = scoreRuns(common(fx, { only: ["q1"] }));
+  assert.equal(res.k, 1);
+  assert.equal(res.runs[0].questions.length, 1);
+  assert.equal(res.runs[0].questions[0].name, "q1");
+  assert.equal(res.runs[0].S, 1);
+  // only 名不在 universe → 红(子集仍须 universe 内)
+  assert.throws(() => scoreRuns(common(fx, { only: ["q9"] })), /q9/);
+  fs.rmSync(fx.tmp, { recursive: true, force: true });
+});
+
 test("renderMarkdown:S/方差带/逐题表/失败摘要;无时间戳(双渲染字节同)", () => {
   const fx = makeFixture();
   const run2 = path.join(fx.tmp, "run2");
