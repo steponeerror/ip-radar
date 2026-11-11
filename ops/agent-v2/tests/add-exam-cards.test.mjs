@@ -333,6 +333,24 @@ test("routingLines(csv 表头):同名列→同名槽位(f3csystems 形 first_see
   assert.ok(!lines.some((l) => /country_code 槽位/.test(l) && /同名列/.test(l)), "列名 country≠槽名 country_code:同名列面不命中(宁少算)");
 });
 
+test("routingLines ip 键豁免(#341 评审 P2-1):同名列/键名 ip 是 rebuild 键,不得被同名分支吞成 Evidence 槽位行", () => {
+  const SIB_IPKEY = 'class Ipsrc(Source):\n    fields = ("is_malicious",)\n\n    def parse_row(self, row):\n        return {"ip": row[0], "reporter_count": row[1]}\n';
+  const idx = buildSiblingIndex([...SIB_FILES, { name: "ipsrc", text: SIB_IPKEY }], "qcsv");
+  assert.ok(idx.slots.get("ip"), "fixture 前提:ip 键入槽位表(真实仓当前无此面,防未来)");
+  const lines = routingLines({
+    sampleLines: ["ip,reporter_count", "1.2.3.4,7", "5.6.7.8,3"],
+    format: "csv(表头)", rosterFields: [], category: "threat", index: idx,
+  });
+  assert.ok(lines.some((l) => /列1.*IP/.test(l) && /rebuild 键/.test(l)), `ip 列仍走 rebuild 键行:${lines[0]}`);
+  assert.ok(!lines.some((l) => /「ip」→ Evidence/.test(l)), "同名列 ip 不得出槽位惯例行");
+  const jsonLines = routingLines({
+    sampleLines: ['{"ip": "1.2.3.4", "reporter_count": 7}', '{"ip": "5.6.7.8", "reporter_count": 3}'],
+    format: "json", rosterFields: [], category: "threat", index: idx,
+  });
+  assert.ok(!jsonLines.some((l) => /「ip」→ Evidence/.test(l)), "json 面 ip 键同样豁免槽位行");
+  assert.ok(jsonLines.some((l) => /「reporter_count」→ Evidence reporter_count 槽位/.test(l)), "非 ip 键照常路由");
+});
+
 test("routingLines(空白双列 ip+计数,ipsum 形):计数列→reporter_count;无列结构回退草案行", () => {
   const idx = buildSiblingIndex(SIB_FILES, "ipsum");
   const lines = routingLines({ sampleLines: ["1.2.3.4 11", "5.6.7.8 3", "9.9.9.9 2"], format: "text(空白分列)", rosterFields: ["is_malicious"], category: "threat", index: idx });

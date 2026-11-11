@@ -559,6 +559,8 @@ export async function probeLiveness(url, fetchImpl = fetch, opts = {}) {
       const firstError = c.error ?? `HTTP ${c.status}`;
       try {
         const again = await hit(c.method, c.ua);
+        // 重试成功后清陈旧 error(#341 评审 P2-2:避免同档 error+200 并存);first_error 保首轮失败面
+        delete c.error;
         Object.assign(c, again, { retried: true, first_error: firstError });
       } catch (e) {
         Object.assign(c, { retried: true, first_error: firstError, error: String(e?.cause?.message ?? e?.message ?? e).slice(0, 160) });

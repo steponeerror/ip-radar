@@ -218,7 +218,8 @@ export function routingLines({ sampleLines, format, rosterFields, category, inde
     if (obj && typeof obj === "object") {
       for (const [k] of Object.entries(obj)) {
         const slot = normSlot(k);
-        if (slot) faceLines.push(nameLine(1, k, slot)); // json 无列序面,列号统一记 1(键名才是路由面)
+        // ip 键是 rebuild 键不是 Evidence 槽位(#341 评审 P2-1:同名列分支会吞 ip 列)
+        if (slot && slot !== "ip") faceLines.push(nameLine(1, k, slot)); // json 无列序面,列号统一记 1(键名才是路由面)
       }
     }
   } else if (cols) {
@@ -231,7 +232,8 @@ export function routingLines({ sampleLines, format, rosterFields, category, inde
       const label = i + 1;
       const shape = shapes[i];
       const slot = normSlot(cols.header?.[i]);
-      if (slot) { faceLines.push(nameLine(label, cols.header[i], slot)); continue; } // 同名列惯例优先
+      // 同名列惯例优先;但 ip 形列是 rebuild 键,不让同名分支吞掉(#341 评审 P2-1)
+      if (slot && !ipish(shape)) { faceLines.push(nameLine(label, cols.header[i], slot)); continue; }
       if (ipish(shape)) {
         // start+prefix 三联(区块清单馈送形):ip、ip、8-32 整数 → 合成 cidr 键,消费三列
         const prefixVals = valuesOf(i + 2);

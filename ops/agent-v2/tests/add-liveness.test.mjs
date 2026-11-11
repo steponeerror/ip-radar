@@ -134,6 +134,7 @@ test("失败组合一次重试:首轮传输错 → 重试得 last-modified → �
   assert.equal(retried[0].status, 200);
   assert.equal(retried[0].last_modified, "Tue, 10 Nov 2026 00:00:00 GMT");
   assert.match(retried[0].first_error, /fetch failed/, "首轮失败面留痕不灭失");
+  assert.equal(retried[0].error, undefined, "重试成功后陈旧 error 键清除(#341 评审 P2-2:不得 error+200 并存)");
   assert.ok(rec.slept.includes(9), "重试前有 retryDelayMs 缓隔");
 });
 
