@@ -20,7 +20,7 @@
 # 冻结门(#327):NEEDS.md(考题宇宙)与验证面(golden/selftest*/fixtures/v2-tests
 # +leak gate 执法件 leak-check.mjs/exam-rules.json,Standards P1 修批)两道 git diff
 # 对 incumbent 分支必为空——评估器不许候选改;演化可编面另表
-# EDIT_ALLOWLIST(策略面 43 文件,#327 Q1 推翻 #322 R5 全放开)。
+# EDIT_ALLOWLIST(策略面 48 文件,#327 Q1 推翻 #322 R5 全放开)。
 import fnmatch
 import json
 import os
@@ -61,10 +61,12 @@ BENCH_PYTHON = os.environ.get("IPRADAR_BENCH_PYTHON",
 # ── 演化可编面白名单(票 #327 Q1 裁定 2026-11-08;推翻 #322 R5「开放面 v1+v2 全放开」)──
 # 主仓=声明与单源;dev/rrsi Workspace 以 getattr(domain, "edit_allowlist", None) 消费
 # (read/edit/write 三动作同表,越名单即拒)。fnmatch 语义:* 跨目录分隔符;路径相对
-# harness 根。构成=策略面 43 文件(调研笔记 docs/notes/ops-tree-as-harness-2026-11-08.md:
+# harness 根。构成=策略面 48 文件(调研笔记 docs/notes/ops-tree-as-harness-2026-11-08.md:
 # 验证/环境/文档面 72% 是演化不该碰的):
-#   ops/agent/pipeline/** 11 + ops/agent/prompts/** 9
-#   + ops/agent-v2/{tools,tasks,bench}/** 21 + ops/agent/{agent.mjs,models.mjs} 2
+#   ops/agent/pipeline/** 11 + ops/agent/prompts/** 12
+#   + ops/agent-v2/{tools,tasks,bench}/** 22 + ops/agent/{agent.mjs,models.mjs} 2
+# (#332 P1 2026-11-11 +5:加源轮 tasks/add-round.mjs、tools/add-tools.mjs、
+#  prompts/add/{system,dossier,implement}.md——glob 面不变,计数面随文件增)
 # 其余(v1 根散件/验证面/环境面/文档面)一律只读;验证面另有 _guardrails 冻结门,
 # 不靠本表拒绝。名单外输入 fail-closed(edit_allowed 返回 False)。
 # 双匹配器互指(Spec 轴 P2-1):运行时真身是 dev/rrsi rrsi/propose.py _allowed(同一张
@@ -283,7 +285,7 @@ class IpRadarDomain(Domain):
     # 零漂移红线)。tree hash 只盖 vendoring 面,域文件/RRSI 核心的提交不误报为
     # harness 变化(gitops.py 语义)。
     harness_path = "harness"
-    # 演化可编面白名单(#327 Q1,推翻 #322 R5 全放开):策略面 43 文件,read/edit/
+    # 演化可编面白名单(#327 Q1,推翻 #322 R5 全放开):策略面 48 文件(#332 P1 +5),read/edit/
     # write 三动作同表,名单外只读;dev/rrsi Workspace 以 getattr 消费本属性,
     # 语义/构成见 EDIT_ALLOWLIST 注释。
     edit_allowlist = EDIT_ALLOWLIST
@@ -314,7 +316,7 @@ class IpRadarDomain(Domain):
         ),
         "proposer": (
             "域:ip-radar 盲测重发现基准——用基准轮(沙箱,faux 或真实 GLM)度量发现管线的"
-            "搜索与召回能力,奖励=逐源 0/1 召回。开放面=策略面 43 文件白名单(七条 glob:"
+            "搜索与召回能力,奖励=逐源 0/1 召回。开放面=策略面 48 文件白名单(七条 glob:"
             "pipeline/prompts/v2 tools+tasks+bench/v1 入口与模型),名单外一律只读,"
             "验证面另有冻结门;约束读 PATTERNS.md(零漂移红线:真实轮路径行为字节不变,"
             "golden 钉;考题名/域名禁入提示词与代码;编辑预算须可归因)。提升召回的"
