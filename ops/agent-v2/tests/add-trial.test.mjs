@@ -2,7 +2,8 @@
 // 契约 = spec §重实现基准协议「一次 trial」:构建剥答案沙箱 → 沙箱内跑 bench 形态加源轮
 // (DOSSIER 跳过、考题卡预填)→ 外部打分器装回真测试钥匙 → pass/fail;faux 全链冒烟
 // (罐装实现者 turns,沙箱→轮→打分零网络零花费)+ 轮产出 diff 泄漏闸接线 + P2a 打分器
-// 布局互通(scoreRuns 直接可扫 run 目录)。fixture = 最小 repo 形树(git 单根提交),
+// 布局互通(scoreRuns 直接可扫 run 目录)+ F3 花费帽机械执法(#337:STOP/台账累计
+// 双拒在开沙箱前,faux 不查不记)。fixture = 最小 repo 形树(git 单根提交),
 // 真答案源+真钥匙测试在 repo 侧、沙箱内被剥;python 面用主检出 venv(AGENTS worktree 律)。
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -11,8 +12,12 @@ import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 
-import { runTrial, mintRoundId, seedQueueWorld, sandboxChangedFiles } from "../bench/add-domain/run-trial.mjs";
+import { runTrial, mintRoundId, seedQueueWorld, sandboxChangedFiles, spendCapCny, admitTrialSpend, spendTotalCny, appendSpend } from "../bench/add-domain/run-trial.mjs";
 import { scoreRuns } from "../bench/add-domain/score.mjs";
+
+// 直写台账夹具(拒跑测试用:预置累计超帽的 spend.json)
+const writeSpendLedger = (dir, entries) =>
+  fs.writeFileSync(path.join(dir, "spend.json"), JSON.stringify({ entries, total_cny: entries.reduce((a, e) => a + e.cost_cny, 0) }, null, 2) + "\n");
 
 const HERE = path.resolve(import.meta.dirname, "..");
 const FIXTURES = path.join(HERE, "fixtures", "add");
@@ -174,6 +179,89 @@ test("用法面:卡名 slugify≠题名=拒(stem 契约);卡形状坏=拒;不带
   // 沙箱未开(runDir 空)
   assert.equal(fs.existsSync(path.join(fx.tmp, "run-01", NAME, "sandbox")), false);
   fs.rmSync(fx.tmp, { recursive: true, force: true });
+});
+
+// ── ⑤ F3 花费帽机械执法(#337):真实 trial 前 STOP 文件+共享台账累计双拒;faux 不记账 ──
+test("spendCapCny:缺省 40;env ADD_BENCH_SPEND_CAP_CNY 覆写;非法值=用法错不带病跑", () => {
+  assert.equal(spendCapCny({}), 40);
+  assert.equal(spendCapCny({ ADD_BENCH_SPEND_CAP_CNY: "" }), 40, "空串=未设,缺省帽");
+  assert.equal(spendCapCny({ ADD_BENCH_SPEND_CAP_CNY: "12.5" }), 12.5);
+  assert.throws(() => spendCapCny({ ADD_BENCH_SPEND_CAP_CNY: "abc" }), (e) => e.usage === true);
+  assert.throws(() => spendCapCny({ ADD_BENCH_SPEND_CAP_CNY: "-1" }), (e) => e.usage === true, "负帽=非法");
+});
+
+test("admitTrialSpend 拒跑双面:STOP 文件在场=拒(bench_stop);台账累计超帽=拒(spend_cap);净/未超=过", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "add-spend-admit-"));
+  try {
+    assert.deepEqual(admitTrialSpend({ spendDir: dir }), { ok: true, cap: 40, total: 0 }, "净目录=过(台账缺席记 0)");
+    writeSpendLedger(dir, [{ cost_cny: 39.9 }]);
+    const under = admitTrialSpend({ spendDir: dir });
+    assert.equal(under.ok, true);
+    assert.equal(under.total, 39.9);
+    assert.equal(admitTrialSpend({ spendDir: dir, env: { ADD_BENCH_SPEND_CAP_CNY: "39" } }).ok, false, "env 覆写收紧后同台账=拒");
+    writeSpendLedger(dir, [{ cost_cny: 20 }, { cost_cny: 20.5 }]);
+    const cap = admitTrialSpend({ spendDir: dir });
+    assert.equal(cap.ok, false);
+    assert.equal(cap.code, "spend_cap");
+    assert.match(cap.message, /40\.5/);
+    fs.writeFileSync(path.join(dir, "STOP"), "停跑\n");
+    const stop = admitTrialSpend({ spendDir: dir });
+    assert.equal(stop.ok, false);
+    assert.equal(stop.code, "bench_stop");
+    assert.match(stop.message, /STOP/);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("appendSpend/spendTotalCny:追加累计(总额机械回算,不信存量字段);缺席=0;坏台账=红 fail-closed", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "add-spend-ledger-"));
+  const ledger = path.join(dir, "spend.json");
+  try {
+    assert.equal(spendTotalCny(ledger), 0, "台账缺席=0");
+    appendSpend({ ledgerPath: ledger, name: "q1", roundId: "2026-11-12-0100-add", roundStatus: "completed", costCny: 1.25 });
+    assert.equal(spendTotalCny(ledger), 1.25);
+    appendSpend({ ledgerPath: ledger, name: "q2", roundId: "2026-11-12-0110-add", roundStatus: "failed", costCny: 0.75 });
+    assert.equal(spendTotalCny(ledger), 2);
+    const j = JSON.parse(fs.readFileSync(ledger, "utf8"));
+    assert.equal(j.entries.length, 2);
+    assert.equal(j.total_cny, 2);
+    assert.equal(j.entries[0].name, "q1");
+    assert.equal(j.entries[1].round_status, "failed", "失败轮也记账留痕");
+    // 存量 total_cny 被手改 → 回算面不信它:spendTotalCny 按 entries 重算
+    j.total_cny = 0;
+    fs.writeFileSync(ledger, JSON.stringify(j));
+    assert.equal(spendTotalCny(ledger), 2, "总额=entries 机械回算(证据回算律)");
+    fs.writeFileSync(ledger, "{oops");
+    assert.throws(() => spendTotalCny(ledger), /spend\.json/, "坏台账=红(fail-closed,不猜)");
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("real trial 拒跑双面接线:STOP/超帽=开沙箱前抛;faux 面 STOP 在场照跑且不记账", async () => {
+  const fx = makeTrialFixture("add-trial-spend-");
+  const spendDir = path.join(fx.tmp, "spend");
+  fs.mkdirSync(spendDir);
+  try {
+    // 面 1:STOP 文件 → 真实面拒跑(开沙箱前)
+    fs.writeFileSync(path.join(spendDir, "STOP"), "\n");
+    await assert.rejects(
+      () => runTrial({ name: NAME, repo: fx.repo, universePath: fx.universePath, runDir: path.join(fx.tmp, "run-s1"), cardPath: fx.cardPath, spendDir, python: VENV_PY, stderr: { write: () => true } }),
+      (e) => e.code === "bench_stop",
+    );
+    assert.equal(fs.existsSync(path.join(fx.tmp, "run-s1", NAME, "sandbox")), false, "拒跑发生在开沙箱前");
+    // 面 2:台账累计超帽 → 拒跑
+    fs.rmSync(path.join(spendDir, "STOP"));
+    writeSpendLedger(spendDir, [{ cost_cny: 40.5 }]);
+    await assert.rejects(
+      () => runTrial({ name: NAME, repo: fx.repo, universePath: fx.universePath, runDir: path.join(fx.tmp, "run-s2"), cardPath: fx.cardPath, spendDir, python: VENV_PY, stderr: { write: () => true } }),
+      (e) => e.code === "spend_cap",
+    );
+    assert.equal(fs.existsSync(path.join(fx.tmp, "run-s2", NAME, "sandbox")), false);
+    // faux 面:同超帽台账在场照跑(faux 零花费不查帽不记账——台账原样未动)
+    const r = await runFauxTrial(fx, { runDir: path.join(fx.tmp, "run-faux"), spendDir });
+    assert.equal(r.ok, true, "faux trial 不受花费帽面约束");
+    const j = JSON.parse(fs.readFileSync(path.join(spendDir, "spend.json"), "utf8"));
+    assert.equal(j.entries.length, 1, "faux 不追加台账(faux 路不记账)");
+    assert.equal(j.total_cny, 40.5, "预置台账原样未动");
+  } finally { fs.rmSync(fx.tmp, { recursive: true, force: true }); }
 });
 
 // ── ④ 纯函数面:roundId 铸形 / queue 世界自种 / 沙箱变更文件收集 ───────────
