@@ -1,6 +1,6 @@
-{"kind": "ipradar-add-universe", "version": 1, "seed": 20261111, "rule": "roster − exam-rules 免考 − keyless-rules 无key − 无逐源测试;heldout = round(N×13/53)(沿 #322 40/13 形状);类别分层最大余数法分席(split-lib.largestRemainder)+ 类内 mulberry32(seed) 洗牌取留出;类别/名字双字典序为 RNG 消费序", "total": 33, "evolve": 25, "heldout": 8, "heldoutSeats": {"asset": 1, "geo_asn": 1, "threat": 6}, "rosterTotal": 61, "exemptTotal": 8, "keylessTotal": 7, "noTestTotal": 13, "frozen": true, "ticket": "#333"}
+{"kind":"ipradar-add-universe","version":1,"seed":20261111,"rule":"roster − exam-rules 免考 − keyless-rules 无key − 无逐源测试;heldout = round(N×13/53)(沿 #322 40/13 形状);类别分层最大余数法分席(split-lib.largestRemainder)+ 类内 mulberry32(seed) 洗牌取留出;类别/名字双字典序为 RNG 消费序","total":33,"evolve":25,"heldout":8,"heldoutSeats":{"asset":1,"geo_asn":1,"threat":6},"rosterTotal":61,"exemptTotal":8,"keylessTotal":7,"noTestTotal":13,"frozen":true,"ticket":"#333"}
 {"split":"heldout","name":"binarydefense","url":"https://www.binarydefense.com/banlist.txt","category":"threat","archetype":"IpListSource","_why":"禁词引用:#308 判例——加源考题答案键载体行,行级豁免"}
-{"split":"heldout","name":"cloudzy","url":"https://raw.githubusercontent.com/CriticalPathSecurity/","category":"asset","archetype":"Source","_why":"禁词引用:#308 判例——加源考题答案键载体行,行级豁免"}
+{"split":"heldout","name":"cloudzy","url":"https://raw.githubusercontent.com/CriticalPathSecurity/Public-Intelligence-Feeds/master/cloudzy.txt","category":"asset","archetype":"Source","_why":"禁词引用:#308 判例——加源考题答案键载体行,行级豁免"}
 {"split":"heldout","name":"greensnow","url":"https://blocklist.greensnow.co/greensnow.txt","category":"threat","archetype":"IpListSource","_why":"禁词引用:#308 判例——加源考题答案键载体行,行级豁免"}
 {"split":"heldout","name":"iptoasn","url":"https://iptoasn.com/data/ip2asn-combined.tsv.gz","category":"geo_asn","archetype":"Source","_why":"禁词引用:#308 判例——加源考题答案键载体行,行级豁免"}
 {"split":"heldout","name":"malicious_ip","url":"https://raw.githubusercontent.com/romainmarcoux/malicious-ip/master","category":"threat","archetype":"Source","_why":"禁词引用:#308 判例——加源考题答案键载体行,行级豁免"}
@@ -15,11 +15,11 @@
 {"split":"evolve","name":"danmeuk_tor","url":"https://www.dan.me.uk/torlist/","category":"asset","archetype":"IpListSource","_why":"禁词引用:#308 判例——加源考题答案键载体行,行级豁免"}
 {"split":"evolve","name":"data_shield","url":"https://raw.githubusercontent.com/duggytuxy/Data-Shield_IPv4_Blocklist/main/prod_data-shield_ipv4_blocklist.txt","category":"threat","archetype":"IpListSource","_why":"禁词引用:#308 判例——加源考题答案键载体行,行级豁免"}
 {"split":"evolve","name":"dataplane","url":"https://dataplane.org/","category":"threat","archetype":"Source","_why":"禁词引用:#308 判例——加源考题答案键载体行,行级豁免"}
-{"split":"evolve","name":"dns_public","url":"https://raw.githubusercontent.com/DNSCrypt/dnscrypt-resolvers/","category":"asset","archetype":"Source","_why":"禁词引用:#308 判例——加源考题答案键载体行,行级豁免"}
+{"split":"evolve","name":"dns_public","url":"https://raw.githubusercontent.com/DNSCrypt/dnscrypt-resolvers/master/v3/public-resolvers.md","category":"asset","archetype":"Source","_why":"禁词引用:#308 判例——加源考题答案键载体行,行级豁免"}
 {"split":"evolve","name":"dshield","url":"https://feeds.dshield.org/block.txt","category":"threat","archetype":"Source","_why":"禁词引用:#308 判例——加源考题答案键载体行,行级豁免"}
-{"split":"evolve","name":"emerging_threats","url":"https://rules.emergingthreats.net/","category":"threat","archetype":"IpListSource","_why":"禁词引用:#308 判例——加源考题答案键载体行,行级豁免"}
-{"split":"evolve","name":"f3csystems","url":"https://raw.githubusercontent.com/f3cSystems/BlockList_IP/","category":"threat","archetype":"CsvSource","_why":"禁词引用:#308 判例——加源考题答案键载体行,行级豁免"}
-{"split":"evolve","name":"geolite_city","url":"https://github.com/P3TERX/GeoLite.mmdb/releases/latest/download/","category":"geo_asn","archetype":"Source","_why":"禁词引用:#308 判例——加源考题答案键载体行,行级豁免"}
+{"split":"evolve","name":"emerging_threats","url":"https://rules.emergingthreats.net/fwrules/emerging-Block-IPs.txt","category":"threat","archetype":"IpListSource","_why":"禁词引用:#308 判例——加源考题答案键载体行,行级豁免"}
+{"split":"evolve","name":"f3csystems","url":"https://raw.githubusercontent.com/f3cSystems/BlockList_IP/main/blacklist.csv","category":"threat","archetype":"CsvSource","_why":"禁词引用:#308 判例——加源考题答案键载体行,行级豁免"}
+{"split":"evolve","name":"geolite_city","url":"https://github.com/P3TERX/GeoLite.mmdb/releases/latest/download/GeoLite2-City.mmdb","category":"geo_asn","archetype":"Source","_why":"禁词引用:#308 判例——加源考题答案键载体行,行级豁免"}
 {"split":"evolve","name":"ipsum","url":"https://raw.githubusercontent.com/stamparm/ipsum/master/ipsum.txt","category":"threat","archetype":"CsvSource","_why":"禁词引用:#308 判例——加源考题答案键载体行,行级豁免"}
 {"split":"evolve","name":"knock_knock","url":"https://knock-knock.net/static/ip-blocklist-month.txt","category":"threat","archetype":"IpListSource","_why":"禁词引用:#308 判例——加源考题答案键载体行,行级豁免"}
 {"split":"evolve","name":"myip_ms","url":"https://myip.ms/files/blacklist/htaccess/latest_blacklist.txt","category":"threat","archetype":"IpListSource","_why":"禁词引用:#308 判例——加源考题答案键载体行,行级豁免"}
@@ -28,7 +28,7 @@
 {"split":"evolve","name":"root_servers","url":"https://www.internic.net/domain/named.root","category":"asset","archetype":"Source","_why":"禁词引用:#308 判例——加源考题答案键载体行,行级豁免"}
 {"split":"evolve","name":"rtbh","url":"https://list.rtbh.com.tr/output.txt","category":"threat","archetype":"IpListSource","_why":"禁词引用:#308 判例——加源考题答案键载体行,行级豁免"}
 {"split":"evolve","name":"stopforumspam","url":"https://www.stopforumspam.com/downloads/listed_ip_365_all.zip","category":"threat","archetype":"Source","_why":"禁词引用:#308 判例——加源考题答案键载体行,行级豁免"}
-{"split":"evolve","name":"sw_scanners","url":"https://raw.githubusercontent.com/ShadowWhisperer/IPs/","category":"threat","archetype":"CsvSource","_why":"禁词引用:#308 判例——加源考题答案键载体行,行级豁免"}
-{"split":"evolve","name":"sw_threats","url":"https://raw.githubusercontent.com/ShadowWhisperer/IPs/","category":"threat","archetype":"CsvSource","_why":"禁词引用:#308 判例——加源考题答案键载体行,行级豁免"}
+{"split":"evolve","name":"sw_scanners","url":"https://raw.githubusercontent.com/ShadowWhisperer/IPs/master/Lists/Scanners.csv","category":"threat","archetype":"CsvSource","_why":"禁词引用:#308 判例——加源考题答案键载体行,行级豁免"}
+{"split":"evolve","name":"sw_threats","url":"https://raw.githubusercontent.com/ShadowWhisperer/IPs/master/Lists/Threats.csv","category":"threat","archetype":"CsvSource","_why":"禁词引用:#308 判例——加源考题答案键载体行,行级豁免"}
 {"split":"evolve","name":"threatcluster","url":"https://threatcluster.io/api/iocs/public/feed.csv","category":"threat","archetype":"CsvSource","_why":"禁词引用:#308 判例——加源考题答案键载体行,行级豁免"}
-{"split":"evolve","name":"ziyadnz","url":"https://raw.githubusercontent.com/ziyadnz/threat-intel-ip-feeds/","category":"threat","archetype":"CsvSource","_why":"禁词引用:#308 判例——加源考题答案键载体行,行级豁免"}
+{"split":"evolve","name":"ziyadnz","url":"https://raw.githubusercontent.com/ziyadnz/threat-intel-ip-feeds/master/output/blacklist.csv","category":"threat","archetype":"CsvSource","_why":"禁词引用:#308 判例——加源考题答案键载体行,行级豁免"}
