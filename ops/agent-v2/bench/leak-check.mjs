@@ -140,6 +140,8 @@ export function defaultScanSurface(root = ROOT) {
 // 主检出自身时同算式退化为自身去重——与 run-add.mjs resolveAddPython 沙箱解释器推导
 // 同一算式;此前只盖 repoRoot,worktree 跑法下主检答案树不被针)。mainRoot 显式注入
 // 口仅供测试钉面;推导失败(非 git 根)=只针 repoRoot 单根。
+// 针不按题名拼(题名形 test_<name>.py 属沙箱合法产出面,按树前缀禁即可)——故无
+// 题名参数(#339 ⑤ 删 void 弃用死参,调用点同步)。
 // files = [{path, text}](沙箱内相对 path + 全文 text);返回 {ok, hits:[{file,line,needle,text}]}。
 export function mainCheckoutRoot(repoRoot) {
   const r = spawnSync("git", ["-C", String(repoRoot), "rev-parse", "--path-format=absolute", "--git-common-dir"], { encoding: "utf8" });
@@ -148,7 +150,7 @@ export function mainCheckoutRoot(repoRoot) {
   return path.dirname(path.resolve(out));
 }
 
-export function checkRoundDiffLeak({ repoRoot, mainRoot, name, files }) {
+export function checkRoundDiffLeak({ repoRoot, mainRoot, files }) {
   const root = path.resolve(String(repoRoot ?? ""));
   if (!root || root === "/") throw new Error("checkRoundDiffLeak 须给主检出 repoRoot(被剥路径针的基准)");
   const roots = [root];
@@ -158,7 +160,6 @@ export function checkRoundDiffLeak({ repoRoot, mainRoot, name, files }) {
     .map((p) => ({ raw: p, sq: squeeze(p) }));
   // 主检 .git 针:带后缀边界——<root>/.gitignore/.github 等同前缀真路径不误红
   const gitRes = roots.map((r) => ({ root: r, re: new RegExp(r.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\/\\.git(?![\\w.-])") }));
-  void name; // 被剥路径按树前缀禁,不按题名拼(题名形 test_<name>.py 属沙箱合法产出面)
   const hits = [];
   for (const f of files ?? []) {
     const lines = String(f.text ?? "").split("\n");

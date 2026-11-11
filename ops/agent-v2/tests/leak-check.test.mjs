@@ -139,7 +139,7 @@ test("checkRoundDiffLeak:引用主检出答案树绝对路径=红;沙箱相对�
   const repoRoot = "/home/x/main-checkout";
   const name = "some_question";
   const red = checkRoundDiffLeak({
-    repoRoot, name,
+    repoRoot,
     files: [
       { path: "notes.md", text: `答案在这: ${repoRoot}/backend/tests/sources/test_${name}.py 抄之\n` },
       { path: "backend/ipdb/_sources/other.py", text: "干净实现\n" },
@@ -150,7 +150,7 @@ test("checkRoundDiffLeak:引用主检出答案树绝对路径=红;沙箱相对�
   assert.equal(red.hits[0].file, "notes.md");
   assert.equal(red.hits[0].line, 1);
   const green = checkRoundDiffLeak({
-    repoRoot, name,
+    repoRoot,
     files: [
       { path: `backend/tests/sources/test_${name}.py`, text: "def test_x():\n    assert True\n" }, // 沙箱相对路径=轮的合法产出
       { path: "backend/ipdb/_sources/x.py", text: "from .._base import Source\n" },
@@ -179,22 +179,22 @@ test("checkRoundDiffLeak 针根补主检出(#337 F5):git-common-dir 推导,主�
   execFileSync("git", ["-C", main, "worktree", "add", "-q", "--detach", wt]);
   try {
     // 主检答案树绝对路径(不传 mainRoot,纯 git-common-dir 推导面)→ 红
-    const red = checkRoundDiffLeak({ repoRoot: wt, name: "q", files: [{ path: "notes.md", text: `看主检出:${main}/backend/ipdb/_sources/q.py\n` }] });
+    const red = checkRoundDiffLeak({ repoRoot: wt, files: [{ path: "notes.md", text: `看主检出:${main}/backend/ipdb/_sources/q.py\n` }] });
     assert.equal(red.ok, false, "worktree 跑法下主检答案树必须被针(针根补主检出)");
     assert.equal(red.hits[0].needle, path.join(main, "backend", "ipdb"));
     // worktree 自身根照旧红(双根并存,非回退)
-    const redWt = checkRoundDiffLeak({ repoRoot: wt, name: "q", files: [{ path: "n.md", text: `${wt}/backend/tests/sources/test_q.py\n` }] });
+    const redWt = checkRoundDiffLeak({ repoRoot: wt, files: [{ path: "n.md", text: `${wt}/backend/tests/sources/test_q.py\n` }] });
     assert.equal(redWt.ok, false);
     assert.equal(redWt.hits[0].needle, path.join(wt, "backend", "tests"));
     // 主检 .git 考古面 → 红
-    const redGit = checkRoundDiffLeak({ repoRoot: wt, name: "q", files: [{ path: "n.md", text: `git --git-dir=${main}/.git log --all\n` }] });
+    const redGit = checkRoundDiffLeak({ repoRoot: wt, files: [{ path: "n.md", text: `git --git-dir=${main}/.git log --all\n` }] });
     assert.equal(redGit.ok, false, "主检 .git 考古面=红");
     assert.equal(redGit.hits[0].needle, path.join(main, ".git"));
     // 沙箱相对路径照旧绿
-    const green = checkRoundDiffLeak({ repoRoot: wt, name: "q", files: [{ path: "backend/ipdb/_sources/q.py", text: "from .._base import Source\n" }] });
+    const green = checkRoundDiffLeak({ repoRoot: wt, files: [{ path: "backend/ipdb/_sources/q.py", text: "from .._base import Source\n" }] });
     assert.equal(green.ok, true);
     // 显式 mainRoot 注入面等价(测试注入口;非 git 根的 repoRoot 也可用)
-    const pinned = checkRoundDiffLeak({ repoRoot: wt, mainRoot: main, name: "q", files: [{ path: "n.md", text: `${main}/backend/ipdb/x.py\n` }] });
+    const pinned = checkRoundDiffLeak({ repoRoot: wt, mainRoot: main, files: [{ path: "n.md", text: `${main}/backend/ipdb/x.py\n` }] });
     assert.equal(pinned.ok, false);
     assert.equal(pinned.hits[0].needle, path.join(main, "backend", "ipdb"));
   } finally {
