@@ -18,6 +18,7 @@ import { runAddRound } from "../run-add.mjs";
 import {
   ADD_PHASES,
   ADD_TASK_NAME,
+  ADD_GATES,
   parseQueueRows,
   rosterCollisions,
   freshnessOf,
@@ -267,12 +268,39 @@ test("queue 行解析:三写口行形;evidence 引号内分号不裂(JSON 值面
   assert.equal(rows[1].evidence.get("human:approved_by"), "owner");
 });
 
-test("roster 撞卡:host 列与子列命中=重复出版方(skill Phase 1 律);大小写不敏感", () => {
-  const roster = ["dataplane | threat | dataplane.org | ip,asn | telnetlogin,rdns"];
+test("roster 撞卡:host 列与子列命中=重复出版方(skill Phase 1 律);大小写不敏感;去前导 www. 再比(#334 消化件①)", () => {
+  const roster = [
+    "dataplane | threat | dataplane.org | ip,asn | telnetlogin,rdns",
+    "binarydefense | threat | www.binarydefense.com | ip",
+  ];
   assert.deepEqual(rosterCollisions("dataplane.org", roster), ["dataplane.org"]);
   assert.deepEqual(rosterCollisions("DataPlane.ORG", roster), ["dataplane.org"], "host 大小写不敏感");
+  assert.deepEqual(rosterCollisions("www.dataplane.org", roster), ["dataplane.org"], "候选带 www. 前缀→去 www 再比(www.dataplane.org vs dataplane.org 逐字比漏拦)");
+  assert.deepEqual(rosterCollisions("binarydefense.com", roster), ["www.binarydefense.com"], "roster 侧带 www. → 去 www 后命中(报 roster 原文形)");
   assert.deepEqual(rosterCollisions("telnetlogin", roster), ["telnetlogin"], "子列信号撞卡(dataplane 前例)");
   assert.deepEqual(rosterCollisions("blocklist.example", roster), [], "零撞=过");
+});
+
+test("G_CLOSE queue.md 对拍:a1 记 sha,轮内被改写=红 sandbox_violation(轮零队列写防线,#334 消化件②)", async () => {
+  const w = seedWorld("v2-add-qsha-");
+  try {
+    const r = await runRound(w);
+    assert.equal(r.status, "completed", JSON.stringify(r.error ?? r));
+    const dir = path.join(w.opsRoot, "rounds", ROUND);
+    const a1 = JSON.parse(fs.readFileSync(path.join(dir, "a1-verify.json"), "utf8"));
+    assert.match(a1.queue_sha ?? "", /^[0-9a-f]{16}$/, "a1 须记 queue.md sha(镜像台账行读回防线同律)");
+    const q0 = fs.readFileSync(path.join(w.opsRoot, "queue.md"), "utf8");
+    // 轮后原样:同 ctx 重评 G_CLOSE 仍绿(信封/预算/台账工件均在)
+    const ctx = { dir, queueFile: path.join(w.opsRoot, "queue.md"), envelope: { ok: true, round: "add" }, ledgerFile: path.join(w.opsRoot, "ledger.md"), roundId: ROUND, source: SOURCE };
+    assert.equal(ADD_GATES.G_CLOSE(ctx).pass, true, JSON.stringify(ADD_GATES.G_CLOSE(ctx)));
+    // 轮内改写模拟:queue.md 被(模型工具面/任何轮面)追加行 → sha 对拍红
+    fs.appendFileSync(ctx.queueFile, `| 2026-06-03 | add | PROPOSE | ${SOURCE} | — | candidate:name="被改写" | 是(否决=删除本行) |\n`);
+    assert.equal(q0.length > 0, true);
+    const red = ADD_GATES.G_CLOSE(ctx);
+    assert.equal(red.pass, false);
+    assert.equal(red.code, "sandbox_violation");
+    assert.match(red.reason, /queue\.md/);
+  } finally { fs.rmSync(w.tmp, { recursive: true, force: true }); }
 });
 
 test("鲜活度门:内部时间戳 ≤30d 过;>30d 或无证据=不过(响应≠活,file-mtime 不算)", () => {

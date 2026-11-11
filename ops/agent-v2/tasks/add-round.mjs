@@ -122,15 +122,20 @@ function parseEvidenceCell(cell) {
 
 // roster 撞卡(add-intel-source 技能 Phase 1 律:候选域名对 download_host+子列;
 // dataplane 前例 2026-09-05)。roster 行形 = _registry.roster():name | cat | host | fields [| 子列]。
+// www. 前缀去后再比(#334 消化件①:www.dataplane.org vs dataplane.org 逐字相等会漏拦
+// 同出版方;双侧剥前导 www.,子列信号面同理不受伤——子列本就非域名形);
+// 命中回报 roster 原文形(host 小写化)。共享内容分发域(如 raw.githubusercontent.com)
+// 多源同 host 仍会互撞——那是撞卡判据的已知局限(比的是可注册域位),留给真实轮判例演化。
 export function rosterCollisions(candidateHost, rosterLines) {
-  const want = String(candidateHost ?? "").toLowerCase();
+  const stripWww = (h) => (h.startsWith("www.") ? h.slice(4) : h);
+  const want = stripWww(String(candidateHost ?? "").toLowerCase());
   if (!want) return [];
   const hits = [];
   for (const line of rosterLines ?? []) {
     const cells = String(line).split("|").map((c) => c.trim());
     if (cells.length < 4) continue;
     const host = (cells[2] ?? "").toLowerCase();
-    if (host && host === want) hits.push(host);
+    if (host && stripWww(host) === want) hits.push(host);
     const subs = (cells[4] ?? "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
     if (subs.includes(want)) hits.push(want);
   }
@@ -354,7 +359,14 @@ export const ADD_GATES = {
     return gatePass(`分支指针 ${rep.sandbox.sha.slice(0, 12)}(${rep.sandbox.branch}${rep.sandbox.committed ? ",本轮提交" : ",无新提交"})`, inputs);
   },
   G_CLOSE: (ctx) => {
-    const inputs = ["(stdout 轮次信封)", ART.BUDGET, "(ledger)"];
+    const inputs = ["(stdout 轮次信封)", ART.BUDGET, "(ledger)", ART.VERIFY];
+    // 零队列写防线第 2 锚(#334 消化件②):a1 钉的 queue.md sha 对拍现读——轮零队列写
+    // 红线(写口仅人面)的镜像台账行读回同律;改写=红 sandbox_violation,轮判失败。
+    const a1 = j(ctx, ART.VERIFY);
+    if (!a1?.queue_sha) return gateFail(`a1 缺 queue_sha(形状漂移:零队列写防线装不上)`, inputs, "infra");
+    const queueNow = fs.existsSync(ctx.queueFile) ? fs.readFileSync(ctx.queueFile, "utf8") : "";
+    if (sha(queueNow) !== a1.queue_sha)
+      return gateFail(`queue.md 在轮内被改写(a1 sha ${a1.queue_sha} ≠ 现 ${sha(queueNow)}):轮零队列写红线,写口仅人面(#139 flock 纪律)`, inputs, "sandbox_violation");
     if (!ctx.envelope) return gateFail("信封未组装", inputs, "infra");
     const s = JSON.stringify(ctx.envelope);
     if (s.includes("\n")) return gateFail("信封非单行", inputs, "infra");
@@ -411,6 +423,9 @@ async function runVerify(ctx) {
     url: typeof cardRow.evidence.get("candidate:url") === "string" ? cardRow.evidence.get("candidate:url") : null,
     approved_by: cardRow.evidence.get("human:approved_by") ?? approve.evidence.get("human:approved_by") ?? null,
   };
+  // 零队列写防线第 1 锚(#334 消化件②):a1 相位记 queue.md sha,G_CLOSE 对拍——
+  // 轮内任何面(含模型工具 run_bash 绝对路径写)改写队列,门红 sandbox_violation。
+  const queue_sha = sha(text);
   // roster diff:faux=罐装行;真实面=沙箱内 python -m ipdb._registry --roster(定案 8 跑法)
   let roster;
   let liveness;
@@ -428,7 +443,7 @@ async function runVerify(ctx) {
   const freshness = freshnessOf(liveness);
   writeJson(path.join(ctx.dir, ART.VERIFY), {
     round_id: ctx.roundId, source: ctx.source, generated_at: new Date().toISOString(),
-    card, roster: { rows_n: roster.length, collisions }, liveness, freshness,
+    card, queue_sha, roster: { rows_n: roster.length, collisions }, liveness, freshness,
   });
   return { patch: { card } };
 }
@@ -584,6 +599,9 @@ async function scriptPhase(task, runtime, context, phase) {
 }
 
 // ── 模型相位(DOSSIER/IMPLEMENT 共骨架;一轮一会话两次 submit)───────────
+// 预算执法粒度说明(#334 评论消化件③,至少头注言明):OPS_ADD_* ①③帽在 attempt(=一次
+// submit 腿)粒度执法——IMPLEMENT 一次 submit 内的工具循环逐回合无帽间检查(回合计数在
+// 结算后入账,超帽在下一次 attempt/相位边界拦);腿中 abort/看门狗留后续票。
 const MODEL_LEGS = Object.freeze({
   dossier: { stage: "DOSSIER", gate: "G_DOSSIER", promptFile: "dossier.md", artifact: ART.DOSSIER, transcript: ART.DOSSIER_T },
   implement: { stage: "IMPLEMENT", gate: "G_IMPLEMENT", promptFile: "implement.md", artifact: ART.IMPL, transcript: ART.IMPL_T },
