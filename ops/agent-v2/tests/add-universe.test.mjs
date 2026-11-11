@@ -338,7 +338,7 @@ test("DUMP_META_SCRIPT url 判据 = 运行时类属性(#338):多行字面量源 
 
 test("universe.jsonl 勘误一致性(#338):修后 dump 重导 = 名序列/劈分序列/全行字节一致;meta 除 frozen 位外全等", { skip: SKIP_DUMP }, () => {
   // 勘误协议(#333):frozen 手改 false → 重导 → 人检 → 手改 true。本测试 = 重导后的
-  // 永久机检锚:同 roster/同 dump 判据/同种子重导必须逐字节复现入仹件(名序列+劈分
+  // 永久机检锚:同 roster/同 dump 判据/同种子重导必须逐字节复现入仓件(名序列+劈分
   // 序列+url 全部钉死;#338 勘误只许 url 变——当日实测变化 8 行:sw_scanners/sw_threats
   // + cloudzy/dns_public/emerging_threats/f3csystems/geolite_city/ziyadnz,均旧值=新值
   // 前缀形,逐行见 dev/p338-report.md 宇宙 diff 段)。

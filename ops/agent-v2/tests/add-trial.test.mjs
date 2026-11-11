@@ -12,7 +12,7 @@ import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 
-import { runTrial, mintRoundId, seedQueueWorld, sandboxChangedFiles, spendCapCny, admitTrialSpend, spendTotalCny, appendSpend } from "../bench/add-domain/run-trial.mjs";
+import { runTrial, mintRoundId, seedQueueWorld, sandboxChangedFiles, spendCapCny, admitTrialSpend, spendTotalCny, appendSpend, spendDirFor } from "../bench/add-domain/run-trial.mjs";
 import { scoreRuns } from "../bench/add-domain/score.mjs";
 
 // 直写台账夹具(拒跑测试用:预置累计超帽的 spend.json)
@@ -288,4 +288,13 @@ test("mintRoundId 形状律 YYYY-MM-DD-HHMM-add;seedQueueWorld 行形;sandboxCha
     const files = sandboxChangedFiles(sbx, rootSha);
     assert.deepEqual(files.map((f) => f.path).sort(), ["tracked.txt", "untracked.md"]);
   } finally { fs.rmSync(ops, { recursive: true, force: true }); }
+});
+
+test("spendDirFor 缺省锚主检出(#337 评审 P2):前缀=mainCheckoutRoot(ROOT) ?? ROOT 且含 dev/add-bench——worktree 跑时台账不随删树灭失", async () => {
+  const { mainCheckoutRoot } = await import("../bench/leak-check.mjs");
+  const repoRoot = path.resolve(HERE, "..", ".."); // HERE=ops/agent-v2 → 仓根
+  const base = mainCheckoutRoot(repoRoot) ?? repoRoot;
+  const dir = spendDirFor();
+  assert.ok(dir.startsWith(base + path.sep), `spendDirFor 应锚 ${base},实得 ${dir}`);
+  assert.ok(dir.endsWith(path.join("dev", "add-bench")), `应以 dev/add-bench 结尾,实得 ${dir}`);
 });

@@ -92,7 +92,7 @@ export function sandboxChangedFiles(sandbox, rootSha) {
 // 追加本轮花费(信封 usage.cost,失败轮信封缺席记 0 留痕,round_status 如实记);
 // faux 路零花费,不查帽不记账。帽缺省 40(基准帽 #331 spec),env ADD_BENCH_SPEND_CAP_CNY
 // 可覆写;「累计超帽」= 追加后总额严格大于帽才拦后续(trial 内部花费由 OPS_ADD_* 腿帽约束)。
-// 锚点鐾主检出（#337 评审 P2-2）：本仓惯例 worktree 跑基准且完删树，台账随删即灭失、帽静默归零，
+// 锚点锚主检出（#337 评审 P2-2）：本仓惯例 worktree 跑基准且完删树，台账随删即灭失、帽静默归零，
 // 违「证据永不灭失」；懒锚（首用解析，勿模块顶层 spawnSync）mainCheckoutRoot(ROOT) ?? ROOT，
 // 与 resolveAddPython 同算式（git-common-dir 推导，F5 同源）。SPEND_DIR 常量仅参考位/测试
 // 定位；运行面一律走 spendDirFor()。
