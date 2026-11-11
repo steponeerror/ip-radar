@@ -20,7 +20,7 @@
 # 冻结门(#327):NEEDS.md(考题宇宙)与验证面(golden/selftest*/fixtures/v2-tests
 # +leak gate 执法件 leak-check.mjs/exam-rules.json,Standards P1 修批)两道 git diff
 # 对 incumbent 分支必为空——评估器不许候选改;演化可编面另表
-# EDIT_ALLOWLIST(策略面 43 文件,#327 Q1 推翻 #322 R5 全放开)。
+# EDIT_ALLOWLIST(策略面 47 文件,#327 Q1 推翻 #322 R5 全放开)。
 import fnmatch
 import json
 import os
@@ -284,7 +284,7 @@ class IpRadarDomain(Domain):
     # 零漂移红线)。tree hash 只盖 vendoring 面,域文件/RRSI 核心的提交不误报为
     # harness 变化(gitops.py 语义)。
     harness_path = "harness"
-    # 演化可编面白名单(#327 Q1,推翻 #322 R5 全放开):策略面 43 文件,read/edit/
+    # 演化可编面白名单(#327 Q1,推翻 #322 R5 全放开):策略面 47 文件,read/edit/
     # write 三动作同表,名单外只读;dev/rrsi Workspace 以 getattr 消费本属性,
     # 语义/构成见 EDIT_ALLOWLIST 注释。
     edit_allowlist = EDIT_ALLOWLIST
@@ -315,7 +315,7 @@ class IpRadarDomain(Domain):
         ),
         "proposer": (
             "域:ip-radar 盲测重发现基准——用基准轮(沙箱,faux 或真实 GLM)度量发现管线的"
-            "搜索与召回能力,奖励=逐源 0/1 召回。开放面=策略面 43 文件白名单(七条 glob:"
+            "搜索与召回能力,奖励=逐源 0/1 召回。开放面=策略面 47 文件白名单(七条 glob:"
             "pipeline/prompts/v2 tools+tasks+bench/v1 入口与模型),名单外一律只读,"
             "验证面另有冻结门;约束读 PATTERNS.md(零漂移红线:真实轮路径行为字节不变,"
             "golden 钉;考题名/域名禁入提示词与代码;编辑预算须可归因)。提升召回的"
