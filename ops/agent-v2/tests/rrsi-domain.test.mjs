@@ -344,8 +344,8 @@ test("adapter 边界收口(#327):白名单 43 文件面 + 验证面冻结门红�
     assert.equal(v, false, `名单外路径须拒(只读):${p}`);
   assert.equal(boundaryProbe.normBackslash, true, "反斜杠路径须归一(\\ → /)");
   assert.equal(
-    boundaryProbe.allowlistCount, 43,
-    "策略面构成=43 文件(#327 裁定:pipeline 11+prompts 9+v2 tools/tasks/bench 21+v1 入口/模型 2;source_exts 计数面;漂移须重裁并同步 EDIT_ALLOWLIST 注释与本测)",
+    boundaryProbe.allowlistCount, 47,
+    "策略面构成=47 文件(#327 原裁 43;#333 P2a 加源基准器 add-domain +4:pipeline 11+prompts 9+v2 tools/tasks/bench 25+v1 入口/模型 2;source_exts 计数面;漂移须重裁并同步 EDIT_ALLOWLIST 注释与本测)",
   );
   assert.equal(boundaryProbe.gateClean, true, "净树=冻结完好(rc0)");
   for (const [rel, v] of Object.entries(boundaryProbe.gateRed))

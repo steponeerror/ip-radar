@@ -61,10 +61,11 @@ BENCH_PYTHON = os.environ.get("IPRADAR_BENCH_PYTHON",
 # ── 演化可编面白名单(票 #327 Q1 裁定 2026-11-08;推翻 #322 R5「开放面 v1+v2 全放开」)──
 # 主仓=声明与单源;dev/rrsi Workspace 以 getattr(domain, "edit_allowlist", None) 消费
 # (read/edit/write 三动作同表,越名单即拒)。fnmatch 语义:* 跨目录分隔符;路径相对
-# harness 根。构成=策略面 43 文件(调研笔记 docs/notes/ops-tree-as-harness-2026-11-08.md:
-# 验证/环境/文档面 72% 是演化不该碰的):
+# harness 根。构成=策略面 47 文件(#327 原裁 43;#333 P2a 加源基准器 add-domain +4:
+# gen-universe/build-sandbox/score 三 .mjs + keyless-rules.json。调研笔记
+# docs/notes/ops-tree-as-harness-2026-11-08.md:验证/环境/文档面 72% 是演化不该碰的):
 #   ops/agent/pipeline/** 11 + ops/agent/prompts/** 9
-#   + ops/agent-v2/{tools,tasks,bench}/** 21 + ops/agent/{agent.mjs,models.mjs} 2
+#   + ops/agent-v2/{tools,tasks,bench}/** 25 + ops/agent/{agent.mjs,models.mjs} 2
 # 其余(v1 根散件/验证面/环境面/文档面)一律只读;验证面另有 _guardrails 冻结门,
 # 不靠本表拒绝。名单外输入 fail-closed(edit_allowed 返回 False)。
 # 双匹配器互指(Spec 轴 P2-1):运行时真身是 dev/rrsi rrsi/propose.py _allowed(同一张
