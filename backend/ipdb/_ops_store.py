@@ -64,8 +64,11 @@ _app_dir = Path(__file__).resolve().parent.parent
 # 与 _registry.py 同惯例:CLI/API 进程都认 backend/.env(存在才生效,不覆盖已设值)
 load_dotenv(_app_dir / ".env")
 
-# T4 冻结闭集(tools.mjs queueAction parameters)
-QUEUE_ACTIONS = ("ENQUEUE", "REJECT")
+# 队列动作词闭集。T4 冻结两词(ENQUEUE/REJECT);APPROVE = #331 定案 9(#332 P1)
+# 入列:人对候选卡点头的写口,供加源轮消费 status=approved 的卡。写口仅人面 ——
+# 只在本闭集扩词,node 侧 tools.mjs queueAction 闭集与 write_ruling 的
+# _SUGGESTION_QUEUE_RE 建议动词正则均不含 APPROVE(轮次/判例面永不自动写;轮无写口改卡状态)。
+QUEUE_ACTIONS = ("ENQUEUE", "REJECT", "APPROVE")
 QUEUE_PREDICATES = ("sunset_frozen", "mirror_echo", "zero_asset")
 _QUEUE_SOURCE_RE = re.compile(r"^[a-z0-9_]{1,32}$")
 

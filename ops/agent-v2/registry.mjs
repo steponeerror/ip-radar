@@ -16,18 +16,32 @@
 //                          会话不选装=零工具面,tests/scaffold.test.mjs 钉基线。
 //                          会话未存选装名单时缺省=全部已装(agent.js selectExtensions),
 //                          选装必须显式,见 entry.mjs)。
+//   "ops-add-tools"     — 加源轮三只编码工具(write_file/run_bash/run_pytest;票
+//                          #332 P1,定案 7)。#331 对「无人值守管线模型不得获代码执行面」
+//                          红线的轮型修正:加源轮的工作就是写代码进沙箱——写口经
+//                          defineTool + tools/add-tools.mjs insideSandbox 沙箱约束面
+//                          收窄到 "沙箱 worktree 内",并非安装内建 CodingTools(内建
+//                          面仍一概不装;主检出零改动防线=CLOSE sandbox_assert)。仅
+//                          加源轮自有会话选装(run-add.mjs extensions 显式);root/
+//                          骨架会话零工具面基线不变。
 import { createRegistry, defineExtension } from "@earendil-works/pi-durable";
 import { TASKS } from "./tasks/index.mjs";
 import { OPS_PROBE_TOOLS } from "./tools/probes.mjs";
 import { discoveryTools } from "./tools/discovery-tools.mjs";
+import { addTools } from "./tools/add-tools.mjs";
 
 // 发现轮工具闭集扩展(票 #227;replay 声明见 tools/discovery-tools.mjs)。
 // 导出真身:轮启动器(run-discover.mjs)创建轮会话时经 AgentChange.extensions 选中它。
 export const DISCOVER_TOOLS_EXTENSION = defineExtension({ name: "ops-discover-tools", tools: discoveryTools() });
 
+// 加源轮编码工具闭集扩展(票 #332 P1;replay 声明见 tools/add-tools.mjs)。
+// 导出真身:轮启动器(run-add.mjs)创建轮会话时经 extensions 选中它。
+export const ADD_TOOLS_EXTENSION = defineExtension({ name: "ops-add-tools", tools: addTools() });
+
 export function buildRegistry() {
   const registry = createRegistry(); // 只含内建三任务(generation/tool/compaction)
   registry.install(defineExtension({ name: "ops", tasks: [...TASKS], tools: [...OPS_PROBE_TOOLS] })); // T4:微探针闭集随 ops 扩展(仅真 DEEP 面选装)
   registry.install(DISCOVER_TOOLS_EXTENSION); // T3:发现轮通道工具独立扩展(会话选装面)
+  registry.install(ADD_TOOLS_EXTENSION); // #332 P1:加源轮编码工具独立扩展(会话选装面)
   return registry;
 }
