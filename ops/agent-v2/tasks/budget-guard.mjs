@@ -21,12 +21,38 @@ const ROOT = path.resolve(import.meta.dirname, "..", "..", ".."); // 仓根(本�
 // per-type 旋钮读面(pipeline.mjs mkCtx 同选择:discover→readDiscoverKnobs,其余→readBudgetKnobs;
 // 月帽/dup 两键两族共享同键同缺省)。非法值 throw {usage:true} → CLI 用法错 exit 2(不带病跑轮)。
 export const roundKnobs = (env, roundType = "health") =>
-  (roundType === "discover" ? budget.readDiscoverKnobs : budget.readBudgetKnobs)(env ?? process.env);
+  (roundType === "discover" ? budget.readDiscoverKnobs
+    : roundType === "add" ? readAddKnobs
+    : budget.readBudgetKnobs)(env ?? process.env);
 
 // per-type 旋钮名指认(旧 runModelStage knobSrc 同表:报错文案指向真读键)。
 export const knobNames = (roundType) => roundType === "discover"
   ? { calls: "OPS_DISCOVER_MAX_MODEL_CALLS", wall: "OPS_DISCOVER_WALL_CLOCK_S", spend: "OPS_DISCOVER_SPEND_CAP_CNY" }
+  : roundType === "add"
+  ? { calls: "OPS_ADD_MAX_MODEL_CALLS", wall: "OPS_ADD_WALL_CLOCK_S", spend: "OPS_ADD_SPEND_CAP_CNY" }
   : { calls: "OPS_PIPELINE_MAX_MODEL_CALLS", wall: "OPS_PIPELINE_WALL_CLOCK_S", spend: "OPS_PIPELINE_SPEND_CAP_CNY" };
+
+// —— add 轮旋钮族 OPS_ADD_*(票 #332 P1;spec 2026-11-11-add-round §架构:独立族不占
+// 发现轮帽子)——定义在 v2 guard 层而非旧 ops/agent/pipeline/budget.mjs:旧文件零改动红线
+// (budget-parity 对拍测试钉导出面逐名同引用),readKnob 旧面未导出故本地同形拷贝。
+// 界值=实现票 #332 裁(发现轮形状缩放):IMPLEMENT 是工具循环大步(一次 submit 多回合),
+// 调用数/墙钟 ×2(60/7200);花费帽同发现轮 ¥5;月帽/dup 同键共享(OPS_PIPELINE_*)。
+const readAddKnob = (name, raw, def) => { // readKnob 同形拷贝(旧 budget.mjs:23 未导出;文案/行为逐字)
+  const s = raw ?? def;
+  const v = +s;
+  if (!Number.isFinite(v) || v < 0)
+    throw Object.assign(new Error(`${name} 须为非负数,得到:${s}`), { usage: true });
+  return v;
+};
+export function readAddKnobs(env = process.env) {
+  return {
+    maxModelCalls: readAddKnob("OPS_ADD_MAX_MODEL_CALLS", env.OPS_ADD_MAX_MODEL_CALLS ?? process.env.OPS_ADD_MAX_MODEL_CALLS, "60"), // ①整轮模型调用数帽(DOSSIER 1 回合 + IMPLEMENT 工具循环逐回合,60=发现轮 30×2)
+    wallClockS: readAddKnob("OPS_ADD_WALL_CLOCK_S", env.OPS_ADD_WALL_CLOCK_S ?? process.env.OPS_ADD_WALL_CLOCK_S, "7200"), // ③整轮墙钟秒(编码+测试真跑,7200=发现轮 3600×2)
+    spendCapCny: readAddKnob("OPS_ADD_SPEND_CAP_CNY", env.OPS_ADD_SPEND_CAP_CNY ?? process.env.OPS_ADD_SPEND_CAP_CNY, "5"), // ④整轮花费帽 ¥(与发现轮同量级)
+    monthlyCapCny: readAddKnob("OPS_PIPELINE_MONTHLY_CAP_CNY", env.OPS_PIPELINE_MONTHLY_CAP_CNY ?? process.env.OPS_PIPELINE_MONTHLY_CAP_CNY, "30"), // 月帽共享(全 agent 面同键同缺省)
+    dupCallLimit: readAddKnob("OPS_PIPELINE_DUP_CALL_LIMIT", env.OPS_PIPELINE_DUP_CALL_LIMIT ?? process.env.OPS_PIPELINE_DUP_CALL_LIMIT, "3"), // 同参调用拦截线(同键同缺省不另立)
+  };
+}
 
 // 台账路径推导(旧 agent.mjs runRound 同形:LEDGER_FILE > DOCS_ROOT/ops/ledger.md;
 // 月帽是全 agent 面共享底线,同裁决同留痕。shadow 期实际接线:DOCS_ROOT 指影子根,

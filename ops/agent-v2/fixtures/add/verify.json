@@ -1,0 +1,11 @@
+{
+  "roster": [
+    "spamhaus | threat | spamhaus.org | ip",
+    "binarydefense | threat | binarydefense.com | ip",
+    "dataplane | threat | dataplane.org | ip,asn | telnetlogin,rdns"
+  ],
+  "liveness": {
+    "age_days": 2,
+    "basis": "last_modified"
+  }
+}

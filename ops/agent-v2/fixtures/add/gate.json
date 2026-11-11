@@ -1,0 +1,13 @@
+{
+  "commands": [
+    {
+      "args": [
+        "-m",
+        "pytest",
+        "tests/sources/test_sample_block_list.py",
+        "-q"
+      ],
+      "cwd": "backend"
+    }
+  ]
+}
