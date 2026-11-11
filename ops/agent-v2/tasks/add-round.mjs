@@ -53,6 +53,7 @@ import { preModelCall, postModelCall, stepBoundary } from "./budget-guard.mjs"; 
 import * as gates from "../../agent/pipeline/gates.mjs"; // 零复制:gates.json 留痕件(appendGate 通用面)
 import { addPromptPath } from "../run-add.mjs"; // 提示词路径(run-add 定义面;函数声明循环安全:运行时互引,discover 同律)
 import { ensureAddHost } from "../tools/add-tools.mjs"; // 轮级编码宿主(工具面种子登记)
+import { DUMP_META_SCRIPT } from "../bench/add-domain/gen-universe.mjs"; // roster 侧 url 证据面判据单源(#337 F4;gen-exam-cards 同源消费)
 
 const execFileP = promisify(execFileCb);
 const sha = (s) => crypto.createHash("sha256").update(s).digest("hex").slice(0, 16);
@@ -124,20 +125,56 @@ function parseEvidenceCell(cell) {
 // dataplane 前例 2026-09-05)。roster 行形 = _registry.roster():name | cat | host | fields [| 子列]。
 // www. 前缀去后再比(#334 消化件①:www.dataplane.org vs dataplane.org 逐字相等会漏拦
 // 同出版方;双侧剥前导 www.,子列信号面同理不受伤——子列本就非域名形);
-// 命中回报 roster 原文形(host 小写化)。共享内容分发域(如 raw.githubusercontent.com)
-// 多源同 host 仍会互撞——那是撞卡判据的已知局限(比的是可注册域位),留给真实轮判例演化。
-export function rosterCollisions(candidateHost, rosterLines) {
+// 命中回报 roster 原文形(host 小写化)。
+// github 家族判据(#337 F4,推翻 #334 时代「共享分发域互撞=已知局限」段):家族三 host
+// 是发布方中立分发面,host 级比对会把同主机异发布方误当重复源(发现轮 gate 2026-10-10
+// 判例)——家族内改按 URL 路径键比对(路径段去空小写 join,= owner/repo+剩余路径):
+// 同发布方同文件才红;同仓不同文件=绿(同发布方不同清单,sw_scanners/sw_threats 同仓
+// 判例,#337 补充规格);家族成员 host 不区分(github.com ↔ raw.githubusercontent.com
+// 是同一发布内容)。roster 侧 url 证据 = rosterUrls Map(name→urls,真面经 DUMP_META_SCRIPT
+// 机械 dump);家族行无 url 证据=保守 host 级红(fail-closed,不带 url 面装绿)。
+export const GITHUB_FAMILY_HOSTS = new Set(["github.com", "raw.githubusercontent.com", "codeload.github.com"]);
+
+// 家族路径键:URL 的 pathname 段去空小写 join("/");非家族 URL/裸 host/解析失败 → null。
+function githubPathKey(url) {
+  let u;
+  try { u = new URL(String(url ?? "")); } catch { return null; }
+  const host = u.hostname.toLowerCase();
+  const stripped = host.startsWith("www.") ? host.slice(4) : host;
+  if (!GITHUB_FAMILY_HOSTS.has(stripped)) return null;
+  const segs = u.pathname.split("/").filter(Boolean).map((s) => s.toLowerCase());
+  return segs.length ? segs.join("/") : null;
+}
+
+export function rosterCollisions(candidate, rosterLines, rosterUrls = new Map()) {
   const stripWww = (h) => (h.startsWith("www.") ? h.slice(4) : h);
-  const want = stripWww(String(candidateHost ?? "").toLowerCase());
-  if (!want) return [];
+  // 候选面:URL 形取 hostname(家族另取路径键);裸 host 形(旧测试面)整串当 host
+  let candHost = "";
+  try {
+    candHost = stripWww(new URL(String(candidate ?? "")).hostname.toLowerCase());
+  } catch {
+    candHost = stripWww(String(candidate ?? "").toLowerCase());
+  }
+  if (!candHost) return [];
+  const candKey = GITHUB_FAMILY_HOSTS.has(candHost) ? githubPathKey(candidate) : null;
   const hits = [];
   for (const line of rosterLines ?? []) {
     const cells = String(line).split("|").map((c) => c.trim());
     if (cells.length < 4) continue;
+    const name = cells[0];
     const host = (cells[2] ?? "").toLowerCase();
-    if (host && stripWww(host) === want) hits.push(host);
+    const rosterHost = stripWww(host);
     const subs = (cells[4] ?? "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
-    if (subs.includes(want)) hits.push(want);
+    if (subs.includes(candHost)) hits.push(candHost); // 子列信号面(dataplane 前例;非域名形,host/家族判据之外)
+    if (candKey) {
+      if (!GITHUB_FAMILY_HOSTS.has(rosterHost)) continue; // 家族外可注册域位 ≠ 同发布方
+      const urls = rosterUrls.get(name) ?? [];
+      const matched = urls.find((u) => githubPathKey(u) === candKey);
+      if (matched) hits.push(String(matched)); // 撞卡证据形=命中 roster url 原文
+      else if (!urls.some((u) => githubPathKey(u))) hits.push(host); // 无 url 证据=保守 host 级红
+    } else if (host && rosterHost === candHost) {
+      hits.push(host); // host 级(非家族;或家族候选无路径键——裸域/截断形保守退化)
+    }
   }
   return [...new Set(hits)];
 }
@@ -405,8 +442,7 @@ function composeEnvelope(checkpoint, ctx) {
   };
 }
 
-// ── 相位步(脚本面)──────────────────────────────────────────────────────
-const hostnameOf = (url) => { try { return new URL(url).hostname; } catch { return null; } };
+// ── 相位步(脚本面)────────────────────────────────────────────────────
 
 // VERIFY:卡消费 + roster diff + 鲜活度(证据全落 a1;域错 card_* 先炸——无卡无可记)
 async function runVerify(ctx) {
@@ -426,20 +462,26 @@ async function runVerify(ctx) {
   // 零队列写防线第 1 锚(#334 消化件②):a1 相位记 queue.md sha,G_CLOSE 对拍——
   // 轮内任何面(含模型工具 run_bash 绝对路径写)改写队列,门红 sandbox_violation。
   const queue_sha = sha(text);
-  // roster diff:faux=罐装行;真实面=沙箱内 python -m ipdb._registry --roster(定案 8 跑法)
+  // roster diff:faux=罐装行(+可选 roster_urls 证据面);真实面=沙箱内
+  // python -m ipdb._registry --roster(定案 8 跑法)+ meta dump urls(#337 F4 家族判据证据面,
+  // DUMP_META_SCRIPT 判据单源——与 gen-exam-cards 同源消费)
   let roster;
+  let rosterUrls = new Map();
   let liveness;
   if (ctx.modelFace === "faux" && typeof ctx.fixturesDir === "string") {
     const fx = readJson(path.join(ctx.fixturesDir, "verify.json")) ?? {};
     roster = Array.isArray(fx.roster) ? fx.roster : [];
+    rosterUrls = new Map(Object.entries(fx.roster_urls ?? {}).map(([n, us]) => [n, Array.isArray(us) ? us.map(String) : []]));
     liveness = fx.liveness ?? {};
   } else {
     roster = (await execFileP(ctx.python, ["-m", "ipdb._registry", "--roster"],
       { cwd: path.join(ctx.sandboxRoot, "backend"), timeout: 120_000, maxBuffer: 16 * 1024 * 1024 })).stdout.split("\n").filter(Boolean);
+    const meta = JSON.parse((await execFileP(ctx.python, ["-c", DUMP_META_SCRIPT],
+      { cwd: path.join(ctx.sandboxRoot, "backend"), timeout: 120_000, maxBuffer: 16 * 1024 * 1024 })).stdout);
+    rosterUrls = new Map(Object.entries(meta).map(([n, e]) => [n, Array.isArray(e?.urls) ? e.urls.map(String) : []]));
     liveness = await probeLiveness(card.url);
   }
-  const host = hostnameOf(card.url ?? "");
-  const collisions = host ? rosterCollisions(host, roster) : [];
+  const collisions = card.url ? rosterCollisions(card.url, roster, rosterUrls) : [];
   const freshness = freshnessOf(liveness);
   writeJson(path.join(ctx.dir, ART.VERIFY), {
     round_id: ctx.roundId, source: ctx.source, generated_at: new Date().toISOString(),

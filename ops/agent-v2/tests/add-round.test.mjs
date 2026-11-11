@@ -53,13 +53,13 @@ const DOSSIER = {
   field_routing: ["整行 IP → rebuild 键(cidr)"],
 };
 
-function seedWorld(prefix, { approve = true } = {}) {
+function seedWorld(prefix, { approve = true, cardUrl = "https://blocklist.example/raw.txt" } = {}) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   const docsRoot = path.join(tmp, "docs");
   const opsRoot = path.join(docsRoot, "ops");
   fs.mkdirSync(opsRoot, { recursive: true });
   const rows = [
-    `| 2026-06-01 | discover | PROPOSE | ${SOURCE} | — | candidate:name="Sample Block List";candidate:url="https://blocklist.example/raw.txt" | 是(否决=删除本行) |`,
+    `| 2026-06-01 | discover | PROPOSE | ${SOURCE} | — | candidate:name="Sample Block List";candidate:url=${JSON.stringify(cardUrl)} | 是(否决=删除本行) |`,
   ];
   if (approve)
     rows.push(`| 2026-06-02 | human | APPROVE | ${SOURCE} | — | human:approved_by="测试" | 是(否决=删除本行) |`);
@@ -276,9 +276,100 @@ test("roster 撞卡:host 列与子列命中=重复出版方(skill Phase 1 律);�
   assert.deepEqual(rosterCollisions("dataplane.org", roster), ["dataplane.org"]);
   assert.deepEqual(rosterCollisions("DataPlane.ORG", roster), ["dataplane.org"], "host 大小写不敏感");
   assert.deepEqual(rosterCollisions("www.dataplane.org", roster), ["dataplane.org"], "候选带 www. 前缀→去 www 再比(www.dataplane.org vs dataplane.org 逐字比漏拦)");
+  assert.deepEqual(rosterCollisions("https://www.dataplane.org/banlist.txt", roster), ["dataplane.org"], "URL 形候选(非 github host):hostname 面 host 级比对不回退");
   assert.deepEqual(rosterCollisions("binarydefense.com", roster), ["www.binarydefense.com"], "roster 侧带 www. → 去 www 后命中(报 roster 原文形)");
   assert.deepEqual(rosterCollisions("telnetlogin", roster), ["telnetlogin"], "子列信号撞卡(dataplane 前例)");
   assert.deepEqual(rosterCollisions("blocklist.example", roster), [], "零撞=过");
+});
+
+test("roster 撞卡 github 家族判据(#337 F4):owner/repo+剩余路径比对,同发布方同文件才红", () => {
+  const roster = [
+    "ghfeed | threat | raw.githubusercontent.com | ip",
+    "sw_scams | threat | raw.githubusercontent.com | ip",
+    "plain_guy | threat | github.com | ip",
+  ];
+  const urls = new Map([
+    ["ghfeed", ["https://raw.githubusercontent.com/SomeOne/some-repo/main/feed.txt"]],
+    ["sw_scams", ["https://raw.githubusercontent.com/ShadowGuy/IPs/master/Lists/Scams.csv"]],
+    ["plain_guy", ["https://github.com/PlainGuy/plain-repo/releases/latest/download/x.mmdb"]],
+  ]);
+  const cand = "https://raw.githubusercontent.com/OtherOne/other-repo/main/feed.txt";
+  assert.deepEqual(rosterCollisions(cand, roster, urls), [], "同主机异 owner/repo=绿(发现轮 gate 2026-10-10 判例:同主机非同发布方不误杀)");
+  assert.deepEqual(
+    rosterCollisions("https://raw.githubusercontent.com/SomeOne/some-repo/main/feed.txt", roster, urls),
+    ["https://raw.githubusercontent.com/SomeOne/some-repo/main/feed.txt"],
+    "同 owner/repo 同文件=红(报命中 roster url 证据形)",
+  );
+  assert.deepEqual(
+    rosterCollisions("https://raw.githubusercontent.com/ShadowGuy/IPs/master/Lists/Threats.csv", roster, urls),
+    [],
+    "同仓不同文件=绿(同发布方不同清单;sw_scanners/sw_threats 同仓判例)",
+  );
+  assert.deepEqual(
+    rosterCollisions("https://raw.githubusercontent.com/ShadowGuy/IPs/master/Lists/Scams.csv", roster, urls),
+    ["https://raw.githubusercontent.com/ShadowGuy/IPs/master/Lists/Scams.csv"],
+    "同仓同文件=红",
+  );
+  assert.deepEqual(
+    rosterCollisions("https://github.com/PlainGuy/plain-repo/releases/latest/download/x.mmdb", roster, urls),
+    ["https://github.com/PlainGuy/plain-repo/releases/latest/download/x.mmdb"],
+    "github.com ↔ raw.githubusercontent.com 同路径=红(家族共享内容分发面,家族成员 host 不区分)",
+  );
+  assert.deepEqual(
+    rosterCollisions("https://raw.githubusercontent.com/PlainGuy/plain-repo/releases/latest/download/x.mmdb", roster, urls),
+    ["https://github.com/PlainGuy/plain-repo/releases/latest/download/x.mmdb"],
+    "家族跨成员同路径=红(候选 raw vs roster github.com)",
+  );
+  assert.deepEqual(
+    rosterCollisions("https://www.github.com/SomeOne/some-repo/main/feed.txt", roster, urls),
+    ["https://raw.githubusercontent.com/SomeOne/some-repo/main/feed.txt"],
+    "www.github.com → 去 www 后家族判据照用(www 剥离保留)",
+  );
+  assert.deepEqual(
+    rosterCollisions("https://raw.githubusercontent.com/SomeOne/SOME-REPO/main/Feed.txt", roster, urls),
+    ["https://raw.githubusercontent.com/SomeOne/some-repo/main/feed.txt"],
+    "路径大小写不敏感比对",
+  );
+  assert.deepEqual(
+    rosterCollisions(cand, ["nodata_guy | threat | raw.githubusercontent.com | ip"], new Map()),
+    ["raw.githubusercontent.com"],
+    "roster 家族行无 url 证据=保守 host 级红(fail-closed,不带 url 面装绿)",
+  );
+  assert.deepEqual(
+    rosterCollisions("https://raw.githubusercontent.com/", roster, urls),
+    ["raw.githubusercontent.com"],
+    "候选家族 url 无路径(截断/裸域)=保守退 host 级(fail-closed;家族异成员 host 不在此面误伤)",
+  );
+});
+
+test("runVerify github 家族接线(#337 F4):roster_urls 穿线;同主机异 owner/repo=轮绿;同路径=结构性红被 G_VERIFY 拦", async () => {
+  const cardUrl = "https://raw.githubusercontent.com/SomeOne/some-repo/main/feed.txt";
+  const mkFx = (ghUrl) => {
+    const fixturesDir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "add-ghfx-")), "fixtures");
+    fs.cpSync(FIXTURES, fixturesDir, { recursive: true });
+    const vp = path.join(fixturesDir, "verify.json");
+    const fx = JSON.parse(fs.readFileSync(vp, "utf8"));
+    fx.roster = [...fx.roster, "ghfeed | threat | raw.githubusercontent.com | ip"];
+    fs.writeFileSync(vp, JSON.stringify({ ...fx, roster_urls: { ghfeed: [ghUrl] } }, null, 2) + "\n");
+    return fixturesDir;
+  };
+  // 绿端:roster 同主机家族行但异 owner/repo → 零撞 → 轮全绿(host 级比对会结构性红,即基线封顶 0.64 的机制面)
+  const w = seedWorld("v2-add-gh-green-", { cardUrl });
+  try {
+    const r = await runRound(w, { fixturesDir: mkFx("https://raw.githubusercontent.com/OtherOne/other-repo/main/feed.txt") });
+    assert.equal(r.status, "completed", JSON.stringify(r.error ?? r));
+    const a1 = JSON.parse(fs.readFileSync(path.join(w.opsRoot, "rounds", ROUND, "a1-verify.json"), "utf8"));
+    assert.deepEqual(a1.roster.collisions, []);
+  } finally { fs.rmSync(w.tmp, { recursive: true, force: true }); }
+  // 红端:同 owner/repo 同文件 → duplicate_publisher 结构性红(G_VERIFY 面)
+  const w2 = seedWorld("v2-add-gh-red-", { cardUrl });
+  try {
+    const r2 = await runRound(w2, { fixturesDir: mkFx(cardUrl) });
+    assert.equal(r2.status, "failed");
+    assert.equal(r2.error.detail.code, "duplicate_publisher");
+    const a1b = JSON.parse(fs.readFileSync(path.join(w2.opsRoot, "rounds", ROUND, "a1-verify.json"), "utf8"));
+    assert.deepEqual(a1b.roster.collisions, [cardUrl], "撞卡证据形=命中 roster url");
+  } finally { fs.rmSync(w2.tmp, { recursive: true, force: true }); }
 });
 
 test("G_CLOSE queue.md 对拍:a1 记 sha,轮内被改写=红 sandbox_violation(轮零队列写防线,#334 消化件②)", async () => {
