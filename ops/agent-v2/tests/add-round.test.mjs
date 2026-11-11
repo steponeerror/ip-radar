@@ -28,6 +28,8 @@ import {
   slugify,
 } from "../tasks/add-round.mjs";
 import { roundKnobs, knobNames } from "../tasks/budget-guard.mjs";
+import { loadRosterText } from "../bench/leak-check.mjs"; // #338 复算面:真 roster 取数(条件 skip 同 add-universe 律)
+import { DUMP_META_SCRIPT } from "../bench/add-domain/gen-universe.mjs"; // url 证据面判据单源(修后运行时判据)
 import { addTools, addHosts, ADD_TOOL_NAMES } from "../tools/add-tools.mjs";
 
 const execFile = promisify(execFileCb);
@@ -466,4 +468,45 @@ test("编码工具闭集与沙箱遏制:write_file 逃逸拒绝;未绑定会话=
     const host = addHosts.get("conv-add-t");
     assert.equal(host.seeds.length, 2, "种子登记(转录 registry_seed 面)");
   } finally { addHosts.delete("conv-add-t"); }
+});
+
+// ── #338 撞卡复算面(33 题 × roster−本题行 × 修后 dump 证据 = 零结构性红)──
+
+const UNIVERSE_PATH = path.resolve(HERE, "bench", "add-domain", "data", "universe.jsonl");
+const RECOMPUTE_BACKEND = path.resolve(HERE, "..", "..", "backend");
+let rosterText = null;
+try {
+  rosterText = loadRosterText({ env: process.env });
+} catch {
+  rosterText = null;
+}
+const RECOMPUTE_PY = (() => {
+  const bin = process.env.IPDB_PYTHON ?? "python3";
+  try {
+    execFileSync(bin, ["-c", "import ipdb"], { cwd: RECOMPUTE_BACKEND, stdio: "ignore" });
+    return bin;
+  } catch {
+    return null;
+  }
+})();
+const SKIP_RECOMPUTE = rosterText && RECOMPUTE_PY
+  ? false
+  : "无真面(roster spawn 失败或 python 无法 import ipdb;CI 判例,同 add-universe SKIP_ROSTER 律)";
+
+test("撞卡复算 0/33(#338 勘误后):每题候选 url 对 roster−本题行 + 修后 dump 证据零红", { skip: SKIP_RECOMPUTE }, () => {
+  // 修前红对(#337 报告复算段记档):sw 双题 url 多行字面量被旧 dump 判据截断为
+  // …/IPs/ 前缀,候选与 roster 证据面同折 → 路径键相等保守红,本机复算 red=2/33
+  // (dev/p338-report.md 复算段)。修后:候选=运行时拼接完整 URL,sw 双题路径键
+  // Scanners.csv ≠ Threats.csv → 同仓不同文件=绿(#337 F4 判例)。
+  const meta = JSON.parse(execFileSync(RECOMPUTE_PY, ["-c", DUMP_META_SCRIPT], { cwd: RECOMPUTE_BACKEND, encoding: "utf8" }));
+  const urls = new Map(Object.entries(meta).map(([n, e]) => [n, Array.isArray(e?.urls) ? e.urls.map(String) : []]));
+  const rosterLines = rosterText.split("\n").filter(Boolean);
+  const rows = fs.readFileSync(UNIVERSE_PATH, "utf8").split("\n").filter(Boolean).slice(1).map((l) => JSON.parse(l));
+  const reds = [];
+  for (const row of rows) {
+    const roster = rosterLines.filter((l) => l.split("|")[0].trim() !== row.name); // 剥答案沙箱世界:去本题答案行
+    const hits = rosterCollisions(row.url, roster, urls);
+    if (hits.length) reds.push(`${row.name}(${row.url})→${hits.join(", ")}`);
+  }
+  assert.deepEqual(reds, [], `结构性红复现 ${reds.length}/${rows.length}:${reds.join("; ")}`);
 });
