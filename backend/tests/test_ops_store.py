@@ -195,6 +195,31 @@ def test_append_queue_row_shape_and_dedup(store, ops_env):
     assert len(rows) == 2
 
 
+def test_append_queue_approve_action_human_face(store, ops_env):
+    """#331 定案 9(#332 P1):APPROVE 动作词入闭集 —— 人对候选卡点头的写口。
+
+    写口仅人面:本轮只扩 python append_queue 闭集(人裁/CLI 面),node 侧
+    tools.mjs queueAction 闭集(ENQUEUE/REJECT)与 write_ruling 的建议动词正则
+    (_SUGGESTION_QUEUE_RE)均**不**扩 —— 轮次/判例面永不自动写 APPROVE;
+    加源轮只读消费 status=approved 的卡(轮无写口改卡状态)。
+    """
+    res = store.append_queue(round_="human", action="APPROVE", source="sampleblock",
+                             evidence=[("human", "approved_by", "owner")],
+                             today=date(2026, 11, 11))
+    assert res == {"appended": True, "dedup": False}
+    q = (ops_env / "ops" / "queue.md").read_text(encoding="utf-8")
+    assert ('| 2026-11-11 | human | APPROVE | sampleblock | — '
+            '| human:approved_by="owner" | 是(否决=删除本行) |') in q.splitlines()
+    # 幂等去重键 = action+source(T4 冻结语义对 APPROVE 同律;二次点头零双写)
+    res2 = store.append_queue(round_="human", action="APPROVE", source="sampleblock",
+                              evidence=[("human", "approved_by", "owner-again")],
+                              today=date(2026, 11, 12))
+    assert res2 == {"appended": False, "dedup": True}
+    # 闭集仍闭:近形词拒写
+    with pytest.raises(ValueError):
+        store.append_queue(round_="human", action="APPROVED", source="sampleblock")
+
+
 @pytest.mark.parametrize("kwargs", [
     {"round_": "discover", "action": "PURGE", "source": "threatview_c2"},
     {"round_": "discover", "action": "REJECT", "source": "threatview_c2",
