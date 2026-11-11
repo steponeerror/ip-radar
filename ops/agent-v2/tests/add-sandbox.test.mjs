@@ -166,3 +166,40 @@ test("buildSandbox:run-dir 布局——--run-dir DIR 落 DIR/<题>/sandbox(打�
   assert.deepEqual(res.stripped, { source: true, test: true, maps: [] });
   fs.rmSync(fx.tmp, { recursive: true, force: true });
 });
+
+test("stripClassificationMaps 缩进定义面:import 名以缩进赋值形残留 = indented 点名(禁静默保留答案面,#333 P2a 评审备忘硬化)", () => {
+  const src = [
+    '"""doc"""',
+    "FLAG = True",
+    "if FLAG:",
+    "    ALPHA_MAP = {'ssh': 'brute-force'}", // 缩进赋值 = 列 0 剥离器的盲区
+    "BETA_MAP = {'spam': 'spam'}",
+    "",
+  ].join("\n");
+  const r = stripClassificationMaps(src, ["ALPHA_MAP"]);
+  assert.deepEqual(r.stripped, []); // 列 0 剥不到缩进块
+  assert.deepEqual(r.absent, []);   // 名字还在文本里,不是 absent
+  assert.deepEqual(r.indented, ["ALPHA_MAP"], "缩进赋值形残留须点名(半剥沙箱禁用,人裁)");
+  assert.ok(r.text.includes("ALPHA_MAP"), "文本面如实保留(剥不动机判给人)");
+  // 无缩进残留时 indented 恒空(既有面零扰动)
+  const clean = stripClassificationMaps("ALPHA_MAP = {\n}\n", ["ALPHA_MAP"]);
+  assert.deepEqual(clean.indented, []);
+});
+
+test("buildSandbox:_classification 内该源映射以缩进赋值形在场 = throw(缩进定义面 fail-closed)", () => {
+  const fx = makeFixtureRepo();
+  fs.writeFileSync(path.join(fx.repo, "backend", "ipdb", "_classification.py"), [
+    '"""fixture:alpha map 定义在条件块内(缩进赋值形)。"""',
+    "_FLAG = True",
+    "if _FLAG:",
+    "    ALPHA_MAP = {'ssh': 'brute-force'}",
+    "",
+  ].join("\n"));
+  execFileSync("git", ["-C", fx.repo, "add", "-A", "-f"]);
+  execFileSync("git", ["-C", fx.repo, "-c", "user.name=fixture", "-c", "user.email=f@x.example", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "indented map"]);
+  assert.throws(
+    () => buildSandbox({ repo: fx.repo, name: "alpha", outDir: path.join(fx.tmp, "sbx-ind"), universePath: fx.universePath }),
+    /缩进|ALPHA_MAP/,
+  );
+  fs.rmSync(fx.tmp, { recursive: true, force: true });
+});

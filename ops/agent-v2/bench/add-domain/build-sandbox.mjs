@@ -93,7 +93,11 @@ export function stripClassificationMaps(text, names) {
   if (!out.endsWith("\n")) out += "\n";
   // absent = 既没剥成赋值块、剥后文本也不再含的 import 名(共享 def/class 保留 → 不在列)
   const absent = [...targets].filter((n) => !stripped.includes(n) && !new RegExp(`\\b${n}\\b`).test(out));
-  return { text: out, stripped, absent };
+  // 缩进定义面(#333 P2a 评审备忘硬化):目标名以缩进赋值形(条件块/嵌套定义)残留 =
+  // 机械剥离盲区——既非 absent(名字还在)也非可静默保留(答案面在场);点名交调用方
+  // throw(半剥沙箱禁用,人裁)。
+  const indented = [...targets].filter((n) => !stripped.includes(n) && new RegExp(`^\\s+${n}\\s*(?::[^=\\n]+)?=`, "m").test(out));
+  return { text: out, stripped, absent, indented };
 }
 
 // ── 沙箱构建 ──
@@ -143,9 +147,11 @@ export function buildSandbox(opts) {
   if (wanted.length && fs.existsSync(clsAbs)) {
     const cls = fs.readFileSync(clsAbs, "utf8");
     // 只剥顶层赋值名:import 面里的共享函数(normalize 等)不形如赋值,自然保留
-    const { text, stripped, absent } = stripClassificationMaps(cls, wanted);
+    const { text, stripped, absent, indented } = stripClassificationMaps(cls, wanted);
     if (absent.length)
       throw new Error(`剥离清单漂移:${name} 源文件 import ${absent.join(", ")} 但 _classification.py 无此定义(赋值块/共享函数都非)——半剥沙箱禁用,须人裁`);
+    if (indented.length)
+      throw new Error(`剥离不净(缩进定义面):${name} 的映射 ${indented.join(", ")} 在 _classification.py 以缩进赋值形定义(条件块/嵌套),列 0 剥离器剥不到——半剥沙箱禁用,须人裁重构该映射或改判据`);
     // 剥后目标名不得再出现(引用面残留 = import 炸)
     for (const n of stripped)
       if (text.includes(n)) throw new Error(`剥后 _classification.py 仍含 ${n}(剥离不净,禁用)`);

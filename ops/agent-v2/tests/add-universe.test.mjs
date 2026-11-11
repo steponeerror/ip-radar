@@ -149,6 +149,22 @@ test("buildUniverse:完备性反扫——未登记的 auth env(KEY|TOKEN|AUTH)�
   fs.rmSync(fx.tmp, { recursive: true, force: true });
 });
 
+test("buildUniverse:反扫 os.getenv 习语面同样拦;登记后 getenv 形判据也过(#333 P2a 评审备忘硬化)", () => {
+  const fx = makeFixtureTree();
+  // os.getenv 形的未登记 auth 读 → 同拦(反扫盲区:习语不同语义同)
+  fs.writeFileSync(path.join(fx.backendDir, "ipdb", "_sources", "alpha_feed.py"),
+    "import os\nk = os.getenv(\"ALPHA_FEED_SECRET_TOKEN\")\n");
+  assert.throws(() => buildFromFixture(fx), /alpha_feed.*ALPHA_FEED_SECRET_TOKEN/);
+  fs.rmSync(fx.tmp, { recursive: true, force: true });
+  // 登记侧:keyless 源改用 os.getenv 形读登记 env → 判据断言同样认(双向习语面对齐)
+  const fx2 = makeFixtureTree();
+  fs.writeFileSync(path.join(fx2.backendDir, "ipdb", "_sources", "keyless_src.py"),
+    "import os\nkey = os.getenv(\"KEYLESS_SRC_API_KEY\")\n");
+  const { meta } = buildFromFixture(fx2);
+  assert.equal(meta.keylessTotal, 1, "登记过的 getenv 形 auth 闸照常剔出考题(习语不改变无 key 事实)");
+  fs.rmSync(fx2.tmp, { recursive: true, force: true });
+});
+
 test("buildUniverse:免考判据交叉断言 + meta dump 单源纪律", () => {
   const fx = makeFixtureTree();
   // 免考名单源 host ≠ '-' → throw(gen-split 同律)

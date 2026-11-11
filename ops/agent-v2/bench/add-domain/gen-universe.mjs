@@ -73,9 +73,14 @@ export function heldoutSeatsFor(n) {
 }
 
 // ── 无 key 名单断言(双向 fail-closed)──
-// 反扫完备性正则:KEY|TOKEN|AUTH 形 env 读(置信度/限额/轮询秒数类旋钮 env 不命中;
-// 内部聚合目录 env 不命中且其源本就免考)。 禁词引用:判据引用——各源旋钮 env 名实例
-const AUTH_ENV_RE = /\bos\.environ\.get\(\s*"([A-Z0-9_]*(?:KEY|TOKEN|AUTH)[A-Z0-9_]*)"/g;
+// 反扫完备性正则:KEY|TOKEN|AUTH 形 env 读,双习语面(os.environ.get 与 os.getenv,
+// #333 P2a 评审备忘硬化:习语不同语义同,单扫一形会静默漏新 auth 源;置信度/限额/轮询
+// 秒数类旋钮 env 不命中;内部聚合目录 env 不命中且其源本就免考)。 禁词引用:判据引用——各源旋钮 env 名实例
+const AUTH_ENV_RE = /\bos\.(?:environ\.get|getenv)\(\s*"([A-Z0-9_]*(?:KEY|TOKEN|AUTH)[A-Z0-9_]*)"/g;
+
+// 登记判据断言:源文件须真被读的 env 名(双习语形,同 AUTH_ENV_RE 面;格式漂移(换行/
+// 异形)同样红——名单与代码分叉一律人裁,不猜等价)
+const readsEnvVar = (src, env) => src.includes(`environ.get("${env}"`) || src.includes(`getenv("${env}"`);
 
 function assertKeylessRules({ roster, keylessRules, backendDir, examNames }) {
   const entries = keylessRules.keyless ?? [];
@@ -87,9 +92,9 @@ function assertKeylessRules({ roster, keylessRules, backendDir, examNames }) {
     if (!rosterNames.has(e.name)) throw new Error(`keyless 名单源不在 roster:${e.name}`);
     const srcPath = path.join(backendDir, "ipdb", "_sources", `${e.name}.py`);
     const src = fs.readFileSync(srcPath, "utf8");
-    // 判据钉死同形单行 `environ.get("<env>"`(本仓 7 源实测同形);格式漂移(换行/异形)
+    // 判据钉死同形(双习语:environ.get/getenv,本仓 7 源实测同形);格式漂移(换行/异形)
     // 同样红——名单与代码分叉一律人裁,不猜等价
-    if (!src.includes(`environ.get("${e.env}"`))
+    if (!readsEnvVar(src, e.env))
       throw new Error(`keyless 判据漂移:${e.name} 源文件不再读登记 env var ${e.env}(名单与代码分叉,须人裁)`);
   }
   // 反扫:考题候选面内任何 KEY|TOKEN|AUTH 形 env 读必须已登记,否则新 auth 源静默入考题
