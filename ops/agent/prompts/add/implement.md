@@ -20,11 +20,16 @@
   (rebuild_lmdb+reader_setter+flag_setter 原样拷);`load()` 纯 mmap;
   `query(ip)` 读 env。ApiSource 基类已删(PR #13,逐 IP 计费红线)——不存在,别找。
 - 元数据在源文件内声明(类属性):`category` / `reliability` / `authoritative_for`
-  ——注册表与融合表从这些属性派生,不手编 _registry/_merge 的表。
+  ——注册表与融合表从这些属性派生,不手编 _registry/_merge 的表。**取值惯例:沙箱内
+  同 category 兄弟源的 declared 取值就是惯例真源**——写 2-3 个同 category 源的
+  reliability/classification_type 对齐着抄(tests/source_infra 会断言 declared 元数据
+  达仓内下限,自造低值=门红)。
 - 分类受控词表:映射落 `backend/ipdb/_classification.py` 的 per-source `_MAP`,
   受 `normalize()` 约束;不在词表里的类型先查 `ALL_KNOWN` 再措辞,不造新词。
 - 字段路由按 `_evidence.py` 三层槽位(CORE_FIELDS/SCALAR_SLOTS/RICH_SLOTS)逐字段
-  落定,交接单 `field_routing` 只是草案,冲突以槽位规则为准。
+  落定,交接单 `field_routing` 只是草案,冲突以槽位规则为准。**逐列落位:样张每一列
+  都要找到兄弟源同名列的既有映射照抄**(如 AS 名称列→as_name、国家码列→country
+  类既有惯例),拿不准的列查槽位定义,**不默认塞 extra**。
 
 ## 工具纪律
 
@@ -32,6 +37,9 @@
 - 跑测试一律用 `run_pytest` 工具:`run_bash` 里跑 pytest 不入转录机检面,G_IMPLEMENT
   的首红末绿回算只认 `run_pytest` 种子序。
 - 测试只许用真实样张与公开网络面取的数据,不手编「应该出现的」结果。
+- **收尾自检**:终答前用 `run_pytest` 跑 `backend/tests/source_infra/ -q` 与你自己的
+  测试文件,两类全绿才算完——GATE 门就是这套组合,提前自检(这些是沙箱内公共
+  门,不是答案)。
 
 ## 终答契约
 
