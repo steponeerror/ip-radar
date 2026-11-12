@@ -278,17 +278,19 @@ export function rosterCollisions(candidate, rosterLines, rosterUrls = new Map())
   return [...new Set(hits)];
 }
 
-// 鲜活度门(定案 8 VERIFY 行):数据内时间戳 ≤30d 过;无活性证据(last-modified/github commits API 均未取得)=fail-closed
+// 鲜活度门(定案 8 VERIFY 行):数据内时间戳 ≤30d 过;无活性证据(last-modified/
+// github commits API/响应头内嵌日期三基均未取得)=fail-closed
 // (file-mtime/「URL 响应了」不算活性证据——sunset 源冻结文件也 200;发布方活性证据
 // 面=github 家族 commits API 已接 #339 ① probeLiveness 回退,basis=github_commit;
-// 变更对抓等深水面仍不接入不谎报)。
+// #342 A2 第三基 embedded_date=响应头 content-disposition 文件名内嵌日期,非家族且
+// 前两基皆空才看,详 probeLiveness 注释;变更对抓等深水面仍不接入不谎报)。
 export function freshnessOf(liveness, nowMs = Date.now()) {
   const age = liveness?.age_days;
   if (typeof age === "number" && Number.isFinite(age)) {
     if (age <= 30) return { ok: true, basis: liveness.basis ?? "age_days", age_days: age };
     return { ok: false, basis: liveness.basis ?? "age_days", age_days: age, reason: `数据内部时间戳 age_days=${age}>30(sunset 嫌疑)` };
   }
-  return { ok: false, basis: "none", reason: "无活性证据(直接探活无 last-modified 且发布方活性证据未取得或非家族;无证据即无话,fail-closed)" };
+  return { ok: false, basis: "none", reason: "无活性证据(直接探活无 last-modified、家族 commits 证据未取得或非家族、响应头亦无可解析内嵌日期;无证据即无话,fail-closed)" };
 }
 
 // 交接单形状(定案 2:实抓样本 3-5 行/格式/auth/cadence/字段路由草案)
@@ -590,6 +592,29 @@ async function runVerify(ctx) {
   return { patch: { card } };
 }
 
+// #342 A2:content-disposition filename 内嵌日期解析(第三证据基 embedded_date 的
+// 证据面)。filename 参数引号/裸形都认;日期两形:YYYY-MM-DD 与 yyyymmdd 紧排
+// (数字串恰 8 位边界钉死——9 位长串不得按前 8 位误读);真实日历日校验
+// (2026-02-30/2026-13-01 不认);多日期取最新(last_modified 组合面 newest 同律)。
+// 解析不出 → null = 无证据 fail-closed(裸 200 不算数,A1 拒);范围只做响应头
+// 面,不嗅探响应体(体面另议)。实例:anycast_census manycast.net
+// `attachment; filename="IPv4-2026-11-12.csv.gz"`——URL 恒 latest 形,真日期只在
+// disposition 文件名里(2026-11-12 实测)。
+export function embeddedDateFromDisposition(cd) {
+  if (typeof cd !== "string" || !cd) return null;
+  const fm = cd.match(/filename\s*=\s*(?:"([^"]*)"|([^;\s]+))/i);
+  const filename = (fm?.[1] ?? fm?.[2] ?? "").trim();
+  if (!filename) return null;
+  const cand = [];
+  for (const m of filename.matchAll(/(?<!\d)(\d{4})-(\d{2})-(\d{2})(?!\d)/g)) cand.push([+m[1], +m[2] - 1, +m[3]]);
+  for (const m of filename.matchAll(/(?<!\d)(\d{4})(\d{2})(\d{2})(?!\d)/g)) cand.push([+m[1], +m[2] - 1, +m[3]]);
+  const ms = cand.map(([y, mo, d]) => {
+    const dt = new Date(Date.UTC(y, mo, d));
+    return dt.getUTCFullYear() === y && dt.getUTCMonth() === mo && dt.getUTCDate() === d ? dt.getTime() : NaN; // 非真实日历日 → NaN 弃
+  }).filter(Number.isFinite);
+  return ms.length ? { ms: Math.max(...ms), filename } : null;
+}
+
 // 真实面探活(4 组合 GET/HEAD × UA 有无):last-modified 内时间戳=鲜活度证据面;
 // 「响应了」不算证据(sunset 冻结文件也 200——技能 Phase 1 鲜活度门同律)。
 // #341 ② 限流退避与重试(主会话 2026-11-12 令,票 #341 修件 2):同 host 高频 4 组合
@@ -607,6 +632,14 @@ async function runVerify(ctx) {
 // /无 commit = fail-closed none(无证据即无话)。fetchImpl 注入=测试面零网络。
 // #340:commits API 回退调用走限流记忆化(两层+Conditional GET,见 GITHUB_FRESHNESS_
 // MEM 注释;注入缝 githubCacheMem/githubCacheFile/githubCacheTtlMs 同风格)。
+// #342 A2 第三基 embedded_date:直接探活无 last-modified、又非 github 家族时,响应头
+// content-disposition 文件名内嵌日期(解析律见 embeddedDateFromDisposition)采信为
+// basis=embedded_date,age 按该日期算(UTC 午夜);日期解析失败=无证据 fail-closed
+// (裸 200 不算数,A1 拒;#339 勘误预告「数据内时间戳(未实现)」的响应头面补齐,体面
+// 另议)。优先级 last_modified > github_commit > embedded_date——前两基都拿不到才看
+// 第三基;github 家族不吃第三基(host 级判家族,家族面仍走 commits 回退,commits
+// 失败=fail-closed 不退回)。留痕:embedded_date 面 {date_source=
+// content_disposition_filename, filename, date},header 原文随 combos 入档。
 export async function probeLiveness(url, fetchImpl = fetch, opts = {}) {
   const { sleepImpl = (ms) => new Promise((r) => setTimeout(r, ms)), comboDelayMs = 300, retryDelayMs = 750,
     githubCacheMem, githubCacheFile, githubCacheTtlMs } = opts; // #340 记忆化注入缝(同风格:undefined=缺省,file=null 关文件层)
@@ -616,7 +649,7 @@ export async function probeLiveness(url, fetchImpl = fetch, opts = {}) {
       method, redirect: "manual", signal: AbortSignal.timeout(15_000),
       headers: ua ? { "user-agent": "ip-radar-add-round/1.0" } : {},
     });
-    return { method, ua, status: r.status, last_modified: r.headers.get("last-modified") };
+    return { method, ua, status: r.status, last_modified: r.headers.get("last-modified"), content_disposition: r.headers.get("content-disposition") }; // #342 A2:第三基证据面随组合留痕
   };
   if (url) {
     let first = true;
@@ -654,13 +687,20 @@ export async function probeLiveness(url, fetchImpl = fetch, opts = {}) {
   const fromGh = gh?.dateMs != null
     ? { age_days: Math.floor((gh.ageAsOfMs - gh.dateMs) / 86_400_000), basis: "github_commit" } // age 用取得时刻算(#340:命中=缓存回放面)
     : null;
-  const evidence = fromLm ?? fromGh;
+  // #342 A2 第三基:前两基皆空且非 github 家族(host 级判,githFamilyHost 单源)才看;
+  // 多组合取最新(last_modified 同律);解析失败=无证据 fail-closed
+  const embCands = (fromLm || fromGh || githubFamilyHost(url)) ? []
+    : combos.map((c) => embeddedDateFromDisposition(c.content_disposition)).filter(Boolean);
+  const emb = embCands.length ? embCands.reduce((a, b) => (b.ms > a.ms ? b : a)) : null;
+  const fromEmb = emb ? { age_days: Math.floor((Date.now() - emb.ms) / 86_400_000), basis: "embedded_date" } : null;
+  const evidence = fromLm ?? fromGh ?? fromEmb;
   return {
     combos,
     last_modified: fromLm?.last_modified ?? null,
     age_days: evidence?.age_days,
     basis: evidence?.basis ?? "none",
     github_commit: gh?.evidence ?? gh ?? null, // 回退证据留痕(成败面都留 api/status/日期或 error;证据不灭失,#339 评审 P1:失败面裸 ev 也入档,与未尝试可分诊)
+    embedded_date: emb ? { date_source: "content_disposition_filename", filename: emb.filename, date: new Date(emb.ms).toISOString() } : null, // #342 A2 留痕;null=未采或不适用(header 原文在 combos 可分诊)
   };
 }
 

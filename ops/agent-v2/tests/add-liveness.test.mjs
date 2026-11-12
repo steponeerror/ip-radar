@@ -23,13 +23,15 @@ import { probeLiveness, githubCommitsQuery, freshnessOf } from "../tasks/add-rou
 const RAW_URL = "https://raw.githubusercontent.com/stamparm/ipsum/master/ipsum.txt";
 const GH_API = "https://api.github.com/repos/stamparm/ipsum/commits";
 
-// Response 形 stub(直接探活面只读 status/headers;API 面另读 json;#340 再读 etag)
+// Response 形 stub(直接探活面只读 status/headers;API 面另读 json;#340 再读 etag;
+// #342 A2 再读 content-disposition)
 const res = (over = {}) => ({
   status: over.status ?? 200,
   headers: { get: (k) => {
     const kk = String(k).toLowerCase();
     if (kk === "last-modified") return over.lastModified ?? null;
     if (kk === "etag") return over.etag ?? null; // #340:Conditional GET 的 etag 面
+    if (kk === "content-disposition") return over.contentDisposition ?? null; // #342 A2:第三基证据面(响应头)
     return null;
   } },
   ...(over.json !== undefined ? { json: async () => over.json } : {}),
@@ -322,4 +324,106 @@ test("#340 缺省缓存面:主检出锚 git-common-dir 下 dev/add-bench/github-
   assert.ok(p.endsWith(path.join("dev", "add-bench", "github-freshness-cache.json")), "票面钉死路径");
   const { mainCheckoutRoot, ROOT } = await import("../bench/leak-check.mjs");
   assert.equal(path.dirname(path.dirname(path.dirname(p))), mainCheckoutRoot(ROOT) ?? ROOT, "锚主检出(spend.json #337 同算式;主检出自身=退化同根)");
+});
+
+// ── #342 A2:第三证据基 embedded_date(响应头 content-disposition 文件名内嵌日期)──
+// #339 勘误预告的第二证据形「数据内时间戳(未实现)」补齐·响应头面(体面另议):
+// 直接探活无 last-modified 且非 github 家族时,disposition filename 里的日期
+// (YYYY-MM-DD 或 yyyymmdd 紧排;实例 anycast_census manycast.net
+// `attachment; filename="IPv4-2026-11-12.csv.gz"`——URL 恒 latest 形,真日期只在
+// 文件名里)采信为 basis=embedded_date,age 按该日期算;解析失败=无证据
+// fail-closed(裸 200 不算数,A1 拒);优先级 last_modified > github_commit >
+// embedded_date,github 家族不吃第三基(仍走 commits 回退)。
+
+// 内嵌日期造料:N 天前的 UTC 午夜戳 + 两形文件名段(Date.UTC 月 0 起,文件名用日历月 1 起)
+const embStamp = (daysAgo) => {
+  const d = new Date(Date.now() - daysAgo * dayMs);
+  const ymd = [d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate()];
+  const pad = ymd.map((n) => String(n).padStart(2, "0"));
+  return { ms: Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()), iso: pad.join("-"), compact: pad.join("") };
+};
+
+test("#342 A2 绿面:非家族无 last-modified + disposition 文件名带 YYYY-MM-DD → basis=embedded_date,≤30 过门;留痕 date_source+filename+date,combos 带 header 原文", async () => {
+  const s = embStamp(2.5);
+  const url = "https://example.com/api/v1/export/IPv4-latest.csv.gz"; // anycast_census 同形(latest 形 URL + 日期在文件名)
+  const cd = `attachment; filename="IPv4-${s.iso}.csv.gz"`;
+  const f = stubFetch([{ url, respond: () => res({ contentDisposition: cd }) }]);
+  const live = await probeLiveness(url, f.impl, iso());
+  assert.equal(live.basis, "embedded_date");
+  assert.equal(live.age_days, Math.floor((Date.now() - s.ms) / dayMs), "age 按文件名内日期(UTC 午夜)算");
+  assert.ok(live.age_days >= 2 && live.age_days <= 30, "2.5 天前日期→age∈{2,3},过门");
+  assert.equal(freshnessOf(live).ok, true);
+  assert.equal(live.last_modified, null);
+  assert.equal(live.github_commit, null, "非家族=commits 回退未尝试(三面可分诊)");
+  assert.deepEqual(live.embedded_date, { date_source: "content_disposition_filename", filename: `IPv4-${s.iso}.csv.gz`, date: new Date(s.ms).toISOString() }, "留痕律:date_source=content_disposition_filename + 文件名 + 日期");
+  assert.ok(live.combos.every((c) => c.content_disposition === cd), "header 原文逐组合留痕(证据不灭失)");
+});
+
+test("#342 A2 紧排形:yyyymmdd(恰 8 位数字串)同认;9 位长数字串不认(fail-closed)", async () => {
+  const s = embStamp(2.5);
+  const url = "https://example.com/dump-latest.txt";
+  const f = stubFetch([{ url, respond: () => res({ contentDisposition: `attachment; filename=dump-${s.compact}.txt` }) }]);
+  const live = await probeLiveness(url, f.impl, iso());
+  assert.equal(live.basis, "embedded_date", "裸 filename(无引号)+ yyyymmdd 紧排形同认");
+  assert.equal(live.embedded_date.filename, `dump-${s.compact}.txt`);
+  assert.equal(live.embedded_date.date, new Date(s.ms).toISOString());
+  // 9 位长数字串:恰 8 位边界钉死,不得按前 8 位误读日期
+  const f9 = stubFetch([{ url, respond: () => res({ contentDisposition: `attachment; filename="dump-${s.compact}9.txt"` }) }]);
+  assert.equal((await probeLiveness(url, f9.impl, iso())).basis, "none", "9 位长数字串不认");
+});
+
+test("#342 A2 红面:文件名带老日期 → 证据在场但 age>30 门红;解析失败族 = 无证据 none(裸 200 不算数,A1 拒)", async () => {
+  const url = "https://example.com/feed.csv";
+  const fOld = stubFetch([{ url, respond: () => res({ contentDisposition: `attachment; filename="feed-2020-01-15.csv"` }) }]);
+  const old = await probeLiveness(url, fOld.impl, iso());
+  assert.equal(old.basis, "embedded_date", "老日期可解析=证据在场(不是 none——有证据但陈)");
+  assert.ok(old.age_days > 30);
+  const gate = freshnessOf(old);
+  assert.equal(gate.ok, false);
+  assert.match(gate.reason, /age_days=\d+>30/, "同 aging 红面,不因基不同而宽纵");
+  for (const face of [
+    { label: "无 header", over: {} },
+    { label: "裸 attachment 无文件名", over: { contentDisposition: "attachment" } },
+    { label: "文件名无日期", over: { contentDisposition: `attachment; filename="feed-latest.csv"` } },
+    { label: "非真实日历日(2 月 30)", over: { contentDisposition: `attachment; filename="feed-2026-02-30.csv"` } },
+  ]) {
+    const f = stubFetch([{ url, respond: () => res(face.over) }]);
+    const live = await probeLiveness(url, f.impl, iso());
+    assert.equal(live.basis, "none", face.label);
+    assert.equal(live.age_days, undefined, face.label);
+    assert.equal(live.embedded_date, null, face.label + " 无证据面不得出 embedded_date 记录");
+    assert.equal(freshnessOf(live).ok, false, face.label);
+  }
+});
+
+test("#342 A2 优先级:last_modified 在场不吃第三基;github 家族 commits 失败也不吃(家族面仍走 commits 回退)", async () => {
+  const url = "https://example.com/feed.csv";
+  const f1 = stubFetch([{ url, respond: () => res({ lastModified: "Tue, 10 Nov 2026 00:00:00 GMT", contentDisposition: `attachment; filename="feed-2020-01-15.csv"` }) }]);
+  const lm = await probeLiveness(url, f1.impl, iso());
+  assert.equal(lm.basis, "last_modified", "last_modified 在场=最高优先");
+  assert.equal(lm.embedded_date, null, "第三基不被看");
+  const f2 = stubFetch([
+    { url: RAW_URL, respond: () => res({ contentDisposition: `attachment; filename="ipsum-2026-11-12.txt"` }) },
+    apiRoute(() => res({ status: 403, json: { message: "rate limit" } })),
+  ]);
+  const fam = await probeLiveness(RAW_URL, f2.impl, iso());
+  assert.equal(fam.basis, "none", "github 家族不吃第三基:commits 失败=fail-closed,不退回 embedded_date");
+  assert.equal(fam.embedded_date, null);
+  assert.equal(fam.github_commit.status, 403, "家族失败面留痕仍在(与未尝试可分诊)");
+});
+
+test("#342 A2 解析单测 embeddedDateFromDisposition:实测实例串/两形/边界/非真实日历日", async () => {
+  const { embeddedDateFromDisposition } = await import("../tasks/add-round.mjs");
+  // 实测实例串(anycast_census manycast.net 2026-11-12 实测形):
+  assert.deepEqual(
+    embeddedDateFromDisposition(`attachment; filename="IPv4-2026-11-12.csv.gz"`),
+    { ms: Date.UTC(2026, 10, 12), filename: "IPv4-2026-11-12.csv.gz" });
+  assert.equal(embeddedDateFromDisposition(`attachment; filename=IPv4-20261112.csv.gz`)?.ms, Date.UTC(2026, 10, 12), "紧排形");
+  assert.equal(embeddedDateFromDisposition(`attachment`), null, "无 filename 参数");
+  assert.equal(embeddedDateFromDisposition(null), null, "非字符串");
+  assert.equal(embeddedDateFromDisposition(`attachment; filename="202611123.txt"`), null, "9 位不认");
+  assert.equal(embeddedDateFromDisposition(`attachment; filename="2026-13-01.txt"`), null, "13 月不认(真实日历日校验)");
+  const two = embeddedDateFromDisposition(`attachment; filename="v2026-11-12-2026-11-13.csv"`);
+  assert.equal(two?.ms, Date.UTC(2026, 10, 13), "双日期取最新(同 last_modified newest 律)");
+  assert.equal(two?.filename, "v2026-11-12-2026-11-13.csv");
 });
