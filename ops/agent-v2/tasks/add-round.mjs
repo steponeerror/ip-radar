@@ -691,13 +691,14 @@ async function githubCommitEvidence(url, fetchImpl, cache = {}) {
       method: "GET", redirect: "manual", signal: AbortSignal.timeout(15_000), headers,
     });
     ev.status = res.status;
+    const got = Date.now(); // 取得时刻=fetch 完成后(#340 评审补:P31 毫秒边界——pre-fetch now 会把 age 算短 1ms 使 floor 掉档)
     if (res.status === 304 && cached) {
       // 304=未变更:不占配额,视为新鲜证据——cached_at 更新为再验证时刻(取得时刻),
       // committer_date 沿缓存(304 无 body),条目两层面回写(#340 ②)
-      const revalidated = { etag: res.headers.get("etag") ?? cached.etag, committer_date: cached.committer_date, cached_at: new Date(now).toISOString() };
+      const revalidated = { etag: res.headers.get("etag") ?? cached.etag, committer_date: cached.committer_date, cached_at: new Date(got).toISOString() };
       mem.set(q.api, revalidated);
       if (file) writeGithubFreshnessFile(file, q.api, revalidated);
-      return { dateMs: cached.commitMs, ageAsOfMs: now,
+      return { dateMs: cached.commitMs, ageAsOfMs: got,
         evidence: { ...ev, cache: "revalidated", committer_date: cached.committer_date, cached_at: revalidated.cached_at } };
     }
     if (res.status !== 200) return ev; // fail-closed;缓存条目不动(etag 留给下轮再验证)
@@ -706,11 +707,11 @@ async function githubCommitEvidence(url, fetchImpl, cache = {}) {
     const t = d ? new Date(d).getTime() : NaN;
     if (Number.isFinite(t)) {
       ev.committer_date = new Date(t).toISOString();
-      ev.cached_at = new Date(now).toISOString(); // 取得时刻入档(证据不灭失,#340 ①)
+      ev.cached_at = new Date(got).toISOString(); // 取得时刻入档(证据不灭失,#340 ①)
       const entry = { etag: res.headers.get("etag"), committer_date: ev.committer_date, cached_at: ev.cached_at };
       mem.set(q.api, entry);
       if (file) writeGithubFreshnessFile(file, q.api, entry);
-      return { dateMs: t, ageAsOfMs: now, evidence: ev };
+      return { dateMs: t, ageAsOfMs: got, evidence: ev };
     }
     return ev;
   } catch (e) {
