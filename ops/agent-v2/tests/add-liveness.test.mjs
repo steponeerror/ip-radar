@@ -427,3 +427,19 @@ test("#342 A2 解析单测 embeddedDateFromDisposition:实测实例串/两形/�
   assert.equal(two?.ms, Date.UTC(2026, 10, 13), "双日期取最新(同 last_modified newest 律)");
   assert.equal(two?.filename, "v2026-11-12-2026-11-13.csv");
 });
+
+test("#342 评审 P2-2:embedded 未来日期拒采——age < −1 fail-closed 留痕;−1≤age≤0 放行(时区吸收)", async () => {
+  const mk = (daysAhead) => {
+    const d = new Date(Date.now() + daysAhead * 86_400_000);
+    const stamp = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+    return `attachment; filename="feed-${stamp}.csv.gz"`;
+  };
+  const fFar = stubFetch([{ url: "https://example.com/feed.csv", respond: () => res({ contentDisposition: mk(3) }) }]);
+  const far = await probeLiveness("https://example.com/feed.csv", fFar.impl, { ...iso() });
+  assert.equal(far.basis, "none", "未来 3 天=拒采,无证据 fail-closed");
+  assert.ok(far.embedded_date?.rejected_reason?.includes("embedded_future_date"), "拒采面留痕可分诊");
+  const fEdge = stubFetch([{ url: "https://example.com/feed.csv", respond: () => res({ contentDisposition: mk(0.5) }) }]);
+  const edge = await probeLiveness("https://example.com/feed.csv", fEdge.impl, { ...iso() });
+  assert.equal(edge.basis, "embedded_date", "半天超前(时区面)放行");
+  assert.ok(!edge.embedded_date?.rejected_reason, "放行面无拒采痕");
+});

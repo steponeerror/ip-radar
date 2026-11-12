@@ -148,13 +148,10 @@ export function githubFamilyHost(url) {
 }
 
 // 家族路径键:URL 的 pathname 段去空小写 join("/");非家族 URL/裸 host/解析失败 → null。
+// 家族判定消费单源 githubFamilyHost(#342 评审 P2-1:剩这最后一处手抄剥除式也收敛)。
 function githubPathKey(url) {
-  let u;
-  try { u = new URL(String(url ?? "")); } catch { return null; }
-  const host = u.hostname.toLowerCase();
-  const stripped = host.startsWith("www.") ? host.slice(4) : host;
-  if (!GITHUB_FAMILY_HOSTS.has(stripped)) return null;
-  const segs = u.pathname.split("/").filter(Boolean).map((s) => s.toLowerCase());
+  if (!githubFamilyHost(url)) return null;
+  const segs = new URL(String(url ?? "")).pathname.split("/").filter(Boolean).map((s) => s.toLowerCase());
   return segs.length ? segs.join("/") : null;
 }
 
@@ -687,12 +684,16 @@ export async function probeLiveness(url, fetchImpl = fetch, opts = {}) {
   const fromGh = gh?.dateMs != null
     ? { age_days: Math.floor((gh.ageAsOfMs - gh.dateMs) / 86_400_000), basis: "github_commit" } // age 用取得时刻算(#340:命中=缓存回放面)
     : null;
-  // #342 A2 第三基:前两基皆空且非 github 家族(host 级判,githFamilyHost 单源)才看;
+  // #342 A2 第三基:前两基皆空且非 github 家族(host 级判,githubFamilyHost 单源)才看;
   // 多组合取最新(last_modified 同律);解析失败=无证据 fail-closed
   const embCands = (fromLm || fromGh || githubFamilyHost(url)) ? []
     : combos.map((c) => embeddedDateFromDisposition(c.content_disposition)).filter(Boolean);
   const emb = embCands.length ? embCands.reduce((a, b) => (b.ms > a.ms ? b : a)) : null;
-  const fromEmb = emb ? { age_days: Math.floor((Date.now() - emb.ms) / 86_400_000), basis: "embedded_date" } : null;
+  // 未来日期拒采(#342 评审 P2-2 裁定):age < −1 = 日期超前一天以上——expiry/valid-until
+  // 类前瞻 token 被「多日期取最新」选中,或服务器伪造未来戳;−1≤age≤0 放行吸收时区
+  // 超前(UTC+X 午夜已翻日)。拒采≠不留痕:embedded_date 照入档,面下记 reason。
+  const embAge = emb ? Math.floor((Date.now() - emb.ms) / 86_400_000) : null;
+  const fromEmb = emb && embAge >= -1 ? { age_days: embAge, basis: "embedded_date" } : null;
   const evidence = fromLm ?? fromGh ?? fromEmb;
   return {
     combos,
@@ -700,7 +701,7 @@ export async function probeLiveness(url, fetchImpl = fetch, opts = {}) {
     age_days: evidence?.age_days,
     basis: evidence?.basis ?? "none",
     github_commit: gh?.evidence ?? gh ?? null, // 回退证据留痕(成败面都留 api/status/日期或 error;证据不灭失,#339 评审 P1:失败面裸 ev 也入档,与未尝试可分诊)
-    embedded_date: emb ? { date_source: "content_disposition_filename", filename: emb.filename, date: new Date(emb.ms).toISOString() } : null, // #342 A2 留痕;null=未采或不适用(header 原文在 combos 可分诊)
+    embedded_date: emb ? { date_source: "content_disposition_filename", filename: emb.filename, date: new Date(emb.ms).toISOString(), ...(embAge !== null && embAge < -1 ? { rejected_reason: `embedded_future_date age_days=${embAge}` } : {}) } : null, // #342 A2 留痕;null=未采或不适用(header 原文在 combos 可分诊);拒采面记 rejected_reason(P2-2)
   };
 }
 
