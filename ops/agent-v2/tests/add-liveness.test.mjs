@@ -117,6 +117,17 @@ test("githubCommitsQuery:家族三形剥 ref 段取文件路径;家族外/缺 ow
   assert.equal(q("not a url"), null, "非 URL 形");
 });
 
+test("githubCommitsQuery releases 两形(#342 B):latest/download 与 download/<tag> 都剥段取文件名进 path", () => {
+  const q = (u) => { const r = githubCommitsQuery(u); return r ? { path: r.path, query: new URL(r.api).searchParams.get("path") } : null; };
+  assert.deepEqual(q("https://github.com/o/r/releases/latest/download/anycast_census.csv.gz"),
+    { path: "anycast_census.csv.gz", query: "anycast_census.csv.gz" }, "latest 形:剥 releases/latest/download 三段,文件名=path");
+  assert.deepEqual(q("https://github.com/o/r/releases/download/v1.2/anycast_census.csv.gz"),
+    { path: "anycast_census.csv.gz", query: "anycast_census.csv.gz" }, "tag 形:剥 releases/download/<tag> 三段,文件名=path");
+  // 非 releases 形不受扰(既有三形回归面同测钉住):
+  assert.deepEqual(q("https://github.com/o/r/blob/main/a/b.txt"), { path: "a/b.txt", query: "a/b.txt" }, "blob 形不受扰");
+  assert.deepEqual(q("https://github.com/o/r/releases/download/"), { path: "", query: null }, "无文件段=repo 级最新 commit(仓根同律)");
+});
+
 // ── #341 ② 退避与重试(参数面:opts.sleepImpl/comboDelayMs/retryDelayMs)──
 
 test("退避节奏:组合间短退避(首组合零等待,后续 3 间隙×comboDelayMs);全绿面零重试零额外退避", async () => {

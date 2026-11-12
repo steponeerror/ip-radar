@@ -136,6 +136,17 @@ function parseEvidenceCell(cell) {
 // 机械 dump);家族行无 url 证据=保守 host 级红(fail-closed,不带 url 面装绿)。
 export const GITHUB_FAMILY_HOSTS = new Set(["github.com", "raw.githubusercontent.com", "codeload.github.com"]);
 
+// 家族 host 判定(#342 A2 起 probeLiveness 第三基排他也消费):www 前缀剥除后对
+// GITHUB_FAMILY_HOSTS 查;返回剥除后 host(在家族内)或 null。githubCommitsQuery 同消费
+// (单源;原先两函数各自手抄剥除式)。
+export function githubFamilyHost(url) {
+  let u;
+  try { u = new URL(String(url ?? "")); } catch { return null; }
+  const host = u.hostname.toLowerCase();
+  const stripped = host.startsWith("www.") ? host.slice(4) : host;
+  return GITHUB_FAMILY_HOSTS.has(stripped) ? stripped : null;
+}
+
 // 家族路径键:URL 的 pathname 段去空小写 join("/");非家族 URL/裸 host/解析失败 → null。
 function githubPathKey(url) {
   let u;
@@ -150,21 +161,25 @@ function githubPathKey(url) {
 // github 家族 commits API 面参数(#339 ① 活性证据回退的查询构造):owner/repo 取路径
 // 前两段(保留原大小写——API 接受任意大小写 owner/repo);文件路径剥 ref 段(raw 形
 // ref=第 3 段;github.com 形 blob|raw|tree 前缀后接 ref;codeload 归档无文件粒度;
-// 仓根/归档=path 空 → repo 级最新 commit)。家族判定复用 #337 F4 常量
+// releases 两形(#342 B)releases/latest/download/<file> 与 releases/download/<tag>/<file>
+// 都剥前三段取文件名——发布资产的发布粒度=文件,回退查询 path=文件名与 raw.* 三段形
+// 同律;仓根/归档=path 空 → repo 级最新 commit)。家族判定复用 #337 F4 常量
 // GITHUB_FAMILY_HOSTS;非家族/缺 owner-repo 对/非 URL → null(不回退,fail-closed)。
 export function githubCommitsQuery(url) {
   let u;
   try { u = new URL(String(url ?? "")); } catch { return null; }
-  const host = u.hostname.toLowerCase();
-  const stripped = host.startsWith("www.") ? host.slice(4) : host;
-  if (!GITHUB_FAMILY_HOSTS.has(stripped)) return null;
+  const fam = githubFamilyHost(url);
+  if (!fam) return null;
   const segs = u.pathname.split("/").filter(Boolean);
   if (segs.length < 2) return null;
   const [owner, repo, ...rest] = segs;
   let fileSegs = rest;
-  if (stripped === "raw.githubusercontent.com") fileSegs = rest.slice(1); // /<owner>/<repo>/<ref>/<路径…>
-  else if (stripped === "codeload.github.com") fileSegs = []; // zip|tar.gz/<ref>:整仓归档
+  if (fam === "raw.githubusercontent.com") fileSegs = rest.slice(1); // /<owner>/<repo>/<ref>/<路径…>
+  else if (fam === "codeload.github.com") fileSegs = []; // zip|tar.gz/<ref>:整仓归档
   else if (["blob", "raw", "tree"].includes(rest[0])) fileSegs = rest.slice(2); // /blob/<ref>/<路径…>
+  // releases 两形(#342 B):两形都剥前三段(latest/download 走 release 与 download/<tag>
+  // 差在第三段是 download 还是 tag,剩余都是文件路径)
+  else if (rest[0] === "releases" && (rest[1] === "download" || (rest[1] === "latest" && rest[2] === "download"))) fileSegs = rest.slice(3);
   const q = new URLSearchParams({ per_page: "1" });
   if (fileSegs.length) q.set("path", fileSegs.join("/"));
   return { api: `https://api.github.com/repos/${owner}/${repo}/commits?${q}`, path: fileSegs.join("/") };
