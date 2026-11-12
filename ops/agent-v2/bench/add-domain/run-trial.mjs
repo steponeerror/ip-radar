@@ -8,7 +8,9 @@
 //   ② 沙箱内跑 bench 形态加源轮(P1:DOSSIER 跳过[定案 2 开关位],考题卡=交接单预填,
 //     VERIFY 照常[预填卡世界由本接线器自种:queue.md PROPOSE+APPROVE 行]);
 //   ③ 轮产出 diff 泄漏闸(checkRoundDiffLeak,leak-check.mjs 单源:diff 不得引用被剥路径);
-//   ④ score.mjs 装回真测试钥匙跑 → pass/fail(过=1 不过=0,确定性无判官)。
+//   ④ score.mjs 装回真测试钥匙跑 → pass/fail(过=1 不过=0,确定性无判官);
+//      #343 分级钥匙:trial.json 双键并存(score_pass 留档 + score_frac 主判据,
+//      stdout 信封同对:score_pass/score_frac)。
 // runner 复用 P2a 三件(build-sandbox/score/宇宙闸)+ P1 轮(runAddRound),零新相位零新门。
 //
 // 隔离世界(spec Q10「基准不得污染真实运营面」同律):<runDir>/<题名>/ 下自成世界——
@@ -247,14 +249,14 @@ export async function runTrial(opts) {
       ...(round.envelope ? { sandbox: round.envelope.sandbox ?? null, usage: round.envelope.usage ?? null } : {}),
     },
     leak: { ok: leak.ok, hits: leak.hits.map((h) => ({ file: h.file, line: h.line, needle: h.needle })) },
-    score: { pass: score.pass },
+    score: { pass: score.pass, frac: score.frac, passed_fns: score.passed_fns, total_fns: score.total_fns },
     pass: score.pass === 1,
     sandbox,
     trialFile: path.join(path.resolve(runDir), name, "trial.json"),
     generated_at: new Date().toISOString(),
   };
   fs.mkdirSync(path.dirname(result.trialFile), { recursive: true });
-  fs.writeFileSync(result.trialFile, JSON.stringify({ ...result, score: { pass: score.pass, summary: score.summary } }, null, 2) + "\n");
+  fs.writeFileSync(result.trialFile, JSON.stringify({ ...result, score: { ...result.score, summary: score.summary } }, null, 2) + "\n");
   return result;
 }
 
@@ -295,7 +297,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToP
       timeoutMs,
     });
     // stdout 末行=trial 信封单行(运行面工件;题名/分数与 score 报表同律)
-    const out = { ok: r.ok, round: "add-trial", name: r.name, round_id: r.roundId, round_status: r.round.status, leak_ok: r.leak.ok, score_pass: r.score.pass };
+    const out = { ok: r.ok, round: "add-trial", name: r.name, round_id: r.roundId, round_status: r.round.status, leak_ok: r.leak.ok, score_pass: r.score.pass, score_frac: r.score.frac };
     process.stdout.write(`${JSON.stringify(out)}\n`);
     process.exitCode = r.ok ? 0 : 1;
   } catch (e) {
