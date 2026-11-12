@@ -103,6 +103,10 @@ test("faux trial 全链:剥答案沙箱→bench 轮(DOSSIER 跳过)→钥匙装�
     assert.equal(r.round.status, "completed", JSON.stringify(r.round.error ?? r));
     assert.equal(r.ok, true, `trial 须过:leak=${JSON.stringify(r.leak)} score=${r.score.pass}`);
     assert.equal(r.score.pass, 1);
+    // #343 分级钥匙:faux 面真 pytest(VENV_PY)exit 0 + 「2 passed」→ frac=1,计数入档
+    assert.equal(r.score.frac, 1);
+    assert.equal(r.score.passed_fns, 2);
+    assert.equal(r.score.total_fns, 2);
     assert.equal(r.leak.ok, true);
     assert.match(r.roundId, /-add(-r\d+)?$/);
     // 沙箱布局:<runDir>/<题>/sandbox(P2a 打分器扫描位);答案剥净+实现者产物在场
@@ -127,10 +131,13 @@ test("faux trial 全链:剥答案沙箱→bench 轮(DOSSIER 跳过)→钥匙装�
     assert.ok(fs.existsSync(path.join(ops, "rounds", r.roundId, "a3-implement.json")), "轮工件落 trial 世界");
     const a2 = JSON.parse(fs.readFileSync(path.join(ops, "rounds", r.roundId, "a2-dossier.json"), "utf8"));
     assert.equal(a2.bench, true, "DOSSIER 跳过(bench 开关位)");
-    // trial.json 信封落盘
+    // trial.json 信封落盘(#343:双键并存——score_pass 留档 + score_frac 主判据)
     const t = JSON.parse(fs.readFileSync(r.trialFile, "utf8"));
     assert.equal(t.ok, true);
     assert.equal(t.score.pass, 1);
+    assert.equal(t.score.frac, 1);
+    assert.equal(t.score.passed_fns, 2);
+    assert.equal(t.score.total_fns, 2);
     assert.equal(t.leak.ok, true);
     // P2a 布局互通:scoreRuns 直接扫 run 目录,S=1
     const agg = scoreRuns({ runs: [path.join(fx.tmp, "run-01")], repo: fx.repo, python: VENV_PY, universePath: fx.universePath });
