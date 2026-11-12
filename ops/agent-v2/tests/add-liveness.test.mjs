@@ -1,7 +1,11 @@
 // add-liveness.test.mjs — #339 ①:probeLiveness github 家族活性证据回退(红绿面);
 // #341 ②:同 host 高频 4 组合疑似限流(feeds.dshield.org 实测 last-modified 缺席→fail-closed
 // 误红)——组合间短退避 + 失败组合一次重试(opts 参数面可测:sleepImpl/comboDelayMs/
-// retryDelayMs 注入零真实等待)。
+// retryDelayMs 注入零真实等待);
+// #340:github commits API 限流记忆化(api.github.com 匿名配额 60 req/h/按 IP,优化环
+// 几十上百次 trial 必撞 403)——进程内 Map + 跨进程文件缓存两层(命中=cache:hit 零网络,
+// age 用取得时刻算)+ Conditional GET(If-None-Match,304 不占配额视为新鲜)+ 坏缓存
+// 弃用重探不红轮;注入面 githubCacheMem/githubCacheFile/githubCacheTtlMs(同风格缝)。
 // 背景(P3 前置阻断件):真实 trial VERIFY 鲜活度门 freshness.ok≠true 即红(G_VERIFY);
 // 本机 raw.githubusercontent.com TCP 被墙,宇宙 12 题端点在 raw.*——直接探活(4 组合
 // GET/HEAD×UA)拿不到 last-modified 时,github 家族 URL 回退 api.github.com commits API
@@ -10,25 +14,33 @@
 // stub(genExamCards fetchImpl 同缝);双面=回退得证绿/无 commit 红+家族外不回退。
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { runAddRound as _runAddCycleGuard } from "../run-add.mjs"; // 先入 run-add 再入 add-round(循环 import 求值序:add-round 直接先入会在 TDZ 上炸,add-round.test.mjs 同序)
 import { probeLiveness, githubCommitsQuery, freshnessOf } from "../tasks/add-round.mjs";
 
 const RAW_URL = "https://raw.githubusercontent.com/stamparm/ipsum/master/ipsum.txt";
 const GH_API = "https://api.github.com/repos/stamparm/ipsum/commits";
 
-// Response 形 stub(直接探活面只读 status/headers;API 面另读 json)
+// Response 形 stub(直接探活面只读 status/headers;API 面另读 json;#340 再读 etag)
 const res = (over = {}) => ({
   status: over.status ?? 200,
-  headers: { get: (k) => (String(k).toLowerCase() === "last-modified" ? over.lastModified ?? null : null) },
+  headers: { get: (k) => {
+    const kk = String(k).toLowerCase();
+    if (kk === "last-modified") return over.lastModified ?? null;
+    if (kk === "etag") return over.etag ?? null; // #340:Conditional GET 的 etag 面
+    return null;
+  } },
   ...(over.json !== undefined ? { json: async () => over.json } : {}),
 });
 
-// fetch stub:无路由=连接失败(本机 raw.* 被墙即此态);calls 记录全请求面
+// fetch stub:无路由=连接失败(本机 raw.* 被墙即此态);calls 记录全请求面(含 headers,#340 If-None-Match 断言)
 function stubFetch(routes) {
   const calls = [];
   const impl = async (url, opts = {}) => {
     const u = String(url);
-    calls.push({ url: u, method: opts.method ?? "GET" });
+    calls.push({ url: u, method: opts.method ?? "GET", headers: opts.headers ?? {} });
     const hit = routes.find((r) => (r.match ? r.match(u) : r.url === u));
     if (!hit) throw new TypeError(`fetch failed: ${u}`);
     return typeof hit.respond === "function" ? hit.respond(u, opts) : hit.respond;
@@ -39,11 +51,12 @@ const commitAt = (daysAgo) => [{ commit: { committer: { date: new Date(Date.now(
 
 // #341 ② 退避/重试参数注入面:sleepImpl 记录延迟零真实等待;既有测试同步注入(不注入则真实 setTimeout 退避会拖慢测试面)
 const sleepRecorder = () => { const slept = []; return { slept, sleepImpl: async (ms) => { slept.push(ms); } }; };
-const nosleep = { sleepImpl: async () => {} };
+// #340 隔离面:每测新开进程内缓存 Map + 关文件层(缺省缝指向真实主检出 dev/add-bench,测试零真实读写)
+const iso = () => ({ sleepImpl: async () => {}, githubCacheMem: new Map(), githubCacheFile: null });
 
 test("probeLiveness github 家族回退:直接探活失败 → commits API 得证(basis=github_commit,age≤30 过门)", async () => {
   const f = stubFetch([{ match: (u) => u.startsWith(`${GH_API}?`), respond: () => res({ json: commitAt(2.5) }) }]);
-  const live = await probeLiveness(RAW_URL, f.impl, nosleep);
+  const live = await probeLiveness(RAW_URL, f.impl, iso());
   assert.equal(live.basis, "github_commit");
   assert.equal(live.age_days, 2);
   assert.equal(live.last_modified, null);
@@ -66,7 +79,7 @@ test("回退红面:API 无 commit(空数组/非 200)/连接失败 = fail-closed 
     { label: "API 连接失败", respond: undefined, trace: (g, lbl) => { assert.ok(g.error, lbl + " 留痕 error"); } },
   ]) {
     const f = stubFetch(face.respond ? [{ match: (u) => u.startsWith(`${GH_API}?`), respond: face.respond }] : []);
-    const live = await probeLiveness(RAW_URL, f.impl, nosleep);
+    const live = await probeLiveness(RAW_URL, f.impl, iso());
     assert.equal(live.basis, "none", face.label);
     assert.equal(live.age_days, undefined, face.label);
     assert.equal(freshnessOf(live).ok, false, face.label);
@@ -76,7 +89,7 @@ test("回退红面:API 无 commit(空数组/非 200)/连接失败 = fail-closed 
 
 test("家族外不回退:非 github 家族 URL 直接探活失败 → 不触 api.github.com,none", async () => {
   const f = stubFetch([]);
-  const live = await probeLiveness("https://example.com/feed.txt", f.impl, nosleep);
+  const live = await probeLiveness("https://example.com/feed.txt", f.impl, iso());
   assert.equal(live.basis, "none");
   assert.equal(f.calls.length, 8, "只有直接探活 4 组合 + 各一次重试(全连接失败面)");
   assert.ok(f.calls.every((c) => !c.url.includes("api.github.com")), "家族外不得回退 commits API");
@@ -87,7 +100,7 @@ test("证据优先级 last_modified > github_commit:直接探活得证则不触 
     { url: RAW_URL, respond: () => res({ lastModified: "Tue, 10 Nov 2026 00:00:00 GMT" }) },
     { match: (u) => u.startsWith(`${GH_API}?`), respond: () => { throw new Error("API 不应被触"); } },
   ]);
-  const live = await probeLiveness(RAW_URL, f.impl, nosleep);
+  const live = await probeLiveness(RAW_URL, f.impl, iso());
   assert.equal(live.basis, "last_modified");
   assert.ok(f.calls.every((c) => !c.url.includes("api.github.com")), "last_modified 在场=最高优先,回退零调用");
 });
@@ -166,4 +179,136 @@ test("重试仍失败:终面留 retried+first_error,证据面不灭失;非家族
   assert.ok(live.combos.every((c) => c.retried && c.first_error && c.error), "每组合留 retried+首轮痕+终面错");
   assert.equal(live.basis, "none");
   assert.equal(rec.slept.filter((ms) => ms === 3).length, 4, "每次重试前各一次 retryDelayMs 缓隔");
+});
+
+// ── #340 github commits API 限流记忆化(进程内+文件两层 + Conditional GET)──
+// api.github.com 匿名配额 60 req/h/按 IP(#340):优化环几十上百次 trial,12 题/轮
+// VERIFY 必发回退调用,确定撞 403→fail-closed→G_VERIFY 系统性红。修件=两层记忆化
+// + Conditional GET;注入面 githubCacheMem/githubCacheFile/githubCacheTtlMs(opts 同风格缝,
+// undefined=走缺省:模块 Map + 主检出 dev/add-bench/github-freshness-cache.json + 6h)。
+
+// 文件一层测试面:tmp 缓存文件(缺省缝指向真实主检出 dev/add-bench——测试零真实读写)
+const tmpCacheFile = () => path.join(fs.mkdtempSync(path.join(os.tmpdir(), "gh-fresh-")), "github-freshness-cache.json");
+const GH_KEY = () => githubCommitsQuery(RAW_URL).api; // 缓存键=commits API URL(owner/repo+path 的确定性函数)
+const apiRoute = (respond) => ({ match: (u) => u.startsWith(`${GH_API}?`), respond });
+const dayMs = 86_400_000;
+
+test("#340 进程内一层:同 owner/repo+path 二次探活零 API 调用(命中回放 cache=hit,cached_at 在档;status=null 与失败面可分诊)", async () => {
+  const mem = new Map();
+  const f1 = stubFetch([apiRoute(() => res({ json: commitAt(2.5), etag: '"v1"' }))]);
+  const live1 = await probeLiveness(RAW_URL, f1.impl, { ...iso(), githubCacheMem: mem });
+  assert.equal(live1.basis, "github_commit");
+  assert.equal(live1.github_commit.cache, "miss", "首探=触网面 miss");
+  const f2 = stubFetch([]); // API 路由缺席:一旦触网即连接失败(命中则零触网)
+  const live2 = await probeLiveness(RAW_URL, f2.impl, { ...iso(), githubCacheMem: mem });
+  assert.equal(live2.basis, "github_commit", "进程内命中:配额零消耗");
+  assert.equal(f2.calls.filter((c) => c.url.includes("api.github.com")).length, 0, "零 commits API 调用");
+  assert.equal(live2.github_commit.cache, "hit");
+  assert.equal(live2.github_commit.status, null, "命中面零 HTTP——status null 与 403/连接失败可分诊(#339 ③ 留痕律)");
+  assert.equal(live2.github_commit.committer_date, live1.github_commit.committer_date, "回放记忆化答案");
+  assert.equal(typeof live2.github_commit.cached_at, "string", "取得时刻在档(证据不灭失)");
+  assert.equal(live2.age_days, live1.age_days, "age 用取得时刻算:命中=记忆化答案原样回放");
+});
+
+test("#340 命中面 age 用取得时刻算:回放记忆化答案(cached_at 口径),不按 now 重算", async () => {
+  // 手种条目:commit 3d 前、取得时刻(cached_at)2d 前、TTL 放宽 7d → 命中;
+  // age=cached_at−committer_date=1d(now 口径会算 3d——钉死取得时刻语义;TTL=两口径误差上界)
+  const file = tmpCacheFile();
+  fs.writeFileSync(file, JSON.stringify({ version: 1, entries: { [GH_KEY()]: {
+    etag: null,
+    committer_date: new Date(Date.now() - 3 * dayMs).toISOString(),
+    cached_at: new Date(Date.now() - 2 * dayMs).toISOString(),
+  } } }));
+  const f = stubFetch([]); // 触网即失败——只有命中才可能得证
+  const live = await probeLiveness(RAW_URL, f.impl, { ...iso(), githubCacheFile: file, githubCacheTtlMs: 7 * dayMs });
+  assert.equal(live.basis, "github_commit");
+  assert.equal(live.age_days, 1, "age=cached_at−committer_date(取得时刻算);now 口径=3 会把缓存证据凭空算陈");
+  assert.equal(live.github_commit.cache, "hit");
+});
+
+test("#340 文件一层(跨进程):另一进程(新 Map)读同一文件命中零 API;条目 etag+committer_date+cached_at 落盘", async () => {
+  const file = tmpCacheFile();
+  const f1 = stubFetch([apiRoute(() => res({ json: commitAt(1.5), etag: '"etag-1"' }))]);
+  const live1 = await probeLiveness(RAW_URL, f1.impl, { ...iso(), githubCacheFile: file });
+  assert.equal(live1.github_commit.cache, "miss");
+  const disk = JSON.parse(fs.readFileSync(file, "utf8"));
+  const e = disk.entries[GH_KEY()];
+  assert.ok(e, "条目按 commits API URL 键(owner/repo+path 确定性函数)落盘");
+  assert.equal(e.etag, '"etag-1"');
+  assert.equal(e.committer_date, live1.github_commit.committer_date);
+  assert.equal(e.cached_at, live1.github_commit.cached_at, "取得时刻与证据同档落盘");
+  // 跨进程面=新 Map + 触网即失败的 fetch:只能靠文件层命中
+  const f2 = stubFetch([]);
+  const live2 = await probeLiveness(RAW_URL, f2.impl, { ...iso(), githubCacheFile: file });
+  assert.equal(live2.basis, "github_commit");
+  assert.equal(live2.github_commit.cache, "hit");
+  assert.equal(live2.age_days, 1);
+});
+
+test("#340 TTL 过期:过期条目不回放 → 重探得新证据;条目覆盖+cached_at 刷新", async () => {
+  const file = tmpCacheFile();
+  await probeLiveness(RAW_URL, stubFetch([apiRoute(() => res({ json: commitAt(10), etag: '"e0"' }))]).impl, { ...iso(), githubCacheFile: file });
+  const disk = JSON.parse(fs.readFileSync(file, "utf8"));
+  disk.entries[GH_KEY()].cached_at = new Date(Date.now() - 7 * 3600_000).toISOString(); // 拨回 7h 前(> 缺省 6h TTL)
+  fs.writeFileSync(file, JSON.stringify(disk));
+  const f2 = stubFetch([apiRoute(() => res({ json: commitAt(3), etag: '"e1"' }))]);
+  const live = await probeLiveness(RAW_URL, f2.impl, { ...iso(), githubCacheFile: file });
+  assert.equal(live.github_commit.cache, "miss", "过期条目不得回放");
+  assert.equal(live.age_days, 3, "新答案得证");
+  const disk2 = JSON.parse(fs.readFileSync(file, "utf8"));
+  assert.equal(disk2.entries[GH_KEY()].etag, '"e1"', "条目覆盖");
+  assert.ok(Date.now() - Date.parse(disk2.entries[GH_KEY()].cached_at) < 60_000, "cached_at 刷新为本次取得时刻");
+});
+
+test("#340 Conditional GET:过期条目带 etag → If-None-Match;304=新鲜证据不占配额(committer_date 沿缓存,cached_at 更新)", async () => {
+  const file = tmpCacheFile();
+  fs.writeFileSync(file, JSON.stringify({ version: 1, entries: { [GH_KEY()]: {
+    etag: '"e0"',
+    committer_date: new Date(Date.now() - 5 * dayMs).toISOString(),
+    cached_at: new Date(Date.now() - 7 * 3600_000).toISOString(), // 过期(>6h)但 etag 在场
+  } } }));
+  let seenHeaders = null;
+  const f = stubFetch([apiRoute((_u, opts) => { seenHeaders = opts.headers ?? {}; return res({ status: 304, etag: '"e0"' }); })]);
+  const live = await probeLiveness(RAW_URL, f.impl, { ...iso(), githubCacheFile: file });
+  assert.equal(seenHeaders?.["if-none-match"], '"e0"', "过期重探须带 If-None-Match(304 不占配额的前提)");
+  assert.equal(live.basis, "github_commit", "304 无 body 照常出 github_commit 证据(日期沿缓存)");
+  assert.equal(live.github_commit.cache, "revalidated");
+  assert.equal(live.github_commit.status, 304);
+  assert.equal(live.age_days, 5, "再验证=新鲜:age 按新取得时刻算");
+  const disk = JSON.parse(fs.readFileSync(file, "utf8"));
+  assert.ok(Date.now() - Date.parse(disk.entries[GH_KEY()].cached_at) < 60_000, "304 更新 cached_at(视为新鲜)");
+});
+
+test("#340 坏文件缓存=弃=未命中重探(不红不阻跑):弃用留痕 cache_note;写回自愈", async () => {
+  for (const face of [
+    { label: "非 JSON", text: "{ not json" },
+    { label: "entries 非对象", text: JSON.stringify({ entries: [] }) },
+  ]) {
+    const file = tmpCacheFile();
+    fs.writeFileSync(file, face.text);
+    const f = stubFetch([apiRoute(() => res({ json: commitAt(4), etag: '"ok"' }))]);
+    const live = await probeLiveness(RAW_URL, f.impl, { ...iso(), githubCacheFile: file });
+    assert.equal(live.basis, "github_commit", `${face.label}:坏缓存不得红轮`);
+    assert.equal(live.github_commit.cache_note, "cache_file_corrupt", `${face.label}:弃缓存留痕可分诊`);
+    const disk = JSON.parse(fs.readFileSync(file, "utf8")); // 写回=自愈
+    assert.equal(disk.entries[GH_KEY()].etag, '"ok"', `${face.label}:下进程见好缓存`);
+  }
+});
+
+test("#340 失败面分诊与不落缓存:403 触网败 cache=miss(与 hit/未尝试三分);探败不写缓存条目", async () => {
+  const file = tmpCacheFile();
+  const f = stubFetch([apiRoute(() => res({ status: 403, json: { message: "rate limit" } }))]);
+  const live = await probeLiveness(RAW_URL, f.impl, { ...iso(), githubCacheFile: file });
+  assert.equal(live.basis, "none");
+  assert.equal(live.github_commit.cache, "miss", "触网面=miss;hit=缓存命中;github_commit=null=未尝试——三面可分诊(#339 ③)");
+  assert.equal(fs.existsSync(file), false, "失败不落缓存(fail-closed 答案不记忆化)");
+});
+
+test("#340 缺省缓存面:主检出锚 git-common-dir 下 dev/add-bench/github-freshness-cache.json(worktree 完删树不灭缓存)", async () => {
+  const mod = await import("../tasks/add-round.mjs"); // 动态 import:实现未落时本测独红不连坐全文件
+  assert.equal(typeof mod.githubFreshnessCacheDefaultPath, "function", "导出=测试单源面");
+  const p = mod.githubFreshnessCacheDefaultPath();
+  assert.ok(p.endsWith(path.join("dev", "add-bench", "github-freshness-cache.json")), "票面钉死路径");
+  const { mainCheckoutRoot, ROOT } = await import("../bench/leak-check.mjs");
+  assert.equal(path.dirname(path.dirname(p)), mainCheckoutRoot(ROOT) ?? ROOT, "锚主检出(spend.json #337 同算式;主检出自身=退化同根)");
 });
