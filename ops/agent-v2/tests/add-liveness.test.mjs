@@ -310,5 +310,5 @@ test("#340 缺省缓存面:主检出锚 git-common-dir 下 dev/add-bench/github-
   const p = mod.githubFreshnessCacheDefaultPath();
   assert.ok(p.endsWith(path.join("dev", "add-bench", "github-freshness-cache.json")), "票面钉死路径");
   const { mainCheckoutRoot, ROOT } = await import("../bench/leak-check.mjs");
-  assert.equal(path.dirname(path.dirname(p)), mainCheckoutRoot(ROOT) ?? ROOT, "锚主检出(spend.json #337 同算式;主检出自身=退化同根)");
+  assert.equal(path.dirname(path.dirname(path.dirname(p))), mainCheckoutRoot(ROOT) ?? ROOT, "锚主检出(spend.json #337 同算式;主检出自身=退化同根)");
 });

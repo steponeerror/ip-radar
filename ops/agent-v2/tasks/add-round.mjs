@@ -54,6 +54,7 @@ import * as gates from "../../agent/pipeline/gates.mjs"; // 零复制:gates.json
 import { addPromptPath } from "../run-add.mjs"; // 提示词路径(run-add 定义面;函数声明循环安全:运行时互引,discover 同律)
 import { ensureAddHost } from "../tools/add-tools.mjs"; // 轮级编码宿主(工具面种子登记)
 import { DUMP_META_SCRIPT } from "../bench/add-domain/gen-universe.mjs"; // roster 侧 url 证据面判据单源(#337 F4;gen-exam-cards 同源消费)
+import { mainCheckoutRoot } from "../bench/leak-check.mjs"; // #340 缓存文件主检出锚单源(git-common-dir 推导,spend.json #337 同算式零复制)
 
 const execFileP = promisify(execFileCb);
 const sha = (s) => crypto.createHash("sha256").update(s).digest("hex").slice(0, 16);
@@ -167,6 +168,64 @@ export function githubCommitsQuery(url) {
   const q = new URLSearchParams({ per_page: "1" });
   if (fileSegs.length) q.set("path", fileSegs.join("/"));
   return { api: `https://api.github.com/repos/${owner}/${repo}/commits?${q}`, path: fileSegs.join("/") };
+}
+
+// ── #340 github commits API 限流记忆化(优化环几十上百次 trial 面)──
+// api.github.com 匿名配额 60 req/h/按 IP(#340 票面):每轮 VERIFY 12 题必发回退调用,
+// 优化环确定撞 403→fail-closed none→G_VERIFY 系统性只红 github 家族题。两层记忆化:
+// 进程内 Map(键=commits API URL,owner/repo+path 的确定性函数)→ 跨进程文件缓存
+// (主检出锚 dev/add-bench/github-freshness-cache.json;worktree 完删树不灭缓存,
+// spend.json #337 同锚点)。Conditional GET(#340 ②):过期条目带 etag→If-None-Match,
+// 304 不占配额且视为新鲜证据(cached_at 更新为再验证时刻;304 无 body,
+// committer_date 沿缓存)。命中=basis github_commit 带 cached_at 面(取得时刻入档,
+// age 用取得时刻算——记忆化答案原样回放,缺省 6h TTL=与 now 口径的误差上界);文件
+// 缓存坏=弃=未命中重探,不红不阻跑(cache_note 留痕);失败面不落缓存(fail-closed
+// 答案不记忆化,etag 条目留存给下轮再验证)。
+export const GITHUB_FRESHNESS_MEM = new Map(); // 进程内一层:commits API URL → {etag, committer_date, cached_at}
+const GITHUB_FRESHNESS_TTL_MS_DEFAULT = 6 * 3600_000; // 缺省 6h;OPS_GITHUB_FRESHNESS_TTL_MS 可配
+
+// 文件一层缺省路径:主检出锚(git-common-dir 推导单源复用 leak-check.mjs);git 探败
+// 退化 REPO_ROOT(记忆化降级为本树文件,不红)。
+export function githubFreshnessCacheDefaultPath() {
+  return path.join(mainCheckoutRoot(REPO_ROOT) ?? REPO_ROOT, "dev", "add-bench", "github-freshness-cache.json");
+}
+
+// 文件一层读:缺席/不可读=未命中(静默——冷缓存是常态);JSON 坏/形状坏=corrupt
+// 留痕(弃缓存重探,#340 ①:不红不阻跑)。
+function readGithubFreshnessFile(file) {
+  let text;
+  try { text = fs.readFileSync(file, "utf8"); } catch { return { entries: null }; }
+  try {
+    const j = JSON.parse(text);
+    if (!j || typeof j !== "object" || Array.isArray(j) || !j.entries || typeof j.entries !== "object" || Array.isArray(j.entries))
+      return { entries: null, corrupt: true };
+    return { entries: j.entries };
+  } catch { return { entries: null, corrupt: true }; }
+}
+
+// 文件一层写:读改写合并(并发进程各写各键,整文件后者胜;条目粒度覆盖)+ tmp-rename
+// 原子换面(读方不见半截 JSON;半截=坏=弃,下轮自愈)。写败静默降级=进程内一层
+// (只读 FS 面记忆化仍成立,性能面不红轮)。
+function writeGithubFreshnessFile(file, api, entry) {
+  const { entries } = readGithubFreshnessFile(file); // 坏/缺席从空重建(弃缓存不阻跑)
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const tmp = `${file}.tmp-${process.pid}`;
+    fs.writeFileSync(tmp, `${JSON.stringify({ version: 1, entries: { ...(entries ?? {}), [api]: entry } }, null, 2)}\n`);
+    fs.renameSync(tmp, file);
+  } catch { /* 降级进程内一层;见上 */ }
+}
+
+// 条目可用性:committer_date/cached_at 均可解析才可用(单条目坏=跳过重探,不算文件坏)
+function githubFreshnessEntryUsable(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const commitMs = Date.parse(raw.committer_date), cachedMs = Date.parse(raw.cached_at);
+  if (!Number.isFinite(commitMs) || !Number.isFinite(cachedMs)) return null;
+  return {
+    commitMs, cachedMs,
+    etag: typeof raw.etag === "string" && raw.etag ? raw.etag : null,
+    committer_date: raw.committer_date, cached_at: raw.cached_at,
+  };
 }
 
 export function rosterCollisions(candidate, rosterLines, rosterUrls = new Map()) {
@@ -529,8 +588,11 @@ async function runVerify(ctx) {
 // committer date(发布方活性证据,主会话裁定 2026-11-12;api.github.com 本机可达,
 // stamparm/ipsum 实测 2026-11-11)。证据优先级 last_modified > github_commit;API 失败
 // /无 commit = fail-closed none(无证据即无话)。fetchImpl 注入=测试面零网络。
+// #340:commits API 回退调用走限流记忆化(两层+Conditional GET,见 GITHUB_FRESHNESS_
+// MEM 注释;注入缝 githubCacheMem/githubCacheFile/githubCacheTtlMs 同风格)。
 export async function probeLiveness(url, fetchImpl = fetch, opts = {}) {
-  const { sleepImpl = (ms) => new Promise((r) => setTimeout(r, ms)), comboDelayMs = 300, retryDelayMs = 750 } = opts;
+  const { sleepImpl = (ms) => new Promise((r) => setTimeout(r, ms)), comboDelayMs = 300, retryDelayMs = 750,
+    githubCacheMem, githubCacheFile, githubCacheTtlMs } = opts; // #340 记忆化注入缝(同风格:undefined=缺省,file=null 关文件层)
   const combos = [];
   const hit = async (method, ua) => {
     const r = await fetchImpl(url, {
@@ -570,8 +632,11 @@ export async function probeLiveness(url, fetchImpl = fetch, opts = {}) {
   const newest = combos.map((c) => c.last_modified).filter(Boolean).map((s) => new Date(s))
     .filter((d) => !Number.isNaN(d.getTime())).sort((a, b) => b - a)[0] ?? null;
   const fromLm = newest ? { last_modified: newest.toISOString(), age_days: Math.floor((Date.now() - newest.getTime()) / 86_400_000), basis: "last_modified" } : null;
-  const gh = fromLm ? null : await githubCommitEvidence(url, fetchImpl); // 优先级:last_modified 在场不触 API
-  const fromGh = gh?.date ? { age_days: Math.floor((Date.now() - gh.date.getTime()) / 86_400_000), basis: "github_commit" } : null;
+  const gh = fromLm ? null : await githubCommitEvidence(url, fetchImpl, // 优先级:last_modified 在场不触 API
+    { mem: githubCacheMem, file: githubCacheFile, ttlMs: githubCacheTtlMs });
+  const fromGh = gh?.dateMs != null
+    ? { age_days: Math.floor((gh.ageAsOfMs - gh.dateMs) / 86_400_000), basis: "github_commit" } // age 用取得时刻算(#340:命中=缓存回放面)
+    : null;
   const evidence = fromLm ?? fromGh;
   return {
     combos,
@@ -585,23 +650,65 @@ export async function probeLiveness(url, fetchImpl = fetch, opts = {}) {
 // 家族 commits API 活性证据(#339 ①):GET <api>?path=<文件路径>&per_page=1,取
 // commit[0].commit.committer.date。失败面(网络/非 200/非 JSON/空数组/缺 committer
 // date)统一 fail-closed 返回无 date 的证据记录;非家族 URL → null。
-async function githubCommitEvidence(url, fetchImpl) {
+// #340 限流记忆化(两层+Conditional GET):cache={mem, file, ttlMs} 注入面
+// (probeLiveness opts 同风格缝;undefined=缺省,file=null 关文件层)。命中返回
+// {dateMs, ageAsOfMs, evidence}——ageAsOfMs=age 计算基准时刻(命中=取得时刻,
+// 200/304=now),probeLiveness 据此算 age_days。
+async function githubCommitEvidence(url, fetchImpl, cache = {}) {
   const q = githubCommitsQuery(url);
   if (!q) return null;
+  const {
+    mem = GITHUB_FRESHNESS_MEM,
+    file = githubFreshnessCacheDefaultPath(),
+    ttlMs = Number(process.env.OPS_GITHUB_FRESHNESS_TTL_MS) > 0 ? Number(process.env.OPS_GITHUB_FRESHNESS_TTL_MS) : GITHUB_FRESHNESS_TTL_MS_DEFAULT,
+  } = cache;
+  const now = Date.now();
   const ev = { api: q.api, status: null, committer_date: null };
+  // 两层读(#340 ①):进程内 → 文件(文件命中回填进程内层)
+  let cached = githubFreshnessEntryUsable(mem.get(q.api));
+  let cacheNote = null;
+  if (!cached && file) {
+    const { entries, corrupt } = readGithubFreshnessFile(file);
+    if (corrupt) cacheNote = "cache_file_corrupt"; // 弃缓存留痕(可分诊,#339 ③ 同律)
+    const raw = entries?.[q.api];
+    cached = githubFreshnessEntryUsable(raw);
+    if (cached) mem.set(q.api, raw);
+  }
+  if (cached && now - cached.cachedMs < ttlMs) {
+    // TTL 内命中:零网络零配额;age 用取得时刻算(记忆化回放,#340 ①)
+    return { dateMs: cached.commitMs, ageAsOfMs: cached.cachedMs,
+      evidence: { ...ev, committer_date: cached.committer_date, cached_at: cached.cached_at, cache: "hit" } };
+  }
+  ev.cache = "miss"; // 触网面(与 hit/未尝试三分可分诊,#339 ③)
+  if (cacheNote) ev.cache_note = cacheNote;
+  // Conditional GET(#340 ②):过期/未命中条目带 etag → If-None-Match;304 不占配额
+  const headers = { "user-agent": "ip-radar-add-round/1.0", accept: "application/vnd.github+json" };
+  if (cached?.etag) headers["if-none-match"] = cached.etag;
   try {
     const res = await fetchImpl(q.api, {
-      method: "GET", redirect: "manual", signal: AbortSignal.timeout(15_000),
-      headers: { "user-agent": "ip-radar-add-round/1.0", accept: "application/vnd.github+json" },
+      method: "GET", redirect: "manual", signal: AbortSignal.timeout(15_000), headers,
     });
     ev.status = res.status;
-    if (res.status !== 200) return ev;
+    if (res.status === 304 && cached) {
+      // 304=未变更:不占配额,视为新鲜证据——cached_at 更新为再验证时刻(取得时刻),
+      // committer_date 沿缓存(304 无 body),条目两层面回写(#340 ②)
+      const revalidated = { etag: res.headers.get("etag") ?? cached.etag, committer_date: cached.committer_date, cached_at: new Date(now).toISOString() };
+      mem.set(q.api, revalidated);
+      if (file) writeGithubFreshnessFile(file, q.api, revalidated);
+      return { dateMs: cached.commitMs, ageAsOfMs: now,
+        evidence: { ...ev, cache: "revalidated", committer_date: cached.committer_date, cached_at: revalidated.cached_at } };
+    }
+    if (res.status !== 200) return ev; // fail-closed;缓存条目不动(etag 留给下轮再验证)
     const body = await res.json().catch(() => null);
     const d = Array.isArray(body) ? body[0]?.commit?.committer?.date : null;
     const t = d ? new Date(d).getTime() : NaN;
     if (Number.isFinite(t)) {
       ev.committer_date = new Date(t).toISOString();
-      return { date: new Date(t), evidence: ev };
+      ev.cached_at = new Date(now).toISOString(); // 取得时刻入档(证据不灭失,#340 ①)
+      const entry = { etag: res.headers.get("etag"), committer_date: ev.committer_date, cached_at: ev.cached_at };
+      mem.set(q.api, entry);
+      if (file) writeGithubFreshnessFile(file, q.api, entry);
+      return { dateMs: t, ageAsOfMs: now, evidence: ev };
     }
     return ev;
   } catch (e) {
