@@ -181,8 +181,8 @@ test("parsePytestTally:摘要行计数——纯过/纯挂/混合/error 面/无�
   assert.equal(parsePytestTally(null), null);
 });
 
-// 分级面 fixture 工厂:stub 输出钉死 pytest 摘要行(真实 -q 末行形状,实验
-// /tmp/g343-faces 2026-11-12 对拍)
+// 分级面 fixture 工厂:stub 输出钉死 pytest 摘要行(真实 -q 末行形状,2026-11-12
+// 真解释器对拍,形状钉在本文件;exit 0 全过=frac=1 / exit 1 计数面 / exit 2 中断面)
 function makeGradedFixture({ faceStub, repoFns = null }) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "add-score-frac-"));
   const repo = path.join(tmp, "repo");

@@ -44,9 +44,10 @@ export function loadUniverse(universePath) {
 // 摘要行计数解析(#343 分级钥匙;导出=测试单源面):取输出末行,剥 ===/!!! 装饰,
 // 读「N failed, M passed(, E errors)」计数。skipped/xfail 族不入票面公式(分数 =
 // M/(M+N) 字面);「no tests (ran|collected)」= 全零计数。无可读计数 → null
-// (fallback 分母触发条件)。实测形状(/tmp/g343-faces 对拍,2026-11-12,pytest
-// -q --no-header):「2 passed in 0.01s」/「1 failed, 2 passed in 0.02s」/
-// 「1 error in 0.07s」(collection error 中断,exit 2)/「no tests ran in 0.00s」(exit 5)。
+// (fallback 分母触发条件)。实测形状(pytest -q --no-header,2026-11-12 真解释器
+// 对拍,钉在 tests/add-score.test.mjs #343 面):「2 passed in 0.01s」/
+// 「1 failed, 2 passed in 0.02s」/「1 error in 0.07s」(collection error 中断,exit 2)/
+// 「no tests ran in 0.00s」(exit 5)。
 export function parsePytestTally(stdout) {
   const lines = String(stdout ?? "").split("\n").map((l) => l.trim()).filter(Boolean);
   if (!lines.length) return null;
