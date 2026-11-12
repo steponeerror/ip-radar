@@ -180,7 +180,9 @@ export function githubCommitsQuery(url) {
 // committer_date 沿缓存)。命中=basis github_commit 带 cached_at 面(取得时刻入档,
 // age 用取得时刻算——记忆化答案原样回放,缺省 6h TTL=与 now 口径的误差上界);文件
 // 缓存坏=弃=未命中重探,不红不阻跑(cache_note 留痕);失败面不落缓存(fail-closed
-// 答案不记忆化,etag 条目留存给下轮再验证)。
+// 答案不记忆化,etag 条目留存给下轮再验证)。出处:「304 不占配额」=GitHub REST API
+// Best practices(Docs: Best practices for using the REST API → Conditional requests,
+// docs.github.com——未命中配额的 conditional request 返回 304 不计入 rate limit)。
 export const GITHUB_FRESHNESS_MEM = new Map(); // 进程内一层:commits API URL → {etag, committer_date, cached_at}
 const GITHUB_FRESHNESS_TTL_MS_DEFAULT = 6 * 3600_000; // 缺省 6h;OPS_GITHUB_FRESHNESS_TTL_MS 可配
 
