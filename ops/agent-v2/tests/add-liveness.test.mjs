@@ -1,4 +1,5 @@
 // add-liveness.test.mjs — #339 ①:probeLiveness github 家族活性证据回退(红绿面);
+import net from "node:net";
 // #341 ②:同 host 高频 4 组合疑似限流(feeds.dshield.org 实测 last-modified 缺席→fail-closed
 // 误红)——组合间短退避 + 失败组合一次重试(opts 参数面可测:sleepImpl/comboDelayMs/
 // retryDelayMs 注入零真实等待);
@@ -442,4 +443,10 @@ test("#342 评审 P2-2:embedded 未来日期拒采——age < −1 fail-closed �
   const edge = await probeLiveness("https://example.com/feed.csv", fEdge.impl, { ...iso() });
   assert.equal(edge.basis, "embedded_date", "半天超前(时区面)放行");
   assert.ok(!edge.embedded_date?.rejected_reason, "放行面无拒采痕");
+});
+
+test("#344 高 RTT 源探活不被 happy-eyeballs 抢跑误杀:模块加载即抬 autoSelectFamilyAttemptTimeout 到 2500ms", async () => {
+  // 回归钉:有人重排 import/删模块级调参,此断言红。250ms 缺省下 manycast.net 级 RTT(≈300-400ms)
+  // 的 IPv4 SYN 未完成即抢跑 IPv6(ENETUNREACH)→ AggregateError,curl 却通;#331 分级基线首跑实锤。
+  assert.equal(net.getDefaultAutoSelectFamilyAttemptTimeout(), 2500, "add-round.mjs 模块级 net.setDefaultAutoSelectFamilyAttemptTimeout(2500) 必须在场");
 });

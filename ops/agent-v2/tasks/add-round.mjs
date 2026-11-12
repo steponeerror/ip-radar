@@ -46,7 +46,15 @@ import crypto from "node:crypto";
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
 import { performance } from "node:perf_hooks";
+import net from "node:net";
 import { fileURLToPath } from "node:url";
+
+// #344:高 RTT 源探活被 happy-eyeballs 250ms 抢跑误杀——Node 22 autoSelectFamilyAttemptTimeout
+// 缺省 250ms,IPv4 SYN 未在 250ms 内完成(如 manycast.net RTT≈300-400ms)即判 ETIMEDOUT 并抢跑
+// IPv6(无路由 ENETUNREACH),AggregateError 双败抛出;curl 同机秒连。抬到 2500ms 后实测
+// 6510ms 拿到 200+content-disposition。本模块只在专用 CLI 轮进程内加载,进程级调参可接受;
+// 测试钉=add-liveness.test.mjs 断言模块加载后 getDefaultAutoSelectFamilyAttemptTimeout()==2500。
+net.setDefaultAutoSelectFamilyAttemptTimeout(2500);
 import { defineTask, UsageDoc } from "@earendil-works/pi-durable";
 import { elapsedWallS } from "../budget.mjs"; // 零复制 re-export seam(旧管线纯函数单一真源)
 import { preModelCall, postModelCall, stepBoundary } from "./budget-guard.mjs"; // 执法面(文案/界值零漂移)
