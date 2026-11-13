@@ -29,6 +29,23 @@
 - 模式照抄既有源:`backend/ipdb/_sources/` 里现成的源文件就是模板——**读它们**,
   不要发明新模式。基类两份(`_base.py`/`_source_base.py`),先 `grep "^class"` 枚举
   活类,不背类清单。
+- **主类名拼法收敛(装载约定)**:主类名 = `<stem 拼法>Source`——但仓内逐源类名是
+  人工惯例,消费方 import 的是冻结拼法,拼错 = 导入面整个断(collection 面 0 分),
+  且无法从 stem 机械推出哪一派。落法:主类名照你的最佳判断定义;模块尾部用
+  PEP 562 模块级 `__getattr__` 把**三种规范拼法**都导出可导入(与主类名相同则免):
+  ①令牌机械形(stem 去分隔符、仅首字母大写);②品牌拆词形(stem 断成品牌段+
+  普通词段,各段首字母大写、段内其余字母**保留原大小写**——缩写段不整体改大写);
+  ③缩写全大写形(品牌段整体大写):
+  ```python
+  _IMPORT_ALIASES = {"<变体名>": "<主类名>"}  # 各变体→主类;与主类同名的不列
+  def __getattr__(name):
+      if name in _IMPORT_ALIASES:
+          return globals()[_IMPORT_ALIASES[name]]
+      raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+  ```
+  机制面:`from 包 import 名` 对缺席名走模块 `__getattr__`(PEP 562 语义),别名可
+  导入;变体**不出现在 `dir()`**——注册表自动发现按 `dir()` 枚举,不会双注册(直接
+  赋值别名 `X = 主类` 会进 `dir()`,同一类被注册两次、roster 双行,禁用)。
 - 行为对照走执行面,不止读码面:定稿前把 1-2 个同 archetype 兄弟源**跑起来**——
   用 pytest 解释器现场调它的行解析/Evidence 构造面(喂一行真实样本,打印产出的
   记录全 dict);键路由语义(CIDR 行成员查询:含属命中/部分前缀不命中/一行多证据
