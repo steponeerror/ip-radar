@@ -18,7 +18,8 @@
    同属泄漏(diff 泄漏闸机检)。实现依据=沙箱里活的基类/契约代码 + 候选数据本身的真实样张。
    **鼓励读**:`backend/ipdb/_sources/_base.py`、`backend/ipdb/_source_base.py`、
    `backend/ipdb/_evidence.py`、`backend/ipdb/_registry.py`、`backend/ipdb/_merge.py`、
-   `backend/ipdb/_classification.py`、`backend/ipdb/_validate.py` 与既有源文件——
+   `backend/ipdb/_classification.py`、`backend/ipdb/_validate.py` 与既有源文件、
+   `backend/tests/sources/` 既有兄弟逐源测试(断言惯例面;你自身的测试不在此列)——
    这是实现契约的一部分,不是泄漏。
 4. **TDD 硬序。** 先写测试、亲眼看它以正确理由红(如 ModuleNotFoundError),再写实现
    转绿。跳步=门红终态(转录机检首红末绿)。
