@@ -190,6 +190,55 @@ export function githubCommitsQuery(url) {
   return { api: `https://api.github.com/repos/${owner}/${repo}/commits?${q}`, path: fileSegs.join("/") };
 }
 
+// URL 段安全解码(坏 %-序列原样返回;releases 资产名是解码形,比对用)
+const safeDecodeSeg = (s) => { try { return decodeURIComponent(s); } catch { return s; } };
+
+// #345 B1:releases 形 URL → releases API 面参数。github 家族里 releases 形只在
+// github.com 域(raw.* 无 releases 路径面):releases/latest/download/<file> →
+// GET .../releases/latest;releases/download/<tag>/<file> → GET .../releases/tags/<tag>
+// (tag 剥第三段;file=剩余路径段拼接,资产名平面形)。非 releases 形/无文件段/
+// 非 github.com 域/非 URL → null(null=证据面不适用,照旧走 commits 回退——
+// githubCommitsQuery 对同两形的剥段律 #342 B 已定,两者判据面解耦)。实测锚:
+// api.github.com/repos/P3TERX/GeoLite.mmdb/releases/latest → published_at
+// 2026-11-10T08:01:13Z + assets 含 GeoLite2-City.mmdb。
+export function githubReleaseQuery(url) {
+  let u;
+  try { u = new URL(String(url ?? "")); } catch { return null; }
+  if (githubFamilyHost(url) !== "github.com") return null;
+  const segs = u.pathname.split("/").filter(Boolean);
+  if (segs.length < 2) return null;
+  const [owner, repo, ...rest] = segs;
+  if (rest[0] !== "releases") return null;
+  let api = null;
+  if (rest[1] === "latest" && rest[2] === "download" && rest.length > 3)
+    api = `https://api.github.com/repos/${owner}/${repo}/releases/latest`;
+  else if (rest[1] === "download" && rest[2] && rest.length > 3)
+    api = `https://api.github.com/repos/${owner}/${repo}/releases/tags/${rest[2]}`;
+  return api ? { api, file: rest.slice(3).map(safeDecodeSeg).join("/") } : null;
+}
+
+// #345 B2:cdn.jsdelivr.net/gh/<owner>/<repo>@<ref>/<路径…> → 等价 github
+// (owner,repo,path)。/gh/ 内容=git 树内容(commits API 即发布方活性证据);CDN 响应
+// 零日期头、data.jsdelivr flat API 无 time(票面实测排除)——映射是唯一证据通路。
+// 非 /gh/ 形(/npm/ 等)/缺 @ref/ref 空/路径空/非 cdn.jsdelivr.net 域/非 URL → null
+// (映射失败照旧:jsdelivr 域非 github 家族,embedded_date 第三基仍可用)。githubUrl
+// =等价 raw 形 URL(喂 githubCommitsQuery 走既有剥段律;段保持原编码,与原生 raw
+// URL 同口径,不二次解码)。实测锚:commits?per_page=1&path=proxies/all/data.csv
+// → 2026-11-13T02:50:12Z。
+export function jsdelivrGhMap(url) {
+  let u;
+  try { u = new URL(String(url ?? "")); } catch { return null; }
+  if (u.hostname.toLowerCase() !== "cdn.jsdelivr.net") return null;
+  const segs = u.pathname.split("/").filter(Boolean);
+  if (segs[0] !== "gh") return null;
+  const at = (segs[2] ?? "").indexOf("@");
+  if (at <= 0 || at === segs[2].length - 1) return null; // 缺 @ref(repo@ref 段无 @)/ref 空
+  const owner = segs[1], repo = segs[2].slice(0, at), ref = segs[2].slice(at + 1);
+  const path = segs.slice(3).join("/");
+  if (!path) return null; // 路径空
+  return { owner, repo, ref, path, githubUrl: `https://raw.githubusercontent.com/${owner}/${repo}/${ref}/${path}` };
+}
+
 // ── #340 github commits API 限流记忆化(优化环几十上百次 trial 面)──
 // api.github.com 匿名配额 60 req/h/按 IP(#340 票面):每轮 VERIFY 12 题必发回退调用,
 // 优化环确定撞 403→fail-closed none→G_VERIFY 系统性只红 github 家族题。两层记忆化:
@@ -238,17 +287,125 @@ function writeGithubFreshnessFile(file, api, entry) {
   } catch { /* 降级进程内一层;见上 */ }
 }
 
-// 条目可用性:committer_date/cached_at 均可解析才可用(单条目坏=跳过重探,不算文件坏)
+// 条目可用性(commits 面):committer_date/cached_at 均可解析才可用(单条目坏=跳过
+// 重探,不算文件坏)。#345 起统一返回 dateMs(=证据日期毫秒)供共用骨架消费。
 function githubFreshnessEntryUsable(raw) {
   if (!raw || typeof raw !== "object") return null;
-  const commitMs = Date.parse(raw.committer_date), cachedMs = Date.parse(raw.cached_at);
-  if (!Number.isFinite(commitMs) || !Number.isFinite(cachedMs)) return null;
+  const dateMs = Date.parse(raw.committer_date), cachedMs = Date.parse(raw.cached_at);
+  if (!Number.isFinite(dateMs) || !Number.isFinite(cachedMs)) return null;
   return {
-    commitMs, cachedMs,
+    dateMs, cachedMs,
     etag: typeof raw.etag === "string" && raw.etag ? raw.etag : null,
     committer_date: raw.committer_date, cached_at: raw.cached_at,
   };
 }
+
+// ── #345:api.github.com GET 记忆化共用骨架(#340 commits 面 #345 B1 releases 面零复制)──
+// 两层读(mem→file,文件命中回填 mem)→ TTL 内命中零网络回放(age 用取得时刻算)→
+// 过期/未命中 Conditional GET(if-none-match;304 不占配额视为新鲜,条目两层面回写)→
+// 200 解析写回两层 → 失败面(非 200/解析失败/网络错)不落缓存只留痕(与 hit/未尝试
+// 三分可分诊)。条目形状与 body 解析由 codec 钩子决定(evSeed/entryUsable/hitEvidence/
+// revalidatedEntry/revalidatedEvidence/freshFrom);取得时刻=fetch 完成后(#340 评审补:
+// P31 毫秒边界——pre-fetch now 会把 age 算短 1ms 使 floor 掉档)——此律在骨架单源两面共享。
+async function memoizedGithubGet(api, fetchImpl, cache, codec) {
+  const {
+    mem = GITHUB_FRESHNESS_MEM,
+    file = githubFreshnessCacheDefaultPath(),
+    ttlMs = Number(process.env.OPS_GITHUB_FRESHNESS_TTL_MS) > 0 ? Number(process.env.OPS_GITHUB_FRESHNESS_TTL_MS) : GITHUB_FRESHNESS_TTL_MS_DEFAULT,
+  } = cache;
+  const now = Date.now();
+  const ev = codec.evSeed(api);
+  // 两层读(#340 ①):进程内 → 文件(文件命中回填进程内层)
+  let cached = codec.entryUsable(mem.get(api));
+  let cacheNote = null;
+  if (!cached && file) {
+    const { entries, corrupt } = readGithubFreshnessFile(file);
+    if (corrupt) cacheNote = "cache_file_corrupt"; // 弃缓存留痕(可分诊,#339 ③ 同律)
+    const raw = entries?.[api];
+    cached = codec.entryUsable(raw);
+    if (cached) mem.set(api, raw);
+  }
+  if (cached && now - cached.cachedMs < ttlMs) {
+    // TTL 内命中:零网络零配额;age 用取得时刻算(记忆化回放,#340 ①)
+    return { dateMs: cached.dateMs, ageAsOfMs: cached.cachedMs, evidence: codec.hitEvidence(ev, cached) };
+  }
+  ev.cache = "miss"; // 触网面(与 hit/未尝试三分可分诊,#339 ③)
+  if (cacheNote) ev.cache_note = cacheNote;
+  // Conditional GET(#340 ②):过期/未命中条目带 etag → If-None-Match;304 不占配额
+  const headers = { "user-agent": "ip-radar-add-round/1.0", accept: "application/vnd.github+json" };
+  if (cached?.etag) headers["if-none-match"] = cached.etag;
+  try {
+    const res = await fetchImpl(api, {
+      method: "GET", redirect: "manual", signal: AbortSignal.timeout(15_000), headers,
+    });
+    ev.status = res.status;
+    const got = Date.now(); // 取得时刻=fetch 完成后(#340 评审补:P31 毫秒边界)
+    if (res.status === 304 && cached) {
+      // 304=未变更:不占配额,视为新鲜证据——cached_at 更新为再验证时刻(取得时刻),
+      // 证据日期沿缓存(304 无 body),条目两层面回写(#340 ②)
+      const revalidated = codec.revalidatedEntry(res, cached, got);
+      mem.set(api, revalidated);
+      if (file) writeGithubFreshnessFile(file, api, revalidated);
+      return { dateMs: cached.dateMs, ageAsOfMs: got, evidence: codec.revalidatedEvidence(ev, revalidated) };
+    }
+    if (res.status !== 200) return ev; // fail-closed;缓存条目不动(etag 留给下轮再验证)
+    const body = await res.json().catch(() => null);
+    const fresh = codec.freshFrom(body, res, got);
+    if (fresh) {
+      mem.set(api, fresh.entry);
+      if (file) writeGithubFreshnessFile(file, api, fresh.entry);
+      return { dateMs: fresh.dateMs, ageAsOfMs: got, evidence: { ...ev, ...fresh.evidence } };
+    }
+    return ev;
+  } catch (e) {
+    ev.error = String(e?.cause?.message ?? e?.message ?? e).slice(0, 160);
+    return ev;
+  }
+}
+
+// commits 面 codec(#340 原面收编;条目=etag+committer_date+cached_at)
+const GITHUB_COMMITS_CODEC = {
+  evSeed: (api) => ({ api, status: null, committer_date: null }),
+  entryUsable: githubFreshnessEntryUsable,
+  hitEvidence: (ev, e) => ({ ...ev, committer_date: e.committer_date, cached_at: e.cached_at, cache: "hit" }),
+  revalidatedEntry: (res, cached, gotMs) => ({ etag: res.headers.get("etag") ?? cached.etag, committer_date: cached.committer_date, cached_at: new Date(gotMs).toISOString() }),
+  revalidatedEvidence: (ev, e) => ({ ...ev, cache: "revalidated", committer_date: e.committer_date, cached_at: e.cached_at }),
+  freshFrom: (body, res, gotMs) => {
+    const d = Array.isArray(body) ? body[0]?.commit?.committer?.date : null;
+    const t = d ? new Date(d).getTime() : NaN;
+    if (!Number.isFinite(t)) return null;
+    const committer_date = new Date(t).toISOString(), cached_at = new Date(gotMs).toISOString(); // 取得时刻入档(证据不灭失,#340 ①)
+    return { dateMs: t, entry: { etag: res.headers.get("etag"), committer_date, cached_at }, evidence: { committer_date, cached_at } };
+  },
+};
+
+// releases 面 codec(#345 B1;条目=etag+published_at+assets 名单+cached_at)。assets
+// 名单随条目记忆化:采纳判定(请求文件∈assets)在回放面重做,同 release 异文件
+// URL 共享条目零额外配额;名单缺席=条目不可回放(判定做不了,重探)。
+const GITHUB_RELEASE_CODEC = {
+  evSeed: (api) => ({ api, status: null, published_at: null }),
+  entryUsable: (raw) => {
+    if (!raw || typeof raw !== "object" || !Array.isArray(raw.assets)) return null;
+    const dateMs = Date.parse(raw.published_at), cachedMs = Date.parse(raw.cached_at);
+    if (!Number.isFinite(dateMs) || !Number.isFinite(cachedMs)) return null;
+    return {
+      dateMs, cachedMs,
+      etag: typeof raw.etag === "string" && raw.etag ? raw.etag : null,
+      published_at: raw.published_at, cached_at: raw.cached_at, assets: raw.assets,
+    };
+  },
+  hitEvidence: (ev, e) => ({ ...ev, published_at: e.published_at, cached_at: e.cached_at, assets: e.assets, cache: "hit" }),
+  revalidatedEntry: (res, cached, gotMs) => ({ etag: res.headers.get("etag") ?? cached.etag, published_at: cached.published_at, assets: cached.assets, cached_at: new Date(gotMs).toISOString() }),
+  revalidatedEvidence: (ev, e) => ({ ...ev, cache: "revalidated", published_at: e.published_at, assets: e.assets, cached_at: e.cached_at }),
+  freshFrom: (body, res, gotMs) => {
+    if (!body || typeof body !== "object" || Array.isArray(body)) return null;
+    const t = Date.parse(body.published_at);
+    if (!Number.isFinite(t)) return null;
+    const assets = Array.isArray(body.assets) ? body.assets.map((a) => (a && typeof a.name === "string" ? a.name : null)).filter((n) => typeof n === "string") : [];
+    const published_at = new Date(t).toISOString(), cached_at = new Date(gotMs).toISOString();
+    return { dateMs: t, entry: { etag: res.headers.get("etag"), published_at, assets, cached_at }, evidence: { published_at, assets, cached_at } };
+  },
+};
 
 export function rosterCollisions(candidate, rosterLines, rosterUrls = new Map()) {
   const stripWww = (h) => (h.startsWith("www.") ? h.slice(4) : h);
@@ -284,7 +441,8 @@ export function rosterCollisions(candidate, rosterLines, rosterUrls = new Map())
 }
 
 // 鲜活度门(定案 8 VERIFY 行):数据内时间戳 ≤30d 过;无活性证据(last-modified/
-// github commits API/响应头内嵌日期三基均未取得)=fail-closed
+// github releases/commits API(#345 B1/B2 含 jsdelivr/gh 映射)/响应头内嵌日期
+// 证据基均未取得)=fail-closed
 // (file-mtime/「URL 响应了」不算活性证据——sunset 源冻结文件也 200;发布方活性证据
 // 面=github 家族 commits API 已接 #339 ① probeLiveness 回退,basis=github_commit;
 // #342 A2 第三基 embedded_date=响应头 content-disposition 文件名内嵌日期,非家族且
@@ -295,7 +453,7 @@ export function freshnessOf(liveness, nowMs = Date.now()) {
     if (age <= 30) return { ok: true, basis: liveness.basis ?? "age_days", age_days: age };
     return { ok: false, basis: liveness.basis ?? "age_days", age_days: age, reason: `数据内部时间戳 age_days=${age}>30(sunset 嫌疑)` };
   }
-  return { ok: false, basis: "none", reason: "无活性证据(直接探活无 last-modified、家族 commits 证据未取得或非家族、响应头亦无可解析内嵌日期;无证据即无话,fail-closed)" };
+  return { ok: false, basis: "none", reason: "无活性证据(直接探活无 last-modified、github 家族 releases/commits 证据(含 jsdelivr/gh 映射)未取得或非家族、响应头亦无可解析内嵌日期;无证据即无话,fail-closed)" };
 }
 
 // 交接单形状(定案 2:实抓样本 3-5 行/格式/auth/cadence/字段路由草案)
@@ -637,6 +795,13 @@ export function embeddedDateFromDisposition(cd) {
 // /无 commit = fail-closed none(无证据即无话)。fetchImpl 注入=测试面零网络。
 // #340:commits API 回退调用走限流记忆化(两层+Conditional GET,见 GITHUB_FRESHNESS_
 // MEM 注释;注入缝 githubCacheMem/githubCacheFile/githubCacheTtlMs 同风格)。
+// #345 B1:releases 形(github.com releases/latest/download/<file> 与 releases/download/
+// <tag>/<file>)在 commits 回退前先吃 github_release 基——GET releases API 取
+// published_at,采纳=文件∈assets[].name(错位/失败落 commits 回退,证据留痕);优先级
+// last_modified > github_release > github_commit > embedded_date。
+// #345 B2:cdn.jsdelivr.net/gh/<o>/<r>@<ref>/<路径> 映射等价 github 走 commits 回退
+// (jsdelivrGhMap;证据带 jsdelivr_mapped 注记);映射成功不吃 embedded_date 第三基
+// (视同家族面 fail-closed 不退回),映射失败照旧走第三基。
 // #342 A2 第三基 embedded_date:直接探活无 last-modified、又非 github 家族时,响应头
 // content-disposition 文件名内嵌日期(解析律见 embeddedDateFromDisposition)采信为
 // basis=embedded_date,age 按该日期算(UTC 午夜);日期解析失败=无证据 fail-closed
@@ -687,14 +852,22 @@ export async function probeLiveness(url, fetchImpl = fetch, opts = {}) {
   const newest = combos.map((c) => c.last_modified).filter(Boolean).map((s) => new Date(s))
     .filter((d) => !Number.isNaN(d.getTime())).sort((a, b) => b - a)[0] ?? null;
   const fromLm = newest ? { last_modified: newest.toISOString(), age_days: Math.floor((Date.now() - newest.getTime()) / 86_400_000), basis: "last_modified" } : null;
-  const gh = fromLm ? null : await githubCommitEvidence(url, fetchImpl, // 优先级:last_modified 在场不触 API
+  // #345 B1:releases 形先吃 github_release 基(资产粒度 > commits 树粒度;last_modified
+  // 在场不触 API 同律);错位/失败面在 githubReleaseEvidence 内判,落 commits 回退
+  const ghRel = fromLm ? null : await githubReleaseEvidence(url, fetchImpl,
+    { mem: githubCacheMem, file: githubCacheFile, ttlMs: githubCacheTtlMs });
+  const fromGhRel = ghRel?.dateMs != null
+    ? { age_days: Math.floor((ghRel.ageAsOfMs - ghRel.dateMs) / 86_400_000), basis: "github_release" } // age 用取得时刻算(#340 同律)
+    : null;
+  const gh = (fromLm || fromGhRel) ? null : await githubCommitEvidence(url, fetchImpl, // github_release 得证不触 commits
     { mem: githubCacheMem, file: githubCacheFile, ttlMs: githubCacheTtlMs });
   const fromGh = gh?.dateMs != null
     ? { age_days: Math.floor((gh.ageAsOfMs - gh.dateMs) / 86_400_000), basis: "github_commit" } // age 用取得时刻算(#340:命中=缓存回放面)
     : null;
-  // #342 A2 第三基:前两基皆空且非 github 家族(host 级判,githubFamilyHost 单源)才看;
-  // 多组合取最新(last_modified 同律);解析失败=无证据 fail-closed
-  const embCands = (fromLm || fromGh || githubFamilyHost(url)) ? []
+  // #342 A2 第三基:前三基皆空且非 github 家族(host 级判,githubFamilyHost 单源;
+  // #345 B2:jsdelivr /gh/ 映射成功=视同家族面同样不吃——先吃映射 commits 证据,
+  // 映射失败照旧走第三基)才看;多组合取最新(last_modified 同律);解析失败=无证据 fail-closed
+  const embCands = (fromLm || fromGhRel || fromGh || githubFamilyHost(url) || jsdelivrGhMap(url)) ? []
     : combos.map((c) => embeddedDateFromDisposition(c.content_disposition)).filter(Boolean);
   const emb = embCands.length ? embCands.reduce((a, b) => (b.ms > a.ms ? b : a)) : null;
   // 未来日期拒采(#342 评审 P2-2 裁定):age < −1 = 日期超前一天以上——expiry/valid-until
@@ -702,12 +875,13 @@ export async function probeLiveness(url, fetchImpl = fetch, opts = {}) {
   // 超前(UTC+X 午夜已翻日)。拒采≠不留痕:embedded_date 照入档,面下记 reason。
   const embAge = emb ? Math.floor((Date.now() - emb.ms) / 86_400_000) : null;
   const fromEmb = emb && embAge >= -1 ? { age_days: embAge, basis: "embedded_date" } : null;
-  const evidence = fromLm ?? fromGh ?? fromEmb;
+  const evidence = fromLm ?? fromGhRel ?? fromGh ?? fromEmb;
   return {
     combos,
     last_modified: fromLm?.last_modified ?? null,
     age_days: evidence?.age_days,
     basis: evidence?.basis ?? "none",
+    github_release: ghRel?.evidence ?? ghRel ?? null, // #345 B1 留痕(得证采纳/错位/失败/未尝试四分可分诊)
     github_commit: gh?.evidence ?? gh ?? null, // 回退证据留痕(成败面都留 api/status/日期或 error;证据不灭失,#339 评审 P1:失败面裸 ev 也入档,与未尝试可分诊)
     embedded_date: emb ? { date_source: "content_disposition_filename", filename: emb.filename, date: new Date(emb.ms).toISOString(), ...(embAge !== null && embAge < -1 ? { rejected_reason: `embedded_future_date age_days=${embAge}` } : {}) } : null, // #342 A2 留痕;null=未采或不适用(header 原文在 combos 可分诊);拒采面记 rejected_reason(P2-2)
   };
@@ -719,69 +893,36 @@ export async function probeLiveness(url, fetchImpl = fetch, opts = {}) {
 // #340 限流记忆化(两层+Conditional GET):cache={mem, file, ttlMs} 注入面
 // (probeLiveness opts 同风格缝;undefined=缺省,file=null 关文件层)。命中返回
 // {dateMs, ageAsOfMs, evidence}——ageAsOfMs=age 计算基准时刻(命中=取得时刻,
-// 200/304=now),probeLiveness 据此算 age_days。
+// 200/304=now),probeLiveness 据此算 age_days。记忆化骨架与条目 codec 见
+// memoizedGithubGet(#345 收编单源)。
+// #345 B2:cdn.jsdelivr.net/gh/<o>/<r>@<ref>/<路径> 先映射等价 github raw URL
+// (jsdelivrGhMap)再走既有剥段/记忆化面;映射注记 jsdelivr_mapped={from,to} 随证据
+// 入档(成功/失败面都带——映射是 URL 面属性非缓存条目属性);映射失败照旧按原 URL
+// 判(非家族=null 不回退,embedded_date 第三基仍可用)。
 async function githubCommitEvidence(url, fetchImpl, cache = {}) {
-  const q = githubCommitsQuery(url);
+  const mapped = jsdelivrGhMap(url);
+  const target = mapped ? mapped.githubUrl : url;
+  const q = githubCommitsQuery(target);
   if (!q) return null;
-  const {
-    mem = GITHUB_FRESHNESS_MEM,
-    file = githubFreshnessCacheDefaultPath(),
-    ttlMs = Number(process.env.OPS_GITHUB_FRESHNESS_TTL_MS) > 0 ? Number(process.env.OPS_GITHUB_FRESHNESS_TTL_MS) : GITHUB_FRESHNESS_TTL_MS_DEFAULT,
-  } = cache;
-  const now = Date.now();
-  const ev = { api: q.api, status: null, committer_date: null };
-  // 两层读(#340 ①):进程内 → 文件(文件命中回填进程内层)
-  let cached = githubFreshnessEntryUsable(mem.get(q.api));
-  let cacheNote = null;
-  if (!cached && file) {
-    const { entries, corrupt } = readGithubFreshnessFile(file);
-    if (corrupt) cacheNote = "cache_file_corrupt"; // 弃缓存留痕(可分诊,#339 ③ 同律)
-    const raw = entries?.[q.api];
-    cached = githubFreshnessEntryUsable(raw);
-    if (cached) mem.set(q.api, raw);
-  }
-  if (cached && now - cached.cachedMs < ttlMs) {
-    // TTL 内命中:零网络零配额;age 用取得时刻算(记忆化回放,#340 ①)
-    return { dateMs: cached.commitMs, ageAsOfMs: cached.cachedMs,
-      evidence: { ...ev, committer_date: cached.committer_date, cached_at: cached.cached_at, cache: "hit" } };
-  }
-  ev.cache = "miss"; // 触网面(与 hit/未尝试三分可分诊,#339 ③)
-  if (cacheNote) ev.cache_note = cacheNote;
-  // Conditional GET(#340 ②):过期/未命中条目带 etag → If-None-Match;304 不占配额
-  const headers = { "user-agent": "ip-radar-add-round/1.0", accept: "application/vnd.github+json" };
-  if (cached?.etag) headers["if-none-match"] = cached.etag;
-  try {
-    const res = await fetchImpl(q.api, {
-      method: "GET", redirect: "manual", signal: AbortSignal.timeout(15_000), headers,
-    });
-    ev.status = res.status;
-    const got = Date.now(); // 取得时刻=fetch 完成后(#340 评审补:P31 毫秒边界——pre-fetch now 会把 age 算短 1ms 使 floor 掉档)
-    if (res.status === 304 && cached) {
-      // 304=未变更:不占配额,视为新鲜证据——cached_at 更新为再验证时刻(取得时刻),
-      // committer_date 沿缓存(304 无 body),条目两层面回写(#340 ②)
-      const revalidated = { etag: res.headers.get("etag") ?? cached.etag, committer_date: cached.committer_date, cached_at: new Date(got).toISOString() };
-      mem.set(q.api, revalidated);
-      if (file) writeGithubFreshnessFile(file, q.api, revalidated);
-      return { dateMs: cached.commitMs, ageAsOfMs: got,
-        evidence: { ...ev, cache: "revalidated", committer_date: cached.committer_date, cached_at: revalidated.cached_at } };
-    }
-    if (res.status !== 200) return ev; // fail-closed;缓存条目不动(etag 留给下轮再验证)
-    const body = await res.json().catch(() => null);
-    const d = Array.isArray(body) ? body[0]?.commit?.committer?.date : null;
-    const t = d ? new Date(d).getTime() : NaN;
-    if (Number.isFinite(t)) {
-      ev.committer_date = new Date(t).toISOString();
-      ev.cached_at = new Date(got).toISOString(); // 取得时刻入档(证据不灭失,#340 ①)
-      const entry = { etag: res.headers.get("etag"), committer_date: ev.committer_date, cached_at: ev.cached_at };
-      mem.set(q.api, entry);
-      if (file) writeGithubFreshnessFile(file, q.api, entry);
-      return { dateMs: t, ageAsOfMs: got, evidence: ev };
-    }
-    return ev;
-  } catch (e) {
-    ev.error = String(e?.cause?.message ?? e?.message ?? e).slice(0, 160);
-    return ev;
-  }
+  const r = await memoizedGithubGet(q.api, fetchImpl, cache, GITHUB_COMMITS_CODEC);
+  if (mapped) Object.assign(r.evidence ?? r, { jsdelivr_mapped: { from: String(url), to: target } });
+  return r;
+}
+
+// ── #345 B1:releases API published_at 证据(github_release 基)──
+// githubReleaseQuery 剥 (owner,repo,file[,tag]) 后 GET releases/latest 或
+// releases/tags/<tag>,published_at=证据日期;采纳条件=请求 <file> ∈ assets[].name
+// (文件不在资产列表=URL 与资产错位,published_at 是 release 的不是该文件的,不采纳
+// asset_match=false 留痕落 commits 回退)。失败面(403/网络错/缺 published_at/坏
+// body)同落 commits 回退,证据照留痕(证据不灭失,与未尝试 null 可分诊)。记忆化
+// =#340 面共用骨架(注入缝同风格;releases 响应记 etag 支持 304,条目多 assets 名单)。
+async function githubReleaseEvidence(url, fetchImpl, cache = {}) {
+  const q = githubReleaseQuery(url);
+  if (!q) return null;
+  const r = await memoizedGithubGet(q.api, fetchImpl, cache, GITHUB_RELEASE_CODEC);
+  if (r.dateMs == null) return r; // 失败面留痕上抛(分诊:status/error/published_at=null)
+  r.evidence.asset_match = (r.evidence.assets ?? []).includes(q.file); // 采纳判定入档(错位可分诊)
+  return r.evidence.asset_match ? r : { ...r, dateMs: null }; // 错位=不采纳 → probeLiveness 落 commits 回退
 }
 
 function phaseAfter(phase) {

@@ -7,6 +7,10 @@ import net from "node:net";
 // 几十上百次 trial 必撞 403)——进程内 Map + 跨进程文件缓存两层(命中=cache:hit 零网络,
 // age 用取得时刻算)+ Conditional GET(If-None-Match,304 不占配额视为新鲜)+ 坏缓存
 // 弃用重探不红轮;注入面 githubCacheMem/githubCacheFile/githubCacheTtlMs(同风格缝)。
+// #345 B1:github releases API published_at 证据基(releases 两形;采纳=文件∈assets,错位/
+// 失败落 commits 回退;共用 #340 记忆化面,条目多 assets 名单);
+// #345 B2:cdn.jsdelivr.net/gh/<o>/<r>@<ref>/<路径> → github (o,r,path) 映射走既有
+// commits 面(jsdelivr_mapped 注记;映射成功不吃 embedded_date 第三基)。
 // 背景(P3 前置阻断件):真实 trial VERIFY 鲜活度门 freshness.ok≠true 即红(G_VERIFY);
 // 本机 raw.githubusercontent.com TCP 被墙,宇宙 12 题端点在 raw.*——直接探活(4 组合
 // GET/HEAD×UA)拿不到 last-modified 时,github 家族 URL 回退 api.github.com commits API
@@ -449,4 +453,269 @@ test("#344 高 RTT 源探活不被 happy-eyeballs 抢跑误杀:模块加载即�
   // 回归钉:有人重排 import/删模块级调参,此断言红。250ms 缺省下 manycast.net 级 RTT(≈300-400ms)
   // 的 IPv4 SYN 未完成即抢跑 IPv6(ENETUNREACH)→ AggregateError,curl 却通;#331 分级基线首跑实锤。
   assert.equal(net.getDefaultAutoSelectFamilyAttemptTimeout(), 2500, "add-round.mjs 模块级 net.setDefaultAutoSelectFamilyAttemptTimeout(2500) 必须在场");
+});
+
+// ── #345 B1:github releases API published_at 证据基(releases 形 URL)──
+// geolite_city 三连红根因:releases 资产不在 git 树,commits?path=<file> 空数组 fail-closed
+// (200/null 如实留痕,非 bug 是近似上限)。新证据面:releases/latest/download/<file> →
+// GET .../releases/latest;releases/download/<tag>/<file> → GET .../releases/tags/<tag>;
+// published_at=证据日期,采纳条件=请求文件∈assets[].name(错位=不采纳落 commits 回退)。
+// 优先级 last_modified > github_release > github_commit > embedded_date(仅非家族/非映射)。
+// 记忆化=#340 面共用(mem+file 两层+Conditional GET,条目=etag+published_at+assets+cached_at)。
+// 实测锚:api.github.com/repos/P3TERX/GeoLite.mmdb/releases/latest → published_at
+// 2026-11-10T08:01:13Z + assets 含 GeoLite2-City.mmdb。
+
+const REL_URL_LATEST = "https://github.com/P3TERX/GeoLite.mmdb/releases/latest/download/GeoLite2-City.mmdb";
+const REL_URL_TAG = "https://github.com/o/r/releases/download/v1.2/anycast_census.csv.gz";
+const REL_API_LATEST = "https://api.github.com/repos/P3TERX/GeoLite.mmdb/releases/latest";
+const REL_API_TAG = "https://api.github.com/repos/o/r/releases/tags/v1.2";
+const REL_COMMITS_PREFIX = "https://api.github.com/repos/P3TERX/GeoLite.mmdb/commits"; // commits 回退路由(releases 形 path=文件名)
+const releaseAt = (daysAgo, assets) => ({ published_at: new Date(Date.now() - daysAgo * dayMs).toISOString(), assets: assets.map((name) => ({ name, size: 1 })) });
+
+test("#345 B1 单测 githubReleaseQuery:releases 两形 → releases API 面(latest/tags);非 releases 形/非 github.com 域/无文件段 = null", async () => {
+  const { githubReleaseQuery } = await import("../tasks/add-round.mjs");
+  assert.equal(typeof githubReleaseQuery, "function", "导出=测试单源面");
+  const q = (u) => { const r = githubReleaseQuery(u); return r ? { api: r.api, file: r.file } : null; };
+  assert.deepEqual(q(REL_URL_LATEST), { api: REL_API_LATEST, file: "GeoLite2-City.mmdb" }, "latest 形:GET releases/latest");
+  assert.deepEqual(q(REL_URL_TAG), { api: REL_API_TAG, file: "anycast_census.csv.gz" }, "tag 形:GET releases/tags/<tag>");
+  assert.equal(q("https://github.com/o/r/blob/main/a/b.txt"), null, "非 releases 形(照旧走 commits 面)");
+  assert.equal(q("https://raw.githubusercontent.com/o/r/releases/latest/download/f.bin"), null, "releases 形只在 github.com 域");
+  assert.equal(q("https://github.com/o/r/releases/latest/download/"), null, "latest 形无文件段(→ commits 回退面)");
+  assert.equal(q("https://github.com/o/r/releases/download/"), null, "tag 形无文件段");
+  assert.equal(q("https://github.com/o/r/releases/download/v1.2"), null, "tag 后无文件段");
+  assert.equal(q("https://example.com/o/r/releases/latest/download/f.bin"), null, "家族外");
+  assert.equal(q("not a url"), null);
+});
+
+test("#345 B1 绿面 latest 形:直接探活失败 → releases API published_at 得证(basis=github_release);release 得证不触 commits;证据带 asset_match 采纳判定", async () => {
+  const body = releaseAt(2.5, ["GeoLite2-City.mmdb", "GeoLite2-ASN.mmdb"]);
+  const f = stubFetch([
+    { url: REL_API_LATEST, respond: () => res({ json: body, etag: '"rel1"' }) },
+    { match: (u) => u.startsWith(REL_COMMITS_PREFIX), respond: () => { throw new Error("commits 不应被触"); } },
+  ]);
+  const live = await probeLiveness(REL_URL_LATEST, f.impl, iso());
+  assert.equal(live.basis, "github_release");
+  assert.equal(live.age_days, 2, "age=floor(取得时刻−published_at)");
+  assert.equal(live.last_modified, null);
+  assert.equal(freshnessOf(live).ok, true, "published_at ≤30d 过鲜活度门");
+  assert.equal(f.calls.filter((c) => c.url.includes("api.github.com")).length, 1, "只触 releases API 一次(release 得证=commits 零调用)");
+  assert.equal(live.github_commit, null, "commits 未尝试(与 403/连接失败可分诊)");
+  const rel = live.github_release;
+  assert.equal(rel.status, 200);
+  assert.equal(rel.cache, "miss");
+  assert.equal(rel.asset_match, true, "采纳判定入档");
+  assert.equal(rel.published_at, body.published_at);
+  assert.ok(rel.assets.includes("GeoLite2-City.mmdb"), "资产名单随证据入档");
+  assert.equal(typeof rel.cached_at, "string", "取得时刻在档(证据不灭失)");
+});
+
+test("#345 B1 绿面 tag 形:releases/download/<tag>/<file> → GET releases/tags/<tag> 取 published_at", async () => {
+  const body = releaseAt(4, ["anycast_census.csv.gz"]);
+  const f = stubFetch([{ url: REL_API_TAG, respond: () => res({ json: body }) }]);
+  const live = await probeLiveness(REL_URL_TAG, f.impl, iso());
+  assert.equal(live.basis, "github_release");
+  assert.equal(live.age_days, 4);
+  assert.equal(live.github_release.asset_match, true);
+  assert.equal(live.github_release.published_at, body.published_at);
+});
+
+test("#345 B1 资产错位:文件不在 assets[].name(published_at 是 release 的不是该文件的)→ 不采纳落 commits 回退;空资产同律;两面证据都留痕", async () => {
+  for (const face of [
+    { label: "资产名单无请求文件", assets: ["GeoLite2-ASN.mmdb"] },
+    { label: "空资产(错位同律)", assets: [] },
+  ]) {
+    const f = stubFetch([
+      { url: REL_API_LATEST, respond: () => res({ json: releaseAt(2.5, face.assets) }) },
+      { match: (u) => u.startsWith(REL_COMMITS_PREFIX), respond: () => res({ json: commitAt(5) }) },
+    ]);
+    const live = await probeLiveness(REL_URL_LATEST, f.impl, iso());
+    assert.equal(live.basis, "github_commit", `${face.label}:错位=落 commits 回退`);
+    assert.equal(live.age_days, 5, face.label);
+    assert.equal(live.github_release.asset_match, false, `${face.label}:错位判定入档可分诊`);
+    assert.equal(live.github_release.status, 200, `${face.label}:releases 面痕迹保留(证据不灭失)`);
+    assert.equal(live.github_commit.status, 200, face.label);
+  }
+});
+
+test("#345 B1 失败面:403/网络错/缺 published_at/坏 body → fail-closed 落 commits 回退;releases 面留痕可分诊", async () => {
+  for (const face of [
+    { label: "releases API 403(限流)", rel: () => res({ status: 403, json: { message: "rate limit" } }), trace: (rel, lbl) => assert.equal(rel.status, 403, lbl) },
+    { label: "releases API 连接失败", rel: () => { throw new TypeError("fetch failed"); }, trace: (rel, lbl) => assert.ok(rel.error, lbl) },
+    { label: "缺 published_at", rel: () => res({ json: { assets: [{ name: "GeoLite2-City.mmdb" }] } }), trace: (rel, lbl) => { assert.equal(rel.status, 200, lbl); assert.equal(rel.published_at, null, lbl); } },
+    { label: "坏 body(非 JSON)", rel: () => res({ json: null }), trace: (rel, lbl) => { assert.equal(rel.status, 200, lbl); assert.equal(rel.published_at, null, lbl); } },
+  ]) {
+    const f = stubFetch([
+      { url: REL_API_LATEST, respond: face.rel },
+      { match: (u) => u.startsWith(REL_COMMITS_PREFIX), respond: () => res({ json: commitAt(3) }) },
+    ]);
+    const live = await probeLiveness(REL_URL_LATEST, f.impl, iso());
+    assert.equal(live.basis, "github_commit", `${face.label}:落 commits 回退`);
+    face.trace(live.github_release, face.label);
+    assert.ok(live.github_commit.committer_date, face.label);
+  }
+});
+
+test("#345 B1 记忆化(共用 #340 面):同 URL 二次探活零 API 调用(命中回放 cache=hit,采纳判定照做);条目 etag+published_at+assets 落文件层,跨进程命中", async () => {
+  const mem = new Map();
+  const body = releaseAt(2.5, ["GeoLite2-City.mmdb"]);
+  const f1 = stubFetch([{ url: REL_API_LATEST, respond: () => res({ json: body, etag: '"r1"' }) }]);
+  const live1 = await probeLiveness(REL_URL_LATEST, f1.impl, { ...iso(), githubCacheMem: mem });
+  assert.equal(live1.github_release.cache, "miss", "首探=触网面");
+  const f2 = stubFetch([]); // 触网即失败——只有命中才可能得证
+  const live2 = await probeLiveness(REL_URL_LATEST, f2.impl, { ...iso(), githubCacheMem: mem });
+  assert.equal(live2.basis, "github_release", "进程内命中:配额零消耗");
+  assert.equal(f2.calls.filter((c) => c.url.includes("api.github.com")).length, 0, "零 API 调用");
+  assert.equal(live2.github_release.cache, "hit");
+  assert.equal(live2.github_release.asset_match, true, "回放面照做采纳判定(assets 随条目记忆化)");
+  assert.equal(live2.age_days, live1.age_days, "age 用取得时刻算:记忆化答案原样回放");
+  // 文件层(跨进程=新 Map):
+  const file = tmpCacheFile();
+  await probeLiveness(REL_URL_LATEST, stubFetch([{ url: REL_API_LATEST, respond: () => res({ json: body, etag: '"r1"' }) }]).impl, { ...iso(), githubCacheFile: file });
+  const e = JSON.parse(fs.readFileSync(file, "utf8")).entries[REL_API_LATEST];
+  assert.ok(e, "条目按 releases API URL 键落盘");
+  assert.deepEqual(e.assets, ["GeoLite2-City.mmdb"], "资产名单随条目落盘(回放面采纳判定的原料)");
+  assert.equal(e.etag, '"r1"');
+  assert.equal(e.published_at, body.published_at);
+  const f4 = stubFetch([]);
+  const live4 = await probeLiveness(REL_URL_LATEST, f4.impl, { ...iso(), githubCacheFile: file });
+  assert.equal(live4.basis, "github_release", "跨进程面:新 Map 靠文件层命中");
+  assert.equal(live4.github_release.cache, "hit");
+});
+
+test("#345 B1 TTL 过期:过期条目不回放 → 重探得新证据;条目覆盖+cached_at 刷新", async () => {
+  const file = tmpCacheFile();
+  await probeLiveness(REL_URL_LATEST, stubFetch([{ url: REL_API_LATEST, respond: () => res({ json: releaseAt(10, ["GeoLite2-City.mmdb"]), etag: '"r0"' }) }]).impl, { ...iso(), githubCacheFile: file });
+  const disk = JSON.parse(fs.readFileSync(file, "utf8"));
+  disk.entries[REL_API_LATEST].cached_at = new Date(Date.now() - 7 * 3600_000).toISOString(); // 拨回 7h 前(> 缺省 6h TTL)
+  fs.writeFileSync(file, JSON.stringify(disk));
+  const f2 = stubFetch([{ url: REL_API_LATEST, respond: () => res({ json: releaseAt(3, ["GeoLite2-City.mmdb"]), etag: '"r1"' }) }]);
+  const live = await probeLiveness(REL_URL_LATEST, f2.impl, { ...iso(), githubCacheFile: file });
+  assert.equal(live.github_release.cache, "miss", "过期条目不得回放");
+  assert.equal(live.age_days, 3, "新答案得证");
+  const disk2 = JSON.parse(fs.readFileSync(file, "utf8"));
+  assert.equal(disk2.entries[REL_API_LATEST].etag, '"r1"', "条目覆盖");
+  assert.ok(Date.now() - Date.parse(disk2.entries[REL_API_LATEST].cached_at) < 60_000, "cached_at 刷新");
+});
+
+test("#345 B1 Conditional GET:过期条目带 etag → If-None-Match;304=published_at 沿缓存不占配额,cached_at 更新为再验证时刻", async () => {
+  const file = tmpCacheFile();
+  fs.writeFileSync(file, JSON.stringify({ version: 1, entries: { [REL_API_LATEST]: {
+    etag: '"r0"', published_at: new Date(Date.now() - 5 * dayMs).toISOString(),
+    assets: ["GeoLite2-City.mmdb"], cached_at: new Date(Date.now() - 7 * 3600_000).toISOString(), // 过期(>6h)但 etag 在场
+  } } }));
+  let seenHeaders = null;
+  const f = stubFetch([{ url: REL_API_LATEST, respond: (_u, opts) => { seenHeaders = opts.headers ?? {}; return res({ status: 304, etag: '"r0"' }); } }]);
+  const live = await probeLiveness(REL_URL_LATEST, f.impl, { ...iso(), githubCacheFile: file });
+  assert.equal(seenHeaders?.["if-none-match"], '"r0"', "过期重探须带 If-None-Match");
+  assert.equal(live.basis, "github_release", "304 无 body 照常出证据(published_at 沿缓存)");
+  assert.equal(live.github_release.cache, "revalidated");
+  assert.equal(live.github_release.status, 304);
+  assert.equal(live.age_days, 5, "再验证=新鲜:age 按新取得时刻算");
+  const disk = JSON.parse(fs.readFileSync(file, "utf8"));
+  assert.ok(Date.now() - Date.parse(disk.entries[REL_API_LATEST].cached_at) < 60_000, "304 更新 cached_at");
+});
+
+test("#345 B1 命中面资产错位:缓存条目 assets 不含请求文件 → asset_match=false 照样落 commits 回退(采纳判定在回放面重做)", async () => {
+  const file = tmpCacheFile();
+  fs.writeFileSync(file, JSON.stringify({ version: 1, entries: { [REL_API_LATEST]: {
+    etag: null, published_at: new Date(Date.now() - 2 * dayMs).toISOString(),
+    assets: ["GeoLite2-ASN.mmdb"], cached_at: new Date().toISOString(),
+  } } }));
+  const f = stubFetch([{ match: (u) => u.startsWith(REL_COMMITS_PREFIX), respond: () => res({ json: commitAt(6) }) }]);
+  const live = await probeLiveness(REL_URL_LATEST, f.impl, { ...iso(), githubCacheFile: file });
+  assert.equal(live.basis, "github_commit", "命中回放面错位=不采纳,落 commits");
+  assert.equal(live.github_release.cache, "hit");
+  assert.equal(live.github_release.asset_match, false);
+  assert.equal(live.age_days, 6);
+});
+
+test("#345 优先级序:last_modified > github_release > github_commit > embedded_date——lm 得证两 API 都不触;releases 形不吃第三基", async () => {
+  const f = stubFetch([
+    { url: REL_URL_LATEST, respond: () => res({ lastModified: "Tue, 10 Nov 2026 00:00:00 GMT", contentDisposition: `attachment; filename="x-2020-01-01.csv"` }) },
+    { url: REL_API_LATEST, respond: () => { throw new Error("releases API 不应被触"); } },
+  ]);
+  const lm = await probeLiveness(REL_URL_LATEST, f.impl, iso());
+  assert.equal(lm.basis, "last_modified");
+  assert.equal(f.calls.filter((c) => c.url.includes("api.github.com")).length, 0, "lm 在场=最高优先,两 API 零调用");
+  // releases 形是 github 家族:commits 失败也不吃第三基(家族律既有测试钉过,此处对 releases 形再钉)
+  const f2 = stubFetch([
+    { url: REL_API_LATEST, respond: () => res({ status: 403, json: { message: "rate limit" } }) },
+    { match: (u) => u.startsWith(REL_COMMITS_PREFIX), respond: () => res({ json: null }) }, // commits 空数组面(assets 不在树)
+  ]);
+  const none = await probeLiveness(REL_URL_LATEST, f2.impl, iso());
+  assert.equal(none.basis, "none", "两基都失败=fail-closed");
+  assert.equal(none.embedded_date, null, "家族面不吃第三基");
+});
+
+// ── #345 B2:cdn.jsdelivr.net/gh/<o>/<r>@<ref>/<路径> → github commits 映射 ──
+// proxyscrape 卡根因:CDN 响应零日期头(last-modified/x-js 缺席,etag=内容弱 etag),
+// data.jsdelivr flat API 文件条目只有 hash/size 无 time(票面实测排除);但 /gh/ 内容=
+// git 树内容 → 映射 github (o,r,path) 走既有 githubCommitEvidence(basis 维持
+// github_commit,证据加 jsdelivr_mapped 注记);映射成功不吃 embedded_date 第三基。
+// 实测锚:commits?per_page=1&path=proxies/all/data.csv → 2026-11-13T02:50:12Z。
+
+const JSDELIVR_URL = "https://cdn.jsdelivr.net/gh/proxyscrape/free-proxy-list@main/proxies/all/data.csv";
+const JSDELIVR_COMMITS_API = "https://api.github.com/repos/proxyscrape/free-proxy-list/commits";
+
+test("#345 B2 单测 jsdelivrGhMap:gh 形剥解 owner/repo@ref/路径;非 /gh/ 形/缺 @ref/路径空/非 jsdelivr 域 = null", async () => {
+  const { jsdelivrGhMap } = await import("../tasks/add-round.mjs");
+  assert.equal(typeof jsdelivrGhMap, "function", "导出=测试单源面");
+  const m = jsdelivrGhMap(JSDELIVR_URL);
+  assert.deepEqual({ owner: m?.owner, repo: m?.repo, ref: m?.ref, path: m?.path },
+    { owner: "proxyscrape", repo: "free-proxy-list", ref: "main", path: "proxies/all/data.csv" }, "票面锚形");
+  assert.equal(m.githubUrl, "https://raw.githubusercontent.com/proxyscrape/free-proxy-list/main/proxies/all/data.csv", "映射目标=等价 github raw URL");
+  assert.equal(jsdelivrGhMap("https://cdn.jsdelivr.net/gh/o/r/proxies/all/data.csv"), null, "缺 @ref(repo@ref 段无 @)");
+  assert.equal(jsdelivrGhMap("https://cdn.jsdelivr.net/npm/package@1.0.0/dist/x.js"), null, "非 /gh/ 形(npm)");
+  assert.equal(jsdelivrGhMap("https://cdn.jsdelivr.net/gh/o/r@main"), null, "路径空");
+  assert.equal(jsdelivrGhMap("https://cdn.jsdelivr.net/gh/o/r@"), null, "ref 空=缺 @ref");
+  assert.equal(jsdelivrGhMap("https://example.com/gh/o/r@main/a/b"), null, "非 jsdelivr 域");
+  assert.equal(jsdelivrGhMap("not a url"), null);
+});
+
+test("#345 B2 绿面:jsdelivr /gh/ URL 直接探活零日期头 → 映射 commits 得证(basis=github_commit);证据带 jsdelivr_mapped 注记;path=剥映射路径", async () => {
+  const f = stubFetch([
+    { url: JSDELIVR_URL, respond: () => res({}) }, // CDN 200 零日期头(票面实测态)
+    { match: (u) => u.startsWith(`${JSDELIVR_COMMITS_API}?`), respond: () => res({ json: commitAt(0.5) }) },
+  ]);
+  const live = await probeLiveness(JSDELIVR_URL, f.impl, iso());
+  assert.equal(live.basis, "github_commit", "basis 维持 github_commit(映射是证据通路不是新基)");
+  assert.equal(live.age_days, 0, "当天鲜活(实测锚同源)");
+  assert.equal(freshnessOf(live).ok, true);
+  const g = live.github_commit;
+  assert.equal(g.jsdelivr_mapped.from, JSDELIVR_URL, "映射注记入档");
+  assert.equal(g.jsdelivr_mapped.to, "https://raw.githubusercontent.com/proxyscrape/free-proxy-list/main/proxies/all/data.csv");
+  const api = new URL(g.api);
+  assert.equal(api.pathname, "/repos/proxyscrape/free-proxy-list/commits");
+  assert.equal(api.searchParams.get("path"), "proxies/all/data.csv", "票面锚:path=proxies/all/data.csv");
+  assert.equal(live.embedded_date, null, "映射成功不吃第三基");
+});
+
+test("#345 B2 映射成功不吃 embedded_date 第三基(commits 失败=fail-closed none);映射失败(非 /gh/ 形)照旧走第三基", async () => {
+  const s = embStamp(0.5);
+  const fGh = stubFetch([
+    { url: JSDELIVR_URL, respond: () => res({ contentDisposition: `attachment; filename="data-${s.iso}.csv"` }) },
+    { match: (u) => u.startsWith(`${JSDELIVR_COMMITS_API}?`), respond: () => res({ status: 403, json: { message: "rate limit" } }) },
+  ]);
+  const gh = await probeLiveness(JSDELIVR_URL, fGh.impl, iso());
+  assert.equal(gh.basis, "none", "映射成功=视同家族面:commits 失败 fail-closed,不退回第三基");
+  assert.equal(gh.embedded_date, null);
+  assert.equal(gh.github_commit.status, 403, "失败面留痕仍在");
+  assert.equal(gh.github_commit.jsdelivr_mapped.from, JSDELIVR_URL, "失败面注记照带");
+  const npmUrl = "https://cdn.jsdelivr.net/npm/package@1/dist/x.csv";
+  const fNpm = stubFetch([{ url: npmUrl, respond: () => res({ contentDisposition: `attachment; filename="x-${s.iso}.csv"` }) }]);
+  const npm = await probeLiveness(npmUrl, fNpm.impl, iso());
+  assert.equal(npm.basis, "embedded_date", "映射失败照旧走第三基");
+  assert.equal(npm.github_commit, null, "未尝试可分诊");
+});
+
+test("#345 B2 映射面记忆化:同 URL 二次探活零 API 调用(共用 #340 缓存,键=映射后 commits API URL);命中面注记照带", async () => {
+  const mem = new Map();
+  const f1 = stubFetch([{ match: (u) => u.startsWith(`${JSDELIVR_COMMITS_API}?`), respond: () => res({ json: commitAt(1), etag: '"j1"' }) }]);
+  await probeLiveness(JSDELIVR_URL, f1.impl, { ...iso(), githubCacheMem: mem });
+  const f2 = stubFetch([]); // 触网即失败——只有命中才可能得证
+  const live = await probeLiveness(JSDELIVR_URL, f2.impl, { ...iso(), githubCacheMem: mem });
+  assert.equal(live.basis, "github_commit");
+  assert.equal(f2.calls.filter((c) => c.url.includes("api.github.com")).length, 0, "命中零触网");
+  assert.equal(live.github_commit.cache, "hit");
+  assert.equal(live.github_commit.jsdelivr_mapped.from, JSDELIVR_URL, "命中面注记照带(映射是 URL 面属性,非缓存条目属性)");
 });
