@@ -344,8 +344,8 @@ test("adapter 边界收口(#327):白名单 48 文件面 + 验证面冻结门红�
     assert.equal(v, false, `名单外路径须拒(只读):${p}`);
   assert.equal(boundaryProbe.normBackslash, true, "反斜杠路径须归一(\\ → /)");
   assert.equal(
-    boundaryProbe.allowlistCount, 54,
-    "策略面构成=54 文件(#327 原裁 43;#333 P2a +4 加源基准器 add-domain;#332 P1 2026-11-11 +5 加源轮 tasks/add-round.mjs+tools/add-tools.mjs+prompts/add/ 三只;#334 P2b 2026-11-11 +2 考题卡生成器+试跑接线器 bench/add-domain/{gen-exam-cards,run-trial}.mjs:pipeline 11+prompts 12+v2 tools/tasks/bench 29+v1 入口/模型 2;source_exts 计数面;漂移须重裁并同步 EDIT_ALLOWLIST 注释与本测)",
+    boundaryProbe.allowlistCount, 55,
+    "策略面构成=55 文件(#327 原裁 43;#333 P2a +4 加源基准器 add-domain;#332 P1 2026-11-11 +5 加源轮 tasks/add-round.mjs+tools/add-tools.mjs+prompts/add/ 三只;#334 P2b 2026-11-11 +2 考题卡生成器+试跑接线器 bench/add-domain/{gen-exam-cards,run-trial}.mjs;#346 2026-11-13 +1 失败矿掘器 bench/add-domain/mine-failures.mjs:pipeline 11+prompts 12+v2 tools/tasks/bench 30+v1 入口/模型 2;source_exts 计数面;漂移须重裁并同步 EDIT_ALLOWLIST 注释与本测)",
   );
   assert.equal(boundaryProbe.gateClean, true, "净树=冻结完好(rc0)");
   for (const [rel, v] of Object.entries(boundaryProbe.gateRed))
