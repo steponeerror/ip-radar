@@ -520,15 +520,18 @@ test("#345 B1 绿面 tag 形:releases/download/<tag>/<file> → GET releases/tag
 });
 
 test("#345 B1 资产错位:文件不在 assets[].name(published_at 是 release 的不是该文件的)→ 不采纳落 commits 回退;空资产同律;两面证据都留痕", async () => {
+  // #345 评审 P2-1:错位两面补 tag 形 face(两形共用同一剥段与 membership 表达式,但直接钉面不靠结构论证)
   for (const face of [
-    { label: "资产名单无请求文件", assets: ["GeoLite2-ASN.mmdb"] },
-    { label: "空资产(错位同律)", assets: [] },
+    { label: "资产名单无请求文件(latest)", assets: ["GeoLite2-ASN.mmdb"], url: REL_URL_LATEST, api: REL_API_LATEST },
+    { label: "空资产(错位同律 latest)", assets: [], url: REL_URL_LATEST, api: REL_API_LATEST },
+    { label: "资产名单无请求文件(tag)", assets: ["other.bin"], url: REL_URL_TAG, api: REL_API_TAG },
+    { label: "空资产(错位同律 tag)", assets: [], url: REL_URL_TAG, api: REL_API_TAG },
   ]) {
     const f = stubFetch([
-      { url: REL_API_LATEST, respond: () => res({ json: releaseAt(2.5, face.assets) }) },
-      { match: (u) => u.startsWith(REL_COMMITS_PREFIX), respond: () => res({ json: commitAt(5) }) },
+      { url: face.api, respond: () => res({ json: releaseAt(2.5, face.assets) }) },
+      { match: (u) => /\/commits\?/.test(u), respond: () => res({ json: commitAt(5) }) }, // commits 回退(latest 形 repo=P3TERX…,tag 形 repo=o/r,泛路由)
     ]);
-    const live = await probeLiveness(REL_URL_LATEST, f.impl, iso());
+    const live = await probeLiveness(face.url, f.impl, iso());
     assert.equal(live.basis, "github_commit", `${face.label}:错位=落 commits 回退`);
     assert.equal(live.age_days, 5, face.label);
     assert.equal(live.github_release.asset_match, false, `${face.label}:错位判定入档可分诊`);
