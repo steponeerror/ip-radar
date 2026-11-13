@@ -17,14 +17,20 @@
   是每个候选编辑的必过面。
 - **盲测纪律**:答案(真源实现+真测试)只在打分时装回;你手里的证据 = 矿掘报告、
   sweep 工件、护栏结果。**考题名与下载域名禁入提示词/代码/注释**——那是泄漏,
-  leak gate 机检,泄漏候选一律作废。
+  leak gate 机检,泄漏候选一律作废。**矿掘反馈的可用面只到两层:失败层位与失败
+  测试函数名**;sweep 工件里的断言原文/测试体(score.summary 的错误正文、traceback
+  里的答案类名与方法面)禁读禁引——那是答案本体碎片,引了即泄漏。需要矿掘,用
+  mine-failures.mjs 的输出面,不直接翻 trial.json。
 
 ## 你能改什么(开放面)
 
 加源域三件:`ops/agent/prompts/add/*`(轮提示词 system/implement/dossier)、
 `ops/agent-v2/tools/add-tools.mjs`(编码工具闭集)、`ops/agent-v2/tasks/add-round.mjs`
-非门段(IMPLEMENT/DOSSIER 装载序列)。机器面:策略面白名单(#327 七条 glob,
-EDIT_ALLOWLIST)圈定可编文件;`tests/**` 不在名单里——裁判面天然钉死。
+非门段(IMPLEMENT/DOSSIER 装载序列)。**门段点名禁改**:ADD_GATES/GATE_OF 定义
+(tasks/add-round.mjs:607-680)、各相位 finishFailed 的 `GATE:` 红终态调用点
+(:1041/:1146/:1177)、G_* 判据函数——删/改/绕门与改 tests 同罪,faux 冒烟与裁判
+测试会拒。机器面:策略面白名单(#327 七条 glob,EDIT_ALLOWLIST)圈定可编文件;
+`tests/**` 不在名单里——裁判面天然钉死。
 
 ## 工作循环
 
