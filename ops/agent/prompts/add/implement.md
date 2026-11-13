@@ -24,6 +24,11 @@
 - 模式照抄既有源:`backend/ipdb/_sources/` 里现成的源文件就是模板——**读它们**,
   不要发明新模式。基类两份(`_base.py`/`_source_base.py`),先 `grep "^class"` 枚举
   活类,不背类清单。
+- 行为对照走执行面,不止读码面:定稿前把 1-2 个同 archetype 兄弟源**跑起来**——
+  用 pytest 解释器现场调它的行解析/Evidence 构造面(喂一行真实样本,打印产出的
+  记录全 dict);键路由语义(CIDR 行成员查询:含属命中/部分前缀不命中/一行多证据
+  并存)用它的 query() 实测对照。你的记录面照**运行时观测到的形状**落——字段集、
+  缺值省略面、计数类型、列表组法——不照从代码想象出来的形状。
 - 生命周期硬契约:`download()` 只取数据不碰存储;`rebuild()` 是唯一写路径
   (rebuild_lmdb+reader_setter+flag_setter 原样拷);`load()` 纯 mmap;
   `query(ip)` 读 env。ApiSource 基类已删(PR #13,逐 IP 计费红线)——不存在,别找。
