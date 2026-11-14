@@ -20,7 +20,9 @@
   leak gate 机检,泄漏候选一律作废。**矿掘反馈的可用面只到两层:失败层位与失败
   测试函数名**;sweep 工件里的断言原文/测试体(score.summary 的错误正文、traceback
   里的答案类名与方法面)禁读禁引——那是答案本体碎片,引了即泄漏。需要矿掘,用
-  mine-failures.mjs 的输出面,不直接翻 trial.json。
+  mine-failures.mjs 的输出面,不直接翻 trial.json。**主检出 backend/ipdb/**
+  同为禁读面**(classification 表/既有源实现是答案侧)——你的合法读面只有 worktree
+  沙箱内在场件 + 矿掘报告;主检出的 dev/ 工件(除矿掘报告)不碰。
 
 ## 你能改什么(开放面)
 
