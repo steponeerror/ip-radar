@@ -141,6 +141,20 @@
       "track": "baseline",
       "trigger": "change",
       "provenance": "ADR 0021 决策5; #351; #347(2026-11-15 人裁误报,master 03a76d67 修:infra_noise_filter=True + HARVEST_REV 1→2); backend/ipdb/_sources/reportedip.py; backend/ipdb/_sources/_lmdb.py(HARVEST_REV/needs_convert); ADR 0009; backend/ipdb/_eval/incident_replay.py"
+    },
+    {
+      "id": "mutation-selfcheck-baseline-gates",
+      "dimension": "门自检",
+      "metric": "保底轨门活性变异自检:4 变异体(假坏源×3:键数坍塌/指控锚/字段错形;错误合并×1:回声上锚)注入隔离沙箱(孪生态、种完即清),逐门读 killed/survived",
+      "oracle": {
+        "kind": "func",
+        "ref": "ipdb._eval.mutation_check.run_mutation_check"
+      },
+      "expectation": "survived=0 零容忍:门漏放行=开 finding 票人裁,绝不自动改门(验门不持门,故 verdict=finding);本轮已知盲区=字段错形部分坍塌(键 500→200,字节面净变低于 S7 的 20% 阈)逃逸全部可跑门,宪章捕获者=阳性锚召回(#350 未建);c2 幂等/golden 对拍两门前提未成熟如实无读数",
+      "verdict": "finding",
+      "track": "baseline",
+      "trigger": "round",
+      "provenance": "ADR 0021 决策6; #352; #351(合成夹具手法同源,分工=回放验数据面防线/变异验门活性); Jia & Harman 2011 变异测试 survey(种缺陷→跑套→存活=盲区,ADR 0021 §6 经典形状); backend/ipdb/_eval/mutation_check.py; 月度排程接线(monthly_eval.sh 步+RETRO 检查单提醒行)待人裁,票尾留痕"
     }
   ]
 }
