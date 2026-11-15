@@ -74,9 +74,10 @@ function seedWorld({ roundId, capCalls } = {}) {
   process.env.PRECEDENTS_DIR = path.join(ops, "precedents");
   process.env.LEDGER_FILE = path.join(ops, "ledger.md");
   process.env.OPS_SWEEP_DRY_RUN = "1";
+  process.env.IP_RADAR_EVAL_DIR = path.join(tmp, "eval-empty"); // #352:变异自检提醒面钉确定性(报告根指空 tmp→未见上次运行,不读真树)
   if (capCalls != null) process.env.OPS_PIPELINE_MAX_MODEL_CALLS = String(capCalls);
   return { tmp, docs, ops, roundDir, restore: () => {
-    for (const k of ["DOCS_ROOT", "PRECEDENTS_DIR", "LEDGER_FILE", "OPS_SWEEP_DRY_RUN", "OPS_PIPELINE_MAX_MODEL_CALLS"])
+    for (const k of ["DOCS_ROOT", "PRECEDENTS_DIR", "LEDGER_FILE", "OPS_SWEEP_DRY_RUN", "OPS_PIPELINE_MAX_MODEL_CALLS", "IP_RADAR_EVAL_DIR"])
       if (k in prev) process.env[k] = prev[k]; else delete process.env[k];
   } };
 }
@@ -151,6 +152,11 @@ test("健康轮链路 E2E:TRIAGE→WAIT_MODEL(join)→DEEP(evidence)→SYNTH→�
       assert.ok(gateOf("G_ANCHOR_SWEEP").every((r) => r.reason.includes("门旁路")), "G_ANCHOR_SWEEP=降级旁路(求值面死不持门)");
       assert.ok(fs.existsSync(env.pkg), "pkg(07-synth-report.md)存在");
       assert.ok(fs.existsSync(path.join(w.ops, "retro", `${roundId}.json`)), "RETRO 工件落盘");
+      // #352 票尾:RETRO 面变异自检月度到期提醒行(报告根=空 tmp → 未见上次运行,首跑即到期)
+      const retro = jsonOf(path.join(w.ops, "retro", `${roundId}.json`));
+      assert.equal(retro.mutation_check_due.due, true);
+      assert.equal(retro.mutation_check_due.last_run, null);
+      assert.match(retro.mutation_check_due.note, /未见上次运行/);
     } finally { await harness.close(context); }
   } finally {
     await storage.close(context);

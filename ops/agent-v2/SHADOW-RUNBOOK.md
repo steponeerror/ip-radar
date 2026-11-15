@@ -28,6 +28,7 @@ cd ops/agent-v2 && node --test 'tests/*.test.mjs'
 | `.v2-claim.json`(v2 健康轮轮目录认领件;跨库撞轮守卫) | v2 专属守卫落件 | 不入对拍面(shadow-diff NEW 侧白名单已列入) |
 | 09-budget.json 旧 CLOSE 也落件(非 v2 专属);真实差异=对拍载具双侧停笔 RETRO 故均不落 | 载具结构 | CLOSE 面落件由 `tests/cron-launchers.test.mjs` 钉(09-budget 存在性断言) |
 | 台账 usage 计数(in/out/total)计量边界差 | 两套 harness 合法差 | 对拍归一;cost 细胞逐字比(ENVELOPE.md §usage) |
+| RETRO 件 mutation_check_due 提醒行(#352 票尾,ADR 0021 决策6):v2 健康轮 RETRO 工件补变异自检月度到期读数(上次时间取月轮报告根 monthly/model/ 质量报告件,31 天窗;只测量不持门) | v2 面新增字段,旧管线零改动 | 不入对拍闭集(retro 件不在 COMPARABLE 面);钉住面=tests/mutation-due.test.mjs + health-e2e 断言 |
 | 对拍载具停笔 RETRO(旧 replay 不入 CLOSE) | 载具结构 | CLOSE 面由 `tests/cron-launchers.test.mjs` 钉(G_CLOSE/09-budget/结果单) |
 | PROBE/VERIFY 不入罐装对拍(真探测面,零网络红线) | 载具结构 | 两侧均为零复制 `steps.runStage` 同码路;生产 v2 轮真跑 |
 

@@ -23,7 +23,7 @@ import { STEP_ROUND } from "../../agent/pipeline/faux.mjs"; // 零复制:步→�
 import { readBreakerKnobs } from "../../agent/tools/breaker.mjs"; // 零复制读面(轮始校验同旧 mkCtx)
 import { ERROR_CODES } from "../../agent/error-codes.mjs";
 import { loadModels } from "../models.mjs"; // 零复制 seam(定案 7:装载器不动)
-import { buildRoundCtx, opsRootOf, composeEnvelope, skipWhenNoNeedDeep } from "../round-ctx.mjs";
+import { buildRoundCtx, opsRootOf, composeEnvelope, skipWhenNoNeedDeep, ROOT } from "../round-ctx.mjs";
 import { roundKnobs, stepBoundary, postModelCall, knobNames } from "./budget-guard.mjs"; // P1-4:收口复查①②④ 面
 import { OPS_MODEL_ROUND, conversationUsage, conversationModelCalls } from "./model-round.mjs"; // P1-4:failed 子任务留痕计量面
 import { mkFauxFace, loadFauxFixture } from "../faux-face.mjs"; // 修复⑥:faux 面分派件(旧 faux.mjs 字节级一致副本)
@@ -296,6 +296,44 @@ async function waitModel(input, ck, runtime, context) {
   await runtime.commit(() => ({ status: "running", checkpoint: finCk }), context);
 }
 
+// —— #352 票尾(ADR 0021 决策2/6):变异自检月度到期提醒行(健康轮 RETRO 面)——
+// 仿 RETRO 既有到期计算形状(rules_due_review:review_at=采纳日+90 天到点即入单,日差比对);月度窗=31 天。
+// 上次运行时间取月轮报告根的已有产物:契约 runner 落 <报告根>/monthly/model/quality-report-<ts>.json
+// (backend report_dir() 同源;IP_RADAR_EVAL_DIR 同名 env 覆盖,不造第二真源),取最新一份含
+// mutation-selfcheck-baseline-gates 腿读数(status=ok 才算真跑过——崩腿不算验证)的件;取不到→
+// 显形「未见上次运行」(首跑即到期)。只测量不持门:提醒缺席/读败不败轮;本字段为 v2 面新增,
+// 旧管线零改动,不入 shadow 对拍闭集(retro 件不在 COMPARABLE 面,见 SHADOW-RUNBOOK 已知差异表)。
+export const MUTATION_LEG_ID = "mutation-selfcheck-baseline-gates";
+export const MUTATION_DUE_DAYS = 31;
+const _day = (s) => String(s).slice(0, 10);
+export function mutationCheckDue(env, now = new Date()) {
+  const base = env.IP_RADAR_EVAL_DIR ?? path.join(ROOT, "backend", "data", "eval");
+  const dir = path.join(base, "monthly", "model");
+  let names = [];
+  try { names = fs.readdirSync(dir).filter((n) => /^quality-report-.*\.json$/.test(n)).sort(); } catch { /* 目录缺席=未见上次运行 */ }
+  for (let i = names.length - 1; i >= 0; i--) { // 新→旧:首份含变异自检腿 ok 读数的件即上次运行
+    let rep = null;
+    try { rep = JSON.parse(fs.readFileSync(path.join(dir, names[i]), "utf8")); } catch { continue; } // 坏件跳过,不炸
+    const row = (rep.rows ?? []).find((r) => r.id === MUTATION_LEG_ID && r.status === "ok");
+    if (!row || !rep.generated_at) continue;
+    const age = Math.floor((now - new Date(rep.generated_at)) / 86400000);
+    const due = age >= MUTATION_DUE_DAYS;
+    return { due, last_run: _day(rep.generated_at), age_days: age, window_days: MUTATION_DUE_DAYS,
+      note: due
+        ? `变异自检月度到期:上次 ${_day(rep.generated_at)}(已 ${age} 天 ≥ ${MUTATION_DUE_DAYS} 天窗)——跑 python -m ipdb._eval --quality-contract(变异自检腿随质量报告跑)`
+        : `变异自检月度未到期:上次 ${_day(rep.generated_at)}(${age}/${MUTATION_DUE_DAYS} 天窗)` };
+  }
+  return { due: true, last_run: null, age_days: null, window_days: MUTATION_DUE_DAYS,
+    note: "变异自检月度到期:未见上次运行(monthly/model/ 无含变异自检腿读数的质量报告件)——首跑即到期,跑 python -m ipdb._eval --quality-contract" };
+}
+export function appendMutationCheckDue(ctx) { // RETRO 工件补提醒行;retro 件缺席/坏(降级轮)静默不加,不败轮
+  try {
+    const r = JSON.parse(fs.readFileSync(ctx.retroFile, "utf8"));
+    r.mutation_check_due = mutationCheckDue(process.env);
+    fs.writeFileSync(ctx.retroFile, JSON.stringify(r, null, 2) + "\n"); // writeJson 同格式(steps.mjs)
+  } catch { /* 降级轮提醒面缺席=诚实面 */ }
+}
+
 // —— 脚本相位执行体(零复制 steps.runStage + 门 + retry/degrade/终态;旧 runStages 同语义)——
 async function runScriptPhase(def, input, ck, runtime, context) {
   const ctx = rebuildRoundCtx(input, ck);
@@ -319,6 +357,9 @@ async function runScriptPhase(def, input, ck, runtime, context) {
       return void await runtime.commit((tx, cur) => ({ status: "running", checkpoint: failTerm(cur.state.checkpoint, def.name, code, e?.message ?? String(e)) }), context);
     }
   }
+  // #352 票尾:健康轮 RETRO 面补变异自检月度到期提醒行(门 G_RETRO 前写入,门见终态工件;
+  // G_RETRO 不验未知字段,只测量不持门)
+  if (def.name === "RETRO") appendMutationCheckDue(ctx);
   if (degraded?.skipGate) appendGateBypass(ctx.dir, ctx.roundId, def, degraded.degraded);
   else {
     const gateRec = evalStageGate(def, ctx); // 门单源(含 G_CLOSE 回声哨:信封单行/往返解析/预算读数≤帽)

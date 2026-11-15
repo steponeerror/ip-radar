@@ -3,13 +3,17 @@
 + 契约表接线。
 
 红面证明 = 回归保护语义本体:用 monkeypatch 拆掉防线部件(curated 集
-空置/谱系去重拆除/越窗放行拆除/排序键摊平/版本戳腿拆除),对应回放
-腿必须翻红——「防线若被改坏,回放红」不是声明而是被测行为。
+空置/谱系去重拆除/越窗放行拆除/排序键摊平/版本戳腿拆除/对照闸置零),
+对应回放腿必须翻红——「防线若被改坏,回放红」不是声明而是被测行为。
 
 夹具纪律:全部合成数据(对照 IP 用 TEST-NET-3 文档段 203.0.113.x),
 零外发零网络;事故 IP(8.8.8.8/114.114.114.114)是 curated 防线真实
 成员,原样在夹具里才能验防线(tests/sources/test_infra_noise_filter.py
 同款纪律)。
+
+第六红面(#351 评审 P2-2):对照闸拆除(CONTROL_MIN_HITS 置 0,对照
+源池内零命中也放行=假零可出)→ 事故③对照闸腿红——其余五面之外,
+这道「防假零」防线单独钉死。
 """
 import json
 from pathlib import Path
@@ -132,6 +136,18 @@ def test_red_when_harvest_rev_leg_broken(monkeypatch):
     assert r["pass"] is False
     assert "stale_rev_forces_rematerialization" in {
         c["name"] for c in r["checks"] if not c["ok"]}
+
+
+def test_red_when_control_abort_dismantled(monkeypatch):
+    """对照闸拆除(#351 评审 P2-2,第六红面):CONTROL_MIN_HITS 置 0 =
+    对照源池内零命中也放行,假零排他率数字可出 → 事故③对照闸腿红,
+    且红面单归因(另两防线照绿)。"""
+    from ipdb._eval import exclusive as _ex
+    monkeypatch.setattr(_ex, "CONTROL_MIN_HITS", 0)
+    r = IR.replay_aggregator_derived_reversal()
+    assert r["pass"] is False
+    red = {c["name"] for c in r["checks"] if not c["ok"]}
+    assert red == {"exclusivity_probe_control_aborts_on_uncovered_pool"}, red
 
 
 # ── 契约表接线:事故回归维度五行,func oracle 可解析可执行 ──────────

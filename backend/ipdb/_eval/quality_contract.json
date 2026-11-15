@@ -108,7 +108,7 @@
         "kind": "func",
         "ref": "ipdb._eval.incident_replay.replay_aggregator_derived_reversal"
       },
-      "expectation": "pass=true:双翻案源+malicious_ip 在运行时 DERIVED_SOURCES(_registry._apply_derived_sources 按源类 derived=True 灌装)、聚合器派生指控不双计、排他率探针对照源未获池覆盖时 ABORT 不出数字(防假零,2026-10-10 判例)；门表「REJECT 须附实测排他数」律在 ops discover SKILL(人环节,不可机检,仅 provenance 留痕)",
+      "expectation": "pass=true:双翻案源+malicious_ip 在运行时 DERIVED_SOURCES(_registry._apply_derived_sources 按源类 derived=True 灌装)、聚合器派生指控不双计、排他率探针对照源未获池覆盖时 ABORT 不出数字(防假零,2026-10-10 判例);对照闸置零(CONTROL_MIN_HITS→0,零命中放行)即红——第六红面钉死(tests/eval/test_eval_incident_replay.py);门表「REJECT 须附实测排他数」律在 ops discover SKILL(人环节,不可机检,仅 provenance 留痕)",
       "verdict": "gate",
       "track": "baseline",
       "trigger": "change",
@@ -154,7 +154,7 @@
       "verdict": "finding",
       "track": "baseline",
       "trigger": "round",
-      "provenance": "ADR 0021 决策6; #352; #351(合成夹具手法同源,分工=回放验数据面防线/变异验门活性); Jia & Harman 2011 变异测试 survey(种缺陷→跑套→存活=盲区,ADR 0021 §6 经典形状); backend/ipdb/_eval/mutation_check.py; 月度排程接线(monthly_eval.sh 步+RETRO 检查单提醒行)待人裁,票尾留痕"
+      "provenance": "ADR 0021 决策6; #352; #351(合成夹具手法同源,分工=回放验数据面防线/变异验门活性); Jia & Harman 2011 变异测试 survey(种缺陷→跑套→存活=盲区,ADR 0021 §6 经典形状); backend/ipdb/_eval/mutation_check.py; 月度排程接线:RETRO 检查单提醒行已接(#352 票尾,ops/agent-v2/tasks/health-round.mjs mutation_check_due,月轮报告根 monthly/model/ 质量报告件时间戳比对 31 天窗,取不到显形「未见上次运行」);monthly_eval.sh 步待接人裁"
     }
   ]
 }

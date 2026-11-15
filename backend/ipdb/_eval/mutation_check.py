@@ -39,8 +39,10 @@
   生产/主检出;零网络;填充 IP 用 RFC 5737 三文档段合成(192.0.2./
   198.51.100./203.0.113.),净锚 8.8.8.8 原样用是被测门(已知答案
   集)的真实成员,#351 同纪律。
-- TODO(#352 票尾,人裁后接):月度排程接线(monthly_eval.sh 步 +
-  RETRO 检查单提醒行)未做,本模块现由契约 runner func 腿按需执行。
+- TODO(#352 票尾,人裁后接):月度排程接线——RETRO 检查单提醒行已接(ops/
+  agent-v2/tasks/health-round.mjs mutation_check_due:健康轮 RETRO 面比对
+  上次运行时间,过期可见;上次时间取月轮报告根 monthly/model/ 质量报告件);
+  monthly_eval.sh 步未接(人裁后),本模块现由契约 runner func 腿按需执行。
 
 survived 处置红线:开 finding 票人裁,绝不自动改门。
 """
