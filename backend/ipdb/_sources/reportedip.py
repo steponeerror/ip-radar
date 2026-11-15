@@ -57,6 +57,16 @@ class ReportedIPSource(Source):
     stale_days = 1                  # daily auto-commit at ~04:05 UTC
     reliability = 0.65              # honeypot + community reports (cf. binarydefense, blocklist_de)
     authoritative_for = ()
+    # 载入期排除 infra_services curated 单址集(issue #347 / #183 同族 /
+    # ADR 0008;2026-11-15 人裁按误报处理:生产 8.8.8.8(Google Public DNS,
+    # curated 基础设施)被 reportedip 单源单时刻指控为恶意(verdict=
+    # malicious conf=65,原生行 conf=77、codes "15;21" = Hacking/Web App
+    # Attack,2026-11-13T16:15:58 单时刻单源无印证,同场 infra_services
+    # 良性断言 conflict=true;上游行仍活)。实测本地快照 .eval-prod-data/
+    # reportedip.csv(2026-10-29,17672 行)全量 curated 56 员命中 = 0
+    # (零存量面;事故行为 2026-11-13 新增)。数据文件零改写,关
+    # IP_RADAR_INFRA_NOISE_FILTER 重建即复原)。
+    infra_noise_filter = True
 
     def harvest(self):
         """Yield (ip, Evidence) per IPv4 row, one Evidence per distinct canonical

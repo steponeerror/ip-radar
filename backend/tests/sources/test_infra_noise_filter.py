@@ -7,8 +7,9 @@ Seam = 源生命周期公开面(rebuild → query),同 test_myip_ms 形制;覆�
 - 证据永不灭失:数据文件零改写,排除只发生在载入(rebuild)面;
   IP_RADAR_INFRA_NOISE_FILTER=0 重建即复原原摄取;
 - 排除留痕:计数 + 被排条目进 rebuild 日志;
-- 五事故源声明 infra_noise_filter=True(myip_ms/ziyadnz/cps_collected_iocs
-  + tweetfeed/dataplane 2026-10-29 人裁接入);基类默认 False(显式 opt-in,
+- 六事故源声明 infra_noise_filter=True(myip_ms/ziyadnz/cps_collected_iocs
+  + tweetfeed/dataplane 2026-10-29 人裁接入;reportedip 2026-11-15 人裁
+  接入,#347 生产 8.8.8.8 误报);基类默认 False(显式 opt-in,
   不是全局行为变更)。harvest 车道(Source 基类)与 IpListSource/CsvSource
   车道同款接线。
 """
@@ -152,10 +153,11 @@ def test_incident_sources_declare_filter():
     from ipdb._sources.cps_collected_iocs import CpsCollectedIocsSource
     from ipdb._sources.dataplane import DataplaneSource
     from ipdb._sources.myip_ms import MyipMsSource
+    from ipdb._sources.reportedip import ReportedIPSource
     from ipdb._sources.tweetfeed import TweetFeedSource
     from ipdb._sources.ziyadnz import ZiyadnzSource
     for cls in (MyipMsSource, ZiyadnzSource, CpsCollectedIocsSource,
-                TweetFeedSource, DataplaneSource):
+                TweetFeedSource, DataplaneSource, ReportedIPSource):
         assert cls.infra_noise_filter is True, cls.__name__
 
 
@@ -203,6 +205,56 @@ def test_tweetfeed_harvest_filter_off_rebuild_restores(
     assert s.rebuild() == 1
     rec = s.query("223.5.5.5")[0]
     assert rec["extra"]["reporter"] == "skocherhan"   # 指控面完整复原
+
+
+def test_reportedip_harvest_rebuild_excludes_and_logs(tmp_path, caplog):
+    """harvest 车道真源接线:reportedip #347 人裁接入,样本 = 生产事故行
+    原形(8.8.8.8,77,"15;21","2026-11-13 16:15:58" 单时刻单源无印证,
+    codes 15;21 同归 exploit 组)。"""
+    from ipdb._sources.reportedip import ReportedIPSource
+    raw = tmp_path / "reportedip.csv"
+    raw.write_text(
+        "ip,confidence,categories,last_reported\n"
+        '8.8.8.8,77,"15;21","2026-11-13 16:15:58"\n'
+        '203.0.113.10,77,"15","2026-11-13 16:16:00"\n')
+    s = ReportedIPSource(data_dir=tmp_path)
+    with caplog.at_level(logging.INFO, logger="ipdb._sources._infra_filter"):
+        assert s.rebuild() == 1              # 8.8.8.8 载入面被排,仅剩 1 键
+    assert not s.query("8.8.8.8")            # curated 单址不进指控
+    assert s.query("203.0.113.10")           # 非 curated 指控原样保留
+    log = [r for r in caplog.records
+           if "infra noise filter" in r.getMessage()]
+    assert len(log) == 1
+    msg = log[0].getMessage()
+    assert "reportedip" in msg and "excluded 1" in msg
+    assert "8.8.8.8/32" in msg               # 被排条目明文留痕
+    assert raw.read_text().count("8.8.8.8") == 1   # 原始件零改写
+
+
+def test_reportedip_harvest_filter_off_rebuild_restores(
+        tmp_path, monkeypatch):
+    """关过滤重建 = 原样回算复原(证据永不灭失)。mtime 显式后移防族级
+    增量把同文件重建判成已收敛而跳过(test_filter_off_rebuild_restores_
+    original_ingest 判例同款)。"""
+    import os
+    import time
+    from ipdb._sources.reportedip import ReportedIPSource
+    raw = tmp_path / "reportedip.csv"
+    raw.write_text(
+        "ip,confidence,categories,last_reported\n"
+        '8.8.8.8,77,"15;21","2026-11-13 16:15:58"\n')
+    s = ReportedIPSource(data_dir=tmp_path)
+    assert s.rebuild() == 0                    # 唯一行被排 → 0 键
+    assert not s.query("8.8.8.8")
+    monkeypatch.setenv(ENV_SWITCH, "0")
+    fut = time.time() + 10
+    os.utime(raw, (fut, fut))
+    assert s.rebuild() == 1
+    rec = s.query("8.8.8.8")[0]
+    # 指控面完整复原:双码同归 exploit 组,行内 conf/categories 原样回算
+    assert rec["classification_type"] == "exploit"
+    assert rec["confidence"] == 77
+    assert rec["native_categories"] == ["Hacking", "Web App Attack"]
 
 
 def test_off_by_default_for_undeclaring_harvest_sources(tmp_path):
