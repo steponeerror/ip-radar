@@ -647,10 +647,10 @@ def main(argv=None):
                         "逐通道显形观测→matrix.json 裁决 diff 三桶;退出码 "
                         "0/1/2 = 干净/有 pending/有 violation;只读不落盘")
     p.add_argument("--quality-contract", action="store_true",
-                   help="质量契约层 runner(ADR 0021/#349):读包内 "
+                   help="质量要求表 runner(ADR 0021/#349):读包内 "
                         "quality_contract.json 逐腿执行现有质量读数"
                         "(腿=subprocess 旧子命令或函数引用,行为不改),"
-                        "产质量报告单 JSON+md 落 model/quality-report-"
+                        "产质量报告 JSON+md 落 model/quality-report-"
                         "<ts>.*;无 oracle 维度显形「无读数」不静默省略;"
                         "坏腿留痕 failures 面不炸整单;rc 0=报告产出"
                         "(编排面不持门)/2=契约表不合法")
@@ -785,7 +785,7 @@ def main(argv=None):
         print(f"  artifact: {build_art}")
         return
 
-    # ── --quality-contract 质量契约层 runner(ADR 0021/#349)──────────
+    # ── --quality-contract 质量要求表 runner(ADR 0021/#349)──────────
     # 纯编排面:腿=subprocess 调旧子命令(行为不改)或包内函数;本命令
     # 不碰 registry/DB(前置于 _real_registry/load_db,--temporal/--truth-v2
     # 同律)。rc 0=报告产出(腿红态在报告内,failures 面留痕,编排面不持

@@ -1,6 +1,6 @@
 # backend/tests/eval/test_eval_contract.py
-"""质量契约层(#349 / ADR 0021)测试:表 schema 校验、runner 对 faux 腿的
-执行与质量报告单两件产物、无读数维度显形、坏腿留痕不炸整单。
+"""质量要求表(#349 / ADR 0021)测试:表 schema 校验、runner 对 faux 腿的
+执行与质量报告两件产物、无读数维度显形、坏腿留痕不炸整单。
 
 真实腿(--anchors/--exclusive/mirror_check)需要 DB/数据面,由月轮面跑;
 本件只钉 runner 机制——契约层是结缔组织,不是第二套工具(工具本体不改)。
@@ -62,11 +62,11 @@ def test_packaged_table_validates_and_covers_five_dimensions():
     doc = load_contract(CONTRACT_PATH)
     rows = doc["rows"]
     # #351 起「事故回归」维度五腿追加在尾(每事故一行,不重排既有五行);
-    # #352 起「门自检」维度一行追加在尾(同律:追加不重排)
+    # #352 起「变异自检」维度一行追加在尾(同律:追加不重排)
     assert [r["dimension"] for r in rows] == [
         "误报克制", "独占率", "新鲜度", "一致性", "召回",
         "事故回归", "事故回归", "事故回归", "事故回归", "事故回归",
-        "门自检"]
+        "变异自检"]
     assert {r["verdict"] for r in rows} == {"gate", "finding", "score"}
     assert {r["track"] for r in rows} == {"baseline", "improvement"}
     assert {r["trigger"] for r in rows} == {"round", "change"}
@@ -152,7 +152,7 @@ def test_validate_rejects_bad_top_level():
         C.validate_contract(_doc([_row()], stray_top=1))
 
 
-# ── runner:faux 腿执行 + 质量报告单产物 ──────────────────────────────
+# ── runner:faux 腿执行 + 质量报告产物 ──────────────────────────────
 
 def test_runner_executes_faux_legs_and_writes_report(tmp_path):
     table = _write(tmp_path, _doc([
@@ -199,7 +199,7 @@ def test_runner_executes_faux_legs_and_writes_report(tmp_path):
     assert (s["n_gate_total"], s["n_gate_pass"]) == (1, 0)
     assert s["n_gate_failed"] == 0              # crash/not-json 是 finding 腿
 
-    # 质量报告单两件落 model/,命名随 ts 后缀惯例
+    # 质量报告两件落 model/,命名随 ts 后缀惯例
     model = tmp_path / "model"
     [jp] = sorted(model.glob("quality-report-*.json"))
     [mp] = sorted(model.glob("quality-report-*.md"))

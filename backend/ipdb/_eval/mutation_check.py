@@ -28,9 +28,9 @@
 - 适配层只做 source.query → 锚门消费形状的最小映射
   (classifications.{verdict,details}/is_reserved 短路由真模块
   _reserved.is_reserved_addr/attributes={});沙箱宇宙无 tor/hosting
-  属性源,健康基线自带这两族锚的夹具性失败——锚门读数 = **差分红**
-  (缺陷引入的新失败),绝对红在夹具宇宙恒真无判别力。
-- 每变异体建 healthy/mutated 孪生沙箱(成对消夹具噪声,同会话成对
+  属性源,健康基线自带这两族锚的夹具性失败——锚门读数只认缺陷引入的
+  新失败(两份沙箱成对相减,夹具噪声抵消),绝对红在夹具宇宙恒真无判别力。
+- 每变异体建 healthy/mutated 两份沙箱(成对消夹具噪声,同会话成对
   唯一可信判例);镜像门以 healthy 重build后 manifest 为基线
   (monthly S7 同形:上一轮基线 vs 本轮数据面)。
 - 门无读数如实显形(c2 幂等=一次性脚本前提过期;golden 对拍=ops JS
@@ -142,7 +142,7 @@ def _sandbox_lookup(sources):
 # ── 门(判定核原样执行;沙箱读数约定见模块 docstring)─────────────────
 
 def _gate_anchors(state: dict) -> tuple[bool, str]:
-    """锚巡检门:差分红 = 缺陷引入的新锚失败(夹具宇宙噪声成对消除)。"""
+    """锚巡检门:只判缺陷引入的新锚失败(healthy/mutated 两份沙箱成对,夹具宇宙噪声相减消除)。"""
     def fails(sources):
         return {(f["ip"], f["expect"], f["reason"])
                 for f in _anchors.run_anchors(_sandbox_lookup(sources))}
@@ -166,7 +166,7 @@ def _gate_mirror_s7(state: dict) -> tuple[bool, str]:
 RUNNABLE_GATES = {"anchors": _gate_anchors, "mirror-s7": _gate_mirror_s7}
 
 
-# ── 变异体模板(每体 = 模板函数,产出孪生沙箱态)──────────────────────
+# ── 变异体模板(每体 = 模板函数,产出 healthy/mutated 沙箱态)────────────
 
 def _state(mid: str, defect: str, mechanism: str, expected_red: dict,
            td: Path, subdir: str, healthy_rows, mutated_rows,

@@ -1,6 +1,6 @@
 # backend/ipdb/_eval/contract.py
-"""质量契约层 runner(ADR 0021 / #349):读 quality_contract.json 声明表,
-逐腿执行现有质量读数,汇总产「质量报告单」(JSON + markdown)。
+"""质量要求表 runner(ADR 0021 / #349):读 quality_contract.json 声明表,
+逐腿执行现有质量读数,汇总产「质量报告」(JSON + markdown)。
 
 定位 = 结缔组织,不是第二套工具:腿原样包现有读数面(工具本体不改,
 行为零改动);本模块只做 声明表校验 → 逐腿执行 → 报告单汇总。
@@ -293,11 +293,11 @@ def _fmt_reading(reading) -> str:
 
 
 def render_markdown(report: dict) -> str:
-    """质量报告单 md 面:逐维度一行(维度/指标/读数/期望/判决/轨道/触发
+    """质量报告 md 面:逐维度一行(维度/指标/读数/期望/判决/轨道/触发
     /出处);无读数显式一行「无读数(理由)」,不静默省略。"""
     s = report["summary"]
     lines = [
-        "# 质量报告单(quality report)",
+        "# 质量报告(quality report)",
         "",
         f"- 生成: {report['generated_at']} / env: {report['eval_env']}",
         f"- 契约表: {report['contract']['path']}"
@@ -337,7 +337,7 @@ def render_markdown(report: dict) -> str:
 
 def run_contract(contract_path=None, *, params: dict | None = None,
                  out_dir=None) -> dict:
-    """读表 → 逐腿执行 → 汇总质量报告单;out_dir 给定时落
+    """读表 → 逐腿执行 → 汇总质量报告;out_dir 给定时落
     <out_dir>/model/quality-report-<ts>.json + .md(ts 形制同 anchors-*,
     monthly.py truth-v2-readout-* 落件先例)。契约表不合法 →
     ContractError 上抛(CLI rc=2);腿级红态全部留在报告内。"""

@@ -176,11 +176,11 @@ def test_pair_status_four_faces():
     assert MC._pair_status(False, True) == "unexpected-red"
 
 
-# ── 契约表接线:门自检维度行,func oracle 可解析可执行 ───────────────
+# ── 契约表接线:变异自检维度行,func oracle 可解析可执行 ─────────────
 
 def test_contract_table_has_mutation_selfcheck_row():
     doc = load_contract(CONTRACT_PATH)
-    row = next(r for r in doc["rows"] if r["dimension"] == "门自检")
+    row = next(r for r in doc["rows"] if r["dimension"] == "变异自检")
     assert row["id"] == "mutation-selfcheck-baseline-gates"
     assert row["verdict"] == "finding"          # 验门不持门,语义诚实
     assert row["track"] == "baseline"
@@ -195,8 +195,8 @@ def test_contract_table_has_mutation_selfcheck_row():
 
 
 def test_mutation_row_runs_through_runner(tmp_path, monkeypatch):
-    """单行迷你契约表端到端:finding 腿读数入报告单(gate_pass 恒 None,
-    不判门),md 面「门自检」维度可见,读数带 survived finding。"""
+    """单行迷你契约表端到端:finding 腿读数入报告(gate_pass 恒 None,
+    不判门),md 面「变异自检」维度可见,读数带 survived finding。"""
     real = load_contract(CONTRACT_PATH)
     row = next(r for r in real["rows"]
                if r["id"] == "mutation-selfcheck-baseline-gates")
@@ -212,6 +212,6 @@ def test_mutation_row_runs_through_runner(tmp_path, monkeypatch):
     assert leg["reading"]["summary"]["survived"] == 1
     assert leg["reading"]["survived_findings"]
     md = Path(report["paths"]["md"]).read_text(encoding="utf-8")
-    assert "门自检" in md
+    assert "变异自检" in md
     assert "mutation_check" in md               # 读数进 md(截断面)
     assert report["summary"]["n_ok"] == 1

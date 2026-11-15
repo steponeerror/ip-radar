@@ -1,6 +1,6 @@
 {
   "schema": "quality-contract/1",
-  "comment": "质量契约层声明表(ADR 0021 / #349):情报质量 = 哪些维度 × 指标 × 取数方式(oracle)× 期望 × 判决语义 × 轨道 × 触发面,一处声明。行 = 现有质量工具的读数腿(工具本体不改,runner 只做结缔组织);无 oracle 维度在报告单显形「无读数」绝不静默省略——覆盖账本 = 本表(缺读数不虚构,#261 验收线)。oracle 口径:subprocess argv 尾接 sys.executable 整段执行(占位符 $NAME 由 --contract-param 绑定,未绑定 = 该腿无读数);func = 零参可调用(gate 腿读数须含布尔 pass 键);none = 无读数显形。字段终稿与首版五行出处见各 row.provenance。",
+  "comment": "质量要求表声明表(quality_contract.json,ADR 0021 / #349;2026-11-15 词面裁定:不造总称词,一律大白话):情报质量 = 哪些维度 × 指标 × 取数方式(oracle)× 期望 × 判决语义 × 轨道 × 触发面,一处声明。行 = 现有质量工具的读数腿(工具本体不改,runner 只做结缔组织);无 oracle 维度在报告显形「无读数」绝不静默省略——覆盖账本 = 本表(缺读数不虚构,#261 验收线)。oracle 口径:subprocess argv 尾接 sys.executable 整段执行(占位符 $NAME 由 --contract-param 绑定,未绑定 = 该腿无读数);func = 零参可调用(gate 腿读数须含布尔 pass 键);none = 无读数显形。字段终稿与首版五行出处见各 row.provenance。",
   "rows": [
     {
       "id": "fp-restraint-anchors",
@@ -144,8 +144,8 @@
     },
     {
       "id": "mutation-selfcheck-baseline-gates",
-      "dimension": "门自检",
-      "metric": "保底轨门活性变异自检:4 变异体(假坏源×3:键数坍塌/指控锚/字段错形;错误合并×1:回声上锚)注入隔离沙箱(孪生态、种完即清),逐门读 killed/survived",
+      "dimension": "变异自检",
+      "metric": "保底轨门活性变异自检:4 变异体(假坏源×3:键数坍塌/指控锚/字段错形;错误合并×1:回声上锚)注入隔离沙箱(healthy/mutated 成对、种完即清),逐门读 killed/survived",
       "oracle": {
         "kind": "func",
         "ref": "ipdb._eval.mutation_check.run_mutation_check"
