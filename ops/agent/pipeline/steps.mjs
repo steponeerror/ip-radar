@@ -39,6 +39,21 @@ const infra = (msg) => Object.assign(new Error(msg), { code: "infra" });
 // 台账行标签单源(#207 T1):steps RETRO 写面与 gates G_RETRO 读回检查同源,禁各自手抄
 // (health=pipeline 历史名字节冻结;discover=pipeline-discover,票面铸词)。
 export const LEDGER_TAGS = { health: "pipeline", discover: "pipeline-discover" };
+// #355 失败轮台账补行:终态失败(model_face 类)此前零台账行(成功轮才有 RETRO 行),4 起影子
+// 废轮即从该盲区溜过。行形=ledger_append 同表(tag=pipeline-failed:<roundId>,幂等防 resume 双记);
+// 写败只注记不抛——本行是可见性补丁,不得掩盖原失败信封。消费方=v1 pipeline.mjs 收尾处与
+// v2 health-round.mjs 终态面(共用单源,零复制律)。
+export async function appendFailureLedger(ctx, { code }) {
+  const tag = `${LEDGER_TAGS[ctx.type ?? "health"]}-failed:${ctx.roundId}`;
+  let ledgerNow = null;
+  try { ledgerNow = fs.readFileSync(ctx.ledgerFile, "utf8"); } catch { /* 无台账文件=首轮 */ }
+  if ((ledgerNow ?? "").includes(tag)) return;
+  const u = ctx.usage ?? {};
+  const usage = `in=${u.input ?? 0} out=${u.output ?? 0} total=${u.totalTokens ?? 0} cost=${(u.cost ?? 0).toFixed(8)}`;
+  try {
+    await sh("ledger_append", [ctx.type ?? "health", ctx.state?.model_face === "real" ? "pipeline-real" : "faux-pipeline", usage, `${tag} error_code=${code}`], 120_000, ctx.env);
+  } catch (e) { ctx.log?.(`[ledger] 失败轮台账补行写败(${e.message};失败面以结果单为准)`); }
+}
 // review_at 缺省 = 采纳日 +90 天(C稿 §4.2:防规则磨烂成新噪音;RETRO P5 到点报人复审)
 const addDaysIso = (iso, n) => { const d = new Date(`${iso}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 
@@ -477,10 +492,50 @@ function triageInput(ctx) {
   return { systemPrompt: fs.readFileSync(promptFile("health/triage"), "utf8"),
     userMsg: JSON.stringify({ survivors: rows, known_noise_digest: sv?.known_noise_digest ?? [] }) };
 }
+// ── #355 终答尾注容忍解析:模型(GLM 方差)会在合法 JSON 判决后追加中文说明散文(「补记:/
+// 说明:/失败腿留痕:」),consume 对整段严格 JSON.parse 即 model_face 误杀——18 天 4 轮如此废掉
+// 而判决本身全部正确(2026-11-02-1140 真实假设腿尾注还含 too_large≠超时的探针发现,回归夹具=
+// fixtures/pipeline/tail-note/)。修法=提取文本中首个花括号配平的 JSON 对象再 parse(容忍对象前
+// 任意文本与后随尾注);尾随散文降级为 transcript tail_note 事件留痕(证据不灭失)不阻轮;
+// 提取不到平衡对象=真坏答案不是尾注,保持 model_face。判决字段校验(verdict/evidence 形状)不变。
+export function firstBalancedJson(text) {
+  const s = String(text);
+  const start = s.indexOf("{");
+  if (start < 0) return null;
+  let depth = 0, inStr = false, esc = false;
+  for (let i = start; i < s.length; i++) {
+    const c = s[i];
+    if (inStr) { // JSON 字符串内的花括号/引号不参与配平(尾注里嵌 {ok:false} 同理由此不干扰首对象)
+      if (esc) esc = false;
+      else if (c === "\\") esc = true;
+      else if (c === '"') inStr = false;
+      continue;
+    }
+    if (c === '"') inStr = true;
+    else if (c === "{") depth += 1;
+    else if (c === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        const body = s.slice(start, i + 1);
+        try { return { obj: JSON.parse(body), tail: s.slice(i + 1).trim() }; }
+        catch { return null; } // 配平但非法 JSON=真坏答案,归 model_face
+      }
+    }
+  }
+  return null; // 无花括号/不平衡
+}
+// 尾注留痕:向该步 transcript 追加 tail_note 事件(不发明新工件名;deepSeeds/G_DEEP 只认
+// registry_seed 行,零干扰;重试每 attempt transcript 整体重写,本行随 attempt 更新不累积)。
+const appendTailNote = (ctx, transcriptFile, stage, hid, note) => {
+  fs.appendFileSync(path.join(ctx.dir, transcriptFile),
+    JSON.stringify({ type: "tail_note", stage, ...(hid != null ? { hid } : {}), note }) + "\n");
+};
 function triageConsume(ctx, _item, { text }) {
-  let h;
-  try { h = JSON.parse(text); } catch { throw Object.assign(new Error("TRIAGE 输出非 JSON(schema 违例)"), { code: "model_face" }); }
+  const x = firstBalancedJson(text); // #355 尾注容忍(见 firstBalancedJson 头注;synthConsume 收 markdown 全文无 parse 天然容忍)
+  if (!x) throw Object.assign(new Error("TRIAGE 输出非 JSON(schema 违例)"), { code: "model_face" });
+  const h = x.obj;
   if (!h || !Array.isArray(h.hypotheses)) throw Object.assign(new Error("TRIAGE 输出缺 hypotheses 数组"), { code: "model_face" });
+  if (x.tail) appendTailNote(ctx, A.TRIAGE_TRANSCRIPT, "TRIAGE", null, x.tail);
   writeJson(path.join(ctx.dir, A.TRIAGE_HYPOTHESES), h);
 }
 const deepItems = (ctx) => {
@@ -505,8 +560,10 @@ function deepInput(ctx, item) {
     userMsg: JSON.stringify({ hypothesis_bundle: item.prompt_pkg, budget_cny: item.budget_cny, ...(item.golden ? { golden: true } : {}) }) };
 }
 function deepConsume(ctx, item, { text }) {
-  let v;
-  try { v = JSON.parse(text); } catch { throw Object.assign(new Error(`DEEP 输出非 JSON(${item.hid})`), { code: "model_face" }); }
+  const x = firstBalancedJson(text); // #355 尾注容忍(见 firstBalancedJson 头注)
+  if (!x) throw Object.assign(new Error(`DEEP 输出非 JSON(${item.hid})`), { code: "model_face" });
+  const v = x.obj;
+  if (x.tail) appendTailNote(ctx, deepTranscriptName(hidSlug(item.hid)), "DEEP", item.hid, x.tail);
   if (!v || typeof v.verdict !== "string") throw Object.assign(new Error(`DEEP 输出缺 verdict(${item.hid})`), { code: "model_face" });
   if (v.evidence !== undefined && !Array.isArray(v.evidence)) throw Object.assign(new Error(`DEEP 输出 evidence 非数组(${item.hid})`), { code: "model_face" });
   for (const e of v.evidence ?? [])

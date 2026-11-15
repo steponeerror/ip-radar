@@ -255,8 +255,11 @@ async function waitModel(input, ck, runtime, context) {
         } catch (e) { process.stderr.write(`[waitModel] failed 子任务留痕读败(conv=${convId}):${e?.message ?? e}\n`); }
       }
       if (def.fail.perItem) degradedItems.push({ hid: hid ?? def.name, verdict: "unresolved", evidence: [], one_line: `重试尽降级 unresolved(${o.error?.message ?? "?"})` });
-      else
-        return void await runtime.commit(() => ({ status: "terminal", outcome: { status: "failed", error: { code: o.error?.code ?? "model_face", message: `${def.name}:${o.error?.message ?? "?"}` } } }), context); // 终审修复:TaskOutcome 无 .state 包裹(类型面同注),原 o.state.outcome 会 TypeError→框架 fault
+      else {
+        const code = o.error?.code ?? "model_face";
+        if (code === "model_face") await steps.appendFailureLedger(ctx, { code }); // #355:失败轮台账补行(单发步终态;与旧 runPipeline 收尾处同源)
+        return void await runtime.commit(() => ({ status: "terminal", outcome: { status: "failed", error: { code, message: `${def.name}:${o.error?.message ?? "?"}` } } }), context); // 终审修复:TaskOutcome 无 .state 包裹(类型面同注),原 o.state.outcome 会 TypeError→框架 fault
+      }
     }
   }
   // —— P1-4 WAIT_MODEL 收口复查①②④(轮级累计口径;并行子任务 pre/post 各自只见基数,
@@ -269,7 +272,8 @@ async function waitModel(input, ck, runtime, context) {
   if (!post.ok)
     return void await runtime.commit(() => ({ status: "terminal", outcome: { status: "failed", error: { code: post.code, message: `${def.name}:${post.message}` } } }), context);
   if (def.fail.perItem && failedN === (def.forEach ? steps.forEachItems(def, ctx).length : 1) && failedN > 0) {
-    const msg = `全部 ${failedN} 假设失败(model_face)`; // 旧 runModelStage 全败=终态(C稿 §2.2)
+    const msg = `全部 ${failedN} 假设失败(model_face)`; // 旧 runModelStage 全败=终态(C稿 §2.2;4 起影子废轮即此形状)
+    await steps.appendFailureLedger(ctx, { code: "model_face" }); // #355:失败轮台账补行(全败终态)
     return void await runtime.commit(() => ({ status: "terminal", outcome: { status: "failed", error: { code: "model_face", message: msg } } }), context);
   }
   // DEEP 收编尾(零复制 deepFinalize:逐假设工件→05-deep-verdicts)+聚合门(G_DEEP,收编尾后一次)
@@ -277,8 +281,11 @@ async function waitModel(input, ck, runtime, context) {
     steps.modelIO(def).finalize(ctx, { degradedItems });
     const gateRec = evalStageGate(def, ctx);
     appendGate(ctx.dir, ctx.roundId, gateRec);
-    if (!gateRec.pass)
+    if (!gateRec.pass) {
+      const code = gateRec.code ?? def.fail.terminal;
+      if (code === "model_face") await steps.appendFailureLedger(ctx, { code }); // #355:失败轮台账补行(G_DEEP 门败终态;旧 runPipeline 同源)
       return void await runtime.commit(() => ({ status: "terminal", outcome: { status: "failed", error: { code: gateRec.code ?? def.fail.terminal, message: `门败 ${def.gate}:${gateRec.reason}` } } }), context);
+    }
   }
   const stepUsage = { input: usage.input - base.input, output: usage.output - base.output, totalTokens: usage.totalTokens - base.totalTokens, cost: usage.cost - base.cost }; // 本步增量(P0-⑤)
   const rec = { name: def.name, status: degradedItems.length ? "degraded" : "done", attempts: 1, dur_ms: 0, usage: stepUsage };
@@ -360,6 +367,8 @@ async function runClose(input, ck, runtime, context) {
 
 // FAILED 书挡(旧终态:工件全保留,replay 可救——v2 面=checkpoint 留全量 stageRecs)
 async function runFailed(input, ck, runtime, context) {
+  if (ck.failed?.code === "model_face") // #355:失败轮台账补行(failTerm 路由面;script 相位门败/步败带 model_face 码时)
+    await steps.appendFailureLedger(rebuildRoundCtx(input, ck), ck.failed);
   await runtime.commit(() => ({
     status: "terminal",
     outcome: { status: "failed", error: { code: ck.failed?.code ?? "infra", message: ck.failed?.message ?? "FAILED" } },

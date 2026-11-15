@@ -398,7 +398,10 @@ export async function runPipeline(opts = {}) {
   fs.mkdirSync(ctx.dir, { recursive: true });
   writeState(ctx); // 轮次目录 + state.json 建立
   const failure = await runStages(ctx);
-  if (failure) return emitFail(failure.code, failure.message);
+  if (failure) {
+    if (failure.code === "model_face") await steps.appendFailureLedger(ctx, failure); // #355:失败轮台账补行(model_face 类终态零行盲区;RETRO 只记成功轮)
+    return emitFail(failure.code, failure.message);
+  }
   return finishClose(ctx, io);
 }
 
@@ -495,6 +498,7 @@ export async function runResume(opts = {}) {
   ctx.log(`[stage] RESUME start from=${ctx.resumedFrom ?? "CLOSE"} resume_count=${state.resume_count}`);
   const failure = await runStages(ctx, { resume: true });
   if (failure) { // failStage 已在 runStages catch 内落终态(state=failed/FAILED);此处只补信封
+    if (failure.code === "model_face") await steps.appendFailureLedger(ctx, failure); // #355:失败轮台账补行(resume 后终态失败同盲区;幂等 tag 防双记)
     const envelope = composeEnvelope(ctx, { ok: false, ...failure });
     io.stdout.write(JSON.stringify(envelope) + "\n");
     return { ok: false, envelope, roundId, dir };

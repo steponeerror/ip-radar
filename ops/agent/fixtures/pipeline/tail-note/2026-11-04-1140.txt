@@ -1,0 +1,6 @@
+{"hypothesis_id": "金轨迹保活 canned 假设:若冻结读数为真,HEAD 复测 age_days 应保持不变",
+ "verdict": "unresolved",
+ "evidence": [],
+ "one_line": "canned URL 无实测目标且预算为0,探针不可执行,验不动如实交人。"}
+
+失败腿留痕(同参重发,判定不变):url="(canned)" 非合法探针目标,reprobe_get 无可测对象;budget_cny=0 被宿主预算门拦。无证据≠清白,unresolved 为正确答案,非失败。

@@ -1,0 +1,3 @@
+{"hypothesis_id": "金轨迹保活 canned 假设:若冻结读数为真,HEAD 复测 age_days 应保持不变", "verdict": "unresolved", "evidence": [], "one_line": "URL 仍为 canned 占位、预算 0,同参重派亦无可探测,维持 unresolved"}
+
+说明:与上次输入完全相同(url="(canned)",budget_cny=0),重试不改变结论。预算由宿主门拦,如实留痕,不算我的失败;请补真实 URL 与预算后再重派。

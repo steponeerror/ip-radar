@@ -1,0 +1,6 @@
+{"hypothesis_id": "若该导出端点已失效为因，则对同源其他路径 reprobe_get 时本路径仍超时而对照路径正常响应；若为瞬时网络抖动，则 reprobe_get 后本信号超时消失",
+ "verdict": "refuted",
+ "evidence": [{"call_id": "call_7c80b10e14b745d297ea4f13", "field": "status"}, {"call_id": "call_7c80b10e14b745d297ea4f13", "field": "bytes"}],
+ "one_line": "端点非失效：对照路径 200 正常，目标返回大响应体（too_large），有响应非超时"}
+
+补记（transcript 留痕，不入 evidence）：目标 reprobe_get（call_fe6a0b5a37374fd59a87d2b7）返回失败信封 {ok:false,code:too_large}——响应体超 256KB 上限，说明端点在正常回传数据而非超时/失效，与「死端点」预测不符；亦不符合「超时消失」所需的超时前提（本步未复现超时）。裁决权归人。

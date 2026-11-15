@@ -1,0 +1,3 @@
+{"hypothesis_id": "金轨迹保活 canned 假设:若冻结读数为真,HEAD 复测 age_days 应保持不变", "verdict": "unresolved", "evidence": [], "one_line": "预算 0 被门拦 + URL 为 canned 占位,无探针可发,如实交人"}
+
+预算门拦(余额 0)+ url 为占位符,无合法探针目标;unresolved 为正确答案,失败腿另记 transcript。

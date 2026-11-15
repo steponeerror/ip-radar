@@ -2503,6 +2503,108 @@ await t("T3.5-接线挂点哨(#217):SHORTLIST 真面工具直装/MEASURE 宿主�
   assert.ok(stepsSrc.includes("replayDiscoverSeeds(ctx)"), "CLOSE 回放读数面在 steps.mjs");
 });
 
+// ── #355 DEEP/TRIAGE 终答 JSON 后尾随散文:首个平衡 JSON 对象提取 + tail_note 留痕(4 起真实废轮回归)──
+// 背景:GLM 终答在合法 JSON 判决后追加中文说明散文,严格 JSON.parse 整段即 model_face 误杀
+// (2026-11-02-1140 真实假设腿尾注含 too_large≠超时探针发现,4/4 影子失败同根)。修法=提取首个
+// 平衡对象后解析;尾随散文降级 transcript tail_note 留痕不阻轮;提取不到=真坏答案仍 model_face。
+const TAIL_NOTE_FX_DIR = path.join(AGENT, "fixtures/pipeline/tail-note"); // 4 起废轮原始终答全文(服务器取回)
+const tailNoteText = (round) => fs.readFileSync(path.join(TAIL_NOTE_FX_DIR, `${round}.txt`), "utf8").replace(/\n$/, "");
+const TAIL_NOTE_VERDICTS = { "2026-11-02-1140": "refuted", "2026-11-04-0340": "unresolved", "2026-11-04-1140": "unresolved", "2026-11-11-1940": "unresolved" };
+await t("#355-提取器:4 起真实废轮原始终答全提取成功且 verdict 正确;夹具1 尾注内嵌花括号不干扰", async () => {
+  const { firstBalancedJson } = steps;
+  assert.equal(typeof firstBalancedJson, "function", "提取器须自 steps.mjs 导出(consume 族单源)");
+  for (const [round, verdict] of Object.entries(TAIL_NOTE_VERDICTS)) {
+    const x = firstBalancedJson(tailNoteText(round));
+    assert.ok(x, `${round}:提取成功(多行排版/单行紧凑两形都得吃)`);
+    assert.equal(x.obj.verdict, verdict, `${round}:verdict 判决面无损`);
+    assert.ok(x.tail.length > 0, `${round}:尾注残留非空(待留痕)`);
+  }
+  const fx1 = firstBalancedJson(tailNoteText("2026-11-02-1140"));
+  assert.ok(fx1.tail.includes("{ok:false,code:too_large}"), "夹具1 尾注内嵌花括号整段在留痕面(不干扰首对象配平)");
+  assert.deepEqual(fx1.obj.evidence.map((e) => [e.call_id, e.field]),
+    [["call_7c80b10e14b745d297ea4f13", "status"], ["call_7c80b10e14b745d297ea4f13", "bytes"]], "evidence 选择对保形");
+  // 形状边界:纯 JSON 无尾注→tail 空;前缀文本容忍;字符串内花括号不计深度;提取不到→null(仍 model_face)
+  assert.equal(firstBalancedJson('{"verdict":"unresolved","evidence":[]}').tail, "", "纯 JSON 无尾注→tail 空(零留痕)");
+  const pre = firstBalancedJson('前缀文本 {"verdict":"unresolved"} 后缀散文');
+  assert.ok(pre && pre.obj.verdict === "unresolved" && pre.tail === "后缀散文", "对象前文本容忍,尾随文本入 tail");
+  assert.equal(firstBalancedJson('{"one_line":"a{b}c","verdict":"unresolved"}').obj.one_line, "a{b}c", "JSON 字符串内花括号不破配平");
+  assert.equal(firstBalancedJson("完全不是 JSON"), null, "无 JSON→null");
+  assert.equal(firstBalancedJson('{"verdict":"unresolved"'), null, "花括号不平衡→null");
+  assert.equal(firstBalancedJson("{bad}"), null, "平衡但非法 JSON→null(真坏答案非尾注)");
+});
+await t("#355-deepConsume 集成:带尾注终答不再抛 model_face,判决工件落盘+tail_note 留痕可查;纯 JSON 零留痕", async () => {
+  const io = steps.modelIO(HEALTH_PIPELINE.find((d) => d.name === "DEEP"));
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), "p355-deep-"));
+  const ctx = { dir: d, env: {}, log: () => {}, state: {} };
+  const item = { hid: "tail-note-fx1", budget_cny: 0.01, prompt_pkg: {} };
+  fs.writeFileSync(path.join(d, "05-deep-tail-note-fx1-transcript.jsonl"),
+    JSON.stringify({ type: "input", stage: "DEEP" }) + "\n"); // runModelStep 先写 transcript(留痕先于失败面判定),consume 后到
+  await io.consume(ctx, item, { text: tailNoteText("2026-11-02-1140") }); // 修前此处即抛 model_face(整段严格 parse)
+  const art = j(path.join(d, "05-deep-tail-note-fx1.json"));
+  assert.equal(art.verdict, "refuted", "判决收编(判决本身正确,轮不再废)");
+  assert.deepEqual(art.evidence.map((e) => [e.call_id, e.field]),
+    [["call_7c80b10e14b745d297ea4f13", "status"], ["call_7c80b10e14b745d297ea4f13", "bytes"]], "evidence 选择对原样(值由宿主回填面不动)");
+  const tl = fs.readFileSync(path.join(d, "05-deep-tail-note-fx1-transcript.jsonl"), "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
+  assert.equal(tl[0].type, "input", "原 transcript 行不动");
+  const note = tl.at(-1);
+  assert.equal(note.type, "tail_note", "尾注以 transcript 事件留痕(证据不灭失)");
+  assert.equal(note.stage, "DEEP");
+  assert.equal(note.hid, "tail-note-fx1");
+  assert.ok(note.note.includes("{ok:false,code:too_large}"), "尾注原文整段在留痕(too_large≠超时探针发现可查)");
+  // 纯 JSON 无尾注:零 tail_note 行(不发明噪音)
+  const d2 = fs.mkdtempSync(path.join(os.tmpdir(), "p355-deep-pure-"));
+  fs.writeFileSync(path.join(d2, "05-deep-pure-transcript.jsonl"), "\n");
+  await io.consume({ dir: d2, env: {}, log: () => {}, state: {} }, { hid: "pure", budget_cny: 0.01, prompt_pkg: {} },
+    { text: '{"verdict":"unresolved","evidence":[],"one_line":"纯 JSON"}' });
+  assert.ok(!fs.readFileSync(path.join(d2, "05-deep-pure-transcript.jsonl"), "utf8").includes("tail_note"), "纯 JSON 零留痕");
+  fs.rmSync(d, { recursive: true, force: true }); fs.rmSync(d2, { recursive: true, force: true });
+});
+await t("#355-deepConsume 负例:提取不到平衡 JSON 对象仍 model_face(真坏答案不是尾注)", async () => {
+  const io = steps.modelIO(HEALTH_PIPELINE.find((d) => d.name === "DEEP"));
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), "p355-deep-bad-"));
+  const item = { hid: "bad", budget_cny: 0.01, prompt_pkg: {} };
+  for (const text of ["完全不是 JSON", '{"verdict":"unresolved"', "{bad}", "纯散文无花括号"])
+    await assert.rejects(async () => io.consume({ dir: d, env: {}, log: () => {}, state: {} }, item, { text }),
+      (e) => e.code === "model_face");
+  // 判决面校验不放宽:提取成功但缺 verdict/坏 evidence 形状照旧 model_face
+  await assert.rejects(async () => io.consume({ dir: d, env: {}, log: () => {}, state: {} }, item, { text: '{"one_line":"缺 verdict"}' }),
+    (e) => /缺 verdict/.test(e.message) && e.code === "model_face");
+  await assert.rejects(async () => io.consume({ dir: d, env: {}, log: () => {}, state: {} }, item, { text: '{"verdict":"confirmed","evidence":"not-array"}' }),
+    (e) => /evidence 非数组/.test(e.message) && e.code === "model_face");
+  fs.rmSync(d, { recursive: true, force: true });
+});
+await t("#355-triageConsume:尾注容忍同执法(tail_note 入 03-triage-transcript;无 JSON 仍 model_face)", async () => {
+  const io = steps.modelIO(HEALTH_PIPELINE.find((d) => d.name === "TRIAGE"));
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), "p355-triage-"));
+  fs.writeFileSync(path.join(d, "03-triage-transcript.jsonl"), JSON.stringify({ type: "input", stage: "TRIAGE" }) + "\n");
+  await io.consume({ dir: d, env: {}, log: () => {}, state: {} }, null,
+    { text: '{"hypotheses":[]}\n\n说明:本轮零假设,尾注留痕例。' });
+  const h = j(path.join(d, "03-triage-hypotheses.json"));
+  assert.deepEqual(h.hypotheses, [], "TRIAGE 判决收编");
+  const note = fs.readFileSync(path.join(d, "03-triage-transcript.jsonl"), "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)).at(-1);
+  assert.equal(note.type, "tail_note", "TRIAGE 尾注同入 transcript 留痕");
+  assert.equal(note.stage, "TRIAGE");
+  assert.ok(note.note.includes("尾注留痕例"));
+  await assert.rejects(async () => io.consume({ dir: d, env: {}, log: () => {}, state: {} }, null, { text: "不是 JSON(schema 违例负例)" }),
+    (e) => e.code === "model_face");
+  fs.rmSync(d, { recursive: true, force: true });
+});
+await t("#355-失败轮台账:model_face 终态轮在 ledger.md 补一行(带 error_code);坏 fixture 载具同「失败面」例", async () => {
+  const badFx = path.join(TMP, "fixtures-355-ledger");
+  fs.mkdirSync(badFx, { recursive: true });
+  for (const f of ["synth.json"]) fs.copyFileSync(path.join(AGENT, "fixtures/pipeline", f), path.join(badFx, f));
+  fs.cpSync(path.join(AGENT, "fixtures/pipeline/deep"), path.join(badFx, "deep"), { recursive: true });
+  fs.writeFileSync(path.join(badFx, "triage.json"), JSON.stringify({ turns: [{ role: "assistant", content: [{ type: "text", text: "不是 JSON(schema 违例负例)" }], stopReason: "stop" }] }));
+  const tree = mkTree("tree-355-ledger");
+  const r = await runPipeline({ roundId: "2026-11-02-1140-health", fixturesDir: badFx, env: tree.env, ...mkIo() });
+  assert.equal(r.ok, false);
+  assert.equal(r.envelope.error.code, "model_face");
+  const led = fs.readFileSync(path.join(tree.root, "ops", "ledger.md"), "utf8");
+  assert.match(led, /pipeline-failed:2026-11-02-1140-health/, "失败轮台账行在场(标签:轮 id 可 grep)");
+  assert.match(led, /error_code=model_face/, "行带 error_code(台账盲区补行)");
+  assert.equal(led.split("\n").filter((l) => l.includes("pipeline-failed:2026-11-02-1140-health")).length, 1, "恰一行");
+});
+
 fs.rmSync(TMP, { recursive: true, force: true });
 console.log(`pipeline-selftest: PASS=${pass} FAIL=${fail}`);
 process.exit(fail ? 1 : 0);

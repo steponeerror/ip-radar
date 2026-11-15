@@ -226,3 +226,82 @@ test("P1-4 ①收口:并行子任务穿透基数后 WAIT_MODEL 按轮累计终�
     fs.rmSync(w.tmp, { recursive: true, force: true });
   }
 });
+
+// ── #355 DEEP 终答 JSON 后尾随散文:首个平衡 JSON 对象提取 + tail_note 留痕(4 起影子废轮回归;旧 consume 族已修,本测钉 v2 装配链)──
+test("#355 DEEP 尾注容忍:带尾注终答不再 model_face 误杀,判决收编+tail_note 留痕可查", async () => {
+  const roundId = "2026-11-15-e2e-tail-health";
+  const w = seedWorld({ roundId });
+  const fxDir = path.join(w.tmp, "fixtures-tail");
+  fs.cpSync(FIXTURES, fxDir, { recursive: true });
+  // cinsscore deep 回合尾追散文(#355 真实废轮同形:合法 JSON 判决 + 「补记:」;尾注内嵌花括号不干扰首对象配平)
+  const cinsFx = jsonOf(path.join(fxDir, "deep", `${CINS_SLUG}.json`));
+  cinsFx.turns[0].content[0].text += "\n\n补记(transcript 留痕,不入 evidence):探针腿返回失败信封 {ok:false,code:too_large}——响应体超上限,端点在正常回传而非超时。";
+  fs.writeFileSync(path.join(fxDir, "deep", `${CINS_SLUG}.json`), JSON.stringify(cinsFx));
+  const storage = await openNodeSqliteStorage(path.join(w.tmp, "t.sqlite"));
+  const context = BACKGROUND_CONTEXT;
+  try {
+    const harness = await Harness.open(storage, { models: createModels(), registry: buildRegistry() }, context);
+    try {
+      harness.resume();
+      const root = await harness.root(context);
+      const taskId = await root.commit((tx) => tx.createTask(OPS_HEALTH_ROUND, {
+        roundId, fromPhase: "TRIAGE", modelFace: "faux", fixturesDir: fxDir,
+      }, { ownership: { kind: "conversation" } }), context);
+      const settled = await harness.waitForTask(taskId, context);
+      const outcome = settled.state.outcome;
+      assert.equal(outcome.status, "completed", `尾注不得废轮(修前此处=failed model_face):${JSON.stringify(outcome)}`);
+      const cinsV = jsonOf(path.join(w.roundDir, `05-deep-${CINS_SLUG}.json`));
+      assert.equal(cinsV.verdict, "confirmed", "判决面无损(JSON 体内字段照旧收编)");
+      assert.deepEqual(cinsV.evidence, [{ call_id: "c-cins", field: "age_days", value: 220 }], "evidence 宿主回填不受尾注影响");
+      const cinsT = jsonlOf(path.join(w.roundDir, `05-deep-${CINS_SLUG}-transcript.jsonl`));
+      assert.deepEqual(cinsT.slice(0, 3).map((x) => x.type), ["input", "registry_seed", "message"], "原 transcript 行型不动");
+      const note = cinsT.at(-1);
+      assert.equal(note.type, "tail_note", "尾注以 transcript 事件留痕(证据不灭失)");
+      assert.equal(note.stage, "DEEP");
+      assert.equal(note.hid, CINS);
+      assert.ok(note.note.includes("{ok:false,code:too_large}"), "尾注原文整段在留痕(内嵌花括号原样)");
+      // 其余假设(binarydefense 纯 JSON)零 tail_note 行——不发明噪音
+      const bdefT = fs.readFileSync(path.join(w.roundDir, `05-deep-${BDEF_SLUG}-transcript.jsonl`), "utf8");
+      assert.ok(!bdefT.includes("tail_note"), "纯 JSON 终答零留痕行");
+    } finally { await harness.close(context); }
+  } finally {
+    await storage.close(context);
+    w.restore();
+    fs.rmSync(w.tmp, { recursive: true, force: true });
+  }
+});
+
+// ── #355 失败轮台账:model_face 终态轮此前零台账行(RETRO 只记成功轮),补行带 error_code ──
+test("#355 失败轮台账:TRIAGE 两 attempt 全坏→model_face 终态,ledger.md 补一行(带 error_code)", async () => {
+  const roundId = "2026-11-15-e2e-mf-health";
+  const w = seedWorld({ roundId });
+  const fxDir = path.join(w.tmp, "fixtures-mf");
+  fs.cpSync(FIXTURES, fxDir, { recursive: true });
+  fs.writeFileSync(path.join(fxDir, "triage.json"), JSON.stringify({ turns: [ // retry≤1:两 attempt 全非 JSON → 终态
+    { role: "assistant", content: [{ type: "text", text: "不是 JSON(schema 违例负例)" }], stopReason: "stop" },
+    { role: "assistant", content: [{ type: "text", text: "仍不是 JSON" }], stopReason: "stop" }] }));
+  const storage = await openNodeSqliteStorage(path.join(w.tmp, "t.sqlite"));
+  const context = BACKGROUND_CONTEXT;
+  try {
+    const harness = await Harness.open(storage, { models: createModels(), registry: buildRegistry() }, context);
+    try {
+      harness.resume();
+      const root = await harness.root(context);
+      const taskId = await root.commit((tx) => tx.createTask(OPS_HEALTH_ROUND, {
+        roundId, fromPhase: "TRIAGE", modelFace: "faux", fixturesDir: fxDir,
+      }, { ownership: { kind: "conversation" } }), context);
+      const settled = await harness.waitForTask(taskId, context);
+      const outcome = settled.state.outcome;
+      assert.equal(outcome.status, "failed", `应收口终态:${JSON.stringify(outcome)}`);
+      assert.equal(outcome.error.code, "model_face");
+      const led = fs.readFileSync(path.join(w.ops, "ledger.md"), "utf8");
+      assert.match(led, /pipeline-failed:2026-11-15-e2e-mf-health/, "失败轮台账行在场(标签:轮 id 可 grep)");
+      assert.match(led, /error_code=model_face/, "行带 error_code");
+      assert.equal(led.split("\n").filter((l) => l.includes("pipeline-failed:2026-11-15-e2e-mf-health")).length, 1, "恰一行");
+    } finally { await harness.close(context); }
+  } finally {
+    await storage.close(context);
+    w.restore();
+    fs.rmSync(w.tmp, { recursive: true, force: true });
+  }
+});
