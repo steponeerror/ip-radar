@@ -972,17 +972,47 @@ def test_ops_log_unknown_task_emits_without_tail():
 
 # ── D. 路由层(鉴权/校验/202/409/失败面)────────────────────────────────────
 
+# #171 滞留清除的两档预算(2026-11-15 复盘裁定「先做 setup 共享夹具」):
+# 深清 15s = 原值,本模块首条路由用例进场时对跨文件污染(早期 lifespan
+# 测试经 _startup_warm→enqueue_stale 塞进单例 main.manager 的真实源任务)
+# 做一次完整 cancel+等待;轻查 2s = 其余用例的进场复检,只兜本文件自身
+# 的收尾尾巴(见 admin_rounds_env docstring 的「为什么一次就够」)。
+_DEEP_DRAIN_TIMEOUT = 15.0
+_LIGHT_DRAIN_TIMEOUT = 2.0
+_deep_drained_once = False
+
 
 @pytest.fixture
 def admin_rounds_env(ops_env, fake_agent, auth_env):
     """路由测试面:ops 树 + 假 agent + admin 认证(惰性,不污染非路由测试);
     进门先清滞留源任务(#171,见 _drain_source_lane)——路由断言全部以
-    空闲车道为前提。清不掉则 skip:残留只可能是 loading 相在途真实重建
-    (cancel 语义=重建返回后生效,不可中断),这是测试环境串真加载的
-    伪象而非产品行为,skip 掉不冒充通过;单跑/触发组合下车道能清空,
-    测试照常执行(CI 无外网下载秒失败,永不 skip)。"""
+    空闲车道为前提。清除按两档去重(原为每条用例各烧一次 15s 深等,
+    2026-11-15 复盘实测路由用例 setup 各 15.01-15.02s;确定性卡死复现
+    轮 10 条全部中招、修前文件级 154.17s):
+
+    - 首条用例:深清一次(≤15s)。跨文件污染只在 lifespan 启动时入队
+      (main.py _startup_warm→enqueue_stale),本文件不进 lifespan,
+      RefreshScheduler 首扫在 interval(默认 1800s)之后,管理器级测试
+      (B/C 节)用的是 _make_manager 自建实例——模块中途不可能有新污染
+      进 main.manager,深清一次就够,重复深等是纯重复烧。
+    - 其余用例:轻查(≤2s)兜本文件自身的收尾尾巴(busy_sources_409
+      的假源任务 cancel 后 ~50ms 内落终态,2s 足够)。
+
+    清不掉则 skip:残留只可能是 loading 相在途真实重建(cancel 语义=
+    重建返回后生效,不可中断),这是测试环境串真加载的伪象而非产品
+    行为,skip 掉不冒充通过;轻查窗口短于深清:stuck 相在模块中途结束后
+    后续用例照常执行;恢复恰好落在 2-15s 窗内时,紧邻的一条可能多 skip
+    一次(保守方向,CI 无外网下载永不触发)。
+    单跑/触发组合下车道能清空,测试照常执行(CI 无外网下载秒失败,
+    永不 skip)。"""
+    global _deep_drained_once
     import main
-    if not _drain_source_lane(main.manager):
+    if _deep_drained_once:
+        drained = _drain_source_lane(main.manager, timeout=_LIGHT_DRAIN_TIMEOUT)
+    else:
+        _deep_drained_once = True
+        drained = _drain_source_lane(main.manager, timeout=_DEEP_DRAIN_TIMEOUT)
+    if not drained:
         stuck = [f"{t['id']}:{t['state']}" for t in main.manager.snapshot()["tasks"]
                  if t["state"] in ("queued", "downloading", "loading", "throttled")]
         pytest.skip(
