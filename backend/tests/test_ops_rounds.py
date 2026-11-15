@@ -1033,9 +1033,13 @@ def test_rounds_route_validates_body(admin_rounds_env, client_as_admin, body):
 
 
 def test_rounds_route_accepts_and_runs_to_done(admin_rounds_env, ops_env,
-                                               client_as_admin):
+                                               client_as_admin, rounds,
+                                               monkeypatch):
     """202 + task_id;ops 树初始化(桥拉起前 init);假 agent 成功信封 → done;
-    桥不追加台账行。"""
+    台账恰一条内存峰值行(#354 修法 A:run_round 在 finish(done) 之后的
+    finally 里落 #139 峰值行,是记账工件而非回声——「done 即台账齐」是
+    幻影需求,人裁承认该行;假 cgroup 定化,裸机/容器宿主读数均确定)。"""
+    _fake_cgroup(rounds, ops_env, monkeypatch, v2_bytes=838860800)
     r = _post_rounds(client_as_admin, {"type": "health", "input": "体检"})
     assert r.status_code == 202
     task_id = r.json()["task_id"]
@@ -1046,8 +1050,13 @@ def test_rounds_route_accepts_and_runs_to_done(admin_rounds_env, ops_env,
     # ops 树形状就位(裁④:一个根;桥 init 幂等建目录+表头)
     assert (ops_env / "ops" / "precedents").is_dir()
     assert (ops_env / "ops" / "packages").is_dir()
+    # #354:done 观测点与 finally 峰值行落盘之间有竞态窗口(收口链顺序),
+    # 轮询等行落齐再断「恰一条」;行值经假 cgroup 定化(静态文件 → 终值=基线)。
+    assert _wait(lambda: "memory_peak_bytes=838860800" in _ledger_text(ops_env)), \
+        _ledger_text(ops_env)
     ledger = _ledger_text(ops_env)
-    assert ledger.count("\n") == 4, "成功轮桥不追加台账行(只有表头)"
+    assert ledger.count("memory_peak_bytes=") == 1, ledger
+    assert " | health | — | — | memory_peak_bytes=838860800" in ledger, ledger
 
 
 def test_rounds_route_busy_round_409(admin_rounds_env, fake_agent, client_as_admin):
