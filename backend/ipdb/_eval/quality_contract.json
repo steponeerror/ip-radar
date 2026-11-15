@@ -1,0 +1,76 @@
+{
+  "schema": "quality-contract/1",
+  "comment": "质量契约层声明表(ADR 0021 / #349):情报质量 = 哪些维度 × 指标 × 取数方式(oracle)× 期望 × 判决语义 × 轨道 × 触发面,一处声明。行 = 现有质量工具的读数腿(工具本体不改,runner 只做结缔组织);无 oracle 维度在报告单显形「无读数」绝不静默省略——覆盖账本 = 本表(缺读数不虚构,#261 验收线)。oracle 口径:subprocess argv 尾接 sys.executable 整段执行(占位符 $NAME 由 --contract-param 绑定,未绑定 = 该腿无读数);func = 零参可调用(gate 腿读数须含布尔 pass 键);none = 无读数显形。字段终稿与首版五行出处见各 row.provenance。",
+  "rows": [
+    {
+      "id": "fp-restraint-anchors",
+      "dimension": "误报克制",
+      "metric": "锚集已知答案回归:32 锚(22 clean+4 reserved+3 hosting+3 tor)全阴性期望,失败数=0",
+      "oracle": {
+        "kind": "subprocess",
+        "argv": ["-m", "ipdb._eval", "--anchors", "--json"]
+      },
+      "expectation": "failures == 0(判定门腿:月轮 rc 1 持门,ADR 0008 决策 2;失败也落盘证据不灭)",
+      "verdict": "gate",
+      "track": "baseline",
+      "trigger": "round",
+      "provenance": "ADR 0021 决策1; ADR 0008 决策2; #349; backend/ipdb/_eval/anchors.py(--anchors 月轮判定门); spec §5.2"
+    },
+    {
+      "id": "exclusivity-probe",
+      "dimension": "独占率",
+      "metric": "候选 feed 对池实测排他率(稳定 seed 20261018 采样 300,逐字节可复算)",
+      "oracle": {
+        "kind": "subprocess",
+        "argv": ["-m", "ipdb._eval", "--exclusive", "$FEED_FILE", "--json"]
+      },
+      "expectation": "对照闸(binarydefense 前 20 池命中 ≥18)过后记录排他率读数;只测量不持门(翻案/加源治理面);$FEED_FILE 属运维输入,月轮无固定值 → 未绑定时无读数",
+      "verdict": "finding",
+      "track": "improvement",
+      "trigger": "change",
+      "provenance": "ADR 0021 决策1; #349; backend/ipdb/_eval/exclusive.py(2026-10-18 两起翻案探针产品化); GLOSSARY「独占贡献」"
+    },
+    {
+      "id": "freshness-mirror-manifest",
+      "dimension": "新鲜度",
+      "metric": "数据面镜像 manifest:文件数/字节(S7 塌缩闸,骤降 >20% 即红)+ epoch 指纹留档(S6 新鲜度哨兵,纪元前进=数据活着)",
+      "oracle": {
+        "kind": "subprocess",
+        "argv": ["-m", "ipdb._eval.mirror_check", "$DATA_DIR", "$MANIFEST"]
+      },
+      "expectation": "ok=true:文件数/字节无骤降;epoch 前进=新鲜度证据,注记不失败(S6);$DATA_DIR/$MANIFEST 有内置缺省绑定(runner 报告目录自带 manifest 基线,缺省名带 env 后缀,不碰 monthly_eval.sh S7 报告根件;评审 P2-1)",
+      "verdict": "gate",
+      "track": "baseline",
+      "trigger": "round",
+      "provenance": "ADR 0021 决策1; #349; backend/ipdb/_eval/mirror_check.py(S6/S7); scripts/monthly_eval.sh 守卫序"
+    },
+    {
+      "id": "consistency-c2-idempotent",
+      "dimension": "一致性",
+      "metric": "c2 物化谓词双门①重建幂等:代码未变时连续两次 rebuild 第二次零副作用(sidecar/纪元目录逐字节同、mtime 同、纪元号不动)",
+      "oracle": {
+        "kind": "none",
+        "reason": "现行载体 = scripts/c2_predicate_gates.py 一次性脚本(#192 时代):写路径(cp -a 数据面 + rebuild)且硬编码绝对路径、迁移腿前提过期恒红,不可作只读月轮 oracle;常驻化/前提更新待人裁后再升 subprocess 行"
+      },
+      "expectation": "有读数时:第二次 rebuild 零副作用(位等价);当前无读数(理由见 oracle.reason,报告单显形不留哑字段)",
+      "verdict": "gate",
+      "track": "baseline",
+      "trigger": "change",
+      "provenance": "ADR 0021 决策1; ADR 0009; #192; scripts/c2_predicate_gates.py; docs/notes/quality-tools-research-2026-11-15.md(蜕变关系族)"
+    },
+    {
+      "id": "recall-positive-anchors",
+      "dimension": "召回",
+      "metric": "阳性锚召回率(蜜罐真值层抽 20-30 条正例「必须指控」探针,Clopper-Pearson 区间)",
+      "oracle": {
+        "kind": "none",
+        "reason": "待 #350:阳性锚未建——现行 32 锚全阴性(漏报面 FN 零覆盖,存在数月到 2026-11-15 盘点才显形);覆盖账本首笔,报告单必须显形不许静默省略"
+      },
+      "expectation": "无读数=阳性锚待补 #350;建成后期望=「≥k 个独立源指控」分级(ADR 0021 决策4),v0 只测量不持门(ADR 0013 纪律)",
+      "verdict": "score",
+      "track": "improvement",
+      "trigger": "round",
+      "provenance": "ADR 0021 决策3/4; #349; #350; docs/notes/quality-tools-research-2026-11-15.md(覆盖账本缺失实证)"
+    }
+  ]
+}

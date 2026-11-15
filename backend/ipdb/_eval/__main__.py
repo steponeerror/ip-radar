@@ -646,6 +646,22 @@ def main(argv=None):
                    help="语义契约矩阵现状扫描(ADR 0003 Task 2): 四层取样→"
                         "逐通道显形观测→matrix.json 裁决 diff 三桶;退出码 "
                         "0/1/2 = 干净/有 pending/有 violation;只读不落盘")
+    p.add_argument("--quality-contract", action="store_true",
+                   help="质量契约层 runner(ADR 0021/#349):读包内 "
+                        "quality_contract.json 逐腿执行现有质量读数"
+                        "(腿=subprocess 旧子命令或函数引用,行为不改),"
+                        "产质量报告单 JSON+md 落 model/quality-report-"
+                        "<ts>.*;无 oracle 维度显形「无读数」不静默省略;"
+                        "坏腿留痕 failures 面不炸整单;rc 0=报告产出"
+                        "(编排面不持门)/2=契约表不合法")
+    p.add_argument("--contract-path", default=None, metavar="PATH",
+                   help="契约表路径覆盖(缺省=包内 quality_contract.json;"
+                        "测试/巡检面)")
+    p.add_argument("--contract-param", action="append", default=None,
+                   metavar="K=V",
+                   help="oracle argv 占位符绑定(可重复,如 FEED_FILE=/tmp/"
+                        "feed.txt;内置缺省 DATA_DIR/MANIFEST;未绑定占位"
+                        "符 → 该腿无读数,不虚构)")
     p.add_argument("--seed", type=int, default=DEFAULT_SEED,
                    help="--exclusive/--matrix-scan 采样 seed(默认 20261018 = "
                         "翻案探针同口径;同 seed 逐字节可复现)")
@@ -767,6 +783,52 @@ def main(argv=None):
              else str(res["asset_dir"])},
             ensure_ascii=False, indent=1), encoding="utf-8")
         print(f"  artifact: {build_art}")
+        return
+
+    # ── --quality-contract 质量契约层 runner(ADR 0021/#349)──────────
+    # 纯编排面:腿=subprocess 调旧子命令(行为不改)或包内函数;本命令
+    # 不碰 registry/DB(前置于 _real_registry/load_db,--temporal/--truth-v2
+    # 同律)。rc 0=报告产出(腿红态在报告内,failures 面留痕,编排面不持
+    # 门);rc 2=契约表/参数不合法(fail loud,§5.2 信封同款)。
+    if args.quality_contract:
+        from .contract import ContractError, run_contract
+        params: dict[str, str] = {}
+        for kv in args.contract_param or []:
+            key, eq, val = kv.partition("=")
+            if not eq or not key:
+                msg = f"bad --contract-param {kv!r}: 期望 K=V"
+                if args.json:
+                    _json_error("bad_contract_param", msg,
+                                "例: --contract-param FEED_FILE=/tmp/feed.txt",
+                                rc=2)
+                print(f"拒绝: {msg}", file=sys.stderr)
+                sys.exit(2)
+            params[key] = val
+        try:
+            report = run_contract(args.contract_path, params=params,
+                                  out_dir=REPORT_DIR)
+        except ContractError as e:
+            if args.json:
+                _json_error("bad_contract", str(e),
+                            "核对契约表: schema quality-contract/1,字段 "
+                            "id/dimension/metric/oracle/expectation/verdict/"
+                            "track/trigger/provenance", rc=2)
+            print(f"拒绝: 契约表不合法: {e}", file=sys.stderr)
+            sys.exit(2)
+        if args.json:
+            print(json.dumps({"summary": report["summary"],
+                              "paths": report.get("paths")},
+                             ensure_ascii=False, indent=1))
+        else:
+            s = report["summary"]
+            print(f"quality-contract: {s['n_rows']} 行,读数 {s['n_ok']}"
+                  f"/无读数 {s['n_no_reading']}/失败 {s['n_failures']};"
+                  f"gate {s['n_gate_pass']}/{s['n_gate_total']} 过")
+            if report.get("paths"):
+                print(f"  artifacts: {report['paths']['json']}")
+                print(f"             {report['paths']['md']}")
+            for f in report["failures"]:
+                print(f"  FAILURE [{f['id']}] {f['error']}")
         return
 
     registry = _real_registry()
