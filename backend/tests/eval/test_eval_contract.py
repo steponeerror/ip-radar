@@ -61,8 +61,10 @@ PY_ENV_ERR = ["-c", "import json,sys; print(json.dumps({'error': "
 def test_packaged_table_validates_and_covers_five_dimensions():
     doc = load_contract(CONTRACT_PATH)
     rows = doc["rows"]
+    # #351 起「事故回归」维度五腿追加在尾(每事故一行,不重排既有五行)
     assert [r["dimension"] for r in rows] == [
-        "误报克制", "独占率", "新鲜度", "一致性", "召回"]
+        "误报克制", "独占率", "新鲜度", "一致性", "召回",
+        "事故回归", "事故回归", "事故回归", "事故回归", "事故回归"]
     assert {r["verdict"] for r in rows} == {"gate", "finding", "score"}
     assert {r["track"] for r in rows} == {"baseline", "improvement"}
     assert {r["trigger"] for r in rows} == {"round", "change"}

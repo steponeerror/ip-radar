@@ -71,6 +71,76 @@
       "track": "improvement",
       "trigger": "round",
       "provenance": "ADR 0021 决策3/4; #349; #350; docs/notes/quality-tools-research-2026-11-15.md(覆盖账本缺失实证)"
+    },
+    {
+      "id": "incident-replay-myip-ms-8888",
+      "dimension": "事故回归",
+      "metric": "事故①回放:公共解析器 8.8.8.8 被 myip_ms 单源指控(合成机制夹具,零外发)——载入期 infra 排除应消解",
+      "oracle": {
+        "kind": "func",
+        "ref": "ipdb._eval.incident_replay.replay_myip_ms_8888"
+      },
+      "expectation": "pass=true:排除只在投影面(查询无 8.8.8.8 指控)、非 infra 指控保留(宁少算不扩大)、原始件零改写；防线=myip_ms.py infra_noise_filter + _rebuild_tail.InfraNoiseGate(curated 真源 infra_services._DATA)；curated 集空置/开关失效/排除路径拆除,回放即红(tests/eval/test_eval_incident_replay.py 红面钉死)",
+      "verdict": "gate",
+      "track": "baseline",
+      "trigger": "change",
+      "provenance": "ADR 0021 决策5; #351; #183; ADR 0008 事故①(2026-10-24 生产 8.8.8.8=myip_ms 单源惡意55); backend/ipdb/_sources/myip_ms.py; docs/notes/infra-noise-ablation-2026-10-24.md; backend/ipdb/_eval/incident_replay.py"
+    },
+    {
+      "id": "incident-replay-dns114-false-corroboration",
+      "dimension": "事故回归",
+      "metric": "事故②回放:114.114.114.114 被 cps+ziyadnz 纯 derived 互证假印证(合成机制夹具,零外发)——载入面排除+评分面谱系去重双层防线",
+      "oracle": {
+        "kind": "func",
+        "ref": "ipdb._eval.incident_replay.replay_dns114_false_corroboration"
+      },
+      "expectation": "pass=true:两源投影均无事故 IP 指控(回声无从形成)、聚合器派生指控不双计(独立票数与 conf 不变)；已知无门面如实入读数 known_gap=纯 derived 互证仍算 corroborated(grill Q2 2026-10-11 人裁现状,披露面=_eval/agg_share.py,改语义须另票)——不发明门；防线=ziyadnz.py/cps_collected_iocs.py infra_noise_filter + _logodds.dedup_lineage",
+      "verdict": "gate",
+      "track": "baseline",
+      "trigger": "change",
+      "provenance": "ADR 0021 决策5; #351; #183; ADR 0008 事故②(2026-10-24 114DNS 假印证,ADR 0008 勘探更正 d0f893f:两源运行时已 derived=True); backend/ipdb/_logodds.py(dedup_lineage); docs/notes/infra-noise-ablation-2026-10-24.md; backend/ipdb/_eval/incident_replay.py"
+    },
+    {
+      "id": "incident-replay-aggregator-derived-reversal",
+      "dimension": "事故回归",
+      "metric": "事故③回放:聚合器派生指控被映射推断当独立源计(2026-10-18 实测排他率双翻案 malicious-ip 82.7%/ziyadnz 44.7%)——运行时派生注册+不双计+探针对照闸",
+      "oracle": {
+        "kind": "func",
+        "ref": "ipdb._eval.incident_replay.replay_aggregator_derived_reversal"
+      },
+      "expectation": "pass=true:双翻案源+malicious_ip 在运行时 DERIVED_SOURCES(_registry._apply_derived_sources 按源类 derived=True 灌装)、聚合器派生指控不双计、排他率探针对照源未获池覆盖时 ABORT 不出数字(防假零,2026-10-10 判例)；门表「REJECT 须附实测排他数」律在 ops discover SKILL(人环节,不可机检,仅 provenance 留痕)",
+      "verdict": "gate",
+      "track": "baseline",
+      "trigger": "change",
+      "provenance": "ADR 0021 决策5; #351; 2026-10-18 双翻案(d73e2440 探针产品化/406fbbf6 门表实测律); backend/ipdb/_registry.py(_apply_derived_sources); backend/ipdb/_eval/exclusive.py(对照闸); GLOSSARY「聚合器候选」「排他率」; backend/ipdb/_eval/incident_replay.py"
+    },
+    {
+      "id": "incident-replay-peeringdb-429-residue",
+      "dimension": "事故回归",
+      "metric": "事故④回放:peeringdb 429 限流残局(0 文件、任务在队)持查询门 503(合成探针注入,零外发)——持门有界+残局源先收敛",
+      "oracle": {
+        "kind": "func",
+        "ref": "ipdb._eval.incident_replay.replay_peeringdb_429_residue"
+      },
+      "expectation": "pass=true:残局任务在队窗内持门(设计:不出半份净白判定)且 blocking_reason=warming(跨栈契约字面)、越窗强制放行(残局不楔死)、补账排序缺失源足迹=0 最先(残局先收敛早放行)；防线=_coldstart.ColdStartGate.db_ready(deadline 强制放行,窗 1800/1200/900s 分档,IP_RADAR_COLD_START_TIMEOUT 可覆写) + main.py _catchup_footprint(bbae574e 整改)",
+      "verdict": "gate",
+      "track": "baseline",
+      "trigger": "change",
+      "provenance": "ADR 0021 决策5; #351; 2026-10-11 demo 机实测(bbae574e 整改 commit); backend/ipdb/_coldstart.py(ColdStartGate); backend/main.py(_catchup_footprint/_startup_warm); #294 门独立模块; backend/ipdb/_eval/incident_replay.py"
+    },
+    {
+      "id": "incident-replay-reportedip-8888",
+      "dimension": "事故回归",
+      "metric": "事故⑤回放:#347 reportedip 单源单时刻指控 8.8.8.8(合成机制夹具:codes 双码同归组+单时刻,零外发)——harvest 车道排除+HARVEST_REV 迁移双防线",
+      "oracle": {
+        "kind": "func",
+        "ref": "ipdb._eval.incident_replay.replay_reportedip_8888"
+      },
+      "expectation": "pass=true:harvest 车道载入面排 8.8.8.8(查询无指控)、对照指控保留、原始件零改写、rebuild 后 .rev==HARVEST_REV(#347 bump 1→2 到达本族)、旧代 .rev 触发 needs_convert 迁移重建(存量族必然收到新过滤,治「代码演进不 bump mtime 的静默休眠」ADR 0009)",
+      "verdict": "gate",
+      "track": "baseline",
+      "trigger": "change",
+      "provenance": "ADR 0021 决策5; #351; #347(2026-11-15 人裁误报,master 03a76d67 修:infra_noise_filter=True + HARVEST_REV 1→2); backend/ipdb/_sources/reportedip.py; backend/ipdb/_sources/_lmdb.py(HARVEST_REV/needs_convert); ADR 0009; backend/ipdb/_eval/incident_replay.py"
     }
   ]
 }
