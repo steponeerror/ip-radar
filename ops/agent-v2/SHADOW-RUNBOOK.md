@@ -2,6 +2,8 @@
 
 spec 定案 2 安全轨的运维面:旧管线原地不动,v2 在 `ops/agent-v2/` shadow 跑满一月轮周期,golden + 新旧产出对拍一致才切流。**切流时点由用户裁决,本手册不自动切。**
 
+影子轮工件根(导航,2026-11-15 retro 立):服务器容器 `/app/data/ops-shadow/docs/ops/`——轮工件 `rounds/<id>-health/`(含 `05-deep-*-transcript.jsonl`)、轮末 retro 件 `retro/`、台账 `ledger.md` 与判例/条目库同根;注意双层 `docs/ops/` 嵌套易摸错(当日三轮探查实测)。
+
 ## 观察面(每轮 cron 后)
 
 ```bash

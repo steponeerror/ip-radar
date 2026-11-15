@@ -71,7 +71,7 @@ def test_health_round_real_run(rounds, tmp_path, monkeypatch):
     result = rounds.spawn_round("health", "对全部离线源做一次健康体检,给出冻结/死键/不可达快照",
                                 on_log=logs.append)
     # 轮次信封(成功面;失败面让断言输出完整信封便于诊断)
-    assert result.get("ok") is True, result
+    assert result.get("ok") is True, {"_hint": "若 error.code=sandbox_violation 且 worktree 有未提交改动:这是红线按设计(要求 backend/frontend 零未提交改动),先提交再跑,见模块 docstring", **(result if isinstance(result, dict) else {"result": result})}
     pkg = Path(result["pkg"])
     assert pkg.is_file(), f"裁决包未落盘: {pkg}"
     assert pkg.parent == (tmp_path / "ops" / "packages").resolve() or \
