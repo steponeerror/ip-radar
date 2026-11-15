@@ -286,38 +286,45 @@ def load_anchor_green(model_dir: Path) -> list[dict]:
     return out
 
 
-def load_truth_v2_readout(model_dir: Path) -> dict | None:
-    """v2 附录读数腿工件最新一件: truth-v2-readout-*.json 按文件名 ts
-    升序扫描取末次(月轮真实序: --truth-v2-readout 腿先于 --readout 落
-    model/, 本轮件 = 最新一件; load_anchor_green 同律)。坏 JSON 跳过
-    不炸(load_prev_northstar 宽容律);无件 → None(附录渲染 N/A 哨兵,
-    缺读数不静默省略, issue #261 验收线)。"""
-    prev = None
-    for p in sorted(Path(model_dir).glob("truth-v2-readout-*.json")):
+def _load_latest_json(directory: Path, pattern: str,
+                      exclude_names: tuple[str, ...] = ()) -> dict | None:
+    """取最新 JSON 工件 loader 单源(#353 折并; load_truth_v2_readout /
+    load_prev_northstar / load_leg_status 家族同律归此)。三律:
+    ① 坏件跳过不炸 —— JSONDecodeError/OSError/ValueError 逐件跳过,
+       非 dict 形状同跳, 捕获面内永不抛;
+    ② 无件 → None(缺件 ≠ 空数据, 不虚构);
+    ③ 文件名升序扫描取末次 —— 末次合法 dict 即最新; 最新件坏/被
+       exclude_names 排除 → 次新顶上(上轮件口径, 同 run 不喂自身)。"""
+    latest = None
+    for p in sorted(Path(directory).glob(pattern)):
+        if p.name in exclude_names:
+            continue
         try:
             d = json.loads(p.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError, ValueError):
             continue
         if isinstance(d, dict):
-            prev = d  # 文件名升序扫描 → 末次赋值即最新
-    return prev
+            latest = d  # 文件名升序扫描 → 末次赋值即最新
+    return latest
+
+
+def load_truth_v2_readout(model_dir: Path) -> dict | None:
+    """v2 附录读数腿工件最新一件: truth-v2-readout-*.json(月轮真实序:
+    --truth-v2-readout 腿先于 --readout 落 model/, 本轮件 = 最新一件;
+    load_anchor_green 同律)。取最新三律 = _load_latest_json 单源
+    (#353 折并);无件 → None(附录渲染 N/A 哨兵, 缺读数不静默省略,
+    issue #261 验收线)。"""
+    return _load_latest_json(model_dir, "truth-v2-readout-*.json")
 
 
 def load_prev_northstar(out_dir: Path, run_id: str) -> dict | None:
     """上轮北星件: <out_dir>/northstar-*.json 排除本轮工件
     (northstar-{run_id}.json, 同 run 重跑不喂自身环比)后的最新一件;
-    无 → None(首轮, 环比不虚构)。坏件跳过不炸(同上宽容律)。"""
-    prev = None
-    for p in sorted(Path(out_dir).glob("northstar-*.json")):
-        if p.name == f"northstar-{run_id}.json":
-            continue
-        try:
-            d = json.loads(p.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError, ValueError):
-            continue
-        if isinstance(d, dict):
-            prev = d  # 文件名升序扫描 → 末次赋值即最新
-    return prev
+    无 → None(首轮, 环比不虚构)。取最新三律 = _load_latest_json
+    单源(#353 折并, 排除名以 exclude_names 注入)。"""
+    return _load_latest_json(
+        out_dir, "northstar-*.json",
+        exclude_names=(f"northstar-{run_id}.json",))
 
 
 # 发现轮候选行判式(#210 T4): 行形状 = T4 冻结 7 列, 判重键 action+source
@@ -379,17 +386,10 @@ def load_leg_status(out_dir: Path) -> dict | None:
     """腿级状态件(#193 C5): <out_dir>/leg-status-*.json 最新一件;
     月轮壳在 readout 腿前写入(腿名→rc, readout=null=本腿在飞),
     接线方渲染进月报头块 —— 腿级红随工件可见(_alerts 只认心跳
-    mtime, 红态必须长在工件里, 评审D P1-3)。无件 → None(首轮/
-    手工跑不虚构); 坏件跳过不炸(同 load_prev_northstar 宽容律)。"""
-    latest = None
-    for p in sorted(Path(out_dir).glob("leg-status-*.json")):
-        try:
-            d = json.loads(p.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError, ValueError):
-            continue
-        if isinstance(d, dict):
-            latest = d  # 文件名升序扫描 → 末次赋值即最新
-    return latest
+    mtime, 红态必须长在工件里, 评审D P1-3)。取最新三律 =
+    _load_latest_json 单源(#353 折并);无件 → None(首轮/
+    手工跑不虚构)。"""
+    return _load_latest_json(out_dir, "leg-status-*.json")
 
 
 def render_leg_status(leg: dict | None) -> list[str]:

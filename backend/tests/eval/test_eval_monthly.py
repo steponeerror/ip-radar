@@ -514,6 +514,23 @@ def test_load_leg_status_missing_returns_none(tmp_path):
     assert load_leg_status(tmp_path) is None  # 首轮无件 → 不虚构
 
 
+def test_load_latest_json_three_laws(tmp_path):
+    """#353 折并单源 _load_latest_json 三律直测: 坏件跳过不炸 /
+    无件 None / 文件名升序取末次(最新件坏 → 次新顶上)。"""
+    from ipdb._eval.monthly import _load_latest_json
+    assert _load_latest_json(tmp_path, "x-*.json") is None  # 律②无件 → None
+    (tmp_path / "x-1.json").write_text(
+        json.dumps({"a": 1}), encoding="utf-8")
+    (tmp_path / "x-2.json").write_text("{ bad json", encoding="utf-8")
+    (tmp_path / "x-3.json").write_text(
+        json.dumps([1, 2]), encoding="utf-8")  # 合法 JSON 但非 dict 形状
+    # 律①坏件/非 dict 跳过 + 律③末次合法 dict 即最新(x-2 坏 x-3 非 dict)
+    assert _load_latest_json(tmp_path, "x-*.json") == {"a": 1}
+    # exclude_names 先于读排除(load_prev_northstar 上轮件口径)
+    assert _load_latest_json(
+        tmp_path, "x-*.json", exclude_names=("x-1.json",)) is None
+
+
 def test_render_leg_status_red_named_null_in_flight():
     lines = render_leg_status({"schema": "leg-status/1",
                                "legs": {"model": 0, "anchors": 1,
