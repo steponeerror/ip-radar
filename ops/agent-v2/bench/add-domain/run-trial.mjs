@@ -179,9 +179,11 @@ export async function runTrial(opts) {
   const repo = opts.repo ? path.resolve(opts.repo) : ROOT;
 
   // ⓪ F3 花费帽准入(真实面;拒跑双面:STOP 文件/台账累计超帽)——在开沙箱前拦,
-  // 拒跑零建面零花费;faux 面零花费,不查帽不记账(#337)。
+  // 拒跑零建面零花费;faux 面零花费,不查帽不记账(#337)。env 覆写缝(#357):帽解析
+  // 用 opts.env(缺省 process.env 保持 CLI 语义),护栏测试传显式干净 env 免无人值守
+  // 服务单元 ADD_BENCH_SPEND_CAP_CNY 渗入(与 spendCapCny/admitTrialSpend 同一 env 单源)。
   if (!opts.fixturesDir) {
-    const admit = admitTrialSpend({ spendDir: opts.spendDir ? path.resolve(opts.spendDir) : spendDirFor() });
+    const admit = admitTrialSpend({ spendDir: opts.spendDir ? path.resolve(opts.spendDir) : spendDirFor(), env: opts.env });
     if (!admit.ok) throw Object.assign(new Error(admit.message), { code: admit.code });
   }
 

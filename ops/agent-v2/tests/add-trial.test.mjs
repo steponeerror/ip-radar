@@ -198,23 +198,26 @@ test("spendCapCny:缺省 40;env ADD_BENCH_SPEND_CAP_CNY 覆写;非法值=用法�
 });
 
 test("admitTrialSpend 拒跑双面:STOP 文件在场=拒(bench_stop);台账累计超帽=拒(spend_cap);净/未超=过", () => {
+  // #357:显式干净 env 钉「无外层渗漏时的缺省帽 40」——无人值守服务单元设
+  // ADD_BENCH_SPEND_CAP_CNY=50 继承给 npm test,不隔离则本块在外层帽下变语义(同文件
+  // spendCapCny 块的显式 env 传参同律)。
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "add-spend-admit-"));
   try {
-    assert.deepEqual(admitTrialSpend({ spendDir: dir }), { ok: true, cap: 40, total: 0 }, "净目录=过(台账缺席记 0)");
+    assert.deepEqual(admitTrialSpend({ spendDir: dir, env: {} }), { ok: true, cap: 40, total: 0 }, "净目录=过(台账缺席记 0)");
     writeSpendLedger(dir, [{ cost_cny: 39.9 }]);
-    const under = admitTrialSpend({ spendDir: dir });
+    const under = admitTrialSpend({ spendDir: dir, env: {} });
     assert.equal(under.ok, true);
     assert.equal(under.total, 39.9);
     writeSpendLedger(dir, [{ cost_cny: 40 }]); // #337 评审 P2-1:等值面钉死——严格大于才拦,==帽放行是故意语义
-    assert.equal(admitTrialSpend({ spendDir: dir }).ok, true, "累计==帽仍放行(追加后才拦后续)");
+    assert.equal(admitTrialSpend({ spendDir: dir, env: {} }).ok, true, "累计==帽仍放行(追加后才拦后续)");
     assert.equal(admitTrialSpend({ spendDir: dir, env: { ADD_BENCH_SPEND_CAP_CNY: "39" } }).ok, false, "env 覆写收紧后同台账=拒");
     writeSpendLedger(dir, [{ cost_cny: 20 }, { cost_cny: 20.5 }]);
-    const cap = admitTrialSpend({ spendDir: dir });
+    const cap = admitTrialSpend({ spendDir: dir, env: {} });
     assert.equal(cap.ok, false);
     assert.equal(cap.code, "spend_cap");
     assert.match(cap.message, /40\.5/);
     fs.writeFileSync(path.join(dir, "STOP"), "停跑\n");
-    const stop = admitTrialSpend({ spendDir: dir });
+    const stop = admitTrialSpend({ spendDir: dir, env: {} });
     assert.equal(stop.ok, false);
     assert.equal(stop.code, "bench_stop");
     assert.match(stop.message, /STOP/);
@@ -252,7 +255,7 @@ test("real trial 拒跑双面接线:STOP/超帽=开沙箱前抛;faux 面 STOP �
     // 面 1:STOP 文件 → 真实面拒跑(开沙箱前)
     fs.writeFileSync(path.join(spendDir, "STOP"), "\n");
     await assert.rejects(
-      () => runTrial({ name: NAME, repo: fx.repo, universePath: fx.universePath, runDir: path.join(fx.tmp, "run-s1"), cardPath: fx.cardPath, spendDir, python: VENV_PY, stderr: { write: () => true } }),
+      () => runTrial({ name: NAME, repo: fx.repo, universePath: fx.universePath, runDir: path.join(fx.tmp, "run-s1"), cardPath: fx.cardPath, spendDir, python: VENV_PY, env: {}, stderr: { write: () => true } }),
       (e) => e.code === "bench_stop",
     );
     assert.equal(fs.existsSync(path.join(fx.tmp, "run-s1", NAME, "sandbox")), false, "拒跑发生在开沙箱前");
@@ -260,7 +263,7 @@ test("real trial 拒跑双面接线:STOP/超帽=开沙箱前抛;faux 面 STOP �
     fs.rmSync(path.join(spendDir, "STOP"));
     writeSpendLedger(spendDir, [{ cost_cny: 40.5 }]);
     await assert.rejects(
-      () => runTrial({ name: NAME, repo: fx.repo, universePath: fx.universePath, runDir: path.join(fx.tmp, "run-s2"), cardPath: fx.cardPath, spendDir, python: VENV_PY, stderr: { write: () => true } }),
+      () => runTrial({ name: NAME, repo: fx.repo, universePath: fx.universePath, runDir: path.join(fx.tmp, "run-s2"), cardPath: fx.cardPath, spendDir, python: VENV_PY, env: {}, stderr: { write: () => true } }),
       (e) => e.code === "spend_cap",
     );
     assert.equal(fs.existsSync(path.join(fx.tmp, "run-s2", NAME, "sandbox")), false);
@@ -271,6 +274,39 @@ test("real trial 拒跑双面接线:STOP/超帽=开沙箱前抛;faux 面 STOP �
     assert.equal(j.entries.length, 1, "faux 不追加台账(faux 路不记账)");
     assert.equal(j.total_cny, 40.5, "预置台账原样未动");
   } finally { fs.rmSync(fx.tmp, { recursive: true, force: true }); }
+});
+
+// ── ③b #357 环境渗漏免疫:护栏测试套对无人值守服务单元 env 继承免疫 ──────────
+// 演练轮 2026-11-17-1801-evolve 假红判例:systemd 单元给驱动器设 ADD_BENCH_SPEND_CAP_CNY=50
+// (真 trial 合法帽),exec 继承渗进护栏 npm test 的缺省帽测试(帽 50≠40 假红)。回归钉:
+// 临时污染 process.env 再跑同面,显式干净 env 下缺省帽 40 语义纹丝不动——免疫是测试套
+// 自身的性质,不靠外层环境干净。
+test("#357 外层 ADD_BENCH_SPEND_CAP_CNY 渗漏免疫:污染 process.env 下缺省帽 40 语义不变(admitTrialSpend+runTrial)", async () => {
+  const fx = makeTrialFixture("add-trial-leak-immune-");
+  const spendDir = path.join(fx.tmp, "spend");
+  fs.mkdirSync(spendDir);
+  const saved = process.env.ADD_BENCH_SPEND_CAP_CNY;
+  process.env.ADD_BENCH_SPEND_CAP_CNY = "50"; // 污染=演练轮护栏同形(帽 50 下 40.5 会放行)
+  try {
+    // 净目录:干净 env → 缺省帽 40,外层 50 不渗入
+    assert.deepEqual(admitTrialSpend({ spendDir, env: {} }), { ok: true, cap: 40, total: 0 });
+    // 40.5 累计:外层帽 50 会放行,干净 env 缺省帽 40 → 拒
+    writeSpendLedger(spendDir, [{ cost_cny: 40.5 }]);
+    const cap = admitTrialSpend({ spendDir, env: {} });
+    assert.equal(cap.ok, false);
+    assert.equal(cap.code, "spend_cap");
+    assert.match(cap.message, /40\.5/);
+    // runTrial 接线同律(#357 env 覆写缝):拒跑发生在开沙箱前,不落沙箱目录
+    await assert.rejects(
+      () => runTrial({ name: NAME, repo: fx.repo, universePath: fx.universePath, runDir: path.join(fx.tmp, "run-leak"), cardPath: fx.cardPath, spendDir, python: VENV_PY, env: {}, stderr: { write: () => true } }),
+      (e) => e.code === "spend_cap",
+    );
+    assert.equal(fs.existsSync(path.join(fx.tmp, "run-leak", NAME, "sandbox")), false, "拒跑发生在开沙箱前");
+  } finally {
+    if (saved === undefined) delete process.env.ADD_BENCH_SPEND_CAP_CNY;
+    else process.env.ADD_BENCH_SPEND_CAP_CNY = saved;
+    fs.rmSync(fx.tmp, { recursive: true, force: true });
+  }
 });
 
 // ── ④ 纯函数面:roundId 铸形 / queue 世界自种 / 沙箱变更文件收集 ───────────

@@ -6,9 +6,11 @@
 // 三护栏命令、矿掘器、保护名单(候选面 diff 面闸的执法表,delta 复审 P1)。新域
 // (rrsi-domain / health)接线 = 在本表加一项,驱动器零改动(票面「明确不做:rrsi/health
 // 域接线(接口留出,域配置化)」——留的就是这张表)。适配器是数据+薄函数,不 import
-// 任务/管线件(防环;重件由驱动器按 rel 路径 spawn)。
+// 任务/管线重件(防环;重件由驱动器按 rel 路径 spawn);例外=resolveAddPython(#357:
+// 纯函数零重依赖,护栏② python 解析与驱动器/提案者面单源)。
 import path from "node:path";
 import { loadUniverse } from "../add-domain/score.mjs"; // 冻结宇宙单源(frozen 闸内建)
+import { resolveAddPython } from "../../run-add.mjs"; // python 解析单源(#357:护栏自含,不依赖服务单元 IPDB_PYTHON)
 
 // ── 保护名单(#356 P1-1 + delta 复审 P1):候选面 diff 不得触的路径,驱动器侧 diff
 // 面闸(diffFaceGateTouched)的执法表——按域声明(adapter.protectedFaces),缺省并集
@@ -47,11 +49,15 @@ export const EVOLUTION_DOMAINS = Object.freeze({
     cardsDir(mainRoot, env = process.env) {
       return env.EVOLVE_CARDS_DIR ? path.resolve(env.EVOLVE_CARDS_DIR) : path.join(mainRoot, "dev", "bench-add-domain", "cards-v2");
     },
-    guardrails(worktree) {
+    guardrails(worktree, env = process.env) {
       const cwd = path.join(worktree, "ops", "agent-v2");
       return [
         { name: "v2 全套(npm test)", cmd: ["npm", "test"], cwd, timeoutMs: 30 * 60_000 },
-        { name: "泄漏闸(leak-check)", cmd: ["node", "bench/leak-check.mjs"], cwd, timeoutMs: 10 * 60_000 },
+        // #357:泄漏闸名单取数须用主检出 venv 解释器(候选 worktree 无 venv、系统
+        // python 无 ipdb → rc=2 假红;11-03 判例:主检出解释器+cwd 切 worktree/backend,
+        // leak-check --python 即此形)。resolveAddPython 与驱动器提案者面(run-round.mjs)
+        // 同源,OPS_ADD_PYTHON 显式优先、缺省主检出 venv——不依赖服务单元设 IPDB_PYTHON。
+        { name: "泄漏闸(leak-check)", cmd: ["node", "bench/leak-check.mjs", "--python", resolveAddPython(env)], cwd, timeoutMs: 10 * 60_000 },
         { name: "faux 冒烟(add-trial 全链)", cmd: ["node", "--test", "tests/add-trial.test.mjs"], cwd, timeoutMs: 15 * 60_000 },
       ];
     },
