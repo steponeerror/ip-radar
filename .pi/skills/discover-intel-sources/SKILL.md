@@ -142,7 +142,7 @@ narrate them.
 
 | Dimension | What 5 looks like | What 1 looks like | Maps to |
 |---|---|---|---|
-| **Coverage value** | opens a dead slot / thin axis, **or** exclusive contribution ≥50% on ≥300 sampleable keys | near-100% overlap with an existing source | classification axis gap + exclusive contribution |
+| **Coverage value** | opens a dead slot / thin axis, **or** exclusive contribution ≥50% on ≥300 sampleable keys, **or** clear quality headroom on an already-covered axis (fresher, more reliable, or an independent upstream — 2026-11-17 user ruling: covered ≠ closed) | near-100% overlap with an existing source **and** no quality headroom (pure echo of the same upstream) | classification axis gap + exclusive contribution |
 | **Integration cost** | a simple base class (~10 lines) | a full `Source` subclass | archetype |
 | **Access / license** | free, no auth, bulk download | per-IP / per-query billing | `__init__` + `.env` |
 | **Freshness** | updates daily, actively maintained | stale, no update signal | `stale_days` |
@@ -153,8 +153,18 @@ narrate them.
 *ranking* mechanism — if your final order isn't the rubric order, say explicitly
 why (e.g. "cost tied, #2 wins on uniqueness").
 
-**Coverage value is dual-anchor (2026-10-10 grill ruling):
-`max(axis novelty, exclusive contribution)`.** Exclusive contribution
+**Coverage value is tri-anchor (2026-11-17 user ruling; supersedes the
+2026-10-10 dual-anchor):
+`max(axis novelty, exclusive contribution, quality headroom on a covered axis)`.**
+A dimension already covered by pool sources is NOT a reason to skip or reject a
+candidate — if the candidate is fresher, more reliable, or an independent
+upstream on that axis, it is admissible on the quality-headroom anchor
+(用户原话:「就算已经有同维度的数据了,但是只有新数据能提升质量那照收不误。所以
+找源和加源不要规避已有的数据维度」). "Quality headroom" must be concretely
+claimed in the dossier (fresher cadence, higher curation standard, independent
+witness upstream) — it is not a free pass for echo feeds: a same-upstream
+republish still scores 1 here and stays subject to the publisher gate below.
+Exclusive contribution
 `Uniq_A = |A \ ⋃ other pool sources| / |A|` (Li et al. 2019) is the fraction of a
 candidate's own keys that no existing pool source answers on the target field —
 measured, not eyeballed, via `cd backend && python -m ipdb._eval --exclusive
@@ -193,7 +203,7 @@ pricing/model/terms before applying a gate**, since access tiers and licenses dr
 | **Feed marked "unverified" / "community"** and you'd consume it on the corroboration axis | REJECT | pollutes fusion; keep only verified for the axis |
 | **Unverifiable provenance** — anonymous push-only data dump: no upstream attribution AND no in-repo derivation code (SentinelPhishFeed, 2026-10-10: 2★ anonymous repo, zero code, 203k IPs, "without per-source attribution") | REJECT | rubric cannot price provenance opacity — it scored quality 2 yet 26/30 still topped the shortlist. The gate's intent is auditability; a feed need not be *labeled* unverified to fail it. User-rejected same day. Scope: targets **anonymous aggregation** — a community-maintained PRIMARY list with per-entry attribution and a known maintaining org passes (dns_public: DNSCrypt stamps, per-resolver names like "a-and-a"; root_servers: IANA; both 2026-10-10). Asset/service sources are judged on provenance verifiability, not on threat-corroboration standards |
 | **Publisher already integrated** — candidate and a roster row are published by the **same party** (repo owner/organization/project — NOT a bare `download_host` match: `raw.githubusercontent.com` is shared by 12 roster rows, and host-matching would have falsely rejected `dns_public`, 2026-10-10) (or a signal name matches its sublists column) | REJECT as *new source* | dataplane precedent: the publisher was registered since v1.0.0 yet was researched as a discovery. A same-publisher unconsumed signal is still viable — but must be framed as **extension of the existing source** (edit its `SIGNALS`/map), not a new source |
-| **~100% overlap with an existing source** — a REJECT on this gate **requires a measured exclusive rate** from `cd backend && python -m ipdb._eval --exclusive <feed-file>` (stable seed, known-positive control, covering sources named); upstream/publisher-mapping inference ("its publishers are all in the pool") must NOT substitute. No measured number → at most FLAG (the `firehol`/`ipsum`/`spamhaus` aggregation check is a lead, not a verdict) | REJECT (measured near-zero exclusivity) / FLAG (unmeasured) | redundant only on measured evidence — mapping intuition fails exactly here (2026-10-18 double overturn, see Common mistakes) |
+| **~100% overlap with an existing source** — a REJECT on this gate **requires a measured exclusive rate** from `cd backend && python -m ipdb._eval --exclusive <feed-file>` (stable seed, known-positive control, covering sources named); upstream/publisher-mapping inference ("its publishers are all in the pool") must NOT substitute. No measured number → at most FLAG (the `firehol`/`ipsum`/`spamhaus` aggregation check is a lead, not a verdict). Measured redundancy alone is NOT a REJECT either when the candidate carries a concrete quality case on the covered axis (independent upstream / fresher / more reliable — 2026-11-17 ruling): then FLAG with that case stated, for the user to rule | REJECT (measured near-zero exclusivity **and** no quality case — pure echo) / FLAG (unmeasured, or measured-redundant with a quality case) | redundant only on measured evidence — mapping intuition fails exactly here (2026-10-18 double overturn, see Common mistakes); dimension redundancy without quality headroom is the echo case the fusion layer already refuses (宁少算) |
 | **Sunset/frozen feed** — data-internal timestamp (`Last updated`/`Generated`/`As-of`) older than 30 days at sample-fetch; OR (no internal timestamp) publisher shows no GitHub commit / changelog / release within 30 days AND no content change across ≥2 fetches on different days | REJECT | re-serves a stale file though the URL responds; `file-mtime` is NOT liveness evidence (frozen re-download bumps it — this is how the sunset `feodo` feed slipped in) |
 | **Domain/URL-only feed** needing URL→IP resolution at fetch time (PhishTank, OpenPhish free) | FLAG | fragile, expires; prefer native-IP feeds |
 | **Ambiguous commercial-use license** ("not for commercial resale") | FLAG | needs explicit user sign-off before integrating |
