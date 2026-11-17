@@ -73,6 +73,10 @@ export const SPAWN_CONTRACT_ENV = [
   // _alerts.push 同 env 同 apprise 形(容器 env 经 _round_env 继承透传,双消费面共用一份配置)。
   { name: "OPS_SWEEP_DRY_RUN", default: "0(关;生产真发 gh issue/webhook;=1 只记 cmd/payload 零外发,测试恒 1)", consumer: "pipeline/finding-exit.mjs(finding 出口 dry-run 开关,票 #184)", phase: "call-time" },
   { name: "IP_RADAR_ALERT_URLS", default: "(空=webhook 出口降级跳过不报错,轮仍成功;逗号/空白分隔多 URL)", consumer: "pipeline/finding-exit.mjs(webhook 出口;与 backend _alerts.push 同 env 同 apprise 形,服务器告警钩子既有 env 双消费面)", phase: "call-time" },
+  // #348 修法 A(容器快照仓无 remote,gh issue create 推不出目标仓恒败):仓址定向——设值
+  // (owner/repo 或 https URL 形,gh --repo 两形都收)→ finding-exit.mjs ghRepo 透传 ghIssueCreate
+  // 落 --repo argv;空=remote 推导照旧(本地开发零变化)。部署面=服务器 docker-compose.override.yml 一行。
+  { name: "OPS_GH_REPO", default: "(空=gh 从 cwd git remote 推目标仓,本地/主检出既有路径;生产容器快照仓无 remote 须设,如 steponeerror/ip-radar)", consumer: "pipeline/finding-exit.mjs ghRepo(经 ctx.env 传导)→ tools/measurement.mjs ghIssueCreate 落 --repo argv,票 #348", phase: "call-time" },
   // P2 P0 增量(spec #161 §5.2;agent.mjs 本体零行为变化,仅契约面):pipeline.mjs 轮次状态机宿主的 2 名。
   // OPS_PIPELINE=迁移/回滚开关:legacy(缺省)=现状 agent.mjs 单轮路径;pipeline=状态机路径。
   // P2 起 _ops_rounds 桥消费它选路径;P0 未接线,pipeline.mjs 仅校验值闭集并记入 state.json。

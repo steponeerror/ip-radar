@@ -2,7 +2,8 @@
 // 出口③(RETRO 摘要行)在 steps.mjs RETRO 步读 08 工件计数,不入本模块(步只测量不判断,摘要=零出口动作)。
 // 出口只写不动作(结构性红线,票面钉死):从 finding 出发的代码路径仅两写口——
 //   ①gh issue create(tools.mjs ghIssueCreate;gh 面唯一写面 GH_WRITE_SUBCOMMANDS,argv 头钉 [issue,create],
-//     缺省标签 needs-triage=人裁终局);②apprise CLI 推送(与后端源活性告警 _alerts.push 同 env 同 URL 形:
+//     缺省标签 needs-triage=人裁终局;#348:env OPS_GH_REPO 非空→透传 --repo 显式定向,容器快照仓
+//     无 remote 也不靠推导,空=行为不变);②apprise CLI 推送(与后端源活性告警 _alerts.push 同 env 同 URL 形:
 //     IP_RADAR_ALERT_URLS 逗号/空白分隔多 URL,空=静音跳过)。无任何调权/停源/写数据面/规则库写口可达
 //   ——依赖面闭集由 selftest-pipeline 结构性断言钉死(本模块 spawn 目标恰 apprise;gh 面在 tools.mjs 由
 //   t4 注入 exec 捕获 argv 钉死;禁面符号零在场)。
@@ -126,10 +127,11 @@ export async function runFindingExits({ roundId, sweepD, dir, env = process.env,
   }
   record.triggered = true;
   const dryRun = String(env.OPS_SWEEP_DRY_RUN ?? process.env.OPS_SWEEP_DRY_RUN ?? "") === "1";
+  const ghRepo = String(env.OPS_GH_REPO ?? process.env.OPS_GH_REPO ?? "").trim(); // #348:仓址定向透传(容器快照仓无 remote;空=remote 推导照旧,本地开发零变化)
   record.dry_run = dryRun;
   const draft = findingIssueDraft({ roundId, findings, nTotal: Array.isArray(sweepD.results) ? sweepD.results.length : null });
   writeArtifact({ phase: "emitting" }); // 先记意图再外发(emit 守卫的崩溃窗依据)
-  const issue = await ghIssueCreate(draft, { dryRun, exec });
+  const issue = await ghIssueCreate(draft, { dryRun, exec, repo: ghRepo });
   record.gh_issue = issue.ok
     ? { status: dryRun ? "dry_run" : "created", labels: draft.labels, cmd_head: issue.cmd.slice(0, 200),
         ...(issue.issue_url ? { issue_url: issue.issue_url } : {}) }

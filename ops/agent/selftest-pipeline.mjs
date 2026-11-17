@@ -411,6 +411,27 @@ await t("finding 出口:gh/apprise 失败=失败信封记入不抛(出口永不�
   assert.equal(art7.phase, "emitting", "中崩截面工件不被守卫重写(原样留证)");
   assert.equal(art7.findings_n, 2, "中崩截面原记录字段存活");
 });
+await t("finding 出口(#348 修法 A):OPS_GH_REPO 透传——env 设置→gh argv 带 --repo 且 issue_url 在场(容器快照仓无 remote 也能开票);未设→gh argv 零 --repo(本地开发零变化)", async () => {
+  const ghArgv = [];
+  const fakeExec = async (bin, argv) => { if (bin === "gh") ghArgv.push(argv); return { stdout: "https://github.com/steponeerror/ip-radar/issues/348\n" }; };
+  const d1 = fs.mkdtempSync(path.join(os.tmpdir(), "fexit-r1-"));
+  const d2 = fs.mkdtempSync(path.join(os.tmpdir(), "fexit-r2-"));
+  // ①设置(非 dry-run + 注入 exec 钉 argv;OPS_SWEEP_DRY_RUN=0 显式压过 harness 面)
+  const r1 = await fexit.runFindingExits({ roundId: "2026-11-17-0001-health", sweepD: liveSweepD, dir: d1,
+    env: { OPS_SWEEP_DRY_RUN: "0", OPS_GH_REPO: "steponeerror/ip-radar" }, exec: fakeExec });
+  assert.equal(r1.triggered, true);
+  assert.equal(r1.gh_issue.status, "created", "定向后 gh 面成功(容器无 remote 也能开票,#348 验收面)");
+  assert.equal(ghArgv[0][ghArgv[0].indexOf("--repo") + 1], "steponeerror/ip-radar", "OPS_GH_REPO → gh argv 显式 --repo 且值透传原样");
+  assert.equal(ghArgv[0].slice(0, 2).join(" "), "issue create", "argv 头仍钉写面白名单形");
+  assert.equal(r1.gh_issue.issue_url, "https://github.com/steponeerror/ip-radar/issues/348", "issue_url 在场(#348 验收面)");
+  // ②未设(env 缺席):gh argv 零 --repo(remote 推导照旧,字节级不变)
+  const r2 = await fexit.runFindingExits({ roundId: "2026-11-17-0002-health", sweepD: liveSweepD, dir: d2,
+    env: { OPS_SWEEP_DRY_RUN: "0" }, exec: fakeExec });
+  assert.equal(r2.gh_issue.status, "created");
+  assert.equal(ghArgv[1].includes("--repo"), false, "未设 OPS_GH_REPO:gh argv 零 --repo");
+  const normArgv = (a) => a.map((x) => String(x).replace(/2026-11-17-\d{4}-health/g, "ROUND")); // 两轮 roundId 入 title,归一后对拍
+  assert.deepEqual(normArgv(ghArgv[1]), normArgv(ghArgv[0]).slice(0, -2), "除尾部 --repo 两元外逐元素相同(轮次号归一)");
+});
 
 
 await t("finding 出口三件套轮内接线(#184):dry-run faux 轮三出口全绿——信封 pipeline.finding_exits 留痕(gh dry_run/webhook skip)+RETRO 摘要行+出口工件", async () => {

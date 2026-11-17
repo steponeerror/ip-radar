@@ -716,6 +716,35 @@ await t("ghIssueCreate(#184):gh 面白名单扩 issue create(唯一写面)——
   assert.equal(rAuth.error.code, "channel_auth", "通道四码兼容(凭证面=部署动作,信封自带下一步)");
 });
 
+await t("ghIssueCreate(#348 修法 A):repo 定向——设置时 argv 尾部追加 --repo(头仍钉 [issue,create]);未设时 argv 逐元素零差(字节级不变);no git remotes found 败因 reason 带设 OPS_GH_REPO 运维提示", async () => {
+  const calls = [];
+  const fakeExec = async (bin, argv) => { calls.push({ bin, argv }); return { stdout: "https://github.com/steponeerror/ip-radar/issues/348\n" }; };
+  // ①设置:--repo 追加在 argv 尾部,头两元素仍 [issue,create](守卫允许形不破)、--title 仍在第 3 位
+  const r1 = await ghIssueCreate({ title: "t", body: "b" }, { exec: fakeExec, repo: "https://github.com/steponeerror/ip-radar.git" });
+  assert.equal(r1.ok, true);
+  assert.deepEqual(calls[0].argv.slice(0, 2), GH_WRITE_SUBCOMMANDS[0].split(" "), "argv 头仍钉 [issue,create](写面白名单形不破)");
+  assert.equal(calls[0].argv[2], "--title", "--title 仍在第 3 位(dry-run cmd 前缀锚不漂移)");
+  assert.deepEqual(calls[0].argv.slice(-2), ["--repo", "https://github.com/steponeerror/ip-radar.git"], "--repo 追加在 argv 尾部(URL 形照收,裁定部署值)");
+  // ②未设:argv 零 --repo 且与①仅差尾部两元(字节级不变=本地开发零变化)
+  await ghIssueCreate({ title: "t", body: "b" }, { exec: fakeExec });
+  assert.equal(calls[1].argv.includes("--repo"), false, "未设 OPS_GH_REPO:argv 零 --repo");
+  assert.deepEqual(calls[1].argv, calls[0].argv.slice(0, -2), "除尾部 --repo 两元外逐元素相同");
+  // ③dry-run 面:repo 也进将发命令(运维可核定向)
+  const rd = await ghIssueCreate({ title: "t", body: "b" }, { dryRun: true, repo: "steponeerror/ip-radar" });
+  assert.match(rd.cmd, / --repo steponeerror\/ip-radar$/, "dry-run cmd 记录定向(owner/repo 形)");
+  // ④失败 hint:未定向 + gh 报 no git remotes found(快照仓已知败因)→ reason 带运维提示;已定向/其他败因不带
+  const noRemoteExec = async () => { throw Object.assign(new Error("gh: no git remotes found"), { code: 1, stderr: "gh: no git remotes found" }); };
+  const rf = await ghIssueCreate({ title: "t", body: "b" }, { exec: noRemoteExec });
+  assert.equal(rf.error.code, "gh_error", "败因分类不变(兑底 gh_error)");
+  assert.match(rf.error.reason, /no git remotes found/, "败因原文在信封");
+  assert.match(rf.error.reason, /OPS_GH_REPO/, "快照仓败因 reason 带运维提示(设 OPS_GH_REPO 显式定向)");
+  const rf2 = await ghIssueCreate({ title: "t", body: "b" }, { exec: noRemoteExec, repo: "steponeerror/ip-radar" });
+  assert.ok(!/OPS_GH_REPO/.test(rf2.error.reason), "已定向仍此报文(理论不可达)不加提示");
+  const rf3 = await ghIssueCreate({ title: "t", body: "b" },
+    { exec: async () => { throw Object.assign(new Error("x"), { code: 1, stderr: "gh: creation failed (fixture)" }); } });
+  assert.ok(!/OPS_GH_REPO/.test(rf3.error.reason), "其他败因不加提示(未设时 reason 字节级不变)");
+});
+
 await t("parseMcpSearchText:MCP wire 文本归一(真 fixture:provider/Sources 条目/机会式 snippet/Error 行;pi-web-access 0.44.0 实拍)", () => {
   assert.equal(typeof parseMcpSearchText, "function", "parseMcpSearchText 未导出(RED 面应先红)");
   const FX = `**Provider:** duckduckgo

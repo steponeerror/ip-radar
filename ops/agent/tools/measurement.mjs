@@ -74,10 +74,15 @@ export async function anchorSweepCli({ evalPy = EVAL_PY, dataDir = DATA_DIR, tim
 }
 // ghIssueCreate——开 gh issue(出口只写不动作两写口之一;失败永不抛,分类信封同 gh_search 四码)。
 // dryRun=只记将发命令零 spawn(OPS_SWEEP_DRY_RUN 面的执行侧;测试恒 dry-run)。
+// repo=仓址定向(#348 修法 A:生产容器 /app/.git 是无 remote 的运行时快照仓,gh 从 cwd remote
+// 推目标仓必败 no git remotes found;调用方 finding-exit.mjs 从 env.OPS_GH_REPO 透传,owner/repo
+// 与 https URL 形 gh 都收)。追加形在 argv 尾部——头两元素仍钉 [issue,create](GH_WRITE_SUBCOMMANDS
+// 允许形不破),未传时 argv 字节级不变=本地开发零变化。
 // 返回:{ok,dry_run,cmd,issue_url(真发成功=gh stdout 末行 URL;否则 null),error?:{code,reason}}。
-export async function ghIssueCreate({ title, body, labels = ["needs-triage"] } = {}, { dryRun = false, exec = execFileP, timeoutMs = B.ghTimeoutMs } = {}) {
+export async function ghIssueCreate({ title, body, labels = ["needs-triage"] } = {}, { dryRun = false, exec = execFileP, timeoutMs = B.ghTimeoutMs, repo = "" } = {}) {
   const argv = ["issue", "create", "--title", String(title ?? ""), "--body", String(body ?? ""),
-    ...labels.flatMap((l) => ["--label", String(l)])];
+    ...labels.flatMap((l) => ["--label", String(l)]),
+    ...(repo ? ["--repo", String(repo)] : [])];
   const cmd = `gh ${argv.map((a) => (/\s/.test(a) ? `"${a}"` : a)).join(" ")}`;
   if (dryRun) return { ok: true, dry_run: true, cmd, issue_url: null };
   try {
@@ -85,7 +90,12 @@ export async function ghIssueCreate({ title, body, labels = ["needs-triage"] } =
     return { ok: true, dry_run: false, cmd, issue_url: String(stdout ?? "").trim().split("\n").pop() || null };
   } catch (e) {
     const cls = classifyChannelError(e, "gh");
-    return { ok: false, dry_run: false, cmd, issue_url: null, error: { code: cls.code, reason: cls.reason.slice(0, 300) } };
+    let reason = cls.reason.slice(0, 300);
+    // #348:未定向且 gh 报 no git remotes found = 快照仓推不出目标仓的已知败因 → 运维提示显式定向
+    // (其他败因 reason 字节级不变;已定向理论不可达此报文,不带提示)
+    if (!repo && /no git remotes found/i.test(String(e?.stderr ?? e?.message ?? "")))
+      reason += "——#348 提示:设 OPS_GH_REPO=<owner/repo> 显式定向(容器快照仓无 remote)";
+    return { ok: false, dry_run: false, cmd, issue_url: null, error: { code: cls.code, reason } };
   }
 }
 export function countFeedKeys(text) { // probe 键量:IPv4 去重(exclusive.py _IP_RE 同口径的 v4 面)
