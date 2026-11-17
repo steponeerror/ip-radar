@@ -1,0 +1,14 @@
+# ipradar-evolve.timer — 自演化轮排程件(#356 骨架 v1;装机由人)
+# 节奏占位:票面「节奏等健康轮基准落地后定」——OnCalendar 是占位值(每周一 04:00),
+# 装机人按当期裁定改。Persistent=true 补跑错过的拍(停机跨拍只补一拍)。
+# 同拍互斥:service 在跑时 timer 不重入(oneshot active 期间不重触发)。
+
+[Unit]
+Description=ip-radar 自演化轮排程(RSI 骨架 v1,#356)
+
+[Timer]
+OnCalendar=Mon 04:00
+Persistent=true
+
+[Install]
+WantedBy=default.target

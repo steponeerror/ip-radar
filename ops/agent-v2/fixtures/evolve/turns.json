@@ -1,0 +1,43 @@
+{
+  "turns": [
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "toolCall",
+          "id": "e-write-1",
+          "name": "write_file",
+          "arguments": {
+            "path": "ops/agent/prompts/add/implement.md",
+            "content": "# implement(罐装提案者编辑;#356 端到端冒烟面)\n\n罐装编辑:在开放面路径写入本文件,验证驱动器→提案者会话→编码工具→worktree 落盘→提交→候选面全链。\n"
+          }
+        }
+      ],
+      "stopReason": "toolUse"
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "toolCall",
+          "id": "e-bash-1",
+          "name": "run_bash",
+          "arguments": {
+            "command": "git config user.email evolve@ipradar.local && git config user.name evolve-faux && git config commit.gpgsign false && git add -A && git commit -m 'evolve: faux proposer edit(fixtures/evolve 罐装)' && git rev-parse HEAD"
+          }
+        }
+      ],
+      "stopReason": "toolUse"
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "# 提案者报告(罐装;fixtures/evolve/turns.json)\n\n## 编辑① 开放面写入\n- 改了什么:ops/agent/prompts/add/implement.md 写入罐装内容(open 面路径)。\n- 假设:验证驱动器全链(会话→工具沙箱→worktree→commit→候选面)。\n- 预期救回:无(罐装面,不追求分数面)。\n- 护栏:由驱动器注入面跑(e2e 里 exec 注入)。\n"
+        }
+      ],
+      "stopReason": "stop"
+    }
+  ]
+}

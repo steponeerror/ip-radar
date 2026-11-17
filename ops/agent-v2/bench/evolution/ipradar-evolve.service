@@ -1,0 +1,32 @@
+# ipradar-evolve.service — 自演化轮驱动器服务件(#356 骨架 v1;排程交付面 5)
+# 装机由人(票面原句):拷贝到 ~/.config/systemd/user/ 并 systemctl --user daemon-reload
+#   + enable --with-dependencies ipradar-evolve.timer(只 enable timer,service 由 timer 拉)。
+# 路径/模型/旋钮按装机现场改(下方 <占位> 处);repo 面建议主检出(冠军/提案者
+# worktree 落 dev/evolution/,随主检出证据不灭失)。
+# 花费面:月帽 env EVOLVE_SPEND_CAP_CNY(缺省 ¥200,台账 dev/evolution/spend.json);
+#   单跑 trial 帽 env ADD_BENCH_SPEND_CAP_CNY(run-trial #337 原律;首跑试点裁定 ¥50
+#   ——注意 dev/add-bench/spend.json 是累计台账,现值已超缺省帽 40,装机时须显式给值)。
+# lark 异常推送:IP_RADAR_ALERT_URLS(apprise URL;缺省静音——finding 通道同 env)。
+# 演练:先手动 EVOLVE_EXITS_DRY_RUN=1 跑一轮(出口零外发)再上 timer。
+
+[Unit]
+Description=ip-radar 自演化轮(add-domain;RSI 骨架 v1,#356)
+# 熄火/超帽由驱动器自拒;service 非零退出不自动重试(oneshot 语义,下拍 timer 再起)
+
+[Service]
+Type=oneshot
+# 现场改:<repo> = 主检出根;--model 现场面(手动演化线用 zai-coding-cn/glm-5.3)
+WorkingDirectory=<repo>/ops/agent-v2
+ExecStart=/usr/bin/node bench/evolution/run-round.mjs --domain add-domain --model <provider/modelId>
+Environment=EVOLVE_SPEND_CAP_CNY=200
+Environment=ADD_BENCH_SPEND_CAP_CNY=50
+# Environment=IP_RADAR_ALERT_URLS=lark://<token>
+# 排程演练面(真跑前先开一轮):
+# Environment=EVOLVE_EXITS_DRY_RUN=1
+# 一轮含提案者会话+成对 trial 批(真面算术:25 题 × k=3 × 2 面 = 150 trial,单
+# trial 上限 45min)——6h 偏紧会中途击杀(2026-11-17 #356 评审 P2-4①),给 24h;
+# 击杀后的无终态轮由下拍启动对账收口(驱动器 ⓪′,run-round.mjs)
+TimeoutStartSec=24h
+# 崩溃续跑:同 roundId 断点件+副本级 trial.json 续跑(requestId 幂等不双花);
+# systemd 重起 mint 新 roundId(时钟已走),Restart 留缺省 no——中断轮由人面同
+# roundId 复跑续扫,或弃轮:弃轮由下拍驱动器启动对账自动收口(孤儿补账入月帽)。
