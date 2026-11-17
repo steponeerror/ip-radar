@@ -754,38 +754,54 @@ async function MEASURE(def, ctx) {
 
 // ENQUEUE:只写不动作(#139):过三判据(证据存在性全过+排他率≥0.25+阳性对照可执行)的候选
 // 经 queue-lock(#139 flock 路径,与 python append_queue 同构互锁)写 queue.md 一行候选卡;
-// 不开票不接源。判据=常量(spec:判据在代码不在 prompt,模型无权改)。写败=fail-closed infra
-// (证据不灭失优先于轮成功)。
+// #358 同维度不拒收律:仅排他率单项不过且 notes 声明质量案的候选改写 FLAG 行人裁(见
+// ENQUEUE_QUALITY_FLAG),不进 skipped。不开票不接源。判据=常量(spec:判据在代码不在
+// prompt,模型无权改)。写败=fail-closed infra(证据不灭失优先于轮成功)。
 export const ENQUEUE_EXCLUSIVITY_GATE = 0.25; // spec T1:排他率预估门槛(常量,步/门同源导出;模型无权改判据——判据在代码不在 prompt;T4 北星校准走旋钮前不动)
+// #358 同维度不拒收律:FLAG 行标记(非判据常量——0.25 主门槛不动,只改「排他率单项不过」
+// 候选的处置面:notes 声明质量案(机械判定=非空)→ 不静默 skipped,改 FLAG 行人裁,与
+// 运营轮 tools.mjs overlap-REJECT「无实测不得拒,最多 FLAG」同精神;行带排他率读数=人裁可原样回算)。
+export const ENQUEUE_QUALITY_FLAG = "flag=dimension-overlap-quality-case";
+const qualityCaseDeclared = (c) => typeof c?.notes === "string" && c.notes.trim() !== ""; // #358:SHORTLIST notes 非空=质量案声明(从简判定;接不接全人裁)
 const candidateSlug = (name) => String(name).toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 32) || "cand"; // queue source 面 ^[a-z0-9_]{1,32}$ 适配
 async function ENQUEUE(def, ctx) {
   const shortlist = j(path.join(ctx.dir, A.DISCOVER_SHORTLIST)) ?? { candidates: [] };
   const measure = j(path.join(ctx.dir, A.DISCOVER_MEASURE)) ?? { results: [] };
   const byCand = new Map(measure.results.map((r) => [r.candidate, r]));
-  const enqueued = []; const skipped = [];
+  const enqueued = []; const skipped = []; const flagged = []; // #358:flagged=排他率单项不过+质量案声明的 FLAG 面(不进 skipped——证据永不灭失:不静默丢)
   for (const c of shortlist.candidates) {
     const m = byCand.get(candidateSlug(c.name));
     const reasons = [];
     if (!m || m.evidence_local_ok !== true) reasons.push("evidence");
     if (!m || !((m.exclusivity_estimate ?? -1) >= ENQUEUE_EXCLUSIVITY_GATE)) reasons.push("exclusivity");
     if (!m || m.control_executable !== true) reasons.push("control");
-    (reasons.length ? skipped : enqueued).push({ candidate: candidateSlug(c.name), name: c.name, reasons });
+    // #358 同维度不拒收律:仅排他率一项不过(证据+对照全过)且 notes 声明质量案 → FLAG 行;
+    // 其余跳过路径(证据/对照不过、排他率不过且无质量案)行为不变——不加判据、不动 0.25。
+    if (reasons.length === 1 && reasons[0] === "exclusivity" && qualityCaseDeclared(c))
+      flagged.push({ candidate: candidateSlug(c.name), name: c.name, reasons, exclusivity_estimate: m.exclusivity_estimate ?? null });
+    else
+      (reasons.length ? skipped : enqueued).push({ candidate: candidateSlug(c.name), name: c.name, reasons });
   }
   const queueFile = path.join(ctx.opsRoot, "queue.md");
-  for (const row of enqueued) {
-    const m = byCand.get(row.candidate);
-    // #210 T4:action 词统一 PROPOSE(死路面也先对齐)——运营轮 ENQUEUE/REJECT 闭集是
-    // python 写面(_ops_store.QUEUE_ACTIONS)的人裁动作词;发现轮候选行=提案非动作,与
-    // T3 appendCandidateCard 一词一拼,python 读面无程序解析行消费方(PROPOSE 行无破坏)。
-    const r = await appendQueueRowLocked({ queueFile, round: ctx.roundId, action: CANDIDATE_ACTION, source: row.candidate, predicate: null,
-      evidence: [
-        { call_id: "d3-measure", field: "evidence_local_ok", value: true },
-        { call_id: "d3-measure", field: "exclusivity_estimate", value: m.exclusivity_estimate },
-        { call_id: "d3-measure", field: "control_executable", value: true }] }, { env: ctx.env ?? {} });
-    if (!r.ok) throw infra(`queue 写败(${row.candidate}):${r.code ?? "io_error"}`); // fail-closed
+  // 行写入器(入队/FLAG 同形制,唯一差面=predicate):#210 T4 action 词统一 PROPOSE——运营轮
+  // ENQUEUE/REJECT 闭集是 python 写面(_ops_store.QUEUE_ACTIONS)的人裁动作词;发现轮候选行=
+  // 提案非动作,与 T3 appendCandidateCard 一词一拼,python 读面无程序解析行消费方(PROPOSE 行无破坏)。
+  const writeRow = (row, predicate) => appendQueueRowLocked({ queueFile, round: ctx.roundId, action: CANDIDATE_ACTION, source: row.candidate, predicate,
+    evidence: [
+      { call_id: "d3-measure", field: "evidence_local_ok", value: true },
+      { call_id: "d3-measure", field: "exclusivity_estimate", value: byCand.get(row.candidate)?.exclusivity_estimate ?? null },
+      { call_id: "d3-measure", field: "control_executable", value: true }] }, { env: ctx.env ?? {} })
+    .then((r) => { if (!r.ok) throw infra(`queue 写败(${row.candidate}):${r.code ?? "io_error"}`); return r; }); // fail-closed:写败=证据不灭失优先于轮成功
+  for (const row of enqueued) await writeRow(row, null); // 主路径:predicate=—(原样)
+  for (const row of flagged) { // #358:FLAG 行=predicate 显式标记+排他率读数入 evidence(人裁原样回算)
+    const r = await writeRow(row, ENQUEUE_QUALITY_FLAG);
+    // #358 P2-1:判重留痕入工件——queue.md 判重键=action+source 不含 predicate(#139 appendQueueRowCore),
+    // 历史轮旧 PROPOSE 行在场时 FLAG 行 appended:false 不双写,工件行记 queue_dedup=true
+    // (人裁可分辨「旧提案行已在队列」与「FLAG 行新落」;留痕键非判据,门面容缺)。
+    if (r.appended === false) row.queue_dedup = true;
   }
   writeJson(path.join(ctx.dir, A.DISCOVER_ENQUEUE), { round_id: ctx.roundId, generated_at: new Date().toISOString(),
-    gate_exclusivity: ENQUEUE_EXCLUSIVITY_GATE, enqueued, skipped, n_enqueued: enqueued.length, n_skipped: skipped.length });
+    gate_exclusivity: ENQUEUE_EXCLUSIVITY_GATE, enqueued, skipped, flagged, n_enqueued: enqueued.length, n_skipped: skipped.length, n_flagged: flagged.length });
 }
 
 const SCRIPT = { PROBE, VERIFY, DISPATCH, ITEMIZE, RETRO, ANCHOR_SWEEP, CLOSE, SCAN, MEASURE, ENQUEUE };

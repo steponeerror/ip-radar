@@ -2214,6 +2214,82 @@ await t("ENQUEUE 写路(#207 T1;#210 T4 action 词统一 PROPOSE):直调步—�
   assert.equal(e4.n_skipped, 1);
 });
 
+await t("ENQUEUE 同维度质量案 FLAG 行(#358;2026-11-17 同维度不拒收律):排他率单项不过(0.1<0.25)+notes 非空=FLAG 行入 queue.md(predicate=flag=dimension-overlap-quality-case,行带排他率读数人裁可原样回算);0.1 无质量案=仍 skipped(reasons=exclusivity 不落行);0.3=原样入队(predicate=— 主路径不动);G_ENQUEUE 含 FLAG 面宿主重算(篡改即红)", async () => {
+  const tr = mkTree("enqueue-quality-flag");
+  const { ARTIFACTS } = await import("./artifacts.mjs");
+  const dir = path.join(tr.root, "ops", "rounds", RD); fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, ARTIFACTS.DISCOVER_SHORTLIST), JSON.stringify({ round_id: RD, candidates: [
+    { name: "quality_cand", url: "https://quality.example/data", evidence_ptr: "NEEDS.md:L20", notes: "同维度但更新更快(小时级 vs 日级)=质量案声明" },
+    { name: "bare_cand", url: "https://bare.example/data", evidence_ptr: "NEEDS.md:L21" },
+    { name: "pass_cand", url: "https://pass.example/data", evidence_ptr: "NEEDS.md:L22", notes: "排他率足额候选" }] }));
+  fs.writeFileSync(path.join(dir, ARTIFACTS.DISCOVER_MEASURE), JSON.stringify({ round_id: RD, results: [
+    { candidate: "quality_cand", evidence_local_ok: true, exclusivity_estimate: 0.1, control_executable: true },
+    { candidate: "bare_cand", evidence_local_ok: true, exclusivity_estimate: 0.1, control_executable: true },
+    { candidate: "pass_cand", evidence_local_ok: true, exclusivity_estimate: 0.3, control_executable: true }] }));
+  const ctx = { type: "discover", roundId: RD, dir, opsRoot: path.join(tr.root, "ops"), env: tr.env, log: () => {}, usage: { input: 0, output: 0, totalTokens: 0, cost: 0 } };
+  await (await import("./pipeline/steps.mjs")).runStage({ name: "ENQUEUE" }, ctx);
+  const q = fs.readFileSync(path.join(tr.root, "ops", "queue.md"), "utf8");
+  assert.match(q, /\| PROPOSE \| quality_cand \| flag=dimension-overlap-quality-case \| d3-measure:evidence_local_ok=true;d3-measure:exclusivity_estimate=0\.1;d3-measure:control_executable=true \|/, "FLAG 行:显式标记+排他率读数(人裁原样回算)");
+  assert.match(q, /\| PROPOSE \| pass_cand \| — \|/, "0.3 原样入队(predicate=— 主路径不动)");
+  assert.ok(!q.includes("bare_cand"), "0.1 无质量案不落行(仍 skipped)");
+  const e4 = j(path.join(dir, ARTIFACTS.DISCOVER_ENQUEUE));
+  assert.deepEqual(e4.flagged.map((x) => x.candidate), ["quality_cand"], "flagged 面恰质量案候选");
+  assert.deepEqual(e4.flagged[0].reasons, ["exclusivity"], "FLAG 行拒因=排他率单项");
+  assert.equal(e4.flagged[0].exclusivity_estimate, 0.1, "工件 FLAG 行带排他率读数");
+  assert.deepEqual(e4.skipped.map((x) => x.candidate), ["bare_cand"], "无质量案仍 skipped");
+  assert.deepEqual(e4.skipped[0].reasons, ["exclusivity"], "skipped 拒因=exclusivity");
+  assert.deepEqual(e4.enqueued.map((x) => x.candidate), ["pass_cand"], "0.3 入 enqueued");
+  assert.equal(e4.n_flagged, 1);
+  assert.ok(!("queue_dedup" in e4.flagged[0]), "干净队列 FLAG 行不带 queue_dedup 键(新落行;留痕键只在判重时出现)");
+  // 门面:合法 FLAG 轮 G_ENQUEUE 绿;篡改四发=红(⊄shortlist / 拒因非恰排他率单项 / 质量案声明被撤 / 排他率复算≥门=该入未入)
+  const { GATES } = await import("./pipeline/gates.mjs");
+  const ctxLike = (d) => ({ type: "discover", roundId: RD, dir: d, opsRoot: path.join(tr.root, "ops") });
+  assert.equal(GATES.G_ENQUEUE(ctxLike(dir)).pass, true, "FLAG 轮门绿(穷尽哨含 flagged)");
+  const tamper = (doctor) => {
+    const d2 = path.join(TMP, "flag-tamper"); fs.rmSync(d2, { recursive: true, force: true }); fs.cpSync(dir, d2, { recursive: true });
+    doctor(d2);
+    return GATES.G_ENQUEUE(ctxLike(d2));
+  };
+  const e4Path = (d2) => path.join(d2, ARTIFACTS.DISCOVER_ENQUEUE);
+  const r1 = tamper((d2) => { const p = path.join(d2, ARTIFACTS.DISCOVER_SHORTLIST); const s = j(p); delete s.candidates[0].notes; fs.writeFileSync(p, JSON.stringify(s, null, 2)); });
+  assert.equal(r1.pass, false, "质量案声明被撤(短单 notes 空)=门红");
+  assert.match(r1.reason, /质量案|notes/);
+  const r2 = tamper((d2) => { const p = path.join(d2, ARTIFACTS.DISCOVER_MEASURE); const s = j(p); s.results.find((x) => x.candidate === "quality_cand").exclusivity_estimate = 0.3; fs.writeFileSync(p, JSON.stringify(s, null, 2)); });
+  assert.equal(r2.pass, false, "FLAG 行排他率复算≥门(该入未入)=门红");
+  assert.match(r2.reason, /复算|排他率/);
+  const r3 = tamper((d2) => { const p = e4Path(d2); const s = j(p); s.flagged[0].name = "ghost_cand"; fs.writeFileSync(p, JSON.stringify(s, null, 2)); });
+  assert.equal(r3.pass, false, "FLAG 行幽灵候选(⊄shortlist)=门红");
+  assert.match(r3.reason, /shortlist/);
+  const r4 = tamper((d2) => { const p = e4Path(d2); const s = j(p); s.flagged[0].reasons = []; fs.writeFileSync(p, JSON.stringify(s, null, 2)); });
+  assert.equal(r4.pass, false, "FLAG 行拒因非恰「排他率单项不过」(空拒因)=门红");
+  assert.match(r4.reason, /排他率单项|exclusivity/);
+});
+
+await t("ENQUEUE FLAG 行判重留痕(#358 P2-1):queue.md 已有同 slug 旧 PROPOSE 行(判重键=action+source,predicate 不参与判重)→ FLAG 行 appended:false 不双写(旧行独存),d4-enqueue.json flagged 行记 queue_dedup=true(人裁可分辨「旧提案行已在队列」与「FLAG 行新落」);带键 FLAG 轮 G_ENQUEUE 仍绿(留痕键非判据)", async () => {
+  const tr = mkTree("enqueue-flag-dedup");
+  const { ARTIFACTS } = await import("./artifacts.mjs");
+  const dir = path.join(tr.root, "ops", "rounds", RD); fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, ARTIFACTS.DISCOVER_SHORTLIST), JSON.stringify({ round_id: RD, candidates: [
+    { name: "quality_cand", url: "https://quality.example/data", evidence_ptr: "NEEDS.md:L20", notes: "同维度独立上游=质量案声明" }] }));
+  fs.writeFileSync(path.join(dir, ARTIFACTS.DISCOVER_MEASURE), JSON.stringify({ round_id: RD, results: [
+    { candidate: "quality_cand", evidence_local_ok: true, exclusivity_estimate: 0.1, control_executable: true }] }));
+  // 预置历史轮旧 PROPOSE 行(predicate=—:当年排他率足额入队;新一轮复评排他率 0.1+质量案→FLAG。判重键=action+source,旧行即拦新行不双写)
+  fs.writeFileSync(path.join(tr.root, "ops", "queue.md"),
+    "# 源生命周期动作队列(fixture:预置旧行)\n\n| 日期 | 轮次 | action | source | predicate | evidence | vetoable |\n|---|---|---|---|---|---|---|\n"
+    + "| 2026-10-01 | 2026-10-01-0900-discover | PROPOSE | quality_cand | — | d3-measure:exclusivity_estimate=0.4 | 是(否决=删除本行) |\n");
+  const ctx = { type: "discover", roundId: RD, dir, opsRoot: path.join(tr.root, "ops"), env: tr.env, log: () => {}, usage: { input: 0, output: 0, totalTokens: 0, cost: 0 } };
+  await (await import("./pipeline/steps.mjs")).runStage({ name: "ENQUEUE" }, ctx);
+  const q = fs.readFileSync(path.join(tr.root, "ops", "queue.md"), "utf8");
+  assert.equal(q.split("| PROPOSE | quality_cand |").length - 1, 1, "判重不双写(旧行独存)");
+  assert.ok(!q.includes("flag=dimension-overlap-quality-case"), "判重面 FLAG predicate 不落第二行");
+  const e4 = j(path.join(dir, ARTIFACTS.DISCOVER_ENQUEUE));
+  assert.equal(e4.flagged.length, 1, "候选仍在 flagged 面(证据面不受判重影响)");
+  assert.equal(e4.flagged[0].queue_dedup, true, "工件 FLAG 行记 queue_dedup=true(appended:false 留痕)");
+  assert.equal(e4.n_flagged, 1, "计数面不受判重影响");
+  const { GATES } = await import("./pipeline/gates.mjs");
+  assert.equal(GATES.G_ENQUEUE({ type: "discover", roundId: RD, dir, opsRoot: path.join(tr.root, "ops") }).pass, true, "判重轮门绿(queue_dedup=留痕键非判据)");
+});
+
 // ── T2(#208):四门强化+span 级回引+哨 ─────────────────────────────────
 await t("T2-spanMatcher 三负例判例(#208):幽灵 URL/半真 URL(前缀子串+超集)/改写引文(大小写+标点)=全拒;恰等与逐字 span=收;非串/空串=拒", async () => {
   const { spanMatcher } = await import("./pipeline/citation.mjs");

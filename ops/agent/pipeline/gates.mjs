@@ -462,8 +462,10 @@ export const GATES = {
     return pass(`测量 ${d.results.length} 行(uncertainty hold ${holdN});存在性+排他率宿主复算全符(#208 T2)`, inputs);
   },
   // G_ENQUEUE(#208 T2 对账收严):入队行⊆shortlist∩measure 合格面(三判据宿主重算)+
-  // 穷尽哨(shortlist 候选必须在 enqueued∪skipped 有行——证据永不灭失:不静默丢候选)+
-  // 计数回算+门槛常量在场(判据在代码不在 prompt)。
+  // 穷尽哨(shortlist 候选必须在 enqueued∪skipped∪flagged 有行——证据永不灭失:不静默丢候选)+
+  // 计数回算+门槛常量在场(判据在代码不在 prompt)。#358:flagged 行(同维度质量案
+  // FLAG 面)同受宿主重算——候选⊆shortlist+拒因恰=排他率单项+证据/对照复算过+
+  // 排他率复算恰<门(≥门即该入未入)+notes 质量案声明在场(机械判据,步/门同源)。
   G_ENQUEUE: (ctx) => {
     const inputs = [A.DISCOVER_ENQUEUE, A.DISCOVER_SHORTLIST, A.DISCOVER_MEASURE, "(queue.md #139)"];
     const d = j(path.join(ctx.dir, A.DISCOVER_ENQUEUE));
@@ -471,10 +473,14 @@ export const GATES = {
     const me = j(path.join(ctx.dir, A.DISCOVER_MEASURE));
     if (!d) return fail(`${A.DISCOVER_ENQUEUE} 不可解析`, inputs);
     if (!Array.isArray(d.enqueued) || !Array.isArray(d.skipped)) return fail("enqueued/skipped 非数组", inputs);
+    const flagged = Array.isArray(d.flagged) ? d.flagged : []; // #358:旧工件无键容缺(重放面);新工件恒数组
     if (d.n_enqueued !== d.enqueued.length || d.n_skipped !== d.skipped.length)
       return fail(`计数不符(enqueued ${d.n_enqueued}≠${d.enqueued.length};skipped ${d.n_skipped}≠${d.skipped.length})`, inputs);
+    if (d.n_flagged !== undefined && d.n_flagged !== flagged.length)
+      return fail(`计数不符(flagged ${d.n_flagged}≠${flagged.length})`, inputs);
     if (d.gate_exclusivity !== ENQUEUE_EXCLUSIVITY_GATE) return fail(`门槛常量不符:工件=${d.gate_exclusivity}/代码=${ENQUEUE_EXCLUSIVITY_GATE}(判据单源在代码)`, inputs);
     const shSet = new Set((sh?.candidates ?? []).map((c) => String(c.name).toLowerCase()));
+    const shBy = new Map((sh?.candidates ?? []).map((c) => [String(c.name).toLowerCase(), c]));
     const mByCand = new Map((me?.results ?? []).map((r) => [String(r.candidate), r]));
     for (const row of d.enqueued) {
       if (!shSet.has(String(row.name ?? "").toLowerCase())) return fail(`入队行 ${row.candidate} ⊄ shortlist 候选(对账;T2 #208 强化)`, inputs);
@@ -486,12 +492,25 @@ export const GATES = {
         return fail(`入队行 ${row.candidate} 判据复算不过(证据=${m.evidence_local_ok}/排他率=${m.exclusivity_estimate}(门≥${ENQUEUE_EXCLUSIVITY_GATE})/对照=${m.control_executable}——三判据宿主重算)`, inputs);
     }
     for (const row of d.skipped) if (!Array.isArray(row.reasons) || !row.reasons.length) return fail(`skipped 行 ${row.candidate} 缺拒因(无证据即无话:不入队须留理由)`, inputs);
-    // #208 穷尽哨:shortlist 候选必须在 enqueued∪skipped 有行(不静默丢候选)
-    const covered = new Set([...d.enqueued, ...d.skipped].map((r) => String(r.name ?? "").toLowerCase()));
+    // #358 FLAG 行宿主重算:拒因恰=排他率单项 + 三判据复算(证据/对照过,排他率恰<门) + notes 质量案声明在场
+    for (const row of flagged) {
+      if (!shSet.has(String(row.name ?? "").toLowerCase())) return fail(`FLAG 行 ${row.candidate} ⊄ shortlist 候选(对账;#358)`, inputs);
+      if (JSON.stringify(row.reasons) !== JSON.stringify(["exclusivity"]))
+        return fail(`FLAG 行 ${row.candidate} 拒因非恰「排他率单项不过」(得 ${JSON.stringify(row.reasons)};#358 FLAG 面单义)`, inputs);
+      const m = mByCand.get(String(row.candidate ?? ""));
+      if (!m) return fail(`FLAG 行 ${row.candidate} 无测量行(入队对账同律)`, inputs);
+      if (m.evidence_local_ok !== true || m.control_executable !== true || (m.exclusivity_estimate ?? -1) >= ENQUEUE_EXCLUSIVITY_GATE)
+        return fail(`FLAG 行 ${row.candidate} 判据复算不过(证据=${m.evidence_local_ok}/排他率=${m.exclusivity_estimate}(须<${ENQUEUE_EXCLUSIVITY_GATE};≥门即该入未入)/对照=${m.control_executable}——宿主重算)`, inputs);
+      const c = shBy.get(String(row.name ?? "").toLowerCase());
+      if (!(typeof c?.notes === "string" && c.notes.trim() !== ""))
+        return fail(`FLAG 行 ${row.candidate} 质量案声明缺席(shortlist notes 非空=机械判据,步/门同源;#358)`, inputs);
+    }
+    // #208 穷尽哨:shortlist 候选必须在 enqueued∪skipped∪flagged 有行(不静默丢候选)
+    const covered = new Set([...d.enqueued, ...d.skipped, ...flagged].map((r) => String(r.name ?? "").toLowerCase()));
     for (const c of sh?.candidates ?? [])
       if (!covered.has(String(c?.name ?? "").toLowerCase()))
-        return fail(`shortlist 候选 ${c?.name} 在 ${A.DISCOVER_ENQUEUE} 无行(enqueued∪skipped 须穷尽——证据永不灭失:不静默丢候选)`, inputs);
-    return pass(`入队 ${d.n_enqueued}/skipped ${d.n_skipped};门槛=排他率≥${ENQUEUE_EXCLUSIVITY_GATE}(常量);⊆shortlist∩measure 合格面+穷尽哨过(#208 T2)`, inputs);
+        return fail(`shortlist 候选 ${c?.name} 在 ${A.DISCOVER_ENQUEUE} 无行(enqueued∪skipped∪flagged 须穷尽——证据永不灭失:不静默丢候选)`, inputs);
+    return pass(`入队 ${d.n_enqueued}/FLAG ${flagged.length}/skipped ${d.n_skipped};门槛=排他率≥${ENQUEUE_EXCLUSIVITY_GATE}(常量);⊆shortlist∩measure 合格面+穷尽哨过(#208 T2;FLAG 面 #358)`, inputs);
   },
 };
 
