@@ -44,6 +44,7 @@ OLD_CATEGORIES = {
     "caida_asorg": "geo_asn",      # b/asorg-anycast 2026-10-10
     "anycast_census": "asset",    # b/asorg-anycast 2026-10-10
     "rir_abuse": "geo_asn",       # rir-abuse 2026-10-18(类 3 槽位挂 geo_asn 族)
+    "honeypot_fyi": "threat",    # 2026-11-18 honeypot.fyi 蜜罐舰队块表(#360)
 }
 OLD_RELIABILITY = {
     "ipinfo_lite": 0.95, "iptoasn": 0.90, "cn_isp": 0.85, "geolite_city": 0.85,
@@ -80,6 +81,7 @@ OLD_RELIABILITY = {
     "caida_asorg": 0.8,            # b/asorg-anycast 2026-10-10
     "anycast_census": 0.9,         # b/asorg-anycast 2026-10-10
     "rir_abuse": 0.85,             # rir-abuse 2026-10-18(占位 role 实测在)
+    "honeypot_fyi": 0.60,         # 2026-11-18 sensor-sourced 蜜罐舰队(#360,siberkapan 同档)
 }
 OLD_AUTHORITATIVE = {
     "is_proxy": ["ip2proxy"], "is_tor": ["tor_exits"], "is_vpn": ["x4bnet_vpn"],

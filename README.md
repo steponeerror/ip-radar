@@ -202,6 +202,7 @@ Every dataset below belongs to its provider — thank you for keeping them open 
 | malicious_ip `*` | [romainmarcoux/malicious-ip](https://github.com/romainmarcoux/malicious-ip) | Five-shard union blocklist (~1M distinct IPs, regenerated hourly) | |
 | ustc_blackip | [USTC](https://blackip.ustc.edu.cn/) | Campus self-protection blacklist (~15 years running; unban needs human review) | |
 | mirage_feed | [OffSeq Mirage](https://github.com/offseq/mirage-feed) | Multi-sensor honeypot attacker records (7-day window, tags / ATT&CK / CVE-KEV / confidence) | |
+| honeypot_fyi | [honeypot.fyi](https://honeypot.fyi/) | Multi-protocol honeypot-fleet attacker blocklist (rolling since 2024, per-IP hit counts) | |
 
 ### Geo & ASN
 

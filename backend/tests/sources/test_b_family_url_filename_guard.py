@@ -117,7 +117,7 @@ def test_discovery_smoke_all_real_sources(tmp_path: Path):
     import ipdb._registry as reg
     sources = reg._discover_sources(tmp_path)
     names = {s.name for s in sources}
-    assert len(sources) == 62          # 本票时点 roster;增删源时同步(2026-11-18 mirage_feed 入册 61→62,#359)
+    assert len(sources) == 63          # 本票时点 roster;增删源时同步(2026-11-18 mirage_feed #359 + honeypot_fyi #360 接入 61→63)
     assert {"firehol", "blocklist_de", "malicious_ip", "urlhaus"} <= names
     for s in sources:
         assert metadata_problems(s) == [], s.name
