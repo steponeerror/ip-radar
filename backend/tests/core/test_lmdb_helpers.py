@@ -189,6 +189,21 @@ def test_open_env_read_params(tmp_path):
     ro.close()
 
 
+def test_open_env_read_disables_kernel_readahead(tmp_path):
+    """#361 回归:查询侧 env 必须关内核预读——查询是 4KB 单点随机读,
+    默认 mmap 预读每缺页拉 128-512KB,冷查读放大 11-37×(嵌套库每查询
+    盘读 36.1KB→3.2KB、disjoint 库 196.5KB→5.3KB,dev/readamp_probe.py
+    实测);py-lmdb env.flags() 可读回该旗标。"""
+    ro_path = tmp_path / "ro"
+    e = lmdb.open(str(ro_path), map_size=1024 * 1024)
+    with e.begin(write=True) as txn:
+        txn.put(encode_key(1), encode_value(1, {"v": 1}))
+    e.close()
+    ro = open_env_read(ro_path)
+    assert ro.flags()["readahead"] is False
+    ro.close()
+
+
 # ── rebuild_lmdb ───────────────────────────────────────────────
 import shutil as _shutil
 

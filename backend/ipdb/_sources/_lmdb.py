@@ -431,7 +431,16 @@ def open_env_read(path: Path):
                 return env
             except lmdb.Error:
                 pass                            # 已显式 close:重开新 handle
+        # readahead=False(= MDB_NORDAHEAD,#361):查询侧是 4KB 单点随机读,
+        # 内核 mmap 预读每缺页最多拉 128-512KB,冷查读放大 11-37×
+        # (dev/readamp_probe.py 实测:每查询盘读嵌套库 36.1KB→3.2KB、
+        # disjoint 库 196.5KB→5.3KB;生产 964MB 小机冷查 15-30ms/IP、
+        # 盘读 1-2MB/IP 即此根因)。只关查询侧:rebuild_lmdb 写侧 staging
+        # 的 lmdb.open(rebuild 期 detect_disjoint 自检扫描同 env)与提交前
+        # compact 重开的 lmdb.open 是顺序读,预读有益,保留默认;连带面
+        # backfill_disjoint 一次性 CLI 全键扫描,非生产热路径,可承受。
         env = lmdb.open(key, readonly=True, lock=False, subdir=True,
+                        readahead=False,
                         max_dbs=2)                  # pidx + payloads sub-dbs
         _OPEN_ENVS[key] = env
         # 新 handle 必失效旧句柄缓存:同路径旧 env 实例(已显式 close 或被
