@@ -28,6 +28,7 @@ OLD_CATEGORIES = {
     "cps_collected_iocs": "threat",  # 波3 T3 CPS 自有聚合(2026-10-19,derived 聚合源)
     "ustc_blackip": "threat",   # 波4 T1 USTC 校园自保黑名单(2026-10-19,非 derived)
     "myip_ms": "threat",        # 波4 T2 myip.ms htaccess 黑名单(2026-10-19,非 derived)
+    "mirage_feed": "threat",   # offseq/mirage-feed 多传感器蜜罐攻击真值(#359,2026-11-18)
     "scanner_ranges": "threat", # SR-T1 扫描器厂商自报段(2026-10-26,MISP 66+Xpanse,非 derived)
     "cloudzy": "asset",         # 波3 T2 Cloudzy VPS 段标签(2026-10-19,asset 轴非 derived)
     "ip2proxy": "asset", "tor_exits": "asset", "x4bnet_vpn": "asset",
@@ -64,6 +65,7 @@ OLD_RELIABILITY = {
     "cps_collected_iocs": 0.50,  # 波3 T3 CPS 自有聚合(2026-10-19)
     "ustc_blackip": 0.55,       # 波4 T1 USTC 校园自保黑名单(2026-10-19)
     "myip_ms": 0.55,            # 波4 T2 myip.ms htaccess 黑名单(2026-10-19)
+    "mirage_feed": 0.65,       # offseq/mirage-feed 多传感器蜜罐攻击真值(#359,2026-11-18;≥3 传感器≥2 网络印证,cf. reportedip 0.65)
     "scanner_ranges": 0.90,    # SR-T1 扫描器厂商自报段(2026-10-26,MISP 镜像一跳折档)
     "cloudzy": 0.90,            # 波3 T2 Cloudzy VPS 段标签(2026-10-19)
     "drb_ra": 0.50, "hookzof": 0.50, "thespeedx": 0.50,
