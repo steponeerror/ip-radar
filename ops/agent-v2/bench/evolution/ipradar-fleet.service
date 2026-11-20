@@ -1,0 +1,32 @@
+# ipradar-fleet.service — M5 加源舰队驱动器服务件(#366;排程交付面)
+# 装机由人(同 ipradar-evolve.timer 律):拷贝本件+timer 到 ~/.config/systemd/user/
+#   并 systemctl --user daemon-reload + enable --now ipradar-fleet.timer(只 enable
+#   timer,service 由 timer 拉;oneshot 在跑期间不重入)。
+# 路径:repo 面=主检出(沙箱 worktree 落 <repo>/.worktrees/add-<source>,试点
+#   2026-11-18-2250-add 判例同位;轮工件落 docs/ops/rounds/ 嵌套 docs 仓)。
+# 模型面:zai-coding-cn/glm-5.3(手动演化线同款;<provider/modelId> 现场按 agent-config
+#   改);凭证 ~/.pi/agent/auth.json 缺省链(OPS_AUTH 可覆盖,同旧管线 models.mjs)。
+# 旋钮:轮内 OPS_ADD_*(60 调用/7200s/¥5)缺省即试点值,不设;月帽共享
+#   OPS_PIPELINE_MONTHLY_CAP_CNY=30(add 族同键,budget-guard 单源)。
+# lark 异常推送:IP_RADAR_ALERT_URLS(apprise URL;缺省静音——finding/演化同通道 env)。
+# 排程演练面(真跑前先空转/演练):FLEET_DRY_RUN=1 出口零外发。
+
+[Unit]
+Description=ip-radar M5 加源舰队驱动器(#366:队列轮询→自动跑轮→自动 lift 出 draft PR)
+# 熄火/超帽由 run-add 准入自拒;service 非零退出不自动重试(oneshot 语义,下拍 timer 再起)
+
+[Service]
+Type=oneshot
+# 现场改:<repo> = 主检出根
+WorkingDirectory=<repo>/ops/agent-v2
+ExecStart=/usr/bin/node run-fleet.mjs --once --model zai-coding-cn/glm-5.3
+# lark 通道(装机人自填真令牌后去注释;全仓律:lark:// 为凭据不入仓,同 ipradar-evolve.service 注释律):
+# Environment=IP_RADAR_ALERT_URLS=lark://<token>
+# 一拍 = 至多一源:轮(≤2h 帽) + lift(文档三件+基准重冻+门三连:backend 全量 pytest
+# 4-8 分钟 + ops selftest + agent-v2 node --test)+ push/draft PR,合计 ~20-40 分钟,
+# 1h 帽贴边——超帽击杀=轮断点在 pi-durable(同轮 id 续跑),lift 断点在沙箱分支,
+# 下拍 in_flight 续跑收口(不双花)。
+TimeoutStartSec=1h
+
+[Install]
+WantedBy=default.target
