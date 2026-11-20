@@ -76,6 +76,8 @@ v2 无生产流量 → 回退=停 v2 cron 即可,零数据迁移。SQLite 库/�
 # 40 4-23/8 * * * /opt/ip-lookup-tool/deploy/ops-shadow-cron.sh >> /var/log/ipradar-ops-shadow.log 2>&1
 # 发现轮定频(#367,2026-11-20 用户裁 Q3 每日一跑;v2 直跑形同健康轮律):
 0 6 * * * /opt/ip-lookup-tool/deploy/ops-cron-v2-discover.sh >> /var/log/ipradar-ops-cron.log 2>&1
+
+<!-- 月帽语义(#367 评审 P2-2):OPS_DISCOVER_MONTHLY_CAP_CNY 的基数=台账当月全部轮次 Σcost+est(非发现轮专项);月花费 ¥20–30 区间发现轮拒启而健康轮照跑;紧急收紧用此键,OPS_PIPELINE_MONTHLY_CAP_CNY 不再约束 v2 发现轮。 -->
 ```
 
 - 日志沿用 `/var/log/ipradar-ops-cron.log`(行前缀 `ops-cron-v2:` 与 v1 `ops-cron:` 可辨;回退换行零日志迁移)。
@@ -86,7 +88,7 @@ v2 无生产流量 → 回退=停 v2 cron 即可,零数据迁移。SQLite 库/�
 
 ### 回退路径(cron 面单点)
 
-- **回退=两行互换**(注释 v2 行 + 去注释 v1 行),勿双活(双活=两管线并发写生产台账/queue)。
+- **回退=两行互换**(注释 v2 行 + 去注释 v1 行),勿双活(双活=两管线并发写生产台账/queue)。**回退同时注释 #367 发现轮行**(`0 6 * * *` ops-cron-v2-discover.sh)——漏摘则 v1 回退期间 v2 发现轮仍每日写生产面(评审 #367 P2-1)。
 - **手触 v1 发现轮避开本地 04/12/20 起约 35 分钟**(v2 健康轮窗;发现轮仍走 v1 API 面,与 v2 并发共享 items/breaker 无跨进程守卫——评审 P2-2)。
 
 crontab 换回旧行(去掉上行注释)即恢复 v1 生产:后端 API 触发形连生产台账/轮目录续跑,零数据迁移。v2 侧停跑即退——SQLite/轮目录原地留档供事后审计(证据永不灭失);影子对拍工具(shadow-diff.mjs)留仓,可对 v1/v2 历史轮做审计对拍。回退演练验收(票面):换回旧行后下窗 v1 轮正常起,生产台账/queue 恢复 v1 写。
