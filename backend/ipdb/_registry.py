@@ -279,6 +279,24 @@ def _org_hook_sources() -> list:
     return value
 
 
+# hosting-ASN join 钩子源预计算(票 #332,insightflare_asn_blocklist):
+# 与 _org_hook_sources 同款缓存合同(enabled 过滤烘进缓存、键身份失配即
+# 重算;禁用源不得旁路 join)。现役仅 insightflare_asn_blocklist 有钩子。
+_asset_hooks_cache: dict = {"entry": None}
+
+
+def _asset_hook_sources() -> list:
+    entry = _asset_hooks_cache["entry"]
+    if (entry is not None and entry[0] is _enabled_sources
+            and entry[1] is _sources and entry[2] is _disabled):
+        return entry[3]
+    value = [
+        (s, fn) for s in _enabled_sources()
+        if (fn := getattr(s, "hosting_for_asn", None)) is not None]
+    _asset_hooks_cache["entry"] = (_enabled_sources, _sources, _disabled, value)
+    return value
+
+
 def _db_loaded() -> bool:
     """True if any enabled source has a loaded reader.
 
@@ -765,6 +783,27 @@ def lookup(ip: str, allowed_sources: frozenset[str] | None = None, *,
             as_org = _strategies["as_org"].merge(
                 field_values["as_org"], context)
 
+    # hosting-ASN join(票 #332,insightflare_asn_blocklist):ASN 键资产源
+    # (hosting ASN 集合)无 CIDR 面,无法走 per-IP 收集——在 asn 胜者解出
+    # 后经 hosting_for_asn 钩子注入 is_hosting=True 资产陈述(native label
+    # = 钩子返回值),随后走 _order_asset_stmts 布尔后验排序;
+    # allowed_sources 白名单照常过滤,join 不得旁路(as_org join 同款合同)。
+    if asn.value:
+        for s, fn in _asset_hook_sources():
+            if allowed_sources is not None and s.name not in allowed_sources:
+                continue
+            label = fn(asn.value)
+            if label:
+                _stmt = AssetStatement(
+                    source=s.name, value=True, native_type=label)
+                _stmts = attributes.setdefault("is_hosting", [])
+                if not any(x.source == _stmt.source and x.value == _stmt.value
+                           and x.native_type == _stmt.native_type
+                           for x in _stmts):
+                    _stmts.append(_stmt)
+        if attributes.get("is_hosting"):
+            attributes["is_hosting"] = _order_asset_stmts(
+                attributes["is_hosting"])
     as_name = _strategies["as_name"].merge(
         field_values.get("as_name", {}), context)
     ip_range = _strategies["ip_range"].merge(
