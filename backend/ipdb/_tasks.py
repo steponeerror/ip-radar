@@ -218,6 +218,18 @@ class UpdateManager:
                 return task.error_code
             return None
 
+    def task_error(self, task_id: str) -> Optional[str]:
+        """失败任务的 error 文本(#371:源告警带失败原因)。task 存在且
+        state=="failed" → 其 error(下载异常 str / 重建子进程 stderr 尾
+        ~300 字,可含换行);否则 None(done/partial/cancelled 无失败
+        文本)。循 task_failure_kind 惯例:锁内查,scheduler reconcile
+        升退避时取当次失败原因。"""
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if task is not None and task.state == "failed":
+                return task.error
+            return None
+
     def snapshot(self) -> dict:
         with self._lock:
             # _tasks accumulates terminal tasks across batches; iteration order

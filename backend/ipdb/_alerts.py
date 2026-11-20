@@ -27,11 +27,12 @@ from . import _registry
 
 logger = logging.getLogger(__name__)
 
-# 固定参数不设旋钮(约束 8):90d 滚动窗口/清理、min events=5、K=4、fail≥3、24h 重发
+# 固定参数不设旋钮(约束 8):90d 滚动窗口/清理、min events=5、K=4、
+# fail≥2(#371 阈值 3→2:两连败即告,失败原因随文案,人看一眼能定位)、24h 重发
 _WINDOW_S = 90 * 86400
 _MIN_EVENTS = 5
 _INTERVAL_FACTOR = 4
-_FAIL_COUNT = 3
+_FAIL_COUNT = 2
 _RE_NOTIFY_S = 86400
 
 # alert_state 的 condition 取值
@@ -170,6 +171,43 @@ def _fmt_hours(hours: float) -> str:
     return f"{hours / 24:.1f}d"
 
 
+# ── #371:连败行后追加失败原因(纯函数分类,文案层可独立测试)──
+# 格式漂移嫌疑关键词:失败文本命中 → 前缀中文标签「疑似上游格式变动」。
+# 集合取自真实判例与表头/列/行数/形状类校验词——#369 anycast_census
+# 表头重排失败文本 "zero records parsed but previous count was 41867"
+# 即命中 zero records;网络类失败(connection reset / HTTP 404 /
+# certificate verify failed)不命中。标签是「疑似」不是定性:命中只
+# 提示「数据没坏,上游改了形」方向,终判归人。
+_FORMAT_DRIFT_RE = re.compile(
+    r"zero records|no records|only \d+ rows|\d+ rows"
+    r"|header|column|field|shape|mismatch|delimiter",
+    re.IGNORECASE)
+# 原因段展示预算(与 scheduler 侧 _Backoff.error 存储 200 字对齐;
+# 直调 evaluate 的长文本在此兜底截断)
+_REASON_MAX_CHARS = 200
+
+
+def classify_format_drift(error: str) -> bool:
+    """纯函数:失败原因是否命中格式漂移关键词(#371,可独立测试)。"""
+    return bool(error) and _FORMAT_DRIFT_RE.search(error) is not None
+
+
+def _fail_reason_suffix(error: str) -> str:
+    """连败行后的原因段(#371):空/缺省 → ""(旧快照位等价);
+    命中格式漂移关键词 → 「疑似上游格式变动」标签前缀 + 原文;
+    未命中 → 原文。空白折叠成单空格(task.error 的 stderr 尾含换行,
+    告警体按行 join 不得炸行),超 _REASON_MAX_CHARS 截断加 "…";
+    分类看全文(截断可能截掉命中词),截断只影响展示。"""
+    if not error:
+        return ""
+    full = " ".join(error.split())
+    text = full if len(full) <= _REASON_MAX_CHARS \
+        else full[:_REASON_MAX_CHARS] + "…"
+    if classify_format_drift(full):
+        return f"(疑似上游格式变动: {text})"
+    return f"({text})"
+
+
 def evaluate(snapshots: list[dict], now: float,
              eval_heartbeat: Path | None = None) -> dict | None:
     """消费 scheduler 每轮快照,推进 alert_state 并组装本轮合并消息。
@@ -178,7 +216,9 @@ def evaluate(snapshots: list[dict], now: float,
     "fail_count"(缺省 0), "fail_kind"(缺省 ""=旧「连续失败 ×N」通用
     文案;"download"/"rebuild" 分报下载/构建失败,2026-10-17 用户裁定),
     "fail_kind_count"(缺省 = fail_count:逐 kind 连败数只驱动 ×N 文案,
-    ≥3 告警条件仍看 fail_count 总数——裁定修:kind 切换不下假「已恢复」),
+    ≥2 告警条件仍看 fail_count 总数——裁定修:kind 切换不下假「已恢复」),
+    "fail_error"(缺省 ""=#371 当次失败原因,连败行后追加原文+格式漂移
+    分类标签;缺键/空 = 旧文案位等价),
     "reader_error"(缺省 False:ptr 在而 reader 未加载,
     OL-4 epoch 损坏降级信号)}。per (source, condition) 状态机(约束 4):
     转入坏 → INSERT active_since/last_notified=now 并计入;持续坏且
@@ -252,19 +292,23 @@ def evaluate(snapshots: list[dict], now: float,
                 # 2026-10-17 用户裁定:源监控告警须说清挂的是哪一环——下载
                 # 失败就报下载失败,构建失败就报构建失败。×N 口径(裁定修,
                 # 双计数):kind 在 → 逐 kind 连败数 fail_kind_count(切换重归
-                # 1;≥3 条件仍看 fail_count 总数,kind 中途切换不下假「已恢复」);
+                # 1;≥2 条件仍看 fail_count 总数,kind 中途切换不下假「已恢复」);
                 # kind 空/缺键 → 旧 fail_count 口径(位等价回退)。condition
                 # 仍为 "fail"(DB 兼容:生产存量 (source,'fail') 行无迁移,首次
                 # 24h 重发即按当前 kind 渲染);未知/缺省 kind 回退旧通用
                 # 文案(既有调用方/测试位等价)。
                 kind = snap.get("fail_kind", "")
                 n = snap.get("fail_kind_count", fail_count) if kind else fail_count
+                reason = _fail_reason_suffix(snap.get("fail_error", ""))
                 if kind == "download":
-                    fail_lines.append((name, f"{name}: 下载连续失败 ×{n}"))
+                    fail_lines.append(
+                        (name, f"{name}: 下载连续失败 ×{n}{reason}"))
                 elif kind == "rebuild":
-                    fail_lines.append((name, f"{name}: 构建连续失败 ×{n}"))
+                    fail_lines.append(
+                        (name, f"{name}: 构建连续失败 ×{n}{reason}"))
                 else:
-                    fail_lines.append((name, f"{name}: 连续失败 ×{fail_count}"))
+                    fail_lines.append(
+                        (name, f"{name}: 连续失败 ×{fail_count}{reason}"))
             if _READER in counted:
                 reader_lines.append(
                     (name, f"{name}: 数据库未加载(疑 epoch 损坏),查询端静默缺席"))

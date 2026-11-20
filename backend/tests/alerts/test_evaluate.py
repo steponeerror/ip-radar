@@ -22,12 +22,15 @@ def alerts_db(tmp_path, monkeypatch):
     return p
 
 
-def _snap(name, stale_days=1, age=1.0, fail=0, reader=False, kind="", kcount=None):
+def _snap(name, stale_days=1, age=1.0, fail=0, reader=False, kind="", kcount=None,
+          error=None):
     d = {"name": name, "stale_days": stale_days,
          "content_age_h": age, "fail_count": fail,
          "fail_kind": kind, "reader_error": reader}
     if kcount is not None:      # 缺键 = 旧快照形状(位等价回退路径)
         d["fail_kind_count"] = kcount
+    if error is not None:       # 缺键 = 旧快照形状(#371 前无此键)
+        d["fail_error"] = error
     return d
 
 
@@ -151,8 +154,8 @@ def test_fail_kind_renders_download_rebuild_and_fallback(alerts_db):
 def test_fail_text_uses_per_kind_count(alerts_db):
     """双计数(2026-10-17 裁定修):×N 口径逐 kind——kind 在 →
     ×fail_kind_count(kind 切换重归 1);kind 空/缺键 → 旧 fail_count 口径
-    (位等价回退)。≥3 告警条件仍看 fail_count 总数(kind_count<3 但总数
-    ≥3 照告,kind 切换不下假「已恢复」)。"""
+    (位等价回退)。≥2 告警条件(#371 阈值 3→2)仍看 fail_count 总数
+    (kind_count<2 但总数≥2 照告,kind 切换不下假「已恢复」)。"""
     from ipdb import _alerts
     msg = _alerts.evaluate([
         _snap("sw", age=1.0, fail=4, kind="rebuild", kcount=1),  # 切换后首轮
@@ -165,6 +168,89 @@ def test_fail_text_uses_per_kind_count(alerts_db):
                            "gen: 连续失败 ×4\n"
                            "old: 下载连续失败 ×3\n"
                            "sw: 构建连续失败 ×1"}
+
+
+def test_fail_threshold_is_two(alerts_db):
+    """#371:连败阈值 3→2——×2 即计入告警,×1 不计入(边界两侧)。"""
+    from ipdb import _alerts
+    msg = _alerts.evaluate([_snap("otx", age=1.0, fail=2)], now=T0)
+    assert msg == {"title": "ipradar: 1 源异常",
+                   "body": "otx: 连续失败 ×2"}
+    assert _state(alerts_db) == [("otx", "fail", T0, T0)]
+    # fail_count 降回 1(<2)= 条件解除 → 恢复段
+    msg = _alerts.evaluate([_snap("otx", age=1.0, fail=1)], now=T0 + H)
+    assert msg == {"title": "ipradar: 1 源已恢复", "body": "——已恢复: otx"}
+
+
+def test_classify_format_drift_keyword_set():
+    """#371 纯函数分类:命中集 = 表头/列/行数/形状类校验词(#369 判例
+    "zero records parsed but previous count was 41867" 命中 zero records);
+    网络类失败不命中——标签是方向提示不是定性。"""
+    from ipdb import _alerts
+    hit = [
+        "zero records parsed but previous count was 41867",   # #369 判例
+        "ValueError: header mismatch: expected 10 columns",
+        "ValueError: partial feed columns changed: 3 != 10",
+        "only 3 rows parsed",
+        "csv shape drift: unexpected field count",
+        "delimiter mismatch: expected ',' got '\\t'",
+    ]
+    miss = [
+        "",
+        "connection reset by peer",
+        "HTTP 404 Not Found",
+        "certificate verify failed",
+        "timed out",
+    ]
+    for t in hit:
+        assert _alerts.classify_format_drift(t), t
+    for t in miss:
+        assert not _alerts.classify_format_drift(t), t
+
+
+def test_fail_reason_appended_drift_label_plain_and_legacy(alerts_db):
+    """#371:连败行后追加原因——关键词命中 →「疑似上游格式变动」标签前缀
+    + 原文;未命中 → 原文;fail_error 缺键/空串 = 旧文案位等价(无原因段);
+    kind 下载/构建两行同接原因段。"""
+    from ipdb import _alerts
+    drift = ("Traceback (most recent call last): "
+             "ValueError: zero records parsed but previous count was 41867")
+    msg = _alerts.evaluate([
+        _snap("drift", age=1.0, fail=2, kind="rebuild", error=drift),
+        _snap("plain", age=1.0, fail=2, kind="download",
+              error="connection reset by peer"),
+        _snap("empty", age=1.0, fail=2, error=""),   # 空串 = 无原因段
+        {"name": "old", "stale_days": 1, "content_age_h": 1.0,   # 缺键:旧形状
+         "fail_count": 2},
+    ], now=T0)
+    assert msg == {"title": "ipradar: 4 源异常",
+                   "body": "drift: 构建连续失败 ×2(疑似上游格式变动: " + drift
+                           + ")\n"
+                           "empty: 连续失败 ×2\n"
+                           "old: 连续失败 ×2\n"
+                           "plain: 下载连续失败 ×2(connection reset by peer)"}
+
+
+def test_fail_reason_folds_newlines_and_truncates(alerts_db):
+    """#371:stderr 尾含换行 → 折叠成单空格(告警体按行 join 不炸行);
+    超 200 字截断加 "…";分类看全文(截断只影响展示)。"""
+    from ipdb import _alerts
+    multi_line = "Traceback (most recent call last):\n  File \"h.py\", line 42\n" \
+                 "ValueError: header mismatch\n"
+    msg = _alerts.evaluate(
+        [_snap("nl", age=1.0, fail=2, error=multi_line)], now=T0)
+    assert msg["body"] == ("nl: 连续失败 ×2(疑似上游格式变动: "
+                           "Traceback (most recent call last): File \"h.py\", "
+                           "line 42 ValueError: header mismatch)")
+    long_err = "y" * 300                     # 全文无命中词:纯截断
+    msg = _alerts.evaluate(
+        [_snap("tr", age=1.0, fail=2, error=long_err)], now=T0)
+    assert msg["body"] == "tr: 连续失败 ×2(" + "y" * 200 + "…)"
+    # 命中词在 200 字窗外(第 251 字起):分类看全文仍标标签,截断只影响展示
+    msg = _alerts.evaluate(
+        [_snap("tr2", age=1.0, fail=2, error="z" * 250 + " shape")], now=T0)
+    assert msg["body"] == ("tr2: 连续失败 ×2(疑似上游格式变动: "
+                           + "z" * 200 + "…)")
 
 
 def test_reader_error_condition_and_recovery(alerts_db):

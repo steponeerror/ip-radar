@@ -59,6 +59,7 @@ class FakeManager:
         self.enqueued = []
         self._states = {}
         self._kinds = {}       # task_id -> failure kind(镜像真 manager,仅 failed 态读)
+        self._errors = {}      # task_id -> failure error text(#371,仅 failed 态读)
         self._next = 0
 
     def enqueue_one_detached(self, name, rebuild_only=False):
@@ -78,6 +79,12 @@ class FakeManager:
         if self._states.get(task_id) != "failed":
             return None
         return self._kinds.get(task_id)
+
+    def task_error(self, task_id):
+        # 镜像 UpdateManager.task_error 语义(#371):仅 failed 态返回失败文本
+        if self._states.get(task_id) != "failed":
+            return None
+        return self._errors.get(task_id)
 
 
 def _make_scheduler(sources, needs_rebuild=lambda s: False):
@@ -188,9 +195,11 @@ def test_snapshots_passed_to_evaluate(alerts_db, tmp_path, monkeypatch):
     b._path.unlink()                  # 无文件 → content_age_h None
     sch, mgr = _make_scheduler([a, b])
     # kind=download 随梯子入快照(2026-10-17 裁定:告警分报;×N 口径 =
-    # 逐 kind 计数 fail_kind_count);无梯子 → ""/0
+    # 逐 kind 计数 fail_kind_count);当次失败原因随梯子入快照(#371:
+    # fail_error,空白折叠单空格);无梯子 → ""/0/""
     sch._backoff["a"] = _Backoff(fail_count=2, next_attempt=0.0,
-                                 kind="download", kind_count=2)
+                                 kind="download", kind_count=2,
+                                 error="HTTP 503 service unavailable")
     seen, pushes = [], []
 
     def fake_evaluate(snapshots, now, eval_heartbeat=None):
@@ -206,9 +215,11 @@ def test_snapshots_passed_to_evaluate(alerts_db, tmp_path, monkeypatch):
     sch.scan(now=NOW)
     assert seen == [([
         {"name": "a", "stale_days": 3, "content_age_h": 24.0, "fail_count": 2,
-         "fail_kind": "download", "fail_kind_count": 2, "reader_error": False},
+         "fail_kind": "download", "fail_kind_count": 2,
+         "fail_error": "HTTP 503 service unavailable", "reader_error": False},
         {"name": "b", "stale_days": 1, "content_age_h": None, "fail_count": 0,
-         "fail_kind": "", "fail_kind_count": 0, "reader_error": False},
+         "fail_kind": "", "fail_kind_count": 0, "fail_error": "",
+         "reader_error": False},
     ], NOW, None)]
     assert pushes == []
     # S6 接线:env 给路径则透传给 evaluate(未设已验 None)
@@ -275,10 +286,12 @@ def test_push_not_called_when_evaluate_returns_none(
 
 def test_kind_switch_mid_failure_no_false_recovery(
         alerts_db, tmp_path, monkeypatch):
-    """双计数走查(2026-10-17 裁定修):download×3 → 告警「下载连续失败
-    ×3」;随后下载成功但构建挂(kind 切换,total 4/kind_count 1)→ 行仍
-    活、24h 内无任何消息(不下假「已恢复」——恢复只认真成功);24h 到点
-    重发渲染「构建连续失败 ×1」。计时梯跟总数走(第 4 级 8h)。"""
+    """双计数走查(2026-10-17 裁定修;#371 阈值 3→2):download 连败到
+    total 2 → 告警「下载连续失败 ×2(原因)」;total 3 同行 24h 内不重发;
+    随后下载成功但构建挂(kind 切换,total 4/kind_count 1)→ 行仍活、
+    24h 内无任何消息(不下假「已恢复」——恢复只认真成功);24h 到点
+    重发渲染「构建连续失败 ×1」(done 任务无 error → 无原因段)。计时梯
+    跟总数走(第 4 级 8h)。"""
     from ipdb import _alerts
     monkeypatch.delenv("IP_RADAR_EVAL_HEARTBEAT", raising=False)
     # partial 车道:last_partial_failure 常立 → 每轮退避到期即重试不等
@@ -295,21 +308,27 @@ def test_kind_switch_mid_failure_no_false_recovery(
 
     monkeypatch.setattr(_alerts, "push", fake_push)
 
-    def _fail(kind):
+    def _fail(kind, error=None):
         mgr._states[sch._last_task["x"]] = "failed"
         mgr._kinds[sch._last_task["x"]] = kind
+        if error is not None:
+            mgr._errors[sch._last_task["x"]] = error
 
     # ── 第 1-3 轮:download 连败(退避到期 → partial 车道重试)──
     sch.scan(now=NOW)                  # 入队 t0;轮末 fail_count 0 无消息
-    _fail("download")
-    sch.scan(now=NOW + 4000.0)         # reconcile:total 1 / kind 1(1h 梯)
+    _fail("download", "connection reset by peer")
+    sch.scan(now=NOW + 4000.0)         # reconcile:total 1 / kind 1(1h 梯)<2 不告
     sch.scan(now=NOW + 8000.0)         # 过 1h:重试入队
-    _fail("download")
-    sch.scan(now=NOW + 12000.0)        # total 2 / kind 2(2h 梯)
+    _fail("download", "connection reset by peer")
+    sch.scan(now=NOW + 12000.0)        # total 2 ≥2(#371)→ 落行 + push 带原因
+    assert pushes == [("ipradar: 1 源异常",
+                       "x: 下载连续失败 ×2(connection reset by peer)")]
+    assert _alert_state(alerts_db) == [("x", "fail")]
     sch.scan(now=NOW + 20000.0)        # 过 2h:重试入队
-    _fail("download")
-    sch.scan(now=NOW + 24000.0)        # total 3 ≥3 → 落行 + push ×3
-    assert pushes == [("ipradar: 1 源异常", "x: 下载连续失败 ×3")]
+    _fail("download", "connection reset by peer")
+    sch.scan(now=NOW + 24000.0)        # total 3:行活、24h 内不重发
+    assert pushes == [("ipradar: 1 源异常",
+                       "x: 下载连续失败 ×2(connection reset by peer)")]
     assert _alert_state(alerts_db) == [("x", "fail")]
 
     # ── 第 4 轮:下载成功但构建挂(kind 切换)──
@@ -321,10 +340,12 @@ def test_kind_switch_mid_failure_no_false_recovery(
     sch.scan(now=NOW + 41000.0)        # reconcile:mtime 前进 + ptr 冻 → rebuild
     b = sch._backoff["x"]
     assert (b.fail_count, b.kind, b.kind_count) == (4, "rebuild", 1)
+    assert b.error == ""              # done 任务无失败文本 → 原因段清空
     # 计时梯跟总数走:第 4 级 8h(若误按 kind_count 落梯会回首级 1h)
     assert b.next_attempt == NOW + 41000.0 + 28800
     # 24h 内:行仍活、无任何消息(尤其无「已恢复」——kind 切换 ≠ 成功)
-    assert pushes == [("ipradar: 1 源异常", "x: 下载连续失败 ×3")]
+    assert pushes == [("ipradar: 1 源异常",
+                       "x: 下载连续失败 ×2(connection reset by peer)")]
     assert _alert_state(alerts_db) == [("x", "fail")]
 
     # ── 24h 到点重发:文案按当前 kind 渲染 ×1 ──
@@ -332,6 +353,55 @@ def test_kind_switch_mid_failure_no_false_recovery(
     assert pushes[1:] == [("ipradar: 1 源异常", "x: 构建连续失败 ×1")]
     assert _alert_state(alerts_db) == [("x", "fail")]   # 行未清,恢复只认真成功
     assert not any("已恢复" in body for _, body in pushes)
+
+
+def test_scan_fail_alert_carries_reason_with_drift_label(
+        alerts_db, tmp_path, monkeypatch):
+    """#371 端到端:重建失败文本(#369 判例 "zero records parsed but
+    previous count was 41867")经 manager.task_error → _Backoff.error →
+    快照 fail_error → 告警行追加原因段,格式漂移关键词命中 →「疑似
+    上游格式变动」标签;阈值 2 = 两连败即告。stderr 尾带换行 → 折叠
+    单空格不炸行。"""
+    from ipdb import _alerts
+    monkeypatch.delenv("IP_RADAR_EVAL_HEARTBEAT", raising=False)
+    # partial 车道常立(退避到期即重试,不等 slot;mtime 全程新鲜,
+    # stale 不掺和本走查)
+    src = _make_src("anycast_census", tmp_path, mtime=NOW - 3600.0)
+    src.last_partial_failure = ["dead"]
+    sch, mgr = _make_scheduler([src])
+    pushes = []
+
+    def fake_push(title, body):
+        pushes.append((title, body))
+        return True
+
+    monkeypatch.setattr(_alerts, "push", fake_push)
+
+    err = ("Traceback (most recent call last):\n"
+           "ValueError: zero records parsed but previous count was 41867\n")
+
+    def _fail_rebuild():
+        tid = sch._last_task["anycast_census"]
+        mgr._states[tid] = "failed"
+        mgr._kinds[tid] = "rebuild"
+        mgr._errors[tid] = err
+
+    sch.scan(now=NOW)                  # 入队 t0
+    _fail_rebuild()
+    sch.scan(now=NOW + 4000.0)         # total 1 <2 不告
+    assert pushes == []
+    sch.scan(now=NOW + 8000.0)         # 过 1h 梯:重试入队
+    _fail_rebuild()
+    sch.scan(now=NOW + 12000.0)        # total 2 ≥2 → 告警带原因+标签
+    assert pushes == [("ipradar: 1 源异常",
+        "anycast_census: 构建连续失败 ×2(疑似上游格式变动: "
+        "Traceback (most recent call last): ValueError: zero records"
+        " parsed but previous count was 41867)")]
+    assert _alert_state(alerts_db) == [("anycast_census", "fail")]
+    # 快照面独立验证:fail_error 已折叠单空格入 _Backoff.error
+    assert sch._backoff["anycast_census"].error == (
+        "Traceback (most recent call last): ValueError: zero records"
+        " parsed but previous count was 41867")
 
 
 def test_prune_runs_each_scan(alerts_db, tmp_path):

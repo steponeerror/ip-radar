@@ -168,6 +168,7 @@ class FakeManager:
         self._states = {}         # task_id -> state (scripted)
         self._rebuild_only = {}   # task_id -> rebuild_only flag
         self._kinds = {}          # task_id -> failure kind (scripted, failed 态才读)
+        self._errors = {}         # task_id -> failure error text (#371, failed 态才读)
         self._next_task_id = 0
 
     def enqueue_one_detached(self, name, rebuild_only=False):
@@ -192,6 +193,13 @@ class FakeManager:
         if self._states.get(task_id) != "failed":
             return None
         return self._kinds.get(task_id)
+
+    def task_error(self, task_id):
+        # 镜像 UpdateManager.task_error 语义(#371):仅 failed 态返回
+        # 失败文本;否则 None
+        if self._states.get(task_id) != "failed":
+            return None
+        return self._errors.get(task_id)
 
 
 def _make_scheduler(sources, manager=None, needs_rebuild=lambda s: False, interval=1800):
@@ -613,10 +621,42 @@ def test_reconcile_kind_failed_task_takes_manager_value(tmp_path):
     assert sch._backoff["x"].kind == "download"
 
 
+def test_reconcile_failure_stores_task_error_tail(tmp_path):
+    """#371:升退避时把当次失败 task 的 error 存入 _Backoff.error——空白
+    折叠(stderr 尾含换行,快照/告警不得炸行)、截 200 字;done/partial
+    路径无失败文本 → "";成功清退避(pop)即连带清空。"""
+    src = _make_src("x", tmp_path, mtime=OLD)
+    sch, mgr = _make_scheduler([src])
+    sch.scan(now=NOW)
+    tid = sch._last_task["x"]
+    mgr._states[tid] = "failed"
+    mgr._kinds[tid] = "rebuild"
+    mgr._errors[tid] = ("Traceback (most recent call last):\n"
+                        "ValueError: zero records parsed"
+                        " but previous count was 41867\n")
+    sch.scan(now=NOW + 1000.0)          # reconcile:失败升梯 + 存原因
+    assert sch._backoff["x"].error == (
+        "Traceback (most recent call last): ValueError: zero records"
+        " parsed but previous count was 41867")
+    # 截断:600 字 error → 200(存储侧预算,与告警渲染同数)
+    sch.scan(now=NOW + 5000.0)          # 过 1h 梯重试入队 t1
+    tid2 = sch._last_task["x"]
+    mgr._states[tid2] = "failed"
+    mgr._errors[tid2] = "e" * 600
+    sch.scan(now=NOW + 6000.0)          # 第二次失败:2h 梯 + 覆盖为截断原因
+    assert sch._backoff["x"].error == "e" * 200
+    # 成功:过 2h 梯重试 → mtime 前进(真成功)→ 退避 pop,error 随之清
+    sch.scan(now=NOW + 14000.0)         # 过 2h 梯:重试入队 t2
+    src.set_mtime(NOW + 14100.0)        # 下载落地
+    mgr._states[sch._last_task["x"]] = "done"
+    sch.scan(now=NOW + 15000.0)         # reconcile:mtime 前进 → 清退避
+    assert "x" not in sch._backoff
+
+
 def test_kind_switch_dual_counters(tmp_path):
     """双计数(2026-10-17 裁定修):kind 切换 → fail_count(任意类连败总数)
-    **不**重置——≥3 告警/恢复判定/退避计时梯全由总数驱动(kind 中途切换
-    ≠ 成功,不得下假「已恢复」);kind_count 重归 1,只驱动文案 ×N。"""
+    **不**重置——≥2 告警(#371 阈值 3→2)/恢复判定/退避计时梯全由总数驱动
+    (kind 中途切换 ≠ 成功,不得下假「已恢复」);kind_count 重归 1,只驱动文案 ×N。"""
     src = _make_src("x", tmp_path, mtime=OLD)
     sch, mgr = _make_scheduler([src])
     sch.scan(now=NOW)                           # 第 1 次 download 失败
