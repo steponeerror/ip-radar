@@ -1,5 +1,7 @@
 # SHADOW-RUNBOOK.md — shadow 期运行手册(票 #229 T5 任务书④)
 
+> **2026-11-20 已切流(#364,用户裁「把他转正」)**:现行生产形见 §已切流;以下 shadow 期叙述=历史留档与回退审计参照。
+
 spec 定案 2 安全轨的运维面:旧管线原地不动,v2 在 `ops/agent-v2/` shadow 跑满一月轮周期,golden + 新旧产出对拍一致才切流。**切流时点由用户裁决,本手册不自动切。**
 
 影子轮工件根(导航,2026-11-15 retro 立):服务器容器 `/app/data/ops-shadow/docs/ops/`——轮工件 `rounds/<id>-health/`(含 `05-deep-*-transcript.jsonl`)、轮末 retro 件 `retro/`、台账 `ledger.md` 与判例/条目库同根;注意双层 `docs/ops/` 嵌套易摸错(当日三轮探查实测)。
@@ -79,6 +81,9 @@ v2 无生产流量 → 回退=停 v2 cron 即可,零数据迁移。SQLite 库/�
 - 装机后核对 `chmod +x /opt/ip-lookup-tool/deploy/ops-cron-v2.sh`(git 已带执行位;同 ops-cron.md 部署清单「chmod +x」判例)。
 
 ### 回退路径(cron 面单点)
+
+- **回退=两行互换**(注释 v2 行 + 去注释 v1 行),勿双活(双活=两管线并发写生产台账/queue)。
+- **手触 v1 发现轮避开本地 04/12/20 起约 35 分钟**(v2 健康轮窗;发现轮仍走 v1 API 面,与 v2 并发共享 items/breaker 无跨进程守卫——评审 P2-2)。
 
 crontab 换回旧行(去掉上行注释)即恢复 v1 生产:后端 API 触发形连生产台账/轮目录续跑,零数据迁移。v2 侧停跑即退——SQLite/轮目录原地留档供事后审计(证据永不灭失);影子对拍工具(shadow-diff.mjs)留仓,可对 v1/v2 历史轮做审计对拍。回退演练验收(票面):换回旧行后下窗 v1 轮正常起,生产台账/queue 恢复 v1 写。
 
