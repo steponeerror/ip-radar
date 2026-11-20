@@ -126,6 +126,23 @@ crontab 换回旧行(去掉上行注释)即恢复 v1 生产:后端 API 触发形
 
 1. 首轮生产轮信封 ok=true,轮 id 序列接续生产(UTC 形);2. 生产台账/queue 由 v2 写、旧管线零写;3. 回退演练=换回旧行下窗 v1 正常起。
 
+### 全局急停(#368;一条命令停全部自动轮,用户可复制执行)
+
+适用:发现异常外发/花费失控/任一面失控——先停一切,事后审计(证据永不灭失,轮目录/台账原地留档)。
+覆盖面=本机三 timer(演化 #356 / fleet 加源 / 日报 #368)+ 服务器两行 v2 cron(健康轮 #364 / 发现轮 #367)。
+v1 旧行本就注释中;影子 cron 已停,无需处理。恢复=反向操作(去注释/重 enable)。
+注意:发现轮 cron 行(#367)装机晚于本节入库,sed 对它用宽松锚 `^\S.*ops-cron-v2-discover\.sh`
+(任意分+任意前缀,不赌装机行形状;健康轮行是切流实录的精确锚,保持原样)。行缺席时 sed 对它无操作(幂等,不报错)。
+
+```bash
+# ① 本机:停三个 timer(逐个容错:fleet 未装机时缺件不阻断其余——
+#    systemctl 对缺件单元会整条拒执行,实测 2026-11-20;正在跑的 oneshot 不被杀,只不再拉新)
+for t in ipradar-evolve.timer ipradar-fleet.timer ipradar-digest.timer; do systemctl --user disable --now "$t" 2>/dev/null || true; done
+# ② 服务器:注释两行 v2 cron(行首加 #;回退=crontab -e 去掉行首注释)
+ssh root@203.88.124.85 'crontab -l | sed -e "s|^0 4-23/8 \* \* \* /opt/ip-lookup-tool/deploy/ops-cron-v2\.sh|#&|" -e "s|^\S.*ops-cron-v2-discover\.sh|#&|" | crontab -'
+# 验证:systemctl --user list-timers | grep ipradar(应无对应 timer)+ ssh root@203.88.124.85 'crontab -l | grep -v "^#" | grep ip-lookup-tool'(应空)
+```
+
 ## 实际接线(2026-10-28 置备;小机 203.88.124.85)
 
 - v2 宿 = 生产容器 `ip-lookup-tool-ipradar-1`(node 22.23.4,Dockerfile `opsagent-v2` 层烘焙依赖)。env 面逐键白名单(不笼统说「同环境」):`DOCS_ROOT=<影子根>/docs`、`OPS_AUTH=/app/data/ops/auth.json`(生产件只读)、`OPS_EVAL_PY`/`OPS_DATA_DIR`(桥 _round_env 同源两键,shared.mjs 加载期常量,容器内不物化必死 PROBE)、`OPS_SWEEP_DRY_RUN=1`(影子零外发)、`OPS_MODEL_HEALTH`/`OPS_MODEL_DISCOVER`(agent-config.json 现读,缺配置不注)、`LANG=C.UTF-8`;并 `unset IP_RADAR_ADMIN_PASSWORD IP_RADAR_API_JWT_SECRET IP_RADAR_ALERT_URLS GH_TOKEN`(docker exec 继承容器全量 env,管理密钥不带进模型进程;GH_TOKEN 摘除=gh 出口双保险)。
