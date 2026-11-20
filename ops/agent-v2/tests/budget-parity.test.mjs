@@ -59,11 +59,20 @@ test("零复制单源:v2 budget.mjs 导出面 = 旧管线 budget.mjs 逐名同�
 test("旋钮读面对拍:同 env → readBudgetKnobs/readDiscoverKnobs(旧)与 roundKnobs(v2)逐字段一致;非法=同文案用法错", () => {
   for (const { name, env } of KNOB_ENV_SAMPLES) {
     assert.deepEqual(roundKnobs(env, "health"), oldBudget.readBudgetKnobs(env), `health 旋钮漂移:${name}`);
-    assert.deepEqual(roundKnobs(env, "discover"), oldBudget.readDiscoverKnobs(env), `discover 旋钮漂移:${name}`);
+    // #367:发现轮月帽独立 OPS_DISCOVER_MONTHLY_CAP_CNY(缺省 20)——旧面共享键不再逐字段
+    // 相等;其余四键(调用/墙钟/花费/dup)仍与旧 readDiscoverKnobs 逐字段对拍
+    const { monthlyCapCny: _oldCap, ...discoverRest } = oldBudget.readDiscoverKnobs(env);
+    const { monthlyCapCny: _v2Cap, ...v2Rest } = roundKnobs(env, "discover");
+    assert.deepEqual(v2Rest, discoverRest, `discover 旋钮漂移(月帽键外):${name}`);
   }
-  // discover 族无 tokenBudget 键(发现轮无 token 界,#207 T1);月帽/dup 共享同键
+  // discover 族无 tokenBudget 键(发现轮无 token 界,#207 T1);dup 仍共享同键
   assert.equal("tokenBudget" in roundKnobs({}, "discover"), false);
-  assert.equal(roundKnobs({}, "discover").monthlyCapCny, roundKnobs({}, "health").monthlyCapCny);
+  // #367 独立月帽:缺省 ¥20 ≠ 健康轮共享键缺省 ¥30;独立键覆写只入 discover 面
+  assert.equal(roundKnobs({}, "discover").monthlyCapCny, 20);
+  assert.equal(roundKnobs({}, "health").monthlyCapCny, 30);
+  assert.equal(roundKnobs({ OPS_DISCOVER_MONTHLY_CAP_CNY: "7" }, "discover").monthlyCapCny, 7);
+  assert.equal(roundKnobs({ OPS_DISCOVER_MONTHLY_CAP_CNY: "7" }, "health").monthlyCapCny, 30, "独立键不入健康轮面");
+  assert.equal(roundKnobs({ OPS_PIPELINE_MONTHLY_CAP_CNY: "9" }, "discover").monthlyCapCny, 20, "共享月帽键不再入发现轮面");
   // 非法值:两面同 throw {usage:true} 同文案(exit 2 不带病跑轮判例)
   const capture = (fn) => { try { fn(); return null; } catch (e) { return e; } };
   for (const bad of ["-1", "abc"]) {
@@ -74,6 +83,10 @@ test("旋钮读面对拍:同 env → readBudgetKnobs/readDiscoverKnobs(旧)与 r
     assert.equal(n.usage, true); assert.equal(o.usage, true);
     assert.equal(n.message, o.message, "用法错文案漂移");
   }
+  // #367 独立月帽键非法值:同形用法错文案(readAddKnob 同形拷贝面,exit 2 不带病跑轮)
+  const badCap = capture(() => roundKnobs({ OPS_DISCOVER_MONTHLY_CAP_CNY: "-1" }, "discover"));
+  assert.equal(badCap?.usage, true);
+  assert.equal(badCap?.message, "OPS_DISCOVER_MONTHLY_CAP_CNY 须为非负数,得到:-1");
 });
 
 test("四界①③ attempt 前查对拍(旧 runModelStage 语义 × v2 preModelCall):决策/码/文案/剩余量逐条一致", () => {
@@ -243,6 +256,38 @@ test("月度准入对拍(¥30 ∧ est):admitRound(v2)与旧 admitOrRefuse 同裁
 });
 
 // est 校验的纯面对拍(admitRound 是 async,非法在校验即 throw——用同步子进程面钉 CLI exit 2)
+// #367:发现轮独立月帽 OPS_DISCOVER_MONTHLY_CAP_CNY(缺省 ¥20)——执法面原样(admitOrRefuse
+// 同一函数:同 ledger 当月 Σcost+est 对帽裁决+拒跑留痕行),只帽值独立;拒跑文案键名指认经
+// v2 面改写指 OPS_DISCOVER_MONTHLY_CAP_CNY(旧 refusalOf 单源硬编码共享键名,旧文件零改动红线)。
+test("发现轮独立月帽对拍(#367):缺省 ¥20 等号放行/拒启界;文案键名改写;台账留痕行 cap=20;健康轮面不受独立键影响", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "v2-budget-disc-cap-"));
+  const month = oldBudget.monthNow();
+  const mkLedger = (cost) => {
+    const f = path.join(tmp, `ledger-${Math.random().toString(36).slice(2)}.md`);
+    fs.writeFileSync(f, `| 日期 | 轮次 | model | 用量 | 备注 |\n|---|---|---|---|---|\n| ${month}-27 | r | m | in=1 out=1 total=2 cost=${cost} | x |\n`);
+    return f;
+  };
+  // 等号放行:19.95+0.05=20.00 ≤ 20(容差语义同旧 admitMonthly:精确比较,等号=帽内)
+  assert.equal((await admitRound({ env: {}, roundType: "discover", ledgerFile: mkLedger(19.95), log: () => {} })).refused, false, "等号=帽内放行");
+  // 拒启界:19.96+0.05=20.01 > 20 → budget_monthly 拒;文案键名指 OPS_DISCOVER_MONTHLY_CAP_CNY
+  const refLedger = mkLedger(19.96);
+  const logs = [];
+  const ref = await admitRound({ env: {}, roundType: "discover", ledgerFile: refLedger, log: (l) => logs.push(l) });
+  assert.equal(ref.refused, true);
+  assert.equal(ref.code, "budget_monthly");
+  assert.match(ref.message, /月帽 ¥20\(OPS_DISCOVER_MONTHLY_CAP_CNY/);
+  assert.doesNotMatch(ref.message, /OPS_PIPELINE_MONTHLY_CAP_CNY/);
+  assert.ok(logs.some((l) => l.includes("cap=20")), "[admission] log 行 cap=20");
+  assert.match(fs.readFileSync(refLedger, "utf8"), /budget_monthly refused est=0\.05 cap=20/);
+  // env 覆写真执法:帽 7 → 6.96+0.05 > 7 拒
+  const ref7 = await admitRound({ env: { OPS_DISCOVER_MONTHLY_CAP_CNY: "7" }, roundType: "discover", ledgerFile: mkLedger(6.96), log: () => {} });
+  assert.equal(ref7.refused, true);
+  assert.match(ref7.message, /月帽 ¥7/);
+  // 健康轮面不受独立键影响:同读数 19.96 对共享帽 ¥30 放行
+  assert.equal((await admitRound({ env: {}, roundType: "health", ledgerFile: mkLedger(19.96), log: () => {} })).refused, false);
+  fs.rmSync(tmp, { recursive: true, force: true });
+});
+
 test("月帽月读数对拍:monthNow/monthSpendOfLedgerText(v2 面=旧面)", () => {
   const month = oldBudget.monthNow();
   assert.equal(typeof month, "string"); assert.match(month, /^\d{4}-\d{2}$/);
