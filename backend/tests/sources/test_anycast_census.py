@@ -1,10 +1,23 @@
 """anycast_census:UT-Dallas LACeS 任播普查(b/asorg-anycast 批,2026-10-10)。
 
 partial=True(混播前缀)排除——宁少算,grill Q4 裁定;is_anycast 走 asset 槽。
+工单 #369:上游 2026-11-18 表头 10→7 列重排,harvest 改表头驱动;
+本文件同时钉住新 7 列、旧 10 列、坏表头 raise 三条路径。
 """
+import pytest
+
 from ipdb._sources.anycast_census import AnycastCensusSource
 
+# 新 7 列布局(2026-11-18 起;locations 为带引号 JSON 数组)
 SAMPLE = (
+    "prefix,AB,GCD,partial,backing_prefix,ASN,locations\n"
+    '1.1.1.0/24,29,27,False,1.1.1.0/24,13335,"[{""cc"":""AU""}]"\n'
+    '1.2.3.0/24,3,0,True,1.2.3.0/24,99999,"[{""cc"":""US""}]"\n'
+    '9.9.9.0/24,5,5,False,9.9.9.0/24,19281,"[{""cc"":""NL""}]"\n'
+)
+
+# 旧 10 列布局(接入时 2026-10-10;partial idx 6)——向后兼容钉住
+SAMPLE_LEGACY_10COL = (
     "prefix,AB_ICMPv4,AB_TCPv4,AB_DNSv4,GCD_ICMPv4,GCD_TCPv4,partial,"
     "locations,backing_prefix,ASN\n"
     '1.1.1.0/24,29,30,29,72,27,False,"[]",1.1.1.0/24,13335\n'
@@ -13,8 +26,8 @@ SAMPLE = (
 )
 
 
-def _make(tmp_path):
-    (tmp_path / "anycast_census.csv").write_text(SAMPLE, encoding="utf-8")
+def _make(tmp_path, text=SAMPLE):
+    (tmp_path / "anycast_census.csv").write_text(text, encoding="utf-8")
     return AnycastCensusSource(tmp_path)
 
 
@@ -46,6 +59,19 @@ def test_query_outside_prefixes_misses(tmp_path):
     s = _make(tmp_path)
     s.rebuild()
     assert not s.query("8.8.8.8")
+
+
+def test_legacy_10col_layout_still_rebuilds(tmp_path):
+    s = _make(tmp_path, SAMPLE_LEGACY_10COL)
+    assert s.rebuild() == 2                        # 向后兼容:旧布局同解
+    assert s.query("9.9.9.9")[0].get("is_anycast") is True
+    assert not s.query("1.2.3.4")                  # 混播前缀照旧不入库
+
+
+def test_header_missing_partial_raises(tmp_path):
+    s = _make(tmp_path, "prefix,AB,GCD\n1.1.1.0/24,1,2\n")
+    with pytest.raises(RuntimeError, match="header missing prefix/partial"):
+        s.rebuild()                                # fail-closed:可诊断的显式报错
 
 
 def test_metadata_declared_in_file(tmp_path):

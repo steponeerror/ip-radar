@@ -1,7 +1,12 @@
 """UT-Dallas Anycast Census(LACeS 主动测量;b/asorg-anycast 批,2026-10-10)。
 
 manycast.net REST CSV 导出(日更,~4.1 万 /24 任播前缀);License MPL-2.0。
-列:prefix,AB_*,GCD_*,partial,locations,backing_prefix,ASN。
+上游 2026-11-18 起表头精简重排(工单 #369):旧 10 列
+prefix,AB_ICMPv4,AB_TCPv4,AB_DNSv4,GCD_ICMPv4,GCD_TCPv4,partial,
+locations,backing_prefix,ASN(partial idx 6)→ 新 7 列
+prefix,AB,GCD,partial,backing_prefix,ASN,locations(AB_*/GCD_* 各并成
+一列,partial idx 3)。harvest 由此改表头驱动(按名取 prefix/partial 列),
+不再赌列序;缺列显式 raise,交 rebuild 零记录守卫保旧 epoch。
 partial=True(混播前缀,仅部分 IP 任播)整行排除——宁少算,grill Q4 裁定;
 is_anycast 走 asset 槽(弃权拼写 R17A-1:信息位不指控)。
 任播语义:同一 IP 从多地同时应答;第二证人路径 = bgp.tools anycast 复活后
@@ -64,13 +69,22 @@ class AnycastCensusSource(Source):
     def harvest(self):
         with open(self._path, "r", encoding="utf-8", errors="replace") as f:
             reader = csv.reader(f)
-            next(reader, None)                     # header
+            # 表头驱动(工单 #369):上游 2026-11-18 起列序精简重排,固定
+            # 索引全跳行 → 假"zero records"失败;按名取列后新旧布局同解。
+            header = next(reader, None)
+            if (not header or "prefix" not in header
+                    or "partial" not in header):
+                # fail-closed:显式 raise(可诊断),rebuild 守卫保旧 epoch
+                raise RuntimeError(
+                    "anycast_census: header missing prefix/partial")
+            pre_idx = header.index("prefix")
+            p_idx = header.index("partial")
             for row in reader:
-                if len(row) < 7:
+                if len(row) <= max(pre_idx, p_idx):
                     continue
-                if row[6] != "False":              # 宁少算:混播前缀排除
+                if row[p_idx] != "False":          # 宁少算:混播前缀排除
                     continue
-                yield row[0], Evidence(
+                yield row[pre_idx], Evidence(
                     is_anycast=True,
                     verdict="",                    # 弃权拼写(R17A-1)
                     native_types={"is_anycast": "LACeS anycast census"},
