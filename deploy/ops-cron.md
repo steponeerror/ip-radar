@@ -1,5 +1,7 @@
 # ops 健康轮 cron 接线草案(P5 #167;安装=部署段,本文件只交草案+调用链文档)
 
+> **切流留档注(#364,2026-11-20)**:生产健康轮 cron 已切至 v2 直跑形 `deploy/ops-cron-v2.sh`(ops/agent-v2/run-health.mjs 接生产世界;操作单/回退/观察清单见 ops/agent-v2/SHADOW-RUNBOOK.md §已切流)。本文件的 v1 API 触发形 = crontab 回退参照留档;§gh_search 通道凭证(GH_TOKEN)判例仍适用后端触发的发现轮。
+
 触发链(C 稿 §5.1 定案;三小裁③:cron 首窗 **04:00 起错峰**——源更新凌晨 rebuild 高峰
 不与健康轮抢车道):
 
