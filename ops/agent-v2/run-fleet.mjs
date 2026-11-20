@@ -253,14 +253,27 @@ async function git(cwd, args, opts = {}) {
 }
 const tailOf = (s, n = 60) => String(s ?? "").trimEnd().split("\n").slice(-n).join("\n");
 
-// 冻结位翻转(jsonl 首行 meta 的 frozen 布尔;恰一命中 fail-closed)
+// 冻结位翻转(jsonl 首行 meta 的 frozen 布尔)。两形态都认:入仓手改形 `"frozen": true`(带空格)
+// 与生成器产出形 `"frozen":false`(紧凑;gen-universe.mjs:189 生成器只产未冻结件)。写回统一带空格形
+// (仓内风格)。幂等:目标值已在=无操作;首行缺键时 value=false 无操作、value=true 在尾}前插键。
 export function setFrozenFlag(jsonlPath, value) {
   const text = fs.readFileSync(jsonlPath, "utf8");
-  const from = value ? '"frozen": false' : '"frozen": true';
+  const nl = text.indexOf("\n");
+  const first = nl < 0 ? text : text.slice(0, nl);
+  const rest = nl < 0 ? "" : text.slice(nl);
+  const hits = [...first.matchAll(/"frozen":\s*(true|false)/g)];
+  if (hits.length > 1) throw new Error(`冻结位翻转失败:${jsonlPath} 首 meta frozen 键命中 ${hits.length} 处(期望恰 1)`);
   const to = value ? '"frozen": true' : '"frozen": false';
-  const i = text.indexOf(from);
-  if (i < 0 || text.indexOf(from, i + 1) >= 0) throw new Error(`冻结位翻转失败:${jsonlPath} 首 meta 期望恰一 ${from}`);
-  fs.writeFileSync(jsonlPath, text.replace(from, to));
+  let outFirst;
+  if (hits.length === 0) {
+    if (!value) return; // 无键=本就未冻结
+    if (!first.trimEnd().endsWith("}")) throw new Error(`冻结位翻转失败:${jsonlPath} 首 meta 无 frozen 键且非 JSON 对象尾,无法插键`);
+    outFirst = `${first.trimEnd().slice(0, -1)},"frozen": true}`; // 冻结但缺键(罕见面):插键
+  } else {
+    if ((hits[0][1] === "true") === value) return; // 幂等
+    outFirst = first.replace(/"frozen":\s*(true|false)/, to);
+  }
+  fs.writeFileSync(jsonlPath, outFirst + rest);
 }
 const readJsonlMeta = (p) => JSON.parse(fs.readFileSync(p, "utf8").split("\n")[0]);
 

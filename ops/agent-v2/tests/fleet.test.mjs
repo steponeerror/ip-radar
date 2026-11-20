@@ -16,7 +16,7 @@ import {
   applyFleetOutcome, blockedSourcesOf, FLEET_SKIP_FAILURES,
   bumpReadmeCount, bumpReadmeZhCount, bumpManualCounts, bumpManualImageAlt, bumpManualZhCounts,
   insertReadmeRow, syncRrsiSplitPins, syncRrsiDomainPin, bumpDiscoverySmokePin, insertSnapshotRow,
-  changelogEntries, composePrBody, roundStemOf,
+  changelogEntries, composePrBody, roundStemOf, setFrozenFlag,
 } from "../run-fleet.mjs";
 
 const HERE = import.meta.dirname;
@@ -228,4 +228,31 @@ test("CLI 队列缺席:exit 3,信封 infra;有源缺 --model:exit 2", async () =
     assert.equal(r2.code, 2, `stderr:\n${r2.err}`);
     assert.match(r2.err, /--model\/OPS_MODEL_FLEET/);
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test("setFrozenFlag:入仓带空格形与生成器紧凑形都认;幂等;缺键时冻结=插键(2026-11-20-2210 轮判例:gen-universe 重生成件是紧凑形 \"frozen\":false,带空格搜索扑空)", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "fleet-frozen-"));
+  const mk = (first) => { const f = path.join(tmp, `u${Math.random().toString(36).slice(2)}.jsonl`); fs.writeFileSync(f, first + "\nrow1\nrow2\n"); return f; };
+  // 入仓形(带空格):解冻→复冻
+  const spaced = mk('{"kind": "ipradar-add-universe", "total": 35, "frozen": true}');
+  setFrozenFlag(spaced, false);
+  assert.ok(fs.readFileSync(spaced, "utf8").split("\n")[0].includes('"frozen": false'));
+  setFrozenFlag(spaced, true);
+  assert.ok(fs.readFileSync(spaced, "utf8").split("\n")[0].includes('"frozen": true'));
+  // 生成器形(紧凑):冻结
+  const compact = mk('{"kind":"ipradar-add-universe","total":36,"frozen":false}');
+  setFrozenFlag(compact, true);
+  const head = fs.readFileSync(compact, "utf8").split("\n")[0];
+  assert.ok(head.includes('"frozen": true') && JSON.parse(head).frozen === true);
+  assert.ok(!head.includes('"frozen":false'));
+  // 幂等:同值再调不变
+  const before = fs.readFileSync(compact, "utf8");
+  setFrozenFlag(compact, true);
+  assert.equal(fs.readFileSync(compact, "utf8"), before);
+  // 缺键:value=false 无操作;value=true 插键
+  const nokey = mk('{"kind":"ipradar-add-universe","total":36}');
+  setFrozenFlag(nokey, false);
+  assert.equal(fs.readFileSync(nokey, "utf8").split("\n")[0], '{"kind":"ipradar-add-universe","total":36}');
+  setFrozenFlag(nokey, true);
+  assert.equal(JSON.parse(fs.readFileSync(nokey, "utf8").split("\n")[0]).frozen, true);
 });
