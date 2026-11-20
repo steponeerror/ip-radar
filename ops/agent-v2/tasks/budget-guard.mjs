@@ -18,10 +18,10 @@ import * as budget from "../budget.mjs"; // 零复制 seam(单一真源=旧管�
 
 const ROOT = path.resolve(import.meta.dirname, "..", "..", ".."); // 仓根(本文件居 tasks/ 子层,三层上移;entry.mjs 居浅一层故两层,两处落点须同仓根——对拍由 budget-parity 台账落位测试钉死。不 import entry 防环)
 
-// per-type 旋钮读面(pipeline.mjs mkCtx 同选择:discover→readDiscoverKnobs,其余→readBudgetKnobs;
-// 月帽/dup 两键两族共享同键同缺省)。非法值 throw {usage:true} → CLI 用法错 exit 2(不带病跑轮)。
+// per-type 旋钮读面(pipeline.mjs mkCtx 同选择:discover→旧 readDiscoverKnobs+月帽独立(#367),
+// 其余→readBudgetKnobs;dup 两族共享同键同缺省)。非法值 throw {usage:true} → CLI 用法错 exit 2(不带病跑轮)。
 export const roundKnobs = (env, roundType = "health") =>
-  (roundType === "discover" ? budget.readDiscoverKnobs
+  (roundType === "discover" ? readDiscoverKnobsV2
     : roundType === "add" ? readAddKnobs
     : budget.readBudgetKnobs)(env ?? process.env);
 
@@ -54,6 +54,19 @@ export function readAddKnobs(env = process.env) {
   };
 }
 
+// —— 发现轮独立月帽(票 #367;2026-11-20 用户裁 Q3 发现轮定频每日一跑,月帽 ¥20)——
+// 月帽键独立 OPS_DISCOVER_MONTHLY_CAP_CNY(缺省 ¥20=票面值),不再共享
+// OPS_PIPELINE_MONTHLY_CAP_CNY(¥30):定频后发现轮自成花费面,独立 kill switch
+// 先于全局帽可收紧。台账口径不变(#367 票面「台账口径与现有月帽执法一致」):同一
+// ledger.md 当月全行 Σcost+est 对帽裁决,monthSpendOfLedgerText/admitOrRefuse 原样
+// 消费;旧 budget.mjs 零改动红线,月帽键独立落 v2 guard 层(readAddKnobs #332
+// 先例:add 族独立旋钮同层)。其余四键(调用/墙钟/花费/dup)仍=旧 readDiscoverKnobs
+// 逐字段(budget-parity 对拍钉)。readAddKnob=readKnob 同形拷贝,月帽键校验同形复用。
+const readDiscoverKnobsV2 = (env) => ({
+  ...budget.readDiscoverKnobs(env),
+  monthlyCapCny: readAddKnob("OPS_DISCOVER_MONTHLY_CAP_CNY", env.OPS_DISCOVER_MONTHLY_CAP_CNY ?? process.env.OPS_DISCOVER_MONTHLY_CAP_CNY, "20"),
+});
+
 // 台账路径推导(旧 agent.mjs runRound 同形:LEDGER_FILE > DOCS_ROOT/ops/ledger.md;
 // 月帽是全 agent 面共享底线,同裁决同留痕。shadow 期实际接线:DOCS_ROOT 指影子根,
 // v2 轮读写影子世界自种清零的独立 ledger.md,不碰生产台账;切流后才指生产根)。
@@ -73,6 +86,11 @@ export async function admitRound({ env = process.env, log = () => {}, roundType 
     throw Object.assign(new Error(`OPS_PIPELINE_BUDGET_CNY 须为非负数,得到:${estRaw}`), { usage: true });
   const file = ledgerFile ?? resolveLedgerPath(env);
   const admission = await budget.admitOrRefuse({ ledgerFile: file, capCny: knobs.monthlyCapCny, estCny, env, log, round: roundType });
+  // #367:发现轮月帽独立键——拒跑文案单源在旧 refusalOf(键名指认硬编码共享键
+  // OPS_PIPELINE_MONTHLY_CAP_CNY;旧文件零改动红线不动旧面),discover 帽下键名指认
+  // 按本面旋钮键改写;数值语义不变(cap 读数/[admission] log/台账留痕行均已是真值)
+  if (admission.refused && roundType === "discover")
+    admission.message = admission.message.replace("OPS_PIPELINE_MONTHLY_CAP_CNY", "OPS_DISCOVER_MONTHLY_CAP_CNY");
   return { ...admission, knobs, estCny, ledgerFile: file };
 }
 

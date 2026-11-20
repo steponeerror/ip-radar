@@ -74,11 +74,15 @@ v2 无生产流量 → 回退=停 v2 cron 即可,零数据迁移。SQLite 库/�
 0 4-23/8 * * * /opt/ip-lookup-tool/deploy/ops-cron-v2.sh >> /var/log/ipradar-ops-cron.log 2>&1
 # 影子 cron 停用(切流后 v2 即生产,对拍失对象;shadow-diff.mjs 留仓供审计):
 # 40 4-23/8 * * * /opt/ip-lookup-tool/deploy/ops-shadow-cron.sh >> /var/log/ipradar-ops-shadow.log 2>&1
+# 发现轮定频(#367,2026-11-20 用户裁 Q3 每日一跑;v2 直跑形同健康轮律):
+0 6 * * * /opt/ip-lookup-tool/deploy/ops-cron-v2-discover.sh >> /var/log/ipradar-ops-cron.log 2>&1
 ```
 
 - 日志沿用 `/var/log/ipradar-ops-cron.log`(行前缀 `ops-cron-v2:` 与 v1 `ops-cron:` 可辨;回退换行零日志迁移)。
 - 轮 id 序列:脚本取容器 UTC 墙钟(v1 pipeline.mjs mkCtx 同钟),宿主 `0 4-23/8`(04/12/20 本地时=03/11/19 UTC)自然接续生产既有序列,零迁移。
 - 装机后核对 `chmod +x /opt/ip-lookup-tool/deploy/ops-cron-v2.sh`(git 已带执行位;同 ops-cron.md 部署清单「chmod +x」判例)。
+- 发现轮定频(#367):`deploy/ops-cron-v2-discover.sh` 每日 06:00——错峰于健康轮窗(04/12/20 起约 35 分钟禁并发,#365 评审 P2-2;06:00 距 04:00 窗尾 ≥85 分钟,零并发面;手触任何发现轮同避两窗)。real 面显式 `--model`(agent-config.json model_discover 现读注入 OPS_MODEL_DISCOVER;缺配置=明确跳过 exit 0 下窗自愈,修复=PUT /api/ops/agent-config)。月帽独立键 `OPS_DISCOVER_MONTHLY_CAP_CNY` 缺省 ¥20(≠健康轮共享 OPS_PIPELINE_MONTHLY_CAP_CNY ¥30;超帽拒启=信封 budget_monthly exit 1+台账拒跑留痕行,容器 env 可覆写)。cron 冻结面钉在 `tests/ops-cron-v2-discover.test.mjs`。
+- 装机后核对 `chmod +x /opt/ip-lookup-tool/deploy/ops-cron-v2-discover.sh`(同上行判例)。
 
 ### 回退路径(cron 面单点)
 
