@@ -16,7 +16,7 @@ import {
   applyFleetOutcome, blockedSourcesOf, FLEET_SKIP_FAILURES,
   bumpReadmeCount, bumpReadmeZhCount, bumpManualCounts, bumpManualImageAlt, bumpManualZhCounts,
   insertReadmeRow, syncRrsiSplitPins, syncRrsiDomainPin, bumpDiscoverySmokePin, insertSnapshotRow,
-  changelogEntries, composePrBody,
+  changelogEntries, composePrBody, roundStemOf,
 } from "../run-fleet.mjs";
 
 const HERE = import.meta.dirname;
@@ -161,6 +161,20 @@ test("changelogEntries/composePrBody:双语对+轮四行数入文", () => {
   assert.ok(body.includes("# add/sgb_blocklist — M5 fleet 自动 lift(#366)"));
   assert.ok(body.includes("universe 35→36"));
   assert.ok(body.includes("轮四行数"));
+});
+
+test("roundStemOf:registry 名真源=a3-implement.json 的 stem(卡 id≠stem 判例 2026-11-20-2210:卡 sgb_blocklist/registry gorkemgun_sgb_blocklist)", () => {
+  const mk = (dir, stem) => { fs.mkdirSync(dir, { recursive: true }); if (stem === null) fs.writeFileSync(path.join(dir, "a3-implement.json"), "{}"); else fs.writeFileSync(path.join(dir, "a3-implement.json"), JSON.stringify({ stem })); };
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "fleet-a3-"));
+  mk(path.join(tmp, "ok"), "gorkemgun_sgb_blocklist");
+  mk(path.join(tmp, "missing"), null);
+  mk(path.join(tmp, "bad"), "Bad-Name!");
+  assert.equal(roundStemOf(path.join(tmp, "ok")), "gorkemgun_sgb_blocklist");
+  assert.equal(roundStemOf(path.join(tmp, "missing")), null);
+  assert.equal(roundStemOf(path.join(tmp, "bad")), null);
+  assert.equal(roundStemOf(path.join(tmp, "absent")), null);
+  // 真轮工件只读回归:2026-11-20-2210-add 实测 stem(轮工件在主检出 docs/ops/rounds/,worktree 无 docs)
+  assert.equal(roundStemOf(path.resolve(REPO, "..", "..", "docs", "ops", "rounds", "2026-11-20-2210-add")), "gorkemgun_sgb_blocklist");
 });
 
 // ── lift 文本变换:真仓件只读回归钉(钉面漂移先红在此,非真跑轮时)──

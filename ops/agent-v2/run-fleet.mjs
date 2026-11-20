@@ -211,11 +211,12 @@ export function changelogEntries({ source, dossier, roundId, stats, prNumber }) 
   return { zh, en };
 }
 
-export function composePrBody({ source, roundId, dossier, stats, gates, rosterTotal, universe, split, seats }) {
+export function composePrBody({ source, card = null, roundId, dossier, stats, gates, rosterTotal, universe, split, seats }) {
   return [
     `# add/${source} — M5 fleet 自动 lift(#366)`,
     "",
     `- **轮**:\`${roundId}\`(加源轮 VERIFY→DOSSIER→IMPLEMENT→GATE→REPORT→CLOSE 全绿;沙箱 TDD 先红后绿)`,
+    `- **队列卡**:\`${card ?? source}\`(docs/ops/queue.md APPROVE 行;卡 id 与 registry 名可不同,${card && card !== source ? `本例卡 ${card} → registry ${source}` : "本例同名"})`,
     `- **源**:${dossier.name} — ${dossier.url}`,
     `- **格式**:${clip(dossier.format, 200)}`,
     `- **样本**:${(dossier.samples ?? []).slice(0, 3).join(" / ")}`,
@@ -263,6 +264,16 @@ export function setFrozenFlag(jsonlPath, value) {
 }
 const readJsonlMeta = (p) => JSON.parse(fs.readFileSync(p, "utf8").split("\n")[0]);
 
+// 轮产 stem 真源:a3-implement.json 的 stem(add-round 门钉 summary.name===stem,
+// slugify(dossier.name) 派生)。队列卡 id(如 sgb_blocklist)与 registry 名(如
+// gorkemgun_sgb_blocklist,slugify("gorkemgun/sgb-blocklist"))可不同——lift 一切
+// registry 面(README 行/快照行/钉注记/PR 标题)以 stem 为准,卡 id 只作追溯面。
+export function roundStemOf(roundDir, io = { readJsonIf }) {
+  const a3 = io.readJsonIf(path.join(roundDir, "a3-implement.json"));
+  const stem = typeof a3?.stem === "string" ? a3.stem : "";
+  return SOURCE_SHAPE.test(stem) ? stem : null;
+}
+
 class LiftError extends Error {
   constructor(step, message) { super(message); this.step = step; }
 }
@@ -274,23 +285,25 @@ export async function runLift({ sandbox, roundDir, fleetRoot, devRoot, python, s
   const dossier = readJsonIf(path.join(roundDir, "a2-dossier.json"))?.dossier;
   if (!dossier?.name || !dossier?.url) throw new LiftError("dossier", "a2-dossier.json 缺席或形状坏(dossier.name/url 缺)");
   const stats9 = readJsonIf(path.join(roundDir, "09-budget.json"))?.readings;
-  // 2. roster diff:沙箱相对基线(fleet 检出=origin/master 内容)恰增一源
+  const stem = roundStemOf(roundDir);
+  if (!stem) throw new LiftError("dossier", "a3-implement.json 缺 stem 或形状坏(registry 名真源;卡 id≠registry 名时不可用卡 id 代替)");
+  // 2. roster diff:沙箱相对基线(fleet 检出=origin/master 内容)恰增一源(=轮 stem)
   const rosterDump = async (backendDir) => (await exec(python, ["-m", "ipdb._registry", "--roster"], { cwd: backendDir, timeout: 120_000, maxBuffer: 16 * 1024 * 1024 })).stdout;
   const baseRows = parseRoster(await rosterDump(path.join(fleetRoot, "backend")));
   const newRows = parseRoster(await rosterDump(path.join(sandbox, "backend")));
   const baseNames = new Set(baseRows.map((r) => r.name));
   const added = newRows.filter((r) => !baseNames.has(r.name));
-  if (added.length !== 1 || added[0].name !== source)
-    throw new LiftError("roster-diff", `沙箱 roster 增员异常:期望恰 [${source}],实 [${added.map((r) => r.name).join(",")}]`);
+  if (added.length !== 1 || added[0].name !== stem)
+    throw new LiftError("roster-diff", `沙箱 roster 增员异常:期望恰轮 stem [${stem}](卡 ${source}),实 [${added.map((r) => r.name).join(",")}]`);
   const rosterTotal = { before: baseRows.length, after: newRows.length };
   // 新源 category/reliability(快照行与 README 节数据源)
   const meta = JSON.parse((await exec(python, ["-c",
-    "import json,ipdb._registry as r,ipdb._merge as m;print(json.dumps({'category':r.SOURCE_CATEGORIES.get('%s'),'reliability':m.SOURCE_RELIABILITY.get('%s')}))".replace(/%s/g, source)],
+    "import json,ipdb._registry as r,ipdb._merge as m;print(json.dumps({'category':r.SOURCE_CATEGORIES.get('%s'),'reliability':m.SOURCE_RELIABILITY.get('%s')}))".replace(/%s/g, stem)],
     { cwd: path.join(sandbox, "backend"), timeout: 60_000, maxBuffer: 1024 * 1024 })).stdout);
   if (meta.category == null || meta.reliability == null)
-    throw new LiftError("roster-diff", `新源 ${source} 缺 category/reliability 声明(SOURCE_CATEGORIES/SOURCE_RELIABILITY)`);
+    throw new LiftError("roster-diff", `新源 ${stem} 缺 category/reliability 声明(SOURCE_CATEGORIES/SOURCE_RELIABILITY)`);
   const keyed = JSON.parse(fs.readFileSync(path.join(sandbox, "ops", "agent-v2", "bench", "add-domain", "keyless-rules.json"), "utf8"))
-    .keyless.some((e) => e.name === source);
+    .keyless.some((e) => e.name === stem);
   // 3. 文档三件
   const edit = (rel, fn, what) => {
     const p = path.join(sandbox, rel);
@@ -299,12 +312,12 @@ export async function runLift({ sandbox, roundDir, fleetRoot, devRoot, python, s
   };
   const contributes = `${clip(dossier.format, 90)} (fleet-lifted #366)`;
   const provider = dossier.name;
-  const row = `| ${source} | [${provider}](${dossier.url}) | ${contributes} | |`;
+  const row = `| ${stem} | [${provider}](${dossier.url}) | ${contributes} | |`;
   edit("README.md", (t) => insertReadmeRow(bumpReadmeCount(t), README_SECTION_OF[added[0].category] ?? "Threat Reputation", row), "README 计数+源表行");
   edit("README.zh-CN.md", (t) => insertReadmeRow(bumpReadmeZhCount(t), README_ZH_SECTION_OF[added[0].category] ?? "威胁信誉", row), "README.zh 计数+源表行");
   edit("MANUAL.md", (t) => bumpManualImageAlt(bumpManualCounts(t, { keyless: !keyed })), "MANUAL 计数");
   edit("MANUAL.zh-CN.md", (t) => bumpManualZhCounts(t, { keyless: !keyed }), "MANUAL.zh 计数");
-  const entries = changelogEntries({ source, dossier, roundId, stats: { model_calls: stats9?.model_calls ?? 0, totalTokens: envelopeUsage(roundDir).totalTokens, cost: envelopeUsage(roundDir).cost, wall_s: stats9?.wall_s ?? 0 } });
+  const entries = changelogEntries({ source: stem, dossier, roundId, stats: { model_calls: stats9?.model_calls ?? 0, totalTokens: envelopeUsage(roundDir).totalTokens, cost: envelopeUsage(roundDir).cost, wall_s: stats9?.wall_s ?? 0 } });
   edit("CHANGELOG.md", (t) => {
     const i = t.indexOf("### 新增 Added");
     if (i < 0) throw new LiftError("docs", "CHANGELOG 缺 ### 新增 Added 节");
@@ -336,14 +349,14 @@ export async function runLift({ sandbox, roundDir, fleetRoot, devRoot, python, s
   // 5. 测试钉 + roster 快照同步
   edit("ops/agent-v2/tests/rrsi-split.test.mjs", (t) => syncRrsiSplitPins(t, { evolve: splitAfter.evolve, heldout: splitAfter.heldout, total: splitAfter.total, rosterTotal: splitAfter.rosterTotal, exempt: splitAfter.exemptTotal, tag }), "rrsi-split 钉同步");
   edit("ops/agent-v2/tests/rrsi-domain.test.mjs", (t) => syncRrsiDomainPin(t, { total: splitAfter.total, tag }), "rrsi-domain 针数钉");
-  edit("backend/tests/sources/test_b_family_url_filename_guard.py", (t) => bumpDiscoverySmokePin(t, { total: rosterTotal.after, source, tag }), "发现冒烟计数钉");
+  edit("backend/tests/sources/test_b_family_url_filename_guard.py", (t) => bumpDiscoverySmokePin(t, { total: rosterTotal.after, source: stem, tag }), "发现冒烟计数钉");
   edit("backend/tests/core/test_metadata_derivation.py", (t) => insertSnapshotRow(insertSnapshotRow(t, "OLD_CATEGORIES",
-    `    "${source}": "${meta.category}",   # ${tag} fleet lift(#366)`) , "OLD_RELIABILITY",
-    `    "${source}": ${meta.reliability},   # ${tag} fleet lift(#366)`), "metadata 快照行");
+    `    "${stem}": "${meta.category}",   # ${tag} fleet lift(#366)`) , "OLD_RELIABILITY",
+    `    "${stem}": ${meta.reliability},   # ${tag} fleet lift(#366)`), "metadata 快照行");
   // 6. lift commit
   await git(sandbox, ["add", "-A"]);
   await git(sandbox, ["-c", "user.email=fleet@ipradar.local", "-c", "user.name=fleet-driver", "-c", "commit.gpgsign=false",
-    "commit", "-m", `lift(#366): 文档三件+基准重冻+roster 钉同步(${source};fleet ${roundId})`]);
+    "commit", "-m", `lift(#366): 文档三件+基准重冻+roster 钉同步(${stem};卡 ${source};fleet ${roundId})`]);
   // 7. 门三连
   const gates = [
     { name: "backend 全量 pytest", cmd: [python, "-m", "pytest", "-q", "--durations=15"], cwd: path.join(sandbox, "backend"), timeoutMs: 30 * 60_000 },
@@ -366,12 +379,12 @@ export async function runLift({ sandbox, roundDir, fleetRoot, devRoot, python, s
   const branch = await git(sandbox, ["rev-parse", "--abbrev-ref", "HEAD"]);
   await git(sandbox, ["push", "-u", "origin", branch], { timeoutMs: 300_000 });
   const stats = { model_calls: stats9?.model_calls ?? 0, ...envelopeUsage(roundDir), wall_s: stats9?.wall_s ?? 0 };
-  const body = composePrBody({ source, roundId, dossier, stats, gates: gateResults.map((g) => ({ name: g.name, pass: g.pass })), rosterTotal, universe: { before: uniBefore.total, after: uniAfter.total }, split: { before: splitBefore.total, after: splitAfter.total }, seats });
+  const body = composePrBody({ source: stem, card: source, roundId, dossier, stats, gates: gateResults.map((g) => ({ name: g.name, pass: g.pass })), rosterTotal, universe: { before: uniBefore.total, after: uniAfter.total }, split: { before: splitBefore.total, after: splitAfter.total }, seats });
   const bodyFile = path.join(devRoot, `${roundId}-pr-body.md`);
   fs.mkdirSync(path.dirname(bodyFile), { recursive: true });
   fs.writeFileSync(bodyFile, body);
   const prUrl = await exec("gh", ["pr", "create", "--draft", "--repo", "steponeerror/ip-radar", "--base", "master", "--head", branch,
-    "--title", `add/${source}`, "--body-file", bodyFile], { timeout: 120_000, maxBuffer: 1024 * 1024 });
+    "--title", `add/${stem}`, "--body-file", bodyFile], { timeout: 120_000, maxBuffer: 1024 * 1024 });
   const prNumber = (prUrl.stdout.trim().match(/\/pull\/(\d+)/) ?? [])[1] ?? null;
   return { pr: prUrl.stdout.trim(), prNumber, branch, rosterTotal, universe: { before: uniBefore.total, after: uniAfter.total }, split: { before: splitBefore.total, after: splitAfter.total }, gates: gateResults, stats, dossier };
 }
