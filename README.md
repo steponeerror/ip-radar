@@ -4,7 +4,7 @@
 
 ![IP Radar — self-hosted IP intelligence](assets/social-preview.png)
 
-**Pull 63 public sources into your own box — a full IP profile, not just a threat verdict.** Every lookup comes back with a plain-words verdict — evidence, confidence, geo · city · ASN, cloud/hosting, proxy · VPN · Tor, service identity, all at once. One command, self-hosted.
+**Pull 64 public sources into your own box — a full IP profile, not just a threat verdict.** Every lookup comes back with a plain-words verdict — evidence, confidence, geo · city · ASN, cloud/hosting, proxy · VPN · Tor, service identity, all at once. One command, self-hosted.
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 ![Docker](https://img.shields.io/badge/Docker-one%20container-2496ED?logo=docker&logoColor=white)
@@ -203,6 +203,7 @@ Every dataset below belongs to its provider — thank you for keeping them open 
 | ustc_blackip | [USTC](https://blackip.ustc.edu.cn/) | Campus self-protection blacklist (~15 years running; unban needs human review) | |
 | mirage_feed | [OffSeq Mirage](https://github.com/offseq/mirage-feed) | Multi-sensor honeypot attacker records (7-day window, tags / ATT&CK / CVE-KEV / confidence) | |
 | honeypot_fyi | [honeypot.fyi](https://honeypot.fyi/) | Multi-protocol honeypot-fleet attacker blocklist (rolling since 2024, per-IP hit counts) | |
+| gorkemgun_sgb_blocklist | [gorkemgun/sgb-blocklist](https://raw.githubusercontent.com/gorkemgun/sgb-blocklist/main/ipv4.txt) | plain text 行式清单:文件头为 4 行 `#` 注释(标题/Source/Records/Last change),随后每行一个裸 IPv4 地址(数值排序)。无 CSV… (fleet-lifted #366) | |
 
 ### Geo & ASN
 

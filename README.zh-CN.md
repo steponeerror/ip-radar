@@ -4,7 +4,7 @@
 
 ![IP Radar — 自托管的 IP 情报](assets/social-preview.png)
 
-把 60 个公开情报源搬回家：查任何 IP，拿一份全面的画像——一句话结论、逐源证据、置信度，加上地理·城市·ASN、云/托管、代理/VPN/Tor、服务身份，一次看全。一条命令，自己部署。
+把 61 个公开情报源搬回家：查任何 IP，拿一份全面的画像——一句话结论、逐源证据、置信度，加上地理·城市·ASN、云/托管、代理/VPN/Tor、服务身份，一次看全。一条命令，自己部署。
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 ![Docker](https://img.shields.io/badge/Docker-one%20container-2496ED?logo=docker&logoColor=white)
@@ -207,6 +207,7 @@ curl -s http://127.0.0.1:8000/api/db-status
 | cps_collected_iocs `*` | [CriticalPathSecurity](https://github.com/CriticalPathSecurity/Public-Intelligence-Feeds) | CPS 公司自有 IOC 的汇总（裸 IP 清单） | |
 | malicious_ip `*` | [romainmarcoux/malicious-ip](https://github.com/romainmarcoux/malicious-ip) | 五个分片合并的封禁清单（约 100 万条唯一 IP，逐小时重建） | |
 | ustc_blackip | [USTC](https://blackip.ustc.edu.cn/) | 中国科大的校园自保黑名单（运行约 15 年，解封要人工复议） | |
+| gorkemgun_sgb_blocklist | [gorkemgun/sgb-blocklist](https://raw.githubusercontent.com/gorkemgun/sgb-blocklist/main/ipv4.txt) | plain text 行式清单:文件头为 4 行 `#` 注释(标题/Source/Records/Last change),随后每行一个裸 IPv4 地址(数值排序)。无 CSV… (fleet-lifted #366) | |
 
 ### 地理与 ASN
 
