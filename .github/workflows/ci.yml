@@ -65,6 +65,11 @@ jobs:
       - name: Bash tool reminder unit tests
         working-directory: .
         run: node --test scripts/test_bash_tool_reminder.mjs
+      # #368:每日日报纯函数面(信封解析/红项判定/两源合并/空数据日/行数帽);
+      # IO/ssh 面由装机冒烟覆盖(票面「手动触发一次真收 lark」)
+      - name: Daily digest unit tests
+        working-directory: .
+        run: node --test scripts/test_daily_digest.mjs
 
   backend:
     # needs frontend: SPA fallback tests assert on frontend/dist contents

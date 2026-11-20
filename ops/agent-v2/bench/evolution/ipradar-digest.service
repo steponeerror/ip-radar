@@ -1,0 +1,30 @@
+# ipradar-digest.service — 每日 lark 日报服务件(#368;排程交付面)
+# 装机由人(同 ipradar-evolve.timer 律):拷贝本件+timer 到 ~/.config/systemd/user/
+#   并 systemctl --user daemon-reload + enable --now ipradar-digest.timer(只 enable
+#   timer,service 由 timer 拉)。脚本零依赖 node 内建(scripts/daily-digest.mjs)。
+# 路径:repo 面=主检出(日报消费主检出 dev/ 与 docs/ops 真数据);服务器面经
+#   ssh root@203.88.124.85 免密读(勿在服务器侧装机)。
+# 数据面:滚动 24h 窗覆盖本 CST 日全部自动轮;48h 扫描带补报跨窗终局(P1-3);
+#   落盘 dev/ops-digest/<date>.md(不 commit,push 版截断+落盘版全量红项附录);
+#   --push 才真发 lark(apprise --body 直传,env IP_RADAR_ALERT_URLS,
+#   与演化告警同通道同 env——通道契约员)。
+# 红项=日报内容非服务失败(红项入 ⚠ 标题交人裁)。退出码:红项恒 0;非零仅两处=
+#   脚本自身异常(exit 3)/推送失败(P2-3:apprise 失败或缺席 → exitCode=1,oneshot
+#   不自动重试语义不变,失败显形为 failed unit 交人看 journal)。
+
+[Unit]
+Description=ip-radar 每日 lark 日报(#368)
+# 演化/fleet timer 不在也可独立跑(读面无依赖;仅数据可能缺那两家信号)
+
+[Service]
+Type=oneshot
+# 现场改:<repo> = 主检出根
+WorkingDirectory=<repo>
+ExecStart=/usr/bin/node scripts/daily-digest.mjs --push
+# lark 通道(同演化异常推送 IP_RADAR_ALERT_URLS;Q4 用户裁「渠道同演化告警 lark」)。
+# 装机人自填真令牌后去注释(全仓律:lark:// 为凭据不入仓,同 ipradar-evolve.service 注释律):
+# Environment=IP_RADAR_ALERT_URLS=lark://<token>
+# 演化月帽读数口径与 ipradar-evolve.service 同键(缺省 ¥200;只读不写)
+Environment=EVOLVE_SPEND_CAP_CNY=200
+# ssh 服务器面单次往返+本地读+推送,30 分钟帽足够富余
+TimeoutStartSec=30min

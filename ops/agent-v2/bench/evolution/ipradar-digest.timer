@@ -1,0 +1,14 @@
+# ipradar-digest.timer — 每日 lark 日报排程件(#368;装机由人)
+# 21:00 CST 出当日摘要(Q4 用户裁 2026-11-20;Q6=免正式观察期,日报即观察,
+# 连续 14 天全绿→旧管线退役 PR)。Persistent=true 补跑错过的拍(停机跨拍只补一拍)。
+# 同拍互斥:service 在跑时 timer 不重入(oneshot active 期间不重触发)。
+
+[Unit]
+Description=ip-radar 每日 lark 日报排程(#368)
+
+[Timer]
+OnCalendar=21:00
+Persistent=true
+
+[Install]
+WantedBy=default.target
