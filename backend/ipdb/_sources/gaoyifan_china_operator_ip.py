@@ -16,9 +16,10 @@ last_partial_failure(["china6.txt"]),v4 失败记 ["china.txt"] 并 raise。
 """
 import logging
 
+from ._download import (CancelledError, CancelToken, atomic_write_bytes,
+                        redact_url)
 from .._evidence import Evidence
 from .._source_base import Source
-from ._download import CancelToken, atomic_write_bytes, redact_url
 
 logger = logging.getLogger(__name__)
 
@@ -45,15 +46,17 @@ class GaoyifanChinaOperatorIPSource(Source):
         记 last_partial_failure=["china6.txt"];v4 失败记 ["china.txt"]
         并 raise(退避重试);全绿清空信号。"""
         self._data_dir.mkdir(parents=True, exist_ok=True)
+        if token is not None and token.is_cancelled():
+            raise CancelledError(f"{self.name} download cancelled")
         try:
-            v4 = self._http_get(self.url, token=token)
+            v4 = self._http_get(self.url)
             if not v4.strip():
                 raise RuntimeError(f"empty response from {redact_url(self.url)}")
         except Exception:
             self.last_partial_failure = ["china.txt"]
             raise
         try:
-            v6 = self._http_get(_V6_URL, token=token)
+            v6 = self._http_get(_V6_URL)
             if not v6.strip():
                 raise RuntimeError(
                     f"empty v6 sibling from {redact_url(_V6_URL)}")
