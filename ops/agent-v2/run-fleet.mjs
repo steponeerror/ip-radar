@@ -377,10 +377,15 @@ export async function runLift({ sandbox, roundDir, fleetRoot, devRoot, python, s
     { name: "agent-v2 node --test", cmd: ["npm", "test"], cwd: path.join(sandbox, "ops", "agent-v2"), timeoutMs: 15 * 60_000 },
   ];
   const gateResults = [];
+  // 判例 2026-11-21(过夜五败根因):timer 单元为 lark 告警配了 IP_RADAR_ALERT_URLS,
+  // 门进程继承后 ops selftest 的 finding-出口两案例红(它们钉「未配置=降级跳过」行为面)。
+  // 门环境必须确定性:剥离该变量(实锤:unset 下 PASS=119/FAIL=0,配了 PASS=118/FAIL=1)。
+  const gateEnv = { ...process.env };
+  delete gateEnv.IP_RADAR_ALERT_URLS;
   for (const g of gates) {
     log(`[fleet-lift] 门:${g.name} …`);
     try {
-      const r = await exec(g.cmd[0], g.cmd.slice(1), { cwd: g.cwd, timeout: g.timeoutMs, maxBuffer: 64 * 1024 * 1024 });
+      const r = await exec(g.cmd[0], g.cmd.slice(1), { cwd: g.cwd, timeout: g.timeoutMs, maxBuffer: 64 * 1024 * 1024, env: gateEnv });
       gateResults.push({ name: g.name, pass: true, tail: tailOf(r.stdout) });
     } catch (e) {
       gateResults.push({ name: g.name, pass: false, tail: tailOf(`${e.stdout ?? ""}\n${e.stderr ?? ""}\n${e.message}`) });
