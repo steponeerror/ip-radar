@@ -4,7 +4,7 @@
 
 ![IP Radar — 自托管的 IP 情报](assets/social-preview.png)
 
-把 61 个公开情报源搬回家：查任何 IP，拿一份全面的画像——一句话结论、逐源证据、置信度，加上地理·城市·ASN、云/托管、代理/VPN/Tor、服务身份，一次看全。一条命令，自己部署。
+把 62 个公开情报源搬回家：查任何 IP，拿一份全面的画像——一句话结论、逐源证据、置信度，加上地理·城市·ASN、云/托管、代理/VPN/Tor、服务身份，一次看全。一条命令，自己部署。
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 ![Docker](https://img.shields.io/badge/Docker-one%20container-2496ED?logo=docker&logoColor=white)
@@ -242,6 +242,7 @@ curl -s http://127.0.0.1:8000/api/db-status
 | dns_public | [DNSCrypt](https://github.com/DNSCrypt/dnscrypt-resolvers) | Community public DNS resolver endpoints (public-resolvers.md, sdns stamps decoded) | |
 | cloudzy | [Cloudzy（CPS 镜像）](https://github.com/CriticalPathSecurity/Public-Intelligence-Feeds) | Cloudzy 的 VPS 托管网段（资产陈述，不作指控） | |
 | anycast_census | [UT-Dallas Anycast Census](https://manycast.net/) | 主动测量得到的任播 /24 前缀（约 4.1 万条，混播前缀已剔除） | |
+| insightflare_asn_blocklist | [InsightFlare/asn-blocklist](https://raw.githubusercontent.com/InsightFlare/asn-blocklist/main/dist/hosting.txt) | 纯文本行式 ASN 清单:每行一个 `AS<编号>`(裸整数 ASN 带 AS 前缀,无 CIDR、无注释、无表头,行尾 \n)。同一 dist/ 目录还按 PeeringDB 网… (fleet-lifted #366) | |
 
 ## 开发
 

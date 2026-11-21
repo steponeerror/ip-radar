@@ -4,7 +4,7 @@
 
 ![IP Radar — self-hosted IP intelligence](assets/social-preview.png)
 
-**Pull 64 public sources into your own box — a full IP profile, not just a threat verdict.** Every lookup comes back with a plain-words verdict — evidence, confidence, geo · city · ASN, cloud/hosting, proxy · VPN · Tor, service identity, all at once. One command, self-hosted.
+**Pull 65 public sources into your own box — a full IP profile, not just a threat verdict.** Every lookup comes back with a plain-words verdict — evidence, confidence, geo · city · ASN, cloud/hosting, proxy · VPN · Tor, service identity, all at once. One command, self-hosted.
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 ![Docker](https://img.shields.io/badge/Docker-one%20container-2496ED?logo=docker&logoColor=white)
@@ -238,6 +238,7 @@ Every dataset below belongs to its provider — thank you for keeping them open 
 | dns_public | [DNSCrypt](https://github.com/DNSCrypt/dnscrypt-resolvers) | Community public DNS resolver endpoints (public-resolvers.md, sdns stamps decoded) | |
 | cloudzy | [Cloudzy (CPS mirror)](https://github.com/CriticalPathSecurity/Public-Intelligence-Feeds) | Cloudzy VPS / hosting ranges (asset statement, no accusation) | |
 | anycast_census | [UT-Dallas Anycast Census](https://manycast.net/) | Measured anycast /24 prefixes (~41k; partial prefixes excluded) | |
+| insightflare_asn_blocklist | [InsightFlare/asn-blocklist](https://raw.githubusercontent.com/InsightFlare/asn-blocklist/main/dist/hosting.txt) | 纯文本行式 ASN 清单:每行一个 `AS<编号>`(裸整数 ASN 带 AS 前缀,无 CIDR、无注释、无表头,行尾 \n)。同一 dist/ 目录还按 PeeringDB 网… (fleet-lifted #366) | |
 
 ## Development
 
