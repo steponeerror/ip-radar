@@ -4,7 +4,7 @@
 
 ![IP Radar — self-hosted IP intelligence](assets/social-preview.png)
 
-**Pull 68 public sources into your own box — a full IP profile, not just a threat verdict.** Every lookup comes back with a plain-words verdict — evidence, confidence, geo · city · ASN, cloud/hosting, proxy · VPN · Tor, service identity, all at once. One command, self-hosted.
+**Pull 69 public sources into your own box — a full IP profile, not just a threat verdict.** Every lookup comes back with a plain-words verdict — evidence, confidence, geo · city · ASN, cloud/hosting, proxy · VPN · Tor, service identity, all at once. One command, self-hosted.
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 ![Docker](https://img.shields.io/badge/Docker-one%20container-2496ED?logo=docker&logoColor=white)
@@ -219,6 +219,7 @@ Every dataset below belongs to its provider — thank you for keeping them open 
 | caida_asorg | [CAIDA](https://www.caida.org/catalog/datasets/as-organizations/) | AS-to-organization mapping (monthly snapshots, joined at query time) | |
 | metowolf_iplist | [metowolf/iplist](https://raw.githubusercontent.com/metowolf/iplist/master/data/special/china.txt(姊妹清单同仓 data/country/<CC>.txt 与 data/isp/<name>.txt)) | 纯文本行式 CIDR 清单,每行一条 IPv4 CIDR,无表头无注释,UTF-8,LF;special/china.txt 共约 5569 行 (fleet-lifted #366) | |
 | misakaio_chnroutes2 | [misakaio/chnroutes2](https://raw.githubusercontent.com/misakaio/chnroutes2/master/chnroutes.txt) | plain text 行式 CIDR 清单:首两行为 # 注释头(含 dump 时间戳与聚合统计),随后每行一条 IPv4 CIDR,共约 3904 条前缀(含 IPv4 段;该 … (fleet-lifted #366) | |
+| gaoyifan_china_operator_ip | [gaoyifan/china-operator-ip](https://raw.githubusercontent.com/gaoyifan/china-operator-ip/ip-lists/china.txt) | plain text 行式 CIDR 清单，每行一个 CIDR（IPv4: china.txt；IPv6: china6.txt；合并: china46.txt；另有 chinan… (fleet-lifted #366) | |
 
 ### Network Assets
 
