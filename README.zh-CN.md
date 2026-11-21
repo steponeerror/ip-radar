@@ -4,7 +4,7 @@
 
 ![IP Radar — 自托管的 IP 情报](assets/social-preview.png)
 
-把 64 个公开情报源搬回家：查任何 IP，拿一份全面的画像——一句话结论、逐源证据、置信度，加上地理·城市·ASN、云/托管、代理/VPN/Tor、服务身份，一次看全。一条命令，自己部署。
+把 65 个公开情报源搬回家：查任何 IP，拿一份全面的画像——一句话结论、逐源证据、置信度，加上地理·城市·ASN、云/托管、代理/VPN/Tor、服务身份，一次看全。一条命令，自己部署。
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 ![Docker](https://img.shields.io/badge/Docker-one%20container-2496ED?logo=docker&logoColor=white)
@@ -222,6 +222,7 @@ curl -s http://127.0.0.1:8000/api/db-status
 | rir_abuse | [RIPE NCC](https://ftp.ripe.net/ripe/dbase/) · [AFRINIC](https://ftp.afrinic.net/pub/dbase/) | 注册库里的 abuse 投诉邮箱（按网段，来自 RPSL 全量导出） | |
 | caida_asorg | [CAIDA](https://www.caida.org/catalog/datasets/as-organizations/) | ASN 到组织名的映射（月度快照，查询时拼接） | |
 | metowolf_iplist | [metowolf/iplist](https://raw.githubusercontent.com/metowolf/iplist/master/data/special/china.txt(姊妹清单同仓 data/country/<CC>.txt 与 data/isp/<name>.txt)) | 纯文本行式 CIDR 清单,每行一条 IPv4 CIDR,无表头无注释,UTF-8,LF;special/china.txt 共约 5569 行 (fleet-lifted #366) | |
+| misakaio_chnroutes2 | [misakaio/chnroutes2](https://raw.githubusercontent.com/misakaio/chnroutes2/master/chnroutes.txt) | plain text 行式 CIDR 清单:首两行为 # 注释头(含 dump 时间戳与聚合统计),随后每行一条 IPv4 CIDR,共约 3904 条前缀(含 IPv4 段;该 … (fleet-lifted #366) | |
 
 ### 网络资产
 
