@@ -55,8 +55,8 @@ def test_heartbeat_36d_fires_line(alerts_db, tmp_path):
     msg = _alerts.evaluate([], now=T0, eval_heartbeat=hb)
     assert msg is not None
     assert msg["title"] == "ipradar: 月轮心跳异常"
-    assert "月轮过期" in msg["body"]
-    assert "阈值 35.0d" in msg["body"]
+    assert "月轮心跳过期" in msg["body"]
+    assert "超过 35 天没心跳就告警" in msg["body"]
     assert _state(alerts_db) == [("monthly-eval", "eval_round", T0, T0)]
 
 
@@ -90,20 +90,20 @@ def test_missing_file_alerts(alerts_db, tmp_path):
     msg = _alerts.evaluate(
         [], now=T0, eval_heartbeat=tmp_path / "nope-eval-heartbeat")
     assert msg is not None
-    assert "月轮心跳缺失" in msg["body"]
+    assert "月轮心跳缺失:评估月轮一直没打卡" in msg["body"]
 
 
 def test_renotify_suppressed_within_24h(alerts_db, tmp_path):
     from ipdb import _alerts
     hb = _hb(tmp_path, age_h=36 * 24)
     first = _alerts.evaluate([], now=T0, eval_heartbeat=hb)
-    assert first is not None and "月轮过期" in first["body"]
+    assert first is not None and "月轮心跳过期" in first["body"]
     # 24h 内第二轮:状态在场但未到期 → 不再计入(抑制),不重发
     assert _alerts.evaluate([], now=T0 + H, eval_heartbeat=hb) is None
     assert _state(alerts_db) == [("monthly-eval", "eval_round", T0, T0)]
     # ≥24h 后重发:last_notified 前推,active_since 不变
     again = _alerts.evaluate([], now=T0 + 25 * H, eval_heartbeat=hb)
-    assert again is not None and "月轮过期" in again["body"]
+    assert again is not None and "月轮心跳过期" in again["body"]
     assert _state(alerts_db) == [
         ("monthly-eval", "eval_round", T0, T0 + 25 * H)]
 
@@ -114,5 +114,5 @@ def test_recovery_clears_state(alerts_db, tmp_path):
     assert _alerts.evaluate([], now=T0, eval_heartbeat=hb) is not None
     os.utime(hb, (T0 + H, T0 + H))  # 心跳回来(mtime 新)
     msg = _alerts.evaluate([], now=T0 + H, eval_heartbeat=hb)
-    assert msg is not None and "monthly-eval" in msg["body"]
+    assert msg is not None and "monthly-eval" in msg["body"]  # 恢复段源名=回查键原样保留(#383)
     assert _state(alerts_db) == []

@@ -4,7 +4,9 @@
 //   ①gh issue create(tools.mjs ghIssueCreate;gh 面唯一写面 GH_WRITE_SUBCOMMANDS,argv 头钉 [issue,create],
 //     缺省标签 needs-triage=人裁终局;#348:env OPS_GH_REPO 非空→透传 --repo 显式定向,容器快照仓
 //     无 remote 也不靠推导,空=行为不变);②apprise CLI 推送(与后端源活性告警 _alerts.push 同 env 同 URL 形:
-//     IP_RADAR_ALERT_URLS 逗号/空白分隔多 URL,空=静音跳过)。无任何调权/停源/写数据面/规则库写口可达
+//     IP_RADAR_ALERT_URLS 逗号/空白分隔多 URL,空=静音跳过)。
+//   #383 双面律:webhook 推送面走 findingLarkDraft 大白话稿(发生了什么/怎么办三选一人裁/证据指针),
+//   issue 面技术模板(findingIssueDraft)字节不变;两稿同源同轮,exits 工件记实际外发全稿。无任何调权/停源/写数据面/规则库写口可达
 //   ——依赖面闭集由 selftest-pipeline 结构性断言钉死(本模块 spawn 目标恰 apprise;gh 面在 tools.mjs 由
 //   t4 注入 exec 捕获 argv 钉死;禁面符号零在场)。
 // 触发面:ANCHOR_SWEEP 读数 ok 且 finding>0(#184 要点);finding=0/求值面死/replay 重放 → 全 skip 留痕
@@ -77,6 +79,44 @@ export function findingIssueDraft({ roundId, findings, nTotal }) {
   return { title, body, labels: ["needs-triage"] };
 }
 
+// lark 大白话草稿(#383:双面律——issue 面技术模板字节不变,lark 推送面单独出大白话版)。
+// 三段骨架:发生了什么 / 怎么办(三选一,人裁终局) / 证据与工单指针;每行术语换中文
+// (verdict→结论、confidence→置信度),代号括号留(verdict_conflict 等是回查工单的检索键,
+// #383 定案 3);verdict_conflict 展开成整句说明(#188 良性断言×指控同场只留痕不自动压制)。
+const PLAIN_EXPECT = Object.freeze({ clean: "应当是干净 IP", reserved: "应当是保留地址", tor: "应当是 Tor 出口", hosting: "应当是机房/托管 IP" });
+const PLAIN_VERDICT = Object.freeze({ malicious: "恶意", benign: "良性" });
+
+export function findingLarkDraft({ roundId, findings, nTotal }) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})-(\d{2})(\d{2})-(health|discover)$/.exec(String(roundId || ""));
+  const kind = m ? (m[6] === "health" ? "健康轮" : "发现轮") : "轮";
+  const when = m ? `${m[2]}-${m[3]} ${m[4]}:${m[5]}` : String(roundId ?? "?");
+  const title = `【ip-radar 巡检异常】${when} ${kind}`;
+  const rows = findings.map((f) => {
+    const expect = PLAIN_EXPECT[f.expect] ?? `应当是 ${f.expect}`;
+    const verdict = PLAIN_VERDICT[f.verdict] ?? f.verdict;
+    const line = `- ${f.ip}:标准答案${expect},查出来的结论却是「${verdict}」(verdict=${f.verdict}),置信度 ${f.confidence},指控源:${f.accusers.join("、") || "(无)"}`;
+    return f.conflict
+      ? `${line}。注意:这个 IP 同时有良性断言和恶意指控(verdict_conflict)——两说并存,只留痕不自动压制(宁少算:不把同一条证据自动算死,交人裁终局)`
+      : line;
+  });
+  const body = [
+    "【发生了什么】",
+    `${when} 的${kind}里,金标锚巡检(把一批已知标准答案的 IP 查一遍、核对结果)发现 ${findings.length} 个异常(finding;共查 ${nTotal ?? "?"} 个锚):`,
+    ...rows,
+    "",
+    "【怎么办】(三选一,人裁终局;本告警只报告,不自动做任何处置)",
+    "① 若核实是上面指控的源在误报:人工核对该源最近的数据,确认后按源管理流程处置;",
+    "② 若标准答案过期(该 IP 的真实性质变了):更新金标锚集(backend/ipdb/_eval/anchors.py)后重跑核验;",
+    "③ 若怀疑是查询或融合代码的问题:开工单交代理分诊。",
+    "",
+    "【证据与工单指针】",
+    `- 巡检工件:ops/rounds/${roundId}/08-anchor-sweep.json(共 ${nTotal ?? "?"} 个锚,异常 ${findings.length} 个)`,
+    "- 已自动开 GitHub 工单(needs-triage 标签,等人裁);工单正文是技术细节版,与本告警同源同轮",
+    `- 出口记录(含实际外发全稿):ops/rounds/${roundId}/08-anchor-sweep-exits.json`,
+  ].join("\n");
+  return { title, body };
+}
+
 // webhook 出口(apprise CLI;永不抛)。三态 + 失败分类:ENOENT→channel_missing/超时→transient/其余→webhook_failed。
 async function webhookExit({ title, body, urls, dryRun, exec = execFileP }) {
   if (!urls.length)
@@ -130,6 +170,7 @@ export async function runFindingExits({ roundId, sweepD, dir, env = process.env,
   const ghRepo = String(env.OPS_GH_REPO ?? process.env.OPS_GH_REPO ?? "").trim(); // #348:仓址定向透传(容器快照仓无 remote;空=remote 推导照旧,本地开发零变化)
   record.dry_run = dryRun;
   const draft = findingIssueDraft({ roundId, findings, nTotal: Array.isArray(sweepD.results) ? sweepD.results.length : null });
+  const lark = findingLarkDraft({ roundId, findings, nTotal: Array.isArray(sweepD.results) ? sweepD.results.length : null }); // #383:lark 面与 issue 面分稿(双面律)
   writeArtifact({ phase: "emitting" }); // 先记意图再外发(emit 守卫的崩溃窗依据)
   const issue = await ghIssueCreate(draft, { dryRun, exec, repo: ghRepo });
   record.gh_issue = issue.ok
@@ -137,7 +178,7 @@ export async function runFindingExits({ roundId, sweepD, dir, env = process.env,
         ...(issue.issue_url ? { issue_url: issue.issue_url } : {}) }
     : { status: "failed", labels: draft.labels, code: issue.error.code, reason: String(issue.error.reason).slice(0, 200) };
   const urls = String(env.IP_RADAR_ALERT_URLS ?? process.env.IP_RADAR_ALERT_URLS ?? "").split(/,\s*|\s+/).filter(Boolean);
-  record.webhook = await webhookExit({ title: draft.title, body: draft.body, urls, dryRun, exec });
-  writeArtifact({ phase: "emitted", issue: draft, webhook_payload: { title: draft.title, body: draft.body } });
+  record.webhook = await webhookExit({ title: lark.title, body: lark.body, urls, dryRun, exec });
+  writeArtifact({ phase: "emitted", issue: draft, webhook_payload: { title: lark.title, body: lark.body } });
   return record;
 }

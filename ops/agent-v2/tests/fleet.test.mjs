@@ -17,6 +17,7 @@ import {
   bumpReadmeCount, bumpReadmeZhCount, bumpManualCounts, bumpManualImageAlt, bumpManualZhCounts,
   insertReadmeRow, syncRrsiSplitPins, syncRrsiDomainPin, bumpDiscoverySmokePin, insertSnapshotRow,
   changelogEntries, composePrBody, roundStemOf, setFrozenFlag,
+  fleetLarkDraft, FLEET_LARK_ADVICE,
 } from "../run-fleet.mjs";
 
 const HERE = import.meta.dirname;
@@ -259,4 +260,30 @@ test("setFrozenFlag:入仓带空格形与生成器紧凑形都认;幂等;缺键�
   assert.equal(fs.readFileSync(nokey, "utf8").split("\n")[0], '{"kind":"ipradar-add-universe","total":36}');
   setFrozenFlag(nokey, true);
   assert.equal(JSON.parse(fs.readFileSync(nokey, "utf8").split("\n")[0]).frozen, true);
+});
+
+// ── #383 lark 推送面大白话稿(fleetLarkDraft:两件套+三段骨架;G_VERIFY 走时钟族建议)──
+test("fleetLarkDraft:拒启/轮败(G_VERIFY 时钟族)/lift 门败三形;未知信息不编造处置", () => {
+  // 拒启(月帽):标题拒启面+护栏建议
+  const refused = fleetLarkDraft({ roundId: "2026-11-21-0100-add", source: "x_feed", phase: "refused", message: "budget_monthly refused est=0.05 cap=30" });
+  assert.equal(refused.title, "【ip-radar 加源拒启】11-21 凌晨 01:00 x_feed");
+  assert.match(refused.body, /【发生了什么】[\s\S]*【下一步怎么办】[\s\S]*【证据与工单指针】/, "三段骨架");
+  assert.match(refused.body, /本月加源管线花费到月帽,这轮没起跑\(未花钱、不计失败\)/);
+  assert.match(refused.body, /预算护栏在正常工作[\s\S]*OPS_PIPELINE_MONTHLY_CAP_CNY/);
+  // 轮败+G_VERIFY:#377 时钟族建议(#383 票面样例口径)
+  const verify = fleetLarkDraft({ roundId: "2026-11-21-0100-add", source: "x_feed", phase: "round:model_face", message: "VERIFY 阶段断在验证门 G_VERIFY(时钟回退)" });
+  assert.match(verify.title, /^【ip-radar 加源失败】11-21 凌晨 01:00 x_feed$/);
+  assert.match(verify.body, /没跑完就断在验证门\(G_VERIFY\)/);
+  assert.match(verify.body, /多半是本机时钟抖动,重放一次通常就过;同一源连败 2 次会自动跳过并另行告警/);
+  // 轮败(非时钟):等下一拍重试
+  const plain = fleetLarkDraft({ roundId: "2026-11-21-0100-add", source: "x_feed", phase: "round:model_face", message: "提案者终答空" });
+  assert.match(plain.body, /失败\(失败码 model_face\)/);
+  assert.match(plain.body, new RegExp(FLEET_LARK_ADVICE.roundFail));
+  // lift 门败:轮绿+门红两层说清
+  const gate = fleetLarkDraft({ roundId: "2026-11-21-0100-add", source: "x_feed", phase: "lift:gate:backend 全量 pytest", message: "backend 全量 pytest 红(尾 60 行已留档)" });
+  assert.match(gate.body, /本身跑绿了,但自动收尾后的门没过\(backend 全量 pytest\)/);
+  assert.match(gate.body, /人工接手修到绿再开 PR,或交代理分诊/);
+  // infra 无信封形
+  const infra = fleetLarkDraft({ roundId: "2026-11-21-0100-add", source: "x_feed", phase: "round:infra", message: "rc=1\nstderr 尾…" });
+  assert.match(infra.body, /进程崩了或被杀,没留下结果信封/);
 });

@@ -209,8 +209,9 @@ export async function reconcileOrphanRounds({ devRoot, skipRoundId = null, env =
       const costs = { proposer_cny: 0, trials_cny: 0 };
       const title = `[evolve] ${name} ?:failed(orphan_pre_flush)(启动对账)`;
       const body = renderReportMd({ roundId: name, domain: "(域不可知)", code: "orphan_pre_flush", message, costs, monthTotal: monthSpendTotalCny(ledgerPath), cap: evolutionSpendCapCny(env), roundDir });
+      const lark = renderLarkPlain({ roundId: name, domain: "(域不可知)", code: "orphan_pre_flush", message, costs, monthTotal: monthSpendTotalCny(ledgerPath), cap: evolutionSpendCapCny(env), roundDir }); // #383:lark 面分稿(双面律)
       const issue = await openRoundIssue({ title, body, dryRun, exec });
-      const anomaly = await pushAnomalyLark({ title, body, env, dryRun, exec });
+      const anomaly = await pushAnomalyLark({ title: lark.title, body: lark.body, env, dryRun, exec });
       const envelope = { ok: false, round: "evolve", round_id: name, domain: null, error: { code: "orphan_pre_flush", message }, spend: { ...costs, appended_now_cny: 0 }, issue, anomaly, reconciled_by_round: skipRoundId };
       fs.writeFileSync(path.join(roundDir, "report.md"), body + "\n");
       writeJsonAtomic(path.join(roundDir, "envelope.json"), envelope);
@@ -241,8 +242,9 @@ export async function reconcileOrphanRounds({ devRoot, skipRoundId = null, env =
     }
     const title = `[evolve] ${name} ${domain ?? "?"}:failed(orphan_reconciled)(启动对账)`;
     const body = renderReportMd({ roundId: name, domain: domain ?? "(域不可知)", code: "orphan_reconciled", message, costs, monthTotal: monthSpendTotalCny(ledgerPath), cap: evolutionSpendCapCny(env), roundDir });
+    const lark = renderLarkPlain({ roundId: name, domain: domain ?? "(域不可知)", code: "orphan_reconciled", message, costs, monthTotal: monthSpendTotalCny(ledgerPath), cap: evolutionSpendCapCny(env), roundDir }); // #383:lark 面分稿(双面律)
     const issue = await openRoundIssue({ title, body, dryRun, exec });
-    const anomaly = await pushAnomalyLark({ title, body, env, dryRun, exec });
+    const anomaly = await pushAnomalyLark({ title: lark.title, body: lark.body, env, dryRun, exec });
     const envelope = { ok: false, round: "evolve", round_id: name, domain, error: { code: "orphan_reconciled", message }, spend: { ...costs, appended_now_cny: appendedNow }, issue, anomaly, reconciled_by_round: skipRoundId };
     fs.writeFileSync(path.join(roundDir, "report.md"), body + "\n");
     writeJsonAtomic(path.join(roundDir, "envelope.json"), envelope);
@@ -333,9 +335,10 @@ export async function runEvolveRound(opts) {
     writeEvolutionState(statePath, state);
     const title = `[evolve] ${roundId} ${domain}:refused(${code})`;
     const body = renderReportMd({ roundId, domain, championRef: null, code, message, costs: { proposer_cny: 0, trials_cny: 0 }, monthTotal: null, cap: null, roundDir });
+    const lark = renderLarkPlain({ roundId, domain, code, message, costs: { proposer_cny: 0, trials_cny: 0 }, monthTotal: null, cap: null, roundDir }); // #383:lark 面分稿(双面律)
     const skipReason = code === "stalled" ? "stalled 已报(halted_reported)——静默拒启不重发" : "refusal_dedupe(连续同 code 拒启,已报过)";
     const issue = reportNow ? await openRoundIssue({ title, body, dryRun, exec }) : { status: "skip", reason: skipReason };
-    const anomaly = reportNow ? await pushAnomalyLark({ title, body, env, dryRun, exec }) : { status: "skip", reason: skipReason };
+    const anomaly = reportNow ? await pushAnomalyLark({ title: lark.title, body: lark.body, env, dryRun, exec }) : { status: "skip", reason: skipReason };
     const envelope = { ok: false, round: "evolve", round_id: roundId, domain, error: { code, message }, issue, anomaly };
     writeJsonAtomic(path.join(roundDir, "envelope.json"), envelope);
     writeJsonAtomic(path.join(roundDir, "exits.json"), { round_id: roundId, issue, anomaly });
@@ -382,8 +385,9 @@ export async function runEvolveRound(opts) {
     writeEvolutionState(statePath, state);
     const title = `[evolve] ${roundId} ${domain}:failed(${code})`;
     const body = renderReportMd({ roundId, domain, championRef, code, message, mining, costs, monthTotal: admit.total, cap: admit.cap, roundDir, worktree: proposerWt, ...extra });
+    const lark = renderLarkPlain({ roundId, domain, code, message, costs, monthTotal: admit.total, cap: admit.cap, roundDir }); // #383:lark 面分稿(双面律)
     const issue = await openRoundIssue({ title, body, dryRun, exec });
-    const anomaly = await pushAnomalyLark({ title, body, env, dryRun, exec });
+    const anomaly = await pushAnomalyLark({ title: lark.title, body: lark.body, env, dryRun, exec });
     const envelope = { ok: false, round: "evolve", round_id: roundId, domain, error: { code, message }, spend: costs, issue, anomaly };
     fs.writeFileSync(path.join(roundDir, "report.md"), body + "\n");
     writeJsonAtomic(path.join(roundDir, "envelope.json"), envelope);
@@ -557,8 +561,9 @@ export async function runEvolveRound(opts) {
     monthTotal: admit.total, cap: admit.cap, stall: domAfter, haltedNow, mining, worktree: proposerWt, roundDir,
   });
   const issue = await openRoundIssue({ title, body, dryRun, exec });
+  const lark = renderLarkPlain({ roundId, domain, outcome, costs, monthTotal: admit.total, cap: admit.cap, stall: domAfter, haltedNow, roundDir }); // #383:熄火 lark 面分稿(双面律)
   const anomaly = haltedNow
-    ? await pushAnomalyLark({ title, body: `熄火:${domain} 连续 ${STALL_LIMIT} 轮带内零增益,演化循环自停;处置=人裁 state.json;工件 ${roundDir}`, env, dryRun, exec })
+    ? await pushAnomalyLark({ title: lark.title, body: lark.body, env, dryRun, exec })
     : { status: "skip", reason: `outcome=${outcome}(非异常面;仅熄火/超帽/护栏红推 lark)` };
   if (haltedNow) state = markHaltedReported(state, domain); // 报完置位:置位前崩溃=下轮补报,置位后=静默拒启
   writeEvolutionState(statePath, state);
@@ -622,6 +627,77 @@ export function renderReportMd(j) {
   lines.push("");
   lines.push("处置:轮结果待人裁;冠军并 master 由人裁位(循环冠军指针 ≠ master)。");
   return lines.join("\n");
+}
+
+// ── #383 lark 推送面大白话稿(双面律:renderReportMd/gh 票技术面字节不动)──
+// 每条异常两件套:发生了什么 + 下一步怎么办(方向级,不含具体命令);建议来自下方
+// 对照表(每条带票号出处)。镜像注:scripts/daily-digest.mjs 的 EVOLVE_CODE_PLAIN 同源
+// 同文案(日报零依赖独立成表,改动两处同步);未知码兜底不编造处置。
+const larkClock = (roundId) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})-(\d{2})(\d{2})-/.exec(String(roundId || ""));
+  if (!m) return String(roundId || "?");
+  const hh = +m[4];
+  const tod = hh < 5 ? "凌晨" : hh < 8 ? "早上" : hh < 11 ? "上午" : hh < 13 ? "中午" : hh < 17 ? "下午" : hh < 19 ? "傍晚" : "晚上";
+  return `${m[2]}-${m[3]} ${tod} ${m[4]}:${m[5]}`;
+};
+const LARK_DOMAIN = Object.freeze({ "add-domain": "加源域" });
+
+// 失败类型→(标题短语 / 发生了什么 / 下一步)(票号出处随行;只给方向不给命令,#383 定案 5/6)
+export const EVOLVE_LARK_ADVICE = Object.freeze({
+  cards_missing: ["失败:考题卡缺失", "考题卡文件缺失,轮没法考试", "这是配置面问题不会自愈:按轮报告核对考题卡目录(env EVOLVE_CARDS_DIR;生成入口 gen-exam-cards.mjs),交人工或代理处理"], // #356
+  guardrail_red: ["失败:护栏拦下提案", "提案改动碰到了受保护文件,被护栏拦下、候选作废", "护栏正常工作,下一轮会自动再试;连续多轮都这样再交代理分诊"], // #356 保护名单闸
+  model_face: ["失败:提案者会话没落定", "提案者 AI 会话没正常收尾,轮失败收口", "偶发面,下一轮自动重试;同一失败码连续出现再人工查模型配置"], // #356
+  judge_insufficient: ["失败:判定数据不足", "考试成对数据不足,判不出输赢,轮按失败收口(不计熄火)", "多为考试偶发崩溃,下一轮自动重试;连续出现再人工查"], // #356 判定面
+  trial_spend_cap: ["停批:考试花费到帽", "考试花费到了单轮帽,停批收口", "预算护栏正常工作,已跑部分已入账;下一轮/下月自动恢复"], // #356+#337 花费帽
+  orphan_reconciled: ["收口:上轮崩溃已补账", "上次运行被击杀或崩溃,这轮启动时已自动补账收口", "对账已自动完成,不用动;这台机器频繁非正常停机才值得查原因"], // #356 启动对账 P2-4②
+  orphan_pre_flush: ["收口:上轮崩在早期", "上次运行崩得太早,断点文件没写下来,花费追不回(按零费留痕收口)", "已自动收口留档,不用动;频繁出现再查运行环境的超时帽/内存"], // #356 pre-flush 孤儿 P2-②
+  spend_cap: ["拒启:月帽到顶", "当月演化花费已到月帽,这轮被拒启(未起跑零花费)", "不用动,这是预算护栏在正常工作;要继续跑须人裁抬帽(env EVOLVE_SPEND_CAP_CNY)或等下月自动恢复"], // #356 拒启双面
+  stalled: ["拒启:已熄火", "演化循环已自停(连续 3 轮没赚头),这轮被拒启", "这是设计内的自动停机,不用动;要不要重启演化由人裁(重启须人面改 dev/evolution/state.json),不重启只是不再自动试新方案"], // #356 熄火面
+  bad_round: ["拒启:轮号形状坏", "轮次编号形状不对,轮没起跑", "调度参数面问题,人工核对定时器/脚本传入的轮 id"], // #356/#366 形状律
+});
+
+// lark 推送稿(纯函数;消费与 renderReportMd 同形的 j + haltedNow 位)。未知码走兜底。
+export function renderLarkPlain(j) {
+  const when = larkClock(j.roundId);
+  const dom = LARK_DOMAIN[j.domain] ?? j.domain ?? "?";
+  if (j.haltedNow) {
+    const advice = EVOLVE_LARK_ADVICE.stalled;
+    return {
+      title: `【ip-radar 演化轮】${when} ${dom} 熄火:连续 ${STALL_LIMIT} 轮没赚头`,
+      body: [
+        "【发生了什么】",
+        `${when} 的演化轮(${dom})跑完,判定是带内零增益——连续 ${STALL_LIMIT} 轮没有赚头,演化循环自停(halted),不再自动试新方案;这是设计内行为,不是故障。`,
+        ...(typeof j.monthTotal === "number" ? [`本月累计演化花费 ¥${j.monthTotal.toFixed(2)}/帽 ¥${j.cap ?? "?"}(本轮 ¥${((j.costs?.proposer_cny ?? 0) + (j.costs?.trials_cny ?? 0)).toFixed(2)})。`] : []),
+        "",
+        "【下一步怎么办】",
+        advice[2],
+        "",
+        "【证据与工单指针】",
+        "- 已自动开 GitHub 工单(ready-for-human 标签,等人裁);工单正文是技术细节版",
+        `- 轮工件目录:${j.roundDir ?? "(由 roundId 派生)"}(report.md=技术细节版 · envelope.json · exits.json)`,
+      ].join("\n"),
+    };
+  }
+  const known = EVOLVE_LARK_ADVICE[j.code];
+  const refused = j.code === "stalled" || j.code === "spend_cap" || j.code === "bad_round";
+  const what = known ? known[1] : `失败码 ${j.code}`;
+  return {
+    title: `【ip-radar 演化轮】${when} ${dom} ${known ? known[0] : `失败(${j.code})`}`,
+    body: [
+      "【发生了什么】",
+      `${when} 的演化轮(${dom})${refused ? "被拒启" : "失败"}——${what}(${j.code})。原话:${String(j.message ?? "").slice(0, 200)}`,
+      ...(typeof j.monthTotal === "number" ? [`本月累计演化花费 ¥${j.monthTotal.toFixed(2)}/帽 ¥${j.cap ?? "?"}。`] : []),
+      "",
+      "【下一步怎么办】",
+      known
+        ? known[2]
+        : `无现成建议——看轮工件 ${j.roundDir ?? "(由 roundId 派生)"}/report.md(envelope.json 的 error 字段),交代理分诊`,
+      "",
+      "【证据与工单指针】",
+      "- 已自动开 GitHub 工单(ready-for-human 标签,等人裁);工单正文是技术细节版",
+      `- 轮工件目录:${j.roundDir ?? "(由 roundId 派生)"}(report.md=技术细节版 · envelope.json · exits.json)`,
+    ].join("\n"),
+  };
 }
 
 // ── CLI ──

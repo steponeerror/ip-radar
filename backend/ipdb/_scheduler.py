@@ -178,7 +178,7 @@ class RefreshScheduler:
                     else (now - mtime) / 3600.0,
                     "fail_count": b.fail_count if b is not None else 0,
                     # 2026-10-17 裁定:失败分类随快照交给告警渲染(缺省 ""
-                    # = 旧「连续失败 ×N」通用文案);×N 口径 = 逐 kind 连败
+                    # = 旧「连续 N 次更新失败」通用文案);×N 口径 = 逐 kind 连败
                     # 数 fail_kind_count(裁定修:kind 切换重归 1,只动文案)
                     "fail_kind": b.kind if b is not None else "",
                     "fail_kind_count": b.kind_count if b is not None else 0,
@@ -190,7 +190,7 @@ class RefreshScheduler:
                     "reader_error": ptr is not None and ptr.exists()
                     and not source.health().loaded,
                 })
-            # S6:env 给心跳路径才查月轮过期(未设 None = 旧有行为不变);
+            # S6:env 给心跳路径才查月轮心跳过期(未设 None = 旧有行为不变);
             # 时基独立 —— 生产侧只看文件 mtime,不采信管线自报时间。
             msg = _alerts.evaluate(
                 snapshots, now, eval_heartbeat=_alerts._heartbeat_path())

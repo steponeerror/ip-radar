@@ -264,7 +264,7 @@ def test_push_called_with_evaluate_msg_shape(alerts_db, tmp_path, monkeypatch):
     monkeypatch.setattr(_alerts, "push", fake_push)
     sch.scan(now=NOW)
     assert pushes == [("ipradar: 1 源异常",
-                       "gone: 过期(上次内容更新 从未,阈值 24h)")]
+                       "gone: 内容太久没更新——上次内容更新 从未,告警线 24h。下一步:服务不会自动修,先看上游是否还在发布,再由人决定这个源留还是撤。")]
 
 
 def test_push_not_called_when_evaluate_returns_none(
@@ -287,10 +287,10 @@ def test_push_not_called_when_evaluate_returns_none(
 def test_kind_switch_mid_failure_no_false_recovery(
         alerts_db, tmp_path, monkeypatch):
     """双计数走查(2026-10-17 裁定修;#371 阈值 3→2):download 连败到
-    total 2 → 告警「下载连续失败 ×2(原因)」;total 3 同行 24h 内不重发;
+    total 2 → 告警「连续 2 次下载失败(原因)」(#383 大白话行);total 3 同行 24h 内不重发;
     随后下载成功但构建挂(kind 切换,total 4/kind_count 1)→ 行仍活、
     24h 内无任何消息(不下假「已恢复」——恢复只认真成功);24h 到点
-    重发渲染「构建连续失败 ×1」(done 任务无 error → 无原因段)。计时梯
+    重发渲染「连续 1 次构建失败」(done 任务无 error → 无原因段)。计时梯
     跟总数走(第 4 级 8h)。"""
     from ipdb import _alerts
     monkeypatch.delenv("IP_RADAR_EVAL_HEARTBEAT", raising=False)
@@ -322,13 +322,13 @@ def test_kind_switch_mid_failure_no_false_recovery(
     _fail("download", "connection reset by peer")
     sch.scan(now=NOW + 12000.0)        # total 2 ≥2(#371)→ 落行 + push 带原因
     assert pushes == [("ipradar: 1 源异常",
-                       "x: 下载连续失败 ×2(connection reset by peer)")]
+                       "x: 连续 2 次下载失败(数据拉不下来)(connection reset by peer)。下一步:不用动手,服务会自动重试;持续失败的话这条告警每 24h 重发一次。")]
     assert _alert_state(alerts_db) == [("x", "fail")]
     sch.scan(now=NOW + 20000.0)        # 过 2h:重试入队
     _fail("download", "connection reset by peer")
     sch.scan(now=NOW + 24000.0)        # total 3:行活、24h 内不重发
     assert pushes == [("ipradar: 1 源异常",
-                       "x: 下载连续失败 ×2(connection reset by peer)")]
+                       "x: 连续 2 次下载失败(数据拉不下来)(connection reset by peer)。下一步:不用动手,服务会自动重试;持续失败的话这条告警每 24h 重发一次。")]
     assert _alert_state(alerts_db) == [("x", "fail")]
 
     # ── 第 4 轮:下载成功但构建挂(kind 切换)──
@@ -345,12 +345,12 @@ def test_kind_switch_mid_failure_no_false_recovery(
     assert b.next_attempt == NOW + 41000.0 + 28800
     # 24h 内:行仍活、无任何消息(尤其无「已恢复」——kind 切换 ≠ 成功)
     assert pushes == [("ipradar: 1 源异常",
-                       "x: 下载连续失败 ×2(connection reset by peer)")]
+                       "x: 连续 2 次下载失败(数据拉不下来)(connection reset by peer)。下一步:不用动手,服务会自动重试;持续失败的话这条告警每 24h 重发一次。")]
     assert _alert_state(alerts_db) == [("x", "fail")]
 
     # ── 24h 到点重发:文案按当前 kind 渲染 ×1 ──
     sch.scan(now=NOW + 24000.0 + 86401.0)
-    assert pushes[1:] == [("ipradar: 1 源异常", "x: 构建连续失败 ×1")]
+    assert pushes[1:] == [("ipradar: 1 源异常", "x: 连续 1 次构建失败(数据拉下来了,装进本地库这一步挂了)。下一步:括号里标了「疑似上游格式变动」的,多半是上游改了数据格式,人工核对格式;其余按括号里的原因判断。")]
     assert _alert_state(alerts_db) == [("x", "fail")]   # 行未清,恢复只认真成功
     assert not any("已恢复" in body for _, body in pushes)
 
@@ -394,9 +394,9 @@ def test_scan_fail_alert_carries_reason_with_drift_label(
     _fail_rebuild()
     sch.scan(now=NOW + 12000.0)        # total 2 ≥2 → 告警带原因+标签
     assert pushes == [("ipradar: 1 源异常",
-        "anycast_census: 构建连续失败 ×2(疑似上游格式变动: "
+        "anycast_census: 连续 2 次构建失败(数据拉下来了,装进本地库这一步挂了)(疑似上游格式变动: "
         "Traceback (most recent call last): ValueError: zero records"
-        " parsed but previous count was 41867)")]
+        " parsed but previous count was 41867)。下一步:括号里标了「疑似上游格式变动」的,多半是上游改了数据格式,人工核对格式;其余按括号里的原因判断。")]
     assert _alert_state(alerts_db) == [("anycast_census", "fail")]
     # 快照面独立验证:fail_error 已折叠单空格入 _Backoff.error
     assert sch._backoff["anycast_census"].error == (
@@ -440,7 +440,7 @@ def test_scan_alerts_reader_error_for_corrupt_epoch(
     assert _alert_state(alerts_db) == [("dbip", "reader")]
     assert len(pushes) == 1
     assert pushes[0][0] == "ipradar: 1 源异常"
-    assert "dbip: 数据库未加载" in pushes[0][1]
+    assert "dbip: 数据库文件在,但查询端没能加载它" in pushes[0][1]  # #383 大白话行
     # 人裁 rebuild 完成 reader 回来(loaded=True)→ 下一轮恢复,状态自清
     fixed = _make_src("dbip", tmp_path, mtime=NOW)   # HookSource: loaded=True
     fixed._mmdb_path = ptr

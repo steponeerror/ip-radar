@@ -11,7 +11,7 @@ import path from "node:path";
 import { execFile as execFileCb, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
 
-import { runEvolveRound, diffFaceGateTouched, reconcileOrphanRounds } from "../bench/evolution/run-round.mjs";
+import { runEvolveRound, diffFaceGateTouched, reconcileOrphanRounds, renderLarkPlain, EVOLVE_LARK_ADVICE } from "../bench/evolution/run-round.mjs";
 import { EVOLVE_PROTECTED_FACES, evolutionDomainOf } from "../bench/evolution/domains.mjs"; // 保护名单单源(delta P1:5 前缀+3 执法链单件,域适配器显式声明)
 import { runTrial } from "../bench/add-domain/run-trial.mjs";
 import { readEvolutionState, writeEvolutionState, domainStateOf, evolutionStatePath } from "../bench/evolution/state.mjs";
@@ -586,4 +586,35 @@ test("启动对账:pre-flush 孤儿(会话痕迹在、断点件从未落盘)→�
     const again = await reconcileOrphanRounds({ devRoot, skipRoundId: resumingId, env: {}, dryRun: true, exec: stubExec(), stderr: quiet });
     assert.deepEqual(again, []);
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+});
+
+// ── #383 lark 推送面大白话稿(纯函数;双面律=renderReportMd/issue 面字节不动)──────
+test("renderLarkPlain:失败码两件套(发生了什么+下一步)+三段骨架+代号括号留;未知码兜底不编造", () => {
+  const lk = renderLarkPlain({
+    roundId: "2026-11-21-1914-evolve", domain: "add-domain", code: "cards_missing",
+    message: "考题卡缺席 3 张(a, b, c;cardsDir=/x,env EVOLVE_CARDS_DIR 可覆写;生成=gen-exam-cards.mjs)",
+    costs: { proposer_cny: 0.5, trials_cny: 0 }, monthTotal: 26.19, cap: 200, roundDir: "/dev/evolution/rounds/2026-11-21-1914-evolve",
+  });
+  assert.equal(lk.title, "【ip-radar 演化轮】11-21 晚上 19:14 加源域 失败:考题卡缺失");
+  assert.match(lk.body, /【发生了什么】[\s\S]*【下一步怎么办】[\s\S]*【证据与工单指针】/, "三段骨架(#383 定案)");
+  assert.match(lk.body, /11-21 晚上 19:14 的演化轮\(加源域\)失败——考题卡文件缺失,轮没法考试\(cards_missing\)/);
+  assert.match(lk.body, /这是配置面问题不会自愈/, "下一步=对照表建议(方向级)");
+  assert.match(lk.body, /ready-for-human 标签/, "工单指针");
+  assert.match(lk.body, /report\.md=技术细节版/, "证据指针;双面律自声明");
+  // 未知码:兜底话术,不编造处置
+  const unknown = renderLarkPlain({ roundId: "2026-11-21-1914-evolve", domain: "add-domain", code: "brand_new", message: "x", costs: { proposer_cny: 0, trials_cny: 0 }, monthTotal: null, cap: null, roundDir: "/r" });
+  assert.match(unknown.title, /失败\(brand_new\)/);
+  assert.match(unknown.body, /无现成建议——看轮工件 \/r\/report\.md\(envelope\.json 的 error 字段\),交代理分诊/);
+  // 拒启码:标题拒启面;熄火(haltedNow)走专段
+  const refused = renderLarkPlain({ roundId: "2026-11-21-1914-evolve", domain: "add-domain", code: "spend_cap", message: "当月累计 ¥200 超 ¥200", costs: { proposer_cny: 0, trials_cny: 0 }, monthTotal: 200, cap: 200, roundDir: "/r" });
+  assert.match(refused.title, /拒启:月帽到顶/);
+  assert.match(refused.body, /被拒启——当月演化花费已到月帽,这轮被拒启\(未起跑零花费\)\(spend_cap\)/);
+  const halted = renderLarkPlain({ roundId: "2026-11-21-1914-evolve", domain: "add-domain", haltedNow: true, costs: { proposer_cny: 0.5, trials_cny: 0 }, monthTotal: 26.19, cap: 200, roundDir: "/r" });
+  assert.match(halted.title, /熄火:连续 3 轮没赚头/);
+  assert.match(halted.body, /带内零增益——连续 3 轮没有赚头,演化循环自停\(halted\)/);
+  assert.match(halted.body, /这是设计内行为,不是故障/);
+  assert.match(halted.body, /设计内的自动停机,不用动;要不要重启演化由人裁/);
+  // 对照表票号出处随行(每条建议都须可回溯)
+  for (const [code, [, , next]] of Object.entries(EVOLVE_LARK_ADVICE))
+    assert.ok(!/^(无现成建议)/.test(next), `${code} 建议不得为兜底话术`);
 });
