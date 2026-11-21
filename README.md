@@ -4,7 +4,7 @@
 
 ![IP Radar — self-hosted IP intelligence](assets/social-preview.png)
 
-**Pull 66 public sources into your own box — a full IP profile, not just a threat verdict.** Every lookup comes back with a plain-words verdict — evidence, confidence, geo · city · ASN, cloud/hosting, proxy · VPN · Tor, service identity, all at once. One command, self-hosted.
+**Pull 67 public sources into your own box — a full IP profile, not just a threat verdict.** Every lookup comes back with a plain-words verdict — evidence, confidence, geo · city · ASN, cloud/hosting, proxy · VPN · Tor, service identity, all at once. One command, self-hosted.
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 ![Docker](https://img.shields.io/badge/Docker-one%20container-2496ED?logo=docker&logoColor=white)
@@ -217,6 +217,7 @@ Every dataset below belongs to its provider — thank you for keeping them open 
 | rir_delegated | [AFRINIC](https://ftp.afrinic.net/pub/stats/afrinic/) · [APNIC](https://ftp.apnic.net/stats/apnic/) · [ARIN](https://ftp.arin.net/pub/stats/arin/) · [LACNIC](https://ftp.lacnic.net/pub/stats/lacnic/) · [RIPE NCC](https://ftp.ripe.net/pub/stats/ripencc/) | Delegated-extended registry files — allocation date / registry country / status per range | |
 | rir_abuse | [RIPE NCC](https://ftp.ripe.net/ripe/dbase/) · [AFRINIC](https://ftp.afrinic.net/pub/dbase/) | Registry abuse-mailbox contacts per netblock (RPSL full dumps) | |
 | caida_asorg | [CAIDA](https://www.caida.org/catalog/datasets/as-organizations/) | AS-to-organization mapping (monthly snapshots, joined at query time) | |
+| metowolf_iplist | [metowolf/iplist](https://raw.githubusercontent.com/metowolf/iplist/master/data/special/china.txt(姊妹清单同仓 data/country/<CC>.txt 与 data/isp/<name>.txt)) | 纯文本行式 CIDR 清单,每行一条 IPv4 CIDR,无表头无注释,UTF-8,LF;special/china.txt 共约 5569 行 (fleet-lifted #366) | |
 
 ### Network Assets
 
