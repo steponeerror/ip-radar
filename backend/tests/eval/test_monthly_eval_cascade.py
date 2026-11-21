@@ -90,8 +90,12 @@ PY_STUB = textwrap.dedent(
       printf '{"kind":"anchors","n_fail":%s}' "${ANCHORS_MODE:-0}" > "$out/model/anchors-$ts.json"
       ANCHORS_RC="${ANCHORS_MODE:-0}"
     fi
-    # future-stamp:stub 秒级跑完,同秒 mtime 会假阴 -newermt(真月轮=分钟级无此界)
-    find "$out" -type f -exec touch -d "@$(( $(date +%s) + 2 ))" {} + 2>/dev/null || true
+    # future-stamp:stub 秒级跑完,同秒 mtime 会假阴 -newermt(真月轮=分钟级无此界)。
+    # 余量 +300s(#377):宿主机时钟 ±10s 级步进回跳会把 +2 余量吞掉 → 工件
+    # mtime 落回 START_S 之前 → 报告族假拒「model-*.json 缺员」;分钟级余量 =
+    # 真月轮时间尺度的诚实模拟,<300s 时钟回跳全免疫(生产真月轮分钟级
+    # 运行天然免疫,生产脚本 -newermt 面无需改动)。
+    find "$out" -type f -exec touch -d "@$(( $(date +%s) + 300 ))" {} + 2>/dev/null || true
     # 腿 rc 聚合退出(红腿外显自身 rc;#193 各腿不再互断)
     for v in MODEL_RC ALL_RC ANCHORS_RC DSEM_RC SINKHOLE_PROBE_RC ANCHOR_READOUTS_RC TRUTH_V2_RC TRUTH_V2_READOUT_RC AUDIT_RC TEMPORAL_RC READOUT_RC; do
       [ "${!v:-0}" = 0 ] || exit "${!v}"

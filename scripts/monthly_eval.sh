@@ -203,6 +203,7 @@ REPORT_ROOT="$REPO/backend/data/eval/monthly"
 LEG_ORDER=(model all anchors dsem agg-share sinkhole-probe anchor-readouts truth-v2 truth-v2-readout audit temporal readout)
 declare -A LEG_RC=()
 for _leg in "${LEG_ORDER[@]}"; do LEG_RC[$_leg]=0; done
+LEG_STATUS_TS=""  # 渲染前件 ts 锚(write_leg_status 单调钉用,#377)
 run_step model    --model    || LEG_RC[model]=$?      # 舰队模型+验收套件(model-*.json)
 run_step all      --all      || LEG_RC[all]=$?        # 逐源 verdict 表
 run_step anchors  --anchors  || LEG_RC[anchors]=$?    # 锚点回归(判定门:失败 rc=1 照写工件)
@@ -228,8 +229,15 @@ run_step temporal --temporal || LEG_RC[temporal]=$?   # λ_s 确认率(读 model
 write_leg_status() {  # write_leg_status <readout_rc|null> — 腿级状态件(#193 C5)
   # 落报告根 leg-status-<ts>.json(ts 形制同族);all 腿校验须排除本件
   # (同形状不得顶替逐源 verdict 件,观测件永不触活族门)。
+  # ts 单调钉(#377):定稿件 ts 下限 = 首次(渲染前件)ts —— 宿主机时钟
+  # 步进回跳时复用前件 ts 即同路径覆写,「文件名序取最新」的消费方
+  # (monthly.py _load_latest_json / 级联测试 _latest_leg_status)任意时钟
+  # 状态下读到的恒为定稿件;时钟健康时双件共存行为不变(同秒本就同路径覆写)。
   [ "$DRY_RUN" = 1 ] && return 0
-  local path="$REPORT_ROOT/leg-status-$(date -u +%Y%m%d-%H%M%S).json"
+  local ts; ts=$(date -u +%Y%m%d-%H%M%S)
+  if [ -z "$LEG_STATUS_TS" ]; then LEG_STATUS_TS="$ts"; fi
+  if [[ "$ts" < "$LEG_STATUS_TS" ]]; then ts="$LEG_STATUS_TS"; fi
+  local path="$REPORT_ROOT/leg-status-$ts.json"
   local argv=("$path")
   local leg rc="readout=$1"  # readout 位由调用方显式给(null=在飞)
   for leg in "${LEG_ORDER[@]}"; do
