@@ -350,7 +350,7 @@ def test_kind_switch_mid_failure_no_false_recovery(
 
     # ── 24h 到点重发:文案按当前 kind 渲染 ×1 ──
     sch.scan(now=NOW + 24000.0 + 86401.0)
-    assert pushes[1:] == [("ipradar: 1 源异常", "x: 连续 1 次构建失败(数据拉下来了,装进本地库这一步挂了)。下一步:括号里标了「疑似上游格式变动」的,多半是上游改了数据格式,人工核对格式;其余按括号里的原因判断。")]
+    assert pushes[1:] == [("ipradar: 1 源异常", "x: 连续 1 次构建失败(数据拉下来了,装进本地库这一步挂了)。下一步:原因段没带出来——人工核对构建日志与上游数据形状,交代理分诊。")]
     assert _alert_state(alerts_db) == [("x", "fail")]   # 行未清,恢复只认真成功
     assert not any("已恢复" in body for _, body in pushes)
 

@@ -275,10 +275,13 @@ test("fleetLarkDraft:拒启/轮败(G_VERIFY 时钟族)/lift 门败三形;未知�
   assert.match(verify.title, /^【ip-radar 加源失败】11-21 凌晨 01:00 x_feed$/);
   assert.match(verify.body, /没跑完就断在验证门\(G_VERIFY\)/);
   assert.match(verify.body, /多半是本机时钟抖动,重放一次通常就过;同一源连败 2 次会自动跳过并另行告警/);
-  // 轮败(非时钟):等下一拍重试
+  // 轮败(已知映射码):对照表建议
+  const card = fleetLarkDraft({ roundId: "2026-11-21-0100-add", source: "x_feed", phase: "round:card_missing", message: "队列卡缺席" });
+  assert.match(card.body, /人工核对 docs 仓队列卡/);
+  // 轮败(未知码):定案⑥兜底——无现成建议+指路,不编造(评审 P2-1)
   const plain = fleetLarkDraft({ roundId: "2026-11-21-0100-add", source: "x_feed", phase: "round:model_face", message: "提案者终答空" });
   assert.match(plain.body, /失败\(失败码 model_face\)/);
-  assert.match(plain.body, new RegExp(FLEET_LARK_ADVICE.roundFail));
+  assert.match(plain.body, /失败码 model_face 不在处置对照表——没有现成建议[\s\S]*交代理分诊;期间下一拍会自动重试,同一源连败 2 次自动跳过/);
   // lift 门败:轮绿+门红两层说清
   const gate = fleetLarkDraft({ roundId: "2026-11-21-0100-add", source: "x_feed", phase: "lift:gate:backend 全量 pytest", message: "backend 全量 pytest 红(尾 60 行已留档)" });
   assert.match(gate.body, /本身跑绿了,但自动收尾后的门没过\(backend 全量 pytest\)/);

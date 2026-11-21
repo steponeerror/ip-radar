@@ -417,7 +417,6 @@ function envelopeUsage(roundDir) {
 // 「失败类型→建议动作」对照表(每条带票号出处;只给方向,不写具体命令)。
 export const FLEET_LARK_ADVICE = Object.freeze({
   verifyClock: "多半是本机时钟抖动,重放一次通常就过;同一源连败 2 次会自动跳过并另行告警", // #377 时钟族判例(验证门偶发红=时钟 flake,重试即过)+ #366 连败跳过
-  roundFail: "等下一拍自动重试;同一源连败 2 次会自动跳过并另行告警,那时再人工复盘", // #366:失败不重试同轮,下一拍另起
   roundInfra: "多半是被杀或环境问题(偶发),下一拍自动重试;连败 2 次会自动跳过并另行告警", // #366
   monthly: "不用动,这是预算护栏在正常工作;想继续跑由人裁抬月帽(env OPS_PIPELINE_MONTHLY_CAP_CNY)或等下月", // #366:月帽拒启未起跑不计失败
   cardMissing: "这是队列数据问题不会自愈:人工核对 docs 仓队列卡(APPROVE 行在但候选卡缺席),补卡或撤行后再让它跑", // #366 队列崩殘态
@@ -465,7 +464,7 @@ export function fleetLarkDraft({ roundId, source, phase, message }) {
     const advice = code === "card_missing" ? FLEET_LARK_ADVICE.cardMissing
       : code === "card_not_approved" ? FLEET_LARK_ADVICE.cardNotApproved
       : code === "sandbox_violation" ? FLEET_LARK_ADVICE.sandbox
-      : FLEET_LARK_ADVICE.roundFail;
+      : `失败码 ${code} 不在处置对照表——没有现成建议,看轮工件 docs/ops/rounds/${roundId}/(fleet-run.json、信封)交代理分诊;期间下一拍会自动重试,同一源连败 2 次自动跳过`; // 定案⑥:未知码不编造处置(评审 P2-1);重试/跳过两句=#366 机制上恒真
     return { title: `【ip-radar 加源失败】${when} ${source}`, body: two(`${when} 的加源轮(${head})失败(失败码 ${code})。技术尾迹:${msg}`, advice) };
   }
   const isGate = phase.startsWith("lift:gate:");

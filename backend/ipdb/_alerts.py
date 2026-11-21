@@ -180,7 +180,10 @@ _NEXT_AUTO_RETRY = (
 _NEXT_REBUILD = (
     "下一步:括号里标了「疑似上游格式变动」的,多半是上游改了数据格式,"
     "人工核对格式;其余按括号里的原因判断"
-)  # #371 格式漂移分类标签(#369 判例:数据没坏,上游改了形)
+)  # #371 格式漂移分类标签(#369 判例:数据没坏,上游改了形);仅在有原因段时用
+_NEXT_REBUILD_PLAIN = (
+    "下一步:原因段没带出来——人工核对构建日志与上游数据形状,交代理分诊"
+)  # rebuild 无 fail_error(原因段空)时用;不悬空指代不存在的括号(评审 P3-1)
 _NEXT_STALE = (
     "下一步:服务不会自动修,先看上游是否还在发布,再由人决定这个源留还是撤"
 )  # 停更/过期(源活性告警 Task 1-4)
@@ -330,7 +333,8 @@ def evaluate(snapshots: list[dict], now: float,
                 elif kind == "rebuild":
                     fail_lines.append(
                         (name, f"{name}: 连续 {n} 次构建失败(数据拉下来了,"
-                               f"装进本地库这一步挂了){reason}。{_NEXT_REBUILD}。"))
+                               f"装进本地库这一步挂了){reason}。"
+                               f"{_NEXT_REBUILD if reason else _NEXT_REBUILD_PLAIN}。"))
                 else:
                     fail_lines.append(
                         (name, f"{name}: 连续 {fail_count} 次更新失败"
