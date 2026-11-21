@@ -47,6 +47,7 @@ OLD_CATEGORIES = {
     "honeypot_fyi": "threat",    # 2026-11-18 honeypot.fyi 蜜罐舰队块表(#360)
     "gorkemgun_sgb_blocklist": "threat",   # 2026-11-20 fleet lift(#366)
     "insightflare_asn_blocklist": "asset",   # 2026-11-21 fleet lift(#366)
+    "az0_vpn_ip": "asset",   # 2026-11-21 fleet lift(#366)
 }
 OLD_RELIABILITY = {
     "ipinfo_lite": 0.95, "iptoasn": 0.90, "cn_isp": 0.85, "geolite_city": 0.85,
@@ -86,6 +87,7 @@ OLD_RELIABILITY = {
     "honeypot_fyi": 0.60,         # 2026-11-18 sensor-sourced 蜜罐舰队(#360,siberkapan 同档)
     "gorkemgun_sgb_blocklist": 0.6,   # 2026-11-20 fleet lift(#366)
     "insightflare_asn_blocklist": 0.85,   # 2026-11-21 fleet lift(#366)
+    "az0_vpn_ip": 0.7,   # 2026-11-21 fleet lift(#366)
 }
 OLD_AUTHORITATIVE = {
     "is_proxy": ["ip2proxy"], "is_tor": ["tor_exits"], "is_vpn": ["x4bnet_vpn"],

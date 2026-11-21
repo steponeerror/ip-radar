@@ -21,7 +21,7 @@
 
 ## 1. 首次启动
 
-`docker compose up -d --build` 之后，容器几秒内即可访问——但还没就绪。首次启动会把全部无 key 源（62 个源中的 55 个）下载并构建成数百万条记录。你会看到：
+`docker compose up -d --build` 之后，容器几秒内即可访问——但还没就绪。首次启动会把全部无 key 源（63 个源中的 56 个）下载并构建成数百万条记录。你会看到：
 
 - **顶部进度横幅**实时跟踪无 key 源的下载/构建进度,构建完成后横幅消失。
 - **查询在无 key 源构建完成前保持关闭。**在此之前,查询返回 `503` 与 `X-IPRadar-Reason: warming`——工具拒绝在半成品数据集上给判定。这是刻意的:绝不在残缺证据上出结论。
@@ -146,7 +146,7 @@
 
 ### Sources(默认 tab)
 
-![管理台 Sources tab:63 源(62 公开 + 1 私有蜜罐)、健康、r/源间一致率(θ) 并排、开关](assets/manual/04-admin-sources.png)
+![管理台 Sources tab:64 源(63 公开 + 1 私有蜜罐)、健康、r/源间一致率(θ) 并排、开关](assets/manual/04-admin-sources.png)
 
 全部源一张清单,按 **Geo & ASN data / Threat intel / Asset attributes** 分组,列有:
 
