@@ -122,7 +122,7 @@ try {
 }
 
 test("critic 针形(#325 F1):环视形+RAW 原文形;考题名假 diff 命中;共享基建 host 豁免", { skip: criticProbe ? false : `python3 面不可用(${criticProbeErr?.message})` }, () => {
-  assert.equal(criticProbe.total, 58, "每考题一行一针(58 行;2026-11-21 fleet 再冻结)");
+  assert.equal(criticProbe.total, 59, "每考题一行一针(59 行;2026-11-21 fleet 再冻结)");
   assert.deepEqual(criticProbe.anchored, [], "全等形 ^(?:…)$ 一头一尾卡死,对原始 diff re.search 永不命中——禁止复活(#325 F1)");
   for (const [name, k] of Object.entries(criticProbe.known)) {
     assert.ok(k.present, `缺针:${name}`);
