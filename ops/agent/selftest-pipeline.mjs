@@ -296,6 +296,18 @@ await t("finding 出口:issue 模板四件(来源步/锚:期望vs实得/证据�
   assert.deepEqual(dft.labels, ["needs-triage"], "模板件④标签=needs-triage");
   assert.match(dft.body, /只写不动作/, "处置面自声明:出口只写不动作");
 });
+await t("finding 出口:lark 大白话稿(#383 双面律)——标题形如【ip-radar 巡检异常】;三段齐;术语换中文+代号括号留;verdict_conflict 整句;issue 面分稿不混", async () => {
+  assert.equal(typeof fexit.findingLarkDraft, "function", "findingLarkDraft 未导出(RED 面应先红)");
+  const lk = fexit.findingLarkDraft({ roundId: "2026-10-24-0400-health", findings: LIVE_FINDINGS, nTotal: 19 });
+  assert.equal(lk.title, "【ip-radar 巡检异常】10-24 04:00 健康轮", "#383 样例口径标题形");
+  assert.match(lk.body, /【发生了什么】[\s\S]*【怎么办】[\s\S]*【证据与工单指针】/, "三段骨架齐(#383 定案)");
+  assert.match(lk.body, /发现 2 个异常\(finding;共查 19 个锚\)/, "finding→异常 + 计数");
+  assert.match(lk.body, /1\.1\.1\.1:标准答案应当是干净 IP,查出来的结论却是「恶意」\(verdict=malicious\),置信度 55/, "术语映射:verdict→结论、confidence→置信度,代号括号留");
+  assert.match(lk.body, /223\.5\.5\.5[\s\S]*同时有良性断言和恶意指控\(verdict_conflict\)——两说并存,只留痕不自动压制/, "verdict_conflict 展开成整句说明(#188)");
+  assert.match(lk.body, /三选一,人裁终局/, "怎么办段=三选一人裁");
+  assert.match(lk.body, /anchors\.py/, "证据指针含锚集真源");
+  assert.ok(!lk.body.includes("## 锚:期望 vs 实得"), "lark 面不携 issue 技术模板段(分稿)");
+});
 await t("G_ANCHOR_SWEEP conflict 形状面单元例(直构工件,#188):conflict 非布尔/缺席=门败;留痕行(conflict=true)不持门照常过", async () => {
   const { GATES } = await import("./pipeline/gates.mjs");
   const d = fs.mkdtempSync(path.join(os.tmpdir(), "ganchor-unit-"));
@@ -337,7 +349,10 @@ await t("finding 出口:runFindingExits——dry-run 双出口零外发只记 cm
   assert.equal(art1.phase, "emitted");
   assert.equal(art1.issue.labels[0], "needs-triage");
   assert.match(art1.issue.body, /## 锚:期望 vs 实得/);
-  assert.equal(art1.webhook_payload.title, art1.issue.title, "webhook 与 issue 同稿同源(单一事实)");
+  // #383 双面律:webhook 面走大白话稿(与 issue 技术面分稿);工件记实际外发全稿
+  assert.match(art1.webhook_payload.title, /^【ip-radar 巡检异常】10-24 04:00 健康轮$/, "lark 面=大白话标题(#383)");
+  assert.match(art1.webhook_payload.body, /【发生了什么】[\s\S]*【怎么办】[\s\S]*【证据与工单指针】/, "lark 面=三段大白话(#383)");
+  assert.notEqual(art1.webhook_payload.title, art1.issue.title, "webhook 与 issue 分稿(#383 双面律;issue 面字节不变)");
   // ②dry-run+webhook 配置(payload 留痕+URL 脱敏)
   const r2 = await fexit.runFindingExits({ roundId: "2026-10-24-0401-health", sweepD: liveSweepD, dir: d2,
     env: { OPS_SWEEP_DRY_RUN: "1", IP_RADAR_ALERT_URLS: "https://hooks.example/x.json lark://1234/abcdef99" } });
@@ -452,7 +467,7 @@ await t("finding 出口三件套轮内接线(#184):dry-run faux 轮三出口全�
   assert.deepEqual(art.issue.labels, ["needs-triage"]);
   assert.match(art.issue.body, /## 来源步[\s\S]*## 锚:期望 vs 实得[\s\S]*## 证据指针/, "模板三节齐");
   assert.match(art.issue.body, /8\.8\.8\.8.*myip_ms/, "事故判例形入稿");
-  assert.equal(art.webhook_payload.title, art.issue.title);
+  assert.match(art.webhook_payload.title, /^【ip-radar 巡检异常】/, "webhook 面=lark 大白话稿(#383 双面律;轮内接线同源)");
   // RETRO 摘要工件:finding 计入(出口③真源)
   const retro = j(path.join(DOCS, "ops", "retro", `${R1}.json`));
   assert.equal(retro.anchor_sweep.status, "ok");
@@ -480,7 +495,7 @@ await t("finding 出口:webhook 配置面轮内 dry-run(IP_RADAR_ALERT_URLS→pa
 await t("出口只写不动作(结构性,#184):finding 出口模块依赖面闭集——spawn 目标恰 apprise(gh 在 tools.mjs,argv 钉 [issue,create])、禁面符号零在场(调权/停源/写数据面/源管理 API)", async () => {
   const srcExit = fs.readFileSync(path.join(AGENT, "pipeline", "finding-exit.mjs"), "utf8");
   // a) 公开面闭集(依赖面测试:export 恰三函数,无隐藏写口)
-  assert.deepEqual(Object.keys(fexit).sort(), ["findingIssueDraft", "parseFindings", "runFindingExits"], "export 闭集(新增写口须过 spec)");
+  assert.deepEqual(Object.keys(fexit).sort(), ["findingIssueDraft", "findingLarkDraft", "parseFindings", "runFindingExits"], "export 闭集(新增写口须过 spec;#383 lark 稿=纯函数面)");
   // b) spawn 目标白名单:模块内直接 exec 恰 apprise(webhook 出口;gh 面=tools.mjs ghIssueCreate,t4 argv 捕获钉死)
   const spawnTargets = [...srcExit.matchAll(/[^.\w]exec\w*\(\s*"([a-z0-9_-]+)"/g)].map((m) => m[1]);
   assert.deepEqual(spawnTargets, ["apprise"], `spawn 目标白名单(实测:${spawnTargets.join(",")})`);

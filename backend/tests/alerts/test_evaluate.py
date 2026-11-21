@@ -67,7 +67,7 @@ def test_transition_sends_then_silences_within_24h(alerts_db):
     snap = [_snap("spamhaus", age=26.0)]  # 无事件 → 阈值 = stale_days×24 = 24h
     msg = _alerts.evaluate(snap, now=T0)
     assert msg == {"title": "ipradar: 1 源异常",
-                   "body": "spamhaus: 过期(上次内容更新 26h,阈值 24h)"}
+                   "body": "spamhaus: 内容太久没更新——上次内容更新 26h,告警线 24h。下一步:服务不会自动修,先看上游是否还在发布,再由人决定这个源留还是撤。"}
     assert _state(alerts_db) == [("spamhaus", "stale", T0, T0)]
     # 持续坏未满 24h:不入消息,last_notified 不动
     assert _alerts.evaluate(snap, now=T0 + H) is None
@@ -91,7 +91,7 @@ def test_recovery_round_message_and_state_delete(alerts_db):
     # 恢复-only 轮:标题 {k} 源已恢复,body 仅恢复段一行
     msg = _alerts.evaluate([_snap("dshield", age=1.0)], now=T0 + H)
     assert msg == {"title": "ipradar: 1 源已恢复",
-                   "body": "——已恢复: dshield"}
+                   "body": "——已自动恢复(不用动): dshield"}
     assert _state(alerts_db) == []
     assert _alerts.evaluate([_snap("dshield", age=1.0)],
                             now=T0 + 2 * H) is None
@@ -106,7 +106,7 @@ def test_multi_source_recovery_same_round(alerts_db):
     msg = _alerts.evaluate([_snap("otx", age=1.0), _snap("dshield", age=1.0)],
                            now=T0 + H)
     assert msg == {"title": "ipradar: 2 源已恢复",
-                   "body": "——已恢复: dshield, otx"}
+                   "body": "——已自动恢复(不用动): dshield, otx"}
     assert _state(alerts_db) == []
 
 
@@ -114,11 +114,11 @@ def test_fail_condition_and_its_recovery(alerts_db):
     from ipdb import _alerts
     msg = _alerts.evaluate([_snap("otx", age=1.0, fail=3)], now=T0)
     assert msg == {"title": "ipradar: 1 源异常",
-                   "body": "otx: 连续失败 ×3"}
+                   "body": "otx: 连续 3 次更新失败。下一步:不用动手,服务会自动重试;持续失败的话这条告警每 24h 重发一次。"}
     assert _state(alerts_db) == [("otx", "fail", T0, T0)]
     # fail_count 降回 <3 = 条件解除 → 恢复段
     msg = _alerts.evaluate([_snap("otx", age=1.0, fail=1)], now=T0 + H)
-    assert msg == {"title": "ipradar: 1 源已恢复", "body": "——已恢复: otx"}
+    assert msg == {"title": "ipradar: 1 源已恢复", "body": "——已自动恢复(不用动): otx"}
 
 
 def test_fail_count_defaults_to_zero(alerts_db):
@@ -142,10 +142,10 @@ def test_fail_kind_renders_download_rebuild_and_fallback(alerts_db):
          "fail_count": 3},
     ], now=T0)
     assert msg == {"title": "ipradar: 4 源异常",
-                   "body": "dl: 下载连续失败 ×3\n"
-                           "gen: 连续失败 ×3\n"
-                           "old: 连续失败 ×3\n"
-                           "rb: 构建连续失败 ×3"}
+                   "body": "dl: 连续 3 次下载失败(数据拉不下来)。下一步:不用动手,服务会自动重试;持续失败的话这条告警每 24h 重发一次。\n"
+                           "gen: 连续 3 次更新失败。下一步:不用动手,服务会自动重试;持续失败的话这条告警每 24h 重发一次。\n"
+                           "old: 连续 3 次更新失败。下一步:不用动手,服务会自动重试;持续失败的话这条告警每 24h 重发一次。\n"
+                           "rb: 连续 3 次构建失败(数据拉下来了,装进本地库这一步挂了)。下一步:原因段没带出来——人工核对构建日志与上游数据形状,交代理分诊。"}
     # 分类只动文案:alert_state 落行 condition 仍全为 "fail"
     assert [r[:2] for r in _state(alerts_db)] == [
         ("dl", "fail"), ("gen", "fail"), ("old", "fail"), ("rb", "fail")]
@@ -164,10 +164,10 @@ def test_fail_text_uses_per_kind_count(alerts_db):
         _snap("gen", age=1.0, fail=4),                   # 无 kind:×fail_count
     ], now=T0)
     assert msg == {"title": "ipradar: 4 源异常",
-                   "body": "dl: 下载连续失败 ×2\n"
-                           "gen: 连续失败 ×4\n"
-                           "old: 下载连续失败 ×3\n"
-                           "sw: 构建连续失败 ×1"}
+                   "body": "dl: 连续 2 次下载失败(数据拉不下来)。下一步:不用动手,服务会自动重试;持续失败的话这条告警每 24h 重发一次。\n"
+                           "gen: 连续 4 次更新失败。下一步:不用动手,服务会自动重试;持续失败的话这条告警每 24h 重发一次。\n"
+                           "old: 连续 3 次下载失败(数据拉不下来)。下一步:不用动手,服务会自动重试;持续失败的话这条告警每 24h 重发一次。\n"
+                           "sw: 连续 1 次构建失败(数据拉下来了,装进本地库这一步挂了)。下一步:原因段没带出来——人工核对构建日志与上游数据形状,交代理分诊。"}
 
 
 def test_fail_threshold_is_two(alerts_db):
@@ -175,11 +175,11 @@ def test_fail_threshold_is_two(alerts_db):
     from ipdb import _alerts
     msg = _alerts.evaluate([_snap("otx", age=1.0, fail=2)], now=T0)
     assert msg == {"title": "ipradar: 1 源异常",
-                   "body": "otx: 连续失败 ×2"}
+                   "body": "otx: 连续 2 次更新失败。下一步:不用动手,服务会自动重试;持续失败的话这条告警每 24h 重发一次。"}
     assert _state(alerts_db) == [("otx", "fail", T0, T0)]
     # fail_count 降回 1(<2)= 条件解除 → 恢复段
     msg = _alerts.evaluate([_snap("otx", age=1.0, fail=1)], now=T0 + H)
-    assert msg == {"title": "ipradar: 1 源已恢复", "body": "——已恢复: otx"}
+    assert msg == {"title": "ipradar: 1 源已恢复", "body": "——已自动恢复(不用动): otx"}
 
 
 def test_classify_format_drift_keyword_set():
@@ -224,11 +224,11 @@ def test_fail_reason_appended_drift_label_plain_and_legacy(alerts_db):
          "fail_count": 2},
     ], now=T0)
     assert msg == {"title": "ipradar: 4 源异常",
-                   "body": "drift: 构建连续失败 ×2(疑似上游格式变动: " + drift
-                           + ")\n"
-                           "empty: 连续失败 ×2\n"
-                           "old: 连续失败 ×2\n"
-                           "plain: 下载连续失败 ×2(connection reset by peer)"}
+                   "body": "drift: 连续 2 次构建失败(数据拉下来了,装进本地库这一步挂了)(疑似上游格式变动: " + drift
+                           + ")。下一步:括号里标了「疑似上游格式变动」的,多半是上游改了数据格式,人工核对格式;其余按括号里的原因判断。\n"
+                           "empty: 连续 2 次更新失败。下一步:不用动手,服务会自动重试;持续失败的话这条告警每 24h 重发一次。\n"
+                           "old: 连续 2 次更新失败。下一步:不用动手,服务会自动重试;持续失败的话这条告警每 24h 重发一次。\n"
+                           "plain: 连续 2 次下载失败(数据拉不下来)(connection reset by peer)。下一步:不用动手,服务会自动重试;持续失败的话这条告警每 24h 重发一次。"}
 
 
 def test_fail_reason_folds_newlines_and_truncates(alerts_db):
@@ -239,18 +239,18 @@ def test_fail_reason_folds_newlines_and_truncates(alerts_db):
                  "ValueError: header mismatch\n"
     msg = _alerts.evaluate(
         [_snap("nl", age=1.0, fail=2, error=multi_line)], now=T0)
-    assert msg["body"] == ("nl: 连续失败 ×2(疑似上游格式变动: "
+    assert msg["body"] == ("nl: 连续 2 次更新失败(疑似上游格式变动: "
                            "Traceback (most recent call last): File \"h.py\", "
-                           "line 42 ValueError: header mismatch)")
+                           "line 42 ValueError: header mismatch)。下一步:不用动手,服务会自动重试;持续失败的话这条告警每 24h 重发一次。")
     long_err = "y" * 300                     # 全文无命中词:纯截断
     msg = _alerts.evaluate(
         [_snap("tr", age=1.0, fail=2, error=long_err)], now=T0)
-    assert msg["body"] == "tr: 连续失败 ×2(" + "y" * 200 + "…)"
+    assert msg["body"] == "tr: 连续 2 次更新失败(" + "y" * 200 + "…)。下一步:不用动手,服务会自动重试;持续失败的话这条告警每 24h 重发一次。"
     # 命中词在 200 字窗外(第 251 字起):分类看全文仍标标签,截断只影响展示
     msg = _alerts.evaluate(
         [_snap("tr2", age=1.0, fail=2, error="z" * 250 + " shape")], now=T0)
-    assert msg["body"] == ("tr2: 连续失败 ×2(疑似上游格式变动: "
-                           + "z" * 200 + "…)")
+    assert msg["body"] == ("tr2: 连续 2 次更新失败(疑似上游格式变动: "
+                           + "z" * 200 + "…)。下一步:不用动手,服务会自动重试;持续失败的话这条告警每 24h 重发一次。")
 
 
 def test_reader_error_condition_and_recovery(alerts_db):
@@ -260,11 +260,11 @@ def test_reader_error_condition_and_recovery(alerts_db):
     from ipdb import _alerts
     msg = _alerts.evaluate([_snap("dbip", age=1.0, reader=True)], now=T0)
     assert msg == {"title": "ipradar: 1 源异常",
-                   "body": "dbip: 数据库未加载(疑 epoch 损坏),查询端静默缺席"}
+                   "body": "dbip: 数据库文件在,但查询端没能加载它(疑 epoch 损坏)——查询会静默缺这个源的数据,不报错。下一步:需要人工检查存储或重启服务;其余源不受影响。"}
     assert _state(alerts_db) == [("dbip", "reader", T0, T0)]
     # reader_error 回 False = 条件解除 → 恢复段
     msg = _alerts.evaluate([_snap("dbip", age=1.0)], now=T0 + H)
-    assert msg == {"title": "ipradar: 1 源已恢复", "body": "——已恢复: dbip"}
+    assert msg == {"title": "ipradar: 1 源已恢复", "body": "——已自动恢复(不用动): dbip"}
 
 
 def test_reader_error_key_absent_defaults_false(alerts_db):
@@ -283,8 +283,8 @@ def test_reader_error_counts_source_once_with_stale(alerts_db):
     msg = _alerts.evaluate([_snap("dbip", age=26.0, reader=True)], now=T0)
     assert msg == {
         "title": "ipradar: 1 源异常",
-        "body": "dbip: 过期(上次内容更新 26h,阈值 24h)\n"
-                "dbip: 数据库未加载(疑 epoch 损坏),查询端静默缺席"}
+        "body": "dbip: 内容太久没更新——上次内容更新 26h,告警线 24h。下一步:服务不会自动修,先看上游是否还在发布,再由人决定这个源留还是撤。\n"
+                "dbip: 数据库文件在,但查询端没能加载它(疑 epoch 损坏)——查询会静默缺这个源的数据,不报错。下一步:需要人工检查存储或重启服务;其余源不受影响。"}
     assert [r[:2] for r in _state(alerts_db)] == [("dbip", "reader"), ("dbip", "stale")]
 
 
@@ -295,7 +295,7 @@ def test_none_age_always_triggers(alerts_db):
           "fail_count": 0}], now=T0)
     # 无文件 → age 视为 ∞ 必触发;age 字面渲染「从未」,阈值照常数值
     assert msg == {"title": "ipradar: 1 源异常",
-                   "body": "greensnow: 过期(上次内容更新 从未,阈值 24h)"}
+                   "body": "greensnow: 内容太久没更新——上次内容更新 从未,告警线 24h。下一步:服务不会自动修,先看上游是否还在发布,再由人决定这个源留还是撤。"}
 
 
 def test_label_dichotomy_stale_vs_stall(alerts_db):
@@ -314,10 +314,10 @@ def test_label_dichotomy_stale_vs_stall(alerts_db):
     assert msg["title"] == "ipradar: 4 源异常"
     # 过期/停更同组,组内按源名字母序
     assert msg["body"].splitlines() == [
-        "daily: 停更嫌疑(8.3d 未变,实测 2.0d/次)",
-        "even: 过期(上次内容更新 26h,阈值 24h)",
-        "fast: 过期(上次内容更新 26h,阈值 24h)",
-        "slow: 停更嫌疑(30h 未变,实测 8h/次)",
+        "daily: 疑似停更——8.3d 没有新内容,而它平时实测 2.0d/次。下一步:服务不会自动修,先看上游是否还在发布,再由人决定这个源留还是撤。",
+        "even: 内容太久没更新——上次内容更新 26h,告警线 24h。下一步:服务不会自动修,先看上游是否还在发布,再由人决定这个源留还是撤。",
+        "fast: 内容太久没更新——上次内容更新 26h,告警线 24h。下一步:服务不会自动修,先看上游是否还在发布,再由人决定这个源留还是撤。",
+        "slow: 疑似停更——30h 没有新内容,而它平时实测 8h/次。下一步:服务不会自动修,先看上游是否还在发布,再由人决定这个源留还是撤。",
     ]
 
 
@@ -326,14 +326,14 @@ def test_dual_condition_same_source_counts_once(alerts_db):
     msg = _alerts.evaluate([_snap("otx", age=26.0, fail=5)], now=T0)
     assert msg["title"] == "ipradar: 1 源异常"  # 两条件都坏,异常源数算 1
     assert msg["body"].splitlines() == [
-        "otx: 过期(上次内容更新 26h,阈值 24h)",  # 过期/停更行在前
-        "otx: 连续失败 ×5",                        # 失败行在后
+        "otx: 内容太久没更新——上次内容更新 26h,告警线 24h。下一步:服务不会自动修,先看上游是否还在发布,再由人决定这个源留还是撤。",  # 过期/停更行在前
+        "otx: 连续 5 次更新失败。下一步:不用动手,服务会自动重试;持续失败的话这条告警每 24h 重发一次。",                        # 失败行在后
     ]
     assert _state(alerts_db) == [
         ("otx", "fail", T0, T0), ("otx", "stale", T0, T0)]
     # 两条件同轮解除 → 状态全删,恢复段源名只出现一次
     msg = _alerts.evaluate([_snap("otx", age=1.0)], now=T0 + H)
-    assert msg == {"title": "ipradar: 1 源已恢复", "body": "——已恢复: otx"}
+    assert msg == {"title": "ipradar: 1 源已恢复", "body": "——已自动恢复(不用动): otx"}
     assert _state(alerts_db) == []
 
 
@@ -352,9 +352,9 @@ def test_merged_round_literal(alerts_db):
         now=t1)
     assert msg == {
         "title": "ipradar: 2 源异常",
-        "body": "greensnow: 停更嫌疑(8.3d 未变,实测 2.0d/次)\n"
-                "feodo: 连续失败 ×4\n"
-                "——已恢复: dshield",
+        "body": "greensnow: 疑似停更——8.3d 没有新内容,而它平时实测 2.0d/次。下一步:服务不会自动修,先看上游是否还在发布,再由人决定这个源留还是撤。\n"
+                "feodo: 连续 4 次更新失败。下一步:不用动手,服务会自动重试;持续失败的话这条告警每 24h 重发一次。\n"
+                "——已自动恢复(不用动): dshield",
     }
 
 
@@ -382,4 +382,4 @@ def test_state_machine_driven_by_db_not_memory(alerts_db):
             " last_notified) VALUES ('dshield', 'stale', 0, 0)")
     msg = _alerts.evaluate([_snap("otx", age=26.0), _snap("dshield", age=1.0)],
                            now=T0 + H)
-    assert msg == {"title": "ipradar: 1 源已恢复", "body": "——已恢复: dshield"}
+    assert msg == {"title": "ipradar: 1 源已恢复", "body": "——已自动恢复(不用动): dshield"}

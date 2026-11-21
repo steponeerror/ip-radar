@@ -20,7 +20,8 @@
 //      门三连(backend 全量 pytest / ops selftest / agent-v2 node --test)→
 //      push + gh pr create --draft(标题 add/<source>,正文含轮四行数)。
 //   ④ 失败/门红:不重试,信封留档(rounds/<id>/fleet-run.json)+ lark 推送
-//      (apprise --body 参数数组形,#368 判例;env IP_RADAR_ALERT_URLS,缺省静音);
+//      (apprise --body 参数数组形,#368 判例;#383 推送面大白话化=fleetLarkDraft 两件套,
+//      机制/工件面不动;env IP_RADAR_ALERT_URLS,缺省静音);
 //      同源连续 2 次失败=跳过+告警(一次性,skip_alerted 防每拍重发)。
 //      月帽拒启(run-add refused budget_monthly)=lark+exit 1,不计失败(未起跑)。
 //   ⑤ 一次一源(--once 显式声明,缺省同形);无源=exit 0 零模型调用(fleet 自身零模型面)。
@@ -412,6 +413,72 @@ function envelopeUsage(roundDir) {
   return { totalTokens: b?.totalTokens ?? 0, cost: b?.cost ?? 0 };
 }
 
+// ── #383 lark 推送面大白话稿(双面律:fleet-run.json 工件/PR/信封结构字节不动)──
+// 「失败类型→建议动作」对照表(每条带票号出处;只给方向,不写具体命令)。
+export const FLEET_LARK_ADVICE = Object.freeze({
+  verifyClock: "多半是本机时钟抖动,重放一次通常就过;同一源连败 2 次会自动跳过并另行告警", // #377 时钟族判例(验证门偶发红=时钟 flake,重试即过)+ #366 连败跳过
+  roundInfra: "多半是被杀或环境问题(偶发),下一拍自动重试;连败 2 次会自动跳过并另行告警", // #366
+  monthly: "不用动,这是预算护栏在正常工作;想继续跑由人裁抬月帽(env OPS_PIPELINE_MONTHLY_CAP_CNY)或等下月", // #366:月帽拒启未起跑不计失败
+  cardMissing: "这是队列数据问题不会自愈:人工核对 docs 仓队列卡(APPROVE 行在但候选卡缺席),补卡或撤行后再让它跑", // #366 队列崩殘态
+  cardNotApproved: "队列状态与预期不一致(卡不在已批准态):人工核对 docs 仓队列行后再试", // #366
+  sandbox: "沙箱执法拦下了越界动作(改动碰了不该碰的面):须人工复盘沙箱分支,或交代理分诊", // #366 沙箱遏制面
+  liftFail: "加源轮本身跑绿了,但自动收尾(整理文档+开草稿 PR)失败:轮工件已留档,人工按轮工件接手收尾,或交代理分诊", // #366 lift 链
+  liftGate: "加源轮跑绿了,但收尾后的门(测试三连)没过:改动已提交在沙箱分支,人工接手修到绿再开 PR,或交代理分诊", // #366 门三连
+});
+
+const fleetClock = (roundId) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})-(\d{2})(\d{2})-/.exec(String(roundId || ""));
+  if (!m) return String(roundId || "?");
+  const hh = +m[4];
+  const tod = hh < 5 ? "凌晨" : hh < 8 ? "早上" : hh < 11 ? "上午" : hh < 13 ? "中午" : hh < 17 ? "下午" : hh < 19 ? "傍晚" : "晚上";
+  return `${m[2]}-${m[3]} ${tod} ${m[4]}:${m[5]}`;
+};
+
+// fleet lark 推送稿(纯函数;phase=fail() 的第一参)。三段骨架同演化/巡检面(#383)。
+export function fleetLarkDraft({ roundId, source, phase, message }) {
+  const when = fleetClock(roundId);
+  const head = `源 ${source},轮次 ${roundId}`;
+  const tail = [
+    "",
+    "【证据与工单指针】",
+    `- 轮工件目录:docs/ops/rounds/${roundId}/(fleet-run.json=本次失败留档;轮内工件齐全)`,
+    `- 沙箱分支:add/${source}(.worktrees/add-${source})`,
+  ];
+  const msg = String(message ?? "").replace(/\s+/g, " ").slice(0, 200);
+  const two = (what, advice) => [
+    "【发生了什么】",
+    what,
+    "",
+    "【下一步怎么办】",
+    advice,
+    ...tail,
+  ].join("\n");
+  if (phase === "refused")
+    return { title: `【ip-radar 加源拒启】${when} ${source}`, body: two(`${when} 想给 ${head} 跑加源轮,但本月加源管线花费到月帽,这轮没起跑(未花钱、不计失败)。`, FLEET_LARK_ADVICE.monthly) };
+  if (phase === "round:infra")
+    return { title: `【ip-radar 加源失败】${when} ${source}`, body: two(`${when} 的加源轮(${head})进程崩了或被杀,没留下结果信封。技术尾迹:${msg}`, FLEET_LARK_ADVICE.roundInfra) };
+  if (phase.startsWith("round:")) {
+    const code = phase.slice("round:".length);
+    if (/G_VERIFY|验证门/.test(String(message ?? "")))
+      return { title: `【ip-radar 加源失败】${when} ${source}`, body: two(`${when} 的加源轮(${head})失败——没跑完就断在验证门(G_VERIFY)。技术尾迹:${msg}`, FLEET_LARK_ADVICE.verifyClock) };
+    const advice = code === "card_missing" ? FLEET_LARK_ADVICE.cardMissing
+      : code === "card_not_approved" ? FLEET_LARK_ADVICE.cardNotApproved
+      : code === "sandbox_violation" ? FLEET_LARK_ADVICE.sandbox
+      : `失败码 ${code} 不在处置对照表——没有现成建议,看轮工件 docs/ops/rounds/${roundId}/(fleet-run.json、信封)交代理分诊;期间下一拍会自动重试,同一源连败 2 次自动跳过`; // 定案⑥:未知码不编造处置(评审 P2-1);重试/跳过两句=#366 机制上恒真
+    return { title: `【ip-radar 加源失败】${when} ${source}`, body: two(`${when} 的加源轮(${head})失败(失败码 ${code})。技术尾迹:${msg}`, advice) };
+  }
+  const isGate = phase.startsWith("lift:gate:");
+  return {
+    title: `【ip-radar 加源失败】${when} ${source}`,
+    body: two(
+      isGate
+        ? `${when} 的加源轮(${head})本身跑绿了,但自动收尾后的门没过(${phase.slice("lift:gate:".length)})。技术尾迹:${msg}`
+        : `${when} 的加源轮(${head})本身跑绿了,但自动收尾(${phase.slice("lift:".length)})失败。技术尾迹:${msg}`,
+      isGate ? FLEET_LARK_ADVICE.liftGate : FLEET_LARK_ADVICE.liftFail,
+    ),
+  };
+}
+
 // ── CLI ──
 function usage() {
   process.stderr.write(`用法:node run-fleet.mjs [--once] [--model provider/modelId] [--queue PATH] [--docs-root DIR] [--rounds DIR] [--dev-root DIR] [--sandbox-home DIR] [--base REF] [--dry-run-exits]\n`);
@@ -510,15 +577,28 @@ export async function main(argv = process.argv.slice(2), io = {}) {
 
   const roundDir = path.join(roundsRoot, roundId);
   // 失败/拒启出口(单源内闭包:信封留档+lark+失败计数;countFailure=false=拒启未起跑不计)
+  // #383:lark 面=fleetLarkDraft 大白话两件套;机制/工件面不动。
   const fail = async (phase, message, { countFailure = true, envelope = null, extra = null } = {}) => {
-    const text = [`fleet #366 ${phase} 红`, `源:${source}`, `轮:${roundId}`, String(message).slice(0, 400)].join("\n");
-    const larkRes = await body(`ipradar-fleet ${phase} 红`, text);
+    const lark = fleetLarkDraft({ roundId, source, phase, message });
+    const larkRes = await body(lark.title, lark.body);
     if (countFailure) {
       state = applyFleetOutcome(state, source, false);
       state.in_flight = null;
       writeState(state);
       if (blockedSourcesOf(state).has(source))
-        await body(`ipradar-fleet 跳过 ${source}`, `连续 ${FLEET_SKIP_FAILURES} 次失败,后续拍跳过该源(队列 APPROVE 行仍在;人面复盘后删 dev/fleet/state.json failures 条目可复跑)`);
+        await body(
+          `【ip-radar 加源跳过】${source}`,
+          [
+            "【发生了什么】",
+            `源 ${source} 连续 ${FLEET_SKIP_FAILURES} 次加源失败,自动加源先跳过它(队列里的 APPROVE 行还在,不会自动删)。`,
+            "",
+            "【下一步怎么办】",
+            `人工复盘该源两轮失败的轮工件(docs/ops/rounds/ 下两个轮目录的 fleet-run.json);想让它再跑,人面清掉 dev/fleet/state.json 里该源的失败计数后,下一拍会自动重试。`,
+            "",
+            "【证据与工单指针】",
+            `- fleet 状态:dev/fleet/state.json;沙箱分支:add/${source}`,
+          ].join("\n"),
+        );
     }
     writeJsonAtomic(path.join(roundDir, "fleet-run.json"), { ok: false, round_id: roundId, source, phase, message: String(message).slice(0, 2000), envelope, extra, lark: larkRes, at: new Date().toISOString() });
     process.stdout.write(`${JSON.stringify({ ok: false, round: "fleet", source, round_id: roundId, error: { code: phase, message: String(message).slice(0, 300) } })}\n`);

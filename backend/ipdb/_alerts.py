@@ -171,6 +171,31 @@ def _fmt_hours(hours: float) -> str:
     return f"{hours / 24:.1f}d"
 
 
+# ── #383 lark 推送文案大白话化:消息行两件套=发生了什么+下一步怎么办 ──
+# 「失败类型→建议动作」对照(每条带票号出处;只给方向,不写具体命令;「不用动/
+# 等自动重试」明写)。判断状态机/阈值/推送机制一律不动(渲染层 only)。
+_NEXT_AUTO_RETRY = (
+    "下一步:不用动手,服务会自动重试;持续失败的话这条告警每 24h 重发一次"
+)  # 更新失败族(#371 连败告警链;24h 重发=约束 4 状态机)
+_NEXT_REBUILD = (
+    "下一步:括号里标了「疑似上游格式变动」的,多半是上游改了数据格式,"
+    "人工核对格式;其余按括号里的原因判断"
+)  # #371 格式漂移分类标签(#369 判例:数据没坏,上游改了形);仅在有原因段时用
+_NEXT_REBUILD_PLAIN = (
+    "下一步:原因段没带出来——人工核对构建日志与上游数据形状,交代理分诊"
+)  # rebuild 无 fail_error(原因段空)时用;不悬空指代不存在的括号(评审 P3-1)
+_NEXT_STALE = (
+    "下一步:服务不会自动修,先看上游是否还在发布,再由人决定这个源留还是撤"
+)  # 停更/过期(源活性告警 Task 1-4)
+_NEXT_READER = (
+    "下一步:需要人工检查存储或重启服务;其余源不受影响"
+)  # OL-4 epoch 损坏降级(库在 reader 未加载)
+_NEXT_EVAL = (
+    "下一步:人工查月轮定时任务是否还在跑——这不是数据问题,是评估管线没动静"
+)  # S6 月轮心跳(Q10:时基只认生产侧文件 mtime)
+_RECOVERED_PREFIX = "——已自动恢复(不用动): "  # 恢复段前缀(—— 两个 U+2014,约束 6);源名=回查键原样保留
+
+
 # ── #371:连败行后追加失败原因(纯函数分类,文案层可独立测试)──
 # 格式漂移嫌疑关键词:失败文本命中 → 前缀中文标签「疑似上游格式变动」。
 # 集合取自真实判例与表头/列/行数/形状类校验词——#369 anycast_census
@@ -213,7 +238,7 @@ def evaluate(snapshots: list[dict], now: float,
     """消费 scheduler 每轮快照,推进 alert_state 并组装本轮合并消息。
 
     snapshot 每项:{"name", "stale_days", "content_age_h"(None=无文件→视为 ∞),
-    "fail_count"(缺省 0), "fail_kind"(缺省 ""=旧「连续失败 ×N」通用
+    "fail_count"(缺省 0), "fail_kind"(缺省 ""=旧「连续 N 次更新失败」通用
     文案;"download"/"rebuild" 分报下载/构建失败,2026-10-17 用户裁定),
     "fail_kind_count"(缺省 = fail_count:逐 kind 连败数只驱动 ×N 文案,
     ≥2 告警条件仍看 fail_count 总数——裁定修:kind 切换不下假「已恢复」),
@@ -282,11 +307,12 @@ def evaluate(snapshots: list[dict], now: float,
                 age_str = "从未" if age_h is None else _fmt_hours(age_h)
                 if observed is not None and \
                         observed * _INTERVAL_FACTOR > stale_days * 24:
-                    line = (f"{name}: 停更嫌疑({age_str} 未变,"
-                            f"实测 {_fmt_hours(observed)}/次)")
+                    line = (f"{name}: 疑似停更——{age_str} 没有新内容,"
+                            f"而它平时实测 {_fmt_hours(observed)}/次。"
+                            f"{_NEXT_STALE}。")
                 else:
-                    line = (f"{name}: 过期(上次内容更新 {age_str},"
-                            f"阈值 {_fmt_hours(thr)})")
+                    line = (f"{name}: 内容太久没更新——上次内容更新 {age_str},"
+                            f"告警线 {_fmt_hours(thr)}。{_NEXT_STALE}。")
                 stale_lines.append((name, line))
             if _FAIL in counted:
                 # 2026-10-17 用户裁定:源监控告警须说清挂的是哪一环——下载
@@ -296,22 +322,28 @@ def evaluate(snapshots: list[dict], now: float,
                 # kind 空/缺键 → 旧 fail_count 口径(位等价回退)。condition
                 # 仍为 "fail"(DB 兼容:生产存量 (source,'fail') 行无迁移,首次
                 # 24h 重发即按当前 kind 渲染);未知/缺省 kind 回退旧通用
-                # 文案(既有调用方/测试位等价)。
+                # 文案(既有调用方/测试位等价)。#383:两件套大白话,机制不动。
                 kind = snap.get("fail_kind", "")
                 n = snap.get("fail_kind_count", fail_count) if kind else fail_count
                 reason = _fail_reason_suffix(snap.get("fail_error", ""))
                 if kind == "download":
                     fail_lines.append(
-                        (name, f"{name}: 下载连续失败 ×{n}{reason}"))
+                        (name, f"{name}: 连续 {n} 次下载失败(数据拉不下来)"
+                               f"{reason}。{_NEXT_AUTO_RETRY}。"))
                 elif kind == "rebuild":
                     fail_lines.append(
-                        (name, f"{name}: 构建连续失败 ×{n}{reason}"))
+                        (name, f"{name}: 连续 {n} 次构建失败(数据拉下来了,"
+                               f"装进本地库这一步挂了){reason}。"
+                               f"{_NEXT_REBUILD if reason else _NEXT_REBUILD_PLAIN}。"))
                 else:
                     fail_lines.append(
-                        (name, f"{name}: 连续失败 ×{fail_count}{reason}"))
+                        (name, f"{name}: 连续 {fail_count} 次更新失败"
+                               f"{reason}。{_NEXT_AUTO_RETRY}。"))
             if _READER in counted:
                 reader_lines.append(
-                    (name, f"{name}: 数据库未加载(疑 epoch 损坏),查询端静默缺席"))
+                    (name, f"{name}: 数据库文件在,但查询端没能加载它"
+                           f"(疑 epoch 损坏)——查询会静默缺这个源的数据,不报错。"
+                           f"{_NEXT_READER}。"))
 
         # ── S6(Q10):月轮心跳条件 —— 伪源 "monthly-eval" 单条件状态机 ──
         # 时基独立:只认生产侧文件 mtime(eval_heartbeat_age_h),不信
@@ -333,8 +365,9 @@ def evaluate(snapshots: list[dict], now: float,
                 recovered.add(_EVAL_SOURCE)
             if counted:
                 eval_line = (
-                    "月轮心跳缺失(阈值 35.0d)" if age_h is None
-                    else f"月轮过期({_fmt_hours(age_h)} 未心跳,阈值 35.0d)")
+                    f"月轮心跳缺失:评估月轮一直没打卡(超过 {_EVAL_ROUND_THRESHOLD_H // 24} 天没心跳就告警)。{_NEXT_EVAL}。" if age_h is None
+                    else f"月轮心跳过期:评估月轮已经 {_fmt_hours(age_h)} 没打卡"
+                         f"(超过 {_EVAL_ROUND_THRESHOLD_H // 24} 天没心跳就告警)。{_NEXT_EVAL}。")
 
         # 快照里消失的源(被禁用):静默清状态,不入恢复段。eval_heartbeat
         # =None 时顺带退役遗留 eval_round 行(env 撤下即清理);提供时该行
@@ -370,7 +403,7 @@ def evaluate(snapshots: list[dict], now: float,
     if eval_line is not None:
         lines.append(eval_line)
     if recovered:
-        lines.append("——已恢复: " + ", ".join(sorted(recovered)))
+        lines.append(_RECOVERED_PREFIX + ", ".join(sorted(recovered)))
     if bad_sources:
         title = f"ipradar: {len(bad_sources)} 源异常"  # N=异常源数,双条件同源算 1
     elif eval_line is not None:

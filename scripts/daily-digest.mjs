@@ -21,8 +21,9 @@
 //   按轮 id 钟面任何常规 24h 窗都读不到(窗按起跑钟面过滤);旧带(24h<龄≤48h)轮仅当
 //   ok:false(红)或无信封(注记行;在跑/未收口不猜红)时补报终局,ok:true 静默(绿不入补报)。
 // 落盘:dev/ops-digest/<YYYY-MM-DD>.md(不 commit,放置规范 dev/ 律;证据永不灭失)。
-//   双渲染(P1-2):push 版 ≤30 行(红项截断,余量指针落盘件);落盘版=push 版+
-//   全量红项附录(不截断)——截断只截推送面,不截档。
+//   三面(#383 大白话化):落盘版=技术面全量(push 摘要+全量红项附录,字节不变——证据面
+//   不漂移);lark 推送版=renderDigestPush 大白话(≤30 行,单行可变长;红项带「发生了什么+
+//   下一步怎么办」两件套,处置方向来自 RED_ADVICE 对照表,不含具体命令)。
 // 推送:--push 时 apprise --title --body(execFile 参数数组直传,无 shell 免转义;
 //   装机目标 apprise v2.2.0 无 --body-file 旗标,2026-11-20 实测订正)读 env IP_RADAR_ALERT_URLS
 //   (逗号/空白分隔多 URL;未配置=静音跳过——evolution exits.mjs pushAnomalyLark 同律)。
@@ -306,11 +307,189 @@ export function renderDigest({ dateLabel, server, local, reds }) {
       lines.push(`- …另 ${reds.length - shown.length} 条见 dev/ops-digest/${dateLabel}.md`);
   }
   const body = lines.join("\n");
-  // 双渲染(P1-2):落盘版追加全量红项附录——push 版截断的余量只在档上,不灭失。
+  // 技术摘要面+落盘全量面(P1-2 双渲染;#383 后 lark 推送另走 renderDigestPush,本函数面不变):
+  // 落盘版追加全量红项附录——摘要截断的余量只在档上,不灭失。
   const fileBody = reds.length
     ? `${body}\n\n## 红项附录(全量 ${reds.length} 条;push 版仅截断列表)\n\n${reds.map((r) => `- ⚠ ${r}`).join("\n")}`
     : body;
   return { title: `ip-radar 日报 ${dateLabel}${reds.length ? " ⚠" : ""}`, body, fileBody };
+}
+
+// ── #383 lark 推送面大白话渲染(定案 2 双面律:本区段只新增,renderDigest/fileBody 字节不变)──
+// 每条红项两件套:发生了什么(大白话重述)+ 下一步怎么办(方向级处置,不含具体命令,
+// 用户裁定 Q9)。红项归类按 collectRedItems 的技术字符串正则匹配——新增红项形状未归类时
+// 走兜底话术(老实说无现成建议并指路,不编造处置,定案 6)。
+
+// 轮 id `YYYY-MM-DD-HHMM-<kind>` → 「11-21 凌晨 01:00」(钟面=轮 id 自带钟:服务器轮=UTC
+// 由调用方标注「服务器时间」,本机轮=CST——不在此换算,保持与轮 id/工件可对回)。
+export function plainClock(roundId) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})-(\d{2})(\d{2})-/.exec(String(roundId || ""));
+  if (!m) return String(roundId || "?");
+  const hh = +m[4];
+  const tod = hh < 5 ? "凌晨" : hh < 8 ? "早上" : hh < 11 ? "上午" : hh < 13 ? "中午" : hh < 17 ? "下午" : hh < 19 ? "傍晚" : "晚上";
+  return `${m[2]}-${m[3]} ${tod} ${m[4]}:${m[5]}`;
+}
+
+// 闸名 → 中文(定案 3:中文说清,代号括号留——G_* 是回查工单的检索键)
+const PLAIN_GATE = Object.freeze({
+  G_VERIFY: "验证门", G_DOSSIER: "交接单门", G_IMPLEMENT: "实现门",
+  G_GATE: "终门", G_REPORT: "报告门", G_CLOSE: "收口门", G_ANCHOR_SWEEP: "金标巡检门",
+});
+const plainGate = (g) => `${PLAIN_GATE[g] ?? "关卡"}(${g})`;
+const plainKind = (id) => (id.endsWith("-health") ? "健康轮" : id.endsWith("-discover") ? "发现轮" : id.endsWith("-evolve") ? "演化轮" : id.endsWith("-add") ? "加源轮" : "轮");
+
+// 「失败类型→建议动作」对照表(定案 6:每条带票号出处;只给方向,不写具体命令)。
+export const RED_ADVICE = Object.freeze({
+  serverGate: "等下一轮自动重跑;同一道门连续两天红再人工查,单次偶发不用动", // #368 日报观察面;服务器 cron 每日自动重跑
+  serverNoGates: "等下一轮自动重跑;第二天同一时间还缺再登服务器看容器日志", // #368 P2-1:窗内龄>1h 缺 gates=流产轮不允静默
+  findingExit: "巡检异常已自动开 GitHub 工单并另推一条告警,按那条告警的三选一处置即可,日报里不用重复动作", // #184 出口只写不动作
+  budgetRefused: "不用动,这是预算护栏在正常工作;要继续跑须人裁抬月帽,或等下月自动恢复", // #356/#366 拒启双面:留痕未起跑零花费
+  shadowNew: "需要人工处理:登服务器检查影子定时任务有没有清干净(切流清单见 SHADOW-RUNBOOK),不清会一直误报", // #364 切流:影子 cron 应已停,增轮=回退不彻底
+  evolveHalted: "这是设计内的自动停机,不用动;要不要重启演化由人裁(重启须人面改 dev/evolution/state.json),不重启只是不再自动试新方案", // #356:连续 3 轮带内零增益自停
+  evolveOverCap: "后续演化轮会被拒启(拒启会留痕);要继续跑须人裁抬帽(env EVOLVE_SPEND_CAP_CNY)或等下月", // #356 月帽拒启面
+  fleetVerifyClock: "多半是本机时钟抖动,重放一次通常就过;同一源连败 2 次会自动跳过并另行告警", // #377 时钟步进判例(验证门偶发红=时钟族 flake,重试即过)+ #366 连败 2 跳过
+  fleetGate: "等下一拍自动重试;同一源连败 2 次会自动跳过并另行告警,那时再人工复盘", // #366:失败不重试同轮,下一拍另起
+  fleetMonthly: "不用动,预算护栏正常工作;想继续跑由人裁抬帽(env OPS_PIPELINE_MONTHLY_CAP_CNY)或等下月", // #366:月帽拒启未起跑不计失败
+  sshFail: "偶发网络问题等明天自动恢复;连续几天失败再人工登服务器排查 ssh 和容器", // #368:失败可见优于静默空面
+  missedNote: "等下一轮;连续出现再人工查服务器轮目录", // #368 两日 glob 兜底注记
+});
+
+// 演化失败码 → (发生了什么 / 下一步)(#356 骨架错误面;未知码走 unknown 兜底不缩造)
+export const EVOLVE_CODE_PLAIN = Object.freeze({
+  cards_missing: ["考题卡文件缺失,轮没法考试", "这是配置面问题不会自愈:按轮报告核对考题卡目录(env EVOLVE_CARDS_DIR;生成入口 gen-exam-cards.mjs),交人工或代理处理"], // #356
+  guardrail_red: ["提案改动碰到了受保护文件,被护栏拦下、候选作废", "护栏正常工作,下一轮会自动再试;连续多轮都这样再交代理分诊"], // #356 保护名单闸
+  model_face: ["提案者 AI 会话没正常收尾,轮失败收口", "偶发面,下一轮自动重试;同一失败码连续出现再人工查模型配置"], // #356
+  judge_insufficient: ["考试成对数据不足,判不出输赢,轮按失败收口(不计熄火)", "多为考试偶发崩溃,下一轮自动重试;连续出现再人工查"], // #356 判定面
+  trial_spend_cap: ["考试花费到了单轮帽,停批收口", "预算护栏正常工作,已跑部分已入账;下一轮/下月自动恢复"], // #356+#337 花费帽
+  orphan_reconciled: ["上次运行被击杀或崩溃,这轮启动时已自动补账收口", "对账已自动完成,不用动;这台机器频繁非正常停机才值得查原因"], // #356 启动对账 P2-4②
+  orphan_pre_flush: ["上次运行崩得太早,断点文件没写下来,花费追不回(按零费留痕收口)", "已自动收口留档,不用动;频繁出现再查运行环境的超时帽/内存"], // #356 pre-flush 孤儿 P2-②
+  bad_round: ["轮次编号形状不对,轮没起跑", "调度参数面问题,人工核对定时器/脚本传入的轮 id"], // #356/#366 形状律
+});
+
+// 跨窗终局补报的 why(code/闸名/status)分流在 RED_PLAIN_RULES 的跨窗规则内联(按 face 取表)
+
+// 红项技术字符串 → 大白话两件套(规则序=先具体后宽泛;未命中走兜底)
+const RED_PLAIN_RULES = [
+  [/^fleet 月帽拒启\((\S+):spend ¥([\d.]+) \+ est ¥([\d.]+) > 帽 ¥([\d.]+)\)$/,
+    (m) => `fleet:${plainClock(m[1])} 想给源跑加源轮,但本月加源花费到帽被拒启(已花 ¥${m[2]}+这轮预估 ¥${m[3]}>月帽 ¥${m[4]},未起跑零花费)。下一步:${RED_ADVICE.fleetMonthly}。`],
+  [/^fleet (\S+) !ok\(status=(\S+);闸败:(.*)\)$/,
+    (m) => {
+      const gates = m[3].split("、");
+      if (gates.includes("G_VERIFY"))
+        return `fleet:${plainClock(m[1])} 的加源轮失败——没跑完就断在验证门(G_VERIFY)。下一步:${RED_ADVICE.fleetVerifyClock}。`;
+      return `fleet:${plainClock(m[1])} 的加源轮失败(状态 ${m[2]})——没过 ${gates.map(plainGate).join("、")}。下一步:${RED_ADVICE.fleetGate}。`;
+    }],
+  [/^(演化轮|fleet|) ?(\S+) 终局 !ok\((.+?)\)\(跨窗补报\)$/,
+    (m) => {
+      const face = m[1] || "服务器";
+      const clock = `${plainClock(m[2])}${m[1] ? "" : "(服务器时间)"}的${plainKind(m[2])}`;
+      if (m[1] === "fleet")
+        return `fleet:${plainClock(m[2])}的加源轮 昨天还在跑,现在收口了:失败,${/^G_/.test(m[3]) ? `没过 ${plainGate(m[3])}` : `状态 ${m[3].replace(/^status=/, "")}`}(跨窗补报)。下一步:${m[3] === "G_VERIFY" ? RED_ADVICE.fleetVerifyClock : RED_ADVICE.fleetGate}。`;
+      if (m[1] === "演化轮") {
+        const known = EVOLVE_CODE_PLAIN[m[3]];
+        return `演化:${plainClock(m[2])}的演化轮 昨天还在跑,现在收口了:失败——${known ? known[0] : `失败码 ${m[3]}`}(${m[3]})(跨窗补报)。下一步:${known ? known[1] : `无现成建议——看 dev/evolution/rounds/${m[2]}/report.md,交代理分诊`}。`;
+      }
+      return `服务器:${clock} 昨天还在跑,现在收口了:失败,${/^G_/.test(m[3]) ? `没过 ${plainGate(m[3])}` : `原因 ${m[3]}`}(跨窗补报)。下一步:${RED_ADVICE.serverGate}。`;
+    }],
+  [/^演化轮 (\S+) !ok\((\S+)\)$/,
+    (m) => {
+      const known = EVOLVE_CODE_PLAIN[m[2]];
+      return `演化:${plainClock(m[1])} 的演化轮失败——${known ? known[0] : `失败码 ${m[2]}`}(${m[2]})。下一步:${known ? known[1] : `无现成建议——看 dev/evolution/rounds/${m[1]}/report.md,交代理分诊`}。`;
+    }],
+  [/^演化已熄火\(halted;上轮 (\S+)\)$/,
+    (m) => `演化:循环已自停(连续 3 轮没赚头,halted;上轮 ${m[1]})。下一步:${RED_ADVICE.evolveHalted}。`],
+  [/^演化花费 ¥([\d.]+) 超月帽 ¥([\d.]+)$/,
+    (m) => `演化:本月花费 ¥${m[1]} 已超自设月帽 ¥${m[2]}。下一步:${RED_ADVICE.evolveOverCap}。`],
+  [/^拒启触帽留痕\((\d{4}-\d{2}-\d{2})\):(.*)$/,
+    (m) => `服务器:${m[1]} 的轮因当月花费到帽被拒启动(拒启留痕,未花钱)。下一步:${RED_ADVICE.budgetRefused}。`],
+  [/^影子树增轮:(\S+)(\(影子 cron 应已停\))?$/,
+    (m) => `服务器:影子目录冒出了新轮 ${m[1]}——切流后影子定时任务应该已停,增轮=还有东西在跑。下一步:${RED_ADVICE.shadowNew}。`],
+  [/^(\S+) finding 出口触发\(findings=(\d+)\)$/,
+    (m) => `服务器:${plainClock(m[1])}(服务器时间)的${plainKind(m[1])}里,金标巡检发现 ${m[2]} 个异常(finding)——有 IP 的查询结果和标准答案对不上。下一步:${RED_ADVICE.findingExit}。`],
+  [/^(\S+) gates\.json 缺\(窗内龄>1h,无在跑解释\)$/,
+    (m) => `服务器:${plainClock(m[1])}(服务器时间)的${plainKind(m[1])}跑了但没留下成绩单(gates.json 缺)——多半中途崩了。下一步:${RED_ADVICE.serverNoGates}。`],
+  [/^(\S+) 信封 !ok\(闸败:(.*)\)$/,
+    (m) => `服务器:${plainClock(m[1])}(服务器时间)的${plainKind(m[1])}失败——没过 ${m[2].split("、").map(plainGate).join("、")}。下一步:${RED_ADVICE.serverGate}。`],
+  [/^服务器面读取失败:(.*)$/,
+    (m) => `服务器:日报连不上服务器,读不到今天的轮数据(${m[1]})——读不到不等于一切正常。下一步:${RED_ADVICE.sshFail}。`],
+  [/^窗内轮未读到信封:(.*)$/,
+    (m) => `服务器:窗内有轮但没读到它的信封(${m[1]})。下一步:${RED_ADVICE.missedNote}。`],
+];
+
+// 单条红项 → 大白话(未命中规则=未知失败类型,兜底指路不编造)
+export function plainRedItem(red, dateLabel) {
+  for (const [re, fn] of RED_PLAIN_RULES) {
+    const m = re.exec(String(red));
+    if (m) return fn(m);
+  }
+  return `${red}。下一步:无现成建议——看 dev/ops-digest/${dateLabel}.md 红项附录与对应轮工件,交代理分诊。`;
+}
+
+// lark 推送版渲染(#383:标题/三段骨架同技术面,行文案大白话;≤30 行帽保留,单行可变长)
+export function renderDigestPush({ dateLabel, server, local, reds }) {
+  const timeMark = (r) => {
+    const m = /^(?:\d{4}-\d{2}-\d{2}-)(\d{2})(\d{2})-/.exec(String(r.round_id || ""));
+    return m ? `${m[1]}:${m[2]}${mark(r)}` : `${shortId(r.round_id)}${mark(r)}`;
+  };
+  const lines = [];
+  lines.push(`# ip-radar 日报 ${dateLabel}${reds.length ? ` ⚠(${reds.length} 红项)` : ""}`);
+  lines.push("");
+  lines.push("## 服务器(健康+发现,24h 窗)");
+  if (server.error) lines.push(`- ⚠ 连不上服务器,今天读不到服务器数据:${server.error}`);
+  const health = (server.rounds ?? []).filter((r) => r.round_id.endsWith("-health"));
+  const discover = (server.rounds ?? []).filter((r) => r.round_id.endsWith("-discover"));
+  if (!health.length && !discover.length && !server.error) lines.push("- 今天没有轮跑");
+  if (health.length)
+    lines.push(`- 健康轮 ${health.filter((r) => r.ok === true).length}/${health.length} 正常:${health.map(timeMark).join("、")}(服务器时间)`);
+  if (discover.length)
+    lines.push(`- 发现轮 ${discover.filter((r) => r.ok === true).length}/${discover.length} 正常:${discover.map(timeMark).join("、")}(服务器时间)`);
+  const propose = server.propose_rows ?? [];
+  lines.push(
+    propose.length
+      ? `- ${propose.length} 个候选源提案等人工裁决(PROPOSE):${propose.map((p) => p.source).join("、")}`
+      : "- 没有新的候选源提案(PROPOSE 0 行)",
+  );
+  lines.push(
+    `- 花费:近 24h ${fmtCny(server.ledger?.window_cost_cny ?? 0)},本月累计 ${fmtCny(server.ledger?.month_cost_cny ?? 0)}` +
+      (server.refusals?.length ? `;另有 ${server.refusals.length} 次到帽拒启(见红项)` : ""),
+  );
+  lines.push((server.shadow_new ?? []).length ? `- ⚠ 影子目录出现新轮(见红项)` : "- 影子目录没有新轮,切流干净 ✓");
+  if (server.missed_note) lines.push(`- ⚠ ${server.missed_note}(见红项)`);
+  const srvOd = (server.overdue_rounds ?? []).filter((r) => r.ok === null).map((r) => plainClock(r.round_id));
+  if (srvOd.length) lines.push(`- 昨天的轮还没收口(在跑或没成绩单,不算红):${srvOd.join("、")}`);
+  lines.push("");
+  lines.push("## 本机(演化+fleet)");
+  const ev = local.evolve ?? {};
+  const evRounds = ev.rounds ?? [];
+  const r0 = evRounds[0];
+  lines.push(
+    `- 演化:${ev.halted ? "⚠ 已自停(见红项)" : `还在跑(连续没赚头 ${ev.stall_rounds ?? 0}/3)`}` +
+      `${r0 ? `,今天 ${plainClock(r0.round_id)} 的轮${r0.ok === true ? "跑完 ✓" : r0.ok === false ? `失败(${r0.code ?? "?"},见红项)` : "还没收口"}` : ",今天没有轮"}` +
+      (typeof ev.spend_total_cny === "number" ? `;本月花费 ${fmtCny(ev.spend_total_cny)}/帽 ${fmtCny(EVOLVE_CAP_CNY)}` : ""),
+  );
+  const adds = local.add_rounds ?? [];
+  if (!adds.length) lines.push("- 自动加源:今天没有轮");
+  else {
+    const adm = adds.find((r) => r.monthly_admission)?.monthly_admission;
+    lines.push(
+      `- 自动加源 ${adds.filter((r) => r.ok === true).length}/${adds.length} 成功:${adds.map(timeMark).join("、")}` +
+        (adm ? `;本月加源花费 ${fmtCny(adm.spend)}/帽 ${fmtCny(adm.cap)}` : ""),
+    );
+  }
+  const localOd = [
+    ...(local.evolve?.overdue_rounds ?? []).filter((r) => r.ok === null).map((r) => `${plainClock(r.round_id)}(演化)`),
+    ...(local.overdue_add_rounds ?? []).filter((r) => r.ok === null).map((r) => `${plainClock(r.round_id)}(fleet)`),
+  ];
+  if (localOd.length) lines.push(`- 昨天的轮还没收口(在跑或没成绩单,不算红):${localOd.join("、")}`);
+  if (reds.length) {
+    lines.push("");
+    lines.push("## 红项");
+    const shown = reds.slice(0, MAX_LINES - lines.length - 2);
+    for (const r of shown) lines.push(`- ⚠ ${plainRedItem(r, dateLabel)}`);
+    if (reds.length > shown.length)
+      lines.push(`- …另 ${reds.length - shown.length} 条见 dev/ops-digest/${dateLabel}.md`);
+  }
+  return { title: `ip-radar 日报 ${dateLabel}${reds.length ? " ⚠" : ""}`, body: lines.join("\n") };
 }
 
 // P2-3:push 失败要显形——apprise 失败/缺席 → exitCode=1(oneshot 不自动重试语义
@@ -520,19 +699,20 @@ async function main() {
   const local = readLocalFace(root, nowMs);
   const reds = collectRedItems({ server, local });
   if (server.missed_note) reds.push(server.missed_note);
-  const { title, body, fileBody } = renderDigest({ dateLabel, server, local, reds });
+  const { fileBody } = renderDigest({ dateLabel, server, local, reds });
+  const pushFace = renderDigestPush({ dateLabel, server, local, reds }); // #383:lark 吃大白话版
 
   const digestDir = path.join(root, "dev/ops-digest");
   fs.mkdirSync(digestDir, { recursive: true });
   const outFile = path.join(digestDir, `${dateLabel}.md`);
-  fs.writeFileSync(outFile, `${fileBody}\n`); // 落盘=全量版(双渲染,P1-2)
-  console.log(body);
+  fs.writeFileSync(outFile, `${fileBody}\n`); // 落盘=技术面全量版(证据面不漂移,#383 双面律)
+  console.log(pushFace.body);
   console.log(
-    `\n[落盘] ${outFile}(push 版 ${body.split("\n").length}/${MAX_LINES} 行${reds.length ? `;附录全量 ${reds.length} 条红` : ""})`,
+    `\n[落盘] ${outFile}(lark 推送版 ${pushFace.body.split("\n").length}/${MAX_LINES} 行,技术面入档${reds.length ? `;附录全量 ${reds.length} 条红` : ""})`,
   );
   if (push) {
-    // push 面吃截断 body(行数帽),不吃落盘全量版——两版本分开出(P1-2)。
-    const res = await pushLark(title, body, console.error);
+    // push 面吃大白话版(行数帽),不吃落盘技术全量版——两版本分开出(双面律)。
+    const res = await pushLark(pushFace.title, pushFace.body, console.error);
     process.exitCode = pushExitCode(res.status); // P2-3:失败显形(oneshot 不自动重试)
   } else console.log("[模式] dry-run(未推送;推送=--push)");
   // 红项=日报内容而非脚本失败(票面:红项入标题交人裁)。退出码:红项恒 0;非零仅

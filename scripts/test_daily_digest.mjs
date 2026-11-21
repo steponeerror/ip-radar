@@ -21,6 +21,9 @@ import {
   pushLark,
   splitScanBands,
   overdueRoundLines,
+  plainClock,
+  plainRedItem,
+  renderDigestPush,
 } from "./daily-digest.mjs";
 
 // —— 轮 id 钟面与 24h 窗 ——
@@ -380,6 +383,111 @@ test("renderDigest:跨窗无信封轮出「终局补报」注记行,不计红(P1
   assert.match(body, /- 终局补报:2026-11-19-1200-health 跨窗无信封/);
   assert.match(body, /演化轮 2026-11-19-1915-evolve 终局 !ok\(cards_missing\)\(跨窗补报\)/);
   assert.ok(body.split("\n").length <= 30);
+});
+
+// —— #383 lark 推送面大白话版(标题/骨架同技术面;落盘面字节不变由上方既有断言钉)——
+
+test("plainClock:轮 id → 「11-21 凌晨 01:00」时段词;坏形状原样返回", () => {
+  assert.equal(plainClock("2026-11-21-0100-add"), "11-21 凌晨 01:00");
+  assert.equal(plainClock("2026-11-20-1219-health"), "11-20 中午 12:19");
+  assert.equal(plainClock("2026-11-20-1914-evolve"), "11-20 晚上 19:14");
+  assert.equal(plainClock("garbage"), "garbage");
+});
+
+test("plainRedItem:票面样例口径——fleet G_VERIFY 红项两件套(#383 样例原文)", () => {
+  const s = plainRedItem("fleet 2026-11-21-0100-add !ok(status=failed;闸败:G_VERIFY)", "2026-11-21");
+  assert.equal(
+    s,
+    "fleet:11-21 凌晨 01:00 的加源轮失败——没跑完就断在验证门(G_VERIFY)。下一步:多半是本机时钟抖动,重放一次通常就过;同一源连败 2 次会自动跳过并另行告警。",
+  );
+});
+
+test("plainRedItem:各已知类型两件套齐备;未知类型兜底不编造处置", () => {
+  const cases = [
+    // [技术红项, 必含片段 ×2(发生了什么 / 下一步)]
+    ["2026-11-20-0300-health 信封 !ok(闸败:G_PROBE、G_VERIFY)", /服务器:11-20 凌晨 03:00\(服务器时间\)的健康轮失败/, /等下一轮自动重跑/],
+    ["2026-11-20-0300-health gates.json 缺(窗内龄>1h,无在跑解释)", /没留下成绩单/, /第二天同一时间还缺再登服务器/],
+    ["2026-11-20-1100-health finding 出口触发(findings=3)", /金标巡检发现 3 个异常\(finding\)/, /三选一处置/],
+    ["2026-11-20-1100-health 终局 !ok(G_VERIFY)(跨窗补报)", /昨天还在跑,现在收口了:失败/, /等下一轮自动重跑/],
+    ["演化轮 2026-11-19-1915-evolve 终局 !ok(cards_missing)(跨窗补报)", /演化轮.*收口.*考题卡文件缺失/, /不会自愈/],
+    ["fleet 2026-11-19-1000-add 终局 !ok(status=failed)(跨窗补报)", /加源轮.*收口.*状态 failed/, /等下一拍自动重试/],    ["拒启触帽留痕(2026-11-20):| 2026-11-20 | health | — | — | budget_monthly refused est=0.05 cap=30 |", /因当月花费到帽被拒启动/, /预算护栏在正常工作/],
+    ["影子树增轮:2026-11-20-1219-health(影子 cron 应已停)", /影子目录冒出了新轮/, /登服务器检查影子定时任务/],
+    ["演化已熄火(halted;上轮 2026-11-19-1915-evolve)", /循环已自停/, /设计内的自动停机/],
+    ["演化轮 2026-11-20-1914-evolve !ok(cards_missing)", /考题卡文件缺失/, /gen-exam-cards\.mjs/],
+    ["演化轮 2026-11-20-1914-evolve !ok(brand_new_code)", /失败码 brand_new_code\(brand_new_code\)/, /无现成建议——看 dev\/evolution\/rounds\/2026-11-20-1914-evolve\/report\.md,交代理分诊/],
+    ["演化花费 ¥261.86 超月帽 ¥200", /本月花费 ¥261\.86 已超自设月帽/, /EVOLVE_SPEND_CAP_CNY/],
+    ["fleet 2026-11-20-1100-add !ok(status=running;闸败:G_DOSSIER)", /交接单门\(G_DOSSIER\)/, /等下一拍自动重试/],
+    ["fleet 月帽拒启(2026-11-20-1100-add:spend ¥29.96 + est ¥0.05 > 帽 ¥30)", /本月加源花费到帽被拒启/, /OPS_PIPELINE_MONTHLY_CAP_CNY/],
+    ["服务器面读取失败:ssh: connect timed out", /读不到今天的轮数据/, /连续几天失败再人工登服务器/],
+    ["窗内轮未读到信封:2026-11-20-0300-health", /没读到它的信封/, /等下一轮/],
+  ];
+  for (const [red, whatRe, nextRe] of cases) {
+    const s = plainRedItem(red, "2026-11-20");
+    assert.match(s, whatRe, `${red} → 发生了什么面缺:${s}`);
+    assert.match(s, nextRe, `${red} → 下一步面缺:${s}`);
+  }
+  // 未知形状(未来新增红项类型)→ 兜底:不编造处置,指路落盘附录
+  const unknown = plainRedItem("某种崭新的红项 2077", "2026-11-20");
+  assert.match(unknown, /无现成建议——看 dev\/ops-digest\/2026-11-20\.md 红项附录与对应轮工件,交代理分诊/);
+});
+
+test("renderDigestPush:绿日骨架大白话(术语换中文:PROPOSE 0 行→没有新候选源提案);≤30 行;标题同技术面", () => {
+  const server = greenServer({ propose_rows: [] }); // PROPOSE 0 行面(缺省夹具带 1 行,单独钉两态)
+  const local = greenLocal();
+  const reds = collectRedItems({ server, local });
+  const { title, body } = renderDigestPush({ dateLabel: "2026-11-20", server, local, reds });
+  assert.equal(title, "ip-radar 日报 2026-11-20");
+  assert.match(body, /健康轮 2\/2 正常:03:00✓、11:00✓\(服务器时间\)/);
+  assert.match(body, /没有新的候选源提案\(PROPOSE 0 行\)/); // 定案 3 术语映射
+  const withPropose = renderDigestPush({ dateLabel: "2026-11-20", server: greenServer(), local, reds: [] });
+  assert.match(withPropose.body, /1 个候选源提案等人工裁决\(PROPOSE\):gaoyifan_cn_ip/);
+  assert.match(body, /影子目录没有新轮,切流干净 ✓/);
+  assert.match(body, /演化:还在跑\(连续没赚头 1\/3\),今天 11-20 晚上 19:14 的轮还没收口;本月花费 ¥26\.19\/帽 ¥200/);
+  assert.match(body, /自动加源 1\/1 成功:10:00✓;本月加源花费 ¥0\.31\/帽 ¥30/);
+  assert.ok(body.split("\n").length <= 30, `行数 ${body.split("\n").length}`);
+  assert.ok(!body.includes("## 红项"), "绿日无红项段");
+});
+
+test("renderDigestPush:红日红项逐条大白话带下一步;超帽截断仍 ≤30 行;空数据日也有「今天没有轮」", () => {
+  const server = greenServer({
+    rounds: [
+      { round_id: "2026-11-20-0300-health", ok: false, failed_gates: ["G_VERIFY"], exits_triggered: false, findings_n: 0 },
+      { round_id: "2026-11-20-1100-health", ok: true, failed_gates: [], exits_triggered: true, findings_n: 2 },
+    ],
+    shadow_new: ["2026-11-20-1219-health"],
+    missed_note: "窗内轮未读到信封:2026-11-20-0300-health",
+  });
+  const local = greenLocal({
+    evolve: {
+      ...greenLocal().evolve,
+      halted: true,
+      rounds: [{ round_id: "2026-11-20-1914-evolve", ok: false, code: "cards_missing" }],
+      spend_total_cny: 26.19,
+    },
+    add_rounds: [
+      { round_id: "2026-11-20-1000-add", ok: false, status: "failed", failed_gates: ["G_VERIFY"], monthly_admission: null },
+      { round_id: "2026-11-20-1100-add", ok: false, status: "failed", failed_gates: ["G_DOSSIER"], monthly_admission: { ok: false, spend: 29.96, est: 0.05, cap: 30 } },
+    ],
+  });
+  const reds = collectRedItems({ server, local });
+  reds.push(server.missed_note);
+  assert.ok(reds.length >= 6);
+  const { title, body } = renderDigestPush({ dateLabel: "2026-11-20", server, local, reds });
+  assert.match(title, /⚠$/);
+  assert.match(body, /⚠ fleet:11-20 上午 10:00 的加源轮失败——没跑完就断在验证门\(G_VERIFY\)。下一步:多半是本机时钟抖动/);
+  assert.match(body, /影子目录冒出了新轮/);
+  assert.match(body, /演化:循环已自停/);
+  assert.ok(body.split("\n").length <= 30, `行数 ${body.split("\n").length}`);
+  // 空数据日:推送版也保留「今天没有轮」一行(验收:全空也发)
+  const emptyServer = { error: null, rounds: [], ledger: { window_cost_cny: 0, month_cost_cny: 0 }, refusals: [], propose_rows: [], shadow_new: [], missed_note: null };
+  const emptyLocal = { evolve: { halted: false, stall_rounds: 0, last_round_id: null, spend_total_cny: null, rounds: [] }, add_rounds: [] };
+  const empty = renderDigestPush({ dateLabel: "2026-11-21", server: emptyServer, local: emptyLocal, reds: [] });
+  assert.ok(empty.body.includes("今天没有轮跑") && empty.body.includes("自动加源:今天没有轮"));
+  // 超帽截断:40 条未知红项 → 截断行指针落盘件
+  const many = Array.from({ length: 40 }, (_, i) => `未知红项${i}`);
+  const truncated = renderDigestPush({ dateLabel: "2026-11-20", server: greenServer(), local: greenLocal(), reds: many });
+  assert.ok(truncated.body.split("\n").length <= 30);
+  assert.match(truncated.body, /另 \d+ 条见 dev\/ops-digest\/2026-11-20\.md/);
 });
 
 // —— P2-3 push 退出码 ——
