@@ -49,6 +49,7 @@ OLD_CATEGORIES = {
     "insightflare_asn_blocklist": "asset",   # 2026-11-21 fleet lift(#366)
     "az0_vpn_ip": "asset",   # 2026-11-21 fleet lift(#366)
     "metowolf_iplist": "geo_asn",   # 2026-11-21 fleet lift(#366)
+    "misakaio_chnroutes2": "geo_asn",   # 2026-11-21 fleet lift(#366)
 }
 OLD_RELIABILITY = {
     "ipinfo_lite": 0.95, "iptoasn": 0.90, "cn_isp": 0.85, "geolite_city": 0.85,
@@ -90,6 +91,7 @@ OLD_RELIABILITY = {
     "insightflare_asn_blocklist": 0.85,   # 2026-11-21 fleet lift(#366)
     "az0_vpn_ip": 0.7,   # 2026-11-21 fleet lift(#366)
     "metowolf_iplist": 0.75,   # 2026-11-21 fleet lift(#366)
+    "misakaio_chnroutes2": 0.85,   # 2026-11-21 fleet lift(#366)
 }
 OLD_AUTHORITATIVE = {
     "is_proxy": ["ip2proxy"], "is_tor": ["tor_exits"], "is_vpn": ["x4bnet_vpn"],
