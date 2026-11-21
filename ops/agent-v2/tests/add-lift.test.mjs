@@ -1,10 +1,10 @@
-// fleet.test.mjs — M5 fleet 加源舰队驱动器纯函数面 + CLI 空转面(票 #366)。
-// 覆盖:队列轮询(文件序/去重/完成轮跳过/开放轮跳过/连续败跳过/形状过滤)、完成判据
-// (G_CLOSE pass 为主判据,state.status=completed 等价)、fleet 状态推进(失败计数/
-// 复位/跳过告警一次性)、lift 文本变换(文档三件计数钉/README 表行/rrsi 劈分钉/
-// critic 针数钉/发现冒烟计数钉/roster 快照行幂等)——全部「恰一命中」fail-closed;
-// 变换同时拿真仓件做只读回归钉(钉面漂移=先红在此,不是真跑轮时)。
-// CLI 面:无源空转 exit 0 零模型调用;队列缺席 exit 3;有源无 --model exit 2。
+// add-lift.test.mjs — 手动加源 lift 工具链纯函数面 + CLI 用法面(#375 封存件;lift 测试自
+// fleet.test.mjs 逐字节迁移,驱动器单测——队列轮询/完成判据/状态机/CLI 空转/lark 稿——随
+// run-fleet.mjs 退役删除)。
+// 覆盖:lift 文本变换(文档三件计数钉/README 表行/rrsi 劈分钉/critic 针数钉/发现冒烟计数钉/
+// roster 快照行幂等)——全部「恰一命中」fail-closed;变换同时拿真仓件做只读回归钉(钉面漂移=
+// 先红在此,不是真跑轮时)。CLI 面:无参 usage 退出码 2;--help 可跑(usage() 律:同 run-fleet
+// 惯例 --help 与用法错同码);--source/--round-id 形状执法。
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -12,87 +12,14 @@ import path from "node:path";
 import os from "node:os";
 import { spawn } from "node:child_process";
 import {
-  mintFleetRoundId, roundClosedFace, scanAddRoundSources, pickFleetTarget,
-  applyFleetOutcome, blockedSourcesOf, FLEET_SKIP_FAILURES,
   bumpReadmeCount, bumpReadmeZhCount, bumpManualCounts, bumpManualImageAlt, bumpManualZhCounts,
   insertReadmeRow, syncRrsiSplitPins, syncRrsiDomainPin, bumpDiscoverySmokePin, insertSnapshotRow,
   changelogEntries, composePrBody, roundStemOf, setFrozenFlag,
-  fleetLarkDraft, FLEET_LARK_ADVICE,
-} from "../run-fleet.mjs";
+} from "../add-lift.mjs";
 
 const HERE = import.meta.dirname;
 const REPO = path.resolve(HERE, "..", "..", "..");
 const read = (p) => fs.readFileSync(path.join(REPO, p), "utf8");
-
-// ── 轮 id / 完成判据 ──
-test("mintFleetRoundId:YYYY-MM-DD-HHMM-add 形状(run-add 轮 id 形状律)", () => {
-  const id = mintFleetRoundId(new Date(2026, 10, 21, 9, 5));
-  assert.equal(id, "2026-11-21-0905-add");
-});
-
-test("roundClosedFace:G_CLOSE pass=主判据;state.status=completed 等价;均无=开放", () => {
-  assert.equal(roundClosedFace(null, { records: [{ name: "G_CLOSE", pass: true }] }), true, "pilot 2250 实测:state 停 running 而 gates G_CLOSE pass");
-  assert.equal(roundClosedFace({ status: "completed" }, null), true);
-  assert.equal(roundClosedFace({ status: "running" }, { records: [{ name: "G_VERIFY", pass: true }] }), false, "2245 形:仅 G_VERIFY=开放");
-  assert.equal(roundClosedFace(null, null), false);
-});
-
-// ── rounds 扫描 ──
-test("scanAddRoundSources:closed 优先于 open;非 add 轮忽略;目录缺席=空集", () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "fleet-rounds-"));
-  try {
-    const mk = (name, source, gates, type = "add") => {
-      fs.mkdirSync(path.join(tmp, name));
-      fs.writeFileSync(path.join(tmp, name, "state.json"), JSON.stringify({ type, source, status: "running" }));
-      if (gates) fs.writeFileSync(path.join(tmp, name, "gates.json"), JSON.stringify(gates));
-    };
-    mk("2026-11-18-2245-add", "gaoyifan_cn_ip", { records: [{ name: "G_VERIFY", pass: false }] }); // 开放(中止试点)
-    mk("2026-11-18-2250-add", "gaoyifan_cn_ip", { records: [{ name: "G_CLOSE", pass: true }] }); // 同源完成轮 → closed 胜
-    mk("2026-11-20-1219-health", "x", { records: [{ name: "G_CLOSE", pass: true }] }, "health"); // health 轮:type≠add 忽略
-    mk("2026-11-21-0900-add", "sgb_blocklist", null); // 无 gates.json=开放
-    const { closed, open } = scanAddRoundSources(tmp);
-    assert.deepEqual([...closed], ["gaoyifan_cn_ip"]);
-    assert.deepEqual([...open], ["sgb_blocklist"]);
-    const none = scanAddRoundSources(path.join(tmp, "absent"));
-    assert.equal(none.closed.size, 0); assert.equal(none.open.size, 0);
-  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
-});
-
-// ── 队首目标 ──
-const Q = (rows) => ["| 日期 | 轮次 | action | source | predicate | evidence | vetoable |", "|---|---|---|---|---|---|---|", ...rows].join("\n");
-const approve = (s) => `| 2026-11-18 | owner-2026-11-18 | APPROVE | ${s} | — | human:approved_by="owner" | 是 |`;
-const propose = (s) => `| 2026-11-18 | needs-x | PROPOSE | ${s} | — | candidate:name="n";candidate:url="https://e.com" | 是 |`;
-
-test("pickFleetTarget:文件序队首;重复 APPROVE 取首见;closed/open/blocked/形状坏跳过;全空=null", () => {
-  const queueText = Q([
-    propose("gaoyifan_cn_ip"), approve("gaoyifan_cn_ip"),
-    propose("sgb_blocklist"), approve("sgb_blocklist"), approve("sgb_blocklist"),
-    approve("insightflare_asn"), approve("Bad-Source!"), approve("metowolf_iplist"),
-  ]);
-  const t1 = pickFleetTarget({ queueText, closedSources: new Set(["gaoyifan_cn_ip"]), openSources: new Set(["sgb_blocklist"]), blockedSources: new Set(["metowolf_iplist"]) });
-  assert.equal(t1.source, "insightflare_asn", "跳过完成轮/开放轮/屏蔽源/形状坏后取队首");
-  assert.equal(t1.approve.date, "2026-11-18");
-  assert.equal(pickFleetTarget({ queueText: Q([]) }), null, "空队列=null");
-  assert.equal(pickFleetTarget({ queueText: Q([propose("x_only")]) }), null, "只有 PROPOSE=null");
-  const t2 = pickFleetTarget({ queueText }); // 无跳过面:形状坏行跳过,取 gaoyifan
-  assert.equal(t2.source, "gaoyifan_cn_ip");
-  const t3 = pickFleetTarget({ queueText: Q([approve("a"), approve("b")]) });
-  assert.equal(t3.source, "a", "文件序首个");
-});
-
-// ── fleet 状态 ──
-test("applyFleetOutcome:失败累加/ok 清零/达线记 skip_alerted;blockedSourcesOf=达线集", () => {
-  let s = { schema: 1 };
-  s = applyFleetOutcome(s, "sgb_blocklist", false, "2026-11-21T01:00:00Z");
-  assert.deepEqual(s.failures, { sgb_blocklist: 1 });
-  assert.equal(blockedSourcesOf(s).size, 0);
-  s = applyFleetOutcome(s, "sgb_blocklist", false, "2026-11-21T02:00:00Z");
-  assert.equal(blockedSourcesOf(s).has("sgb_blocklist"), true, `连续 ${FLEET_SKIP_FAILURES} 败达线`);
-  assert.equal(s.skip_alerted["sgb_blocklist"], "2026-11-21T02:00:00Z", "首达线记时(告警一次性判据)");
-  const s2 = applyFleetOutcome(s, "sgb_blocklist", true);
-  assert.equal(s2.failures["sgb_blocklist"], undefined, "ok 清零");
-  assert.equal(s2.skip_alerted["sgb_blocklist"], undefined);
-});
 
 // ── lift 文本变换:合成面 ──
 test("bump* 计数钉:四文档六面 +1(keyless 条件面);漂移=红", () => {
@@ -198,43 +125,6 @@ test("真仓件钉面:六计数面+劈分八钉+critic 针+冒烟计数,全部�
   insertSnapshotRow(read("backend/tests/core/test_metadata_derivation.py"), "OLD_CATEGORIES", '    "fleet_test_never": "threat",   # test');
 });
 
-// ── CLI 面(spawn 真入口;世界=临时件,不碰真 docs/dev)──
-function cli(args, extraEnv = {}) {
-  return new Promise((resolve) => {
-    const p = spawn("node", [path.join(HERE, "..", "run-fleet.mjs"), ...args], { env: { ...process.env, ...extraEnv }, cwd: path.resolve(HERE, "..") });
-    let out = "", err = "";
-    p.stdout.on("data", (d) => (out += d));
-    p.stderr.on("data", (d) => (err += d));
-    p.on("close", (code) => resolve({ code, out, err }));
-  });
-}
-const lastLine = (s) => s.trimEnd().split("\n").at(-1);
-
-test("CLI 无源空转:exit 0,信封 idle,零模型调用(无 --model 也过)", async () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "fleet-cli-"));
-  try {
-    fs.writeFileSync(path.join(tmp, "queue.md"), Q([propose("only_propose")]));
-    const r = await cli(["--once", "--queue", path.join(tmp, "queue.md"), "--rounds", path.join(tmp, "rounds"), "--dev-root", path.join(tmp, "dev"), "--sandbox-home", path.join(tmp, "wt")]);
-    assert.equal(r.code, 0, `stderr:\n${r.err}`);
-    const env = JSON.parse(lastLine(r.out));
-    assert.equal(env.ok, true); assert.equal(env.idle, true); assert.equal(env.picked, null);
-    assert.match(r.err, /零模型调用/);
-  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
-});
-
-test("CLI 队列缺席:exit 3,信封 infra;有源缺 --model:exit 2", async () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "fleet-cli-"));
-  try {
-    const r1 = await cli(["--queue", path.join(tmp, "absent-queue.md"), "--rounds", path.join(tmp, "r"), "--dev-root", path.join(tmp, "d"), "--sandbox-home", path.join(tmp, "w")]);
-    assert.equal(r1.code, 3);
-    assert.equal(JSON.parse(lastLine(r1.out)).error.code, "infra");
-    fs.writeFileSync(path.join(tmp, "queue.md"), Q([approve("sgb_blocklist")]));
-    const r2 = await cli(["--queue", path.join(tmp, "queue.md"), "--rounds", path.join(tmp, "r"), "--dev-root", path.join(tmp, "d"), "--sandbox-home", path.join(tmp, "w")]);
-    assert.equal(r2.code, 2, `stderr:\n${r2.err}`);
-    assert.match(r2.err, /--model\/OPS_MODEL_FLEET/);
-  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
-});
-
 test("setFrozenFlag:入仓带空格形与生成器紧凑形都认;幂等;缺键时冻结=插键(2026-11-20-2210 轮判例:gen-universe 重生成件是紧凑形 \"frozen\":false,带空格搜索扑空)", () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "fleet-frozen-"));
   const mk = (first) => { const f = path.join(tmp, `u${Math.random().toString(36).slice(2)}.jsonl`); fs.writeFileSync(f, first + "\nrow1\nrow2\n"); return f; };
@@ -262,31 +152,32 @@ test("setFrozenFlag:入仓带空格形与生成器紧凑形都认;幂等;缺键�
   assert.equal(JSON.parse(fs.readFileSync(nokey, "utf8").split("\n")[0]).frozen, true);
 });
 
-// ── #383 lark 推送面大白话稿(fleetLarkDraft:两件套+三段骨架;G_VERIFY 走时钟族建议)──
-test("fleetLarkDraft:拒启/轮败(G_VERIFY 时钟族)/lift 门败三形;未知信息不编造处置", () => {
-  // 拒启(月帽):标题拒启面+护栏建议
-  const refused = fleetLarkDraft({ roundId: "2026-11-21-0100-add", source: "x_feed", phase: "refused", message: "budget_monthly refused est=0.05 cap=30" });
-  assert.equal(refused.title, "【ip-radar 加源拒启】11-21 凌晨 01:00 x_feed");
-  assert.match(refused.body, /【发生了什么】[\s\S]*【下一步怎么办】[\s\S]*【证据与工单指针】/, "三段骨架");
-  assert.match(refused.body, /本月加源管线花费到月帽,这轮没起跑\(未花钱、不计失败\)/);
-  assert.match(refused.body, /预算护栏在正常工作[\s\S]*OPS_PIPELINE_MONTHLY_CAP_CNY/);
-  // 轮败+G_VERIFY:#377 时钟族建议(#383 票面样例口径)
-  const verify = fleetLarkDraft({ roundId: "2026-11-21-0100-add", source: "x_feed", phase: "round:model_face", message: "VERIFY 阶段断在验证门 G_VERIFY(时钟回退)" });
-  assert.match(verify.title, /^【ip-radar 加源失败】11-21 凌晨 01:00 x_feed$/);
-  assert.match(verify.body, /没跑完就断在验证门\(G_VERIFY\)/);
-  assert.match(verify.body, /多半是本机时钟抖动,重放一次通常就过;同一源连败 2 次会自动跳过并另行告警/);
-  // 轮败(已知映射码):对照表建议
-  const card = fleetLarkDraft({ roundId: "2026-11-21-0100-add", source: "x_feed", phase: "round:card_missing", message: "队列卡缺席" });
-  assert.match(card.body, /人工核对 docs 仓队列卡/);
-  // 轮败(未知码):定案⑥兜底——无现成建议+指路,不编造(评审 P2-1)
-  const plain = fleetLarkDraft({ roundId: "2026-11-21-0100-add", source: "x_feed", phase: "round:model_face", message: "提案者终答空" });
-  assert.match(plain.body, /失败\(失败码 model_face\)/);
-  assert.match(plain.body, /失败码 model_face 不在处置对照表——没有现成建议[\s\S]*交代理分诊;期间下一拍会自动重试,同一源连败 2 次自动跳过/);
-  // lift 门败:轮绿+门红两层说清
-  const gate = fleetLarkDraft({ roundId: "2026-11-21-0100-add", source: "x_feed", phase: "lift:gate:backend 全量 pytest", message: "backend 全量 pytest 红(尾 60 行已留档)" });
-  assert.match(gate.body, /本身跑绿了,但自动收尾后的门没过\(backend 全量 pytest\)/);
-  assert.match(gate.body, /人工接手修到绿再开 PR,或交代理分诊/);
-  // infra 无信封形
-  const infra = fleetLarkDraft({ roundId: "2026-11-21-0100-add", source: "x_feed", phase: "round:infra", message: "rc=1\nstderr 尾…" });
-  assert.match(infra.body, /进程崩了或被杀,没留下结果信封/);
+// ── CLI 面(spawn 真入口;只打用法执法面,真 lift 链冒烟由 #375 收口人跑)──
+function cli(args) {
+  return new Promise((resolve) => {
+    const p = spawn("node", [path.join(HERE, "..", "add-lift.mjs"), ...args], { cwd: path.resolve(HERE, "..") });
+    let out = "", err = "";
+    p.stdout.on("data", (d) => (out += d));
+    p.stderr.on("data", (d) => (err += d));
+    p.on("close", (code) => resolve({ code, out, err }));
+  });
+}
+
+test("CLI 用法面:无参/--help=usage 退出码 2;--source/--round-id 形状执法;缺参必填执法", async () => {
+  const r0 = await cli([]);
+  assert.equal(r0.code, 2, `stderr:\n${r0.err}`);
+  assert.match(r0.err, /用法:node add-lift\.mjs --sandbox <dir> --source <slug>/);
+  assert.match(r0.err, /--sandbox\/--source 与 --round-id\(或 --round-dir\)必填/);
+  const r1 = await cli(["--help"]);
+  assert.equal(r1.code, 2, "usage() 律随迁:--help 与用法错同码(run-fleet 惯例)");
+  assert.match(r1.err, /用法:node add-lift\.mjs/);
+  const r2 = await cli(["--sandbox", "/tmp/x", "--source", "Bad-Name!", "--round-id", "2026-11-21-0900-add"]);
+  assert.equal(r2.code, 2);
+  assert.match(r2.err, /--source 形状坏/);
+  const r3 = await cli(["--sandbox", "/tmp/x", "--source", "x_feed", "--round-id", "bad-id"]);
+  assert.equal(r3.code, 2);
+  assert.match(r3.err, /--round-id 形状坏/);
+  const r4 = await cli(["--sandbox", "/tmp/x", "--source", "x_feed"]);
+  assert.equal(r4.code, 2, "--round-id/--round-dir 二选一必填");
+  assert.match(r4.err, /必填/);
 });

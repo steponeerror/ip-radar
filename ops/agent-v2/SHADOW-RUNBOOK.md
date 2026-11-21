@@ -129,14 +129,14 @@ crontab 换回旧行(去掉上行注释)即恢复 v1 生产:后端 API 触发形
 ### 全局急停(#368;一条命令停全部自动轮,用户可复制执行)
 
 适用:发现异常外发/花费失控/任一面失控——先停一切,事后审计(证据永不灭失,轮目录/台账原地留档)。
-覆盖面=本机三 timer(演化 #356 / fleet 加源 / 日报 #368)+ 服务器两行 v2 cron(健康轮 #364 / 发现轮 #367)。
+覆盖面=本机 timer(演化 #356 / 日报 #368;fleet 加源 timer **已封存 2026-11-21,裁决 #375/#366**——驱动器 run-fleet.mjs 与 ipradar-fleet.service/.timer 已移出仓,加源转半自动:发现轮产出开 issue、lift 由人手动跑 add-lift.mjs;下条循环保留 ipradar-fleet.timer 仅为容错停掉仍装机的残留单元)+ 服务器两行 v2 cron(健康轮 #364 / 发现轮 #367)。
 v1 旧行本就注释中;影子 cron 已停,无需处理。恢复=反向操作(去注释/重 enable)。
 注意:发现轮 cron 行(#367)装机晚于本节入库,sed 对它用宽松锚 `^\S.*ops-cron-v2-discover\.sh`
 (任意分+任意前缀,不赌装机行形状;健康轮行是切流实录的精确锚,保持原样)。行缺席时 sed 对它无操作(幂等,不报错)。
 
 ```bash
-# ① 本机:停三个 timer(逐个容错:fleet 未装机时缺件不阻断其余——
-#    systemctl 对缺件单元会整条拒执行,实测 2026-11-20;正在跑的 oneshot 不被杀,只不再拉新)
+# ① 本机:停 timer(逐个容错:fleet 已封存(#375),装机残留单元随停——systemctl 对缺件
+#    单元会整条拒执行,实测 2026-11-20;正在跑的 oneshot 不被杀,只不再拉新)
 for t in ipradar-evolve.timer ipradar-fleet.timer ipradar-digest.timer; do systemctl --user disable --now "$t" 2>/dev/null || true; done
 # ② 服务器:注释两行 v2 cron(行首加 #;回退=crontab -e 去掉行首注释)
 ssh root@203.88.124.85 'crontab -l | sed -e "s|^0 4-23/8 \* \* \* /opt/ip-lookup-tool/deploy/ops-cron-v2\.sh|#&|" -e "s|^\S.*ops-cron-v2-discover\.sh|#&|" | crontab -'
