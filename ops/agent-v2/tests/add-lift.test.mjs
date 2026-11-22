@@ -29,10 +29,10 @@ test("bump* 计数钉:四文档六面 +1(keyless 条件面);漂移=红", () => {
   assert.equal(bumpManualCounts(manual, { keyless: true }), "On first start it downloads and builds every keyless feed (57 of the 64 sources) into millions of records.");
   assert.equal(bumpManualCounts(manual, { keyless: false }), "On first start it downloads and builds every keyless feed (56 of the 64 sources) into millions of records.");
   assert.equal(bumpManualImageAlt("![tab: 64 sources (63 public + 1 private honeypot), health]"), "![tab: 65 sources (64 public + 1 private honeypot), health]");
-  const zhManual = "首次启动会把全部无 key 源（60 个源中的 53 个）下载。\n![Sources tab:61 源(60 公开 + 1 私有蜜罐)、健康]";
+  const zhManual = "首次启动会把全部无 key 源（60 个源中的 53 个）下载。\n![Sources tab:61 源（60 公开 + 1 私有蜜罐）、健康]";
   const bumped = bumpManualZhCounts(zhManual, { keyless: true });
   assert.ok(bumped.includes("（61 个源中的 54 个）"));
-  assert.ok(bumped.includes("62 源(61 公开 + 1 私有蜜罐)"));
+  assert.ok(bumped.includes("62 源（61 公开 + 1 私有蜜罐）"), "frost 面全角括号形(e6e2ac96)后钉随全角");
   assert.throws(() => bumpReadmeCount("无钉面文本"), /钉面漂移.*期望恰 1/);
 });
 

@@ -36,22 +36,22 @@ function countsBy(rows, key) {
   return m;
 }
 
-test("split.jsonl 结构不变式:46 演化 + 15 留出,类别分层覆盖,名单行全带行级豁免标记", () => {
+test("split.jsonl 结构不变式:48 演化 + 15 留出,类别分层覆盖,名单行全带行级豁免标记", () => {
   const { meta, rows, nameLines } = loadSplit();
   assert.equal(meta.kind, "ipradar-rrsi-split");
   assert.equal(meta.frozen, true, "名单钉死:meta.frozen 必须为真(重生成须重走裁决)");
-  assert.equal(meta.evolve, 46);
+  assert.equal(meta.evolve, 48);
   assert.equal(meta.heldout, 15);
 
-  assert.equal(rows.length, 61, "考题总数 = 61(69 源 − 8 免考;2026-11-21 fleet 再冻结)");
+  assert.equal(rows.length, 63, "考题总数 = 63(71 源 − 8 免考;2026-11-22 #414 再冻结:撤 sblam #404 − 1,echelon/blocklist_netua/nerd_medconf #397 + 3)");
   const evolve = rows.filter((r) => r.set === "evolve");
   const heldout = rows.filter((r) => r.set === "heldout");
-  assert.equal(evolve.length, 46);
+  assert.equal(evolve.length, 48);
   assert.equal(heldout.length, 15);
   for (const r of rows) assert.ok(r.set === "evolve" || r.set === "heldout");
 
   const names = rows.map((r) => r.name);
-  assert.equal(new Set(names).size, 61, "无重复");
+  assert.equal(new Set(names).size, 63, "无重复");
   const evoSet = new Set(evolve.map((r) => r.name));
   const heldSet = new Set(heldout.map((r) => r.name));
   for (const n of evoSet) assert.ok(!heldSet.has(n), `跨集重复:${n}`);
@@ -249,7 +249,7 @@ test("split.jsonl 名单 ⊆ 真 roster 考题集,类别一致,且域目录过 l
   // 免考面单源:exam-rules.json exempt[].name(票面 8 内部/派生源免考;判据=download_host '-')
   const exemptNames = new Set((examRules.exempt ?? []).map((e) => e.name));
   const exam = roster.filter((r) => !exemptNames.has(r.name));
-  assert.equal(exam.length, 61, `真 roster 考题数漂移:${exam.length} ≠ 61——冻结名单须重裁(2026-11-21 fleet 再冻结)`);
+  assert.equal(exam.length, 63, `真 roster 考题数漂移:${exam.length} ≠ 63——冻结名单须重裁(2026-11-22 #414 再冻结)`);
   const byName = new Map(exam.map((r) => [r.name, r]));
   for (const r of rows) {
     const src = byName.get(r.name);
