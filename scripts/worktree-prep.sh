@@ -5,7 +5,6 @@
 #   - ops/node_modules 缺 → e2e spawn agent 崩、v2 测试/管线全崩(2026-11-15 两踩
 #     = 双 node_modules 时代旧坑;#412 起单包单根,只剩一处要拷)
 #   - frontend/node_modules 缺 → vitest/tsc 跑不了(#420 起纳入拷贝家族)
->>>>>>> 1b9a0004 (refactor(#412) C2: 两包合并为 ops/ 单包——一份 package.json/lock/node_modules)
 # backend/.venv 不拷(几 GB,拷不起);跑后端测试用主检出解释器+cwd 切 worktree backend/
 # (见 AGENTS.md worktree 规则)。本脚本幂等:已存在则跳过。
 # --overwrite(2026-11-17 #356 delta P2-③):已在件先删再拷=用主检出副本覆写。防候选
