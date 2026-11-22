@@ -574,7 +574,9 @@ def ops_lane_guard(manager, task, round_type: str, label: str = "ops 轮线程")
       断,需人工介入」档降级为预期不可达。
 
     测试替身(无 ops_lane_owner 面的 manager)按「无从判定」处理,不触发
-    保险丝——替身无车道真身,其收口由 finished 记录断言。"""
+    保险丝——替身无车道真身,其收口由 finished 记录断言。隐式契约(评审
+    P3-2):未来替身若建模车道占用却不暴露 ops_lane_owner,保险丝会被静默
+    跳过——建模车道的新替身必须暴露该面,勿依赖 getattr 容忍。"""
     try:
         yield
     except Exception as e:
