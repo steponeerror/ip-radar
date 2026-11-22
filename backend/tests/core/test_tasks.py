@@ -54,6 +54,17 @@ def _wait_states(mgr, predicate, timeout=5):
     return mgr.snapshot()
 
 
+def _wait_true(predicate, timeout=5.0, step=0.02):
+    """#378:固定 sleep 窗口改带 deadline 轮询(20ms 步进):真值到达即走,
+    门上下文调度延迟只吃富余 deadline 而非窗口上限;超时返回 False 交断言报错。"""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(step)
+    return False
+
+
 def test_enqueue_one_runs_download_and_load():
     mgr, by_name = _make_manager([FakeSource("a")])
     t = mgr.enqueue_one("a")
@@ -64,11 +75,17 @@ def test_enqueue_one_runs_download_and_load():
 
 
 def test_dedup_same_source_returns_existing_task():
-    src = FakeSource("a", slow=0.3)
+    """#378:原 slow=0.3 窗口在门上下文调度延迟下,第二个 enqueue 可能落在
+    任务终态之后(新建任务→ id 不等);改 Event 钉住 download 相位,窗口
+    不再依赖线程调度速度。"""
+    release = threading.Event()
+    src = FakeSource("a")
+    src.download = lambda token=None: release.wait(10)
     mgr, _ = _make_manager([src])
     t1 = mgr.enqueue_one("a")
     t2 = mgr.enqueue_one("a")
     assert t1.id == t2.id
+    release.set()
 
 
 def test_bounded_concurrency():
@@ -247,7 +264,11 @@ def test_finished_batch_releases_active_slot_and_single_update_is_batchless():
     srcs = [FakeSource("a", host="h1"), FakeSource("b", host="h2")]
     mgr, _ = _make_manager(srcs)
     mgr.enqueue_batch(["a", "b"])
-    _wait_states(mgr, lambda s: all(t["state"] in ("done", "failed", "cancelled") for t in s["tasks"]), timeout=10)
+    # #378:任务终态经 _set_state 先落,_settle 的 b.done 递增与
+    # _maybe_finish_batch 清 _active_batch 均在其后——「全任务终态」为真时槽
+    # 可能尚未释放(门上下文调度延迟放大窗口)。改直接轮询本测断言本身:
+    # snapshot.batch 为 None ⇔ _active_batch 已清(同锁内读写,无窗口)。
+    _wait_states(mgr, lambda s: s["batch"] is None, timeout=10)
     assert mgr._active_batch is None, "finished batch did not release the active slot"
     assert mgr.snapshot()["batch"] is None, "snapshot reports a terminal batch as active"
     t = mgr.enqueue_one("a")
@@ -386,10 +407,9 @@ def test_on_finish_called_when_run_task_raises():
         concurrency=1, valve=valve,
     )
     mgr.enqueue_one("crash")
-    time.sleep(0.5)
-    assert valve.starts >= 1, "on_start should have been called"
-    assert valve.finishes >= 1, \
+    assert _wait_true(lambda: valve.finishes >= 1, timeout=5.0), \
         "on_finish must be called even after BaseException from _run_task"
+    assert valve.starts >= 1, "on_start should have been called"
 
 
 def test_batch_overlap_returns_existing():
@@ -433,7 +453,12 @@ def test_batch_done_event_waits_for_every_settle(monkeypatch):
     monkeypatch.setattr(mgr, "_settle", _slow_settle)
     mgr.enqueue_batch(["a", "b"])
     _wait_states(mgr, lambda s: s["batch"] is None, timeout=10)
-    time.sleep(0.3)            # 等延迟的 settle 与其增量事件走完
+    # #378:done 事件在 _maybe_finish_batch 锁内先于清 _active_batch 发出,
+    # batch 为 None 时事件必已入列;固定 0.3s 尾等改带 deadline 轮询断言本身。
+    assert _wait_true(lambda: any(
+        e.get("type") == "done" and e["batch"]["done"] == e["batch"]["total"] == 2
+        for e in events), timeout=3.0), \
+        "terminal done event (done==total==2) not observed in events"
     done = [e for e in events if e.get("type") == "done"]
     assert done, "terminal done event never emitted"
     b = done[-1]["batch"]
@@ -445,12 +470,18 @@ def test_batch_total_counts_only_attached_tasks():
     同源的名额:dedup 不给 batch 造任务,total 若按入参名单计,计数式完成
     判定永远到不了 total → batch 永久挂起(overlap-reject 会让后续全量更新
     一直返回死 batch id)。total 必须等于实际挂到本 batch 的任务数。"""
-    a = FakeSource("a", host="h1", slow=0.4)   # detached 慢任务,保持 in-flight
+    release_a = threading.Event()   # #378:Event 钉住 a 的 download 相位
+    a = FakeSource("a", host="h1")
+    a.download = lambda token=None: release_a.wait(10)
     b = FakeSource("b", host="h2")
     mgr, _ = _make_manager([a, b], concurrency=2)
     mgr.enqueue_one_detached("a")
-    time.sleep(0.05)                # 让 worker 拿到 a(downloading)
+    assert _wait_true(lambda: any(
+        t["source"] == "a" and t["state"] == "downloading"
+        for t in mgr.snapshot()["tasks"]), timeout=5.0), \
+        "detached task a never reached downloading before enqueue_batch"
     bid = mgr.enqueue_batch(["a", "b"])
+    release_a.set()             # a 收尾,b 独占 batch
     _wait_states(mgr, lambda s: s["batch"] is None, timeout=10)
     batch = mgr._batches[bid]
     assert batch.state == "done"
@@ -462,12 +493,18 @@ def test_late_enqueue_one_grows_running_batch_total():
     """运行中 batch 途中经 enqueue_one 挂进来的任务(set_source_enabled(enable)
     的 re-enqueue 路径)必须同步 total+1,否则其 settle 使 done 越过 total:
     batch 提前翻 done / 后续 batch 事件 done>total。"""
-    slow = FakeSource("slow", host="h1", slow=0.5)
+    release_slow = threading.Event()   # #378:Event 钉住 slow 的 download 相位
+    slow = FakeSource("slow", host="h1")
+    slow.download = lambda token=None: release_slow.wait(10)
     late = FakeSource("late", host="h2")
     mgr, _ = _make_manager([slow, late], concurrency=2)
     bid = mgr.enqueue_batch(["slow"])
-    time.sleep(0.05)                # slow 处 downloading → batch 保持打开
-    mgr.enqueue_one("late")         # 迟到挂载
+    assert _wait_true(lambda: any(
+        t["source"] == "slow" and t["state"] == "downloading"
+        for t in mgr.snapshot()["tasks"]), timeout=5.0), \
+        "slow never reached downloading before late enqueue"
+    mgr.enqueue_one("late")         # 迟到挂载(同步读 _active_batch,无窗口)
+    release_slow.set()
     _wait_states(mgr, lambda s: s["batch"] is None, timeout=10)
     b = mgr._batches[bid]
     assert b.state == "done"

@@ -1,6 +1,19 @@
 """MemoryValve: can_run 判定 + throttled 语义。用 monkeypatch psutil。"""
 import threading
+import time
 from ipdb._memory_valve import MemoryValve, initial_capacity
+
+
+def _wait_until(predicate, timeout, msg):
+    """#378:采样线程只暴露 target 值、无完成钩子——固定 sleep 窗口在门上下文
+    (node+pytest 并行)线程调度延迟下偶红;改带 deadline 轮询:20ms 步进,
+    deadline 取原窗口 10 倍,真值到达即返回,超时才以 msg 失败。"""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return
+        time.sleep(0.02)
+    assert predicate(), msg
 
 
 def _set_mem(monkeypatch, available_gb, total_gb=8.0):
@@ -50,41 +63,41 @@ def test_initial_capacity_tiers():
 
 def test_sampler_throttles_on_low_memory(monkeypatch):
     """内存跌破 25%,采样线程把 target 调到 1。"""
-    import time
     _set_mem(monkeypatch, available_gb=1.5, total_gb=8.0)   # 18.75% < 25%
     v = MemoryValve(ceiling=3)
     v.target_capacity = 3
     cv = threading.Condition()
     stop = threading.Event()
     v.start_sampler(cv, stop, interval=0.05)
-    time.sleep(0.2)
+    _wait_until(lambda: v.target_capacity == 1, timeout=2.0,
+                msg=f"sampler did not throttle to 1 (target={v.target_capacity})")
     stop.set()
     assert v.target_capacity == 1
 
 
 def test_sampler_relaxes_on_high_memory(monkeypatch):
     """内存 ≥40% 连续2次,target 升一档(不超 ceiling)。"""
-    import time
     _set_mem(monkeypatch, available_gb=7.0, total_gb=8.0)   # 87.5% ≥ 40%
     v = MemoryValve(ceiling=2)   # ceiling=2 cap, so 1→2 holds despite 6 samples
     v.target_capacity = 1
     cv = threading.Condition()
     stop = threading.Event()
     v.start_sampler(cv, stop, interval=0.05)
-    time.sleep(0.3)   # 至少2个采样周期
+    _wait_until(lambda: v.target_capacity == 2, timeout=3.0,
+                msg=f"sampler did not relax to 2 (target={v.target_capacity})")
     stop.set()
     assert v.target_capacity == 2
 
 
 def test_sampler_critical_halt(monkeypatch):
     """内存 <12%,target=0。"""
-    import time
     _set_mem(monkeypatch, available_gb=0.5, total_gb=8.0)   # 6.25% < 12%
     v = MemoryValve(ceiling=3)
     cv = threading.Condition()
     stop = threading.Event()
     v.start_sampler(cv, stop, interval=0.05)
-    time.sleep(0.2)
+    _wait_until(lambda: v.target_capacity == 0, timeout=2.0,
+                msg=f"sampler did not halt to 0 (target={v.target_capacity})")
     stop.set()
     assert v.target_capacity == 0
 
@@ -159,7 +172,8 @@ def test_sampler_survives_psutil_exception(monkeypatch):
     cv = threading.Condition()
     stop = threading.Event()
     v.start_sampler(cv, stop, interval=0.05)
-    time.sleep(0.3)   # 多个采样周期
+    _wait_until(lambda: call_count[0] >= 3, timeout=3.0,
+                msg=f"sampler made only {call_count[0]} calls")
     stop.set()
     assert call_count[0] >= 3, \
         f"sampler thread died after first exception (only {call_count[0]} calls)"
