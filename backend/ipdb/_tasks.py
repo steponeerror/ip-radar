@@ -129,6 +129,18 @@ class UpdateManager:
         self._subs_lock = threading.Lock()
         self._loop: Optional[asyncio.AbstractEventLoop] = None
 
+        # #411 转移事件面:生命周期等待 cv(wait_for_state/wait_snapshot 的
+        # 唤醒源)。锁序约束(终审 P1 补全):全局单向 _queue_cv → 
+        # _lifecycle_cv → self._lock,禁反向嵌套——①notify 一律在 self._lock
+        # 外取本 cv(等待面会 cv→self._lock 短临界区读态;反序 self._lock→cv
+        # = 死锁对);②worker 的转移打戳在 _queue_cv 内、其 _notify_lifecycle
+        # 随 _set_state 同点触发 = _queue_cv→cv 嵌套边(合法向);③旧
+        # self._lock→_queue_cv 嵌套(_enqueue_one 持锁入队)已拆(见 
+        # _enqueue_one 内注释),否则①②③闭成三锁死锁环。唤醒点 = 相位写点
+        # _set_state、终态记账 _settle、ops 轮占道/收口(不经 _set_state 的
+        # 写点各自通知)、cancel 的 queued 直写路径。
+        self._lifecycle_cv = threading.Condition()
+
         for _ in range(concurrency):
             threading.Thread(target=self._worker, daemon=True).start()
 
@@ -185,9 +197,14 @@ class UpdateManager:
             if (batch_id is not None and batch_id == self._active_batch
                     and not self._populating_batch):
                 self._batches[batch_id].total += 1
-            self._enqueue(task.id)
             self._emit({"type": "task", "task": task.to_dict()})
-            return task
+        # 入队出锁序段(#411 终审 P1):旧序在此持 self._lock 嵌套取 _queue_cv,
+        # 与 worker 的 _queue_cv→_lifecycle_cv(转移通知)及等待者的
+        # _lifecycle_cv→self._lock(谓词读态)闭成三锁死锁环;外移后全局锁序
+        # 无环:_queue_cv → _lifecycle_cv → self._lock。注册先于入队,worker
+        # 持同一 _queue_cv 弹出后查 _tasks 必见(happens-before 经 cv)。
+        self._enqueue(task.id)
+        return task
 
     def task_state(self, task_id: str) -> Optional[str]:
         """Lock-guarded lookup of a task's state. Returns None if task_id is
@@ -229,6 +246,54 @@ class UpdateManager:
             if task is not None and task.state == "failed":
                 return task.error
             return None
+
+    # --- #411 转移事件面:可等待的转移观察 ---
+    def _notify_lifecycle(self) -> None:
+        """唤醒生命周期等待者。锁序:调用点一律不持 self._lock(__init__
+        _lifecycle_cv 注释);无等待者时本调用 ≈ 一次无争用锁 + 空唤
+        醒(热路径预算:相位转移非查询车道,不碰每请求面)。"""
+        with self._lifecycle_cv:
+            self._lifecycle_cv.notify_all()
+
+    def wait_for_state(self, task_id: str, states, timeout: float = 5.0) -> Optional[str]:
+        """阻塞等 task_id 的相位进入 states;命中返回该相位,超时返回当下
+        相位(供断言直读实际值,而非空泛超时错),task 未知/已被清扫返回 None。
+
+        #411:替代 flake 家族的 bare time.sleep 等待——唤醒挂相位写点
+        (_set_state 单点 + ops 轮占道/收口 + cancel 直写),真转移即时醒,
+        门上下文调度延迟只吃 timeout 富余而非窗口上限。检查与 wait 在
+        cv 内原子(写点先写态后通知,无丢唤醒)。"""
+        states = set(states)
+        deadline = time.monotonic() + timeout
+        with self._lifecycle_cv:
+            while True:
+                with self._lock:
+                    task = self._tasks.get(task_id)
+                    state = None if task is None else task.state
+                if state is None or state in states:
+                    return state
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return state
+                self._lifecycle_cv.wait(remaining)
+
+    def wait_snapshot(self, predicate, timeout: float = 5.0) -> dict:
+        """阻塞等快照满足 predicate(事件驱动谓词等待);满足即返,超时返
+        回当下快照(断言直读)。与 wait_for_state 同唤醒源:相位转移、
+        终态记账(_settle 的批计数/清槽)、ops 车道占道/收口均唤醒复查。
+        快照在 cv 内取:谓词判定与 wait 原子,无丢唤醒。唤醒面不含
+        「任务出现」本身——新任务的首个相位转移会唤醒;暂停档纯排队
+        的快照变化无等待者(现有等待面都等转移,不等出现)。"""
+        deadline = time.monotonic() + timeout
+        with self._lifecycle_cv:
+            while True:
+                snap = self.snapshot()
+                if predicate(snap):
+                    return snap
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return snap
+                self._lifecycle_cv.wait(remaining)
 
     def snapshot(self) -> dict:
         with self._lock:
@@ -385,6 +450,9 @@ class UpdateManager:
             with self._queue_cv:
                 self._queue = deque(t for t in self._queue if t != task_id)
                 self._queue_cv.notify_all()
+            # #411:queued 直写终态后的唤醒由紧随的 _settle 尾部通知承担
+            # (同线程同步到达,无丢唤醒窗口);此处不另发——避免任何
+            # cancel 调用点未来被包进 self._lock 时引入 cv 反序嵌套。
             self._settle(task)
         else:
             task.token.cancel()
@@ -443,7 +511,9 @@ class UpdateManager:
             self._ops_logs[task.id] = deque(maxlen=_OPS_LOG_KEEP)
             self._ops_active = task.id
             self._emit({"type": "task", "task": task.to_dict()})
-            return task, None
+            result = (task, None)
+        self._notify_lifecycle()  # ops 轮相位不经 _set_state:占道写点自通知(#411)
+        return result
 
     def finish_ops_round(self, task_id: str, state: str, error: Optional[str] = None,
                          error_code: Optional[str] = None) -> None:
@@ -457,8 +527,16 @@ class UpdateManager:
                 self._emit({"type": "task", "task": task.to_dict()})
             if self._ops_active == task_id:
                 self._ops_active = None
+        self._notify_lifecycle()  # ops 轮收口写点(#411;同上不经 _set_state)
         with self._queue_cv:
             self._queue_cv.notify_all()
+
+    def ops_lane_owner(self) -> Optional[str]:
+        """当前占道的 ops 轮 task_id(None=车道空闲)。#411 结构性收口面:
+        ops_lane_guard(_ops_rounds)退出时读它判定「轮体是否漏收口」;测试/
+        观察面亦可直接看车道归属。锁内读(与 start/finish 同锁,无窗口)。"""
+        with self._lock:
+            return self._ops_active
 
     def ops_log(self, task_id: str, line: str) -> None:
         """轮次 stderr 进度行([turn]/[tool],spawn 契约面)→ 事件总线 → SSE;
@@ -551,6 +629,9 @@ class UpdateManager:
         task.error = error
         task.error_code = error_code
         self._emit({"type": "task", "task": task.to_dict()})
+        # #411 转移事件面:单点相位写后的唤醒(本方法是不持 self._lock 的
+        # 单一写点;notify 在 emit 后,等待者醒来读到的一定是已发事件的态)。
+        self._notify_lifecycle()
 
     def _emit_progress(self, task: Task, received: int, total: int) -> None:
         """Throttled phase-progress event (downloading=bytes, loading=records).
@@ -779,6 +860,10 @@ class UpdateManager:
                 logger.warning("on_terminal hook raised for %s(%s/%s)",
                                task.id, task.source_name, task.state,
                                exc_info=True)
+        # #411:终态记账(b.done 递增 / _maybe_finish_batch 清槽)也唤醒
+        # 谓词等待者——「全终态」为真后批释放断言不再靠时序窗口。此刻
+        # 不持任何锁(_maybe_finish_batch/hook 均已返回)。
+        self._notify_lifecycle()
 
     # --- event bus (Task 6) ---
     def subscribe(self, loop: asyncio.AbstractEventLoop) -> "asyncio.Queue[dict]":
