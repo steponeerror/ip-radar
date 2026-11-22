@@ -344,8 +344,8 @@ test("adapter 边界收口(#327):白名单 48 文件面 + 验证面冻结门红�
     assert.equal(v, false, `名单外路径须拒(只读):${p}`);
   assert.equal(boundaryProbe.normBackslash, true, "反斜杠路径须归一(\\ → /)");
   assert.equal(
-    boundaryProbe.allowlistCount, 62,
-    "策略面构成=62 文件(#327 原裁 43;#333 P2a +4 加源基准器 add-domain;#332 P1 2026-11-11 +5 加源轮 tasks/add-round.mjs+tools/add-tools.mjs+prompts/add/ 三只;#334 P2b 2026-11-11 +2 考题卡生成器+试跑接线器 bench/add-domain/{gen-exam-cards,run-trial}.mjs;#346 2026-11-13 +2 提案者接线对 bench/add-domain/{SKILL.md,mine-failures.mjs};#356 2026-11-17 +6 自演化循环骨架 bench/evolution/{run-round,ledger,state,judge,exits,domains}.mjs(glob bench/** 原裁继承,零新增 glob):pipeline 11+prompts 12+v2 tools/tasks/bench 37+v1 入口/模型 2;source_exts 计数面;漂移须重裁并同步 EDIT_ALLOWLIST 注释与本测)",
+    boundaryProbe.allowlistCount, 63,
+    "策略面构成=63 文件(#327 原裁 43;#333 P2a +4 加源基准器 add-domain;#332 P1 2026-11-11 +5 加源轮 tasks/add-round.mjs+tools/add-tools.mjs+prompts/add/ 三只;#334 P2b 2026-11-11 +2 考题卡生成器+试跑接线器 bench/add-domain/{gen-exam-cards,run-trial}.mjs;#346 2026-11-13 +2 提案者接线对 bench/add-domain/{SKILL.md,mine-failures.mjs};#356 2026-11-17 +6 自演化循环骨架 bench/evolution/{run-round,ledger,state,judge,exits,domains}.mjs(glob bench/** 原裁继承,零新增 glob);#384 2026-11-22 +1 发现轮 issue 出口 tools/enqueue-issues.mjs(glob tools/** 原裁继承):pipeline 11+prompts 12+v2 tools/tasks/bench 38+v1 入口/模型 2;source_exts 计数面;漂移须重裁并同步 EDIT_ALLOWLIST 注释与本测)",
   );
   assert.equal(boundaryProbe.gateClean, true, "净树=冻结完好(rc0)");
   for (const [rel, v] of Object.entries(boundaryProbe.gateRed))

@@ -13,10 +13,12 @@
 |---|---|---|
 | 形状 | `{ok:true, round, pkg, usage, queue_writes, verify, pipeline}` | `{ok:false, round, error:{code,message}, pkg?}` |
 | health | `round:"health"`,`pipeline:{round_id, resumed_from, replayed_of, stages, finding_exits?}` | 拒跑 `code:"budget_monthly"`;运行期失败码闭集同旧(ERROR_CODES) |
-| discover | `round:"discover"`,六步 stages | 同上 |
+| discover | `round:"discover"`,六步 stages;域键 `issues_opened: N`(#384,2026-11-22 起:ENQUEUE 出口改 GH issue 的开票计数,真源=enqueue 相位 checkpoint;faux 轮恒 0——零外发律) | 同上 |
 | add | `round:"add"`,六相位 stages(VERIFY→DOSSIER→IMPLEMENT→GATE→REPORT→CLOSE;bench 形态五相位,DOSSIER 跳过不记 stage);域键 `source`+`sandbox:{root,branch,sha}`,`pkg` 恒 null,`queue_writes` 恒空(轮零队列写口,spec 2026-11-11-add-round 定案 9) | 拒跑 `code:"budget_monthly"`;运行期失败码闭集九词 + add 域词 `card_missing` / `card_not_approved` / `duplicate_publisher` / `freshness_gate` / `gate_failed` |
 
 失败结果单差异注:旧 pipeline 轮失败结果单含 `pipeline` 字段(composeEnvelope 失败分支),v2 失败结果单无——已声明差异面(见 SHADOW-RUNBOOK §已知差异);`error.code` 语义同闭集九词。
+
+discover 域键注(#384,2026-11-22):`issues_opened` 是 T5 冻结面唯一 sanctioned 增键(票面明令);`queue_writes` 保留恒空数组(回放兼容,不删字段——PROPOSE 行已停写,queue.md 历史行不动)。开票失败 fail-soft 不入信封错误面(轮主体健康=ok),留痕面=轮目录 `enqueue-issues.json`(digest/复盘直读,字段同名)。
 
 - exit 码表(三 launcher 同律):`0`=completed;`1`=failed/refused/parked;`2`=用法错;`3`=运行期异常(launcher 自身崩溃,非轮内失败)。
 - `--to-phase`(health 专属,旧 replay `--to` 镜像):停笔相位完成后终态 completed,结果单 stages 止于该相位;默认 CLOSE 全链。

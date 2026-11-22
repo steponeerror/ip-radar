@@ -764,12 +764,13 @@ export const ENQUEUE_EXCLUSIVITY_GATE = 0.25; // spec T1:排他率预估门槛(�
 export const ENQUEUE_QUALITY_FLAG = "flag=dimension-overlap-quality-case";
 const qualityCaseDeclared = (c) => typeof c?.notes === "string" && c.notes.trim() !== ""; // #358:SHORTLIST notes 非空=质量案声明(从简判定;接不接全人裁)
 const candidateSlug = (name) => String(name).toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 32) || "cand"; // queue source 面 ^[a-z0-9_]{1,32}$ 适配
-async function ENQUEUE(def, ctx) {
-  const shortlist = j(path.join(ctx.dir, A.DISCOVER_SHORTLIST)) ?? { candidates: [] };
-  const measure = j(path.join(ctx.dir, A.DISCOVER_MEASURE)) ?? { results: [] };
-  const byCand = new Map(measure.results.map((r) => [r.candidate, r]));
+// 分类纯函数(#384 提取:三判据分类单源——v1 ENQUEUE 步与 v2 issue 出口
+// ops/agent-v2/tools/enqueue-issues.mjs 同源消费;循环体自原 ENQUEUE 逐字搬移,行为零变化,
+// v1 侧由 selftest-pipeline ENQUEUE 两例+golden 对拍钉字节不变)。判据仍=常量在代码:模型无权改。
+export function classifyEnqueue(shortlist, measure) {
+  const byCand = new Map((measure?.results ?? []).map((r) => [r.candidate, r]));
   const enqueued = []; const skipped = []; const flagged = []; // #358:flagged=排他率单项不过+质量案声明的 FLAG 面(不进 skipped——证据永不灭失:不静默丢)
-  for (const c of shortlist.candidates) {
+  for (const c of shortlist?.candidates ?? []) {
     const m = byCand.get(candidateSlug(c.name));
     const reasons = [];
     if (!m || m.evidence_local_ok !== true) reasons.push("evidence");
@@ -782,6 +783,13 @@ async function ENQUEUE(def, ctx) {
     else
       (reasons.length ? skipped : enqueued).push({ candidate: candidateSlug(c.name), name: c.name, reasons });
   }
+  return { enqueued, skipped, flagged };
+}
+async function ENQUEUE(def, ctx) {
+  const shortlist = j(path.join(ctx.dir, A.DISCOVER_SHORTLIST)) ?? { candidates: [] };
+  const measure = j(path.join(ctx.dir, A.DISCOVER_MEASURE)) ?? { results: [] };
+  const { enqueued, skipped, flagged } = classifyEnqueue(shortlist, measure);
+  const byCand = new Map(measure.results.map((r) => [r.candidate, r]));
   const queueFile = path.join(ctx.opsRoot, "queue.md");
   // 行写入器(入队/FLAG 同形制,唯一差面=predicate):#210 T4 action 词统一 PROPOSE——运营轮
   // ENQUEUE/REJECT 闭集是 python 写面(_ops_store.QUEUE_ACTIONS)的人裁动作词;发现轮候选行=

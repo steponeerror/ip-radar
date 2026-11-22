@@ -50,26 +50,32 @@ test("replay 声明闭集表(重查询 unsafe/纯读 safe;与 tools/discovery-to
   assert.deepEqual(DISCOVERY_REPLAY, { web_read: "safe", web_search: "unsafe", rss_parse: "safe" });
 });
 
-test("全链 faux 轮:信封 ok + 六步工件 + PROPOSE 队列行 + 门全绿 + 台账行", async () => {
+test("全链 faux 轮:信封 ok + 六步工件 + issue 出口留痕(faux 零外发)+ 门全绿 + 台账行", async () => {
   const tree = tmpTree("v2-disc-full-");
   const r = await runRound(tree);
   assert.equal(r.status, "completed", JSON.stringify(r));
   const env = r.envelope;
   assert.equal(env.ok, true);
-  assert.deepEqual(Object.keys(env).sort(), ["ok", "pipeline", "pkg", "queue_writes", "round", "usage", "verify"].sort());
+  assert.deepEqual(Object.keys(env).sort(), ["issues_opened", "ok", "pipeline", "pkg", "queue_writes", "round", "usage", "verify"].sort(), "#384:信封键闭集新增 issues_opened(queue_writes 保留恒空数组=回放兼容)");
+  assert.equal(env.issues_opened, 0, "faux 轮零外发,issue 计数恒 0");
   assert.deepEqual(env.pipeline.stages.map((s) => s.name), ["SCAN", "SHORTLIST", "MEASURE", "ENQUEUE", "RETRO", "CLOSE"]);
   // usage 求和律(旧 pipeline_ok 断言面):各步 usage 之和 == 信封 usage(脚本步 null 不回声)
   const sum = { input: 0, output: 0, totalTokens: 0, cost: 0 };
   for (const s of env.pipeline.stages) if (s.usage) for (const k of Object.keys(sum)) sum[k] += s.usage[k];
   assert.deepEqual(sum, env.usage);
   const dir = path.join(tree.opsRoot, "rounds", ROUND);
-  for (const f of ["d1-scan.json", "d2-shortlist.json", "d2-shortlist-transcript.jsonl", "d3-measure.json", "d4-enqueue.json", "09-budget.json", "gates.json", "state.json"])
+  for (const f of ["d1-scan.json", "d2-shortlist.json", "d2-shortlist-transcript.jsonl", "d3-measure.json", "d4-enqueue.json", "enqueue-issues.json", "09-budget.json", "gates.json", "state.json"])
     assert.ok(fs.existsSync(path.join(dir, f)), `工件缺:${f}`);
+  // #384:出口改 GH issue——queue.md PROPOSE 行停写(v2 轮零 queue 写口,文件不建);
+  // 出口留痕落 enqueue-issues.json(faux 零外发 skip 面,审计面恒落)。
+  assert.ok(!fs.existsSync(path.join(tree.opsRoot, "queue.md")), "#384 后 v2 发现轮不得写 queue.md(PROPOSE 停写)");
+  const issues = JSON.parse(fs.readFileSync(path.join(dir, "enqueue-issues.json"), "utf8"));
+  assert.equal(issues.status, "skip");
+  assert.match(issues.reason, /faux_zero_emit/, "faux 轮零外发留痕");
+  assert.equal(issues.issues_opened, 0);
   const gates = JSON.parse(fs.readFileSync(path.join(dir, "gates.json"), "utf8"));
   assert.equal(gates.records.length, 6, "六步各一门留痕(appendGateBypass 降级旁路同入 records;P2-⑨ 原恒真 filter 删)");
   for (const rec of gates.records) assert.equal(rec.pass, true, `${rec.stage} 门红:${rec.reason}`);
-  const queue = fs.readFileSync(path.join(tree.opsRoot, "queue.md"), "utf8");
-  assert.match(queue, /\| 2026-06-01-0400-discover \| PROPOSE \| rdns \|/, "PROPOSE 队列行缺失");
   const budget = JSON.parse(fs.readFileSync(path.join(dir, "09-budget.json"), "utf8"));
   assert.equal(budget.readings.discover_channels.channels.web_read.calls, 1);
   const ledger = fs.readFileSync(path.join(tree.opsRoot, "ledger.md"), "utf8");

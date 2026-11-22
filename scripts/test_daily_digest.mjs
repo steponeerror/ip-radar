@@ -10,8 +10,6 @@ import {
   summarizeServerRound,
   parseLedgerRows,
   ledgerReadings,
-  parseQueueProposeRows,
-  selectProposeRows,
   shadowNewRounds,
   summarizeEvolveRound,
   summarizeAddRound,
@@ -110,21 +108,19 @@ test("ledgerReadings:窗内按轮 id 集合;当月按日期列;拒跑按窗 UTC 
   assert.equal(rdOtherMonth.refusals.length, 0);
 });
 
-// —— queue PROPOSE 行 ——
+// —— 发现轮 issue 开票读数(#384;enqueue-issues.json 直读,字段名与轮信封 issues_opened 同名) ——
 
-const QUEUE = [
-  "| 日期 | 轮次 | action | source | predicate | evidence | vetoable |",
-  "|---|---|---|---|---|---|---|",
-  "| 2026-11-18 | needs-x | PROPOSE | gaoyifan_cn_ip | — | candidate:name=… | 是 |",
-  "| 2026-10-19 | discover | REJECT | threatview_c2 | sunset_frozen | call… | 是 |",
-].join("\n");
-
-test("parseQueueProposeRows:只取 action=PROPOSE;selectProposeRows 按窗日期", () => {
-  const rows = parseQueueProposeRows(QUEUE);
-  assert.equal(rows.length, 1);
-  assert.equal(rows[0].source, "gaoyifan_cn_ip");
-  assert.equal(selectProposeRows(rows, ["2026-11-20", "2026-11-19"]).length, 0);
-  assert.equal(selectProposeRows(rows, ["2026-11-20", "2026-11-18"]).length, 1);
+test("summarizeServerRound:enqueue 工件读 issues_opened/issues_failed/候选名单;缺工件(健康轮/旧发现轮)=0", () => {
+  const enqueue = { issues_opened: 2, issues_failed: 1,
+    issues: [{ candidate: "rdns", status: "created", issue_url: "https://github.com/x/1" }, { candidate: "quality_cand", status: "created" }, { candidate: "dead_cand", status: "failed", code: "gh_error", reason: "…" }] };
+  const r = summarizeServerRound("2026-11-22-2200-discover", { records: [] }, null, enqueue);
+  assert.equal(r.ok, true);
+  assert.equal(r.issues_opened, 2);
+  assert.equal(r.issues_failed, 1);
+  assert.deepEqual(r.issue_candidates, ["rdns", "quality_cand"], "只计 created 面(failed 不入名单)");
+  const h = summarizeServerRound("2026-11-22-0300-health", { records: [] }, null, null);
+  assert.equal(h.issues_opened, 0);
+  assert.deepEqual(h.issue_candidates, []);
 });
 
 // —— 影子零增轮 ——
@@ -215,12 +211,17 @@ const greenServer = (over = {}) => ({
   rounds: [
     { round_id: "2026-11-20-0300-health", ok: true, failed_gates: [], exits_triggered: false, findings_n: 0 },
     { round_id: "2026-11-20-1100-health", ok: true, failed_gates: [], exits_triggered: false, findings_n: 0 },
+    { round_id: "2026-11-20-2200-discover", ok: true, failed_gates: [], exits_triggered: false, findings_n: 0, issues_opened: 1, issues_failed: 0, issue_candidates: ["gaoyifan_cn_ip"] },
   ],
   ledger: { window_cost_cny: 0.0032, month_cost_cny: 0.0049 },
   refusals: [],
-  propose_rows: [{ date: "2026-11-19", source: "gaoyifan_cn_ip" }],
   shadow_new: [],
   missed_note: null,
+  ...over,
+});
+// #384 issue 0 张面(缺省夹具带 1 张,单独钉两态;旧 propose_rows 面退役)
+const greenServerNoIssues = (over = {}) => greenServer({
+  rounds: greenServer().rounds.map((r) => ({ ...r, issues_opened: 0, issues_failed: 0, issue_candidates: [] })),
   ...over,
 });
 const greenLocal = (over = {}) => ({
@@ -249,7 +250,8 @@ test("renderDigest:两源合并出稿,≤30 行,绿日标题无 ⚠", () => {
   assert.equal(reds.length, 0);
   assert.equal(title, "ip-radar 日报 2026-11-20");
   assert.match(body, /健康 2\/2 绿:0300✓ 1100✓/);
-  assert.match(body, /PROPOSE 1 行:gaoyifan_cn_ip/);
+  assert.match(body, /发现 1\/1 绿:2200✓/);
+  assert.match(body, /发现轮 issue 1 张\(needs-triage\):gaoyifan_cn_ip/);
   assert.match(body, /影子树零增轮/);
   assert.match(body, /演化:未熄火\(stall=1\),当日轮 1914\(无信封,未收口\);花费 ¥26\.19\/¥200/);
   assert.match(body, /fleet add 1\/1 绿:1000✓;月帽 ¥0\.31\/¥30/);
@@ -257,7 +259,7 @@ test("renderDigest:两源合并出稿,≤30 行,绿日标题无 ⚠", () => {
 });
 
 test("renderDigest:空数据日=「当日无轮」且不发红", () => {
-  const emptyServer = { error: null, rounds: [], ledger: { window_cost_cny: 0, month_cost_cny: 0 }, refusals: [], propose_rows: [], shadow_new: [], missed_note: null };
+  const emptyServer = { error: null, rounds: [], ledger: { window_cost_cny: 0, month_cost_cny: 0 }, refusals: [], shadow_new: [], missed_note: null };
   const emptyLocal = { evolve: { halted: false, stall_rounds: 0, last_round_id: null, spend_total_cny: null, rounds: [] }, add_rounds: [] };
   const reds = collectRedItems({ server: emptyServer, local: emptyLocal });
   const { title, body } = renderDigest({ dateLabel: "2026-11-21", server: emptyServer, local: emptyLocal, reds });
@@ -431,16 +433,16 @@ test("plainRedItem:各已知类型两件套齐备;未知类型兜底不编造处
   assert.match(unknown, /无现成建议——看 dev\/ops-digest\/2026-11-20\.md 红项附录与对应轮工件,交代理分诊/);
 });
 
-test("renderDigestPush:绿日骨架大白话(术语换中文:PROPOSE 0 行→没有新候选源提案);≤30 行;标题同技术面", () => {
-  const server = greenServer({ propose_rows: [] }); // PROPOSE 0 行面(缺省夹具带 1 行,单独钉两态)
+test("renderDigestPush:绿日骨架大白话(术语换中文:issue 0 张→没有新候选源提案);≤30 行;标题同技术面", () => {
+  const server = greenServerNoIssues(); // issue 0 张面(缺省夹具带 1 张,单独钉两态)
   const local = greenLocal();
   const reds = collectRedItems({ server, local });
   const { title, body } = renderDigestPush({ dateLabel: "2026-11-20", server, local, reds });
   assert.equal(title, "ip-radar 日报 2026-11-20");
   assert.match(body, /健康轮 2\/2 正常:03:00✓、11:00✓\(服务器时间\)/);
-  assert.match(body, /没有新的候选源提案\(PROPOSE 0 行\)/); // 定案 3 术语映射
-  const withPropose = renderDigestPush({ dateLabel: "2026-11-20", server: greenServer(), local, reds: [] });
-  assert.match(withPropose.body, /1 个候选源提案等人工裁决\(PROPOSE\):gaoyifan_cn_ip/);
+  assert.match(body, /没有新的候选源提案\(issue 0 张\)/); // 定案 3 术语映射(#384 口径)
+  const withIssues = renderDigestPush({ dateLabel: "2026-11-20", server: greenServer(), local, reds: [] });
+  assert.match(withIssues.body, /1 个候选源提案已开 GitHub 工单等人裁决:gaoyifan_cn_ip/);
   assert.match(body, /影子目录没有新轮,切流干净 ✓/);
   assert.match(body, /演化:还在跑\(连续没赚头 1\/3\),今天 11-20 晚上 19:14 的轮还没收口;本月花费 ¥26\.19\/帽 ¥200/);
   assert.match(body, /自动加源 1\/1 成功:10:00✓;本月加源花费 ¥0\.31\/帽 ¥30/);
@@ -479,7 +481,7 @@ test("renderDigestPush:红日红项逐条大白话带下一步;超帽截断仍 �
   assert.match(body, /演化:循环已自停/);
   assert.ok(body.split("\n").length <= 30, `行数 ${body.split("\n").length}`);
   // 空数据日:推送版也保留「今天没有轮」一行(验收:全空也发)
-  const emptyServer = { error: null, rounds: [], ledger: { window_cost_cny: 0, month_cost_cny: 0 }, refusals: [], propose_rows: [], shadow_new: [], missed_note: null };
+  const emptyServer = { error: null, rounds: [], ledger: { window_cost_cny: 0, month_cost_cny: 0 }, refusals: [], shadow_new: [], missed_note: null };
   const emptyLocal = { evolve: { halted: false, stall_rounds: 0, last_round_id: null, spend_total_cny: null, rounds: [] }, add_rounds: [] };
   const empty = renderDigestPush({ dateLabel: "2026-11-21", server: emptyServer, local: emptyLocal, reds: [] });
   assert.ok(empty.body.includes("今天没有轮跑") && empty.body.includes("自动加源:今天没有轮"));

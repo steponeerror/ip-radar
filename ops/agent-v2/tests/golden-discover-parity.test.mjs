@@ -2,8 +2,9 @@
 // 发现轮管线例 pipeline_discover_full_faux):旧引擎(ops/agent/pipeline.mjs runPipeline,
 // in-proc)vs 新任务面(ops/agent-v2 run-discover.mjs,子进程)逐工件 diff 清单。
 // 达标律(票面):通道通+失败可读,不强求全绿——本测试硬断言=两侧都跑出轮终态+核心工件
-// (d1/d3/d4/gates/queue 行)逐字节等价;已知差异面(09-budget env 快照/state 镜像/信封
-// resumed 字段)以清单打印,人工对拍入报告。
+// (d1/d3/d4/gates)逐字节等价;queue 行 #384 起故意分叉(v1 旧律照写=回退参照冻结;
+// v2 出口改 GH issue,PROPOSE 停写,只断 v2 零数据行);已知差异面(09-budget env 快照/
+// state 镜像/信封 resumed 字段)以清单打印,人工对拍入报告。
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -85,12 +86,17 @@ test("golden 对拍 pipeline_discover_full_faux:旧 runPipeline vs v2 发现轮�
   cmpText("d2-transcript", "d2-shortlist-transcript.jsonl"); // 观察面:input/seed 行应同;message 行=pi 内核封装差异可能
   cmpText("09-budget.json", "09-budget.json"); // 观察面:usage 来源=UsageDoc 活和 vs 旧事件流累计;env 快照同环境应近
   cmpText("state.json", "state.json"); // v2 降级镜像(checkpoint 真源):stages/updated_at 异=预期
-  // 队列行(数据行等价;文件头模板行=写口首建差异容忍)
+  // 队列行(数据行等价;文件头模板行=写口首建差异容忍)。#384 起故意分叉:v1 旧律照写
+  // PROPOSE 行(golden/回退参照面冻结);v2 出口改 GH issue,PROPOSE 停写——v2 侧断言
+  // 零数据行+出口留痕工件在场,不再做两侧对拍(分叉=sanctioned,双活客不成立:生产只跑 v2)。
   const qA = (read(path.join(envA.DOCS_ROOT, "ops"), "queue.md") ?? "").split("\n").filter((l) => l.startsWith("|"));
   const qB = (read(path.join(envB.DOCS_ROOT, "ops"), "queue.md") ?? "").split("\n").filter((l) => l.startsWith("|"));
   const dataRows = (q) => q.filter((l) => !/日期|---/.test(l));
-  rows.push(`${JSON.stringify(dataRows(qA)) === JSON.stringify(dataRows(qB)) ? "SAME" : "DIFF"} queue.md 数据行`);
-  assert.deepEqual(dataRows(qB), dataRows(qA), "队列数据行新旧不等价");
+  rows.push(`DIFF queue.md 数据行(#384 故意分叉:v1=${dataRows(qA).length} 行旧律照写;v2=${dataRows(qB).length} 行 PROPOSE 停写)`);
+  assert.equal(dataRows(qB).length, 0, "#384 后 v2 发现轮 queue.md 零数据行(PROPOSE 停写)");
+  assert.ok(dataRows(qA).length > 0, "v1 golden 面应照写 PROPOSE 行(回退参照冻结;断 v1 未被误改)");
+  const v2Issues = JSON.parse(read(dirB, "enqueue-issues.json") ?? "null");
+  assert.ok(v2Issues && v2Issues.status === "skip" && /faux_zero_emit/.test(String(v2Issues.reason)), "v2 出口留痕工件在场(faux 零外发 skip)");
   // 台账轮次行
   const lA = (read(path.join(envA.DOCS_ROOT, "ops"), "ledger.md") ?? "").split("\n").filter((l) => l.includes(`pipeline-discover:${ROUND}`));
   const lB = (read(path.join(envB.DOCS_ROOT, "ops"), "ledger.md") ?? "").split("\n").filter((l) => l.includes(`pipeline-discover:${ROUND}`));

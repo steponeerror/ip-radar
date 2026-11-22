@@ -4,7 +4,8 @@
 //   直跑形;agent-config 缺 model_discover=同判例——run-discover real 面无缺省
 //   resolve,裸跑落用法错 exit 2,缺配置不带病跑)②env 面逐键白名单(#364 裁定
 //   同判例:OPS_MODEL_DISCOVER 注入;发现轮面不注 OPS_MODEL_HEALTH;unset 仅管理
-//   密钥;GH_TOKEN/IP_RADAR_ALERT_URLS 继承=finding 出口契约员;OPS_SWEEP_DRY_RUN
+//   密钥;GH_TOKEN/IP_RADAR_ALERT_URLS 继承=finding 出口契约员(GH_TOKEN 自 #384 起亦为
+//   发现轮 ENQUEUE 开票出口契约员);OPS_SWEEP_DRY_RUN
 //   不设)③退出码透传(信封面 ENVELOPE.md 0/1/2/3;月帽拒启 budget_monthly 亦落
 //   1——超帽拒启在 run-discover 准入面,cron 面透传不重裁,钉在 budget-parity)。
 // bash 面零 docker 依赖:PATH 注入 mock docker(录 argv+剥 exec 头后真执行内层
@@ -143,7 +144,7 @@ test("env 面逐键白名单(#364 裁定同判例):设生产世界键+OPS_MODEL_
     // unset:仅管理密钥(C4 判例;测试面注入后内层 unset 生效)
     assert.ok(!("IP_RADAR_ADMIN_PASSWORD" in env), "管理密钥不带进模型进程");
     assert.ok(!("IP_RADAR_API_JWT_SECRET" in env));
-    // 继承不摘:finding 出口契约员(与 v1 C4 白名单 _SPAWN_ENV_EXACT 同面)
+    // 继承不摘:finding 出口契约员+#384 发现轮开票出口契约员(与 v1 C4 白名单 _SPAWN_ENV_EXACT 同面)
     assert.equal(env.GH_TOKEN, "ghp_testtoken");
     assert.equal(env.IP_RADAR_ALERT_URLS, "lark://dummy");
     // 不设:影子零外发栈摘除=出口生产语义真开
