@@ -244,7 +244,11 @@ function ConfigSection({ onUnauthorized }: { onUnauthorized: () => void }) {
                         <span className="font-mono">{pid}</span>
                         <input
                           type="password"
-                          autoComplete="off"
+                          // #399:密码框上的 off 被 Chromium 历来忽略,站点已存
+                          // 登录密码会被自动灌入密钥框;new-password 是「非登录
+                          // 表单勿灌已存凭据」的标准契约(登录页 AdminPage 的
+                          // username/current-password 语义不动)
+                          autoComplete="new-password"
                           aria-label={pid}
                           value={keyInputs[pid] ?? ""}
                           onChange={(e) =>

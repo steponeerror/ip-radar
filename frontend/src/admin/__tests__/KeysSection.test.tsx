@@ -39,6 +39,10 @@ describe("KeysSection", () => {
     expect(screen.getByText("never")).toBeTruthy(); // last_used_at: null
 
     fireEvent.click(screen.getByRole("button", { name: "Create key" }));
+    // #399(评审 P3-1):两输入框 autocomplete=off 防密码管理器把站点已存
+    // 登录凭据灌进管理面表单(DOM 契约断言)
+    expect((screen.getByLabelText("Name") as HTMLInputElement).autocomplete).toBe("off");
+    expect((screen.getByLabelText("Expires in days (optional)") as HTMLInputElement).autocomplete).toBe("off");
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "for-curl" } });
     fireEvent.change(screen.getByLabelText("Expires in days (optional)"), { target: { value: "30" } });
     fireEvent.click(screen.getByRole("button", { name: "Create" }));

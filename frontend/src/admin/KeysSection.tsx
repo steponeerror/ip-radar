@@ -432,6 +432,7 @@ export default function KeysSection({ onUnauthorized }: { onUnauthorized?: () =>
             <input
               id="key-name"
               value={name}
+              autoComplete="off" /* #399:防密码管理器当登录用户名框灌已存凭据 */
               onChange={(e) => { setName(e.target.value); setError(null); }}
               className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-200 focus:border-emerald-600 focus:outline-none"
             />
@@ -442,6 +443,7 @@ export default function KeysSection({ onUnauthorized }: { onUnauthorized?: () =>
               id="key-expires"
               type="number"
               min={1}
+              autoComplete="off" /* #399:同 key-name,非凭据框显式声明 */
               value={expiresDays}
               onChange={(e) => setExpiresDays(e.target.value)}
               className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-200 focus:border-emerald-600 focus:outline-none"

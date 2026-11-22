@@ -13,6 +13,9 @@ import { useI18n } from "../i18n";
 // 发现轮输入(OpsCockpit)/档案判例检索(OpsPage PrecedentsSection)。
 // 尺寸分工:输入恒通栏 w-full;行内弹性(flex-1/min-w-*)与外距由调用面经
 // wrapperClass 施加到容器(容器即 flex item / 尺寸承担者)。
+// #399:input 恒带 autoComplete="off" —— type=text 无 autocomplete 属性时,
+// 密码管理器会把本框当登录用户名框,自动灌入站点已存明文邮箱(实测:
+// admin@ipradar.local);off 显式声明非凭据框,三处调用面统一生效。
 export function OpsSearchInput({ label, placeholder, value, onChange, onKeyDown, wrapperClass = "" }: {
   label: string;
   placeholder: string;
@@ -28,6 +31,7 @@ export function OpsSearchInput({ label, placeholder, value, onChange, onKeyDown,
         type="text"
         role="searchbox"
         aria-label={label}
+        autoComplete="off"
         placeholder={placeholder}
         value={value}
         onChange={(e) => onChange(e.target.value)}

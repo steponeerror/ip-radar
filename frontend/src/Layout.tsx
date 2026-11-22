@@ -168,6 +168,10 @@ export default function Layout({
       <input
         id="update-token"
         type="password"
+        // #399 同族(评审 P2-1):裸密码框会被密码管理器双套——既可能灌入站点
+        // 已存登录密码,也可能弹「保存密码」把更新 token 收进密码管理器
+        // (SourcesPage token 框同款防护,new-password = 非登录表单勿碰凭据)
+        autoComplete="new-password"
         value={token}
         onChange={(e) => { setToken(e.target.value); setTokenError(null); }}
         className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-200 focus:border-emerald-600 focus:outline-none"

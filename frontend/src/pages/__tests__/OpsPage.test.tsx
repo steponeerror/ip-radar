@@ -698,7 +698,22 @@ describe("OpsPage — agent config section (票 #143,「设置」子 tab)", () =
     goSubTab("Settings");
     expect(await screen.findByText(/fell back/i)).toBeTruthy();
   });
+
+  it("#399 防浏览器自动填充:密钥框 new-password、供应商搜索框 off", async () => {
+    renderOps();
+    goSubTab("Settings");
+    // 密钥框(type=password):Chromium 历来忽略密码框上的 off,站点已存
+    // 登录密码被自动灌入密钥框;new-password = 「非登录表单勿灌已存凭据」的
+    // 标准契约(登录页 AdminPage 的 current-password 语义不动,见票 #399)
+    const key = (await screen.findByLabelText("zai-coding-cn")) as HTMLInputElement;
+    expect(key.autocomplete).toBe("new-password");
+    // 搜索框(type=text 无属性):密码管理器把它当登录用户名框灌明文邮箱;
+    // off 显式声明非凭据框(OpsSearchInput 统一作用于三处调用面)
+    const box = screen.getByRole("searchbox", { name: /search providers/i }) as HTMLInputElement;
+    expect(box.autocomplete).toBe("off");
+  });
 });
+
 
 // ── 票 #150:设置子 tab 视觉修约(表单基线/保存全部/key 搜索置顶/术语)──
 
