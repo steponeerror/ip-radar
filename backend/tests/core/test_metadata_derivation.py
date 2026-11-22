@@ -51,6 +51,9 @@ OLD_CATEGORIES = {
     "metowolf_iplist": "geo_asn",   # 2026-11-21 fleet lift(#366)
     "misakaio_chnroutes2": "geo_asn",   # 2026-11-21 fleet lift(#366)
     "gaoyifan_china_operator_ip": "geo_asn",   # 2026-11-21 fleet lift(#366)
+    "echelon": "threat",   # 2026-11-22 三源批(echelonlabs.co 蜜罐传感网联盟 61 标签)
+    "blocklist_netua": "threat",   # 2026-11-22 三源批(blocklist.net.ua 第一方封禁清单)
+    "nerd_medconf": "threat",   # 2026-11-22 三源批(CESNET NERD med_conf 聚合清单)
 }
 OLD_RELIABILITY = {
     "ipinfo_lite": 0.95, "iptoasn": 0.90, "cn_isp": 0.85, "geolite_city": 0.85,
@@ -94,6 +97,9 @@ OLD_RELIABILITY = {
     "metowolf_iplist": 0.75,   # 2026-11-21 fleet lift(#366)
     "misakaio_chnroutes2": 0.85,   # 2026-11-21 fleet lift(#366)
     "gaoyifan_china_operator_ip": 0.85,   # 2026-11-21 fleet lift(#366)
+    "echelon": 0.70,   # 2026-11-22 三源批(第一方传感网;连接尝试类混 VPN 出口噪音)
+    "blocklist_netua": 0.70,   # 2026-11-22 三源批(社区第一方基础设施封禁)
+    "nerd_medconf": 0.60,   # 2026-11-22 三源批(计算型聚合源,rep 并 DShield/OTX/黑名单回声面)
 }
 OLD_AUTHORITATIVE = {
     "is_proxy": ["ip2proxy"], "is_tor": ["tor_exits"], "is_vpn": ["x4bnet_vpn"],
@@ -108,12 +114,12 @@ OLD_AUTHORITATIVE = {
 _PHANTOM_AXES = ("is_malicious", "is_hosting", "is_mobile")
 
 def test_categories_match_snapshot():
-    # 51 = scanner_ranges 入册后实测 len(SOURCE_CATEGORIES)(50 = rir_abuse 入册后口径)
+    # 72 = 三源批入册后实测 len(SOURCE_CATEGORIES)(69 = gaoyifan 入册后口径)
     live = dict(r.SOURCE_CATEGORIES)
     assert live == OLD_CATEGORIES
 
 def test_reliability_match_snapshot():
-    # 公开源快照全等锁死(44 源口径;43 = myip_ms 入册后口径)
+    # 公开源快照全等锁死(72 源口径;69 = gaoyifan 入册后口径)
     live = dict(m.SOURCE_RELIABILITY)
     assert live == OLD_RELIABILITY
 
