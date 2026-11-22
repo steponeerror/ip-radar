@@ -26,7 +26,9 @@ TIER_PRECEDENTS = {
     "ciarm": "B",
 }
 
-HONEYPOT_SOURCES = ("knock_knock", "binarydefense", "sblam")
+# sblam 已剔(2026-11-22 撤源 #402);蜜罐族与 config.HONEYPOT_METHODOLOGY
+# 同步仅剩 knock_knock/binarydefense
+HONEYPOT_SOURCES = ("knock_knock", "binarydefense")
 
 
 def _threat_sources():

@@ -149,18 +149,17 @@ def test_published_readout_theta_unique_blindspot(tmp_path):
 
 
 def test_honeypot_methodology_config_seed_pinned():
-    """config.HONEYPOT_METHODOLOGY 种子钉测(评审环 4c): 种子三源
-    (knock_knock/binarydefense/sblam)真被剔出 k_nonhoneypot —— 本测试
+    """config.HONEYPOT_METHODOLOGY 种子钉测(评审环 4c): 种子双源
+    (knock_knock/binarydefense)真被剔出 k_nonhoneypot —— 本测试
     sources=[](无源属性可兜底), 种子被合并面丢掉时这条当红, k 双报
-    不会静默退化成 k_all。"""
+    不会静默退化成 k_all。(sblam 曾为种子第三员, 2026-11-22 撤源 #402)"""
     from ipdb._eval import config
-    accusers = {"203.0.113.10": ["knock_knock", "binarydefense", "sblam",
-                                "s1"]}
+    accusers = {"203.0.113.10": ["knock_knock", "binarydefense", "s1"]}
     r = truth_v2_corpus_readout(_FakeRegistry(accusers).lookup,
                                 ["203.0.113.10"], sources=[])
     assert set(config.HONEYPOT_METHODOLOGY) <= set(r["honeypot_excluded"])
-    assert r["k_all_hist"] == {"4": 1}          # 四源全计
-    assert r["k_nonhoneypot_hist"] == {"1": 1}  # 三蜜罐源剔后只剩 s1
+    assert r["k_all_hist"] == {"3": 1}          # 三源全计
+    assert r["k_nonhoneypot_hist"] == {"1": 1}  # 双蜜罐源剔后只剩 s1
 
 
 def test_prev_month_published_then_insufficient_no_fallback(tmp_path):

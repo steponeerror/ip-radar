@@ -24,7 +24,6 @@ OLD_CATEGORIES = {
     "sw_threats": "threat",     # 波1 T3 ShadowWhisperer Threats(2026-10-18,自采策展非 derived)
     "sw_scanners": "threat",    # 波2 T1 ShadowWhisperer Scanners(2026-10-19,自采策展非 derived)
     "data_shield": "threat",    # 波2 T2 duggytuxy Data-Shield(2026-10-19,derived 聚合源)
-    "sblam": "threat",          # 波3 T1 Sblam! 表单垃圾黑名单(2026-10-19,非 derived)
     "cps_collected_iocs": "threat",  # 波3 T3 CPS 自有聚合(2026-10-19,derived 聚合源)
     "ustc_blackip": "threat",   # 波4 T1 USTC 校园自保黑名单(2026-10-19,非 derived)
     "myip_ms": "threat",        # 波4 T2 myip.ms htaccess 黑名单(2026-10-19,非 derived)
@@ -71,7 +70,6 @@ OLD_RELIABILITY = {
     "sw_threats": 0.55,         # 波1 T3 ShadowWhisperer Threats(2026-10-18)
     "sw_scanners": 0.55,        # 波2 T1 ShadowWhisperer Scanners(2026-10-19)
     "data_shield": 0.50,        # 波2 T2 duggytuxy Data-Shield(2026-10-19)
-    "sblam": 0.55,              # 波3 T1 Sblam!(2026-10-19)
     "cps_collected_iocs": 0.50,  # 波3 T3 CPS 自有聚合(2026-10-19)
     "ustc_blackip": 0.55,       # 波4 T1 USTC 校园自保黑名单(2026-10-19)
     "myip_ms": 0.55,            # 波4 T2 myip.ms htaccess 黑名单(2026-10-19)
@@ -114,12 +112,12 @@ OLD_AUTHORITATIVE = {
 _PHANTOM_AXES = ("is_malicious", "is_hosting", "is_mobile")
 
 def test_categories_match_snapshot():
-    # 72 = 三源批入册后实测 len(SOURCE_CATEGORIES)(69 = gaoyifan 入册后口径)
+    # 71 = sblam 撤源(#402,2026-11-22)后实测 len(SOURCE_CATEGORIES)(72 = 三源批入册后口径)
     live = dict(r.SOURCE_CATEGORIES)
     assert live == OLD_CATEGORIES
 
 def test_reliability_match_snapshot():
-    # 公开源快照全等锁死(72 源口径;69 = gaoyifan 入册后口径)
+    # 公开源快照全等锁死(71 源口径,sblam 撤源 #402;69 = gaoyifan 入册后口径)
     live = dict(m.SOURCE_RELIABILITY)
     assert live == OLD_RELIABILITY
 

@@ -4,7 +4,7 @@
 
 ![IP Radar — self-hosted IP intelligence](assets/social-preview.png)
 
-**Pull 71 public sources into your own box — a full IP profile, not just a threat verdict.** Every lookup comes back with a plain-words verdict — evidence, confidence, geo · city · ASN, cloud/hosting, proxy · VPN · Tor, service identity, all at once. One command, self-hosted.
+**Pull 70 public sources into your own box — a full IP profile, not just a threat verdict.** Every lookup comes back with a plain-words verdict — evidence, confidence, geo · city · ASN, cloud/hosting, proxy · VPN · Tor, service identity, all at once. One command, self-hosted.
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 ![Docker](https://img.shields.io/badge/Docker-one%20container-2496ED?logo=docker&logoColor=white)
@@ -195,7 +195,6 @@ Every dataset below belongs to its provider — thank you for keeping them open 
 | sw_scanners | [ShadowWhisperer/IPs](https://github.com/ShadowWhisperer/IPs) | Self-collected scanner IP list (vendor-tagged rows, daily) | |
 | sw_threats | [ShadowWhisperer/IPs](https://github.com/ShadowWhisperer/IPs) | Self-collected threat IP list (per-row category / first-seen) | |
 | myip_ms | [myip.ms](https://myip.ms/) | Active blacklist from own web crawlers + user abuse reports (10-day rolling window) | |
-| sblam | [Sblam!](https://sblam.com/) | Form-spam blacklist (form-honeypot sensor network) | |
 | data_shield `*` | [duggytuxy/Data-Shield](https://github.com/duggytuxy/Data-Shield_IPv4_Blocklist) | Aggregated daily IPv4 blocklist (~90k bare IPs) | |
 | ziyadnz `*` | [ziyadnz/threat-intel-ip-feeds](https://github.com/ziyadnz/threat-intel-ip-feeds) | Daily per-IP aggregation of ~10 public feeds (per-row source provenance kept) | |
 | cps_collected_iocs `*` | [CriticalPathSecurity](https://github.com/CriticalPathSecurity/Public-Intelligence-Feeds) | CPS's own collected-IOC aggregate (bare IPs) | |

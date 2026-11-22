@@ -36,7 +36,6 @@ https://knock-knock.net/static/ip-blocklist-month.txt # knock_knock
 https://myip.ms/files/blacklist/htaccess/latest_blacklist.txt # myip_ms
 https://raw.githubusercontent.com/reportedip/reportedip-blacklist/main/blacklist-all.csv # reportedip
 https://list.rtbh.com.tr/output.txt # rtbh
-https://sblam.com/blacklist.txt # sblam
 https://siberkapan.org/api/v1/list/txt # siberkapan
 https://www.spamhaus.org/drop/drop.txt # spamhaus
 https://www.spamhaus.org/drop/dropv6.txt # spamhaus
