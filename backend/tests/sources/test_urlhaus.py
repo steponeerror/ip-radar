@@ -334,7 +334,8 @@ def test_urlhaus_classify_parity_with_normalize():
     (含 URLHAUS_MAP 全键 + 空值/none/大小写/前后缀未映射 token/逗号
     空档等边角;malware_name 保留原大写)。"""
     from collections import Counter
-    from ipdb._classification import URLHAUS_MAP, normalize
+    from ipdb._classification import normalize
+    from ipdb._sources.urlhaus import URLHAUS_MAP
     from ipdb._sources.urlhaus import _classify
 
     def _old_classify(tags_raw):             # 改前实现逐字镜像(#254 基线)

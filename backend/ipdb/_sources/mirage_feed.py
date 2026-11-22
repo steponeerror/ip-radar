@@ -37,9 +37,49 @@ import logging
 
 from .._source_base import Source
 from .._evidence import Evidence
-from .._classification import normalize, MIRAGE_MAP
+from .._classification import normalize
 
 logger = logging.getLogger(__name__)
+
+
+# offseq/mirage-feed `tags` 值 → IntelMQ(#359,2026-11-18)。谱系 = 当日实抓
+# 全量 attackers-7d.csv(2107 行)实测 18 值闭集;映射依据 = tag 名语义 +
+# 同行 ATT&CK 实测相关(rdp 291/291=T1021.001+T1110、smb 88/88=T1187+
+# T1021.002、db-ransom 129/129=T1485+T1486、sip-fraud 43/43=T1657)。
+# tags 空行(19 行)不进本表:harvest 兜底 blacklist(词表注释「no
+# subcategory available」,siberkapan 同款无差别传感器指控)。
+MIRAGE_MAP = {
+    # 爆破族(凭证/协议暴力破解,T1110)
+    "ssh-bruteforce": "brute-force",
+    "vnc-bruteforce": "brute-force",
+    "db-bruteforce": "brute-force",
+    "mail-bruteforce": "brute-force",
+    "vpn-bruteforce": "brute-force",
+    "sip-bruteforce": "brute-force",
+    "telnet-bruteforce": "brute-force",
+    "rdp": "brute-force",            # RDP 远程服务攻击(291/291 T1021.001
+                                      # +T1110;167 行仅有此 tag)
+    "smb": "brute-force",             # SMB 凭证攻击(88/88 T1187 forced
+                                      # authentication + T1021.002)
+    "web-exploit": "exploit",         # T1190 Exploit Public-Facing Application
+    "web-scan": "scanner",            # T1595.002 漏洞扫描
+    "mirai-like": "infected-system",  # 攻击宿主跑 mirai 族恶意软件 = 已感染
+                                      # drone(URLHAUS_MAP "mirai" 先例)
+    # 匿名化/网络上下文标签:握手验证的出口节点,映射其描述的分类
+    # (reportedip "13" VPN IP→proxy 同律);上游自己的 STIX 也按
+    # anonymization 而非 malicious-activity 渲染这两标签。
+    "tor-exit": "tor",
+    "vpn-exit": "proxy",
+    # 显式 other(已审视不强行映射,原值由 native_categories 保存;
+    # SW_THREATS_MAP "abuse" 先例):
+    "cgnat": "other",                 # 运营商级 NAT 上下文(无净槽)
+    "shell-commands": "other",        # 攻击者交互 shell 命令(T1059;爆破后
+                                      # 登录执行,非漏洞利用,不并入 exploit)
+    "db-ransom": "other",             # 数据库勒索冲击(129/129 T1485+T1486;
+                                      # 无 ransom 词表槽,不硬塞 malware/ddos)
+    "sip-fraud": "other",             # SIP 话费盗打(43/43 T1657 金融窃取;
+                                      # 无 fraud 槽)
+}
 
 
 class MirageFeedSource(Source):

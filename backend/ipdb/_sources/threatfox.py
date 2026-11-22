@@ -34,10 +34,19 @@ import zipfile
 
 from .._source_base import Source
 from .._evidence import Evidence
-from .._classification import normalize, THREATFOX_MAP
+from .._classification import normalize
 from ._download import download_file, CancelToken, atomic_write_bytes, redact_url
 
 logger = logging.getLogger(__name__)
+
+
+THREATFOX_MAP = {
+    "botnet_cc": "c2-server",
+    "payload_delivery": "malware-distribution",
+    "payload": "malware",
+    "cc_skimming": "phishing",
+    "url": "malware-distribution",
+}
 
 
 def _clean(cell: str) -> str:

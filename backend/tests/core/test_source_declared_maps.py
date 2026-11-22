@@ -61,7 +61,7 @@ def test_classification_surface_is_mechanical_only():
     接入面回归的绊线(#409 验收 1)。
     """
     module_dicts = {name for name, val in vars(classification).items()
-                    if isinstance(val, dict)}
+                    if isinstance(val, dict) and not name.startswith("__")}
     assert module_dicts == set(), (
         f"_classification 混入逐源/任意 dict:{sorted(module_dicts)} "
         "(映射表应住在各自源 module,#409)")

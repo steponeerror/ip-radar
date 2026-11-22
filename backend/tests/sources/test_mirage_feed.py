@@ -16,7 +16,7 @@ last_seen.
 from pathlib import Path
 
 from ipdb._sources.mirage_feed import MirageFeedSource
-from ipdb._classification import MIRAGE_MAP
+from ipdb._sources.mirage_feed import MIRAGE_MAP
 
 # Header + 7 verbatim rows from attackers-7d.csv (2026-11-18 snapshot).
 SAMPLE = (

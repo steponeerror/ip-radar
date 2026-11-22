@@ -9,7 +9,7 @@ tls.txt 实抓为 0 字节(合法空)。
 from pathlib import Path
 
 from ipdb._sources.echelon import EchelonSource, _SLUGS
-from ipdb._classification import ECHELON_MAP
+from ipdb._sources.echelon import ECHELON_MAP
 
 # verbatim from /tmp/echelon-full (2026-11-22 snapshot)
 TAG_SSH_BRUTE = "1.214.214.114\n1.238.106.229\n2.57.121.25\n"

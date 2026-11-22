@@ -27,12 +27,42 @@ import time
 
 from .._source_base import Source
 from .._evidence import Evidence
-from .._classification import NETUA_MAP
 from ._download import atomic_write_bytes, redact_url
 
 logger = logging.getLogger(__name__)
 
 _HEADER_PREFIX = "ip;ban_date"   # 首行表头前缀(容引号/大小写)
+
+
+# blocklist.net.ua REASON 关键词 → IntelMQ(2026-11-22 三源批)。REASON 是
+# 自由文本(俄/英双语全句,内嵌被攻击站点名,同一语义多种措辞),exact-key
+# normalize() 不可用——blocklist_netua.harvest 按本表键做**子串匹配**,
+# 插入序即优先序(ddos 族 → scanner → brute → spam),全 miss → 源内兜底
+# blacklist(每行都是活性封禁指控,urlhaus 基类分类先例)。
+# 谱系 = 2026-11-22 实抓全量 83,674 行闭集统计(8 语义族):паразит
+# 32,939(上游自译「Паразитные HTTP запросы」= "HTTP flood requests",
+# паразитный трафик/запросы 同族)/ddos 24,071/скан 23,851/brute 2,514
+# (брутфорс+подбор)/нагрузка 114(含 укр. навантаження)/malicious 111
+# (VNC 无差别指控,无净槽→兜底)/спам 39/截断尾 1。
+NETUA_MAP = {
+    # ddos 系(应用层洪水:HTTP flood/паразит/过载冲击)
+    "ddos": "ddos",
+    "паразит": "ddos",
+    "нагрузка": "ddos",
+    "навантаження": "ddos",
+    # scanner 系(несанкционированное сканирование/Сканер сайтов)
+    "сканиров": "scanner",
+    "сканер": "scanner",
+    "scanning": "scanner",
+    # brute-force 系(брутфорс атака/подбор паролей/brute force)
+    "брутфорс": "brute-force",
+    "подбор": "brute-force",
+    "brute force": "brute-force",
+    # spam 系(рассылка email спама/send spam)
+    "рассылка": "spam",
+    "спам": "spam",
+    "spam": "spam",
+}
 
 
 def _classify(reason: str) -> str:

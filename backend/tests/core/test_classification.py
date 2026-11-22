@@ -1,8 +1,12 @@
-from ipdb._classification import (
-    CLASSIFICATION_TYPES, normalize, THREATFOX_MAP, PROXY_MAP,
-    BLOCKLIST_DE_MAP, URLHAUS_MAP, URLHAUS_THREAT_MAP, TWEETFEED_MAP,
-    REPORTEDIP_MAP,
-)
+# 逐源映射自 #409(2026-11-22)住在各自源 module——import 点随迁,
+# 断言体零改动(行为不变式:同输入同标签)。
+from ipdb._classification import CLASSIFICATION_TYPES, normalize
+from ipdb._sources.threatfox import THREATFOX_MAP
+from ipdb._sources.ip2proxy import PROXY_MAP
+from ipdb._sources.blocklist_de import BLOCKLIST_DE_MAP
+from ipdb._sources.urlhaus import URLHAUS_MAP, URLHAUS_THREAT_MAP
+from ipdb._sources.tweetfeed import TWEETFEED_MAP
+from ipdb._sources.reportedip import REPORTEDIP_MAP
 
 
 def test_known_maps_into_vocab():

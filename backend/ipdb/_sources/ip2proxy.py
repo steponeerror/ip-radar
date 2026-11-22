@@ -25,6 +25,16 @@ from ._download import download_file, CancelToken, atomic_write_bytes
 logger = logging.getLogger(__name__)
 
 
+# ip2proxy proxy_type → IntelMQ. EMPTY since ADR 0001 (2026-10-12, grill Q1):
+# ip2proxy 全量资产弃权(VPN/PUB/TOR 继 DCH/SM-F2 之后),生产路径在
+# ip2proxy._proxy_evidence 就走 asset-only 分支(classification_type=None,
+# verdict="" 弃权),四型都不再喂给这张表。保持空表而非删定义:若回归把
+# proxy_type 重新接回 normalize(),一律落 "other" 且绊线告警 —— 绝不
+# 静默恢复 "proxy"/"tor" 指控(unmapped types must ring, no per-key
+# exemption)。
+PROXY_MAP = {}
+
+
 class IP2ProxySource(Source):
     name = "ip2proxy"
     category = "asset"
