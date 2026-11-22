@@ -198,9 +198,12 @@ async function scriptPhase(task, runtime, context, phase) {
   if (isBench(input) && phase !== "scan" && phase !== "close") // fail-closed 防御:bench 轮相位截断后 measure/enqueue/retro 不可达,唯有 checkpoint 异物/篡改可至;真面 MEASURE=真网络探测,宁可终态不可误跑
     return finishFailed(runtime, context, { message: `BENCH:${STAGE_OF_PHASE[phase]} 相位越界(bench 轮=SCAN→SHORTLIST→CLOSE 截断)`, detail: { code: "infra", stage: STAGE_OF_PHASE[phase] } });
   const b = stepBoundary({ roundType: "discover", knobs: input.knobs, startedAtIso: cur.startedAtIso }); // ③(每相位头;遗留2 脚本面)
-  if (!b.ok) return finishFailed(runtime, context, { message: b.message, detail: { code: b.code, stage: STAGE_OF_PHASE[phase] } });
+  const ctx = buildCtx(input, cur); // 终审 P1:提前构造——预算墙出口需要 ctx 定位轮目录写终态镜像
+  if (!b.ok) {
+    if (phase === "close") writeTerminalRoundState(ctx, { status: "failed" }); // 终审 P1:close 相位头预算墙出口=终审发现的第四个漏镜像出口(#408 症状本体;同 P2-2 两处同形,stages 止于 RETRO 不造 CLOSE 名)
+    return finishFailed(runtime, context, { message: b.message, detail: { code: b.code, stage: STAGE_OF_PHASE[phase] } });
+  }
   const def = defOf(STAGE_OF_PHASE[phase]);
-  const ctx = buildCtx(input, cur);
   if (phase === "scan") {
     try { bootstrapRoundDir(ctx, cur); } // 建轮同义(bad_round 域错→终态,同下)
     catch (e) { // P0-① 实测面:原裸抛逃逸 handler → 框架 fault+重启循环,真码永不落 outcome、信封恒 infra——收进同款 finishFailed(detail.code)终态
