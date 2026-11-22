@@ -1,7 +1,7 @@
 """P1 ops 树存取(票 #133,TDD 红先行)。
 
 钉住产品化批 Task P1 契约(docs/superpowers/plans/2026-10-19-ops-agent-productization.md):
-ops 根解析 $IP_RADAR_DATA_DIR/ops(回落沿 _registry.DATA_DIR 惯例)、树初始化幂等、
+ops 根解析 $IP_RADAR_DATA_DIR/ops(回落沿 _paths.data_dir 惯例,#406 单源)、树初始化幂等、
 种子导入幂等(二次导入零新增)、原子写(半包不留脏文件)、待集成清单追加去重
 (去重键 = action+source,T4 tools.mjs queueAction 冻结形状)、台账表头/行形状
 (T4 lib.sh ledger_append 冻结形状)、rg 检索 rc≥2 报错不伪装空(T2 Minor-3 判例,
