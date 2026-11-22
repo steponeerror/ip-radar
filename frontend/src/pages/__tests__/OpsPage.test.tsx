@@ -252,6 +252,20 @@ describe("OpsPage — 伪表头修复与表格统一件(票 #148)", () => {
 
 // ── 票 #149:档案+裁决列表修约(列头逐字一致/计数/空态/标题收尾/行元数据)──
 
+describe("OpsPage — 台账倒序(票 #403)", () => {
+  it("两行台账(文件序=旧在前)渲染新在前:首行=2026-10-20 discover,次行=2026-10-19 health", async () => {
+    renderOps(); // beforeEach 夹具 LEDGER_MD 两行:10-19 health 旧,10-20 discover 新(追加序)
+    goSubTab("Archive");
+    const table = await screen.findByRole("table");
+    const rows = within(table).getAllByRole("row");
+    expect(rows).toHaveLength(3); // 列头 + 2 数据行(计数不变,只翻序)
+    expect(within(rows[1]).getByTitle("2026-10-20")).toBeTruthy(); // 首数据行=最新轮
+    expect(within(rows[1]).getByText("discover")).toBeTruthy();
+    expect(within(rows[2]).getByTitle("2026-10-19")).toBeTruthy(); // 次行=最旧轮
+    expect(within(rows[2]).getByText("health")).toBeTruthy();
+  });
+});
+
 describe("OpsPage — 档案面修约(票 #149)", () => {
   it("历史表与轮次表列头逐字一致:共享基列(6)文本相等,追列仅轮次表(审计面不补结果码/包列)", async () => {
     renderOps();

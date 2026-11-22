@@ -298,6 +298,10 @@ function LedgerSection({ onUnauthorized }: { onUnauthorized: () => void }) {
   useEffect(() => { load(); }, [load]);
 
   const rows = text != null ? ledgerRows(text) : []; // 纯数据行(表头已在解析跳过)
+  // #403:台账文件序=旧在前(lib.sh ledger_append 唯一写口=追加);渲染翻序新在前
+  // (OpsCockpit 过去轮次 slice(-N).reverse() 同向),max-h-72 滚动容器首行=最新轮。
+  // 计数仍取 rows.length(翻序不改账面)。
+  const viewRows = [...rows].reverse();
 
   return (
     <section aria-label={t("ops.ledger.title")}>
@@ -337,7 +341,7 @@ function LedgerSection({ onUnauthorized }: { onUnauthorized: () => void }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-800/60 font-mono text-zinc-400">
-              {rows.map((cells, r) => {
+              {viewRows.map((cells, r) => {
                 const { usage, cost } = splitUsage(cells[LEDGER_CELL.usage] ?? "");
                 const rt = relTime(cells[LEDGER_CELL.time] ?? "", now);
                 const note = cells[LEDGER_CELL.note] ?? "";

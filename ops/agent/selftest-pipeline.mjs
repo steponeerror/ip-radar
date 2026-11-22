@@ -170,6 +170,23 @@ await t("全 faux 轮:十执行态到 CLOSE,信封 ok+形状只增 pipeline 扩�
   assert.equal(env.verify.cited, 1, "canned 报告引 1 fixture 判例");
 });
 
+await t("轮报告件(#403):R1 CLOSE 写 packages/<date>-health-<HHMM>.md,头部/相位/门/信封确定性读盘;reportNameOf 形状律(名字源=前端 pkgMatchesRow 前缀关联面)", async () => {
+  const { reportNameOf } = await import("./pipeline/round-report.mjs");
+  assert.equal(reportNameOf("2026-11-22-0500-discover"), "2026-11-22-discover-0500.md");
+  assert.equal(reportNameOf("2026-10-23-2340-health"), "2026-10-23-health-2340.md");
+  assert.equal(reportNameOf("2026-10-23-2340-health-r1"), "2026-10-23-health-2340-r1.md", "replay 后缀轮同律保留后缀(重放不入 CLOSE,resume 同 id 不碰此面)");
+  assert.throws(() => reportNameOf("2026-10-28-e2e-health"), /形状须/, "形状不合掷错(同步掷,非 rejects)");
+  const rep = fs.readFileSync(path.join(DOCS, "ops", "packages", "2026-10-23-health-2340.md"), "utf8");
+  assert.match(rep, /轮次:2026-10-23-2340-health/);
+  assert.match(rep, /类型:health/);
+  assert.match(rep, /引擎:pipeline-v1/);
+  assert.match(rep, /\| CLOSE \| done \|/, "相位表含 CLOSE 行");
+  assert.match(rep, /## 门/);
+  assert.match(rep, /## 信封/);
+  const fenced = rep.split("```json\n")[1]?.split("\n```")[0];
+  assert.equal(JSON.parse(fenced).pipeline.round_id, R1, "信封 fenced JSON 可解析且 round_id 对上");
+});
+
 await t("门契约单源(#194 C3;#207 T1 per-type):GATES 注册键序=双管线执行序并集双射;GATE_COUNT 派生(单侧加/删门即红=门面假绿判例)", async () => {
   const { GATES } = await import("./pipeline/gates.mjs");
   const { HEALTH_PIPELINE } = await import("./pipeline.mjs");

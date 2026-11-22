@@ -27,6 +27,7 @@ import { buildRoundCtx, opsRootOf, composeEnvelope, skipWhenNoNeedDeep, ROOT } f
 import { roundKnobs, stepBoundary, postModelCall, knobNames } from "./budget-guard.mjs"; // P1-4:收口复查①②④ 面
 import { OPS_MODEL_ROUND, conversationUsage, conversationModelCalls } from "./model-round.mjs"; // P1-4:failed 子任务留痕计量面
 import { mkFauxFace, loadFauxFixture } from "../faux-face.mjs"; // 修复⑥:faux 面分派件(旧 faux.mjs 字节级一致副本)
+import { writeRoundReport } from "../../agent/pipeline/round-report.mjs"; // #403:轮报告件单源(v2 零复制 import v1)
 import { OPS_PROBE_TOOLS } from "../tools/probes.mjs"; // DEEP 真面探针闭集(AgentChange.modelTools 要 ToolRegistration 对象非名字串——applyChange names() 映射 .name)
 
 const nowIso = () => new Date().toISOString();
@@ -393,6 +394,7 @@ async function runClose(input, ck, runtime, context) {
     const gr = evalStageGate(def, ctx); // G_CLOSE 回声哨:环内已执法,门只防工件漂移(spec 谱系原则)
     appendGate(ctx.dir, ctx.roundId, gr);
     if (!gr.pass) throw Object.assign(new Error(`门败 G_CLOSE:${gr.reason}`), { code: "infra" });
+    writeRoundReport({ roundId: input.roundId, type: "health", engine: "pipeline-v2", ctx, opsRoot: ctx.opsRoot }); // #403:轮报告件(packages 断供修复);写败掷 infra 入本 catch(fail loud:静默=用户再次看不到报告)
     await runtime.commit(() => ({
       status: "terminal",
       outcome: { status: "completed", result: { round_id: input.roundId, envelope, dir: ctx.dir, usage: ctx.usage } },
