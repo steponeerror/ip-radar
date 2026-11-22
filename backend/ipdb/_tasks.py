@@ -441,7 +441,9 @@ class UpdateManager:
             with self._queue_cv:
                 self._queue = deque(t for t in self._queue if t != task_id)
                 self._queue_cv.notify_all()
-            self._notify_lifecycle()  # queued 直写路径的终态转移(#411)
+            # #411:queued 直写终态后的唤醒由紧随的 _settle 尾部通知承担
+            # (同线程同步到达,无丢唤醒窗口);此处不另发——避免任何
+            # cancel 调用点未来被包进 self._lock 时引入 cv 反序嵌套。
             self._settle(task)
         else:
             task.token.cancel()

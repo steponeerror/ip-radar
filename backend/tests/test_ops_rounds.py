@@ -136,6 +136,8 @@ def _fake_agent_set(script: Path, mode: str, pkg=None) -> None:
 
 
 def _read_dump(dump_path: Path) -> dict:
+    # #411 保留:子进程落盘工件的文件到达轮询——被等对象是文件系统副作用,
+    # 不在任务生命周期事件面上,无从挂事件唤醒;deadline 轮询非固定窗口。
     deadline = time.monotonic() + 10
     while time.monotonic() < deadline:
         if dump_path.exists():
@@ -848,6 +850,9 @@ class FakeSource:
         self.download_host = host
 
     def download(self, token=None):
+        # #411 保留:可取消下载的工作负载本体(轮询 cancel token 模拟逐 chunk
+        # 检查);CancelToken 无公开等待面(_download 不在本票可动面),事件
+        # 等待无从替代,deadline 语义由 token 检查环承载。
         from ipdb._sources._download import CancelledError
         while token is not None and not token.is_cancelled():
             time.sleep(0.05)
@@ -932,9 +937,12 @@ def test_ops_round_blocks_source_workers():
     task, _ = mgr.start_ops_round("health")
     try:
         queued = mgr.enqueue_one("a")
-        time.sleep(0.6)  # 足够任何空闲 worker 抢跑(若互斥破)
-        snap = {t["source"]: t["state"] for t in mgr.snapshot()["tasks"]}
-        assert snap["a"] == "queued", "ops 轮在飞时源任务不得进入 downloading"
+        # #411:负不变式观察窗改挂事件面——等待「进入 downloading」至多
+        # 0.6s:互斥若破,转移事件立即唤醒并返回 downloading(比固定 sleep
+        # 更快抓到破绽);未破则空等到期仍 queued(挂 cv,零轮询)。
+        state = mgr.wait_for_state(queued.id, ("downloading", "loading"),
+                                   timeout=0.6)
+        assert state == "queued", "ops 轮在飞时源任务不得进入 downloading"
     finally:
         mgr.finish_ops_round(task.id, "done")
     assert _wait(lambda: any(

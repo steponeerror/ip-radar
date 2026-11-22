@@ -21,6 +21,9 @@ class FakeSource:
             self.download_concurrent += 1
             self.peak_concurrent = max(self.peak_concurrent, self.download_concurrent)
         try:
+            # #411 保留(bare sleep 清单 :24):模拟下载耗时的工作负载本体,
+            # 非同步等待——并发/主机串行测需要真实重叠的下载时长,事件等待
+            # 无法替代被测现象本身。
             time.sleep(self._slow)
             if token is not None and token.is_cancelled():
                 from ipdb._sources._download import CancelledError
@@ -45,18 +48,17 @@ def _make_manager(sources, concurrency=3):
 
 
 def _wait_states(mgr, predicate, timeout=5):
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        snap = mgr.snapshot()
-        if predicate(snap):
-            return snap
-        time.sleep(0.02)
-    return mgr.snapshot()
+    """#411:谓词等待挂生命周期事件面(wait_snapshot)——相位转移/终态
+    记账/车道收口即时唤醒,替换原 20ms 步进 sleep 轮询(flake 家族根因
+    之一;真值到达即走,调度延迟只吃 timeout 富余)。"""
+    return mgr.wait_snapshot(predicate, timeout)
 
 
 def _wait_true(predicate, timeout=5.0, step=0.02):
-    """#378:固定 sleep 窗口改带 deadline 轮询(20ms 步进):真值到达即走,
-    门上下文调度延迟只吃富余 deadline 而非窗口上限;超时返回 False 交断言报错。"""
+    """非生命周期谓词(valve 计数/事件列表等无事件面的观察点)的 deadline
+    轮询。#411 保留:等待对象不在任务生命周期转移面上,无从挂事件唤醒
+    (valve 自身无事件面——_memory_valve 不在本票可动面);带 deadline 步进,
+    真值到达即走(#378),非固定窗口。"""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if predicate():
@@ -99,6 +101,8 @@ def test_bounded_concurrency():
                 p["in_flight"] += 1
                 p["peak"] = max(p["peak"], p["in_flight"])
             try:
+                # #411 保留:0.2s 下载时长是并发度量的工作负载本体——peak≥2
+                # 需两次下载真实重叠,事件等待无法替代(同 FakeSource.slow)。
                 time.sleep(0.2)
             finally:
                 with l:
@@ -139,21 +143,25 @@ def test_per_host_serial():
 
 
 def test_pause_stops_dispatch_then_resume():
-    blocked = threading.Event()
-    src = FakeSource("a", host="h")
-    def slow_download(token=None):
-        blocked.set()
-        time.sleep(0.3)
-    src.download = slow_download
-    fast = [FakeSource(f"s{i}", host=f"h{i}") for i in range(4)]
-    mgr, _ = _make_manager([src] + fast, concurrency=2)
-    mgr.enqueue_batch([s.name for s in [src] + fast])
-    # fill workers, then pause: remaining queued must not start
+    """#411 事件化:所有 download 用共享 gate 钉住 → 等 2 个 downloading
+    (并发位占满,排队者结构上无 worker 可起跑——不需要负观察窗)→
+    pause → started==2 可证 → 放行+resume → 全终态。原 0.3s 工作负载+
+    0.1s 负观察窗双 sleep 赌调度快慢(flake 家族)。"""
+    gate = threading.Event()   # 所有 download 阻塞于此:worker 全钉在 downloading
+    srcs = [FakeSource(f"s{i}", host=f"h{i}") for i in range(5)]
+    for s in srcs:
+        s.download = lambda token=None: gate.wait(10)
+    mgr, _ = _make_manager(srcs, concurrency=2)
+    mgr.enqueue_batch([s.name for s in srcs])
+    # 等 2 个 downloading:并发位满,剩余 3 个必在队列(无空闲 worker,
+    # 快照形状此刻稳定——两 worker 钉在 download 内,queued 无从起跑)
+    mgr.wait_snapshot(lambda s: sum(
+        1 for t in s["tasks"] if t["state"] == "downloading") == 2, timeout=10)
     mgr.pause()
-    # wait a beat; only up to `concurrency` should have started before pause
-    time.sleep(0.1)
-    started = sum(1 for s in [src] + fast if s.download_calls > 0)
-    assert started <= 2
+    states = sorted(t["state"] for t in mgr.snapshot()["tasks"])
+    # 暂停后:2 个仍 downloading(gate 钉住),3 个原地 queued(派发停摆)
+    assert states == ["downloading", "downloading", "queued", "queued", "queued"]
+    gate.set()
     mgr.resume()
     _wait_states(mgr, lambda s: all(t["state"] in ("done", "failed", "cancelled") for t in s["tasks"]), timeout=10)
 
@@ -162,7 +170,8 @@ def test_cancel_running_task():
     src = FakeSource("a", host="h", slow=1.0)
     mgr, _ = _make_manager([src])
     t = mgr.enqueue_one("a")
-    time.sleep(0.1)
+    # #411:等真到 downloading 再取消(原 0.1s sleep 赌 worker 调度)
+    assert mgr.wait_for_state(t.id, ("downloading",), timeout=5) == "downloading"
     mgr.cancel(t.id)
     snap = _wait_states(mgr, lambda s: all(tk["state"] in ("done","failed","cancelled") for tk in s["tasks"]), timeout=5)
     assert snap["tasks"][0]["state"] == "cancelled"
@@ -172,7 +181,10 @@ def test_cancel_batch_cancels_all():
     srcs = [FakeSource(f"s{i}", host=f"h{i}", slow=1.0) for i in range(4)]
     mgr, _ = _make_manager(srcs, concurrency=2)
     bid = mgr.enqueue_batch([s.name for s in srcs])
-    time.sleep(0.1)
+    # #411:等 2 个 downloading(并发位满,2 个在队)再整批取消——
+    # queued 直写与 running token 两条取消路径都被钉住(原 0.1s sleep 赌调度)
+    mgr.wait_snapshot(lambda s: sum(
+        1 for t in s["tasks"] if t["state"] == "downloading") == 2, timeout=10)
     mgr.cancel_batch(bid)
     snap = _wait_states(mgr, lambda s: all(t["state"] in ("done", "failed", "cancelled") for t in s["tasks"]), timeout=5)
     states = [t["state"] for t in snap["tasks"]]
@@ -197,7 +209,10 @@ def test_download_progress_emitted_throttled_with_final_100():
                     raise CancelledError()
                 if token is not None and token.on_progress:
                     token.on_progress(i * 100, total)
-                time.sleep(0.05)             # 10×0.05s = 0.5s spans throttle windows
+                # #411 保留:0.05s×10 = 0.5s 分块节奏是被测现象本体——必须跨过
+                # _emit_progress 的 0.15s 节流窗才能验证「节流而非逐块」,事件
+                # 等待无法替代时间跨度。(bare sleep 清单 :200)
+                time.sleep(0.05)
 
     src = ProgSource("p", host="h")
     mgr, _ = _make_manager([src])
@@ -283,10 +298,9 @@ def test_snapshot_returns_one_task_per_source_after_reupdate():
     mgr, _ = _make_manager([src])
     mgr.enqueue_one("a")
     _wait_states(mgr, lambda s: all(t["state"] in ("done", "failed", "cancelled") for t in s["tasks"]))
-    mgr.enqueue_one("a")  # re-enqueue now that the first task is terminal
-    deadline = time.monotonic() + 5
-    while time.monotonic() < deadline and src.download_calls < 2:
-        time.sleep(0.02)
+    # #411:第二轮终态事件等待替换 download_calls<2 轮询(终态必含二次下载)
+    t2 = mgr.enqueue_one("a")  # re-enqueue now that the first task is terminal
+    assert mgr.wait_for_state(t2.id, ("done", "failed", "cancelled"), timeout=5) == "done"
     snap = mgr.snapshot()
     a_tasks = [t for t in snap["tasks"] if t["source"] == "a"]
     assert len(a_tasks) == 1, f"snapshot leaked {len(a_tasks)} tasks for source a: {a_tasks}"
@@ -363,8 +377,9 @@ def test_batch_done_ignores_throttled():
     mgr._valve = MemoryValve(ceiling=3)
     mgr._valve.target_capacity = 0
     bid = mgr.enqueue_batch(["a"])
-    import time
-    time.sleep(0.3)
+    # #411:等真见 throttled(事件面)再断言——throttled 算 active,批必不
+    # done(计数式完成:done==0 < total==1,同锁可证;原 0.3s sleep 赌窗口)
+    mgr.wait_snapshot(lambda s: any(t["state"] == "throttled" for t in s["tasks"]), timeout=10)
     # batch 不该 done(throttled 算 active)
     assert mgr._batches[bid].state != "done"
     # 恢复,让它能完成
@@ -448,7 +463,9 @@ def test_batch_done_event_waits_for_every_settle(monkeypatch):
     orig_settle = mgr._settle
     def _slow_settle(task):
         if task.source_name == "a":
-            time.sleep(0.25)   # 状态已 "done",计数未落:窗口保持打开
+            # #411 保留:故意拉开「终态已落、计数未记」的竞态窗口——本测的
+            # 扰动本体(被测现象),非同步等待;换成 Event 会永久卡住 settle。
+            time.sleep(0.25)
         orig_settle(task)
     monkeypatch.setattr(mgr, "_settle", _slow_settle)
     mgr.enqueue_batch(["a", "b"])
