@@ -809,7 +809,7 @@ await t("classifyMcpSearchError:四码同族(quota/credential/network/config 各
 });
 
 await t("web_search 引擎接线:pi-web-access MCP CLI 可拉起(离线 initialize+tools/list 含 web_search;真网面部署段验)", async () => {
-  const cli = path.join(AGENT, "node_modules", "pi-web-access", "dist", "mcp-cli.js");
+  const cli = path.join(AGENT, "..", "node_modules", "pi-web-access", "dist", "mcp-cli.js"); // #412 单包:node_modules 在 ops/ 包根
   assert.ok(fs.existsSync(cli), "pi-web-access 未装配(npm ci 面;package.json pin 0.44.0)");
   const r = await new Promise((resolve, reject) => {
     const child = execFileCb(process.execPath, [cli], { timeout: 30_000 }, () => { /* exit 由 timeout 兑底 */ });

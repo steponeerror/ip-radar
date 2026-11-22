@@ -61,23 +61,24 @@ test("SQLite 落库 journal=WAL(chord 适配器缺省;断电面按 t1-notes 风�
   }
 });
 
-test("pi-ai 单实例且 =1.4.0;跨目录(ops/agent)同版(t1-notes 风险2 双实例陷阱)", () => {
-  // v2 树内:npm ls --parseable 每个 pi-ai 物理路径必须唯一
+test("pi-ai 单实例且 =1.4.0(单包 ops/node_modules;t1-notes 风险2 双实例陷阱已由 #412 收编)", () => {
+  // #412 单包合并后 v1/v2 子树共用 ops/ 包根唯一 node_modules——「跨目录两份物理拷贝」
+  // 结构性消失,闸保留为:npm ls 全树 pi-ai 物理路径唯一 + 版本钉 1.4.0(两套凭证店/
+  // 目录互不相识的旧风险面,api-map §0,防未来再分叉包根)。
   const out = execFileSync(
     "npm", ["ls", "@earendil-works/pi-ai", "--all", "--parseable"],
-    { cwd: V2_DIR, encoding: "utf8" },
+    { cwd: path.join(ROOT, "ops"), encoding: "utf8" },
   ).trim();
   const paths = out.split("\n").map((l) => l.trim()).filter(Boolean);
   assert.ok(paths.length >= 1, `npm ls 无输出:${out}`);
   assert.equal(new Set(paths).size, 1, `pi-ai 多物理实例:${paths.join(" | ")}`);
   assert.match(paths[0], /node_modules[/]@earendil-works[/]pi-ai$/);
-  const v2Version = JSON.parse(fs.readFileSync(path.join(paths[0], "package.json"), "utf8")).version;
-  assert.equal(v2Version, "1.4.0");
-  // 跨目录:models.mjs 只读 import 自 ops/agent,其 pi-ai 解析自 ops/pipeline-core/node_modules,
-  // 两份物理拷贝必须同版(否则两套凭证店/目录互不相识,api-map §0)。
-  const agentPkg = path.join(ROOT, "ops", "pipeline-core", "node_modules", "@earendil-works", "pi-ai", "package.json");
-  assert.ok(fs.existsSync(agentPkg), `ops/agent 未 npm ci(缺 ${agentPkg})`);
-  assert.equal(JSON.parse(fs.readFileSync(agentPkg, "utf8")).version, v2Version, "ops/agent pi-ai 版本漂移");
+  assert.equal(JSON.parse(fs.readFileSync(path.join(paths[0], "package.json"), "utf8")).version, "1.4.0");
+  // 子树不得再自带 node_modules(单包纪律;防止旧两包布局回潮)
+  for (const sub of ["pipeline-core", "agent-v2"]) {
+    const subNm = path.join(ROOT, "ops", sub, "node_modules");
+    assert.ok(!fs.existsSync(subNm), `ops/${sub}/node_modules 回潮(单包 #412):${subNm}`);
+  }
 });
 
 test("db 落位:OPS_V2_DB > DOCS_ROOT/ops/agent-v2.sqlite > <仓根>/docs/ops/agent-v2.sqlite(t1-notes 建议3)", () => {

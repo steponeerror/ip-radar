@@ -2,9 +2,10 @@
 # worktree-prep.sh — 给特性分支 worktree 补齐 gitignored 运行件(2026-11-15 retro 立)
 # 用法: scripts/worktree-prep.sh [--overwrite] <worktree-dir>
 # 背景:托管/手工 worktree 不带主检出的 untracked 运行件;漏拷会造成大片假红:
-#   - ops/pipeline-core/node_modules 缺 → e2e spawn agent 崩、v2 测试引 v1 模块崩(2026-11-15 两踩)
-#   - ops/agent-v2/node_modules 缺 → v2 套件自身崩
+#   - ops/node_modules 缺 → e2e spawn agent 崩、v2 测试/管线全崩(2026-11-15 两踩
+#     = 双 node_modules 时代旧坑;#412 起单包单根,只剩一处要拷)
 #   - frontend/node_modules 缺 → vitest/tsc 跑不了(#420 起纳入拷贝家族)
+>>>>>>> 1b9a0004 (refactor(#412) C2: 两包合并为 ops/ 单包——一份 package.json/lock/node_modules)
 # backend/.venv 不拷(几 GB,拷不起);跑后端测试用主检出解释器+cwd 切 worktree backend/
 # (见 AGENTS.md worktree 规则)。本脚本幂等:已存在则跳过。
 # --overwrite(2026-11-17 #356 delta P2-③):已在件先删再拷=用主检出副本覆写。防候选
@@ -36,7 +37,7 @@ done
 
 [ -d "$wt" ] || { echo "worktree 目录不存在: $wt" >&2; exit 2; }
 
-for rel in ops/pipeline-core/node_modules ops/agent-v2/node_modules frontend/node_modules; do  # rebase 解:#420 的 frontend 面 + #412 C1 的改名并存,C2 再收单包
+for rel in ops/node_modules frontend/node_modules; do  # #412 单包 + #420 frontend 面(rebase 合并解)
   src="$main_root/$rel"
   dst="$wt/$rel"
   if [ ! -d "$src" ]; then

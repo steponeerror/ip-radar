@@ -1,0 +1,21 @@
+{
+  "name": "ip-radar-ops",
+  "private": true,
+  "type": "module",
+  "description": "IP Radar 运营管线单包(#412,ADR 0012 切流收尾):pipeline-core=共享管线引擎/工具面/金轨迹/自测伞(v1 引擎+discover 宿主),agent-v2=Pi Durable 宿主——一个 package.json、一份 node_modules(v2 子树不再自带 node_modules,依赖全部自本层解析)。前身 ops/agent(ip-radar-ops-agent)+ ops/agent-v2(ip-radar-ops-agent-v2)两包合并;版本钉死策略=全部 exact(undici 7.30.1/typebox 1.4.2 为旧 v1 lock 实装版,2026-11-22 实测重生成解析会漂到 7.30.2/1.4.7,合并时锁实装版防静默漂移;pi 族锁版纪律承 ADR 0012 定案 6:pi-ai 与 pi-durable 完全同版 1.4.0;pi-agent-core 由 ^1.3.0 收紧为 1.4.0=合并时 lock 实装版)。",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "test": "node --test agent-v2/tests/*.test.mjs"
+  },
+  "dependencies": {
+    "@earendil-works/chord": "1.4.0",
+    "@earendil-works/pi-agent-core": "1.4.0",
+    "@earendil-works/pi-ai": "1.4.0",
+    "@earendil-works/pi-durable": "1.4.0",
+    "pi-web-access": "0.44.0",
+    "typebox": "1.4.2",
+    "undici": "7.30.1"
+  }
+}

@@ -39,11 +39,12 @@ jobs:
       # node+npm 供给(本 job 已具备)+rg(ubuntu runner 预装,兜底 apt 装)。真模型 smoke 层
       # 单列不进 CI(计划书 Task 6 Step 2)。沙箱断言面对 checkout 干净仓(同 仓内 step 均落 ignore 面)。
       - name: Ops agent golden set (faux, no API spend)
-        working-directory: ops/pipeline-core
+        # #412 单包:依赖在 ops/ 包根一份 node_modules(旧 ops/pipeline-core 局部 npm ci 退役)
+        working-directory: ops
         run: |
           command -v rg >/dev/null 2>&1 || sudo apt-get install -y -q ripgrep
           npm ci --no-fund --no-audit
-          node golden/run-golden.mjs
+          node pipeline-core/golden/run-golden.mjs
       # T2(2026-10-20): selftest 伞面入闸(架构审查 R3 候选 2)——lib.sh 四函数/语义门
       # 24+ 例单测/prompt↔工具面同步闸/spawn 契约三层,此前全靠手跑。供给已就绪:
       # node+node_modules(golden 步 npm ci 沉淀)/rg(上步守卫)/python3+curl+git
@@ -52,8 +53,8 @@ jobs:
       # (test_precedent_schema.py 同型)。§10 会再跑一遍 golden(faux,秒级)——
       # 接受重复,不加条件分支:伞面绿=全部绿。
       - name: Ops agent selftest (lib.sh + gate units + contract)
-        working-directory: ops/pipeline-core
-        run: bash selftest.sh
+        working-directory: ops
+        run: bash pipeline-core/selftest.sh
       # 说人话闸单测(pi 扩展 plain-language-gate 的纯扫描函数):词表语义与
       # ~/.pi/agent/scripts/check_plain_language.py 逐条对齐,防两侧漂移
       # (2026-11-03 黑话复发诊断的机制腿)。node ≥22.18 默认剥类型。

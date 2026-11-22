@@ -14,22 +14,14 @@ RUN npm run build
 # musl 移植问题。engines node>=22.19(ops/pipeline-core/package.json):node:22 浮动 tag
 # 自 2025-10 起恒 ≥22.19 且持续吃补丁;下方显式断言钉下界,基镜像漂移到 <22.19
 # 构建即红(不靠 npm engines 软警告)。
+# #412(ADR 0012 切流收尾)单包层:ops/agent + ops/agent-v2 两包合并为 ops/ 单包,
+# 一份 package.json/lock/node_modules(pipeline-core=共享管线引擎+legacy 宿主,
+# agent-v2=Pi Durable 宿主);旧双依赖层(opsagent/opsagent-v2 双 node_modules 拷贝)退役。
 FROM node:22-bookworm-slim AS opsagent
 WORKDIR /opsagent
 ARG NPM_REGISTRY=""
-COPY ops/pipeline-core/package.json ops/pipeline-core/package-lock.json ./
-RUN node -e 'const [maj,min]=process.versions.node.split(".").map(Number);if(maj!==22||min<19){console.error("node >=22.19 required (ops/pipeline-core/engines), got "+process.versions.node);process.exit(1)}' \
-    && npm ci ${NPM_REGISTRY:+--registry $NPM_REGISTRY}
-
-# ── shadow 期(2026-10-28,SHADOW-RUNBOOK):ops/agent-v2(Pi Durable)依赖层 ──
-# 同 opsagent 同旨同基镜像(pi-durable@1.4.0 三包 exact;同 node>=22.19 断言)。
-# v2 models.mjs 零复制 re-export 旧管线,pi-ai 实装仍从 ops/pipeline-core/node_modules
-# 解析(scaffold 测断言两处同版);本层只供 v2 自有依赖(pi-durable/chord)。
-FROM node:22-bookworm-slim AS opsagent-v2
-WORKDIR /opsagent-v2
-ARG NPM_REGISTRY=""
-COPY ops/agent-v2/package.json ops/agent-v2/package-lock.json ./
-RUN node -e 'const [maj,min]=process.versions.node.split(".").map(Number);if(maj!==22||min<19){console.error("node >=22.19 required (ops/agent-v2), got "+process.versions.node);process.exit(1)}' \
+COPY ops/package.json ops/package-lock.json ./
+RUN node -e 'const [maj,min]=process.versions.node.split(".").map(Number);if(maj!==22||min<19){console.error("node >=22.19 required (ops/engines), got "+process.versions.node);process.exit(1)}' \
     && npm ci ${NPM_REGISTRY:+--registry $NPM_REGISTRY}
 
 FROM python:3.12-slim
@@ -62,14 +54,13 @@ COPY backend/requirements.txt ./backend/requirements.txt
 RUN pip install --no-cache-dir -r backend/requirements.txt ${PIP_INDEX_URL:+-i $PIP_INDEX_URL}
 COPY backend/ ./backend/
 # P5:运营 agent 源树 + 生产依赖(pi-agent-core/pi-ai/typebox/undici + pi-web-access
-# 0.44.0 树,lockfile 实测 326 包全 JS 无 native 二进制;包数变更大,改锁文件时同步本注
+# 0.44.0 树,#412 单包 lockfile 实测 309 包全 JS 无 native 二进制;包数变更大,改锁文件时同步本注
 # ——审后修 P2 2026-10-24:旧注「89 包」已陈旧)。node_modules 不进构建上下文
 # (.dockerignore 排除,本地也无需装),
 # 由 opsagent 层 npm ci 注入;node 二进制经 PATH 供 P2 桥 spawn(node --max-old-
 # space-size=256 ops/pipeline-core/agent.mjs,cwd=/app)。
 COPY ops/ ./ops/
-COPY --from=opsagent /opsagent/node_modules ./ops/pipeline-core/node_modules
-COPY --from=opsagent-v2 /opsagent-v2/node_modules ./ops/agent-v2/node_modules
+COPY --from=opsagent /opsagent/node_modules ./ops/node_modules
 COPY --from=opsagent /usr/local/bin/node /usr/local/bin/node
 COPY .gitignore ./.gitignore
 # 版本自描述:构建上下文含 .git(.dockerignore 已放行)
@@ -92,8 +83,8 @@ RUN rm -rf /app/.git && git init -q -b main \
 COPY --from=frontend /build/dist ./frontend/dist
 COPY docker/entrypoint.sh /entrypoint.sh
 # P5 验收锚:node(桥 spawn 面)/rg(检索面)在此层真跑一次,缺库缺二进制构建即红;
-# PR #177 增 gh(gh_search 面;同旨)。v2 依赖冒烟:registry.mjs 全链(93 包纯 JS
-# + node:sqlite 内建面,opsagent-v2/opsagent 双 node_modules 合解析)在此层真载入
+# PR #177 增 gh(gh_search 面;同旨)。v2 依赖冒烟:registry.mjs 全链(单包
+# node:sqlite 内建面,node_modules 单根 ops/)在此层真载入
 # 一次——加载期即验依赖树完整与 node 版本面,registry 只定义不实例化,零 DB/网络副作用。
 RUN chmod +x /entrypoint.sh \
     && node --version \

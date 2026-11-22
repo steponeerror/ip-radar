@@ -251,15 +251,16 @@ def _guardrails(root: Path, runs_dir: Path, log_dir: Path) -> dict:
     out = {}
     _ensure_backend_link(root)
     # node_modules 幂等装配(候选 worktree 无 untracked;判改动可装=候选自身能力)
-    for d in (agent, agent_v2):
-        if not (d / "node_modules").is_dir():
-            _run(["npm", "ci", "--no-fund", "--no-audit"], cwd=d,
-                 log=log_dir / "npm-ci.log", timeout=900)
+    # #412 单包:package.json/lock 在 ops/ 包根,npm ci 一处(v1/v2 子树共享同根)
+    pkg = h / "ops"
+    if not (pkg / "node_modules").is_dir():
+        _run(["npm", "ci", "--no-fund", "--no-audit"], cwd=pkg,
+             log=log_dir / "npm-ci.log", timeout=900)
     # ① golden:ops/pipeline-core/golden/run-golden.mjs(faux 层零花费,真 agent 回路对拍)
     _run(["node", "golden/run-golden.mjs"], cwd=agent, log=log_dir / "golden.log")
     out["golden"] = True
     # ② v2 全套:npm test(基线 97 面 + 劈分/域结构不变式)
-    _run(["npm", "test"], cwd=agent_v2, log=log_dir / "v2-test.log")
+    _run(["npm", "test"], cwd=h / "ops", log=log_dir / "v2-test.log")  # #412 单包:npm test 自 ops/ 包根跑
     out["v2_test"] = True
     # NEEDS.md 冻结门:考题宇宙输入面(bench SCAN 真面读它;真台账本就合法提及已交付
     # 源名,故不用 leak 针扫原文,而用 git diff 对 incumbent 冻结——候选增改一行即红)
@@ -364,10 +365,11 @@ class IpRadarDomain(Domain):
         # 环境先于首轮:backend 探针链接 + node_modules 幂等装配(baseline 的 wt/incumbent
         # 是新 worktree,不预先装配首轮就 ERR_MODULE_NOT_FOUND——#322 首跑踩坑二补入)
         _ensure_backend_link(root)
-        for _d in (harness / "ops" / "pipeline-core", harness / "ops" / "agent-v2"):
-            if not (_d / "node_modules").is_dir():
-                _run(["npm", "ci", "--no-fund", "--no-audit"], cwd=_d,
-                     log=log_dir / "npm-ci.log", timeout=900)
+        # #412 单包:ops/ 包根一处 npm ci(v1/v2 子树共享同根)
+        _pkg = harness / "ops"
+        if not (_pkg / "node_modules").is_dir():
+            _run(["npm", "ci", "--no-fund", "--no-audit"], cwd=_pkg,
+                 log=log_dir / "npm-ci.log", timeout=900)
         sha = _harness_tree_id(root)
         bench_root = Path(runs_dir) / "bench" / f"{job}-{sha}"
         # jobmap 先写后跑:score/load_trial 经 _bench_root_for 找根;轮中崩溃也留指路。

@@ -3,8 +3,8 @@
 // discover_midround_search_citation/neg1-3/boundary×2)驱动的是 legacy agent.mjs runRound
 // 回路(ToolHost+写前语义门+收口四件)——spec T3 明示该面不迁 v2(tools/discovery-tools.mjs
 // 头注:fetch_url/gh_search 留 legacy 面),故本文件不是管线对拍,而是「v2 依赖世界
-// (pi-durable@1.4.0 + ops/agent 双 node_modules 共存,scaffold 单实例钉)不破坏 legacy
-// 判断器面」的回归钉:在 v2 测试套内子进程起 ops/pipeline-core/golden/run-golden.mjs(ops/agent
+// (pi-durable@1.4.0 与 legacy 引擎共包 ops/node_modules,scaffold 单实例钉)不破坏 legacy
+// 判断器面」的回归钉:在 v2 测试套内子进程起 ops/pipeline-core/golden/run-golden.mjs(#412 单包后
 // 零改动),faux 层全 10 例(8 判断器 + 2 管线,= runner 缺省层)须 GOLDENPASS 全绿。
 // 切流删旧时本钉随 legacy 面退役(SHADOW-RUNBOOK §SAME 门槛行同口径)。
 import test from "node:test";

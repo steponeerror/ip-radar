@@ -389,11 +389,12 @@ if command -v node >/dev/null 2>&1; then
 else
   bad "t4:node 不可用(宿主运行前置)"
 fi
-[[ -f "$AGENT/package.json" ]] && grep -q 'pi-agent-core' "$AGENT/package.json" \
+PKG="$(cd "$AGENT/.." && pwd)" # #412 单包:package.json+node_modules 上提到 ops/ 包根,pipeline-core=子树
+[[ -f "$PKG/package.json" ]] && grep -q 'pi-agent-core' "$PKG/package.json" \
   && ok "t4:package.json 声明 pi-agent-core 依赖" || bad "t4:package.json 声明 pi-agent-core 依赖"
-[[ -d "$AGENT/node_modules/@earendil-works/pi-agent-core" ]] \
+[[ -d "$PKG/node_modules/@earendil-works/pi-agent-core" ]] \
   && ok "t4:npm install 已落位" || bad "t4:npm install 已落位"
-git -C "$ROOT" check-ignore -q "$AGENT/node_modules" \
+git -C "$ROOT" check-ignore -q "$PKG/node_modules" \
   && ok "t4:node_modules 已入 .gitignore" || bad "t4:node_modules 已入 .gitignore"
 toolsSyntax=0
 for f in "$AGENT/agent.mjs" "$AGENT/tools.mjs" "$AGENT"/tools/*.mjs "$AGENT/models.mjs"; do
@@ -423,7 +424,7 @@ grep -q 'health_snapshot' "$AGENT/prompts/health-system.md" && grep -q '失败�
 # ---- 10. T6: 标准答案集(faux provider 跑真回路:Agent 循环+语义门+收口四件;不花 API) ----
 # 真模型用例=smoke 层单列,仅 --smoke 手跑,本钩子永不触发(计划书 Task 6 Step 2)。
 # 供给检查:node+依赖缺供则显式 SKIP 计 PASS(Info-3,T3 与 T2 守卫统一计数形;CI 侧由 npm ci 保证供给)。
-if command -v node >/dev/null 2>&1 && [[ -d "$AGENT/node_modules/@earendil-works/pi-agent-core" ]] \
+if command -v node >/dev/null 2>&1 && [[ -d "$PKG/node_modules/@earendil-works/pi-agent-core" ]] \
    && command -v rg >/dev/null 2>&1 && command -v git >/dev/null 2>&1; then
   GOLDOUT="$(node "$AGENT/golden/run-golden.mjs" 2>&1)"; GOLDRC=$?
   GP_N="$(grep -c '^GOLDENPASS ' <<<"$GOLDOUT" || true)"
@@ -463,7 +464,7 @@ else
 fi
 
 # ---- 11. Task 1: spawn 契约(表对拍/in-process faux main/真 spawn 冒烟;零 API) ----
-if command -v node >/dev/null 2>&1 && [[ -d "$AGENT/node_modules/@earendil-works/pi-agent-core" ]] \
+if command -v node >/dev/null 2>&1 && [[ -d "$PKG/node_modules/@earendil-works/pi-agent-core" ]] \
    && command -v rg >/dev/null 2>&1 && command -v git >/dev/null 2>&1; then
   CTOUT="$(node "$AGENT/selftest-contract.mjs" 2>&1)"; CTRC=$?
   CTPASS_N="$(grep -c '^CONTRACTPASS ' <<<"$CTOUT" || true)"
@@ -489,7 +490,7 @@ else
   skipok "contract:spawn 契约三层测试" "供给缺(node/node_modules/rg/git)——CI 由 npm ci 保证"
 fi
 
-if command -v node >/dev/null 2>&1 && [[ -d "$AGENT/node_modules/@earendil-works/pi-agent-core" ]] \
+if command -v node >/dev/null 2>&1 && [[ -d "$PKG/node_modules/@earendil-works/pi-agent-core" ]] \
    && [[ -f "$AGENT/pipeline.mjs" ]]; then
   PTOUT="$(node "$AGENT/selftest-pipeline.mjs" 2>&1)"; PTRC=$?
   PTPASS_N="$(grep -c '^PIPEPASS ' <<<"$PTOUT" || true)"
