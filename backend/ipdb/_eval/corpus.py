@@ -141,7 +141,9 @@ def build_benchmark(sources, per_type_n: int,
             # 时是真值语料组件,入语料=同源双用自证;与下方 scanner_ranges
             # 剔除同哲学的装配侧闸,保护库式调用方)
             continue
-        if getattr(s, "name", None) == "scanner_ranges":
+        if getattr(s, "self_declared_ranges", False):
+            # 自报段源按声明识别(#409:scanner_ranges 声明 self_declared_ranges,
+            # 此前按源名字符串匹配;同型新源声明即入,本文件不改):
             # 排除前缀只从在场 CSV 载入(缺文件=无排除=现状; D1 loader 的
             # raise 语义属 truth 装配侧, 这里 is_file 前置走 noop 分支)
             path = getattr(s, "_path", None)

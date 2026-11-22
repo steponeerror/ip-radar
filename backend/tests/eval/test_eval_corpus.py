@@ -101,6 +101,7 @@ def test_build_benchmark_excludes_selfdeclared_members_all_strata(tmp_path):
     sr_csv = tmp_path / "scanner_ranges.csv"
     sr_csv.write_text("40.124.175.0/24,Stretchoid\n203.0.113.0/24,Xpanse\n")
     sr = _FakeSource("scanner_ranges", sr_csv, classification_type="scanner")
+    sr.self_declared_ranges = True    # 声明面(#409):装配侧按声明识别自报段源
     sw_raw = tmp_path / "sw.txt"
     sw_raw.write_text("40.124.175.29\n203.0.113.5\n198.51.100.7\n192.0.2.9\n")
     sw = _FakeSource("sw_scanners", sw_raw, classification_type="scanner")
@@ -134,6 +135,7 @@ def test_build_benchmark_scanner_ranges_missing_csv_noop(tmp_path):
     # 不走 D1 的 raise 语义 —— loader 的 raise 是 truth 装配侧契约)
     sr = _FakeSource("scanner_ranges", tmp_path / "nope.csv",
                      classification_type="scanner")
+    sr.self_declared_ranges = True    # 声明面(#409):同上
     raw = tmp_path / "sw.txt"
     raw.write_text("40.124.175.29\n198.51.100.7\n")
     sw = _FakeSource("sw", raw, classification_type="scanner")

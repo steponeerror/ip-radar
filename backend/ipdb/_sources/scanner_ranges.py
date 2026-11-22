@@ -137,6 +137,11 @@ class ScannerRangesSource(Source):
     reliability = 0.90                  # 自报段官方声明 × 一跳镜像折档(spec 定案)
     provenance_tier = "B"               # MISP 一跳镜像主导(threat 类必声明,test_eval_source_meta)
     authoritative_for = ()              # corroboration only (SM-F1, sw_scanners 同款)
+    # 装配侧声明(ADR 0011,#409 声明面化):本源成员=厂商自报的段
+    # 本身,非指控观测——eval 装配侧(_eval/corpus.py build_benchmark)
+    # 按本声明识别自报段源:不入采样宇宙 + 载入段前缀供分层剔除。
+    # 同型新源声明此 flag 即入同车道,无需改 corpus.py。
+    self_declared_ranges = True
 
     def download(self, token=None) -> None:
         self._data_dir.mkdir(parents=True, exist_ok=True)
