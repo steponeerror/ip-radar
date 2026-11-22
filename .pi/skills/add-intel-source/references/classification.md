@@ -73,6 +73,13 @@ lanes, and a test trips if a module-level dict reappears there). Naming
 convention:
 `<FEEDNAME>_MAP` (uppercase).
 
+**Register the new map in the snapshot pin** (one line): add `"<FEEDNAME>_MAP":
+"ipdb._sources.<module>"` to `DECLARED_MAP_HOMES` in
+`backend/tests/core/test_source_declared_maps.py`, then regenerate the
+snapshot per the regeneration guide in that file's tail block — this wires the
+new map into the byte-equivalence snapshot + vocab gate (unregistered maps
+get neither, silently — the registration is what arms the pins).
+
 **Two different `normalize`s — don't confuse them.** `_classification.normalize(raw_type, MAP)`
 (this module) maps a native category → controlled-vocab term at parse time — this is what
 sources call inside `harvest()` / `parse_row()`. Separately, the `Source` base (`_source_base.py`)

@@ -75,15 +75,16 @@ def test_declared_maps_match_pre_move_snapshot():
     """映射内容与搬移前逐字节一致(快照 = 搬移前从 _classification 生成)。
 
     掉键/改值/落点错 ImportError 都当场红;新源登记新映射时同步再生成
-    快照(python -c 见断言消息内的生成说明)并连同落点表一起提交。
+    快照(python -c 见文件尾「快照再生指南」块)并连同落点表一起提交。
     """
     fixture = json.loads(
         (Path(__file__).parent / "source_declared_maps.snapshot.json")
         .read_text(encoding="utf-8"))
     homes = _declared_maps()
     assert homes == fixture, (
-        "逐源映射与搬移前快照不一致——若为有意变更,须在票内说明并用"
-        " ipdb._classification 旧表的搬移前生成法重新生成快照")
+        "逐源映射与快照不一致——若为有意变更,须在票内逐表说明变更键"
+        "与裁决依据,再按本文件尾「快照再生指南」从当前源 module 逐表"
+        "重新生成(勿手改 json)")
 
 
 def test_declared_maps_values_inside_vocab():
@@ -130,5 +131,5 @@ def test_new_source_onboards_via_declaration_only():
 #     from tests.core.test_source_declared_maps import DECLARED_MAP_HOMES
 #     tables = {n: dict(vars(importlib.import_module(m))[n]) for n, m in DECLARED_MAP_HOMES.items()}
 #     open('tests/core/source_declared_maps.snapshot.json', 'w').write(
-#         json.dumps({'tables': tables}, ensure_ascii=False, indent=1, sort_keys=True))"
+#         json.dumps(tables, ensure_ascii=False, indent=1, sort_keys=True) + '\n')"
 # 再生后 PR 描述必须逐表列出变更键与本票裁决依据——字节级一致律不因再生而豁免。

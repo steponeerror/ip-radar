@@ -3,7 +3,7 @@
 Governance: add new classification.type values to CLASSIFICATION_TYPES with a
 short comment. Per-source `{native: intelmq}` maps live in their own source
 module (backend/ipdb/_sources/<source>.py, since #409 2026-11-22 架构评审④)
-—— 加源/改源不再触碰本文件;本模块只保留共享词表与归一/计数机械
+—— 加源/改源的**逐源映射面**不再触碰本文件(新 classification.type 词表注册仍在此);本模块只保留共享词表与归一/计数机械
 (normalize / normalize_counted / unmapped_summary)。No separate
 YAML/versioning process (YAGNI for this tool's scale).
 
