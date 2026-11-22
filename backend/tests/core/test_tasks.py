@@ -715,3 +715,79 @@ def test_cancel_during_loading_takes_effect_after_rebuild():
     src.release.set()
     snap = _wait_states(mgr, lambda s: s["tasks"][0]["state"] in ("done", "cancelled", "failed"))
     assert snap["tasks"][0]["state"] == "cancelled"
+
+
+# --- #411 转移事件面:wait_for_state / wait_snapshot(事件驱动等待)---
+
+def test_wait_for_state_immediate_on_reached_state():
+    """已到位相位零等待返回(不依赖任何窗口)。"""
+    mgr, _ = _make_manager([])
+    t = Task(id="x", source_name="a", host=None, state="done")
+    mgr._tasks[t.id] = t
+    assert mgr.wait_for_state(t.id, ("done", "failed")) == "done"
+
+
+def test_wait_for_state_wakes_on_real_transition():
+    """挂起任务真转移即时唤醒:下载相位钉住→放行→终态,两次等待都不靠
+    固定 sleep 窗口(#411 消 bare sleep 等待的根据)。"""
+    release = threading.Event()
+    src = FakeSource("a")
+    src.download = lambda token=None: release.wait(10)
+    mgr, _ = _make_manager([src])
+    t = mgr.enqueue_one("a")
+    assert mgr.wait_for_state(t.id, ("downloading",), timeout=5) == "downloading"
+    release.set()
+    assert mgr.wait_for_state(t.id, ("done",), timeout=5) == "done"
+
+
+def test_wait_for_state_timeout_returns_current_state():
+    """超时不抛不挂:返回当下相位,断言可直读实际值(而非空泛超时错)。"""
+    release = threading.Event()
+    src = FakeSource("a")
+    src.download = lambda token=None: release.wait(10)
+    mgr, _ = _make_manager([src])
+    t = mgr.enqueue_one("a")
+    assert mgr.wait_for_state(t.id, ("downloading",), timeout=5) == "downloading"
+    assert mgr.wait_for_state(t.id, ("done",), timeout=0.3) == "downloading"
+    release.set()
+
+
+def test_wait_for_state_unknown_task_returns_none():
+    mgr, _ = _make_manager([])
+    assert mgr.wait_for_state("does-not-exist", ("done",), timeout=0.1) is None
+
+
+def test_wait_for_state_blocks_until_transition():
+    """真阻塞语义:转移发生前等待者不返回;转移即醒。等待者进入等待面用
+    Event 钉住(排除线程启动慢的假阴性),阻塞观察窗 join(0.2) 是负不变式
+    观察面(等待者可运行即证明等待面没阻塞 = 被测 bug),非同步 sleep。"""
+    mgr, _ = _make_manager([])
+    task, _ = mgr.start_ops_round("health")
+    got = {}
+    entered = threading.Event()
+
+    def _wait():
+        entered.set()
+        got["state"] = mgr.wait_for_state(task.id, ("done",), timeout=10)
+
+    waiter = threading.Thread(target=_wait)
+    waiter.start()
+    assert entered.wait(timeout=5)
+    waiter.join(timeout=0.2)
+    assert waiter.is_alive(), "转移未发生,等待者必须仍阻塞(而非提前返回)"
+    mgr.finish_ops_round(task.id, "done")
+    waiter.join(timeout=5)
+    assert not waiter.is_alive()
+    assert got["state"] == "done"
+
+
+def test_wait_snapshot_wakes_through_terminal_bookkeeping():
+    """谓词等待面:任务终态后的批记账(_settle 的 b.done 递增与
+    _maybe_finish_batch 清槽)也唤醒——「batch 释放」断言不再靠时序侥幸
+    (#378 时代 test_finished_batch… 靠快照轮询兜的窗口)。"""
+    srcs = [FakeSource("a", host="h1"), FakeSource("b", host="h2")]
+    mgr, _ = _make_manager(srcs)
+    mgr.enqueue_batch(["a", "b"])
+    snap = mgr.wait_snapshot(lambda s: s["batch"] is None, timeout=10)
+    assert snap["batch"] is None
+    assert mgr._active_batch is None
