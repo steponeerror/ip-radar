@@ -173,6 +173,15 @@ test("健康轮链路 E2E:TRIAGE→WAIT_MODEL(join)→DEEP(evidence)→SYNTH→�
       assert.match(rep, /## 信封/);
       const fenced = rep.split("```json\n")[1]?.split("\n```")[0];
       assert.equal(JSON.parse(fenced).pipeline.round_id, roundId, "信封 fenced JSON 可解析且 round_id 对上");
+      // #408:CLOSE 终态回写——健康轮 v2 此前无 state.json(state 面=checkpoint,RUNBOOK 已知
+      // 差异);现在 CLOSE 与报告件同点落终态镜像。终态词沿用 v1 status 流(done+stage 书挡
+      // CLOSE;v1 selftest「state.json 终态 done/CLOSE」同断言面),B 票(#407 UI 徽章)读面即此字段。
+      const mirror = jsonOf(path.join(w.roundDir, "state.json"));
+      assert.equal(mirror.status, "done", "#408:CLOSE 后 state.json 终态 done");
+      assert.equal(mirror.stage, "CLOSE", "#408:终态 stage 书挡 CLOSE(v1 finishClose 同对)");
+      assert.equal(mirror.round_id, roundId);
+      assert.equal(mirror.pipeline_mode, "pidurable");
+      assert.deepEqual(mirror.stages.map((s) => s.name), stageNames, "#408:镜像 stages 全相位含 CLOSE");
     } finally { await harness.close(context); }
   } finally {
     await storage.close(context);
