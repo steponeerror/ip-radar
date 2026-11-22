@@ -101,6 +101,7 @@ def test_build_benchmark_excludes_selfdeclared_members_all_strata(tmp_path):
     sr_csv = tmp_path / "scanner_ranges.csv"
     sr_csv.write_text("40.124.175.0/24,Stretchoid\n203.0.113.0/24,Xpanse\n")
     sr = _FakeSource("scanner_ranges", sr_csv, classification_type="scanner")
+    sr.self_declared_ranges = True    # 声明面(#409):装配侧按声明识别自报段源
     sw_raw = tmp_path / "sw.txt"
     sw_raw.write_text("40.124.175.29\n203.0.113.5\n198.51.100.7\n192.0.2.9\n")
     sw = _FakeSource("sw_scanners", sw_raw, classification_type="scanner")
@@ -134,11 +135,31 @@ def test_build_benchmark_scanner_ranges_missing_csv_noop(tmp_path):
     # 不走 D1 的 raise 语义 —— loader 的 raise 是 truth 装配侧契约)
     sr = _FakeSource("scanner_ranges", tmp_path / "nope.csv",
                      classification_type="scanner")
+    sr.self_declared_ranges = True    # 声明面(#409):同上
     raw = tmp_path / "sw.txt"
     raw.write_text("40.124.175.29\n198.51.100.7\n")
     sw = _FakeSource("sw", raw, classification_type="scanner")
     bench = build_benchmark([sr, sw], per_type_n=10, rng=random.Random(0))
     assert set(bench.benchmark["scanner"]) == {"40.124.175.29", "198.51.100.7"}
+
+
+def test_build_benchmark_two_selfdeclared_sources_accumulate(tmp_path):
+    # 评审 P2-2 钉:N≥2 自报段源时前缀累加不重绑(重绑=后来者静默顶掉
+    # 先者→先者段内 IP 回流入语料,自回声污染,ADR 0011);scanner_ranges
+    # :138 「同型新源声明即入同车道,无需改 corpus.py」的兑现证据
+    csv_a = tmp_path / "ranges_a.csv"
+    csv_a.write_text("40.124.175.0/24,A\n")
+    a = _FakeSource("selfdecl_a", csv_a, classification_type="scanner")
+    a.self_declared_ranges = True
+    csv_b = tmp_path / "ranges_b.csv"
+    csv_b.write_text("203.0.113.0/24,B\n")
+    b = _FakeSource("selfdecl_b", csv_b, classification_type="scanner")
+    b.self_declared_ranges = True
+    raw = tmp_path / "sw.txt"
+    raw.write_text("40.124.175.29\n203.0.113.5\n198.51.100.7\n")
+    sw = _FakeSource("sw", raw, classification_type="scanner")
+    bench = build_benchmark([a, b, sw], per_type_n=10, rng=random.Random(0))
+    assert set(bench.benchmark["scanner"]) == {"198.51.100.7"}
 
 
 def test_run_for_source_records_run_seed(tmp_path):

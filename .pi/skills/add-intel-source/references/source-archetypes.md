@@ -111,5 +111,5 @@ LMDB sidecar 两形态：epoch 目录 rmtree、ptr/count/cov 文件 unlink）。
 规则（`_validate.validate_source` 载入时校验，warn-only）：目标必须在
 `ALL_KNOWN` 内或以 `extra` 开头；多列同槽记碰撞。
 **`field_map` ≠ `_MAP`：** 前者路由"列 → Evidence 槽"（类属性），后者
-映射"原生类别 → 受控词表项"（`_classification.py` 里的 dict）。见
+映射"原生类别 → 受控词表项"（声明在各自源 module 里的 dict，#409）。见
 `classification.md`。

@@ -36,10 +36,36 @@ import logging
 
 from .._source_base import Source
 from .._evidence import Evidence
-from .._classification import normalize, DATAPLANE_MAP
+from .._classification import normalize
 from ._download import atomic_write_bytes
 
 logger = logging.getLogger(__name__)
+
+
+# dataplane.org signal → IntelMQ. sshpwauth/telnetlogin are credential
+# brute-force against the sensor; dnsrd = source IPs sending recursive DNS
+# queries (probing), not open resolvers — scanner, not misconfiguration.
+DATAPLANE_MAP = {
+    "sshpwauth": "brute-force",
+    "telnetlogin": "brute-force",
+    "dnsrd": "scanner",
+    "sipquery": "brute-force",          # SIP 探测(telnetlogin 先例)
+    "sipregistration": "brute-force",   # SIP 注册尝试
+    "smtpgreet": "scanner",             # SMTP 问候连接(dnsrd 先例)
+    "smtpdata": "spam",                 # DATA = 实际投递报文体(非 EXPN/RCPT
+                                        # 探测)。与 IntelMQ 官方 parser 的
+                                        # scanner 是有意分歧:文件头实测
+                                        # "SMTP clients sending DATA commands",
+                                        # 垃圾邮件大炮特征,RSIT spam 定义
+                                        # (spam infrastructure)更贴合。
+    "ntpmode7": "scanner",              # 文件头实测:"source IP addresses
+                                        # ... sending NTP mode 7 requests"
+                                        # ——探测方(扫 monlist 找放大器),
+                                        # 非被探测的开放 NTP。RSIT DDoS
+                                        # Amplifier 定义对象是被探测服务,
+                                        # dataplane 不列它们(2026-09-05 修正,
+                                        # 曾误读 victim 侧归 vulnerable-system)
+}
 
 
 class DataplaneSource(Source):

@@ -14,11 +14,32 @@ from pathlib import Path
 from ._base import IpListSource
 from ._download import download_file, CancelToken, CancelledError
 from .._types import SourceHealth
-from .._classification import BLOCKLIST_DE_MAP
 
 _BASE_URL = "https://lists.blocklist.de/lists"
 
 logger = logging.getLogger(__name__)
+
+# blocklist_de 子列表文件名 -> IntelMQ（2026-08-15 已激活，键=子列表文件名）。
+# 源按文件名分发到对应 attack-type（ssh/bruteforcelogin/ftp/imap/sip/mail →
+# brute-force；mail = attacks on Mail/Postfix，攻击邮件服务的攻击者，与
+# ssh 同族，2026-09-05 修正——曾误归 spam；bots = IRC/论坛/wiki 灌水（上游
+# 原文 "spammed on IRC, open forums, wikis"），同日修正——曾误归 botnet；
+# ircbot → infected-system(P1 2026-09-05 迁自方言 botnet,IntelMQ
+# 官方即此型:IRC bot 受害主机 = 已感染 drone,非 C2);
+# apache → scanner。strongips/all 无类型信息，不进表，由源代码兜底
+# blacklist（见 Task 6 实现）。对照：IntelMQ 官方 parser 对攻击类子列表
+# 一律归 ids-alert（告警来源标签），我们按行为语义化，分歧有意为之。
+BLOCKLIST_DE_MAP = {
+    "ssh": "brute-force",
+    "bruteforcelogin": "brute-force",
+    "ftp": "brute-force",
+    "imap": "brute-force",
+    "sip": "brute-force",
+    "mail": "brute-force",
+    "bots": "spam",
+    "ircbot": "infected-system",
+    "apache": "scanner",
+}
 
 # 迭代序即 native_categories 的记录序；all.txt 放最后（优先级最低的兜底）
 _LISTS = ["mail", "ssh", "bruteforcelogin", "ftp", "imap", "sip",

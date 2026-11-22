@@ -93,7 +93,8 @@ def test_tweetfeed_classify_tag_parity_with_normalize():
     对同一输入必须产出同一分类(参照 = 改前逐 token 调 normalize 的旧
     循环;含 TWEETFEED_MAP 全键 + 空值/纯空白/大小写/前缀可映射截断
     等边角)。"""
-    from ipdb._classification import TWEETFEED_MAP, normalize
+    from ipdb._classification import normalize
+    from ipdb._sources.tweetfeed import TWEETFEED_MAP
 
     def _old_loop(raw):                      # 改前实现逐字镜像(#241 基线)
         for tag in (raw or "").split():

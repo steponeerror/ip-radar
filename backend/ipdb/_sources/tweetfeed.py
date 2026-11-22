@@ -14,10 +14,33 @@ from collections import Counter
 
 from .._source_base import Source
 from .._evidence import Evidence
-from .._classification import (
-    TWEETFEED_MAP, normalize_counted, unmapped_summary)
+from .._classification import normalize_counted, unmapped_summary
 
 logger = logging.getLogger(__name__)
+
+
+# TweetFeed (0xDanielLopez/TweetFeed) — infosec-X IOC feed. The `tag` field is a
+# space-separated hashtag list (e.g. "#C2 #CobaltStrike"); tweetfeed.harvest
+# splits it and applies the FIRST mappable hashtag. C2/RAT-infra tags collapse
+# to c2-server; malware-family tags without a vocab slot (#ransomware, #APT…)
+# fall to "other" with the raw tag preserved in extra.native_type (Convention 2).
+TWEETFEED_MAP = {
+    "#phishing": "phishing",
+    "#c2": "c2-server",
+    "#cobaltstrike": "c2-server",
+    "#remcos": "c2-server",
+    "#sliver": "c2-server",
+    "#interactsh": "c2-server",
+    "#deimos": "c2-server",
+    "#asyncrat": "c2-server",
+    "#formbook": "c2-server",
+    "#quasar": "c2-server",
+    "#malware": "malware",
+    "#botnet": "infected-system",
+    "#mirai": "infected-system",
+    "#mozi": "infected-system",
+    "#ddos": "ddos",
+}
 
 
 def _classify_tag(raw_tag: str, unknown: Counter) -> str:

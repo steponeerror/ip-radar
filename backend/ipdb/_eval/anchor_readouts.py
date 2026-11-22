@@ -44,7 +44,7 @@ from .._types import _ACCUSING
 CP_LEVEL = 0.95                      # 精确界置信水平(统计约定,非门阈值)
 SCANNER_PROBE_N = 300                # 段成员采样容量帽(exclusive.SAMPLE_N 同量级,lookup ~ms)
 SCANNER_PROBE_SEED_NAME = "scanner_ranges"   # per-source stable_seed(probe_ips 同纪律)
-LEAVE_OUT = "scanner_ranges"         # 自报段源名唯一串(corpus.py:117 判例同款)
+LEAVE_OUT = "scanner_ranges"         # 自报段源名唯一串(corpus 同源同哲学判例;#409 后 corpus 侧改读 self_declared_ranges 声明识别,本表仍按名 leave-out,语义不变)
 
 _CAUSE_TAXONOMY = ["真误列", "伪造源摄入", "消费端误读"]
 _TAXONOMY_NOTE = ("cause taxonomy (真误列/伪造源摄入/消费端误读, ADR 0013) "

@@ -39,7 +39,7 @@ import time
 
 from .._source_base import Source
 from .._evidence import Evidence
-from .._classification import normalize, OTX_SUBSCRIBED_ROLE_MAP
+from .._classification import normalize
 from ._download import CancelToken, CancelledError, atomic_write_bytes
 
 logger = logging.getLogger(__name__)
@@ -48,6 +48,13 @@ _SUBSCRIBED_URL = "https://otx.alienvault.com/api/v1/pulses/subscribed"
 _DEFAULT_BUDGET_SECONDS = 900
 _MAX_PAGES = 100
 _TIMEOUT = 90
+
+# otx_subscribed indicator 自带 role 字段(pr0viehh 蜜罐逐 IP 角色标签,
+# 2026-10-07 实测仅 bruteforce 一种取值)→ IntelMQ。未命中走 pulse 名关键词
+# 兜底链(otx_subscribed._NAME_RULES),两个都 miss → blacklist。
+OTX_SUBSCRIBED_ROLE_MAP = {
+    "bruteforce": "brute-force",
+}
 
 # pulse 名关键词 → IntelMQ 分类,首中即停(顺序=优先级)。规则来源:2026-10-07
 # 对 demo 账号 83 个订阅 pulse 名的实测分布;"(s3" 捕捉非端口型 S3# 行为

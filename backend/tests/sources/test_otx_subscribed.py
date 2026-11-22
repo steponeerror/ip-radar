@@ -5,7 +5,8 @@ demo account's subscription cart (4 authors, 83 pulses): pr0viehh's live SSH
 honeypot (role="bruteforce"), ladarrellmiller's TSEC weeklies, CyberHunter
 mirrors (Malware Filter / URLHaus / Twitter), BotnetExposer S3# scanners.
 """
-from ipdb._classification import OTX_SUBSCRIBED_ROLE_MAP, normalize
+from ipdb._classification import normalize
+from ipdb._sources.otx_subscribed import OTX_SUBSCRIBED_ROLE_MAP
 from ipdb._sources.otx_subscribed import _classify_row, OtxSubscribedSource
 
 

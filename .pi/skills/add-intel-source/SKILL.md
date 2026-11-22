@@ -20,7 +20,7 @@ contract, and the merge maps — read them alongside this skill when implementin
 - `backend/ipdb/_evidence.py` — the `Evidence` record, the tier sets (`CORE_FIELDS` / `SCALAR_SLOTS` / `RICH_SLOTS` / `ASSET_SLOTS` / `ALL_KNOWN`), and `route_record()` (the query-path router).
 - `backend/ipdb/_registry.py` — auto-discovery + the `SOURCE_CATEGORIES` dict (**derived** from each source's `category` attr at startup — don't edit it).
 - `backend/ipdb/_merge.py` — fusion + `SOURCE_RELIABILITY` / `AUTHORITATIVE_SOURCES` (**derived** from each source's `reliability` / `authoritative_for` attrs — don't edit them).
-- `backend/ipdb/_classification.py` — the controlled vocabulary + `normalize()` + per-source `_MAP`s.
+- `backend/ipdb/_classification.py` — the controlled vocabulary + the `normalize()` lanes. Per-source `_MAP`s live in their **own source modules** (declaration surface, #409 2026-11-22).
 - `backend/ipdb/_validate.py` — load-time validator (classification_type + `field_map` checks).
 
 ## The 5-minute mental model
@@ -81,7 +81,7 @@ API once) rather than guessing from docs.
 | Format: plain IP list / CSV / TSV / JSON / ZIP-wrapped / gzip / .mmdb? | Decides base class + parse hook | `parse_raw` / `parse_row` / `harvest` |
 | Auth: none, API key, or licensed? | Sources read their **own** env var in `__init__` | `__init__` + `.env` |
 | Update cadence (hourly / daily / weekly)? | Sets staleness threshold | `stale_days` |
-| What fields does a row carry? | Drives `fields`, classification map, routing | class attrs + `_classification.py` map |
+| What fields does a row carry? | Drives `fields`, classification map, routing | class attrs + in-module `_MAP` declaration |
 | How trustworthy / authoritative is this feed? | Weight in fusion | `reliability` (0–1) |
 | License / attribution / rate limit / quota? | Compliance + quota handling | source docstring + `__init__` |
 
@@ -206,9 +206,13 @@ the drift-aware diff you'll need it for).
 4. **Implement the parse hook** for your archetype (`parse_raw` / `parse_row` /
    `harvest` / `query_api`). Preserve raw native values per the three-way rule
    and normalize the classification — see `references/classification.md`.
-5. **If the feed has its own category vocabulary**, add a `{native: intelmq}`
-   map in `_classification.py` next to the existing `THREATFOX_MAP` /
-   `BLOCKLIST_DE_MAP` / `PROXY_MAP` / `URLHAUS_THREAT_MAP`.
+5. **If the feed has its own category vocabulary**, declare the `{native: intelmq}`
+   map **in your own source module**, next to your parsing code (declaration
+   surface, #409). Model it on `THREATFOX_MAP` (`_sources/threatfox.py`) /
+   `BLOCKLIST_DE_MAP` (`_sources/blocklist_de.py`) / `PROXY_MAP`
+   (`_sources/ip2proxy.py`) / `URLHAUS_THREAT_MAP` (`_sources/urlhaus.py`).
+   `_classification.py` keeps only the shared vocabulary + normalize lanes; a
+   test trips if any module-level dict reappears there.
 6. **Declare metadata in the source file itself** — the central dicts
    (`SOURCE_CATEGORIES` / `SOURCE_RELIABILITY` / `AUTHORITATIVE_SOURCES`) are now
    **derived** from source class attrs at registry load; hand edits are

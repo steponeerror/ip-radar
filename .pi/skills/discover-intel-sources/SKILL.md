@@ -16,7 +16,7 @@ companion to **add-intel-source** (which does the implementation):
 Read these once before scoring — they define the contract every dossier must satisfy:
 - `.pi/skills/add-intel-source/SKILL.md` — the Phase-1 input table this skill's dossier mirrors.
 - `backend/ipdb/_registry.py` 源 `category` attr(registry 聚合为 `SOURCE_CATEGORIES`)— the coverage axes.
-- `backend/ipdb/_classification.py` — the controlled vocabulary + per-source `_MAP`s.
+- `backend/ipdb/_classification.py` — the controlled vocabulary + `normalize()` 机制;逐源 `_MAP` 已迁回各自源 module(#409, 2026-11-22)。
 
 ## Core principle
 
@@ -87,8 +87,11 @@ demand evidence (a NEEDS row or a probe column), never schema alone:
      source's `fields` attr (a x1 field is a single point of failure; sanctioned
      example: `city` has awaited its second voting source since 2026-08-15).
      Classification slots: **map reachability**, not `fields`/`classification_type`
-     grep — per-row emission goes through the `*_MAP`s in `_classification.py`
-     (witnesses = each map's `set(values())` ∪ single-type class-attr sources).
+     grep — per-row emission goes through the per-source `*_MAP` dicts living in each
+     source module under `backend/ipdb/_sources/` since #409 (grep recipe:
+     `rg -n '_MAP\s*[:=]' backend/ipdb/_sources/`;witnesses = each map's
+     `set(values())` ∪ single-type class-attr sources;`_classification.py` itself
+     no longer holds any maps).
      2026-10-10 incident: the fields-attr grep claimed 5 dead slots & phishing=x1;
      truth was 2 dead (vulnerable-system, misconfiguration) and phishing
      4-map-reachable. Reachable ≠ dense (phishing: 4 maps yet 0/300 live-sample

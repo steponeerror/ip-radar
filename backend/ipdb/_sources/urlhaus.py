@@ -36,8 +36,7 @@ from urllib.parse import urlparse
 
 from .._source_base import Source
 from .._evidence import Evidence
-from .._classification import (
-    URLHAUS_MAP, URLHAUS_THREAT_MAP, normalize_counted, unmapped_summary)
+from .._classification import normalize_counted, unmapped_summary
 from ._download import (
     CancelToken, atomic_write_bytes, download_file, redact_url)
 
@@ -48,6 +47,26 @@ logger = logging.getLogger(__name__)
 URLHAUS_ARCH_NOISE = {
     "32-bit", "64-bit", "x86", "x64", "elf", "pe", "mips", "arm",
     "mips64", "arm64", "exe", "dll",
+}
+
+# URLhaus (abuse.ch) malware-distribution-URL feed. The `tags` column is a
+# comma-separated list mixing malware-family names with file/arch noise
+# (``32-bit,elf,mips,Mozi``). urlhaus.harvest splits on ``,`` and applies the
+# first mappable tag. Only IoT-botnet families map to ``infected-system``
+# (P1 2026-09-05 迁自方言 botnet:mirai/Mozi/hajime 的宿主 = 已感染
+# drone,非 C2);every other row falls to ``malware-distribution``
+# (the base classification — every URLhaus URL serves malware), so ``other``%
+# stays near 0. Raw tags + reporter are preserved in ``extra``.
+URLHAUS_MAP = {
+    "mirai": "infected-system",
+    "mozi": "infected-system",
+    "hajime": "infected-system",
+}
+
+# urlhaus `threat` 列（row[5]）原值 → IntelMQ。threat 是上游显式定性字段，
+# 优先于 tags 映射；malware_download 无可映射值，落 tags 兜底链路。
+URLHAUS_THREAT_MAP = {
+    "credential_phishing": "phishing",
 }
 
 

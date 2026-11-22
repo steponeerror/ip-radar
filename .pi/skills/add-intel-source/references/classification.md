@@ -44,7 +44,9 @@ short comment. No YAML, no version bump — YAGNI at this tool's scale.
 ## `normalize(raw_type, mapping) -> str`
 
 ```python
-from .._classification import normalize, YOUR_MAP
+from .._classification import normalize     # the mechanical lane
+# YOUR_MAP is declared right here, in your source module:
+YOUR_MAP = {"zombie": "infected-system", ...}
 classification_type = normalize(raw_type, YOUR_MAP)
 ```
 
@@ -64,9 +66,19 @@ keeps the vocabulary from bloating on every edge case.
 
 ## Adding a per-source map
 
-If the feed has its own category vocabulary, add a `{native: intelmq}` dict in
-`_classification.py`, next to the existing maps. Naming convention:
+If the feed has its own category vocabulary, declare a `{native: intelmq}` dict
+**in your own source module**, next to your parsing code (declaration surface,
+#409 2026-11-22 — `_classification.py` keeps only the vocabulary + normalize
+lanes, and a test trips if a module-level dict reappears there). Naming
+convention:
 `<FEEDNAME>_MAP` (uppercase).
+
+**Register the new map in the snapshot pin** (one line): add `"<FEEDNAME>_MAP":
+"ipdb._sources.<module>"` to `DECLARED_MAP_HOMES` in
+`backend/tests/core/test_source_declared_maps.py`, then regenerate the
+snapshot per the regeneration guide in that file's tail block — this wires the
+new map into the byte-equivalence snapshot + vocab gate (unregistered maps
+get neither, silently — the registration is what arms the pins).
 
 **Two different `normalize`s — don't confuse them.** `_classification.normalize(raw_type, MAP)`
 (this module) maps a native category → controlled-vocab term at parse time — this is what
@@ -76,9 +88,10 @@ defines an optional `normalize(self, raw: Evidence) -> Evidence` hook that trans
 normalization goes through this module's `normalize()`. If you think you need the hook, you
 almost certainly want this module's `normalize()` instead.
 
-Existing maps to model yours on:
+Existing maps to model yours on (each lives in its own source module, #409):
 
 ```python
+# in _sources/threatfox.py
 THREATFOX_MAP = {           # abuse.ch threat_type → IntelMQ
     "botnet_cc": "c2-server",
     "payload_delivery": "malware-distribution",
@@ -86,9 +99,9 @@ THREATFOX_MAP = {           # abuse.ch threat_type → IntelMQ
     "cc_skimming": "phishing",
 }
 
-BLOCKLIST_DE_MAP = { ... }  # attack code → IntelMQ
-PROXY_MAP = { ... }         # ip2proxy proxy_type → IntelMQ
-OTX_PROTOCOL_MAP = { ... }  # OTX pulse protocol keyword → IntelMQ
+BLOCKLIST_DE_MAP = { ... }  # _sources/blocklist_de.py — attack code → IntelMQ
+PROXY_MAP = { ... }         # _sources/ip2proxy.py — ip2proxy proxy_type → IntelMQ
+OTX_PROTOCOL_MAP = { ... }  # _sources/otx.py — OTX pulse protocol keyword → IntelMQ
 ```
 
 Rules for building a map:
@@ -138,7 +151,7 @@ def _classify(raw_tags: str) -> str:
 Don't confuse the per-source classification `_MAP` (this section) with the
 per-source `field_map` attribute — they solve different problems:
 
-| | `_MAP` (here, in `_classification.py`) | `field_map` (class attr on the source) |
+| | `_MAP` (declared in the source module) | `field_map` (class attr on the source) |
 |---|---|---|
 | **What it routes** | raw native category → controlled vocab term | native column → Evidence slot |
 | **When it runs** | inside `normalize()`, at parse time | declarative metadata; checked at load time |

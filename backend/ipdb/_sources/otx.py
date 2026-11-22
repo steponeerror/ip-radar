@@ -27,10 +27,27 @@ import urllib.request
 
 from .._source_base import Source
 from .._evidence import Evidence
-from .._classification import OTX_PROTOCOL_MAP
 from ._download import CancelToken, CancelledError, atomic_write_bytes
 
 logger = logging.getLogger(__name__)
+
+# OTX pulse name protocol keyword -> IntelMQ. The /pulses/activity feed is
+# auto-generated "IMMEDIATE THREAT: {PROTO} Intrusion from..." pulses with
+# adversary="Automated Scanner". Protocol keywords from the pulse name map
+# to IntelMQ categories; unmapped protocols default to "scanner".
+OTX_PROTOCOL_MAP = {
+    "smtp": "brute-force",
+    "ftp": "brute-force",
+    "ssh": "brute-force",
+    "imap": "brute-force",
+    "pop3": "brute-force",
+    "rdp": "brute-force",
+    "sip": "brute-force",
+    "http": "scanner",
+    "https": "scanner",
+    "apache": "exploit",
+    "web": "scanner",
+}
 
 _ACTIVITY_URL = "https://otx.alienvault.com/api/v1/pulses/activity"
 # Budget safety net: generous enough to fully paginate a 7-day window
