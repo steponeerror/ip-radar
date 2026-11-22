@@ -289,6 +289,124 @@ MIRAGE_MAP = {
 }
 
 
+# Echelon Labs 行为分标签 slug → IntelMQ(2026-11-22 三源批)。谱系 =
+# 站方 /tags 页 50 标签 + 11 个遗留仍供数标签(见 _sources/echelon.py
+# _SLUGS 注释),61 slug 闭集;站方八大类(Recon/Web-attack/Brute-force/
+# Botnet/Exploit/Cve/Activity/Tooling)作参考,按行为语义映射:
+# - probe/hunt/enumeration/crawl/「connection-attempt」(Activity TCP 连接
+#   尝试,非凭证攻击)→ scanner;「login-attempt」/auth-attempt/
+#   bruteforcer/credential-spray → brute-force(connection/login 二分 =
+#   连接层 vs 凭证层,rsync smtp-auth-attempt 入 brute 系依 blocklist_de
+#   "mail" 先例);
+# - Outlaw/P2Pinfect/Mirai 族(botnet 类)= 已感染 drone 宿主 →
+#   infected-system(URLHAUS_MAP "mirai" 先例;mirai-scanner 的宿主在跑
+#   mirai 扫描,感染事实优先于当次行为);
+# - exploit/Cve/Web-attack 类(RCE/auth-bypass/traversal/toolshell/
+#   php2shell-tooling=webshell 工具化利用)→ exploit;
+# - tls(无差别 TLS 活动遗留标签)无净槽 → other(原值由
+#   native_categories 保存,SW_THREATS_MAP "abuse" 先例)。
+# 测试 test_echelon.test_map_covers_all_slugs 钉 map 键 == _SLUGS(上游
+# 改名/新增标签当天绊线,不静默落 other)。
+ECHELON_MAP = {
+    # scanner 系(Recon 探测 / 爬取 / 通用 hunt / 连接尝试)
+    "admin-panel-hunt": "scanner",
+    "cgi-script-hunt": "scanner",
+    "cisco-asa-probe": "scanner",
+    "cisco-ucm-probe": "scanner",
+    "citrix-adc-gateway-probe": "scanner",
+    "cms-enumeration": "scanner",
+    "config-file-hunt": "scanner",
+    "cpanel-probe": "scanner",
+    "database-admin-hunt": "scanner",
+    "enterprise-software-probe": "scanner",
+    "exchange-probe": "scanner",
+    "fortios-api-probe": "scanner",
+    "fortios-ssl-vpn-probe": "scanner",
+    "globalprotect-probe": "scanner",
+    "ivanti-connect-secure-probe": "scanner",
+    "mcp-server-scan": "scanner",
+    "port-scan": "scanner",
+    "rdp-connection-attempt": "scanner",      # Activity:TCP 连接尝试,非凭证
+    "redis-connection-attempt": "scanner",
+    "sharepoint-webshell-scanning": "scanner",  # 寻找已植 webshell = 探测
+    "sip-register-scanner": "scanner",
+    "solarwinds-probe": "scanner",
+    "sonicwall-ngfw-probe": "scanner",
+    "ssh-connection-attempt": "scanner",      # connection ≠ login(见上)
+    "telnet-connection-attempt": "scanner",
+    "tls-ssl-crawler": "scanner",
+    "web-crawler": "scanner",
+    "web-shell-hunt": "scanner",
+    "wordpress-enumeration": "scanner",
+    # brute-force 系(凭证/协议爆破)
+    "iot-default-credential-attempt": "brute-force",
+    "mirai-credential-spray": "brute-force",
+    "mirai-default-credential-spray": "brute-force",
+    "smtp-auth-attempt": "brute-force",       # SMTP 认证尝试=凭证攻击
+    "smtp-bruteforcer": "brute-force",
+    "ssh-bruteforcer": "brute-force",
+    "ssh-login-attempt": "brute-force",       # login=凭证层,connection 异
+    "telnet-bruteforcer": "brute-force",
+    "telnet-login-attempt": "brute-force",
+    "vnc-login-attempt": "brute-force",
+    # infected-system 系(Botnet 族宿主)
+    "mirai-scanner": "infected-system",
+    "outlaw-botnet": "infected-system",
+    "p2pinfect-botnet": "infected-system",
+    # exploit 系(Web-attack/Exploit/Cve/Tooling)
+    "cisco-ucm-exploit": "exploit",
+    "cpanel-auth-bypass-cve-2026-41940": "exploit",
+    "directory-traversal-attempt": "exploit",
+    "file-upload-attempt": "exploit",
+    "fortios-authentication-bypass-attempt": "exploit",
+    "fortios-ssl-vpn-pre-auth-path-traversal": "exploit",
+    "ivanti-epmm-exploit": "exploit",
+    "path-traversal-attempt": "exploit",
+    "php2shell-tooling": "exploit",           # Tooling:webshell 工具化利用
+    "phpunit-rce-scan": "exploit",            # PHPUnit RCE 打点(eval-stdin)
+    "router-exploit": "exploit",
+    "sharepoint-active-exploitation": "exploit",
+    "sharepoint-toolshell-exploit": "exploit",
+    "sql-injection-attempt": "exploit",
+    "thinkphp-rce": "exploit",
+    "uri-parsing-exploit": "exploit",
+    "web-vulnerability-exploit": "exploit",
+    "wordpress-auth-bypass": "exploit",
+    # other(无净槽,原值留 native_categories)
+    "tls": "other",
+}
+
+# blocklist.net.ua REASON 关键词 → IntelMQ(2026-11-22 三源批)。REASON 是
+# 自由文本(俄/英双语全句,内嵌被攻击站点名,同一语义多种措辞),exact-key
+# normalize() 不可用——blocklist_netua.harvest 按本表键做**子串匹配**,
+# 插入序即优先序(ddos 族 → scanner → brute → spam),全 miss → 源内兜底
+# blacklist(每行都是活性封禁指控,urlhaus 基类分类先例)。
+# 谱系 = 2026-11-22 实抓全量 83,674 行闭集统计(8 语义族):паразит
+# 32,939(上游自译「Паразитные HTTP запросы」= "HTTP flood requests",
+# паразитный трафик/запросы 同族)/ddos 24,071/скан 23,851/brute 2,514
+# (брутфорс+подбор)/нагрузка 114(含 укр. навантаження)/malicious 111
+# (VNC 无差别指控,无净槽→兜底)/спам 39/截断尾 1。
+NETUA_MAP = {
+    # ddos 系(应用层洪水:HTTP flood/паразит/过载冲击)
+    "ddos": "ddos",
+    "паразит": "ddos",
+    "нагрузка": "ddos",
+    "навантаження": "ddos",
+    # scanner 系(несанкционированное сканирование/Сканер сайтов)
+    "сканиров": "scanner",
+    "сканер": "scanner",
+    "scanning": "scanner",
+    # brute-force 系(брутфорс атака/подбор паролей/brute force)
+    "брутфорс": "brute-force",
+    "подбор": "brute-force",
+    "brute force": "brute-force",
+    # spam 系(рассылка email спама/send spam)
+    "рассылка": "spam",
+    "спам": "spam",
+    "spam": "spam",
+}
+
+
 _unmapped_warned: set[tuple[int, str]] = set()
 
 

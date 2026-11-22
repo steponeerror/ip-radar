@@ -245,7 +245,8 @@ class IpListSource(SourceBase):
     # URL 在模块常量,如 firehol 的 _BASE_URL、blocklist_de 的 _BASE_URL);
     # 消费方 _validate.metadata_problems 按 IpListSource 家族门控——B 家族
     # 漏定义 url 且未豁免 = registry 发现期启动即拒(空 url 走本类默认
-    # download() 必坏)。2026-10-31 普查:现役豁免源仅 firehol/blocklist_de。
+    # download() 必坏)。2026-10-31 普查+2026-11-22 三源批:现役豁免源
+    # firehol/blocklist_de/echelon。
     url_exempt: bool = False
 
     # ── Overridable hooks ──

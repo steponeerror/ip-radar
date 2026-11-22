@@ -1,0 +1,219 @@
+"""Echelon Labs per-tag blocklists — 多子表目录源(blocklist_de 模式).
+
+echelonlabs.co(Echelon Labs 蜜罐传感网联盟)61 个行为分标签端点,每标签
+``https://echelonlabs.co/api/tag/block/<slug>`` 返回纯文本一行一 IPv4(免
+认证,Vercel CDN;2026-11-22 实测)。每标签一文件目录布局,per-tag 分类
+(ECHELON_MAP);同 IP 命中多标签按
+exploit > brute-force > infected-system > scanner > other > blacklist
+裁决 classification_type,全部认领标签名保留在 native_categories
+(blocklist_de 先例)。
+
+slug 清单(权威,2026-11-22 实测核对):站方 /tags 页 50 标签(slug 化 =
+lowercase、非字母数字串折单连字符)+ 11 个遗留仍供数标签;排除上游拼写
+死标签 ``web-commad-injection``。41+ 标签当日有数据(活性锚:首页 30 分钟
+级条目);连接尝试类标签混大量 VPN 出口噪音(实测 x4bnet 覆盖全集合 56%),
+reliability 0.70 而非更高。
+
+许可 FLAG(2026-11-22 发现轮,用户裁定立项接受):站点只写 R&E 社区免费
+层,未标注数据再分发许可——按非商用本地情报用途收。
+
+下载契约:61 个 GET 串行(小文件走 CDN,礼貌不并发);空标签文件 = 当日
+无该类攻击(合法空,blocklist_de 判例 ircbot);但**全部文件都空/失败** =
+上游断供 → RuntimeError + 零替换(fail-closed 防灾难性全空清库——本源无
+blocklist_de 式聚合锚列表,活性判据 = 全量非空集)。
+"""
+import logging
+import os
+from pathlib import Path
+
+from ._base import IpListSource
+from ._download import download_file, CancelToken, CancelledError
+from ._lmdb import commit_dual_family
+from ._rebuild_tail import covered_counts
+from .._types import SourceHealth
+from .._classification import ECHELON_MAP
+from .._evidence import Evidence
+
+_BASE_URL = "https://echelonlabs.co/api/tag/block"
+
+logger = logging.getLogger(__name__)
+
+# 61 slug = /tags 页 50(slug 化规则见模块 docstring)+ 11 遗留:
+# web-crawler/vnc-login-attempt/uri-parsing-exploit/path-traversal-attempt/
+# sharepoint-toolshell-exploit/wordpress-auth-bypass/wordpress-enumeration/
+# web-shell-hunt/web-vulnerability-exploit/mirai-default-credential-spray/tls。
+# 排除 web-commad-injection(上游拼写死标签)。排序 = 迭代序 =
+# native_categories 记录序(确定性);测试钉 set(_SLUGS) == set(ECHELON_MAP)。
+_SLUGS = [
+    "admin-panel-hunt", "cgi-script-hunt", "cisco-asa-probe",
+    "cisco-ucm-exploit", "cisco-ucm-probe", "citrix-adc-gateway-probe",
+    "cms-enumeration", "config-file-hunt", "cpanel-auth-bypass-cve-2026-41940",
+    "cpanel-probe", "database-admin-hunt", "directory-traversal-attempt",
+    "enterprise-software-probe", "exchange-probe", "file-upload-attempt",
+    "fortios-api-probe", "fortios-authentication-bypass-attempt",
+    "fortios-ssl-vpn-pre-auth-path-traversal", "fortios-ssl-vpn-probe",
+    "globalprotect-probe", "iot-default-credential-attempt",
+    "ivanti-connect-secure-probe", "ivanti-epmm-exploit", "mcp-server-scan",
+    "mirai-credential-spray", "mirai-default-credential-spray",
+    "mirai-scanner", "outlaw-botnet", "p2pinfect-botnet",
+    "path-traversal-attempt", "php2shell-tooling", "phpunit-rce-scan",
+    "port-scan", "rdp-connection-attempt", "redis-connection-attempt",
+    "router-exploit", "sharepoint-active-exploitation",
+    "sharepoint-toolshell-exploit", "sharepoint-webshell-scanning",
+    "sip-register-scanner", "smtp-auth-attempt", "smtp-bruteforcer",
+    "solarwinds-probe", "sonicwall-ngfw-probe", "sql-injection-attempt",
+    "ssh-bruteforcer", "ssh-connection-attempt", "ssh-login-attempt",
+    "telnet-bruteforcer", "telnet-connection-attempt", "telnet-login-attempt",
+    "thinkphp-rce", "tls", "tls-ssl-crawler", "uri-parsing-exploit",
+    "vnc-login-attempt", "web-crawler", "web-shell-hunt",
+    "web-vulnerability-exploit", "wordpress-auth-bypass",
+    "wordpress-enumeration",
+]
+
+# 同 IP 多标签裁决优先级:具体攻击行为 > 泛行为 > 兜底(blocklist_de
+# _PRIORITY 先例;数值小者胜)
+_PRIORITY = {"exploit": 0, "brute-force": 1, "infected-system": 2,
+             "scanner": 3, "other": 4, "blacklist": 5}
+
+
+class EchelonSource(IpListSource):
+    name = "echelon"
+    category = "threat"
+    url = ""  # unused — custom download() handles 61 tag endpoints
+    url_exempt = True  # #253:url 有意空串(多端点走 _BASE_URL),护栏豁免
+    filename = "echelon"  # directory name
+    fields = ("is_malicious",)
+    classification_type = "blacklist"   # 兜底(映射外 slug,当前 61 全覆盖)
+    verdict = "malicious"
+    stale_days = 3     # 持续滚动无内部 ts;活性证据 = 首页 30 分钟级条目
+    reliability = 0.70  # 第一方传感网;连接尝试类混 VPN 出口噪音(见 docstring)
+    authoritative_for = ()
+    provenance_tier = "A"     # A=官方一手(S21):Echelon Labs 官方 API 直接发布
+    honeypot_methodology = True   # 蜜罐传感网采集(S33;k_nonhoneypot 剔除)
+
+    def __init__(self, data_dir: Path, selected_tags: list[str] | None = None):
+        self._tags = selected_tags or list(_SLUGS)
+        super().__init__(data_dir=data_dir)
+        self._path = data_dir / "echelon"   # directory, not file
+        self._files = [self._path / f"{slug}.txt" for slug in self._tags]
+
+    @property
+    def download_host(self) -> str | None:
+        return "echelonlabs.co"
+
+    def download(self, token: CancelToken | None = None) -> None:
+        """两阶段批量下载(blocklist_de 模式):逐标签抓 ``<slug>.txt.dl``
+        scratch → 全量空门裁决后统一 os.replace 落地(空文件照落)。
+
+        空文件语义(bare-IP 列表,blocklist_de 判例):单标签 200 空 = 当日
+        无该类攻击,合法空。fail-closed 判据(本源无聚合锚):**全部标签**
+        空或失败 = 上游断供 → scratch 全清、零替换、RuntimeError(防下轮
+        rebuild 静默清库)。单标签抓取异常容忍:旧文件保留、记名
+        last_partial_failure(SA-F1 部分失败梯),cancel 直 raise。"""
+        self._path.mkdir(parents=True, exist_ok=True)
+        landed: list[tuple[Path, Path]] = []   # (scratch, dest) 待裁决
+        failed: list[str] = []
+        try:
+            for slug in self._tags:
+                if token is not None and token.is_cancelled():
+                    raise CancelledError(f"{self.name} download cancelled")
+                dest = self._path / f"{slug}.txt"
+                scratch = dest.with_name(dest.name + ".dl")
+                logger.info(f"Downloading echelon/{slug}...")
+                try:
+                    download_file(f"{_BASE_URL}/{slug}", scratch, token=token,
+                                  headers={"User-Agent": "ip-lookup-tool/1.0"})
+                    landed.append((scratch, dest))
+                except Exception as e:
+                    failed.append(slug)
+                    logger.warning(
+                        f"Failed to download echelon/{slug}: {e} "
+                        f"— keeping existing file")
+                    scratch.unlink(missing_ok=True)
+            if not any(s.read_bytes().strip() for s, _ in landed):
+                for scratch, _ in landed:
+                    scratch.unlink(missing_ok=True)
+                raise RuntimeError(
+                    f"echelon: all {len(self._tags)} tag files empty or "
+                    f"failed — upstream appears dead, keeping existing data "
+                    f"(fail-closed)")
+            for scratch, dest in landed:
+                os.replace(scratch, dest)      # 合法空 0 字节照落
+        except CancelledError:
+            for scratch, _ in landed:          # 已抓未裁决 scratch 不残留
+                scratch.unlink(missing_ok=True)
+            raise
+        self.last_partial_failure = failed
+
+    def rebuild(self, progress=None) -> int:
+        """重建 LMDB(唯一重建入口)。多标签累积(blocklist_de 模式):同
+        CIDR 按优先级裁决 classification_type,全部认领标签名进
+        native_categories(_SLUGS 序)。"""
+        import ipaddress as _ipa
+        if not self._path.exists():
+            return 0
+
+        # cidr -> {"classification_type": ..., "native_categories": [...]}
+        acc: dict[str, dict] = {}
+        for slug in self._tags:
+            p = self._path / f"{slug}.txt"
+            if not p.exists():
+                continue
+            cls = ECHELON_MAP.get(slug, "blacklist")
+            with open(p, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    try:
+                        net = str(_ipa.ip_network(line, strict=False))
+                    except (ValueError, _ipa.AddressValueError,
+                            _ipa.NetmaskValueError):
+                        continue
+                    if net in acc:
+                        cur = acc[net]
+                        if _PRIORITY[cls] < _PRIORITY[cur["classification_type"]]:
+                            cur["classification_type"] = cls
+                        if slug not in cur["native_categories"]:
+                            cur["native_categories"].append(slug)
+                    else:
+                        acc[net] = {"classification_type": cls,
+                                    "native_categories": [slug]}
+
+        records = [
+            (cidr, [Evidence(
+                classification_type=info["classification_type"],
+                verdict=self.verdict,
+                reliability=self.reliability,
+                native_categories=info["native_categories"],
+            ).to_dict()])
+            for cidr, info in acc.items()
+        ]
+
+        cov4, cov6 = covered_counts(acc)
+        return commit_dual_family(
+            self, records, cov4=cov4, cov6=cov6, progress=progress)
+
+    def health(self) -> SourceHealth:
+        # 目录源 convention 4:staleness 跟跨文件 max mtime(archetypes §3c)
+        import time
+        mtimes = []
+        if self._path.exists():
+            for slug in self._tags:
+                p = self._path / f"{slug}.txt"
+                if p.exists():
+                    mtimes.append(p.stat().st_mtime)
+        file_mtime = max(mtimes) if mtimes else None
+        last_updated = (time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(file_mtime))
+                        if file_mtime else None)
+        is_stale = file_mtime is None or (
+            time.time() - file_mtime > self.stale_days * 86400)
+        return SourceHealth(
+            name=self.name,
+            loaded=self._reader is not None,
+            record_count=self._count,
+            last_updated=last_updated,
+            is_stale=is_stale,
+            covered_ips=self._covered_ips,
+            covered_v6_nets=self._covered_v6_nets,
+        )

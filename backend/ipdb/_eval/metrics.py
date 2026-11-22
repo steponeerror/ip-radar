@@ -156,8 +156,8 @@ def compute_other_distribution(source, rng=None) -> dict[str, int]:
     """Count the candidate source's rows by classification_type, for other%.
     Uses the same archetype-agnostic regex sampler as corpus.sample_source_ips
     plus a per-IP query to resolve the type."""
-    from .corpus import sample_source_ips
-    if source is None or not getattr(source, "_path", None) or not source._path.is_file():
+    from .corpus import _source_raw_text, sample_source_ips
+    if source is None or _source_raw_text(source) is None:
         return {}
     counts: dict[str, int] = {}
     for ip in sample_source_ips(source, 200, rng):

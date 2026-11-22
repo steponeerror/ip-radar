@@ -83,9 +83,13 @@ def _int_to_ip(s: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 def _iter_csv_first_col(path: Path):
-    """CSV 第一列尝试 CIDR/裸 IP，失败跳行（cdn_edges/ipinfo_lite/otx/…）。"""
+    """CSV 第一列尝试 CIDR/裸 IP，失败跳行（cdn_edges/ipinfo_lite/otx/…）。
+    分号分隔 CSV(blocklist_netua)喙探:首行含 ';' 且不含 ',' → ';' 定界。"""
     with open(path, "r", encoding="utf-8", errors="replace") as f:
-        for row in csv.reader(f):
+        first = f.readline()
+        f.seek(0)
+        delim = ";" if (";" in first and "," not in first) else ","
+        for row in csv.reader(f, delimiter=delim):
             if row:
                 r = _parse_net(row[0])
                 if r:
@@ -350,12 +354,12 @@ def main() -> int:
         print(f"error: data dir not found: {data_dir}", file=sys.stderr)
         return 2
 
-    # 源列表：文件 + firehol/、isp/、blocklist_de/ 目录（各合并为单源）；
+    # 源列表：文件 + firehol/、isp/、blocklist_de/、echelon/ 目录（各合并为单源）；
     # 跳过派生产物/状态
     entries = []
     for p in sorted(data_dir.iterdir()):
         if p.is_dir():
-            if p.name in ("firehol", "isp", "blocklist_de"):
+            if p.name in ("firehol", "isp", "blocklist_de", "echelon"):
                 entries.append(p)
             continue
         if not _is_skipped(p.name):

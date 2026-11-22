@@ -20,11 +20,17 @@ from .corpus import _IP_RE
 
 
 def _source_ips(source) -> list[str]:
-    """逐源当前键集: 原始文件 IP token 去重排序(与 sample_source_ips 同款提取)。"""
-    path = getattr(source, "_path", None)
-    if not path or not Path(path).is_file():
+    """逐源当前键集: 原始文件 IP token 去重排序(与 sample_source_ips 同款
+    提取)。目录源(§3c)经 corpus._source_raw_text 拼接全部常规文件——
+    2026-11-22 评审 P1:此前 is_file() 守卫令目录源键集恒空,gate 候选
+    键集排除对目录源静默未执行(echelon 0/0 判例);修复后月轮键集快照
+    开始收录 firehol/blocklist_de/echelon 目录源(行为变化注记见
+    CHANGELOG)。"""
+    from .corpus import _source_raw_text
+    text = _source_raw_text(source)
+    if text is None:
         return []
-    tokens = _IP_RE.findall(Path(path).read_text(errors="ignore"))
+    tokens = _IP_RE.findall(text)
     ips = {t.split("/")[0] for t in tokens}          # strip CIDR mask
     ips = {ip for ip in ips if ip.count(".") == 3}
     return sorted(ips)
