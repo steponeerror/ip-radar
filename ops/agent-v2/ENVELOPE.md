@@ -35,4 +35,4 @@ discover 域键注(#384,2026-11-22):`issues_opened` 是 T5 冻结面唯一 sanct
 
 ## queue.md 兼容面(发现轮;终审补声明)
 
-spec 定案 4 裁「ledger/queue 不再自维护,对下游兼容输出由 T5 保证」:v2 发现轮 ENQUEUE 步零复制 `steps.runStage` 仍写 `queue.md` PROPOSE 行(同点同形,golden 对拍硬断言钉住)——与台账同属对下游兼容输出面,消费方(人工审阅队列)零改动。健康轮不写 queue(旧同律)。
+spec 定案 4 裁「ledger/queue 不再自维护,对下游兼容输出由 T5 保证」:v2 发现轮 ENQUEUE 步(#384 起 2026-11-22)改 GH issue 出口(`enqueue-issues.mjs`,label needs-triage,`issues_opened` 进轮信封),**PROPOSE 行停写**——舰队驱动退役后队列行无人消费,人裁入口迁 issue。兼容面:`queue_writes` 键恒在(恒空数组,回放/旧复盘面不断);v1 golden 参照样照写;两管线分叉由 `golden-discover-parity.test.mjs` 钉死(v1>0 行 / v2=0 行)。健康轮不写 queue(旧同律)。
