@@ -18,6 +18,7 @@ import * as steps from "./pipeline/steps.mjs";
 import * as gates from "./pipeline/gates.mjs";
 import { runModelStep, selectModelFace } from "./pipeline/faux.mjs";
 import * as budget from "./pipeline/budget.mjs"; // #199 A1:预算四界旋钮+执法纯函数(单源)
+import { writeRoundReport } from "./pipeline/round-report.mjs"; // #403:CLOSE 轮报告件(packages 断供修复;单源=v2 三接线同模块)
 import { readBreakerKnobs } from "./tools/breaker.mjs"; // #199 B:P16 跨轮熔断旋钮(轮始校验同 budget 判例;零环)
 
 const AGENT_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -362,6 +363,7 @@ async function finishClose(ctx, io) { // CLOSE 书挡:存在性校验→信封�
     const gr = gates.evalStageGate(def, ctx);
     gates.appendGate(ctx.dir, ctx.roundId, gr);
     if (!gr.pass) throw Object.assign(new Error(`门败 G_CLOSE:${gr.reason}`), { code: "infra" });
+    writeRoundReport({ roundId: ctx.roundId, type: ctx.type, engine: "pipeline-v1", ctx, opsRoot: ctx.opsRoot }); // #403:轮报告入 packages(UI「查看报告」读面);重放不入 CLOSE=不写(原轮时序);写败掷 infra 走 failStage(fail loud:静默=用户再次看不到报告)
     rec.dur_ms = Math.round(performance.now() - t0);
     ctx.state.status = "done";
     ctx.state.stage = "CLOSE";

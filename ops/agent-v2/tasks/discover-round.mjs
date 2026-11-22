@@ -51,6 +51,7 @@ import { preModelCall, postModelCall, stepBoundary } from "./budget-guard.mjs"; 
 import { ensureRoundHost, roundDupRegistries } from "../tools/discovery-tools.mjs"; // 轮级发现宿主(工具面+熔断写侧随迁)
 import { enqueueStageIssueExit } from "../tools/enqueue-issues.mjs"; // #384:ENQUEUE 出口改 GH issue(PROPOSE 行停写;判据分类 v1 classifyEnqueue 单源)
 import { benchScan } from "../bench/scan.mjs"; // bench SCAN 变体(票 #318:候选宇宙=仅 NEEDS 面;real 面走 runStage 旧步不受影响)
+import { writeRoundReport } from "../../agent/pipeline/round-report.mjs"; // #403:轮报告件单源(v2 零复制 import v1;bench 轮照写=沙箱 opsRoot 天然隔离)
 import { shortlistBenchPromptPath } from "../run-discover.mjs"; // bench SHORTLIST 基准提示词路径(票 #319;函数声明面循环安全:run-discover↔tasks 仅运行时互引)
 
 const sha = (s) => crypto.createHash("sha256").update(s).digest("hex").slice(0, 16);
@@ -237,9 +238,15 @@ async function scriptPhase(task, runtime, context, phase) {
   // #384:enqueue 相位把 issue 出口读数入 checkpoint(信封 issues_opened 真源;崩溃重入由 emit 守卫回补)
   const issuesPatch = phase === "enqueue" && typeof rec?.issues_opened === "number" ? { issuesOpened: rec.issues_opened } : {};
   const checkpoint = { ...cur, ...(next ? { phase: next } : {}), stages: [...cur.stages, stage], modelCalls: ctx.modelCalls, usage: { ...ctx.usage }, ...issuesPatch }; // 相位推进=phase 字段前移(缺它=同相位重跑死循环)
-  return next
-    ? advance(runtime, context, checkpoint, {}, ctx)
-    : finishOk(runtime, context, composeEnvelope(checkpoint, ctx)); // close 终态=result=信封(旧信封同形)
+  if (!next) { // close 终态:#403 先落轮报告件(packages 断供修复;stages=staged 记录面,ctx.state.stages 是名字镜像),再 result=信封
+    try {
+      writeRoundReport({ roundId: input.roundId, type: "discover", engine: "pipeline-v2", ctx, stages: staged, opsRoot: ctx.opsRoot });
+    } catch (e) { // fail loud + v2 律(P0-①):handler 不裸抛(framework fault 重启循环)→ 终态失败留真码
+      return finishFailed(runtime, context, { message: `CLOSE:轮报告件写败:${e.message}`, detail: { code: e.code ?? "infra", stage: "CLOSE" } });
+    }
+    return finishOk(runtime, context, composeEnvelope(checkpoint, ctx)); // close 终态=result=信封(旧信封同形)
+  }
+  return advance(runtime, context, checkpoint, {}, ctx);
 }
 
 // ── SHORTLIST 相位(唯一模型步;自有会话提交)──
