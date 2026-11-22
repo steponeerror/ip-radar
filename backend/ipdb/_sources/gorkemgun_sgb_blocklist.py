@@ -29,6 +29,12 @@ class GorkemgunSgbBlocklistSource(IpListSource):
     reliability = 0.60                  # official sensor list via one-hop mirror
     provenance_tier = "B"               # community mirror of official government data
     authoritative_for = ()              # corroboration only (SM-F1)
+    infra_noise_filter = True           # 2026-11-21 健康轮 114DNS 误报整改(#183/ADR 0008 杠杆)
+    # 载入期基础设施噪声过滤 opt-in(健康轮 2026-11-21 19:00 金标锚 finding:
+    # USOM 上游把 114.114.114.114(114DNS,infra_services r=0.95 断言良性 dns 服务)
+    # 列入恶意单址,单源指控翻转 verdict=malicious@60 踩脏 clean 锚;上游仅此一条
+    # 公共基础设施条目(8.8.8.8/1.1.1.1 等均不在列),非系统性审查污染——按
+    # #183/ADR 0008 整改杠杆 opt-in,排除只发生在载入面,原始文件零改写)
 
 
 # 消费方 import 面冻结拼法兜底(PEP 562):三种规范变体均可导入,

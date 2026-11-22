@@ -152,12 +152,14 @@ def test_off_by_default_for_undeclaring_sources(tmp_path):
 def test_incident_sources_declare_filter():
     from ipdb._sources.cps_collected_iocs import CpsCollectedIocsSource
     from ipdb._sources.dataplane import DataplaneSource
+    from ipdb._sources.gorkemgun_sgb_blocklist import GorkemgunSgbBlocklistSource
     from ipdb._sources.myip_ms import MyipMsSource
     from ipdb._sources.reportedip import ReportedIPSource
     from ipdb._sources.tweetfeed import TweetFeedSource
     from ipdb._sources.ziyadnz import ZiyadnzSource
     for cls in (MyipMsSource, ZiyadnzSource, CpsCollectedIocsSource,
-                TweetFeedSource, DataplaneSource, ReportedIPSource):
+                TweetFeedSource, DataplaneSource, ReportedIPSource,
+                GorkemgunSgbBlocklistSource):
         assert cls.infra_noise_filter is True, cls.__name__
 
 
