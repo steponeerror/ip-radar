@@ -68,7 +68,8 @@ const mkAbort = () => async (_t, runtime, context) => { // 终审小项:无参�
   await runtime.commit(() => ({ status: "terminal", outcome: { status: "aborted" } }), context);
 };
 
-// P0-④ 跨库撞轮目录守卫:v2 健康轮无 state.json(实现细节,RUNBOOK 已知差异表),
+// P0-④ 跨库撞轮目录守卫:v2 健康轮 state.json 仅 CLOSE 终态回写(#408;真源仍=SQLite
+// checkpoint+工件,轮中无件,对拍/shadow-diff 双侧排除),
 // 跨库新任务撞已有轮目录无守卫(同库复用走 run-health HealthRoundsDoc 不触发;
 // --from-phase TRIAGE 的前置工件 01-/02- 合法,故不能以「目录非空」判)。认领件
 // .v2-claim.json{token,taskId} 落轮目录:每相位头核认领,异主 → bad_round 终态(旧
@@ -398,7 +399,7 @@ async function runClose(input, ck, runtime, context) {
     writeRoundReport({ roundId: input.roundId, type: "health", engine: "pipeline-v2", ctx, opsRoot: ctx.opsRoot }); // #403:轮报告件(packages 断供修复);写败掷 infra 入本 catch(fail loud:静默=用户再次看不到报告)
     // #408:终态回写镜像(v1 finishClose 同序=报告→state;ctx.state 此刻已终态化 done/CLOSE,
     // 本调用只改 status 面+updated_at 保盘值=崩溃重入 CLOSE 重写字节级不变)
-    writeTerminalRoundState(ctx, { status: "done" });
+    writeTerminalRoundState(ctx, { status: "done", stage: "CLOSE" }); // stage 恒量=幂等不破;补书挡防罕见序列(catch 写过 FAILED 后 commit 抛→重试成功 CLOSE)残留 status done+stage FAILED
     await runtime.commit(() => ({
       status: "terminal",
       outcome: { status: "completed", result: { round_id: input.roundId, envelope, dir: ctx.dir, usage: ctx.usage } },

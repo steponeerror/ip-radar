@@ -223,6 +223,7 @@ async function scriptPhase(task, runtime, context, phase) {
       : phase === "enqueue" ? await enqueueStageIssueExit(ctx)
       : await runStage(def, ctx); // bench SCAN 变体(零复制旧步;RETRO 可能 {degraded}
   } catch (e) { // 域失败=终态(旧 fail 三元组;handler 不抛=pi-durable fault 不消耗 restart)
+    if (phase === "close") writeTerminalRoundState(ctx, { status: "failed" }); // #408 评审 P2-2:close 相位步抛=轮未成,镜像终态 failed(stages 止于 RETRO 不造 CLOSE 名,与内层报告写败 catch 同形;专项 E2E 注入面记后续票)
     return finishFailed(runtime, context, { message: `${def.name}:${e.message}`, detail: { code: e.code ?? "infra", stage: def.name } });
   }
   stage.dur_ms = Date.now() - t0;
@@ -234,7 +235,10 @@ async function scriptPhase(task, runtime, context, phase) {
   const gate = gates.evalStageGate(def, ctx);
   if (rec?.skipGate) gates.appendGateBypass(ctx.dir, ctx.roundId, def, String(rec.degraded));
   else gates.appendGate(ctx.dir, ctx.roundId, gate);
-  if (!gate.pass) return finishFailed(runtime, context, { message: `GATE:${def.name}:${gate.reason}`, detail: { code: gate.code ?? "infra", stage: def.name } }); // 门红=终态(旧 fail-closed)
+  if (!gate.pass) { // 门红=终态(旧 fail-closed)
+    if (phase === "close") writeTerminalRoundState(ctx, { status: "failed" }); // #408 评审 P2-2:G_CLOSE 红=轮未成,镜像终态 failed(同上)
+    return finishFailed(runtime, context, { message: `GATE:${def.name}:${gate.reason}`, detail: { code: gate.code ?? "infra", stage: def.name } });
+  }
   const next = nextPhase(phase);
   // #384:enqueue 相位把 issue 出口读数入 checkpoint(信封 issues_opened 真源;崩溃重入由 emit 守卫回补)
   const issuesPatch = phase === "enqueue" && typeof rec?.issues_opened === "number" ? { issuesOpened: rec.issues_opened } : {};
