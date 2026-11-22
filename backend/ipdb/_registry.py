@@ -11,11 +11,11 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Callable, NamedTuple
 
-from dotenv import load_dotenv
 from ipdb._source_state import load_disabled, save_disabled
 from ._evidence import route_record, SCALAR_SLOTS, ASSET_SLOTS
 from ._reserved import is_reserved_addr
 from . import _logodds as _lo
+from . import _paths
 from ._types import SourceHealth, LookupResult, MergedField, ClassificationAssessment, AssetStatement
 from ._merge import (
     FactualVoting,
@@ -28,26 +28,11 @@ from ._merge import (
     effective_reliability,   # 有效 r 单一解析入口(#317);表本体只经 _merge_mod 填装
 )
 
-_app_dir = Path(__file__).parent.parent
-load_dotenv(_app_dir / ".env")
-
 logger = logging.getLogger(__name__)
 
-DATA_DIR = Path(os.environ.get("IP_RADAR_DATA_DIR", str(_app_dir / "data")))
-
-_STATE_PATH = Path(os.environ.get(
-    "SOURCE_STATE_PATH", str(DATA_DIR / "source_state.json")))
-
-
-def env_path_or_state_sibling(env_var: str, filename: str) -> Path:
-    """env 覆写的 db 路径解析(#258 折并自 _alerts._db_path/_auth._auth_db_path
-    同形五连,dryer 1.00 对,出处 notes/ub-mode-2026-10-31.md):env_var 非空
-    → Path(env 值);否则落 _STATE_PATH 同目录下 filename。_STATE_PATH 按
-    模块全局动态解析(测试 monkeypatch 本属性即换根,勿在导入期捕获)。"""
-    env = os.environ.get(env_var)
-    if env:
-        return Path(env)
-    return _STATE_PATH.parent / filename
+# 路径解析(data_dir/source_state/兄弟 db)唯一真源 = _paths(#406 折并):
+# 本模块在导入期对源发现/禁用态取一次快照(与折并前的落地时机相同),
+# 其余调用点经 _paths 惰性解析(测试 monkeypatch env 免 reload)。
 
 
 def _load_private_names() -> frozenset[str]:
@@ -119,7 +104,7 @@ def _discover_sources(data_dir: Path) -> list:
 
 
 
-_sources = _discover_sources(DATA_DIR)
+_sources = _discover_sources(_paths.data_dir())
 
 # ── 元数据唯一真相(spec 2026-08-28 §5.1):源 class attr。──
 # 中央名保留兼容(下游零改);_merge 两 dict 为 fill-in-place(对象身份
@@ -149,7 +134,7 @@ def _apply_calibrated(path=None):
     覆盖 class attr 先验;其余域(country/asset key/classification type)
     为 Phase-2 Dawid-Skene 校准预留,本期不消费。"""
     import json as _json
-    p = Path(path) if path else (DATA_DIR / "_calibrated.json")
+    p = Path(path) if path else (_paths.data_dir() / "_calibrated.json")
     if not p.exists():
         return
     try:
@@ -175,7 +160,7 @@ for s in _sources:
         _inv.setdefault(f, []).append(s.name)
 _merge_mod.AUTHORITATIVE_SOURCES.clear()
 _merge_mod.AUTHORITATIVE_SOURCES.update(_inv)
-_disabled = load_disabled(_STATE_PATH)
+_disabled = load_disabled(_paths.source_state_path())
 _state_lock = threading.Lock()
 # Cache of lookup()'s "is DB loaded" guard, keyed by the identities of _sources
 # and _disabled. The guard (any enabled source has a loaded reader) is stable
@@ -491,7 +476,7 @@ def set_source_enabled(name: str, enabled: bool) -> dict:
         raise ValueError(f"unknown source: {name}")
     with _state_lock:
         _disabled = (_disabled - {name}) if enabled else (_disabled | {name})
-        save_disabled(set(_disabled), _STATE_PATH)
+        save_disabled(set(_disabled), _paths.source_state_path())
     if enabled:
         try:
             manager.enqueue_one(name)

@@ -144,7 +144,6 @@ def test_list_sources_includes_disabled_with_flag(tmp_path, monkeypatch):
 
 def test_set_enabled_unknown_name_raises(monkeypatch):
     monkeypatch.setattr(reg, "_sources", [_fake("a")])
-    monkeypatch.setattr(reg, "_STATE_PATH", None)  # not used on the error path
     with pytest.raises(ValueError):
         reg.set_source_enabled("nope", True)
 
@@ -159,7 +158,7 @@ def test_disable_persists_and_flags(tmp_path, monkeypatch):
 
     monkeypatch.setattr(reg, "_sources", [Src()])
     monkeypatch.setattr(reg, "_disabled", set())
-    monkeypatch.setattr(reg, "_STATE_PATH", tmp_path / "state.json")
+    monkeypatch.setenv("SOURCE_STATE_PATH", str(tmp_path / "state.json"))
 
     info = reg.set_source_enabled("ipinfo_lite", False)
 
@@ -189,7 +188,7 @@ def test_enable_enqueues_rebuild_and_clears_disabled(tmp_path, monkeypatch):
 
     monkeypatch.setattr(reg, "_sources", [Src()])
     monkeypatch.setattr(reg, "_disabled", {"ipinfo_lite"})
-    monkeypatch.setattr(reg, "_STATE_PATH", tmp_path / "state.json")
+    monkeypatch.setenv("SOURCE_STATE_PATH", str(tmp_path / "state.json"))
     monkeypatch.setattr(reg.manager, "enqueue_one",
                         lambda n: enqueued.append(n) or type("T", (), {"to_dict": staticmethod(lambda: {})})())
 

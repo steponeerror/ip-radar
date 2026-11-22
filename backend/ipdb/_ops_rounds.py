@@ -80,7 +80,7 @@ def _round_env() -> dict[str, str]:
     key 语义保持);模型名未配置时不注入(继承透传 operator 的 OPS_MODEL_*,
     都无则 models.mjs 缺省)。改完即生效,无需重启。
     """
-    from . import _registry  # 惰性导入:单测仅解析路径时不牵源发现链
+    from . import _paths  # 惰性导入沿旧位(#406:_paths 不牵源发现链,零成本)
     from . import _ops_config
 
     root = _ops_store.ops_root()
@@ -92,7 +92,7 @@ def _round_env() -> dict[str, str]:
         # 2026-10-26:C4 白名单剔 LANG→子进程 bash 退 C locale,%q 对 CJK 输出 ANSI-C 包裹致 rg 解析炸(健康轮 SYNTH 全灭回归);bash 面 locale 敏感行为需确定性:继承操作员 LANG,缺省 C.UTF-8。
         "LANG": os.environ.get("LANG") or "C.UTF-8",
         "OPS_EVAL_PY": sys.executable,
-        "OPS_DATA_DIR": str(_registry.DATA_DIR),
+        "OPS_DATA_DIR": str(_paths.data_dir()),
     }
     if cfg.get("model_health"):
         env["OPS_MODEL_HEALTH"] = cfg["model_health"]

@@ -69,7 +69,7 @@ def test_ops_root_resolves_under_data_dir(store, ops_env):
 
 
 def test_ops_root_falls_back_to_backend_data(store, monkeypatch):
-    """未设 env 时回落 <backend>/data/ops,与 _registry.DATA_DIR 同一惯例,不发明第二套。"""
+    """未设 env 时回落 <backend>/data/ops,与 _paths.data_dir 同一惯例(单源,不发明第二套)。"""
     monkeypatch.delenv("IP_RADAR_DATA_DIR", raising=False)
     expected = Path(store.__file__).resolve().parent.parent / "data" / "ops"
     assert store.ops_root() == expected

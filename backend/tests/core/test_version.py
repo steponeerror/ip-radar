@@ -6,20 +6,22 @@ from ipdb import _version
 
 
 class TestVersionConstant:
-    def test_reads_build_version_file(self, tmp_path):
+    def test_reads_build_version_file(self, tmp_path, monkeypatch):
         f = tmp_path / "BUILD_VERSION"
         f.write_text("v1.2.0")
-        with patch.object(_version, "_BUILD_VERSION_PATH", f):
-            assert _version._resolve_version() == "v1.2.0"
+        monkeypatch.setenv("IP_RADAR_BUILD_VERSION_FILE", str(f))
+        assert _version._resolve_version() == "v1.2.0"
 
-    def test_env_fallback_when_no_file(self, tmp_path):
-        with patch.object(_version, "_BUILD_VERSION_PATH", tmp_path / "nope"), \
-             patch.dict(os.environ, {"IP_RADAR_VERSION": "v9.9.9"}):
+    def test_env_fallback_when_no_file(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("IP_RADAR_BUILD_VERSION_FILE",
+                           str(tmp_path / "nope"))
+        with patch.dict(os.environ, {"IP_RADAR_VERSION": "v9.9.9"}):
             assert _version._resolve_version() == "v9.9.9"
 
-    def test_dev_when_nothing(self, tmp_path):
-        with patch.object(_version, "_BUILD_VERSION_PATH", tmp_path / "nope"), \
-             patch.dict(os.environ, {}, clear=False):
+    def test_dev_when_nothing(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("IP_RADAR_BUILD_VERSION_FILE",
+                           str(tmp_path / "nope"))
+        with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("IP_RADAR_VERSION", None)
             assert _version._resolve_version() == "dev"
 

@@ -13,7 +13,7 @@ import logging
 import os
 from typing import Optional
 
-from . import _registry
+from . import _paths
 
 logger = logging.getLogger(__name__)
 
@@ -37,8 +37,9 @@ MAX_TOKEN_LEN = 512
 
 
 def _tokens_path():
-    # 调用期解析(循 _auth._auth_db_path 惯例):测试逐用例换 DATA_DIR
-    return _registry.DATA_DIR / "tokens.json"
+    # 调用期解析(循 _auth._auth_db_path 惯例;#406 起经 _paths 单源):
+    # 测试逐用例换 DATA_DIR 用 monkeypatch env
+    return _paths.data_dir() / "tokens.json"
 
 
 def _read_store() -> dict:
