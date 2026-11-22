@@ -145,10 +145,13 @@ def build_benchmark(sources, per_type_n: int,
             # 自报段源按声明识别(#409:scanner_ranges 声明 self_declared_ranges,
             # 此前按源名字符串匹配;同型新源声明即入,本文件不改):
             # 排除前缀只从在场 CSV 载入(缺文件=无排除=现状; D1 loader 的
-            # raise 语义属 truth 装配侧, 这里 is_file 前置走 noop 分支)
+            # raise 语义属 truth 装配侧, 这里 is_file 前置走 noop 分支)。
+            # 累加不重绑(评审 P2-2):N≥2 声明源时重绑会让后来者静默顶掉
+            # 先者前缀→排除缺失→自回声污染回流入语料(ADR 0011)。
+            # 前缀形状 = 无叠 CIDR/单列(与 scanner_ranges 载入器同契)
             path = getattr(s, "_path", None)
             if path is not None and path.is_file():
-                selfdecl = scanner_ranges_prefixes(path)
+                selfdecl.extend(scanner_ranges_prefixes(path))
             continue
         ctype = getattr(s, "classification_type", None)
         if not ctype:

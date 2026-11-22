@@ -121,3 +121,14 @@ def test_new_source_onboards_via_declaration_only():
     unmapped_summary(unknown, logger=__import__("logging").getLogger(
         "test_source_declared_maps"), label="newsrc", hits="tag",
         item="tag")  # 摘要车道对声明面映射同样零注册可用
+
+
+# ── 快照再生指南(头注 promised note,P3-2 补)──────────────────────────
+# 只在「有意变更映射内容」的工单里再生本快照(不是 git 冲突解法):
+#   cd backend && python -c "
+#     import json, importlib
+#     from tests.core.test_source_declared_maps import DECLARED_MAP_HOMES
+#     tables = {n: dict(vars(importlib.import_module(m))[n]) for n, m in DECLARED_MAP_HOMES.items()}
+#     open('tests/core/source_declared_maps.snapshot.json', 'w').write(
+#         json.dumps({'tables': tables}, ensure_ascii=False, indent=1, sort_keys=True))"
+# 再生后 PR 描述必须逐表列出变更键与本票裁决依据——字节级一致律不因再生而豁免。

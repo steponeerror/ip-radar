@@ -143,6 +143,25 @@ def test_build_benchmark_scanner_ranges_missing_csv_noop(tmp_path):
     assert set(bench.benchmark["scanner"]) == {"40.124.175.29", "198.51.100.7"}
 
 
+def test_build_benchmark_two_selfdeclared_sources_accumulate(tmp_path):
+    # 评审 P2-2 钉:N≥2 自报段源时前缀累加不重绑(重绑=后来者静默顶掉
+    # 先者→先者段内 IP 回流入语料,自回声污染,ADR 0011);scanner_ranges
+    # :138 「同型新源声明即入同车道,无需改 corpus.py」的兑现证据
+    csv_a = tmp_path / "ranges_a.csv"
+    csv_a.write_text("40.124.175.0/24,A\n")
+    a = _FakeSource("selfdecl_a", csv_a, classification_type="scanner")
+    a.self_declared_ranges = True
+    csv_b = tmp_path / "ranges_b.csv"
+    csv_b.write_text("203.0.113.0/24,B\n")
+    b = _FakeSource("selfdecl_b", csv_b, classification_type="scanner")
+    b.self_declared_ranges = True
+    raw = tmp_path / "sw.txt"
+    raw.write_text("40.124.175.29\n203.0.113.5\n198.51.100.7\n")
+    sw = _FakeSource("sw", raw, classification_type="scanner")
+    bench = build_benchmark([a, b, sw], per_type_n=10, rng=random.Random(0))
+    assert set(bench.benchmark["scanner"]) == {"198.51.100.7"}
+
+
 def test_run_for_source_records_run_seed(tmp_path):
     # S36:报告 JSON 顶层 run_seed(缺省=secrets.randbits(64) 显式随机,
     # 不得回退源名派生)+ 采样指纹(被采键集 fingerprint,存 metrics 旁)
