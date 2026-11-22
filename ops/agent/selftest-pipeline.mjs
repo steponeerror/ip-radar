@@ -554,6 +554,17 @@ await t("stderr 阶段行语法+stdout 末行=信封单行 JSON(恰一行)", asy
   assert.match(se, /\[stage\] PROBE start\n/, "start 行");
   assert.match(se, /\[stage\] PROBE done gate=PASS dur=\d+s artifact=01-probe-summary\.json\n/, "done 行(gate/dur/artifact)");
   assert.match(se, /\[stage\] CLOSE done gate=PASS dur=\d+s artifact=\(envelope\)\n/, "CLOSE done 行");
+  // #407:UI ok 徽章完成面两行(legacy agent.mjs 逐字同型)。消费方=frontend
+  // OpsCockpit.tsx buildFromMemory / OpsPastRounds okPkg,正则逐字同前端
+  // (`^round: (health|discover) 完成 → `+`^usage: in=\d+ out=\d+ total=\d+ cost=([\d.]+)$`);
+  // pkg=轮报告件路径(#403 writeRoundReport 返回值,basename <date>-<type>-<HHMM>.md
+  // 保 opsLedger.ts pkgMatchesRow 台账行关联)。两行缺席=pipeline 引擎 health 轮
+  // 恒无徽章的本票断点(诊断见 #407 评论)。
+  const slines = se.split("\n");
+  const pkgLine = [...slines].reverse().find((l) => /^round: (health|discover) 完成 → /.test(l));
+  const usageLine = [...slines].reverse().find((l) => /^usage: in=\d+ out=\d+ total=\d+ cost=([\d.]+)$/.test(l));
+  assert.ok(pkgLine && /^round: health 完成 → .+2026-10-23-health-2341\.md$/.test(pkgLine), `完成行带报告件名(得到:${pkgLine ?? "缺席"})`);
+  assert.ok(usageLine, "usage 行(前端 ok 摘要 cost 组同形)");
   const lines = io.buf.stdout.split("\n");
   assert.equal(lines.length, 2, "stdout 恰一行+末尾换行");
   assert.equal(lines[1], "");
