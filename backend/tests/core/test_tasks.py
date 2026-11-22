@@ -458,7 +458,8 @@ def test_batch_done_event_waits_for_every_settle(monkeypatch):
     assert _wait_true(lambda: any(
         e.get("type") == "done" and e["batch"]["done"] == e["batch"]["total"] == 2
         for e in events), timeout=3.0), \
-        "terminal done event (done==total==2) not observed in events"
+        f"terminal done event (done==total==2) not observed in events; " \
+        f"batch/done events now={[(e.get('type'), e['batch'].get('done'), e['batch'].get('total')) for e in events if e.get('type') in ('batch', 'done')]}"
     done = [e for e in events if e.get("type") == "done"]
     assert done, "terminal done event never emitted"
     b = done[-1]["batch"]
@@ -479,7 +480,8 @@ def test_batch_total_counts_only_attached_tasks():
     assert _wait_true(lambda: any(
         t["source"] == "a" and t["state"] == "downloading"
         for t in mgr.snapshot()["tasks"]), timeout=5.0), \
-        "detached task a never reached downloading before enqueue_batch"
+        f"detached task a never reached downloading before enqueue_batch; " \
+        f"tasks now={mgr.snapshot()['tasks']}"
     bid = mgr.enqueue_batch(["a", "b"])
     release_a.set()             # a 收尾,b 独占 batch
     _wait_states(mgr, lambda s: s["batch"] is None, timeout=10)
@@ -502,7 +504,8 @@ def test_late_enqueue_one_grows_running_batch_total():
     assert _wait_true(lambda: any(
         t["source"] == "slow" and t["state"] == "downloading"
         for t in mgr.snapshot()["tasks"]), timeout=5.0), \
-        "slow never reached downloading before late enqueue"
+        f"slow never reached downloading before late enqueue; " \
+        f"tasks now={mgr.snapshot()['tasks']}"
     mgr.enqueue_one("late")         # 迟到挂载(同步读 _active_batch,无窗口)
     release_slow.set()
     _wait_states(mgr, lambda s: s["batch"] is None, timeout=10)
