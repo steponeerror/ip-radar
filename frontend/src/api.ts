@@ -127,11 +127,14 @@ export interface StreamOutcome {
   total: number;
 }
 
-/** demo 模式下后端要求查询接口带此 header(见 public-demo-mode spec)。 */
+/** demo 模式下后端要求查询接口带此 header(见 public-demo-mode spec;backend
+ * main.py public_demo_guard 对 _DEMO_HEADER_PREFIXES 强校验,缺失 403)。 */
+const DEMO_CLIENT_HEADER: Record<string, string> = { "x-ipradar-client": "web" };
+
 export function apiFetch(url: string, init: RequestInit = {}): Promise<Response> {
   return fetch(url, {
     ...init,
-    headers: { ...(init.headers as Record<string, string>), "x-ipradar-client": "web" },
+    headers: { ...(init.headers as Record<string, string>), ...DEMO_CLIENT_HEADER },
   });
 }
 
@@ -163,10 +166,11 @@ async function throwApiError(res: Response, fallback: string): Promise<never> {
   }
 }
 
+// db-status 是演示守卫端点(backend _DEMO_HEADER_PREFIXES):#257 折并时因
+// 头通道列「不收编」,#410(2026-11-22)改显式透传该头经 requestJson 收编
+// (头缺失即 403,由 __tests__/api.demo.test.ts 钉住)。
 export async function getDbStatus(): Promise<DbStatus> {
-  const res = await apiFetch("/api/db-status");
-  if (!res.ok) return throwApiError(res, "Failed to get database status");
-  return res.json();
+  return requestJson("/api/db-status", { headers: { ...DEMO_CLIENT_HEADER } }, "Failed to get database status");
 }
 
 export interface Progress {
@@ -399,8 +403,9 @@ export interface SourceInfo {
 //                  空 body 会抛 SyntaxError,故与 requestJson 分立。
 // init 为 undefined 时保持单参 fetch(url)——既有测试按此调用形状断言
 // (TaskProvider 重同步钉 /api/tasks 单参、ops 面钉 calls[0][1] undefined)。
-// 语义不同不收编(见各自注释):apiFetch 演示头通道(getDbStatus/流式)、
-// blob 下载、202/409 同吃、adminMe 401→null 降级、adminLogout 静默容错。
+// 语义不同不收编(见各自注释):apiFetch 演示头通道中需原始 Response 的
+// 流式与 STIX blob 下载、202/409 同吃、adminMe 401→null 降级、adminLogout 静默容错。
+// db-status 原列头通道不收编,#410 改显式透传头收编(见 getDbStatus 注释)。
 async function requestJson<T>(
   url: string,
   init: RequestInit | undefined,
