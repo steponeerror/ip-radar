@@ -1,6 +1,6 @@
 // .e2e-env.mjs — health-e2e 的 env 先行件(票 #228 修复⑥)。
 // 为什么必须是「首个 import」的副作用模块:EVAL_PY 是 shared.mjs 模块加载期常量
-// (ops/agent/tools/shared.mjs:43 `process.env.OPS_EVAL_PY ?? <真 venv python>`),
+// (ops/pipeline-core/tools/shared.mjs:43 `process.env.OPS_EVAL_PY ?? <真 venv python>`),
 // seedWorld 在测试体内设 env 时模块树早已求值——首跑曾因此跑真 backend python
 // 锚巡检(非 hermetic,断言降级面也失真)。ESM 按源序求值依赖,把本模块放在
 // import 列表首位,后续经 OPS_HEALTH_ROUND → steps → shared 的链条读到的即是 stub。

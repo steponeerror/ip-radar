@@ -1,5 +1,5 @@
 <!-- 派生物可再生:判例文件是唯一真源,本文件由 scripts 重生成,勿手改(「索引是地图不是存储」,ADR 0007)。
-     rebuild: node ops/agent/build-index.mjs [--docs-root DIR](B 稿 §2.2①:spawn 前再生;同库状态字节一致)
+     rebuild: node ops/pipeline-core/build-index.mjs [--docs-root DIR](B 稿 §2.2①:spawn 前再生;同库状态字节一致)
      留痕判例(ruling-*)不进索引:档案非记忆面,rg 全文可检(B 稿 §5)。 -->
 # 判例库索引(召回地板:库内任何概念至少一行 gist 在场,按名可读全文)
 

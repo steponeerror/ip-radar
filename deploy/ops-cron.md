@@ -100,7 +100,7 @@ services:
 
 发现通道三件之一 web_search 已由 **pi-web-access**(2026-10-24 用户令「用
 pi-web-access 实现网络搜索」,https://pi.dev/packages/pi-web-access;镜像内
-pin 0.44.0,ops/agent/package.json + Dockerfile npm ci 自动带入)驱动:多 provider
+pin 0.44.0,ops/pipeline-core/package.json + Dockerfile npm ci 自动带入)驱动:多 provider
 网络搜索 + 智能回退链,**零配置一发即活**(缺省路由 keyless DuckDuckGo——正式
 取代 Jina 充值前置)。工具契约面不变(归一 SERP/每轮预算/失败四码结果单)。
 

@@ -7,7 +7,7 @@ skip 门(不满足即 SKIP,绝不 mock 冒充真跑——任务书纪律):
   的 stored credential(~/.pi/agent/auth.json,仓库现有配置惯例)。
 
 真跑链路 = 生产 spawn 路径(无 IP_RADAR_OPS_AGENT_CMD 覆盖):ops 树落 tmp、
-真 node 拉 ops/agent/agent.mjs、真 glm-5.3-flash、包/台账经 lib.sh 落 ops 树。
+真 node 拉 ops/pipeline-core/agent.mjs、真 glm-5.3-flash、包/台账经 lib.sh 落 ops 树。
 注意:agent 侧 sandbox_assert(worktree 根 backend/frontend 零改动红线)要求
 worktree 干净——与本仓未提交改动同批跑会 sandbox_violation,这是红线在工作,
 非测试缺陷(先提交再跑)。

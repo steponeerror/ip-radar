@@ -247,7 +247,7 @@ def _guardrails(root: Path, runs_dir: Path, log_dir: Path) -> dict:
     """三护栏(票面:golden + v2 全套 + leak gate;候选 worktree 内跑,主检出 venv 判例)。
     任一红即整门红——过不了的候选不进花钱评估(smoke 拦)也不可接受(guards 拦)。"""
     h = (root / "domains" / "ipradar" / "harness").resolve()
-    agent, agent_v2 = h / "ops" / "agent", h / "ops" / "agent-v2"
+    agent, agent_v2 = h / "ops" / "pipeline-core", h / "ops" / "agent-v2"
     out = {}
     _ensure_backend_link(root)
     # node_modules 幂等装配(候选 worktree 无 untracked;判改动可装=候选自身能力)
@@ -364,7 +364,7 @@ class IpRadarDomain(Domain):
         # 环境先于首轮:backend 探针链接 + node_modules 幂等装配(baseline 的 wt/incumbent
         # 是新 worktree,不预先装配首轮就 ERR_MODULE_NOT_FOUND——#322 首跑踩坑二补入)
         _ensure_backend_link(root)
-        for _d in (harness / "ops" / "agent", harness / "ops" / "agent-v2"):
+        for _d in (harness / "ops" / "pipeline-core", harness / "ops" / "agent-v2"):
             if not (_d / "node_modules").is_dir():
                 _run(["npm", "ci", "--no-fund", "--no-audit"], cwd=_d,
                      log=log_dir / "npm-ci.log", timeout=900)
@@ -384,7 +384,7 @@ class IpRadarDomain(Domain):
             flags += ["--model", os.environ.get("IPRADAR_BENCH_MODEL",
                                                 "zai-coding-cn/glm-5.3-flash")]
         else:
-            flags += ["--fixtures", str(harness / "ops" / "agent" / "fixtures" / "pipeline")]
+            flags += ["--fixtures", str(harness / "ops" / "pipeline-core" / "fixtures" / "pipeline")]
         for trial in range(k):
             rid = _round_id(job, trial)
             logf = log_dir / f"{log_prefix or job}.log"

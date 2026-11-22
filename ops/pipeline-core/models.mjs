@@ -201,7 +201,7 @@ export async function loadModels(opts = {}) {
         ? own.slice(0, 8).map((x) => x.id).join(",") + (own.length > 8 ? `,…共${own.length}型` : "")
         : "(该 provider 未装载任何 chat 模型)";
       throw new Error(
-        `模型未装载: ${provider}/${id}(${ownIds};已注册 provider ${models.getProviders().length} 家,目录 dump: node ops/agent/catalog.mjs)`);
+        `模型未装载: ${provider}/${id}(${ownIds};已注册 provider ${models.getProviders().length} 家,目录 dump: node ops/pipeline-core/catalog.mjs)`);
     }
     return m;
   };

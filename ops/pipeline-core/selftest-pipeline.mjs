@@ -1134,7 +1134,7 @@ await t("位等价门(#163):同 stub 下 legacy health 轮工件 = 管线 PROBE 
   // 腿一(legacy)= agent.mjs runRound 真 Agent 循环(golden health 例同型):faux 模型点
   // health_snapshot → lib.sh feed_freshness + tools.mjs runMatrixScan 真路径,产出 ts-slug 工件;
   // 腿二(管线)= pipeline.mjs PROBE(同 lib.sh 同 matrixScanCli 单源)。两腿同 curl/OPS_EVAL_PY stub,
-  // 同清单(ops/agent/feeds.txt 97 URL 固定 fixture),先后背靠背跑(同 UTC 日,curl stub 日界截断)。
+  // 同清单(ops/pipeline-core/feeds.txt 97 URL 固定 fixture),先后背靠背跑(同 UTC 日,curl stub 日界截断)。
   const { runRound } = await import("./agent.mjs");
   const { fauxProvider, fauxAssistantMessage, fauxToolCall, fauxText, createModels } = await import("@earendil-works/pi-ai");
   const faux = fauxProvider({ models: [{ id: "faux-eq" }] });

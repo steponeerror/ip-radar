@@ -39,7 +39,7 @@ jobs:
       # node+npm 供给(本 job 已具备)+rg(ubuntu runner 预装,兜底 apt 装)。真模型 smoke 层
       # 单列不进 CI(计划书 Task 6 Step 2)。沙箱断言面对 checkout 干净仓(同 仓内 step 均落 ignore 面)。
       - name: Ops agent golden set (faux, no API spend)
-        working-directory: ops/agent
+        working-directory: ops/pipeline-core
         run: |
           command -v rg >/dev/null 2>&1 || sudo apt-get install -y -q ripgrep
           npm ci --no-fund --no-audit
@@ -52,7 +52,7 @@ jobs:
       # (test_precedent_schema.py 同型)。§10 会再跑一遍 golden(faux,秒级)——
       # 接受重复,不加条件分支:伞面绿=全部绿。
       - name: Ops agent selftest (lib.sh + gate units + contract)
-        working-directory: ops/agent
+        working-directory: ops/pipeline-core
         run: bash selftest.sh
       # 说人话闸单测(pi 扩展 plain-language-gate 的纯扫描函数):词表语义与
       # ~/.pi/agent/scripts/check_plain_language.py 逐条对齐,防两侧漂移

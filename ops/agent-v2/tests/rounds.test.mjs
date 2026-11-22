@@ -15,12 +15,12 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { fauxProvider, createModels } from "@earendil-works/pi-ai";
 import * as v2breaker from "../breaker.mjs"; // 零复制 re-export seam(被测面)
-import { BREAKER_CHANNELS, mkBreaker, readBreakerKnobs } from "../../agent/tools/breaker.mjs"; // 旧真源(对拍基准)
+import { BREAKER_CHANNELS, mkBreaker, readBreakerKnobs } from "../../pipeline-core/tools/breaker.mjs"; // 旧真源(对拍基准)
 import { OPS_PROBE_TOOLS, bindProbeHost, unbindProbeHost } from "../tools/probes.mjs";
 import { OPS_MODEL_ROUND, modelRequestId, MODEL_STAGES } from "../tasks/model-round.mjs";
 import { OPS_HEALTH_ROUND, RUNNABLE, rebuildRoundCtx } from "../tasks/health-round.mjs";
 import { buildRegistry } from "../registry.mjs";
-import { HEALTH_PIPELINE } from "../../agent/pipeline.mjs";
+import { HEALTH_PIPELINE } from "../../pipeline-core/pipeline.mjs";
 
 // ── ① breaker seam:五通道闭集 + 快照只读不造文件(Q3③;旧 CLOSE 步同面)──────────
 test("breaker seam:五通道闭集逐名;snapshot() 只读零写(回声律:不造文件)", async () => {
@@ -78,9 +78,9 @@ test("ops-model-round E2E:TRIAGE 一发→03-triage-hypotheses.json 落盘→G_T
     ], known_noise_digest: [] }, null, 2) + "\n");
   // canned 回合=旧 fixtures/pipeline/triage.json 同型(G_TRIAGE 闭集值全过);fixturesDir=同源
   // (MF3 后 faux 面 transcript 种子/fixture 必件——旧 loadFixture 同判例)
-  const fixturesDir = path.resolve(import.meta.dirname, "..", "..", "agent", "fixtures", "pipeline");
+  const fixturesDir = path.resolve(import.meta.dirname, "..", "..", "pipeline-core", "fixtures", "pipeline");
   const canned = JSON.parse(fs.readFileSync(path.join(fixturesDir, "triage.json"), "utf8"));
-  const systemPrompt = fs.readFileSync(path.resolve(import.meta.dirname, "..", "..", "agent", "prompts", "health", "triage.md"), "utf8");
+  const systemPrompt = fs.readFileSync(path.resolve(import.meta.dirname, "..", "..", "pipeline-core", "prompts", "health", "triage.md"), "utf8");
 
   const { fauxProvider: fp, createModels: cm } = { fauxProvider, createModels };
   const faux = fp({ models: [{ id: "glm-5.3-flash" }] });

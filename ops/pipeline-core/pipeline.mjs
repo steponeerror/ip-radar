@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // pipeline.mjs — 健康轮轮次状态机宿主(P2 比稿 C P0 骨架;spec #161;详设 notes/p2-design-c-pipelinefirst-2026-10-23.md §2/§4)。
-// 用法: node ops/agent/pipeline.mjs health [--round-id ID] [--fixtures DIR]          ← 跑一轮(显式 --fixtures=faux 面;缺省=真 provider 面,#170)
-//       node ops/agent/pipeline.mjs replay <round_id> [--from STAGE] [--to STAGE] [--dry] [--fixtures DIR]
+// 用法: node ops/pipeline-core/pipeline.mjs health [--round-id ID] [--fixtures DIR]          ← 跑一轮(显式 --fixtures=faux 面;缺省=真 provider 面,#170)
+//       node ops/pipeline-core/pipeline.mjs replay <round_id> [--from STAGE] [--to STAGE] [--dry] [--fixtures DIR]
 // 三层职责线(DESIGN.md §2):本文件=宿主层只编排——定义表(数据)驱动引擎,门全机检(pipeline/gates.mjs),
 // 脚本步(pipeline/steps.mjs)只测量不判断,模型步经 pipeline/faux.mjs(#170:fixtures 面 faux/运行面真 provider;选择=selectModelFace,面记入 state.model_face)。
 // 契约沿用 agent.mjs spawn 契约:stdout 末行=轮次信封(现有形状只增 pipeline 扩展字段,C稿 §4.4);
@@ -521,7 +521,7 @@ export async function runResume(opts = {}) {
 export async function main(argv, io = {}) {
   const env = io.env ?? process.env;
   const stdout = io.stdout ?? process.stdout, stderr = io.stderr ?? process.stderr;
-  const usage = "用法: node ops/agent/pipeline.mjs health [--round-id ID] [--fixtures DIR]\n      node ops/agent/pipeline.mjs discover [--round-id ID] [--fixtures DIR](发现轮 #207 T1)\n      node ops/agent/pipeline.mjs replay <round_id> [--from STAGE] [--to STAGE] [--dry] [--fixtures DIR]\n      node ops/agent/pipeline.mjs resume <round_id>(crash 恢复,C稿 §4.6;boot 扫描/运维手用)";
+  const usage = "用法: node ops/pipeline-core/pipeline.mjs health [--round-id ID] [--fixtures DIR]\n      node ops/pipeline-core/pipeline.mjs discover [--round-id ID] [--fixtures DIR](发现轮 #207 T1)\n      node ops/pipeline-core/pipeline.mjs replay <round_id> [--from STAGE] [--to STAGE] [--dry] [--fixtures DIR]\n      node ops/pipeline-core/pipeline.mjs resume <round_id>(crash 恢复,C稿 §4.6;boot 扫描/运维手用)";
   const flag = (n) => { const i = argv.indexOf(n); return i >= 0 ? argv[i + 1] : undefined; };
   const bad = (m) => { stderr.write(`${m}\n${usage}\n`); return 2; };
   const mode = env.OPS_PIPELINE ?? process.env.OPS_PIPELINE ?? "legacy"; // 迁移开关(P2 桥消费;本 CLI 校验值闭集并记入 state.json)

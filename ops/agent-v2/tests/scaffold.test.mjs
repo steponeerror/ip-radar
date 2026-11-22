@@ -73,9 +73,9 @@ test("pi-ai 单实例且 =1.4.0;跨目录(ops/agent)同版(t1-notes 风险2 双�
   assert.match(paths[0], /node_modules[/]@earendil-works[/]pi-ai$/);
   const v2Version = JSON.parse(fs.readFileSync(path.join(paths[0], "package.json"), "utf8")).version;
   assert.equal(v2Version, "1.4.0");
-  // 跨目录:models.mjs 只读 import 自 ops/agent,其 pi-ai 解析自 ops/agent/node_modules,
+  // 跨目录:models.mjs 只读 import 自 ops/agent,其 pi-ai 解析自 ops/pipeline-core/node_modules,
   // 两份物理拷贝必须同版(否则两套凭证店/目录互不相识,api-map §0)。
-  const agentPkg = path.join(ROOT, "ops", "agent", "node_modules", "@earendil-works", "pi-ai", "package.json");
+  const agentPkg = path.join(ROOT, "ops", "pipeline-core", "node_modules", "@earendil-works", "pi-ai", "package.json");
   assert.ok(fs.existsSync(agentPkg), `ops/agent 未 npm ci(缺 ${agentPkg})`);
   assert.equal(JSON.parse(fs.readFileSync(agentPkg, "utf8")).version, v2Version, "ops/agent pi-ai 版本漂移");
 });

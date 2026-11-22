@@ -11,7 +11,7 @@ import { spawn } from "node:child_process";
 import { seedWorld } from "../shadow-diff.mjs";
 
 const HERE = import.meta.dirname;
-const AGENT = path.resolve(HERE, "..", "..", "agent");
+const AGENT = path.resolve(HERE, "..", "..", "pipeline-core");
 const FIXTURES = path.join(AGENT, "fixtures", "pipeline");
 const today = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; })(); // 本地日期=台账行日期源(lib.sh ledger_append);原 toISOString 取 UTC,本地 00-08 点窗(=UTC 16-24)日期分叉必 flake,2026-10-29 首咬
 // 测试用轮 id:同分钟+序数偏移(形状律 \d{4} 只验数字面,1870 等仍合法;字母后缀会进 HHMM 段违形状)

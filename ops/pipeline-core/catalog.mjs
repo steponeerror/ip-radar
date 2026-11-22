@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // catalog.mjs — 运营 agent 可装载模型目录 dump(票 #143 动态目录;后端子调用面)。
 //
-// 用法:node ops/agent/catalog.mjs → stdout 单 JSON:{"<providerId>":
+// 用法:node ops/pipeline-core/catalog.mjs → stdout 单 JSON:{"<providerId>":
 //   [{id,name,cost:{input,output,cacheRead,cacheWrite}|null},…](按 id 排序)},
 //   只含有 chat 模型的 provider;exit 0。任何失败 = stderr 一行 + exit 1(不吐
 //   半截 JSON,后端整体兜底,绝不静默)。

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // run-golden.mjs — 金轨迹集 runner(Task 6 Step 2/3)。
-// 用法: node ops/agent/golden/run-golden.mjs [--only <id>] [--smoke] [--list]   ← 父进程(逐例派生子进程)
-//       node ops/agent/golden/run-golden.mjs --case <id> [--smoke]             ← 子进程(单例)
+// 用法: node ops/pipeline-core/golden/run-golden.mjs [--only <id>] [--smoke] [--list]   ← 父进程(逐例派生子进程)
+//       node ops/pipeline-core/golden/run-golden.mjs --case <id> [--smoke]             ← 子进程(单例)
 // faux 层(pi-ai fauxProvider)跑真实 agent.mjs runRound 回路:真 Agent 循环 + 真写前语义门
 // + 真收口四件(包/台账/闭合校验/沙箱断言),零 API 花费;判据全布尔(计划书:无 1-5 打分)。
 // 隔离:每例一子进程,fixture DOCS_ROOT(判例树/队列/台账/包全落 tmp)——真实 docs 树零触碰;

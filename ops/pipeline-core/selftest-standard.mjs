@@ -29,7 +29,7 @@ const VALID_DOC = `# STANDARD.md — 合成有效样例
 | # | 原语 | 2026 出处 | 内部状态 | 内部锚 / 补课 |
 |---|---|---|---|---|
 | P1 | 转载去重 | swarm tax 2026-05 | 已有 | backend/ipdb/_logodds.py |
-| P2 | 标准答案集 | Anthropic 2026-01 | 已有 | ops/agent/golden/cases.json |
+| P2 | 标准答案集 | Anthropic 2026-01 | 已有 | ops/pipeline-core/golden/cases.json |
 
 ## 二、条文层(首批两维)
 
@@ -38,7 +38,7 @@ const VALID_DOC = `# STANDARD.md — 合成有效样例
 #### E-1 合成头条
 - 主张:先写失败评测再动 agent。
 - 原语组成:标准答案集;转载去重
-- 门挂点:ops/agent/golden/run-golden.mjs;ops/agent/pipeline.mjs#HEALTH_PIPELINE
+- 门挂点:ops/pipeline-core/golden/run-golden.mjs;ops/pipeline-core/pipeline.mjs#HEALTH_PIPELINE
 - 判例链:web.dev 2026-01-29;ADR 0008
 
 ### 开发过程维(D)
@@ -46,7 +46,7 @@ const VALID_DOC = `# STANDARD.md — 合成有效样例
 #### D-1 合成开发条
 - 主张:门全机检,留痕可回算。
 - 原语组成:转载去重
-- 门挂点:ops/agent/gates.mjs
+- 门挂点:ops/pipeline-core/gates.mjs
 - 判例链:promptfoo 2026-10-02
 
 ## 三、门挂点层
@@ -67,9 +67,9 @@ const VALID_DOC = `# STANDARD.md — 合成有效样例
 `;
 
 const VALID_FILES = {
-  "ops/agent/golden/run-golden.mjs": "export {}",
-  "ops/agent/pipeline.mjs": "export const HEALTH_PIPELINE = [];",
-  "ops/agent/gates.mjs": "export {}",
+  "ops/pipeline-core/golden/run-golden.mjs": "export {}",
+  "ops/pipeline-core/pipeline.mjs": "export const HEALTH_PIPELINE = [];",
+  "ops/pipeline-core/gates.mjs": "export {}",
   "backend/ipdb/_eval/anchors.py": "ANCHORS = []",
 };
 
@@ -97,28 +97,28 @@ expectPass("合成有效典章全绿(四层齐/挂点活/建议标类)", VALID_D
 // ---- 2. 空挂点:门挂点字段值为空 ----
 expectFail(
   "空挂点条目被拒(门挂点值空)", 
-  VALID_DOC.replace("门挂点:ops/agent/golden/run-golden.mjs;ops/agent/pipeline.mjs#HEALTH_PIPELINE", "门挂点:"),
+  VALID_DOC.replace("门挂点:ops/pipeline-core/golden/run-golden.mjs;ops/pipeline-core/pipeline.mjs#HEALTH_PIPELINE", "门挂点:"),
   "空挂点",
 );
 
 // ---- 3. 缺门挂点字段:整行被删 ----
 expectFail(
   "缺门挂点字段被拒(条文无门=伪标准形态)", 
-  VALID_DOC.replace("- 门挂点:ops/agent/golden/run-golden.mjs;ops/agent/pipeline.mjs#HEALTH_PIPELINE\n", ""),
+  VALID_DOC.replace("- 门挂点:ops/pipeline-core/golden/run-golden.mjs;ops/pipeline-core/pipeline.mjs#HEALTH_PIPELINE\n", ""),
   "缺门挂点",
 );
 
 // ---- 4. 死锚:指向不存在的文件 ----
 expectFail(
   "死锚挂点被拒(文件不存在)", 
-  VALID_DOC.replace("ops/agent/gates.mjs", "ops/agent/never-lands.mjs"),
+  VALID_DOC.replace("ops/pipeline-core/gates.mjs", "ops/pipeline-core/never-lands.mjs"),
   "死锚",
 );
 
 // ---- 5. 死锚fragment:文件在但片段不在 ----
 expectFail(
   "死锚fragment被拒(文件在而锚词不在)", 
-  VALID_DOC.replace("ops/agent/pipeline.mjs#HEALTH_PIPELINE", "ops/agent/pipeline.mjs#NO_SUCH_CONST"),
+  VALID_DOC.replace("ops/pipeline-core/pipeline.mjs#HEALTH_PIPELINE", "ops/pipeline-core/pipeline.mjs#NO_SUCH_CONST"),
   "fragment",
 );
 
@@ -149,7 +149,7 @@ expectFail(
 // ---- 9. 原语计数不符(v0 闭集 22;合成样例注入 3 行对 2) ----
 expectFail(
   "原语计数闭集被钉(22 词 v0 冻结;缺行被拒)", 
-  VALID_DOC.replace("| P2 | 标准答案集 | Anthropic 2026-01 | 已有 | ops/agent/golden/cases.json |", ""),
+  VALID_DOC.replace("| P2 | 标准答案集 | Anthropic 2026-01 | 已有 | ops/pipeline-core/golden/cases.json |", ""),
   "原语计数",
 );
 
@@ -177,7 +177,7 @@ expectFail(
 // ---- 13. docs/(嵌套仓)作门挂点:CI checkout 缺席判例 ----
 expectFail(
   "嵌套 docs 仓路径作门挂点被拒(CI 缺席判例)", 
-  VALID_DOC.replace("ops/agent/gates.mjs", "docs/adr/0008-golden-standard-four-layer.md"),
+  VALID_DOC.replace("ops/pipeline-core/gates.mjs", "docs/adr/0008-golden-standard-four-layer.md"),
   "docs/",
 );
 
@@ -199,8 +199,8 @@ expectFail(
 
 // ---- 16. #304④:AGENTS.md 引用路径腿 — 绿例(在场且全存在) ----
 {
-  const doc = "探码先 `ops/agent/STANDARD.md`,任务链 `frontend/src/tasks/TaskProvider.tsx`,命令 `gh pr checks --watch` 勿轮询。";
-  const r = checkAgentsRefs(doc, mkFs({ "ops/agent/STANDARD.md": "x", "frontend/src/tasks/TaskProvider.tsx": "x" }));
+  const doc = "探码先 `ops/pipeline-core/STANDARD.md`,任务链 `frontend/src/tasks/TaskProvider.tsx`,命令 `gh pr checks --watch` 勿轮询。";
+  const r = checkAgentsRefs(doc, mkFs({ "ops/pipeline-core/STANDARD.md": "x", "frontend/src/tasks/TaskProvider.tsx": "x" }));
   const fails = r.results.filter((x) => !x.ok);
   if (r.exitCode === 0 && fails.length === 0 && r.counts.refs === 2) ok("agents-ref:绿例(引用全在场,含空格命令 span 不认)");
   else bad("agents-ref:绿例", `exit=${r.exitCode} refs=${r.counts.refs} fails=${fails.map((f) => f.msg).join(" | ") || "(无)"}`);
@@ -208,7 +208,7 @@ expectFail(
 
 // ---- 17. #304④:AGENTS.md 引用路径腿 — 死引用被拒 ----
 {
-  const doc = "挂点见 `ops/agent/never-lands.mjs`。";
+  const doc = "挂点见 `ops/pipeline-core/never-lands.mjs`。";
   const r = checkAgentsRefs(doc, mkFs({}));
   const hit = r.results.find((x) => !x.ok && x.msg.includes("引用路径不存在"));
   if (r.exitCode !== 0 && hit) ok("agents-ref:死引用被拒(悬空引用非零退出)");
@@ -223,10 +223,10 @@ expectFail(
     "`/api/version` 不认;",
     "`git worktree add .worktrees/t -b b origin/master` 不认(带空格整串命令);",
     "`dev/`、`reports/` 不认(单段目录引用,仓内仓外语义两可);",
-    "`ops/agent/DESIGN.md` 认;`ops/agent/DESIGN.md` 去重后只计一次。",
+    "`ops/pipeline-core/DESIGN.md` 认;`ops/pipeline-core/DESIGN.md` 去重后只计一次。",
   ].join("");
   const refs = extractAgentPathRefs(doc);
-  if (refs.length === 1 && refs[0] === "ops/agent/DESIGN.md") ok("agents-ref:抽取面宁少算+去重(URL/~/绝对/命令/单段不认)");
+  if (refs.length === 1 && refs[0] === "ops/pipeline-core/DESIGN.md") ok("agents-ref:抽取面宁少算+去重(URL/~/绝对/命令/单段不认)");
   else bad("agents-ref:抽取面宁少算", `实得 ${JSON.stringify(refs)}`);
 }
 

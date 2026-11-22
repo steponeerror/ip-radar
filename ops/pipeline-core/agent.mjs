@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // agent.mjs — pi-agent-core 宿主(计划书 Task 4 终稿;ADR 0004)。
-// 用法: node ops/agent/agent.mjs <health|discover> "<本轮输入>" [追加判例检索词...]
+// 用法: node ops/pipeline-core/agent.mjs <health|discover> "<本轮输入>" [追加判例检索词...]
 //
 // 架构(计划书 Task 4 节):装载模型(models.mjs,用户 models.json 优先三层 upsert)
 // → new Agent({initialState:{systemPrompt=轮次系统提示文件, model=健康 glm-5.3-flash/
@@ -331,7 +331,7 @@ export async function main(argv, io = {}) {
     return pipelineMain([round, input, ...extra], { env, stdout, stderr });
   }
   if (!round || input === undefined) { // 用法错:纯 stderr + exit 2,不发 JSON(机器契约只覆盖真轮次)
-    log('用法: node ops/agent/agent.mjs <health|discover> "<本轮输入>" [追加判例检索词...]');
+    log('用法: node ops/pipeline-core/agent.mjs <health|discover> "<本轮输入>" [追加判例检索词...]');
     return 2;
   }
   let r;

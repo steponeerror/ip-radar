@@ -85,7 +85,7 @@ test("绿:空文件/空行零误报;扫描面文件清单如实回报", () => {
 test("defaultScanSurface:基准提示词在才扫;bench/ 下 exam-rules/aliases 剔除,子目录递归,排序确定", async () => {
   const { defaultScanSurface } = await import("../bench/leak-check.mjs");
   const root = tmpFixture({
-    "ops/agent/prompts/discover/shortlist-bench.md": "# bench prompt\n",
+    "ops/pipeline-core/prompts/discover/shortlist-bench.md": "# bench prompt\n",
     "ops/agent-v2/bench/leak-check.mjs": "// self\n",
     "ops/agent-v2/bench/exam-rules.json": "{}\n",
     "ops/agent-v2/bench/aliases.json": "{}\n",
@@ -97,28 +97,28 @@ test("defaultScanSurface:基准提示词在才扫;bench/ 下 exam-rules/aliases 
     "ops/agent-v2/bench/leak-check.mjs",
     "ops/agent-v2/bench/notes.md",
     "ops/agent-v2/bench/sub/deep.md",
-    "ops/agent/prompts/discover/shortlist-bench.md",
+    "ops/pipeline-core/prompts/discover/shortlist-bench.md",
   ].sort());
   const bare = tmpFixture({ "ops/agent-v2/bench/README.md": "empty bench\n" }); // 无基准提示词
   assert.deepEqual(defaultScanSurface(bare).map((p) => path.relative(bare, p)), ["ops/agent-v2/bench/README.md"]);
 });
 
 // ── 加源域扫描面(#334 交付面 3:轮提示词不得含考题名单)──
-// 缺省面扩收 ops/agent/prompts/add/(加源轮提示词,bench 形态装载 system+implement,
+// 缺省面扩收 ops/pipeline-core/prompts/add/(加源轮提示词,bench 形态装载 system+implement,
 // 生产形态另装载 dossier——三件全收);目录在才扫(同基准提示词律),真仓在场由
 // 下方单源钉死测试把门(改名/移位→钉死测试红,不静默装绿——终审 P2-1 同款防线)。
 test("加源域缺省面:prompts/add/ 在才扫递归;含考题名的提示词被拦(红绿自证红端)", async () => {
   const { defaultScanSurface } = await import("../bench/leak-check.mjs");
   const root = tmpFixture({
-    "ops/agent/prompts/add/system.md": "实现候选源;参考既有源(如 binarydefense)风格\n", // 裸考题名=红
-    "ops/agent/prompts/add/implement.md": "TDD 硬序:先写测试亲眼看红\n",
+    "ops/pipeline-core/prompts/add/system.md": "实现候选源;参考既有源(如 binarydefense)风格\n", // 裸考题名=红
+    "ops/pipeline-core/prompts/add/implement.md": "TDD 硬序:先写测试亲眼看红\n",
   });
   const files = defaultScanSurface(root);
-  assert.deepEqual(files.map((p) => path.relative(root, p)).sort(), ["ops/agent/prompts/add/implement.md", "ops/agent/prompts/add/system.md"]);
+  assert.deepEqual(files.map((p) => path.relative(root, p)).sort(), ["ops/pipeline-core/prompts/add/implement.md", "ops/pipeline-core/prompts/add/system.md"]);
   const r = runLeakCheck({ rosterText: FIXTURE_ROSTER, files });
   assert.equal(r.ok, false, "含考题名(binarydefense)的提示词必须被拦");
   assert.ok(r.hits.some((h) => h.source === "binarydefense" && h.file.endsWith("system.md")));
-  const clean = tmpFixture({ "ops/agent/prompts/add/system.md": "通用提示词,零考题名\n" });
+  const clean = tmpFixture({ "ops/pipeline-core/prompts/add/system.md": "通用提示词,零考题名\n" });
   assert.equal(runLeakCheck({ rosterText: FIXTURE_ROSTER, files: defaultScanSurface(clean) }).ok, true);
 });
 
@@ -126,7 +126,7 @@ test("加源域提示词路径单源钉死:真仓 add 三件在缺省面(P1 改�
   const { defaultScanSurface, addPromptsDir } = await import("../bench/leak-check.mjs");
   const files = defaultScanSurface().map((p) => p.replaceAll("\\", "/"));
   for (const f of ["system.md", "dossier.md", "implement.md"])
-    assert.ok(files.some((p) => p === `${addPromptsDir().replaceAll("\\", "/")}/${f}`), `缺省面须含 ops/agent/prompts/add/${f}`);
+    assert.ok(files.some((p) => p === `${addPromptsDir().replaceAll("\\", "/")}/${f}`), `缺省面须含 ops/pipeline-core/prompts/add/${f}`);
   assert.ok(fs.existsSync(addPromptsDir()), "真仓 prompts/add 在(P1 #332 产物)");
 });
 

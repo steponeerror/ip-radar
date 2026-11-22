@@ -17,7 +17,7 @@ import { benchScan } from "../bench/scan.mjs";
 
 const execFile = promisify(execFileCb);
 const HERE = path.resolve(import.meta.dirname, "..");
-const FIXTURES = path.resolve(HERE, "..", "agent", "fixtures", "pipeline");
+const FIXTURES = path.resolve(HERE, "..", "pipeline-core", "fixtures", "pipeline");
 const ROUND = "2026-06-01-0500-discover";
 
 function tmpTree(prefix) {

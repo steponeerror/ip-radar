@@ -8,10 +8,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { candidateIssueDraft, runEnqueueIssueExit, enqueueStageIssueExit, ENQUEUE_ISSUES_ARTIFACT } from "../tools/enqueue-issues.mjs";
-import { ARTIFACTS as A } from "../../agent/artifacts.mjs";
+import { ARTIFACTS as A } from "../../pipeline-core/artifacts.mjs";
 
 const ROUND = "2026-06-01-0400-discover";
-// 夹具候选(ops/agent/fixtures/pipeline 全轮例同源形状:rDNS 过三判据;carrier 双面不可算)
+// 夹具候选(ops/pipeline-core/fixtures/pipeline 全轮例同源形状:rDNS 过三判据;carrier 双面不可算)
 const FX_SH = { candidates: [
   { name: "rDNS 主机名", url: "https://ip.thc.org", quote: "ip.thc.org 月度全量 parquet(49.5GB,HF+镜像双源实测活)", evidence_ptr: "NEEDS.md:L14", source_channel: "needs", exclusivity_estimate: 0.42, notes: "缺口:反解析维度无本地源" },
   { name: "carrier / is_isp 出中国段", url: null, quote: "IPinfo carrier 批量库", evidence_ptr: "NEEDS.md:L17", source_channel: "needs", exclusivity_estimate: null, notes: "无 URL" },

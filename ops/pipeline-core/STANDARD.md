@@ -2,7 +2,7 @@
 
 裁定:ADR 0008(2026-10-24 用户确认,嵌套 docs 仓);研究底座:notes/ops-agent-golden-standard-research-2026-10-24.md(40 卡,只采 2026 学术+工业源);spec:#180(总纲)/#181(本文件 v0)。
 
-**总律:挂不上验证手段的条目只能称建议,不得称标准**——反面教材=已知答案门死件(anchors.py 明文「must stay clean」却零生产调用面,2026-10-24 事故复盘)。本文件的机检面=ops/agent/standard-check.mjs(零依赖纯 node;挂 selftest 链 §13):每条条文的门挂点指向的文件/测试必须真实存在,死锚/空挂点/伪条目=非零退出;无门挂点条目必须以「类:建议」显式标类落建议区(§五)。
+**总律:挂不上验证手段的条目只能称建议,不得称标准**——反面教材=已知答案门死件(anchors.py 明文「must stay clean」却零生产调用面,2026-10-24 事故复盘)。本文件的机检面=ops/pipeline-core/standard-check.mjs(零依赖纯 node;挂 selftest 链 §13):每条条文的门挂点指向的文件/测试必须真实存在,死锚/空挂点/伪条目=非零退出;无门挂点条目必须以「类:建议」显式标类落建议区(§五)。
 
 条文编号:E=评估回归维,D=开发过程维,G=标准答案层条目;条文五件套=编号+主张+原语组成+门挂点+判例链;原语组成必须是 §一 表内词(组合不出原语=伪条目)。
 
@@ -12,16 +12,16 @@
 
 | # | 原语 | 2026 出处(研究底座) | 内部状态 | 内部锚 / 补课 |
 |---|---|---|---|---|
-| P1 | 通道错误四码 | FlowGuard 2026-07;EpiSEM-Bench 2026-10 | 已有 | ops/agent/tools/envelope.mjs(classifyChannelError 四码) |
-| P2 | 轮次状态机 | Gartner 2026-10;swarm tax 2026-05 | 已有 | ops/agent/pipeline.mjs(HEALTH_PIPELINE,模型只在三步) |
+| P1 | 通道错误四码 | FlowGuard 2026-07;EpiSEM-Bench 2026-10 | 已有 | ops/pipeline-core/tools/envelope.mjs(classifyChannelError 四码) |
+| P2 | 轮次状态机 | Gartner 2026-10;swarm tax 2026-05 | 已有 | ops/pipeline-core/pipeline.mjs(HEALTH_PIPELINE,模型只在三步) |
 | P3 | 转载去重 | swarm tax 2026-05(算力对齐同构);对撞表独有列 | 已有 | backend/ipdb/_logodds.py(dedup_lineage) |
-| P4 | 同数据重跑比对 | Braintrust 2026-09;promptfoo 2026-10 | 已有 | ops/agent/golden(字节级一致)+PROBE 字节级一致判例(#169) |
-| P5 | 三层职责线 | Microsoft 2026-06;ACM Queue 2026-10 | 已有 | ops/agent/DESIGN.md(ADR 0007) |
-| P6 | 工具白名单 | MCP-ITP 2026-01;NSA CSI 2026-06;MCP spec 2026-07 | 已有 | ops/agent/tools/registry.mjs(MEASUREMENT_TOOLS 闭集) |
-| P7 | 预扣结算 | Latentism 2026-10(调用前检查印证;旧单列词条已并入,见 GLOSSARY「改名对照」) | 已有 | ops/agent/pipeline.mjs(budget_truncate) |
-| P8 | 阶段门 | promptfoo 2026-10(CI fail-PR) | 已有 | ops/agent/pipeline/gates.mjs(gates.json 留痕) |
-| P9 | 判例转正通道 | Agentic Auditing 2026-10(人验签核平行;外部无直接对应) | 已有 | ops/agent/promote-detect.mjs |
-| P10 | 标准答案集 | Anthropic 2026-01(回归语义);promptfoo 2026-10(golden 数据集) | 已有 | ops/agent/golden/cases.json(faux 零花费) |
+| P4 | 同数据重跑比对 | Braintrust 2026-09;promptfoo 2026-10 | 已有 | ops/pipeline-core/golden(字节级一致)+PROBE 字节级一致判例(#169) |
+| P5 | 三层职责线 | Microsoft 2026-06;ACM Queue 2026-10 | 已有 | ops/pipeline-core/DESIGN.md(ADR 0007) |
+| P6 | 工具白名单 | MCP-ITP 2026-01;NSA CSI 2026-06;MCP spec 2026-07 | 已有 | ops/pipeline-core/tools/registry.mjs(MEASUREMENT_TOOLS 闭集) |
+| P7 | 预扣结算 | Latentism 2026-10(调用前检查印证;旧单列词条已并入,见 GLOSSARY「改名对照」) | 已有 | ops/pipeline-core/pipeline.mjs(budget_truncate) |
+| P8 | 阶段门 | promptfoo 2026-10(CI fail-PR) | 已有 | ops/pipeline-core/pipeline/gates.mjs(gates.json 留痕) |
+| P9 | 判例转正通道 | Agentic Auditing 2026-10(人验签核平行;外部无直接对应) | 已有 | ops/pipeline-core/promote-detect.mjs |
+| P10 | 标准答案集 | Anthropic 2026-01(回归语义);promptfoo 2026-10(golden 数据集) | 已有 | ops/pipeline-core/golden/cases.json(faux 零花费) |
 | P11 | 放行阈值≈100% | Anthropic 2026-01-09(保底轨/爬坡轨分立) | 半缺 | 已知答案集+ops 轮巡检已接线(#182 ANCHOR_SWEEP/G_ANCHOR_SWEEP);补课=生产 cron 灰度开启+223.5.5.5 残留(#188) |
 | P12 | 安静失败探针 | IEEE Spectrum 2026-04 | 半缺 | 判例=8.8.8.8 门不响;接线已落(#182);补课=生产 cron 灰度开启 |
 | P13 | 发现固化 | Agentic Auditing 2026-10-22 | 半缺 | 首批标准答案=§四;当天固化+人验签核流程门未建制 |
@@ -44,26 +44,26 @@
 #### E-1 EDD 开发环(头条)
 - 主张:先写失败评测,再动 agent——环=失败评测先行→spec 对齐→实现→并排对打(quality/latency/cost 三轴)→放行阈值≈100%→灰度影子轮 N≥3→发现固化人验;已挂面=保底轨门(golden)+伞面(selftest)+CI,三轴对打与影子轮门=在建项(P17/P18,影子轮判例 #176-178),挂上门即转正
 - 原语组成:EDD开发环;标准答案集;并排对打;放行阈值≈100%;发现固化
-- 门挂点:ops/agent/golden/run-golden.mjs;ops/agent/selftest.sh;.github/workflows/ci.yml;backend/ipdb/_eval/anchors.py
+- 门挂点:ops/pipeline-core/golden/run-golden.mjs;ops/pipeline-core/selftest.sh;.github/workflows/ci.yml;backend/ipdb/_eval/anchors.py
 - 判例链:web.dev 2026-01-29(EDD=TDD 的 AI 同构);Braintrust 2026-09-26(prompt CI/CD);Anthropic 2026-01-09(回归≈100%);2026-10-24 8.8.8.8/114DNS 事故(ADR 0008);#176-178 三轮影子复验判例
 
 #### E-2 双轨分立
 - 主张:保底轨(标准答案集+行为探针,≈100% 通过才放行,持 CI+运营轮巡检)与爬坡轨(主指标=整体情报更准,爬坡观测,不持门)阈值语义不同,不得互相原谅
 - 原语组成:放行阈值≈100%;爬坡轨主指标;标准答案集
-- 门挂点:ops/agent/golden/cases.json;backend/ipdb/_eval/anchors.py
+- 门挂点:ops/pipeline-core/golden/cases.json;backend/ipdb/_eval/anchors.py
 - 判例链:Anthropic 2026-01-09(能力评测刻意低通过率起步爬坡 vs 回归要求≈100%);对撞表「主指标=爬坡轨,已知答案=保底轨,阈值语义不同」
 
 #### E-3 安静失败探针
 - 主张:监控面板全绿不构成行为正确的证据——活路径已知答案查询(行为探针)必须挂生产查询路径巡检,失败=finding 不持门、自动开 issue 人裁;接线已落(#182:ops 轮 ANCHOR_SWEEP 步+G_ANCHOR_SWEEP 门在案,生产查询路径逐已知答案IP读数);启用语义=生产 cron 随 OPS_PIPELINE 灰度(接线≠已启用,部署后首个巡检轮起运行面转正)
 - 原语组成:安静失败探针;放行阈值≈100%
-- 门挂点:backend/ipdb/_eval/anchors.py;ops/agent/pipeline/steps.mjs#ANCHOR_SWEEP;ops/agent/pipeline/gates.mjs#G_ANCHOR_SWEEP
+- 门挂点:backend/ipdb/_eval/anchors.py;ops/pipeline-core/pipeline/steps.mjs#ANCHOR_SWEEP;ops/pipeline-core/pipeline/gates.mjs#G_ANCHOR_SWEEP
 - 判例链:IEEE Spectrum 2026-04(安静失败=标准可观测性抓不住语义级退化);2026-10-24 已知答案门死件复盘(ADR 0008:零生产调用面)
 - 分工注记:已知答案巡检=行为探针(期望断言,逐 IP 二值);eval infra 层=统计分母(GLOSSARY「已知基础设施层」词条口径)——两层分工不互替(探针红不改写分母读数,分母干净也不构成行为正确的证据)
 
 #### E-4 发现固化
 - 主张:生产事故与运营 finding 当天固化为保底轨标准答案集,agent 提名、人验签核(人裁终局);标准答案增补落已知答案集/标准答案集并过本核对器,禁「就事论事修个案」
 - 原语组成:发现固化;标准答案集;放行阈值≈100%
-- 门挂点:ops/agent/golden/cases.json;backend/ipdb/_eval/anchors.py
+- 门挂点:ops/pipeline-core/golden/cases.json;backend/ipdb/_eval/anchors.py
 - 判例链:Agentic Auditing 2026-10-22(发现→可执行测试→人验,$2-3/轮);ADR 0008 决策3;首批标准答案=§四 G-1/G-2
 
 #### E-5 爬坡轨主指标(只观测不持门)
@@ -77,20 +77,20 @@
 #### D-1 并排对打门
 - 主张:候选与生产变更在固定数据集上并排对打,过 release criteria 才放行;字节级一致是下限不是上限——评分实现改动必过同数据重跑比对(融合层字节级一致对照)
 - 原语组成:同数据重跑比对;并排对打
-- 门挂点:ops/agent/golden/run-golden.mjs;ops/agent/selftest-t4.mjs#golden;scripts/fusion_replay_gate.py#gate_rc
+- 门挂点:ops/pipeline-core/golden/run-golden.mjs;ops/pipeline-core/selftest-t4.mjs#golden;scripts/fusion_replay_gate.py#gate_rc
 - 判例补:#193 C5 回放门 rc 机检化(rc 0=全绿/1=真 FAIL/2=测试集不足,空测试集 vacuous PASS 不冒充绿)
 - 判例链:Braintrust 2026-09-26;promptfoo 2026-10-02(golden 数据集+断言不达标 fail PR);PROBE 字节级一致判例(PR #169)
 
 #### D-2 最简架构默认
 - 主张:单 agent 优化穷尽前不建多 agent;宿主=轮次状态机,模型只在 TRIAGE/DEEP/SYNTH 三步,门全机检、步可 replay、职责线三层(宿主只编排/提示词只判断/脚本只测量)
 - 原语组成:轮次状态机;三层职责线
-- 门挂点:ops/agent/pipeline.mjs#HEALTH_PIPELINE;ops/agent/DESIGN.md
+- 门挂点:ops/pipeline-core/pipeline.mjs#HEALTH_PIPELINE;ops/pipeline-core/DESIGN.md
 - 判例链:Gartner 2026-10-07(When to Build a Multiagent System);swarm tax 2026-05-17(同 thinking-token 预算下多 agent 优势消失);arXiv 2609.19759 2026-09(When More Is Less);ADR 0007(C 骨架终裁)
 
 #### D-3 工具白名单+证据最小权
 - 主张:测量面=闭集白名单,发现产物不进谓词硬门数字(evidence 语义门不因发现通道放宽);模型可调工具最小权——借道合法高权工具作恶是实证攻击面(MCP-ITP 84.2% ASR/0.3% 检出)
 - 原语组成:工具白名单
-- 门挂点:ops/agent/tools/registry.mjs#MEASUREMENT_TOOLS
+- 门挂点:ops/pipeline-core/tools/registry.mjs#MEASUREMENT_TOOLS
 - 判例链:MCP-ITP 2026-01(隐式投毒);NSA CSI 2026-06;MCP Specification 2026-07-28;PR #179 判例(发现通道三件不入 MEASUREMENT_TOOLS)
 
 #### D-4 转载去重
@@ -102,19 +102,19 @@
 #### D-5 预扣结算
 - 主张:预算在动作前检查(reserve 后动作、settle 对账),事后 dashboard 不构成预算控制;轮内=预扣结算实报累计,月度 kill switch 与跨轮熔断已接线(P15/P16;#199 交付A readBudgetKnobs 单源/交付B breaker.mjs 跨轮态)
 - 原语组成:预扣结算;预算四界;跨轮熔断
-- 门挂点:ops/agent/pipeline.mjs#budget_truncate;ops/agent/tools/breaker.mjs#mkBreaker
+- 门挂点:ops/pipeline-core/pipeline.mjs#budget_truncate;ops/pipeline-core/tools/breaker.mjs#mkBreaker
 - 判例链:Latentism 2026-10-05(预算帽调用前检查);对撞表「若实现是事后记账则被推翻(待核)→ 轮内已核=预扣结算实报(旧称步前检查,已并入 P7)」(2026-10-24 预算核验判例)
 
 #### D-6 通道错误四码
 - 主张:失败不编造——通道失败走四码结构化分类(每码自带下一步合法动作),无证据≠清白,弃权/缺口不冒充零命中;wire 漂移哨钉语法面
 - 原语组成:通道错误四码;弃权校准
-- 门挂点:ops/agent/tools/envelope.mjs#classifyChannelError;ops/agent/error-codes.mjs
+- 门挂点:ops/pipeline-core/tools/envelope.mjs#classifyChannelError;ops/pipeline-core/error-codes.mjs
 - 判例链:FlowGuard 2026-07(语义信号≠证据);EpiSEM-Bench 2026-10(每句都真也可能不安全);判例 2026-10-24-discover-dual-channel-dead;PR #179 wire 漂移哨(非空无标记文本归 io_error 不冒充零命中)
 
 #### D-7 发现与运营同律
 - 主张:发现轮=第六种轮型,与运营轮同宿主/同台账/同工件树(六步 SCAN→SHORTLIST→MEASURE→ENQUEUE→RETRO→CLOSE),四门全机检——G_SCAN 候选宇宙形状/G_SHORTLIST span 级逐字回引(URL 幻觉即拒)/G_MEASURE 宿主数字复算/G_ENQUEUE 入队对账;模型零裁决:入队判据(独占率≥0.25+证据存在性+阳性对照)是代码常量不在 prompt,模型无权改;ENQUEUE 只写不动作——候选行经 #139 双边 flock 写 queue.md,开票/接源全人裁,action 词统一 PROPOSE(提案非动作,与运营轮 ENQUEUE/REJECT 人裁闭集分立,一词一拼);主指标两项(入队→落地转化率+独占率分布)同 E-5 只观测不持门
 - 原语组成:轮次状态机;阶段门;三层职责线;工具白名单
-- 门挂点:ops/agent/pipeline.mjs#DISCOVER_PIPELINE;ops/agent/pipeline/gates.mjs#G_SCAN;ops/agent/pipeline/gates.mjs#G_SHORTLIST;ops/agent/pipeline/gates.mjs#G_MEASURE;ops/agent/pipeline/gates.mjs#G_ENQUEUE;ops/agent/pipeline/citation.mjs#spanMatcher;ops/agent/pipeline/discovery-host.mjs#mkDiscoveryHost;ops/agent/pipeline/discover-candidate.mjs#CANDIDATE_ACTION;backend/ipdb/_eval/monthly.py#load_discover_proposals
+- 门挂点:ops/pipeline-core/pipeline.mjs#DISCOVER_PIPELINE;ops/pipeline-core/pipeline/gates.mjs#G_SCAN;ops/pipeline-core/pipeline/gates.mjs#G_SHORTLIST;ops/pipeline-core/pipeline/gates.mjs#G_MEASURE;ops/pipeline-core/pipeline/gates.mjs#G_ENQUEUE;ops/pipeline-core/pipeline/citation.mjs#spanMatcher;ops/pipeline-core/pipeline/discovery-host.mjs#mkDiscoveryHost;ops/pipeline-core/pipeline/discover-candidate.mjs#CANDIDATE_ACTION;backend/ipdb/_eval/monthly.py#load_discover_proposals
 - 判例链:ADR 0010(发现轮管线化七决策);伞 #206 与 #207-#210;判例 2026-10-26-scanner-ranges-census(独占率口径实测);#210 T4(PROPOSE 统一+主指标两项);spanMatcher 挂点(citation.mjs)已随 #208 合流补挂(T4 移交件①;死锚即伪标准判例存照)
 
 ## 三、门挂点层
@@ -124,9 +124,9 @@
 | 挂口族 | 载体 | 核对方式 |
 |---|---|---|
 | CI 腿 | .github/workflows/ci.yml(frontend job:golden+selftest 步) | CI 三腿绿(paths-ignore 已去 **.md,#9f60ce23:纯典章变更亦过 standard-check) |
-| selftest 伞 | ops/agent/selftest.sh(§13=本核对器+单测) | bash selftest.sh 全绿 |
-| golden 回归 | ops/agent/golden/run-golden.mjs + golden/cases.json | faux 全绿零 API 花费 |
-| ops 轮门 | backend/ipdb/_eval/anchors.py + ops/agent/pipeline/steps.mjs#ANCHOR_SWEEP(接线已落=#182) | 每轮全已知答案巡检(G_ANCHOR_SWEEP 门);启用=生产 cron 随 OPS_PIPELINE 灰度 |
+| selftest 伞 | ops/pipeline-core/selftest.sh(§13=本核对器+单测) | bash selftest.sh 全绿 |
+| golden 回归 | ops/pipeline-core/golden/run-golden.mjs + golden/cases.json | faux 全绿零 API 花费 |
+| ops 轮门 | backend/ipdb/_eval/anchors.py + ops/pipeline-core/pipeline/steps.mjs#ANCHOR_SWEEP(接线已落=#182) | 每轮全已知答案巡检(G_ANCHOR_SWEEP 门);启用=生产 cron 随 OPS_PIPELINE 灰度 |
 
 ## 四、标准答案层(首批)
 
@@ -141,7 +141,7 @@
 #### G-2 114.114.114.114 clean(判例已固化,ops 轮巡检已接线)
 - 主张:114DNS 公共解析器判 clean;验证面=判例固化在场核+anchors.py 扩行已落(#182:19 员含 114.114.114.114/223.5.5.5/9.9.9.4;#233 根 letter 已知答案IP 再扩 13 员,现 32 员)+ops 轮 ANCHOR_SWEEP 巡检在案;启用语义=生产 cron 随 OPS_PIPELINE 灰度
 - 原语组成:发现固化;放行阈值≈100%
-- 门挂点:backend/ipdb/_eval/anchors.py#ANCHORS;ops/agent/pipeline/steps.mjs#ANCHOR_SWEEP
+- 门挂点:backend/ipdb/_eval/anchors.py#ANCHORS;ops/pipeline-core/pipeline/steps.mjs#ANCHOR_SWEEP
 - 判例链:2026-10-24 114DNS 事故(cps_collected_iocs+ziyadnz 聚合器假印证打黑名單;ADR 0008);#182 接线(已知答案集扩公共解析器 16→19)
 - 分工注记:已知答案巡检=行为探针(期望断言,逐 IP 二值);eval infra 层=统计分母(GLOSSARY「已知基础设施层」词条口径)——两层分工不互替(探针红不改写分母读数,分母干净也不构成行为正确的证据)
 

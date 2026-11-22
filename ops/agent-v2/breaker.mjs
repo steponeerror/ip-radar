@@ -15,5 +15,5 @@
 //   breakerSnapshot、mkBreaker({file,env,round,ledgerFile,knobs,log})
 //     → { file, knobs, verdict(name), record(name,{ok,code}), snapshot() }
 // 状态文件 = breakerFileOf(ctx)(discovery-host.mjs 单源)= DOCS_ROOT/ops/breaker.json。
-// 旧管线文件属主:ops/agent/ 零改动红线(票 #225/#226/#228)——本文件只 re-export,不 fork。
-export * from "../agent/tools/breaker.mjs";
+// 旧管线文件属主:ops/pipeline-core/ 零改动红线(票 #225/#226/#228)——本文件只 re-export,不 fork。
+export * from "../pipeline-core/tools/breaker.mjs";

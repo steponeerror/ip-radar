@@ -19,7 +19,7 @@ import { promisify } from "node:util";
 
 const execFile = promisify(execFileCb);
 const V2 = path.resolve(import.meta.dirname, "..");
-const RUNNER = path.resolve(V2, "..", "agent", "golden", "run-golden.mjs");
+const RUNNER = path.resolve(V2, "..", "pipeline-core", "golden", "run-golden.mjs");
 const SMOKE_IDS = ["smoke_health", "smoke_discover_threatview_replay"];
 
 // 凭证在否(smoke-glm.test.mjs hasZaiCredential 同型:布尔判定不打印值)

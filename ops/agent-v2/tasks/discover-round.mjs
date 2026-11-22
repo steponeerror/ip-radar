@@ -4,7 +4,7 @@
 //
 // ── 相位映射(旧步 → v2 相位;语义逐相位零复制驱动旧实现)──
 //   SCAN→scan SHORTLIST→shortlist MEASURE→measure ENQUEUE→enqueue RETRO→retro CLOSE→close
-//   脚本相位(scan/measure/enqueue/retro/close)直接 runStage 旧步(ops/agent/pipeline/steps.mjs
+//   脚本相位(scan/measure/enqueue/retro/close)直接 runStage 旧步(ops/pipeline-core/pipeline/steps.mjs
 //   零 import 改动);SHORTLIST(唯一模型步)由本文件的会话提交驱动(见下)。
 //   FAILED 旧终态书挡 → v2 terminal outcome {status:"failed"}(等价语义位)。
 //
@@ -43,15 +43,15 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { defineTask, UsageDoc } from "@earendil-works/pi-durable";
-import { ctxShape, DISCOVER_PIPELINE } from "../../agent/pipeline.mjs"; // 零复制:ctx 形状+步定义表(单一真源)
-import { runStage, modelIO } from "../../agent/pipeline/steps.mjs"; // 零复制:脚本步+模型 IO
-import * as gates from "../../agent/pipeline/gates.mjs"; // 零复制:门评估+工件(gates.json)
-import { readBreakerKnobs } from "../../agent/tools/breaker.mjs"; // 零复制(写侧经宿主适配器,见 tools/discovery-tools.mjs)
+import { ctxShape, DISCOVER_PIPELINE } from "../../pipeline-core/pipeline.mjs"; // 零复制:ctx 形状+步定义表(单一真源)
+import { runStage, modelIO } from "../../pipeline-core/pipeline/steps.mjs"; // 零复制:脚本步+模型 IO
+import * as gates from "../../pipeline-core/pipeline/gates.mjs"; // 零复制:门评估+工件(gates.json)
+import { readBreakerKnobs } from "../../pipeline-core/tools/breaker.mjs"; // 零复制(写侧经宿主适配器,见 tools/discovery-tools.mjs)
 import { preModelCall, postModelCall, stepBoundary } from "./budget-guard.mjs"; // T2 执法面(文案/界值零漂移;token/cost 之和在本文件 roundUsage 逐字段展开)
 import { ensureRoundHost, roundDupRegistries } from "../tools/discovery-tools.mjs"; // 轮级发现宿主(工具面+熔断写侧随迁)
 import { enqueueStageIssueExit } from "../tools/enqueue-issues.mjs"; // #384:ENQUEUE 出口改 GH issue(PROPOSE 行停写;判据分类 v1 classifyEnqueue 单源)
 import { benchScan } from "../bench/scan.mjs"; // bench SCAN 变体(票 #318:候选宇宙=仅 NEEDS 面;real 面走 runStage 旧步不受影响)
-import { writeRoundReport } from "../../agent/pipeline/round-report.mjs"; // #403:轮报告件单源(v2 零复制 import v1;bench 轮照写=沙箱 opsRoot 天然隔离)
+import { writeRoundReport } from "../../pipeline-core/pipeline/round-report.mjs"; // #403:轮报告件单源(v2 零复制 import v1;bench 轮照写=沙箱 opsRoot 天然隔离)
 import { writeTerminalRoundState } from "./round-state.mjs"; // #408:CLOSE 终态回写 state.json 镜像(与报告件同接线点)
 import { shortlistBenchPromptPath } from "../run-discover.mjs"; // bench SHORTLIST 基准提示词路径(票 #319;函数声明面循环安全:run-discover↔tasks 仅运行时互引)
 

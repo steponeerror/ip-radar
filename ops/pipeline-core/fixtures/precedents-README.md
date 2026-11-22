@@ -17,13 +17,13 @@ PR #177「ops 工具通道修复」随建:2026-10-24 一次性拷贝嵌套 docs 
 再生(判例库语义演进、golden 需重钉时;禁止无声再生——须同 PR 显式重钉并说明):
 
 ```sh
-cp /path/to/docs/ops/precedents/*.md ops/agent/fixtures/precedents/
-PRECEDENTS_DIR=ops/agent/fixtures/precedents bash -c \
-  '. ops/agent/lib.sh; inject_precedents 排他率 聚合器 许可 体量 冻结 sunset' \
-  > ops/agent/golden/inject-block.discover-kws.golden.txt
-PRECEDENTS_DIR=ops/agent/fixtures/precedents bash -c \
-  '. ops/agent/lib.sh; inject_precedents 不存在的词xyz' \
-  > ops/agent/golden/inject-block.zerohit.golden.txt
+cp /path/to/docs/ops/precedents/*.md ops/pipeline-core/fixtures/precedents/
+PRECEDENTS_DIR=ops/pipeline-core/fixtures/precedents bash -c \
+  '. ops/pipeline-core/lib.sh; inject_precedents 排他率 聚合器 许可 体量 冻结 sunset' \
+  > ops/pipeline-core/golden/inject-block.discover-kws.golden.txt
+PRECEDENTS_DIR=ops/pipeline-core/fixtures/precedents bash -c \
+  '. ops/pipeline-core/lib.sh; inject_precedents 不存在的词xyz' \
+  > ops/pipeline-core/golden/inject-block.zerohit.golden.txt
 ```
 
 注意:本快照是测试 fixture 不是判例真源——判例追加只进 docs 仓,此处仅在

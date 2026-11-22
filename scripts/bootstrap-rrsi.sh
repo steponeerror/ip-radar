@@ -4,7 +4,7 @@
 #   1. clone/更新 dev/rrsi(github.com/google-research/rrsi,Apache 2.0;dev/ 不入 git);
 #   2. venv + pip install -e ".[dev]";
 #   3. 域接线:ops/agent-v2/bench/rrsi-domain/ → dev/rrsi/domains/ipradar/,
-#      并 vendor 开放面 ops/agent + ops/agent-v2 → domains/ipradar/harness/ops/
+#      并 vendor 开放面 ops/pipeline-core + ops/agent-v2 → domains/ipradar/harness/ops/
 #      (RRSI 候选=dev/rrsi 的 git worktree,harness 必须在仓内才随候选隔离;
 #      harness_path="harness" 单目录=票面「仓根+PATTERNS 限定」的落点);
 #   4. 门:RRSI 核心 pytest 绿 + `rrsi.py --domain ipradar smoke` 绿(faux,零网络零花费)。
@@ -48,7 +48,7 @@ mkdir -p "$RRSI_DIR/domains/ipradar/harness/ops"
 # 真面例同读;候选禁改——adapter._guardrails 对 evolve/ipradar 做冻结 diff)
 cp "$REPO_ROOT/NEEDS.md" "$RRSI_DIR/domains/ipradar/harness/NEEDS.md"
 rsync -a --delete --exclude node_modules \
-  "$REPO_ROOT/ops/agent/" "$RRSI_DIR/domains/ipradar/harness/ops/agent/"
+  "$REPO_ROOT/ops/pipeline-core/" "$RRSI_DIR/domains/ipradar/harness/ops/pipeline-core/"
 rsync -a --delete --exclude node_modules \
   "$REPO_ROOT/ops/agent-v2/" "$RRSI_DIR/domains/ipradar/harness/ops/agent-v2/"
 

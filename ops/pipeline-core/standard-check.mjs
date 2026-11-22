@@ -3,7 +3,7 @@
 // 语义(票 #181/ADR 0008):挂不上验证手段的条目只能称建议,不得称标准——
 //   条文(#### X-n)必须带门挂点且指向的文件/测试真实存在,否则非零退出;
 //   「建议」类无门挂点,必须显式标「类:建议」;组合不出原语的条目=伪条目。
-// 零依赖纯 node(容器/CI 自带 node 即可跑);真源=ops/agent/STANDARD.md;
+// 零依赖纯 node(容器/CI 自带 node 即可跑);真源=ops/pipeline-core/STANDARD.md;
 // 本核对器自身挂 selftest 链(selftest.sh §13)。挂点路径一律主仓相对——
 // 嵌套 docs 仓文件不可作门挂点(CI checkout 无 docs/,判例=test_precedent_schema.py skip 形)。
 // 附腿(#304④):根目录 AGENTS.md(本地不入库,CI checkout 无此文件)在场时,

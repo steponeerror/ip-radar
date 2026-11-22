@@ -16,7 +16,7 @@ export function opsErrorText(t: TFn, e: unknown, fallback: string): string {
 }
 
 // ops 轮失败信封文案:task.error_code = 轮次信封 error.code 九词闭集
-// (ops/agent/agent.mjs ERROR_CODES,与 HTTP ErrorCode 是两个闭集)+ 原始
+// (ops/pipeline-core/agent.mjs ERROR_CODES,与 HTTP ErrorCode 是两个闭集)+ 原始
 // message(定位细节,如 stderr 尾部)。
 export function roundErrorText(
   t: TFn, errorCode: string | null | undefined, message: string | null | undefined,

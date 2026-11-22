@@ -115,7 +115,7 @@ export const breakerSnapshot = (state, knobs) => ({
   })),
 });
 
-const LIBSH = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "lib.sh"); // ops/agent/lib.sh(steps.mjs sh()/budget.mjs appendRefusalTrace 同形)
+const LIBSH = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "lib.sh"); // ops/pipeline-core/lib.sh(steps.mjs sh()/budget.mjs appendRefusalTrace 同形)
 const docsRootOf = (env) => env?.DOCS_ROOT ?? process.env.DOCS_ROOT ?? DOCS_ROOT;
 
 // 有态壳:每次操作重读状态文件(跨进程可见,last-write-wins;轮内频度低,同步 fs 足够——自决)。

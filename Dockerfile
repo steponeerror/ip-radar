@@ -11,19 +11,19 @@ RUN npm run build
 # ── P5(票 #137):运营 agent 生产依赖层 ──────────────────────────
 # bookworm-slim(glibc)而非 alpine:最终镜像(python:3.12-slim = trixie)直接
 # 复用本层 node 二进制——trixie glibc/libstdc++ 向上兼容 bookworm 链接产物,零
-# musl 移植问题。engines node>=22.19(ops/agent/package.json):node:22 浮动 tag
+# musl 移植问题。engines node>=22.19(ops/pipeline-core/package.json):node:22 浮动 tag
 # 自 2025-10 起恒 ≥22.19 且持续吃补丁;下方显式断言钉下界,基镜像漂移到 <22.19
 # 构建即红(不靠 npm engines 软警告)。
 FROM node:22-bookworm-slim AS opsagent
 WORKDIR /opsagent
 ARG NPM_REGISTRY=""
-COPY ops/agent/package.json ops/agent/package-lock.json ./
-RUN node -e 'const [maj,min]=process.versions.node.split(".").map(Number);if(maj!==22||min<19){console.error("node >=22.19 required (ops/agent/engines), got "+process.versions.node);process.exit(1)}' \
+COPY ops/pipeline-core/package.json ops/pipeline-core/package-lock.json ./
+RUN node -e 'const [maj,min]=process.versions.node.split(".").map(Number);if(maj!==22||min<19){console.error("node >=22.19 required (ops/pipeline-core/engines), got "+process.versions.node);process.exit(1)}' \
     && npm ci ${NPM_REGISTRY:+--registry $NPM_REGISTRY}
 
 # ── shadow 期(2026-10-28,SHADOW-RUNBOOK):ops/agent-v2(Pi Durable)依赖层 ──
 # 同 opsagent 同旨同基镜像(pi-durable@1.4.0 三包 exact;同 node>=22.19 断言)。
-# v2 models.mjs 零复制 re-export 旧管线,pi-ai 实装仍从 ops/agent/node_modules
+# v2 models.mjs 零复制 re-export 旧管线,pi-ai 实装仍从 ops/pipeline-core/node_modules
 # 解析(scaffold 测断言两处同版);本层只供 v2 自有依赖(pi-durable/chord)。
 FROM node:22-bookworm-slim AS opsagent-v2
 WORKDIR /opsagent-v2
@@ -66,16 +66,16 @@ COPY backend/ ./backend/
 # ——审后修 P2 2026-10-24:旧注「89 包」已陈旧)。node_modules 不进构建上下文
 # (.dockerignore 排除,本地也无需装),
 # 由 opsagent 层 npm ci 注入;node 二进制经 PATH 供 P2 桥 spawn(node --max-old-
-# space-size=256 ops/agent/agent.mjs,cwd=/app)。
+# space-size=256 ops/pipeline-core/agent.mjs,cwd=/app)。
 COPY ops/ ./ops/
-COPY --from=opsagent /opsagent/node_modules ./ops/agent/node_modules
+COPY --from=opsagent /opsagent/node_modules ./ops/pipeline-core/node_modules
 COPY --from=opsagent-v2 /opsagent-v2/node_modules ./ops/agent-v2/node_modules
 COPY --from=opsagent /usr/local/bin/node /usr/local/bin/node
 COPY .gitignore ./.gitignore
 # 版本自描述:构建上下文含 .git(.dockerignore 已放行)
 COPY .git /app/.git
 RUN git describe --tags --always --dirty > /app/BUILD_VERSION 2>/dev/null || echo dev > /app/BUILD_VERSION
-# P5 沙箱锚:.git 重建为镜像运行时快照仓。ops/agent/lib.sh sandbox_assert 每轮跑
+# P5 沙箱锚:.git 重建为镜像运行时快照仓。ops/pipeline-core/lib.sh sandbox_assert 每轮跑
 # `git status --porcelain -- backend/ frontend/`(红线:agent 零改数据面),而原样
 # COPY 进来的 .git 在镜像内必然两条路皆败:①CI 全量 checkout 的 .git 索引含
 # frontend/ 源码与 backend/tests,它们不进镜像 → status 报删除;②worktree 本地构建

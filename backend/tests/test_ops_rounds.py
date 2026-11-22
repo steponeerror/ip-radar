@@ -2,14 +2,14 @@
 
 钉住产品化批 Task P2 契约(docs/superpowers/plans/2026-10-19-ops-agent-productization.md
 + 票 #134 验收标准;期望值取自冻结件独立真源 GLOSSARY「spawn 契约」「轮次信封」与
-ops/agent/agent.mjs,不从被测模块导入常量,防套套逻辑):
+ops/pipeline-core/agent.mjs,不从被测模块导入常量,防套套逻辑):
 
 - POST /api/ops/rounds {type: health|discover, input}:admin 鉴权(匿名 401/非超管 403);
 - 串行车道(裁①闸二):源更新任务在飞(queued/downloading/loading/throttled)→
   409 eval_busy 拒绝;ops 轮在飞 → 409;ops 轮期间源任务 worker 停摆(真互斥,
   964MB 小机 OOM 前科);ops 轮 running 态不计入 has_active_offline_tasks
   (查询门无扰,冷启动验收 1「公网查询无扰」);
-- spawn 契约:argv = node --max-old-space-size=256 ops/agent/agent.mjs <round> <input>
+- spawn 契约:argv = node --max-old-space-size=256 ops/pipeline-core/agent.mjs <round> <input>
   (内存围栏裁⑥,参数钉在拉起层);env 注入 ops 树落位(裁④:$IP_RADAR_DATA_DIR/ops
   一个根,经 DOCS_ROOT/PRECEDENTS_DIR/LEDGER_FILE 三名传导)+ 求值 CLI(OPS_EVAL_PY/
   OPS_DATA_DIR)+ zai key(裁⑤:effective env 注入子进程,绝不写盘)+ OPS_* 围栏
@@ -39,7 +39,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 
 # ── 冻结件期望值(独立真源,逐字)──
 # spawn 契约 argv(GLOSSARY「spawn 契约」+ 计划书 P2:--max-old-space-size=256 围栏)
-DEFAULT_AGENT_CMD = ["node", "--max-old-space-size=256", "ops/agent/agent.mjs"]
+DEFAULT_AGENT_CMD = ["node", "--max-old-space-size=256", "ops/pipeline-core/agent.mjs"]
 # 轮次信封失败面 error.code 九词闭集(agent.mjs ERROR_CODES,此处只用到子集)
 FAILURE_CODES_SAMPLE = "closure_check"
 
@@ -541,7 +541,7 @@ def test_run_round_no_memory_row_when_cgroup_unreadable(
 
 
 def test_default_agent_argv_shape(rounds):
-    """缺省命令 = node --max-old-space-size=256 ops/agent/agent.mjs <round> <input>
+    """缺省命令 = node --max-old-space-size=256 ops/pipeline-core/agent.mjs <round> <input>
     (spawn 契约 argv;围栏参数钉在拉起层,裁⑥)。"""
     argv = rounds._agent_argv("health", "体检输入")
     assert argv == DEFAULT_AGENT_CMD + ["health", "体检输入"]
@@ -577,7 +577,7 @@ def test_spawn_env_injects_ops_tree_and_fences(rounds, ops_env, fake_agent):
 
 
 # C4(#196)spawn env 白名单面(独立真源硬编码,不从被测模块导入——防套套逻辑):
-# 契约单源 = ops/agent/agent.mjs SPAWN_CONTRACT_ENV(OPS_*/PI_* 前缀 + 精确名)
+# 契约单源 = ops/pipeline-core/agent.mjs SPAWN_CONTRACT_ENV(OPS_*/PI_* 前缀 + 精确名)
 # + 运行必需(PATH/HOME/TMPDIR/IP_RADAR_DATA_DIR)。IP_RADAR_ALERT_URLS 是
 # #184 finding webhook 出口契约员(与 backend _alerts.push 双消费面),保留透传。
 # LANG = _round_env 桥注入面(2026-10-26 判例:C4 白名单剔 LANG→子进程 bash 退

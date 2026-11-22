@@ -4,7 +4,7 @@
 // 同因 = 键并集union(文本归一键全等 ∨ 源身份词相交,B 稿「同 (source, cause_group)」);
 // 三门槛(可机检/可证伪/非环境特异性)在候选里以 pending 门待人裁逐项核——
 // 人裁采纳(adopt_rule 四键通道,P5)才升格为概念判例;本检测器永不写判例区(判例 0db230187f:永不自动执行)。
-// 用法:node ops/agent/promote-detect.mjs [--docs-root DIR] [--out DIR] [--dry]
+// 用法:node ops/pipeline-core/promote-detect.mjs [--docs-root DIR] [--out DIR] [--dry]
 //   判例目录缺省 = $PRECEDENTS_DIR ?? <docs-root>/ops/precedents;候选目录缺省 = <docs-root>/ops/retro/promotion-candidates。
 //   --dry:只打印不写盘(报告/巡检面)。幂等:同因候选已存在 → 跳过(append-only,不改写)。
 import fs from "node:fs";

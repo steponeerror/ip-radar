@@ -241,7 +241,7 @@ freshness_flags() {
   '
 }
 
-# extract_feed_urls — 读人工维护清单 ops/agent/feeds.txt(健康轮探测 URL
+# extract_feed_urls — 读人工维护清单 ops/pipeline-core/feeds.txt(健康轮探测 URL
 # 事实层)。2026-10-23 事故重构:旧 rg 扫 backend/ipdb/_sources/*.py 字面量
 # 混入首页 URL(dataplane 静态页 Last-Modified → 伪报冻结 291 天)、多行
 # 拼接截断 URL(GeoLite 撞 GitHub 重定向 404 → 伪报不可达)、注释/

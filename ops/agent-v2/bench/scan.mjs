@@ -6,13 +6,13 @@
 // 门对账律照用)。web 渠道占位维持(Q9:搜索职责在 SHORTLIST 模型驱动三工具,SCAN 保持
 // 确定性零网络)。
 //
-// 实现边界:真实 SCAN(ops/agent/pipeline/steps.mjs SCAN,双面宇宙)属 v1 属主,零改动
+// 实现边界:真实 SCAN(ops/pipeline-core/pipeline/steps.mjs SCAN,双面宇宙)属 v1 属主,零改动
 // 红线(票面出界)→ needs 面解析在此按旧源逐形重实现(旧 SCAN 内嵌不可 import 的私有
 // 段;round-ctx.mjs 私有函数适配重实现同判例),出处逐段标注,对拍以旧源为准。
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { ARTIFACTS as A } from "../../agent/artifacts.mjs"; // 工件名单源(C1 判例:回放读面禁手抄磁盘名)
+import { ARTIFACTS as A } from "../../pipeline-core/artifacts.mjs"; // 工件名单源(C1 判例:回放读面禁手抄磁盘名)
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", ".."); // ops/agent-v2/bench → 仓根(3 层,与旧 SCAN 的 AGENT_DIR 推导同落点)
 

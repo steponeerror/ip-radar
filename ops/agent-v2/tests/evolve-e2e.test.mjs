@@ -171,7 +171,7 @@ test("faux 端到端:排程触发→轮报告落盘全链(罐装模型面,零真
     const rj = JSON.parse(fs.readFileSync(path.join(roundDir, "round.json"), "utf8"));
     assert.equal(rj.phase, "swept");
     assert.notEqual(rj.candidate_ref, r.envelope.champion.before);
-    assert.ok(fs.existsSync(path.join(r.envelope.worktree, "ops", "agent", "prompts", "add", "implement.md")), "罐装编辑落在候选 worktree(沙箱遏制面)");
+    assert.ok(fs.existsSync(path.join(r.envelope.worktree, "ops", "pipeline-core", "prompts", "add", "implement.md")), "罐装编辑落在候选 worktree(沙箱遏制面)");
     // trial 批:两面各 3 副本,trial.json 断点件在位;同会话成对布局 <face>/<题>/r<i>
     for (const face of ["champion", "candidate"])
       for (let i = 1; i <= 3; i++)
@@ -320,9 +320,9 @@ test("diff 面闸单面:untracked 触名单+改名出保护区显形;开放面=�
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "evolve-gate-unit-"));
   const repo = path.join(tmp, "repo");
   fs.mkdirSync(path.join(repo, "backend", "ipdb"), { recursive: true });
-  fs.mkdirSync(path.join(repo, "ops", "agent", "prompts", "add"), { recursive: true });
+  fs.mkdirSync(path.join(repo, "ops", "pipeline-core", "prompts", "add"), { recursive: true });
   fs.writeFileSync(path.join(repo, "backend", "ipdb", "x.py"), "x\n");
-  fs.writeFileSync(path.join(repo, "ops", "agent", "prompts", "add", "implement.md"), "doc\n");
+  fs.writeFileSync(path.join(repo, "ops", "pipeline-core", "prompts", "add", "implement.md"), "doc\n");
   const git = (...a) => execFileSync("git", ["-C", repo, ...a], { stdio: "ignore" });
   git("init", "-q", "-b", "main");
   git("add", "-A", "-f");
@@ -333,7 +333,7 @@ test("diff 面闸单面:untracked 触名单+改名出保护区显形;开放面=�
   const gitWt = (...a) => execFileSync("git", ["-C", wt, ...a], { stdio: "ignore" });
   try {
     // 已提交:开放面编辑 → 绿
-    fs.writeFileSync(path.join(wt, "ops", "agent", "prompts", "add", "implement.md"), "edited\n");
+    fs.writeFileSync(path.join(wt, "ops", "pipeline-core", "prompts", "add", "implement.md"), "edited\n");
     gitWt("add", "-A");
     gitWt("-c", "user.email=f@x.example", "-c", "user.name=fixture", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "open edit");
     assert.deepEqual(await diffFaceGateTouched(realExec, { worktree: wt, baseRef: base, faces: EVOLVE_PROTECTED_FACES }), []);

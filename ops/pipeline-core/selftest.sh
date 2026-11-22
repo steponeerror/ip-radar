@@ -257,7 +257,7 @@ else
   bad "fixture:http.server 起不来,T3 断言整组失效"
 fi
 
-# extract_feed_urls(真实清单 ops/agent/feeds.txt;2026-10-23 事实层重构)
+# extract_feed_urls(真实清单 ops/pipeline-core/feeds.txt;2026-10-23 事实层重构)
 EFU="$(extract_feed_urls 2>/dev/null)"
 [[ "$(awk '!/^https:\/\// && !/^http:\/\// {bad=1} END{print bad?1:0}' <<<"$EFU")" == "0" ]] \
   && ok "urls:全部 https?:// 形" || bad "urls:全部 https?:// 形"
@@ -514,7 +514,7 @@ if command -v node >/dev/null 2>&1 && [[ -d "$ROOT/docs/ops/precedents" ]]; then
   if PRECEDENTS_DIR="$ROOT/docs/ops/precedents" node "$AGENT/build-index.mjs" --check --docs-root "$ROOT/docs" >/dev/null 2>&1; then
     ok "B三件:build-index --check 真源面(锚表闭包+_INDEX 新度)"
   else
-    bad "B三件:build-index --check 失败(_INDEX 陈旧或锚指缺件;可再生:node ops/agent/build-index.mjs)"
+    bad "B三件:build-index --check 失败(_INDEX 陈旧或锚指缺件;可再生:node ops/pipeline-core/build-index.mjs)"
   fi
   if PRECEDENTS_DIR="$ROOT/docs/ops/precedents" node "$AGENT/promote-detect.mjs" --dry --docs-root "$ROOT/docs" >/dev/null 2>&1; then
     ok "B三件:promote-detect --dry 真源面(升格候选检测器,只打印不写盘)"
@@ -577,7 +577,7 @@ fi
 
 # ---- 14. 锚集对拍哨(终审修单 F8;#194 C3-2 改单源)+行键形状哨(C3-4)+折叠族全值域对拍哨(C3-3) ----
 # 锚集真源=backend/ipdb/_eval/anchors.py(扩员只改此一处);JS 侧唯一定义点=
-# ops/agent/anchor-mirror.mjs GOLDEN_SWEEP_ANCHORS(#194 C3-2 合一:此前双 JS 手抄
+# ops/pipeline-core/anchor-mirror.mjs GOLDEN_SWEEP_ANCHORS(#194 C3-2 合一:此前双 JS 手抄
 # 副本互不同步,漂移即门面假绿;selftest-pipeline 另有镜像测试钉两消费文件零手抄副本)。
 # python 面用 ast 文本解析零 import(CI frontend job 无 backend 依赖面)。
 if command -v python3 >/dev/null 2>&1; then
@@ -601,7 +601,7 @@ def js_mirror(rel, var):
     return sorted(tuple(x) for x in json.loads(m.group(1)))
 bad_mirrors = []
 # #194 C3-2:JS 侧单源=anchor-mirror.mjs 一处(消费文件零手抄副本由 selftest-pipeline 镜像测试钉)
-for rel, var in (("ops/agent/anchor-mirror.mjs", "GOLDEN_SWEEP_ANCHORS"),):
+for rel, var in (("ops/pipeline-core/anchor-mirror.mjs", "GOLDEN_SWEEP_ANCHORS"),):
     mirror = js_mirror(rel, var)
     if mirror != py_anchors:
         miss = ["|".join(a) for a in py_anchors if a not in mirror]
@@ -624,7 +624,7 @@ for node in ast.walk(ast.parse(src)):
                 py_keys = keys
                 break
 assert py_keys, "anchors.py anchor_sweep results.append 行键不可解析(ast 文本面)"
-m = re.search(r"ANCHOR_ROW_KEYS\s*=\s*(\[[^\]]*\])\s*;", (root / "ops/agent/anchor-mirror.mjs").read_text(encoding="utf-8"))
+m = re.search(r"ANCHOR_ROW_KEYS\s*=\s*(\[[^\]]*\])\s*;", (root / "ops/pipeline-core/anchor-mirror.mjs").read_text(encoding="utf-8"))
 assert m, "anchor-mirror.mjs 找不到 ANCHOR_ROW_KEYS 数组字面量"
 js_keys = set(json.loads(m.group(1)))
 if js_keys != py_keys:
@@ -652,7 +652,7 @@ for node in ast.walk(ast.parse((root / "backend/ipdb/_ops_detectors.py").read_te
     if isinstance(node, ast.Assign) and any(getattr(t, "id", None) == "_FALLBACK_FAMILY" for t in node.targets):
         py_fam_vocab.add(node.value.value)  # 兜底族 download
 assert py_fam_vocab, "_error_family 返回词汇不可解析"
-m = re.search(r"FOLD_GOLDEN\s*=\s*(\[.*?\])\s*;\n", (root / "ops/agent/selftest-pipeline.mjs").read_text(encoding="utf-8"), re.S)
+m = re.search(r"FOLD_GOLDEN\s*=\s*(\[.*?\])\s*;\n", (root / "ops/pipeline-core/selftest-pipeline.mjs").read_text(encoding="utf-8"), re.S)
 assert m, "selftest-pipeline.mjs 找不到 FOLD_GOLDEN 金表字面量"
 js_fam_vocab = {row[-1] for row in json.loads(re.sub(r",(\s*[\\]}])", r"\1", m.group(1)))}  # 金表每行末列=期望族(全值域;容忍尾逗号)
 if js_fam_vocab != py_fam_vocab:

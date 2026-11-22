@@ -15,7 +15,7 @@ import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 
 const execFileP = promisify(execFileCb);
-const LIBSH = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "lib.sh"); // ops/agent/lib.sh(steps.mjs sh() 同形)
+const LIBSH = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "lib.sh"); // ops/pipeline-core/lib.sh(steps.mjs sh() 同形)
 
 // 旋钮读面(#199;名字=env 键,缺省=生产口径;改缺省=spec 变更须过票)。点形字面读是刻意的:
 // 对拍扫描器(computeReads)只认 process.env.NAME 字面点形,计算下标 env[name] 是已声明盲区

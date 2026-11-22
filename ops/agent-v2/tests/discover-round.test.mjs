@@ -11,12 +11,12 @@ import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
 import { runDiscoverRound } from "../run-discover.mjs";
 import { DISCOVERY_REPLAY, ensureRoundHost, roundHosts, executeDiscoveryTool } from "../tools/discovery-tools.mjs";
-import { breakerFileOf } from "../../agent/pipeline/discovery-host.mjs";
-import { parseBreakerState } from "../../agent/tools/breaker.mjs";
+import { breakerFileOf } from "../../pipeline-core/pipeline/discovery-host.mjs";
+import { parseBreakerState } from "../../pipeline-core/tools/breaker.mjs";
 
 const execFile = promisify(execFileCb);
 const HERE = path.resolve(import.meta.dirname, "..");
-const FIXTURES = path.resolve(HERE, "..", "agent", "fixtures", "pipeline");
+const FIXTURES = path.resolve(HERE, "..", "pipeline-core", "fixtures", "pipeline");
 const ROUND = "2026-06-01-0400-discover";
 
 function tmpTree(prefix) {

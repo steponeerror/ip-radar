@@ -3,7 +3,7 @@
 // 派生物:判例文件是唯一真源,本索引是可再生缓存(同库状态字节一致;判例永不改写,索引随时可重建——
 // 「索引是地图不是存储」GLOSSARY/ADR 0007)。留痕判例(ruling-*)不进索引:档案非记忆面,rg 全文可检
 // (B 稿 §5);锚表(anchors-health.json)闭包校验在本件 --check 面(锚判例域词表,B 稿 §2.2②)。
-// 用法:node ops/agent/build-index.mjs [--docs-root DIR] [--check]
+// 用法:node ops/pipeline-core/build-index.mjs [--docs-root DIR] [--check]
 //   判例目录缺省 = $PRECEDENTS_DIR ?? <docs-root>/ops/precedents(DOCS_ROOT 缺省=仓根 docs 符号链接)。
 //   --check:只校验锚表闭包与索引新度,不写盘(CI/自测面;锚指缺件/索引陈旧 = exit 1)。
 import fs from "node:fs";
@@ -38,7 +38,7 @@ export function buildIndexText(files) { // files = [{name, fm}] 已按文件名�
   const sup = rows.filter((r) => r.endsWith("superseded |")).length;
   return [
     "<!-- 派生物可再生:判例文件是唯一真源,本文件由 scripts 重生成,勿手改(「索引是地图不是存储」,ADR 0007)。",
-    "     rebuild: node ops/agent/build-index.mjs [--docs-root DIR](B 稿 §2.2①:spawn 前再生;同库状态字节一致)",
+    "     rebuild: node ops/pipeline-core/build-index.mjs [--docs-root DIR](B 稿 §2.2①:spawn 前再生;同库状态字节一致)",
     "     留痕判例(ruling-*)不进索引:档案非记忆面,rg 全文可检(B 稿 §5)。 -->",
     "# 判例库索引(召回地板:库内任何概念至少一行 gist 在场,按名可读全文)",
     "",
@@ -74,7 +74,7 @@ function main() {
   const concepts = files.filter((f) => !/^[\d-]+-ruling-/.test(f.name));
   const text = buildIndexText(concepts);
   const outPath = path.join(precDir, "_INDEX.md");
-  // 锚表闭包(ops/agent/anchors-health.json,锚判例域词表;可指概念判例亦可指留痕判例——10-23 两假异常今日只有留痕面)
+  // 锚表闭包(ops/pipeline-core/anchors-health.json,锚判例域词表;可指概念判例亦可指留痕判例——10-23 两假异常今日只有留痕面)
   let anchorsN = 0;
   const anchorsFile = path.join(AGENT_DIR, "anchors-health.json");
   if (fs.existsSync(anchorsFile)) {
@@ -83,7 +83,7 @@ function main() {
   }
   if (check) {
     const stale = !fs.existsSync(outPath) || fs.readFileSync(outPath, "utf8") !== text;
-    console.log(`INDEX-CHECK ${stale ? "STALE(可再生:node ops/agent/build-index.mjs)" : "FRESH"} 概念判例 ${concepts.length} 行,档案留痕 ${files.length - concepts.length} 条,锚域 ${anchorsN}`);
+    console.log(`INDEX-CHECK ${stale ? "STALE(可再生:node ops/pipeline-core/build-index.mjs)" : "FRESH"} 概念判例 ${concepts.length} 行,档案留痕 ${files.length - concepts.length} 条,锚域 ${anchorsN}`);
     if (stale) process.exit(1);
     return;
   }

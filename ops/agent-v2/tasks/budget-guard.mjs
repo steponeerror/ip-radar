@@ -1,5 +1,5 @@
 // tasks/budget-guard.mjs — v2 双点执法接线面(票 #226;spec 定案 3:接线点在 entry/tasks 层,
-// 不 hook/memo 化)。旧管线接线参考(读码定位,ops/agent/pipeline.mjs):
+// 不 hook/memo 化)。旧管线接线参考(读码定位,ops/pipeline-core/pipeline.mjs):
 //   步前准入  = runPipeline/agent.mjs runRound 的 budget.admitOrRefuse(月度 kill switch;
 //               拒跑零花费,先于模型装载/harness 开启)
 //   环内①③ attempt 前查 = runModelStage 检查点(calls+1>帽、墙钟超=违界即停,不重试不降级)
@@ -33,7 +33,7 @@ export const knobNames = (roundType) => roundType === "discover"
   : { calls: "OPS_PIPELINE_MAX_MODEL_CALLS", wall: "OPS_PIPELINE_WALL_CLOCK_S", spend: "OPS_PIPELINE_SPEND_CAP_CNY" };
 
 // —— add 轮旋钮族 OPS_ADD_*(票 #332 P1;spec 2026-11-11-add-round §架构:独立族不占
-// 发现轮帽子)——定义在 v2 guard 层而非旧 ops/agent/pipeline/budget.mjs:旧文件零改动红线
+// 发现轮帽子)——定义在 v2 guard 层而非旧 ops/pipeline-core/pipeline/budget.mjs:旧文件零改动红线
 // (budget-parity 对拍测试钉导出面逐名同引用),readKnob 旧面未导出故本地同形拷贝。
 // 界值=实现票 #332 裁(发现轮形状缩放):IMPLEMENT 是工具循环大步(一次 submit 多回合),
 // 调用数/墙钟 ×2(60/7200);花费帽同发现轮 ¥5;月帽/dup 同键共享(OPS_PIPELINE_*)。

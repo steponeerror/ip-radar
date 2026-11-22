@@ -1,5 +1,5 @@
-// golden-health-parity.test.mjs — golden 对拍补齐(票 #232;ops/agent/golden/cases.json
-// 健康轮管线例 pipeline_health_full_faux):旧引擎(ops/agent/pipeline.mjs runPipeline,
+// golden-health-parity.test.mjs — golden 对拍补齐(票 #232;ops/pipeline-core/golden/cases.json
+// 健康轮管线例 pipeline_health_full_faux):旧引擎(ops/pipeline-core/pipeline.mjs runPipeline,
 // in-proc)vs 新任务面(ops/agent-v2 run-health.mjs 全链 PROBE→CLOSE,子进程)逐工件
 // 字节级一致对拍。与 golden-discover-parity.test.mjs(#227 T3)合成「管线面 golden 2/2」。
 // 世界=f run-golden.mjs runCase 同构(fixture 判例树 + curl/OPS_EVAL_PY stub + 抑制规则
@@ -15,15 +15,15 @@ import os from "node:os";
 import path from "node:path";
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
-import { GOLDEN_SWEEP_ANCHORS, anchorRow } from "../../agent/anchor-mirror.mjs"; // #194 C3-2 单源(run-golden.mjs stubPy 同引)
+import { GOLDEN_SWEEP_ANCHORS, anchorRow } from "../../pipeline-core/anchor-mirror.mjs"; // #194 C3-2 单源(run-golden.mjs stubPy 同引)
 import { normalizeText } from "../shadow-diff.mjs";
 
 const execFile = promisify(execFileCb);
 const V2 = path.resolve(import.meta.dirname, "..");
-const CASE = JSON.parse(fs.readFileSync(path.resolve(V2, "..", "agent", "golden", "cases.json"), "utf8"))
+const CASE = JSON.parse(fs.readFileSync(path.resolve(V2, "..", "pipeline-core", "golden", "cases.json"), "utf8"))
   .cases.find((c) => c.id === "pipeline_health_full_faux");
 const ROUND = "2026-06-01-0400-health"; // run-golden.mjs roundType 分支同字面(#208 T2:健康例原字面)
-const FIXTURES = path.resolve(V2, "..", "agent", "fixtures", "pipeline");
+const FIXTURES = path.resolve(V2, "..", "pipeline-core", "fixtures", "pipeline");
 
 // fixture 判例树(run-golden.mjs writePrecedents 逐字副本:A 命中 health+discover 检索词;
 // B 在库不命中任何管线例检索词——闭集负例载体,tree 同构保金样世界零漂移)
@@ -97,7 +97,7 @@ test("golden 对拍 pipeline_health_full_faux:旧 runPipeline 全链 vs v2 run-h
     Object.assign(process.env, old.env);
     let oldEnv = null;
     try {
-      const { runPipeline, DEFAULT_FIXTURES_DIR } = await import("../../agent/pipeline.mjs");
+      const { runPipeline, DEFAULT_FIXTURES_DIR } = await import("../../pipeline-core/pipeline.mjs");
       const r = await runPipeline({ type: "health", roundId: ROUND, fixturesDir: DEFAULT_FIXTURES_DIR,
         stdout: { write: () => true }, stderr: { write: () => true } });
       oldEnv = r?.envelope ?? null;

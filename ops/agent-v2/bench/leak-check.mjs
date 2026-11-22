@@ -10,7 +10,7 @@
 // 夹写全折到同一形;代价是跨标点偶接(如「a, b」折成「ab」)可能误红——宁红勿漏
 // (Q5 机检哲学),误伤走行级豁免标记。
 // 用法:node leak-check.mjs [路径...] [--roster-file PATH] [--python BIN]
-//   缺省扫描面 = ops/agent/prompts/discover/shortlist-bench.md(在才扫,票 B 产物;
+//   缺省扫描面 = ops/pipeline-core/prompts/discover/shortlist-bench.md(在才扫,票 B 产物;
 //   不在=空集放行)+ ops/agent-v2/bench/ 下除 exam-rules.json/aliases.json 外全部文件
 //   (两者本就是名单/别名载体,自扫自红无意义)。
 // 退出码:0=绿;1=红(有命中);2=用法/名单取数失败。
@@ -18,7 +18,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { DISCOVER_SHORTLIST_BENCH_PROMPT } from "../../agent/artifacts.mjs"; // 基准提示词路径单源(终审 P2-1:与 run-discover.mjs 同源消费)
+import { DISCOVER_SHORTLIST_BENCH_PROMPT } from "../../pipeline-core/artifacts.mjs"; // 基准提示词路径单源(终审 P2-1:与 run-discover.mjs 同源消费)
 import { parseRoster } from "./roster.mjs"; // roster 行解析单源(终审 P2-2:与 score.mjs 同源,失败语义同构 fail-closed)
 
 export const ROOT = path.resolve(import.meta.dirname, "..", "..", ".."); // ops/agent-v2/bench → 仓根(3 层;4 层病同 tasks/discover-round.mjs:61 钉死款)
@@ -28,20 +28,20 @@ export const EXEMPT_MARKER = "禁词引用"; // #308 判例字样,与 .git/hooks
 // 基准面名单载体文件名(§3.3:免考规则与别名表)——缺省扫描面剔除
 export const ROSTER_CARRIER_FILES = new Set(["exam-rules.json", "aliases.json"]);
 
-// 基准提示词路径:文件名单源 DISCOVER_SHORTLIST_BENCH_PROMPT(ops/agent/artifacts.mjs;
+// 基准提示词路径:文件名单源 DISCOVER_SHORTLIST_BENCH_PROMPT(ops/pipeline-core/artifacts.mjs;
 // run-discover.mjs shortlistBenchPromptPath 同源消费——双处手抄漂移曾致提示词改名后
 // 本面 existsSync 空集放行、漏题闸静默装绿,终审 P2-1)。
 export function shortlistBenchPromptPath(root = ROOT) {
-  return path.join(root, "ops", "agent", "prompts", DISCOVER_SHORTLIST_BENCH_PROMPT);
+  return path.join(root, "ops", "pipeline-core", "prompts", DISCOVER_SHORTLIST_BENCH_PROMPT);
 }
 
 // ── 加源域扫描面(票 #334 交付面 3:轮提示词不得含考题名单)──
-// 轮提示词目录 = ops/agent/prompts/add/(P1 #332 三件 system/dossier/implement;
+// 轮提示词目录 = ops/pipeline-core/prompts/add/(P1 #332 三件 system/dossier/implement;
 // bench 形态装载 system+implement,生产形态另装载 dossier,三件全收)。在才扫(同
 // 基准提示词律);真仓在场由 leak-check.test.mjs 单源钉死测试把门——改名/移位→钉死
 // 测试红,不静默装绿(终审 P2-1 同款防线)。
 export function addPromptsDir(root = ROOT) {
-  return path.join(root, "ops", "agent", "prompts", "add");
+  return path.join(root, "ops", "pipeline-core", "prompts", "add");
 }
 
 // ── 归一化与匹配 ──

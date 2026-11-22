@@ -4,9 +4,9 @@
 消费。文件格式沿 T4 冻结件(docs/ops/ 现状为唯一形状真源,本文所写为占位
 形状的正式落位):
 
-- 台账 ledger.md 表头/行 = ops/agent/lib.sh ledger_append 逐字;
+- 台账 ledger.md 表头/行 = ops/pipeline-core/lib.sh ledger_append 逐字;
 - 待集成清单 queue.md 表头/行/去重键(action+source)/谓词闭集 =
-  ops/agent/tools.mjs queueAction 逐字(轮次信封 queue_writes 的 dedup 同键);
+  ops/pipeline-core/tools.mjs queueAction 逐字(轮次信封 queue_writes 的 dedup 同键);
 - 判例目录名 _schema.md 是 schema 说明非判例,检索/导入一律随目录携带但
   读取方须排除(既有 test_precedent_schema.py 同口径)。
 
@@ -80,7 +80,7 @@ LEDGER_HEADER = (
 # 表头(T4 冻结列面;首行句 #217 T3.5 翻正:三写口如实描述——ops 轮 queue_action
 # (append_queue/queueAction 同路)·发现轮 ENQUEUE 候选行·发现轮候选卡
 # appendCandidateCard,后两路 action=PROPOSE 一词一拼;与 node 侧
-# ops/agent/tools/queue-lock.mjs QUEUE_HEADER 跨语言双抄,对拍哨钉死不漂移)
+# ops/pipeline-core/tools/queue-lock.mjs QUEUE_HEADER 跨语言双抄,对拍哨钉死不漂移)
 QUEUE_HEADER = (
     "# 源生命周期动作队列(三写口:ops 轮 queue_action · 发现轮 ENQUEUE 候选行 · 发现轮候选卡 appendCandidateCard;后两路 action=PROPOSE 一词一拼;行由 host 模板渲染,rationale 只落工件)\n\n"
     "| 日期 | 轮次 | action | source | predicate | evidence | vetoable |\n"
@@ -88,7 +88,7 @@ QUEUE_HEADER = (
 )
 
 # #139 挂账②:queue.md 跨进程互斥锁文件名(= queue.md 同名 + .lock)。对称契约:
-# node 侧 ops/agent/tools/queue-lock.mjs QUEUE_LOCK_SUFFIX=".lock" 从其 queueFile
+# node 侧 ops/pipeline-core/tools/queue-lock.mjs QUEUE_LOCK_SUFFIX=".lock" 从其 queueFile
 # 落位(DOCS_ROOT/ops/queue.md)同式推导;生产形态 P2 桥 _ops_rounds._round_env
 # 注入 DOCS_ROOT=ops_root().parent 使两侧落位同址同文件。路径漂移防线 =
 # selftest-contract.mjs「锁路径对拍」哨(抽本文件 QUEUE_LOCK_NAME 字面量与

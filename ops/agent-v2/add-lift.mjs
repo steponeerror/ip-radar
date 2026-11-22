@@ -288,7 +288,7 @@ export async function runLift({ sandbox, roundDir, fleetRoot, devRoot, python, s
   // 7. 门三连
   const gates = [
     { name: "backend 全量 pytest", cmd: [python, "-m", "pytest", "-q", "--durations=15"], cwd: path.join(sandbox, "backend"), timeoutMs: 30 * 60_000 },
-    { name: "ops selftest", cmd: ["bash", path.join(sandbox, "ops", "agent", "selftest.sh")], cwd: sandbox, timeoutMs: 15 * 60_000 },
+    { name: "ops selftest", cmd: ["bash", path.join(sandbox, "ops", "pipeline-core", "selftest.sh")], cwd: sandbox, timeoutMs: 15 * 60_000 },
     { name: "agent-v2 node --test", cmd: ["npm", "test"], cwd: path.join(sandbox, "ops", "agent-v2"), timeoutMs: 15 * 60_000 },
   ];
   const gateResults = [];

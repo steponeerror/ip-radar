@@ -4,7 +4,7 @@
 // 旧出口=queue.md PROPOSE 行(APPROVE 语义是给退役舰队驱动吃的,无人消费)→ #384 起
 // **PROPOSE 行停写**;信封 queue_writes 字段保留恒空数组(回放兼容,不删字段)。
 //
-// 复用通道:ops/agent/tools/measurement.mjs ghIssueCreate(#184 出口件;#348 修法 A
+// 复用通道:ops/pipeline-core/tools/measurement.mjs ghIssueCreate(#184 出口件;#348 修法 A
 // repo 定向)——gh CLI 面,GH_TOKEN 鉴权经容器 env 继承(v1 C4 白名单,#364 切流律;
 // 生产实证:anchor-sweep finding 自动开票 #381/#391/#393 三轮全成功),目标仓=env
 // OPS_GH_REPO(#348:容器快照仓无 remote 须显式定向;空=gh 从 cwd remote 推导)。
@@ -26,9 +26,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
-import { ghIssueCreate } from "../../agent/tools/measurement.mjs"; // #184/#348 既有 issue 通道(REST 新造面=禁)
-import { ARTIFACTS as A } from "../../agent/artifacts.mjs"; // 工件名表单源(#202 C1:写出/读面禁手抄)
-import { classifyEnqueue, ENQUEUE_EXCLUSIVITY_GATE } from "../../agent/pipeline/steps.mjs"; // #384 提取:三判据分类单源
+import { ghIssueCreate } from "../../pipeline-core/tools/measurement.mjs"; // #184/#348 既有 issue 通道(REST 新造面=禁)
+import { ARTIFACTS as A } from "../../pipeline-core/artifacts.mjs"; // 工件名表单源(#202 C1:写出/读面禁手抄)
+import { classifyEnqueue, ENQUEUE_EXCLUSIVITY_GATE } from "../../pipeline-core/pipeline/steps.mjs"; // #384 提取:三判据分类单源
 
 const execFileP = promisify(execFileCb);
 export const ENQUEUE_ISSUES_ARTIFACT = "enqueue-issues.json"; // v2 侧新工件名单源(本模块;daily-digest 经轮目录路径读)

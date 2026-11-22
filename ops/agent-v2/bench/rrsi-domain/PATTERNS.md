@@ -9,10 +9,10 @@
 (#333/#332/#334/#346/#356/#384/#403/#408 八笔),
 同步律=改面须同步 adapter.py 注释与 rrsi-domain.test.mjs allowlistCount 断言):
 
-- `ops/agent/pipeline/**`(12 文件)
-- `ops/agent/prompts/**`(12 文件)
+- `ops/pipeline-core/pipeline/**`(12 文件)
+- `ops/pipeline-core/prompts/**`(12 文件)
 - `ops/agent-v2/tools/**` + `ops/agent-v2/tasks/**` + `ops/agent-v2/bench/**`(39 文件)
-- `ops/agent/agent.mjs`、`ops/agent/models.mjs`(v1 入口与模型面,v2 经 re-export 复用)
+- `ops/pipeline-core/agent.mjs`、`ops/pipeline-core/models.mjs`(v1 入口与模型面,v2 经 re-export 复用)
 
 名单外一律只读。叠加冻结门:验证面(golden/selftest*/fixtures/v2-tests)、
 leak gate 执法件(leak-check.mjs/exam-rules.json)与 NEEDS.md 对 incumbent 分支的
@@ -33,7 +33,7 @@ git diff 必须为空——编辑在名单内但落冻结面的动作(如改 `be
 
 基准演化**不得改变真实运营轮的行为**:生产 discover/health 轮的路径
 (run-discover/run-health 及其 tasks 全相位)输出必须与演化前字节级一致;
-golden(`ops/agent/golden/run-golden.mjs`)与 v2 全套(`npm test`)钉住这一点。
+golden(`ops/pipeline-core/golden/run-golden.mjs`)与 v2 全套(`npm test`)钉住这一点。
 改基准面(bench/ 下)必须在真实轮路径零 diff 的前提下做——评测器、答案、劈分、
 leak 闸自身(score.mjs/leak-check.mjs/split/aliases/exam-rules)视为**冻结基础设施**,
 提案不得改;发现评测器缺陷,报告,不修。

@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 // exits.mjs — 自演化轮报告出口两件(票 #356 骨架 v1 交付面 4)。
 //
-// ①每轮 gh 票(轮结果单+工件路径;复用 v1 ghIssueCreate 单源——ops/agent/tools.mjs
+// ①每轮 gh 票(轮结果单+工件路径;复用 v1 ghIssueCreate 单源——ops/pipeline-core/tools.mjs
 //   measurement.mjs 的 gh 面,argv 头钉 [issue,create],凭证走 gh CLI 本体);
 // ②异常 lark 推送(复用 finding 推送通道的通道契约:apprise CLI + env
 //   IP_RADAR_ALERT_URLS 逗号/空白分隔多 URL,空=静音跳过;三态分类/超时/脱敏全同
-//   ops/agent/pipeline/finding-exit.mjs webhookExit 律——v1 模块未导出该函数,且 v2
+//   ops/pipeline-core/pipeline/finding-exit.mjs webhookExit 律——v1 模块未导出该函数,且 v2
 //   不 import v1 管线件,故按同律重写小面,词面不新造)。
 // 出口永不败轮(finding-exit 同律):失败=记录,轮结果照常;记录全稿落轮工件
 // exits.json(证据不灭失)。dry-run:env EVOLVE_EXITS_DRY_RUN=1 或 opts.dryRun
@@ -14,7 +14,7 @@
 // 冠军并 master 是人裁位)。
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
-import { ghIssueCreate } from "../../../agent/tools.mjs";
+import { ghIssueCreate } from "../../../pipeline-core/tools.mjs";
 
 const execFileP = promisify(execFileCb);
 const APPRISE_TIMEOUT_MS = 15_000; // finding-exit 同值(防挂轮)

@@ -1,10 +1,10 @@
 """P2 轮次桥:任务链串行车道内 spawn 运营 agent CLI(票 #134)。
 
-契约真源:主仓 GLOSSARY「spawn 契约」「轮次信封」+ ops/agent/agent.mjs
+契约真源:主仓 GLOSSARY「spawn 契约」「轮次信封」+ ops/pipeline-core/agent.mjs
 (SPAWN_CONTRACT_ENV 表,17 名 env 面唯一详述点);本模块是后端侧唯一消费方
 (ops/agent 冻结面零触碰)。
 
-- argv = node --max-old-space-size=256 ops/agent/agent.mjs <round> <input>
+- argv = node --max-old-space-size=256 ops/pipeline-core/agent.mjs <round> <input>
   (三层内存围栏第一层钉在拉起层,裁⑥;计划书 Global Constraints「一切子进程
   必须带资源围栏」——964MB 小机 OOM 前科);cwd = 仓根(部署形态相对路径);
 - env 注入(桥侧归属名):ops 树落位三名(DOCS_ROOT/PRECEDENTS_DIR/LEDGER_FILE
@@ -52,7 +52,7 @@ logger = logging.getLogger(__name__)
 
 # spawn 契约 argv(GLOSSARY「spawn 契约」;--max-old-space-size=256 = 三层内存
 # 围栏第一层,参数钉在拉起层——裁⑥)
-_DEFAULT_AGENT_CMD = ["node", "--max-old-space-size=256", "ops/agent/agent.mjs"]
+_DEFAULT_AGENT_CMD = ["node", "--max-old-space-size=256", "ops/pipeline-core/agent.mjs"]
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]  # 仓根(agent CLI 的 cwd)
 _STDERR_TAIL_CHARS = 300  # 失败面 stderr 尾部入错误消息(定位用,不倾倒)
@@ -141,7 +141,7 @@ def _round_env() -> dict[str, str]:
     return env
 
 
-# C4(#196)spawn env 白名单:契约单源 = ops/agent/agent.mjs SPAWN_CONTRACT_ENV
+# C4(#196)spawn env 白名单:契约单源 = ops/pipeline-core/agent.mjs SPAWN_CONTRACT_ENV
 # (OPS_*/PI_* 前缀名 + 精确名 ZAI_CODING_CN_API_KEY/JINA_API_KEY/GH_TOKEN/
 # DOCS_ROOT/PRECEDENTS_DIR/LEDGER_FILE/IP_RADAR_ALERT_URLS)。此前
 # {**os.environ, **_round_env()} 全量继承把 ADMIN_PASSWORD/JWT_SECRET 等
@@ -303,7 +303,7 @@ def spawn_round(
 # token/工件缺重跑);本面只做准入裁决与处置留痕。永不抛异常(启动面尽力而为;
 # 处置失败轮保持 in_flight,下次 boot 再扫)。
 _RESUME_ARGV_HEAD = ["node", "--max-old-space-size=256",
-                     "ops/agent/pipeline.mjs", "resume"]
+                     "ops/pipeline-core/pipeline.mjs", "resume"]
 _STALE_HOURS = 16.0        # 2× 8h cron 周期(C稿 §4.6 规则 5)
 _REPLAY_DIR_RE = _re.compile(r"-r\d+$")  # 重放目录不入恢复(终态语义,pipeline 侧已终态化)
 
@@ -460,7 +460,7 @@ def recover_inflight_rounds(manager=None) -> list[dict]:
                 _ops_store.append_ledger(
                     "health", "—", "—",
                     f"boot 恢复:{reason} 标 FAILED(infra)——审计走 "
-                    f"node ops/agent/pipeline.mjs replay {rid}(replay 可救,交人)")
+                    f"node ops/pipeline-core/pipeline.mjs replay {rid}(replay 可救,交人)")
                 logger.info("boot 恢复:%s → FAILED(infra):%s", rid, reason)
                 handled.append({**row, "done": True})
             elif row["action"] == "resume" and manager is not None:
