@@ -175,7 +175,7 @@ await t("轮报告件(#403):R1 CLOSE 写 packages/<date>-health-<HHMM>.md,头部
   assert.equal(reportNameOf("2026-11-22-0500-discover"), "2026-11-22-discover-0500.md");
   assert.equal(reportNameOf("2026-10-23-2340-health"), "2026-10-23-health-2340.md");
   assert.equal(reportNameOf("2026-10-23-2340-health-r1"), "2026-10-23-health-2340-r1.md", "replay 后缀轮同律保留后缀(重放不入 CLOSE,resume 同 id 不碰此面)");
-  await assert.rejects(() => reportNameOf("2026-10-28-e2e-health"), /形状须/);
+  assert.throws(() => reportNameOf("2026-10-28-e2e-health"), /形状须/, "形状不合掷错(同步掷,非 rejects)");
   const rep = fs.readFileSync(path.join(DOCS, "ops", "packages", "2026-10-23-health-2340.md"), "utf8");
   assert.match(rep, /轮次:2026-10-23-2340-health/);
   assert.match(rep, /类型:health/);
