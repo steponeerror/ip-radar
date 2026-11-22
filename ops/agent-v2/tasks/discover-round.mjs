@@ -52,6 +52,7 @@ import { ensureRoundHost, roundDupRegistries } from "../tools/discovery-tools.mj
 import { enqueueStageIssueExit } from "../tools/enqueue-issues.mjs"; // #384:ENQUEUE 出口改 GH issue(PROPOSE 行停写;判据分类 v1 classifyEnqueue 单源)
 import { benchScan } from "../bench/scan.mjs"; // bench SCAN 变体(票 #318:候选宇宙=仅 NEEDS 面;real 面走 runStage 旧步不受影响)
 import { writeRoundReport } from "../../agent/pipeline/round-report.mjs"; // #403:轮报告件单源(v2 零复制 import v1;bench 轮照写=沙箱 opsRoot 天然隔离)
+import { writeTerminalRoundState } from "./round-state.mjs"; // #408:CLOSE 终态回写 state.json 镜像(与报告件同接线点)
 import { shortlistBenchPromptPath } from "../run-discover.mjs"; // bench SHORTLIST 基准提示词路径(票 #319;函数声明面循环安全:run-discover↔tasks 仅运行时互引)
 
 const sha = (s) => crypto.createHash("sha256").update(s).digest("hex").slice(0, 16);
@@ -245,7 +246,11 @@ async function scriptPhase(task, runtime, context, phase) {
       // (round-report.mjs 头注「无时钟入文」不变量三面统一成立),checkpoint 侧实测值保留不动。
       const reportStages = staged.map((s) => (s.name === "CLOSE" ? { ...s, dur_ms: 0 } : s));
       writeRoundReport({ roundId: input.roundId, type: "discover", engine: "pipeline-v2", ctx, stages: reportStages, opsRoot: ctx.opsRoot });
+      // #408:终态回写镜像(done;v1 finishClose 同序=报告→state;stages 名单推进到含
+      // CLOSE;updated_at 保盘值=崩溃重入 CLOSE 重写字节级不变)
+      writeTerminalRoundState(ctx, { status: "done", stages: staged.map((s) => s.name) });
     } catch (e) { // fail loud + v2 律(P0-①):handler 不裸抛(framework fault 重启循环)→ 终态失败留真码
+      writeTerminalRoundState(ctx, { status: "failed" }); // #408:报告写败=轮失败,镜像终态 failed(v1 failStage 同语义;stages 止于 RETRO=close 未成不造 CLOSE 名)
       return finishFailed(runtime, context, { message: `CLOSE:轮报告件写败:${e.message}`, detail: { code: e.code ?? "infra", stage: "CLOSE" } });
     }
     return finishOk(runtime, context, composeEnvelope(checkpoint, ctx)); // close 终态=result=信封(旧信封同形)
