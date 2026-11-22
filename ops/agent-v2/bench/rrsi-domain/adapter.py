@@ -71,21 +71,21 @@ BENCH_PYTHON = os.environ.get("IPRADAR_BENCH_PYTHON",
 #   #403 2026-11-22 +1 轮报告件 pipeline/round-report.mjs(glob pipeline/** 原裁继承,零新增 glob);
 #   #408 2026-11-22 +1 终态回写单源 tasks/round-state.mjs(glob tasks/** 原裁继承,零新增 glob)。
 #   调研笔记 docs/notes/ops-tree-as-harness-2026-11-08.md:验证/环境/文档面 72% 是演化不该碰的):
-#   ops/agent/pipeline/** 12 + ops/agent/prompts/** 12
-#   + ops/agent-v2/{tools,tasks,bench}/** 39 + ops/agent/{agent.mjs,models.mjs} 2
+#   ops/pipeline-core/pipeline/** 12 + ops/pipeline-core/prompts/** 12
+#   + ops/agent-v2/{tools,tasks,bench}/** 39 + ops/pipeline-core/{agent.mjs,models.mjs} 2
 # 其余(v1 根散件/验证面/环境面/文档面)一律只读;验证面另有 _guardrails 冻结门,
 # 不靠本表拒绝。名单外输入 fail-closed(edit_allowed 返回 False)。
 # 双匹配器互指(Spec 轴 P2-1):运行时真身是 dev/rrsi rrsi/propose.py _allowed(同一张
 # 表消费;语义微差:彼侧多剥 harness 目录名前缀、少反斜杠归一,分歧方向均为拒;改 glob
 # 时两侧同改)。
 EDIT_ALLOWLIST = (
-    "ops/agent/pipeline/**",
-    "ops/agent/prompts/**",
+    "ops/pipeline-core/pipeline/**",
+    "ops/pipeline-core/prompts/**",
     "ops/agent-v2/tools/**",
     "ops/agent-v2/tasks/**",
     "ops/agent-v2/bench/**",
-    "ops/agent/agent.mjs",
-    "ops/agent/models.mjs",
+    "ops/pipeline-core/agent.mjs",
+    "ops/pipeline-core/models.mjs",
 )
 
 def edit_allowed(rel) -> bool:
@@ -113,7 +113,7 @@ from critic_needles import buildCriticPatterns  # noqa: E402
 def _ensure_backend_link(root: Path) -> None:
     """harness/backend → 主检出 backend 的符号链接 + git exclude 双保险。
     golden 健康例的 matrix/锚探针 spawn 在 cwd=<ROOT>/backend 跑 `-m ipdb._eval`
-    (ops/agent/tools/measurement.mjs:59),vendored harness 缺 backend/ 会 ENOENT;
+    (ops/pipeline-core/tools/measurement.mjs:59),vendored harness 缺 backend/ 会 ENOENT;
     链到主检出 backend=与主检出 golden 同读数面(只读探针,零漂移)。exclude
     (common dir,全 worktree 共享)保 symlink 绝不进候选提交(commit_path 的
     `git add -A` 遵 exclude)。"""
@@ -228,9 +228,9 @@ NEEDS_GATE_PATHS = ("domains/ipradar/harness/NEEDS.md",)
 # 打分面数据:score.mjs 考题分母由它派生,名单载体留在被告可编面=门上留缝)。
 # 「给自己打分的面」含给自己站岗的面。
 VERIFICATION_GATE_PATHS = (
-    "domains/ipradar/harness/ops/agent/golden",
-    "domains/ipradar/harness/ops/agent/selftest*",
-    "domains/ipradar/harness/ops/agent/fixtures",
+    "domains/ipradar/harness/ops/pipeline-core/golden",
+    "domains/ipradar/harness/ops/pipeline-core/selftest*",
+    "domains/ipradar/harness/ops/pipeline-core/fixtures",
     "domains/ipradar/harness/ops/agent-v2/tests",
     "domains/ipradar/harness/ops/agent-v2/bench/leak-check.mjs",
     "domains/ipradar/harness/ops/agent-v2/bench/exam-rules.json",
@@ -255,7 +255,7 @@ def _guardrails(root: Path, runs_dir: Path, log_dir: Path) -> dict:
         if not (d / "node_modules").is_dir():
             _run(["npm", "ci", "--no-fund", "--no-audit"], cwd=d,
                  log=log_dir / "npm-ci.log", timeout=900)
-    # ① golden:ops/agent/golden/run-golden.mjs(faux 层零花费,真 agent 回路对拍)
+    # ① golden:ops/pipeline-core/golden/run-golden.mjs(faux 层零花费,真 agent 回路对拍)
     _run(["node", "golden/run-golden.mjs"], cwd=agent, log=log_dir / "golden.log")
     out["golden"] = True
     # ② v2 全套:npm test(基线 97 面 + 劈分/域结构不变式)
@@ -542,7 +542,7 @@ DOMAIN = IpRadarDomain()
 # env RRSI_LLM_BACKEND=litellm-zai 开启(缺省关=原行为):generate() 改走 LiteLLM
 # openai 兼容面 → zai coding cn 端点;模型串取 rrsi.json(*_model),base_url/api_key
 # 走 env ZAI_CODING_CN_BASE_URL(缺省 https://open.bigmodel.cn/api/coding/paas/v4)/
-# ZAI_CODING_CN_API_KEY(auth.json 凭证店同源,ops/agent/models.mjs 判例)。
+# ZAI_CODING_CN_API_KEY(auth.json 凭证店同源,ops/pipeline-core/models.mjs 判例)。
 # scripts/glm-smoke.py 经此面真调一次(票 #325 冒烟留痕)。
 def _shim_log(msg: str) -> None:
     """垫片尝试日志(append RRSI_SHIM_LOG 或 runs/litellm-shim.log;每次尝试一行,排查

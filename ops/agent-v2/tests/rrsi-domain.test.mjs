@@ -242,7 +242,7 @@ if rep["has"]["edit_allowed"]:
             "ops/pipeline-core/feeds.txt")
     rep["allow"] = {p: bool(m.edit_allowed(p)) for p in allow}
     rep["deny"] = {p: bool(m.edit_allowed(p)) for p in deny}
-    rep["normBackslash"] = bool(m.edit_allowed("ops\\\\agent\\\\prompts\\\\discover-system.md"))
+    rep["normBackslash"] = bool(m.edit_allowed("ops\\\\pipeline-core\\\\prompts\\\\discover-system.md"))
     # 构成计数(source_exts 面,同调研笔记口径;split.jsonl 的 .jsonl 不入)
     exts = {".py", ".txt", ".md", ".json", ".mjs"}
     ops = Path(sys.argv[2])
