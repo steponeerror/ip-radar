@@ -91,14 +91,17 @@ describe("OpsPackagesSection — list → detail", () => {
     expect(listOpsPackages).toHaveBeenCalledTimes(1);
   });
 
-  it("detail shows the report verbatim (evidence call_id+field=value / trace) with precedent refs clickable", async () => {
+  it("detail renders markdown (headings/table) with evidence triplet text and clickable precedent refs (#420)", async () => {
     vi.mocked(readOpsPrecedent).mockResolvedValue(PRECEDENT_TEXT);
     renderSection();
     await openDetail();
-    // 证据三元组(call_id:field=value)与 trace 全文在场(逐字)
+    // #420:受控 markdown 渲染——形状断言(标题/表格成结构,不再逐字 <pre>)
+    expect(screen.getByRole("heading", { level: 1, name: "裁决包" })).toBeTruthy();
+    expect(screen.getByRole("columnheader", { name: "出版方" })).toBeTruthy();
+    // 证据三元组(call_id:field=value)与摘要段文字在场(文字逐字保留,不被形状解释吞掉)
     expect(screen.getByText(/call_12:exclusive_rate=0.587/)).toBeTruthy();
     expect(screen.getByText(/整体判断:与在案判例一致/)).toBeTruthy();
-    // 判例引用可点开全文
+    // 判例引用可点开全文(票 #156 行为保留)
     fireEvent.click(screen.getByRole("button", { name: "2026-10-18-blocklist-de-legit.md" }));
     expect(vi.mocked(readOpsPrecedent)).toHaveBeenCalledWith("2026-10-18-blocklist-de-legit.md");
     expect(await screen.findByText(/# 判例:blocklist-de-legit/)).toBeTruthy();
