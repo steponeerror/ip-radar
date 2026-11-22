@@ -4,7 +4,7 @@
 
 ![IP Radar — 自托管的 IP 情报](assets/social-preview.png)
 
-把 71 个公开情报源搬回家：查任何 IP，拿一份全面的画像——一句话结论、逐源证据、置信度，加上地理·城市·ASN、云/托管、代理/VPN/Tor、服务身份，一次看全。一条命令，自己部署。
+把 70 个公开情报源搬回家：查任何 IP，拿一份全面的画像——一句话结论、逐源证据、置信度，加上地理·城市·ASN、云/托管、代理/VPN/Tor、服务身份，一次看全。一条命令，自己部署。
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 ![Docker](https://img.shields.io/badge/Docker-one%20container-2496ED?logo=docker&logoColor=white)
@@ -201,7 +201,6 @@ curl -s http://127.0.0.1:8000/api/db-status
 | sw_scanners | [ShadowWhisperer/IPs](https://github.com/ShadowWhisperer/IPs) | 自采策展的扫描器 IP 清单（逐行带厂商名，日更） | |
 | sw_threats | [ShadowWhisperer/IPs](https://github.com/ShadowWhisperer/IPs) | 自采策展的威胁 IP 清单（逐行带类别和首次出现时间） | |
 | myip_ms | [myip.ms](https://myip.ms/) | 自有爬虫全网抓取加用户举报汇成的活跃黑名单（10 天滚动窗） | |
-| sblam | [Sblam!](https://sblam.com/) | 表单垃圾黑名单（表单陷阱传感器网络） | |
 | data_shield `*` | [duggytuxy/Data-Shield](https://github.com/duggytuxy/Data-Shield_IPv4_Blocklist) | 每日聚合的 IPv4 封禁清单（约 9 万条裸 IP） | |
 | ziyadnz `*` | [ziyadnz/threat-intel-ip-feeds](https://github.com/ziyadnz/threat-intel-ip-feeds) | 把约 10 个公开源聚成每日逐 IP 清单（每行保留出处） | |
 | cps_collected_iocs `*` | [CriticalPathSecurity](https://github.com/CriticalPathSecurity/Public-Intelligence-Feeds) | CPS 公司自有 IOC 的汇总（裸 IP 清单） | |
