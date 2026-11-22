@@ -3,6 +3,7 @@
 > **切流留档注(#364,2026-11-20)**:生产健康轮 cron 已切至 v2 直跑形 `deploy/ops-cron-v2.sh`(ops/agent-v2/run-health.mjs 接生产世界;操作单/回退/观察清单见 ops/agent-v2/SHADOW-RUNBOOK.md §已切流)。本文件的 v1 API 触发形 = crontab 回退参照留档;§gh_search 通道凭证(GH_TOKEN)判例仍适用后端触发的发现轮。
 
 > **发现轮定频留档注(#367,2026-11-20)**:生产发现轮 cron = `deploy/ops-cron-v2-discover.sh`(每日 06:00 错峰;月帽独立键 `OPS_DISCOVER_MONTHLY_CAP_CNY` 缺省 ¥20;操作单/错峰注见 ops/agent-v2/SHADOW-RUNBOOK.md §已切流,cron 冻结面钉在 `ops/agent-v2/tests/ops-cron-v2-discover.test.mjs`)。本文件 v1 API 触发形自此仅剩手触/回退参照;§gh_search 通道凭证(GH_TOKEN)判例继续适用 v2 发现轮。
+> **发现轮出口留档注(#384,2026-11-22)**:出口=GH issue needs-triage(达标候选开工单人裁,半自动时代入口;queue.md PROPOSE 行停写,开票 fail-soft 留痕 enqueue-issues.json;详见 ops/agent-v2/tools/enqueue-issues.mjs 头注与 SHADOW-RUNBOOK §已切流)。GH_TOKEN 判例同时服务本出口(容器 env 继承)。
 
 触发链(C 稿 §5.1 定案;三小裁③:cron 首窗 **04:00 起错峰**——源更新凌晨 rebuild 高峰
 不与健康轮抢车道):

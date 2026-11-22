@@ -49,6 +49,7 @@ import * as gates from "../../agent/pipeline/gates.mjs"; // 零复制:门评估+
 import { readBreakerKnobs } from "../../agent/tools/breaker.mjs"; // 零复制(写侧经宿主适配器,见 tools/discovery-tools.mjs)
 import { preModelCall, postModelCall, stepBoundary } from "./budget-guard.mjs"; // T2 执法面(文案/界值零漂移;token/cost 之和在本文件 roundUsage 逐字段展开)
 import { ensureRoundHost, roundDupRegistries } from "../tools/discovery-tools.mjs"; // 轮级发现宿主(工具面+熔断写侧随迁)
+import { enqueueStageIssueExit } from "../tools/enqueue-issues.mjs"; // #384:ENQUEUE 出口改 GH issue(PROPOSE 行停写;判据分类 v1 classifyEnqueue 单源)
 import { benchScan } from "../bench/scan.mjs"; // bench SCAN 变体(票 #318:候选宇宙=仅 NEEDS 面;real 面走 runStage 旧步不受影响)
 import { shortlistBenchPromptPath } from "../run-discover.mjs"; // bench SHORTLIST 基准提示词路径(票 #319;函数声明面循环安全:run-discover↔tasks 仅运行时互引)
 
@@ -166,8 +167,9 @@ async function finishOk(runtime, context, result) {
   }), context);
 }
 
-// 信封(旧引擎 composeEnvelope 发现轮分支同形;pkg=null 恒、queue_writes 恒空——PROPOSE
-// 只写不动作是旧律;键序=旧 golden pipeline_ok 键序断言面,T5 冻结前不增删)。
+// 信封(旧引擎 composeEnvelope 发现轮分支同形;pkg=null 恒、queue_writes 恒空数组——回放
+// 兼容不删字段;键序=旧 golden pipeline_ok 键序断言面,T5 冻结面唯一 sanctioned 增键=
+// issues_opened(#384 票面明令:issue 出口读数,digest/复盘可读;ENVELOPE.md 同步)。
 function composeEnvelope(checkpoint, ctx) {
   return {
     ok: true,
@@ -180,6 +182,7 @@ function composeEnvelope(checkpoint, ctx) {
     },
     pkg: null,
     queue_writes: [],
+    issues_opened: checkpoint.issuesOpened ?? 0, // #384:enqueue 相位出口读数(真源=checkpoint;崩溃重入由 emit 守卫回补)
     usage: { ...ctx.usage },
     verify: { ok: true, cited: 0 },
   };
@@ -210,7 +213,13 @@ async function scriptPhase(task, runtime, context, phase) {
   const t0 = Date.now();
   let rec;
   try {
-    rec = isBench(input) && phase === "scan" ? benchScan(ctx) : await runStage(def, ctx); // bench SCAN 变体(零复制旧步;RETRO 可能 {degraded}
+    // #384:enqueue 相位走 v2 issue 出口变体(benchScan 先例):达标候选(enqueued+
+    // flagged)开 GH issue(needs-triage 人裁),queue.md PROPOSE 行停写;d4-enqueue.json
+    // 与 v1 逐字段同形(判据分类 classifyEnqueue 单源),G_ENQUEUE 门面不变;issue 出口
+    // fail-soft 永不败轮(工具面注释见 tools/enqueue-issues.mjs 头注)。
+    rec = isBench(input) && phase === "scan" ? benchScan(ctx)
+      : phase === "enqueue" ? await enqueueStageIssueExit(ctx)
+      : await runStage(def, ctx); // bench SCAN 变体(零复制旧步;RETRO 可能 {degraded}
   } catch (e) { // 域失败=终态(旧 fail 三元组;handler 不抛=pi-durable fault 不消耗 restart)
     return finishFailed(runtime, context, { message: `${def.name}:${e.message}`, detail: { code: e.code ?? "infra", stage: def.name } });
   }
@@ -225,7 +234,9 @@ async function scriptPhase(task, runtime, context, phase) {
   else gates.appendGate(ctx.dir, ctx.roundId, gate);
   if (!gate.pass) return finishFailed(runtime, context, { message: `GATE:${def.name}:${gate.reason}`, detail: { code: gate.code ?? "infra", stage: def.name } }); // 门红=终态(旧 fail-closed)
   const next = nextPhase(phase);
-  const checkpoint = { ...cur, ...(next ? { phase: next } : {}), stages: [...cur.stages, stage], modelCalls: ctx.modelCalls, usage: { ...ctx.usage } }; // 相位推进=phase 字段前移(缺它=同相位重跑死循环)
+  // #384:enqueue 相位把 issue 出口读数入 checkpoint(信封 issues_opened 真源;崩溃重入由 emit 守卫回补)
+  const issuesPatch = phase === "enqueue" && typeof rec?.issues_opened === "number" ? { issuesOpened: rec.issues_opened } : {};
+  const checkpoint = { ...cur, ...(next ? { phase: next } : {}), stages: [...cur.stages, stage], modelCalls: ctx.modelCalls, usage: { ...ctx.usage }, ...issuesPatch }; // 相位推进=phase 字段前移(缺它=同相位重跑死循环)
   return next
     ? advance(runtime, context, checkpoint, {}, ctx)
     : finishOk(runtime, context, composeEnvelope(checkpoint, ctx)); // close 终态=result=信封(旧信封同形)

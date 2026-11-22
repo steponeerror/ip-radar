@@ -4,8 +4,10 @@
 // 零依赖(node 内建 + ssh 免密),汇总两面当日信号:
 //   服务器面(ssh root@203.88.124.85 → docker exec ip-lookup-tool-ipradar-1):
 //     /app/data/ops/rounds/ 当日健康轮+发现轮信封(gates.json 全 records pass=ok;
-//     08-anchor-sweep-exits.json findings/triggered)、ledger.md 当日 cost 行与
-//     budget_monthly 拒跑留痕行、queue.md 当日 PROPOSE 行、/app/data/ops-shadow
+//     08-anchor-sweep-exits.json findings/triggered;发现轮 enqueue-issues.json 候选
+//     开票读数 issues_opened/issues_failed——#384 出口改 GH issue,queue.md PROPOSE 行
+//     停写后候选面唯一活口)、ledger.md 当日 cost 行与
+//     budget_monthly 拒跑留痕行、/app/data/ops-shadow
 //     零增轮断言(切流后影子 cron 已停,增轮=回退不彻底,SHADOW-RUNBOOK §已切流)。
 //   本机面(主检出):dev/evolution/state.json(halted/stall)+当日轮 envelope.json、
 //     dev/evolution/spend.json 对月帽(缺省 ¥200,env EVOLVE_SPEND_CAP_CNY 同键)、
@@ -15,7 +17,7 @@
 // 窗口口径:滚动 24h(跑时 now-24h < 轮起 ≤ now)。轮 id 钟面:服务器=UTC
 //   (宿主 04/12/20 本地=容器 03/11/19 UTC);本机演化/fleet=CST(+08:00)。21:00 CST 跑
 //   时 24h 窗恰好覆盖本 CST 日全部自动轮:健康 03xx/11xx UTC(11/19 时 CST)、发现轮
-//   前日 22:00 UTC(06:00 CST)、本机当日轮。台账/queue 行无钟面只有日期列,按窗跨到的
+//   前日 22:00 UTC(06:00 CST)、本机当日轮。台账行无钟面只有日期列,按窗跨到的
 //   两个 UTC 日期取(粒度差 ≤24h,日报观察面可容;对账面仍以台账细胞为准,ENVELOPE.md)。
 //   终局补报带(#368 评审 P1-3):扫描放宽 48h——21:00 前起跑、窗后收口的轮,其终局
 //   按轮 id 钟面任何常规 24h 窗都读不到(窗按起跑钟面过滤);旧带(24h<龄≤48h)轮仅当
@@ -47,7 +49,6 @@ const SSH_HOST = process.env.DIGEST_SSH_HOST || "root@203.88.124.85";
 const SSH_CONTAINER = process.env.DIGEST_SSH_CONTAINER || "ip-lookup-tool-ipradar-1";
 const OPS_ROUNDS = "/app/data/ops/rounds";
 const OPS_LEDGER = "/app/data/ops/ledger.md";
-const OPS_QUEUE = "/app/data/ops/queue.md";
 const SHADOW_ROUNDS = "/app/data/ops-shadow/docs/ops/rounds";
 // 切流后影子树最后合法轮(#364 切流 2026-11-20 晚,末影子轮 1140 早于切流点;
 // 此后任何字典序更大的影子轮=影子 cron 复活,SHADOW-RUNBOOK §已切流「影子残件」清单)。
@@ -86,9 +87,10 @@ export function splitScanBands(roundIds, nowMs, { utcOffsetMin = 0, windowMs = W
   return { window, overdue };
 }
 
-// 服务器轮信封:gates.json(全 records pass=ok)+ 08-anchor-sweep-exits.json(finding 出口)。
-// 缺 gates=无信封面 → ok:null(不猜红也不猜绿,无证据即无话)。
-export function summarizeServerRound(roundId, gates, exits) {
+// 服务器轮信封:gates.json(全 records pass=ok)+ 08-anchor-sweep-exits.json(finding 出口)
+// + enqueue-issues.json(发现轮候选开票读数;字段名 issues_opened 与轮信封同名直读,
+// #384)。缺 gates=无信封面 → ok:null(不猜红也不猜绿,无证据即无话)。
+export function summarizeServerRound(roundId, gates, exits, enqueue) {
   const failed = Array.isArray(gates?.records)
     ? gates.records.filter((r) => r && r.pass === false).map((r) => r.name || r.stage || "?")
     : null;
@@ -98,6 +100,9 @@ export function summarizeServerRound(roundId, gates, exits) {
     failed_gates: failed ?? [],
     exits_triggered: exits ? Boolean(exits.triggered) : false,
     findings_n: exits ? Number(exits.findings_n ?? 0) : 0,
+    issues_opened: typeof enqueue?.issues_opened === "number" ? enqueue.issues_opened : 0, // #384:与轮信封字段同名直读;缺工件(健康轮/旧发现轮)=0
+    issues_failed: typeof enqueue?.issues_failed === "number" ? enqueue.issues_failed : 0,
+    issue_candidates: Array.isArray(enqueue?.issues) ? enqueue.issues.filter((x) => x?.status === "created").map((x) => x.candidate) : [],
   };
 }
 
@@ -140,20 +145,6 @@ export function ledgerReadings(rows, { windowRoundIds, windowDates, month }) {
     month_counted: monthRows.length,
     refusals: rows.filter((r) => r.refused && windowDates.includes(r.date)),
   };
-}
-
-// queue.md PROPOSE 行:`| 日期 | 轮次 | action | source | … |`
-export function parseQueueProposeRows(text) {
-  return String(text || "")
-    .split("\n")
-    .filter((l) => l.trim().startsWith("|"))
-    .map((l) => l.split("|").map((c) => c.trim()))
-    .filter((cells) => cells.length >= 4 && cells[3] === "PROPOSE")
-    .map((cells) => ({ date: cells[1] || "", source: cells[4] || "" }));
-}
-
-export function selectProposeRows(rows, dates) {
-  return rows.filter((r) => dates.includes(r.date));
 }
 
 // 影子零增轮断言:id > cutoff(同形定宽 id,字典序=时间序)。
@@ -264,8 +255,15 @@ export function renderDigest({ dateLabel, server, local, reds }) {
     lines.push(`- 健康 ${health.filter((r) => r.ok === true).length}/${health.length} 绿:${health.map((r) => shortId(r.round_id) + mark(r)).join(" ")}`);
   if (discover.length)
     lines.push(`- 发现 ${discover.filter((r) => r.ok === true).length}/${discover.length} 绿:${discover.map((r) => shortId(r.round_id) + mark(r)).join(" ")}`);
-  const propose = server.propose_rows ?? [];
-  lines.push(propose.length ? `- PROPOSE ${propose.length} 行:${propose.map((p) => p.source).join("、")}` : "- PROPOSE 0 行");
+  // #384:候选面改 issue 口径(轮目录 enqueue-issues.json 直读,与信封字段 issues_opened 同名;
+  // queue.md PROPOSE 行已停写——旧口径只剩历史行,不再入日报)。开票失败同面显形(fail-soft
+  // 留痕可见,不猜红:详情看轮目录工件)。
+  const issuesOpened = (server.rounds ?? []).reduce((s, r) => s + (r.issues_opened ?? 0), 0);
+  const issuesFailed = (server.rounds ?? []).reduce((s, r) => s + (r.issues_failed ?? 0), 0);
+  const issueCands = (server.rounds ?? []).flatMap((r) => r.issue_candidates ?? []);
+  lines.push(issuesOpened
+    ? `- 发现轮 issue ${issuesOpened} 张(needs-triage):${issueCands.join("、")}${issuesFailed ? `;⚠ 开票失败 ${issuesFailed} 条(fail-soft 留痕)` : ""}`
+    : `- 发现轮 issue 0 张${issuesFailed ? `(⚠ 开票失败 ${issuesFailed} 条,fail-soft 留痕)` : ""}`);
   lines.push(
     `- cost(窗)${fmtCny(server.ledger?.window_cost_cny ?? 0)};当月 ${fmtCny(server.ledger?.month_cost_cny ?? 0)}${server.refusals?.length ? `;⚠ 拒启 ×${server.refusals.length}` : ""}`,
   );
@@ -443,11 +441,14 @@ export function renderDigestPush({ dateLabel, server, local, reds }) {
     lines.push(`- 健康轮 ${health.filter((r) => r.ok === true).length}/${health.length} 正常:${health.map(timeMark).join("、")}(服务器时间)`);
   if (discover.length)
     lines.push(`- 发现轮 ${discover.filter((r) => r.ok === true).length}/${discover.length} 正常:${discover.map(timeMark).join("、")}(服务器时间)`);
-  const propose = server.propose_rows ?? [];
+  // #383 大白话 + #384 issue 口径:候选提案已开 GitHub 工单(needs-triage)等人工裁决
+  const issuesOpened = (server.rounds ?? []).reduce((s, r) => s + (r.issues_opened ?? 0), 0);
+  const issuesFailed = (server.rounds ?? []).reduce((s, r) => s + (r.issues_failed ?? 0), 0);
+  const issueCands = (server.rounds ?? []).flatMap((r) => r.issue_candidates ?? []);
   lines.push(
-    propose.length
-      ? `- ${propose.length} 个候选源提案等人工裁决(PROPOSE):${propose.map((p) => p.source).join("、")}`
-      : "- 没有新的候选源提案(PROPOSE 0 行)",
+    issuesOpened
+      ? `- ${issuesOpened} 个候选源提案已开 GitHub 工单等人裁决:${issueCands.join("、")}${issuesFailed ? `;另有 ${issuesFailed} 条开票失败(见技术面留痕)` : ""}`
+      : `- 没有新的候选源提案(issue 0 张${issuesFailed ? `,但有 ${issuesFailed} 条开票失败` : ""})`,
   );
   lines.push(
     `- 花费:近 24h ${fmtCny(server.ledger?.window_cost_cny ?? 0)},本月累计 ${fmtCny(server.ledger?.month_cost_cny ?? 0)}` +
@@ -511,9 +512,9 @@ const SSH_INNER = [
   '  [ -d "$p" ] || continue; echo "__ROUND__${p##*/}";',
   '  echo "__GATES__$(cat "$p/gates.json" 2>/dev/null | tr -d "\\n")";',
   '  echo "__EXITS__$(cat "$p/08-anchor-sweep-exits.json" 2>/dev/null | tr -d "\\n")";',
+  '  echo "__ENQUEUE__$(cat "$p/enqueue-issues.json" 2>/dev/null | tr -d "\\n")";',
   "done;",
   `echo __LEDGER__; cat ${OPS_LEDGER} 2>/dev/null;`,
-  `echo __QUEUE__; cat ${OPS_QUEUE} 2>/dev/null;`,
   `echo __SHADOW__; ls ${SHADOW_ROUNDS} 2>/dev/null;`,
 ].join("\n");
 
@@ -523,12 +524,14 @@ function parseSshSections(text) {
   for (const line of String(text).split("\n")) {
     if (line.startsWith("__ROUND__")) {
       cur = `ROUND:${line.slice("__ROUND__".length).trim()}`;
-      sections.set(cur, { gates: null, exits: null });
+      sections.set(cur, { gates: null, exits: null, enqueue: null });
     } else if (line.startsWith("__GATES__")) {
       if (cur?.startsWith("ROUND:")) sections.get(cur).gates = line.slice("__GATES__".length);
     } else if (line.startsWith("__EXITS__")) {
       if (cur?.startsWith("ROUND:")) sections.get(cur).exits = line.slice("__EXITS__".length);
-    } else if (/^__(ROUNDS|LEDGER|QUEUE|SHADOW)__\s*$/.test(line)) {
+    } else if (line.startsWith("__ENQUEUE__")) {
+      if (cur?.startsWith("ROUND:")) sections.get(cur).enqueue = line.slice("__ENQUEUE__".length);
+    } else if (/^__(ROUNDS|LEDGER|SHADOW)__\s*$/.test(line)) {
       cur = line.slice(2, -2);
       sections.set(cur, []);
     } else if (cur && sections.has(cur) && !cur.startsWith("ROUND:")) {
@@ -562,11 +565,10 @@ async function readServerFace(nowMs) {
   for (const [key, body] of sec) {
     if (!key.startsWith("ROUND:")) continue;
     const id = key.slice("ROUND:".length);
-    if (winIds.includes(id)) rounds.push(summarizeServerRound(id, parseJsonOrNull(body.gates), parseJsonOrNull(body.exits)));
-    else if (odIds.includes(id)) overdue_rounds.push(summarizeServerRound(id, parseJsonOrNull(body.gates), parseJsonOrNull(body.exits)));
+    if (winIds.includes(id)) rounds.push(summarizeServerRound(id, parseJsonOrNull(body.gates), parseJsonOrNull(body.exits), parseJsonOrNull(body.enqueue)));
+    else if (odIds.includes(id)) overdue_rounds.push(summarizeServerRound(id, parseJsonOrNull(body.gates), parseJsonOrNull(body.exits), parseJsonOrNull(body.enqueue)));
   }
   const ledgerRows = parseLedgerRows((sec.get("LEDGER") ?? []).join("\n"));
-  const queueRows = parseQueueProposeRows((sec.get("QUEUE") ?? []).join("\n"));
   const shadowIds = (sec.get("SHADOW") ?? []).map((s) => s.trim()).filter(Boolean);
   const utcDate = (ms) => new Date(ms).toISOString().slice(0, 10);
   const windowDates = [utcDate(nowMs), utcDate(nowMs - WINDOW_MS)];
@@ -584,7 +586,6 @@ async function readServerFace(nowMs) {
     overdue_rounds,
     ledger,
     refusals: ledger.refusals,
-    propose_rows: selectProposeRows(queueRows, windowDates),
     shadow_new: shadowNewRounds(shadowIds),
     missed_note: missed.length ? `窗内轮未读到信封:${missed.join("、")}` : null,
   };
