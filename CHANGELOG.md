@@ -4,6 +4,10 @@
 
 ## Unreleased
 
+### 新增 Added
+
+  - **三源接入:echelon / blocklist_netua / nerd_medconf(2026-11-22 NERD 播种发现轮,用户裁「三源全要」)**:①echelon(echelonlabs.co,蜜罐传感网联盟,61 标签=站方 50+遗留 11,多子表目录源,per-tag 分类 ECHELON_MAP,排他实测 17.7%/41,507 键,r=0.70);②blocklist_netua(blocklist.net.ua,CSV 封禁清单,UNBAN_DATE 到期即出库=首个显式解封语义源,REASON 关键词 NETUA_MAP 分类,排他 53.7%/83,639 键,r=0.70);③nerd_medconf(CESNET NERD 中置信名单,IpListSource,聚合源定价 r=0.60,排他 35.3%/76,103 键,小时更礼貌 ≤1 次/h)。门:三源测试 29 绿、source_infra 128 绿(实测数字 seed 20261018;哨兵/gate/矩阵见后续补记)。
+
 ### 变更 Changed
 
   - **发现轮出口改 GH issue(#384;半自动时代入口,2026-11-22)**:舰队封存(#375/#389)后加源转半自动——发现轮 ENQUEUE 达标候选(三判据全过+#358 同维度质量案 FLAG 面)改为开 GitHub 工单(标题 `[source] <slug> 发现轮候选`,正文=候选 dossier 摘要实有面,label=needs-triage 人裁终局),复用 ghIssueCreate 既有通道(#184/#348;GH_TOKEN 容器 env 继承 v1 C4 白名单,目标仓 env OPS_GH_REPO;生产实证=anchor-sweep 开票 #381/#391/#393);queue.md PROPOSE 行停写(APPROVE 语义随舰队退役无人消费;历史行不动,信封 queue_writes 恒空数组保留=回放兼容);开票 fail-soft 不炸轮(无 token/gh 失败/异常均降级留痕),每条 rc+错误摘要落轮目录 enqueue-issues.json(成功也落,审计面);faux/--fixtures 轮零外发恒 skip;emit 守卫防 resume 重开(宁少算交人工)。轮信封新增域键 issues_opened(ENVELOPE.md 同步;queue_writes 不删)。判据分类提炼 classifyEnqueue 纯函数(ops/agent/pipeline/steps.mjs,循环体逐字搬移零行为变化,golden+selftest 钉字节不变)供 v1 步与 v2 出口单源消费;日报 daily-digest 候选面改 issue 口径(轮目录 enqueue-issues.json 直读,字段同名;queue.md 拉取退役)。门:ops/agent-v2 npm test 全绿(298 pass+新增 8 例三态/纯函数/守卫/集成)、ops golden 10/10、ops selftest 118/118、digest 27/27。
