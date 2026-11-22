@@ -11,9 +11,9 @@
   读取方须排除(既有 test_precedent_schema.py 同口径)。
 
 设计裁记(出处):
-- ops 根 = $IP_RADAR_DATA_DIR/ops,回落 <backend>/data/ops —— 与
-  ipdb/_registry.py DATA_DIR 同一惯例;call-time 解析(env 覆盖照
-  _eval/__main__.py 先例,测试免 reload)。
+- ops 根 = $IP_RADAR_DATA_DIR/ops,回落 <backend>/data/ops —— data_dir
+  单源在 ipdb/_paths.py(#406 折并,原与 _registry 各自同式解析);
+  call-time 解析(env 覆盖照 _eval/__main__.py 先例,测试免 reload)。
 - 原子写 = 同目录临时文件 + fsync + os.replace(POSIX rename 原子),
   故障时临时文件清理、原文件原样 —— 中断不留半包。
 - 种子导入幂等:目标已存在一律跳过,种子永不覆写库内判例(无界不删;
@@ -58,11 +58,10 @@ from pathlib import Path
 from typing import Any, Sequence
 
 import yaml
-from dotenv import load_dotenv
 
-_app_dir = Path(__file__).resolve().parent.parent
-# 与 _registry.py 同惯例:CLI/API 进程都认 backend/.env(存在才生效,不覆盖已设值)
-load_dotenv(_app_dir / ".env")
+from . import _paths
+
+# backend/.env 加载收口在 _paths(#406 折并;原两处重复加载语义不变)
 
 # 队列动作词闭集。T4 冻结两词(ENQUEUE/REJECT);APPROVE = #331 定案 9(#332 P1)
 # 入列:人对候选卡点头的写口,供加源轮消费 status=approved 的卡。写口仅人面 ——
@@ -164,13 +163,13 @@ _RG_TIMEOUT_S = 60  # ops/agent tools.mjs search_precedents 同值
 
 
 def ops_root() -> Path:
-    """ops 树根:$IP_RADAR_DATA_DIR/ops(回落 <backend>/data/ops)。
+    """ops 树根:<_paths.data_dir()/ops>($IP_RADAR_DATA_DIR,未设回落
+    <backend>/data/ops;#406 折并后 data_dir 单源在 _paths)。
 
     call-time 解析(_eval/__main__.py 先例):测试 monkeypatch env 免 reload,
     进程内多次调用始终见最新值。
     """
-    data_dir = os.environ.get("IP_RADAR_DATA_DIR", str(_app_dir / "data"))
-    return Path(data_dir) / "ops"
+    return _paths.data_dir() / "ops"
 
 
 def atomic_write_text(path: Path | str, text: str) -> Path:

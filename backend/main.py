@@ -48,6 +48,7 @@ from ipdb import _ops_items as _ipdb_ops_items
 from ipdb import _ops_review as _ipdb_ops_review
 from slowapi.errors import RateLimitExceeded
 from ipdb import _update as _ipdb_update
+from ipdb import _paths as _ipdb_paths
 from ipdb import _version as _ipdb_version
 from ipdb._eval_manager import EvalManager, EvalBusyError
 from ipdb._eval_reader import read_model, read_overview, read_source
@@ -548,10 +549,9 @@ def _warn_unknown_private_sources() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    from ipdb._registry import DATA_DIR
     _warn_unknown_private_sources()
     _warn_public_demo_misconfig()
-    _cleanup_orphan_tmp(DATA_DIR)
+    _cleanup_orphan_tmp(_ipdb_paths.data_dir())
     _ipdb_tokens.load()   # tokens.json → env(UI 优先裁决;须先于任何下载任务)
     _startup()
     _ensure_ops_detectors()
@@ -1676,9 +1676,9 @@ async def update_ops_agent_config(payload: OpsAgentConfigIn):
         raise ApiError(ErrorCode.internal, str(e))
 
 
-_env_static = os.environ.get("IP_RADAR_STATIC_DIR")
+_env_static = _ipdb_paths.static_dir()
 if _env_static:
-    _static_dir = Path(_env_static)
+    _static_dir = _env_static
 if _static_dir.exists():
     app.mount("/", SpaStaticFiles(directory=str(_static_dir), html=True), name="frontend")
     logging.info("Serving frontend from %s", _static_dir)

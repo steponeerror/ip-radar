@@ -8,13 +8,13 @@
 实测),同日多报告靠文件名秒级时间戳分先后(T5 防覆盖修复的产物)。
 """
 import json
-import os
 from pathlib import Path
+
+from . import _paths
 
 
 def _dir() -> Path:
-    return Path(os.environ.get("IP_RADAR_EVAL_DIR")
-                or Path(__file__).resolve().parents[1] / "data" / "eval")
+    return _paths.eval_dir()
 
 
 def _runs() -> list[dict]:

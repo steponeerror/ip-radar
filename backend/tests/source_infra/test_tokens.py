@@ -13,7 +13,6 @@ import stat
 
 import pytest
 
-from ipdb import _registry
 from ipdb import _tokens
 
 MANAGED_VARS = ["ABUSEIPDB_API_KEY", "IPINFO_TOKEN", "IP2PROXY_TOKEN",
@@ -27,10 +26,11 @@ DUAL_SOURCE_VARS = {"OTX_API_KEY": ["otx", "otx_subscribed"],
 
 @pytest.fixture
 def token_env(tmp_path, monkeypatch):
-    """DATA_DIR 指向 tmp + 五个受管 env 清零(monkeypatch 自动还原 environ)。"""
+    """DATA_DIR 指向 tmp + 五个受管 env 清零(monkeypatch 自动还原 environ;
+    #406 起路径经 _paths 惰性解析,monkeypatch env 即换根)。"""
     for var in MANAGED_VARS:
         monkeypatch.delenv(var, raising=False)
-    monkeypatch.setattr(_registry, "DATA_DIR", tmp_path)
+    monkeypatch.setenv("IP_RADAR_DATA_DIR", str(tmp_path))
     return tmp_path
 
 

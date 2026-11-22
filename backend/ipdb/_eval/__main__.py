@@ -80,11 +80,11 @@ def gate_mirror_dir() -> Path:
 
 def registry_data_dir() -> Path:
     """registry 测量数据目录(S7 测量对齐消费, 终审 Issue-1): 取
-    ipdb._registry.DATA_DIR 落地值(import 期 IP_RADAR_DATA_DIR 或
-    <backend>/data 解析, sources 即按它发现)—— 不另设第二真源; 测试经
-    monkeypatch 本函数注入(模块属性快照免 reload, REPORT_DIR 同款缝)。"""
-    import ipdb._registry as reg
-    return Path(reg.DATA_DIR)
+    _paths.data_dir 单源(#406 折并;原取 ipdb._registry.DATA_DIR 导入期
+    落地值, 现改 call-time 解析)—— 不另设第二真源; 测试经 monkeypatch
+    本函数注入(模块属性快照免 reload, REPORT_DIR 同款缝)。"""
+    from .._paths import data_dir
+    return data_dir()
 
 
 @contextmanager

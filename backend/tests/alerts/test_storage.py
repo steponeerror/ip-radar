@@ -41,10 +41,11 @@ def test_record_creates_schema_idempotently(alerts_db):
 
 
 def test_default_path_next_to_state(tmp_path, monkeypatch):
-    # 无 env 时落 _STATE_PATH.parent(与 auth.db 同目录惯例)
-    from ipdb import _alerts, _registry
+    # 无 env 时落 source_state 同目录(与 auth.db 同目录惯例;#406 起
+    # 经 _paths 解析,monkeypatch env 免 attr-patch)
+    from ipdb import _alerts
     monkeypatch.delenv("IP_RADAR_ALERTS_DB", raising=False)
-    monkeypatch.setattr(_registry, "_STATE_PATH", tmp_path / "source_state.json")
+    monkeypatch.setenv("SOURCE_STATE_PATH", str(tmp_path / "source_state.json"))
     _alerts.record_event("otx", at=1.0)
     assert (tmp_path / "alerts.db").exists()
 
@@ -57,10 +58,11 @@ def test_db_path_env_override(tmp_path, monkeypatch):
 
 
 def test_db_path_default_and_empty_env_fall_back(tmp_path, monkeypatch):
-    # #258 折并钉子:缺省回退 _STATE_PATH 同目录;空串 env 视同未设
-    # (负例:钉 `if env:` 真值语义而非 is not None,折并前后零变化)
-    from ipdb import _alerts, _registry
-    monkeypatch.setattr(_registry, "_STATE_PATH", tmp_path / "source_state.json")
+    # #258 折并钉子(#406 起解析单源在 _paths):缺省回退 source_state
+    # 同目录;空串 env 视同未设(负例:钉 `if env:` 真值语义而非
+    # is not None,折并前后零变化)
+    from ipdb import _alerts
+    monkeypatch.setenv("SOURCE_STATE_PATH", str(tmp_path / "source_state.json"))
     monkeypatch.delenv("IP_RADAR_ALERTS_DB", raising=False)
     assert _alerts._db_path() == tmp_path / "alerts.db"
     monkeypatch.setenv("IP_RADAR_ALERTS_DB", "")

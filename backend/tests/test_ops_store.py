@@ -1,7 +1,7 @@
 """P1 ops 树存取(票 #133,TDD 红先行)。
 
 钉住产品化批 Task P1 契约(docs/superpowers/plans/2026-10-19-ops-agent-productization.md):
-ops 根解析 $IP_RADAR_DATA_DIR/ops(回落沿 _registry.DATA_DIR 惯例)、树初始化幂等、
+ops 根解析 $IP_RADAR_DATA_DIR/ops(回落沿 _paths.data_dir 惯例,#406 单源)、树初始化幂等、
 种子导入幂等(二次导入零新增)、原子写(半包不留脏文件)、待集成清单追加去重
 (去重键 = action+source,T4 tools.mjs queueAction 冻结形状)、台账表头/行形状
 (T4 lib.sh ledger_append 冻结形状)、rg 检索 rc≥2 报错不伪装空(T2 Minor-3 判例,
@@ -69,7 +69,7 @@ def test_ops_root_resolves_under_data_dir(store, ops_env):
 
 
 def test_ops_root_falls_back_to_backend_data(store, monkeypatch):
-    """未设 env 时回落 <backend>/data/ops,与 _registry.DATA_DIR 同一惯例,不发明第二套。"""
+    """未设 env 时回落 <backend>/data/ops,与 _paths.data_dir 同一惯例(单源,不发明第二套)。"""
     monkeypatch.delenv("IP_RADAR_DATA_DIR", raising=False)
     expected = Path(store.__file__).resolve().parent.parent / "data" / "ops"
     assert store.ops_root() == expected

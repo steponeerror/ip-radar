@@ -2,8 +2,9 @@
 """fastapi-users User/AccessToken 模型、惰性 sqlite 引擎、管理员引导。
 
 IP_RADAR_AUTH_DB 环境变量可覆盖 db 路径(测试逐用例隔离);缺省落在
-_registry 数据目录(_STATE_PATH.parent)。引擎/会话工厂按解析出的路径惰性
-创建并缓存:生产单路径 → 单实例;不绑定模块导入期状态。
+_paths 数据目录(source_state.json 同目录,auth.db/alerts.db 同级)。
+引擎/会话工厂按解析出的路径惰性创建并缓存:生产单路径 → 单实例;
+不绑定模块导入期状态。
 """
 import os
 import secrets
@@ -30,7 +31,7 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.pool import NullPool
 
-from . import _registry
+from . import _paths
 
 
 class Base(DeclarativeBase):
@@ -46,7 +47,7 @@ class AccessToken(SQLAlchemyBaseAccessTokenTableUUID, Base):
 
 
 def _auth_db_path() -> Path:
-    return _registry.env_path_or_state_sibling(
+    return _paths.env_path_or_state_sibling(
         "IP_RADAR_AUTH_DB", "auth.db")
 
 

@@ -5,8 +5,8 @@
 observed_interval_h 用近 90 天相邻间隔中位数回答"该源平时多久更一次"。
 evaluate 消费 scheduler 每轮快照,per (source, condition) 推进 alert_state
 (转入/24h 重发/恢复/静默清理)并组装合并消息(约束 4/6,中文硬编码)。
-IP_RADAR_ALERTS_DB 可覆盖 db 路径(测试逐用例隔离);缺省落在 _registry
-数据目录(_STATE_PATH.parent),与 auth.db 同级。连接工厂按解析出的路径
+IP_RADAR_ALERTS_DB 可覆盖 db 路径(测试逐用例隔离);缺省落在 _paths
+数据目录(source_state.json 同目录),与 auth.db 同级。连接工厂按解析出的路径
 字符串缓存(循 _auth._engine 惯例但同步版):生产单路径单工厂,env 切
 tmp 即新键,互不串台。时间统一 epoch 秒落库(at REAL),对外 API 一律小时。
 
@@ -23,7 +23,7 @@ from contextlib import closing
 from pathlib import Path
 from typing import Callable
 
-from . import _registry
+from . import _paths
 
 logger = logging.getLogger(__name__)
 
@@ -56,15 +56,14 @@ CREATE TABLE IF NOT EXISTS alert_state (
 
 
 def _db_path() -> Path:
-    return _registry.env_path_or_state_sibling(
+    return _paths.env_path_or_state_sibling(
         "IP_RADAR_ALERTS_DB", "alerts.db")
 
 
 def _heartbeat_path() -> Path | None:
-    """S6:env IP_RADAR_EVAL_HEARTBEAT 给生产侧心跳文件路径才启用检查;
-    未设/空 → None = 不检查(新部署防误报)。scheduler 每轮调用时解析。"""
-    env = os.environ.get("IP_RADAR_EVAL_HEARTBEAT", "")
-    return Path(env) if env else None
+    """S6 心跳路径(解析单源 = _paths.eval_heartbeat_path,#406 折并;
+    scheduler 每轮调用时解析,测试 monkeypatch 本属性免 reload 缝不变)。"""
+    return _paths.eval_heartbeat_path()
 
 
 def eval_heartbeat_age_h(heartbeat_path: Path | None,

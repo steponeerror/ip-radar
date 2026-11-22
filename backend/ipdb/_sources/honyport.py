@@ -45,22 +45,20 @@ JSON services 只走 CVE 提取(「事件id/CVE1,CVE2」剥前缀逗号拆分),�
 import ipaddress
 import json
 import logging
-import os
 import re
 from datetime import date, datetime
 from pathlib import Path
 
+from .. import _paths
 from ._base import CsvSource
 from ._download import atomic_write_bytes
 
 logger = logging.getLogger(__name__)
 
-AGGREGATE_DIR_ENV = "IP_RADAR_HONYPORT_AGGREGATE_DIR"
-# 容器内缺省挂载点:容器数据根 = /app/data(Dockerfile ENV
-# IP_RADAR_DATA_DIR),bind mount 目标放数据根子路径;#271 落地时以
-# docker-compose.override 同名挂载对齐(或 env 覆写)。开发机无此目录
-# → 源 absent。
-_DEFAULT_AGGREGATE_DIR = "/app/data/honyport-aggregate"
+AGGREGATE_DIR_ENV = "IP_RADAR_HONYPORT_AGGREGATE_DIR"   # 旋钮名(测试/运维用);解析单源在 _paths
+# 缺省从 _paths.data_dir 派生(#406 折并:原 /app/data/honyport-aggregate
+# 字面量清除——容器 DATA_DIR=/app/data 下取值不变;开发机回落
+# <backend>/data/honyport-aggregate,无挂载件即源 absent,行为不变)
 
 # §2.1 冻结文件名(日期 = 生成日;聚合 cron 正本在 honyport 仓)
 _AGGREGATE_NAME_RE = re.compile(r"^honeypot-observed-(\d{4}-\d{2}-\d{2})\.csv$")
@@ -128,8 +126,7 @@ class HonyportSource(CsvSource):
         JSON 件 → 跳过不报错(§3 容忍:一期行为不变,techniques 空,
         二期 cron 未上线期间不断供)。
         """
-        src_dir = Path(os.environ.get(AGGREGATE_DIR_ENV)
-                       or _DEFAULT_AGGREGATE_DIR)
+        src_dir = _paths.honyport_aggregate_dir()
         if not src_dir.is_dir():
             logger.info(
                 f"{self.name}: aggregate dir absent ({src_dir}) — source "

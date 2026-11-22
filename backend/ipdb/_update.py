@@ -11,9 +11,8 @@ import subprocess as sp
 from datetime import datetime, timedelta, timezone
 
 from ._version import VERSION
+from . import _paths
 
-STATE_PATH = os.environ.get("IP_RADAR_STATE_FILE",
-                            os.path.join(os.environ.get("IP_RADAR_DATA_DIR", "/app/data"), "update_state.json"))
 _STALE_AFTER = timedelta(minutes=15)  # F2 双保险:updating 超时视为挂死
 
 _inmem: dict = {"state": "idle", "error": None, "at": None}
@@ -25,7 +24,7 @@ def _version_now() -> str:
 
 def _read_disk() -> dict | None:
     try:
-        with open(STATE_PATH) as f:
+        with open(_paths.update_state_path()) as f:
             return json.load(f)
     except (OSError, ValueError):
         return None
@@ -34,9 +33,11 @@ def _read_disk() -> dict | None:
 def _persist(state: str, error: str | None = None) -> None:
     _inmem.update(state=state, error=error, at=datetime.now(timezone.utc).isoformat())
     payload = {**_inmem, "from_version": _version_now()} if state == "updating" else dict(_inmem)
+    # 路径经 _paths 惰性解析(#406 折并;原 /app/data 字面量坏 fallback 修活)
+    state_path = _paths.update_state_path()
     try:
-        os.makedirs(os.path.dirname(STATE_PATH), exist_ok=True)
-        with open(STATE_PATH, "w") as f:
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(state_path, "w") as f:
             json.dump(payload, f, ensure_ascii=False)
     except OSError:
         pass  # 落盘尽力而为,内存态为准
@@ -109,7 +110,7 @@ def self_update_enabled() -> bool:
             os.environ.get("IP_RADAR_SELF_UPDATE") == "1"
             and bool(os.environ.get("IP_RADAR_UPDATE_TOKEN"))
             and _sock_writable()
-            and _git_ok(os.environ.get("IP_RADAR_REPO_DIR", ""))
+            and _git_ok(_paths.repo_dir())
         )
     return _enabled_cache
 
@@ -157,9 +158,8 @@ def run_update() -> None:
         return
     project = labels.get("com.docker.compose.project")
     service = labels.get("com.docker.compose.service")
-    repo = os.environ.get("IP_RADAR_REPO_DIR", "")
-    compose_file = os.environ.get("IP_RADAR_COMPOSE_FILE",
-                                  os.path.join(repo, "docker-compose.yml"))
+    repo = _paths.repo_dir()
+    compose_file = _paths.compose_file()
     try:
         r = sp.run(["git", "-c", "safe.directory=*", "-C", repo, "pull", "--ff-only"],
                    capture_output=True, text=True, timeout=_TIMEOUT)

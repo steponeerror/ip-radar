@@ -7,7 +7,11 @@ from __future__ import annotations
 import os
 import re
 
-_BUILD_VERSION_PATH = os.environ.get("IP_RADAR_BUILD_VERSION_FILE", "/app/BUILD_VERSION")
+from . import _paths
+
+# 缺省字面量 "/app/BUILD_VERSION" 原样保留(#406 集中至 _paths:
+# 容器烤进镜像,checkout 恒 miss)
+
 # git describe: "vX.Y.Z[-N-gHEX[-dirty]]" 或 --always 退化 "HEX"
 _DESCRIBE_RE = re.compile(r"^(v\d+\.\d+\.\d+)")
 # 宽松 semver "vX.Y.Z"
@@ -16,7 +20,7 @@ _SEMVER_RE = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)$")
 
 def _resolve_version() -> str:
     try:
-        with open(_BUILD_VERSION_PATH) as f:
+        with open(_paths.build_version_file()) as f:
             s = f.read().strip()
             if s:
                 return s
