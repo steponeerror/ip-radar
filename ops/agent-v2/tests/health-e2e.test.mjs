@@ -85,8 +85,11 @@ function seedWorld({ roundId, capCalls } = {}) {
 const jsonOf = (p) => JSON.parse(fs.readFileSync(p, "utf8"));
 const jsonlOf = (p) => fs.readFileSync(p, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
 
+// roundId 形状律:#403 起 CLOSE 写轮报告件(packages/<date>-health-<HHMM>.md,名字源
+// reportNameOf 形状校验),测试轮 id 须同生产律 YYYY-MM-DD-HHMM-health(旧 -e2e- 字样
+// 不合形状,随 #403 收正)。
 test("健康轮链路 E2E:TRIAGE→WAIT_MODEL(join)→DEEP(evidence)→SYNTH→…→CLOSE 全绿(faux 零网络)", async () => {
-  const roundId = "2026-10-28-e2e-health";
+  const roundId = "2026-10-28-0100-health";
   const w = seedWorld({ roundId });
   const storage = await openNodeSqliteStorage(path.join(w.tmp, "t.sqlite"));
   const context = BACKGROUND_CONTEXT;
@@ -157,6 +160,17 @@ test("健康轮链路 E2E:TRIAGE→WAIT_MODEL(join)→DEEP(evidence)→SYNTH→�
       assert.equal(retro.mutation_check_due.due, true);
       assert.equal(retro.mutation_check_due.last_run, null);
       assert.match(retro.mutation_check_due.note, /未见上次运行/);
+      // #403:轮报告件入 packages/(断供修复;命名=<date>-health-<HHMM>.md);头部/相位/信封确定性读盘
+      const repPath = path.join(w.ops, "packages", "2026-10-28-health-0100.md");
+      assert.ok(fs.existsSync(repPath), "#403:报告件未落 packages/");
+      const rep = fs.readFileSync(repPath, "utf8");
+      assert.match(rep, /轮次:2026-10-28-0100-health/);
+      assert.match(rep, /类型:health/);
+      assert.match(rep, /引擎:pipeline-v2/);
+      assert.match(rep, /\| CLOSE \| done \|/, "相位表含 CLOSE 行");
+      assert.match(rep, /## 信封/);
+      const fenced = rep.split("```json\n")[1]?.split("\n```")[0];
+      assert.equal(JSON.parse(fenced).pipeline.round_id, roundId, "信封 fenced JSON 可解析且 round_id 对上");
     } finally { await harness.close(context); }
   } finally {
     await storage.close(context);
@@ -170,7 +184,7 @@ test("健康轮链路 E2E:TRIAGE→WAIT_MODEL(join)→DEEP(evidence)→SYNTH→�
 // 成功面 ck.modelCalls+1 自动含失败回合 → 轮累计 5(TRIAGE 2 + DEEP×2 + SYNTH 1)。
 // 修复前:重试不计数 → 4(失败回合丢账)。
 test("P0-③ attempt 即调用:TRIAGE model_face 首败重试同计,轮累计=5 非 4", async () => {
-  const roundId = "2026-10-28-e2e-retry-health";
+  const roundId = "2026-10-28-0101-health";
   const w = seedWorld({ roundId });
   const fxDir = path.join(w.tmp, "fixtures-retry");
   fs.cpSync(FIXTURES, fxDir, { recursive: true }); // DEEP/SYNTH 面仍用原罐装回合
@@ -235,7 +249,7 @@ test("P1-4 ①收口:并行子任务穿透基数后 WAIT_MODEL 按轮累计终�
 
 // ── #355 DEEP 终答 JSON 后尾随散文:首个平衡 JSON 对象提取 + tail_note 留痕(4 起影子废轮回归;旧 consume 族已修,本测钉 v2 装配链)──
 test("#355 DEEP 尾注容忍:带尾注终答不再 model_face 误杀,判决收编+tail_note 留痕可查", async () => {
-  const roundId = "2026-11-15-e2e-tail-health";
+  const roundId = "2026-11-15-0100-health";
   const w = seedWorld({ roundId });
   const fxDir = path.join(w.tmp, "fixtures-tail");
   fs.cpSync(FIXTURES, fxDir, { recursive: true });
