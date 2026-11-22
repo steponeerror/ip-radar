@@ -103,6 +103,21 @@ test("全链 faux 轮:信封 ok + 六步工件 + issue 出口留痕(faux 零外�
   fs.rmSync(tree.tmp, { recursive: true, force: true });
 });
 
+test("#408 CLOSE 失败面终态:报告件写败(packages 被占为文件)→ 镜像 failed,stages 止于 RETRO", async () => {
+  const tree = tmpTree("v2-disc-closefail-");
+  fs.mkdirSync(tree.opsRoot, { recursive: true });
+  fs.writeFileSync(path.join(tree.opsRoot, "packages"), "占位文件(writeRoundReport mkdir 即败)");
+  try {
+    const r = await runRound(tree);
+    assert.equal(r.status, "failed", JSON.stringify(r));
+    assert.match(r.error.message, /轮报告件写败/, "报告件 fail-loud 路径(#403 判例)是本测的失败注入面");
+    const mirror = JSON.parse(fs.readFileSync(path.join(tree.opsRoot, "rounds", ROUND, "state.json"), "utf8"));
+    assert.equal(mirror.status, "failed", "#408:close 相位失败出口镜像终态 failed(v1 failStage 同语义)");
+    assert.deepEqual(mirror.stages, ["SCAN", "SHORTLIST", "MEASURE", "ENQUEUE", "RETRO"], "close 未成,镜像不造 CLOSE 名(宁少算)");
+    fs.rmSync(tree.tmp, { recursive: true, force: true });
+  } catch (e) { fs.rmSync(tree.tmp, { recursive: true, force: true }); throw e; }
+});
+
 test("同库同轮重放=复用任务零双写;跨库新任务撞轮目录=bad_round(旧律 ops 树守卫)", async () => {
   const tree = tmpTree("v2-disc-badround-");
   const db = path.join(tree.tmp, "v2.sqlite");

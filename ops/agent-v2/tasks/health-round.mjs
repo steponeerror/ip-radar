@@ -405,7 +405,10 @@ async function runClose(input, ck, runtime, context) {
     }), context);
   } catch (e) {
     // #408:close 相位任何终态出口(09-budget 步败/G_CLOSE 红/报告写败)镜像终态 failed
-    // (v1 failStage 书挡对 failed/FAILED;stages 止于上一已提交相位=close 未成不造名)
+    // (v1 failStage 书挡对 failed/FAILED)。已入 ctx.state 的 CLOSE 记录就地改判 failed
+    // (v1 failStage 同语义:步已过门但轮终态败,记录面不得留 done);步本身没跑到的
+    // 出口(runStage 掷)无记录可改=不造(宁少算)。
+    if (ctx.state.stages.at(-1) === rec) rec.status = "failed";
     writeTerminalRoundState(ctx, { status: "failed", stage: "FAILED" });
     const code = ERROR_CODES.includes(e?.code) ? e.code : "infra";
     await runtime.commit(() => ({
