@@ -60,7 +60,9 @@ export function bumpManualImageAlt(text) {
 export function bumpManualZhCounts(text, { keyless }) {
   const t = sub1(text, /(（)(\d+)( 个源中的 )(\d+)( 个）)/,
     (m, a, n1, b, n2, c) => `${a}${Number(n1) + 1}${b}${Number(n2) + (keyless ? 1 : 0)}${c}`, "MANUAL.zh 首启计数");
-  return sub1(t, /(\d+)( 源\()(\d+)( 公开 \+ 1 私有蜜罐\))/,
+  return sub1(t, /(\d+)( 源（)(\d+)( 公开 \+ 1 私有蜜罐）)/,
+    // 括号全角:frost 面改版(e6e2ac96 文档同步)把 MANUAL.zh-CN 截图 alt 的计数括号从
+    // 半角「源(70 公开 + 1 私有蜜罐)」改成全角「源（70 公开 + 1 私有蜜罐）」,钉随全角
     (m, n1, a, n2, b) => `${Number(n1) + 1}${a}${Number(n2) + 1}${b}`, "MANUAL.zh 截图 alt 计数");
 }
 
