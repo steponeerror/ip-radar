@@ -151,3 +151,23 @@ def test_all_path_consumers_share_one_root(mode, monkeypatch, tmp_path):
         "IP_RADAR_AUTH_DB", "auth.db").parent == state_parent
     assert _paths.env_path_or_state_sibling(
         "IP_RADAR_ALERTS_DB", "alerts.db").parent == state_parent
+
+
+# ── P2(评审补钉):观察 _update 默认档真实写点 ──────────────────────
+# 一致性对拍只锁 _paths 家族视图;若 _update 局部回潮 /app/data 字面量
+# (绕过 _paths),对拍照样绿——本测试经 _paths 缝把写点指到 tmp 标记,
+# 字面量回潮时标记不出现即红(评审 #406 P2)。
+def test_update_state_write_goes_through_paths_seam(monkeypatch, tmp_path):
+    for var in _PATH_ENVS:
+        monkeypatch.delenv(var, raising=False)
+    marker = tmp_path / "probe" / "update_state.json"
+    monkeypatch.setattr(_paths, "update_state_path", lambda: marker)
+
+    from ipdb import _update
+    _update.mark_failed("probe")
+
+    import json
+    assert marker.exists(), "_update 写点绕过了 _paths 缝(字面量回潮?)"
+    payload = json.loads(marker.read_text())
+    assert payload["state"] == "failed"
+    assert payload["error"] == "probe"
