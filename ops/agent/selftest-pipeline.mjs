@@ -179,7 +179,7 @@ await t("轮报告件(#403/#420):R1 CLOSE 写 packages/<date>-health-<HHMM>.md,�
   const rep = fs.readFileSync(path.join(DOCS, "ops", "packages", "2026-10-23-health-2340.md"), "utf8");
   // #420 人读面:结论行置顶(首屏即「这轮有没有事」)+概览表;轮次/类型/引擎折入标题/概览行
   assert.match(rep, /^# 运营轮报告 2026-10-23-2340-health$/m, "标题含轮次 id");
-  assert.match(rep, /^\*\*结论:/m, "结论行置顶(#420 结论先行)");
+  assert.match(rep, /^\*\*结论:有信号待看:幸存信号 2 \/ 抑制信号 1 \/ 假设 2 \/ 锚巡检 finding 2。\*\*$/m, "结论行整句钉死(#420 评审 P2-1:R1 夹具确定性计数→预期文案,health 分支文法最高频面禁裸奔)");
   assert.match(rep, /## 概览/);
   assert.match(rep, /\| 类型 \| health\(引擎 pipeline-v1 · 模型面/, "概览类型行含引擎+模型面");
   assert.match(rep, /\| CLOSE \| done \|/, "相位表含 CLOSE 行(前两列形冻结)");

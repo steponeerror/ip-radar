@@ -21,12 +21,12 @@ import fs from "node:fs";
 import path from "node:path";
 
 const j = (p) => { try { return JSON.parse(fs.readFileSync(p, "utf8")); } catch { return null; } };
-// 概览表人读用量形(#420):数字用 · 分隔,金额 toFixed(8) 台账同口径(lib.sh
-// ledger_append 同口径,不造舍入);台账原始同形串(in=… out=…)仍在轮台账行。
-const usageHuman = (u) => u == null ? "—" : `in ${u.input ?? 0} · out ${u.output ?? 0} · total ${u.totalTokens ?? 0} · ¥${(u.cost ?? 0).toFixed(8)}`;
 // 概览金额(#420):有限数→toFixed(8) 台账同口径(0.10520580999999996 → 0.10520581);
 // 非数/缺席→—(宁少算不造数字)
 const cny8 = (x) => (typeof x === "number" && Number.isFinite(x)) ? x.toFixed(8) : "—";
+// 概览表人读用量形(#420):数字用 · 分隔,金额走 cny8(有限数守卫,NaN/Infinity→—);
+// 台账原始同形串(in=… out=…)仍在轮台账行。
+const usageHuman = (u) => u == null ? "—" : `in ${u.input ?? 0} · out ${u.output ?? 0} · total ${u.totalTokens ?? 0} · ¥${cny8(u.cost ?? 0)}`;
 // 人读用时(#420):<60s → 38.9s(0.1s 精度);≥60s → 1m06s;毫秒精确值在信封 JSON
 // (相位记录 dur_ms),人读面不重复高精度。0 → 0.0s(确定值,非缺席)。
 const humanDur = (ms) => {
@@ -105,7 +105,8 @@ function conclusionOf({ type, dir, stages }) {
   const badStages = (stages ?? []).filter((r) => r.status === "failed" || r.status === "crashed").map((r) => r.name);
   if (badStages.length) parts.push(`相位异常:${badStages.join("、")}`);
   if (type === "health") {
-    // 计数面=分型读数同源工件;抑制信号入判定但不出全绿分句(留痕降权面,非待看信号)
+    // 计数面=分型读数同源工件;抑制信号入非零判定但不出全绿分句(留痕降权面,
+    // 非零亦提示复核——评审 #420 P3-1 注释对齐行为)
     const counts = [];
     const surv = j(path.join(dir, "02-verify-survivors.json"));
     if (surv) counts.push(["幸存信号", (surv.survivors ?? []).length]);
@@ -133,7 +134,8 @@ function conclusionOf({ type, dir, stages }) {
 // 渲染 markdown(确定性:读盘上工件+信封,无时钟入文)。#420 起结论先行+概览表:
 // 人读面首屏即「这轮有没有事」,原始数字全部仍在(门表/分型读数/信封,证据不灭失)。
 // 相位表前两列形「| NAME | status |」冻结(v2/selftest 断言依赖);每相位用量细目
-// 折入信封 JSON stages,人读表不重复。
+// 折入信封 JSON stages,人读表不重复——信封缺席=每相位用量证据缺口(v1/v2 三接线
+// 今日恒传 ctx.envelope,未来接线勿裸调,评审 #420 P3-3)。
 function renderRoundReport({ roundId, type, engine, ctx, stages }) {
   const st = ctx.state ?? {};
   const L = [
