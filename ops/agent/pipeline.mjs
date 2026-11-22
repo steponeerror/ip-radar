@@ -363,12 +363,21 @@ async function finishClose(ctx, io) { // CLOSE 书挡:存在性校验→信封�
     const gr = gates.evalStageGate(def, ctx);
     gates.appendGate(ctx.dir, ctx.roundId, gr);
     if (!gr.pass) throw Object.assign(new Error(`门败 G_CLOSE:${gr.reason}`), { code: "infra" });
-    writeRoundReport({ roundId: ctx.roundId, type: ctx.type, engine: "pipeline-v1", ctx, opsRoot: ctx.opsRoot }); // #403:轮报告入 packages(UI「查看报告」读面);重放不入 CLOSE=不写(原轮时序);写败掷 infra 走 failStage(fail loud:静默=用户再次看不到报告)
+    const pkgPath = writeRoundReport({ roundId: ctx.roundId, type: ctx.type, engine: "pipeline-v1", ctx, opsRoot: ctx.opsRoot }); // #403:轮报告入 packages(UI「查看报告」读面;重放不入 CLOSE=不写(原轮时序);写败掷 infra 走 failStage(fail loud:静默=用户再次看不到报告);返回件路径=#407 完成行消费面
     rec.dur_ms = Math.round(performance.now() - t0);
     ctx.state.status = "done";
     ctx.state.stage = "CLOSE";
     writeState(ctx);
     ctx.log(`[stage] CLOSE done gate=PASS dur=${Math.round(rec.dur_ms / 1000)}s artifact=(envelope)`);
+    // #407:UI ok 徽章完成面两行——legacy agent.mjs 收口逐字同型(agent.mjs:346-347);消费方
+    // = frontend OpsCockpit buildFromMemory/OpsPastRounds okPkg 的行正则(不走 state.json:
+    // /api/ops 无 rounds/*/state.json 读面,前端零消费——徽章断点在 stderr 协议,诊断见
+    // #407 评论)。pkg 用 #403 轮报告件路径(basename <date>-<type>-<HHMM>.md)而非
+    // ctx.pkg(指向轮目录 07-synth-report.md,basename 不匹配 opsLedger.ts pkgMatchesRow
+    // 的「日期+轮型前缀」,会让过往轮次表失联);报告写败走 failStage 不落此两行
+    // (宁少算:无 pkg 证据不伪造 ok 关联)。
+    ctx.log(`round: ${ctx.type} 完成 → ${pkgPath}`);
+    ctx.log(`usage: in=${ctx.usage.input} out=${ctx.usage.output} total=${ctx.usage.totalTokens} cost=${ctx.usage.cost.toFixed(8)}`);
     io.stdout.write(JSON.stringify(envelope) + "\n");
     return { ok: true, envelope, roundId: ctx.roundId, dir: ctx.dir };
   } catch (e) {
