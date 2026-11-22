@@ -845,7 +845,8 @@ def test_due_at_long_period_leads_one_slot():
     from ipdb._scheduler import _due_at, _slot_of, SLOT_GRID, REFRESH_GUARD
     for name in ("cloud_ranges", "cn_isp", "x4bnet_vpn"):   # 3 slot phases
         slot = _slot_of(name)
-        for stale_days in (7, 14):                          # lead applies to both
+        for stale_days in (7, 14, 27):  # lead covers weekly→monthly (27 =
+                                        # dbip 月更版锁档, cf. its edition-lock test)
             period = stale_days * 86400
             for off in (0.0, 5000.0, 40000.0):              # 3 mtime phases
                 mtime = 10 * SLOT_GRID + off
@@ -905,9 +906,11 @@ def _simulate_refresh_cycles(name, stale_days, delays, cycles, scan_step=1800.0)
 def test_steady_state_age_never_crosses_stale_line():
     """#398 acceptance: over ≥6 refresh cycles, content age at every scan
     instant stays strictly under the stale line (stale_days×24h) despite
-    queue+download lag jitter — the weekly stale-alert-then-recover flap
-    is gone. Old formula is red here: lag > guard slides each cycle to
-    7.5d, crossing the 7.0d line every cycle."""
+    queue+download lag jitter — the every-cycle stale-alert-then-recover
+    flap is gone (not promised: lag rising between rounds can still fire
+    an occasional one-off — accepted residual, watch the 1-3h lag band
+    in the 11-29 observation window). Old formula is red here: lag >
+    guard slides each cycle to 7.5d, crossing the 7.0d line every cycle."""
     scenarios = [
         # (name, stale_days, per-cycle queue+download lags in s, cycles)
         ("cloud_ranges", 7, [0.0], 7),            # zero lag: comfy margin

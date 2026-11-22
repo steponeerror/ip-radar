@@ -2,8 +2,8 @@
 
 A single daemon thread that scans enabled offline sources every `interval`
 seconds and enqueues each at its deterministic 12h-grid slot when due
-(`_due_at`; daily tier twice a day, weekly tier once per stale_days one
-full slot early for periods beyond the grid — #398) — or
+(`_due_at`; daily tier twice a day; periods beyond the 12h grid lead
+their target slot by one full grid — #398) — or
 immediately, behind the backoff gate, for partial-tolerant multi-feed
 sources with a standing feed failure (spec 2026-10-02 §2.3) — via
 enqueue_one_detached (batch_id=None, so scheduler tasks never pollute an
@@ -55,15 +55,23 @@ def _due_at(name: str, mtime: float, stale_days: int) -> float:
     queue+download lag beyond the guard (964MB-box valve queues, commonly >1h)
     made every cycle cross it, flapping a stale alert + auto-recovery weekly.
     Fix: periods longer than the grid lead by one full slot (deadline −
-    SLOT_GRID), pulling weekly cycles to ≈6.5d with ≈11h margin under the
-    7.0d line. Daily tier (period == grid) keeps the legacy formula
-    bit-for-bit: a lead there leaves every scan overdue (refresh storm).
+    SLOT_GRID). Margin map (#398 review hand-calc): lag ≤ guard → ≈6.5d
+    cycles, ≈11h under the line; lag > guard → cycle pinned at exactly
+    stale_days×24 and still never fires, because scan age is strictly
+    < cycle and the alert predicate is strictly age > stale_days×24;
+    residual = lag rising between rounds (Δlag > 30-min scan step) → an
+    occasional one-off alert, accepted for observation. Daily tier
+    (period == grid) keeps the legacy formula bit-for-bit: a lead there
+    leaves every scan overdue (refresh storm).
     """
     slot = _slot_of(name)
     period = _period_of(stale_days)
     # #398(2026-11-22 判例):周期>12h 档目标槽位提前一整格——槽位网格+排队下载延迟
     # (964MB 小机内存阀门排队,实测常见>1h)使实际周期滑到 7.5d,越过 7.0d stale
-    # 告警线,每周期必抖一轮告警+恢复。提前一格周期≈6.5d,余量≈11h 盖住延迟抖动;
+    # 告警线,每周期必抖一轮告警+恢复。提前一格:延迟≤guard 档周期≈6.5d(余量≈11h);
+    # 延迟>guard 档周期钉在恰 stale_days×24——扫描年龄恒严格小于周期、告警谓词是
+    # 严格 age>线,最坏相位仍不触发(#398 评审手算);残余=轮间延迟上升(增量>30min
+    # 扫描步长)偶发单轮告警,已裁接受,观察窗盯 1-3h 延迟带。
     # 日更档(period=12h=网格)不适用:提前一格=恒到期刷新风暴。
     lead = SLOT_GRID if period > SLOT_GRID else 0
     deadline = mtime + period - lead - REFRESH_GUARD
