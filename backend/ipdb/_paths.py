@@ -32,6 +32,9 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 _APP_DIR = Path(__file__).resolve().parent.parent   # <repo>/backend
+# 行为声明(终审 P2-3):旧 _registry._app_dir 无 .resolve(),此处加了——与
+# _ops_store.py 同一先例对齐;符号链接检出下默认 data_dir 的字符串可能
+# 与旧实现不同(真路径),属有意变更,非「零变化」折并的例外项。
 
 # backend/.env 加载(见模块头):折并前 _registry.py 与 _ops_store.py
 # 两处重复,收口至此一处;两模块经 import 本模块获得同一加载时机。

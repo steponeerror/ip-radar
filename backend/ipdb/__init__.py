@@ -1,8 +1,4 @@
-from ipdb._paths import (
-    data_dir,
-    env_path_or_state_sibling,
-    source_state_path,
-)
+from . import _paths  # noqa: F401 —— 包导入期触发 _paths.load_dotenv(#406),保旧 _registry.py 时代的 env 加载时序(评审 P2-1:不再导出无消费方的名字)
 from ipdb._registry import (
     load_db,
     lookup,
