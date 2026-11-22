@@ -87,7 +87,9 @@ const jsonlOf = (p) => fs.readFileSync(p, "utf8").split("\n").filter(Boolean).ma
 
 // roundId 形状律:#403 起 CLOSE 写轮报告件(packages/<date>-health-<HHMM>.md,名字源
 // reportNameOf 形状校验),测试轮 id 须同生产律 YYYY-MM-DD-HHMM-health(旧 -e2e- 字样
-// 不合形状,随 #403 收正)。
+// 不合形状,随 #403 收正)。豁免:下方两处失败路径测试轮 id(2026-10-28-e2e-cap-health /
+// 2026-11-15-e2e-mf-health)不走 CLOSE、不产报告件,不合形状属预期——若有人把终态改
+// 成完成轮(会过 CLOSE),reportNameOf 掷 bad_round 即红,是本形状律的预期护栏。
 test("健康轮链路 E2E:TRIAGE→WAIT_MODEL(join)→DEEP(evidence)→SYNTH→…→CLOSE 全绿(faux 零网络)", async () => {
   const roundId = "2026-10-28-0100-health";
   const w = seedWorld({ roundId });

@@ -61,7 +61,7 @@ BENCH_PYTHON = os.environ.get("IPRADAR_BENCH_PYTHON",
 # ── 演化可编面白名单(票 #327 Q1 裁定 2026-11-08;推翻 #322 R5「开放面 v1+v2 全放开」)──
 # 主仓=声明与单源;dev/rrsi Workspace 以 getattr(domain, "edit_allowlist", None) 消费
 # (read/edit/write 三动作同表,越名单即拒)。fnmatch 语义:* 跨目录分隔符;路径相对
-# harness 根。构成=策略面 56 文件(#327 原裁 43;#333 P2a +4 加源基准器 add-domain:
+# harness 根。构成=策略面 64 文件(#327 原裁 43;#333 P2a +4 加源基准器 add-domain:
 #   gen-universe/build-sandbox/score 三 .mjs + keyless-rules.json;#332 P1 2026-11-11 +5
 #   加源轮:tasks/add-round.mjs、tools/add-tools.mjs、prompts/add/{system,dossier,implement}.md;
 #   #334 P2b 2026-11-11 +2 考题卡生成器+试跑接线器 bench/add-domain/{gen-exam-cards,run-trial}.mjs;

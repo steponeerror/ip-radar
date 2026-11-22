@@ -88,6 +88,7 @@ test("全链 faux 轮:信封 ok + 六步工件 + issue 出口留痕(faux 零外�
   assert.match(rep, /轮次:2026-06-01-0400-discover/);
   assert.match(rep, /引擎:pipeline-v2/);
   assert.match(rep, /\| SCAN \| done \|/, "相位表含 SCAN 行");
+  assert.match(rep, /\| CLOSE \| done \| 0 \|/, "评审 P2-1:报告面 CLOSE 行 dur_ms 归零(无时钟入文=幂等重写逐字节同;checkpoint 侧实测值保留)");
   assert.match(rep, /## 门/, "门节在场");
   assert.match(rep, /候选宇宙:3\(registry=1 needs=2 web=0\)/, "分型读数=d1 实测计数(不造数字)");
   assert.match(rep, /## 信封/, "信封节在场(证据不灭失)");

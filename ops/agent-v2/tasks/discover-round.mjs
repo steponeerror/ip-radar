@@ -240,7 +240,11 @@ async function scriptPhase(task, runtime, context, phase) {
   const checkpoint = { ...cur, ...(next ? { phase: next } : {}), stages: [...cur.stages, stage], modelCalls: ctx.modelCalls, usage: { ...ctx.usage }, ...issuesPatch }; // 相位推进=phase 字段前移(缺它=同相位重跑死循环)
   if (!next) { // close 终态:#403 先落轮报告件(packages 断供修复;stages=staged 记录面,ctx.state.stages 是名字镜像),再 result=信封
     try {
-      writeRoundReport({ roundId: input.roundId, type: "discover", engine: "pipeline-v2", ctx, stages: staged, opsRoot: ctx.opsRoot });
+      // 评审 P2-1:报告面 CLOSE 行 dur_ms 归零——实测值(Date.now()-t0)入文,则崩溃落在
+      // 报告落盘与终态 commit 之间重入时幂等重写字节漂移;归零对齐 health/v1 的 0 值面
+      // (round-report.mjs 头注「无时钟入文」不变量三面统一成立),checkpoint 侧实测值保留不动。
+      const reportStages = staged.map((s) => (s.name === "CLOSE" ? { ...s, dur_ms: 0 } : s));
+      writeRoundReport({ roundId: input.roundId, type: "discover", engine: "pipeline-v2", ctx, stages: reportStages, opsRoot: ctx.opsRoot });
     } catch (e) { // fail loud + v2 律(P0-①):handler 不裸抛(framework fault 重启循环)→ 终态失败留真码
       return finishFailed(runtime, context, { message: `CLOSE:轮报告件写败:${e.message}`, detail: { code: e.code ?? "infra", stage: "CLOSE" } });
     }
