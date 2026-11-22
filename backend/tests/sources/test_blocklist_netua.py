@@ -48,7 +48,7 @@ def _build(tmp_path: Path) -> BlocklistNetUaSource:
 def test_unbanned_rows_are_dropped(tmp_path: Path):
     """显式解封 = 出库:UNBAN_DATE <= now 的行不进库(本源独有语义)。"""
     s = _build(tmp_path)
-    assert s.rebuild() == 8                  # 11 数据行 - 1 解封 - 1 截断 - 1 无IP
+    assert s.rebuild() == 8                  # 11 数据行 -1 解封 -1 无效截断键(LMDB 写入层跳过) -1 同 IP 第二证据并单键
     assert not s.query("1.170.100.218")      # 已解封 → 无记录
 
 

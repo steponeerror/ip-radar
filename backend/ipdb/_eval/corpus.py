@@ -75,25 +75,38 @@ def generate_neutral(n: int = 600, seed: int = 20260928) -> list[str]:
     return out
 
 
+def _source_raw_text(source) -> str | None:
+    """源原始文本统一提取件(2026-11-22 评审 P1 下沉):目录源
+    (archetypes §3c:firehol/blocklist_de/echelon)拼接目录内全部常规
+    文件;文件源读单文件;缺路径/异径返 None。哨兵语料采样、月轮键集
+    快照、other 分布探针三处共用以消除各自 is_file() 守卫对目录源的
+    静默空转(gate 候选键集排除 0/0 判例)。"""
+    path = getattr(source, "_path", None)
+    if not path:
+        return None
+    if path.is_dir():
+        return "\n".join(p.read_text(errors="ignore")
+                          for p in sorted(path.iterdir()) if p.is_file())
+    if path.is_file():
+        return path.read_text(errors="ignore")
+    return None
+
+
 def sample_source_ips(source, n: int, rng: random.Random | None = None,
                       run_seed: int | None = None) -> list[str]:
     """Archetype-agnostic: regex-extract IP/CIDR tokens from the source's raw
     file and sample n (without replacement, capped at available).
     run_seed(S36)非 None 时覆盖 rng:run 级采样不随源名/文件内容可预测。
-    目录源(archetypes §3c:firehol/blocklist_de/echelon)拼接目录内全部
-    常规文件取文本(哨兵/语料采样对目录源同样生效,2026-11-22 echelon
-    首个目录源过哨兵时补;此前目录源在此返 NO-MEMBERS)。"""
+    目录源(archetypes §3c:firehol/blocklist_de/echelon)经
+    _source_raw_text 拼接目录内全部常规文件(哨兵/语料采样对目录源同样
+    生效,2026-11-22 echelon 首个目录源过哨兵时补;此前目录源在此返
+    NO-MEMBERS)。"""
     if run_seed is not None:
         rng = random.Random(run_seed)   # run 级 seed 优先于外部 rng(S36 反定向策展)
     rng = rng or random.Random()
-    path = getattr(source, "_path", None)
-    if not path or not (path.is_file() or path.is_dir()):
+    text = _source_raw_text(source)
+    if text is None:
         return []
-    if path.is_dir():
-        text = "\n".join(p.read_text(errors="ignore")
-                          for p in sorted(path.iterdir()) if p.is_file())
-    else:
-        text = path.read_text(errors="ignore")
     tokens = _IP_RE.findall(text)
     ips = [t.split("/")[0] for t in tokens]            # strip CIDR mask
     ips = [ip for ip in ips if ip.count(".") == 3]

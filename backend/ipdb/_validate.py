@@ -32,7 +32,8 @@ def metadata_problems(source) -> list[str]:
     # A 家族/直挂底座源不查(2026-10-31 裁决 B1:票面口径即 B 家族,A 家
     # 族新增保护另开票),duck-type 源桩(test_validate._Fake 等,无
     # url/filename 属性)同不受扰。普查同期实测:61 源 filename 全非空;
-    # url 空串仅 firehol/blocklist_de(B 家族,均 url_exempt)。
+    # url 空串仅 firehol/blocklist_de(B 家族,均 url_exempt;2026-11-22
+    # 三源批后另有 echelon 目录源同款豁免)。
     if isinstance(source, IpListSource):
         if not (getattr(source, "filename", None) or "").strip():
             problems.append(

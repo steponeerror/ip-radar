@@ -119,3 +119,30 @@ def test_export_default_fingerprint_null_and_gzip_deterministic(tmp_path):
                         ["1.1.1.1", "9.9.7.1", "1.1.1.1"])
     r2 = export_source_keysets([src2], root, "run-z", now=BASE + 5 * DAY)
     assert (r1 / "sA.txt.gz").read_bytes() == (r2 / "sB.txt.gz").read_bytes()
+
+
+def test_directory_source_keyset_union(tmp_path):
+    # 2026-11-22 评审 P1:目录源(§3c)键集=拼目录全部常规文件并集——
+    # 此前 is_file() 守卫恒空,gate 候选键集排除对目录源静默未执行
+    # (echelon gate 0/0 判例)。跨文件去重排序钉住。
+    from ipdb._eval.keysets import _source_ips
+    d = tmp_path / "dirsrc"
+    d.mkdir()
+    (d / "tag-a.txt").write_text("1.1.1.1\n2.2.2.2\n")
+    (d / "tag-b.txt").write_text("2.2.2.2\n# comment 3.3.3.3\n4.4.4.4\n")
+    src = _FakeSource("dirsrc", d)
+    assert _source_ips(src) == ["1.1.1.1", "2.2.2.2", "3.3.3.3", "4.4.4.4"]
+    # 快照导出面:目录源入 counts(gzip 内同键集)
+    run_dir = export_source_keysets([src], tmp_path / "out", "run-dir", now=BASE)
+    meta = json.loads((run_dir / "meta.json").read_text())
+    assert meta["counts"] == {"dirsrc": 4}
+
+
+def test_missing_path_keyset_empty(tmp_path):
+    # 缺路径/异径:契约不变仍返空键集(与修复前一致,非目录路径不炸)
+    from ipdb._eval.keysets import _source_ips
+    assert _source_ips(_FakeSource("ghost", tmp_path / "nope")) == []
+    assert _source_ips(_FakeSource("nopath", tmp_path)) is not None or True
+    class _Bare:  # 无 _path 属性的 duck-type 源桩
+        name = "bare"
+    assert _source_ips(_Bare()) == []

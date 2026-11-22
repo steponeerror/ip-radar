@@ -162,3 +162,35 @@ def test_conflict_counts_newly_conflicted_pairs():
     cand = {"1.1.1.1": {"classifications": {"x": {"verdict_conflict": True,  "sources": []}}}}
     m = conflict(base, cand)
     assert m.value == 1 and m.n == 1
+
+
+class _DirFakeSource:
+    """目录源最小桩:_path=目录(§3c),query 走内存表——钉 compute_other_distribution
+    的目录面(2026-11-22 评审 P1:此前 is_file() 守卫对目录源恒返 {})。"""
+    def __init__(self, d, table):
+        self._path = d
+        self._table = table
+    def query(self, ip):
+        return self._table.get(ip)
+
+
+def test_other_distribution_directory_source(tmp_path):
+    from ipdb._eval.metrics import compute_other_distribution
+    import random as _random
+    d = tmp_path / "dirsrc"
+    d.mkdir()
+    (d / "a.txt").write_text("1.1.1.1\n2.2.2.2\n")
+    (d / "b.txt").write_text("3.3.3.3\n4.4.4.4\n")
+    table = {ip: [{"classification_type": "scanner"}] for ip in
+             ("1.1.1.1", "2.2.2.2", "3.3.3.3", "4.4.4.4")}
+    counts = compute_other_distribution(_DirFakeSource(d, table),
+                                        rng=_random.Random(7))
+    assert counts == {"scanner": 4}
+
+
+def test_other_distribution_missing_source_empty():
+    from ipdb._eval.metrics import compute_other_distribution
+    assert compute_other_distribution(None) == {}
+    class _Bare:
+        pass
+    assert compute_other_distribution(_Bare()) == {}
