@@ -170,17 +170,19 @@ await t("全 faux 轮:十执行态到 CLOSE,信封 ok+形状只增 pipeline 扩�
   assert.equal(env.verify.cited, 1, "canned 报告引 1 fixture 判例");
 });
 
-await t("轮报告件(#403):R1 CLOSE 写 packages/<date>-health-<HHMM>.md,头部/相位/门/信封确定性读盘;reportNameOf 形状律(名字源=前端 pkgMatchesRow 前缀关联面)", async () => {
+await t("轮报告件(#403/#420):R1 CLOSE 写 packages/<date>-health-<HHMM>.md,结论先行+概览/相位/门/信封确定性读盘;reportNameOf 形状律(名字源=前端 pkgMatchesRow 前缀关联面)", async () => {
   const { reportNameOf } = await import("./pipeline/round-report.mjs");
   assert.equal(reportNameOf("2026-11-22-0500-discover"), "2026-11-22-discover-0500.md");
   assert.equal(reportNameOf("2026-10-23-2340-health"), "2026-10-23-health-2340.md");
   assert.equal(reportNameOf("2026-10-23-2340-health-r1"), "2026-10-23-health-2340-r1.md", "replay 后缀轮同律保留后缀(重放不入 CLOSE,resume 同 id 不碰此面)");
   assert.throws(() => reportNameOf("2026-10-28-e2e-health"), /形状须/, "形状不合掷错(同步掷,非 rejects)");
   const rep = fs.readFileSync(path.join(DOCS, "ops", "packages", "2026-10-23-health-2340.md"), "utf8");
-  assert.match(rep, /轮次:2026-10-23-2340-health/);
-  assert.match(rep, /类型:health/);
-  assert.match(rep, /引擎:pipeline-v1/);
-  assert.match(rep, /\| CLOSE \| done \|/, "相位表含 CLOSE 行");
+  // #420 人读面:结论行置顶(首屏即「这轮有没有事」)+概览表;轮次/类型/引擎折入标题/概览行
+  assert.match(rep, /^# 运营轮报告 2026-10-23-2340-health$/m, "标题含轮次 id");
+  assert.match(rep, /^\*\*结论:有信号待看:幸存信号 2 \/ 抑制信号 1 \/ 假设 2 \/ 锚巡检 finding 2。\*\*$/m, "结论行整句钉死(#420 评审 P2-1:R1 夹具确定性计数→预期文案,health 分支文法最高频面禁裸奔)");
+  assert.match(rep, /## 概览/);
+  assert.match(rep, /\| 类型 \| health\(引擎 pipeline-v1 · 模型面/, "概览类型行含引擎+模型面");
+  assert.match(rep, /\| CLOSE \| done \|/, "相位表含 CLOSE 行(前两列形冻结)");
   assert.match(rep, /## 门/);
   assert.match(rep, /## 信封/);
   const fenced = rep.split("```json\n")[1]?.split("\n```")[0];

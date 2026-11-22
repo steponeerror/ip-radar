@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useI18n } from "../i18n";
+import { MarkdownDoc } from "../components/MarkdownDoc";
 import { Modal } from "../components/Modal";
 import {
   listOpsPackages, readOpsPackage, readOpsPrecedent,
@@ -11,9 +12,9 @@ import { SectionHead } from "./OpsSectionHead";
 import { useArrivalNow } from "./useArrivalNow";
 
 // 旧包报告档案(P1 T4,票 #156,spec #152 §4;ADR 0006):markdown 包降级为
-// 条目集的只读渲染视图——列表 → 详情(报告文逐字:证据三元组/trace 原样
-// 保留,判例引用可点开全文),不再承载审阅。人裁交互面(旧「逐字选建议行
-// + 三动作」)已移除:四键审阅在「审阅」子 tab(OpsReviewSection),本节
+// 条目集的只读渲染视图——列表 → 详情(#420 起受控 markdown 渲染:证据三元组/
+// trace 文字逐字保留、判例引用可点开全文),不再承载审阅。人裁交互面(旧「逐字选
+// 建议行 + 三动作」)已移除:四键审阅在「审阅」子 tab(OpsReviewSection),本节
 // 驻「档案」子 tab(只读审计面:历史/规则/报告)。mono 数据/文件名分轨
 // 不变(文件名仍 packages/ 下的原词)。
 
@@ -22,30 +23,29 @@ import { useArrivalNow } from "./useArrivalNow";
 // 判(404 → 可读文案,不伪装空)。
 const PRECEDENT_REF_RE = /(\d{4}-\d{2}-\d{2}-[A-Za-z0-9._-]+\.md)/;
 
-// 报告文逐字渲染(证据三元组/trace 原样保留);判例文件名替换为可点按钮。
+// 报告文 markdown 渲染(#420:旧 <pre> 逐字面退役,# 与 |---| 原样可见=可读性差);判例
+// 文件名替换为可点按钮( renderInline 钩子沿用 PRECEDENT_REF_RE 切分,票 #156 行为不变)。
+// 证据三元组/trace 仍逐字保留(块级/行内子集只解释形状,不改文字;围栏代码逐字)。
 function PackageText({ text, onOpenPrecedent }: {
   text: string;
   onOpenPrecedent: (name: string) => void;
 }) {
-  const parts = text.split(PRECEDENT_REF_RE);
-  return (
-    <pre className="max-h-[28rem] overflow-auto rounded-md border border-zinc-800 bg-zinc-950 p-3 font-mono text-xs leading-relaxed whitespace-pre-wrap text-zinc-300">
-      {parts.map((p, i) =>
-        i % 2 === 1 ? (
-          <button
-            key={i}
-            type="button"
-            onClick={() => onOpenPrecedent(p)}
-            className="text-emerald-400 underline decoration-emerald-500/40 underline-offset-2 transition-colors hover:text-emerald-300"
-          >
-            {p}
-          </button>
-        ) : (
-          <span key={i}>{p}</span>
-        ),
-      )}
-    </pre>
-  );
+  const renderInline = useCallback((run: string) =>
+    run.split(PRECEDENT_REF_RE).map((p, i) =>
+      i % 2 === 1 ? (
+        <button
+          key={i}
+          type="button"
+          onClick={() => onOpenPrecedent(p)}
+          className="font-mono text-emerald-400 underline decoration-emerald-500/40 underline-offset-2 transition-colors hover:text-emerald-300"
+        >
+          {p}
+        </button>
+      ) : (
+        <span key={i}>{p}</span>
+      ),
+    ), [onOpenPrecedent]);
+  return <MarkdownDoc text={text} renderInline={renderInline} />;
 }
 
 export default function OpsPackagesSection({ onUnauthorized, roundTick }: {
