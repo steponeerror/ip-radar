@@ -10,6 +10,7 @@
 
 ### 变更 Changed
 
+  - **周更及以上档刷新槽位提前一整格，内容年龄不再周期性越过 stale 告警线(#398;2026-11-22)**:生产上周更源(stale_days=7)每周期固定一轮「stale 告警→当天自动恢复」噪声——根因是 `_due_at` 的 12h 槽位网格+排队下载延迟(964MB 小机内存阀门排队，实测常见 >1h guard)把实际周期滑到 7.5d,越过 7.0d 告警线。修复：周期 > SLOT_GRID(12h)的档 deadline 额外减一个 SLOT_GRID(周期 7d→约 6.5d,距告警线余量约 11h);日更档(12h)逐位不变(提前一格=每轮扫描恒到期刷新风暴)。稳态模拟验收:排队+下载延迟恒 0h/恒 2h/0-5h 交替抖动下，扫描时刻内容年龄恒 < stale_days×24h。告警侧零改动。
   - **修 CI 四天连红:源数字文档门同步+闸门自测去字面化(2026-11-22)**:ADR 0018 的 Source-count doc gate 自 11-20 首次加源(sgb)起连红 30+ 跑——九连加源(六源批+三源批)均未同步 README/MANUAL/GLOSSARY 源数;本次同步 9 行(公开 71/免钥 64/注册 72)。门自己的 pytest 套件同时挂 5 个:夹具写死 60 源时代句式,文档演进后替换不命中——改为从 derive_counts() 现算数字动态构夹具,结构口径(eval_excluded/带钥名集)仍字面钉死,句式悬空由激活腿兼住;源数漂移不再炸夹具。add-intel-source SKILL.md 门清单补入该门,堵住「四门不含文档门」的复发口。
   - **eval 目录源提取面收齐到三处(评审 P1,2026-11-22 三源批)**:sample_source_ips 修复后,keysets._source_ips(月轮键集快照/gate 候选排除)与 metrics.compute_other_distribution(gate other 分布探针)仍持 is_file() 守卫——echelon gate 首跑「剔陓0/0」、other n=0、consensus k_all 均值 Δ+0.06 均为排除机制未执行的降级读数;下沉共享提取件 corpus._source_raw_text(目录拼全部常规文件/单文件原样/缺径 None),三处共用。修复后重跑 echelon gate:排除 37/41,591 生效、other n=200、k 族位移全归 +0.0000,verdict 仍 POSITIVE-VERIFIED 0 旗标。行为变化注记:月轮键集快照自此开始收录 firehol/blocklist_de/echelon 目录源(此前恒空)。
 

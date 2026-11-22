@@ -2,7 +2,8 @@
 
 A single daemon thread that scans enabled offline sources every `interval`
 seconds and enqueues each at its deterministic 12h-grid slot when due
-(`_due_at`; daily tier twice a day, weekly tier once per stale_days) — or
+(`_due_at`; daily tier twice a day, weekly tier once per stale_days one
+full slot early for periods beyond the grid — #398) — or
 immediately, behind the backoff gate, for partial-tolerant multi-feed
 sources with a standing feed failure (spec 2026-10-02 §2.3) — via
 enqueue_one_detached (batch_id=None, so scheduler tasks never pollute an
@@ -44,14 +45,28 @@ def _period_of(stale_days: int) -> int:
 
 
 def _due_at(name: str, mtime: float, stale_days: int) -> float:
-    """First slot strictly after (mtime + period - guard).
+    """First slot strictly after (mtime + period - guard [- lead]).
 
     The guard absorbs slot-fire→mtime lag. Without it, mtime always trails the
     slot point, so each cycle's first_slot lands one grid further out: daily
     sources drift to 24h/cycle and weekly to 7.5d with +12h wall-clock drift.
+    #398 (2026-11-22): the drift alone already pushes real weekly cycles past
+    the stale alert line (stale_days×24h, _alerts.stall_threshold_h floor) —
+    queue+download lag beyond the guard (964MB-box valve queues, commonly >1h)
+    made every cycle cross it, flapping a stale alert + auto-recovery weekly.
+    Fix: periods longer than the grid lead by one full slot (deadline −
+    SLOT_GRID), pulling weekly cycles to ≈6.5d with ≈11h margin under the
+    7.0d line. Daily tier (period == grid) keeps the legacy formula
+    bit-for-bit: a lead there leaves every scan overdue (refresh storm).
     """
     slot = _slot_of(name)
-    deadline = mtime + _period_of(stale_days) - REFRESH_GUARD
+    period = _period_of(stale_days)
+    # #398(2026-11-22 判例):周期>12h 档目标槽位提前一整格——槽位网格+排队下载延迟
+    # (964MB 小机内存阀门排队,实测常见>1h)使实际周期滑到 7.5d,越过 7.0d stale
+    # 告警线,每周期必抖一轮告警+恢复。提前一格周期≈6.5d,余量≈11h 盖住延迟抖动;
+    # 日更档(period=12h=网格)不适用:提前一格=恒到期刷新风暴。
+    lead = SLOT_GRID if period > SLOT_GRID else 0
+    deadline = mtime + period - lead - REFRESH_GUARD
     first_slot = (deadline // SLOT_GRID) * SLOT_GRID + slot
     if first_slot <= deadline:
         first_slot += SLOT_GRID

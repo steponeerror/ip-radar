@@ -803,15 +803,16 @@ def test_due_at_daily_rhythm_stable():
 
 
 def test_due_at_weekly_rhythm_stable():
-    """F1 regression: weekly fires exactly 7d apart, not 7.5d."""
+    """F1 regression + #398: weekly fires exactly 7d−12h apart (one-slot lead),
+    never 7.5d."""
     from ipdb._scheduler import _due_at, _slot_of, SLOT_GRID
     name = "geolite_city"
     slot = _slot_of(name)
     fire1 = 10 * SLOT_GRID + slot
     fire2 = _due_at(name, fire1 + 1800.0, 7)
-    assert fire2 - fire1 == 604800
+    assert fire2 - fire1 == 604800 - SLOT_GRID   # one slot early (#398)
     fire3 = _due_at(name, fire2 + 1800.0, 7)
-    assert fire3 - fire2 == 604800
+    assert fire3 - fire2 == 604800 - SLOT_GRID   # no drift on cycle 2
 
 
 def test_due_at_slow_download_skips_then_recovers():
@@ -835,6 +836,89 @@ def test_due_at_lands_on_own_slot_after_deadline():
     deadline = mtime + SLOT_GRID - REFRESH_GUARD
     assert due > deadline and due <= deadline + SLOT_GRID
     assert (due - 10 * SLOT_GRID) % SLOT_GRID == slot   # lands on its own slot
+
+
+def test_due_at_long_period_leads_one_slot():
+    """#398: periods > the grid target their slot one full grid early —
+    content age must stop periodically crossing the stale alert line
+    (stale_days×24h). due ∈ (mtime+period−SLOT_GRID−GUARD, mtime+period−GUARD)."""
+    from ipdb._scheduler import _due_at, _slot_of, SLOT_GRID, REFRESH_GUARD
+    for name in ("cloud_ranges", "cn_isp", "x4bnet_vpn"):   # 3 slot phases
+        slot = _slot_of(name)
+        for stale_days in (7, 14):                          # lead applies to both
+            period = stale_days * 86400
+            for off in (0.0, 5000.0, 40000.0):              # 3 mtime phases
+                mtime = 10 * SLOT_GRID + off
+                due = _due_at(name, mtime, stale_days)
+                lo = mtime + period - SLOT_GRID - REFRESH_GUARD
+                hi = mtime + period - REFRESH_GUARD
+                assert due % SLOT_GRID == slot, "must stay a legal own-slot point"
+                assert lo < due < hi, (name, stale_days, off, due, lo, hi)
+
+
+def test_due_at_daily_tier_matches_legacy_formula_exactly():
+    """#398 guard: daily tier (period = grid) stays bit-identical to the
+    legacy deadline formula — one-slot lead here would leave every scan
+    overdue (refresh storm)."""
+    from ipdb._scheduler import _due_at, _slot_of, SLOT_GRID, REFRESH_GUARD
+    for name in ("cloud_ranges", "cn_isp", "x4bnet_vpn"):
+        slot = _slot_of(name)
+        # arbitrary phases + one constructed so legacy first_slot == deadline
+        # exactly (exercises the strictly-after bump)
+        phases = [0.0, 5000.0, 40000.0, float((slot + REFRESH_GUARD) % SLOT_GRID)]
+        for off in phases:
+            mtime = 10 * SLOT_GRID + off
+            deadline = mtime + SLOT_GRID - REFRESH_GUARD
+            legacy = (deadline // SLOT_GRID) * SLOT_GRID + slot
+            if legacy <= deadline:
+                legacy += SLOT_GRID
+            assert _due_at(name, mtime, 1) == legacy
+
+
+def _simulate_refresh_cycles(name, stale_days, delays, cycles, scan_step=1800.0):
+    """#398 steady-state model: refresh i fires at _due_at and its write
+    lands dl later (queue + download lag); mtime becomes the write instant.
+    Walks the whole timeline at scan resolution (1800s, the scheduler's real
+    scan interval) and returns the worst content age at any scan instant."""
+    from ipdb._scheduler import _due_at, _slot_of, SLOT_GRID
+    mtime = 10 * SLOT_GRID + _slot_of(name)   # start on this source's own slot
+    t0 = mtime
+    writes = []
+    for i in range(cycles):
+        fire = _due_at(name, mtime, stale_days)
+        write = fire + delays[i % len(delays)]
+        assert write > mtime, "each refresh must land after previous content"
+        writes.append(write)
+        mtime = write
+    worst = 0.0
+    idx = 0                                   # writes[] sorted; consume ≤ t
+    t = t0
+    while t <= writes[-1]:
+        while idx < len(writes) and writes[idx] <= t:
+            idx += 1
+        content = writes[idx - 1] if idx else t0   # newest write ≤ t
+        worst = max(worst, t - content)
+        t += scan_step
+    return worst
+
+
+def test_steady_state_age_never_crosses_stale_line():
+    """#398 acceptance: over ≥6 refresh cycles, content age at every scan
+    instant stays strictly under the stale line (stale_days×24h) despite
+    queue+download lag jitter — the weekly stale-alert-then-recover flap
+    is gone. Old formula is red here: lag > guard slides each cycle to
+    7.5d, crossing the 7.0d line every cycle."""
+    scenarios = [
+        # (name, stale_days, per-cycle queue+download lags in s, cycles)
+        ("cloud_ranges", 7, [0.0], 7),            # zero lag: comfy margin
+        ("cn_isp", 7, [7200.0], 7),               # constant 2h lag (> guard)
+        ("x4bnet_vpn", 7, [0.0, 18000.0], 8),     # 0h/5h alternating (worst jitter)
+        ("geolite_city", 14, [0.0, 18000.0], 6),  # 14d tier: lead applies too
+    ]
+    for name, stale_days, delays, cycles in scenarios:
+        line = float(stale_days * 86400)
+        worst = _simulate_refresh_cycles(name, stale_days, delays, cycles)
+        assert worst < line, (name, stale_days, delays, worst, line)
 
 
 def test_dbip_refresh_period_cannot_skip_monthly_edition():
