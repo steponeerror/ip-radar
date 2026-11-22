@@ -44,11 +44,22 @@ def test_build_benchmark_partitions_by_type(tmp_path):
     # 固定小名单:strata 恒满(曾为旋钮,现硬编码)
     assert len(bench.benign) == 4 and len(bench.reserved) == 4
 
-def test_sample_source_ips_skips_directory(tmp_path):
-    d = tmp_path / "firehol"
+def test_sample_source_ips_directory_source_concatenates(tmp_path):
+    """目录源(archetypes §3c:firehol/blocklist_de/echelon)拼接目录内全部
+    常规文件提取成员——2026-11-22 echelon 首个目录源过哨兵时暴露的提取
+    缺口(哨兵 NO-MEMBERS 0/0);旧契约「目录返回 []」(skips_directory)
+    作废,跨文件去重后采样。"""
+    d = tmp_path / "echelon"
     d.mkdir()
-    (d / "level1.netset").write_text("1.2.3.4\n5.6.7.8\n")
-    src = _FakeSource("firehol", d)            # _path is a directory
+    (d / "ssh-bruteforcer.txt").write_text("1.2.3.4\n5.6.7.8\n")
+    (d / "port-scan.txt").write_text("5.6.7.8\n9.9.9.9\n")   # 5.6.7.8 跨文件重复
+    (d / "tls.txt").write_text("")                           # 合法空标签文件
+    src = _FakeSource("echelon", d)                          # _path is a directory
+    ips = sample_source_ips(src, n=10, rng=random.Random(0))
+    assert set(ips) == {"1.2.3.4", "5.6.7.8", "9.9.9.9"}   # 去重后全量 ≤ n
+
+def test_sample_source_ips_missing_path_returns_empty(tmp_path):
+    src = _FakeSource("ghost", tmp_path / "nope.txt")       # 原始文件缺
     assert sample_source_ips(src, n=10, rng=random.Random(0)) == []
 
 

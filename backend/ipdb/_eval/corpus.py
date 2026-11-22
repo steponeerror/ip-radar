@@ -79,13 +79,22 @@ def sample_source_ips(source, n: int, rng: random.Random | None = None,
                       run_seed: int | None = None) -> list[str]:
     """Archetype-agnostic: regex-extract IP/CIDR tokens from the source's raw
     file and sample n (without replacement, capped at available).
-    run_seed(S36)非 None 时覆盖 rng:run 级采样不随源名/文件内容可预测。"""
+    run_seed(S36)非 None 时覆盖 rng:run 级采样不随源名/文件内容可预测。
+    目录源(archetypes §3c:firehol/blocklist_de/echelon)拼接目录内全部
+    常规文件取文本(哨兵/语料采样对目录源同样生效,2026-11-22 echelon
+    首个目录源过哨兵时补;此前目录源在此返 NO-MEMBERS)。"""
     if run_seed is not None:
         rng = random.Random(run_seed)   # run 级 seed 优先于外部 rng(S36 反定向策展)
     rng = rng or random.Random()
-    if not getattr(source, "_path", None) or not source._path.is_file():
+    path = getattr(source, "_path", None)
+    if not path or not (path.is_file() or path.is_dir()):
         return []
-    tokens = _IP_RE.findall(source._path.read_text(errors="ignore"))
+    if path.is_dir():
+        text = "\n".join(p.read_text(errors="ignore")
+                          for p in sorted(path.iterdir()) if p.is_file())
+    else:
+        text = path.read_text(errors="ignore")
+    tokens = _IP_RE.findall(text)
     ips = [t.split("/")[0] for t in tokens]            # strip CIDR mask
     ips = [ip for ip in ips if ip.count(".") == 3]
     uniq = list(dict.fromkeys(ips))
