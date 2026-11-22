@@ -303,7 +303,7 @@ await t("spawn:OPS_PIPELINE 惰性化(开关板退役 #412:exit 2 用法错,源�
   const r = await spawnAgent(["health", "x"], { OPS_PIPELINE: "pipeline", OPS_PIPELINE_BUDGET_CNY: "abc" });
   assert.equal(r.rc, 2, `期望 2(usage),得到 ${r.rc}:${r.stderr.slice(0, 200)}`);
   assert.equal(r.stdout, "", "用法错不发 JSON");
-  assert.match(r.stderr, /用法:/);
+  assert.match(r.stderr, /OPS_PIPELINE_BUDGET_CNY 须为非负数/, "会话面旋钮判例形(mkCtx 同读同校验;非委派面 usage 文案)");
   assert.ok(!r.stderr.includes("unsettled"), `不得再出现 unsettled top-level await:${r.stderr.slice(0, 200)}`);
   const src = fs.readFileSync(path.join(AGENT, "agent.mjs"), "utf8");
   assert.ok(!src.includes('import("./pipeline.mjs")'), "agent.mjs 不得再动态 import pipeline.mjs(开关板已退役,委派分支回潮=死锁面重开)");
