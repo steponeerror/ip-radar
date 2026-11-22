@@ -28,6 +28,7 @@ import { roundKnobs, stepBoundary, postModelCall, knobNames } from "./budget-gua
 import { OPS_MODEL_ROUND, conversationUsage, conversationModelCalls } from "./model-round.mjs"; // P1-4:failed 子任务留痕计量面
 import { mkFauxFace, loadFauxFixture } from "../faux-face.mjs"; // 修复⑥:faux 面分派件(旧 faux.mjs 字节级一致副本)
 import { writeRoundReport } from "../../agent/pipeline/round-report.mjs"; // #403:轮报告件单源(v2 零复制 import v1)
+import { writeTerminalRoundState } from "./round-state.mjs"; // #408:CLOSE 终态回写 state.json 镜像(与报告件同接线点)
 import { OPS_PROBE_TOOLS } from "../tools/probes.mjs"; // DEEP 真面探针闭集(AgentChange.modelTools 要 ToolRegistration 对象非名字串——applyChange names() 映射 .name)
 
 const nowIso = () => new Date().toISOString();
@@ -395,11 +396,17 @@ async function runClose(input, ck, runtime, context) {
     appendGate(ctx.dir, ctx.roundId, gr);
     if (!gr.pass) throw Object.assign(new Error(`门败 G_CLOSE:${gr.reason}`), { code: "infra" });
     writeRoundReport({ roundId: input.roundId, type: "health", engine: "pipeline-v2", ctx, opsRoot: ctx.opsRoot }); // #403:轮报告件(packages 断供修复);写败掷 infra 入本 catch(fail loud:静默=用户再次看不到报告)
+    // #408:终态回写镜像(v1 finishClose 同序=报告→state;ctx.state 此刻已终态化 done/CLOSE,
+    // 本调用只改 status 面+updated_at 保盘值=崩溃重入 CLOSE 重写字节级不变)
+    writeTerminalRoundState(ctx, { status: "done" });
     await runtime.commit(() => ({
       status: "terminal",
       outcome: { status: "completed", result: { round_id: input.roundId, envelope, dir: ctx.dir, usage: ctx.usage } },
     }), context);
   } catch (e) {
+    // #408:close 相位任何终态出口(09-budget 步败/G_CLOSE 红/报告写败)镜像终态 failed
+    // (v1 failStage 书挡对 failed/FAILED;stages 止于上一已提交相位=close 未成不造名)
+    writeTerminalRoundState(ctx, { status: "failed", stage: "FAILED" });
     const code = ERROR_CODES.includes(e?.code) ? e.code : "infra";
     await runtime.commit(() => ({
       status: "terminal",
