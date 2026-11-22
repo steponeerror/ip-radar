@@ -7,7 +7,10 @@ from ipdb._memory_valve import MemoryValve, initial_capacity
 def _wait_until(predicate, timeout, msg):
     """#378:采样线程只暴露 target 值、无完成钩子——固定 sleep 窗口在门上下文
     (node+pytest 并行)线程调度延迟下偶红;改带 deadline 轮询:20ms 步进,
-    deadline 取原窗口 10 倍,真值到达即返回,超时才以 msg 失败。"""
+    deadline 取原窗口 10 倍,真值到达即返回,超时才以 msg 失败。
+    #411 保留:被等对象是 valve 采样线程的 target 值,不在任务生命周期事件
+    面上(wait_for_state/wait_snapshot 无从挂);valve 自身无事件面,
+    _memory_valve 不在本票可动面,无从加。"""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if predicate():
