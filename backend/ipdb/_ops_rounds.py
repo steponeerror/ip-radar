@@ -31,6 +31,7 @@
 spawn 层;e2e 真跑(tests/test_ops_rounds_e2e.py)不设此值。
 """
 
+import contextlib
 import json
 import logging
 import os
@@ -413,7 +414,9 @@ def _run_recovery_round(manager, round_id: str) -> None:
         manager.ops_log(task.id, line)
 
     # C1(#196):恢复轮线程入口同面兑底——占道后链上任何异常也落终态+放车道。
-    try:
+    # #411:兑底结构化——轮体在 ops_lane_guard 内运行(同 run_round;C1
+    # 降级为 guard 内保险丝面,预期不可达)。
+    with ops_lane_guard(manager, task, "health", label="boot 恢复轮线程"):
         try:
             env = _spawn_env()  # C4(#196):同 spawn_round 白名单面
         except RuntimeError as e:
@@ -428,9 +431,6 @@ def _run_recovery_round(manager, round_id: str) -> None:
             task.id, "failed",
             err.get("message") or json.dumps(result, ensure_ascii=False),
             err.get("code") if isinstance(err.get("code"), str) else "infra")
-    except Exception as e:
-        logger.exception("boot 恢复轮线程未捕获异常(%s)", round_id)
-        _settle_crash(manager, task.id, e, "health")
 
 
 def recover_inflight_rounds(manager=None) -> list[dict]:
@@ -499,7 +499,10 @@ def _settle_crash(manager, task_id: str, exc: BaseException,
     try:
         manager.finish_ops_round(task_id, "failed", reason, "infra")
     except Exception:
-        logger.exception("C1 兑底 finish_ops_round 失败(task %s)——车道释放链断,需人工介入", task_id)
+        # #411:本档降级为保险丝后手——ops_lane_guard 的 finally 保险丝会在
+        # 本档失败后接手放道(预期不可达);若连保险丝也断,才是真正的
+        # 「需人工介入」。
+        logger.exception("C1 兌底 finish_ops_round 失败(task %s)——车道释放链断,ops_lane_guard 保险丝接手;若仍断需人工介入", task_id)
 
 
 # ── #139 挂账①:轮次内存峰值采集(cgroup 读数,桥侧;agent 冻结面零触碰)──
@@ -551,38 +554,87 @@ def _record_memory_peak(round_type: str, base: int | None) -> None:
                        round_type, peak, exc_info=True)
 
 
+# ── #411 车道结构化收口:轮体退出未收口时,车道由 guard 兌底释放 ──────────────
+
+
+@contextlib.contextmanager
+def ops_lane_guard(manager, task, round_type: str, label: str = "ops 轮线程"):
+    """轮体任意退出路径(正常 return/异常/BaseException)下车道必释的结构保证。
+
+    #411 前:「占道后每条出口都要记得调 finish_ops_round」靠 6 处调用点的
+    人肉约定维系,漏调即车道泄漏(源 worker 永久停摆,只剩 C1 人工兑底)。
+    #411 后:轮体在 guard 内运行,收口变成结构保证——
+    - 轮体已收口(任一路径调过 finish)→ guard 退出零追加(不改终态、
+      不二次 finish、不多发事件);
+    - 轮体抛 Exception → guard 就地走 C1(_settle_crash:failed/infra +
+      三面留痕)并吞掉(线程入口语义,#196 原判例);BaseException 同样
+      收口后再抛(VM 级退出不静默);
+    - 退出时车道仍被本 task 持有(= 无任何出口调过 finish,或 C1 兌底链
+      自身也断)→ 保险丝兜底 finish(failed/infra):C1 的「车道释放链
+      断,需人工介入」档降级为预期不可达。
+
+    测试替身(无 ops_lane_owner 面的 manager)按「无从判定」处理,不触发
+    保险丝——替身无车道真身,其收口由 finished 记录断言。"""
+    try:
+        yield
+    except Exception as e:
+        logger.exception("%s未捕获异常(task %s, round_type=%s)",
+                         label, task.id, round_type)
+        _settle_crash(manager, task.id, e, round_type)
+    except BaseException as e:
+        _settle_crash(manager, task.id, e, round_type)
+        raise
+    finally:
+        lane_owner = getattr(manager, "ops_lane_owner", None)
+        if lane_owner is not None and lane_owner() == task.id:
+            reason = "结构性车道收口:轮体退出未收口(C1 兌底链全断,保险丝)"
+            try:
+                manager.ops_log(task.id, reason)
+            except Exception:
+                logger.exception("车道保险丝 ops_log 失败(task %s)", task.id)
+            try:
+                _ops_store.append_ledger(round_type, "—", "—",
+                                         f"spawn error_code=infra; {reason}")
+            except Exception:
+                logger.exception("车道保险丝台账留痕失败(task %s)", task.id)
+            try:
+                manager.finish_ops_round(task.id, "failed", reason, "infra")
+            except Exception:
+                logger.exception(
+                    "车道保险丝 finish_ops_round 失败(task %s)——车道释放链"
+                    "断,需人工介入", task.id)
+
+
 def run_round(manager, task, round_type: str, input_text: str) -> None:
     """ops 轮线程入口(路由侧 threading.Thread 拉起):spawn → 收口。
 
     ops 树形状初始化在 spawn_round 内(单一拼写,幂等)。任务态收口走
     manager.finish_ops_round(done/failed/cancelled;error_code =
     信封 error.code 九词闭集透传);stderr 行经 manager.ops_log 进任务链 SSE。
-    C1(#196):线程入口整体兑底——链上任何未捕获异常(如磁盘满 OSError)
-    也落终态+放车道,不得卡 running 撕停摆源 worker。
-    #139 挂账①:轮始记 cgroup 峰值基线,收口面 finally(一切含兑底路径)
-    写终值入台账(_record_memory_peak;冷启动验收 #5 的机读替代)。"""
+    #411:收口结构化——轮体在 ops_lane_guard 内运行,任何退出路径(含
+    异常/漏调 finish)车道必释;C1 兌底保留为 guard 内的保险丝面(预期
+    不可达,#196 原人肉兜底降级)。
+    #139 挂账①:轮始记 cgroup 峰值基线,收口面 finally(一切含兌底/保险丝
+    路径)写终值入台账(_record_memory_peak;冷启动验收 #5 的机读替代)。"""
     def on_log(line: str) -> None:
         manager.ops_log(task.id, line)
 
     peak_base = read_memory_peak()  # 轮始基线(容器累计高水位现值)
     try:
-        result = spawn_round(round_type, input_text, on_log=on_log,
-                             cancel_token=task.token)
-        if result.get("cancelled"):
-            manager.finish_ops_round(task.id, "cancelled")
-            return
-        if result.get("ok") is True:
-            manager.finish_ops_round(task.id, "done")
-            return
-        err = result.get("error") or {}
-        manager.finish_ops_round(
-            task.id, "failed",
-            err.get("message") or json.dumps(result, ensure_ascii=False),
-            err.get("code") if isinstance(err.get("code"), str) else "infra")
-    except Exception as e:
-        logger.exception("ops 轮线程未捕获异常(task %s, round_type=%s)",
-                         task.id, round_type)
-        _settle_crash(manager, task.id, e, round_type)
+        with ops_lane_guard(manager, task, round_type):
+            result = spawn_round(round_type, input_text, on_log=on_log,
+                                 cancel_token=task.token)
+            if result.get("cancelled"):
+                manager.finish_ops_round(task.id, "cancelled")
+                return
+            if result.get("ok") is True:
+                manager.finish_ops_round(task.id, "done")
+                return
+            err = result.get("error") or {}
+            manager.finish_ops_round(
+                task.id, "failed",
+                err.get("message") or json.dumps(result, ensure_ascii=False),
+                err.get("code") if isinstance(err.get("code"), str) else "infra")
     finally:
-        # #139 挂账①:一切收口路径(成功/失败/取消/兑底)同写终值
+        # #139 挂账①:一切收口路径(成功/失败/取消/兌底/保险丝)同写终值
         _record_memory_peak(round_type, peak_base)

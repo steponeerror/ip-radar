@@ -337,6 +337,63 @@ def test_recovery_round_crash_settles_task(rounds, ops_env, monkeypatch):
     assert mgr.logs, "兑底路径留痕 task_log(不吞异常信息)"
 
 
+# ── #411 车道结构化收口:轮体退出未调 finish 时,车道由 guard 兜底释放 ──────
+
+
+def test_lane_guard_releases_lane_when_body_raises_without_finish(rounds, ops_env):
+    """#411 验收:轮体抛异常且无人调 finish_ops_round → 车道仍被释放(任务落
+    failed/infra,下一轮可占道)。修复前这一场景在测试中不可表达——车道靠
+    6 处 finish 调用点的人肉约定维系,漏调即源 worker 永久停摆(C1 人工兜底)。"""
+    mgr = _make_manager([])
+    task, busy = mgr.start_ops_round("health")
+    assert task is not None and busy is None
+    with rounds.ops_lane_guard(mgr, task, "health"):
+        raise RuntimeError("round body explodes; nobody calls finish")
+    assert mgr._ops_active is None, "车道必须由 guard 结构性释放"
+    assert mgr.task_state(task.id) == "failed"
+    assert mgr.task_failure_kind(task.id) == "infra"
+    again, again_busy = mgr.start_ops_round("health")
+    assert again is not None and again_busy is None, "车道泄漏:下一轮无法占道"
+    mgr.finish_ops_round(again.id, "done")
+
+
+def test_lane_guard_releases_lane_when_body_returns_without_finish(rounds, ops_env):
+    """#411 同面(无异常版):轮体正常退出但忘了调 finish → guard 兜底收口,
+    车道不漏。与上一测合起来覆盖「抛异常不调 finish」「return 不调 finish」
+    两条漏收口路径。"""
+    mgr = _make_manager([])
+    task, busy = mgr.start_ops_round("health")
+    assert task is not None and busy is None
+    with rounds.ops_lane_guard(mgr, task, "health"):
+        pass  # 轮体忘了收口:无异常、无 finish
+    assert mgr._ops_active is None, "车道必须由 guard 结构性释放"
+    assert mgr.task_state(task.id) == "failed"
+    assert mgr.task_failure_kind(task.id) == "infra"
+    again, again_busy = mgr.start_ops_round("health")
+    assert again is not None and again_busy is None, "车道泄漏:下一轮无法占道"
+    mgr.finish_ops_round(again.id, "done")
+
+
+def test_lane_guard_body_finish_still_wins(rounds, ops_env, monkeypatch):
+    """#411 guard 不越权:轮体自己调过 finish(成功/失败/取消任一)→ guard
+    退出时零追加(不二次 finish、不改终态、不发多余事件)。"""
+    mgr = _make_manager([])
+    task, _ = mgr.start_ops_round("health")
+    finishes = []
+    orig = mgr.finish_ops_round
+
+    def _counting(*a, **k):
+        finishes.append(a)
+        return orig(*a, **k)
+
+    monkeypatch.setattr(mgr, "finish_ops_round", _counting)
+    with rounds.ops_lane_guard(mgr, task, "health"):
+        mgr.finish_ops_round(task.id, "done")
+    assert finishes == [(task.id, "done")], \
+        f"guard 不得在轮体已收口后追加 finish: {finishes}"
+    assert mgr.task_state(task.id) == "done", "guard 越权改写了轮体的终态"
+
+
 # ── #139 挂账①:轮次内存峰值(cgroup 读数三态 + run_round 收口面台账行)──
 
 

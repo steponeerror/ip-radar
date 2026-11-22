@@ -460,6 +460,13 @@ class UpdateManager:
         with self._queue_cv:
             self._queue_cv.notify_all()
 
+    def ops_lane_owner(self) -> Optional[str]:
+        """当前占道的 ops 轮 task_id(None=车道空闲)。#411 结构性收口面:
+        ops_lane_guard(_ops_rounds)退出时读它判定「轮体是否漏收口」;测试/
+        观察面亦可直接看车道归属。锁内读(与 start/finish 同锁,无窗口)。"""
+        with self._lock:
+            return self._ops_active
+
     def ops_log(self, task_id: str, line: str) -> None:
         """轮次 stderr 进度行([turn]/[tool],spawn 契约面)→ 事件总线 → SSE;
         同步入有界日志尾(快照面,__init__ _ops_logs 注释)。未知 task_id
