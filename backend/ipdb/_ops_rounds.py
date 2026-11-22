@@ -502,7 +502,7 @@ def _settle_crash(manager, task_id: str, exc: BaseException,
         # #411:本档降级为保险丝后手——ops_lane_guard 的 finally 保险丝会在
         # 本档失败后接手放道(预期不可达);若连保险丝也断,才是真正的
         # 「需人工介入」。
-        logger.exception("C1 兌底 finish_ops_round 失败(task %s)——车道释放链断,ops_lane_guard 保险丝接手;若仍断需人工介入", task_id)
+        logger.exception("C1 兑底 finish_ops_round 失败(task %s)——车道释放链断,ops_lane_guard 保险丝接手;若仍断需人工介入", task_id)
 
 
 # ── #139 挂账①:轮次内存峰值采集(cgroup 读数,桥侧;agent 冻结面零触碰)──
@@ -554,7 +554,7 @@ def _record_memory_peak(round_type: str, base: int | None) -> None:
                        round_type, peak, exc_info=True)
 
 
-# ── #411 车道结构化收口:轮体退出未收口时,车道由 guard 兌底释放 ──────────────
+# ── #411 车道结构化收口:轮体退出未收口时,车道由 guard 兑底释放 ──────────────
 
 
 @contextlib.contextmanager
@@ -569,7 +569,7 @@ def ops_lane_guard(manager, task, round_type: str, label: str = "ops 轮线程")
     - 轮体抛 Exception → guard 就地走 C1(_settle_crash:failed/infra +
       三面留痕)并吞掉(线程入口语义,#196 原判例);BaseException 同样
       收口后再抛(VM 级退出不静默);
-    - 退出时车道仍被本 task 持有(= 无任何出口调过 finish,或 C1 兌底链
+    - 退出时车道仍被本 task 持有(= 无任何出口调过 finish,或 C1 兑底链
       自身也断)→ 保险丝兜底 finish(failed/infra):C1 的「车道释放链
       断,需人工介入」档降级为预期不可达。
 
@@ -589,7 +589,7 @@ def ops_lane_guard(manager, task, round_type: str, label: str = "ops 轮线程")
     finally:
         lane_owner = getattr(manager, "ops_lane_owner", None)
         if lane_owner is not None and lane_owner() == task.id:
-            reason = "结构性车道收口:轮体退出未收口(C1 兌底链全断,保险丝)"
+            reason = "结构性车道收口:轮体退出未收口(C1 兑底链全断,保险丝)"
             try:
                 manager.ops_log(task.id, reason)
             except Exception:
@@ -614,9 +614,9 @@ def run_round(manager, task, round_type: str, input_text: str) -> None:
     manager.finish_ops_round(done/failed/cancelled;error_code =
     信封 error.code 九词闭集透传);stderr 行经 manager.ops_log 进任务链 SSE。
     #411:收口结构化——轮体在 ops_lane_guard 内运行,任何退出路径(含
-    异常/漏调 finish)车道必释;C1 兌底保留为 guard 内的保险丝面(预期
+    异常/漏调 finish)车道必释;C1 兑底保留为 guard 内的保险丝面(预期
     不可达,#196 原人肉兜底降级)。
-    #139 挂账①:轮始记 cgroup 峰值基线,收口面 finally(一切含兌底/保险丝
+    #139 挂账①:轮始记 cgroup 峰值基线,收口面 finally(一切含兑底/保险丝
     路径)写终值入台账(_record_memory_peak;冷启动验收 #5 的机读替代)。"""
     def on_log(line: str) -> None:
         manager.ops_log(task.id, line)
@@ -638,5 +638,5 @@ def run_round(manager, task, round_type: str, input_text: str) -> None:
                 err.get("message") or json.dumps(result, ensure_ascii=False),
                 err.get("code") if isinstance(err.get("code"), str) else "infra")
     finally:
-        # #139 挂账①:一切收口路径(成功/失败/取消/兌底/保险丝)同写终值
+        # #139 挂账①:一切收口路径(成功/失败/取消/兑底/保险丝)同写终值
         _record_memory_peak(round_type, peak_base)

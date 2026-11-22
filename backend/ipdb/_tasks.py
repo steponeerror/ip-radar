@@ -130,11 +130,15 @@ class UpdateManager:
         self._loop: Optional[asyncio.AbstractEventLoop] = None
 
         # #411 转移事件面:生命周期等待 cv(wait_for_state/wait_snapshot 的
-        # 唤醒源)。锁序约束:notify 一律在 self._lock 外取本 cv(等待面会
-        # cv→self._lock 短临界区读态;反序嵌套 self._lock→cv = 死锁对,故
-        # 所有 _notify_lifecycle 调用点都必须先释 self._lock)。唤醒点 =
-        # 相位写点 _set_state、终态记账 _settle、ops 轮占道/收口(不经
-        # _set_state 的写点各自通知)、cancel 的 queued 直写路径。
+        # 唤醒源)。锁序约束(终审 P1 补全):全局单向 _queue_cv → 
+        # _lifecycle_cv → self._lock,禁反向嵌套——①notify 一律在 self._lock
+        # 外取本 cv(等待面会 cv→self._lock 短临界区读态;反序 self._lock→cv
+        # = 死锁对);②worker 的转移打戳在 _queue_cv 内、其 _notify_lifecycle
+        # 随 _set_state 同点触发 = _queue_cv→cv 嵌套边(合法向);③旧
+        # self._lock→_queue_cv 嵌套(_enqueue_one 持锁入队)已拆(见 
+        # _enqueue_one 内注释),否则①②③闭成三锁死锁环。唤醒点 = 相位写点
+        # _set_state、终态记账 _settle、ops 轮占道/收口(不经 _set_state 的
+        # 写点各自通知)、cancel 的 queued 直写路径。
         self._lifecycle_cv = threading.Condition()
 
         for _ in range(concurrency):
@@ -193,9 +197,14 @@ class UpdateManager:
             if (batch_id is not None and batch_id == self._active_batch
                     and not self._populating_batch):
                 self._batches[batch_id].total += 1
-            self._enqueue(task.id)
             self._emit({"type": "task", "task": task.to_dict()})
-            return task
+        # 入队出锁序段(#411 终审 P1):旧序在此持 self._lock 嵌套取 _queue_cv,
+        # 与 worker 的 _queue_cv→_lifecycle_cv(转移通知)及等待者的
+        # _lifecycle_cv→self._lock(谓词读态)闭成三锁死锁环;外移后全局锁序
+        # 无环:_queue_cv → _lifecycle_cv → self._lock。注册先于入队,worker
+        # 持同一 _queue_cv 弹出后查 _tasks 必见(happens-before 经 cv)。
+        self._enqueue(task.id)
+        return task
 
     def task_state(self, task_id: str) -> Optional[str]:
         """Lock-guarded lookup of a task's state. Returns None if task_id is
