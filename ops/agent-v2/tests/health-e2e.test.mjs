@@ -162,13 +162,15 @@ test("健康轮链路 E2E:TRIAGE→WAIT_MODEL(join)→DEEP(evidence)→SYNTH→�
       assert.equal(retro.mutation_check_due.due, true);
       assert.equal(retro.mutation_check_due.last_run, null);
       assert.match(retro.mutation_check_due.note, /未见上次运行/);
-      // #403:轮报告件入 packages/(断供修复;命名=<date>-health-<HHMM>.md);头部/相位/信封确定性读盘
+      // #403:轮报告件入 packages/(断供修复;命名=<date>-health-<HHMM>.md);#420 起结论
+      // 先行+概览表——轮次/引擎折入标题/概览行,旧「轮次:/类型:/引擎:」行断言随之改向
       const repPath = path.join(w.ops, "packages", "2026-10-28-health-0100.md");
       assert.ok(fs.existsSync(repPath), "#403:报告件未落 packages/");
       const rep = fs.readFileSync(repPath, "utf8");
-      assert.match(rep, /轮次:2026-10-28-0100-health/);
-      assert.match(rep, /类型:health/);
-      assert.match(rep, /引擎:pipeline-v2/);
+      assert.match(rep, /^# 运营轮报告 2026-10-28-0100-health$/m, "#420:标题含轮次 id");
+      assert.match(rep, /^\*\*结论:/m, "#420:结论行置顶");
+      assert.match(rep, /## 概览/);
+      assert.match(rep, /\| 类型 \| health\(引擎 pipeline-v2/, "#420:概览类型行含引擎");
       assert.match(rep, /\| CLOSE \| done \|/, "相位表含 CLOSE 行");
       assert.match(rep, /## 信封/);
       const fenced = rep.split("```json\n")[1]?.split("\n```")[0];
