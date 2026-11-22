@@ -4,14 +4,14 @@
 
 ## 开放面(只许改这里)
 
-策略面白名单 64 文件,#327 Q1 裁定(七条 glob,与 adapter.py EDIT_ALLOWLIST
-同一张表;read/edit/write 三动作同表,越名单即拒;构成漂移史 43→47→52→54→56→62→63→64
-(#333/#332/#334/#346/#356/#384/#403 七笔),
+策略面白名单 65 文件,#327 Q1 裁定(七条 glob,与 adapter.py EDIT_ALLOWLIST
+同一张表;read/edit/write 三动作同表,越名单即拒;构成漂移史 43→47→52→54→56→62→63→64→65
+(#333/#332/#334/#346/#356/#384/#403/#408 八笔),
 同步律=改面须同步 adapter.py 注释与 rrsi-domain.test.mjs allowlistCount 断言):
 
 - `ops/agent/pipeline/**`(12 文件)
 - `ops/agent/prompts/**`(12 文件)
-- `ops/agent-v2/tools/**` + `ops/agent-v2/tasks/**` + `ops/agent-v2/bench/**`(38 文件)
+- `ops/agent-v2/tools/**` + `ops/agent-v2/tasks/**` + `ops/agent-v2/bench/**`(39 文件)
 - `ops/agent/agent.mjs`、`ops/agent/models.mjs`(v1 入口与模型面,v2 经 re-export 复用)
 
 名单外一律只读。叠加冻结门:验证面(golden/selftest*/fixtures/v2-tests)、

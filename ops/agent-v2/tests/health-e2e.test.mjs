@@ -173,6 +173,48 @@ test("健康轮链路 E2E:TRIAGE→WAIT_MODEL(join)→DEEP(evidence)→SYNTH→�
       assert.match(rep, /## 信封/);
       const fenced = rep.split("```json\n")[1]?.split("\n```")[0];
       assert.equal(JSON.parse(fenced).pipeline.round_id, roundId, "信封 fenced JSON 可解析且 round_id 对上");
+      // #408:CLOSE 终态回写——健康轮 v2 此前无 state.json(state 面=checkpoint,RUNBOOK 已知
+      // 差异);现在 CLOSE 与报告件同点落终态镜像。终态词沿用 v1 status 流(done+stage 书挡
+      // CLOSE;v1 selftest「state.json 终态 done/CLOSE」同断言面),B 票(#407 UI 徽章)读面即此字段。
+      const mirror = jsonOf(path.join(w.roundDir, "state.json"));
+      assert.equal(mirror.status, "done", "#408:CLOSE 后 state.json 终态 done");
+      assert.equal(mirror.stage, "CLOSE", "#408:终态 stage 书挡 CLOSE(v1 finishClose 同对)");
+      assert.equal(mirror.round_id, roundId);
+      assert.equal(mirror.pipeline_mode, "pidurable");
+      assert.deepEqual(mirror.stages.map((s) => s.name), stageNames, "#408:镜像 stages 全相位含 CLOSE");
+    } finally { await harness.close(context); }
+  } finally {
+    await storage.close(context);
+    w.restore();
+    fs.rmSync(w.tmp, { recursive: true, force: true });
+  }
+});
+
+// #408 失败面:报告件写败(#403 fail-loud 注入面:packages 被占为文件)→ runClose catch
+// 镜像终态 failed/FAILED 书挡(v1 failStage 同对);轮 outcome 同终态 failed。
+test("#408 健康轮 CLOSE 失败面终态:报告件写败 → state.json failed/FAILED", async () => {
+  const roundId = "2026-10-28-0102-health";
+  const w = seedWorld({ roundId });
+  fs.writeFileSync(path.join(w.ops, "packages"), "占位文件(writeRoundReport mkdir 即败)");
+  const storage = await openNodeSqliteStorage(path.join(w.tmp, "t.sqlite"));
+  const context = BACKGROUND_CONTEXT;
+  try {
+    const harness = await Harness.open(storage, { models: createModels(), registry: buildRegistry() }, context);
+    try {
+      harness.resume();
+      const root = await harness.root(context);
+      const taskId = await root.commit((tx) => tx.createTask(OPS_HEALTH_ROUND, {
+        roundId, fromPhase: "TRIAGE", modelFace: "faux", fixturesDir: FIXTURES,
+      }, { ownership: { kind: "conversation" } }), context);
+      const settled = await harness.waitForTask(taskId, context);
+      const outcome = settled.state.outcome;
+      assert.equal(outcome.status, "failed", `应在 CLOSE 步败(报告件写败):${JSON.stringify(outcome)}`);
+      assert.match(outcome.error.message, /CLOSE:.*轮报告件写败/);
+      const mirror = jsonOf(path.join(w.roundDir, "state.json"));
+      assert.equal(mirror.status, "failed", "#408:close 相位失败出口镜像终态 failed");
+      assert.equal(mirror.stage, "FAILED", "#408:失败书挡 FAILED(v1 failStage 同对)");
+      const closeRec = mirror.stages.filter((s) => s.name === "CLOSE").at(-1);
+      assert.equal(closeRec?.status, "failed", "已入镜像的 CLOSE 记录就地改判 failed(v1 failStage 同语义:轮终态败,记录不留 done)");
     } finally { await harness.close(context); }
   } finally {
     await storage.close(context);

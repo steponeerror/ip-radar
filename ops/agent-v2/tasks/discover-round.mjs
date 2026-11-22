@@ -52,6 +52,7 @@ import { ensureRoundHost, roundDupRegistries } from "../tools/discovery-tools.mj
 import { enqueueStageIssueExit } from "../tools/enqueue-issues.mjs"; // #384:ENQUEUE 出口改 GH issue(PROPOSE 行停写;判据分类 v1 classifyEnqueue 单源)
 import { benchScan } from "../bench/scan.mjs"; // bench SCAN 变体(票 #318:候选宇宙=仅 NEEDS 面;real 面走 runStage 旧步不受影响)
 import { writeRoundReport } from "../../agent/pipeline/round-report.mjs"; // #403:轮报告件单源(v2 零复制 import v1;bench 轮照写=沙箱 opsRoot 天然隔离)
+import { writeTerminalRoundState } from "./round-state.mjs"; // #408:CLOSE 终态回写 state.json 镜像(与报告件同接线点)
 import { shortlistBenchPromptPath } from "../run-discover.mjs"; // bench SHORTLIST 基准提示词路径(票 #319;函数声明面循环安全:run-discover↔tasks 仅运行时互引)
 
 const sha = (s) => crypto.createHash("sha256").update(s).digest("hex").slice(0, 16);
@@ -197,9 +198,12 @@ async function scriptPhase(task, runtime, context, phase) {
   if (isBench(input) && phase !== "scan" && phase !== "close") // fail-closed 防御:bench 轮相位截断后 measure/enqueue/retro 不可达,唯有 checkpoint 异物/篡改可至;真面 MEASURE=真网络探测,宁可终态不可误跑
     return finishFailed(runtime, context, { message: `BENCH:${STAGE_OF_PHASE[phase]} 相位越界(bench 轮=SCAN→SHORTLIST→CLOSE 截断)`, detail: { code: "infra", stage: STAGE_OF_PHASE[phase] } });
   const b = stepBoundary({ roundType: "discover", knobs: input.knobs, startedAtIso: cur.startedAtIso }); // ③(每相位头;遗留2 脚本面)
-  if (!b.ok) return finishFailed(runtime, context, { message: b.message, detail: { code: b.code, stage: STAGE_OF_PHASE[phase] } });
+  const ctx = buildCtx(input, cur); // 终审 P1:提前构造——预算墙出口需要 ctx 定位轮目录写终态镜像
+  if (!b.ok) {
+    if (phase === "close") writeTerminalRoundState(ctx, { status: "failed" }); // 终审 P1:close 相位头预算墙出口=终审发现的第四个漏镜像出口(#408 症状本体;同 P2-2 两处同形,stages 止于 RETRO 不造 CLOSE 名)
+    return finishFailed(runtime, context, { message: b.message, detail: { code: b.code, stage: STAGE_OF_PHASE[phase] } });
+  }
   const def = defOf(STAGE_OF_PHASE[phase]);
-  const ctx = buildCtx(input, cur);
   if (phase === "scan") {
     try { bootstrapRoundDir(ctx, cur); } // 建轮同义(bad_round 域错→终态,同下)
     catch (e) { // P0-① 实测面:原裸抛逃逸 handler → 框架 fault+重启循环,真码永不落 outcome、信封恒 infra——收进同款 finishFailed(detail.code)终态
@@ -222,6 +226,7 @@ async function scriptPhase(task, runtime, context, phase) {
       : phase === "enqueue" ? await enqueueStageIssueExit(ctx)
       : await runStage(def, ctx); // bench SCAN 变体(零复制旧步;RETRO 可能 {degraded}
   } catch (e) { // 域失败=终态(旧 fail 三元组;handler 不抛=pi-durable fault 不消耗 restart)
+    if (phase === "close") writeTerminalRoundState(ctx, { status: "failed" }); // #408 评审 P2-2:close 相位步抛=轮未成,镜像终态 failed(stages 止于 RETRO 不造 CLOSE 名,与内层报告写败 catch 同形;专项 E2E 注入面记后续票)
     return finishFailed(runtime, context, { message: `${def.name}:${e.message}`, detail: { code: e.code ?? "infra", stage: def.name } });
   }
   stage.dur_ms = Date.now() - t0;
@@ -233,7 +238,10 @@ async function scriptPhase(task, runtime, context, phase) {
   const gate = gates.evalStageGate(def, ctx);
   if (rec?.skipGate) gates.appendGateBypass(ctx.dir, ctx.roundId, def, String(rec.degraded));
   else gates.appendGate(ctx.dir, ctx.roundId, gate);
-  if (!gate.pass) return finishFailed(runtime, context, { message: `GATE:${def.name}:${gate.reason}`, detail: { code: gate.code ?? "infra", stage: def.name } }); // 门红=终态(旧 fail-closed)
+  if (!gate.pass) { // 门红=终态(旧 fail-closed)
+    if (phase === "close") writeTerminalRoundState(ctx, { status: "failed" }); // #408 评审 P2-2:G_CLOSE 红=轮未成,镜像终态 failed(同上)
+    return finishFailed(runtime, context, { message: `GATE:${def.name}:${gate.reason}`, detail: { code: gate.code ?? "infra", stage: def.name } });
+  }
   const next = nextPhase(phase);
   // #384:enqueue 相位把 issue 出口读数入 checkpoint(信封 issues_opened 真源;崩溃重入由 emit 守卫回补)
   const issuesPatch = phase === "enqueue" && typeof rec?.issues_opened === "number" ? { issuesOpened: rec.issues_opened } : {};
@@ -245,7 +253,11 @@ async function scriptPhase(task, runtime, context, phase) {
       // (round-report.mjs 头注「无时钟入文」不变量三面统一成立),checkpoint 侧实测值保留不动。
       const reportStages = staged.map((s) => (s.name === "CLOSE" ? { ...s, dur_ms: 0 } : s));
       writeRoundReport({ roundId: input.roundId, type: "discover", engine: "pipeline-v2", ctx, stages: reportStages, opsRoot: ctx.opsRoot });
+      // #408:终态回写镜像(done;v1 finishClose 同序=报告→state;stages 名单推进到含
+      // CLOSE;updated_at 保盘值=崩溃重入 CLOSE 重写字节级不变)
+      writeTerminalRoundState(ctx, { status: "done", stages: staged.map((s) => s.name) });
     } catch (e) { // fail loud + v2 律(P0-①):handler 不裸抛(framework fault 重启循环)→ 终态失败留真码
+      writeTerminalRoundState(ctx, { status: "failed" }); // #408:报告写败=轮失败,镜像终态 failed(v1 failStage 同语义;stages 止于 RETRO=close 未成不造 CLOSE 名)
       return finishFailed(runtime, context, { message: `CLOSE:轮报告件写败:${e.message}`, detail: { code: e.code ?? "infra", stage: "CLOSE" } });
     }
     return finishOk(runtime, context, composeEnvelope(checkpoint, ctx)); // close 终态=result=信封(旧信封同形)

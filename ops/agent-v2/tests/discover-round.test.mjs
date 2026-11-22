@@ -66,6 +66,12 @@ test("全链 faux 轮:信封 ok + 六步工件 + issue 出口留痕(faux 零外�
   const dir = path.join(tree.opsRoot, "rounds", ROUND);
   for (const f of ["d1-scan.json", "d2-shortlist.json", "d2-shortlist-transcript.jsonl", "d3-measure.json", "d4-enqueue.json", "enqueue-issues.json", "09-budget.json", "gates.json", "state.json"])
     assert.ok(fs.existsSync(path.join(dir, f)), `工件缺:${f}`);
+  // #408:CLOSE 终态回写——state.json 镜像不得停在 running(轮实际已结束,状态文件在
+  // 说谎;#405 报告件补上后的同位遗留)。终态词沿用 v1 status 流(done/failed),
+  // stages 名单镜像推进到含 CLOSE。
+  const mirror = JSON.parse(fs.readFileSync(path.join(dir, "state.json"), "utf8"));
+  assert.equal(mirror.status, "done", "#408:CLOSE 后 state.json 终态应为 done(缺陷面=停在 running)");
+  assert.deepEqual(mirror.stages, ["SCAN", "SHORTLIST", "MEASURE", "ENQUEUE", "RETRO", "CLOSE"], "#408:终态镜像 stages 名单含 CLOSE");
   // #384:出口改 GH issue——queue.md PROPOSE 行停写(v2 轮零 queue 写口,文件不建);
   // 出口留痕落 enqueue-issues.json(faux 零外发 skip 面,审计面恒落)。
   assert.ok(!fs.existsSync(path.join(tree.opsRoot, "queue.md")), "#384 后 v2 发现轮不得写 queue.md(PROPOSE 停写)");
@@ -95,6 +101,21 @@ test("全链 faux 轮:信封 ok + 六步工件 + issue 出口留痕(faux 零外�
   const fenced = rep.split("```json\n")[1]?.split("\n```")[0];
   assert.equal(JSON.parse(fenced).pipeline.round_id, ROUND, "信封 fenced JSON 可解析且 round_id 对上");
   fs.rmSync(tree.tmp, { recursive: true, force: true });
+});
+
+test("#408 CLOSE 失败面终态:报告件写败(packages 被占为文件)→ 镜像 failed,stages 止于 RETRO", async () => {
+  const tree = tmpTree("v2-disc-closefail-");
+  fs.mkdirSync(tree.opsRoot, { recursive: true });
+  fs.writeFileSync(path.join(tree.opsRoot, "packages"), "占位文件(writeRoundReport mkdir 即败)");
+  try {
+    const r = await runRound(tree);
+    assert.equal(r.status, "failed", JSON.stringify(r));
+    assert.match(r.error.message, /轮报告件写败/, "报告件 fail-loud 路径(#403 判例)是本测的失败注入面");
+    const mirror = JSON.parse(fs.readFileSync(path.join(tree.opsRoot, "rounds", ROUND, "state.json"), "utf8"));
+    assert.equal(mirror.status, "failed", "#408:close 相位失败出口镜像终态 failed(v1 failStage 同语义)");
+    assert.deepEqual(mirror.stages, ["SCAN", "SHORTLIST", "MEASURE", "ENQUEUE", "RETRO"], "close 未成,镜像不造 CLOSE 名(宁少算)");
+    fs.rmSync(tree.tmp, { recursive: true, force: true });
+  } catch (e) { fs.rmSync(tree.tmp, { recursive: true, force: true }); throw e; }
 });
 
 test("同库同轮重放=复用任务零双写;跨库新任务撞轮目录=bad_round(旧律 ops 树守卫)", async () => {
