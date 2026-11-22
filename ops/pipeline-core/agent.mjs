@@ -1,6 +1,8 @@
 #!/usr/bin/env node
-// agent.mjs — pi-agent-core 宿主(计划书 Task 4 终稿;ADR 0004)。
+// agent.mjs — pi-agent-core 会话式宿主(计划书 Task 4 终稿;ADR 0004)。
 // 用法: node ops/pipeline-core/agent.mjs <health|discover> "<本轮输入>" [追加判例检索词...]
+// (#412 后缺省消费方=桥的 discover 轮+e2e 会话面;健康轮生产路径=桥直连
+//  ops/pipeline-core/pipeline.mjs 状态机宿主,OPS_PIPELINE 开关板已退役)
 //
 // 架构(计划书 Task 4 节):装载模型(models.mjs,用户 models.json 优先三层 upsert)
 // → new Agent({initialState:{systemPrompt=轮次系统提示文件, model=健康 glm-5.3-flash/
@@ -78,9 +80,11 @@ export const SPAWN_CONTRACT_ENV = [
   // 落 --repo argv;空=remote 推导照旧(本地开发零变化)。部署面=服务器 docker-compose.override.yml 一行。
   { name: "OPS_GH_REPO", default: "(空=gh 从 cwd git remote 推目标仓,本地/主检出既有路径;生产容器快照仓无 remote 须设,如 steponeerror/ip-radar)", consumer: "pipeline/finding-exit.mjs ghRepo(经 ctx.env 传导)→ tools/measurement.mjs ghIssueCreate 落 --repo argv,票 #348", phase: "call-time" },
   // P2 P0 增量(spec #161 §5.2;agent.mjs 本体零行为变化,仅契约面):pipeline.mjs 轮次状态机宿主的 2 名。
-  // OPS_PIPELINE=迁移/回滚开关:legacy(缺省)=现状 agent.mjs 单轮路径;pipeline=状态机路径。
-  // P2 起 _ops_rounds 桥消费它选路径;P0 未接线,pipeline.mjs 仅校验值闭集并记入 state.json。
-  { name: "OPS_PIPELINE", default: "legacy", consumer: "pipeline.mjs mkCtx(值闭集校验+state.json 记录;P2 起为桥的路径开关)", phase: "call-time" },
+  // #412(ADR 0012 切流收尾)开关板退役:桥不再读本值选路径(健康轮直连 spawn
+  // pipeline.mjs、discover 仍 spawn 本文件),agent.mjs main 的委派分支已删;本值仅存
+  // pipeline.mjs mkCtx 的闭集校验+state.json 记录面(部署残留的 OPS_PIPELINE=pipeline
+  // 容器 env=无害惰性值)。ops/*_knob 族照旧由本表详述。
+  { name: "OPS_PIPELINE", default: "legacy", consumer: "pipeline.mjs mkCtx(值闭集校验+state.json 记录;#412 起桥不再消费,开关板退役)", phase: "call-time" },
   { name: "OPS_PIPELINE_BUDGET_CNY", default: "0.05", consumer: "pipeline.mjs(DISPATCH 轮内预算门,G_DISPATCH 合计上限;月度累计门=P5 IDLE)", phase: "call-time" },
   // #199 交付A(P15 预算四界):六旋钮真读方=pipeline/budget.mjs readBudgetKnobs(单源读面,
   // 引擎检查点/双面准入/调用哈希同面;非法值=用法错 exit 2)。OPS_PIPELINE_BUDGET_CNY 语义
@@ -110,10 +114,9 @@ export const SPAWN_CONTRACT_ENV = [
 
 // 轮次信封失败面 error.code 闭集九词(规格 §4):已知 throw 点挂 err.code,main 边界对
 // 无 code/闭集外 code(如 fs 的 ENOENT)归 infra——信封面九词恒闭。
-// 2026-10-24 下沉 error-codes.mjs 单一真源并 re-export:pipeline.mjs 原静态 import 本文件
-// 取此常量,而 main 的 OPS_PIPELINE=pipeline 委派路径动态 import pipeline.mjs——ESM 顶层
-// await 死锁(本文件尾顶层 await 未决 → pipeline 静态依赖等本文件完成 → 环),事件循环
-// 空转,Node 报 unsettled top-level await 退出 13、stdout 无信封。详见 error-codes.mjs 头注。
+// 2026-10-24 下沉 error-codes.mjs 单一真源并 re-export(历史:agent.mjs 的 OPS_PIPELINE
+// 委派路径曾动态 import pipeline.mjs 而 pipeline 静态回取本常量=ESM 顶层 await 环死,
+// 下沉断环;#412 开关板退役后委派分支已删,单源结构保留防回潮)。详见 error-codes.mjs 头注。
 import { ERROR_CODES } from "./error-codes.mjs";
 import * as budget from "./pipeline/budget.mjs"; // #199 A2:月度准入双面共享(零环:budget 只依赖 node 内置)
 export { ERROR_CODES };
@@ -322,14 +325,9 @@ export async function main(argv, io = {}) {
   const stderr = io.stderr ?? process.stderr;
   const log = (...a) => stderr.write(a.join(" ") + "\n");
   const [round, input, ...extra] = argv;
-  // OPS_PIPELINE=pipeline 灰度开关(P5 #167 终检;agent.mjs SPAWN_CONTRACT_ENV 表同名项的
-  // 消费点):health 轮委派 pipeline.mjs 状态机路径;缺省/legacy=本文件现状路径零变化;
-  // discover 恒走 legacy(其自有管线表未立项,C稿 §5.2)。argv 透传 <round> <input>
-  // (pipeline.mjs 忽略 input——其轮次自持输入面);退出码/信封契约两路同形。
-  if ((env.OPS_PIPELINE ?? "legacy") === "pipeline" && round === "health") {
-    const { main: pipelineMain } = await import("./pipeline.mjs");
-    return pipelineMain([round, input, ...extra], { env, stdout, stderr });
-  }
+  // #412(ADR 0012 切流收尾):OPS_PIPELINE 开关板退役——health 轮委派 pipeline.mjs 的
+  // 分支已删(生产健康轮由桥直连 spawn pipeline.mjs),本文件恒走会话式 runRound
+  // (discover 缺省宿主+金轨迹例载具;残留 OPS_PIPELINE env 值不再分流,惰性无害)。
   if (!round || input === undefined) { // 用法错:纯 stderr + exit 2,不发 JSON(机器契约只覆盖真轮次)
     log('用法: node ops/pipeline-core/agent.mjs <health|discover> "<本轮输入>" [追加判例检索词...]');
     return 2;

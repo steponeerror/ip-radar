@@ -1513,16 +1513,26 @@ await t("resume 负例(#167):二次恢复拒绝(至多一次)+龄>16h 拒绝(sta
   assert.match(JSON.parse(r2.stdout.trim().split("\n").pop()).error.message, /16h/, "CLI 面:infra 信封(boot 扫描已处置时的兜底)");
 });
 
-await t("双模灰度开关(#167 终检):agent.mjs OPS_PIPELINE=pipeline → 委派 pipeline.mjs(信封带 pipeline.stages);legacy 缺省零变化", async () => {
+await t("开关板退役(#412 终检):agent.mjs 对 OPS_PIPELINE 惰性(带 pipeline 值仍走会话面,信封无 pipeline.stages);状态机面由桥直连 pipeline.mjs(CLI 契约例覆盖)", async () => {
   const { main: agentMain } = await import("./agent.mjs");
   const T = mkTree("tree-switch");
   const ioP = mkIo();
-  const rcP = await agentMain(["health", "cron 灰度冒烟", "--fixtures", DEFAULT_FIXTURES_DIR], { env: { ...T.env, OPS_PIPELINE: "pipeline" }, ...ioP }); // --fixtures 透传 argv→pipeline.mjs=faux 面(#170;委派契约面非 provider 面)
-  assert.equal(rcP, 0, `pipeline 腿:${ioP.buf.stderr.slice(-300)}`);
+  // #412 后该 env 值不再分流(生产健康路径=桥直连 spawn pipeline.mjs;此处钉惰性:旧灰度
+  // 部署面残留 OPS_PIPELINE=pipeline 不得把会话轮改道状态机)。会话面需要真 provider
+  // → 与下方 legacy 腿同型 faux 注入,断言「无 pipeline.stages」即证未委派。
+  const fauxP = (await import("@earendil-works/pi-ai"));
+  const provP = fauxP.fauxProvider({ models: [{ id: "faux-switch" }] });
+  const modelsP = fauxP.createModels();
+  modelsP.setProvider(provP.provider);
+  provP.setResponses([
+    fauxP.fauxAssistantMessage([fauxP.fauxToolCall("health_snapshot", {}, { id: "call_swP" })], { stopReason: "toolUse" }),
+    fauxP.fauxAssistantMessage([fauxP.fauxText("## 注入判例\n- 2026-06-01-golden-aggregator.md\n\n## 异常清单\n- 开关板退役冒烟:冻结读数 3 条,见工件。\n\n## 摘要\nOPS_PIPELINE 惰性化:agent.mjs 恒走会话面(退出码/信封同形)。")]),
+  ]);
+  const rcP = await agentMain(["health", "cron 灰度冒烟"], { env: { ...T.env, OPS_PIPELINE: "pipeline" }, stdout: ioP.stdout, stderr: ioP.stderr, models: { models: modelsP, resolve: () => provP.getModel() } });
+  assert.equal(rcP, 0, `pipeline 值惰性腿:${ioP.buf.stderr.slice(-300)}`);
   const envP = JSON.parse(ioP.buf.stdout.trim().split("\n").pop());
   assert.equal(envP.ok, true);
-  assert.ok(Array.isArray(envP.pipeline?.stages) && envP.pipeline.stages.length >= 9, "委派状态机路径(信封 pipeline 扩展字段)");
-  assert.match(ioP.buf.stderr, /\[stage\] PROBE start/, "stderr stage 行族(驾驶舱 SSE 透传面)");
+  assert.equal(envP.pipeline, undefined, "开关板退役:带 pipeline 值也不得出现 pipeline.stages(委派分支回潮=红)");
   const T2 = mkTree("tree-switch-legacy");
   const ioL = mkIo();
   const faux2 = (await import("@earendil-works/pi-ai"));
@@ -1546,7 +1556,7 @@ await t("cron 草案 schema 校验(#167 交付③):错峰 04:00/8h+同 seam POST
   assert.ok(doc.includes("POST /api/ops/rounds"), "同 seam 触发(不新开路由)");
   assert.ok(doc.includes("FROZEN 鉴权矩阵"), "鉴权矩阵核对注记在案");
   assert.ok(doc.includes("409") && doc.includes("不排队"), "409=跳过留痕退出码 0(健康快照无回填)");
-  assert.ok(doc.includes("OPS_PIPELINE=pipeline"), "灰度开关部署面在案");
+  assert.ok(doc.includes("#412 开关板退役"), "开关板退役部署面在案(健康轮按轮型直连)");
   assert.ok(!doc.includes("OPS_CRON_PASSWORD=\"") || !/OPS_CRON_PASSWORD="[^\$<]/.test(doc), "草案不含真实凭据(占位形)");
 });
 

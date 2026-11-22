@@ -18,8 +18,8 @@
        - 409 eval_busy(车道占用)→ 退出码 0 + 跳过行写日志(**不排队**——健康快照
          无回填意义,下个 8h 窗口自然重来,C 稿 §5.1)
        - 其余非 2xx → 退出码非 0(日志行可见,不静默)
-  → POST /api/ops/rounds → manager.start_ops_round 串行车道 → spawn(agent.mjs)
-  → OPS_PIPELINE 灰度开关(见下)选路径
+  → POST /api/ops/rounds → manager.start_ops_round 串行车道 → spawn
+  → #412 后按轮型直连(开关板退役,见下):health=pipeline.mjs 状态机宿主
 ```
 
 ## crontab 行草案(宿主 root)
@@ -142,23 +142,30 @@ curl -X PUT http://127.0.0.1:8000/api/ops/agent-config \
 - 回环(容器内 127.0.0.1)+ `IP_RADAR_PUBLIC_DEMO=1` 演示守卫互不干扰
   (守卫只作用于匿名公网面;已登录 cookie 走真实鉴权依赖)。
 
-## OPS_PIPELINE 灰度开关(与 cron 接线同一部署面)
+## 轮型直连(#412 开关板退役,原 OPS_PIPELINE 灰度开关)
 
-- 容器 env `OPS_PIPELINE=pipeline`(docker-compose.override.yml)→ agent.mjs 对
-  health 轮委派 pipeline.mjs 状态机路径(P5 #167 接线);discover 恒 legacy。
-- 模型步面(#170):生产/cron 轮(无 `--fixtures`)真 provider——TRIAGE/SYNTH=
+- 健康轮:后端桥(`_ops_rounds._agent_argv`)缺省直连 spawn
+  `node ops/pipeline-core/pipeline.mjs health <input>`(状态机宿主;input 透传但
+  pipeline 轮次自持输入面,与旧 agent.mjs 委派同语义)。discover 轮:缺省 spawn
+  `ops/pipeline-core/agent.mjs`(会话式引擎,消费 typed input)。
+- 遗留部署面:服务器 docker-compose.override.yml 里的 `OPS_PIPELINE=pipeline` 行
+  在 #412 后**惰性无害**(agent.mjs 委派分支已删;pipeline.mjs 仅闭集校验该值)。
+  下次改 override 时可顺手删除;不删不影响行为。
+- 模型步面(#170,不变):生产/cron 轮(无 `--fixtures`)真 provider——TRIAGE/SYNTH=
   `OPS_MODEL_HEALTH`(缺省 glm-5.3-flash),DEEP=`OPS_MODEL_DISCOVER`(缺省 glm-5.3);
   手测/重放带 `--fixtures` 则 faux 零成本(重放缺省继承原件面)。真面 DEEP 微探针
   工具=下票(工具面空,深验 verdict 预期 unresolved 占比高,见 GLOSSARY「微探针」)。
-- 回滚 = 去掉该 env(缺省 legacy);boot 恢复扫描独立于此开关(state.json 只属于
-  pipeline 轮;遗留 in_flight 轮的恢复仍走 pipeline.mjs resume,把已开的轮跑完)。
-- 切换验收:驾驶舱 SSE 可见 `[stage] PROBE start` 行族 + 结果单 `pipeline.stages`。
+- 回滚 = 代码面回退(桥按轮型常量;旧 env 开关回滚面随开关板退役消失);boot 恢复
+  扫描不受影响(state.json 只属于 pipeline 轮;遗留 in_flight 轮的恢复仍走
+  pipeline.mjs resume,把已开的轮跑完)。
+- 运行验收(不变):驾驶舱 SSE 可见 `[stage] PROBE start` 行族 + 结果单 `pipeline.stages`。
 
 ## 部署段清单(本票不做,登记待办)
 
 1. 服务器落 `/root/.ops-cron-env`(chmod 600)+ `deploy/ops-cron.sh`(chmod +x);
 2. crontab 安装上文行(先手动 dry 一轮验证 202/409 两态);
-3. docker-compose.override.yml 增 `OPS_PIPELINE=pipeline`(灰度,待用户裁)。**前置条件更新(#170):真 provider 已接线落地(fixtures 面=faux/运行面=真调用 flash+glm-5.3,预算三闸真面同执法,选择逻辑纯函数+零网络单测)——原「模型步无条件 fauxProvider」禁令解除;剩余前置=生产段真 provider 冒烟一轮(A 引用不抄录/门全过+预算门实测数字入台账)+用户裁**(另注:真面 DEEP 微探针工具=下票,真面深验 confirmed/refuted 不可立证——verdict 预期 unresolved 占比高,GLOSSARY「微探针」缺口注记);
+3. ~~docker-compose.override.yml 增 `OPS_PIPELINE=pipeline`(灰度,待用户裁)~~
+   (#412 开关板退役:健康轮已按轮型直连,该行如已配则惰性无害,可顺手删。)**前置条件更新(#170):真 provider 已接线落地(fixtures 面=faux/运行面=真调用 flash+glm-5.3,预算三闸真面同执法,选择逻辑纯函数+零网络单测)——原「模型步无条件 fauxProvider」禁令解除;剩余前置=生产段真 provider 冒烟一轮(A 引用不抄录/门全过+预算门实测数字入台账)+用户裁**(另注:真面 DEEP 微探针工具=下票,真面深验 confirmed/refuted 不可立证——verdict 预期 unresolved 占比高,GLOSSARY「微探针」缺口注记);
 4. `/var/log/ipradar-ops-cron.log` 轮转(logrotate 或按大小截断);
 5. (可选)生产 ops 树种子 `rules/suppressions.json`:拷 docs 仓规则件或空库 `{"version":0,"rules":[]}`。注:缺席=合法零规则态(与 _ops_review 同口径;首轮 VERIFY 零抑制照常过,首条规则经 RETRO 候选→四键采纳自动建形)——种子仅为带 R12/R7 起步,非必需(审后修 P1 改口径后死锁已除);
    注(#170 审 P2-3):真面轮 crash 后 boot 会自动 resume 缺工件步(有界:每轮一次/仅缺工件步/#167 三规则)——无人值守时可能再花少量真钱,预算门 0.05¥ 硬拦,知悉即可;

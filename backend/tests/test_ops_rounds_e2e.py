@@ -6,8 +6,11 @@ skip 门(不满足即 SKIP,绝不 mock 冒充真跑——任务书纪律):
 - zai 凭证可得:ZAI_CODING_CN_API_KEY env 或 agent 侧 models.mjs 三层 upsert
   的 stored credential(~/.pi/agent/auth.json,仓库现有配置惯例)。
 
-真跑链路 = 生产 spawn 路径(无 IP_RADAR_OPS_AGENT_CMD 覆盖):ops 树落 tmp、
-真 node 拉 ops/pipeline-core/agent.mjs、真 glm-5.3-flash、包/台账经 lib.sh 落 ops 树。
+真跑链路 = 会话式 legacy 面(显式 IP_RADAR_OPS_AGENT_CMD 覆盖为 agent.mjs):ops 树落
+tmp、真 node 拉 ops/pipeline-core/agent.mjs、真 glm-5.3-flash、包/台账经 lib.sh 落 ops 树。
+#412 后生产健康路径已按轮型直连 pipeline.mjs(状态机宿主;ui/cron v2 各自接线覆盖),
+本 e2e 专测会话式引擎面(消费 typed input→[turn] 进度行;该面仍为 discover 缺省宿主
+与 11/12 金轨迹例载体)。
 注意:agent 侧 sandbox_assert(worktree 根 backend/frontend 零改动红线)要求
 worktree 干净——与本仓未提交改动同批跑会 sandbox_violation,这是红线在工作,
 非测试缺陷(先提交再跑)。
@@ -66,7 +69,8 @@ def rounds():
 def test_health_round_real_run(rounds, tmp_path, monkeypatch):
     """真跑一发健康轮(flash);包+台账落 tmp ops 树。"""
     monkeypatch.setenv("IP_RADAR_DATA_DIR", str(tmp_path))
-    assert not os.environ.get("IP_RADAR_OPS_AGENT_CMD"), "e2e 不得覆盖 agent 命令"
+    # #412:显式覆盖回会话式 agent.mjs(生产健康缺省已直连 pipeline.mjs;见文件头注)
+    monkeypatch.setenv("IP_RADAR_OPS_AGENT_CMD", "node --max-old-space-size=256 ops/pipeline-core/agent.mjs")
     logs: list[str] = []
     result = rounds.spawn_round("health", "对全部离线源做一次健康体检,给出冻结/死键/不可达快照",
                                 on_log=logs.append)

@@ -294,18 +294,19 @@ await t("spawn:用法错 exit 2 + stdout 空纯 stderr", async () => {
   assert.match(r.stderr, /用法:/);
 });
 
-// 2026-10-24 委派死锁回归:OPS_PIPELINE=pipeline 下 agent.mjs(主模块)动态 import
-// pipeline.mjs,若 pipeline 静态依赖图绕回 agent.mjs(ERROR_CODES 旧取法)即顶层 await
-// 死锁——形态 = rc 13 + stderr "unsettled top-level await" + stdout 空。探针选 usage
-// 前置 throw 路径(budget 非法 → pipeline mkCtx usage:true → exit 2 用法错):import
-// 可落定才能到达;零 API 零网(触发在 loadModels 之前)。e2e 不设 OPS_PIPELINE,
-// 此路径 CI 覆盖面唯一。
-await t("spawn:OPS_PIPELINE=pipeline 委派可落定(死锁回归:exit 2 用法错,非 rc13 unsettled)", async () => {
+// #412 开关板退役(原 2026-10-24 委派死锁回归改写):agent.mjs main 的
+// OPS_PIPELINE=pipeline 健康轮委派分支已删(生产健康路径=桥直连 spawn
+// pipeline.mjs),残留 env 值对 agent.mjs 惰性——usage 探针(坏预算旋钮 →
+// 会话面 mkCtx 判例同形 exit 2)照旧可落定,且源面不再含动态 import 委派
+// (结构反回归:防分支回潮重开死锁面)。零 API 零网(触发在 loadModels 之前)。
+await t("spawn:OPS_PIPELINE 惰性化(开关板退役 #412:exit 2 用法错,源面零委派)", async () => {
   const r = await spawnAgent(["health", "x"], { OPS_PIPELINE: "pipeline", OPS_PIPELINE_BUDGET_CNY: "abc" });
   assert.equal(r.rc, 2, `期望 2(usage),得到 ${r.rc}:${r.stderr.slice(0, 200)}`);
   assert.equal(r.stdout, "", "用法错不发 JSON");
   assert.match(r.stderr, /用法:/);
   assert.ok(!r.stderr.includes("unsettled"), `不得再出现 unsettled top-level await:${r.stderr.slice(0, 200)}`);
+  const src = fs.readFileSync(path.join(AGENT, "agent.mjs"), "utf8");
+  assert.ok(!src.includes('import("./pipeline.mjs")'), "agent.mjs 不得再动态 import pipeline.mjs(开关板已退役,委派分支回潮=死锁面重开)");
 });
 
 // ── #139 挂账②:锁路径跨语言对拍哨(形制同 selftest.sh §14 锚集对拍:python 文本解析 ↔ JS 实跑) ──

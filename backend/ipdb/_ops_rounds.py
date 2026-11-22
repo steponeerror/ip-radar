@@ -4,7 +4,12 @@
 (SPAWN_CONTRACT_ENV 表,17 名 env 面唯一详述点);本模块是后端侧唯一消费方
 (ops/agent 冻结面零触碰)。
 
-- argv = node --max-old-space-size=256 ops/pipeline-core/agent.mjs <round> <input>
+- argv(#412 ADR 0012 切流收尾:OPS_PIPELINE 开关板退役,按轮型直连):
+  health = node --max-old-space-size=256 ops/pipeline-core/pipeline.mjs <round> <input>
+    (状态机宿主;input 透传但 pipeline 轮次自持输入面,与旧 agent.mjs 委派同语义
+    ——旧容器 env OPS_PIPELINE=pipeline 的部署面随之失效,无害残留);
+  discover = node --max-old-space-size=256 ops/pipeline-core/agent.mjs <round> <input>
+    (会话式引擎,消费 typed input;UI 发现轮唯一活宿主,11/12 金轨迹例钉该面)。
   (三层内存围栏第一层钉在拉起层,裁⑥;计划书 Global Constraints「一切子进程
   必须带资源围栏」——964MB 小机 OOM 前科);cwd = 仓根(部署形态相对路径);
 - env 注入(桥侧归属名):ops 树落位三名(DOCS_ROOT/PRECEDENTS_DIR/LEDGER_FILE
@@ -51,8 +56,12 @@ from . import _ops_store
 logger = logging.getLogger(__name__)
 
 # spawn 契约 argv(GLOSSARY「spawn 契约」;--max-old-space-size=256 = 三层内存
-# 围栏第一层,参数钉在拉起层——裁⑥)
-_DEFAULT_AGENT_CMD = ["node", "--max-old-space-size=256", "ops/pipeline-core/agent.mjs"]
+# 围栏第一层,参数钉在拉起层——裁⑥)。#412 起按轮型直连(OPS_PIPELINE 开关板退役,
+# ADR 0012 切流收尾):health=状态机宿主 pipeline.mjs(旧灰度期的缺省委派路径转正),
+# discover=会话式 agent.mjs(消费 typed input;两 CLI 的 argv/退出码/信封同形——
+# agent.mjs 用法错文案同指两入口)。
+_DEFAULT_HEALTH_CMD = ["node", "--max-old-space-size=256", "ops/pipeline-core/pipeline.mjs"]
+_DEFAULT_DISCOVER_CMD = ["node", "--max-old-space-size=256", "ops/pipeline-core/agent.mjs"]
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]  # 仓根(agent CLI 的 cwd)
 _STDERR_TAIL_CHARS = 300  # 失败面 stderr 尾部入错误消息(定位用,不倾倒)
@@ -67,9 +76,10 @@ _WEB_SEARCH_ROUTING = {
 
 
 def _agent_argv(round_type: str, input_text: str) -> list[str]:
-    """完整 argv = 命令体(契约缺省/IP_RADAR_OPS_AGENT_CMD 覆盖)+ <round> <input>。"""
+    """完整 argv = 命令体(契约缺省=按轮型/IP_RADAR_OPS_AGENT_CMD 覆盖)+ <round> <input>。"""
     override = os.environ.get("IP_RADAR_OPS_AGENT_CMD", "").strip()
-    cmd = shlex.split(override) if override else list(_DEFAULT_AGENT_CMD)
+    cmd = shlex.split(override) if override else list(
+        _DEFAULT_HEALTH_CMD if round_type == "health" else _DEFAULT_DISCOVER_CMD)
     return cmd + [round_type, input_text]
 
 
