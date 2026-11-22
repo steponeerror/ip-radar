@@ -66,6 +66,12 @@ test("全链 faux 轮:信封 ok + 六步工件 + issue 出口留痕(faux 零外�
   const dir = path.join(tree.opsRoot, "rounds", ROUND);
   for (const f of ["d1-scan.json", "d2-shortlist.json", "d2-shortlist-transcript.jsonl", "d3-measure.json", "d4-enqueue.json", "enqueue-issues.json", "09-budget.json", "gates.json", "state.json"])
     assert.ok(fs.existsSync(path.join(dir, f)), `工件缺:${f}`);
+  // #408:CLOSE 终态回写——state.json 镜像不得停在 running(轮实际已结束,状态文件在
+  // 说谎;#405 报告件补上后的同位遗留)。终态词沿用 v1 status 流(done/failed),
+  // stages 名单镜像推进到含 CLOSE。
+  const mirror = JSON.parse(fs.readFileSync(path.join(dir, "state.json"), "utf8"));
+  assert.equal(mirror.status, "done", "#408:CLOSE 后 state.json 终态应为 done(缺陷面=停在 running)");
+  assert.deepEqual(mirror.stages, ["SCAN", "SHORTLIST", "MEASURE", "ENQUEUE", "RETRO", "CLOSE"], "#408:终态镜像 stages 名单含 CLOSE");
   // #384:出口改 GH issue——queue.md PROPOSE 行停写(v2 轮零 queue 写口,文件不建);
   // 出口留痕落 enqueue-issues.json(faux 零外发 skip 面,审计面恒落)。
   assert.ok(!fs.existsSync(path.join(tree.opsRoot, "queue.md")), "#384 后 v2 发现轮不得写 queue.md(PROPOSE 停写)");
