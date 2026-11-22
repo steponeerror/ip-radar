@@ -285,6 +285,7 @@ Then run, from `backend/`:
 .venv/bin/python -m pytest tests/sources/test_<name>.py -q       # your source's test
 .venv/bin/python -m pytest tests/source_infra/ -q                 # it registers + has the right shape
 .venv/bin/python -m pytest -q                                     # full suite — expect the same pass/fail as before
+python3 ../scripts/check_source_counts.py && python3 -m pytest ../scripts -q   # 源数字文档门(ADR 0018):加源后 README/MANUAL/GLOSSARY 的源数必须同步改,CI 有同款门(2026-11-22 判例:九连加源没同步文档,CI 红了四天)
 ```
 
 (In a git worktree, use the main checkout's interpreter absolute path — the venv does not travel with worktrees.)

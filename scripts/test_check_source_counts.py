@@ -3,9 +3,13 @@
 跑法(仓根): python3 -m pytest scripts/test_check_source_counts.py -q
 
 覆盖矩阵(任务口径):
-- 当前仓绿:真实登记表派生 60/53/7/5 + honyport 口径钉死;真六文档零错误;
+- 当前仓绿:真实登记表派生口径钉死(eval_excluded/带钥源名集/密钥变量
+  等结构性事实)+ 真六文档零错误;源总数/免钥数随加源漂移,断言改 structural
+  (公开=登记−eval_excluded 等),不再写死字面量——2026-11-22 判例:写死 60/53
+  的版本在九连加源后静默烂了四天,CI 门一直红;
 - 文档数字被改后红:代表性比对腿各造一处 fixture 改坏(副本上改,不动真文件),
-  含数字腿、带钥源表名集/变量映射腿、zh 行内名单腿;
+  含数字腿、带钥源表名集/变量映射腿、zh 行内名单腿;数字腿的句式从
+  derive_counts() 现算(源数漂移不再炸夹具),句式本身悬空由激活腿兜住;
 - 腿激活钉死(评审 P2):_CHECKS 每条正则必须在真文档上至少命中一次——
   文档改写致正则悬空时,是激活测试红逼更新正则,不是闸面静默缩水;
 - 派生面:合成迷你登记表(eval_excluded 减员、带钥×私源重叠、MANAGED 指向
@@ -28,14 +32,17 @@ REPO = Path(__file__).resolve().parent.parent
 
 def test_derive_real_tree_pins_caliber():
     counts = csc.derive_counts()
-    assert counts["public_total"] == 60
-    assert counts["keyless_public"] == 53
+    # 结构性口径钉死(变更须有意为之):eval_excluded 名单、带钥源名集、
+    # 密钥变量数。源总数/免钥数随加源漂移,只断言口径算式不断言字面量。
+    assert counts["eval_excluded"] == ["honyport"]   # 口径:公开源 = 登记 − eval_excluded
     assert counts["keyed"] == 7
     assert len(counts["key_envs"]) == 5
-    assert counts["eval_excluded"] == ["honyport"]   # 口径:公开源 = 登记 − eval_excluded
     assert counts["keyed_names"] == [
         "abuseipdb", "ip2proxy", "ipinfo_lite",
         "otx", "otx_subscribed", "threatfox", "urlhaus"]
+    assert counts["public_total"] == len(counts["registered"]) - len(counts["eval_excluded"])
+    assert counts["keyless_public"] == counts["public_total"] - len(
+        [n for n in counts["keyed_names"] if n not in counts["eval_excluded"]])
 
 
 def test_real_docs_all_green():
@@ -119,8 +126,10 @@ def _mutated_copy(tmp_path, rel, pattern, repl, counts=None):
 
 
 def test_readme_en_total_flipped_red(tmp_path):
-    errs = _mutated_copy(tmp_path, "README.md", r"Pull 60 public sources",
-                         "Pull 61 public sources")
+    c = csc.derive_counts()
+    errs = _mutated_copy(tmp_path, "README.md",
+                         rf"Pull {c['public_total']} public sources",
+                         f"Pull {c['public_total'] + 1} public sources")
     assert any(":1:" in e or "公开源总数" in e for e in errs), errs
 
 
@@ -156,8 +165,11 @@ def test_readme_zh_inline_name_list_drift_red(tmp_path):
 
 
 def test_manual_en_fraction_flipped_red(tmp_path):
-    errs = _mutated_copy(tmp_path, "MANUAL.md", r"\(53 of the 60 sources\)",
-                         "(52 of the 61 sources)")
+    c = csc.derive_counts()
+    errs = _mutated_copy(
+        tmp_path, "MANUAL.md",
+        rf"\({c['keyless_public']} of the {c['public_total']} sources\)",
+        f"({c['keyless_public'] - 1} of the {c['public_total'] + 1} sources)")
     assert any("免钥公开源数" in e for e in errs)
     assert any("公开源总数" in e for e in errs)
 
@@ -169,8 +181,11 @@ def test_manual_en_word_number_flipped_red(tmp_path):
 
 
 def test_manual_zh_counts_flipped_red(tmp_path):
-    errs = _mutated_copy(tmp_path, "MANUAL.zh-CN.md",
-                         r"（60 个源中的 53 个）", "（61 个源中的 54 个）")
+    c = csc.derive_counts()
+    errs = _mutated_copy(
+        tmp_path, "MANUAL.zh-CN.md",
+        rf"（{c['public_total']} 个源中的 {c['keyless_public']} 个）",
+        f"（{c['public_total'] + 1} 个源中的 {c['keyless_public'] - 1} 个）")
     assert len([e for e in errs if "公开源总数" in e or "免钥公开源数" in e]) == 2, errs
 
 
@@ -221,7 +236,10 @@ def test_new_legs_manual_key_envs_word_red(tmp_path):
 
 def test_new_leg_glossary_registered_total_red(tmp_path):
     """评审 P2-2 增补腿:GLOSSARY 源底座条活计数(登记总数口径,含私有源)。"""
-    errs = _mutated_copy(tmp_path, "GLOSSARY.md", r"全部 61 个源", "全部 60 个源")
+    c = csc.derive_counts()
+    errs = _mutated_copy(tmp_path, "GLOSSARY.md",
+                         rf"全部 {len(c['registered'])} 个源",
+                         f"全部 {len(c['registered']) - 1} 个源")
     assert any("登记源总数" in e for e in errs), errs
 
 
