@@ -16,13 +16,15 @@ import { EVOLVE_PROTECTED_FACES, evolutionDomainOf } from "../bench/evolution/do
 import { runTrial } from "../bench/add-domain/run-trial.mjs";
 import { readEvolutionState, writeEvolutionState, domainStateOf, evolutionStatePath } from "../bench/evolution/state.mjs";
 import { monthSpendTotalCny } from "../bench/evolution/ledger.mjs";
+import { resolveAddPython } from "../run-add.mjs";
 
 const realExec = promisify(execFileCb);
 const HERE = path.resolve(import.meta.dirname, "..");
 const FIXTURES_ADD = path.join(HERE, "fixtures", "add");
 const FIXTURES_EVOLVE = path.join(HERE, "fixtures", "evolve");
-// 同 run-add.mjs resolveAddPython:OPS_ADD_PYTHON 显式优先,缺省=主检出 venv 绝对路径(CI 经环境变量指定)
-const VENV_PY = process.env.OPS_ADD_PYTHON ?? "/home/huxiao/dev/pi-ip-lookup-tool/backend/.venv/bin/python";
+// 沙箱测试解释器走产品同一个解析口(run-add.mjs resolveAddPython:OPS_ADD_PYTHON 显式优先,缺省按
+// git-common-dir 推导主检出 venv;CI 经环境变量指定)——不在测试里再写一份路径。
+const VENV_PY = resolveAddPython();
 const NAME = "sample_block_list";
 
 const KEY_TEST = [

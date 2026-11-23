@@ -14,6 +14,7 @@ import { execFileSync } from "node:child_process";
 
 import { runTrial, mintRoundId, seedQueueWorld, sandboxChangedFiles, spendCapCny, admitTrialSpend, spendTotalCny, appendSpend, spendDirFor } from "../bench/add-domain/run-trial.mjs";
 import { scoreRuns } from "../bench/add-domain/score.mjs";
+import { resolveAddPython } from "../run-add.mjs";
 
 // 直写台账夹具(拒跑测试用:预置累计超帽的 spend.json)
 const writeSpendLedger = (dir, entries) =>
@@ -22,8 +23,9 @@ const writeSpendLedger = (dir, entries) =>
 const HERE = path.resolve(import.meta.dirname, "..");
 const FIXTURES = path.join(HERE, "fixtures", "add");
 const NAME = "sample_block_list";
-// 同 run-add.mjs resolveAddPython:OPS_ADD_PYTHON 显式优先,缺省=主检出 venv 绝对路径(CI 经环境变量指定)
-const VENV_PY = process.env.OPS_ADD_PYTHON ?? "/home/huxiao/dev/pi-ip-lookup-tool/backend/.venv/bin/python";
+// 沙箱测试解释器走产品同一个解析口(run-add.mjs resolveAddPython:OPS_ADD_PYTHON 显式优先,缺省按
+// git-common-dir 推导主检出 venv;CI 经环境变量指定)——不在测试里再写一份路径。
+const VENV_PY = resolveAddPython();
 
 // 真钥匙测试(repo 侧,构建时被剥;打分时装回):与罐装 turns 产的源对接
 const KEY_TEST = [
