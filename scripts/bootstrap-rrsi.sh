@@ -48,7 +48,7 @@ mkdir -p "$RRSI_DIR/domains/ipradar/harness/ops"
 # 真面例同读;候选禁改——adapter._guardrails 对 evolve/ipradar 做冻结 diff)
 cp "$REPO_ROOT/NEEDS.md" "$RRSI_DIR/domains/ipradar/harness/NEEDS.md"
 # #412 单包:ops/ 整树 vendor(package.json/package-lock.json 随包根走,候选 npm ci 自包根解析)
-rsync -a --delete --exclude node_modules \
+rsync -a --delete --exclude node_modules --exclude .worktrees \
   "$REPO_ROOT/ops/" "$RRSI_DIR/domains/ipradar/harness/ops/"
 
 if [ -f "$RRSI_DIR/runs/ipradar/frontier.json" ] && [ "${FORCE:-0}" != "1" ]; then

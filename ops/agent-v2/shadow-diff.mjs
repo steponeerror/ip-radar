@@ -25,7 +25,7 @@ import { fileURLToPath } from "node:url";
 
 const execFileP = promisify(execFileCb);
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const AGENT = path.resolve(HERE, "..", "pipeline-core"); // ops/agent(旧真源)
+const AGENT = path.resolve(HERE, "..", "pipeline-core"); // #412 前 ops/agent(旧真源)
 const FIXTURES = path.join(AGENT, "fixtures", "pipeline");
 const PREC = "2026-06-01-golden-aggregator.md";
 const CINS = "https://cinsscore.com/list/ci-badguys.txt";

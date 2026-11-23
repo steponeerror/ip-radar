@@ -11,7 +11,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
-import * as oldBudget from "../../pipeline-core/pipeline/budget.mjs"; // 旧管线真源(只读对照;ops/agent 零改动红线)
+import * as oldBudget from "../../pipeline-core/pipeline/budget.mjs"; // 旧管线真源(只读对照;该树零改动红线)
 import * as v2Budget from "../budget.mjs"; // v2 零复制接线面
 import {
   admitRound, knobNames, postModelCall, preModelCall,

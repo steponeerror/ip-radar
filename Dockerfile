@@ -58,7 +58,7 @@ COPY backend/ ./backend/
 # ——审后修 P2 2026-10-24:旧注「89 包」已陈旧)。node_modules 不进构建上下文
 # (.dockerignore 排除,本地也无需装),
 # 由 opsagent 层 npm ci 注入;node 二进制经 PATH 供 P2 桥 spawn(node --max-old-
-# space-size=256 ops/pipeline-core/pipeline.mjs|agent.mjs 按轮型直连,#412;cwd=/app)。
+# space-size=256 ops/pipeline-core/pipeline.mjs|agent.mjs 按轮型选入口,#412;cwd=/app)。
 COPY ops/ ./ops/
 COPY --from=opsagent /opsagent/node_modules ./ops/node_modules
 COPY --from=opsagent /usr/local/bin/node /usr/local/bin/node

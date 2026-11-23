@@ -49,7 +49,7 @@ from . import _ops_store
 logger = logging.getLogger(__name__)
 
 # 兜底目录:zai-coding-cn 实测装载目录五值(裁决 2026-10-20;pi-ai 版本由
-# ops/agent lockfile 钉——lockfile 升级须复测)。动态目录失败时的闭集与
+# ops/package-lock.json 钉(#412 单包)——lockfile 升级须复测)。动态目录失败时的闭集与
 # PUT 校验面;cost 不手抄(兜底面 UI 成本提示隐去)。
 AGENT_MODEL_IDS = ("glm-4.6v", "glm-5.3", "glm-5.3-flash",
                    "glm-5.3-highspeed", "glm-5.3-flashx")

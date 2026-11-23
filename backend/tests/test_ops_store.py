@@ -289,12 +289,12 @@ def test_append_queue_concurrent_same_key_exactly_one_row(store, ops_env):
 # 子进程执行,与本侧 fcntl.flock 同一 flock(2) 锁域——两语言写口真互斥才证明
 # 双边锁闭环(单边锁只关自家窗)。供给面:node 可执行 + queue-lock.mjs 自含
 # (零仓依赖);backend CI 无 node 供给时跳过(ubuntu-latest 预装 node,本地必跑)。
-_NODE_QUEUE_LOCK = BACKEND_DIR.parent / "ops" / "agent" / "tools" / "queue-lock.mjs"
+_NODE_QUEUE_LOCK = BACKEND_DIR.parent / "ops" / "pipeline-core" / "tools" / "queue-lock.mjs"  # #412 改名(终审 P1:旧路径不存在时 skipif 曾静默跳过本终验)
 
 
-@pytest.mark.skipif(shutil.which("node") is None or not _NODE_QUEUE_LOCK.exists()
-                    or shutil.which("flock") is None,
-                    reason="node/flock 或 queue-lock.mjs 不在供给面(backend CI 无 node 供给时跳过)")
+@pytest.mark.skipif(shutil.which("node") is None or shutil.which("flock") is None,
+                    reason="node/flock 不在供给面(backend CI 无 node 供给时跳过)")
+# queue-lock.mjs 是仓内受控文件,不再列入跳过条件:路径漂移要当场红,不许静默跳过(#412 终审 P1 判例)
 def test_append_queue_mixed_python_node_race(store, ops_env):
     """#139 挂账②:python append_queue × node flock(1) 临界段并发 → 不丢不重。"""
     # 前提同生产:init_ops_tree 先建 ops/ 目录。flock(1) 对锁文件 O_CREAT,但

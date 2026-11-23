@@ -159,7 +159,7 @@ def _queue_lock():
     finally:
         os.close(fd)  # close 即释放 flock,不删锁文件
 
-_RG_TIMEOUT_S = 60  # ops/agent tools.mjs search_precedents 同值
+_RG_TIMEOUT_S = 60  # ops/pipeline-core/tools/tools.mjs search_precedents 同值
 
 
 def ops_root() -> Path:

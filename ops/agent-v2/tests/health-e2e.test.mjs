@@ -25,7 +25,7 @@ import { createModels } from "@earendil-works/pi-ai";
 import { OPS_HEALTH_ROUND } from "../tasks/health-round.mjs";
 import { buildRegistry } from "../registry.mjs";
 
-const AGENT = path.resolve(import.meta.dirname, "..", "..", "pipeline-core"); // ops/agent(旧真源)
+const AGENT = path.resolve(import.meta.dirname, "..", "..", "pipeline-core"); // #412 前 ops/agent(旧真源)
 const FIXTURES = path.join(AGENT, "fixtures", "pipeline");
 const PREC = "2026-06-01-golden-aggregator.md"; // 与 fixtures/pipeline/synth.json 引用配对(旧 selftest 契约)
 const CINS = "https://cinsscore.com/list/ci-badguys.txt";

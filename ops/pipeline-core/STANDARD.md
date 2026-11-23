@@ -2,7 +2,7 @@
 
 裁定:ADR 0008(2026-10-24 用户确认,嵌套 docs 仓);研究底座:notes/ops-agent-golden-standard-research-2026-10-24.md(40 卡,只采 2026 学术+工业源);spec:#180(总纲)/#181(本文件 v0)。
 
-> **路径与开关口径更新(#412,2026-11-22)**:本文件成文时管线树在 `ops/agent/`,现已纯改名为 `ops/pipeline-core/`;`OPS_PIPELINE` 灰度开关板退役——UI 健康轮经后端桥缺省直连 pipeline.mjs 状态机。下文「随 OPS_PIPELINE 灰度开启」等表述是 2026-10 迁移期的历史口径,现状=已直连。
+> **路径与开关口径更新(#412,2026-11-22)**:本文件成文时管线树在 `ops/agent/`,现已纯改名为 `ops/pipeline-core/`;`OPS_PIPELINE` 灰度开关退役——UI 健康轮经后端桥缺省直连 pipeline.mjs 状态机。下文「随 OPS_PIPELINE 灰度开启」等表述是 2026-10 迁移期的历史口径,现状=已直连。
 
 **总律:挂不上验证手段的条目只能称建议,不得称标准**——反面教材=已知答案门死件(anchors.py 明文「must stay clean」却零生产调用面,2026-10-24 事故复盘)。本文件的机检面=ops/pipeline-core/standard-check.mjs(零依赖纯 node;挂 selftest 链 §13):每条条文的门挂点指向的文件/测试必须真实存在,死锚/空挂点/伪条目=非零退出;无门挂点条目必须以「类:建议」显式标类落建议区(§五)。
 

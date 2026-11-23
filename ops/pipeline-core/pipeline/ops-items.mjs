@@ -1,5 +1,5 @@
 // pipeline/ops-items.mjs — 条目库桥(P4,票 #166):_ops_items 树的 Node 侧落笔面。
-// 语义镜像 backend/ipdb/_ops_items.py create_item(同树同形同幂等;纪律=只碰 ops/agent,
+// 语义镜像 backend/ipdb/_ops_items.py create_item(同树同形同幂等;纪律=只碰 ops/pipeline-core(#412 前 ops/agent),
 // 不改 backend):同 dedup_key 在飞(active|snoozed)→ 零写返回既有条目;同 key 终态
 // (done|dismissed)→ 复开新条目 supersedes 链指最近旧条(mtime 最大者,review Finding 1
 // 同律),原条目永不删;文件名内容寻址 sha1[:10](含 supersedes 目标,同日连环复开不撞名)。

@@ -9,7 +9,7 @@ ops/pipeline-core/agent.mjs,不从被测模块导入常量,防套套逻辑):
   409 eval_busy 拒绝;ops 轮在飞 → 409;ops 轮期间源任务 worker 停摆(真互斥,
   964MB 小机 OOM 前科);ops 轮 running 态不计入 has_active_offline_tasks
   (查询门无扰,冷启动验收 1「公网查询无扰」);
-- spawn 契约(#412 按轮型直连,OPS_PIPELINE 开关板退役):health argv =
+- spawn 契约(#412 按轮型选入口,OPS_PIPELINE 灰度开关退役):health argv =
   node --max-old-space-size=256 ops/pipeline-core/pipeline.mjs <round> <input>
   (状态机宿主);discover argv = node --max-old-space-size=256
   ops/pipeline-core/agent.mjs <round> <input>(会话式引擎,消费 typed input;
@@ -545,7 +545,7 @@ def test_run_round_no_memory_row_when_cgroup_unreadable(
 
 
 def test_default_agent_argv_shape(rounds):
-    """缺省命令(#412 按轮型直连,开关板退役):health=pipeline.mjs(状态机宿主)、
+    """缺省命令(#412 按轮型选入口,灰度开关退役):health=pipeline.mjs(状态机宿主)、
     discover=agent.mjs(会话式,消费 input);<round> <input> 尾形不变,
     围栏参数钉在拉起层(裁⑥)。"""
     argv = rounds._agent_argv("health", "体检输入")

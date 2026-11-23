@@ -365,7 +365,7 @@ export async function runEvolveRound(opts) {
   const championWt = path.join(devRoot, "champions", domain);
   if (!fs.existsSync(championWt)) await git(exec, repo, ["worktree", "add", "--detach", championWt, championRef]);
   else await git(exec, championWt, [...GIT_ID, "checkout", "--detach", championRef]);
-  // 运行件:双 node_modules(worktree-prep.sh;真面必须——护栏与 trial 都在 worktree 内跑 node)
+  // 运行件:node_modules(worktree-prep.sh,#412 起单包一份;真面必须——护栏与 trial 都在 worktree 内跑 node)
   const prepScript = path.join(repo, "scripts", "worktree-prep.sh");
   await exec("bash", [prepScript, proposerWt], { timeout: 10 * 60_000, maxBuffer: 1024 * 1024 })
     .catch((e) => { throw Object.assign(new Error(`worktree-prep 红(${proposerWt}):${String(e.message ?? e).slice(0, 160)}`), { code: "infra" }); });

@@ -4,7 +4,7 @@
      人模双读者;新增/修改任何运营提示词 = 过本文件附录 A 审阅清单(SDD task review 执审)。
      技巧出处与全量证据:notes/mp-skills-design-research-2026-10-23.md(下文「研究」)。 -->
 
-> **路径与开关口径更新(#412,2026-11-22)**:管线树 `ops/agent/` 已纯改名为 `ops/pipeline-core/`;`OPS_PIPELINE` 开关板退役,UI 健康轮经桥缺省直连 pipeline.mjs——下文 P0-P5 增量迁移里的灰度/回滚开关表述是迁移期历史。
+> **路径与开关口径更新(#412,2026-11-22)**:管线树 `ops/agent/` 已纯改名为 `ops/pipeline-core/`;`OPS_PIPELINE` 灰度开关退役,UI 健康轮经桥缺省直连 pipeline.mjs——下文 P0-P5 增量迁移里的灰度/回滚开关表述是迁移期历史。
 
 # 运营 agent 设计(DESIGN)
 

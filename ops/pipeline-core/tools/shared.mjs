@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 import { fetch as undiciFetch, Agent } from "undici";
 
 export const execFileP = promisify(execFile);
-const AGENT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."); // 面文件居 tools/ 子层:上移一层=ops/agent,ROOT/LIBSH 推导与拆分前同值(C6)
+const AGENT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."); // 面文件居 tools/ 子层:上移一层=ops/pipeline-core(#412 前 ops/agent),ROOT/LIBSH 推导与拆分前同值(C6)
 export const ROOT = path.resolve(AGENT_DIR, "..", ".."); // worktree 根(沙箱红线不变式:落位推导)
 export const DOCS_ROOT = process.env.DOCS_ROOT ?? path.join(ROOT, "docs"); // 符号链接 → docs 仓
 const LIBSH = path.join(AGENT_DIR, "lib.sh");

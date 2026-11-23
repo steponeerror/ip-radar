@@ -8,7 +8,7 @@
 // stderr 阶段行第三次修约(C稿 §5.2):[stage] <NAME> start / done gate=PASS dur=412s artifact=01-….json /
 // fail gate=G_X code=<九词> reason=…;错误码沿用九词闭集零新词(哪一步失败由 pipeline.stages[].status 表达);
 // 用法错=纯 stderr+exit 2 不发 JSON。env 面 ∈ SPAWN_CONTRACT_ENV(agent.mjs 唯一详述点):
-// DOCS_ROOT(rounds/rules/retro 派生根)+OPS_PIPELINE(legacy|pipeline 迁移开关)+OPS_PIPELINE_BUDGET_CNY(预算门)。
+// DOCS_ROOT(rounds/rules/retro 派生根)+OPS_PIPELINE(legacy|pipeline;#412 起桥不再按它选路径,本 CLI 只校验闭集并记入 state.json)+OPS_PIPELINE_BUDGET_CNY(预算门)。
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -524,7 +524,7 @@ export async function main(argv, io = {}) {
   const usage = "用法: node ops/pipeline-core/pipeline.mjs health [--round-id ID] [--fixtures DIR]\n      node ops/pipeline-core/pipeline.mjs discover [--round-id ID] [--fixtures DIR](发现轮 #207 T1)\n      node ops/pipeline-core/pipeline.mjs replay <round_id> [--from STAGE] [--to STAGE] [--dry] [--fixtures DIR]\n      node ops/pipeline-core/pipeline.mjs resume <round_id>(crash 恢复,C稿 §4.6;boot 扫描/运维手用)";
   const flag = (n) => { const i = argv.indexOf(n); return i >= 0 ? argv[i + 1] : undefined; };
   const bad = (m) => { stderr.write(`${m}\n${usage}\n`); return 2; };
-  const mode = env.OPS_PIPELINE ?? process.env.OPS_PIPELINE ?? "legacy"; // 迁移开关(P2 桥消费;本 CLI 校验值闭集并记入 state.json)
+  const mode = env.OPS_PIPELINE ?? process.env.OPS_PIPELINE ?? "legacy"; // 残留迁移开关(#412 起桥不再消费;本 CLI 只校验值闭集并记入 state.json)
   if (!["legacy", "pipeline"].includes(mode)) return bad(`OPS_PIPELINE 须 legacy|pipeline,得到:${mode}`);
   const [cmd, pos] = argv;
   let curRound = "health"; // emitInfra 面轮型(#207 T1:discover 子命令报错不再误报 health)

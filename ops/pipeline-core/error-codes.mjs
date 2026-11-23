@@ -7,7 +7,7 @@
 // 即此形态(rc=13,spawn 契约违背);e2e 不设 OPS_PIPELINE(tests/test_ops_rounds_e2e.py
 // 注释),该路径 CI 从未走过。断环 = 常量下沉本模块,pipeline.mjs 改自此导入,
 // agent.mjs re-export 保导出面契约(selftest-contract「ERROR_CODES 导出面」)。
-// #412(2026-11-22)起 agent.mjs 的 OPS_PIPELINE 委派分支已删(开关板退役),上面这段回环的
+// #412(2026-11-22)起 agent.mjs 的 OPS_PIPELINE 委派分支已删(灰度开关退役),上面这段回环的
 // 成因不复存在,「e2e 不设 OPS_PIPELINE」一句随之作古;拆分保留——两引擎互不静态 import 是
 // 防回环的结构保证,勿并回。
 // 事故与裁决:2026-10-24 判例 2026-10-24-discover-dual-channel-dead 同日;

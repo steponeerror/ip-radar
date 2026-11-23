@@ -32,7 +32,7 @@ export const RoundsDoc = defineDoc({ kind: "ops.discover-rounds", scope: "sessio
 // ops/agent-v2 → 仓根 → ops/pipeline-core/prompts。
 const promptsRoot = () => path.join(path.resolve(import.meta.dirname, "..", ".."), "ops", "pipeline-core", "prompts");
 
-// SHORTLIST 提示词路径:与旧 steps.mjs promptFile 同式(<ops/agent>/prompts/<def.model>.md;
+// SHORTLIST 提示词路径:与旧 steps.mjs promptFile 同式(<ops/pipeline-core>/prompts/<def.model>.md;
 // def.model="discover/shortlist" 单源取自 DISCOVER_PIPELINE——drift 面由 golden 对拍 transcript system_sha 钉死)。
 export function shortlistPromptPath() {
   const def = DISCOVER_PIPELINE.find((d) => d.name === "SHORTLIST");

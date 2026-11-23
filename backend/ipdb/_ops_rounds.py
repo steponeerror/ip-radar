@@ -2,9 +2,9 @@
 
 契约真源:主仓 GLOSSARY「spawn 契约」「轮次信封」+ ops/pipeline-core/agent.mjs
 (SPAWN_CONTRACT_ENV 表,17 名 env 面唯一详述点);本模块是后端侧唯一消费方
-(ops/agent 冻结面零触碰)。
+(ops/pipeline-core 冻结面零触碰)。
 
-- argv(#412 ADR 0012 切流收尾:OPS_PIPELINE 开关板退役,按轮型直连):
+- argv(#412 ADR 0012 切流收尾:OPS_PIPELINE 灰度开关退役,按轮型选入口):
   health = node --max-old-space-size=256 ops/pipeline-core/pipeline.mjs <round> <input>
     (状态机宿主;input 透传但 pipeline 轮次自持输入面,与旧 agent.mjs 委派同语义
     ——旧容器 env OPS_PIPELINE=pipeline 的部署面随之失效,无害残留);
@@ -58,7 +58,7 @@ from . import _ops_store
 logger = logging.getLogger(__name__)
 
 # spawn 契约 argv(GLOSSARY「spawn 契约」;--max-old-space-size=256 = 三层内存
-# 围栏第一层,参数钉在拉起层——裁⑥)。#412 起按轮型直连(OPS_PIPELINE 开关板退役,
+# 围栏第一层,参数钉在拉起层——裁⑥)。#412 起按轮型选入口(OPS_PIPELINE 灰度开关退役,
 # ADR 0012 切流收尾):health=状态机宿主 pipeline.mjs(旧灰度期的缺省委派路径转正),
 # discover=会话式 agent.mjs(消费 typed input;两 CLI 的 argv/退出码/信封同形——
 # agent.mjs 用法错文案同指两入口)。
