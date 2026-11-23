@@ -1,13 +1,21 @@
-// round-state.mjs — v2 轮终态回写单源(工单 #408;#405 遗留 A)。
+// round-state.mjs — v2 轮终态回写单源(工单 #408;#415 扩到全部终态出口)。
 // Why:v2 轮(discover/health)真源=checkpoint(SQLite),rounds/<id>/state.json 只是
 // 进度镜像;但 CLOSE 后 discover 镜像停在 running、health 干脆无件——轮实际已结束,
 // 状态文件在说谎(读面:boot 扫描 backend/ipdb/_ops_rounds.py、UI 轮次徽章链 #407)。
 // 本模块在 CLOSE 相位与 writeRoundReport 同接线点被调(#403 判例同位),把终态写回镜像。
+// #415:终态不止 CLOSE 一条路——轮中途失败/中止/停笔的任务终态出口同样经本模块写镜像
+// (三任务的每个 terminal commit 前;接线点清单见工单 #415 实现报告,各出口处带 #415 注记)。
 // 纪律:
 //  - 状态词沿用管线既有 status 流(v1 pipeline.mjs finishClose/failStage):done/failed
 //    (+health 面 stage 书挡 CLOSE/FAILED);不发明第二套状态词(票面明令)。
+//    #415 中止出口取任务 outcome 同词 aborted(v1 无中止面;旧读面 scan_inflight_rounds
+//    只认 in_flight,aborted 不入在飞扫描=与 done/failed 同属「轮已结束」)。
+//  - 属主判(writeOwnedRoundState):终态镜像只写本任务的轮目录——未建轮/异物树/同 id
+//    旧轮终态件不写(写了=把别轮终态改判,discover bad_round 判例同病)。
+//  - 失败镜像宁少算:stages 只留 checkpoint 已提交相位,未成相位不造记录/名字
+//    (close 未成不造 CLOSE 名;discover/add 镜像无 stage 键=字段集稳定不加键)。
 //  - 幂等:updated_at 取盘上已有件的值(缺席=入参 ctx.state 的值),不写新时钟——
-//    崩溃落在终态写与终态 commit 之间重入 CLOSE 时重写字节级不变(报告件「无时钟入文」
+//    崩溃落在终态写与终态 commit 之间重入时重写字节级不变(报告件「无时钟入文」
 //    同标准,round-report.mjs 头注)。
 //  - 尽力写不掷错:终态镜像写败只注记不炸轮。与报告件 fail-loud(#403)反向的根由:
 //    v1 的 state.json 是真源(写败=真失败,fail loud);v2 真源=checkpoint 且终态 commit
@@ -36,4 +44,24 @@ export function writeTerminalRoundState(ctx, { status, stage = null, stages = nu
     ctx.log?.(`[state] 终态镜像写败(status=${status}):${e?.message ?? e}`);
     return false;
   }
+}
+
+// discover/add 属主判(#415):终态镜像只写本任务的轮目录。判据=建轮守卫
+// (discover-round/add-round bootstrapRoundDir)同律,二选一:
+//  ① checkpoint 已提交过相位(ctx.state.stages 非空)——必已过守卫;
+//  ② 盘上镜像=本轮自家的建轮骨架(round_id 同轮且 stages 空:bootstrap 已写骨架、
+//     首相位尚未提交——首相位步抛/门红即此形)。
+// 两者皆否=未建轮(无件,不凭空造轮目录)/异物树/同 id 旧轮终态件 → 不写。
+// health 轮不走本判(轮中无进度镜像,属主=认领件 .v2-claim.json,claimGuard 已核)。
+function ownsRoundDir(ctx) {
+  if (ctx.state.stages.length > 0) return true;
+  const prior = readJson(path.join(ctx.dir, "state.json"));
+  return prior?.round_id === ctx.roundId && Array.isArray(prior.stages) && prior.stages.length === 0;
+}
+
+// discover/add 失败/中止出口的镜像写(#415):ctx=由 checkpoint 重建的旧 ctx
+// (ctx.state.stages=已提交相位名单,discover-round/add-round buildCtx 同形)。
+// 属主判过才写,不过=不写;写败不掷错(writeTerminalRoundState 同律)。
+export function writeOwnedRoundState(ctx, status) {
+  if (ownsRoundDir(ctx)) writeTerminalRoundState(ctx, { status });
 }

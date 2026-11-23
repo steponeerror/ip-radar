@@ -52,7 +52,7 @@ import { ensureRoundHost, roundDupRegistries } from "../tools/discovery-tools.mj
 import { enqueueStageIssueExit } from "../tools/enqueue-issues.mjs"; // #384:ENQUEUE 出口改 GH issue(PROPOSE 行停写;判据分类 v1 classifyEnqueue 单源)
 import { benchScan } from "../bench/scan.mjs"; // bench SCAN 变体(票 #318:候选宇宙=仅 NEEDS 面;real 面走 runStage 旧步不受影响)
 import { writeRoundReport } from "../../pipeline-core/pipeline/round-report.mjs"; // #403:轮报告件单源(v2 零复制 import v1;bench 轮照写=沙箱 opsRoot 天然隔离)
-import { writeTerminalRoundState } from "./round-state.mjs"; // #408:CLOSE 终态回写 state.json 镜像(与报告件同接线点)
+import { writeTerminalRoundState, writeOwnedRoundState } from "./round-state.mjs"; // #408:CLOSE 终态回写 state.json 镜像(与报告件同接线点);#415:失败/中止出口同写(属主判在内)
 import { shortlistBenchPromptPath } from "../run-discover.mjs"; // bench SHORTLIST 基准提示词路径(票 #319;函数声明面循环安全:run-discover↔tasks 仅运行时互引)
 
 const sha = (s) => crypto.createHash("sha256").update(s).digest("hex").slice(0, 16);
@@ -156,7 +156,10 @@ async function advance(runtime, context, checkpoint, patch = {}, ctx = null) {
   }), context);
   if (ctx) mirrorState(ctx, checkpoint); // 尽力镜像(真源=checkpoint;失败不炸轮)
 }
-async function finishFailed(runtime, context, error) {
+// #415:全部失败终态出口经此(与 outcome 终态同一出口);带 ctx=镜像同写 failed——属主判在
+// writeOwnedRoundState(未建轮/异物树/同 id 旧轮终态件不写=不把别轮终态改判)。
+async function finishFailed(runtime, context, error, ctx = null) {
+  if (ctx) writeOwnedRoundState(ctx, "failed");
   return runtime.commit(() => ({
     status: "terminal",
     outcome: { status: "failed", error },
@@ -195,19 +198,17 @@ async function scriptPhase(task, runtime, context, phase) {
   const input = task.input;
   const cur = task.state.checkpoint;
   crashHook(phase);
+  const ctx = buildCtx(input, cur); // 终审 P1:提前构造——预算墙出口需要 ctx 定位轮目录写终态镜像(#415:本函数每个失败出口都带 ctx)
   if (isBench(input) && phase !== "scan" && phase !== "close") // fail-closed 防御:bench 轮相位截断后 measure/enqueue/retro 不可达,唯有 checkpoint 异物/篡改可至;真面 MEASURE=真网络探测,宁可终态不可误跑
-    return finishFailed(runtime, context, { message: `BENCH:${STAGE_OF_PHASE[phase]} 相位越界(bench 轮=SCAN→SHORTLIST→CLOSE 截断)`, detail: { code: "infra", stage: STAGE_OF_PHASE[phase] } });
+    return finishFailed(runtime, context, { message: `BENCH:${STAGE_OF_PHASE[phase]} 相位越界(bench 轮=SCAN→SHORTLIST→CLOSE 截断)`, detail: { code: "infra", stage: STAGE_OF_PHASE[phase] } }, ctx);
   const b = stepBoundary({ roundType: "discover", knobs: input.knobs, startedAtIso: cur.startedAtIso }); // ③(每相位头;遗留2 脚本面)
-  const ctx = buildCtx(input, cur); // 终审 P1:提前构造——预算墙出口需要 ctx 定位轮目录写终态镜像
-  if (!b.ok) {
-    if (phase === "close") writeTerminalRoundState(ctx, { status: "failed" }); // 终审 P1:close 相位头预算墙出口=终审发现的第四个漏镜像出口(#408 症状本体;同 P2-2 两处同形,stages 止于 RETRO 不造 CLOSE 名)
-    return finishFailed(runtime, context, { message: b.message, detail: { code: b.code, stage: STAGE_OF_PHASE[phase] } });
-  }
+  if (!b.ok) // #415:任意相位头预算墙=终态失败,镜像同写(属主判在 finishFailed;修前仅 close 相位写)
+    return finishFailed(runtime, context, { message: b.message, detail: { code: b.code, stage: STAGE_OF_PHASE[phase] } }, ctx);
   const def = defOf(STAGE_OF_PHASE[phase]);
   if (phase === "scan") {
     try { bootstrapRoundDir(ctx, cur); } // 建轮同义(bad_round 域错→终态,同下)
     catch (e) { // P0-① 实测面:原裸抛逃逸 handler → 框架 fault+重启循环,真码永不落 outcome、信封恒 infra——收进同款 finishFailed(detail.code)终态
-      return finishFailed(runtime, context, { message: `${def.name}:${e.message}`, detail: { code: e.code ?? "infra", stage: def.name } });
+      return finishFailed(runtime, context, { message: `${def.name}:${e.message}`, detail: { code: e.code ?? "infra", stage: def.name } }, ctx);
     }
   }
   // dup 登记表跨相位同对象(CLOSE dup_top3 读数面;旧 ctx.dupRegistry 单例律)
@@ -226,8 +227,9 @@ async function scriptPhase(task, runtime, context, phase) {
       : phase === "enqueue" ? await enqueueStageIssueExit(ctx)
       : await runStage(def, ctx); // bench SCAN 变体(零复制旧步;RETRO 可能 {degraded}
   } catch (e) { // 域失败=终态(旧 fail 三元组;handler 不抛=pi-durable fault 不消耗 restart)
-    if (phase === "close") writeTerminalRoundState(ctx, { status: "failed" }); // #408 评审 P2-2:close 相位步抛=轮未成,镜像终态 failed(stages 止于 RETRO 不造 CLOSE 名,与内层报告写败 catch 同形;专项 E2E 注入面记后续票)
-    return finishFailed(runtime, context, { message: `${def.name}:${e.message}`, detail: { code: e.code ?? "infra", stage: def.name } });
+    // #415:任意脚本相位步抛=轮终态失败,镜像同写(#408 评审 P2-2 的 close 相位出口 + mid-round 同形;
+    // stages=checkpoint 已提交相位,未成相位不造名)
+    return finishFailed(runtime, context, { message: `${def.name}:${e.message}`, detail: { code: e.code ?? "infra", stage: def.name } }, ctx);
   }
   stage.dur_ms = Date.now() - t0;
   if (rec?.degraded) { stage.status = "degraded"; stage.reason = rec.degraded; } // 旧 degrade 路径(RETRO skip_retro)
@@ -238,10 +240,8 @@ async function scriptPhase(task, runtime, context, phase) {
   const gate = gates.evalStageGate(def, ctx);
   if (rec?.skipGate) gates.appendGateBypass(ctx.dir, ctx.roundId, def, String(rec.degraded));
   else gates.appendGate(ctx.dir, ctx.roundId, gate);
-  if (!gate.pass) { // 门红=终态(旧 fail-closed)
-    if (phase === "close") writeTerminalRoundState(ctx, { status: "failed" }); // #408 评审 P2-2:G_CLOSE 红=轮未成,镜像终态 failed(同上)
-    return finishFailed(runtime, context, { message: `GATE:${def.name}:${gate.reason}`, detail: { code: gate.code ?? "infra", stage: def.name } });
-  }
+  if (!gate.pass) // 门红=终态(旧 fail-closed);#415:镜像同写(含 G_CLOSE 红=#408 评审 P2-2 第二出口)
+    return finishFailed(runtime, context, { message: `GATE:${def.name}:${gate.reason}`, detail: { code: gate.code ?? "infra", stage: def.name } }, ctx);
   const next = nextPhase(phase);
   // #384:enqueue 相位把 issue 出口读数入 checkpoint(信封 issues_opened 真源;崩溃重入由 emit 守卫回补)
   const issuesPatch = phase === "enqueue" && typeof rec?.issues_opened === "number" ? { issuesOpened: rec.issues_opened } : {};
@@ -270,11 +270,11 @@ async function shortlistPhase(task, runtime, context) {
   const input = task.input;
   const cur = task.state.checkpoint;
   crashHook("shortlist");
+  const ctx = buildCtx(input, cur); // #415:提前构造——相位头预算墙出口要 ctx 写终态镜像(scriptPhase 同形)
   const b = stepBoundary({ roundType: "discover", knobs: input.knobs, startedAtIso: cur.startedAtIso }); // ③
-  if (!b.ok) return finishFailed(runtime, context, { message: b.message, detail: { code: b.code, stage: "SHORTLIST" } });
+  if (!b.ok) return finishFailed(runtime, context, { message: b.message, detail: { code: b.code, stage: "SHORTLIST" } }, ctx);
 
   const def = defOf("SHORTLIST");
-  const ctx = buildCtx(input, cur);
   const io = modelIO(def);
   const { systemPrompt, userMsg } = io.input(ctx); // 旧输入构造零复制(d1-scan.json 候选宇宙)
   // bench 轮会话 instructions=基准提示词 shortlist-bench.md(run-bench 创建会话时装,票 #319);
@@ -293,16 +293,16 @@ async function shortlistSubmit(task, runtime, context, s) {
   const requestId = attempt <= 1 ? `round-${input.roundId}-shortlist` : `round-${input.roundId}-shortlist-a${attempt}`; // 纪律形;同 attempt 崩溃重放同 key
 
   const b = preModelCall({ roundType: "discover", knobs: input.knobs, modelCalls: cur.modelCalls, startedAtIso: cur.startedAtIso }); // ①③(每 attempt 提交前;遗留2)
-  if (!b.ok) return finishFailed(runtime, context, { message: b.message, detail: { code: b.code, stage: "SHORTLIST" } });
+  if (!b.ok) return finishFailed(runtime, context, { message: b.message, detail: { code: b.code, stage: "SHORTLIST" } }, s.ctx);
 
   const conversation = await runtime.conversation(s.convId, context); // ConversationHandle(绑定会话;invocation 内有效)
-  if (!conversation) return finishFailed(runtime, context, { message: "SHORTLIST:轮会话缺席", detail: { code: "infra", stage: "SHORTLIST" } });
+  if (!conversation) return finishFailed(runtime, context, { message: "SHORTLIST:轮会话缺席", detail: { code: "infra", stage: "SHORTLIST" } }, s.ctx);
   ensureRoundHost(s.ctx, s.convId); // 轮级发现宿主(模型面工具;faux=罐装方法零网络)
 
   const submission = await conversation.submit({ type: "input", content: s.userMsg, requestId }, context);
   const settled = await submission.wait(context); // 恰好一次;同 key 崩溃重放不双花
   if (settled.status !== "done") { // unanswered(中止/机故障)→ 旧 retry≤1:attempt+1 新 requestId 再来
-    if (attempt >= 2) return finishFailed(runtime, context, { message: `SHORTLIST:submission_${settled.status}`, detail: { code: "model_face", stage: "SHORTLIST" } });
+    if (attempt >= 2) return finishFailed(runtime, context, { message: `SHORTLIST:submission_${settled.status}`, detail: { code: "model_face", stage: "SHORTLIST" } }, s.ctx);
     // P0-③ attempt 即调用(旧律 budget.mjs:34「重试同计」):失败 attempt 同步入账 modelCalls,
     // 否则相位边界提交的 cur.modelCalls+1 会漏掉全部失败回合;usage 不补(UsageDoc 会话
     // 累计面,失败回合 usage 已自然含在下一次 usageNow 读数里)
@@ -315,11 +315,11 @@ async function shortlistSubmit(task, runtime, context, s) {
   const last = messages[messages.length - 1];
   const text = last?.content?.filter((c) => c.type === "text").map((c) => c.text).join("") ?? "";
   if (!text && attempt < 2) return advance(runtime, context, cur, { attempt: attempt + 1, modelCalls: cur.modelCalls + 1 }, s.ctx); // empty_text 面重发(新 requestId);P0-③ 同上:失败 attempt 同计
-  if (!text) return finishFailed(runtime, context, { message: "SHORTLIST:empty_text", detail: { code: "empty_text", stage: "SHORTLIST" } });
+  if (!text) return finishFailed(runtime, context, { message: "SHORTLIST:empty_text", detail: { code: "empty_text", stage: "SHORTLIST" } }, s.ctx);
 
   const usageNow = await roundUsage(runtime, s.convId, context);
   const post = postModelCall({ roundType: "discover", knobs: input.knobs, totalTokens: usageNow.totalTokens, costCny: usageNow.cost }); // ②(skip:无 token 界)④
-  if (!post.ok) return finishFailed(runtime, context, { message: post.message, detail: { code: post.code, stage: "SHORTLIST" } });
+  if (!post.ok) return finishFailed(runtime, context, { message: post.message, detail: { code: post.code, stage: "SHORTLIST" } }, s.ctx);
 
   s.ctx.modelCalls = cur.modelCalls + 1;
   s.ctx.usage = usageNow;
@@ -338,7 +338,7 @@ async function shortlistSubmit(task, runtime, context, s) {
 
   const gate = gates.evalStageGate(defOf("SHORTLIST"), s.ctx);
   gates.appendGate(s.ctx.dir, s.ctx.roundId, gate);
-  if (!gate.pass) return finishFailed(runtime, context, { message: `GATE:SHORTLIST:${gate.reason}`, detail: { code: gate.code ?? "infra", stage: "SHORTLIST" } });
+  if (!gate.pass) return finishFailed(runtime, context, { message: `GATE:SHORTLIST:${gate.reason}`, detail: { code: gate.code ?? "infra", stage: "SHORTLIST" } }, s.ctx);
 
   const checkpoint = {
     ...cur, phase: isBench(input) ? "close" : "measure", attempt: 1, // bench 相位截断(#318):SHORTLIST 后直达 CLOSE(MEASURE/ENQUEUE/RETRO 跳过)
@@ -399,7 +399,9 @@ export const discoverRoundTask = defineTask({
     retro: (task, runtime, context) => scriptPhase(task, runtime, context, "retro"),
     close: (task, runtime, context) => scriptPhase(task, runtime, context, "close"),
   },
-  abort: async (_task, runtime, context) => { // P2-⑧ 中止终态留痕(model-round/health-round mkAbort 同款;缺省=框架 fault 面无终态,信封永不落)
+  abort: async (task, runtime, context) => { // P2-⑧ 中止终态留痕(model-round/health-round mkAbort 同款;缺省=框架 fault 面无终态,信封永不落)
+    // #415:中止=任务终态,镜像同词 aborted(属主判同失败出口;中止时所处相位未成=stages 不造名)
+    if (task.state?.checkpoint) writeOwnedRoundState(buildCtx(task.input, task.state.checkpoint), "aborted");
     await runtime.commit(() => ({ status: "terminal", outcome: { status: "aborted" } }), context);
   },
 });
