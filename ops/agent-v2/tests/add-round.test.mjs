@@ -14,7 +14,9 @@ import os from "node:os";
 import path from "node:path";
 import { execFile as execFileCb, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
-import { runAddRound } from "../run-add.mjs";
+import { runAddRound, AddRoundsDoc, fauxAddBundle } from "../run-add.mjs";
+import { openHarness } from "../entry.mjs";
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import {
   ADD_PHASES,
   ADD_TASK_NAME,
@@ -195,6 +197,11 @@ test("未 APPROVE 卡=fail-closed card_not_approved;轮零写 queue(写口仅人
     const q = fs.readFileSync(path.join(w.opsRoot, "queue.md"), "utf8");
     assert.ok(!q.includes("APPROVE"), "轮不得写 APPROVE 行(写口仅人面)");
     assert.equal(fs.existsSync(path.join(w.opsRoot, "rounds", ROUND, "a1-verify.json")), false, "门红不落通过工件");
+    // #415:首相位门红=终态失败;轮骨架已由本任务建起(verify 相位 bootstrap)=属主,镜像 failed
+    const mirror = JSON.parse(fs.readFileSync(path.join(w.opsRoot, "rounds", ROUND, "state.json"), "utf8"));
+    assert.equal(mirror.round_id, ROUND);
+    assert.equal(mirror.status, "failed", "#415:自家建轮骨架在盘=属主,失败镜像同写(修前=停在 running)");
+    assert.deepEqual(mirror.stages, [], "VERIFY 未过门不造名(骨架 stages 原样)");
   } finally { fs.rmSync(w.tmp, { recursive: true, force: true }); }
 });
 
@@ -213,6 +220,127 @@ test("相位头 SIGKILL 崩溃 → 同库 resume 续跑到 CLOSE", async () => {
     const r = JSON.parse(stdout.trim().split("\n").filter((l) => l.startsWith("{")).pop());
     assert.equal(r.ok, true, JSON.stringify(r.error ?? r));
     assert.deepEqual(r.pipeline.stages.map((s) => s.name), ["VERIFY", "DOSSIER", "IMPLEMENT", "GATE", "REPORT", "CLOSE"], "恢复后每相位恰一次");
+  } finally { fs.rmSync(w.tmp, { recursive: true, force: true }); }
+});
+
+// ── #415 终态镜像覆盖全部终态出口(票面专项 E2E:加轮 finishOk;其余出口同批钉住)──
+const mirrorOf = (w, roundId = ROUND) => JSON.parse(fs.readFileSync(path.join(w.opsRoot, "rounds", roundId, "state.json"), "utf8"));
+
+test("#415 加轮 finishOk 终态:六相位全绿 → state.json done,stages=六相位名单(与信封一致;无 stage 键)", async () => {
+  const w = seedWorld("v2-add-finok-");
+  try {
+    const r = await runRound(w);
+    assert.equal(r.status, "completed", JSON.stringify(r.error ?? r));
+    const mirror = mirrorOf(w);
+    assert.equal(mirror.round_id, ROUND);
+    assert.equal(mirror.status, "done", "#415:finishOk=completed 终态出口,镜像 done(修前=停在 running)");
+    assert.deepEqual(mirror.stages, ["VERIFY", "DOSSIER", "IMPLEMENT", "GATE", "REPORT", "CLOSE"], "镜像 stages 名单=六相位");
+    assert.deepEqual(mirror.stages, r.envelope.pipeline.stages.map((x) => x.name), "镜像 stages 名单 ≡ 信封 stages 名单");
+    assert.equal("stage" in mirror, false, "加源轮 state 无 stage 键(字段集稳定;书挡是健康轮独有)");
+  } finally { fs.rmSync(w.tmp, { recursive: true, force: true }); }
+});
+
+test("#415 加轮 close 步抛终态:09-budget.json 路径被目录占 → CLOSE 步抛 EISDIR → state.json failed,stages 止于 REPORT", async () => {
+  const w = seedWorld("v2-add-closethrow-");
+  try {
+    fs.mkdirSync(path.join(w.opsRoot, "rounds", ROUND, "09-budget.json"), { recursive: true }); // 预占:CLOSE 步 writeJson → EISDIR(零缝注入)
+    const r = await runRound(w);
+    assert.equal(r.status, "failed", JSON.stringify(r));
+    assert.match(r.error.message, /^CLOSE:EISDIR/, `失败面=CLOSE 步抛:${r.error.message}`);
+    assert.equal(r.error.detail?.stage, "CLOSE");
+    const dir = path.join(w.opsRoot, "rounds", ROUND);
+    const mirror = mirrorOf(w);
+    assert.equal(mirror.status, "failed", "#415:close 步抛=终态失败,镜像同写(修前=停在 running)");
+    assert.deepEqual(mirror.stages, ["VERIFY", "DOSSIER", "IMPLEMENT", "GATE", "REPORT"], "五相位已提交留痕;CLOSE 未成不造名(宁少算)");
+    assert.equal("stage" in mirror, false, "失败镜像不加键");
+    const gates = JSON.parse(fs.readFileSync(path.join(dir, "gates.json"), "utf8"));
+    assert.equal(gates.records.at(-1).stage, "REPORT", "门留痕止于 REPORT(CLOSE 步抛在门评估之前)");
+  } finally { fs.rmSync(w.tmp, { recursive: true, force: true }); }
+});
+
+test("#415 加轮模型相位失败终态:DOSSIER 两 attempt 终答形状坏 → model_face → state.json failed,stages=[VERIFY]", async () => {
+  const w = seedWorld("v2-add-modelfail-");
+  // 夹具手术:dossier 首回合终答换成非交接单文本(attempt 1 终答非 JSON,按 retry≤1 重发)→
+  // attempt 2 吃到下一罐装回合(IMPLEMENT 的工具回合;工具真执行后续答仍非交接单形状)→ 形状坏
+  // 两 attempt 用尽=终态。真实调用链:submit → 结算 → retryOr 出口(retryOr 的失败支与
+  // modelLeg 其余 finishFailed 出口同函数)。
+  const fxDir = path.join(w.tmp, "fixtures");
+  fs.cpSync(FIXTURES, fxDir, { recursive: true });
+  const turns = JSON.parse(fs.readFileSync(path.join(fxDir, "turns.json"), "utf8"));
+  turns.turns[0].content[0].text = "这不是交接单(形状坏)";
+  fs.writeFileSync(path.join(fxDir, "turns.json"), JSON.stringify(turns));
+  try {
+    const r = await runRound(w, { fixturesDir: fxDir });
+    assert.equal(r.status, "failed", JSON.stringify(r));
+    assert.equal(r.error.detail?.code, "model_face", JSON.stringify(r.error));
+    assert.equal(r.error.detail?.stage, "DOSSIER", JSON.stringify(r.error));
+    assert.match(r.error.message, /^DOSSIER:交接单形状:/, `失败面=第 2 attempt 的终答形状坏:${r.error.message}`);
+    assert.equal(fs.existsSync(path.join(w.opsRoot, "rounds", ROUND, "a2-dossier-transcript.jsonl")), false, "前提:两 attempt 均未过形状关,转录/工件零写入(失败在 DOSSIER 相位体内)");
+    const mirror = mirrorOf(w);
+    assert.equal(mirror.status, "failed", "#415:模型相位失败=终态失败,镜像同写(修前=停在 running)");
+    assert.deepEqual(mirror.stages, ["VERIFY"], "VERIFY 已提交留痕;DOSSIER 未成不造名");
+    assert.equal(fs.existsSync(path.join(w.opsRoot, "rounds", ROUND, "a2-dossier.json")), false, "前提:失败在 DOSSIER 工件落盘之前");
+  } finally { fs.rmSync(w.tmp, { recursive: true, force: true }); }
+});
+
+test("#415 加轮属主判:同 id 旧轮的 done 镜像不被跨库新任务改判;首相位头预算墙(未建轮)不造件", async () => {
+  const w = seedWorld("v2-add-owns-");
+  try {
+    const first = await runRound(w);
+    assert.equal(first.status, "completed", JSON.stringify(first.error ?? first));
+    const file = path.join(w.opsRoot, "rounds", ROUND, "state.json");
+    const before = fs.readFileSync(file, "utf8");
+    const again = await runRound(w, { dbPath: path.join(w.tmp, "other.sqlite") }); // 跨库新任务撞同 id 轮目录
+    assert.equal(again.status, "failed", JSON.stringify(again));
+    assert.equal(again.error.detail?.code, "bad_round", JSON.stringify(again.error));
+    assert.equal(fs.readFileSync(file, "utf8"), before, "同 id 旧轮终态件:字节不变(写了=把别轮终态改判)");
+    // 首相位头预算墙:轮未建(零 ctx.stages、盘上无骨架)→ 不造轮目录
+    const w2 = seedWorld("v2-add-owns-wall-");
+    try {
+      const saved = process.env.OPS_ADD_WALL_CLOCK_S;
+      process.env.OPS_ADD_WALL_CLOCK_S = "0"; // 墙钟帽 0=恒超(overWallClock)
+      let r;
+      try { r = await runRound(w2); } finally {
+        if (saved === undefined) delete process.env.OPS_ADD_WALL_CLOCK_S; else process.env.OPS_ADD_WALL_CLOCK_S = saved;
+      }
+      assert.equal(r.status, "failed", JSON.stringify(r.error ?? r));
+      assert.equal(r.error.detail?.code, "wall_clock_exceeded", JSON.stringify(r.error));
+      assert.equal(fs.existsSync(path.join(w2.opsRoot, "rounds", ROUND)), false, "未建轮的出口不造轮目录(宁少算)");
+    } finally { fs.rmSync(w2.tmp, { recursive: true, force: true }); }
+  } finally { fs.rmSync(w.tmp, { recursive: true, force: true }); }
+});
+
+test("#415 加轮中止终态:相位头崩溃的任务被 abortTask → outcome aborted,镜像 aborted(stages=已提交相位)", async () => {
+  const w = seedWorld("v2-add-abort-");
+  const db = path.join(w.tmp, "v2.sqlite");
+  // 第一段:子进程 CLI 在 dossier 相位头 SIGKILL(crashHook 测试缝;上一相位 VERIFY 的 checkpoint 已提交)
+  const env = { ...process.env, DOCS_ROOT: w.docsRoot, LEDGER_FILE: path.join(w.opsRoot, "ledger.md"), OPS_V2_CRASH_AFTER_PHASE: "dossier" };
+  try {
+    const kill = await execFile(process.execPath, [path.join(HERE, "run-add.mjs"), ROUND, "--source", SOURCE, "--sandbox", w.sandbox, "--fixtures", FIXTURES, "--db", db], { env }).catch((e) => e.code);
+    assert.equal(kill, null, `SIGKILL 期望进程被杀(exit code ${kill} 非自杀)`);
+    assert.equal(mirrorOf(w).status, "running", "前提:崩溃后镜像停在 running(进度镜像)");
+    // 第二段:同库开 harness,对在飞任务下中止标记 → abort 相位(真框架路径,零 mock)
+    const keys = ["DOCS_ROOT", "LEDGER_FILE"];
+    const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+    process.env.DOCS_ROOT = w.docsRoot;
+    process.env.LEDGER_FILE = env.LEDGER_FILE; // abort 相位建 ctx 定位轮目录靠 env 现读
+    try {
+      const context = BACKGROUND_CONTEXT;
+      const { harness } = await openHarness({ dbPath: db, models: await fauxAddBundle(FIXTURES) });
+      try {
+        const taskId = (await harness.snapshot(AddRoundsDoc, context)).rounds[ROUND].taskId;
+        assert.equal(await harness.abortTask(taskId, context), "marked", "在飞任务应可下中止标记");
+        const settled = await harness.waitForTask(taskId, context);
+        assert.equal(settled.state.outcome?.status, "aborted", `中止终态应落:${JSON.stringify(settled.state.outcome)}`);
+      } finally { await harness.close(context); }
+    } finally {
+      for (const k of keys) {
+        if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k];
+      }
+    }
+    const mirror = mirrorOf(w);
+    assert.equal(mirror.status, "aborted", "#415:中止=任务终态,镜像同词 aborted(修前=镜像停在 running)");
+    assert.deepEqual(mirror.stages, ["VERIFY"], "中止时已提交相位留痕;dossier 未成不造名");
   } finally { fs.rmSync(w.tmp, { recursive: true, force: true }); }
 });
 
@@ -371,6 +499,9 @@ test("runVerify github 家族接线(#337 F4):roster_urls 穿线;同主机异 own
     assert.equal(r2.error.detail.code, "duplicate_publisher");
     const a1b = JSON.parse(fs.readFileSync(path.join(w2.opsRoot, "rounds", ROUND, "a1-verify.json"), "utf8"));
     assert.deepEqual(a1b.roster.collisions, [cardUrl], "撞卡证据形=命中 roster url");
+    const mirror = mirrorOf(w2); // #415 评审 P2-1:G_VERIFY 红=门红出口(scriptPhase 门红支),本路径真经过它
+    assert.equal(mirror.status, "failed", "#415:门红=终态失败,镜像同写");
+    assert.deepEqual(mirror.stages, [], "VERIFY 未过门不造名");
   } finally { fs.rmSync(w2.tmp, { recursive: true, force: true }); }
 });
 

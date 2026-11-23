@@ -30,7 +30,7 @@ cd ops/agent-v2 && node --test 'tests/*.test.mjs'
 
 | 差异 | 性质 | 处置 |
 |---|---|---|
-| v2 健康轮 state.json 仅 CLOSE 终态回写(#408;真源=SQLite checkpoint+工件;轮中无件,对拍/shadow-diff 双侧排除) | 实现细节 | 不入对拍面 |
+| v2 健康轮 state.json 仅终态回写(#408 接 CLOSE;#415 起轮中失败/停笔/中止出口同写——无进度镜像,轮中成功推进仍无件;真源=SQLite checkpoint+工件,对拍/shadow-diff 双侧排除) | 实现细节 | 不入对拍面 |
 | `.v2-claim.json`(v2 健康轮轮目录认领件;跨库撞轮守卫) | v2 专属守卫落件 | 不入对拍面(shadow-diff NEW 侧白名单已列入) |
 | 09-budget.json 旧 CLOSE 也落件(非 v2 专属);真实差异=对拍载具双侧停笔 RETRO 故均不落 | 载具结构 | CLOSE 面落件由 `tests/cron-launchers.test.mjs` 钉(09-budget 存在性断言) |
 | 台账 usage 计数(in/out/total)计量边界差 | 两套 harness 合法差 | 对拍归一;cost 细胞逐字比(ENVELOPE.md §usage) |
