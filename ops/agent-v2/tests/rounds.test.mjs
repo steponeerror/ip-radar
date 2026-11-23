@@ -164,6 +164,9 @@ test("P1-5:initial 接 monthlyAdmission 读数入 state.monthly_admission;缺席
   try {
     const rebuilt = rebuildRoundCtx({ roundId: "r-p15-health", modelFace: "faux" }, ck);
     assert.deepEqual(rebuilt.state.monthly_admission, adm, "rebuildRoundCtx 透传(旧 state.json 全字段镜像面)");
+    // 钉住上面那条 DOCS_ROOT 指向:轮目录必须落在本例的临时目录下,不许落回仓根 docs/(拆掉上面那行
+    // 赋值即红;#425 评审前补钉——没有它,删掉修复套件照样绿)
+    assert.ok(fs.existsSync(path.join(tmp, "docs", "ops", "rounds", "r-p15-health")), "轮目录落在本例临时目录的 DOCS_ROOT 下,不落仓根 docs/");
   } finally {
     if (prevDocs === undefined) delete process.env.DOCS_ROOT; else process.env.DOCS_ROOT = prevDocs;
     fs.rmSync(tmp, { recursive: true, force: true });
