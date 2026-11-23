@@ -58,6 +58,7 @@ net.setDefaultAutoSelectFamilyAttemptTimeout(2500);
 import { defineTask, UsageDoc } from "@earendil-works/pi-durable";
 import { elapsedWallS } from "../budget.mjs"; // 零复制 re-export seam(旧管线纯函数单一真源)
 import { preModelCall, postModelCall, stepBoundary } from "./budget-guard.mjs"; // 执法面(文案/界值零漂移)
+import { writeOwnedRoundState } from "./round-state.mjs"; // #415:失败终态镜像(属主判在单源;finishFailed 每出口带 ctx)
 import * as gates from "../../pipeline-core/pipeline/gates.mjs"; // 零复制:gates.json 留痕件(appendGate 通用面)
 import { addPromptPath } from "../run-add.mjs"; // 提示词路径(run-add 定义面;函数声明循环安全:运行时互引,discover 同律)
 import { ensureAddHost } from "../tools/add-tools.mjs"; // 轮级编码宿主(工具面种子登记)
@@ -577,7 +578,10 @@ async function advance(runtime, context, checkpoint, patch = {}, ctx = null) {
   }), context);
   if (ctx) mirrorState(ctx, checkpoint);
 }
-async function finishFailed(runtime, context, error) {
+// #415:每个失败出口带 ctx → 属主判(round-state 单源)过了才写 failed 镜像。未过建轮守卫的
+// 出口(首相位头预算墙/bad_round)ctx 照传——属主判自己拒(未建轮/异物树不写),调用方不各自判。
+async function finishFailed(runtime, context, error, ctx = null) {
+  if (ctx) writeOwnedRoundState(ctx, "failed");
   return runtime.commit(() => ({ status: "terminal", outcome: { status: "failed", error } }), context);
 }
 async function finishOk(runtime, context, result) {
@@ -1019,26 +1023,26 @@ async function scriptPhase(task, runtime, context, phase) {
   const input = task.input;
   const cur = task.state.checkpoint;
   crashHook(phase);
+  const ctx = buildCtx(input, cur); // 纯函数无副作用;提前构造=#415 每个失败出口都有 ctx 可带
   const b = stepBoundary({ roundType: "add", knobs: input.knobs, startedAtIso: cur.startedAtIso }); // ③
-  if (!b.ok) return finishFailed(runtime, context, { message: b.message, detail: { code: b.code, stage: STAGE_OF[phase] } });
-  const ctx = buildCtx(input, cur);
+  if (!b.ok) return finishFailed(runtime, context, { message: b.message, detail: { code: b.code, stage: STAGE_OF[phase] } }, ctx);
   if (phase === "verify") {
     try { bootstrapRoundDir(ctx, cur); }
-    catch (e) { return finishFailed(runtime, context, { message: `${STAGE_OF[phase]}:${e.message}`, detail: { code: e.code ?? "infra", stage: STAGE_OF[phase] } }); }
+    catch (e) { return finishFailed(runtime, context, { message: `${STAGE_OF[phase]}:${e.message}`, detail: { code: e.code ?? "infra", stage: STAGE_OF[phase] } }, ctx); }
   }
   const stage = { name: STAGE_OF[phase], status: "done", attempts: 1, dur_ms: 0, usage: null }; // 脚本步恒零模型面(旧律)
   const t0 = Date.now();
   let rec;
   try { rec = await SCRIPT_STEPS[phase](ctx, cur); }
   catch (e) { // 域失败=终态(旧 fail 三元组;工件已写面保留=证据不灭失)
-    return finishFailed(runtime, context, { message: `${STAGE_OF[phase]}:${e.message}`, detail: { code: e.code ?? "infra", stage: STAGE_OF[phase] } });
+    return finishFailed(runtime, context, { message: `${STAGE_OF[phase]}:${e.message}`, detail: { code: e.code ?? "infra", stage: STAGE_OF[phase] } }, ctx);
   }
   stage.dur_ms = Date.now() - t0;
   const staged = [...cur.stages, stage];
   if (phase === "close") ctx.envelope = composeEnvelope({ ...cur, stages: staged }, ctx); // G_CLOSE 前置(旧引擎职责位)
   const gateRec = evalGate(phase, ctx);
   gates.appendGate(ctx.dir, ctx.roundId, gateRec);
-  if (!gateRec.pass) return finishFailed(runtime, context, { message: `GATE:${STAGE_OF[phase]}:${gateRec.reason}`, detail: { code: gateRec.code ?? "infra", stage: STAGE_OF[phase] } }); // 门红=终态(fail-closed)
+  if (!gateRec.pass) return finishFailed(runtime, context, { message: `GATE:${STAGE_OF[phase]}:${gateRec.reason}`, detail: { code: gateRec.code ?? "infra", stage: STAGE_OF[phase] } }, ctx); // 门红=终态(fail-closed)
   const next = phaseAfter(phase);
   const checkpoint = { ...cur, ...(next ? { phase: next } : {}), stages: staged, modelCalls: ctx.modelCalls, usage: { ...ctx.usage }, ...(rec?.patch ?? {}) }; // 相位推进=phase 字段前移(缺它=同相位重跑死循环)
   return next
@@ -1092,14 +1096,14 @@ async function modelLeg(task, runtime, context, phase) {
   const cur = task.state.checkpoint;
   crashHook(phase);
   const leg = MODEL_LEGS[phase];
+  const ctx = buildCtx(input, cur); // 纯函数无副作用;提前构造=#415 每个失败出口都有 ctx 可带
   const b = stepBoundary({ roundType: "add", knobs: input.knobs, startedAtIso: cur.startedAtIso }); // ③
-  if (!b.ok) return finishFailed(runtime, context, { message: b.message, detail: { code: b.code, stage: leg.stage } });
+  if (!b.ok) return finishFailed(runtime, context, { message: b.message, detail: { code: b.code, stage: leg.stage } }, ctx);
   const pb = preModelCall({ roundType: "add", knobs: input.knobs, modelCalls: cur.modelCalls, startedAtIso: cur.startedAtIso }); // ①③(每 attempt 提交前)
-  if (!pb.ok) return finishFailed(runtime, context, { message: pb.message, detail: { code: pb.code, stage: leg.stage } });
+  if (!pb.ok) return finishFailed(runtime, context, { message: pb.message, detail: { code: pb.code, stage: leg.stage } }, ctx);
 
-  const ctx = buildCtx(input, cur);
   const conversation = await runtime.conversation(runtime.conversationId, context);
-  if (!conversation) return finishFailed(runtime, context, { message: `${leg.stage}:轮会话缺席`, detail: { code: "infra", stage: leg.stage } });
+  if (!conversation) return finishFailed(runtime, context, { message: `${leg.stage}:轮会话缺席`, detail: { code: "infra", stage: leg.stage } }, ctx);
   const host = ensureAddHost(ctx, runtime.conversationId); // 轮级编码宿主(模型面工具;faux=罐装回合驱动真工具)
 
   const attempt = cur.attempt ?? 1;
@@ -1115,13 +1119,13 @@ async function modelLeg(task, runtime, context, phase) {
   const text = last?.content?.filter((c) => c.type === "text").map((c) => c.text).join("") ?? "";
   const retryOr = (code, message) => attempt < 2 // 旧 retry≤1 面:结算坏/空文本/形状坏重发新 requestId;失败 attempt 计数同步入账(旧律重试同计)
     ? advance(runtime, context, cur, { attempt: attempt + 1, modelCalls: modelCallsNow }, ctx)
-    : finishFailed(runtime, context, { message, detail: { code, stage: leg.stage } });
+    : finishFailed(runtime, context, { message, detail: { code, stage: leg.stage } }, ctx);
   if (settled.status !== "done") return retryOr("model_face", `${leg.stage}:submission_${settled.status}`);
   if (!text) return retryOr("empty_text", `${leg.stage}:empty_text`);
 
   const usageNow = await roundUsage(runtime, runtime.conversationId, context);
   const post = postModelCall({ roundType: "add", knobs: input.knobs, totalTokens: usageNow.totalTokens, costCny: usageNow.cost }); // ②(skip:无 token 界)④
-  if (!post.ok) return finishFailed(runtime, context, { message: post.message, detail: { code: post.code, stage: leg.stage } });
+  if (!post.ok) return finishFailed(runtime, context, { message: post.message, detail: { code: post.code, stage: leg.stage } }, ctx);
 
   const consumed = consumeModelText(phase, text);
   if (!consumed.ok) return retryOr("model_face", `${leg.stage}:${consumed.reason}`);
@@ -1143,7 +1147,7 @@ async function modelLeg(task, runtime, context, phase) {
 
   const gateRec = evalGate(phase, ctx);
   gates.appendGate(ctx.dir, ctx.roundId, gateRec);
-  if (!gateRec.pass) return finishFailed(runtime, context, { message: `GATE:${leg.stage}:${gateRec.reason}`, detail: { code: gateRec.code ?? "model_face", stage: leg.stage } });
+  if (!gateRec.pass) return finishFailed(runtime, context, { message: `GATE:${leg.stage}:${gateRec.reason}`, detail: { code: gateRec.code ?? "model_face", stage: leg.stage } }, ctx);
 
   // 相位步 usage=本腿增量(会话累计差分;usage 求和律:各步之和==信封 usage)
   const usageDelta = { input: usageNow.input - cur.usage.input, output: usageNow.output - cur.usage.output, totalTokens: usageNow.totalTokens - cur.usage.totalTokens, cost: usageNow.cost - cur.usage.cost };
@@ -1166,15 +1170,15 @@ async function dossierPhase(task, runtime, context) {
   if (input.bench !== true) return modelLeg(task, runtime, context, "dossier");
   const cur = task.state.checkpoint;
   crashHook("dossier");
+  const ctx = buildCtx(input, cur); // 纯函数无副作用;提前构造=#415 每个失败出口都有 ctx 可带
   const b = stepBoundary({ roundType: "add", knobs: input.knobs, startedAtIso: cur.startedAtIso });
-  if (!b.ok) return finishFailed(runtime, context, { message: b.message, detail: { code: b.code, stage: "DOSSIER" } });
+  if (!b.ok) return finishFailed(runtime, context, { message: b.message, detail: { code: b.code, stage: "DOSSIER" } }, ctx);
   const r = dossierShape(input.dossier);
-  if (!r.ok) return finishFailed(runtime, context, { message: `DOSSIER:bench 交接单形状坏:${r.reason}`, detail: { code: "model_face", stage: "DOSSIER" } });
-  const ctx = buildCtx(input, cur);
+  if (!r.ok) return finishFailed(runtime, context, { message: `DOSSIER:bench 交接单形状坏:${r.reason}`, detail: { code: "model_face", stage: "DOSSIER" } }, ctx);
   writeJson(path.join(ctx.dir, ART.DOSSIER), { round_id: input.roundId, bench: true, dossier: r.dossier, generated_at: new Date().toISOString() });
   const gateRec = evalGate("dossier", ctx);
   gates.appendGate(ctx.dir, ctx.roundId, gateRec);
-  if (!gateRec.pass) return finishFailed(runtime, context, { message: `GATE:DOSSIER:${gateRec.reason}`, detail: { code: gateRec.code ?? "model_face", stage: "DOSSIER" } });
+  if (!gateRec.pass) return finishFailed(runtime, context, { message: `GATE:DOSSIER:${gateRec.reason}`, detail: { code: gateRec.code ?? "model_face", stage: "DOSSIER" } }, ctx);
   return advance(runtime, context, { ...cur, phase: "implement", dossier: r.dossier }, {}, ctx); // stages 不记跳过相位(discover bench 截断同律)
 }
 
