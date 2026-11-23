@@ -151,7 +151,7 @@ def _seed_ops_tree(ops_dir):
 
 
 @pytest.fixture
-def bridge_sandbox(tmp_path, monkeypatch):
+def bridge_sandbox(tmp_path, tmp_path_factory, monkeypatch):
     """隔离 ops 树 + 零网络/零外发世界 + faux 面 shim;返回 stderr 行收集器(list)。"""
     import ipdb._ops_store as ops_store
 
@@ -162,12 +162,12 @@ def bridge_sandbox(tmp_path, monkeypatch):
                 "ZAI_CODING_CN_API_KEY", "JINA_API_KEY", "GH_TOKEN", "IP_RADAR_ALERT_URLS"):
             monkeypatch.delenv(name)
     monkeypatch.setenv("OPS_SWEEP_DRY_RUN", "1")             # finding 出口恒 dry-run(零外发)
-    # 诱饵:ambient DOCS_ROOT 族三名指向**不是 UI 读根**的目录。桥在工作 → 三名全被
-    # _round_env 覆盖,诱饵不生效;桥断(不注入 / 注错目录)→ 轮写进诱饵树,UI 读面空 →
-    # 本门红,且断供现场不落进仓内 docs/(主检出 docs/ 是嵌套判例真源仓)。诱饵树同样
-    # 播种两件夹具:让「桥断」呈现为 #403 式静默断供(轮全绿收口、件落别处、UI 读面空),
-    # 而不是轮在 TRIAGE 早死——本门要抓的正是前者。
-    decoy = tmp_path / "ambient-decoy"
+    # 诱饵:ambient DOCS_ROOT 族三名指向一棵**不是 UI 读根、也不在 $IP_RADAR_DATA_DIR 之下**
+    # 的树。桥在工作 → 三名全被 _round_env 覆盖,诱饵不生效;桥断(不注入 / 注错目录)→
+    # 轮写进诱饵树,UI 读面空 → 本门红,且断供现场不落进仓内 docs/(主检出 docs/ 是嵌套
+    # 判例真源仓)。诱饵树同样播种两件夹具:让「桥断」呈现为 #403 式静默断供(轮全绿
+    # 收口、件落别处、UI 读面空),而不是轮在 TRIAGE 早死——本门要抓的正是前者。
+    decoy = tmp_path_factory.mktemp("ambient-decoy")
     monkeypatch.setenv("DOCS_ROOT", str(decoy))
     monkeypatch.setenv("PRECEDENTS_DIR", str(decoy / "ops" / "precedents"))
     monkeypatch.setenv("LEDGER_FILE", str(decoy / "ops" / "ledger.md"))
