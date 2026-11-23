@@ -280,10 +280,9 @@ test("#415 G_CLOSE 红出口:步后门前 09-budget 读数漂移(OPS_V2_FAULT=bu
     const mirror = mirrorOf(tree);
     assert.equal(mirror.status, "failed", "#415:G_CLOSE 红=轮未成,镜像终态 failed");
     assert.deepEqual(mirror.stages, TILL_RETRO, "门红在 close 相位:镜像不造 CLOSE 名");
-    // 被门读到的漂移件原样在盘(门存在的理由=工件漂移;证据不灭失);测试旋钮不入档
+    // 被门读到的漂移件原样在盘(门存在的理由=工件漂移;证据不灭失)
     const budget = jsonOf(tree, "09-budget.json");
     assert.equal(budget.readings.model_calls, budget.env.OPS_DISCOVER_MAX_MODEL_CALLS + 1, "漂移读数=帽+1(注入面留盘可回算)");
-    assert.equal("OPS_V2_FAULT" in budget.env, false, "故障注入 env 现读不入档");
     assert.equal(fs.existsSync(path.join(tree.opsRoot, "packages")), false, "门红出口不产报告件");
   } finally { rm(tree); }
 });

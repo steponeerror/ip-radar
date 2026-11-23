@@ -499,6 +499,9 @@ test("runVerify github 家族接线(#337 F4):roster_urls 穿线;同主机异 own
     assert.equal(r2.error.detail.code, "duplicate_publisher");
     const a1b = JSON.parse(fs.readFileSync(path.join(w2.opsRoot, "rounds", ROUND, "a1-verify.json"), "utf8"));
     assert.deepEqual(a1b.roster.collisions, [cardUrl], "撞卡证据形=命中 roster url");
+    const mirror = mirrorOf(w2); // #415 评审 P2-1:G_VERIFY 红=门红出口(scriptPhase 门红支),本路径真经过它
+    assert.equal(mirror.status, "failed", "#415:门红=终态失败,镜像同写");
+    assert.deepEqual(mirror.stages, [], "VERIFY 未过门不造名");
   } finally { fs.rmSync(w2.tmp, { recursive: true, force: true }); }
 });
 

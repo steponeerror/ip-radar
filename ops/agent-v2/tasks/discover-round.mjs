@@ -83,10 +83,14 @@ function crashHook(phase) {
 // 是单 catch 汇聚(runClose),报告写败 E2E 已覆盖同一出口。
 function budgetDriftHook(phase, ctx) {
   if (phase !== "close" || process.env.OPS_V2_FAULT !== "budget_drift") return;
-  const file = path.join(ctx.dir, "09-budget.json");
-  const b = JSON.parse(fs.readFileSync(file, "utf8"));
-  b.readings.model_calls = b.env.OPS_DISCOVER_MAX_MODEL_CALLS + 1;
-  fs.writeFileSync(file, JSON.stringify(b, null, 2) + "\n");
+  try { // 评审 P3-5:缝在步的 try/catch 之外,自己出错裸抛=任务判 faulted;注入失败时用例自然红(门不会红)
+    const file = path.join(ctx.dir, "09-budget.json");
+    const b = JSON.parse(fs.readFileSync(file, "utf8"));
+    b.readings.model_calls = b.env.OPS_DISCOVER_MAX_MODEL_CALLS + 1;
+    fs.writeFileSync(file, JSON.stringify(b, null, 2) + "\n");
+  } catch (e) {
+    ctx.log?.(`[fault] budget_drift 注入失败:${e?.message ?? e}`);
+  }
 }
 
 // bench 模式开关(票 #318,spec §3.1):input.benchOpsRoot 在场即 bench 盲测轮——

@@ -1,8 +1,9 @@
 // round-state.mjs — v2 轮终态回写单源(工单 #408;#415 扩到全部终态出口)。
 // Why:v2 轮(discover/health/add)真源=checkpoint(SQLite),rounds/<id>/state.json 只是
 // 进度镜像;但 CLOSE 后 discover 镜像停在 running、health 干脆无件(#408 时 add 尚未
-// 接线,#415 补)——轮实际已结束,状态文件在说谎(读面:boot 扫描
-// backend/ipdb/_ops_rounds.py、UI 轮次徽章链 #407)。
+// 接线,#415 补)——轮实际已结束,状态文件在说谎(读面:scripts/daily-digest.mjs
+// 的加轮摘要读 status;启动扫描只认 in_flight、UI 轮次徽章链 #407 都不读本件——
+// #415 评审 P2-2 订正)。
 // #408:CLOSE 相位与 writeRoundReport 同接线点被调(#403 判例同位),把终态写回镜像。
 // #415:终态不止 CLOSE 一条路——轮中途失败/中止/停笔的任务终态出口同样经本模块写镜像
 // (三任务每个 terminal commit 之前;例外=health 认领守卫的异主 bad_round 出口,不属主不写;
@@ -58,7 +59,9 @@ export function writeTerminalRoundState(ctx, { status, stage = null, stages = nu
 // 两者皆否=未建轮(无件,不凭空造轮目录)/异物树/同 id 旧轮终态件 → 不写。
 // health 轮不走本判(轮中无进度镜像,属主=认领件 .v2-claim.json,claimGuard 已核)。
 function ownsRoundDir(ctx) {
-  if (ctx.state.stages.length > 0) return true;
+  // 评审 P3-4:本函数跑在终态 commit 之前,是全模块唯一可能「镜像逻辑把轮判失败」的点——
+  // ctx.state.stages 不是数组时按「未提交相位」走盘上件判,不在此抛(今天各调用点恒数组)。
+  if (Array.isArray(ctx.state?.stages) && ctx.state.stages.length > 0) return true;
   const prior = readJson(path.join(ctx.dir, "state.json"));
   return prior?.round_id === ctx.roundId && Array.isArray(prior.stages) && prior.stages.length === 0;
 }
