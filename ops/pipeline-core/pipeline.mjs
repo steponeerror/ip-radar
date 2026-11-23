@@ -18,7 +18,7 @@ import * as steps from "./pipeline/steps.mjs";
 import * as gates from "./pipeline/gates.mjs";
 import { runModelStep, selectModelFace } from "./pipeline/faux.mjs";
 import * as budget from "./pipeline/budget.mjs"; // #199 A1:预算四界旋钮+执法纯函数(单源)
-import { writeRoundReport } from "./pipeline/round-report.mjs"; // #403:CLOSE 轮报告件(packages 断供修复;单源=v2 三接线同模块)
+import { writeRoundReport } from "./pipeline/round-report.mjs"; // #403:CLOSE 轮报告件(packages 断供修复;单源=agent-v2 两任务 CLOSE 同模块,含本宿主共三接线)
 import { readBreakerKnobs } from "./tools/breaker.mjs"; // #199 B:P16 跨轮熔断旋钮(轮始校验同 budget 判例;零环)
 
 const AGENT_DIR = path.dirname(fileURLToPath(import.meta.url));

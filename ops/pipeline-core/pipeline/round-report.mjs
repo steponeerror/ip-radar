@@ -12,7 +12,7 @@
 // 命名 `${date}-${type}-${HHMM}[-rN].md`:保持 frontend/src/pages/opsLedger.ts
 // pkgMatchesRow 的「日期+轮型前缀」关联(改向即与台账行失联);backend
 // _ops_store.validate_ops_filename 纯文件名形状兼容。
-// 消费方向:ops/agent-v2 三接线零复制 import 本模块(仓内单向依赖惯例 v2→v1,方向勿反)。
+// 消费方向:三处接线零复制 import 本模块——agent-v2 两任务(tasks/health-round.mjs、tasks/discover-round.mjs,各在 CLOSE 相位)+ v1 宿主 pipeline.mjs(CLOSE;#412 后=UI 健康轮缺省宿主,backend/ipdb/_ops_rounds.py _DEFAULT_HEALTH_CMD)。仓内单向依赖惯例 v2→v1,方向勿反。
 // 纪律:内容全部确定性读盘上工件(缺件跳节不掷错,宁少算;不造无证据数字;无时钟
 // 入文=幂等重写逐字节同);落盘原子写(tmp+rename,沿 _ops_store.atomic_write_text
 // 判例);写败掷 {code:"infra"} 由调用面按既有失败路径收口(fail loud:静默=用户
@@ -134,8 +134,8 @@ function conclusionOf({ type, dir, stages }) {
 // 渲染 markdown(确定性:读盘上工件+信封,无时钟入文)。#420 起结论先行+概览表:
 // 人读面首屏即「这轮有没有事」,原始数字全部仍在(门表/分型读数/信封,证据不灭失)。
 // 相位表前两列形「| NAME | status |」冻结(v2/selftest 断言依赖);每相位用量细目
-// 折入信封 JSON stages,人读表不重复——信封缺席=每相位用量证据缺口(v1/v2 三接线
-// 今日恒传 ctx.envelope,未来接线勿裸调,评审 #420 P3-3)。
+// 折入信封 JSON stages,人读表不重复——信封缺席=每相位用量证据缺口(v1 宿主一处 + agent-v2
+// 两任务,共三接线今日恒传 ctx.envelope,未来接线勿裸调,评审 #420 P3-3)。
 function renderRoundReport({ roundId, type, engine, ctx, stages }) {
   const st = ctx.state ?? {};
   const L = [

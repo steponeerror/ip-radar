@@ -59,12 +59,12 @@ test("syncRrsiSplitPins/syncRrsiDomainPin:八钉一针全同步,注记重写;漂
   const out = syncRrsiSplitPins(split, { evolve: 42, heldout: 14, total: 56, rosterTotal: 64, exempt: 8, tag: "2026-11-21" });
   assert.ok(out.includes("结构不变式:42 演化 + 14 留出"));
   assert.ok(out.includes("assert.equal(meta.heldout, 14);"));
-  assert.ok(out.includes('assert.equal(rows.length, 56, "考题总数 = 56(64 源 − 8 免考;2026-11-21 fleet 再冻结)");'));
+  assert.ok(out.includes('assert.equal(rows.length, 56, "考题总数 = 56(64 源 − 8 免考;2026-11-21 再冻结)");'));
   assert.ok(out.includes("assert.equal(new Set(names).size, 56"));
-  assert.ok(out.includes("assert.equal(exam.length, 56, `真 roster 考题数漂移:${exam.length} ≠ 56——冻结名单须重裁(2026-11-21 fleet 再冻结)`);"));
+  assert.ok(out.includes("assert.equal(exam.length, 56, `真 roster 考题数漂移:${exam.length} ≠ 56——冻结名单须重裁(2026-11-21 再冻结)`);"));
   assert.throws(() => syncRrsiSplitPins(split.replace("考题总数", "总数"), { evolve: 42, heldout: 14, total: 56, rosterTotal: 64, exempt: 8, tag: "x" }), /钉面漂移/, "钉面措辞改版=红(数字变化不红——同步语义)");
   const dom = '  assert.equal(criticProbe.total, 55, "每考题一行一针(55 行;2026-11-18 再冻结)");';
-  assert.equal(syncRrsiDomainPin(dom, { total: 56, tag: "2026-11-21" }), '  assert.equal(criticProbe.total, 56, "每考题一行一针(56 行;2026-11-21 fleet 再冻结)");');
+  assert.equal(syncRrsiDomainPin(dom, { total: 56, tag: "2026-11-21" }), '  assert.equal(criticProbe.total, 56, "每考题一行一针(56 行;2026-11-21 再冻结)");');
 });
 
 test("bumpDiscoverySmokePin:计数+注记追加;insertSnapshotRow:插入+已在幂等", () => {

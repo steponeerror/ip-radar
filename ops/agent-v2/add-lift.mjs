@@ -84,23 +84,26 @@ export function insertReadmeRow(text, sectionTitle, row) {
 }
 
 // rrsi 劈分测试钉同步(b9f9dc19 判例的机械面:数字钉+注记重写)
+// 注记措辞=中性「<tag> 再冻结」(#425):「fleet」词已随 #375 驱动器退役,模板再带它=下次手动
+// lift 把退役词写回钉注。三条注记正则照旧整段重写原注记(下次 lift 会把 #414 留下的出处注
+// 换成「<日期> 再冻结」——保留出处不在本票范围)。
 export function syncRrsiSplitPins(text, { evolve, heldout, total, rosterTotal, exempt, tag }) {
   let t = String(text);
   t = sub1(t, /结构不变式:\d+ 演化 \+ \d+ 留出/, () => `结构不变式:${evolve} 演化 + ${heldout} 留出`, "rrsi-split 测试标题钉");
   t = sub1(t, /assert\.equal\(meta\.evolve, \d+\);/, () => `assert.equal(meta.evolve, ${evolve});`, "meta.evolve 钉");
   t = sub1(t, /assert\.equal\(meta\.heldout, \d+\);/, () => `assert.equal(meta.heldout, ${heldout});`, "meta.heldout 钉");
   t = sub1(t, /assert\.equal\(rows\.length, \d+, "考题总数 = \d+\(\d+ 源 − \d+ 免考;[^"]*"\);/,
-    () => `assert.equal(rows.length, ${total}, "考题总数 = ${total}(${rosterTotal} 源 − ${exempt} 免考;${tag} fleet 再冻结)");`, "rows.length 钉");
+    () => `assert.equal(rows.length, ${total}, "考题总数 = ${total}(${rosterTotal} 源 − ${exempt} 免考;${tag} 再冻结)");`, "rows.length 钉");
   t = sub1(t, /assert\.equal\(evolve\.length, \d+\);/, () => `assert.equal(evolve.length, ${evolve});`, "evolve.length 钉");
   t = sub1(t, /assert\.equal\(heldout\.length, \d+\);/, () => `assert.equal(heldout.length, ${heldout});`, "heldout.length 钉");
   t = sub1(t, /assert\.equal\(new Set\(names\)\.size, \d+, "无重复"\);/, () => `assert.equal(new Set(names).size, ${total}, "无重复");`, "names 去重钉");
   t = sub1(t, /assert\.equal\(exam\.length, \d+, `真 roster 考题数漂移:\$\{exam\.length\} ≠ \d+——冻结名单须重裁\([^`]*\)`\);/,
-    () => "assert.equal(exam.length, " + total + ", `真 roster 考题数漂移:${exam.length} ≠ " + total + "——冻结名单须重裁(" + tag + " fleet 再冻结)`);", "exam.length 钉");
+    () => "assert.equal(exam.length, " + total + ", `真 roster 考题数漂移:${exam.length} ≠ " + total + "——冻结名单须重裁(" + tag + " 再冻结)`);", "exam.length 钉");
   return t;
 }
 export function syncRrsiDomainPin(text, { total, tag }) {
   return sub1(String(text), /assert\.equal\(criticProbe\.total, \d+, "每考题一行一针\(\d+ 行;[^"]*"\);/,
-    () => `assert.equal(criticProbe.total, ${total}, "每考题一行一针(${total} 行;${tag} fleet 再冻结)");`, "critic 针数钉");
+    () => `assert.equal(criticProbe.total, ${total}, "每考题一行一针(${total} 行;${tag} 再冻结)");`, "critic 针数钉");
 }
 
 // 发现冒烟计数钉(test_b_family_url_filename_guard.py;mirage #359「roster 钉同步」同面)
