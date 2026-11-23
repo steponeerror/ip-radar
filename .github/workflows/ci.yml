@@ -36,7 +36,7 @@ jobs:
           retention-days: 1
       # T6(2026-10-19): ops 标准答案集回归探针(golden cases)——faux provider 跑真 agent 回路,零 API 花费;
       # 自带 fixture 判例树,不依赖嵌套 docs 仓(T1 docs skip 判例同型问题不存在),仅依赖
-      # node+npm 供给(本 job 已具备)+rg(ubuntu runner 预装,兜底 apt 装)。真模型 smoke 层
+      # node+npm 供给(本 job 已具备)+rg(ubuntu runner 不预装,#427 实测;下一步守卫装)。真模型 smoke 层
       # 单列不进 CI(计划书 Task 6 Step 2)。沙箱断言面对 checkout 干净仓(同 仓内 step 均落 ignore 面)。
       - name: Ops agent golden set (faux, no API spend)
         # #412 单包:依赖在 ops/ 包根一份 node_modules(旧 ops/agent 局部 npm ci 退役)
@@ -203,6 +203,8 @@ jobs:
           cache-dependency-path: ops/package-lock.json
       - run: npm ci --no-fund --no-audit
         working-directory: ops
+      # rg:ubuntu runner 不预装(#427 首跑实测:没有这行时 spawn rg ENOENT,轮类用例成片红)
+      - run: command -v rg >/dev/null 2>&1 || sudo apt-get install -y -q ripgrep
       - name: agent-v2 unit tests (cd ops && npm test)
         run: npm test
         working-directory: ops
@@ -235,6 +237,8 @@ jobs:
           cache-dependency-path: ops/package-lock.json
       - run: npm ci --no-fund --no-audit
         working-directory: ops
+      # rg:同上,runner 不预装(首跑 5 条红全是「rg 不可用」)
+      - run: command -v rg >/dev/null 2>&1 || sudo apt-get install -y -q ripgrep
       # 顶层 11 个文件 + #413 的产出契约门(同一 glob,重复跑无害):一个进程整目录合跑
       # (本机与全量参考跑都是单进程全绿;tests/core 才有跨文件污染,#17)
       - name: Tests — top-level whole-dir (ops store/read/review/ruling/items/detectors/config/rounds, paths, precedent schema)
