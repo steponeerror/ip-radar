@@ -268,6 +268,26 @@ test("#415 close 步抛出口:09-budget.json 被占为目录 → CLOSE 步 EISDI
   } finally { rm(tree); }
 });
 
+test("#415 G_CLOSE 红出口:步后门前 09-budget 读数漂移(OPS_V2_FAULT=budget_drift 测试缝)→ GATE:CLOSE → 镜像 failed", async () => {
+  const tree = tmpTree("v2-disc-gclose-");
+  try {
+    const r = await runRound(tree, undefined, FIXTURES, { OPS_V2_FAULT: "budget_drift" });
+    assert.equal(r.status, "failed", JSON.stringify(r));
+    assert.match(r.error.message, /^GATE:CLOSE:读数超帽:model_calls=/, "失败面须是 G_CLOSE 门红(门读盘上 09-budget.json 对拍帽)");
+    const gates = jsonOf(tree, "gates.json").records;
+    assert.equal(gates.at(-1).name, "G_CLOSE");
+    assert.equal(gates.at(-1).pass, false, "门留痕=红");
+    const mirror = mirrorOf(tree);
+    assert.equal(mirror.status, "failed", "#415:G_CLOSE 红=轮未成,镜像终态 failed");
+    assert.deepEqual(mirror.stages, TILL_RETRO, "门红在 close 相位:镜像不造 CLOSE 名");
+    // 被门读到的漂移件原样在盘(门存在的理由=工件漂移;证据不灭失);测试旋钮不入档
+    const budget = jsonOf(tree, "09-budget.json");
+    assert.equal(budget.readings.model_calls, budget.env.OPS_DISCOVER_MAX_MODEL_CALLS + 1, "漂移读数=帽+1(注入面留盘可回算)");
+    assert.equal("OPS_V2_FAULT" in budget.env, false, "故障注入 env 现读不入档");
+    assert.equal(fs.existsSync(path.join(tree.opsRoot, "packages")), false, "门红出口不产报告件");
+  } finally { rm(tree); }
+});
+
 test("#415 mid-round 步抛出口(MEASURE):d3-measure.json 被占为目录 → MEASURE:EISDIR → 镜像 failed,stages=[SCAN,SHORTLIST]", async () => {
   const tree = tmpTree("v2-disc-midthrow-");
   fs.mkdirSync(path.join(roundDirOf(tree), "d3-measure.json"), { recursive: true }); // 零缝注入(同 close 步抛)

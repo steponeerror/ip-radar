@@ -74,6 +74,21 @@ function crashHook(phase) {
   if (process.env.OPS_V2_CRASH_AFTER_PHASE === phase) process.kill(process.pid, "SIGKILL");
 }
 
+// 工件漂移注入缝(测试面;env 现读不入档,crashHook 同律;工单 #415 专项 E2E 的 G_CLOSE 红注入面)。
+// Why 需要缝:G_CLOSE 是回声哨——环内已执法(相位头 stepBoundary/attempt 前 preModelCall
+// 与本门读同一计数、同一轮始冻结旋钮对象 input.knobs),读数≤帽在健康轮恒成立,门无法
+// 自然红;门存在的理由=09-budget.json 工件漂移/篡改。本缝在 close 步后、G_CLOSE 门前把
+// 读数改成超帽(=造一次漂移),门评估/门红出口零绕行(生产 env 不设=零行为变化)。
+// 只装 discover:两处 #408 评审 P2-2 出口(步抛/G_CLOSE 红)在本文件;health 的 close 相位
+// 是单 catch 汇聚(runClose),报告写败 E2E 已覆盖同一出口。
+function budgetDriftHook(phase, ctx) {
+  if (phase !== "close" || process.env.OPS_V2_FAULT !== "budget_drift") return;
+  const file = path.join(ctx.dir, "09-budget.json");
+  const b = JSON.parse(fs.readFileSync(file, "utf8"));
+  b.readings.model_calls = b.env.OPS_DISCOVER_MAX_MODEL_CALLS + 1;
+  fs.writeFileSync(file, JSON.stringify(b, null, 2) + "\n");
+}
+
 // bench 模式开关(票 #318,spec §3.1):input.benchOpsRoot 在场即 bench 盲测轮——
 // opsRoot=沙箱 dev/bench-rediscover/<roundId>/(随 opsRoot 派生的 breaker/工件树全落沙箱),
 // 台账随沙箱派生(breaker 三转移留痕面 mkBreaker 经 ctx.ledgerFile);SCAN=bench 变体,
@@ -237,6 +252,7 @@ async function scriptPhase(task, runtime, context, phase) {
   // 轮累计回填每步会把 SHORTLIST 计数回声 6 次)
   const staged = [...cur.stages, stage];
   if (phase === "close") ctx.envelope = composeEnvelope({ ...cur, stages: staged }, ctx); // G_CLOSE 前置(旧引擎职责位;含 CLOSE 自身=旧门读 6 stages 序)
+  budgetDriftHook(phase, ctx); // #415 测试面漂移注入(生产 env 不设=空操作)
   const gate = gates.evalStageGate(def, ctx);
   if (rec?.skipGate) gates.appendGateBypass(ctx.dir, ctx.roundId, def, String(rec.degraded));
   else gates.appendGate(ctx.dir, ctx.roundId, gate);
