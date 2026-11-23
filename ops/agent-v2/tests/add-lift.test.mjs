@@ -16,6 +16,7 @@ import {
   insertReadmeRow, syncRrsiSplitPins, syncRrsiDomainPin, bumpDiscoverySmokePin, insertSnapshotRow,
   changelogEntries, composePrBody, roundStemOf, setFrozenFlag,
 } from "../add-lift.mjs";
+import { mainCheckoutRoot } from "../bench/leak-check.mjs";
 
 const HERE = import.meta.dirname;
 const REPO = path.resolve(HERE, "..", "..", "..");
@@ -91,7 +92,7 @@ test("changelogEntries/composePrBody:双语对+轮四行数入文", () => {
   assert.ok(body.includes("轮四行数"));
 });
 
-test("roundStemOf:registry 名真源=a3-implement.json 的 stem(卡 id≠stem 判例 2026-11-20-2210:卡 sgb_blocklist/registry gorkemgun_sgb_blocklist)", async () => {
+test("roundStemOf:registry 名真源=a3-implement.json 的 stem(卡 id≠stem 判例 2026-11-20-2210:卡 sgb_blocklist/registry gorkemgun_sgb_blocklist)", () => {
   const mk = (dir, stem) => { fs.mkdirSync(dir, { recursive: true }); if (stem === null) fs.writeFileSync(path.join(dir, "a3-implement.json"), "{}"); else fs.writeFileSync(path.join(dir, "a3-implement.json"), JSON.stringify({ stem })); };
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "fleet-a3-"));
   mk(path.join(tmp, "ok"), "gorkemgun_sgb_blocklist");
@@ -101,12 +102,18 @@ test("roundStemOf:registry 名真源=a3-implement.json 的 stem(卡 id≠stem �
   assert.equal(roundStemOf(path.join(tmp, "missing")), null);
   assert.equal(roundStemOf(path.join(tmp, "bad")), null);
   assert.equal(roundStemOf(path.join(tmp, "absent")), null);
-  // 真轮工件只读回归:2026-11-20-2210-add 实测 stem(轮工件在主检出 docs/ops/rounds/,worktree 无 docs)。
-  // 锚=mainCheckoutRoot(#337 判例,同 add-liveness.test.mjs 算式):REPO/../../ 只在 .worktrees/<名>
-  // 布局成立,主检出自身跑必红(评审 P1-1,2026-11-20);主检出自身=退化同根。
-  const { mainCheckoutRoot } = await import("../bench/leak-check.mjs");
-  const mainRoot = mainCheckoutRoot(REPO) ?? REPO;
-  assert.equal(roundStemOf(path.resolve(mainRoot, "docs", "ops", "rounds", "2026-11-20-2210-add")), "gorkemgun_sgb_blocklist");
+});
+
+// 真轮工件只读回归(合成面之外的第二条腿):2026-11-20-2210-add 实测 stem。轮工件在主检出的嵌套
+// docs 仓 docs/ops/rounds/;CI checkout 没有 → 显式 skip(rrsi-split 的 SKIP_ROSTER、
+// test_precedent_schema.py 同口径:供给缺席不假红,也不算绿)。
+// 锚=mainCheckoutRoot(#337 判例,同 add-liveness.test.mjs 算式):REPO/../../ 只在 .worktrees/<名>
+// 布局成立,主检出自身=退化同根。
+const REAL_ADD_ROUND = path.resolve(mainCheckoutRoot(REPO) ?? REPO, "docs", "ops", "rounds", "2026-11-20-2210-add");
+test("roundStemOf 真轮工件只读回归:2026-11-20-2210-add 的 a3-implement.json stem = gorkemgun_sgb_blocklist", {
+  skip: fs.existsSync(path.join(REAL_ADD_ROUND, "a3-implement.json")) ? false : `嵌套 docs 仓缺席:${REAL_ADD_ROUND} 无 a3-implement.json`,
+}, () => {
+  assert.equal(roundStemOf(REAL_ADD_ROUND), "gorkemgun_sgb_blocklist");
 });
 
 // ── lift 文本变换:真仓件只读回归钉(钉面漂移先红在此,非真跑轮时)──

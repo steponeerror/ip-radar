@@ -36,7 +36,7 @@ jobs:
           retention-days: 1
       # T6(2026-10-19): ops 标准答案集回归探针(golden cases)——faux provider 跑真 agent 回路,零 API 花费;
       # 自带 fixture 判例树,不依赖嵌套 docs 仓(T1 docs skip 判例同型问题不存在),仅依赖
-      # node+npm 供给(本 job 已具备)+rg(ubuntu runner 预装,兜底 apt 装)。真模型 smoke 层
+      # node+npm 供给(本 job 已具备)+rg(ubuntu runner 不预装,#427 实测;下一步守卫装)。真模型 smoke 层
       # 单列不进 CI(计划书 Task 6 Step 2)。沙箱断言面对 checkout 干净仓(同 仓内 step 均落 ignore 面)。
       - name: Ops agent golden set (faux, no API spend)
         # #412 单包:依赖在 ops/ 包根一份 node_modules(旧 ops/agent 局部 npm ci 退役)
@@ -187,6 +187,76 @@ jobs:
             fi
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
+
+  # #427:两套此前不在任何持门步里的测试进 CI,各自成 job、与 frontend/backend 并行,
+  # 都在 backend job 跑完之前结束,可合并时间不变。
+  # ① ops_unit:agent-v2 整套单测(`cd ops && npm test`;CI 实测 324 测 58 秒,8 条跳过逐条带
+  #    原因)——此前 CI 只跑 golden 对拍与 selftest 伞面。要四样供给:node + ops/node_modules、
+  #    rg、带 backend 依赖的 python(经 OPS_ADD_PYTHON 指给测试)。
+  ops_unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: ops/package-lock.json
+      - run: npm ci --no-fund --no-audit
+        working-directory: ops
+      # 加源轮 / 演化轮家族要一个装了 backend 依赖的解释器,在沙箱里跑真 pytest
+      # (run-add.mjs resolveAddPython:OPS_ADD_PYTHON 优先,缺省是主检出 backend/.venv 的绝对路径;
+      # #427 第二次试跑 17 红里 16 条是「沙箱测试解释器缺席」,余 1 条是真轮工件缺席)。
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+      - run: python -m pip install -r backend/requirements-dev.txt
+      # rg:ubuntu runner 不预装(#427 首跑实测:没有这行时 spawn rg ENOENT,轮类用例成片红)
+      - run: command -v rg >/dev/null 2>&1 || sudo apt-get install -y -q ripgrep
+      - name: agent-v2 unit tests (cd ops && npm test)
+        run: npm test
+        working-directory: ops
+        env:
+          OPS_ADD_PYTHON: ${{ env.pythonLocation }}/bin/python
+  # ② backend_toplevel:backend/tests 顶层的测试文件(持门两步只点名 tests/core 逐文件与
+  #    八个子目录;顶层 11 个文件此前只有不持门的全量参考跑会跑到。CI 实测
+  #    249 过/2 跳,17 秒;下面的 glob 展开成 12 个文件=顶层 11 个加 #413 那一个,共 251 条,两条跳过=
+  #    真模型 e2e 无凭证、判例 schema 无嵌套 docs 仓)。桥相关用例要 node + ops/node_modules;
+  #    路由用例要 frontend/dist(与 backend job 同一份产物),故 needs frontend。
+  backend_toplevel:
+    needs: frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: ops/package-lock.json
+      - run: npm ci --no-fund --no-audit
+        working-directory: ops
+      # rg:同上,runner 不预装(首跑 5 条红全是「rg 不可用」)
+      - run: command -v rg >/dev/null 2>&1 || sudo apt-get install -y -q ripgrep
+      # 顶层 11 个文件 + #413 的产出契约门(同一 glob,重复跑无害):一个进程整目录合跑
+      # (本机与全量参考跑都是单进程全绿;tests/core 才有跨文件污染,#17)
+      # -rs:跳过原因进日志,与 ops 侧 TAP 的 # SKIP 同口径
+      - name: Tests — top-level whole-dir (ops store/read/review/ruling/items/detectors/config/rounds, paths, precedent schema)
+        run: python -m pytest tests/test_*.py -q -rs -p no:cacheprovider
 
   docker:
     # validates the artifact users actually deploy: docker compose up -d --build
