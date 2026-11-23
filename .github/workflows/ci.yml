@@ -112,6 +112,37 @@ jobs:
           python -m pytest ../scripts -q
       - name: Bit-identity smoke (R3-F2①) — bench_lookup snapshot/compare round-trip
         run: ../scripts/ci_bitidentity_smoke.sh
+      # #304③ 的全量单进程参考跑(不持门;实测 737s、占本 job 八成耗时)和 SKIP 计数摘要
+      # 已拆到独立 job backend_reference(#431):本 job 只留持门步骤与 pip-audit。
+      - name: Dependency audit (pip-audit)
+        run: |
+          pip install pip-audit
+          pip-audit --skip-editable
+        continue-on-error: true # informative for a security tool, does not gate
+
+  backend_reference:
+    # #431:全量单进程参考跑(#304③ 的抖动跟踪件)拆成独立 job——它一直不持门,但原先挂在
+    # backend job 末尾(run 45184217040 实测 737s,占该 job 15.3 分钟的八成),可合并时间被它
+    # 拖长。拆出后与 backend 并行;本 job 不在分支保护的必需检查里,结论不影响可合并。
+    # needs frontend 同 backend:部分测试断言 frontend/dist 内容。
+    name: Backend — full suite in one process (reference only, not a gate)
+    needs: frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
       # #304③:全量单进程参考跑 tee 留档——下一少一非门控步从 pytest 输出提取 SKIP 计数
       # 打进 job 摘要(docs 嵌套仓缺席的静默 skip 判例形=tests/ 根 test_precedent_schema.py
       # 模块级 skip,只被本全量跑碰到,门控两步不碰它,故只 tee 本步);pipefail 保
@@ -139,11 +170,7 @@ jobs:
               echo "- (全量参考步未运行或未留档,无可计)"
             fi
           } | tee -a "$GITHUB_STEP_SUMMARY"
-      - name: Dependency audit (pip-audit)
-        run: |
-          pip install pip-audit
-          pip-audit --skip-editable
-        continue-on-error: true # informative for a security tool, does not gate
+
 
   docker:
     # validates the artifact users actually deploy: docker compose up -d --build
