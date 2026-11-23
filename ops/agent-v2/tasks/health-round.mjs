@@ -28,7 +28,7 @@ import { roundKnobs, stepBoundary, postModelCall, knobNames } from "./budget-gua
 import { OPS_MODEL_ROUND, conversationUsage, conversationModelCalls } from "./model-round.mjs"; // P1-4:failed 子任务留痕计量面
 import { mkFauxFace, loadFauxFixture } from "../faux-face.mjs"; // 修复⑥:faux 面分派件(旧 faux.mjs 字节级一致副本)
 import { writeRoundReport } from "../../pipeline-core/pipeline/round-report.mjs"; // #403:轮报告件单源(v2 零复制 import v1)
-import { writeTerminalRoundState } from "./round-state.mjs"; // #408:CLOSE 终态回写 state.json 镜像(与报告件同接线点)
+import { writeTerminalRoundState } from "./round-state.mjs"; // #408:CLOSE 终态回写 state.json 镜像(与报告件同接线点);#415:轮中失败出口同写
 import { OPS_PROBE_TOOLS } from "../tools/probes.mjs"; // DEEP 真面探针闭集(AgentChange.modelTools 要 ToolRegistration 对象非名字串——applyChange names() 映射 .name)
 
 const nowIso = () => new Date().toISOString();
@@ -68,8 +68,9 @@ const mkAbort = () => async (_t, runtime, context) => { // 终审小项:无参�
   await runtime.commit(() => ({ status: "terminal", outcome: { status: "aborted" } }), context);
 };
 
-// P0-④ 跨库撞轮目录守卫:v2 健康轮 state.json 仅 CLOSE 终态回写(#408;真源仍=SQLite
-// checkpoint+工件,轮中无件,对拍/shadow-diff 双侧排除),
+// P0-④ 跨库撞轮目录守卫:v2 健康轮 state.json 仅终态回写(#408 CLOSE;#415 起轮中失败
+// 出口同写——健康轮无进度镜像,轮中成功推进仍无件;真源仍=SQLite checkpoint+工件,
+// 对拍/shadow-diff 双侧排除),
 // 跨库新任务撞已有轮目录无守卫(同库复用走 run-health HealthRoundsDoc 不触发;
 // --from-phase TRIAGE 的前置工件 01-/02- 合法,故不能以「目录非空」判)。认领件
 // .v2-claim.json{token,taskId} 落轮目录:每相位头核认领,异主 → bad_round 终态(旧
@@ -225,6 +226,13 @@ async function waitModel(input, ck, runtime, context) {
   const outcomes = await runtime.outcomes(ids, context); // 全 terminal 才返回(failFast 不用:逐假设败=降级面)
   const def = defOf(ck.spawnPhase);
   const ctx = rebuildRoundCtx(input, ck);
+  // #415:本相位五处直落终态出口统一经此——镜像与 outcome 同出口写 failed/FAILED(v1 failStage
+  // 对;stages=checkpoint 已提交相位,未成的模型相位不造记录=宁少算)。修前这些出口零镜像:
+  // 健康轮轮中失败=无 state.json,与 #408「轮已结束、状态件缺席」同病。
+  const failNow = (error) => {
+    writeTerminalRoundState(ctx, { status: "failed", stage: "FAILED" });
+    return runtime.commit(() => ({ status: "terminal", outcome: { status: "failed", error } }), context);
+  };
   // P0-⑤:usage 从轮累计基线起步(终值=新轮累计;基线 null 按字段 0),本步增量=终值−基线
   // (恢复旧「各步 usage 求和==信封 usage」律;旧 golden pipeline_ok 断言面)。
   const base = { input: ck.usage?.input ?? 0, output: ck.usage?.output ?? 0, totalTokens: ck.usage?.totalTokens ?? 0, cost: ck.usage?.cost ?? 0 };
@@ -261,7 +269,7 @@ async function waitModel(input, ck, runtime, context) {
       else {
         const code = o.error?.code ?? "model_face";
         if (code === "model_face") await steps.appendFailureLedger(ctx, { code }); // #355:失败轮台账补行(单发步终态;与旧 runPipeline 收尾处同源)
-        return void await runtime.commit(() => ({ status: "terminal", outcome: { status: "failed", error: { code, message: `${def.name}:${o.error?.message ?? "?"}` } } }), context); // 终审修复:TaskOutcome 无 .state 包裹(类型面同注),原 o.state.outcome 会 TypeError→框架 fault
+        return void await failNow({ code, message: `${def.name}:${o.error?.message ?? "?"}` }); // 终审修复:TaskOutcome 无 .state 包裹(类型面同注),原 o.state.outcome 会 TypeError→框架 fault
       }
     }
   }
@@ -270,14 +278,14 @@ async function waitModel(input, ck, runtime, context) {
   // (overCallsCap 的 attempt-前查口径归子任务;帽内恰满的轮不误杀)——
   const knobs4 = ck.budgetKnobs ?? roundKnobs(process.env, "health");
   if (modelCalls > knobs4.maxModelCalls)
-    return void await runtime.commit(() => ({ status: "terminal", outcome: { status: "failed", error: { code: "budget_exceeded", message: `预算四界①(收口):轮累计模型调用 ${modelCalls} > ${knobs4.maxModelCalls}(${knobNames("health").calls})` } } }), context);
+    return void await failNow({ code: "budget_exceeded", message: `预算四界①(收口):轮累计模型调用 ${modelCalls} > ${knobs4.maxModelCalls}(${knobNames("health").calls})` });
   const post = postModelCall({ roundType: "health", knobs: knobs4, totalTokens: usage.totalTokens, costCny: usage.cost });
   if (!post.ok)
-    return void await runtime.commit(() => ({ status: "terminal", outcome: { status: "failed", error: { code: post.code, message: `${def.name}:${post.message}` } } }), context);
+    return void await failNow({ code: post.code, message: `${def.name}:${post.message}` });
   if (def.fail.perItem && failedN === (def.forEach ? steps.forEachItems(def, ctx).length : 1) && failedN > 0) {
     const msg = `全部 ${failedN} 假设失败(model_face)`; // 旧 runModelStage 全败=终态(C稿 §2.2;4 起影子废轮即此形状)
     await steps.appendFailureLedger(ctx, { code: "model_face" }); // #355:失败轮台账补行(全败终态)
-    return void await runtime.commit(() => ({ status: "terminal", outcome: { status: "failed", error: { code: "model_face", message: msg } } }), context);
+    return void await failNow({ code: "model_face", message: msg });
   }
   // DEEP 收编尾(零复制 deepFinalize:逐假设工件→05-deep-verdicts)+聚合门(G_DEEP,收编尾后一次)
   if (def.forEach) {
@@ -287,7 +295,7 @@ async function waitModel(input, ck, runtime, context) {
     if (!gateRec.pass) {
       const code = gateRec.code ?? def.fail.terminal;
       if (code === "model_face") await steps.appendFailureLedger(ctx, { code }); // #355:失败轮台账补行(G_DEEP 门败终态;旧 runPipeline 同源)
-      return void await runtime.commit(() => ({ status: "terminal", outcome: { status: "failed", error: { code: gateRec.code ?? def.fail.terminal, message: `门败 ${def.gate}:${gateRec.reason}` } } }), context);
+      return void await failNow({ code: gateRec.code ?? def.fail.terminal, message: `门败 ${def.gate}:${gateRec.reason}` });
     }
   }
   const stepUsage = { input: usage.input - base.input, output: usage.output - base.output, totalTokens: usage.totalTokens - base.totalTokens, cost: usage.cost - base.cost }; // 本步增量(P0-⑤)
@@ -343,8 +351,10 @@ async function runScriptPhase(def, input, ck, runtime, context) {
   // 步边界查③(旧 runStages 检查点同构;resume 沿原 started_at 续算)
   const knobs = ck.budgetKnobs ?? roundKnobs(process.env, "health");
   const sb = stepBoundary({ roundType: "health", knobs, startedAtIso: ck.startedAtIso });
-  if (!sb.ok)
+  if (!sb.ok) { // #415:相位头墙钟=终态失败,镜像同写(claimGuard 已核属主)
+    writeTerminalRoundState(ctx, { status: "failed", stage: "FAILED" });
     return void await runtime.commit(() => ({ status: "terminal", outcome: { status: "failed", error: { code: sb.code, message: `${def.name}:${sb.message}` } } }), context);
+  }
   // DISPATCH skipWhen(旧 SKIP_WHEN.no_need_deep 零谓词重写,round-ctx 逐字副本)
   if (def.skipWhen === "no_need_deep" && skipWhenNoNeedDeep(ctx)) {
     const rec = { name: def.name, status: "skipped", attempts: 0, dur_ms: 0, usage: null };
@@ -421,8 +431,12 @@ async function runClose(input, ck, runtime, context) {
 
 // FAILED 书挡(旧终态:工件全保留,replay 可救——v2 面=checkpoint 留全量 stageRecs)
 async function runFailed(input, ck, runtime, context) {
+  const ctx = rebuildRoundCtx(input, ck);
   if (ck.failed?.code === "model_face") // #355:失败轮台账补行(failTerm 路由面;script 相位门败/步败带 model_face 码时)
-    await steps.appendFailureLedger(rebuildRoundCtx(input, ck), ck.failed);
+    await steps.appendFailureLedger(ctx, ck.failed);
+  // #415:健康轮轮中脚本相位失败(步抛/门红,经 failTerm 路由到此)的单一汇聚出口——镜像与
+  // outcome 同出口写 failed/FAILED(v1 failStage 对);stages=已提交相位,失败相位不造记录。
+  writeTerminalRoundState(ctx, { status: "failed", stage: "FAILED" });
   await runtime.commit(() => ({
     status: "terminal",
     outcome: { status: "failed", error: { code: ck.failed?.code ?? "infra", message: ck.failed?.message ?? "FAILED" } },
@@ -430,7 +444,8 @@ async function runFailed(input, ck, runtime, context) {
 }
 
 // —— 相位表:十态 + WAIT_MODEL join + FAILED 书挡 ——
-// 全部轮目录工作相位套 claimGuard(P0-④;FAILED 纯书挡不碰轮目录,不套)。
+// 全部轮目录工作相位套 claimGuard(P0-④;FAILED 书挡不套——到它必已经本任务某工作相位的
+// 认领核,#415 起它写终态镜像,属主由上游相位保证)。
 const PHASES = {
   WAIT_MODEL: claimGuard((t, r, c) => waitModel(t.input, t.state.checkpoint, r, c)),
   FAILED: (t, r, c) => runFailed(t.input, t.state.checkpoint, r, c),

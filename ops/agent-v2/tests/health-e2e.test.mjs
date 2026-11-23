@@ -285,6 +285,11 @@ test("P1-4 ①收口:并行子任务穿透基数后 WAIT_MODEL 按轮累计终�
       assert.match(outcome.error.message, /预算四界①\(收口\):轮累计模型调用 3 > 2/);
       assert.ok(fs.existsSync(path.join(w.roundDir, `05-deep-${CINS_SLUG}.json`)), "已花工件保留(证据不灭失)");
       assert.equal(fs.existsSync(path.join(w.roundDir, "07-synth-report.md")), false, "SYNTH 未再 spawn(违界即停)");
+      // #415:WAIT_MODEL 直落终态出口(②收口预算)同样写镜像——failed/FAILED 书挡;DEEP 未成不造名
+      const mirror = jsonOf(path.join(w.roundDir, "state.json"));
+      assert.equal(mirror.status, "failed", "#415:WAIT_MODEL 收口终态=轮失败,镜像同写(修前=无件)");
+      assert.equal(mirror.stage, "FAILED", "#415:失败书挡 FAILED(v1 failStage 同对)");
+      assert.deepEqual(mirror.stages.map((x) => x.name), ["TRIAGE", "DISPATCH"], "已提交相位留痕(TRIAGE 收编→DISPATCH 过门后才 spawn DEEP);DEEP 未成不造记录(宁少算)");
     } finally { await harness.close(context); }
   } finally {
     await storage.close(context);
@@ -364,6 +369,11 @@ test("#355 失败轮台账:TRIAGE 两 attempt 全坏→model_face 终态,ledger.
       assert.match(led, /pipeline-failed:2026-11-15-e2e-mf-health/, "失败轮台账行在场(标签:轮 id 可 grep)");
       assert.match(led, /error_code=model_face/, "行带 error_code");
       assert.equal(led.split("\n").filter((l) => l.includes("pipeline-failed:2026-11-15-e2e-mf-health")).length, 1, "恰一行");
+      // #415:WAIT_MODEL 直落终态出口(单发子任务全败 model_face)同样写镜像;TRIAGE 未成=stages 空
+      const mirror = jsonOf(path.join(w.roundDir, "state.json"));
+      assert.equal(mirror.status, "failed", "#415:WAIT_MODEL 单发步终态=轮失败,镜像同写(修前=无件)");
+      assert.equal(mirror.stage, "FAILED");
+      assert.deepEqual(mirror.stages, [], "零相位提交:stages 空不造名");
     } finally { await harness.close(context); }
   } finally {
     await storage.close(context);
@@ -371,3 +381,44 @@ test("#355 失败轮台账:TRIAGE 两 attempt 全坏→model_face 终态,ledger.
     fs.rmSync(w.tmp, { recursive: true, force: true });
   }
 });
+
+// ── #415 终态镜像覆盖全部终态出口(#408 只接了 CLOSE;健康轮轮中失败此前无件)──────────
+// mid-round 脚本相位失败 → FAILED 书挡 → runFailed:健康轮轮中失败的单一汇聚点。
+// 注入面=真实调用链:ops/items 被普通文件占位 → ITEMIZE 步 createOpsItem 写条目即抛
+// (定义表「条目写败=可重入终态」)→ failTerm → FAILED → runFailed 终态;零 mock。
+test("#415 健康轮 mid-round 失败终态:ITEMIZE 条目写败 → FAILED 书挡 → state.json failed/FAILED,stages=[TRIAGE,DISPATCH,DEEP]", async () => {
+  const roundId = "2026-10-28-0103-health";
+  const w = seedWorld({ roundId });
+  fs.rmSync(path.join(w.ops, "items"), { recursive: true });
+  fs.writeFileSync(path.join(w.ops, "items"), "占位文件(createOpsItem 写条目即败)");
+  const storage = await openNodeSqliteStorage(path.join(w.tmp, "t.sqlite"));
+  const context = BACKGROUND_CONTEXT;
+  try {
+    const harness = await Harness.open(storage, { models: createModels(), registry: buildRegistry() }, context);
+    try {
+      harness.resume();
+      const root = await harness.root(context);
+      const taskId = await root.commit((tx) => tx.createTask(OPS_HEALTH_ROUND, {
+        roundId, fromPhase: "TRIAGE", modelFace: "faux", fixturesDir: FIXTURES,
+      }, { ownership: { kind: "conversation" } }), context);
+      const settled = await harness.waitForTask(taskId, context);
+      const outcome = settled.state.outcome;
+      assert.equal(outcome.status, "failed", `应在 ITEMIZE 步败:${JSON.stringify(outcome)}`);
+      assert.match(outcome.error.message, /^ITEMIZE:/, "失败面须是 ITEMIZE 步本体(条目写败)");
+      assert.equal(jsonOf(path.join(w.roundDir, "gates.json")).records.at(-1).name, "G_DEEP", "ITEMIZE 未到门(步抛在门前)");
+      const mirror = jsonOf(path.join(w.roundDir, "state.json"));
+      assert.equal(mirror.status, "failed", "#415:mid-round 失败终态=镜像 failed(修前=健康轮轮中无件/修后漏接=无件,轮已终态而无终态件)");
+      assert.equal(mirror.stage, "FAILED", "#415:FAILED 书挡(v1 failStage 同对)");
+      assert.deepEqual(mirror.stages.map((x) => x.name), ["TRIAGE", "DISPATCH", "DEEP"], "已提交相位全记录留痕;ITEMIZE 未成不造记录(宁少算)");
+      assert.equal(mirror.round_id, roundId);
+      assert.equal(mirror.pipeline_mode, "pidurable", "health 镜像全形起底(rebuildRoundCtx state 面)");
+    } finally { await harness.close(context); }
+  } finally {
+    await storage.close(context);
+    w.restore();
+    fs.rmSync(w.tmp, { recursive: true, force: true });
+  }
+});
+
+// toPhase 停笔=completed 终态出口(旧 replay --to 同义;shadow 载具面):镜像同样落 done,
+// stage 书挡=停笔相位(不走 CLOSE,不造 CLOSE 名)。
