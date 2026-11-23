@@ -1,10 +1,12 @@
 // round-state.mjs — v2 轮终态回写单源(工单 #408;#415 扩到全部终态出口)。
-// Why:v2 轮(discover/health)真源=checkpoint(SQLite),rounds/<id>/state.json 只是
-// 进度镜像;但 CLOSE 后 discover 镜像停在 running、health 干脆无件——轮实际已结束,
-// 状态文件在说谎(读面:boot 扫描 backend/ipdb/_ops_rounds.py、UI 轮次徽章链 #407)。
-// 本模块在 CLOSE 相位与 writeRoundReport 同接线点被调(#403 判例同位),把终态写回镜像。
+// Why:v2 轮(discover/health/add)真源=checkpoint(SQLite),rounds/<id>/state.json 只是
+// 进度镜像;但 CLOSE 后 discover 镜像停在 running、health 干脆无件(#408 时 add 尚未
+// 接线,#415 补)——轮实际已结束,状态文件在说谎(读面:boot 扫描
+// backend/ipdb/_ops_rounds.py、UI 轮次徽章链 #407)。
+// #408:CLOSE 相位与 writeRoundReport 同接线点被调(#403 判例同位),把终态写回镜像。
 // #415:终态不止 CLOSE 一条路——轮中途失败/中止/停笔的任务终态出口同样经本模块写镜像
-// (三任务的每个 terminal commit 前;接线点清单见工单 #415 实现报告,各出口处带 #415 注记)。
+// (三任务每个 terminal commit 之前;例外=health 认领守卫的异主 bad_round 出口,不属主不写;
+// 各出口处带 #415 注记)。
 // 纪律:
 //  - 状态词沿用管线既有 status 流(v1 pipeline.mjs finishClose/failStage):done/failed
 //    (+health 面 stage 书挡 CLOSE/FAILED);不发明第二套状态词(票面明令)。

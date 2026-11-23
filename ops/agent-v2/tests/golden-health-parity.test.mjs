@@ -126,8 +126,8 @@ test("golden 对拍 pipeline_health_full_faux:旧 runPipeline 全链 vs v2 run-h
     const dirA = path.join(old.ops, "rounds", ROUND);
     const dirB = path.join(neu.ops, "rounds", ROUND);
     const filesOf = (d) => fs.existsSync(d) ? fs.readdirSync(d).filter((f) => !fs.statSync(path.join(d, f)).isDirectory()) : [];
-    const oldFiles = filesOf(dirA).filter((f) => f !== "state.json"); // OLD=磁盘状态机;NEW 无(state 面=checkpoint,shadow-diff 同排除)
-    const newFiles = filesOf(dirB).filter((f) => f !== "state.json" && f !== ".v2-claim.json"); // NEW 白名单(认领件,shadow-diff 同声明);state 面=checkpoint,载具停 RETRO 不落,若达 CLOSE 仅终态回写(#408),对拍仍排除
+    const oldFiles = filesOf(dirA).filter((f) => f !== "state.json"); // OLD=磁盘状态机;NEW=终态镜像(#408/#415;state 面=checkpoint,shadow-diff 同排除)
+    const newFiles = filesOf(dirB).filter((f) => f !== "state.json" && f !== ".v2-claim.json"); // NEW 白名单(认领件,shadow-diff 同声明);state 面=checkpoint,仅终态出口回写镜像(#408 CLOSE;#415 起失败/停笔/中止同写),对拍仍排除
     const rows = [];
     for (const f of [...new Set([...oldFiles, ...newFiles])].sort()) {
       const inComparable = COMPARABLE.some((p) => f.startsWith(p));
