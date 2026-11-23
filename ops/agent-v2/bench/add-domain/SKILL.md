@@ -26,7 +26,7 @@
 
 ## 你能改什么(开放面)
 
-加源域三件:`ops/agent/prompts/add/*`(轮提示词 system/implement/dossier)、
+加源域三件:`ops/pipeline-core/prompts/add/*`(轮提示词 system/implement/dossier)、
 `ops/agent-v2/tools/add-tools.mjs`(编码工具闭集)、`ops/agent-v2/tasks/add-round.mjs`
 非门段(IMPLEMENT/DOSSIER 装载序列)。**门段点名禁改**:ADD_GATES/GATE_OF 定义
 (tasks/add-round.mjs:607-680)、各相位 finishFailed 的 `GATE:` 红终态调用点

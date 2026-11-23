@@ -1,9 +1,9 @@
 // budget-parity.test.mjs — T2 预算移植对拍(票 #226;spec 定案 3:budget.mjs 原样零复制 + 双点执法接线)
 // 全程零网络零模型调用:GLM usage 用固定数值样本(形状取 T0 smoke 实测:单次 cost.total ≈ ¥0.00003–0.00004)。
-// 对拍面:旧管线真源 ops/agent/pipeline/budget.mjs(只读 import)× v2 接线面(../budget.mjs 零复制 re-export
+// 对拍面:旧管线真源 ops/pipeline-core/pipeline/budget.mjs(只读 import)× v2 接线面(../budget.mjs 零复制 re-export
 // + ../tasks/budget-guard.mjs 双点执法 guard + ../entry.mjs runRound 接线)。
 // 断言口径:执法决策逐条一致(allow/deny/code/message)+ 剩余量逐条一致(帽−已用,符号值:负=超出)。
-// 语义真源:ops/agent/DESIGN.md §6 预算四界行(迭代上限/token 轨迹/墙钟/花费帽 每轮 ¥3 ∧ 月度 ¥30,
+// 语义真源:ops/pipeline-core/DESIGN.md §6 预算四界行(迭代上限/token 轨迹/墙钟/花费帽 每轮 ¥3 ∧ 月度 ¥30,
 // 同台账并发安全双点执法:准入+环内)+ 重复检测(工具调用哈希)。
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -11,7 +11,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
-import * as oldBudget from "../../agent/pipeline/budget.mjs"; // 旧管线真源(只读对照;ops/agent 零改动红线)
+import * as oldBudget from "../../pipeline-core/pipeline/budget.mjs"; // 旧管线真源(只读对照;该树零改动红线)
 import * as v2Budget from "../budget.mjs"; // v2 零复制接线面
 import {
   admitRound, knobNames, postModelCall, preModelCall,
@@ -302,7 +302,7 @@ test("月帽月读数对拍:monthNow/monthSpendOfLedgerText(v2 面=旧面)", () 
 test("台账落位:LEDGER_FILE > DOCS_ROOT/ops/ledger.md > <仓根>/docs/ops/ledger.md(旧 agent.mjs runRound 同推导;#226 F1 钉死)", () => {
   // scaffold.test.mjs db 落位断言同模式。期望仓根取自 entry.mjs ROOT——entry 居 ops/agent-v2/ 浅一层,
   // 两层上移=仓根;budget-guard 居 tasks/ 子层须三层上移,推导深度不同而落点须同仓根(旧面缺省
-  // = ops/agent/tools/shared.mjs DOCS_ROOT(仓根/docs)+ "ops/ledger.md";漂移=缺省 env 下月帽读到
+  // = ops/pipeline-core/tools/shared.mjs DOCS_ROOT(仓根/docs)+ "ops/ledger.md";漂移=缺省 env 下月帽读到
   // 不存在文件,Σcost=0,¥30 kill switch 静默失效——F1 即此)。
   assert.equal(resolveLedgerPath({ LEDGER_FILE: "/tmp/ledger-x.md" }), "/tmp/ledger-x.md");
   assert.equal(resolveLedgerPath({ DOCS_ROOT: "/d" }), path.join("/d", "ops", "ledger.md"));

@@ -3,7 +3,7 @@
 # 干什么:经 dev/rrsi/domains/ipradar/adapter.py 的 LiteLLM→zai 垫片(与 #322 真实轮
 # 四角色将走的同一代码路径)发起一次真实 glm-5.3-flash 调用,提案者角色迷你任务
 # (单假设 JSON,非真实搜索轮——真实轮花钱面归 #322)。
-# 凭证链(与 ops/agent/models.mjs 同律,零入仓):env ZAI_CODING_CN_API_KEY →
+# 凭证链(与 ops/pipeline-core/models.mjs 同律,零入仓):env ZAI_CODING_CN_API_KEY →
 # auth.json(env OPS_AUTH,缺省 ~/.pi/agent/auth.json)的 zai-coding-cn.key。
 # 留痕:stdout 摘要 + dev/glm-smoke-<ts>.json(请求/响应/耗时/token;dev/ 不入 git)。
 # 用法:dev/rrsi/.venv/bin/python scripts/glm-smoke.py [--repo <ip-radar 检出>]

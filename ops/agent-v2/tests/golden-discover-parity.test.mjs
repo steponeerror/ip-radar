@@ -1,5 +1,5 @@
-// golden-discover-parity.test.mjs — golden 对拍通道(票 #227 T3;ops/agent/golden/cases.json
-// 发现轮管线例 pipeline_discover_full_faux):旧引擎(ops/agent/pipeline.mjs runPipeline,
+// golden-discover-parity.test.mjs — golden 对拍通道(票 #227 T3;ops/pipeline-core/golden/cases.json
+// 发现轮管线例 pipeline_discover_full_faux):旧引擎(ops/pipeline-core/pipeline.mjs runPipeline,
 // in-proc)vs 新任务面(ops/agent-v2 run-discover.mjs,子进程)逐工件 diff 清单。
 // 达标律(票面):通道通+失败可读,不强求全绿——本测试硬断言=两侧都跑出轮终态+核心工件
 // (d1/d3/d4/gates)逐字节等价;queue 行 #384 起故意分叉(v1 旧律照写=回退参照冻结;
@@ -16,7 +16,7 @@ import { promisify } from "node:util";
 const execFile = promisify(execFileCb);
 const V2 = path.resolve(import.meta.dirname, "..");
 const ROUND = "2026-06-01-0400-discover";
-const FIXTURES = path.resolve(V2, "..", "agent", "fixtures", "pipeline");
+const FIXTURES = path.resolve(V2, "..", "pipeline-core", "fixtures", "pipeline");
 
 test("golden 对拍 pipeline_discover_full_faux:旧 runPipeline vs v2 发现轮任务,逐工件 diff 清单", async () => {
   const tmpA = fs.mkdtempSync(path.join(os.tmpdir(), "v2-parity-old-"));
@@ -33,7 +33,7 @@ test("golden 对拍 pipeline_discover_full_faux:旧 runPipeline vs v2 发现轮�
   Object.assign(process.env, { DOCS_ROOT: envA.DOCS_ROOT, LEDGER_FILE: envA.LEDGER_FILE });
   let oldEnv = null;
   try {
-    const { runPipeline } = await import("../../agent/pipeline.mjs");
+    const { runPipeline } = await import("../../pipeline-core/pipeline.mjs");
     const r = await runPipeline({ type: "discover", roundId: ROUND, fixturesDir: FIXTURES,
       stdout: { write: () => true }, stderr: { write: () => true } });
     oldEnv = r?.envelope ?? null;

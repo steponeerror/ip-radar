@@ -31,9 +31,9 @@ const ROOT = path.resolve(import.meta.dirname, "..", ".."); // ops/agent-v2 → 
 // 轮→任务索引(session 单例 doc;同 run-discover RoundsDoc 原子登记面)
 export const AddRoundsDoc = defineDoc({ kind: "ops.add-rounds", scope: "session", version: 1, checkpointWhen: () => true, initial: () => ({ rounds: {} }) });
 
-// add 提示词路径:ops/agent/prompts/add/<file>.md(run-add 定义面;tasks/add-round.mjs
+// add 提示词路径:ops/pipeline-core/prompts/add/<file>.md(run-add 定义面;tasks/add-round.mjs
 // 运行时互引——函数声明循环安全,run-discover/discover-round 同律)。
-const promptsRoot = () => path.join(ROOT, "ops", "agent", "prompts");
+const promptsRoot = () => path.join(ROOT, "ops", "pipeline-core", "prompts");
 export const addPromptPath = (file) => path.join(promptsRoot(), "add", file);
 
 // faux 模型面(fauxBundle 同构:fixtures/add/turns.json 罐装回合驱动真工具,零网络零花费)

@@ -1,10 +1,15 @@
 """P2 轮次桥:任务链串行车道内 spawn 运营 agent CLI(票 #134)。
 
-契约真源:主仓 GLOSSARY「spawn 契约」「轮次信封」+ ops/agent/agent.mjs
+契约真源:主仓 GLOSSARY「spawn 契约」「轮次信封」+ ops/pipeline-core/agent.mjs
 (SPAWN_CONTRACT_ENV 表,17 名 env 面唯一详述点);本模块是后端侧唯一消费方
-(ops/agent 冻结面零触碰)。
+(ops/pipeline-core 冻结面零触碰)。
 
-- argv = node --max-old-space-size=256 ops/agent/agent.mjs <round> <input>
+- argv(#412 ADR 0012 切流收尾:OPS_PIPELINE 灰度开关退役,按轮型选入口):
+  health = node --max-old-space-size=256 ops/pipeline-core/pipeline.mjs <round> <input>
+    (状态机宿主;input 透传但 pipeline 轮次自持输入面,与旧 agent.mjs 委派同语义
+    ——旧容器 env OPS_PIPELINE=pipeline 的部署面随之失效,无害残留);
+  discover = node --max-old-space-size=256 ops/pipeline-core/agent.mjs <round> <input>
+    (会话式引擎,消费 typed input;UI 发现轮唯一活宿主,11/12 金轨迹例钉该面)。
   (三层内存围栏第一层钉在拉起层,裁⑥;计划书 Global Constraints「一切子进程
   必须带资源围栏」——964MB 小机 OOM 前科);cwd = 仓根(部署形态相对路径);
 - env 注入(桥侧归属名):ops 树落位三名(DOCS_ROOT/PRECEDENTS_DIR/LEDGER_FILE
@@ -28,7 +33,9 @@
 
 测试/P5 部署 seam:IP_RADAR_OPS_AGENT_CMD 覆盖命令体(shlex 切分;参数面
 <round> <input> 不变)——后端 CI runner 无 node,单测用 python 假 agent 真过
-spawn 层;e2e 真跑(tests/test_ops_rounds_e2e.py)不设此值。
+spawn 层;e2e 真跑(tests/test_ops_rounds_e2e.py)#412 起显式覆盖为会话式
+agent.mjs 专测该面——生产 UI 健康轮的缺省路径(pipeline.mjs 直连)无真模型 e2e:
+argv 形状由 test_ops_rounds 单测钉、轮内行为由 selftest-pipeline(faux)钉,见 e2e 文件头。
 """
 
 import contextlib
@@ -51,8 +58,12 @@ from . import _ops_store
 logger = logging.getLogger(__name__)
 
 # spawn 契约 argv(GLOSSARY「spawn 契约」;--max-old-space-size=256 = 三层内存
-# 围栏第一层,参数钉在拉起层——裁⑥)
-_DEFAULT_AGENT_CMD = ["node", "--max-old-space-size=256", "ops/agent/agent.mjs"]
+# 围栏第一层,参数钉在拉起层——裁⑥)。#412 起按轮型选入口(OPS_PIPELINE 灰度开关退役,
+# ADR 0012 切流收尾):health=状态机宿主 pipeline.mjs(旧灰度期的缺省委派路径转正),
+# discover=会话式 agent.mjs(消费 typed input;两 CLI 的 argv/退出码/信封同形——
+# agent.mjs 用法错文案同指两入口)。
+_DEFAULT_HEALTH_CMD = ["node", "--max-old-space-size=256", "ops/pipeline-core/pipeline.mjs"]
+_DEFAULT_DISCOVER_CMD = ["node", "--max-old-space-size=256", "ops/pipeline-core/agent.mjs"]
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]  # 仓根(agent CLI 的 cwd)
 _STDERR_TAIL_CHARS = 300  # 失败面 stderr 尾部入错误消息(定位用,不倾倒)
@@ -67,9 +78,10 @@ _WEB_SEARCH_ROUTING = {
 
 
 def _agent_argv(round_type: str, input_text: str) -> list[str]:
-    """完整 argv = 命令体(契约缺省/IP_RADAR_OPS_AGENT_CMD 覆盖)+ <round> <input>。"""
+    """完整 argv = 命令体(契约缺省=按轮型/IP_RADAR_OPS_AGENT_CMD 覆盖)+ <round> <input>。"""
     override = os.environ.get("IP_RADAR_OPS_AGENT_CMD", "").strip()
-    cmd = shlex.split(override) if override else list(_DEFAULT_AGENT_CMD)
+    cmd = shlex.split(override) if override else list(
+        _DEFAULT_HEALTH_CMD if round_type == "health" else _DEFAULT_DISCOVER_CMD)
     return cmd + [round_type, input_text]
 
 
@@ -141,7 +153,7 @@ def _round_env() -> dict[str, str]:
     return env
 
 
-# C4(#196)spawn env 白名单:契约单源 = ops/agent/agent.mjs SPAWN_CONTRACT_ENV
+# C4(#196)spawn env 白名单:契约单源 = ops/pipeline-core/agent.mjs SPAWN_CONTRACT_ENV
 # (OPS_*/PI_* 前缀名 + 精确名 ZAI_CODING_CN_API_KEY/JINA_API_KEY/GH_TOKEN/
 # DOCS_ROOT/PRECEDENTS_DIR/LEDGER_FILE/IP_RADAR_ALERT_URLS)。此前
 # {**os.environ, **_round_env()} 全量继承把 ADMIN_PASSWORD/JWT_SECRET 等
@@ -303,7 +315,7 @@ def spawn_round(
 # token/工件缺重跑);本面只做准入裁决与处置留痕。永不抛异常(启动面尽力而为;
 # 处置失败轮保持 in_flight,下次 boot 再扫)。
 _RESUME_ARGV_HEAD = ["node", "--max-old-space-size=256",
-                     "ops/agent/pipeline.mjs", "resume"]
+                     "ops/pipeline-core/pipeline.mjs", "resume"]
 _STALE_HOURS = 16.0        # 2× 8h cron 周期(C稿 §4.6 规则 5)
 _REPLAY_DIR_RE = _re.compile(r"-r\d+$")  # 重放目录不入恢复(终态语义,pipeline 侧已终态化)
 
@@ -460,7 +472,7 @@ def recover_inflight_rounds(manager=None) -> list[dict]:
                 _ops_store.append_ledger(
                     "health", "—", "—",
                     f"boot 恢复:{reason} 标 FAILED(infra)——审计走 "
-                    f"node ops/agent/pipeline.mjs replay {rid}(replay 可救,交人)")
+                    f"node ops/pipeline-core/pipeline.mjs replay {rid}(replay 可救,交人)")
                 logger.info("boot 恢复:%s → FAILED(infra):%s", rid, reason)
                 handled.append({**row, "done": True})
             elif row["action"] == "resume" and manager is not None:

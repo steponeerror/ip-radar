@@ -71,21 +71,21 @@ BENCH_PYTHON = os.environ.get("IPRADAR_BENCH_PYTHON",
 #   #403 2026-11-22 +1 轮报告件 pipeline/round-report.mjs(glob pipeline/** 原裁继承,零新增 glob);
 #   #408 2026-11-22 +1 终态回写单源 tasks/round-state.mjs(glob tasks/** 原裁继承,零新增 glob)。
 #   调研笔记 docs/notes/ops-tree-as-harness-2026-11-08.md:验证/环境/文档面 72% 是演化不该碰的):
-#   ops/agent/pipeline/** 12 + ops/agent/prompts/** 12
-#   + ops/agent-v2/{tools,tasks,bench}/** 39 + ops/agent/{agent.mjs,models.mjs} 2
+#   ops/pipeline-core/pipeline/** 12 + ops/pipeline-core/prompts/** 12
+#   + ops/agent-v2/{tools,tasks,bench}/** 39 + ops/pipeline-core/{agent.mjs,models.mjs} 2
 # 其余(v1 根散件/验证面/环境面/文档面)一律只读;验证面另有 _guardrails 冻结门,
 # 不靠本表拒绝。名单外输入 fail-closed(edit_allowed 返回 False)。
 # 双匹配器互指(Spec 轴 P2-1):运行时真身是 dev/rrsi rrsi/propose.py _allowed(同一张
 # 表消费;语义微差:彼侧多剥 harness 目录名前缀、少反斜杠归一,分歧方向均为拒;改 glob
 # 时两侧同改)。
 EDIT_ALLOWLIST = (
-    "ops/agent/pipeline/**",
-    "ops/agent/prompts/**",
+    "ops/pipeline-core/pipeline/**",
+    "ops/pipeline-core/prompts/**",
     "ops/agent-v2/tools/**",
     "ops/agent-v2/tasks/**",
     "ops/agent-v2/bench/**",
-    "ops/agent/agent.mjs",
-    "ops/agent/models.mjs",
+    "ops/pipeline-core/agent.mjs",
+    "ops/pipeline-core/models.mjs",
 )
 
 def edit_allowed(rel) -> bool:
@@ -113,7 +113,7 @@ from critic_needles import buildCriticPatterns  # noqa: E402
 def _ensure_backend_link(root: Path) -> None:
     """harness/backend → 主检出 backend 的符号链接 + git exclude 双保险。
     golden 健康例的 matrix/锚探针 spawn 在 cwd=<ROOT>/backend 跑 `-m ipdb._eval`
-    (ops/agent/tools/measurement.mjs:59),vendored harness 缺 backend/ 会 ENOENT;
+    (ops/pipeline-core/tools/measurement.mjs:59),vendored harness 缺 backend/ 会 ENOENT;
     链到主检出 backend=与主检出 golden 同读数面(只读探针,零漂移)。exclude
     (common dir,全 worktree 共享)保 symlink 绝不进候选提交(commit_path 的
     `git add -A` 遵 exclude)。"""
@@ -228,9 +228,9 @@ NEEDS_GATE_PATHS = ("domains/ipradar/harness/NEEDS.md",)
 # 打分面数据:score.mjs 考题分母由它派生,名单载体留在被告可编面=门上留缝)。
 # 「给自己打分的面」含给自己站岗的面。
 VERIFICATION_GATE_PATHS = (
-    "domains/ipradar/harness/ops/agent/golden",
-    "domains/ipradar/harness/ops/agent/selftest*",
-    "domains/ipradar/harness/ops/agent/fixtures",
+    "domains/ipradar/harness/ops/pipeline-core/golden",
+    "domains/ipradar/harness/ops/pipeline-core/selftest*",
+    "domains/ipradar/harness/ops/pipeline-core/fixtures",
     "domains/ipradar/harness/ops/agent-v2/tests",
     "domains/ipradar/harness/ops/agent-v2/bench/leak-check.mjs",
     "domains/ipradar/harness/ops/agent-v2/bench/exam-rules.json",
@@ -247,19 +247,20 @@ def _guardrails(root: Path, runs_dir: Path, log_dir: Path) -> dict:
     """三护栏(票面:golden + v2 全套 + leak gate;候选 worktree 内跑,主检出 venv 判例)。
     任一红即整门红——过不了的候选不进花钱评估(smoke 拦)也不可接受(guards 拦)。"""
     h = (root / "domains" / "ipradar" / "harness").resolve()
-    agent, agent_v2 = h / "ops" / "agent", h / "ops" / "agent-v2"
+    agent, agent_v2 = h / "ops" / "pipeline-core", h / "ops" / "agent-v2"
     out = {}
     _ensure_backend_link(root)
     # node_modules 幂等装配(候选 worktree 无 untracked;判改动可装=候选自身能力)
-    for d in (agent, agent_v2):
-        if not (d / "node_modules").is_dir():
-            _run(["npm", "ci", "--no-fund", "--no-audit"], cwd=d,
-                 log=log_dir / "npm-ci.log", timeout=900)
-    # ① golden:ops/agent/golden/run-golden.mjs(faux 层零花费,真 agent 回路对拍)
+    # #412 单包:package.json/lock 在 ops/ 包根,npm ci 一处(v1/v2 子树共享同根)
+    pkg = h / "ops"
+    if not (pkg / "node_modules").is_dir():
+        _run(["npm", "ci", "--no-fund", "--no-audit"], cwd=pkg,
+             log=log_dir / "npm-ci.log", timeout=900)
+    # ① golden:ops/pipeline-core/golden/run-golden.mjs(faux 层零花费,真 agent 回路对拍)
     _run(["node", "golden/run-golden.mjs"], cwd=agent, log=log_dir / "golden.log")
     out["golden"] = True
     # ② v2 全套:npm test(基线 97 面 + 劈分/域结构不变式)
-    _run(["npm", "test"], cwd=agent_v2, log=log_dir / "v2-test.log")
+    _run(["npm", "test"], cwd=h / "ops", log=log_dir / "v2-test.log")  # #412 单包:npm test 自 ops/ 包根跑
     out["v2_test"] = True
     # NEEDS.md 冻结门:考题宇宙输入面(bench SCAN 真面读它;真台账本就合法提及已交付
     # 源名,故不用 leak 针扫原文,而用 git diff 对 incumbent 冻结——候选增改一行即红)
@@ -364,10 +365,11 @@ class IpRadarDomain(Domain):
         # 环境先于首轮:backend 探针链接 + node_modules 幂等装配(baseline 的 wt/incumbent
         # 是新 worktree,不预先装配首轮就 ERR_MODULE_NOT_FOUND——#322 首跑踩坑二补入)
         _ensure_backend_link(root)
-        for _d in (harness / "ops" / "agent", harness / "ops" / "agent-v2"):
-            if not (_d / "node_modules").is_dir():
-                _run(["npm", "ci", "--no-fund", "--no-audit"], cwd=_d,
-                     log=log_dir / "npm-ci.log", timeout=900)
+        # #412 单包:ops/ 包根一处 npm ci(v1/v2 子树共享同根)
+        _pkg = harness / "ops"
+        if not (_pkg / "node_modules").is_dir():
+            _run(["npm", "ci", "--no-fund", "--no-audit"], cwd=_pkg,
+                 log=log_dir / "npm-ci.log", timeout=900)
         sha = _harness_tree_id(root)
         bench_root = Path(runs_dir) / "bench" / f"{job}-{sha}"
         # jobmap 先写后跑:score/load_trial 经 _bench_root_for 找根;轮中崩溃也留指路。
@@ -384,7 +386,7 @@ class IpRadarDomain(Domain):
             flags += ["--model", os.environ.get("IPRADAR_BENCH_MODEL",
                                                 "zai-coding-cn/glm-5.3-flash")]
         else:
-            flags += ["--fixtures", str(harness / "ops" / "agent" / "fixtures" / "pipeline")]
+            flags += ["--fixtures", str(harness / "ops" / "pipeline-core" / "fixtures" / "pipeline")]
         for trial in range(k):
             rid = _round_id(job, trial)
             logf = log_dir / f"{log_prefix or job}.log"
@@ -542,7 +544,7 @@ DOMAIN = IpRadarDomain()
 # env RRSI_LLM_BACKEND=litellm-zai 开启(缺省关=原行为):generate() 改走 LiteLLM
 # openai 兼容面 → zai coding cn 端点;模型串取 rrsi.json(*_model),base_url/api_key
 # 走 env ZAI_CODING_CN_BASE_URL(缺省 https://open.bigmodel.cn/api/coding/paas/v4)/
-# ZAI_CODING_CN_API_KEY(auth.json 凭证店同源,ops/agent/models.mjs 判例)。
+# ZAI_CODING_CN_API_KEY(auth.json 凭证店同源,ops/pipeline-core/models.mjs 判例)。
 # scripts/glm-smoke.py 经此面真调一次(票 #325 冒烟留痕)。
 def _shim_log(msg: str) -> None:
     """垫片尝试日志(append RRSI_SHIM_LOG 或 runs/litellm-shim.log;每次尝试一行,排查

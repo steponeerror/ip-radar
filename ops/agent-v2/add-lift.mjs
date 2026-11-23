@@ -288,8 +288,8 @@ export async function runLift({ sandbox, roundDir, fleetRoot, devRoot, python, s
   // 7. 门三连
   const gates = [
     { name: "backend 全量 pytest", cmd: [python, "-m", "pytest", "-q", "--durations=15"], cwd: path.join(sandbox, "backend"), timeoutMs: 30 * 60_000 },
-    { name: "ops selftest", cmd: ["bash", path.join(sandbox, "ops", "agent", "selftest.sh")], cwd: sandbox, timeoutMs: 15 * 60_000 },
-    { name: "agent-v2 node --test", cmd: ["npm", "test"], cwd: path.join(sandbox, "ops", "agent-v2"), timeoutMs: 15 * 60_000 },
+    { name: "ops selftest", cmd: ["bash", path.join(sandbox, "ops", "pipeline-core", "selftest.sh")], cwd: sandbox, timeoutMs: 15 * 60_000 },
+    { name: "agent-v2 node --test", cmd: ["npm", "test"], cwd: path.join(sandbox, "ops"), timeoutMs: 15 * 60_000 }, // #412 单包:npm test 自 ops/ 包根跑(agent-v2/tests/ 相对包根)
   ];
   const gateResults = [];
   // 判例 2026-11-21(过夜五败根因):timer 单元为 lark 告警配了 IP_RADAR_ALERT_URLS,

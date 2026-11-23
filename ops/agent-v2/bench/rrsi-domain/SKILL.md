@@ -18,7 +18,7 @@
 
 ## 你能改什么(开放面)
 
-`ops/agent`(发现管线 v1 提示词/工具/fixtures)与 `ops/agent-v2`(durable 底座:
+`ops/pipeline-core`(发现管线 v1 提示词/工具/fixtures)与 `ops/agent-v2`(durable 底座:
 entry/registry/tasks/bench 全套)。红线与免碰面见 PATTERNS.md——尤其:**真实轮
 路径行为必须字节级不变**(golden 钉),你演化的是基准轮能力,不是生产轮行为。
 
@@ -28,7 +28,7 @@ entry/registry/tasks/bench 全套)。红线与免碰面见 PATTERNS.md——尤�
    负证据,不要原样重提)。
 2. 提 ≤b_t 个可归因编辑(每个编辑一个假设:「这个改动预期救回哪些落空源」),
    编辑预算随轮退火——晚轮只允许单点改动。
-3. 候选过三护栏才算活:golden(`ops/agent/golden/run-golden.mjs`)+ v2 全套
+3. 候选过三护栏才算活:golden(`ops/pipeline-core/golden/run-golden.mjs`)+ v2 全套
    (`npm test`)+ leak gate(`bench/leak-check.mjs` exit 0)。
 4. 本接线期只有 faux 冒烟轮(罐装模型面,零网络零花费);真实 GLM 轮是花钱面,
    由人批准后单独跑。你的编辑要同时经得起两种模式的护栏。

@@ -1,5 +1,5 @@
 // faux-face.mjs — faux 面分派接线(票 #228 修复 ⑥;审查 P2-4 最小接面:只接 faux
-// provider 分派,不动 T5 台账兼容面)。旧真源 = ops/agent/pipeline/faux.mjs(零改动
+// provider 分派,不动 T5 台账兼容面)。旧真源 = ops/pipeline-core/pipeline/faux.mjs(零改动
 // 红线;loadFixture/transcriptName/fauxProvider 装配是私有面不 export → 本文件按旧源
 // 逐字重实现,行型/路径/判例字节级一致,出处逐处标注):
 //   fixture 路径/缺件判例      = 旧 faux.mjs loadFixture(faux.mjs:69-79)
@@ -14,8 +14,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fauxProvider } from "@earendil-works/pi-ai";
-import { hidSlug } from "../agent/pipeline/steps.mjs";
-import { ARTIFACTS as A, deepTranscriptName } from "../agent/artifacts.mjs";
+import { hidSlug } from "../pipeline-core/pipeline/steps.mjs";
+import { ARTIFACTS as A, deepTranscriptName } from "../pipeline-core/artifacts.mjs";
 
 // 旧 faux.mjs loadFixture 逐字副本(v2 面:fixturesDir 直传非 ctx;缺席=infra 配置面
 // 失败,与旧同判例——faux 面 fixture 是必件不是可选件)。

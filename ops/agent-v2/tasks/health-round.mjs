@@ -16,18 +16,18 @@ import fs from "node:fs";
 import path from "node:path"; // MF1:rebuildRoundCtx 建轮目录用 path.join(漏 import 首相位即 ReferenceError;旧遗漏修复)
 import { randomUUID } from "node:crypto";
 import { defineTask, configure } from "@earendil-works/pi-durable";
-import { HEALTH_PIPELINE } from "../../agent/pipeline.mjs";
-import * as steps from "../../agent/pipeline/steps.mjs";
-import { evalStageGate, appendGate, appendGateBypass } from "../../agent/pipeline/gates.mjs";
-import { STEP_ROUND } from "../../agent/pipeline/faux.mjs"; // 零复制:步→轮键映射(TRIAGE/SYNTH=health、DEEP=discover)
-import { readBreakerKnobs } from "../../agent/tools/breaker.mjs"; // 零复制读面(轮始校验同旧 mkCtx)
-import { ERROR_CODES } from "../../agent/error-codes.mjs";
+import { HEALTH_PIPELINE } from "../../pipeline-core/pipeline.mjs";
+import * as steps from "../../pipeline-core/pipeline/steps.mjs";
+import { evalStageGate, appendGate, appendGateBypass } from "../../pipeline-core/pipeline/gates.mjs";
+import { STEP_ROUND } from "../../pipeline-core/pipeline/faux.mjs"; // 零复制:步→轮键映射(TRIAGE/SYNTH=health、DEEP=discover)
+import { readBreakerKnobs } from "../../pipeline-core/tools/breaker.mjs"; // 零复制读面(轮始校验同旧 mkCtx)
+import { ERROR_CODES } from "../../pipeline-core/error-codes.mjs";
 import { loadModels } from "../models.mjs"; // 零复制 seam(定案 7:装载器不动)
 import { buildRoundCtx, opsRootOf, composeEnvelope, skipWhenNoNeedDeep, ROOT } from "../round-ctx.mjs";
 import { roundKnobs, stepBoundary, postModelCall, knobNames } from "./budget-guard.mjs"; // P1-4:收口复查①②④ 面
 import { OPS_MODEL_ROUND, conversationUsage, conversationModelCalls } from "./model-round.mjs"; // P1-4:failed 子任务留痕计量面
 import { mkFauxFace, loadFauxFixture } from "../faux-face.mjs"; // 修复⑥:faux 面分派件(旧 faux.mjs 字节级一致副本)
-import { writeRoundReport } from "../../agent/pipeline/round-report.mjs"; // #403:轮报告件单源(v2 零复制 import v1)
+import { writeRoundReport } from "../../pipeline-core/pipeline/round-report.mjs"; // #403:轮报告件单源(v2 零复制 import v1)
 import { writeTerminalRoundState } from "./round-state.mjs"; // #408:CLOSE 终态回写 state.json 镜像(与报告件同接线点)
 import { OPS_PROBE_TOOLS } from "../tools/probes.mjs"; // DEEP 真面探针闭集(AgentChange.modelTools 要 ToolRegistration 对象非名字串——applyChange names() 映射 .name)
 

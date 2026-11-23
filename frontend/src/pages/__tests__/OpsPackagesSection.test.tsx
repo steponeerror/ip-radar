@@ -8,7 +8,7 @@ import { listOpsPackages, readOpsPackage, readOpsPrecedent, postOpsRuling } from
 // 渲染视图——列表 → 详情(报告文逐字:证据 call_id+field+value/trace/判例
 // 引用可点开全文),不再承载审阅。人裁交互面(逐字选建议行 + 三动作)
 // 已移除:四键审阅在「审阅」子 tab(OpsReviewSection.test.tsx)。报告正文
-// 形状 = ops/agent/prompts 输出契约(固定节)——fixture 取自该契约,不从
+// 形状 = ops/pipeline-core/prompts 输出契约(固定节)——fixture 取自该契约,不从
 // 实现反推。
 vi.mock("../../api", async () => {
   const real = await vi.importActual<typeof import("../../api")>("../../api");

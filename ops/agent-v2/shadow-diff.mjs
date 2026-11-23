@@ -13,7 +13,7 @@
 // 结构性白名单(声明面,非归一化):两侧 state.json 各为实现细节(OLD=磁盘状态机,
 // NEW=checkpoint 镜像)不入对拍面;NEW 09-budget.json 只在 CLOSE 落件=载具停笔前不存在,
 // 不在闭集。SHADOW-RUNBOOK §已知差异面。
-// 用法:node shadow-diff.mjs <roundId> [--fixtures DIR](缺省 ops/agent/fixtures/pipeline)
+// 用法:node shadow-diff.mjs <roundId> [--fixtures DIR](缺省 ops/pipeline-core/fixtures/pipeline)
 //        [--keep](保留双世界目录供人工 diff)
 // 退出:0=可比面全 SAME;1=存在 DIFF;2=用法错;3=任一面运行失败。
 import { execFile as execFileCb, spawn } from "node:child_process";
@@ -25,7 +25,7 @@ import { fileURLToPath } from "node:url";
 
 const execFileP = promisify(execFileCb);
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const AGENT = path.resolve(HERE, "..", "agent"); // ops/agent(旧真源)
+const AGENT = path.resolve(HERE, "..", "pipeline-core"); // #412 前 ops/agent(旧真源)
 const FIXTURES = path.join(AGENT, "fixtures", "pipeline");
 const PREC = "2026-06-01-golden-aggregator.md";
 const CINS = "https://cinsscore.com/list/ci-badguys.txt";

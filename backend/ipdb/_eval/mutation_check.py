@@ -65,7 +65,7 @@ _C2_NO_READING = (
     "写路径(cp -a 主检出数据面 + rebuild)+ 硬编码绝对路径,不可作沙箱"
     "只读注入面;前提过期(票尾已知)→ 本轮无读数,常驻化待人裁")
 _GOLDEN_NO_READING = (
-    "golden 对拍门 = ops/agent JS 面(run-golden.mjs,字节等价基线):需 "
+    "golden 对拍门 = ops/pipeline-core JS 面(run-golden.mjs,字节等价基线):需 "
     "ops 运行时(gitignored node_modules)与 ops 轮工件,后端 Python 注入"
     " runner 无法在隔离沙箱执行其数据面 → 本轮无读数,跨栈接线待人裁")
 

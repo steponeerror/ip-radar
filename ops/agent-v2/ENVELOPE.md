@@ -7,7 +7,7 @@
 ## stdout 契约(cron 面,`run-health.mjs` / `run-discover.mjs` / `run-add.mjs` 同律)
 
 - stdout **末行 = 单行 JSON 旧形结果单**,是 stdout 上唯一 JSON;wrapper 进度信息一律走 stderr(`[v2-health]` / `[v2-discover]` / `[stage]` / `[tool]` / `[admission]` 行)。
-- 旧形 = 与 `ops/agent/pipeline.mjs` 结果单逐字段同族;形状由对拍测试钉死(round-ctx `composeEnvelope` 逐字副本 + discover 第二副本,golden/shadow 双闸),cron 消费方(脚本、看门狗)零改动。
+- 旧形 = 与 `ops/pipeline-core/pipeline.mjs` 结果单逐字段同族;形状由对拍测试钉死(round-ctx `composeEnvelope` 逐字副本 + discover 第二副本,golden/shadow 双闸),cron 消费方(脚本、看门狗)零改动。
 
 | 面 | 成功 | 失败/拒跑 |
 |---|---|---|

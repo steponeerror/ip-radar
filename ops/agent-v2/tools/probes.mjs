@@ -10,8 +10,8 @@
 // 才标 safe——本文件无 safe 面。
 // registry 红线(票 #225/#228):不装内建 CodingTools——本文件只进这三只,tests/scaffold 钉死。
 import { defineTool } from "@earendil-works/pi-durable";
-import { mkMicroprobeHost } from "../../agent/pipeline/microprobes.mjs"; // 零复制:工具实现/预算闸/dup 闸/登记行全在旧宿主
-import { safeFetch } from "../../agent/tools.mjs"; // 缺省传输层(真网络;与旧 microprobes.mjs 同源同拼)
+import { mkMicroprobeHost } from "../../pipeline-core/pipeline/microprobes.mjs"; // 零复制:工具实现/预算闸/dup 闸/登记行全在旧宿主
+import { safeFetch } from "../../pipeline-core/tools.mjs"; // 缺省传输层(真网络;与旧 microprobes.mjs 同源同拼)
 
 // 模板宿主:只为取三只工具的静态元数据(name/label/annotations/parameters/outputSchema),
 // fetchImpl 永不触发(budget:0 = 任何执行都会被预算闸拒,双保险)。

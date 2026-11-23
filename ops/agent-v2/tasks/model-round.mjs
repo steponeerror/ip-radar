@@ -12,16 +12,16 @@
 // 后一次(旧 runModelStage forEach 语义),归健康轮 DEEP 相位(deepFinalize+G_DEEP)。
 // 预算执法(票 #226 双点之环内):每 attempt 前 preModelCall①③、结算后 postModelCall②④——
 // 违界即停不重试(旧 fatalBudget 语义;宁少算)。相位级 startedAt 入 checkpoint(墙钟续算不重置)。
-// 旧管线零改动红线:ops/agent/ 只 import 不改;本文件属 ops/agent-v2/(shadow 期共存)。
+// 旧管线零改动红线:ops/pipeline-core/ 只 import 不改;本文件属 ops/agent-v2/(shadow 期共存)。
 import fs from "node:fs";
 import path from "node:path";
 import { defineTask } from "@earendil-works/pi-durable";
-import { HEALTH_PIPELINE } from "../../agent/pipeline.mjs"; // 零复制:定义表单源
-import { modelIO, forEachItems } from "../../agent/pipeline/steps.mjs"; // 零复制:模型步装配/收编/逐假设枚举
-import { evalStageGate, appendGate } from "../../agent/pipeline/gates.mjs"; // 零复制:单发步门(G_TRIAGE/G_SYNTH)
-import { hidSlug } from "../../agent/pipeline/steps.mjs";
+import { HEALTH_PIPELINE } from "../../pipeline-core/pipeline.mjs"; // 零复制:定义表单源
+import { modelIO, forEachItems } from "../../pipeline-core/pipeline/steps.mjs"; // 零复制:模型步装配/收编/逐假设枚举
+import { evalStageGate, appendGate } from "../../pipeline-core/pipeline/gates.mjs"; // 零复制:单发步门(G_TRIAGE/G_SYNTH)
+import { hidSlug } from "../../pipeline-core/pipeline/steps.mjs";
 import { loadFauxFixture, fauxFixtureSeeds, transcriptFile } from "../faux-face.mjs"; // MF3:faux 面分派件(fixture/seeds/transcript 名,旧 faux.mjs 字节级一致副本)
-import { ERROR_CODES } from "../../agent/error-codes.mjs";
+import { ERROR_CODES } from "../../pipeline-core/error-codes.mjs";
 import { buildRoundCtx, opsRootOf, sha16 } from "../round-ctx.mjs";
 import { roundKnobs, preModelCall, postModelCall } from "./budget-guard.mjs"; // 票 #226 环内执法面
 import { bindProbeHost, unbindProbeHost, boundProbeHost } from "../tools/probes.mjs"; // +boundProbeHost:71 真面分支消费(漏 import=TRIAGE ReferenceError,faux 面不达故测试盲,2026-10-28 首次真面冒烟咬住)

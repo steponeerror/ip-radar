@@ -17,8 +17,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { defineDoc } from "@earendil-works/pi-durable";
-import { DISCOVER_PIPELINE } from "../agent/pipeline.mjs"; // 零复制:SHORTLIST def(提示词键单源)
-import { DISCOVER_SHORTLIST_BENCH_PROMPT } from "../agent/artifacts.mjs"; // 基准提示词文件名单源(终审 P2-1:leak-check.mjs 缺省扫描面同源消费)
+import { DISCOVER_PIPELINE } from "../pipeline-core/pipeline.mjs"; // 零复制:SHORTLIST def(提示词键单源)
+import { DISCOVER_SHORTLIST_BENCH_PROMPT } from "../pipeline-core/artifacts.mjs"; // 基准提示词文件名单源(终审 P2-1:leak-check.mjs 缺省扫描面同源消费)
 import { DISCOVER_TOOLS_EXTENSION } from "./registry.mjs";
 import { openHarness } from "./entry.mjs";
 import { admitRound } from "./tasks/budget-guard.mjs";
@@ -29,10 +29,10 @@ import { discoverRoundTask } from "./tasks/discover-round.mjs";
 export const RoundsDoc = defineDoc({ kind: "ops.discover-rounds", scope: "session", version: 1, checkpointWhen: () => true, initial: () => ({ rounds: {} }) });
 
 // prompts 根推导(两提示词路径函数共底座,终审 P2-5 提取;路径字节不变):
-// ops/agent-v2 → 仓根 → ops/agent/prompts。
-const promptsRoot = () => path.join(path.resolve(import.meta.dirname, "..", ".."), "ops", "agent", "prompts");
+// ops/agent-v2 → 仓根 → ops/pipeline-core/prompts。
+const promptsRoot = () => path.join(path.resolve(import.meta.dirname, "..", ".."), "ops", "pipeline-core", "prompts");
 
-// SHORTLIST 提示词路径:与旧 steps.mjs promptFile 同式(<ops/agent>/prompts/<def.model>.md;
+// SHORTLIST 提示词路径:与旧 steps.mjs promptFile 同式(<ops/pipeline-core>/prompts/<def.model>.md;
 // def.model="discover/shortlist" 单源取自 DISCOVER_PIPELINE——drift 面由 golden 对拍 transcript system_sha 钉死)。
 export function shortlistPromptPath() {
   const def = DISCOVER_PIPELINE.find((d) => d.name === "SHORTLIST");

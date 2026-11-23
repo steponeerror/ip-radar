@@ -12,7 +12,7 @@ agent-config.json 存取 + 动态模型目录 + 状态出参。
   缺省 provider zai-coding-cn,#140 既有盘上值/env 向后兼容;写盘归一为
   qualified 单拼写);优先级链:配置 > 进程 effective env > models.mjs 缺省
   (env 兜底链不动,override 灌 key 保持兜底语义);
-- 动态目录:node 子调用 ops/agent/catalog.mjs(离线 dump,pi-ai builtin 全家
+- 动态目录:node 子调用 ops/pipeline-core/catalog.mjs(离线 dump,pi-ai builtin 全家
   + 用户两层);结果缓存 TTL 300s;失败/超时/形状坏 → 兜底 #140 五值闭集
   (catalog_source=fallback 显式标注,不伪装动态);PUT 校验用活目录(兜底时
   即兜底目录),未知 provider/模型 422 先校验后落盘(坏入参零写);
@@ -49,7 +49,7 @@ from . import _ops_store
 logger = logging.getLogger(__name__)
 
 # 兜底目录:zai-coding-cn 实测装载目录五值(裁决 2026-10-20;pi-ai 版本由
-# ops/agent lockfile 钉——lockfile 升级须复测)。动态目录失败时的闭集与
+# ops/package-lock.json 钉(#412 单包)——lockfile 升级须复测)。动态目录失败时的闭集与
 # PUT 校验面;cost 不手抄(兜底面 UI 成本提示隐去)。
 AGENT_MODEL_IDS = ("glm-4.6v", "glm-5.3", "glm-5.3-flash",
                    "glm-5.3-highspeed", "glm-5.3-flashx")
@@ -71,7 +71,7 @@ _TOOL_KEY_IDS = ("jina",)  # 工具 key 槽闭集(发现通道 web_search,PR3a;�
 _KNOWN_FIELDS = ("model_health", "model_discover", "zai_api_key", "api_keys", "tool_keys")
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]  # 仓根(catalog.mjs 的 cwd)
-_CATALOG_SCRIPT = ("node", "ops/agent/catalog.mjs")  # 相对仓根(部署形态)
+_CATALOG_SCRIPT = ("node", "ops/pipeline-core/catalog.mjs")  # 相对仓根(部署形态)
 _CATALOG_CMD_ENV = "IP_RADAR_OPS_CATALOG_CMD"
 _CATALOG_TTL_S = 300.0
 _CATALOG_TIMEOUT_S = 15.0

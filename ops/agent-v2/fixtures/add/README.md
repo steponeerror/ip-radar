@@ -1,7 +1,7 @@
 # add 域 faux 夹具(票 #332 P1)
 
 加源轮(`ops/agent-v2/tasks/add-round.mjs`)faux 面的罐装世界;零网络零花费,
-与发现轮夹具(`ops/agent/fixtures/pipeline/`)同律:faux 面的**数据读数**罐装,
+与发现轮夹具(`ops/pipeline-core/fixtures/pipeline/`)同律:faux 面的**数据读数**罐装,
 工具执行面真实(write_file/run_pytest 在沙箱真写真跑)。
 
 - `turns.json` — fauxProvider 罐装回合序列(整轮一会话顺序消费):

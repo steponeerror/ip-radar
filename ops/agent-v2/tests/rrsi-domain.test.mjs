@@ -39,7 +39,7 @@ test("rrsi.json 超参钉死:T=25/k=1/每轮 2 候选/delta=0.05 带理由;模�
 
 test("PATTERNS.md 提案者宪法:开放面/零漂移红线/豁免判例/免碰面四节齐备", () => {
   const md = read("PATTERNS.md");
-  assert.ok(md.includes("ops/agent") && md.includes("ops/agent-v2"), "开放面=发现管线两目录");
+  assert.ok(md.includes("ops/pipeline-core") && md.includes("ops/agent-v2"), "开放面=管线引擎+发现管线两目录(#412 起 ops/agent→ops/pipeline-core;旧子串 ops/agent 是 ops/agent-v2 的前缀,恒真)");
   assert.ok(md.includes("零漂移"), "零漂移红线(真实轮路径行为字节不变,golden 钉)");
   assert.ok(md.includes("golden"), "零漂移红线须指名 golden 守门");
   assert.ok(md.includes("禁词引用"), "行级豁免判例(#308:行尾「禁词引用:原因」)");
@@ -220,33 +220,32 @@ rep["has"] = {n: hasattr(m, n) for n in ("EDIT_ALLOWLIST", "edit_allowed", "_fro
                                          "NEEDS_GATE_PATHS", "VERIFICATION_GATE_PATHS")}
 rep["domainAttr"] = getattr(m.DOMAIN, "edit_allowlist", None) is getattr(m, "EDIT_ALLOWLIST", None)
 if rep["has"]["edit_allowed"]:
-    allow = ("ops/agent/pipeline/steps.mjs",
-             "ops/agent/prompts/discover-system.md",
-             "ops/agent/prompts/discover/shortlist.md",
-             "ops/agent/agent.mjs",
-             "ops/agent/models.mjs",
+    allow = ("ops/pipeline-core/pipeline/steps.mjs",
+             "ops/pipeline-core/prompts/discover-system.md",
+             "ops/pipeline-core/prompts/discover/shortlist.md",
+             "ops/pipeline-core/agent.mjs",
+             "ops/pipeline-core/models.mjs",
              "ops/agent-v2/tools/probes.mjs",
              "ops/agent-v2/tasks/discover-round.mjs",
              "ops/agent-v2/bench/score.mjs",
              "ops/agent-v2/bench/rrsi-domain/adapter.py")
-    deny = ("ops/agent/golden/cases.json",
-            "ops/agent/selftest-pipeline.mjs",
-            "ops/agent/fixtures/pipeline/d1-scan.json",
+    deny = ("ops/pipeline-core/golden/cases.json",
+            "ops/pipeline-core/selftest-pipeline.mjs",
+            "ops/pipeline-core/fixtures/pipeline/d1-scan.json",
             "ops/agent-v2/tests/rrsi-domain.test.mjs",
-            "ops/agent/package-lock.json",
-            "ops/agent-v2/package-lock.json",
+            "ops/package-lock.json",
             "README.md",
-            "ops/agent/pipeline.mjs",
-            "ops/agent/tools.mjs",
+            "ops/pipeline-core/pipeline.mjs",
+            "ops/pipeline-core/tools.mjs",
             "ops/agent-v2/entry.mjs",
-            "ops/agent/feeds.txt")
+            "ops/pipeline-core/feeds.txt")
     rep["allow"] = {p: bool(m.edit_allowed(p)) for p in allow}
     rep["deny"] = {p: bool(m.edit_allowed(p)) for p in deny}
-    rep["normBackslash"] = bool(m.edit_allowed("ops\\\\agent\\\\prompts\\\\discover-system.md"))
+    rep["normBackslash"] = bool(m.edit_allowed("ops\\\\pipeline-core\\\\prompts\\\\discover-system.md"))
     # 构成计数(source_exts 面,同调研笔记口径;split.jsonl 的 .jsonl 不入)
     exts = {".py", ".txt", ".md", ".json", ".mjs"}
     ops = Path(sys.argv[2])
-    files = ["ops/" + str(p.relative_to(ops)) for base in ("agent", "agent-v2")
+    files = ["ops/" + str(p.relative_to(ops)) for base in ("pipeline-core", "agent-v2")
              for p in (ops / base).rglob("*")
              if p.is_file() and "node_modules" not in p.parts and p.suffix in exts]
     rep["allowlistCount"] = sum(1 for f in files if m.edit_allowed(f))
@@ -256,13 +255,13 @@ if all(rep["has"].values()):
     d = Path(tempfile.mkdtemp(prefix="gate327-"))
     h = d / "domains" / "ipradar" / "harness"
     for rel, body in (("NEEDS.md", "n\\n"),
-                      ("ops/agent/golden/cases.json", "g\\n"),
-                      ("ops/agent/selftest-pipeline.mjs", "st\\n"),
-                      ("ops/agent/fixtures/pipeline/d1-scan.json", "f\\n"),
+                      ("ops/pipeline-core/golden/cases.json", "g\\n"),
+                      ("ops/pipeline-core/selftest-pipeline.mjs", "st\\n"),
+                      ("ops/pipeline-core/fixtures/pipeline/d1-scan.json", "f\\n"),
                       ("ops/agent-v2/tests/x.test.mjs", "t\\n"),
                       ("ops/agent-v2/bench/leak-check.mjs", "lc\\n"),
                       ("ops/agent-v2/bench/exam-rules.json", "er\\n"),
-                      ("ops/agent/prompts/discover-system.md", "p\\n")):
+                      ("ops/pipeline-core/prompts/discover-system.md", "p\\n")):
         p = h / rel
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(body)
@@ -280,21 +279,21 @@ if all(rep["has"].values()):
         return m._frozen(d, m.NEEDS_GATE_PATHS)
     rep["gateClean"] = vf()
     rep["gateRed"] = {}
-    for rel in ("ops/agent/golden/cases.json",
-                "ops/agent/selftest-pipeline.mjs",
-                "ops/agent/fixtures/pipeline/d1-scan.json",
+    for rel in ("ops/pipeline-core/golden/cases.json",
+                "ops/pipeline-core/selftest-pipeline.mjs",
+                "ops/pipeline-core/fixtures/pipeline/d1-scan.json",
                 "ops/agent-v2/tests/x.test.mjs"):
         p = h / rel
         p.write_text(p.read_text() + "touched\\n")
         rep["gateRed"][rel] = vf()
         git("checkout", "-q", "--", ".")
-    (h / "ops/agent/prompts/discover-system.md").write_text("p2\\n")
+    (h / "ops/pipeline-core/prompts/discover-system.md").write_text("p2\\n")
     rep["gatePolicyEditGreen"] = vf()
     git("checkout", "-q", "--", ".")
     (h / "NEEDS.md").write_text("n2\\n")
     rep["gateNeedsOnly"] = [nf(), vf()]
     git("checkout", "-q", "--", ".")
-    (h / "ops/agent/golden/cases.json").write_text("g2\\n")
+    (h / "ops/pipeline-core/golden/cases.json").write_text("g2\\n")
     git("add", "-A")
     git("-c", "commit.gpgsign=false", "commit", "-q", "-m", "cand")
     rep["gateCommittedRed"] = vf()

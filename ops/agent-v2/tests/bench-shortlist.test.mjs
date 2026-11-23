@@ -15,13 +15,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
-import { GATES } from "../../agent/pipeline/gates.mjs";
+import { GATES } from "../../pipeline-core/pipeline/gates.mjs";
 import { runBenchRound } from "../bench/run-bench.mjs";
 import { shortlistBenchPromptPath } from "../run-discover.mjs";
 
 const sha = (s) => crypto.createHash("sha256").update(s).digest("hex").slice(0, 16);
 const ROUND = "2026-06-01-0500-discover";
-const FIXTURES = path.resolve(import.meta.dirname, "..", "..", "agent", "fixtures", "pipeline");
+const FIXTURES = path.resolve(import.meta.dirname, "..", "..", "pipeline-core", "fixtures", "pipeline");
 // 转录指针形:call/<call_id>(模型可见面=工具返回 [call_id=…] 前缀;行号面模型不可数,弃)
 const TRANSCRIPT_PTR = (id) => `d2-shortlist-transcript.jsonl:call/${id}`;
 

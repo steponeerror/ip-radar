@@ -58,7 +58,7 @@ net.setDefaultAutoSelectFamilyAttemptTimeout(2500);
 import { defineTask, UsageDoc } from "@earendil-works/pi-durable";
 import { elapsedWallS } from "../budget.mjs"; // 零复制 re-export seam(旧管线纯函数单一真源)
 import { preModelCall, postModelCall, stepBoundary } from "./budget-guard.mjs"; // 执法面(文案/界值零漂移)
-import * as gates from "../../agent/pipeline/gates.mjs"; // 零复制:gates.json 留痕件(appendGate 通用面)
+import * as gates from "../../pipeline-core/pipeline/gates.mjs"; // 零复制:gates.json 留痕件(appendGate 通用面)
 import { addPromptPath } from "../run-add.mjs"; // 提示词路径(run-add 定义面;函数声明循环安全:运行时互引,discover 同律)
 import { ensureAddHost } from "../tools/add-tools.mjs"; // 轮级编码宿主(工具面种子登记)
 import { DUMP_META_SCRIPT } from "../bench/add-domain/gen-universe.mjs"; // roster 侧 url 证据面判据单源(#337 F4;gen-exam-cards 同源消费)
@@ -83,7 +83,7 @@ const ART = Object.freeze({
 const ADD_LEDGER_TAG = "pipeline-add";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../.."); // ops/agent-v2/tasks → 仓根
-const LIBSH = path.join(REPO_ROOT, "ops", "agent", "lib.sh"); // 台账/sandbox_assert(RETRO 同款 sh 面)
+const LIBSH = path.join(REPO_ROOT, "ops", "pipeline-core", "lib.sh"); // 台账/sandbox_assert(RETRO 同款 sh 面)
 const sh = (fn, args = [], timeoutMs = 600_000, env = process.env) => execFileP("bash",
   ["-c", `. "$0"; ${fn} "$@"`, LIBSH, ...args], { timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024, env: { ...env } });
 

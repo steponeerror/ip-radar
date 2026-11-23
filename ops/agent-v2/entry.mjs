@@ -20,7 +20,7 @@ import { loadModels, parseModelRef } from "./models.mjs";
 import { buildRegistry } from "./registry.mjs";
 import { admitRound, postModelCall, preModelCall, stepBoundary, sumUsageState } from "./tasks/budget-guard.mjs"; // 票 #226 双点执法接线(定案 3:entry/tasks 层,不 hook 化)
 
-export const ROOT = path.resolve(import.meta.dirname, "..", ".."); // 仓根(与 ops/agent/tools/shared.mjs 同推导)
+export const ROOT = path.resolve(import.meta.dirname, "..", ".."); // 仓根(与 ops/pipeline-core/tools/shared.mjs 同推导)
 
 // SQLite 落位(t1-notes 建议3):DOCS_ROOT/ops/ 派生面(与 rounds/items 同树规则);
 // OPS_V2_DB 覆盖(测试隔离)。journal=WAL+synchronous=NORMAL 由 chord 适配器缺省

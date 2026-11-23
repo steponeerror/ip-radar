@@ -31,8 +31,8 @@ import {
   DISCOVERY_TOOLS,
   ensureDiscoverHost,
   fixtureDiscoveryMethods,
-} from "../../agent/pipeline/discovery-host.mjs"; // 零复制真源(实现+守卫链+熔断写侧+种子)
-import { parseRss } from "../../agent/tools/discovery.mjs"; // 形状钉子:parameters schema 与旧面同构(见下)
+} from "../../pipeline-core/pipeline/discovery-host.mjs"; // 零复制真源(实现+守卫链+熔断写侧+种子)
+import { parseRss } from "../../pipeline-core/tools/discovery.mjs"; // 形状钉子:parameters schema 与旧面同构(见下)
 
 // replay 声明单源(报告清单与 tests/discover-round.test.mjs 断言同源引用本表)
 export const DISCOVERY_REPLAY = Object.freeze({ web_read: "safe", web_search: "unsafe", rss_parse: "safe" });
@@ -85,7 +85,7 @@ export function discoveryTools() {
   return proto.map(({ name }) => defineTool({
     name,
     label: `ops 发现轮 ${name}`,
-    description: `发现轮只读通道工具 ${name}(实现零复制自旧管线 ops/agent/tools/discovery.mjs;同参重复拦截/通道熔断/每轮上限守卫链;失败=结构化信封 {ok:false,code,reason},非 isError——信封即契约读数)`,
+    description: `发现轮只读通道工具 ${name}(实现零复制自旧管线 ops/pipeline-core/tools/discovery.mjs;同参重复拦截/通道熔断/每轮上限守卫链;失败=结构化信封 {ok:false,code,reason},非 isError——信封即契约读数)`,
     annotations: { readOnlyHint: true, idempotentHint: name !== "web_search", openWorldHint: true },
     parameters: Type.Object({ url: Type.Optional(Type.String({ pattern: "^https?://", maxLength: 500 })), query: Type.Optional(Type.String({ maxLength: 500 })) }),
     replay: DISCOVERY_REPLAY[name], // 逐工具声明(头注裁语);缺省本就是 unsafe,显式写出=报告与断言可对拍

@@ -1,7 +1,7 @@
 // smoke-glm.test.mjs — GLM smoke(票 #225;真实 1 次 glm-5.3-flash 调用,单次 ≈¥0.00004)
 // 面:开 SQLite → root conversation → 1 次 GLM 调用 → 断言应答落库(重开 harness 仍在)
 // + requestId exactly-once 重放零新调用(T0 notes/smoke.mjs 主链,落在 v2 适配层入口形态)。
-// 凭证照 ops/agent 现行链(auth.json → env 兜底),测试只判有无,零密钥入码/入日志。
+// 凭证照 ops/pipeline-core 现行链(auth.json → env 兜底),测试只判有无,零密钥入码/入日志。
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
