@@ -14,7 +14,9 @@ import os from "node:os";
 import path from "node:path";
 import { execFile as execFileCb, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
-import { runAddRound } from "../run-add.mjs";
+import { runAddRound, AddRoundsDoc, fauxAddBundle } from "../run-add.mjs";
+import { openHarness } from "../entry.mjs";
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import {
   ADD_PHASES,
   ADD_TASK_NAME,
@@ -224,6 +226,19 @@ test("相位头 SIGKILL 崩溃 → 同库 resume 续跑到 CLOSE", async () => {
 // ── #415 终态镜像覆盖全部终态出口(票面专项 E2E:加轮 finishOk;其余出口同批钉住)──
 const mirrorOf = (w, roundId = ROUND) => JSON.parse(fs.readFileSync(path.join(w.opsRoot, "rounds", roundId, "state.json"), "utf8"));
 
+test("#415 加轮 finishOk 终态:六相位全绿 → state.json done,stages=六相位名单(与信封一致;无 stage 键)", async () => {
+  const w = seedWorld("v2-add-finok-");
+  try {
+    const r = await runRound(w);
+    assert.equal(r.status, "completed", JSON.stringify(r.error ?? r));
+    const mirror = mirrorOf(w);
+    assert.equal(mirror.round_id, ROUND);
+    assert.equal(mirror.status, "done", "#415:finishOk=completed 终态出口,镜像 done(修前=停在 running)");
+    assert.deepEqual(mirror.stages, ["VERIFY", "DOSSIER", "IMPLEMENT", "GATE", "REPORT", "CLOSE"], "镜像 stages 名单=六相位");
+    assert.deepEqual(mirror.stages, r.envelope.pipeline.stages.map((x) => x.name), "镜像 stages 名单 ≡ 信封 stages 名单");
+    assert.equal("stage" in mirror, false, "加源轮 state 无 stage 键(字段集稳定;书挡是健康轮独有)");
+  } finally { fs.rmSync(w.tmp, { recursive: true, force: true }); }
+});
 
 test("#415 加轮 close 步抛终态:09-budget.json 路径被目录占 → CLOSE 步抛 EISDIR → state.json failed,stages 止于 REPORT", async () => {
   const w = seedWorld("v2-add-closethrow-");
@@ -295,6 +310,39 @@ test("#415 加轮属主判:同 id 旧轮的 done 镜像不被跨库新任务改�
   } finally { fs.rmSync(w.tmp, { recursive: true, force: true }); }
 });
 
+test("#415 加轮中止终态:相位头崩溃的任务被 abortTask → outcome aborted,镜像 aborted(stages=已提交相位)", async () => {
+  const w = seedWorld("v2-add-abort-");
+  const db = path.join(w.tmp, "v2.sqlite");
+  // 第一段:子进程 CLI 在 dossier 相位头 SIGKILL(crashHook 测试缝;上一相位 VERIFY 的 checkpoint 已提交)
+  const env = { ...process.env, DOCS_ROOT: w.docsRoot, LEDGER_FILE: path.join(w.opsRoot, "ledger.md"), OPS_V2_CRASH_AFTER_PHASE: "dossier" };
+  try {
+    const kill = await execFile(process.execPath, [path.join(HERE, "run-add.mjs"), ROUND, "--source", SOURCE, "--sandbox", w.sandbox, "--fixtures", FIXTURES, "--db", db], { env }).catch((e) => e.code);
+    assert.equal(kill, null, `SIGKILL 期望进程被杀(exit code ${kill} 非自杀)`);
+    assert.equal(mirrorOf(w).status, "running", "前提:崩溃后镜像停在 running(进度镜像)");
+    // 第二段:同库开 harness,对在飞任务下中止标记 → abort 相位(真框架路径,零 mock)
+    const keys = ["DOCS_ROOT", "LEDGER_FILE"];
+    const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+    process.env.DOCS_ROOT = w.docsRoot;
+    process.env.LEDGER_FILE = env.LEDGER_FILE; // abort 相位建 ctx 定位轮目录靠 env 现读
+    try {
+      const context = BACKGROUND_CONTEXT;
+      const { harness } = await openHarness({ dbPath: db, models: await fauxAddBundle(FIXTURES) });
+      try {
+        const taskId = (await harness.snapshot(AddRoundsDoc, context)).rounds[ROUND].taskId;
+        assert.equal(await harness.abortTask(taskId, context), "marked", "在飞任务应可下中止标记");
+        const settled = await harness.waitForTask(taskId, context);
+        assert.equal(settled.state.outcome?.status, "aborted", `中止终态应落:${JSON.stringify(settled.state.outcome)}`);
+      } finally { await harness.close(context); }
+    } finally {
+      for (const k of keys) {
+        if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k];
+      }
+    }
+    const mirror = mirrorOf(w);
+    assert.equal(mirror.status, "aborted", "#415:中止=任务终态,镜像同词 aborted(修前=镜像停在 running)");
+    assert.deepEqual(mirror.stages, ["VERIFY"], "中止时已提交相位留痕;dossier 未成不造名");
+  } finally { fs.rmSync(w.tmp, { recursive: true, force: true }); }
+});
 
 // ── ⑤ CLI 冻结面(ENVELOPE.md 退出码表)─────────────────────────────────
 test("CLI:缺 --source/--sandbox、坏 --model、真实面漏 --model = exit 2;坏轮 id = bad_round 信封 exit 1", async () => {
