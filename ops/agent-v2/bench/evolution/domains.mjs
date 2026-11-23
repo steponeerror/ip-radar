@@ -20,7 +20,7 @@ import { resolveAddPython } from "../../run-add.mjs"; // python 解析单源(#35
 // 判分面/测试面即可自判 gained;三单件(delta P1)是同一执法链上「护栏在候选树
 // cwd 跑候选副本」的三条中和路:护栏②跑的是候选树 bench/leak-check.mjs、其名单解析
 // parseRoster 来自候选树 bench/roster.mjs(改空返回=零针装绿;run-trial.mjs 的
-// checkRoundDiffLeak 同 import 此件)、护栏① npm test 读候选树 ops/agent-v2/package.json
+// checkRoundDiffLeak 同 import 此件)、护栏① npm test 读候选树 ops/package.json(#412 单包包根)
 // 的 scripts.test(改 no-op 即绿)。条目是 git pathspec:目录前缀=子树全量(含删除
 // 与改名出的旧路径),文件级精确路径=单件(别用目录前缀误伤同目录开放面)。──
 export const EVOLVE_PROTECTED_FACES = Object.freeze([
@@ -31,7 +31,7 @@ export const EVOLVE_PROTECTED_FACES = Object.freeze([
   "ops/agent-v2/bench/evolution", // 驱动器自身判分与记账面:judge/ledger/state/run-round/exits/domains——提案者同样不可触
   "ops/agent-v2/bench/leak-check.mjs", // 护栏②副本:leak 闸跑候选树此件(文件级;bench/ 其余是开放面)
   "ops/agent-v2/bench/roster.mjs", // 名单解析单源:leak-check 与 score 共用 parseRoster(改空返回=零针/零答案装绿)
-  "ops/agent-v2/package.json", // 护栏①脚本面:npm test 读候选树 scripts.test(改 no-op 即绿)
+  "ops/package.json", // 护栏①脚本面:npm test 读候选树包根 scripts.test(改 no-op 即绿);#412 单包后包根=ops/,原 ops/agent-v2/package.json 已删——钉已删路径=护栏空转(评审 P1)
 ]);
 
 // add-domain 适配:考题 = universe split=evolve 面(25 题;heldout 是终局验收面,
@@ -51,8 +51,9 @@ export const EVOLUTION_DOMAINS = Object.freeze({
     },
     guardrails(worktree, env = process.env) {
       const cwd = path.join(worktree, "ops", "agent-v2");
+      const opsRoot = path.join(worktree, "ops"); // #412 单包包根=npm test 的 canonical cwd(旧 cwd 靠 npm 向上找包根也能跑,2026-11-23 实测 305/304;护栏直指包根)
       return [
-        { name: "v2 全套(npm test)", cmd: ["npm", "test"], cwd, timeoutMs: 30 * 60_000 },
+        { name: "v2 全套(npm test)", cmd: ["npm", "test"], cwd: opsRoot, timeoutMs: 30 * 60_000 },
         // #357:泄漏闸名单取数须用主检出 venv 解释器(候选 worktree 无 venv、系统
         // python 无 ipdb → rc=2 假红;11-03 判例:主检出解释器+cwd 切 worktree/backend,
         // leak-check --python 即此形)。resolveAddPython 与驱动器提案者面(run-round.mjs)

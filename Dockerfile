@@ -11,7 +11,7 @@ RUN npm run build
 # ── P5(票 #137):运营 agent 生产依赖层 ──────────────────────────
 # bookworm-slim(glibc)而非 alpine:最终镜像(python:3.12-slim = trixie)直接
 # 复用本层 node 二进制——trixie glibc/libstdc++ 向上兼容 bookworm 链接产物,零
-# musl 移植问题。engines node>=22.19(ops/pipeline-core/package.json):node:22 浮动 tag
+# musl 移植问题。engines node>=22.19(ops/package.json,#412 单包):node:22 浮动 tag
 # 自 2025-10 起恒 ≥22.19 且持续吃补丁;下方显式断言钉下界,基镜像漂移到 <22.19
 # 构建即红(不靠 npm engines 软警告)。
 # #412(ADR 0012 切流收尾)单包层:ops/agent + ops/agent-v2 两包合并为 ops/ 单包,
@@ -58,7 +58,7 @@ COPY backend/ ./backend/
 # ——审后修 P2 2026-10-24:旧注「89 包」已陈旧)。node_modules 不进构建上下文
 # (.dockerignore 排除,本地也无需装),
 # 由 opsagent 层 npm ci 注入;node 二进制经 PATH 供 P2 桥 spawn(node --max-old-
-# space-size=256 ops/pipeline-core/agent.mjs,cwd=/app)。
+# space-size=256 ops/pipeline-core/pipeline.mjs|agent.mjs 按轮型直连,#412;cwd=/app)。
 COPY ops/ ./ops/
 COPY --from=opsagent /opsagent/node_modules ./ops/node_modules
 COPY --from=opsagent /usr/local/bin/node /usr/local/bin/node

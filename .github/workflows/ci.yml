@@ -39,7 +39,7 @@ jobs:
       # node+npm 供给(本 job 已具备)+rg(ubuntu runner 预装,兜底 apt 装)。真模型 smoke 层
       # 单列不进 CI(计划书 Task 6 Step 2)。沙箱断言面对 checkout 干净仓(同 仓内 step 均落 ignore 面)。
       - name: Ops agent golden set (faux, no API spend)
-        # #412 单包:依赖在 ops/ 包根一份 node_modules(旧 ops/pipeline-core 局部 npm ci 退役)
+        # #412 单包:依赖在 ops/ 包根一份 node_modules(旧 ops/agent 局部 npm ci 退役)
         working-directory: ops
         run: |
           command -v rg >/dev/null 2>&1 || sudo apt-get install -y -q ripgrep

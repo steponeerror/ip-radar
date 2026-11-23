@@ -33,7 +33,9 @@
 
 测试/P5 部署 seam:IP_RADAR_OPS_AGENT_CMD 覆盖命令体(shlex 切分;参数面
 <round> <input> 不变)——后端 CI runner 无 node,单测用 python 假 agent 真过
-spawn 层;e2e 真跑(tests/test_ops_rounds_e2e.py)不设此值。
+spawn 层;e2e 真跑(tests/test_ops_rounds_e2e.py)#412 起显式覆盖为会话式
+agent.mjs 专测该面——生产 UI 健康轮的缺省路径(pipeline.mjs 直连)无真模型 e2e:
+argv 形状由 test_ops_rounds 单测钉、轮内行为由 selftest-pipeline(faux)钉,见 e2e 文件头。
 """
 
 import contextlib

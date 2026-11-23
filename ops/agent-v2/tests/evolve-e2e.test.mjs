@@ -369,12 +369,13 @@ test("diff 面闸单面:untracked 触名单+改名出保护区显形;开放面=�
       await diffFaceGateTouched(realExec, { worktree: wt, baseRef: base, faces: EVOLVE_PROTECTED_FACES }),
       ["backend/ipdb/x.py", "ops/agent-v2/bench/leak-check.mjs", "ops/agent-v2/bench/roster.mjs"],
     );
-    fs.writeFileSync(path.join(wt, "ops", "agent-v2", "package.json"), JSON.stringify({ scripts: { test: "node -e 0" } }, null, 2) + "\n");
+    fs.mkdirSync(path.join(wt, "ops"), { recursive: true }); // #412 单包包根(评审 P1:夹具写已删的旧路径=断言空转)
+    fs.writeFileSync(path.join(wt, "ops", "package.json"), JSON.stringify({ scripts: { test: "node -e 0" } }, null, 2) + "\n");
     gitWt("add", "-A");
     gitWt("-c", "user.email=f@x.example", "-c", "user.name=fixture", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "hijack npm test");
     assert.deepEqual(
       await diffFaceGateTouched(realExec, { worktree: wt, baseRef: base, faces: EVOLVE_PROTECTED_FACES }),
-      ["backend/ipdb/x.py", "ops/agent-v2/bench/leak-check.mjs", "ops/agent-v2/bench/roster.mjs", "ops/agent-v2/package.json"],
+      ["backend/ipdb/x.py", "ops/agent-v2/bench/leak-check.mjs", "ops/agent-v2/bench/roster.mjs", "ops/package.json"],
     );
     // 名单形状:八面=五前缀+三执法链单件;域适配器显式声明(driver 从适配器读)
     assert.equal(EVOLVE_PROTECTED_FACES.length, 8, "保护名单八面:backend/tests/fixtures/bench-add-domain/bench-evolution + leak-check/roster/package.json");

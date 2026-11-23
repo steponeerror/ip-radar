@@ -100,7 +100,7 @@ services:
 
 发现通道三件之一 web_search 已由 **pi-web-access**(2026-10-24 用户令「用
 pi-web-access 实现网络搜索」,https://pi.dev/packages/pi-web-access;镜像内
-pin 0.44.0,ops/pipeline-core/package.json + Dockerfile npm ci 自动带入)驱动:多 provider
+pin 0.44.0,ops/package.json + Dockerfile npm ci 自动带入)驱动:多 provider
 网络搜索 + 智能回退链,**零配置一发即活**(缺省路由 keyless DuckDuckGo——正式
 取代 Jina 充值前置)。工具契约面不变(归一 SERP/每轮预算/失败四码结果单)。
 
@@ -151,6 +151,7 @@ curl -X PUT http://127.0.0.1:8000/api/ops/agent-config \
 - 遗留部署面:服务器 docker-compose.override.yml 里的 `OPS_PIPELINE=pipeline` 行
   在 #412 后**惰性无害**(agent.mjs 委派分支已删;pipeline.mjs 仅闭集校验该值)。
   下次改 override 时可顺手删除;不删不影响行为。
+- 测试入口(#412 单包):`cd ops && npm test`(canonical);旧写法 `cd ops/agent-v2 && npm test` 靠 npm 向上找包根同样能跑(2026-11-23 实测 305/304/0 红/1 跳),别依赖。
 - 模型步面(#170,不变):生产/cron 轮(无 `--fixtures`)真 provider——TRIAGE/SYNTH=
   `OPS_MODEL_HEALTH`(缺省 glm-5.3-flash),DEEP=`OPS_MODEL_DISCOVER`(缺省 glm-5.3);
   手测/重放带 `--fixtures` 则 faux 零成本(重放缺省继承原件面)。真面 DEEP 微探针

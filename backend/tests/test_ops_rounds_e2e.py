@@ -8,7 +8,9 @@ skip 门(不满足即 SKIP,绝不 mock 冒充真跑——任务书纪律):
 
 真跑链路 = 会话式 legacy 面(显式 IP_RADAR_OPS_AGENT_CMD 覆盖为 agent.mjs):ops 树落
 tmp、真 node 拉 ops/pipeline-core/agent.mjs、真 glm-5.3-flash、包/台账经 lib.sh 落 ops 树。
-#412 后生产健康路径已按轮型直连 pipeline.mjs(状态机宿主;ui/cron v2 各自接线覆盖),
+#412 后 UI 健康轮经桥缺省直连 pipeline.mjs(状态机宿主;生产 cron 走 v2 run-health.mjs
+不经桥)——该缺省路径无真模型 e2e:argv 形状由 test_ops_rounds 单测钉、轮内行为由
+selftest-pipeline(faux)钉(评审 P2 记档于 #412)。
 本 e2e 专测会话式引擎面(消费 typed input→[turn] 进度行;该面仍为 discover 缺省宿主
 与 11/12 金轨迹例载体)。
 注意:agent 侧 sandbox_assert(worktree 根 backend/frontend 零改动红线)要求

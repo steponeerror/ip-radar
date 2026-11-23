@@ -39,7 +39,7 @@ test("rrsi.json 超参钉死:T=25/k=1/每轮 2 候选/delta=0.05 带理由;模�
 
 test("PATTERNS.md 提案者宪法:开放面/零漂移红线/豁免判例/免碰面四节齐备", () => {
   const md = read("PATTERNS.md");
-  assert.ok(md.includes("ops/agent") && md.includes("ops/agent-v2"), "开放面=发现管线两目录");
+  assert.ok(md.includes("ops/pipeline-core") && md.includes("ops/agent-v2"), "开放面=管线引擎+发现管线两目录(#412 起 ops/agent→ops/pipeline-core;旧子串 ops/agent 是 ops/agent-v2 的前缀,恒真)");
   assert.ok(md.includes("零漂移"), "零漂移红线(真实轮路径行为字节不变,golden 钉)");
   assert.ok(md.includes("golden"), "零漂移红线须指名 golden 守门");
   assert.ok(md.includes("禁词引用"), "行级豁免判例(#308:行尾「禁词引用:原因」)");
