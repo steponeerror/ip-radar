@@ -58,7 +58,7 @@ net.setDefaultAutoSelectFamilyAttemptTimeout(2500);
 import { defineTask, UsageDoc } from "@earendil-works/pi-durable";
 import { elapsedWallS } from "../budget.mjs"; // 零复制 re-export seam(旧管线纯函数单一真源)
 import { preModelCall, postModelCall, stepBoundary } from "./budget-guard.mjs"; // 执法面(文案/界值零漂移)
-import { writeTerminalRoundState, writeOwnedRoundState } from "./round-state.mjs"; // #415:终态镜像单源——done 出口无条件写(close 已过建轮守卫);失败/中止出口经属主判(finishFailed 每出口带 ctx)
+import { writeTerminalRoundState, writeOwnedRoundState, writeAbortRoundState } from "./round-state.mjs"; // #415:终态镜像单源——done 出口无条件写(close 已过建轮守卫);失败/中止出口经属主判(finishFailed 每出口带 ctx);中止经不掷错包装
 import * as gates from "../../pipeline-core/pipeline/gates.mjs"; // 零复制:gates.json 留痕件(appendGate 通用面)
 import { addPromptPath } from "../run-add.mjs"; // 提示词路径(run-add 定义面;函数声明循环安全:运行时互引,discover 同律)
 import { ensureAddHost } from "../tools/add-tools.mjs"; // 轮级编码宿主(工具面种子登记)
@@ -1207,8 +1207,9 @@ export const addRoundTask = defineTask({
     close: (task, runtime, context) => scriptPhase(task, runtime, context, "close"),
   },
   abort: async (task, runtime, context) => { // 中止终态留痕(discover/health mkAbort 同款)
-    // #415:中止=任务终态,镜像同词 aborted(属主判同失败出口;中止时所处相位未成=stages 不造名)
-    if (task.state?.checkpoint) writeOwnedRoundState(buildCtx(task.input, task.state.checkpoint), "aborted");
+    // #415:中止=任务终态,镜像同词 aborted(属主判同失败出口;中止时所处相位未成=stages 不造名)。
+    // 整体包进 writeAbortRoundState(discover 同形):abort handler 裸抛=任务判 faulted、aborted outcome 丢失
+    if (task.state?.checkpoint) writeAbortRoundState(() => writeOwnedRoundState(buildCtx(task.input, task.state.checkpoint), "aborted"));
     await runtime.commit(() => ({ status: "terminal", outcome: { status: "aborted" } }), context);
   },
 });

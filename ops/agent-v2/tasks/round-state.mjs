@@ -21,6 +21,8 @@
 //    v1 的 state.json 是真源(写败=真失败,fail loud);v2 真源=checkpoint 且终态 commit
 //    在镜像写之后——镜像写败把已成功的轮改判 failed 才是真话反转,镜像降级为 stderr
 //    注记(waitModel 留痕读败同律)。
+//    #415 中止面加一层:abort handler 里连 ctx 重建一起包(writeAbortRoundState)——
+//    abort handler 裸抛=任务判 faulted、aborted outcome 丢失(该函数头注有实测)。
 import fs from "node:fs";
 import path from "node:path";
 
@@ -64,4 +66,14 @@ function ownsRoundDir(ctx) {
 // 属主判过才写,不过=不写;写败不掷错(writeTerminalRoundState 同律)。
 export function writeOwnedRoundState(ctx, status) {
   if (ownsRoundDir(ctx)) writeTerminalRoundState(ctx, { status });
+}
+
+// 中止出口包装(#415):abort handler 里的镜像写(含 ctx 重建/属主判)整体尽力不掷错。
+// Why 单独成函数:abort handler 是任务终态 commit 前的最后一笔代码——它裸抛时框架把任务
+// 判 faulted、aborted outcome 丢失且不重试(pi-durable 1.4.0 实测:outcome={status:"faulted"},
+// handler 只跑一次),等于把 P2-⑧「中止无终态」病请回来。相位出口里 ctx 重建在写函数之外,
+// 那里抛=相位 fault,属既有行为不动;abort 面的 ctx 重建是 #415 新增代码,不得引入这条
+// 回退,故连同 ctx 重建一起包住。写败只 stderr 注记(此时可能还没有 ctx,走不到 ctx.log)。
+export function writeAbortRoundState(write) {
+  try { write(); } catch (e) { process.stderr.write(`[state] 中止镜像写败:${e?.message ?? e}\n`); }
 }

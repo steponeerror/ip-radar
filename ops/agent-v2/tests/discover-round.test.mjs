@@ -385,3 +385,35 @@ test("#415 中止出口:相位头崩溃的任务被 abortTask → outcome aborte
     assert.deepEqual(mirror.stages, ["SCAN"], "中止时已提交相位留痕;shortlist 未成不造名");
   } finally { rm(tree); }
 });
+
+test("#415 中止镜像写尽力不掷错:abort 相位 ctx 重建抛(中止进程 breaker 旋钮非法)→ outcome 仍 aborted,镜像原样不改判", async () => {
+  const tree = tmpTree("v2-disc-abortthrow-");
+  const db = path.join(tree.tmp, "v2.sqlite");
+  // 第一段:同上,子进程 CLI 在 shortlist 相位头 SIGKILL,任务停在在飞
+  const env = { ...process.env, DOCS_ROOT: tree.docsRoot, LEDGER_FILE: path.join(tree.opsRoot, "ledger.md"), OPS_V2_CRASH_AFTER_PHASE: "shortlist" };
+  try {
+    const kill = await execFile(process.execPath, [path.join(HERE, "run-discover.mjs"), ROUND, "--fixtures", FIXTURES, "--db", db], { env }).catch((e) => e.code);
+    assert.equal(kill, null, `SIGKILL 期望进程被杀(exit code ${kill} 非自杀)`);
+    const stateFile = path.join(roundDirOf(tree), "state.json");
+    const before = fs.readFileSync(stateFile, "utf8");
+    // 第二段:中止在一个 breaker 旋钮非法的进程环境里执行(env 现读不入档=执行中止的进程
+    // 环境可与轮进程不同)→ abort 相位的 buildCtx→readBreakerKnobs 抛 usage 错=ctx 重建
+    // 失败的真实调用链(零 mock)。镜像写不得反过来改判任务终态:outcome 仍是 aborted;
+    // 写败=宁少算,进度镜像字节原样。
+    const notes = [];
+    const realWrite = process.stderr.write;
+    await withRoundEnv(tree, { OPS_BREAKER_THRESHOLD: "不是数" }, async () => {
+      process.stderr.write = (chunk, ...rest) => { notes.push(String(chunk)); return realWrite.call(process.stderr, chunk, ...rest); };
+      const context = BACKGROUND_CONTEXT;
+      const { harness } = await openHarness({ dbPath: db, models: await fauxBundle(FIXTURES) });
+      try {
+        const taskId = (await harness.snapshot(RoundsDoc, context)).rounds[ROUND].taskId;
+        assert.equal(await harness.abortTask(taskId, context), "marked", "在飞任务应可下中止标记");
+        const settled = await harness.waitForTask(taskId, context);
+        assert.equal(settled.state.outcome?.status, "aborted", `中止终态不得被镜像写败吃掉(修前=abort 相位裸抛 → 任务判 faulted、aborted outcome 丢失):${JSON.stringify(settled.state.outcome)}`);
+      } finally { await harness.close(context); }
+    }).finally(() => { process.stderr.write = realWrite; });
+    assert.equal(fs.readFileSync(stateFile, "utf8"), before, "镜像写败=宁少算:进度镜像字节原样(不造 aborted 件=不以未证之词入文)");
+    assert.ok(notes.some((l) => l.includes("中止镜像写败") && l.includes("OPS_BREAKER_THRESHOLD")), `写败须留 stderr 注记:${notes.join("")}`);
+  } finally { rm(tree); }
+});

@@ -28,7 +28,7 @@ import { roundKnobs, stepBoundary, postModelCall, knobNames } from "./budget-gua
 import { OPS_MODEL_ROUND, conversationUsage, conversationModelCalls } from "./model-round.mjs"; // P1-4:failed 子任务留痕计量面
 import { mkFauxFace, loadFauxFixture } from "../faux-face.mjs"; // 修复⑥:faux 面分派件(旧 faux.mjs 字节级一致副本)
 import { writeRoundReport } from "../../pipeline-core/pipeline/round-report.mjs"; // #403:轮报告件单源(v2 零复制 import v1)
-import { writeTerminalRoundState } from "./round-state.mjs"; // #408:CLOSE 终态回写 state.json 镜像(与报告件同接线点);#415:轮中失败/停笔/中止出口同写
+import { writeTerminalRoundState, writeAbortRoundState } from "./round-state.mjs"; // #408:CLOSE 终态回写 state.json 镜像(与报告件同接线点);#415:轮中失败/停笔/中止出口同写(中止经不掷错包装)
 import { OPS_PROBE_TOOLS } from "../tools/probes.mjs"; // DEEP 真面探针闭集(AgentChange.modelTools 要 ToolRegistration 对象非名字串——applyChange names() 映射 .name)
 
 const nowIso = () => new Date().toISOString();
@@ -78,8 +78,10 @@ function claimOwnedByTask(input, ck) {
 // stages=checkpoint 已提交相位(中止相位未成不造记录)。轮未起步/异主=不写。
 const mkAbort = () => async (task, runtime, context) => { // 终审小项:无参名(name 未用)
   const ck = task.state?.checkpoint;
+  // 整体包进 writeAbortRoundState(#415):rebuildRoundCtx 建 ctx 可抛(mkdirSync),而 abort handler
+  // 裸抛=任务判 faulted、aborted outcome 丢失——镜像写不得反过来改判任务终态
   if (ck && claimOwnedByTask(task.input, ck))
-    writeTerminalRoundState(rebuildRoundCtx(task.input, ck), { status: "aborted", stage: ck.phase });
+    writeAbortRoundState(() => writeTerminalRoundState(rebuildRoundCtx(task.input, ck), { status: "aborted", stage: ck.phase }));
   await runtime.commit(() => ({ status: "terminal", outcome: { status: "aborted" } }), context);
 };
 

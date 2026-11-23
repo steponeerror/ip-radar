@@ -52,7 +52,7 @@ import { ensureRoundHost, roundDupRegistries } from "../tools/discovery-tools.mj
 import { enqueueStageIssueExit } from "../tools/enqueue-issues.mjs"; // #384:ENQUEUE 出口改 GH issue(PROPOSE 行停写;判据分类 v1 classifyEnqueue 单源)
 import { benchScan } from "../bench/scan.mjs"; // bench SCAN 变体(票 #318:候选宇宙=仅 NEEDS 面;real 面走 runStage 旧步不受影响)
 import { writeRoundReport } from "../../pipeline-core/pipeline/round-report.mjs"; // #403:轮报告件单源(v2 零复制 import v1;bench 轮照写=沙箱 opsRoot 天然隔离)
-import { writeTerminalRoundState, writeOwnedRoundState } from "./round-state.mjs"; // #408:CLOSE 终态回写 state.json 镜像(与报告件同接线点);#415:失败/中止出口同写(属主判在内)
+import { writeTerminalRoundState, writeOwnedRoundState, writeAbortRoundState } from "./round-state.mjs"; // #408:CLOSE 终态回写 state.json 镜像(与报告件同接线点);#415:失败/中止出口同写(属主判/中止不掷错包装在内)
 import { shortlistBenchPromptPath } from "../run-discover.mjs"; // bench SHORTLIST 基准提示词路径(票 #319;函数声明面循环安全:run-discover↔tasks 仅运行时互引)
 
 const sha = (s) => crypto.createHash("sha256").update(s).digest("hex").slice(0, 16);
@@ -416,8 +416,9 @@ export const discoverRoundTask = defineTask({
     close: (task, runtime, context) => scriptPhase(task, runtime, context, "close"),
   },
   abort: async (task, runtime, context) => { // P2-⑧ 中止终态留痕(model-round/health-round mkAbort 同款;缺省=框架 fault 面无终态,信封永不落)
-    // #415:中止=任务终态,镜像同词 aborted(属主判同失败出口;中止时所处相位未成=stages 不造名)
-    if (task.state?.checkpoint) writeOwnedRoundState(buildCtx(task.input, task.state.checkpoint), "aborted");
+    // #415:中止=任务终态,镜像同词 aborted(属主判同失败出口;中止时所处相位未成=stages 不造名)。
+    // 整体包进 writeAbortRoundState:abort handler 裸抛=任务判 faulted、aborted outcome 丢失
+    if (task.state?.checkpoint) writeAbortRoundState(() => writeOwnedRoundState(buildCtx(task.input, task.state.checkpoint), "aborted"));
     await runtime.commit(() => ({ status: "terminal", outcome: { status: "aborted" } }), context);
   },
 });
