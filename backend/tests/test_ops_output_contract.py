@@ -4,7 +4,8 @@
 只护 `rounds/<id>/` 轮目录树;「轮关必产出 UI 可读包」是**跨目录**契约——轮侧经后端桥
 (`_ops_rounds._round_env` 注入 `DOCS_ROOT = ops_root().parent`)写
 `<DOCS_ROOT>/ops/packages/`,UI 侧读 `ops_root()/packages/*.md`(`_ops_read.list_packages`,
-即 GET /api/ops/packages 的函数体)。桥挪走或引擎 CLOSE 漏写,两侧各自全绿(既有测试:
+即 GET /api/ops/packages 的函数体)。桥挪走,两侧各自全绿;引擎 CLOSE 漏写,只有 node 侧 selftest 在它自选的 opsRoot 下
+会红——后端/UI 读面都无感(既有测试:
 桥单测只断言 env 键值;selftest / agent-v2 测试断言的是测试**自己指定**的 opsRoot 下
 有件),用户点开却看不到报告。
 
@@ -36,7 +37,7 @@ canned 报告引用 `2026-06-01-golden-aggregator.md`,CLOSE 的 verify_cited_pre
 → 轮内 `sandbox_assert` 红线判轮失败(sandbox_violation;引擎按设计,先提交再跑)。
 
 未覆盖(如实):发现轮引擎 `agent.mjs`(只有真模型面,CLI 无 faux 缝;它自写包、不走
-writeRoundReport)、agent-v2 三任务的 CLOSE(既有 node 测试各断言 packages 下有件:
+writeRoundReport)、agent-v2 两任务的 CLOSE(既有 node 测试各断言 packages 下有件:
 agent-v2/tests/discover-round.test.mjs、health-e2e.test.mjs;生产 cron 直拉 v2,不经
 后端桥)、resume 路径(与首轮同一 finishClose 调用点)。
 """
@@ -117,13 +118,14 @@ _SUPPRESSIONS_FIXTURE = {
 
 # 供给面(可跳过)vs 仓内受控文件(路径漂移要当场红,不许静默跳过——#412 终审 P1 判例):
 # node/bash/git/rg/flock = 引擎 CLI 与其 shell 步的外部供给;ops/node_modules =
-# gitignored 安装件(CI backend job 不装,缺则跳过)。本测试不走 env_dep:faux 面零网络
+# gitignored 安装件(CI 的 backend job 不装,缺则跳过;frontend job 有,由那里持门跑——
+# ci.yml「Ops output-contract gate」步)。本测试不走 env_dep:faux 面零网络
 # 零凭证零花费,不符合 pytest.ini 对 env_dep 的定义。
 pytestmark = pytest.mark.skipif(
     any(shutil.which(tool) is None for tool in ("node", "bash", "git", "rg", "flock"))
     or not (REPO_ROOT / "ops" / "node_modules").is_dir(),
     reason="供给面缺位:node/bash/git/rg/flock 或 ops/node_modules(worktree 用 "
-           "scripts/worktree-prep.sh 拷齐;CI backend job 不装)",
+           "scripts/worktree-prep.sh 拷齐;CI 的 backend job 不装,frontend job 持门跑)",
 )
 
 

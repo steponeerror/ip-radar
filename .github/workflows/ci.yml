@@ -45,6 +45,22 @@ jobs:
           command -v rg >/dev/null 2>&1 || sudo apt-get install -y -q ripgrep
           npm ci --no-fund --no-audit
           node pipeline-core/golden/run-golden.mjs
+      # #413:ops 跨目录产出契约对拍门——UI 健康轮经后端桥真跑到 CLOSE 后,UI 读面
+      # (GET /api/ops/packages 的函数体)必有本轮报告件;拆掉 writeRoundReport 接线或挪走桥的
+      # DOCS_ROOT 注入即红(#403 静默断供那一类)。门不通电等于没有门(ADR 0008):本门要三样
+      # 供给凑齐——python + backend 依赖(本步装)、node 22(本 job 已有)、ops/node_modules
+      # (上步 npm ci 沉淀)。backend job 不装 ops/node_modules,全量参考跑里它是 skip,所以
+      # 放这里持门。
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+      - name: Ops output-contract gate (#413) — closed round publishes to the UI read face
+        working-directory: backend
+        run: |
+          python -m pip install -r requirements-dev.txt
+          python -m pytest tests/test_ops_output_contract.py -q -p no:cacheprovider
       # T2(2026-10-20): selftest 伞面入闸(架构审查 R3 候选 2)——lib.sh 四函数/语义门
       # 24+ 例单测/prompt↔工具面同步闸/spawn 契约三层,此前全靠手跑。供给已就绪:
       # node+node_modules(golden 步 npm ci 沉淀)/rg(上步守卫)/python3+curl+git
