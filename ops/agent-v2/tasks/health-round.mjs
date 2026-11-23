@@ -28,7 +28,7 @@ import { roundKnobs, stepBoundary, postModelCall, knobNames } from "./budget-gua
 import { OPS_MODEL_ROUND, conversationUsage, conversationModelCalls } from "./model-round.mjs"; // P1-4:failed 子任务留痕计量面
 import { mkFauxFace, loadFauxFixture } from "../faux-face.mjs"; // 修复⑥:faux 面分派件(旧 faux.mjs 字节级一致副本)
 import { writeRoundReport } from "../../pipeline-core/pipeline/round-report.mjs"; // #403:轮报告件单源(v2 零复制 import v1)
-import { writeTerminalRoundState } from "./round-state.mjs"; // #408:CLOSE 终态回写 state.json 镜像(与报告件同接线点);#415:轮中失败出口同写
+import { writeTerminalRoundState } from "./round-state.mjs"; // #408:CLOSE 终态回写 state.json 镜像(与报告件同接线点);#415:轮中失败/停笔/中止出口同写
 import { OPS_PROBE_TOOLS } from "../tools/probes.mjs"; // DEEP 真面探针闭集(AgentChange.modelTools 要 ToolRegistration 对象非名字串——applyChange names() 映射 .name)
 
 const nowIso = () => new Date().toISOString();
@@ -64,12 +64,27 @@ const stageDone = (ck, rec, phase) => ({ ...ck, phase: nextPhase(phase ?? ck.pha
 function nextPhase(p) { const i = RUNNABLE.indexOf(p); return i >= 0 && i + 1 < RUNNABLE.length ? RUNNABLE[i + 1] : "CLOSE"; }
 const failTerm = (ck, phase, code, message) => ({ ...ck, phase: "FAILED", failed: { code, message: `${phase}:${message}` } });
 
-const mkAbort = () => async (_t, runtime, context) => { // 终审小项:无参名(name 未用)
+// 属主读面(#415 中止出口用;claimRoundDir 同键只读,不写不 mkdir):认领件 token=本任务
+// checkpoint.claimToken 才属主。abort 不套 claimGuard,故中止镜像前自核——未认领(轮未
+// 起步)/异主(跨库撞轮目录)不写(写了=把别轮终态改判)。
+function claimOwnedByTask(input, ck) {
+  const token = ck.claimToken ?? null;
+  if (token == null) return false;
+  try {
+    return JSON.parse(fs.readFileSync(path.join(opsRootOf(process.env), "rounds", String(input.roundId), ".v2-claim.json"), "utf8"))?.token === token;
+  } catch { return false; /* 无认领件/读败=不属主,宁少算 */}
+}
+// 中止=任务终态(#415):镜像同词 aborted(与 outcome 同词),stage=中止时所处相位;
+// stages=checkpoint 已提交相位(中止相位未成不造记录)。轮未起步/异主=不写。
+const mkAbort = () => async (task, runtime, context) => { // 终审小项:无参名(name 未用)
+  const ck = task.state?.checkpoint;
+  if (ck && claimOwnedByTask(task.input, ck))
+    writeTerminalRoundState(rebuildRoundCtx(task.input, ck), { status: "aborted", stage: ck.phase });
   await runtime.commit(() => ({ status: "terminal", outcome: { status: "aborted" } }), context);
 };
 
-// P0-④ 跨库撞轮目录守卫:v2 健康轮 state.json 仅终态回写(#408 CLOSE;#415 起轮中失败
-// 出口同写——健康轮无进度镜像,轮中成功推进仍无件;真源仍=SQLite checkpoint+工件,
+// P0-④ 跨库撞轮目录守卫:v2 健康轮 state.json 仅终态回写(#408 CLOSE;#415 起轮中失败/
+// 停笔/中止出口同写——健康轮无进度镜像,轮中成功推进仍无件;真源仍=SQLite checkpoint+工件,
 // 对拍/shadow-diff 双侧排除),
 // 跨库新任务撞已有轮目录无守卫(同库复用走 run-health HealthRoundsDoc 不触发;
 // --from-phase TRIAGE 的前置工件 01-/02- 合法,故不能以「目录非空」判)。认领件
@@ -145,6 +160,9 @@ function stopOutcome(input, ck, def) {
   fin.state.stage = def.name;
   fin.state.updated_at = nowIso();
   const envelope = composeEnvelope(fin, { ok: true });
+  // #415:停笔=completed 终态出口,镜像同写 done/停笔相位(CLOSE 出口同形;不造 CLOSE 名;
+  // 盘上无件=以 fin.state 全形起底,重入=盘上件为底 updated_at 保盘值)
+  writeTerminalRoundState(fin, { status: "done", stage: def.name });
   return {
     status: "terminal",
     outcome: { status: "completed", result: { round_id: input.roundId, envelope, dir: fin.dir, usage: fin.usage } },

@@ -18,11 +18,14 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { execFile as execFileCb } from "node:child_process";
 import { Harness } from "@earendil-works/pi-durable";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { createModels } from "@earendil-works/pi-ai";
 import { OPS_HEALTH_ROUND } from "../tasks/health-round.mjs";
+import { openHarness } from "../entry.mjs";
+import { HealthRoundsDoc } from "../run-health.mjs";
 import { buildRegistry } from "../registry.mjs";
 
 const AGENT = path.resolve(import.meta.dirname, "..", "..", "pipeline-core"); // #412 前 ops/agent(旧真源)
@@ -422,3 +425,133 @@ test("#415 健康轮 mid-round 失败终态:ITEMIZE 条目写败 → FAILED 书�
 
 // toPhase 停笔=completed 终态出口(旧 replay --to 同义;shadow 载具面):镜像同样落 done,
 // stage 书挡=停笔相位(不走 CLOSE,不造 CLOSE 名)。
+test("#415 健康轮 toPhase 停笔终态:completed 出口写镜像 done,stage=停笔相位,stages 止于停笔相位", async () => {
+  const roundId = "2026-10-28-0104-health";
+  const w = seedWorld({ roundId });
+  const storage = await openNodeSqliteStorage(path.join(w.tmp, "t.sqlite"));
+  const context = BACKGROUND_CONTEXT;
+  try {
+    const harness = await Harness.open(storage, { models: createModels(), registry: buildRegistry() }, context);
+    try {
+      harness.resume();
+      const root = await harness.root(context);
+      const taskId = await root.commit((tx) => tx.createTask(OPS_HEALTH_ROUND, {
+        roundId, fromPhase: "TRIAGE", toPhase: "DISPATCH", modelFace: "faux", fixturesDir: FIXTURES,
+      }, { ownership: { kind: "conversation" } }), context);
+      const settled = await harness.waitForTask(taskId, context);
+      const outcome = settled.state.outcome;
+      assert.equal(outcome.status, "completed", `停笔终态应 completed:${JSON.stringify(outcome)}`);
+      const mirror = jsonOf(path.join(w.roundDir, "state.json"));
+      assert.equal(mirror.status, "done", "#415:toPhase 停笔=completed 终态出口,镜像 done(修前=无件)");
+      assert.equal(mirror.stage, "DISPATCH", "stage 书挡=停笔相位(不造 CLOSE 名)");
+      assert.deepEqual(mirror.stages.map((x) => x.name), ["TRIAGE", "DISPATCH"], "stages 全记录形,止于停笔相位");
+      assert.equal(fs.existsSync(path.join(w.roundDir, "09-budget.json")), false, "停笔不入 CLOSE 书挡(前提:本测走的是停笔出口而非 CLOSE)");
+    } finally { await harness.close(context); }
+  } finally {
+    await storage.close(context);
+    w.restore();
+    fs.rmSync(w.tmp, { recursive: true, force: true });
+  }
+});
+
+test("#415 健康轮相位头预算墙:runScriptPhase 的 stepBoundary 拦截 → 终态 failed,镜像 failed/FAILED(零已提交相位)", async () => {
+  const roundId = "2026-10-28-2347-health";
+  const w = seedWorld({ roundId });
+  const storage = await openNodeSqliteStorage(path.join(w.tmp, "t.sqlite"));
+  const context = BACKGROUND_CONTEXT;
+  const priorWall = process.env.OPS_PIPELINE_WALL_CLOCK_S;
+  try {
+    process.env.OPS_PIPELINE_WALL_CLOCK_S = "0"; // 墙钟帽 0=恒超(overWallClock);轮始旋钮在 initial 冻结
+    const harness = await Harness.open(storage, { models: createModels(), registry: buildRegistry() }, context);
+    try {
+      harness.resume();
+      const root = await harness.root(context);
+      // 从脚本相位起步:相位头预算墙是它的第一个执法点(模型相位起步会先在子任务 pre 拦,走不到本出口)
+      const taskId = await root.commit((tx) => tx.createTask(OPS_HEALTH_ROUND, {
+        roundId, fromPhase: "DISPATCH", modelFace: "faux", fixturesDir: FIXTURES,
+      }, { ownership: { kind: "conversation" } }), context);
+      const settled = await harness.waitForTask(taskId, context);
+      const outcome = settled.state.outcome;
+      assert.equal(outcome.status, "failed", `预算墙应终态失败:${JSON.stringify(outcome)}`);
+      assert.equal(outcome.error.code, "wall_clock_exceeded", "失败面=相位头 stepBoundary 的墙钟码(非模型 pre 的调用帽)");
+      assert.match(outcome.error.message, /^DISPATCH:/, "失败面标相位名");
+      const mirror = jsonOf(path.join(w.roundDir, "state.json"));
+      assert.equal(mirror.round_id, roundId);
+      assert.equal(mirror.status, "failed", "#415:相位头预算墙=终态失败,镜像同写(修前=无件)");
+      assert.equal(mirror.stage, "FAILED", "stage 书挡=FAILED(v1 failStage 对)");
+      assert.deepEqual(mirror.stages.map((x) => x.name), [], "起步相位被拦=零已提交相位(宁少算)");
+    } finally { await harness.close(context); }
+  } finally {
+    if (priorWall === undefined) delete process.env.OPS_PIPELINE_WALL_CLOCK_S; else process.env.OPS_PIPELINE_WALL_CLOCK_S = priorWall;
+    await storage.close(context);
+    w.restore();
+    fs.rmSync(w.tmp, { recursive: true, force: true });
+  }
+});
+
+test("#415 健康轮中止终态:在飞(已认领)轮被 abortTask → outcome aborted,镜像 aborted(stage=中止时所处相位,stages=已提交相位)", async () => {
+  const roundId = "2026-10-28-2345-health"; // 合形状(子进程走 CLI=形状律先于准入)
+  const w = seedWorld({ roundId });
+  const db = path.join(w.tmp, "abort.sqlite");
+  const context = BACKGROUND_CONTEXT;
+  const stateFile = path.join(w.roundDir, "state.json");
+  try {
+    // 第一段:子进程 CLI 真跑;认领件=TRIAGE 相位头 claimGuard 在真实调用链上落的(写在首个
+    // 模型调用之前),一可解析即 SIGKILL(=宿主骤死,任务停在在飞)。health 无 crashHook 缝,
+    // 认领件是「轮已起步」的最早磁盘信号。
+    const claimFile = path.join(w.roundDir, ".v2-claim.json");
+    let child;
+    const exited = new Promise((resolve) => {
+      child = execFileCb(process.execPath, [
+        path.resolve(import.meta.dirname, "..", "run-health.mjs"), roundId,
+        "--from-phase", "TRIAGE", "--fixtures", FIXTURES, "--db", db,
+      ], { env: { ...process.env } }, (e) => resolve(e ? { code: e.code ?? null, signal: e.signal ?? null } : { code: 0, signal: null }));
+    });
+    let claimed = false;
+    for (let i = 0; i < 5000 && !claimed; i++) { // 10s 帽
+      try { claimed = typeof JSON.parse(fs.readFileSync(claimFile, "utf8")).token === "string"; } catch { claimed = false; }
+      if (!claimed) await new Promise((r) => setTimeout(r, 2));
+    }
+    assert.equal(claimed, true, "认领件应在帽内落盘(轮已起步)");
+    child.kill("SIGKILL");
+    assert.deepEqual(await exited, { code: null, signal: "SIGKILL" }, "SIGKILL 期望进程被信号杀(非自杀)");
+    assert.equal(fs.existsSync(stateFile), false, "前提:在飞轮无终态镜像件(健康轮无进度镜像;若子进程已跑完=本测注入失效)");
+    // 第二段:同库开 harness(不先 resume),对在飞任务下中止标记 → abort 相位(真框架路径,零 mock)
+    const { harness } = await openHarness({ dbPath: db, env: { ...process.env } });
+    try {
+      const taskId = (await harness.snapshot(HealthRoundsDoc, context)).rounds[roundId].taskId;
+      const before = await harness.getTask(taskId, context);
+      assert.equal(["running", "waiting", "pending", "sleeping"].includes(before.state.status), true, `前提:任务在飞:${before.state.status}`);
+      const ck = before.state.checkpoint;
+      assert.equal(await harness.abortTask(taskId, context), "marked", "在飞任务应可下中止标记");
+      const settled = await harness.waitForTask(taskId, context);
+      assert.equal(settled.state.outcome?.status, "aborted", `中止终态应落:${JSON.stringify(settled.state.outcome)}`);
+      const mirror = jsonOf(stateFile);
+      assert.equal(mirror.round_id, roundId, "镜像落在本轮目录(认领件属主判过)");
+      assert.equal(mirror.status, "aborted", "#415:中止=任务终态,镜像同词 aborted(修前=无件)");
+      assert.equal(mirror.stage, ck.phase, "stage=中止时所处相位(中止相位未成,不造书挡名)");
+      assert.deepEqual(mirror.stages.map((x) => x.name), ck.state.stages.map((x) => x.name), "stages=中止时 checkpoint 已提交相位(全记录形;中止相位不造记录)");
+    } finally { await harness.close(context); }
+    // 反面(宁少算):轮目录被别任务认领(认领件 token 异于本任务 checkpoint)→ 中止不写镜像
+    // (写了=改判别轮终态)。全新库、开 harness 后不先 resume 就下中止标记=任务零起步,
+    // 不经 claimGuard(走的是中止出口自身的属主判)。
+    const roundId2 = "2026-10-28-2346-health";
+    const dir2 = path.join(w.ops, "rounds", roundId2);
+    fs.mkdirSync(dir2, { recursive: true });
+    fs.writeFileSync(path.join(dir2, ".v2-claim.json"), JSON.stringify({ token: "foreign-task-token", taskId: 424242 }, null, 2) + "\n");
+    const storage2 = await openNodeSqliteStorage(path.join(w.tmp, "foreign.sqlite"));
+    const h2 = await Harness.open(storage2, { models: createModels(), registry: buildRegistry() }, context);
+    try {
+      const taskId2 = await (await h2.root(context)).commit((tx) => tx.createTask(OPS_HEALTH_ROUND, {
+        roundId: roundId2, fromPhase: "TRIAGE", modelFace: "faux", fixturesDir: FIXTURES,
+      }, { ownership: { kind: "conversation" } }), context);
+      assert.equal(await h2.abortTask(taskId2, context), "marked", "在飞任务应可下中止标记");
+      const settled2 = await h2.waitForTask(taskId2, context);
+      assert.equal(settled2.state.outcome?.status, "aborted", `中止终态应落:${JSON.stringify(settled2.state.outcome)}`);
+      assert.equal(fs.existsSync(path.join(dir2, "state.json")), false, "异主认领件:中止不写镜像");
+    } finally { await h2.close(context); await storage2.close(context); }
+  } finally {
+    w.restore();
+    fs.rmSync(w.tmp, { recursive: true, force: true });
+  }
+});
