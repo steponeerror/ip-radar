@@ -21,7 +21,8 @@ const realExec = promisify(execFileCb);
 const HERE = path.resolve(import.meta.dirname, "..");
 const FIXTURES_ADD = path.join(HERE, "fixtures", "add");
 const FIXTURES_EVOLVE = path.join(HERE, "fixtures", "evolve");
-const VENV_PY = "/home/huxiao/dev/pi-ip-lookup-tool/backend/.venv/bin/python";
+// 同 run-add.mjs resolveAddPython:OPS_ADD_PYTHON 显式优先,缺省=主检出 venv 绝对路径(CI 经环境变量指定)
+const VENV_PY = process.env.OPS_ADD_PYTHON ?? "/home/huxiao/dev/pi-ip-lookup-tool/backend/.venv/bin/python";
 const NAME = "sample_block_list";
 
 const KEY_TEST = [

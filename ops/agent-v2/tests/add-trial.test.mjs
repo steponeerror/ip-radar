@@ -22,7 +22,8 @@ const writeSpendLedger = (dir, entries) =>
 const HERE = path.resolve(import.meta.dirname, "..");
 const FIXTURES = path.join(HERE, "fixtures", "add");
 const NAME = "sample_block_list";
-const VENV_PY = "/home/huxiao/dev/pi-ip-lookup-tool/backend/.venv/bin/python";
+// 同 run-add.mjs resolveAddPython:OPS_ADD_PYTHON 显式优先,缺省=主检出 venv 绝对路径(CI 经环境变量指定)
+const VENV_PY = process.env.OPS_ADD_PYTHON ?? "/home/huxiao/dev/pi-ip-lookup-tool/backend/.venv/bin/python";
 
 // 真钥匙测试(repo 侧,构建时被剥;打分时装回):与罐装 turns 产的源对接
 const KEY_TEST = [

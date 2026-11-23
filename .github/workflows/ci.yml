@@ -203,11 +203,22 @@ jobs:
           cache-dependency-path: ops/package-lock.json
       - run: npm ci --no-fund --no-audit
         working-directory: ops
+      # 加源轮 / 演化轮家族要一个装了 backend 依赖的解释器,在沙箱里跑真 pytest
+      # (run-add.mjs resolveAddPython:OPS_ADD_PYTHON 优先,缺省是主检出 backend/.venv 的绝对路径;
+      # #427 第二次试跑 17 红全是「沙箱测试解释器缺席」)。
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+      - run: python -m pip install -r backend/requirements-dev.txt
       # rg:ubuntu runner 不预装(#427 首跑实测:没有这行时 spawn rg ENOENT,轮类用例成片红)
       - run: command -v rg >/dev/null 2>&1 || sudo apt-get install -y -q ripgrep
       - name: agent-v2 unit tests (cd ops && npm test)
         run: npm test
         working-directory: ops
+        env:
+          OPS_ADD_PYTHON: ${{ env.pythonLocation }}/bin/python
   # ② backend_toplevel:backend/tests 顶层的测试文件(持门两步只点名 tests/core 逐文件与
   #    八个子目录;顶层 11 个文件此前只有不持门的全量参考跑会跑到。本机带
   #    ops/node_modules 实测 249 过/1 跳,94 秒)。桥相关用例要 node + ops/node_modules;
