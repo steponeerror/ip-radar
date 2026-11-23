@@ -154,7 +154,18 @@ test("P1-5:initial 接 monthlyAdmission 读数入 state.monthly_admission;缺席
   const ck = OPS_HEALTH_ROUND.definition.initial({ roundId: "r-p15-health", monthlyAdmission: adm });
   assert.deepEqual(ck.state.monthly_admission, adm, "读数对象原样入 checkpoint(旧 ctx.state.monthly_admission 同位)");
   assert.equal(OPS_HEALTH_ROUND.definition.initial({ roundId: "r2-health" }).state.monthly_admission, undefined, "缺席=不设键(09-budget readings.monthly=null,旧 replay 面同形)");
-  // 重建面透传断言(rebuildRoundCtx:monthly_admission 有值才镜像)
-  const rebuilt = rebuildRoundCtx({ roundId: "r-p15-health", modelFace: "faux" }, ck);
-  assert.deepEqual(rebuilt.state.monthly_admission, adm, "rebuildRoundCtx 透传(旧 state.json 全字段镜像面)");
+  // 重建面透传断言(rebuildRoundCtx:monthly_admission 有值才镜像)。rebuildRoundCtx 会 mkdir 轮目录
+  // (tasks/health-round.mjs),DOCS_ROOT 未设时兜底到仓根 docs/——本文件 E2E 例的 finally 把
+  // DOCS_ROOT 还原成进程初值(常规跑法=删净),这里跟着不设就会在仓里建出空目录
+  // docs/ops/rounds/r-p15-health(#425),故指到本例自己的临时目录。
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "v2-p15-admission-"));
+  const prevDocs = process.env.DOCS_ROOT;
+  process.env.DOCS_ROOT = path.join(tmp, "docs");
+  try {
+    const rebuilt = rebuildRoundCtx({ roundId: "r-p15-health", modelFace: "faux" }, ck);
+    assert.deepEqual(rebuilt.state.monthly_admission, adm, "rebuildRoundCtx 透传(旧 state.json 全字段镜像面)");
+  } finally {
+    if (prevDocs === undefined) delete process.env.DOCS_ROOT; else process.env.DOCS_ROOT = prevDocs;
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
 });
