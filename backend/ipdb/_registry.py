@@ -7,7 +7,7 @@ import os
 import threading
 import time
 from collections import defaultdict
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Callable, NamedTuple
 
@@ -644,38 +644,126 @@ _BYPASS_SPECS: tuple[_BypassSpec, ...] = (
 )
 
 
-def lookup(ip: str, allowed_sources: frozenset[str] | None = None, *,
-          asof: float | None = None) -> LookupResult:
-    """Look up an IP address and return a typed LookupResult.
+# ── lookup() 拆分(#444,规格 §4.1)──────────────────────────────
+# 拆分动机:黑名单导出改按键序扫描(工单 #444),扫描侧要把「各源给的
+# 原始证据条目」不经 source.query() 直接喂进同一套融合代码,扫描的判定
+# 字段因此与查询接口走同一份代码(规格 §4.2)。取数
+# (collect/ingest)与只融合(fuse)由此分家;lookup() 本体=守卫 →
+# collect → fuse,对外形状逐字节不变(门 = bench_lookup.py --compare)。
+# 以下各函数体全部是拆分前 lookup() 内联代码的剪切粘贴(含注释),
+# 只有容器引用改经 LookupInput。
 
-    allowed_sources 非 None 时仅聚合该集合内的源(per-key 集合,Task 2)。
-    asof(F2/S37 时钟锚,仅限关键字):epoch 秒,非空时证据衰减按锚刻
-    而非墙钟(eval 月度读数可复现);None 默认 = 墙钟,现网行为逐位不变。"""
-    if not _db_loaded():
-        raise RuntimeError("Database not loaded")
-    try:
-        addr = ipaddress.ip_address(ip)
-    except (ipaddress.AddressValueError, ValueError):
-        return _error_result(ip)
-    if addr.version == 6:
-        # v6 bogon 纯 stdlib(spec 2026-08-23 §2 Q6):IANA 特殊用途表驱动,与 v4 同构。
-        # quirk(spec 2026-08-23 §4.2):v4-mapped(::ffff:x)is_global=True→当公网 v6 查,
-        # 各源 miss 显示 clean;6to4(2002::/16)is_global=False→reserved。
-        if not addr.is_global or addr.is_multicast:
-            return _reserved_result(ip)
-    elif is_reserved_addr(addr):
-        return _reserved_result(ip)
 
+@dataclass
+class LookupInput:
+    """lookup() 拆分(#444,规格 §4.1)的取数面容器:逐源收条目的全部
+    中间态原样装进一个数据类。「逐源查询」(collect)与「按键序扫描」
+    (_scan.py → fuse_items)两条路喂进来的条目走同一份 ingest 代码。
+    容器类型与拆分前 lookup() 内建的局部变量逐字相同。"""
+
+    ip: str
+    addr: "ipaddress.IPv4Address | ipaddress.IPv6Address"
+    allowed_sources: "frozenset[str] | None"
     # Collect scalar fields + evidence observations from all sources.
-    field_values: dict[str, dict[str, Any]] = defaultdict(dict)
+    field_values: dict[str, dict[str, Any]]
     # 下挂行证人 extra(abuse-context 批):slot → {source: extra},仅
     # _CTX_SLOTS 槽收集(引用不拷贝,热路径成本 = 一次集合交)
+    field_extras: dict[str, dict[str, dict]]
+    observations: list
+    attributes: dict[str, list]
+    # 旁路 stash(#315):{旁路key: {源名: 值}},插入序保留;替代原三个
+    # 局部 dict(city_zh_map/geolite_extras/rir_extras),每查一次分配
+    stash: dict[str, dict]
+
+
+def new_input(ip: str, addr,
+              allowed_sources: frozenset[str] | None = None) -> LookupInput:
+    """建 LookupInput(#444 拆分):五个容器的建法与拆分前 lookup() 的
+    局部建法逐字相同(该是 defaultdict 的还是 defaultdict)。"""
+    field_values: dict[str, dict[str, Any]] = defaultdict(dict)
     field_extras: dict[str, dict[str, dict]] = {}
     observations = []
     attributes: dict[str, list] = defaultdict(list)
-    # 旁路 stash(#315):{旁路key: {源名: 值}},插入序保留;替代原三个
-    # 局部 dict(city_zh_map/geolite_extras/rir_extras),每查一次分配
     stash: dict[str, dict] = {spec.key: {} for spec in _BYPASS_SPECS}
+    return LookupInput(ip=ip, addr=addr, allowed_sources=allowed_sources,
+                       field_values=field_values, field_extras=field_extras,
+                       observations=observations, attributes=attributes,
+                       stash=stash)
+
+
+def ingest(inp: LookupInput, source, raw) -> None:
+    """吃一个源对查询接口返回的东西(source.query(ip) 的返回值,字典或
+    字典列表,#444 拆分):从 items 展开到 attributes 收条目,与拆分前
+    lookup() 循环体逐字相同。两条取数路(逐源查询/按键序扫描)共用这
+    一份收条代码,扫描侧证据面因此与查询接口一致(规格 §4.1)。"""
+    field_values = inp.field_values
+    field_extras = inp.field_extras
+    observations = inp.observations
+    attributes = inp.attributes
+    stash = inp.stash
+    items = raw if isinstance(raw, list) else [raw]
+    for item in items:
+        item = route_record(item)          # map-first: unknown → extra
+        for key in _LOOKUP_SLOTS:
+            if key in item:
+                field_values[key][source.name] = item[key]
+        extra = item.get("extra") or {}
+        if extra:
+            for key in _CTX_SLOTS & item.keys():
+                field_extras.setdefault(key, {})[source.name] = extra
+        # 旁路收集(表驱动,#315):三段按源名/按键写死的 if 收编为
+        # _BYPASS_SPECS 逐项 trigger→collect,仍在 allowed_sources
+        # 过滤之后的循环内(白名单语义不变);每 item 至多表长次 trigger
+        # 检查(与原三次 if 同量级)。触发/抓取语义逐项见表项。
+        for spec in _BYPASS_SPECS:
+            if spec.trigger(source, item, extra):
+                stash[spec.key][source.name] = spec.collect(
+                    source, item, extra)
+        if "classification_type" in item:
+            # DM-1 声明 r 生效:表优先(SOURCE_RELIABILITY 含
+            # _calibrated.json 运行时覆盖,表优先 → 后校准即真生效,
+            # threat details.r 与融合权重即时反映);表未收录(测试假源
+            # 等未注册名)回落 payload/class attr 旧链,无校准文件零漂移。
+            # 不变式:payload 的 reliability 键恒 == class attr(全 threat
+            # 源以 self.reliability 构造 Evidence;唯一 per-row r 生产者
+            # cloud_ranges 无 classification_type,永不入观测)——表优先
+            # 因此零漂移;未来源若 per-row r≠attr 且带 classification_type,
+            # 将被表静默覆盖,须先扩 _calibrated 语义再引入。
+            # 优先序本体在 _merge.effective_reliability docstring(#317)。
+            observations.append(to_observation(
+                source.name, item,
+                classification_type=item["classification_type"],
+                # 缺键兑底 malicious = 旧快照兼容(重建前的存量无此键);
+                # 显式 ""(弃权拼写)已由 Evidence.to_dict 特判保留,
+                # 读回按 "" 处理不兑底(R17A-1)。
+                verdict=item.get("verdict", "malicious"),
+                reliability=effective_reliability(
+                    source.name,
+                    payload_r=item.get("reliability"),
+                    attr_r=getattr(source, "reliability", None))))
+        native_types = item.get("_native_types") or {}
+        for akey in ASSET_SLOTS:            # schema-driven, was _ASSET_KEYS
+            if akey in item:
+                stmt = AssetStatement(
+                    source=source.name, value=item[akey],
+                    native_type=native_types.get(akey))
+                # Dedup by (source, value, native_type)
+                if not any(s.source == stmt.source and s.value == stmt.value
+                           and s.native_type == stmt.native_type
+                           for s in attributes[akey]):
+                    attributes[akey].append(stmt)
+
+
+def collect(ip: str, addr=None, *,
+            allowed_sources: frozenset[str] | None = None) -> LookupInput:
+    """逐源取数段(#444 拆分):对 ip 逐启用源 source.query(ip),条目经
+    ingest 收进 LookupInput;循环之后做 asset 陈述排序。try/except 告警
+    (单源抛错=该源缺席)、allowed_sources 过滤、空返回跳过,均与拆分前
+    lookup() 内联循环逐字相同。addr 缺省时自行解析(fuse 的 context 要
+    用地址对象;lookup() 已解析好就直接传入,省一次解析)。"""
+    if addr is None:
+        addr = ipaddress.ip_address(ip)
+    inp = new_input(ip, addr, allowed_sources)
     for source in _enabled_sources():
         if allowed_sources is not None and source.name not in allowed_sources:
             continue
@@ -686,60 +774,26 @@ def lookup(ip: str, allowed_sources: frozenset[str] | None = None, *,
             continue
         if not raw:
             continue
-        items = raw if isinstance(raw, list) else [raw]
-        for item in items:
-            item = route_record(item)          # map-first: unknown → extra
-            for key in _LOOKUP_SLOTS:
-                if key in item:
-                    field_values[key][source.name] = item[key]
-            extra = item.get("extra") or {}
-            if extra:
-                for key in _CTX_SLOTS & item.keys():
-                    field_extras.setdefault(key, {})[source.name] = extra
-            # 旁路收集(表驱动,#315):三段按源名/按键写死的 if 收编为
-            # _BYPASS_SPECS 逐项 trigger→collect,仍在 allowed_sources
-            # 过滤之后的循环内(白名单语义不变);每 item 至多表长次 trigger
-            # 检查(与原三次 if 同量级)。触发/抓取语义逐项见表项。
-            for spec in _BYPASS_SPECS:
-                if spec.trigger(source, item, extra):
-                    stash[spec.key][source.name] = spec.collect(
-                        source, item, extra)
-            if "classification_type" in item:
-                # DM-1 声明 r 生效:表优先(SOURCE_RELIABILITY 含
-                # _calibrated.json 运行时覆盖,表优先 → 后校准即真生效,
-                # threat details.r 与融合权重即时反映);表未收录(测试假源
-                # 等未注册名)回落 payload/class attr 旧链,无校准文件零漂移。
-                # 不变式:payload 的 reliability 键恒 == class attr(全 threat
-                # 源以 self.reliability 构造 Evidence;唯一 per-row r 生产者
-                # cloud_ranges 无 classification_type,永不入观测)——表优先
-                # 因此零漂移;未来源若 per-row r≠attr 且带 classification_type,
-                # 将被表静默覆盖,须先扩 _calibrated 语义再引入。
-                # 优先序本体在 _merge.effective_reliability docstring(#317)。
-                observations.append(to_observation(
-                    source.name, item,
-                    classification_type=item["classification_type"],
-                    # 缺键兑底 malicious = 旧快照兼容(重建前的存量无此键);
-                    # 显式 ""(弃权拼写)已由 Evidence.to_dict 特判保留,
-                    # 读回按 "" 处理不兑底(R17A-1)。
-                    verdict=item.get("verdict", "malicious"),
-                    reliability=effective_reliability(
-                        source.name,
-                        payload_r=item.get("reliability"),
-                        attr_r=getattr(source, "reliability", None))))
-            native_types = item.get("_native_types") or {}
-            for akey in ASSET_SLOTS:            # schema-driven, was _ASSET_KEYS
-                if akey in item:
-                    stmt = AssetStatement(
-                        source=source.name, value=item[akey],
-                        native_type=native_types.get(akey))
-                    # Dedup by (source, value, native_type)
-                    if not any(s.source == stmt.source and s.value == stmt.value
-                               and s.native_type == stmt.native_type
-                               for s in attributes[akey]):
-                        attributes[akey].append(stmt)
+        ingest(inp, source, raw)
 
-    for akey in list(attributes.keys()):
-        attributes[akey] = _order_asset_stmts(attributes[akey])
+    for akey in list(inp.attributes.keys()):
+        inp.attributes[akey] = _order_asset_stmts(inp.attributes[akey])
+    return inp
+
+
+def fuse(inp: LookupInput, *, asof: float | None = None) -> LookupResult:
+    """只融合段(#444 拆分):吃取数面容器,产出与拆分前 lookup() 逐字节
+    相同的 LookupResult。函数体自 context 组装到 return 原样搬自
+    lookup();开头把容器别名回局部名,搬来的代码零改动。asof 语义同
+    lookup()(None = 墙钟);扫描侧钉同一时刻与查询接口比对(规格 §4.1)。"""
+    ip = inp.ip
+    addr = inp.addr
+    field_values = inp.field_values
+    field_extras = inp.field_extras
+    observations = inp.observations
+    attributes = inp.attributes
+    stash = inp.stash
+    allowed_sources = inp.allowed_sources
 
     context = {"ip": ip, "addr": addr,
                "country": field_values.get("country_code", {}),
@@ -865,6 +919,65 @@ def lookup(ip: str, allowed_sources: frozenset[str] | None = None, *,
         attributes=dict(attributes),
         asof=asof,
     )
+
+
+def fuse_items(ip: str, items, *,
+               asof: float | None = None) -> LookupResult:
+    """扫描入口(#444 拆分,规格 §4.2):items 是 (source, raw) 的序列,
+    按序列顺序 ingest 后融合。守卫与 lookup() 的地址守卫相同(解析错 →
+    _error_result;v6 非全球或组播、v4 保留地址 → _reserved_result),
+    但不走 _db_loaded() 门——扫描自己开只读句柄,不依赖 load_db()
+    (规格 §3 末:导出器数据卷只读挂载,cleanup_stale 面不可用)。
+    排序段与 collect 尾同款:融合前 asset 陈述必须排好序,否则 to_dict
+    与查询接口不逐字节相等。"""
+    try:
+        addr = ipaddress.ip_address(ip)
+    except (ipaddress.AddressValueError, ValueError):
+        return _error_result(ip)
+    if addr.version == 6:
+        if not addr.is_global or addr.is_multicast:
+            return _reserved_result(ip)
+    elif is_reserved_addr(addr):
+        return _reserved_result(ip)
+    inp = new_input(ip, addr)
+    for source, raw in items:
+        if not raw:
+            continue
+        ingest(inp, source, raw)
+    for akey in list(inp.attributes.keys()):
+        inp.attributes[akey] = _order_asset_stmts(inp.attributes[akey])
+    return fuse(inp, asof=asof)
+
+
+def lookup(ip: str, allowed_sources: frozenset[str] | None = None, *,
+          asof: float | None = None) -> LookupResult:
+    """Look up an IP address and return a typed LookupResult.
+
+    allowed_sources 非 None 时仅聚合该集合内的源(per-key 集合,Task 2)。
+    asof(F2/S37 时钟锚,仅限关键字):epoch 秒,非空时证据衰减按锚刻
+    而非墙钟(eval 月度读数可复现);None 默认 = 墙钟,现网行为逐位不变。
+
+    #444 拆分(规格 §4.1):本函数 = 守卫(库加载门/地址解析/保留地址
+    短路)→ collect 逐源取数 → fuse 只融合。对外形状与拆分前逐字节
+    不变,门 = backend/scripts/bench_lookup.py --compare 零差异。
+    """
+    if not _db_loaded():
+        raise RuntimeError("Database not loaded")
+    try:
+        addr = ipaddress.ip_address(ip)
+    except (ipaddress.AddressValueError, ValueError):
+        return _error_result(ip)
+    if addr.version == 6:
+        # v6 bogon 纯 stdlib(spec 2026-08-23 §2 Q6):IANA 特殊用途表驱动,与 v4 同构。
+        # quirk(spec 2026-08-23 §4.2):v4-mapped(::ffff:x)is_global=True→当公网 v6 查,
+        # 各源 miss 显示 clean;6to4(2002::/16)is_global=False→reserved。
+        if not addr.is_global or addr.is_multicast:
+            return _reserved_result(ip)
+    elif is_reserved_addr(addr):
+        return _reserved_result(ip)
+
+    return fuse(collect(ip, addr, allowed_sources=allowed_sources),
+                asof=asof)
 
 
 def _error_result(ip: str) -> LookupResult:

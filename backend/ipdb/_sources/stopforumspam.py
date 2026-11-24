@@ -16,6 +16,7 @@ the log-odds posterior over reliability + first_seen decay, untouched.
 """
 import csv
 import datetime
+import errno
 import logging
 import math
 import zipfile
@@ -28,6 +29,10 @@ logger = logging.getLogger(__name__)
 
 # ── Per-record grading ──
 _ACTIVE_DAYS = 90          # active-spammer window
+# 清理遗留件被挡住的预期情形:只读挂载(EROFS)/无权限(EACCES、EPERM)→ info;
+# 其余 OSError(盘满、IO 错)→ warning。两种都不算加载失败(#444 评审 P3-8:
+# 日志要带 errno、要分得出「只读挂载」和「别的错」)。
+_READONLY_ERRNOS = frozenset({errno.EROFS, errno.EACCES, errno.EPERM})
 _TS_FMT = "%Y-%m-%d %H:%M:%S"
 
 
@@ -81,14 +86,33 @@ class StopForumSpamSource(Source):
     def _cleanup_legacy_txt(self):
         """One-shot: D7 renamed filename .txt→.csv, so the old raw file and
         its LMDB base (raw + epoch dirs + sidecars) are orphaned forever —
-        cleanup_stale only sweeps the current base name."""
+        cleanup_stale only sweeps the current base name.
+
+        遗留件清理是 best-effort(#444):只读挂载/无权限(OSError 族)
+        时旧件原地保留,记 info 继续加载——加载失败比遗留件留在盘上严重
+        得多;非 OSError(未预期)照旧向外抛。"""
         import shutil
-        (self._data_dir / "stopforumspam.txt").unlink(missing_ok=True)
+        try:
+            (self._data_dir / "stopforumspam.txt").unlink(missing_ok=True)
+        except OSError as e:
+            self._log_cleanup_skipped("legacy .txt", e)
         for child in self._data_dir.glob("stopforumspam.txt.lmdb*"):
             if child.is_dir():
                 shutil.rmtree(child, ignore_errors=True)
             else:
-                child.unlink(missing_ok=True)
+                try:
+                    child.unlink(missing_ok=True)
+                except OSError as e:
+                    self._log_cleanup_skipped("legacy sidecar", e)
+
+    @staticmethod
+    def _log_cleanup_skipped(what: str, e: OSError) -> None:
+        readonly = e.errno in _READONLY_ERRNOS
+        logger.log(logging.INFO if readonly else logging.WARNING,
+                   "stopforumspam %s cleanup skipped (errno=%s: %s; file "
+                   "left in place, load continues)%s",
+                   what, e.errno, e,
+                   "" if readonly else " — not a read-only/permission error")
 
     def download(self, token: CancelToken | None = None) -> None:
         self._data_dir.mkdir(parents=True, exist_ok=True)

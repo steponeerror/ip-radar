@@ -215,3 +215,74 @@ def test_single_evidence_dual_path_equivalence(tmp_path):
     assert s_stream.query(ips[0])[0]["reporter_count"] == 1
     assert s_stream.query(ips[2])[0]["verdict"] == "suspicious"    # 90d 边界含
     assert s_stream.query(ips[3])[0]["verdict"] == "informational"  # 91d 出窗
+
+
+def test_load_survives_readonly_legacy_cleanup(tmp_path, monkeypatch, caplog):
+    """只读挂载/无权限(#444):_cleanup_legacy_txt 遇 OSError(EROFS)不算
+    失败——记 info、load 继续走到超类加载(遗留件原地保留)。拆掉
+    _cleanup_legacy_txt 的 try/except OSError 即红(unlink 直接炸)。"""
+    import errno
+    import logging
+    import pathlib
+    from ipdb._source_base import Source
+    legacy = tmp_path / "stopforumspam.txt"
+    legacy.write_text("1.2.3.0/24\n")
+    real_unlink = pathlib.Path.unlink
+
+    def ro_unlink(self, missing_ok=False):
+        if self.name.startswith("stopforumspam.txt"):
+            raise OSError(errno.EROFS, "Read-only file system")
+        return real_unlink(self, missing_ok=missing_ok)
+
+    monkeypatch.setattr(pathlib.Path, "unlink", ro_unlink)
+    monkeypatch.setattr(Source, "load", lambda self: 42)  # 超类加载桩
+    with caplog.at_level(logging.INFO):
+        assert StopForumSpamSource(data_dir=tmp_path).load() == 42
+    assert legacy.exists()       # 删不掉 = 原样保留,不是失败
+    recs = [r for r in caplog.records if "legacy" in r.getMessage()]
+    assert recs and all(r.levelno == logging.INFO for r in recs)
+    assert all("errno=30" in r.getMessage() for r in recs)   # 原因带 errno
+
+
+def test_load_survives_other_oserror_with_warning(tmp_path, monkeypatch, caplog):
+    """非只读类的 OSError(盘满、IO 错)同样不算加载失败,但日志升到
+    warning 并带 errno——从日志里认得出这不是只读挂载(#444 评审 P3-8)。
+    拆掉 _log_cleanup_skipped 里的分级(一律 info)即红。"""
+    import errno
+    import logging
+    import pathlib
+    from ipdb._source_base import Source
+    legacy = tmp_path / "stopforumspam.txt"
+    legacy.write_text("1.2.3.0/24\n")
+    real_unlink = pathlib.Path.unlink
+
+    def full_unlink(self, missing_ok=False):
+        if self.name.startswith("stopforumspam.txt"):
+            raise OSError(errno.ENOSPC, "No space left on device")
+        return real_unlink(self, missing_ok=missing_ok)
+
+    monkeypatch.setattr(pathlib.Path, "unlink", full_unlink)
+    monkeypatch.setattr(Source, "load", lambda self: 42)
+    with caplog.at_level(logging.INFO):
+        assert StopForumSpamSource(data_dir=tmp_path).load() == 42
+    assert legacy.exists()
+    recs = [r for r in caplog.records if "legacy" in r.getMessage()]
+    assert recs and all(r.levelno == logging.WARNING for r in recs)
+    assert all("errno=28" in r.getMessage() for r in recs)
+
+
+def test_cleanup_legacy_txt_reraises_unexpected(tmp_path, monkeypatch):
+    """非 OSError(未预期异常)照旧向外抛,不被 best-effort 吞掉。
+    拆掉 except OSError 的类型限定(改成裸 except)即红。"""
+    import pathlib
+    import pytest
+    real_unlink = pathlib.Path.unlink
+
+    def bad_unlink(self, missing_ok=False):
+        if self.name.startswith("stopforumspam.txt"):
+            raise ValueError("unexpected")
+        return real_unlink(self, missing_ok=missing_ok)
+
+    monkeypatch.setattr(pathlib.Path, "unlink", bad_unlink)
+    with pytest.raises(ValueError):
+        StopForumSpamSource(data_dir=tmp_path).load()
