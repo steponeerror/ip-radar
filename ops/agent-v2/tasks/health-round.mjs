@@ -164,7 +164,11 @@ function stopOutcome(input, ck, def) {
   const envelope = composeEnvelope(fin, { ok: true });
   // #415:停笔=completed 终态出口,镜像同写 done/停笔相位(CLOSE 出口同形;不造 CLOSE 名;
   // 盘上无件=以 fin.state 全形起底,重入=盘上件为底 updated_at 保盘值)
-  writeTerminalRoundState(fin, { status: "done", stage: def.name });
+  // #430:补传 stages——崩溃恢复场景(前次失败镜像已落盘、终态 commit 前进程死)重入本出口
+  // 时,盘上件为底会把失败那刻的 stages 原样带回;显式传=以 checkpoint 已提交相位为准覆盖。
+  // updated_at 仍不传:终态镜像写不读时钟(#378,round-state.mjs 头注),读新时钟=重入重写
+  // 破字节级幂等;陈旧时间戳只落在这个罕见窗口,读面(daily-digest 加轮摘要读 status)不消费它。
+  writeTerminalRoundState(fin, { status: "done", stage: def.name, stages: fin.state.stages });
   return {
     status: "terminal",
     outcome: { status: "completed", result: { round_id: input.roundId, envelope, dir: fin.dir, usage: fin.usage } },
@@ -429,7 +433,10 @@ async function runClose(input, ck, runtime, context) {
     writeRoundReport({ roundId: input.roundId, type: "health", engine: "pipeline-v2", ctx, opsRoot: ctx.opsRoot }); // #403:轮报告件(packages 断供修复);写败掷 infra 入本 catch(fail loud:静默=用户再次看不到报告)
     // #408:终态回写镜像(v1 finishClose 同序=报告→state;ctx.state 此刻已终态化 done/CLOSE,
     // 本调用只改 status 面+updated_at 保盘值=崩溃重入 CLOSE 重写字节级不变)
-    writeTerminalRoundState(ctx, { status: "done", stage: "CLOSE" }); // stage 恒量=幂等不破;补书挡防罕见序列(catch 写过 FAILED 后 commit 抛→重试成功 CLOSE)残留 status done+stage FAILED
+    // #430:补传 stages(=ctx.state.stages,已 push CLOSE 记录)——理由同 stopOutcome 注:
+    // 崩溃恢复重入成功出口时,盘上件为底会带回失败那刻的 stages;stage 恒量=幂等不破;补书挡
+    // 防罕见序列(catch 写过 FAILED 后 commit 抛→重试成功 CLOSE)残留 status done+stage FAILED
+    writeTerminalRoundState(ctx, { status: "done", stage: "CLOSE", stages: ctx.state.stages });
     await runtime.commit(() => ({
       status: "terminal",
       outcome: { status: "completed", result: { round_id: input.roundId, envelope, dir: ctx.dir, usage: ctx.usage } },
