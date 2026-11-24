@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { parseRoster } from "../bench/roster.mjs";
 import { runLeakCheck, loadRosterText, EXEMPT_MARKER } from "../bench/leak-check.mjs";
@@ -135,6 +135,48 @@ test("gen-split.mjs 确定性:同种子同输入双跑字节级一致;最大余�
   assert.equal(hsum, 3);
   for (const line of nameLines) assert.ok(line.includes(EXEMPTION), "生成行必须带豁免标记(冻结件同律)");
   fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+// #437:生成器缺省席位数 = 现冻结件 meta。原手写缺省 40/13 是裁决当时的值,#414 再冻结(63 题)后
+// 不带 --evolve/--heldout 跑生成器会直接撞「考题宇宙 63 ≠ evolve+heldout 53」。行为面:按冻结件 meta
+// 的题数造一份合成 roster(考题 meta.total 行 + 免考 meta.exemptTotal 行),不带席位数参数真跑生成器,
+// 产物 meta 的席位数/种子须与冻结件一致;用法面:--help 文案里的缺省值同一来源(常量单源)。
+// 产物落临时目录——仓内冻结件 data/split.jsonl 不被本测触碰(重劈须重走裁决)。
+test("gen-split.mjs 缺省入参 = 冻结件 meta(#437):不带 --evolve/--heldout 真跑,席位/种子与冻结件一致;--help 缺省值同源", () => {
+  const frozen = loadSplit().meta;
+  const cats = ["threat", "geo_asn", "asset"];
+  const lines = [];
+  for (let i = 0; i < frozen.total; i++) lines.push(`q${String(i).padStart(3, "0")} | ${cats[i % cats.length]} | q${i}.example | f`);
+  for (let i = 0; i < frozen.exemptTotal; i++) lines.push(`xexempt${String(i).padStart(2, "0")} | ${cats[i % cats.length]} | - | f`);
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rrsi-split-default-"));
+  try {
+    const rosterPath = path.join(tmp, "roster.txt");
+    const rulesPath = path.join(tmp, "exam-rules.json");
+    const outPath = path.join(tmp, "split.jsonl");
+    fs.writeFileSync(rosterPath, lines.join("\n") + "\n");
+    fs.writeFileSync(rulesPath, JSON.stringify({
+      exempt: lines.filter((l) => l.includes("| - |")).map((l) => ({ name: l.split(" | ")[0], reason: "fixture 免考形状" })),
+    }));
+    let genErr = null;
+    try {
+      execFileSync(process.execPath, [GEN_PATH, "--roster-file", rosterPath, "--exam-rules", rulesPath, "--out", outPath]);
+    } catch (e) {
+      genErr = e;
+    }
+    assert.ok(genErr === null, `不带席位数参数须能跑(缺省席位数 ≠ 冻结件题数):${String(genErr?.stderr ?? genErr?.message ?? "").slice(0, 400)}`);
+    const out = JSON.parse(fs.readFileSync(outPath, "utf8").split("\n")[0]);
+    const pick = (m) => ({ total: m.total, evolve: m.evolve, heldout: m.heldout, rosterTotal: m.rosterTotal, exemptTotal: m.exemptTotal, seed: m.seed });
+    assert.deepEqual(pick(out), pick(frozen), "缺省席位数/种子 = 冻结件 meta");
+    assert.equal(out.frozen, false, "生成器只产未冻结件");
+    const help = spawnSync(process.execPath, [GEN_PATH, "--help"], { encoding: "utf8" });
+    assert.equal(help.status, 0, "--help 退出码 0");
+    assert.ok(
+      help.stderr.includes(`[--evolve ${frozen.evolve}] [--heldout ${frozen.heldout}] [--seed ${frozen.seed}]`),
+      `--help 文案的缺省值须 = 冻结件 meta:${help.stderr}`,
+    );
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
 });
 
 // ── mulberry32/shuffled 跨实现对拍(#339 ④;Standards 终审判断 2)──
