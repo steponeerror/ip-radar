@@ -14,10 +14,15 @@ from ipdb._types import LookupResult
 
 
 def test_lookup_body_has_no_bypass_source_names():
-    src = inspect.getsource(reg.lookup)
+    # #444 拆分(规格 §4.1):旁路面的 stash/收集/读出搬进 new_input/
+    # ingest/fuse,防内联旁路的守卫跟着搬——整个拆分面(含 lookup 本体)
+    # 都不许写死旁路源名,且必须引用登记表 _BYPASS_SPECS(防表被换拼法
+    # 的内联旁路绕成死代码)。
+    src = "\n".join(inspect.getsource(f) for f in (
+        reg.lookup, reg.new_input, reg.ingest, reg.collect, reg.fuse,
+        reg.fuse_items))
     assert "geolite_city" not in src
     assert "rir_delegated" not in src
-    # lookup() 本体必须引用登记表:防表被换拼法的内联旁路绕成死代码。
     assert "_BYPASS_SPECS" in src
 
 
