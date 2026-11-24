@@ -380,7 +380,7 @@ test("#415 mid-round 预算墙出口(SHORTLIST 第 2 attempt 提交前):调用�
   } finally { rm(tree); }
 });
 
-test("#415 属主判:异物任务(跨库撞已有轮目录)的失败出口不改判别轮终态镜像;未建轮的失败出口不凭空造件", async () => {
+test("#415 属主校验:异物任务(跨库撞已有轮目录)的失败出口不改判别轮终态镜像;未建轮的失败出口不凭空造件", async () => {
   const tree = tmpTree("v2-disc-owned-");
   const first = await runRound(tree, path.join(tree.tmp, "a.sqlite"));
   assert.equal(first.status, "completed");
@@ -405,7 +405,7 @@ test("#415 属主判:异物任务(跨库撞已有轮目录)的失败出口不改
     assert.equal(r.error.detail?.code, "wall_clock_exceeded");
     assert.equal(fs.existsSync(path.join(fresh.opsRoot, "rounds", ROUND)), false, "未过建轮守卫的失败出口不凭空造轮目录/镜像");
   } finally { rm(fresh); }
-  // ④ 首相位步抛(骨架已写、零相位提交=属主判第二支):自家骨架要写——否则状态文件停在 running 说谎
+  // ④ 首相位步抛(骨架已写、零相位提交=属主校验第二支):自家骨架要写——否则状态文件停在 running 说谎
   const skeleton = tmpTree("v2-disc-owned-skel-");
   fs.mkdirSync(path.join(roundDirOf(skeleton), "d1-scan.json"), { recursive: true });
   try {

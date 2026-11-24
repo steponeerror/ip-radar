@@ -600,14 +600,14 @@ test("#415 健康轮中止终态:在飞(已认领)轮被 abortTask → outcome a
       const settled = await harness.waitForTask(taskId, context);
       assert.equal(settled.state.outcome?.status, "aborted", `中止终态应落:${JSON.stringify(settled.state.outcome)}`);
       const mirror = jsonOf(stateFile);
-      assert.equal(mirror.round_id, roundId, "镜像落在本轮目录(认领件属主判过)");
+      assert.equal(mirror.round_id, roundId, "镜像落在本轮目录(认领件属主校验过)");
       assert.equal(mirror.status, "aborted", "#415:中止=任务终态,镜像同词 aborted(修前=无件)");
       assert.equal(mirror.stage, ck.phase, "stage=中止时所处相位(中止相位未成,不造书挡名)");
       assert.deepEqual(mirror.stages.map((x) => x.name), ck.state.stages.map((x) => x.name), "stages=中止时 checkpoint 已提交相位(全记录形;中止相位不造记录)");
     } finally { await harness.close(context); }
     // 反面(宁少算):轮目录被别任务认领(认领件 token 异于本任务 checkpoint)→ 中止不写镜像
     // (写了=改判别轮终态)。全新库、开 harness 后不先 resume 就下中止标记=任务零起步,
-    // 不经 claimGuard(走的是中止出口自身的属主判)。
+    // 不经 claimGuard(走的是中止出口自身的属主校验)。
     const roundId2 = "2026-10-28-2346-health";
     const dir2 = path.join(w.ops, "rounds", roundId2);
     fs.mkdirSync(dir2, { recursive: true });

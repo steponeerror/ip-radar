@@ -13,7 +13,7 @@
 //    (+health 面 stage 书挡 CLOSE/FAILED);不发明第二套状态词(票面明令)。
 //    #415 中止出口取任务 outcome 同词 aborted(v1 无中止面;旧读面 scan_inflight_rounds
 //    只认 in_flight,aborted 不入在飞扫描=与 done/failed 同属「轮已结束」)。
-//  - 属主判(writeOwnedRoundState):终态镜像只写本任务的轮目录——未建轮/异物树/同 id
+//  - 属主校验(writeOwnedRoundState):终态镜像只写本任务的轮目录——未建轮/异物树/同 id
 //    旧轮终态件不写(写了=把别轮终态改判,discover bad_round 判例同病)。
 //  - 失败镜像宁少算:stages 只留 checkpoint 已提交相位,未成相位不造记录/名字
 //    (close 未成不造 CLOSE 名;discover/add 镜像无 stage 键=字段集稳定不加键)。
@@ -51,7 +51,7 @@ export function writeTerminalRoundState(ctx, { status, stage = null, stages = nu
   }
 }
 
-// discover/add 属主判(#415):终态镜像只写本任务的轮目录。判据=建轮守卫
+// discover/add 属主校验(#415):终态镜像只写本任务的轮目录。判据=建轮守卫
 // (discover-round/add-round bootstrapRoundDir)同律,二选一:
 //  ① checkpoint 已提交过相位(ctx.state.stages 非空)——必已过守卫;
 //  ② 盘上镜像=本轮自家的建轮骨架(round_id 同轮且 stages 空:bootstrap 已写骨架、
@@ -68,12 +68,12 @@ function ownsRoundDir(ctx) {
 
 // discover/add 失败/中止出口的镜像写(#415):ctx=由 checkpoint 重建的旧 ctx
 // (ctx.state.stages=已提交相位名单,discover-round/add-round buildCtx 同形)。
-// 属主判过才写,不过=不写;写败不掷错(writeTerminalRoundState 同律)。
+// 属主校验过才写,不过=不写;写败不掷错(writeTerminalRoundState 同律)。
 export function writeOwnedRoundState(ctx, status) {
   if (ownsRoundDir(ctx)) writeTerminalRoundState(ctx, { status });
 }
 
-// 中止出口包装(#415):abort handler 里的镜像写(含 ctx 重建/属主判)整体尽力不掷错。
+// 中止出口包装(#415):abort handler 里的镜像写(含 ctx 重建/属主校验)整体尽力不掷错。
 // Why 单独成函数:abort handler 是任务终态 commit 前的最后一笔代码——它裸抛时框架把任务
 // 判 faulted、aborted outcome 丢失且不重试(pi-durable 1.4.0 实测:outcome={status:"faulted"},
 // handler 只跑一次),等于把 P2-⑧「中止无终态」病请回来。相位出口里 ctx 重建在写函数之外,

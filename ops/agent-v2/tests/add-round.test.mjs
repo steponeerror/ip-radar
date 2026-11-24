@@ -286,7 +286,7 @@ test("#415 加轮模型相位失败终态:DOSSIER 两 attempt 终答形状坏 �
   } finally { fs.rmSync(w.tmp, { recursive: true, force: true }); }
 });
 
-test("#415 加轮属主判:同 id 旧轮的 done 镜像不被跨库新任务改判;首相位头预算墙(未建轮)不造件", async () => {
+test("#415 加轮属主校验:同 id 旧轮的 done 镜像不被跨库新任务改判;首相位头预算墙(未建轮)不造件", async () => {
   const w = seedWorld("v2-add-owns-");
   try {
     const first = await runRound(w);
