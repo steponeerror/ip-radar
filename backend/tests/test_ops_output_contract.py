@@ -18,9 +18,11 @@
    `<date>-<type>-<HHMM>.md`)由本轮 round_id 推出的件,`read_package()` 读得到且正文含
    本轮 round_id。
 
-引擎与模型面:被测宿主 = UI 健康轮缺省命令 `ops/pipeline-core/pipeline.mjs`(#412 后桥
-直连)。相对缺省 argv 的唯一偏离 = 经 `IP_RADAR_OPS_AGENT_CMD` 测试缝多带 `--fixtures`
-(faux 模型面:零网络零花费,秒级;canned 回合 = 仓内 `fixtures/pipeline`)。不带
+引擎与模型面:被测宿主两个缺省命令——UI 健康轮 `ops/pipeline-core/pipeline.mjs`(#412
+后桥直连)与 UI 发现轮 `ops/pipeline-core/agent.mjs`(#434 起:会话式引擎 CLI 有显式
+`--fixtures DIR` 旗标,faux 面罐装回合内建,不读目录内容)。相对缺省 argv 的唯一偏离 =
+经 `IP_RADAR_OPS_AGENT_CMD` 测试缝多带 `--fixtures`(faux 模型面:零网络零花费,秒级;
+pipeline 面 canned 回合 = 仓内 `fixtures/pipeline`,agent 面罐装文本内建于旗标实现)。不带
 `--fixtures` 即真 provider(花钱、要凭证)——不是本门的被测面,真模型 E2E 另有
 test_ops_rounds_e2e.py。
 
@@ -36,8 +38,7 @@ canned 报告引用 `2026-06-01-golden-aggregator.md`,CLOSE 的 verify_cited_pre
 = `ops_root().parent`,报告件落到别处;③运营树 backend/ 或 frontend/ 有未提交改动
 → 轮内 `sandbox_assert` 红线判轮失败(sandbox_violation;引擎按设计,先提交再跑)。
 
-未覆盖(如实):发现轮引擎 `agent.mjs`(只有真模型面,CLI 无 faux 缝;它自写包、不走
-writeRoundReport)、agent-v2 两任务的 CLOSE(既有 node 测试各断言 packages 下有件:
+未覆盖(如实):agent-v2 两任务的 CLOSE(既有 node 测试各断言 packages 下有件:
 agent-v2/tests/discover-round.test.mjs、health-e2e.test.mjs;生产 cron 直拉 v2,不经
 后端桥)、resume 路径(与首轮同一 finishClose 调用点)。
 """
@@ -59,16 +60,27 @@ REPO_ROOT = BACKEND_DIR.parent
 # IP_RADAR_OPS_AGENT_CMD 测试缝换上的 shim = 同一命令体 + --fixtures(pipeline.mjs 的
 # faux 模型面只认这个旗标,无 env 开关;canned 回合目录 = 仓内 fixtures/pipeline)。
 HEALTH_CMD_BODY = "node --max-old-space-size=256 ops/pipeline-core/pipeline.mjs"
+DISCOVER_CMD_BODY = "node --max-old-space-size=256 ops/pipeline-core/agent.mjs"
 PIPELINE_FIXTURES = "ops/pipeline-core/fixtures/pipeline"
 ROUND_INPUT = "对全部离线源做一次健康体检,给出冻结/死键/不可达快照"
+DISCOVER_ROUND_INPUT = "盘点可加源候选,给出入围与建议"
+# faux 面模型 id(agent.mjs fauxModelsBundle 罐装 provider;入包 footer「model:」位,
+# 兼作「本轮确由 --fixtures 缝驱动」的同源标记)
+_FAUX_MODEL_ID = "faux-fixtures"
 # 报告件命名契约(ops/pipeline-core/pipeline/round-report.mjs reportNameOf):
 # <date>-<HHMM>-health → <date>-health-<HHMM>.md
 _ROUND_ID_RE = re.compile(r"(\d{4}-\d{2}-\d{2})-(\d{4})-health")
 
 # shim:桥追加的 <round_type> <input_text> 两位经 $1/$2 原样进引擎 CLI(与缺省 argv 逐位
-# 对应;相对 cwd = 仓根,桥的 Popen cwd)。用 bash 包一层只为把两位位置参数显式接进去。
-FAUX_PIPELINE_SHIM = f"""#!/usr/bin/env bash
-exec {HEALTH_CMD_BODY} "$1" --fixtures {PIPELINE_FIXTURES} "$2"
+# 对应;相对 cwd = 仓根,桥的 Popen cwd)。用 bash 包一层只为把两位位置参数显式接进去;
+# 按轮型分发两宿主(#434:discover 缺省宿主 = agent.mjs,其 --fixtures 是显式 faux 面
+# 旗标;health 缺省宿主 = pipeline.mjs 同名旗标)。IP_RADAR_OPS_AGENT_CMD 是单槽,两轮
+# 型共用一个 shim,分发分支各自对齐自家缺省命令体(两个 *_CMD_BODY 诚实性断言在各用例里)。
+FAUX_SHIM = f"""#!/usr/bin/env bash
+case "$1" in
+  discover) exec {DISCOVER_CMD_BODY} "$1" --fixtures {PIPELINE_FIXTURES} "$2" ;;
+  *)        exec {HEALTH_CMD_BODY} "$1" --fixtures {PIPELINE_FIXTURES} "$2" ;;
+esac
 """
 
 # curl 替身(golden stubCurl / selftest 同型):三冻结锚点 + 其余新鲜,零网络。时间确定性 =
@@ -184,8 +196,8 @@ def bridge_sandbox(tmp_path, tmp_path_factory, monkeypatch):
     _seed_ops_tree(ops_store.ops_root())
     _seed_ops_tree(decoy / "ops")
 
-    shim = tmp_path / "faux-pipeline.sh"
-    shim.write_text(FAUX_PIPELINE_SHIM, encoding="utf-8")
+    shim = tmp_path / "faux-agent.sh"
+    shim.write_text(FAUX_SHIM, encoding="utf-8")
     monkeypatch.setenv("IP_RADAR_OPS_AGENT_CMD", f"bash {shlex.quote(str(shim))}")
     return []
 
@@ -243,3 +255,38 @@ def test_health_round_close_publishes_report_to_ui_read_face(bridge_sandbox, rou
     body = reader.read_package(expected)
     assert round_id in body, (
         f"UI 读面读到的 {expected} 不含本轮 round_id {round_id!r}(件与本轮不同源)")
+
+
+def test_discover_round_close_publishes_report_to_ui_read_face(bridge_sandbox, rounds, reader):
+    """UI 发现轮缺省宿主 agent.mjs 经后端桥真跑到 CLOSE → UI 读面必有本轮报告件(#434)。
+
+    agent.mjs 自写包:runRound 收口直写 PACKAGES_DIR(#434 前 UI 读面对这条接线零守护;
+    #413 的健康用例只盖住 pipeline.mjs 缺省宿主)。本用例钉的就是这条自写接线——写包
+    句拆掉,轮在收口判例存在性步即红,UI 读面也空。
+    """
+    logs = bridge_sandbox
+    # shim 诚实性:discover 分支只许比产品缺省命令体多一个 --fixtures(同健康用例判例)。
+    assert " ".join(rounds._DEFAULT_DISCOVER_CMD) == DISCOVER_CMD_BODY, (
+        "spawn 契约 discover 缺省命令已改版,shim(DISCOVER_CMD_BODY)须同步:"
+        f"{rounds._DEFAULT_DISCOVER_CMD!r}")
+    assert reader.list_packages() == [], "沙箱起点必须零报告件(否则在场断言空洞)"
+
+    result = rounds.spawn_round("discover", DISCOVER_ROUND_INPUT, on_log=logs.append)
+
+    if result.get("ok") is not True:
+        pytest.fail(_diagnose("轮未成功(门的前提不成立;非产出契约本身的红)",
+                              result, logs, reader, rounds))
+    # 报告件命名契约:agent.mjs 收口自写包名 <date>-discover-<HHMM>.md,与 round-report.mjs
+    # reportNameOf 对轮 id <date>-<HHMM>-discover 的换算同形——独立真源抄录,不导入被测模块。
+    pkg_name = Path(result["pkg"]).name
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}-discover-\d{4}\.md", pkg_name):
+        pytest.fail(f"包名形状非 <date>-discover-<HHMM>.md(reportNameOf 命名律): {pkg_name!r}")
+    published = [p["name"] for p in reader.list_packages()]
+    if pkg_name not in published:
+        pytest.fail(_diagnose(f"轮已成功,但 UI 读面缺本轮报告件(期望 {pkg_name})",
+                              result, logs, reader, rounds))
+    body = reader.read_package(pkg_name)
+    # 同源标记:包 footer 的「round: discover / model: faux-fixtures」行——本轮确由
+    # --fixtures 缝驱动且读到的是这一轮的件(起点已断言零报告件,无陈旧件干扰)。
+    assert f"round: discover / model: {_FAUX_MODEL_ID}" in body, (
+        f"UI 读面读到的 {pkg_name} 不含本轮宿主 footer 标记(件与本轮不同源)")
