@@ -468,3 +468,52 @@ def test_unaligned_range_in_nested_lib(scan_env, monkeypatch):
     assert orjson.dumps(units["1.0.3.5"].result.to_dict()) == \
         orjson.dumps(want)
     assert stats["anomalous_records"] == 1
+
+
+def test_equiv_check_tool_on_fixture(scan_env, monkeypatch, capsys, tmp_path):
+    """⑰对拍工具 backend/scripts/scan_equiv_check.py 在夹具上走一遍:
+    collect(全收)→ compare 必须 0 不一致、退出 0;--mutate-first 3 把存下
+    来的结果改坏 3 条,必须恰好比出 3 处(对拍工具自己也要能红:拆掉
+    compare 里的逐字节比即红);asof 对不上、样本的纪元号对不上都退出 2。"""
+    import importlib.util
+    import json as _json
+    from pathlib import Path as _P
+    spec = importlib.util.spec_from_file_location(
+        "scan_equiv_check",
+        _P(__file__).resolve().parents[2] / "scripts" / "scan_equiv_check.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    monkeypatch.setenv("IP_RADAR_POOL_CHILD", "1")
+    out = str(tmp_path / "sample.jsonl.gz")
+
+    def last_json():
+        return _json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+
+    rc = mod.main(["collect", "--asof", str(ASOF), "--single-every", "1",
+                   "--out", out, "--spill-dir", str(tmp_path / "spill")])
+    assert rc == 0
+    got = last_json()
+    n_sampled = got["sampled_single"] + got["sampled_cidr"]
+    assert got["sampled_cidr"] > 0 and n_sampled >= 10
+
+    assert mod.main(["compare", "--asof", str(ASOF), "--sample", out]) == 0
+    got = last_json()
+    assert got["sampled"] == n_sampled and got["mismatches"] == 0
+
+    assert mod.main(["compare", "--asof", str(ASOF), "--sample", out,
+                     "--mutate-first", "3"]) == 0
+    got = last_json()
+    assert got["mismatches"] == 3
+    assert got["examples"][0]["differing_keys"] == ["ip"]
+
+    assert mod.main(["compare", "--asof", str(ASOF + 1),
+                     "--sample", out]) == 2          # asof 对不上
+    head_path = _P(out + ".head.json")
+    head = _json.loads(head_path.read_bytes())
+    head["epochs"]["abuseipdb"][0] = (head["epochs"]["abuseipdb"][0] or 0) + 1
+    head_path.write_text(_json.dumps(head))
+    assert mod.main(["compare", "--asof", str(ASOF),
+                     "--sample", out]) == 2          # 样本的纪元号对不上
+    for s in scan_env["insts"]:
+        s._reader = None
+        s._reader6 = None
