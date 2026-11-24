@@ -1,13 +1,18 @@
 # backend/ipdb/_scan.py
 """按键序扫描(#444,规格 docs/research/2026-11-24-blocklist-scan-export-spec.md §4.2)。
 
-黑名单导出的输入侧:不再逐地址调 lookup()(60+ 源 × 全键空间是 O(键)×O(源)
-的随机读灾难),而是把每个(源,族)的 LMDB 库按键序(=地址数值序)顺游标走
+黑名单导出的输入侧:不再逐地址调 lookup()(几十个源 × 全键空间,每个地址
+在每个源里都是一次随机读),而是把每个(源,族)的 LMDB 库按键序(=地址
+数值序)顺游标走
 一遍,heapq.merge 多路归并,同一起点凑组;一个单元的证据选法与查询接口
 _lmdb.lookup 同构(先单地址、无则覆盖网段),喂给 #444 拆出的
-_registry.fuse_items()。于是扫描的判定字段与查询接口相同;国家、城市、
-ASN 和来自未声明分类源的资产陈述,扫描按规格不读(导出器事后只给进榜
-IP 经 lookup() 补)。同构的前提是库内记录都是对齐的 CIDR(写侧
+_registry.fuse_items()。读集=启用源里全部非地理类的源(资产类 + 威胁类);
+一条记录算不算证人由记录自己带不带 classification_type 决定,与查询
+接口 ingest 同一判据——类属性没声明分类的源,记录里也可能带(如
+infra_services 的 dns/ntp 良性断言)。于是 threat、classifications 两个
+判定字段与查询接口相同;国家、城市、ASN 这些地理字段(地理类的源按
+规格不读)扫描结果里是空值,导出器事后只给进榜 IP 经 lookup() 补。同构
+的前提是库内记录都是对齐的 CIDR(写侧
 rebuild_lmdb 保证);一旦出现不对齐的记录,覆盖探测退回与查询接口相同
 的逐前缀长探测。
 
@@ -133,6 +138,14 @@ class _FamilyState:
         return None
 
 
+# 源类别的闭集(元数据唯一真相=源 class attr category,见 _registry):扫描
+# 只读非地理类的源(规格 Q4)。往 _sources 里添新类别的源,这里先红
+# (test_geo_sources_are_not_read),当场定它读不读——不许默认溜进扫描,
+# 也不许默认漏出等价面。
+_ALL_CATEGORIES = frozenset({"asset", "threat", "geo_asn"})
+_GEO_CATEGORIES = frozenset({"geo_asn"})
+
+
 def _is_threat_source(s) -> bool:
     """与导出器 scripts/universe_walk.py 的 _is_threat_source 同一判据:
     声明了分类、category=="threat"、非 internal。只有威胁类源产生单元。"""
@@ -162,9 +175,11 @@ def _seen_bounds(evidence) -> tuple[list[str], list[str]]:
 class UnitScanner:
     """按键序扫描器。用法:``with open_unit_scanner(...) as sc:`` 然后迭代。
 
-    读集=声明 classification_type 的源(威胁类+资产类都读——资产类证据
-    要留给威胁单元融合用,规格 §4.2 规则 5);只有威胁类源产生单元。
-    sources=None → _enabled_sources() 减 _PRIVATE;测试传显式实例列表。
+    读集=非地理类的全部源(威胁类+资产类都读;记录带不带
+    classification_type 决定它是不是证人,同查询接口 ingest);只有威胁
+    类源的记录产生单元。sources=None → _enabled_sources() 减 _PRIVATE;
+    测试传显式实例列表。地理类的源传进来也跳过,记进 stats
+    ["skipped_geo_sources"]。
     """
 
     def __init__(self, *, sources=None, asof=None, spill_dir=None):
@@ -172,13 +187,15 @@ class UnitScanner:
             from ipdb import _registry
             sources = [s for s in _registry._enabled_sources()
                        if s.name not in _registry._PRIVATE]
-        self._sources = list(sources)
+        self._sources = [s for s in sources
+                         if getattr(s, "category", None)
+                         not in _GEO_CATEGORIES]
+        self._skipped_geo = [s.name for s in sources
+                             if getattr(s, "category", None)
+                             in _GEO_CATEGORIES]
         self._asof = asof
-        self._classified = [s for s in self._sources
-                            if getattr(s, "classification_type", None)
-                            is not None]
-        self._threat = {s.name for s in self._classified
-                        if _is_threat_source(s)}
+        self._read = list(self._sources)     # 读集(非地理类),传入顺序
+        self._threat = {s.name for s in self._read if _is_threat_source(s)}
         self._fam: dict[tuple[str, int], _FamilyState] = {}
         self.epochs: dict[str, tuple[int | None, int | None]] = {}
         self.stats: dict = {
@@ -186,6 +203,7 @@ class UnitScanner:
             "cidr_records": {},     # 各源网段记录数
             "skipped_anomalies": 0, # 不恰为一个 CIDR 的网段范围
             "anomalous_records": 0,  # 不对齐(非 CIDR)的范围记录,嵌套库
+            "skipped_geo_sources": list(self._skipped_geo),   # 传了没读的
             "units": {"v4_single": 0, "v4_cidr": 0,
                       "v6_single": 0, "v6_cidr": 0},
             "timings": {},
@@ -217,7 +235,7 @@ class UnitScanner:
         """每个(源,族)自开只读句柄(规格 §4.2 规则 1/2/10):readahead=True
         (顺序扫描吃预读;查询侧 open_env_read 关预读是对随机读的取舍,不适用);
         纪元经 read_ptr 钉死,整个扫描期读同一纪元目录。"""
-        for s in self._classified:
+        for s in self._read:
             fams = ((s._lmdb_base, 4, 32), (s._lmdb6_base, 6, 128))
             e4 = e6 = None
             for base, fam, bits in fams:
@@ -293,7 +311,7 @@ class UnitScanner:
 
     def _phase_single(self, fam: int):
         gens = []
-        for s in self._classified:
+        for s in self._read:
             st = self._fam.get((s.name, fam))
             if st is None:
                 continue
@@ -329,7 +347,7 @@ class UnitScanner:
 
     def _phase_cidr(self, fam: int):
         gens = []
-        for s in self._classified:
+        for s in self._read:
             if s.name not in self._threat:
                 continue            # 网段单元只由威胁类源凑组(规格规则 7)
             st = self._fam.get((s.name, fam))
@@ -441,7 +459,7 @@ class UnitScanner:
 
     def _gather_items(self, start: int, fam: int, singles, cidr_group):
         """一个单元地址上的证据齐备(规格规则 4,与查询接口同构):每个
-        声明分类的源至多一条——先该地址的单地址记录,没有才覆盖网段记录。
+        读进来的源至多一条——先该地址的单地址记录,没有才覆盖网段记录。
         singles=单地址遍的组内记录(该地址自身);cidr_group=网段遍的组
         (该网段记录本身,即本源对此网络地址的覆盖记录)。items 顺序=
         sources 传入顺序(测试钉);无记录的源不出现在 items 里。"""

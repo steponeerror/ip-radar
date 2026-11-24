@@ -15,11 +15,15 @@ collect:整库扫描一遍,网段单元全收、单地址单元每 K 个收一�
 出的判定结果一行一个存进样本;asof 和各源纪元号写在旁证文件
 <out>.head.json 里(纪元号要等扫描结束才齐,样本体是顺序流)。
 compare:load_db() 后对样本里每个地址(网段单元用网络地址)调
-lookup(addr, asof=…),与存下来的结果逐字节比。口径同扫描器:启用的源、
-去掉私源。纪元号和样本首行不一致就退出 2(数据换了,重跑两步)。
+lookup(addr, asof=…),与存下来的结果比判定字段——ip、is_reserved、threat、
+classifications(导出器只用 threat.verdict 和 classifications 里检测到且
+恶意的类型/来源/置信度)。国家、城市、ASN 这些地理字段,以及地理源带
+出来的资产陈述,扫描按规格不读(进榜 IP 事后经 lookup() 补),不比;它们
+有多少单元不同,另记一行 other_field_diffs 供参考。口径同扫描器:启用的
+源、去掉私源。纪元号和样本旁证不一致就退出 2(数据换了,重跑两步)。
 
-退出码:0 = 一致(或与 --mutate-first 的预期不一致数相等);1 = 有不一致;
-2 = 样本作废(纪元变了)或用法错。
+退出码:0 = 判定字段一致(或与 --mutate-first 的预期不一致数相等);1 = 判定
+字段有不一致;2 = 样本作废(纪元变了)或用法错。
 --mutate-first N(compare):先把样本里前 N 条存下来的结果改坏再比——对拍
 工具自己也要能红,N 条必须恰好比出 N 处不一致。
 """
@@ -34,6 +38,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import orjson
+
+# 判定字段(导出器消费的全部):见模块说明。
+JUDGED_KEYS = ("ip", "is_reserved", "threat", "classifications")
+
+
+def _judged(d: dict) -> dict:
+    return {k: d.get(k) for k in JUDGED_KEYS}
 
 
 def _public_enabled_names():
@@ -110,22 +121,27 @@ def compare(args) -> int:
         return 2
     allowed = _public_enabled_names()
     bad = 0
+    other = 0
     examples = []
     for i, rec in enumerate(records):
         if i < args.mutate_first:
             rec["result"]["ip"] = "0.0.0.0"           # 对拍工具自检
         got = lookup(rec["addr"], allowed_sources=allowed,
                      asof=args.asof).to_dict()
-        if orjson.dumps(got) != orjson.dumps(rec["result"]):
+        old = rec["result"]
+        if orjson.dumps(_judged(got)) != orjson.dumps(_judged(old)):
             bad += 1
             if len(examples) < 20:
-                old = rec["result"]
                 examples.append({
                     "ip": rec["ip"],
-                    "differing_keys": sorted(k for k in set(got) | set(old)
+                    "differing_keys": sorted(k for k in JUDGED_KEYS
                                              if got.get(k) != old.get(k))})
+        elif orjson.dumps(got) != orjson.dumps(old):
+            other += 1          # 只有地理类字段不同:规格内,不卡
     print(json.dumps({"mode": "compare", "asof": args.asof,
                       "sampled": len(records), "mismatches": bad,
+                      "judged_keys": list(JUDGED_KEYS),
+                      "other_field_diffs": other,
                       "mutate_first": args.mutate_first,
                       "examples": examples}, ensure_ascii=False))
     return 0 if bad == args.mutate_first else 1

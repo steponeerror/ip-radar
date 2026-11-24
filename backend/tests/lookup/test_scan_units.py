@@ -146,6 +146,7 @@ def scan_env(tmp_path, monkeypatch):
     proto = {}
     for s in _registry._sources:
         proto.setdefault(s.name, type(s))
+    categories = sorted({s.category for s in _registry._sources})
     names = ("abuseipdb", "blocklist_de", "firehol", "greensnow",
              "danmeuk_tor")
     insts = [proto[n](tmp_path) for n in names]
@@ -174,7 +175,7 @@ def scan_env(tmp_path, monkeypatch):
         s._reader = None
         s._reader6 = None
     yield {"insts": insts, "by_name": by_name, "oracle": oracle,
-           "proto": proto}
+           "proto": proto, "categories": categories}
 
 
 def _unit_ips(sc):
@@ -517,3 +518,57 @@ def test_equiv_check_tool_on_fixture(scan_env, monkeypatch, capsys, tmp_path):
     for s in scan_env["insts"]:
         s._reader = None
         s._reader6 = None
+
+
+def _swap_sources(scan_env, monkeypatch, extra):
+    """把 extra 源并进登记表,重新取查询接口的答案(要先关扫描前留下的
+    句柄),再把读句柄关掉——扫描器才能开同路径的库。返回 (全部源, oracle)。"""
+    insts = scan_env["insts"] + list(extra)
+    monkeypatch.setattr(_registry, "_sources", insts)
+    _registry._enabled_cache["entry"] = None
+    _registry._loaded_cache["entry"] = None
+    for s in insts:
+        s.load()
+    return insts
+
+
+def test_payload_level_classification_source_is_read(scan_env, monkeypatch):
+    """⑱读集按「非地理类的源全读」定,不按类属性有没有 classification_type
+    定:一条记录算不算证人,是记录自己带不带 classification_type 决定的
+    (查询接口 ingest 同一判据)。现实里 infra_services 的类属性没有
+    classification_type、记录里却带着 dns/ntp 的良性断言;旧纪元的
+    ip2proxy 载荷也还带着 proxy 指控(2026-11-24 对拍时 20 万单元里九成
+    的 threat 字段因此不同)。cloudzy(资产类,类属性无分类)手搭库在
+    1.0.2.130 放一条带 classification_type 的记录:lookup() 把它算进
+    proxy 组,扫描出的单元必须同字节。只读「类属性声明了分类的源」即红。"""
+    ev = {"classification_type": "proxy", "verdict": "suspicious",
+          "reliability": 0.7}
+    data_dir = scan_env["insts"][0]._lmdb_base.parent
+    extra = _hand_build_nested(scan_env["proto"]["cloudzy"], data_dir,
+                               [("1.0.2.130", "1.0.2.130", ev)])
+    insts = _swap_sources(scan_env, monkeypatch, [extra])
+    want = _registry.lookup("1.0.2.130", asof=ASOF).to_dict()
+    want_text = orjson.dumps(want).decode()     # 前提:查询接口自己取到了
+    assert '"cloudzy"' in want_text
+    for s in insts:
+        s._reader = None
+        s._reader6 = None
+    with open_unit_scanner(sources=insts, asof=ASOF) as sc:
+        units = _collect(sc)
+    assert orjson.dumps(units["1.0.2.130"].result.to_dict()) == \
+        orjson.dumps(want)
+
+
+def test_geo_sources_are_not_read(scan_env):
+    """⑲地理类的源不读(规格 Q4:地理库占数据量八成多,排名后只给进榜 IP
+    经 lookup() 补查);传进来也跳过,记进 stats。源类别是闭集(asset /
+    threat / geo_asn):新添一个类别,这里先红,当场定它读不读。"""
+    from ipdb._scan import _ALL_CATEGORIES
+    assert set(scan_env["categories"]) <= _ALL_CATEGORIES
+    geo = scan_env["proto"]["metowolf_iplist"](
+        scan_env["insts"][0]._lmdb_base.parent)
+    with open_unit_scanner(sources=scan_env["insts"] + [geo]) as sc:
+        _collect(sc)
+        stats = dict(sc.stats)
+    assert stats["skipped_geo_sources"] == ["metowolf_iplist"]
+    assert "metowolf_iplist" not in stats["records"]
