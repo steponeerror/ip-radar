@@ -601,7 +601,8 @@ test("编码工具闭集与沙箱遏制:write_file 逃逸拒绝;未绑定会话=
   } finally { addHosts.delete("conv-add-t"); }
 });
 
-// ── #338 撞卡复算面(33 题 × roster−本题行 × 修后 dump 证据 = 零结构性红)──
+// ── #338 撞卡复算面(每题候选 url × roster−本题行 × 修后 dump 证据 = 零结构性红;
+// 题数 = universe.jsonl 现值逐行跑,断言消息现算 —— #437:原注 33 题是 #338 时点数)
 
 const UNIVERSE_PATH = path.resolve(HERE, "bench", "add-domain", "data", "universe.jsonl");
 const RECOMPUTE_BACKEND = path.resolve(HERE, "..", "..", "backend");
@@ -624,7 +625,7 @@ const SKIP_RECOMPUTE = rosterText && RECOMPUTE_PY
   ? false
   : "无真面(roster spawn 失败或 python 无法 import ipdb;CI 判例,同 add-universe SKIP_ROSTER 律)";
 
-test("撞卡复算 0/33(#338 勘误后):每题候选 url 对 roster−本题行 + 修后 dump 证据零红", { skip: SKIP_RECOMPUTE }, () => {
+test("撞卡复算零红(#338 勘误后):每题候选 url 对 roster−本题行 + 修后 dump 证据零红", { skip: SKIP_RECOMPUTE }, () => {
   // 修前红对(#337 报告复算段记档):sw 双题 url 多行字面量被旧 dump 判据截断为
   // …/IPs/ 前缀,候选与 roster 证据面同折 → 路径键相等保守红,本机复算 red=2/33
   // (dev/p338-report.md 复算段)。修后:候选=运行时拼接完整 URL,sw 双题路径键

@@ -34,8 +34,8 @@ export const EVOLVE_PROTECTED_FACES = Object.freeze([
   "ops/package.json", // 护栏①脚本面:npm test 读候选树包根 scripts.test(改 no-op 即绿);#412 单包后包根=ops/,原 ops/agent-v2/package.json 已删——钉已删路径=护栏空转(评审 P1)
 ]);
 
-// add-domain 适配:考题 = universe split=evolve 面(25 题;heldout 是终局验收面,
-// 演化循环不碰——盲测纪律);考题卡 = dev 侧生成物(gen-exam-cards.mjs 产物,env
+// add-domain 适配:考题 = universe split=evolve 面(题数 = universe.jsonl meta 现值
+// ——#437:原注 25 题是旧时点数;heldout 是终局验收面,演化循环不碰——盲测纪律);考题卡 = dev 侧生成物(gen-exam-cards.mjs 产物,env
 // EVOLVE_CARDS_DIR 覆写,缺省主检出 dev/bench-add-domain/cards-v2 = 手动演化线在用面);
 // trial = 候选/冠军面各自的 run-trial.mjs(--repo 同面,面=提示词/工具/任务接线整体)。
 export const EVOLUTION_DOMAINS = Object.freeze({
