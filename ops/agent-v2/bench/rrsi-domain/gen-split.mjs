@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// gen-split.mjs — RRSI 劈分生成器(票 #325;裁决 #322 R1 首劈 53=40+13。劈分随 roster 演进再冻结,
+// gen-split.mjs — RRSI 劈分生成器(票 #325;裁决 #322 R1 第一次劈分 53=40+13。劈分随 roster 演进再冻结,
 // 现值=data/split.jsonl 冻结件 meta;生成器缺省席位数须随每次重冻同步成同值,tests/rrsi-split.test.mjs
 // 钉「缺省入参 = 冻结件 meta」,不同步=红——#437)。
 // 产物 data/split.jsonl 生成后【人工检查 + 手改 meta.frozen=true】入仓——冻结件是答案分发

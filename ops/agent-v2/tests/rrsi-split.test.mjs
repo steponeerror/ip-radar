@@ -1,5 +1,5 @@
-// rrsi-split.test.mjs — RRSI 劈分不变式(票 #325;裁决 #322 R1 首劈 53=40+13;劈分随 roster 演进
-// 再冻结,现值=data/split.jsonl 冻结件 meta——#437:原头注把首劈数当现值写。类别分层、固定种子、
+// rrsi-split.test.mjs — RRSI 劈分不变式(票 #325;裁决 #322 R1 第一次劈分 53=40+13;之后随 roster 演进
+// 再冻结,现值=data/split.jsonl 冻结件 meta——#437:原头注把第一次劈分的数当现值写。类别分层、固定种子、
 // 名单钉死)。劈分是盲测的答案分发面:名单一旦漂移,演化集成绩与
 // 留出集验收就不再可比——本测试把结构不变式钉进 v2 套件(CI 恒跑,零 python 零网络),
 // roster 交叉面(需要真 roster dump)按 smoke-glm.test.mjs 判例条件 skip。
@@ -258,7 +258,7 @@ test("gen-split.mjs 冻结件拒绝覆盖:目标已存在且 frozen=true 时 exi
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
-test("split.jsonl 分席重算复现(#325 F2):行计数经 largestRemainder(·,13) = meta.heldoutSeats;留出行各类计数 = 分席值", () => {
+test("split.jsonl 分席重算复现(#325 F2):行计数经 largestRemainder(·, 留出席位) = meta.heldoutSeats;留出行各类计数 = 分席值", () => {
   // 劈分是盲测的答案分发面,meta 自称「类别分层最大余数法」就必须可重算复现——
   // 冻结件若是旧逻辑/手工调过的产物(席位与当前生成器对当前考题计数不符),此处红。
   const { meta, rows } = loadSplit();

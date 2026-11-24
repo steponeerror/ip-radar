@@ -88,7 +88,8 @@ export function insertReadmeRow(text, sectionTitle, row) {
 // lift 把退役词写回钉注。三条注记正则保留原注记、只在其后追加「<tag> 再冻结」(#437:原先整段
 // 重写,下次 lift 会把 #414 留在钉注里的出处——撤源/进源明细——换成一句「<日期> 再冻结」)。
 // 追加形=原注记 + ";" + 「<tag> 再冻结」;原注记空(钉面被手改)则只写新注记,不留「;;」。
-// 正则两组:组 1=原注记(不含消息自己的右括号),组 2=该右括号——接受面与原整段重写款相同。
+// 正则两组:组 1=原注记(不含消息自己的右括号),组 2=该右括号。比原先整段重写的写法严一点:要求注记末尾紧挨
+// 右括号——有人手删了右括号时,这里报「钉面漂移」,而不是悄悄改回规范形。
 const appendNote = (note, tag) => `${note ? `${note};` : ""}${tag} 再冻结`;
 export function syncRrsiSplitPins(text, { evolve, heldout, total, rosterTotal, exempt, tag }) {
   let t = String(text);
@@ -100,8 +101,7 @@ export function syncRrsiSplitPins(text, { evolve, heldout, total, rosterTotal, e
   t = sub1(t, /assert\.equal\(evolve\.length, \d+\);/, () => `assert.equal(evolve.length, ${evolve});`, "evolve.length 钉");
   t = sub1(t, /assert\.equal\(heldout\.length, \d+\);/, () => `assert.equal(heldout.length, ${heldout});`, "heldout.length 钉");
   t = sub1(t, /assert\.equal\(new Set\(names\)\.size, \d+, "无重复"\);/, () => `assert.equal(new Set(names).size, ${total}, "无重复");`, "names 去重钉");
-  // 右括号写成 [)] 而非 \):V8 正则字面量里「\) + 反引号」连写会报 Unterminated group(2026-11-24 实测 Node v22.23.2,#437)
-  t = sub1(t, /assert\.equal\(exam\.length, \d+, `真 roster 考题数漂移:\$\{exam\.length\} ≠ \d+——冻结名单须重裁\(([^`]*)([)])`\);/,
+  t = sub1(t, /assert\.equal\(exam\.length, \d+, `真 roster 考题数漂移:\$\{exam\.length\} ≠ \d+——冻结名单须重裁\(([^`]*)(\))`\);/,
     (m, note, close) => "assert.equal(exam.length, " + total + ", `真 roster 考题数漂移:${exam.length} ≠ " + total + "——冻结名单须重裁(" + appendNote(note, tag) + close + "`);", "exam.length 钉");
   return t;
 }
@@ -295,6 +295,12 @@ export async function runLift({ sandbox, roundDir, fleetRoot, devRoot, python, s
   await git(sandbox, ["-c", "commit.gpgsign=false",
     "commit", "-m", `lift(#366): 文档三件+基准重冻+roster 钉同步(${stem};卡 ${source};加源轮 ${roundId})`]);
   // 7. 门三连
+  // 重冻之后的已知红点(#437 加的两条对账测试,按裁定先保持人工):第 4 步重新生成 split.jsonl 后题数变了,
+  //  a) bench/rrsi-domain/rrsi.json 的 _doc 首句和每题粒度要人改——tests/rrsi-domain.test.mjs「超参钉死」会写缺哪一项;
+  //  b) bench/rrsi-domain/gen-split.mjs 的缺省席位数和 --help 文案要人改成新值——tests/rrsi-split.test.mjs
+  //     「gen-split.mjs 缺省入参 = 冻结件 meta」会红。
+  // 这两处不改,第三道门会红,lift 停在「已提交、未推送」:进沙箱改好、再提交、手动补跑三道门,然后自己推送和开 PR。
+  // 要不要让 lift 自动同步这两处,见 #440。
   const gates = [
     { name: "backend 全量 pytest", cmd: [python, "-m", "pytest", "-q", "--durations=15"], cwd: path.join(sandbox, "backend"), timeoutMs: 30 * 60_000 },
     { name: "ops selftest", cmd: ["bash", path.join(sandbox, "ops", "pipeline-core", "selftest.sh")], cwd: sandbox, timeoutMs: 15 * 60_000 },

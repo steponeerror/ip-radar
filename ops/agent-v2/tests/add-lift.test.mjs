@@ -67,13 +67,20 @@ test("syncRrsiSplitPins/syncRrsiDomainPin:八钉一针全同步,注记保留+追
   assert.throws(() => syncRrsiSplitPins(split.replace("考题总数", "总数"), { evolve: 42, heldout: 14, total: 56, rosterTotal: 64, exempt: 8, tag: "x" }), /钉面漂移/, "钉面措辞改版=红(数字变化不红——同步语义)");
   const dom = '  assert.equal(criticProbe.total, 55, "每考题一行一针(55 行;2026-11-18 再冻结)");';
   assert.equal(syncRrsiDomainPin(dom, { total: 56, tag: "2026-11-21" }), '  assert.equal(criticProbe.total, 56, "每考题一行一针(56 行;2026-11-18 再冻结;2026-11-21 再冻结)");');
+  // 原注记为空(钉面被人手删过):只写新注记,不留「;;」(评审 P3-2:这个分支原先没有测试看着)
+  assert.equal(syncRrsiDomainPin('  assert.equal(criticProbe.total, 55, "每考题一行一针(55 行;)");', { total: 56, tag: "2026-11-21" }),
+    '  assert.equal(criticProbe.total, 56, "每考题一行一针(56 行;2026-11-21 再冻结)");');
+  const bare = split.replace("冻结名单须重裁(2026-11-18 #359/#360 再冻结 53→55)", "冻结名单须重裁()");
+  assert.ok(syncRrsiSplitPins(bare, { evolve: 42, heldout: 14, total: 56, rosterTotal: 64, exempt: 8, tag: "2026-11-21" })
+    .includes("冻结名单须重裁(2026-11-21 再冻结)`);"));
 });
 
 // #437:三条注记正则原为整段重写(「免考;」「行;」之后的 [^"]* / [^`]* 全换成「<日期> 再冻结」),
 // 下次 lift 会把 #414 留在钉注里的出处(撤源/进源明细)吃掉——出处是「冻结为什么变成这个数」的
 // 仅存记录。改后=原注记原样留、新「<tag> 再冻结」追加其后。拿真仓件只读回归:真钉注里的 #414
 // 出处原文从文件里现取(测试里不抄源名),过一遍变换仍在;再过一遍=两条日期注记按先后序并存。
-test("syncRrsiSplitPins/syncRrsiDomainPin 保留出处注(#437):真钉注里的 #414 出处过一遍变换仍在,新日期追加其后;连冻两次按序并存", () => {
+// 前提不写成断言:真 lift 之后钉注里本来就会出现「再冻结;」(评审 P1-1),这里只取现值、不断言它长什么样。
+test("syncRrsiSplitPins/syncRrsiDomainPin 保留出处注(#437):真钉注里的 #414 出处过一遍变换仍在,新日期追加其后;连续冻结两次按先后并存", () => {
   const src = read("ops/agent-v2/tests/rrsi-split.test.mjs");
   const domSrc = read("ops/agent-v2/tests/rrsi-domain.test.mjs");
   const meta = JSON.parse(read("ops/agent-v2/bench/rrsi-domain/data/split.jsonl").split("\n")[0]);
@@ -81,13 +88,12 @@ test("syncRrsiSplitPins/syncRrsiDomainPin 保留出处注(#437):真钉注里的 
   const oldRows = grab(src, /考题总数 = \d+\(\d+ 源 − \d+ 免考;([^")]*)\)"\);/, "rows.length 钉");
   const oldExam = grab(src, /冻结名单须重裁\(([^`]*)([)])`\);/, "exam.length 钉");
   const oldCritic = grab(domSrc, /每考题一行一针\(\d+ 行;([^")]*)\)"\);/, "critic 针数钉");
-  assert.ok(!/再冻结;/.test(oldRows + oldExam + oldCritic), "前提:现钉注尚无追加形(否则本测前提漂移,须重读夹具)");
   const lift = (text, tag, d) => syncRrsiSplitPins(text, { evolve: meta.evolve + d, heldout: meta.heldout, total: meta.total + d, rosterTotal: meta.rosterTotal + d, exempt: meta.exemptTotal, tag });
   const out = lift(src, "2099-01-01", 1);
   assert.ok(out.includes(`免考;${oldRows};2099-01-01 再冻结)`), "rows.length 钉:原出处注须保留,新日期追加其后");
   assert.ok(out.includes(`冻结名单须重裁(${oldExam};2099-01-01 再冻结)`), "exam.length 钉:原注记须保留,新日期追加其后");
   const out2 = lift(out, "2099-01-02", 2);
-  assert.ok(out2.includes(`免考;${oldRows};2099-01-01 再冻结;2099-01-02 再冻结)`), "连冻两次:两条日期注记按先后序并存");
+  assert.ok(out2.includes(`免考;${oldRows};2099-01-01 再冻结;2099-01-02 再冻结)`), "连续冻结两次:两条日期注记按先后序并存");
   const dom = syncRrsiDomainPin(domSrc, { total: meta.total + 1, tag: "2099-01-01" });
   assert.ok(dom.includes(`每考题一行一针(${meta.total + 1} 行;${oldCritic};2099-01-01 再冻结)`), "critic 针数钉:原注记须保留,新日期追加其后");
 });
@@ -129,8 +135,8 @@ test("changelogEntries/composePrBody:双语对+轮四行数入文;手动 lift �
 });
 
 // #437:runLift 内联模板没有纯函数面(README 源表行 Contributes 列/快照行注/提交身份与说明/日志前缀),
-// 以源码文本钉:#375 起 lift 是手动流程,下列退役写法任一回潮=下次手动 lift 把退役词或「自动 lift」的
-// 不实说法写回仓。标识符(fleetRoot/FLEET_DEV_ROOT/.fleet-roster-dump.txt/dev/fleet)与史述注释不在表内。
+// 以源码文本钉:#375 起 lift 是手动流程,下列退役写法只要有一处被改回来=下次手动 lift 把退役词或「自动 lift」的
+// 不实说法写回仓。标识符(fleetRoot/FLEET_DEV_ROOT/.fleet-roster-dump.txt/dev/fleet)与讲退役历史的注释不在表内。
 test("lift 内联模板不写退役词(#437):README 行只写格式/快照行注「手动 lift」/提交身份=执行者/日志前缀 [lift]", () => {
   const src = read("ops/agent-v2/add-lift.mjs");
   for (const stale of ["(fleet-lifted #366)", "fleet lift(#366)", "fleet #366 lift", "[fleet-lift]", "fleet@ipradar.local", "fleet-driver", ";fleet ${roundId}"]) {
