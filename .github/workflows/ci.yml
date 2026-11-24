@@ -46,7 +46,8 @@ jobs:
           npm ci --no-fund --no-audit
           node pipeline-core/golden/run-golden.mjs
       # #413:ops 跨目录产出契约对拍门——UI 健康轮经后端桥真跑到 CLOSE 后,UI 读面
-      # (GET /api/ops/packages 的函数体)必有本轮报告件;拆掉 writeRoundReport 接线或挪走桥的
+      # (GET /api/ops/packages 的函数体)必有本轮报告件;#434 起 UI 发现轮(agent.mjs 自写包的
+      # 接线,经 --fixtures faux 面)同门同持。拆掉 writeRoundReport 接线或挪走桥的
       # DOCS_ROOT 注入即红(#403 静默断供那一类)。门不通电等于没有门(ADR 0008):本门要三样
       # 供给凑齐——python + backend 依赖(本步装)、node 22(本 job 已有)、ops/node_modules
       # (上步 npm ci 沉淀)。backend job 不装 ops/node_modules,全量参考跑里它是 skip,所以

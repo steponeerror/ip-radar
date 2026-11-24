@@ -262,7 +262,7 @@ def test_discover_round_close_publishes_report_to_ui_read_face(bridge_sandbox, r
 
     agent.mjs 自写包:runRound 收口直写 PACKAGES_DIR(#434 前 UI 读面对这条接线零守护;
     #413 的健康用例只盖住 pipeline.mjs 缺省宿主)。本用例钉的就是这条自写接线——写包
-    句拆掉,轮在收口判例存在性步即红,UI 读面也空。
+    句拆掉,轮在收口判例存在性步即红,UI 读面也空。罐装回合零工具调用,不盖发现回路的质量。
     """
     logs = bridge_sandbox
     # shim 诚实性:discover 分支只许比产品缺省命令体多一个 --fixtures(同健康用例判例)。
@@ -289,4 +289,4 @@ def test_discover_round_close_publishes_report_to_ui_read_face(bridge_sandbox, r
     # 同源标记:包 footer 的「round: discover / model: faux-fixtures」行——本轮确由
     # --fixtures 缝驱动且读到的是这一轮的件(起点已断言零报告件,无陈旧件干扰)。
     assert f"round: discover / model: {_FAUX_MODEL_ID}" in body, (
-        f"UI 读面读到的 {pkg_name} 不含本轮宿主 footer 标记(件与本轮不同源)")
+        f"UI 读面读到的 {pkg_name} 不含本轮宿主 footer 标记(件与本轮不同源;footer 格式改版须同步本断言)")

@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // agent.mjs — pi-agent-core 会话式宿主(计划书 Task 4 终稿;ADR 0004)。
 // 用法: node ops/pipeline-core/agent.mjs <health|discover> "<本轮输入>" [追加判例检索词...] [--fixtures DIR]
-//       (--fixtures DIR 仅测试环境设置,#434:显式 faux 模型面=pi-ai fauxProvider 罐装回合,
+//       (--fixtures DIR 仅测试环境设置,#434:显式 faux 模型面=pi-ai fauxProvider 罐装回合;DIR 值必填
+//       但不读——罐装回合内建于 fauxModelsBundle,与 pipeline.mjs 读 DIR 下的 fixture 文件不同,
 //       零网络零花费,守门 backend/tests/test_ops_output_contract.py 经桥 shim 对本宿主同带
 //       此旗标;旗标不在场=真 provider,argv 与行为一字不变)
 // (#412 后缺省消费方=桥的 discover 轮+e2e 会话面;健康轮生产路径=桥直连
@@ -318,7 +319,7 @@ async function fauxModelsBundle() {
   faux.setResponses([fauxAssistantMessage([fauxText(
     "## 注入判例\n- 无判例(faux 罐装回合,零检索引用)\n\n"
     + "## 本轮输出\nfaux-fixtures 罐装文本(--fixtures 显式 faux 模型面):不产候选不测数,"
-    + "本缝守护对象是 CLOSE 写包接线,轮内确定性读数见轮目录工件与信封。")])]);
+    + "本缝守护对象是 CLOSE 写包接线,轮内确定性读数见包尾宿主记录与信封。")])]);
   return { models, resolve: () => faux.getModel() };
 }
 
@@ -346,7 +347,9 @@ export async function main(argv, io = {}) {
   const log = (...a) => stderr.write(a.join(" ") + "\n");
   // --fixtures DIR(#434,仅测试环境设置):旗标在场=faux 模型面(fauxModelsBundle);旗标值缺=
   // 用法错(宁响不猜,不许静默回真面);旗标不在场=io.models / loadModels 真 provider,
-  // 位置参数与行为一字不变。
+  // 位置参数与行为一字不变。旗标在整份 argv 里找(测试缝的 shim 把它放在输入之前),所以有一个
+  // 退化输入:输入文本恰好就是字面量 --fixtures 时会被当成旗标,值缺即 exit 2——响亮失败、不花钱,
+  // 与 pipeline.mjs flag() 的 indexOf 是同一种局限(评审 4-2)。
   const fxIdx = argv.indexOf("--fixtures");
   const positional = fxIdx >= 0 ? [...argv.slice(0, fxIdx), ...argv.slice(fxIdx + 2)] : argv;
   const [round, input, ...extra] = positional;
