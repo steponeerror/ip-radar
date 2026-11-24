@@ -3,8 +3,10 @@
 // run-fleet.mjs 退役删除)。
 // 覆盖:lift 文本变换(文档三件计数钉/README 表行/rrsi 劈分钉/critic 针数钉/发现冒烟计数钉/
 // roster 快照行幂等)——全部「恰一命中」fail-closed;变换同时拿真仓件做只读回归钉(钉面漂移=
-// 先红在此,不是真跑轮时)。CLI 面:无参 usage 退出码 2;--help 可跑(usage() 律:同 run-fleet
-// 惯例 --help 与用法错同码);--source/--round-id 形状执法。
+// 先红在此,不是真跑轮时)。#437 两条:①钉注同步保留原出处注、只追加「<日期> 再冻结」;②lift 是
+// 手动流程(#375 起 fleet 驱动器退役),模板措辞不写退役词与「自动 lift」——纯函数面钉输出,
+// runLift 内联模板(无纯函数面)钉源码文本。CLI 面:无参 usage 退出码 2;--help 可跑(usage() 律:
+// 同 run-fleet 惯例 --help 与用法错同码);--source/--round-id 形状执法。
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -45,7 +47,7 @@ test("insertReadmeRow:节内表尾插行;节缺席/无表=红", () => {
   assert.throws(() => insertReadmeRow(md, "No Such Section", "x"), /README 节缺席/);
 });
 
-test("syncRrsiSplitPins/syncRrsiDomainPin:八钉一针全同步,注记重写;漂移=红", () => {
+test("syncRrsiSplitPins/syncRrsiDomainPin:八钉一针全同步,注记保留+追加;漂移=红", () => {
   const split = [
     'test("split.jsonl 结构不变式:42 演化 + 13 留出,类别分层覆盖,名单行全带行级豁免标记", () => {',
     "  assert.equal(meta.evolve, 42);",
@@ -59,12 +61,35 @@ test("syncRrsiSplitPins/syncRrsiDomainPin:八钉一针全同步,注记重写;漂
   const out = syncRrsiSplitPins(split, { evolve: 42, heldout: 14, total: 56, rosterTotal: 64, exempt: 8, tag: "2026-11-21" });
   assert.ok(out.includes("结构不变式:42 演化 + 14 留出"));
   assert.ok(out.includes("assert.equal(meta.heldout, 14);"));
-  assert.ok(out.includes('assert.equal(rows.length, 56, "考题总数 = 56(64 源 − 8 免考;2026-11-21 再冻结)");'));
+  assert.ok(out.includes('assert.equal(rows.length, 56, "考题总数 = 56(64 源 − 8 免考;2026-11-18 #359/#360 再冻结;2026-11-21 再冻结)");'), "rows.length 钉:原注记留,新「<日期> 再冻结」追加其后(#437)");
   assert.ok(out.includes("assert.equal(new Set(names).size, 56"));
-  assert.ok(out.includes("assert.equal(exam.length, 56, `真 roster 考题数漂移:${exam.length} ≠ 56——冻结名单须重裁(2026-11-21 再冻结)`);"));
+  assert.ok(out.includes("assert.equal(exam.length, 56, `真 roster 考题数漂移:${exam.length} ≠ 56——冻结名单须重裁(2026-11-18 #359/#360 再冻结 53→55;2026-11-21 再冻结)`);"), "exam.length 钉:原注记留(含 53→55 的出处尾巴),新日期追加其后(#437)");
   assert.throws(() => syncRrsiSplitPins(split.replace("考题总数", "总数"), { evolve: 42, heldout: 14, total: 56, rosterTotal: 64, exempt: 8, tag: "x" }), /钉面漂移/, "钉面措辞改版=红(数字变化不红——同步语义)");
   const dom = '  assert.equal(criticProbe.total, 55, "每考题一行一针(55 行;2026-11-18 再冻结)");';
-  assert.equal(syncRrsiDomainPin(dom, { total: 56, tag: "2026-11-21" }), '  assert.equal(criticProbe.total, 56, "每考题一行一针(56 行;2026-11-21 再冻结)");');
+  assert.equal(syncRrsiDomainPin(dom, { total: 56, tag: "2026-11-21" }), '  assert.equal(criticProbe.total, 56, "每考题一行一针(56 行;2026-11-18 再冻结;2026-11-21 再冻结)");');
+});
+
+// #437:三条注记正则原为整段重写(「免考;」「行;」之后的 [^"]* / [^`]* 全换成「<日期> 再冻结」),
+// 下次 lift 会把 #414 留在钉注里的出处(撤源/进源明细)吃掉——出处是「冻结为什么变成这个数」的
+// 仅存记录。改后=原注记原样留、新「<tag> 再冻结」追加其后。拿真仓件只读回归:真钉注里的 #414
+// 出处原文从文件里现取(测试里不抄源名),过一遍变换仍在;再过一遍=两条日期注记按先后序并存。
+test("syncRrsiSplitPins/syncRrsiDomainPin 保留出处注(#437):真钉注里的 #414 出处过一遍变换仍在,新日期追加其后;连冻两次按序并存", () => {
+  const src = read("ops/agent-v2/tests/rrsi-split.test.mjs");
+  const domSrc = read("ops/agent-v2/tests/rrsi-domain.test.mjs");
+  const meta = JSON.parse(read("ops/agent-v2/bench/rrsi-domain/data/split.jsonl").split("\n")[0]);
+  const grab = (text, re, what) => { const m = text.match(re); assert.ok(m, `钉注缺席:${what}`); return m[1]; };
+  const oldRows = grab(src, /考题总数 = \d+\(\d+ 源 − \d+ 免考;([^")]*)\)"\);/, "rows.length 钉");
+  const oldExam = grab(src, /冻结名单须重裁\(([^`]*)([)])`\);/, "exam.length 钉");
+  const oldCritic = grab(domSrc, /每考题一行一针\(\d+ 行;([^")]*)\)"\);/, "critic 针数钉");
+  assert.ok(!/再冻结;/.test(oldRows + oldExam + oldCritic), "前提:现钉注尚无追加形(否则本测前提漂移,须重读夹具)");
+  const lift = (text, tag, d) => syncRrsiSplitPins(text, { evolve: meta.evolve + d, heldout: meta.heldout, total: meta.total + d, rosterTotal: meta.rosterTotal + d, exempt: meta.exemptTotal, tag });
+  const out = lift(src, "2099-01-01", 1);
+  assert.ok(out.includes(`免考;${oldRows};2099-01-01 再冻结)`), "rows.length 钉:原出处注须保留,新日期追加其后");
+  assert.ok(out.includes(`冻结名单须重裁(${oldExam};2099-01-01 再冻结)`), "exam.length 钉:原注记须保留,新日期追加其后");
+  const out2 = lift(out, "2099-01-02", 2);
+  assert.ok(out2.includes(`免考;${oldRows};2099-01-01 再冻结;2099-01-02 再冻结)`), "连冻两次:两条日期注记按先后序并存");
+  const dom = syncRrsiDomainPin(domSrc, { total: meta.total + 1, tag: "2099-01-01" });
+  assert.ok(dom.includes(`每考题一行一针(${meta.total + 1} 行;${oldCritic};2099-01-01 再冻结)`), "critic 针数钉:原注记须保留,新日期追加其后");
 });
 
 test("bumpDiscoverySmokePin:计数+注记追加;insertSnapshotRow:插入+已在幂等", () => {
@@ -72,24 +97,52 @@ test("bumpDiscoverySmokePin:计数+注记追加;insertSnapshotRow:插入+已在�
   const out = bumpDiscoverySmokePin(py, { total: 64, source: "sgb_blocklist", tag: "2026-11-21" });
   assert.ok(out.includes("assert len(sources) == 64"));
   assert.ok(out.includes("接入 63→64)"));
+  assert.ok(out.includes("接入 61→63 + 2026-11-21 手动 lift sgb_blocklist 接入 63→64)"), "注记:原注记留,追加段落在同一对括号内「<日期> 手动 lift <源> 接入 n→N」(#437)");
+  assert.ok(!out.includes("fleet"), "手动 lift 的钉注不写退役词 fleet(#437)");
   const snap = 'OLD_CATEGORIES = {\n    "mirage_feed": "threat",  # x\n}\nOLD_RELIABILITY = {\n    "mirage_feed": 0.65,  # y\n}\n';
-  const s1 = insertSnapshotRow(snap, "OLD_CATEGORIES", '    "sgb_blocklist": "threat",   # 2026-11-21 fleet lift(#366)');
+  const s1 = insertSnapshotRow(snap, "OLD_CATEGORIES", '    "sgb_blocklist": "threat",   # 2026-11-21 手动 lift'); // 行形照 runLift 快照行模板(#437)
   assert.ok(s1.includes('"mirage_feed": "threat",  # x\n    "sgb_blocklist": "threat"'));
-  assert.equal(insertSnapshotRow(s1, "OLD_CATEGORIES", '    "sgb_blocklist": "threat",   # 2026-11-21 fleet lift(#366)'), s1, "已在=幂等");
+  assert.equal(insertSnapshotRow(s1, "OLD_CATEGORIES", '    "sgb_blocklist": "threat",   # 2026-11-21 手动 lift'), s1, "已在=幂等");
   assert.throws(() => insertSnapshotRow(snap, "OLD_ABSENT", "x"), /快照块缺席/);
 });
 
-test("changelogEntries/composePrBody:双语对+轮四行数入文", () => {
+test("changelogEntries/composePrBody:双语对+轮四行数入文;手动 lift 措辞不写退役词与「自动」(#437)", () => {
   const dossier = { name: "gorkemgun/sgb-blocklist", url: "https://github.com/gorkemgun/sgb-blocklist", format: "plain text 行式 IP 清单", auth: "无鉴权直下", cadence: "每日更新", samples: ["1.2.3.4"], field_routing: ["每行 IP → CORE_FIELDS"] };
   const stats = { model_calls: 38, totalTokens: 675325, cost: 0.26821784, wall_s: 355.2 };
   const e = changelogEntries({ source: "sgb_blocklist", dossier, roundId: "2026-11-21-0900-add", stats, prNumber: "374" });
-  assert.ok(e.zh.includes("威胁源接入:sgb_blocklist"));
+  assert.ok(e.zh.includes("威胁源接入:sgb_blocklist(gorkemgun/sgb-blocklist;手动 lift,加源轮 2026-11-21-0900-add,draft PR #374)"), "zh 条目标题:手动 lift + 加源轮 id");
   assert.ok(e.zh.includes("模型调用 38 / 总 tokens 675325 / 花费 ¥0.26821784 / 墙钟 355.2s"));
-  assert.ok(e.en.includes("Threat-feed add: sgb_blocklist"));
+  assert.ok(e.zh.includes("加源轮全相位绿后手动 lift(#375 起 fleet 驱动器退役,由人跑 add-lift.mjs)"), "zh 正文:谁触发如实(#375 起驱动器退役,由人跑)");
+  assert.ok(e.zh.includes("合并人裁(加源轮产出永不自并入 master)。本条目由脚本生成,合并前人面可润色。"), "合并人裁不变;「脚本生成,可润色」之意保留");
+  assert.ok(!/自动/.test(e.zh), "zh 条目不得再写「自动 lift」(手动流程)");
+  assert.ok(e.en.includes("Threat-feed add: sgb_blocklist (gorkemgun/sgb-blocklist; manual lift, add-round 2026-11-21-0900-add, draft PR #374)"), "en 条目标题:manual lift + add-round");
+  assert.ok(e.en.includes("lifted manually after a fully green add-round (the fleet driver was retired in #375; a human runs add-lift.mjs)"), "en 正文:谁触发如实");
+  assert.ok(e.en.includes("merge is a human ruling (add-round output never self-merges into master). This entry is script-generated; polish before merging is welcome."), "合并人裁不变;「脚本生成,可润色」之意保留");
+  assert.ok(!/automatically|auto-lift/.test(e.en), "en 条目不得再写「自动 lift」(手动流程)");
   const body = composePrBody({ source: "sgb_blocklist", roundId: "2026-11-21-0900-add", dossier, stats, gates: [{ name: "backend 全量 pytest", pass: true }], rosterTotal: { before: 63, after: 64 }, universe: { before: 35, after: 36 }, split: { before: 55, after: 56 }, seats: 14 });
-  assert.ok(body.includes("# add/sgb_blocklist — M5 fleet 自动 lift(#366)"));
+  assert.ok(body.includes("# add/sgb_blocklist — 手动 lift(加源轮 2026-11-21-0900-add;#375 起 fleet 驱动器退役,由人跑 add-lift.mjs)"), "PR 标题行:手动 lift");
+  assert.ok(body.includes("合并人裁(加源轮产出永不自并入 master;#366 语义)。"), "合并人裁不变");
+  assert.ok(body.includes("_本 PR 由人跑 add-lift.mjs 手动开出;CHANGELOG 条目由脚本生成,合并前可润色。_"), "PR 脚注:谁开出如实;「脚本生成,可润色」之意保留");
+  assert.ok(!/自动|M5 fleet/.test(body), "PR 正文不得再写「自动 lift」");
   assert.ok(body.includes("universe 35→36"));
   assert.ok(body.includes("轮四行数"));
+});
+
+// #437:runLift 内联模板没有纯函数面(README 源表行 Contributes 列/快照行注/提交身份与说明/日志前缀),
+// 以源码文本钉:#375 起 lift 是手动流程,下列退役写法任一回潮=下次手动 lift 把退役词或「自动 lift」的
+// 不实说法写回仓。标识符(fleetRoot/FLEET_DEV_ROOT/.fleet-roster-dump.txt/dev/fleet)与史述注释不在表内。
+test("lift 内联模板不写退役词(#437):README 行只写格式/快照行注「手动 lift」/提交身份=执行者/日志前缀 [lift]", () => {
+  const src = read("ops/agent-v2/add-lift.mjs");
+  for (const stale of ["(fleet-lifted #366)", "fleet lift(#366)", "fleet #366 lift", "[fleet-lift]", "fleet@ipradar.local", "fleet-driver", ";fleet ${roundId}"]) {
+    assert.ok(!src.includes(stale), `退役写法仍在 add-lift.mjs:${stale}`);
+  }
+  assert.ok(src.includes("const contributes = clip(dossier.format, 90);"), "README 源表行 Contributes 列只写格式,不带来源标签");
+  assert.ok(src.includes('`    "${stem}": "${meta.category}",   # ${tag} 手动 lift`'), "快照行注=「<日期> 手动 lift」(OLD_CATEGORIES)");
+  assert.ok(src.includes('`    "${stem}": ${meta.reliability},   # ${tag} 手动 lift`'), "快照行注=「<日期> 手动 lift」(OLD_RELIABILITY)");
+  assert.ok(src.includes("[lift]"), "日志前缀=[lift]");
+  assert.ok(src.includes('"-c", "commit.gpgsign=false"'), "commit.gpgsign=false 保留");
+  assert.ok(!src.includes("user.email=") && !src.includes("user.name="), "提交身份=执行者自己的 git 身份,不写死驱动器身份");
+  assert.ok(src.includes(";加源轮 ${roundId})`"), "提交说明:轮 id 以「加源轮」引出");
 });
 
 test("roundStemOf:registry 名真源=a3-implement.json 的 stem(卡 id≠stem 判例 2026-11-20-2210:卡 sgb_blocklist/registry gorkemgun_sgb_blocklist)", () => {
