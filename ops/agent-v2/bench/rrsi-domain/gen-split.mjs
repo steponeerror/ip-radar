@@ -1,11 +1,13 @@
 #!/usr/bin/env node
-// gen-split.mjs — RRSI 劈分生成器(票 #325;裁决 #322 R1:53 考题劈 40 演化/13 留出)。
+// gen-split.mjs — RRSI 劈分生成器(票 #325;裁决 #322 R1 第一次劈分 53=40+13。劈分随 roster 演进再冻结,
+// 现值=data/split.jsonl 冻结件 meta;生成器缺省席位数须随每次重冻同步成同值,tests/rrsi-split.test.mjs
+// 钉「缺省入参 = 冻结件 meta」,不同步=红——#437)。
 // 产物 data/split.jsonl 生成后【人工检查 + 手改 meta.frozen=true】入仓——冻结件是答案分发
 // 面,此后名单漂移由 tests/rrsi-split.test.mjs 不变式红报警(roster 演进 → 重新裁决再生成,
 // 禁静默重跑覆盖)。
 //
 // 规则(spec:类别分层、固定种子、名单钉死):
-//   1. roster dump × exam-rules.json 免考面 → 考题宇宙(票面 61−8=53);
+//   1. roster dump × exam-rules.json 免考面 → 考题宇宙(#325 票面 61−8=53,现值随 roster 演进);
 //   2. 最大余数法把 heldout 名额分到类别:每类 floor(n_c·H/N),余席位按余数降序,
 //      余数并列按类别字典序(全确定性);
 //   3. 类内 mulberry32(seed) 洗牌取前 h_c 进留出集;RNG 消费序 = 类别字典序 × 名字字典序;
@@ -15,7 +17,7 @@
 // 确定性:同种子同输入 → 字节级同输出(无时间戳/无随机路径序);tests 双跑比对钉住。
 // 用法(只在 ip-radar 仓内跑——拷进 RRSI domains/ 后无 ../exam-rules.json 邻接,缺省路径断):
 //   node gen-split.mjs --roster-file <dump> [--exam-rules PATH] [--out PATH]
-//                      [--evolve 40] [--heldout 13] [--seed 20261108]
+//                      [--evolve 48] [--heldout 15] [--seed 20261108](缺省=现冻结件 meta,#437)
 import fs from "node:fs";
 import path from "node:path";
 import { parseRoster } from "../roster.mjs";
@@ -24,7 +26,9 @@ import { largestRemainder } from "./split-lib.mjs"; // #325 F2:分席算法单�
 const DEFAULT_SEED = 20261108;
 
 function parseArgs(argv) {
-  const out = { rosterFile: null, examRules: null, out: null, evolve: 40, heldout: 13, seed: DEFAULT_SEED };
+  // 缺省席位数 = 现冻结件 meta 的 evolve/heldout(#437:#414 再冻结值;重冻后须同步此处,
+  // tests/rrsi-split.test.mjs「gen-split.mjs 缺省入参 = 冻结件 meta」钉,不同步=红)
+  const out = { rosterFile: null, examRules: null, out: null, evolve: 48, heldout: 15, seed: DEFAULT_SEED };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const next = () => argv[++i];
@@ -38,7 +42,7 @@ function parseArgs(argv) {
     else { console.error(`未知参数:${a}`); process.exit(2); }
   }
   if (out.help || !out.rosterFile) {
-    console.error("用法:node gen-split.mjs --roster-file <dump> [--exam-rules PATH] [--out PATH] [--evolve 40] [--heldout 13] [--seed 20261108]");
+    console.error("用法:node gen-split.mjs --roster-file <dump> [--exam-rules PATH] [--out PATH] [--evolve 48] [--heldout 15] [--seed 20261108]");
     process.exit(out.help ? 0 : 2);
   }
   return out;

@@ -83,33 +83,37 @@ export function insertReadmeRow(text, sectionTitle, row) {
   return lines.join("\n");
 }
 
-// rrsi 劈分测试钉同步(b9f9dc19 判例的机械面:数字钉+注记重写)
+// rrsi 劈分测试钉同步(b9f9dc19 判例的机械面:数字钉+注记追加)
 // 注记措辞=中性「<tag> 再冻结」(#425):「fleet」词已随 #375 驱动器退役,模板再带它=下次手动
-// lift 把退役词写回钉注。三条注记正则照旧整段重写原注记(下次 lift 会把 #414 留下的出处注
-// 换成「<日期> 再冻结」——保留出处不在本票范围)。
+// lift 把退役词写回钉注。三条注记正则保留原注记、只在其后追加「<tag> 再冻结」(#437:原先整段
+// 重写,下次 lift 会把 #414 留在钉注里的出处——撤源/进源明细——换成一句「<日期> 再冻结」)。
+// 追加形=原注记 + ";" + 「<tag> 再冻结」;原注记空(钉面被手改)则只写新注记,不留「;;」。
+// 正则两组:组 1=原注记(不含消息自己的右括号),组 2=该右括号。比原先整段重写的写法严一点:要求注记末尾紧挨
+// 右括号——有人手删了右括号时,这里报「钉面漂移」,而不是悄悄改回规范形。
+const appendNote = (note, tag) => `${note ? `${note};` : ""}${tag} 再冻结`;
 export function syncRrsiSplitPins(text, { evolve, heldout, total, rosterTotal, exempt, tag }) {
   let t = String(text);
   t = sub1(t, /结构不变式:\d+ 演化 \+ \d+ 留出/, () => `结构不变式:${evolve} 演化 + ${heldout} 留出`, "rrsi-split 测试标题钉");
   t = sub1(t, /assert\.equal\(meta\.evolve, \d+\);/, () => `assert.equal(meta.evolve, ${evolve});`, "meta.evolve 钉");
   t = sub1(t, /assert\.equal\(meta\.heldout, \d+\);/, () => `assert.equal(meta.heldout, ${heldout});`, "meta.heldout 钉");
-  t = sub1(t, /assert\.equal\(rows\.length, \d+, "考题总数 = \d+\(\d+ 源 − \d+ 免考;[^"]*"\);/,
-    () => `assert.equal(rows.length, ${total}, "考题总数 = ${total}(${rosterTotal} 源 − ${exempt} 免考;${tag} 再冻结)");`, "rows.length 钉");
+  t = sub1(t, /assert\.equal\(rows\.length, \d+, "考题总数 = \d+\(\d+ 源 − \d+ 免考;([^"]*)(\))"\);/,
+    (m, note, close) => `assert.equal(rows.length, ${total}, "考题总数 = ${total}(${rosterTotal} 源 − ${exempt} 免考;${appendNote(note, tag)}${close}");`, "rows.length 钉");
   t = sub1(t, /assert\.equal\(evolve\.length, \d+\);/, () => `assert.equal(evolve.length, ${evolve});`, "evolve.length 钉");
   t = sub1(t, /assert\.equal\(heldout\.length, \d+\);/, () => `assert.equal(heldout.length, ${heldout});`, "heldout.length 钉");
   t = sub1(t, /assert\.equal\(new Set\(names\)\.size, \d+, "无重复"\);/, () => `assert.equal(new Set(names).size, ${total}, "无重复");`, "names 去重钉");
-  t = sub1(t, /assert\.equal\(exam\.length, \d+, `真 roster 考题数漂移:\$\{exam\.length\} ≠ \d+——冻结名单须重裁\([^`]*\)`\);/,
-    () => "assert.equal(exam.length, " + total + ", `真 roster 考题数漂移:${exam.length} ≠ " + total + "——冻结名单须重裁(" + tag + " 再冻结)`);", "exam.length 钉");
+  t = sub1(t, /assert\.equal\(exam\.length, \d+, `真 roster 考题数漂移:\$\{exam\.length\} ≠ \d+——冻结名单须重裁\(([^`]*)(\))`\);/,
+    (m, note, close) => "assert.equal(exam.length, " + total + ", `真 roster 考题数漂移:${exam.length} ≠ " + total + "——冻结名单须重裁(" + appendNote(note, tag) + close + "`);", "exam.length 钉");
   return t;
 }
 export function syncRrsiDomainPin(text, { total, tag }) {
-  return sub1(String(text), /assert\.equal\(criticProbe\.total, \d+, "每考题一行一针\(\d+ 行;[^"]*"\);/,
-    () => `assert.equal(criticProbe.total, ${total}, "每考题一行一针(${total} 行;${tag} 再冻结)");`, "critic 针数钉");
+  return sub1(String(text), /assert\.equal\(criticProbe\.total, \d+, "每考题一行一针\(\d+ 行;([^"]*)(\))"\);/,
+    (m, note, close) => `assert.equal(criticProbe.total, ${total}, "每考题一行一针(${total} 行;${appendNote(note, tag)}${close}");`, "critic 针数钉");
 }
 
 // 发现冒烟计数钉(test_b_family_url_filename_guard.py;mirage #359「roster 钉同步」同面)
 export function bumpDiscoverySmokePin(text, { total, source, tag }) {
   return sub1(String(text), /^(.*assert len\(sources\) == )(\d+)(\s*#\s*本票时点 roster;增删源时同步\()([^)]*)(\))$/m,
-    (m, a, n, c, note) => `${a}${total}${c}${note} + ${tag} fleet #366 lift ${source} 接入 ${n}→${total})`, "发现冒烟计数钉");
+    (m, a, n, c, note) => `${a}${total}${c}${note} + ${tag} 手动 lift ${source} 接入 ${n}→${total})`, "发现冒烟计数钉");
 }
 
 // roster 快照行插入(test_metadata_derivation.py OLD_CATEGORIES/OLD_RELIABILITY;已在=幂等跳过)
@@ -126,16 +130,17 @@ export function insertSnapshotRow(text, dictName, line) {
 // 裁剪:长字段进 CHANGELOG/PR 的可读上界
 export const clip = (s, n = 160) => { const t = String(s ?? "").replace(/\s+/g, " ").trim(); return t.length > n ? `${t.slice(0, n)}…` : t; };
 
-// CHANGELOG feed-add 条目(双语对;数据全取轮 a2-dossier.json,措辞如实标注 fleet 自动生成)
+// CHANGELOG feed-add 条目(双语对;数据全取轮 a2-dossier.json;措辞如实=手动 lift:#375 起 fleet 驱动器
+// 退役,由人跑 add-lift.mjs;条目由脚本生成,合并前可润色。措辞=用户裁定 2026-11-24 #437)
 export function changelogEntries({ source, dossier, roundId, stats, prNumber }) {
-  const zh = `  - **威胁源接入:${source}(${dossier.name};fleet 自动 lift #366,轮 ${roundId}${prNumber ? `,draft PR #${prNumber}` : ""})**:加源轮全相位绿后由 M5 fleet 驱动器自动 lift——格式:${clip(dossier.format)};鉴权:${clip(dossier.auth, 100)};节奏:${clip(dossier.cadence, 100)};字段路由草案:${clip((dossier.field_routing ?? []).join(";"), 160)};样本 ${Array.isArray(dossier.samples) ? dossier.samples.length : 0} 行(实抓,见轮工件)。轮四行数:模型调用 ${stats.model_calls} / 总 tokens ${stats.totalTokens} / 花费 ¥${stats.cost.toFixed(8)} / 墙钟 ${stats.wall_s.toFixed(1)}s。门:backend 全量 pytest + ops selftest + agent-v2 node --test 三绿(沙箱分支);合并人裁(fleet 轮产出永不自并入 master)。本条目为 fleet 机械生成,合并前人面可润色。`;
-  const en = `  - **Threat-feed add: ${source} (${dossier.name}; fleet auto-lift #366, round ${roundId}${prNumber ? `, draft PR #${prNumber}` : ""})**: lifted automatically by the M5 fleet driver after a fully green add-round — format: ${clip(dossier.format)}; auth: ${clip(dossier.auth, 100)}; cadence: ${clip(dossier.cadence, 100)}; field-routing draft: ${clip((dossier.field_routing ?? []).join("; "), 160)}; ${Array.isArray(dossier.samples) ? dossier.samples.length : 0} sample rows (live-captured, see round artifacts). Round four numbers: model calls ${stats.model_calls} / total tokens ${stats.totalTokens} / cost ¥${stats.cost.toFixed(8)} / wall ${stats.wall_s.toFixed(1)}s. Gates: full backend pytest + ops selftest + agent-v2 node --test all green (sandbox branch); merge is a human ruling (fleet round output never self-merges into master). This entry is fleet-generated; polish before merging is welcome.`;
+  const zh = `  - **威胁源接入:${source}(${dossier.name};手动 lift,加源轮 ${roundId}${prNumber ? `,draft PR #${prNumber}` : ""})**:加源轮全相位绿后手动 lift(#375 起 fleet 驱动器退役,由人跑 add-lift.mjs)——格式:${clip(dossier.format)};鉴权:${clip(dossier.auth, 100)};节奏:${clip(dossier.cadence, 100)};字段路由草案:${clip((dossier.field_routing ?? []).join(";"), 160)};样本 ${Array.isArray(dossier.samples) ? dossier.samples.length : 0} 行(实抓,见轮工件)。轮四行数:模型调用 ${stats.model_calls} / 总 tokens ${stats.totalTokens} / 花费 ¥${stats.cost.toFixed(8)} / 墙钟 ${stats.wall_s.toFixed(1)}s。门:backend 全量 pytest + ops selftest + agent-v2 node --test 三绿(沙箱分支);合并人裁(加源轮产出永不自并入 master)。本条目由脚本生成,合并前人面可润色。`;
+  const en = `  - **Threat-feed add: ${source} (${dossier.name}; manual lift, add-round ${roundId}${prNumber ? `, draft PR #${prNumber}` : ""})**: lifted manually after a fully green add-round (the fleet driver was retired in #375; a human runs add-lift.mjs) — format: ${clip(dossier.format)}; auth: ${clip(dossier.auth, 100)}; cadence: ${clip(dossier.cadence, 100)}; field-routing draft: ${clip((dossier.field_routing ?? []).join("; "), 160)}; ${Array.isArray(dossier.samples) ? dossier.samples.length : 0} sample rows (live-captured, see round artifacts). Round four numbers: model calls ${stats.model_calls} / total tokens ${stats.totalTokens} / cost ¥${stats.cost.toFixed(8)} / wall ${stats.wall_s.toFixed(1)}s. Gates: full backend pytest + ops selftest + agent-v2 node --test all green (sandbox branch); merge is a human ruling (add-round output never self-merges into master). This entry is script-generated; polish before merging is welcome.`;
   return { zh, en };
 }
 
 export function composePrBody({ source, card = null, roundId, dossier, stats, gates, rosterTotal, universe, split, seats }) {
   return [
-    `# add/${source} — M5 fleet 自动 lift(#366)`,
+    `# add/${source} — 手动 lift(加源轮 ${roundId};#375 起 fleet 驱动器退役,由人跑 add-lift.mjs)`,
     "",
     `- **轮**:\`${roundId}\`(加源轮 VERIFY→DOSSIER→IMPLEMENT→GATE→REPORT→CLOSE 全绿;沙箱 TDD 先红后绿)`,
     `- **队列卡**:\`${card ?? source}\`(docs/ops/queue.md APPROVE 行;卡 id 与 registry 名可不同,${card && card !== source ? `本例卡 ${card} → registry ${source}` : "本例同名"})`,
@@ -152,9 +157,9 @@ export function composePrBody({ source, card = null, roundId, dossier, stats, ga
     "",
     `**门三连**:${gates.map((g) => `${g.name} ${g.pass ? "✅" : "❌"}`).join(" / ")}`,
     "",
-    "合并人裁(fleet 轮产出永不自并入 master;#366 语义)。轮工件:`docs/ops/rounds/${roundId}/`(嵌套 docs 仓)。",
+    "合并人裁(加源轮产出永不自并入 master;#366 语义)。轮工件:`docs/ops/rounds/${roundId}/`(嵌套 docs 仓)。",
     "",
-    `_本 PR 由 fleet 驱动器自动开出;CHANGELOG 条目为机械生成,合并前可润色。_`,
+    `_本 PR 由人跑 add-lift.mjs 手动开出;CHANGELOG 条目由脚本生成,合并前可润色。_`,
   ].join("\n");
 }
 
@@ -239,9 +244,9 @@ export async function runLift({ sandbox, roundDir, fleetRoot, devRoot, python, s
   const edit = (rel, fn, what) => {
     const p = path.join(sandbox, rel);
     fs.writeFileSync(p, fn(fs.readFileSync(p, "utf8")));
-    log(`[fleet-lift] ${what}: ${rel}`);
+    log(`[lift] ${what}: ${rel}`);
   };
-  const contributes = `${clip(dossier.format, 90)} (fleet-lifted #366)`;
+  const contributes = clip(dossier.format, 90); // 只写格式,与其他行一致(#437:原来源尾注带退役词「fleet-lifted」,手动 lift 没有可写的来源标签)
   const provider = dossier.name;
   const row = `| ${stem} | [${provider}](${dossier.url}) | ${contributes} | |`;
   edit("README.md", (t) => insertReadmeRow(bumpReadmeCount(t), README_SECTION_OF[added[0].category] ?? "Threat Reputation", row), "README 计数+源表行");
@@ -282,13 +287,20 @@ export async function runLift({ sandbox, roundDir, fleetRoot, devRoot, python, s
   edit("ops/agent-v2/tests/rrsi-domain.test.mjs", (t) => syncRrsiDomainPin(t, { total: splitAfter.total, tag }), "rrsi-domain 针数钉");
   edit("backend/tests/sources/test_b_family_url_filename_guard.py", (t) => bumpDiscoverySmokePin(t, { total: rosterTotal.after, source: stem, tag }), "发现冒烟计数钉");
   edit("backend/tests/core/test_metadata_derivation.py", (t) => insertSnapshotRow(insertSnapshotRow(t, "OLD_CATEGORIES",
-    `    "${stem}": "${meta.category}",   # ${tag} fleet lift(#366)`) , "OLD_RELIABILITY",
-    `    "${stem}": ${meta.reliability},   # ${tag} fleet lift(#366)`), "metadata 快照行");
-  // 6. lift commit
+    `    "${stem}": "${meta.category}",   # ${tag} 手动 lift`) , "OLD_RELIABILITY",
+    `    "${stem}": ${meta.reliability},   # ${tag} 手动 lift`), "metadata 快照行");
+  // 6. lift commit。提交人=执行者自己的 git 身份(#437:原先用 -c 项写死驱动器身份的 user.email / user.name,
+  // 手动 lift 由人跑,没有驱动器身份可冒——执行者 git 未配身份时 git 在此报错=如实,不代填)
   await git(sandbox, ["add", "-A"]);
-  await git(sandbox, ["-c", "user.email=fleet@ipradar.local", "-c", "user.name=fleet-driver", "-c", "commit.gpgsign=false",
-    "commit", "-m", `lift(#366): 文档三件+基准重冻+roster 钉同步(${stem};卡 ${source};fleet ${roundId})`]);
+  await git(sandbox, ["-c", "commit.gpgsign=false",
+    "commit", "-m", `lift(#366): 文档三件+基准重冻+roster 钉同步(${stem};卡 ${source};加源轮 ${roundId})`]);
   // 7. 门三连
+  // 重冻之后的已知红点(#437 加的两条对账测试,按裁定先保持人工):第 4 步重新生成 split.jsonl 后题数变了,
+  //  a) bench/rrsi-domain/rrsi.json 的 _doc 首句和每题粒度要人改——tests/rrsi-domain.test.mjs「超参钉死」会写缺哪一项;
+  //  b) bench/rrsi-domain/gen-split.mjs 的缺省席位数和 --help 文案要人改成新值——tests/rrsi-split.test.mjs
+  //     「gen-split.mjs 缺省入参 = 冻结件 meta」会红。
+  // 这两处不改,第三道门会红,lift 停在「已提交、未推送」:进沙箱改好、再提交、手动补跑三道门,然后自己推送和开 PR。
+  // 要不要让 lift 自动同步这两处,见 #440。
   const gates = [
     { name: "backend 全量 pytest", cmd: [python, "-m", "pytest", "-q", "--durations=15"], cwd: path.join(sandbox, "backend"), timeoutMs: 30 * 60_000 },
     { name: "ops selftest", cmd: ["bash", path.join(sandbox, "ops", "pipeline-core", "selftest.sh")], cwd: sandbox, timeoutMs: 15 * 60_000 },
@@ -301,7 +313,7 @@ export async function runLift({ sandbox, roundDir, fleetRoot, devRoot, python, s
   const gateEnv = { ...process.env };
   delete gateEnv.IP_RADAR_ALERT_URLS;
   for (const g of gates) {
-    log(`[fleet-lift] 门:${g.name} …`);
+    log(`[lift] 门:${g.name} …`);
     try {
       const r = await exec(g.cmd[0], g.cmd.slice(1), { cwd: g.cwd, timeout: g.timeoutMs, maxBuffer: 64 * 1024 * 1024, env: gateEnv });
       gateResults.push({ name: g.name, pass: true, tail: tailOf(r.stdout) });
@@ -309,7 +321,7 @@ export async function runLift({ sandbox, roundDir, fleetRoot, devRoot, python, s
       gateResults.push({ name: g.name, pass: false, tail: tailOf(`${e.stdout ?? ""}\n${e.stderr ?? ""}\n${e.message}`) });
       throw new LiftError(`gate:${g.name}`, `${g.name} 红(尾 60 行已留档):\n${gateResults.at(-1).tail}`);
     }
-    log(`[fleet-lift] 门:${g.name} 绿`);
+    log(`[lift] 门:${g.name} 绿`);
   }
   // 8. push + draft PR(合并人裁)
   const branch = await git(sandbox, ["rev-parse", "--abbrev-ref", "HEAD"]);

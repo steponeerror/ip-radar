@@ -1,5 +1,6 @@
-// rrsi-split.test.mjs — RRSI 劈分不变式(票 #325;裁决 #322 R1:53 考题劈 40 演化/13 留出,
-// 类别分层、固定种子、名单钉死)。劈分是盲测的答案分发面:名单一旦漂移,演化集成绩与
+// rrsi-split.test.mjs — RRSI 劈分不变式(票 #325;裁决 #322 R1 第一次劈分 53=40+13;之后随 roster 演进
+// 再冻结,现值=data/split.jsonl 冻结件 meta——#437:原头注把第一次劈分的数当现值写。类别分层、固定种子、
+// 名单钉死)。劈分是盲测的答案分发面:名单一旦漂移,演化集成绩与
 // 留出集验收就不再可比——本测试把结构不变式钉进 v2 套件(CI 恒跑,零 python 零网络),
 // roster 交叉面(需要真 roster dump)按 smoke-glm.test.mjs 判例条件 skip。
 //
@@ -10,7 +11,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { parseRoster } from "../bench/roster.mjs";
 import { runLeakCheck, loadRosterText, EXEMPT_MARKER } from "../bench/leak-check.mjs";
@@ -137,6 +138,48 @@ test("gen-split.mjs 确定性:同种子同输入双跑字节级一致;最大余�
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
+// #437:生成器缺省席位数 = 现冻结件 meta。原手写缺省 40/13 是裁决当时的值,#414 再冻结(63 题)后
+// 不带 --evolve/--heldout 跑生成器会直接撞「考题宇宙 63 ≠ evolve+heldout 53」。行为面:按冻结件 meta
+// 的题数造一份合成 roster(考题 meta.total 行 + 免考 meta.exemptTotal 行),不带席位数参数真跑生成器,
+// 产物 meta 的席位数/种子须与冻结件一致;用法面:--help 文案里的缺省值同一来源(常量单源)。
+// 产物落临时目录——仓内冻结件 data/split.jsonl 不被本测触碰(重劈须重走裁决)。
+test("gen-split.mjs 缺省入参 = 冻结件 meta(#437):不带 --evolve/--heldout 真跑,席位/种子与冻结件一致;--help 缺省值同源", () => {
+  const frozen = loadSplit().meta;
+  const cats = ["threat", "geo_asn", "asset"];
+  const lines = [];
+  for (let i = 0; i < frozen.total; i++) lines.push(`q${String(i).padStart(3, "0")} | ${cats[i % cats.length]} | q${i}.example | f`);
+  for (let i = 0; i < frozen.exemptTotal; i++) lines.push(`xexempt${String(i).padStart(2, "0")} | ${cats[i % cats.length]} | - | f`);
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rrsi-split-default-"));
+  try {
+    const rosterPath = path.join(tmp, "roster.txt");
+    const rulesPath = path.join(tmp, "exam-rules.json");
+    const outPath = path.join(tmp, "split.jsonl");
+    fs.writeFileSync(rosterPath, lines.join("\n") + "\n");
+    fs.writeFileSync(rulesPath, JSON.stringify({
+      exempt: lines.filter((l) => l.includes("| - |")).map((l) => ({ name: l.split(" | ")[0], reason: "fixture 免考形状" })),
+    }));
+    let genErr = null;
+    try {
+      execFileSync(process.execPath, [GEN_PATH, "--roster-file", rosterPath, "--exam-rules", rulesPath, "--out", outPath]);
+    } catch (e) {
+      genErr = e;
+    }
+    assert.ok(genErr === null, `不带席位数参数须能跑(缺省席位数 ≠ 冻结件题数):${String(genErr?.stderr ?? genErr?.message ?? "").slice(0, 400)}`);
+    const out = JSON.parse(fs.readFileSync(outPath, "utf8").split("\n")[0]);
+    const pick = (m) => ({ total: m.total, evolve: m.evolve, heldout: m.heldout, rosterTotal: m.rosterTotal, exemptTotal: m.exemptTotal, seed: m.seed });
+    assert.deepEqual(pick(out), pick(frozen), "缺省席位数/种子 = 冻结件 meta");
+    assert.equal(out.frozen, false, "生成器只产未冻结件");
+    const help = spawnSync(process.execPath, [GEN_PATH, "--help"], { encoding: "utf8" });
+    assert.equal(help.status, 0, "--help 退出码 0");
+    assert.ok(
+      help.stderr.includes(`[--evolve ${frozen.evolve}] [--heldout ${frozen.heldout}] [--seed ${frozen.seed}]`),
+      `--help 文案的缺省值须 = 冻结件 meta:${help.stderr}`,
+    );
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 // ── mulberry32/shuffled 跨实现对拍(#339 ④;Standards 终审判断 2)──
 // split-lib.mjs 导出款(gen-universe 消费)与 gen-split.mjs 内联款(输出由本文件冻结钉住)
 // 是两份独立拷贝,header 有「逐字节同算法」之约无牙;本测双钉:源码逐字对拍 + 同种子
@@ -215,7 +258,7 @@ test("gen-split.mjs 冻结件拒绝覆盖:目标已存在且 frozen=true 时 exi
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
-test("split.jsonl 分席重算复现(#325 F2):行计数经 largestRemainder(·,13) = meta.heldoutSeats;留出行各类计数 = 分席值", () => {
+test("split.jsonl 分席重算复现(#325 F2):行计数经 largestRemainder(·, 留出席位) = meta.heldoutSeats;留出行各类计数 = 分席值", () => {
   // 劈分是盲测的答案分发面,meta 自称「类别分层最大余数法」就必须可重算复现——
   // 冻结件若是旧逻辑/手工调过的产物(席位与当前生成器对当前考题计数不符),此处红。
   const { meta, rows } = loadSplit();

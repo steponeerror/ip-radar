@@ -23,8 +23,9 @@ Environment=ADD_BENCH_SPEND_CAP_CNY=50
 # Environment=IP_RADAR_ALERT_URLS=lark://<token>
 # 排程演练面(真跑前先开一轮):
 # Environment=EVOLVE_EXITS_DRY_RUN=1
-# 一轮含提案者会话+成对 trial 批(真面算术:25 题 × k=3 × 2 面 = 150 trial,单
-# trial 上限 45min)——6h 偏紧会中途击杀(2026-11-17 #356 评审 P2-4①),给 24h;
+# 一轮含提案者会话+成对 trial 批(真面算术:evolve 题数 × k=3 × 2 面,题数现值随
+# roster 演进看 universe.jsonl meta;#356 裁定时点 25 题=150 trial,单 trial 上限
+# 45min)——6h 偏紧会中途击杀(2026-11-17 #356 评审 P2-4①),给 24h;题数涨时按同算术重估;
 # 击杀后的无终态轮由下拍启动对账收口(驱动器 ⓪′,run-round.mjs)
 TimeoutStartSec=24h
 # 崩溃续跑:同 roundId 断点件+副本级 trial.json 续跑(requestId 幂等不双花);
