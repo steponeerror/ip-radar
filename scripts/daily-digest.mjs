@@ -299,7 +299,7 @@ export function renderDigest({ dateLabel, server, local, reds }) {
     );
     // #430:中止轮单列一行(不判红:人为停非失败证据;不算绿:未跑完)。
     if (aborted.length)
-      lines.push(`- fleet add 中止 ${aborted.length} 轮:${aborted.map((r) => shortId(r.round_id)).join(" ")}(未跑完即停;不算绿,不判红)`);
+      lines.push(`- fleet add 中止 ${aborted.length} 轮:${aborted.map((r) => shortId(r.round_id)).join(" ")}(未跑完即停;不算绿;闸败的另在红项里)`);
   }
   const localOd = [
     ...overdueRoundLines("演化轮", local.evolve?.overdue_rounds).notes,
@@ -490,7 +490,7 @@ export function renderDigestPush({ dateLabel, server, local, reds }) {
     );
     // #430:中止轮单列一行(大白话面;不判红不判绿,重跑与否交人裁)。
     if (aborted.length)
-      lines.push(`- 自动加源:有 ${aborted.length} 轮没跑完就被停了(${aborted.map((r) => plainClock(r.round_id)).join("、")};不算失败,要不要重跑请人工确认)`);
+      lines.push(`- 自动加源:有 ${aborted.length} 轮没跑完就被停了(${aborted.map((r) => plainClock(r.round_id)).join("、")};不算成功;闸败的已列进红项;要不要重跑请人工确认)`);
   }
   const localOd = [
     ...(local.evolve?.overdue_rounds ?? []).filter((r) => r.ok === null).map((r) => `${plainClock(r.round_id)}(演化)`),
