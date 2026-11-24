@@ -4,12 +4,13 @@
 # dev/rrsi/domains/ipradar/(dev/ 不入 git,放置规范 2026-10-28)。
 #
 # 域语义(裁决链:#322 票面 + docs 仓 research/2026-11-07-rediscover-bench-spec.md + ADR 0020):
-#   任务 x = 考题源(61 roster − 8 免考 = 53;ops/agent-v2/bench/exam-rules.json 免考面);
+#   任务 x = 考题源(roster − 免考;现值读 data/split.jsonl 首 meta 的 rosterTotal / exemptTotal / total,不手写,#437;
+#            免考面 = ops/agent-v2/bench/exam-rules.json);
 #   trial  = 一次盲搜轮(ops/agent-v2/bench/run-bench.mjs,沙箱 dev/bench-rediscover/<roundId>/);
 #   奖励 r(x, τ) = score.mjs 四层匹配命中该源 = 1,未命中 = 0(逐源 0/1);
 #   门红轮 = 该轮零召回(gate-red.json 标记:模型侧引用不合规被 G_* 拒=适应度信号,
 #   非 infra 崩溃——rrsi 把崩溃标 infra 等人手 reevaluate,演化断链;#322 首跑判例);
-#   劈分   = data/split.jsonl 冻结件(40 演化/13 留出,tests/rrsi-split.test.mjs 钉不变式);
+#   劈分   = data/split.jsonl 冻结件(演化/留出,现值读首 meta 的 evolve / heldout,不在此手写;tests/rrsi-split.test.mjs 钉不变式);
 #   S      = 召回率。#322 验收四行数 = H0/终版 × 演化/留出。
 #
 # 本票(#325)红线:不跑任何真实搜索轮——run() 缺省 faux(--fixtures 罐装,零网络零花费);
@@ -330,8 +331,9 @@ class IpRadarDomain(Domain):
             "合法杠杆:候选宇宙覆盖、检索词策略、短名单聚合与去重、四层匹配上下游的"
             "对齐——不是把答案写进提示词。"
         ),
+        # 考题数取冻结件 meta、不手写(#437:再冻结后手写数会说错;tests/rrsi-domain.test.mjs 钉「提示词里的数 = meta 的数」)
         "critic": (
-            "域:ip-radar 盲测重发现基准。审查候选 diff:①考题泄漏(critic_patterns = 53 源"
+            f"域:ip-radar 盲测重发现基准。审查候选 diff:①考题泄漏(critic_patterns = {_SPLIT_META['total']} 源"
             "名字/域名原文针,环视形(不卡整段、词边界内即命中);数据面与 leak gate 同源);②真实轮零漂移红线破坏(golden/护栏会红,直接"
             "拒绝);③答案硬编码/特判(对具体源名打补丁=benchmark 专属拟合);④沙箱纪律"
             "(沙箱外落件/读真实运营面台账)。宁严勿松。"

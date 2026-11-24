@@ -22,9 +22,24 @@ test("rrsi.json 超参钉死:T=25/k=1/每轮 2 候选/delta=0.05 带理由;模�
   assert.equal(cfg.k, 1, "k=1(每源单轮;bench 轮即一次盲搜,重复试验无新信息)");
   assert.equal(cfg.m, 2, "m=2(每轮 2 候选,#322 裁决)");
   assert.equal(cfg.delta, 0.05, "delta 手设 0.05");
+  // #437:题数与每题粒度从劈分冻结件首行 meta 现算,`_doc` 须与之一致——题数再变、说明没跟着改,这里就红
+  // (原钉字面量 0.025 = 裁决当时演化集 40 题的粒度,#414 再冻结后只剩史料价值,不再当现值钉)。
+  const splitMeta = JSON.parse(read("data/split.jsonl").split("\n")[0]);
+  assert.equal(splitMeta.frozen, true, "读的是冻结件(meta.frozen)");
+  const firstSentence = cfg._doc.split("。")[0];
+  for (const piece of [
+    `${splitMeta.total} 题`,
+    `${splitMeta.rosterTotal} 源 − ${splitMeta.exemptTotal} 免考`,
+    `${splitMeta.evolve} 演化 / ${splitMeta.heldout} 留出`,
+  ]) {
+    assert.ok(firstSentence.includes(piece), `_doc 首句题数须与冻结件 meta 一致,缺:${piece}`);
+  }
+  const perQuestion = (n) => (1 / n).toFixed(3);
   assert.ok(
-    JSON.stringify(cfg).includes("0.025") && JSON.stringify(cfg).includes("噪声"),
-    "delta 理由须写进配置(1 题≈0.025 召回粒度,0.05≈2 题噪声带)",
+    cfg._doc.includes(`全幅 1 题≈${perQuestion(splitMeta.total)}`) &&
+      cfg._doc.includes(`演化集 1 题≈${perQuestion(splitMeta.evolve)}`) &&
+      cfg._doc.includes("噪声"),
+    `delta 理由须写进配置(全幅 1 题≈${perQuestion(splitMeta.total)}、演化集 1 题≈${perQuestion(splitMeta.evolve)} 召回粒度,0.05≈约 2 题噪声带)`,
   );
   // 四角色模型串全 glm-5.3-flash(冻结策略/提案者/分析师/审查者,#322 R4 裁决),LiteLLM 形
   assert.ok(cfg.proposer_model?.includes("glm-5.3-flash"), "proposer 模型串");
@@ -73,6 +88,8 @@ test("adapter.py 接线面:三护栏+faux 门+leak 同源针+主检出取数判�
   }
   assert.ok(!/[0-9a-f]{32,}/i.test(py.replace(/glm[-a-z0-9.]*|bigmodel|anthropic|vertex/gi, "")), "疑似密钥串入 adapter");
   assert.ok(py.includes("harness_path"), "Domain.harness_path 须显式(开放面单目录)");
+  // #437:critic 提示词里的考题数不手写——源码只许经冻结件 meta 插值(真值断言见下方 venv 面测试,本条 CI 无 python 也红)
+  assert.ok(/critic_patterns = \{_SPLIT_META\[['"]total['"]\]\} 源/.test(py), "critic 提示词考题数须取自 _SPLIT_META['total'](#437)");
 });
 
 // ── critic 针形(#325 F1 修复;评审 rrsi-a-review.md P1)──────────────────────
@@ -182,6 +199,9 @@ rep["rewards"] = per["src_a"].rewards
 rep["recall"] = extra["recall"]
 rep["gateRedExtra"] = extra["gate_red"]
 rep["unfound"] = extra["unfound"]
+# ④ #437:critic 提示词考题数须 = 冻结件 meta(原写死 53,#414 再冻结后已错)
+rep["criticBrief"] = m.DOMAIN.briefs["critic"]
+rep["splitTotal"] = m._SPLIT_META["total"]
 print(json.dumps(rep, ensure_ascii=False))
 `, ], { encoding: "utf8", env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" } }));
 } catch (e) {
@@ -198,6 +218,17 @@ test("adapter 门红面:_last_envelope 末行信封;GATE: 前缀判门红;score 
   assert.deepEqual(adapterProbe.recall, { found: 0, total: 2, pct: 0.0 });
   assert.equal(adapterProbe.gateRedExtra, "GATE:SHORTLIST:x");
   assert.deepEqual(adapterProbe.unfound, ["src_a", "src_b"]);
+});
+
+// #437:critic 提示词里的考题数不手写——原写死「53 源」,#414 再冻结(63 题)后提示词就对模型说错了数。
+// 行为面(本测):真 import adapter 读 briefs["critic"],数 = 冻结件 meta 的 total(venv 缺 = skip,同上判例);
+// 内容面:「adapter.py 接线面」测试钉源码里该数只经 _SPLIT_META['total'] 插值(CI 无 python 也红)。
+test("critic 提示词考题数 = 冻结件 meta 的 total(#437):真 import 读 briefs['critic']", { skip: adapterProbe ? false : `dev/rrsi venv 面不可用(${adapterProbeErr?.message})` }, () => {
+  const meta = JSON.parse(read("data/split.jsonl").split("\n")[0]);
+  assert.equal(adapterProbe.splitTotal, meta.total, "adapter 载入的冻结件 total = 仓内冻结件 total");
+  const said = /critic_patterns = (\d+) 源/.exec(adapterProbe.criticBrief);
+  assert.ok(said, "critic 提示词须含「critic_patterns = <N> 源」");
+  assert.equal(Number(said[1]), meta.total, "提示词里的数 = 冻结件 meta 的数");
 });
 
 // —— #327 harness 边界收口:演化编辑白名单(策略面 48 文件)+ 验证面冻结门 ——
