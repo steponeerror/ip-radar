@@ -47,6 +47,9 @@ ABUSEIPDB_V4 = [
     ("1.0.2.0/24", [{"classification_type": "abuse-reports",
                      "verdict": "malicious", "reliability": 0.95,
                      "first_seen": "2026-01-05", "last_seen": "2026-02-10"}]),
+    ("1.0.2.128/25", [{"classification_type": "abuse-reports",
+                       "verdict": "malicious", "reliability": 0.97,
+                       "first_seen": "2026-01-06"}]),
     ("1.0.2.9", [{"classification_type": "abuse-reports",
                   "verdict": "malicious", "reliability": 0.99,
                   "first_seen": "2026-03-01"}]),
@@ -66,6 +69,8 @@ BLOCKLIST_DE_V4 = [
                   "first_seen": "2026-01-01", "last_seen": "2026-03-03"}]),
     ("10.0.0.0/8", [{"classification_type": "blacklist",
                      "verdict": "malicious", "reliability": 0.8}]),
+    ("1.0.2.130", [{"classification_type": "blacklist",
+                    "verdict": "malicious", "reliability": 0.8}]),
 ]
 FIREHOL_V4 = [
     ("1.0.1.0/24", [{"classification_type": "blacklist",
@@ -95,7 +100,7 @@ GREENSNOW_INLINE_EV = {"classification_type": "blacklist",
 
 # oracle 地址:扫描有单元的地址 + 网段单元的网络地址(期望值全走查询接口)
 ORACLE_IPS = (
-    "9.9.9.9", "4.4.4.4", "3.3.3.3", "1.0.2.9", "1.0.9.9",
+    "9.9.9.9", "4.4.4.4", "3.3.3.3", "1.0.2.9", "1.0.9.9", "1.0.2.130",
     "1.0.1.0", "1.0.2.0", "1.0.0.0", "6.9.0.0", "10.0.0.0",
     "2606:4700::1", "2a00:1450:4001::",
 )
@@ -207,11 +212,14 @@ def test_disjoint_cidr_and_single_precedence(scan_env):
 def test_nested_cidr_selection(scan_env):
     """③嵌套库:1.0.9.9(大网段 1.0.0.0/16 内、小网段 1.0.2.0/24 外)
     的证据取大网段;9.9.9.9(两条网段外)两条都取不到;1.0.2.0 的
-    网段单元取小网段。全部与 lookup() 同字节。拆掉 find_covering 的
-    嵌套前缀探测(或 plens 收集漏掉单地址的 /32)即红。"""
+    网段单元取小网段;1.0.2.130(blocklist_de 单地址,落在 abuseipdb
+    三层嵌套 /16⊃/24⊃/25 的最内层)跨源探针取 /25——嵌套覆盖选择的
+    「从长到短」经 find_covering 真跑。全部与 lookup() 同字节。拆掉
+    find_covering 的嵌套前缀探测、把排序改粗优先,或 plens 收集漏掉
+    单地址的 /32,任一即红。"""
     with open_unit_scanner(sources=scan_env["insts"], asof=ASOF) as sc:
         units = _collect(sc)
-    for ip in ("1.0.9.9", "9.9.9.9"):
+    for ip in ("1.0.9.9", "9.9.9.9", "1.0.2.130"):
         assert orjson.dumps(units[ip].result.to_dict()) == \
             orjson.dumps(scan_env["oracle"][ip]), ip
     assert orjson.dumps(units["1.0.2.0/24"].result.to_dict()) == \
