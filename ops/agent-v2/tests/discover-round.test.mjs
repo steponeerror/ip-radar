@@ -193,6 +193,64 @@ test("P0-③ SHORTLIST empty_text 首败重试:attempt 即调用同计,attempts=
   } catch (e) { fs.rmSync(tree.tmp, { recursive: true, force: true }); throw e; }
 });
 
+// ── #430 P3-6 可后补钉位:此前无测试到达的 SHORTLIST 终态出口逐条钉(注入=真实调用链上的
+// 夹具/旋钮手术,零 mock;墙钟类出口按票面「诚实的测试写不出来宁可不写」不钉)──
+
+test("#430 SHORTLIST 第二次 empty_text 出口:两回合皆空文本 → attempt 2 仍空 → 终态 empty_text,镜像 failed,stages=[SCAN]", async () => {
+  const tree = tmpTree("v2-disc-empty2-");
+  // 罐装短表两回合全零文本块(stopReason:"stop" 必须显式——无它 agent 循环不收口,第二回合
+  // 变 submission_unanswered=另一出口;本测钉的是 empty_text 面):attempt 1 空文本走重发
+  // (P0-③ 面),attempt 2 仍空 → shortlistSubmit 第二次 empty_text 出口(修前无测试到达)
+  const fxDir = path.join(tree.tmp, "fixtures");
+  fs.cpSync(FIXTURES, fxDir, { recursive: true });
+  const shortlist = JSON.parse(fs.readFileSync(path.join(fxDir, "shortlist.json"), "utf8"));
+  fs.writeFileSync(path.join(fxDir, "shortlist.json"), JSON.stringify({ ...shortlist, turns: [
+    { role: "assistant", content: [], stopReason: "stop" }, { role: "assistant", content: [], stopReason: "stop" },
+  ] }));
+  try {
+    const r = await runRound(tree, undefined, fxDir);
+    assert.equal(r.status, "failed", JSON.stringify(r.error ?? r));
+    assert.equal(r.error.message, "SHORTLIST:empty_text");
+    assert.equal(r.error.detail?.code, "empty_text");
+    assert.equal(r.error.detail?.stage, "SHORTLIST");
+    const mirror = mirrorOf(tree);
+    assert.equal(mirror.status, "failed", "#430:第二次 empty_text=轮终态失败,镜像同写");
+    assert.deepEqual(mirror.stages, ["SCAN"], "SHORTLIST 未成不造名");
+    assert.equal(jsonOf(tree, "gates.json").records.at(-1).stage, "SCAN", "出口在门前:SHORTLIST 无门记录");
+  } finally { rm(tree); }
+});
+
+// #430 评估记录:SHORTLIST postModelCall 花费帽红出口(④)在 faux 世界写不出诚实的 E2E,不钉。
+// 实测卡点(2026-11-24,/tmp/gate430/probe-cost.mjs):pi-ai fauxProvider 活路径自算 usage 且
+// cost 恒 0(罐装回合带 usage 只在 cloneMessage 回放面透传,活路径不读)→ 轮 usageNow.cost
+// 恒 0,OPS_DISCOVER_SPEND_CAP_CNY 帽永不红。诚实钉法=给 faux 模型定义带 cost 费率表(faux.js
+// definition.cost 面)或活路径透传罐装 usage——两者都碰「faux=零网络零花费」契约(run-discover.mjs
+// 头注),非夹具手术,按票面「要大改不硬做」不钉。
+
+test("#430 G_SHORTLIST 红出口:罐装 quote 改写(非证据面逐字 span)→ GATE:SHORTLIST → 镜像 failed,stages=[SCAN]", async () => {
+  const tree = tmpTree("v2-disc-gshort-");
+  // 夹具手术=最小:改 quote 一词破 span 逐字回引(d1-scan.json 罐装 _comment 自检面同款注入:
+  // 「改 quote 或 text 即 span 门红」)
+  const fxDir = path.join(tree.tmp, "fixtures");
+  fs.cpSync(FIXTURES, fxDir, { recursive: true });
+  const shortlist = JSON.parse(fs.readFileSync(path.join(fxDir, "shortlist.json"), "utf8"));
+  const turns = shortlist.turns.map((t) => ({ ...t, content: (t.content ?? []).map((c) =>
+    c.type === "text" ? { ...c, text: c.text.replace("月度全量 parquet", "月度 parquet") } : c) }));
+  fs.writeFileSync(path.join(fxDir, "shortlist.json"), JSON.stringify({ ...shortlist, turns }));
+  try {
+    const r = await runRound(tree, undefined, fxDir);
+    assert.equal(r.status, "failed", JSON.stringify(r.error ?? r));
+    assert.match(r.error.message, /^GATE:SHORTLIST:/);
+    assert.match(r.error.message, /quote 非证据面逐字 span/, "失败面=span 语义门本体(#208 T2 三负例的改写面)");
+    const gates = jsonOf(tree, "gates.json").records;
+    assert.equal(gates.at(-1).name, "G_SHORTLIST");
+    assert.equal(gates.at(-1).pass, false, "门留痕=红");
+    const mirror = mirrorOf(tree);
+    assert.equal(mirror.status, "failed", "#430:G_SHORTLIST 红=轮终态失败,镜像同写");
+    assert.deepEqual(mirror.stages, ["SCAN"], "SHORTLIST 未成不造名");
+  } finally { rm(tree); }
+});
+
 test("breaker 写侧随迁:失败 verdict 经宿主适配器落 breaker.json(通道计数+consec)", async () => {
   // 直调宿主核(与 defineTool execute 同入口):罐装 ok:false 读数 → 旧律 breaker.record
   // → breaker.json 落盘(成功 verdict 在闭路零 consec 时零写=回声律,见 breaker.mjs applyResult)。

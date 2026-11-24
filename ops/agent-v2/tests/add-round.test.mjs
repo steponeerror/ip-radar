@@ -225,6 +225,9 @@ test("相位头 SIGKILL 崩溃 → 同库 resume 续跑到 CLOSE", async () => {
 
 // ── #415 终态镜像覆盖全部终态出口(票面专项 E2E:加轮 finishOk;其余出口同批钉住)──
 const mirrorOf = (w, roundId = ROUND) => JSON.parse(fs.readFileSync(path.join(w.opsRoot, "rounds", roundId, "state.json"), "utf8"));
+// #430 评估记录:G_DOSSIER/G_IMPLEMENT 门红与 postModelCall 花费帽红在 faux 世界写不出诚实的
+// E2E(不钉),卡点与建议见工单 #430 交付件——consume 先验(consumeModelText)吃掉形状突变,
+// pi-ai faux 活路径 cost 恒 0(罐装 usage 不透传)。
 
 test("#415 加轮 finishOk 终态:六相位全绿 → state.json done,stages=六相位名单(与信封一致;无 stage 键)", async () => {
   const w = seedWorld("v2-add-finok-");
