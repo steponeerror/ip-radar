@@ -166,12 +166,15 @@ export function summarizeEvolveRound(envelope) {
 
 // fleet add 轮:state.json status + gates.json。ok = 非 failed 且 gates 全过;gates 缺
 // → ok:null。running 态如实报,不算红(在跑/跨窗轮由 48h 终局补报带收口,P1-3)。
+// #430(监督者定口径,用户可推翻):aborted 也不算 ok——门全绿的中止轮此前被算绿(票面病);
+// 呈现面:renderDigest/collectRedItems 把中止轮单列「中止」行(不判红:中止=人为停,非失败
+// 证据);败闸照旧红(闸红是失败证据,不因中止灭失)。
 export function summarizeAddRound(roundId, state, gates) {
   const failed = Array.isArray(gates?.records)
     ? gates.records.filter((r) => r && r.pass === false).map((r) => r.name || r.stage || "?")
     : null;
   const status = state?.status ?? null;
-  const ok = failed === null ? null : failed.length === 0 && status !== "failed";
+  const ok = failed === null ? null : failed.length === 0 && status !== "failed" && status !== "aborted";
   return {
     round_id: roundId,
     ok,
@@ -226,7 +229,9 @@ export function collectRedItems({ server, local }) {
   if (typeof ev.spend_total_cny === "number" && ev.spend_total_cny > EVOLVE_CAP_CNY)
     reds.push(`演化花费 ¥${ev.spend_total_cny.toFixed(2)} 超月帽 ¥${EVOLVE_CAP_CNY}`);
   for (const r of local.add_rounds ?? []) {
-    if (r.ok === false)
+    // #430:中止轮(gates 全绿)不入红项——摘要里单列「中止」行呈现(不判红不判绿);
+    // 败闸照旧红(闸红是失败证据,不因中止灭失)。
+    if (r.ok === false && !(r.status === "aborted" && (r.failed_gates?.length ?? 0) === 0))
       reds.push(`fleet ${r.round_id} !ok(status=${r.status ?? "?"};闸败:${r.failed_gates.join("、") || "?"})`);
     if (r.monthly_admission && r.monthly_admission.ok === false)
       reds.push(
@@ -285,11 +290,16 @@ export function renderDigest({ dateLabel, server, local, reds }) {
   if (!adds.length) lines.push("- fleet add 当日无轮");
   else {
     const adm = adds.find((r) => r.monthly_admission)?.monthly_admission;
+    const run = adds.filter((r) => r.status !== "aborted"); // #430:中止单列一行,不入绿账(分母同步排除)
+    const aborted = adds.filter((r) => r.status === "aborted");
     lines.push(
-      `- fleet add ${adds.filter((r) => r.ok === true).length}/${adds.length} 绿:` +
-        adds.map((r) => `${shortId(r.round_id)}${r.ok === true ? "✓" : r.ok === false ? `✗(${r.failed_gates[0] ?? r.status})` : "?"}`).join(" ") +
+      `- fleet add ${run.filter((r) => r.ok === true).length}/${run.length} 绿:` +
+        run.map((r) => `${shortId(r.round_id)}${r.ok === true ? "✓" : r.ok === false ? `✗(${r.failed_gates[0] ?? r.status})` : "?"}`).join(" ") +
         (adm ? `;月帽 ${fmtCny(adm.spend)}/${fmtCny(adm.cap)}` : ""),
     );
+    // #430:中止轮单列一行(不判红:人为停非失败证据;不算绿:未跑完)。
+    if (aborted.length)
+      lines.push(`- fleet add 中止 ${aborted.length} 轮:${aborted.map((r) => shortId(r.round_id)).join(" ")}(未跑完即停;不算绿,不判红)`);
   }
   const localOd = [
     ...overdueRoundLines("演化轮", local.evolve?.overdue_rounds).notes,
@@ -472,10 +482,15 @@ export function renderDigestPush({ dateLabel, server, local, reds }) {
   if (!adds.length) lines.push("- 自动加源:今天没有轮");
   else {
     const adm = adds.find((r) => r.monthly_admission)?.monthly_admission;
+    const run = adds.filter((r) => r.status !== "aborted"); // #430:中止单列一行,不入成功账(分母同步排除)
+    const aborted = adds.filter((r) => r.status === "aborted");
     lines.push(
-      `- 自动加源 ${adds.filter((r) => r.ok === true).length}/${adds.length} 成功:${adds.map(timeMark).join("、")}` +
+      `- 自动加源 ${run.filter((r) => r.ok === true).length}/${run.length} 成功:${run.map(timeMark).join("、")}` +
         (adm ? `;本月加源花费 ${fmtCny(adm.spend)}/帽 ${fmtCny(adm.cap)}` : ""),
     );
+    // #430:中止轮单列一行(大白话面;不判红不判绿,重跑与否交人裁)。
+    if (aborted.length)
+      lines.push(`- 自动加源:有 ${aborted.length} 轮没跑完就被停了(${aborted.map((r) => plainClock(r.round_id)).join("、")};不算失败,要不要重跑请人工确认)`);
   }
   const localOd = [
     ...(local.evolve?.overdue_rounds ?? []).filter((r) => r.ok === null).map((r) => `${plainClock(r.round_id)}(演化)`),
