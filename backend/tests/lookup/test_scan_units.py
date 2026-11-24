@@ -361,7 +361,9 @@ def test_epochs_pinned(scan_env):
 def test_scanner_opens_readahead_envs(scan_env, monkeypatch):
     """⑫扫描句柄开了预读(readahead=True;查询侧 open_env_read 是 False,
     顺序扫描要预读)。monkeypatch lmdb.open 记 kwargs,拆掉 _open_envs
-    的 readahead=True(换成 False)即红。"""
+    的 readahead=True(换成 False)即红。只看落在夹具目录下的调用:全量
+    门里别的线程(更新管理器的后台线程等)也可能在这时开别的库,那些
+    不归本测试管(2026-11-24 全量门里因此红过一次)。"""
     calls = []
     real_open = lmdb.open
 
@@ -369,9 +371,11 @@ def test_scanner_opens_readahead_envs(scan_env, monkeypatch):
         calls.append((str(path), dict(kw)))
         return real_open(path, **kw)
 
+    root = str(scan_env["insts"][0]._lmdb_base.parent)
     monkeypatch.setattr(lmdb, "open", spy_open)
     with open_unit_scanner(sources=scan_env["insts"], asof=ASOF) as sc:
         list(sc)
+    calls = [c for c in calls if c[0].startswith(root)]
     assert calls, "scanner opened no envs"
     assert all(kw.get("readahead") is True for _, kw in calls)
     assert all(kw.get("readonly") is True for _, kw in calls)
