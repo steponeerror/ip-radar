@@ -52,7 +52,7 @@ import { ensureRoundHost, roundDupRegistries } from "../tools/discovery-tools.mj
 import { enqueueStageIssueExit } from "../tools/enqueue-issues.mjs"; // #384:ENQUEUE 出口改 GH issue(PROPOSE 行停写;判据分类 v1 classifyEnqueue 单源)
 import { benchScan } from "../bench/scan.mjs"; // bench SCAN 变体(票 #318:候选宇宙=仅 NEEDS 面;real 面走 runStage 旧步不受影响)
 import { writeRoundReport } from "../../pipeline-core/pipeline/round-report.mjs"; // #403:轮报告件单源(v2 零复制 import v1;bench 轮照写=沙箱 opsRoot 天然隔离)
-import { writeTerminalRoundState, writeOwnedRoundState, writeAbortRoundState } from "./round-state.mjs"; // #408:CLOSE 终态回写 state.json 镜像(与报告件同接线点);#415:失败/中止出口同写(属主判/中止不掷错包装在内)
+import { writeTerminalRoundState, writeOwnedRoundState, writeAbortRoundState } from "./round-state.mjs"; // #408:CLOSE 终态回写 state.json 镜像(与报告件同接线点);#415:失败/中止出口同写(属主校验/中止不掷错包装在内)
 import { shortlistBenchPromptPath } from "../run-discover.mjs"; // bench SHORTLIST 基准提示词路径(票 #319;函数声明面循环安全:run-discover↔tasks 仅运行时互引)
 
 const sha = (s) => crypto.createHash("sha256").update(s).digest("hex").slice(0, 16);
@@ -175,7 +175,7 @@ async function advance(runtime, context, checkpoint, patch = {}, ctx = null) {
   }), context);
   if (ctx) mirrorState(ctx, checkpoint); // 尽力镜像(真源=checkpoint;失败不炸轮)
 }
-// #415:全部失败终态出口经此(与 outcome 终态同一出口);带 ctx=镜像同写 failed——属主判在
+// #415:全部失败终态出口经此(与 outcome 终态同一出口);带 ctx=镜像同写 failed——属主校验在
 // writeOwnedRoundState(未建轮/异物树/同 id 旧轮终态件不写=不把别轮终态改判)。
 async function finishFailed(runtime, context, error, ctx = null) {
   if (ctx) writeOwnedRoundState(ctx, "failed");
@@ -221,7 +221,7 @@ async function scriptPhase(task, runtime, context, phase) {
   if (isBench(input) && phase !== "scan" && phase !== "close") // fail-closed 防御:bench 轮相位截断后 measure/enqueue/retro 不可达,唯有 checkpoint 异物/篡改可至;真面 MEASURE=真网络探测,宁可终态不可误跑
     return finishFailed(runtime, context, { message: `BENCH:${STAGE_OF_PHASE[phase]} 相位越界(bench 轮=SCAN→SHORTLIST→CLOSE 截断)`, detail: { code: "infra", stage: STAGE_OF_PHASE[phase] } }, ctx);
   const b = stepBoundary({ roundType: "discover", knobs: input.knobs, startedAtIso: cur.startedAtIso }); // ③(每相位头;遗留2 脚本面)
-  if (!b.ok) // #415:任意相位头预算墙=终态失败,镜像同写(属主判在 finishFailed;修前仅 close 相位写)
+  if (!b.ok) // #415:任意相位头预算墙=终态失败,镜像同写(属主校验在 finishFailed;修前仅 close 相位写)
     return finishFailed(runtime, context, { message: b.message, detail: { code: b.code, stage: STAGE_OF_PHASE[phase] } }, ctx);
   const def = defOf(STAGE_OF_PHASE[phase]);
   if (phase === "scan") {
@@ -420,7 +420,7 @@ export const discoverRoundTask = defineTask({
     close: (task, runtime, context) => scriptPhase(task, runtime, context, "close"),
   },
   abort: async (task, runtime, context) => { // P2-⑧ 中止终态留痕(model-round/health-round mkAbort 同款;缺省=框架 fault 面无终态,信封永不落)
-    // #415:中止=任务终态,镜像同词 aborted(属主判同失败出口;中止时所处相位未成=stages 不造名)。
+    // #415:中止=任务终态,镜像同词 aborted(属主校验同失败出口;中止时所处相位未成=stages 不造名)。
     // 整体包进 writeAbortRoundState:abort handler 裸抛=任务判 faulted、aborted outcome 丢失
     if (task.state?.checkpoint) writeAbortRoundState(() => writeOwnedRoundState(buildCtx(task.input, task.state.checkpoint), "aborted"));
     await runtime.commit(() => ({ status: "terminal", outcome: { status: "aborted" } }), context);

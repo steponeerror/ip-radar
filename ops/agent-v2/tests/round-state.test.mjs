@@ -3,7 +3,7 @@
 // 保盘值不写新时钟,崩溃重入 CLOSE(=新鲜 ctx 重建、新鲜 in-memory 时钟)重写字节级
 // 不变(报告件「无时钟入文」同标准);③镜像写败不掷错(v2 真源=checkpoint,终态 commit
 // 在后;写败改判 failed 才是真话反转——头注判例)。round 级接线面由 discover-round /
-// health-e2e 两 E2E 钉,本文件只钉单源契约。#415 加第四律:属主判——discover/add 失败/中止
+// health-e2e 两 E2E 钉,本文件只钉单源契约。#415 加第四律:属主校验——discover/add 失败/中止
 // 出口的镜像写(writeOwnedRoundState)只落本任务的轮目录;轮级接线面由 discover-round /
 // add-round E2E 钉。中止包装(writeAbortRoundState)单源契约同在本文件:轮级红→绿证据在
 // discover-round E2E「中止镜像写尽力不掷错」。
@@ -84,9 +84,9 @@ test("#408 镜像写败不掷错:只返 false(真源=checkpoint;终态写败改�
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 });
 
-// ── #415 属主判:discover/add 失败/中止出口的镜像写只落本任务的轮目录 ──────────────
+// ── #415 属主校验:discover/add 失败/中止出口的镜像写只落本任务的轮目录 ──────────────
 // 判据=建轮守卫(bootstrapRoundDir)同律:checkpoint 已提交相位,或盘上镜像=本轮自家建轮骨架。
-test("#415 属主判:已提交相位/自家建轮骨架=写终态;未建轮/异物树/同 id 旧轮终态件=不写(不改判别轮终态)", () => {
+test("#415 属主校验:已提交相位/自家建轮骨架=写终态;未建轮/异物树/同 id 旧轮终态件=不写(不改判别轮终态)", () => {
   const tmp = tmpDir();
   try {
     const ownedCtxOf = (dir, state) => ({ dir, roundId: state.round_id, state: { ...state }, log: () => {} }); // 真实 ctx 形(ctxShape/add buildCtx 带顶层 roundId;ctxOf 未带)

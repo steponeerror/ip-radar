@@ -454,6 +454,79 @@ test("#415 健康轮 toPhase 停笔终态:completed 出口写镜像 done,stage=�
   }
 });
 
+// #430 崩溃恢复重入成功出口的陈旧字段(P3-2):#415 失败出口把失败那刻的镜像落盘后,进程死在
+// 终态 commit 之前 → 恢复重跑走到成功出口时,writeTerminalRoundState 以盘上件为底,只传
+// status/stage 会把失败那刻的 stages 原样带回(终态件=done+CLOSE 但 stages 缺后段)。
+// 修法=两个成功出口(CLOSE/停笔)显式传 stages;updated_at 仍保盘值(终态镜像写不读时钟,
+// #408;写新时钟=重入重写字节漂移)。注入=直接落一份带失败 stages 的终态镜像(=崩溃窗口
+// 留下的盘上状态),再走成功出口断言 stages 是新的。
+const STALE_MIRROR_AT = "2026-10-27T00:00:00.000Z";
+function seedStaleMirror(w, roundId) { // 前次失败出口已写的镜像形(#415 失败出口盘上形;终态 outcome 未落)
+  fs.writeFileSync(path.join(w.roundDir, "state.json"), JSON.stringify({
+    schema: 1, round_id: roundId, type: "health", pipeline_mode: "pidurable",
+    status: "failed", stage: "FAILED",
+    stages: [{ name: "TRIAGE", status: "done", attempts: 1, dur_ms: 0, usage: null }], // 失败那刻的已提交相位(陈旧)
+    updated_at: STALE_MIRROR_AT,
+  }, null, 2) + "\n");
+}
+test("#430 崩溃恢复重入 CLOSE 成功出口:残留的失败 stages 被本次 checkpoint 刷新(done+CLOSE,stages 全相位;updated_at 保盘值)", async () => {
+  const roundId = "2026-10-28-0106-health";
+  const w = seedWorld({ roundId });
+  seedStaleMirror(w, roundId);
+  const storage = await openNodeSqliteStorage(path.join(w.tmp, "t.sqlite"));
+  const context = BACKGROUND_CONTEXT;
+  try {
+    const harness = await Harness.open(storage, { models: createModels(), registry: buildRegistry() }, context);
+    try {
+      harness.resume();
+      const root = await harness.root(context);
+      const taskId = await root.commit((tx) => tx.createTask(OPS_HEALTH_ROUND, {
+        roundId, fromPhase: "TRIAGE", modelFace: "faux", fixturesDir: FIXTURES,
+      }, { ownership: { kind: "conversation" } }), context);
+      const settled = await harness.waitForTask(taskId, context);
+      assert.equal(settled.state.outcome.status, "completed", `成功轮应 completed:${JSON.stringify(settled.state.outcome)}`);
+      const mirror = jsonOf(path.join(w.roundDir, "state.json"));
+      assert.equal(mirror.status, "done");
+      assert.equal(mirror.stage, "CLOSE");
+      assert.deepEqual(mirror.stages.map((x) => x.name),
+        ["TRIAGE", "DISPATCH", "DEEP", "ITEMIZE", "SYNTH", "ANCHOR_SWEEP", "RETRO", "CLOSE"],
+        "#430:stages 以本次成功轮 checkpoint 为准(修前=盘上件为底,失败那刻的 [TRIAGE] 残留)");
+      assert.equal(mirror.updated_at, STALE_MIRROR_AT, "updated_at 保盘值:终态镜像写不读时钟(#408;读新时钟=重入重写破字节级幂等)");
+    } finally { await harness.close(context); }
+  } finally {
+    await storage.close(context);
+    w.restore();
+    fs.rmSync(w.tmp, { recursive: true, force: true });
+  }
+});
+test("#430 崩溃恢复重入 toPhase 停笔成功出口:残留的失败 stages 被刷新(止于停笔相位)", async () => {
+  const roundId = "2026-10-28-0107-health";
+  const w = seedWorld({ roundId });
+  seedStaleMirror(w, roundId);
+  const storage = await openNodeSqliteStorage(path.join(w.tmp, "t.sqlite"));
+  const context = BACKGROUND_CONTEXT;
+  try {
+    const harness = await Harness.open(storage, { models: createModels(), registry: buildRegistry() }, context);
+    try {
+      harness.resume();
+      const root = await harness.root(context);
+      const taskId = await root.commit((tx) => tx.createTask(OPS_HEALTH_ROUND, {
+        roundId, fromPhase: "TRIAGE", toPhase: "DISPATCH", modelFace: "faux", fixturesDir: FIXTURES,
+      }, { ownership: { kind: "conversation" } }), context);
+      const settled = await harness.waitForTask(taskId, context);
+      assert.equal(settled.state.outcome.status, "completed", `停笔终态应 completed:${JSON.stringify(settled.state.outcome)}`);
+      const mirror = jsonOf(path.join(w.roundDir, "state.json"));
+      assert.equal(mirror.status, "done");
+      assert.equal(mirror.stage, "DISPATCH");
+      assert.deepEqual(mirror.stages.map((x) => x.name), ["TRIAGE", "DISPATCH"],
+        "#430:停笔出口 stages 同样以本次 checkpoint 为准(修前=失败那刻的 [TRIAGE] 残留,缺停笔相位)");
+    } finally { await harness.close(context); }
+  } finally {
+    await storage.close(context);
+    w.restore();
+    fs.rmSync(w.tmp, { recursive: true, force: true });
+  }
+});
 test("#415 健康轮相位头预算墙:runScriptPhase 的 stepBoundary 拦截 → 终态 failed,镜像 failed/FAILED(零已提交相位)", async () => {
   const roundId = "2026-10-28-2347-health";
   const w = seedWorld({ roundId });
@@ -527,14 +600,14 @@ test("#415 健康轮中止终态:在飞(已认领)轮被 abortTask → outcome a
       const settled = await harness.waitForTask(taskId, context);
       assert.equal(settled.state.outcome?.status, "aborted", `中止终态应落:${JSON.stringify(settled.state.outcome)}`);
       const mirror = jsonOf(stateFile);
-      assert.equal(mirror.round_id, roundId, "镜像落在本轮目录(认领件属主判过)");
+      assert.equal(mirror.round_id, roundId, "镜像落在本轮目录(认领件属主校验过)");
       assert.equal(mirror.status, "aborted", "#415:中止=任务终态,镜像同词 aborted(修前=无件)");
       assert.equal(mirror.stage, ck.phase, "stage=中止时所处相位(中止相位未成,不造书挡名)");
       assert.deepEqual(mirror.stages.map((x) => x.name), ck.state.stages.map((x) => x.name), "stages=中止时 checkpoint 已提交相位(全记录形;中止相位不造记录)");
     } finally { await harness.close(context); }
     // 反面(宁少算):轮目录被别任务认领(认领件 token 异于本任务 checkpoint)→ 中止不写镜像
     // (写了=改判别轮终态)。全新库、开 harness 后不先 resume 就下中止标记=任务零起步,
-    // 不经 claimGuard(走的是中止出口自身的属主判)。
+    // 不经 claimGuard(走的是中止出口自身的属主校验)。
     const roundId2 = "2026-10-28-2346-health";
     const dir2 = path.join(w.ops, "rounds", roundId2);
     fs.mkdirSync(dir2, { recursive: true });

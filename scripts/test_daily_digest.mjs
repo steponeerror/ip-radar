@@ -155,6 +155,49 @@ test("summarizeAddRound:failed 态或败闸=!ok;running+全过=ok;缺 gates=null
   assert.equal(summarizeAddRound("a-add", adm, gatesOk).monthly_admission.ok, false);
 });
 
+// #430 口径(监督者定,用户可推翻):中止不算 ok——门全绿的中止轮此前被算绿(票面病);
+// ok=false 且由 renderDigest/collectRedItems 单列「中止」行呈现(不判红:中止=人为停,
+// 非失败证据;败闸照旧红,闸红是失败证据不因中止灭失)。
+test("summarizeAddRound:aborted 不算 ok(#430)", () => {
+  assert.equal(summarizeAddRound("a-add", { status: "aborted" }, gatesOk).ok, false);
+  assert.equal(summarizeAddRound("a-add", { status: "aborted" }, gatesFail).ok, false, "败闸的中止轮照旧 !ok");
+});
+
+test("renderDigest/collectRedItems/renderDigestPush:中止轮单列「中止」行,不入绿账不判红(#430)", () => {
+  const mk = (id, status, gates, ok) => ({ round_id: id, ok, status, failed_gates: gates, monthly_admission: null });
+  const local = greenLocal({ add_rounds: [
+    mk("2026-11-20-1000-add", "done", [], true),
+    mk("2026-11-20-1100-add", "aborted", [], false),
+  ] });
+  const server = greenServer();
+  const reds = collectRedItems({ server, local });
+  assert.equal(reds.length, 0, "中止(gates 全绿)不判红——单列行呈现,不进 ⚠ 计数");
+  const { body } = renderDigest({ dateLabel: "2026-11-20", server, local, reds });
+  assert.match(body, /fleet add 1\/1 绿:1000✓/, "绿账分母不含中止轮");
+  assert.match(body, /fleet add 中止 1 轮:1100/, "中止单列一行(#430)");
+  assert.ok(!body.includes("1100✗") && !body.includes("1100?"), "中止轮不入绿行标记列");
+  const push = renderDigestPush({ dateLabel: "2026-11-20", server, local, reds });
+  assert.match(push.body, /自动加源 1\/1 成功:10:00✓/);
+  assert.match(push.body, /有 1 轮没跑完就被停了/, "推送版同面单列(大白话)");
+  // 败闸的中止轮仍红(证据面:闸红不因中止灭失)
+  const local2 = greenLocal({ add_rounds: [mk("2026-11-20-1200-add", "aborted", ["G_VERIFY"], false)] });
+  const reds2 = collectRedItems({ server: greenServer(), local: local2 });
+  assert.equal(reds2.length, 1);
+  assert.match(reds2[0], /fleet 2026-11-20-1200-add !ok\(status=aborted;闸败:G_VERIFY\)/);
+  // 跨窗旧带同律(评审 P1-1:改前门全绿的中止轮次日会出一条假红项,推送文案还说成「失败」)
+  const od = overdueRoundLines("fleet", [
+    mk("2026-11-19-1100-add", "aborted", [], false),
+    mk("2026-11-19-1200-add", "aborted", ["G_VERIFY"], false),
+    mk("2026-11-19-1300-add", "failed", [], false),
+  ]);
+  assert.deepEqual(od.reds, [
+    "fleet 2026-11-19-1200-add 终局 !ok(G_VERIFY)(跨窗补报)",
+    "fleet 2026-11-19-1300-add 终局 !ok(status=failed)(跨窗补报)",
+  ], "门全绿的中止轮不进红项;有没过的门的中止轮和失败轮照旧红");
+  assert.equal(od.notes.length, 1);
+  assert.match(od.notes[0], /fleet 2026-11-19-1100-add 已中止/);
+});
+
 // —— 红项判定(两源合并)——
 
 test("collectRedItems:票面四类+影子+读取失败,逐条留轮 id;全绿为空", () => {

@@ -225,6 +225,10 @@ test("相位头 SIGKILL 崩溃 → 同库 resume 续跑到 CLOSE", async () => {
 
 // ── #415 终态镜像覆盖全部终态出口(票面专项 E2E:加轮 finishOk;其余出口同批钉住)──
 const mirrorOf = (w, roundId = ROUND) => JSON.parse(fs.readFileSync(path.join(w.opsRoot, "rounds", roundId, "state.json"), "utf8"));
+// #430 评估记录:G_DOSSIER 门红与 postModelCall 花费帽红在 faux 世界写不出诚实的 E2E(不钉)——
+// G_DOSSIER 只做 dossierShape,与消费时同一检查,形状突变到不了门;pi-ai faux 活路径 cost 恒 0
+// (罐装 usage 不透传;faux.js 活路径不调 calculateCost,带费率表也无效——评审 P2-4)。G_IMPLEMENT
+// 另有 stem 漂移等检查,可达,见下方用例(评审 P2-3)。
 
 test("#415 加轮 finishOk 终态:六相位全绿 → state.json done,stages=六相位名单(与信封一致;无 stage 键)", async () => {
   const w = seedWorld("v2-add-finok-");
@@ -258,6 +262,32 @@ test("#415 加轮 close 步抛终态:09-budget.json 路径被目录占 → CLOSE
   } finally { fs.rmSync(w.tmp, { recursive: true, force: true }); }
 });
 
+test("#430 加轮 G_IMPLEMENT 红终态:末回合实现摘要的源名与档案定的 stem 漂移 → GATE:IMPLEMENT → state.json failed,stages=[VERIFY, DOSSIER]", async () => {
+  const w = seedWorld("v2-add-implgate-");
+  // 夹具手术:末回合实现摘要里的 name 改一个词(档案 a2-dossier 定的 stem 不变)→ 摘要形状正常、
+  // 消费通过、工件落盘,门里的 stem 漂移检查红。真实调用链:模型相位 → 落工件 → 门评估。
+  const fxDir = path.join(w.tmp, "fixtures");
+  fs.cpSync(FIXTURES, fxDir, { recursive: true });
+  const turnsPath = path.join(fxDir, "turns.json");
+  const turns = JSON.parse(fs.readFileSync(turnsPath, "utf8"));
+  const block = turns.turns.at(-1).content[0];
+  const text = typeof block === "string" ? block : block.text;
+  const needle = '"name": "sample_block_list"';
+  assert.equal(text.split(needle).length - 1, 1, "夹具手术的前提:实现摘要里的源名键恰一处(不成立=本测空转)");
+  const next = text.replace(needle, '"name": "sample_block_lst"');
+  if (typeof block === "string") turns.turns.at(-1).content[0] = next; else block.text = next;
+  fs.writeFileSync(turnsPath, JSON.stringify(turns));
+  try {
+    const r = await runRound(w, { fixturesDir: fxDir });
+    assert.equal(r.status, "failed", JSON.stringify(r));
+    assert.equal(r.error.detail?.stage, "IMPLEMENT", JSON.stringify(r.error));
+    assert.match(r.error.message, /stem 漂移:/, `失败面=G_IMPLEMENT 的 stem 漂移检查:${r.error.message}`);
+    const mirror = mirrorOf(w);
+    assert.equal(mirror.status, "failed", "#415/#430:模型相位门红=终态失败,镜像同写");
+    assert.deepEqual(mirror.stages, ["VERIFY", "DOSSIER"], "IMPLEMENT 相位未过门,不造名(宁少算)");
+  } finally { fs.rmSync(w.tmp, { recursive: true, force: true }); }
+});
+
 test("#415 加轮模型相位失败终态:DOSSIER 两 attempt 终答形状坏 → model_face → state.json failed,stages=[VERIFY]", async () => {
   const w = seedWorld("v2-add-modelfail-");
   // 夹具手术:dossier 首回合终答换成非交接单文本(attempt 1 终答非 JSON,按 retry≤1 重发)→
@@ -283,7 +313,7 @@ test("#415 加轮模型相位失败终态:DOSSIER 两 attempt 终答形状坏 �
   } finally { fs.rmSync(w.tmp, { recursive: true, force: true }); }
 });
 
-test("#415 加轮属主判:同 id 旧轮的 done 镜像不被跨库新任务改判;首相位头预算墙(未建轮)不造件", async () => {
+test("#415 加轮属主校验:同 id 旧轮的 done 镜像不被跨库新任务改判;首相位头预算墙(未建轮)不造件", async () => {
   const w = seedWorld("v2-add-owns-");
   try {
     const first = await runRound(w);
