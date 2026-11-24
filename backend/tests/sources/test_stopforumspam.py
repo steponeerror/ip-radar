@@ -239,7 +239,36 @@ def test_load_survives_readonly_legacy_cleanup(tmp_path, monkeypatch, caplog):
     with caplog.at_level(logging.INFO):
         assert StopForumSpamSource(data_dir=tmp_path).load() == 42
     assert legacy.exists()       # 删不掉 = 原样保留,不是失败
-    assert any("legacy" in m for m in caplog.messages)
+    recs = [r for r in caplog.records if "legacy" in r.getMessage()]
+    assert recs and all(r.levelno == logging.INFO for r in recs)
+    assert all("errno=30" in r.getMessage() for r in recs)   # 原因带 errno
+
+
+def test_load_survives_other_oserror_with_warning(tmp_path, monkeypatch, caplog):
+    """非只读类的 OSError(盘满、IO 错)同样不算加载失败,但日志升到
+    warning 并带 errno——从日志里认得出这不是只读挂载(#444 评审 P3-8)。
+    拆掉 _log_cleanup_skipped 里的分级(一律 info)即红。"""
+    import errno
+    import logging
+    import pathlib
+    from ipdb._source_base import Source
+    legacy = tmp_path / "stopforumspam.txt"
+    legacy.write_text("1.2.3.0/24\n")
+    real_unlink = pathlib.Path.unlink
+
+    def full_unlink(self, missing_ok=False):
+        if self.name.startswith("stopforumspam.txt"):
+            raise OSError(errno.ENOSPC, "No space left on device")
+        return real_unlink(self, missing_ok=missing_ok)
+
+    monkeypatch.setattr(pathlib.Path, "unlink", full_unlink)
+    monkeypatch.setattr(Source, "load", lambda self: 42)
+    with caplog.at_level(logging.INFO):
+        assert StopForumSpamSource(data_dir=tmp_path).load() == 42
+    assert legacy.exists()
+    recs = [r for r in caplog.records if "legacy" in r.getMessage()]
+    assert recs and all(r.levelno == logging.WARNING for r in recs)
+    assert all("errno=28" in r.getMessage() for r in recs)
 
 
 def test_cleanup_legacy_txt_reraises_unexpected(tmp_path, monkeypatch):

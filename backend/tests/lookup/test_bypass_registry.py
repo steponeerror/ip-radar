@@ -1,10 +1,10 @@
 """T3 结构守门(#315,规格 §3):lookup() 旁路收编为 _BYPASS_SPECS 声明表。
-①源名字面量只许活在表项 trigger 里:lookup() 本体不得出现
+①源名字面量只许活在表项 trigger 里:lookup 及其拆出的各段不得出现
 "geolite_city"/"rir_delegated" 字面量,且必须引用 _BYPASS_SPECS(防表
 被内联拼法旁路绕成死代码);②表形/表序:表项四要素齐(key/trigger/
 collect/resolve)、key ⊆ LookupResult 出海字段、表序 = 组装序(city_zh,
 location, registration)。新增旁路合同:复用既有出海字段 = 仅加表项;
-需新出海字段 = 另加 _types.py 字段 + lookup() 出海 kwarg 一行——本测试
+需新出海字段 = 另加 _types.py 字段 + fuse() 出海 kwarg 一行——本测试
 钉的是①②(字面量缺席 + 表形/表序/键⊆字段),钉不了未来改动次数。"""
 import dataclasses
 import inspect
@@ -13,7 +13,7 @@ import ipdb._registry as reg
 from ipdb._types import LookupResult
 
 
-def test_lookup_body_has_no_bypass_source_names():
+def test_lookup_and_split_parts_have_no_bypass_source_names():
     # #444 拆分(规格 §4.1):旁路面的 stash/收集/读出搬进 new_input/
     # ingest/fuse,防内联旁路的守卫跟着搬——整个拆分面(含 lookup 本体)
     # 都不许写死旁路源名,且必须引用登记表 _BYPASS_SPECS(防表被换拼法

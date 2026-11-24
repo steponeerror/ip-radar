@@ -16,6 +16,7 @@ the log-odds posterior over reliability + first_seen decay, untouched.
 """
 import csv
 import datetime
+import errno
 import logging
 import math
 import zipfile
@@ -28,6 +29,10 @@ logger = logging.getLogger(__name__)
 
 # ── Per-record grading ──
 _ACTIVE_DAYS = 90          # active-spammer window
+# 清理遗留件被挡住的预期情形:只读挂载(EROFS)/无权限(EACCES、EPERM)→ info;
+# 其余 OSError(盘满、IO 错)→ warning。两种都不算加载失败(#444 评审 P3-8:
+# 日志要带 errno、要分得出「只读挂载」和「别的错」)。
+_READONLY_ERRNOS = frozenset({errno.EROFS, errno.EACCES, errno.EPERM})
 _TS_FMT = "%Y-%m-%d %H:%M:%S"
 
 
@@ -90,8 +95,7 @@ class StopForumSpamSource(Source):
         try:
             (self._data_dir / "stopforumspam.txt").unlink(missing_ok=True)
         except OSError as e:
-            logger.info("stopforumspam legacy .txt cleanup skipped "
-                        "(read-only mount or no permission): %s", e)
+            self._log_cleanup_skipped("legacy .txt", e)
         for child in self._data_dir.glob("stopforumspam.txt.lmdb*"):
             if child.is_dir():
                 shutil.rmtree(child, ignore_errors=True)
@@ -99,9 +103,16 @@ class StopForumSpamSource(Source):
                 try:
                     child.unlink(missing_ok=True)
                 except OSError as e:
-                    logger.info("stopforumspam legacy sidecar cleanup "
-                                "skipped (read-only mount or no "
-                                "permission): %s", e)
+                    self._log_cleanup_skipped("legacy sidecar", e)
+
+    @staticmethod
+    def _log_cleanup_skipped(what: str, e: OSError) -> None:
+        readonly = e.errno in _READONLY_ERRNOS
+        logger.log(logging.INFO if readonly else logging.WARNING,
+                   "stopforumspam %s cleanup skipped (errno=%s: %s; file "
+                   "left in place, load continues)%s",
+                   what, e.errno, e,
+                   "" if readonly else " — not a read-only/permission error")
 
     def download(self, token: CancelToken | None = None) -> None:
         self._data_dir.mkdir(parents=True, exist_ok=True)

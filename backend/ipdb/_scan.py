@@ -4,8 +4,12 @@
 黑名单导出的输入侧:不再逐地址调 lookup()(60+ 源 × 全键空间是 O(键)×O(源)
 的随机读灾难),而是把每个(源,族)的 LMDB 库按键序(=地址数值序)顺游标走
 一遍,heapq.merge 多路归并,同一起点凑组;一个单元的证据选法与查询接口
-_lmdb.lookup 完全同构(先单地址、无则覆盖网段),喂给 #444 拆出的
-_registry.fuse_items(),扫描结果与查询接口逐字段相同是构造出来的、不用另证。
+_lmdb.lookup 同构(先单地址、无则覆盖网段),喂给 #444 拆出的
+_registry.fuse_items()。于是扫描的判定字段与查询接口相同;国家、城市、
+ASN 和来自未声明分类源的资产陈述,扫描按规格不读(导出器事后只给进榜
+IP 经 lookup() 补)。同构的前提是库内记录都是对齐的 CIDR(写侧
+rebuild_lmdb 保证);一旦出现不对齐的记录,覆盖探测退回与查询接口相同
+的逐前缀长探测。
 
 内存纪律(规格 §4.2 规则 6):任何时刻不在内存里攒记录——网段记录原文落
 临时 sqlite,内存只留起点/终点两个整数数组(游标序=起点升序,直接 append)。
@@ -35,6 +39,8 @@ from ipdb._sources._lmdb import (
     _end_int,
     _payloads_db,
     decode_value,
+    encode_key,
+    encode_key6,
     env_dir,
     read_disjoint_flag,
     read_ptr,
@@ -80,7 +86,7 @@ class _FamilyState:
     """
 
     __slots__ = ("env", "epoch", "disjoint", "bits", "starts", "ends",
-                 "max_end", "plens")
+                 "max_end", "plens", "plens_sorted", "anomalous")
 
     def __init__(self, env, epoch: int, disjoint: bool, bits: int):
         self.env = env
@@ -90,15 +96,23 @@ class _FamilyState:
         self.starts: list[int] = []
         self.ends: list[int] = []
         self.max_end = -1
-        # 嵌套库才需要:库内出现过的前缀长集合(长到短探测用)。每条记录
-        # 自身的前缀长必在此集合内 ⇒「限库内前缀长」与查询路径的逐全前缀
-        # 探测命中同一记录(记录之外的前缀长探测必 miss,跳过只省探测次数)。
+        # 嵌套库才需要:库内出现过的前缀长集合(长到短探测用)。每条对齐
+        # CIDR 记录自身的前缀长必在此集合内 ⇒「限库内前缀长」与查询路径的
+        # 逐全前缀探测命中同一记录(记录之外的前缀长探测必 miss,跳过只省
+        # 探测次数)。plens_sorted 存前缀长的相反数、升序(=前缀长降序),
+        # 集合变化时才维护,免得每次探测都排一遍。
         self.plens: set[int] = set()
+        self.plens_sorted: list[int] = []
+        # 库里出现过不对齐(非 CIDR)的范围记录:find_covering 改回逐全
+        # 前缀长探测(#444 评审 P2-1)。
+        self.anomalous = False
 
     def find_covering(self, addr: int) -> int | None:
         """返回覆盖 addr 的网段记录下标,无则 None。与 _lmdb.lookup 两分支
-        同构:不相交库取「起点≤addr 的最后一条」且终点≥addr;嵌套库按库内
-        前缀长从长到短找「对齐起点在数组中且终点≥addr」的第一条。"""
+        同构:不相交库取「起点≤addr 的最后一条」且终点≥addr;嵌套库按
+        前缀长从长到短找「对齐起点在数组中且终点≥addr」的第一条。
+        嵌套库只探库内出现过的前缀长(前提:记录都是对齐的 CIDR);库里
+        一旦出现不对齐的记录,改回与查询接口相同的逐全前缀长探测。"""
         if not self.starts or addr < self.starts[0] or addr > self.max_end:
             return None                     # 规格规则 6 快速排除
         if self.disjoint:
@@ -107,7 +121,9 @@ class _FamilyState:
                 return i
             return None
         mask_full = (1 << self.bits) - 1
-        for plen in sorted(self.plens, reverse=True):
+        plens = (range(self.bits, -1, -1) if self.anomalous
+                 else (-neg for neg in self.plens_sorted))
+        for plen in plens:
             mask = mask_full >> plen        # 低 (bits-plen) 位为 1
             aligned = (addr | mask) ^ mask  # = addr & ~mask(对齐起点)
             i = bisect.bisect_left(self.starts, aligned)
@@ -169,11 +185,13 @@ class UnitScanner:
             "records": {},          # 各源单地址记录数
             "cidr_records": {},     # 各源网段记录数
             "skipped_anomalies": 0, # 不恰为一个 CIDR 的网段范围
+            "anomalous_records": 0,  # 不对齐(非 CIDR)的范围记录,嵌套库
             "units": {"v4_single": 0, "v4_cidr": 0,
                       "v6_single": 0, "v6_cidr": 0},
             "timings": {},
         }
         self._closed = False
+        self._iterated = False    # 只能迭代一遍(#444 评审 P3-7)
         self._own_spill = spill_dir is None
         self._spill_path = Path(spill_dir or tempfile.mkdtemp(
             prefix="ipradar-scan-spill-")) / "cidr.sqlite3"
@@ -183,7 +201,15 @@ class UnitScanner:
         self._db.commit()
         self._pending = 0           # 攒批计数:到批就 commit,不攒内存
         self._probe_txns: dict[tuple[str, int], object] = {}
-        self._open_envs()
+        self._probe_paydb: dict[tuple[str, int], object] = {}
+        self._fam_sources: dict[int, list] = {4: [], 6: []}
+        try:
+            self._open_envs()
+        except BaseException:
+            # 开到一半失败(例如纪元目录刚被清掉):已开的 env 和临时
+            # sqlite 先收干净再抛,不靠垃圾回收(#444 评审 P3-6)
+            self.close()
+            raise
 
     # ── 句柄 ──────────────────────────────────────────────────
 
@@ -213,6 +239,8 @@ class UnitScanner:
                 _PAYLOAD_DB_CACHE.pop(env.path(), None)
                 self._fam[(s.name, fam)] = _FamilyState(env, epoch,
                                                         disjoint, bits)
+                self._fam_sources[fam].append(
+                    (s, self._fam[(s.name, fam)]))
             self.epochs[s.name] = (e4, e6)
 
     # ── 迭代 ──────────────────────────────────────────────────
@@ -221,20 +249,31 @@ class UnitScanner:
         """v4 一套、v6 一套,各走两遍(规格 §4.2 规则 7):先单地址遍
         (归并全部声明分类的源,威胁单地址凑单元),后网段遍(威胁源网段
         记录按 (起点,终点) 凑组)。"""
+        if self._iterated:
+            raise RuntimeError(
+                "UnitScanner 只能迭代一遍:第二遍会把网段记录重复追加进"
+                "数组、stats 重复累加;请重新 open_unit_scanner")
+        self._iterated = True
         for fam in (4, 6):
             t0 = time.perf_counter()
-            yield from self._phase_single(fam)
-            self.stats["timings"][f"phase_single_v{fam}_s"] = round(
-                time.perf_counter() - t0, 3)
+            try:
+                yield from self._phase_single(fam)
+            finally:
+                # 调用方中途 break(--limit 抽样)也要把本相位已花的秒数记下
+                self.stats["timings"][f"phase_single_v{fam}_s"] = round(
+                    time.perf_counter() - t0, 3)
             self._db.commit()       # 网段遍要 SELECT,先落盘
             t0 = time.perf_counter()
-            yield from self._phase_cidr(fam)
-            self.stats["timings"][f"phase_cidr_v{fam}_s"] = round(
-                time.perf_counter() - t0, 3)
-            for key, txn in list(self._probe_txns.items()):
-                if key[1] == fam:
-                    txn.abort()
-                    del self._probe_txns[key]
+            try:
+                yield from self._phase_cidr(fam)
+            finally:
+                self.stats["timings"][f"phase_cidr_v{fam}_s"] = round(
+                    time.perf_counter() - t0, 3)
+                for key, txn in list(self._probe_txns.items()):
+                    if key[1] == fam:
+                        txn.abort()
+                        del self._probe_txns[key]
+                        self._probe_paydb.pop(key, None)   # 句柄绑在那个事务上
 
     def _probe_txn(self, name: str, fam: int):
         """(源,族)的常驻读事务:覆盖网段探测与网段遍的单地址探针共用。
@@ -246,6 +285,10 @@ class UnitScanner:
             st = self._fam[key]
             txn = st.env.begin()
             self._probe_txns[key] = txn
+            # 字典句柄绑本事务(带 txn 打开的 dbi 只在本事务有效,不进
+            # 全局缓存);探测事务活整个族相位,按(源,族)存一次,省掉
+            # 逐条解引用各做一次 open_db
+            self._probe_paydb[key] = _payloads_db(st.env, txn)
         return txn
 
     def _phase_single(self, fam: int):
@@ -266,12 +309,13 @@ class UnitScanner:
                 continue
             ip_text = self._addr_text(start, fam)
             evidence_items = self._gather_items(start, fam, singles, None)
+            ev_by_src = {s.name: ev for s, ev in evidence_items}
             firsts: list[str] = []
             lasts: list[str] = []
             for _, _, src, raw in singles:
                 if src.name not in self._threat:
                     continue        # 规格规则 8:时间只从威胁类源取
-                ev = self._decode(src, fam, raw)
+                ev = ev_by_src[src.name]     # _gather_items 已解码过
                 f, l = _seen_bounds(ev)
                 firsts += f
                 lasts += l
@@ -310,10 +354,11 @@ class UnitScanner:
                 continue
             cidr_text = str(nets[0])
             evidence_items = self._gather_items(start, fam, None, items4)
+            ev_by_src = {s.name: ev for s, ev in evidence_items}
             firsts: list[str] = []
             lasts: list[str] = []
             for _, _, src, raw in items4:
-                ev = self._decode(src, fam, raw)
+                ev = ev_by_src[src.name]    # _gather_items 已解码过
                 f, l = _seen_bounds(ev)
                 firsts += f
                 lasts += l
@@ -348,12 +393,24 @@ class UnitScanner:
                 raw = cur.value()
                 end = _end_int(raw)
                 if not st.disjoint:
-                    # 嵌套库:记录自身前缀长必进探测集合(单地址=/32,
-                    # size=1 → (0).bit_length()=0 → plen=bits)。查询路径
-                    # 的 /32 记录是靠 plen=bits 探测命中的,漏了它覆盖
-                    # 探测就假漏(等价性论证见类注释与交付件 §2)。
+                    # 嵌套库:对齐 CIDR 记录自身的前缀长进探测集合(单地址
+                    # =/32,size=1 → (0).bit_length()=0 → plen=bits)。查询
+                    # 路径的 /32 记录是靠 plen=bits 探测命中的,漏了它覆盖
+                    # 探测就假漏。记录不对齐(长度不是 2 的幂,或起点没按
+                    # 长度对齐;写侧 rebuild_lmdb 归一成对齐 CIDR,只有旧
+                    # 纪元或手搭库才会有)→ 标 anomalous 并计数,这个库的
+                    # find_covering 改回与查询接口相同的逐全前缀长探测
+                    # (#444 评审 P2-1)。
                     size = end - start + 1
-                    st.plens.add(st.bits - (size - 1).bit_length())
+                    if size <= 0 or (size & (size - 1)) \
+                            or (start & (size - 1)):
+                        st.anomalous = True
+                        self.stats["anomalous_records"] += 1
+                    else:
+                        plen = st.bits - (size - 1).bit_length()
+                        if plen not in st.plens:
+                            st.plens.add(plen)
+                            bisect.insort(st.plens_sorted, -plen)
                 if start == end:
                     n_single += 1
                     yield start, end, src, raw
@@ -391,21 +448,23 @@ class UnitScanner:
         items = []
         by_src_single = {t[2].name: t for t in singles or []}
         by_src_cidr = {t[2].name: t for t in cidr_group or []}
-        for s in self._sources:
-            if getattr(s, "classification_type", None) is None:
-                continue
-            st = self._fam.get((s.name, fam))
-            if st is None:
-                continue
+        encode = encode_key6 if fam == 6 else encode_key
+        for s, st in self._fam_sources[fam]:
             hit = by_src_single.get(s.name)
             raw = hit[3] if hit is not None else None
+            if raw is None and cidr_group is not None \
+                    and s.name in by_src_cidr:
+                # 网段遍:组内源的组记录就是网络地址键上的那条记录(同源
+                # 同键只有一条)= 查询接口「键相等」那一步取到的东西
+                raw = by_src_cidr[s.name][3]
             if raw is None:
-                # 单地址遍里,本源组内无单地址记录 → 覆盖网段探测;网段遍
-                # 里,组内记录优先(它就是网络地址键上的那条记录,等价于
-                # 探测结果),非组源走探测
-                if cidr_group is not None and s.name in by_src_cidr:
-                    raw = by_src_cidr[s.name][3]
-                else:
+                if cidr_group is not None:
+                    # 网段遍(#444 评审 P1-1):网络地址键上,组外的源(资产
+                    # 类源一律不在组里;在这个网络地址上只有单地址记录的
+                    # 威胁源也不在)也可能有自己的记录——查询接口靠
+                    # 「键相等」取到,这里做同样的点查,查不到才探覆盖网段
+                    raw = self._probe_txn(s.name, fam).get(encode(start))
+                if raw is None:
                     idx = st.find_covering(start)
                     if idx is None:
                         continue
@@ -443,7 +502,7 @@ class UnitScanner:
         txn = self._probe_txn(src.name, fam)
         _, ev = decode_value(raw)
         if isinstance(ev, int):
-            ev = resolve_evidence(txn, ev, _payloads_db(st.env, txn))
+            ev = resolve_evidence(txn, ev, self._probe_paydb[(src.name, fam)])
         return ev
 
     @staticmethod
@@ -466,6 +525,7 @@ class UnitScanner:
             except Exception:       # 读事务 abort 失败不吞 close 的其余清理
                 logger.warning("scan probe txn abort failed", exc_info=True)
         self._probe_txns.clear()
+        self._probe_paydb.clear()
         for st in self._fam.values():
             _PAYLOAD_DB_CACHE.pop(st.env.path(), None)
             st.env.close()

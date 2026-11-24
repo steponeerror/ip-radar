@@ -104,8 +104,10 @@ def _b(d):
 def test_fuse_collect_equals_lookup(split_env):
     """任务书 2.1 验收①:夹具里每个 IP,fuse(collect(...), asof=T) 与
     lookup(ip, asof=T) 的 to_dict() 逐字节相等;直接调 lookup 与走拆出
-    两段得到的 LookupResult 相等。拆掉 _registry.lookup 尾部的
-    fuse(collect(...)) 接线(改回内联旧体)或改 ingest 任一行即红。"""
+    两段得到的 LookupResult 相等。它钉的是 lookup() 尾部确实接的是
+    fuse(collect(...)):拆掉这处接线(改回内联旧体)即红。collect/ingest
+    里改了什么它看不见——两边走的是同一段代码,那段由
+    test_fuse_items_matches_lookup 和全量回归看着。"""
     for ip in IPS:
         want = _registry.lookup(ip, asof=ASOF)
         addr = ipaddress.ip_address(ip) if _parseable(ip) else None
@@ -179,6 +181,6 @@ def test_new_input_container_shapes(split_env):
     assert isinstance(inp.field_values, defaultdict)
     assert isinstance(inp.attributes, defaultdict)
     assert isinstance(inp.observations, list)
-    assert isinstance(inp.field_extras, dict)
+    assert type(inp.field_extras) is dict        # defaultdict 也过 isinstance
     # stash 键 = 旁路表键序(#315)
     assert list(inp.stash.keys()) == [spec.key for spec in _registry._BYPASS_SPECS]

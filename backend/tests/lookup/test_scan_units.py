@@ -69,6 +69,10 @@ BLOCKLIST_DE_V4 = [
                   "first_seen": "2026-01-01", "last_seen": "2026-03-03"}]),
     ("10.0.0.0/8", [{"classification_type": "blacklist",
                      "verdict": "malicious", "reliability": 0.8}]),
+    ("1.0.1.0", [{"classification_type": "blacklist",
+                  "verdict": "malicious", "reliability": 0.8}]),
+    ("3.3.3.4", [{"classification_type": "blacklist",
+                  "verdict": "malicious", "reliability": 0.8}]),
     ("1.0.2.130", [{"classification_type": "blacklist",
                     "verdict": "malicious", "reliability": 0.8}]),
 ]
@@ -101,7 +105,7 @@ GREENSNOW_INLINE_EV = {"classification_type": "blacklist",
 # oracle 地址:扫描有单元的地址 + 网段单元的网络地址(期望值全走查询接口)
 ORACLE_IPS = (
     "9.9.9.9", "4.4.4.4", "3.3.3.3", "1.0.2.9", "1.0.9.9", "1.0.2.130",
-    "1.0.1.0", "1.0.2.0", "1.0.0.0", "6.9.0.0", "10.0.0.0",
+    "1.0.1.0", "1.0.2.0", "1.0.0.0", "6.9.0.0", "10.0.0.0", "3.3.3.4",
     "2606:4700::1", "2a00:1450:4001::",
 )
 
@@ -169,7 +173,8 @@ def scan_env(tmp_path, monkeypatch):
     for s in insts:
         s._reader = None
         s._reader6 = None
-    yield {"insts": insts, "by_name": by_name, "oracle": oracle}
+    yield {"insts": insts, "by_name": by_name, "oracle": oracle,
+           "proto": proto}
 
 
 def _unit_ips(sc):
@@ -240,7 +245,6 @@ def test_cidr_units_text_and_skip_anomaly(scan_env):
     assert cidr.is_cidr is True and cidr.is_v6 is False
     assert orjson.dumps(cidr.result.to_dict()) == \
         orjson.dumps(scan_env["oracle"]["6.9.0.0"])
-    assert "8.0.0.0-8.0.0.10" not in units
     assert stats["skipped_anomalies"] == 1
 
 
@@ -284,6 +288,22 @@ def test_disabled_and_private_sources_not_read(scan_env, monkeypatch):
     assert "4.4.4.4" not in ips
     assert "greensnow" not in stats["records"]
     assert "firehol" not in stats["records"]
+    # 证据面:3.3.3.4 落在禁用源 firehol 的 3.3.0.0/16 内,自己带 blocklist_de
+    # 单地址记录——单元证据里不许有 firehol,且与查询接口(同样跳过禁用源)
+    # 同字节。期望值在这里现算:夹具的 oracle 是 firehol 还启用时算的。
+    for s in scan_env["insts"]:
+        s.load()
+    expected = _registry.lookup("3.3.3.4", asof=ASOF).to_dict()
+    assert "firehol" not in orjson.dumps(expected).decode()
+    for s in scan_env["insts"]:
+        s._reader = None
+        s._reader6 = None
+    with open_unit_scanner(asof=ASOF) as sc:
+        units = _collect(sc)
+    assert orjson.dumps(units["3.3.3.4"].result.to_dict()) == \
+        orjson.dumps(expected)
+    assert "firehol" not in \
+        orjson.dumps(units["3.3.3.4"].result.to_dict()).decode()
 
 
 def test_reserved_network_cidr_unit(scan_env):
@@ -367,3 +387,84 @@ def test_close_then_load_db_reopens(scan_env):
     _registry._loaded_cache["entry"] = None
     _registry.load_db()          # 不抛 lmdb.Error: already open 即过
     assert any(s.health().loaded for s in scan_env["insts"])
+
+
+def test_cidr_unit_takes_other_source_record_at_network_address(scan_env):
+    """⑭网段单元的网络地址上,别的源有自己的记录(firehol 1.0.1.0/24 的
+    网络地址 1.0.1.0 上,blocklist_de 有单地址记录)→ 网段单元的证据也要
+    带上它,与 lookup(网络地址) 同字节。此前组外的源只做覆盖探测,漏掉
+    这种单地址记录(#444 评审 P1-1)。拆掉 _gather_items 网段遍里的
+    键相等点查(回到只做覆盖探测)即红。"""
+    with open_unit_scanner(sources=scan_env["insts"], asof=ASOF) as sc:
+        units = _collect(sc)
+    assert "1.0.1.0" in units      # 这条单地址记录自己也产单元
+    assert orjson.dumps(units["1.0.1.0/24"].result.to_dict()) == \
+        orjson.dumps(scan_env["oracle"]["1.0.1.0"])
+    assert "blocklist_de" in \
+        orjson.dumps(units["1.0.1.0/24"].result.to_dict()).decode()
+
+
+def test_scanner_iterates_once(scan_env):
+    """⑮同一个扫描器只能迭代一遍:第二遍会把网段记录重复追加进数组、
+    stats 重复累加(#444 评审 P3-7),所以直接抛 RuntimeError。
+    拆掉 __iter__ 开头的已迭代检查即红。"""
+    with open_unit_scanner(sources=scan_env["insts"], asof=ASOF) as sc:
+        list(sc)
+        with pytest.raises(RuntimeError):
+            list(sc)
+
+
+def _hand_build_nested(cls, data_dir, records):
+    """手搭一个标记为嵌套的 v4 库(不走 rebuild_lmdb,所以能放进不对齐的
+    范围)。records=[(起点, 终点, 证据 dict)]。"""
+    extra = cls(data_dir)
+    base = extra._lmdb_base
+    d = base.parent / f"{base.name}.1"
+    d.mkdir(parents=True)
+    env = lmdb.open(str(d), map_size=1 << 20, max_dbs=2, subdir=True)
+    with env.begin(write=True) as txn:
+        for lo, hi, ev in records:
+            txn.put(encode_key(_int4(lo)), encode_value(_int4(hi), dict(ev)))
+    env.close()
+    (base.parent / f"{base.name}.ptr").write_text("1")
+    (base.parent / f"{base.name}.count").write_text(str(len(records)))
+    (base.parent / f"{base.name}.disjoint").write_text("1 0")   # 嵌套
+    (base.parent / f"{base.name}.rev").write_text(str(HARVEST_REV))
+    return extra
+
+
+def test_unaligned_range_in_nested_lib(scan_env, monkeypatch):
+    """⑯嵌套库里出现不对齐的范围时(写侧 rebuild_lmdb 把记录归一成对齐
+    CIDR,只有旧纪元或手搭库才会有),覆盖探测退回和查询接口一样的逐
+    前缀长探测。spamhaus 手搭库标记为嵌套,记 1.0.3.4→1.0.3.10(不对齐,
+    长度 7);binarydefense 在 1.0.3.5 有单地址记录(单元由此产生)。
+    lookup(1.0.3.5) 按 /30 探到对齐起点 1.0.3.4 取到 spamhaus 这条;扫描
+    的单元 1.0.3.5 必须与它同字节,anomalous_records 计 1。只探「按记录
+    长度算出的前缀长」时会算出 /29,对齐起点 1.0.3.0 ≠ 记录起点 1.0.3.4,
+    取不到(#444 评审 P2-1)。拆掉 _iter_family 的不对齐判定、或
+    find_covering 的 anomalous 分支即红。"""
+    ev = {"classification_type": "blacklist", "verdict": "malicious",
+          "reliability": 0.8}
+    data_dir = scan_env["insts"][0]._lmdb_base.parent
+    rng_src = _hand_build_nested(scan_env["proto"]["spamhaus"], data_dir,
+                                 [("1.0.3.4", "1.0.3.10", ev)])
+    sgl_src = _hand_build_nested(scan_env["proto"]["binarydefense"],
+                                 data_dir, [("1.0.3.5", "1.0.3.5", ev)])
+    insts = scan_env["insts"] + [rng_src, sgl_src]
+    monkeypatch.setattr(_registry, "_sources", insts)
+    _registry._enabled_cache["entry"] = None
+    _registry._loaded_cache["entry"] = None
+    for s in insts:
+        s.load()
+    want = _registry.lookup("1.0.3.5", asof=ASOF).to_dict()
+    want_text = orjson.dumps(want).decode()     # 前提:查询接口自己取到了
+    assert '"spamhaus"' in want_text and '"binarydefense"' in want_text
+    for s in insts:
+        s._reader = None
+        s._reader6 = None
+    with open_unit_scanner(sources=insts, asof=ASOF) as sc:
+        units = _collect(sc)
+        stats = dict(sc.stats)
+    assert orjson.dumps(units["1.0.3.5"].result.to_dict()) == \
+        orjson.dumps(want)
+    assert stats["anomalous_records"] == 1

@@ -3,6 +3,7 @@
 Usage:
   backend/.venv/bin/python backend/scripts/bench_scan.py \
       [--data-dir DIR] [--limit N] [--spill-dir DIR] [--asof EPOCH]
+      [--progress-every N]
 
 Prints ONE json line: unit counts (single/cidr, v4/v6), wall seconds,
 per-unit ms, read-vs-fuse phase split, peak RssAnon, scanner stats.
@@ -12,6 +13,8 @@ per-unit ms, read-vs-fuse phase split, peak RssAnon, scanner stats.
 phase_cidr_* 同理——融合与取数在同一次遍历里交错,分账按相位给,
 不是纯融合耗时);峰值 RssAnon 迭代中每 10 万单元采样一次
 (/proc/self/status),--limit 小样本时峰值近似启动基线。
+--progress-every N:每 N 个单元往 stderr 打一行 [progress](带 -u 跑时
+实时可见;生产机整库扫描要跑几十分钟到个把小时,没有进度行就只能盲等)。
 """
 import argparse
 import json
@@ -40,6 +43,8 @@ def main() -> int:
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--spill-dir", default=None)
     ap.add_argument("--asof", type=float, default=None)
+    ap.add_argument("--progress-every", type=int, default=0,
+                    help="每 N 个单元往 stderr 打一行进度(0=不打)")
     args = ap.parse_args()
 
     # data-dir 经环境变量进 _paths 的惰性解析——必须在首次 import ipdb 前
@@ -62,6 +67,10 @@ def main() -> int:
                 kb = _rss_anon_kb()
                 if kb is not None and peak_kb is not None:
                     peak_kb = max(peak_kb, kb)
+            if args.progress_every and n % args.progress_every == 0:
+                print(f"[progress] units={n} t={time.perf_counter() - t0:.1f}s "
+                      f"last={unit.ip} rss_anon_kb={_rss_anon_kb()}",
+                      file=sys.stderr, flush=True)
             if args.limit is not None and n >= args.limit:
                 break
         stats = json.loads(json.dumps(sc.stats))   # snapshot before close
@@ -84,6 +93,7 @@ def main() -> int:
         "records": stats.get("records", {}),
         "cidr_records": stats.get("cidr_records", {}),
         "skipped_anomalies": stats.get("skipped_anomalies"),
+        "anomalous_records": stats.get("anomalous_records"),
         "epochs": epochs,
     }
     print(json.dumps(out, ensure_ascii=False))
