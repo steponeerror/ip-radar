@@ -223,9 +223,9 @@ test("#430 SHORTLIST 第二次 empty_text 出口:两回合皆空文本 → attem
 // #430 评估记录:SHORTLIST postModelCall 花费帽红出口(④)在 faux 世界写不出诚实的 E2E,不钉。
 // 实测卡点(2026-11-24,/tmp/gate430/probe-cost.mjs):pi-ai fauxProvider 活路径自算 usage 且
 // cost 恒 0(罐装回合带 usage 只在 cloneMessage 回放面透传,活路径不读)→ 轮 usageNow.cost
-// 恒 0,OPS_DISCOVER_SPEND_CAP_CNY 帽永不红。诚实钉法=给 faux 模型定义带 cost 费率表(faux.js
-// definition.cost 面)或活路径透传罐装 usage——两者都碰「faux=零网络零花费」契约(run-discover.mjs
-// 头注),非夹具手术,按票面「要大改不硬做」不钉。
+// 恒 0,OPS_DISCOVER_SPEND_CAP_CNY 帽永不红。要钉得改 faux 活路径(pi-ai faux.js 把 cost 写死为 0、
+// 从不调 calculateCost,给模型定义带费率表也没用——评审 P2-4)或新增花费注入缝;两者都不是夹具
+// 手术,按票面「要大改不硬做」不钉。
 
 test("#430 G_SHORTLIST 红出口:罐装 quote 改写(非证据面逐字 span)→ GATE:SHORTLIST → 镜像 failed,stages=[SCAN]", async () => {
   const tree = tmpTree("v2-disc-gshort-");

@@ -165,9 +165,13 @@ function stopOutcome(input, ck, def) {
   // #415:停笔=completed 终态出口,镜像同写 done/停笔相位(CLOSE 出口同形;不造 CLOSE 名;
   // 盘上无件=以 fin.state 全形起底,重入=盘上件为底 updated_at 保盘值)
   // #430:补传 stages——崩溃恢复场景(前次失败镜像已落盘、终态 commit 前进程死)重入本出口
-  // 时,盘上件为底会把失败那刻的 stages 原样带回;显式传=以 checkpoint 已提交相位为准覆盖。
-  // updated_at 仍不传:终态镜像写不读时钟(#378,round-state.mjs 头注),读新时钟=重入重写
-  // 破字节级幂等;陈旧时间戳只落在这个罕见窗口,读面(daily-digest 加轮摘要读 status)不消费它。
+  // 时,盘上件为底会把失败那刻的 stages 原样带回;显式传=以本次运行的相位记录为准覆盖
+  // (停笔相位自己的那条记录与终态同笔写入;底稿里的 prompt_hashes 等其他字段仍是首次写时的值,
+  // 仓内没有读面)。重入不保证字节级一致:停笔在脚本相位时,该相位自己记录的 dur_ms 会重新
+  // 测量(评审 P2-1;仓内没有读面消费 stages[].dur_ms)。
+  // updated_at 仍不传:终态镜像写不读时钟(#408,round-state.mjs 头注),读新时钟=重入重写
+  // 破字节级幂等;陈旧时间戳只落在这个罕见窗口,仓内没有读面消费健康轮镜像的 updated_at
+  // (后端开机扫描只看 in_flight,日报只读加源轮)。
   writeTerminalRoundState(fin, { status: "done", stage: def.name, stages: fin.state.stages });
   return {
     status: "terminal",

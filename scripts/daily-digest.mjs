@@ -168,7 +168,7 @@ export function summarizeEvolveRound(envelope) {
 // → ok:null。running 态如实报,不算红(在跑/跨窗轮由 48h 终局补报带收口,P1-3)。
 // #430(监督者定口径,用户可推翻):aborted 也不算 ok——门全绿的中止轮此前被算绿(票面病);
 // 呈现面:renderDigest/collectRedItems 把中止轮单列「中止」行(不判红:中止=人为停,非失败
-// 证据);败闸照旧红(闸红是失败证据,不因中止灭失)。
+// 证据);败闸照旧红(闸红是失败证据,不因中止灭失);跨窗旧带同律(overdueRoundLines)。
 export function summarizeAddRound(roundId, state, gates) {
   const failed = Array.isArray(gates?.records)
     ? gates.records.filter((r) => r && r.pass === false).map((r) => r.name || r.stage || "?")
@@ -186,7 +186,7 @@ export function summarizeAddRound(roundId, state, gates) {
 
 // 跨窗旧轮(24h<龄≤48h,splitScanBands 旧带)终局补报(P1-3):昨窗在跑、窗后
 // 收口的轮,终局信封任何常规 24h 窗都读不到。ok:false=红(确定性失败,截窗不灭失);
-// 无信封/缺 gates=注记行(在跑或未收口,无证据≠清白但不猜红);ok:true=静默(绿不入
+// 无信封/缺 gates=注记行(在跑或未收口,无证据≠清白但不猜红);门全绿的中止轮=注记行(#430,与窗内同律);ok:true=静默(绿不入
 // 补报,行数帽留给红面)。face=红项前缀(服务器=""/演化轮/fleet,同 collectRedItems 律)。
 export function overdueRoundLines(face, rounds) {
   const reds = [];
@@ -197,7 +197,11 @@ export function overdueRoundLines(face, rounds) {
       (r.failed_gates?.length ? r.failed_gates.join("、") : null) ??
       (r.status ? `status=${r.status}` : null) ??
       "?";
-    if (r.ok === false) reds.push(`${face ? `${face} ` : ""}${r.round_id} 终局 !ok(${why})(跨窗补报)`);
+    // #430(评审 P1-1):门全绿的中止轮与窗内同律——进注记行,不进红项(改前旧带按 ok:false 出红,
+    // 推送文案还会说成「失败」);有没过的门的中止轮照旧红。
+    if (r.ok === false && r.status === "aborted" && !(r.failed_gates?.length))
+      notes.push(`${face ? `${face} ` : ""}${r.round_id} 已中止(没跑完,不算失败;要不要重跑请人工确认)(跨窗补报)`);
+    else if (r.ok === false) reds.push(`${face ? `${face} ` : ""}${r.round_id} 终局 !ok(${why})(跨窗补报)`);
     else if (r.ok === null) notes.push(`${face ? `${face} ` : ""}${r.round_id} 跨窗无信封(在跑或未收口,不判红)`);
   }
   return { reds, notes };
@@ -299,7 +303,7 @@ export function renderDigest({ dateLabel, server, local, reds }) {
     );
     // #430:中止轮单列一行(不判红:人为停非失败证据;不算绿:未跑完)。
     if (aborted.length)
-      lines.push(`- fleet add 中止 ${aborted.length} 轮:${aborted.map((r) => shortId(r.round_id)).join(" ")}(未跑完即停;不算绿;闸败的另在红项里)`);
+      lines.push(`- fleet add 中止 ${aborted.length} 轮:${aborted.map((r) => shortId(r.round_id)).join(" ")}(没跑完就被停了;不算绿;有没过的门的话另在红项里)`);
   }
   const localOd = [
     ...overdueRoundLines("演化轮", local.evolve?.overdue_rounds).notes,
@@ -490,7 +494,7 @@ export function renderDigestPush({ dateLabel, server, local, reds }) {
     );
     // #430:中止轮单列一行(大白话面;不判红不判绿,重跑与否交人裁)。
     if (aborted.length)
-      lines.push(`- 自动加源:有 ${aborted.length} 轮没跑完就被停了(${aborted.map((r) => plainClock(r.round_id)).join("、")};不算成功;闸败的已列进红项;要不要重跑请人工确认)`);
+      lines.push(`- 自动加源:有 ${aborted.length} 轮没跑完就被停了(${aborted.map((r) => plainClock(r.round_id)).join("、")};不算成功;有没过的门的话已经列进红项;要不要重跑请人工确认)`);
   }
   const localOd = [
     ...(local.evolve?.overdue_rounds ?? []).filter((r) => r.ok === null).map((r) => `${plainClock(r.round_id)}(演化)`),

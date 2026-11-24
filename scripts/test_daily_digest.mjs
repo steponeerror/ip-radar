@@ -184,6 +184,18 @@ test("renderDigest/collectRedItems/renderDigestPush:中止轮单列「中止」�
   const reds2 = collectRedItems({ server: greenServer(), local: local2 });
   assert.equal(reds2.length, 1);
   assert.match(reds2[0], /fleet 2026-11-20-1200-add !ok\(status=aborted;闸败:G_VERIFY\)/);
+  // 跨窗旧带同律(评审 P1-1:改前门全绿的中止轮次日会出一条假红项,推送文案还说成「失败」)
+  const od = overdueRoundLines("fleet", [
+    mk("2026-11-19-1100-add", "aborted", [], false),
+    mk("2026-11-19-1200-add", "aborted", ["G_VERIFY"], false),
+    mk("2026-11-19-1300-add", "failed", [], false),
+  ]);
+  assert.deepEqual(od.reds, [
+    "fleet 2026-11-19-1200-add 终局 !ok(G_VERIFY)(跨窗补报)",
+    "fleet 2026-11-19-1300-add 终局 !ok(status=failed)(跨窗补报)",
+  ], "门全绿的中止轮不进红项;有没过的门的中止轮和失败轮照旧红");
+  assert.equal(od.notes.length, 1);
+  assert.match(od.notes[0], /fleet 2026-11-19-1100-add 已中止/);
 });
 
 // —— 红项判定(两源合并)——

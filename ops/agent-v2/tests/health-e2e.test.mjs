@@ -458,7 +458,7 @@ test("#415 健康轮 toPhase 停笔终态:completed 出口写镜像 done,stage=�
 // 终态 commit 之前 → 恢复重跑走到成功出口时,writeTerminalRoundState 以盘上件为底,只传
 // status/stage 会把失败那刻的 stages 原样带回(终态件=done+CLOSE 但 stages 缺后段)。
 // 修法=两个成功出口(CLOSE/停笔)显式传 stages;updated_at 仍保盘值(终态镜像写不读时钟,
-// #378;写新时钟=重入重写字节漂移)。注入=直接落一份带失败 stages 的终态镜像(=崩溃窗口
+// #408;写新时钟=重入重写字节漂移)。注入=直接落一份带失败 stages 的终态镜像(=崩溃窗口
 // 留下的盘上状态),再走成功出口断言 stages 是新的。
 const STALE_MIRROR_AT = "2026-10-27T00:00:00.000Z";
 function seedStaleMirror(w, roundId) { // 前次失败出口已写的镜像形(#415 失败出口盘上形;终态 outcome 未落)
@@ -491,7 +491,7 @@ test("#430 崩溃恢复重入 CLOSE 成功出口:残留的失败 stages 被本�
       assert.deepEqual(mirror.stages.map((x) => x.name),
         ["TRIAGE", "DISPATCH", "DEEP", "ITEMIZE", "SYNTH", "ANCHOR_SWEEP", "RETRO", "CLOSE"],
         "#430:stages 以本次成功轮 checkpoint 为准(修前=盘上件为底,失败那刻的 [TRIAGE] 残留)");
-      assert.equal(mirror.updated_at, STALE_MIRROR_AT, "updated_at 保盘值:终态镜像写不读时钟(#378;读新时钟=重入重写破字节级幂等)");
+      assert.equal(mirror.updated_at, STALE_MIRROR_AT, "updated_at 保盘值:终态镜像写不读时钟(#408;读新时钟=重入重写破字节级幂等)");
     } finally { await harness.close(context); }
   } finally {
     await storage.close(context);

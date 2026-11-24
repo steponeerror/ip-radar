@@ -13,7 +13,7 @@
 //        [--crash-after-phase PHASE](SIGKILL 自杀面=resume 测试;任务内 crashHook 消费 env)
 //        OPS_V2_FAULT=budget_drift(仅测试环境设置;G_CLOSE 红注入缝=close 步后门前把
 //          09-budget.json 读数改成超帽;任务内 budgetDriftHook 消费 env,discover-round.mjs;
-//          生产 env 不设=零行为变化;登记补 #430 P3-5,与 crash-after-phase 同款现读不入档)
+//          生产 env 不设=零行为变化;登记补 #430 第 3 项,与 crash-after-phase 同款现读不入档)
 // 退出码:0=completed;1=failed/refused;2=用法错;3=运行期异常(ENVELOPE.md 冻结面)。
 import fs from "node:fs";
 import path from "node:path";

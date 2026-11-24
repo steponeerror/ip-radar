@@ -19,7 +19,8 @@
 //    (close 未成不造 CLOSE 名;discover/add 镜像无 stage 键=字段集稳定不加键)。
 //  - 幂等:updated_at 取盘上已有件的值(缺席=入参 ctx.state 的值),不写新时钟——
 //    崩溃落在终态写与终态 commit 之间重入时重写字节级不变(报告件「无时钟入文」
-//    同标准,round-report.mjs 头注)。
+//    同标准,round-report.mjs 头注)。例外(#430):健康轮停笔出口整份传 stages,重入时
+//    停笔相位自己记录的 dur_ms 会重测——该出口不承诺字节级一致,见 health-round.mjs stopOutcome。
 //  - 尽力写不掷错:终态镜像写败只注记不炸轮。与报告件 fail-loud(#403)反向的根由:
 //    v1 的 state.json 是真源(写败=真失败,fail loud);v2 真源=checkpoint 且终态 commit
 //    在镜像写之后——镜像写败把已成功的轮改判 failed 才是真话反转,镜像降级为 stderr
