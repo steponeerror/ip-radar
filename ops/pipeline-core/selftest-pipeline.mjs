@@ -1550,6 +1550,16 @@ await t("灰度开关退役(#412 终检):agent.mjs 对 OPS_PIPELINE 惰性(带 p
   assert.equal(envL.pipeline, undefined, "legacy 信封无 pipeline 扩展(现状零回归)");
 });
 
+await t("agent.mjs --fixtures 旗标值缺=用法错 exit 2,纯 stderr 不发 JSON(#434;不许静默回真面)", async () => {
+  const { main: agentMainFx } = await import("./agent.mjs");
+  const T3 = mkTree("tree-fx-novalue");
+  const ioF = mkIo();
+  const rcFx = await agentMainFx(["discover", "x", "--fixtures"], { env: T3.env, stdout: ioF.stdout, stderr: ioF.stderr });
+  assert.equal(rcFx, 2, "旗标值缺=用法错退出码 2");
+  assert.equal(ioF.buf.stdout.trim(), "", "用法错不发 JSON(stdout 空)");
+  assert.match(ioF.buf.stderr, /--fixtures DIR/, "用法行带新旗标");
+});
+
 await t("cron 草案 schema 校验(#167 交付③):错峰 04:00/8h+同 seam POST+鉴权矩阵注记+409 零排队语义", async () => {
   const doc = fs.readFileSync(path.join(AGENT, "..", "..", "deploy", "ops-cron.md"), "utf8");
   assert.match(doc, /0 4-23\/8 \* \* \*/, "crontab 行=04:00 起错峰(三小裁③)");

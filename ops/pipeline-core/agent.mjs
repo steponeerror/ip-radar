@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 // agent.mjs — pi-agent-core 会话式宿主(计划书 Task 4 终稿;ADR 0004)。
-// 用法: node ops/pipeline-core/agent.mjs <health|discover> "<本轮输入>" [追加判例检索词...]
+// 用法: node ops/pipeline-core/agent.mjs <health|discover> "<本轮输入>" [追加判例检索词...] [--fixtures DIR]
+//       (--fixtures DIR 仅测试环境设置,#434:显式 faux 模型面=pi-ai fauxProvider 罐装回合;DIR 值必填
+//       但不读——罐装回合内建于 fauxModelsBundle,与 pipeline.mjs 读 DIR 下的 fixture 文件不同,
+//       零网络零花费,守门 backend/tests/test_ops_output_contract.py 经桥 shim 对本宿主同带
+//       此旗标;旗标不在场=真 provider,argv 与行为一字不变)
 // (#412 后缺省消费方=桥的 discover 轮+e2e 会话面;健康轮生产路径=桥直连
 //  ops/pipeline-core/pipeline.mjs 状态机宿主,OPS_PIPELINE 灰度开关已退役)
 //
@@ -302,6 +306,23 @@ ${input}`;
     registry: [...host.registry.byCall].map(([id, r]) => ({ id, tool: r.tool, sc: r.sc })) };
 }
 
+// --fixtures faux 模型面(#434,仅测试环境设置):pi-ai fauxProvider 罐装回合,零网络零花费
+// (装配照 golden/run-golden.mjs 的 opts.models 注入同型;面选择语义照 pipeline.mjs --fixtures
+// =faux/selectModelFace 判例)。罐装文本自带「## 注入判例 / 无判例」零引用合法形——closureCheck
+// (铁律④)与 lib.sh verify_cited_precedents 对零引用都放行(cited=0;不造判例引用,无证据≠清白),
+// 轮次收口四件(台账/判例存在性/闭合校验/沙箱)与 CLOSE 写包路径同真面一字不变,只换模型面。
+async function fauxModelsBundle() {
+  const { fauxProvider, fauxAssistantMessage, fauxText, createModels } = await import("@earendil-works/pi-ai");
+  const faux = fauxProvider({ models: [{ id: "faux-fixtures" }] });
+  const models = createModels();
+  models.setProvider(faux.provider);
+  faux.setResponses([fauxAssistantMessage([fauxText(
+    "## 注入判例\n- 无判例(faux 罐装回合,零检索引用)\n\n"
+    + "## 本轮输出\nfaux-fixtures 罐装文本(--fixtures 显式 faux 模型面):不产候选不测数,"
+    + "本缝守护对象是 CLOSE 写包接线,轮内确定性读数见包尾宿主记录与信封。")])]);
+  return { models, resolve: () => faux.getModel() };
+}
+
 // ── 轮次信封序列化(GLOSSARY「轮次信封」锚点;成功/失败同形,stdout 单行 JSON+末尾换行)──
 function successEnvelope(round, r) {
   return {
@@ -324,17 +345,24 @@ export async function main(argv, io = {}) {
   const stdout = io.stdout ?? process.stdout;
   const stderr = io.stderr ?? process.stderr;
   const log = (...a) => stderr.write(a.join(" ") + "\n");
-  const [round, input, ...extra] = argv;
+  // --fixtures DIR(#434,仅测试环境设置):旗标在场=faux 模型面(fauxModelsBundle);旗标值缺=
+  // 用法错(宁响不猜,不许静默回真面);旗标不在场=io.models / loadModels 真 provider,
+  // 位置参数与行为一字不变。旗标在整份 argv 里找(测试缝的 shim 把它放在输入之前),所以有一个
+  // 退化输入:输入文本恰好就是字面量 --fixtures 时会被当成旗标,值缺即 exit 2——响亮失败、不花钱,
+  // 与 pipeline.mjs flag() 的 indexOf 是同一种局限(评审 4-2)。
+  const fxIdx = argv.indexOf("--fixtures");
+  const positional = fxIdx >= 0 ? [...argv.slice(0, fxIdx), ...argv.slice(fxIdx + 2)] : argv;
+  const [round, input, ...extra] = positional;
   // #412(ADR 0012 切流收尾):OPS_PIPELINE 灰度开关退役——health 轮委派 pipeline.mjs 的
   // 分支已删(生产健康轮由桥直连 spawn pipeline.mjs),本文件恒走会话式 runRound
   // (discover 缺省宿主+金轨迹例载具;残留 OPS_PIPELINE env 值不再分流,惰性无害)。
-  if (!round || input === undefined) { // 用法错:纯 stderr + exit 2,不发 JSON(机器契约只覆盖真轮次)
-    log('用法: node ops/pipeline-core/agent.mjs <health|discover> "<本轮输入>" [追加判例检索词...]');
+  if (!round || input === undefined || (fxIdx >= 0 && argv[fxIdx + 1] === undefined)) { // 用法错:纯 stderr + exit 2,不发 JSON(机器契约只覆盖真轮次)
+    log('用法: node ops/pipeline-core/agent.mjs <health|discover> "<本轮输入>" [追加判例检索词...] [--fixtures DIR]');
     return 2;
   }
   let r;
   try {
-    r = await runRound(round, input, extra, { models: io.models, env, stderr });
+    r = await runRound(round, input, extra, { models: fxIdx >= 0 ? await fauxModelsBundle() : io.models, env, stderr });
   } catch (e) {
     if (e?.usage) { log(e.message); return 2; } // #199 A2:旋钮非法=用法错 exit 2 纯 stderr(mkCtx 判例同形)
     log(`round 失败:${e.message}`);
