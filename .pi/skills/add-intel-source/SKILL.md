@@ -341,7 +341,7 @@ Three mechanisms explain why conventions 3 and 6 exist:
 
 - **Verdict is group-precedence, not source-chosen.** Within a classification group, fusion takes the most-severe verdict (`malicious > suspicious > benign > informational`) and flags `verdict_conflict` on disagreement. → Convention 6 is about avoiding conflict noise.
 - **Corroboration = ≥2 independent sources.** One source emitting multiple observations never self-corroborates. → Convention 3 is for evidence preservation, not for inflating corroboration.
-- **Confidence decays by `first_seen`.** `≤90d` unchanged → linear to 50% at 365d → 20% floor; anchored on the newest `first_seen` in the group. A missing `first_seen` skips decay. → `first_seen` moves the API confidence number; it is not just metadata.
+- **Confidence decays per evidence by its own `first_seen`.** Evidence coefficient = logit(r) × 2^(−age/60d) — exponential, no grace period, no floor; age = now − that evidence's own `first_seen` (half-life per type via `DECAY_OVERRIDES`, currently empty → every type uses `DEFAULT_HALF_LIFE_DAYS = 60`). A missing `first_seen` skips decay (factor 1.0). → `first_seen` moves the API confidence number; it is not just metadata. Anchors: `backend/ipdb/_logodds.py` (`DEFAULT_HALF_LIFE_DAYS`, `DECAY_OVERRIDES`, `coefficient`, `decay_factor`); GLOSSARY「衰减」.
   Decay reads **`first_seen` only** — the read path never consults `last_seen`. A feed whose timestamp is semantically "last observed" engages decay by double-writing `first_seen` = `last_seen` per row (house precedent: `reportedip.py`, `dataplane.py`).
 
 ## Non-negotiable conventions

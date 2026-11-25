@@ -2,7 +2,7 @@
 
 进程间契约 = 文件:EvalManager 子进程经 CLI --json 落
 {source}-{YYYYMMDD-HHMMSS}.json,本模块只读聚合。不加缓存
-(29 源 × 小 json,每请求扫目录可接受——spec 明示)。
+(登记源数 × 小 json,每请求扫目录可接受——spec 明示)。
 
 排序键 = (generated_at, 文件名):generated_at 是日粒度串(report.py
 实测),同日多报告靠文件名秒级时间戳分先后(T5 防覆盖修复的产物)。

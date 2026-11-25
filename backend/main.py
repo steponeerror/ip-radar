@@ -1085,7 +1085,7 @@ async def lookup_stix(request: Request, ip: str):
 async def list_sources_route():
     items = list_sources()
     # eval verdict 聚合(spec §5.2):agent 查目录一次拿到 健康+类别+权重+
-    # 最近考分;无报告 → null。不加缓存,29 源量级可接受。
+    # 最近考分;无报告 → null。不加缓存,登记源数量级可接受。
     # 2026-09-22 审计 F5:公开 SPA 已不渲染源目录页,收进 admin 面。
     _ev = {v["source"]: v for v in read_overview()}
     for it in items:

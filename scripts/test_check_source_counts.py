@@ -208,7 +208,9 @@ def test_missing_doc_file_fails_loud(tmp_path):
     shutil.copy(REPO / "backend/ipdb/_tokens.py",
                 root / "backend/ipdb/_tokens.py")
     for rel in csc.DOC_FILES:
-        shutil.copy(REPO / rel, root / rel)
+        dst = root / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)   # 子目录腿(svg/wazuh)需父目录
+        shutil.copy(REPO / rel, dst)
     (root / "CONTEXT.md").unlink()
     assert csc.main(["--root", str(root)]) == 1   # 扫描面收缩必须显式改闸,不许静默
 

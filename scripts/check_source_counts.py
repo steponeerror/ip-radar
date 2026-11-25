@@ -44,6 +44,8 @@ DOC_FILES = (
     "MANUAL.zh-CN.md",
     "CONTEXT.md",
     "GLOSSARY.md",   # 评审 P2-2:源底座条的活计数(登记总数口径)同属漂移面,入闸
+    "assets/social-preview.svg",   # #451:图字里的公开源总数(旧 29 漂移判例)
+    "integrations/wazuh/README.md",  # #451:集成文档口径同漂移面
 )
 
 # 英文/中文数词(文档里 keyed/keys 有拼写数词形态,如 "The seven keyed sources")
@@ -254,15 +256,24 @@ _CHECKS: tuple[tuple[str, re.Pattern, tuple[str, ...], str], ...] = (
     # GLOSSARY.md(源底座条的活计数,登记总数口径=含私有源,评审 P2-2)
     ("GLOSSARY.md", re.compile(r"全部 (\d+) 个源"), ("registered",),
      "登记源总数"),
+    # 子目录文档(fname=仓根相对路径;check_doc 按 rel 匹配,评审 P2 激活钉同读真档)
+    ("assets/social-preview.svg", re.compile(r"(\d+) sources, one verdict"),
+     ("public_total",), "公开源总数(social preview 图字,#451)"),
+    ("integrations/wazuh/README.md", re.compile(r"IPs: (\d+) fused feeds"),
+     ("public_total",), "公开源总数(wazuh 集成,#451)"),
 )
 
 
-def check_doc(path: Path, counts: dict) -> list[str]:
-    """单文档比对;返回错误串列表(file:line 前缀)。"""
+def check_doc(path: Path, counts: dict, rel: str | None = None) -> list[str]:
+    """单文档比对;返回错误串列表(file:line 前缀)。rel=仓根相对路径,供
+    子目录文档的按路径比对腿(fname 存「/」时只按 rel 匹配,不按文件名——
+    免得根级同名文档(README.md)误吃子目录腿或缺腿;缺省按文件名,兼容根级
+    旧腿与只传两参的旧调用面)。"""
     errors: list[str] = []
+    rel = rel or path.name
     lines = path.read_text(encoding="utf-8").splitlines()
     for fname, pattern, expects, what in _CHECKS:
-        if fname != path.name:
+        if fname != rel:
             continue
         for i, ln in enumerate(lines, 1):
             m = pattern.search(ln)
@@ -320,7 +331,7 @@ def main(argv: list[str] | None = None) -> int:
         if not p.exists():
             errors.append(f"{rel}: 扫描面文件缺失(比对面收缩须同步改本闸)")
             continue
-        errors += check_doc(p, counts)
+        errors += check_doc(p, counts, rel)
     if errors:
         print(f"[source-counts] RED — 文档源数字与登记表不符({len(errors)} 处):")
         for e in errors:

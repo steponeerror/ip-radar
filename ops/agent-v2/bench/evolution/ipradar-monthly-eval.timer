@@ -1,0 +1,14 @@
+# ipradar-monthly-eval.timer — 月轮评估排程件(2026-11-25 用户裁,重开决策 #6)
+# 每月 1 日 10:00(CST)触发;Persistent=true 补跑错过的拍(停机跨拍只补一拍);
+# 服务器侧健康轮 cron 在 CST 11 点起,错开一小时,不和它抢小机的磁盘与网络。
+
+[Unit]
+Description=ip-radar 月轮全量评估排程(每月 1 日)
+
+[Timer]
+OnCalendar=*-01 10:00
+Persistent=true
+RandomizedDelaySec=10min
+
+[Install]
+WantedBy=default.target

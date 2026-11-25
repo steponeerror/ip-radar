@@ -98,6 +98,10 @@ class OtxSource(Source):
     derived = True                        # 聚合器:谱系去重用(spec 2026-08-29 §3.3)
     provenance_tier = "C"                 # C=聚合派生(S21):社区 pulse 平台聚合
     authoritative_for = ()
+    # 载入期排除 infra_services curated 单址集(2026-11-25 #450:76.76.10.11
+    # ControlD 公共 DNS 被单源误列恶意,唯一指控人即 otx;与 dataplane 等
+    # 8 源同一开关,数据文件零改写,关 IP_RADAR_INFRA_NOISE_FILTER 重建即复原)
+    infra_noise_filter = True
 
     def __init__(self, data_dir):
         super().__init__(data_dir)

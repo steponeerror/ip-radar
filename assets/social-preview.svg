@@ -65,7 +65,7 @@
 
   <!-- wordmark -->
   <text x="600" y="316" font-family="DejaVu Sans, sans-serif" font-size="96" font-weight="bold" fill="url(#word)">IP Radar</text>
-  <text x="604" y="392" font-family="DejaVu Sans, sans-serif" font-size="34" fill="#94a3b8">Self-hosted threat intelligence · 29 sources, one verdict</text>
+  <text x="604" y="392" font-family="DejaVu Sans, sans-serif" font-size="34" fill="#94a3b8">Self-hosted threat intelligence · 70 sources, one verdict</text>
 
   <!-- corner brackets -->
   <g stroke="#22d3ee" stroke-width="2.5" stroke-linecap="round" opacity="0.5" fill="none">

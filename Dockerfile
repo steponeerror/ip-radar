@@ -65,7 +65,10 @@ COPY --from=opsagent /usr/local/bin/node /usr/local/bin/node
 COPY .gitignore ./.gitignore
 # 版本自描述:构建上下文含 .git(.dockerignore 已放行)
 COPY .git /app/.git
-RUN git describe --tags --always --dirty > /app/BUILD_VERSION 2>/dev/null || echo dev > /app/BUILD_VERSION
+# 版本串不带 --dirty:构建树天生不完整(.dockerignore 挡掉 frontend/、backend/tests/
+# 等受管文件),脏检查恒为真(线上曾恒显 -dirty 而服务器检出是干净的);生产部署
+# 恒为干净检出。版本串在下方 .git 被重建成单提交仓之前固化,不受那段影响。
+RUN git describe --tags --always > /app/BUILD_VERSION 2>/dev/null || echo dev > /app/BUILD_VERSION
 # P5 沙箱锚:.git 重建为镜像运行时快照仓。ops/pipeline-core/lib.sh sandbox_assert 每轮跑
 # `git status --porcelain -- backend/ frontend/`(红线:agent 零改数据面),而原样
 # COPY 进来的 .git 在镜像内必然两条路皆败:①CI 全量 checkout 的 .git 索引含
