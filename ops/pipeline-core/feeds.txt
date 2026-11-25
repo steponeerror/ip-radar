@@ -19,6 +19,11 @@
 # (cloud_ranges 微软段)、内嵌数据(infra_services)、自建本地件(honyport)、
 # 首页 / about / 文档 / 许可证页(旧清单的 docs.abuseipdb.com、
 # creativecommons.org、caida.org/catalog、github.com/proxyscrape 等)。
+#
+# 这条探测看得出什么(2026-11-26 从生产服务器对 120 行逐个读响应头):63 行带
+# Last-Modified,能判「冻结」;52 行 200 但不带这个头,读数恒为 NO-LM,只判「不可达」
+# ——raw.githubusercontent.com 的 38 行全在此列,echelonlabs.co 6 行也是;5 行对 HEAD 回
+# 403/405。也就是说 GitHub 托管的源上游停更,这里不会旗标(#456 记下,未解)。
 
 # ── 威胁黑名单:单文件/单端点源 ──────────────────────────────
 https://www.binarydefense.com/banlist.txt # binarydefense
@@ -84,7 +89,7 @@ https://lists.blocklist.de/lists/apache.txt # blocklist_de
 https://lists.blocklist.de/lists/strongips.txt # blocklist_de
 https://lists.blocklist.de/lists/all.txt # blocklist_de
 https://raw.githubusercontent.com/CriticalPathSecurity/Public-Intelligence-Feeds/master/cloudzy.txt # cloudzy
-https://echelonlabs.co/api/tag/block/admin-panel-hunt # echelon(61 标签收 6 代表,覆盖各分类族;全集见源 _SLUGS;单标签 200+空正文=当日无该类攻击的合法态,全空才算断供;探测只读头不读体,空体不旗标;2026-11-26 生产服务器实测可达)
+https://echelonlabs.co/api/tag/block/admin-panel-hunt # echelon(61 标签收 6 代表,覆盖各分类族;全集见源 _SLUGS;单标签 200+空正文=当日无该类攻击的合法态,全空才算断供;探测只读头不读体,空体不旗标;上游不发 Last-Modified,读数恒为 NO-LM,只判不可达;2026-11-26 生产服务器实测 6 行全 200)
 https://echelonlabs.co/api/tag/block/ssh-bruteforcer # echelon
 https://echelonlabs.co/api/tag/block/port-scan # echelon
 https://echelonlabs.co/api/tag/block/mirai-scanner # echelon
