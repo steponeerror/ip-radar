@@ -592,13 +592,15 @@ test("实现摘要形状:双文件+红绿双观察+stem 名;缺观察=拒(TDD �
   assert.equal(implementSummaryShape({ ...ok.summary, source_file: "" }).ok, false);
 });
 
-test("门命令集:真实面=逐源测试+source_infra+目录源审计三连(定案 8 GATE 行);faux 面=罐装清单", () => {
+test("门命令集:真实面=逐源测试+source_infra(跳过探测清单同步检查,#456)+目录源审计三连(定案 8 GATE 行);faux 面=罐装清单", () => {
   const real = gateCommandsFor({ stem: "sample_block_list", modelFace: "real", fixturesDir: null });
   assert.deepEqual(real.map((c) => c.args), [
     ["-m", "pytest", "tests/sources/test_sample_block_list.py", "-q"],
-    ["-m", "pytest", "tests/source_infra/", "-q"],
+    ["-m", "pytest", "tests/source_infra/", "-q", "--ignore=tests/source_infra/test_feeds_manifest_sync.py"],
     ["scripts/audit_lmdb_invariants.py"],
   ]);
+  // #456:只跳过探测清单的登记↔清单同步检查(轮内新源必然不在清单);清单由 add-lift.mjs 负责。
+  assert.deepEqual(real[1].args.filter((x) => x.startsWith("--ignore=")), ["--ignore=tests/source_infra/test_feeds_manifest_sync.py"]);
   assert.deepEqual(real.map((c) => c.cwd), ["backend", "backend", ""]);
   const faux = gateCommandsFor({ stem: "x", modelFace: "faux", fixturesDir: FIXTURES });
   assert.deepEqual(faux, JSON.parse(fs.readFileSync(path.join(FIXTURES, "gate.json"), "utf8")).commands);

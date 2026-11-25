@@ -116,6 +116,29 @@ export function bumpDiscoverySmokePin(text, { total, source, tag }) {
     (m, a, n, c, note) => `${a}${total}${c}${note} + ${tag} 手动 lift ${source} 接入 ${n}→${total})`, "发现冒烟计数钉");
 }
 
+// 探测清单钉同步(#456):ops/pipeline-core/feeds.txt 的数据行数变了 → 两处钉数按差值同步;没变=原样返回。
+// 清单行本身不由 lift 造(交接单 dossier.url 不一定是真实数据端点;多端点源要人选代表),由人进沙箱补;
+// runLift 在动任何文件之前先跑登记↔清单同步检查(backend/tests/source_infra/test_feeds_manifest_sync.py)。
+export const FEEDS_MANIFEST = "ops/pipeline-core/feeds.txt";
+export function countManifestLines(text) {
+  // 与 lib.sh extract_feed_urls / test_feeds_manifest_sync.py 同口径:^# 全注释行不算;# 前 URL 列去空白后为空不算
+  let n = 0;
+  for (const line of String(text).split("\n")) {
+    if (line.startsWith("#")) continue;
+    if (line.split("#")[0].trim() === "") continue;
+    n += 1;
+  }
+  return n;
+}
+export function bumpEfuBaseline(text, { delta }) {
+  if (delta === 0) return String(text);
+  return sub1(String(text), /(EFU_BASELINE=)(\d+)/, (m, a, n) => `${a}${Number(n) + delta}`, "selftest.sh EFU_BASELINE 钉");
+}
+export function bumpManifestPin(text, { delta }) {
+  if (delta === 0) return String(text);
+  return sub1(String(text), /(assert\.equal\(manifestN, )(\d+)(,)/, (m, a, n, c) => `${a}${Number(n) + delta}${c}`, "selftest-pipeline.mjs manifestN 钉");
+}
+
 // roster 快照行插入(test_metadata_derivation.py OLD_CATEGORIES/OLD_RELIABILITY;已在=幂等跳过)
 export function insertSnapshotRow(text, dictName, line) {
   const t = String(text);
@@ -138,7 +161,7 @@ export function changelogEntries({ source, dossier, roundId, stats, prNumber }) 
   return { zh, en };
 }
 
-export function composePrBody({ source, card = null, roundId, dossier, stats, gates, rosterTotal, universe, split, seats }) {
+export function composePrBody({ source, card = null, roundId, dossier, stats, gates, rosterTotal, universe, split, seats, feeds = null }) {
   return [
     `# add/${source} — 手动 lift(加源轮 ${roundId};#375 起 fleet 驱动器退役,由人跑 add-lift.mjs)`,
     "",
@@ -154,6 +177,7 @@ export function composePrBody({ source, card = null, roundId, dossier, stats, ga
     `CHANGELOG feed-add 条目;add-domain 基准解冻→重生成→复冻(universe ${universe.before}→${universe.after},种子不变);`,
     `rrsi 劈分同法(${split.before}→${split.after},heldout 席位 round(N×13/53)=${seats});roster 钉同步`,
     "(test_metadata_derivation 快照行 + 发现冒烟计数);roster 总数 " + `${rosterTotal.before}→${rosterTotal.after}。`,
+    ...(feeds ? [`探测清单 ${FEEDS_MANIFEST} 数据行 ${feeds.before}→${feeds.after}(#456;新源的代表端点行由人补进清单,lift 只同步两处钉数)。`] : []),
     "",
     `**门三连**:${gates.map((g) => `${g.name} ${g.pass ? "✅" : "❌"}`).join(" / ")}`,
     "",
@@ -240,6 +264,17 @@ export async function runLift({ sandbox, roundDir, fleetRoot, devRoot, python, s
     throw new LiftError("roster-diff", `新源 ${stem} 缺 category/reliability 声明(SOURCE_CATEGORIES/SOURCE_RELIABILITY)`);
   const keyed = JSON.parse(fs.readFileSync(path.join(sandbox, "ops", "agent-v2", "bench", "add-domain", "keyless-rules.json"), "utf8"))
     .keyless.some((e) => e.name === stem);
+  // 2b. 探测清单预检(#456):新源必须已在 ops/pipeline-core/feeds.txt 或测试文件的豁免表里。放在动任何文件
+  //     之前——红时沙箱原样未动,补好清单行重跑本脚本即可(第 3 步起不可重跑:计数钉会再加一次)。
+  //     不造清单行:交接单 dossier.url 不一定是真实数据端点(确认页/列表页),多端点源要人选代表。
+  try {
+    await exec(python, ["-m", "pytest", "tests/source_infra/test_feeds_manifest_sync.py", "-q", "-p", "no:cacheprovider"],
+      { cwd: path.join(sandbox, "backend"), timeout: 5 * 60_000, maxBuffer: 16 * 1024 * 1024 });
+  } catch (e) {
+    throw new LiftError("feeds-manifest", `新源 ${stem} 不在探测清单 ${FEEDS_MANIFEST},也不在豁免表。补法:读该源 download() 取匿名可取的`
+      + `真实数据端点,在清单加一行「<URL> # ${stem}」(匿名探不到就在 backend/tests/source_infra/test_feeds_manifest_sync.py 的豁免表登记并写原因),`
+      + `然后重跑 add-lift。检查尾 30 行:\n${tailOf(`${e.stdout ?? ""}\n${e.stderr ?? ""}`, 30)}`);
+  }
   // 3. 文档三件
   const edit = (rel, fn, what) => {
     const p = path.join(sandbox, rel);
@@ -289,6 +324,13 @@ export async function runLift({ sandbox, roundDir, fleetRoot, devRoot, python, s
   edit("backend/tests/core/test_metadata_derivation.py", (t) => insertSnapshotRow(insertSnapshotRow(t, "OLD_CATEGORIES",
     `    "${stem}": "${meta.category}",   # ${tag} 手动 lift`) , "OLD_RELIABILITY",
     `    "${stem}": ${meta.reliability},   # ${tag} 手动 lift`), "metadata 快照行");
+  // 5b. 探测清单行数钉(#456):清单数据行数相对基线变了(第 2b 步已保证人在沙箱补过行)→ 两处钉数按差值同步
+  const feeds = {
+    before: countManifestLines(fs.readFileSync(path.join(fleetRoot, FEEDS_MANIFEST), "utf8")),
+    after: countManifestLines(fs.readFileSync(path.join(sandbox, FEEDS_MANIFEST), "utf8")),
+  };
+  edit("ops/pipeline-core/selftest.sh", (t) => bumpEfuBaseline(t, { delta: feeds.after - feeds.before }), `selftest 清单行数钉 ${feeds.before}→${feeds.after}`);
+  edit("ops/pipeline-core/selftest-pipeline.mjs", (t) => bumpManifestPin(t, { delta: feeds.after - feeds.before }), `selftest-pipeline 清单行数钉 ${feeds.before}→${feeds.after}`);
   // 6. lift commit。提交人=执行者自己的 git 身份(#437:原先用 -c 项写死驱动器身份的 user.email / user.name,
   // 手动 lift 由人跑,没有驱动器身份可冒——执行者 git 未配身份时 git 在此报错=如实,不代填)
   await git(sandbox, ["add", "-A"]);
@@ -327,14 +369,14 @@ export async function runLift({ sandbox, roundDir, fleetRoot, devRoot, python, s
   const branch = await git(sandbox, ["rev-parse", "--abbrev-ref", "HEAD"]);
   await git(sandbox, ["push", "-u", "origin", branch], { timeoutMs: 300_000 });
   const stats = { model_calls: stats9?.model_calls ?? 0, ...envelopeUsage(roundDir), wall_s: stats9?.wall_s ?? 0 };
-  const body = composePrBody({ source: stem, card: source, roundId, dossier, stats, gates: gateResults.map((g) => ({ name: g.name, pass: g.pass })), rosterTotal, universe: { before: uniBefore.total, after: uniAfter.total }, split: { before: splitBefore.total, after: splitAfter.total }, seats });
+  const body = composePrBody({ source: stem, card: source, roundId, dossier, stats, gates: gateResults.map((g) => ({ name: g.name, pass: g.pass })), rosterTotal, universe: { before: uniBefore.total, after: uniAfter.total }, split: { before: splitBefore.total, after: splitAfter.total }, seats, feeds });
   const bodyFile = path.join(devRoot, `${roundId}-pr-body.md`);
   fs.mkdirSync(path.dirname(bodyFile), { recursive: true });
   fs.writeFileSync(bodyFile, body);
   const prUrl = await exec("gh", ["pr", "create", "--draft", "--repo", "steponeerror/ip-radar", "--base", "master", "--head", branch,
     "--title", `add/${stem}`, "--body-file", bodyFile], { timeout: 120_000, maxBuffer: 1024 * 1024 });
   const prNumber = (prUrl.stdout.trim().match(/\/pull\/(\d+)/) ?? [])[1] ?? null;
-  return { pr: prUrl.stdout.trim(), prNumber, branch, rosterTotal, universe: { before: uniBefore.total, after: uniAfter.total }, split: { before: splitBefore.total, after: splitAfter.total }, gates: gateResults, stats, dossier };
+  return { pr: prUrl.stdout.trim(), prNumber, branch, rosterTotal, feeds, universe: { before: uniBefore.total, after: uniAfter.total }, split: { before: splitBefore.total, after: splitAfter.total }, gates: gateResults, stats, dossier };
 }
 
 function envelopeUsage(roundDir) {

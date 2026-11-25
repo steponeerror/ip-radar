@@ -10,18 +10,24 @@
 # 漏更由 backend/tests/source_infra/test_feeds_manifest_sync.py 双向同步门拦
 # 下,#456)。
 # 行格式:<URL> # <source_name>(行内 # 后为标源注释,解析只取首词列);
+# 多端点源(一个源几十个下载地址的)只收代表、不超过 10 行,行尾注明全集在源
+# 模块的哪个常量里(echelon、scanner_ranges 是先例)。
+# 自动加源流程:加源轮的门不看这条同步检查(清单行不由轮内模型写),
+# add-lift.mjs 在提交前跑它并按清单行数的变化同步两处钉数;人工开的 PR
+# 由 CI 拦(#456)。
 # ^# 全注释行 = 分组头。解析方 = lib.sh extract_feed_urls。
 #
 # 刻意不收录(反面形状,勿经清单再引入):已登记源的逐源豁免(源名→缘由)
 # 机读化于 backend/tests/source_infra/test_feeds_manifest_sync.py 的 EXEMPT
 # 表(#456);速记形:auth-key 路径段(threatfox/urlhaus)、{token} 模板
 # (ip2proxy/ipinfo_lite)、月度滚动 URL(dbip_city)、下载确认页/运行时解析
-# (cloud_ranges 微软段)、内嵌数据(infra_services)、自建本地件(honyport)、
+# (cloud_ranges 微软段——只是段不收,源本身在清单)、内嵌数据(infra_services)、自建本地件(honyport)、
 # 首页 / about / 文档 / 许可证页(旧清单的 docs.abuseipdb.com、
 # creativecommons.org、caida.org/catalog、github.com/proxyscrape 等)。
 #
 # 这条探测看得出什么(2026-11-26 从生产服务器对 120 行逐个读响应头):63 行带
-# Last-Modified,能判「冻结」;52 行 200 但不带这个头,读数恒为 NO-LM,只判「不可达」
+# Last-Modified,能判「冻结」(只发 HEAD 的读数;探测步遇到 ≥400 会回落
+# 再发一次 GET Range,所以 63 是下界);52 行 200 但不带这个头,读数恒为 NO-LM,只判「不可达」
 # ——raw.githubusercontent.com 的 38 行全在此列,echelonlabs.co 6 行也是;5 行对 HEAD 回
 # 403/405。也就是说 GitHub 托管的源上游停更,这里不会旗标(#456 记下,未解)。
 
@@ -48,7 +54,7 @@ https://threatcluster.io/api/iocs/public/feed.csv # threatcluster
 https://raw.githubusercontent.com/0xDanielLopez/TweetFeed/master/year.csv # tweetfeed
 https://raw.githubusercontent.com/drb-ra/C2IntelFeeds/master/feeds/IPC2s-30day.csv # drb_ra
 https://raw.githubusercontent.com/ShadowWhisperer/IPs/master/Lists/Scanners.csv # sw_scanners
-https://raw.githubusercontent.com/MISP/misp-warninglists/main/lists/shodan-scanning/list.json # scanner_ranges(66 路 MISP 共模板收 5 头部厂商代表,全 67 路见源 _MISP_LISTS;Xpanse 段官方页直读;2026-11-26 实测可达)
+https://raw.githubusercontent.com/MISP/misp-warninglists/main/lists/shodan-scanning/list.json # scanner_ranges(66 路 MISP 共模板收 5 头部厂商代表,全 67 路见源 _FEEDS(66 路 MISP)+ Xpanse 段;Xpanse 段官方页直读;2026-11-26 实测可达)
 https://raw.githubusercontent.com/MISP/misp-warninglists/main/lists/censys-scanning/list.json # scanner_ranges
 https://raw.githubusercontent.com/MISP/misp-warninglists/main/lists/rapid7-scanning/list.json # scanner_ranges
 https://raw.githubusercontent.com/MISP/misp-warninglists/main/lists/zoomeye-scanning/list.json # scanner_ranges
