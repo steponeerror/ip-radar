@@ -200,7 +200,8 @@ def observed_interval_h(source: str, now: float,
     min_interval_s(#455):间隔下限(秒),小于它的间隔不参与中位数——
     重建风暴期密集重写留下的 1-2h 短间隔会把中位数拉低(生产实测
     iptoasn 20 条事件 12 条仅 1-2.5h);调用方传 stale_days×86400/4
-    (声明周期的四分之一,NEEDS.md 三洞行),过滤后不足 5 个间隔 →
+    (声明周期的四分之一,NEEDS.md 三洞行),过滤后不足 4 个间隔
+    (4 个间隔 = 5 个事件,与上面「事件 <5 → None」同一把尺)→
     None(回退声明线)。None = 不过滤,既有调用/测试位等价。告警
     (evaluate)与 /api/sources(_registry._source_info)同口径。
 
@@ -219,7 +220,7 @@ def observed_interval_h(source: str, now: float,
     gaps = sorted(b - a for a, b in zip(ats, ats[1:]))
     if min_interval_s is not None:
         gaps = [g for g in gaps if g >= min_interval_s]
-        if len(gaps) < _MIN_EVENTS:
+        if len(gaps) < _MIN_EVENTS - 1:   # 4 个间隔 = 5 个事件,同一把尺
             return None
     n = len(gaps)
     mid = n // 2

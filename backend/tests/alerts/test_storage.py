@@ -253,10 +253,25 @@ def test_median_all_intervals_below_floor_none(alerts_db):
         "otx", now=5 * 3600, min_interval_s=6 * 3600) is None
 
 
-def test_median_filtered_below_five_gaps_none(alerts_db):
-    # 过滤后不足 5 个间隔 → None(即便无过滤时事件数够、中位数能算)
+def test_median_filtered_below_four_gaps_none(alerts_db):
+    # 过滤后不足 4 个间隔(= 不足 5 个事件)→ None(即便无过滤时事件数够、
+    # 中位数能算)
     from ipdb import _alerts
     for h in (0, 1, 2, 3, 24, 48, 72):
         _alerts.record_event("otx", at=float(h) * 3600)
     assert _alerts.observed_interval_h(
         "otx", now=72 * 3600, min_interval_s=6 * 3600) is None
+
+
+def test_median_filtered_four_surviving_gaps_still_read(alerts_db):
+    # 回归钉(2026-11-26 评审前自查):恰好 5 个事件、间隔全部过得了下限 →
+    # 读数保留(4 个间隔与「事件 ≥5」同一把尺)。首版把门槛误写成「5 个
+    # 间隔」,生产账本里 protonvpn/nordvpn/cdn_edges/rir_abuse 四个周更源
+    # 会从约 168h 变成 None、告警线从约 672h 缩到 168h。
+    from ipdb import _alerts
+    for h in (0, 168, 336, 504, 972):
+        _alerts.record_event("otx", at=float(h) * 3600)
+    assert _alerts.observed_interval_h(
+        "otx", now=972 * 3600, min_interval_s=42 * 3600) == pytest.approx(168.0)
+    # 带下限与不带下限读数相同:没有风暴的源不受影响
+    assert _alerts.observed_interval_h("otx", now=972 * 3600) == pytest.approx(168.0)
