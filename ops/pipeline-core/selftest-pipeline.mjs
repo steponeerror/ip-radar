@@ -1159,9 +1159,9 @@ await t("位等价门(#163):同 stub 下 legacy health 轮工件 = 管线 PROBE 
   assert.ok(Buffer.compare(tsvA, tsvB) === 0, `TSV 位等价破口:legacy ${tsvA.length}B vs 管线 ${tsvB.length}B`);
   const mA = fs.readFileSync(legacyMatrix), mB = fs.readFileSync(path.join(d, "01-probe-matrix.json"));
   assert.ok(Buffer.compare(mA, mB) === 0, `matrix 位等价破口:legacy ${mA.length}B vs 管线 ${mB.length}B`);
-  // 清单事实层钉住:97 URL 固定 fixture(清单变更须同步本例,feedfix #168 基线;2026-11-03 源 peeringdb 下线 101→98;2026-11-22 撤源 sblam 98→97,#402)
+  // 清单事实层钉住:120 URL 固定 fixture(清单变更须同步本例,feedfix #168 基线;2026-11-03 源 peeringdb 下线 101→98;2026-11-22 撤源 sblam 98→97,#402;2026-11-26 补 12 源 97→120,#456)
   const manifestN = +(await execFileP("bash", ["-c", `. "${path.join(AGENT, "lib.sh")}"; extract_feed_urls | wc -l`])).stdout.trim();
-  assert.equal(manifestN, 97, `feeds.txt 清单 URL 数=${manifestN}(固定 fixture,变更须同步本例)`);
+  assert.equal(manifestN, 120, `feeds.txt 清单 URL 数=${manifestN}(固定 fixture,变更须同步本例)`);
   const summary = j(path.join(d, "01-probe-summary.json"));
   assert.equal(summary.urls_n, manifestN);
   assert.equal(tsvB.toString().trimEnd().split("\n").length, manifestN, "TSV 行数=清单 URL 数");
