@@ -1,8 +1,13 @@
 # backend/ipdb/_alerts.py — 源活性告警:存储层 + 节奏计算 + 判定状态机 + 推送出口(Task 1-4)
 """update_events 事件表、节奏推导与 evaluate 状态机(stdlib sqlite3 同步,每次操作新连接)。
 
-事件历史恒开,与通知无关(约束 2):scheduler 每见内容更新就 record_event,
-observed_interval_h 用近 90 天相邻间隔中位数回答"该源平时多久更一次"。
+事件历史恒开,与通知无关(约束 2):scheduler 每轮扫描按数据文件 mtime 对
+水位(#455 source_watermark 表)经 observe_update 记账——「更新」的含义是
+「数据文件被成功重写」(下载每次都重写文件,_download.py 的 os.replace;
+上游内容没变也会留下记录),这张账量「刷新管道通不通」,量不出「上游冻结」
+(后者只有运营健康轮的探测清单 ops/pipeline-core/feeds.txt 在看);
+observed_interval_h 用近 90 天相邻间隔中位数回答"该源平时多久更一次"
+(#455 起不计短于声明周期 1/4 的间隔——重建风暴密集重写留下的短间隔)。
 evaluate 消费 scheduler 每轮快照,per (source, condition) 推进 alert_state
 (转入/24h 重发/恢复/静默清理)并组装合并消息(约束 4/6,中文硬编码)。
 IP_RADAR_ALERTS_DB 可覆盖 db 路径(测试逐用例隔离);缺省落在 _paths
@@ -52,6 +57,8 @@ CREATE TABLE IF NOT EXISTS alert_state (
   source TEXT NOT NULL, condition TEXT NOT NULL,   -- 'stale' | 'fail' | 'reader'
   active_since REAL NOT NULL, last_notified REAL NOT NULL,
   PRIMARY KEY (source, condition));
+CREATE TABLE IF NOT EXISTS source_watermark (
+  source TEXT PRIMARY KEY, mtime REAL NOT NULL);  -- #455:已记账的文件 mtime 水位
 """
 
 
@@ -110,7 +117,11 @@ def _connect() -> sqlite3.Connection:
 
 
 def record_event(source: str, at: float, record_count: int | None = None) -> None:
-    """记一次源内容更新;record_count 缺省 NULL(种子事件无计数)。"""
+    """记一次源内容更新;record_count 缺省 NULL(种子事件无计数)。
+
+    「更新」= 数据文件被成功重写(见模块头注),不是「上游内容变了」;
+    调度路径的记账统一走 observe_update(#455),本函数是存储原语
+    (测试造历史用)。"""
     with closing(_connect()) as conn, conn:
         conn.execute(
             "INSERT INTO update_events (source, at, record_count)"
@@ -120,8 +131,9 @@ def record_event(source: str, at: float, record_count: int | None = None) -> Non
 
 
 def event_count(source: str) -> int:
-    """该源 update_events 行数。scheduler 种子判定用:0 = 从未观测到
-    此源的内容更新(prune 清空后回到 0,重扫时按当前 mtime 重种)。"""
+    """该源 update_events 行数(存储只读访问面)。#455 起种子判定并入
+    observe_update(零事件 + 零水位 → 按当前 mtime 种),调度路径不再
+    调本函数。"""
     with closing(_connect()) as conn:
         (n,) = conn.execute(
             "SELECT COUNT(*) FROM update_events WHERE source = ?",
@@ -129,8 +141,68 @@ def event_count(source: str) -> int:
     return n
 
 
-def observed_interval_h(source: str, now: float) -> float | None:
+def observe_update(source: str, mtime: float,
+                   record_count: int | None = None) -> bool:
+    """内容更新事件记账唯一入口(#455):比水位新才记,同一文件版本至多一条。
+
+    调用方 = scheduler 每轮扫描,对每个启用源用 _read_mtime 比一次;谁触发
+    的落盘都算(调度器任务、页面手动/批量、冷启动建库、脚本)——本函数不
+    关心谁来写文件,只认「文件 mtime 比上次记过的新」这一事实。水位存
+    source_watermark 表(alerts.db),进程重启不丢。种子逻辑并入:原
+    「事件零行 → 按 mtime 种一条」改为「零水位 + 零事件 → 按 mtime 种」。
+
+    - 无水位行:update_events 也是 0 行 → 按 mtime 记一条种子事件
+      (record_count=NULL,原种子逻辑);然后写入水位。存量库(有事件
+      历史、水位表刚建)首扫只写水位不补种——存量事件已代表当时落盘,
+      下一次文件前进起恢复记账。
+    - 有水位行且 mtime > 水位:记一条事件,`at` 用文件自己的修改时间
+      (不是扫描时刻——文件什么时候被写,事件就落在什么时候);
+      record_count 由调用方尽力取 source.health().record_count(取不到
+      传 None);水位推进。返回 True(记了一条)。
+    - mtime <= 水位(相等或往回退):什么都不做,水位不下调(时钟回拨/
+      旧文件搬回不产生假事件)。返回 False。
+
+    异常约定照调度侧兜错注释的原样:sqlite 故障向上抛,由调用方的
+    try/except 只记日志——告警侧故障不碰调度逻辑。
+    """
+    with closing(_connect()) as conn, conn:
+        row = conn.execute(
+            "SELECT mtime FROM source_watermark WHERE source = ?",
+            (source,)).fetchone()
+        recorded = False
+        if row is None:
+            (n,) = conn.execute(
+                "SELECT COUNT(*) FROM update_events WHERE source = ?",
+                (source,)).fetchone()
+            if n == 0:  # 种子:首次观测到此内容(原调度器种子逻辑)
+                conn.execute(
+                    "INSERT INTO update_events (source, at, record_count)"
+                    " VALUES (?, ?, NULL)", (source, mtime))
+                recorded = True
+            conn.execute(
+                "INSERT INTO source_watermark (source, mtime) VALUES (?, ?)",
+                (source, mtime))
+        elif mtime > row[0]:
+            conn.execute(
+                "INSERT INTO update_events (source, at, record_count)"
+                " VALUES (?, ?, ?)", (source, mtime, record_count))
+            conn.execute(
+                "UPDATE source_watermark SET mtime = ? WHERE source = ?",
+                (mtime, source))
+            recorded = True
+        return recorded
+
+
+def observed_interval_h(source: str, now: float,
+                        min_interval_s: float | None = None) -> float | None:
     """近 90 天窗口内相邻事件间隔中位数(小时);事件 <5 → None。
+
+    min_interval_s(#455):间隔下限(秒),小于它的间隔不参与中位数——
+    重建风暴期密集重写留下的 1-2h 短间隔会把中位数拉低(生产实测
+    iptoasn 20 条事件 12 条仅 1-2.5h);调用方传 stale_days×86400/4
+    (声明周期的四分之一,NEEDS.md 三洞行),过滤后不足 5 个间隔 →
+    None(回退声明线)。None = 不过滤,既有调用/测试位等价。告警
+    (evaluate)与 /api/sources(_registry._source_info)同口径。
 
     窗口下界 at >= now-90d 与 prune 的 at < now-90d 互补:事件不会一边
     计入节奏一边被清掉。
@@ -145,6 +217,10 @@ def observed_interval_h(source: str, now: float) -> float | None:
     if len(ats) < _MIN_EVENTS:
         return None
     gaps = sorted(b - a for a, b in zip(ats, ats[1:]))
+    if min_interval_s is not None:
+        gaps = [g for g in gaps if g >= min_interval_s]
+        if len(gaps) < _MIN_EVENTS:
+            return None
     n = len(gaps)
     mid = n // 2
     median_s = gaps[mid] if n % 2 else (gaps[mid - 1] + gaps[mid]) / 2
@@ -280,8 +356,10 @@ def evaluate(snapshots: list[dict], now: float,
             stale_days = snap["stale_days"]
             age_h = snap.get("content_age_h")
             fail_count = snap.get("fail_count", 0)
-            # observed 走独立只读连接:本连接此刻未开写事务,互不阻塞
-            observed = observed_interval_h(name, now)
+            # observed 走独立只读连接:本连接此刻未开写事务,互不阻塞;
+            # #455:中位数不计短于声明周期 1/4 的间隔(与 /api/sources 同口径)
+            observed = observed_interval_h(
+                name, now, min_interval_s=stale_days * 86400 / 4)
             thr = stall_threshold_h(stale_days, observed)
 
             counted = set()  # 本源本轮计入消息的条件

@@ -1,10 +1,12 @@
 # backend/tests/alerts/test_scheduler_hook.py — Task 4:scheduler 挂钩
-"""RefreshScheduler ↔ _alerts 接通:种子事件、内容变化事件、快照/评估/推送。
+"""RefreshScheduler ↔ _alerts 接通:内容更新事件记账(#455 observe_update)、快照/评估/推送。
 
 循 tests/core/test_scheduler.py 的 fake manager + 真实 tmp 文件源模式
 (scan() 直调,无线程)。db 经 IP_RADAR_ALERTS_DB 指 tmp(顶层 conftest
 的 autouse 已兜底;本文件 alerts_db 再显式钉同一路径),直读 sqlite 断言
-update_events 落库形状(种子 record_count NULL、reconcile 带 health 计数)。
+update_events 落库形状(种子 record_count NULL、前进事件 at=文件 mtime 带
+health 计数)。#455 起记账收到 scan() 开头的 observe_update(水位落库):
+谁触发的落盘都算、at 用文件修改时间、重启不丢不重记、mtime 回退不记。
 消息字面以 Task 2 报告裁决为准(None-age → 「从未」)。
 """
 import logging
@@ -127,11 +129,11 @@ def _alert_state(db):
             " ORDER BY source, condition").fetchall()
 
 
-# ── 种子事件 ──
+# ── 种子事件(#455:并入 observe_update,零水位+零事件 → 按 mtime 种)──
 
 def test_seed_event_first_scan_and_no_duplicate(alerts_db, tmp_path):
     """种子:源有 mtime 且事件表零行 → 落 (name, mtime, NULL)
-    (=首次观测到此内容);再扫 mtime 未变、事件非零 → 不重复种。"""
+    (=首次观测到此内容);再扫 mtime 未变、水位同值 → 不重复种。"""
     src = _make_src("x", tmp_path, mtime=OLD)
     sch, mgr = _make_scheduler([src])
     sch.scan(now=NOW)
@@ -152,32 +154,104 @@ def test_seed_skipped_when_no_mtime(alerts_db, tmp_path):
 
 def test_seed_failure_does_not_block_scheduling(
         alerts_db, tmp_path, monkeypatch, caplog):
-    """record_event 抛异常 → 独立兜错只 log,该源本轮调度照常入队。"""
+    """observe_update 抛异常 → 独立兜错只 log,该源本轮调度照常入队。"""
     from ipdb import _alerts
     src = _make_src("x", tmp_path, mtime=OLD)
     sch, mgr = _make_scheduler([src])
 
-    def boom(source, at, record_count=None):
-        raise RuntimeError("seed boom")
+    def boom(source, mtime, record_count=None):
+        raise RuntimeError("observe boom")
 
-    monkeypatch.setattr(_alerts, "record_event", boom)
+    monkeypatch.setattr(_alerts, "observe_update", boom)
     with caplog.at_level(logging.ERROR):
         sch.scan(now=NOW)             # must not raise
     assert mgr.enqueued == ["x"]
 
 
-# ── 内容变化事件(reconcile mtime 前进分支)──
+# ── 内容变化事件(#455:记账只认文件事实,谁触发的落盘都算)──
 
 def test_content_change_records_event_with_record_count(alerts_db, tmp_path):
-    """mtime 前进(内容变化被 reconcile 确认)→ record_event(at=now,
-    record_count=health().record_count);首轮种子保留为第一条,不双记。"""
+    """mtime 前进(调度器自己的任务落地)→ 下轮扫描 observe_update 记一条,
+    at=文件修改时间(不是扫描时刻),record_count 取 health()。"""
     src = _make_src("x", tmp_path, mtime=OLD, record_count=4242)
     sch, mgr = _make_scheduler([src])
     sch.scan(now=NOW)                 # 种子 + 入队 t0
     src.set_mtime(NOW + 100.0)        # download 落地:文件被改写
-    sch.scan(now=NOW + 1000.0)        # reconcile:mtime 前进 → 落事件
+    sch.scan(now=NOW + 1000.0)        # 观察:mtime > 水位 → 落事件
     assert _events(alerts_db) == [
-        ("x", OLD, None), ("x", NOW + 1000.0, 4242)]
+        ("x", OLD, None), ("x", NOW + 100.0, 4242)]
+
+
+def test_external_rewrite_recorded_next_scan_at_file_mtime(
+        alerts_db, tmp_path):
+    """#455 验收:文件在调度器之外被重写(无任务在途;页面手动/脚本触发
+    同形)→ 下一轮扫描后 update_events 多一条,at 等于文件 mtime。"""
+    src = _make_src("x", tmp_path, mtime=OLD, record_count=7)
+    sch, mgr = _make_scheduler([src])
+    sch.scan(now=NOW)
+    assert _events(alerts_db) == [("x", OLD, None)]
+    src._path.write_text("y")         # 外部落盘(mtime 随之前进,再钉准)
+    src.set_mtime(NOW + 500.0)
+    sch.scan(now=NOW + 600.0)         # 无任务在途,纯扫描观察
+    assert _events(alerts_db) == [
+        ("x", OLD, None), ("x", NOW + 500.0, 7)]
+
+
+def test_restart_same_db_no_rerecord_and_catches_up(
+        alerts_db, tmp_path):
+    """#455 验收:重启不丢、不重记——新建调度器实例指向同一 alerts.db,
+    同一 mtime 不再记;停机期间落下的新文件在第一轮扫描补记一条。"""
+    src = _make_src("x", tmp_path, mtime=OLD, record_count=3)
+    sch1, _ = _make_scheduler([src])
+    sch1.scan(now=NOW)                # 种子 (x, OLD)
+    src.set_mtime(NOW + 100.0)        # 停机期间文件被重写
+    src._record_count = 99            # 新内容计数(health() 取新值)
+    sch2, _ = _make_scheduler([src])  # 「重启」:全新实例,同一 alerts.db
+    sch2.scan(now=NOW + 200.0)
+    assert _events(alerts_db) == [
+        ("x", OLD, None), ("x", NOW + 100.0, 99)]   # 恰补一条,at=文件 mtime
+    sch2.scan(now=NOW + 300.0)        # 同一 mtime 不重记
+    assert _events(alerts_db) == [
+        ("x", OLD, None), ("x", NOW + 100.0, 99)]
+
+
+def test_mtime_regress_ignored_watermark_never_moves_back(
+        alerts_db, tmp_path):
+    """#455 验收:mtime 往回退不记、水位不下调;回退后再前进到仍低于旧
+    水位 → 不记;超过旧水位 → 记。"""
+    src = _make_src("x", tmp_path, mtime=OLD, record_count=1)
+    sch, _ = _make_scheduler([src])
+    sch.scan(now=NOW)                          # 水位=种子=OLD
+    src.set_mtime(OLD - 100.0)                 # 往回退(旧文件搬回/时钟回拨)
+    sch.scan(now=NOW + 60.0)
+    assert _events(alerts_db) == [("x", OLD, None)]
+    src.set_mtime(OLD - 50.0)                  # 仍低于旧水位:不记
+    sch.scan(now=NOW + 120.0)
+    assert _events(alerts_db) == [("x", OLD, None)]
+    src.set_mtime(OLD + 100.0)                 # 超过旧水位:记
+    sch.scan(now=NOW + 180.0)
+    assert _events(alerts_db) == [
+        ("x", OLD, None), ("x", OLD + 100.0, 1)]
+
+
+def test_health_failure_still_records_event_without_count(
+        alerts_db, tmp_path):
+    """record_count 尽力取:health() 抛异常(如 epoch 损坏)→ 事件照记,
+    计数留空(None),记账不因 health 失败而丢。"""
+    src = _make_src("x", tmp_path, mtime=OLD)
+    src._record_count = 5
+    sch, _ = _make_scheduler([src])
+    sch.scan(now=NOW)                 # 种子(record_count NULL,不看 health)
+    src._path.write_text("y")
+    src.set_mtime(NOW + 100.0)
+
+    def broken_health():
+        raise RuntimeError("epoch corrupt")
+
+    src.health = broken_health
+    sch.scan(now=NOW + 200.0)
+    assert _events(alerts_db) == [
+        ("x", OLD, None), ("x", NOW + 100.0, None)]
 
 
 # ── 轮末告警周期:快照 / evaluate / push / prune ──

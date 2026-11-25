@@ -1,7 +1,7 @@
 # backend/tests/alerts/test_health_fields.py — Task 5:health 扩展透传 /api/sources
 """_source_info 给 health dict 并入三键:content_age_h(now - 文件 mtime,
 与 health() 同源读 source._path)与 observed_interval_h(_alerts 近 90 天
-间隔中位数;2026-10-15 裁决后仅诊断/告警用,前端不再渲染)与
+间隔中位数;#455 起不计短于声明周期 1/4 的间隔,与告警同口径;2026-10-15 裁决后仅诊断/告警用,前端不再渲染)与
 refresh_period_h(配置刷新周期,scheduler 档位口径 _scheduler._period_of)。
 读失败(无文件/无 _path/OSError/_alerts 异常)→ 相应键或两键 None,
 /api/sources 不得 500。fake source 循 test_source_mgmt 的
@@ -61,22 +61,22 @@ def _seed_events(n, gap_s=3600.0):
 
 def test_file_and_history_both_keys(tmp_path, alerts_db):
     _touch_file(tmp_path, age_s=2 * 3600)
-    _seed_events(5)
+    _seed_events(6, gap_s=48 * 3600)   # 间隔 48h ≥ 下限(基类 stale_days=7 → 42h,#455)
 
     h = reg.list_sources()[0]["health"]
 
     assert h["content_age_h"] == pytest.approx(2.0, abs=0.05)
-    assert h["observed_interval_h"] == pytest.approx(1.0)
+    assert h["observed_interval_h"] == pytest.approx(48.0)
 
 
 def test_no_file_content_age_none_observed_still_computed(tmp_path, alerts_db):
     # 文件不存在:content_age_h None;observed 与文件无关照常算
-    _seed_events(5)
+    _seed_events(6, gap_s=48 * 3600)
 
     h = reg.list_sources()[0]["health"]
 
     assert h["content_age_h"] is None
-    assert h["observed_interval_h"] == pytest.approx(1.0)
+    assert h["observed_interval_h"] == pytest.approx(48.0)
 
 
 def test_fewer_than_five_events_observed_none(tmp_path, alerts_db):
@@ -89,6 +89,21 @@ def test_fewer_than_five_events_observed_none(tmp_path, alerts_db):
     assert h["observed_interval_h"] is None
 
 
+def test_observed_filters_storm_short_intervals_same_rule_as_alerts(
+        tmp_path, alerts_db):
+    """#455:health 级与告警同口径——重建风暴短间隔(1h)不参与中位数。
+    7 事件 gaps [1,1,1,45,48,48]h:无过滤中位 23h;下限(基类 stale_days=7
+    → 42h)过滤后仅 3 个间隔(<5)→ None(回退声明线)。"""
+    from ipdb import _alerts
+    base = time.time() - 200 * 3600
+    for h in (0, 1, 2, 3, 48, 96, 144):
+        _alerts.record_event("ipinfo_lite", at=base + h * 3600)
+
+    h = reg.list_sources()[0]["health"]
+
+    assert h["observed_interval_h"] is None
+
+
 def test_alerts_failure_both_keys_none_no_crash(tmp_path, alerts_db, monkeypatch):
     # _alerts 抛任何异常 → 两键 None,list_sources 不炸(route 不得 500)
     from ipdb import _alerts
@@ -96,7 +111,7 @@ def test_alerts_failure_both_keys_none_no_crash(tmp_path, alerts_db, monkeypatch
     _touch_file(tmp_path, age_s=3600)
     _seed_events(5)
 
-    def boom(source, now):
+    def boom(*a, **k):
         raise RuntimeError("alerts db gone")
 
     monkeypatch.setattr(_alerts, "observed_interval_h", boom)
@@ -113,7 +128,7 @@ def test_api_sources_json_carries_both_keys(tmp_path, alerts_db, monkeypatch,
     import main
 
     _touch_file(tmp_path, age_s=3600)
-    _seed_events(5)
+    _seed_events(6, gap_s=48 * 3600)
     monkeypatch.setattr(main, "list_sources", reg.list_sources)  # 真 registry 输出
     monkeypatch.setattr(main, "read_overview", lambda: [])
 
@@ -122,7 +137,7 @@ def test_api_sources_json_carries_both_keys(tmp_path, alerts_db, monkeypatch,
     assert resp.status_code == 200
     h = resp.json()[0]["health"]
     assert isinstance(h["content_age_h"], float)
-    assert h["observed_interval_h"] == pytest.approx(1.0)
+    assert h["observed_interval_h"] == pytest.approx(48.0)
 
 
 # ── refresh_period_h:更新列第二段改显配置刷新周期(2026-10-15 裁决;
@@ -175,7 +190,7 @@ def test_refresh_period_present_even_when_alerts_reads_fail(
     _touch_file(tmp_path, age_s=3600)
     _seed_events(5)
 
-    def boom(source, now):
+    def boom(*a, **k):
         raise RuntimeError("alerts db gone")
 
     monkeypatch.setattr(_alerts, "observed_interval_h", boom)
