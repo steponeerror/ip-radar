@@ -272,7 +272,7 @@ curl -s -H "Authorization: Bearer $KEY" http://127.0.0.1:8000/api/lookup/1.12.0.
 #     "classifications":{...},"attributes":{...},"is_reserved":false}
 ```
 
-Batch stream — NDJSON, one JSON object per line; `row` events carry full results in input order, `progress` events let you render live counts:
+Batch stream — NDJSON, one JSON object per line; `row` events arrive in chunk-completion order, each carrying its input `idx` (re-sort by `idx` on arrival), `progress` events let you render live counts:
 
 ```bash
 curl -s -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
@@ -283,7 +283,7 @@ curl -s -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
 #   {"type":"row","idx":0,"result":{...}}
 #   {"type":"row","idx":1,"result":{...}}
 #   {"type":"progress","done":2,"total":2}
-#   {"type":"done","ok":2,"invalid":0}
+#   {"type":"done","invalid_lines":0,"ipv6_unsupported":0}
 ```
 
 Admin session — login sets an HTTP-only cookie (204, no body); keep a cookie jar:

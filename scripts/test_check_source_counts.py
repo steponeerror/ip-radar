@@ -4,7 +4,7 @@
 
 覆盖矩阵(任务口径):
 - 当前仓绿:真实登记表派生口径钉死(eval_excluded/带钥源名集/密钥变量
-  等结构性事实)+ 真六文档零错误;源总数/免钥数随加源漂移,断言改 structural
+  等结构性事实)+ 全部入闸文档零错误;源总数/免钥数随加源漂移,断言改 structural
   (公开=登记−eval_excluded 等),不再写死字面量——2026-11-22 判例:写死 60/53
   的版本在九连加源后静默烂了四天,CI 门一直红;
 - 文档数字被改后红:代表性比对腿各造一处 fixture 改坏(副本上改,不动真文件),
@@ -48,7 +48,7 @@ def test_derive_real_tree_pins_caliber():
 def test_real_docs_all_green():
     errors = []
     for rel in csc.DOC_FILES:
-        errors += csc.check_doc(REPO / rel, csc.derive_counts())
+        errors += csc.check_doc(REPO / rel, csc.derive_counts(), rel)   # rel=仓根相对路径:子目录腿(svg/wazuh)按路径命中,不只按文件名
     assert errors == []
 
 
@@ -122,7 +122,7 @@ def _mutated_copy(tmp_path, rel, pattern, repl, counts=None):
     p = tmp_path / rel
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(new, encoding="utf-8")
-    return csc.check_doc(p, counts)
+    return csc.check_doc(p, counts, rel)   # rel=仓根相对路径:子目录文档的腿按路径命中(不传则静默全跳)
 
 
 def test_readme_en_total_flipped_red(tmp_path):
@@ -208,7 +208,9 @@ def test_missing_doc_file_fails_loud(tmp_path):
     shutil.copy(REPO / "backend/ipdb/_tokens.py",
                 root / "backend/ipdb/_tokens.py")
     for rel in csc.DOC_FILES:
-        shutil.copy(REPO / rel, root / rel)
+        dst = root / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)   # 子目录腿(svg/wazuh)需父目录
+        shutil.copy(REPO / rel, dst)
     (root / "CONTEXT.md").unlink()
     assert csc.main(["--root", str(root)]) == 1   # 扫描面收缩必须显式改闸,不许静默
 
@@ -253,3 +255,33 @@ def test_all_check_legs_active_on_real_docs():
         assert any(pattern.search(ln) for ln in text.splitlines()), (
             f"{fname} 的比对腿已悬空(正则 {pattern.pattern!r} 在真文档零命中)——"
             f"文档已改写,请更新该腿或其期望")
+
+
+@pytest.mark.parametrize("rel", [
+    "assets/social-preview.svg",
+    "integrations/wazuh/README.md",
+    "integrations/wazuh/custom-ipradar",
+    "scripts/fail2ban/ipradar.conf",
+])
+def test_subdir_doc_total_flipped_red(tmp_path, rel):
+    """子目录文档的公开源总数腿真会咬(2026-11-25 #451 评审记录 4)。
+
+    这四条腿按仓根相对路径分派。首版 test_real_docs_all_green 没把 rel 传给
+    check_doc,子目录腿被静默跳过而测试照绿——所以每条腿都要有一个「改坏
+    必红」的夹具,报错前缀也必须是仓根相对路径(否则看不出是哪个目录的
+    README)。句式从 _CHECKS 现取,源数漂移不炸夹具。"""
+    c = csc.derive_counts()
+    legs = [pat for fname, pat, _e, _w in csc._CHECKS if fname == rel]
+    assert len(legs) == 1, (rel, legs)
+    text = (REPO / rel).read_text(encoding="utf-8")
+    m = next(leg.search(ln) for leg in legs for ln in text.splitlines()
+             if leg.search(ln))
+    old = m.group(0)
+    new = old.replace(m.group(1), str(c["public_total"] + 1), 1)
+    assert new != old
+    p = tmp_path / rel
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(text.replace(old, new, 1), encoding="utf-8")
+    errs = csc.check_doc(p, c, rel)
+    assert len(errs) == 1 and errs[0].startswith(rel + ":"), errs
+    assert f"登记表派生 {c['public_total']},文档写 {c['public_total'] + 1}" in errs[0]

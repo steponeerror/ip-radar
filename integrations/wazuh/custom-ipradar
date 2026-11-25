@@ -10,7 +10,7 @@
 # Why not just use the built-in VirusTotal integration?
 #   - VT public API: 500 req/day, 4 req/min, every query ships your alert
 #     IPs to a third party. IP Radar: unlimited local lookups, nothing
-#     leaves the machine, 29 fused public feeds with per-source evidence.
+#     leaves the machine, 70 fused public feeds with per-source evidence.
 #
 # Install (see integrations/wazuh/README.md for the full guide):
 #   cp custom-ipradar /var/ossec/integrations/

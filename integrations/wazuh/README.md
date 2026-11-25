@@ -10,7 +10,7 @@ Why over the built-in VirusTotal integration:
 |---|---|---|
 | Quota | 500 req/day, 4 req/min | unlimited (localhost) |
 | Privacy | every alert IP goes to Google | queries never leave the machine |
-| Coverage | files/URLs/hashes | IPs: 29 fused feeds |
+| Coverage | files/URLs/hashes | IPs: 70 fused feeds |
 | Explainability | black-box score | per-source evidence chain |
 
 ## How it works

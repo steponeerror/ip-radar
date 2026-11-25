@@ -340,6 +340,9 @@ HARVEST_REV = 2
 # gen-2 到位(单调 +1:1→2)。存量族 .rev=1/缺失 = 不匹配 → 首跑一次
 # 全量迁移重建自愈(计数不变面由 #192 门②同形判例钉死;部署注记见
 # CHANGELOG)。详见 docs/adr/0009。
+# 挂账(2026-11-25,#450):otx 开 infra_noise_filter 未 bump——不为一个源做
+# 全族迁移重建;存量 otx 族靠每日刷新重建自愈(download 每次重写数据文件),
+# 明账记在 otx.py 类注释与 CHANGELOG 部署注记,下次 bump 时顺带兑付。
 
 
 def env_dir(base: Path, epoch: int) -> Path:

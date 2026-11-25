@@ -272,7 +272,7 @@ curl -s -H "Authorization: Bearer $KEY" http://127.0.0.1:8000/api/lookup/1.12.0.
 #     "classifications":{...},"attributes":{...},"is_reserved":false}
 ```
 
-批量流——NDJSON,一行一个 JSON 对象;`row` 事件按输入顺序带完整结果,`progress` 事件供你渲染实时计数:
+批量流——NDJSON,一行一个 JSON 对象;`row` 事件按每批完成的先后发出、各带输入时的 `idx`(调用方按 `idx` 排回输入顺序),`progress` 事件供你渲染实时计数:
 
 ```bash
 curl -s -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
@@ -283,7 +283,7 @@ curl -s -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
 #   {"type":"row","idx":0,"result":{...}}
 #   {"type":"row","idx":1,"result":{...}}
 #   {"type":"progress","done":2,"total":2}
-#   {"type":"done","ok":2,"invalid":0}
+#   {"type":"done","invalid_lines":0,"ipv6_unsupported":0}
 ```
 
 管理会话——登录种下 HttpOnly cookie(204 无 body);保留 cookie jar:

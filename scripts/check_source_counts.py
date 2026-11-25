@@ -44,6 +44,10 @@ DOC_FILES = (
     "MANUAL.zh-CN.md",
     "CONTEXT.md",
     "GLOSSARY.md",   # 评审 P2-2:源底座条的活计数(登记总数口径)同属漂移面,入闸
+    "assets/social-preview.svg",   # #451:图字里的公开源总数(旧 29 漂移判例)
+    "integrations/wazuh/README.md",  # #451:集成文档口径同漂移面
+    "integrations/wazuh/custom-ipradar",  # #451:集成脚本头注(评审发现:「29 fused public feeds」漏网)
+    "scripts/fail2ban/ipradar.conf",  # #451:同上(「fuses 29 public feeds」漏网)
 )
 
 # 英文/中文数词(文档里 keyed/keys 有拼写数词形态,如 "The seven keyed sources")
@@ -150,9 +154,9 @@ def _expected_var(name: str, managed: dict[str, list[str]]) -> str | None:
 
 
 def _keyed_table_errors(lines: list[str], anchor_re: re.Pattern,
-                        counts: dict, path: Path) -> list[str]:
+                        counts: dict, label: str) -> list[str]:
     """锚句之后的第一个表格 = 带钥源表;核对源名集合与逐源 env var 映射。
-    合并行(threatfox / urlhaus)按 '/' 拆开对集合。"""
+    合并行(threatfox / urlhaus)按 '/' 拆开对集合。label=报错前缀(仓根相对路径)。"""
     errors: list[str] = []
     anchor = next((i for i, ln in enumerate(lines) if anchor_re.search(ln)), None)
     if anchor is None:
@@ -180,15 +184,15 @@ def _keyed_table_errors(lines: list[str], anchor_re: re.Pattern,
             want = _expected_var(nm, counts["managed"])
             if m and want and m.group(1) != want:
                 errors.append(
-                    f"{path.name}:{lineno}: 带钥源 {nm} 的变量应为 `{want}`,"
+                    f"{label}:{lineno}: 带钥源 {nm} 的变量应为 `{want}`,"
                     f"表格写的是 `{m.group(1)}`")
             elif not m:
-                errors.append(f"{path.name}:{lineno}: 带钥源 {nm} 行缺 env var 反引号列")
+                errors.append(f"{label}:{lineno}: 带钥源 {nm} 行缺 env var 反引号列")
     if got_names != set(counts["keyed_names"]):
         miss = set(counts["keyed_names"]) - got_names
         extra = got_names - set(counts["keyed_names"])
         errors.append(
-            f"{path.name}: 带钥源表名集不符(缺 {sorted(miss) or '无'} /"
+            f"{label}: 带钥源表名集不符(缺 {sorted(miss) or '无'} /"
             f" 多 {sorted(extra) or '无'};期望 {counts['keyed']}:"
             f" {counts['keyed_names']})")
     return errors
@@ -254,15 +258,31 @@ _CHECKS: tuple[tuple[str, re.Pattern, tuple[str, ...], str], ...] = (
     # GLOSSARY.md(源底座条的活计数,登记总数口径=含私有源,评审 P2-2)
     ("GLOSSARY.md", re.compile(r"全部 (\d+) 个源"), ("registered",),
      "登记源总数"),
+    # 子目录文档(fname=仓根相对路径;check_doc 按 rel 匹配,评审 P2 激活钉同读真档)
+    ("assets/social-preview.svg", re.compile(r"(\d+) sources, one verdict"),
+     ("public_total",), "公开源总数(social preview 图字,#451)"),
+    ("integrations/wazuh/README.md", re.compile(r"IPs: (\d+) fused feeds"),
+     ("public_total",), "公开源总数(wazuh 集成,#451)"),
+    # 集成件头注里的旧写法「N public feeds」/「N fused public feeds」(2026-11-25
+    # 评审发现:首版正则「N (public )?(sources|feeds)」匹配不上「N fused public feeds」,
+    # 也没扫 scripts/,两处「29」漏网——腿的句式要照真文档写,不照想象写)
+    ("scripts/fail2ban/ipradar.conf", re.compile(r"fuses (\d+) public feeds"),
+     ("public_total",), "公开源总数(fail2ban 集成头注,#451)"),
+    ("integrations/wazuh/custom-ipradar", re.compile(r"(\d+) fused public feeds"),
+     ("public_total",), "公开源总数(wazuh 集成脚本头注,#451)"),
 )
 
 
-def check_doc(path: Path, counts: dict) -> list[str]:
-    """单文档比对;返回错误串列表(file:line 前缀)。"""
+def check_doc(path: Path, counts: dict, rel: str | None = None) -> list[str]:
+    """单文档比对;返回错误串列表(file:line 前缀)。rel=仓根相对路径,供
+    子目录文档的按路径比对腿(fname 存「/」时只按 rel 匹配,不按文件名——
+    免得根级同名文档(README.md)误吃子目录腿或缺腿;缺省按文件名,兼容根级
+    旧腿与只传两参的旧调用面)。"""
     errors: list[str] = []
+    rel = rel or path.name
     lines = path.read_text(encoding="utf-8").splitlines()
     for fname, pattern, expects, what in _CHECKS:
-        if fname != path.name:
+        if fname != rel:
             continue
         for i, ln in enumerate(lines, 1):
             m = pattern.search(ln)
@@ -279,25 +299,26 @@ def check_doc(path: Path, counts: dict) -> list[str]:
                           else counts[key])
                 got = _num(m.group(g))
                 if got is None:
-                    errors.append(f"{path.name}:{i}: {what}: 数词「{m.group(g)}」无法解析")
+                    errors.append(f"{rel}:{i}: {what}: 数词「{m.group(g)}」无法解析")
                 elif got != actual:
                     errors.append(
-                        f"{path.name}:{i}: {what}: 登记表派生 {actual},文档写 {got}"
+                        f"{rel}:{i}: {what}: 登记表派生 {actual},文档写 {got}"
                         f" —— 原句: {ln.strip()}")
-        # 带钥源名集(README 双语的密钥源表 + zh 行内名单)
-        if path.name == "README.md":
+        # 带钥源名集(README 双语的密钥源表 + zh 行内名单)。只认仓根那两份
+        # README(rel 全等):子目录里将来再有同名 README 也不误吃这两条腿。
+        if rel == "README.md":
             errors += _keyed_table_errors(
                 lines, re.compile(r"All but (\d+) feeds need zero API keys"),
-                counts, path)
-        if path.name == "README.zh-CN.md":
+                counts, rel)
+        if rel == "README.zh-CN.md":
             errors += _keyed_table_errors(
-                lines, re.compile(r"想开 (\d+) 个密钥源"), counts, path)
+                lines, re.compile(r"想开 (\d+) 个密钥源"), counts, rel)
             m = re.search(r"想开 (\d+) 个密钥源（([^，）]+)，", "\n".join(lines))
             if m:
                 names = {n.strip() for n in m.group(2).split("/") if n.strip()}
                 if names != set(counts["keyed_names"]):
                     errors.append(
-                        f"{path.name}: 行内带钥源名单不符(期望 {counts['keyed_names']},"
+                        f"{rel}: 行内带钥源名单不符(期望 {counts['keyed_names']},"
                         f"文档 {sorted(names)})")
     return errors
 
@@ -320,7 +341,7 @@ def main(argv: list[str] | None = None) -> int:
         if not p.exists():
             errors.append(f"{rel}: 扫描面文件缺失(比对面收缩须同步改本闸)")
             continue
-        errors += check_doc(p, counts)
+        errors += check_doc(p, counts, rel)
     if errors:
         print(f"[source-counts] RED — 文档源数字与登记表不符({len(errors)} 处):")
         for e in errors:
