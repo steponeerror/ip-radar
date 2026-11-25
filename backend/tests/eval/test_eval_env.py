@@ -22,6 +22,29 @@ def test_report_dir_env_namespace(tmp_path, monkeypatch):
     assert report_dir() == tmp_path / "dev"
 
 
+def test_report_dir_single_source_with_paths_and_reader(tmp_path, monkeypatch):
+    """#453 读写同规:报告根 = _paths.eval_dir() 单真源,写侧不再自持
+    <仓根>/backend/data/eval 第二份缺省;与读侧 _eval_reader._dir() 同根
+    (env 缺省两档 = unset/显式 都验)。"""
+    from ipdb import _paths, _eval_reader
+    from ipdb._eval.__main__ import report_dir
+    monkeypatch.delenv("IP_RADAR_EVAL_DIR", raising=False)
+    monkeypatch.delenv("IP_RADAR_EVAL_ENV", raising=False)
+    assert report_dir() == _paths.eval_dir() / "dev"
+    assert report_dir().parent == _eval_reader._dir()
+    monkeypatch.setenv("IP_RADAR_EVAL_DIR", str(tmp_path))
+    monkeypatch.setenv("IP_RADAR_EVAL_ENV", "monthly")
+    assert report_dir() == _paths.eval_dir() / "monthly"
+    assert report_dir().parent == _eval_reader._dir()
+    # 单真源的直接证据(评审补):换掉 _paths.eval_dir 的返回值,写侧跟着
+    # 走 —— 旧实现自持 <仓根>/backend/data/eval 缺省,不会跟。
+    monkeypatch.delenv("IP_RADAR_EVAL_DIR", raising=False)
+    monkeypatch.delenv("IP_RADAR_EVAL_ENV", raising=False)
+    monkeypatch.setattr(_paths, "eval_dir", lambda: tmp_path / "x")
+    assert report_dir() == tmp_path / "x" / "dev"
+    assert _eval_reader._dir() == tmp_path / "x"
+
+
 def test_monthly_run_lands_in_monthly_dir_with_env_field(tmp_path, monkeypatch):
     """env=monthly:write_report 落 base/monthly/,JSON 顶层 eval_env=monthly。"""
     from test_eval_cli import _CAND_IPS, _FakeBenign, _FakeRegistry

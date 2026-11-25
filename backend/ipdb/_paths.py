@@ -21,8 +21,12 @@
 
 不回落 data_dir 的两个例外:
 - eval_dir 缺省钉 <backend>/data/eval(checkout 树),不随
-  IP_RADAR_DATA_DIR 派生 —— 写侧 ipdb._eval.__main__.report_dir
-  缺省同值且 ADR 0021 影子期冻结(至 ~2026-11-27),读写缺省必须同址。
+  IP_RADAR_DATA_DIR 派生 —— 它有自己的 env(IP_RADAR_EVAL_DIR)与缺省
+  字面量。#453 起写侧 ipdb._eval.__main__.report_dir 同取本函数
+(读写单真源;旧注释里挂靠 ADR 0021 影子期的「两处缺省恰同值
+  才同址」冻结理由,由 #453 裁决收口);容器里读写同根不靠缺省巧合,
+  由镜像显式给值(Dockerfile ENV IP_RADAR_EVAL_DIR=/app/data/eval)保证,
+  checkout 上缺省读写天然同根。
 - build_version_file 缺省字面量 "/app/BUILD_VERSION" 原样保留
   (容器烤进镜像;checkout 恒 miss → 回落 IP_RADAR_VERSION/"dev")。
 """

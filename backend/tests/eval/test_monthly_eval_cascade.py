@@ -103,14 +103,36 @@ PY_STUB = textwrap.dedent(
     exit 0
     """
 )
-RSYNC_STUB = "#!/usr/bin/env bash\nexit 0\n"
-# ssh 桩两种调用形: ①honyport 面目录探测(monthly_eval.sh `ssh … test -d
+RSYNC_STUB = textwrap.dedent(
+    """\
+    #!/usr/bin/env bash
+    # cascade-test rsync 桩:拉取面(镜像/快照/蜜粮 CSV)末参是本地路径;
+    # 推送面(#453 评估报告推生产卷)末参含 'stub-host:' → 触 PUSH_MARKER,
+    # rc 按 RSYNC_PUSH_MODE(推失败形态用)
+    last="${@: -1}"
+    if [[ "$last" == *:* ]]; then
+      if [ "${RSYNC_PUSH_MODE:-0}" != 0 ]; then exit "$RSYNC_PUSH_MODE"; fi
+      touch "${PUSH_MARKER:?}"
+    fi
+    exit 0
+    """
+)
+# ssh 桩三种调用形: ①honyport 面目录探测(monthly_eval.sh `ssh … test -d
 # /opt/honyport/out`, #265)→ rc 1 = 远端目录缺席(哨兵分支, 不心跳);
-# ②生产 volume 心跳推送(printf > …)→ touch 标记文件。
-SSH_STUB = (
-    "#!/usr/bin/env bash\n"
-    'if [[ "$*" == *"test -d"* ]]; then exit 1; fi\n'
-    'touch "${HEARTBEAT_MARKER:?}"\n'
+# ②#453 推送前远端建目录(`ssh … "mkdir -p …"`)→ rc 0 + 触
+# SSH_MKDIR_MARKER(留痕:dry-run「不调 ssh」与「推送先建目录」才有标记可断);
+# ③生产 volume 心跳推送(printf > …)→ touch 标记文件。(旧桩任何非
+# test-d 调用都 touch 标记,会把 mkdir -p 也当心跳 —— 按调用形分派)
+SSH_STUB = textwrap.dedent(
+    """\
+    #!/usr/bin/env bash
+    if [[ "$*" == *"test -d"* ]]; then exit 1; fi
+    if [[ "$*" == *"mkdir -p"* ]]; then
+      touch "${SSH_MKDIR_MARKER:?}"
+      exit 0
+    fi
+    touch "${HEARTBEAT_MARKER:?}"
+    """
 )
 
 
@@ -151,11 +173,15 @@ def _run_monthly(repo: Path, stubs: Path, tmp_path: Path, *args: str,
                  anchor_readouts_skip_recall: bool = False,
                  truth_v2_mode: str = "0",
                  truth_v2_readout_mode: str = "0",
+                 rsync_push_mode: str = "0",
                  ) -> tuple[int, str]:
     env = dict(os.environ)
     env["PATH"] = f"{stubs}:{env['PATH']}"
     env["EVAL_DATA_DIR"] = str(tmp_path / "data")
     env["HEARTBEAT_MARKER"] = str(tmp_path / "heartbeat-marker")
+    env["PUSH_MARKER"] = str(tmp_path / "push-marker")   # #453 推送发生标记
+    env["SSH_MKDIR_MARKER"] = str(tmp_path / "ssh-mkdir-marker")   # #453 推送前建目录标记
+    env["RSYNC_PUSH_MODE"] = rsync_push_mode
     env["ANCHORS_MODE"] = anchors_mode
     env["DSEM_MODE"] = dsem_mode
     env["MODEL_MODE"] = model_mode
@@ -435,3 +461,57 @@ def test_sinkhole_probe_red_cascades_like_other_legs(tmp_path):
     leg = _latest_leg_status(_report_root(repo))
     assert leg["legs"]["sinkhole-probe"] == 2, leg
     assert (tmp_path / "heartbeat-marker").exists(), "腿级红≠缺员,须照推心跳"
+
+
+# ── #453:评估报告推送(报告族齐全校验之后、心跳之前)──────────────
+
+def test_eval_report_push_in_green_round(tmp_path):
+    """#453:全绿轮把本轮逐源 verdict 件+model/model-*.json 推到生产卷
+    (PUSH_MARKER 在=推送发生;rsync 桩按末参含 'stub-host:' 判推方向)。"""
+    repo = _make_repo(tmp_path)
+    stubs = _make_stubs(tmp_path)
+    rc, out = _run_monthly(repo, stubs, tmp_path)
+    assert rc == 0, out
+    assert "==> 评估报告推送" in out, out
+    assert (tmp_path / "push-marker").exists(), "全绿轮须推评估报告"
+    assert (tmp_path / "ssh-mkdir-marker").exists(), "推送前须先在远端建目录"
+    assert (tmp_path / "heartbeat-marker").exists(), out
+
+
+def test_eval_report_push_after_family_check(tmp_path):
+    """#453 排序契约:推送在报告族齐全校验之后 —— all 腿工件缺席
+    (族缺员即死)时校验先退出,推送与心跳都不得发生。"""
+    repo = _make_repo(tmp_path)
+    stubs = _make_stubs(tmp_path)
+    rc, out = _run_monthly(repo, stubs, tmp_path, all_skip=True)
+    assert rc != 0, out
+    assert "报告族不齐" in out, out
+    assert not (tmp_path / "push-marker").exists(), "推送不得先于报告族校验"
+    assert not (tmp_path / "heartbeat-marker").exists(), "缺员即死不推心跳"
+
+
+def test_eval_report_push_dry_run_prints_but_does_not_push(tmp_path):
+    """#453 dry-run:推送只打印将执行的命令,零 ssh/rsync 副作用
+    (无推送标记、无心跳标记、零工件)。"""
+    repo = _make_repo(tmp_path)
+    stubs = _make_stubs(tmp_path)
+    rc, out = _run_monthly(repo, stubs, tmp_path, "--dry-run")
+    assert rc == 0, out
+    assert "==> 评估报告推送" in out, out
+    assert "[dry-run]" in out, out
+    assert not (tmp_path / "push-marker").exists()
+    assert not (tmp_path / "heartbeat-marker").exists()
+    assert not (tmp_path / "ssh-mkdir-marker").exists(), "dry-run 不得调 ssh"
+    assert not _report_root(repo).exists()
+
+
+def test_eval_report_push_failure_red_but_heartbeat_kept(tmp_path):
+    """#453:推送失败=红态外显+结尾以推送 rc 非零退出(经 AGG_RC 同一
+    出口);心跳照写 —— 报告族在本机是齐的,生产读不到报告不该连心跳
+    健康一起谎报。"""
+    repo = _make_repo(tmp_path)
+    stubs = _make_stubs(tmp_path)
+    rc, out = _run_monthly(repo, stubs, tmp_path, rsync_push_mode="7")
+    assert rc == 7, f"推送红须以推送 rc=7 结尾外显,实得 {rc}\n{out}"
+    assert "红态" in out and "推送" in out, f"缺推送红态行\n{out}"
+    assert (tmp_path / "heartbeat-marker").exists(), "推失败心跳照写"

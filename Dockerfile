@@ -25,7 +25,11 @@ RUN node -e 'const [maj,min]=process.versions.node.split(".").map(Number);if(maj
     && npm ci ${NPM_REGISTRY:+--registry $NPM_REGISTRY}
 
 FROM python:3.12-slim
-ENV PYTHONUNBUFFERED=1 IP_RADAR_DATA_DIR=/app/data
+# IP_RADAR_EVAL_DIR(#453):评估报告根定到数据卷(缺省会落在容器自身的
+# /app/backend/data/eval,重建即丢)—— 页面上手动跑的评估落卷上 dev/,
+# 读侧 _eval_reader 同根并看 monthly/dev,月轮推送面(月轮脚本)也写卷上
+# eval/monthly/。_paths.eval_dir 缺省字面量只兜 checkout,不承担生产语义。
+ENV PYTHONUNBUFFERED=1 IP_RADAR_DATA_DIR=/app/data IP_RADAR_EVAL_DIR=/app/data/eval
 WORKDIR /app
 ARG PIP_INDEX_URL=""
 # L2 self-update toolchain + F4: docker CLI 不在 Debian 源,加官方源(python:3.12-slim = trixie)

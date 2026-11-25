@@ -22,7 +22,9 @@
 # 历史落 temporal-*.json;--readout
 # 组合四层读数管线出月报 monthly-*.md + action-block.json + northstar-*.json
 # (#185 能力轨北星记录,只观测不持门))
-# ⑤ 每命令打印尾行摘要 ⑥ 报告族齐全校验 → 生产 volume 心跳推送(S5)。
+# ⑤ 每命令打印尾行摘要 ⑥ 报告族齐全校验 → 评估报告推送(#453:rsync
+# 本轮逐源 verdict 件+model/model-*.json 到生产卷 eval/monthly/,推失败
+# 记红态心跳照写结尾非零)→ 生产 volume 心跳推送(S5)。
 # 自验:`bash -n scripts/monthly_eval.sh`(语法);`bash scripts/monthly_eval.sh
 # --dry-run`(只打印将执行的命令不执行;dry-run 下守卫仅提示不拦截,便于预演)。
 # 数据目录默认 <repo>/.eval-prod-data(已 gitignore,防误提交 ~55GB),
@@ -342,6 +344,54 @@ check_family audit    model 'audit-*.json'
 check_family temporal ''     'temporal-*.json'
 check_family readout  ''     'monthly-*.md'
 
+# ── #453:评估报告推送(报告族齐全校验之后、心跳之前)──
+# 把本轮报告根下形状匹配的逐源 verdict 件 + model/model-*.json 推到生产
+# 卷 eval/monthly/(rsync over ssh;只推 mtime 晚于脚本启动的本轮新件,
+# START_S 同报告族校验;不带 --delete)。排除集与读侧 _eval_reader 今天
+# 等价(读侧是内容闸「source 键是字符串」,这里是名单闸):
+# northstar-*/temporal-*/leg-status-*/action-block/
+# mirror-manifest 观测件不推(逐源形状排除名单与 check_family all 腿
+# 同款;northstar-*/temporal-* 撞形状但无 source 键,不当报告)。
+# 推失败 = 一条红态:红行外显 + 记入 PUSH_RC;心跳照写(报告族在本机
+# 是齐的,生产读不到报告不该连心跳健康一起谎报),结尾退出码经 AGG_RC
+# 同一出口取非零。rsync/ssh rc 显式捕获(set -e 与调用方 || 语境的坑,
+# run_step F4 判例)。目标目录缺席先建(ssh mkdir -p);--dry-run 只打印。
+EVAL_PUSH_DST="/var/lib/docker/volumes/ip-lookup-tool_ipradar-data/_data/eval/monthly"
+PUSH_RC=0
+echo
+echo "==> 评估报告推送: $REPORT_ROOT -> $PROD_HOST:$EVAL_PUSH_DST"
+if [ "$DRY_RUN" = 1 ]; then
+  echo "  [dry-run] ssh $PROD_HOST \"mkdir -p $EVAL_PUSH_DST\""
+  echo "  [dry-run] rsync -az -R --files-from=<本轮工件清单> \"$REPORT_ROOT\" \"$PROD_HOST:$EVAL_PUSH_DST\""
+else
+  PUSH_LIST="$(mktemp "${TMPDIR:-/tmp}/monthly_eval_push.XXXXXX")"
+  {
+    # 逐源 verdict 件:all 腿族形状 + 观测件排除名单(见上),限报告根一层;
+    # find 失败(如 model/ 缺席)不炸管道(pipefail),空清单 = 无可推
+    find "$REPORT_ROOT" -maxdepth 1 \
+      -name '*-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9].json' \
+      ! -name 'temporal-*' ! -name 'northstar-*' ! -name 'leg-status-*' \
+      -newermt "@$START_S" -printf '%P\n' 2>/dev/null || :
+    find "$REPORT_ROOT/model" -maxdepth 1 -name 'model-*.json' \
+      -newermt "@$START_S" -printf 'model/%f\n' 2>/dev/null || :
+  } | sort > "$PUSH_LIST"
+  if [ ! -s "$PUSH_LIST" ]; then
+    echo "  (本轮没有可推的报告文件,跳过推送)"
+  fi
+  if [ -s "$PUSH_LIST" ]; then
+    ssh "$PROD_HOST" "mkdir -p $EVAL_PUSH_DST" || PUSH_RC=$?
+    if [ "$PUSH_RC" = 0 ]; then
+      # rc 显式捕获:调用方 || 语境下 set -e 失效,靠尾命令会吞 rc(F4 判例)
+      rsync -az -R --files-from="$PUSH_LIST" "$REPORT_ROOT" \
+        "$PROD_HOST:$EVAL_PUSH_DST" || PUSH_RC=$?
+    fi
+  fi
+  rm -f "$PUSH_LIST"
+  if [ "$PUSH_RC" != 0 ]; then
+    echo "!! eval-报告推送 rc=$PUSH_RC:红态(心跳照写,报告族在本机齐;结尾退出码外显)" >&2
+  fi
+fi
+
 echo
 echo "==> 心跳推送: $PROD_HOST:$HEARTBEAT_DST"
 if [ "$DRY_RUN" = 1 ]; then
@@ -359,4 +409,6 @@ AGG_RC=0
 for _leg in "${LEG_ORDER[@]}"; do
   if [ "${LEG_RC[$_leg]}" != 0 ]; then AGG_RC=${LEG_RC[$_leg]}; break; fi
 done
+# #453:推送红态经同一出口外显(腿级红优先;腿全绿时结尾取推送 rc)
+if [ "$AGG_RC" = 0 ] && [ "$PUSH_RC" != 0 ]; then AGG_RC="$PUSH_RC"; fi
 exit "$AGG_RC"
