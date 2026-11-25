@@ -46,10 +46,12 @@ def test_derive_real_tree_pins_caliber():
 
 
 def test_real_docs_all_green():
+    counts = csc.derive_counts()
     errors = []
     for rel in csc.DOC_FILES:
-        errors += csc.check_doc(REPO / rel, csc.derive_counts(), rel)   # rel=仓根相对路径:子目录腿(svg/wazuh)按路径命中,不只按文件名
-    assert errors == []
+        errors += csc.check_doc(REPO / rel, counts, rel)   # rel=仓根相对路径:子目录腿(svg/wazuh)按路径命中,不只按文件名
+    scan_errors, _stats = csc.scan_repo(REPO, counts)   # #457:通扫层同闸(全部受管文本文件的源数字面量)
+    assert errors + scan_errors == []
 
 
 def test_main_exit_zero_on_current_repo():
@@ -200,7 +202,10 @@ def test_context_token_entry_flipped_red(tmp_path):
     assert any("密钥变量数/带钥源数" in e for e in errs), errs
 
 
-def test_missing_doc_file_fails_loud(tmp_path):
+# ── 通扫层(#457):全部受管文本文件里的源数字面量 ─────────────
+
+def _fixture_root(tmp_path):
+    """真仓受管面最小副本:登记表 + 全部 DOC_FILES(子目录腿要父目录)。"""
     root = tmp_path / "repo"
     (root / "backend/ipdb/_sources").mkdir(parents=True)
     shutil.copytree(REPO / "backend/ipdb/_sources",
@@ -211,6 +216,110 @@ def test_missing_doc_file_fails_loud(tmp_path):
         dst = root / rel
         dst.parent.mkdir(parents=True, exist_ok=True)   # 子目录腿(svg/wazuh)需父目录
         shutil.copy(REPO / rel, dst)
+    return root
+
+
+def _fixture_counts(root):
+    return csc.derive_counts(root / "backend/ipdb/_sources",
+                             root / "backend/ipdb/_tokens.py")
+
+
+def test_scan_svg_digit_flip_red_on_both_layers(tmp_path):
+    """#457 验收:svg 的 70 改回 29 → 旧腿与通扫都红(各至少一条)。"""
+    root = _fixture_root(tmp_path)
+    c = _fixture_counts(root)
+    svg = root / "assets/social-preview.svg"
+    text = svg.read_text(encoding="utf-8")
+    assert f"{c['public_total']} sources" in text
+    svg.write_text(text.replace(f"{c['public_total']} sources", "29 sources"),
+                   encoding="utf-8")
+    doc_errs = csc.check_doc(svg, c, "assets/social-preview.svg")
+    assert any("公开源总数" in e for e in doc_errs), doc_errs   # 旧腿
+    scan_errs, _stats = csc.scan_repo(root, c)
+    assert any(e.startswith("assets/social-preview.svg:") and "通扫" in e
+               for e in scan_errs), scan_errs   # 通扫层
+    assert csc.main(["--root", str(root)]) == 1
+
+
+def test_scan_new_unlisted_file_wrong_number_red(tmp_path):
+    """#457 验收:不在任何名单的新文件写错数 → 红,报出该文件(#451 漏网形状)。"""
+    root = _fixture_root(tmp_path)
+    new = root / "integrations/newtool/README.md"
+    new.parent.mkdir(parents=True)
+    new.write_text("ipradar ships 29 fused public feeds for your SIEM.\n",
+                   encoding="utf-8")
+    errs, _stats = csc.scan_repo(root, _fixture_counts(root))
+    assert any(e.startswith("integrations/newtool/README.md:") for e in errs), errs
+    assert csc.main(["--root", str(root)]) == 1
+
+
+def test_scan_new_unlisted_file_derived_number_green(tmp_path):
+    """#457 验收:同一新文件写登记表派生数 → 绿。"""
+    root = _fixture_root(tmp_path)
+    c = _fixture_counts(root)
+    new = root / "integrations/newtool/README.md"
+    new.parent.mkdir(parents=True)
+    new.write_text(f"ipradar ships {c['public_total']} fused public feeds"
+                   " for your SIEM.\n", encoding="utf-8")
+    errs, stats = csc.scan_repo(root, c)
+    assert errs == [], errs
+    assert stats["hits"] >= 1   # 新文件的合规命中计入(夹具真文档另有自己的命中)
+    assert csc.main(["--root", str(root)]) == 0
+
+
+def test_scan_approx_numbers_not_hits(tmp_path):
+    """#457 验收:近似数(~ / 约 前缀)不算命中,数字与派生集无关也绿——
+    用 99 自证:若近似规则失效,99 ∉ 派生集必红。"""
+    root = _fixture_root(tmp_path)
+    new = root / "integrations/newtool/README.md"
+    new.parent.mkdir(parents=True)
+    new.write_text("aggregates ~10 public feeds per day\n"
+                   "把约 10 个公开源聚成清单\n"
+                   "~99 public feeds reported\n"
+                   "约 99 个公开源被聚合\n", encoding="utf-8")
+    errs, stats = csc.scan_repo(root, _fixture_counts(root))
+    assert errs == [], errs
+    assert stats["approx"] >= 4   # 新文件 4 处 + 夹具真文档自带的近似命中(ziyadnz 等)
+
+
+def test_scan_phrase_exception_excises_only_the_phrase(tmp_path):
+    """说法级例外只剔该说法的匹配段:同行其余字面量照红。"""
+    root = _fixture_root(tmp_path)
+    model = root / "backend/ipdb/_eval/model.py"   # 路径在说法级例外表里
+    model.parent.mkdir(parents=True)
+    model.write_text(
+        "fountain_suspect: bool = False  # >=2 sources ~fully contained\n"
+        "x = '37 sources here'\n", encoding="utf-8")
+    errs, _stats = csc.scan_repo(root, _fixture_counts(root))
+    assert errs and all(
+        e.startswith("backend/ipdb/_eval/model.py:2:") for e in errs), errs
+
+
+def test_exception_table_hygiene(monkeypatch):
+    """例外表卫生闸:缺原因 / 含「待查」/ 正则编不过即红(防未决条目混入)。"""
+    assert csc.exception_table_problems() == []
+    monkeypatch.setattr(csc, "SCAN_FILE_EXCEPTIONS",
+                        {**csc.SCAN_FILE_EXCEPTIONS, "somewhere/doc.md": ""})
+    assert any("缺原因" in p for p in csc.exception_table_problems())
+    monkeypatch.setattr(csc, "SCAN_FILE_EXCEPTIONS",
+                        {**csc.SCAN_FILE_EXCEPTIONS, "somewhere/doc.md": "待查"})
+    assert any("待查" in p for p in csc.exception_table_problems())
+    monkeypatch.setattr(
+        csc, "SCAN_PHRASE_EXCEPTIONS",
+        {**csc.SCAN_PHRASE_EXCEPTIONS, "somewhere/doc.md": ((r"\\d+ sources", ""),)})
+    assert any("缺原因" in p for p in csc.exception_table_problems())
+
+
+def test_exception_targets_exist_on_real_repo():
+    """例外表指向的文件必须在真仓在场(防过期条目静默挂表)。"""
+    for rel in csc.SCAN_FILE_EXCEPTIONS:
+        assert (REPO / rel).is_file(), rel
+    for rel in csc.SCAN_PHRASE_EXCEPTIONS:
+        assert (REPO / rel).is_file(), rel
+
+
+def test_missing_doc_file_fails_loud(tmp_path):
+    root = _fixture_root(tmp_path)
     (root / "CONTEXT.md").unlink()
     assert csc.main(["--root", str(root)]) == 1   # 扫描面收缩必须显式改闸,不许静默
 
