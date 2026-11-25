@@ -21,15 +21,17 @@
 # 机读化于 backend/tests/source_infra/test_feeds_manifest_sync.py 的 EXEMPT
 # 表(#456);速记形:auth-key 路径段(threatfox/urlhaus)、{token} 模板
 # (ip2proxy/ipinfo_lite)、月度滚动 URL(dbip_city)、下载确认页/运行时解析
-# (cloud_ranges 微软段——只是段不收,源本身在清单)、内嵌数据(infra_services)、自建本地件(honyport)、
-# 首页 / about / 文档 / 许可证页(旧清单的 docs.abuseipdb.com、
-# creativecommons.org、caida.org/catalog、github.com/proxyscrape 等)。
+# (cloud_ranges 微软段——只是段不收,源本身在清单)、内嵌数据(infra_services)、
+# 自建本地件(honyport)、首页 / about / 文档 / 许可证页(旧清单的
+# docs.abuseipdb.com、creativecommons.org、caida.org/catalog、
+# github.com/proxyscrape 等)。
 #
 # 这条探测看得出什么(2026-11-26 从生产服务器对 120 行逐个读响应头):63 行带
-# Last-Modified,能判「冻结」(只发 HEAD 的读数;探测步遇到 ≥400 会回落
-# 再发一次 GET Range,所以 63 是下界);52 行 200 但不带这个头,读数恒为 NO-LM,只判「不可达」
-# ——raw.githubusercontent.com 的 38 行全在此列,echelonlabs.co 6 行也是;5 行对 HEAD 回
-# 403/405。也就是说 GitHub 托管的源上游停更,这里不会旗标(#456 记下,未解)。
+# Last-Modified,能判「冻结」(只发 HEAD 的读数;探测步遇到 ≥400 会回落再发一次
+# GET Range,所以 63 是下界);52 行 200 但不带这个头,读数恒为 NO-LM,只判
+# 「不可达」——raw.githubusercontent.com 的 38 行全在此列,echelonlabs.co 6 行也是;
+# 5 行对 HEAD 回 403/405。也就是说 GitHub 托管的源上游停更,这里不会旗标
+# (#456 记下,未解)。
 
 # ── 威胁黑名单:单文件/单端点源 ──────────────────────────────
 https://www.binarydefense.com/banlist.txt # binarydefense
