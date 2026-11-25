@@ -6,6 +6,9 @@
 「数据文件被成功重写」(下载每次都重写文件,_download.py 的 os.replace;
 上游内容没变也会留下记录),这张账量「刷新管道通不通」,量不出「上游冻结」
 (后者只有运营健康轮的探测清单 ops/pipeline-core/feeds.txt 在看);
+已知窄口(#455 评审 R-2):目录型源把 .dl 暂存文件放在被观察的目录里,
+扫描恰好落在下载途中会按暂存文件的 mtime 多记一条——窗口 = 下载时长 /
+30 分钟,这类间隔远小于下限、进不了中位数,对告警线无影响;
 observed_interval_h 用近 90 天相邻间隔中位数回答"该源平时多久更一次"
 (#455 起不计短于声明周期 1/4 的间隔——重建风暴密集重写留下的短间隔)。
 evaluate 消费 scheduler 每轮快照,per (source, condition) 推进 alert_state
@@ -128,17 +131,6 @@ def record_event(source: str, at: float, record_count: int | None = None) -> Non
             " VALUES (?, ?, ?)",
             (source, at, record_count),
         )
-
-
-def event_count(source: str) -> int:
-    """该源 update_events 行数(存储只读访问面)。#455 起种子判定并入
-    observe_update(零事件 + 零水位 → 按当前 mtime 种),调度路径不再
-    调本函数。"""
-    with closing(_connect()) as conn:
-        (n,) = conn.execute(
-            "SELECT COUNT(*) FROM update_events WHERE source = ?",
-            (source,)).fetchone()
-    return n
 
 
 def observe_update(source: str, mtime: float,

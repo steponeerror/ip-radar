@@ -166,6 +166,9 @@ def test_seed_failure_does_not_block_scheduling(
     with caplog.at_level(logging.ERROR):
         sch.scan(now=NOW)             # must not raise
     assert mgr.enqueued == ["x"]
+    # 兜错真的发生了(把 scan() 里的观察块整块删掉,下面这行会红)
+    assert any("update observation failed" in r.getMessage()
+               for r in caplog.records)
 
 
 # ── 内容变化事件(#455:记账只认文件事实,谁触发的落盘都算)──
@@ -184,17 +187,20 @@ def test_content_change_records_event_with_record_count(alerts_db, tmp_path):
 
 def test_external_rewrite_recorded_next_scan_at_file_mtime(
         alerts_db, tmp_path):
-    """#455 验收:文件在调度器之外被重写(无任务在途;页面手动/脚本触发
-    同形)→ 下一轮扫描后 update_events 多一条,at 等于文件 mtime。"""
-    src = _make_src("x", tmp_path, mtime=OLD, record_count=7)
+    """#455 验收:文件在调度器之外被重写(页面手动/脚本触发同形)→ 下一轮
+    扫描后 update_events 多一条,at 等于文件 mtime。首扫文件是新的(mtime=NOW,
+    未到期),全程没有调度任务入队——记这条账的不是调度器任务落地。"""
+    src = _make_src("x", tmp_path, mtime=NOW, record_count=7)
     sch, mgr = _make_scheduler([src])
     sch.scan(now=NOW)
-    assert _events(alerts_db) == [("x", OLD, None)]
+    assert mgr.enqueued == []          # 未到期:调度器没碰这个源
+    assert _events(alerts_db) == [("x", NOW, None)]
     src._path.write_text("y")         # 外部落盘(mtime 随之前进,再钉准)
     src.set_mtime(NOW + 500.0)
-    sch.scan(now=NOW + 600.0)         # 无任务在途,纯扫描观察
+    sch.scan(now=NOW + 600.0)          # 无任务在途,纯扫描观察
+    assert mgr.enqueued == []
     assert _events(alerts_db) == [
-        ("x", OLD, None), ("x", NOW + 500.0, 7)]
+        ("x", NOW, None), ("x", NOW + 500.0, 7)]
 
 
 def test_restart_same_db_no_rerecord_and_catches_up(

@@ -93,7 +93,7 @@ def test_observed_filters_storm_short_intervals_same_rule_as_alerts(
         tmp_path, alerts_db):
     """#455:health 级与告警同口径——重建风暴短间隔(1h)不参与中位数。
     7 事件 gaps [1,1,1,45,48,48]h:无过滤中位 23h;下限(基类 stale_days=7
-    → 42h)过滤后仅 3 个间隔(<5)→ None(回退声明线)。"""
+    → 42h)过滤后仅 3 个间隔(不足 4 个,即不足 5 个事件)→ None(回退声明线)。"""
     from ipdb import _alerts
     base = time.time() - 200 * 3600
     for h in (0, 1, 2, 3, 48, 96, 144):
