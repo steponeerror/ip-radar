@@ -1,22 +1,24 @@
 # ipradar-monthly-eval.service — 月轮全量评估(scripts/monthly_eval.sh;2026-11-25 用户裁:
 # 重开 2026-09-28 评测方案决策 #6「手动触发,不做静默 cron」——10-29 后 27 天没跑、
 # 生产上一份评估报告都没有;读数自动跑,裁决仍归人)。
-# 装机由人(同 ipradar-digest / ipradar-evolve 律):仓内源件
-#   ops/agent-v2/bench/evolution/ipradar-monthly-eval.{service,timer} 拷到这里,
+# 装机由人(同 ipradar-digest / ipradar-evolve 律):把本件和 .timer 拷到
+#   ~/.config/systemd/user/,现场改下面两处尖括号占位,再
 #   systemctl --user daemon-reload + enable --now ipradar-monthly-eval.timer(只 enable timer)。
 # 跑法:先 rsync 生产卷镜像到 <repo>/.eval-prod-data,再跑评估各腿,报告落
 #   backend/data/eval/monthly/,报告族齐全才把心跳写回生产卷(脚本自带守卫:
 #   不在 master 或工作区不干净即拒跑——拒跑不代跑,兜底是生产侧 35 天心跳告警)。
-# PATH:脚本直接调 python3,须先命中带后端依赖的解释器(本机 miniforge3);
-#   systemd 用户单元缺省 PATH 不含它(同 ipradar-digest 的 rc=127 判例)。
+# PATH:脚本直接调 python3,须先命中带后端依赖的解释器;systemd 用户单元缺省
+#   PATH 不含它(同 ipradar-digest 的 rc=127 判例)。
 
 [Unit]
 Description=ip-radar 月轮全量评估(每月 1 日)
 
 [Service]
 Type=oneshot
-Environment="PATH=/home/huxiao/miniforge3/bin:/home/huxiao/.local/bin:/usr/local/bin:/usr/bin:/bin"
-WorkingDirectory=/home/huxiao/dev/pi-ip-lookup-tool
+# 现场改:<python-bin> = 带后端依赖的解释器所在的 bin 目录(系统的 /usr/bin/python3 没有那些依赖)
+Environment="PATH=<python-bin>:/usr/local/bin:/usr/bin:/bin"
+# 现场改:<repo> = 主检出根
+WorkingDirectory=<repo>
 ExecStart=/usr/bin/bash scripts/monthly_eval.sh
 Nice=10
 IOSchedulingClass=best-effort

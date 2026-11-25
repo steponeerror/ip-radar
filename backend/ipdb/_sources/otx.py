@@ -102,6 +102,12 @@ class OtxSource(Source):
     # ControlD 公共 DNS 被单源误列恶意,唯一指控人即 otx;与 dataplane 等
     # 8 源同一开关,数据文件零改写,关 IP_RADAR_INFRA_NOISE_FILTER 重建即复原)
     infra_noise_filter = True
+    # 未 bump HARVEST_REV(_lmdb.py「改 harvest 语义必须 bump」规矩的一笔明账;
+    # 2026-11-25 评审后取舍:不为一个源在 964MB 小机上做一次全族迁移重建):
+    # 存量 otx 族要到下次刷新重建才带上这道过滤——otx 是每日档(12 小时网格),
+    # download 每次都重写数据文件,所以窗口不超过一个刷新周期;要立即生效就
+    # 手动触发一次 otx 更新。下次 bump HARVEST_REV 时把这笔账划掉(CHANGELOG
+    # 部署注记同文)。
 
     def __init__(self, data_dir):
         super().__init__(data_dir)
