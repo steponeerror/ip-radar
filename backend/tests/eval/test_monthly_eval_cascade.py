@@ -119,14 +119,18 @@ RSYNC_STUB = textwrap.dedent(
 )
 # ssh 桩三种调用形: ①honyport 面目录探测(monthly_eval.sh `ssh … test -d
 # /opt/honyport/out`, #265)→ rc 1 = 远端目录缺席(哨兵分支, 不心跳);
-# ②#453 推送前远端建目录(`ssh … "mkdir -p …"`)→ rc 0, 不触心跳标记;
+# ②#453 推送前远端建目录(`ssh … "mkdir -p …"`)→ rc 0 + 触
+# SSH_MKDIR_MARKER(留痕:dry-run「不调 ssh」与「推送先建目录」才有标记可断);
 # ③生产 volume 心跳推送(printf > …)→ touch 标记文件。(旧桩任何非
 # test-d 调用都 touch 标记,会把 mkdir -p 也当心跳 —— 按调用形分派)
 SSH_STUB = textwrap.dedent(
     """\
     #!/usr/bin/env bash
     if [[ "$*" == *"test -d"* ]]; then exit 1; fi
-    if [[ "$*" == *"mkdir -p"* ]]; then exit 0; fi
+    if [[ "$*" == *"mkdir -p"* ]]; then
+      touch "${SSH_MKDIR_MARKER:?}"
+      exit 0
+    fi
     touch "${HEARTBEAT_MARKER:?}"
     """
 )
@@ -176,6 +180,7 @@ def _run_monthly(repo: Path, stubs: Path, tmp_path: Path, *args: str,
     env["EVAL_DATA_DIR"] = str(tmp_path / "data")
     env["HEARTBEAT_MARKER"] = str(tmp_path / "heartbeat-marker")
     env["PUSH_MARKER"] = str(tmp_path / "push-marker")   # #453 推送发生标记
+    env["SSH_MKDIR_MARKER"] = str(tmp_path / "ssh-mkdir-marker")   # #453 推送前建目录标记
     env["RSYNC_PUSH_MODE"] = rsync_push_mode
     env["ANCHORS_MODE"] = anchors_mode
     env["DSEM_MODE"] = dsem_mode
@@ -469,6 +474,7 @@ def test_eval_report_push_in_green_round(tmp_path):
     assert rc == 0, out
     assert "==> 评估报告推送" in out, out
     assert (tmp_path / "push-marker").exists(), "全绿轮须推评估报告"
+    assert (tmp_path / "ssh-mkdir-marker").exists(), "推送前须先在远端建目录"
     assert (tmp_path / "heartbeat-marker").exists(), out
 
 
@@ -495,6 +501,7 @@ def test_eval_report_push_dry_run_prints_but_does_not_push(tmp_path):
     assert "[dry-run]" in out, out
     assert not (tmp_path / "push-marker").exists()
     assert not (tmp_path / "heartbeat-marker").exists()
+    assert not (tmp_path / "ssh-mkdir-marker").exists(), "dry-run 不得调 ssh"
     assert not _report_root(repo).exists()
 
 

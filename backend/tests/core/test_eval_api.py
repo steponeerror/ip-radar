@@ -120,6 +120,19 @@ class TestEvalRoutes:
         m = client_as_admin.get("/api/eval/model").json()
         assert m["latest"]["w"] == 30   # 根 model/ 旧件更新 → 跨目录取最新
 
+    def test_model_monthly_newer_than_root_end_to_end(self, tmp_path, monkeypatch, client_as_admin):
+        """#453 生产方向(评审补):根 model/ 是 S37 前的旧件、monthly/model/
+        是月轮新件 → /api/eval/model 取 monthly 的。"""
+        monkeypatch.setenv("IP_RADAR_EVAL_DIR", str(tmp_path))
+        mon = tmp_path / "monthly" / "model"
+        (tmp_path / "model").mkdir(parents=True)
+        mon.mkdir(parents=True)
+        (tmp_path / "model" / "model-20261010-000000.json").write_text(
+            json.dumps({"kind": "model", "generated_at": "2026-10-10", "w": 10}))
+        (mon / "model-20261125-000000.json").write_text(
+            json.dumps({"kind": "model", "generated_at": "2026-11-25", "w": 25}))
+        assert client_as_admin.get("/api/eval/model").json()["latest"]["w"] == 25
+
     def test_overview_oc_lowercase_key_not_null(self, tmp_path, monkeypatch, client_as_admin):
         """真实报告 metrics 键 oc 是小写(__main__ metrics dict 实测);
         大写 OC 查询必须回退命中——演练发现 overview oc=null 的回归锁。"""

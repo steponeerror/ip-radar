@@ -113,6 +113,23 @@ def test_read_model_across_model_dirs(tmp_path, monkeypatch):
     assert read_model()["w"] == 30          # 根 model/ 旧件更新 → 取旧位置这份
 
 
+def test_read_model_monthly_newer_than_root(tmp_path, monkeypatch):
+    """生产方向(评审补):根 model/ 是 S37 前的旧件、monthly/model/ 是月轮
+    新件 → 取 monthly 的。改前读侧只读根 model/,会取到旧件。"""
+    from ipdb._eval_reader import read_model
+    monkeypatch.setenv("IP_RADAR_EVAL_DIR", str(tmp_path))
+    (tmp_path / "model").mkdir()
+    (tmp_path / "model" / "model-20261010-000000.json").write_text(
+        json.dumps({"kind": "model", "generated_at": "2026-10-10", "w": 10}),
+        encoding="utf-8")
+    mon = tmp_path / "monthly" / "model"
+    mon.mkdir(parents=True)
+    (mon / "model-20261125-000000.json").write_text(
+        json.dumps({"kind": "model", "generated_at": "2026-11-25", "w": 25}),
+        encoding="utf-8")
+    assert read_model()["w"] == 25
+
+
 def test_read_model_monthly_only(tmp_path, monkeypatch):
     """根 model/ 缺席时 monthly/model/ 照样读得到(S37 后唯一写位)。"""
     from ipdb._eval_reader import read_model

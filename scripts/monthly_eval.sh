@@ -347,8 +347,9 @@ check_family readout  ''     'monthly-*.md'
 # ── #453:评估报告推送(报告族齐全校验之后、心跳之前)──
 # 把本轮报告根下形状匹配的逐源 verdict 件 + model/model-*.json 推到生产
 # 卷 eval/monthly/(rsync over ssh;只推 mtime 晚于脚本启动的本轮新件,
-# START_S 同报告族校验;不带 --delete)。与读侧 _eval_reader 同一口径
-# (#453 监督裁决):northstar-*/temporal-*/leg-status-*/action-block/
+# START_S 同报告族校验;不带 --delete)。排除集与读侧 _eval_reader 今天
+# 等价(读侧是内容闸「source 键是字符串」,这里是名单闸):
+# northstar-*/temporal-*/leg-status-*/action-block/
 # mirror-manifest 观测件不推(逐源形状排除名单与 check_family all 腿
 # 同款;northstar-*/temporal-* 撞形状但无 source 键,不当报告)。
 # 推失败 = 一条红态:红行外显 + 记入 PUSH_RC;心跳照写(报告族在本机
@@ -374,6 +375,9 @@ else
     find "$REPORT_ROOT/model" -maxdepth 1 -name 'model-*.json' \
       -newermt "@$START_S" -printf 'model/%f\n' 2>/dev/null || :
   } | sort > "$PUSH_LIST"
+  if [ ! -s "$PUSH_LIST" ]; then
+    echo "  (本轮没有可推的报告文件,跳过推送)"
+  fi
   if [ -s "$PUSH_LIST" ]; then
     ssh "$PROD_HOST" "mkdir -p $EVAL_PUSH_DST" || PUSH_RC=$?
     if [ "$PUSH_RC" = 0 ]; then

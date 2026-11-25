@@ -1,8 +1,11 @@
 """读 data/eval 报告聚合(spec 2026-08-28 §5.2,agent-ready PR②)。
 
 进程间契约 = 文件:EvalManager 子进程经 CLI --json 落
-{source}-{YYYYMMDD-HHMMSS}.json,本模块只读聚合。不加缓存
-(登记源数 × 小 json,每请求扫目录可接受——spec 明示)。
+{source}-{YYYYMMDD-HHMMSS}.json,本模块只读聚合。不加缓存:每请求把
+目录族里的报告全读一遍并解析,份数 = 月轮轮数 × 源数(逐月累积,
+2026-11-25 约 540 份)。调用方是管理员页面、低频,现在可接受;要收
+就用 backend/ipdb/_version.py 那种秒级 TTL 把一次开页的几次扫折成
+一次(评审记录项,未做)。
 
 排序键 = (generated_at, 文件名):generated_at 是日粒度串(report.py
 实测),同日多报告靠文件名秒级时间戳分先后(T5 防覆盖修复的产物)。
@@ -118,8 +121,8 @@ def read_model() -> dict | None:
     source-eval model 任务)。#453 起跨目录族(根/monthly/dev 的 model/,
     同 _dirs;gate/model 不进)取最新 —— 月轮写 monthly/model/,S37 前
     旧件在根 model/。顶层 *.json 仍是逐源 verdict —— 两者不混。
-    排序键与 _runs 同式:(generated_at, 文件名);键全等时后扫的目录胜
-    (_runs 稳定排序后见者胜同款:dev > monthly > 根,与写入时间序一致)。"""
+    排序键与 _runs 同式:(generated_at, 文件名);键全等(只可能是同一份
+    文件的拷贝)时后扫的目录胜,与 _runs 稳定排序后见者胜同款。"""
     best, best_key = None, ("", "")
     for d in _dirs():
         m = d / "model"
