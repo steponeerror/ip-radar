@@ -48,7 +48,7 @@ def test_derive_real_tree_pins_caliber():
 def test_real_docs_all_green():
     errors = []
     for rel in csc.DOC_FILES:
-        errors += csc.check_doc(REPO / rel, csc.derive_counts())
+        errors += csc.check_doc(REPO / rel, csc.derive_counts(), rel)   # rel=仓根相对路径:子目录腿(svg/wazuh)按路径命中,不只按文件名
     assert errors == []
 
 
