@@ -32,6 +32,8 @@ key_envs 个数} 之一;前缀 ~ / 约 / approximately 的近似数不算。范�
 git(夹具树不是 git 仓),按目录名/路径排除历史记录、夹具与第三方安装面;
 例外按「文件+原因」(整档跳过)或「说法+原因」(该说法匹配段从行里剔掉再扫,
 同行其余字面量照红)登记,每条必须带原因(卫生闸钉死,防「待查」混入)。
+措辞约定:说「这次新增了几个源」别写成「补 12 个源」——会被当成源总数而红
+(增量数登记表派生不出来,闸验不了),写成「为 12 源补…」(2026-11-26 试合并撞过一次)。
 跑法(仓根):python3 scripts/check_source_counts.py   # 退出码 0=绿,1=红并列 file:line
 """
 from __future__ import annotations
@@ -350,14 +352,24 @@ SCAN_EXCLUDE_DIRS = frozenset({
     ".playwright-mcp",   # 本地浏览器会话快照(gitignore 兜底)
     ".pytest_cache",     # pytest 缓存(实测其自带 README.md 会被当文本收进来)
     ".ruff_cache",       # ruff linter 缓存(生成物,版本号文件会变形状)
+    "dist",             # 构建产物(.gitignore dist/);CI backend job 在门步前把 frontend-dist 产物
+                          # 下载到 frontend/dist(ci.yml:101-104),本地 build 后也在——第三方打包
+                          # 结果不是本仓文档,依赖升级后 bundle 里的字面量不该让本门红
 })
 # 路径排除(仓根相对,精确匹配)——逐项原因:
 SCAN_EXCLUDE_PATHS = frozenset({
     "backend/data",   # LMDB 数据存储(生产数据)
     "docs",           # 嵌套私有仓(自己的 git:历史/评审/规格笔记,非本仓受管面)
+    # 以下五项是本地件(.gitignore 兜底 / 文件放置规范「默认不入库」):只在本机出现,CI 没有;
+    # 不排除的话本机 pytest scripts 会因草稿变红而 CI 是绿。按仓根相对路径精确排除,
+    # 不按目录名——免得别处同名的受管目录被连带跳过。
+    "reports",         # 交付报告草稿(.gitignore /reports/;正式件进嵌套 docs 仓)
+    "notes",           # 研究笔记草稿(.gitignore /notes/;正式件进嵌套 docs 仓)
+    ".superpowers",    # 设计草稿(.gitignore)
+    "misp-docker",     # 本地集成环境检出(.gitignore)
+    "assets/verification",  # 验收截屏与截屏脚本(文件放置规范:默认不入库,报告引用时再入)
 })
 SCAN_EVAL_DIR_PREFIX = ".eval-"   # eval 数据卷映射目录(.eval-prod-data / .eval-gate-mirror)
-SCAN_OPS_FIXTURE_DIRS = frozenset({"fixtures", "data"})   # ops 下的测试夹具与基准数据(冻结宇宙)
 
 # 无后缀文件只收 shebang 开头的脚本(integrations/wazuh/custom-ipradar 判例:
 # #451 漏网过的集成脚本头注,无扩展名但受管且写源数)。
@@ -366,7 +378,8 @@ SCAN_OPS_FIXTURE_DIRS = frozenset({"fixtures", "data"})   # ops 下的测试夹�
 # 钉死每条必须带原因、不许「待查」。
 SCAN_FILE_EXCEPTIONS: dict[str, str] = {
     "CHANGELOG.md":
-        "历史记录:条目数字随当时纪元冻结、永不回改(2026-11-26 通扫实测 15 处历史口径)。",
+        "历史记录:条目数字随当时纪元冻结、永不回改(2026-11-26 通扫实测 20 余处历史口径,"
+        "每条新记录还会再写当时的数)。",
     "scripts/check_source_counts.py":
         "本闸自身:注释引用旧错句(「29 fused public feeds」「fuses 29 public feeds」)作判例样例。",
     "scripts/test_check_source_counts.py":
@@ -385,25 +398,9 @@ SCAN_PHRASE_EXCEPTIONS: dict[str, tuple[tuple[str, str], ...]] = {
         (r"2 sources ~fully contained",
          "fountain_suspect 字段注释里的算法阈值(疑似共同上游 ≥2 源),非源总数。"),
     ),
-    "backend/tests/core/test_main_routes.py": (
-        (r"e\.g\. 27/28 sources",
-         "测试注释里的闸覆盖举例数字(e.g. 27/28),非源数宣称。"),
-    ),
-    "backend/tests/lookup/test_last_seen_chain.py": (
-        (r"8 sources already emit",
-         "docstring 盘点「哪些源已带 last_seen 字段」的子集计数,口径≠登记表总数。"),
-    ),
     "frontend/src/pages/__tests__/SourcesPage.test.tsx": (
         (r"getByText\(/2 sources/\)",
          "前端单测迷你注册表 fixture(2 源 mock)的 UI 文案断言,非登记表口径。"),
-    ),
-    "ops/agent-v2/bench/add-domain/gen-universe.mjs": (
-        (r"sources-redesign",
-         "日期+连字复合词「2026-10-17 sources-redesign」被英文正则误读成「17 sources」;事件名,非源数。"),
-    ),
-    "ops/agent-v2/bench/add-domain/keyless-rules.json": (
-        (r"sources-redesign",
-         "同上:JSON _doc 引文里的同一日期复合词,非源数。"),
     ),
     "ops/agent-v2/bench/add-domain/SKILL.md": (
         (r"43 个源接入题",
@@ -411,9 +408,15 @@ SCAN_PHRASE_EXCEPTIONS: dict[str, tuple[tuple[str, str], ...]] = {
     ),
 }
 
+# (?<!\d-):挡住「日期-连字复合词」——「2026-10-17 sources-redesign」不被读成「17 sources」
+# (本仓按日期给事件命名是常态;副作用是「60-70 sources」的尾数不再当精确数查,这更对)。
+# 两条都不分大小写(「70 Sources」同样算)。
 BROAD_EN = re.compile(
-    r"(?<![\w.])(\d+)\s+(?:(?:public|fused|fuses|keyed|keyless|registered|shipped)\s+)*(?:sources|feeds)\b")
-BROAD_ZH = re.compile(r"(?<![\w.])(\d+)\s*个\s*(?:公开\s*)?(?:情报\s*)?源")
+    r"(?<![\w.])(?<!\d-)(\d+)\s+(?:(?:public|fused|fuses|keyed|keyless|registered|shipped)\s+)*(?:sources|feeds)\b",
+    re.IGNORECASE)
+BROAD_ZH = re.compile(
+    r"(?<![\w.])(\d+)\s*个\s*(?:公开\s*)?(?:情报\s*)?(?:密钥\s*|key\s*|数据\s*)?源",
+    re.IGNORECASE)   # N 个源 / N 个公开情报源 / N 个密钥源 / N 个 key 源 / N 个数据源
 # 近似数前缀(~ / 约 / approximately 直贴数字)不算命中:
 APPROX_PREFIX = re.compile(r"(?:~|约|approximately)\s*$")
 
@@ -447,8 +450,8 @@ def scan_repo(root: Path, counts: dict, *, verbose: bool = False) -> tuple[list[
     allowed = {counts["public_total"], len(counts["registered"]),
                counts["keyed"], counts["keyless_public"], len(counts["key_envs"])}
     errors: list[str] = []
-    stats = {"scanned": 0, "skipped_big": 0, "skipped_binary": 0,
-             "excepted_files": 0, "hits": 0, "ok": 0, "approx": 0}
+    stats = {"scanned": 0, "skipped_big": 0, "skipped_binary": 0, "unreadable": 0,
+             "excepted_files": 0, "excised": 0, "hits": 0, "ok": 0, "approx": 0}
     phrase_res = {rel: [(re.compile(pat), reason) for pat, reason in entries]
                   for rel, entries in SCAN_PHRASE_EXCEPTIONS.items()}
     for dirpath, dirnames, filenames in os.walk(root):
@@ -461,8 +464,6 @@ def scan_repo(root: Path, counts: dict, *, verbose: bool = False) -> tuple[list[
             if d in SCAN_EXCLUDE_DIRS or d.startswith(SCAN_EVAL_DIR_PREFIX):
                 continue
             if rp in SCAN_EXCLUDE_PATHS:
-                continue
-            if rel_dir == "ops" and d in SCAN_OPS_FIXTURE_DIRS:
                 continue
             keep.append(d)
         dirnames[:] = keep
@@ -487,15 +488,21 @@ def scan_repo(root: Path, counts: dict, *, verbose: bool = False) -> tuple[list[
                     stats["skipped_big"] += 1
                     continue
                 text = p.read_text(encoding="utf-8")
-            except (UnicodeDecodeError, OSError):
+            except UnicodeDecodeError:
                 stats["skipped_binary"] += 1
+                continue
+            except OSError as e:   # 读不了(权限/断链等):单列计数,不混进「非文本」
+                stats["unreadable"] += 1
+                if verbose:
+                    print(f"[scan] UNREADABLE {rel}: {e}")
                 continue
             stats["scanned"] += 1
             excs = phrase_res.get(rel, ())
             for lineno, raw in enumerate(text.splitlines(), 1):
                 line = raw
                 for rx, _reason in excs:
-                    line = rx.sub("", line)   # 说法级例外:剔匹配段,其余照扫
+                    line, n_cut = rx.subn("", line)   # 说法级例外:剔匹配段,其余照扫
+                    stats["excised"] += n_cut
                 for rx in (BROAD_EN, BROAD_ZH):
                     for m in rx.finditer(line):
                         num = int(m.group(1))
@@ -542,11 +549,16 @@ def main(argv: list[str] | None = None) -> int:
         errors += check_doc(p, counts, rel)
     scan_errors, scan_stats = scan_repo(root, counts, verbose=args.scan_verbose)
     errors += scan_errors
-    errors += exception_table_problems()
-    if errors:
-        print(f"[source-counts] RED — 文档源数字与登记表不符({len(errors)} 处):")
-        for e in errors:
-            print(f"  {e}")
+    hygiene = exception_table_problems()
+    if errors or hygiene:
+        if errors:
+            print(f"[source-counts] RED — 文档源数字与登记表不符({len(errors)} 处):")
+            for e in errors:
+                print(f"  {e}")
+        if hygiene:
+            print(f"[source-counts] RED — 通扫例外表卫生问题({len(hygiene)} 处):")
+            for e in hygiene:
+                print(f"  {e}")
         return 1
     print(f"[source-counts] GREEN — 公开源 {counts['public_total']}"
           f"(免钥 {counts['keyless_public']} / 带钥 {counts['keyed']},"
@@ -554,7 +566,8 @@ def main(argv: list[str] | None = None) -> int:
           f" {counts['eval_excluded']};已核 {len(DOC_FILES)} 份文档;通扫"
           f" {scan_stats['scanned']} 份文本文件(整档例外 {scan_stats['excepted_files']}"
           f" / 超大跳过 {scan_stats['skipped_big']} / 非文本跳过"
-          f" {scan_stats['skipped_binary']}),源数字面量 {scan_stats['hits']} 处"
+          f" {scan_stats['skipped_binary']} / 读不了 {scan_stats['unreadable']}),"
+          f"说法级例外剔掉 {scan_stats['excised']} 处,源数字面量 {scan_stats['hits']} 处"
           f"(合规 {scan_stats['ok']} / 近似 {scan_stats['approx']})")
     return 0
 

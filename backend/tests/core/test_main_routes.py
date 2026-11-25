@@ -487,7 +487,8 @@ class TestWarmingUpGate:
 
     def test_loaded_source_refresh_never_gates(self):
         """Matrix cell 5: routine refresh of an already-loaded source never
-        holds the gate — settled coverage (e.g. 27/28 sources) stays
+        holds the gate — settled coverage (every loaded source but the one
+refreshing) stays
         servable while its rebuild runs. Uses the REAL _coverage_building()
         (only the ingredients are patched) so the semantics themselves are
         pinned: active offline tasks whose targets all have loaded readers

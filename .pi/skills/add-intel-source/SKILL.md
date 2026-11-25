@@ -289,12 +289,21 @@ Then run, from `backend/`:
 
 ```bash
 .venv/bin/python -m pytest tests/sources/test_<name>.py -q       # your source's test
-.venv/bin/python -m pytest tests/source_infra/ -q                 # it registers + has the right shape
+.venv/bin/python -m pytest tests/source_infra/ -q                 # it registers + has the right shape. The new source
+                                                                    # also needs one line in the probe manifest
+                                                                    # ops/pipeline-core/feeds.txt, or an entry with a
+                                                                    # reason in that test file's exemption table (#456)
 .venv/bin/python -m pytest -q                                     # full suite — expect the same pass/fail as before
 python3 ../scripts/check_source_counts.py && python3 -m pytest ../scripts -q   # 源数字文档门(ADR 0018):加源后 README/MANUAL/GLOSSARY 的源数必须同步改,CI 有同款门(2026-11-22 判例:九连加源没同步文档,CI 红了四天)
+python3 ../scripts/check_source_counts.py --scan-verbose               # the same gate's repo-wide layer (#457): every
+                                                                       # '<N> sources / feeds / <N> 个源' literal in the repo must
+                                                                       # match the registry; a phrase that is not a total goes
+                                                                       # into the script's exception table, with a reason
 ```
 
 (In a git worktree, use the main checkout's interpreter absolute path — the venv does not travel with worktrees.)
+
+**Wording, for anything that lands in the repo** (docs, code comments): the source-count gate scans the whole repo and reads every `<N> sources` / `<N> feeds` / `<N> 个源` as a claim about the total, so it fails unless the number matches the registry. To say a change *added* sources, write `为 N 源补…` or `N new feeds`, not `补 N 个源` or `added N sources`. Approximations (`~N sources`, `约 N 个源`) pass. The keyed-source table in `README.md` (lines above the feature list) lists which env vars the keyed feeds share — update it only when key sharing changes.
 
 The full suite has **known unrelated failures that drift run to run**:
 a scheduler status-endpoint flake ×2,
