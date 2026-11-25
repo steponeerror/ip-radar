@@ -73,6 +73,53 @@ class TestEvalRoutes:
         assert vs["spamhaus"]["oc"] == 0.03
         assert vs["otx"]["verdict"] == "NEGATIVE-DEPRIORITIZE"
 
+    def test_overview_multidir_layout_end_to_end(self, tmp_path, monkeypatch, client_as_admin):
+        """#453 读写同规端到端:同一摆法过 HTTP —— 根目录旧件 + monthly/ 两轮
+        + dev/ 一份 + gate/ 一份 + 观测件(northstar-*/temporal-*/leg-status-*/
+        action-block/mirror-manifest + 坏 JSON);断言 verdicts 无 unknown 伪源、
+        每源跨目录最新、gate 不进,模型报告跨 model/ 目录取最新。"""
+        monkeypatch.setenv("IP_RADAR_EVAL_DIR", str(tmp_path))
+        mon = tmp_path / "monthly"
+        for sub in (mon, tmp_path / "dev", tmp_path / "gate",
+                    tmp_path / "model", mon / "model"):
+            sub.mkdir(parents=True)
+        _write_report(tmp_path, "spamhaus", "2026-10-01", state="POSITIVE-UNVERIFIED")
+        _write_report(mon, "spamhaus", "2026-11-01", state="POSITIVE-UNVERIFIED")
+        _write_report(mon, "spamhaus", "2026-11-25",
+                      state="POSITIVE-VERIFIED", ts="010101")
+        _write_report(mon, "otx", "2026-11-25",
+                      state="NEGATIVE-DEPRIORITIZE", ts="020202")
+        _write_report(tmp_path / "dev", "otx", "2026-11-25", state="MARGINAL",
+                      ts="030303")
+        _write_report(tmp_path / "gate", "spamhaus", "2026-11-30",
+                      state="GATE-ONLY")
+        (mon / "northstar-20261125-125951.json").write_text(json.dumps(
+            {"kind": "northstar", "generated_at": "2026-11-25"}))
+        (mon / "temporal-20261101-120000.json").write_text(json.dumps(
+            {"kind": "temporal", "generated_at": "2026-11-01"}))
+        (mon / "leg-status-20261125-130220.json").write_text(
+            json.dumps({"schema": "leg-status/1", "legs": {}}))
+        (mon / "action-block.json").write_text(json.dumps({"header": {}, "items": []}))
+        (mon / "mirror-manifest.json").write_text(json.dumps({"files": 1}))
+        (mon / "broken-20261125-000000.json").write_text('{"source": "bro')
+        (tmp_path / "model" / "model-20261130-000000.json").write_text(
+            json.dumps({"kind": "model", "generated_at": "2026-11-30", "w": 30}))
+        (mon / "model" / "model-20261125-000000.json").write_text(
+            json.dumps({"kind": "model", "generated_at": "2026-11-25", "w": 25}))
+
+        body = client_as_admin.get("/api/eval").json()
+        vs = {v["source"]: v for v in body["verdicts"]}
+        assert set(vs) == {"spamhaus", "otx"}   # 无 unknown/northstar/temporal 伪源
+        assert vs["spamhaus"]["verdict"] == "POSITIVE-VERIFIED"   # monthly 11-25
+        assert vs["otx"]["verdict"] == "MARGINAL"                # dev 同日更晚 ts
+
+        d = client_as_admin.get("/api/eval/spamhaus").json()
+        assert [h["at"] for h in d["history"]] == ["2026-10-01", "2026-11-01", "2026-11-25"]
+        assert d["latest"]["verdict"]["state"] == "POSITIVE-VERIFIED"
+
+        m = client_as_admin.get("/api/eval/model").json()
+        assert m["latest"]["w"] == 30   # 根 model/ 旧件更新 → 跨目录取最新
+
     def test_overview_oc_lowercase_key_not_null(self, tmp_path, monkeypatch, client_as_admin):
         """真实报告 metrics 键 oc 是小写(__main__ metrics dict 实测);
         大写 OC 查询必须回退命中——演练发现 overview oc=null 的回归锁。"""

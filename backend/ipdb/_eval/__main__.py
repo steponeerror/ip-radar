@@ -52,10 +52,14 @@ def eval_env() -> str:
 
 
 def report_dir() -> Path:
-    """call-time 解析(测试免 reload;月轮脚本经 monthly_eval.sh 注入 env)。"""
-    return Path(os.environ.get(
-        "IP_RADAR_EVAL_DIR",
-        str(_REPO_ROOT / "backend" / "data" / "eval"))) / eval_env()
+    """call-time 解析(测试免 reload;月轮脚本经 monthly_eval.sh 注入 env)。
+
+    报告根 = _paths.eval_dir() 单真源(#453):本函数不再自持
+    <仓根>/backend/data/eval 第二份缺省 —— 读写同规(读侧 _eval_reader
+    同根并看根/monthly/dev),容器里由镜像 ENV IP_RADAR_EVAL_DIR=/app/data/
+    eval 把报告根定到数据卷(页面上手动跑的评估落卷上 dev/,重建不丢)。"""
+    from .._paths import eval_dir
+    return eval_dir() / eval_env()
 
 
 # T9 gate 镜像参数(S7/Q11, spec 2026-10-12-eval-loop-hardening-design.md §3.1):
