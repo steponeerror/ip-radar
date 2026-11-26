@@ -207,6 +207,11 @@ curl -s http://127.0.0.1:8000/api/db-status
 | malicious_ip `*` | [romainmarcoux/malicious-ip](https://github.com/romainmarcoux/malicious-ip) | 五个分片合并的封禁清单（约 100 万条唯一 IP，逐小时重建） | |
 | ustc_blackip | [USTC](https://blackip.ustc.edu.cn/) | 中国科大的校园自保黑名单（运行约 15 年，解封要人工复议） | |
 | gorkemgun_sgb_blocklist | [gorkemgun/sgb-blocklist](https://raw.githubusercontent.com/gorkemgun/sgb-blocklist/main/ipv4.txt) | plain text 行式清单:文件头为 4 行 `#` 注释(标题/Source/Records/Last change),随后每行一个裸 IPv4 地址(数值排序)。无 CSV… (fleet-lifted #366) | |
+| blocklist_netua | [blocklist.net.ua](https://blocklist.net.ua/) | 乌克兰社区封禁清单（WAF 与滥用行为封禁；过了解封时间的行自动出库） | |
+| echelon | [Echelon Labs](https://echelonlabs.co/) | 蜜罐传感网按行为标签发布的封禁清单（61 个标签） | |
+| nerd_medconf | [CESNET NERD](https://nerd.cesnet.cz/) | 中等置信度的信誉 IP（上游由多份公开清单算出） | |
+| honeypot_fyi | [honeypot.fyi](https://honeypot.fyi/) | 多协议蜜罐网络收集的攻击者封禁清单（2024 年起滚动更新，带逐 IP 命中数） | |
+| mirage_feed | [OffSeq Mirage](https://github.com/offseq/mirage-feed) | 多传感器蜜罐的攻击者记录（7 天窗口，带标签、ATT&CK、CVE-KEV 和置信度） | |
 
 ### 地理与 ASN
 

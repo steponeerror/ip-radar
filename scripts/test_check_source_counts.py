@@ -300,7 +300,7 @@ def test_scan_phrase_exception_excises_only_the_phrase(tmp_path):
 
 
 def test_scan_zh_literal_shebang_script_and_build_output(tmp_path):
-    """三条规则各有一个「改坏会红」的钉,外加日期复合词的根治:
+    r"""三条规则各有一个「改坏会红」的钉,外加日期复合词的根治:
     - backend/ 下新 .md 写「29 个公开情报源」→ 红(钉住中文正则,和 backend/ 没被排除);
     - integrations/newtool/custom-tool(无后缀、首行 #!)写「29 fused public feeds」→ 红
       (#451 漏网的就是这种集成脚本的头注);
@@ -458,3 +458,87 @@ def test_subdir_doc_total_flipped_red(tmp_path, rel):
     errs = csc.check_doc(p, c, rel)
     assert len(errs) == 1 and errs[0].startswith(rel + ":"), errs
     assert f"登记表派生 {c['public_total']},文档写 {c['public_total'] + 1}" in errs[0]
+
+
+# ── 源表层(2026-11-26 收尾):README 双语源表名单对登记表 ─────────────
+
+def _fixture_source_row(root, rel, name):
+    """夹具 README 源表里「| name |」那一行(聚合源行名后带 `*`)。"""
+    p = root / rel
+    lines = p.read_text(encoding="utf-8").splitlines(keepends=True)
+    hit = [i for i, ln in enumerate(lines)
+           if re.match(rf"\| {name}( `\*`)? \|", ln)]
+    assert len(hit) == 1, (rel, name, hit)
+    return p, lines, hit[0]
+
+
+def test_readme_source_tables_match_registry_on_real_repo():
+    """两份 README 的源表名单 == 公开源集合(登记 − eval_excluded)。"""
+    assert csc.check_readme_tables(REPO, csc.derive_counts()) == []
+
+
+def test_readme_source_table_row_dropped_red(tmp_path):
+    """源表少一行(五份加源 PR 的漏法:计数句全对、表里没补行)→ 红,报出缺的源名;main 也红。"""
+    root = _fixture_root(tmp_path)
+    p, lines, i = _fixture_source_row(root, "README.md", "echelon")
+    p.write_text("".join(lines[:i] + lines[i + 1:]), encoding="utf-8")
+    errs = csc.check_readme_tables(root, _fixture_counts(root))
+    assert len(errs) == 1 and errs[0].startswith("README.md:"), errs
+    assert "缺 ['echelon']" in errs[0] and "多 无" in errs[0], errs
+    assert csc.main(["--root", str(root)]) == 1
+
+
+def test_readme_source_table_unknown_name_red(tmp_path):
+    """源表多出一个登记表里没有的名字 → 红,「多」带行号(要去那一行改)。"""
+    root = _fixture_root(tmp_path)
+    p, lines, i = _fixture_source_row(root, "README.zh-CN.md", "echelon")
+    lines[i] = lines[i].replace("| echelon |", "| ghost_source |", 1)
+    p.write_text("".join(lines), encoding="utf-8")
+    errs = csc.check_readme_tables(root, _fixture_counts(root))
+    assert len(errs) == 1 and errs[0].startswith("README.zh-CN.md:"), errs
+    assert "缺 ['echelon']" in errs[0], errs
+    assert f"多 ['ghost_source(第 {i + 1} 行)']" in errs[0], errs
+    assert csc.main(["--root", str(root)]) == 1
+
+
+def test_readme_source_table_private_source_listed_red(tmp_path):
+    """eval_excluded 的私有源(honyport)写进公开源表 → 红:公开源 = 登记 − eval_excluded 的口径钉。"""
+    root = _fixture_root(tmp_path)
+    p, lines, i = _fixture_source_row(root, "README.md", "nerd_medconf")
+    lines.insert(i, "| honyport | local | private observation source | |\n")
+    p.write_text("".join(lines), encoding="utf-8")
+    errs = csc.check_readme_tables(root, _fixture_counts(root))
+    assert len(errs) == 1 and "多 ['honyport(第 " in errs[0] and "缺 无" in errs[0], errs
+
+
+def test_readme_source_table_duplicate_row_red(tmp_path):
+    """同一源在表里出现两次 → 红(加源流程重跑把行加两遍的形状)。"""
+    root = _fixture_root(tmp_path)
+    p, lines, i = _fixture_source_row(root, "README.md", "nerd_medconf")
+    lines.insert(i, lines[i])
+    p.write_text("".join(lines), encoding="utf-8")
+    errs = csc.check_readme_tables(root, _fixture_counts(root))
+    assert len(errs) == 1 and "重复出现的源 ['nerd_medconf']" in errs[0], errs
+
+
+def test_readme_source_table_section_or_header_rewritten_fails_loud(tmp_path):
+    """标题被改写、或节里混进一张非源表 → 这一层不静默退出:名单比对一退出,缺行就永远看不见。"""
+    root = _fixture_root(tmp_path)
+    p = root / "README.md"
+    text = p.read_text(encoding="utf-8")
+    p.write_text(text.replace("## Data Sources & Acknowledgments", "## Sources & Thanks"),
+                 encoding="utf-8")
+    errs = csc.check_readme_tables(root, _fixture_counts(root))
+    assert len(errs) == 1 and errs[0].startswith("README.md:") and "找不到二级标题" in errs[0], errs
+    assert csc.main(["--root", str(root)]) == 1
+    p.write_text(text.replace("## Development",
+                              "| Key | Meaning |\n|---|---|\n| x | y |\n\n## Development"),
+                 encoding="utf-8")
+    errs = csc.check_readme_tables(root, _fixture_counts(root))
+    assert len(errs) == 1 and "表头不是「Source / 源」" in errs[0], errs
+    # 首格不是源名形状(带了说明文字) likewise 报错:名单比对不带着读不懂的行往下走
+    p2, lines2, j = _fixture_source_row(root, "README.md", "nerd_medconf")
+    lines2[j] = lines2[j].replace("| nerd_medconf |", "| nerd_medconf (paid tier) |", 1)
+    p2.write_text("".join(lines2), encoding="utf-8")
+    errs = csc.check_readme_tables(root, _fixture_counts(root))
+    assert len(errs) == 1 and f"第 {j + 1} 行首格" in errs[0] and "不是源名形状" in errs[0], errs
