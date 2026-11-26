@@ -143,7 +143,8 @@ class RefreshScheduler:
         ._ensure_refresh_scheduler(IPRADAR_AUTO_REFRESH=0 时根本不构造),
         关停态的四项(False/False/None/None)由调用方给字面。running =
         扫描线程在不在跑;last_scan_age_s 还没扫过 → null,否则距上次
-        扫描的秒数。"""
+        扫描的秒数 —— 口径是扫描「开始」时刻(scan() 一进来就记
+        _last_scan_at,不等扫完;返工评审建议 11),不是扫完时刻。"""
         if now is None:
             now = time.time()
         t = self._thread

@@ -30,33 +30,53 @@ _OPS_LOG_KEEP = 200
 # 被看一次。
 _STDOUT_POLL_S = 1.0
 # terminate 后留 30 秒宽限再 kill(对照评估子进程 _eval_manager 的
-# communicate(timeout) 模式);这里杀的是「已断输出/已点取消」的进程,
-# 正常退出路径远用不满 30 秒。
+# communicate(timeout) 模式)。只用在「取消」「停顿」「读事故」三条
+# 失败路上(返工裁决,#478 评审必须改 3):正常读到结束那条路,EOF 的
+# 时刻就是子进程退出、内核在退出路径里关管道 fd 的时刻(print OK 之后
+# 从不显式关 stdout;CPython 收尾在 exit 之前,那段静默归停顿线管),
+# EOF 后的 wait 毫秒级返回,不存在「关了输出再慢慢退出」的窗口。
 _TERM_GRACE_S = 30.0
-# 停顿阈值缺省(分钟)。60 的理由:写库之前有不出声的收获阶段,小机上
-# 最大的源光收文件就要好几分钟(见 _rebuild_child 模块头),60 分钟留足
-# 余量,合法重建不会被误杀;真挂死最多白占一个 worker 线程 60 分钟。
-_REBUILD_STALL_MIN_DEFAULT = 60.0
+# 停顿阈值缺省(分钟)。60 的理由:子进程有两段合法的长时间不出声
+# ——①写库之前的收获阶段,多证据源收完整个文件才开始写库,小机上最
+# 大的源光收文件就要好几分钟(_rebuild_child 模块头);②最后一条
+# PROG 之后还有同步落盘、关 env、compact 拷贝(_lmdb.rebuild_lmdb 提交
+# 段),打印 OK 之后还有解释器收尾,大源在小机上都要数分钟。60 分钟
+# 留足余量,合法重建不会被误杀;真挂死最多白占一个 worker 线程 60 分钟。
+_REBUILD_QUIET_MAX_MIN_DEFAULT = 60.0
 
 
-def _rebuild_stall_timeout_s() -> float:
-    """停顿阈值:env `IP_RADAR_REBUILD_STALL_MIN`(分钟,可小数)→ 秒。
+def _rebuild_quiet_max_s() -> float | None:
+    """停顿阈值:env `IP_RADAR_REBUILD_QUIET_MAX_MIN`(分钟,可小数)
+    → 秒;返回 None = 关掉停顿检查(不设上限)。
 
-    分钟是运维口径(「多久没有新输出算挂住」);测试直接设小数(如
-    0.0005 分 ≈ 30ms)即得秒级阈值,不另开测试专用入口。非法/负值回退
-    缺省:宁用保守长阈值,不把合法重建误杀。
+    取值口径(2026-11-26 返工裁决;写法照兄弟函数 _lmdb._stall_budget_s:
+    一次 `not val >= 0` 把负数和 NaN 一起判掉 —— 单式比较 NaN 两侧皆假,
+    漏拦会静默落进 `nan*60` 的永假阈值):
+    - 未设 → 缺省 60 分钟(理由见 _REBUILD_QUIET_MAX_MIN_DEFAULT 注)。
+    - 「0」→ None,关掉检查(运维写 0 的自然意图是「别管」)。
+    - 负数、非数字、NaN → 回退缺省 + 告警:打错的开关不该静默关掉挂死
+      保护。
+    分钟是运维口径;测试直接设小数(如 0.0005 分 ≈ 30ms)即得秒级阈值,
+    不另开测试专用入口。
     """
-    raw = os.environ.get("IP_RADAR_REBUILD_STALL_MIN")
+    raw = os.environ.get("IP_RADAR_REBUILD_QUIET_MAX_MIN")
     if raw is None:
-        return _REBUILD_STALL_MIN_DEFAULT * 60.0
+        return _REBUILD_QUIET_MAX_MIN_DEFAULT * 60.0
     try:
-        minutes = float(raw)
+        val = float(raw)
     except ValueError:
-        logger.warning("invalid IP_RADAR_REBUILD_STALL_MIN=%r; "
-                       "falling back to %s min",
-                       raw, _REBUILD_STALL_MIN_DEFAULT)
-        return _REBUILD_STALL_MIN_DEFAULT * 60.0
-    return max(0.0, minutes) * 60.0
+        logger.warning("IP_RADAR_REBUILD_QUIET_MAX_MIN=%r not a number; "
+                       "using default %.0f min",
+                       raw, _REBUILD_QUIET_MAX_MIN_DEFAULT)
+        return _REBUILD_QUIET_MAX_MIN_DEFAULT * 60.0
+    if not val >= 0:   # 负/NaN 一并按非法(单式比较,NaN 两侧皆假)
+        logger.warning("IP_RADAR_REBUILD_QUIET_MAX_MIN=%r negative/NaN; "
+                       "using default %.0f min",
+                       raw, _REBUILD_QUIET_MAX_MIN_DEFAULT)
+        return _REBUILD_QUIET_MAX_MIN_DEFAULT * 60.0
+    if val == 0:       # 0 = 关掉停顿检查(不设上限)
+        return None
+    return val * 60.0
 
 
 @dataclass
@@ -684,6 +704,29 @@ class UpdateManager:
             self._emit({"type": "task_progress", "task_id": task.id,
                         "received": received, "total": total})
 
+    def _drop_child_staging(self, source, task: Task) -> None:
+        """子进程车道失败终态(取消/停顿/读事故/管道异常)的定点暂存清扫
+        (#478 返工裁决,评审建议 6 延伸):子进程被结束会留下
+        <base>.<epoch>.new.<pid> 暂存,原先要等下次成功重建后的 load()
+        或重启才清 —— 停顿反复发生时每次换一个 pid,大源会把 40G 小机盘
+        占满。只清暂存不动纪元(SourceBase.drop_staging →
+        _lmdb.drop_staging);清不动不反噬任务状态,只 log。成功与子进程
+        自己报错退出两条路不清:前者 load() 里的 cleanup_stale 顺路清,
+        后者属「下次载入或重启时清」的既有口径(评审建议 6)。
+        """
+        drop = getattr(source, "drop_staging", None)
+        if drop is None:
+            return
+        try:
+            n = drop()
+        except Exception:
+            logger.warning("drop staging failed for %s",
+                           task.source_name, exc_info=True)
+            return
+        if n:
+            logger.info("dropped %d staging dir(s) for %s",
+                        n, task.source_name)
+
     def _rebuild_via_subprocess(self, task: Task, source) -> bool:
         """loading 相位的子进程重建(IP_RADAR_REBUILD_SUBPROCESS=1 车道,
         2026-10 小机 RSS 棘轮根修)。
@@ -697,19 +740,30 @@ class UpdateManager:
 
         取消:主循环 get 至多等 1 秒(#478:stdout 挪进读线程 + 队列),
         取消标记在子进程安静时也每秒被看一次;命中即 terminate + 30 秒
-        宽限 wait(不退再 kill)+ cancelled(记账语义与现行取消一致:
-        epoch 已换新不回滚,grill Q8 2026-10-11)。
+        宽限 wait(不退再 kill)+ cancelled。取消不回滚(返工评审措辞
+        修正):子进程车道里取消可以落在写库途中 —— 已换的 ptr 不动
+        (父进程下次 load() 接上),没换的 ptr 仍指旧纪元、照常可查
+        (grill Q8 2026-10-11 的「不回滚」不变量照旧,只是成因说准)。
         停顿超时(#478):「多久没读到子进程的任何一行输出」超过
-        IP_RADAR_REBUILD_STALL_MIN(分钟,缺省 60;60 的理由见
-        _REBUILD_STALL_MIN_DEFAULT 注)判挂死:terminate → 30 秒不退
-        kill → failed,error_code 沿用 rebuild(2026-10-17 裁定车道全线
-        构建码,「连续构建失败」告警接得上),错误说明带「重建停顿」。
+        IP_RADAR_REBUILD_QUIET_MAX_MIN(分钟,缺省 60;0=关掉;负数/
+        非数字/NaN 回退缺省并告警;两段合法静默期与 60 的理由见
+        _REBUILD_QUIET_MAX_MIN_DEFAULT 注)判挂死:terminate → 30 秒
+        不退 kill → failed,error_code 沿用 rebuild(2026-10-17 裁定
+        车道全线构建码,「连续构建失败」告警接得上),错误说明带
+        「重建停顿」。
+        读事故(返工必须改 1):stdout 读线程里的任何异常经队列递回主
+        循环,立刻按失败收口(异常文本进 error),不等停顿阈值 —— 否则
+        这类事故最长等满阈值,且可能把 rc=0 的成功重建报成「重建停顿」
+        (老主线程读版本则是当场 failed 带异常文本)。
         被杀不留半截:子进程提交是「先写 <base>.<epoch>.new.<pid> 暂存、
         最后换 ptr」(_lmdb.rebuild_lmdb 提交顺序不变量),ptr 仍指旧完整
-        epoch,上一可用版本照常可查;暂存目录由 _lmdb.cleanup_stale 清
-        (SourceBase.load 每次载入都扫)。
-        返回 True 仅当 rc==0 且 load() 成功 —— 取消/停顿/失败都在此内置
-        终态并返回 False,由 _run_task 的 finally 走 _settle。Popen/管道
+        epoch,上一可用版本照常可查;取消/停顿/读事故/管道异常四个失败
+        终态在确认子进程结束后顺手清暂存(_drop_child_staging →
+        SourceBase.drop_staging → _lmdb.drop_staging,只清暂存不动
+        纪元),成功与子进程自己报错退出两条路仍由 cleanup_stale 在下次
+        成功重建后的 load() 或重启时清(原口径)。
+        返回 True 仅当 rc==0 且 load() 成功 —— 取消/停顿/读事故/失败都
+        在此内置终态并返回 False,由 _run_task 的 finally 走 _settle。Popen/管道
         层异常同样映射 failed:炸出 _run_task 会杀死 worker 线程,任务
         永久卡 loading、batch 永不完成。
         """
@@ -718,7 +772,11 @@ class UpdateManager:
             proc = subprocess.Popen(
                 [sys.executable, "-m", "ipdb._rebuild_child",
                  task.source_name],
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                encoding="utf-8", errors="replace")
+                # encoding/errors 对齐 _ops_rounds(返工必须改 1 顺手项):
+                # traceback 带源名/URL 的非 UTF-8 字节不再炸解码;stdout
+                # 与 stderr 同一 Popen,一并兜住。
         except Exception as e:
             logger.warning("rebuild subprocess spawn failed for %s: %s",
                            task.source_name, e)
@@ -743,15 +801,28 @@ class UpdateManager:
         stdout_q: queue.Queue = queue.Queue()
 
         def _drain_stdout():
-            for ln in proc.stdout:
-                stdout_q.put(ln)
-            stdout_q.put(None)      # EOF 哨兵:子进程已关 stdout(退出中)
+            ended = False
+
+            def _end(item) -> None:
+                nonlocal ended
+                if not ended:
+                    ended = True
+                    stdout_q.put(item)
+
+            try:
+                for ln in proc.stdout:
+                    stdout_q.put(ln)
+            except Exception as e:
+                _end(e)         # 读事故随队列递回主循环:快速失败,不伪装停顿
+            finally:
+                _end(None)      # 结束信号必达(try/finally,返工必须改 1)
 
         stdout_reader = threading.Thread(target=_drain_stdout, daemon=True)
         stdout_reader.start()
         cancelled = False
         stalled = False
-        stall_timeout_s = _rebuild_stall_timeout_s()
+        reader_error: BaseException | None = None  # 读线程递回的异常(必须改 1)
+        quiet_max_s = _rebuild_quiet_max_s()
         last_output = time.monotonic()      # 停顿线基线 = 车道起点
         try:
             try:
@@ -760,15 +831,23 @@ class UpdateManager:
                         line = stdout_q.get(timeout=_STDOUT_POLL_S)
                     except queue.Empty:
                         # 静默期:取消每秒至少可见(#478);停顿线 = 距
-                        # 最近一行输出超过阈值即判挂死(收获阶段合法安静
-                        # 可达数分钟,阈值不能定短,理由见缺省值注)。
+                        # 最近一行输出超过阈值即判挂死(两段合法静默期
+                        # 可达数分钟以上,阈值不能定短,理由见缺省值注;
+                        # None = 运维写 0,关掉检查)。
                         if task.token.is_cancelled():
                             cancelled = True
                             break
-                        if time.monotonic() - last_output >= stall_timeout_s:
+                        if (quiet_max_s is not None and
+                                time.monotonic() - last_output >= quiet_max_s):
                             stalled = True
                             break
                         continue
+                    if isinstance(line, BaseException):
+                        # 读事故(必须改 1):读线程的异常随队列递回,当场
+                        # 失败,不等停顿线,也不把 rc==0 的成功重建误报成
+                        # 「重建停顿」。
+                        reader_error = line
+                        break
                     if line is None:
                         break               # stdout EOF:子进程退出中
                     last_output = time.monotonic()
@@ -783,39 +862,64 @@ class UpdateManager:
                     if task.token.is_cancelled():
                         cancelled = True
                         break
-                if cancelled or stalled:
+                failed_lane = cancelled or stalled or reader_error is not None
+                if failed_lane:
                     proc.terminate()
+                # wait 上限按路选(返工必须改 3):取消/停顿/读事故给
+                # _TERM_GRACE_S 宽限(不退 kill)。正常 EOF 那条路:EOF 的
+                # 时刻就是子进程退出、内核在退出路径里关 fd 的时刻,wait
+                # 本应毫秒级返回;上限设成停顿线(None=不设上限)而不设
+                # 30 秒硬帽,防极端慢的退出收尾把 rc==0 的重建错杀成
+                # failed(主会话实测:读到结束只在子进程退出时发生,
+                # print OK 之后并不关 stdout)。
+                wait_cap = _TERM_GRACE_S if failed_lane else quiet_max_s
                 try:
-                    rc = proc.wait(timeout=_TERM_GRACE_S)
+                    rc = proc.wait(timeout=wait_cap)
                 except subprocess.TimeoutExpired:
                     # terminate 不退(拦截 SIGTERM/卡在不可中断态)→ kill
                     # 兜底:原实现 wait 无限等,挂死进程永久占住车道。
                     proc.kill()
                     rc = proc.wait()
             finally:
-                proc.stdout.close()
-                # 子进程已退出(wait 返回)⇒ 两管道必至 EOF ⇒ reader 线程
-                # 必退出;join 后再 close,避免与阻塞中的 read 竞争。
-                stdout_reader.join(timeout=5)
-                stderr_reader.join(timeout=5)
-                proc.stderr.close()
+                # 收尾顺序(返工必须改 4):先兜底 terminate —— 进程若还
+                # 活着,reader 线程就还卡在读上,先 join 会白等满超时;
+                # 再 join 两个读线程(子进程已退出 ⇒ 两管道必至 EOF ⇒
+                # 线程必退出),最后才关两根管道。
                 if proc.returncode is None:     # 异常路径兜底:不留僵尸
                     proc.terminate()
                     proc.wait()
+                stdout_reader.join(timeout=5)
+                stderr_reader.join(timeout=5)
+                proc.stdout.close()
+                proc.stderr.close()
         except Exception as e:
             logger.warning("rebuild subprocess pipe failed for %s: %s",
                            task.source_name, e)
+            # 走到这已过 finally(子进程确认结束):按四个失败终态之一清暂存。
             self._set_state(task, "failed", str(e), error_code="rebuild")
+            self._drop_child_staging(source, task)
             return False
         if cancelled:
             self._set_state(task, "cancelled")
+            self._drop_child_staging(source, task)
+            return False
+        if reader_error is not None:
+            # 读事故终态(必须改 1):异常文本进 error,快速失败。
+            logger.warning("rebuild stdout reader crashed for %s: %s",
+                           task.source_name, reader_error)
+            self._set_state(task, "failed", str(reader_error),
+                            error_code="rebuild")
+            self._drop_child_staging(source, task)
             return False
         if stalled:
-            quiet_min = (time.monotonic() - last_output) / 60.0
-            error = f"重建停顿:最后一条输出在 {quiet_min:.0f} 分钟前"
+            quiet = time.monotonic() - last_output
+            error = (f"重建停顿:最后一条输出在 {quiet:.0f} 秒前"
+                     if quiet < 60.0 else
+                     f"重建停顿:最后一条输出在 {quiet / 60.0:.0f} 分钟前")
             logger.warning("rebuild subprocess stalled for %s: %s",
                            task.source_name, error)
             self._set_state(task, "failed", error, error_code="rebuild")
+            self._drop_child_staging(source, task)
             return False
         if rc == 0:
             # 成功路径也留痕子进程 stderr 人类可读行(如载入期 infra 排除

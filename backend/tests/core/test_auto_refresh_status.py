@@ -66,11 +66,14 @@ def test_auto_refresh_status_running_and_last_scan():
 
 
 def test_db_status_auto_refresh_disabled(monkeypatch):
-    """IPRADAR_AUTO_REFRESH=0:调度器根本不装配(_ensure_refresh_scheduler
-    早退)→ enabled False、running False、interval/last_scan null。
-    全局桩回 None:防同进程其它测试装配过的调度器漏进断言。"""
+    """IPRADAR_AUTO_REFRESH=0:调度器根本不装配 —— 走真实装配门
+    _ensure_refresh_scheduler(返工评审建议 9:原版只桩全局,装配门早退
+    逻辑没被本用例钉住),门早退后全局仍 None → enabled False、running
+    False、interval/last_scan null。"""
     monkeypatch.setenv("IPRADAR_AUTO_REFRESH", "0")
     monkeypatch.setattr(main, "_refresh_scheduler", None)
+    main._ensure_refresh_scheduler()   # 返工评审建议 9:真实装配门早退被钉住
+    assert main._refresh_scheduler is None   # 门早退,不得捏出实例
     client = TestClient(main.app)
     r = client.get("/api/db-status", headers=_CLIENT_HEADERS)
     assert r.status_code == 200
