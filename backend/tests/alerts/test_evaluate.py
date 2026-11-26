@@ -300,7 +300,7 @@ def test_none_age_always_triggers(alerts_db):
 
 def test_label_dichotomy_stale_vs_stall(alerts_db):
     from ipdb import _alerts
-    _seed_observed("fast", gap_h=5.0, now=T0)   # 5×4=20 < 24 → 过期
+    _seed_observed("fast", gap_h=5.0, now=T0)   # 5h 间隔全被下限(6h)滤掉 → 算不出 → 回退 24h → 过期
     _seed_observed("even", gap_h=6.0, now=T0)   # 6×4=24 == 24 → 过期(非严格大)
     _seed_observed("slow", gap_h=7.2, now=T0)   # 7.2×4=28.8 > 24 → 停更嫌疑
     _seed_observed("daily", gap_h=48.0, now=T0)  # 48×4=192 > 24 → 停更嫌疑(d 档)
@@ -319,6 +319,32 @@ def test_label_dichotomy_stale_vs_stall(alerts_db):
         "fast: 内容太久没更新——上次内容更新 26h,告警线 24h。下一步:服务不会自动修,先看上游是否还在发布,再由人决定这个源留还是撤。",
         "slow: 疑似停更——30h 没有新内容,而它平时实测 8h/次。下一步:服务不会自动修,先看上游是否还在发布,再由人决定这个源留还是撤。",
     ]
+
+
+def test_evaluate_passes_min_interval_floor_to_observed(alerts_db):
+    """#455 评审 P2-1:告警侧与 /api/sources 同一口径——evaluate 必须把
+    stale_days×86400/4 传给 observed_interval_h。风暴形历史:10 条事件,间隔
+    [1,1,1,1,1,24,24,24,24]h,stale_days=1(下限 6h)。带下限:存活间隔
+    [24,24,24,24] → 实测 24h → 告警线 max(24, 96)=96h,48h 的内容年龄不出告警;
+    不带下限:中位数 1h → 告警线 24h,同一快照会出「内容太久没更新」。
+    把 evaluate 里那句 min_interval_s= 删掉,本例第一段即红。"""
+    from ipdb import _alerts
+    ats = [0.0, -24.0, -48.0, -72.0, -96.0, -97.0, -98.0, -99.0, -100.0, -101.0]
+    for off in ats:
+        _alerts.record_event("storm", at=T0 + off * H)
+    # 两种算法各自单独成立(不是碰巧相同)
+    assert _alerts.observed_interval_h("storm", T0) == pytest.approx(1.0)
+    assert _alerts.observed_interval_h(
+        "storm", T0, min_interval_s=6 * H) == pytest.approx(24.0)
+    # 48h:按带下限的 96h 线,健康;按不带下限的 24h 线,会告警
+    assert _alerts.evaluate([_snap("storm", stale_days=1, age=48.0)],
+                            now=T0) is None
+    assert _state(alerts_db) == []
+    # 100h:越过 96h 线,出「疑似停更」(平时实测 1.0d/次)
+    msg = _alerts.evaluate([_snap("storm", stale_days=1, age=100.0)],
+                           now=T0)
+    assert msg["title"] == "ipradar: 1 源异常"
+    assert msg["body"].splitlines()[0].startswith("storm: 疑似停更——4.2d 没有新内容")
 
 
 def test_dual_condition_same_source_counts_once(alerts_db):

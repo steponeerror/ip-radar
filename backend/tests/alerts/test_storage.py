@@ -170,3 +170,108 @@ def test_record_count_persisted(alerts_db):
     _alerts.record_event("otx", at=200.0)  # 缺省落 NULL
     assert _rows(alerts_db) == [
         ("otx", 100.0, 123), ("otx", 200.0, None)]
+
+
+# ── observe_update:#455 内容更新记账唯一入口(source_watermark 水位落库)──
+
+def _watermark(db, source):
+    """直读 sqlite 验证水位(绕开被测 API,断言才独立)。"""
+    with closing(sqlite3.connect(str(db))) as conn:
+        row = conn.execute(
+            "SELECT mtime FROM source_watermark WHERE source = ?",
+            (source,)).fetchone()
+    return row[0] if row else None
+
+
+def test_observe_first_seen_seeds_and_writes_watermark(alerts_db):
+    # 零水位 + 零事件 → 按 mtime 种一条(record_count NULL,原种子逻辑)+ 写水位
+    from ipdb import _alerts
+    assert _alerts.observe_update("otx", 100.0) is True
+    assert _rows(alerts_db) == [("otx", 100.0, None)]
+    assert _watermark(alerts_db, "otx") == 100.0
+
+
+def test_observe_existing_history_no_reseed_writes_watermark(alerts_db):
+    # 存量库迁移:update_events 有行、水位表刚建 → 只写水位不补种
+    from ipdb import _alerts
+    _alerts.record_event("otx", at=10.0)
+    assert _alerts.observe_update("otx", 100.0) is False
+    assert _rows(alerts_db) == [("otx", 10.0, None)]
+    assert _watermark(alerts_db, "otx") == 100.0
+
+
+def test_observe_advance_records_at_mtime_with_count(alerts_db):
+    # mtime > 水位 → 记一条 at=文件 mtime(不是扫描时刻),计数随入,水位推进
+    from ipdb import _alerts
+    assert _alerts.observe_update("otx", 100.0) is True          # 种子
+    assert _alerts.observe_update("otx", 200.0, record_count=123) is True
+    assert _rows(alerts_db) == [
+        ("otx", 100.0, None), ("otx", 200.0, 123)]
+    assert _watermark(alerts_db, "otx") == 200.0
+
+
+def test_observe_same_mtime_noop(alerts_db):
+    from ipdb import _alerts
+    _alerts.observe_update("otx", 100.0)
+    assert _alerts.observe_update("otx", 100.0, record_count=5) is False
+    assert _rows(alerts_db) == [("otx", 100.0, None)]
+
+
+def test_observe_regress_ignored_watermark_never_moves_back(alerts_db):
+    # 回退不记、水位不下调;仍低于旧水位的「前进」也不记;超过旧水位才记
+    from ipdb import _alerts
+    _alerts.observe_update("otx", 100.0)
+    assert _alerts.observe_update("otx", 50.0) is False
+    assert _alerts.observe_update("otx", 99.9) is False
+    assert _rows(alerts_db) == [("otx", 100.0, None)]
+    assert _watermark(alerts_db, "otx") == 100.0
+    assert _alerts.observe_update("otx", 101.0, record_count=7) is True
+    assert _rows(alerts_db) == [
+        ("otx", 100.0, None), ("otx", 101.0, 7)]
+
+
+# ── observed_interval_h 最小间隔下限(#455:中位数不计风暴短间隔)──
+
+def test_median_filter_ignores_short_intervals(alerts_db):
+    # 10 事件:gaps [1,1,1,1,6,10,10,10,10]h——无下限中位 6h;
+    # 下限 6h 过滤后 [6,10,10,10,10] → 中位 10h
+    from ipdb import _alerts
+    for h in (0, 1, 2, 3, 4, 10, 20, 30, 40, 50):
+        _alerts.record_event("otx", at=float(h) * 3600)
+    assert _alerts.observed_interval_h("otx", now=50 * 3600) == pytest.approx(6.0)
+    assert _alerts.observed_interval_h(
+        "otx", now=50 * 3600, min_interval_s=6 * 3600) == pytest.approx(10.0)
+
+
+def test_median_all_intervals_below_floor_none(alerts_db):
+    # 全部短于下限 → None(回退声明线),即便不过滤时中位数算得出来
+    from ipdb import _alerts
+    for h in (0, 1, 2, 3, 4, 5):
+        _alerts.record_event("otx", at=float(h) * 3600)
+    assert _alerts.observed_interval_h("otx", now=5 * 3600) == pytest.approx(1.0)
+    assert _alerts.observed_interval_h(
+        "otx", now=5 * 3600, min_interval_s=6 * 3600) is None
+
+
+def test_median_filtered_below_four_gaps_none(alerts_db):
+    # 过滤后不足 4 个间隔(= 不足 5 个事件)→ None(即便无过滤时事件数够、
+    # 中位数能算)
+    from ipdb import _alerts
+    for h in (0, 1, 2, 3, 24, 48, 72):
+        _alerts.record_event("otx", at=float(h) * 3600)
+    assert _alerts.observed_interval_h(
+        "otx", now=72 * 3600, min_interval_s=6 * 3600) is None
+
+
+def test_median_filtered_four_surviving_gaps_still_read(alerts_db):
+    # 回归钉(2026-11-26 评审前自查):恰好 5 个事件、间隔全部过得了下限 →
+    # 读数保留(4 个间隔与「事件 ≥5」同一把尺)。首版把门槛误写成「5 个
+    # 间隔」,生产账本里 protonvpn/nordvpn/cdn_edges/rir_abuse 四个周更源
+    # 会从约 168h 变成 None、告警线从约 672h 缩到 168h。
+    from ipdb import _alerts
+    for h in (0, 168, 336, 504, 972):
+        _alerts.record_event("otx", at=float(h) * 3600)
+    assert _alerts.observed_interval_h(
+        "otx", now=972 * 3600, min_interval_s=42 * 3600) == pytest.approx(168.0)
+    # 带下限与不带下限读数相同:没有风暴的源不受影响
+    assert _alerts.observed_interval_h("otx", now=972 * 3600) == pytest.approx(168.0)
