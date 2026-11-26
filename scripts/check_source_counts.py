@@ -18,18 +18,29 @@ reports/retro-p0-batch-2026-11-03.md):
 - 带钥源数/密钥变量数 = backend/ipdb/_tokens.py 的 MANAGED 冻结映射
   (env var → 消费源名)展平;免钥公开源数 = 公开总数 − 带钥(带钥源全公开)。
 
-实现纪律:stdlib-only(ast/re,秒级,CI backend job 零新依赖);静态解析不导入
+实现纪律:stdlib-only(ast/re/os,秒级,CI backend job 零新依赖);静态解析不导入
 ipdb(导入即实例化全部源并加载 .env,非幂等且慢)。已知镜像边界(两向漂移
 均朝红、fail-loud,不违宁少算;评审 P2 记录):静态只认类体自有赋值,registry
 用 hasattr 含继承——继承其体源类不重写 name/fields 的新增会少算误红;registry
 实例化失败即跳过而静态照计——会多算误红。两情形出现时先红,提示拆机制。模式匹配是「宁少算」面:
 文档改写后某句不再命中正则 = 该句退出比对(不红);命中而数字错 = 红。
+通扫层(#457,2026-11-26):逐句腿只认手点名文档,换种说法就漏(「29 fused
+public feeds」判例)——故在逐句腿之上加一层全面扫:--root 下按后缀(含无后缀
+shebang 脚本)收受管文本文件,凡「N sources/feeds / N 个源」字面量,数字必须
+等于登记表派生集合 {public_total, registered 总数, keyed, keyless_public,
+key_envs 个数} 之一;前缀 ~ / 约 / approximately 的近似数不算。范围不依赖
+git(夹具树不是 git 仓),按目录名/路径排除历史记录、夹具与第三方安装面;
+例外按「文件+原因」(整档跳过)或「说法+原因」(该说法匹配段从行里剔掉再扫,
+同行其余字面量照红)登记,每条必须带原因(卫生闸钉死,防「待查」混入)。
+措辞约定:说「这次新增了几个源」别写成「补 12 个源」——会被当成源总数而红
+(增量数登记表派生不出来,闸验不了),写成「为 12 源补…」(2026-11-26 试合并撞过一次)。
 跑法(仓根):python3 scripts/check_source_counts.py   # 退出码 0=绿,1=红并列 file:line
 """
 from __future__ import annotations
 
 import argparse
 import ast
+import os
 import re
 import sys
 from pathlib import Path
@@ -323,10 +334,204 @@ def check_doc(path: Path, counts: dict, rel: str | None = None) -> list[str]:
     return errors
 
 
+# ── 通扫层(#457)──逐句腿之上的第二层:全部受管文本文件里的源数字面量 ──
+
+# 收刮后缀(文本面);.json 天然受下面 2MB 单文件帽约束:
+SCAN_SUFFIXES = frozenset({".md", ".py", ".sh", ".mjs", ".js", ".cjs", ".ts",
+                           ".tsx", ".svg", ".conf", ".yml", ".yaml", ".toml",
+                           ".txt", ".json"})
+SCAN_MAX_BYTES = 2 * 1024 * 1024   # 单文件超过 2MB 跳过并计数(不读大产物)
+# 目录排除(名字,任意深度)——逐项原因:
+SCAN_EXCLUDE_DIRS = frozenset({
+    ".git",             # git 元数据
+    "node_modules",     # 第三方依赖安装面
+    ".worktrees",       # 并行工作树(其他分支的检出副本)
+    "dev",              # 本地 eval 输入/输出(gitignore 兜底,非受管)
+    ".venv",             # 本地虚拟环境(第三方库代码)
+    "__pycache__",      # 字节码缓存
+    ".playwright-mcp",   # 本地浏览器会话快照(gitignore 兜底)
+    ".pytest_cache",     # pytest 缓存(实测其自带 README.md 会被当文本收进来)
+    ".ruff_cache",       # ruff linter 缓存(生成物,版本号文件会变形状)
+    "dist",             # 构建产物(.gitignore dist/);CI backend job 在门步前把 frontend-dist 产物
+                          # 下载到 frontend/dist(ci.yml:101-104),本地 build 后也在——第三方打包
+                          # 结果不是本仓文档,依赖升级后 bundle 里的字面量不该让本门红
+})
+# 路径排除(仓根相对,精确匹配)——逐项原因:
+SCAN_EXCLUDE_PATHS = frozenset({
+    "backend/data",   # LMDB 数据存储(生产数据)
+    "docs",           # 嵌套私有仓(自己的 git:历史/评审/规格笔记,非本仓受管面)
+    # 以下五项是本地件(.gitignore 兜底 / 文件放置规范「默认不入库」):只在本机出现,CI 没有;
+    # 不排除的话本机 pytest scripts 会因草稿变红而 CI 是绿。按仓根相对路径精确排除,
+    # 不按目录名——免得别处同名的受管目录被连带跳过。
+    "reports",         # 交付报告草稿(.gitignore /reports/;正式件进嵌套 docs 仓)
+    "notes",           # 研究笔记草稿(.gitignore /notes/;正式件进嵌套 docs 仓)
+    ".superpowers",    # 设计草稿(.gitignore)
+    "misp-docker",     # 本地集成环境检出(.gitignore)
+    "assets/verification",  # 验收截屏与截屏脚本(文件放置规范:默认不入库,报告引用时再入)
+})
+SCAN_EVAL_DIR_PREFIX = ".eval-"   # eval 数据卷映射目录(.eval-prod-data / .eval-gate-mirror)
+
+# 无后缀文件只收 shebang 开头的脚本(integrations/wazuh/custom-ipradar 判例:
+# #451 漏网过的集成脚本头注,无扩展名但受管且写源数)。
+
+# 文件级例外:整档跳过。例外之外出现新的字面量即红;卫生闸(exception_table_problems)
+# 钉死每条必须带原因、不许「待查」。
+SCAN_FILE_EXCEPTIONS: dict[str, str] = {
+    "CHANGELOG.md":
+        "历史记录:条目数字随当时纪元冻结、永不回改(2026-11-26 通扫实测 20 余处历史口径,"
+        "每条新记录还会再写当时的数)。",
+    "scripts/check_source_counts.py":
+        "本闸自身:注释引用旧错句(「29 fused public feeds」「fuses 29 public feeds」)作判例样例。",
+    "scripts/test_check_source_counts.py":
+        "本闸测试:夹具引用旧错句与改坏句式(「the 6 keyed sources (they share 4 keys」)。",
+    "ops/agent-v2/tests/add-lift.test.mjs":
+        "ops 加源模板「改数字」函数的单测样例串,数字任意(63/64/60/61/56/65),非源数宣称。",
+}
+
+# 说法级例外:该文件内匹配段从行里剔掉再扫(该说法放行,同行其余字面量照红)。
+SCAN_PHRASE_EXCEPTIONS: dict[str, tuple[tuple[str, str], ...]] = {
+    "GLOSSARY.md": (
+        (r"≥2 个源被它包含比例",
+         "eval「疑似共同上游」算法定义(≥2 是包含比例阈值),非源总数。"),
+    ),
+    "backend/ipdb/_eval/model.py": (
+        (r"2 sources ~fully contained",
+         "fountain_suspect 字段注释里的算法阈值(疑似共同上游 ≥2 源),非源总数。"),
+    ),
+    "frontend/src/pages/__tests__/SourcesPage.test.tsx": (
+        (r"getByText\(/2 sources/\)",
+         "前端单测迷你注册表 fixture(2 源 mock)的 UI 文案断言,非登记表口径。"),
+    ),
+    "ops/agent-v2/bench/add-domain/SKILL.md": (
+        (r"43 个源接入题",
+         "加源基准冻结宇宙口径(43 钉死在冻结件 universe.jsonl),非登记表现值。"),
+    ),
+}
+
+# (?<!\d-):挡住「日期-连字复合词」——「2026-10-17 sources-redesign」不被读成「17 sources」
+# (本仓按日期给事件命名是常态;副作用是「60-70 sources」的尾数不再当精确数查,这更对)。
+# 两条都不分大小写(「70 Sources」同样算)。
+BROAD_EN = re.compile(
+    r"(?<![\w.])(?<!\d-)(\d+)\s+(?:(?:public|fused|fuses|keyed|keyless|registered|shipped)\s+)*(?:sources|feeds)\b",
+    re.IGNORECASE)
+BROAD_ZH = re.compile(
+    r"(?<![\w.])(\d+)\s*个\s*(?:公开\s*)?(?:情报\s*)?(?:密钥\s*|key\s*|数据\s*)?源",
+    re.IGNORECASE)   # N 个源 / N 个公开情报源 / N 个密钥源 / N 个 key 源 / N 个数据源
+# 近似数前缀(~ / 约 / approximately 直贴数字)不算命中:
+APPROX_PREFIX = re.compile(r"(?:~|约|approximately)\s*$")
+
+
+def exception_table_problems() -> list[str]:
+    """例外表卫生闸:每条必须带非空原因、不许「待查」;说法正则必须可编译。"""
+    problems: list[str] = []
+    for rel, reason in SCAN_FILE_EXCEPTIONS.items():
+        if not reason.strip():
+            problems.append(f"通扫例外表: {rel} 缺原因(每条例外必须写明为什么放行)")
+        elif "待查" in reason:
+            problems.append(f"通扫例外表: {rel} 原因含「待查」——例外表不许挂未决条目")
+    for rel, entries in SCAN_PHRASE_EXCEPTIONS.items():
+        for pat, reason in entries:
+            if not reason.strip():
+                problems.append(f"通扫例外表: {rel} 说法 {pat!r} 缺原因(每条例外必须写明为什么放行)")
+            elif "待查" in reason:
+                problems.append(f"通扫例外表: {rel} 说法 {pat!r} 原因含「待查」——例外表不许挂未决条目")
+            try:
+                re.compile(pat)
+            except re.error as e:
+                problems.append(f"通扫例外表: {rel} 说法正则编译失败: {e}")
+    return problems
+
+
+def scan_repo(root: Path, counts: dict, *, verbose: bool = False) -> tuple[list[str], dict]:
+    """通扫层:--root 下按后缀收受管文本文件,「N sources/feeds / N 个源」字面量的
+    数字必须 ∈ 登记表派生集合;近似数与例外表命中放行。返回 (错误列表, 统计)。
+    统计键:scanned/skipped_big/skipped_binary/excepted_files/hits/ok/approx。
+    verbose=True 时逐条命中打印到 stdout(归类 ok/approx/BAD),供人工对账。"""
+    allowed = {counts["public_total"], len(counts["registered"]),
+               counts["keyed"], counts["keyless_public"], len(counts["key_envs"])}
+    errors: list[str] = []
+    stats = {"scanned": 0, "skipped_big": 0, "skipped_binary": 0, "unreadable": 0,
+             "excepted_files": 0, "excised": 0, "hits": 0, "ok": 0, "approx": 0}
+    phrase_res = {rel: [(re.compile(pat), reason) for pat, reason in entries]
+                  for rel, entries in SCAN_PHRASE_EXCEPTIONS.items()}
+    for dirpath, dirnames, filenames in os.walk(root):
+        rel_dir = os.path.relpath(dirpath, root).replace(os.sep, "/")
+        if rel_dir == ".":
+            rel_dir = ""
+        keep: list[str] = []
+        for d in sorted(dirnames):
+            rp = f"{rel_dir}/{d}" if rel_dir else d
+            if d in SCAN_EXCLUDE_DIRS or d.startswith(SCAN_EVAL_DIR_PREFIX):
+                continue
+            if rp in SCAN_EXCLUDE_PATHS:
+                continue
+            keep.append(d)
+        dirnames[:] = keep
+        for fn in sorted(filenames):
+            p = Path(dirpath) / fn
+            rel = f"{rel_dir}/{fn}" if rel_dir else fn
+            suffix = p.suffix.lower()
+            if suffix not in SCAN_SUFFIXES:
+                if suffix:
+                    continue   # 非收刮后缀(图片/二进制产物等,出范围)
+                try:           # 无后缀:仅收 shebang 脚本(custom-ipradar 判例)
+                    with p.open("rb") as fh:
+                        if fh.read(2) != b"#!":
+                            continue
+                except OSError:
+                    continue
+            if rel in SCAN_FILE_EXCEPTIONS:
+                stats["excepted_files"] += 1
+                continue
+            try:
+                if p.stat().st_size > SCAN_MAX_BYTES:
+                    stats["skipped_big"] += 1
+                    continue
+                text = p.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                stats["skipped_binary"] += 1
+                continue
+            except OSError as e:   # 读不了(权限/断链等):单列计数,不混进「非文本」
+                stats["unreadable"] += 1
+                if verbose:
+                    print(f"[scan] UNREADABLE {rel}: {e}")
+                continue
+            stats["scanned"] += 1
+            excs = phrase_res.get(rel, ())
+            for lineno, raw in enumerate(text.splitlines(), 1):
+                line = raw
+                for rx, _reason in excs:
+                    line, n_cut = rx.subn("", line)   # 说法级例外:剔匹配段,其余照扫
+                    stats["excised"] += n_cut
+                for rx in (BROAD_EN, BROAD_ZH):
+                    for m in rx.finditer(line):
+                        num = int(m.group(1))
+                        stats["hits"] += 1
+                        where = f"{rel}:{lineno}"
+                        if APPROX_PREFIX.search(line[: m.start(1)]):
+                            stats["approx"] += 1
+                            if verbose:
+                                print(f"[scan] approx {where} N={num} | {raw.strip()[:160]}")
+                            continue
+                        if num in allowed:
+                            stats["ok"] += 1
+                            if verbose:
+                                print(f"[scan] ok     {where} N={num} | {raw.strip()[:160]}")
+                            continue
+                        errors.append(
+                            f"{where}: 源数字面量(通扫): 登记表派生 {sorted(allowed)},"
+                            f"文档写 {num} —— 原句: {raw.strip()[:200]}")
+                        if verbose:
+                            print(f"[scan] BAD    {where} N={num} | {raw.strip()[:160]}")
+    return errors, stats
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="CI 源数字闸(ADR 0018 机器比对腿)")
     ap.add_argument("--root", type=Path, default=REPO,
                     help="仓根(默认:脚本所在仓;测试指向 fixture 树)")
+    ap.add_argument("--scan-verbose", action="store_true",
+                    help="通扫层逐条命中打印(文件:行号、数字、归类),供人工对账")
     args = ap.parse_args(argv)
     root = args.root.resolve()
     try:
@@ -342,15 +547,28 @@ def main(argv: list[str] | None = None) -> int:
             errors.append(f"{rel}: 扫描面文件缺失(比对面收缩须同步改本闸)")
             continue
         errors += check_doc(p, counts, rel)
-    if errors:
-        print(f"[source-counts] RED — 文档源数字与登记表不符({len(errors)} 处):")
-        for e in errors:
-            print(f"  {e}")
+    scan_errors, scan_stats = scan_repo(root, counts, verbose=args.scan_verbose)
+    errors += scan_errors
+    hygiene = exception_table_problems()
+    if errors or hygiene:
+        if errors:
+            print(f"[source-counts] RED — 文档源数字与登记表不符({len(errors)} 处):")
+            for e in errors:
+                print(f"  {e}")
+        if hygiene:
+            print(f"[source-counts] RED — 通扫例外表卫生问题({len(hygiene)} 处):")
+            for e in hygiene:
+                print(f"  {e}")
         return 1
     print(f"[source-counts] GREEN — 公开源 {counts['public_total']}"
           f"(免钥 {counts['keyless_public']} / 带钥 {counts['keyed']},"
           f"密钥变量 {len(counts['key_envs'])});eval_excluded"
-          f" {counts['eval_excluded']};已核 {len(DOC_FILES)} 份文档")
+          f" {counts['eval_excluded']};已核 {len(DOC_FILES)} 份文档;通扫"
+          f" {scan_stats['scanned']} 份文本文件(整档例外 {scan_stats['excepted_files']}"
+          f" / 超大跳过 {scan_stats['skipped_big']} / 非文本跳过"
+          f" {scan_stats['skipped_binary']} / 读不了 {scan_stats['unreadable']}),"
+          f"说法级例外剔掉 {scan_stats['excised']} 处,源数字面量 {scan_stats['hits']} 处"
+          f"(合规 {scan_stats['ok']} / 近似 {scan_stats['approx']})")
     return 0
 
 
