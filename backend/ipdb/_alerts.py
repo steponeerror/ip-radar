@@ -9,9 +9,32 @@
 已知窄口(#455 评审 R-2):目录型源把 .dl 暂存文件放在被观察的目录里,
 扫描恰好落在下载途中会按暂存文件的 mtime 多记一条——窗口 = 下载时长 /
 30 分钟,这类间隔远小于下限、进不了中位数,对告警线无影响;
-#467 起每行可选带 content_hash(内容 sha256 指纹,只在落新事件时延迟算,
+#467 起每行可选带 content_hash(文件字节指纹,只在落新事件时延迟算,
 只记账不改行为,页面/告警逻辑不读):攒数回答「下载了、内容其实没变」
-占多少,给「内容没变就不重建」的取舍留证据;
+占多少,给「内容没变就不重建」的取舍留证据。用词对照:指纹 =
+content_hash 列的值 = content_fingerprint() 的返回;「算指纹」指动作,
+「哈希」只出现在 sha256 这类专有写法里。是磁盘上的字节不是解压后
+内容:压缩件按压缩后的字节算(现只有 dbip_city.csv.gz、
+rir_abuse/*.db.gz 两个源存压缩件,分析时这两个源的「变了」读作
+「文件变了」)。读数的查询(SQLite ≥3.25 窗口函数,本机与生产容器
+均 3.45+;每源相邻两次更新里指纹相同的占比,只统计两段都有指纹的
+相邻对,窗口受 90 天 prune 约束):
+
+  SELECT source, COUNT(*) AS pairs,
+         SUM(content_hash = prev_hash) AS unchanged,
+         ROUND(100.0 * SUM(content_hash = prev_hash) / COUNT(*), 1)
+           AS unchanged_pct
+  FROM (SELECT source, content_hash,
+               LAG(content_hash) OVER (PARTITION BY source ORDER BY at, id)
+                 AS prev_hash
+        FROM update_events)
+  WHERE content_hash IS NOT NULL AND prev_hash IS NOT NULL
+  GROUP BY source ORDER BY unchanged_pct DESC, source;
+
+读数注意:① dbip_city、rir_abuse 是压缩字节口径;② 目录型源下载途中
+被记的那条会表现成「没变」——那是没下完不是没变;③ 每源第一条带
+指纹的事件是部署后的下一次真更新,第一对可比对要等第二次(存量库
+首扫只写水位不补种)。
 observed_interval_h 用近 90 天相邻间隔中位数回答"该源平时多久更一次"
 (#455 起不计短于声明周期 1/4 的间隔——重建风暴密集重写留下的短间隔)。
 evaluate 消费 scheduler 每轮快照,per (source, condition) 推进 alert_state
@@ -108,13 +131,27 @@ def _migrate_content_hash(conn: sqlite3.Connection) -> None:
 
     旧库(升级前的建表语句没有这一列)CREATE TABLE IF NOT EXISTS 不生效,
     靠这里补;新库建表已含列,pragma 查到即跳过。每次连接查一次 pragma
-    (每操作本就新开连接,约束 3;schema 元数据查询开销可忽略),幂等可
-    重复。只加列不动数据——证据永不灭失(哲学 1):旧行原样保留,指纹
-    空着(旧值为 NULL)。
+    (每操作本就新开连接,约束 3;每连接多一条 PRAGMA,每轮扫描约 145
+    次连接,估每轮约 10 毫秒,与已有的每次连接跑一遍建表脚本同量级),
+    幂等可重复。只加列不动数据——证据永不灭失(哲学 1):旧行原样保留,
+    指纹空着(旧值为 NULL)。
+
+    并发窗口(#472 评审 M-2):探到缺列与 ALTER 之间无事务,部署后两个
+    线程同时首次打开账本(API 线程池与调度线程两类调用方)时,后到者的
+    ALTER 报 duplicate column name——列已在、目的已达,吞掉(见函数体);
+    不改用 BEGIN IMMEDIATE 包住探+改:那会把工厂函数变成带事务的,
+    动「每操作新连接」的约束。
     """
     cols = {row[1] for row in conn.execute("PRAGMA table_info(update_events)")}
-    if "content_hash" not in cols:
+    if "content_hash" in cols:
+        return
+    try:
         conn.execute("ALTER TABLE update_events ADD COLUMN content_hash TEXT")
+    except sqlite3.OperationalError as e:
+        # 后到者撞「列刚被另一线程加上」:吞掉 duplicate column name,
+        # 其余错误照抛(与探缺列同条件才吞,不吞别的)。
+        if "duplicate column name" not in str(e):
+            raise
 
 
 def _make_factory(path: Path) -> Callable[[], sqlite3.Connection]:
@@ -162,13 +199,17 @@ def observe_update(source: str, mtime: float,
                    content_hash_of: Callable[[], str | None] | None = None) -> bool:
     """内容更新事件记账唯一入口(#455):比水位新才记,同一文件版本至多一条。
 
-    content_hash_of(#467):算内容指纹的零参函数,延迟到「确定要落一条
+    content_hash_of(#467):算指纹的零参函数,延迟到「确定要落一条
     新事件」的那一刻才调用一次,结果写进 update_events.content_hash。
     必须传函数而非先算好的值:记不记由本函数内部比水位决定,而平时每
-    30 分钟的扫描绝大多数轮不落新事件,大文件(最大单源 6.7GB)每次
-    扫描白算 sha256 是纯浪费(性能是预算出来的,哲学 9);指纹本身算不
-    出(文件读不了 → None)时事件照记、指纹列落 NULL。缺省 None =
-    旧调用形状,行为位等价(指纹列 NULL)。
+    30 分钟的扫描绝大多数轮不落新事件,每次扫描白算 sha256 是纯浪费
+    (性能是预算出来的,哲学 9)。量级(主会话 2026-11-26 生产镜像实测,
+    且只在落新事件时算):71 个源的数据文件合计 1.52GB,最大的源是
+    rir_abuse(两个文件 388MB),其次 ipinfo_lite(310MB)、ip2proxy
+    (173MB);开发机上 377MB 的文件算一次 sha256 用 0.73 秒(517MB/s),
+    生产小机按 100MB/s 估,最大的源约 4 秒,所有源同一轮都落新事件的
+    极端情况约 15 秒。指纹本身算不出(文件读不了 → None)时事件照记、
+    指纹列落 NULL。缺省 None = 旧调用形状,行为位等价(指纹列 NULL)。
 
     调用方 = scheduler 每轮扫描,对每个启用源用 _read_mtime 比一次;谁触发
     的落盘都算(调度器任务、页面手动/批量、冷启动建库、脚本)——本函数不
@@ -193,7 +234,7 @@ def observe_update(source: str, mtime: float,
 
     def _hash_now() -> str | None:
         # #467:只在即将 INSERT 新事件的分支里调用(延迟契约见 docstring);
-        # 此刻尚无任何 DML,sqlite3 事务要到首条写语句才开——大文件哈希
+        # 此刻尚无任何 DML,sqlite3 事务要到首条写语句才开——算指纹
         # 不会把写事务吊在半空。
         return content_hash_of() if content_hash_of is not None else None
 
@@ -228,22 +269,28 @@ def observe_update(source: str, mtime: float,
 
 
 def content_fingerprint(paths: Sequence[Path | str]) -> str | None:
-    """#467:一组数据文件的内容指纹(sha256 hex;只记账,不改任何行为)。
+    """#467:一组数据文件的文件字节指纹(sha256 hex;只记账,不改任何行为)。
 
     攒数回答「下载成功但内容其实没变」占多少(issue.md:记录数没变不
-    等于内容没变),为「内容没变就不重建」值不值得做留证据。
+    等于内容没变),为「内容没变就不重建」值不值得做留证据。是磁盘上
+    的字节不是解压后内容:压缩件按压缩后的字节算——现只有
+    dbip_city.csv.gz 与 rir_abuse/*.db.gz 两个源存压缩件(前者每月必
+    换新文件、后者每晚都有变更,按压缩字节算不会把「没变」误记成
+    「变了」);分析读数时这两个源的「变了」读作「文件变了」。
 
     输入 = 文件路径组:单文件源传一个;目录型源由调用方展开成目录内
     文件列表(调度侧 _content_fingerprint_of 的文件/目录分叉与
     _read_mtime 对齐)。规则:
     - 单文件:文件字节流式 sha256 的 hexdigest(1MiB 分块读,不整载
-      进内存——964MB 小机,最大单源 6.7GB)。
-    - 多文件:各文件先各算 sha256,再对「排序后的(文件名, sha256)」
-      拼接文本整体再算一次 sha256。文件名参与拼接 → 两个文件互换内容
-      指纹必变(换位不被吞掉);sha 定长 64 个 hex 字符,直接拼接无
-      歧义。排序在函数内做,调用方传任意顺序结果一致。
+      进内存——964MB 小机;镜像实测 71 源合计 1.52GB,最大单源
+      rir_abuse 两文件 388MB,开发机 377MB 算一次 0.73 秒)。
+    - 多文件:每个文件先各算一遍 sha256,再新建一个 sha256 累加器,对
+      排序后的每对「文件名 + \\x00 + 该文件的 sha256」依次喂入,取整体
+      hexdigest——自分隔,文件名边界明确(文件名不可能含 NUL 字节)。
+      文件名参与 → 两个文件互换内容指纹必变(换位不被吞掉)。排序在
+      函数内做,调用方传任意顺序结果一致。
     - 任一文件读不了(OSError)或列表为空:返回 None(宁少算,哲学 2
-      /3——算不出可比指纹就不硬造;事件侧照记,指纹列落 NULL)。
+      ——算不出可比指纹就不硬造;事件侧照记,指纹列落 NULL)。
     """
     try:
         pairs: list[tuple[str, str]] = []
@@ -259,8 +306,10 @@ def content_fingerprint(paths: Sequence[Path | str]) -> str | None:
         return None
     if len(pairs) == 1:
         return pairs[0][1]
-    joined = "".join(name + digest for name, digest in sorted(pairs))
-    return hashlib.sha256(joined.encode("utf-8")).hexdigest()
+    combined = hashlib.sha256()
+    for name, digest in sorted(pairs):
+        combined.update(name.encode("utf-8") + b"\x00" + digest.encode("ascii"))
+    return combined.hexdigest()
 
 
 def observed_interval_h(source: str, now: float,

@@ -85,6 +85,34 @@ def test_fresh_db_has_column_and_migration_idempotent(alerts_db):
     assert len(_hash_rows(alerts_db)) == 2
 
 
+def test_migration_duplicate_column_swallowed(tmp_path):
+    """#472 评审 M-2 钉子:部署后两线程同时首开账本,探到缺列与 ALTER
+    之间另一线程已把列加上 → 后到者的 ALTER 报 duplicate column name。
+    假连接 PRAGMA 谎报旧 schema、ALTER 透传给已带列的真库,断言迁移
+    不抛、列没被加两遍。"""
+    from ipdb import _alerts
+    db = tmp_path / "alerts.db"
+    with closing(sqlite3.connect(str(db))) as conn:
+        conn.executescript(_alerts._SCHEMA)          # 新库:content_hash 已在
+        conn.commit()
+    with closing(sqlite3.connect(str(db))) as real:
+        class _RacyConn:
+            """PRAGMA 谎报旧 schema(缺列),其余语句透传真连接。"""
+
+            def execute(self, sql):
+                if sql.startswith("PRAGMA"):
+                    return iter([(0, "id", "", 0, None, 0),
+                                 (1, "source", "", 1, None, 1),
+                                 (2, "at", "", 1, None, 0),
+                                 (3, "record_count", "", 0, None, 0)])
+                return real.execute(sql)
+
+        _alerts._migrate_content_hash(_RacyConn())   # 不抛即过
+        names = [r[1] for r in real.execute(
+            "PRAGMA table_info(update_events)")]
+    assert names.count("content_hash") == 1          # 列在,且没被加两遍
+
+
 # ── content_fingerprint 纯函数(#467 验收 3)──
 
 def test_fingerprint_single_file_is_streamed_sha256(tmp_path):
@@ -95,16 +123,33 @@ def test_fingerprint_single_file_is_streamed_sha256(tmp_path):
 
 
 def test_fingerprint_multi_file_combines_sorted_name_and_digest(tmp_path):
-    """多文件:对排序后的(文件名, sha256)拼接文本整体再算一次;
-    与调用方传入顺序无关。拼接格式 = name+digest 直接相连(sha 定长
-    64 hex 无歧义)。"""
+    """多文件:自分隔喂入——对排序后的每对「文件名 \\x00 文件sha256」依次
+    update 进一个新 sha256;与调用方传入顺序无关。NUL 分隔让文件名边界
+    明确(文件名不可能含 NUL 字节)。"""
     from ipdb import _alerts
     a = tmp_path / "a.csv"; a.write_text("1")
     b = tmp_path / "b.csv"; b.write_text("2")
-    want = hashlib.sha256(
-        ("a.csv" + _sha("1") + "b.csv" + _sha("2")).encode()).hexdigest()
+    combined = hashlib.sha256()
+    combined.update(b"a.csv\x00" + _sha("1").encode("ascii"))
+    combined.update(b"b.csv\x00" + _sha("2").encode("ascii"))
+    want = combined.hexdigest()
     assert _alerts.content_fingerprint([a, b]) == want
-    assert _alerts.content_fingerprint([b, a]) == want
+    assert _alerts.content_fingerprint([b, a]) == want      # 顺序无关
+
+
+def test_fingerprint_multi_file_sorts_by_name_not_digest(tmp_path):
+    """钉「按文件名排」而非按摘要排:互换两文件内容后,期望仍按 a.csv
+    在前——实现若改成按摘要排序(key=digest)这条会红(sha256("1")以
+    6b 开头 < sha256("2")以 d4 开头,原内容下两种排序恰好同序,互换后
+    即不同序)。"""
+    from ipdb import _alerts
+    a = tmp_path / "a.csv"; b = tmp_path / "b.csv"
+    a.write_text("1"); b.write_text("2")
+    a.write_text("2"); b.write_text("1")     # 互换内容,文件名不动
+    combined = hashlib.sha256()
+    combined.update(b"a.csv\x00" + _sha("2").encode("ascii"))
+    combined.update(b"b.csv\x00" + _sha("1").encode("ascii"))
+    assert _alerts.content_fingerprint([a, b]) == combined.hexdigest()
 
 
 def test_fingerprint_swap_contents_changes(tmp_path):

@@ -638,19 +638,32 @@ def test_dir_source_swap_changes_fingerprint(alerts_db, tmp_path):
     assert len(rows) == 2
     fp2 = rows[1][3]
     assert fp1 != fp2
-    combined = hashlib.sha256(
-        ("a.csv" + hashlib.sha256(b"2").hexdigest()
-         + "b.csv" + hashlib.sha256(b"1").hexdigest()).encode()).hexdigest()
-    assert fp2 == combined            # 拼接规则(文件名+sha 排序相连)逐字钉住
+    combined = hashlib.sha256()
+    combined.update(b"a.csv\x00" + hashlib.sha256(b"2").hexdigest().encode("ascii"))
+    combined.update(b"b.csv\x00" + hashlib.sha256(b"1").hexdigest().encode("ascii"))
+    assert fp2 == combined.hexdigest()   # 拼接规则(文件名 \x00 sha,按文件名排)逐字钉住
 
 
+@pytest.mark.skipif(hasattr(os, "geteuid") and os.geteuid() == 0,
+                    reason="root 列目录不受 chmod 000 限制")
 def test_dir_source_unreadable_hashes_null_event_recorded(
-        alerts_db, tmp_path, monkeypatch):
-    """指纹算不出(调度侧假函数返 None,模拟文件读不了)→ 事件照记、
-    指纹列 NULL(#467 issue 第 4 条,经 scan() 全链路)。"""
-    src = _make_src("x", tmp_path, mtime=OLD)
+        alerts_db, tmp_path):
+    """目录型源真读不了:目录 chmod 000(循 test_tokens.py 的 root 跳过)
+    → 真 _content_fingerprint_of 走到列目录的 OSError 分支 → 指纹 None、
+    事件照记(#467 issue 第 4 条)。chmod 藏在 health() 里:scan() 先
+    读 mtime 再取 health,列表失败只打指纹,不打断记账(真函数、真
+    OSError,不换假函数)。"""
+    src = DirSource("d", tmp_path / "d")
+    os.utime(str(src._path / "a.csv"), (OLD, OLD))
+    os.utime(str(src._path / "b.csv"), (OLD, OLD))
     sch, _ = _make_scheduler([src])
-    monkeypatch.setattr(type(sch), "_content_fingerprint_of",
-                        staticmethod(lambda s: None))
+    real_health = src.health
+
+    def health_then_lock():
+        src._path.chmod(0o000)       # mtime 已读过;接下来列目录必失败
+        return real_health()
+
+    src.health = health_then_lock
     sch.scan(now=NOW)
-    assert _events_with_hash(alerts_db) == [("x", OLD, None, None)]
+    src._path.chmod(0o755)           # 还原,保 tmp 清理
+    assert _events_with_hash(alerts_db) == [("d", OLD, None, None)]
