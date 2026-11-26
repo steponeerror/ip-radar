@@ -149,7 +149,12 @@ class RefreshScheduler:
                             rc = source.health().record_count
                         except Exception:
                             rc = None
-                        _alerts.observe_update(name, obs_mtime, record_count=rc)
+                        # #467:指纹经 content_hash_of 延迟传入——记不记由
+                        # observe_update 内部比水位决定,只在要落新事件时才
+                        # 调到(平时扫描不算指纹,见 observe_update 注)。
+                        _alerts.observe_update(
+                            name, obs_mtime, record_count=rc,
+                            content_hash_of=lambda: self._content_fingerprint_of(source))
                 except Exception:
                     logger.exception(
                         "scheduler: update observation failed for %s; continuing",
@@ -370,6 +375,34 @@ class RefreshScheduler:
         return getattr(source, "last_partial_failure", None) or None
 
     @staticmethod
+    def _content_fingerprint_of(source) -> Optional[str]:
+        """#467:源数据文件字节指纹;经 observe_update 的 content_hash_of 延迟
+        调用,只在落新事件时进本函数(平时扫描不算指纹,零开销)。
+
+        路径分叉与 _read_mtime 对齐:_path 是文件 → 单文件;是目录
+        (cn_isp isp/、cloud_ranges/)→ 目录内文件列表(排序由
+        _alerts.content_fingerprint 内部做,这里不排)。_path 缺失、列
+        目录失败、目录空 → None(指纹列落 NULL,事件照记)。
+
+        挂账:#465 卡16(PR #470)合并后改走 _data_files(),并定缺席
+        文件怎么算(缺席算不算变化);在那之前下载暂存件(.dl、
+        .dl.tmp、cn_isp 的 .tmp)会进指纹,窗口同 #455 评审 R-2。
+        """
+        from pathlib import Path
+        p = getattr(source, "_path", None)
+        if p is None:
+            return None
+        path = Path(p)
+        try:
+            if path.is_dir():
+                paths = [c for c in path.iterdir() if c.is_file()]
+            else:
+                paths = [path]
+        except OSError:
+            return None
+        return _alerts.content_fingerprint(paths)
+
+    @staticmethod
     def _read_mtime(source) -> Optional[float]:
         from pathlib import Path
         import stat as _stat
@@ -382,10 +415,11 @@ class RefreshScheduler:
                 # 目录型源(cn_isp isp/、cloud_ranges/):内容 mtime = 目录内
                 # 最新文件。重写文件不改目录 mtime(线上实证:isp/ 目录停在
                 # 首建日 08-18,文件当天 10-03 刚刷新),只看目录会把新鲜
-                # 多 feed 源误判 46 天过期。
-                mtimes = [c.stat().st_mtime
-                          for c in Path(p).iterdir() if c.is_file()]
-                return max(mtimes) if mtimes else None
+                # 多 feed 源误判 46 天过期。#465 卡16:取最大收 _freshness
+                # 单源点,输入集不变(目录内全部普通文件)。
+                from ._sources import _freshness
+                return _freshness.newest_mtime(
+                    c for c in Path(p).iterdir() if c.is_file())
             return st.st_mtime
         except OSError:
             return None

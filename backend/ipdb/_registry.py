@@ -129,6 +129,44 @@ def _apply_derived_sources():
 _apply_derived_sources()  # 模块导入时灌装一次;测试可重跑验证同步
 
 
+def _apply_lineage_anchors():
+    """#464(卡2上半):LINEAGE_ANCHORS 改由源 class attr republishes
+    灌装(fill-in-place,与 _apply_derived_sources 同一种灌装写法;
+    _logodds 处只留空字典占名字——旧字面量种子在任何 import 后不可见,
+    评审 A2 已删)。一个转载者可声明多锚(值 = tuple);声明面 = 各源类
+    旁注实测同场共现率与口径(2026-11-26 全库扫描,归档 docs/reports/
+    2026-11-26-arch-r4-landing/#451-卡2-转载关系/verify/)。锚源名必须是
+    已登记源名,拼错/已撤/发现期实例化失败(发现期只告警跳过,见本文件
+    _discover_sources)都启动即炸(元数据契约同款 fail-loud:
+    _validate.metadata_problems 先例;宁少算的反面是不许静默漏)。"""
+    names = {s.name for s in _sources}
+    anchors: dict[str, tuple[str, ...]] = {}
+    for s in _sources:
+        declared = getattr(s, "republishes", ())
+        if isinstance(declared, str):
+            # B7(#469 评审):裸字符串会被 tuple() 逐字符拆开,报出来的
+            # 名字面目全非——拆之前直接报写法错
+            raise RuntimeError(
+                f"转载声明违规(source {s.name}): republishes 要写成源名"
+                f"元组,拿到字符串 {declared!r}")
+        declared = tuple(declared or ())
+        if not declared:
+            continue
+        for a in declared:
+            if a not in names:
+                raise RuntimeError(
+                    f"转载声明违规(source {s.name}): republishes 引用未登记"
+                    f"源名 {a!r} —— 拼错、源已撤、或锚源发现期实例化失败"
+                    f"(发现期只告警跳过,见本文件 _discover_sources);"
+                    f"声明面见 _sources/_base.SourceBase.republishes")
+        anchors[s.name] = declared
+    _lo.LINEAGE_ANCHORS.clear()
+    _lo.LINEAGE_ANCHORS.update(anchors)
+
+
+_apply_lineage_anchors()  # 模块导入时灌装一次;测试可重跑验证同步
+
+
 def _apply_calibrated(path=None):
     """校准覆盖(spec 2026-08-29 §8):data/_calibrated.json 的 default 域
     覆盖 class attr 先验;其余域(country/asset key/classification type)
@@ -309,12 +347,16 @@ def _db_loaded() -> bool:
 def _source_info(source) -> dict:
     health = asdict(source.health())
     # Task 5:实测节奏并入 health 输出(plan Interfaces"health 扩展"行)。
-    # content_age_h = now - 文件 mtime(直接 stat source._path,与 health()
-    # 同源;无文件/无 _path → None);observed_interval_h 出 _alerts 近
-    # 90 天间隔中位数。任何读失败 → 两键 None(logger.warning),
-    # /api/sources 不得 500。_alerts 惰性 import(它在模块顶引用本模块,
-    # 顶层互导成环);合并发生在本层,SourceHealth dataclass 不动(plan
-    # 钉死此分层,SourceHealthOut extra=allow 透传)。
+    # content_age_h = now - 数据文件最新 mtime;输入集与 health() 同走
+    # _data_files 钩子(#465 卡16——此前直接 stat source._path,对 _path
+    # 为目录的源取到目录自身 mtime(重写目录内文件不动目录 mtime),
+    # 页面「几小时前更新」失真,注释却声称与 health() 同源;现真正同源,
+    # 目录型源读数允许变化,其余源不变);无文件/无 _path → None。
+    # observed_interval_h 出 _alerts 近 90 天间隔中位数。任何读失败 →
+    # 两键 None(logger.warning),/api/sources 不得 500。_alerts 惰性
+    # import(它在模块顶引用本模块,顶层互导成环);合并发生在本层,
+    # SourceHealth dataclass 不动(plan 钉死此分层,SourceHealthOut
+    # extra=allow 透传)。
     now = time.time()
     # stale_days 缺省按 Source/IpListSource 基类 7(→ 168h);observed 的
     # 最小间隔下限(#455)与下方 refresh_period_h 档位同源取值;payload
@@ -322,8 +364,12 @@ def _source_info(source) -> dict:
     stale_days = getattr(source, "stale_days", None)
     try:
         path = getattr(source, "_path", None)
-        content_age_h = ((now - path.stat().st_mtime) / 3600.0
-                         if path is not None and path.exists() else None)
+        # 鸭子型兜底:无 _data_files 的自定义/桩源退回旧口径(单 _path)。
+        data_files = (source._data_files() if hasattr(source, "_data_files")
+                      else ([path] if path is not None else []))
+        from ._sources import _freshness
+        newest = _freshness.newest_mtime(data_files)
+        content_age_h = (now - newest) / 3600.0 if newest is not None else None
         from . import _alerts
         # #455:与告警同一口径——中位数不计短于声明周期 1/4 的间隔
         observed_interval_h = _alerts.observed_interval_h(

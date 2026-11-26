@@ -158,26 +158,9 @@ class ChineseISPSource(Source):
             "ip_range": node["_net"],
         }
 
-    def health(self):
-        from .._types import SourceHealth
-
-        mtimes = []
-        if self._isp_dir.exists():
-            for isp_name in _ISP_FILES:
-                p = self._isp_dir / f"{isp_name}.txt"
-                if p.exists():
-                    mtimes.append(p.stat().st_mtime)
-        file_mtime = max(mtimes) if mtimes else None
-        last_updated = (time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(file_mtime))
-                        if file_mtime else None)
-        is_stale = file_mtime is None or (
-            time.time() - file_mtime > self.stale_days * 86400)
-        return SourceHealth(
-            name=self.name,
-            loaded=self._reader is not None,
-            record_count=self._count,
-            last_updated=last_updated,
-            is_stale=is_stale,
-            covered_ips=self._covered_ips,
-            covered_v6_nets=self._covered_v6_nets,
-        )
+    def _data_files(self) -> list[Path]:
+        # #465 卡16:目录型源只声明数据文件清单(isp/ 下 _ISP_FILES 各
+        # .txt;self._path 也指到 _isp_dir),新鲜度算法统一走基类
+        # health() → _freshness(本类旧 health() 覆写与基类算法逐字段
+        # 等价,已删;工单验收含改前改后 health() 逐字段比对)。
+        return [self._isp_dir / f"{isp}.txt" for isp in _ISP_FILES]

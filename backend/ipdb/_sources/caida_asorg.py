@@ -11,6 +11,7 @@ lookup() 在 asn 胜者解出后经 org_for_asn() 钩子注入 as_org 值,走 as
 策略合并(NamingAuthority,单证人 conf=r 公理)。NEEDS 类10「ASN 的组织级
 名称」;org 记录的 country 丢弃(组织注册地≠IP 坐落,无需求不造槽,grill Q5)。
 """
+import dataclasses
 import gzip
 import logging
 import shutil
@@ -124,15 +125,11 @@ class CaidaAsorgSource(Source):
             return None
 
     def health(self) -> SourceHealth:
-        # convention 4 同理:鲜度看文件 mtime,不看加载时刻
-        file_mtime = self._path.stat().st_mtime if self._path.exists() else None
-        return SourceHealth(
-            name=self.name,
+        # convention 4 同理:鲜度看文件 mtime,不看加载时刻——算法已收
+        # _freshness 单源点(#465 卡16),基类照算,本源只换 loaded /
+        # record_count 两个取法(无 LMDB:内存 dict 即持久层)。
+        return dataclasses.replace(
+            super().health(),
             loaded=self._orgs is not None,
             record_count=len(self._orgs or {}),
-            last_updated=(time.strftime("%Y-%m-%dT%H:%M:%SZ",
-                                        time.gmtime(file_mtime))
-                          if file_mtime else None),
-            is_stale=file_mtime is None or (
-                time.time() - file_mtime > self.stale_days * 86400),
         )

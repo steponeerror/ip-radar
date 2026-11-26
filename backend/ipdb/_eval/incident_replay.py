@@ -61,7 +61,8 @@ def replay_myip_ms_8888() -> dict:
 
     防线(读码证实):myip_ms.py infra_noise_filter=True(IpListSource
     车道)→ _rebuild_tail.InfraNoiseGate.blocks → _infra_filter.
-    is_infra_noise(curated 单址集,真源 infra_services._DATA)。
+    is_infra_noise(curated 单址集,真源 _curated_infra.CURATED_CSV,#466 卡
+    15 起名单住跨源小模块)。
     """
     from .._sources.myip_ms import MyipMsSource
     with tempfile.TemporaryDirectory() as td:
@@ -85,7 +86,7 @@ def replay_myip_ms_8888() -> dict:
         "myip-ms-8888",
         "公共解析器 8.8.8.8 被 myip_ms 单源指控 → 惡意误报(2026-10-24,#183)",
         "infra_noise_filter=True(myip_ms.py)+ _rebuild_tail.InfraNoiseGate"
-        " + _infra_filter.curated_infra_addresses(infra_services._DATA 单真相)",
+        " + _infra_filter.curated_infra_addresses(_curated_infra.CURATED_CSV 单真相)",
         checks)
 
 
