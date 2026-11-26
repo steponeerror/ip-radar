@@ -1,8 +1,10 @@
 import { describe, it, expect } from "vitest";
 import {
-  classLabel, familyShort, threatSummary, confTextColor, normType,
+  classLabel, familyShort, threatSummary, confTextColor, normType, CLASS_KEYS,
 } from "../threatDisplay";
 import { translate } from "../../i18n/translate";
+import enLocales from "../../i18n/locales/en.json";
+import zhLocales from "../../i18n/locales/zh-CN.json";
 import type { LookupResult } from "../../api";
 
 const enT = (k: string) => translate("en", k);
@@ -133,14 +135,14 @@ describe("threatDisplay", () => {
   });
 });
 
-  it("classLabel covers every classification type the backend can emit", async () => {
-    // 後端 normalize+源聲明的實際輸出全集(backend/ipdb/_classification.py 各 _MAP 值 ∪ 源 classification_type);缺鍵 = 界面顯示原始字串(本次 bug)
-    const emitted = ["abuse-reports", "blacklist", "brute-force", "c2-server",
-      "ddos", "exploit", "infected-system", "malware", "malware-distribution",
-      "other", "phishing", "proxy", "scanner", "spam", "tor"];
-    const enT = (k: string) => translate("en", k);
-    for (const ty of emitted) {
-      expect(classLabel(ty, enT), `missing class label for ${ty}`)
-        .not.toBe(ty.replace(/-/g, " "));
+  it("classLabel covers every classification type the backend can emit", () => {
+    // 手抄清单已删(2026-11-26,#451 卡 12 词表对拍):清单换成被测模块 CLASS_KEYS 本身
+    // ——后端全集 ⊆ CLASS_KEYS 由 backend/tests/core/test_vocab_contract.py 钉死;
+    // 这里钉「CLASS_KEYS 每个键双语都有文案」(i18n 缺键时 translate 返回键名原串,
+    // zh-CN 缺键会静默回退 en,所以两份词典都要直接查键)。
+    for (const [ty, key] of Object.entries(CLASS_KEYS)) {
+      expect(key in enLocales, `missing en label for ${ty} (${key})`).toBe(true);
+      expect(key in zhLocales, `missing zh-CN label for ${ty} (${key})`).toBe(true);
+      expect(classLabel(ty, enT)).toBe(translate("en", key));
     }
   });

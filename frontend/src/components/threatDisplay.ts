@@ -60,7 +60,9 @@ export const SCORE_SEMANTICS: Record<string, { badge: string; key: string }> = {
   specificity: { badge: "◇ fixed",   key: "semantics.anchor" },
 };
 
-const CLASS_KEYS: Record<string, string> = {
+// 导出仅供对拍测试消费(__tests__/threatDisplay.test.ts、
+// backend/tests/core/test_vocab_contract.py 读源文件另算);无运行时语义变化。
+export const CLASS_KEYS: Record<string, string> = {
   "c2_server": "class.c2_server",
   botnet_cc: "class.botnet_cc",
   scanner: "class.scanner",
@@ -79,6 +81,15 @@ const CLASS_KEYS: Record<string, string> = {
   proxy: "class.proxy",
   hosting: "class.hosting",
   vpn: "class.vpn",
+  // 后端全集对拍(2026-11-26,#451 卡 12):CLASSIFICATION_TYPES 每个值(normalize 的
+  // - → _ 形态)在此都必须有键,backend/tests/core/test_vocab_contract.py 钉死。
+  // dns/ntp = 2026-10-24(#188)后端加型时前端漏跟的补齐;vulnerable_system/
+  // misconfiguration = 词表里早就有的空位(NEEDS.md「词表死槽」,今天没有源产出),
+  // 同样一直没有表项。文案缺键时 classLabel 回退原始串。
+  dns: "class.dns",
+  misconfiguration: "class.misconfiguration",
+  ntp: "class.ntp",
+  vulnerable_system: "class.vulnerable_system",
 };
 
 export function normType(type: string): string {
