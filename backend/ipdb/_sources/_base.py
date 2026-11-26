@@ -14,6 +14,7 @@ from urllib.parse import urlparse
 import lmdb
 
 from .._types import SourceHealth
+from . import _freshness
 from ._download import warn_if_redirected
 # #291 三车道收尾共享件:载入期 infra 过滤+排除记账(InfraNoiseGate)
 # 与覆盖数 v4/v6 分流(covered_counts);本文件 B/C 两车道与 A 车道
@@ -87,6 +88,17 @@ class SourceBase:
     # infra_services curated 单址集(默认 False,事故源显式 opt-in);
     # 三条取数车道(harvest/明单行/CSV 行)各自接线本 flag。
     infra_noise_filter: bool = False
+    # 转载关系声明(卡2上半,#464):本源转载的原创源名,写在转载者
+    # 上,每条声明旁注实测同场共现率与日期(哲学 6:一切声明可证伪;
+    # 共现证不了照搬——同一上游或各自独立封同一批地址也会共现,评审
+    # B3;判式只在同场地址上起作用,分不清成因不影响剔除方向)。A/B
+    # 两家族经本底座同享(_source_base.Source 继承本类),缺省空元组 =
+    # 没有声明。消费 = _registry 启动灌装 LINEAGE_ANCHORS(计分谱系锚:
+    # 同场且锚系数不低于转载者时,转载者不计票)+ _eval 转载闭包
+    # (评测判独立:同链不算佐证)——计分与评测读同一份声明;锚源名
+    # 必须已登记(registry 启动校验,拼错/已撤/发现期实例化失败即炸,
+    # 元数据契约同款 fail-loud)。
+    republishes: tuple[str, ...] = ()
 
     def __init__(self, data_dir: Path):
         self._data_dir = data_dir
@@ -193,14 +205,22 @@ class SourceBase:
                             ip_version=6)
         return result if result is not None else {}
 
+    def _data_files(self) -> list[Path]:
+        """数据文件清单——新鲜度(health() 与 /api/sources content_age_h)
+        的输入集合(#465 卡16)。缺省 = 单文件 _path(#248 底座语义);
+        目录型源覆写返回子文件清单,两条消费面同走本钩子,保证
+        content_age_h 与 health() 真正同源(旧 registry 直接 stat _path,
+        对目录型源取到目录自身 mtime,注释却声称同源)。"""
+        return [self._path]
+
     def health(self) -> SourceHealth:
         # convention 4:staleness 跟 DATA FILE 的 mtime,不跟内存 _loaded_at
-        # (load_db 前为 0,跟内存值会逼每次重启都重下载)。
-        file_mtime = self._path.stat().st_mtime if self._path.exists() else None
-        last_updated = (time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(file_mtime))
-                        if file_mtime else None)
-        is_stale = file_mtime is None or (
-            time.time() - file_mtime > self.stale_days * 86400)
+        # (load_db 前为 0,跟内存值会逼每次重启都重下载)。#465 卡16:
+        # 算法本体收 _freshness.freshness 单源点(准则全文见其模块
+        # docstring);单文件源输入集不变([_path]),逐字段行为不变
+        # (工单验收:改前改后逐源逐字段相同)。
+        last_updated, is_stale = _freshness.freshness(
+            self._data_files(), stale_days=self.stale_days)
         return SourceHealth(
             name=self.name, loaded=self._reader is not None,
             record_count=self._count, last_updated=last_updated, is_stale=is_stale,
