@@ -463,11 +463,14 @@ def test_subdir_doc_total_flipped_red(tmp_path, rel):
 # ── 源表层(2026-11-26 收尾):README 双语源表名单对登记表 ─────────────
 
 def _fixture_source_row(root, rel, name):
-    """夹具 README 源表里「| name |」那一行(聚合源行名后带 `*`)。"""
+    """夹具 README 源表层里「| name |」那一行(聚合源行名后带 `*`)。只在源表层里找:
+    README 顶部的带钥源表也有以 `| otx |` 这类带钥源名开头的行。"""
     p = root / rel
     lines = p.read_text(encoding="utf-8").splitlines(keepends=True)
-    hit = [i for i, ln in enumerate(lines)
-           if re.match(rf"\| {name}( `\*`)? \|", ln)]
+    heading = dict(csc.README_SOURCE_SECTIONS)[rel]
+    start = next(i for i, ln in enumerate(lines) if ln.strip() == heading)
+    hit = [i for i, ln in enumerate(lines) if i > start
+           and re.match(rf"\| {name}( `\*`)? \|", ln)]
     assert len(hit) == 1, (rel, name, hit)
     return p, lines, hit[0]
 
@@ -478,7 +481,7 @@ def test_readme_source_tables_match_registry_on_real_repo():
 
 
 def test_readme_source_table_row_dropped_red(tmp_path):
-    """源表少一行(五份加源 PR 的漏法:计数句全对、表里没补行)→ 红,报出缺的源名;main 也红。"""
+    """源表少一行(2026-11-25 量出的漏法:计数句全对、表里没补行)→ 红,报出缺的源名;main 也红。"""
     root = _fixture_root(tmp_path)
     p, lines, i = _fixture_source_row(root, "README.md", "echelon")
     p.write_text("".join(lines[:i] + lines[i + 1:]), encoding="utf-8")
@@ -536,9 +539,57 @@ def test_readme_source_table_section_or_header_rewritten_fails_loud(tmp_path):
                  encoding="utf-8")
     errs = csc.check_readme_tables(root, _fixture_counts(root))
     assert len(errs) == 1 and "表头不是「Source / 源」" in errs[0], errs
-    # 首格不是源名形状(带了说明文字) likewise 报错:名单比对不带着读不懂的行往下走
+    p.write_text(text, encoding="utf-8")   # 还原:下一种情形从不带那张表的版本开始
+    # 首格不是源名形状(带了说明文字)同样报错:名单比对不带着读不懂的行往下走
     p2, lines2, j = _fixture_source_row(root, "README.md", "nerd_medconf")
     lines2[j] = lines2[j].replace("| nerd_medconf |", "| nerd_medconf (paid tier) |", 1)
     p2.write_text("".join(lines2), encoding="utf-8")
     errs = csc.check_readme_tables(root, _fixture_counts(root))
     assert len(errs) == 1 and f"第 {j + 1} 行首格" in errs[0] and "不是源名形状" in errs[0], errs
+
+
+def test_readme_source_table_empty_first_cell_red(tmp_path):
+    """首格为空的表行不静默跳过:既不计也不报就等于放走一行(本层「不静默」的说法要成立)。"""
+    root = _fixture_root(tmp_path)
+    p, lines, i = _fixture_source_row(root, "README.md", "nerd_medconf")
+    lines[i] = lines[i].replace("| nerd_medconf |", "|  |", 1)
+    p.write_text("".join(lines), encoding="utf-8")
+    errs = csc.check_readme_tables(root, _fixture_counts(root))
+    assert len(errs) == 1 and f"第 {i + 1} 行首格「」不是源名形状" in errs[0], errs
+
+
+def test_readme_source_table_scope_ends_at_next_h2(tmp_path):
+    """下一个二级标题之后的表不归这一层管:在「## Development」之后放一张非源表,仍绿。
+    (实现里收口的那个 break 删掉就红——两份 README 的节后今天没有表行,别的测试钉不住它。)"""
+    root = _fixture_root(tmp_path)
+    p = root / "README.md"
+    text = p.read_text(encoding="utf-8")
+    p.write_text(text.replace(
+        "## Development", "## Development\n\n| Key | Meaning |\n|---|---|\n| x | y |\n"),
+        encoding="utf-8")
+    assert csc.check_readme_tables(root, _fixture_counts(root)) == []
+
+
+def test_readme_source_table_ignores_fenced_block_and_reads_indented_rows(tmp_path):
+    """节里的三反引号围栏内含表行 → 不算表;行首缩进两个空格的源表行 → 照收。"""
+    root = _fixture_root(tmp_path)
+    p = root / "README.md"
+    text = p.read_text(encoding="utf-8")
+    p.write_text(text.replace(
+        "### Geo & ASN",
+        "```\n| Key | Meaning |\n|---|---|\n| x | y |\n```\n\n### Geo & ASN"),
+        encoding="utf-8")
+    assert csc.check_readme_tables(root, _fixture_counts(root)) == []
+    p, lines, i = _fixture_source_row(root, "README.md", "nerd_medconf")
+    lines[i] = "  " + lines[i]
+    p.write_text("".join(lines), encoding="utf-8")
+    assert csc.check_readme_tables(root, _fixture_counts(root)) == []
+
+
+def test_missing_readme_is_reported_not_raised(tmp_path, capsys):
+    """README 缺失:本层报一条错、main 红——不让 FileNotFoundError 穿出去只剩 traceback。"""
+    root = _fixture_root(tmp_path)
+    (root / "README.zh-CN.md").unlink()
+    assert csc.main(["--root", str(root)]) == 1
+    out = capsys.readouterr().out
+    assert "README.zh-CN.md: 源表层退出比对失败" in out, out[-600:]

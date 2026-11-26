@@ -35,8 +35,8 @@ git(夹具树不是 git 仓),按目录名/路径排除历史记录、夹具与�
 措辞约定:说「这次新增了几个源」别写成「补 12 个源」——会被当成源总数而红
 (增量数登记表派生不出来,闸验不了),写成「为 12 源补…」(2026-11-26 试合并撞过一次)。
 源表层(2026-11-26 收尾):逐句腿管数字,通扫管别处写的数字,这一层管名单——两份 README
-「数据源与致谢」三张源表里出现的源名集合,必须等于公开源集合。起因:2026-11-25 量出五份
-加源 PR 的计数句全对、源表合计缺 8 行——数字对、名单缺,上面两层都看不见。只量不改:
+「数据源与致谢」三张源表里出现的源名集合,必须等于公开源集合。起因:2026-11-25 量出三批
+进来的五个源计数句全对、源表合计缺 8 行——数字对、名单缺,上面两层都看不见。只量不改:
 致谢文案(提供方、贡献一句)人写,机器只核名单。
 跑法(仓根):python3 scripts/check_source_counts.py   # 退出码 0=绿,1=红并列 file:line
 """
@@ -93,7 +93,7 @@ def _assigned_attrs(cls_node: ast.ClassDef) -> dict[str, object]:
 
 def derive_counts(sources_dir: Path = SOURCES_DIR,
                   tokens_path: Path = TOKENS_PATH) -> dict:
-    """从登记表静态派生源计数。返回 registered/eval_excluded/keyed/key_envs/
+    """从登记表静态派生源计数。返回 registered/eval_excluded/public_names/keyed/key_envs/
     public_total/keyless_public/keyed_names(排序后)。"""
     registered: dict[str, bool] = {}   # name -> eval_excluded
     for mod_path in sorted(sources_dir.glob("*.py")):
@@ -140,6 +140,7 @@ def derive_counts(sources_dir: Path = SOURCES_DIR,
     return {
         "registered": sorted(registered),
         "eval_excluded": eval_excluded,
+        "public_names": sorted(public_names),
         "public_total": len(public_names),
         "keyed": len(keyed_names),
         "key_envs": sorted(managed),
@@ -339,34 +340,50 @@ def check_doc(path: Path, counts: dict, rel: str | None = None) -> list[str]:
 
 
 # ── 源表层(2026-11-26 收尾)──两份 README 的源表名单对登记表 ──
-# 范围 = 二级标题起到下一个二级标题止,中间分几个三级小节都收。表头只认「Source / 源」:
-# 这一节里的表必须都是源表,别的表(图例之类)挪到节外。
+# 范围 = 二级标题起到下一个二级标题止,中间分几个三级小节都收;三反引号围栏里的行不算表。
+# 表头只认「Source / 源」:这一节里的表必须都是源表,别的表(图例之类)挪到节外。
 README_SOURCE_SECTIONS = (
     ("README.md", "## Data Sources & Acknowledgments"),
     ("README.zh-CN.md", "## 数据源与致谢"),
 )
 _TABLE_HEAD_FIRST_CELL = {"Source", "源"}
-_SOURCE_NAME_RE = re.compile(r"[a-z0-9_]{1,32}")   # 与登记表的源名形状一致
+# 源名形状:登记表本身不校验名字(_discover_sources 只认有 name+fields),这个形状是加源
+# 流程钉的(ops/agent-v2/add-lift.mjs 的 SOURCE_SHAPE);2026-11-26 的 71 个登记名都符合。
+# 登记表将来收了别的形状的名字,这里会先红——届时两边一起放宽。
+_SOURCE_NAME_RE = re.compile(r"[a-z0-9_]{1,32}")
+_FENCE_RE = re.compile(r"^\s*```")
 
 
 def readme_source_names(lines: list[str], heading: str) -> list[tuple[int, str]]:
     """二级标题 heading 到下一个二级标题之间,全部源表数据行的 (行号, 首格源名)。
-    聚合源行尾的 `*` 记号与反引号不算名字。标题找不到、表头不认识、首格不像源名都抛
-    ValueError——这一层不做「宁少算退出」:名单比对一旦静默退出,缺行就再也看不见。"""
+    行首缩进几个空格的表行照收;三反引号围栏里的行跳过。聚合源行尾的 `*` 记号与
+    反引号不算名字。标题找不到、表头不认识、首格为空或不像源名都抛 ValueError——
+    这一层不做「宁少算退出」:名单比对一旦静默退出,缺行就再也看不见。"""
     start = next((i for i, ln in enumerate(lines) if ln.strip() == heading), None)
     if start is None:
         raise ValueError(
             f"找不到二级标题「{heading}」——标题改写后要同步改 README_SOURCE_SECTIONS")
     rows: list[tuple[int, str]] = []
     in_table = False
+    in_fence = False
     for i in range(start + 1, len(lines)):
         ln = lines[i]
+        if _FENCE_RE.match(ln):
+            in_fence = not in_fence
+            in_table = False
+            continue
+        if in_fence:
+            continue
+        stripped = ln.strip()
+        if not stripped:
+            in_table = False   # 空行 = 上一张表结束
+            continue
         if ln.startswith("## "):
             break
-        if not ln.startswith("|"):
-            in_table = False   # 空行/正文 = 上一张表结束
+        if not stripped.startswith("|"):
+            in_table = False   # 正文 = 上一张表结束
             continue
-        cells = [c.strip() for c in ln.strip().strip("|").split("|")]
+        cells = [c.strip() for c in stripped.strip("|").split("|")]
         first = cells[0] if cells else ""
         if not in_table:
             if first not in _TABLE_HEAD_FIRST_CELL:
@@ -375,25 +392,29 @@ def readme_source_names(lines: list[str], heading: str) -> list[tuple[int, str]]
                     "——源表层的表必须都是源表")
             in_table = True
             continue
-        if set(first) <= {"-", ":"}:
-            continue   # 表头下的分隔行
+        if first and set(first) <= {"-", ":"}:
+            continue   # 表头下的分隔行(空首格不走这里:下面按源名形状报错)
         name = first.strip().strip("`*").strip()
         if not _SOURCE_NAME_RE.fullmatch(name):
-            raise ValueError(f"第 {i + 1} 行首格「{first}」不是源名形状([a-z0-9_]{{1,32}})")
+            raise ValueError(
+                f"第 {i + 1} 行首格「{first}」不是源名形状([a-z0-9_]{{1,32}};"
+                "登记表不校验名字形状,本层只认这一种)")
         rows.append((i + 1, name))
     return rows
 
 
 def check_readme_tables(root: Path, counts: dict) -> list[str]:
-    """两份 README 的源表名单对公开源集合(登记 − eval_excluded);返回错误串列表。
-    缺、多、重复各报一条,「多」带行号(表里多出来的名字要去那一行改)。"""
+    """两份 README 的源表名单对公开源集合(登记 − eval_excluded;名单取 derive_counts 的
+    public_names,口径只写一处);返回错误串列表。缺、多、重复各报一条,「多」带行号
+    (表里多出来的名字要去那一行改)。README 缺失或读不了也在这里报,不往上抛——
+    抛出去 main() 的 RED 清单就打不出来。"""
     errors: list[str] = []
-    public = set(counts["registered"]) - set(counts["eval_excluded"])
+    public = set(counts["public_names"])
     for rel, heading in README_SOURCE_SECTIONS:
         try:
             rows = readme_source_names(
                 (root / rel).read_text(encoding="utf-8").splitlines(), heading)
-        except ValueError as e:
+        except (ValueError, OSError) as e:
             errors.append(f"{rel}: 源表层退出比对失败——{e}")
             continue
         seen: set[str] = set()
