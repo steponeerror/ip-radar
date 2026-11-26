@@ -30,8 +30,9 @@
 //             G_IMPLEMENT 机检:首跑红末跑绿(转录 run_pytest 种子序)+ 双文件沙箱在场
 //             + stem 一致。
 //   GATE      脚本零模型:沙箱内命令集(真实面=逐源测试+tests/source_infra/(跳过探测清单的
-//             登记↔清单同步检查——清单行不由轮内模型写,见 gateCommandsFor)+目录源审计
-//             三连;跑法=主检出 venv 解释器绝对路径+cwd=沙箱 backend/,定案 8;faux 面=
+//             登记↔清单同步检查——清单行不由轮内模型写,见 gateCommandsFor)+同起点审计
+//             三连(只审候选源,#476);跑法=主检出 venv 解释器绝对路径+cwd 逐命令自带
+//             (pytest 两条在沙箱 backend/,审计条在沙箱根),定案 8;faux 面=
 //             fixtures/add/gate.json 罐装清单,命令真执行零网络)。任一 rc≠0=门红终态。
 //   REPORT    脚本:沙箱 git 提交+分支指针(rev-parse);轮产出=沙箱分支,永不自并入
 //             master(定案 8/9 停止点;人裁并入)。
@@ -484,7 +485,7 @@ export function implementSummaryShape(s) {
   return { ok: true, summary: s };
 }
 
-// GATE 命令集:真实面=定案 8 三连(逐源测试+source_infra+目录源审计;解释器由调用方
+// GATE 命令集:真实面=定案 8 三连(逐源测试+source_infra+同起点审计;解释器由调用方
 // 传入=主检出 venv 绝对路径);faux 面=fixtures/add/gate.json 罐装清单(命令真执行,
 // 只是最小沙箱树跑不了全仓三连——机制面等价:执行+记录+门红绿)。
 export function gateCommandsFor({ stem, modelFace, fixturesDir }) {
@@ -503,7 +504,9 @@ export function gateCommandsFor({ stem, modelFace, fixturesDir }) {
     // add-lift.mjs 提交前单独跑它并同步钉数;人工开的 PR 由 CI 拦。这里只跳过这一个文件,
     // tests/source_infra/ 其余检查照跑。
     { args: ["-m", "pytest", "tests/source_infra/", "-q", "--ignore=tests/source_infra/test_feeds_manifest_sync.py"], cwd: "backend" },
-    { args: ["scripts/audit_lmdb_invariants.py"], cwd: "" },
+    // #476:同起点审计只留一份,改跑拦截 records 流的 audit_same_start.py(--sources
+    // 点名候选源;名字没登记/禁用 → 脚本 ERROR + rc1 = 门红,“审不了”判不合格)。
+    { args: ["scripts/audit_same_start.py", "--sources", stem], cwd: "" },
   ];
 }
 
