@@ -17,6 +17,7 @@ import {
   bumpReadmeCount, bumpReadmeZhCount, bumpManualCounts, bumpManualImageAlt, bumpManualZhCounts,
   insertReadmeRow, syncRrsiSplitPins, syncRrsiDomainPin, bumpDiscoverySmokePin, insertSnapshotRow,
   changelogEntries, composePrBody, roundStemOf, setFrozenFlag,
+  countManifestLines, bumpEfuBaseline, bumpManifestPin, FEEDS_MANIFEST,
 } from "../add-lift.mjs";
 import { mainCheckoutRoot } from "../bench/leak-check.mjs";
 
@@ -132,6 +133,23 @@ test("changelogEntries/composePrBody:双语对+轮四行数入文;手动 lift �
   assert.ok(!/自动|M5 fleet/.test(body), "PR 正文不得再写「自动 lift」");
   assert.ok(body.includes("universe 35→36"));
   assert.ok(body.includes("轮四行数"));
+});
+
+test("探测清单钉同步(#456):行数口径与两处钉数;差 0 不动;真仓件两处钉各恰一命中且等于清单数据行数", () => {
+  const fx = "# 分组头\nhttps://a/x # name\n\n   \nhttps://a/y\n  https://a/z # other  \n";
+  assert.equal(countManifestLines(fx), 3, "^# 注释行、空行、纯空白行不算;其余按行数");
+  const sh = "EFU_BASELINE=120\n";
+  assert.equal(bumpEfuBaseline(sh, { delta: 1 }), "EFU_BASELINE=121\n");
+  assert.equal(bumpEfuBaseline(sh, { delta: 0 }), sh, "清单没变=原样");
+  const mj = "  assert.equal(manifestN, 120, `feeds.txt 清单 URL 数=${manifestN}(固定 fixture,变更须同步本例)`);\n";
+  assert.equal(bumpManifestPin(mj, { delta: 2 }), mj.replace("manifestN, 120,", "manifestN, 122,"));
+  assert.equal(bumpManifestPin(mj, { delta: 0 }), mj);
+  assert.throws(() => bumpEfuBaseline("无钉面", { delta: 1 }), /钉面漂移.*EFU_BASELINE/);
+  const n = countManifestLines(read(FEEDS_MANIFEST));
+  const realSh = read("ops/pipeline-core/selftest.sh"), realMj = read("ops/pipeline-core/selftest-pipeline.mjs");
+  assert.equal((realSh.match(/EFU_BASELINE=\d+/g) ?? []).length, 1, "selftest.sh 的钉恰一命中");
+  assert.equal(realSh.match(/EFU_BASELINE=(\d+)/)[1], String(n), "selftest.sh 的钉 = 清单数据行数");
+  assert.equal(realMj.match(/assert\.equal\(manifestN, (\d+),/)[1], String(n), "selftest-pipeline.mjs 的钉 = 清单数据行数");
 });
 
 // #437:runLift 内联模板没有纯函数面(README 源表行 Contributes 列/快照行注/提交身份与说明/日志前缀),

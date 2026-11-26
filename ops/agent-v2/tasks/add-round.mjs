@@ -29,7 +29,8 @@
 //             在源文件内声明)——经编码工具(write_file/run_bash/run_pytest)真执行;
 //             G_IMPLEMENT 机检:首跑红末跑绿(转录 run_pytest 种子序)+ 双文件沙箱在场
 //             + stem 一致。
-//   GATE      脚本零模型:沙箱内命令集(真实面=逐源测试+tests/source_infra/+目录源审计
+//   GATE      脚本零模型:沙箱内命令集(真实面=逐源测试+tests/source_infra/(跳过探测清单的
+//             登记↔清单同步检查——清单行不由轮内模型写,见 gateCommandsFor)+目录源审计
 //             三连;跑法=主检出 venv 解释器绝对路径+cwd=沙箱 backend/,定案 8;faux 面=
 //             fixtures/add/gate.json 罐装清单,命令真执行零网络)。任一 rc≠0=门红终态。
 //   REPORT    脚本:沙箱 git 提交+分支指针(rev-parse);轮产出=沙箱分支,永不自并入
@@ -497,7 +498,11 @@ export function gateCommandsFor({ stem, modelFace, fixturesDir }) {
   }
   return [
     { args: ["-m", "pytest", `tests/sources/test_${stem}.py`, "-q"], cwd: "backend" },
-    { args: ["-m", "pytest", "tests/source_infra/", "-q"], cwd: "backend" },
+    // #456:探测清单(ops/pipeline-core/feeds.txt)的登记↔清单同步检查在轮内必然红——新源
+    // 还没进清单,而清单行不由轮内模型写(多端点源要人选代表)。清单由 lift 侧负责:
+    // add-lift.mjs 提交前单独跑它并同步钉数;人工开的 PR 由 CI 拦。这里只跳过这一个文件,
+    // tests/source_infra/ 其余检查照跑。
+    { args: ["-m", "pytest", "tests/source_infra/", "-q", "--ignore=tests/source_infra/test_feeds_manifest_sync.py"], cwd: "backend" },
     { args: ["scripts/audit_lmdb_invariants.py"], cwd: "" },
   ];
 }

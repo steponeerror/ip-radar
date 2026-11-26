@@ -133,21 +133,29 @@ class RefreshScheduler:
         for source in self._enabled_offline_sources():
             name = source.name
             try:
-                had_task = name in self._last_task
-                self._reconcile(name, source, now)
-                # 种子事件(Task 4):存量内容冷启动加速——源有 mtime 且
-                # 事件表零行 → 以 mtime 落一条“首次观测到此内容”
-                # (record_count 缺省 None)。放在 reconcile 之后:同轮
-                # mtime 前进已落过事件则这里事件非零,不双记。独立兜错:
-                # 告警侧故障不碰下方调度逻辑。
+                # ── 内容更新事件记账(#455,原种子块与 reconcile 记账并入
+                # 这一处):每轮对每个启用源比一次数据文件 mtime,比账本
+                # 水位(source_watermark 表,重启不丢)新才记一条,at 用
+                # 文件自己的修改时间。谁触发的落盘都算——调度器任务、页面
+                # 手动/批量、冷启动建库、脚本一视同仁;mtime None(无文件)
+                # 跳过。放在 _reconcile 之前:记账只认文件事实,与调度任务
+                # 的内存状态无关。record_count 尽力取 health()(读不到如
+                # epoch 损坏 → 事件照记,计数留空)。独立兜错:告警侧故障
+                # 不碰下方调度逻辑。
                 try:
-                    seed_mtime = self._read_mtime(source)
-                    if seed_mtime is not None \
-                            and _alerts.event_count(name) == 0:
-                        _alerts.record_event(name, at=seed_mtime)
+                    obs_mtime = self._read_mtime(source)
+                    if obs_mtime is not None:
+                        try:
+                            rc = source.health().record_count
+                        except Exception:
+                            rc = None
+                        _alerts.observe_update(name, obs_mtime, record_count=rc)
                 except Exception:
                     logger.exception(
-                        "scheduler: seed event failed for %s; continuing", name)
+                        "scheduler: update observation failed for %s; continuing",
+                        name)
+                had_task = name in self._last_task
+                self._reconcile(name, source, now)
                 if had_task:
                     continue  # just resolved (or still tracking); re-eligible next scan
                 b = self._backoff.get(name)
@@ -261,16 +269,8 @@ class RefreshScheduler:
                 self._backoff.pop(name, None)
             self._last_task.pop(name, None)
             self._baseline_mtime.pop(name, None)
-            # 内容变化被确认(Task 4):落一条真实更新事件,record_count 取
-            # 当前 health。独立兜错(仿种子块,T4-P2-1):告警侧故障只丢
-            # 本轮事件,上方已完成的调度状态收敛不受影响。
-            try:
-                _alerts.record_event(name, at=now,
-                                     record_count=source.health().record_count)
-            except Exception:
-                logger.warning(
-                    "alerts: record_event failed for %s; event lost this round",
-                    name)
+            # 内容变化的事件记账已上收进 scan() 开头的 observe_update(#455):
+            # 本分支只管调度状态收敛(退避/任务跟踪),不再记账。
             return
         # mtime unchanged -> classify by terminal state
         state = self._manager.task_state(task_id)

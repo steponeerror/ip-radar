@@ -316,12 +316,20 @@ def _source_info(source) -> dict:
     # 顶层互导成环);合并发生在本层,SourceHealth dataclass 不动(plan
     # 钉死此分层,SourceHealthOut extra=allow 透传)。
     now = time.time()
+    # stale_days 缺省按 Source/IpListSource 基类 7(→ 168h);observed 的
+    # 最小间隔下限(#455)与下方 refresh_period_h 档位同源取值;payload
+    # 顶层同名键仍按属性缺失诚实出 None
+    stale_days = getattr(source, "stale_days", None)
     try:
         path = getattr(source, "_path", None)
         content_age_h = ((now - path.stat().st_mtime) / 3600.0
                          if path is not None and path.exists() else None)
         from . import _alerts
-        observed_interval_h = _alerts.observed_interval_h(source.name, now)
+        # #455:与告警同一口径——中位数不计短于声明周期 1/4 的间隔
+        observed_interval_h = _alerts.observed_interval_h(
+            source.name, now,
+            min_interval_s=(stale_days if stale_days is not None else 7)
+            * 86400 / 4)
     except Exception as e:
         logger.warning(f"{source.name} health 扩展读取失败: {e}")
         content_age_h = None
@@ -337,9 +345,6 @@ def _source_info(source) -> dict:
     # _alerts 惰性 import 缘由)。与 _alerts 读失败无关 → 不进上方 try(配置值
     # 永不为 None)。
     from ._scheduler import _period_of
-    # stale_days 缺省按 Source/IpListSource 基类 7(→ 168h);payload 同名键
-    # 仍按属性缺失诚实出 None,仅档位回退基类值
-    stale_days = getattr(source, "stale_days", None)
     health["refresh_period_h"] = _period_of(
         stale_days if stale_days is not None else 7) / 3600.0
     # OL-4:load_db 抓到的加载异常(如 epoch 损坏)并入既有 error 字段
