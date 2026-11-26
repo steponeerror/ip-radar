@@ -8,10 +8,19 @@
 // #415:终态不止 CLOSE 一条路——轮中途失败/中止/停笔的任务终态出口同样经本模块写镜像
 // (三任务每个 terminal commit 之前;例外=health 认领守卫的异主 bad_round 出口,不属主不写;
 // 各出口处带 #415 注记)。
-// #445:最后一类终态出口=框架判 faulted(pi-durable onReport task_faulted:相位 handler 裸抛
+// #445:第四类终态出口=框架判 faulted(pi-durable onReport task_faulted:相位 handler 裸抛
 // 逃出各任务 try/catch 面、abort handler 被 restartLimit 截停)——接线位 entry.mjs openHarness,
 // 写口=各任务模块 writeFaultedMirror(属主校验/ctx 重建是各任务自己的建轮律),error_code 键
 // 随镜像落盘(值=框架词 "faulted",见 writeTerminalRoundState errorCode 注)。
+// 覆写律(#445 评审钉;三个 faulted 写口共用,各自注释只留一行指这里):faulted 镜像覆写盘上
+// 残件——含中止 handler 已写、中止终态 commit 被 restartLimit 截停的 aborted 窗口残件。论证:
+// aborted/done 结果提交成功过的任务不可能再被报 faulted——框架只在 running 时判 fault
+// (scheduler.js:1745-1747),终态候选拒写(transaction.js:267-269),活任务才进 #reserve;
+// 所以 faulted 上报到来时,盘上那份 aborted/done 必出自一次没提交成功的尝试——覆写=纠正
+// 谎言,不是改判别轮终态;不覆写(守住那份 aborted)恰恰保住谎言。#430 评估
+// (docs/reports/2026-11-23-sdd-archive/reviews/review-430-worker-output.md:48「已终态不覆写」)
+// 的本意是别改判已定案轮,与本面不同:本出口写的前提就是框架已判本任务 faulted、
+// outcome.status=faulted 已落库(评审 2026-11-26 对 pi-durable 1.4.0 源码核过)。
 // 纪律:
 //  - 状态词沿用管线既有 status 流(v1 pipeline.mjs finishClose/failStage):done/failed
 //    (+health 面 stage 书挡 CLOSE/FAILED);不发明第二套状态词(票面明令)。

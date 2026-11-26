@@ -589,17 +589,17 @@ async function finishFailed(runtime, context, error, ctx = null) {
   if (ctx) writeOwnedRoundState(ctx, "failed");
   return runtime.commit(() => ({ status: "terminal", outcome: { status: "failed", error } }), context);
 }
-// #445:框架判 faulted(pi-durable onReport task_faulted;接线位 entry.mjs openHarness)的镜像写。
-// 与 discover 同构:input=Journal 任务记录的轮参,ck=同源最后 checkpoint(空=调用方已滤);
-// 属主校验/ctx 重建=#415 同口径(writeOwnedRoundState);状态=failed,错误码=框架词 "faulted";
-// stage/stages=ck 已提交相位(零提交=不写 stage 键);覆写盘上残件(含中止 handler 已写、中止
-// 终态 commit 被 restartLimit 截停的 aborted 窗口残件)=镜像对齐框架真源(outcome.status=faulted;
-// 覆写案照 #408 真源律)。不掷错:写败只记 stderr(onReport 里再抛=丢上报)。
+// #445:第四类终态出口——框架判 faulted(pi-durable onReport task_faulted;接线位 entry.mjs
+// openHarness)的镜像写。与 discover 同构:input=Journal 任务记录的轮参,ck=同源最后
+// checkpoint(空=开库恢复面,调用方已滤,见 entry.mjs #445 盲区注);属主校验/ctx 重建=
+// #415 同口径(writeOwnedRoundState);状态=failed,错误码=框架词 "faulted";stages=ck
+// 已提交相位(本镜像无 stage 键,round-state.mjs 纪律)。覆写盘上残件=纠正(round-state.mjs
+// 头注覆写律,论证在彼)。不掷错:写败只记 stderr——pi-durable 的 safeReport 用 contained
+// 包住 onReport,抛出的错被静默丢弃(harness.js:292-296;types.d.ts:599),再抛=写败无声。
 export function writeFaultedMirror(input, ck, reason) {
   try {
     if (!input?.roundId) return; // 无轮参(起步前 fault)无可写轮目录
     writeOwnedRoundState(buildCtx(input, ck), "failed", {
-      stage: ck.stages?.at(-1)?.name ?? null,
       stages: (ck.stages ?? []).map((r) => r.name),
       errorCode: "faulted",
     });

@@ -263,7 +263,7 @@ test("#415 加轮 close 步抛终态:09-budget.json 路径被目录占 → CLOSE
   } finally { fs.rmSync(w.tmp, { recursive: true, force: true }); }
 });
 
-// #445:最后一类终态出口——框架判 faulted(相位 handler 裸抛逃出 #415 失败出口的 try/catch 面)
+// #445:第四类终态出口——框架判 faulted(相位 handler 裸抛逃出 #415 失败出口的 try/catch 面)
 // 也写镜像 failed+error_code=faulted(接线位 entry.mjs openHarness onReport;真源=任务库记录+Journal checkpoint)。
 test("#445 加轮框架判 faulted 出口:gates.json 被占为目录 → VERIFY 门留痕 EISDIR 裸抛(逃出 finishFailed 面)→ 框架 faulted → 镜像 failed+error_code=faulted", async () => {
   const w = seedWorld("v2-add-faulted-");

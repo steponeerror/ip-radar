@@ -23,7 +23,7 @@ import { Harness } from "@earendil-works/pi-durable";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { createModels } from "@earendil-works/pi-ai";
-import { OPS_HEALTH_ROUND } from "../tasks/health-round.mjs";
+import { OPS_HEALTH_ROUND, writeFaultedMirror } from "../tasks/health-round.mjs";
 import { openHarness } from "../entry.mjs";
 import { HealthRoundsDoc } from "../run-health.mjs";
 import { fauxBundle } from "../run-discover.mjs"; // #445:openHarness opts.models 缝要 {models,resolve} 束(faux 罐装面,discover 测试同源)
@@ -630,7 +630,7 @@ test("#415 健康轮中止终态:在飞(已认领)轮被 abortTask → outcome a
   }
 });
 
-// #445:最后一类终态出口——框架判 faulted(相位 handler 裸抛逃出 failTerm/stageDone 的
+// #445:第四类终态出口——框架判 faulted(相位 handler 裸抛逃出 failTerm/stageDone 的
 // checkpoint 面也写镜像 failed+error_code=faulted。接线位 entry.mjs openHarness onReport;
 // 属主=认领件(claimGuard 真落盘);相位名单=entry Journal 的最后 checkpoint(终态记录被
 // 框架去 checkpoint,withState 换 state)。
@@ -669,6 +669,43 @@ test("#445 健康轮框架判 faulted 出口:gates.json 被占为目录 → WAIT
       assert.deepEqual(mirror.stages.map((x) => x.name), ["DISPATCH"], "stages=Journal checkpoint 已提交相位(全记录形)");
       assert.equal(mirror.pipeline_mode, "pidurable", "health 镜像首写以 ctx.state 全形起底(rebuildRoundCtx 同底)");
     } finally { await harness.close(context); }
+  } finally {
+    w.restore();
+    fs.rmSync(w.tmp, { recursive: true, force: true });
+  }
+});
+
+// #445 属主负例(票面验收第二条直接证据;评审建议改 1):异主认领件 → 别人的轮目录不被写。
+// 可达性注(实现负例时实测):链面上异主认领件在相位头就被 claimGuard 拦成 bad_round 域错
+// (claimRoundDir :134),faulted 写口经链不可达此形——所以分两面钉:链面钉守卫拦截(任务
+// 照常终态 failed),写口面直调 writeFaultedMirror 钉认领件 token 判据(claimOwnedByTask)。
+test("#445 健康轮属主负例:异主认领件——链面守卫拦成 bad_round,写口面直调不写别人的轮目录", async () => {
+  const roundId = "2026-10-28-2348-health";
+  const w = seedWorld({ roundId });
+  const context = BACKGROUND_CONTEXT;
+  try {
+    // 异主认领件(#415 中止负例 :620 同夹具形)+ fault 注入(gates.json 目录占位,#445 主用例同缝)
+    fs.writeFileSync(path.join(w.roundDir, ".v2-claim.json"), JSON.stringify({ token: "foreign-task-token", taskId: 424242 }, null, 2) + "\n");
+    fs.mkdirSync(path.join(w.roundDir, "gates.json"), { recursive: true });
+    const { harness } = await openHarness({ dbPath: path.join(w.tmp, "faulted-foreign.sqlite"), models: await fauxBundle(FIXTURES) });
+    try {
+      harness.resume();
+      const taskId = await (await harness.root(context)).commit((tx) => tx.createTask(OPS_HEALTH_ROUND, {
+        roundId, fromPhase: "DISPATCH", modelFace: "faux", fixturesDir: FIXTURES,
+      }, { ownership: { kind: "conversation" } }), context);
+      const settled = await harness.waitForTask(taskId, context);
+      // 链面:相位头 claimGuard 先拦(异主=bad_round 域错),fault 根本不发生=faulted 写口不可达
+      assert.equal(settled.state.outcome?.status, "failed", `链面:异主认领件在相位头被 claimGuard 拦截:${JSON.stringify(settled.state.outcome)}`);
+      assert.equal(settled.state.outcome?.error?.code, "bad_round", "拦截面=建轮守卫同律 bad_round(不是 faulted)");
+      assert.equal(fs.existsSync(path.join(w.roundDir, "state.json")), false, "链面:无 fault 无镜像(本就不写)");
+    } finally { await harness.close(context); }
+    // 写口面(直调;链面被守卫拦后唯一可达此形的路):认领件 token ≠ ck.claimToken → 不写
+    const ck = { phase: "DISPATCH", claimToken: "own-task-token", state: { stages: [] },
+      budgetCny: 0.05, budgetKnobs: {}, breakerKnobs: {}, startedAtIso: "2026-11-26T00:00:00.000Z",
+      usage: { input: 0, output: 0, totalTokens: 0 }, modelCalls: 0 };
+    writeFaultedMirror({ roundId, fixturesDir: FIXTURES, modelFace: "faux" }, ck, "threw");
+    assert.equal(fs.existsSync(path.join(w.roundDir, "state.json")), false, "写口面:异主认领件 faulted 上报不写别人的轮目录");
+    assert.equal(fs.existsSync(path.join(w.roundDir, ".v2-claim.json")), true, "认领件本体不被动");
   } finally {
     w.restore();
     fs.rmSync(w.tmp, { recursive: true, force: true });

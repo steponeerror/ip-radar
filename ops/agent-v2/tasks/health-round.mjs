@@ -76,22 +76,25 @@ function claimOwnedByTask(input, ck) {
 }
 // 中止=任务终态(#415):镜像同词 aborted(与 outcome 同词),stage=中止时所处相位;
 // stages=checkpoint 已提交相位(中止相位未成不造记录)。轮未起步/异主=不写。
-// #445:框架判 faulted(onReport task_faulted;接线位 entry.mjs openHarness)同口径写
-// failed+error_code=faulted:input=Journal 任务记录的轮参,ck=同源最后 checkpoint(空=调用方
-// 已滤)。属主用 claimOwnedByTask(与中止出口同判据——faulted 相位未经 claimGuard 不能像
-// #415 失败出口那样靠 ctx.state 间接证据;认领件是真源),ctx 重建 rebuildRoundCtx(health
-// 的建轮律,首相位 fault 时它会补建目录——认领件在场=轮已起步,建的是自己的轮目录)。
-// stage/stages=ck 已提交相位(faulted 相位未成,不造书挡名;零已提交相位时 stage 回退
-// ck.phase=fault 时所处相位,#415 中止镜像 stage 同判例)。覆写盘上残件(含中止 handler 已写、
-// 中止终态 commit 被 restartLimit 截停的 aborted 窗口残件)=镜像对齐框架真源
-// (outcome.status=faulted;#430 评估挂的决定,覆写案照 #408 真源律)。
-// 不掷错:写败只记 stderr(onReport 里再抛=丢上报,pi-durable 不吞回调错)。
+// #445:第四类终态出口——框架判 faulted(onReport task_faulted;接线位 entry.mjs openHarness)
+// 同口径写 failed+error_code=faulted:input=Journal 任务记录的轮参,ck=同源最后 checkpoint
+// (空=开库恢复面,调用方已滤,见 entry.mjs #445 盲区注)。属主用 claimOwnedByTask(与中止
+// 出口同判据——faulted 相位未经 claimGuard 不能像 #415 失败出口那样靠 ctx.state 间接证据;
+// 认领件是真源),ctx 重建 rebuildRoundCtx(health 的建轮律,首相位 fault 时它会补建目录——
+// 认领件在场=轮已起步,建的是自己的轮目录)。stage=已提交最后相位的书挡名(health 一族
+// stage 书挡本就写,round-state.mjs 纪律「health 面 stage 书挡 CLOSE/FAILED」,#415 stop/CLOSE
+// 出口同传两键);零已提交相位回退 ck.phase=fault 时所处相位(#415 中止镜像 stage 同判例);
+// stages=ck 已提交相位(#430 给 stop/CLOSE 补传的同理由:盘上旧终态件为底,不传会带回失败
+// 那刻的旧名单)。覆写盘上残件=纠正(round-state.mjs 头注覆写律,论证在彼)。不掷错:写败
+// 只记 stderr——pi-durable 的 safeReport 用 contained 包住 onReport,抛出的错被静默丢弃
+// (harness.js:292-296;types.d.ts:599),再抛=写败无声。
 export function writeFaultedMirror(input, ck, reason) {
   try {
     if (!input?.roundId || !claimOwnedByTask(input, ck)) return; // 无轮参/起步前 fault(无认领件)/异主认领件=不写
     writeTerminalRoundState(rebuildRoundCtx(input, ck), {
       status: "failed",
       stage: ck.state?.stages?.at(-1)?.name ?? ck.phase,
+      stages: ck.state?.stages ?? [],
       errorCode: "faulted",
     });
   } catch (e) {
