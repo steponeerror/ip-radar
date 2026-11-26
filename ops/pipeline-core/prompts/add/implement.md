@@ -92,9 +92,12 @@
 - 跑测试一律用 `run_pytest` 工具:`run_bash` 里跑 pytest 不入转录机检面,G_IMPLEMENT
   的首红末绿回算只认 `run_pytest` 种子序。
 - 测试只许用真实样张与公开网络面取的数据,不手编「应该出现的」结果。
-- **收尾自检**:终答前用 `run_pytest` 跑 `backend/tests/source_infra/ -q` 与你自己的
-  测试文件,两类全绿才算完——GATE 门就是这套组合,提前自检(这些是沙箱内公共
-  门,不是答案)。
+- **收尾自检**:终答前用 `run_pytest` 跑 `backend/tests/source_infra/ -q
+  --ignore=tests/source_infra/test_feeds_manifest_sync.py` 与你自己的测试文件,两类全绿才算完
+  ——GATE 门就是这套组合,提前自检(这些是沙箱内公共门,不是答案)。不要去掉这个
+  `--ignore`:探测清单 `ops/pipeline-core/feeds.txt` 的登记↔清单同步检查对一个刚加的源必然
+  红,而清单行不由你写(多端点源要人选代表)——那是提交前由脚本补的一步(#456)。
+  **不要改 `ops/pipeline-core/feeds.txt`,也不要改那份测试里的豁免表。**
 
 ## 终答契约
 
