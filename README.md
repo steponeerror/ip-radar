@@ -203,6 +203,9 @@ Every dataset below belongs to its provider — thank you for keeping them open 
 | mirage_feed | [OffSeq Mirage](https://github.com/offseq/mirage-feed) | Multi-sensor honeypot attacker records (7-day window, tags / ATT&CK / CVE-KEV / confidence) | |
 | honeypot_fyi | [honeypot.fyi](https://honeypot.fyi/) | Multi-protocol honeypot-fleet attacker blocklist (rolling since 2024, per-IP hit counts) | |
 | gorkemgun_sgb_blocklist | [gorkemgun/sgb-blocklist](https://raw.githubusercontent.com/gorkemgun/sgb-blocklist/main/ipv4.txt) | plain text 行式清单:文件头为 4 行 `#` 注释(标题/Source/Records/Last change),随后每行一个裸 IPv4 地址(数值排序)。无 CSV… (fleet-lifted #366) | |
+| blocklist_netua | [blocklist.net.ua](https://blocklist.net.ua/) | Ukrainian community ban list (WAF and abuse bans; a row leaves the list once its unban date passes) | |
+| echelon | [Echelon Labs](https://echelonlabs.co/) | Per-tag blocklists from a honeypot sensor network (61 behaviour tags) | |
+| nerd_medconf | [CESNET NERD](https://nerd.cesnet.cz/) | Medium-confidence reputation IPs (computed upstream from several public lists) | |
 
 ### Geo & ASN
 
