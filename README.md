@@ -15,6 +15,8 @@
 [![Live Demo](https://img.shields.io/badge/%F0%9F%93%A1_Live_Demo-ipradar.huxiao0207.dpdns.org-FF6B35?style=for-the-badge)](https://ipradar.huxiao0207.dpdns.org)
 
 > The live demo runs in read-only mode (sources & updates disabled; queries fully working). Self-host to unlock everything.
+>
+> **Can't reach the demo?** If it fails on only one network (e.g. your home network), your router's DNS filter may be blocking `dpdns.org`, a free shared domain — reported with eero Plus "Advanced Security". How it shows up and what to do: [#281](https://github.com/steponeerror/ip-radar/discussions/281).
 
 <p align="center">
 <table>
