@@ -121,3 +121,34 @@ def test_lookup_shared_budget_across_paths_and_stix(client, rl_on):
             assert r.status_code == 200, f"volley {i} {path}"
     r31 = client.get("/api/lookup/1.1.1.1", headers=SAME_ORIGIN)
     assert r31.status_code == 429
+
+
+def test_limit_decorators_below_route_decorators():
+    """装饰器顺序红线(票 #482;main.py Task 7 注释只说不证):应当限流的每个
+    端点,路由上挂的必须是「包了限流的那一层」。slowapi 0.1.10(requirements
+    钉版)的 limit 装饰器把「它包到的函数」记进 limiter 的
+    _Limiter__marked_for_limiting[name] 私有表(叠两个装饰器 = 两条记录,
+    最后一条 = 最外层限流器包到的),再用 functools.wraps 返回包装层
+    (__wrapped__ 指向它包的函数)。装饰器写在路由装饰器之下时恒有
+    route.dependant.call.__wrapped__ is marked[name][-1];若错写在路由装饰器
+    之上,路由持有的是未包装函数(无 __wrapped__,限流永不生效,实证见
+    task-7-report),本断言转红。端点名单从限流器自己的注册表键推导,不手抄。"""
+    from fastapi.routing import iter_route_contexts
+    limiter = _ratelimit.limiter
+    marked = getattr(limiter, "_Limiter__marked_for_limiting", None)
+    assert marked, "slowapi 内部注册表缺席(版本漂移?)——本测试失去对象,改写而非删除断言"
+    by_name: dict[str, list] = {}
+    for ctx in iter_route_contexts(main.app.routes):
+        call = ctx.dependant.call
+        name = f"{call.__module__}.{call.__name__}"
+        by_name.setdefault(name, []).append(ctx)
+    for name, funcs in marked.items():
+        holders = by_name.get(name, [])
+        assert len(holders) == 1, (
+            f"{name}: 期望恰一条路由挂该限流层,实得 {len(holders)} 条")
+        route_call = holders[0].dependant.call
+        assert getattr(route_call, "__wrapped__", None) is funcs[-1], (
+            f"{name}: 路由挂的不是包了限流的那一层函数(装饰器顺序漂移,"
+            f"限流不会生效)——route.call={route_call!r}, "
+            f"限流器最外层记录={funcs[-1]!r}")
+    assert len(marked) >= 5, f"限流注册表异常地小: {sorted(marked)}"

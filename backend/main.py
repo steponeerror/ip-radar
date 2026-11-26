@@ -12,6 +12,7 @@ from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, Header, R
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.routing import iter_route_contexts
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from pydantic import BaseModel
@@ -720,17 +721,80 @@ app.add_middleware(
 
 
 # ---- 公共 demo 模式（docs/superpowers/specs/2026-08-23-public-demo-mode-design.md）----
-# 开启后: 写/内部接口对匿名访客 404(信封 not_found,当作不存在);查询读接口需
+# 开启后: 内部接口对匿名访客 404(信封 not_found,当作不存在);查询读接口需
 # x-ipradar-client: web(缺失 403 信封 forbidden)。豁免面:回环 healthcheck、
-# /api/version、/api 路径上 CORS preflight 形状的 OPTIONS(Origin +
-# Access-Control-Request-Method 两头齐全;裸 OPTIONS 不豁免)。维护者旁路 =
-# ADMIN_IPS 直连 peer 白名单(_is_demo_admin,可选 TRUST_XFF,须配套网关保证);
-# 带管理员 cookie 或 Authorization 的请求交给三层鉴权依赖层真校验
-# (见 _carries_admin_credentials)。env 每请求动态读(测试 monkeypatch 依赖)。
-_DEMO_HIDDEN_PREFIXES = (
-    "/api/update-db", "/api/sources", "/api/eval", "/api/tasks", "/api/events",
-    "/api/scheduler/status", "/api/update", "/api/perf/layout",
-)
+# /api 路径上 CORS preflight 形状的 OPTIONS(Origin + Access-Control-Request-
+# Method 两头齐全;裸 OPTIONS 不豁免)。维护者旁路 = ADMIN_IPS 直连 peer 白名单
+# (_is_demo_admin,可选 TRUST_XFF,须配套网关保证);带管理员 cookie 或
+# Authorization 的请求交给三层鉴权依赖层真校验(见 _carries_admin_credentials)。
+# env 每请求动态读(测试 monkeypatch 依赖)。
+#
+# 「内部接口」的判定(票 #482,2026-11-27):不再手抄路径前缀表——旧表两条
+# 前缀(/api/scheduler/status、/api/perf/layout)指向早已删除的端点,而四族
+# 活接口(/api/ops、/api/admin、/api/users、/api/auth/jwt)漏网,对匿名自报
+# 存在(401/503 代替 404),且没有任何检查逼新内部路由进表。现在隐藏与否从
+# 路由自己的管理员依赖推导(_demo_hidden_route_table):依赖树里带
+# require_admin_configured 或 current_superuser 之一的路由,匿名一律 404——
+# 新内部路由挂上管理员依赖即自动进面具,无表可漏。两条明写的例外:
+#   /api/update              自带令牌校验在函数体内,依赖树推不出来 → 明写隐藏;
+#   POST /api/auth/jwt/login 主人不在白名单地址上时靠它登录 → 必须可达。
+_DEMO_ADMIN_DEPS = frozenset({
+    require_admin_configured,
+    _ipdb_auth.current_superuser,  # fastapi-users 闭包,__name__ 是
+                                   # current_user_dependency,只能按对象比
+})
+# 路径级例外(不分方法):True=无论依赖树如何都隐藏;False=同一路径的其他
+# 方法若带管理员依赖,照推导规则隐藏,唯独本路径放行(其上只有 POST 一法)。
+_DEMO_PATH_EXCEPTIONS: dict[str, bool] = {
+    "/api/update": True,
+    "/api/auth/jwt/login": False,
+}
+
+
+def _route_has_admin_dep(dependant) -> bool:
+    """依赖树全走一遍:装饰器 dependencies=[...]、路由器级依赖、各参数自己的
+    Depends——fastapi 把三层都收进 dependant.dependencies(参数级也是带
+    .call/.dependencies 的 Dependant),递归遍历即全覆盖。"""
+    for sub in getattr(dependant, "dependencies", ()) or ():
+        if sub.call in _DEMO_ADMIN_DEPS or _route_has_admin_dep(sub):
+            return True
+    return False
+
+
+def _demo_hidden_route_table(app) -> list:
+    """路径正则 → 是否隐藏 的清单;首用构建,缓存在 app.state 上,路由数量
+    变了就重建。fastapi 0.141 起 include_router 不摊平进 app.routes(出现
+    _IncludedRouter 嵌套节点),平面视图经 iter_route_contexts 还原(同
+    test_security_matrix)。同路径多方法各算各的再取并:任一带管理员依赖 →
+    整条路径隐藏(匹配只看路径不看方法,不给方法级探测通道)。"""
+    routes = app.routes
+    cached = getattr(app.state, "_demo_hidden_routes", None)
+    if cached is not None and cached[0] == len(routes):
+        return cached[1]
+    by_path: dict[str, tuple] = {}
+    for ctx in iter_route_contexts(routes):
+        path = getattr(ctx, "path", None)
+        if not path or not path.startswith("/api/"):
+            continue
+        hidden = _route_has_admin_dep(ctx.dependant)
+        if path in _DEMO_PATH_EXCEPTIONS:
+            hidden = _DEMO_PATH_EXCEPTIONS[path]
+        prev = by_path.get(path)
+        by_path[path] = (ctx.path_regex, hidden or (prev[1] if prev else False))
+    table = list(by_path.values())
+    app.state._demo_hidden_routes = (len(routes), table)
+    return table
+
+
+def _demo_path_hidden(app, path: str) -> bool | None:
+    """按推导表判路径:True=隐藏(404 面具),False=可见(放行),None=没有
+    任何路由匹配(放行,路由器自己回 404)。只看路径不看方法:隐藏路径上
+    方法不对也是 404(方法级差异的 405 口子只存在于可见路径)。"""
+    for regex, hidden in _demo_hidden_route_table(app):
+        if regex.match(path):
+            return hidden
+    return None
+
 _DEMO_HEADER_PREFIXES = (
     "/api/lookup", "/api/query/stream", "/api/upload/stream", "/api/db-status",
 )
@@ -785,40 +849,6 @@ def _carries_admin_credentials(request) -> bool:
 
 
 @app.middleware("http")
-async def public_demo_guard(request, call_next):
-    if (not public_demo_enabled() or _is_demo_admin(request)
-            or _carries_admin_credentials(request)):
-        return await call_next(request)
-    path = request.url.path
-    # 非 /api 路径全放;本中间件在 CORS 外层。/api 路径仅放行 preflight 形状的
-    # OPTIONS(Origin + Access-Control-Request-Method 两头齐全,真 CORS 预检)——
-    # 裸 OPTIONS 按路径走既有判定,不留免验探测通道。
-    if not path.startswith("/api/"):
-        return await call_next(request)
-    if (request.method == "OPTIONS"
-            and request.headers.get("origin")
-            and request.headers.get("access-control-request-method")):
-        return await call_next(request)
-    if path.startswith(_DEMO_HIDDEN_PREFIXES):
-        # 中间件在全局 exception handler 之外 → 手工构造信封(与全局信封同形状;
-        # not_found 与 _HTTP_FALLBACK_CODE[404] 同串,与路由器真 404 不可区分)
-        return JSONResponse(
-            envelope(ErrorCode.not_found.value, "Not Found"), status_code=404)
-    if path == "/api/version":
-        return await call_next(request)
-    if path.startswith(_DEMO_HEADER_PREFIXES):
-        # STIX 已改 fetch+blob(apiFetch 带 web header),与其他查询同规;
-        # 跨源/无 header 的匿名 /stix 由路由层 api_key_dep(Q1-B)兑底。
-        client_host = request.client.host if request.client else ""
-        if client_host in ("127.0.0.1", "::1"):  # docker healthcheck 豁免
-            return await call_next(request)
-        if request.headers.get("x-ipradar-client") != "web":
-            return JSONResponse(
-                envelope(ErrorCode.forbidden.value, "Forbidden"), status_code=403)
-    return await call_next(request)
-
-
-@app.middleware("http")
 async def reject_oversized_bodies(request, call_next):
     """信任边界:大 body 在被读进内存之前拒绝(未认证可打的 OOM 面)。
     挡 Content-Length 声明的超限;chunked 传输的洞由路由内分块读再堵。"""
@@ -832,6 +862,42 @@ async def reject_oversized_bodies(request, call_next):
                 content=envelope(
                     "bad_request",
                     f"Request body exceeds {MAX_UPLOAD_BYTES // (1024*1024)}MB limit"))
+    return await call_next(request)
+
+
+# 守卫必须在最外层(票 #482):@app.middleware 与 add_middleware 都插到栈最
+# 前,后定义者在最外。放在 reject_oversized_bodies 之后定义 = 守卫先跑。
+# 此前守卫在内层,隐藏端点的超大请求体先被 400,404 面具穿帮(body 大小
+# 泄漏端点存在性);叠放顺序由 tests/auth/test_middleware_order.py 钉住。
+@app.middleware("http")
+async def public_demo_guard(request, call_next):
+    if (not public_demo_enabled() or _is_demo_admin(request)
+            or _carries_admin_credentials(request)):
+        return await call_next(request)
+    path = request.url.path
+    # 非 /api 路径全放;/api/version 由推导表判可见后自然放行。/api 路径仅
+    # 放行 preflight 形状的 OPTIONS(Origin + Access-Control-Request-Method
+    # 两头齐全,真 CORS 预检)——裸 OPTIONS 按路径走既有判定,不留免验探测通道。
+    if not path.startswith("/api/"):
+        return await call_next(request)
+    if (request.method == "OPTIONS"
+            and request.headers.get("origin")
+            and request.headers.get("access-control-request-method")):
+        return await call_next(request)
+    if _demo_path_hidden(request.app, path):
+        # 中间件在全局 exception handler 之外 → 手工构造信封(与全局信封同形状;
+        # not_found 与 _HTTP_FALLBACK_CODE[404] 同串,与路由器真 404 不可区分)
+        return JSONResponse(
+            envelope(ErrorCode.not_found.value, "Not Found"), status_code=404)
+    if path.startswith(_DEMO_HEADER_PREFIXES):
+        # STIX 已改 fetch+blob(apiFetch 带 web header),与其他查询同规;
+        # 跨源/无 header 的匿名 /stix 由路由层 api_key_dep(Q1-B)兑底。
+        client_host = request.client.host if request.client else ""
+        if client_host in ("127.0.0.1", "::1"):  # docker healthcheck 豁免
+            return await call_next(request)
+        if request.headers.get("x-ipradar-client") != "web":
+            return JSONResponse(
+                envelope(ErrorCode.forbidden.value, "Forbidden"), status_code=403)
     return await call_next(request)
 
 

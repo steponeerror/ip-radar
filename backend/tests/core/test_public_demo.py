@@ -56,10 +56,134 @@ def test_demo_hidden_endpoints_404():
             ("get", "/api/events"),
             ("get", "/api/update/status"),
             ("post", "/api/update"),
+            # #482 起四族内部接口同样装不存在(此前漏网,匿名拿 401/503 自报存在)
+            ("get", "/api/ops/items"),
+            ("get", "/api/admin/keys"),
+            ("get", "/api/users/me"),
+            ("post", "/api/auth/jwt/logout"),
         ]
         for method, path in cases:
             res = getattr(c, method)(path)
             assert res.status_code == 404, f"{method} {path} -> {res.status_code}"
+
+
+# ── #482:隐藏与否从路由管理员依赖推导 ──
+def test_demo_newly_hidden_families_404():
+    """四族各挑一条写明行为:推导前匿名访问这些路径拿 401/503(自报存在),
+    推导后一律 404 信封 not_found。"""
+    with _client("1") as c:
+        for method, path in (("GET", "/api/ops/items"),
+                             ("GET", "/api/admin/keys"),
+                             ("GET", "/api/users/me"),
+                             ("POST", "/api/auth/jwt/logout")):
+            r = c.request(method, path)
+            assert r.status_code == 404, f"{method} {path} -> {r.status_code}"
+            assert r.json()["error"]["code"] == "not_found"
+
+
+def test_demo_login_reachable_but_logout_hidden():
+    """例外②:POST /api/auth/jwt/login 不隐藏(主人不在白名单地址上时也要能
+    登录)。匿名实测:admin 未配置 → 依赖层 503 admin_disabled;若进程态里
+    admin 已配(此前用例登录过),则是表单层 400/422 —— 都不是守卫的 404。
+    同族 logout 带超管依赖,照推导规则隐藏。"""
+    with _client("1") as c:
+        r = c.post("/api/auth/jwt/login")
+        assert r.status_code != 404, "登录口必须可达"
+        assert r.json()["error"]["code"] != "not_found"
+        assert c.post("/api/auth/jwt/logout").status_code == 404
+
+
+def test_demo_hidden_path_method_agnostic_404():
+    """匹配只看路径不看方法:隐藏路径上未声明的方法也是 404(不给方法级
+    探测通道);对照:可见路径的方法不对由路由器 405,非守卫职责。"""
+    with _client("1") as c:
+        r = c.delete("/api/tasks")
+        assert r.status_code == 404
+        assert r.json()["error"]["code"] == "not_found"
+
+
+def _api_routes_with_expected_hidden():
+    """按规则 1/2 独立推导 (path, methods, expect_hidden) 全表(票 #482):
+    规则 1 = 依赖树带 require_admin_configured ∪ current_superuser;
+    规则 2 = /api/update 一律隐藏、/api/auth/jwt/login 不隐藏。
+    实现侧不引用本函数——两侧各自从路由表推导,只共享规则不共享代码。"""
+    from fastapi.routing import iter_route_contexts
+    import ipdb._auth as _auth
+    import main
+    anchors = {main.require_admin_configured, _auth.current_superuser}
+
+    def has_admin_dep(dependant):
+        for sub in getattr(dependant, "dependencies", ()) or ():
+            if getattr(sub, "call", None) in anchors or has_admin_dep(sub):
+                return True
+        return False
+
+    routes = []
+    for ctx in iter_route_contexts(main.app.routes):
+        path = getattr(ctx, "path", "")
+        if not path.startswith("/api/"):
+            continue  # 守卫只在 /api 上判隐藏;非 /api 路径全放,无隐藏可言
+        expect = (path == "/api/update"
+                  or (path != "/api/auth/jwt/login"
+                      and has_admin_dep(ctx.dependant)))
+        methods = sorted(getattr(ctx, "methods", set()) - {"HEAD"})
+        routes.append((path, methods, expect))
+    return routes
+
+
+def test_demo_hidden_table_derived_full_sweep():
+    """全表扫描(票 #482 验收):遍历全部 /api 路由,按规则 1/2 独立推导应否
+    隐藏,再在演示模式下对每条路由发匿名真实请求(路径参数取样例值,方法
+    用路由声明之一):该隐藏的回 404 信封;不该隐藏的不回 404(200/401/
+    403/422/503 都是合法后续层应答)。期望表从路由依赖树推导,不手抄路径。"""
+    import re
+    from unittest.mock import AsyncMock
+    import main
+    routes = _api_routes_with_expected_hidden()
+    assert len(routes) >= 40, f"路由表异常地小: {len(routes)}"
+    assert any(h for _, _, h in routes), "推导表无隐藏路由,规则失效?"
+    assert any(not h for _, _, h in routes), "推导表全是隐藏路由,可见面被吞?"
+    # /api/version 匿名可达;fetch_latest 桩掉免网络(同 test_version_reports_demo_flag)
+    with patch.object(main._ipdb_version, "fetch_latest",
+                      AsyncMock(return_value=None)):
+        with _client("1") as c:
+            for path, methods, expect_hidden in routes:
+                url = re.sub(r"\{[^}]+\}", "x", path)  # 路径参数样例(全表 str 转换器)
+                res = c.request(methods[0], url)
+                if expect_hidden:
+                    assert res.status_code == 404, (
+                        f"{methods[0]} {url} 应 404,实得 {res.status_code}")
+                    assert res.json()["error"]["code"] == "not_found"
+                else:
+                    assert res.status_code != 404, (
+                        f"{methods[0]} {url} 不该隐藏(无管理员依赖),"
+                        f"实得 404 body={res.text[:120]}")
+
+
+def test_demo_rule_second_anchor_current_superuser_alone_hides():
+    """规则 1 第二锚的行为证:只挂 current_superuser(无
+    require_admin_configured)的路由同样隐藏。现网路由都是双锚(_ADMIN_DEPS
+    两个一起挂、fastapi-users 路由器级依赖兜底),拿临时路由单独钉第二锚;
+    顺带走一遍「路由数量变了 → 推导表重建」的缓存失效路径(加路由后首问
+    必须重建,否则新路由漏面具)。finally 还原路由表。"""
+    from fastapi import Depends
+    import main
+
+    async def _only_superuser_probe():
+        return {"ok": True}
+
+    main.app.add_api_route("/api/_demo_anchor_probe", _only_superuser_probe,
+                           methods=["GET"],
+                           dependencies=[Depends(main._ipdb_auth.current_superuser)])
+    route = main.app.routes[-1]
+    try:
+        with _client("1") as c:
+            r = c.get("/api/_demo_anchor_probe")
+            assert r.status_code == 404, (
+                f"只挂 current_superuser 的路由应隐藏,实得 {r.status_code}")
+            assert r.json()["error"]["code"] == "not_found"
+    finally:
+        main.app.routes.remove(route)
 
 
 def test_demo_read_endpoints_need_header():
