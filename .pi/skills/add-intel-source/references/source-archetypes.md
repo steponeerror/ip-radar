@@ -95,8 +95,8 @@ POST/JSON-body 需手写 HTTP）。
 
 **判据：** 一个发布方多个相关列表（firehol ipsets、blocklist.de 攻击型
 子表），一个源订阅一个目录：`filename` 即目录名；`download()` 循环各表；
-`rebuild()` 跨文件累积并裁决；`health()` 取跨文件 **max** mtime
-（convention 4）。历史布局是单文件时必须带 `_cleanup_legacy`（旧文件+
+`rebuild()` 跨文件累积并裁决；覆写 `_data_files()` 声明子文件清单，新鲜度
+由底座取最大（convention 4，算法在 `_sources/_freshness.py`）。历史布局是单文件时必须带 `_cleanup_legacy`（旧文件+
 LMDB sidecar 两形态：epoch 目录 rmtree、ptr/count/cov 文件 unlink）。
 **范例文件：** 通读 `blocklist_de.py`（优先级裁决分类 + native_categories
 并集）；per-list tags 归属 + mtime 门控看 `firehol.py`。

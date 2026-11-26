@@ -5,8 +5,9 @@
 单文件覆写两份(caida_asorg/insightflare_asn_blocklist)、多文件「取最新
 mtime」四份(blocklist_de/echelon/cn_isp/firehol)、逐家 FeedHealth 三份
 (rir_abuse/rir_delegated/cloud_ranges)、调度器 _scheduler._read_mtime 与
-_registry._source_info 的 content_age_h 各算各的;最后两处已经和 health()
-漂移(目录型源取到目录自身 mtime)。本模块只放函数、不依赖任何源类:
+_registry._source_info 的 content_age_h 两处各算各的,其中注册表一处已和
+health() 漂移(目录型源取到目录自身 mtime;调度器早就取目录内最新文件,
+未漂)。本模块只放函数、不依赖任何源类:
 源侧只声明数据文件清单(SourceBase._data_files 钩子),算法统一走这里。
 
 行为契约(与 2026-11-26 master 02006a69 的旧实现逐字对齐;工单验收:
@@ -19,7 +20,9 @@ health() 改前改后逐源逐字段相同):
   last_updated 沿用旧基类 ``if file_mtime else None`` 的口径出 None
   (is_stale 同旧体照算)——仅 mtime==0 边界与「无文件」结果重合,
   保真不动;该口径与 feed_health 路径的旧体(rir_* 系,无 0 特例)在
-  mtime==0 处差一档,物理上不可达(1970 前的文件 mtime),不改旧语义。
+  mtime==0 处差一档(mtime==0 即 1970-01-01T00:00:00Z 整,做得到——
+  os.utime(p, (0, 0)) 或解包带零时间戳的 tar 成员——但本仓的下载和
+  解包路径不产生修改时间为 0 的文件),不改旧语义。
 - feed_health:文件缺失 → (None, True);存在 → 按各自停更线判。
 """
 import time

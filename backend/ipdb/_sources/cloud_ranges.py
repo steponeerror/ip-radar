@@ -296,7 +296,7 @@ class CloudRangesSource(Source):
                 for _provider, _fetch, _parse, filename, _rel, _st in _FEEDS]
 
     def health(self) -> SourceHealth:
-        """目录形覆写(blocklist_de 同式):逐家 mtime → FeedHealth,阈值查
+        """目录形覆写(rir_* 同式):逐家 mtime → FeedHealth,阈值查
         _FEEDS 表(Azure 14,不硬编码);任一家超期或无任何文件即源级
         stale;last_updated = max-mtime;其余字段沿基类语义。#465 卡16:
         逐家新鲜度收 _freshness.feed_health 单源点,源级规则不变;文件

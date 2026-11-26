@@ -27,12 +27,15 @@ def test_staleness_uses_file_mtime():
     旧巡检(health() 源码含 st_mtime)对谁都恒真、守卫空转。新契约:
     health() 要么自己读文件时间(st_mtime),要么交给基类
     (super().health())或新模块(_freshness)算——三者皆无 = 新鲜度
-    另有来路,即红;另锚 freshness 本体必须出现 st_mtime。
+    另有来路,即红;另锚真正 stat 文件的 newest_mtime 必须出现
+    st_mtime(词边界,防函数名 newest_mtime 子串假满足)。
     """
     import inspect
+    import re
     from ipdb._sources import _freshness
-    assert "st_mtime" in inspect.getsource(_freshness.freshness), \
-        "_freshness.freshness 必须读文件修改时间(st_mtime)"
+    assert re.search(r"\bst_mtime\b",
+                     inspect.getsource(_freshness.newest_mtime)), \
+        "_freshness.newest_mtime 必须读文件修改时间(st_mtime)"
     for s in _sources:
         if not hasattr(s, "_path"):
             continue
