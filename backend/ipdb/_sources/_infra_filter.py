@@ -7,8 +7,11 @@
 
 纪律(证据永不灭失):
 - 原始数据文件零改写 —— 排除只发生在载入(rebuild)面,LMDB 是投影;
-- 排除集 = 显式 curated 集(真源 infra_services._DATA,单真相不复制第二
-  份;绝不查 infra_services 的 LMDB——本地纪元可落后于 csv,勘察 §4 判例);
+- 排除集 = 显式 curated 集(真源 `ipdb._infra_roster.ROSTER_CSV`,#466 卡
+  15 起名单住跨源小模块,本层不再 import 源模块——旧函数体内延迟 import
+  是为躲 infra_services → _source_base → _rebuild_tail → 本层的循环;
+  单真相不复制第二份;绝不查 infra_services 的 LMDB——本地纪元可落后
+  于 csv,勘察 §4 判例);
 - 开关 IP_RADAR_INFRA_NOISE_FILTER(默认开;"0"/"false"/"no"/"off" 关)
   ——关过滤重建即原样回算复原;
 - 排除计数与被排条目进 rebuild 日志(审计面)。
@@ -16,10 +19,11 @@
 宁少算:仅排除对 curated 单址的精确指控;含 infra IP 的更大 CIDR 是不同
 断言,不排(同源重复/派生不会被双算,也不会被扩大化清除)。
 """
-import ipaddress
 import logging
 import os
 from functools import lru_cache
+
+from .. import _infra_roster
 
 logger = logging.getLogger(__name__)
 
@@ -35,15 +39,12 @@ def filter_enabled() -> bool:
 
 @lru_cache(maxsize=1)
 def curated_infra_addresses() -> frozenset:
-    """curated 公共基础设施单址集(真源 = infra_services._DATA;_DATA 是
-    唯一真相源,data/ 下 csv 是其物化投影,LMDB 更是投影的投影)。"""
-    from .infra_services import _DATA
-    out = set()
-    for row in _DATA.strip().splitlines():
-        ip = row.split(",", 1)[0].strip()
-        if ip:
-            out.add(ipaddress.ip_network(ip, strict=False))
-    return frozenset(out)
+    """curated 公共基础设施单址集(真源 = _infra_roster.ROSTER_CSV,#466
+    卡 15 起名单住跨源小模块;ROSTER_CSV 是唯一真相源,data/ 下 csv 是其
+    物化投影,LMDB 更是投影的投影)。lru_cache 留在本层(不进名单模块):
+    缓存是消费方关注点,且保持本函数身份与 monkeypatch 缝不变
+    (test_eval_incident_replay 红面拆的就是这个名字)。"""
+    return _infra_roster.addresses()
 
 
 def is_infra_noise(net) -> bool:
