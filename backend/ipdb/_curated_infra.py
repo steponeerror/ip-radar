@@ -1,4 +1,9 @@
-"""Curated public-infrastructure roster — the single home of the text.
+"""Curated public-infrastructure address list — the single home of the text.
+
+命名:用 curated 不用 roster——仓里「roster」已指源清单(GLOSSARY「roster
+diff」、ops 的 roster download_host),放在「地址名单」上会被读成「基础
+设施源的清单」;curated(curated_infra_addresses、事故源注释的「curated
+单址集」)是代码现成的叫法(#466 返工,主会话裁决 2026-11-26)。
 
 卡 15(#466,架构评审第四轮;伞票 #451):名单原文此前住在
 `_sources/infra_services.py` 的 `_DATA`,载入期噪声过滤
@@ -9,7 +14,7 @@
 与过滤层同读这一份对象(不是第二份)。评审记录:文档仓
 `reviews/2026-11-25-architecture-review-round4.md` 第 15 张卡。
 
-内容契约:ROSTER_CSV 是搬前原文逐字节原样(cmp 验收,落地时对 master
+内容契约:CURATED_CSV 是搬前原文逐字节原样(cmp 验收,落地时对 master
 _DATA 比对);data/ 下 csv 与 LMDB 都是它的投影(grill Q6 裁决
 2026-10-11)。名单内容缺口是 #439 的票,不归本模块。
 """
@@ -18,7 +23,7 @@ import io
 import ipaddress
 
 # Columns: ip, service, provider
-ROSTER_CSV = """\
+CURATED_CSV = """\
 8.8.8.8,dns,Google Public DNS
 8.8.4.4,dns,Google Public DNS
 1.1.1.1,dns,Cloudflare DNS
@@ -81,10 +86,13 @@ ROSTER_CSV = """\
 def rows() -> list[tuple[str, str, str]]:
     """名单逐行三元组 (ip, service, provider),空行跳过。
 
-    词法与物化 csv 的回读同一套(csv.reader):「ROSTER_CSV → data/
-    csv → harvest 回读」往返逐项一致(#466)。"""
+    词法与物化 csv 的回读同一套(csv.reader):「CURATED_CSV → data/
+    csv → harvest 回读」往返逐项一致——这条声明由
+    tests/core/test_curated_infra.py 的
+    test_rows_roundtrip_matches_materialized_csv 钉住(#466 返工),
+    两套解析从此不可能悄悄分叉(同一文件里另有两读法相等断言)。"""
     out = []
-    for row in csv.reader(io.StringIO(ROSTER_CSV)):
+    for row in csv.reader(io.StringIO(CURATED_CSV)):
         if not row:
             continue
         ip, svc, provider = row
@@ -98,7 +106,7 @@ def addresses() -> frozenset:
     关注点,lru_cache 留在 _infra_filter.curated_infra_addresses(身份
     与 monkeypatch 面不变)。"""
     out = set()
-    for row in ROSTER_CSV.strip().splitlines():
+    for row in CURATED_CSV.strip().splitlines():
         ip = row.split(",", 1)[0].strip()
         if ip:
             out.add(ipaddress.ip_network(ip, strict=False))

@@ -112,9 +112,9 @@ def test_projection_repeat_load_idempotent_no_half_write(tmp_path, monkeypatch):
 def test_projection_converges_after_one_rebuild(tmp_path, monkeypatch):
     """全程收敛:_DATA 演进 → load 重物化(mtime bump → needs_convert
     True)→ rebuild 采新 csv → needs_convert False,再 load 零写。"""
-    # 名单真源在 _infra_roster(#466 卡 15);本测试 patch 的仍是
+    # 名单真源在 _curated_infra(#466 卡 15);本测试 patch 的仍是
     # infra_services 的模块全局 _DATA(_sync_projection 读的名字)。
-    from ipdb._infra_roster import ROSTER_CSV as _DATA
+    from ipdb._curated_infra import CURATED_CSV as _DATA
     s = InfraServicesSource(data_dir=tmp_path)
     s.rebuild()                     # 旧 _DATA 建纪元
     assert s.query("203.0.113.9") == {}

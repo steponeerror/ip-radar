@@ -80,7 +80,7 @@
         "kind": "func",
         "ref": "ipdb._eval.incident_replay.replay_myip_ms_8888"
       },
-      "expectation": "pass=true:排除只在投影面(查询无 8.8.8.8 指控)、非 infra 指控保留(宁少算不扩大)、原始件零改写；防线=myip_ms.py infra_noise_filter + _rebuild_tail.InfraNoiseGate(curated 真源 infra_services._DATA)；curated 集空置/开关失效/排除路径拆除,回放即红(tests/eval/test_eval_incident_replay.py 红面钉死)",
+      "expectation": "pass=true:排除只在投影面(查询无 8.8.8.8 指控)、非 infra 指控保留(宁少算不扩大)、原始件零改写；防线=myip_ms.py infra_noise_filter + _rebuild_tail.InfraNoiseGate(curated 真源 _curated_infra.CURATED_CSV)；curated 集空置/开关失效/排除路径拆除,回放即红(tests/eval/test_eval_incident_replay.py 红面钉死)",
       "verdict": "gate",
       "track": "baseline",
       "trigger": "change",

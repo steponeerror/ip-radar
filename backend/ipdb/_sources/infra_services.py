@@ -27,8 +27,8 @@ channel auto-merges their statements into `attributes["service"]`. `download()`
 is a local materialize (writes the embedded CSV) so the file-based lifecycle
 (health mtime, load convert-trigger) works unchanged.
 
-Since #466 (arch-review round 4, card 15) the roster text itself lives in
-`ipdb._infra_roster.ROSTER_CSV` — imported below as `_DATA`, the same
+Since #466 (arch-review round 4, card 15) the list text itself lives in
+`ipdb._curated_infra.CURATED_CSV` — imported below as `_DATA`, the same
 single object, not a copy — so the load-time noise filter
 (`_sources/_infra_filter.py`) reads it from there instead of reaching back
 into this source module.
@@ -38,15 +38,14 @@ import io
 import logging
 
 from ._download import atomic_write_bytes
-# 名单真源在 ipdb._infra_roster(#466 卡 15:原文从本模块搬出,载入期过滤
-# 层不再反向 import 源模块);as _DATA 保住 _sync_projection 读的模块全局
-# 名与测试的 infra_mod._DATA monkeypatch 缝——同一对象,不是第二份。
-from .._infra_roster import ROSTER_CSV as _DATA
+# 名单真源在 ipdb._curated_infra(#466 卡 15:原文从本模块搬出,载入期过
+# 滤层不再反向 import 源模块);as _DATA 保住 _sync_projection 读的模块
+# 全局名与测试的 infra_mod._DATA monkeypatch 缝——同一对象,不是第二份。
+from .._curated_infra import CURATED_CSV as _DATA
 from .._source_base import Source
 from .._evidence import Evidence
 
 logger = logging.getLogger(__name__)
-
 
 
 class InfraServicesSource(Source):
@@ -65,7 +64,8 @@ class InfraServicesSource(Source):
         atomic_write_bytes(self._path, _DATA.encode("utf-8"))
 
     def _sync_projection(self) -> None:
-        """投影同步(grill Q6 裁决 2026-10-11):_DATA 是唯一真相源,data/
+        """投影同步(grill Q6 裁决 2026-10-11):_DATA 是 `_curated_infra.
+        CURATED_CSV` 在本模块的别名,真相在那边(#466 卡 15);data/
         下 csv 是物化投影——文件缺失或内容与 _DATA 不一致 → 重物化。修
         2026-10-10 生产挂账:旧码只在文件缺失时物化,代码改 _DATA 后卷上
         旧 csv mtime 不动 → needs_convert 恒 False → 旧纪元永不重建(生产
