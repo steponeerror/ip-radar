@@ -505,7 +505,9 @@ export function gateCommandsFor({ stem, modelFace, fixturesDir }) {
     // tests/source_infra/ 其余检查照跑。
     { args: ["-m", "pytest", "tests/source_infra/", "-q", "--ignore=tests/source_infra/test_feeds_manifest_sync.py"], cwd: "backend" },
     // #476:同起点审计只留一份,改跑拦截 records 流的 audit_same_start.py(--sources
-    // 点名候选源;名字没登记/禁用 → 脚本 ERROR + rc1 = 门红,“审不了”判不合格)。
+    // 点名候选源;名字没登记/禁用 → 脚本 ERROR + rc1 = 门红)。注意:这判据只在
+    // 名字层面成立——沙箱 backend/data 没有候选源的数据文件,轮内实际走 SKIPPED
+    // 放行(评审①查实:旧门历史六轮同样空转),这道门在轮内实际不审,补法见 #479。
     { args: ["scripts/audit_same_start.py", "--sources", stem], cwd: "" },
   ];
 }

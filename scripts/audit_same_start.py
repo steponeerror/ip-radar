@@ -119,8 +119,11 @@ def main() -> int:
     ap.add_argument("--sources", default="",
                     help="逗号分隔的源名清单:只审这些源(#476,接入关按候选源跑,"
                          "免得每接一个源全量重建一遍);名字没登记或登记了但禁用 → "
-                         "ERROR 行 + 退出码 1(「审不了」必须判不合格——无证据不等"
-                         "于没问题)。缺省 = 全部启用源")
+                         "ERROR 行 + 退出码 1(「审不了」判不合格只在名字层面成立:"
+                         "原始数据文件不在数据目录里时是 SKIPPED 放行、退出码 0——"
+                         "接入关沙箱目前没有候选源的数据文件,这道门在轮内实际不审,"
+                         "补法见 #479)。给了 --sources 但切出空清单(如 ,)→ "
+                         "ERROR + 退出码 2,不回落全量;缺省 = 全部启用源")
     args = ap.parse_args()
     data_dir: Path = args.data.resolve()
     if not data_dir.is_dir():
@@ -140,6 +143,12 @@ def main() -> int:
 
     requested = ([s.strip() for s in args.sources.split(",") if s.strip()]
                  if args.sources else [])
+    if args.sources and not requested:
+        # #476 评审建议5:给了 --sources 但切出空清单(--sources , / 全空白)→
+        # 显式报错退出码 2(配置错误档),不静默回落「全部启用源」——回落会让
+        # 人以为在审点名源,实际跑了全量。接入关传的 stem 恒非空,踩不到。
+        print("ERROR: --sources given but no usable names (empty list)")
+        return 2
     disabled = [s.name for s in reg._sources if not reg.is_enabled(s.name)]
     if requested:
         by_name = {s.name: s for s in reg._sources}

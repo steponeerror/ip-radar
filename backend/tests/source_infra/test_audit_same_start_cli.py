@@ -3,7 +3,10 @@
 脚本层契约(subprocess 真跑,数据目录 tmp_path;脚本自己把 IP_RADAR_DATA_DIR
 定到 --data 再导 ipdb,原始文件缺席的源走 SKIPPED,零网络零写入):
 - `--sources` 点名的源没登记、或登记了但禁用 → ERROR 行 + 退出码 1
-  (接入关里「审不了」必须判不合格——无证据不等于没问题);
+  (「审不了」判不合格只在名字层面成立;原始数据文件不在数据目录里时是
+  SKIPPED 放行、退出码 0——接入关沙箱目前没有候选源的数据文件,这道门
+  在轮内实际不审,补法见 #479);
+- `--sources` 给了但切出空清单(如 `,`)→ ERROR 行 + 退出码 2,不回落全量;
 - 点名单源时输出里只有这一个源的数据行,其余源零行(不被重建);
 - 同起点碰撞(同 start 异 prefixlen)→ VIOLATIONS + 退出码 1;
 - 不给 `--sources` 时全部登记源都出现在输出里(缺省行为不变)。
@@ -25,7 +28,11 @@ _PLAIN_FILE = "binarydefense_banlist.txt"
 
 
 def _run(data_dir: Path, *extra: str) -> subprocess.CompletedProcess:
-    env = {k: v for k, v in os.environ.items() if k != "IP_RADAR_DATA_DIR"}
+    # 摘掉两个会透进子进程的环境变量:IP_RADAR_DATA_DIR 会被脚本 --data 覆盖
+    # 但仍不留给外层噪声;SOURCE_STATE_PATH 优先于 <data_dir>/source_state.json
+    # (backend/ipdb/_paths.py),外层一旦导出,禁用用例就读到别的文件了。
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("IP_RADAR_DATA_DIR", "SOURCE_STATE_PATH")}
     return subprocess.run(
         [sys.executable, str(_SCRIPT), "--data", str(data_dir), *extra],
         capture_output=True, text=True, timeout=300, env=env)
@@ -48,6 +55,9 @@ def test_sources_unknown_or_disabled_error_rc1(tmp_path):
     assert r.returncode == 1
     assert "ERROR" in r.stdout
     assert "no_such_source" in r.stdout
+    # 两种文案不混(评审建议1):实现若把两种报错写成一样,这里必须转红。
+    assert "not registered" in r.stdout
+    assert "not enabled" not in r.stdout
 
     (tmp_path / "source_state.json").write_text(
         '{"disabled": ["binarydefense"]}', encoding="utf-8")
@@ -55,6 +65,7 @@ def test_sources_unknown_or_disabled_error_rc1(tmp_path):
     assert r.returncode == 1
     assert "ERROR" in r.stdout
     assert "not enabled" in r.stdout
+    assert "not registered" not in r.stdout
 
 
 def test_sources_single_scopes_rebuild(tmp_path):
@@ -69,10 +80,13 @@ def test_sources_single_scopes_rebuild(tmp_path):
     for s in _sources:
         if s.name != _PLAIN_SOURCE:
             assert f"{s.name}:" not in r.stdout
+    # 零写入断言(评审建议3):spy 若失效,子进程会在这个数据目录落
+    # LMDB 纪元目录和旁证文件——目录里只允许那个原始文件。
+    assert sorted(p.name for p in tmp_path.iterdir()) == [_PLAIN_FILE]
 
 
 def test_same_start_collision_rc1(tmp_path):
-    """同 start 异 prefixlen 两行 → VIOLATIONS + rc1(接入关的碰撣样本形态:
+    """同 start 异 prefixlen 两行 → VIOLATIONS + rc1(接入关的碰撞样本形态:
     逐行解析源的数据文件里同起点两行长短不一)。"""
     (tmp_path / _PLAIN_FILE).write_text(
         "203.0.113.0/24\n203.0.113.0/25\n", encoding="utf-8")
@@ -90,3 +104,13 @@ def test_no_sources_flag_lists_all_registered(tmp_path):
     assert f"auditing {len(_sources)} enabled sources" in r.stdout
     for s in _sources:
         assert f"{s.name}:" in r.stdout
+
+
+def test_sources_empty_list_rc2(tmp_path):
+    """给了 --sources 但切出空清单(`,` / 全空白)→ rc2 + ERROR,不静默回落
+    「全部启用源」(#476 评审建议5:回落会让人以为在审点名源,实际跑了全量)。"""
+    r = _run(tmp_path, "--sources", ",")
+    assert r.returncode == 2
+    assert "ERROR" in r.stdout
+    # 没回落:连审计表头都不该出现。
+    assert "auditing" not in r.stdout
