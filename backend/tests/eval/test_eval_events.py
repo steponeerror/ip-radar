@@ -1,7 +1,8 @@
 import pytest
 
 from ipdb._eval import config
-from ipdb._eval.events import extract_events, independent, market_rates
+from ipdb._eval.events import extract_events, independent, market_rates, \
+    same_republish_chain
 from ipdb._eval.pairwise import pairwise_oc, source_pair_sets
 
 
@@ -27,6 +28,33 @@ def test_independent_respects_oc_bar():
           frozenset({"a", "c"}): config.OC_EXCLUSION + 1e-9}
     assert independent("a", "b", oc)          # at bar -> independent (<=)
     assert not independent("a", "c", oc)      # above bar -> dependent
+
+
+def test_independent_respects_republish_chain():
+    """#464 卡2上半:转载链上互不独立(评测读生产 republishes 声明,
+    registry 灌装后的现行表)。"""
+    oc = {}
+    assert not independent("ustc_blackip", "spamhaus", oc)
+    assert not independent("spamhaus", "ustc_blackip", oc)       # 对称
+    assert not independent("ustc_blackip", "emerging_threats", oc)
+    assert not independent("x4bnet_vpn", "protonvpn", oc)
+    assert not independent("danmeuk_tor", "tor_exits", oc)
+    assert not independent("firehol", "greensnow", oc)           # 原锚仍闭
+    assert independent("ustc_blackip", "abuseipdb", oc)          # 链外仍独立
+
+
+def test_same_republish_chain_transitive_closure(monkeypatch):
+    """传递闭包(#464:a→b、b→c ⇒ a~c,并查集);链外源不相连;空表
+    恒独立;平凡同源 False(谓词只对成对证人有意义)。"""
+    monkeypatch.setattr("ipdb._logodds.LINEAGE_ANCHORS",
+                        {"a": ("b",), "b": ("c",)})
+    assert same_republish_chain("a", "b")
+    assert same_republish_chain("a", "c")      # 传递
+    assert same_republish_chain("c", "a")      # 对称
+    assert not same_republish_chain("a", "z")   # 链外
+    assert not same_republish_chain("a", "a")   # 平凡
+    monkeypatch.setattr("ipdb._logodds.LINEAGE_ANCHORS", {})
+    assert not same_republish_chain("a", "b")   # 空表 = 无声明无闭包
 
 
 def test_monopoly_ctype_excluded_from_counts():
