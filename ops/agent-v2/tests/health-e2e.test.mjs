@@ -23,9 +23,10 @@ import { Harness } from "@earendil-works/pi-durable";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { createModels } from "@earendil-works/pi-ai";
-import { OPS_HEALTH_ROUND } from "../tasks/health-round.mjs";
+import { OPS_HEALTH_ROUND, writeFaultedMirror } from "../tasks/health-round.mjs";
 import { openHarness } from "../entry.mjs";
 import { HealthRoundsDoc } from "../run-health.mjs";
+import { fauxBundle } from "../run-discover.mjs"; // #445:openHarness opts.models 缝要 {models,resolve} 束(faux 罐装面,discover 测试同源)
 import { buildRegistry } from "../registry.mjs";
 
 const AGENT = path.resolve(import.meta.dirname, "..", "..", "pipeline-core"); // #412 前 ops/agent(旧真源)
@@ -623,6 +624,88 @@ test("#415 健康轮中止终态:在飞(已认领)轮被 abortTask → outcome a
       assert.equal(settled2.state.outcome?.status, "aborted", `中止终态应落:${JSON.stringify(settled2.state.outcome)}`);
       assert.equal(fs.existsSync(path.join(dir2, "state.json")), false, "异主认领件:中止不写镜像");
     } finally { await h2.close(context); await storage2.close(context); }
+  } finally {
+    w.restore();
+    fs.rmSync(w.tmp, { recursive: true, force: true });
+  }
+});
+
+// #445:第四类终态出口——框架判 faulted(相位 handler 裸抛逃出 failTerm/stageDone 的
+// checkpoint 面也写镜像 failed+error_code=faulted。接线位 entry.mjs openHarness onReport;
+// 属主=认领件(claimGuard 真落盘);相位名单=entry Journal 的最后 checkpoint(终态记录被
+// 框架去 checkpoint,withState 换 state)。
+test("#445 健康轮框架判 faulted 出口:gates.json 被占为目录 → WAIT_MODEL 收口 G_DEEP 门留痕 EISDIR 裸抛 → 框架 faulted → 镜像 failed+error_code=faulted(stage=已提交 DISPatch)", async () => {
+  const roundId = "2026-10-28-2347-health"; // 失败路径轮 id:不走 CLOSE 不产报告件(见上方形状律豁免注)
+  const w = seedWorld({ roundId });
+  const context = BACKGROUND_CONTEXT;
+  const stateFile = path.join(w.roundDir, "state.json");
+  try {
+    // 注入点=真实调用链一环(#415 同律):DISPATCH skip(01/02 前置工件无 03/04)→ DEEP
+    // spawn 子任务罐装完成 → WAIT_MODEL join 收口 def.forEach→finalize→G_DEEP 门评估→
+    // appendGate 写 gates.json 落到目录=EISDIR 裸抛——waitModel 无 try/catch 包门留痕=
+    // pi-durable 判 fault(onReport task_faulted),修前无 state.json(健康轮无进度镜像)。
+    fs.mkdirSync(path.join(w.roundDir, "gates.json"), { recursive: true });
+    const { harness } = await openHarness({ dbPath: path.join(w.tmp, "faulted.sqlite"), models: await fauxBundle(FIXTURES) });
+    try {
+      harness.resume();
+      const taskId = await (await harness.root(context)).commit((tx) => tx.createTask(OPS_HEALTH_ROUND, {
+        roundId, fromPhase: "DISPATCH", modelFace: "faux", fixturesDir: FIXTURES,
+      }, { ownership: { kind: "conversation" } }), context);
+      const settled = await harness.waitForTask(taskId, context);
+      assert.equal(settled.state.outcome?.status, "faulted", `框架终态词=faulted:${JSON.stringify(settled.state.outcome)}`);
+      assert.equal(fs.existsSync(path.join(w.roundDir, ".v2-claim.json")), true, "前提:认领件已在盘(claimGuard 相位头落)");
+      // 上报面晚于 waitForTask 结算(waiter 先于上报续,entry.mjs #445 注记):镜像轮询等写落盘
+      // (帽 5s;接线被去=永不落盘,轮询耗尽后下方断言转红=变异证据),认领件轮询(#415)同先例
+      let mirror = null;
+      for (let i = 0; i < 2500 && !mirror; i++) {
+        try { mirror = JSON.parse(fs.readFileSync(stateFile, "utf8")); } catch { mirror = null; }
+        if (!mirror) await new Promise((r) => setTimeout(r, 2));
+      }
+      assert.ok(mirror, "#445:框架判 faulted 应写终态镜像(帽内未落=接线丢失)");
+      assert.equal(mirror.status, "failed", "#445:框架判 faulted=轮终态,镜像写 failed(修前=无件/无终态)");
+      assert.equal(mirror.error_code, "faulted", "错误码=框架自己的词 faulted(不造新码)");
+      assert.equal(mirror.round_id, roundId, "镜像落在本轮目录(认领件属主校验过)");
+      assert.equal(mirror.stage, "DISPATCH", "stage=已提交最后一个相位(DEEP/WAIT_MODEL faulted 未成不造名)");
+      assert.deepEqual(mirror.stages.map((x) => x.name), ["DISPATCH"], "stages=Journal checkpoint 已提交相位(全记录形)");
+      assert.equal(mirror.pipeline_mode, "pidurable", "health 镜像首写以 ctx.state 全形起底(rebuildRoundCtx 同底)");
+    } finally { await harness.close(context); }
+  } finally {
+    w.restore();
+    fs.rmSync(w.tmp, { recursive: true, force: true });
+  }
+});
+
+// #445 属主负例(票面验收第二条直接证据;评审建议改 1):异主认领件 → 别人的轮目录不被写。
+// 可达性注(实现负例时实测):链面上异主认领件在相位头就被 claimGuard 拦成 bad_round 域错
+// (claimRoundDir :134),faulted 写口经链不可达此形——所以分两面钉:链面钉守卫拦截(任务
+// 照常终态 failed),写口面直调 writeFaultedMirror 钉认领件 token 判据(claimOwnedByTask)。
+test("#445 健康轮属主负例:异主认领件——链面守卫拦成 bad_round,写口面直调不写别人的轮目录", async () => {
+  const roundId = "2026-10-28-2348-health";
+  const w = seedWorld({ roundId });
+  const context = BACKGROUND_CONTEXT;
+  try {
+    // 异主认领件(#415 中止负例 :620 同夹具形)+ fault 注入(gates.json 目录占位,#445 主用例同缝)
+    fs.writeFileSync(path.join(w.roundDir, ".v2-claim.json"), JSON.stringify({ token: "foreign-task-token", taskId: 424242 }, null, 2) + "\n");
+    fs.mkdirSync(path.join(w.roundDir, "gates.json"), { recursive: true });
+    const { harness } = await openHarness({ dbPath: path.join(w.tmp, "faulted-foreign.sqlite"), models: await fauxBundle(FIXTURES) });
+    try {
+      harness.resume();
+      const taskId = await (await harness.root(context)).commit((tx) => tx.createTask(OPS_HEALTH_ROUND, {
+        roundId, fromPhase: "DISPATCH", modelFace: "faux", fixturesDir: FIXTURES,
+      }, { ownership: { kind: "conversation" } }), context);
+      const settled = await harness.waitForTask(taskId, context);
+      // 链面:相位头 claimGuard 先拦(异主=bad_round 域错),fault 根本不发生=faulted 写口不可达
+      assert.equal(settled.state.outcome?.status, "failed", `链面:异主认领件在相位头被 claimGuard 拦截:${JSON.stringify(settled.state.outcome)}`);
+      assert.equal(settled.state.outcome?.error?.code, "bad_round", "拦截面=建轮守卫同律 bad_round(不是 faulted)");
+      assert.equal(fs.existsSync(path.join(w.roundDir, "state.json")), false, "链面:无 fault 无镜像(本就不写)");
+    } finally { await harness.close(context); }
+    // 写口面(直调;链面被守卫拦后唯一可达此形的路):认领件 token ≠ ck.claimToken → 不写
+    const ck = { phase: "DISPATCH", claimToken: "own-task-token", state: { stages: [] },
+      budgetCny: 0.05, budgetKnobs: {}, breakerKnobs: {}, startedAtIso: "2026-11-26T00:00:00.000Z",
+      usage: { input: 0, output: 0, totalTokens: 0 }, modelCalls: 0 };
+    writeFaultedMirror({ roundId, fixturesDir: FIXTURES, modelFace: "faux" }, ck, "threw");
+    assert.equal(fs.existsSync(path.join(w.roundDir, "state.json")), false, "写口面:异主认领件 faulted 上报不写别人的轮目录");
+    assert.equal(fs.existsSync(path.join(w.roundDir, ".v2-claim.json")), true, "认领件本体不被动");
   } finally {
     w.restore();
     fs.rmSync(w.tmp, { recursive: true, force: true });

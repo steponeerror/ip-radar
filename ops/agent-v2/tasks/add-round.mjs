@@ -589,6 +589,24 @@ async function finishFailed(runtime, context, error, ctx = null) {
   if (ctx) writeOwnedRoundState(ctx, "failed");
   return runtime.commit(() => ({ status: "terminal", outcome: { status: "failed", error } }), context);
 }
+// #445:第四类终态出口——框架判 faulted(pi-durable onReport task_faulted;接线位 entry.mjs
+// openHarness)的镜像写。与 discover 同构:input=Journal 任务记录的轮参,ck=同源最后
+// checkpoint(空=开库恢复面,调用方已滤,见 entry.mjs #445 盲区注);属主校验/ctx 重建=
+// #415 同口径(writeOwnedRoundState);状态=failed,错误码=框架词 "faulted";stages=ck
+// 已提交相位(本镜像无 stage 键,round-state.mjs 纪律)。覆写盘上残件=纠正(round-state.mjs
+// 头注覆写律,论证在彼)。不掷错:写败只记 stderr——pi-durable 的 safeReport 用 contained
+// 包住 onReport,抛出的错被静默丢弃(harness.js:292-296;types.d.ts:599),再抛=写败无声。
+export function writeFaultedMirror(input, ck, reason) {
+  try {
+    if (!input?.roundId) return; // 无轮参(起步前 fault)无可写轮目录
+    writeOwnedRoundState(buildCtx(input, ck), "failed", {
+      stages: (ck.stages ?? []).map((r) => r.name),
+      errorCode: "faulted",
+    });
+  } catch (e) {
+    process.stderr.write(`[add:${input?.roundId}] #445 faulted 镜像写败(${reason}):${e?.message ?? e}\n`);
+  }
+}
 async function finishOk(runtime, context, result) {
   return runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result } }), context);
 }

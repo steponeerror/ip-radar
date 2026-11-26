@@ -10,7 +10,9 @@ import path from "node:path";
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node"; // #445:框架词锚(raw storage 读 outcome.status=faulted)
 import { runDiscoverRound, fauxBundle, RoundsDoc } from "../run-discover.mjs";
+import { writeFaultedMirror } from "../tasks/discover-round.mjs"; // #445:覆写钉位与属主负例直调(链面被建轮守卫拦,见用例注)
 import { openHarness } from "../entry.mjs";
 import { DISCOVERY_REPLAY, ensureRoundHost, roundHosts, executeDiscoveryTool } from "../tools/discovery-tools.mjs";
 import { breakerFileOf } from "../../pipeline-core/pipeline/discovery-host.mjs";
@@ -472,5 +474,76 @@ test("#415 中止镜像写尽力不掷错:abort 相位 ctx 重建抛(中止进�
     }).finally(() => { process.stderr.write = realWrite; });
     assert.equal(fs.readFileSync(stateFile, "utf8"), before, "镜像写败=宁少算:进度镜像字节原样(不造 aborted 件=不以未证之词入文)");
     assert.ok(notes.some((l) => l.includes("中止镜像写败") && l.includes("OPS_BREAKER_THRESHOLD")), `写败须留 stderr 注记:${notes.join("")}`);
+  } finally { rm(tree); }
+});
+
+// #445:第四类终态出口——框架判 faulted(相位 handler 裸抛逃出 #415 失败出口的 try/catch 面)
+// 也写镜像 failed+error_code=faulted(接线位 entry.mjs openHarness onReport;真源=任务库记录)。
+test("#445 框架判 faulted 出口:gates.json 被占为目录 → SCAN 门留痕 EISDIR 裸抛(逃出 finishFailed 面)→ 框架 faulted → 镜像 failed+error_code=faulted", async () => {
+  const tree = tmpTree("v2-disc-faulted-");
+  // 注入点=真实调用链一环(#415 同律):SCAN 步工件后 scriptPhase 的 gates.appendGate 写
+  // gates.json 落到目录=EISDIR 裸抛——此抛在 try/catch 外,不经 finishFailed=pi-durable
+  // 判 fault(onReport task_faulted),#415 失败出口不触发,修前镜像停在骨架 running 说谎。
+  fs.mkdirSync(path.join(roundDirOf(tree), "gates.json"), { recursive: true });
+  try {
+    const r = await runRound(tree);
+    assert.equal(r.status, "failed", JSON.stringify(r));
+    assert.match(r.error.message, /EISDIR/, "错误本体应是门留痕写 gates.json 的 EISDIR(非域失败)");
+    const mirror = mirrorOf(tree);
+    assert.equal(mirror.status, "failed", "#445:框架判 faulted=轮终态,镜像写 failed(修前=骨架 running 说谎)");
+    assert.equal(mirror.error_code, "faulted", "错误码=框架自己的词 faulted(不造新码)");
+    assert.equal(mirror.round_id, ROUND, "镜像落在本轮目录");
+    assert.deepEqual(mirror.stages, [], "零相位提交:stages 空不造名(faulted 相位未成)");
+    assert.equal("stage" in mirror, false, "discover 镜像字段集稳定:零提交相位无 stage 键");
+    // 框架词锚:outcome.status=faulted 是框架判的(镜像 failed 是它的镜像词;状态词不造新)
+    const storage = await openNodeSqliteStorage(path.join(tree.tmp, "v2.sqlite"));
+    try {
+      const record = await storage.task(r.taskId, BACKGROUND_CONTEXT);
+      assert.equal(record.state.outcome?.status, "faulted", `框架终态词=faulted:${JSON.stringify(record.state.outcome)}`);
+    } finally { storage.close(); }
+  } finally { rm(tree); }
+});
+
+// #445 覆写钉位(评审必须改 3;律与论证在 round-state.mjs 头注覆写律):盘上 aborted 窗口
+// 残件(中止 handler 已写、中止终态 commit 被 restartLimit 截停)在 faulted 上报时被覆写成
+// failed——框架只在 running 时判 fault、终态候选拒写,盘上 aborted 必出自未提交成功的尝试,
+// 覆写=纠正不是改判。直调 writeFaultedMirror(链面到不了此形:同 id 有件的任务在建轮守卫就
+// 走 bad_round 域错,见 :384①;本钉只钉写口本体)。
+test("#445 覆写钉位:盘上 aborted 窗口残件经 writeFaultedMirror 改写 failed+error_code=faulted", () => {
+  const tree = tmpTree("v2-disc-fault-ovr-");
+  try {
+    const dir = roundDirOf(tree);
+    fs.mkdirSync(dir, { recursive: true });
+    const aborted = { schema: 1, round_id: ROUND, type: "discover", pipeline_mode: "pipeline",
+      status: "aborted", stages: [], budget_cny: 0.05, budget_knobs: {}, fixtures_dir: null,
+      model_face: "faux", prompt_hashes: {}, started_at: "2026-11-26T00:00:00.000Z",
+      updated_at: "2026-11-26T00:01:00.000Z", resume_count: 0, replay_of: null, monthly_admission: null };
+    fs.writeFileSync(path.join(dir, "state.json"), JSON.stringify(aborted, null, 2) + "\n");
+    writeFaultedMirror({ roundId: ROUND, benchOpsRoot: tree.opsRoot }, { phase: "scan", stages: [] }, "threw");
+    const mirror = mirrorOf(tree);
+    assert.equal(mirror.status, "failed", "覆写律:aborted 窗口残件=faulted 上报到来时纠正为 failed");
+    assert.equal(mirror.error_code, "faulted", "错误码=框架自己的词 faulted");
+    assert.equal(mirror.updated_at, aborted.updated_at, "幂等律不动:updated_at 保盘值");
+    assert.deepEqual(mirror.stages, [], "零已提交相位:stages 空不造名");
+    assert.equal("stage" in mirror, false, "discover 镜像无 stage 键(round-state.mjs 纪律)");
+  } finally { rm(tree); }
+});
+
+// #445 属主负例(票面验收第二条直接证据;评审建议改 1):同 id 旧轮 done 件+零提交 checkpoint
+// 的 faulted 上报=不改写(字节不变)。链面注:经 runRound 时此形在建轮守卫就被 bad_round 拦截
+// (:384① 同形),faulted 写口不可达——直调钉属主判据②的反面(盘上件 stages 非空=非自家空骨架);
+// 另钉无轮目录形不凭空造件。
+test("#445 属主负例:同 id 旧轮 done 件,零提交 faulted 上报不改写;无轮目录不凭空造件", async () => {
+  const tree = tmpTree("v2-disc-fault-own-");
+  try {
+    const first = await runRound(tree, path.join(tree.tmp, "a.sqlite"));
+    assert.equal(first.status, "completed");
+    const before = fs.readFileSync(path.join(roundDirOf(tree), "state.json"), "utf8");
+    const ck = { phase: "scan", stages: [] };
+    writeFaultedMirror({ roundId: ROUND, benchOpsRoot: tree.opsRoot }, ck, "threw");
+    const after = fs.readFileSync(path.join(roundDirOf(tree), "state.json"), "utf8");
+    assert.equal(after, before, "同 id 旧轮终态件:零提交 faulted 上报不写(盘上件 stages 非空≠自家空骨架)");
+    writeFaultedMirror({ roundId: "2026-11-26-0000-discover", benchOpsRoot: tree.opsRoot }, ck, "threw");
+    assert.equal(fs.existsSync(path.join(tree.opsRoot, "rounds", "2026-11-26-0000-discover")), false, "无轮目录:不凭空造件");
   } finally { rm(tree); }
 });

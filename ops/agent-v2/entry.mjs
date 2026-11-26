@@ -19,6 +19,41 @@ import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite
 import { loadModels, parseModelRef } from "./models.mjs";
 import { buildRegistry } from "./registry.mjs";
 import { admitRound, postModelCall, preModelCall, stepBoundary, sumUsageState } from "./tasks/budget-guard.mjs"; // 票 #226 双点执法接线(定案 3:entry/tasks 层,不 hook 化)
+import { writeFaultedMirror as discoverFaultedMirror, DISCOVER_TASK_NAME } from "./tasks/discover-round.mjs"; // #445:framework 判 faulted 的镜像出口(按任务名分派)
+import { writeFaultedMirror as addFaultedMirror, ADD_TASK_NAME } from "./tasks/add-round.mjs";
+import { writeFaultedMirror as healthFaultedMirror, HEALTH_TASK_NAME } from "./tasks/health-round.mjs";
+
+// #445:框架判 faulted(pi-durable HarnessOptions.onReport 的 task_faulted;reason=threw|restart_limit)
+// → 轮次任务终态镜像写 failed+error_code=faulted。三类任务各自 writeFaultedMirror(属主校验/
+// ctx 重建是各任务自己的建轮律;非轮次任务——骨架/scaffold/model-round 子任务——不在表内,
+// 上报照收不写)。同步时序:框架在 fault 终态 commit 落库后才同步触发上报(pi-durable
+// 「Reported once the fault is durable」,dist/harness/scheduler.js);写入全同步(onReport 自身
+// 错误框架吞——harness.js safeReport contained;写败不掷错,镜像尽力,见各 writer)。实测时序:
+// 上报在 waitForTask 结算后的微任务链里同步完成(waiter 先于上报续)——启动器返回前必经
+// await harness.close() 让出微任务,启动器读镜像时已落盘;但 waitForTask 之后同步读会读到
+// 旧值,测试侧轮询(health-e2e #445 用例,认领件轮询先例)。
+// 相位名单真源:终态任务记录被框架换 state(withState——memos/restarts 随终态丢弃,
+// checkpoint 不在终态记录里,实测 fault 上报时 record.state.checkpoint 缺)→ 订阅 commit
+// 出版物(Harness extends Session,subscribeCommits 同步观察),任务记录每次提交留存最后
+// checkpoint 与 input(#445 Journal;上报时取它=与 #415 各出口同源的面)。同步取用:不引入
+// onReport 后的异步窗(异步读会把镜像再推迟一个微任务链)。已知盲区:任务记录来自上一个
+// 进程或上一个 harness 实例时,它最后一次带 checkpoint 的提交(含开库时 running→pending
+// 的改写,scheduler.js:193-198)早于订阅,Journal 空=不写(宁少算)。此后它若被判 faulted
+// (带中止标记且撞重启上限,scheduler.js:1394-1400)→ 不写。不带中止标记的硬杀任务是
+// task_parked 不是 faulted,不在本接线面,镜像停在 running——硬杀对账已由主会话
+// 2026-11-26 裁定不做(见工单补充说明)。条目不清理:进程生命周期=任务生命周期,entry CLI
+// 短命(长命宿主另议)。
+// 分派表即查即建:entry↔run-add↔tasks 是既有循环引用面(函数声明面运行时互引;出处:
+// discover-round.mjs:56、add-round.mjs:64、tests/add-liveness.test.mjs:25)
+// ——entry 模块体求值时 ADD_TASK_NAME 等 const 还在 TDZ(run-add→entry 中途),表不能在模块
+// 体建;放到分派时(onReport 只在运行期触发,那时全图已求值完),名字仍以各任务模块常量单源。
+function faultedMirrorFor(kind) {
+  return new Map([
+    [DISCOVER_TASK_NAME, discoverFaultedMirror],
+    [ADD_TASK_NAME, addFaultedMirror],
+    [HEALTH_TASK_NAME, healthFaultedMirror],
+  ]).get(kind);
+}
 
 export const ROOT = path.resolve(import.meta.dirname, "..", ".."); // 仓根(与 ops/pipeline-core/tools/shared.mjs 同推导)
 
@@ -47,11 +82,29 @@ export async function openHarness(opts = {}) {
   const bundle = opts.models ?? (await loadModels()); // 旧管线装载器原样(定案 7;凭证零入日志);opts.models 注入缝=faux/保活任务面(同旧 agent.mjs opts.models 缝)
   const { models, resolve } = bundle;
   const storage = await openNodeSqliteStorage(dbPath);
+  // #445 Journal:任务记录每次 commit 留存 {input, checkpoint}(终态记录被框架去 checkpoint,
+  // 上报时从 Journal 拿最后真源;input 同存=轮参/轮地址,免上报后再读库)。条目不清理:进程
+  // 生命周期=任务生命周期,entry CLI 短命。
+  const faultedTasks = new Map();
   const harness = await Harness.open(storage, {
     models,
     registry: opts.registry ?? buildRegistry(),
     settings: HARNESS_SETTINGS,
+    // #445:框架判 faulted → 轮目录终态镜像(failed/faulted)。真源取 Journal(终态记录被
+    // 框架去 checkpoint);Journal 空=无已提交相位证据(open 恢复面),不写(宁少算)。
+    onReport: (error, info) => {
+      if (info?.type !== "task_faulted") return;
+      const write = faultedMirrorFor(info.task?.kind);
+      const journaled = faultedTasks.get(info.task?.id);
+      if (!write || !journaled) return;
+      write(journaled.input, journaled.checkpoint, info.reason ?? "faulted");
+    },
   }, BACKGROUND_CONTEXT);
+  harness.subscribeCommits((publication) => { // #445 Journal(同步观察,不阻塞不调 Session API)
+    for (const change of publication.changes ?? [])
+      if (change?.type === "task" && change.value?.state?.checkpoint)
+        faultedTasks.set(change.value.id, { input: change.value.input, checkpoint: change.value.state.checkpoint });
+  });
   return { harness, models, resolve };
 }
 

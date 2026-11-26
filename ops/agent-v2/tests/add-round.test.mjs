@@ -17,6 +17,7 @@ import { promisify } from "node:util";
 import { runAddRound, AddRoundsDoc, fauxAddBundle } from "../run-add.mjs";
 import { openHarness } from "../entry.mjs";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node"; // #445:框架词锚(raw storage 读 outcome.status=faulted)
 import {
   ADD_PHASES,
   ADD_TASK_NAME,
@@ -259,6 +260,34 @@ test("#415 加轮 close 步抛终态:09-budget.json 路径被目录占 → CLOSE
     assert.equal("stage" in mirror, false, "失败镜像不加键");
     const gates = JSON.parse(fs.readFileSync(path.join(dir, "gates.json"), "utf8"));
     assert.equal(gates.records.at(-1).stage, "REPORT", "门留痕止于 REPORT(CLOSE 步抛在门评估之前)");
+  } finally { fs.rmSync(w.tmp, { recursive: true, force: true }); }
+});
+
+// #445:第四类终态出口——框架判 faulted(相位 handler 裸抛逃出 #415 失败出口的 try/catch 面)
+// 也写镜像 failed+error_code=faulted(接线位 entry.mjs openHarness onReport;真源=任务库记录+Journal checkpoint)。
+test("#445 加轮框架判 faulted 出口:gates.json 被占为目录 → VERIFY 门留痕 EISDIR 裸抛(逃出 finishFailed 面)→ 框架 faulted → 镜像 failed+error_code=faulted", async () => {
+  const w = seedWorld("v2-add-faulted-");
+  try {
+    // 注入点=真实调用链一环(#415 同律):VERIFY 步工件后 scriptPhase 的 gates.appendGate 写
+    // gates.json 落到目录=EISDIR 裸抛——此抛在 try/catch 外,不经 finishFailed=pi-durable
+    // 判 fault(onReport task_faulted),#415 失败出口不触发,修前镜像停在骨架 running 说谎。
+    fs.mkdirSync(path.join(w.opsRoot, "rounds", ROUND, "gates.json"), { recursive: true });
+    const r = await runRound(w);
+    assert.equal(r.status, "failed", JSON.stringify(r));
+    assert.match(r.error.message, /EISDIR/, "错误本体应是门留痕写 gates.json 的 EISDIR(非域失败)");
+    const dir = path.join(w.opsRoot, "rounds", ROUND);
+    const mirror = mirrorOf(w);
+    assert.equal(mirror.status, "failed", "#445:框架判 faulted=轮终态,镜像写 failed(修前=骨架 running 说谎)");
+    assert.equal(mirror.error_code, "faulted", "错误码=框架自己的词 faulted(不造新码)");
+    assert.equal(mirror.round_id, ROUND, "镜像落在本轮目录");
+    assert.deepEqual(mirror.stages, [], "零相位提交:stages 空不造名(faulted 相位未成)");
+    assert.equal("stage" in mirror, false, "加轮镜像字段集稳定:零提交相位无 stage 键");
+    // 框架词锚:outcome.status=faulted 是框架判的(镜像 failed 是它的镜像词;状态词不造新)
+    const storage = await openNodeSqliteStorage(path.join(w.tmp, "v2.sqlite"));
+    try {
+      const record = await storage.task(r.taskId, BACKGROUND_CONTEXT);
+      assert.equal(record.state.outcome?.status, "faulted", `框架终态词=faulted:${JSON.stringify(record.state.outcome)}`);
+    } finally { storage.close(); }
   } finally { fs.rmSync(w.tmp, { recursive: true, force: true }); }
 });
 

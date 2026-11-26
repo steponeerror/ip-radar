@@ -76,6 +76,31 @@ function claimOwnedByTask(input, ck) {
 }
 // 中止=任务终态(#415):镜像同词 aborted(与 outcome 同词),stage=中止时所处相位;
 // stages=checkpoint 已提交相位(中止相位未成不造记录)。轮未起步/异主=不写。
+// #445:第四类终态出口——框架判 faulted(onReport task_faulted;接线位 entry.mjs openHarness)
+// 同口径写 failed+error_code=faulted:input=Journal 任务记录的轮参,ck=同源最后 checkpoint
+// (空=开库恢复面,调用方已滤,见 entry.mjs #445 盲区注)。属主用 claimOwnedByTask(与中止
+// 出口同判据——faulted 相位未经 claimGuard 不能像 #415 失败出口那样靠 ctx.state 间接证据;
+// 认领件是真源),ctx 重建 rebuildRoundCtx(health 的建轮律,首相位 fault 时它会补建目录——
+// 认领件在场=轮已起步,建的是自己的轮目录)。stage=已提交最后相位的书挡名(health 一族
+// stage 书挡本就写,round-state.mjs 纪律「health 面 stage 书挡 CLOSE/FAILED」,#415 stop/CLOSE
+// 出口同传两键);零已提交相位回退 ck.phase=fault 时所处相位(#415 中止镜像 stage 同判例);
+// stages=ck 已提交相位(#430 给 stop/CLOSE 补传的同理由:盘上旧终态件为底,不传会带回失败
+// 那刻的旧名单)。覆写盘上残件=纠正(round-state.mjs 头注覆写律,论证在彼)。不掷错:写败
+// 只记 stderr——pi-durable 的 safeReport 用 contained 包住 onReport,抛出的错被静默丢弃
+// (harness.js:292-296;types.d.ts:599),再抛=写败无声。
+export function writeFaultedMirror(input, ck, reason) {
+  try {
+    if (!input?.roundId || !claimOwnedByTask(input, ck)) return; // 无轮参/起步前 fault(无认领件)/异主认领件=不写
+    writeTerminalRoundState(rebuildRoundCtx(input, ck), {
+      status: "failed",
+      stage: ck.state?.stages?.at(-1)?.name ?? ck.phase,
+      stages: ck.state?.stages ?? [],
+      errorCode: "faulted",
+    });
+  } catch (e) {
+    process.stderr.write(`[health:${input?.roundId}] #445 faulted 镜像写败(${reason}):${e?.message ?? e}\n`);
+  }
+}
 const mkAbort = () => async (task, runtime, context) => { // 终审小项:无参名(name 未用)
   const ck = task.state?.checkpoint;
   // 整体包进 writeAbortRoundState(#415):rebuildRoundCtx 建 ctx 可抛(mkdirSync),而 abort handler
@@ -489,8 +514,12 @@ for (const name of RUNNABLE) {
 }
 PHASES.CLOSE = claimGuard((t, r, c) => runClose(t.input, t.state.checkpoint, r, c));
 
+// #445:任务名常量——faulted 镜像出口按名分派,先于 defineTask 声明(引用在下方 defineTask
+// 之后紧邻;discover/add 既有常量同形)。
+export const HEALTH_TASK_NAME = "ops-health-round";
+
 export const OPS_HEALTH_ROUND = defineTask({
-  name: "ops-health-round",
+  name: HEALTH_TASK_NAME,
   version: 1,
   initial: (input) => ({
     phase: startPhaseOf(input.fromPhase, input), attempt: 0, children: null, childConvs: null, spawnPhase: null, failed: null,
