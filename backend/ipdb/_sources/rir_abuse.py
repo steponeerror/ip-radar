@@ -183,17 +183,24 @@ class RirAbuseSource(Source):
             raise RuntimeError(
                 f"all rir_abuse feeds failed: {self.last_partial_failure}")
 
+    def _data_files(self) -> list[Path]:
+        # #465 卡16 返工(主会话改判任务书第 6 条):数据文件清单 = 五个
+        # RIR 档案;health() 逐家循环与 /api/sources content_age_h 同走
+        # 本清单,目录型源「数据文件清单」入口统一(调度器 _read_mtime
+        # 对目录早是这么做的)。
+        return [self._path / f"{reg}.db.gz" for reg in _BASE]
+
     def health(self):
         """目录形覆写(rir_delegated 同式):逐 RIR mtime → FeedHealth。
         #465 卡16:逐家新鲜度收 _freshness.feed_health 单源点;源级规则
         不变(last_updated = 最新文件;任一家过期或无任何文件 → 源级
-        过期)。"""
+        过期);文件清单走 _data_files() 返工入口。"""
         from . import _freshness
         from .._types import SourceHealth
-        specs = [(reg, self._path / f"{reg}.db.gz", self.stale_days)
-                 for reg in _BASE]
+        paths = self._data_files()
+        specs = [(reg, p, self.stale_days) for reg, p in zip(_BASE, paths)]
         feeds = _freshness.feed_health(specs)
-        file_mtime = _freshness.newest_mtime(p for _n, p, _s in specs)
+        file_mtime = _freshness.newest_mtime(paths)
         return SourceHealth(
             name=self.name,
             loaded=self._reader is not None,

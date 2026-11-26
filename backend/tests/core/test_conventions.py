@@ -20,17 +20,26 @@ def test_every_typed_source_preserves_native_type():
 
 
 def test_staleness_uses_file_mtime():
-    """Convention 4: is_stale derived from file mtime, not _loaded_at."""
+    """Convention 4: staleness/last_updated derived from the DATA FILE's
+    mtime, not in-memory _loaded_at.
+
+    #465 卡16 返工(主会话授权):算法本体已搬进 _sources/_freshness,
+    旧巡检(health() 源码含 st_mtime)对谁都恒真、守卫空转。新契约:
+    health() 要么自己读文件时间(st_mtime),要么交给基类
+    (super().health())或新模块(_freshness)算——三者皆无 = 新鲜度
+    另有来路,即红;另锚 freshness 本体必须出现 st_mtime。
+    """
+    import inspect
+    from ipdb._sources import _freshness
+    assert "st_mtime" in inspect.getsource(_freshness.freshness), \
+        "_freshness.freshness 必须读文件修改时间(st_mtime)"
     for s in _sources:
         if not hasattr(s, "_path"):
             continue
-        # a source whose data file is old must report stale even if just loaded
-        # (hard to simulate without files); assert the code path references
-        # st_mtime by source inspection instead.
-        import inspect
         src = inspect.getsource(type(s).health)
-        assert "st_mtime" in src or "_loaded_at" not in src, \
-            f"{s.name}: health() must derive staleness from file mtime"
+        assert ("st_mtime" in src or "super().health()" in src
+                or "_freshness" in src), \
+            f"{s.name}: health() 必须读文件 mtime 或交给 _freshness/基类算"
 
 
 def test_sources_read_own_env_not_registry_args():

@@ -203,7 +203,7 @@ class SourceBase:
         return [self._path]
 
     def health(self) -> SourceHealth:
-        # convention 4:staleness 跟 DATA FILE 的 mtime,不跟内存加载时刻
+        # convention 4:staleness 跟 DATA FILE 的 mtime,不跟内存 _loaded_at
         # (load_db 前为 0,跟内存值会逼每次重启都重下载)。#465 卡16:
         # 算法本体收 _freshness.freshness 单源点(准则全文见其模块
         # docstring);单文件源输入集不变([_path]),逐字段行为不变
