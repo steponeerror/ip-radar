@@ -1,6 +1,7 @@
 # backend/tests/alerts/test_health_fields.py — Task 5:health 扩展透传 /api/sources
-"""_source_info 给 health dict 并入三键:content_age_h(now - 文件 mtime,
-与 health() 同源读 source._path)与 observed_interval_h(_alerts 近 90 天
+"""_source_info 给 health dict 并入三键:content_age_h(now 减数据文件最新
+修改时间,经 _data_files() 与 health() 同源;#465 卡16 起目录型源取子文件,
+不再读目录自身 mtime)与 observed_interval_h(_alerts 近 90 天
 间隔中位数;#455 起不计短于声明周期 1/4 的间隔,与告警同口径;2026-10-15 裁决后仅诊断/告警用,前端不再渲染)与
 refresh_period_h(配置刷新周期,scheduler 档位口径 _scheduler._period_of)。
 读失败(无文件/无 _path/OSError/_alerts 异常)→ 相应键或两键 None,
@@ -77,6 +78,27 @@ def test_no_file_content_age_none_observed_still_computed(tmp_path, alerts_db):
 
     assert h["content_age_h"] is None
     assert h["observed_interval_h"] == pytest.approx(48.0)
+
+
+def test_content_age_h_dir_source_reads_child_files(tmp_path, alerts_db,
+                                                    monkeypatch):
+    """#465 卡16 回归:目录型源的 content_age_h 取子文件最新 mtime,
+    不是目录 mtime(旧码直接 stat 目录:子文件 2h 前刚写、目录停在 30 天
+    前,读数会大到 ≈722h 而非 2h)。"""
+    from ipdb._sources.blocklist_de import BlocklistDeSource
+    d = tmp_path / "blocklist_de"
+    d.mkdir()
+    f = d / "ssh.txt"
+    f.write_text("1.2.3.4\n")
+    t = time.time() - 2 * 3600
+    os.utime(f, (t, t))
+    os.utime(d, (t - 30 * 86400,) * 2)      # 目录比文件旧 30 天
+    src = BlocklistDeSource(data_dir=tmp_path, selected_lists=["ssh"])
+    monkeypatch.setattr(reg, "_sources", [src])
+
+    h = reg.list_sources()[0]["health"]
+
+    assert h["content_age_h"] == pytest.approx(2.0, abs=0.05)
 
 
 def test_fewer_than_five_events_observed_none(tmp_path, alerts_db):

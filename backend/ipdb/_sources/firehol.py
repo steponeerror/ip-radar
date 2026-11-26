@@ -18,7 +18,6 @@ from urllib.parse import urlparse
 
 from ._base import IpListSource
 from ._download import download_file, CancelToken, CancelledError
-from .._types import SourceHealth
 
 _BASE_URL = "https://raw.githubusercontent.com/firehol/blocklist-ipsets/master"
 
@@ -52,6 +51,21 @@ class FireholBlocklistSource(IpListSource):
     derived = True                        # 聚合器:谱系去重用(spec 2026-08-29 §3.3)
     provenance_tier = "C"                 # C=聚合派生(S21):多社区黑名单再聚合
     authoritative_for = ()
+    # 转载声明(卡2上半,#464):⊇ greensnow。两组实测、口径各记
+    # (评审 A4:旧注释只写旧数且「不构成反证」无据,已弃):
+    # ① 2026-09-01 eval 谱系簇判例,文件级块清单口径:OC=1.0、包含度
+    #   ≥0.9(grill Q2 2026-10-11 镜像对);
+    # ② 2026-11-26 生产镜像全库扫描,归档读数 docs/reports/2026-11-26-arch-r4-landing/#451-卡2-转载关系/verify/
+    #   scan_step3_summary.txt(曾为 untracked 本地件,已归档文档仓):
+    #   共同地址 2,674 ÷ greensnow 3,239 = 0.8256——镜像内 IPv4 单地址
+    #   单元口径,低于 0.9;两组数不互斥,口径不同所致(①块清单含
+    #   CIDR 面,②只数 v4 单地址)。
+    # 保留理由照实:firehol 是派生源(derived=True)且系数 =
+    # logit(.5)·decay ≡ 0,评测里两源本就同簇(eval 谱系簇
+    # aggregated-threat),这条声明今天不动任何分数,留着为声明面完整;
+    # _calibrated.json 把 firehol r 抬离 0.5 时须重验 C2 恒等(剔它即
+    # 动分数)。
+    republishes = ("greensnow",)
 
     def __init__(self, data_dir: Path, selected_lists: list[str] | None = None):
         self._lists = selected_lists or list(_LIST_SPEC)
@@ -214,25 +228,8 @@ class FireholBlocklistSource(IpListSource):
         self._loaded_at = time.time()
         return n4
 
-    def health(self) -> SourceHealth:
-        import time
-        mtimes = []
-        if self._path.exists():
-            for list_name in self._lists:
-                p = self._path / f"{list_name}.netset"
-                if p.exists():
-                    mtimes.append(p.stat().st_mtime)
-        file_mtime = max(mtimes) if mtimes else None
-        last_updated = (time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(file_mtime))
-                        if file_mtime else None)
-        is_stale = file_mtime is None or (
-            time.time() - file_mtime > self.stale_days * 86400)
-        return SourceHealth(
-            name=self.name,
-            loaded=self._reader is not None,
-            record_count=self._count,
-            last_updated=last_updated,
-            is_stale=is_stale,
-            covered_ips=self._covered_ips,
-            covered_v6_nets=self._covered_v6_nets,
-        )
+    def _data_files(self) -> list[Path]:
+        # #465 卡16:目录型源只声明数据文件清单,新鲜度算法统一走基类
+        # health() → _freshness(本类旧 health() 覆写与基类算法逐字段
+        # 等价,已删;工单验收含改前改后 health() 逐字段比对)。
+        return list(self._files)
