@@ -1,8 +1,9 @@
 """载入期基础设施噪声过滤(issue #183 / ADR 0008 8.8.8.8+114DNS 事故整改)。
 
 Seam = 源生命周期公开面(rebuild → query),同 test_myip_ms 形制;覆盖:
-- curated 集真源 = infra_services._DATA 单址集(勿复制第二真源、勿查可能
-  纪元落后的 LMDB——勘察 §4 判例:本地 infra_services LMDB 落后 csv);
+- curated 集真源 = _curated_infra.CURATED_CSV 单址集(#466 卡 15 起名单住
+  跨源小模块;勿复制第二真源、勿查可能纪元落后的 LMDB——勘察 §4 判例:
+  本地 infra_services LMDB 落后 csv);
 - 宁少算:仅排除对 curated 单址的精确指控,含 infra IP 的更大 CIDR 不排;
 - 证据永不灭失:数据文件零改写,排除只发生在载入(rebuild)面;
   IP_RADAR_INFRA_NOISE_FILTER=0 重建即复原原摄取;
