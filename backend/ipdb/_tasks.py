@@ -3,6 +3,7 @@ import asyncio
 import inspect
 import logging
 import os
+import queue
 import subprocess
 import sys
 import threading
@@ -22,6 +23,40 @@ logger = logging.getLogger(__name__)
 # 已从 TaskProvider 迁出)——尾随快照出后前端同窗截留,两端窗口一致防
 # 播种面反复增缩。进度面非存档,证据本体在包/台账(哲学 1)。
 _OPS_LOG_KEEP = 200
+
+# ── #478 子进程车道:停顿超时 + 随时可取消 ──
+# stdout 读线程→队列,主循环 get 至多等 1 秒:静默期(写库前的收获阶段,
+# 多证据源收完整个文件才开始写库,合法地数分钟无输出)取消标记每秒至少
+# 被看一次。
+_STDOUT_POLL_S = 1.0
+# terminate 后留 30 秒宽限再 kill(对照评估子进程 _eval_manager 的
+# communicate(timeout) 模式);这里杀的是「已断输出/已点取消」的进程,
+# 正常退出路径远用不满 30 秒。
+_TERM_GRACE_S = 30.0
+# 停顿阈值缺省(分钟)。60 的理由:写库之前有不出声的收获阶段,小机上
+# 最大的源光收文件就要好几分钟(见 _rebuild_child 模块头),60 分钟留足
+# 余量,合法重建不会被误杀;真挂死最多白占一个 worker 线程 60 分钟。
+_REBUILD_STALL_MIN_DEFAULT = 60.0
+
+
+def _rebuild_stall_timeout_s() -> float:
+    """停顿阈值:env `IP_RADAR_REBUILD_STALL_MIN`(分钟,可小数)→ 秒。
+
+    分钟是运维口径(「多久没有新输出算挂住」);测试直接设小数(如
+    0.0005 分 ≈ 30ms)即得秒级阈值,不另开测试专用入口。非法/负值回退
+    缺省:宁用保守长阈值,不把合法重建误杀。
+    """
+    raw = os.environ.get("IP_RADAR_REBUILD_STALL_MIN")
+    if raw is None:
+        return _REBUILD_STALL_MIN_DEFAULT * 60.0
+    try:
+        minutes = float(raw)
+    except ValueError:
+        logger.warning("invalid IP_RADAR_REBUILD_STALL_MIN=%r; "
+                       "falling back to %s min",
+                       raw, _REBUILD_STALL_MIN_DEFAULT)
+        return _REBUILD_STALL_MIN_DEFAULT * 60.0
+    return max(0.0, minutes) * 60.0
 
 
 @dataclass
@@ -660,12 +695,23 @@ class UpdateManager:
         rc!=0 → failed(stderr 尾部 ~300 字入 error,足够定位 traceback 末段
         又不把任务快照变日志倾倒场)。
 
-        取消:逐行检查 token,命中即 terminate + wait + cancelled(记账
-        语义与现行取消一致:epoch 已换新不回滚,grill Q8 2026-10-11)。
-        返回 True 仅当 rc==0 且 load() 成功 —— 取消/失败都在此内置终态并
-        返回 False,由 _run_task 的 finally 走 _settle。Popen/管道层异常同样
-        映射 failed:炸出 _run_task 会杀死 worker 线程,任务永久卡 loading、
-        batch 永不完成。
+        取消:主循环 get 至多等 1 秒(#478:stdout 挪进读线程 + 队列),
+        取消标记在子进程安静时也每秒被看一次;命中即 terminate + 30 秒
+        宽限 wait(不退再 kill)+ cancelled(记账语义与现行取消一致:
+        epoch 已换新不回滚,grill Q8 2026-10-11)。
+        停顿超时(#478):「多久没读到子进程的任何一行输出」超过
+        IP_RADAR_REBUILD_STALL_MIN(分钟,缺省 60;60 的理由见
+        _REBUILD_STALL_MIN_DEFAULT 注)判挂死:terminate → 30 秒不退
+        kill → failed,error_code 沿用 rebuild(2026-10-17 裁定车道全线
+        构建码,「连续构建失败」告警接得上),错误说明带「重建停顿」。
+        被杀不留半截:子进程提交是「先写 <base>.<epoch>.new.<pid> 暂存、
+        最后换 ptr」(_lmdb.rebuild_lmdb 提交顺序不变量),ptr 仍指旧完整
+        epoch,上一可用版本照常可查;暂存目录由 _lmdb.cleanup_stale 清
+        (SourceBase.load 每次载入都扫)。
+        返回 True 仅当 rc==0 且 load() 成功 —— 取消/停顿/失败都在此内置
+        终态并返回 False,由 _run_task 的 finally 走 _settle。Popen/管道
+        层异常同样映射 failed:炸出 _run_task 会杀死 worker 线程,任务
+        永久卡 loading、batch 永不完成。
         """
         stderr_buf: list[str] = []
         try:
@@ -690,10 +736,42 @@ class UpdateManager:
 
         stderr_reader = threading.Thread(target=_drain_stderr, daemon=True)
         stderr_reader.start()
+        # stdout 同样挪进读线程 + 队列(#478):原实现主循环
+        # `for line in proc.stdout` 阻塞在读上,取消只在每行末尾被看一次
+        # —— 子进程安静时取消不可达、挂死无人管。改后主循环 get 至多等
+        # _STDOUT_POLL_S 秒,静默期每秒看一次取消、核一次停顿线。
+        stdout_q: queue.Queue = queue.Queue()
+
+        def _drain_stdout():
+            for ln in proc.stdout:
+                stdout_q.put(ln)
+            stdout_q.put(None)      # EOF 哨兵:子进程已关 stdout(退出中)
+
+        stdout_reader = threading.Thread(target=_drain_stdout, daemon=True)
+        stdout_reader.start()
         cancelled = False
+        stalled = False
+        stall_timeout_s = _rebuild_stall_timeout_s()
+        last_output = time.monotonic()      # 停顿线基线 = 车道起点
         try:
             try:
-                for line in proc.stdout:
+                while True:
+                    try:
+                        line = stdout_q.get(timeout=_STDOUT_POLL_S)
+                    except queue.Empty:
+                        # 静默期:取消每秒至少可见(#478);停顿线 = 距
+                        # 最近一行输出超过阈值即判挂死(收获阶段合法安静
+                        # 可达数分钟,阈值不能定短,理由见缺省值注)。
+                        if task.token.is_cancelled():
+                            cancelled = True
+                            break
+                        if time.monotonic() - last_output >= stall_timeout_s:
+                            stalled = True
+                            break
+                        continue
+                    if line is None:
+                        break               # stdout EOF:子进程退出中
+                    last_output = time.monotonic()
                     parts = line.split()
                     if len(parts) == 3 and parts[0] == "PROG":
                         try:
@@ -705,13 +783,20 @@ class UpdateManager:
                     if task.token.is_cancelled():
                         cancelled = True
                         break
-                if cancelled:
+                if cancelled or stalled:
                     proc.terminate()
-                rc = proc.wait()
+                try:
+                    rc = proc.wait(timeout=_TERM_GRACE_S)
+                except subprocess.TimeoutExpired:
+                    # terminate 不退(拦截 SIGTERM/卡在不可中断态)→ kill
+                    # 兜底:原实现 wait 无限等,挂死进程永久占住车道。
+                    proc.kill()
+                    rc = proc.wait()
             finally:
                 proc.stdout.close()
                 # 子进程已退出(wait 返回)⇒ 两管道必至 EOF ⇒ reader 线程
-                # 必退出;join 后再 close stderr,避免与阻塞中的 read 竞争。
+                # 必退出;join 后再 close,避免与阻塞中的 read 竞争。
+                stdout_reader.join(timeout=5)
                 stderr_reader.join(timeout=5)
                 proc.stderr.close()
                 if proc.returncode is None:     # 异常路径兜底:不留僵尸
@@ -724,6 +809,13 @@ class UpdateManager:
             return False
         if cancelled:
             self._set_state(task, "cancelled")
+            return False
+        if stalled:
+            quiet_min = (time.monotonic() - last_output) / 60.0
+            error = f"重建停顿:最后一条输出在 {quiet_min:.0f} 分钟前"
+            logger.warning("rebuild subprocess stalled for %s: %s",
+                           task.source_name, error)
+            self._set_state(task, "failed", error, error_code="rebuild")
             return False
         if rc == 0:
             # 成功路径也留痕子进程 stderr 人类可读行(如载入期 infra 排除

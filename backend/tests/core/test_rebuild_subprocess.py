@@ -173,3 +173,122 @@ def test_child_infra_exclusion_log_survives_lanes(tmp_path, monkeypatch, caplog)
     assert any("infra noise filter" in rec.getMessage() and "myip_ms" in
                rec.getMessage() for rec in caplog.records)
     assert src._count == 1
+
+
+# ── #478:停顿超时 + 随时可取消 ──
+# 子进程命令硬编码 `python -m ipdb._rebuild_child <name>`,子进程 registry
+# 是固定名册,测试进程没法向子进程注入假源 —— 假子进程在 Popen 层拦:
+# 命中 rebuild-child 命令形状的调用换成测试给的 argv,其余透传(测试
+# 进程里其它 subprocess 用户不受影响)。拦截器必须在打补丁前抓真 Popen。
+_real_popen = subprocess.Popen
+
+
+class _PopenIntercept:
+    def __init__(self, child_argv):
+        self._child_argv = child_argv
+        self.proc = None
+
+    def __call__(self, argv, **kwargs):
+        if argv[1:3] == ["-m", "ipdb._rebuild_child"]:
+            self.proc = _real_popen(self._child_argv, **kwargs)
+            return self.proc
+        return _real_popen(argv, **kwargs)
+
+
+class _QuietSrc:
+    """父进程侧源对象:子进程车道里 rebuild/load 都不该被触达
+    (failed/cancelled 都在 load() 之前收口)。_path 必须存在 ——
+    rebuild-only 车道 raw 缺失会回退 download。"""
+    name = "quiet_src"
+    download_host = None
+
+    def __init__(self, path):
+        self._path = path
+
+    def rebuild(self):
+        raise AssertionError("子进程车道父进程 rebuild 不得被调")
+
+    def load(self):
+        raise AssertionError("非成功路径不得走到父进程 load()")
+
+
+_SILENT_CHILD = "import time; time.sleep(600)"
+# 输出不停的孩子:每 0.2s 一行 PROG,永不自己退出(被 terminate 才死)
+_CHATTY_CHILD = (
+    "import time\n"
+    "for i in range(600):\n"
+    "    print(f'PROG {i} 600', flush=True)\n"
+    "    time.sleep(0.2)\n"
+)
+
+
+def _wait_loading(mgr, task, timeout=10):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if mgr.task_state(task.id) == "loading":
+            return True
+        time.sleep(0.02)
+    return False
+
+
+def test_stall_timeout_fails_silent_child(tmp_path, monkeypatch):
+    """假子进程永不出声:IP_RADAR_REBUILD_STALL_MIN 是分钟浮点口径
+    (运维单位),测试设 0.0005 分 ≈ 30ms 直达秒级阈值 —— 首次 1s 轮询
+    即越过停顿线。总等待上限 10s:变异(去掉停顿段)时本用例超时转红
+    而不是挂死。断言:failed、error_code=rebuild(2026-10-17 裁定车道
+    全线构建码)、说明有「停顿」、子进程已不在。"""
+    monkeypatch.setenv("IP_RADAR_REBUILD_SUBPROCESS", "1")
+    monkeypatch.setenv("IP_RADAR_REBUILD_STALL_MIN", "0.0005")
+    icpt = _PopenIntercept([sys.executable, "-c", _SILENT_CHILD])
+    monkeypatch.setattr(subprocess, "Popen", icpt)
+    raw = tmp_path / "quiet_src.raw"
+    raw.write_text("x")
+    mgr = _make_manager({"quiet_src": _QuietSrc(raw)})
+    task = mgr.enqueue_one_detached("quiet_src", rebuild_only=True)
+    assert _wait_terminal(mgr, task, timeout=10) == "failed"
+    assert task.error_code == "rebuild"
+    assert "停顿" in task.error
+    assert icpt.proc is not None
+    assert icpt.proc.wait(timeout=5) is not None
+    assert icpt.proc.poll() is not None       # 子进程已不在,无残留
+
+
+def test_cancel_while_silent_within_2s(tmp_path, monkeypatch):
+    """安静期取消(#478 主诉求):原实现逐行读才查取消,子进程不出声
+    时取消不可达;改后主循环至多每 1 秒看一次。cancel 后 2 秒内变
+    cancelled,子进程被结束。STALL_MIN 不设(缺省 60 分),停顿线绝不
+    先到 —— 本用例量的是取消通路,与停顿无关。"""
+    monkeypatch.setenv("IP_RADAR_REBUILD_SUBPROCESS", "1")
+    monkeypatch.delenv("IP_RADAR_REBUILD_STALL_MIN", raising=False)
+    icpt = _PopenIntercept([sys.executable, "-c", _SILENT_CHILD])
+    monkeypatch.setattr(subprocess, "Popen", icpt)
+    raw = tmp_path / "quiet_src.raw"
+    raw.write_text("x")
+    mgr = _make_manager({"quiet_src": _QuietSrc(raw)})
+    task = mgr.enqueue_one_detached("quiet_src", rebuild_only=True)
+    assert _wait_loading(mgr, task)
+    t0 = time.monotonic()
+    mgr.cancel(task.id)
+    while mgr.task_state(task.id) != "cancelled":
+        assert time.monotonic() - t0 < 2.0, (
+            f"cancel 未在 2s 内生效,state={mgr.task_state(task.id)}")
+        time.sleep(0.02)
+    assert icpt.proc.poll() is not None       # 子进程被结束
+
+
+def test_cancel_during_output_still_works(tmp_path, monkeypatch):
+    """输出途中取消(老路径,#478 重构读循环后照旧绿):假子进程每
+    0.2s 发一行 PROG,取消在下一行(≤1s)被看到 → cancelled;PROG 行
+    照常驱动进度面。"""
+    monkeypatch.setenv("IP_RADAR_REBUILD_SUBPROCESS", "1")
+    icpt = _PopenIntercept([sys.executable, "-c", _CHATTY_CHILD])
+    monkeypatch.setattr(subprocess, "Popen", icpt)
+    raw = tmp_path / "quiet_src.raw"
+    raw.write_text("x")
+    mgr = _make_manager({"quiet_src": _QuietSrc(raw)})
+    task = mgr.enqueue_one_detached("quiet_src", rebuild_only=True)
+    assert _wait_loading(mgr, task)
+    time.sleep(0.6)                           # 至少一行 PROG 已被读到
+    mgr.cancel(task.id)
+    assert _wait_terminal(mgr, task, timeout=5) == "cancelled"
+    assert icpt.proc.poll() is not None
