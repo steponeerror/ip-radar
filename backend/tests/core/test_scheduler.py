@@ -4,8 +4,10 @@ Real UpdateManager for the manager-method tests; a FakeManager for the
 scheduler-logic tests (added in Task 3) so task_state can be controlled
 deterministically without threads.
 """
+import sqlite3
 import threading
 import time
+from contextlib import closing
 
 from ipdb._tasks import UpdateManager
 
@@ -296,24 +298,23 @@ def test_reconcile_mtime_advanced_but_unrebuilt_escalates(tmp_path, monkeypatch)
     """2026-10-14 demo 五源自增强环刹车:mtime 前进(下载成功)但
     needs_rebuild 仍 True(rebuild 被 memory valve 卡住/ptr 纪元冻结)
     → 升退避而非清退避(归成功会失去唯一刹车 → 每 30min 全量重抓);
-    record_event 照记(内容真实落地)。ptr 推进后走 else 清退避(见
+    observe_update 照记(at=文件 mtime,#455 起记账在 scan() 开头)。ptr 推进后走 else 清退避(见
     test_reconcile_success_clears_fail_count 钉住)。"""
     src = _make_src("freeze", tmp_path, mtime=OLD)
     sch, mgr = _make_scheduler([src], needs_rebuild=lambda s: True)
     sch.scan(now=NOW)                           # enqueues t0
     mgr._states[sch._last_task["freeze"]] = "done"
     src.set_mtime(NOW + 100.0)                  # 下载落地,mtime 前进
-    recorded = []
-    from ipdb import _alerts
-    monkeypatch.setattr(
-        _alerts, "record_event",
-        lambda name, at=None, **k: recorded.append((name, at)))
     sch.scan(now=NOW + 1000.0)                  # reconcile: mtime 前进但 ptr 冻结
     b = sch._backoff["freeze"]
     assert b.fail_count == 1
     assert b.next_attempt == NOW + 1000.0 + 3600    # 首级 1h
-    # 事件不丢:内容变化被确认(record_count 取当前 health)
-    assert ("freeze", NOW + 1000.0) in recorded
+    # 事件不丢:#455 起由 scan() 开头的 observe_update 记(at=文件 mtime);
+    # 本分支只管调度状态收敛。直读隔离库验证两条(种子 + 前进)。
+    with closing(sqlite3.connect(str(tmp_path / "alerts.db"))) as conn:
+        ats = [r[0] for r in conn.execute(
+            "SELECT at FROM update_events WHERE source = 'freeze' ORDER BY at")]
+    assert ats == [OLD, NOW + 100.0]
     # backoff 未到期:needs_rebuild 立即路径也被压着,不重拉
     sch.scan(now=NOW + 2000.0)
     assert mgr.enqueued == ["freeze"]
@@ -379,12 +380,9 @@ def test_rebuild_only_task_skips_download_when_raw_exists(tmp_path):
 def test_reconcile_rebuild_only_done_converged_clears_backoff(
         tmp_path, monkeypatch):
     """T3:rebuild-only done + mtime 不变(预期,没下载)+ needs_rebuild 翻
-    False → 成功处理:清退避清任务,不记内容事件(事件在下载轮已记)。"""
-    from ipdb import _alerts
-    monkeypatch.setattr(_alerts, "event_count", lambda name: 1)  # 抑制种子事件
-    recorded = []
-    monkeypatch.setattr(_alerts, "record_event",
-                        lambda name, at=None, **k: recorded.append((name, at)))
+    False → 成功处理:清退避清任务,不记内容事件(事件在下载轮已记)。
+    #455:记账统一在 scan() 开头的 observe_update,直读隔离库验证第二轮
+    零新增(mtime 不变 → 水位同值)。"""
     needs = {"flag": True}
     src = _make_src("rb2", tmp_path, mtime=OLD)
     sch, mgr = _make_scheduler([src], needs_rebuild=lambda s: needs["flag"])
@@ -395,7 +393,11 @@ def test_reconcile_rebuild_only_done_converged_clears_backoff(
     sch.scan(now=NOW + 1000.0)
     assert "rb2" not in sch._backoff              # 成功:退避清
     assert "rb2" not in sch._last_task
-    assert recorded == []                         # 不记内容事件
+    # 不记内容事件:两轮只有首轮种子一条(mtime 不变 → 水位同值,#455)
+    with closing(sqlite3.connect(str(tmp_path / "alerts.db"))) as conn:
+        assert conn.execute(
+            "SELECT at FROM update_events WHERE source = 'rb2'").fetchall() \
+            == [(OLD,)]
 
 
 def test_reconcile_rebuild_only_done_still_stale_escalates(tmp_path, caplog):
@@ -590,7 +592,8 @@ def test_reconcile_kind_ptr_frozen_is_rebuild(tmp_path, monkeypatch):
     """kind 传递:ptr 冻结(mtime 前进但 needs_rebuild 仍 True,构建未成)
     → kind=rebuild;rebuild-only 车道 done 仍冻同 kind。"""
     from ipdb import _alerts
-    monkeypatch.setattr(_alerts, "record_event", lambda *a, **k: None)
+    monkeypatch.setattr(_alerts, "observe_update",
+                        lambda *a, **k: None)  # 账本隔离(#455 起记账入口)
     src = _make_src("freeze", tmp_path, mtime=OLD)
     sch, mgr = _make_scheduler([src], needs_rebuild=lambda s: True)
     sch.scan(now=NOW)
