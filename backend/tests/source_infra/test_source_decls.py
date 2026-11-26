@@ -166,3 +166,63 @@ def test_derived_sources_registry_fill_sync(monkeypatch):
         monkeypatch.undo()
         reg._apply_derived_sources()  # 状态复位不依赖断言路径
     assert set(lo.DERIVED_SOURCES) == seed
+
+
+def test_lineage_anchors_registry_fill_sync(monkeypatch):
+    """#464(卡2上半):LINEAGE_ANCHORS 由 republishes attr 灌装——attr
+    变动后重灌 → 表内容原位同步(fill-in-place,与 DERIVED_SOURCES 同一
+    种灌装写法)。本测试只断言内容同步,不钉对象身份(#469 评审 B4:无
+    按值导入方,身份非契约;_eval/events.py 与测试都按模块属性读表,
+    原位灌装保证先导入者看到的也是新内容)。"""
+    import ipdb._registry as reg
+    import ipdb._logodds as lo
+    seed = dict(lo.LINEAGE_ANCHORS)
+    assert seed, "导入时已灌装 = 声明全集(防空表误跑)"
+    src = next(s for s in reg._sources if s.name == "blocklist_de")
+    try:
+        monkeypatch.setattr(src, "republishes", ("greensnow",),
+                            raising=False)
+        reg._apply_lineage_anchors()
+        assert lo.LINEAGE_ANCHORS.get("blocklist_de") == ("greensnow",)
+    finally:
+        monkeypatch.undo()
+        reg._apply_lineage_anchors()  # 状态复位不依赖断言路径
+    assert lo.LINEAGE_ANCHORS == seed
+
+
+def test_lineage_anchor_unknown_source_name_raises(monkeypatch):
+    """#464:republishes 引用未登记源名 → 启动即炸(元数据契约同款
+    fail-loud,拼错不许静默);失败路径不得动表。"""
+    import pytest
+    import ipdb._registry as reg
+    import ipdb._logodds as lo
+    seed = dict(lo.LINEAGE_ANCHORS)
+    fake = type("FakeRepublisher", (),
+                {"name": "fake_republisher",
+                 "republishes": ("no_such_source",)})()
+    monkeypatch.setattr(reg, "_sources", [fake])
+    with pytest.raises(RuntimeError, match="fake_republisher"):
+        reg._apply_lineage_anchors()
+    monkeypatch.undo()
+    assert lo.LINEAGE_ANCHORS == seed           # 失败路径表未动
+    reg._apply_lineage_anchors()                # 复位(真源表重灌)
+    assert lo.LINEAGE_ANCHORS == seed
+
+
+def test_lineage_anchor_bare_string_raises(monkeypatch):
+    """#469 评审 B7:`republishes = "spamhaus"`(裸字符串)会被 tuple()
+    逐字符拆成单字母 's','p',...——拆之前直接报写法错;失败路径不得动表。"""
+    import pytest
+    import ipdb._registry as reg
+    import ipdb._logodds as lo
+    seed = dict(lo.LINEAGE_ANCHORS)
+    fake = type("FakeStringDecl", (),
+                {"name": "fake_string_decl",
+                 "republishes": "spamhaus"})()
+    monkeypatch.setattr(reg, "_sources", [fake])
+    with pytest.raises(RuntimeError, match="元组"):
+        reg._apply_lineage_anchors()
+    monkeypatch.undo()
+    assert lo.LINEAGE_ANCHORS == seed           # 失败路径表未动
+    reg._apply_lineage_anchors()                # 复位(真源表重灌)
+    assert lo.LINEAGE_ANCHORS == seed

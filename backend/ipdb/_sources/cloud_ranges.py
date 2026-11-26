@@ -41,7 +41,7 @@ from typing import Iterator
 
 from .._evidence import Evidence
 from .._source_base import Source
-from .._types import FeedHealth, SourceHealth
+from .._types import SourceHealth
 from ._download import redact_url
 
 logger = logging.getLogger(__name__)
@@ -287,27 +287,27 @@ class CloudRangesSource(Source):
                 f"{[f[0] for f in _FEEDS]}")
         self._cleanup_legacy()
 
+    def _data_files(self) -> list[Path]:
+        # #465 卡16 返工(主会话改判任务书第 6 条):数据文件清单 = _FEEDS
+        # 表各家文件;health() 逐家循环与 /api/sources content_age_h 同走
+        # 本清单,目录型源「数据文件清单」入口统一(调度器 _read_mtime
+        # 对目录早是这么做的)。
+        return [self._path / filename
+                for _provider, _fetch, _parse, filename, _rel, _st in _FEEDS]
+
     def health(self) -> SourceHealth:
-        """目录形覆写(blocklist_de 同式):逐家 mtime → FeedHealth,阈值查
+        """目录形覆写(rir_* 同式):逐家 mtime → FeedHealth,阈值查
         _FEEDS 表(Azure 14,不硬编码);任一家超期或无任何文件即源级
-        stale;last_updated = max-mtime;其余字段沿基类语义。"""
-        feeds = []
-        mtimes = []
-        for provider, _fetch, _parse, filename, _rel, stale_days in _FEEDS:
-            p = self._path / filename
-            if p.exists():
-                mtime = p.stat().st_mtime
-                mtimes.append(mtime)
-                feeds.append(FeedHealth(
-                    name=provider,
-                    last_updated=time.strftime(
-                        "%Y-%m-%dT%H:%M:%SZ", time.gmtime(mtime)),
-                    is_stale=time.time() - mtime > stale_days * 86400,
-                ))
-            else:
-                feeds.append(FeedHealth(
-                    name=provider, last_updated=None, is_stale=True))
-        file_mtime = max(mtimes) if mtimes else None
+        stale;last_updated = max-mtime;其余字段沿基类语义。#465 卡16:
+        逐家新鲜度收 _freshness.feed_health 单源点,源级规则不变;文件
+        清单走 _data_files() 返工入口。"""
+        from . import _freshness
+        paths = self._data_files()
+        specs = [(provider, path, stale_days)
+                 for (provider, _fetch, _parse, _filename, _rel,
+                      stale_days), path in zip(_FEEDS, paths)]
+        feeds = _freshness.feed_health(specs)
+        file_mtime = _freshness.newest_mtime(paths)
         return SourceHealth(
             name=self.name,
             loaded=self._reader is not None,

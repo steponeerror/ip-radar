@@ -252,6 +252,39 @@ def test_accuser_pool_cross_group_with_asof_anchor():
     assert accuser_pool(entries, now=asof_to_now(t0.timestamp())) == fresh
 
 
+def test_dedup_lineage_multi_anchor_any_hit_drops(monkeypatch):
+    """#464 卡2上半:一个 target 可声明多锚,任一锚在场且系数不低于
+    target 即剔(判式逐锚不变,宁少算)。mutation ② 钉:实现退化成只看
+    第一个锚时,首锚缺席/次锚在场的用例必红。"""
+    monkeypatch.setattr("ipdb._logodds.LINEAGE_ANCHORS", {"t": ("a1", "a2")})
+    # 首锚缺席、次锚在场且更强 → 剔
+    assert dedup_lineage([("t", logit(0.55)), ("a2", logit(0.70))]) == [
+        ("a2", logit(0.70))]
+    # 次锚恰等 → 也剔(宁少算;首锚在场但更弱不拦判)
+    assert dedup_lineage([("t", logit(0.70)), ("a1", logit(0.10)),
+                          ("a2", logit(0.70))]) == [
+        ("a1", logit(0.10)), ("a2", logit(0.70))]
+    # 两锚都在场但都更弱 → 保留(锚不能压过更强证据)
+    assert dedup_lineage([("t", logit(0.90)), ("a1", logit(0.60)),
+                          ("a2", logit(0.70))]) == [
+        ("t", logit(0.90)), ("a1", logit(0.60)), ("a2", logit(0.70))]
+    # 锚全缺席 → 保留
+    assert dedup_lineage([("t", logit(0.55))]) == [("t", logit(0.55))]
+
+
+def test_dedup_lineage_ustc_blackip_declared_chain():
+    """#464 实声明计分面(registry 灌装后的现行表):ustc_blackip 转载
+    spamhaus + emerging_threats(2026-11-26 实测包含率 100.0%/99.66%),
+    同场两原创俱在且系数更高 → 转载者剔回声,单票;原创缺席 → 转载者
+    照常计票。mutation ① 钉:去掉 ustc_blackip 的 republishes 声明,
+    首断言转红(表少一对,转载者被计票)。"""
+    coeffs = [("spamhaus", logit(0.90)), ("emerging_threats", logit(0.85)),
+              ("ustc_blackip", logit(0.55))]
+    assert dedup_lineage(coeffs) == [("spamhaus", logit(0.90))]
+    assert dedup_lineage([("ustc_blackip", logit(0.55))]) == [
+        ("ustc_blackip", logit(0.55))]
+
+
 def test_dedup_lineage_never_empties_nonempty_pool():
     """现行谱系表(DERIVED_SOURCES/LINEAGE_ANCHORS)下,dedup_lineage
     对任何非空源池输出非空(PR #250 第 1 轮审查 B席 P2-1;#246 把
@@ -260,16 +293,20 @@ def test_dedup_lineage_never_empties_nonempty_pool():
     一个普通非 derived 源),系数剖面取全相等(「≥ 即剔」的并列最坏
     面)/升序/降序/随机种子三抽;只断言性质(非空 + 确有池被剔小、
     断言非平凡),不镜像实现。未来谱系表改出可整池剔空的形态(如互为
-    锚的环)即红。表扩张超过 15 名时退化为分层采样(单/双源全量 +
-    随机池)。"""
+    锚的环)即红。表扩张超过 20 名时退化为分层采样(单/双源全量 +
+    随机池;#469 评审 B5:表 13→18 已越过旧线 15,提线到 20,n=18
+    穷举实测 6.9s / 1,572,858 次 dedup 调用,2026-11-26)。"""
     import ipdb._logodds as lo
     universe = sorted(set(lo.DERIVED_SOURCES) | set(lo.LINEAGE_ANCHORS)
-                      | set(lo.LINEAGE_ANCHORS.values()) | {"blocklist_de"})
+                      | {a for t in lo.LINEAGE_ANCHORS.values() for a in t}
+                      | {"blocklist_de"})
     assert len(universe) >= 5          # 现行表非退化(防空表误跑成恒真)
     n = len(universe)
     rng = random.Random(20261031)
-    if n <= 15:
-        subsets = range(1, 1 << n)     # 全部非空子集(位掩码)
+    if n <= 20:
+        # 全部非空子集(位掩码)。n=18 实测穷举 6.9s(2026-11-26,评审
+        # B5 提线 15→20);再涨(≥21 名,穷举约 60s+)走下面采样。
+        subsets = range(1, 1 << n)
     else:                              # 表扩张:分层采样保时效
         subsets = [1 << i for i in range(n)]
         subsets += [(1 << i) | (1 << j)

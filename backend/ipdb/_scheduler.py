@@ -415,10 +415,11 @@ class RefreshScheduler:
                 # 目录型源(cn_isp isp/、cloud_ranges/):内容 mtime = 目录内
                 # 最新文件。重写文件不改目录 mtime(线上实证:isp/ 目录停在
                 # 首建日 08-18,文件当天 10-03 刚刷新),只看目录会把新鲜
-                # 多 feed 源误判 46 天过期。
-                mtimes = [c.stat().st_mtime
-                          for c in Path(p).iterdir() if c.is_file()]
-                return max(mtimes) if mtimes else None
+                # 多 feed 源误判 46 天过期。#465 卡16:取最大收 _freshness
+                # 单源点,输入集不变(目录内全部普通文件)。
+                from ._sources import _freshness
+                return _freshness.newest_mtime(
+                    c for c in Path(p).iterdir() if c.is_file())
             return st.st_mtime
         except OSError:
             return None

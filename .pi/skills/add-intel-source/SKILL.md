@@ -220,6 +220,7 @@ the drift-aware diff you'll need it for).
    - `category = "threat" | "geo_asn" | "asset"` — required for EVERY source; omit (or leave the `"other"` default) and the UI groups it under `other`. **Startup fails loudly** if the value is not one of the four enum values.
    - `reliability = <0–1>` — feeds two consumers: (1) the scalar merge path (`_to_attributions`) and (2) STIX export's source-identity `x_reliability`. Default `0.5` on both if omitted.
    - `authoritative_for = ("is_proxy", ...)` — tuple of fields this source truly produces and is the display-layer authority for (e.g. `is_proxy`/`is_tor`/`is_vpn`/`service`; any routing slot is accepted); registry inverts it into `AUTHORITATIVE_SOURCES` (attributions / STIX `x_authoritative` / api/sources — display only, **no fusion effect**). Empty by default. Non-routing-slot axes like `is_malicious` fail `_AUTHORITY_FIELDS` validation at startup (SM-F1 phantom prune).
+   - `republishes = ("spamhaus", ...)` — if this feed substantially overlaps another registered source **as a republisher** (measured same-address co-occurrence — not proof of verbatim copying: a shared upstream or two feeds independently banning the same addresses look identical; the dedup check only fires on co-occurring addresses, so the distinction doesn't change the direction), declare the original(s) here **on the republisher**, with the measured co-occurrence rate + date + denominator口径 in a comment next to the declaration. What a declaration does (#464): when both sources hit the same address and the original's coefficient is not weaker, the republisher is dropped as an echo (no vote); and the eval side no longer counts the pair as corroboration. Scoring and eval read the **same one attribute** (`_registry._apply_lineage_anchors` fills `LINEAGE_ANCHORS` at startup, and the eval republish closure derives from the same declarations) — never re-declare lineage in a central table. Enforcement lives in `_registry._apply_lineage_anchors` (NOT `_validate.py`): anchors must be registered source names — a typo, a retired source, or an anchor source that failed to instantiate during discovery (discovery only warns+skips) fails startup loudly; a bare string like `republishes = "spamhaus"` is rejected too (must be a tuple — `tuple()` would split it into single characters). Aggregators that re-aggregate many upstreams declare `derived = True` instead; a source may carry both (`firehol` does). Empty tuple = **no declaration** (neutral, not "original content"). Threshold: there is no fixed line — the four declared pairs measured ≥98% co-occurrence, while an undeclared pair (`sw_scanners` × `dshield`) measured 83%; if unsure, don't declare. Note for non-threat sources: scalar voting (`_merge.py` `LogOddsVoting.merge`) shares the same dedup function, so declaring `republishes` on a geo/asset source affects scalar-field merging too.
    `_validate.py` enforces this contract at startup: unknown `category`, out-of-range `reliability`, or unknown `authoritative_for` field → `RuntimeError` naming the source.
 7. **Per-row evidence — pick the right path (commit idiom as of `f4db2169`):**
    - **New source** → `Source` subclass: `harvest()` yields per-row
@@ -384,11 +385,14 @@ Most are enforced automatically:
    `last_seen`/`comment` are distinct evidence and must both survive. Emit one
    evidence dict per parsed row; don't pre-collapse.
 
-4. **Staleness is the data FILE's mtime, never in-memory load time.** `health()`
-   must compute `is_stale` from `self._path.stat().st_mtime`, not from
-   `self._loaded_at`. If you base it on load time, every restart re-downloads
-   every source. (Multi-list directory sources use the **max** mtime across
-   files — see archetypes §3c.)
+4. **Staleness is the data FILE's mtime, never in-memory load time.** The base
+   `health()` computes freshness via `backend/ipdb/_sources/_freshness.py` —
+   do NOT override `health()` for staleness, and never use `self._loaded_at`
+   (if you base it on load time, every restart re-downloads every source).
+   Single-file sources need nothing; directory / multi-file sources only
+   override `_data_files()` to return the list of data files, and the base
+   takes the newest mtime across them. Example: `blocklist_de.py`
+   (see archetypes §3c).
 
 5. **Read your own config in `__init__`; the registry passes only `data_dir`.**
    API keys, enabled flags, thresholds — all from env / args in your constructor.
