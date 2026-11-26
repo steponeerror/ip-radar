@@ -166,3 +166,42 @@ def test_derived_sources_registry_fill_sync(monkeypatch):
         monkeypatch.undo()
         reg._apply_derived_sources()  # 状态复位不依赖断言路径
     assert set(lo.DERIVED_SOURCES) == seed
+
+
+def test_lineage_anchors_registry_fill_sync(monkeypatch):
+    """#464(卡2上半):LINEAGE_ANCHORS 由 republishes attr 灌装——attr
+    变动后重灌 → 表原位同步(fill-in-place,同 DERIVED_SOURCES 合同;
+    重绑定会切断 _eval/audit.py 值绑定,严禁)。"""
+    import ipdb._registry as reg
+    import ipdb._logodds as lo
+    seed = dict(lo.LINEAGE_ANCHORS)
+    assert seed, "导入时已灌装 = 声明全集(防空表误跑)"
+    src = next(s for s in reg._sources if s.name == "blocklist_de")
+    try:
+        monkeypatch.setattr(src, "republishes", ("greensnow",),
+                            raising=False)
+        reg._apply_lineage_anchors()
+        assert lo.LINEAGE_ANCHORS.get("blocklist_de") == ("greensnow",)
+    finally:
+        monkeypatch.undo()
+        reg._apply_lineage_anchors()  # 状态复位不依赖断言路径
+    assert lo.LINEAGE_ANCHORS == seed
+
+
+def test_lineage_anchor_unknown_source_name_raises(monkeypatch):
+    """#464:republishes 引用未登记源名 → 启动即炸(元数据契约同款
+    fail-loud,拼错不许静默);失败路径不得动表。"""
+    import pytest
+    import ipdb._registry as reg
+    import ipdb._logodds as lo
+    seed = dict(lo.LINEAGE_ANCHORS)
+    fake = type("FakeRepublisher", (),
+                {"name": "fake_republisher",
+                 "republishes": ("no_such_source",)})()
+    monkeypatch.setattr(reg, "_sources", [fake])
+    with pytest.raises(RuntimeError, match="fake_republisher"):
+        reg._apply_lineage_anchors()
+    monkeypatch.undo()
+    assert lo.LINEAGE_ANCHORS == seed           # 失败路径表未动
+    reg._apply_lineage_anchors()                # 复位(真源表重灌)
+    assert lo.LINEAGE_ANCHORS == seed

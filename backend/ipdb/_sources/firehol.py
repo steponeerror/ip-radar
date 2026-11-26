@@ -52,6 +52,13 @@ class FireholBlocklistSource(IpListSource):
     derived = True                        # 聚合器:谱系去重用(spec 2026-08-29 §3.3)
     provenance_tier = "C"                 # C=聚合派生(S21):多社区黑名单再聚合
     authoritative_for = ()
+    # 转载声明(卡2上半,#464):⊇ greensnow 原创清单(OC=1.0,包含度
+    # ≥0.9,eval 谱系簇 2026-09-01;grill Q2 2026-10-11 镜像对判例。
+    # 2026-11-26 全库扫描为断言面口径,(ip,ctype) 粒度未出 ≥0.9 档,
+    # 不构成反证——声明沿原实测保留)。firehol 系数 = logit(.5)·decay ≡ 0,
+    # 剔它不动任何分数;_calibrated.json 把 firehol r 抬离 0.5 时须重验
+    # C2 恒等(剔它即动分数)。
+    republishes = ("greensnow",)
 
     def __init__(self, data_dir: Path, selected_lists: list[str] | None = None):
         self._lists = selected_lists or list(_LIST_SPEC)

@@ -252,6 +252,39 @@ def test_accuser_pool_cross_group_with_asof_anchor():
     assert accuser_pool(entries, now=asof_to_now(t0.timestamp())) == fresh
 
 
+def test_dedup_lineage_multi_anchor_any_hit_drops(monkeypatch):
+    """#464 卡2上半:一个 target 可声明多锚,任一锚在场且系数不低于
+    target 即剔(判式逐锚不变,宁少算)。mutation ② 钉:实现退化成只看
+    第一个锚时,首锚缺席/次锚在场的用例必红。"""
+    monkeypatch.setattr("ipdb._logodds.LINEAGE_ANCHORS", {"t": ("a1", "a2")})
+    # 首锚缺席、次锚在场且更强 → 剔
+    assert dedup_lineage([("t", logit(0.55)), ("a2", logit(0.70))]) == [
+        ("a2", logit(0.70))]
+    # 次锚恰等 → 也剔(宁少算;首锚在场但更弱不拦判)
+    assert dedup_lineage([("t", logit(0.70)), ("a1", logit(0.10)),
+                          ("a2", logit(0.70))]) == [
+        ("a1", logit(0.10)), ("a2", logit(0.70))]
+    # 两锚都在场但都更弱 → 保留(锚不能压过更强证据)
+    assert dedup_lineage([("t", logit(0.90)), ("a1", logit(0.60)),
+                          ("a2", logit(0.70))]) == [
+        ("t", logit(0.90)), ("a1", logit(0.60)), ("a2", logit(0.70))]
+    # 锚全缺席 → 保留
+    assert dedup_lineage([("t", logit(0.55))]) == [("t", logit(0.55))]
+
+
+def test_dedup_lineage_ustc_blackip_declared_chain():
+    """#464 实声明计分面(registry 灌装后的现行表):ustc_blackip 转载
+    spamhaus + emerging_threats(2026-11-26 实测包含率 100.0%/99.66%),
+    同场两原创俱在且系数更高 → 转载者剔回声,单票;原创缺席 → 转载者
+    照常计票。mutation ① 钉:去掉 ustc_blackip 的 republishes 声明,
+    首断言转红(表少一对,转载者被计票)。"""
+    coeffs = [("spamhaus", logit(0.90)), ("emerging_threats", logit(0.85)),
+              ("ustc_blackip", logit(0.55))]
+    assert dedup_lineage(coeffs) == [("spamhaus", logit(0.90))]
+    assert dedup_lineage([("ustc_blackip", logit(0.55))]) == [
+        ("ustc_blackip", logit(0.55))]
+
+
 def test_dedup_lineage_never_empties_nonempty_pool():
     """现行谱系表(DERIVED_SOURCES/LINEAGE_ANCHORS)下,dedup_lineage
     对任何非空源池输出非空(PR #250 第 1 轮审查 B席 P2-1;#246 把
@@ -264,7 +297,8 @@ def test_dedup_lineage_never_empties_nonempty_pool():
     随机池)。"""
     import ipdb._logodds as lo
     universe = sorted(set(lo.DERIVED_SOURCES) | set(lo.LINEAGE_ANCHORS)
-                      | set(lo.LINEAGE_ANCHORS.values()) | {"blocklist_de"})
+                      | {a for t in lo.LINEAGE_ANCHORS.values() for a in t}
+                      | {"blocklist_de"})
     assert len(universe) >= 5          # 现行表非退化(防空表误跑成恒真)
     n = len(universe)
     rng = random.Random(20261031)

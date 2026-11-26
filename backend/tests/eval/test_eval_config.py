@@ -19,6 +19,30 @@ def test_lineage_clusters_cover_derived_sources():
     for s in DERIVED_SOURCES:
         assert config.LINEAGE_CLUSTERS.get(s), f"{s} missing from LINEAGE_CLUSTERS"
 
+
+def test_republishes_closure_covers_production_anchors():
+    """#464 卡2上半一致性钉:生产 LINEAGE_ANCHORS(registry 按
+    republishes 类属性灌装)的每一对都在评测转载闭包里——计分与评测读
+    同一份声明,任一边漂移即红。预期声明面按 2026-11-26 生产镜像全库
+    扫描冻结(dev/arch-r4-scan/scan_step3.json pairs_contained;
+    firehol→greensnow 沿 grill Q2 2026-10-11 判例,实测数字见各源类注)。"""
+    import ipdb._logodds as lo
+    from ipdb._eval.events import same_republish_chain
+    expected = {
+        "emerging_threats": ("spamhaus",),
+        "ustc_blackip": ("spamhaus", "emerging_threats"),
+        "x4bnet_vpn": ("protonvpn",),
+        "danmeuk_tor": ("tor_exits",),
+        "firehol": ("greensnow",),
+    }
+    assert lo.LINEAGE_ANCHORS == expected     # 声明面冻结(mutation ① 钉)
+    for target, anchors in lo.LINEAGE_ANCHORS.items():
+        for a in anchors:
+            assert same_republish_chain(target, a), (target, a)
+    # 不同链之间仍独立(闭包不把所有声明并成一簇)
+    assert not same_republish_chain("spamhaus", "greensnow")
+    assert not same_republish_chain("protonvpn", "tor_exits")
+
 def test_warninglists_are_ip_relevant_only():
     # provider substrings (cloud/CDN + public DNS); no domain/top-site patterns.
     for name in ["amazon aws", "azure", "gcp", "cloudflare", "fastly", "akamai",

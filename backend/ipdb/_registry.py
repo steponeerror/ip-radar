@@ -129,6 +129,33 @@ def _apply_derived_sources():
 _apply_derived_sources()  # 模块导入时灌装一次;测试可重跑验证同步
 
 
+def _apply_lineage_anchors():
+    """#464(卡2上半):LINEAGE_ANCHORS 改由源 class attr republishes
+    灌装(fill-in-place,同 _apply_derived_sources 模式;_logodds 字面量
+    表仅为无 registry 导入时的兜底种子)。一个转载者可声明多锚(值 =
+    tuple);声明面 = 各源类旁注实测包含率(2026-11-26 全库扫描)。锚源名
+    必须是已登记源名,拼错启动即炸(元数据契约同款 fail-loud:
+    _validate.metadata_problems 先例;宁少算的反面是不许静默漏)。"""
+    names = {s.name for s in _sources}
+    anchors: dict[str, tuple[str, ...]] = {}
+    for s in _sources:
+        declared = tuple(getattr(s, "republishes", ()) or ())
+        if not declared:
+            continue
+        for a in declared:
+            if a not in names:
+                raise RuntimeError(
+                    f"转载声明违规(source {s.name}): republishes 引用未登记"
+                    f"源名 {a!r} —— 拼错或源已撤;声明面见 "
+                    f"_sources/_base.SourceBase.republishes")
+        anchors[s.name] = declared
+    _lo.LINEAGE_ANCHORS.clear()
+    _lo.LINEAGE_ANCHORS.update(anchors)
+
+
+_apply_lineage_anchors()  # 模块导入时灌装一次;测试可重跑验证同步
+
+
 def _apply_calibrated(path=None):
     """校准覆盖(spec 2026-08-29 §8):data/_calibrated.json 的 default 域
     覆盖 class attr 先验;其余域(country/asset key/classification type)

@@ -14,6 +14,10 @@ class X4BNetVPNSource(IpListSource):
     stale_days = 7
     reliability = 0.70
     authoritative_for = ("is_vpn",)
+    # 转载声明(卡2上半,#464;实测 2026-11-26 生产镜像全库扫描
+    # dev/arch-r4-scan/scan_step3.json):⊇ protonvpn 2,875/2,875(100%)。
+    # 原创 protonvpn r=.75 强于转载者 .70,同场即剔。
+    republishes = ("protonvpn",)
 
     _V6_URL = "https://raw.githubusercontent.com/X4BNet/lists_vpn/main/output/vpn/ipv6.txt"
 

@@ -32,3 +32,8 @@ class UstcBlackipSource(IpListSource):
     provenance_tier = "B"               # B=社区(高校第一方自保,非自家采集;sblam 同档)
     authoritative_for = ()               # corroboration only (SM-F1)
     honeypot_methodology = False        # 生产网边界观测非诱饵(docstring 详证)
+    # 转载声明(卡2上半,#464;实测 2026-11-26 生产镜像全库扫描
+    # dev/arch-r4-scan/scan_step3.json):⊇ spamhaus 106,275/106,278(100.0%);
+    # ⊇ emerging_threats 110,203/110,579(99.66%)。比两原创均弱(r .55 对
+    # .90/.85),同场即回声剔除(宁少算,哲学 3)。
+    republishes = ("spamhaus", "emerging_threats")

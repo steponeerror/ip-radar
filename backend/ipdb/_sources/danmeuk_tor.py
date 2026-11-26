@@ -33,6 +33,11 @@ class DanMeUkTorSource(IpListSource):
     stale_days = 1                       # publisher refreshes every 30 min
     reliability = 0.85                   # community standard, occasional multi-day lag
     authoritative_for = ()               # witness only; is_tor 展示层权威属 tor_exits(SM-F1:veto 机制不存在,措辞如实)
+    # 转载声明(卡2上半,#464;实测 2026-11-26 生产镜像全库扫描
+    # dev/arch-r4-scan/scan_step3.json):⊇ tor_exits 1,226/1,249(98.2%;
+    # dan.me.uk 全 relay 集 ⊇ 官方 exit 清单,docstring 同口径)。
+    # 原创 tor_exits r=.95 强于转载者 .85,同场即剔。
+    republishes = ("tor_exits",)
 
     def _validate_raw(self, raw: bytes) -> None:
         """Content guard (add-intel-source Phase 3 step 8): the publisher's

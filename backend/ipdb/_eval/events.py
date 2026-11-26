@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from . import config
+from .. import _logodds
 from .pairwise import source_pair_sets
 
 
@@ -29,9 +30,56 @@ def _cluster(s: str) -> str:
     return config.LINEAGE_CLUSTERS.get(s, s)
 
 
+def _republishes_parent() -> dict[str, str]:
+    """转载链并查集父表(卡2上半,#464):边 = LINEAGE_ANCHORS(registry
+    按 republishes 类属性灌装——计分与评测读同一份声明;无 registry 时
+    读兜底种子)。仅声明边入集(现存 ~6 条),每次调用重建不缓存——
+    registry fill-in-place 只改内容不改对象身份,身份键缓存会脏读。"""
+    parent: dict[str, str] = {}
+
+    def find(x: str) -> str:
+        parent.setdefault(x, x)
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]   # 路径减半
+            x = parent[x]
+        return x
+
+    for target, anchors in _logodds.LINEAGE_ANCHORS.items():
+        for a in anchors:
+            rt, ra = find(target), find(a)
+            if rt != ra:
+                parent[rt] = ra
+    return parent
+
+
+def same_republish_chain(i: str, j: str) -> bool:
+    """i、j 是否经转载声明相连(含传递:转载链传递闭包,#464 卡2上半)。
+    评测判独立(independent / oc_suspicion_pairs)与生产计分
+    (LINEAGE_ANCHORS)读同一份声明;链外源(未入任何声明)恒独立。
+    评测闭包 ⊇ 生产表由 test_eval_config 钉(两边漂移即红)。"""
+    if i == j:
+        return False
+    parent = _republishes_parent()
+    if i not in parent or j not in parent:
+        return False
+
+    def find(x: str) -> str:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    return find(i) == find(j)
+
+
 def independent(i: str, j: str, oc_table: dict) -> bool:
     """True iff i and j may corroborate each other (G3 hard exclusion)."""
     if _cluster(i) == _cluster(j):
+        return False
+    if same_republish_chain(i, j):
+        # 转载链上互不独立(#464):emerging_threats/ustc_blackip 转载
+        # spamhaus、x4bnet_vpn 转载 protonvpn、danmeuk_tor 转载 tor_exits
+        # 等,回声不算印证(哲学 3)。
         return False
     return oc_table.get(frozenset((i, j)), 0.0) <= config.OC_EXCLUSION
 

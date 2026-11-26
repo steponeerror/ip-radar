@@ -21,3 +21,7 @@ class EmergingThreatsSource(IpListSource):
     reliability = 0.85
     authoritative_for = ()               # SM-F1:is_malicious 无证据键生产者(幻影轴),不声明
     provenance_tier = "A"                 # A=官方一手(S21):Proofpoint ET 规则发布
+    # 转载声明(卡2上半,#464;实测 2026-11-26 生产镜像全库扫描
+    # dev/arch-r4-scan/scan_step3.json):⊇ spamhaus 106,275/106,278(100.0%)。
+    # /12 巨块回声审计实证(DQ-1,2026-10-06):在场且系数不低即剔,宁少算。
+    republishes = ("spamhaus",)
