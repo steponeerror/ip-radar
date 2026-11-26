@@ -22,7 +22,7 @@
 # 历史落 temporal-*.json;--readout
 # 组合四层读数管线出月报 monthly-*.md + action-block.json + northstar-*.json
 # (#185 能力轨北星记录,只观测不持门))
-# ⑤ 每命令打印尾行摘要 ⑥ 报告族齐全校验 → 评估报告推送(#453:rsync
+# ⑤ 每命令打印尾行摘要(腿日志全文落 monthly/logs/,#468) ⑥ 报告族齐全校验 → 评估报告推送(#453:rsync
 # 本轮逐源 verdict 件+model/model-*.json 到生产卷 eval/monthly/,推失败
 # 记红态心跳照写结尾非零)→ 生产 volume 心跳推送(S5)。
 # 自验:`bash -n scripts/monthly_eval.sh`(语法);`bash scripts/monthly_eval.sh
@@ -59,6 +59,7 @@ echo "branch: $BRANCH (dirty: $DIRTY)"
 echo "host:   $PROD_HOST"
 echo "data:   $DATA_DIR"
 START_S=$(date +%s)  # S5:报告族"本轮"锚 —— 工件 mtime 须晚于此才算本轮产物
+ROUND_TS=$(date -u +%Y%m%dT%H%M%SZ)  # #468:一轮一个 UTC 时间戳(脚本开头取一次),全部腿日志文件名共用;一轮一个时间戳,不覆盖上一轮
 
 # 守卫:月轮在 master 基线上跑,树必须 clean(防把未提交代码的评估当月轮结论)
 if [ "$DRY_RUN" != 1 ]; then
@@ -74,11 +75,17 @@ run_step() {  # run_step <label> <ipdb._eval args...> — 执行并打印尾行�
   # 管线 rc 显式捕获后 return(不靠 set -e 在函数内炸出——调用方在 || 语境下调
   # 用时 set -e 全程失效,靠尾命令 echo 会吞 rc;终审修单 F4 判例)
   local label=$1; shift
-  local log="/tmp/monthly_eval-$label.log"
+  # #468:腿日志改落报告目录树($LOG_DIR,定义在 REPORT_ROOT 旁),不再写
+  # /tmp/monthly_eval-<腿名>.log —— 旧文件名写死、不分轮次,后一次运行就覆盖
+  # 前一次(2026-11-25 回看:固定路径上只剩空文件;每跑一遍级联测试也会把
+  # 十二个文件清空,桩不产生输出);/tmp 另有重启即丢。文件名带 ROUND_TS,
+  # 一轮一个时间戳,不覆盖上一轮。
+  local log="$LOG_DIR/$label-$ROUND_TS.log"
   local rc=0
   echo
   echo "==> $label: IP_RADAR_EVAL_ENV=monthly python3 -m ipdb._eval $*"
-  if [ "$DRY_RUN" = 1 ]; then return 0; fi
+  if [ "$DRY_RUN" = 1 ]; then return 0; fi  # 干跑不建目录不写文件(#468)
+  mkdir -p "$LOG_DIR"
   # cwd 须在 backend/(模块路径 ipdb);报告目录用绝对路径防 cwd 歧义
   ( cd "$REPO/backend" && \
       IP_RADAR_DATA_DIR="$DATA_DIR" \
@@ -177,6 +184,7 @@ if [ "$DRY_RUN" != 1 ]; then
 fi
 
 REPORT_ROOT="$REPO/backend/data/eval/monthly"
+LOG_DIR="$REPORT_ROOT/logs"  # #468:每条腿日志目录(报告目录树下 monthly/logs/,与月轮工件同树);run_step 在此之后才首次调用,call-time 取值安全
 # ── 腿级 rc 分离(#193 C5,承 F4 anchors 判例推广到全腿):任一腿红
 # 不中止后续腿(红态记录≠管线中止),工件照写留证;缺员即死不变
 # (工件缺席=半途中止=死,不推心跳)。腿级状态落 leg-status-*.json
@@ -402,7 +410,7 @@ fi
 
 echo
 
-echo "完成。报告目录: $REPORT_ROOT(model/ 逐轮累积)"
+echo "完成。报告目录: $REPORT_ROOT(model/ 逐轮累积;腿日志 logs/<腿名>-<时间戳>.log)"
 # 结尾退出码(#193 C5):腿序首个非零外显(完成≠全绿;cron/操作员以
 # 非零退出码感知腿级红;红腿明细在 leg-status 工件与月报腿级行)。
 AGG_RC=0

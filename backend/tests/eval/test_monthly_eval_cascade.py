@@ -19,6 +19,7 @@ ssh);python3 桩按 argv 模拟各腿(anchors 按 ANCHORS_MODE 决定 rc,失败�
 """
 import json
 import os
+import re
 import subprocess
 import textwrap
 from pathlib import Path
@@ -134,6 +135,25 @@ SSH_STUB = textwrap.dedent(
     touch "${HEARTBEAT_MARKER:?}"
     """
 )
+# date 桩(#468 评审建议改 2a):只拦 ROUND_TS 那一种调用形(-u +%Y%m%dT%H%M%SZ),
+# 每调一次返回不同值(计数文件 +1)——桩一轮秒级跑完,真时间戳十二腿必同值,
+# 钉不住「一轮只取一次」;假值互异后,实现改成每腿各取一次就是十二个值,
+# 断言必红。其余调用形原样透传真 date(脚本 +%s/心跳/腿级状态件与
+# python3 桩里的 date 都不受影响)。
+DATE_STUB = textwrap.dedent(
+    """\
+    #!/usr/bin/env bash
+    if [ "${1:-}" = "-u" ] && [ "${2:-}" = "+%Y%m%dT%H%M%SZ" ]; then
+      f="${DATE_COUNTER:?}"
+      n=$(cat "$f" 2>/dev/null || echo 0)
+      n=$((n + 1))
+      printf '%s' "$n" > "$f"
+      printf '20200101T0000%02dZ' "$n"
+      exit 0
+    fi
+    exec /usr/bin/date "$@"
+    """
+)
 
 
 def _make_repo(tmp_path: Path) -> Path:
@@ -155,7 +175,8 @@ def _make_repo(tmp_path: Path) -> Path:
 def _make_stubs(tmp_path: Path) -> Path:
     stubs = tmp_path / "stubs"
     stubs.mkdir()
-    for name, body in (("python3", PY_STUB), ("rsync", RSYNC_STUB), ("ssh", SSH_STUB)):
+    for name, body in (("python3", PY_STUB), ("rsync", RSYNC_STUB), ("ssh", SSH_STUB),
+                       ("date", DATE_STUB)):
         p = stubs / name
         p.write_text(body, encoding="utf-8")
         p.chmod(0o755)
@@ -181,6 +202,7 @@ def _run_monthly(repo: Path, stubs: Path, tmp_path: Path, *args: str,
     env["HEARTBEAT_MARKER"] = str(tmp_path / "heartbeat-marker")
     env["PUSH_MARKER"] = str(tmp_path / "push-marker")   # #453 推送发生标记
     env["SSH_MKDIR_MARKER"] = str(tmp_path / "ssh-mkdir-marker")   # #453 推送前建目录标记
+    env["DATE_COUNTER"] = str(tmp_path / "date-counter")   # #468 date 桩计数文件
     env["RSYNC_PUSH_MODE"] = rsync_push_mode
     env["ANCHORS_MODE"] = anchors_mode
     env["DSEM_MODE"] = dsem_mode
@@ -515,3 +537,33 @@ def test_eval_report_push_failure_red_but_heartbeat_kept(tmp_path):
     assert rc == 7, f"推送红须以推送 rc=7 结尾外显,实得 {rc}\n{out}"
     assert "红态" in out and "推送" in out, f"缺推送红态行\n{out}"
     assert (tmp_path / "heartbeat-marker").exists(), "推失败心跳照写"
+
+
+# ── #468:腿日志落报告目录树(monthly/logs/<腿名>-<UTC 时间戳>.log)──
+
+def test_leg_logs_land_in_report_tree_one_timestamp_per_round(tmp_path):
+    """#468:每腿完整输出不再写 /tmp,改落 <报告目录>/monthly/logs/ 下,
+    文件名 = <腿名>-<UTC 时间戳>.log(一轮一个时间戳,十二腿共用,
+    不覆盖上一轮)。「一轮只取一次」由 date 桩钉住:桩对 ROUND_TS 调用形
+    每次返回不同值,只有脚本真的只调一次,十二腿才可能同值;改成每腿
+    各取一次就十二个值,必红(变异证据见 impl-report-2.md)。
+    报告目录指到临时仓(不入真仓库);干跑零目录由
+    test_bash_syntax_and_dry_run 的「报告根不存在」断言覆盖(logs/ 在其下)。"""
+    repo = _make_repo(tmp_path)
+    stubs = _make_stubs(tmp_path)
+    rc, out = _run_monthly(repo, stubs, tmp_path)
+    assert rc == 0, out
+    logs = _report_root(repo) / "logs"
+    assert logs.is_dir(), f"腿日志目录缺席\n{out}"
+    assert len(list(logs.iterdir())) == 12, \
+        f"十二腿十二份(加腿时本测试必须跟着改),实得 {len(list(logs.iterdir()))} 份\n{out}"
+    stamps = set()
+    for leg in ("model", "all", "anchors", "dsem", "agg-share",
+                "sinkhole-probe", "anchor-readouts", "truth-v2",
+                "truth-v2-readout", "audit", "temporal", "readout"):
+        # 精确全名匹配(glob 前缀会互撞:truth-v2-* 也吃掉 truth-v2-readout-*)
+        found = [p for p in logs.iterdir()
+                 if re.fullmatch(rf"{re.escape(leg)}-\d{{8}}T\d{{6}}Z\.log", p.name)]
+        assert len(found) == 1, f"{leg} 腿日志须恰一份,实得 {[p.name for p in found]}\n{out}"
+        stamps.add(re.search(r"(\d{8}T\d{6}Z)", found[0].name).group(1))
+    assert len(stamps) == 1, f"一轮一个时间戳(十二腿共用),实得 {sorted(stamps)}"

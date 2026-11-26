@@ -23,5 +23,5 @@ ExecStart=/usr/bin/bash scripts/monthly_eval.sh
 Nice=10
 IOSchedulingClass=best-effort
 IOSchedulingPriority=7
-# 镜像同步 + 评估各腿,留足半天;超时即杀(红腿明细在 leg-status 工件与 journal)
+# 镜像同步 + 评估各腿,留足半天;超时即杀(红腿明细在 leg-status 工件与 journal;已跑完的腿日志也在 monthly/logs/)
 TimeoutStartSec=8h
