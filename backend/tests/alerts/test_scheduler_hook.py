@@ -9,6 +9,7 @@ health 计数)。#455 起记账收到 scan() 开头的 observe_update(水位落�
 谁触发的落盘都算、at 用文件修改时间、重启不丢不重记、mtime 回退不记。
 消息字面以 Task 2 报告裁决为准(None-age → 「从未」)。
 """
+import hashlib
 import logging
 import os
 import sqlite3
@@ -548,3 +549,108 @@ def test_scan_no_reader_alert_when_never_built(
     assert mgr.enqueued == []                 # mtime 新鲜,非 slot 到期
     assert _alert_state(alerts_db) == []
     assert pushes == []
+
+
+# ── #467:记账带内容指纹(content_hash_of 延迟传入,只在新事件时算)──
+
+def _events_with_hash(db):
+    """直读 sqlite:事件行带指纹列(与 _events 同惯例,断言才独立)。"""
+    with closing(sqlite3.connect(str(db))) as conn:
+        return conn.execute(
+            "SELECT source, at, record_count, content_hash FROM update_events"
+            " ORDER BY at, id").fetchall()
+
+
+class DirSource(HookSource):
+    """目录型测试源(_path 是目录,镜像 cn_isp isp/、cloud_ranges/ 的数据
+    形状):目录内两个文件;set_contents 改写文件内容。health() 继承。"""
+
+    def __init__(self, name, path, stale_days=1):
+        self.name = name
+        self.stale_days = stale_days
+        self._record_count = 0
+        self._path = Path(path)
+        self._path.mkdir(parents=True, exist_ok=True)
+        (self._path / "a.csv").write_text("1")
+        (self._path / "b.csv").write_text("2")
+
+    def set_contents(self, a, b):
+        (self._path / "a.csv").write_text(a)
+        (self._path / "b.csv").write_text(b)
+
+
+def test_fingerprint_computed_only_on_new_event(alerts_db, tmp_path,
+                                                monkeypatch):
+    """#467 验收「平时不算指纹」(调度侧):mtime 未推进的扫描轮,指纹
+    函数零调用(会记数的假函数钉住);种子轮算一次,后续空转轮不再算。"""
+    src = _make_src("x", tmp_path, mtime=OLD)
+    sch, _ = _make_scheduler([src])
+    calls = []
+
+    def fake_fp(s):
+        calls.append(1)
+        return "fake-hash"
+
+    monkeypatch.setattr(type(sch), "_content_fingerprint_of",
+                        staticmethod(fake_fp))
+    sch.scan(now=NOW)                 # 种子:算一次
+    assert calls == [1]
+    sch.scan(now=NOW + 60.0)          # 同一 mtime:不重记,不再算
+    sch.scan(now=NOW + 120.0)
+    assert calls == [1]
+
+
+def test_content_change_records_different_hash(alerts_db, tmp_path):
+    """端到端(单文件源):种子记 v1 指纹;内容改写 + mtime 前进 → 新事件
+    记 v2 指纹、两者不同;同一版本不重复记(既有行为,带指纹列复钉)。"""
+    src = _make_src("x", tmp_path, mtime=OLD)
+    sch, _ = _make_scheduler([src])
+    sch.scan(now=NOW)                 # 种子:内容 "x"
+    h1 = hashlib.sha256(b"x").hexdigest()
+    src._path.write_text("y")
+    src.set_mtime(NOW + 100.0)
+    sch.scan(now=NOW + 1000.0)
+    h2 = hashlib.sha256(b"y").hexdigest()
+    assert h1 != h2
+    # 种子分支不消费 record_count(恒 NULL);前进事件带 health() 的 0
+    assert _events_with_hash(alerts_db) == [
+        ("x", OLD, None, h1), ("x", NOW + 100.0, 0, h2)]
+    sch.scan(now=NOW + 1100.0)        # 同一版本再扫:不重记
+    assert _events_with_hash(alerts_db) == [
+        ("x", OLD, None, h1), ("x", NOW + 100.0, 0, h2)]
+
+
+def test_dir_source_swap_changes_fingerprint(alerts_db, tmp_path):
+    """端到端(目录型源):两个文件互换内容 → 新事件指纹必变(文件名参与
+    拼接),且与 _alerts.content_fingerprint 的拼接规则逐字一致。"""
+    src = DirSource("d", tmp_path / "d")
+    os.utime(str(src._path / "a.csv"), (OLD, OLD))
+    os.utime(str(src._path / "b.csv"), (OLD, OLD))
+    sch, _ = _make_scheduler([src])
+    sch.scan(now=NOW)                 # 种子:目录指纹 v1
+    rows = _events_with_hash(alerts_db)
+    assert len(rows) == 1
+    fp1 = rows[0][3]
+    src.set_contents("2", "1")        # 互换内容
+    os.utime(str(src._path / "a.csv"), (OLD + 100.0, OLD + 100.0))
+    sch.scan(now=NOW + 1000.0)
+    rows = _events_with_hash(alerts_db)
+    assert len(rows) == 2
+    fp2 = rows[1][3]
+    assert fp1 != fp2
+    combined = hashlib.sha256(
+        ("a.csv" + hashlib.sha256(b"2").hexdigest()
+         + "b.csv" + hashlib.sha256(b"1").hexdigest()).encode()).hexdigest()
+    assert fp2 == combined            # 拼接规则(文件名+sha 排序相连)逐字钉住
+
+
+def test_dir_source_unreadable_hashes_null_event_recorded(
+        alerts_db, tmp_path, monkeypatch):
+    """指纹算不出(调度侧假函数返 None,模拟文件读不了)→ 事件照记、
+    指纹列 NULL(#467 issue 第 4 条,经 scan() 全链路)。"""
+    src = _make_src("x", tmp_path, mtime=OLD)
+    sch, _ = _make_scheduler([src])
+    monkeypatch.setattr(type(sch), "_content_fingerprint_of",
+                        staticmethod(lambda s: None))
+    sch.scan(now=NOW)
+    assert _events_with_hash(alerts_db) == [("x", OLD, None, None)]

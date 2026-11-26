@@ -9,6 +9,9 @@
 已知窄口(#455 评审 R-2):目录型源把 .dl 暂存文件放在被观察的目录里,
 扫描恰好落在下载途中会按暂存文件的 mtime 多记一条——窗口 = 下载时长 /
 30 分钟,这类间隔远小于下限、进不了中位数,对告警线无影响;
+#467 起每行可选带 content_hash(内容 sha256 指纹,只在落新事件时延迟算,
+只记账不改行为,页面/告警逻辑不读):攒数回答「下载了、内容其实没变」
+占多少,给「内容没变就不重建」的取舍留证据;
 observed_interval_h 用近 90 天相邻间隔中位数回答"该源平时多久更一次"
 (#455 起不计短于声明周期 1/4 的间隔——重建风暴密集重写留下的短间隔)。
 evaluate 消费 scheduler 每轮快照,per (source, condition) 推进 alert_state
@@ -22,6 +25,7 @@ push 是唯一出站出口(约束 5):apprise 多 URL 推送,env IP_RADAR_ALERT_U
 空 = 完全不通知;apprise 惰性 import(env 空不 import),任何异常 warning
 吞掉永不 raise——跑在 scheduler 守护线程里,推送失败不得杀死调度。
 """
+import hashlib
 import logging
 import math
 import os
@@ -29,7 +33,7 @@ import re
 import sqlite3
 from contextlib import closing
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Sequence
 
 from . import _paths
 
@@ -54,7 +58,8 @@ _EVAL_ROUND_THRESHOLD_H = 35 * 24  # 阈值 35.0d:月轮周期 30d + 5d 容差
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS update_events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  source TEXT NOT NULL, at REAL NOT NULL, record_count INTEGER);
+  source TEXT NOT NULL, at REAL NOT NULL, record_count INTEGER,
+  content_hash TEXT);  -- #467:内容指纹(sha256 hex;可空,存量库经迁移补列)
 CREATE INDEX IF NOT EXISTS ix_update_events_source_at ON update_events(source, at);
 CREATE TABLE IF NOT EXISTS alert_state (
   source TEXT NOT NULL, condition TEXT NOT NULL,   -- 'stale' | 'fail' | 'reader'
@@ -98,11 +103,26 @@ def eval_heartbeat_age_h(heartbeat_path: Path | None,
 _factories: dict[str, Callable[[], sqlite3.Connection]] = {}
 
 
+def _migrate_content_hash(conn: sqlite3.Connection) -> None:
+    """#467 存量账本就地升级:update_events 缺 content_hash 列则 ALTER 补上。
+
+    旧库(升级前的建表语句没有这一列)CREATE TABLE IF NOT EXISTS 不生效,
+    靠这里补;新库建表已含列,pragma 查到即跳过。每次连接查一次 pragma
+    (每操作本就新开连接,约束 3;schema 元数据查询开销可忽略),幂等可
+    重复。只加列不动数据——证据永不灭失(哲学 1):旧行原样保留,指纹
+    空着(旧值为 NULL)。
+    """
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(update_events)")}
+    if "content_hash" not in cols:
+        conn.execute("ALTER TABLE update_events ADD COLUMN content_hash TEXT")
+
+
 def _make_factory(path: Path) -> Callable[[], sqlite3.Connection]:
     def factory() -> sqlite3.Connection:
         conn = sqlite3.connect(str(path))
         # 惰性建表:首次使用即建,IF NOT EXISTS 幂等(空库/存量库同路径)
         conn.executescript(_SCHEMA)
+        _migrate_content_hash(conn)   # #467:存量库就地补列,见函数注
         return conn
 
     return factory
@@ -119,23 +139,36 @@ def _connect() -> sqlite3.Connection:
     return factory()
 
 
-def record_event(source: str, at: float, record_count: int | None = None) -> None:
+def record_event(source: str, at: float, record_count: int | None = None,
+                 content_hash: str | None = None) -> None:
     """记一次源内容更新;record_count 缺省 NULL(种子事件无计数)。
 
     「更新」= 数据文件被成功重写(见模块头注),不是「上游内容变了」;
     调度路径的记账统一走 observe_update(#455),本函数是存储原语
-    (测试造历史用)。"""
+    (测试造历史用)。content_hash(#467)缺省 NULL:调用方已有现成
+    指纹值才传;调度路径的延迟计算契约见 observe_update(存储原语
+    自己不算指纹)。
+    """
     with closing(_connect()) as conn, conn:
         conn.execute(
-            "INSERT INTO update_events (source, at, record_count)"
-            " VALUES (?, ?, ?)",
-            (source, at, record_count),
+            "INSERT INTO update_events (source, at, record_count, content_hash)"
+            " VALUES (?, ?, ?, ?)",
+            (source, at, record_count, content_hash),
         )
 
 
 def observe_update(source: str, mtime: float,
-                   record_count: int | None = None) -> bool:
+                   record_count: int | None = None,
+                   content_hash_of: Callable[[], str | None] | None = None) -> bool:
     """内容更新事件记账唯一入口(#455):比水位新才记,同一文件版本至多一条。
+
+    content_hash_of(#467):算内容指纹的零参函数,延迟到「确定要落一条
+    新事件」的那一刻才调用一次,结果写进 update_events.content_hash。
+    必须传函数而非先算好的值:记不记由本函数内部比水位决定,而平时每
+    30 分钟的扫描绝大多数轮不落新事件,大文件(最大单源 6.7GB)每次
+    扫描白算 sha256 是纯浪费(性能是预算出来的,哲学 9);指纹本身算不
+    出(文件读不了 → None)时事件照记、指纹列落 NULL。缺省 None =
+    旧调用形状,行为位等价(指纹列 NULL)。
 
     调用方 = scheduler 每轮扫描,对每个启用源用 _read_mtime 比一次;谁触发
     的落盘都算(调度器任务、页面手动/批量、冷启动建库、脚本)——本函数不
@@ -157,6 +190,13 @@ def observe_update(source: str, mtime: float,
     异常约定照调度侧兜错注释的原样:sqlite 故障向上抛,由调用方的
     try/except 只记日志——告警侧故障不碰调度逻辑。
     """
+
+    def _hash_now() -> str | None:
+        # #467:只在即将 INSERT 新事件的分支里调用(延迟契约见 docstring);
+        # 此刻尚无任何 DML,sqlite3 事务要到首条写语句才开——大文件哈希
+        # 不会把写事务吊在半空。
+        return content_hash_of() if content_hash_of is not None else None
+
     with closing(_connect()) as conn, conn:
         row = conn.execute(
             "SELECT mtime FROM source_watermark WHERE source = ?",
@@ -168,21 +208,59 @@ def observe_update(source: str, mtime: float,
                 (source,)).fetchone()
             if n == 0:  # 种子:首次观测到此内容(原调度器种子逻辑)
                 conn.execute(
-                    "INSERT INTO update_events (source, at, record_count)"
-                    " VALUES (?, ?, NULL)", (source, mtime))
+                    "INSERT INTO update_events (source, at, record_count,"
+                    " content_hash) VALUES (?, ?, NULL, ?)",
+                    (source, mtime, _hash_now()))
                 recorded = True
             conn.execute(
                 "INSERT INTO source_watermark (source, mtime) VALUES (?, ?)",
                 (source, mtime))
         elif mtime > row[0]:
             conn.execute(
-                "INSERT INTO update_events (source, at, record_count)"
-                " VALUES (?, ?, ?)", (source, mtime, record_count))
+                "INSERT INTO update_events (source, at, record_count,"
+                " content_hash) VALUES (?, ?, ?, ?)",
+                (source, mtime, record_count, _hash_now()))
             conn.execute(
                 "UPDATE source_watermark SET mtime = ? WHERE source = ?",
                 (mtime, source))
             recorded = True
         return recorded
+
+
+def content_fingerprint(paths: Sequence[Path | str]) -> str | None:
+    """#467:一组数据文件的内容指纹(sha256 hex;只记账,不改任何行为)。
+
+    攒数回答「下载成功但内容其实没变」占多少(issue.md:记录数没变不
+    等于内容没变),为「内容没变就不重建」值不值得做留证据。
+
+    输入 = 文件路径组:单文件源传一个;目录型源由调用方展开成目录内
+    文件列表(调度侧 _content_fingerprint_of 的文件/目录分叉与
+    _read_mtime 对齐)。规则:
+    - 单文件:文件字节流式 sha256 的 hexdigest(1MiB 分块读,不整载
+      进内存——964MB 小机,最大单源 6.7GB)。
+    - 多文件:各文件先各算 sha256,再对「排序后的(文件名, sha256)」
+      拼接文本整体再算一次 sha256。文件名参与拼接 → 两个文件互换内容
+      指纹必变(换位不被吞掉);sha 定长 64 个 hex 字符,直接拼接无
+      歧义。排序在函数内做,调用方传任意顺序结果一致。
+    - 任一文件读不了(OSError)或列表为空:返回 None(宁少算,哲学 2
+      /3——算不出可比指纹就不硬造;事件侧照记,指纹列落 NULL)。
+    """
+    try:
+        pairs: list[tuple[str, str]] = []
+        for p in paths:
+            h = hashlib.sha256()
+            with open(p, "rb") as f:
+                for chunk in iter(lambda: f.read(1 << 20), b""):
+                    h.update(chunk)
+            pairs.append((Path(p).name, h.hexdigest()))
+    except OSError:
+        return None
+    if not pairs:
+        return None
+    if len(pairs) == 1:
+        return pairs[0][1]
+    joined = "".join(name + digest for name, digest in sorted(pairs))
+    return hashlib.sha256(joined.encode("utf-8")).hexdigest()
 
 
 def observed_interval_h(source: str, now: float,
