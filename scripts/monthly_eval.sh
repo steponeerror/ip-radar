@@ -59,6 +59,7 @@ echo "branch: $BRANCH (dirty: $DIRTY)"
 echo "host:   $PROD_HOST"
 echo "data:   $DATA_DIR"
 START_S=$(date +%s)  # S5:报告族"本轮"锚 —— 工件 mtime 须晚于此才算本轮产物
+ROUND_TS=$(date -u +%Y%m%dT%H%M%SZ)  # #468:一轮一个 UTC 时间戳(脚本开头取一次),全部腿日志文件名共用;一轮一份,不覆盖上一轮
 
 # 守卫:月轮在 master 基线上跑,树必须 clean(防把未提交代码的评估当月轮结论)
 if [ "$DRY_RUN" != 1 ]; then
@@ -74,11 +75,15 @@ run_step() {  # run_step <label> <ipdb._eval args...> — 执行并打印尾行�
   # 管线 rc 显式捕获后 return(不靠 set -e 在函数内炸出——调用方在 || 语境下调
   # 用时 set -e 全程失效,靠尾命令 echo 会吞 rc;终审修单 F4 判例)
   local label=$1; shift
-  local log="/tmp/monthly_eval-$label.log"
+  # #468:腿日志改落报告目录树($LOG_DIR,定义在 REPORT_ROOT 旁),不再写
+  # /tmp/monthly_eval-<腿名>.log —— /tmp 重启即丢,2026-11-25 排查上一轮
+  # 月轮时腿日志已无踪可查;文件名带 ROUND_TS,一轮一份不覆盖上一轮。
+  local log="$LOG_DIR/$label-$ROUND_TS.log"
   local rc=0
   echo
   echo "==> $label: IP_RADAR_EVAL_ENV=monthly python3 -m ipdb._eval $*"
-  if [ "$DRY_RUN" = 1 ]; then return 0; fi
+  if [ "$DRY_RUN" = 1 ]; then return 0; fi  # 干跑不建目录不写文件(#468)
+  mkdir -p "$LOG_DIR"
   # cwd 须在 backend/(模块路径 ipdb);报告目录用绝对路径防 cwd 歧义
   ( cd "$REPO/backend" && \
       IP_RADAR_DATA_DIR="$DATA_DIR" \
@@ -177,6 +182,7 @@ if [ "$DRY_RUN" != 1 ]; then
 fi
 
 REPORT_ROOT="$REPO/backend/data/eval/monthly"
+LOG_DIR="$REPORT_ROOT/logs"  # #468:每条腿日志目录(报告目录树下 monthly/logs/,与月轮工件同树);run_step 在此之后才首次调用,call-time 取值安全
 # ── 腿级 rc 分离(#193 C5,承 F4 anchors 判例推广到全腿):任一腿红
 # 不中止后续腿(红态记录≠管线中止),工件照写留证;缺员即死不变
 # (工件缺席=半途中止=死,不推心跳)。腿级状态落 leg-status-*.json

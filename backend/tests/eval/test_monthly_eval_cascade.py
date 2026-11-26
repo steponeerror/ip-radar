@@ -19,6 +19,7 @@ ssh);python3 桩按 argv 模拟各腿(anchors 按 ANCHORS_MODE 决定 rc,失败�
 """
 import json
 import os
+import re
 import subprocess
 import textwrap
 from pathlib import Path
@@ -515,3 +516,28 @@ def test_eval_report_push_failure_red_but_heartbeat_kept(tmp_path):
     assert rc == 7, f"推送红须以推送 rc=7 结尾外显,实得 {rc}\n{out}"
     assert "红态" in out and "推送" in out, f"缺推送红态行\n{out}"
     assert (tmp_path / "heartbeat-marker").exists(), "推失败心跳照写"
+
+
+# ── #468:腿日志落报告目录树(monthly/logs/<腿名>-<UTC 时间戳>.log)──
+
+def test_leg_logs_land_in_report_tree_one_timestamp_per_round(tmp_path):
+    """#468:每腿完整输出不再写 /tmp,改落 <报告目录>/monthly/logs/ 下,
+    文件名 = <腿名>-<UTC 时间戳>.log(一轮一个时间戳,十二腿共用,
+    不覆盖上一轮)。报告目录指到临时仓(不入真仓库);干跑零目录由
+    test_bash_syntax_and_dry_run 的「报告根不存在」断言覆盖(logs/ 在其下)。"""
+    repo = _make_repo(tmp_path)
+    stubs = _make_stubs(tmp_path)
+    rc, out = _run_monthly(repo, stubs, tmp_path)
+    assert rc == 0, out
+    logs = _report_root(repo) / "logs"
+    assert logs.is_dir(), f"腿日志目录缺席\n{out}"
+    stamps = set()
+    for leg in ("model", "all", "anchors", "dsem", "agg-share",
+                "sinkhole-probe", "anchor-readouts", "truth-v2",
+                "truth-v2-readout", "audit", "temporal", "readout"):
+        # 精确全名匹配(glob 前缀会互撞:truth-v2-* 也吃掉 truth-v2-readout-*)
+        found = [p for p in logs.iterdir()
+                 if re.fullmatch(rf"{re.escape(leg)}-\d{{8}}T\d{{6}}Z\.log", p.name)]
+        assert len(found) == 1, f"{leg} 腿日志须恰一份,实得 {[p.name for p in found]}\n{out}"
+        stamps.add(re.search(r"(\d{8}T\d{6}Z)", found[0].name).group(1))
+    assert len(stamps) == 1, f"一轮一个时间戳(十二腿共用),实得 {sorted(stamps)}"
