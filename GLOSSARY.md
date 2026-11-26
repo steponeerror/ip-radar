@@ -226,7 +226,7 @@
 
 ## 已退役
 
-- **轮次状态文件**:旧管线的状态机持久面(rounds/<round_id>/state.json)——每步边界原子写(temp+rename,沿 _ops_store 判例),boot 恢复与 replay 的单一事实源;轮次目录 rounds/<round_id>/(round_id=YYYY-MM-DD-HHMM-health),replay 产物写 <round_id>-r<seq>/ 原件零改写——ADR 0012 Pi Durable 迁移后 v2 轮的恢复真源由 checkpoint 取代。退役的是这个词,不是文件:#412 起 pipeline.mjs 是 UI 健康轮的缺省宿主,仍逐步写这个文件;#408 起 v2 轮只把终态镜像写到同一路径供 UI 徽章读——活文档里直说「state.json」「终态镜像」,不用本词。出处:ops/pipeline-core/pipeline.mjs(writeState/runReplay)、ops/agent-v2/tasks/round-state.mjs(终态镜像)、docs/adr/0012(嵌套 docs 仓)
+- **轮次状态文件**:旧管线的状态机持久面(rounds/<round_id>/state.json)——每步边界原子写(temp+rename,沿 _ops_store 判例),boot 恢复与 replay 的单一事实源;轮次目录 rounds/<round_id>/(round_id=YYYY-MM-DD-HHMM-health),replay 产物写 <round_id>-r<seq>/ 原件零改写——ADR 0012 Pi Durable 迁移后 v2 轮的恢复真源由 checkpoint 取代。退役的是这个词,不是文件:#412 起 pipeline.mjs 是 UI 健康轮的缺省宿主,仍逐步写这个文件;v2 轮只在任务终态写终态镜像到同一路径(#408 起发现轮/加源轮,#445 起含框架判 faulted),读它的只有日报里加源轮的摘要(scripts/daily-digest.mjs),启动扫描只认 in_flight,界面不读——活文档里直说「state.json」「终态镜像」,不用本词。出处:ops/pipeline-core/pipeline.mjs(writeState/runReplay)、ops/agent-v2/tasks/round-state.mjs(终态镜像)、docs/adr/0012(嵌套 docs 仓)
 
 ## It's working if
 

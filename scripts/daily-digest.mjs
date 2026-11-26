@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 // daily-digest.mjs — 每日 lark 日报(#368;2026-11-20 用户裁 Q4=每天 21:00 一份摘要,
 // Q6=免正式观察期、日报即观察——连续 14 天全绿→旧管线退役 PR,2026-12-04 核)。
+// 连续全绿的口径(票 #445 第 3 项,2026-11-24 用户裁定):中止的轮不算绿,和失败同样断签。
+// 实况注记:下面 summarizeServerRound 只看 gates.json 红门,中止轮的已过门=全绿残件会
+// 误计绿——口径以此注记为准,读数面收口(认终态镜像 status)留待 digest 侧跟进。
 // 零依赖(node 内建 + ssh 免密),汇总两面当日信号:
 //   服务器面(ssh root@203.88.124.85 → docker exec ip-lookup-tool-ipradar-1):
 //     /app/data/ops/rounds/ 当日健康轮+发现轮信封(gates.json 全 records pass=ok;

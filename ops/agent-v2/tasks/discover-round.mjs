@@ -175,6 +175,27 @@ async function advance(runtime, context, checkpoint, patch = {}, ctx = null) {
   }), context);
   if (ctx) mirrorState(ctx, checkpoint); // 尽力镜像(真源=checkpoint;失败不炸轮)
 }
+// #445:框架判 faulted(pi-durable onReport task_faulted;接线位 entry.mjs openHarness)的镜像写。
+// input=Journal 任务记录的轮参(终态记录只剩 input,checkpoint 已被框架丢弃),ck=同源的
+// 最后 checkpoint(空=open 恢复面,调用方已滤)。属主校验/ctx 重建与 #415 失败出口同口径
+// (writeOwnedRoundState;buildCtx 同函数);词面:状态=failed(不造新词,文件头注),
+// 错误码=框架自己的词 "faulted";stage/stages=ck 已提交相位(faulted 相位未成不造名;stage 零提交
+// 不写键;stages 传 ck 名单=镜像不落后于真源,mirrorState 是 commit 后的尽力面)。覆写盘上残件
+// (含中止 handler 已写、中止终态 commit 被 restartLimit 截停的 aborted 窗口残件)=让镜像对齐
+// 框架真源(outcome.status=faulted;#430 评估挂的三个决定,主会话 2026-11-26 按票面裁定状态词,
+// 覆写案照 #408 真源律)。不掷错:写败只记 stderr(onReport 里再抛=丢上报,pi-durable 不吞回调错)。
+export function writeFaultedMirror(input, ck, reason) {
+  try {
+    if (!input?.roundId) return; // 无轮参(起步前 fault)无可写轮目录
+    writeOwnedRoundState(buildCtx(input, ck), "failed", {
+      stage: ck.stages?.at(-1)?.name ?? null,
+      stages: (ck.stages ?? []).map((r) => r.name),
+      errorCode: "faulted",
+    });
+  } catch (e) {
+    process.stderr.write(`[discover:${input?.roundId}] #445 faulted 镜像写败(${reason}):${e?.message ?? e}\n`);
+  }
+}
 // #415:全部失败终态出口经此(与 outcome 终态同一出口);带 ctx=镜像同写 failed——属主校验在
 // writeOwnedRoundState(未建轮/异物树/同 id 旧轮终态件不写=不把别轮终态改判)。
 async function finishFailed(runtime, context, error, ctx = null) {
