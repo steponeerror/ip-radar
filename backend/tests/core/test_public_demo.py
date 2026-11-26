@@ -18,8 +18,11 @@ HEADER = {"x-ipradar-client": "web"}
 
 @contextmanager
 def _client(env_value: str | None, admin: str | None = None,
-            trust_xff: bool = False):
-    """TestClient with ``_startup`` patched out (no cold-start downloads)."""
+            trust_xff: bool = False, follow_redirects: bool = True):
+    """TestClient with ``_startup`` patched out (no cold-start downloads).
+    尾斜杠变形用例必须 follow_redirects=False:307 被跟进后终点仍是守卫的
+    404,面具的「不 307」承诺就看不见了(变异证据:默认值下去镜像匹配的
+    变异不转红)。"""
     import main
     with patch.object(main, "_startup"):
         import os
@@ -31,7 +34,7 @@ def _client(env_value: str | None, admin: str | None = None,
             os.environ.pop("IP_RADAR_PUBLIC_DEMO", None)
         else:
             os.environ["IP_RADAR_PUBLIC_DEMO"] = env_value
-        with TestClient(main.app) as c:
+        with TestClient(main.app, follow_redirects=follow_redirects) as c:
             yield c
 
 
@@ -81,15 +84,19 @@ def test_demo_newly_hidden_families_404():
             assert r.json()["error"]["code"] == "not_found"
 
 
-def test_demo_login_reachable_but_logout_hidden():
+def test_demo_login_reachable_but_logout_hidden(monkeypatch):
     """例外②:POST /api/auth/jwt/login 不隐藏(主人不在白名单地址上时也要能
-    登录)。匿名实测:admin 未配置 → 依赖层 503 admin_disabled;若进程态里
-    admin 已配(此前用例登录过),则是表单层 400/422 —— 都不是守卫的 404。
-    同族 logout 带超管依赖,照推导规则隐藏。"""
+    登录)。monkeypatch 把进程级管理员标志(ipdb._auth._admin_flag)钉成
+    未配置,断言稳定落在依赖层的 503 admin_disabled——不再随进程态(admin
+    已配时是表单层 400/422)漂(评审返工·建议改 6)。同族 logout 带超管
+    依赖,照推导规则隐藏。"""
+    import ipdb._auth as _auth
+    monkeypatch.setattr(_auth, "_admin_flag", False)
     with _client("1") as c:
         r = c.post("/api/auth/jwt/login")
-        assert r.status_code != 404, "登录口必须可达"
-        assert r.json()["error"]["code"] != "not_found"
+        assert r.status_code == 503, (
+            f"登录口应 503 admin_disabled,实得 {r.status_code}")
+        assert r.json()["error"]["code"] == "admin_disabled"
         assert c.post("/api/auth/jwt/logout").status_code == 404
 
 
@@ -102,53 +109,98 @@ def test_demo_hidden_path_method_agnostic_404():
         assert r.json()["error"]["code"] == "not_found"
 
 
-def _api_routes_with_expected_hidden():
-    """按规则 1/2 独立推导 (path, methods, expect_hidden) 全表(票 #482):
-    规则 1 = 依赖树带 require_admin_configured ∪ current_superuser;
-    规则 2 = /api/update 一律隐藏、/api/auth/jwt/login 不隐藏。
-    实现侧不引用本函数——两侧各自从路由表推导,只共享规则不共享代码。"""
+# 评审返工·必须改 1:尾斜杠变形此前穿透面具被 starlette 路由器 307 跳到
+# 规范路径(Location 自报存在性);%2F 进 ASGI 前已百分号解码成 /,同路。
+SLASH_VARIANTS = [
+    "/api/tasks/", "/api/tasks//", "/api/tasks///", "/api/tasks%2F",
+    "/api/sources/x/", "/api/users/me/", "/api/auth/jwt/logout/",
+    "/api/update/", "/api/ops/items/", "/api/tasks/?x=1",
+]
+
+
+@pytest.mark.parametrize("path", SLASH_VARIANTS)
+def test_demo_trailing_slash_variants_masked(path):
+    """尾斜杠变形与裸路径同样拿 404 信封:守卫镜像路由器的去尾斜杠(rstrip
+    全部)+ 补斜杠两个跳转候选再判一次,307 跳转不再先于面具出现。
+    follow_redirects=False 断言守卫直答的 404——默认跟随后 307 的终点仍会
+    被面具接住,变异(去镜像)看不见。?x=1 一行钉住 request.url.path 不含
+    查询串。"""
+    with _client("1", follow_redirects=False) as c:
+        r = c.get(path)
+        assert r.status_code == 404, f"GET {path} 应 404,实得 {r.status_code}"
+        assert r.json()["error"]["code"] == "not_found"
+
+
+@pytest.mark.parametrize("path", ["/api//tasks", "/api/./tasks", "/API/tasks/",
+                                  "/api/tasks;x=1/", "/api/tasks/.."])
+def test_demo_noncanonical_shapes_still_404(path):
+    """对照组(评审返工·必须改 1):这些形状在镜像前后都拿 404——去尾斜杠/
+    补斜杠都命中不了任何路由(fastapi 不规范化路径、正则大小写敏感、;
+    不是分隔符)。镜像不得引入新放行,这条钉住它。"""
+    with _client("1", follow_redirects=False) as c:
+        r = c.get(path)
+        assert r.status_code == 404, f"GET {path} 应 404,实得 {r.status_code}"
+        assert r.json()["error"]["code"] == "not_found"
+
+
+def _api_routes():
+    """全部 /api 路由的 (path, methods)(fastapi 0.141 平面视图,同
+    test_security_matrix)。"""
     from fastapi.routing import iter_route_contexts
-    import ipdb._auth as _auth
     import main
-    anchors = {main.require_admin_configured, _auth.current_superuser}
-
-    def has_admin_dep(dependant):
-        for sub in getattr(dependant, "dependencies", ()) or ():
-            if getattr(sub, "call", None) in anchors or has_admin_dep(sub):
-                return True
-        return False
-
     routes = []
     for ctx in iter_route_contexts(main.app.routes):
         path = getattr(ctx, "path", "")
         if not path.startswith("/api/"):
             continue  # 守卫只在 /api 上判隐藏;非 /api 路径全放,无隐藏可言
-        expect = (path == "/api/update"
-                  or (path != "/api/auth/jwt/login"
-                      and has_admin_dep(ctx.dependant)))
         methods = sorted(getattr(ctx, "methods", set()) - {"HEAD"})
-        routes.append((path, methods, expect))
+        routes.append((path, methods))
     return routes
 
 
+def _expected_hidden_from_frozen():
+    """独立对照源(评审返工·建议改 1):期望「隐不隐藏」从
+    test_security_matrix.FROZEN(手维护的鉴权类别冻结表)推导,与实现的
+    依赖树遍历零共享代码——实现若在「遍历哪一层」上错,这张表不会跟着错。
+    管理员类 = {admin, logout}(logout 是「须已登录超管」操作,匿名同样装
+    不存在;login 不算——它是例外②的放行口;keyed / open-status /
+    open-selfupdate-token 可见);或路径 == /api/update(例外①)。同路径
+    多方法:任一方法属管理员类即隐藏——与实现侧「同路径取或」同口径。"""
+    from tests.auth.test_security_matrix import FROZEN
+    admin_classes = frozenset({"admin", "logout"})
+    classes_by_path: dict[str, set] = {}
+    for (_method, path), cls in FROZEN.items():
+        classes_by_path.setdefault(path, set()).add(cls)
+    return {path: bool(classes & admin_classes) or path == "/api/update"
+            for path, classes in classes_by_path.items()}
+
+
 def test_demo_hidden_table_derived_full_sweep():
-    """全表扫描(票 #482 验收):遍历全部 /api 路由,按规则 1/2 独立推导应否
-    隐藏,再在演示模式下对每条路由发匿名真实请求(路径参数取样例值,方法
-    用路由声明之一):该隐藏的回 404 信封;不该隐藏的不回 404(200/401/
-    403/422/503 都是合法后续层应答)。期望表从路由依赖树推导,不手抄路径。"""
+    """全表扫描(票 #482 验收):遍历全部 /api 路由,期望值从 FROZEN 冻结表
+    推导(见 _expected_hidden_from_frozen——独立对照源),再在演示模式下对
+    每条路由发匿名真实请求(路径参数取样例值,方法用路由声明之一):该隐藏
+    的回 404 信封;不该隐藏的不回 404(200/401/403/422/503 都是合法后续层
+    应答)。FROZEN 没覆盖的路由在这里响亮失败——新路由先去
+    test_security_matrix 登记(那张表自己也钉这件事,这里是双保险)。"""
     import re
     from unittest.mock import AsyncMock
     import main
-    routes = _api_routes_with_expected_hidden()
+    routes = _api_routes()
+    expected = _expected_hidden_from_frozen()
     assert len(routes) >= 40, f"路由表异常地小: {len(routes)}"
-    assert any(h for _, _, h in routes), "推导表无隐藏路由,规则失效?"
-    assert any(not h for _, _, h in routes), "推导表全是隐藏路由,可见面被吞?"
+    missing = sorted({path for path, _ in routes} - set(expected))
+    assert not missing, (
+        f"FROZEN 表没覆盖的路由(先去 test_security_matrix 登记): {missing}")
+    hidden_count = sum(1 for path, _ in routes if expected[path])
+    assert hidden_count, "FROZEN 推导无隐藏路由,规则失效?"
+    assert hidden_count < len(routes), "FROZEN 推导全是隐藏路由,可见面被吞?"
     # /api/version 匿名可达;fetch_latest 桩掉免网络(同 test_version_reports_demo_flag)
     with patch.object(main._ipdb_version, "fetch_latest",
                       AsyncMock(return_value=None)):
         with _client("1") as c:
-            for path, methods, expect_hidden in routes:
+            for path, methods in routes:
                 url = re.sub(r"\{[^}]+\}", "x", path)  # 路径参数样例(全表 str 转换器)
+                expect_hidden = expected[path]
                 res = c.request(methods[0], url)
                 if expect_hidden:
                     assert res.status_code == 404, (
@@ -184,6 +236,74 @@ def test_demo_rule_second_anchor_current_superuser_alone_hides():
             assert r.json()["error"]["code"] == "not_found"
     finally:
         main.app.routes.remove(route)
+        # 数量键缓存看不见「同数量换内容」(评审记一笔·认可的限制):临时路由
+        # 逐个加删都是 len±1,不清掉派生表,下一个加路由的用例会命中 stale 面具
+        try:
+            del main.app.state._demo_hidden_routes
+        except AttributeError:
+            pass
+
+
+def test_demo_param_level_depends_hides():
+    """递归 + 参数级 Depends(评审返工·建议改 2):管理员依赖挂在端点参数的
+    子依赖上(inner = Depends(_inner),_inner(guard = Depends(第二锚)))——
+    fastapi 把参数级 Depends 也收进 dependant.dependencies,遍历必须递归到
+    第二层才看得到;匿名 → 404。把 _route_has_admin_dep 改成只看第一层
+    (不递归)时这条转红。"""
+    from fastapi import Depends
+    import main
+
+    async def _inner(guard: None = Depends(main._ipdb_auth.current_superuser)):
+        return None
+
+    async def _param_dep_probe(inner: None = Depends(_inner)):
+        return {"ok": True}
+
+    main.app.add_api_route("/api/_demo_param_dep_probe", _param_dep_probe,
+                           methods=["GET"])
+    route = main.app.routes[-1]
+    try:
+        with _client("1") as c:
+            r = c.get("/api/_demo_param_dep_probe")
+            assert r.status_code == 404, (
+                f"参数级 Depends 挂管理员依赖的路由应隐藏,实得 {r.status_code}")
+            assert r.json()["error"]["code"] == "not_found"
+    finally:
+        main.app.routes.remove(route)
+        try:
+            del main.app.state._demo_hidden_routes
+        except AttributeError:
+            pass
+
+
+def test_demo_login_exception_scoped_to_login_route_only():
+    """例外②只作用于 POST /api/auth/jwt/login 那一条路由(评审返工·建议
+    改 4):同一路径上的其他路由照推导规则 1 计入取或——临时挂一条带管理员
+    依赖的 GET 到同一路径,整条路径即被判隐藏(路径级取或,往严处走;POST
+    例外救不回同路径的管理员路由)。例外被改回「整条路径放行」时这条转红
+    (旧行为下 GET 拿 503 admin_disabled 而非 404)。"""
+    from fastapi import Depends
+    import main
+
+    async def _login_get_probe():
+        return {"ok": True}
+
+    main.app.add_api_route("/api/auth/jwt/login", _login_get_probe,
+                           methods=["GET"],
+                           dependencies=[Depends(main.require_admin_configured)])
+    route = main.app.routes[-1]
+    try:
+        with _client("1") as c:
+            r = c.get("/api/auth/jwt/login")
+            assert r.status_code == 404, (
+                f"同路径新增的管理员路由应照规则 1 隐藏,实得 {r.status_code}")
+            assert r.json()["error"]["code"] == "not_found"
+    finally:
+        main.app.routes.remove(route)
+        try:
+            del main.app.state._demo_hidden_routes
+        except AttributeError:
+            pass
 
 
 def test_demo_read_endpoints_need_header():
@@ -325,6 +445,20 @@ def test_demo_options_non_api_still_exempt():
         res = c.options("/no-such-page")
         assert res.status_code in (404, 405)
         assert res.json()["error"]["code"] in ("not_found", "method_not_allowed")
+
+
+def test_demo_preflight_hidden_or_missing_masked_404():
+    # 评审返工·必须改 1(预检同病兄弟):预检形状 OPTIONS 不再整体豁免——
+    # 隐藏或没有任何路由匹配都由守卫回 404 信封(「隐藏」与「不存在」在任何
+    # 部署形态下同形;此前隐藏路径的预检被放行给 CORS,由 CORS 均匀应答);
+    # 可见路由(db-status)的预检照旧 200,由上面的
+    # test_demo_options_preflight_shape_only 钉住。
+    with _client("1") as c:
+        for path in ("/api/tasks/", "/api/tasks", "/api/no-such-thing"):
+            r = c.options(path, headers=PREFLIGHT)
+            assert r.status_code == 404, (
+                f"OPTIONS {path} 应 404,实得 {r.status_code}")
+            assert r.json()["error"]["code"] == "not_found"
 
 
 # ── ③ 守卫 404/403 信封化 ──
