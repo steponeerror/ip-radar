@@ -385,11 +385,14 @@ Most are enforced automatically:
    `last_seen`/`comment` are distinct evidence and must both survive. Emit one
    evidence dict per parsed row; don't pre-collapse.
 
-4. **Staleness is the data FILE's mtime, never in-memory load time.** `health()`
-   must compute `is_stale` from `self._path.stat().st_mtime`, not from
-   `self._loaded_at`. If you base it on load time, every restart re-downloads
-   every source. (Multi-list directory sources use the **max** mtime across
-   files — see archetypes §3c.)
+4. **Staleness is the data FILE's mtime, never in-memory load time.** The base
+   `health()` computes freshness via `backend/ipdb/_sources/_freshness.py` —
+   do NOT override `health()` for staleness, and never use `self._loaded_at`
+   (if you base it on load time, every restart re-downloads every source).
+   Single-file sources need nothing; directory / multi-file sources only
+   override `_data_files()` to return the list of data files, and the base
+   takes the newest mtime across them. Example: `blocklist_de.py`
+   (see archetypes §3c).
 
 5. **Read your own config in `__init__`; the registry passes only `data_dir`.**
    API keys, enabled flags, thresholds — all from env / args in your constructor.
