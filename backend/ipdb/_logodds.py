@@ -18,19 +18,18 @@ DECAY_OVERRIDES: dict[str, float] = {}
 # 去重,无需改中央字面量表。
 DERIVED_SOURCES: set[str] = {
     "firehol", "ipsum", "otx", "otx_subscribed", "greensnow", "drb_ra"}
-# 谱系锚(DQ-1,审计 2026-10-06):target → anchor。target 的块清单 ⊇
-# anchor 原创清单(emerging_threats ⊇ spamhaus DROP,/12 巨块回声
-# LMDB 实证):anchor 在场且系数不低于 target 时 target 视为回声剔除
-# (宁少算);anchor 缺席或更弱 → target 保留。firehol⊃DROP 已由
-# DERIVED_SOURCES 覆盖,不入此表。grill Q2(2026-10-11)补镜像对:
-# firehol ⊇ greensnow 原创清单(OC=1.0,包含度 ≥0.9,eval 谱系簇
-# 2026-09-01;firehol 系数 = logit(.5)·decay ≡ 0,剔它不动任何分数);
-# otx/otx_subscribed 互嵌无实测数字,不入(现状钉死)。
-# _calibrated.json 把 firehol r 抬离 0.5 时须重验 C2 恒等(剔它即动分数)。
-LINEAGE_ANCHORS: dict[str, str] = {
-    "emerging_threats": "spamhaus",
-    "firehol": "greensnow",
-}
+# 谱系锚(DQ-1,审计 2026-10-06;#464 卡2上半改灌装):target → 原创
+# 锚元组(一个转载者可转载多个原创)。声明面只在各源类的 republishes
+# 属性上(声明旁注实测同场共现率与口径,清单见各源文件旁注,不在此
+# 复抄——评审 B8:抄一份漂移一份);此处留空字典只为名字先存在,
+# _registry 导入时无条件 clear+update 灌装,任何 import ipdb 之后表
+# 内容 = 声明全集(评审 A2:旧两条字面量种子在任何 import 后不可见,
+# 且与源类声明同写两处,已删)。重新赋值本名字会让按模块属性读表的
+# 一方(_eval/events.py、测试)拿着旧表,只许原位灌装。
+# otx/otx_subscribed 互嵌无实测数字,不声明(现状钉死,grill Q2
+# 2026-10-11)。判式不变(卡2后半另票):任一锚在场且系数不低于
+# target → target 视为回声剔除(宁少算);锚全缺席或更强 → 保留。
+LINEAGE_ANCHORS: dict[str, tuple[str, ...]] = {}
 
 
 def logit(p: float) -> float:
@@ -96,8 +95,10 @@ def dedup_lineage(coeffs: list[tuple[str, float]]) -> list[tuple[str, float]]:
     不高于最强非 derived 的 derived 源(相等也剔——宁少算勿重算)。
     谱系锚(LINEAGE_ANCHORS)同判式且对纯 derived 组同样生效——锚判式
     在早退判别之前(grill Q2 2026-10-11 前移;此前纯 derived 早退全
-    保留,镜像对同一出版方算两票、corroborated 假真):target 在其锚源
-    在场且锚系数不低于它时同样剔除(锚缺席或更弱 → 保留)。"""
+    保留,镜像对同一出版方算两票、corroborated 假真):target 在其任一
+    锚源在场且锚系数不低于它时同样剔除(锚全缺席或更强 → 保留;
+    #464 卡2上半起表由 registry 按 republishes 声明灌装,target 可声明
+    多锚,判式逐锚不变)。"""
     non_derived_max = max((c for s, c in coeffs if s not in DERIVED_SOURCES),
                           default=None)
     kept: list[tuple[str, float]] = []
@@ -105,14 +106,15 @@ def dedup_lineage(coeffs: list[tuple[str, float]]) -> list[tuple[str, float]]:
         if (non_derived_max is not None and s in DERIVED_SOURCES
                 and c <= non_derived_max):
             continue
-        anchor = LINEAGE_ANCHORS.get(s)
-        if anchor is not None:
-            # 锚在场 = 锚源出现在输入 coeffs(逐前置判别,不看 kept 集合)
+        for anchor in LINEAGE_ANCHORS.get(s, ()):
+            # 锚在场 = 锚源出现在输入 coeffs(逐前置判别,不看 kept 集合);
+            # 多锚(#464)任一在场且不低于 target 即剔(判式不变,宁少算)
             anchor_max = max((c2 for s2, c2 in coeffs if s2 == anchor),
                              default=None)
             if anchor_max is not None and anchor_max >= c:
-                continue
-        kept.append((s, c))
+                break
+        else:
+            kept.append((s, c))
     return kept
 
 

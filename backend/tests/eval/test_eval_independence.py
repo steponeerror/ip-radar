@@ -28,3 +28,12 @@ def test_oc_suspicion_flags_cross_cluster_high_overlap():
     # (e.g. blocklist_de silently copying spamhaus).
     pair_oc = {frozenset(("blocklist_de", "spamhaus")): 0.80}
     assert oc_suspicion_pairs(pair_oc) == [(("blocklist_de", "spamhaus"), 0.80)]
+
+
+def test_oc_suspicion_skips_republish_chain():
+    # ustc_blackip verbatim-republishes spamhaus (declared republishes,
+    # #464 card-2 first half): the echo is expected, not a suspicion
+    # finding, even at OC=1.0. Mutation ① companion: dropping the
+    # declaration puts this pair back on the alarm list (red).
+    pair_oc = {frozenset(("ustc_blackip", "spamhaus")): 1.0}
+    assert oc_suspicion_pairs(pair_oc) == []

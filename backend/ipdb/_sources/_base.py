@@ -88,6 +88,17 @@ class SourceBase:
     # infra_services curated 单址集(默认 False,事故源显式 opt-in);
     # 三条取数车道(harvest/明单行/CSV 行)各自接线本 flag。
     infra_noise_filter: bool = False
+    # 转载关系声明(卡2上半,#464):本源转载的原创源名,写在转载者
+    # 上,每条声明旁注实测同场共现率与日期(哲学 6:一切声明可证伪;
+    # 共现证不了照搬——同一上游或各自独立封同一批地址也会共现,评审
+    # B3;判式只在同场地址上起作用,分不清成因不影响剔除方向)。A/B
+    # 两家族经本底座同享(_source_base.Source 继承本类),缺省空元组 =
+    # 没有声明。消费 = _registry 启动灌装 LINEAGE_ANCHORS(计分谱系锚:
+    # 同场且锚系数不低于转载者时,转载者不计票)+ _eval 转载闭包
+    # (评测判独立:同链不算佐证)——计分与评测读同一份声明;锚源名
+    # 必须已登记(registry 启动校验,拼错/已撤/发现期实例化失败即炸,
+    # 元数据契约同款 fail-loud)。
+    republishes: tuple[str, ...] = ()
 
     def __init__(self, data_dir: Path):
         self._data_dir = data_dir

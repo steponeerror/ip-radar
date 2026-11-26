@@ -15,6 +15,8 @@
 [![Live Demo](https://img.shields.io/badge/%F0%9F%93%A1_Live_Demo-ipradar.huxiao0207.dpdns.org-FF6B35?style=for-the-badge)](https://ipradar.huxiao0207.dpdns.org)
 
 > **演示模式** —— 数据源管理与更新已禁用，查询功能完整可用；自部署解锁全部能力。
+>
+> **演示站打不开？** 如果只在某一个网络下打不开（比如家里的网络），可能是路由器的 DNS 过滤拦了 `dpdns.org`——这是个很多人共用的免费域名后缀，有人在 eero Plus 的「Advanced Security」上遇到。现象和办法见 [#281](https://github.com/steponeerror/ip-radar/discussions/281)。
 
 <p align="center">
 <table>

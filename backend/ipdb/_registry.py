@@ -129,6 +129,44 @@ def _apply_derived_sources():
 _apply_derived_sources()  # 模块导入时灌装一次;测试可重跑验证同步
 
 
+def _apply_lineage_anchors():
+    """#464(卡2上半):LINEAGE_ANCHORS 改由源 class attr republishes
+    灌装(fill-in-place,与 _apply_derived_sources 同一种灌装写法;
+    _logodds 处只留空字典占名字——旧字面量种子在任何 import 后不可见,
+    评审 A2 已删)。一个转载者可声明多锚(值 = tuple);声明面 = 各源类
+    旁注实测同场共现率与口径(2026-11-26 全库扫描,归档 docs/reports/
+    2026-11-26-arch-r4-landing/#451-卡2-转载关系/verify/)。锚源名必须是
+    已登记源名,拼错/已撤/发现期实例化失败(发现期只告警跳过,见本文件
+    _discover_sources)都启动即炸(元数据契约同款 fail-loud:
+    _validate.metadata_problems 先例;宁少算的反面是不许静默漏)。"""
+    names = {s.name for s in _sources}
+    anchors: dict[str, tuple[str, ...]] = {}
+    for s in _sources:
+        declared = getattr(s, "republishes", ())
+        if isinstance(declared, str):
+            # B7(#469 评审):裸字符串会被 tuple() 逐字符拆开,报出来的
+            # 名字面目全非——拆之前直接报写法错
+            raise RuntimeError(
+                f"转载声明违规(source {s.name}): republishes 要写成源名"
+                f"元组,拿到字符串 {declared!r}")
+        declared = tuple(declared or ())
+        if not declared:
+            continue
+        for a in declared:
+            if a not in names:
+                raise RuntimeError(
+                    f"转载声明违规(source {s.name}): republishes 引用未登记"
+                    f"源名 {a!r} —— 拼错、源已撤、或锚源发现期实例化失败"
+                    f"(发现期只告警跳过,见本文件 _discover_sources);"
+                    f"声明面见 _sources/_base.SourceBase.republishes")
+        anchors[s.name] = declared
+    _lo.LINEAGE_ANCHORS.clear()
+    _lo.LINEAGE_ANCHORS.update(anchors)
+
+
+_apply_lineage_anchors()  # 模块导入时灌装一次;测试可重跑验证同步
+
+
 def _apply_calibrated(path=None):
     """校准覆盖(spec 2026-08-29 §8):data/_calibrated.json 的 default 域
     覆盖 class attr 先验;其余域(country/asset key/classification type)
