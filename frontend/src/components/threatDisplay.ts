@@ -81,10 +81,11 @@ export const CLASS_KEYS: Record<string, string> = {
   proxy: "class.proxy",
   hosting: "class.hosting",
   vpn: "class.vpn",
-  // 后端全集对拍(2026-11-26 card12):CLASSIFICATION_TYPES 每个值(normalize 的
+  // 后端全集对拍(2026-11-26,#451 卡 12):CLASSIFICATION_TYPES 每个值(normalize 的
   // - → _ 形态)在此都必须有键,backend/tests/core/test_vocab_contract.py 钉死。
-  // dns/ntp/vulnerable_system/misconfiguration = 2026-10-24 后端加型时前端漏跟
-  // 的补齐(评审结论原案);文案缺键时 classLabel 回退原始串,界面裸奔英文。
+  // dns/ntp = 2026-10-24(#188)后端加型时前端漏跟的补齐;vulnerable_system/
+  // misconfiguration = 词表里早就有的空位(NEEDS.md「词表死槽」,今天没有源产出),
+  // 同样一直没有表项。文案缺键时 classLabel 回退原始串。
   dns: "class.dns",
   misconfiguration: "class.misconfiguration",
   ntp: "class.ntp",

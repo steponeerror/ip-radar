@@ -136,11 +136,10 @@ describe("threatDisplay", () => {
 });
 
   it("classLabel covers every classification type the backend can emit", () => {
-    // 手抄清单已删(2026-11-26 card12 词表对拍):清单换成被测模块 CLASS_KEYS 本身
+    // 手抄清单已删(2026-11-26,#451 卡 12 词表对拍):清单换成被测模块 CLASS_KEYS 本身
     // ——后端全集 ⊆ CLASS_KEYS 由 backend/tests/core/test_vocab_contract.py 钉死;
     // 这里钉「CLASS_KEYS 每个键双语都有文案」(i18n 缺键时 translate 返回键名原串,
     // zh-CN 缺键会静默回退 en,所以两份词典都要直接查键)。
-    const enT = (k: string) => translate("en", k);
     for (const [ty, key] of Object.entries(CLASS_KEYS)) {
       expect(key in enLocales, `missing en label for ${ty} (${key})`).toBe(true);
       expect(key in zhLocales, `missing zh-CN label for ${ty} (${key})`).toBe(true);

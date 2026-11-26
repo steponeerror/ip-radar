@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import type { TaskState } from "../api";
 import { useTasks } from "../tasks/useTasks";
 import { useI18n } from "../i18n";
-import en from "../i18n/locales/en.json";
 import { stagedFrac, isIndeterminate, isTaskActive, isBatchLive } from "../tasks/progress";
 
 // Task 9:DbStatusBar 的活动面板原样迁入 /admin 任务区(管理面收敛,
@@ -11,11 +10,12 @@ import { stagedFrac, isIndeterminate, isTaskActive, isBatchLive } from "../tasks
 // 完成后保留 ~5s 展示终态再收起;冷加载见到的 done batch 不庆祝。
 
 // U4:状态徽章走 i18n。文案键表钉死「api.ts TaskState 每个状态都必须有
-// en 文案键」(card12 词表对拍,2026-11-26)。TaskState 是接口,状态联合取
-// 其 state 字段(TaskState["state"]);Record + keyof typeof en 使新增状态
-// 漏补键、或有人删文案键,任一漂移都编译红;zh-CN 同键齐备由
-// backend/tests/core/test_vocab_contract.py 对拍(双语键不许只补一半)。
-const STATE_LABEL_KEYS: Record<TaskState["state"], keyof typeof en> = {
+// en 文案键」(#451 卡 12 词表对拍,2026-11-26)。TaskState 是接口,状态联合取
+// 其 state 字段(TaskState["state"]);键表类型写成「这个状态只能对到它自己的
+// 文案键」,新增状态漏补键、或有人删文案键,任一漂移都编译红;zh-CN 同键齐备
+// 由 frontend/src/i18n/__tests__/parity.test.ts(两份词典键集全等)和
+// backend/tests/core/test_vocab_contract.py 各钉一层。
+const STATE_LABEL_KEYS: Record<TaskState["state"], `admin.tasks.state.${TaskState["state"]}`> = {
   queued: "admin.tasks.state.queued",
   throttled: "admin.tasks.state.throttled",
   downloading: "admin.tasks.state.downloading",
