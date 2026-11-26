@@ -22,10 +22,14 @@ def test_lineage_clusters_cover_derived_sources():
 
 def test_republishes_closure_covers_production_anchors():
     """#464 卡2上半一致性钉:生产 LINEAGE_ANCHORS(registry 按
-    republishes 类属性灌装)的每一对都在评测转载闭包里——计分与评测读
-    同一份声明,任一边漂移即红。预期声明面按 2026-11-26 生产镜像全库
-    扫描冻结(dev/arch-r4-scan/scan_step3.json pairs_contained;
-    firehol→greensnow 沿 grill Q2 2026-10-11 判例,实测数字见各源类注)。"""
+    republishes 类属性灌装)与评测转载闭包同面。真钉漂移的是下面的
+    == 冻结断言(新增/删除/改名任何一条声明即红);其后的闭包遍历对
+    同一张表近乎恒真,仅作语义示意保留(#469 评审 B4)。预期声明面按
+    2026-11-26 生产镜像全库扫描冻结(归档 docs/reports/2026-11-26-
+    arch-r4-landing/#451-卡2-转载关系/verify/scan_step3.json
+    pairs_contained,A5:曾为 untracked 本地件 dev/arch-r4-scan/,已归档
+    文档仓;firehol→greensnow 沿 grill Q2 2026-10-11 判例,两组实测
+    数字与口径见 firehol.py 类注)。"""
     import ipdb._logodds as lo
     from ipdb._eval.events import same_republish_chain
     expected = {

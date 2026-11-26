@@ -19,21 +19,17 @@ DECAY_OVERRIDES: dict[str, float] = {}
 DERIVED_SOURCES: set[str] = {
     "firehol", "ipsum", "otx", "otx_subscribed", "greensnow", "drb_ra"}
 # 谱系锚(DQ-1,审计 2026-10-06;#464 卡2上半改灌装):target → 原创
-# 锚元组(一个转载者可转载多个原创)。种子 = 无 _registry 导入时的兜底;
-# _registry 导入时按源 class attr republishes fill-in-place 覆盖(clear+
-# update,同 DERIVED_SOURCES 模式——_eval/audit.py 值绑定本对象身份,
-# 严禁重新赋值)。声明面 = 各源类旁注实测包含率(emerging_threats
-# ⊇ spamhaus 100.0% /12 巨块回声 LMDB 实证,2026-11-26 全库扫描复测同数;
-# grill Q2 2026-10-11 补镜像对 firehol ⊇ greensnow:OC=1.0,包含度
-# ≥0.9,eval 谱系簇 2026-09-01;firehol 系数 = logit(.5)·decay ≡ 0,
-# 剔它不动任何分数;otx/otx_subscribed 互嵌无实测数字,不声明(现状
-# 钉死))。判式不变(卡2后半另票):任一锚在场且系数不低于 target
-# → target 视为回声剔除(宁少算);锚全缺席或更强 → target 保留。
-# _calibrated.json 把 firehol r 抬离 0.5 时须重验 C2 恒等(剔它即动分数)。
-LINEAGE_ANCHORS: dict[str, tuple[str, ...]] = {
-    "emerging_threats": ("spamhaus",),
-    "firehol": ("greensnow",),
-}
+# 锚元组(一个转载者可转载多个原创)。声明面只在各源类的 republishes
+# 属性上(声明旁注实测同场共现率与口径,清单见各源文件旁注,不在此
+# 复抄——评审 B8:抄一份漂移一份);此处留空字典只为名字先存在,
+# _registry 导入时无条件 clear+update 灌装,任何 import ipdb 之后表
+# 内容 = 声明全集(评审 A2:旧两条字面量种子在任何 import 后不可见,
+# 且与源类声明同写两处,已删)。重新赋值本名字会让按模块属性读表的
+# 一方(_eval/events.py、测试)拿着旧表,只许原位灌装。
+# otx/otx_subscribed 互嵌无实测数字,不声明(现状钉死,grill Q2
+# 2026-10-11)。判式不变(卡2后半另票):任一锚在场且系数不低于
+# target → target 视为回声剔除(宁少算);锚全缺席或更强 → 保留。
+LINEAGE_ANCHORS: dict[str, tuple[str, ...]] = {}
 
 
 def logit(p: float) -> float:

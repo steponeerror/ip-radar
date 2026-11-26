@@ -170,8 +170,10 @@ def test_derived_sources_registry_fill_sync(monkeypatch):
 
 def test_lineage_anchors_registry_fill_sync(monkeypatch):
     """#464(卡2上半):LINEAGE_ANCHORS 由 republishes attr 灌装——attr
-    变动后重灌 → 表原位同步(fill-in-place,同 DERIVED_SOURCES 合同;
-    重绑定会切断 _eval/audit.py 值绑定,严禁)。"""
+    变动后重灌 → 表内容原位同步(fill-in-place,与 DERIVED_SOURCES 同一
+    种灌装写法)。本测试只断言内容同步,不钉对象身份(#469 评审 B4:无
+    按值导入方,身份非契约;_eval/events.py 与测试都按模块属性读表,
+    原位灌装保证先导入者看到的也是新内容)。"""
     import ipdb._registry as reg
     import ipdb._logodds as lo
     seed = dict(lo.LINEAGE_ANCHORS)
@@ -200,6 +202,25 @@ def test_lineage_anchor_unknown_source_name_raises(monkeypatch):
                  "republishes": ("no_such_source",)})()
     monkeypatch.setattr(reg, "_sources", [fake])
     with pytest.raises(RuntimeError, match="fake_republisher"):
+        reg._apply_lineage_anchors()
+    monkeypatch.undo()
+    assert lo.LINEAGE_ANCHORS == seed           # 失败路径表未动
+    reg._apply_lineage_anchors()                # 复位(真源表重灌)
+    assert lo.LINEAGE_ANCHORS == seed
+
+
+def test_lineage_anchor_bare_string_raises(monkeypatch):
+    """#469 评审 B7:`republishes = "spamhaus"`(裸字符串)会被 tuple()
+    逐字符拆成单字母 's','p',...——拆之前直接报写法错;失败路径不得动表。"""
+    import pytest
+    import ipdb._registry as reg
+    import ipdb._logodds as lo
+    seed = dict(lo.LINEAGE_ANCHORS)
+    fake = type("FakeStringDecl", (),
+                {"name": "fake_string_decl",
+                 "republishes": "spamhaus"})()
+    monkeypatch.setattr(reg, "_sources", [fake])
+    with pytest.raises(RuntimeError, match="元组"):
         reg._apply_lineage_anchors()
     monkeypatch.undo()
     assert lo.LINEAGE_ANCHORS == seed           # 失败路径表未动

@@ -32,8 +32,12 @@ class UstcBlackipSource(IpListSource):
     provenance_tier = "B"               # B=社区(高校第一方自保,非自家采集;sblam 同档)
     authoritative_for = ()               # corroboration only (SM-F1)
     honeypot_methodology = False        # 生产网边界观测非诱饵(docstring 详证)
-    # 转载声明(卡2上半,#464;实测 2026-11-26 生产镜像全库扫描
-    # dev/arch-r4-scan/scan_step3.json):⊇ spamhaus 106,275/106,278(100.0%);
-    # ⊇ emerging_threats 110,203/110,579(99.66%)。比两原创均弱(r .55 对
-    # .90/.85),同场即回声剔除(宁少算,哲学 3)。
+    # 转载声明(卡2上半,#464;实测 2026-11-26 生产镜像全库扫描,归档
+    # docs/reports/2026-11-26-arch-r4-landing/#451-卡2-转载关系/verify/scan_step3.json(A5:曾为 untracked 本地件
+    # dev/arch-r4-scan/,已归档文档仓)):⊇ spamhaus 106,275/106,278
+    # (100.0%);⊇ emerging_threats 110,203/110,579(99.66%)。口径:
+    # 镜像内 IPv4 单地址单元——各分母 = 被对应原创覆盖且作 IPv4 单地址
+    # 单元出现的地址,非原创全表(扫描只数 v4 单地址 5,341,414 个;v4 网段 177,090 与 v6 不计)。「同场共现」非逐字照搬之证
+    # (评审 B3)。比两原创均弱(r .55 对 .90/.85),同场即回声剔除
+    # (宁少算,哲学 3)。
     republishes = ("spamhaus", "emerging_threats")

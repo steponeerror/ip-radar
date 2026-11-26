@@ -293,8 +293,9 @@ def test_dedup_lineage_never_empties_nonempty_pool():
     一个普通非 derived 源),系数剖面取全相等(「≥ 即剔」的并列最坏
     面)/升序/降序/随机种子三抽;只断言性质(非空 + 确有池被剔小、
     断言非平凡),不镜像实现。未来谱系表改出可整池剔空的形态(如互为
-    锚的环)即红。表扩张超过 15 名时退化为分层采样(单/双源全量 +
-    随机池)。"""
+    锚的环)即红。表扩张超过 20 名时退化为分层采样(单/双源全量 +
+    随机池;#469 评审 B5:表 13→18 已越过旧线 15,提线到 20,n=18
+    穷举实测 6.9s / 1,572,858 次 dedup 调用,2026-11-26)。"""
     import ipdb._logodds as lo
     universe = sorted(set(lo.DERIVED_SOURCES) | set(lo.LINEAGE_ANCHORS)
                       | {a for t in lo.LINEAGE_ANCHORS.values() for a in t}
@@ -302,8 +303,10 @@ def test_dedup_lineage_never_empties_nonempty_pool():
     assert len(universe) >= 5          # 现行表非退化(防空表误跑成恒真)
     n = len(universe)
     rng = random.Random(20261031)
-    if n <= 15:
-        subsets = range(1, 1 << n)     # 全部非空子集(位掩码)
+    if n <= 20:
+        # 全部非空子集(位掩码)。n=18 实测穷举 6.9s(2026-11-26,评审
+        # B5 提线 15→20);再涨(≥21 名,穷举约 60s+)走下面采样。
+        subsets = range(1, 1 << n)
     else:                              # 表扩张:分层采样保时效
         subsets = [1 << i for i in range(n)]
         subsets += [(1 << i) | (1 << j)

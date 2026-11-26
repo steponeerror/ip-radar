@@ -14,9 +14,12 @@ class X4BNetVPNSource(IpListSource):
     stale_days = 7
     reliability = 0.70
     authoritative_for = ("is_vpn",)
-    # 转载声明(卡2上半,#464;实测 2026-11-26 生产镜像全库扫描
-    # dev/arch-r4-scan/scan_step3.json):⊇ protonvpn 2,875/2,875(100%)。
-    # 原创 protonvpn r=.75 强于转载者 .70,同场即剔。
+    # 转载声明(卡2上半,#464;实测 2026-11-26 生产镜像全库扫描,归档
+    # docs/reports/2026-11-26-arch-r4-landing/#451-卡2-转载关系/verify/scan_step3.json(A5:曾为 untracked 本地件
+    # dev/arch-r4-scan/,已归档文档仓)):⊇ protonvpn 2,875/2,875(100%)。
+    # 口径:镜像内 IPv4 单地址单元——分母 = 被 protonvpn 覆盖且作 IPv4
+    # 单地址单元出现的地址(扫描只数 v4 单地址 5,341,414 个;v4 网段 177,090 与 v6 不计)。「同场共现」非逐字照搬之证(评审
+    # B3)。原创 protonvpn r=.75 强于转载者 .70,同场即剔。
     republishes = ("protonvpn",)
 
     _V6_URL = "https://raw.githubusercontent.com/X4BNet/lists_vpn/main/output/vpn/ipv6.txt"

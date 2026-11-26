@@ -77,9 +77,9 @@ def independent(i: str, j: str, oc_table: dict) -> bool:
     if _cluster(i) == _cluster(j):
         return False
     if same_republish_chain(i, j):
-        # 转载链上互不独立(#464):emerging_threats/ustc_blackip 转载
-        # spamhaus、x4bnet_vpn 转载 protonvpn、danmeuk_tor 转载 tor_exits
-        # 等,回声不算印证(哲学 3)。
+        # 转载链上互不独立(#464):同场共现的转载者与原创互为回声,
+        # 不算印证(哲学 3);声明清单见各源类 republishes 旁注
+        # (#469 评审 B8:此处不抄清单,抄一份漂移一份)。
         return False
     return oc_table.get(frozenset((i, j)), 0.0) <= config.OC_EXCLUSION
 

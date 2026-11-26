@@ -52,12 +52,20 @@ class FireholBlocklistSource(IpListSource):
     derived = True                        # 聚合器:谱系去重用(spec 2026-08-29 §3.3)
     provenance_tier = "C"                 # C=聚合派生(S21):多社区黑名单再聚合
     authoritative_for = ()
-    # 转载声明(卡2上半,#464):⊇ greensnow 原创清单(OC=1.0,包含度
-    # ≥0.9,eval 谱系簇 2026-09-01;grill Q2 2026-10-11 镜像对判例。
-    # 2026-11-26 全库扫描为断言面口径,(ip,ctype) 粒度未出 ≥0.9 档,
-    # 不构成反证——声明沿原实测保留)。firehol 系数 = logit(.5)·decay ≡ 0,
-    # 剔它不动任何分数;_calibrated.json 把 firehol r 抬离 0.5 时须重验
-    # C2 恒等(剔它即动分数)。
+    # 转载声明(卡2上半,#464):⊇ greensnow。两组实测、口径各记
+    # (评审 A4:旧注释只写旧数且「不构成反证」无据,已弃):
+    # ① 2026-09-01 eval 谱系簇判例,文件级块清单口径:OC=1.0、包含度
+    #   ≥0.9(grill Q2 2026-10-11 镜像对);
+    # ② 2026-11-26 生产镜像全库扫描,归档读数 docs/reports/2026-11-26-arch-r4-landing/#451-卡2-转载关系/verify/
+    #   scan_step3_summary.txt(曾为 untracked 本地件,已归档文档仓):
+    #   共同地址 2,674 ÷ greensnow 3,239 = 0.8256——镜像内 IPv4 单地址
+    #   单元口径,低于 0.9;两组数不互斥,口径不同所致(①块清单含
+    #   CIDR 面,②只数 v4 单地址)。
+    # 保留理由照实:firehol 是派生源(derived=True)且系数 =
+    # logit(.5)·decay ≡ 0,评测里两源本就同簇(eval 谱系簇
+    # aggregated-threat),这条声明今天不动任何分数,留着为声明面完整;
+    # _calibrated.json 把 firehol r 抬离 0.5 时须重验 C2 恒等(剔它即
+    # 动分数)。
     republishes = ("greensnow",)
 
     def __init__(self, data_dir: Path, selected_lists: list[str] | None = None):
