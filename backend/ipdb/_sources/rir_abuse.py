@@ -184,24 +184,16 @@ class RirAbuseSource(Source):
                 f"all rir_abuse feeds failed: {self.last_partial_failure}")
 
     def health(self):
-        """目录形覆写(rir_delegated 同式):逐 RIR mtime → FeedHealth。"""
-        from .._types import FeedHealth, SourceHealth
-        feeds, mtimes = [], []
-        for reg in _BASE:
-            p = self._path / f"{reg}.db.gz"
-            if p.exists():
-                m = p.stat().st_mtime
-                mtimes.append(m)
-                feeds.append(FeedHealth(
-                    name=reg,
-                    last_updated=time.strftime(
-                        "%Y-%m-%dT%H:%M:%SZ", time.gmtime(m)),
-                    is_stale=time.time() - m > self.stale_days * 86400,
-                ))
-            else:
-                feeds.append(FeedHealth(name=reg, last_updated=None,
-                                        is_stale=True))
-        file_mtime = max(mtimes) if mtimes else None
+        """目录形覆写(rir_delegated 同式):逐 RIR mtime → FeedHealth。
+        #465 卡16:逐家新鲜度收 _freshness.feed_health 单源点;源级规则
+        不变(last_updated = 最新文件;任一家过期或无任何文件 → 源级
+        过期)。"""
+        from . import _freshness
+        from .._types import SourceHealth
+        specs = [(reg, self._path / f"{reg}.db.gz", self.stale_days)
+                 for reg in _BASE]
+        feeds = _freshness.feed_health(specs)
+        file_mtime = _freshness.newest_mtime(p for _n, p, _s in specs)
         return SourceHealth(
             name=self.name,
             loaded=self._reader is not None,

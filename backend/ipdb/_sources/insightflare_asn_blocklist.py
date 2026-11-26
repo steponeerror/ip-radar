@@ -15,6 +15,7 @@ load()/rebuild() 解析为内存 set,query(ip) 恒 None;join 走
 hosting_for_asn 钩子——_registry 在 asn 胜者解出后注入 is_hosting 资产
 陈述(as_org/org_for_asn join 同款形状,allowed_sources 照常过滤)。
 """
+import dataclasses
 import logging
 import time
 from pathlib import Path
@@ -105,17 +106,13 @@ class InsightflareAsnBlocklistSource(Source):
             return None
 
     def health(self) -> SourceHealth:
-        # convention 4:鲜度看文件 mtime,不看加载时刻
-        file_mtime = self._path.stat().st_mtime if self._path.exists() else None
-        return SourceHealth(
-            name=self.name,
+        # convention 4:鲜度看文件 mtime,不看加载时刻——算法已收 _freshness
+        # 单源点(#465 卡16),基类照算,本源只换 loaded / record_count 两个
+        # 取法(无 LMDB:内存 set 即持久层)。
+        return dataclasses.replace(
+            super().health(),
             loaded=self._asns is not None,
             record_count=len(self._asns or ()),
-            last_updated=(time.strftime("%Y-%m-%dT%H:%M:%SZ",
-                                        time.gmtime(file_mtime))
-                          if file_mtime else None),
-            is_stale=file_mtime is None or (
-                time.time() - file_mtime > self.stale_days * 86400),
         )
 
 

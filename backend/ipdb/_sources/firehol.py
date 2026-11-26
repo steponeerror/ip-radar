@@ -18,7 +18,6 @@ from urllib.parse import urlparse
 
 from ._base import IpListSource
 from ._download import download_file, CancelToken, CancelledError
-from .._types import SourceHealth
 
 _BASE_URL = "https://raw.githubusercontent.com/firehol/blocklist-ipsets/master"
 
@@ -214,25 +213,8 @@ class FireholBlocklistSource(IpListSource):
         self._loaded_at = time.time()
         return n4
 
-    def health(self) -> SourceHealth:
-        import time
-        mtimes = []
-        if self._path.exists():
-            for list_name in self._lists:
-                p = self._path / f"{list_name}.netset"
-                if p.exists():
-                    mtimes.append(p.stat().st_mtime)
-        file_mtime = max(mtimes) if mtimes else None
-        last_updated = (time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(file_mtime))
-                        if file_mtime else None)
-        is_stale = file_mtime is None or (
-            time.time() - file_mtime > self.stale_days * 86400)
-        return SourceHealth(
-            name=self.name,
-            loaded=self._reader is not None,
-            record_count=self._count,
-            last_updated=last_updated,
-            is_stale=is_stale,
-            covered_ips=self._covered_ips,
-            covered_v6_nets=self._covered_v6_nets,
-        )
+    def _data_files(self) -> list[Path]:
+        # #465 卡16:目录型源只声明数据文件清单,新鲜度算法统一走基类
+        # health() → _freshness(本类旧 health() 覆写与基类算法逐字段
+        # 等价,已删;工单验收含改前改后 health() 逐字段比对)。
+        return list(self._files)
