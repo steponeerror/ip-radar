@@ -686,7 +686,8 @@ class DataFilesDirSource(DirSource):
 def test_data_files_hook_excludes_staging_file(tmp_path):
     """#501 验收 1:声明 _data_files() 的目录型源,指纹 = 清单文件的
     content_fingerprint;同目录的下载暂存件(x.dl.tmp)不进指纹(≠
-    把暂存件算进去的值,#455 评审 R-2 的窗口就此关掉)。"""
+    把暂存件算进去的值;#455 评审 R-2 的窗口里「暂存件进指纹」的那一半
+    关掉,"_read_mtime" 那一半不在这条用例里)。"""
     from ipdb import _alerts
     from ipdb._scheduler import RefreshScheduler
     src = DataFilesDirSource("d", tmp_path / "d")
@@ -739,5 +740,5 @@ def test_data_files_hook_raise_falls_back_with_warning(tmp_path, caplog):
         fp = RefreshScheduler._content_fingerprint_of(src)
     legacy = [c for c in src._path.iterdir() if c.is_file()]
     assert fp == _alerts.content_fingerprint(legacy)
-    assert "d" in caplog.text and "RuntimeError" in caplog.text
+    assert "for d (RuntimeError)" in caplog.text
     assert any(r.levelno == logging.WARNING for r in caplog.records)

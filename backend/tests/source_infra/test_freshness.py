@@ -91,3 +91,21 @@ def test_dir_source_health_reads_child_files(tmp_path):
     assert h.last_updated == time.strftime(
         "%Y-%m-%dT%H:%M:%SZ", time.gmtime(t_fresh))
     assert h.is_stale is False
+
+
+def test_directory_sources_override_data_files():
+    """#501:目录型源(数据文件是一个目录的源)必须各自覆写 _data_files(),
+    否则更新账本的指纹会退回「目录内全部文件」的旧口径,把下载暂存件
+    算进去。新增目录型源时在这里登记类名。"""
+    from ipdb._sources._base import SourceBase
+    from ipdb._sources import (blocklist_de, echelon, firehol, cn_isp,
+                               rir_abuse, rir_delegated, cloud_ranges)
+
+    classes = [
+        blocklist_de.BlocklistDeSource, echelon.EchelonSource,
+        firehol.FireholBlocklistSource, cn_isp.ChineseISPSource,
+        rir_abuse.RirAbuseSource, rir_delegated.RirDelegatedSource,
+        cloud_ranges.CloudRangesSource,
+    ]
+    for cls in classes:
+        assert cls._data_files is not SourceBase._data_files, cls.__name__

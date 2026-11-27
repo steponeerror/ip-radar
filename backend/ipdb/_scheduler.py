@@ -380,17 +380,19 @@ class RefreshScheduler:
         调用,只在落新事件时进本函数(平时扫描不算指纹,零开销)。
 
         输入集(#501,还 #465 卡16 的挂账):有 _data_files() 钩子的源走
-        钩子返回的声明清单——与 health()、content_age_h 同一输入集,
-        下载暂存件(.dl、.dl.tmp、cn_isp 的 .tmp)不再混进指纹(#455
-        评审 R-2 的窗口就此关掉)。无钩子的自定义源/测试桩退回旧口径:
-        _path 是文件 → 单文件;是目录(cn_isp isp/、cloud_ranges/)→
-        目录内文件列表(排序由 _alerts.content_fingerprint 内部做,这
-        里不排)。_path 缺失、列目录失败、目录空 → None(指纹列落
-        NULL,事件照记)。
+        钩子返回的声明清单——与 health()、/api/sources 的 content_age_h
+        同一输入集,下载暂存件(.dl、.dl.tmp、cn_isp 的 .tmp)不再混进
+        指纹。#455 评审 R-2 的窗口只关掉一半:「暂存件进指纹」这一半
+        关了;「扫描落在下载途中多记一条」那一半还在(_read_mtime 仍列
+        目录内全部文件),那一条的指纹与上一条相同,读数按 _alerts.py
+        头注的读数注意②剔除。无钩子的自定义源/测试桩退回旧口径:
+        _path 是文件 → 单文件;是目录 → 目录内文件列表(排序由
+        _alerts.content_fingerprint 内部做,这里不排)。_path 缺失、
+        列目录失败、目录空 → None(指纹列落 NULL,事件照记)。
 
         缺席裁决(#501 主会话定):声明清单里任一文件不存在 → 整次指纹
         None——None 在读数时按「不可比」剔除,永远不会被算成「没变」
-        (宁少算,哲学 3:不把缺席说成没变化);缺席经
+        (宁少算,哲学 2:算不出可比指纹就不硬造);缺席经
         _alerts.content_fingerprint 的 OSError 规则落 None(任一文件读
         不了/列表为空同为 None),不在此处另立一份缺席判定。
 
