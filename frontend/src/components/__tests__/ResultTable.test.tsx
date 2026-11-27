@@ -154,6 +154,28 @@ describe("ResultTable richness display", () => {
     expect(within(tds[4]).getByText("chinamobile.com")).toBeInTheDocument();
     expect(within(tds[4]).queryByText(/Carrier: 中国移动/)).not.toBeInTheDocument();
   });
+
+  // #486 收编后两侧同构器(assetChips):本条与 IpDetailPanel.test.tsx 的镜像
+  // 断言用同一期望串,钉「两边悬停明细顺序相同」(来源 · 原始类型)。
+  it("asset chip hover detail is `source · native_type` (same builder as IpDetailPanel)", () => {
+    renderWithI18n(<ResultTable results={[{ ...baseResult, ip: "42.4.4.4",
+      attributes: { is_hosting: [{ source: "ipinfo_hosting", value: true, native_type: "hosting" }] } }]} />);
+    expect(screen.getByTitle("ipinfo_hosting · hosting")).toBeInTheDocument();
+  });
+
+  it("shows the is_tor asset chip when no covering classification exists (control)", () => {
+    renderWithI18n(<ResultTable results={[{ ...baseResult, ip: "1.2.3.4",
+      attributes: { is_tor: [{ source: "peerdb", value: true, native_type: "tor" }] } }]} />);
+    expect(screen.getByTitle("peerdb · tor")).toBeInTheDocument();
+  });
+
+  it("suppresses the is_tor asset chip when a tor classification covers it", () => {
+    renderWithI18n(<ResultTable results={[{ ...baseResult, ip: "5.6.7.8",
+      classifications: { tor: { ...caProxy, type: "tor" } },
+      attributes: { is_tor: [{ source: "peerdb", value: true, native_type: "tor" }] } }]} />);
+    // tor classification 已渲染同型标签,资产 chip 不得重复
+    expect(screen.queryByTitle("peerdb · tor")).not.toBeInTheDocument();
+  });
 });
 
 // --- spec 2026-09-06: archive amber signal (has_archive → 黄灯,不动 conflict 红灯) ---
