@@ -272,10 +272,13 @@ class RangeSpecificity:
 _MALWARE_PLACEHOLDERS = frozenset({"unknown"})
 
 
-def _has_malware_family(name: str | None) -> bool:
+def _has_malware_family(name) -> bool:
     """malware_name 有值判定:None/空串照旧算没有值;占位词(去首尾空白、
-    不分大小写)也算没有值(工单 #503)。"""
-    return bool(name) and name.strip().lower() not in _MALWARE_PLACEHOLDERS
+    不分大小写)也算没有值(工单 #503)。非字符串的值照旧当有值——
+    to_observation 对非字符串的 malware_name 原样透传,本票不改这条行为
+    (master 上 123 会被保留,这里不能因为它不是字符串就崩)。"""
+    return bool(name) and not (isinstance(name, str)
+                               and name.strip().lower() in _MALWARE_PLACEHOLDERS)
 
 
 def _assess_classification(

@@ -149,3 +149,11 @@ def test_raw_evidence_placeholder_unknown_dropped():
     assert "malware_name" not in by_source["threatfox"]
     assert by_source["threatfox"]["extra"]["malware_printable"] == "Unknown malware"
     assert by_source["abuseipdb"]["malware_name"] == "win.vidar"
+
+
+def test_non_string_malware_name_kept_as_is():
+    # 非字符串的 malware_name 照旧当有值、原样保留(#503 追加):
+    # to_observation 对非字符串原样透传,master 上 123 会被保留,不能崩。
+    a = _assess_classification([_obs("x", reliability=0.85, malware_name=123)])
+    assert a.malware_names == [123]
+    assert a.details[0]["malware_name"] == 123
