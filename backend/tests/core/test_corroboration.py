@@ -1,14 +1,14 @@
 from datetime import datetime, timezone, timedelta
 from ipdb._types import EvidenceObservation
-from ipdb._merge import _assess_classification
+from ipdb._merge import _assess_classification, to_observation
 
 
 def _obs(source, reliability=0.5, first_seen=None, confidence=None,
-         malware_name=None, verdict="malicious"):
+         malware_name=None, verdict="malicious", extra=None):
     return EvidenceObservation(
         source=source, classification_type="c2-server", verdict=verdict,
         reliability=reliability, first_seen=first_seen, confidence=confidence,
-        malware_name=malware_name)
+        malware_name=malware_name, extra=extra or {})
 
 
 def test_single_fresh_source_conf_equals_r():
@@ -84,3 +84,88 @@ def test_reporter_total_sums():
                                verdict="malicious", reliability=0.7, reporter_count=12)]
     a = _assess_classification(grp)
     assert a.reporter_total == 12
+
+
+# ── 家族占位词 unknown(工单 #503)──
+# abuse.ch ThreatFox 用 "unknown" 表示「未归到任何已命名家族」,查询期
+# 整理时当作没有值;原始值仍在 extra.malware_printable,证据不丢。
+
+
+def test_placeholder_unknown_dropped_but_real_family_kept():
+    # 同组:threatfox 的 unknown 被滤掉,另一源的真实家族照旧收进来;
+    # threatfox 明细没有 malware_name 键,extra.malware_printable 还在。
+    grp = [
+        _obs("threatfox", reliability=0.85, malware_name="unknown",
+             extra={"malware_printable": "Unknown malware"}),
+        _obs("abuseipdb", reliability=0.75, malware_name="win.vidar"),
+    ]
+    a = _assess_classification(grp)
+    assert a.malware_names == ["win.vidar"]
+    by_source = {d["source"]: d for d in a.details}
+    assert "malware_name" not in by_source["threatfox"]
+    assert by_source["threatfox"]["extra"]["malware_printable"] == "Unknown malware"
+    assert by_source["abuseipdb"]["malware_name"] == "win.vidar"
+
+
+def test_all_unknown_group_has_no_family():
+    # 整组只有 unknown:malware_names 空,明细也不带 malware_name;
+    # 该留的还在(源、verdict、extra)。
+    a = _assess_classification([
+        _obs("threatfox", reliability=0.85, malware_name="unknown",
+             extra={"malware_printable": "Unknown malware"})])
+    assert a.malware_names == []
+    assert "malware_name" not in a.details[0]
+    assert a.details[0]["source"] == "threatfox"
+    assert a.details[0]["verdict"] == "malicious"
+    assert a.details[0]["extra"]["malware_printable"] == "Unknown malware"
+
+
+def test_placeholder_case_insensitive_with_whitespace():
+    # "Unknown"(含首尾空白)去空白、不分大小写后同样当没有值;
+    # 真实家族 win.vidar 照旧保留。
+    grp = [
+        _obs("threatfox", reliability=0.85, malware_name="  Unknown "),
+        _obs("abuseipdb", reliability=0.75, malware_name="win.vidar"),
+    ]
+    a = _assess_classification(grp)
+    assert a.malware_names == ["win.vidar"]
+    by_source = {d["source"]: d for d in a.details}
+    assert "malware_name" not in by_source["threatfox"]
+    assert by_source["abuseipdb"]["malware_name"] == "win.vidar"
+
+
+def test_raw_evidence_placeholder_unknown_dropped():
+    # 原始证据 dict → to_observation 那条路同样生效(值会被转小写,
+    # "unknown" → "unknown");真实家族保留。
+    o = to_observation(
+        "threatfox", {"malware_name": "unknown",
+                      "extra": {"malware_printable": "Unknown malware"},
+                      "confidence": 75},
+        classification_type="c2-server", verdict="malicious", reliability=0.85)
+    a = _assess_classification([o, _obs("abuseipdb", reliability=0.75,
+                                        malware_name="win.vidar")])
+    assert a.malware_names == ["win.vidar"]
+    by_source = {d["source"]: d for d in a.details}
+    assert "malware_name" not in by_source["threatfox"]
+    assert by_source["threatfox"]["extra"]["malware_printable"] == "Unknown malware"
+    assert by_source["abuseipdb"]["malware_name"] == "win.vidar"
+
+
+def test_non_string_malware_name_kept_as_is():
+    # 非字符串的 malware_name 照旧当有值、原样保留(#503 追加):
+    # to_observation 对非字符串原样透传,master 上 123 会被保留,不能崩。
+    a = _assess_classification([_obs("x", reliability=0.85, malware_name=123)])
+    assert a.malware_names == [123]
+    assert a.details[0]["malware_name"] == 123
+
+
+def test_same_source_judged_per_observation_and_variants_kept():
+    grp = [
+        _obs("threatfox", reliability=0.85, malware_name="unknown", extra={"malware_printable": "Unknown malware"}),
+        _obs("threatfox", reliability=0.85, malware_name="win.vidar"),
+        _obs("threatfox", reliability=0.85, malware_name="unknown_rat"),
+    ]
+    a = _assess_classification(grp)
+    assert a.malware_names == ["unknown_rat", "win.vidar"]
+    assert ["malware_name" in d for d in a.details] == [False, True, True]
+    assert a.details[0]["extra"]["malware_printable"] == "Unknown malware"
