@@ -2,6 +2,8 @@
 import threading
 import time
 
+import pytest
+
 from ipdb._tasks import UpdateManager, Task
 
 
@@ -407,6 +409,10 @@ class _CrashSource(FakeSource):
         raise SystemExit(0)
 
 
+@pytest.mark.thread_exception_expected(
+    reason="被测现象本身就是 worker 线程里的 BaseException(SystemExit(0))——"
+           "on_finish 在 SystemExit 下仍须被调用;线程随异常退出是本用例的预期,"
+           "非非法转移泄漏")
 def test_on_finish_called_when_run_task_raises():
     """_run_task 抛 BaseException 时,on_finish 仍须被调用。
 
@@ -590,7 +596,9 @@ def test_failed_state_carries_error_code():
     mgr._set_state(t, "failed", "boom", error_code="internal")
     assert t.error_code == "internal"
     assert t.to_dict()["error_code"] == "internal"
-    t2 = Task(id="y", source_name="b", host=None)
+    # #484:严格模式下转移要合法——done 只能从 loading 进。原写法从出生态
+    # queued 直落 done,是测试造的场景,不是代码里的真路径。
+    t2 = Task(id="y", source_name="b", host=None, state="loading")
     mgr._set_state(t2, "done")
     assert t2.to_dict()["error_code"] is None
 
