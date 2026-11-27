@@ -12,8 +12,8 @@
 - `verify.json` — VERIFY 相位罐装读数:roster(与 `python -m ipdb._registry
   --roster` 行形一致,真实面才跑子进程)+ liveness 鲜活度证据(last_modified
   内时间戳 age_days=2;真实面=4 组合探活)。
-- `gate.json` — GATE 相位罐装命令清单(真实面=逐源测试+source_infra+目录源
-  审计三连;faux 沙箱最小树只跑逐源测试)。
+- `gate.json` — GATE 相位罐装命令清单(真实面=逐源测试+source_infra+同起点
+  审计(只审候选源,#476)三连;faux 沙箱最小树只跑逐源测试)。
 
 卡世界(queue.md 的 PROPOSE/APPROVE 行)由测试自种,不在本目录——行形冻结于
 `backend/ipdb/_ops_store.py` QUEUE_HEADER。

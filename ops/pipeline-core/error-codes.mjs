@@ -1,4 +1,5 @@
-// error-codes.mjs — 轮次信封失败面 error.code 闭集九词(规格 §4)单一真源。
+// error-codes.mjs — 轮次信封失败面 error.code 闭集(规格 §4)单一真源,词面=下方 ERROR_CODES;
+// 文档不再抄词数(评审建议4:#199 两批加词后「九词」已陈旧,数字随实现漂移必然再腐)。
 // 2026-10-24 从 agent.mjs 拆出:pipeline.mjs 曾静态 import agent.mjs 取此常量,而
 // agent.mjs main 的 OPS_PIPELINE=pipeline 委派路径(灰度开关)动态 import pipeline.mjs
 // ——agent.mjs 顶层 `await main(...)` 未决时 pipeline.mjs 开始求值、其静态依赖回头等
@@ -12,9 +13,12 @@
 // 防回环的结构保证,勿并回。
 // 事故与裁决:2026-10-24 判例 2026-10-24-discover-dual-channel-dead 同日;
 // 回归测试 = selftest-contract「委派可落定」spawn 探针(usage 前置 throw,零网)。
-// 闭集 14 词(#199 交付A 9→13:budget_exceeded/wall_clock_exceeded=A1 四界,budget_monthly
+// 闭集 15 词(#199 交付A 9→13:budget_exceeded/wall_clock_exceeded=A1 四界,budget_monthly
 // =A2 月度准入,repeat_storm=A4 同参拦;#199 交付B 13→14:channel_open=跨轮熔断开断拦,
-// 同 repeat_storm 形=beforeToolCall 结构化拦非轮终态错)。
+// 同 repeat_storm 形=beforeToolCall 结构化拦非轮终态错;#490 14→15:account_rate_limited=
+// 模型账户级限流(429/1302,2026-11-27 实测同账户并发上限),不可重试,分类单源在
+// ops/agent-v2/tasks/model-errors.mjs)。
 export const ERROR_CODES = ["bad_round", "model_face", "empty_text", "foreign_tool", "closure_check",
   "ledger_failed", "verify_failed", "sandbox_violation", "infra",
-  "budget_exceeded", "wall_clock_exceeded", "budget_monthly", "repeat_storm", "channel_open"];
+  "budget_exceeded", "wall_clock_exceeded", "budget_monthly", "repeat_storm", "channel_open",
+  "account_rate_limited"];

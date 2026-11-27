@@ -259,7 +259,7 @@ Every dataset below belongs to its provider — thank you for keeping them open 
 **Or run each side yourself** (mind: `--host 0.0.0.0` exposes the API to your LAN/public network — web visitors query keylessly, programmatic callers need a key; use only if you know what you're doing):
 
 ```bash
-# backend (first run: python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt)
+# backend (first run: python3 -m venv .venv && .venv/bin/pip install -c constraints.txt -r requirements-dev.txt)
 cd backend && source .venv/bin/activate
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
 
@@ -295,7 +295,7 @@ admin console's Sources tab shows the same two numbers side by side — measured
 # backend
 cd backend
 [ -d .venv ] || python3 -m venv .venv
-.venv/bin/pip install -r requirements-dev.txt
+.venv/bin/pip install -c constraints.txt -r requirements-dev.txt
 .venv/bin/python -m pytest -q
 
 # frontend

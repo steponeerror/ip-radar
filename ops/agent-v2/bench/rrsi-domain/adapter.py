@@ -21,7 +21,7 @@
 # 冻结门(#327):NEEDS.md(考题宇宙)与验证面(golden/selftest*/fixtures/v2-tests
 # +leak gate 执法件 leak-check.mjs/exam-rules.json,Standards P1 修批)两道 git diff
 # 对 incumbent 分支必为空——评估器不许候选改;演化可编面另表
-# EDIT_ALLOWLIST(策略面 65 文件,#327 Q1 推翻 #322 R5 全放开;#333 +4、#332 +5、#334 +2、#346 +2、#356 +6、#384 +1、#403 +1、#408 +1)。
+# EDIT_ALLOWLIST(策略面 66 文件,#327 Q1 推翻 #322 R5 全放开;#333 +4、#332 +5、#334 +2、#346 +2、#356 +6、#384 +1、#403 +1、#408 +1、#490 +1)。
 import fnmatch
 import json
 import os
@@ -62,7 +62,7 @@ BENCH_PYTHON = os.environ.get("IPRADAR_BENCH_PYTHON",
 # ── 演化可编面白名单(票 #327 Q1 裁定 2026-11-08;推翻 #322 R5「开放面 v1+v2 全放开」)──
 # 主仓=声明与单源;dev/rrsi Workspace 以 getattr(domain, "edit_allowlist", None) 消费
 # (read/edit/write 三动作同表,越名单即拒)。fnmatch 语义:* 跨目录分隔符;路径相对
-# harness 根。构成=策略面 65 文件(#327 原裁 43;#333 P2a +4 加源基准器 add-domain:
+# harness 根。构成=策略面 66 文件(#327 原裁 43;#333 P2a +4 加源基准器 add-domain:
 #   gen-universe/build-sandbox/score 三 .mjs + keyless-rules.json;#332 P1 2026-11-11 +5
 #   加源轮:tasks/add-round.mjs、tools/add-tools.mjs、prompts/add/{system,dossier,implement}.md;
 #   #334 P2b 2026-11-11 +2 考题卡生成器+试跑接线器 bench/add-domain/{gen-exam-cards,run-trial}.mjs;
@@ -70,10 +70,11 @@ BENCH_PYTHON = os.environ.get("IPRADAR_BENCH_PYTHON",
 #   #356 2026-11-17 +6 自演化循环骨架 bench/evolution/{run-round,ledger,state,judge,exits,domains}.mjs;
 #   #384 2026-11-22 +1 发现轮 issue 出口 tools/enqueue-issues.mjs;
 #   #403 2026-11-22 +1 轮报告件 pipeline/round-report.mjs(glob pipeline/** 原裁继承,零新增 glob);
-#   #408 2026-11-22 +1 终态回写单源 tasks/round-state.mjs(glob tasks/** 原裁继承,零新增 glob)。
+#   #408 2026-11-22 +1 终态回写单源 tasks/round-state.mjs(glob tasks/** 原裁继承,零新增 glob);
+#   #490 2026-11-27 +1 模型限流分类/并发旋钮 tasks/model-errors.mjs(glob tasks/** 原裁继承,零新增 glob)。
 #   调研笔记 docs/notes/ops-tree-as-harness-2026-11-08.md:验证/环境/文档面 72% 是演化不该碰的):
 #   ops/pipeline-core/pipeline/** 12 + ops/pipeline-core/prompts/** 12
-#   + ops/agent-v2/{tools,tasks,bench}/** 39 + ops/pipeline-core/{agent.mjs,models.mjs} 2
+#   + ops/agent-v2/{tools,tasks,bench}/** 40 + ops/pipeline-core/{agent.mjs,models.mjs} 2
 # 其余(v1 根散件/验证面/环境面/文档面)一律只读;验证面另有 _guardrails 冻结门,
 # 不靠本表拒绝。名单外输入 fail-closed(edit_allowed 返回 False)。
 # 双匹配器互指(Spec 轴 P2-1):运行时真身是 dev/rrsi rrsi/propose.py _allowed(同一张

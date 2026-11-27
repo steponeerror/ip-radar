@@ -3,10 +3,11 @@
 
 `_lmdb.py` docstring 红线:每源必须 ZERO same-start 碰撞(同 start 异长
 CIDR 同键后写覆盖,超网剩余段静默丢失)。rebuild 写循环内绊线只查相邻对
-(流式 O(1) 内存预算);本脚本查全量:对注册表全部启用源拦截
-rebuild_dual_family 的 records 流——每源真实 rebuild 前半程(parse/harvest
-产物,零影子提取器,不随 harvester 漂移;对照:audit_lmdb_invariants.py
-是逐文件嗅探口径),按 start 分组,组内出现 >1 种 prefixlen 即违例。
+(流式 O(1) 内存预算);本脚本查全量:对注册表启用源(或 --sources 点名
+的源)拦截 rebuild_dual_family 的 records 流——每源真实 rebuild 前半程
+(parse/harvest 产物,零影子提取器,不随 harvester 漂移;自 #476 起是全仓
+唯一同起点审计,替代已退役的逐文件嗅探审计,退役记录见 CHANGELOG #476),
+按 start 分组,组内出现 >1 种 prefixlen 即违例。
 
 数据目录只读(fusion_replay_gate 同款保证):
   - IP_RADAR_POOL_CHILD=1:cleanup_stale 直返,不 rmtree 镜像(caida_asorg
@@ -15,7 +16,7 @@ rebuild_dual_family 的 records 流——每源真实 rebuild 前半程(parse/ha
     (Task 5,2026-10-11);
   - rebuild_dual_family 换 spy:不建 staging、不写 ptr/sidecar,零写调用。
 
-用法:python scripts/audit_same_start.py [--data DIR]
+用法:python scripts/audit_same_start.py [--data DIR] [--sources 名1,名2]
 (主仓 venv:/home/huxiao/dev/pi-ip-lookup-tool/backend/.venv/bin/python)
 退出码:0 全过(含免疫)/ 1 有违例或错误 / 2 配置错误。
 """
@@ -115,6 +116,14 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--data", type=Path, default=default_data,
                     help=f"数据目录(默认 {default_data};worktree 跑时指主仓)")
+    ap.add_argument("--sources", default="",
+                    help="逗号分隔的源名清单:只审这些源(#476,接入关按候选源跑,"
+                         "免得每接一个源全量重建一遍);名字没登记或登记了但禁用 → "
+                         "ERROR 行 + 退出码 1(「审不了」判不合格只在名字层面成立:"
+                         "原始数据文件不在数据目录里时是 SKIPPED 放行、退出码 0——"
+                         "接入关沙箱目前没有候选源的数据文件,这道门在轮内实际不审,"
+                         "补法见 #479)。给了 --sources 但切出空清单(如 ,)→ "
+                         "ERROR + 退出码 2,不回落全量;缺省 = 全部启用源")
     args = ap.parse_args()
     data_dir: Path = args.data.resolve()
     if not data_dir.is_dir():
@@ -132,8 +141,34 @@ def main() -> int:
     InfraServicesSource._sync_projection = lambda self: None  # 只读:写路径禁用
     import ipdb._registry as reg
 
-    audited = [s for s in reg._sources if reg.is_enabled(s.name)]
+    requested = ([s.strip() for s in args.sources.split(",") if s.strip()]
+                 if args.sources else [])
+    if args.sources and not requested:
+        # #476 评审建议5:给了 --sources 但切出空清单(--sources , / 全空白)→
+        # 显式报错退出码 2(配置错误档),不静默回落「全部启用源」——回落会让
+        # 人以为在审点名源,实际跑了全量。接入关传的 stem 恒非空,踩不到。
+        print("ERROR: --sources given but no usable names (empty list)")
+        return 2
     disabled = [s.name for s in reg._sources if not reg.is_enabled(s.name)]
+    if requested:
+        by_name = {s.name: s for s in reg._sources}
+        bad = False
+        picked = []
+        for name in requested:          # 重复点名去重保序:同源不审两遍
+            if name not in by_name:
+                print(f"ERROR: source not registered: {name}")
+                bad = True
+            elif not reg.is_enabled(name):
+                print(f"ERROR: source not enabled: {name}")
+                bad = True
+            elif name not in {p.name for p in picked}:
+                picked.append(by_name[name])
+        if bad:
+            return 1
+        audited = picked
+        disabled = []                   # 点名模式没有「其余源」可汇报
+    else:
+        audited = [s for s in reg._sources if reg.is_enabled(s.name)]
     print(f"auditing {len(audited)} enabled sources under {data_dir}"
           + (f" ({len(disabled)} disabled skipped: {','.join(disabled)})"
              if disabled else ""))

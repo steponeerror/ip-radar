@@ -22,6 +22,7 @@ import { evalStageGate, appendGate } from "../../pipeline-core/pipeline/gates.mj
 import { hidSlug } from "../../pipeline-core/pipeline/steps.mjs";
 import { loadFauxFixture, fauxFixtureSeeds, transcriptFile } from "../faux-face.mjs"; // MF3:faux 面分派件(fixture/seeds/transcript 名,旧 faux.mjs 字节级一致副本)
 import { ERROR_CODES } from "../../pipeline-core/error-codes.mjs";
+import { classifyModelError, retryBackoffS } from "./model-errors.mjs"; // #490:限流分类+退避旋钮(读取面单源在彼)
 import { buildRoundCtx, opsRootOf, sha16 } from "../round-ctx.mjs";
 import { roundKnobs, preModelCall, postModelCall } from "./budget-guard.mjs"; // 票 #226 环内执法面
 import { bindProbeHost, unbindProbeHost, boundProbeHost } from "../tools/probes.mjs"; // +boundProbeHost:71 真面分支消费(漏 import=TRIAGE ReferenceError,faux 面不达故测试盲,2026-10-28 首次真面冒烟咬住)
@@ -42,6 +43,10 @@ const lastAssistantText = (view) => (view.entries.filter((e) => e.kind === "pi.a
   .flatMap((m) => m.content ?? []).find((b) => b.type === "text")?.text ?? "";
 // 末条 pi.assistant 的 stopReason(旧 runModelStep 失败面判据;块级缺省 null=faux 面无此字段)
 const lastStopReason = (view) => (view.entries.filter((e) => e.kind === "pi.assistant").at(-1)?.model ?? [])[0]?.stopReason ?? null;
+// 末条 pi.assistant 的 errorMessage(pi-ai formatProviderError 形 "<status>: <body>";#490 分类输入。
+// submission 层失败(unanswered)时 generation.js classify 的失败 commit 也已 appendAssistant,
+// 会话里总有这条——取不到(读败)=分类缺席,宁少算)
+const lastErrorMessage = (view) => (view.entries.filter((e) => e.kind === "pi.assistant").at(-1)?.model ?? [])[0]?.errorMessage ?? null;
 // 本轮新增 assistant 条目的 usage 求和(pi-ai Usage:input/output/totalTokens/cost.total;旧 addUsage 同面)
 const usageSince = (view, n0) => {
   const u = { ...EMPTY_USAGE };
@@ -115,6 +120,7 @@ export const OPS_MODEL_ROUND = defineTask({
     phase: "run", stage: input.stage, hid: input.hid ?? null, attempt: 0,
     startedAtIso: new Date().toISOString(), modelCalls: 0, usage: { ...EMPTY_USAGE },
     promptHashes: {}, stageRecs: [], budgetKnobs: null, breakerKnobs: null, budgetCny: null,
+    lastErrorClass: null, // #490:最近一次失败面的限流分类(null=未分类;测试/排查读)
   }),
   phases: {
     // 单相位状态机:重试圈在 handler 内(api-map §3:相位无内建 per-stage retry;checkpoint.attempt 持数)。
@@ -136,6 +142,7 @@ export const OPS_MODEL_ROUND = defineTask({
       // P1-4:①③以轮累计为基——roundBase=健康轮 spawn 时点快照(轮调用数/轮 usage/轮
       // started_at;直建子任务缺省=自身起点)。并行兄弟各自只见基数,全网约東在健康轮
       // WAIT_MODEL 收口 ①②④复查(宁多算不漏记口径)——
+      let view = null; // 失败面分类要读会话(#490):成功路径下方赋值;submission 层失败时 catch 里兜底再读
       const base = input.roundBase ?? { modelCalls: 0, usage: null, startedAtIso: ck.startedAtIso };
       const pre = preModelCall({ roundType: "health", knobs, modelCalls: (base.modelCalls ?? 0) + ck.modelCalls, startedAtIso: base.startedAtIso ?? ck.startedAtIso });
       if (!pre.ok)
@@ -153,7 +160,7 @@ export const OPS_MODEL_ROUND = defineTask({
         const settled = await sub.wait(context);
         if (settled.status !== "done")
           throw Object.assign(new Error(`submission ${settled.status}`), { code: "model_face" });
-        const view = await runtime.context(runtime.conversationId, context); // ContextView.entries=已提交可见 transcript(旧 faux 读面同源)
+        view = await runtime.context(runtime.conversationId, context); // ContextView.entries=已提交可见 transcript(旧 faux 读面同源)
         await writeTranscript(def, input, item, modelInput, view, ctx, runtime, context); // MF3:留痕先于失败面判定与 io.consume(旧同序)
         const stopReason = lastStopReason(view);
         if (stopReason === "error" || stopReason === "aborted")
@@ -185,19 +192,49 @@ export const OPS_MODEL_ROUND = defineTask({
         }), context);
       } catch (e) {
         if (input.stage === "DEEP") unbindProbeHost(runtime.conversationId); // 失败重绑定=宿主计数清零(宁少算口径)
-        const code = ERROR_CODES.includes(e?.code) ? e.code : "model_face";
+        // —— 限流分类(#490):errorMessage 在末条助手消息上。view 缺席(submission 层失败先抛)
+        // 时兜底再读,读败=分类缺席走原失败面(宁少算)——
+        let errorMessage = null;
+        try { errorMessage = lastErrorMessage(view ?? await runtime.context(runtime.conversationId, context)); } catch { errorMessage = null; }
+        const cls = classifyModelError(errorMessage);
+        const code = cls === "account_rate_limited" ? "account_rate_limited" : ERROR_CODES.includes(e?.code) ? e.code : "model_face";
+        // 账户级限流(429/1302):同账户并发上限,等待重试无效——不重试直接终态,错误码用分类词;
+        // 兄弟假设是否停放出由健康轮 WAIT_MODEL 收口裁(#490,health-round)。
+        if (cls === "account_rate_limited")
+          return void await runtime.commit(() => ({ status: "terminal", outcome: { status: "failed", error: { code, message: `${input.stage}:账户级限流(429/1302,同账户并发上限)不重试:${errorMessage}` } } }), context);
         // 旧 fail.retry≤1 同提示词重发;坏 fixture/缺轮目录等 infra 类不重试(旧 retry 圈同捕面,此处按 code 收窄)
         const retryable = code === "model_face" || code === "empty_text" || e?.gateRec;
-        if (retryable && ck.attempt < def.fail.retry)
-          return void await runtime.commit((tx, cur) => ({
+        if (retryable && ck.attempt < def.fail.retry) {
+          // 单请求限流:重试前退避 OPS_MODEL_RETRY_BACKOFF_S 秒(缺省 30)。等待用框架现成的
+          // sleeping 原语(commit 返回 {status:"sleeping",checkpoint,until};types.d.ts:289),
+          // 崩溃可恢复、中止标记不等它(pi-durable/dist/types.d.ts:568「An abort mark does not wait for it」)=
+          // 任务取消/中止时立刻停——可取消等待不用自造(pi-durable 生成任务同款)。
+          // 其他失败:照旧立刻重试(行为面与改动前逐字同)。
+          if (cls === "rate_limited") {
+            const until = runtime.now() + retryBackoffS() * 1000;
+            return void await runtime.commit((_tx, cur) => ({
+              status: "sleeping",
+              // P0-③ attempt 即调用(旧律 budget.mjs:34「重试同计」):失败 attempt 的调用
+              // 数随重试 checkpoint 同步入账,否则成功面 ck.modelCalls+1 会漏掉全部失败回合
+              // (P1-4 收口/09-budget 轮累计随之少算);usage 不在此补——结算面
+              // usageSince(view,0) 按会话全量计,失败回合 usage 已含。
+              checkpoint: { ...cur.state.checkpoint, attempt: cur.state.checkpoint.attempt + 1, modelCalls: cur.state.checkpoint.modelCalls + 1, lastErrorClass: cls, backoffUntil: until },
+              until,
+            }), context);
+          }
+          return void await runtime.commit((_tx, cur) => ({
             status: "running",
             // P0-③ attempt 即调用(旧律 budget.mjs:34「重试同计」):失败 attempt 的调用
             // 数随重试 checkpoint 同步入账,否则成功面 ck.modelCalls+1 会漏掉全部失败回合
             // (P1-4 收口/09-budget 轮累计随之少算);usage 不在此补——结算面
             // usageSince(view,0) 按会话全量计,失败回合 usage 已含。
-            checkpoint: { ...cur.state.checkpoint, attempt: cur.state.checkpoint.attempt + 1, modelCalls: cur.state.checkpoint.modelCalls + 1 },
+            checkpoint: { ...cur.state.checkpoint, attempt: cur.state.checkpoint.attempt + 1, modelCalls: cur.state.checkpoint.modelCalls + 1, lastErrorClass: cls ?? cur.state.checkpoint.lastErrorClass },
           }), context);
-        return void await runtime.commit(() => ({ status: "terminal", outcome: { status: "failed", error: { code, message: `${input.stage}:${e?.message ?? String(e)}` } } }), context);
+        }
+        const message = cls === "rate_limited"
+          ? `${input.stage}:${e?.message ?? String(e)}(单请求限流重试尽:${errorMessage})`
+          : `${input.stage}:${e?.message ?? String(e)}`;
+        return void await runtime.commit(() => ({ status: "terminal", outcome: { status: "failed", error: { code, message } } }), context);
       }
     },
   },

@@ -21,12 +21,12 @@ from dataclasses import dataclass
 from typing import Callable, Optional
 
 from . import _alerts
+from ._task_state import TASK_STATES_IN_FLIGHT
 
 logger = logging.getLogger(__name__)
 
 # Backoff seconds for fail_count 1..5: 1h, 2h, 4h, 8h, 12h (cap).
 _BACKOFF_SECONDS = [3600, 7200, 14400, 28800, 43200]
-_NON_TERMINAL = ("queued", "downloading", "loading", "throttled")
 
 SLOT_GRID = 43200  # 12h slot grid — per-source deterministic refresh anchors
 # ponytail: guard covers slot-fire→file-mtime lag (scan ≤1800s + download);
@@ -115,15 +115,46 @@ class RefreshScheduler:
         self._baseline_mtime: dict[str, Optional[float]] = {}
         self._backoff: dict[str, _Backoff] = {}
         self._last_scan_at: Optional[float] = None
+        # #478:跑扫描循环的线程(start() 装入,循环退出即清)——
+        # auto_refresh_status() 的 running 依据;直接调 scan() 的测试路径
+        # 不经过 start(),running 恒 False。
+        self._thread: Optional[threading.Thread] = None
 
     # --- public ---
     def start(self, stop_event: threading.Event) -> None:
         """Run the scan loop until stop_event is set. Blocks the caller."""
-        while not stop_event.wait(timeout=self._interval):
-            try:
-                self.scan()
-            except Exception:
-                logger.exception("scheduler scan raised; continuing")
+        # #478:记下本线程供 auto_refresh_status() 查 running;收到 stop
+        # 循环退出即清(调度器被停后状态口如实报不在跑)。
+        self._thread = threading.current_thread()
+        try:
+            while not stop_event.wait(timeout=self._interval):
+                try:
+                    self.scan()
+                except Exception:
+                    logger.exception("scheduler scan raised; continuing")
+        finally:
+            self._thread = None
+
+    def auto_refresh_status(self, now: Optional[float] = None) -> dict:
+        """「服务会不会自动刷新」公开查询面(#478:/api/db-status 的
+        auto_refresh 段由此出,调用方不得拿 _last_scan_at 等私有名)。
+
+        enabled 恒 True:本对象被构造即配置上已开 —— 装配门在 main
+        ._ensure_refresh_scheduler(IPRADAR_AUTO_REFRESH=0 时根本不构造),
+        关停态的四项(False/False/None/None)由调用方给字面。running =
+        扫描线程在不在跑;last_scan_age_s 还没扫过 → null,否则距上次
+        扫描的秒数 —— 口径是扫描「开始」时刻(scan() 一进来就记
+        _last_scan_at,不等扫完;返工评审建议 11),不是扫完时刻。"""
+        if now is None:
+            now = time.time()
+        t = self._thread
+        return {
+            "enabled": True,
+            "running": t is not None and t.is_alive(),
+            "interval_s": self._interval,
+            "last_scan_age_s": None if self._last_scan_at is None
+            else max(0.0, now - self._last_scan_at),
+        }
 
     def scan(self, now: Optional[float] = None) -> None:
         """One scan pass. Public so tests can drive it deterministically."""
@@ -279,7 +310,9 @@ class RefreshScheduler:
             return
         # mtime unchanged -> classify by terminal state
         state = self._manager.task_state(task_id)
-        if state in _NON_TERMINAL or state is None:
+        # 在飞四态引用词表(#484,原手抄元组 _NON_TERMINAL)。调度器只跟踪自己
+        # enqueue 的源任务 id,ops 轮的 running 不会出现在这里。
+        if state in TASK_STATES_IN_FLIGHT or state is None:
             # didn't run yet (throttled) or task evicted -> leave _last_task to retry reconcile
             if state is None:
                 self._last_task.pop(name, None)

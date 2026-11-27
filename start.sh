@@ -38,7 +38,7 @@ if [ ! -f "$VENV/bin/activate" ]; then
     echo -e "  Venv:      ${YELLOW}not found, creating...${NC}"
     $PYTHON -m venv "$VENV"
     source "$VENV/bin/activate"
-    pip install -q -r "$PROJECT_ROOT/backend/requirements.txt"
+    pip install -q -c "$PROJECT_ROOT/backend/constraints.txt" -r "$PROJECT_ROOT/backend/requirements.txt"
     echo -e "  Venv:      ${GREEN}ready${NC}"
 else
     source "$VENV/bin/activate"

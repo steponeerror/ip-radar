@@ -3,7 +3,8 @@ import { useI18n } from "../i18n";
 import { useTasks } from "../tasks/useTasks";
 import {
   startOpsRound, readOpsLedger, listOpsPackages,
-  type ApiError, type OpsPackageInfo, type OpsRoundType, type TaskState,
+  isUnauthorized,
+  type OpsPackageInfo, type OpsRoundType, type TaskState,
 } from "../api";
 import { opsErrorText, roundErrorText, humanizeRoundMessage } from "./opsErrorText";
 import { OpsSearchInput } from "./OpsSearchInput";
@@ -105,7 +106,7 @@ export function OpsCockpit({ onGoRulings, onUnauthorized }: {
         const rows = ledgerRows(text);
         if (rows.length > 0) setLedgerLast(rows[rows.length - 1]);
       })
-      .catch((e) => { if ((e as ApiError).status === 401) onUnauthorized(); })
+      .catch((e) => { if (isUnauthorized(e)) onUnauthorized(); })
       .finally(() => setLedgerDone(true));
   }, [hasSummary, onUnauthorized]);
 
@@ -154,7 +155,7 @@ export function OpsCockpit({ onGoRulings, onUnauthorized }: {
     setBusy(true);
     startOpsRound(type, input)
       .catch((e) => {
-        if ((e as ApiError).status === 401) { onUnauthorized(); return; }
+        if (isUnauthorized(e)) { onUnauthorized(); return; }
         setTriggerError(opsErrorText(t, e, t("ops.round.triggerFailed")));
       })
       .finally(() => setBusy(false));
@@ -335,7 +336,7 @@ export function OpsPastRounds({ onGoRulings, onUnauthorized }: {
   const [now, markArrived] = useArrivalNow();
 
   const failWith = (fallback: string) => (e: unknown) => {
-    if ((e as ApiError).status === 401) { onUnauthorized(); return; }
+    if (isUnauthorized(e)) { onUnauthorized(); return; }
     setError(opsErrorText(t, e, fallback));
   };
 

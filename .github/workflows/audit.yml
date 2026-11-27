@@ -1,0 +1,219 @@
+# 每周依赖体检(工单 #499):pip-audit(直接审约束文件)+ frontend/ops npm audit,出报告并开工单。
+# 不持任何门:本 workflow 只按 schedule/workflow_dispatch 跑,不在分支保护必需检查里;
+# 「报告并开票,不挡合并」是主会话按事实包 4.4 的裁决(主人可翻案)。
+# 问题面:pip 有已知漏洞(非零退出)或 npm 有 high 以上告警(非零退出)→ 开
+# 「依赖体检:」前缀工单;已有同前缀开放工单则追加评论,不重复开;无问题只写一行日志。
+# 不加 dependabot(与 constraints.txt 的升级纪律打架,事实包 4.3);基础镜像钉摘要留给月检清单。
+name: Dependency audit (weekly)
+
+on:
+  schedule:
+    - cron: "0 2 * * 1" # 每周一 02:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15 # 本工作流正常三五分钟;默认 6 小时的挂死太贵
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # 本工作流带 issues: write,而后面的 npm ci / pip install 会跑第三方包的安装脚本;
+          # 检出不需要留令牌,零成本关掉
+          persist-credentials: false
+
+      # Python 面:pip-audit 直接审约束文件(评审建议 1,主会话采纳)——constraints.txt 就是
+      # 「镜像实际装的 70 个包的精确版本」,拿它当输入,发现集与镜像逐包相同,pip-audit 自家
+      # 依赖树与 runner 预装包都不在发现集里。
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/constraints.txt
+      # 每周顺手验一次约束还能不能装上(某个版本从 PyPI 撤掉时这里有信号),不供审计用
+      - name: Install runtime deps (weekly installability probe, not the audit input)
+        run: pip install -c backend/constraints.txt -r backend/requirements.txt
+      - name: pip-audit (constraints file, non-gating)
+        continue-on-error: true
+        run: |
+          # 钉版本:升版本 = 显式改这一行(2026-11-27 真跑 run 45965050732 实装 2.10.1;
+          # 体检工具自己不钉,哪天改 CLI/输出格式,体检会悄悄变样)
+          pip install "pip-audit==2.10.1"
+          set +e
+          # --disable-pip 要求 hashed 需求文件或 --no-deps(2.10.1 --help 实测;
+          # constraints.txt 无 hash,故带 --no-deps:逐行按 == 查公告,不做依赖解析)
+          pip-audit --disable-pip --no-deps -r backend/constraints.txt > "$RUNNER_TEMP/pip-audit.txt" 2>&1
+          echo "$?" > "$RUNNER_TEMP/pip-audit.status"
+          set -e
+          exit 0
+
+      # npm 面:frontend 与 ops 各跑一次;只看生产依赖(--omit=dev),high 起报。
+      # stdout(JSON)与 stderr(npm 提示)分开落,防 2>&1 污染 JSON 让 jq 解析失败。
+      # Node 钉 22:npm audit 的 JSON 结构与退出码语义跟 npm 版本走(ci.yml 三个 node job 同款)。
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: npm audit — frontend (report, non-gating)
+        continue-on-error: true
+        working-directory: frontend
+        run: |
+          npm ci --no-fund --no-audit
+          set +e
+          npm audit --omit=dev --audit-level=high --json > "$RUNNER_TEMP/npm-audit-frontend.json" 2> "$RUNNER_TEMP/npm-audit-frontend.err"
+          echo "$?" > "$RUNNER_TEMP/npm-audit-frontend.status"
+          set -e
+          exit 0
+      - name: npm audit — ops (report, non-gating)
+        continue-on-error: true
+        working-directory: ops
+        run: |
+          npm ci --no-fund --no-audit
+          set +e
+          npm audit --omit=dev --audit-level=high --json > "$RUNNER_TEMP/npm-audit-ops.json" 2> "$RUNNER_TEMP/npm-audit-ops.err"
+          echo "$?" > "$RUNNER_TEMP/npm-audit-ops.status"
+          set -e
+          exit 0
+
+      # 汇总:任何一面状态码非 0 = 需要处理。有 → 开「依赖体检:」工单(已有同前缀
+      # 开放工单则追加评论);无 → 只写一行日志。同前缀去重用 startswith 全量过滤,
+      # 不走 issue search(GitHub search 对「依赖体检:」里的冒号按限定符解析,不可靠)。
+      - name: 汇总 — 需要处理则开工单(同前缀已开则追加评论),无问题写一行日志
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          date="$(date -u +%F)"
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          py="$(cat "$RUNNER_TEMP/pip-audit.status" 2>/dev/null || echo missing)"
+          fe="$(cat "$RUNNER_TEMP/npm-audit-frontend.status" 2>/dev/null || echo missing)"
+          ops="$(cat "$RUNNER_TEMP/npm-audit-ops.status" 2>/dev/null || echo missing)"
+          # missing = 该面自身没跑成(上游缺席),与「发现了洞」必须一眼分清
+          desc() { if [ "$1" = "missing" ]; then echo "没跑到"; else echo "退出码 $1"; fi; }
+          summary="$RUNNER_TEMP/audit-summary.md"
+          {
+            echo "依赖体检 ${date}(触发:${GITHUB_EVENT_NAME},ref:${GITHUB_REF_NAME})"
+            echo
+            echo "运行:${run_url}"
+            echo
+            echo "| 面 | 状态 |"
+            echo "|---|---|"
+            echo "| pip-audit(约束文件里的 70 个包) | $(desc "$py") |"
+            echo "| npm audit frontend(--omit=dev --audit-level=high) | $(desc "$fe") |"
+            echo "| npm audit ops(--omit=dev --audit-level=high) | $(desc "$ops") |"
+            echo
+            echo "0=无问题;非 0=有问题;没跑到=体检该面自身没跑成,不是发现了洞。"
+            echo
+            echo "## pip-audit 输出(约束文件里的 70 个包)"
+            echo '```'
+            tail -60 "$RUNNER_TEMP/pip-audit.txt" 2>/dev/null || true
+            [ -s "$RUNNER_TEMP/pip-audit.txt" ] || echo "(该面没有输出,看运行日志)"
+            echo '```'
+            echo
+            for side in frontend ops; do
+              echo "## npm audit — ${side} 要点"
+              f="$RUNNER_TEMP/npm-audit-${side}.json"
+              if [ -s "$f" ]; then
+                jq -r '"- 计数: high=\(.metadata.vulnerabilities.high // 0) critical=\(.metadata.vulnerabilities.critical // 0) moderate=\(.metadata.vulnerabilities.moderate // 0)"' "$f" \
+                  || { echo "- (JSON 解析失败,stderr 尾部:)"; tail -5 "$RUNNER_TEMP/npm-audit-${side}.err" 2>/dev/null || true; }
+                # 清单按 critical → high → moderate → low 排序取前 15;字符串 via = 传递受影响
+                # (npm 对这种包不自带公告,只给依赖链),写成「经 X 传入」;stderr 不吞
+                jq -r '
+                  def rank: ({"critical":0,"high":1,"moderate":2,"low":3}[.] // 4);
+                  def via_line: if type == "object" then "\(.title) [\(.url)]" else "经 \(.) 传入" end;
+                  def fix_line: if (.fixAvailable | type) == "object"
+                                then "\(.fixAvailable.name)@\(.fixAvailable.version)\(if .fixAvailable.isSemVerMajor then "(跨大版本)" else "" end)"
+                                else "无" end;
+                  .vulnerabilities
+                  | "受影响包共 \(length) 个;按严重程度(critical → high → moderate → low)列前 15 个",
+                    (to_entries
+                     | sort_by(.value.severity | rank)
+                     | .[0:15][]
+                     | "- \(.key)(\(.value.severity),\(if .value.isDirect then "直接依赖" else "传递依赖" end);修复=\(.value | fix_line)):\([.value.via[] | via_line] | join(";"))")
+                ' "$f" || echo "- (清单解析失败,看本步日志)"
+              else
+                echo "- (该面没有输出,看运行日志)"
+              fi
+              echo
+            done
+            echo "## 怎么处理"
+            echo "- pip 面:升 backend/constraints.txt 里对应那一行;requirements.txt 里用 == 钉死的包(如 pyjwt)同时改那一行;过 CI 后部署。"
+            echo "- npm 面:定点升级或 npm audit fix,提交 lockfile。"
+            echo "- 修完并部署后请关闭本工单;关掉后问题还在,下周会新开一张(这是设计)。"
+            echo "- 决定不修的:写明理由并加 wontfix 标签;pip 面可给 pip-audit 加 --ignore-vuln <编号> 豁免(2.10.1 实测有此参数),否则下周仍会重开。"
+          } > "$summary"
+          problems=""
+          [ "$py" != "0" ] && problems="${problems}pip-audit($(desc "$py")) "
+          [ "$fe" != "0" ] && problems="${problems}frontend-npm($(desc "$fe")) "
+          [ "$ops" != "0" ] && problems="${problems}ops-npm($(desc "$ops")) "
+          # gh 调用包简单重试(最多三次,间隔几秒):网络抖一下不该丢一周期
+          gh_retry() {
+            local n=1
+            while true; do
+              if "$@"; then return 0; fi
+              n=$((n + 1))
+              if [ "$n" -gt 3 ]; then return 1; fi
+              echo "gh 调用失败(第 $((n - 1)) 次),${n} 秒后重试" >&2
+              sleep "$n"
+            done
+          }
+          if [ -n "$problems" ]; then
+            title="依赖体检: ${date}"
+            existing="$(gh_retry gh issue list --state open --limit 200 --json number,title \
+              --jq '.[] | select(.title | startswith("依赖体检:")) | .number' | head -1)"
+            if [ -n "$existing" ]; then
+              if gh_retry gh issue comment "$existing" --body-file "$summary"; then
+                echo "comment #${existing}" > "$RUNNER_TEMP/issue-action.txt"
+                echo "依赖体检汇总:有问题(${problems}),已追加评论到已有工单 #${existing}"
+              else
+                echo "依赖体检汇总:评论失败(重试 3 次后仍失败),看上方日志"
+              fi
+            else
+              if new_url="$(gh_retry gh issue create --title "$title" --body-file "$summary")"; then
+                echo "create ${new_url##*/}" > "$RUNNER_TEMP/issue-action.txt"
+                echo "依赖体检汇总:有问题(${problems}),已开新工单:${new_url}"
+              else
+                echo "依赖体检汇总:开票失败(重试 3 次后仍失败),看上方日志"
+              fi
+            fi
+          else
+            echo "依赖体检汇总:三面均无问题(pip-audit=$(desc "$py") frontend-npm=$(desc "$fe") ops-npm=$(desc "$ops")),不开工单"
+          fi
+
+      # 原始输出留档:$RUNNER_TEMP 跑完即焚,没有它,工单里「计数多、清单少」的成因只能猜
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dependency-audit-raw
+          path: |
+            ${{ runner.temp }}/pip-audit.txt
+            ${{ runner.temp }}/pip-audit.status
+            ${{ runner.temp }}/npm-audit-*
+          retention-days: 14
+
+      # 结论步:据状态文件独立判红绿(不信任汇总步的副作用);工单动作读汇总步落盘的
+      # issue-action.txt,读不到就明说,不替汇总步断言「已开/追加」。本 workflow 不在任何
+      # 必需检查里,红只出现在 Actions 页面,不挡任何合并。
+      - name: 结论(有问题=红,无问题=绿;不挡合并)
+        if: always()
+        run: |
+          py="$(cat "$RUNNER_TEMP/pip-audit.status" 2>/dev/null || echo missing)"
+          fe="$(cat "$RUNNER_TEMP/npm-audit-frontend.status" 2>/dev/null || echo missing)"
+          ops="$(cat "$RUNNER_TEMP/npm-audit-ops.status" 2>/dev/null || echo missing)"
+          action="$(cat "$RUNNER_TEMP/issue-action.txt" 2>/dev/null || true)"
+          if [ "$py" != "0" ] || [ "$fe" != "0" ] || [ "$ops" != "0" ]; then
+            if [ -n "$action" ]; then
+              echo "依赖体检结论:有问题需要处理(pip-audit=${py} frontend-npm=${fe} ops-npm=${ops};工单动作:${action})"
+            else
+              echo "依赖体检结论:有问题需要处理(pip-audit=${py} frontend-npm=${fe} ops-npm=${ops};工单未能开出,看汇总步日志)"
+            fi
+            exit 1
+          fi
+          echo "依赖体检结论:三面均无问题(pip-audit=${py} frontend-npm=${fe} ops-npm=${ops})"
