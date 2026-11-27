@@ -4,9 +4,10 @@
 `informational`、分类词表手抄 10/19、STIX 段写了不产出的
 observed-data、graylog 顶层置信度写成「最差组选角」。本文件钉四条腿:
 
-1. 判定值集:两份 MANUAL 的「融合判定/fused verdict」行反引号词集
-   ⊇ PRECEDENCE 全部键(真源 = backend/ipdb/_merge.py
-   _assess_classification 内的函数局部 dict,import 取不到,ast 解析)。
+1. 判定值集:两份 MANUAL 判定行「破折号夹住的取值段」反引号词集
+   == PRECEDENCE 全部键(真源 = backend/ipdb/_merge.py
+   _assess_classification 内的函数局部 dict,import 取不到,ast 解析;
+   只认取值段不数整行——同段解释文字里的 `informational` 提及不算数)。
 2. 分类词表:两份 MANUAL 的「IntelMQ 词表/vocabulary」行反引号词集
    == ipdb._classification.CLASSIFICATION_TYPES(全集等值,多漏都红)。
 3. STIX 对象清单:backend/ipdb/_stix_export.py 实际构造的 stix2 对象
@@ -94,6 +95,20 @@ def _contract_line(section: str, phrase: str, path: Path) -> str:
     return line
 
 
+def _verdict_enum_segment(line: str, path: Path) -> str:
+    """判定句里破折号夹住的取值段(照真文档句式:EN「— `a`, … —」、
+    ZH「——`a`…——」)。只认取值段,不数整行——句内解释文字(如
+    「`informational` 只在…」)同段同行,整行数会把「取值列表被改回
+    三值但解释仍在场」的漂移放过(#510 变异 M1 实测)。"""
+    for sep in ("——", " — "):
+        parts = line.split(sep)
+        if len(parts) >= 3:
+            return parts[1]
+    raise AssertionError(
+        f"{path.name}: 判定行没有破折号夹住的取值段(句式漂了,测试选择器"
+        "要照真文档改,不照想象写)")
+
+
 def _stix_paragraph(text: str, path: Path) -> str:
     """STIX 段 = `**STIX 2.1**` 起到空行为止的连续块(Exports 小节内)。"""
     lines = text.splitlines()
@@ -117,12 +132,14 @@ def test_manual_verdict_line_covers_all_precedence_values():
             (MANUAL_ZH, "### 判定行", "融合判定")):
         line = _contract_line(_manual_section(path.read_text(encoding="utf-8"),
                                               header), phrase, path)
-        backticked = set(re.findall(r"`([^`]+)`", line))
-        missing = keys - backticked
-        assert not missing, (
-            f"{path.name}:{header} 的判定行反引号缺判定值 {missing}"
-            f"(实现真源 backend/ipdb/_merge.py PRECEDENCE = {sorted(keys)};"
-            "informational 只在纯存档证据在场、无指控证据时出现)")
+        enum = _verdict_enum_segment(line, path)
+        listed = set(re.findall(r"`([^`]+)`", enum))
+        assert listed == keys, (
+            f"{path.name}:{header} 判定行取值段 {sorted(listed)} ≠ "
+            f"PRECEDENCE 键 {sorted(keys)}"
+            f"(缺 {sorted(keys - listed)} / 多 {sorted(listed - keys)};"
+            "实现真源 backend/ipdb/_merge.py PRECEDENCE;informational "
+            "只在纯存档证据在场、无指控证据时出现)")
 
 
 # --- 2. 分类词表 ----------------------------------------------------------
