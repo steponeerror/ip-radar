@@ -742,3 +742,76 @@ def test_data_files_hook_raise_falls_back_with_warning(tmp_path, caplog):
     assert fp == _alerts.content_fingerprint(legacy)
     assert "for d (RuntimeError)" in caplog.text
     assert any(r.levelno == logging.WARNING for r in caplog.records)
+
+
+# ── #509:_read_mtime 目录分支改走同一份数据文件清单(R-2 窗口的另
+# ── 一半;暂存件不再被当成「源刚更新过」)──
+
+def test_read_mtime_staging_only_dir_returns_none(tmp_path):
+    """#509 验收 1:目录里只有下载暂存件、声明清单里的正式文件一个都
+    不在 → _read_mtime 返回 None(与「下载失败的残缺」同一处理:None
+    = 立即到期,见 scan() 的 slot 注释;不拿暂存件的 mtime 冒充新鲜
+    度,宁少算)。"""
+    from ipdb._scheduler import RefreshScheduler
+    src = DataFilesDirSource("d", tmp_path / "d")
+    (src._path / "a.csv").unlink()
+    (src._path / "b.csv").unlink()
+    src.add_staging()
+    assert RefreshScheduler._read_mtime(src) is None
+
+
+def test_read_mtime_staging_file_not_counted(tmp_path):
+    """#509 验收 2:正式文件 2 小时前、暂存件刚刚写入 → 返回正式文件
+    的 mtime(暂存件不参与;旧口径会返回暂存件的「刚写入」读数)。"""
+    from ipdb._scheduler import RefreshScheduler
+    src = DataFilesDirSource("d", tmp_path / "d")
+    old = NOW - 7200.0
+    os.utime(str(src._path / "a.csv"), (old, old))
+    os.utime(str(src._path / "b.csv"), (old, old))
+    src.add_staging()                 # 暂存件 mtime = 创建时刻(远新于 old)
+    m = RefreshScheduler._read_mtime(src)
+    assert m == old                   # 声明清单里最新正式文件的时间
+    assert m < os.path.getmtime(src._path / "x.dl.tmp")
+
+
+def test_read_mtime_hook_raise_falls_back_with_warning(tmp_path, caplog):
+    """#509 验收 3:_data_files() 抛异常 → 退回旧口径(目录内全部普通
+    文件取最新,暂存件参与——旧行为)并记 warning(带源名与异常类型),
+    与指纹侧同一处理。"""
+    from ipdb._scheduler import RefreshScheduler
+    src = DataFilesDirSource("d", tmp_path / "d")
+    old = NOW - 7200.0
+    os.utime(str(src._path / "a.csv"), (old, old))
+    os.utime(str(src._path / "b.csv"), (old, old))
+    src.add_staging()
+
+    def boom():
+        raise RuntimeError("hook exploded")
+
+    src._data_files = boom
+    with caplog.at_level(logging.WARNING, logger="ipdb._scheduler"):
+        m = RefreshScheduler._read_mtime(src)
+    # 旧口径:目录内最新 = 刚写入的暂存件
+    assert m == os.path.getmtime(src._path / "x.dl.tmp")
+    assert "for d (RuntimeError)" in caplog.text
+    assert any(r.levelno == logging.WARNING for r in caplog.records)
+
+
+def test_scan_reconcile_ignores_staging_file_landing(alerts_db, tmp_path):
+    """#509 验收 4(端到端):目录型源在飞(上一轮已入队、基线已记),
+    下载途中暂存件刚落地 → 下一轮 scan() 的 _reconcile 不把它判成
+    「下载落地」(任务跟踪与基线保留,退避不被清),更新账本也不多记
+    (水位不动,只有种子一条)。改前:_read_mtime 把暂存件算进去,
+    mtime 假前进 → reconcile 走「下载落地」分支清跟踪。"""
+    src = DataFilesDirSource("d", tmp_path / "d")
+    os.utime(str(src._path / "a.csv"), (OLD, OLD))
+    os.utime(str(src._path / "b.csv"), (OLD, OLD))
+    sch, mgr = _make_scheduler([src])
+    sch.scan(now=NOW)                 # baseline = 声明清单 mtime,入队 t0
+    assert "d" in sch._last_task
+    src.add_staging()                 # 下载途中:暂存件刚落地
+    sch.scan(now=NOW + 1000.0)
+    assert "d" in sch._last_task      # 没判成「下载落地」:跟踪保留
+    assert "d" in sch._baseline_mtime
+    assert "d" not in sch._backoff    # 退避没被动
+    assert len(_events_with_hash(alerts_db)) == 1   # 账本只有种子一条
