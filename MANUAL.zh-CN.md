@@ -316,7 +316,7 @@ curl -s -b jar.txt -N http://127.0.0.1:8000/api/events
 
 **反代后面所有限流一起炸**——限流器看到的是反代 IP。设 `IP_RADAR_PROXY_HEADERS=1`(并把 `IP_RADAR_FORWARDED_ALLOW_IPS` 设为反代网段),让逐 IP 桶看到真实客户端。
 
-**管理台 404 或像被锁**——开了 `IP_RADAR_PUBLIC_DEMO=1` 的实例对匿名访客隐藏写/内部面(含非例外通道 IP 的 `/admin` 登录);维护者例外通道是 `IP_RADAR_DEMO_ADMIN_IPS`——完整语义见 [`deploy/README.md`](deploy/README.md)。普通自托管则确认 admin 环境块已取消注释。
+**管理台 404 或像被锁**——开了 `IP_RADAR_PUBLIC_DEMO=1` 的实例对匿名访客隐藏写/内部面(登录口 `POST /api/auth/jwt/login` 在任何地址都保持可达,主人始终能登录);维护者例外通道是 `IP_RADAR_DEMO_ADMIN_IPS`——完整语义见 [`deploy/README.md`](deploy/README.md)。普通自托管则确认 admin 环境块已取消注释。
 
 **更新横幅谎报有更新**——部署侧 tag 缓存问题:服务器上先 `git fetch --tags` 再构建,否则 `git describe` 回落旧基线(v1.4.2 现场记录)。
 

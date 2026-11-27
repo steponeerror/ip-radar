@@ -102,3 +102,24 @@ def test_keys_disabled_with_auth_header_503(client, monkeypatch):
                     headers={"Authorization": "Bearer anything"})
     assert r.status_code == 503
     assert r.json()["error"]["code"] == "admin_disabled"
+
+
+def test_auth_401_precedes_really_closed_warming_503(client, key_env, monkeypatch):
+    """真竞争(票 #482):预热门真的关着 —— 门探针在源 registry 上钉
+    (_db_loaded→False、tiny_db 启用源非空 → blocking_reason 自报 warming),
+    不是鉴权测试惯用的「常开」桩;正是那个桩让 401 与 503 从未同时成立过。
+    同一扇关着的门两向对:匿名跨源 → 401(鉴权先于门);带有效凭据 → 撞上
+    同一扇门拿 503 warming(证明 503 条件确实成立,401 不是门关着的假象)。"""
+    from ipdb import _registry
+    monkeypatch.setattr(_registry, "_db_loaded", lambda: False)
+    _, token = _issue("warm-gate")
+    # 门确实关着:require_ready 的报错头由 503 腿携带(warming)
+    r401 = client.post("/api/query/stream", json={"ips": ["1.1.1.1"]})
+    assert r401.status_code == 401, (
+        f"门关着时匿名跨源应 401,实得 {r401.status_code}")
+    assert r401.json()["error"]["code"] == "unauthorized"
+    r503 = client.post("/api/query/stream", json={"ips": ["1.1.1.1"]},
+                       headers={"Authorization": f"Bearer {token}"})
+    assert r503.status_code == 503, (
+        f"同一扇门 + 有效凭据应 503,实得 {r503.status_code}")
+    assert r503.headers.get("x-ipradar-reason") == "warming"

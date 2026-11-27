@@ -12,6 +12,7 @@ from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, Header, R
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.routing import iter_route_contexts
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from pydantic import BaseModel
@@ -736,17 +737,109 @@ app.add_middleware(
 
 
 # ---- 公共 demo 模式（docs/superpowers/specs/2026-08-23-public-demo-mode-design.md）----
-# 开启后: 写/内部接口对匿名访客 404(信封 not_found,当作不存在);查询读接口需
+# 开启后: 内部接口对匿名访客 404(信封 not_found,当作不存在);查询读接口需
 # x-ipradar-client: web(缺失 403 信封 forbidden)。豁免面:回环 healthcheck、
-# /api/version、/api 路径上 CORS preflight 形状的 OPTIONS(Origin +
-# Access-Control-Request-Method 两头齐全;裸 OPTIONS 不豁免)。维护者旁路 =
-# ADMIN_IPS 直连 peer 白名单(_is_demo_admin,可选 TRUST_XFF,须配套网关保证);
-# 带管理员 cookie 或 Authorization 的请求交给三层鉴权依赖层真校验
-# (见 _carries_admin_credentials)。env 每请求动态读(测试 monkeypatch 依赖)。
-_DEMO_HIDDEN_PREFIXES = (
-    "/api/update-db", "/api/sources", "/api/eval", "/api/tasks", "/api/events",
-    "/api/scheduler/status", "/api/update", "/api/perf/layout",
-)
+# /api/version。预检形状的 OPTIONS(Origin + Access-Control-Request-Method
+# 两头齐全;裸 OPTIONS 不豁免)只在命中可见路由时放行给 CORS,隐藏或无路由
+# 匹配由守卫直接 404——「隐藏」与「不存在」在任何部署形态下同形。维护者
+# 旁路 = ADMIN_IPS 直连 peer 白名单
+# (_is_demo_admin,可选 TRUST_XFF,须配套网关保证);带管理员 cookie 或
+# Authorization 的请求交给三层鉴权依赖层真校验(见 _carries_admin_credentials)。
+# env 每请求动态读(测试 monkeypatch 依赖)。
+#
+# 「内部接口」的判定(票 #482,2026-11-27):不再手抄路径前缀表——旧表两条
+# 前缀(/api/scheduler/status、/api/perf/layout)指向早已删除的端点,而四族
+# 活接口(/api/ops、/api/admin、/api/users、/api/auth/jwt)漏网,对匿名自报
+# 存在(401/503 代替 404),且没有任何检查逼新内部路由进表。现在隐藏与否从
+# 路由自己的管理员依赖推导(_demo_hidden_route_table):依赖树里带
+# require_admin_configured 或 current_superuser 之一的路由,匿名一律 404——
+# 新内部路由挂上管理员依赖即自动进面具,无表可漏。两条明写的例外:
+#   /api/update              自带令牌校验在函数体内,依赖树推不出来 → 明写隐藏;
+#   POST /api/auth/jwt/login 主人不在白名单地址上时靠它登录 → 必须可达
+#                            (例外只对这条路由生效,同路径其他路由照推导规则
+#                             计入取或——面具往严处走,评审返工裁)。
+# 注意(fastapi-users 15):用户路由器自建的超管检查是另一个对象
+# (fastapi_users/router/users.py 的 get_current_superuser 闭包),与
+# _ipdb_auth.current_superuser 身份对不上,锚比不到;/api/users/{id} 三条
+# 今天靠挂 include_router 的路由器级 require_admin_configured 被隐藏,若有人
+# 去掉那层依赖,安全矩阵冻结表(test_security_matrix.FROZEN)会转红兜底。
+_DEMO_ADMIN_DEPS = frozenset({
+    require_admin_configured,
+    _ipdb_auth.current_superuser,  # fastapi-users 闭包,__name__ 是
+                                   # current_user_dependency,只能按对象比
+})
+# 路径级例外:键 = (路径, 方法|None)。True(/api/update)对整条路径所有方法
+# 生效——令牌校验在函数体内,依赖树推不出来,只能明写;False(login)只对
+# 声明它的那条路由生效(主人不在白名单地址上也要能登录),同一路径其他路由
+# 照推导规则计入取或(评审返工·建议改 4:例外不得豁免同路径新增的管理员
+# 路由;今天该路径只有 POST 一法,无行为差)。
+_DEMO_PATH_EXCEPTIONS: dict[tuple[str, str | None], bool] = {
+    ("/api/update", None): True,
+    ("/api/auth/jwt/login", "POST"): False,
+}
+
+
+def _route_has_admin_dep(dependant) -> bool:
+    """依赖树全走一遍:装饰器 dependencies=[...]、路由器级依赖、各参数自己的
+    Depends——fastapi 把三层都收进 dependant.dependencies(参数级也是带
+    .call/.dependencies 的 Dependant),递归遍历即全覆盖。"""
+    for sub in getattr(dependant, "dependencies", ()) or ():
+        if sub.call in _DEMO_ADMIN_DEPS or _route_has_admin_dep(sub):
+            return True
+    return False
+
+
+def _demo_hidden_route_table(app) -> list:
+    """路径正则 → 是否隐藏 的清单;首用构建,缓存在 app.state 上,路由数量
+    变了就重建。fastapi 0.141 起 include_router 不摊平进 app.routes(出现
+    _IncludedRouter 嵌套节点),平面视图经 iter_route_contexts 还原(同
+    test_security_matrix)。同路径多方法各算各的再取并:任一带管理员依赖 →
+    整条路径隐藏(匹配只看路径不看方法,不给方法级探测通道)。"""
+    routes = app.routes
+    cached = getattr(app.state, "_demo_hidden_routes", None)
+    if cached is not None and cached[0] == len(routes):
+        return cached[1]
+    by_path: dict[str, tuple] = {}
+    for ctx in iter_route_contexts(routes):
+        path = getattr(ctx, "path", None)
+        if not path or not path.startswith("/api/"):
+            continue
+        hidden = _route_has_admin_dep(ctx.dependant)
+        route_methods = getattr(ctx, "methods", ()) or ()
+        for (exc_path, exc_method), verdict in _DEMO_PATH_EXCEPTIONS.items():
+            if exc_path == path and (exc_method is None
+                                     or exc_method in route_methods):
+                hidden = verdict
+        prev = by_path.get(path)
+        by_path[path] = (ctx.path_regex, hidden or (prev[1] if prev else False))
+    table = list(by_path.values())
+    app.state._demo_hidden_routes = (len(routes), table)
+    return table
+
+
+def _demo_path_hidden(app, path: str) -> bool | None:
+    """按推导表判路径:True=隐藏(404 面具),False=可见(放行),None=没有
+    任何路由匹配(放行,路由器自己回 404)。只看路径不看方法:隐藏路径上
+    方法不对也是 404(方法级差异的 405 口子只存在于可见路径)。
+    精确匹配不中还要镜像 starlette Router.app 的 307 跳转候选再判一次
+    (评审返工·必须改 1):路由器无命中时会把路径去掉全部尾斜杠或补一个
+    斜杠重匹配,命中就 307 写出规范路径——不镜像的话 /api/tasks/ 一类
+    变形会穿透面具被 307 跳到规范路径,Location 自报存在性。"""
+    table = _demo_hidden_route_table(app)
+    for regex, hidden in table:
+        if regex.match(path):
+            return hidden
+    # 镜像两个方向,缺一不可:starlette/routing.py:2749 用 rstrip("/")(去掉
+    # 全部尾斜杠——只去一个对 /api/tasks// 得 /api/tasks/ 仍不命中、照样漏);
+    # 补斜杠方向今天没有以 / 结尾的路由,是空操作,照抄进镜像防有人日后
+    # 声明带尾斜杠的路由时又漏。候选命中可见路由时回 False 与 None 对守卫
+    # 无差(放行,后面只有 header 门)。
+    alt = path.rstrip("/") if path.endswith("/") else path + "/"
+    for regex, hidden in table:
+        if regex.match(alt):
+            return hidden
+    return None
+
 _DEMO_HEADER_PREFIXES = (
     "/api/lookup", "/api/query/stream", "/api/upload/stream", "/api/db-status",
 )
@@ -800,28 +893,64 @@ def _carries_admin_credentials(request) -> bool:
     return bool(request.headers.get("authorization"))
 
 
+# 拒超大请求体只覆盖这两条可见流接口(它们的 body 无声明上限即 OOM 面);
+# 提成模块常量是为了让 test_middleware_order.py 能 monkeypatch 把隐藏端点
+# 临时加进来,钉「守卫先于大小检查」的顺序(评审返工·必须改 2:行为腿
+# 要有牙——写死在函数体里时那条用例对叠放顺序不敏感)。
+_SIZE_CHECKED_PATHS = ("/api/upload/stream", "/api/query/stream")
+
+
+@app.middleware("http")
+async def reject_oversized_bodies(request, call_next):
+    """信任边界:大 body 在被读进内存之前拒绝(未认证可打的 OOM 面)。
+    挡 Content-Length 声明的超限;chunked 传输的洞由路由内分块读再堵。"""
+    if request.method == "POST" and request.url.path in _SIZE_CHECKED_PATHS:
+        cl = request.headers.get("content-length")
+        if cl and cl.isdigit() and int(cl) > MAX_UPLOAD_BYTES:
+            # 直接响应不走 exception handler → 手写信封(与全局信封同形状)
+            return JSONResponse(
+                status_code=400,
+                content=envelope(
+                    "bad_request",
+                    f"Request body exceeds {MAX_UPLOAD_BYTES // (1024*1024)}MB limit"))
+    return await call_next(request)
+
+
+# 守卫必须在最外层(票 #482):@app.middleware 与 add_middleware 都插到栈最
+# 前,后定义者在最外。放在 reject_oversized_bodies 之后定义 = 守卫先跑,
+# 任何其他中间件的应答都排在 404 面具之后。这是防御性顺序,不是「隐藏端点
+# 此前被 400 穿帮」的修复——按代码,拒超大请求体只覆盖 _SIZE_CHECKED_PATHS
+# 两条可见接口,隐藏端点的超大请求体此前与现在都拿不到 400(大小检查根本
+# 不拦它们);但日后谁把隐藏端点加进 _SIZE_CHECKED_PATHS,面具仍先于 400
+# 出现(tests/auth/test_middleware_order.py 用 monkeypatch 钉住该部署)。
 @app.middleware("http")
 async def public_demo_guard(request, call_next):
     if (not public_demo_enabled() or _is_demo_admin(request)
             or _carries_admin_credentials(request)):
         return await call_next(request)
     path = request.url.path
-    # 非 /api 路径全放;本中间件在 CORS 外层。/api 路径仅放行 preflight 形状的
-    # OPTIONS(Origin + Access-Control-Request-Method 两头齐全,真 CORS 预检)——
-    # 裸 OPTIONS 按路径走既有判定,不留免验探测通道。
     if not path.startswith("/api/"):
         return await call_next(request)
+    # 非 /api 路径全放;/api/version 由推导表判可见后自然放行。隐藏判定先算
+    # 一次;预检形状的 OPTIONS(Origin + Access-Control-Request-Method 两头
+    # 齐全,真 CORS 预检)不再是整体豁免(评审返工·必须改 1):隐藏或没有
+    # 任何路由匹配都由守卫回 404 信封——「隐藏」与「不存在」在任何部署形态
+    # 下同形;命中可见路由才放行给 CORS,可见面(查询接口)的预检行为不变。
+    # 裸 OPTIONS 照旧按路径走既有判定,不留免验探测通道。
+    hidden = _demo_path_hidden(request.app, path)
     if (request.method == "OPTIONS"
             and request.headers.get("origin")
             and request.headers.get("access-control-request-method")):
+        if hidden is not False:
+            # 信封与下方的 404 面具同形状(手工构造,理由同下方注释)
+            return JSONResponse(
+                envelope(ErrorCode.not_found.value, "Not Found"), status_code=404)
         return await call_next(request)
-    if path.startswith(_DEMO_HIDDEN_PREFIXES):
+    if hidden:
         # 中间件在全局 exception handler 之外 → 手工构造信封(与全局信封同形状;
         # not_found 与 _HTTP_FALLBACK_CODE[404] 同串,与路由器真 404 不可区分)
         return JSONResponse(
             envelope(ErrorCode.not_found.value, "Not Found"), status_code=404)
-    if path == "/api/version":
-        return await call_next(request)
     if path.startswith(_DEMO_HEADER_PREFIXES):
         # STIX 已改 fetch+blob(apiFetch 带 web header),与其他查询同规;
         # 跨源/无 header 的匿名 /stix 由路由层 api_key_dep(Q1-B)兑底。
@@ -831,23 +960,6 @@ async def public_demo_guard(request, call_next):
         if request.headers.get("x-ipradar-client") != "web":
             return JSONResponse(
                 envelope(ErrorCode.forbidden.value, "Forbidden"), status_code=403)
-    return await call_next(request)
-
-
-@app.middleware("http")
-async def reject_oversized_bodies(request, call_next):
-    """信任边界:大 body 在被读进内存之前拒绝(未认证可打的 OOM 面)。
-    挡 Content-Length 声明的超限;chunked 传输的洞由路由内分块读再堵。"""
-    if request.method == "POST" and request.url.path in (
-            "/api/upload/stream", "/api/query/stream"):
-        cl = request.headers.get("content-length")
-        if cl and cl.isdigit() and int(cl) > MAX_UPLOAD_BYTES:
-            # 直接响应不走 exception handler → 手写信封(与全局信封同形状)
-            return JSONResponse(
-                status_code=400,
-                content=envelope(
-                    "bad_request",
-                    f"Request body exceeds {MAX_UPLOAD_BYTES // (1024*1024)}MB limit"))
     return await call_next(request)
 
 
