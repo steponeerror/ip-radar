@@ -150,7 +150,7 @@ describe("ResultTable richness display", () => {
     renderWithI18n(<ResultTable results={[r]} />);
     expect(screen.getByRole("columnheader", { name: "Operator" })).toBeInTheDocument();
     const tds = screen.getByText("39.144.0.1").closest("tr")!.querySelectorAll("td");
-    expect(within(tds[6]).getByText(/Carrier: 中国移动/)).toBeInTheDocument();
+    expect(within(tds[6]).getByText("Carrier: 中国移动")).toBeInTheDocument();
     expect(within(tds[4]).getByText("chinamobile.com")).toBeInTheDocument();
     expect(within(tds[4]).queryByText(/Carrier: 中国移动/)).not.toBeInTheDocument();
   });

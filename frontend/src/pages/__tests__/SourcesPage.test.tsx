@@ -531,6 +531,26 @@ describe("SourcesPage manage behaviors (kept pins, new structure)", () => {
     expect(await screen.findByRole("button", { name: /Downloading… 25%/ })).toBeInTheDocument();
   });
 
+  it("rounds the staged percentage (download 1/3 → 17%, matching batch row/bar)", async () => {
+    renderPage({
+      tasks: [TK({ id: "t-dl3", state: "downloading", received: 1, total: 3 })],
+    });
+    await expandGroup();
+    // #486 评审 S2:取整同批量面板逐行/批量条 Math.round(0.5×1/3×100=16.67→17),
+    // 行上数字不比批量条差 1。
+    expect(await screen.findByRole("button", { name: /Downloading… 17%/ })).toBeInTheDocument();
+  });
+
+  it("unknown-total downloading shows text only, no anchor percentage (S1)", async () => {
+    renderPage({
+      tasks: [TK({ id: "t-dl2", state: "downloading" })],
+    });
+    await expandGroup();
+    // #486 评审 S1 裁:总数未知时段内锚点(0.25)是分段模型的占位数,
+    // 不当百分比报给用户 —— 只出文字,与批量面板逐行的 --% 同口径。
+    expect(await screen.findByRole("button", { name: "Downloading…" })).toBeInTheDocument();
+  });
+
   it("clamps loading percentage at 100% when received exceeds total (250/200)", async () => {
     renderPage({
       tasks: [TK({ id: "t-load2", state: "loading", received: 250, total: 200 })],

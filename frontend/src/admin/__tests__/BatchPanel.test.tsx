@@ -143,8 +143,7 @@ describe("BatchPanel control-action failure feedback (U7)", () => {
     expect(screen.queryByText(/Not authenticated/i)).toBeNull();
   });
 
-  // #486 行为钉面:非 401 不得误踢登录(公开站查询接口密钥无效也回 401,
-  // 但本面属 admin 面的其他错误 = 落横幅不踢)。
+  // #486 行为钉面:非 401 不得误踢登录,admin 面的其他错误 = 落横幅不踢。
   it("does NOT call onUnauthorized on non-401 failure; banner instead", async () => {
     setRunning();
     vi.mocked(pauseBatch).mockRejectedValueOnce(new Error("task manager unavailable"));

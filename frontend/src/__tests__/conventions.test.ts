@@ -8,6 +8,8 @@ import { join, relative } from "node:path";
 // 那一页落一条红字,而不是回登录页。该写法全 src 只许出现在 api.ts(收编
 // 函数本体)一处;新增管理页面/错误路径一律改调 isUnauthorized。
 // 注意:连注释里原样写这个式子也会红 —— 措辞绕开即可。
+// 锚计数前先去掉行注释(#486 评审 S3):否则 api.ts 注释里的式子也算命中,
+// 函数体被改写成守卫不认的形状(如改判 403)时锚不会红。
 const SRC = join(import.meta.dirname, ".."); // src/__tests__ → 上一级 src/
 
 // 测试文件不巡检(它们演练 401 场景本属正常);test infra(setup)同免。
@@ -28,7 +30,8 @@ describe("conventions: 401 判定唯一入口(#486)", () => {
     let guardFileHits = 0;
     for (const f of walk(SRC)) {
       const rel = relative(SRC, f);
-      const hits = readFileSync(f, "utf8").match(/status\s*===\s*401/g)?.length ?? 0;
+      // S3:去行注释再数(过度去除只会漏报不会误报,挡粗心够用)
+      const hits = readFileSync(f, "utf8").replace(/\/\/.*$/gm, "").match(/status\s*===\s*401/g)?.length ?? 0;
       if (rel === "api.ts") guardFileHits = hits;
       else if (hits > 0) offenders.push(rel);
     }

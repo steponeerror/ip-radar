@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { screen, act } from "@testing-library/react";
+import { screen, act, waitFor } from "@testing-library/react";
 import { BatchMiniBar } from "../BatchMiniBar";
 import { TaskProvider } from "../../tasks/TaskProvider";
 import { renderWithI18n } from "../../test/i18nTestUtils";
@@ -68,15 +68,34 @@ describe("BatchMiniBar linger(#486:停留收编后仍要钉住)", () => {
   });
 
   it("does NOT show the bar when the cold snapshot already reports a done batch", async () => {
-    vi.mocked(getTasks).mockReset();
+    const mockGetTasks = vi.mocked(getTasks);
+    mockGetTasks.mockReset();
     // 后端完成后仍引用该 batch:冷快照直接是 done —— 无 running/paused→done
     // 会话内转换,不得庆祝(每次整页加载都闪终态)。
-    vi.mocked(getTasks).mockResolvedValue({
+    mockGetTasks.mockResolvedValue({
       tasks: [],
       batch: { id: "b1", state: "done", done: 2, total: 2 },
     });
     render(<BatchMiniBar onOpen={() => {}} />);
-    await act(async () => { await Promise.resolve(); });
+    // 等 getTasks 被调、快照 promise 落地、provider 状态刷新后再断言
+    // (#486 评审 S4:只等一个微任务证明不了快照已应用)。
+    await act(async () => {
+      await waitFor(() => expect(getTasks).toHaveBeenCalled());
+      await mockGetTasks.mock.results[0].value;   // resolved snapshot
+      await Promise.resolve();                     // flush setTasks + effect
+    });
     expect(screen.queryByText(/Done 2\/2/)).not.toBeInTheDocument();
+    // 正向证明管线通:随后会话内 running 快照照常亮条 —— 上面的「无条」
+    // 是冷快照语义,不是整套渲染哑了。
+    await act(async () => {
+      sse.onEvent!({
+        type: "snapshot",
+        data: {
+          tasks: [{ id: "t1", source: "feodo", host: null, state: "downloading", error: null, batch_id: "b1" }],
+          batch: { id: "b1", state: "running", done: 0, total: 2 },
+        },
+      });
+    });
+    expect(screen.getByText(/Updating 0\/2/)).toBeInTheDocument();
   });
 });

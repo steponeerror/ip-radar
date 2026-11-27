@@ -1,4 +1,5 @@
 import type { LookupResult } from "../api";
+import type { TFn } from "../i18n";
 import { foldServiceStatements, serviceChipKey } from "./serviceFold";
 
 // 资产标签唯一构造器(#486 收编:此前 ResultTable.assetBadges 与
@@ -17,8 +18,6 @@ export interface AssetChip {
   /** 悬停明细:证人 `来源 · 原始类型`(两处统一序;service 为折并逐行)。 */
   detail: string;
 }
-
-type TFn = (key: string, vars?: Record<string, string | number>) => string;
 
 // 资产键 → 文案键白名单。as_domain 不在表内:它走 as_org 后缀呈现
 // (IpDetailPanel),不成 chip。
