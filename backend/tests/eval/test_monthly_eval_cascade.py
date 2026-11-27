@@ -21,17 +21,36 @@ import json
 import os
 import re
 import subprocess
+import sys
 import textwrap
 from pathlib import Path
 
+from ipdb._eval import gate_mirror
+
 REPO = Path(__file__).resolve().parents[3]
 SCRIPT = REPO / "scripts" / "monthly_eval.sh"
+# #489: mirror-sync 交棒真解释器 —— 临时 git 仓只有 scripts/(backend/ 是
+# 空目录), 真解释器要从本测试所属检出的 backend/ 才导得到 ipdb(工作树
+# 跑 = 测工作树代码, 变异只改 Python 侧时才能红到级联); rsync 仍走 PATH
+# 桩(继承自桩的 env)。真解释器绝对路径/该 backend 路径由 _run_monthly
+# 注入 env(MIRROR_SYNC_REAL_PY / MIRROR_SYNC_BACKEND_DIR), 桩本体保持静态。
+_BACKEND_DIR_FOR_MIRROR_SYNC = Path(__file__).resolve().parents[2]
 
+# #489: mirror-sync 腿交棒真解释器(先记交接文件再 exec; 临时 git 仓
+# 没有 backend/, 从 MIRROR_SYNC_BACKEND_DIR 导 ipdb; rsync 仍走 PATH 桩)
 PY_STUB = textwrap.dedent(
     """\
     #!/usr/bin/env bash
     # cascade-test stub:按 argv 模拟 ipdb._eval 各腿(工件照写;rc 按 *_MODE)
     # mirror_check 步真脚本不带 IP_RADAR_EVAL_DIR → 该分支不展开工件路径
+    # #489: mirror-sync 动作词交棒真解释器 —— 桩只记录交接, 不模拟
+    if [[ "$*" == *"mirror-sync"* ]]; then
+      printf '%s\\n' "$*" >> "${MIRROR_SYNC_LOG:?}"
+      cd "${MIRROR_SYNC_BACKEND_DIR:?}" || exit 9
+      # 桩收到的 argv 已含 -m ipdb._eval(mirror_sync() 以 python3 调它),
+      # 原样交给真解释器即可, 不得再补一次模块前缀
+      exec "${MIRROR_SYNC_REAL_PY:?}" "$@"
+    fi
     if [[ "$*" == *"ipdb._eval.mirror_check"* ]]; then exit 0; fi
     # #193 腿级状态件写手桩:shell 侧 write_leg_status 经 python3 heredoc
     # 调用(无 -m ipdb._eval);模拟真写手 argv 形状(path 腿 rc ...)落 JSON
@@ -104,6 +123,9 @@ PY_STUB = textwrap.dedent(
     exit 0
     """
 )
+# #489: 拉取面(镜像/快照/蜜粮 CSV)返回码改由 RSYNC_PULL_MODE 控制
+# (缺省 0; 24=源侧活文件消失, 月轮容忍继续; 其余=拒绝), argv 先记
+# RSYNC_LOG 供端到端命令对拍; 推送面行为不变(不记 RSYNC_LOG)。
 RSYNC_STUB = textwrap.dedent(
     """\
     #!/usr/bin/env bash
@@ -114,8 +136,10 @@ RSYNC_STUB = textwrap.dedent(
     if [[ "$last" == *:* ]]; then
       if [ "${RSYNC_PUSH_MODE:-0}" != 0 ]; then exit "$RSYNC_PUSH_MODE"; fi
       touch "${PUSH_MARKER:?}"
+      exit 0
     fi
-    exit 0
+    printf '%s\\n' "rsync $*" >> "${RSYNC_LOG:?}"
+    exit "${RSYNC_PULL_MODE:-0}"
     """
 )
 # ssh 桩三种调用形: ①honyport 面目录探测(monthly_eval.sh `ssh … test -d
@@ -124,10 +148,12 @@ RSYNC_STUB = textwrap.dedent(
 # SSH_MKDIR_MARKER(留痕:dry-run「不调 ssh」与「推送先建目录」才有标记可断);
 # ③生产 volume 心跳推送(printf > …)→ touch 标记文件。(旧桩任何非
 # test-d 调用都 touch 标记,会把 mkdir -p 也当心跳 —— 按调用形分派)
+# ①的探测 rc 现按 HONYPORT_PROBE_MODE(#489): 缺省 1 = 远端目录缺席
+# (哨兵分支, 既有用例行为不变); 0 = 在场 → 走 mirror-sync 拉取(交接用例)。
 SSH_STUB = textwrap.dedent(
     """\
     #!/usr/bin/env bash
-    if [[ "$*" == *"test -d"* ]]; then exit 1; fi
+    if [[ "$*" == *"test -d"* ]]; then exit "${HONYPORT_PROBE_MODE:-1}"; fi
     if [[ "$*" == *"mkdir -p"* ]]; then
       touch "${SSH_MKDIR_MARKER:?}"
       exit 0
@@ -195,6 +221,8 @@ def _run_monthly(repo: Path, stubs: Path, tmp_path: Path, *args: str,
                  truth_v2_mode: str = "0",
                  truth_v2_readout_mode: str = "0",
                  rsync_push_mode: str = "0",
+                 rsync_pull_mode: str = "0",
+                 honyport_probe_mode: str = "1",
                  ) -> tuple[int, str]:
     env = dict(os.environ)
     env["PATH"] = f"{stubs}:{env['PATH']}"
@@ -204,6 +232,12 @@ def _run_monthly(repo: Path, stubs: Path, tmp_path: Path, *args: str,
     env["SSH_MKDIR_MARKER"] = str(tmp_path / "ssh-mkdir-marker")   # #453 推送前建目录标记
     env["DATE_COUNTER"] = str(tmp_path / "date-counter")   # #468 date 桩计数文件
     env["RSYNC_PUSH_MODE"] = rsync_push_mode
+    env["RSYNC_PULL_MODE"] = rsync_pull_mode          # #489: 拉取面返回码
+    env["HONYPORT_PROBE_MODE"] = honyport_probe_mode  # 缺省 1=远端目录缺席
+    env["MIRROR_SYNC_LOG"] = str(tmp_path / "mirror-sync.log")  # #489 交接记录
+    env["RSYNC_LOG"] = str(tmp_path / "rsync.log")      # #489 端到端命令对拍
+    env["MIRROR_SYNC_REAL_PY"] = sys.executable         # #489 交棒真解释器
+    env["MIRROR_SYNC_BACKEND_DIR"] = str(_BACKEND_DIR_FOR_MIRROR_SYNC)
     env["ANCHORS_MODE"] = anchors_mode
     env["DSEM_MODE"] = dsem_mode
     env["MODEL_MODE"] = model_mode
@@ -567,3 +601,90 @@ def test_leg_logs_land_in_report_tree_one_timestamp_per_round(tmp_path):
         assert len(found) == 1, f"{leg} 腿日志须恰一份,实得 {[p.name for p in found]}\n{out}"
         stamps.add(re.search(r"(\d{8}T\d{6}Z)", found[0].name).group(1))
     assert len(stamps) == 1, f"一轮一个时间戳(十二腿共用),实得 {sorted(stamps)}"
+
+
+# ── #489:拉取面同步收口单源入口(mirror-sync 交棒真解释器)──────────
+
+def _data_dir(tmp_path: Path) -> str:
+    return os.path.realpath(tmp_path / "data")   # 与脚本 realpath -m 同值
+
+
+def test_mirror_sync_handoff_to_real_interpreter(tmp_path):
+    """python3 桩把 mirror-sync 交棒真解释器:交接记录恰三条(main/
+    truth-v2/honyport;ssh 桩探测放行 = 远端目录在场)。交棒没发生
+    (桩没 exec,或把动作词当腿模拟)记录条数/形状即不对。"""
+    repo = _make_repo(tmp_path)
+    stubs = _make_stubs(tmp_path)
+    rc, out = _run_monthly(repo, stubs, tmp_path, honyport_probe_mode="0")
+    assert rc == 0, out
+    log = (tmp_path / "mirror-sync.log").read_text(encoding="utf-8").splitlines()
+    assert len(log) == 3, f"mirror-sync 应恰交接三次(三拉取面),实得 {len(log)}\n{out}"
+    faces = [re.search(r"--face (\S+)", ln).group(1) for ln in log]
+    assert faces == ["main", "truth-v2", "honyport"], faces
+
+
+def test_dry_run_rsync_lines_identical_to_pre_change(tmp_path):
+    """dry-run 三行 ==> rsync… 与改前逐字相同(#489 契约):期望值从
+    Python 契约常量拼出(host/data-dir 是 harness 参数,与改前同参数下
+    逐字节同形;改前全文留档票目录 dry-run-before.txt 供合并对拍)。"""
+    repo = _make_repo(tmp_path)
+    stubs = _make_stubs(tmp_path)
+    rc, out = _run_monthly(repo, stubs, tmp_path, "--dry-run")
+    assert rc == 0, out
+    data = _data_dir(tmp_path)
+    lines = [ln for ln in out.splitlines() if ln.startswith("==> rsync")]
+    assert lines == [
+        f"==> rsync: stub-host:{gate_mirror.PROD_DATA_DIR}/ -> {data}/",
+        f"==> rsync(truth-v2 快照面): stub-host:{gate_mirror.TRUTH_V2_CAPTURE_DIR}/"
+        f" -> {data}/truth-v2-capture/",
+        f"==> rsync(honyport 日 CSV 面): stub-host:{gate_mirror.HONYPORT_OUT_DIR}/"
+        f" -> {data}/truth-v2-honyport/",
+    ], lines
+
+
+def test_pull_rsync_command_matches_python_contract(tmp_path):
+    """端到端对拍:级联真跑(bash→CLI→sync_face→rsync)落桩的 argv ==
+    Python 契约拼出的命令;旗标另按字面量钉(变异 M1 只改 Python 侧
+    旗标时,端到端对拍会跟着一致漂移假绿,判别力在字面量断言)。"""
+    repo = _make_repo(tmp_path)
+    stubs = _make_stubs(tmp_path)
+    rc, out = _run_monthly(repo, stubs, tmp_path)
+    assert rc == 0, out
+    data = _data_dir(tmp_path)
+    got = [ln.split() for ln in
+           (tmp_path / "rsync.log").read_text(encoding="utf-8").splitlines()]
+    want = [
+        gate_mirror.sync_face("stub-host", "main", data,
+                              dry_run=True)["command"],
+        gate_mirror.sync_face("stub-host", "truth-v2",
+                              f"{data}/truth-v2-capture",
+                              dry_run=True)["command"],
+    ]
+    assert got == want, f"rsync argv 端到端对拍失配:\n got={got}\nwant={want}"
+    # 旗标字面量钉(主面含 --delete-after,快照面无)
+    assert "--partial" in got[0] and "--delete-after" in got[0], got[0]
+    assert "--delete-after" not in got[1], got[1]
+
+
+def test_pull_rc24_tolerated_round_completes(tmp_path):
+    """拉取面 rc=24(源侧活文件消失)月轮照常跑完,留痕行在,心跳照推
+    (容忍语义从 bash 三处手写 if 迁到 Python 单源后行为不变)。"""
+    repo = _make_repo(tmp_path)
+    stubs = _make_stubs(tmp_path)
+    rc, out = _run_monthly(repo, stubs, tmp_path, rsync_pull_mode="24")
+    assert rc == 0, out
+    assert "-- rsync rc=24(源侧活动文件消失,活镜像可容忍)" in out, out
+    assert "完成" in out, out
+    assert (tmp_path / "heartbeat-marker").exists(), out
+
+
+def test_pull_rc23_rejected_round_aborts(tmp_path):
+    """拉取面 rc=23(非容忍)月轮拒绝:退出非零、「拒绝」在日志、拒绝
+    发生在读数前(无工件无心跳,缺员即死不变)。"""
+    repo = _make_repo(tmp_path)
+    stubs = _make_stubs(tmp_path)
+    rc, out = _run_monthly(repo, stubs, tmp_path, rsync_pull_mode="23")
+    assert rc == 1, f"拉取拒绝须以 rc=1 退出,实得 {rc}\n{out}"
+    assert "拒绝: rsync 失败 (rc=23)" in out, out
+    assert not (tmp_path / "heartbeat-marker").exists(), "拉取拒绝不得推心跳"
+    assert not _report_root(repo).exists(), "拉取拒绝不得进读数"
