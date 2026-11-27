@@ -1,0 +1,98 @@
+# 依赖约束文件 —— pip 以 -c(constraints)消费;记「当时验证过的版本」(工单 #499)。
+#
+# 这是什么:2026-11-27 生产镜像(Python 3.12.16)里 `pip freeze` 的实际安装版本,
+# 照原样逐包记录(包名大小写保持 pip 的写法)。requirements.txt 里的 >= 范围表达
+# 「上不封顶吃安全更新」的意图;本文件把当时验证过、镜像里实际在跑的精确版本记档,
+# 防止同一 commit 在镜像/CI/本地装出不同依赖集(漂移仓内判例:ops/package.json:5,
+# 2026-11-22 实测 undici 7.30.1→7.30.2)。
+# 来源:生产镜像所在提交 master 8fe7d5a6,2026-11-27;原始输出是不入库的本地件
+# dev/arch-r4-scan/prod-pip-freeze-20261127.txt。
+#
+# 与 requirements.txt 的分工:requirements.txt 写版本范围和「为什么用它」的注释;
+# 本文件只记版本。requirements.txt 不引用本文件,范围语义保留。
+#
+# 怎么重新生成:在生产容器里 `pip freeze`;或在一个干净虚拟环境里按 requirements.txt
+# 装完后 `pip freeze`,照原样替换下面的包行。整表重生成 = 全量升级,只在专门的
+# 全量升级提交里做,要过全量门;平时单包升级只改一行。
+#
+# 什么时候改:升级某个包 = 改这里的一行,单独一个提交,提交说明写清为什么
+# (安全更新/修缺陷/新功能需要)。本文件的每一处改动都会被镜像构建与 CI 安装步
+# 真实解析一遍——装不上即红。
+#
+# 谁在消费本文件(全部带 -c):
+#   - Dockerfile 运行时镜像 pip install
+#   - .github/workflows/ci.yml 五处 pip install
+#   - .github/workflows/audit.yml 每周依赖体检的运行时安装(可安装性探针)
+#   - scripts/worktree_init.sh(工作树 backend/.venv,后端门用它)
+#   - start.sh(本地起服务首次建 venv)
+#   - 本地开发(建议,不强制):pip install -c constraints.txt -r requirements-dev.txt
+aiosqlite==0.20.0
+annotated-doc==0.0.7
+annotated-types==0.8.0
+antlr4-python3-runtime==4.13.2
+anyio==4.16.0
+apprise==2.3.0
+argon2-cffi==25.1.0
+argon2-cffi-bindings==26.2.0
+bcrypt==5.0.0
+cabby==0.1.23
+certifi==2026.11.20
+cffi==2.1.1
+charset-normalizer==3.5.3
+click==8.5.1
+colorlog==6.12.0
+cryptography==50.0.2
+Deprecated==3.0.1
+dnspython==2.9.2
+email-validator==2.3.0
+fastapi==0.141.1
+fastapi-users==15.0.5
+fastapi-users-db-sqlalchemy==7.0.0
+furl==2.1.4
+greenlet==3.5.6
+h11==0.16.0
+httpcore==1.0.9
+httptools==0.9.0
+httpx==0.28.1
+idna==3.20
+libtaxii==1.1.119
+limits==5.8.0
+lmdb==2.3.0
+lxml==6.1.3
+makefun==1.16.0
+Markdown==3.11.4
+maxminddb==3.3.0
+oauthlib==4.0.1
+orderedmultidict==1.0.2
+orjson==3.11.9
+packaging==26.4
+psutil==6.1.0
+pwdlib==0.3.0
+pycparser==3.12
+pydantic==2.14.4
+pydantic_core==2.50.5
+PyJWT==2.14.0
+pymispwarninglists==1.7.0
+python-dateutil==4.0.0
+python-dotenv==1.2.2
+python-multipart==0.0.32
+pytz==2026.6
+PyYAML==6.0.4
+requests==2.34.2
+requests-oauthlib==2.0.0
+simplejson==4.3.0
+six==1.17.0
+slowapi==0.1.10
+SQLAlchemy==2.0.58
+starlette==1.6.0
+stix2==3.0.2
+stix2-patterns==2.1.2
+typing-inspection==0.4.5
+typing_extensions==4.16.0
+tzdata==2026.6
+urllib3==2.8.0
+uvicorn==0.34.2
+uvloop==0.23.0
+watchfiles==1.3.0
+websockets==17.4
+wrapt==2.5.2
