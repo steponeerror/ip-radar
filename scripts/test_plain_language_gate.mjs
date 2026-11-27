@@ -44,7 +44,7 @@ test("parseLexicon:分区收集,注释/空行剔除", () => {
 	});
 });
 
-test("parseLexicon:空文本 = 空词表(对应词表缺失时的静默放行语义)", () => {
+test("parseLexicon:空文本 = 空词表(读得到但没有词 = 静默放行)", () => {
 	assert.deepEqual(parseLexicon(""), { banned: [], explain: [] });
 });
 
@@ -158,7 +158,7 @@ test("gateAssistantMessage:已含幂等标记 → 不再追加", () => {
 	assert.equal(gateAssistantMessage({ role: "assistant", content }, FIXTURE_LEXICON), undefined);
 });
 
-test("gateAssistantMessage:空词表(词表缺失等价)→ 恒放行", () => {
+test("gateAssistantMessage:空词表(读得到但没有词)→ 恒放行", () => {
 	const empty = { banned: [], explain: [] };
 	assert.equal(
 		gateAssistantMessage({ role: "assistant", content: [{ type: "text", text: "收官 票① 挂点" }] }, empty),
@@ -200,22 +200,23 @@ test("词表路径不存在 → 放行(null)且 stderr 有一行提示;词表可
 	const orig = process.stderr.write;
 	const chunks = [];
 	process.stderr.write = (chunk) => { chunks.push(String(chunk)); return true; };
+	const dir = mkdtempSync(join(tmpdir(), "plg-lex-"));
 	try {
 		const missing = "/nonexistent/ipradar-plg-test/plain_lexicon.txt";
 		assert.equal(loadLexiconFrom(missing), null, "缺失 → null = 放行,消息不被拦");
 		const line = chunks.join("");
 		assert.ok(line.includes("说人话词表缺失或不可读,本次不检查"), `stderr 要有这行提示: ${line}`);
 		assert.ok(line.includes(missing), `提示要带路径: ${line}`);
+		assert.equal(chunks.length, 1, "提示恰好一行");
 		// 可读词表 → 正常解析且零提示(防「永远出声」式的懒变异);fixture 词
 		// 刻意避开全局禁词表里的词,防提交门(pre-commit 同一套词表)拦新增行
-		const dir = mkdtempSync(join(tmpdir(), "plg-lex-"));
 		const lexPath = join(dir, "plain_lexicon.txt");
 		writeFileSync(lexPath, "[BANNED]\n紫电清霜\n", "utf-8");
 		chunks.length = 0;
 		assert.deepEqual(loadLexiconFrom(lexPath), { banned: ["紫电清霜"], explain: [] });
 		assert.equal(chunks.join(""), "", "词表可读 → 无 stderr 提示");
-		rmSync(dir, { recursive: true, force: true });
 	} finally {
 		process.stderr.write = orig;
+		rmSync(dir, { recursive: true, force: true });
 	}
 });

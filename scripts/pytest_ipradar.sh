@@ -50,7 +50,8 @@ if [ -x "$REPO_ROOT/backend/.venv/bin/python" ]; then
 else
   PY=python3
   # 回退出声(#511,2026-11-27):行为保留(见文件头「解释器选择」),但静默
-  # 退回没人知道——worktree 里最容易踩(工作树永远没有自己的 .venv)。
+  # 退回没人知道——裸建的工作树最容易踩(跑过 scripts/worktree_init.sh 的才有
+  # 自己的 .venv)。
   echo "pytest_ipradar: backend/.venv 缺失,回退 PATH 上的 python3(工作树里请用主检出 venv 的绝对路径): 解释器 = $(command -v -- "$PY")" >&2
 fi
 

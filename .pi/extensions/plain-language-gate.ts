@@ -171,6 +171,7 @@ function loadLexiconFresh(): Lexicon | null {
 
 export default function plainLanguageGate(pi: ExtensionAPI): void {
 	pi.on("message_end", async (event, ctx) => {
+		if (event.message?.role !== "assistant") return; // 非助手消息不检查(#511 评审:省一次读盘)
 		try {
 			const lexicon = loadLexiconFresh();
 			if (!lexicon) return; // 词表缺失/不可读 → 放行(loadLexiconFrom 已往 stderr 出声,#511)
