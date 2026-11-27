@@ -343,6 +343,8 @@ HARVEST_REV = 2
 # 挂账(2026-11-25,#450):otx 开 infra_noise_filter 未 bump——不为一个源做
 # 全族迁移重建;存量 otx 族靠每日刷新重建自愈(download 每次重写数据文件),
 # 明账记在 otx.py 类注释与 CHANGELOG 部署注记,下次 bump 时顺带兑付。
+# 挂账(2026-11-27,#514):nerd_medconf 开 infra_noise_filter 同样未 bump,
+# 理由同 #450(明账记在 nerd_medconf.py 类注释与 CHANGELOG 部署注记)。
 
 
 def env_dir(base: Path, epoch: int) -> Path:
