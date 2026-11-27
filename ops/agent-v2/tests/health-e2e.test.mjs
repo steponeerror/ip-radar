@@ -711,3 +711,265 @@ test("#445 健康轮属主负例:异主认领件——链面守卫拦成 bad_rou
     fs.rmSync(w.tmp, { recursive: true, force: true });
   }
 });
+
+// ── #490(第四轮评审卡 25)DEEP 并发闸 + 账户级限流分批面 ────────────────────────
+// 共同面:Harness settings 关会话层自动重试(生产默认开;429 文本会被 pi-durable 会话层
+// 先自动重试耗尽才到模型级分类——测试要直击模型级分类面,必须关掉保确定性)。
+const ACC_ERR_429 = '429: {"code":"1302","message":"您的账户已达到速率限制，请您控制请求频率"}';
+
+function healthHarness(storage, context) { // 与既有例同装配,仅 settings 关会话层自动重试
+  return Harness.open(storage, {
+    models: createModels(), registry: buildRegistry(),
+    settings: { retry: { enabled: false }, compaction: { enabled: false } },
+  }, context);
+}
+
+function trackModelConcurrency(harness) { // 任一提交时点在途(非 terminal)ops-model-round 任务数峰值
+  const statuses = new Map();
+  let max = 0;
+  harness.subscribeCommits((publication) => {
+    for (const ch of publication.changes)
+      if (ch.type === "task" && ch.value?.kind === "ops-model-round")
+        statuses.set(ch.value.id, ch.value.state?.status ?? "terminal");
+    let n = 0;
+    for (const s of statuses.values()) if (s !== "terminal") n += 1;
+    max = Math.max(max, n);
+  });
+  return { get max() { return max; } };
+}
+
+function fixturesWithDeepError(tmp, slug, extraTurn) { // 复制罐装 fixture 树,把 DEEP 单假设回合换成 error
+  const fxDir = path.join(tmp, "fixtures-490");
+  fs.cpSync(FIXTURES, fxDir, { recursive: true });
+  const f = jsonOf(path.join(fxDir, "deep", `${slug}.json`));
+  fs.writeFileSync(path.join(fxDir, "deep", `${slug}.json`), JSON.stringify({ ...f, turns: [extraTurn] }));
+  return fxDir;
+}
+
+function overrideSynth(fxDir, confirmed, refuted, unresolved) { // 罐装 SYNTH 回合:深验三计数对齐降级世界
+  // (G_SYNTH 深验抽检:报告数字=verdicts∪degraded∪truncated 回算;四计数 created=2 不变
+  // ——降级行同入清单也建条目。判例引用只含 PREC,closureCheck 闭合面同源。)
+  fs.writeFileSync(path.join(fxDir, "synth.json"), JSON.stringify({ turns: [
+    { role: "assistant", content: [{ type: "text", text:
+`## 注入判例
+- 2026-06-01-golden-aggregator.md
+
+## 异常清单
+- (降级世界罐装清单;门检三节齐+四计数+深验三计数+判例闭合)
+
+抑制 1 条(规则 R1×1——明细见工件 02-verify-suppressed.json)。
+
+## 摘要
+- 计数: created=2 reopened=0 deduped=0 suppressed=1
+- 深验: confirmed=${confirmed} refuted=${refuted} unresolved=${unresolved};探测桶 frozen=3
+- P4 轮:DEEP 真开启(evidence=A 一律选择对,宿主回填;条目经 ops-items 桥落四键面)。` }], stopReason: "stop" },
+  ] }));
+}
+
+test("#490 并发闸=1:DEEP 子任务串行分批(任一时点至多 1 个在途),轮照常全绿", async () => {
+  const roundId = "2026-10-28-0110-health";
+  const w = seedWorld({ roundId });
+  const prev = process.env.OPS_MODEL_MAX_INFLIGHT;
+  process.env.OPS_MODEL_MAX_INFLIGHT = "1";
+  const storage = await openNodeSqliteStorage(path.join(w.tmp, "t.sqlite"));
+  const context = BACKGROUND_CONTEXT;
+  try {
+    const harness = await healthHarness(storage, context);
+    try {
+      const track = trackModelConcurrency(harness);
+      harness.resume();
+      const root = await harness.root(context);
+      const taskId = await root.commit((tx) => tx.createTask(OPS_HEALTH_ROUND, {
+        roundId, fromPhase: "TRIAGE", modelFace: "faux", fixturesDir: FIXTURES,
+      }, { ownership: { kind: "conversation" } }), context);
+      const settled = await harness.waitForTask(taskId, context);
+      const outcome = settled.state.outcome;
+      assert.equal(outcome.status, "completed", `分批链应照常完成:${JSON.stringify(outcome)}`);
+      assert.equal(track.max, 1, `任一时点至多 1 个模型子任务在途(实测峰值 ${track.max})`);
+      const env = outcome.result.envelope;
+      assert.deepEqual(env.pipeline.stages.map((s) => s.name), ["TRIAGE", "DISPATCH", "DEEP", "ITEMIZE", "SYNTH", "ANCHOR_SWEEP", "RETRO", "CLOSE"], "分批不改相位面");
+      const verdicts = jsonOf(path.join(w.roundDir, "05-deep-verdicts.json"));
+      assert.deepEqual(verdicts.verdicts.map((v) => v.verdict).sort(), ["confirmed", "refuted"], "两批收编照常");
+      assert.equal(jsonOf(path.join(w.roundDir, "09-budget.json")).readings.model_calls, 4, "轮累计不变(TRIAGE+DEEP×2+SYNTH)");
+    } finally { await harness.close(context); }
+  } finally {
+    await storage.close(context);
+    if (prev === undefined) delete process.env.OPS_MODEL_MAX_INFLIGHT; else process.env.OPS_MODEL_MAX_INFLIGHT = prev;
+    w.restore();
+    fs.rmSync(w.tmp, { recursive: true, force: true });
+  }
+});
+
+test("#490 缺省闸=2:两假设恰一批全放(任一时点 2 个在途),轮照常全绿", async () => {
+  const roundId = "2026-10-28-0111-health";
+  const w = seedWorld({ roundId });
+  const storage = await openNodeSqliteStorage(path.join(w.tmp, "t.sqlite"));
+  const context = BACKGROUND_CONTEXT;
+  try {
+    const harness = await healthHarness(storage, context);
+    try {
+      const track = trackModelConcurrency(harness);
+      harness.resume();
+      const root = await harness.root(context);
+      const taskId = await root.commit((tx) => tx.createTask(OPS_HEALTH_ROUND, {
+        roundId, fromPhase: "TRIAGE", modelFace: "faux", fixturesDir: FIXTURES,
+      }, { ownership: { kind: "conversation" } }), context);
+      const settled = await harness.waitForTask(taskId, context);
+      const outcome = settled.state.outcome;
+      assert.equal(outcome.status, "completed", `缺省闸应照常完成:${JSON.stringify(outcome)}`);
+      assert.equal(track.max, 2, `缺省闸 2=两子任务同时在途(实测峰值 ${track.max})`);
+    } finally { await harness.close(context); }
+  } finally {
+    await storage.close(context);
+    w.restore();
+    fs.rmSync(w.tmp, { recursive: true, force: true });
+  }
+});
+
+test("#490 批内账户级限流:败者记 unresolved(原因写明账户级),同批成功者照常收编,轮降级收口", async () => {
+  const roundId = "2026-10-28-0112-health";
+  const w = seedWorld({ roundId });
+  const fxDir = fixturesWithDeepError(w.tmp, CINS_SLUG, { role: "assistant", content: [], stopReason: "error", errorMessage: ACC_ERR_429 });
+  overrideSynth(fxDir, 0, 1, 1); // 深验计数对齐:1 refuted(bdef)+1 unresolved(cins)
+  const storage = await openNodeSqliteStorage(path.join(w.tmp, "t.sqlite"));
+  const context = BACKGROUND_CONTEXT;
+  try {
+    const harness = await healthHarness(storage, context);
+    try {
+      harness.resume();
+      const root = await harness.root(context);
+      const taskId = await root.commit((tx) => tx.createTask(OPS_HEALTH_ROUND, {
+        roundId, fromPhase: "TRIAGE", modelFace: "faux", fixturesDir: fxDir,
+      }, { ownership: { kind: "conversation" } }), context);
+      const settled = await harness.waitForTask(taskId, context);
+      const outcome = settled.state.outcome;
+      assert.equal(outcome.status, "completed", `批内单败应降级收口:${JSON.stringify(outcome)}`);
+      const verdicts = jsonOf(path.join(w.roundDir, "05-deep-verdicts.json"));
+      assert.equal(verdicts.verdicts.length, 1, "同批成功者照常收编");
+      assert.equal(verdicts.verdicts[0].hid, BDEF);
+      assert.equal(verdicts.degraded.length, 1, "败者记 unresolved");
+      assert.equal(verdicts.degraded[0].hid, CINS);
+      assert.equal(verdicts.degraded[0].verdict, "unresolved");
+      assert.match(verdicts.degraded[0].one_line, /账户级限流/, `one_line 写明账户级限流:${verdicts.degraded[0].one_line}`);
+      assert.equal(jsonOf(path.join(w.roundDir, "09-budget.json")).readings.model_calls, 4, "轮累计=TRIAGE+DEEP×2(败者也计)+SYNTH");
+      const env = outcome.result.envelope;
+      assert.equal(env.pipeline.stages.find((s) => s.name === "DEEP").status, "degraded", "DEEP 相位=degraded");
+    } finally { await harness.close(context); }
+  } finally {
+    await storage.close(context);
+    w.restore();
+    fs.rmSync(w.tmp, { recursive: true, force: true });
+  }
+});
+
+test("#490 账户级限流批间截断:余下假设不再放出(记 unresolved 未放出),轮正常收口", async () => {
+  const roundId = "2026-10-28-0113-health";
+  const w = seedWorld({ roundId });
+  const fxDir = fixturesWithDeepError(w.tmp, CINS_SLUG, { role: "assistant", content: [], stopReason: "error", errorMessage: ACC_ERR_429 });
+  overrideSynth(fxDir, 0, 0, 2); // 深验计数对齐:0 判决+2 unresolved(cins 败+ bdef 未放出)
+  const prev = process.env.OPS_MODEL_MAX_INFLIGHT;
+  process.env.OPS_MODEL_MAX_INFLIGHT = "1"; // 批=1:首假设撞限,第二假设永不放出
+  const storage = await openNodeSqliteStorage(path.join(w.tmp, "t.sqlite"));
+  const context = BACKGROUND_CONTEXT;
+  try {
+    const harness = await healthHarness(storage, context);
+    try {
+      harness.resume();
+      const root = await harness.root(context);
+      const taskId = await root.commit((tx) => tx.createTask(OPS_HEALTH_ROUND, {
+        roundId, fromPhase: "TRIAGE", modelFace: "faux", fixturesDir: fxDir,
+      }, { ownership: { kind: "conversation" } }), context);
+      const settled = await harness.waitForTask(taskId, context);
+      const outcome = settled.state.outcome;
+      assert.equal(outcome.status, "completed", `截断应按部分假设未解决正常收口:${JSON.stringify(outcome)}`);
+      const verdicts = jsonOf(path.join(w.roundDir, "05-deep-verdicts.json"));
+      assert.equal(verdicts.verdicts.length, 0, "零判决(第二假设没跑)");
+      assert.equal(verdicts.degraded.length, 2, "两假设都记 unresolved");
+      assert.deepEqual(verdicts.degraded.map((d) => d.hid).sort(), [BDEF, CINS].sort());
+      assert.ok(verdicts.degraded.every((d) => /账户级限流/.test(d.one_line)), `全部注明账户级限流:${JSON.stringify(verdicts.degraded)}`);
+      const bdefLine = verdicts.degraded.find((d) => d.hid === BDEF);
+      assert.match(bdefLine.one_line, /未放出/, "未放出假设的 one_line 写明余下假设未放出");
+      assert.ok(!fs.existsSync(path.join(w.roundDir, `05-deep-${BDEF_SLUG}.json`)) &&
+        !fs.existsSync(path.join(w.roundDir, `05-deep-${BDEF_SLUG}-transcript.jsonl`)), "第二假设零工件零 transcript(批未放出)");
+      assert.equal(jsonOf(path.join(w.roundDir, "09-budget.json")).readings.model_calls, 3, "轮累计=TRIAGE+DEEP×1+SYNTH(截断不空烧)");
+    } finally { await harness.close(context); }
+  } finally {
+    await storage.close(context);
+    if (prev === undefined) delete process.env.OPS_MODEL_MAX_INFLIGHT; else process.env.OPS_MODEL_MAX_INFLIGHT = prev;
+    w.restore();
+    fs.rmSync(w.tmp, { recursive: true, force: true });
+  }
+});
+
+test("#490 TRIAGE 单发步账户级限流:不重试直落轮终态 failed code=account_rate_limited(state.json failed/FAILED)", async () => {
+  const roundId = "2026-10-28-e2e-acct-health";
+  const w = seedWorld({ roundId });
+  const fxDir = path.join(w.tmp, "fixtures-490-triage");
+  fs.cpSync(FIXTURES, fxDir, { recursive: true });
+  const triage = jsonOf(path.join(fxDir, "triage.json"));
+  fs.writeFileSync(path.join(fxDir, "triage.json"), JSON.stringify({ ...triage, turns: [
+    { role: "assistant", content: [], stopReason: "error", errorMessage: ACC_ERR_429 },
+  ] }));
+  const storage = await openNodeSqliteStorage(path.join(w.tmp, "t.sqlite"));
+  const context = BACKGROUND_CONTEXT;
+  try {
+    const harness = await healthHarness(storage, context);
+    try {
+      harness.resume();
+      const root = await harness.root(context);
+      const taskId = await root.commit((tx) => tx.createTask(OPS_HEALTH_ROUND, {
+        roundId, fromPhase: "TRIAGE", modelFace: "faux", fixturesDir: fxDir,
+      }, { ownership: { kind: "conversation" } }), context);
+      const settled = await harness.waitForTask(taskId, context);
+      const outcome = settled.state.outcome;
+      assert.equal(outcome.status, "failed", `单发步账户级应轮终态 failed:${JSON.stringify(outcome)}`);
+      assert.equal(outcome.error.code, "account_rate_limited", "轮终态错误码=诚实码");
+      assert.match(outcome.error.message, /账户级限流/);
+      const mirror = jsonOf(path.join(w.roundDir, "state.json"));
+      assert.equal(mirror.status, "failed", "#415:镜像与 outcome 同出口写 failed");
+      assert.equal(mirror.stage, "FAILED", "#415:终态 stage 书挡 FAILED");
+      assert.ok(!fs.existsSync(path.join(w.roundDir, "03-triage-transcript.jsonl")), "失败回合零 transcript(submission 层败在 writeTranscript 前)");
+    } finally { await harness.close(context); }
+  } finally {
+    await storage.close(context);
+    w.restore();
+    fs.rmSync(w.tmp, { recursive: true, force: true });
+  }
+});
+
+test("#490 DEEP 全败皆账户级:轮终态 failed code=account_rate_limited(诚实码不冒充 model_face)", async () => {
+  const roundId = "2026-10-28-e2e-acct2-health";
+  const w = seedWorld({ roundId });
+  const fxDir = path.join(w.tmp, "fixtures-490-deepall");
+  fs.cpSync(FIXTURES, fxDir, { recursive: true });
+  for (const slug of [CINS_SLUG, BDEF_SLUG]) {
+    const f = jsonOf(path.join(fxDir, "deep", `${slug}.json`));
+    fs.writeFileSync(path.join(fxDir, "deep", `${slug}.json`), JSON.stringify({ ...f, turns: [
+      { role: "assistant", content: [], stopReason: "error", errorMessage: ACC_ERR_429 },
+    ] }));
+  }
+  const storage = await openNodeSqliteStorage(path.join(w.tmp, "t.sqlite"));
+  const context = BACKGROUND_CONTEXT;
+  try {
+    const harness = await healthHarness(storage, context);
+    try {
+      harness.resume();
+      const root = await harness.root(context);
+      const taskId = await root.commit((tx) => tx.createTask(OPS_HEALTH_ROUND, {
+        roundId, fromPhase: "TRIAGE", modelFace: "faux", fixturesDir: fxDir,
+      }, { ownership: { kind: "conversation" } }), context);
+      const settled = await harness.waitForTask(taskId, context);
+      const outcome = settled.state.outcome;
+      assert.equal(outcome.status, "failed", `全败应轮终态 failed:${JSON.stringify(outcome)}`);
+      assert.equal(outcome.error.code, "account_rate_limited", `全败归因=账户级:${JSON.stringify(outcome.error)}`);
+      assert.match(outcome.error.message, /全部 2 假设失败/);
+      const mirror = jsonOf(path.join(w.roundDir, "state.json"));
+      assert.equal(mirror.status, "failed");
+      assert.equal(mirror.stage, "FAILED");
+    } finally { await harness.close(context); }
+  } finally {
+    await storage.close(context);
+    w.restore();
+    fs.rmSync(w.tmp, { recursive: true, force: true });
+  }
+});

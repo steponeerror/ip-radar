@@ -25,6 +25,7 @@ import { ERROR_CODES } from "../../pipeline-core/error-codes.mjs";
 import { loadModels } from "../models.mjs"; // 零复制 seam(定案 7:装载器不动)
 import { buildRoundCtx, opsRootOf, composeEnvelope, skipWhenNoNeedDeep, ROOT } from "../round-ctx.mjs";
 import { roundKnobs, stepBoundary, postModelCall, knobNames } from "./budget-guard.mjs"; // P1-4:收口复查①②④ 面
+import { maxModelInflight } from "./model-errors.mjs"; // #490:DEEP 子任务并发闸(读取面单源在彼)
 import { OPS_MODEL_ROUND, conversationUsage, conversationModelCalls } from "./model-round.mjs"; // P1-4:failed 子任务留痕计量面
 import { mkFauxFace, loadFauxFixture } from "../faux-face.mjs"; // 修复⑥:faux 面分派件(旧 faux.mjs 字节级一致副本)
 import { writeRoundReport } from "../../pipeline-core/pipeline/round-report.mjs"; // #403:轮报告件单源(v2 零复制 import v1)
@@ -60,7 +61,10 @@ export function rebuildRoundCtx(input, ck) {
 }
 
 // —— 阶段记录/终态面(旧 failStage/writeState 同语义,载体=checkpoint 而非 state.json)——
-const stageDone = (ck, rec, phase) => ({ ...ck, phase: nextPhase(phase ?? ck.phase), attempt: 0, children: null, childConvs: null, spawnPhase: null, state: { ...ck.state, stages: [...(ck.state?.stages ?? []), rec], prompt_hashes: { ...(ck.state?.prompt_hashes ?? {}) }, stage: phase ?? ck.phase }, modelCalls: ck.modelCalls, usage: ck.usage });
+const stageDone = (ck, rec, phase) => ({ ...ck, phase: nextPhase(phase ?? ck.phase), attempt: 0, children: null, childConvs: null, spawnPhase: null,
+  // #490 批间字段随相位推进复位(spawned/batchHids/degraded/failedN/failedAllAccount/stepUsage0/stepCalls0)
+  spawned: null, batchHids: null, degraded: null, failedN: null, failedAllAccount: null, stepUsage0: null, stepCalls0: null,
+  state: { ...ck.state, stages: [...(ck.state?.stages ?? []), rec], prompt_hashes: { ...(ck.state?.prompt_hashes ?? {}) }, stage: phase ?? ck.phase }, modelCalls: ck.modelCalls, usage: ck.usage });
 function nextPhase(p) { const i = RUNNABLE.indexOf(p); return i >= 0 && i + 1 < RUNNABLE.length ? RUNNABLE[i + 1] : "CLOSE"; }
 const failTerm = (ck, phase, code, message) => ({ ...ck, phase: "FAILED", failed: { code, message: `${phase}:${message}` } });
 
@@ -213,11 +217,19 @@ async function stepModelRef(def, input) {
   if (!m) throw Object.assign(new Error(`模型未装载:${STEP_ROUND[def.name]}`), { code: "infra" });
   return { provider: m.provider, modelId: m.id };
 }
+// #490 并发闸:模型子任务分批放出,同时在途 ≤ OPS_MODEL_MAX_INFLIGHT(缺省 2;轮内 2 路,
+// 给同账户上别的工作留 1 路——2026-11-27 实测账户上限 3)。批大小在派发处读旋钮单源
+// model-errors.maxModelInflight();单发步(TRIAGE/SYNTH)items=[null] 恰 1 个,闸不咬。
+// ck=检查点基线(相位头=任务现值;WAIT_MODEL 批间=上批聚合后的 merged 基线——usage/modelCalls/
+// degraded/failedN 已含已 settle 批),返回 checkpoint 全量从 ck 派生(同 waitModel 终局 commit
+// 用捕获态的既有风格;相位串行,本任务 checkpoint 在 outcomes 读与本 commit 间无别写者)。
 async function spawnModelChildren(def, input, ck, runtime, context) {
   const ctx = rebuildRoundCtx(input, ck);
   const items = def.forEach ? steps.forEachItems(def, ctx) : [null]; // DEEP=bundles(零 bundle=保活回退,旧 deepItems)
+  const start = ck.spawned ?? 0; // 已放出数(缺=改动前 checkpoint 恢复面,首批从 0 起)
+  const batch = items.slice(start, start + maxModelInflight()); // 本批=闸口径;放下一批由 WAIT_MODEL 收口接续
   const childIds = [];
-  const childConvs = {}; // taskId → convId(P1-4:WAIT_MODEL 收口读 failed 子任务会话留痕计量)
+  const childConvs = {}; // 本批 taskId → convId(P1-4:WAIT_MODEL 收口读 failed 子任务会话留痕计量;累计面并既有)
   // faux 面分派(修复⑥/审查 P2-4 最小接面,只接分派不动 T5 台账兼容面):显式 modelRef
   // (测试注入面)优先;否则 modelFace 缺省 faux(零网络安全缺省,rebuildCtx 同口径;生产
   // cron 须显式传 real)→ 逐子任务一 fauxProvider 罐装回合(旧 runFauxStep 每步 new
@@ -227,9 +239,9 @@ async function spawnModelChildren(def, input, ck, runtime, context) {
   const explicitRef = input.modelRef ?? null;
   const fauxFace = !explicitRef && (input.modelFace ?? "faux") === "faux";
   const modelRef = explicitRef ?? (fauxFace ? null : await stepModelRef(def, input)); // 装载先于 commit(异步 IO 不入事务)
-  const fauxRefs = new Map(); // items 索引 → modelRef(faux 面逐子任务)
+  const fauxRefs = new Map(); // 本批索引 → modelRef(faux 面逐子任务)
   if (fauxFace) {
-    items.forEach((item, i) => {
+    batch.forEach((item, i) => {
       const { faux, modelRef: ref } = mkFauxFace(def, { roundId: input.roundId, stage: def.name, hid: item?.hid });
       faux.setResponses(loadFauxFixture(def, input.fixturesDir, item).turns); // 缺 fixture=infra(旧 loadFixture 同判例,提交前抛)
       runtime.models.setProvider(faux.provider);
@@ -241,8 +253,8 @@ async function spawnModelChildren(def, input, ck, runtime, context) {
   // WAIT_MODEL ①②④复查)
   const roundBase = { modelCalls: ck.modelCalls ?? 0, usage: ck.usage ?? null, startedAtIso: ck.startedAtIso };
   await runtime.commit(async (tx, cur) => {
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
+    for (let i = 0; i < batch.length; i++) {
+      const item = batch[i];
       // 每子任务一自有 conversation(api-map §3「子代理=自有 conversation」;并行 submit 不撞 busy)
       const conv = await tx.createConversation({ ownership: { kind: "task", taskId: cur.id } });
       const io = steps.modelIO(def);
@@ -267,16 +279,27 @@ async function spawnModelChildren(def, input, ck, runtime, context) {
     }
     // MF2:spawn 与 wait 同一 commit(框架 README §Child Tasks Canonical 模式;types.d.ts
     // outcomes「rejects when one is missing or not terminal. Used after a wait」)——提交
-    // waiting+on+policy,子任务全 settle 后才恢复 WAIT_MODEL 相位;逐假设败=降级面,故
-    // allSettled 非 failFast(旧 runModelStage perItem 语义对应)。
-    return { status: "waiting", checkpoint: { ...cur.state.checkpoint, phase: "WAIT_MODEL", children: childIds, childConvs, spawnPhase: def.name }, on: childIds, policy: "allSettled" };
+    // waiting+on+policy,本批全 settle 后才恢复 WAIT_MODEL 相位(「等全部子任务结束才恢复
+    // 相位」的框架语义逐字保留,#490 只把「全部」分成批);逐假设败=降级面,故
+    // allSettled 非 failFast(旧 runModelStage perItem 语义对应)。检查点=ck 全量基线+本批字段
+    // (#490):spawned=累计放出数,batchHids=本批 hid 序(收口按位对号),childConvs 并既有。
+    return { status: "waiting", checkpoint: {
+      ...ck, phase: "WAIT_MODEL", children: childIds,
+      childConvs: { ...(ck.childConvs ?? {}), ...childConvs },
+      spawned: start + batch.length, spawnPhase: def.name,
+      batchHids: batch.map((b) => b?.hid ?? null),
+      degraded: ck.degraded ?? [], failedN: ck.failedN ?? 0, failedAllAccount: ck.failedAllAccount ?? true,
+      // 步级 usage 快照(首落不再变):rec.usage=全步增量口径(旧 P0-⑤ 求和律),批间聚合不重置
+      ...(ck.stepUsage0 == null ? { stepUsage0: ck.usage ?? { input: 0, output: 0, totalTokens: 0, cost: 0 }, stepCalls0: ck.modelCalls ?? 0 } : {}),
+    }, on: childIds, policy: "allSettled" };
   }, context);
 }
 
-// WAIT_MODEL:join 全部子任务 → usage/modelCalls/prompt_hashes 收编 → DEEP 收编尾 finalize+聚合门
+// WAIT_MODEL:join 本批子任务(#490 分批:末批/截断后收口,中批放出下一批)→ usage/modelCalls/
+// prompt_hashes 收编 → DEEP 收编尾 finalize+聚合门 G_DEEP
 async function waitModel(input, ck, runtime, context) {
   const ids = ck.children ?? [];
-  const outcomes = await runtime.outcomes(ids, context); // 全 terminal 才返回(failFast 不用:逐假设败=降级面)
+  const outcomes = await runtime.outcomes(ids, context); // 本批全 terminal 才返回(failFast 不用:逐假设败=降级面)
   const def = defOf(ck.spawnPhase);
   const ctx = rebuildRoundCtx(input, ck);
   // #415:本相位五处直落终态出口统一经此——镜像与 outcome 同出口写 failed/FAILED(v1 failStage
@@ -286,17 +309,26 @@ async function waitModel(input, ck, runtime, context) {
     writeTerminalRoundState(ctx, { status: "failed", stage: "FAILED" });
     return runtime.commit(() => ({ status: "terminal", outcome: { status: "failed", error } }), context);
   };
-  // P0-⑤:usage 从轮累计基线起步(终值=新轮累计;基线 null 按字段 0),本步增量=终值−基线
-  // (恢复旧「各步 usage 求和==信封 usage」律;旧 golden pipeline_ok 断言面)。
-  const base = { input: ck.usage?.input ?? 0, output: ck.usage?.output ?? 0, totalTokens: ck.usage?.totalTokens ?? 0, cost: ck.usage?.cost ?? 0 };
-  const usage = { ...base };
+  // #490 批面:items=全假设;start=已放出数;batchHids=本批 hid 序(收口按位对号)。
+  // 缺 spawned/batchHids(改动前 checkpoint 恢复面)=视为全部已放出、hids 全单——与改动前
+  // 单批全量语义同形,部署窗口内在飞轮可续跑。
+  const items = def.forEach ? steps.forEachItems(def, ctx) : [null];
+  const start = ck.spawned ?? ids.length;
+  const batchHids = ck.batchHids ?? items.map((b) => b?.hid ?? null);
+  // P0-⑤:usage 从轮累计基线起步(终值=新轮累计;基线 null 按字段 0),本步增量=终值−步级快照
+  // (stepUsage0=相位起步时点,#490:批间聚合 ck.usage 已含前批,增量分母不再随批重置;
+  // 恢复旧「各步 usage 求和==信封 usage」律;旧 golden pipeline_ok 断言面)。
+  const stepBase = ck.stepUsage0 ?? { input: ck.usage?.input ?? 0, output: ck.usage?.output ?? 0, totalTokens: ck.usage?.totalTokens ?? 0, cost: ck.usage?.cost ?? 0 };
+  const usage = { input: ck.usage?.input ?? 0, output: ck.usage?.output ?? 0, totalTokens: ck.usage?.totalTokens ?? 0, cost: ck.usage?.cost ?? 0 };
   let modelCalls = ck.modelCalls ?? 0;
   const promptHashes = { ...(ck.state?.prompt_hashes ?? {}) };
-  const degradedItems = [];
-  let failedN = 0;
+  const degradedItems = [...(ck.degraded ?? [])]; // #490:批间累积
+  let failedN = ck.failedN ?? 0; // #490:批间累积(全败终态判据的分母=全假设数)
+  let failedAllAccount = ck.failedAllAccount ?? true; // #490:全败时错误码归因(全为账户级限流→account_rate_limited)
+  let accountBlocked = false; // 本批出现账户级限流失败(#490:余下假设不再放出)
   for (let i = 0; i < outcomes.length; i++) {
     const o = outcomes[i];
-    const hid = def.forEach ? steps.forEachItems(def, ctx)[i]?.hid : null;
+    const hid = batchHids[i] ?? null; // #490:按本批位号对号(旧=全假设序号,恢复面由 batchHids 兜底同形)
     const key = `${def.name}${hid ? `:${hid}` : ""}`;
     if (o.status === "completed") { // TaskOutcome 面值即 {status,result|error,reason}(types.d.ts:510;无 .state 包裹)
       const r = o.result;
@@ -305,6 +337,7 @@ async function waitModel(input, ck, runtime, context) {
       promptHashes[key] = r.prompt_sha; // replay 审计面(旧 runModelStage prompt_hashes 同位)
     } else if (o.status === "failed") {
       failedN += 1;
+      if (o.error?.code === "account_rate_limited") accountBlocked = true; else failedAllAccount = false;
       // P1-4 failed 子任务花费留痕(哨面宁多算不漏记):result 缺席 → 从其会话 transcript
       // 实计(pi.assistant usage 求和/调用数=assistant 消息数;重试回合全计)——失败重试
       // 已花的钱不从轮账面消失(09-budget.json 读数与真实花费不背离)。读败只 stderr 注记
@@ -326,6 +359,18 @@ async function waitModel(input, ck, runtime, context) {
       }
     }
   }
+  // —— #490 批间派发:账户级限流=兄弟假设不再放出(逐个记未解决,原因写明账户级限流;本轮按
+  // 「部分假设未解决」正常收口=深验降级同一出口,不多花钱);否则还有余量就放下一批(本批聚合
+  // 先并入 checkpoint 基线,下批 roundBase 取现值——并行兄弟只见基数的口径不变)——
+  const remaining = items.slice(start);
+  if (accountBlocked && remaining.length > 0) {
+    for (const item of remaining)
+      degradedItems.push({ hid: item?.hid ?? def.name, verdict: "unresolved", evidence: [],
+        one_line: `账户级限流(429/1302,同账户并发上限):批内子任务撞限,余下假设未放出,记 unresolved` });
+  } else if (remaining.length > 0) {
+    return void await spawnModelChildren(def, input, { ...ck, usage, modelCalls,
+      state: { ...ck.state, prompt_hashes: promptHashes }, degraded: degradedItems, failedN, failedAllAccount }, runtime, context);
+  }
   // —— P1-4 WAIT_MODEL 收口复查①②④(轮级累计口径;并行子任务 pre/post 各自只见基数,
   // 收口补全网;违界即停不降级——旧 fatalBudget 同语义。①口径=已计>帽,不预支 +1
   // (overCallsCap 的 attempt-前查口径归子任务;帽内恰满的轮不误杀)——
@@ -335,10 +380,12 @@ async function waitModel(input, ck, runtime, context) {
   const post = postModelCall({ roundType: "health", knobs: knobs4, totalTokens: usage.totalTokens, costCny: usage.cost });
   if (!post.ok)
     return void await failNow({ code: post.code, message: `${def.name}:${post.message}` });
-  if (def.fail.perItem && failedN === (def.forEach ? steps.forEachItems(def, ctx).length : 1) && failedN > 0) {
-    const msg = `全部 ${failedN} 假设失败(model_face)`; // 旧 runModelStage 全败=终态(C稿 §2.2;4 起影子废轮即此形状)
-    await steps.appendFailureLedger(ctx, { code: "model_face" }); // #355:失败轮台账补行(全败终态)
-    return void await failNow({ code: "model_face", message: msg });
+  if (def.fail.perItem && failedN === items.length && failedN > 0) {
+    // #490:全败错误码归因——全部败因都是账户级限流时用 account_rate_limited(诚实码),否则照旧 model_face
+    const code = failedAllAccount ? "account_rate_limited" : "model_face";
+    const msg = `全部 ${failedN} 假设失败(${code})`; // 旧 runModelStage 全败=终态(C稿 §2.2;4 起影子废轮即此形状)
+    await steps.appendFailureLedger(ctx, { code }); // #355:失败轮台账补行(全败终态)
+    return void await failNow({ code, message: msg });
   }
   // DEEP 收编尾(零复制 deepFinalize:逐假设工件→05-deep-verdicts)+聚合门(G_DEEP,收编尾后一次)
   if (def.forEach) {
@@ -351,7 +398,7 @@ async function waitModel(input, ck, runtime, context) {
       return void await failNow({ code: gateRec.code ?? def.fail.terminal, message: `门败 ${def.gate}:${gateRec.reason}` });
     }
   }
-  const stepUsage = { input: usage.input - base.input, output: usage.output - base.output, totalTokens: usage.totalTokens - base.totalTokens, cost: usage.cost - base.cost }; // 本步增量(P0-⑤)
+  const stepUsage = { input: usage.input - stepBase.input, output: usage.output - stepBase.output, totalTokens: usage.totalTokens - stepBase.totalTokens, cost: usage.cost - stepBase.cost }; // 本步增量(P0-⑤;分母=相位起步快照,#490 批间不重置)
   const rec = { name: def.name, status: degradedItems.length ? "degraded" : "done", attempts: 1, dur_ms: 0, usage: stepUsage };
   const finCk = stageDone({ ...ck, usage, modelCalls, state: { ...ck.state, prompt_hashes: promptHashes } }, rec, ck.spawnPhase);
   // toPhase 停笔(模型相位版;与 stageDone 同 commit 原子落——P2-4)
@@ -523,6 +570,7 @@ export const OPS_HEALTH_ROUND = defineTask({
   version: 1,
   initial: (input) => ({
     phase: startPhaseOf(input.fromPhase, input), attempt: 0, children: null, childConvs: null, spawnPhase: null, failed: null,
+    spawned: null, batchHids: null, degraded: null, failedN: null, failedAllAccount: null, stepUsage0: null, stepCalls0: null, // #490 批间字段(形状稳定)
     claimToken: randomUUID(), // P0-④ 轮目录认领键(见 claimRoundDir;裸 taskId per-db 撞号,不可作键)
     startedAtIso: new Date().toISOString(),
     budgetCny: (() => { const raw = process.env.OPS_PIPELINE_BUDGET_CNY ?? "0.05"; const v = +raw; if (!Number.isFinite(v) || v < 0) throw Object.assign(new Error(`OPS_PIPELINE_BUDGET_CNY 须为非负数,得到:${raw}`), { usage: true }); return v; })(),

@@ -109,6 +109,11 @@ export const SPAWN_CONTRACT_ENV = [
   // state 面=DOCS_ROOT/ops/breaker.json 由 DOCS_ROOT 行派生,不另立行。
   { name: "OPS_BREAKER_THRESHOLD", default: "3", consumer: "tools/breaker.mjs(通道连续计数码失败开断阈;计数码闭集=channel_missing/channel_auth/quota;0=停用),拦 code=channel_open", phase: "call-time" },
   { name: "OPS_BREAKER_COOLDOWN_S", default: "21600", consumer: "tools/breaker.mjs(开断冷却秒,半开探活窗口;重开=新整窗无指数退避)", phase: "call-time" },
+  // #490(第四轮评审卡 25)模型并发闸/退避旋钮:真读方=agent-v2/tasks/model-errors.mjs 两个
+  // 小函数(单源;对拍扫描面同文件)。取值规则:非法值→缺省+一行 stderr 告警(model-round/
+  // health-round 调函数取值,不直读 env)。
+  { name: "OPS_MODEL_MAX_INFLIGHT", default: "2(轮内 2 路,给同账户其他工作留 1 路;2026-11-27 实测账户上限 3)", consumer: "agent-v2/tasks/model-errors.mjs maxModelInflight(健康轮 DEEP 子任务同时在途帽,spawnModelChildren 派发处分批)", phase: "call-time" },
+  { name: "OPS_MODEL_RETRY_BACKOFF_S", default: "30", consumer: "agent-v2/tasks/model-errors.mjs retryBackoffS(模型单请求限流重试前退避秒;账户级 429/1302 不重试不走此钮)", phase: "call-time" },
   { name: "GH_TOKEN", default: "(gh CLI 自身凭证链)", consumer: "gh CLI(外部自读;tools.mjs 不读,对拍豁免)", phase: "call-time" },
   // PR3a 发现通道 web_search 引擎 = pi-web-access MCP(2026-10-24 用户令;pin 0.44.0):
   // 两名均外部自读(包/子进程,tools.mjs 不读,同 GH_TOKEN 豁免型)。
