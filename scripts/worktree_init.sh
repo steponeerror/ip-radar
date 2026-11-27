@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 # worktree_init.sh — 全新 worktree 一键接线本地开发环境(retro P1-3 固化,2026-11-03)。
+# 分工(#511,2026-11-27):本脚本与 scripts/worktree-prep.sh 各管一半、互不引用——
+# 本脚本管「从零接线」:backend/.venv(venv+pip)、frontend/node_modules(联网 npm ci)、
+# docs/ 符号链接;ops 侧运行件(ops/node_modules,连同 frontend/node_modules 的主检出
+# 直拷)归 worktree-prep.sh,不联网。AGENTS.md「Worktrees」节点名的是后者
+# (跑 ops 门之前先跑它);两边不互斥,运行件已在时各自幂等跳过。
 # 为什么:git worktree 只带 tracked 文件,本地开发要的未跟踪件全缺。2026-11-03 在
 # 草稿 worktree rb-b-scratch(基点 dc73766c)实测缺件清单:
 #   - backend/.venv:缺(README「Tests」节正路 = python3 -m venv + pip install

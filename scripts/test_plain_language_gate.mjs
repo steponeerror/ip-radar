@@ -17,7 +17,11 @@ import {
 	formatWarning,
 	extractText,
 	gateAssistantMessage,
+	loadLexiconFrom,
 } from "../.pi/extensions/plain-language-gate.ts";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 // fixture 词表:两区 + 注释 + 空行,覆盖解析分支
 const FIXTURE_LEXICON_TEXT = `
@@ -40,7 +44,7 @@ test("parseLexicon:分区收集,注释/空行剔除", () => {
 	});
 });
 
-test("parseLexicon:空文本 = 空词表(对应词表缺失时的静默放行语义)", () => {
+test("parseLexicon:空文本 = 空词表(读得到但没有词 = 静默放行)", () => {
 	assert.deepEqual(parseLexicon(""), { banned: [], explain: [] });
 });
 
@@ -154,7 +158,7 @@ test("gateAssistantMessage:已含幂等标记 → 不再追加", () => {
 	assert.equal(gateAssistantMessage({ role: "assistant", content }, FIXTURE_LEXICON), undefined);
 });
 
-test("gateAssistantMessage:空词表(词表缺失等价)→ 恒放行", () => {
+test("gateAssistantMessage:空词表(读得到但没有词)→ 恒放行", () => {
 	const empty = { banned: [], explain: [] };
 	assert.equal(
 		gateAssistantMessage({ role: "assistant", content: [{ type: "text", text: "收官 票① 挂点" }] }, empty),
@@ -187,4 +191,32 @@ test("NBSP 前缀的引用行同样豁免(python lstrip 含 \\xa0)", () => {
 	const lex = { banned: ["前沿"], explain: [] };
 	assert.equal(scanText("\u00A0> 引用里的 前沿", lex).length, 0);
 	assert.equal(scanText("\u2028# 标题里的 前沿", lex).length, 0);
+});
+
+// #511:词表缺失从「静默放行」改「出声放行」——回退行为保留,但 stderr 必须点名。
+// 全局 LEXICON_PATH 在测试里不可指(homedir 真实路径,存在与否随机器),
+// 走导出的 loadLexiconFrom 用可控路径验同一语义。
+test("词表路径不存在 → 放行(null)且 stderr 有一行提示;词表可读时不吵", () => {
+	const orig = process.stderr.write;
+	const chunks = [];
+	process.stderr.write = (chunk) => { chunks.push(String(chunk)); return true; };
+	const dir = mkdtempSync(join(tmpdir(), "plg-lex-"));
+	try {
+		const missing = "/nonexistent/ipradar-plg-test/plain_lexicon.txt";
+		assert.equal(loadLexiconFrom(missing), null, "缺失 → null = 放行,消息不被拦");
+		const line = chunks.join("");
+		assert.ok(line.includes("说人话词表缺失或不可读,本次不检查"), `stderr 要有这行提示: ${line}`);
+		assert.ok(line.includes(missing), `提示要带路径: ${line}`);
+		assert.equal(chunks.length, 1, "提示恰好一行");
+		// 可读词表 → 正常解析且零提示(防「永远出声」式的懒变异);fixture 词
+		// 刻意避开全局禁词表里的词,防提交门(pre-commit 同一套词表)拦新增行
+		const lexPath = join(dir, "plain_lexicon.txt");
+		writeFileSync(lexPath, "[BANNED]\n紫电清霜\n", "utf-8");
+		chunks.length = 0;
+		assert.deepEqual(loadLexiconFrom(lexPath), { banned: ["紫电清霜"], explain: [] });
+		assert.equal(chunks.join(""), "", "词表可读 → 无 stderr 提示");
+	} finally {
+		process.stderr.write = orig;
+		rmSync(dir, { recursive: true, force: true });
+	}
 });

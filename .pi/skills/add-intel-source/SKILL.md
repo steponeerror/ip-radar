@@ -175,7 +175,7 @@ canonical harvest template).
 
 ## Phase 3 — Implement (TDD: test first, code second)
 
-**执行路由(2026-10-10 用户定)**:本 Phase 与 Phase 4 的代码改动,在具备 subagent 工具的会话里走 superpowers:subagent-driven-development(fresh implementer per task + task review + 整分支终审);无 subagent 工具的会话按其决策树内联执行,但保留本 Phase 的 TDD 硬序、ledger/ruling 与 Phase 4 的基线对照纪律。
+**执行路由(2026-10-10 用户定;2026-10-20 起载体改 MP 包,原 superpowers 技能已停用)**:本 Phase 与 Phase 4 的代码改动,在具备 subagent 工具的会话里走 subagent-driven-development——每票一个全新上下文的实现者子代理 + 任务评审 + 整分支终审,实现侧技能用 MP 包(mattpocock/skills)的 implement/tdd;无 subagent 工具的会话内联执行,但保留本 Phase 的 TDD 硬序、ledger/ruling 与 Phase 4 的基线对照纪律。
 
 **Hard order — write the source's test BEFORE the source file (RED → GREEN).**
 Phase 4's per-source test is not an afterthought: write it first in

@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # worktree-prep.sh — 给特性分支 worktree 补齐 gitignored 运行件(2026-11-15 retro 立)
+# 反向指引(#511,2026-11-27):从零接线(backend/.venv 的 venv+pip、docs/ 符号链接、
+# 联网 npm ci)归 scripts/worktree_init.sh;本脚本只管把主检出的现成运行件拷过来。
 # 用法: scripts/worktree-prep.sh [--overwrite] <worktree-dir>
 # 背景:托管/手工 worktree 不带主检出的 untracked 运行件;漏拷会造成大片假红:
 #   - ops/node_modules 缺 → e2e spawn agent 崩、v2 测试/管线全崩(2026-11-15 两踩
