@@ -5,10 +5,11 @@
 手抄覆盖清单照样绿;任务状态徽章文案缺 running。本文件把三处
 「真源 → 消费面」钉成对拍,任一侧单独改动即红:
 
-1. 任务状态:backend/ipdb/_tasks.py 状态机的字面量写点(字段默认/构造
-   实参/直写/_set_state 转移)↔ frontend/src/api.ts TaskState.state 联合
-   + admin.tasks.state.* 双语文案键。前端侧另由 BatchPanel.tsx 的
-   按 TaskState 全枚举的文案键表在编译期钉一半。
+1. 任务状态:backend/ipdb/_task_state.py 的机读全集 TASK_STATES(#484 起;
+   此前是四条正则扫 _tasks.py 源码找字面量写点,写法一变就扫空)↔
+   frontend/src/api.ts TaskState.state 联合 + admin.tasks.state.* 双语文案键。
+   前端侧另由 BatchPanel.tsx 的按 TaskState 全枚举的文案键表在编译期钉一半。
+   同节另有一条守卫:_tasks.py 里对状态字段的直接写只许出现在写入口。
 2. 分类类型:ipdb._classification.CLASSIFICATION_TYPES ↔ threatDisplay.ts
    CLASS_KEYS(normalize 的 - → _ 形态;方言遗留键豁免见
    _CLASS_KEY_LEGACY)。
@@ -21,17 +22,19 @@
 GLOSSARY.md;路径锚 __file__,worktree/主检出各自自洽)。正则命中失败时
 断言消息带文件与期望形状,不许提取器空转绿(健全性下限同先例 MIN_*)。
 """
+import ast
 import json
 import re
+from collections import Counter
 from pathlib import Path
 
 from ipdb._classification import CLASSIFICATION_TYPES
+from ipdb._task_state import TASK_STATES
 
 REPO = Path(__file__).resolve().parents[3]  # 仓库根(先例 test_glossary_anchors.py)
 
 API_TS = REPO / "frontend/src/api.ts"
 TASKS_PY = REPO / "backend/ipdb/_tasks.py"
-OPS_ROUNDS_PY = REPO / "backend/ipdb/_ops_rounds.py"
 THREAT_DISPLAY_TS = REPO / "frontend/src/components/threatDisplay.ts"
 SOURCES_PAGE_TSX = REPO / "frontend/src/pages/SourcesPage.tsx"
 LOCALE_PATHS = {
@@ -46,38 +49,14 @@ def _locales() -> dict[str, dict[str, str]]:
 
 # --- 1. 任务状态 ----------------------------------------------------------
 
-# 后端状态机写点(注释枚举行会漂,只认字面量写点):
-#   state: str = "X"      dataclass 字段默认(Task.queued;Batch.running
-#                         同形并入,running 本就是任务态,无害)
-#   state="X"             Task(...) 构造实参(ops 轮占道 running)
-#   task.state = "X"      cancel 直写(\b 圈定 task.,不把 b.state 混进来)
-#   _set_state(task, "X"  调度器唯一转移点
-#   finish_ops_round(id, "X")  ops 轮收口(backend/ipdb/_ops_rounds.py 的实参;
-#                         2026-11-26 评审 3.1 补,此前只经这条路进入的新态两侧都漏)
-_BACKEND_STATE_RES = (
-    re.compile(r'state: str = "([a-z]+)"'),
-    re.compile(r'\bstate="([a-z]+)"'),
-    re.compile(r'\btask\.state\s*=\s*"([a-z]+)"'),
-    re.compile(r'_set_state\(task,\s*"([a-z]+)"'),
-)
-_OPS_ROUND_STATE_RE = re.compile(r'finish_ops_round\(\s*[^,]+,\s*"([a-z]+)"')
-
-
-def _backend_task_states() -> set[str]:
-    src = TASKS_PY.read_text(encoding="utf-8")
-    states: set[str] = set()
-    for pat in _BACKEND_STATE_RES:
-        states |= set(pat.findall(src))
-    # ops 轮收口的实参状态(_ops_rounds.py):变量写点,上面的正则抓不到
-    ops_src = OPS_ROUNDS_PY.read_text(encoding="utf-8")
-    states |= set(_OPS_ROUND_STATE_RE.findall(ops_src))
-    # 提取器健全性下限(先例 test_glossary_anchors MIN_*):写点正则空转时
-    # 这里先红,而不是让下方对拍因双空集而假绿。
-    assert len(states) >= 5, (
-        f"_tasks.py 状态写点提取到 {sorted(states)},低于健全性下限——"
-        "状态机写点形状变了,test_vocab_contract 的提取正则要跟"
+def _backend_task_states() -> frozenset[str]:
+    """后端任务状态全集 = 机读词表本身(#484)。不再扫源码:写点是不是都走
+    写入口由下面的守卫用例管,词表对拍只问「全集和前端联合是否相同」。"""
+    be = frozenset(TASK_STATES)
+    assert len(be) >= 5, (
+        f"_task_state.TASK_STATES 只有 {sorted(be)},低于健全性下限——词表被清空/改形"
     )
-    return states
+    return be
 
 
 def _frontend_task_states() -> set[str]:
@@ -98,7 +77,67 @@ def test_task_states_backend_machine_matches_frontend_union():
         "任务状态词表漂移(#451 卡 12 对拍):"
         f"后端多出 {sorted(be - fe)}(frontend/src/api.ts TaskState 联合要跟,"
         "BatchPanel STATE_LABEL_KEYS 与 admin.tasks.state.* 双语键同批补);"
-        f"前端多出 {sorted(fe - be)}(_tasks.py 状态机已无此态,前端联合该清)"
+        f"前端多出 {sorted(fe - be)}(_task_state.TASK_STATES 已无此态,前端联合该清)"
+    )
+
+
+# 状态字段的两个写入口(_tasks.py.UpdateManager):任务一个、批次一个。
+_STATE_WRITE_ENTRIES = {"_write_state", "_write_batch_state"}
+
+
+def _direct_state_writes() -> list[tuple[str | None, int, str]]:
+    """列出 _tasks.py 源码里对状态字段的直接写:(所在函数名, 行号, 形态)。
+
+    形态两种:
+      attr  `X.state = …`            属性赋值(不认变量名,任何对象上的 .state 都算)
+      ctor `Task(…, state=…)` / `Batch(…, state=…)`
+                                     构造实参——出生态只许用 dataclass 缺省,
+                                     ops 任务的 running 也经写入口进(#484)
+    顶层(模块级)的写所在函数记 None。
+    """
+    tree = ast.parse(TASKS_PY.read_text(encoding="utf-8"))
+    out: list[tuple[str | None, int, str]] = []
+
+    def _visit(node: ast.AST, func: str | None) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                _visit(child, child.name)
+                continue
+            if isinstance(child, ast.Assign):
+                for tgt in child.targets:
+                    if isinstance(tgt, ast.Attribute) and tgt.attr == "state":
+                        out.append((func, child.lineno, "attr"))
+            if (isinstance(child, ast.Call) and isinstance(child.func, ast.Name)
+                    and child.func.id in ("Task", "Batch")):
+                for kw in child.keywords:
+                    if kw.arg == "state":
+                        out.append((func, kw.value.lineno, "ctor"))
+            _visit(child, func)
+
+    _visit(tree, None)
+    return out
+
+
+def test_state_field_written_only_through_write_entries():
+    """守卫(#484):_tasks.py 里对任务/批次状态字段的直接写只许出现在两个写入口
+    (`_write_state` / `_write_batch_state`:判转移 → 写字段 → 发事件)里;
+    `_set_state` = 任务写入口 + 唤醒,cancel() 排队中分支和 ops 轮两处也都走
+    写入口。绕开写入口的直接赋值会让非法转移逃过转移表。
+
+    这是对源码的静态文本检查(ast),挡的是粗心,不是防恶意:setattr、
+    exec 之类绕法不在防守范围。"""
+    writes = _direct_state_writes()
+    assert writes, (
+        "_tasks.py 里一处状态字段直接写都没扫到——写入口被改名/改形,守卫要跟"
+    )
+    strays = [w for w in writes if w[0] not in _STATE_WRITE_ENTRIES or w[2] == "ctor"]
+    assert not strays, (
+        "状态字段在写入口之外被直接赋值(#484 守卫):"
+        f"{strays}——请改走 UpdateManager._write_state / _write_batch_state"
+    )
+    per_entry = Counter(w[0] for w in writes)
+    assert per_entry == Counter({name: 1 for name in _STATE_WRITE_ENTRIES}), (
+        f"写入口里的状态写数量变了:{dict(per_entry)}(预期每个写入口恰一处)"
     )
 
 

@@ -14,6 +14,11 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from ._sources._download import CancelledError, CancelToken
+from ._task_state import (
+    BatchState, TaskState, TerminalTaskState,
+    TASK_STATES_IN_FLIGHT, TASK_STATES_TERMINAL, TASK_STATES_WAITING,
+    enforce_batch_transition, enforce_task_transition,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -29,10 +34,11 @@ class Task:
     id: str
     source_name: str
     host: Optional[str]
-    state: str = "queued"  # queued|downloading|loading|throttled|done|failed|cancelled
-                           # running = ops 轮相位(P2 票 #134;源任务不用——
-                           # 下载/构建沿既有相位,has_active_offline_tasks 四态
-                           # 不含 running → 轮次不阻查询门,冷启动验收 1)
+    # 状态闭集、在飞/终态集合与合法转移表都在 _task_state.py(#484);字段的
+    # 唯一写入口是 UpdateManager._write_state。running = ops 轮相位(P2 票
+    # #134;源任务不用——下载/构建沿既有相位,has_active_offline_tasks 四态
+    # 不含 running → 轮次不阻查询门,冷启动验收 1)。
+    state: TaskState = "queued"
     error: Optional[str] = None
     # 失败终态的语义码:值域 = _errors ErrorCode 值 + 任务相位码
     # download/rebuild(2026-10-17 裁定);None=未失败。SSE/快照消费。
@@ -62,7 +68,7 @@ class Task:
 @dataclass
 class Batch:
     id: str
-    state: str = "running"  # running|paused|done
+    state: BatchState = "running"  # running|paused|done(转移表 _task_state.py #484)
     done: int = 0
     total: int = 0
 
@@ -137,8 +143,9 @@ class UpdateManager:
         # 随 _set_state 同点触发 = _queue_cv→cv 嵌套边(合法向);③旧
         # self._lock→_queue_cv 嵌套(_enqueue_one 持锁入队)已拆(见 
         # _enqueue_one 内注释),否则①②③闭成三锁死锁环。唤醒点 = 相位写点
-        # _set_state、终态记账 _settle、ops 轮占道/收口(不经 _set_state 的
-        # 写点各自通知)、cancel 的 queued 直写路径。
+        # _set_state(= 写入口 _write_state + 唤醒,#484)、终态记账 _settle、
+        # ops 轮占道/收口与 cancel 的排队中分支(这两处只经写入口写字段、
+        # 不唤醒:前者各自在锁段外通知,后者由紧随的 _settle 尾部通知)。
         self._lifecycle_cv = threading.Condition()
 
         for _ in range(concurrency):
@@ -169,7 +176,7 @@ class UpdateManager:
             raise ValueError(f"unknown source: {name}")
         with self._lock:
             existing = self._by_source.get(name)
-            if existing and self._tasks[existing].state in ("queued", "downloading", "loading", "throttled"):
+            if existing and self._tasks[existing].state in TASK_STATES_IN_FLIGHT:
                 return self._tasks[existing]
             # Evict the source's prior TERMINAL tasks (and their progress state)
             # before installing the new one, so _tasks/_prog stay O(sources)
@@ -179,7 +186,7 @@ class UpdateManager:
             # retained until now so snapshot()/task_state() could report the last
             # phase; once the source moves on it's stale.
             stale = [tid for tid, t in self._tasks.items()
-                     if t.source_name == name and t.state in ("done", "failed", "cancelled")]
+                     if t.source_name == name and t.state in TASK_STATES_TERMINAL]
             for tid in stale:
                 self._tasks.pop(tid, None)
                 self._prog.pop(tid, None)
@@ -260,9 +267,9 @@ class UpdateManager:
         相位(供断言直读实际值,而非空泛超时错),task 未知/已被清扫返回 None。
 
         #411:替代 flake 家族的 bare time.sleep 等待——唤醒挂相位写点
-        (_set_state 单点 + ops 轮占道/收口 + cancel 直写),真转移即时醒,
-        门上下文调度延迟只吃 timeout 富余而非窗口上限。检查与 wait 在
-        cv 内原子(写点先写态后通知,无丢唤醒)。"""
+        (_set_state + ops 轮占道/收口 + cancel 排队中分支随后的 _settle),
+        真转移即时醒,门上下文调度延迟只吃 timeout 富余而非窗口上限。检查与
+        wait 在 cv 内原子(写点先写态后通知,无丢唤醒)。"""
         states = set(states)
         deadline = time.monotonic() + timeout
         with self._lifecycle_cv:
@@ -373,7 +380,7 @@ class UpdateManager:
         already-loaded sources never holds queries."""
         with self._lock:
             for t in self._tasks.values():
-                if t.state in ("queued", "downloading", "loading", "throttled"):
+                if t.state in TASK_STATES_IN_FLIGHT:
                     src = self._resolve(t.source_name)
                     if src is not None \
                             and (source_filter is None or source_filter(t.source_name)):
@@ -399,8 +406,7 @@ class UpdateManager:
             # lock, so the check is atomic with the increments.
             if b.done < b.total:
                 return
-            b.state = "done"
-            self._emit({"type": "batch", "batch": b.to_dict()})
+            self._write_batch_state(b, "done")
             self._emit({"type": "done", "batch": b.to_dict()})
             # Release the active slot so a terminal batch stops being
             # reported as active. Without this, _active_batch leaks and
@@ -420,8 +426,7 @@ class UpdateManager:
             # 状态写与 _go.clear 都在锁内:只保状态写的话,_maybe_finish_batch
             # 可在锁释放后、clear 前置 done 并清 active —— 清完的 batch 无 Resume
             # 入口,_go 已清 = 同一个永久卡死窗口。
-            b.state = "paused"
-            self._emit({"type": "batch", "batch": b.to_dict()})
+            self._write_batch_state(b, "paused")
             self._go.clear()
 
     def resume(self):
@@ -429,8 +434,7 @@ class UpdateManager:
             if self._active_batch:
                 b = self._batches[self._active_batch]
                 if b.state == "paused":
-                    b.state = "running"
-                    self._emit({"type": "batch", "batch": b.to_dict()})
+                    self._write_batch_state(b, "running")
         self._go.set()
         with self._queue_cv:
             self._queue_cv.notify_all()
@@ -439,20 +443,22 @@ class UpdateManager:
         task = self._tasks.get(task_id)
         if task is None:
             return
-        if task.state in ("queued", "throttled"):
-            task.state = "cancelled"
+        if task.state in TASK_STATES_WAITING:
             # Defensive: a worker may have just read state='queued' under the cv
             # and be about to popleft+run it. Re-check under the cv (in _worker)
             # is the primary guard; cancelling the token covers the residual
             # window between that re-check and _run_task (#1 cancel race).
             task.token.cancel()
-            self._emit({"type": "task", "task": task.to_dict()})
+            # #484:终态经写入口落(判转移 + 写字段 + 发 task 事件)。token 先于
+            # 状态写:外界看到 cancelled 时下载一定已被叫停。
+            self._write_state(task, "cancelled")
             with self._queue_cv:
                 self._queue = deque(t for t in self._queue if t != task_id)
                 self._queue_cv.notify_all()
-            # #411:queued 直写终态后的唤醒由紧随的 _settle 尾部通知承担
-            # (同线程同步到达,无丢唤醒窗口);此处不另发——避免任何
-            # cancel 调用点未来被包进 self._lock 时引入 cv 反序嵌套。
+            # #411:排队中分支落终态(_write_state 不唤醒)后的唤醒由紧随的
+            # _settle 尾部通知承担(同线程同步到达,无丢唤醒窗口);此处不
+            # 另发——避免任何 cancel 调用点未来被包进 self._lock 时引入
+            # cv 反序嵌套。
             self._settle(task)
         else:
             task.token.cancel()
@@ -466,9 +472,7 @@ class UpdateManager:
                     # 无 active batch 的 abort:清所有在飞的 batchless 任务
                     # (单源更新路径 — 前端 Abort 对它们同样是真实按钮)。
                     ids = [tid for tid, t in self._tasks.items()
-                           if t.batch_id is None
-                           and t.state in ("queued", "downloading", "loading",
-                                           "throttled")]
+                           if t.batch_id is None and t.state in TASK_STATES_IN_FLIGHT]
                     target = None
             else:
                 if batch_id not in self._batches:
@@ -476,8 +480,7 @@ class UpdateManager:
                 target = batch_id
             if target is not None:
                 ids = [tid for tid, t in self._tasks.items()
-                       if t.batch_id == target
-                       and t.state in ("queued", "downloading", "loading", "throttled")]
+                       if t.batch_id == target and t.state in TASK_STATES_IN_FLIGHT]
         for tid in ids:
             self.cancel(tid)
 
@@ -496,35 +499,37 @@ class UpdateManager:
             if self._ops_active is not None:
                 return None, "round"
             for t in self._tasks.values():
-                if t.state in ("queued", "downloading", "loading", "throttled"):
+                if t.state in TASK_STATES_IN_FLIGHT:
                     return None, "sources"
             stale = [tid for tid, t in self._tasks.items()
                      if t.source_name == "ops"
-                     and t.state in ("done", "failed", "cancelled")]
+                     and t.state in TASK_STATES_TERMINAL]
             for tid in stale:
                 self._tasks.pop(tid, None)
                 self._prog.pop(tid, None)
                 self._ops_logs.pop(tid, None)
-            task = Task(id=uuid.uuid4().hex[:12], source_name="ops", host=None,
-                        state="running")
+            task = Task(id=uuid.uuid4().hex[:12], source_name="ops", host=None)
             self._tasks[task.id] = task
             self._ops_logs[task.id] = deque(maxlen=_OPS_LOG_KEEP)
             self._ops_active = task.id
-            self._emit({"type": "task", "task": task.to_dict()})
+            # #484:ops 任务出生即 running——以缺省 queued 构造,在同一锁段内经
+            # 写入口进 running(转移表的出生边 queued → running);task 事件
+            # 由写入口发。写入口不唤醒,唤醒照旧在锁段外(_notify_lifecycle)。
+            self._write_state(task, "running")
             result = (task, None)
         self._notify_lifecycle()  # ops 轮相位不经 _set_state:占道写点自通知(#411)
         return result
 
-    def finish_ops_round(self, task_id: str, state: str, error: Optional[str] = None,
+    def finish_ops_round(self, task_id: str, state: TerminalTaskState,
+                         error: Optional[str] = None,
                          error_code: Optional[str] = None) -> None:
         """ops 轮收口:终态落任务(emit)+ 释放车道(notify_all 放行源 worker)。"""
         with self._lock:
             task = self._tasks.get(task_id)
             if task is not None:
-                task.state = state
-                task.error = error
-                task.error_code = error_code
-                self._emit({"type": "task", "task": task.to_dict()})
+                # #484:终态经写入口落(判转移 + 写字段 + 发 task 事件)。在
+                # self._lock 内调用:写入口自身不取锁、不唤醒,锁序不变。
+                self._write_state(task, state, error, error_code)
             if self._ops_active == task_id:
                 self._ops_active = None
         self._notify_lifecycle()  # ops 轮收口写点(#411;同上不经 _set_state)
@@ -580,7 +585,7 @@ class UpdateManager:
                 skipped_admit = False
                 for i, tid in enumerate(self._queue):
                     task = self._tasks.get(tid)
-                    if task is None or task.state not in ("queued", "throttled"):
+                    if task is None or task.state not in TASK_STATES_WAITING:
                         continue
                     if self._valve is not None:
                         if not self._valve.can_run():
@@ -598,7 +603,7 @@ class UpdateManager:
                         self._queue = deque(
                             t for t in self._queue
                             if self._tasks.get(t) is not None
-                            and self._tasks[t].state in ("queued", "throttled"))
+                            and self._tasks[t].state in TASK_STATES_WAITING)
                     self._queue_cv.wait()
                     continue
                 task_id = self._queue[chosen_idx]
@@ -607,7 +612,7 @@ class UpdateManager:
                 # flip a queued task to 'cancelled' between the scan above and
                 # here. Without this, a cancelled task runs and both cancel's
                 # _settle and _run_task's _settle increment batch.done (#1).
-                if task is None or task.state not in ("queued", "throttled"):
+                if task is None or task.state not in TASK_STATES_WAITING:
                     del self._queue[chosen_idx]
                     continue
                 if self._valve is not None:
@@ -623,14 +628,34 @@ class UpdateManager:
                     with self._queue_cv:
                         self._queue_cv.notify_all()
 
-    def _set_state(self, task: Task, state: str, error: str | None = None,
-                   error_code: str | None = None):
+    def _write_state(self, task: Task, state: TaskState,
+                     error: Optional[str] = None,
+                     error_code: Optional[str] = None) -> None:
+        """任务状态字段的唯一写入口(#484):判转移 → 写字段 → 发 task 事件。
+        不取 self._lock(调用点自己决定持不持:cancel() 不持,ops 轮两处持),
+        不唤醒(_set_state / 锁段外的 _notify_lifecycle / _settle 负责)。
+        _tasks.py 里对 task.state 的直接赋值只许出现在这里
+        (test_vocab_contract 的守卫用例盯着)。"""
+        enforce_task_transition(task.id, task.source_name, task.state, state)
         task.state = state
         task.error = error
         task.error_code = error_code
         self._emit({"type": "task", "task": task.to_dict()})
-        # #411 转移事件面:单点相位写后的唤醒(本方法是不持 self._lock 的
-        # 单一写点;notify 在 emit 后,等待者醒来读到的一定是已发事件的态)。
+
+    def _write_batch_state(self, b: Batch, state: BatchState) -> None:
+        """批次状态字段的唯一写入口(#484),同 _write_state:判转移 → 写 → 发
+        batch 事件。三个调用点(pause / resume / _maybe_finish_batch)都持
+        self._lock。"""
+        enforce_batch_transition(b.id, b.state, state)
+        b.state = state
+        self._emit({"type": "batch", "batch": b.to_dict()})
+
+    def _set_state(self, task: Task, state: TaskState, error: Optional[str] = None,
+                   error_code: Optional[str] = None):
+        """源任务的相位写点 = 写入口 + 唤醒。"""
+        self._write_state(task, state, error, error_code)
+        # #411 转移事件面:相位写后的唤醒(本方法是不持 self._lock 的写点;
+        # notify 在 emit 后,等待者醒来读到的一定是已发事件的态)。
         self._notify_lifecycle()
 
     def _emit_progress(self, task: Task, received: int, total: int) -> None:
@@ -829,10 +854,10 @@ class UpdateManager:
 
     def _settle(self, task: Task):
         """Bookkeeping after a task leaves the active set. Does NOT emit a
-        terminal `task` event — every terminal path has already emitted via
-        `_set_state` (or `cancel()`'s explicit emit for the queued case), so
-        emitting here would double-broadcast. Only the batch-progress event
-        (done-counter increment) and `_maybe_finish_batch` are owned here.
+        terminal `task` event — every terminal path has already emitted via the
+        write entry `_write_state` (`_set_state`, or `cancel()`'s queued
+        branch), so emitting here would double-broadcast. Only the batch-progress
+        event (done-counter increment) and `_maybe_finish_batch` are owned here.
 
         Idempotent: a terminal task can reach _settle twice when cancel()
         races dispatch (cancel's _settle + _run_task's finally _settle). The
@@ -840,7 +865,7 @@ class UpdateManager:
         with self._lock:
             if task._settled:
                 return
-            terminal = task.state in ("done", "failed", "cancelled")
+            terminal = task.state in TASK_STATES_TERMINAL
             if self._by_source.get(task.source_name) == task.id and terminal:
                 del self._by_source[task.source_name]
             if task.batch_id and task.batch_id in self._batches and terminal:
@@ -853,7 +878,7 @@ class UpdateManager:
         # P1 T2 终态旁挂(票 #154):_settled 幂等保证恰好一次;快照只读
         # (dict 拷贝,不传活 task 对象),回调异常吞掉只留警告日志。
         hook = self.on_terminal
-        if hook is not None and task.state in ("done", "failed", "cancelled"):
+        if hook is not None and task.state in TASK_STATES_TERMINAL:
             try:
                 hook(task.to_dict())
             except Exception:

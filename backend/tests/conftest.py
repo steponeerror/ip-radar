@@ -155,3 +155,14 @@ def rate_limit_off():
 def _pin_env(monkeypatch):
     monkeypatch.delenv("IP_RADAR_EVAL_ENV", raising=False)
     monkeypatch.delenv("IP_RADAR_EVAL_DIR", raising=False)
+
+
+# ── 任务状态机严格模式(#484,第四轮架构评审第 21 张卡):全套件 autouse ──
+# 非法状态转移在测试里当场抛 ValueError(开关在 ipdb._task_state,缺省关 =
+# 生产的记录模式:错误日志 + 计数、状态照写)。整个套件开着它跑一遍,才
+# 能证明现有路径里没藏着没登记的转移。个别用例要测记录模式就在用例内把
+# 开关 monkeypatch 回 False(卸载时还原到本夹具之前的值)。
+@pytest.fixture(autouse=True)
+def task_state_strict(monkeypatch):
+    from ipdb import _task_state
+    monkeypatch.setattr(_task_state, "_strict", True)

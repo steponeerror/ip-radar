@@ -590,7 +590,9 @@ def test_failed_state_carries_error_code():
     mgr._set_state(t, "failed", "boom", error_code="internal")
     assert t.error_code == "internal"
     assert t.to_dict()["error_code"] == "internal"
-    t2 = Task(id="y", source_name="b", host=None)
+    # #484:严格模式下转移要合法——done 只能从 loading 进。原写法从出生态
+    # queued 直落 done,是测试造的场景,不是代码里的真路径。
+    t2 = Task(id="y", source_name="b", host=None, state="loading")
     mgr._set_state(t2, "done")
     assert t2.to_dict()["error_code"] is None
 
