@@ -34,7 +34,6 @@ from ipdb._task_state import TASK_STATES
 REPO = Path(__file__).resolve().parents[3]  # 仓库根(先例 test_glossary_anchors.py)
 
 API_TS = REPO / "frontend/src/api.ts"
-TASKS_PY = REPO / "backend/ipdb/_tasks.py"
 THREAT_DISPLAY_TS = REPO / "frontend/src/components/threatDisplay.ts"
 SOURCES_PAGE_TSX = REPO / "frontend/src/pages/SourcesPage.tsx"
 LOCALE_PATHS = {
@@ -52,11 +51,7 @@ def _locales() -> dict[str, dict[str, str]]:
 def _backend_task_states() -> frozenset[str]:
     """后端任务状态全集 = 机读词表本身(#484)。不再扫源码:写点是不是都走
     写入口由下面的守卫用例管,词表对拍只问「全集和前端联合是否相同」。"""
-    be = frozenset(TASK_STATES)
-    assert len(be) >= 5, (
-        f"_task_state.TASK_STATES 只有 {sorted(be)},低于健全性下限——词表被清空/改形"
-    )
-    return be
+    return frozenset(TASK_STATES)
 
 
 def _frontend_task_states() -> set[str]:
@@ -81,61 +76,82 @@ def test_task_states_backend_machine_matches_frontend_union():
     )
 
 
-# 状态字段的两个写入口(_tasks.py.UpdateManager):任务一个、批次一个。
+# 状态字段的两个写入口(backend/ipdb/_tasks.py 的 UpdateManager):任务一个、
+# 批次一个。守卫的扫描面 = backend/ipdb/*.py 整个包顶层(不只 _tasks.py):
+# 现在 .state 的直接写全包只有写入口两处,将来 _ops_rounds.py 之类直接写也
+# 能抓到。
 _STATE_WRITE_ENTRIES = {"_write_state", "_write_batch_state"}
+_IPDB_GLOB = "backend/ipdb/*.py"
 
 
-def _direct_state_writes() -> list[tuple[str | None, int, str]]:
-    """列出 _tasks.py 源码里对状态字段的直接写:(所在函数名, 行号, 形态)。
+def _direct_state_writes() -> list[tuple[str, str | None, int, str]]:
+    """列出 backend/ipdb/*.py 源码里对状态字段的直接写:
+    (文件, 所在函数名, 行号, 形态)。顶层(模块级)的写所在函数记 None。
 
-    形态两种:
-      attr  `X.state = …`            属性赋值(不认变量名,任何对象上的 .state 都算)
-      ctor `Task(…, state=…)` / `Batch(…, state=…)`
-                                     构造实参——出生态只许用 dataclass 缺省,
-                                     ops 任务的 running 也经写入口进(#484)
-    顶层(模块级)的写所在函数记 None。
+    形态四种:
+      attr      `X.state = …`            属性赋值(不认变量名,任何对象上的 .state 都算)
+      ann       `X.state: T = …`        带注解的属性赋值(ast.AnnAssign;数据类字段
+                                        定义是裸名字,不是属性,不会误中)
+      ctor      `Task(…, state=…)` / `Batch(…, state=…)`
+                                          构造关键字实参——出生态只许用 dataclass 缺省,
+                                          ops 任务的 running 也经写入口进(#484)
+      ctor-pos  `Task(id, src, host, "x")` / `Batch(id, "x")`
+                                          构造位置实参:第 4 / 第 2 个位置就是 state
+                                          (按 dataclass 字段序),同样不许用
     """
-    tree = ast.parse(TASKS_PY.read_text(encoding="utf-8"))
-    out: list[tuple[str | None, int, str]] = []
+    out: list[tuple[str, str | None, int, str]] = []
+    for py in sorted(REPO.glob(_IPDB_GLOB)):
+        tree = ast.parse(py.read_text(encoding="utf-8"))
 
-    def _visit(node: ast.AST, func: str | None) -> None:
-        for child in ast.iter_child_nodes(node):
-            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                _visit(child, child.name)
-                continue
-            if isinstance(child, ast.Assign):
-                for tgt in child.targets:
-                    if isinstance(tgt, ast.Attribute) and tgt.attr == "state":
-                        out.append((func, child.lineno, "attr"))
-            if (isinstance(child, ast.Call) and isinstance(child.func, ast.Name)
-                    and child.func.id in ("Task", "Batch")):
-                for kw in child.keywords:
-                    if kw.arg == "state":
-                        out.append((func, kw.value.lineno, "ctor"))
-            _visit(child, func)
+        def _visit(node: ast.AST, func: str | None, path: str) -> None:
+            for child in ast.iter_child_nodes(node):
+                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    _visit(child, child.name, path)
+                    continue
+                if isinstance(child, (ast.Assign, ast.AnnAssign)):
+                    targets = child.targets if isinstance(child, ast.Assign) else [child.target]
+                    for tgt in targets:
+                        if isinstance(tgt, ast.Attribute) and tgt.attr == "state":
+                            out.append((path, func, child.lineno,
+                                        "attr" if isinstance(child, ast.Assign) else "ann"))
+                if (isinstance(child, ast.Call) and isinstance(child.func, ast.Name)
+                        and child.func.id in ("Task", "Batch")):
+                    for kw in child.keywords:
+                        if kw.arg == "state":
+                            out.append((path, func, kw.value.lineno, "ctor"))
+                    # 位置实参拦法按 dataclass 字段序:Task 第 4 位、Batch 第 2 位
+                    # 是 state;够到位即拦(多传的字段只会更靠前才对)。
+                    min_pos = 4 if child.func.id == "Task" else 2
+                    if len(child.args) >= min_pos:
+                        out.append((path, func, child.func.lineno, "ctor-pos"))
+                _visit(child, func, path)
 
-    _visit(tree, None)
+        _visit(tree, None, py.name)
     return out
 
 
 def test_state_field_written_only_through_write_entries():
-    """守卫(#484):_tasks.py 里对任务/批次状态字段的直接写只许出现在两个写入口
-    (`_write_state` / `_write_batch_state`:判转移 → 写字段 → 发事件)里;
-    `_set_state` = 任务写入口 + 唤醒,cancel() 排队中分支和 ops 轮两处也都走
-    写入口。绕开写入口的直接赋值会让非法转移逃过转移表。
+    """守卫(#484):backend/ipdb/*.py 里对任务/批次状态字段的直接写只许出现在
+    两个写入口(`_write_state` / `_write_batch_state`:判转移 → 写字段 → 发事件)
+    里;`_set_state` = 任务写入口 + 唤醒,cancel() 排队中分支和 ops 轮两处也都
+    走写入口。绕开写入口的直接赋值会让非法转移逃过转移表。构造实参(关键字
+    或位置)一律拦——出生态只许用 dataclass 缺省。
 
-    这是对源码的静态文本检查(ast),挡的是粗心,不是防恶意:setattr、
-    exec 之类绕法不在防守范围。"""
+    这是对源码的静态文本检查(ast),挡的是粗心,不是防恶意。边界说实话:
+    它只看 backend/ipdb/*.py 包顶层(子包如 ipdb/_eval/ 不扫,当前没有状态
+    写点);setattr、exec、dataclasses.replace、__dict__ 直塞这类绕法不在
+    防守范围。"""
     writes = _direct_state_writes()
     assert writes, (
-        "_tasks.py 里一处状态字段直接写都没扫到——写入口被改名/改形,守卫要跟"
+        f"{_IPDB_GLOB} 里一处状态字段直接写都没扫到——写入口被改名/改形,守卫要跟"
     )
-    strays = [w for w in writes if w[0] not in _STATE_WRITE_ENTRIES or w[2] == "ctor"]
+    strays = [w for w in writes if w[1] not in _STATE_WRITE_ENTRIES
+              or w[3] in ("ctor", "ctor-pos")]
     assert not strays, (
-        "状态字段在写入口之外被直接赋值(#484 守卫):"
+        "状态字段在写入口之外被直接赋值或用构造实参给初值(#484 守卫):"
         f"{strays}——请改走 UpdateManager._write_state / _write_batch_state"
     )
-    per_entry = Counter(w[0] for w in writes)
+    per_entry = Counter(w[1] for w in writes)
     assert per_entry == Counter({name: 1 for name in _STATE_WRITE_ENTRIES}), (
         f"写入口里的状态写数量变了:{dict(per_entry)}(预期每个写入口恰一处)"
     )

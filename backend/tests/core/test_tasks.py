@@ -2,6 +2,8 @@
 import threading
 import time
 
+import pytest
+
 from ipdb._tasks import UpdateManager, Task
 
 
@@ -407,6 +409,10 @@ class _CrashSource(FakeSource):
         raise SystemExit(0)
 
 
+@pytest.mark.thread_exception_expected(
+    reason="被测现象本身就是 worker 线程里的 BaseException(SystemExit(0))——"
+           "on_finish 在 SystemExit 下仍须被调用;线程随异常退出是本用例的预期,"
+           "非非法转移泄漏")
 def test_on_finish_called_when_run_task_raises():
     """_run_task 抛 BaseException 时,on_finish 仍须被调用。
 

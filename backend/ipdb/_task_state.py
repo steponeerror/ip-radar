@@ -10,12 +10,22 @@ _tasks.py ↔ _scheduler.py 互相引用成环)。本模块只依赖标准库。
    _scheduler.py / 词表对拍测试一律引用,不再手抄元组。
 2. 合法转移表 TASK_TRANSITIONS / BATCH_TRANSITIONS:从代码里的实际发生点
    推出来(每条边注明出处)——表描述的是现行代码,不是设计意图。
-3. 处置:enforce_task_transition / enforce_batch_transition——合法静默;
-   非法时按模块开关(set_strict)二选一:
-     - 严格模式(测试套件,tests/conftest.py 全套件打开):抛 ValueError;
+3. 处置:enforce_task_transition / enforce_batch_transition——返回「写不写」
+   (True=照写)。合法返回 True;非法时按模块开关(_strict,tests/conftest.py
+   全套件 setattr 打开)二选一:
+     - 严格模式(测试套件):抛 ValueError;
      - 记录模式(缺省,生产):记一条错误日志(固定前缀
-       ILLEGAL_TRANSITION_LOG_PREFIX,日后接告警的锚)+ 计数,状态照写
-       ——任务线程不因这张表卡住。
+       ILLEGAL_TRANSITION_LOG_PREFIX,日后接告警的锚)+ 计数。写不写分两种
+       (#484 返工,评审第 2 条):从 done/failed 出发的写入**拒写**——终态的
+       下游(_settle 记账、on_terminal、调度器按 failed 升退避、告警渲染)
+       都按终态消费,覆盖会造出一条假 failed 告警;其余非法写入**照写**
+       ——非终态任务若不写可能被留在在飞态,查询门和批次都会卡住。
+       cancelled 有登记的竞态出边(见转移表),维持照写。
+4. 类别闸(返工评审第 4 条):写入口再按任务类别限一道——运营轮任务
+   (source_name == OPS_ROUND_SOURCE)的新状态只许 running 或终态;源任务
+   的新状态不许是 running(否则退出在飞集合,查询门放行、轮次互斥失效)。
+   违反同样按非法转移处置(两种模式同上;源任务进 running 是非终态出发
+   的非法写入,记录模式下照写 + 日志)。
 """
 import logging
 import threading
@@ -49,9 +59,14 @@ SOURCE_ONLY_TASK_STATES: frozenset[str] = TASK_STATES_IN_FLIGHT   # 只属于源
 OPS_ROUND_ONLY_STATES: frozenset[str] = frozenset({"running"})    # 只属于运营轮
 
 # 排队待派发两态:任务还在 worker 队列里、_run_task 未起跑(queued = 可派发,
-# throttled = 被内存阀门压住)。worker 的扫描/复查/清队和 cancel() 的直写
-# 终态分支共用——它是「在飞」的真子集,不是另一个概念的三次手抄。
+# throttled = 被内存阀门压住)。worker 的扫描/复查/清队和 cancel() 的排队中
+# 分支(经写入口落 cancelled)共用——它是「在飞」的真子集,不是另一个概念
+# 的三次手抄。
 TASK_STATES_WAITING: frozenset[str] = frozenset({"queued", "throttled"})
+
+# 运营轮任务的 source_name(原 _tasks.py 里的魔法字符串,#484 返工评审第 4 条
+# 提成常量:类别闸和出生/清扫两处判定共用一个拼写出处)。
+OPS_ROUND_SOURCE = "ops"
 
 # 批次状态全集(三态)。
 BatchState = Literal["running", "paused", "done"]
@@ -106,7 +121,10 @@ TASK_TRANSITIONS: dict[str, frozenset[str]] = {
     #       落一次 cancelled(终态重入:事件重发一次,_settle 幂等)。窗口只有
     #       几条字节码,偶发。
     # 不登记的后果:生产对普通的取消记错误日志(误报),严格模式下测试偶发
-    # 红。修根因(让取消与起跑互斥)另票,不在本卡范围。
+    # 红。修根因另票 #488(起跑前查 token,不加锁、不碰 #411 锁序;2026-11-27
+    # 评审补:宽窗口比上面写的还宽——worker 出队后卡在 _run_task 开头的
+    # 主机锁/源锁上,同主机源排队时要等前一个源整个下载完,这一整段时间
+    # 任务状态都还是 queued,期间的取消都会走竞态路径)。
     "cancelled": frozenset({"downloading", "loading", "failed", "cancelled"}),
 }
 
@@ -142,35 +160,26 @@ def _transition_error(kind: str, table: dict[str, frozenset[str]],
     return f"{kind} state transition {old!r} -> {new!r} is not legal: {detail}"
 
 
-def task_transition_error(old: str, new: str) -> Optional[str]:
-    """任务状态转移 old → new:合法返回 None,不合法返回一句可直接进日志的说明。"""
-    return _transition_error("task", TASK_TRANSITIONS, TASK_STATES, old, new)
-
-
-def batch_transition_error(old: str, new: str) -> Optional[str]:
-    """批次状态转移 old → new:合法返回 None,不合法返回一句可直接进日志的说明。"""
-    return _transition_error("batch", BATCH_TRANSITIONS, BATCH_STATES, old, new)
-
-
 # ── 处置 ───────────────────────────────────────────────────────────────────
 
 # 非法转移错误日志的固定前缀(日后接告警按它 grep / 过滤)。
 ILLEGAL_TRANSITION_LOG_PREFIX = "illegal-state-transition"
 
-_strict: bool = False            # 缺省 = 记录模式(生产);测试套件经 conftest 打开
+# 记录模式下「拒写」的出发态(返工评审第 2 条):只拒 done/failed。cancelled
+# 不在列——它有登记的竞态出边(转移表),生产路径依赖照写;非终态出发的
+# 非法写入也照写,否则任务可能被留在在飞态卡住查询门和批次。
+NO_WRITE_FROM: frozenset[str] = frozenset({"done", "failed"})
+
+# 类别闸的允许新状态集(返工评审第 4 条):源任务不可进 running(退出在飞
+# 集合 = 查询门放行、start_ops_round 查不到它、轮次与源更新互斥失效);
+# 运营轮任务只许相位词表(running + 终态)。两个常量也把 SOURCE_ONLY /
+# OPS_ROUND_ONLY 两组词表之差用到了实处。
+SOURCE_TASK_ALLOWED_NEW: frozenset[str] = SOURCE_ONLY_TASK_STATES | TASK_STATES_TERMINAL
+OPS_TASK_ALLOWED_NEW: frozenset[str] = OPS_ROUND_ONLY_STATES | TASK_STATES_TERMINAL
+
+_strict: bool = False            # 缺省 = 记录模式(生产);测试套件经 conftest setattr 打开
 _illegal_count: int = 0          # 记录模式下记下的非法转移次数(进程级)
 _count_lock = threading.Lock()
-
-
-def set_strict(enabled: bool) -> None:
-    """切换严格模式(True = 非法转移抛 ValueError)。返回 None;调用方要恢复旧值
-    就自己先问 is_strict()(tests/conftest.py 用 monkeypatch 自动还原)。"""
-    global _strict
-    _strict = enabled
-
-
-def is_strict() -> bool:
-    return _strict
 
 
 def illegal_transition_count() -> int:
@@ -180,25 +189,48 @@ def illegal_transition_count() -> int:
 
 
 def _enforce(kind: str, table: dict[str, frozenset[str]], vocab: tuple[str, ...],
-             subject: str, old: str, new: str) -> None:
+             subject: str, old: str, new: str,
+             _reason: Optional[str] = None) -> bool:
+    """守门本体:合法(或放行)返回 True = 照写;返回 False = 拒写(仅记录
+    模式下从 NO_WRITE_FROM 终态出发的非法写入;严格模式照旧抛错)。
+    _reason = 调用方已算好的违规说明(类别闸等表外规则),缺省自己判表。"""
     global _illegal_count
-    reason = _transition_error(kind, table, vocab, old, new)
-    if reason is None:
-        return
+    if _reason is None:
+        _reason = _transition_error(kind, table, vocab, old, new)
+    if _reason is None:
+        return True
     if _strict:
-        raise ValueError(f"{reason} [{subject}] (strict mode)")
+        raise ValueError(f"{_reason} [{subject}] (strict mode)")
     with _count_lock:
         _illegal_count += 1
-    logger.error("%s: %s [%s]", ILLEGAL_TRANSITION_LOG_PREFIX, reason, subject)
+    logger.error("%s: %s [%s]", ILLEGAL_TRANSITION_LOG_PREFIX, _reason, subject)
+    return old not in NO_WRITE_FROM
 
 
-def enforce_task_transition(task_id: str, source_name: str, old: str, new: str) -> None:
-    """任务状态写入口的守门:合法静默;非法按模式抛错或记日志 + 计数。
-    带任务号与源名——两者都要进错误信息和日志。"""
-    _enforce("task", TASK_TRANSITIONS, TASK_STATES,
-             f"task={task_id} source={source_name}", old, new)
+def enforce_task_transition(task_id: str, source_name: str, old: str, new: str) -> bool:
+    """任务状态写入口的守门:表判转移(登记边)+ 类别闸(返工评审第 4 条),
+    合法或放行返回 True;非法按模式抛错或记日志 + 计数(终态出发再拒写,
+    见 NO_WRITE_FROM)。带任务号与源名——两者都要进错误信息和日志。"""
+    reason = _transition_error("task", TASK_TRANSITIONS, TASK_STATES, old, new)
+    if reason is None:
+        # 类别闸:表不看任务类别(queued → running 对运营轮是出生边,对源
+        # 任务是禁入),这里按 source_name 再限一道。
+        if source_name == OPS_ROUND_SOURCE:
+            if new not in OPS_TASK_ALLOWED_NEW:
+                reason = (f"ops-round task cannot enter state {new!r}: allowed "
+                          f"targets for this task kind: {sorted(OPS_TASK_ALLOWED_NEW)}")
+        elif new not in SOURCE_TASK_ALLOWED_NEW:
+            reason = (f"source task cannot enter state {new!r}: allowed targets "
+                      f"for this task kind: {sorted(SOURCE_TASK_ALLOWED_NEW)}")
+    if reason is None:
+        return True
+    return _enforce("task", TASK_TRANSITIONS, TASK_STATES,
+                    f"task={task_id} source={source_name}", old, new,
+                    _reason=reason)
 
 
-def enforce_batch_transition(batch_id: str, old: str, new: str) -> None:
-    """批次状态写入口的守门,同 enforce_task_transition。"""
-    _enforce("batch", BATCH_TRANSITIONS, BATCH_STATES, f"batch={batch_id}", old, new)
+def enforce_batch_transition(batch_id: str, old: str, new: str) -> bool:
+    """批次状态写入口的守门,同 enforce_task_transition(无类别闸;批次终态
+    done 出发的写入同样按 NO_WRITE_FROM 拒写)。"""
+    return _enforce("batch", BATCH_TRANSITIONS, BATCH_STATES,
+                    f"batch={batch_id}", old, new)

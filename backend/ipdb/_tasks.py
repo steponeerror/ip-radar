@@ -15,7 +15,7 @@ from typing import Callable, Optional
 
 from ._sources._download import CancelledError, CancelToken
 from ._task_state import (
-    BatchState, TaskState, TerminalTaskState,
+    BatchState, OPS_ROUND_SOURCE, TaskState, TerminalTaskState,
     TASK_STATES_IN_FLIGHT, TASK_STATES_TERMINAL, TASK_STATES_WAITING,
     enforce_batch_transition, enforce_task_transition,
 )
@@ -450,7 +450,13 @@ class UpdateManager:
             # window between that re-check and _run_task (#1 cancel race).
             task.token.cancel()
             # #484:终态经写入口落(判转移 + 写字段 + 发 task 事件)。token 先于
-            # 状态写:外界看到 cancelled 时下载一定已被叫停。
+            # 状态写:外界看到 cancelled 时下载一定已被叫停。本分支「读态 →
+            # 写 cancelled」不持 self._lock,与 worker 起跑之间没有互斥(#1
+            # cancel race):worker 已过 _queue_cv 复查、卡在 _run_task 开头的
+            # 主机锁/源锁上时,同主机源排队要等前一个源整个下载完——这一整段
+            # 窗口里本分支会先落 cancelled,worker 拿到锁后照常翻相位,
+            # cancelled 的登记出边由此而来(转移表 _task_state.py)。根因修复
+            # (起跑前查 token,不加锁、不碰 #411 锁序)见 #488。
             self._write_state(task, "cancelled")
             with self._queue_cv:
                 self._queue = deque(t for t in self._queue if t != task_id)
@@ -502,13 +508,13 @@ class UpdateManager:
                 if t.state in TASK_STATES_IN_FLIGHT:
                     return None, "sources"
             stale = [tid for tid, t in self._tasks.items()
-                     if t.source_name == "ops"
+                     if t.source_name == OPS_ROUND_SOURCE
                      and t.state in TASK_STATES_TERMINAL]
             for tid in stale:
                 self._tasks.pop(tid, None)
                 self._prog.pop(tid, None)
                 self._ops_logs.pop(tid, None)
-            task = Task(id=uuid.uuid4().hex[:12], source_name="ops", host=None)
+            task = Task(id=uuid.uuid4().hex[:12], source_name=OPS_ROUND_SOURCE, host=None)
             self._tasks[task.id] = task
             self._ops_logs[task.id] = deque(maxlen=_OPS_LOG_KEEP)
             self._ops_active = task.id
@@ -631,12 +637,18 @@ class UpdateManager:
     def _write_state(self, task: Task, state: TaskState,
                      error: Optional[str] = None,
                      error_code: Optional[str] = None) -> None:
-        """任务状态字段的唯一写入口(#484):判转移 → 写字段 → 发 task 事件。
-        不取 self._lock(调用点自己决定持不持:cancel() 不持,ops 轮两处持),
-        不唤醒(_set_state / 锁段外的 _notify_lifecycle / _settle 负责)。
-        _tasks.py 里对 task.state 的直接赋值只许出现在这里
+        """任务状态字段的唯一写入口(#484):判转移(含类别闸:运营轮任务只许
+        running/终态,源任务不许 running)→ 写字段 → 发 task 事件。返回值无;
+        守门返回 False(仅记录模式下从 done/failed 出发的非法写入)时不写字段
+        不发事件——终态下游(_settle、on_terminal、调度器退避、告警)都按终态
+        消费,覆盖会造出假 failed 告警;车道清理/唤醒等下游动作由调用点
+        (finish_ops_round / cancel / _set_state)在本方法之后照走,任务线程
+        不因这张表卡住。不取 self._lock(调用点自己决定持不持:cancel() 不持,
+        ops 轮两处持),不唤醒(_set_state / 锁段外的 _notify_lifecycle /
+        _settle 负责)。_tasks.py 里对 task.state 的直接赋值只许出现在这里
         (test_vocab_contract 的守卫用例盯着)。"""
-        enforce_task_transition(task.id, task.source_name, task.state, state)
+        if not enforce_task_transition(task.id, task.source_name, task.state, state):
+            return
         task.state = state
         task.error = error
         task.error_code = error_code
@@ -644,9 +656,11 @@ class UpdateManager:
 
     def _write_batch_state(self, b: Batch, state: BatchState) -> None:
         """批次状态字段的唯一写入口(#484),同 _write_state:判转移 → 写 → 发
-        batch 事件。三个调用点(pause / resume / _maybe_finish_batch)都持
-        self._lock。"""
-        enforce_batch_transition(b.id, b.state, state)
+        batch 事件;记录模式下从终态 done 出发的非法写入拒写(表本来就没有
+        done 出边,现行代码走不到)。三个调用点(pause / resume /
+        _maybe_finish_batch)都持 self._lock。"""
+        if not enforce_batch_transition(b.id, b.state, state):
+            return
         b.state = state
         self._emit({"type": "batch", "batch": b.to_dict()})
 
