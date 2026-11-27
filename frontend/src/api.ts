@@ -191,7 +191,7 @@ type StreamEvent =
 // 表格/CSV 两种模式共用的按 idx 顺序取出(#495):流按各批完成先后吐 row,
 // 每行带输入 idx;按 idx 逐个取出并从 Map 删掉(边取边删),同一查询两次
 // 导出行序确定。idx ≥ total 的行取不到,与旧行为一致地丢弃。
-// 边取边删是内存性质:消费方擏段时不会同时持有「全部散行 + 全部拼接段」
+// 边取边删是内存性质:消费方攒段时不会同时持有「全部散行 + 全部拼接段」
 // (旧 reorderByIdx 会在写盘那一刻两份都在,约 2 倍行文本)。
 function* drainByIdx<T>(byIdx: Map<number, T>, total: number): Generator<T> {
   for (let i = 0; i < total; i++) {
