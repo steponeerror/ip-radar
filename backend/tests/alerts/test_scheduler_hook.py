@@ -667,3 +667,78 @@ def test_dir_source_unreadable_hashes_null_event_recorded(
     sch.scan(now=NOW)
     src._path.chmod(0o755)           # 还原,保 tmp 清理
     assert _events_with_hash(alerts_db) == [("d", OLD, None, None)]
+
+
+# ── #501:指纹输入改走 _data_files() 声明清单(还 #465 卡16 挂账)──
+
+class DataFilesDirSource(DirSource):
+    """DirSource + _data_files() 覆写(#501):声明式数据文件清单只含
+    a.csv/b.csv(镜像 cn_isp _ISP_FILES、cloud_ranges _FEEDS 的形状);
+    add_staging 往目录里放下载暂存件(x.dl.tmp),不进清单。"""
+
+    def _data_files(self):
+        return [self._path / "a.csv", self._path / "b.csv"]
+
+    def add_staging(self):
+        (self._path / "x.dl.tmp").write_text("partial")
+
+
+def test_data_files_hook_excludes_staging_file(tmp_path):
+    """#501 验收 1:声明 _data_files() 的目录型源,指纹 = 清单文件的
+    content_fingerprint;同目录的下载暂存件(x.dl.tmp)不进指纹(≠
+    把暂存件算进去的值;#455 评审 R-2 的窗口里「暂存件进指纹」的那一半
+    关掉,"_read_mtime" 那一半不在这条用例里)。"""
+    from ipdb import _alerts
+    from ipdb._scheduler import RefreshScheduler
+    src = DataFilesDirSource("d", tmp_path / "d")
+    src.add_staging()
+    listed = src._data_files()
+    fp = RefreshScheduler._content_fingerprint_of(src)
+    assert fp == _alerts.content_fingerprint(listed)
+    assert fp != _alerts.content_fingerprint(
+        listed + [src._path / "x.dl.tmp"])
+
+
+def test_data_files_missing_file_returns_none(tmp_path):
+    """#501 验收 2(缺席裁决):声明清单里一个文件不存在 → 整次指纹
+    None——None 读数按「不可比」剔除,永远不会被算成「没变」(宁少算)。"""
+    from ipdb._scheduler import RefreshScheduler
+    src = DataFilesDirSource("d", tmp_path / "d")
+    (src._path / "b.csv").unlink()
+    assert RefreshScheduler._content_fingerprint_of(src) is None
+
+
+def test_source_without_data_files_hook_keeps_legacy_paths(tmp_path):
+    """#501 验收 3:无 _data_files() 的源(自定义源/测试桩)退回旧口径,
+    与改前一致:单文件 = 单文件指纹;目录 = 目录内全部普通文件
+    (旧口径不认清单,目录里的暂存件照吃——原样保留的旧行为)。"""
+    from ipdb import _alerts
+    from ipdb._scheduler import RefreshScheduler
+    single = HookSource("s", tmp_path / "s")
+    assert RefreshScheduler._content_fingerprint_of(single) == \
+        _alerts.content_fingerprint([single._path])
+    d = DirSource("d", tmp_path / "d")
+    (d._path / "y.dl.tmp").write_text("partial")
+    legacy = [c for c in d._path.iterdir() if c.is_file()]
+    assert RefreshScheduler._content_fingerprint_of(d) == \
+        _alerts.content_fingerprint(legacy)
+
+
+def test_data_files_hook_raise_falls_back_with_warning(tmp_path, caplog):
+    """#501 验收 4:_data_files() 抛异常 → 退回旧口径结果(目录内全部
+    文件)且记 warning(带源名与异常类型);指纹不因钩子故障硬丢。"""
+    from ipdb import _alerts
+    from ipdb._scheduler import RefreshScheduler
+    src = DataFilesDirSource("d", tmp_path / "d")
+    (src._path / "y.dl.tmp").write_text("partial")
+
+    def boom():
+        raise RuntimeError("hook exploded")
+
+    src._data_files = boom
+    with caplog.at_level(logging.WARNING, logger="ipdb._scheduler"):
+        fp = RefreshScheduler._content_fingerprint_of(src)
+    legacy = [c for c in src._path.iterdir() if c.is_file()]
+    assert fp == _alerts.content_fingerprint(legacy)
+    assert "for d (RuntimeError)" in caplog.text
+    assert any(r.levelno == logging.WARNING for r in caplog.records)
