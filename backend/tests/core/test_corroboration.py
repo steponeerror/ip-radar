@@ -157,3 +157,15 @@ def test_non_string_malware_name_kept_as_is():
     a = _assess_classification([_obs("x", reliability=0.85, malware_name=123)])
     assert a.malware_names == [123]
     assert a.details[0]["malware_name"] == 123
+
+
+def test_same_source_judged_per_observation_and_variants_kept():
+    grp = [
+        _obs("threatfox", reliability=0.85, malware_name="unknown", extra={"malware_printable": "Unknown malware"}),
+        _obs("threatfox", reliability=0.85, malware_name="win.vidar"),
+        _obs("threatfox", reliability=0.85, malware_name="unknown_rat"),
+    ]
+    a = _assess_classification(grp)
+    assert a.malware_names == ["unknown_rat", "win.vidar"]
+    assert ["malware_name" in d for d in a.details] == [False, True, True]
+    assert a.details[0]["extra"]["malware_printable"] == "Unknown malware"
