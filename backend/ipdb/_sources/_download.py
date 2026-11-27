@@ -92,9 +92,10 @@ def download_file(
     chunks; on cancel/failure the .tmp is removed and `dest` is untouched.
     A body shorter than its Content-Length is rejected as truncated, so a
     mid-body disconnect can't masquerade as clean EOF and replace the
-    previous good file with a partial one. A response without a
-    Content-Length header can't be truncation-checked at all (its guard is
-    skipped) — that case logs one warning (#491, warn-only) and completes.
+    previous good file with a partial one. Only a close-delimited response
+    (no Content-Length header and not chunked) can't be truncation-checked
+    at all — chunked bodies get IncompleteRead from http.client on early
+    EOF — so only that case logs one warning (#491, warn-only) and completes.
 
     Args:
         timeout: stdlib urllib socket timeout applied to all socket ops
@@ -119,14 +120,18 @@ def download_file(
             warn_if_redirected(url, resp, secret=secret)
             cl_header = resp.headers.get("Content-Length")
             total = int(cl_header or 0)
-            if cl_header is None:
-                # #491:无 Content-Length 时截断守卫形同虚设(total=0 →
-                # 下方 `if total and …` 恒跳过),close-delimited 响应半截
-                # 不抛 IncompleteRead、静默返回部分字节(事实包 _prep/
-                # 事实包-25-7.md 实测,Python 3.12.3)。只告警不拦截(Q-C
-                # 裁定 warn-only:拦了会把正常源打成永久失败);B 家族
-                # 同吃这一行日志,落盘行为零变化。地址走 _mask_secret
-                # 同款脱敏(与重定向绊线同一形状)。
+            chunked = (resp.headers.get("Transfer-Encoding") or "").lower() == "chunked"
+            if cl_header is None and not chunked:
+                # #491:无 Content-Length 且非分块(close-delimited)时截断
+                # 守卫形同虚设(total=0 → 下方 `if total and …` 恒跳过),
+                # 响应半截不抛异常、静默返回部分字节(事实包 _prep/事实包
+                # -25-7.md 实测,Python 3.12.3)。分块响应排除在外:CPython
+                # 对分块截断会抛 IncompleteRead(http/client.py read 路径),
+                # 这行告警对它是假话且每次刷新都来一遍(评审 2026-11-27
+                # 建议改 1;头名不分大小写,email.message 语义;值先 lower
+                # 再比)。只告警不拦截(Q-C 裁定 warn-only:拦了会把正常源
+                # 打成永久失败);B 家族同吃这一行日志,落盘行为零变化。
+                # 地址走 _mask_secret 同款脱敏(与重定向绊线同一形状)。
                 logger.warning(
                     "no Content-Length from %s — truncation cannot be detected",
                     _mask_secret(url, secret))

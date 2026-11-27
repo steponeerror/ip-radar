@@ -154,10 +154,13 @@ def test_health_uses_file_mtime(tmp_path: Path):
 
 
 def test_base_download_accepts_token():
-    """UpdateManager._run_task calls source.download(token=task.token). The base
-    Source.download must accept (and ignore) token so bespoke subclasses that
-    rely on the default GET (bruteforce/tweetfeed/urlhaus) don't crash with
-    `Source.download() got an unexpected keyword argument 'token'`."""
+    """UpdateManager._run_task calls source.download(token=task.token): every
+    download signature must accept the keyword. Since #491 the default
+    Source.download honours it (pre/mid-stream cancel + per-chunk progress);
+    bruteforce and tweetfeed ride that default path, while bespoke sources
+    like urlhaus (own download in urlhaus.py) keep their own handling — none
+    may crash with `Source.download() got an unexpected keyword argument
+    'token'`."""
     assert "token" in inspect.signature(Source.download).parameters
     for cls in (BruteforceSource, TweetFeedSource, URLhausSource):
         assert "token" in inspect.signature(cls.download).parameters, (

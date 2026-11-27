@@ -3,9 +3,11 @@
 _sources/_base.py,#248;与 B 家族 IpListSource 共享生命周期底座)。
 
 Hooks (override what you need):
-  download()           — default simple GET to self.url → self._path.
-                         Override for state machines (cursor/budget/bg thread),
-                         gzip, multi-file, auth headers.
+  download()           — default guarded streaming GET to self.url →
+                         self._path (#491: honours token, retries network-
+                         class failures, truncation guard). Override for
+                         state machines (cursor/budget/bg thread), gzip,
+                         multi-file, auth headers.
   harvest()            — parse/transform → yields (cidr_str, Evidence) pairs.
                          Returning pairs (not bare Evidence) supports range→CIDR
                          expansion (one input row → many CIDRs).
@@ -17,6 +19,7 @@ header + atomic tmp→rename write,__init__ 状态槽与 v6 双族 sidecar。
 """
 import http.client
 import logging
+import ssl
 import time
 import urllib.error
 from pathlib import Path
@@ -45,24 +48,34 @@ logger = logging.getLogger(__name__)
 _DOWNLOAD_RETRIES = 3
 
 
-def _backoff(seconds: float) -> None:
-    """重试退避的可观察缝(#491 测试用例 5 桩这里):真身 time.sleep。"""
+def _sleep_backoff(seconds: float) -> None:
+    """重试退避的可观察缝(#491 测试用例 5 桩这里):真身 time.sleep。
+    (#491 返工:原名 ``_backoff`` 与 ``RefreshScheduler._backoff``——按
+    源记退避状态的表(_scheduler.py)——同名异物,改叫 _sleep_backoff
+    避嫌,评审 2026-11-27 建议 7。)"""
     time.sleep(seconds)
 
 
 def _is_retryable(e: Exception) -> bool:
-    """网络类失败判据(#491 §2):连接被重置(ConnectionResetError ⊂
-    ConnectionError)、超时(TimeoutError;socket.timeout 在 3.10+ 就是它,
-    连接期超时经 urllib 包成 URLError)、读一半断掉(http.client.
-    IncompleteRead)、urllib 包装(URLError ⊂ OSError,连接期的网络错
-    基本都进它)、download_file 截断守卫报错(普通 RuntimeError,按
-    文案前缀判别——空体守卫同为 RuntimeError 但文案不同,照旧立刻
-    失败不重试)。取消(CancelledError)在调用点先行原样上抛,不进
-    这里。HTTPError(404/403 等)是 URLError 子类,也重试——工单判据
-    按类型写 URLError,语义取舍( definitive 服务端答案不重试)留给
-    合并两份重试循环的后续票。"""
-    if isinstance(e, (urllib.error.URLError, http.client.IncompleteRead,
-                      ConnectionError, TimeoutError)):
+    """网络类失败判据(#491 §2;返工按评审建议改 2/3 收口):连接被重置
+    (ConnectionResetError ⊂ ConnectionError)、超时(TimeoutError;
+    socket.timeout 在 3.10+ 就是它,连接期超时经 urllib 包成 URLError)、
+    HTTP 层残缺(http.client.HTTPException:IncompleteRead、BadStatusLine、
+    LineTooLong 的共同基类,比单列 IncompleteRead 稳)、TLS 半途断开
+    (ssl.SSLError ⊂ OSError 但不在 ConnectionError/TimeoutError 之下;
+    urllib 只把发请求阶段的 OSError 包成 URLError,读响应阶段的原样
+    抛出)、urllib 包装(URLError ⊂ OSError)、download_file 截断守卫
+    报错(普通 RuntimeError,按文案前缀判别——空体守卫同为 RuntimeError
+    但文案不同,照旧立刻失败不重试)。
+
+    4xx 不重试(确定性服务端答案,评审建议改 2):HTTPError 只有 ≥500
+    或 408/429 才值得再试,其余立刻失败。磁盘满这类普通 OSError 不重试
+    (刻意不放宽成整个 OSError)。取消(CancelledError)在调用点先行
+    原样上抛,不进这里。"""
+    if isinstance(e, urllib.error.HTTPError):
+        return e.code >= 500 or e.code in (408, 429)
+    if isinstance(e, (urllib.error.URLError, http.client.HTTPException,
+                      ConnectionError, TimeoutError, ssl.SSLError)):
         return True
     return (isinstance(e, RuntimeError)
             and str(e).startswith("truncated download"))
@@ -95,9 +108,9 @@ class Source(SourceBase):
         Network-class failures (see ``_is_retryable``) retry up to
         ``_DOWNLOAD_RETRIES`` attempts with 2s/4s backoff — same shape as
         ``SourceBase._http_get`` (the two retry loops stay separate;
-        merging is a separate ticket). Cancellation and empty responses
-        are not retried; after the last attempt the original exception
-        propagates unchanged.
+        merging is a separate ticket). Cancellation, empty responses and
+        definitive 4xx answers are not retried; after the last attempt the
+        original exception propagates unchanged.
         """
         self._data_dir.mkdir(parents=True, exist_ok=True)
 
@@ -123,9 +136,11 @@ class Source(SourceBase):
                     raise
                 delay = 2 ** attempt
                 logger.warning(
-                    "download attempt %d/%d failed for %s, retrying in %ds: %s",
-                    attempt, _DOWNLOAD_RETRIES, self.name, delay, e)
-                _backoff(delay)
+                    "download attempt %d/%d failed for %s (%s), retrying in "
+                    "%ds: %s: %s",
+                    attempt, _DOWNLOAD_RETRIES, self.name, redact_url(self.url),
+                    delay, type(e).__name__, e)
+                _sleep_backoff(delay)
 
     def harvest(self) -> Iterator[tuple[str, Evidence]]:
         """Parse → yield (cidr_str, Evidence). Override in every concrete source."""
