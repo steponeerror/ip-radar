@@ -121,8 +121,8 @@ export const SPAWN_CONTRACT_ENV = [
   { name: "PI_CODING_AGENT_DIR", default: "~/.pi/agent", consumer: "pi-web-access 包(外部自读;web-search.json 路由配置指路,_round_env 物化进 ops 树)", phase: "call-time" },
 ];
 
-// 轮次信封失败面 error.code 闭集九词(规格 §4):已知 throw 点挂 err.code,main 边界对
-// 无 code/闭集外 code(如 fs 的 ENOENT)归 infra——信封面九词恒闭。
+// 轮次信封失败面 error.code 闭集(规格 §4,词面=error-codes.mjs ERROR_CODES 不在此抄数):
+// 已知 throw 点挂 err.code,main 边界对无 code/闭集外 code(如 fs 的 ENOENT)归 infra——信封面恒闭。
 // 2026-10-24 下沉 error-codes.mjs 单一真源并 re-export(历史:agent.mjs 的 OPS_PIPELINE
 // 委派路径曾动态 import pipeline.mjs 而 pipeline 静态回取本常量=ESM 顶层 await 环死,
 // 下沉断环;#412 灰度开关退役后委派分支已删,单源结构保留防回潮)。详见 error-codes.mjs 头注。

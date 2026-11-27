@@ -288,6 +288,7 @@
   "ops.review.status.dismissed": "已忽略",
   "ops.round.discover": "跑发现轮",
   "ops.round.discoverPlaceholder": "发现轮输入——候选/任务描述",
+  "ops.round.err.account_rate_limited": "账户被限流",
   "ops.round.err.bad_round": "轮次类型被 agent 拒绝",
   "ops.round.err.closure_check": "报告闭合校验失败——引用规则未能闭合",
   "ops.round.err.empty_text": "模型未返回文本",

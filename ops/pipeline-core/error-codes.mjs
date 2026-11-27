@@ -1,4 +1,5 @@
-// error-codes.mjs — 轮次信封失败面 error.code 闭集九词(规格 §4)单一真源。
+// error-codes.mjs — 轮次信封失败面 error.code 闭集(规格 §4)单一真源,词面=下方 ERROR_CODES;
+// 文档不再抄词数(评审建议4:#199 两批加词后「九词」已陈旧,数字随实现漂移必然再腐)。
 // 2026-10-24 从 agent.mjs 拆出:pipeline.mjs 曾静态 import agent.mjs 取此常量,而
 // agent.mjs main 的 OPS_PIPELINE=pipeline 委派路径(灰度开关)动态 import pipeline.mjs
 // ——agent.mjs 顶层 `await main(...)` 未决时 pipeline.mjs 开始求值、其静态依赖回头等

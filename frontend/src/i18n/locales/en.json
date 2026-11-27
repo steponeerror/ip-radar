@@ -288,6 +288,7 @@
   "ops.review.status.dismissed": "Ignored",
   "ops.round.discover": "Run discover round",
   "ops.round.discoverPlaceholder": "discover input — candidates / task description",
+  "ops.round.err.account_rate_limited": "Account rate-limited",
   "ops.round.err.bad_round": "Round type rejected by the agent",
   "ops.round.err.closure_check": "Report closure check failed — cited rules could not be verified",
   "ops.round.err.empty_text": "The model returned no text",

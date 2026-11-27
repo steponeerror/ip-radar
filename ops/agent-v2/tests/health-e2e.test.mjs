@@ -746,9 +746,9 @@ function fixturesWithDeepError(tmp, slug, extraTurn) { // 复制罐装 fixture �
   return fxDir;
 }
 
-function overrideSynth(fxDir, confirmed, refuted, unresolved) { // 罐装 SYNTH 回合:深验三计数对齐降级世界
-  // (G_SYNTH 深验抽检:报告数字=verdicts∪degraded∪truncated 回算;四计数 created=2 不变
-  // ——降级行同入清单也建条目。判例引用只含 PREC,closureCheck 闭合面同源。)
+function overrideSynth(fxDir, confirmed, refuted, unresolved, created = 2) { // 罐装 SYNTH 回合:深验三计数对齐降级世界
+  // (G_SYNTH 深验抽检:报告数字=verdicts∪degraded∪truncated 回算;四计数 created 同对齐
+  // 幸存面(3 假设罐装传 created=3)。判例引用只含 PREC,closureCheck 闭合面同源。)
   fs.writeFileSync(path.join(fxDir, "synth.json"), JSON.stringify({ turns: [
     { role: "assistant", content: [{ type: "text", text:
 `## 注入判例
@@ -760,7 +760,7 @@ function overrideSynth(fxDir, confirmed, refuted, unresolved) { // 罐装 SYNTH 
 抑制 1 条(规则 R1×1——明细见工件 02-verify-suppressed.json)。
 
 ## 摘要
-- 计数: created=2 reopened=0 deduped=0 suppressed=1
+- 计数: created=${created} reopened=0 deduped=0 suppressed=1
 - 深验: confirmed=${confirmed} refuted=${refuted} unresolved=${unresolved};探测桶 frozen=3
 - P4 轮:DEEP 真开启(evidence=A 一律选择对,宿主回填;条目经 ops-items 桥落四键面)。` }], stopReason: "stop" },
   ] }));
@@ -821,6 +821,80 @@ test("#490 缺省闸=2:两假设恰一批全放(任一时点 2 个在途),轮照
     } finally { await harness.close(context); }
   } finally {
     await storage.close(context);
+    w.restore();
+    fs.rmSync(w.tmp, { recursive: true, force: true });
+  }
+});
+
+// 缺省闸的判别力(评审建议2):2 假设世界峰值 2 与「不分批全放」不可区分(都是 2);
+// 3 假设世界才咬得住分批——若去分批,峰值会到 3。另钉批间接续:第三假设的首个提交
+// (pending)必须晚于首批两任务的终态。D dispatch 按 severity 排序,首批=cins(high)+bdef(medium)。
+test("#490 缺省闸判别力:三假设 DEEP 分批 2+1(峰值 2,批间在首批终态后接续),轮全绿 modelCalls=5", async () => {
+  const roundId = "2026-10-28-0114-health";
+  const w = seedWorld({ roundId });
+  const OPEN = "https://openphish.com/feed.txt";
+  const OPEN_SLUG = "https-openphish.com-feed.txt";
+  const fxDir = path.join(w.tmp, "fixtures-490-3hyp");
+  fs.cpSync(FIXTURES, fxDir, { recursive: true });
+  try {
+    // 1) TRIAGE:罐装 2 假设 + 第三假设(openphish low;闭集值 severity=low/cause_class=frozen_feed)
+    const triage = jsonOf(path.join(fxDir, "triage.json"));
+    const canned = JSON.parse(triage.turns[0].content[0].text);
+    const hyp3 = { signal_id: OPEN, cause_class: "frozen_feed", hypothesis: "若 openphish feed 为批处理镜像,则 GET 复测 age_days 仍呈日级阶梯", need_deep: true, probe_hint: "reprobe_get", severity: "low", one_line: "openphish 停更 205 天,复测辨镜像" };
+    fs.writeFileSync(path.join(fxDir, "triage.json"), JSON.stringify({ ...triage, turns: [
+      { role: "assistant", content: [{ type: "text", text: JSON.stringify({ hypotheses: [...canned.hypotheses, hyp3], digest: "金轨迹回放:3 幸存信号(1 高危冻结 + 1 疑伪迹 + 1 疑镜像),深验子集 3 条。" }) }], stopReason: "stop" },
+    ] }));
+    // 2) 前置工件对齐:02 幸存集加第三条(G_TRIAGE 穷尽判据);01 探测旗标同步加行(计数面一致)
+    const v02 = jsonOf(path.join(w.roundDir, "02-verify-survivors.json"));
+    v02.survivors.push({ signal_id: OPEN, source: "openphish", bucket: "frozen", age_days: 205, url: OPEN });
+    fs.writeFileSync(path.join(w.roundDir, "02-verify-survivors.json"), JSON.stringify(v02, null, 2) + "\n");
+    const p01 = jsonOf(path.join(w.roundDir, "01-probe-summary.json"));
+    p01.flags.push({ signal_id: OPEN, url: OPEN, bucket: "frozen", source: "openphish", age_days: 205, last_modified: "canned-205d" });
+    fs.writeFileSync(path.join(w.roundDir, "01-probe-summary.json"), JSON.stringify(p01, null, 2) + "\n");
+    // 3) 第三假设 DEEP 罐装:refuted(evidence 指向自带 seed;G_DEEP 解析面同罐装对)
+    fs.writeFileSync(path.join(fxDir, "deep", `${OPEN_SLUG}.json`), JSON.stringify({
+      seed: { id: "c-openphish", tool: "reprobe_get", sc: { ok: true, url: OPEN, method: "GET", status: 200, age_days: 205, last_modified: "canned-205d" } },
+      turns: [{ role: "assistant", content: [{ type: "text", text: JSON.stringify({ hypothesis_id: OPEN, verdict: "refuted", evidence: [{ call_id: "c-openphish", field: "age_days" }], one_line: "GET 复测 age_days=205,镜像阶梯确证,非冻结" }) }], stopReason: "stop" }],
+    }));
+    // 4) SYNTH 罐装对齐:confirmed=1(cins)+ refuted=2(bdef/openphish);四计数 created=3
+    overrideSynth(fxDir, 1, 2, 0, 3);
+    const storage = await openNodeSqliteStorage(path.join(w.tmp, "t.sqlite"));
+    const context = BACKGROUND_CONTEXT;
+    try {
+      const harness = await healthHarness(storage, context);
+      try {
+        const track = trackModelConcurrency(harness);
+        const events = []; // DEEP 子任务提交轨迹(hid+status;批间接续判据)
+        harness.subscribeCommits((publication) => {
+          for (const ch of publication.changes)
+            if (ch.type === "task" && ch.value?.kind === "ops-model-round")
+              events.push({ hid: ch.value.input?.hid ?? null, status: ch.value.state?.status });
+        });
+        harness.resume();
+        const root = await harness.root(context);
+        const taskId = await root.commit((tx) => tx.createTask(OPS_HEALTH_ROUND, {
+          roundId, fromPhase: "TRIAGE", modelFace: "faux", fixturesDir: fxDir,
+        }, { ownership: { kind: "conversation" } }), context);
+        const settled = await harness.waitForTask(taskId, context);
+        const outcome = settled.state.outcome;
+        assert.equal(outcome.status, "completed", `三假设世界应照常完成:${JSON.stringify(outcome)}`);
+        assert.equal(track.max, 2, `缺省闸 2=三假设也只 2 在途(去分批则峰值 3;实测 ${track.max})`);
+        const deep = events.filter((e) => e.hid);
+        const idx3 = deep.findIndex((e) => e.hid === OPEN);
+        assert.ok(idx3 >= 0, `第三假设应有 DEEP 子任务提交(轨迹:${JSON.stringify(deep)})`);
+        const firstBatchTerm = deep.filter((e) => e.hid !== OPEN && e.status === "terminal").length;
+        assert.ok(firstBatchTerm >= 2, `首批两假设应先后到终态(实 ${firstBatchTerm};轨迹:${JSON.stringify(deep)})`);
+        assert.ok(idx3 > deep.map((e, i) => (e.hid !== OPEN && e.status === "terminal") ? i : -1).reduce((a, b) => Math.max(a, b), -1),
+          `批间接续:第三假设首个提交(pending)晚于首批全部终态(轨迹:${JSON.stringify(deep)})`);
+        const report = fs.readFileSync(path.join(w.roundDir, "06-final-report.md"), "utf8");
+        assert.match(report, /model_calls=5/, "模型调用总账=5(TRIAGE 1+DEEP 3+SYNTH 1)");
+        assert.match(report, /confirmed=1/, "深验三计数回算进报告(cins 确证)");
+        assert.match(report, /refuted=2/, "深验三计数回算进报告(bdef/openphish 反驳)");
+      } finally { await harness.close(context); }
+    } finally {
+      await storage.close(context);
+    }
+  } finally {
     w.restore();
     fs.rmSync(w.tmp, { recursive: true, force: true });
   }
@@ -929,6 +1003,10 @@ test("#490 TRIAGE 单发步账户级限流:不重试直落轮终态 failed code=
       assert.equal(mirror.status, "failed", "#415:镜像与 outcome 同出口写 failed");
       assert.equal(mirror.stage, "FAILED", "#415:终态 stage 书挡 FAILED");
       assert.ok(!fs.existsSync(path.join(w.roundDir, "03-triage-transcript.jsonl")), "失败回合零 transcript(submission 层败在 writeTranscript 前)");
+      // 评审必须改1:单发步账户级限流也写失败轮台账行(与 model_face 同权;仿 #355 深验败用例的写法)
+      const led = fs.readFileSync(path.join(w.ops, "ledger.md"), "utf8");
+      assert.match(led, /pipeline-failed:2026-10-28-e2e-acct-health error_code=account_rate_limited/, "单发步账户级失败台账行在场(标签:轮 id 可 grep)");
+      assert.equal(led.split("\n").filter((l) => l.includes("pipeline-failed:2026-10-28-e2e-acct-health")).length, 1, "恰一行(幂等防双记)");
     } finally { await harness.close(context); }
   } finally {
     await storage.close(context);

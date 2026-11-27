@@ -14,12 +14,16 @@
 // env 读取纪律(契约对拍 selftest-contract「每个 OPS_* 读取 ∈ SPAWN_CONTRACT_ENV」):两个旋钮
 // 的 process.env 直读只在本文件这两个小函数,其余代码调函数取值(票面硬性要求)。
 
-const ACCOUNT_LIMIT_BODY = "1302"; // 智谱账户级并发上限的正文码(2026-11-27 实测;单请求限流不带)
+// #490 评审建议1:1302 判定收紧——要求正文里 "code" 键的值才是账户级,别处出现 1302
+// (请求编号、时间戳、上游透传的限流计数)不算。实测形状 {"code":"1302"}(值带引号),
+// 宽容数字不带引号的写法。
+// 智谱账户级并发上限的正文码形:code 键值为 1302(2026-11-27 实测;单请求限流不带)
+const ACCOUNT_LIMIT_RE = /"code"\s*:\s*"?1302"?/;
 const RATE_LIMIT_RE = /rate.?limit|too many requests/i; // 单请求限流的常见正文说法(无状态码前缀时兜底)
 
 // classifyModelError(errorMessage) → "account_rate_limited" | "rate_limited" | null。
-//   account_rate_limited:HTTP 429 且正文带 1302(账户级,不可重试)。
-//   rate_limited:429(非 1302)或正文是限流的说法(单请求,可退避重试)。
+//   account_rate_limited:HTTP 429 且正文 code 键值为 1302(账户级,不可重试)。
+//   rate_limited:429(非 code:"1302")或正文是限流的说法(单请求,可退避重试)。
 //   null:其余失败(500、普通异常文案、空串/非字符串)——分类缺席,走原 model_face 失败面。
 // 状态码取自前缀形状 "<status>:" / "(<status>):"(formatProviderError 两形);正文取首个
 // 冒号之后,避免把请求 id 之类的数字误当状态码("req 4292: …" 不匹配)。
@@ -29,7 +33,7 @@ export function classifyModelError(errorMessage) {
   const status = m ? m[1] : null;
   const body = m ? errorMessage.slice(m.index + m[0].length) : errorMessage;
   if (status === "429")
-    return body.includes(ACCOUNT_LIMIT_BODY) ? "account_rate_limited" : "rate_limited";
+    return ACCOUNT_LIMIT_RE.test(body) ? "account_rate_limited" : "rate_limited";
   return RATE_LIMIT_RE.test(errorMessage) ? "rate_limited" : null;
 }
 
@@ -48,7 +52,11 @@ export function maxModelInflight() {
     const v = Number(raw);
     if (Number.isInteger(v) && v >= 1) return v;
   }
-  warnKnob(`OPS_MODEL_MAX_INFLIGHT=${raw ?? "(未设)"} 不是 ≥1 的整数,用缺省 ${MODEL_MAX_INFLIGHT_DEFAULT}`);
+  // #490 评审建议3:告警分「未设」与「非法」两句——未设是常态(cron 默认环境),不是错误,
+  // 措辞不带指责;非法才值得查。
+  warnKnob(raw === undefined || isBlank(raw)
+    ? `OPS_MODEL_MAX_INFLIGHT 未设,用缺省 ${MODEL_MAX_INFLIGHT_DEFAULT}`
+    : `OPS_MODEL_MAX_INFLIGHT=${raw} 不是 ≥1 的整数,用缺省 ${MODEL_MAX_INFLIGHT_DEFAULT}`);
   return MODEL_MAX_INFLIGHT_DEFAULT;
 }
 
@@ -59,6 +67,8 @@ export function retryBackoffS() {
     const v = Number(raw);
     if (Number.isFinite(v) && v >= 0) return v;
   }
-  warnKnob(`OPS_MODEL_RETRY_BACKOFF_S=${raw ?? "(未设)"} 不是非负数,用缺省 ${MODEL_RETRY_BACKOFF_S_DEFAULT}`);
+  warnKnob(raw === undefined || isBlank(raw)
+    ? `OPS_MODEL_RETRY_BACKOFF_S 未设,用缺省 ${MODEL_RETRY_BACKOFF_S_DEFAULT}`
+    : `OPS_MODEL_RETRY_BACKOFF_S=${raw} 不是非负数,用缺省 ${MODEL_RETRY_BACKOFF_S_DEFAULT}`);
   return MODEL_RETRY_BACKOFF_S_DEFAULT;
 }

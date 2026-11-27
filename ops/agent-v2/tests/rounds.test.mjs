@@ -303,6 +303,48 @@ test("#490 单请求限流(429 非 1302):先 sleeping 退避(OPS_MODEL_RETRY_BAC
   }
 });
 
+test("#490 退避等待可取消:abortTask 立即落 aborted,不等满退避窗,退避后零新模型请求(评审必须改2)", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "v2-cancel-"));
+  const prevDocs = process.env.DOCS_ROOT, prevBackoff = process.env.OPS_MODEL_RETRY_BACKOFF_S;
+  process.env.DOCS_ROOT = path.join(tmp, "docs");
+  process.env.OPS_MODEL_RETRY_BACKOFF_S = "60"; // 长退避窗:若等待不可取消,本用例会被拖满 60s 才能收(变异也会因此红)
+  const roundDir = path.join(process.env.DOCS_ROOT, "ops", "rounds", "2026-10-28-1305-health");
+  fs.mkdirSync(roundDir, { recursive: true });
+  fs.writeFileSync(path.join(roundDir, "02-verify-survivors.json"), JSON.stringify(SURVIVORS, null, 2) + "\n");
+  const turns = cannedTurnsWith({ role: "assistant", content: [], stopReason: "error", errorMessage: REQ_ERR });
+  const fixturesDir = fixtureDirWith(tmp, turns);
+  const storage = await openNodeSqliteStorage(path.join(tmp, "t.sqlite"));
+  const context = BACKGROUND_CONTEXT;
+  try {
+    const { harness, faux, agentOpts } = await openModelRoundHarness(storage, context);
+    try {
+      faux.setResponses(turns);
+      const seen = trackModelRoundCommits(harness);
+      harness.resume();
+      const root = await harness.root(context, agentOpts);
+      const taskId = await root.commit((tx) => tx.createTask(OPS_MODEL_ROUND, { roundId: "2026-10-28-1305-health", stage: "TRIAGE", modelFace: "faux", fixturesDir }, { ownership: { kind: "conversation" } }), context);
+      const t0 = Date.now();
+      for (let i = 0; i < 200 && !seen.some((s) => s.status === "sleeping"); i++) await new Promise((r) => setTimeout(r, 25));
+      assert.ok(seen.some((s) => s.status === "sleeping"), `应先进退避 sleeping 再下中止标记:${JSON.stringify(seen)}`);
+      assert.equal(faux.getPendingResponseCount(), 1, "sleeping 时 faux 队列剩罐装成功回合 1 条(失败回合已计)");
+      assert.equal(await harness.abortTask(taskId, context), "marked", "在飞(退避中)任务应可下中止标记");
+      const settled = await harness.waitForTask(taskId, context);
+      const outcome = settled.state.outcome;
+      const elapsed = Date.now() - t0;
+      assert.equal(outcome.status, "aborted", `取消应落框架状态词 aborted:${JSON.stringify(outcome)}`);
+      assert.ok(elapsed < 10_000, `取消立即生效(${elapsed}ms << 60s 退避窗;等待若不可取消本用例会拖满窗)`);
+      // 零新模型请求的判据=faux 队列:中止后罐装成功回合仍在(重试若发出,队列会被消耗到 0)。
+      // 提交轨迹里中止唤醒会有一条框架自身的 running 重发布(非 handler 执行),不作判据。
+      assert.equal(faux.getPendingResponseCount(), 1, "退避后零新模型请求(罐装成功回合未被重试消耗)");
+    } finally { await harness.close(context); }
+  } finally {
+    await storage.close(context);
+    if (prevDocs === undefined) delete process.env.DOCS_ROOT; else process.env.DOCS_ROOT = prevDocs;
+    if (prevBackoff === undefined) delete process.env.OPS_MODEL_RETRY_BACKOFF_S; else process.env.OPS_MODEL_RETRY_BACKOFF_S = prevBackoff;
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 test("#490 其他失败照旧立即重试:无 errorMessage 分类缺席,不 sleeping 不退避(行为面与改动前同)", async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "v2-plainretry-"));
   const prevDocs = process.env.DOCS_ROOT;

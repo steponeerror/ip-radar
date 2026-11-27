@@ -62,8 +62,8 @@ export function rebuildRoundCtx(input, ck) {
 
 // —— 阶段记录/终态面(旧 failStage/writeState 同语义,载体=checkpoint 而非 state.json)——
 const stageDone = (ck, rec, phase) => ({ ...ck, phase: nextPhase(phase ?? ck.phase), attempt: 0, children: null, childConvs: null, spawnPhase: null,
-  // #490 批间字段随相位推进复位(spawned/batchHids/degraded/failedN/failedAllAccount/stepUsage0/stepCalls0)
-  spawned: null, batchHids: null, degraded: null, failedN: null, failedAllAccount: null, stepUsage0: null, stepCalls0: null,
+  // #490 批间字段随相位推进复位(spawned/batchHids/degraded/failedN/failedAllAccount/stepUsage0)
+  spawned: null, batchHids: null, degraded: null, failedN: null, failedAllAccount: null, stepUsage0: null,
   state: { ...ck.state, stages: [...(ck.state?.stages ?? []), rec], prompt_hashes: { ...(ck.state?.prompt_hashes ?? {}) }, stage: phase ?? ck.phase }, modelCalls: ck.modelCalls, usage: ck.usage });
 function nextPhase(p) { const i = RUNNABLE.indexOf(p); return i >= 0 && i + 1 < RUNNABLE.length ? RUNNABLE[i + 1] : "CLOSE"; }
 const failTerm = (ck, phase, code, message) => ({ ...ck, phase: "FAILED", failed: { code, message: `${phase}:${message}` } });
@@ -290,7 +290,7 @@ async function spawnModelChildren(def, input, ck, runtime, context) {
       batchHids: batch.map((b) => b?.hid ?? null),
       degraded: ck.degraded ?? [], failedN: ck.failedN ?? 0, failedAllAccount: ck.failedAllAccount ?? true,
       // 步级 usage 快照(首落不再变):rec.usage=全步增量口径(旧 P0-⑤ 求和律),批间聚合不重置
-      ...(ck.stepUsage0 == null ? { stepUsage0: ck.usage ?? { input: 0, output: 0, totalTokens: 0, cost: 0 }, stepCalls0: ck.modelCalls ?? 0 } : {}),
+      ...(ck.stepUsage0 == null ? { stepUsage0: ck.usage ?? { input: 0, output: 0, totalTokens: 0, cost: 0 } } : {}),
     }, on: childIds, policy: "allSettled" };
   }, context);
 }
@@ -351,10 +351,14 @@ async function waitModel(input, ck, runtime, context) {
           modelCalls += conversationModelCalls(view);
         } catch (e) { process.stderr.write(`[waitModel] failed 子任务留痕读败(conv=${convId}):${e?.message ?? e}\n`); }
       }
-      if (def.fail.perItem) degradedItems.push({ hid: hid ?? def.name, verdict: "unresolved", evidence: [], one_line: `重试尽降级 unresolved(${o.error?.message ?? "?"})` });
+      if (def.fail.perItem) degradedItems.push({ hid: hid ?? def.name, verdict: "unresolved", evidence: [], one_line: `模型子任务失败降级 unresolved(${o.error?.message ?? "?"})` });
       else {
         const code = o.error?.code ?? "model_face";
-        if (code === "model_face") await steps.appendFailureLedger(ctx, { code }); // #355:失败轮台账补行(单发步终态;与旧 runPipeline 收尾处同源)
+        // #355:失败轮台账补行(单发步终态;与旧 runPipeline 收尾处同源)。#490 评审必须改1:
+        // 账户级限流同为模型面失败,与 model_face 同权写台账——深验全败路径无条件写,单发步
+        // 只认 model_face 是同一码两种待遇。(runFailed 处不同步改:健康轮终态面 ck.failed
+        // 现形只有 model_face 能到,account_rate_limited 在 waitModel 已被此分支收走)
+        if (code === "model_face" || code === "account_rate_limited") await steps.appendFailureLedger(ctx, { code });
         return void await failNow({ code, message: `${def.name}:${o.error?.message ?? "?"}` }); // 终审修复:TaskOutcome 无 .state 包裹(类型面同注),原 o.state.outcome 会 TypeError→框架 fault
       }
     }
@@ -570,7 +574,7 @@ export const OPS_HEALTH_ROUND = defineTask({
   version: 1,
   initial: (input) => ({
     phase: startPhaseOf(input.fromPhase, input), attempt: 0, children: null, childConvs: null, spawnPhase: null, failed: null,
-    spawned: null, batchHids: null, degraded: null, failedN: null, failedAllAccount: null, stepUsage0: null, stepCalls0: null, // #490 批间字段(形状稳定)
+    spawned: null, batchHids: null, degraded: null, failedN: null, failedAllAccount: null, stepUsage0: null, // #490 批间字段(形状稳定)
     claimToken: randomUUID(), // P0-④ 轮目录认领键(见 claimRoundDir;裸 taskId per-db 撞号,不可作键)
     startedAtIso: new Date().toISOString(),
     budgetCny: (() => { const raw = process.env.OPS_PIPELINE_BUDGET_CNY ?? "0.05"; const v = +raw; if (!Number.isFinite(v) || v < 0) throw Object.assign(new Error(`OPS_PIPELINE_BUDGET_CNY 须为非负数,得到:${raw}`), { usage: true }); return v; })(),

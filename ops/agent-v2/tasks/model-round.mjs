@@ -207,7 +207,7 @@ export const OPS_MODEL_ROUND = defineTask({
         if (retryable && ck.attempt < def.fail.retry) {
           // 单请求限流:重试前退避 OPS_MODEL_RETRY_BACKOFF_S 秒(缺省 30)。等待用框架现成的
           // sleeping 原语(commit 返回 {status:"sleeping",checkpoint,until};types.d.ts:289),
-          // 崩溃可恢复、中止标记不等它(types.d.ts:573「An abort mark does not wait for it」)=
+          // 崩溃可恢复、中止标记不等它(pi-durable/dist/types.d.ts:568「An abort mark does not wait for it」)=
           // 任务取消/中止时立刻停——可取消等待不用自造(pi-durable 生成任务同款)。
           // 其他失败:照旧立刻重试(行为面与改动前逐字同)。
           if (cls === "rate_limited") {
