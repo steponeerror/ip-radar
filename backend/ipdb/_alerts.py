@@ -32,7 +32,9 @@ rir_abuse/*.db.gz 两个源存压缩件,分析时这两个源的「变了」读�
   GROUP BY source ORDER BY unchanged_pct DESC, source;
 
 读数注意:① dbip_city、rir_abuse 是压缩字节口径;② 目录型源下载途中
-被记的那条会表现成「没变」——那是没下完不是没变;③ 每源第一条带
+被记的那条会表现成「没变」——那是没下完不是没变;识别办法:同一源
+的下一条事件在 1 小时内跟着来的,前一条按假事件不计(下载随后失败的
+那一种识别不出来,是残余);③ 每源第一条带
 指纹的事件是部署后的下一次真更新,第一对可比对要等第二次(存量库
 首扫只写水位不补种)。
 observed_interval_h 用近 90 天相邻间隔中位数回答"该源平时多久更一次"
@@ -278,9 +280,11 @@ def content_fingerprint(paths: Sequence[Path | str]) -> str | None:
     换新文件、后者每晚都有变更,按压缩字节算不会把「没变」误记成
     「变了」);分析读数时这两个源的「变了」读作「文件变了」。
 
-    输入 = 文件路径组:单文件源传一个;目录型源由调用方展开成目录内
-    文件列表(调度侧 _content_fingerprint_of 的文件/目录分叉与
-    _read_mtime 对齐)。规则:
+    输入 = 文件路径组:调度侧 _content_fingerprint_of 走源的 _data_files()
+    钩子取声明清单(#501,与 health()、/api/sources 的 content_age_h 同一
+    输入集,缺席
+    文件 → None);无钩子的自定义源/测试桩退回旧口径(_path 是文件
+    → 单文件;是目录 → 目录内全部文件,与 _read_mtime 对齐)。规则:
     - 单文件:文件字节流式 sha256 的 hexdigest(1MiB 分块读,不整载
       进内存——964MB 小机;镜像实测 71 源合计 1.52GB,最大单源
       rir_abuse 两文件 388MB,开发机 377MB 算一次 0.73 秒)。

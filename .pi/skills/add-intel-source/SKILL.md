@@ -274,7 +274,7 @@ set — discovery will pick it up automatically on next load.
   `extra.native_type`**)
 - assert a row you intend to drop is dropped (below threshold, wrong type)
 - ☐ **Metadata declared in-file** (Phase 3 step 6): your source file carries `category` / `reliability` / (if authoritative) `authoritative_for` class attrs; startup passes (no `RuntimeError` from the metadata contract).
-- ☐ **Directory sources must also run** `python scripts/audit_lmdb_invariants.py` **from the repo root** (it lives in `scripts/`, not `backend/`; same-start/nesting CIDR conflicts).
+- ☐ **Directory sources must also run** `python scripts/audit_same_start.py --sources <source-name>` **from the repo root** (it lives in `scripts/`, not `backend/`; same-start CIDR conflicts). Output `SKIPPED no raw file` means the source was **not audited** — not a pass; if the raw file lives outside the default `backend/data`, pass `--data <data-dir>` (`--data` overrides `IP_RADAR_DATA_DIR`).
 - ☐ **LMDB test hygiene (convention 7):** never hold two source instances open
   on the same LMDB base in one process — close the old reader
   (`s._reader.close()`) or drop the instance before constructing the next.

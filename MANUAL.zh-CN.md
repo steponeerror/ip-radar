@@ -63,7 +63,7 @@
 
 ### 判定行
 
-每次查询返回一个融合判定——`benign`(良性)、`suspicious`(可疑)或 `malicious`(恶意)——外加 0–100 置信度。融合是逐源证据上的 log-odds(贝叶斯)模型:每个源带一个手工设定的可靠性,威胁断言按 60 天半衰期衰减(昨天的目击比上季度的重;地理这类标量事实不衰减),独立佐证会叠乘。两条诚实的告诫内建在语义里:
+每次查询返回一个融合判定——`benign`(良性)、`suspicious`(可疑)、`malicious`(恶意)或 `informational`(存档)——外加 0–100 置信度。`informational` 只在地址上的记录全部是存档式(只报告目击、不作指控)时出现——指控或良性断言在场时都排在它前面。融合是逐源证据上的 log-odds(贝叶斯)模型:每个源带一个手工设定的可靠性,威胁断言按 60 天半衰期衰减(昨天的目击比上季度的重;地理这类标量事实不衰减),独立佐证会叠乘。两条诚实的告诫内建在语义里:
 
 - **0 意味着「无证据」,不是「清白」。**任何列表都没见过的地址得到 clean 判定,只是清白的弱证据——界面和 API 都这么对待(`threat.verdict: "benign", confidence: 0`)。
 - **置信度是逐字段的,不只是逐判定的。**同一个 IP 可以是 `Country NL (88)` 同时 `City Amsterdam (52)`——表格展示每个字段各自的共识。
@@ -110,7 +110,8 @@
 
 ### 逐类型威胁证据
 
-每个分类类型(IntelMQ 词表:`abuse-reports`、`spam`、`blacklist`、`scanner`、`brute-force`、`c2-server`、`ddos`、`exploit`、`infected-system`、`other`)带自己的融合判定和保真的逐源明细:
+每个分类类型(IntelMQ 词表:`blacklist`、`c2-server`、`malware-distribution`、`malware`、`scanner`、`brute-force`、`phishing`、`infected-system`、`exploit`、`proxy`、`tor`、`vulnerable-system`、`misconfiguration`、`abuse-reports`、`spam`、`ddos`、`dns`、`ntp`、`other`)带自己的融合判定和保真的逐源明细:
+`dns`、`ntp` 是良性断言(解析器、时间服务这类服务角色身份)的面标签,不是威胁词汇——只出现在良性判定上。
 
 ```json
 "spam": {
@@ -136,7 +137,7 @@
 
 **CSV**——结果表上方的 `Export CSV` 按钮把当前结果全量导出,带完整证据深度:27 列,含融合判定 + 置信度、逐类型标签与恶意软件家族、聚合的 `reporter_total` / `corroborated` / `verdict_conflict`、跨源最早 `first_seen` / 最晚 `last_seen`、最高源可靠性,以及资产属性全集。可能被电子表格当公式执行的值会加前缀,恶意 feed 数据保持文本。展开超过 50,000 行时自动转为下载模式(表格模式关闭——见[查询](#2-查询))。
 
-**STIX 2.1**——`GET /api/lookup/{ip}/stix` 返回该地址的 STIX 2.1 bundle:每个贡献源的 identity、indicator 与 observed-data,带着与 API 相同的逐源证据。镜像内置 `stix2` 库,开箱即用——对接原生讲 STIX 的 SIEM 很顺手。结果表上方的 **Export STIX** 按钮产出同一个 bundle。
+**STIX 2.1**——`GET /api/lookup/{ip}/stix` 返回该地址的 STIX 2.1 bundle:每个贡献源一个 identity、地址本身的 IPv4/IPv6 地址对象(按地址族二选一)、它的 location 与 autonomous system(解析得到时才有)、把这些对象连起来的 relationship,以及每条指控分类一个 indicator——带着与 API 相同的逐源证据(纯存档证据不作指控,不产 indicator)。镜像内置 `stix2` 库,开箱即用——对接原生讲 STIX 的 SIEM 很顺手。结果表上方的 **Export STIX** 按钮产出同一个 bundle。
 
 ## 5. 管理台
 
@@ -244,7 +245,7 @@ python -m ipdb._eval --help           # 全部旗标(temporal、demand、readout
 | `GET /api/lookup/{ip}/stix` | 同上,STIX 2.1 bundle | key |
 | `POST /api/query/stream` | 批量查询,NDJSON 流 | key |
 | `POST /api/upload/stream` | 文件上传批量查询,NDJSON 流 | key |
-| `GET /api/db-status` | 记录数、过期、预热标志 | key |
+| `GET /api/db-status` | 记录数、过期、预热标志、自动刷新状态 | key |
 | `GET /api/sources` | 源目录 + 健康 | admin |
 | `PATCH /api/sources/{name}` | 启停源(`{"enabled": false}`) | admin |
 | `POST /api/sources/{name}/update` | 强制单源刷新 → `task_id` | admin |
@@ -316,7 +317,7 @@ curl -s -b jar.txt -N http://127.0.0.1:8000/api/events
 
 **反代后面所有限流一起炸**——限流器看到的是反代 IP。设 `IP_RADAR_PROXY_HEADERS=1`(并把 `IP_RADAR_FORWARDED_ALLOW_IPS` 设为反代网段),让逐 IP 桶看到真实客户端。
 
-**管理台 404 或像被锁**——开了 `IP_RADAR_PUBLIC_DEMO=1` 的实例对匿名访客隐藏写/内部面(含非例外通道 IP 的 `/admin` 登录);维护者例外通道是 `IP_RADAR_DEMO_ADMIN_IPS`——完整语义见 [`deploy/README.md`](deploy/README.md)。普通自托管则确认 admin 环境块已取消注释。
+**管理台 404 或像被锁**——开了 `IP_RADAR_PUBLIC_DEMO=1` 的实例对匿名访客隐藏写/内部面(登录口 `POST /api/auth/jwt/login` 在任何地址都保持可达,主人始终能登录);维护者例外通道是 `IP_RADAR_DEMO_ADMIN_IPS`——完整语义见 [`deploy/README.md`](deploy/README.md)。普通自托管则确认 admin 环境块已取消注释。
 
 **更新横幅谎报有更新**——部署侧 tag 缓存问题:服务器上先 `git fetch --tags` 再构建,否则 `git describe` 回落旧基线(v1.4.2 现场记录)。
 

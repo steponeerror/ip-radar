@@ -11,6 +11,8 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_serializer
 
+from ._task_state import BatchState, TaskState
+
 
 class _Out(BaseModel):
     # 契约声明器,不是过滤器:多余键原样透传
@@ -145,7 +147,8 @@ class TaskOut(_Out):
     id: str
     source: str
     host: Optional[str] = None  # 实测可为 None(本地/无 host 任务)
-    state: str
+    # 闭集(#484):八个状态,词表与合法转移表在 _task_state.py;OpenAPI 出枚举。
+    state: TaskState
     error: Optional[str] = None
     batch_id: Optional[str] = None
     received: int
@@ -154,7 +157,7 @@ class TaskOut(_Out):
 
 class BatchOut(_Out):
     id: str
-    state: str
+    state: BatchState   # 闭集(#484):running|paused|done
     done: int
     total: int
 
@@ -177,6 +180,15 @@ class UpdateDbOut(_Out):
     refreshed: int
 
 
+class AutoRefreshOut(_Out):
+    """#478:「会不会自动刷新」四项查询口。interval/last_scan 在调度器未
+    装配(IPRADAR_AUTO_REFRESH=0)时为 null。"""
+    enabled: bool
+    running: bool
+    interval_s: Optional[int] = None
+    last_scan_age_s: Optional[float] = None
+
+
 class DbStatusOut(_Out):
     last_updated: str
     total_records: int
@@ -186,6 +198,7 @@ class DbStatusOut(_Out):
     is_stale: bool
     covered_v6_nets: int
     warming_up: bool
+    auto_refresh: AutoRefreshOut
 
 
 # ── eval 成绩单 ──
@@ -228,7 +241,7 @@ class EvalDetailOut(_Out):
 
 
 class EvalModelOut(_Out):
-    """GET /api/eval/model —— 最新舰队 corroboration-contrast 报告(advisory,
+    """GET /api/eval/model —— 最新源池 corroboration-contrast 报告(advisory,
     宽松 dict:kind/w/checks/scores/…,layout 见 _eval.suite.write_model_report)。"""
     latest: Optional[dict] = None
 

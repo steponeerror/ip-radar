@@ -249,8 +249,9 @@ if [ "$NO_BACKEND" -eq 0 ]; then
     echo "    已创建 backend/.venv"
   fi
   # 重复跑 no-op:依赖已满足时 pip 秒回,顺带保持与 requirements 漂移同步
-  "$TARGET/backend/.venv/bin/pip" install -q -r "$TARGET/backend/requirements-dev.txt"
-  echo "    pip install -r requirements-dev.txt 完成"
+  # -c 约束解析(#499):门验的依赖集要和要发的一致(漂移实证 maxminddb 本机 3.1.1/生产 3.3.0)
+  "$TARGET/backend/.venv/bin/pip" install -q -c "$TARGET/backend/constraints.txt" -r "$TARGET/backend/requirements-dev.txt"
+  echo "    pip install -c constraints.txt -r requirements-dev.txt 完成"
 else
   echo "==> [backend] --no-backend,跳过"
 fi

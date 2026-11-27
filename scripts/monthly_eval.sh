@@ -22,11 +22,23 @@
 # 历史落 temporal-*.json;--readout
 # 组合四层读数管线出月报 monthly-*.md + action-block.json + northstar-*.json
 # (#185 能力轨北星记录,只观测不持门))
+# ④′ scan-equiv(#500,#444 §5 验收工具件 scan_equiv_check.py 的节拍化):
+# 全库扫描↔查询对拍两步(collect+compare,同一 asof、同一 PYTHONHASHSEED=0;
+# 样本落系统临时目录带轮次时间戳,比完即删;两步各留一行 JSON 到 scan-equiv/;
+# rc 持门同 anchors:1=判定不一致或进程异常退出(collect 的正常出口只有
+# 0,collect 的 1 必是崩溃),2=样本作废或用法错;rc=2 日志有人话「重跑
+# 这一轮」);
+# 位置在 readout(出月报)前。不在 LEG_ORDER:那个数组的每一项都对应一条
+# `python3 -m ipdb._eval <旗标>` 腿,本腿跑的是独立工具件;rc 经
+# LEG_RC[scan-equiv] 单列接线(红态行+结尾 AGG_RC,见对应注释)。抽样密度
+# 缺省与实测依据见 run_scan_equiv 内注释。
 # ⑤ 每命令打印尾行摘要(腿日志全文落 monthly/logs/,#468) ⑥ 报告族齐全校验 → 评估报告推送(#453:rsync
 # 本轮逐源 verdict 件+model/model-*.json 到生产卷 eval/monthly/,推失败
 # 记红态心跳照写结尾非零)→ 生产 volume 心跳推送(S5)。
 # 自验:`bash -n scripts/monthly_eval.sh`(语法);`bash scripts/monthly_eval.sh
 # --dry-run`(只打印将执行的命令不执行;dry-run 下守卫仅提示不拦截,便于预演)。
+# #489 起干跑也要 python3 能导入 ipdb._eval(mirror-sync 单源入口,三面
+# 回显都出自它);PATH 须带后端依赖的解释器(同实跑各腿)。
 # 数据目录默认 <repo>/.eval-prod-data(已 gitignore,防误提交 ~55GB),
 # 环境变量 EVAL_DATA_DIR 可覆盖。
 # 设计:docs/superpowers/specs/2026-09-28-eval-algorithm-optimization-brief.md
@@ -34,15 +46,16 @@ set -euo pipefail
 
 usage() {
   echo "用法: scripts/monthly_eval.sh [prod-host] [--dry-run]"
-  echo "  prod-host  默认 root@203.88.124.85"
+  echo "  prod-host  默认 $PROD_HOST"
   echo "  --dry-run  只打印将执行的命令,不执行"
 }
 
 PROD_HOST="root@203.88.124.85"
 DRY_RUN=0
+DRY_FLAG=""    # mirror-sync 单源入口的干跑旗标(#489;空=实跑)
 for a in "$@"; do
   case "$a" in
-    --dry-run) DRY_RUN=1 ;;
+    --dry-run) DRY_RUN=1; DRY_FLAG="--dry-run" ;;
     -h|--help) usage; exit 0 ;;
     *) PROD_HOST="$a" ;;
   esac
@@ -52,7 +65,14 @@ REPO=$(git rev-parse --show-toplevel)
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 if [ -n "$(git status --porcelain)" ]; then DIRTY=yes; else DIRTY=no; fi
 DATA_DIR="$(realpath -m "${EVAL_DATA_DIR:-$REPO/.eval-prod-data}")"  # 绝对化:防 run_step cd backend 后相对路径漂移
-RSYNC_SRC="$PROD_HOST:/var/lib/docker/volumes/ip-lookup-tool_ipradar-data/_data/"  # 尾斜杠=拷内容
+# #489:拉取面源路径/旗标/rc 容忍收口到 backend/ipdb/_eval/gate_mirror.py
+# 的 SYNC_FACES 契约(原 RSYNC_SRC/RSYNC_TV2_SRC/RSYNC_HP_SRC 三份字面量
+# 已删),三面统一经 `python -m ipdb._eval mirror-sync` 单源入口调用。
+mirror_sync() {  # mirror_sync <face> <本地目标目录> — 回显/建目录/容忍/留痕都在入口
+  ( cd "$REPO/backend" && \
+      python3 -m ipdb._eval mirror-sync --host "$PROD_HOST" --face "$1" \
+        --dst "$2" $DRY_FLAG )
+}
 
 echo "repo:   $REPO"
 echo "branch: $BRANCH (dirty: $DIRTY)"
@@ -96,19 +116,66 @@ run_step() {  # run_step <label> <ipdb._eval args...> — 执行并打印尾行�
   return "$rc"
 }
 
-echo
-echo "==> rsync: $RSYNC_SRC -> $DATA_DIR/"
-if [ "$DRY_RUN" != 1 ]; then
-  mkdir -p "$DATA_DIR"
-  # --delete-after 保持镜像(与既往手动月轮一致)
-  # rc=24(源侧活文件消失)对活镜像良性:生产 scheduler 随时在重建 LMDB epoch,
-  # 旧 epoch 家族中途消失属常态;其余非零仍致命(首月轮 2026-10-14 实测发现)。
-  rsync -az --partial --delete-after --info=progress2 "$RSYNC_SRC" "$DATA_DIR/" && rc=0 || rc=$?
-  if [ "$rc" != 0 ] && [ "$rc" != 24 ]; then
-    echo "拒绝: rsync 失败 (rc=$rc)" >&2; exit 1
+run_scan_equiv() {  # #500 全库扫描↔查询对拍腿:scan_equiv_check.py 两步跑
+  # 不进 LEG_ORDER:那个数组的每一项都对应一条 `python3 -m ipdb._eval <旗标>`
+  # 腿(还供 leg-status/红态行/AGG_RC 迭代共用,语义=eval 旗标腿清单);
+  # 本腿跑独立工具件,rc 进 LEG_RC[scan-equiv],接线三处照 anchors 持门腿:
+  # 红态行、腿级状态件(write_leg_status)、结尾 AGG_RC(腿序位=执行序:
+  # temporal 后、readout 前)。
+  # 数据目录与其他腿同源:同一 IP_RADAR_DATA_DIR="$DATA_DIR"(本地镜像)。
+  # 两步必须同一 asof、同一 PYTHONHASHSEED=0(脚本 docstring 的对拍前提;
+  # 扫描器开着时同进程不能 load_db,故分 collect/compare 两个进程)。
+  local label=scan-equiv
+  local log="$LOG_DIR/$label-$ROUND_TS.log"
+  local json_dir="$REPORT_ROOT/scan-equiv"
+  local sample="${TMPDIR:-/tmp}/scan-equiv-$ROUND_TS.jsonl.gz"
+  local rc=0
+  local asof; asof=$(date +%s)   # 一次取定,两步共用(compare 复核同锚刻)
+  echo
+  echo "==> $label: PYTHONHASHSEED=0 python3 backend/scripts/scan_equiv_check.py collect --asof $asof --single-every $SINGLE_EVERY --out $sample"
+  echo "==> $label: PYTHONHASHSEED=0 python3 backend/scripts/scan_equiv_check.py compare --asof $asof --sample $sample"
+  if [ "$DRY_RUN" = 1 ]; then return 0; fi  # 干跑只打印两条命令,不执行不建目录(#500)
+  mkdir -p "$LOG_DIR" "$json_dir"
+  ( cd "$REPO/backend" && \
+      IP_RADAR_DATA_DIR="$DATA_DIR" \
+      PYTHONHASHSEED=0 \
+      python3 "$REPO/backend/scripts/scan_equiv_check.py" collect \
+      --asof "$asof" --single-every "$SINGLE_EVERY" --out "$sample" ) \
+      2>&1 | tee "$log" || rc=$?
+  # 两步各自打印的那行 JSON 是留下的证据件(#500):样本体很大(全收档原始
+  # JSON 数 GB、gz 后实测 158 MB),留临时目录比完即删;JSON 行从腿日志摘取
+  # 落 scan-equiv/(空文件=该步没吐 JSON,本身即异常信号,不以 grep 失败
+  # 持门——步骤 rc 已持门)。
+  grep -m1 '^{"mode": "collect"' "$log" > "$json_dir/collect-$ROUND_TS.json" || :
+  if [ "$rc" = 0 ]; then
+    local compare_rc=0
+    ( cd "$REPO/backend" && \
+        IP_RADAR_DATA_DIR="$DATA_DIR" \
+        PYTHONHASHSEED=0 \
+        python3 "$REPO/backend/scripts/scan_equiv_check.py" compare \
+        --asof "$asof" --sample "$sample" ) \
+        2>&1 | tee -a "$log" || compare_rc=$?
+    grep -m1 '^{"mode": "compare"' "$log" > "$json_dir/compare-$ROUND_TS.json" || :
+    rc=$compare_rc
+    # compare 的 1 且 JSON 没落盘 = mismatches 行没吐,多半是崩溃不是判定
+    # 不一致——日志多指一句路(评审返工 5)。
+    if [ "$rc" = 1 ] && [ ! -s "$json_dir/compare-$ROUND_TS.json" ]; then
+      echo "-- [$label] rc=1 且 compare 没吐 JSON:多半是崩溃,看腿日志" | tee -a "$log"
+    fi
   fi
-  [ "$rc" = 24 ] && echo "-- rsync rc=24(源侧活动文件消失,活镜像可容忍)"
-fi
+  rm -f "$sample" "$sample.head.json"  # 样本体+纪元旁证:判定已落 JSON 与腿日志,比完即删(#500)
+  if [ "$rc" = 2 ]; then
+    # rc=2=样本作废或用法错(纪元换了/asof 对不上/样本名不对):人话指引进日志与运行输出(#500)
+    echo "-- [$label] rc=2:样本作废或用法错(纪元换了/asof 对不上/样本名不对),两步都要重跑——重跑这一轮" | tee -a "$log"
+  fi
+  echo "-- [$label 尾行] $(tail -n 2 "$log" | tr '\n' ' ')"
+  return "$rc"
+}
+
+echo
+# #489:主卷镜像拉取收口单源入口。旗标、容忍集、留痕文案见
+# gate_mirror.SYNC_FACES;回显行在入口内逐字同改前;实跑前自建目录。
+mirror_sync main "$DATA_DIR"
 
 # ── truth-v2 周快照面拉取(ADR 0017 T0 采集器 / #262 T3 接线):小机
 # auth.log 周快照在服务器 /opt/ip-truth-capture/(卷外, 周日 04:17 cron),
@@ -116,17 +183,8 @@ fi
 # (rc=24 源侧活文件消失良性)。采集断供 → 构建腿 rc=2 坏输入族
 # fail-loud(不静默跳过: 真值层断供是采集健康事故, 须人见)。
 TRUTH_V2_CAPTURE_DIR="$(realpath -m "${TRUTH_V2_CAPTURE_DIR:-$DATA_DIR/truth-v2-capture}")"
-RSYNC_TV2_SRC="$PROD_HOST:/opt/ip-truth-capture/"
 echo
-echo "==> rsync(truth-v2 快照面): $RSYNC_TV2_SRC -> $TRUTH_V2_CAPTURE_DIR/"
-if [ "$DRY_RUN" != 1 ]; then
-  mkdir -p "$TRUTH_V2_CAPTURE_DIR"
-  rsync -az --partial --info=progress2 "$RSYNC_TV2_SRC" "$TRUTH_V2_CAPTURE_DIR/" && rc=0 || rc=$?
-  if [ "$rc" != 0 ] && [ "$rc" != 24 ]; then
-    echo "拒绝: truth-v2 快照面 rsync 失败 (rc=$rc)" >&2; exit 1
-  fi
-  [ "$rc" = 24 ] && echo "-- rsync rc=24(源侧活动文件消失,活镜像可容忍)"
-fi
+mirror_sync truth-v2 "$TRUTH_V2_CAPTURE_DIR"
 
 # ── honyport 日 CSV 面拉取(issue #265, ADR 0017 §2 第二组件):服务器
 # /opt/honyport/out/ 蜜罐舰队日 CSV(表头 ip,service,protocol,events,
@@ -138,13 +196,12 @@ fi
 # 接/认证失败)与目录缺席(rc=1)分开 —— 网络断不得伪装成哨兵态静默
 # 跳过(静默缩水)。
 HONYPORT_CSV_DIR="$(realpath -m "${TRUTH_V2_HONYPORT_DIR:-$DATA_DIR/truth-v2-honyport}")"
-RSYNC_HP_SRC="$PROD_HOST:/opt/honyport/out/"
 HP_COMPONENT_ARG=()   # 远端目录在场才填充;空 = truth-v2 腿只跑 smallbox
                       # (展开处用 ${A[@]+"${A[@]}"} 形: bash<4.4 set -u 下空
                       #  数组裸展开报 unbound variable, 评审环条目 5a)
 if [ "$DRY_RUN" = 1 ]; then
   echo
-  echo "==> rsync(honyport 日 CSV 面): $RSYNC_HP_SRC -> $HONYPORT_CSV_DIR/"
+  mirror_sync honyport "$HONYPORT_CSV_DIR"
   echo "  [dry-run] 实跑时先 ssh 探测远端 /opt/honyport/out:在场→rsync+传"
   echo "  honyport 组件参数;缺席→只跑 smallbox(哨兵态不持死,#265)"
 else
@@ -158,13 +215,7 @@ else
     echo "    (合法哨兵态不持死: 数据未到, 组件闸哨兵吸收;#265/ADR 0017 §2)"
   else
     echo
-    echo "==> rsync(honyport 日 CSV 面): $RSYNC_HP_SRC -> $HONYPORT_CSV_DIR/"
-    mkdir -p "$HONYPORT_CSV_DIR"
-    rsync -az --partial --info=progress2 "$RSYNC_HP_SRC" "$HONYPORT_CSV_DIR/" && rc=0 || rc=$?
-    if [ "$rc" != 0 ] && [ "$rc" != 24 ]; then
-      echo "拒绝: honyport 日 CSV 面 rsync 失败 (rc=$rc)" >&2; exit 1
-    fi
-    [ "$rc" = 24 ] && echo "-- rsync rc=24(源侧活动文件消失,活镜像可容忍)"
+    mirror_sync honyport "$HONYPORT_CSV_DIR"
     HP_COMPONENT_ARG=(--truth-v2-component "honyport=$HONYPORT_CSV_DIR")
   fi
 fi
@@ -213,6 +264,24 @@ LOG_DIR="$REPORT_ROOT/logs"  # #468:每条腿日志目录(报告目录树下 mon
 LEG_ORDER=(model all anchors dsem agg-share sinkhole-probe anchor-readouts truth-v2 truth-v2-readout audit temporal readout)
 declare -A LEG_RC=()
 for _leg in "${LEG_ORDER[@]}"; do LEG_RC[$_leg]=0; done
+LEG_RC[scan-equiv]=0  # #500:非 LEG_ORDER 腿的 rc 槽(接线见红态行、write_leg_status 与 AGG_RC 处)
+# #500 scan-equiv 抽样密度(--single-every 缺省)。2026-11-27 生产镜像实测
+# (dev 机 .eval-prod-data 只读,PYTHONHASHSEED=0,/usr/bin/time -v;读数全文
+# 在 docs/reports/2026-11-26-arch-r4-landing/14-月轮加扫描查询对拍腿/
+# impl-report-2.md):全收(=1,553 万单元)collect 19.6 分/峰值 689 MB/
+# 样本 gz 158 MB,compare 峰值随样本条数线性(records=list(sample) 全驻
+# 内存;纯 v4 单地址切片:10 万条 77 秒/796 MB,26.5 万条 3:09/1.92 GB,
+# 50 万条 5:45/3.57 GB → ≈7.3 KB/条+≈83 MB 底)→ 全收外推 ≈40 GB,
+# ≫6 GB 红线,不取。缺省 20 两步原样实测:collect 13:56/峰值 689 MB/
+# 样本 gz 13.4 MB;compare 5:48/峰值 4.13 GB;mismatches=0(样本 444,689
+# 条 = 单地址按 20 取一 267,451 + 网段全收 177,238),整腿 ≈19.7 分
+# (≪45 分预算)、峰值 ≪6 GB 红线。IP_RADAR_SCAN_EQUIV_SINGLE_EVERY 可覆盖
+# (要全收自担内存/时长)。
+SINGLE_EVERY="${IP_RADAR_SCAN_EQUIV_SINGLE_EVERY:-20}"
+[[ "$SINGLE_EVERY" =~ ^[1-9][0-9]*$ ]] || {
+  echo "拒绝: IP_RADAR_SCAN_EQUIV_SINGLE_EVERY 须为正整数(实得 '$SINGLE_EVERY')" >&2
+  exit 1
+}
 LEG_STATUS_TS=""  # 渲染前件 ts 锚(write_leg_status 单调钉用,#377)
 run_step model    --model    || LEG_RC[model]=$?      # 舰队模型+验收套件(model-*.json)
 run_step all      --all      || LEG_RC[all]=$?        # 逐源 verdict 表
@@ -235,6 +304,7 @@ run_step truth-v2 --truth-v2 \
 run_step truth-v2-readout --truth-v2-readout || LEG_RC[truth-v2-readout]=$?  # v2 读数腿一腿三工件(#261 T2 附录 + #262 T3 并排对照/换卷触发;只观测不持门)
 run_step audit    --audit    || LEG_RC[audit]=$?      # 谱系前向流审计(读 model 历史)
 run_step temporal --temporal || LEG_RC[temporal]=$?   # λ_s 确认率(读 model 历史,须 ≥2 轮)
+run_scan_equiv || LEG_RC[scan-equiv]=$?  # #500 全库扫描↔查询对拍(持门同 anchors;两步见 run_scan_equiv)
 
 write_leg_status() {  # write_leg_status <readout_rc|null> — 腿级状态件(#193 C5)
   # 落报告根 leg-status-<ts>.json(ts 形制同族);all 腿校验须排除本件
@@ -253,6 +323,7 @@ write_leg_status() {  # write_leg_status <readout_rc|null> — 腿级状态件(#
   for leg in "${LEG_ORDER[@]}"; do
     if [ "$leg" = readout ]; then argv+=("$leg" "$1"); else argv+=("$leg" "${LEG_RC[$leg]}"); fi
   done
+  argv+=("scan-equiv" "${LEG_RC[scan-equiv]}")  # #500:非旗标腿也进腿级状态(评审返工 8;渲染按 legs 字典通用)
   python3 - "${argv[@]}" <<'PYEOF'
 import json, sys
 from datetime import datetime, timezone
@@ -285,6 +356,10 @@ for _leg in "${LEG_ORDER[@]}"; do
     echo "!! $_leg 腿 rc=${LEG_RC[$_leg]}:红态记录(工件照写留证)——红态记录≠管线中止,腿级状态入 leg-status 工件,结尾外显此 rc"
   fi
 done
+# #500 scan-equiv 腿红态行(不在 LEG_ORDER,单列外显;工件=scan-equiv/ 两行 JSON+腿日志)
+if [ "$DRY_RUN" != 1 ] && [ "${LEG_RC[scan-equiv]}" != 0 ]; then
+  echo "!! scan-equiv 腿 rc=${LEG_RC[scan-equiv]}:红态记录(工件照写留证)——红态记录≠管线中止,腿级状态入 leg-status 工件,结尾外显此 rc"
+fi
 
 # ── S5(裁决 A / spec §4.1):报告族齐全校验 → 心跳推送 ──
 # 命令族齐全=活:逐腿写者均查本轮工件(mtime 晚于脚本启动)。audit/anchors
@@ -410,13 +485,17 @@ fi
 
 echo
 
-echo "完成。报告目录: $REPORT_ROOT(model/ 逐轮累积;腿日志 logs/<腿名>-<时间戳>.log)"
+echo "完成。报告目录: $REPORT_ROOT(model/ 逐轮累积;腿日志 logs/<腿名>-<时间戳>.log;scan-equiv/ 全库对拍两行 JSON,#500)"
 # 结尾退出码(#193 C5):腿序首个非零外显(完成≠全绿;cron/操作员以
 # 非零退出码感知腿级红;红腿明细在 leg-status 工件与月报腿级行)。
 AGG_RC=0
 for _leg in "${LEG_ORDER[@]}"; do
   if [ "${LEG_RC[$_leg]}" != 0 ]; then AGG_RC=${LEG_RC[$_leg]}; break; fi
 done
+# #500 scan-equiv 腿入终态(持门同 anchors;不在 LEG_ORDER 故单列一查):
+# LEG_ORDER 各腿全绿才轮到它——任一 eval 旗标腿红(含执行序在它后面的
+# readout)都优先于 scan-equiv 红,按 LEG_ORDER 序、不按执行序
+if [ "$AGG_RC" = 0 ] && [ "${LEG_RC[scan-equiv]}" != 0 ]; then AGG_RC=${LEG_RC[scan-equiv]}; fi
 # #453:推送红态经同一出口外显(腿级红优先;腿全绿时结尾取推送 rc)
 if [ "$AGG_RC" = 0 ] && [ "$PUSH_RC" != 0 ]; then AGG_RC="$PUSH_RC"; fi
 exit "$AGG_RC"
