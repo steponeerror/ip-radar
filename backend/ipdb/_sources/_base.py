@@ -126,6 +126,17 @@ class SourceBase:
         # cloud_ranges 在自己 __init__ 里重复声明同名属性,赋值覆写零冲突。
         self.last_partial_failure: list[str] = []
 
+    def drop_staging(self) -> int:
+        """定点暂存清扫(#478 返工裁决):两族 base 的 .new.<pid>/.cmp
+        暂存各清一遍(_lmdb.drop_staging),只清暂存不动纪元。调用方 =
+        子进程重建车道四个失败终态(_tasks._drop_child_staging);不清
+        纪元目录,成功/子进程自错退出仍走 load() 里的 cleanup_stale。
+        返回删除的目录总数(v4 + v6)。
+        """
+        from . import _lmdb
+        n = _lmdb.drop_staging(self._lmdb_base)
+        return _lmdb.drop_staging(self._lmdb6_base) + n
+
     @property
     def download_host(self) -> str | None:
         """Hostname of the primary remote URL (None when url is unset/local)."""

@@ -244,7 +244,7 @@ python -m ipdb._eval --help           # 全部旗标(temporal、demand、readout
 | `GET /api/lookup/{ip}/stix` | 同上,STIX 2.1 bundle | key |
 | `POST /api/query/stream` | 批量查询,NDJSON 流 | key |
 | `POST /api/upload/stream` | 文件上传批量查询,NDJSON 流 | key |
-| `GET /api/db-status` | 记录数、过期、预热标志 | key |
+| `GET /api/db-status` | 记录数、过期、预热标志、自动刷新状态 | key |
 | `GET /api/sources` | 源目录 + 健康 | admin |
 | `PATCH /api/sources/{name}` | 启停源(`{"enabled": false}`) | admin |
 | `POST /api/sources/{name}/update` | 强制单源刷新 → `task_id` | admin |

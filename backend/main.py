@@ -405,6 +405,20 @@ _refresh_scheduler = None
 _scheduler_stop: threading.Event | None = None
 
 
+def _auto_refresh_status() -> dict:
+    """「服务会不会自动刷新」查询口(#478:/api/db-status 响应的
+    auto_refresh 段)。
+
+    enabled = 配置上开没开:IPRADAR_AUTO_REFRESH=0 时调度器根本不装配
+    (见 _ensure_refresh_scheduler)→ False;装配了的四项经
+    RefreshScheduler.auto_refresh_status() 公开方法出,本函数不碰
+    调度器的私有名。"""
+    if _refresh_scheduler is None:
+        return {"enabled": False, "running": False,
+                "interval_s": None, "last_scan_age_s": None}
+    return _refresh_scheduler.auto_refresh_status()
+
+
 def _ensure_ops_detectors() -> None:
     """P1 T2 确定性探测器装配(票 #154,spec #152 §2;生产启动单点,幂等)。
 
@@ -440,7 +454,9 @@ def _ensure_refresh_scheduler() -> None:
     """Start the background auto-refresh scheduler once per process.
 
     Mirrors _ensure_valve_sampler. Disabled entirely when
-    IPRADAR_AUTO_REFRESH=0 (status endpoint still reports enabled=False).
+    IPRADAR_AUTO_REFRESH=0 (/api/db-status 的 auto_refresh 段如实报
+    enabled=False,#478;本函数旧注释指向的 /api/scheduler/status 端点
+    已不存在,查询口就是 db-status).
     """
     global _refresh_scheduler, _scheduler_stop
     if os.environ.get("IPRADAR_AUTO_REFRESH", "1") == "0":
@@ -1075,6 +1091,7 @@ async def db_status(request: Request):
     status = await asyncio.to_thread(get_status, await _soft_scope(request))
     # 全源禁用不是 warming:报 False 隐藏横幅,查询走 require_ready 的诚实报错
     status["warming_up"] = _cold_gate.blocking_reason() == _coldstart.REASON_WARMING
+    status["auto_refresh"] = _auto_refresh_status()
     return status
 
 
