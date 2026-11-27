@@ -11,6 +11,8 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_serializer
 
+from ._task_state import BatchState, TaskState
+
 
 class _Out(BaseModel):
     # 契约声明器,不是过滤器:多余键原样透传
@@ -145,7 +147,8 @@ class TaskOut(_Out):
     id: str
     source: str
     host: Optional[str] = None  # 实测可为 None(本地/无 host 任务)
-    state: str
+    # 闭集(#484):八个状态,词表与合法转移表在 _task_state.py;OpenAPI 出枚举。
+    state: TaskState
     error: Optional[str] = None
     batch_id: Optional[str] = None
     received: int
@@ -154,7 +157,7 @@ class TaskOut(_Out):
 
 class BatchOut(_Out):
     id: str
-    state: str
+    state: BatchState   # 闭集(#484):running|paused|done
     done: int
     total: int
 

@@ -1,5 +1,6 @@
 """Shared test fixtures/helpers for the ipdb test suite."""
 import asyncio
+import threading
 from pathlib import Path
 
 import pytest
@@ -155,3 +156,48 @@ def rate_limit_off():
 def _pin_env(monkeypatch):
     monkeypatch.delenv("IP_RADAR_EVAL_ENV", raising=False)
     monkeypatch.delenv("IP_RADAR_EVAL_DIR", raising=False)
+
+
+# ── 任务状态机严格模式(#484,第四轮架构评审第 21 张卡):全套件 autouse ──
+# 非法状态转移在测试里当场抛 ValueError(开关在 ipdb._task_state,缺省关 =
+# 生产的记录模式:错误日志 + 计数、状态照写)。整个套件开着它跑一遍,才
+# 能证明现有路径里没藏着没登记的转移。个别用例要测记录模式就在用例内把
+# 开关 monkeypatch 回 False(卸载时还原到本夹具之前的值)。
+@pytest.fixture(autouse=True)
+def task_state_strict(monkeypatch):
+    from ipdb import _task_state
+    monkeypatch.setattr(_task_state, "_strict", True)
+
+
+# ── 后台线程异常观察(#484 返工,评审第 7 条):全套件 autouse ──
+# 严格模式在 worker 线程里抛错时,用例本身只会靠超时红、线程异常只是一条
+# warning——非法转移可能被悄悄漏过。本夹具把 threading.excepthook 收到的
+# 异常记下来,卸载时断言为空:任何后台线程带未处理异常退出,当前用例当场
+# 报错(原 hook 照常调,warning/ stderr 行为不变)。若全套件跑出早已存在的
+# 线程异常,逐条查清:预期内的在用例里局部豁免并写明原因,不是预期的修。
+@pytest.fixture(autouse=True)
+def no_thread_exception_leaks(request):
+    seen = []
+    orig = threading.excepthook
+
+    def _hook(args):
+        seen.append(args)
+        orig(args)
+
+    threading.excepthook = _hook
+    yield
+    threading.excepthook = orig
+    if request.node.get_closest_marker("thread_exception_expected") is not None:
+        return  # 用例声明的预期内线程异常(理由在 marker 的 reason 里),不拦
+    assert not seen, (
+        f"后台线程带未处理异常退出({len(seen)} 条;首条线程 "
+        f"{seen[0].thread.name if seen[0].thread is not None else '?'!r}): "
+        f"{seen[0].exc_type.__name__}: {seen[0].exc_value}"
+    )
+
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "thread_exception_expected(reason): 本用例的 worker/后台线程按被测现象"
+        "带异常退出,豁免 no_thread_exception_leaks 的卸载断言;reason 必填")

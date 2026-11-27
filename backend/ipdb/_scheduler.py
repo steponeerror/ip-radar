@@ -21,12 +21,12 @@ from dataclasses import dataclass
 from typing import Callable, Optional
 
 from . import _alerts
+from ._task_state import TASK_STATES_IN_FLIGHT
 
 logger = logging.getLogger(__name__)
 
 # Backoff seconds for fail_count 1..5: 1h, 2h, 4h, 8h, 12h (cap).
 _BACKOFF_SECONDS = [3600, 7200, 14400, 28800, 43200]
-_NON_TERMINAL = ("queued", "downloading", "loading", "throttled")
 
 SLOT_GRID = 43200  # 12h slot grid — per-source deterministic refresh anchors
 # ponytail: guard covers slot-fire→file-mtime lag (scan ≤1800s + download);
@@ -310,7 +310,9 @@ class RefreshScheduler:
             return
         # mtime unchanged -> classify by terminal state
         state = self._manager.task_state(task_id)
-        if state in _NON_TERMINAL or state is None:
+        # 在飞四态引用词表(#484,原手抄元组 _NON_TERMINAL)。调度器只跟踪自己
+        # enqueue 的源任务 id,ops 轮的 running 不会出现在这里。
+        if state in TASK_STATES_IN_FLIGHT or state is None:
             # didn't run yet (throttled) or task evicted -> leave _last_task to retry reconcile
             if state is None:
                 self._last_task.pop(name, None)
