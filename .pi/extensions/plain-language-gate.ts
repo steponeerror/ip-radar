@@ -22,7 +22,9 @@
  *   [EXPLAIN] 词命中但同行没有解释提示词(即|就是|指|意思是|相当于|
  *             换句话说|大白话|——)才红;
  *   以 > 或 # 开头的行(去前导空白后)豁免——引证据不算造词。
- * 词表每次从全局路径现读(热更新);文件缺失/不可读 → 静默放行。
+ * 词表每次从全局路径现读(热更新);文件缺失/不可读 → 仍放行,但往 stderr
+ * 打一行提示(#511,2026-11-27:词表一丢,整道闸空转且没人知道——回退行为
+ * 保留,静默不许)。
  *
  * 边界:只警示、不拦工具调用、不改词表;所有逻辑 try/catch 包死,
  * 扩展任何异常都不得弄崩会话(pi 侧对 handler 异常也只是记日志,
@@ -149,20 +151,29 @@ export function gateAssistantMessage(
 	};
 }
 
-/** 每次现读全局词表(热更新);任何读失败 → null = 静默放行 */
-function loadLexiconFresh(): Lexicon | null {
+/** 从给定路径现读词表;任何读失败(缺失/不可读/坏编码)→ stderr 出声一行后
+ * 返回 null = 放行(#511,2026-11-27 第四轮架构评审卡 33:此前静默放行,词表
+ * 一丢整道闸空转没人知道;回退行为保留,但必须出声)。导出给测试用——
+ * 全局 LEXICON_PATH 不可指,测试传不存在的路径验这行提示。 */
+export function loadLexiconFrom(path: string): Lexicon | null {
 	try {
-		return parseLexicon(readFileSync(LEXICON_PATH, "utf-8"));
+		return parseLexicon(readFileSync(path, "utf-8"));
 	} catch {
+		process.stderr.write(`plain-language-gate:说人话词表缺失或不可读,本次不检查:${path}\n`);
 		return null;
 	}
+}
+
+/** 每次现读全局词表(热更新);缺失/不可读 → 出声提示后 null = 放行 */
+function loadLexiconFresh(): Lexicon | null {
+	return loadLexiconFrom(LEXICON_PATH);
 }
 
 export default function plainLanguageGate(pi: ExtensionAPI): void {
 	pi.on("message_end", async (event, ctx) => {
 		try {
 			const lexicon = loadLexiconFresh();
-			if (!lexicon) return; // 词表缺失/不可读 → 静默放行
+			if (!lexicon) return; // 词表缺失/不可读 → 放行(loadLexiconFrom 已往 stderr 出声,#511)
 			const gated = gateAssistantMessage(event.message, lexicon);
 			if (!gated) return;
 			if (ctx.hasUI) {

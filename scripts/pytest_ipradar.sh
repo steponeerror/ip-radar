@@ -24,7 +24,9 @@
 # 实测 2458 == 2458,0 errors,2026-11-03 集成分支复验)。参数原样透传 pytest。
 #
 # 解释器选择:backend/.venv 优先(README「Tests」正路);没有 venv 时退回
-# PATH 上的 python3(须自带依赖;本机 miniforge 恰有全套后端依赖)。两条路
+# PATH 上的 python3(须自带依赖;本机 miniforge 恰有全套后端依赖)。退回是
+# 刻意的,但要出声:回退发生时往 stderr 打一行,点名实际用的解释器(#511,
+# 2026-11-27——静默回退曾让 worktree 调用者不知道自己没走 venv)。两条路
 # 都过同一套 sys.path 清洗(venv 本就干净,清洗为 no-op)。
 #
 # 便捷开关 --no-env-dep := 追加 -m 'not env_dep'(环境依赖用例退场;
@@ -47,6 +49,9 @@ if [ -x "$REPO_ROOT/backend/.venv/bin/python" ]; then
   PY="$REPO_ROOT/backend/.venv/bin/python"
 else
   PY=python3
+  # 回退出声(#511,2026-11-27):行为保留(见文件头「解释器选择」),但静默
+  # 退回没人知道——worktree 里最容易踩(工作树永远没有自己的 .venv)。
+  echo "pytest_ipradar: backend/.venv 缺失,回退 PATH 上的 python3(工作树里请用主检出 venv 的绝对路径): 解释器 = $(command -v -- "$PY")" >&2
 fi
 
 ARGS=()
