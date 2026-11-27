@@ -34,20 +34,22 @@ PY_STUB = textwrap.dedent(
     # mirror_check 步真脚本不带 IP_RADAR_EVAL_DIR → 该分支不展开工件路径
     if [[ "$*" == *"ipdb._eval.mirror_check"* ]]; then exit 0; fi
     # #500 scan_equiv_check.py 调用桩:scan-equiv 腿的 collect/compare 各记
-    # 一行「argv|PYTHONHASHSEED=…」到 SCAN_EQUIV_LOG(rsync/ssh 桩同做法),
+    # 一行「argv|PYTHONHASHSEED=…|IP_RADAR_DATA_DIR=…」到 SCAN_EQUIV_LOG(rsync/ssh 桩同做法),
     # 两步同 asof、同 PYTHONHASHSEED=0 由测试对记录断言;collect 顺带按
     # --out 造出样本体+纪元旁证空文件(真形状,供「比完即删」断言);打印
     # 与真脚本同形的 JSON 尾行(mode 键)供腿侧摘取落 scan-equiv/ 工件;
     # rc 按 SCAN_EQUIV_MODE(collect)/SCAN_EQUIV_COMPARE_MODE(compare)。
     if [[ "$*" == *"scan_equiv_check.py"* ]]; then
-      printf '%s|PYTHONHASHSEED=%s\n' "$*" "${PYTHONHASHSEED:-unset}" >> "${SCAN_EQUIV_LOG:?}"
+      printf '%s|PYTHONHASHSEED=%s|IP_RADAR_DATA_DIR=%s\n' "$*" "${PYTHONHASHSEED:-unset}" "${IP_RADAR_DATA_DIR:-unset}" >> "${SCAN_EQUIV_LOG:?}"
       if [[ "$*" == *" collect "* ]]; then
         re='--out ([^ ]+)'
         [[ "$*" =~ $re ]] && { : > "${BASH_REMATCH[1]}"; : > "${BASH_REMATCH[1]}.head.json"; }
-        printf '{"mode": "collect", "asof": 1765000000, "units_scanned": 2, "sampled_single": 2, "sampled_cidr": 0}'
+        printf '{"mode": "collect", "asof": 1765000000, "units_scanned": 2, "sampled_single": 2, "sampled_cidr": 0}\n'
         exit "${SCAN_EQUIV_MODE:-0}"
       fi
-      printf '{"mode": "compare", "asof": 1765000000, "sampled": 2, "mismatches": 0}'
+      # crash 模式=进程死于吐 JSON 前,演练「compare 没吐 JSON」指路(评审返工 5)
+      if [ "${SCAN_EQUIV_COMPARE_MODE:-0}" = "crash" ]; then exit 1; fi
+      printf '{"mode": "compare", "asof": 1765000000, "sampled": 2, "mismatches": 0}\n'
       exit "${SCAN_EQUIV_COMPARE_MODE:-0}"
     fi
     # #193 腿级状态件写手桩:shell 侧 write_leg_status 经 python3 heredoc
@@ -214,6 +216,7 @@ def _run_monthly(repo: Path, stubs: Path, tmp_path: Path, *args: str,
                  rsync_push_mode: str = "0",
                  scan_equiv_mode: str = "0",
                  scan_equiv_compare_mode: str = "0",
+                 scan_equiv_single_every: str = "",
                  ) -> tuple[int, str]:
     env = dict(os.environ)
     env["PATH"] = f"{stubs}:{env['PATH']}"
@@ -240,6 +243,8 @@ def _run_monthly(repo: Path, stubs: Path, tmp_path: Path, *args: str,
     env["SCAN_EQUIV_MODE"] = scan_equiv_mode          # #500 collect 步 rc
     env["SCAN_EQUIV_COMPARE_MODE"] = scan_equiv_compare_mode  # #500 compare 步 rc
     env["SCAN_EQUIV_LOG"] = str(tmp_path / "scan-equiv-calls.log")  # #500 桩调用记录
+    if scan_equiv_single_every:  # #500 评审返工 7:覆盖抽样密度(校验在脚本侧)
+        env["IP_RADAR_SCAN_EQUIV_SINGLE_EVERY"] = scan_equiv_single_every
     env["TMPDIR"] = str(tmp_path)   # #500:样本体落测试临时目录,断言「比完即删」不碰真 /tmp
     r = subprocess.run(["bash", "scripts/monthly_eval.sh", "stub-host", *args],
                        cwd=repo, env=env, capture_output=True, text=True, timeout=120)
@@ -311,6 +316,14 @@ def _latest_leg_status(root: Path) -> dict:
     return _json.loads(files[-1].read_text(encoding="utf-8"))
 
 
+def _render_leg_status(leg: dict) -> list:
+    """月报渲染(backend/ipdb/_eval/monthly.py render_leg_status)对
+    leg-status 的读取面:函数内导入,不在模块顶层把 ipdb 拖进全部
+    shell 级用例。"""
+    from ipdb._eval.monthly import render_leg_status
+    return render_leg_status(leg)
+
+
 def test_other_leg_failure_does_not_abort_round(tmp_path):
     """#193 C5(F4 判例推广到全腿):dsem 腿红不再断整轮——后续腿照跑、
     月报/北星照产、心跳照推(腿级红≠缺员)、结尾外显 dsem rc、
@@ -345,7 +358,8 @@ def test_multi_red_aggregates_first_nonzero_in_leg_order(tmp_path):
 
 
 def test_green_round_writes_leg_status_with_all_legs(tmp_path):
-    """全绿轮:leg-status 件在(12 腿全 rc=0,readout 定稿件非 null)。
+    """全绿轮:leg-status 件在(12 旗标腿全 rc=0,非旗标 scan-equiv 亦
+    rc=0 且月报渲染能读出,评审返工 8;readout 定稿件非 null)。
     渲染前件(readout=null 供月报嵌「在飞」)被定稿件覆盖或共存,
     最新件=定稿件。"""
     repo = _make_repo(tmp_path)
@@ -358,6 +372,9 @@ def test_green_round_writes_leg_status_with_all_legs(tmp_path):
                  "truth-v2-readout",
                  "audit", "temporal", "readout"):
         assert leg["legs"][name] == 0, f"{name} 腿绿轮须 rc=0: {leg}"
+    assert leg["legs"]["scan-equiv"] == 0, leg  # 评审返工 8:非旗标腿也进腿级状态
+    assert any("scan-equiv=rc0" in ln for ln in _render_leg_status(leg)), \
+        _render_leg_status(leg)
 
 
 def test_leg_status_does_not_substitute_all_family(tmp_path):
@@ -607,8 +624,9 @@ def test_leg_logs_land_in_report_tree_one_timestamp_per_round(tmp_path):
 
 def test_scan_equiv_leg_collect_and_compare_share_asof(tmp_path):
     """#500:scan-equiv 腿真跑两步 python3(collect→compare),两步的
-    --asof 相同、PYTHONHASHSEED=0(对拍前提,工具件 docstring);
-    collect 红不再跑 compare。桩子把每次调用的 argv|PYTHONHASHSEED 记进
+    --asof 相同、PYTHONHASHSEED=0(对拍前提,工具件 docstring)、打同一
+    数据目录;缺省抽样密度 --single-every 20 进 argv(评审返工 7)。
+    桩子把每次调用的 argv|PYTHONHASHSEED|IP_RADAR_DATA_DIR 记进
     SCAN_EQUIV_LOG(现有 rsync/ssh 桩同做法)。留下的证据 = 两行 JSON
     落 scan-equiv/ + 腿日志;样本体+纪元旁证比完即删(临时目录不残留)。"""
     repo = _make_repo(tmp_path)
@@ -621,9 +639,14 @@ def test_scan_equiv_leg_collect_and_compare_share_asof(tmp_path):
     assert len(calls) == 2, f"collect+compare 恰两次 python3,实得 {calls}"
     assert " collect " in calls[0] and " compare " in calls[1], calls
     asofs = [re.search(r"--asof (\S+)", c).group(1) for c in calls]
-    seeds = [c.rsplit("PYTHONHASHSEED=", 1)[1] for c in calls]
+    fields = [dict(kv.split("=", 1) for kv in c.split("|")[1:]) for c in calls]
     assert asofs[0] == asofs[1], f"两步必须同一 asof,实得 {asofs}"
-    assert seeds == ["0", "0"], f"两步必须 PYTHONHASHSEED=0,实得 {seeds}"
+    assert [f["PYTHONHASHSEED"] for f in fields] == ["0", "0"], \
+        f"两步必须 PYTHONHASHSEED=0,实得 {fields}"
+    want = os.path.realpath(tmp_path / "data")  # 与 _run_monthly 的 EVAL_DATA_DIR 同源
+    assert [f["IP_RADAR_DATA_DIR"] for f in fields] == [want, want], \
+        f"两步必须打同一数据目录(=EVAL_DATA_DIR),实得 {fields}"
+    assert "--single-every 20" in calls[0], calls[0]
     root = _report_root(repo)
     col = sorted(root.glob("scan-equiv/collect-*.json"))
     cmp_ = sorted(root.glob("scan-equiv/compare-*.json"))
@@ -647,9 +670,10 @@ def test_scan_equiv_dry_run_prints_but_does_not_execute(tmp_path):
 
 
 def test_scan_equiv_red_counts_into_final_status(tmp_path):
-    """#500:scan-equiv 腿红(collect rc=1,判定不一致档)→ 结尾以该 rc
-    非零退出(持门同 anchors)、红态行外显;腿级红≠缺员,报告族齐全
-    心跳照推(scan-equiv 工件不在报告族名单);collect 红不再跑 compare。"""
+    """#500:scan-equiv 腿红(collect rc=1;collect 正常出口只有 0,
+    1=判定不一致或进程异常退出)→ 结尾以该 rc 非零退出(持门同
+    anchors)、红态行外显;腿级红≠缺员,报告族齐全心跳照推(scan-equiv
+    工件不在报告族名单);collect 红不再跑 compare。"""
     repo = _make_repo(tmp_path)
     stubs = _make_stubs(tmp_path)
     rc, out = _run_monthly(repo, stubs, tmp_path, scan_equiv_mode="1")
@@ -669,3 +693,52 @@ def test_scan_equiv_stale_sample_says_rerun(tmp_path):
     rc, out = _run_monthly(repo, stubs, tmp_path, scan_equiv_compare_mode="2")
     assert rc == 2, f"样本作废(rc=2)须外显为结尾 rc,实得 {rc}\n{out}"
     assert "重跑这一轮" in out, out
+    leg = _latest_leg_status(_report_root(repo))
+    assert leg["legs"]["scan-equiv"] == 2, leg  # 评审返工 8:红也进腿级状态
+    assert any("scan-equiv(rc2)" in ln for ln in _render_leg_status(leg)), \
+        _render_leg_status(leg)
+
+
+def test_scan_equiv_single_every_passthrough(tmp_path):
+    """#500 评审返工 7:IP_RADAR_SCAN_EQUIV_SINGLE_EVERY=200 进到
+    collect 的 --single-every 200(缺省 20 的断言在同文件首个
+    scan-equiv 用例)。"""
+    repo = _make_repo(tmp_path)
+    stubs = _make_stubs(tmp_path)
+    rc, out = _run_monthly(repo, stubs, tmp_path,
+                           scan_equiv_single_every="200")
+    assert rc == 0, out
+    calls = (tmp_path / "scan-equiv-calls.log").read_text(
+        encoding="utf-8").strip().splitlines()
+    assert "--single-every 200" in calls[0], calls[0]
+
+
+def test_scan_equiv_single_every_rejects_non_positive(tmp_path):
+    """#500 评审返工 5:0 与非数字都被一句人话拒绝、exit 1,且拒绝发生在
+    任何腿之前(无调用记录、无报告根)。"""
+    for i, bad in enumerate(("0", "abc")):
+        sub = tmp_path / f"reject-{bad}"
+        sub.mkdir()
+        repo = _make_repo(sub)
+        stubs = _make_stubs(sub)
+        rc, out = _run_monthly(repo, stubs, sub,
+                               scan_equiv_single_every=bad)
+        assert rc == 1, f"实得 '{bad}' 须拒绝 exit 1,实得 rc={rc}\n{out}"
+        assert "须为正整数" in out, out
+        assert not (sub / "scan-equiv-calls.log").exists(), \
+            "拒绝发生在任何腿之前"
+        assert not _report_root(repo).exists(), "拒绝不得建报告根"
+
+
+def test_scan_equiv_compare_crash_points_at_log(tmp_path):
+    """#500 评审返工 5:compare rc=1 且没吐 JSON(桩子 crash 模式=进程死于
+    打印前)→ 日志多一句「多半是崩溃,看腿日志」,rc=1 照常持门;
+    compare-*.json 空件照落(空文件本身即异常信号)。"""
+    repo = _make_repo(tmp_path)
+    stubs = _make_stubs(tmp_path)
+    rc, out = _run_monthly(repo, stubs, tmp_path,
+                           scan_equiv_compare_mode="crash")
+    assert rc == 1, out
+    assert "多半是崩溃" in out, out
+    cmp_ = sorted(_report_root(repo).glob("scan-equiv/compare-*.json"))
+    assert cmp_ and cmp_[-1].read_text(encoding="utf-8") == "", cmp_

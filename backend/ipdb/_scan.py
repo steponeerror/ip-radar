@@ -40,8 +40,11 @@ import lmdb
 from ipdb._registry import LookupResult, fuse_items
 from ipdb._sources._lmdb import (
     PAYLOADS_NAME,
-    # 下三个私有名是扫描侧借用(只读,#500 卡 14 选项 C);动存储内核
-    # 的私有名字时要一起看(改名单/语义先看卡 9 与本文件的借用点)。
+    # 下三个私有名是扫描侧借用(#500 卡 14 选项 C):_end_int/_payloads_db
+    # 只读;_PAYLOAD_DB_CACHE 会被本文件 pop 掉同路径缓存项(见
+    # _open_envs/close 处注释)。动存储内核的私有名字时要一起看(改名单/
+    # 语义先看 docs/reviews/2026-11-25-architecture-review-round4.md 卡 9
+    # 与本文件的借用点)。
     _PAYLOAD_DB_CACHE,
     _end_int,
     _payloads_db,
@@ -149,10 +152,13 @@ _GEO_CATEGORIES = frozenset({"geo_asn"})
 
 
 def _is_threat_source(s) -> bool:
-    """与导出器仓 ip-radar-blocklist(独立于本仓)scripts/scan_units.py
-    的 extract_fields、scripts/emit_tiers.py 同一判据:声明了分类、
-    category=="threat"、非 internal。只有威胁类源产生单元。(旧注释指向
-    的 scripts/universe_walk.py 已随旧导出器删除,#500 修锚。)"""
+    """判威胁类源:声明了分类、category=="threat"、非 internal。只有威胁
+    类源产生单元。判据只住在本函数——导出器仓 ip-radar-blocklist(独立于
+    本仓)自 #444 起经 scripts/scan_units.py 直接消费本扫描器的单元,不再
+    自己判源;其 extract_fields(按 classification detected∧malicious 取
+    数值列)与 scripts/emit_tiers.py(按 verdict=='malicious' 切档)是消费
+    面,不是同款判据。(旧注释指向的 scripts/universe_walk.py 已随旧导出器
+    删除,#500 修锚。)"""
     return (getattr(s, "classification_type", None) is not None
             and getattr(s, "category", None) == "threat"
             and not getattr(s, "internal", False))
@@ -160,7 +166,9 @@ def _is_threat_source(s) -> bool:
 
 def _seen_bounds(evidence) -> tuple[list[str], list[str]]:
     """证据里的 (first_seen 列表, last_seen 列表)。只认字符串、文本序
-    比较(与导出器 universe_walk 同款:时间格式不一,数值化会错序)。"""
+    比较(导出器仓 scan_units.py 的 _UPSERT 与 emit_tiers.py 的
+    TIER_ORDER_BY 同样按文本序比 first_seen/last_seen:时间格式不一,
+    数值化会错序)。"""
     firsts: list[str] = []
     lasts: list[str] = []
     entries = evidence if isinstance(evidence, list) else [evidence]
@@ -370,8 +378,9 @@ class UnitScanner:
                 else ipaddress.IPv6Address(end)
             nets = list(ipaddress.summarize_address_range(lo, hi))
             if len(nets) != 1:
-                # 与导出器 universe_walk 同款:不恰为一个 CIDR 的范围跳过
-                # 并计数(证据不丢——库里记录还在,只是不产单元)
+                # 规则只在本文件;导出器仓 scripts/scan_units.py 只把扫描器
+                # 的 skipped_anomalies 抄进 stats/日志(证据不丢——库里
+                # 记录还在,只是不产单元)
                 self.stats["skipped_anomalies"] += 1
                 continue
             cidr_text = str(nets[0])
