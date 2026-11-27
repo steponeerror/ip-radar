@@ -18,6 +18,6 @@ httpx==0.28.1              # GitHub Releases 版本查询(更新通知,L1)
 fastapi-users==15.0.5               # admin accounts + session tokens (auth tier 2)
 fastapi-users-db-sqlalchemy==7.0.0  # fastapi-users SQLAlchemy adapter (User/AccessToken)
 aiosqlite==0.20.0                   # async sqlite driver for auth.db
-pyjwt==2.14.0                       # API key sign/verify (auth tier 3)
+pyjwt==2.15.0                       # API key sign/verify (auth tier 3)
 slowapi==0.1.10                     # auth endpoint rate limiting (0.1.10: 1.0.1 not on PyPI)
 apprise>=2.0                       # 源活性告警推送出口(IP_RADAR_ALERT_URLS,空=不通知)
