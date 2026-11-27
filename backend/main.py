@@ -193,11 +193,14 @@ def require_ready():
             headers={"X-IPRadar-Reason": _coldstart.REASON_WARMING})
 
 
-# ── 流式事件构造函数(#495):NDJSON 事件形状只写这一处 ──────────────────
+# ── 流式事件构造函数(#495):row/progress/done 的形状只写这一处 ───────
 # 协议面:start{total} → row{idx,result} × N → progress{done,total}
 # → done{invalid_lines, ipv6_unsupported[, error, code]}。前端对侧声明是
 # frontend/src/api.ts 的 `type StreamEvent`;两边键集由机读契约对拍
 # (backend/tests/core/test_stream_contract.py),改形状先改这里再改前端。
+# 已知例外:start 无构造函数(全仓单点发射,查询入口一处,仍手写字面量);
+# 出错变体的两个实参(error=str(e) or type(e).__name__、code=ErrorCode
+# .internal.value)在 4 个调用点各写一遍,实参值写错键集守卫抓不到。
 def _row_event(idx, result):
     return {"type": "row", "idx": idx, "result": result}
 
@@ -207,12 +210,14 @@ def _progress_event(done, total):
 
 
 def _done_event(invalid_lines, ipv6_unsupported, *, error=None, code=None):
-    """done 终态事件:无错只带三个基础键;出错追 error(裸字符串,空消息
-    兜底为异常类型名)与 code(语义码)。键插入顺序与旧手写字面量一致,
-    orjson 输出字节不变。"""
+    """done 终态事件:无错只带三个基础键;出错追 error(裸字符串)与
+    code(语义码),两者必须同给或同不给。键插入顺序与旧手写字面量
+    一致,orjson 输出字节不变。"""
+    if (error is None) != (code is None):
+        raise ValueError("done 事件:error 与 code 必须同时给或同时不给")
     evt = {"type": "done", "invalid_lines": invalid_lines,
            "ipv6_unsupported": ipv6_unsupported}
-    if error is not None or code is not None:
+    if error is not None:
         evt["error"] = error
         evt["code"] = code
     return evt

@@ -23,6 +23,7 @@ from fastapi.testclient import TestClient
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 import main
+from ipdb._errors import ErrorCode
 from conftest import SAME_ORIGIN
 
 FRONTEND_API_TS = (Path(__file__).resolve().parents[3]
@@ -59,11 +60,16 @@ def test_backend_done_success_key_set():
 
 def test_backend_done_error_variant_carries_code():
     """出错 done 一定带 error + code,且追加在基础键之后
-    (键序 = 旧手写字面量,orjson 输出字节不变)。"""
-    evt = main._done_event(0, 0, error="boom", code="internal")
+    (键序 = 旧手写字面量,orjson 输出字节不变)。只给一个必须拒绝
+    (评审建议 3,2026-11-27)。"""
+    evt = main._done_event(0, 0, error="boom", code=ErrorCode.internal.value)
     assert list(evt) == ["type", "invalid_lines", "ipv6_unsupported",
                          "error", "code"]
-    assert evt["code"] == "internal"
+    assert evt["code"] == ErrorCode.internal.value
+    with pytest.raises(ValueError):
+        main._done_event(0, 0, error="x")
+    with pytest.raises(ValueError):
+        main._done_event(0, 0, code="internal")
 
 
 # ── 前端 StreamEvent 解析 ──────────────────────────────────────────
@@ -95,8 +101,21 @@ def _parse_stream_event_branches(src: str) -> dict[str, set[str]]:
             km = re.match(r"\s*(\w+)\s*\??\s*:", part)
             if km:
                 keys.add(km.group(1))
-        branches[tm.group(1)] = keys
+        branches[tm.group(1)] = branches.get(
+            tm.group(1), set()) | keys  # 同名分支取并集,不以后者覆盖前者
     return branches
+
+
+def test_parser_unions_same_type_branches_and_rejects_nesting():
+    """解析器自测(评审建议 2):同名分支取并集不覆盖;嵌套对象类型的
+    写法必须报错,不能静默漏比。"""
+    src = ('type StreamEvent =\n  | { type: "done"; invalid_lines: number }\n'
+           '  | { type: "done"; error: string };\n')
+    assert _parse_stream_event_branches(src)["done"] == {
+        "type", "invalid_lines", "error"}
+    with pytest.raises(AssertionError):
+        _parse_stream_event_branches(
+            'type StreamEvent = { type: "row"; result: { ip: string } };')
 
 
 def _start_literal_keys() -> set[str]:
@@ -119,7 +138,8 @@ def _backend_event_keys() -> dict[str, set[str]]:
     """后端各事件键集。done 取成功+出错两变体的并集:前端 done 一支同时
     描述两种形状(出错键可选声明),对拍口径 = 全键面。"""
     done_keys = (set(main._done_event(0, 0))
-                 | set(main._done_event(0, 0, error="x", code="internal")))
+                 | set(main._done_event(0, 0, error="x",
+                                        code=ErrorCode.internal.value)))
     return {
         "start": _start_literal_keys(),
         "row": set(main._row_event(0, {})),
@@ -156,24 +176,27 @@ def test_no_handwritten_event_literals_outside_constructors():
     assert len(spans) == 3, f"事件构造函数应有且仅有三个: {spans}"
     offenders = []
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Dict):
-            continue
-        for k, v in zip(node.keys, node.values):
-            if (isinstance(k, ast.Constant) and k.value == "type"
-                    and isinstance(v, ast.Constant)
-                    and v.value in FORBIDDEN_TYPES
+        type_pairs = []
+        if isinstance(node, ast.Dict):
+            type_pairs = [(v.value, ) for k, v in zip(node.keys, node.values)
+                          if isinstance(k, ast.Constant) and k.value == "type"
+                          and isinstance(v, ast.Constant)]
+        elif (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                and node.func.id == "dict"):
+            # dict(type="done", …) 同样破约(评审建议 5;ast.Call 不在
+            # ast.Dict 扫描面里)。不扫 backend/ipdb/*.py:_tasks 的 SSE
+            # done 是另一套协议,留给「协议搬出 main.py」那张票。
+            type_pairs = [(kw.value.value, ) for kw in node.keywords
+                          if kw.arg == "type"
+                          and isinstance(kw.value, ast.Constant)]
+        for (tval, ) in type_pairs:
+            if (tval in FORBIDDEN_TYPES
                     and not any(lo <= node.lineno <= hi for lo, hi in spans)):
-                offenders.append((node.lineno, v.value))
+                offenders.append((node.lineno, tval))
     assert not offenders, f"main.py 手写事件字面量(行号, 类型): {offenders}"
 
 
 # ── GET /api/lookup/{ip} 对流 row.result ───────────────────────────
-
-@pytest.fixture(autouse=True)
-def _tiny_db(tiny_db):
-    """CI 逐文件跑序里先 import main 的文件会触发冷启动线程写 data/
-    (test_stream_pool.py 同款);tmp 最小库打开查询门。"""
-
 
 @pytest.fixture(autouse=True)
 def _hermetic_gate(monkeypatch):
@@ -181,10 +204,14 @@ def _hermetic_gate(monkeypatch):
     monkeypatch.setattr(main._cold_gate, "coverage_building", lambda: False)
 
 
+@pytest.mark.usefixtures("tiny_db")
 def test_get_lookup_keys_match_stream_row_result():
     """同形红线:GET /api/lookup/{ip} 响应顶层键集 == 流 row.result 顶层
     键集。差异先查清来历写进 GET_VS_ROW_EXEMPTIONS(带原因),不许改
-    响应内容凑相等。"""
+    响应内容凑相等。
+
+    tiny_db 定点挂在本条(评审建议 7):其余 5 条是纯形状用例,全文件
+    autouse 会让它们白建一次 LMDB。"""
     with TestClient(main.app, headers=SAME_ORIGIN) as client:
         r = client.post("/api/query/stream", json={"ips": ["8.8.8.8"]})
         assert r.status_code == 200
@@ -194,6 +221,10 @@ def test_get_lookup_keys_match_stream_row_result():
         assert g.status_code == 200
     get_keys = set(g.json())
     row_keys = set(row["result"])
+    # 非空判据(评审建议 4):to_dict() 无条件写这些顶层键;两侧任一侧
+    # 空洞(模型吞键/流发空 result)都会在这里红,不是“两个空集相等”。
+    assert {"ip", "country", "threat", "classifications",
+            "attributes", "is_reserved"} <= row_keys
     exempt = set(GET_VS_ROW_EXEMPTIONS)
     only_get = get_keys - row_keys - exempt
     only_row = row_keys - get_keys - exempt

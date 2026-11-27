@@ -207,6 +207,22 @@ describe("queryIpsStream (row protocol v2)", () => {
     (globalThis as { EventSource?: unknown }).EventSource = vi.fn(() => ({ close: () => {} }));
   });
 
+  // buildCsvRow 遍历 classifications/merged 字段,夹具须满足该形状
+  // (#495 评审建议 6:两份拷贝提到 describe 层)
+  const fakeRow = (i: number) => {
+    const r: LookupResult = {
+      ip: `10.0.0.${i}`,
+      country: { value: "", confidence: 0, algorithm: "", sources: [] },
+      city: { value: "", confidence: 0, algorithm: "", sources: [] },
+      asn: { value: 0, confidence: 0, algorithm: "", sources: [] },
+      as_name: { value: "", confidence: 0, algorithm: "", sources: [] },
+      ip_range: { value: "", confidence: 0, algorithm: "", sources: [] },
+      is_isp: false,
+      classifications: {},
+    };
+    return `{"type":"row","idx":${i},"result":${JSON.stringify(r)}}`;
+  };
+
   it("table mode: total ≤ threshold → results sorted by idx", async () => {
     const ndjson = [
       `{"type":"start","total":2}`,
@@ -229,22 +245,8 @@ describe("queryIpsStream (row protocol v2)", () => {
   });
 
   it("csv mode: total > threshold → csvDownloaded=true, results empty", async () => {
-    // build N=threshold+1 fake rows; minimal valid LookupResult (buildCsvRow traverses
-    // classifications/merged fields, so the fixture must satisfy that shape)
+    // build N=threshold+1 fake rows(夹具形状见 describe 层 fakeRow)
     const n = TABLE_THRESHOLD + 1;
-    const fakeRow = (i: number) => {
-      const r: LookupResult = {
-        ip: `10.0.0.${i}`,
-        country: { value: "", confidence: 0, algorithm: "", sources: [] },
-        city: { value: "", confidence: 0, algorithm: "", sources: [] },
-        asn: { value: 0, confidence: 0, algorithm: "", sources: [] },
-        as_name: { value: "", confidence: 0, algorithm: "", sources: [] },
-        ip_range: { value: "", confidence: 0, algorithm: "", sources: [] },
-        is_isp: false,
-        classifications: {},
-      };
-      return `{"type":"row","idx":${i},"result":${JSON.stringify(r)}}`;
-    };
     const lines = [`{"type":"start","total":${n}}`];
     for (let i = 0; i < n; i++) lines.push(fakeRow(i));
     lines.push(`{"type":"done","invalid_lines":0,"ipv6_unsupported":0}`);
@@ -263,33 +265,22 @@ describe("queryIpsStream (row protocol v2)", () => {
     globalThis.URL.revokeObjectURL = () => {};
     const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
 
-    const out = await queryIpsStream(["10.0.0.0/20"], () => {});
-    expect(out.csvDownloaded).toBe(true);
-    expect(out.results).toEqual([]);
-    expect(clickSpy).toHaveBeenCalledTimes(1);
-
-    globalThis.URL.createObjectURL = URL_CREATE;
-    globalThis.URL.revokeObjectURL = REVOKE;
-    clickSpy.mockRestore();
+    try {
+      const out = await queryIpsStream(["10.0.0.0/20"], () => {});
+      expect(out.csvDownloaded).toBe(true);
+      expect(out.results).toEqual([]);
+      expect(clickSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      globalThis.URL.createObjectURL = URL_CREATE;
+      globalThis.URL.revokeObjectURL = REVOKE;
+      clickSpy.mockRestore();
+    }
   });
 
   it("csv mode: rows exported sorted by idx regardless of arrival order (#495)", async () => {
     // 乱序到达(idx 3,1,0,2)→ 导出文件按 idx 排:手册「到达后按 idx 重排」
     // 对 CSV 生效(#495)。total 超阈值进 csv 模式,实际只发 4 行。
     const n = TABLE_THRESHOLD + 4;
-    const fakeRow = (i: number) => {
-      const r: LookupResult = {
-        ip: `10.0.0.${i}`,
-        country: { value: "", confidence: 0, algorithm: "", sources: [] },
-        city: { value: "", confidence: 0, algorithm: "", sources: [] },
-        asn: { value: 0, confidence: 0, algorithm: "", sources: [] },
-        as_name: { value: "", confidence: 0, algorithm: "", sources: [] },
-        ip_range: { value: "", confidence: 0, algorithm: "", sources: [] },
-        is_isp: false,
-        classifications: {},
-      };
-      return `{"type":"row","idx":${i},"result":${JSON.stringify(r)}}`;
-    };
     const lines = [`{"type":"start","total":${n}}`];
     for (const i of [3, 1, 0, 2]) lines.push(fakeRow(i));
     lines.push(`{"type":"done","invalid_lines":0,"ipv6_unsupported":0}`);
@@ -312,17 +303,59 @@ describe("queryIpsStream (row protocol v2)", () => {
     globalThis.URL.revokeObjectURL = () => {};
     const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
 
-    const out = await queryIpsStream(["10.0.0.0/29"], () => {});
-    expect(out.csvDownloaded).toBe(true);
-    const blobText = await captured!.text();
-    // 文本 = BOM + 表头行 + 数据行;数据行的首列是 ip,断言按 idx(= ip 尾数)排
-    const parts = blobText.split("\n");
-    const ips = parts.slice(1, 5).map((l) => l.split(",")[0]);
-    expect(ips).toEqual(["10.0.0.0", "10.0.0.1", "10.0.0.2", "10.0.0.3"]);
+    try {
+      const out = await queryIpsStream(["10.0.0.0/29"], () => {});
+      expect(out.csvDownloaded).toBe(true);
+      expect(captured).toBeDefined();   // 先断言下载确实发生,再读 Blob 文本
+      // 文本 = BOM + 表头行 + 数据行;数据行的首列是 ip,断言按 idx(= ip 尾数)排
+      const parts = (await captured!.text()).split("\n");
+      const ips = parts.slice(1, 5).map((l) => l.split(",")[0]);
+      expect(ips).toEqual(["10.0.0.0", "10.0.0.1", "10.0.0.2", "10.0.0.3"]);
+    } finally {
+      globalThis.URL.createObjectURL = URL_CREATE;
+      globalThis.URL.revokeObjectURL = REVOKE;
+      clickSpy.mockRestore();
+    }
+  });
 
-    globalThis.URL.createObjectURL = URL_CREATE;
-    globalThis.URL.revokeObjectURL = REVOKE;
-    clickSpy.mockRestore();
+  it("csv mode: stream truncated before done → partial file sorted by idx, error_code stream_truncated (#495)", async () => {
+    // 流在 done 之前断掉(代理截断/进程被杀):已到达的行仍按 idx 排
+    // (缺 0、2,收拢为 1、3),错误码为哨兵 stream_truncated
+    // (字段名以 StreamOutcome.error_code 为准,#495)。
+    const n = TABLE_THRESHOLD + 4;
+    const lines = [`{"type":"start","total":${n}}`];
+    for (const i of [3, 1]) lines.push(fakeRow(i));   // 没有 done 事件
+    const ndjson = lines.join("\n");
+    const reader = (async function* () {
+      yield new TextEncoder().encode(ndjson + "\n");
+    })();
+    fetchMock().mockResolvedValue({
+      ok: true,
+      body: { getReader: () => ({ read: () => reader.next() }) },
+    });
+
+    const URL_CREATE = globalThis.URL.createObjectURL;
+    const REVOKE = globalThis.URL.revokeObjectURL;
+    let captured: Blob | undefined;
+    globalThis.URL.createObjectURL = (blob: Blob | MediaSource) => {
+      captured = blob as Blob;
+      return "blob:x";
+    };
+    globalThis.URL.revokeObjectURL = () => {};
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+
+    try {
+      const out = await queryIpsStream(["10.0.0.0/29"], () => {});
+      expect(out.error_code).toBe("stream_truncated");
+      expect(out.csvDownloaded).toBe(true);
+      expect(captured).toBeDefined();
+      const ips = (await captured!.text()).split("\n").slice(1, 3).map((l) => l.split(",")[0]);
+      expect(ips).toEqual(["10.0.0.1", "10.0.0.3"]);
+    } finally {
+      globalThis.URL.createObjectURL = URL_CREATE;
+      globalThis.URL.revokeObjectURL = REVOKE;
+      clickSpy.mockRestore();
+    }
   });
 
   it("done surfaces invalid_lines and ignores ipv6_unsupported (v6 supported)", async () => {

@@ -188,13 +188,19 @@ type StreamEvent =
   | { type: "progress"; done: number; total: number }
   | { type: "done"; invalid_lines?: number; ipv6_unsupported: number; error?: string | null; code?: string | null };
 
-// 表格/CSV 两种模式共用的按 idx 重排(#495):流按各批完成先后吐 row,
-// 每行带输入 idx;到达后按 idx 重组,同一查询两次导出行序确定。缺 idx
-// 的行与旧行为一致地丢弃(filter undefined)。
-function reorderByIdx<T>(byIdx: Map<number, T>, total: number): T[] {
-  return Array.from({ length: total }, (_, i) => byIdx.get(i)).filter(
-    (x): x is T => x !== undefined,
-  );
+// 表格/CSV 两种模式共用的按 idx 顺序取出(#495):流按各批完成先后吐 row,
+// 每行带输入 idx;按 idx 逐个取出并从 Map 删掉(边取边删),同一查询两次
+// 导出行序确定。idx ≥ total 的行取不到,与旧行为一致地丢弃。
+// 边取边删是内存性质:消费方擏段时不会同时持有「全部散行 + 全部拼接段」
+// (旧 reorderByIdx 会在写盘那一刻两份都在,约 2 倍行文本)。
+function* drainByIdx<T>(byIdx: Map<number, T>, total: number): Generator<T> {
+  for (let i = 0; i < total; i++) {
+    const v = byIdx.get(i);
+    if (v !== undefined) {
+      byIdx.delete(i);
+      yield v;
+    }
+  }
 }
 
 async function readStream(
@@ -235,8 +241,9 @@ async function readStream(
         if (mode === "table") {
           resultsByIdx.set(evt.idx, r);
         } else {
-          // CSV 模式同样按 idx 重排(#495):先按 idx 暂存,done 后统一
-          // 排序写盘,导出行序不再取决于各批完成的先后(与手册一致)。
+          // CSV 模式同样按 idx 重排(#495):先按 idx 暂存,流结束后
+          // (包括被截断的情况)统一排序写盘,导出行序不再取决于各批
+          // 完成的先后(与手册一致)。
           csvRowsByIdx.set(evt.idx, buildCsvRow(r));
         }
       } else if (evt.type === "progress") {
@@ -258,11 +265,17 @@ async function readStream(
   }
 
   if (mode === "csv") {
-    // done 后统一按 idx 重排再写盘(#495);分批 join 只是避免一次巨型拼接
-    const sortedRows = reorderByIdx(csvRowsByIdx, total);
-    for (let i = 0; i < sortedRows.length; i += 1000) {
-      csvParts.push(sortedRows.slice(i, i + 1000).join("\n") + "\n");
+    // 流结束后按 idx 重排再写盘(包括被截断的情况,#495);逐段拼接、
+    // 拼完即释放,沿用旧的 1000 行一段形状
+    let batch: string[] = [];
+    for (const row of drainByIdx(csvRowsByIdx, total)) {
+      batch.push(row);
+      if (batch.length >= 1000) {
+        csvParts.push(batch.join("\n") + "\n");
+        batch = [];
+      }
     }
+    if (batch.length) csvParts.push(batch.join("\n") + "\n");
     if (csvParts.length > 1) {  // more than just the header → has rows
       downloadCsv(csvParts);
       return { results: [], csvDownloaded: true, invalidLines, error, error_code: errorCode, total };
@@ -271,7 +284,7 @@ async function readStream(
   }
 
   // table mode — reassemble in idx order
-  const results = reorderByIdx(resultsByIdx, total);
+  const results = [...drainByIdx(resultsByIdx, total)];
   return { results, csvDownloaded: false, invalidLines, error, error_code: errorCode, total };
 }
 
