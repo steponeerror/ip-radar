@@ -37,6 +37,8 @@
 # 记红态心跳照写结尾非零)→ 生产 volume 心跳推送(S5)。
 # 自验:`bash -n scripts/monthly_eval.sh`(语法);`bash scripts/monthly_eval.sh
 # --dry-run`(只打印将执行的命令不执行;dry-run 下守卫仅提示不拦截,便于预演)。
+# #489 起干跑也要 python3 能导入 ipdb._eval(mirror-sync 单源入口,三面
+# 回显都出自它);PATH 须带后端依赖的解释器(同实跑各腿)。
 # 数据目录默认 <repo>/.eval-prod-data(已 gitignore,防误提交 ~55GB),
 # 环境变量 EVAL_DATA_DIR 可覆盖。
 # 设计:docs/superpowers/specs/2026-09-28-eval-algorithm-optimization-brief.md
@@ -44,15 +46,16 @@ set -euo pipefail
 
 usage() {
   echo "用法: scripts/monthly_eval.sh [prod-host] [--dry-run]"
-  echo "  prod-host  默认 root@203.88.124.85"
+  echo "  prod-host  默认 $PROD_HOST"
   echo "  --dry-run  只打印将执行的命令,不执行"
 }
 
 PROD_HOST="root@203.88.124.85"
 DRY_RUN=0
+DRY_FLAG=""    # mirror-sync 单源入口的干跑旗标(#489;空=实跑)
 for a in "$@"; do
   case "$a" in
-    --dry-run) DRY_RUN=1 ;;
+    --dry-run) DRY_RUN=1; DRY_FLAG="--dry-run" ;;
     -h|--help) usage; exit 0 ;;
     *) PROD_HOST="$a" ;;
   esac
@@ -62,7 +65,14 @@ REPO=$(git rev-parse --show-toplevel)
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 if [ -n "$(git status --porcelain)" ]; then DIRTY=yes; else DIRTY=no; fi
 DATA_DIR="$(realpath -m "${EVAL_DATA_DIR:-$REPO/.eval-prod-data}")"  # 绝对化:防 run_step cd backend 后相对路径漂移
-RSYNC_SRC="$PROD_HOST:/var/lib/docker/volumes/ip-lookup-tool_ipradar-data/_data/"  # 尾斜杠=拷内容
+# #489:拉取面源路径/旗标/rc 容忍收口到 backend/ipdb/_eval/gate_mirror.py
+# 的 SYNC_FACES 契约(原 RSYNC_SRC/RSYNC_TV2_SRC/RSYNC_HP_SRC 三份字面量
+# 已删),三面统一经 `python -m ipdb._eval mirror-sync` 单源入口调用。
+mirror_sync() {  # mirror_sync <face> <本地目标目录> — 回显/建目录/容忍/留痕都在入口
+  ( cd "$REPO/backend" && \
+      python3 -m ipdb._eval mirror-sync --host "$PROD_HOST" --face "$1" \
+        --dst "$2" $DRY_FLAG )
+}
 
 echo "repo:   $REPO"
 echo "branch: $BRANCH (dirty: $DIRTY)"
@@ -163,18 +173,9 @@ run_scan_equiv() {  # #500 全库扫描↔查询对拍腿:scan_equiv_check.py �
 }
 
 echo
-echo "==> rsync: $RSYNC_SRC -> $DATA_DIR/"
-if [ "$DRY_RUN" != 1 ]; then
-  mkdir -p "$DATA_DIR"
-  # --delete-after 保持镜像(与既往手动月轮一致)
-  # rc=24(源侧活文件消失)对活镜像良性:生产 scheduler 随时在重建 LMDB epoch,
-  # 旧 epoch 家族中途消失属常态;其余非零仍致命(首月轮 2026-10-14 实测发现)。
-  rsync -az --partial --delete-after --info=progress2 "$RSYNC_SRC" "$DATA_DIR/" && rc=0 || rc=$?
-  if [ "$rc" != 0 ] && [ "$rc" != 24 ]; then
-    echo "拒绝: rsync 失败 (rc=$rc)" >&2; exit 1
-  fi
-  [ "$rc" = 24 ] && echo "-- rsync rc=24(源侧活动文件消失,活镜像可容忍)"
-fi
+# #489:主卷镜像拉取收口单源入口。旗标、容忍集、留痕文案见
+# gate_mirror.SYNC_FACES;回显行在入口内逐字同改前;实跑前自建目录。
+mirror_sync main "$DATA_DIR"
 
 # ── truth-v2 周快照面拉取(ADR 0017 T0 采集器 / #262 T3 接线):小机
 # auth.log 周快照在服务器 /opt/ip-truth-capture/(卷外, 周日 04:17 cron),
@@ -182,17 +183,8 @@ fi
 # (rc=24 源侧活文件消失良性)。采集断供 → 构建腿 rc=2 坏输入族
 # fail-loud(不静默跳过: 真值层断供是采集健康事故, 须人见)。
 TRUTH_V2_CAPTURE_DIR="$(realpath -m "${TRUTH_V2_CAPTURE_DIR:-$DATA_DIR/truth-v2-capture}")"
-RSYNC_TV2_SRC="$PROD_HOST:/opt/ip-truth-capture/"
 echo
-echo "==> rsync(truth-v2 快照面): $RSYNC_TV2_SRC -> $TRUTH_V2_CAPTURE_DIR/"
-if [ "$DRY_RUN" != 1 ]; then
-  mkdir -p "$TRUTH_V2_CAPTURE_DIR"
-  rsync -az --partial --info=progress2 "$RSYNC_TV2_SRC" "$TRUTH_V2_CAPTURE_DIR/" && rc=0 || rc=$?
-  if [ "$rc" != 0 ] && [ "$rc" != 24 ]; then
-    echo "拒绝: truth-v2 快照面 rsync 失败 (rc=$rc)" >&2; exit 1
-  fi
-  [ "$rc" = 24 ] && echo "-- rsync rc=24(源侧活动文件消失,活镜像可容忍)"
-fi
+mirror_sync truth-v2 "$TRUTH_V2_CAPTURE_DIR"
 
 # ── honyport 日 CSV 面拉取(issue #265, ADR 0017 §2 第二组件):服务器
 # /opt/honyport/out/ 蜜罐舰队日 CSV(表头 ip,service,protocol,events,
@@ -204,13 +196,12 @@ fi
 # 接/认证失败)与目录缺席(rc=1)分开 —— 网络断不得伪装成哨兵态静默
 # 跳过(静默缩水)。
 HONYPORT_CSV_DIR="$(realpath -m "${TRUTH_V2_HONYPORT_DIR:-$DATA_DIR/truth-v2-honyport}")"
-RSYNC_HP_SRC="$PROD_HOST:/opt/honyport/out/"
 HP_COMPONENT_ARG=()   # 远端目录在场才填充;空 = truth-v2 腿只跑 smallbox
                       # (展开处用 ${A[@]+"${A[@]}"} 形: bash<4.4 set -u 下空
                       #  数组裸展开报 unbound variable, 评审环条目 5a)
 if [ "$DRY_RUN" = 1 ]; then
   echo
-  echo "==> rsync(honyport 日 CSV 面): $RSYNC_HP_SRC -> $HONYPORT_CSV_DIR/"
+  mirror_sync honyport "$HONYPORT_CSV_DIR"
   echo "  [dry-run] 实跑时先 ssh 探测远端 /opt/honyport/out:在场→rsync+传"
   echo "  honyport 组件参数;缺席→只跑 smallbox(哨兵态不持死,#265)"
 else
@@ -224,13 +215,7 @@ else
     echo "    (合法哨兵态不持死: 数据未到, 组件闸哨兵吸收;#265/ADR 0017 §2)"
   else
     echo
-    echo "==> rsync(honyport 日 CSV 面): $RSYNC_HP_SRC -> $HONYPORT_CSV_DIR/"
-    mkdir -p "$HONYPORT_CSV_DIR"
-    rsync -az --partial --info=progress2 "$RSYNC_HP_SRC" "$HONYPORT_CSV_DIR/" && rc=0 || rc=$?
-    if [ "$rc" != 0 ] && [ "$rc" != 24 ]; then
-      echo "拒绝: honyport 日 CSV 面 rsync 失败 (rc=$rc)" >&2; exit 1
-    fi
-    [ "$rc" = 24 ] && echo "-- rsync rc=24(源侧活动文件消失,活镜像可容忍)"
+    mirror_sync honyport "$HONYPORT_CSV_DIR"
     HP_COMPONENT_ARG=(--truth-v2-component "honyport=$HONYPORT_CSV_DIR")
   fi
 fi

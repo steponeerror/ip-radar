@@ -98,3 +98,54 @@ def test_interned_descriptor_key_does_not_poison_scans(tmp_path):
     # 乱序插入(2a00 先于 2001)触发 detect_disjoint 全序扫描:描述符被跳过,
     # 判定结果为真不相交
     assert read_disjoint_flag(base, read_ptr(base)) is True
+
+
+# ── #478 返工必须改 5:drop_staging 定点暂存清扫 ──
+
+def test_drop_staging_narrow_deletes_only_temp_dirs(tmp_path, monkeypatch):
+    """_lmdb.drop_staging 只删 .new.<pid> 暂存与 .cmp 临时目录(与
+    cleanup_stale 前半段同判定),永不动纪元目录、ptr、sidecar;返回
+    真删掉的目录数;IP_RADAR_POOL_CHILD 下不做(同 cleanup_stale:pool
+    worker 看到的暂存可能是主进程在途重建)。"""
+    import os
+    from ipdb._sources._lmdb import drop_staging
+    base = tmp_path / "t.lmdb"
+    staging4 = tmp_path / "t.lmdb.7.new.424242"
+    staging6 = tmp_path / "t.v6.lmdb.3.new.777"
+    cmp_tmp = tmp_path / "t.lmdb.7.new.424242.cmp"
+    for d in (staging4, staging6, cmp_tmp):
+        d.mkdir()
+        (d / "data.mdb").write_bytes(b"x")
+    epoch = tmp_path / "t.lmdb.7"
+    epoch.mkdir()
+    (epoch / "data.mdb").write_bytes(b"x")
+    (tmp_path / "t.lmdb.ptr").write_text("7")
+    (tmp_path / "t.lmdb.count").write_text("5")
+    # pool 旗标下不做:全留
+    monkeypatch.setenv("IP_RADAR_POOL_CHILD", "1")
+    assert drop_staging(base) == 0
+    assert staging4.exists() and staging6.exists() and cmp_tmp.exists()
+    monkeypatch.delenv("IP_RADAR_POOL_CHILD")
+    n = drop_staging(base)
+    assert n == 2                       # v4 base 名下:.new.<pid> + .cmp
+    assert not staging4.exists() and not cmp_tmp.exists()
+    assert staging6.exists()            # v6 base 名下的不归 v4 base 管
+    assert epoch.exists()               # 纪元目录不动
+    assert (tmp_path / "t.lmdb.ptr").exists()
+    assert (tmp_path / "t.lmdb.count").exists()
+    assert drop_staging(base) == 0      # 再扫一遍:无可清,计数 0
+    assert drop_staging(tmp_path / "t.v6.lmdb") == 1   # 换 base 再清 v6 侧
+    assert not staging6.exists()
+
+
+def test_source_base_drop_staging_spans_both_families(tmp_path):
+    """SourceBase.drop_staging 两族 base 各清一遍(v4 + v6),返回总数;
+    车道经此公开方法清暂存,不得摸 source 私有名(返工裁决)。"""
+    from ipdb._sources.greensnow import GreensnowSource
+    src = GreensnowSource(tmp_path)
+    s4 = tmp_path / "greensnow.txt.lmdb.9.new.111"
+    s6 = tmp_path / "greensnow.txt.v6.lmdb.4.new.222"
+    for d in (s4, s6):
+        d.mkdir()
+    assert src.drop_staging() == 2
+    assert not s4.exists() and not s6.exists()

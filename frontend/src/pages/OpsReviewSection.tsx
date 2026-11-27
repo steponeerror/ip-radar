@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useI18n } from "../i18n";
 import {
   getOpsItems, readOpsItem, postOpsReview,
-  type ApiError, type OpsItem, type OpsItemReviewResult, type OpsReviewVerdict,
+  isUnauthorized,
+  type OpsItem, type OpsItemReviewResult, type OpsReviewVerdict,
 } from "../api";
 import { opsErrorText } from "./opsErrorText";
 import { relTime } from "./opsTable";
@@ -62,7 +63,7 @@ export default function OpsReviewSection({ onUnauthorized }: {
   const [actionError, setActionError] = useState<string | null>(null);
 
   const failWith = (set: (s: string) => void, fallback: string) => (e: unknown) => {
-    if ((e as ApiError).status === 401) { onUnauthorized(); return; }
+    if (isUnauthorized(e)) { onUnauthorized(); return; }
     set(opsErrorText(t, e, fallback));
   };
 

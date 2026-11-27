@@ -8,7 +8,9 @@ S7 (spec 2026-10-12-eval-loop-hardening-design.md §4.1: 接入关镜像对齐�
 raise GateMirrorMisalignedError, 绝不降级为警告;gate 由调用方在异常后
 不再启动, 测量建言人裁终局)。
 
-rsync/ssh 形态照 scripts/monthly_eval.sh 既有镜像同步写法:
+rsync 同步契约(#489 起)唯一住在下方常量与 SYNC_FACES: 接入关 main 面与
+月轮三拉取面(monthly_eval.sh 经 `python -m ipdb._eval mirror-sync` 调
+sync_face)共用一份, 语义出处(原 monthly_eval.sh 手写段, 随收口迁此):
 - 源路径 `<host>:/var/lib/docker/volumes/ip-lookup-tool_ipradar-data/_data/`
   (尾斜杠=拷内容), 旗标 `-az --partial --delete-after --info=progress2`;
 - rc=24 (源侧活文件消失——生产 scheduler 随时在重建 LMDB epoch, 旧 epoch
@@ -25,14 +27,52 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Sequence
 
-# 生产 volume 数据目录 (monthly_eval.sh RSYNC_SRC 同源;尾斜杠在调用点拼)
+# 生产 volume 数据目录 (尾斜杠在拼命令时加;原 monthly_eval.sh RSYNC_SRC
+# 同源, #489 起源路径只在此定义一次)
 PROD_DATA_DIR = "/var/lib/docker/volumes/ip-lookup-tool_ipradar-data/_data"
+# truth-v2 周快照采集面 / honyport 蜜罐日 CSV 面(卷外目录, ADR 0017;
+# 收口前(8fe7d5a6 的 monthly_eval.sh)字面量, #489 起同在此单源)
+TRUTH_V2_CAPTURE_DIR = "/opt/ip-truth-capture"
+HONYPORT_OUT_DIR = "/opt/honyport/out"
+# 生产机地址唯一缺省(monthly_eval.sh PROD_HOST 同值, 两边由对拍测试钉;
+# 原 __main__._PROD_HOST_DEFAULT 第二份已删, #489)
+PROD_HOST_DEFAULT = "root@203.88.124.85"
 
 RSYNC_FLAGS = ["-az", "--partial", "--delete-after", "--info=progress2"]
+# 快照/蜜罐组件面旗标 = 主面去掉 --delete-after(增量拉取不删本地既有件;
+# 收口前 monthly_eval.sh 快照/蜜罐面手写同款, #489 起推导自同一字面量)
+RSYNC_FLAGS_NO_DELETE = [f for f in RSYNC_FLAGS if f != "--delete-after"]
 # 24 = vanished source files, 活镜像良性可容忍 (monthly_eval.sh, commit 35c64b97)
 RSYNC_TOLERATED_RCS = frozenset({0, 24})
+# rc 24 留痕文案唯一一份(月轮 mirror-sync 与 sync_gate_mirror 的 note 同串)
+RC24_NOTE = "rsync rc=24(源侧活动文件消失,活镜像可容忍)"
+
+# 三个拉取面的同步契约(#489: 源路径/旗标/屏幕标签各定义一次;
+# 收口前(8fe7d5a6 的 monthly_eval.sh)三段手写旗标与 rc 判断退役, 月轮经
+# mirror-sync CLI 调同一份 sync_face)。reject = `拒绝: <reject> (rc=N)`
+# 文案主干, 从 label 推导(评审建议 9: 面名不写两遍, 主面 label 空 →
+# `rsync 失败`);label = 回显行 `==> rsync(<label>): …`(空=无标签主面)。
+SYNC_FACES = {
+    "main": {
+        "src": PROD_DATA_DIR,
+        "flags": RSYNC_FLAGS,             # 含 --delete-after: 主镜像=镜像语义
+        "label": "",
+    },
+    "truth-v2": {
+        "src": TRUTH_V2_CAPTURE_DIR,
+        "flags": RSYNC_FLAGS_NO_DELETE,
+        "label": "truth-v2 快照面",
+    },
+    "honyport": {
+        "src": HONYPORT_OUT_DIR,
+        "flags": RSYNC_FLAGS_NO_DELETE,
+        "label": "honyport 日 CSV 面",
+    },
+}
+for _spec in SYNC_FACES.values():
+    _spec["reject"] = f"{_spec['label']} rsync 失败".strip()
 
 # 远端逐源 epoch 读取: 每行 `name=value` (printf 名=值);cat 失败记 "?",
 # 与本地 OSError → "?" 同口径。经 sort 保证输出序确定。
@@ -56,6 +96,51 @@ def _run(argv: list[str]) -> subprocess.CompletedProcess:
     return subprocess.run(argv, check=False, capture_output=True, text=True)
 
 
+def _run_passthrough(argv: list[str]) -> subprocess.CompletedProcess:
+    """透屏 runner(#489 月轮 mirror-sync 用): rsync 进度直出屏幕不捕获,
+    stderr 不进错误尾(屏幕上已可见)。"""
+    return subprocess.run(argv, check=False)
+
+
+def sync_face(prod_host: str, face: str, dst: Path | str, *,
+              dry_run: bool = False, capture: bool = True,
+              raise_on_fail: bool = True,
+              runner: Callable[[list[str]], Any] | None = None,
+              exclude: Sequence[str] = ()) -> dict:
+    """同步一个生产拉取面(#489 同步契约唯一实现: 拼命令 + 跑 + 判 rc)。
+
+    face ∈ SYNC_FACES(源路径/旗标/拒绝文案全从契约表出, 调用方不再自持);
+    dst=本地目录(尾斜杠拼命令时加;实跑前 mkdir -p,dry-run 不落盘)。
+    capture=True 输出走 runner 捕获(接入关路径);False 直接透屏(月轮
+    要看到进度)。注入 runner 时优先于 capture 选择(测试替身)。
+    rc∈RSYNC_TOLERATED_RCS → ok=True(rc=24 附 RC24_NOTE 留痕);其余:
+    raise_on_fail 时 raise RuntimeError(f"{reject} (rc=…){stderr 尾}",
+    文案与 sync_gate_mirror 历史一致), 否则返回 ok=False 交调用方裁决
+    退出码(mirror-sync CLI 据此打拒绝行)。exclude=额外 --exclude 模式
+    (preserve 候选豁免由 sync_gate_mirror 组装后传入)。
+    """
+    spec = SYNC_FACES[face]
+    argv = ["rsync", *spec["flags"]]
+    argv += [f"--exclude={pat}" for pat in exclude]
+    argv += [f"{prod_host}:{spec['src']}/", f"{Path(dst)}/"]
+    if dry_run:
+        return {"ok": True, "dry_run": True, "rc": None, "command": argv,
+                "note": ""}
+    Path(dst).mkdir(parents=True, exist_ok=True)
+    run = runner or (_run if capture else _run_passthrough)
+    proc = run(argv)
+    rc = proc.returncode
+    if rc not in RSYNC_TOLERATED_RCS:
+        if raise_on_fail:
+            raise RuntimeError(
+                f"{spec['reject']} (rc={rc}){_stderr_tail(proc)}")
+        return {"ok": False, "dry_run": False, "rc": rc, "command": argv,
+                "note": ""}
+    note = RC24_NOTE if rc == 24 else ""
+    return {"ok": True, "dry_run": False, "rc": rc, "command": argv,
+            "note": note}
+
+
 def _stderr_tail(proc: Any) -> str:
     err = (getattr(proc, "stderr", "") or "").strip()
     return f": {err[-200:]}" if err else ""
@@ -64,33 +149,25 @@ def _stderr_tail(proc: Any) -> str:
 def sync_gate_mirror(prod_host: str, mirror_dir: Path, dry_run: bool = False,
                      *, runner: Callable[[list[str]], Any] | None = None,
                      preserve: str | None = None) -> dict:
-    """rsync 增量同步生产 volume → mirror_dir (旗标/容忍集照 monthly_eval.sh)。
+    """rsync 增量同步生产 volume → mirror_dir (main 面契约, SYNC_FACES["main"])。
 
     dry_run 只回显将执行的命令, 不执行不落盘 (monthly_eval.sh --dry-run
     同义);rc∉{0, 24} → raise (fail-closed);rc=24 当成功并留痕 note。
     preserve=候选源名 → --exclude 使其文件既不传输也不被 --delete-after
     清除 (镜像内物化的候选 raw/LMDB/ptr 跨 sync 存活, 候选豁免同口径)。
+    #489 起为 sync_face(main 面)薄壳: 旗标/容忍集/留痕文案全部出自
+    SYNC_FACES 契约, 本函数只负责接入关自己的 preserve 豁免与返回形状
+    (返回形状/RuntimeError 文案与收口前逐字一致, 现有测试不改)。
     """
-    runner = runner or _run
-    argv = ["rsync", *RSYNC_FLAGS]
+    exclude: tuple[str, ...] = ()
     if preserve is not None:
         # 排除模式与 check_measurement_alignment 的 `<candidate>.` 前缀豁免
         # 同口径 (review-loop round-1 P0; rsync --exclude 同时豁免传输与
         # --delete —— 无它, --gate 的前置 sync 会删掉镜像内刚物化的候选,
         # gate 变成空候选测量却 S7 全绿)。
-        argv += [f"--exclude={preserve}", f"--exclude={preserve}.*"]
-    argv += [f"{prod_host}:{PROD_DATA_DIR}/", f"{Path(mirror_dir)}/"]
-    if dry_run:
-        return {"ok": True, "dry_run": True, "rc": None, "command": argv,
-                "note": ""}
-    Path(mirror_dir).mkdir(parents=True, exist_ok=True)
-    proc = runner(argv)
-    rc = proc.returncode
-    if rc not in RSYNC_TOLERATED_RCS:
-        raise RuntimeError(f"rsync 失败 (rc={rc}){_stderr_tail(proc)}")
-    note = "rsync rc=24(源侧活动文件消失,活镜像可容忍)" if rc == 24 else ""
-    return {"ok": True, "dry_run": False, "rc": rc, "command": argv,
-            "note": note}
+        exclude = (preserve, f"{preserve}.*")
+    return sync_face(prod_host, "main", mirror_dir, dry_run=dry_run,
+                     runner=runner, exclude=exclude)
 
 
 def epoch_fingerprint(data_dir: Path) -> dict[str, str]:

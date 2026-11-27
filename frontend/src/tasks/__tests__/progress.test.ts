@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { stagedFrac, isIndeterminate, isTaskTerminal, isTaskActive, isBatchLive } from "../progress";
+import { stagedFrac, isIndeterminate, isTaskTerminal, isTaskActive, isBatchLive, batchOverallPct } from "../progress";
 import type { BatchState, TaskState } from "../../api";
 
 const t = (over: Partial<TaskState>): TaskState => ({
@@ -80,5 +80,43 @@ describe("任务状态谓词(#245 收编,原三处内联散推)", () => {
     expect(isBatchLive(b("paused"))).toBe(true);
     expect(isBatchLive(b("done"))).toBe(false);
     expect(isBatchLive(null)).toBe(false);
+  });
+})
+
+
+// #486 收编:此前 BatchPanel/BatchMiniBar 各抄一份「各任务 stagedFrac 均值」。
+describe("batchOverallPct(#486 收编:两处各抄一份的批量整体百分比)", () => {
+  const bt = (over: Partial<TaskState>): TaskState => ({
+    id: "t1", source: "s", host: null, state: "queued",
+    error: null, batch_id: "b1", ...over,
+  });
+  const batch = (state: BatchState["state"], done = 0, total = 0): BatchState =>
+    ({ id: "b1", state, done, total });
+
+  it("batch 内任务取 stagedFrac 均值", () => {
+    const tasks = [
+      bt({ state: "downloading", received: 50, total: 100 }), // 0.25
+      bt({ id: "t2", state: "done" }),                        // 1
+    ];
+    // (0.25 + 1) / 2 = 0.625 → 63(round)
+    expect(batchOverallPct(tasks, batch("running"))).toBe(63);
+  });
+
+  it("batchless(batch null)取活动任务均值(BatchPanel 原行为)", () => {
+    const tasks = [
+      { ...bt({ id: "t1", state: "done" }), batch_id: "old" },
+      { ...bt({ id: "t2", state: "loading", received: 50, total: 100 }), batch_id: null },
+    ];
+    // 活动任务仅 t2:0.5 + 0.5×0.5 = 0.75 → 75
+    expect(batchOverallPct(tasks, null)).toBe(75);
+  });
+
+  it("batch 在但无可见任务 → 退 batch 维度 done/total(MiniBar 原回退)", () => {
+    expect(batchOverallPct([], batch("done", 1, 4))).toBe(25);
+    expect(batchOverallPct([], batch("done", 0, 0))).toBe(0);
+  });
+
+  it("batchless 且无活动任务 → 0", () => {
+    expect(batchOverallPct([{ ...bt({ id: "t9", state: "done" }), batch_id: "old" }], null)).toBe(0);
   });
 });
