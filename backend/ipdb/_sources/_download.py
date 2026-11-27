@@ -83,6 +83,7 @@ def download_file(
     headers: dict | None = None,
     chunk_size: int = 65536,
     secret: str | None = None,
+    validate: Callable[[Path], None] | None = None,
 ) -> None:
     """Stream `url` to `dest` atomically.
 
@@ -91,7 +92,9 @@ def download_file(
     chunks; on cancel/failure the .tmp is removed and `dest` is untouched.
     A body shorter than its Content-Length is rejected as truncated, so a
     mid-body disconnect can't masquerade as clean EOF and replace the
-    previous good file with a partial one.
+    previous good file with a partial one. A response without a
+    Content-Length header can't be truncation-checked at all (its guard is
+    skipped) — that case logs one warning (#491, warn-only) and completes.
 
     Args:
         timeout: stdlib urllib socket timeout applied to all socket ops
@@ -99,6 +102,10 @@ def download_file(
             to one read.
         secret: 凭据串(abuse.ch v2 Auth-Key,票 #159)——截断报错串里
             URL 的该串替换为 ***;缺省 None 走既有 redact_url 契约。
+        validate: #491 落盘前最后校验口子:os.replace 之前收到 scratch
+            路径,抛异常 = 拒绝落盘(scratch 被清、dest 原样保留)。缺省
+            None 零操作——B 家族 37 源既有行为一字不变;A 家族默认下载
+            用它挂空体守卫(_source_base.Source.download)。
     """
     if token is not None and token.is_cancelled():
         raise CancelledError("cancelled before start")
@@ -110,7 +117,19 @@ def download_file(
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             warn_if_redirected(url, resp, secret=secret)
-            total = int(resp.headers.get("Content-Length") or 0)
+            cl_header = resp.headers.get("Content-Length")
+            total = int(cl_header or 0)
+            if cl_header is None:
+                # #491:无 Content-Length 时截断守卫形同虚设(total=0 →
+                # 下方 `if total and …` 恒跳过),close-delimited 响应半截
+                # 不抛 IncompleteRead、静默返回部分字节(事实包 _prep/
+                # 事实包-25-7.md 实测,Python 3.12.3)。只告警不拦截(Q-C
+                # 裁定 warn-only:拦了会把正常源打成永久失败);B 家族
+                # 同吃这一行日志,落盘行为零变化。地址走 _mask_secret
+                # 同款脱敏(与重定向绊线同一形状)。
+                logger.warning(
+                    "no Content-Length from %s — truncation cannot be detected",
+                    _mask_secret(url, secret))
             received = 0
             with open(tmp, "wb") as f:
                 while True:
@@ -126,6 +145,11 @@ def download_file(
             if total and received != total:
                 raise RuntimeError(
                     f"truncated download: {_mask_secret(url, secret)} — got {received} of {total} bytes")
+            if validate is not None:
+                # #491 落盘前最后校验:对 scratch 判,拒绝 = 抛异常 → 外层
+                # except 清 scratch、dest 零触碰。放在 final 100% 进度事件
+                # 之前——校验拒绝的下载不该报 100%。
+                validate(tmp)
             if on_progress is not None and total > 0:
                 on_progress(received, total)  # ensure final 100% lands
         os.replace(str(tmp), str(dest))

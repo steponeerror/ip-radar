@@ -15,9 +15,11 @@ Shared(底座 SourceBase 提供):LMDB write from harvest (epoch/ptr swap),
 mmap query, health (file-mtime staleness), HTTP get with retries + auth
 header + atomic tmp→rename write,__init__ 状态槽与 v6 双族 sidecar。
 """
+import http.client
 import logging
 import time
-import urllib.request
+import urllib.error
+from pathlib import Path
 from typing import Iterator
 
 from ._evidence import Evidence
@@ -31,9 +33,39 @@ from ._sources._rebuild_tail import InfraNoiseGate
 # rebuild。import 方向与既有 _lmdb/_download 一致(ipdb 层 → _sources 内部)。
 from ._sources._base import SourceBase
 from ._sources._download import (
-    warn_if_redirected, atomic_write_bytes, redact_url)
+    CancelledError, download_file, redact_url)
 
 logger = logging.getLogger(__name__)
+
+# 请求级重试帽(#491):网络类失败最多试 3 次,退避 2s/4s——形状与
+# SourceBase._http_get(_sources/_base.py)相同;两份重试循环刻意不合并
+# (工单 #491「不在这次做」写明合并另开票)。重试层只在这层,只这 5 个
+# 走默认下载的 A 家族源受益(bruteforce/metowolf_iplist/mirage_feed/
+# reportedip/tweetfeed),download_file 与 B 家族 37 源零变化。
+_DOWNLOAD_RETRIES = 3
+
+
+def _backoff(seconds: float) -> None:
+    """重试退避的可观察缝(#491 测试用例 5 桩这里):真身 time.sleep。"""
+    time.sleep(seconds)
+
+
+def _is_retryable(e: Exception) -> bool:
+    """网络类失败判据(#491 §2):连接被重置(ConnectionResetError ⊂
+    ConnectionError)、超时(TimeoutError;socket.timeout 在 3.10+ 就是它,
+    连接期超时经 urllib 包成 URLError)、读一半断掉(http.client.
+    IncompleteRead)、urllib 包装(URLError ⊂ OSError,连接期的网络错
+    基本都进它)、download_file 截断守卫报错(普通 RuntimeError,按
+    文案前缀判别——空体守卫同为 RuntimeError 但文案不同,照旧立刻
+    失败不重试)。取消(CancelledError)在调用点先行原样上抛,不进
+    这里。HTTPError(404/403 等)是 URLError 子类,也重试——工单判据
+    按类型写 URLError,语义取舍( definitive 服务端答案不重试)留给
+    合并两份重试循环的后续票。"""
+    if isinstance(e, (urllib.error.URLError, http.client.IncompleteRead,
+                      ConnectionError, TimeoutError)):
+        return True
+    return (isinstance(e, RuntimeError)
+            and str(e).startswith("truncated download"))
 
 
 class Source(SourceBase):
@@ -47,20 +79,53 @@ class Source(SourceBase):
     single_evidence: bool = False
 
     def download(self, token=None) -> None:
-        """Default: simple GET → self._path. Override for bespoke fetch.
+        """Default: guarded streaming GET → self._path. Override for bespoke.
 
-        ``token`` is accepted (and ignored) so UpdateManager can call
-        ``download(token=...)`` uniformly; subclasses with non-cancellable
-        fetches need not override for signature compatibility alone."""
+        #491(2026-11-27):streams via ``_sources._download.download_file``
+        so ``token`` is now honored — pre-cancel raises before any request,
+        mid-stream cancel between chunks, a body shorter than its
+        Content-Length is rejected as truncated, redirects trip
+        ``warn_if_redirected`` inside, and per-chunk progress lands on
+        ``token.on_progress``. The landing contract is unchanged: raw
+        bytes, one atomic replace (ADR 0014 splits the *disk* contract,
+        not transport guarantees). The empty-body guard keeps its exact
+        message but moved pre-replace into ``download_file``'s ``validate``
+        hook, so a blank response leaves the previous file byte-identical.
+
+        Network-class failures (see ``_is_retryable``) retry up to
+        ``_DOWNLOAD_RETRIES`` attempts with 2s/4s backoff — same shape as
+        ``SourceBase._http_get`` (the two retry loops stay separate;
+        merging is a separate ticket). Cancellation and empty responses
+        are not retried; after the last attempt the original exception
+        propagates unchanged.
+        """
         self._data_dir.mkdir(parents=True, exist_ok=True)
-        req = urllib.request.Request(
-            self.url, headers={"User-Agent": "ip-lookup-tool/1.0"})
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            warn_if_redirected(self.url, resp)
-            data = resp.read()
-        if not data.strip():
-            raise RuntimeError(f"Empty response from {redact_url(self.url)}")
-        atomic_write_bytes(self._path, data)
+
+        def _reject_blank(scratch: Path) -> None:
+            # 空体守卫(#491):download_file 直接原子落 self._path,空白
+            # 检查挪进落盘前 validate 口子——拒绝时 scratch 被 download_file
+            # 清掉、旧文件字节不动,无需下载前快照/失败还原。文案与旧实现
+            # 一字不差。
+            if not scratch.read_bytes().strip():
+                raise RuntimeError(f"Empty response from {redact_url(self.url)}")
+
+        for attempt in range(1, _DOWNLOAD_RETRIES + 1):
+            try:
+                download_file(
+                    self.url, self._path, token=token, timeout=120,
+                    headers={"User-Agent": "ip-lookup-tool/1.0"},
+                    validate=_reject_blank)
+                return
+            except CancelledError:
+                raise          # 取消不重试,原样上抛(#491 §2)
+            except Exception as e:
+                if attempt == _DOWNLOAD_RETRIES or not _is_retryable(e):
+                    raise
+                delay = 2 ** attempt
+                logger.warning(
+                    "download attempt %d/%d failed for %s, retrying in %ds: %s",
+                    attempt, _DOWNLOAD_RETRIES, self.name, delay, e)
+                _backoff(delay)
 
     def harvest(self) -> Iterator[tuple[str, Evidence]]:
         """Parse → yield (cidr_str, Evidence). Override in every concrete source."""
