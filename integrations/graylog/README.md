@@ -17,10 +17,13 @@ What you get per IP in one lookup:
 | ASN | `asn.value` / `as_name.value` |
 
 The `threat.*` fields are the fused view: the verdict is the most severe
-classification present, while the confidence is a posterior recomputed
-over the pooled per-source evidence of all accusing classifications —
-with a single accusing classification it equals that classification's
-own confidence. `classifications.*` keeps the per-type
+classification present. When something accuses (`malicious` / `suspicious`),
+the confidence is a posterior recomputed over the pooled per-source evidence
+of all accusing classifications — with a single accusing classification it
+equals that classification's own confidence. When nothing accuses (a benign
+assertion, or archive-only records behind an `informational` verdict), the
+confidence is the highest confidence among the classifications carrying
+that verdict — `0` when there is no evidence at all. `classifications.*` keeps the per-type
 detail with per-source evidence if you want deeper pipelines.
 
 ## Install (content pack — fastest path)

@@ -137,7 +137,7 @@
 
 **CSV**——结果表上方的 `Export CSV` 按钮把当前结果全量导出,带完整证据深度:27 列,含融合判定 + 置信度、逐类型标签与恶意软件家族、聚合的 `reporter_total` / `corroborated` / `verdict_conflict`、跨源最早 `first_seen` / 最晚 `last_seen`、最高源可靠性,以及资产属性全集。可能被电子表格当公式执行的值会加前缀,恶意 feed 数据保持文本。展开超过 50,000 行时自动转为下载模式(表格模式关闭——见[查询](#2-查询))。
 
-**STIX 2.1**——`GET /api/lookup/{ip}/stix` 返回该地址的 STIX 2.1 bundle:每个贡献源一个 identity、地址本身的 IPv4/IPv6 地址对象(按地址族二选一)、它的 location 与 autonomous system、把这些对象连起来的 relationship,以及每条指控分类一个 indicator——带着与 API 相同的逐源证据(纯存档证据不作指控,不产 indicator)。镜像内置 `stix2` 库,开箱即用——对接原生讲 STIX 的 SIEM 很顺手。结果表上方的 **Export STIX** 按钮产出同一个 bundle。
+**STIX 2.1**——`GET /api/lookup/{ip}/stix` 返回该地址的 STIX 2.1 bundle:每个贡献源一个 identity、地址本身的 IPv4/IPv6 地址对象(按地址族二选一)、它的 location 与 autonomous system(解析得到时才有)、把这些对象连起来的 relationship,以及每条指控分类一个 indicator——带着与 API 相同的逐源证据(纯存档证据不作指控,不产 indicator)。镜像内置 `stix2` 库,开箱即用——对接原生讲 STIX 的 SIEM 很顺手。结果表上方的 **Export STIX** 按钮产出同一个 bundle。
 
 ## 5. 管理台
 

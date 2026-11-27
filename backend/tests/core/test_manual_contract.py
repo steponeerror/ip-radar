@@ -46,7 +46,8 @@ _STIX_OBJECT_TYPES = {
 }
 _STIX_SANCTIONED_NON_OBJECT_CALLS = {"Bundle", "UUID"}
 # 手册 STIX 段对每个对象类型的提及词(按手册自己的叫法,不硬套 STIX
-# 类型名;两份手册都用英文词,大小写不敏感比对)。
+# 类型名;两份手册都用英文词,大小写不敏感、整词比对——免得 geolocation、
+# service identity 这类词误满足)。
 _STIX_MANUAL_MENTIONS = {
     "Identity": "identity",
     "Indicator": "indicator",
@@ -74,6 +75,16 @@ def _merge_precedence_keys() -> set[str]:
     raise AssertionError(
         "backend/ipdb/_merge.py 找不到 PRECEDENCE dict(判定值集真源漂了?"
         "测试选择器要跟着改)")
+
+
+def _merge_precedence() -> dict:
+    """返回 _merge.py 里 PRECEDENCE 这份 dict 本体(键值都要)。"""
+    tree = ast.parse(MERGE_PY.read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) \
+                and any(isinstance(t, ast.Name) and t.id == "PRECEDENCE" for t in node.targets):
+            return ast.literal_eval(node.value)
+    raise AssertionError("backend/ipdb/_merge.py 找不到 PRECEDENCE dict(判定值集真源漂了?)")
 
 
 def _manual_section(text: str, header: str) -> str:
@@ -180,6 +191,34 @@ def test_stix_export_constructs_exactly_documented_object_types():
         "跟着提及,test_manual_stix_sections_* 会钉文档侧)")
 
 
+def test_stix_export_imports_match_object_types():
+    """按导入名再对拍一次:别名导入、导入后经变量间接构造、导入了却没构造,
+    三种情况构造扫描都看不出,这里挡住(#510 评审建议 3b)。"""
+    imported = set()
+    for node in ast.walk(ast.parse(STIX_EXPORT_PY.read_text(encoding="utf-8"))):
+        if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("stix2"):
+            imported.update(alias.name for alias in node.names)
+    assert imported, "backend/ipdb/_stix_export.py 扫不到 from stix2 import …(文件换写法了)"
+    assert imported == _STIX_OBJECT_TYPES | {"Bundle"}, (
+        f"_stix_export.py 从 stix2 导入的名字 {sorted(imported)} ≠ 对象类型清单"
+        f"加 Bundle {sorted(_STIX_OBJECT_TYPES | {'Bundle'})}(导入了没构造,或构造的没在这里导入)")
+
+
+def test_types_verdict_precedence_mirrors_merge_precedence():
+    """顶层 threat.verdict 用的是 backend/ipdb/_types.py 里手抄的一份
+    优先级表;这里钉它和 _merge.py 的 PRECEDENCE 键值都相等(#510 评审
+    建议 3c:三份手抄里至少这两份不许再各改各的)。"""
+    types_py = REPO / "backend/ipdb/_types.py"
+    found = [n for n in ast.walk(ast.parse(types_py.read_text(encoding="utf-8")))
+             if isinstance(n, ast.Assign)
+             and any(isinstance(t, ast.Name) and t.id == "_VERDICT_PRECEDENCE" for t in n.targets)]
+    assert len(found) == 1, "backend/ipdb/_types.py 找不到唯一的 _VERDICT_PRECEDENCE 赋值"
+    mirror = ast.literal_eval(found[0].value)
+    assert mirror == _merge_precedence(), (
+        f"_types.py 的 _VERDICT_PRECEDENCE {mirror} ≠ _merge.py 的 PRECEDENCE "
+        f"{_merge_precedence()}(两份手抄漂了)")
+
+
 def test_manual_stix_sections_mention_every_object_type_and_no_observed_data():
     for path, header in ((MANUAL_EN, "## 4. Exports"), (MANUAL_ZH, "## 4. 导出")):
         para = _stix_paragraph(
@@ -188,8 +227,11 @@ def test_manual_stix_sections_mention_every_object_type_and_no_observed_data():
             f"{path.name}: STIX 段不许再写 observed-data——_stix_export.py"
             "不产该对象(Identity/地址 SCO/location/autonomous-system/"
             "relationship/Indicator)")
+        assert not re.search(r"observed[- ]data", para, re.IGNORECASE), (
+            f"{path.name}: STIX 段不许再写 observed data / ObservedData 的任何写法"
+            "——_stix_export.py 不产该对象")
         missing = [obj for obj, mention in _STIX_MANUAL_MENTIONS.items()
-                   if mention not in para.lower()]
+                   if not re.search(rf"\b{re.escape(mention)}s?\b", para, re.IGNORECASE)]
         assert not missing, (
             f"{path.name}: STIX 段缺对象类型提及 {missing}(固定清单见 "
             "test_stix_export_constructs_exactly_documented_object_types)")
@@ -201,12 +243,15 @@ def test_graylog_verdict_values_and_no_worst_pick_phrase():
     text = GRAYLOG_README.read_text(encoding="utf-8")
     row = next((ln for ln in text.splitlines() if "Threat verdict" in ln), None)
     assert row is not None, "graylog README 找不到 Threat verdict 行(漂了改名)"
-    backticked = set(re.findall(r"`([^`]+)`", row))
-    missing = _merge_precedence_keys() - backticked
-    assert not missing, (
-        f"integrations/graylog/README.md verdict 行缺判定值 {missing}"
-        "(实现真源 backend/ipdb/_merge.py PRECEDENCE 四值)")
-    assert not re.search(r"worst\s+classification\s+by\s+precedence", text), (
+    paren = re.search(r"\(([^()]*)\)\s*\|?\s*$", row)
+    assert paren is not None, "graylog README Threat verdict 行的括号取值段漂了"
+    backticked = set(re.findall(r"`([^`]+)`", paren.group(1)))
+    keys = _merge_precedence_keys()
+    assert backticked == keys, (
+        f"integrations/graylog/README.md verdict 行取值 {sorted(backticked)} ≠ "
+        f"{sorted(keys)}(实现真源 backend/ipdb/_merge.py PRECEDENCE 四值)")
+    assert not re.search(r"worst\s+classification\s+by\s+precedence", text,
+                         re.IGNORECASE), (
         "graylog README 禁现旧说法 worst classification by precedence——"
         "顶层置信度是全部指控组证人明细池化重算的后验(_types.py "
         "threat_summary,2026-10-04 refusion),不是最差组自己的置信度;"
