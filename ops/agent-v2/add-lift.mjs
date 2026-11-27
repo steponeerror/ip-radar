@@ -6,7 +6,9 @@
 //   lift(全在沙箱分支上,一次 commit):
 //      文档三件(README 源表行+源数+1 双语、MANUAL 计数双语、CHANGELOG feed-add 条目,
 //      数据取轮 a2-dossier.json)→ 基准重冻(11-18 判例 b9f9dc19 正路:gen-universe.mjs
-//      与 rrsi gen-split.mjs 解冻→重生成→复冻,种子不变;测试钉同步)→ roster 钉同步
+//      与 rrsi gen-split.mjs 解冻→重生成→复冻,种子不变;测试钉同步)→ 基准说明纯数字同步
+//      (#440 4b:gen-split 缺省席位/用法文案 + rrsi.json _doc 首句题数;人工项=首句之后
+//      粒度/理由句与核对日期,见提醒日志)→ roster 钉同步
 //      (test_metadata_derivation.py 快照行 + 发现冒烟计数,mirage #359 同步面)→
 //      门三连(backend 全量 pytest / ops selftest / agent-v2 node --test)→
 //      push + gh pr create --draft(标题 add/<source>,正文含轮四行数)。
@@ -127,9 +129,22 @@ export function syncGenSplitDefaults(text, { evolve, heldout }) {
 export function syncRrsiDocFirstSentence(text, { total, rosterTotal, exempt, evolve, heldout }) {
   // 只换首句里「N 题 = M 源 − K 免考,E 演化 / H 留出」这一串;首句(首个「。」)之后粒度数字与
   // 「约 2 题增益才算真增益」理由句是人写的说明,一个字不动——自动改=让工具替人写说明(#440 留人工)。
-  return sub1(String(text), /(\d+)( 题 = )(\d+)( 源 − )(\d+)( 免考,)(\d+)( 演化 \/ )(\d+)( 留出)/,
-    (m, a, s1, b, s2, c, s3, d, s4, e, s5) => `${total}${s1}${rosterTotal}${s2}${exempt}${s3}${evolve}${s4}${heldout}${s5}`,
-    "rrsi.json _doc 首句题数");
+  // 首句边界做实(#440 返工,评审建议改 2):先按首个「。」切出首句,只对这一段跑恰一命中替换再拼回,
+  // 「只换首句」不再靠全文恰一命中间接成立;找不到「。」或首句内 0 命中/多命中都抛(文案同 sub1
+  // 写法,后缀换成对题的说法,不用「frost 面改版」旧词)。与 tests/rrsi-domain.test.mjs「超参钉死」
+  // 的 split("。")[0] 同口径。
+  const src = String(text);
+  const boundary = src.indexOf("。");
+  if (boundary < 0)
+    throw new Error("钉面漂移:rrsi.json _doc 首句题数 找不到句号「。」(_doc 首句形状变了,要同步本变换)");
+  const head = src.slice(0, boundary);
+  const tail = src.slice(boundary);
+  const re = /(\d+)( 题 = )(\d+)( 源 − )(\d+)( 免考,)(\d+)( 演化 \/ )(\d+)( 留出)/g; // g 供 matchAll 计数与替换同集(sub1 同法;已验恰 1,replace 全局=单处)
+  const hits = [...head.matchAll(re)];
+  if (hits.length !== 1)
+    throw new Error(`钉面漂移:rrsi.json _doc 首句题数 期望恰 1 处命中,实 ${hits.length}(_doc 首句形状变了,要同步本变换)`);
+  return head.replace(re,
+    (m, a, s1, b, s2, c, s3, d, s4, e, s5) => `${total}${s1}${rosterTotal}${s2}${exempt}${s3}${evolve}${s4}${heldout}${s5}`) + tail;
 }
 
 // 发现冒烟计数钉(test_b_family_url_filename_guard.py;mirage #359「roster 钉同步」同面)
@@ -199,6 +214,7 @@ export function composePrBody({ source, card = null, roundId, dossier, stats, ga
     `CHANGELOG feed-add 条目;add-domain 基准解冻→重生成→复冻(universe ${universe.before}→${universe.after},种子不变);`,
     `rrsi 劈分同法(${split.before}→${split.after},heldout 席位 round(N×13/53)=${seats});roster 钉同步`,
     "(test_metadata_derivation 快照行 + 发现冒烟计数);roster 总数 " + `${rosterTotal.before}→${rosterTotal.after}。`,
+    "基准说明纯数字同步(#440):gen-split.mjs 缺省席位/用法文案与 rrsi.json _doc 首句题数按新冻结件机械改写;_doc 首句之后的粒度/理由句与核对日期是人工项(lift 输出有提醒,合并前人核)。",
     ...(feeds ? [`探测清单 ${FEEDS_MANIFEST} 数据行 ${feeds.before}→${feeds.after}(#456;新源的代表端点行由人补进清单,lift 只同步两处钉数)。`] : []),
     "",
     `**门三连**:${gates.map((g) => `${g.name} ${g.pass ? "✅" : "❌"}`).join(" / ")}`,
@@ -211,6 +227,12 @@ export function composePrBody({ source, card = null, roundId, dossier, stats, ga
 
 // ── 小工具 ──
 function readJsonIf(p) { try { return JSON.parse(fs.readFileSync(p, "utf8")); } catch { return null; } }
+
+// 变换先算完才写盘:fn 抛错时 writeFileSync 不达,文件字节不变——「报错并停下,不写文件」的落点
+// (runLift 的 edit 闭包与第 4b 步共用;行为测试 tests/lift-refreeze-sync.test.mjs,#440 返工评审建议改 5)
+export function applyEdit(file, fn) {
+  fs.writeFileSync(file, fn(fs.readFileSync(file, "utf8")));
+}
 
 async function git(cwd, args, opts = {}) {
   try {
@@ -299,8 +321,7 @@ export async function runLift({ sandbox, roundDir, fleetRoot, devRoot, python, s
   }
   // 3. 文档三件
   const edit = (rel, fn, what) => {
-    const p = path.join(sandbox, rel);
-    fs.writeFileSync(p, fn(fs.readFileSync(p, "utf8")));
+    applyEdit(path.join(sandbox, rel), fn); // 落盘次序单源:fn 先算完才写,抛错=不写(applyEdit)
     log(`[lift] ${what}: ${rel}`);
   };
   const contributes = clip(dossier.format, 90); // 只写格式,与其他行一致(#437:原来源尾注带退役词「fleet-lifted」,手动 lift 没有可写的来源标签)
@@ -340,13 +361,25 @@ export async function runLift({ sandbox, roundDir, fleetRoot, devRoot, python, s
   fs.rmSync(dumpFile, { force: true });
   const splitAfter = readJsonlMeta(splitPath);
   // 4b. 基准说明纯数字同步(#440,裁定 2026-11-24「lift 自动同步纯数字」):重冻改了题数/席位数之后,
-  //     gen-split.mjs 的缺省席位与用法文案、rrsi.json 的 _doc 首句题数不再靠人手改——原状第三道门必红
-  //     (tests/rrsi-split「gen-split.mjs 缺省入参 = 冻结件 meta」、tests/rrsi-domain「rrsi.json 超参钉死」),
-  //     lift 停在自己门口。同步面形状不对=sub1 恰一命中报「钉面漂移」,不静默跳过;_doc 首句之后的粒度
-  //     数字与理由句是人写的说明,仍留人工(下方 log 有提醒)。
-  edit("ops/agent-v2/bench/rrsi-domain/gen-split.mjs", (t) => syncGenSplitDefaults(t, { evolve: splitAfter.evolve, heldout: splitAfter.heldout }), "gen-split 缺省席位同步");
-  edit("ops/agent-v2/bench/rrsi-domain/rrsi.json", (t) => syncRrsiDocFirstSentence(t, { total: splitAfter.total, rosterTotal: splitAfter.rosterTotal, exempt: splitAfter.exemptTotal, evolve: splitAfter.evolve, heldout: splitAfter.heldout }), "rrsi.json 说明首句题数同步");
-  log("[lift] 人工项:rrsi.json _doc 首句之后粒度和理由句请人工核对(#440)");
+  //     gen-split.mjs 的缺省席位与用法文案、rrsi.json 的 _doc 首句题数不再靠人手改。同步面形状不对=
+  //     恰一命中报「钉面漂移」,不静默跳过;_doc 首句之后的粒度数字与理由句是人写的说明,仍留人工
+  //     (下方 log 有提醒)。两处先都变换、再落盘(评审建议改 6):形状错时两个文件都不动,收窄半同步面;
+  //     形状错包 LiftError("refreeze-sync")(评审记一笔 1),一眼看出是哪一步。
+  const genRel = "ops/agent-v2/bench/rrsi-domain/gen-split.mjs";
+  const docRel = "ops/agent-v2/bench/rrsi-domain/rrsi.json";
+  let genSynced;
+  let docSynced;
+  try {
+    genSynced = syncGenSplitDefaults(fs.readFileSync(path.join(sandbox, genRel), "utf8"), { evolve: splitAfter.evolve, heldout: splitAfter.heldout });
+    docSynced = syncRrsiDocFirstSentence(fs.readFileSync(path.join(sandbox, docRel), "utf8"), { total: splitAfter.total, rosterTotal: splitAfter.rosterTotal, exempt: splitAfter.exemptTotal, evolve: splitAfter.evolve, heldout: splitAfter.heldout });
+  } catch (e) {
+    throw new LiftError("refreeze-sync", `基准说明纯数字同步形状错(两个文件都未写;进沙箱核对钉面后手工改好再提交):${e.message}`);
+  }
+  applyEdit(path.join(sandbox, genRel), () => genSynced);
+  applyEdit(path.join(sandbox, docRel), () => docSynced);
+  log(`[lift] gen-split 缺省席位同步: ${genRel}`);
+  log(`[lift] rrsi.json 说明首句题数同步: ${docRel}`);
+  log("[lift] 人工项:rrsi.json _doc 首句之后粒度和理由句请人工核对,首句里的核对日期也要核过再改(#440)");
   // 5. 测试钉 + roster 快照同步
   edit("ops/agent-v2/tests/rrsi-split.test.mjs", (t) => syncRrsiSplitPins(t, { evolve: splitAfter.evolve, heldout: splitAfter.heldout, total: splitAfter.total, rosterTotal: splitAfter.rosterTotal, exempt: splitAfter.exemptTotal, tag }), "rrsi-split 钉同步");
   edit("ops/agent-v2/tests/rrsi-domain.test.mjs", (t) => syncRrsiDomainPin(t, { total: splitAfter.total, tag }), "rrsi-domain 针数钉");
@@ -369,9 +402,10 @@ export async function runLift({ sandbox, roundDir, fleetRoot, devRoot, python, s
   // 7. 门三连
   // 重冻之后的红点面(#437 加的两条对账测试)#440 起分两半:第 4 步重新生成 split.jsonl 后题数变了,
   //  a) gen-split.mjs 缺省席位/用法文案与 rrsi.json _doc 首句题数已由第 4b 步机械同步,不再人改;
-  //  b) 剩的人工项只有 rrsi.json _doc 首句之后的粒度数字和「约 2 题增益才算真增益」理由句
-  //     ——tests/rrsi-domain.test.mjs「超参钉死」的粒度断言红时会写缺哪一项;不改则第三道门红,
-  //     lift 停在「已提交、未推送」:进沙箱改好、再提交、手动补跑三道门,然后自己推送和开 PR。
+  //  b) 剩的人工项以第 4b 步的提醒日志为准、合并前人核:rrsi.json _doc 首句之后的粒度数字、
+  //     「约 2 题增益才算真增益」理由句,和首句里的核对日期。门的粒度断言(tests/rrsi-domain.test.mjs
+  //     「超参钉死」)只是辅助信号,不可靠:粒度数字四舍五入后恰好不变时门不会红——例:63→64 题,
+  //     全幅 1/63 与 1/64 取三位都是 0.016、演化席位 48 不变,_doc 里带旧数的句子会随 PR 出门。
   const gates = [
     { name: "backend 全量 pytest", cmd: [python, "-m", "pytest", "-q", "--durations=15"], cwd: path.join(sandbox, "backend"), timeoutMs: 30 * 60_000 },
     { name: "ops selftest", cmd: ["bash", path.join(sandbox, "ops", "pipeline-core", "selftest.sh")], cwd: sandbox, timeoutMs: 15 * 60_000 },
