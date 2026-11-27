@@ -14,6 +14,7 @@ permissions:
 jobs:
   frontend:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: frontend
@@ -93,6 +94,7 @@ jobs:
     # needs frontend: SPA fallback tests assert on frontend/dist contents
     needs: frontend
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: backend
@@ -145,6 +147,7 @@ jobs:
     name: Backend — full suite in one process (reference only, not a gate)
     needs: frontend
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: backend
@@ -196,6 +199,7 @@ jobs:
   #    rg、带 backend 依赖的 python(经 OPS_ADD_PYTHON 指给测试)。
   ops_unit:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -229,6 +233,7 @@ jobs:
   backend_toplevel:
     needs: frontend
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: backend
@@ -262,6 +267,7 @@ jobs:
   docker:
     # validates the artifact users actually deploy: docker compose up -d --build
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - run: docker build -t ipradar:ci .
