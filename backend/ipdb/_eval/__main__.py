@@ -8,6 +8,8 @@
   python -m ipdb._eval --sentinel <source>  # 物化生效性哨兵(Q18 §3.2, materialize_source.sh 2/3)
   python -m ipdb._eval --gate <source>      # 接入关(spec §3.1: S7 镜像对齐→双口径报告)
   python -m ipdb._eval --canary      # 季度 canary 冻结判例复跑(S10)
+  python -m ipdb._eval mirror-sync --host H --face main|truth-v2|honyport \
+      --dst D [--dry-run]   # 拉取面同步单源入口(#489, 月轮三面共用)
 """
 import argparse
 import json
@@ -95,7 +97,9 @@ def mirror_sync_cli(argv: list[str] | None = None, *,
     输出透屏不捕获(月轮要看进度);零环境变量依赖(月轮每轮多三次本
     调用, 导入面不得加新重量)。回显行与月轮改前逐字相同(级联测试钉):
     主面 `==> rsync: <源> -> <目标>/`,另两面带面标签。runner 注入仅供
-    测试(不真跑 rsync)。
+    测试(不真跑 rsync)。主面另有护栏(返工二-11): 目标解析为根目录或
+    非空却不像生产卷镜像 → 拒绝退 2;rsync 起不来(OSError 族, 返工
+    二-9)→ 一行拒绝退 1, 不甩栈。
     """
     p = argparse.ArgumentParser(prog="python -m ipdb._eval mirror-sync",
                                 description="同步一个生产拉取面(#489)")
@@ -109,12 +113,43 @@ def mirror_sync_cli(argv: list[str] | None = None, *,
                    help="只回显将执行的命令行, 不跑 rsync 不建目录")
     a = p.parse_args(argv)
     spec = gate_mirror.SYNC_FACES[a.face]
+    if a.face == "main" and not a.dry_run:
+        # 主面护栏(返工二-11): 主面带 --delete-after, 目标指错会把不相干
+        # 目录清成镜像。解析后是根目录, 或已存在且非空却完全不像生产卷
+        # 镜像(没有任何名字含 .lmdb. 的条目、也没有 eval-heartbeat)
+        # → 拒绝退 2;目标不存在或为空 = 第一次同步, 照常。另外两面不带
+        # --delete-after(增量拉取不删件), 不设栏。dry-run 不设栏(不落盘
+        # 无风险)。
+        dst_path = Path(a.dst)
+        reject = dst_path.resolve() == Path("/")
+        if not reject and dst_path.is_dir():
+            entries = list(dst_path.iterdir())
+            reject = bool(entries) and not any(
+                ".lmdb." in e.name or e.name == "eval-heartbeat"
+                for e in entries)
+        if reject:
+            print("拒绝: 目标目录不像生产卷镜像", file=sys.stderr)
+            return 2
     head = f"==> rsync({spec['label']}): " if spec["label"] else "==> rsync: "
-    print(f"{head}{a.host}:{spec['src']}/ -> {Path(a.dst)}/")
+    # 回显行取拼好的命令末两个参数(返工二-8: 打印的=执行的同一份;
+    # dry_run=True 只拼 argv 不落盘不执行)。flush=True(P1): stdout 非终端
+    # 时是块缓冲, rsync 子进程直写同一 fd, 不 flush 回显会排到 rsync 输出
+    # 之后(级联用 RSYNC-STUB-OUTPUT 标记行钉顺序)。
+    cmd = gate_mirror.sync_face(a.host, a.face, a.dst,
+                                dry_run=True)["command"]
+    print(f"{head}{cmd[-2]} -> {cmd[-1]}", flush=True)
     if a.dry_run:
         return 0
-    res = gate_mirror.sync_face(a.host, a.face, a.dst, capture=False,
-                                raise_on_fail=False, runner=runner)
+    try:
+        res = gate_mirror.sync_face(a.host, a.face, a.dst, capture=False,
+                                    raise_on_fail=False, runner=runner)
+    except OSError as e:
+        # rsync 不在/起不来(FileNotFoundError 等 OSError 族): 一行拒绝,
+        # 不甩 Python 栈(返工二-9)。rc 为负数(rsync 被信号杀)仍走下方
+        # 拒绝路径保持原样。
+        print(f"拒绝: {spec['reject']}(rsync 不在或起不来: {e})",
+              file=sys.stderr)
+        return 1
     if not res["ok"]:
         print(f"拒绝: {spec['reject']} (rc={res['rc']})", file=sys.stderr)
         return 1

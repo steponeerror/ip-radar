@@ -33,7 +33,7 @@ from typing import Any, Callable, Sequence
 # 同源, #489 起源路径只在此定义一次)
 PROD_DATA_DIR = "/var/lib/docker/volumes/ip-lookup-tool_ipradar-data/_data"
 # truth-v2 周快照采集面 / honyport 蜜罐日 CSV 面(卷外目录, ADR 0017;
-# 原 monthly_eval.sh :119/:141 字面量, #489 起同在此单源)
+# 收口前(8fe7d5a6 的 monthly_eval.sh)字面量, #489 起同在此单源)
 TRUTH_V2_CAPTURE_DIR = "/opt/ip-truth-capture"
 HONYPORT_OUT_DIR = "/opt/honyport/out"
 # 生产机地址唯一缺省(monthly_eval.sh PROD_HOST 同值, 两边由对拍测试钉;
@@ -41,38 +41,38 @@ HONYPORT_OUT_DIR = "/opt/honyport/out"
 PROD_HOST_DEFAULT = "root@203.88.124.85"
 
 RSYNC_FLAGS = ["-az", "--partial", "--delete-after", "--info=progress2"]
-# 快照/蜜粮组件面旗标 = 主面去掉 --delete-after(增量拉取不删本地既有件;
-# 原 monthly_eval.sh 快照/蜜粮面手写同款, #489 起推导自同一字面量)
+# 快照/蜜罐组件面旗标 = 主面去掉 --delete-after(增量拉取不删本地既有件;
+# 收口前 monthly_eval.sh 快照/蜜罐面手写同款, #489 起推导自同一字面量)
 RSYNC_FLAGS_NO_DELETE = [f for f in RSYNC_FLAGS if f != "--delete-after"]
 # 24 = vanished source files, 活镜像良性可容忍 (monthly_eval.sh, commit 35c64b97)
 RSYNC_TOLERATED_RCS = frozenset({0, 24})
 # rc 24 留痕文案唯一一份(月轮 mirror-sync 与 sync_gate_mirror 的 note 同串)
 RC24_NOTE = "rsync rc=24(源侧活动文件消失,活镜像可容忍)"
 
-# 三个拉取面的同步契约(#489: 源路径/旗标/屏幕标签/拒绝文案各定义一次;
-# 原 monthly_eval.sh :106/:124/:163 三段手写旗标与 rc 判断退役, 月轮经
+# 三个拉取面的同步契约(#489: 源路径/旗标/屏幕标签各定义一次;
+# 收口前(8fe7d5a6 的 monthly_eval.sh)三段手写旗标与 rc 判断退役, 月轮经
 # mirror-sync CLI 调同一份 sync_face)。reject = `拒绝: <reject> (rc=N)`
-# 文案主干;label = 回显行 `==> rsync(<label>): …`(空=无标签主面)。
+# 文案主干, 从 label 推导(评审建议 9: 面名不写两遍, 主面 label 空 →
+# `rsync 失败`);label = 回显行 `==> rsync(<label>): …`(空=无标签主面)。
 SYNC_FACES = {
     "main": {
         "src": PROD_DATA_DIR,
         "flags": RSYNC_FLAGS,             # 含 --delete-after: 主镜像=镜像语义
         "label": "",
-        "reject": "rsync 失败",
     },
     "truth-v2": {
         "src": TRUTH_V2_CAPTURE_DIR,
         "flags": RSYNC_FLAGS_NO_DELETE,
         "label": "truth-v2 快照面",
-        "reject": "truth-v2 快照面 rsync 失败",
     },
     "honyport": {
         "src": HONYPORT_OUT_DIR,
         "flags": RSYNC_FLAGS_NO_DELETE,
         "label": "honyport 日 CSV 面",
-        "reject": "honyport 日 CSV 面 rsync 失败",
     },
 }
+for _spec in SYNC_FACES.values():
+    _spec["reject"] = f"{_spec['label']} rsync 失败".strip()
 
 # 远端逐源 epoch 读取: 每行 `name=value` (printf 名=值);cat 失败记 "?",
 # 与本地 OSError → "?" 同口径。经 sort 保证输出序确定。

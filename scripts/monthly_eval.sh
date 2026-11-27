@@ -27,6 +27,8 @@
 # 记红态心跳照写结尾非零)→ 生产 volume 心跳推送(S5)。
 # 自验:`bash -n scripts/monthly_eval.sh`(语法);`bash scripts/monthly_eval.sh
 # --dry-run`(只打印将执行的命令不执行;dry-run 下守卫仅提示不拦截,便于预演)。
+# #489 起干跑也要 python3 能导入 ipdb._eval(mirror-sync 单源入口,三面
+# 回显都出自它);PATH 须带后端依赖的解释器(同实跑各腿)。
 # 数据目录默认 <repo>/.eval-prod-data(已 gitignore,防误提交 ~55GB),
 # 环境变量 EVAL_DATA_DIR 可覆盖。
 # 设计:docs/superpowers/specs/2026-09-28-eval-algorithm-optimization-brief.md
@@ -34,7 +36,7 @@ set -euo pipefail
 
 usage() {
   echo "用法: scripts/monthly_eval.sh [prod-host] [--dry-run]"
-  echo "  prod-host  默认 root@203.88.124.85"
+  echo "  prod-host  默认 $PROD_HOST"
   echo "  --dry-run  只打印将执行的命令,不执行"
 }
 
@@ -105,10 +107,8 @@ run_step() {  # run_step <label> <ipdb._eval args...> — 执行并打印尾行�
 }
 
 echo
-# #489:主卷镜像拉取收口单源入口。旗标(-az --partial --delete-after
-# --info=progress2)/rc 容忍(0、24)/rc 24 留痕文案在
-# gate_mirror.SYNC_FACES 单源定义,出处 commit 35c64b97 随契约迁 Python 侧;
-# 回显行在入口内逐字同改前;mirror-sync 实跑前自建目录(时机同旧 mkdir -p)。
+# #489:主卷镜像拉取收口单源入口。旗标、容忍集、留痕文案见
+# gate_mirror.SYNC_FACES;回显行在入口内逐字同改前;实跑前自建目录。
 mirror_sync main "$DATA_DIR"
 
 # ── truth-v2 周快照面拉取(ADR 0017 T0 采集器 / #262 T3 接线):小机

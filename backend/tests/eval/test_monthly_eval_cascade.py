@@ -123,13 +123,15 @@ PY_STUB = textwrap.dedent(
     exit 0
     """
 )
-# #489: 拉取面(镜像/快照/蜜粮 CSV)返回码改由 RSYNC_PULL_MODE 控制
+# #489: 拉取面(镜像/快照/蜜罐 CSV)返回码改由 RSYNC_PULL_MODE 控制
 # (缺省 0; 24=源侧活文件消失, 月轮容忍继续; 其余=拒绝), argv 先记
-# RSYNC_LOG 供端到端命令对拍; 推送面行为不变(不记 RSYNC_LOG)。
+# RSYNC_LOG 供端到端命令对拍, 拉取分支另写一行 stdout 标记
+# RSYNC-STUB-OUTPUT 供回显 flush/透屏对拍(返工 P1); 推送面行为不变
+# (不记 RSYNC_LOG)。
 RSYNC_STUB = textwrap.dedent(
     """\
     #!/usr/bin/env bash
-    # cascade-test rsync 桩:拉取面(镜像/快照/蜜粮 CSV)末参是本地路径;
+    # cascade-test rsync 桩:拉取面(镜像/快照/蜜罐 CSV)末参是本地路径;
     # 推送面(#453 评估报告推生产卷)末参含 'stub-host:' → 触 PUSH_MARKER,
     # rc 按 RSYNC_PUSH_MODE(推失败形态用)
     last="${@: -1}"
@@ -139,6 +141,10 @@ RSYNC_STUB = textwrap.dedent(
       exit 0
     fi
     printf '%s\\n' "rsync $*" >> "${RSYNC_LOG:?}"
+    # stdout 标记(返工 P1): CLI 回显 flush 后子进程直写同一管道, 月轮
+    # 输出里回显行须排在本标记行之前; capture=True 则标记根本透不进
+    # 月轮输出——顺序断言两头都红
+    echo "RSYNC-STUB-OUTPUT"
     exit "${RSYNC_PULL_MODE:-0}"
     """
 )
@@ -645,7 +651,11 @@ def test_dry_run_rsync_lines_identical_to_pre_change(tmp_path):
 def test_pull_rsync_command_matches_python_contract(tmp_path):
     """端到端对拍:级联真跑(bash→CLI→sync_face→rsync)落桩的 argv ==
     Python 契约拼出的命令;旗标另按字面量钉(变异 M1 只改 Python 侧
-    旗标时,端到端对拍会跟着一致漂移假绿,判别力在字面量断言)。"""
+    旗标时,端到端对拍会跟着一致漂移假绿,判别力在字面量断言)。
+    另钉回显 flush/透屏(返工 P1):每个 ==> rsync 回显行须排在对应
+    rsync 桩的 stdout 标记之前,且标记行确实透到月轮输出——去 flush
+    (块缓冲把回显攒到退出)或 capture=True(吞掉子进程输出)任一变异
+    都在这两段断言红。"""
     repo = _make_repo(tmp_path)
     stubs = _make_stubs(tmp_path)
     rc, out = _run_monthly(repo, stubs, tmp_path)
@@ -664,6 +674,15 @@ def test_pull_rsync_command_matches_python_contract(tmp_path):
     # 旗标字面量钉(主面含 --delete-after,快照面无)
     assert "--partial" in got[0] and "--delete-after" in got[0], got[0]
     assert "--delete-after" not in got[1], got[1]
+    # 回显 flush/透屏对拍(返工 P1):回显行先于 rsync 桩 stdout 标记落
+    # 管道,标记行数 == 回显行数(缺标记 = 输出被捕获,顺序颠倒 = 没 flush)
+    lines = out.splitlines()
+    hdr = [i for i, ln in enumerate(lines) if ln.startswith("==> rsync")]
+    mark = [i for i, ln in enumerate(lines) if ln == "RSYNC-STUB-OUTPUT"]
+    assert len(hdr) == len(mark) == 2, f"回显 {hdr} / 标记 {mark}\n{out}"
+    assert all(h < m for h, m in zip(hdr, mark)), (
+        "==> rsync 回显行没有先于 rsync 子进程输出落管道"
+        "(flush 缺失或输出被捕获):\n" + "\n".join(lines))
 
 
 def test_pull_rc24_tolerated_round_completes(tmp_path):
