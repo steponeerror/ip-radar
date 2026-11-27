@@ -55,7 +55,9 @@ RUN curl -fsSL --max-time 120 -o /tmp/gh.tgz \
     && rm -rf /tmp/gh.tgz /tmp/gh_${GH_VERSION}_linux_amd64 \
     && gh --version | head -1 | grep -q "gh version ${GH_VERSION}"
 COPY backend/requirements.txt ./backend/requirements.txt
-RUN pip install --no-cache-dir -r backend/requirements.txt ${PIP_INDEX_URL:+-i $PIP_INDEX_URL}
+COPY backend/constraints.txt ./backend/constraints.txt
+# #499:constraints.txt 记「当时验证过」的精确版本(-c 约束解析);范围与 why 仍在 requirements.txt
+RUN pip install --no-cache-dir -c backend/constraints.txt -r backend/requirements.txt ${PIP_INDEX_URL:+-i $PIP_INDEX_URL}
 COPY backend/ ./backend/
 # P5:运营 agent 源树 + 生产依赖(pi-agent-core/pi-ai/typebox/undici + pi-web-access
 # 0.44.0 树,#412 单包 lockfile 实测 309 包全 JS 无 native 二进制;包数变更大,改锁文件时同步本注

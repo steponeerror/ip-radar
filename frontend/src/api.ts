@@ -10,6 +10,18 @@ export interface ApiError extends Error {
   reason?: string | null;
 }
 
+// 「回 401 就踢回登录」的判定唯一入口(#486 收编:此前 13 处手抄
+// `(e as ApiError).status === 401`,类型写法分两派、且只有 1 处有测试)。
+// 给一个错误对象回答「是不是会话失效的 401」;类型窄化与非对象容错
+// (null/字符串 → false 不炸)收进来,调用点只留行为分支(是 401 →
+// onUnauthorized + return,否则落错误横幅)。adminMe() 的 401→null 是
+// 登录探测,另一种语义,不收编。守卫:src/__tests__/conventions.test.ts
+// 源码文本巡检 —— `status === 401` 全 src 只许出现在本函数(挡粗心,
+// 不防恶意,做法同后端 backend/tests/core/test_conventions.py)。
+export function isUnauthorized(e: unknown): boolean {
+  return typeof e === "object" && e !== null && (e as { status?: number }).status === 401;
+}
+
 export interface SourceAttribution<T = unknown> {
   source: string;
   value: T;
@@ -179,12 +191,29 @@ export interface Progress {
 }
 
 // /api/query/stream 与 /api/upload/stream 的 NDJSON 事件面(backend 流式
-// 查询协议;字段见 readStream 消费处)。
+// 查询协议;字段见 readStream 消费处)。键集与 backend/main.py 的事件
+// 构造函数(_row_event/_progress_event/_done_event,#495)由机读契约
+// 对拍:backend/tests/core/test_stream_contract.py。
 type StreamEvent =
   | { type: "start"; total: number }
   | { type: "row"; idx: number; result: LookupResult }
   | { type: "progress"; done: number; total: number }
-  | { type: "done"; invalid_lines?: number; error?: string | null; code?: string | null };
+  | { type: "done"; invalid_lines?: number; ipv6_unsupported: number; error?: string | null; code?: string | null };
+
+// 表格/CSV 两种模式共用的按 idx 顺序取出(#495):流按各批完成先后吐 row,
+// 每行带输入 idx;按 idx 逐个取出并从 Map 删掉(边取边删),同一查询两次
+// 导出行序确定。idx ≥ total 的行取不到,与旧行为一致地丢弃。
+// 边取边删是内存性质:消费方攒段时不会同时持有「全部散行 + 全部拼接段」
+// (旧 reorderByIdx 会在写盘那一刻两份都在,约 2 倍行文本)。
+function* drainByIdx<T>(byIdx: Map<number, T>, total: number): Generator<T> {
+  for (let i = 0; i < total; i++) {
+    const v = byIdx.get(i);
+    if (v !== undefined) {
+      byIdx.delete(i);
+      yield v;
+    }
+  }
+}
 
 async function readStream(
   res: Response,
@@ -198,19 +227,12 @@ async function readStream(
   let total = 0;
   let mode: "table" | "csv" | null = null;
   const resultsByIdx = new Map<number, LookupResult>();
+  const csvRowsByIdx = new Map<number, string>();
   const csvParts: string[] = [CSV_HEADER];
-  let rowBuffer: string[] = [];
   let invalidLines = 0;
   let error: string | null = null;
   let errorCode: string | null = null;
   let sawDone = false;
-
-  const flushRows = () => {
-    if (rowBuffer.length) {
-      csvParts.push(rowBuffer.join("\n") + "\n");
-      rowBuffer = [];
-    }
-  };
 
   while (true) {
     const { done, value } = await reader.read();
@@ -231,8 +253,10 @@ async function readStream(
         if (mode === "table") {
           resultsByIdx.set(evt.idx, r);
         } else {
-          rowBuffer.push(buildCsvRow(r));
-          if (rowBuffer.length >= 1000) flushRows();
+          // CSV 模式同样按 idx 重排(#495):先按 idx 暂存,流结束后
+          // (包括被截断的情况)统一排序写盘,导出行序不再取决于各批
+          // 完成的先后(与手册一致)。
+          csvRowsByIdx.set(evt.idx, buildCsvRow(r));
         }
       } else if (evt.type === "progress") {
         onProgress({ done: evt.done, total: evt.total });
@@ -253,7 +277,17 @@ async function readStream(
   }
 
   if (mode === "csv") {
-    flushRows();
+    // 流结束后按 idx 重排再写盘(包括被截断的情况,#495);逐段拼接、
+    // 拼完即释放,沿用旧的 1000 行一段形状
+    let batch: string[] = [];
+    for (const row of drainByIdx(csvRowsByIdx, total)) {
+      batch.push(row);
+      if (batch.length >= 1000) {
+        csvParts.push(batch.join("\n") + "\n");
+        batch = [];
+      }
+    }
+    if (batch.length) csvParts.push(batch.join("\n") + "\n");
     if (csvParts.length > 1) {  // more than just the header → has rows
       downloadCsv(csvParts);
       return { results: [], csvDownloaded: true, invalidLines, error, error_code: errorCode, total };
@@ -262,9 +296,7 @@ async function readStream(
   }
 
   // table mode — reassemble in idx order
-  const results = Array.from({ length: total }, (_, i) => resultsByIdx.get(i)).filter(
-    (x): x is LookupResult => x !== undefined,
-  );
+  const results = [...drainByIdx(resultsByIdx, total)];
   return { results, csvDownloaded: false, invalidLines, error, error_code: errorCode, total };
 }
 

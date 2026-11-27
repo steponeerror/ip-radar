@@ -8,6 +8,8 @@
   python -m ipdb._eval --sentinel <source>  # 物化生效性哨兵(Q18 §3.2, materialize_source.sh 2/3)
   python -m ipdb._eval --gate <source>      # 接入关(spec §3.1: S7 镜像对齐→双口径报告)
   python -m ipdb._eval --canary      # 季度 canary 冻结判例复跑(S10)
+  python -m ipdb._eval mirror-sync --host H --face main|truth-v2|honyport \
+      --dst D [--dry-run]   # 拉取面同步单源入口(#489, 月轮三面共用)
 """
 import argparse
 import json
@@ -17,8 +19,10 @@ import secrets
 import sys
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any, Callable
 
 from . import config
+from . import gate_mirror
 from .ablation import run_ablation
 from .assets import fingerprint
 from .benign import BenignChecker
@@ -63,23 +67,95 @@ def report_dir() -> Path:
 
 
 # T9 gate 镜像参数(S7/Q11, spec 2026-10-12-eval-loop-hardening-design.md §3.1):
-# prod host 缺省 = monthly_eval.sh PROD_HOST 同值(生产卷唯一既存部署事实, 不
-# 复制进 config.py 造第二真源);mirror dir 缺省 = spec §3.1 本地常驻
-# .eval-gate-mirror/(.gitignore 已忽略)。env 覆盖照 _registry.DATA_DIR
-# (IP_RADAR_DATA_DIR)先例 —— call-time 解析(report_dir 同款, 测试免 reload)。
+# prod host 缺省 = gate_mirror.PROD_HOST_DEFAULT(#489 起唯一真源在镜像契约,
+# 原 _PROD_HOST_DEFAULT 第二份已删;月轮脚本同值由对拍测试钉)—— 生产卷
+# 唯一既存部署事实, 不复制进 config.py 造第二真源;mirror dir 缺省 =
+# spec §3.1 本地常驻 .eval-gate-mirror/(.gitignore 已忽略)。env 覆盖照
+# _registry.DATA_DIR(IP_RADAR_DATA_DIR)先例 —— call-time 解析(report_dir
+# 同款, 测试免 reload)。
 _GATE_PROD_HOST_ENV = "IP_RADAR_GATE_PROD_HOST"
 _GATE_MIRROR_DIR_ENV = "IP_RADAR_GATE_MIRROR_DIR"
-_PROD_HOST_DEFAULT = "root@203.88.124.85"          # monthly_eval.sh 同值
 _GATE_MIRROR_DEFAULT = _REPO_ROOT / ".eval-gate-mirror"   # spec §3.1, 已 gitignore
 
 
 def gate_prod_host() -> str:
-    return os.environ.get(_GATE_PROD_HOST_ENV, _PROD_HOST_DEFAULT)
+    return os.environ.get(_GATE_PROD_HOST_ENV, gate_mirror.PROD_HOST_DEFAULT)
 
 
 def gate_mirror_dir() -> Path:
     return Path(os.environ.get(_GATE_MIRROR_DIR_ENV,
                                str(_GATE_MIRROR_DEFAULT)))
+
+
+def mirror_sync_cli(argv: list[str] | None = None, *,
+                    runner: Callable[[list[str]], Any] | None = None) -> int:
+    """`python -m ipdb._eval mirror-sync` 入口(#489 同步契约单源动作)。
+
+    月轮三拉取面(main/truth-v2/honyport)经此调 gate_mirror.sync_face:
+    旗标/源路径/rc 容忍/rc 24 留痕全部出自 SYNC_FACES, 本入口只做参数面
+    (回显行/拒绝行/退出码), 返回退出码(0=完成或容忍, 1=拒绝)。rsync
+    输出透屏不捕获(月轮要看进度);零环境变量依赖(月轮每轮多三次本
+    调用, 导入面不得加新重量)。回显行与月轮改前逐字相同(级联测试钉):
+    主面 `==> rsync: <源> -> <目标>/`,另两面带面标签。runner 注入仅供
+    测试(不真跑 rsync)。主面另有护栏(返工二-11): 目标解析为根目录或
+    非空却不像生产卷镜像 → 拒绝退 2;rsync 起不来(OSError 族, 返工
+    二-9)→ 一行拒绝退 1, 不甩栈。
+    """
+    p = argparse.ArgumentParser(prog="python -m ipdb._eval mirror-sync",
+                                description="同步一个生产拉取面(#489)")
+    p.add_argument("--host", default=gate_mirror.PROD_HOST_DEFAULT,
+                   help="生产机(缺省 = 镜像契约 PROD_HOST_DEFAULT)")
+    p.add_argument("--face", required=True,
+                   choices=list(gate_mirror.SYNC_FACES),
+                   help="拉取面: main=生产卷镜像; truth-v2=周快照; honyport=日 CSV")
+    p.add_argument("--dst", required=True, help="本地目标目录(尾斜杠自动加)")
+    p.add_argument("--dry-run", action="store_true",
+                   help="只回显将执行的命令行, 不跑 rsync 不建目录")
+    a = p.parse_args(argv)
+    spec = gate_mirror.SYNC_FACES[a.face]
+    if a.face == "main" and not a.dry_run:
+        # 主面护栏(返工二-11): 主面带 --delete-after, 目标指错会把不相干
+        # 目录清成镜像。解析后是根目录, 或已存在且非空却完全不像生产卷
+        # 镜像(没有任何名字含 .lmdb. 的条目、也没有 eval-heartbeat)
+        # → 拒绝退 2;目标不存在或为空 = 第一次同步, 照常。另外两面不带
+        # --delete-after(增量拉取不删件), 不设栏。dry-run 不设栏(不落盘
+        # 无风险)。
+        dst_path = Path(a.dst)
+        reject = dst_path.resolve() == Path("/")
+        if not reject and dst_path.is_dir():
+            entries = list(dst_path.iterdir())
+            reject = bool(entries) and not any(
+                ".lmdb." in e.name or e.name == "eval-heartbeat"
+                for e in entries)
+        if reject:
+            print("拒绝: 目标目录不像生产卷镜像", file=sys.stderr)
+            return 2
+    head = f"==> rsync({spec['label']}): " if spec["label"] else "==> rsync: "
+    # 回显行取拼好的命令末两个参数(返工二-8: 打印的=执行的同一份;
+    # dry_run=True 只拼 argv 不落盘不执行)。flush=True(P1): stdout 非终端
+    # 时是块缓冲, rsync 子进程直写同一 fd, 不 flush 回显会排到 rsync 输出
+    # 之后(级联用 RSYNC-STUB-OUTPUT 标记行钉顺序)。
+    cmd = gate_mirror.sync_face(a.host, a.face, a.dst,
+                                dry_run=True)["command"]
+    print(f"{head}{cmd[-2]} -> {cmd[-1]}", flush=True)
+    if a.dry_run:
+        return 0
+    try:
+        res = gate_mirror.sync_face(a.host, a.face, a.dst, capture=False,
+                                    raise_on_fail=False, runner=runner)
+    except OSError as e:
+        # rsync 不在/起不来(FileNotFoundError 等 OSError 族): 一行拒绝,
+        # 不甩 Python 栈(返工二-9)。rc 为负数(rsync 被信号杀)仍走下方
+        # 拒绝路径保持原样。
+        print(f"拒绝: {spec['reject']}(rsync 不在或起不来: {e})",
+              file=sys.stderr)
+        return 1
+    if not res["ok"]:
+        print(f"拒绝: {spec['reject']} (rc={res['rc']})", file=sys.stderr)
+        return 1
+    if res["rc"] == 24:
+        print(f"-- {gate_mirror.RC24_NOTE}")
+    return 0
 
 
 def registry_data_dir() -> Path:
@@ -562,6 +638,12 @@ def run_readout(registry, out_dir, *, assets_dir=None, keysets_dir=None,
 
 
 def main(argv=None):
+    # #489: mirror-sync 子动作先行分派(同步契约单源入口, 月轮三拉取面
+    # 调用):动作词不是 source 名, 主 parser 的旗标面对它无意义;独立
+    # 小 parser 免去主 parser 全家旗标的重量, 且零环境变量依赖。
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "mirror-sync":
+        sys.exit(mirror_sync_cli(argv[1:]))
     p = argparse.ArgumentParser(prog="python -m ipdb._eval")
     p.add_argument("source", nargs="?", help="source name to evaluate")
     p.add_argument("--rebuild", action="store_true", help="rebuild frozen benchmark corpus")

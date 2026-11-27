@@ -100,9 +100,10 @@ POST/JSON-body 需手写 HTTP）。
 LMDB sidecar 两形态：epoch 目录 rmtree、ptr/count/cov 文件 unlink）。
 **范例文件：** 通读 `blocklist_de.py`（优先级裁决分类 + native_categories
 并集）；per-list tags 归属 + mtime 门控看 `firehol.py`。
-**实现后必跑：** `python scripts/audit_lmdb_invariants.py`（**从仓库根**，
-脚本在 `scripts/` 不在 `backend/`；目录源是 same-start/nested CIDR 冲突
-的已知高发面）。
+**实现后必跑：** `python scripts/audit_same_start.py --sources <源名>`（**从仓库根**，
+脚本在 `scripts/` 不在 `backend/`；目录源是 same-start CIDR 冲突的已知高发面）。
+输出 `SKIPPED no raw file` 等于没审到，不算过；原始文件不在默认的 `backend/data`
+时要加 `--data <数据目录>`（`--data` 会覆盖 `IP_RADAR_DATA_DIR`）。
 
 ## 5. `field_map`（声明式列→槽路由）
 

@@ -13,6 +13,7 @@ import {
   subscribeTasks,
   queryIpsStream,
   TABLE_THRESHOLD,
+  isUnauthorized,
 } from "../api";
 
 describe("api task functions", () => {
@@ -207,6 +208,22 @@ describe("queryIpsStream (row protocol v2)", () => {
     (globalThis as { EventSource?: unknown }).EventSource = vi.fn(() => ({ close: () => {} }));
   });
 
+  // buildCsvRow 遍历 classifications/merged 字段,夹具须满足该形状
+  // (#495 评审建议 6:两份拷贝提到 describe 层)
+  const fakeRow = (i: number) => {
+    const r: LookupResult = {
+      ip: `10.0.0.${i}`,
+      country: { value: "", confidence: 0, algorithm: "", sources: [] },
+      city: { value: "", confidence: 0, algorithm: "", sources: [] },
+      asn: { value: 0, confidence: 0, algorithm: "", sources: [] },
+      as_name: { value: "", confidence: 0, algorithm: "", sources: [] },
+      ip_range: { value: "", confidence: 0, algorithm: "", sources: [] },
+      is_isp: false,
+      classifications: {},
+    };
+    return `{"type":"row","idx":${i},"result":${JSON.stringify(r)}}`;
+  };
+
   it("table mode: total ≤ threshold → results sorted by idx", async () => {
     const ndjson = [
       `{"type":"start","total":2}`,
@@ -229,22 +246,8 @@ describe("queryIpsStream (row protocol v2)", () => {
   });
 
   it("csv mode: total > threshold → csvDownloaded=true, results empty", async () => {
-    // build N=threshold+1 fake rows; minimal valid LookupResult (buildCsvRow traverses
-    // classifications/merged fields, so the fixture must satisfy that shape)
+    // build N=threshold+1 fake rows(夹具形状见 describe 层 fakeRow)
     const n = TABLE_THRESHOLD + 1;
-    const fakeRow = (i: number) => {
-      const r: LookupResult = {
-        ip: `10.0.0.${i}`,
-        country: { value: "", confidence: 0, algorithm: "", sources: [] },
-        city: { value: "", confidence: 0, algorithm: "", sources: [] },
-        asn: { value: 0, confidence: 0, algorithm: "", sources: [] },
-        as_name: { value: "", confidence: 0, algorithm: "", sources: [] },
-        ip_range: { value: "", confidence: 0, algorithm: "", sources: [] },
-        is_isp: false,
-        classifications: {},
-      };
-      return `{"type":"row","idx":${i},"result":${JSON.stringify(r)}}`;
-    };
     const lines = [`{"type":"start","total":${n}}`];
     for (let i = 0; i < n; i++) lines.push(fakeRow(i));
     lines.push(`{"type":"done","invalid_lines":0,"ipv6_unsupported":0}`);
@@ -263,14 +266,97 @@ describe("queryIpsStream (row protocol v2)", () => {
     globalThis.URL.revokeObjectURL = () => {};
     const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
 
-    const out = await queryIpsStream(["10.0.0.0/20"], () => {});
-    expect(out.csvDownloaded).toBe(true);
-    expect(out.results).toEqual([]);
-    expect(clickSpy).toHaveBeenCalledTimes(1);
+    try {
+      const out = await queryIpsStream(["10.0.0.0/20"], () => {});
+      expect(out.csvDownloaded).toBe(true);
+      expect(out.results).toEqual([]);
+      expect(clickSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      globalThis.URL.createObjectURL = URL_CREATE;
+      globalThis.URL.revokeObjectURL = REVOKE;
+      clickSpy.mockRestore();
+    }
+  });
 
-    globalThis.URL.createObjectURL = URL_CREATE;
-    globalThis.URL.revokeObjectURL = REVOKE;
-    clickSpy.mockRestore();
+  it("csv mode: rows exported sorted by idx regardless of arrival order (#495)", async () => {
+    // 乱序到达(idx 3,1,0,2)→ 导出文件按 idx 排:手册「到达后按 idx 重排」
+    // 对 CSV 生效(#495)。total 超阈值进 csv 模式,实际只发 4 行。
+    const n = TABLE_THRESHOLD + 4;
+    const lines = [`{"type":"start","total":${n}}`];
+    for (const i of [3, 1, 0, 2]) lines.push(fakeRow(i));
+    lines.push(`{"type":"done","invalid_lines":0,"ipv6_unsupported":0}`);
+    const ndjson = lines.join("\n");
+    const reader = (async function* () {
+      yield new TextEncoder().encode(ndjson + "\n");
+    })();
+    fetchMock().mockResolvedValue({
+      ok: true,
+      body: { getReader: () => ({ read: () => reader.next() }) },
+    });
+
+    const URL_CREATE = globalThis.URL.createObjectURL;
+    const REVOKE = globalThis.URL.revokeObjectURL;
+    let captured: Blob | undefined;
+    globalThis.URL.createObjectURL = (blob: Blob | MediaSource) => {
+      captured = blob as Blob;
+      return "blob:x";
+    };
+    globalThis.URL.revokeObjectURL = () => {};
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+
+    try {
+      const out = await queryIpsStream(["10.0.0.0/29"], () => {});
+      expect(out.csvDownloaded).toBe(true);
+      expect(captured).toBeDefined();   // 先断言下载确实发生,再读 Blob 文本
+      // 文本 = BOM + 表头行 + 数据行;数据行的首列是 ip,断言按 idx(= ip 尾数)排
+      const parts = (await captured!.text()).split("\n");
+      const ips = parts.slice(1, 5).map((l) => l.split(",")[0]);
+      expect(ips).toEqual(["10.0.0.0", "10.0.0.1", "10.0.0.2", "10.0.0.3"]);
+    } finally {
+      globalThis.URL.createObjectURL = URL_CREATE;
+      globalThis.URL.revokeObjectURL = REVOKE;
+      clickSpy.mockRestore();
+    }
+  });
+
+  it("csv mode: stream truncated before done → partial file sorted by idx, error_code stream_truncated (#495)", async () => {
+    // 流在 done 之前断掉(代理截断/进程被杀):已到达的行仍按 idx 排
+    // (缺 0、2,收拢为 1、3),错误码为哨兵 stream_truncated
+    // (字段名以 StreamOutcome.error_code 为准,#495)。
+    const n = TABLE_THRESHOLD + 4;
+    const lines = [`{"type":"start","total":${n}}`];
+    for (const i of [3, 1]) lines.push(fakeRow(i));   // 没有 done 事件
+    const ndjson = lines.join("\n");
+    const reader = (async function* () {
+      yield new TextEncoder().encode(ndjson + "\n");
+    })();
+    fetchMock().mockResolvedValue({
+      ok: true,
+      body: { getReader: () => ({ read: () => reader.next() }) },
+    });
+
+    const URL_CREATE = globalThis.URL.createObjectURL;
+    const REVOKE = globalThis.URL.revokeObjectURL;
+    let captured: Blob | undefined;
+    globalThis.URL.createObjectURL = (blob: Blob | MediaSource) => {
+      captured = blob as Blob;
+      return "blob:x";
+    };
+    globalThis.URL.revokeObjectURL = () => {};
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+
+    try {
+      const out = await queryIpsStream(["10.0.0.0/29"], () => {});
+      expect(out.error_code).toBe("stream_truncated");
+      expect(out.csvDownloaded).toBe(true);
+      expect(captured).toBeDefined();
+      const ips = (await captured!.text()).split("\n").slice(1, 3).map((l) => l.split(",")[0]);
+      expect(ips).toEqual(["10.0.0.1", "10.0.0.3"]);
+    } finally {
+      globalThis.URL.createObjectURL = URL_CREATE;
+      globalThis.URL.revokeObjectURL = REVOKE;
+      clickSpy.mockRestore();
+    }
   });
 
   it("done surfaces invalid_lines and ignores ipv6_unsupported (v6 supported)", async () => {
@@ -416,5 +502,33 @@ describe("apiError status attachment (review #10)", () => {
     const err = (await getDbStatus().then(() => null, (e: unknown) => e)) as ApiError;
     expect(err).toBeInstanceOf(Error);
     expect(err.status).toBe(502);
+  });
+});
+
+
+// #486 收编:「回 401 踢回登录」判定唯一入口。此前 13 处手抄
+// `(e as ApiError).status === 401`,只有 1 处有测试;守卫测试另见
+// conventions.test.ts(源码文本巡检)。
+describe("isUnauthorized(401 判定唯一入口,#486)", () => {
+  it("status=401 的错误对象 → true(真 ApiError 与裸形状同判)", () => {
+    const real = new Error("Not authenticated") as ApiError;
+    real.status = 401;
+    expect(isUnauthorized(real)).toBe(true);
+    expect(isUnauthorized({ status: 401 })).toBe(true);
+  });
+
+  it("403 及其他 status → false(踢登录只认 401)", () => {
+    expect(isUnauthorized({ status: 403 })).toBe(false);
+    expect(isUnauthorized({ status: 500 })).toBe(false);
+    expect(isUnauthorized({ status: 0 })).toBe(false);
+  });
+
+  it("普通错误/非对象 → false,不炸(null/undefined/字符串/数字)", () => {
+    expect(isUnauthorized(new Error("plain"))).toBe(false);
+    expect(isUnauthorized({})).toBe(false);
+    expect(isUnauthorized(null)).toBe(false);
+    expect(isUnauthorized(undefined)).toBe(false);
+    expect(isUnauthorized("401")).toBe(false);
+    expect(isUnauthorized(401)).toBe(false);
   });
 });

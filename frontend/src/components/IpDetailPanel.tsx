@@ -2,7 +2,7 @@ import type { LookupResult, MergedField } from "../api";
 import { confColor, confTextColor, ALGORITHM_ICONS, SCORE_SEMANTICS } from "./threatDisplay";
 import { useI18n } from "../i18n";
 import { ClassificationBlock } from "./ClassificationBlock";
-import { foldServiceStatements, serviceChipKey } from "./serviceFold";
+import { assetChips } from "./assetChips";
 
 // 每个信息区块统一的淡色渐变底 + 左侧色条:用同一种颜色过渡划清各信息边界
 // (客户反馈区块间无边界不清晰;统一色,不做分色分组)。
@@ -109,35 +109,11 @@ function FieldDetail<T>({
 export function IpDetailPanel({ r }: { r: LookupResult }) {
   const { t } = useI18n();
   const classKeys = Object.keys(r.classifications);
-  const classTypes = new Set(classKeys);
-  // Service identity: all asset statements, one chip each (role + provider,
-  // boolean assets, carrier). is_tor/is_proxy suppressed when a matching
-  // classification already renders in the threat section.
-  const identityChips: { text: string; detail: string; key: string }[] = [];
-  for (const [key, stmts] of Object.entries(r.attributes ?? {})) {
-    if (key === "as_domain") continue; // rendered as org suffix above
-    if ((key === "is_tor" && classTypes.has("tor")) ||
-        (key === "is_proxy" && classTypes.has("proxy"))) continue;
-    const labelKey = {
-      is_hosting: "asset.is_hosting", is_tor: "asset.is_tor",
-      is_vpn: "asset.is_vpn", is_proxy: "asset.is_proxy",
-      carrier: "asset.carrier", is_anycast: "asset.is_anycast",
-    }[key];
-    if (key === "service") {
-      // 折并(规则与出处见 serviceFold.ts;同 #105 as_org 折并同构):
-      // chip 正文只显角色词,证人 source · native 逐行进悬停。
-      for (const { value, detail } of foldServiceStatements(stmts)) {
-        identityChips.push({ text: value, detail, key: serviceChipKey(value) });
-      }
-    } else if (labelKey && stmts[0]) {
-      const s = stmts[0];
-      identityChips.push({
-        text: key === "carrier" ? `${t(labelKey)} · ${s.value}` : t(labelKey),
-        detail: `${s.native_type ? s.native_type + " · " : ""}${s.source}`,
-        key,
-      });
-    }
-  }
+  // Service identity 区的资产 chips:挑键/压制/文案映射/取首条证词/悬停明细
+  // 拼法唯一构造器在 assetChips.ts(#486 收编:此前本处持一份 identityChips
+  // 手拼,悬停明细顺序与结果表相反;统一为 来源 · 原始类型,carrier 正文
+  // 拼值统一为 `文案: 值`);这里只留「放在服务身份区、用什么样式」。
+  const identityChips = assetChips(r, t);
   // 展示层去重(2026-10-11 用户反馈"重复展示"):as_org 判定值与 as_name 一致时,把
   // caida 证人折进 Operator 行 chips,不再单开一块(证据不灭失;仅展示合并,不动
   // 置信度/算法——宁少算);值不同时两块分立,两轴本就独立。
@@ -225,7 +201,7 @@ export function IpDetailPanel({ r }: { r: LookupResult }) {
             {identityChips.map((c) => (
               <span key={c.key} title={c.detail}
                 className="rounded bg-sky-500/12 px-1.5 py-0.5 text-[11px] text-sky-400 ring-1 ring-sky-500/20">
-                {c.text}
+                {c.label}
               </span>
             ))}
           </div>

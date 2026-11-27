@@ -16,6 +16,25 @@ export function isIndeterminate(t: TaskState): boolean {
   return (t.state === "downloading" || t.state === "loading") && !(t.total ?? 0);
 }
 
+// 批量整体百分比(#486 收编:此前 BatchPanel/BatchMiniBar 各抄一份
+// 「各任务 stagedFrac 均值×100」)= 该 batch 各任务的 stagedFrac 均值。
+// batchless(单源更新,batch 为 null)取活动任务均值(BatchPanel 原行为);
+// batch 在但无可见任务退 batch 维度 done/total(MiniBar 原回退,BatchPanel
+// 原退 0 —— 两处统一取更有信息的 done/total,见 impl 报告行为差异注记);
+// 两者皆空 → 0。
+export function batchOverallPct(
+  tasks: TaskState[],
+  batch: BatchState | null | undefined,
+): number {
+  const visible = batch
+    ? tasks.filter((t) => t.batch_id === batch.id)
+    : tasks.filter(isTaskActive);
+  if (visible.length === 0) {
+    return batch && batch.total > 0 ? Math.round((batch.done / batch.total) * 100) : 0;
+  }
+  return Math.round((visible.reduce((s, t) => s + stagedFrac(t), 0) / visible.length) * 100);
+}
+
 // ——— 任务状态谓词(#245 收编;此前 SourcesPage/BatchPanel/BatchMiniBar 三处内联散推)———
 
 // 终态(done/failed/cancelled):SourcesPage 防抖重拉计数用。
