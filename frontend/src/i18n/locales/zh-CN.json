@@ -378,7 +378,7 @@
   "sources.eval.positive_unverified": "未验证",
   "sources.eval.positive_verified": "已验证",
   "sources.evalExcluded": "评估禁用",
-  "sources.evalExcludedTitle": "该源为评估禁用源:θ/消融/评估 verdict 永不计算(评估面恒禁用,查询池照常成员)",
+  "sources.evalExcludedTitle": "该源为评估禁用源:θ/去源对比/评估 verdict 永不计算(评估面恒禁用,查询池照常成员)",
   "sources.group.anomalyUnit": "异常",
   "sources.group.sourcesUnit": "源",
   "sources.health.cadence": "{v}/次",

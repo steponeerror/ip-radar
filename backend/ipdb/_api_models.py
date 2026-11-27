@@ -241,7 +241,7 @@ class EvalDetailOut(_Out):
 
 
 class EvalModelOut(_Out):
-    """GET /api/eval/model —— 最新舰队 corroboration-contrast 报告(advisory,
+    """GET /api/eval/model —— 最新源池 corroboration-contrast 报告(advisory,
     宽松 dict:kind/w/checks/scores/…,layout 见 _eval.suite.write_model_report)。"""
     latest: Optional[dict] = None
 

@@ -239,27 +239,27 @@
     },
     "consensus|malicious|score": {
       "state": "legal",
-      "provenance": "docs/superpowers/specs/2026-10-12-eval-loop-hardening-design.md §2.1(共识代理层=诊断层:舰队共识指控语料的回声/源坍塌监测对照) · 裁决:docs/superpowers/plans/2026-10-18-semantic-matrix.md Task 1"
+      "provenance": "docs/superpowers/specs/2026-10-12-eval-loop-hardening-design.md §2.1(共识代理层=诊断层:源池共识指控语料的回声/源坍塌监测对照) · 裁决:docs/superpowers/plans/2026-10-18-semantic-matrix.md Task 1"
     },
     "consensus|malicious|stix": {
       "state": "legal",
-      "provenance": "docs/superpowers/specs/2026-10-12-eval-loop-hardening-design.md §2.1(共识代理层=诊断层:舰队共识指控语料的回声/源坍塌监测对照) · 裁决:docs/superpowers/plans/2026-10-18-semantic-matrix.md Task 1"
+      "provenance": "docs/superpowers/specs/2026-10-12-eval-loop-hardening-design.md §2.1(共识代理层=诊断层:源池共识指控语料的回声/源坍塌监测对照) · 裁决:docs/superpowers/plans/2026-10-18-semantic-matrix.md Task 1"
     },
     "consensus|malicious|UI": {
       "state": "legal",
-      "provenance": "docs/superpowers/specs/2026-10-12-eval-loop-hardening-design.md §2.1(共识代理层=诊断层:舰队共识指控语料的回声/源坍塌监测对照) · 裁决:docs/superpowers/plans/2026-10-18-semantic-matrix.md Task 1"
+      "provenance": "docs/superpowers/specs/2026-10-12-eval-loop-hardening-design.md §2.1(共识代理层=诊断层:源池共识指控语料的回声/源坍塌监测对照) · 裁决:docs/superpowers/plans/2026-10-18-semantic-matrix.md Task 1"
     },
     "consensus|suspicious|score": {
       "state": "legal",
-      "provenance": "docs/superpowers/specs/2026-10-12-eval-loop-hardening-design.md §2.1(共识代理层=诊断层:舰队共识指控语料的回声/源坍塌监测对照) · 裁决:docs/superpowers/plans/2026-10-18-semantic-matrix.md Task 1"
+      "provenance": "docs/superpowers/specs/2026-10-12-eval-loop-hardening-design.md §2.1(共识代理层=诊断层:源池共识指控语料的回声/源坍塌监测对照) · 裁决:docs/superpowers/plans/2026-10-18-semantic-matrix.md Task 1"
     },
     "consensus|suspicious|stix": {
       "state": "legal",
-      "provenance": "docs/superpowers/specs/2026-10-12-eval-loop-hardening-design.md §2.1(共识代理层=诊断层:舰队共识指控语料的回声/源坍塌监测对照) · 裁决:docs/superpowers/plans/2026-10-18-semantic-matrix.md Task 1"
+      "provenance": "docs/superpowers/specs/2026-10-12-eval-loop-hardening-design.md §2.1(共识代理层=诊断层:源池共识指控语料的回声/源坍塌监测对照) · 裁决:docs/superpowers/plans/2026-10-18-semantic-matrix.md Task 1"
     },
     "consensus|suspicious|UI": {
       "state": "legal",
-      "provenance": "docs/superpowers/specs/2026-10-12-eval-loop-hardening-design.md §2.1(共识代理层=诊断层:舰队共识指控语料的回声/源坍塌监测对照) · 裁决:docs/superpowers/plans/2026-10-18-semantic-matrix.md Task 1"
+      "provenance": "docs/superpowers/specs/2026-10-12-eval-loop-hardening-design.md §2.1(共识代理层=诊断层:源池共识指控语料的回声/源坍塌监测对照) · 裁决:docs/superpowers/plans/2026-10-18-semantic-matrix.md Task 1"
     },
     "consensus|benign|score": {
       "state": "illegal",

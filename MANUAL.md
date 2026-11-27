@@ -63,7 +63,7 @@ The main page is one screen: an input area on top, results below.
 
 ### The verdict line
 
-Every lookup returns one fused verdict — `benign`, `suspicious`, or `malicious` — with a 0–100 confidence. The fusion is a log-odds (Bayesian) model over per-source evidence: each source carries a hand-set reliability, threat assertions decay with a 60-day half-life (yesterday's sighting weighs more than last quarter's; scalar facts like geo don't decay), and independent corroboration multiplies up. Two honest caveats are built into the semantics:
+Every lookup returns one fused verdict — `benign`, `suspicious`, `malicious`, or `informational` — with a 0–100 confidence. `informational` appears only when every record on the address is archive-style (a sighting report that accuses nothing): any accusing or benign assertion outranks it. The fusion is a log-odds (Bayesian) model over per-source evidence: each source carries a hand-set reliability, threat assertions decay with a 60-day half-life (yesterday's sighting weighs more than last quarter's; scalar facts like geo don't decay), and independent corroboration multiplies up. Two honest caveats are built into the semantics:
 
 - **0 means "no evidence", not "innocent".** A clean verdict on an address no list has ever seen is weak evidence of innocence, and the UI and API both treat it that way (`threat.verdict: "benign", confidence: 0`).
 - **Confidence is per-field, not just per-verdict.** The same IP can be `Country NL (88)` and `City Amsterdam (52)` — the table shows each field's own consensus.
@@ -110,7 +110,8 @@ The `sources[]` breakdown is the full evidence for that field — who said what,
 
 ### Per-type threat evidence
 
-Each classification type (IntelMQ vocabulary: `abuse-reports`, `spam`, `blacklist`, `scanner`, `brute-force`, `c2-server`, `ddos`, `exploit`, `infected-system`, `other`) carries its own fused verdict plus the lossless per-source detail:
+Each classification type (IntelMQ vocabulary: `blacklist`, `c2-server`, `malware-distribution`, `malware`, `scanner`, `brute-force`, `phishing`, `infected-system`, `exploit`, `proxy`, `tor`, `vulnerable-system`, `misconfiguration`, `abuse-reports`, `spam`, `ddos`, `dns`, `ntp`, `other`) carries its own fused verdict plus the lossless per-source detail.
+`dns` and `ntp` are facet labels for benign service-role assertions (resolver and time-service identities), not threat words — they appear only on benign assessments.
 
 ```json
 "spam": {
@@ -136,7 +137,7 @@ The fields worth knowing: `corroborated` (more than one independent source agree
 
 **CSV** — the `Export CSV` button above the table exports every row currently in results with the full evidence depth: 27 columns including fused verdict + confidence, per-type tags with malware families, aggregated `reporter_total` / `corroborated` / `verdict_conflict`, earliest `first_seen` / latest `last_seen` across sources, top source reliability, and the asset attribute set. Values that could execute as spreadsheet formulas are prefixed so hostile feed data stays text. Above 50,000 expanded rows the export happens automatically (table mode switches off — see [Querying](#2-querying)).
 
-**STIX 2.1** — `GET /api/lookup/{ip}/stix` returns a STIX 2.1 bundle for the address: identities for every contributing source, indicators and observed-data with the same per-source evidence the API carries. The `stix2` library ships in the image, so this works out of the box — handy for feeding SIEMs that speak STIX natively. The UI's **Export STIX** button (above the results table) produces the same bundle from the current selection.
+**STIX 2.1** — `GET /api/lookup/{ip}/stix` returns a STIX 2.1 bundle for the address: an Identity per contributing source, the address itself as an IPv4 or IPv6 address object (family-dispatched), its Location and Autonomous System when they resolve, the Relationships binding them together, and an Indicator per accusing classification — carrying the same per-source evidence the API carries (archive-only evidence accuses nothing, so it produces no Indicator). The `stix2` library ships in the image, so this works out of the box — handy for feeding SIEMs that speak STIX natively. The UI's **Export STIX** button (above the results table) produces the same bundle from the current selection.
 
 ## 5. The admin console
 
