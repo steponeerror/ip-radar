@@ -379,16 +379,38 @@ class RefreshScheduler:
         """#467:源数据文件字节指纹;经 observe_update 的 content_hash_of 延迟
         调用,只在落新事件时进本函数(平时扫描不算指纹,零开销)。
 
-        路径分叉与 _read_mtime 对齐:_path 是文件 → 单文件;是目录
-        (cn_isp isp/、cloud_ranges/)→ 目录内文件列表(排序由
-        _alerts.content_fingerprint 内部做,这里不排)。_path 缺失、列
-        目录失败、目录空 → None(指纹列落 NULL,事件照记)。
+        输入集(#501,还 #465 卡16 的挂账):有 _data_files() 钩子的源走
+        钩子返回的声明清单——与 health()、content_age_h 同一输入集,
+        下载暂存件(.dl、.dl.tmp、cn_isp 的 .tmp)不再混进指纹(#455
+        评审 R-2 的窗口就此关掉)。无钩子的自定义源/测试桩退回旧口径:
+        _path 是文件 → 单文件;是目录(cn_isp isp/、cloud_ranges/)→
+        目录内文件列表(排序由 _alerts.content_fingerprint 内部做,这
+        里不排)。_path 缺失、列目录失败、目录空 → None(指纹列落
+        NULL,事件照记)。
 
-        挂账:#465 卡16(PR #470)合并后改走 _data_files(),并定缺席
-        文件怎么算(缺席算不算变化);在那之前下载暂存件(.dl、
-        .dl.tmp、cn_isp 的 .tmp)会进指纹,窗口同 #455 评审 R-2。
+        缺席裁决(#501 主会话定):声明清单里任一文件不存在 → 整次指纹
+        None——None 在读数时按「不可比」剔除,永远不会被算成「没变」
+        (宁少算,哲学 3:不把缺席说成没变化);缺席经
+        _alerts.content_fingerprint 的 OSError 规则落 None(任一文件读
+        不了/列表为空同为 None),不在此处另立一份缺席判定。
+
+        _data_files() 调用抛异常 → 退回旧口径并记 warning(带源名与
+        异常类型),指纹不因钩子故障硬丢。
         """
         from pathlib import Path
+        data_files = getattr(source, "_data_files", None)
+        if data_files is not None:
+            try:
+                paths = list(data_files())
+            except Exception as e:      # 钩子故障不丢记账:退回旧口径
+                logger.warning(
+                    "scheduler: _data_files() failed for %s (%s); "
+                    "falling back to legacy path listing",
+                    getattr(source, "name", "?"), type(e).__name__)
+            else:
+                # 缺席/空清单 → None(content_fingerprint 的 OSError/空
+                # 列表规则,#501 裁决);排序在 content_fingerprint 内部做
+                return _alerts.content_fingerprint(paths)
         p = getattr(source, "_path", None)
         if p is None:
             return None

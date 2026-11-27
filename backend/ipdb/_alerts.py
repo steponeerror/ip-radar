@@ -278,9 +278,10 @@ def content_fingerprint(paths: Sequence[Path | str]) -> str | None:
     换新文件、后者每晚都有变更,按压缩字节算不会把「没变」误记成
     「变了」);分析读数时这两个源的「变了」读作「文件变了」。
 
-    输入 = 文件路径组:单文件源传一个;目录型源由调用方展开成目录内
-    文件列表(调度侧 _content_fingerprint_of 的文件/目录分叉与
-    _read_mtime 对齐)。规则:
+    输入 = 文件路径组:调度侧 _content_fingerprint_of 走源的 _data_files()
+    钩子取声明清单(#501,与 health()/content_age_h 同一输入集,缺席
+    文件 → None);无钩子的自定义源/测试桩退回旧口径(_path 是文件
+    → 单文件;是目录 → 目录内全部文件,与 _read_mtime 对齐)。规则:
     - 单文件:文件字节流式 sha256 的 hexdigest(1MiB 分块读,不整载
       进内存——964MB 小机;镜像实测 71 源合计 1.52GB,最大单源
       rir_abuse 两文件 388MB,开发机 377MB 算一次 0.73 秒)。
