@@ -5,7 +5,8 @@ import { Modal } from "../components/Modal";
 import {
   readOpsLedger, listOpsPrecedents, readOpsPrecedent, exportOpsPrecedents,
   getOpsAgentConfig, putOpsAgentConfig,
-  type ApiError, type OpsAgentConfig, type TaskState,
+  isUnauthorized,
+  type OpsAgentConfig, type TaskState,
 } from "../api";
 import OpsPackagesSection from "./OpsPackagesSection";
 import OpsReviewSection from "./OpsReviewSection";
@@ -64,7 +65,7 @@ function ConfigSection({ onUnauthorized }: { onUnauthorized: () => void }) {
     try {
       apply(await getOpsAgentConfig());
     } catch (e) {
-      if ((e as ApiError).status === 401) { onUnauthorized(); return; }
+      if (isUnauthorized(e)) { onUnauthorized(); return; }
       setError(opsErrorText(t, e, t("ops.cfg.loadFailed")));
     }
   }, [t, onUnauthorized]);
@@ -93,7 +94,7 @@ function ConfigSection({ onUnauthorized }: { onUnauthorized: () => void }) {
         setSaved(true);
       })
       .catch((e) => {
-        if ((e as ApiError).status === 401) { onUnauthorized(); return; }
+        if (isUnauthorized(e)) { onUnauthorized(); return; }
         setError(opsErrorText(t, e, t("ops.cfg.saveFailed")));
       })
       .finally(() => setBusy(false));
@@ -289,7 +290,7 @@ function LedgerSection({ onUnauthorized }: { onUnauthorized: () => void }) {
       setText(await readOpsLedger());
       markArrived();
     } catch (e) {
-      if ((e as ApiError).status === 401) { onUnauthorized(); return; }
+      if (isUnauthorized(e)) { onUnauthorized(); return; }
       setError(opsErrorText(t, e, t("ops.ledger.loadFailed")));
     }
   }, [t, onUnauthorized, markArrived]);
@@ -386,7 +387,7 @@ function PrecedentsSection({ onUnauthorized }: { onUnauthorized: () => void }) {
   const [now, markArrived] = useArrivalNow();
 
   const failWith = (set: (s: string) => void, fallback: string) => (e: unknown) => {
-    if ((e as ApiError).status === 401) { onUnauthorized(); return; }
+    if (isUnauthorized(e)) { onUnauthorized(); return; }
     set(opsErrorText(t, e, fallback));
   };
 

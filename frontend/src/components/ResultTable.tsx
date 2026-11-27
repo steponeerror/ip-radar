@@ -7,9 +7,8 @@ import {
 } from "./threatDisplay";
 import { useI18n } from "../i18n";
 import { IpDetailPanel } from "./IpDetailPanel";
-import {
-  foldServiceStatements, serviceChipKey, SERVICE_CHIP_KEY_PREFIX,
-} from "./serviceFold";
+import { SERVICE_CHIP_KEY_PREFIX } from "./serviceFold";
+import { assetChips } from "./assetChips";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 
 type TFn = (key: string, vars?: Record<string, string | number>) => string;
@@ -23,47 +22,9 @@ type SortKey = "ip" | "asn" | "country" | "city" | "as_name" | "verdict" | "thre
 // 基础设施类标签 (anonymizing infra): neutral, not malicious.
 const INFRA_TYPES = new Set(["tor", "proxy", "vpn", "hosting", "scanner_hosting"]);
 
-// Classification types that ALSO appear as asset keys — when a classification
-// of this type exists, the asset badge is suppressed to avoid duplication.
-const ASSET_DUPLICATES_CLASSIFICATION = new Set(["is_tor", "is_proxy"]);
-
-function assetBadges(r: LookupResult, t: TFn): { label: string; detail: string; key: string }[] {
-  const out: { label: string; detail: string; key: string }[] = [];
-  const classTypes = new Set(Object.keys(r.classifications));
-  for (const [key, stmts] of Object.entries(r.attributes ?? {})) {
-    const assetKey = {
-      is_proxy: "asset.is_proxy",
-      is_hosting: "asset.is_hosting",
-      is_tor: "asset.is_tor",
-      is_vpn: "asset.is_vpn",
-      carrier: "asset.carrier",
-      service: "asset.service",
-      is_anycast: "asset.is_anycast",
-    }[key];
-    if (!assetKey) continue;
-    // De-dup: if classification already covers this, skip
-    if (ASSET_DUPLICATES_CLASSIFICATION.has(key)) {
-      const ctype: Record<string, string> = { is_tor: "tor", is_proxy: "proxy" };
-      if (classTypes.has(ctype[key])) continue;
-    }
-    if (key === "service") {
-      // 折并(2026-10-11 五裁,规则与出处见 serviceFold.ts;同 IpDetailPanel):
-      // chip 正文只显角色,证人 source · native 逐行进 title;key 前缀常量保住
-      // ThreatTags 的 cdn 压制判据(SERVICE_CHIP_KEY_PREFIX && label === "cdn")。
-      for (const { value, detail } of foldServiceStatements(stmts)) {
-        out.push({ label: value, detail, key: serviceChipKey(value) });
-      }
-      continue;
-    }
-    const first = stmts[0];
-    if (!first) continue;
-    let detail = first.source;
-    if (first.native_type) detail += ` · ${first.native_type}`;
-    if (key === "carrier") detail = String(first.value);
-    out.push({ label: t(assetKey), detail, key });
-  }
-  return out;
-}
+// 资产 chips(挑键/压制/文案/悬停明细)唯一构造器在 assetChips.ts(#486
+// 收编:本组件原持一份 assetBadges,与 IpDetailPanel.identityChips 重复,
+// 悬停明细顺序两边相反);这里只留「放在标签列、用什么样式」。
 
 const CLASS_PALETTE: Record<string, string> = {
   // 行为类 (active malice) — red/orange
@@ -231,7 +192,7 @@ function ThreatTags({
           <span key={`asset-${a.key}`}
             className={`${i === 0 ? "" : "ml-1.5"} rounded px-1.5 py-0.5 text-[11px] bg-sky-500/12 text-sky-400 ring-1 ring-sky-500/20`}
             title={r.threat?.is_cdn && a.key.startsWith(SERVICE_CHIP_KEY_PREFIX) && a.label === "cdn" ? t("cdn.notice") : a.detail}>
-            {a.key === "carrier" ? `${a.label}: ${a.detail}` : a.label}
+            {a.label}
           </span>
         ))}
       {showCdnBadge && (
@@ -718,7 +679,7 @@ export function ResultTable({ results }: ResultTableProps) {
             <tbody>
               {pageRows.map((r, i) => {
                 const summary = threatSummary(r);
-                const badges = assetBadges(r, t);
+                const badges = assetChips(r, t);
                 return (
                 <Fragment key={r.ip + i}>
                   <tr

@@ -486,6 +486,40 @@ def cleanup_stale(base: Path) -> None:
                 shutil.rmtree(child, ignore_errors=True)
 
 
+def drop_staging(base: Path) -> int:
+    """定点暂存清扫(#478 返工裁决,评审建议 6 延伸):只删 crash-leftover
+    形态的 ``.new.<pid>`` 暂存与 ``.cmp`` 临时目录,永不动纪元目录与
+    ptr/sidecar —— 与 cleanup_stale 的前半段同一判定(字面同式,防止两处
+    判定漂移),区别在不碰 ``parts[0].isdigit()`` 的纪元分支。调用方:
+    子进程重建车道在取消/停顿/读事故/管道异常四个失败终态、确认子进程
+    结束后调用(SourceBase.drop_staging);反复停顿会每次换 pid 留一个大
+    暂存,原口径要等下次成功重建后的 load() 或重启才清,小机 40G 盘会
+    被占满。IP_RADAR_POOL_CHILD 下不做(同 cleanup_stale 的理由:pool
+    worker 懒孵化看到的暂存可能是主进程在途重建)。返回删除的目录数
+    (供车道日志;ignore_errors 已吞 IO 错,故计数只含真删掉的)。
+    """
+    if os.environ.get("IP_RADAR_POOL_CHILD"):
+        return 0
+    import shutil
+    parent = base.parent
+    if not parent.exists():
+        return 0
+    prefix = base.name + "."
+    n = 0
+    for child in parent.iterdir():
+        name = child.name
+        if not (child.is_dir() and name.startswith(prefix)):
+            continue
+        tail = name[len(prefix):]
+        parts = tail.split(".")
+        if tail.endswith(".cmp") or (
+                parts[-1].isdigit() and len(parts) >= 2 and parts[-2] == "new"):
+            shutil.rmtree(child, ignore_errors=True)
+            if not child.exists():
+                n += 1
+    return n
+
+
 def load_v6_side_state(base: Path) -> tuple[object | None, bool, int, int]:
     """v6 族 sidecar 解析单源点(#243,2026-10-30):ptr 缺失 = 无 v6 数据,
     不是错误;旧数据目录(无 v6 sidecar)静默零态。返回 (reader6,

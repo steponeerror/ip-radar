@@ -4,7 +4,8 @@ import { MarkdownDoc } from "../components/MarkdownDoc";
 import { Modal } from "../components/Modal";
 import {
   listOpsPackages, readOpsPackage, readOpsPrecedent,
-  type ApiError, type OpsPackageInfo,
+  isUnauthorized,
+  type OpsPackageInfo,
 } from "../api";
 import { opsErrorText } from "./opsErrorText";
 import { relTime } from "./opsTable";
@@ -66,7 +67,7 @@ export default function OpsPackagesSection({ onUnauthorized, roundTick }: {
   const [precError, setPrecError] = useState<string | null>(null);
 
   const failWith = (set: (s: string) => void, fallback: string) => (e: unknown) => {
-    if ((e as ApiError).status === 401) { onUnauthorized(); return; }
+    if (isUnauthorized(e)) { onUnauthorized(); return; }
     set(opsErrorText(t, e, fallback));
   };
 
