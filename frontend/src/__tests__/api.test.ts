@@ -273,6 +273,58 @@ describe("queryIpsStream (row protocol v2)", () => {
     clickSpy.mockRestore();
   });
 
+  it("csv mode: rows exported sorted by idx regardless of arrival order (#495)", async () => {
+    // 乱序到达(idx 3,1,0,2)→ 导出文件按 idx 排:手册「到达后按 idx 重排」
+    // 对 CSV 生效(#495)。total 超阈值进 csv 模式,实际只发 4 行。
+    const n = TABLE_THRESHOLD + 4;
+    const fakeRow = (i: number) => {
+      const r: LookupResult = {
+        ip: `10.0.0.${i}`,
+        country: { value: "", confidence: 0, algorithm: "", sources: [] },
+        city: { value: "", confidence: 0, algorithm: "", sources: [] },
+        asn: { value: 0, confidence: 0, algorithm: "", sources: [] },
+        as_name: { value: "", confidence: 0, algorithm: "", sources: [] },
+        ip_range: { value: "", confidence: 0, algorithm: "", sources: [] },
+        is_isp: false,
+        classifications: {},
+      };
+      return `{"type":"row","idx":${i},"result":${JSON.stringify(r)}}`;
+    };
+    const lines = [`{"type":"start","total":${n}}`];
+    for (const i of [3, 1, 0, 2]) lines.push(fakeRow(i));
+    lines.push(`{"type":"done","invalid_lines":0,"ipv6_unsupported":0}`);
+    const ndjson = lines.join("\n");
+    const reader = (async function* () {
+      yield new TextEncoder().encode(ndjson + "\n");
+    })();
+    fetchMock().mockResolvedValue({
+      ok: true,
+      body: { getReader: () => ({ read: () => reader.next() }) },
+    });
+
+    const URL_CREATE = globalThis.URL.createObjectURL;
+    const REVOKE = globalThis.URL.revokeObjectURL;
+    let captured: Blob | undefined;
+    globalThis.URL.createObjectURL = (blob: Blob | MediaSource) => {
+      captured = blob as Blob;
+      return "blob:x";
+    };
+    globalThis.URL.revokeObjectURL = () => {};
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+
+    const out = await queryIpsStream(["10.0.0.0/29"], () => {});
+    expect(out.csvDownloaded).toBe(true);
+    const blobText = await captured!.text();
+    // 文本 = BOM + 表头行 + 数据行;数据行的首列是 ip,断言按 idx(= ip 尾数)排
+    const parts = blobText.split("\n");
+    const ips = parts.slice(1, 5).map((l) => l.split(",")[0]);
+    expect(ips).toEqual(["10.0.0.0", "10.0.0.1", "10.0.0.2", "10.0.0.3"]);
+
+    globalThis.URL.createObjectURL = URL_CREATE;
+    globalThis.URL.revokeObjectURL = REVOKE;
+    clickSpy.mockRestore();
+  });
+
   it("done surfaces invalid_lines and ignores ipv6_unsupported (v6 supported)", async () => {
     const ndjson = [
       `{"type":"start","total":1}`,

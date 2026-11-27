@@ -179,12 +179,23 @@ export interface Progress {
 }
 
 // /api/query/stream 与 /api/upload/stream 的 NDJSON 事件面(backend 流式
-// 查询协议;字段见 readStream 消费处)。
+// 查询协议;字段见 readStream 消费处)。键集与 backend/main.py 的事件
+// 构造函数(_row_event/_progress_event/_done_event,#495)由机读契约
+// 对拍:backend/tests/core/test_stream_contract.py。
 type StreamEvent =
   | { type: "start"; total: number }
   | { type: "row"; idx: number; result: LookupResult }
   | { type: "progress"; done: number; total: number }
-  | { type: "done"; invalid_lines?: number; error?: string | null; code?: string | null };
+  | { type: "done"; invalid_lines?: number; ipv6_unsupported: number; error?: string | null; code?: string | null };
+
+// 表格/CSV 两种模式共用的按 idx 重排(#495):流按各批完成先后吐 row,
+// 每行带输入 idx;到达后按 idx 重组,同一查询两次导出行序确定。缺 idx
+// 的行与旧行为一致地丢弃(filter undefined)。
+function reorderByIdx<T>(byIdx: Map<number, T>, total: number): T[] {
+  return Array.from({ length: total }, (_, i) => byIdx.get(i)).filter(
+    (x): x is T => x !== undefined,
+  );
+}
 
 async function readStream(
   res: Response,
@@ -198,19 +209,12 @@ async function readStream(
   let total = 0;
   let mode: "table" | "csv" | null = null;
   const resultsByIdx = new Map<number, LookupResult>();
+  const csvRowsByIdx = new Map<number, string>();
   const csvParts: string[] = [CSV_HEADER];
-  let rowBuffer: string[] = [];
   let invalidLines = 0;
   let error: string | null = null;
   let errorCode: string | null = null;
   let sawDone = false;
-
-  const flushRows = () => {
-    if (rowBuffer.length) {
-      csvParts.push(rowBuffer.join("\n") + "\n");
-      rowBuffer = [];
-    }
-  };
 
   while (true) {
     const { done, value } = await reader.read();
@@ -231,8 +235,9 @@ async function readStream(
         if (mode === "table") {
           resultsByIdx.set(evt.idx, r);
         } else {
-          rowBuffer.push(buildCsvRow(r));
-          if (rowBuffer.length >= 1000) flushRows();
+          // CSV 模式同样按 idx 重排(#495):先按 idx 暂存,done 后统一
+          // 排序写盘,导出行序不再取决于各批完成的先后(与手册一致)。
+          csvRowsByIdx.set(evt.idx, buildCsvRow(r));
         }
       } else if (evt.type === "progress") {
         onProgress({ done: evt.done, total: evt.total });
@@ -253,7 +258,11 @@ async function readStream(
   }
 
   if (mode === "csv") {
-    flushRows();
+    // done 后统一按 idx 重排再写盘(#495);分批 join 只是避免一次巨型拼接
+    const sortedRows = reorderByIdx(csvRowsByIdx, total);
+    for (let i = 0; i < sortedRows.length; i += 1000) {
+      csvParts.push(sortedRows.slice(i, i + 1000).join("\n") + "\n");
+    }
     if (csvParts.length > 1) {  // more than just the header → has rows
       downloadCsv(csvParts);
       return { results: [], csvDownloaded: true, invalidLines, error, error_code: errorCode, total };
@@ -262,9 +271,7 @@ async function readStream(
   }
 
   // table mode — reassemble in idx order
-  const results = Array.from({ length: total }, (_, i) => resultsByIdx.get(i)).filter(
-    (x): x is LookupResult => x !== undefined,
-  );
+  const results = reorderByIdx(resultsByIdx, total);
   return { results, csvDownloaded: false, invalidLines, error, error_code: errorCode, total };
 }
 

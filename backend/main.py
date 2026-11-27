@@ -193,6 +193,31 @@ def require_ready():
             headers={"X-IPRadar-Reason": _coldstart.REASON_WARMING})
 
 
+# ── 流式事件构造函数(#495):NDJSON 事件形状只写这一处 ──────────────────
+# 协议面:start{total} → row{idx,result} × N → progress{done,total}
+# → done{invalid_lines, ipv6_unsupported[, error, code]}。前端对侧声明是
+# frontend/src/api.ts 的 `type StreamEvent`;两边键集由机读契约对拍
+# (backend/tests/core/test_stream_contract.py),改形状先改这里再改前端。
+def _row_event(idx, result):
+    return {"type": "row", "idx": idx, "result": result}
+
+
+def _progress_event(done, total):
+    return {"type": "progress", "done": done, "total": total}
+
+
+def _done_event(invalid_lines, ipv6_unsupported, *, error=None, code=None):
+    """done 终态事件:无错只带三个基础键;出错追 error(裸字符串,空消息
+    兜底为异常类型名)与 code(语义码)。键插入顺序与旧手写字面量一致,
+    orjson 输出字节不变。"""
+    evt = {"type": "done", "invalid_lines": invalid_lines,
+           "ipv6_unsupported": ipv6_unsupported}
+    if error is not None or code is not None:
+        evt["error"] = error
+        evt["code"] = code
+    return evt
+
+
 async def _emit_chunks(src, total, done_start=0, allowed=None):
     """src: 产出 (idx, ip) 的可迭代对象; 低层流式吐行 helper。
 
@@ -210,11 +235,9 @@ async def _emit_chunks(src, total, done_start=0, allowed=None):
         start_idx = batch[0][0]
         dicts = await asyncio.to_thread(_batch_pool._work_chunk, ips, allowed)
         for i, d in enumerate(dicts):
-            yield orjson.dumps({"type": "row", "idx": start_idx + i,
-                                "result": d}) + b"\n"
+            yield orjson.dumps(_row_event(start_idx + i, d)) + b"\n"
         done += len(dicts)
-        yield orjson.dumps({"type": "progress",
-                            "done": min(done, total), "total": total}) + b"\n"
+        yield orjson.dumps(_progress_event(min(done, total), total)) + b"\n"
         await asyncio.sleep(0)
 
 
@@ -234,10 +257,8 @@ async def _stream_lookup(expansion, allowed: frozenset[str] | None = None):
     yield orjson.dumps({"type": "start", "total": total}) + b"\n"
 
     if total == 0:
-        yield orjson.dumps({
-            "type": "done", "invalid_lines": expansion.invalid,
-            "ipv6_unsupported": expansion.ipv6,
-        }) + b"\n"
+        yield orjson.dumps(
+            _done_event(expansion.invalid, expansion.ipv6)) + b"\n"
         return
 
     pool = _batch_pool.get_pool()
@@ -245,28 +266,23 @@ async def _stream_lookup(expansion, allowed: frozenset[str] | None = None):
 
     # Inline path: small batches or no pool — stream chunk-by-chunk.
     if total <= _batch_pool.INLINE_THRESHOLD or pool is None:
-        yield (orjson.dumps({"type": "progress", "done": 0, "total": total})
-               + b"\n")
+        yield (orjson.dumps(_progress_event(0, total)) + b"\n")
         try:
             async for evt in _emit_chunks(expansion, total, allowed=allowed):
                 yield evt
         except Exception as e:            # done-error 不静默 (spec §4)
             logging.getLogger(__name__).exception("inline stream error")
-            yield (orjson.dumps({
-                "type": "done", "invalid_lines": expansion.invalid,
-                "ipv6_unsupported": expansion.ipv6,
-                "error": str(e) or type(e).__name__,
-                "code": ErrorCode.internal.value}) + b"\n")
+            yield (orjson.dumps(_done_event(
+                expansion.invalid, expansion.ipv6,
+                error=str(e) or type(e).__name__,
+                code=ErrorCode.internal.value)) + b"\n")
             return
-        yield (orjson.dumps({
-            "type": "done", "invalid_lines": expansion.invalid,
-            "ipv6_unsupported": expansion.ipv6,
-        }) + b"\n")
+        yield (orjson.dumps(
+            _done_event(expansion.invalid, expansion.ipv6)) + b"\n")
         return
 
     # Pooled path: chunk the lazy generator, submit all, emit rows as they finish.
-    yield (orjson.dumps({"type": "progress", "done": 0, "total": total})
-           + b"\n")
+    yield (orjson.dumps(_progress_event(0, total)) + b"\n")
     loop = asyncio.get_running_loop()
     it = iter(expansion)
     fut_to_chunk: dict = {}  # {future: (start_idx, ips)}
@@ -282,23 +298,20 @@ async def _stream_lookup(expansion, allowed: frozenset[str] | None = None):
     except BrokenProcessPool:
         logging.getLogger(__name__).warning(
             "stream batch pool broke during submit; streaming inline")
-        yield (orjson.dumps({"type": "progress", "done": 0, "total": total})
+        yield (orjson.dumps(_progress_event(0, total))
                + b"\n")   # 提交期一行未吐, 从头流式
         try:
             async for evt in _emit_chunks(expansion, total, allowed=allowed):
                 yield evt
         except Exception as e:
             logging.getLogger(__name__).exception("submit-fallback stream error")
-            yield (orjson.dumps({
-                "type": "done", "invalid_lines": expansion.invalid,
-                "ipv6_unsupported": expansion.ipv6,
-                "error": str(e) or type(e).__name__,
-                "code": ErrorCode.internal.value}) + b"\n")
+            yield (orjson.dumps(_done_event(
+                expansion.invalid, expansion.ipv6,
+                error=str(e) or type(e).__name__,
+                code=ErrorCode.internal.value)) + b"\n")
             return
-        yield (orjson.dumps({
-            "type": "done", "invalid_lines": expansion.invalid,
-            "ipv6_unsupported": expansion.ipv6,
-        }) + b"\n")
+        yield (orjson.dumps(
+            _done_event(expansion.invalid, expansion.ipv6)) + b"\n")
         return
 
     emitted: set = set()
@@ -312,13 +325,12 @@ async def _stream_lookup(expansion, allowed: frozenset[str] | None = None):
                 start_idx, _ = fut_to_chunk[fut]
                 dicts = fut.result()
                 for i, d in enumerate(dicts):
-                    yield orjson.dumps({
-                        "type": "row", "idx": start_idx + i, "result": d}) + b"\n"
+                    yield orjson.dumps(
+                        _row_event(start_idx + i, d)) + b"\n"
                 emitted.add(fut)
                 done_count += len(dicts)
-                yield orjson.dumps({
-                    "type": "progress",
-                    "done": min(done_count, total), "total": total}) + b"\n"
+                yield orjson.dumps(
+                    _progress_event(min(done_count, total), total)) + b"\n"
             await asyncio.sleep(0)
     except BrokenProcessPool:
         logging.getLogger(__name__).warning(
@@ -345,25 +357,21 @@ async def _stream_lookup(expansion, allowed: frozenset[str] | None = None):
             except Exception as e:
                 logging.getLogger(__name__).exception(
                     "wait-fallback stream error")
-                yield (orjson.dumps({
-                    "type": "done", "invalid_lines": expansion.invalid,
-                    "ipv6_unsupported": expansion.ipv6,
-                    "error": str(e) or type(e).__name__,
-                    "code": ErrorCode.internal.value}) + b"\n")
+                yield (orjson.dumps(_done_event(
+                    expansion.invalid, expansion.ipv6,
+                    error=str(e) or type(e).__name__,
+                    code=ErrorCode.internal.value)) + b"\n")
                 return
     except Exception as e:            # 非 BPP 异常: done-error 终态, 不静默截断
         logging.getLogger(__name__).exception("stream lookup error")
-        yield (orjson.dumps({
-            "type": "done", "invalid_lines": expansion.invalid,
-            "ipv6_unsupported": expansion.ipv6,
-            "error": str(e) or type(e).__name__,
-            "code": ErrorCode.internal.value}) + b"\n")
+        yield (orjson.dumps(_done_event(
+            expansion.invalid, expansion.ipv6,
+            error=str(e) or type(e).__name__,
+            code=ErrorCode.internal.value)) + b"\n")
         return
 
-    yield orjson.dumps({
-        "type": "done", "invalid_lines": expansion.invalid,
-        "ipv6_unsupported": expansion.ipv6,
-    }) + b"\n"
+    yield orjson.dumps(
+        _done_event(expansion.invalid, expansion.ipv6)) + b"\n"
 
 
 def _cleanup_orphan_tmp(data_dir: Path) -> None:
