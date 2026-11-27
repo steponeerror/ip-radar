@@ -177,6 +177,15 @@ class UpdateDbOut(_Out):
     refreshed: int
 
 
+class AutoRefreshOut(_Out):
+    """#478:「会不会自动刷新」四项查询口。interval/last_scan 在调度器未
+    装配(IPRADAR_AUTO_REFRESH=0)时为 null。"""
+    enabled: bool
+    running: bool
+    interval_s: Optional[int] = None
+    last_scan_age_s: Optional[float] = None
+
+
 class DbStatusOut(_Out):
     last_updated: str
     total_records: int
@@ -186,6 +195,7 @@ class DbStatusOut(_Out):
     is_stale: bool
     covered_v6_nets: int
     warming_up: bool
+    auto_refresh: AutoRefreshOut
 
 
 # ── eval 成绩单 ──

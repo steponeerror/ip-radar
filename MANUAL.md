@@ -244,7 +244,7 @@ Disable entirely with `IP_RADAR_RATELIMIT=0` (not recommended on anything reacha
 | `GET /api/lookup/{ip}/stix` | Same, as a STIX 2.1 bundle | key |
 | `POST /api/query/stream` | Batch lookup, NDJSON stream | key |
 | `POST /api/upload/stream` | Batch lookup from uploaded file, NDJSON stream | key |
-| `GET /api/db-status` | Record counts, staleness, warming flag | key |
+| `GET /api/db-status` | Record counts, staleness, warming flag, auto-refresh state | key |
 | `GET /api/sources` | Source catalog + health | admin |
 | `PATCH /api/sources/{name}` | Enable/disable a source (`{"enabled": false}`) | admin |
 | `POST /api/sources/{name}/update` | Force single-source refresh → `task_id` | admin |
