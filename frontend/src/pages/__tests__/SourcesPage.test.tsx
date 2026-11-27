@@ -512,12 +512,43 @@ describe("SourcesPage manage behaviors (kept pins, new structure)", () => {
     expect(btn).toBeDisabled();
   });
 
-  it("shows loading percentage from received/total (100/200 → 50%)", async () => {
+  it("shows the staged loading percentage (100/200 → 75%, not raw 50%)", async () => {
     renderPage({
       tasks: [TK({ id: "t-load", state: "loading", received: 100, total: 200 })],
     });
     await expandGroup();
-    expect(await screen.findByRole("button", { name: /Loading… 50%/ })).toBeInTheDocument();
+    // #486:行上百分比唯一算法 = stagedFrac(同批量条):下载段占一半,
+    // 载入段 0.5+0.5×比例 —— 100/200 → 0.75,不是裸比例的 50%。
+    expect(await screen.findByRole("button", { name: /Loading… 75%/ })).toBeInTheDocument();
+  });
+
+  it("shows the staged downloading percentage (halfway → 25%, not raw 50%)", async () => {
+    renderPage({
+      tasks: [TK({ id: "t-dl", state: "downloading", received: 50, total: 100 })],
+    });
+    await expandGroup();
+    // 下载段占一半:一半 ≠ 50%,而是 25%(与批量条同源同值)
+    expect(await screen.findByRole("button", { name: /Downloading… 25%/ })).toBeInTheDocument();
+  });
+
+  it("rounds the staged percentage (download 1/3 → 17%, matching batch row/bar)", async () => {
+    renderPage({
+      tasks: [TK({ id: "t-dl3", state: "downloading", received: 1, total: 3 })],
+    });
+    await expandGroup();
+    // #486 评审 S2:取整同批量面板逐行/批量条 Math.round(0.5×1/3×100=16.67→17),
+    // 行上数字不比批量条差 1。
+    expect(await screen.findByRole("button", { name: /Downloading… 17%/ })).toBeInTheDocument();
+  });
+
+  it("unknown-total downloading shows text only, no anchor percentage (S1)", async () => {
+    renderPage({
+      tasks: [TK({ id: "t-dl2", state: "downloading" })],
+    });
+    await expandGroup();
+    // #486 评审 S1 裁:总数未知时段内锚点(0.25)是分段模型的占位数,
+    // 不当百分比报给用户 —— 只出文字,与批量面板逐行的 --% 同口径。
+    expect(await screen.findByRole("button", { name: "Downloading…" })).toBeInTheDocument();
   });
 
   it("clamps loading percentage at 100% when received exceeds total (250/200)", async () => {

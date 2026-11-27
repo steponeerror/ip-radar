@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { getTasks, subscribeTasks, type TaskEvent, type TaskState, type BatchState } from "../api";
+import { getTasks, subscribeTasks, isUnauthorized, type TaskEvent, type TaskState, type BatchState } from "../api";
 import {
   enqueueBatch as apiEnqueueBatch, enqueueSingle as apiEnqueueSingle,
   cancelTask as apiCancelTask, cancelBatch as apiCancelBatch, pauseBatch, resumeBatch,
@@ -63,7 +63,7 @@ export function TaskProvider({ children, onUnauthorized }: {
       } catch (e) {
         // 会话中 401:踢回登录页(卸壳即断 SSE 重连);其余错误吞下 —
         // 之前这里是未处理 rejection。
-        if ((e as { status?: number }).status === 401) {
+        if (isUnauthorized(e)) {
           onUnauthorized?.();
           return;
         }

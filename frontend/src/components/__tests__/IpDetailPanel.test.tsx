@@ -225,6 +225,35 @@ describe("service chip 折并(grill 2026-10-11 五裁 b/a/a/a/a)", () => {
   });
 });
 
+// #486 收编后两侧同构器(assetChips):本组与 ResultTable.test.tsx 的镜像
+// 断言用同一期望串,钉「两边悬停明细顺序相同」。统一前本面板是
+// `native · source`(与结果表相反),现统一为 `来源 · 原始类型`。
+describe("asset chips 同构器(#486):明细顺序与压制", () => {
+  it("布尔资产悬停明细 = `来源 · 原始类型`(与结果表同串)", () => {
+    renderWithI18n(<IpDetailPanel r={{ ...r, attributes: {
+      is_hosting: [{ source: "ipinfo_hosting", value: true, native_type: "hosting" }],
+    } as LookupResult["attributes"] }} />);
+    expect(screen.getByTitle("ipinfo_hosting · hosting")).toBeInTheDocument();
+  });
+
+  it("无同型分类时 is_tor chip 照常出(对照)", () => {
+    renderWithI18n(<IpDetailPanel r={{ ...r, attributes: {
+      is_tor: [{ source: "peerdb", value: true, native_type: "tor" }],
+    } as LookupResult["attributes"] }} />);
+    expect(screen.getByTitle("peerdb · tor")).toBeInTheDocument();
+  });
+
+  it("is_tor 被 tor classification 压制(#486 统一判据)", () => {
+    renderWithI18n(<IpDetailPanel r={{ ...r,
+      classifications: { tor: { type: "tor", verdict: "informational", detected: true,
+        confidence: 60, algorithm: "voting", corroborated: false, reporter_total: 1,
+        verdict_conflict: false, has_archive: false, malware_names: [], details: [], sources: [] } },
+      attributes: { is_tor: [{ source: "peerdb", value: true, native_type: "tor" }] } } as unknown as LookupResult} />);
+    // tor classification 在场(威胁明细区渲染),资产 chip 不重复
+    expect(screen.queryByTitle("peerdb · tor")).not.toBeInTheDocument();
+  });
+});
+
 describe("abuse_contact 槽(类 3 所有权与联系,rir_abuse 前置 2026-10-18)", () => {
   const abuse = (value: string): NonNullable<LookupResult["abuse_contact"]> => ({
     value, confidence: 85, algorithm: "authority",

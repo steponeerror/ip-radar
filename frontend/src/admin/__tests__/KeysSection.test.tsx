@@ -410,4 +410,16 @@ describe("KeysSection", () => {
     renderWithI18n(<KeysSection onUnauthorized={onUnauthorized} />);
     await waitFor(() => expect(onUnauthorized).toHaveBeenCalledTimes(1));
   });
+
+  // #486 行为钉面:非 401 不得误踢登录,错误横幅落原地。
+  it("does NOT call onUnauthorized on non-401 failure; banner instead", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false, status: 500,
+      json: async () => ({ error: { code: "internal", message: "key store unavailable" } }),
+    });
+    const onUnauthorized = vi.fn();
+    renderWithI18n(<KeysSection onUnauthorized={onUnauthorized} />);
+    await waitFor(() => expect(screen.getByText("key store unavailable")).toBeInTheDocument());
+    expect(onUnauthorized).not.toHaveBeenCalled();
+  });
 });

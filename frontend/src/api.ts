@@ -10,6 +10,18 @@ export interface ApiError extends Error {
   reason?: string | null;
 }
 
+// 「回 401 就踢回登录」的判定唯一入口(#486 收编:此前 13 处手抄
+// `(e as ApiError).status === 401`,类型写法分两派、且只有 1 处有测试)。
+// 给一个错误对象回答「是不是会话失效的 401」;类型窄化与非对象容错
+// (null/字符串 → false 不炸)收进来,调用点只留行为分支(是 401 →
+// onUnauthorized + return,否则落错误横幅)。adminMe() 的 401→null 是
+// 登录探测,另一种语义,不收编。守卫:src/__tests__/conventions.test.ts
+// 源码文本巡检 —— `status === 401` 全 src 只许出现在本函数(挡粗心,
+// 不防恶意,做法同后端 backend/tests/core/test_conventions.py)。
+export function isUnauthorized(e: unknown): boolean {
+  return typeof e === "object" && e !== null && (e as { status?: number }).status === 401;
+}
+
 export interface SourceAttribution<T = unknown> {
   source: string;
   value: T;
