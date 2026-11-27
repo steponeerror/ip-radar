@@ -133,12 +133,17 @@ def test_limit_decorators_below_route_decorators():
     route.dependant.call.__wrapped__ is marked[name][-1];若错写在路由装饰器
     之上,路由持有的是未包装函数(无 __wrapped__,限流永不生效,实证见
     task-7-report),本断言转红。端点名单从限流器自己的注册表键推导,不手抄。"""
-    from fastapi.routing import iter_route_contexts
+    from fastapi.routing import APIRoute, iter_route_contexts
     limiter = _ratelimit.limiter
     marked = getattr(limiter, "_Limiter__marked_for_limiting", None)
     assert marked, "slowapi 内部注册表缺席(版本漂移?)——本测试失去对象,改写而非删除断言"
     by_name: dict[str, list] = {}
     for ctx in iter_route_contexts(main.app.routes):
+        if not isinstance(ctx.route, APIRoute):
+            # 根路径的前端静态挂载(Mount)不是接口路由、没有 dependant。
+            # 只有带 frontend/dist 的部署形态(CI、生产镜像)才有它,没有构建
+            # 产物的开发工作树没有——两种形态下本测试都要能跑。
+            continue
         call = ctx.dependant.call
         name = f"{call.__module__}.{call.__name__}"
         by_name.setdefault(name, []).append(ctx)

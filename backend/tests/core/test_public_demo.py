@@ -131,16 +131,35 @@ def test_demo_trailing_slash_variants_masked(path):
         assert r.json()["error"]["code"] == "not_found"
 
 
-@pytest.mark.parametrize("path", ["/api//tasks", "/api/./tasks", "/API/tasks/",
+@pytest.mark.parametrize("path", ["/api//tasks", "/api/./tasks",
                                   "/api/tasks;x=1/", "/api/tasks/.."])
 def test_demo_noncanonical_shapes_still_404(path):
-    """对照组(评审返工·必须改 1):这些形状在镜像前后都拿 404——去尾斜杠/
-    补斜杠都命中不了任何路由(fastapi 不规范化路径、正则大小写敏感、;
-    不是分隔符)。镜像不得引入新放行,这条钉住它。"""
+    """对照组(评审返工·必须改 1):这些 /api/ 下的形状在镜像前后都拿 404——
+    去尾斜杠/补斜杠都命中不了任何路由(fastapi 不规范化路径、; 不是
+    分隔符)。镜像不得引入新放行,这条钉住它。"""
     with _client("1", follow_redirects=False) as c:
         r = c.get(path)
         assert r.status_code == 404, f"GET {path} 应 404,实得 {r.status_code}"
         assert r.json()["error"]["code"] == "not_found"
+
+
+@pytest.mark.parametrize("path", ["/API/tasks/", "/API/ops/items/", "/API/tasks"])
+def test_demo_non_api_shapes_get_no_api_answer(path):
+    """不在 /api/ 下的变形(大小写不同,守卫不判隐藏):正则大小写敏感,没有任何
+    接口路由匹配。有没有前端构建产物决定了谁来收——有,是前端外壳页回 200;
+    没有,是路由器回 404(CI 的后端任务有构建产物,开发工作树通常没有)。
+    两种形态下都不该出现「有接口在应答」的迹象:不是 307(没有 Location)、
+    没有 Allow 头;回 200 的必须是 HTML 外壳页(不是接口的 JSON)。404 的
+    响应体是哪种形状不在这里管(全站 404 都走同一个信封处理器)。"""
+    with _client("1", follow_redirects=False) as c:
+        r = c.get(path)
+        assert r.status_code in (200, 404), (
+            f"GET {path} 应是外壳页 200 或 404,实得 {r.status_code}")
+        assert "location" not in r.headers, f"GET {path} 不该跳转"
+        assert "allow" not in r.headers, f"GET {path} 不该报出允许的方法"
+        if r.status_code == 200:
+            assert "text/html" in r.headers.get("content-type", ""), (
+                f"GET {path} 的 200 应是前端外壳页")
 
 
 def _api_routes():
