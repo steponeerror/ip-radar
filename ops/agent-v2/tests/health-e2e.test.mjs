@@ -886,10 +886,10 @@ test("#490 缺省闸判别力:三假设 DEEP 分批 2+1(峰值 2,批间在首批
         assert.ok(firstBatchTerm >= 2, `首批两假设应先后到终态(实 ${firstBatchTerm};轨迹:${JSON.stringify(deep)})`);
         assert.ok(idx3 > deep.map((e, i) => (e.hid !== OPEN && e.status === "terminal") ? i : -1).reduce((a, b) => Math.max(a, b), -1),
           `批间接续:第三假设首个提交(pending)晚于首批全部终态(轨迹:${JSON.stringify(deep)})`);
-        const report = fs.readFileSync(path.join(w.roundDir, "06-final-report.md"), "utf8");
-        assert.match(report, /model_calls=5/, "模型调用总账=5(TRIAGE 1+DEEP 3+SYNTH 1)");
-        assert.match(report, /confirmed=1/, "深验三计数回算进报告(cins 确证)");
-        assert.match(report, /refuted=2/, "深验三计数回算进报告(bdef/openphish 反驳)");
+        assert.equal(jsonOf(path.join(w.roundDir, "09-budget.json")).readings.model_calls, 5, "模型调用总账=5(TRIAGE 1+DEEP 3+SYNTH 1)");
+        const dv = jsonOf(path.join(w.roundDir, "05-deep-verdicts.json"));
+        assert.equal((dv.verdicts ?? []).length, 3, "三假设三判决全收编(cins 确证+bdef/openphish 反驳)");
+        assert.equal(dv.verdicts.filter((v) => v.verdict === "refuted").length, 2, "refuted=2(bdef/openphish)");
       } finally { await harness.close(context); }
     } finally {
       await storage.close(context);
