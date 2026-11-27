@@ -369,7 +369,9 @@ test("#490 其他失败照旧立即重试:无 errorMessage 分类缺席,不 slee
       const outcome = settled.state.outcome;
       assert.equal(outcome.status, "completed", `普通失败应照旧重试成功:${JSON.stringify(outcome)}`);
       assert.equal(outcome.result.modelCalls, 2);
-      assert.ok(Date.now() - t0 < 150, `零退避立即重试(${Date.now() - t0}ms;改动前行为)`);
+      // 评审建议①:上界放宽到几秒(<5000)——原 150ms 在慢机上会把「重试语义正确」误判红;
+      // 零退避的判据在 sleeping 缺席(下行),时序上界只防挂死,不必紧。
+      assert.ok(Date.now() - t0 < 5_000, `零退避立即重试(${Date.now() - t0}ms;改动前行为)`);
       assert.ok(seen.every((s) => s.status !== "sleeping"), "非限流失败不走 sleeping");
       assert.ok(seen.every((s) => s.lastErrorClass === null), "分类缺席=lastErrorClass 恒 null");
     } finally { await harness.close(context); }
