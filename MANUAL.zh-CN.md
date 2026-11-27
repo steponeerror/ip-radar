@@ -63,7 +63,7 @@
 
 ### 判定行
 
-每次查询返回一个融合判定——`benign`(良性)、`suspicious`(可疑)或 `malicious`(恶意)——外加 0–100 置信度。融合是逐源证据上的 log-odds(贝叶斯)模型:每个源带一个手工设定的可靠性,威胁断言按 60 天半衰期衰减(昨天的目击比上季度的重;地理这类标量事实不衰减),独立佐证会叠乘。两条诚实的告诫内建在语义里:
+每次查询返回一个融合判定——`benign`(良性)、`suspicious`(可疑)、`malicious`(恶意)或 `informational`(存档)——外加 0–100 置信度。`informational` 只在地址上的记录全部是存档式(只报告目击、不作指控)时出现——指控或良性断言在场时都排在它前面。融合是逐源证据上的 log-odds(贝叶斯)模型:每个源带一个手工设定的可靠性,威胁断言按 60 天半衰期衰减(昨天的目击比上季度的重;地理这类标量事实不衰减),独立佐证会叠乘。两条诚实的告诫内建在语义里:
 
 - **0 意味着「无证据」,不是「清白」。**任何列表都没见过的地址得到 clean 判定,只是清白的弱证据——界面和 API 都这么对待(`threat.verdict: "benign", confidence: 0`)。
 - **置信度是逐字段的,不只是逐判定的。**同一个 IP 可以是 `Country NL (88)` 同时 `City Amsterdam (52)`——表格展示每个字段各自的共识。
@@ -110,7 +110,8 @@
 
 ### 逐类型威胁证据
 
-每个分类类型(IntelMQ 词表:`abuse-reports`、`spam`、`blacklist`、`scanner`、`brute-force`、`c2-server`、`ddos`、`exploit`、`infected-system`、`other`)带自己的融合判定和保真的逐源明细:
+每个分类类型(IntelMQ 词表:`blacklist`、`c2-server`、`malware-distribution`、`malware`、`scanner`、`brute-force`、`phishing`、`infected-system`、`exploit`、`proxy`、`tor`、`vulnerable-system`、`misconfiguration`、`abuse-reports`、`spam`、`ddos`、`dns`、`ntp`、`other`)带自己的融合判定和保真的逐源明细:
+`dns`、`ntp` 是良性断言(解析器、时间服务这类服务角色身份)的面标签,不是威胁词汇——只出现在良性判定上。
 
 ```json
 "spam": {
@@ -136,7 +137,7 @@
 
 **CSV**——结果表上方的 `Export CSV` 按钮把当前结果全量导出,带完整证据深度:27 列,含融合判定 + 置信度、逐类型标签与恶意软件家族、聚合的 `reporter_total` / `corroborated` / `verdict_conflict`、跨源最早 `first_seen` / 最晚 `last_seen`、最高源可靠性,以及资产属性全集。可能被电子表格当公式执行的值会加前缀,恶意 feed 数据保持文本。展开超过 50,000 行时自动转为下载模式(表格模式关闭——见[查询](#2-查询))。
 
-**STIX 2.1**——`GET /api/lookup/{ip}/stix` 返回该地址的 STIX 2.1 bundle:每个贡献源的 identity、indicator 与 observed-data,带着与 API 相同的逐源证据。镜像内置 `stix2` 库,开箱即用——对接原生讲 STIX 的 SIEM 很顺手。结果表上方的 **Export STIX** 按钮产出同一个 bundle。
+**STIX 2.1**——`GET /api/lookup/{ip}/stix` 返回该地址的 STIX 2.1 bundle:每个贡献源一个 identity、地址本身的 IPv4/IPv6 地址对象(按地址族二选一)、它的 location 与 autonomous system、把这些对象连起来的 relationship,以及每条指控分类一个 indicator——带着与 API 相同的逐源证据(纯存档证据不作指控,不产 indicator)。镜像内置 `stix2` 库,开箱即用——对接原生讲 STIX 的 SIEM 很顺手。结果表上方的 **Export STIX** 按钮产出同一个 bundle。
 
 ## 5. 管理台
 
