@@ -262,6 +262,25 @@ class RangeSpecificity:
         return MergedField(most_specific[1].value, 85, "specificity", attributions)
 
 
+# ── malware_name 占位词(工单 #503,2026-11-27)──
+# abuse.ch ThreatFox 对「有人报了地址但没归到任何已命名家族」的记录,家族
+# 一列填 "unknown"(线上文件 ip:port 行占 15,177/38,384 = 39.5%,2026-11-27
+# 实测,是最常见的值)。查询期整理时当作没有值:不进 malware_names、不写
+# details[].malware_name;原始值仍在 extra.malware_printable("Unknown
+# malware"),证据不丢。只加 unknown 一个词——unknown_rat/stealer/loader/
+# webinject 表示「知道类别、不知道家族」,信息比光秃秃的 unknown 多,不动。
+_MALWARE_PLACEHOLDERS = frozenset({"unknown"})
+
+
+def _has_malware_family(name) -> bool:
+    """malware_name 有值判定:None/空串照旧算没有值;占位词(去首尾空白、
+    不分大小写)也算没有值(工单 #503)。非字符串的值照旧当有值——
+    to_observation 对非字符串的 malware_name 原样透传,本票不改这条行为
+    (master 上 123 会被保留,这里不能因为它不是字符串就崩)。"""
+    return bool(name) and not (isinstance(name, str)
+                               and name.strip().lower() in _MALWARE_PLACEHOLDERS)
+
+
 def _assess_classification(
         group: list, *, asof: float | None = None) -> ClassificationAssessment:
     """Assess one classification.type group of observations."""
@@ -326,13 +345,17 @@ def _assess_classification(
     reporter_total = sum(o.reporter_count or 0 for o in obs)
 
     # ── Rich fields — surface per-source context to the API ──
-    malware_names = sorted({o.malware_name for o in obs if o.malware_name})
+    # 占位词 unknown 不算家族(#503):abuse.ch 用它表示「未归到任何已命名
+    # 家族」;原始值仍在 extra.malware_printable,证据不丢。
+    malware_names = sorted({o.malware_name for o in obs
+                            if _has_malware_family(o.malware_name)})
 
     details: list[dict] = []
     for o in obs:
         d: dict[str, Any] = {"source": o.source, "reliability": o.reliability,
                              "verdict": o.verdict}
-        if o.malware_name:
+        # 占位词 unknown 不写家族(#503),原始值仍在 extra.malware_printable。
+        if _has_malware_family(o.malware_name):
             d["malware_name"] = o.malware_name
         if o.confidence is not None:
             d["native_confidence"] = o.confidence

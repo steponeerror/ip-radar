@@ -7,11 +7,12 @@ import {
   fetchEvalModel,
   getAdminTokens,
   getSources,
+  isUnauthorized,
   putAdminToken,
   setSourceEnabled,
 } from "../api";
 import type { BatchState, EvalModelScore, SourceInfo, TaskState, TokenStatus } from "../api";
-import { isTaskActive, isTaskTerminal } from "../tasks/progress";
+import { isIndeterminate, isTaskActive, isTaskTerminal, stagedFrac } from "../tasks/progress";
 import { useI18n } from "../i18n";
 
 // 源页重设计(2026-10-17 grill 裁决)三级扫读结构:组头(可收起 button)→
@@ -71,15 +72,17 @@ function fmtHours(h: number | null): string {
   return v < 48 ? `${Math.ceil(v)}h` : `${(v / 24).toFixed(1)}d`;
 }
 
-// 行内按钮相位文案:downloading/loading 带 received/total 百分比(计划钉死
-// N = Math.floor(received/total*100),终审 P2 补 Math.min(100,·) clamp 对齐
-// progress.ts stagedFrac 既有规范;total 缺失/≤0 退回纯文案),queued/throttled
-// 共用"排队中"。translate() 对未替换占位符原样保留,故"纯文案回退"由 pct 后缀
-// 传空串实现,而非不传 vars。
+// 行内按钮相位文案:downloading/loading 带百分比。百分比唯一算法 =
+// progress.ts stagedFrac(#486 收编:此前裸 Math.floor(received/total*100),
+// 与批量条各说各话 —— 下载一半时行上 50%、批量条 25%);取整同批量面板
+// 逐行/批量条 Math.round(#486 评审 S2)。总数未知(isIndeterminate)只出
+// 文字:段内锚点(下载 0.25/载入 0.5)是分段模型的占位数,不是量出来的
+// 进度,不当百分比报给用户 —— 与批量面板逐行的 --% 同口径(评审 S1 裁)。
+// queued/throttled 共用"排队中"。translate() 对未替换占位符原样保留,此处
+// 未知总数传空 pct,渲染成纯文案(词表形如 "Downloading…{pct}")。
 function phaseLabel(tk: TaskState): { key: string; vars?: Record<string, string | number> } {
   if (tk.state !== "downloading" && tk.state !== "loading") return { key: "sources.queued" };
-  const total = tk.total ?? 0;
-  const suffix = total > 0 ? ` ${Math.min(100, Math.floor(((tk.received ?? 0) / total) * 100))}%` : "";
+  const suffix = isIndeterminate(tk) ? "" : ` ${Math.round(stagedFrac(tk) * 100)}%`;
   return {
     key: tk.state === "downloading" ? "sources.downloading" : "sources.loading",
     vars: { pct: suffix },
@@ -184,7 +187,7 @@ export default function SourcesPage({ tasks, batch, onUnauthorized }: SourcesPag
 
   // 401 = 会话失效 → 踢回登录页;其余错误走原错误文案路径。
   const failWith = (e: unknown, fallback: string) => {
-    if ((e as { status?: number }).status === 401) { onUnauthorized(); return; }
+    if (isUnauthorized(e)) { onUnauthorized(); return; }
     setError(e instanceof Error ? e.message : fallback);
   };
 
