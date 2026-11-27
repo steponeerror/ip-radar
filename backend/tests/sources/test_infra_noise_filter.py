@@ -168,6 +168,22 @@ def test_incident_sources_declare_filter():
         assert cls.infra_noise_filter is True, cls.__name__
 
 
+def test_declarer_roster_is_exactly_the_incident_sources(tmp_path):
+    """声明面 = 恰好这十个事故源(逐个 opt-in 是纪律,不是默认行为;
+    2026-11-27 #514 评审建议):哪个源没过评审就打开开关(多出一个名字)、
+    或十个里哪个声明被删,都在这里红。新增事故源接入时同步改这里。"""
+    import ipdb._registry as reg
+
+    got = {s.name for s in reg._discover_sources(tmp_path)
+           if getattr(s, "infra_noise_filter", False) is True}
+    assert got == {
+        "myip_ms", "ziyadnz", "cps_collected_iocs",
+        "tweetfeed", "dataplane", "honeypot_fyi",
+        "reportedip", "gorkemgun_sgb_blocklist", "otx",
+        "nerd_medconf",
+    }
+
+
 def test_tweetfeed_harvest_rebuild_excludes_and_logs(tmp_path, caplog):
     """harvest 车道(Source 基类)同款排除:tweetfeed 2026-10-29 人裁接入,
     样本 = 实测误列行原型(skocherhan 单推 223.5.5.5,空 tag → other)。"""
@@ -310,3 +326,39 @@ def test_nerd_medconf_rebuild_excludes_and_logs(tmp_path, caplog):
     assert "nerd_medconf" in msg and "excluded 1" in msg
     assert "1.0.0.1/32" in msg                # 被排条目明文留痕
     assert raw.read_text() == body            # 原始件零改写
+
+
+def test_nerd_medconf_standing_family_picks_up_filter_on_update(
+        tmp_path, monkeypatch, caplog):
+    """#514 未 bump HARVEST_REV,部署注记依赖的机制(2026-11-27 评审建议):
+    存量族是开关关着时建的(数据文件在前、族指针在后),部署后裸 rebuild
+    会被判成已收敛而跳过;手动更新会重新下载数据文件——上游一个字节没变
+    也重写——数据文件变得比族指针新,重建才跑,过滤才带上。以后谁给
+    download 或重建加「内容没变就不重写 / 不重建」的捷径,这里红。"""
+    from ipdb._sources import _download
+    from ipdb._sources.nerd_medconf import NerdMedConfSource
+
+    payload = b"1.0.0.1\n203.0.113.7\n"
+    monkeypatch.setattr(
+        _download, "download_file",
+        lambda url, dest, token=None, headers=None: dest.write_bytes(payload))
+    s = NerdMedConfSource(data_dir=tmp_path)
+    monkeypatch.setattr(NerdMedConfSource, "infra_noise_filter", False)
+    s.download()                               # 改前那一路:原样摄取
+    assert s.rebuild() == 2 and s.query("1.0.0.1")
+
+    before = (tmp_path / "nerd_medconf.txt").read_bytes()
+    monkeypatch.setattr(NerdMedConfSource, "infra_noise_filter", True)
+    with caplog.at_level(logging.INFO, logger="ipdb._sources._infra_filter"):
+        assert s.rebuild() == 2                # 裸重建:族已收敛,被跳过
+    assert s.query("1.0.0.1")                  # 所以只部署不更新不会生效
+    caplog.clear()
+    s.download()                               # 手动更新:上游未变,文件照重写
+    assert (tmp_path / "nerd_medconf.txt").read_bytes() == before
+    with caplog.at_level(logging.INFO, logger="ipdb._sources._infra_filter"):
+        assert s.rebuild() == 1                # 数据文件比族指针新 → 重建
+    assert not s.query("1.0.0.1")              # 过滤带上了
+    assert s.query("203.0.113.7")
+    log = [r for r in caplog.records
+           if "infra noise filter" in r.getMessage()]
+    assert len(log) == 1 and "1.0.0.1/32" in log[0].getMessage()

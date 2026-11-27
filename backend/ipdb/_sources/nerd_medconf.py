@@ -42,13 +42,16 @@ class NerdMedConfSource(IpListSource):
     provenance_tier = "C"                 # C=聚合派生(S21):rep 分含 DShield/OTX/黑名单
     # 载入期排除 infra_services curated 单址集(2026-11-27 #514:1.0.0.1
     # Cloudflare 公共 DNS 被单源误列恶意,唯一指控人即 nerd_medconf;与
-    # #392 gorkemgun_sgb_blocklist / #450 otx 同一开关,数据文件零改写,
+    # PR #392 gorkemgun_sgb_blocklist / #450 otx 同一开关,数据文件零改写,
     # 关 IP_RADAR_INFRA_NOISE_FILTER 重建即复原)
     infra_noise_filter = True
     # 未 bump HARVEST_REV(沿 2026-11-25 #450 取舍:不为一个源在 964MB 小机
     # 上做一次全族迁移重建,明账记在 _lmdb.py 挂账注释与 CHANGELOG 部署
-    # 注记):存量 nerd_medconf 族要到下次刷新重建才带上这道过滤——实测
-    # 刷新间隔 35–40 小时;要立即生效就手动触发一次 nerd_medconf 更新。
+    # 注记):存量 nerd_medconf 族是开关关着时建的,调度器不会补建,要到下次
+    # 刷新重建才带上这道过滤——按 _scheduler.py 的规则是数据文件时间之后
+    # 35–47 小时内的下一个槽位再加排队延迟(更新账本实测三次 35.4–39.6
+    # 小时);要立即生效就手动触发一次 nerd_medconf 更新(先下载重写数据
+    # 文件,重建才会跑;裸 rebuild 对已收敛的族会被跳过)。
 
     def parse_raw(self, raw: bytes) -> list[str]:
         """默认解析 + 注释头 ``Generated at`` 时间戳进日志(下载路径内联
