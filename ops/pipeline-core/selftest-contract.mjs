@@ -43,6 +43,10 @@ const SRCS = { agent: src("agent.mjs"), tools: src("tools.mjs"), models: src("mo
   // 票 #199 交付B(P16 跨轮熔断):旋钮单源读面入扫描——OPS_BREAKER_* 真读方在
   // tools/breaker.mjs readBreakerKnobs(宿主接线/09-budget.json 快照同面)
   toolsBreaker: src("tools/breaker.mjs"),
+  // 票 #490(第四轮评审卡 25):模型并发闸/限流分类入扫描——OPS_MODEL_MAX_INFLIGHT/
+  // OPS_MODEL_RETRY_BACKOFF_S 真读方在 agent-v2/tasks/model-errors.mjs 两个小函数
+  // (票面硬性要求:env 直读只此一处,其余代码调函数)
+  modelErrors: src("../agent-v2/tasks/model-errors.mjs"),
   // #139 挂账②:锁基建入扫描(零 env 读取,现状无表项;未来若读 env 会被
   // 「读取∈表」不变式拦下,防静默扩面)
   toolsQueueLock: src("tools/queue-lock.mjs") };
@@ -76,7 +80,7 @@ const ERROR_CODES = mod.ERROR_CODES;
 const computeReads = () => {
   const reads = new Set();
   let unknownTemplate = null;
-  for (const s of [SRCS.agent, SRCS.tools, SRCS.models, SRCS.pipeline, SRCS.pipelineSteps, SRCS.pipelineGates, SRCS.pipelineFaux, SRCS.pipelineBudget, SRCS.pipelineFindingExit, SRCS.toolsShared, SRCS.toolsEnvelope, SRCS.toolsRegistry, SRCS.toolsPrecedents, SRCS.toolsMeasurement, SRCS.toolsDiscovery, SRCS.toolsBreaker, SRCS.toolsQueueLock]) {
+  for (const s of [SRCS.agent, SRCS.tools, SRCS.models, SRCS.pipeline, SRCS.pipelineSteps, SRCS.pipelineGates, SRCS.pipelineFaux, SRCS.pipelineBudget, SRCS.pipelineFindingExit, SRCS.toolsShared, SRCS.toolsEnvelope, SRCS.toolsRegistry, SRCS.toolsPrecedents, SRCS.toolsMeasurement, SRCS.toolsDiscovery, SRCS.toolsBreaker, SRCS.toolsQueueLock, SRCS.modelErrors]) {
     for (const m of s.matchAll(/process\.env\.([A-Za-z_][A-Za-z0-9_]*)/g)) reads.add(m[1]);
     // 方括号字符串读形(reviewer Minor-2,T2):process.env["QUOTED_NAME"]/['X']——与点形
     // 同名集并入对拍;引号族与反引号族(下方)互不重叠。动态下标读形 process.env[expr]
@@ -122,7 +126,9 @@ await t("表:SPAWN_CONTRACT_ENV 名集=规格 16 项+…(增补链见 agent.mjs 
     "OPS_PIPELINE_SPEND_CAP_CNY", "OPS_PIPELINE_MONTHLY_CAP_CNY", "OPS_PIPELINE_DUP_CALL_LIMIT",
     "OPS_DISCOVER_MAX_MODEL_CALLS", "OPS_DISCOVER_WALL_CLOCK_S", "OPS_DISCOVER_SPEND_CAP_CNY", // #207 T1 发现轮三旋钮
     "OPS_BREAKER_THRESHOLD", "OPS_BREAKER_COOLDOWN_S", // #199 交付B:tools/breaker.mjs readBreakerKnobs 单源实读
-    "OPS_GH_REPO"].sort()); // #348 修法 A:gh 开票仓址定向(finding-exit.mjs 透传 --repo)
+    "OPS_GH_REPO", // #348 修法 A:gh 开票仓址定向(finding-exit.mjs 透传 --repo)
+    "OPS_MODEL_MAX_INFLIGHT", "OPS_MODEL_RETRY_BACKOFF_S" // #490:模型并发闸/退避(model-errors.mjs 单源实读)
+  ].sort());
 });
 
 await t("表:元素形状 {name,default,consumer,phase}/phase 闭集/名唯一", () => {
@@ -150,10 +156,11 @@ await t("表对拍:OPS_*|ZAI_*|DOCS_ROOT/PRECEDENTS_DIR/LEDGER_FILE 读取 ∈ �
   assert.ok(!tableNames().has("PI_BIN") && !tableNames().has("RUN_PI_RAW_OUT"), "fixture 面名字不得入表");
 });
 
-await t("表:error.code 闭集 14 词(ERROR_CODES 导出面;#199 交付A 9→13,交付B 13→14 channel_open)", () => {
+await t("表:error.code 闭集 15 词(ERROR_CODES 导出面;#199 交付A 9→13,交付B 13→14 channel_open,#490 14→15 account_rate_limited)", () => {
   assert.deepEqual([...ERROR_CODES].sort(), ["bad_round", "closure_check", "empty_text", "foreign_tool", "infra",
     "ledger_failed", "model_face", "sandbox_violation", "verify_failed",
-    "budget_exceeded", "wall_clock_exceeded", "budget_monthly", "repeat_storm", "channel_open"].sort());
+    "budget_exceeded", "wall_clock_exceeded", "budget_monthly", "repeat_storm", "channel_open",
+    "account_rate_limited"].sort());
 });
 
 // ── b. in-process main(faux provider,golden 同型;零 API)──────────────────

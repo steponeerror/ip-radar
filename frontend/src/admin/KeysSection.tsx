@@ -7,6 +7,7 @@ import {
   deleteAdminKey,
   enableAdminKey,
   getSources,
+  isUnauthorized,
   listAdminKeys,
   revokeAdminKey,
   setAdminKeySources,
@@ -198,7 +199,7 @@ export default function KeysSection({ onUnauthorized }: { onUnauthorized?: () =>
   // 会话中 401(cookie 过期/服务端重启)→ 踢回登录页(spec §9);
   // 其余错误仍走错误横幅。
   const handleErr = (e: unknown) => {
-    if ((e as { status?: number }).status === 401) { onUnauthorized?.(); return; }
+    if (isUnauthorized(e)) { onUnauthorized?.(); return; }
     setError(e instanceof Error ? e.message : t("admin.keys.loadFailed"));
   };
 

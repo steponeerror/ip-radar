@@ -80,10 +80,18 @@ def test_http_get_and_default_download_warn_on_redirect(tmp_path: Path, caplog):
     class _Resp:
         def __init__(self, final_url):
             self.final_url = final_url
+            # #491 起默认 download 内部走 download_file(流式):fake 需
+            # headers.get("Content-Length") 与带量 read(n);末次读空号
+            # 结束流。_http_get 那条路不用这些,共用同一个 fake 无妨。
+            self.headers = {}
+            self._pending = True
         def geturl(self):
             return self.final_url
-        def read(self):
-            return b"data"
+        def read(self, n=-1):
+            if self._pending:
+                self._pending = False
+                return b"data"
+            return b""
         def __enter__(self):
             return self
         def __exit__(self, *a):
@@ -146,10 +154,13 @@ def test_health_uses_file_mtime(tmp_path: Path):
 
 
 def test_base_download_accepts_token():
-    """UpdateManager._run_task calls source.download(token=task.token). The base
-    Source.download must accept (and ignore) token so bespoke subclasses that
-    rely on the default GET (bruteforce/tweetfeed/urlhaus) don't crash with
-    `Source.download() got an unexpected keyword argument 'token'`."""
+    """UpdateManager._run_task calls source.download(token=task.token): every
+    download signature must accept the keyword. Since #491 the default
+    Source.download honours it (pre/mid-stream cancel + per-chunk progress);
+    bruteforce and tweetfeed ride that default path, while bespoke sources
+    like urlhaus (own download in urlhaus.py) keep their own handling — none
+    may crash with `Source.download() got an unexpected keyword argument
+    'token'`."""
     assert "token" in inspect.signature(Source.download).parameters
     for cls in (BruteforceSource, TweetFeedSource, URLhausSource):
         assert "token" in inspect.signature(cls.download).parameters, (
