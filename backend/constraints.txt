@@ -5,12 +5,15 @@
 # 「上不封顶吃安全更新」的意图;本文件把当时验证过、镜像里实际在跑的精确版本记档,
 # 防止同一 commit 在镜像/CI/本地装出不同依赖集(漂移仓内判例:ops/package.json:5,
 # 2026-11-22 实测 undici 7.30.1→7.30.2)。
+# 来源:生产镜像所在提交 master 8fe7d5a6,2026-11-27;原始输出是不入库的本地件
+# dev/arch-r4-scan/prod-pip-freeze-20261127.txt。
 #
 # 与 requirements.txt 的分工:requirements.txt 写版本范围和「为什么用它」的注释;
 # 本文件只记版本。requirements.txt 不引用本文件,范围语义保留。
 #
 # 怎么重新生成:在生产容器里 `pip freeze`;或在一个干净虚拟环境里按 requirements.txt
-# 装完后 `pip freeze`,照原样替换下面的包行。
+# 装完后 `pip freeze`,照原样替换下面的包行。整表重生成 = 全量升级,只在专门的
+# 全量升级提交里做,要过全量门;平时单包升级只改一行。
 #
 # 什么时候改:升级某个包 = 改这里的一行,单独一个提交,提交说明写清为什么
 # (安全更新/修缺陷/新功能需要)。本文件的每一处改动都会被镜像构建与 CI 安装步
@@ -19,7 +22,9 @@
 # 谁在消费本文件(全部带 -c):
 #   - Dockerfile 运行时镜像 pip install
 #   - .github/workflows/ci.yml 五处 pip install
-#   - .github/workflows/audit.yml 每周依赖体检的运行时安装
+#   - .github/workflows/audit.yml 每周依赖体检的运行时安装(可安装性探针)
+#   - scripts/worktree_init.sh(工作树 backend/.venv,后端门用它)
+#   - start.sh(本地起服务首次建 venv)
 #   - 本地开发(建议,不强制):pip install -c constraints.txt -r requirements-dev.txt
 aiosqlite==0.20.0
 annotated-doc==0.0.7

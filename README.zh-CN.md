@@ -265,7 +265,7 @@ curl -s http://127.0.0.1:8000/api/db-status
 **想分开跑也行**（注意 `--host 0.0.0.0` 会把 API 暴露给局域网/公网——网页访客免 key 可查、程序化调用需 key，仅在清楚后果时使用）：
 
 ```bash
-# backend（首次：python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt）
+# backend（首次：python3 -m venv .venv && .venv/bin/pip install -c constraints.txt -r requirements-dev.txt）
 cd backend && source .venv/bin/activate
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
 
@@ -300,7 +300,7 @@ cd frontend && npm run dev
 # backend（在 backend/ 下）
 cd backend
 [ -d .venv ] || python3 -m venv .venv
-.venv/bin/pip install -r requirements-dev.txt
+.venv/bin/pip install -c constraints.txt -r requirements-dev.txt
 .venv/bin/python -m pytest -q
 
 # frontend（在 frontend/ 下）
