@@ -1,0 +1,144 @@
+# 每周依赖体检(工单 #499):pip-audit + frontend/ops npm audit,出报告并开工单。
+# 不持任何门:本 workflow 只按 schedule/workflow_dispatch 跑,不在分支保护必需检查里;
+# 「报告并开票,不挡合并」是主会话按事实包 4.4 的裁决(主人可翻案)。
+# 问题面:pip 有已知漏洞(非零退出)或 npm 有 high 以上告警(非零退出)→ 开
+# 「依赖体检:」前缀工单;已有同前缀开放工单则追加评论,不重复开;无问题只写一行日志。
+# 不加 dependabot(与 constraints.txt 的升级纪律打架,事实包 4.3);基础镜像钉摘要留给月检清单。
+name: Dependency audit (weekly)
+
+on:
+  schedule:
+    - cron: "0 2 * * 1" # 每周一 02:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Python 面:按 constraints 装运行时依赖(与镜像同法),pip-audit 对整个环境出报告。
+      # 结果与状态码各落一份文件;continue-on-error 保证汇总步总能读到结果。
+      # set +e 包住被测命令:默认 shell 是 bash -e,直接跑会因非零退出截断后续落盘。
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/constraints.txt
+      - name: Install runtime deps (constrained, same as image)
+        run: pip install -c backend/constraints.txt -r backend/requirements.txt
+      - name: pip-audit (report, non-gating)
+        continue-on-error: true
+        run: |
+          pip install pip-audit
+          set +e
+          pip-audit --skip-editable > "$RUNNER_TEMP/pip-audit.txt" 2>&1
+          echo "$?" > "$RUNNER_TEMP/pip-audit.status"
+          set -e
+          exit 0
+
+      # npm 面:frontend 与 ops 各跑一次;只看生产依赖(--omit=dev),high 起报。
+      # stdout(JSON)与 stderr(npm 提示)分开落,防 2>&1 污染 JSON 让 jq 解析失败。
+      - name: npm audit — frontend (report, non-gating)
+        continue-on-error: true
+        working-directory: frontend
+        run: |
+          npm ci --no-fund --no-audit
+          set +e
+          npm audit --omit=dev --audit-level=high --json > "$RUNNER_TEMP/npm-audit-frontend.json" 2> "$RUNNER_TEMP/npm-audit-frontend.err"
+          echo "$?" > "$RUNNER_TEMP/npm-audit-frontend.status"
+          set -e
+          exit 0
+      - name: npm audit — ops (report, non-gating)
+        continue-on-error: true
+        working-directory: ops
+        run: |
+          npm ci --no-fund --no-audit
+          set +e
+          npm audit --omit=dev --audit-level=high --json > "$RUNNER_TEMP/npm-audit-ops.json" 2> "$RUNNER_TEMP/npm-audit-ops.err"
+          echo "$?" > "$RUNNER_TEMP/npm-audit-ops.status"
+          set -e
+          exit 0
+
+      # 汇总:任何一面状态码非 0 = 需要处理。有 → 开「依赖体检:」工单(已有同前缀
+      # 开放工单则追加评论);无 → 只写一行日志。同前缀去重用 startswith 全量过滤,
+      # 不走 issue search(GitHub search 对「依赖体检:」里的冒号按限定符解析,不可靠)。
+      - name: 汇总 — 需要处理则开工单(同前缀已开则追加评论),无问题写一行日志
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          date="$(date -u +%F)"
+          py="$(cat "$RUNNER_TEMP/pip-audit.status" 2>/dev/null || echo missing)"
+          fe="$(cat "$RUNNER_TEMP/npm-audit-frontend.status" 2>/dev/null || echo missing)"
+          ops="$(cat "$RUNNER_TEMP/npm-audit-ops.status" 2>/dev/null || echo missing)"
+          summary="$RUNNER_TEMP/audit-summary.md"
+          {
+            echo "依赖体检 ${date}(触发:${GITHUB_EVENT_NAME},ref:${GITHUB_REF_NAME})"
+            echo
+            echo "| 面 | 退出码 |"
+            echo "|---|---|"
+            echo "| pip-audit(运行时依赖,按 constraints 装) | ${py} |"
+            echo "| npm audit frontend(--omit=dev --audit-level=high) | ${fe} |"
+            echo "| npm audit ops(--omit=dev --audit-level=high) | ${ops} |"
+            echo
+            echo "0=无问题;非 0=有问题;missing=该面没跑到。"
+            echo
+            echo "## pip-audit 输出"
+            echo '```'
+            tail -60 "$RUNNER_TEMP/pip-audit.txt" 2>/dev/null || true
+            [ -s "$RUNNER_TEMP/pip-audit.txt" ] || echo "(无输出=无已知漏洞披露)"
+            echo '```'
+            echo
+            for side in frontend ops; do
+              echo "## npm audit — ${side} 要点"
+              f="$RUNNER_TEMP/npm-audit-${side}.json"
+              if [ -s "$f" ]; then
+                jq -r '"- 计数: high=\(.metadata.vulnerabilities.high // 0) critical=\(.metadata.vulnerabilities.critical // 0) moderate=\(.metadata.vulnerabilities.moderate // 0)"' "$f" \
+                  || { echo "- (JSON 解析失败,stderr 尾部:)"; tail -5 "$RUNNER_TEMP/npm-audit-${side}.err" 2>/dev/null || true; }
+                jq -r '.vulnerabilities | to_entries | .[0:15][] | "- \(.key)(\(.value.severity)): \(.value.via[0].title // .value.via[0] // "?")"' "$f" 2>/dev/null || true
+              else
+                echo "- (无输出=无 high 以上告警)"
+              fi
+              echo
+            done
+          } > "$summary"
+          problems=""
+          [ "$py" != "0" ] && problems="${problems}pip-audit(退出码 ${py}) "
+          [ "$fe" != "0" ] && problems="${problems}frontend-npm(退出码 ${fe}) "
+          [ "$ops" != "0" ] && problems="${problems}ops-npm(退出码 ${ops}) "
+          if [ -n "$problems" ]; then
+            title="依赖体检: ${date}"
+            existing="$(gh issue list --state open --limit 200 --json number,title \
+              --jq '.[] | select(.title | startswith("依赖体检:")) | .number' | head -1)"
+            if [ -n "$existing" ]; then
+              gh issue comment "$existing" --body-file "$summary"
+              echo "依赖体检汇总:有问题(${problems}),已追加评论到已有工单 #${existing}"
+            else
+              gh issue create --title "$title" --body-file "$summary"
+              echo "依赖体检汇总:有问题(${problems}),已开新工单:${title}"
+            fi
+          else
+            echo "依赖体检汇总:三面均无问题(pip-audit=${py} frontend-npm=${fe} ops-npm=${ops}),不开工单"
+          fi
+
+      # 结论步:据状态文件独立判红绿(不信任汇总步的副作用);本 workflow 不在任何
+      # 必需检查里,红只出现在 Actions 页面,不挡任何合并。
+      - name: 结论(有问题=红,无问题=绿;不挡合并)
+        if: always()
+        run: |
+          py="$(cat "$RUNNER_TEMP/pip-audit.status" 2>/dev/null || echo missing)"
+          fe="$(cat "$RUNNER_TEMP/npm-audit-frontend.status" 2>/dev/null || echo missing)"
+          ops="$(cat "$RUNNER_TEMP/npm-audit-ops.status" 2>/dev/null || echo missing)"
+          if [ "$py" != "0" ] || [ "$fe" != "0" ] || [ "$ops" != "0" ]; then
+            echo "依赖体检结论:有问题需要处理(pip-audit=${py} frontend-npm=${fe} ops-npm=${ops};工单已开/追加)"
+            exit 1
+          fi
+          echo "依赖体检结论:三面均无问题(pip-audit=${py} frontend-npm=${fe} ops-npm=${ops})"
