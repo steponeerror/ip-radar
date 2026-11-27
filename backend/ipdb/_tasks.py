@@ -3,6 +3,7 @@ import asyncio
 import inspect
 import logging
 import os
+import queue
 import subprocess
 import sys
 import threading
@@ -14,6 +15,11 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from ._sources._download import CancelledError, CancelToken
+from ._task_state import (
+    BatchState, OPS_ROUND_SOURCE, TaskState, TerminalTaskState,
+    TASK_STATES_IN_FLIGHT, TASK_STATES_TERMINAL, TASK_STATES_WAITING,
+    enforce_batch_transition, enforce_task_transition,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -23,16 +29,71 @@ logger = logging.getLogger(__name__)
 # 播种面反复增缩。进度面非存档,证据本体在包/台账(哲学 1)。
 _OPS_LOG_KEEP = 200
 
+# ── #478 子进程车道:停顿超时 + 随时可取消 ──
+# stdout 读线程→队列,主循环 get 至多等 1 秒:静默期(写库前的收获阶段,
+# 多证据源收完整个文件才开始写库,合法地数分钟无输出)取消标记每秒至少
+# 被看一次。
+_STDOUT_POLL_S = 1.0
+# terminate 后留 30 秒宽限再 kill(对照评估子进程 _eval_manager 的
+# communicate(timeout) 模式)。只用在「取消」「停顿」「读事故」三条
+# 失败路上(返工裁决,#478 评审必须改 3):正常读到结束那条路,EOF 的
+# 时刻就是子进程退出、内核在退出路径里关管道 fd 的时刻(print OK 之后
+# 从不显式关 stdout;CPython 收尾在 exit 之前,那段静默归停顿线管),
+# EOF 后的 wait 毫秒级返回,不存在「关了输出再慢慢退出」的窗口。
+_TERM_GRACE_S = 30.0
+# 停顿阈值缺省(分钟)。60 的理由:子进程有两段合法的长时间不出声
+# ——①写库之前的收获阶段,多证据源收完整个文件才开始写库,小机上最
+# 大的源光收文件就要好几分钟(_rebuild_child 模块头);②最后一条
+# PROG 之后还有同步落盘、关 env、compact 拷贝(_lmdb.rebuild_lmdb 提交
+# 段),打印 OK 之后还有解释器收尾,大源在小机上都要数分钟。60 分钟
+# 留足余量,合法重建不会被误杀;真挂死最多白占一个 worker 线程 60 分钟。
+_REBUILD_QUIET_MAX_MIN_DEFAULT = 60.0
+
+
+def _rebuild_quiet_max_s() -> float | None:
+    """停顿阈值:env `IP_RADAR_REBUILD_QUIET_MAX_MIN`(分钟,可小数)
+    → 秒;返回 None = 关掉停顿检查(不设上限)。
+
+    取值口径(2026-11-26 返工裁决;写法照兄弟函数 _lmdb._stall_budget_s:
+    一次 `not val >= 0` 把负数和 NaN 一起判掉 —— 单式比较 NaN 两侧皆假,
+    漏拦会静默落进 `nan*60` 的永假阈值):
+    - 未设 → 缺省 60 分钟(理由见 _REBUILD_QUIET_MAX_MIN_DEFAULT 注)。
+    - 「0」→ None,关掉检查(运维写 0 的自然意图是「别管」)。
+    - 负数、非数字、NaN → 回退缺省 + 告警:打错的开关不该静默关掉挂死
+      保护。
+    分钟是运维口径;测试直接设小数(如 0.0005 分 ≈ 30ms)即得秒级阈值,
+    不另开测试专用入口。
+    """
+    raw = os.environ.get("IP_RADAR_REBUILD_QUIET_MAX_MIN")
+    if raw is None:
+        return _REBUILD_QUIET_MAX_MIN_DEFAULT * 60.0
+    try:
+        val = float(raw)
+    except ValueError:
+        logger.warning("IP_RADAR_REBUILD_QUIET_MAX_MIN=%r not a number; "
+                       "using default %.0f min",
+                       raw, _REBUILD_QUIET_MAX_MIN_DEFAULT)
+        return _REBUILD_QUIET_MAX_MIN_DEFAULT * 60.0
+    if not val >= 0:   # 负/NaN 一并按非法(单式比较,NaN 两侧皆假)
+        logger.warning("IP_RADAR_REBUILD_QUIET_MAX_MIN=%r negative/NaN; "
+                       "using default %.0f min",
+                       raw, _REBUILD_QUIET_MAX_MIN_DEFAULT)
+        return _REBUILD_QUIET_MAX_MIN_DEFAULT * 60.0
+    if val == 0:       # 0 = 关掉停顿检查(不设上限)
+        return None
+    return val * 60.0
+
 
 @dataclass
 class Task:
     id: str
     source_name: str
     host: Optional[str]
-    state: str = "queued"  # queued|downloading|loading|throttled|done|failed|cancelled
-                           # running = ops 轮相位(P2 票 #134;源任务不用——
-                           # 下载/构建沿既有相位,has_active_offline_tasks 四态
-                           # 不含 running → 轮次不阻查询门,冷启动验收 1)
+    # 状态闭集、在飞/终态集合与合法转移表都在 _task_state.py(#484);字段的
+    # 唯一写入口是 UpdateManager._write_state。running = ops 轮相位(P2 票
+    # #134;源任务不用——下载/构建沿既有相位,has_active_offline_tasks 四态
+    # 不含 running → 轮次不阻查询门,冷启动验收 1)。
+    state: TaskState = "queued"
     error: Optional[str] = None
     # 失败终态的语义码:值域 = _errors ErrorCode 值 + 任务相位码
     # download/rebuild(2026-10-17 裁定);None=未失败。SSE/快照消费。
@@ -62,7 +123,7 @@ class Task:
 @dataclass
 class Batch:
     id: str
-    state: str = "running"  # running|paused|done
+    state: BatchState = "running"  # running|paused|done(转移表 _task_state.py #484)
     done: int = 0
     total: int = 0
 
@@ -137,8 +198,9 @@ class UpdateManager:
         # 随 _set_state 同点触发 = _queue_cv→cv 嵌套边(合法向);③旧
         # self._lock→_queue_cv 嵌套(_enqueue_one 持锁入队)已拆(见 
         # _enqueue_one 内注释),否则①②③闭成三锁死锁环。唤醒点 = 相位写点
-        # _set_state、终态记账 _settle、ops 轮占道/收口(不经 _set_state 的
-        # 写点各自通知)、cancel 的 queued 直写路径。
+        # _set_state(= 写入口 _write_state + 唤醒,#484)、终态记账 _settle、
+        # ops 轮占道/收口与 cancel 的排队中分支(这两处只经写入口写字段、
+        # 不唤醒:前者各自在锁段外通知,后者由紧随的 _settle 尾部通知)。
         self._lifecycle_cv = threading.Condition()
 
         for _ in range(concurrency):
@@ -169,7 +231,7 @@ class UpdateManager:
             raise ValueError(f"unknown source: {name}")
         with self._lock:
             existing = self._by_source.get(name)
-            if existing and self._tasks[existing].state in ("queued", "downloading", "loading", "throttled"):
+            if existing and self._tasks[existing].state in TASK_STATES_IN_FLIGHT:
                 return self._tasks[existing]
             # Evict the source's prior TERMINAL tasks (and their progress state)
             # before installing the new one, so _tasks/_prog stay O(sources)
@@ -179,7 +241,7 @@ class UpdateManager:
             # retained until now so snapshot()/task_state() could report the last
             # phase; once the source moves on it's stale.
             stale = [tid for tid, t in self._tasks.items()
-                     if t.source_name == name and t.state in ("done", "failed", "cancelled")]
+                     if t.source_name == name and t.state in TASK_STATES_TERMINAL]
             for tid in stale:
                 self._tasks.pop(tid, None)
                 self._prog.pop(tid, None)
@@ -260,9 +322,9 @@ class UpdateManager:
         相位(供断言直读实际值,而非空泛超时错),task 未知/已被清扫返回 None。
 
         #411:替代 flake 家族的 bare time.sleep 等待——唤醒挂相位写点
-        (_set_state 单点 + ops 轮占道/收口 + cancel 直写),真转移即时醒,
-        门上下文调度延迟只吃 timeout 富余而非窗口上限。检查与 wait 在
-        cv 内原子(写点先写态后通知,无丢唤醒)。"""
+        (_set_state + ops 轮占道/收口 + cancel 排队中分支随后的 _settle),
+        真转移即时醒,门上下文调度延迟只吃 timeout 富余而非窗口上限。检查与
+        wait 在 cv 内原子(写点先写态后通知,无丢唤醒)。"""
         states = set(states)
         deadline = time.monotonic() + timeout
         with self._lifecycle_cv:
@@ -373,7 +435,7 @@ class UpdateManager:
         already-loaded sources never holds queries."""
         with self._lock:
             for t in self._tasks.values():
-                if t.state in ("queued", "downloading", "loading", "throttled"):
+                if t.state in TASK_STATES_IN_FLIGHT:
                     src = self._resolve(t.source_name)
                     if src is not None \
                             and (source_filter is None or source_filter(t.source_name)):
@@ -399,8 +461,7 @@ class UpdateManager:
             # lock, so the check is atomic with the increments.
             if b.done < b.total:
                 return
-            b.state = "done"
-            self._emit({"type": "batch", "batch": b.to_dict()})
+            self._write_batch_state(b, "done")
             self._emit({"type": "done", "batch": b.to_dict()})
             # Release the active slot so a terminal batch stops being
             # reported as active. Without this, _active_batch leaks and
@@ -420,8 +481,7 @@ class UpdateManager:
             # 状态写与 _go.clear 都在锁内:只保状态写的话,_maybe_finish_batch
             # 可在锁释放后、clear 前置 done 并清 active —— 清完的 batch 无 Resume
             # 入口,_go 已清 = 同一个永久卡死窗口。
-            b.state = "paused"
-            self._emit({"type": "batch", "batch": b.to_dict()})
+            self._write_batch_state(b, "paused")
             self._go.clear()
 
     def resume(self):
@@ -429,8 +489,7 @@ class UpdateManager:
             if self._active_batch:
                 b = self._batches[self._active_batch]
                 if b.state == "paused":
-                    b.state = "running"
-                    self._emit({"type": "batch", "batch": b.to_dict()})
+                    self._write_batch_state(b, "running")
         self._go.set()
         with self._queue_cv:
             self._queue_cv.notify_all()
@@ -439,20 +498,28 @@ class UpdateManager:
         task = self._tasks.get(task_id)
         if task is None:
             return
-        if task.state in ("queued", "throttled"):
-            task.state = "cancelled"
+        if task.state in TASK_STATES_WAITING:
             # Defensive: a worker may have just read state='queued' under the cv
             # and be about to popleft+run it. Re-check under the cv (in _worker)
             # is the primary guard; cancelling the token covers the residual
             # window between that re-check and _run_task (#1 cancel race).
             task.token.cancel()
-            self._emit({"type": "task", "task": task.to_dict()})
+            # #484:终态经写入口落(判转移 + 写字段 + 发 task 事件)。token 先于
+            # 状态写:外界看到 cancelled 时下载一定已被叫停。本分支「读态 →
+            # 写 cancelled」不持 self._lock,与 worker 起跑之间没有互斥(#1
+            # cancel race):worker 已过 _queue_cv 复查、卡在 _run_task 开头的
+            # 主机锁/源锁上时,同主机源排队要等前一个源整个下载完——这一整段
+            # 窗口里本分支会先落 cancelled,worker 拿到锁后照常翻相位,
+            # cancelled 的登记出边由此而来(转移表 _task_state.py)。根因修复
+            # (起跑前查 token,不加锁、不碰 #411 锁序)见 #488。
+            self._write_state(task, "cancelled")
             with self._queue_cv:
                 self._queue = deque(t for t in self._queue if t != task_id)
                 self._queue_cv.notify_all()
-            # #411:queued 直写终态后的唤醒由紧随的 _settle 尾部通知承担
-            # (同线程同步到达,无丢唤醒窗口);此处不另发——避免任何
-            # cancel 调用点未来被包进 self._lock 时引入 cv 反序嵌套。
+            # #411:排队中分支落终态(_write_state 不唤醒)后的唤醒由紧随的
+            # _settle 尾部通知承担(同线程同步到达,无丢唤醒窗口);此处不
+            # 另发——避免任何 cancel 调用点未来被包进 self._lock 时引入
+            # cv 反序嵌套。
             self._settle(task)
         else:
             task.token.cancel()
@@ -466,9 +533,7 @@ class UpdateManager:
                     # 无 active batch 的 abort:清所有在飞的 batchless 任务
                     # (单源更新路径 — 前端 Abort 对它们同样是真实按钮)。
                     ids = [tid for tid, t in self._tasks.items()
-                           if t.batch_id is None
-                           and t.state in ("queued", "downloading", "loading",
-                                           "throttled")]
+                           if t.batch_id is None and t.state in TASK_STATES_IN_FLIGHT]
                     target = None
             else:
                 if batch_id not in self._batches:
@@ -476,8 +541,7 @@ class UpdateManager:
                 target = batch_id
             if target is not None:
                 ids = [tid for tid, t in self._tasks.items()
-                       if t.batch_id == target
-                       and t.state in ("queued", "downloading", "loading", "throttled")]
+                       if t.batch_id == target and t.state in TASK_STATES_IN_FLIGHT]
         for tid in ids:
             self.cancel(tid)
 
@@ -496,35 +560,37 @@ class UpdateManager:
             if self._ops_active is not None:
                 return None, "round"
             for t in self._tasks.values():
-                if t.state in ("queued", "downloading", "loading", "throttled"):
+                if t.state in TASK_STATES_IN_FLIGHT:
                     return None, "sources"
             stale = [tid for tid, t in self._tasks.items()
-                     if t.source_name == "ops"
-                     and t.state in ("done", "failed", "cancelled")]
+                     if t.source_name == OPS_ROUND_SOURCE
+                     and t.state in TASK_STATES_TERMINAL]
             for tid in stale:
                 self._tasks.pop(tid, None)
                 self._prog.pop(tid, None)
                 self._ops_logs.pop(tid, None)
-            task = Task(id=uuid.uuid4().hex[:12], source_name="ops", host=None,
-                        state="running")
+            task = Task(id=uuid.uuid4().hex[:12], source_name=OPS_ROUND_SOURCE, host=None)
             self._tasks[task.id] = task
             self._ops_logs[task.id] = deque(maxlen=_OPS_LOG_KEEP)
             self._ops_active = task.id
-            self._emit({"type": "task", "task": task.to_dict()})
+            # #484:ops 任务出生即 running——以缺省 queued 构造,在同一锁段内经
+            # 写入口进 running(转移表的出生边 queued → running);task 事件
+            # 由写入口发。写入口不唤醒,唤醒照旧在锁段外(_notify_lifecycle)。
+            self._write_state(task, "running")
             result = (task, None)
         self._notify_lifecycle()  # ops 轮相位不经 _set_state:占道写点自通知(#411)
         return result
 
-    def finish_ops_round(self, task_id: str, state: str, error: Optional[str] = None,
+    def finish_ops_round(self, task_id: str, state: TerminalTaskState,
+                         error: Optional[str] = None,
                          error_code: Optional[str] = None) -> None:
         """ops 轮收口:终态落任务(emit)+ 释放车道(notify_all 放行源 worker)。"""
         with self._lock:
             task = self._tasks.get(task_id)
             if task is not None:
-                task.state = state
-                task.error = error
-                task.error_code = error_code
-                self._emit({"type": "task", "task": task.to_dict()})
+                # #484:终态经写入口落(判转移 + 写字段 + 发 task 事件)。在
+                # self._lock 内调用:写入口自身不取锁、不唤醒,锁序不变。
+                self._write_state(task, state, error, error_code)
             if self._ops_active == task_id:
                 self._ops_active = None
         self._notify_lifecycle()  # ops 轮收口写点(#411;同上不经 _set_state)
@@ -580,7 +646,7 @@ class UpdateManager:
                 skipped_admit = False
                 for i, tid in enumerate(self._queue):
                     task = self._tasks.get(tid)
-                    if task is None or task.state not in ("queued", "throttled"):
+                    if task is None or task.state not in TASK_STATES_WAITING:
                         continue
                     if self._valve is not None:
                         if not self._valve.can_run():
@@ -598,7 +664,7 @@ class UpdateManager:
                         self._queue = deque(
                             t for t in self._queue
                             if self._tasks.get(t) is not None
-                            and self._tasks[t].state in ("queued", "throttled"))
+                            and self._tasks[t].state in TASK_STATES_WAITING)
                     self._queue_cv.wait()
                     continue
                 task_id = self._queue[chosen_idx]
@@ -607,7 +673,7 @@ class UpdateManager:
                 # flip a queued task to 'cancelled' between the scan above and
                 # here. Without this, a cancelled task runs and both cancel's
                 # _settle and _run_task's _settle increment batch.done (#1).
-                if task is None or task.state not in ("queued", "throttled"):
+                if task is None or task.state not in TASK_STATES_WAITING:
                     del self._queue[chosen_idx]
                     continue
                 if self._valve is not None:
@@ -623,14 +689,42 @@ class UpdateManager:
                     with self._queue_cv:
                         self._queue_cv.notify_all()
 
-    def _set_state(self, task: Task, state: str, error: str | None = None,
-                   error_code: str | None = None):
+    def _write_state(self, task: Task, state: TaskState,
+                     error: Optional[str] = None,
+                     error_code: Optional[str] = None) -> None:
+        """任务状态字段的唯一写入口(#484):判转移(含类别闸:运营轮任务只许
+        running/终态,源任务不许 running)→ 写字段 → 发 task 事件。返回值无;
+        守门返回 False(仅记录模式下从 done/failed 出发的非法写入)时不写字段
+        不发事件——终态下游(_settle、on_terminal、调度器退避、告警)都按终态
+        消费,覆盖会造出假 failed 告警;车道清理/唤醒等下游动作由调用点
+        (finish_ops_round / cancel / _set_state)在本方法之后照走,任务线程
+        不因这张表卡住。不取 self._lock(调用点自己决定持不持:cancel() 不持,
+        ops 轮两处持),不唤醒(_set_state / 锁段外的 _notify_lifecycle /
+        _settle 负责)。_tasks.py 里对 task.state 的直接赋值只许出现在这里
+        (test_vocab_contract 的守卫用例盯着)。"""
+        if not enforce_task_transition(task.id, task.source_name, task.state, state):
+            return
         task.state = state
         task.error = error
         task.error_code = error_code
         self._emit({"type": "task", "task": task.to_dict()})
-        # #411 转移事件面:单点相位写后的唤醒(本方法是不持 self._lock 的
-        # 单一写点;notify 在 emit 后,等待者醒来读到的一定是已发事件的态)。
+
+    def _write_batch_state(self, b: Batch, state: BatchState) -> None:
+        """批次状态字段的唯一写入口(#484),同 _write_state:判转移 → 写 → 发
+        batch 事件;记录模式下从终态 done 出发的非法写入拒写(表本来就没有
+        done 出边,现行代码走不到)。三个调用点(pause / resume /
+        _maybe_finish_batch)都持 self._lock。"""
+        if not enforce_batch_transition(b.id, b.state, state):
+            return
+        b.state = state
+        self._emit({"type": "batch", "batch": b.to_dict()})
+
+    def _set_state(self, task: Task, state: TaskState, error: Optional[str] = None,
+                   error_code: Optional[str] = None):
+        """源任务的相位写点 = 写入口 + 唤醒。"""
+        self._write_state(task, state, error, error_code)
+        # #411 转移事件面:相位写后的唤醒(本方法是不持 self._lock 的写点;
+        # notify 在 emit 后,等待者醒来读到的一定是已发事件的态)。
         self._notify_lifecycle()
 
     def _emit_progress(self, task: Task, received: int, total: int) -> None:
@@ -649,6 +743,29 @@ class UpdateManager:
             self._emit({"type": "task_progress", "task_id": task.id,
                         "received": received, "total": total})
 
+    def _drop_child_staging(self, source, task: Task) -> None:
+        """子进程车道失败终态(取消/停顿/读事故/管道异常)的定点暂存清扫
+        (#478 返工裁决,评审建议 6 延伸):子进程被结束会留下
+        <base>.<epoch>.new.<pid> 暂存,原先要等下次成功重建后的 load()
+        或重启才清 —— 停顿反复发生时每次换一个 pid,大源会把 40G 小机盘
+        占满。只清暂存不动纪元(SourceBase.drop_staging →
+        _lmdb.drop_staging);清不动不反噬任务状态,只 log。成功与子进程
+        自己报错退出两条路不清:前者 load() 里的 cleanup_stale 顺路清,
+        后者属「下次载入或重启时清」的既有口径(评审建议 6)。
+        """
+        drop = getattr(source, "drop_staging", None)
+        if drop is None:
+            return
+        try:
+            n = drop()
+        except Exception:
+            logger.warning("drop staging failed for %s",
+                           task.source_name, exc_info=True)
+            return
+        if n:
+            logger.info("dropped %d staging dir(s) for %s",
+                        n, task.source_name)
+
     def _rebuild_via_subprocess(self, task: Task, source) -> bool:
         """loading 相位的子进程重建(IP_RADAR_REBUILD_SUBPROCESS=1 车道,
         2026-10 小机 RSS 棘轮根修)。
@@ -660,19 +777,45 @@ class UpdateManager:
         rc!=0 → failed(stderr 尾部 ~300 字入 error,足够定位 traceback 末段
         又不把任务快照变日志倾倒场)。
 
-        取消:逐行检查 token,命中即 terminate + wait + cancelled(记账
-        语义与现行取消一致:epoch 已换新不回滚,grill Q8 2026-10-11)。
-        返回 True 仅当 rc==0 且 load() 成功 —— 取消/失败都在此内置终态并
-        返回 False,由 _run_task 的 finally 走 _settle。Popen/管道层异常同样
-        映射 failed:炸出 _run_task 会杀死 worker 线程,任务永久卡 loading、
-        batch 永不完成。
+        取消:主循环 get 至多等 1 秒(#478:stdout 挪进读线程 + 队列),
+        取消标记在子进程安静时也每秒被看一次;命中即 terminate + 30 秒
+        宽限 wait(不退再 kill)+ cancelled。取消不回滚(返工评审措辞
+        修正):子进程车道里取消可以落在写库途中 —— 已换的 ptr 不动
+        (父进程下次 load() 接上),没换的 ptr 仍指旧纪元、照常可查
+        (grill Q8 2026-10-11 的「不回滚」不变量照旧,只是成因说准)。
+        停顿超时(#478):「多久没读到子进程的任何一行输出」超过
+        IP_RADAR_REBUILD_QUIET_MAX_MIN(分钟,缺省 60;0=关掉;负数/
+        非数字/NaN 回退缺省并告警;两段合法静默期与 60 的理由见
+        _REBUILD_QUIET_MAX_MIN_DEFAULT 注)判挂死:terminate → 30 秒
+        不退 kill → failed,error_code 沿用 rebuild(2026-10-17 裁定
+        车道全线构建码,「连续构建失败」告警接得上),错误说明带
+        「重建停顿」。
+        读事故(返工必须改 1):stdout 读线程里的任何异常经队列递回主
+        循环,立刻按失败收口(异常文本进 error),不等停顿阈值 —— 否则
+        这类事故最长等满阈值,且可能把 rc=0 的成功重建报成「重建停顿」
+        (老主线程读版本则是当场 failed 带异常文本)。
+        被杀不留半截:子进程提交是「先写 <base>.<epoch>.new.<pid> 暂存、
+        最后换 ptr」(_lmdb.rebuild_lmdb 提交顺序不变量),ptr 仍指旧完整
+        epoch,上一可用版本照常可查;取消/停顿/读事故/管道异常四个失败
+        终态在确认子进程结束后顺手清暂存(_drop_child_staging →
+        SourceBase.drop_staging → _lmdb.drop_staging,只清暂存不动
+        纪元),成功与子进程自己报错退出两条路仍由 cleanup_stale 在下次
+        成功重建后的 load() 或重启时清(原口径)。
+        返回 True 仅当 rc==0 且 load() 成功 —— 取消/停顿/读事故/失败都
+        在此内置终态并返回 False,由 _run_task 的 finally 走 _settle。Popen/管道
+        层异常同样映射 failed:炸出 _run_task 会杀死 worker 线程,任务
+        永久卡 loading、batch 永不完成。
         """
         stderr_buf: list[str] = []
         try:
             proc = subprocess.Popen(
                 [sys.executable, "-m", "ipdb._rebuild_child",
                  task.source_name],
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                encoding="utf-8", errors="replace")
+                # encoding/errors 对齐 _ops_rounds(返工必须改 1 顺手项):
+                # traceback 带源名/URL 的非 UTF-8 字节不再炸解码;stdout
+                # 与 stderr 同一 Popen,一并兜住。
         except Exception as e:
             logger.warning("rebuild subprocess spawn failed for %s: %s",
                            task.source_name, e)
@@ -690,10 +833,63 @@ class UpdateManager:
 
         stderr_reader = threading.Thread(target=_drain_stderr, daemon=True)
         stderr_reader.start()
+        # stdout 同样挪进读线程 + 队列(#478):原实现主循环
+        # `for line in proc.stdout` 阻塞在读上,取消只在每行末尾被看一次
+        # —— 子进程安静时取消不可达、挂死无人管。改后主循环 get 至多等
+        # _STDOUT_POLL_S 秒,静默期每秒看一次取消、核一次停顿线。
+        stdout_q: queue.Queue = queue.Queue()
+
+        def _drain_stdout():
+            ended = False
+
+            def _end(item) -> None:
+                nonlocal ended
+                if not ended:
+                    ended = True
+                    stdout_q.put(item)
+
+            try:
+                for ln in proc.stdout:
+                    stdout_q.put(ln)
+            except Exception as e:
+                _end(e)         # 读事故随队列递回主循环:快速失败,不伪装停顿
+            finally:
+                _end(None)      # 结束信号必达(try/finally,返工必须改 1)
+
+        stdout_reader = threading.Thread(target=_drain_stdout, daemon=True)
+        stdout_reader.start()
         cancelled = False
+        stalled = False
+        reader_error: BaseException | None = None  # 读线程递回的异常(必须改 1)
+        quiet_max_s = _rebuild_quiet_max_s()
+        last_output = time.monotonic()      # 停顿线基线 = 车道起点
         try:
             try:
-                for line in proc.stdout:
+                while True:
+                    try:
+                        line = stdout_q.get(timeout=_STDOUT_POLL_S)
+                    except queue.Empty:
+                        # 静默期:取消每秒至少可见(#478);停顿线 = 距
+                        # 最近一行输出超过阈值即判挂死(两段合法静默期
+                        # 可达数分钟以上,阈值不能定短,理由见缺省值注;
+                        # None = 运维写 0,关掉检查)。
+                        if task.token.is_cancelled():
+                            cancelled = True
+                            break
+                        if (quiet_max_s is not None and
+                                time.monotonic() - last_output >= quiet_max_s):
+                            stalled = True
+                            break
+                        continue
+                    if isinstance(line, BaseException):
+                        # 读事故(必须改 1):读线程的异常随队列递回,当场
+                        # 失败,不等停顿线,也不把 rc==0 的成功重建误报成
+                        # 「重建停顿」。
+                        reader_error = line
+                        break
+                    if line is None:
+                        break               # stdout EOF:子进程退出中
+                    last_output = time.monotonic()
                     parts = line.split()
                     if len(parts) == 3 and parts[0] == "PROG":
                         try:
@@ -705,25 +901,64 @@ class UpdateManager:
                     if task.token.is_cancelled():
                         cancelled = True
                         break
-                if cancelled:
+                failed_lane = cancelled or stalled or reader_error is not None
+                if failed_lane:
                     proc.terminate()
-                rc = proc.wait()
+                # wait 上限按路选(返工必须改 3):取消/停顿/读事故给
+                # _TERM_GRACE_S 宽限(不退 kill)。正常 EOF 那条路:EOF 的
+                # 时刻就是子进程退出、内核在退出路径里关 fd 的时刻,wait
+                # 本应毫秒级返回;上限设成停顿线(None=不设上限)而不设
+                # 30 秒硬帽,防极端慢的退出收尾把 rc==0 的重建错杀成
+                # failed(主会话实测:读到结束只在子进程退出时发生,
+                # print OK 之后并不关 stdout)。
+                wait_cap = _TERM_GRACE_S if failed_lane else quiet_max_s
+                try:
+                    rc = proc.wait(timeout=wait_cap)
+                except subprocess.TimeoutExpired:
+                    # terminate 不退(拦截 SIGTERM/卡在不可中断态)→ kill
+                    # 兜底:原实现 wait 无限等,挂死进程永久占住车道。
+                    proc.kill()
+                    rc = proc.wait()
             finally:
-                proc.stdout.close()
-                # 子进程已退出(wait 返回)⇒ 两管道必至 EOF ⇒ reader 线程
-                # 必退出;join 后再 close stderr,避免与阻塞中的 read 竞争。
-                stderr_reader.join(timeout=5)
-                proc.stderr.close()
+                # 收尾顺序(返工必须改 4):先兜底 terminate —— 进程若还
+                # 活着,reader 线程就还卡在读上,先 join 会白等满超时;
+                # 再 join 两个读线程(子进程已退出 ⇒ 两管道必至 EOF ⇒
+                # 线程必退出),最后才关两根管道。
                 if proc.returncode is None:     # 异常路径兜底:不留僵尸
                     proc.terminate()
                     proc.wait()
+                stdout_reader.join(timeout=5)
+                stderr_reader.join(timeout=5)
+                proc.stdout.close()
+                proc.stderr.close()
         except Exception as e:
             logger.warning("rebuild subprocess pipe failed for %s: %s",
                            task.source_name, e)
+            # 走到这已过 finally(子进程确认结束):按四个失败终态之一清暂存。
             self._set_state(task, "failed", str(e), error_code="rebuild")
+            self._drop_child_staging(source, task)
             return False
         if cancelled:
             self._set_state(task, "cancelled")
+            self._drop_child_staging(source, task)
+            return False
+        if reader_error is not None:
+            # 读事故终态(必须改 1):异常文本进 error,快速失败。
+            logger.warning("rebuild stdout reader crashed for %s: %s",
+                           task.source_name, reader_error)
+            self._set_state(task, "failed", str(reader_error),
+                            error_code="rebuild")
+            self._drop_child_staging(source, task)
+            return False
+        if stalled:
+            quiet = time.monotonic() - last_output
+            error = (f"重建停顿:最后一条输出在 {quiet:.0f} 秒前"
+                     if quiet < 60.0 else
+                     f"重建停顿:最后一条输出在 {quiet / 60.0:.0f} 分钟前")
+            logger.warning("rebuild subprocess stalled for %s: %s",
+                           task.source_name, error)
+            self._set_state(task, "failed", error, error_code="rebuild")
+            self._drop_child_staging(source, task)
             return False
         if rc == 0:
             # 成功路径也留痕子进程 stderr 人类可读行(如载入期 infra 排除
@@ -829,10 +1064,10 @@ class UpdateManager:
 
     def _settle(self, task: Task):
         """Bookkeeping after a task leaves the active set. Does NOT emit a
-        terminal `task` event — every terminal path has already emitted via
-        `_set_state` (or `cancel()`'s explicit emit for the queued case), so
-        emitting here would double-broadcast. Only the batch-progress event
-        (done-counter increment) and `_maybe_finish_batch` are owned here.
+        terminal `task` event — every terminal path has already emitted via the
+        write entry `_write_state` (`_set_state`, or `cancel()`'s queued
+        branch), so emitting here would double-broadcast. Only the batch-progress
+        event (done-counter increment) and `_maybe_finish_batch` are owned here.
 
         Idempotent: a terminal task can reach _settle twice when cancel()
         races dispatch (cancel's _settle + _run_task's finally _settle). The
@@ -840,7 +1075,7 @@ class UpdateManager:
         with self._lock:
             if task._settled:
                 return
-            terminal = task.state in ("done", "failed", "cancelled")
+            terminal = task.state in TASK_STATES_TERMINAL
             if self._by_source.get(task.source_name) == task.id and terminal:
                 del self._by_source[task.source_name]
             if task.batch_id and task.batch_id in self._batches and terminal:
@@ -853,7 +1088,7 @@ class UpdateManager:
         # P1 T2 终态旁挂(票 #154):_settled 幂等保证恰好一次;快照只读
         # (dict 拷贝,不传活 task 对象),回调异常吞掉只留警告日志。
         hook = self.on_terminal
-        if hook is not None and task.state in ("done", "failed", "cancelled"):
+        if hook is not None and task.state in TASK_STATES_TERMINAL:
             try:
                 hook(task.to_dict())
             except Exception:

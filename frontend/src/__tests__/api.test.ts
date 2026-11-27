@@ -13,6 +13,7 @@ import {
   subscribeTasks,
   queryIpsStream,
   TABLE_THRESHOLD,
+  isUnauthorized,
 } from "../api";
 
 describe("api task functions", () => {
@@ -501,5 +502,33 @@ describe("apiError status attachment (review #10)", () => {
     const err = (await getDbStatus().then(() => null, (e: unknown) => e)) as ApiError;
     expect(err).toBeInstanceOf(Error);
     expect(err.status).toBe(502);
+  });
+});
+
+
+// #486 收编:「回 401 踢回登录」判定唯一入口。此前 13 处手抄
+// `(e as ApiError).status === 401`,只有 1 处有测试;守卫测试另见
+// conventions.test.ts(源码文本巡检)。
+describe("isUnauthorized(401 判定唯一入口,#486)", () => {
+  it("status=401 的错误对象 → true(真 ApiError 与裸形状同判)", () => {
+    const real = new Error("Not authenticated") as ApiError;
+    real.status = 401;
+    expect(isUnauthorized(real)).toBe(true);
+    expect(isUnauthorized({ status: 401 })).toBe(true);
+  });
+
+  it("403 及其他 status → false(踢登录只认 401)", () => {
+    expect(isUnauthorized({ status: 403 })).toBe(false);
+    expect(isUnauthorized({ status: 500 })).toBe(false);
+    expect(isUnauthorized({ status: 0 })).toBe(false);
+  });
+
+  it("普通错误/非对象 → false,不炸(null/undefined/字符串/数字)", () => {
+    expect(isUnauthorized(new Error("plain"))).toBe(false);
+    expect(isUnauthorized({})).toBe(false);
+    expect(isUnauthorized(null)).toBe(false);
+    expect(isUnauthorized(undefined)).toBe(false);
+    expect(isUnauthorized("401")).toBe(false);
+    expect(isUnauthorized(401)).toBe(false);
   });
 });

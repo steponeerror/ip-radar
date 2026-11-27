@@ -6,7 +6,7 @@
 // 脚本步(pipeline/steps.mjs)只测量不判断,模型步经 pipeline/faux.mjs(#170:fixtures 面 faux/运行面真 provider;选择=selectModelFace,面记入 state.model_face)。
 // 契约沿用 agent.mjs spawn 契约:stdout 末行=轮次信封(现有形状只增 pipeline 扩展字段,C稿 §4.4);
 // stderr 阶段行第三次修约(C稿 §5.2):[stage] <NAME> start / done gate=PASS dur=412s artifact=01-….json /
-// fail gate=G_X code=<九词> reason=…;错误码沿用九词闭集零新词(哪一步失败由 pipeline.stages[].status 表达);
+// fail gate=G_X code=<闭集词> reason=…;错误码沿用 error-codes.mjs ERROR_CODES 闭集零新词(哪一步失败由 pipeline.stages[].status 表达);
 // 用法错=纯 stderr+exit 2 不发 JSON。env 面 ∈ SPAWN_CONTRACT_ENV(agent.mjs 唯一详述点):
 // DOCS_ROOT(rounds/rules/retro 派生根)+OPS_PIPELINE(legacy|pipeline;#412 起桥不再按它选路径,本 CLI 只校验闭集并记入 state.json)+OPS_PIPELINE_BUDGET_CNY(预算门)。
 import fs from "node:fs";
@@ -54,7 +54,7 @@ export const ctxShape = ({ type, roundId, opsRoot, env, log, fixturesDir, modelF
 
 // ── 轮次定义表(数据非代码;C稿 §2.2 十状态;加状态须过 spec 变更+三元组铁律:无工件/无门/无失败语义=不配当状态)──
 // 每态:name/kind(script|model|bookend|terminal)/model(提示词键;执行面选择=faux.mjs selectModelFace,#170)/工件清单(out)/门/失败语义三元组
-// fail={retry,terminal,degrade?,perItem?}(重试上限/终态错误码∈九词闭集/降级路径);skipWhen=命名谓词闭集。
+// fail={retry,terminal,degrade?,perItem?}(重试上限/终态错误码∈ERROR_CODES 闭集/降级路径);skipWhen=命名谓词闭集。
 // 注:IDLE 准入门(车道/预算/同型在飞,C稿 §2.2 十态之一)不在此表——属宿主接线,落 P5(#167);
 // 本表=跑步态集+CLOSE+FAILED,防误读十状态缺一(审后注 reviewer P2-1)。
 export const HEALTH_PIPELINE = [
