@@ -512,12 +512,23 @@ describe("SourcesPage manage behaviors (kept pins, new structure)", () => {
     expect(btn).toBeDisabled();
   });
 
-  it("shows loading percentage from received/total (100/200 → 50%)", async () => {
+  it("shows the staged loading percentage (100/200 → 75%, not raw 50%)", async () => {
     renderPage({
       tasks: [TK({ id: "t-load", state: "loading", received: 100, total: 200 })],
     });
     await expandGroup();
-    expect(await screen.findByRole("button", { name: /Loading… 50%/ })).toBeInTheDocument();
+    // #486:行上百分比唯一算法 = stagedFrac(同批量条):下载段占一半,
+    // 载入段 0.5+0.5×比例 —— 100/200 → 0.75,不是裸比例的 50%。
+    expect(await screen.findByRole("button", { name: /Loading… 75%/ })).toBeInTheDocument();
+  });
+
+  it("shows the staged downloading percentage (halfway → 25%, not raw 50%)", async () => {
+    renderPage({
+      tasks: [TK({ id: "t-dl", state: "downloading", received: 50, total: 100 })],
+    });
+    await expandGroup();
+    // 下载段占一半:一半 ≠ 50%,而是 25%(与批量条同源同值)
+    expect(await screen.findByRole("button", { name: /Downloading… 25%/ })).toBeInTheDocument();
   });
 
   it("clamps loading percentage at 100% when received exceeds total (250/200)", async () => {

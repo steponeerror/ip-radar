@@ -142,6 +142,18 @@ describe("BatchPanel control-action failure feedback (U7)", () => {
     await waitFor(() => expect(onUnauthorized).toHaveBeenCalledTimes(1));
     expect(screen.queryByText(/Not authenticated/i)).toBeNull();
   });
+
+  // #486 行为钉面:非 401 不得误踢登录(公开站查询接口密钥无效也回 401,
+  // 但本面属 admin 面的其他错误 = 落横幅不踢)。
+  it("does NOT call onUnauthorized on non-401 failure; banner instead", async () => {
+    setRunning();
+    vi.mocked(pauseBatch).mockRejectedValueOnce(new Error("task manager unavailable"));
+    const onUnauthorized = vi.fn();
+    render(<BatchPanel onUnauthorized={onUnauthorized} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Pause/i }));
+    expect(await screen.findByText(/task manager unavailable/i)).toBeInTheDocument();
+    expect(onUnauthorized).not.toHaveBeenCalled();
+  });
 });
 
 describe("BatchPanel collapse on done", () => {

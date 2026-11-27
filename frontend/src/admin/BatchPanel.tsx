@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
-import type { TaskState } from "../api";
+import { useState } from "react";
+import { isUnauthorized, type TaskState } from "../api";
 import { useTasks } from "../tasks/useTasks";
 import { useI18n } from "../i18n";
-import { stagedFrac, isIndeterminate, isTaskActive, isBatchLive } from "../tasks/progress";
+import { batchOverallPct, stagedFrac, isIndeterminate, isTaskActive, isBatchLive } from "../tasks/progress";
+import { useBatchRecentlyDone } from "../tasks/useBatchRecentlyDone";
 
 // Task 9:DbStatusBar 的活动面板原样迁入 /admin 任务区(管理面收敛,
 // spec §9)。批量进度/暂停/恢复/终止/逐任务取消全部依赖任务上下文 ——
@@ -59,28 +60,13 @@ export function BatchPanel({ onUnauthorized }: { onUnauthorized?: () => void } =
   // 面既有约定,同 SourcesPage.failWith/KeysSection.handleErr)。新动作先清旧错。
   const [error, setError] = useState<string | null>(null);
   // Keep the active panel mounted for ~5s after the batch finishes so the
-  // user sees the final state before it collapses away.
-  const [recentlyDone, setRecentlyDone] = useState(false);
-  // Last observed batch state this session. The backend keeps the finished
-  // batch referenced after it completes, so a cold snapshot can already report
-  // state "done" — that must not re-trigger the celebration on every page load.
-  // Only an in-session transition running/paused → done counts as "recent".
-  const prevBatchState = useRef<string | undefined>(undefined);
-
-  useEffect(() => {
-    const cur = batch?.state;
-    const prev = prevBatchState.current;
-    prevBatchState.current = cur;
-    if (cur === "done" && (prev === "running" || prev === "paused")) {
-      setRecentlyDone(true);
-      setExpanded(true);
-      const id = setTimeout(() => {
-        setRecentlyDone(false);
-        setExpanded(false);
-      }, 5000);
-      return () => clearTimeout(id);
-    }
-  }, [batch?.state]);
+  // user sees the final state before it collapses away. Linger 逻辑收编在
+  // useBatchRecentlyDone(#486,同 BatchMiniBar);面板侧只挂展开耦合:
+  // 完成转换时展开,5s 窗口结束即收起。
+  const recentlyDone = useBatchRecentlyDone(batch, {
+    onStart: () => setExpanded(true),
+    onEnd: () => setExpanded(false),
+  });
 
   const taskActive = tasks.some(isTaskActive);
   const active = taskActive
@@ -89,7 +75,7 @@ export function BatchPanel({ onUnauthorized }: { onUnauthorized?: () => void } =
 
   // 会话中 401(cookie 过期/服务端重启)踢回登录页;其余错误落横幅。
   const failWith = (e: unknown) => {
-    if ((e as { status?: number }).status === 401) { onUnauthorized?.(); return; }
+    if (isUnauthorized(e)) { onUnauthorized?.(); return; }
     setError(e instanceof Error && e.message ? e.message : t("admin.tasks.actionFailed"));
   };
   const run = (fn: () => Promise<unknown>) => {
@@ -133,12 +119,11 @@ export function BatchPanel({ onUnauthorized }: { onUnauthorized?: () => void } =
     ? tasks.filter((t) => t.batch_id === batch.id)
     : tasks.filter(isTaskActive);
 
-  // Overall progress across visible tasks: averages each task's staged
-  // fraction (download 0→0.5, rebuild 0.5→1) so the top bar moves
-  // DURING downloads and rebuilds — not only when a whole source completes.
-  const overallPct = visibleTasks.length > 0
-    ? Math.round((visibleTasks.reduce((s, t) => s + stagedFrac(t), 0) / visibleTasks.length) * 100)
-    : 0;
+  // Overall progress across visible tasks: batchOverallPct(#486 收编,同
+  // BatchMiniBar 一份算法)= 该 batch 各任务 stagedFrac 均值(下载 0→0.5、
+  // 重建 0.5→1),top bar 在下载/重建期间都会走;batchless(单源更新)取
+  // 活动任务均值;batch 内无可见任务退 batch 维度 done/total。
+  const overallPct = batchOverallPct(tasks, batch);
   const headerLabel = batch?.state === "paused" ? t("dbStatus.paused") : t("dbStatus.updating");
   return (
     <div className="rounded-lg border border-emerald-500/30 bg-zinc-950/90">
