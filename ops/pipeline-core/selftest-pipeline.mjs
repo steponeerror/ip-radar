@@ -659,7 +659,7 @@ await t("预算硬拦:0.03¥ 截尾 1 条标 unresolved(budget),DISPATCH degrade
   assert.equal(m.rows.find((x) => /binarydefense/.test(x.hid)).verdict, "unresolved");
 });
 
-await t("失败面:坏 TRIAGE fixture → model_face 终态(attempts=2),01/02 工件保留(证据不灭失),code∈九词", async () => {
+await t("失败面:坏 TRIAGE fixture → model_face 终态(attempts=2),01/02 工件保留(证据不灭失),code∈ERROR_CODES 闭集", async () => {
   const badFx = path.join(TMP, "fixtures-bad");
   fs.mkdirSync(badFx, { recursive: true });
   for (const f of ["synth.json"]) fs.copyFileSync(path.join(AGENT, "fixtures/pipeline", f), path.join(badFx, f));
@@ -670,7 +670,7 @@ await t("失败面:坏 TRIAGE fixture → model_face 终态(attempts=2),01/02 �
   assert.equal(r.ok, false);
   const env = r.envelope;
   assert.equal(env.error.code, "model_face");
-  assert.ok(ERROR_CODES.includes(env.error.code), "错误码 ∈ 九词闭集零新词");
+  assert.ok(ERROR_CODES.includes(env.error.code), "错误码 ∈ ERROR_CODES 闭集零新词");
   const tr = stageOf(env, "TRIAGE");
   assert.equal(tr.status, "failed");
   assert.equal(tr.attempts, 2, "schema 违例重试≤1 后终态");
@@ -718,7 +718,7 @@ await t("SYNTH 判例闭合违例负例:报告引未注入判例 → 重试≤1 
   const io = mkIo();
   const r = await runPipeline({ roundId: "2026-10-24-0103-health", fixturesDir: fx, env: mkTree("tree-0103").env, ...io });
   assert.equal(r.ok, false);
-  assert.equal(r.envelope.error.code, "closure_check", "门指定终态码(九词闭集零新词,C稿 §4.4 映射)");
+  assert.equal(r.envelope.error.code, "closure_check", "门指定终态码(ERROR_CODES 闭集零新词,C稿 §4.4 映射)");
   const sy = stageOf(r.envelope, "SYNTH");
   assert.equal(sy.status, "failed");
   assert.equal(sy.attempts, 2, "契约违例重试≤1(同提示词重发)");
@@ -1035,7 +1035,7 @@ await t("A 一律违例负例(全 faux 轮):深验 fixture 复述伪造值 999 �
   const io = mkIo();
   const r = await runPipeline({ roundId: "2026-10-24-0105-health", fixturesDir: fx, env: tree.env, ...io });
   assert.equal(r.ok, false);
-  assert.equal(r.envelope.error.code, "model_face", "写前语义门败→DEEP 缺省终态码(九词闭集)");
+  assert.equal(r.envelope.error.code, "model_face", "写前语义门败→DEEP 缺省终态码(ERROR_CODES 闭集)");
   const d = path.join(tree.root, "ops", "rounds", "2026-10-24-0105-health");
   const g = j(path.join(d, "gates.json"));
   assert.match(g.records.find((x) => x.name === "G_DEEP").reason, /回引不符/, "门 reason 可回算");
