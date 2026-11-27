@@ -10,6 +10,13 @@ on:
   schedule:
     - cron: "0 2 * * 1" # 每周一 02:00 UTC
   workflow_dispatch:
+  # 临时接线(仅为本分支验证用,后续提交回退):GitHub 只索引默认分支或至少跑过
+  # 一次的 workflow,非默认分支上的新 workflow 直接 workflow_dispatch 会 404。
+  # 用带 paths 过滤的 pull_request 触发一次完成注册;变异提交只动
+  # backend/constraints.txt,不会触发本工作流,无误开工单面。
+  pull_request:
+    paths:
+      - ".github/workflows/audit.yml"
 
 permissions:
   contents: read
