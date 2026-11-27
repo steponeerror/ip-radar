@@ -416,12 +416,23 @@ class RefreshScheduler:
         [](两个消费面算空集同为「算不出」:newest_mtime → None、
         content_fingerprint → None)。_data_files() 抛异常 → 记 warning
         (带源名与异常类型)后退回旧口径,输入集不因钩子故障硬丢。
+        清单里出现目录(目录型 _path 不覆写钩子时,基类默认返回的就是
+        目录自己)→ 记 warning(带源名与目录项)后退回旧口径:「有钩子」
+        ≠「清单可信」,拿目录自身 mtime 当内容新鲜度会回到 #465 卡16
+        的「46 天误报」(#509 评审记一笔 8)。
         """
         from pathlib import Path
         data_files = getattr(source, "_data_files", None)
         if data_files is not None:
             try:
-                return list(data_files())
+                declared = list(data_files())
+                dir_items = [str(f) for f in declared if Path(f).is_dir()]
+                if not dir_items:
+                    return declared
+                logger.warning(
+                    "scheduler: _data_files() for %s lists directory "
+                    "item(s) [%s]; falling back to legacy path listing",
+                    getattr(source, "name", "?"), ", ".join(dir_items))
             except Exception as e:      # 钩子故障不丢记账:退回旧口径
                 logger.warning(
                     "scheduler: _data_files() failed for %s (%s); "
@@ -447,10 +458,11 @@ class RefreshScheduler:
         起 _read_mtime 同走这份输入集):有 _data_files() 钩子的源走
         钩子返回的声明清单——与 health()、/api/sources 的 content_age_h
         同一输入集,下载暂存件(.dl、.dl.tmp、cn_isp 的 .tmp)不再混进
-        指纹。#455 评审 R-2 的窗口两半都已关:「暂存件进指纹」这一半
-        #501 关了;「扫描落在下载途中多记一条」那一半 #509 关了
-        (_read_mtime 不再看暂存件,那条假事件不再产生;存量库历史区间
-        的读数仍按 _alerts.py 头注的读数注意②剔除)。无钩子的自定义
+        指纹。#455 评审 R-2 的窗口两半都已关(对有 _data_files() 覆写
+        的源;钩子抛异常退回旧口径时,对那一个源重新打开,有 warning):
+        「暂存件进指纹」这一半 #501 关了;「扫描落在下载途中多记一条」
+        那一半 #509 关了(_read_mtime 不再看暂存件,那条假事件不再产生;
+        存量库历史区间的读数仍按 _alerts.py 头注的读数注意②剔除)。无钩子的自定义
         源/测试桩退回旧口径:_path 是文件 → 单文件;是目录 → 目录内
         文件列表(排序由 _alerts.content_fingerprint 内部做,这里不排)。
         _path 缺失、列目录失败、目录空 → None(指纹列落 NULL,事件照记)。

@@ -797,6 +797,27 @@ def test_read_mtime_hook_raise_falls_back_with_warning(tmp_path, caplog):
     assert any(r.levelno == logging.WARNING for r in caplog.records)
 
 
+def test_read_mtime_dir_listing_hook_guard_falls_back_to_files(tmp_path, caplog):
+    """#509 返工(评审记一笔 8 的守卫):目录型桩的 _data_files() 返回
+    目录自己(镜像基类默认钩子对目录型 _path 的形状)→ 助手记 warning
+    (带源名与目录项)并退回旧口径:读到的是目录内文件的修改时间,不是
+    目录自身的(改目录内文件不动目录 mtime,只看目录会把新鲜源误判
+    过期,#465 卡16)。"""
+    from ipdb._scheduler import RefreshScheduler
+    src = DataFilesDirSource("d", tmp_path / "d")
+    src._data_files = lambda: [src._path]   # 基类默认钩子的形状:清单=目录
+    os.utime(str(src._path / "a.csv"), (OLD, OLD))
+    os.utime(str(src._path / "b.csv"), (OLD, OLD))
+    # 目录 mtime 保持创建时的真实时钟(远新于 OLD):守卫若失效,读到
+    # 的是目录自己的 mtime 而不是 OLD
+    with caplog.at_level(logging.WARNING, logger="ipdb._scheduler"):
+        m = RefreshScheduler._read_mtime(src)
+    assert m == OLD               # 目录内文件 max,不是目录自身 mtime
+    assert "lists directory item(s)" in caplog.text
+    assert "for d " in caplog.text
+    assert any(r.levelno == logging.WARNING for r in caplog.records)
+
+
 def test_scan_reconcile_ignores_staging_file_landing(alerts_db, tmp_path):
     """#509 验收 4(端到端):目录型源在飞(上一轮已入队、基线已记),
     下载途中暂存件刚落地 → 下一轮 scan() 的 _reconcile 不把它判成
@@ -807,11 +828,17 @@ def test_scan_reconcile_ignores_staging_file_landing(alerts_db, tmp_path):
     os.utime(str(src._path / "a.csv"), (OLD, OLD))
     os.utime(str(src._path / "b.csv"), (OLD, OLD))
     sch, mgr = _make_scheduler([src])
+    # 预置一条已过期的退避(next_attempt=0.0 < now:不拦入队),钉住
+    # 「reconcile 不清退避」——旧写法 assert "d" not in sch._backoff 在
+    # 变异①(「下载落地」分支做 pop)下也成立,没有判别力(#509 评审
+    # 建议改 3)。
+    from ipdb._scheduler import _Backoff
+    sch._backoff["d"] = _Backoff(fail_count=1, next_attempt=0.0)
     sch.scan(now=NOW)                 # baseline = 声明清单 mtime,入队 t0
     assert "d" in sch._last_task
     src.add_staging()                 # 下载途中:暂存件刚落地
     sch.scan(now=NOW + 1000.0)
     assert "d" in sch._last_task      # 没判成「下载落地」:跟踪保留
     assert "d" in sch._baseline_mtime
-    assert "d" not in sch._backoff    # 退避没被动
+    assert "d" in sch._backoff        # 在飞分支不碰退避(变异①会把它 pop 掉)
     assert len(_events_with_hash(alerts_db)) == 1   # 账本只有种子一条

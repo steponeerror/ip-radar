@@ -176,7 +176,8 @@ def run_staleness_detector(sources, now=None) -> None:
         if not isinstance(path, (str, Path)):
             continue
         # 内容 mtime 一律走规范信号源 RefreshScheduler._read_mtime(目录型源
-        # = 目录内最新文件;_scheduler.py:326-341 线上判例 2026-10-03:重写
+        # = _data_files() 声明清单里最新的文件;没有钩子或钩子抛异常、
+        # 清单里出现目录时才退回目录内全部普通文件。线上判例 2026-10-03:重写
         # 文件不改目录 mtime,只看目录会把新鲜多 feed 源误判 46 天过期。
         # 受影响真实源:cn_isp isp/、cloud_ranges/、rir_abuse)。None(无
         # 文件/空目录)→ 跳过:无内容年龄证据不产。

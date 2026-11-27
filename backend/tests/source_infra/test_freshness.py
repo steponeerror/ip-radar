@@ -94,9 +94,13 @@ def test_dir_source_health_reads_child_files(tmp_path):
 
 
 def test_directory_sources_override_data_files():
-    """#501:目录型源(数据文件是一个目录的源)必须各自覆写 _data_files(),
-    否则更新账本的指纹会退回「目录内全部文件」的旧口径,把下载暂存件
-    算进去。新增目录型源时在这里登记类名。"""
+    """#501:目录型源(数据文件是一个目录的源)必须各自覆写 _data_files()。
+    不覆写时基类默认钩子返回的是 [self._path](目录本身),不是「退回
+    目录内全部文件」——health() 的新鲜度读到的是目录自身的 mtime(改
+    目录内文件不动它,会误判过期);#509 起调度器对这种「清单里出现
+    目录」的情况记 warning 并退回目录内普通文件(暂存件照算,回到
+    #501 之前的旧口径),health() 面不经过该守卫。新增目录型源时在
+    这里登记类名。"""
     from ipdb._sources._base import SourceBase
     from ipdb._sources import (blocklist_de, echelon, firehol, cn_isp,
                                rir_abuse, rir_delegated, cloud_ranges)
