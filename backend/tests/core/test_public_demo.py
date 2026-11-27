@@ -131,6 +131,24 @@ def test_demo_trailing_slash_variants_masked(path):
         assert r.json()["error"]["code"] == "not_found"
 
 
+# 单元级用的路径 = 同一批变形到了守卫手里的样子:查询串不在 url.path 里,
+# %2F 进 ASGI 前已百分号解码成 /(上面走完整请求的用例覆盖这两步)。
+SLASH_VARIANT_PATHS = [p.split("?")[0].replace("%2F", "/") for p in SLASH_VARIANTS]
+
+
+@pytest.mark.parametrize("path", SLASH_VARIANT_PATHS)
+def test_demo_path_hidden_covers_slash_variants(path):
+    """同一个判定的单元级钉子:不经路由器,直接问 _demo_path_hidden。
+    上面那条走完整请求的用例只在「没有前端构建」的形态下有判别力——带
+    frontend/dist 时根路径的外壳挂载先接住一切不认识的路径,路由器不会
+    走补斜杠跳转,去掉镜像它照样绿(CI 的后端任务就是这种形态)。这条在
+    两种形态下都要求隐藏判定自己认得尾斜杠变形。"""
+    import main
+    assert main._demo_path_hidden(main.app, path) is True, path
+    assert main._demo_path_hidden(main.app, "/api/version/") is False
+    assert main._demo_path_hidden(main.app, "/api//tasks") is None
+
+
 @pytest.mark.parametrize("path", ["/api//tasks", "/api/./tasks",
                                   "/api/tasks;x=1/", "/api/tasks/.."])
 def test_demo_noncanonical_shapes_still_404(path):
