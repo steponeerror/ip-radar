@@ -245,7 +245,7 @@ Disable entirely with `IP_RADAR_RATELIMIT=0` (not recommended on anything reacha
 | `GET /api/lookup/{ip}/stix` | Same, as a STIX 2.1 bundle | key |
 | `POST /api/query/stream` | Batch lookup, NDJSON stream | key |
 | `POST /api/upload/stream` | Batch lookup from uploaded file, NDJSON stream | key |
-| `GET /api/db-status` | Record counts, staleness, warming flag | key |
+| `GET /api/db-status` | Record counts, staleness, warming flag, auto-refresh state | key |
 | `GET /api/sources` | Source catalog + health | admin |
 | `PATCH /api/sources/{name}` | Enable/disable a source (`{"enabled": false}`) | admin |
 | `POST /api/sources/{name}/update` | Force single-source refresh → `task_id` | admin |
@@ -317,7 +317,7 @@ curl -s -b jar.txt -N http://127.0.0.1:8000/api/events
 
 **Behind a reverse proxy, rate limits bite everyone at once** — the limiter sees the proxy's IP. Set `IP_RADAR_PROXY_HEADERS=1` (and `IP_RADAR_FORWARDED_ALLOW_IPS` to your proxy's range) so per-IP buckets see real clients.
 
-**Admin page 404s or looks locked down** — on instances with `IP_RADAR_PUBLIC_DEMO=1`, the write/internal surface (including `/admin` login from non-exempt IPs) is hidden from anonymous visitors; the maintainer exemption is `IP_RADAR_DEMO_ADMIN_IPS` — full semantics in [`deploy/README.md`](deploy/README.md). On normal self-hosts, make sure the admin env block is uncommented.
+**Admin page 404s or looks locked down** — on instances with `IP_RADAR_PUBLIC_DEMO=1`, the write/internal surface is hidden from anonymous visitors (`POST /api/auth/jwt/login` stays reachable on every address, so the owner can always log in); the maintainer exemption is `IP_RADAR_DEMO_ADMIN_IPS` — full semantics in [`deploy/README.md`](deploy/README.md). On normal self-hosts, make sure the admin env block is uncommented.
 
 **Update banner claims an update that isn't there** — that's the deploy-side tag cache: on the server, `git fetch --tags` before build, else `git describe` falls back to an older baseline (v1.4.2 field note).
 
