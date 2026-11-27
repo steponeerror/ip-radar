@@ -22,6 +22,14 @@
 # 历史落 temporal-*.json;--readout
 # 组合四层读数管线出月报 monthly-*.md + action-block.json + northstar-*.json
 # (#185 能力轨北星记录,只观测不持门))
+# ④′ scan-equiv(#500,#444 §5 验收工具件 scan_equiv_check.py 的节拍化):
+# 全库扫描↔查询对拍两步(collect+compare,同一 asof、同一 PYTHONHASHSEED=0;
+# 样本落系统临时目录带轮次时间戳,比完即删;两步各留一行 JSON 到 scan-equiv/;
+# rc 持门同 anchors:1=判定不一致,2=样本作废,日志有人话「重跑这一轮」);
+# 位置在 readout(出月报)前。不在 LEG_ORDER:那个数组的每一项都对应一条
+# `python3 -m ipdb._eval <旗标>` 腿,本腿跑的是独立工具件;rc 经
+# LEG_RC[scan-equiv] 单列接线(红态行+结尾 AGG_RC,见对应注释)。抽样密度
+# 缺省与实测依据见 run_scan_equiv 内注释。
 # ⑤ 每命令打印尾行摘要(腿日志全文落 monthly/logs/,#468) ⑥ 报告族齐全校验 → 评估报告推送(#453:rsync
 # 本轮逐源 verdict 件+model/model-*.json 到生产卷 eval/monthly/,推失败
 # 记红态心跳照写结尾非零)→ 生产 volume 心跳推送(S5)。
@@ -92,6 +100,54 @@ run_step() {  # run_step <label> <ipdb._eval args...> — 执行并打印尾行�
       IP_RADAR_EVAL_DIR="$REPO/backend/data/eval" \
       IP_RADAR_EVAL_ENV=monthly \
       python3 -m ipdb._eval "$@" ) 2>&1 | tee "$log" || rc=$?
+  echo "-- [$label 尾行] $(tail -n 2 "$log" | tr '\n' ' ')"
+  return "$rc"
+}
+
+run_scan_equiv() {  # #500 全库扫描↔查询对拍腿:scan_equiv_check.py 两步跑
+  # 不进 LEG_ORDER:那个数组的每一项都对应一条 `python3 -m ipdb._eval <旗标>`
+  # 腿(还供 leg-status/红态行/AGG_RC 迭代共用,语义=eval 旗标腿清单);
+  # 本腿跑独立工具件,rc 进 LEG_RC[scan-equiv],接线照 anchors 持门腿:
+  # 红态行与结尾 AGG_RC 各单列一处(腿序位=执行序:temporal 后、readout 前)。
+  # 数据目录与其他腿同源:同一 IP_RADAR_DATA_DIR="$DATA_DIR"(本地镜像)。
+  # 两步必须同一 asof、同一 PYTHONHASHSEED=0(脚本 docstring 的对拍前提;
+  # 扫描器开着时同进程不能 load_db,故分 collect/compare 两个进程)。
+  local label=scan-equiv
+  local log="$LOG_DIR/$label-$ROUND_TS.log"
+  local json_dir="$REPORT_ROOT/scan-equiv"
+  local sample="${TMPDIR:-/tmp}/scan-equiv-$ROUND_TS.jsonl.gz"
+  local rc=0
+  local asof; asof=$(date +%s)   # 一次取定,两步共用(compare 复核同锚刻)
+  echo
+  echo "==> $label: PYTHONHASHSEED=0 python3 backend/scripts/scan_equiv_check.py collect --asof $asof --single-every $SINGLE_EVERY --out $sample"
+  echo "==> $label: PYTHONHASHSEED=0 python3 backend/scripts/scan_equiv_check.py compare --asof $asof --sample $sample"
+  if [ "$DRY_RUN" = 1 ]; then return 0; fi  # 干跑只打印两条命令,不执行不建目录(#500)
+  mkdir -p "$LOG_DIR" "$json_dir"
+  ( cd "$REPO/backend" && \
+      IP_RADAR_DATA_DIR="$DATA_DIR" \
+      PYTHONHASHSEED=0 \
+      python3 "$REPO/backend/scripts/scan_equiv_check.py" collect \
+      --asof "$asof" --single-every "$SINGLE_EVERY" --out "$sample" ) \
+      2>&1 | tee "$log" || rc=$?
+  # 两步各自打印的那行 JSON 是留下的证据件(#500):样本体很大(全收档原始
+  # JSON 数 GB、gz 后实测 158 MB),留临时目录比完即删;JSON 行从腿日志摘取
+  # 落 scan-equiv/(空文件=该步没吐 JSON,本身即异常信号,不以 grep 失败
+  # 持门——步骤 rc 已持门)。
+  grep -m1 '"mode": "collect"' "$log" > "$json_dir/collect-$ROUND_TS.json" || :
+  if [ "$rc" = 0 ]; then
+    ( cd "$REPO/backend" && \
+        IP_RADAR_DATA_DIR="$DATA_DIR" \
+        PYTHONHASHSEED=0 \
+        python3 "$REPO/backend/scripts/scan_equiv_check.py" compare \
+        --asof "$asof" --sample "$sample" ) \
+        2>&1 | tee -a "$log" || rc=$?
+    grep -m1 '"mode": "compare"' "$log" > "$json_dir/compare-$ROUND_TS.json" || :
+  fi
+  rm -f "$sample" "$sample.head.json"  # 样本体+纪元旁证:判定已落 JSON 与腿日志,比完即删(#500)
+  if [ "$rc" = 2 ]; then
+    # rc=2=样本作废(对拍期间有源换了纪元/asof 对不上):人话指引进日志与运行输出(#500)
+    echo "-- [$label] rc=2:样本作废(对拍期间有源换了纪元/asof 对不上),两步都要重跑——重跑这一轮" | tee -a "$log"
+  fi
   echo "-- [$label 尾行] $(tail -n 2 "$log" | tr '\n' ' ')"
   return "$rc"
 }
@@ -213,6 +269,18 @@ LOG_DIR="$REPORT_ROOT/logs"  # #468:每条腿日志目录(报告目录树下 mon
 LEG_ORDER=(model all anchors dsem agg-share sinkhole-probe anchor-readouts truth-v2 truth-v2-readout audit temporal readout)
 declare -A LEG_RC=()
 for _leg in "${LEG_ORDER[@]}"; do LEG_RC[$_leg]=0; done
+LEG_RC[scan-equiv]=0  # #500:非 LEG_ORDER 腿的 rc 槽(接线见红态行与 AGG_RC 处)
+# #500 scan-equiv 抽样密度(--single-every 缺省)。2026-11-27 生产镜像实测
+# (dev 机 .eval-prod-data 只读,PYTHONHASHSEED=0,/usr/bin/time -v;读数全文
+# 在 docs/reports/2026-11-26-arch-r4-landing/14-月轮加扫描查询对拍腿/impl-report.md):
+# collect 全收(=1,553 万单元)19.6 分/峰值 689 MB/样本 gz 158 MB;compare 峰值
+# 内存随样本条数线性(records=list(sample) 全驻内存):10 万条 77 秒/796 MB,
+# 26.5 万条 3:09/1.92 GB,50 万条 5:45/3.57 GB → 斜率 ≈7.3 KB/条、截距 ≈82 MB,
+# 全收 553 万条外推 ≈40 GB(≫6 GB 红线)、≈62 分钟;加 collect 合计 ≈81 分钟
+# (≫45 分钟预算)→ 两红线都破,缺省取 20(样本 ≈26.5 万条,实测 3:09/1.92 GB,
+# mismatches=0;三片均 0 不一致)。IP_RADAR_SCAN_EQUIV_SINGLE_EVERY 可覆盖
+# (要全收自担内存/时长)。
+SINGLE_EVERY="${IP_RADAR_SCAN_EQUIV_SINGLE_EVERY:-20}"
 LEG_STATUS_TS=""  # 渲染前件 ts 锚(write_leg_status 单调钉用,#377)
 run_step model    --model    || LEG_RC[model]=$?      # 舰队模型+验收套件(model-*.json)
 run_step all      --all      || LEG_RC[all]=$?        # 逐源 verdict 表
@@ -235,6 +303,7 @@ run_step truth-v2 --truth-v2 \
 run_step truth-v2-readout --truth-v2-readout || LEG_RC[truth-v2-readout]=$?  # v2 读数腿一腿三工件(#261 T2 附录 + #262 T3 并排对照/换卷触发;只观测不持门)
 run_step audit    --audit    || LEG_RC[audit]=$?      # 谱系前向流审计(读 model 历史)
 run_step temporal --temporal || LEG_RC[temporal]=$?   # λ_s 确认率(读 model 历史,须 ≥2 轮)
+run_scan_equiv || LEG_RC[scan-equiv]=$?  # #500 全库扫描↔查询对拍(持门同 anchors;两步见 run_scan_equiv)
 
 write_leg_status() {  # write_leg_status <readout_rc|null> — 腿级状态件(#193 C5)
   # 落报告根 leg-status-<ts>.json(ts 形制同族);all 腿校验须排除本件
@@ -285,6 +354,10 @@ for _leg in "${LEG_ORDER[@]}"; do
     echo "!! $_leg 腿 rc=${LEG_RC[$_leg]}:红态记录(工件照写留证)——红态记录≠管线中止,腿级状态入 leg-status 工件,结尾外显此 rc"
   fi
 done
+# #500 scan-equiv 腿红态行(不在 LEG_ORDER,单列外显;工件=scan-equiv/ 两行 JSON+腿日志)
+if [ "$DRY_RUN" != 1 ] && [ "${LEG_RC[scan-equiv]}" != 0 ]; then
+  echo "!! scan-equiv 腿 rc=${LEG_RC[scan-equiv]}:红态记录(工件照写留证)——红态记录≠管线中止,结尾外显此 rc"
+fi
 
 # ── S5(裁决 A / spec §4.1):报告族齐全校验 → 心跳推送 ──
 # 命令族齐全=活:逐腿写者均查本轮工件(mtime 晚于脚本启动)。audit/anchors
@@ -410,13 +483,17 @@ fi
 
 echo
 
-echo "完成。报告目录: $REPORT_ROOT(model/ 逐轮累积;腿日志 logs/<腿名>-<时间戳>.log)"
+echo "完成。报告目录: $REPORT_ROOT(model/ 逐轮累积;腿日志 logs/<腿名>-<时间戳>.log;scan-equiv/ 全库对拍两行 JSON,#500)"
 # 结尾退出码(#193 C5):腿序首个非零外显(完成≠全绿;cron/操作员以
 # 非零退出码感知腿级红;红腿明细在 leg-status 工件与月报腿级行)。
 AGG_RC=0
 for _leg in "${LEG_ORDER[@]}"; do
   if [ "${LEG_RC[$_leg]}" != 0 ]; then AGG_RC=${LEG_RC[$_leg]}; break; fi
 done
+# #500 scan-equiv 腿入终态(持门同 anchors;不在 LEG_ORDER 故单列一查——
+# 腿全绿才轮到它,双腿红时外显腿序更前的那个,与「腿序首个非零」同语义;
+# 执行序在 temporal 后、readout 前)
+if [ "$AGG_RC" = 0 ] && [ "${LEG_RC[scan-equiv]}" != 0 ]; then AGG_RC=${LEG_RC[scan-equiv]}; fi
 # #453:推送红态经同一出口外显(腿级红优先;腿全绿时结尾取推送 rc)
 if [ "$AGG_RC" = 0 ] && [ "$PUSH_RC" != 0 ]; then AGG_RC="$PUSH_RC"; fi
 exit "$AGG_RC"

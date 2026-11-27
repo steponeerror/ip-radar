@@ -40,6 +40,8 @@ import lmdb
 from ipdb._registry import LookupResult, fuse_items
 from ipdb._sources._lmdb import (
     PAYLOADS_NAME,
+    # 下三个私有名是扫描侧借用(只读,#500 卡 14 选项 C);动存储内核
+    # 的私有名字时要一起看(改名单/语义先看卡 9 与本文件的借用点)。
     _PAYLOAD_DB_CACHE,
     _end_int,
     _payloads_db,
@@ -147,8 +149,10 @@ _GEO_CATEGORIES = frozenset({"geo_asn"})
 
 
 def _is_threat_source(s) -> bool:
-    """与导出器 scripts/universe_walk.py 的 _is_threat_source 同一判据:
-    声明了分类、category=="threat"、非 internal。只有威胁类源产生单元。"""
+    """与导出器仓 ip-radar-blocklist(独立于本仓)scripts/scan_units.py
+    的 extract_fields、scripts/emit_tiers.py 同一判据:声明了分类、
+    category=="threat"、非 internal。只有威胁类源产生单元。(旧注释指向
+    的 scripts/universe_walk.py 已随旧导出器删除,#500 修锚。)"""
     return (getattr(s, "classification_type", None) is not None
             and getattr(s, "category", None) == "threat"
             and not getattr(s, "internal", False))
