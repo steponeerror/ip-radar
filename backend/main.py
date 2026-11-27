@@ -1278,7 +1278,7 @@ async def eval_overview_route():
           dependencies=[*_ADMIN_DEPS],
           responses=_ERRS_422_500)
 async def eval_model_route():
-    """舰队 corroboration-contrast 模型报告(advisory 只读;θ̂/CI/below-market
+    """源池 corroboration-contrast 模型报告(advisory 只读;θ̂/CI/below-market
     永远是 corroboration 语义不是 accuracy;SOURCE_RELIABILITY 不由它派生)。
     注册在 /api/eval/{source} 之前 —— 否则 "model" 被当源名吃掉。"""
     return {"latest": read_model()}
