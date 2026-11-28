@@ -43,6 +43,7 @@ class CaidaAsorgSource(Source):
 
     # 202610 快照实测 ~11 万 aut 行;200-OK 空/坏内容不落地(fail-closed)
     _MIN_AUT_ROWS = 50_000
+    infra_noise_filter = False         # 良性源用不上;显式声明是 #531 契约(基类默认已翻 True)
 
     def __init__(self, data_dir: Path):
         super().__init__(data_dir)

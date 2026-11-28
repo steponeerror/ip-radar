@@ -45,6 +45,7 @@ class CloudzySource(Source):
     authoritative_for = ()
     stale_days = 30                 # 段级静态,键不换手(排他 98% 真空白)
     reliability = 0.90              # brief 定值;出版方非官方镜像,高于社区 feed 低于自采
+    infra_noise_filter = False         # 良性源用不上;显式声明是 #531 契约(基类默认已翻 True)
 
     def download(self, token=None) -> None:
         """fail-closed 守卫:仅认可解析 IP 行;200-OK 坏页(HTML 错误页/空

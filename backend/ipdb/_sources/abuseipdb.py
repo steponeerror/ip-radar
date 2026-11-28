@@ -54,6 +54,7 @@ class AbuseIPDBSource(IpListSource):
     reliability = 0.65
     authoritative_for = ()               # SM-F1:is_malicious 幻影轴已删(threatfox/emerging_threats/spamhaus 原声明同样删除)
     provenance_tier = "A"                 # A=官方一手(S21):AbuseIPDB 官方 API 数据
+    infra_noise_filter = False         # 显式关:存量源行为不变(#531;基类默认已翻 True)
 
     def __init__(self, data_dir, confidence_minimum=None, limit=10000):
         # convention: a source reads its OWN env vars; the registry passes only data_dir

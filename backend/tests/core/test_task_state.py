@@ -111,7 +111,9 @@ def test_task_illegal_pair_record_mode(mgr, monkeypatch, caplog, old, new):
     """表外每一对 × 记录模式:不抛、计数 +1、错误日志带固定前缀;写不写按
     出发态分(返工评审第 2 条):从 done/failed 出发拒写(终态下游都按终态
     消费,覆盖会造假告警),其余照写(非终态不写可能被留在在飞态卡住查询
-    门和批次)。cancelled 有登记的竞态出边,不在拒写之列。"""
+    门和批次)。cancelled 也在拒写清单(#488 评审建议改 2,主会话采纳):
+    从终态出发的写入只可能来自竞态,拒写不会卡住任务(已 settle),放写才会
+    把已取消任务翻回在飞。"""
     monkeypatch.setattr(_task_state, "_strict", False)
     before = illegal_transition_count()
     t = Task(id=f"r_{old}", source_name="a", host=None, state=old)
@@ -236,7 +238,9 @@ def test_record_mode_refuses_terminal_departure(monkeypatch, caplog, mgr):
     """返工评审第 2 条:记录模式下从 done 出发的写入拒写——记日志 + 计数,
     字段不被覆盖(终态下游:_settle 已记账、on_terminal 已旁挂、调度器按
     failed 升退避、告警按 state == failed 读,覆盖 done → failed 会造出一条
-    假告警)。只拒 done/failed;cancelled 有登记的竞态出边,照写。"""
+    假告警)。拒写清单 = 终态三态;cancelled 也在列(#488 评审建议改 2,主
+    会话采纳)——从它出发的写入只可能来自竞态,放写会把已取消任务翻回在飞
+    (重新压住查询门,下载抛普通异常还会落假 failed)。"""
     monkeypatch.setattr(_task_state, "_strict", False)
     before = illegal_transition_count()
     t = Task(id="rr1", source_name="a", host=None, state="done", error="old")
@@ -249,7 +253,14 @@ def test_record_mode_refuses_terminal_departure(monkeypatch, caplog, mgr):
     with caplog.at_level(logging.ERROR, logger="ipdb._task_state"):
         mgr._write_state(t2, "cancelled")
     assert t2.state == "failed"
-    assert illegal_transition_count() == before + 2
+    # cancelled 出发同样拒写(#488 评审建议改 2):residual race 的兜底正门,
+    # 变异(把 cancelled 从 NO_WRITE_FROM 拿掉)时这条腿红。
+    t3 = Task(id="rr4", source_name="a", host=None, state="cancelled")
+    mgr._tasks[t3.id] = t3
+    with caplog.at_level(logging.ERROR, logger="ipdb._task_state"):
+        mgr._write_state(t3, "downloading")
+    assert t3.state == "cancelled"
+    assert illegal_transition_count() == before + 3
     assert ILLEGAL_TRANSITION_LOG_PREFIX in caplog.text
 
 
@@ -337,14 +348,14 @@ def test_ops_task_cannot_enter_source_phase_strict(mgr):
 
 # 评审版逐对写死的对照(返工评审第 6 条/评审附录 A):表的内容有一个不依赖
 # 模块自身取值的独立锚——改表(加边/删边)必须同步改这里,改表的人会看到
-# 这份清单,想清楚每条边是不是真路径。
-_REVIEWED_TASK_EDGES = {  # 21 对;2026-11-27 评审逐边对过发生点
+# 这份清单,想清楚每条边是不是真路径。#488 清掉 cancelled 四条竞态出边
+# (downloading/loading/failed/cancelled),21 对 → 17 对。
+_REVIEWED_TASK_EDGES = {  # 17 对;2026-11-27 评审逐边对过发生点,#488 清 cancelled 出边
     ("queued", "throttled"), ("queued", "downloading"), ("queued", "loading"), ("queued", "failed"),
     ("queued", "cancelled"), ("queued", "running"), ("throttled", "queued"), ("throttled", "cancelled"),
     ("downloading", "loading"), ("downloading", "failed"), ("downloading", "cancelled"),
     ("loading", "done"), ("loading", "failed"), ("loading", "cancelled"),
     ("running", "done"), ("running", "failed"), ("running", "cancelled"),
-    ("cancelled", "downloading"), ("cancelled", "loading"), ("cancelled", "failed"), ("cancelled", "cancelled"),
 }
 
 
@@ -353,6 +364,19 @@ def test_table_matches_reviewed_edges():
         "任务转移表与评审版逐对清单不一致——改表 = 改 _REVIEWED_TASK_EDGES,"
         "每条边都要在 _tasks.py/_ops_rounds.py 里指得出发生点"
     )
+
+
+@pytest.mark.parametrize("new", ["downloading", "loading", "failed", "cancelled"])
+def test_cancelled_departures_rejected_strict(mgr, new):
+    """#488:cancelled 的四条旧竞态出边清空后,从它出发的写入在严格模式
+    (测试缺省)逐条抛错——「终态出不去」在 cancelled 上重新成立。显式
+    逐边列表(不从表派生):有人回填登记边并同步改了 _REVIEWED_TASK_EDGES
+    时,这条仍然红。"""
+    t = Task(id=f"c488_{new}", source_name="a", host=None, state="cancelled")
+    mgr._tasks[t.id] = t
+    with pytest.raises(ValueError, match="is not legal"):
+        mgr._write_state(t, new)
+    assert t.state == "cancelled"
 
 
 def test_tables_are_well_formed():
@@ -370,7 +394,7 @@ def test_tables_are_well_formed():
     assert (TASK_STATES_IN_FLIGHT | TASK_STATES_TERMINAL
             | OPS_ROUND_ONLY_STATES) == set(TASK_STATES)
     assert TASK_STATES_WAITING <= TASK_STATES_IN_FLIGHT
-    for terminal in ("done", "failed"):
+    for terminal in ("done", "failed", "cancelled"):
         assert TASK_TRANSITIONS[terminal] == frozenset(), f"{terminal} 不该有出边"
     for s in set(TASK_STATES) - TASK_STATES_TERMINAL:
         assert TASK_TRANSITIONS[s], f"非终态 {s} 一条出边都没有——状态机死角"

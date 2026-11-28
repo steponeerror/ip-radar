@@ -27,6 +27,7 @@ class MisakaioChnroutes2Source(IpListSource):
     reliability = 0.85            # BGP route-server dump aggregation; cn_isp peer
     authoritative_for = ()        # joins country vote, no exclusive authority
     provenance_tier = "B"         # B=community (single-curator BGP aggregation)
+    infra_noise_filter = False         # 良性源用不上;显式声明是 #531 契约(基类默认已翻 True)
 
     def get_insert_data(self) -> dict:
         # scalar geo shape — same as geolite_city/dbip_city: source sets

@@ -230,6 +230,7 @@ class CloudRangesSource(Source):
     reliability = 0.95             # 源级 = 官方四家;per-row 查表(Alibaba 0.75)
     url = None                     # 单源多 host,无单一权威 URL(cn_isp 先例)
     stale_days = 7                 # scheduler due 节奏消费此值;per-feed 阈值在 _FEEDS
+    infra_noise_filter = False         # 良性源用不上;显式声明是 #531 契约(基类默认已翻 True)
 
     def __init__(self, data_dir: Path):
         super().__init__(data_dir)

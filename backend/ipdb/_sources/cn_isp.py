@@ -38,6 +38,7 @@ class ChineseISPSource(Source):
     stale_days = 7
     reliability = 0.85
     filename = "cn_isp"   # Source base sets _lmdb_base = data_dir/"cn_isp.lmdb"
+    infra_noise_filter = False         # 良性源用不上;显式声明是 #531 契约(基类默认已翻 True)
 
     def __init__(self, data_dir: Path):
         super().__init__(data_dir)   # _data_dir, _path, _lmdb_base, _reader, _count, _loaded_at
