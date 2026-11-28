@@ -35,6 +35,8 @@
 
 ### 变更 Changed
 
+  - **出海数字统一:第一手指控源数字段、网页徽标、fail2ban 置信度(#521、#532)**:接口的 `threat` 多一个字段 `first_hand_source_count`(去掉派生聚合器后的第一手指控源数);网页的「N源」徽标改读这个数(悬停提示同步),fail2ban 的封禁判定改读与网页、CSV 相同的融合置信度。声明了转载别人的非派生源暂时各算一票,要不要剔另议(#521、#532;2026-11-28 裁决)。
+  - The API `threat` object gains `first_hand_source_count` (first-hand accusing sources after removing derived aggregators); the Web UI "Nsrc" badge now reads it (tooltip updated), and fail2ban's ban decision reads the same fused threat confidence as the Web UI and CSV. Non-derived sources that declare a republishing relationship still count separately for now (#521, #532; ruling 2026-11-28).
   - **印证旗只数对分数有正贡献的非聚合器源(#522;2026-11-28 裁决「印证判式丙」)**:印证(`corroborated`)判定收紧:**至少两个**互不相干(非聚合器)且对分数有正贡献(系数 > 0)的独立源才算印证;聚合器之间的互证、可靠性 0.5 源的抬旗、系数为负的源都不再算票(#522)。CSV 导出的 `corroborated` 列取值随之变(不筛行);评测侧候选源验收的 CG 闸随之变严(只靠零系数或聚合器伙伴「印证」的候选源 CG 会掉)。置信度与源名单不变。
   - Corroboration (`corroborated`) now requires at least two lineage-independent (non-aggregator) sources with a positive score contribution (coefficient > 0); aggregator-only echo, reliability-0.5 lift, and negative-coefficient sources no longer count as votes (#522). The `corroborated` column in CSV export changes accordingly (rows are not filtered); the eval-side CG acceptance gate tightens (candidates corroborated only via zero-coefficient or aggregator partners will drop). Confidence and source lists unchanged.
   - **新接入的情报源默认打开载入期基础设施地址过滤(#531;2026-11-28 裁决)**:公共 DNS、根服务器这类名单地址被单个新源指控时不再入库;存量 61 个源显式保持关闭、行为不变;以后每个源都必须显式声明这个开关(只写注解不算),缺声明测试红。
