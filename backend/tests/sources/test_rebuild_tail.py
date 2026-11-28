@@ -1,7 +1,7 @@
 """#291 rebuild 收尾共享件(_sources/_rebuild_tail)测试面。
 
 Seam = 共享件公开面 + 三车道接线钉子:
-- InfraNoiseGate:enabled 判定(源 opt-in × 总开关)/命中记账(str(net)
+- InfraNoiseGate:enabled 判定(源显式开关 × 总开关)/命中记账(str(net)
   明文,宁少算只排 curated 单址)/flush 留痕(去重计数进 rebuild 日志,
   单/双遍 harvest 的重复记账靠 log 端去重吸收——A 车道注释既有契约);
 - covered_counts:B/C 预扫描覆盖数 v4/v6 分流(worked example 独立算例,
@@ -30,7 +30,7 @@ def _net(s: str):
 def test_gate_enabled_requires_source_optin_and_env_switch(monkeypatch):
     monkeypatch.delenv(ENV_SWITCH, raising=False)
     assert InfraNoiseGate("s", True).enabled is True
-    assert InfraNoiseGate("s", False).enabled is False   # 未声明源零变化
+    assert InfraNoiseGate("s", False).enabled is False   # 显式 False → 关
     monkeypatch.setenv(ENV_SWITCH, "0")
     assert InfraNoiseGate("s", True).enabled is False    # 总开关关 = 复原口径
 

@@ -24,6 +24,7 @@ class ProxyScrapeSource(CsvSource):
     reliability = 0.50                   # 收源红线 r≥0.5(spec §3.4);校准阶段重估
     authoritative_for = ()               # dict 真相:is_proxy 权威属 ip2proxy
     skip_lines = 1  # header row
+    infra_noise_filter = False         # 显式关:存量源行为不变(#531;基类默认已翻 True)
 
     def parse_row(self, row: list[str]) -> dict | None:
         # protocol, ip, port, country, country_code, city, anonymity, ssl,

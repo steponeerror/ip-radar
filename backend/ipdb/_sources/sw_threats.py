@@ -56,6 +56,7 @@ class SWThreatsSource(CsvSource):
     provenance_tier = "A"                # A=官方/自采(S21;dossier:自有观测)
     authoritative_for = ()               # corroboration only (SM-F1)
     skip_lines = 1   # header: ip,category,detail,note,tags,first_seen,last_seen
+    infra_noise_filter = False         # 显式关:存量源行为不变(#531;基类默认已翻 True)
 
     def parse_row(self, row: list[str]) -> dict | None:
         if len(row) < 7:

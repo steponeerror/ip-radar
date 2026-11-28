@@ -41,6 +41,7 @@ class DanMeUkTorSource(IpListSource):
     # 单元出现的地址(扫描只数 v4 单地址 5,341,414 个;v4 网段 177,090 与 v6 不计)。「同场共现」非逐字照搬之证(评审 B3)。
     # 原创 tor_exits r=.95 强于转载者 .85,同场即剔。
     republishes = ("tor_exits",)
+    infra_noise_filter = False         # 良性源用不上;显式声明是 #531 契约(基类默认已翻 True)
 
     def _validate_raw(self, raw: bytes) -> None:
         """Content guard (add-intel-source Phase 3 step 8): the publisher's

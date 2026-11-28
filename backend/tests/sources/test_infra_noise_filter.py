@@ -12,9 +12,11 @@ Seam = 源生命周期公开面(rebuild → query),同 test_myip_ms 形制;覆�
   + tweetfeed/dataplane 2026-10-29 人裁接入;reportedip 2026-11-15 人裁
   接入,#347 生产 8.8.8.8 误报;gorkemgun_sgb_blocklist 2026-11-22 #392
   接入,114DNS 误列;otx 2026-11-25 #450 接入,76.76.10.11 ControlD 误列;
-  nerd_medconf 2026-11-27 #514 接入,1.0.0.1 误列);基类默认 False(显式
-  opt-in,不是全局行为变更)。harvest 车道(Source 基类)与 IpListSource/
-  CsvSource 车道同款接线。
+  nerd_medconf 2026-11-27 #514 接入,1.0.0.1 误列)。#531 裁决(2026-11-28)
+  起基类缺省 True(新源默认开——名单地址被单一源指控是反复出现的误报
+  形状),存量源各显式声明(缺声明由契约测试
+  tests/source_infra/test_infra_noise_filter_contract.py fail-loud)。
+  harvest 车道(Source 基类)与 IpListSource/CsvSource 车道同款接线。
 """
 import ipaddress
 import logging
@@ -133,8 +135,10 @@ def test_csv_rebuild_excludes_and_logs(tmp_path, caplog):
                for r in caplog.records)
 
 
-def test_off_by_default_for_undeclaring_sources(tmp_path):
-    """基类默认 False:过滤是事故源显式 opt-in,未声明源行为零变化。"""
+def test_on_by_default_for_undeclaring_sources(tmp_path):
+    """基类缺省 True(#531 裁决 2026-11-28):新源默认打开载入期过滤——
+    名单里的地址被单一源指控是反复出现的误报形状(114DNS/ControlD/
+    1.0.0.1),不许靠「忘了写开关」漏进来;要关必须显式声明。"""
 
     class Plain(IpListSource):
         name = "plain"
@@ -144,10 +148,30 @@ def test_off_by_default_for_undeclaring_sources(tmp_path):
         classification_type = "blacklist"
         verdict = "malicious"
 
-    assert IpListSource.infra_noise_filter is False
-    assert getattr(Plain, "infra_noise_filter", False) is False
+    assert IpListSource.infra_noise_filter is True
+    assert getattr(Plain, "infra_noise_filter", None) is True   # 继承缺省
     (tmp_path / "p.txt").write_text("8.8.8.8\n203.0.113.7\n")
     s = Plain(data_dir=tmp_path)
+    assert s.rebuild() == 1                      # 8.8.8.8 载入面被排
+    assert not s.query("8.8.8.8")
+    assert s.query("203.0.113.7")                # 非 curated 指控原样保留
+
+
+def test_explicit_off_still_opt_out(tmp_path):
+    """显式 False 仍可关(#531 存量源口径):行为与旧缺省关逐字同款。"""
+
+    class OptOut(IpListSource):
+        name = "optout"
+        url = "https://example.com/o.txt"
+        filename = "o.txt"
+        fields = ("is_malicious",)
+        classification_type = "blacklist"
+        verdict = "malicious"
+        infra_noise_filter = False               # 显式关
+
+    assert OptOut.infra_noise_filter is False
+    (tmp_path / "o.txt").write_text("8.8.8.8\n203.0.113.7\n")
+    s = OptOut(data_dir=tmp_path)
     assert s.rebuild() == 2                      # 无排除
     assert s.query("8.8.8.8")
 
@@ -169,8 +193,8 @@ def test_incident_sources_declare_filter():
 
 
 def test_declarer_roster_is_exactly_the_incident_sources(tmp_path):
-    """声明面 = 恰好这十个事故源(逐个 opt-in 是纪律,不是默认行为;
-    2026-11-27 #514 评审建议):哪个源没过评审就打开开关(多出一个名字)、
+    """开关打开面 = 恰好这十个事故源(#514 评审建议立,#531 起其余 61 源
+    显式 False 钉行为不变):哪个源没过评审就打开开关(多出一个名字)、
     或十个里哪个声明被删,都在这里红。新增事故源接入时同步改这里。"""
     import ipdb._registry as reg
 
@@ -280,8 +304,9 @@ def test_reportedip_harvest_filter_off_rebuild_restores(
     assert rec["native_categories"] == ["Hacking", "Web App Attack"]
 
 
-def test_off_by_default_for_undeclaring_harvest_sources(tmp_path):
-    """Source(harvest 车道)基类默认 False:未声明源行为零变化。"""
+def test_on_by_default_for_undeclaring_harvest_sources(tmp_path):
+    """Source(harvest 车道)基类缺省 True(#531):未声明源默认开过滤。
+    变异 ② 靶:基类缺省改回 False 本用例红。"""
     from ipdb._evidence import Evidence
     from ipdb._source_base import Source
 
@@ -296,12 +321,12 @@ def test_off_by_default_for_undeclaring_harvest_sources(tmp_path):
                                        verdict="malicious",
                                        reliability=0.55)
 
-    assert Source.infra_noise_filter is False
-    assert getattr(HarvestPlain, "infra_noise_filter", False) is False
+    assert Source.infra_noise_filter is True
+    assert getattr(HarvestPlain, "infra_noise_filter", None) is True
     (tmp_path / "p.csv").write_text("8.8.8.8\n")
     s = HarvestPlain(data_dir=tmp_path)
-    assert s.rebuild() == 1                    # 无排除
-    assert s.query("8.8.8.8")
+    assert s.rebuild() == 0                    # 唯一指控在载入面被排
+    assert not s.query("8.8.8.8")
 
 
 def test_nerd_medconf_rebuild_excludes_and_logs(tmp_path, caplog):

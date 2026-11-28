@@ -23,6 +23,7 @@ class X4BNetVPNSource(IpListSource):
     republishes = ("protonvpn",)
 
     _V6_URL = "https://raw.githubusercontent.com/X4BNet/lists_vpn/main/output/vpn/ipv6.txt"
+    infra_noise_filter = False         # 良性源用不上;显式声明是 #531 契约(基类默认已翻 True)
 
     def download(self, token=None) -> None:
         """双 URL 拼接单文件(spamhaus 同型,F-4):v6 兄弟失败 → 不写

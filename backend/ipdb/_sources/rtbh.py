@@ -24,3 +24,4 @@ class RtbhSource(IpListSource):
     stale_days = 3                       # intraday updates; 3d silence = feed dead
     reliability = 0.70                   # 54-sensor algorithmic detection, no per-entry attribution
     authoritative_for = ()               # corroboration only (SM-F1)
+    infra_noise_filter = False         # 显式关:存量源行为不变(#531;基类默认已翻 True)

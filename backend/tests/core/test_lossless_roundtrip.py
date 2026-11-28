@@ -18,16 +18,19 @@ class _Novel(CsvSource):
                           "sample_hash": row[5]}}
 
 
+# 夹具地址 6.6.6.6 = 非 curated 公网地址(#531 起基类缺省开载入期 infra 过滤,
+# 8.8.8.8/9.9.9.9 会被挡;也不许用 TEST-NET 段——本用例走 registry.lookup,
+# 保留地址守卫会短路返回空 classifications)。
 def test_novel_fields_survive_to_details(tmp_path: Path, monkeypatch):
     f = tmp_path / "novel.csv"
-    f.write_text("9.9.9.9,win.x,80,2026-01-01,443,abc123\n")
+    f.write_text("6.6.6.6,win.x,80,2026-01-01,443,abc123\n")
     s = _Novel(data_dir=tmp_path)
     s.rebuild()
     # wire into registry as the only source
     import ipdb._registry as R
     monkeypatch.setattr(R, "_sources", [s])
     monkeypatch.setattr(R, "_disabled", set())
-    lr = R.lookup("9.9.9.9")
+    lr = R.lookup("6.6.6.6")
     # canonical slot survived into a classification assessment
     ca = lr.classifications.get("c2-server")
     assert ca is not None

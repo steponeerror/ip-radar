@@ -66,6 +66,7 @@ class FireholBlocklistSource(IpListSource):
     # _calibrated.json 把 firehol r 抬离 0.5 时须重验 C2 恒等(剔它即
     # 动分数)。
     republishes = ("greensnow",)
+    infra_noise_filter = False         # 显式关:存量源行为不变(#531;基类默认已翻 True)
 
     def __init__(self, data_dir: Path, selected_lists: list[str] | None = None):
         self._lists = selected_lists or list(_LIST_SPEC)
