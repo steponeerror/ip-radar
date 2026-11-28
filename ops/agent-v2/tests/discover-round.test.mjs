@@ -288,7 +288,7 @@ test("相位头 SIGKILL 崩溃 → 同库 resume 续跑到 CLOSE(相位边界恢
   const db = path.join(tree.tmp, "v2.sqlite");
   const env = { ...process.env, DOCS_ROOT: tree.docsRoot, LEDGER_FILE: path.join(tree.opsRoot, "ledger.md"), OPS_V2_CRASH_AFTER_PHASE: "shortlist" };
   const kill = await execFile(process.execPath, [path.join(HERE, "run-discover.mjs"), ROUND, "--fixtures", FIXTURES, "--db", db], { env }).catch((e) => e.code);
-  assert.equal(kill, null, `SIGKILL 期望进程被杀(exit code ${kill} 非自杀)`);
+  assert.ok(kill === null || kill === 137, `SIGKILL 期望进程被杀(#579 锁代理:flock 对信号死子进程 exit 128+9=137;实得 ${kill})`);
   assert.ok(fs.existsSync(path.join(tree.opsRoot, "rounds", ROUND, "d1-scan.json")), "scan 工件应先于崩溃落盘");
   delete env.OPS_V2_CRASH_AFTER_PHASE;
   const { stdout } = await execFile(process.execPath, [path.join(HERE, "run-discover.mjs"), ROUND, "--fixtures", FIXTURES, "--db", db], { env });
@@ -426,7 +426,7 @@ test("#415 中止出口:相位头崩溃的任务被 abortTask → outcome aborte
   const env = { ...process.env, DOCS_ROOT: tree.docsRoot, LEDGER_FILE: path.join(tree.opsRoot, "ledger.md"), OPS_V2_CRASH_AFTER_PHASE: "shortlist" };
   try {
     const kill = await execFile(process.execPath, [path.join(HERE, "run-discover.mjs"), ROUND, "--fixtures", FIXTURES, "--db", db], { env }).catch((e) => e.code);
-    assert.equal(kill, null, `SIGKILL 期望进程被杀(exit code ${kill} 非自杀)`);
+    assert.ok(kill === null || kill === 137, `SIGKILL 期望进程被杀(#579 锁代理:flock 对信号死子进程 exit 128+9=137;实得 ${kill})`);
     assert.equal(mirrorOf(tree).status, "running", "前提:崩溃后镜像停在 running(进度镜像)");
     // 第二段:同库开 harness,对在飞任务下中止标记 → abort 相位(真框架路径,零 mock)
     await withRoundEnv(tree, {}, async () => {
@@ -452,7 +452,7 @@ test("#415 中止镜像写尽力不掷错:abort 相位 ctx 重建抛(中止进�
   const env = { ...process.env, DOCS_ROOT: tree.docsRoot, LEDGER_FILE: path.join(tree.opsRoot, "ledger.md"), OPS_V2_CRASH_AFTER_PHASE: "shortlist" };
   try {
     const kill = await execFile(process.execPath, [path.join(HERE, "run-discover.mjs"), ROUND, "--fixtures", FIXTURES, "--db", db], { env }).catch((e) => e.code);
-    assert.equal(kill, null, `SIGKILL 期望进程被杀(exit code ${kill} 非自杀)`);
+    assert.ok(kill === null || kill === 137, `SIGKILL 期望进程被杀(#579 锁代理:flock 对信号死子进程 exit 128+9=137;实得 ${kill})`);
     const stateFile = path.join(roundDirOf(tree), "state.json");
     const before = fs.readFileSync(stateFile, "utf8");
     // 第二段:中止在一个 breaker 旋钮非法的进程环境里执行(env 现读不入档=执行中止的进程

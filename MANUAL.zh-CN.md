@@ -343,6 +343,8 @@ git pull && docker compose up -d --build
 
 全部状态在一个命名卷里(`ipradar-data` → `/app/data`):逐源原始下载、LMDB epoch 目录(每次重建生成的新版本目录)及其 `.ptr/.count/.cov/.disjoint` 伴随文件、SQLite 双件 `auth.db`/`alerts.db`。重建从不原地写——新 epoch 落地,指针原子翻转。
 
+开发机另有一份月频自动同步的生产卷镜像(月轮推送),已声明为「唯一的自动异地副本」(范围 = LMDB 源数据),恢复路有演练脚本(`scripts/backup_rehearsal.py`)验证——见 `deploy/ops-cron.md`「备份 = 月轮镜像同步」一节。
+
 **停机拷贝(最简,恒一致):**
 
 ```bash

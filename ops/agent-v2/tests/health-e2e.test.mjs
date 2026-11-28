@@ -18,7 +18,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { execFile as execFileCb } from "node:child_process";
+import { execFile as execFileCb, spawn } from "node:child_process";
 import { Harness } from "@earendil-works/pi-durable";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
@@ -576,10 +576,15 @@ test("#415 健康轮中止终态:在飞(已认领)轮被 abortTask → outcome a
     const claimFile = path.join(w.roundDir, ".v2-claim.json");
     let child;
     const exited = new Promise((resolve) => {
-      child = execFileCb(process.execPath, [
+      // spawn+detached(非 execFile):detached 只在 spawn 面 true 生效(新进程组;实锤
+      // execFileCb 忽略之,组杀 ESRCH)——#579 锁代理链 SIGKILL 必须发整组(代理父→
+      // flock→引擎子)。只杀代理父不成:代理死了但 flock 和引擎都还活着、锁还在
+      // (#579 评审实测 flock -n 返回 1),引擎照跑完,注入失效。
+      child = spawn(process.execPath, [
         path.resolve(import.meta.dirname, "..", "run-health.mjs"), roundId,
         "--from-phase", "TRIAGE", "--fixtures", FIXTURES, "--db", db,
-      ], { env: { ...process.env } }, (e) => resolve(e ? { code: e.code ?? null, signal: e.signal ?? null } : { code: 0, signal: null }));
+      ], { env: { ...process.env }, detached: true });
+      child.on("close", (code, signal) => resolve({ code, signal }));
     });
     let claimed = false;
     for (let i = 0; i < 5000 && !claimed; i++) { // 10s 帽
@@ -587,7 +592,10 @@ test("#415 健康轮中止终态:在飞(已认领)轮被 abortTask → outcome a
       if (!claimed) await new Promise((r) => setTimeout(r, 2));
     }
     assert.equal(claimed, true, "认领件应在帽内落盘(轮已起步)");
-    child.kill("SIGKILL");
+    // #579 锁代理:SIGKILL 必须发整进程组(代理父→flock→引擎子链)。只杀代理父不成:
+    // 代理死了但 flock 和引擎都活着、锁还在(#579 评审实测 flock -n 返回 1),引擎照
+    // 跑完,注入失效(首轮实测 state.json 照落)
+    process.kill(-child.pid, "SIGKILL");
     assert.deepEqual(await exited, { code: null, signal: "SIGKILL" }, "SIGKILL 期望进程被信号杀(非自杀)");
     assert.equal(fs.existsSync(stateFile), false, "前提:在飞轮无终态镜像件(健康轮无进度镜像;若子进程已跑完=本测注入失效)");
     // 第二段:同库开 harness(不先 resume),对在飞任务下中止标记 → abort 相位(真框架路径,零 mock)

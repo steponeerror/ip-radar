@@ -5,7 +5,8 @@
 // 模型子会话由任务内 spawn 自建)→ waitForTask → stdout 末行=旧形轮次信封(ENVELOPE.md 冻结)。
 // 模型面:--fixtures DIR=faux(零网络零花费;--model 缺省 faux-discover 同律不需);
 // real 面=--model provider/modelId(子任务 spawn 内 loadModels)。
-// 退出码(T5 冻结表,ENVELOPE.md):0=completed;1=failed/refused/parked;2=用法错;3=运行期异常。
+// 退出码(T5 冻结表,ENVELOPE.md):0=completed;1=failed/refused/parked;2=用法错;3=运行期异常;
+// 16=库锁冲突拒跑(db-lock.mjs,#579;stdout 零信封,消息走 stderr)。
 // 用法:node run-health.mjs <roundId> [--fixtures DIR] [--db PATH] [--model provider/modelId]
 //        [--from-phase PHASE](默认全轮 PROBE 起;faux 测试用 TRIAGE 起零网络)
 //        [--to-phase PHASE](默认 CLOSE 全链;旧 replay --to 镜像,shadow 载具停笔面)
@@ -14,6 +15,7 @@ import { fileURLToPath } from "node:url";
 import { defineDoc } from "@earendil-works/pi-durable";
 import { OPS_HEALTH_ROUND, RUNNABLE as HEALTH_PHASES } from "./tasks/health-round.mjs"; // RUNNABLE=PROBE…RETRO(旧 runnableOf 同推导;fromPhase 闭集面)
 import { openHarness } from "./entry.mjs";
+import { withDbLock } from "./db-lock.mjs"; // #579:开库独占锁入口助手(CLI 面第一件事)
 import { admitRound } from "./tasks/budget-guard.mjs";
 
 // 轮→任务索引(session 单例 doc;run-discover.mjs RoundsDoc 同律)。创建与登记同一 commit。
@@ -87,7 +89,7 @@ export async function runHealthRound(opts) {
 function usage() {
   process.stderr.write(`用法:node run-health.mjs <YYYY-MM-DD-HHMM-health> [--fixtures DIR] [--db PATH] [--model provider/modelId] [--from-phase PHASE] [--to-phase PHASE]\n`);
 }
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+async function cliMain() {
   const args = process.argv.slice(2);
   const roundId = args[0] && !args[0].startsWith("--") ? args[0] : undefined // 位置首参=roundId(终审修复:flag 先于位置参时原 find 会把 flag 值误当 id);
   const flag = (n) => { const i = args.indexOf(`--${n}`); return i >= 0 ? args[i + 1] : undefined; };
@@ -109,5 +111,14 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       else process.stderr.write(`${e.stack ?? e}\n`);
       process.exitCode = e?.usage ? 2 : 3; // 3=T5 冻结:运行期异常≠unanswered(旧 N1 缺口),cron 层可区分
     }
+  }
+}
+// #579:入口第一件事=开库独占锁(withDbLock 代理/拒跑;锁内才跑原 CLI 体)。
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  try {
+    await withDbLock(cliMain);
+  } catch (e) {
+    process.stderr.write(`${e.stack ?? e}\n`);
+    process.exitCode = 3; // 3=T5 冻结:launcher 自身异常(锁代理面:锁文件目录不可建等;ENVELOPE.md 码表)
   }
 }

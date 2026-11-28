@@ -123,6 +123,7 @@ test("env 面逐键白名单(#364 裁定):设生产世界键、unset 仅管理�
     assert.equal(env.LANG, "C.UTF-8");
     assert.ok(env.OPS_EVAL_PY.includes("python3"), "OPS_EVAL_PY=容器 python3");
     assert.equal(env.OPS_MODEL_HEALTH, "prov-alpha/m-health", "agent-config 现读注入");
+    assert.equal(env.OPS_V2_DB_LOCK_WAIT_S, "900", "#579 cron 侧等锁上限(手动面不设=当场拒)");
     // unset:仅管理密钥(C4 判例;测试面注入后内层 unset 生效)
     assert.ok(!("IP_RADAR_ADMIN_PASSWORD" in env), "管理密钥不带进模型进程");
     assert.ok(!("IP_RADAR_API_JWT_SECRET" in env));

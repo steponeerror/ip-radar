@@ -14,7 +14,8 @@
 // 用法:node run-add.mjs <roundId> --source <source> --sandbox DIR [--fixtures DIR]
 //        [--model provider/modelId] [--python PATH] [--bench --dossier-file F]
 //        [--db PATH] [--crash-after-phase PHASE]
-// 退出码:0=completed;1=failed/refused;2=用法错;3=运行期异常(ENVELOPE.md 冻结面)。
+// 退出码:0=completed;1=failed/refused;2=用法错;3=运行期异常(ENVELOPE.md 冻结面);
+// 16=库锁冲突拒跑(db-lock.mjs,#579;stdout 零信封,消息走 stderr)。
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
@@ -23,6 +24,7 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { defineDoc } from "@earendil-works/pi-durable";
 import { ADD_TOOLS_EXTENSION } from "./registry.mjs";
 import { openHarness } from "./entry.mjs";
+import { withDbLock } from "./db-lock.mjs"; // #579:开库独占锁入口助手(CLI 面第一件事)
 import { admitRound } from "./tasks/budget-guard.mjs";
 import { addRoundTask } from "./tasks/add-round.mjs";
 
@@ -153,7 +155,7 @@ export async function runAddRound(opts) {
 function usage() {
   process.stderr.write(`用法:node run-add.mjs <roundId> --source <source> --sandbox DIR [--fixtures DIR] [--model provider/modelId] [--python PATH] [--bench --dossier-file F] [--db PATH] [--crash-after-phase PHASE]\n`);
 }
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+async function cliMain() {
   const args = process.argv.slice(2);
   const roundId = args[0] && !args[0].startsWith("--") ? args[0] : undefined;
   const flag = (name) => { const i = args.indexOf(`--${name}`); return i >= 0 ? args[i + 1] : undefined; };
@@ -192,5 +194,14 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       else process.stderr.write(`${e.stack ?? e}\n`);
       process.exitCode = e?.usage ? 2 : 3;
     }
+  }
+}
+// #579:入口第一件事=开库独占锁(withDbLock 代理/拒跑;锁内才跑原 CLI 体)。
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  try {
+    await withDbLock(cliMain);
+  } catch (e) {
+    process.stderr.write(`${e.stack ?? e}\n`);
+    process.exitCode = 3; // 3=T5 冻结:launcher 自身异常(锁代理面:锁文件目录不可建等;ENVELOPE.md 码表)
   }
 }

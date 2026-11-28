@@ -261,7 +261,18 @@ LOG_DIR="$REPORT_ROOT/logs"  # #468:每条腿日志目录(报告目录树下 mon
 # honyport 日 CSV 面已接线(#265): 远端 /opt/honyport/out 在场才传
 # --truth-v2-component honyport=<dir>(上文 rsync 面填充 HP_COMPONENT_ARG);
 # 缺席 = 只跑 smallbox, 组件闸哨兵吸收不持死(ADR 0017 §2;§7: 永不入池)。
-LEG_ORDER=(model all anchors dsem agg-share sinkhole-probe anchor-readouts truth-v2 truth-v2-readout audit temporal readout)
+# ── #550 quality-contract 腿入序(变异自检+事故回放的唯一载体接节拍):位置
+# 在 temporal 后、readout 前(不读 model 历史不产出月报输入,放测量腿尾段)。
+# 本腿挡轮(#550 评审返工必须改2,推翻首版「不挡轮」——那个前提写错了):
+# CLI rc 语义 = 0 报告产出 / 2 契约表不合法(_eval/contract.py:214-217 契约表
+# 三态校验、:341-343 仅 ContractError 上抛);oracle=none 的行状态是 no-reading
+# 不是失败,腿不会「一上来就红」。rc 只反映「报告有没有产出」——契约表不合法
+# 或进程崩溃(rc 非零)经结尾 AGG_RC 让整轮失败(挡轮点=结尾循环,无硬编码
+# 排除);行级失败(单腿判定不过)收在报告 failures 面、不改 rc(contract.py
+# :254-257),由本壳读本轮 quality-report 把腿级状态记红(QUALITY_CONTRACT_FAIL_N
+# >0 → 腿状态 1),红态行打印失败条数 —— 行级红可见但不挡轮。本腿不入报告族
+# check_family:rc 非零已覆盖「崩溃=缺件」的把关,无需缺员即死双重把关。
+LEG_ORDER=(model all anchors dsem agg-share sinkhole-probe anchor-readouts truth-v2 truth-v2-readout audit temporal quality-contract readout)
 declare -A LEG_RC=()
 for _leg in "${LEG_ORDER[@]}"; do LEG_RC[$_leg]=0; done
 LEG_RC[scan-equiv]=0  # #500:非 LEG_ORDER 腿的 rc 槽(接线见红态行、write_leg_status 与 AGG_RC 处)
@@ -321,7 +332,13 @@ write_leg_status() {  # write_leg_status <readout_rc|null> — 腿级状态件(#
   local argv=("$path")
   local leg rc="readout=$1"  # readout 位由调用方显式给(null=在飞)
   for leg in "${LEG_ORDER[@]}"; do
-    if [ "$leg" = readout ]; then argv+=("$leg" "$1"); else argv+=("$leg" "${LEG_RC[$leg]}"); fi
+    if [ "$leg" = readout ]; then argv+=("$leg" "$1")
+    elif [ "$leg" = quality-contract ] && [ "${LEG_RC[$leg]}" = 0 ] \
+         && [ "${QUALITY_CONTRACT_FAIL_N:-0}" -gt 0 ]; then
+      # #550 评审必须改2:行级失败记红 —— CLI rc=0(报告照产出)但报告
+      # failures 面非空,腿状态记 1(红);退出码不折算,挡轮只认 rc2/崩溃
+      argv+=("$leg" 1)
+    else argv+=("$leg" "${LEG_RC[$leg]}"); fi
   done
   argv+=("scan-equiv" "${LEG_RC[scan-equiv]}")  # #500:非旗标腿也进腿级状态(评审返工 8;渲染按 legs 字典通用)
   python3 - "${argv[@]}" <<'PYEOF'
@@ -345,6 +362,42 @@ PYEOF
   echo "==> 腿级状态件: $path"
 }
 
+# #550 quality-contract 腿:变异自检+事故回放(#349 runner,承 #351 事故回放、
+# #352 变异自检)。rc 接住记 LEG_RC(0=报告产出;2=契约表不合法,经结尾 AGG_RC
+# 挡轮);随后读本轮 quality-report 的 failures 条数(QUALITY_CONTRACT_FAIL_N;
+# 只认 mtime 晚于 START_S 的件,崩溃轮不喂旧件),>0 时 write_leg_status 把
+# 本腿腿状态记红(见该函数 argv 特例)——本腿在渲染前件之前跑完,前件/定稿
+# 两份腿级状态件都含本腿终态。
+run_step quality-contract --quality-contract || LEG_RC[quality-contract]=$?
+QUALITY_CONTRACT_FAIL_N=0
+if [ "$DRY_RUN" != 1 ]; then
+  QUALITY_CONTRACT_FAIL_N="$(python3 - "$REPORT_ROOT/model" "$START_S" quality-fail-n <<'PYEOF'
+import json
+import sys
+from pathlib import Path
+
+model, start_s = Path(sys.argv[1]), float(sys.argv[2])
+latest = None
+for p in sorted(model.glob("quality-report-*.json")):
+    try:
+        if p.stat().st_mtime > start_s:
+            latest = p
+    except OSError:
+        continue
+if latest is None:
+    print(0)
+    raise SystemExit
+try:
+    d = json.loads(latest.read_text(encoding="utf-8"))
+except (json.JSONDecodeError, OSError, ValueError):
+    print(0)
+    raise SystemExit
+fails = d.get("failures") if isinstance(d, dict) else None
+print(len(fails) if isinstance(fails, list) else 0)
+PYEOF
+)" || QUALITY_CONTRACT_FAIL_N=0
+fi
+
 # render 前件:readout 腿在飞(null)——月报 render_leg_status 读最新件嵌行
 write_leg_status null
 run_step readout  --readout   || LEG_RC[readout]=$?  # 月轮四层读数(§4.2/S26)月报+北星
@@ -359,6 +412,11 @@ done
 # #500 scan-equiv 腿红态行(不在 LEG_ORDER,单列外显;工件=scan-equiv/ 两行 JSON+腿日志)
 if [ "$DRY_RUN" != 1 ] && [ "${LEG_RC[scan-equiv]}" != 0 ]; then
   echo "!! scan-equiv 腿 rc=${LEG_RC[scan-equiv]}:红态记录(工件照写留证)——红态记录≠管线中止,腿级状态入 leg-status 工件,结尾外显此 rc"
+fi
+# #550 评审必须改2:行级失败红态行(rc=0 报告照产出,红在 failures 面;不进
+# AGG_RC,整轮不受影响 —— 与 rc2/崩溃的挡轮分开显形;腿级状态件里记 1)
+if [ "$DRY_RUN" != 1 ] && [ "${QUALITY_CONTRACT_FAIL_N:-0}" -gt 0 ]; then
+  echo "!! quality-contract 行级失败 ${QUALITY_CONTRACT_FAIL_N} 条(报告 failures 面;rc=0 报告照产出,腿级状态记红)"
 fi
 
 # ── S5(裁决 A / spec §4.1):报告族齐全校验 → 心跳推送 ──
@@ -455,8 +513,12 @@ else
       -name '*-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9].json' \
       ! -name 'temporal-*' ! -name 'northstar-*' ! -name 'leg-status-*' \
       -newermt "@$START_S" -printf '%P\n' 2>/dev/null || :
-    find "$REPORT_ROOT/model" -maxdepth 1 -name 'model-*.json' \
+    find "$REPORT_ROOT/model" -maxdepth 1 \
+      \( -name 'model-*.json' -o -name 'quality-report-*.json' \) \
       -newermt "@$START_S" -printf 'model/%f\n' 2>/dev/null || :
+    # ↑ #550 评审必须改5:质量报告进推送清单 —— 服务器健康轮
+    # (ops/agent-v2/tasks/health-round.mjs)读生产卷 model/quality-report-*.json
+    # 判 mutation_check_due,不推则提醒永远「未见上次运行——首跑即到期」
   } | sort > "$PUSH_LIST"
   if [ ! -s "$PUSH_LIST" ]; then
     echo "  (本轮没有可推的报告文件,跳过推送)"
@@ -490,6 +552,8 @@ echo "完成。报告目录: $REPORT_ROOT(model/ 逐轮累积;腿日志 logs/<�
 # 非零退出码感知腿级红;红腿明细在 leg-status 工件与月报腿级行)。
 AGG_RC=0
 for _leg in "${LEG_ORDER[@]}"; do
+  # #550 评审必须改2:quality-contract 挡轮(契约表不合法/崩溃的 rc 非零
+  # 照进聚合退出码;行级失败不折算退出码,见上面行级红态行)
   if [ "${LEG_RC[$_leg]}" != 0 ]; then AGG_RC=${LEG_RC[$_leg]}; break; fi
 done
 # #500 scan-equiv 腿入终态(持门同 anchors;不在 LEG_ORDER 故单列一查):

@@ -7,7 +7,7 @@
 # 时=03/11/19 UTC)自然接续生产既有序列。SQLite --db 缺省随 DOCS_ROOT 落
 # /app/data/ops/agent-v2.sqlite(ipradar-data 卷内,随卷持久)。
 #
-# 与影子形 deploy/ops-shadow-cron.sh 的关键差异(其余同形,含容器内 docker exec
+# 与影子形 deploy/ops-shadow-cron.sh(已删,#550 评审;git 历史可考)的关键差异(其余同形,含容器内 docker exec
 # 织法/凭证预检/退出码透传/rc 透传判例):
 # - 生产世界:无影子根自种段——生产 ops 树本就在位,v2 直写台账/queue/轮目录;
 # - 影子零外发栈整体摘除:不设 OPS_SWEEP_DRY_RUN(finding 出口按生产语义真开:
@@ -19,6 +19,7 @@
 #
 # env 面逐键白名单(#364 裁定;「逐键白名单,不笼统同环境」判例):
 #   设:DOCS_ROOT/OPS_AUTH/OPS_EVAL_PY/OPS_DATA_DIR/PI_CODING_AGENT_DIR/LANG
+#       /OPS_V2_DB_LOCK_WAIT_S(#579 cron 侧等锁上限 900s;手动面不设=当场拒)
 #       (+agent-config 在场的 OPS_MODEL_HEALTH/OPS_MODEL_DISCOVER);
 #   unset:IP_RADAR_ADMIN_PASSWORD/IP_RADAR_API_JWT_SECRET(管理密钥,C4 判例);
 #   继承不摘:GH_TOKEN/IP_RADAR_ALERT_URLS(出口契约员)+PATH/HOME 等运行必需面。
@@ -27,7 +28,7 @@
 # 同精神面保留:缺件不硬跑,明确跳过留痕 exit 0,下窗自愈(内层凭证预检)。
 #
 # 退出码透传 v2 信封面(ENVELOPE.md):0=completed;1=failed/refused/parked;
-# 2=用法错;3=运行期异常。cron 面不重试——下窗自然重来(同 ops-cron.sh 判例)。
+# 2=用法错;3=运行期异常;16=库锁冲突拒跑(#579;锁面自身故障 flock 缺席/锁文件打不开也归 3)。cron 面不重试——下窗自然重来(同 ops-cron.sh 判例)。
 set -u
 CONTAINER="${OPS_V2_CONTAINER:-ip-lookup-tool-ipradar-1}"
 OPS_ROOT="${OPS_V2_OPS_ROOT:-/app/data/ops}"   # 测试/运维 override;缺省生产 ops 树
@@ -65,6 +66,9 @@ docker exec "$CONTAINER" sh -c '
   # 管理密钥摘除(C4 判例:docker exec 继承容器全量 env,管理密钥不带进模型进程)。
   # GH_TOKEN/IP_RADAR_ALERT_URLS 不摘——finding 出口契约员(#364 裁定,见头注)
   unset IP_RADAR_ADMIN_PASSWORD IP_RADAR_API_JWT_SECRET
+  # #579 cron 侧等锁上限(秒):引擎开库独占锁(db-lock.mjs)拿不到时最多等 900s(每
+  # 15s 一步重试),等不到 exit 16 下窗自愈(ADR 0012 定案 5 同律);手动面不设此键=当场拒。
+  export OPS_V2_DB_LOCK_WAIT_S=900
   [ -n "$MODEL_HEALTH" ] && export OPS_MODEL_HEALTH="$MODEL_HEALTH"
   [ -n "$MODEL_DISCOVER" ] && export OPS_MODEL_DISCOVER="$MODEL_DISCOVER"
   exec node --max-old-space-size=256 ops/agent-v2/run-health.mjs "$(date -u +%Y-%m-%d-%H%M)-health"

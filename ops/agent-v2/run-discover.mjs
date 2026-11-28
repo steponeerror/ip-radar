@@ -14,7 +14,8 @@
 //        OPS_V2_FAULT=budget_drift(仅测试环境设置;G_CLOSE 红注入缝=close 步后门前把
 //          09-budget.json 读数改成超帽;任务内 budgetDriftHook 消费 env,discover-round.mjs;
 //          生产 env 不设=零行为变化;登记补 #430 第 3 项,与 crash-after-phase 同款现读不入档)
-// 退出码:0=completed;1=failed/refused;2=用法错;3=运行期异常(ENVELOPE.md 冻结面)。
+// 退出码:0=completed;1=failed/refused;2=用法错;3=运行期异常(ENVELOPE.md 冻结面);
+// 16=库锁冲突拒跑(db-lock.mjs,#579;stdout 零信封,消息走 stderr)。
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,6 +25,7 @@ import { DISCOVER_PIPELINE } from "../pipeline-core/pipeline.mjs"; // 零复制:
 import { DISCOVER_SHORTLIST_BENCH_PROMPT } from "../pipeline-core/artifacts.mjs"; // 基准提示词文件名单源(终审 P2-1:leak-check.mjs 缺省扫描面同源消费)
 import { DISCOVER_TOOLS_EXTENSION } from "./registry.mjs";
 import { openHarness } from "./entry.mjs";
+import { withDbLock } from "./db-lock.mjs"; // #579:开库独占锁入口助手(CLI 面第一件事)
 import { admitRound } from "./tasks/budget-guard.mjs";
 import { discoverRoundTask } from "./tasks/discover-round.mjs";
 
@@ -143,7 +145,7 @@ export async function runDiscoverRound(opts) {
 function usage() {
   process.stderr.write(`用法:node run-discover.mjs <roundId> [--fixtures DIR] [--db PATH] [--model provider/modelId] [--crash-after-phase PHASE]\n`);
 }
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+async function cliMain() {
   const args = process.argv.slice(2);
   const roundId = args[0] && !args[0].startsWith("--") ? args[0] : undefined // 位置首参=roundId(终审修复:flag 先于位置参时原 find 会把 flag 值误当 id);
   const flag = (name) => { const i = args.indexOf(`--${name}`); return i >= 0 ? args[i + 1] : undefined; };
@@ -178,5 +180,14 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       else process.stderr.write(`${e.stack ?? e}\n`);
       process.exitCode = e?.usage ? 2 : 3; // 3=T5 冻结(ENVELOPE.md):运行期异常与轮次未成分码,cron 层可区分
     }
+  }
+}
+// #579:入口第一件事=开库独占锁(withDbLock 代理/拒跑;锁内才跑原 CLI 体)。
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  try {
+    await withDbLock(cliMain);
+  } catch (e) {
+    process.stderr.write(`${e.stack ?? e}\n`);
+    process.exitCode = 3; // 3=T5 冻结:launcher 自身异常(锁代理面:锁文件目录不可建等;ENVELOPE.md 码表)
   }
 }

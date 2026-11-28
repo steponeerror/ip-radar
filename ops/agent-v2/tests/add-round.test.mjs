@@ -214,7 +214,7 @@ test("相位头 SIGKILL 崩溃 → 同库 resume 续跑到 CLOSE", async () => {
   const run = (e) => execFile(process.execPath, [path.join(HERE, "run-add.mjs"), ROUND, "--source", SOURCE, "--sandbox", w.sandbox, "--fixtures", FIXTURES, "--db", db], { env: e }).catch((er) => er.code);
   try {
     const kill = await run(env);
-    assert.equal(kill, null, `SIGKILL 期望进程被杀(exit code ${kill} 非自杀)`);
+    assert.ok(kill === null || kill === 137, `SIGKILL 期望进程被杀(#579 锁代理:flock 对信号死子进程 exit 128+9=137;实得 ${kill})`);
     assert.ok(fs.existsSync(path.join(w.opsRoot, "rounds", ROUND, "a1-verify.json")), "verify 工件应先于崩溃落盘");
     delete env.OPS_V2_CRASH_AFTER_PHASE;
     const { stdout } = await run(env);
@@ -376,7 +376,7 @@ test("#415 加轮中止终态:相位头崩溃的任务被 abortTask → outcome 
   const env = { ...process.env, DOCS_ROOT: w.docsRoot, LEDGER_FILE: path.join(w.opsRoot, "ledger.md"), OPS_V2_CRASH_AFTER_PHASE: "dossier" };
   try {
     const kill = await execFile(process.execPath, [path.join(HERE, "run-add.mjs"), ROUND, "--source", SOURCE, "--sandbox", w.sandbox, "--fixtures", FIXTURES, "--db", db], { env }).catch((e) => e.code);
-    assert.equal(kill, null, `SIGKILL 期望进程被杀(exit code ${kill} 非自杀)`);
+    assert.ok(kill === null || kill === 137, `SIGKILL 期望进程被杀(#579 锁代理:flock 对信号死子进程 exit 128+9=137;实得 ${kill})`);
     assert.equal(mirrorOf(w).status, "running", "前提:崩溃后镜像停在 running(进度镜像)");
     // 第二段:同库开 harness,对在飞任务下中止标记 → abort 相位(真框架路径,零 mock)
     const keys = ["DOCS_ROOT", "LEDGER_FILE"];
