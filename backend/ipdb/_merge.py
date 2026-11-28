@@ -318,7 +318,10 @@ def _assess_classification(
     # 再滤);排序口径插入序→sorted(2026-10-30 grill Q2 人裁,仅池列表
     # 序,Σ/conf/计数不变,回放闸门把关)
     deduped = _lo.accuser_pool(
-        ((o.source, o.reliability, o.first_seen) for o in pool),
+        # 五元组(#523 时钟改「最近见到」优先):第 4 元仍是组 ctype,
+        # 末位带 last_seen——时钟按 last_seen 可解析优先,退 first_seen
+        ((o.source, o.reliability, o.first_seen, ctype, o.last_seen)
+         for o in pool),
         ctype, now=_now)
     confidence = _lo.assertion_confidence([c for _, c in deduped])
     # 已印证只数指控源(决策 8)。判式(#522,2026-11-28 丙口径,单一

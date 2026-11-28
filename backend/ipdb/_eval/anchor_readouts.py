@@ -89,14 +89,15 @@ def _group_accusers(ca: dict, ctype: str) -> dict:
     detail 三元组原样留痕(无损红线);pool = dedup 后证人集(读数
     口径)。"""
     raw: list[dict] = []
-    entries: list[tuple[str, float, str | None]] = []
+    entries: list[tuple[str, float, str | None, str | None, str | None]] = []
     for d in ca.get("details") or ():
         if not is_accusation(d):
             continue
         src = d.get("source")
         if not src:
             continue
-        entries.append((src, d.get("reliability", 0.5), d.get("first_seen")))
+        entries.append((src, d.get("reliability", 0.5), d.get("first_seen"),
+                        ctype, d.get("last_seen")))   # 末位 last_seen(#523 时钟同生产)
         raw.append(d)
     deduped = accuser_pool(entries, ctype)
     return {"type": ctype, "group_verdict": ca.get("verdict"),

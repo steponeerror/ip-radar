@@ -236,6 +236,65 @@ def test_accuser_pool_per_entry_ctype_cross_group(monkeypatch):
     assert out[0][1] > out[1][1] == out[2][1]
 
 
+def test_last_seen_clock_preferred_over_first_seen():
+    """#523 裁决 Q26 + 返工裁决(2026-11-28):两个时间都可解析时取较晚
+    的当「最近见到」(年龄取小);只有一个可解析就用那一个;两个都缺
+    → 不衰减。手工推导锚逐一钉。"""
+    now = datetime(2026, 8, 29, tzinfo=timezone.utc)
+    fs = "2026-05-31T00:00:00+00:00"      # 龄 90d
+    ls = "2026-08-28T00:00:00+00:00"      # 龄 1d
+    fresh = coefficient(0.85, fs, now=now, last_seen=ls)
+    assert fresh == logit(0.85) * 2 ** (-1 / 60)
+    assert fresh > coefficient(0.85, fs, now=now)
+    # 返工裁决:ls 早于 fs(上游给错)→ 取较晚的 fs,与旧时钟逐位相同
+    # ——这是 threatfox 那 136 条「ls 早几小时」回到保守旧时钟的依据
+    assert coefficient(0.85, fs, now=now, last_seen="2026-05-30T00:00:00+00:00") \
+        == coefficient(0.85, fs, now=now)
+    # 脏 last_seen → 退 first_seen,与不传 last_seen 逐位相同(旧镜像里
+    # 双填同值,这是「五源分数不变」读数的函数级依据)
+    assert coefficient(0.85, fs, now=now, last_seen="junk") \
+        == coefficient(0.85, fs, now=now)
+    # 两处都缺 → None 龄不衰减
+    assert coefficient(0.85, None, now=now) == logit(0.85)
+    # 五个改键源在生产里的真实形状:fs 缺 + ls 有值(返工评审 4)
+    assert coefficient(0.85, None, now=now, last_seen=ls) \
+        == logit(0.85) * 2 ** (-1 / 60)
+
+
+def test_accuser_pool_5tuple_single_ts_shape(monkeypatch):
+    """返工评审 4:五元组 (src, r, None, ctype, ls) —— 五个改键源在生产
+    details 里的真实形状(first_seen 为空 + last_seen 有值):池子系数
+    必须按 ls 衰减,fs 为 None 不得把证据打成「无时间=满权重」。"""
+    now = datetime(2026, 10, 31, tzinfo=timezone.utc)
+    ls = "2026-10-30T00:00:00+00:00"       # 龄 1d
+    out = accuser_pool(
+        [("stopforumspam", 0.7, None, "spam", ls)], now=now)
+    assert out == [("stopforumspam",
+                    coefficient(0.7, None, "spam", now=now, last_seen=ls))]
+    assert out[0][1] < logit(0.7)          # 确实在衰减,不是满权重
+
+
+def test_accuser_pool_5tuple_last_seen(monkeypatch):
+    """#523 五元组:第 4 元仍是逐条 ctype,末位才是 last_seen;老写法
+    (3/4 元)继续可用。注入 scanner 半衰期 600d 让「ctype 生效」与
+    「last_seen 生效」都可分辨。"""
+    now = datetime(2026, 10, 31, tzinfo=timezone.utc)
+    fs = "2026-07-02T00:00:00+00:00"       # 龄 120d
+    ls = "2026-10-30T00:00:00+00:00"       # 龄 1d
+    monkeypatch.setattr("ipdb._logodds.DECAY_OVERRIDES", {"scanner": 600.0})
+    out = accuser_pool(
+        [("abuseipdb", 0.9, fs, "scanner", ls)], now=now)
+    assert out == [("abuseipdb", coefficient(0.9, fs, "scanner", now=now,
+                                              last_seen=ls))]
+    assert out[0][1] > coefficient(0.9, fs, "scanner", now=now)   # 时钟变年轻
+    # 四元老写法仍可用(末位缺席 → 时钟退 first_seen,零漂移)
+    assert accuser_pool([("x", 0.9, fs, "scanner")], now=now) == \
+        [("x", coefficient(0.9, fs, "scanner", now=now))]
+    # 三元老写法仍可用(组级 ctype 形参)
+    assert accuser_pool([("x", 0.9, fs)], "scanner", now=now) == \
+        [("x", coefficient(0.9, fs, "scanner", now=now))]
+
+
 def test_accuser_pool_cross_group_with_asof_anchor():
     """跨组池化 × asof 时钟锚(F2/S37)联合直断——生产 _types.threat_summary
     的调用形态(4 元组 + now=asof_to_now(asof)):锚回拨 → 证据更

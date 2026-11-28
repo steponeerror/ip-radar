@@ -57,7 +57,8 @@ def _group_pool(snapshot: Snapshot, ip: str, ctype: str) -> list[tuple[str, floa
     ca = (snapshot.get(ip, {}).get("classifications") or {}).get(ctype, {})
     # 指控章判定单一口径:accusation.is_accusation(#529;缺「判定」键不算指控)
     return accuser_pool(
-        ((d["source"], d.get("reliability", 0.5), d.get("first_seen"))
+        ((d["source"], d.get("reliability", 0.5), d.get("first_seen"),
+          ctype, d.get("last_seen"))   # 末位 last_seen(#523 时钟同生产)
          for d in ca.get("details", [])
          if is_accusation(d) and d.get("source")),
         ctype)
