@@ -103,7 +103,7 @@
   "common.corroborated": "Corroborated",
   "common.corroboratedTitle": "Corroborated by 2+ independent non-aggregator sources that contribute to the score (#522)",
   "common.sourceCount": "{n}src",
-  "common.sourcesHit": "Sources hit",
+  "common.sourcesHit": "First-hand accusing sources (republishing aggregators not counted twice)",
   "csvExport.invalidLines": "Skipped {n} unrecognized input line(s).",
   "csvExport.modalBody": "Exported {n} rows. Too many to show in the table — downloaded as CSV instead.",
   "csvExport.modalTitle": "Results exported as CSV",

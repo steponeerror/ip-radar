@@ -106,6 +106,9 @@ logger = logging.getLogger(__name__)
 
 class ReportedIPSource(Source):
     name = "reportedip"
+    # 上游唯一时间 = 最近一次上报(#523 裁决 Q27):只写 last_seen,
+    # 不写 first_seen(旧行为是同值双填,分数不变)。
+    single_timestamp_means = "last_seen"
     category = "threat"
     url = "https://raw.githubusercontent.com/reportedip/reportedip-blacklist/main/blacklist-all.csv"
     filename = "reportedip.csv"
@@ -132,8 +135,9 @@ class ReportedIPSource(Source):
         from REPORTEDIP_MAP (future 59+) map to ``other`` and are preserved as
         their own group's ``native_categories``. ``confidence`` →
         ``Evidence.confidence`` (kept as ``native_confidence`` by fusion);
-        ``last_reported`` → ``first_seen``/``last_seen`` (same value; first_seen
-        drives decay). IPv6 rows are harvested too (bare address yields
+        ``last_reported`` → ``last_seen`` only (#523 裁决 Q27:单时间源声明为
+        「最近见到」,不再双填 first_seen;时钟按 last_seen,分数与旧双填同值).
+        IPv6 rows are harvested too (bare address yields
         naturally as /128 under dual-family rebuild, spec 2026-08-23).
         """
         with open(self._path, "r", encoding="utf-8") as f:
@@ -154,13 +158,12 @@ class ReportedIPSource(Source):
                 conf_raw = (row.get("confidence") or "").strip()
                 confidence = int(conf_raw) if conf_raw.isdigit() else None
                 last_rep = (row.get("last_reported") or "").strip()
-                first_seen = last_rep.replace(" ", "T") if last_rep else None
+                last_seen = last_rep.replace(" ", "T") if last_rep else None
                 for t, codes in groups.items():
                     yield ip, Evidence(
                         classification_type=t,
                         verdict="malicious",
                         confidence=confidence,
-                        first_seen=first_seen,
-                        last_seen=first_seen,
+                        last_seen=last_seen,   # 单时间源只写 last_seen(#523)
                         native_categories=_resolve_thematic(codes),
                     )

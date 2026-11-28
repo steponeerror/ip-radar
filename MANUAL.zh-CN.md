@@ -70,7 +70,7 @@
 
 ![恶意查询:判定、逐类型标签、逐字段置信度](assets/manual/02-result-malicious.png)
 
-**Tags** 单元格装着命中的分类类型(`Abuse reports · Spam · Blacklist · Scanner · … · C2·cobalt_strike`)、命中的独立源数(`14src`)、证据是否含衰减归档(`incl. archive` = 部分目击已老到进入衰减,但仍然摆在桌上),以及源报出过的恶意软件家族。
+**Tags** 单元格装着命中的分类类型(`Abuse reports · Spam · Blacklist · Scanner · … · C2·cobalt_strike`)、指控的第一手独立源数(`14src` —— 转载别人清单的派生聚合器不重复点票)、证据是否含衰减归档(`incl. archive` = 部分目击已老到进入衰减,但仍然摆在桌上),以及源报出过的恶意软件家族。
 
 ![干净查询:benign 判定、地理/ASN 富化](assets/manual/03-result-clean.png)
 

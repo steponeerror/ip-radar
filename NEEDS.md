@@ -43,3 +43,4 @@
 | 全量变异测试(mutator)在本仓的成本可接受吗(若试仅限融合核心) | 2026-10-31 | open | ub-mode 评估(notes/ub-mode-2026-10-31.md);code-metrics skill 已挂缓议 |
 | 「我的推荐:」冒号后的内容被截断(模型输出侧,不易在应用层修) | 2026-11-04 | open | 同一问题三次复发(2026-11-04 #303 登记);换模型后比对是否仍现;呈现侧改列表化可绕过 |
 | 账户级模型并发槽位的跨轮闸(现闸只管单轮内,跨轮/跨进程无共享计数) | 2026-11-27 | open | #490 评审问 6 结论:跨轮闸不做(queue-lock 租约形不合适,须带 pid/有效期的租约);触发面=生产出现第一条 error_code=account_rate_limited 的台账行,到点重开设计
+| 出海的第一手源数(#521 first_hand_source_count)要不要连「声明了 republishes 的非派生源」也剔掉 | 2026-11-28 | open(评审后实现者代记,#521 评审3) | 现状:只剔派生聚合器(DERIVED_SOURCES),声明转载的非派生源(spamhaus←emerging_threats/ustc_blackip、protonvpn←x4bnet_vpn、tor_exits←danmeuk_tor 四对)各算一票 —— 与置信度侧的转载关系去重不同底,可能出现「N源」而不带印证旗;主会话裁决本票不动,按哲学3「宁少算」请所有者裁;现状有用例钉死(test_types.py TestThreatSummaryFirstHandSourceCount),#522 相邻

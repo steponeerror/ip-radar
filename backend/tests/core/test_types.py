@@ -295,4 +295,57 @@ class TestThreatSummaryFusion:
                 [{"source": "threatfox", "verdict": "malicious", "reliability": 0.9}],
                 detected=False)
         t = _lr({"scanner": g}).threat_summary()
-        assert t == {"verdict": "benign", "confidence": 0, "types": [], "is_cdn": False}
+        assert t == {"verdict": "benign", "confidence": 0, "types": [],
+                     "is_cdn": False, "first_hand_source_count": 0}
+
+
+class TestThreatSummaryFirstHandSourceCount:
+    """first_hand_source_count(#521 出海数字统一):指控组里去
+    DERIVED_SOURCES 后的第一手指控源数。期望值手算钉死,变异:
+    把 DERIVED_SOURCES 过滤去掉 → derived 计入 → 用例红。"""
+
+    def test_two_first_hand_plus_one_derived_counts_two(self):
+        g = _ca("scanner", "malicious", 90, [
+            {"source": "threatfox", "verdict": "malicious", "reliability": 0.9},
+            {"source": "abuseipdb", "verdict": "malicious", "reliability": 0.9},
+            {"source": "firehol", "verdict": "malicious", "reliability": 0.9}])
+        t = _lr({"scanner": g}).threat_summary()
+        assert t["first_hand_source_count"] == 2
+
+    def test_only_derived_sources_count_zero(self):
+        g = _ca("scanner", "malicious", 90, [
+            {"source": "firehol", "verdict": "malicious", "reliability": 0.9},
+            {"source": "ipsum", "verdict": "malicious", "reliability": 0.9}])
+        t = _lr({"scanner": g}).threat_summary()
+        assert t["first_hand_source_count"] == 0
+
+    def test_benign_witnesses_and_groups_do_not_count(self):
+        """良性证人不算:informational 组(benign 方向证人)与指控组里的
+        informational detail 都不进第一手指控源数。"""
+        gb = _ca("vpn-proxy", "informational", 60, [
+            {"source": "ip2location", "verdict": "informational", "reliability": 0.8}])
+        ga = _ca("scanner", "malicious", 90, [
+            {"source": "threatfox", "verdict": "malicious", "reliability": 0.9},
+            {"source": "urlhaus", "verdict": "informational", "reliability": 0.9}])
+        t = _lr({"scanner": ga, "vpn-proxy": gb}).threat_summary()
+        assert t["first_hand_source_count"] == 1
+
+    def test_shared_source_across_groups_deduped(self):
+        """同源跨组去重:abuseipdb 在两组都指控 → 只算 1。"""
+        g1 = _ca("scanner", "malicious", 90, [
+            {"source": "abuseipdb", "verdict": "malicious", "reliability": 0.9}])
+        g2 = _ca("abuse-reports", "malicious", 90, [
+            {"source": "abuseipdb", "verdict": "malicious", "reliability": 0.9}])
+        t = _lr({"scanner": g1, "abuse-reports": g2}).threat_summary()
+        assert t["first_hand_source_count"] == 1
+
+    def test_declared_republisher_non_derived_counts_separately(self):
+        """现状钉死(评审3;裁决只剔派生聚合器):emerging_threats 自己不是
+        派生源、却声明转载 spamhaus —— 源数照算两票。这与置信度侧的谱系
+        去重(dedup_lineage)不同底,可能出现「2源」而不带印证旗;要不要连
+        声明转载的也剔,NEEDS.md 已记,待所有者裁(#522 相邻)。"""
+        g = _ca("blacklist", "malicious", 90, [
+            {"source": "spamhaus", "verdict": "malicious", "reliability": 0.9},
+            {"source": "emerging_threats", "verdict": "malicious", "reliability": 0.9}])
+        t = _lr({"blacklist": g}).threat_summary()
+        assert t["first_hand_source_count"] == 2
