@@ -527,11 +527,15 @@ def test_equiv_check_tool_on_fixture(scan_env, monkeypatch, capsys, tmp_path):
 
 def test_keyset_snapshot_tool_on_fixture(scan_env, monkeypatch, tmp_path):
     """⑲每源全量键集快照工具(#569)在夹具上走一遍:指控口径(detail 级
-    verdict ∈ _ACCUSING,#529)归账、资产源不产单元的地址不进集、纪元对
-    == read_ptr 独立读数(验收②)、行排序后写(拆掉排序即红:变异 B)、
-    同输入两遍字节相同(验收③夹具级)、--limit 冒烟能停。"""
+    verdict ∈ _ACCUSING,#529)归账、非指控明细不进任何源文件(M1)、资产
+    源不产单元的地址不进集、纪元对 == read_ptr 独立读数(验收②)、行排序
+    后写、同输入两遍跨进程逐文件字节相同(S1:同进程集合序本就相同,对去
+    排序不敏感;子进程 PYTHONHASHSEED 1 vs 2,拆掉写前排序必红)、
+    --limit 冒烟能停。"""
     import importlib.util
     import gzip
+    import os
+    import subprocess
     import sys
     from pathlib import Path as _P
     from ipdb._sources._lmdb import read_ptr
@@ -541,11 +545,47 @@ def test_keyset_snapshot_tool_on_fixture(scan_env, monkeypatch, tmp_path):
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     monkeypatch.setenv("IP_RADAR_POOL_CHILD", "1")
-    out_dir = tmp_path / "snap"
 
-    rc = mod.main(["collect", "--asof", str(ASOF), "--out-dir", str(out_dir),
-                   "--spill-dir", str(tmp_path / "spill")])
-    assert rc == 0
+    # 指控过滤的钉(M1,评审 2026-11-28):夹具常量里每条明细都是指控,
+    # 那条 `if not is_accusation(d): continue` 没有东西能让它红——这里自己
+    # 搭两条非指控记录(不动共享夹具常量):verdict=informational 的威胁类
+    # 记录(spamhaus)放 7.7.7.7(无其他源指控);非指控记录(cloudzy,
+    # verdict="" 弃权拼写 R17A-1)放 9.9.9.9(已有三源指控)。字面上的
+    # 「缺 verdict 键」构造不出来:读路径 ingest 对缺键兑底 malicious
+    # (_registry.py 旧快照兼容),快照手里的明细恒带 verdict 键;空串是
+    # 管线里真实存在的非指控拼写,同落 is_accusation 的「不算指控」分支。
+    # 两种都必须不进任何源文件;7.7.7.7 的非指控明细照样产单元,算进
+    # units_total。
+    info_ev = {"classification_type": "blacklist", "verdict": "informational",
+               "reliability": 0.5}
+    noverdict_ev = {"classification_type": "blacklist", "verdict": "",
+                    "reliability": 0.5}
+    info_src = _hand_build_nested(scan_env["proto"]["spamhaus"], tmp_path,
+                                  [("7.7.7.7", "7.7.7.7", info_ev)])
+    noverdict_src = _hand_build_nested(scan_env["proto"]["cloudzy"], tmp_path,
+                                       [("9.9.9.9", "9.9.9.9", noverdict_ev)])
+    insts = scan_env["insts"] + [info_src, noverdict_src]
+    monkeypatch.setattr(_registry, "_sources", insts)
+    _registry._enabled_cache["entry"] = None
+    _registry._loaded_cache["entry"] = None
+
+    # 两遍快照都另起进程跑(S1):夹具库都在 tmp_path,子进程经
+    # IP_RADAR_DATA_DIR 独立发现同一批库(tiny_db 夹具同款环境继承方式);
+    # PYTHONHASHSEED 1 vs 2,集合序随种子变,字节比对才有判别力。
+    script = _P(__file__).resolve().parents[2] / "scripts" / "keyset_snapshot.py"
+
+    def _snap_run(out, seed):
+        env = dict(os.environ, PYTHONHASHSEED=str(seed),
+                   IP_RADAR_DATA_DIR=str(tmp_path), IP_RADAR_POOL_CHILD="1")
+        r = subprocess.run(
+            [sys.executable, str(script), "collect", "--asof", str(ASOF),
+             "--out-dir", str(out), "--spill-dir", str(tmp_path / "spill")],
+            env=env, capture_output=True, text=True, timeout=300)
+        assert r.returncode == 0, r.stderr
+        return r
+
+    out_dir = tmp_path / "snap"
+    _snap_run(out_dir, seed=1)
     run_id = datetime.fromtimestamp(ASOF, tz=timezone.utc).strftime(
         "%Y%m%dT%H%M%SZ")   # run_id 由 asof 推(UTC)
     run_dir = out_dir / run_id
@@ -553,10 +593,13 @@ def test_keyset_snapshot_tool_on_fixture(scan_env, monkeypatch, tmp_path):
     from keyset_reader import load_keyset, load_keyset_pairs, load_meta  # noqa: E402
 
     meta = load_meta(run_dir)
-    # 纪元对 == 扫描器看到的纪元(验收②):独立经 read_ptr 读 ptr 文件
+    # 纪元对 == 扫描器看到的纪元(验收②):独立经 read_ptr 读 ptr 文件。
+    # 子进程读集是 IP_RADAR_DATA_DIR 下发现的全部源,有数据的恰是夹具源
+    # (含手搭两源);其余源无 ptr → [None, None],只对有数据源断言。
     want_epochs = {s.name: [read_ptr(s._lmdb_base), read_ptr(s._lmdb6_base)]
-                   for s in scan_env["insts"]}
-    assert meta["epochs"] == want_epochs
+                   for s in insts}
+    assert {k: v for k, v in meta["epochs"].items()
+            if v != [None, None]} == want_epochs
     # 指控口径:9.9.9.9 三源(abuseipdb malicious + blocklist_de malicious
     # + danmeuk_tor suspicious)各成一队;verdict 全指控 → 全进
     for src, ctype in (("abuseipdb", "abuse-reports"),
@@ -565,6 +608,22 @@ def test_keyset_snapshot_tool_on_fixture(scan_env, monkeypatch, tmp_path):
         assert ("9.9.9.9", ctype) in load_keyset_pairs(run_dir, src), src
     # 资产类源不产单元:5.5.5.5 只有 danmeuk_tor 断言 → 不进任何队
     assert "5.5.5.5" not in load_keyset(run_dir, "danmeuk_tor", "tor")
+    # 指控过滤(M1):两条非指控记录各成一源,都零条目缺源文件;
+    # informational 那条的 7.7.7.7 也不进任何源文件
+    assert not (run_dir / "spamhaus.txt.gz").exists(), \
+        "非指控明细不得归账(spamhaus 应零条目缺源)"
+    assert not (run_dir / "cloudzy.txt.gz").exists(), \
+        "非指控明细不得归账(cloudzy 应零条目缺源)"
+    for gz_path in run_dir.glob("*.txt.gz"):
+        src = gz_path.name.removesuffix(".txt.gz")
+        assert "7.7.7.7" not in load_keyset(run_dir, src), src
+    # 非指控明细照样产单元:7.7.7.7 在扫描单元里,units_total 与扫描器
+    # 独立计数一致(M1 的「前一个地址照样算进 units_total」)。
+    with open_unit_scanner(sources=insts, asof=ASOF,
+                           spill_dir=str(tmp_path / "spill-scan")) as sc:
+        unit_ips = [u.ip for u in sc]
+    assert "7.7.7.7" in unit_ips
+    assert meta["units_total"] == len(unit_ips)
     # 四栏进同一文件,v6 网段单元用网络地址文本
     assert "2a00:1450:4001::/48" in load_keyset(run_dir, "abuseipdb",
                                                 "abuse-reports")
@@ -573,21 +632,26 @@ def test_keyset_snapshot_tool_on_fixture(scan_env, monkeypatch, tmp_path):
     with gzip.open(run_dir / "abuseipdb.txt.gz", "rt") as gz:
         lines = [ln.rstrip("\n") for ln in gz]
     assert lines == sorted(lines)
-    # 同输入两遍字节相同(验收③夹具级):gz mtime=0 + 排序 → 逐文件 cmp
+    # 同输入两遍字节相同(验收③夹具级,S1):两遍都另起进程、种子 1 vs 2,
+    # 全部产物逐文件比字节(含 meta.json——两个子进程对同一 tmp_path 的
+    # 源发现结果相同;gz mtime=0 + 排序 + meta sort_keys 进字节,时间只进
+    # stdout 的 seconds)。
     out2 = tmp_path / "snap2"
-    assert mod.main(["collect", "--asof", str(ASOF), "--out-dir", str(out2),
-                     "--spill-dir", str(tmp_path / "spill")]) == 0
+    _snap_run(out2, seed=2)
     run2 = out2 / run_dir.name
-    for name in ("abuseipdb.txt.gz", "danmeuk_tor.txt.gz", "meta.json"):
+    names = sorted(p.name for p in run_dir.iterdir())
+    assert names == sorted(p.name for p in run2.iterdir())
+    for name in names:
         assert (run_dir / name).read_bytes() == (run2 / name).read_bytes(), name
-    # --limit 冒烟:按单元粒度封顶(可越过 limit 一个单元的明细条数,
-    # 同 scan-equiv --limit 的粒度),必须早停(≪ 全量 26 条)
+    # --limit 冒烟:按明细粒度封顶(可越过 limit 一个明细的条数,
+    # 同 scan-equiv --limit 的粒度),必须早停(≪ 全量 26 条;进程内跑
+    # mod.main 即可,limit 行为与确定性无关)
     out3 = tmp_path / "snap3"
     assert mod.main(["collect", "--asof", str(ASOF), "--out-dir", str(out3),
                      "--spill-dir", str(tmp_path / "spill"), "--limit", "5"]) == 0
     meta3 = load_meta(out3 / run_dir.name)
     assert 0 < sum(meta3["counts"].values()) < 26
-    for s in scan_env["insts"]:
+    for s in insts:
         s._reader = None
         s._reader6 = None
 
