@@ -2178,8 +2178,9 @@ await t("发现轮全 faux 六步(#207 T1):SCAN..CLOSE 全绿,信封 round=disco
   assert.equal(j(path.join(tr.root, "ops", "rounds", RD, "state.json")).status, "done");
   assert.ok(fs.readFileSync(tr.env.LEDGER_FILE, "utf8").includes(`pipeline-discover:${RD}`), "台账标签 pipeline-discover(#207)");
   const b = j(path.join(tr.root, "ops", "rounds", RD, "09-budget.json"));
-  assert.deepEqual(Object.keys(b.env).sort(), ["OPS_DISCOVER_MAX_MODEL_CALLS", "OPS_DISCOVER_SPEND_CAP_CNY", "OPS_DISCOVER_WALL_CLOCK_S", "OPS_PIPELINE_BUDGET_CNY", "OPS_PIPELINE_MONTHLY_CAP_CNY"], "env 面 5 键");
+  assert.deepEqual(Object.keys(b.env).sort(), ["OPS_DISCOVER_MAX_MODEL_CALLS", "OPS_DISCOVER_RSS_PARSE_PER_ROUND", "OPS_DISCOVER_SPEND_CAP_CNY", "OPS_DISCOVER_WALL_CLOCK_S", "OPS_DISCOVER_WEB_READ_PER_ROUND", "OPS_DISCOVER_WEB_SEARCH_PER_ROUND", "OPS_PIPELINE_BUDGET_CNY", "OPS_PIPELINE_MONTHLY_CAP_CNY"], "env 面 8 键(#528 返工记一笔:每轮帽生效值同面落盘)");
   assert.equal(b.env.OPS_DISCOVER_MAX_MODEL_CALLS, 30, "旋钮读数落盘可证伪");
+  assert.deepEqual([b.env.OPS_DISCOVER_WEB_READ_PER_ROUND, b.env.OPS_DISCOVER_WEB_SEARCH_PER_ROUND, b.env.OPS_DISCOVER_RSS_PARSE_PER_ROUND], [8, 6, 6], "每轮帽生效值=缺省(B 单源实值,#528 返工记一笔)");
   const g = j(path.join(tr.root, "ops", "rounds", RD, "gates.json"));
   assert.ok(g.records.every((x) => x.pass === true), g.records.filter((x) => !x.pass).map((x) => `${x.name}:${x.reason}`).join(";"));
   assert.deepEqual(g.records.map((x) => x.name), ["G_SCAN", "G_SHORTLIST", "G_MEASURE", "G_ENQUEUE", "G_RETRO", "G_CLOSE"], "发现轮门序");
@@ -2255,6 +2256,8 @@ await t("#528 SCAN needs 面读不到=显式留痕:tmp repoRoot 无 NEEDS.md →
   assert.ok(!s.candidates.some((c) => c.source_channel === "needs"), "缺文件=零 needs 候选");
   const { GATES } = await import("./pipeline/gates.mjs");
   assert.equal(GATES.G_SCAN(ctx).pass, true, "留痕形态仍过 G_SCAN(渠道留痕必在场+计数相符)");
+  const { discoverReadings } = await import("./pipeline/round-report.mjs");
+  assert.ok(discoverReadings(dir).some((l) => l.includes("needs=0(缺 NEEDS.md)")), "轮报告渲染面:needs 缺文件显形(#528 返工评审建议 3)");
 });
 
 await t("SHORTLIST 解析失败降级(#207 T1):canned 文本非 JSON → 轮仍全绿(不炸轮),d2-shortlist 候选空+degraded 留痕,MEASURE 零行,ENQUEUE 零入队", async () => {

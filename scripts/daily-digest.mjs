@@ -117,26 +117,37 @@ export function summarizeServerRound(roundId, gates, exits, enqueue, discovery =
 // 真源与 ops/pipeline-core/pipeline/round-report.mjs discoverReadings 同源:通道计数=
 // 09-budget.json readings.discover_channels(CLOSE 步先落的通道计数真源)、候选=
 // d2-shortlist.json candidates(入围)、入队=d4-enqueue.json n_enqueued、needs 留痕=
-// d1-scan.json needs_file(SCAN 步缺文件留痕面,前缀 missing)。缺工件=0(fail-soft,
-// 同 issues_opened 旧轮缺工件=0 律:不猜)。
+// d1-scan.json needs_file(SCAN 步缺文件留痕面)。#528 返工(评审建议 1):缺工件不再
+// 记 0 假读数——missing 名单透传,渲染面改「⚠ 转化读数读不到(轮没跑完或采集出错)」。
 export function discoverConversion({ scan, shortlist, d4, budget } = {}) {
+  // 三件缺一=四数不可信(通道面缺席含旧轮无 discover_channels 形;fail-soft 不猜测回退)
+  const missing = [];
+  if (!budget?.readings?.discover_channels?.channels) missing.push("09-budget.json");
+  if (!shortlist) missing.push("d2-shortlist.json");
+  if (!d4) missing.push("d4-enqueue.json");
   const ch = budget?.readings?.discover_channels?.channels ?? {};
   return {
     search: ch.web_search?.calls ?? 0,
     reads: ch.web_read?.calls ?? 0,
     candidates: Array.isArray(shortlist?.candidates) ? shortlist.candidates.length : 0,
     enqueued: typeof d4?.n_enqueued === "number" ? d4.n_enqueued : Array.isArray(d4?.enqueued) ? d4.enqueued.length : 0,
+    missing,
     needs_file_missing: typeof scan?.needs_file === "string" && scan.needs_file.startsWith("missing") ? scan.needs_file : null,
   };
 }
 
 // #528:转化行文本(非发现轮/无读数=null;零候选轮照实出「候选 0」,不再纯绿;
-// needs 面缺文件 ⚠ 同行留痕——镜像缺 COPY /部署残缺当场可见)。
+// #528 返工评审建议 4:留痕只露路径,去「missing 」前缀不括号套括号;needs 面缺文件
+// ⚠ 同行留痕——镜像缺 COPY /部署残缺当场可见)。
+export const needsMissingPath = (s) => String(s ?? "").replace(/^missing\s+\(?/, "").replace(/\)$/, ""); // 「missing (/app/NEEDS.md)」→「/app/NEEDS.md」
 export function discoverConversionLine(r) {
   if (!r || r.round_id?.endsWith("-discover") !== true || !r.discover_conv) return null;
   const c = r.discover_conv;
-  const miss = c.needs_file_missing ? `;⚠ NEEDS.md 读不到(${c.needs_file_missing})` : "";
-  return `搜 ${c.search} 次,读 ${c.reads} 页,候选 ${c.candidates} 条,入队 ${c.enqueued} 条${miss}`;
+  const head = c.missing?.length
+    ? `⚠ 转化读数读不到(缺 ${c.missing.join("、")};轮没跑完或采集出错)` // 评审建议 1:缺工件≠四个 0 假读数
+    : `搜 ${c.search} 次,读 ${c.reads} 页,候选 ${c.candidates} 条,入队 ${c.enqueued} 条`;
+  const miss = c.needs_file_missing ? `;⚠ NEEDS.md 读不到(${needsMissingPath(c.needs_file_missing)})` : "";
+  return `${head}${miss}`;
 }
 
 // 台账行解析:`| 日期 | 轮型 | model | 用量(…cost=x) | 备注(pipeline:<round_id>) |`
@@ -251,6 +262,10 @@ export function collectRedItems({ server, local }) {
     else if (r.ok === null) reds.push(`${r.round_id} gates.json 缺(窗内龄>1h,无在跑解释)`);
     if (r.exits_triggered || r.findings_n > 0)
       reds.push(`${r.round_id} finding 出口触发(findings=${r.findings_n})`);
+    // #528 返工(评审建议 2,主会话裁):needs 面缺文件=红——不会自愈的部署残缺,
+    // 恒绿会把它藏进「连续全绿」数里;留痕串在转化行,红项才进 push 版两件套。
+    if (r.discover_conv?.needs_file_missing)
+      reds.push(`${r.round_id} NEEDS.md 读不到(${needsMissingPath(r.discover_conv.needs_file_missing)})`);
   }
   // P1-3:旧带终局红(注记行走 renderDigest,不计数)
   reds.push(...overdueRoundLines("", server.overdue_rounds).reds);
@@ -395,6 +410,7 @@ export const RED_ADVICE = Object.freeze({
   findingExit: "巡检异常已自动开 GitHub 工单并另推一条告警,按那条告警的三选一处置即可,日报里不用重复动作", // #184 出口只写不动作
   budgetRefused: "不用动,这是预算护栏在正常工作;要继续跑须人裁抬月帽,或等下月自动恢复", // #356/#366 拒启双面:留痕未起跑零花费
   shadowNew: "需要人工处理:登服务器检查影子定时任务有没有清干净(切流清单见 SHADOW-RUNBOOK),不清会一直误报", // #364 切流:影子 cron 应已停,增轮=回退不彻底
+  needsMissing: "登服务器看 /app/NEEDS.md 在不在:不在就是镜像没带进去,查部署构建日志里 COPY NEEDS.md 那一步;在就是容器内路径变了", // #528 返工(评审建议 2)
   evolveHalted: "这是设计内的自动停机,不用动;要不要重启演化由人裁(重启须人面改 dev/evolution/state.json),不重启只是不再自动试新方案", // #356:连续 3 轮带内零增益自停
   evolveOverCap: "后续演化轮会被拒启(拒启会留痕);要继续跑须人裁抬帽(env EVOLVE_SPEND_CAP_CNY)或等下月", // #356 月帽拒启面
   fleetVerifyClock: "多半是本机时钟抖动,重放一次通常就过;同一源连败 2 次会自动跳过并另行告警", // #377 时钟步进判例(验证门偶发红=时钟族 flake,重试即过)+ #366 连败 2 跳过
@@ -452,6 +468,8 @@ const RED_PLAIN_RULES = [
     (m) => `演化:本月花费 ¥${m[1]} 已超自设月帽 ¥${m[2]}。下一步:${RED_ADVICE.evolveOverCap}。`],
   [/^拒启触帽留痕\((\d{4}-\d{2}-\d{2})\):(.*)$/,
     (m) => `服务器:${m[1]} 的轮因当月花费到帽被拒启动(拒启留痕,未花钱)。下一步:${RED_ADVICE.budgetRefused}。`],
+  [/^(\S+) NEEDS\.md 读不到\((.*)\)$/,
+    (m) => `服务器:${plainClock(m[1])}(服务器时间)的${plainKind(m[1])}里,需求清单 NEEDS.md 读不到(${m[2]})——发现轮的需求缺口面这轮是空的。下一步:${RED_ADVICE.needsMissing}。`], // #528 返工(评审建议 2)
   [/^影子树增轮:(\S+)(\(影子 cron 应已停\))?$/,
     (m) => `服务器:影子目录冒出了新轮 ${m[1]}——切流后影子定时任务应该已停,增轮=还有东西在跑。下一步:${RED_ADVICE.shadowNew}。`],
   [/^(\S+) finding 出口触发\(findings=(\d+)\)$/,
@@ -508,7 +526,7 @@ export function renderDigestPush({ dateLabel, server, local, reds }) {
     const c = latestD.discover_conv;
     lines.push(
       `- 发现轮转化(最近一轮 ${timeMark(latestD)}):搜了 ${c.search} 次网、读了 ${c.reads} 页,选出候选 ${c.candidates} 条、入队 ${c.enqueued} 条` +
-        (c.needs_file_missing ? `;⚠ 需求清单(NEEDS.md)读不到(${c.needs_file_missing})` : ""),
+        (c.needs_file_missing ? `;⚠ 需求清单(NEEDS.md)读不到(${needsMissingPath(c.needs_file_missing)})` : ""),
     );
   }
   lines.push(
@@ -570,7 +588,7 @@ export function pushExitCode(status) {
 // 单次 ssh 拉全量(限流友好):轮目录三日 glob(48h 扫描带跨到的 UTC 日期,P1-3)+
 // 逐轮 gates/exits/enqueue + 发现轮四件(d1/d2/d4/09-budget,#528 转化四数真源)+
 // 台账 + queue + 影子树清单。行标记协议:标记行 `__XXX__` 起节;
-// 轮体两行 `__GATES__<json>` / `__EXITS__<json>`(tr -d "\n" 压单行——pretty JSON
+// 轮体七行(逐轮 gates/exits/enqueue + #528 发现轮四件 d1/d2/d4/09-budget;tr -d "\n" 压单行——pretty JSON
 // 的换行是排版字节,压掉不伤语义,字符串值内换行本就是 \n 转义)。内层 sh 单引号律:
 // 脚本体只含双引号。
 const SSH_INNER = [
@@ -590,7 +608,9 @@ const SSH_INNER = [
   `echo __SHADOW__; ls ${SHADOW_ROUNDS} 2>/dev/null;`,
 ].join("\n");
 
-function parseSshSections(text) {
+// 导出(#528 返工评审建议 7):七标记解析是纯文本逻辑,单测可钉(标记名写错一个字符
+// 生产上就会显 0 且与真 0 不可分);样本测试在 scripts/test_daily_digest.mjs。
+export function parseSshSections(text) {
   const sections = new Map();
   let cur = null;
   for (const line of String(text).split("\n")) {

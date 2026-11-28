@@ -108,9 +108,9 @@ export const SPAWN_CONTRACT_ENV = [
   // #528(发现轮强化第一步):发现通道每轮帽三旋钮——真读方=tools/shared.mjs B 单源常量
   // (legacy ToolHost budgets tools.mjs:36 与 agent-v2 discovery-host.mjs
   // DEFAULT_DISCOVERY_BUDGETS 两处同源消费);缺省 6/8/6 与原写死同值=行为不变。
-  { name: "OPS_DISCOVER_WEB_SEARCH_PER_ROUND", default: "6", consumer: "tools/shared.mjs B.webSearchPerRound(发现轮 web_search 每轮调用帽;双宿主同源消费)", phase: "call-time" },
-  { name: "OPS_DISCOVER_WEB_READ_PER_ROUND", default: "8", consumer: "tools/shared.mjs B.webReadPerRound(发现轮 web_read 每轮调用帽;双宿主同源消费)", phase: "call-time" },
-  { name: "OPS_DISCOVER_RSS_PARSE_PER_ROUND", default: "6", consumer: "tools/shared.mjs B.rssParsePerRound(发现轮 rss_parse 每轮调用帽;双宿主同源消费)", phase: "call-time" },
+  { name: "OPS_DISCOVER_WEB_SEARCH_PER_ROUND", default: "6", consumer: "tools/shared.mjs B.webSearchPerRound(发现轮 web_search 每轮调用帽;双宿主同源消费)", phase: "import-time" },
+  { name: "OPS_DISCOVER_WEB_READ_PER_ROUND", default: "8", consumer: "tools/shared.mjs B.webReadPerRound(发现轮 web_read 每轮调用帽;双宿主同源消费)", phase: "import-time" },
+  { name: "OPS_DISCOVER_RSS_PARSE_PER_ROUND", default: "6", consumer: "tools/shared.mjs B.rssParsePerRound(发现轮 rss_parse 每轮调用帽;双宿主同源消费)", phase: "import-time" },
   // #199 交付B(P16 跨轮熔断):tools/breaker.mjs 旋钮(构造期读=轮次调用期);
   // state 面=DOCS_ROOT/ops/breaker.json 由 DOCS_ROOT 行派生,不另立行。
   { name: "OPS_BREAKER_THRESHOLD", default: "3", consumer: "tools/breaker.mjs(通道连续计数码失败开断阈;计数码闭集=channel_missing/channel_auth/quota;0=停用),拦 code=channel_open", phase: "call-time" },

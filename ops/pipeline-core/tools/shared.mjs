@@ -17,6 +17,20 @@ export const ROOT = path.resolve(AGENT_DIR, "..", ".."); // worktree 根(沙箱�
 export const DOCS_ROOT = process.env.DOCS_ROOT ?? path.join(ROOT, "docs"); // 符号链接 → docs 仓
 const LIBSH = path.join(AGENT_DIR, "lib.sh");
 // ── 边界常量(env 可覆盖,selftest 用)────────────────────────────────────────
+// #528 返工(评审必改 1,主会话裁规则 1):帽旋钮读法单源,参照 agent-v2/tasks/model-errors.mjs
+// maxModelInflight 同律。没设(undefined)=安静用缺省——import 期读、每个 ops 进程都过这里,
+// 未设是常态不是错误(告警会把 cron/契约自检的 stderr 填满;任务书测试规格也只在非法态断言告警);
+// 设了但空串/非非负整数(非数/NaN/负数/小数)=缺省+stderr 一行告警(空串 Number("")===0、
+// NaN 比帽恒 false 两面都在评审报告里);显式 0 合法=全拒。不走 budget.mjs 的用法错路线:
+// 帽值错属防失控线,停轮代价大于退缺省(model-errors 同裁)。
+function discoverCapKnob(name, raw, fallback) {
+  if (raw === undefined) return fallback;
+  const v = Number(raw);
+  if (raw !== "" && Number.isInteger(v) && v >= 0) return v;
+  process.stderr.write(`[knob] ${name}=${JSON.stringify(raw)} 不是非负整数,用缺省 ${fallback}\n`); // stderr:stdout 是轮信封专线(model-errors warnKnob 同律)
+  return fallback;
+}
+
 export const B = {
   fetchBytes: +(process.env.OPS_FETCH_MAX_BYTES ?? 512 * 1024),
   fetchPerRound: 20,
@@ -35,11 +49,15 @@ export const B = {
   hitCap: 8, // 铁律⑦:判例注入与检索命中上限 8(检索深度伤害决策)
   zeroAssetKb: 32,
   // 发现通道三件预算行:防失控非省钱(2026-10-24 裁定,DESIGN §6;预算四界另批)。
-  // #528:三值旋钮化(OPS_DISCOVER_* 命名惯例;缺省仍 8/6/6=行为不变;消费面双宿主同源:
-  // legacy ToolHost budgets tools.mjs:36 + agent-v2 discovery-host.mjs DEFAULT_DISCOVERY_BUDGETS)
-  webReadPerRound: +(process.env.OPS_DISCOVER_WEB_READ_PER_ROUND ?? 8),
-  webSearchPerRound: +(process.env.OPS_DISCOVER_WEB_SEARCH_PER_ROUND ?? 6),
-  rssParsePerRound: +(process.env.OPS_DISCOVER_RSS_PARSE_PER_ROUND ?? 6),
+  // #528:三值旋钮化(OPS_DISCOVER_* 命名惯例;缺省仍 搜索 6 / 读页 8 / 解析 6=行为不变;
+  // 消费面双宿主同源:legacy ToolHost budgets tools.mjs:36 + agent-v2 discovery-host.mjs
+  // DEFAULT_DISCOVERY_BUDGETS)。#528 返工(评审必改 1,主会话裁规则 1):读法走 discoverCapKnob
+  // 单源——空串(Number("")===0 的暗面)/非数/负数不再静默变 0 或 NaN(比帽恒 false=帽失效),
+  // 改为缺省+stderr 一行告警;显式 0 合法(帽 0=全拒,budget.mjs 同义)。字面 process.env.名字
+  // 点形写法保留在调用行——契约扫描器只认这种(selftest-contract.mjs computeReads)。
+  webReadPerRound: discoverCapKnob("OPS_DISCOVER_WEB_READ_PER_ROUND", process.env.OPS_DISCOVER_WEB_READ_PER_ROUND, 8),
+  webSearchPerRound: discoverCapKnob("OPS_DISCOVER_WEB_SEARCH_PER_ROUND", process.env.OPS_DISCOVER_WEB_SEARCH_PER_ROUND, 6),
+  rssParsePerRound: discoverCapKnob("OPS_DISCOVER_RSS_PARSE_PER_ROUND", process.env.OPS_DISCOVER_RSS_PARSE_PER_ROUND, 6),
   webReadTimeoutMs: 20_000, // r.jina.ai 正文面 20s(票面;上游可 10s+)
   webSearchTimeoutMs: 40_000, // pi-web-access MCP:握手 ~1s + DDG 内部 30s 上限(pi-web-access 0.44.0)
 };

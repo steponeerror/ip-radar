@@ -20,6 +20,7 @@ import { mkBreaker, readBreakerKnobs } from "../tools/breaker.mjs"; // #199 B:br
 import { itemSignature, fullDedupKey, createOpsItem, parseItemsTree, CAUSE_GROUP_BY_BUCKET } from "./ops-items.mjs"; // 条目库桥(P4 #166:接 _ops_items 同空间)
 import { ARTIFACTS as A, deepArtifactName, deepTranscriptName, DEEP_TRANSCRIPT_RE } from "../artifacts.mjs"; // 工件名表单源(#202 C1):步写出/读面禁手抄工件名(磁盘名字节冻结,位等价判例)
 import { appendQueueRowLocked } from "../tools/queue-lock.mjs"; // #139 flock 互锁队列写口(#207 T1 ENQUEUE 消费;与 python 侧 append_queue 同构互锁)
+import { B } from "../tools/shared.mjs"; // #528 记一笔(评审):发现通道每轮帽生效值随 CLOSE 落盘(import 期值与宿主执法面同源同读数)
 import { CANDIDATE_ACTION } from "./discover-candidate.mjs"; // #210 T4:action 词单源 PROPOSE(一词一拼,与 T3 appendCandidateCard 同源;#217 T3.5 接线后 MEASURE 可出 control_executable:true——三判据活路,候选行真写入)
 import { scanEvidenceFace } from "./citation.mjs"; // #208 T2:证据面三形解析(透传/工件/URL)→span 级存在性
 import { ensureDiscoverHost, fixtureDiscoveryMethods, discoverChannelReadings, aggregateChannelCalls, replayDiscoverSeeds, breakerFileOf } from "./discovery-host.mjs"; // #217 T3.5:MEASURE 宿主补发/faux 罐装方法面/CLOSE 读数构造+回放重算/breaker 文件名单源
@@ -423,10 +424,13 @@ async function CLOSE(def, ctx) { // 书挡步:存在性校验(闭合双层的外
   writeJson(path.join(ctx.dir, A.BUDGET), {
     round_id: ctx.roundId,
     generated_at: new Date().toISOString(),
-    env: isDiscover // 生效值 per-type(#207 T1):发现轮=三旋钮+est+共享月帽(无 token 界——发现轮不预设轨迹预算);健康轮 7 键面字节不变(位等价)
+    env: isDiscover // 生效值 per-type(#207 T1):发现轮=三旋钮+est+共享月帽(无 token 界——发现轮不预设轨迹预算)+每轮帽三件(#528 记一笔,评审:帽调过以后工件可证伪,breaker 旋钮同律);健康轮 7 键面字节不变(位等价)
       ? { OPS_PIPELINE_BUDGET_CNY: ctx.budgetCny, OPS_DISCOVER_MAX_MODEL_CALLS: knobs.maxModelCalls,
           OPS_DISCOVER_WALL_CLOCK_S: knobs.wallClockS, OPS_DISCOVER_SPEND_CAP_CNY: knobs.spendCapCny,
-          OPS_PIPELINE_MONTHLY_CAP_CNY: knobs.monthlyCapCny }
+          OPS_PIPELINE_MONTHLY_CAP_CNY: knobs.monthlyCapCny,
+          OPS_DISCOVER_WEB_SEARCH_PER_ROUND: B.webSearchPerRound,
+          OPS_DISCOVER_WEB_READ_PER_ROUND: B.webReadPerRound,
+          OPS_DISCOVER_RSS_PARSE_PER_ROUND: B.rssParsePerRound }
       : { // 生效值(含 OPS_PIPELINE_BUDGET_CNY:语义=DISPATCH 准告警线,真执法=A1 四界)
         OPS_PIPELINE_BUDGET_CNY: ctx.budgetCny,
         OPS_PIPELINE_MAX_MODEL_CALLS: knobs.maxModelCalls,
