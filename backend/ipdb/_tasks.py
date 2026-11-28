@@ -509,7 +509,7 @@ class UpdateManager:
             # 写 cancelled」不持 self._lock,与 worker 起跑之间没有互斥(#1
             # cancel race):worker 已过 _queue_cv 复查、卡在 _run_task 开头的
             # 主机锁/源锁上时,同主机源排队要等前一个源整个下载完——这段宽
-            # 窗口曾让 worker 拿到锁后把 cancelled 翻回在飞(#488,转移表
+            # 窗口曾让 worker 拿到锁后把 cancelled 翻回在飞(#488 2026-11-28,转移表
             # 因此登记过四条 cancelled 出边)。根修在 _run_task 起跑前查
             # token(不加锁、不碰 #411 锁序);此处不再重写已 cancelled 的
             # 任务(窄窗口:读态之后写之前,worker 可能已靠 CancelledError
@@ -699,7 +699,8 @@ class UpdateManager:
                      error_code: Optional[str] = None) -> None:
         """任务状态字段的唯一写入口(#484):判转移(含类别闸:运营轮任务只许
         running/终态,源任务不许 running)→ 写字段 → 发 task 事件。返回值无;
-        守门返回 False(仅记录模式下从 done/failed 出发的非法写入)时不写字段
+        守门返回 False(仅记录模式下从终态 done/failed/cancelled 出发的非法写入;
+        #488 评审建议改 2 把 cancelled 并入)时不写字段
         不发事件——终态下游(_settle、on_terminal、调度器退避、告警)都按终态
         消费,覆盖会造出假 failed 告警;车道清理/唤醒等下游动作由调用点
         (finish_ops_round / cancel / _set_state)在本方法之后照走,任务线程
@@ -944,7 +945,7 @@ class UpdateManager:
             self._drop_child_staging(source, task)
             return False
         if cancelled:
-            # #488:已 cancelled 不重写(取消写入与子进程车道收尾的窄窗口)。
+            # #488(2026-11-28):已 cancelled 不重写(取消写入与子进程车道收尾的窄窗口)。
             if task.state != "cancelled":
                 self._set_state(task, "cancelled")
             self._drop_child_staging(source, task)
@@ -993,6 +994,17 @@ class UpdateManager:
     def _run_task(self, task: Task):
         source = self._resolve(task.source_name)
         if source is None:
+            # 防御分支,现行装配不可达(#488 评审记一笔 7,2026-11-28 查证):
+            # resolve_source 生产接线 = _registry._find_source,它扫模块级
+            # _sources 列表;该列表 import 时构建一次、运行期不再变(无
+            # global/append/remove 等改写),而 _enqueue_one 入队时先 resolve
+            # 过(未知源当场 ValueError),队列里的任务到起跑之间注册表不会
+            # 失去条目 → 这里查不出 None。测试亦无路径(tiny_db 的
+            # monkeypatch 换表在夹具装配期完成,用例中途不换;无用例打
+            # source disappeared)。若未来接线改成运行期可变的源表,这里会先
+            # 于锁后的取消检查(#488)执行:已 cancelled 的任务在此也只会被
+            # 拒写(NO_WRITE_FROM 拒终态出发,#488 评审建议改 2),不会落假
+            # failed;届时再评估要不要把取消检查上移。
             self._set_state(task, "failed", "source disappeared",
                             error_code="source_not_found"); self._settle(task); return
         host_lock = self._host_lock(task.host)
@@ -1001,7 +1013,7 @@ class UpdateManager:
             host_lock.acquire()
         src_lock.acquire()
         try:
-            # #488(取消与起跑竞态的宽窗口根修):cancel() 写 cancelled 不持
+            # #488(2026-11-28,取消与起跑竞态的宽窗口根修):cancel() 写 cancelled 不持
             # self._lock(#411 锁序,该路径不碰条件变量),worker 卡在本方法
             # 开头的主机锁/源锁上(同主机前一个源整个下载完)时,任务可能已
             # 落 cancelled;起跑前查取消标记,已置位直接返回——不加锁、不碰
@@ -1022,7 +1034,7 @@ class UpdateManager:
                 try:
                     source.download(token=task.token)
                 except CancelledError:
-                    # #488:cancel() 窄窗口里可能已落过 cancelled(它读态到
+                    # #488(2026-11-28):cancel() 窄窗口里可能已落过 cancelled(它读态到
                     # 写之间 worker 已翻 downloading),不重写终态(重发事件
                     # + 出边清空后属非法转移),收尾照走。
                     if task.state != "cancelled":
@@ -1039,7 +1051,7 @@ class UpdateManager:
                 finally:
                     task.token.on_progress = None
                 if task.token.is_cancelled():
-                    # #488:同上,已 cancelled 不重写(取消写入与下载收尾的
+                    # #488(2026-11-28):同上,已 cancelled 不重写(取消写入与下载收尾的
                     # 窄窗口)。
                     if task.state != "cancelled":
                         self._set_state(task, "cancelled")
@@ -1078,7 +1090,7 @@ class UpdateManager:
             # 取消只影响记账:epoch 已安全换新(rebuild 返回即 ptr 已切换,
             # 数据不回滚;grill Q8 2026-10-11)。
             if task.token.is_cancelled():
-                # #488:已 cancelled 不重写(取消写入与重建收尾的窄窗口)。
+                # #488(2026-11-28):已 cancelled 不重写(取消写入与重建收尾的窄窗口)。
                 if task.state != "cancelled":
                     self._set_state(task, "cancelled")
                 return

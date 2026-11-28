@@ -16,12 +16,12 @@ _tasks.py ↔ _scheduler.py 互相引用成环)。本模块只依赖标准库。
      - 严格模式(测试套件):抛 ValueError;
      - 记录模式(缺省,生产):记一条错误日志(固定前缀
        ILLEGAL_TRANSITION_LOG_PREFIX,日后接告警的锚)+ 计数。写不写分两种
-       (#484 返工,评审第 2 条):从 done/failed 出发的写入**拒写**——终态的
-       下游(_settle 记账、on_terminal、调度器按 failed 升退避、告警渲染)
-       都按终态消费,覆盖会造出一条假 failed 告警;其余非法写入**照写**
-       ——非终态任务若不写可能被留在在飞态,查询门和批次都会卡住。
-       cancelled 曾因取消竞态登记过四条出边(#488 修后已清空,见转移表);
-       它不在 NO_WRITE_FROM 拒写清单里的口径不变。
+       (#484 返工,评审第 2 条;#488 评审建议改 2 把 cancelled 并入,2026-11-28):
+       从终态 done/failed/cancelled 出发的写入**拒写**——终态的下游(_settle
+       记账、on_terminal、调度器按 failed 升退避、告警渲染)都按终态消费,
+       覆盖会造出一条假 failed 告警;从 cancelled 出发还会把已取消任务翻回
+       在飞(重新压住查询门)。其余非法写入**照写**——非终态任务若不写
+       可能被留在在飞态,查询门和批次都会卡住。
 4. 类别闸(返工评审第 4 条):写入口再按任务类别限一道——运营轮任务
    (source_name == OPS_ROUND_SOURCE)的新状态只许 running 或终态;源任务
    的新状态不许是 running(否则退出在飞集合,查询门放行、轮次互斥失效)。
@@ -114,7 +114,8 @@ TASK_TRANSITIONS: dict[str, frozenset[str]] = {
     # 源锁上时 cancel 先落 cancelled,worker 拿到锁后把状态翻回在飞,随后
     # 靠已取消的 token 落回 cancelled——窗口分析与成因见 #484 评审、#488
     # 工单。根修后这四条都不再发生——再现即新竞态形状,修代码,不是
-    # 回填登记。
+    # 回填登记。记录模式下从本状态出发的写入一律拒写(NO_WRITE_FROM,
+    # #488 评审建议改 2):拒写不会卡住任务(已 settle),放写才会翻回在飞。
     "cancelled": frozenset(),
 }
 
@@ -155,12 +156,16 @@ def _transition_error(kind: str, table: dict[str, frozenset[str]],
 # 非法转移错误日志的固定前缀(日后接告警按它 grep / 过滤)。
 ILLEGAL_TRANSITION_LOG_PREFIX = "illegal-state-transition"
 
-# 记录模式下「拒写」的出发态(返工评审第 2 条):只拒 done/failed。cancelled
-# 不在列——它的竞态出边已随 #488 清空,现行代码不再从它出发写状态(写点
-# 条件是正门);万一残余竞态再写,记录模式照写 + 计数(日志可见),重写的
-# 目标值同为终态/在飞不产生额外卡死面。非终态出发的非法写入也照写,否则
-# 任务可能被留在在飞态卡住查询门和批次。
-NO_WRITE_FROM: frozenset[str] = frozenset({"done", "failed"})
+# 记录模式下「拒写」的出发态 = 终态三态(done/failed/cancelled;#484 返工
+# 评审第 2 条,#488 评审建议改 2 把 cancelled 并入,主会话采纳 2026-11-28)。
+# 理由与 done/failed 一字不差:出发态已是终态,_settle/批次计数/on_terminal
+# 都已做完,拒写不会把任务留在在飞态(没有卡死面);而放写的代价是状态
+# 能离开终态——本票清边后,从 cancelled 出发的写入只可能来自残余竞态
+# (写点条件是正门,非原子先读后写的窗口见 #488 评审记一笔 2),放写会
+# 把已取消任务翻回在飞(cancelled → downloading 重新压住查询门,下载再抛
+# 普通异常还会落假 failed 升退避)。非终态出发的非法写入照写,否则任务
+# 可能被留在在飞态卡住查询门和批次。
+NO_WRITE_FROM: frozenset[str] = frozenset({"done", "failed", "cancelled"})
 
 # 类别闸的允许新状态集(返工评审第 4 条):源任务不可进 running(退出在飞
 # 集合 = 查询门放行、start_ops_round 查不到它、轮次与源更新互斥失效);

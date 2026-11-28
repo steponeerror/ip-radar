@@ -5,6 +5,7 @@ the fixed invariant. See the 9-finding code review (2026-08-12)."""
 import threading
 import time
 
+from ipdb import _task_state
 from ipdb._tasks import UpdateManager
 
 
@@ -150,16 +151,10 @@ def test_cancel_queued_task_does_not_run_and_does_not_overshoot_batch_done():
 
 # ── #488 cancel vs. start race (the wide window of #1) ─────────────────────
 
-def test_cancel_of_task_blocked_before_start_never_flips_in_flight():
-    """#488:取消一个「已出队、卡在 _run_task 开头主机锁上」的任务,状态必须
-    停在 cancelled,事件流里不得出现过 downloading/loading/failed。
-
-    确定性复现:两个源同 download_host → 共享主机锁;blocker 先起跑、在
-    download 里阻塞事件;victim 出队(以 lock_for("victim") 被调为界——
-    _run_task 在取主机锁前最后一站)后必阻塞在主机锁上,状态仍是 queued。
-    此时取消,再放行 blocker:pre-fix worker 拿到锁照样翻 downloading(本
-    用例红);post-fix 起跑前查 token 直接返回(finally 收尾幂等)。
-    断言走任务状态事件流(转移序列),不只看终态。"""
+def _cancel_before_start_scenario():
+    """搭起「victim 出队后卡在 _run_task 开头主机锁上时被取消」的场景并跑完
+    (放行 blocker、两任务终态、两个 worker 都走出 _run_task),返回
+    (mgr, by_name, victim_task, events)。严格/记录两模式的孪生用例共用。"""
     release = threading.Event()
     blocker = _Src("blocker", host="h488")
 
@@ -195,12 +190,51 @@ def test_cancel_of_task_blocked_before_start_never_flips_in_flight():
     assert _wait(mgr, lambda: all(
         mgr.task_state(t.id) in ("done", "failed", "cancelled")
         for t in mgr._tasks.values()), timeout=3)
+    # 同步点(#488 评审建议改 1,2026-11-28):上面的「全终态」在取消那一刻
+    # 就只剩 blocker 没跑完,不保证 victim 的 worker 已从主机锁上醒来走完
+    # _run_task——victim 取消时就已经是终态。两个 worker 都在 _run_task 的
+    # finally 里才释放主机锁,测试线程此刻能拿到锁 = 两 worker 都走完,之后
+    # 读事件流/断言不受调度时序影响(变异①的红由此钉在用例自己的断言上,
+    # 记录模式孪生用例尤其依赖这一步,否则会偶发假绿)。
+    hl = mgr._host_lock("h488")
+    assert hl.acquire(timeout=3), "worker 未在 3s 内释放主机锁"
+    hl.release()
+    return mgr, by_name, victim_task, events
+
+
+def _assert_victim_stays_cancelled(mgr, by_name, victim_task, events):
+    """两条孪生用例共用的断言:事件流恰为 queued→cancelled(不得出现
+    downloading/loading/failed),victim 没跑下载。"""
     victim_states = [e["task"]["state"] for e in events
                      if e.get("type") == "task" and e["task"]["id"] == victim_task.id]
     assert victim_states == ["queued", "cancelled"], \
         f"取消后状态被翻回在飞: {victim_states}"
     assert by_name["victim"].download_calls == 0, \
         "已取消的任务在起跑窗口之后照样跑了下载"
+
+
+def test_cancel_of_task_blocked_before_start_never_flips_in_flight():
+    """#488:取消一个「已出队、卡在 _run_task 开头主机锁上」的任务,状态必须
+    停在 cancelled,事件流里不得出现过 downloading/loading/failed。
+
+    确定性复现:两个源同 download_host → 共享主机锁;blocker 先起跑、在
+    download 里阻塞事件;victim 出队(以 lock_for("victim") 被调为界——
+    _run_task 在取主机锁前最后一站)后必阻塞在主机锁上,状态仍是 queued。
+    此时取消,再放行 blocker:pre-fix worker 拿到锁照样翻 downloading(本
+    用例红);post-fix 起跑前查 token 直接返回(finally 收尾幂等)。
+    断言走任务状态事件流(转移序列),不只看终态;严格模式(测试缺省)。"""
+    mgr, by_name, victim_task, events = _cancel_before_start_scenario()
+    _assert_victim_stays_cancelled(mgr, by_name, victim_task, events)
+
+
+def test_cancel_of_task_blocked_before_start_record_mode_never_flips(monkeypatch):
+    """记录模式(生产形态)孪生用例(#488 评审建议改 1):全套件 autouse 的
+    严格模式在这里翻回 False,验证生产形态下取消也不被翻回在飞。变异①
+    (去掉 _run_task 起跑前的提前返回)在这条上红在用例自己的断言(取消后
+    状态被翻回在飞 / 已取消的任务照样跑了下载),不靠线程异常夹具「碰上」。"""
+    monkeypatch.setattr(_task_state, "_strict", False)
+    mgr, by_name, victim_task, events = _cancel_before_start_scenario()
+    _assert_victim_stays_cancelled(mgr, by_name, victim_task, events)
 
 
 # ── pause/abort without active batch (batchless single-source updates) ──────

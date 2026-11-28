@@ -111,8 +111,9 @@ def test_task_illegal_pair_record_mode(mgr, monkeypatch, caplog, old, new):
     """表外每一对 × 记录模式:不抛、计数 +1、错误日志带固定前缀;写不写按
     出发态分(返工评审第 2 条):从 done/failed 出发拒写(终态下游都按终态
     消费,覆盖会造假告警),其余照写(非终态不写可能被留在在飞态卡住查询
-    门和批次)。cancelled 的竞态出边已随 #488 清空,不在拒写之列的口径不变
-    (万一残余竞态重写,记录模式照写 + 计数,写点条件是正门)。"""
+    门和批次)。cancelled 也在拒写清单(#488 评审建议改 2,主会话采纳):
+    从终态出发的写入只可能来自竞态,拒写不会卡住任务(已 settle),放写才会
+    把已取消任务翻回在飞。"""
     monkeypatch.setattr(_task_state, "_strict", False)
     before = illegal_transition_count()
     t = Task(id=f"r_{old}", source_name="a", host=None, state=old)
@@ -237,8 +238,9 @@ def test_record_mode_refuses_terminal_departure(monkeypatch, caplog, mgr):
     """返工评审第 2 条:记录模式下从 done 出发的写入拒写——记日志 + 计数,
     字段不被覆盖(终态下游:_settle 已记账、on_terminal 已旁挂、调度器按
     failed 升退避、告警按 state == failed 读,覆盖 done → failed 会造出一条
-    假告警)。只拒 done/failed;cancelled 的竞态出边已随 #488 清空,它不
-    在拒写清单里的口径不变(现行代码不再从 cancelled 出发写状态)。"""
+    假告警)。拒写清单 = 终态三态;cancelled 也在列(#488 评审建议改 2,主
+    会话采纳)——从它出发的写入只可能来自竞态,放写会把已取消任务翻回在飞
+    (重新压住查询门,下载抛普通异常还会落假 failed)。"""
     monkeypatch.setattr(_task_state, "_strict", False)
     before = illegal_transition_count()
     t = Task(id="rr1", source_name="a", host=None, state="done", error="old")
@@ -251,7 +253,14 @@ def test_record_mode_refuses_terminal_departure(monkeypatch, caplog, mgr):
     with caplog.at_level(logging.ERROR, logger="ipdb._task_state"):
         mgr._write_state(t2, "cancelled")
     assert t2.state == "failed"
-    assert illegal_transition_count() == before + 2
+    # cancelled 出发同样拒写(#488 评审建议改 2):residual race 的兜底正门,
+    # 变异(把 cancelled 从 NO_WRITE_FROM 拿掉)时这条腿红。
+    t3 = Task(id="rr4", source_name="a", host=None, state="cancelled")
+    mgr._tasks[t3.id] = t3
+    with caplog.at_level(logging.ERROR, logger="ipdb._task_state"):
+        mgr._write_state(t3, "downloading")
+    assert t3.state == "cancelled"
+    assert illegal_transition_count() == before + 3
     assert ILLEGAL_TRANSITION_LOG_PREFIX in caplog.text
 
 
