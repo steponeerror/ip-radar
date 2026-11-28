@@ -70,7 +70,7 @@ Every lookup returns one fused verdict — `benign`, `suspicious`, `malicious`, 
 
 ![A malicious lookup: verdict, per-type tags, per-field confidences](assets/manual/02-result-malicious.png)
 
-The **Tags** cell carries the classification types that fired (`Abuse reports · Spam · Blacklist · Scanner · … · C2·cobalt_strike`), the number of distinct sources that hit (`14src`), whether any evidence comes from the decay archive (`incl. archive` = some sightings are old enough to be decayed, but they're still on the table), and malware families where a source named one.
+The **Tags** cell carries the classification types that fired (`Abuse reports · Spam · Blacklist · Scanner · … · C2·cobalt_strike`), the number of distinct first-hand accusing sources (`14src` — derived aggregators that republish other feeds are not double-counted), whether any evidence comes from the decay archive (`incl. archive` = some sightings are old enough to be decayed, but they're still on the table), and malware families where a source named one.
 
 ![A clean lookup: benign verdict, geo/ASN enrichment](assets/manual/03-result-clean.png)
 
@@ -127,7 +127,7 @@ Each classification type (IntelMQ vocabulary: `blacklist`, `c2-server`, `malware
 }
 ```
 
-The fields worth knowing: `corroborated` (more than one independent source agrees), `reporter_total` (how many human reporters, where a source counts them), `verdict_conflict` (sources actively disagree on direction — e.g. one says malicious, another benign), `malware_names` (families, e.g. `win.cobalt_strike`), `native_confidence` / `native_categories` / `tags` / `extra` (the upstream's own labels, preserved verbatim — nothing is lost in translation to the shared vocabulary).
+The fields worth knowing: `corroborated` (at least two independent non-aggregator sources with positive score contribution agree; aggregators and reliability-0.5 sources do not count as votes), `reporter_total` (how many human reporters, where a source counts them), `verdict_conflict` (sources actively disagree on direction — e.g. one says malicious, another benign), `malware_names` (families, e.g. `win.cobalt_strike`), `native_confidence` / `native_categories` / `tags` / `extra` (the upstream's own labels, preserved verbatim — nothing is lost in translation to the shared vocabulary).
 
 ### Attributes & short-circuits
 
@@ -342,6 +342,8 @@ The `ipradar-data` volume stays put — no data migration on upgrades. The publi
 ### Backup & restore
 
 All state lives in one named volume (`ipradar-data` → `/app/data`): per-source raw downloads, LMDB epoch dirs with their `.ptr/.count/.cov/.disjoint` sidecars, and the SQLite pair `auth.db`/`alerts.db`. Rebuilds never write in place — a fresh epoch lands, then the pointer flips atomically.
+
+The dev machine also keeps a monthly auto-synced mirror of the production volume (pushed by the monthly eval round). It is declared as the only automatic offsite copy (LMDB source data only) and its restore path is rehearsed via `scripts/backup_rehearsal.py` — see the "备份 = 月轮镜像同步" section in `deploy/ops-cron.md`.
 
 **Stopped copy (simplest, always consistent):**
 

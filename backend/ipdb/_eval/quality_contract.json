@@ -94,7 +94,7 @@
         "kind": "func",
         "ref": "ipdb._eval.incident_replay.replay_dns114_false_corroboration"
       },
-      "expectation": "pass=true:两源投影均无事故 IP 指控(回声无从形成)、聚合器派生指控不双计(独立票数与 conf 不变)；已知无门面如实入读数 known_gap=纯 derived 互证仍算 corroborated(grill Q2 2026-10-11 人裁现状,披露面=_eval/agg_share.py,改语义须另票)——不发明门；防线=ziyadnz.py/cps_collected_iocs.py infra_noise_filter + _logodds.dedup_lineage",
+      "expectation": "pass=true:两源投影均无事故 IP 指控(回声无从形成)、聚合器派生指控不双计(独立票数与 conf 不变)；known_gap=旧缺口「纯 derived 互证仍算 corroborated」(grill Q2 2026-10-11)已由 #522(2026-11-28 丙口径)关闭:判式=_logodds.corroborated_after_dedup,历史披露面=_eval/agg_share.py——不发明门；防线=ziyadnz.py/cps_collected_iocs.py infra_noise_filter + _logodds.dedup_lineage",
       "verdict": "gate",
       "track": "baseline",
       "trigger": "change",

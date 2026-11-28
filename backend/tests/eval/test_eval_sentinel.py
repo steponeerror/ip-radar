@@ -223,3 +223,17 @@ def test_coverage_check_empty_keyset_is_none_not_zero(tmp_path):
     src = _make_source(tmp_path, "iptoasn", [], category="geo_asn")
     r = coverage_check(src, [])
     assert r["covered"] is None and r["n"] == 0    # 空分母不冒充 0
+
+
+def test_own_accusing_ctypes_missing_verdict_detail_not_counted():
+    """#529 裁决 2026-11-28:detail 缺 verdict 键 = 不算指控(旧口径兑底
+    malicious;逐源变体同收 accusation.is_accusation 单一口径)。"""
+    from ipdb._eval.sentinel import _own_accusing_ctypes
+    payload = {"classifications": {"c2-server": {
+        "verdict": "malicious",
+        "details": [{"source": "s1"},
+                    {"source": "s1", "verdict": "malicious"}]}}}
+    assert _own_accusing_ctypes(payload, "s1") == {"c2-server"}
+    all_missing = {"classifications": {"c2-server": {
+        "verdict": "malicious", "details": [{"source": "s1"}]}}}
+    assert _own_accusing_ctypes(all_missing, "s1") == set()

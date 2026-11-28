@@ -70,7 +70,7 @@
 
 ![恶意查询:判定、逐类型标签、逐字段置信度](assets/manual/02-result-malicious.png)
 
-**Tags** 单元格装着命中的分类类型(`Abuse reports · Spam · Blacklist · Scanner · … · C2·cobalt_strike`)、命中的独立源数(`14src`)、证据是否含衰减归档(`incl. archive` = 部分目击已老到进入衰减,但仍然摆在桌上),以及源报出过的恶意软件家族。
+**Tags** 单元格装着命中的分类类型(`Abuse reports · Spam · Blacklist · Scanner · … · C2·cobalt_strike`)、指控的第一手独立源数(`14src` —— 转载别人清单的派生聚合器不重复点票)、证据是否含衰减归档(`incl. archive` = 部分目击已老到进入衰减,但仍然摆在桌上),以及源报出过的恶意软件家族。
 
 ![干净查询:benign 判定、地理/ASN 富化](assets/manual/03-result-clean.png)
 
@@ -127,7 +127,7 @@
 }
 ```
 
-值得记住的字段:`corroborated`(不止一个独立源同意)、`reporter_total`(源统计人工举报数时的合计)、`verdict_conflict`(源在方向上真吵架——一个说恶意另一个说良性)、`malware_names`(家族,如 `win.cobalt_strike`)、`native_confidence` / `native_categories` / `tags` / `extra`(上游自己的标签原样保留——翻成共享词表的过程零损失)。
+值得记住的字段:`corroborated`(至少两个互不相干的非聚合器、且对分数有正贡献的源同意;聚合器之间、可靠性 0.5 的源不算票)、`reporter_total`(源统计人工举报数时的合计)、`verdict_conflict`(源在方向上真吵架——一个说恶意另一个说良性)、`malware_names`(家族,如 `win.cobalt_strike`)、`native_confidence` / `native_categories` / `tags` / `extra`(上游自己的标签原样保留——翻成共享词表的过程零损失)。
 
 ### 属性与短路
 
@@ -342,6 +342,8 @@ git pull && docker compose up -d --build
 ### 备份与恢复
 
 全部状态在一个命名卷里(`ipradar-data` → `/app/data`):逐源原始下载、LMDB epoch 目录(每次重建生成的新版本目录)及其 `.ptr/.count/.cov/.disjoint` 伴随文件、SQLite 双件 `auth.db`/`alerts.db`。重建从不原地写——新 epoch 落地,指针原子翻转。
+
+开发机另有一份月频自动同步的生产卷镜像(月轮推送),已声明为「唯一的自动异地副本」(范围 = LMDB 源数据),恢复路有演练脚本(`scripts/backup_rehearsal.py`)验证——见 `deploy/ops-cron.md`「备份 = 月轮镜像同步」一节。
 
 **停机拷贝(最简,恒一致):**
 

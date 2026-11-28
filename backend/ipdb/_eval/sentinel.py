@@ -34,6 +34,7 @@ import random
 # _ACCUSING 私有名跨模块借道 (EV-F1 同款, metrics/anchors/layered 同源):
 # 指控章单一口径 —— malicious/suspicious 证人集合由 _types 顶层唯一持有。
 from .._types import _ACCUSING
+from .accusation import is_accusation
 # ASSET_SLOTS = asset 槽词表单一真源 (_evidence 顶层): 源 fields 与
 # payload.attributes 键都以它为准, 勿另立清单。
 from .._evidence import ASSET_SLOTS
@@ -45,15 +46,14 @@ from .corpus import sample_source_ips, stable_seed
 
 def _own_accusing_ctypes(payload: dict, source_name: str) -> set[str]:
     """本源自身指控 ctype 集: 组 verdict ∈ _ACCUSING 且组 details 有本源
-    指控证人 (缺 verdict 键兑底 malicious, layered._accusing_sources 同
-    口径的逐源变体)。"""
+    指控证人(layered._accusing_sources 同口径的逐源变体;缺 verdict
+    键 = 不算指控,#529 裁决 2026-11-28,accusation.is_accusation)。"""
     out: set[str] = set()
     for ctype, ca in (payload.get("classifications") or {}).items():
         if ca.get("verdict") not in _ACCUSING:
             continue
         for d in ca.get("details", []):
-            if (d.get("source") == source_name
-                    and d.get("verdict", "malicious") in _ACCUSING):
+            if d.get("source") == source_name and is_accusation(d):
                 out.add(ctype)
                 break
     return out

@@ -15,13 +15,16 @@ import {
   summarizeAddRound,
   collectRedItems,
   renderDigest,
+  renderDigestPush,
+  summarizeCadence,
+  HEARTBEAT_RED_H,
+  QUALITY_RED_H,
   pushExitCode,
   pushLark,
   splitScanBands,
   overdueRoundLines,
   plainClock,
   plainRedItem,
-  renderDigestPush,
 } from "./daily-digest.mjs";
 
 // —— 轮 id 钟面与 24h 窗 ——
@@ -428,6 +431,74 @@ test("renderDigest:跨窗无信封轮出「终局补报」注记行,不计红(P1
   assert.match(body, /- 终局补报:2026-11-19-1200-health 跨窗无信封/);
   assert.match(body, /演化轮 2026-11-19-1915-evolve 终局 !ok\(cards_missing\)\(跨窗补报\)/);
   assert.ok(body.split("\n").length <= 30);
+});
+
+// —— #550 节拍两行(月轮心跳龄 + 质量契约上次运行)——
+
+const H = 3_600_000;
+const NOW = Date.UTC(2026, 11, 1, 13, 0); // 21:00 CST 固定锚
+
+test("summarizeCadence:心跳新/旧/读不到三态;旧文件标红(写死龄 0 的变异在此红)", () => {
+  // 新心跳(2h 前)绿行无红
+  const fresh = summarizeCadence({ heartbeatMtimeMs: NOW - 2 * H, nowMs: NOW });
+  assert.deepEqual(fresh.lines, ["- 月轮心跳龄 2h", "- ⚠ 质量契约:从没跑过"]);
+  assert.equal(fresh.reds.length, 1); // quality 缺省 null = 从没跑过红
+  // 旧心跳(>30 天)红——若实现把心跳龄写死成 0,此断言红(变异证据 ②);quality 给新的,
+  // 隔离心跳腿的红项
+  const stale = summarizeCadence({ heartbeatMtimeMs: NOW - (HEARTBEAT_RED_H + 5) * H, qualityMtimeMs: NOW - H, nowMs: NOW });
+  assert.match(stale.lines[0], /⚠ 月轮心跳龄 725h/);
+  assert.deepEqual(stale.reds, ["月轮心跳龄 725h 超 30 天"]);
+  // 读不到(服务器无文件)红;ssh 整体失败(readError)只注记不双计红
+  const missing = summarizeCadence({ heartbeatMtimeMs: null, qualityMtimeMs: NOW - H, nowMs: NOW });
+  assert.deepEqual(missing.reds, ["月轮心跳读不到(服务器 eval-heartbeat 缺席)"]);
+  const sshFail = summarizeCadence({ heartbeatMtimeMs: null, heartbeatReadError: true, nowMs: NOW });
+  assert.equal(sshFail.reds.length, 1); // 只有 quality 腿的红
+  assert.match(sshFail.lines[0], /读不到\(服务器读取失败/);
+});
+
+test("summarizeCadence:质量契约新文件/旧文件/没有文件/读不到四态(#550)", () => {
+  // 新文件(1h 前)绿;心跳也给新的,全绿零红
+  const fresh = summarizeCadence({ heartbeatMtimeMs: NOW - H, qualityMtimeMs: NOW - H, nowMs: NOW });
+  assert.deepEqual(fresh.lines, ["- 月轮心跳龄 1h", "- 质量契约上次运行 1h 前"]);
+  assert.deepEqual(fresh.reds, []);
+  // 旧文件(>35 天)红
+  const stale = summarizeCadence({ heartbeatMtimeMs: NOW - H, qualityMtimeMs: NOW - (QUALITY_RED_H + 3) * H, nowMs: NOW });
+  assert.match(stale.lines[1], /⚠ 质量契约上次运行 843h 前\(超 35 天\)/);
+  assert.deepEqual(stale.reds, ["质量契约上次运行 843h 前(超 35 天)"]);
+  // 没有文件 = 从没跑过,红(2026-11-28 现状:一份 quality-report 都没有)
+  const never = summarizeCadence({ heartbeatMtimeMs: NOW - H, qualityMtimeMs: null, nowMs: NOW });
+  assert.match(never.lines[1], /⚠ 质量契约:从没跑过/);
+  assert.match(never.reds[0], /从没跑过/);
+  // 目录读不了 ≠ 从没跑过,单独显形同样红
+  const unread = summarizeCadence({ heartbeatMtimeMs: NOW - H, qualityMtimeMs: null, qualityUnreadable: true, nowMs: NOW });
+  assert.match(unread.lines[1], /⚠ 质量契约:读不到/);
+  assert.deepEqual(unread.reds, ["质量契约上次运行读不到"]);
+});
+
+test("summarizeCadence:时钟步进回跳(mtime 在未来)不涌现负数龄", () => {
+  const c = summarizeCadence({ heartbeatMtimeMs: NOW + 10 * H, qualityMtimeMs: NOW, nowMs: NOW });
+  assert.match(c.lines[0], /月轮心跳龄 0h/);
+});
+
+test("renderDigest/renderDigestPush:cadence 传入时出「节拍」节两行;不传时字节同旧(#550)", () => {
+  const server = greenServer();
+  const local = greenLocal();
+  const reds = collectRedItems({ server, local });
+  const noCadence = renderDigest({ dateLabel: "2026-11-20", server, local, reds });
+  assert.ok(!noCadence.body.includes("## 节拍"), "不带 cadence 不出节拍节(旧调用面字节不变)");
+  const cadence = summarizeCadence({ heartbeatMtimeMs: Date.UTC(2026, 10, 20, 5, 0), qualityMtimeMs: null, nowMs: Date.UTC(2026, 11, 1, 13, 0) });
+  const withCadence = renderDigest({ dateLabel: "2026-11-20", server, local, reds, cadence });
+  assert.match(withCadence.body, /## 节拍\n- 月轮心跳龄 \d+h\n- ⚠ 质量契约:从没跑过/);
+  assert.ok(withCadence.body.split("\n").length <= 30);
+  const push = renderDigestPush({ dateLabel: "2026-11-20", server, local, reds: [...reds, ...cadence.reds], cadence });
+  assert.match(push.body, /## 节拍/);
+  assert.match(push.body, /从没跑过.*变异基线|变异自检\+事故回放从来没有跑过/);
+  // 节拍红项走大白话规则(非兜底):两件套齐;补救命令带
+  // IP_RADAR_EVAL_ENV=monthly(#550 评审必须改3:不带会落 dev/,红项不会消)
+  const plain = plainRedItem(cadence.reds[0], "2026-11-20");
+  assert.match(plain, /从来没有跑过/);
+  assert.match(plain, /--quality-contract/);
+  assert.match(plain, /IP_RADAR_EVAL_ENV=monthly/);
 });
 
 // —— #383 lark 推送面大白话版(标题/骨架同技术面;落盘面字节不变由上方既有断言钉)——

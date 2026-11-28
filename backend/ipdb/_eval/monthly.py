@@ -20,6 +20,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from .layered import PRIORITY  # 层序真源, 勿手拼
+from .truth_v2_parallel import _ROUND_MONTH_RE  # noqa: PLC2701  # 轮归属月正则单源(#550 评审必须改1 与 load_anchor_rounds 同律,禁两套拼法)
 
 OPEN = "OPEN"
 CARRIED = "CARRIED"
@@ -264,12 +265,17 @@ def render_steal_parking_diag(keyset_dir: Path) -> list[str]:
 
 def load_anchor_green(model_dir: Path) -> list[dict]:
     """anchors-*.json 按文件名 ts 升序 → 全绿率读数列表
-    [{artifact, n_total, n_fail, rate}](月轮真实序: --anchors 腿先于
-    --readout 落 model/, 本轮件 = 最新一件; n_total=0 无信息量同跳)。
-    坏 JSON/非 dict/缺 n_total 形状跳过不炸(_oc_latest 同款宽容)。
-    锚读数单一真源 = 回归轨判定门工件(anchors_report 落件), 能力轨
-    只读不复算 —— 同轮月报两轨读数恒一致。"""
-    out: list[dict] = []
+    [{artifact, n_total, n_fail, rate}],轮粒度 = 月(#550 评审必须改1):
+    同月多件按文件名序只取末件。成因: quality-contract 腿的
+    fp-restraint-anchors 行起子进程跑 --anchors --json,每轮月轮会在
+    model/ 多落第二份 anchors 件;不去重则「最后一件=本轮件、倒数第二
+    件=腿自己那份」,月环比恒 0。「同月手跑两轮只算一轮」的语义变化
+    经人裁接受;同律 = truth_v2_parallel.load_anchor_rounds(月键正则
+    _ROUND_MONTH_RE 单源复用,非标名各自成轮)。坏 JSON/非 dict/缺
+    n_total 形状跳过不炸(_oc_latest 同款宽容)。锚读数单一真源 =
+    回归轨判定门工件(anchors_report 落件), 能力轨只读不复算 ——
+    同轮月报两轨读数恒一致。"""
+    by_month: dict[str, dict] = {}
     for p in sorted(Path(model_dir).glob("anchors-*.json")):
         try:
             d = json.loads(p.read_text(encoding="utf-8"))
@@ -280,10 +286,12 @@ def load_anchor_green(model_dir: Path) -> list[dict]:
                 or n_total <= 0:
             continue
         n_fail = len(d.get("failures") or [])
-        out.append({"artifact": p.name, "n_total": n_total,
-                    "n_fail": n_fail,
-                    "rate": (n_total - n_fail) / n_total})
-    return out
+        m = _ROUND_MONTH_RE.match(p.name)
+        key = m.group(1) if m else p.name
+        by_month[key] = {"artifact": p.name, "n_total": n_total,
+                         "n_fail": n_fail,
+                         "rate": (n_total - n_fail) / n_total}
+    return list(by_month.values())   # dict 保插入序 = 文件名序(月序)
 
 
 def _load_latest_json(directory: Path, pattern: str,
@@ -394,8 +402,10 @@ def load_leg_status(out_dir: Path) -> dict | None:
 
 def render_leg_status(leg: dict | None) -> list[str]:
     """月报腿级行(#193 C5): 全景一行(腿名=rcN, null→渲染中在飞)
-    + 红腿单独点名行(仅有红时出)。只观测不持门 —— 红态外显靠月轮壳
-    结尾聚合退出码, 本行只长在工件里供人/机读。"""
+    + 红腿单独点名行(仅有红时出)。红态外显主要靠月轮壳结尾聚合退出
+    码, 本行只长在工件里供人/机读;行级失败腿(#550 quality-contract,
+    腿状态记 1)的退出码不折算 —— 这类腿的红态只经本行与腿状态件显
+    形, 人读以本行为准。"""
     if not leg:
         return []
     legs = leg.get("legs") or {}

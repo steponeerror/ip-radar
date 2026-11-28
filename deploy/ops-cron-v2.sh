@@ -7,7 +7,7 @@
 # 时=03/11/19 UTC)自然接续生产既有序列。SQLite --db 缺省随 DOCS_ROOT 落
 # /app/data/ops/agent-v2.sqlite(ipradar-data 卷内,随卷持久)。
 #
-# 与影子形 deploy/ops-shadow-cron.sh 的关键差异(其余同形,含容器内 docker exec
+# 与影子形 deploy/ops-shadow-cron.sh(已删,#550 评审;git 历史可考)的关键差异(其余同形,含容器内 docker exec
 # 织法/凭证预检/退出码透传/rc 透传判例):
 # - 生产世界:无影子根自种段——生产 ops 树本就在位,v2 直写台账/queue/轮目录;
 # - 影子零外发栈整体摘除:不设 OPS_SWEEP_DRY_RUN(finding 出口按生产语义真开:
