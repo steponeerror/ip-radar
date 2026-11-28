@@ -228,8 +228,9 @@ _TRUE_GROUPS = {
         ["8.128.4.0/22", "8.128.4.0/23"],
     "emerging_threats/emerging-block-ips.txt:201-202":
         ["45.144.212.0/24", "45.144.212.0/22"],
-    # 语义不同的两条主张(RTBH attacker /32 vs Spamhaus infrastructure /24)
-    # 也按前缀裁决——已接受的翻判代价(事实包 §1.5)。
+    # 语义不同的两条主张(sources=RTBH (Turkiye) /32 vs sources=Spamhaus
+    # DROP /24)也按前缀裁决——已接受的翻判代价(事实包 §1.5);分类层面
+    # 恒 blacklist,「翻成 attacker」核不到,幸存的是 /32 那行的 payload。
     "ziyadnz.csv:47819-47820":
         ["2.57.122.0", "2.57.122.0/24"],
     # 跨文件冲突主张(chinatelecom vs othernet),嵌套是巧合不是层级。
