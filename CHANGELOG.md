@@ -35,6 +35,8 @@
 
 ### 变更 Changed
 
+  - **前端把 shadcn 挪到开发依赖(#578)**:它只在开发时生成界面组件,不进打包产物;锁文件零版本变化,只有依赖树整体归入开发侧。运行时依赖审计(只看高危)从 9 条归零。
+  - **Frontend moves shadcn to devDependencies (#578)**: it is only used to generate UI components at development time and never ships; the lockfile has zero version changes — the dependency tree is simply flagged as dev-only. The production-dependency audit (high severity only) drops from 9 findings to 0.
   - **印证旗只数对分数有正贡献的非聚合器源(#522;2026-11-28 裁决「印证判式丙」)**:印证(`corroborated`)判定收紧:**至少两个**互不相干(非聚合器)且对分数有正贡献(系数 > 0)的独立源才算印证;聚合器之间的互证、可靠性 0.5 源的抬旗、系数为负的源都不再算票(#522)。CSV 导出的 `corroborated` 列取值随之变(不筛行);评测侧候选源验收的 CG 闸随之变严(只靠零系数或聚合器伙伴「印证」的候选源 CG 会掉)。置信度与源名单不变。
   - Corroboration (`corroborated`) now requires at least two lineage-independent (non-aggregator) sources with a positive score contribution (coefficient > 0); aggregator-only echo, reliability-0.5 lift, and negative-coefficient sources no longer count as votes (#522). The `corroborated` column in CSV export changes accordingly (rows are not filtered); the eval-side CG acceptance gate tightens (candidates corroborated only via zero-coefficient or aggregator partners will drop). Confidence and source lists unchanged.
   - **新接入的情报源默认打开载入期基础设施地址过滤(#531;2026-11-28 裁决)**:公共 DNS、根服务器这类名单地址被单个新源指控时不再入库;存量 61 个源显式保持关闭、行为不变;以后每个源都必须显式声明这个开关(只写注解不算),缺声明测试红。
