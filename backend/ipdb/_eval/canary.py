@@ -54,7 +54,7 @@ from .corpus import Corpus, sample_source_ips, stable_seed
 
 # _accusing_sources/_accusing_types 私有名跨模块借道(口径同源勿复刻,
 # sentinel 同款先例): 指控章单一口径 —— 组级 verdict ∈ _ACCUSING /
-# 组 details 逐源 verdict ∈ _ACCUSING(缺键兑底 malicious)。
+# 组 details 逐源 verdict ∈ _ACCUSING(缺键不算指控,#529 裁决)。
 from .layered import _accusing_sources, _accusing_types
 
 PRESENT = ">0"

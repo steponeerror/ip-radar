@@ -10,11 +10,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .ablation import Snapshot
-from .._logodds import accuser_pool
+from .._logodds import accuser_pool, corroborated_after_dedup
+from .accusation import is_accusation
 
-# _ACCUSING 私有名跨模块借道(EV-F1):指控章单一口径 —— 生产 _merge/
-# _stix_export 同一集合;本地等义副本会漂移,借道优于复制。
-from .._types import _ACCUSING
 
 
 @dataclass
@@ -48,35 +46,44 @@ def mc(baseline: Snapshot, candidate: Snapshot, candidate_src: str,
     return Metric(value=len(added) / denom, n=denom, detail=sorted(added))
 
 
-def _effective_votes(snapshot: Snapshot, ip: str, ctype: str) -> int:
-    """谱系去重后的有效源票数——生产同款数学(_assess_classification,
+def _group_pool(snapshot: Snapshot, ip: str, ctype: str) -> list[tuple[str, float]]:
+    """谱系去重后的指控池——生产同款数学(_assess_classification,
     循环体单源化 issue #244 —— _logodds.accuser_pool):只数指控票
     (malicious/suspicious),再逐源取最强系数,最后 dedup_lineage。存档
     (informational)票只展示不计分,镜像生产 corroboration 口径
-    (spec 2026-09-06 决策 8);缺 verdict 键兑底 malicious = 生产读
-    路径同口径(旧快照兼容;与另外三个 eval 消费面「缺键即滤」不同,
-    属各自口径,不可在 helper 内吞并)。"""
+    (spec 2026-09-06 决策 8)。缺 verdict 键 = 不算指控(#529 裁决
+    2026-11-28,宁少算;旧口径兑底 malicious,九处收成 accusation.
+    is_accusation 后统一)。"""
     ca = (snapshot.get(ip, {}).get("classifications") or {}).get(ctype, {})
-    # 边缘差异(兑底 malicious)显式留在调用点:accuser_pool 不做指控章判定
-    return len(accuser_pool(
-        ((d["source"], d.get("reliability", 0.5), d.get("first_seen"))
+    # 指控章判定单一口径:accusation.is_accusation(#529;缺「判定」键不算指控)
+    return accuser_pool(
+        ((d["source"], d.get("reliability", 0.5), d.get("first_seen"),
+          ctype, d.get("last_seen"))   # 末位 last_seen(#523 时钟同生产)
          for d in ca.get("details", [])
-         if d.get("verdict", "malicious") in _ACCUSING and d.get("source")),
-        ctype))
+         if is_accusation(d) and d.get("source")),
+        ctype)
+
+
+def _effective_votes(snapshot: Snapshot, ip: str, ctype: str) -> int:
+    """谱系去重后的池大小(源个数读数口径)。印证旗判式不在此:
+    #522 起旗 = corroborated_after_dedup(非派生且系数非零 ≥2),
+    cg 走该判式;本函数只服务池大小读数与既有测试钉子。"""
+    return len(_group_pool(snapshot, ip, ctype))
 
 
 def cg(baseline: Snapshot, candidate: Snapshot, candidate_src: str) -> Metric:
-    """Corroboration Gain: pairs where lineage-deduped effective votes went
-    1 -> >=2 because of the candidate (production dedup_lineage, D5/B3: a
-    shadowed derived source gains nothing)."""
+    """Corroboration Gain: pairs where the production corroboration predicate
+    (corroborated_after_dedup,#522 丙口径:非派生且系数非零 ≥2)flips
+    False -> True because of the candidate (D5/B3: a shadowed derived source
+    gains nothing;旧「谱系去重后有效票 1 -> >=2」判式被 #522 取代)。"""
     gained = []
     for ip, res in candidate.items():
         for ctype, ca in res.get("classifications", {}).items():
             if candidate_src not in {s.get("source") for s in ca.get("sources", [])}:
                 continue
-            before = _effective_votes(baseline, ip, ctype)
-            after = _effective_votes(candidate, ip, ctype)
-            if before < 2 <= after:
+            before = corroborated_after_dedup(_group_pool(baseline, ip, ctype))
+            after = corroborated_after_dedup(_group_pool(candidate, ip, ctype))
+            if not before and after:
                 gained.append((ip, ctype))
     return Metric(value=len(gained), n=len(gained), detail=gained)
 

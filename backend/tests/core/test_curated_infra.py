@@ -2,7 +2,9 @@
 
 四样钉死(评审 Finding 2/3 + 主会话裁决):
 - 名单文本只住一个文件:rows() 产出的整行针(f"{ip},{svc},{provider}",
-  2026-11-26 时为 56 个)逐个在 backend/ipdb 的 *.py 里字节搜,每个只能
+  2026-11-26 时为 56 个;2026-11-28 #439 扩员 Quad9 六址后为 62 个;
+  同日 #577 再补 Unsecured 档 IPv6 两员后为 64 个)逐个在
+  backend/ipdb 的 *.py 里字节搜,每个只能
   命中 _curated_infra.py——抄第二份、漏一行、换一行都翻红;#439 改名单
   时针自动跟着名单走,不用再挑。只扫 *.py 的原因:__pycache__ 里的 .pyc
   是本模块自己的字节码,必然含针,不算「第二份」。
@@ -63,3 +65,39 @@ def test_rows_roundtrip_matches_materialized_csv(tmp_path):
         (tmp_path / "infra_services.csv").read_text(encoding="utf-8")))
         if r]
     assert rows() == materialized
+
+
+def test_quad9_expansion_439():
+    """#439(2026-11-28 裁决):名单扩员 Quad9 两档六地址,巡检锚弃 9.9.9.4
+    换官方 Unsecured 两员。变异面:①锚表回填 9.9.9.4 → 末条断言红
+    (selftest.sh §14 锚集对拍哨同批红:py↔JS 单源镜像漂移);
+    ②名单删 9.9.9.11 行 → 计数断言红(61≠64;整行针随名单自动走,
+    test_roster_text_lives_in_exactly_one_file 不会红——针从 rows() 生成,
+    源删行针同删,test_infra_services 的 48/14 族计数钉同批红)。
+    出处 https://quad9.net/service/service-addresses-and-features/
+    (2026-11-28 核)。"""
+    ips = {ip for ip, _svc, _provider in rows()}
+    assert len(ips) == 64, f"名单 64 员(#577 后),实际 {len(ips)}"
+    assert {"9.9.9.10", "149.112.112.10", "9.9.9.11", "149.112.112.11",
+            "2620:fe::11", "2620:fe::fe:11"} <= ips, "Quad9 两档六地址缺员"
+    from ipdb._eval.anchors import ANCHORS
+    anchor_ips = {ip for ip, _k in ANCHORS}
+    assert "9.9.9.4" not in anchor_ips, "9.9.9.4 无官方出处,不得回填锚表"
+    assert {"9.9.9.10", "149.112.112.10"} <= anchor_ips, "Unsecured 两锚缺员"
+
+
+def test_quad9_unsecured_ipv6_pair_577():
+    """#577(2026-11-28 裁决):巡检干净地址名单补 Unsecured 档 IPv6 两员,
+    与该档两个 IPv4 同档同 provider 拼写(名单和 Quad9 官方 Unsecured 档
+    四地址对齐)。锚表不动(干净地址名单不是锚);HARVEST_REV 不动(生产
+    零指控,沿用 #439 做法)。变异面:①名单删 2620:fe::10 行 → 集合断言红
+    (test_quad9_expansion_439 的 64 员计数同批红);②任一 Unsecured 行改
+    provider 拼写 → 同档断言红(整行针随名单自动走,唯一性测试不红)。
+    出处 https://quad9.net/service/service-addresses-and-features/
+    (2026-11-28 核)。"""
+    provider_of = {ip: prov for ip, _svc, prov in rows()}
+    tier = {"9.9.9.10", "149.112.112.10", "2620:fe::10", "2620:fe::fe:10"}
+    missing = [ip for ip in tier if ip not in provider_of]
+    assert not missing, f"Quad9 Unsecured 档四地址缺员: {missing}"
+    wrong = [ip for ip in tier if provider_of[ip] != "Quad9 Unsecured"]
+    assert not wrong, f"Unsecured 档四地址未同档(provider 拼写漂移): {wrong}"

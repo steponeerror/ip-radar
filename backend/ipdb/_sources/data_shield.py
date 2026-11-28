@@ -26,3 +26,4 @@ class DataShieldSource(IpListSource):
     derived = True                       # 聚合器:谱系去重用(registry derived-set,ipsum 同款)
     provenance_tier = "C"                # C=聚合派生(S21)
     authoritative_for = ()               # corroboration only (SM-F1)
+    infra_noise_filter = False         # 显式关:存量源行为不变(#531;基类默认已翻 True)

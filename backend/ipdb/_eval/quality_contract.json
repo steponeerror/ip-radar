@@ -5,7 +5,7 @@
     {
       "id": "fp-restraint-anchors",
       "dimension": "误报克制",
-      "metric": "锚集已知答案回归:32 锚(22 clean+4 reserved+3 hosting+3 tor)全阴性期望,失败数=0",
+      "metric": "锚集已知答案回归:33 锚(23 clean+4 reserved+3 hosting+3 tor)全阴性期望,失败数=0",
       "oracle": {
         "kind": "subprocess",
         "argv": ["-m", "ipdb._eval", "--anchors", "--json"]
@@ -64,7 +64,7 @@
       "metric": "阳性锚召回率(蜜罐真值层抽 20-30 条正例「必须指控」探针,Clopper-Pearson 区间)",
       "oracle": {
         "kind": "none",
-        "reason": "待 #350:阳性锚未建——现行 32 锚全阴性(漏报面 FN 零覆盖,存在数月到 2026-11-15 盘点才显形);覆盖账本首笔,报告单必须显形不许静默省略"
+        "reason": "待 #350:阳性锚未建——现行 33 锚全阴性(2026-11-15 盘点时是 32 锚,#439 后 33 锚)(漏报面 FN 零覆盖,存在数月到 2026-11-15 盘点才显形);覆盖账本首笔,报告单必须显形不许静默省略"
       },
       "expectation": "无读数=阳性锚待补 #350;建成后期望=「≥k 个独立源指控」分级(ADR 0021 决策4),v0 只测量不持门(ADR 0013 纪律)",
       "verdict": "score",
@@ -94,7 +94,7 @@
         "kind": "func",
         "ref": "ipdb._eval.incident_replay.replay_dns114_false_corroboration"
       },
-      "expectation": "pass=true:两源投影均无事故 IP 指控(回声无从形成)、聚合器派生指控不双计(独立票数与 conf 不变)；已知无门面如实入读数 known_gap=纯 derived 互证仍算 corroborated(grill Q2 2026-10-11 人裁现状,披露面=_eval/agg_share.py,改语义须另票)——不发明门；防线=ziyadnz.py/cps_collected_iocs.py infra_noise_filter + _logodds.dedup_lineage",
+      "expectation": "pass=true:两源投影均无事故 IP 指控(回声无从形成)、聚合器派生指控不双计(独立票数与 conf 不变)；known_gap=旧缺口「纯 derived 互证仍算 corroborated」(grill Q2 2026-10-11)已由 #522(2026-11-28 丙口径)关闭:判式=_logodds.corroborated_after_dedup,历史披露面=_eval/agg_share.py——不发明门；防线=ziyadnz.py/cps_collected_iocs.py infra_noise_filter + _logodds.dedup_lineage",
       "verdict": "gate",
       "track": "baseline",
       "trigger": "change",

@@ -44,6 +44,7 @@ class IP2ProxySource(Source):
     reliability = 0.80
     single_evidence = True   # one evidence per CIDR → stream load() (OOM guard)
     authoritative_for = ("is_proxy",)
+    infra_noise_filter = False         # 良性源用不上;显式声明是 #531 契约(基类默认已翻 True)
     # ADR 0001(2026-10-12, grill Q1):全量资产弃权 —— 类级不再声明
     # classification_type/verdict,对齐 cloud_ranges 全弃权样板(DCH 时代
     # 残留的 "proxy"/"suspicious" 随 VPN/PUB/TOR 一并弃)。指控语料枚举

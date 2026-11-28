@@ -48,12 +48,13 @@ def test_replay_green(fn, monkeypatch):
 
 
 def test_dns114_replay_records_known_gap_honestly():
-    """事故②的纯 derived 互证语义今天无门:known_gap 必须如实显形,
-    不发明门(报告面 = 覆盖账本,缺门不许静默)。"""
+    """事故②的 known_gap 必须如实显形(#522 起旧缺口已关闭,字段改记
+    关闭出处,不发明门、也不静默抹历史)。"""
     r = IR.replay_dns114_false_corroboration()
     assert r["pass"] is True                   # 现役防线(载入+去重)绿
     assert r["known_gap"] and "corroborated" in r["known_gap"]
     assert "agg_share" in r["known_gap"]       # 披露面指向真源
+    assert "#522" in r["known_gap"]            # 关闭出处可追溯
 
 
 # ── 红面:防线改坏 → 回放必红(回归保护证明) ────────────────────────

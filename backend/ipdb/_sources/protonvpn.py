@@ -23,6 +23,7 @@ class ProtonVPNSource(IpListSource):
     stale_days = 7
     reliability = 0.75                   # provider-official data via daily mirror
     authoritative_for = ()
+    infra_noise_filter = False         # 良性源用不上;显式声明是 #531 契约(基类默认已翻 True)
 
     def parse_raw(self, raw: bytes) -> list[str]:
         """CSV ``src_ip_entry,src_ip_exit,cc,cc`` → deduped bare IPs."""

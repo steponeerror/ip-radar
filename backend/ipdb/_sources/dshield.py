@@ -25,6 +25,7 @@ class DshieldSource(Source):
     verdict = "malicious"
     stale_days = 1
     reliability = 0.70
+    infra_noise_filter = False         # 显式关:存量源行为不变(#531;基类默认已翻 True)
 
     def download(self, token: CancelToken | None = None) -> None:
         self._data_dir.mkdir(parents=True, exist_ok=True)

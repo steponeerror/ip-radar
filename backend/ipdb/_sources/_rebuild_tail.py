@@ -27,7 +27,8 @@ class InfraNoiseGate:
     """载入期 infra 噪声排除的记账员(issue #183;#291 过滤+记账收共享)。
 
     语义与三车道原手抄段逐字等价:
-    - enabled = 源显式 opt-in(infra_noise_filter,基类默认 False)+ 总开关
+    - enabled = 源声明开关(infra_noise_filter;#531 起基类缺省 True,
+      新源默认开,存量源必须显式声明)+ 总开关
       IP_RADAR_INFRA_NOISE_FILTER(默认开;显式关 = 关过滤重建即复原);
     - blocks(net):net 为已解析 IPv4/IPv6Network;仅 curated 单址精确
       指控命中(宁少算,更大 CIDR 不排 —— 判定单源点在

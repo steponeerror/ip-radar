@@ -40,6 +40,9 @@ _API_BASE = "https://api.abuseipdb.com/api/v2/blacklist"
 class AbuseIPDBSource(IpListSource):
     # ── required for discovery + lifecycle ──
     name = "abuseipdb"
+    # 上游唯一时间 = 最近一次报告(lastReportedAt,#523 裁决 Q27):
+    # 只写 last_seen,不写 first_seen(旧行为同值双填,分数不变)。
+    single_timestamp_means = "last_seen"
     category = "threat"
     url = _API_BASE                 # informational; download() builds the real URL
     filename = "abuseipdb.txt"
@@ -54,6 +57,7 @@ class AbuseIPDBSource(IpListSource):
     reliability = 0.65
     authoritative_for = ()               # SM-F1:is_malicious 幻影轴已删(threatfox/emerging_threats/spamhaus 原声明同样删除)
     provenance_tier = "A"                 # A=官方一手(S21):AbuseIPDB 官方 API 数据
+    infra_noise_filter = False         # 显式关:存量源行为不变(#531;基类默认已翻 True)
 
     def __init__(self, data_dir, confidence_minimum=None, limit=10000):
         # convention: a source reads its OWN env vars; the registry passes only data_dir
@@ -144,8 +148,7 @@ class AbuseIPDBSource(IpListSource):
                 classification_type=self.classification_type,
                 verdict=self.verdict,
                 reliability=self.reliability,
-                first_seen=last or None,   # single-timestamp double-fill → 衰减
-                last_seen=last or None,
+                last_seen=last or None,   # 单时间源只写 last_seen(#523;时钟按它)
                 reporter_count=total or None,
             ).to_dict()
             records.append((str(net), [ev]))

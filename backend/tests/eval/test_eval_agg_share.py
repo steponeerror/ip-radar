@@ -1,9 +1,11 @@
 """印证对聚合器占比披露(spec #180 Q4 租户 / issue #183)。
 
-v0 只披露不改 corroborated 语义:纯 derived 组互证仍是裁定内现状
-(tests/eval/test_eval_metrics.py::test_cg_two_derived_alone_corroborate 钉死)。
-Seam = 纯函数面(lookup 载荷 → 占比结构)+ probe_ips 采样装配;载荷用
-生产 to_dict 形状(classifications/details/corroborated)。
+corroborated 语义已改(#522,2026-11-28 丙口径:「非派生且系数非零」
+的源 ≥2 才算印证):纯 derived 组不再亮旗,本披露的分母随之缩小;
+本测试钉生产旗面(fixture 的 corroborated 键)+ 镜像重算一致性
+(corroborated_after_dedup)两条腿。Seam = 纯函数面(lookup 载荷 →
+占比结构)+ probe_ips 采样装配;载荷用生产 to_dict 形状
+(classifications/details/corroborated)。
 """
 import json
 from pathlib import Path
@@ -26,16 +28,27 @@ def _payload(groups):
             "is_reserved": False, "attributes": {}}
 
 
-# 事故形状:纯 derived 组互证(ziyadnz 0.55 + cps 0.50,系数恒 0 的 cps
-# 也算一票 → corroborated True —— 2026-10-24 114DNS 机制正身)
+# 事故形状(2026-10-24 114DNS 机制正身):纯 derived 组互证(ziyadnz
+# 0.55 + cps 0.50)。#522 起生产不再给这类组亮旗(qualifying=0);此处
+# 保留 corroborated=True 旧载荷,钉「镜像重算不一致 → 计数显形、不计入」
+# 的防漂移腿(若生产回退旧判式,本 fixture 会重新计入 → 测试红)。
 _INCIDENT = _payload([("blacklist", "malicious", True, [
     ("ziyadnz", 0.55, "malicious"),
     ("cps_collected_iocs", 0.50, "malicious"),
 ])])
-# 混合印证:非 derived 锚证人 + 更强的聚合器票(production 语义:derived
-# 系数 ≤ 最强非 derived 会被 dedup_lineage 剔除,那不是真混合印证组)
+# 纯 derived 双源且两个都非零(评审 #572 #10):agg_share 单独去掉
+# 「非派生」条件时,_INCIDENT(cps 系数 0)仍会被旧判式拒,本对不会——
+# 钉死「去掉非派生」这类漂移也要红。
+_PURE_DERIVED_NZ = _payload([("blacklist", "malicious", True, [
+    ("ziyadnz", 0.55, "malicious"),
+    ("otx", 0.55, "malicious"),
+])])
+# 混合印证:两个非 derived 证人 + 更强的聚合器票(derived 系数 ≤ 最强
+# 非 derived 会被 dedup_lineage 剔,更强则幸存——幸存派生票不算印证
+# 资格但计入聚合器占比)。#522:旗由两个非 derived 非零证人抬。
 _MIXED = _payload([("blacklist", "malicious", True, [
     ("abuseipdb", 0.80, "malicious"),
+    ("spamhaus", 0.70, "malicious"),
     ("ziyadnz", 0.90, "malicious"),
 ])])
 # 单源未印证
@@ -44,33 +57,71 @@ _SINGLE = _payload([("blacklist", "malicious", False, [
 ])])
 
 
-def test_pure_derived_group_counted_as_echo_evidence():
-    res = corroboration_agg_share(lambda ip: _INCIDENT, ["203.0.113.7"])
-    assert res["n_probe"] == 1
+def test_pure_derived_group_no_longer_corroborated():
+    """#522 丙口径:纯 derived 互证(qualifying=0)不再算印证——即使
+    载荷仍带旧旗 corroborated=True,镜像重算(corroborated_after_dedup)
+    判不一致 → 计数显形、不计入分母、不产例。生产若回退旧判式,本
+    测试红。变异①(共享函数回退 len>=2)→ 红;agg_share 单独去掉
+    「非派生」条件 → _PURE_DERIVED_NZ 那半也红。"""
+    res = corroboration_agg_share(
+        lambda ip: _INCIDENT if ip.endswith(".7") else _PURE_DERIVED_NZ,
+        ["203.0.113.7", "203.0.113.8"])
+    assert res["n_probe"] == 2
+    assert res["n_corroborated_groups"] == 0
+    assert res["n_flag_mismatch_groups"] == 2       # 漂移显形,不静默(评审 #10)
+    assert res["n_pure_derived_groups"] == 0
+    assert res["examples"] == []
+
+
+def test_flag_mismatch_counter_catches_production_drift():
+    """防漂移腿端到端(评审 #10):载荷经生产 _assess_classification 现算,
+    一致组计数 0;把生产 _merge.py:330 改回旧判式(len>=2)→ 纯派生/
+    零系数景的生产旗翻 True,计数 > 0 → 本测试红。"""
+    from datetime import datetime, timezone, timedelta
+    from ipdb._merge import _assess_classification
+    from ipdb._types import EvidenceObservation
+    fs = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+
+    def obs(src, r):
+        return EvidenceObservation(source=src, classification_type="spam",
+                                   verdict="malicious", reliability=r,
+                                   first_seen=fs, confidence=None,
+                                   malware_name=None, extra={})
+
+    payloads = []
+    for grp in ([obs("otx", 0.55), obs("otx_subscribed", 0.55)],
+                [obs("threatfox", 0.50), obs("tweetfeed", 0.50)],
+                [obs("threatfox", 0.85), obs("abuseipdb", 0.75)]):
+        ca = _assess_classification(grp)
+        payloads.append({"classifications": {"spam": {
+            "type": "spam", "verdict": ca.verdict, "detected": True,
+            "corroborated": ca.corroborated, "details": ca.details}}})
+    it = iter(payloads)
+    res = corroboration_agg_share(lambda ip: next(it),
+                                  ["203.0.113.1", "203.0.113.2",
+                                   "203.0.113.3"])
+    assert res["n_flag_mismatch_groups"] == 0
     assert res["n_corroborated_groups"] == 1
-    assert res["n_pure_derived_groups"] == 1        # 纯 derived 互证被点名
-    assert res["derived_vote_share"] == 1.0
-    ex = res["examples"][0]
-    assert ex["ip"] == "203.0.113.7" and ex["type"] == "blacklist"
-    assert sorted(ex["accusers"]) == ["cps_collected_iocs", "ziyadnz"]
 
 
 def test_mixed_corroboration_counts_votes_not_echo():
     res = corroboration_agg_share(lambda ip: _MIXED, ["203.0.113.7"])
     assert res["n_corroborated_groups"] == 1
     assert res["n_pure_derived_groups"] == 0
-    assert res["derived_vote_share"] == 0.5         # 2 票中 1 票是聚合器
+    assert res["derived_vote_share"] == 1 / 3       # 池内 3 票(abuseipdb/spamhaus/ziyadnz)中 1 票是聚合器;旗由两个非 derived 非零证人抬(#522)
+    assert res["examples"] == []            # 纯 derived 互证结构性不可亮旗 → 无例
 
 
 def test_uncorroborated_and_clean_not_counted():
     res = corroboration_agg_share(
-        lambda ip: _INCIDENT if ip.endswith(".7") else
+        lambda ip: _MIXED if ip.endswith(".7") else
         (_SINGLE if ip.endswith(".8") else
          {"classifications": {}, "is_reserved": False}),
         ["203.0.113.7", "203.0.113.8", "203.0.113.9"])
     assert res["n_probe"] == 3
     assert res["n_corroborated_groups"] == 1        # 单源/clean 不进分母
-    assert res["n_pure_derived_groups"] == 1
+    assert res["n_flag_mismatch_groups"] == 0
+    assert res["n_pure_derived_groups"] == 0
 
 
 def test_lineage_anchor_echo_not_double_counted():
@@ -86,13 +137,15 @@ def test_lineage_anchor_echo_not_double_counted():
 
 
 def test_suspicious_verdict_is_accusing_chapter():
+    # #522 起纯 derived 双源不再亮旗,改用两个非 derived 证人钉
+    # 「suspicious 章计入印证判定」不变。
     susp = _payload([("bruteforce", "suspicious", True, [
-        ("otx", 0.55, "suspicious"),
-        ("otx_subscribed", 0.55, "suspicious"),
+        ("threatfox", 0.60, "suspicious"),
+        ("urlhaus", 0.60, "suspicious"),
     ])])
     res = corroboration_agg_share(lambda ip: susp, ["203.0.113.7"])
     assert res["n_corroborated_groups"] == 1
-    assert res["n_pure_derived_groups"] == 1        # otx 双 derived 互证
+    assert res["n_pure_derived_groups"] == 0
 
 
 class _FakeSource:
@@ -131,14 +184,27 @@ def test_agg_share_cli_lands_report_and_exits_zero(
     src = SimpleNamespace(name="a", _path=raw,
                           classification_type="blacklist",
                           verdict="malicious")
-    reg = SimpleNamespace(load_db=lambda: None, lookup=lambda ip: _INCIDENT,
+    reg = SimpleNamespace(load_db=lambda: None, lookup=lambda ip: _MIXED,
                           sources=[src])
     monkeypatch.setattr(M, "REPORT_DIR", tmp_path)
     monkeypatch.setattr(M, "_real_registry", lambda: reg)
     M.main(["--agg-share", "--json"])      # 不 SystemExit:披露非闸门
     out = json.loads(capsys.readouterr().out)
     assert out["n_probe"] == 3
-    assert out["n_pure_derived_groups"] == 3
+    assert out["n_corroborated_groups"] == 3
+    assert out["n_pure_derived_groups"] == 0        # #522:纯 derived 互证结构性不可亮旗
     files = list((tmp_path / "model").glob("agg-share-*.json"))
     assert len(files) == 1
     assert json.loads(files[0].read_text())["kind"] == "agg_share"
+
+
+def test_missing_verdict_details_not_counted_as_accusation():
+    """#529 裁决 2026-11-28:detail 缺 verdict 键 = 不算指控(旧口径缺键
+    即滤本就同向;现统一走 accusation.is_accusation 防漂移)。缺键后镜像
+    重算池 <2 票 → 组不计入(corroborated 旗与重算不一致时不计)。"""
+    pay = _payload([("blacklist", "malicious", True,
+                     [("a", 0.80, "malicious"), ("b", 0.80, "malicious")])])
+    for d in pay["classifications"]["blacklist"]["details"]:
+        del d["verdict"]
+    res = corroboration_agg_share(lambda ip: pay, ["203.0.113.7"])
+    assert res["n_corroborated_groups"] == 0

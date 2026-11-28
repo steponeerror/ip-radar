@@ -144,9 +144,12 @@ def test_anchors_cli_persists_but_stdout_envelope_unchanged(
 
 def test_public_resolver_anchors_pinned():
     # 发现固化(ADR 0008;STANDARD.md 金标层 G-2):114DNS(cps+ziyadnz 假印证
-    # 事故)/223.5.5.5(阿里公共 DNS)/9.9.9.4(Quad9 未过滤变体,与 9.9.9.9
-    # 区分——干净面必须覆盖未过滤腿)三新员入 clean 面。
-    for ip in ("114.114.114.114", "223.5.5.5", "9.9.9.4"):
+    # 事故)/223.5.5.5(阿里公共 DNS)/Quad9 官方 Unsecured 档 9.9.9.10 与
+    # 149.112.112.10(#439,2026-11-28:原锚 9.9.9.4 不在 Quad9 官方服务
+    # 地址表里,换员;出处
+    # https://quad9.net/service/service-addresses-and-features/)入 clean 面
+    # ——干净面必须覆盖「不过滤」的公共解析器。
+    for ip in ("114.114.114.114", "223.5.5.5", "9.9.9.10", "149.112.112.10"):
         assert (ip, "clean") in ANCHORS, f"公共解析器锚缺:{ip}"
 
 
@@ -312,3 +315,21 @@ def test_anchor_sweep_cli_load_fail_envelope(monkeypatch, capsys, tmp_path):
         M.main(["--anchor-sweep", "--json"])
     d = json.loads(capsys.readouterr().out)
     assert d["error"]["code"] == "internal" and e.value.code == 1
+
+
+def test_anchor_sweep_accusers_missing_verdict_detail_not_counted():
+    """#529 裁决 2026-11-28:detail 缺 verdict 键 = 不算指控证人(旧口径
+    缺键即滤本就同向;现统一走 accusation.is_accusation 防漂移)。"""
+    from ipdb._eval.anchors import anchor_sweep
+
+    def lk(ip):
+        return {"classifications": {"blacklist": {
+            "type": "blacklist", "verdict": "malicious", "detected": True,
+            "confidence": 55, "corroborated": False,
+            "details": [{"source": "nokey"},
+                        {"source": "yes", "verdict": "malicious"}]}},
+            "is_reserved": False, "attributes": {}}
+
+    sweep = anchor_sweep(lk)
+    assert sweep["results"]          # ANCHORS 全集非空
+    assert all(r["accusers"] == ["yes"] for r in sweep["results"])

@@ -35,7 +35,8 @@ def test_reportedip_grouped_by_canonical_with_official_names(tmp_path: Path):
     assert by_type["scanner"]["native_categories"] == ["WP User Enumeration"]
     for e in one:                                            # shared per-row fields on every evidence
         assert e["confidence"] == 100
-        assert e["first_seen"] == "2026-07-02T11:18:40"
+        assert e["last_seen"] == "2026-07-02T11:18:40"
+        assert "first_seen" not in e               # #523:单时间源不再双填
         assert e["verdict"] == "malicious"
         assert "native_type" not in (e.get("extra") or {})
 
@@ -94,12 +95,14 @@ def test_reportedip_ipv6_harvested(tmp_path: Path):
     assert "1.4.221.22" in ips                           # IPv4 kept
 
 
-def test_reportedip_last_reported_fills_last_seen(tmp_path):
+def test_reportedip_last_reported_fills_last_seen_only(tmp_path):
+    """#523 裁决 Q27:last_reported → last_seen 只写一处,不再双填 first_seen
+    (时钟按 last_seen 优先,分数与旧双填同值)。"""
     header = "ip,confidence,categories,last_reported\n"
     row = '1.4.221.22,100,"18;31","2026-07-02 11:18:40"\n'
     (tmp_path / "reportedip.csv").write_text(header + row)
     s = ReportedIPSource(data_dir=tmp_path)
     s.rebuild()
     rec = s.query("1.4.221.22")[0]
-    assert rec["first_seen"] == "2026-07-02T11:18:40"
     assert rec["last_seen"] == "2026-07-02T11:18:40"
+    assert "first_seen" not in rec

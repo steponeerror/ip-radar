@@ -13,6 +13,9 @@ _EXIT_ADDR_RE = re.compile(r"^ExitAddress\s+(\S+)(?:\s+(\S+ \S+))?")
 
 class TorExitSource(IpListSource):
     name = "tor_exits"
+    # 上游唯一时间 = 最近一次出现在出口列表(#523 裁决 Q27):只写
+    # last_seen,不写 first_seen(旧行为同值双填,分数不变)。
+    single_timestamp_means = "last_seen"
     category = "asset"
     url = "https://check.torproject.org/exit-addresses"
     filename = "tor-exit-addresses.txt"
@@ -23,6 +26,7 @@ class TorExitSource(IpListSource):
     reliability = 0.95
     authoritative_for = ("is_tor",)
     provenance_tier = "A"                 # A=官方一手(S21):Tor Project 官方出口列表
+    infra_noise_filter = False         # 良性源用不上;显式声明是 #531 契约(基类默认已翻 True)
 
     def parse_raw(self, raw: bytes) -> list[str]:
         ips = []
@@ -67,8 +71,7 @@ class TorExitSource(IpListSource):
                     reliability=self.reliability,
                     is_tor=True,
                     native_types={"is_tor": "TOR"},
-                    first_seen=ts.strip() or None,   # double-fill → 衰减
-                    last_seen=ts.strip() or None,
+                    last_seen=ts.strip() or None,   # 单时间源只写 last_seen(#523)
                 ).to_dict()
                 records.append((str(net), [ev]))
                 covered.append(str(net))

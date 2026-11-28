@@ -128,6 +128,7 @@ class RirDelegatedSource(Source):
     reliability = 0.99            # RIR 官方发布(NRO 标准,五家同步日更)
     authoritative_for = ()
     single_evidence = True        # ~300k CIDR → stream load(OOM 守卫)
+    infra_noise_filter = False         # 显式关:存量源行为不变(#531;基类默认已翻 True)
 
     def __init__(self, data_dir: Path):
         super().__init__(data_dir)   # _path/_lmdb_base 全由 filename 推导(目录形)

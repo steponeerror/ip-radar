@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from ipdb._logodds import (
     logit, decay_factor, coefficient, dedup_lineage, accuser_pool,
     assertion_confidence, multicategory_posterior, asof_to_now,
+    corroborated_after_dedup,
 )
 
 
@@ -235,6 +236,65 @@ def test_accuser_pool_per_entry_ctype_cross_group(monkeypatch):
     assert out[0][1] > out[1][1] == out[2][1]
 
 
+def test_last_seen_clock_preferred_over_first_seen():
+    """#523 裁决 Q26 + 返工裁决(2026-11-28):两个时间都可解析时取较晚
+    的当「最近见到」(年龄取小);只有一个可解析就用那一个;两个都缺
+    → 不衰减。手工推导锚逐一钉。"""
+    now = datetime(2026, 8, 29, tzinfo=timezone.utc)
+    fs = "2026-05-31T00:00:00+00:00"      # 龄 90d
+    ls = "2026-08-28T00:00:00+00:00"      # 龄 1d
+    fresh = coefficient(0.85, fs, now=now, last_seen=ls)
+    assert fresh == logit(0.85) * 2 ** (-1 / 60)
+    assert fresh > coefficient(0.85, fs, now=now)
+    # 返工裁决:ls 早于 fs(上游给错)→ 取较晚的 fs,与旧时钟逐位相同
+    # ——这是 threatfox 那 136 条「ls 早几小时」回到保守旧时钟的依据
+    assert coefficient(0.85, fs, now=now, last_seen="2026-05-30T00:00:00+00:00") \
+        == coefficient(0.85, fs, now=now)
+    # 脏 last_seen → 退 first_seen,与不传 last_seen 逐位相同(旧镜像里
+    # 双填同值,这是「五源分数不变」读数的函数级依据)
+    assert coefficient(0.85, fs, now=now, last_seen="junk") \
+        == coefficient(0.85, fs, now=now)
+    # 两处都缺 → None 龄不衰减
+    assert coefficient(0.85, None, now=now) == logit(0.85)
+    # 五个改键源在生产里的真实形状:fs 缺 + ls 有值(返工评审 4)
+    assert coefficient(0.85, None, now=now, last_seen=ls) \
+        == logit(0.85) * 2 ** (-1 / 60)
+
+
+def test_accuser_pool_5tuple_single_ts_shape(monkeypatch):
+    """返工评审 4:五元组 (src, r, None, ctype, ls) —— 五个改键源在生产
+    details 里的真实形状(first_seen 为空 + last_seen 有值):池子系数
+    必须按 ls 衰减,fs 为 None 不得把证据打成「无时间=满权重」。"""
+    now = datetime(2026, 10, 31, tzinfo=timezone.utc)
+    ls = "2026-10-30T00:00:00+00:00"       # 龄 1d
+    out = accuser_pool(
+        [("stopforumspam", 0.7, None, "spam", ls)], now=now)
+    assert out == [("stopforumspam",
+                    coefficient(0.7, None, "spam", now=now, last_seen=ls))]
+    assert out[0][1] < logit(0.7)          # 确实在衰减,不是满权重
+
+
+def test_accuser_pool_5tuple_last_seen(monkeypatch):
+    """#523 五元组:第 4 元仍是逐条 ctype,末位才是 last_seen;老写法
+    (3/4 元)继续可用。注入 scanner 半衰期 600d 让「ctype 生效」与
+    「last_seen 生效」都可分辨。"""
+    now = datetime(2026, 10, 31, tzinfo=timezone.utc)
+    fs = "2026-07-02T00:00:00+00:00"       # 龄 120d
+    ls = "2026-10-30T00:00:00+00:00"       # 龄 1d
+    monkeypatch.setattr("ipdb._logodds.DECAY_OVERRIDES", {"scanner": 600.0})
+    out = accuser_pool(
+        [("abuseipdb", 0.9, fs, "scanner", ls)], now=now)
+    assert out == [("abuseipdb", coefficient(0.9, fs, "scanner", now=now,
+                                              last_seen=ls))]
+    assert out[0][1] > coefficient(0.9, fs, "scanner", now=now)   # 时钟变年轻
+    # 四元老写法仍可用(末位缺席 → 时钟退 first_seen,零漂移)
+    assert accuser_pool([("x", 0.9, fs, "scanner")], now=now) == \
+        [("x", coefficient(0.9, fs, "scanner", now=now))]
+    # 三元老写法仍可用(组级 ctype 形参)
+    assert accuser_pool([("x", 0.9, fs)], "scanner", now=now) == \
+        [("x", coefficient(0.9, fs, "scanner", now=now))]
+
+
 def test_accuser_pool_cross_group_with_asof_anchor():
     """跨组池化 × asof 时钟锚(F2/S37)联合直断——生产 _types.threat_summary
     的调用形态(4 元组 + now=asof_to_now(asof)):锚回拨 → 证据更
@@ -326,3 +386,62 @@ def test_dedup_lineage_never_empties_nonempty_pool():
             assert out, f"非空池被剔空: {pool}"
             shrank += len(out) < len(pool)
     assert shrank > 0                  # 现行表下确有剔除发生(断言非平凡)
+
+
+# ── 印证旗判式单一真源(#522,2026-11-28 丙口径)──
+
+def test_corroborated_after_dedup_two_first_hand_true():
+    """两个非派生且系数 > 0 的源 ≥2 → True(旗的本义不变)。"""
+    assert corroborated_after_dedup(
+        [("threatfox", 1.7), ("abuseipdb", 1.1)]) is True
+
+
+def test_corroborated_after_dedup_pure_derived_pair_false():
+    """#522 情形①:两个聚合器抄同一批上游,不是两票(扫描面纯派生
+    丢旗共 64,044 组,含两个都非零的回声对与含零系数的回声对)。变异③
+    (去掉「非派生」条件)→ 本测试红。"""
+    assert corroborated_after_dedup(
+        [("otx", 0.2), ("otx_subscribed", 0.4)]) is False
+    assert corroborated_after_dedup(
+        [("ziyadnz", 0.1872), ("cps_collected_iocs", 0.0)]) is False
+
+
+def test_corroborated_after_dedup_negative_coeff_not_a_vote():
+    """系数为负 = 对分数有反向贡献,不算一票(评审后主会话裁,#522
+    返工):可靠性校准可压到 0.5 以下(_registry._calibrated,如
+    dshield 0.01)。变异(改回 `c != 0.0`)→ 本测试红。"""
+    assert corroborated_after_dedup(
+        [("dshield", -4.6), ("calibrated_low", -4.6)]) is False
+    # 负系数第一手也不抬旗:1 个正贡献票不足两票
+    assert corroborated_after_dedup(
+        [("threatfox", 1.7), ("dshield", -4.6)]) is False
+
+
+def test_corroborated_after_dedup_zero_coeff_does_not_lift():
+    """#522 情形②:r=0.5 → logit=0 → 系数恒 0,第一手源也不抬旗
+    (本票扫描件:零系数抬旗 938 + 一票第一手配零系数/派生回声 318,
+    dev/arch-r4-scan/i522_corrob_pinned.json)。变异②(去掉「系数
+    > 0」条件)→ 本测试红。"""
+    assert corroborated_after_dedup(
+        [("threatfox", 0.0), ("tweetfeed", 0.0)]) is False
+    assert corroborated_after_dedup(
+        [("threatfox", 1.7), ("tweetfeed", 0.0)]) is False
+
+
+def test_corroborated_after_dedup_first_hand_plus_derived_echo_false():
+    """1 个第一手正系数票 + 派生回声(即使派生更强、dedup 幸存)不足两票
+    (读数①形 157 组)。"""
+    assert corroborated_after_dedup(
+        [("abuseipdb", 1.386), ("ziyadnz", 2.197)]) is False
+
+
+def test_corroborated_after_dedup_empty_and_solo_false():
+    assert corroborated_after_dedup([]) is False
+    assert corroborated_after_dedup([("threatfox", 1.7)]) is False
+
+
+def test_corroborated_after_dedup_derived_stronger_still_counts_first_hands():
+    """派生源在场不稀释:非派生且系数 > 0 ≥2 照样 True(派生幸存票只进占比
+    披露,不影响旗)。"""
+    assert corroborated_after_dedup(
+        [("abuseipdb", 1.386), ("spamhaus", 1.0), ("ziyadnz", 2.197)]) is True

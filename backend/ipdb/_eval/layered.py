@@ -23,6 +23,7 @@ from .snapshots import persist_ip_snapshot
 
 # 指控章单一口径(EV-F1 同款借道, metrics/anchors 同源): malicious/suspicious
 from .._types import _ACCUSING
+from .accusation import is_accusation
 
 # 交集审计优先级(§2.3): 高优先层成员从低优先层剔除
 PRIORITY = ("truth", "infra", "neutral", "consensus")
@@ -109,14 +110,15 @@ def _accusing_types(payload: dict) -> list[str]:
 
 
 def _accusing_sources(payload: dict) -> set[str]:
-    """指控源名集(跨全部组): 组 details 逐源 verdict ∈ _ACCUSING, 缺
-    verdict 键兑底 malicious(metrics._effective_votes 同口径, 旧载荷兼容)。"""
+    """指控源名集(跨全部组): 组 details 逐源 verdict ∈ _ACCUSING;
+    缺 verdict 键 = 不算指控(#529 裁决 2026-11-28,旧口径兑底
+    malicious,现收成 accusation.is_accusation 单一口径)。"""
     out: set[str] = set()
     for ca in (payload.get("classifications") or {}).values():
         if ca.get("verdict") not in _ACCUSING:
             continue
         for d in ca.get("details", []):
-            if d.get("verdict", "malicious") in _ACCUSING and d.get("source"):
+            if is_accusation(d) and d.get("source"):
                 out.add(d["source"])
     return out
 

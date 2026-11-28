@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 
 from .._types import _ACCUSING   # 指控章单一口径(EV-F1 同款借道,A2 遗留收口)
+from .accusation import is_accusation   # detail 级判定(#529 九处收成一处)
 
 ANCHORS: list[tuple[str, str]] = [
     # public DNS/resolver infra — must stay clean
@@ -16,10 +17,13 @@ ANCHORS: list[tuple[str, str]] = [
     ("9.9.9.9", "clean"), ("208.67.222.222", "clean"),
     # 公共解析器扩员(#182/#180 租户批,STANDARD.md 金标层 G-2 同批):
     # 114DNS=2026-10-24 事故面(cps+ziyadnz 聚合器假印证,ADR 0008);
-    # 223.5.5.5=阿里公共 DNS;9.9.9.4=Quad9 未过滤变体(与 9.9.9.9 区分,
-    # 干净面须覆盖未过滤腿)。
+    # 223.5.5.5=阿里公共 DNS。Quad9 未过滤腿(#439,2026-11-28)=官方
+    # Unsecured 档 9.9.9.10 / 149.112.112.10(出处
+    # https://quad9.net/service/service-addresses-and-features/,
+    # 2026-11-28 核);原锚 9.9.9.4 不在该官方服务地址表里(无出处,
+    # 裁决换员,票评在案),干净面须覆盖「不过滤」的公共解析器。
     ("114.114.114.114", "clean"), ("223.5.5.5", "clean"),
-    ("9.9.9.4", "clean"),
+    ("9.9.9.10", "clean"), ("149.112.112.10", "clean"),
     # DNS 根服务器 13 letter 地址(#233 交付块1,ADR 0013 谓词限定锚:
     # 沦陷指控不得出现;infra_services 良性断言面同批扩员,两观测线独立
     # 合法两票)。取数:https://www.internic.net/domain/root.zone
@@ -98,7 +102,7 @@ def anchor_sweep(lookup_fn) -> dict:
         accusers = sorted({d["source"]
                            for ca in (res.get("classifications") or {}).values()
                            for d in (ca.get("details") or [])
-                           if d.get("verdict") in _ACCUSING and d.get("source")})
+                           if is_accusation(d) and d.get("source")})
         conflict = any(ca.get("verdict_conflict")
                        for ca in (res.get("classifications") or {}).values())
         results.append({"ip": ip, "expect": expect, "ok": why is None,

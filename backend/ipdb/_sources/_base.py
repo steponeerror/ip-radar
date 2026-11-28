@@ -85,9 +85,14 @@ class SourceBase:
     # 由裸属性提供同值。
     lmdb_backed: bool = True
     # 载入期基础设施噪声过滤(issue #183):True = rebuild 载入面排除
-    # infra_services curated 单址集(默认 False,事故源显式 opt-in);
-    # 三条取数车道(harvest/明单行/CSV 行)各自接线本 flag。
-    infra_noise_filter: bool = False
+    # infra_services curated 单址集;三条取数车道(harvest/明单行/CSV 行)
+    # 各自接线本 flag。
+    # 缺省 True(#531 裁决 2026-11-28):名单里的地址被单一源指控是反复
+    # 出现的误报形状(114DNS #392、ControlD #450、1.0.0.1 #514),新接入
+    # 的源默认打开;存量源必须显式声明(61 个 False / 10 个 True,缺声明
+    # 由契约测试 tests/source_infra/test_infra_noise_filter_contract.py
+    # fail-loud)。名单增改仍由所有者裁决。
+    infra_noise_filter: bool = True
     # 转载关系声明(卡2上半,#464):本源转载的原创源名,写在转载者
     # 上,每条声明旁注实测同场共现率与日期(哲学 6:一切声明可证伪;
     # 共现证不了照搬——同一上游或各自独立封同一批地址也会共现,评审
@@ -99,6 +104,14 @@ class SourceBase:
     # 必须已登记(registry 启动校验,拼错/已撤/发现期实例化失败即炸,
     # 元数据契约同款 fail-loud)。
     republishes: tuple[str, ...] = ()
+    # 单时间源的时间含义声明(#523 裁决 Q27,2026-11-28):上游只给一个
+    # 时间时,这个时间是「首次见到」(first_seen,默认)还是「最近一次
+    # 见到」(last_seen)。声明 last_seen 的源只写 last_seen、不写
+    # first_seen(时钟按最近见到,分数与旧双填完全同值,只是证据里
+    # 不再出现 first_seen 键);双时间源两个都可解析时取较晚的当最近
+    # 见到(返工裁决 2026-11-28,_age_days 取小年龄)。AST 契约测试
+    # 钉住声明与写法一致(tests/source_infra/test_single_timestamp_contract.py)。
+    single_timestamp_means: str = "first_seen"
 
     def __init__(self, data_dir: Path):
         self._data_dir = data_dir

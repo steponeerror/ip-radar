@@ -89,17 +89,17 @@ def test_load_cleans_legacy_txt_artifacts(tmp_path):
     assert list(tmp_path.glob("stopforumspam.txt.lmdb*")) == []
 
 
-def test_harvest_fills_first_seen_for_decay(tmp_path):
-    """Single-timestamp sources double-fill first_seen (dataplane/reportedip
-    precedent) — first_seen drives per-source decay in the log-odds posterior;
-    without it a 365-day list never ages."""
+def test_harvest_writes_last_seen_only(tmp_path):
+    """单时间源只写 last_seen(#523 裁决 Q27,取代旧 double-fill):
+    first_seen 键不再出现在证据里;时钟按 last_seen,分数与旧双填同值。"""
     zp = _write(tmp_path, ['"1.2.3.4","71","2026-03-27 01:53:34"'])
     import zipfile
     s = StopForumSpamSource(data_dir=tmp_path)
     s._path.write_bytes(zipfile.ZipFile(zp).read("listed_ip_365_all.txt"))
     ev = dict(s.harvest())["1.2.3.4"]
-    assert ev.first_seen == "2026-03-27 01:53:34"
     assert ev.last_seen == "2026-03-27 01:53:34"
+    assert ev.first_seen is None
+    assert s.single_timestamp_means == "last_seen"
 
 
 def test_download_harvest_rebuild_query_roundtrip(monkeypatch, tmp_path):
@@ -117,7 +117,7 @@ def test_download_harvest_rebuild_query_roundtrip(monkeypatch, tmp_path):
     rec = s.query("1.2.3.4")[0]
     assert rec["reporter_count"] == 71
     assert rec["last_seen"] == "2026-03-27 01:53:34"
-    assert rec["first_seen"] == "2026-03-27 01:53:34"
+    assert "first_seen" not in rec              # #523:单时间源不再双填
     assert 0 <= rec["confidence"] <= 100        # graded score persists
     assert s.query("5.6.7.8")[0]["reporter_count"] == 1
 
