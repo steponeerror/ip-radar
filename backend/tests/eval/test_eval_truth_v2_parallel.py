@@ -2,7 +2,7 @@
 """真值语料 v2 并排对照 + 换卷触发测试(ADR 0017 §5 / issue #262 T3)。
 
 全部离线合成:Hornet 侧资产与 v2 语料件现场合成出版;registry 用富假
-lookup(满足 32 锚四类期望: clean/reserved/tor/hosting)。验收线
+lookup(满足 33 锚四类期望: clean/reserved/tor/hosting)。验收线
 (issue #262):双语料装配通路一次月轮端到端(锚回归+θ 记分双卷)、
 对照读数落工件可复核、换卷触发判定 = 布尔+依据行(人裁执行,判定工件
 不触发任何自动动作)、坏语料件照炸不装假零。
@@ -27,7 +27,7 @@ _HOSTING = {ip for ip, expect in ANCHORS if expect == "hosting"}
 
 
 class _AnchorsRegistry:
-    """lookup: 锚 IP 按期望形状作答(32 锚全绿可复现);语料成员按
+    """lookup: 锚 IP 按期望形状作答(33 锚全绿可复现);语料成员按
     accusers 表给指控载荷;其余 IP 干净(无指控)。"""
 
     def __init__(self, accusers: dict[str, list[str]]):
@@ -94,7 +94,7 @@ def _publish_hornet(assets_root: Path, members=_HORNET_MEMBERS):
 
 
 def test_parallel_dual_corpus_end_to_end(tmp_path):
-    """同一次月轮双语料各跑一遍: 32 锚回归(引擎判定门, 卷无关, 同轮单跑
+    """同一次月轮双语料各跑一遍: 33 锚回归(引擎判定门, 卷无关, 同轮单跑
     两卷共用)+ θ̂/k 记分(两卷同源口径);对照工件两翼齐全可复核。"""
     from ipdb._eval.truth_v2_parallel import run_truth_v2_parallel
     assets = tmp_path / "assets"
@@ -126,7 +126,7 @@ def test_parallel_dual_corpus_end_to_end(tmp_path):
     assert set(vr.keys()) == set(hr.keys())           # 读数键形一致(可对照)
     # 锚回归: 引擎判定门同轮单跑, 两卷共用一份读数
     a = res["anchors"]
-    assert a["n_total"] == len(ANCHORS) == 32 and a["n_fail"] == 0
+    assert a["n_total"] == len(ANCHORS) == 33 and a["n_fail"] == 0  # 33=#439(2026-11-28)9.9.9.4→9.9.9.10/149.112.112.10 后
     assert a["all_green"] is True
     # asof 透传断言(评审环 4b): 两卷读数各自锚在卷 created_at(Hornet
     # 2026-09-30 ×4 成员, v2 2026-10-31 ×4);锚回归不带 asof(不计数)
@@ -204,10 +204,10 @@ def test_parallel_corrupt_corpus_fails_loud(tmp_path):
                               assets_root=assets)
 
 
-# ── 2. 换卷触发判定: 连续两轮 32 锚全绿 = 满足(人裁执行) ─────────
+# ── 2. 换卷触发判定: 连续两轮 33 锚全绿 = 满足(人裁执行) ─────────
 
 
-def _write_anchors_round(model_dir: Path, name: str, *, n_total=32,
+def _write_anchors_round(model_dir: Path, name: str, *, n_total=33,
                          failures=(), generated_at="2026-11-01"):
     model_dir.mkdir(parents=True, exist_ok=True)
     p = model_dir / name
@@ -230,11 +230,11 @@ def test_swap_trigger_two_consecutive_green_rounds(tmp_path):
                          generated_at="2026-11-01")
     res = run_truth_v2_swap(md, out_dir=out)
     assert res["trigger_met"] is True
-    assert res["n_expected"] == 32 and res["rounds_seen"] == 2
+    assert res["n_expected"] == 33 and res["rounds_seen"] == 2
     ev = "\n".join(res["evidence"])
     assert "anchors-20261001-041700.json" in ev
     assert "anchors-20261101-041700.json" in ev
-    assert "n_total=32 n_fail=0" in ev
+    assert "n_total=33 n_fail=0" in ev
     assert "人裁" in res["human_decision"]           # 不自动换卷
     art = list(md.glob("truth-v2-swap-*.json"))
     assert len(art) == 1
@@ -250,7 +250,7 @@ def test_swap_trigger_not_met_single_round(tmp_path):
     _write_anchors_round(md, "anchors-20261101-041700.json")
     rounds = load_anchor_rounds(md)
     assert len(rounds) == 1
-    res = swap_trigger_from_rounds(rounds, n_expected=32)
+    res = swap_trigger_from_rounds(rounds, n_expected=33)
     assert res["trigger_met"] is False
     assert "不足" in "\n".join(res["evidence"]) and "需连续两轮" in "\n".join(
         res["evidence"])
@@ -271,7 +271,7 @@ def test_swap_trigger_not_met_latest_red(tmp_path):
 
 def test_swap_trigger_not_met_anchor_set_shape_change(tmp_path):
     """历史轮锚集形状与当前不符(n_total≠len(ANCHORS), 如锚集扩员前的旧轮)
-    → 该轮不算「32 锚全绿」, 依据行明示形状失配。"""
+    → 该轮不算「33 锚全绿」, 依据行明示形状失配。"""
     from ipdb._eval.truth_v2_parallel import run_truth_v2_swap
     md = tmp_path / "out" / "model"
     _write_anchors_round(md, "anchors-20260901-041700.json", n_total=19)
@@ -401,7 +401,7 @@ def test_cli_build_leg_writes_summary_artifact(tmp_path, monkeypatch,
 
 def test_anchors_run_once_shared_by_both_sides(tmp_path):
     """「各跑一遍锚回归」的接线口径钉测: 锚回归 = 引擎判定门(run_anchors,
-    32 锚已知答案, 与真值卷无关)→ 同轮单跑、两卷共用一份读数(宁少算,
+    33 锚已知答案, 与真值卷无关)→ 同轮单跑、两卷共用一份读数(宁少算,
     同引擎同轮跑两遍是回声不是印证);并排件单 anchors 块自带该声明。"""
     from ipdb._eval.truth_v2_parallel import run_truth_v2_parallel
     assets = tmp_path / "assets"

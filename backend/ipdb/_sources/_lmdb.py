@@ -334,7 +334,7 @@ def rev_path(base: Path) -> Path:
 # 过滤/提交面,backend/ipdb/_sources/** 与 _base/_source_base 的 rebuild
 # 路径)必须 bump 此常量(单调 +1);存量族 .rev 缺失 = 不匹配 → 首跑
 # 一次全量重建自愈(部署注记见 CHANGELOG)。详见 docs/adr/0009。
-HARVEST_REV = 2
+HARVEST_REV = 3
 # gen-2 兑付(issue #240 判例执行,2026-11-15):#239 tweetfeed 接入
 # infra_noise_filter 未 bump 的欠账,与 #347 reportedip 同款接入同批在
 # gen-2 到位(单调 +1:1→2)。存量族 .rev=1/缺失 = 不匹配 → 首跑一次
@@ -342,10 +342,18 @@ HARVEST_REV = 2
 # CHANGELOG)。详见 docs/adr/0009。
 # 挂账(2026-11-25,#450):otx 开 infra_noise_filter 未 bump——不为一个源做
 # 全族迁移重建;存量 otx 族靠每日刷新重建自愈(download 每次重写数据文件),
-# 明账记在 otx.py 类注释与 CHANGELOG 部署注记,下次 bump 时顺带兑付。
+# 明账记在 otx.py 类注释与 CHANGELOG 部署注记,下次 bump 时顺带兑付
+# (已兑付:gen-3 #439,见下)。
 # 挂账(2026-11-27,#514):nerd_medconf 开 infra_noise_filter 同样未 bump,
 # 理由同 #450(存量族靠刷新重建自愈;明账记在 nerd_medconf.py 类注释与
-# CHANGELOG 部署注记),下次 bump 时与 otx 那笔一并兑付。
+# CHANGELOG 部署注记),下次 bump 时与 otx 那笔一并兑付(已兑付:gen-3 #439)。
+# gen-3 兑付(#439,2026-11-28):curated 名单扩员 Quad9 两档六地址
+# (9.9.9.10/149.112.112.10 Unsecured + Secured w/ECS 四员;官方表
+# https://quad9.net/service/service-addresses-and-features/)——开着载入期
+# 基础设施过滤的源(infra_noise_filter=True 共 10 源)重建后这六个地址
+# 不再入库,属 harvest 过滤语义变化,照规矩 bump(单调 +1:2→3)。
+# 同批兑付上两笔挂账:全族迁移重建把 otx/nerd_medconf 存量族一并按
+# 滤后语义重写。存量族 .rev=2 = 不匹配 → 首跑一次全量重建自愈。
 
 
 def env_dir(base: Path, epoch: int) -> Path:
