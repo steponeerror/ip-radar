@@ -578,7 +578,8 @@ test("#415 健康轮中止终态:在飞(已认领)轮被 abortTask → outcome a
     const exited = new Promise((resolve) => {
       // spawn+detached(非 execFile):detached 只在 spawn 面 true 生效(新进程组;实锤
       // execFileCb 忽略之,组杀 ESRCH)——#579 锁代理链 SIGKILL 必须发整组(代理父→
-      // flock→引擎子),只杀代理父会留孤儿引擎继续跑完(锁已释放,注入失效)。
+      // flock→引擎子)。只杀代理父不成:代理死了但 flock 和引擎都还活着、锁还在
+      // (#579 评审实测 flock -n 返回 1),引擎照跑完,注入失效。
       child = spawn(process.execPath, [
         path.resolve(import.meta.dirname, "..", "run-health.mjs"), roundId,
         "--from-phase", "TRIAGE", "--fixtures", FIXTURES, "--db", db,
@@ -591,8 +592,9 @@ test("#415 健康轮中止终态:在飞(已认领)轮被 abortTask → outcome a
       if (!claimed) await new Promise((r) => setTimeout(r, 2));
     }
     assert.equal(claimed, true, "认领件应在帽内落盘(轮已起步)");
-    // #579 锁代理:SIGKILL 必须发整进程组(代理父→flock→引擎子链),只杀代理父会留
-    // 孤儿引擎继续跑完(锁已释放,注入失效——首轮实测 state.json 照落)
+    // #579 锁代理:SIGKILL 必须发整进程组(代理父→flock→引擎子链)。只杀代理父不成:
+    // 代理死了但 flock 和引擎都活着、锁还在(#579 评审实测 flock -n 返回 1),引擎照
+    // 跑完,注入失效(首轮实测 state.json 照落)
     process.kill(-child.pid, "SIGKILL");
     assert.deepEqual(await exited, { code: null, signal: "SIGKILL" }, "SIGKILL 期望进程被信号杀(非自杀)");
     assert.equal(fs.existsSync(stateFile), false, "前提:在飞轮无终态镜像件(健康轮无进度镜像;若子进程已跑完=本测注入失效)");

@@ -20,7 +20,7 @@
 
 discover 域键注(#384,2026-11-22):`issues_opened` 是 T5 冻结面唯一 sanctioned 增键(票面明令);`queue_writes` 保留恒空数组(回放兼容,不删字段——PROPOSE 行已停写,queue.md 历史行不动)。开票失败 fail-soft 不入信封错误面(轮主体健康=ok),留痕面=轮目录 `enqueue-issues.json`(digest/复盘直读,字段同名)。
 
-- exit 码表(三 launcher 同律):`0`=completed;`1`=failed/refused/parked;`2`=用法错;`3`=运行期异常(launcher 自身崩溃,非轮内失败);`16`=库锁冲突拒跑(#579:另一引擎进程持 `<db>.lock` 独占锁,手动侧当场拒、cron 侧等 900s 上限;stdout 零信封,一句话含在飞任务诊断走 stderr——拒跑发生在轮次开始前,与用法错不发 JSON 同族;锁机制见 `ops/agent-v2/db-lock.mjs`)。
+- exit 码表(三 launcher 同律):`0`=completed;`1`=failed/refused/parked;`2`=用法错;`3`=运行期异常(launcher 自身崩溃,非轮内失败);`16`=库锁冲突拒跑(#579:另一引擎进程持 `<db>.lock` 独占锁,手动侧当场拒、cron 侧等 900s 上限;stdout 零信封,一句话含在飞任务诊断走 stderr——拒跑发生在轮次开始前,与用法错不发 JSON 同族;锁机制见 `ops/agent-v2/db-lock.mjs`;锁面自身故障(flock 二进制起不来、锁文件打不开)不算锁冲突,走 `3` 运行期异常,#579 返工建议3/7)。
 - `--to-phase`(health 专属,旧 replay `--to` 镜像):停笔相位完成后终态 completed,结果单 stages 止于该相位;默认 CLOSE 全链。
 
 ## usage 口径裁定(定案②)

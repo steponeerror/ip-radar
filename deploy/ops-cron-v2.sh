@@ -28,7 +28,7 @@
 # 同精神面保留:缺件不硬跑,明确跳过留痕 exit 0,下窗自愈(内层凭证预检)。
 #
 # 退出码透传 v2 信封面(ENVELOPE.md):0=completed;1=failed/refused/parked;
-# 2=用法错;3=运行期异常。cron 面不重试——下窗自然重来(同 ops-cron.sh 判例)。
+# 2=用法错;3=运行期异常;16=库锁冲突拒跑(#579;锁面自身故障 flock 缺席/锁文件打不开也归 3)。cron 面不重试——下窗自然重来(同 ops-cron.sh 判例)。
 set -u
 CONTAINER="${OPS_V2_CONTAINER:-ip-lookup-tool-ipradar-1}"
 OPS_ROOT="${OPS_V2_OPS_ROOT:-/app/data/ops}"   # 测试/运维 override;缺省生产 ops 树

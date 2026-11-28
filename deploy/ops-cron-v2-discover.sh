@@ -24,7 +24,8 @@
 #   不设:OPS_SWEEP_DRY_RUN(finding 出口生产语义真开,#184)。
 #
 # 退出码透传 v2 信封面(ENVELOPE.md):0=completed;1=failed/refused/parked(月帽拒启
-# budget_monthly 同码,属业务面留给观察面复盘);2=用法错;3=运行期异常。cron 面不
+# budget_monthly 同码,属业务面留给观察面复盘);2=用法错;3=运行期异常;16=库锁冲突
+# 拒跑(#579;锁面自身故障 flock 缺席/锁文件打不开也归 3)。cron 面不
 # 重试——次日窗自然重来(同 ops-cron.sh 判例)。
 set -u
 CONTAINER="${OPS_V2_CONTAINER:-ip-lookup-tool-ipradar-1}"

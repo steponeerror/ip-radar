@@ -28,6 +28,13 @@
 // 无证据即无话),退出码 EXIT_DB_LOCKED=16(固定非零;ENVELOPE.md 码表新行;stdout
 // 零信封——拒跑发生在轮次开始之前,属 launcher 层,与用法错 exit 2 不发 JSON 同族)。
 //
+// 锁面自身故障 ≠ 锁冲突(#579 返工建议3/7):flock 二进制起不来、锁文件打不开都退出
+// 3(ENVELOPE 运行期异常),不当 16——16 是「有锁、别人持有」的语义,fail-closed 也
+// 要报对原因;且 flock 缺席时不再按 16 空转等待额(cron 侧 900s 白等)。
+//
+// 标记只活一代(#579 返工建议6):held 进程 spawn 的子进程不带 DB_LOCK_HELD 标记,
+// 否则孙子进程会自认已持锁、裸开库。
+//
 // 循环引用面:本模块 import resolveDbPath 自 entry.mjs(entry 又 import withDbLock
 // 自本模块)——两侧都只在函数体内取用(函数声明提升,模块体求值期不触),与既有
 // entry↔run-add↔tasks 循环(见 entry.mjs 分派表注)同款安全类。
@@ -105,8 +112,9 @@ export function liveTasksReport(dbPath) {
 }
 
 // 一跳代理:spawn `flock [-E 16] [-n|-w 秒] <lock> node [execArgv] <argv>`,stdio
-// 透传。resolve 值:flock 进程退出码(锁冲突=EXIT_DB_LOCKED;业务退出码原样;信号死
-// =本进程重拉同信号,flock(1) 对信号死子进程的同款判定,实测 rc=137 判例)。
+// 透传。resolve 值 {rc, error}:flock 进程退出码(锁冲突=EXIT_DB_LOCKED;业务退出码
+// 原样;信号死=本进程重拉同信号,flock(1) 对信号死子进程的同款判定,实测 rc=137
+// 判例);spawn 自身失败(flock 不在 PATH 等)= rc:-1 + error(与锁冲突分道,返工建议3)。
 function spawnFlock({ lockPath, argv, env, waitS }) {
   return new Promise((resolve) => {
     const args = [
@@ -121,10 +129,11 @@ function spawnFlock({ lockPath, argv, env, waitS }) {
       stdio: "inherit",
       env: { ...env, [DB_LOCK_HELD_ENV]: "1" }, // 标记:子进程直接跑业务,不再代理
     });
-    child.on("error", () => resolve(EXIT_DB_LOCKED)); // flock 二进制缺席=锁不可得,fail-closed 拒跑(queue-lock.mjs 同律:无锁跑=重开本票要关的竞态窗)
+    let spawnErr = null;
+    child.on("error", (e) => { spawnErr = e; resolve({ rc: -1, error: e }); }); // flock 起不来(ENOENT 等)=锁面自身故障,单独出口(返工建议3),不当 16
     child.on("close", (code, signal) => {
       if (signal) process.kill(process.pid, signal); // 信号死透传(SIGKILL 崩溃缝面:外层观察者仍见信号;锁随 flock 进程死已释放)
-      resolve(code ?? EXIT_DB_LOCKED);
+      resolve({ rc: code ?? EXIT_DB_LOCKED, error: spawnErr });
     });
   });
 }
@@ -141,18 +150,38 @@ function waitSecondsFromEnv(env) {
 //   {status:"refused", code, message, live} —— 拿不到锁,stderr 已写、退出码已置 16
 export async function withDbLock(run, opts = {}) {
   const env = opts.env ?? process.env;
-  if (env[DB_LOCK_HELD_ENV] === "1")
+  if (env[DB_LOCK_HELD_ENV] === "1") {
+    // 标记只活一代(返工建议6):held 进程再 spawn 的子进程不许继承标记,否则孙子进程
+    // 会自认已持锁、裸开库(评审指认:env 参数隔离的测试面不受影响——非 process.env
+    // 时删不着也不该删)。
+    if (env === process.env) delete process.env[DB_LOCK_HELD_ENV];
     return { status: "held", result: await run() }; // 锁由 flock 进程持有到其退出(=引擎进程全生命周期),直接跑业务
+  }
   const argv = opts.argv ?? process.argv.slice(1); // 脚本路径+参数(flock 后原样重放面)
   const dbPath = opts.dbPath ?? dbPathFromArgv(opts.fullArgv ?? process.argv, env);
   const lockPath = dbLockPath(dbPath);
   const waitS = opts.waitS ?? waitSecondsFromEnv(env);
   const deadline = Date.now() + waitS * 1000;
   fs.mkdirSync(path.dirname(lockPath), { recursive: true }); // 锁文件父目录惰性首建(flock O_CREAT 需父目录在场;queue-lock appendQueueRowCore 同判例)
+  try {
+    fs.closeSync(fs.openSync(lockPath, "a")); // 锁文件预开检查(返工建议7):flock O_CREAT 打不开(权限/盘满等)会以自身 rc=1 退出、与业务失败撞面——先探测,单独出口
+  } catch (e) {
+    const msg = `锁文件打不开:${lockPath}:${e?.message ?? e}`;
+    process.stderr.write(`[v2-db-lock] ${msg}\n`);
+    process.exitCode = 3; // ENVELOPE 运行期异常:锁面自身故障,非锁冲突
+    return { status: "refused", code: "lock_file_unopenable", message: msg };
+  }
   for (;;) {
     const remainingS = Math.ceil((deadline - Date.now()) / 1000);
     const chunkS = remainingS <= 0 ? 0 : Math.min(DB_LOCK_POLL_S, remainingS);
-    const rc = await spawnFlock({ lockPath, argv, env, waitS: chunkS });
+    const { rc, error } = await spawnFlock({ lockPath, argv, env, waitS: chunkS });
+    if (rc === -1) {
+      // flock 起不来(返工建议3):锁面自身故障,立刻退出 3,不当锁冲突 16 空转等待额
+      const msg = `锁工具 flock 起不来:${error?.message ?? error}`;
+      process.stderr.write(`[v2-db-lock] ${msg}\n`);
+      process.exitCode = 3;
+      return { status: "refused", code: "flock_unavailable", message: msg };
+    }
     if (rc !== EXIT_DB_LOCKED) {
       process.exitCode = rc; // 业务/信号面退出码透传(0=completed;1/2/3=ENVELOPE 码表;137=被杀)
       return { status: "proxied", code: rc };

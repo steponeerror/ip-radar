@@ -3,7 +3,9 @@
 // A 的任务信息;变异①共享锁/变异③诊断漏状态靶)②A 被 SIGKILL → 锁随进程死释放,
 // B 立刻能拿锁跑完 ③同 requestId 双提交框架层幂等(admission 事务内查重,现状已安全
 // 钉防回归)④cron 侧等待语义(旋钮 OPS_V2_DB_LOCK_WAIT_S:持锁方限时释放 → 等到跑完;
-// 永不释放 → 上限到即拒)+ 入口闭集静态覆盖(变异②靶)。
+// 永不释放 → 上限到即拒)+ 入口闭集静态覆盖(变异②靶)。返工新增(2026-11-28 评审后):
+// ⑤两真引擎进程真时序;⑥held 标记不传孙子(变异③新靶);⑦flock 缺席退出 3 非锁冲突
+// (变异①新靶;原变异①靶=共享锁仍在第①测)。
 // 载具=shadow-diff seedWorld faux 面,零网络零花费(cron-launchers.test.mjs 同判例)。
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -42,11 +44,29 @@ function cli(args, env) {
 }
 const awaitClose = (c) => c.done;
 
-// ── 入口闭集静态覆盖(变异②靶:留一个口不加锁 → 此测红)──
-test("入口闭集:run-health/run-discover/run-add/entry 四口都调 withDbLock(#579 任务书入口清单)", () => {
-  for (const f of ["run-health.mjs", "run-discover.mjs", "run-add.mjs", "entry.mjs"]) {
-    const src = fs.readFileSync(path.join(HERE, "..", f), "utf8");
-    assert.match(src, /withDbLock\(/, `${f} 缺 withDbLock 调用——入口闭集破口(撞窗重开)`);
+// ── 入口闭集静态覆盖(变异②靶:留一个口不加锁 → 此测红;返工第4条收紧:清单不写死,
+//    扫顶层文件;匹配前去 // 注释行,正则钉真调用面而非 import/注释字样)──
+// 扫描集判定(返工裁决 B 2026-11-28):带「直接执行才跑」判断(process.argv[1] 共有形状)
+// 且自己开 agent-v2 库(信号=文件内 import openHarness 或 resolveDbPath)的顶层 .mjs。
+// 边界(评审指认后裁决):add-lift.mjs 不开此库(#375 封存的手动 lift 工具链,全文件无
+// openHarness/resolveDbPath);shadow-diff.mjs 自己也不开——两侧子进程各 spawn run-health
+// 且各带自己的 --db 临时库,锁面在子进程已覆盖。两者都不入扫描集(不要求上锁)。
+test("入口闭集:顶层直接执行且开 agent-v2 库的 .mjs 都有 await withDbLock( 调用", () => {
+  const dir = path.resolve(HERE, "..");
+  const required = [];
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (!e.isFile() || !e.name.endsWith(".mjs")) continue; // 只扫顶层文件(tests/、bench/ 是目录,天然不在)
+    const src = fs.readFileSync(path.join(dir, e.name), "utf8");
+    if (/process\.argv\[1\]/.test(src) && /openHarness|resolveDbPath/.test(src)) required.push(e.name);
+  }
+  assert.ok(["entry.mjs", "run-health.mjs", "run-discover.mjs", "run-add.mjs"].every((f) => required.includes(f)),
+    `四入口应都在扫描集内(实得 ${required.join(",")})——开库信号判定漂了`);
+  assert.ok(!required.includes("add-lift.mjs") && !required.includes("shadow-diff.mjs"),
+    `不开 agent-v2 库的 CLI 不应被要求上锁(实得 ${required.join(",")})`);
+  for (const f of required) {
+    const code = fs.readFileSync(path.join(dir, f), "utf8")
+      .split("\n").filter((l) => !/^\s*\/\//.test(l)).join("\n"); // 去 // 注释行:注释里的字样不作数
+    assert.match(code, /^\s*await withDbLock\(/m, `${f} 缺 await withDbLock( 调用——入口闭集破口(撞窗重开)`);
   }
 });
 
@@ -160,6 +180,86 @@ test("③同 requestId 双提交:同 submission id,库里该 request 恰一行,�
       assert.equal(rows.length, 1, `该 request 恰一行 submission(实得 ${rows.length})`);
     } finally { await harness.close(context); }
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+});
+
+// ── ⑤两个真引擎进程(返工第5条):A 真跑轮(带 --db),锁在场且在飞行可见后立刻起
+//    B(同 --db 无轮号——锁面先于用法校验)→ B 拒 16 且报出 A 的在飞轮号(真时序下
+//    的诊断消息面,与①的确定性载具互补),A 不受影响跑完 0。确定性两件:①触发信号
+//    不用认领件(.v2-claim.json)——返工实测它落在 A 收尾前 ~0.3s,晚于 B 的启动耗时,
+//    拿它触发必 flake;改扫 /proc 等 A 的 flock 进程在场(锁面信号,A 起步即成立);
+//    ②A 的 TRIAGE 头部插两个 429 error 回合(rounds.test.mjs #490 同形;生产会话层
+//    自动重试吃掉它们,每次重试带 2s/4s 指数退避)把 A 拉长 ~6s,给 B 的拒跑窗口——
+//    否则「在飞行可见 → A 释放」只有 ~0.3s,B 的启动追不上(返工实测)──
+test("⑤两个真引擎进程:A 跑轮中 B 同库另入口 → B 拒 16 报 A 轮号,A 跑完 0", async () => {
+  const { liveTasksReport } = await import("../db-lock.mjs");
+  const id = rid(14);
+  const w = seedWorld(id);
+  const db = path.join(w.tmp, "s.sqlite");
+  const ERR_TURN = { role: "assistant", content: [], stopReason: "error", errorMessage: "429: too many requests, slow down" }; // 单请求限流说法(model-errors RATE_LIMIT_RE 面;非 1302 不触账户级终态)
+  try {
+    const fx = path.join(w.tmp, "fixtures429");
+    fs.cpSync(FIXTURES, fx, { recursive: true }); // 全量拷贝(TRIAGE 之外的 DEEP 等 Phase 还要各自 fixture 件,缺件=infra 失败,返工实测)
+    const canned = JSON.parse(fs.readFileSync(path.join(FIXTURES, "triage.json"), "utf8"));
+    fs.writeFileSync(path.join(fx, "triage.json"), JSON.stringify({ ...canned, turns: [ERR_TURN, ERR_TURN, ...canned.turns] }));
+    const a = await cli([id, "--from-phase", "TRIAGE", "--fixtures", fx, "--db", db], w.env);
+    let flockSeen = false;
+    for (let i = 0; i < 2000 && !flockSeen; i++) { // 10s 帽:A 的代理 spawn 的 flock 进程(锁文件路径只在它的 argv 里)
+      flockSeen = fs.readdirSync("/proc").some((n) => /^\d+$/.test(n) && (() => { try { return fs.readFileSync(`/proc/${n}/cmdline`, "utf8").includes(dbLockPath(db)); } catch { return false; } })());
+      if (!flockSeen) await new Promise((r) => setTimeout(r, 5));
+    }
+    assert.equal(flockSeen, true, "A 的锁应在帽内被探到在场(锁已被人持)");
+    let live = null;
+    for (let i = 0; i < 6000 && !live; i++) { // 等 A 开库且在飞行可见(诊断消息的数据源;开库前拒跑只写「查不到」)
+      live = liveTasksReport(db);
+      if (!live?.length) { live = null; await new Promise((r) => setTimeout(r, 10)); }
+    }
+    assert.ok(live?.length, "A 的在飞行应在帽内可见");
+    const b = await awaitClose(await cli(["--db", db], w.env));
+    assert.equal(b.code, EXIT_DB_LOCKED, `B 应被 A 的锁拒(stdout=${b.out} stderr=${b.err})`);
+    assert.match(b.err, new RegExp(`round=${id}`), "B 拒跑消息报出 A 的在飞轮号(真时序诊断面)");
+    const ra = await awaitClose(a);
+    assert.equal(ra.code, 0, `A 应不受 B 影响跑完:\n${ra.out}\n${ra.err}`);
+  } finally { fs.rmSync(w.tmp, { recursive: true, force: true }); }
+});
+
+// ── ⑥held 标记只活一代(返工第6条,变异③靶):held 进程内标记应从 process.env 删掉,
+//    它再 spawn 的子进程 env 不含标记——否则孙子进程会自认已持锁、裸开库 ──
+test("⑥held 标记不传孙子:held 进程内标记已删,新 spawn 的子进程 env 无标记", async () => {
+  const { withDbLock, DB_LOCK_HELD_ENV: HELD } = await import("../db-lock.mjs");
+  const { spawnSync } = await import("node:child_process");
+  const prev = process.env[HELD];
+  process.env[HELD] = "1";
+  try {
+    let grandEnvRaw;
+    await withDbLock(async () => {
+      grandEnvRaw = spawnSync(process.execPath, ["-e", "process.stdout.write(JSON.stringify(process.env))"], { encoding: "utf8" }).stdout;
+    });
+    assert.equal(process.env[HELD], undefined, "held 进程自身标记应已删(标记只活一代)");
+    const grandEnv = JSON.parse(grandEnvRaw);
+    assert.equal(grandEnv[HELD], undefined, "孙子进程 env 不应含 held 标记");
+  } finally {
+    if (prev !== undefined) process.env[HELD] = prev; // 恢复现场(进程内其他用例不受染)
+    else delete process.env[HELD];
+  }
+});
+
+// ── ⑦flock 起不来 ≠ 锁冲突(返工第3条,变异①靶):PATH 指空目录 → spawn flock ENOENT
+//    → 立刻退出 3(ENVELOPE 运行期异常)+ stderr 报 flock,不当 16 也不空转等待额 ──
+test("⑦flock 缺席:退出 3,stderr 报锁工具起不来,不当锁冲突 16", async () => {
+  const emptyPath = fs.mkdtempSync(path.join(os.tmpdir(), "v2-dblock-noflock-"));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "v2-dblock-tool-"));
+  try {
+    const p = await new Promise((resolve) => {
+      const c = spawn(process.execPath, [RUN_HEALTH, "--db", path.join(tmp, "s.sqlite")],
+        { env: { ...process.env, PATH: emptyPath }, cwd: path.resolve(HERE, "..") }); // PATH=空目录:flock 解析不到;node 本体用绝对路径不受染
+      let err = "";
+      c.stderr.on("data", (d) => (err += d));
+      c.on("close", (code) => resolve({ code, err }));
+    });
+    assert.equal(p.code, 3, `flock 缺席应退出 3(ENVELOPE 运行期异常),实得 ${p.code}:\n${p.err}`);
+    assert.match(p.err, /锁工具 flock 起不来/, "stderr 报锁工具故障(报对原因,不装锁冲突)");
+    assert.doesNotMatch(p.err, /拒绝跑轮/, "不得走锁冲突 16 出口");
+  } finally { fs.rmSync(emptyPath, { recursive: true, force: true }); fs.rmSync(tmp, { recursive: true, force: true }); }
 });
 
 // ── ④cron 侧等待语义(旋钮调小;票面 900s 生产值由 deploy/ops-cron-v2*.sh 出口,
