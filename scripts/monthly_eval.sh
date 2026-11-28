@@ -261,7 +261,15 @@ LOG_DIR="$REPORT_ROOT/logs"  # #468:每条腿日志目录(报告目录树下 mon
 # honyport 日 CSV 面已接线(#265): 远端 /opt/honyport/out 在场才传
 # --truth-v2-component honyport=<dir>(上文 rsync 面填充 HP_COMPONENT_ARG);
 # 缺席 = 只跑 smallbox, 组件闸哨兵吸收不持死(ADR 0017 §2;§7: 永不入池)。
-LEG_ORDER=(model all anchors dsem agg-share sinkhole-probe anchor-readouts truth-v2 truth-v2-readout audit temporal readout)
+# ── #550 quality-contract 腿入序(变异自检+事故回放的唯一载体接节拍):位置
+# 在 temporal 后、readout 前(不读 model 历史不产出月报输入,放测量腿尾段);
+# 本腿不挡轮:rc 经 LEG_RC 照记进腿级状态件与红态行,但不进结尾 AGG_RC
+# (排除见结尾循环)——契约表 quality_contract.json 现有两行无判定依据
+# (recall-positive-anchors 等 #350 阳性锚未建;consistency-c2-idempotent
+# 载体是一次性脚本,mutation_check.py:64 注释),腿一上来就红,挡轮会让
+# 月轮永远跑不完;等这两行补齐再改成挡轮。本腿也不入报告族 check_family
+# (缺件即死是「崩溃把关」语义,与本腿永不挡轮矛盾;红态靠腿级 rc 外显)。
+LEG_ORDER=(model all anchors dsem agg-share sinkhole-probe anchor-readouts truth-v2 truth-v2-readout audit temporal quality-contract readout)
 declare -A LEG_RC=()
 for _leg in "${LEG_ORDER[@]}"; do LEG_RC[$_leg]=0; done
 LEG_RC[scan-equiv]=0  # #500:非 LEG_ORDER 腿的 rc 槽(接线见红态行、write_leg_status 与 AGG_RC 处)
@@ -344,6 +352,12 @@ path.write_text(json.dumps(doc, ensure_ascii=False, indent=1) + "\n",
 PYEOF
   echo "==> 腿级状态件: $path"
 }
+
+# #550 quality-contract 腿:变异自检+事故回放(#349/ADR 0021)。rc 接住记红
+# (CLI 语义:rc 0=报告产出、腿级失败留在报告 failures 面;rc 2=契约表不合法),
+# 不挡轮的理由与排除点见 LEG_ORDER 上方注释;本腿在渲染前件之前跑完,前件/定稿
+# 两份腿级状态件都含本腿 rc。
+run_step quality-contract --quality-contract || LEG_RC[quality-contract]=$?
 
 # render 前件:readout 腿在飞(null)——月报 render_leg_status 读最新件嵌行
 write_leg_status null
@@ -490,6 +504,9 @@ echo "完成。报告目录: $REPORT_ROOT(model/ 逐轮累积;腿日志 logs/<�
 # 非零退出码感知腿级红;红腿明细在 leg-status 工件与月报腿级行)。
 AGG_RC=0
 for _leg in "${LEG_ORDER[@]}"; do
+  # #550:quality-contract 不挡轮(契约表两行无判定依据,见 LEG_ORDER 注释)——
+  # 红态在腿级状态件/红态行/月报腿级行外显,但不进结尾退出码。
+  if [ "$_leg" = quality-contract ]; then continue; fi
   if [ "${LEG_RC[$_leg]}" != 0 ]; then AGG_RC=${LEG_RC[$_leg]}; break; fi
 done
 # #500 scan-equiv 腿入终态(持门同 anchors;不在 LEG_ORDER 故单列一查):

@@ -2,7 +2,8 @@
 
 契约(TDD 先行,#193 C5 全腿版,承 2026-10-24 F4 anchors 判例推广):
   ① 任一腿红(model/all/anchors/dsem/agg-share/sinkhole-probe/
-     anchor-readouts/truth-v2/truth-v2-readout/audit/temporal/readout)
+     anchor-readouts/truth-v2/truth-v2-readout/audit/temporal/
+     quality-contract(#550 不挡轮特例:红态外显但整轮仍成功)/readout)
      不中止后续腿,工件照写留证(证据不灭);
   ② 红态可见三面:运行日志红态行 + 腿级状态件 leg-status-*.json
      (机器可读,报告根)+ 结尾以腿序首个非零 rc 退出(红态外显不吞);
@@ -122,6 +123,10 @@ PY_STUB = textwrap.dedent(
     if leg dsem;      then printf '{"kind":"dsem"}'       > "$out/model/dsem-$ts.json"; DSEM_RC="${DSEM_MODE:-0}"; fi
     if leg audit;     then printf '{"kind":"audit"}'      > "$out/model/audit-$ts.json"; AUDIT_RC="${AUDIT_MODE:-0}"; fi
     if leg temporal;  then printf '{"kind":"temporal"}'   > "$out/temporal-$ts.json"; TEMPORAL_RC="${TEMPORAL_MODE:-0}"; fi
+    # #550 quality-contract 腿写者桩:真实现 run_contract 落
+    # model/quality-report-<ts>.json(rc 0=报告产出,腿级失败留在报告内);
+    # 红形态(契约表不合法 rc=2/崩溃)由 QUALITY_CONTRACT_MODE 模拟
+    if leg quality-contract; then printf '{"kind":"quality-report"}' > "$out/model/quality-report-$ts.json"; QUALITY_CONTRACT_RC="${QUALITY_CONTRACT_MODE:-0}"; fi
     if leg readout;   then printf '# monthly\\n'          > "$out/monthly-$ts.md"
                         printf '{"kind":"northstar"}'     > "$out/northstar-$ts.json"; READOUT_RC="${READOUT_MODE:-0}"; fi
     if leg anchors; then
@@ -136,7 +141,7 @@ PY_STUB = textwrap.dedent(
     # 运行天然免疫,生产脚本 -newermt 面无需改动)。
     find "$out" -type f -exec touch -d "@$(( $(date +%s) + 300 ))" {} + 2>/dev/null || true
     # 腿 rc 聚合退出(红腿外显自身 rc;#193 各腿不再互断)
-    for v in MODEL_RC ALL_RC ANCHORS_RC DSEM_RC SINKHOLE_PROBE_RC ANCHOR_READOUTS_RC TRUTH_V2_RC TRUTH_V2_READOUT_RC AUDIT_RC TEMPORAL_RC READOUT_RC; do
+    for v in MODEL_RC ALL_RC ANCHORS_RC DSEM_RC SINKHOLE_PROBE_RC ANCHOR_READOUTS_RC TRUTH_V2_RC TRUTH_V2_READOUT_RC AUDIT_RC TEMPORAL_RC QUALITY_CONTRACT_RC READOUT_RC; do
       [ "${!v:-0}" = 0 ] || exit "${!v}"
     done
     exit 0
@@ -249,6 +254,7 @@ def _run_monthly(repo: Path, stubs: Path, tmp_path: Path, *args: str,
                  scan_equiv_mode: str = "0",
                  scan_equiv_compare_mode: str = "0",
                  scan_equiv_single_every: str = "",
+                 quality_contract_mode: str = "0",
                  rsync_pull_mode: str = "0",
                  honyport_probe_mode: str = "1",
                  ) -> tuple[int, str]:
@@ -283,6 +289,7 @@ def _run_monthly(repo: Path, stubs: Path, tmp_path: Path, *args: str,
     env["SCAN_EQUIV_MODE"] = scan_equiv_mode          # #500 collect 步 rc
     env["SCAN_EQUIV_COMPARE_MODE"] = scan_equiv_compare_mode  # #500 compare 步 rc
     env["SCAN_EQUIV_LOG"] = str(tmp_path / "scan-equiv-calls.log")  # #500 桩调用记录
+    env["QUALITY_CONTRACT_MODE"] = quality_contract_mode          # #550 quality-contract 腿 rc
     if scan_equiv_single_every:  # #500 评审返工 7:覆盖抽样密度(校验在脚本侧)
         env["IP_RADAR_SCAN_EQUIV_SINGLE_EVERY"] = scan_equiv_single_every
     env["TMPDIR"] = str(tmp_path)   # #500:样本体落测试临时目录,断言「比完即删」不碰真 /tmp
@@ -410,7 +417,7 @@ def test_green_round_writes_leg_status_with_all_legs(tmp_path):
     for name in ("model", "all", "anchors", "dsem", "agg-share",
                  "sinkhole-probe", "anchor-readouts", "truth-v2",
                  "truth-v2-readout",
-                 "audit", "temporal", "readout"):
+                 "audit", "temporal", "quality-contract", "readout"):
         assert leg["legs"][name] == 0, f"{name} 腿绿轮须 rc=0: {leg}"
     assert leg["legs"]["scan-equiv"] == 0, leg  # 评审返工 8:非旗标腿也进腿级状态
     assert any("scan-equiv=rc0" in ln for ln in _render_leg_status(leg)), \
@@ -808,6 +815,55 @@ def test_scan_equiv_compare_crash_points_at_log(tmp_path):
     assert "多半是崩溃" in out, out
     cmp_ = sorted(_report_root(repo).glob("scan-equiv/compare-*.json"))
     assert cmp_ and cmp_[-1].read_text(encoding="utf-8") == "", cmp_
+
+
+# ── #550:quality-contract 腿(变异自检+事故回放;入 LEG_ORDER 但不持门)──────
+
+def test_quality_contract_leg_in_leg_order(tmp_path):
+    """#550:quality-contract 腿在 LEG_ORDER 里(腿级状态件/红态行迭代
+    共用该清单,缺员即静默)且真跑一条 `--quality-contract` 命令,工件
+    quality-report-*.json 落 model/(run_contract 真实落件位置)。"""
+    repo = _make_repo(tmp_path)
+    stubs = _make_stubs(tmp_path)
+    rc, out = _run_monthly(repo, stubs, tmp_path)
+    assert rc == 0, out
+    assert "quality-contract" in _script_leg_order(), _script_leg_order()
+    assert "==> quality-contract:" in out, out
+    assert list(_report_root(repo).glob("model/quality-report-*.json")), \
+        "quality-report 工件缺席"
+    assert list(_report_root(repo).glob("logs/quality-contract-*.log")), \
+        "quality-contract 腿日志缺席"
+
+
+def test_quality_contract_leg_red_does_not_fail_round(tmp_path):
+    """#550:quality-contract 腿红(rc=2,契约表不合法形态)→ 整轮仍成功
+    (rc=0;不挡轮——契约表现有两行无判定依据,腿一上来就红,挡轮会让
+    月轮永远跑不完),但红态可见三面:腿级状态件记红、运行日志红态行、
+    后续腿(readout)照跑、心跳照推。"""
+    repo = _make_repo(tmp_path)
+    stubs = _make_stubs(tmp_path)
+    rc, out = _run_monthly(repo, stubs, tmp_path, quality_contract_mode="2")
+    assert rc == 0, f"quality-contract 红不挡轮(整轮仍成功),实得 rc={rc}\n{out}"
+    assert "!! quality-contract 腿 rc=2" in out, "红态行缺席\n" + out
+    assert "==> readout:" in out, "quality-contract 红中止了 readout\n" + out
+    assert "完成" in out, out
+    leg = _latest_leg_status(_report_root(repo))
+    assert leg["legs"]["quality-contract"] == 2, leg
+    assert (tmp_path / "heartbeat-marker").exists(), "腿级红≠缺员,须照推心跳"
+    # 渲染面读得出红腿(monthly.py render_leg_status 按 legs 字典通用)
+    assert any("quality-contract" in ln for ln in _render_leg_status(leg)), \
+        _render_leg_status(leg)
+
+
+def test_quality_contract_leg_green_records_zero(tmp_path):
+    """#550:quality-contract 腿绿 → 腿级状态件记 rc=0(腿状态进
+    write_leg_status,日报/月报才读得到)。"""
+    repo = _make_repo(tmp_path)
+    stubs = _make_stubs(tmp_path)
+    rc, out = _run_monthly(repo, stubs, tmp_path)
+    assert rc == 0, out
+    leg = _latest_leg_status(_report_root(repo))
+    assert leg["legs"]["quality-contract"] == 0, leg
 
 
 def test_pull_rsync_command_matches_python_contract(tmp_path):
