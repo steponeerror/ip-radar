@@ -53,16 +53,18 @@ def test_tor_exits_v6_range_and_last_seen(tmp_path):
     assert node[0]["last_seen"] == "2026-08-23T00:00:00"
 
 
-def test_tor_exits_first_seen_double_fill(tmp_path):
-    """single-timestamp double-fill:first_seen 驱动逐源衰减(同 sfs/dataplane
-    先例)。tor r=0.95,缺失则永远 95 不衰减——违背 spec §3.1。"""
+def test_tor_exits_last_seen_only(tmp_path):
+    """#523 裁决 Q27(取代旧 double-fill):上游唯一时间只写 last_seen,
+    first_seen 键不再出现;时钟按 last_seen 优先,分数与旧双填同值。"""
     from ipdb._sources.tor_exits import TorExitSource
     src = TorExitSource(tmp_path)
     (tmp_path / "tor-exit-addresses.txt").write_text(
         "2001:db8::1,2026-08-23T00:00:00\n")
     src.rebuild()
     node = src.query("2001:db8::1")
-    assert node[0]["first_seen"] == "2026-08-23T00:00:00"
+    assert node[0]["last_seen"] == "2026-08-23T00:00:00"
+    assert "first_seen" not in node[0]
+    assert src.single_timestamp_means == "last_seen"
 
 
 def test_tor_exits_parse_raw_accepts_v6():

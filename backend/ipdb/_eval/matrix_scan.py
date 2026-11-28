@@ -39,6 +39,7 @@ from .layered import assemble_four_layers
 from .matrix import (ALL_CELL_IDS, LABELS, MATRIX_PATH, CellKey,
                      SemanticMatrix, load_matrix)
 from .._types import _ACCUSING
+from .accusation import is_accusation
 
 SAMPLE_N = 300                            # truth/neutral/consensus 采样上限
 FULL_SCAN_LAYERS = frozenset({"infra"})   # infra 全量(计划采样契约)
@@ -61,11 +62,12 @@ class CellObservation:
 
 def _detail_sources(groups, *, accusing_only: bool) -> set[str]:
     """组 details → 源名集。score 证据只收指控证人(存档证人不进 P);
-    缺 verdict 键兑底 malicious(exclusive.flagged_sources 同口径)。"""
+    缺 verdict 键 = 不算指控(#529 裁决 2026-11-28,accusation.
+    is_accusation 单一口径;旧口径兑底 malicious)。"""
     out: set[str] = set()
     for ca in groups:
         for d in ca.get("details") or ():
-            if accusing_only and d.get("verdict", "malicious") not in _ACCUSING:
+            if accusing_only and not is_accusation(d):
                 continue
             if d.get("source"):
                 out.add(d["source"])

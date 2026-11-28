@@ -168,7 +168,8 @@ class LookupResult:
             # 缝,confidence 为 round 后整数,回放闸门 C2 前后对照把关。
             _now = _lo.asof_to_now(self.asof)
             deduped = _lo.accuser_pool(
-                ((d["source"], d["reliability"], d.get("first_seen"), v.type)
+                ((d["source"], d["reliability"], d.get("first_seen"), v.type,
+                  d.get("last_seen"))   # 末位 last_seen(#523 时钟按最近见到)
                  for v in self.classifications.values()
                  if v.verdict in _ACCUSING
                  for d in v.details

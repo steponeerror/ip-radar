@@ -18,7 +18,7 @@ import pytest
 
 from ipdb._eval.__main__ import main
 from ipdb._eval.exclusive import (DEFAULT_SEED, ControlAbort, extract_feed_keys,
-                                  run, sample_keys)
+                                  flagged_sources, run, sample_keys)
 
 
 @pytest.fixture(autouse=True)
@@ -197,3 +197,13 @@ def test_lookup_failure_raises(tmp_path):
         run(feed, boom, control_path=ctrl)
     with pytest.raises(ControlAbort):
         run(feed, lambda ip: _payload(ip, []), control_path=ctrl)
+
+
+def test_flagged_sources_missing_verdict_detail_not_counted():
+    """#529 裁决 2026-11-28:detail 缺 verdict 键 = 不算指控(旧口径兑底
+    malicious,判定收成 accusation.is_accusation 单一口径)。"""
+    payload = {"classifications": {"blacklist": {
+        "verdict": "malicious",
+        "details": [{"source": "nokey"},
+                    {"source": "yes", "verdict": "malicious"}]}}}
+    assert flagged_sources("1.2.3.4", lambda ip: payload) == {"yes"}

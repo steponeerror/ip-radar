@@ -8,7 +8,8 @@ BASELINE: Snapshot = {
     "1.1.1.1": {"classifications": {"c2-server": {
         "type": "c2-server", "verdict_conflict": False, "confidence": 50,
         "sources": [{"source": "threatfox"}],
-        "details": [{"source": "threatfox", "reliability": 0.60}]}}},
+        "details": [{"source": "threatfox", "reliability": 0.60,
+                      "verdict": "malicious"}]}}},
     "2.2.2.2": {"classifications": {}},
 }
 # candidate run: cand ALSO now on c2-server for 1.1.1.1 (corroboration); new
@@ -17,12 +18,15 @@ CANDIDATE: Snapshot = {
     "1.1.1.1": {"classifications": {"c2-server": {
         "type": "c2-server", "verdict_conflict": False, "confidence": 80,
         "sources": [{"source": "threatfox"}, {"source": "cand"}],
-        "details": [{"source": "threatfox", "reliability": 0.60},
-                     {"source": "cand", "reliability": 0.60}]}}},
+        "details": [{"source": "threatfox", "reliability": 0.60,
+                      "verdict": "malicious"},
+                     {"source": "cand", "reliability": 0.60,
+                      "verdict": "malicious"}]}}},
     "2.2.2.2": {"classifications": {"phishing": {
         "type": "phishing", "verdict_conflict": False, "confidence": 50,
         "sources": [{"source": "cand"}],
-        "details": [{"source": "cand", "reliability": 0.60}]}}},
+        "details": [{"source": "cand", "reliability": 0.60,
+                      "verdict": "malicious"}]}}},
 }
 
 def test_pairs_extracts_ip_type():
@@ -48,11 +52,14 @@ def test_cg_shadowed_derived_candidate_gains_nothing():
     # The static-group counter would have counted 1 -> 2 (the bug D5 fixes).
     base = {"1.1.1.1": {"classifications": {"spam": {
         "sources": [{"source": "spamhaus"}],
-        "details": [{"source": "spamhaus", "reliability": 0.70}]}}}}
+        "details": [{"source": "spamhaus", "reliability": 0.70,
+                      "verdict": "malicious"}]}}}}
     cand = {"1.1.1.1": {"classifications": {"spam": {
         "sources": [{"source": "spamhaus"}, {"source": "firehol"}],
-        "details": [{"source": "spamhaus", "reliability": 0.70},
-                     {"source": "firehol", "reliability": 0.55}]}}}}
+        "details": [{"source": "spamhaus", "reliability": 0.70,
+                      "verdict": "malicious"},
+                     {"source": "firehol", "reliability": 0.55,
+                      "verdict": "malicious"}]}}}}
     m = cg(base, cand, "firehol")
     assert m.value == 0
 
@@ -64,11 +71,14 @@ def test_cg_zero_coeff_first_hand_plus_derived_echo_gains_nothing():
     # 下两侧资格票都不足两票,本测试恒绿(红证见变异表)。
     base = {"1.1.1.1": {"classifications": {"spam": {
         "sources": [{"source": "spamhaus"}],
-        "details": [{"source": "spamhaus", "reliability": 0.50}]}}}}
+        "details": [{"source": "spamhaus", "reliability": 0.50,
+                      "verdict": "malicious"}]}}}}
     cand = {"1.1.1.1": {"classifications": {"spam": {
         "sources": [{"source": "spamhaus"}, {"source": "firehol"}],
-        "details": [{"source": "spamhaus", "reliability": 0.50},
-                     {"source": "firehol", "reliability": 0.90}]}}}}
+        "details": [{"source": "spamhaus", "reliability": 0.50,
+                      "verdict": "malicious"},
+                     {"source": "firehol", "reliability": 0.90,
+                      "verdict": "malicious"}]}}}}
     m = cg(base, cand, "firehol")
     assert m.value == 0                 # #522:零系数第一手 + 派生回声 ≠ 印证
 
@@ -77,14 +87,19 @@ def test_cg_no_gain_when_already_corroborated():
     # corroboration (crossing only, not raw vote delta).
     base = {"1.1.1.1": {"classifications": {"spam": {
         "sources": [{"source": "spamhaus"}, {"source": "threatfox"}],
-        "details": [{"source": "spamhaus", "reliability": 0.70},
-                     {"source": "threatfox", "reliability": 0.60}]}}}}
+        "details": [{"source": "spamhaus", "reliability": 0.70,
+                      "verdict": "malicious"},
+                     {"source": "threatfox", "reliability": 0.60,
+                      "verdict": "malicious"}]}}}}
     cand = {"1.1.1.1": {"classifications": {"spam": {
         "sources": [{"source": "spamhaus"}, {"source": "threatfox"},
                      {"source": "urlhaus"}],
-        "details": [{"source": "spamhaus", "reliability": 0.70},
-                     {"source": "threatfox", "reliability": 0.60},
-                     {"source": "urlhaus", "reliability": 0.60}]}}}}
+        "details": [{"source": "spamhaus", "reliability": 0.70,
+                      "verdict": "malicious"},
+                     {"source": "threatfox", "reliability": 0.60,
+                      "verdict": "malicious"},
+                     {"source": "urlhaus", "reliability": 0.60,
+                      "verdict": "malicious"}]}}}}
     m = cg(base, cand, "urlhaus")
     assert m.value == 0
 
@@ -96,11 +111,14 @@ def test_cg_two_derived_alone_not_corroborated():
     # 「非派生」条件)→ 本测试红。
     base = {"1.1.1.1": {"classifications": {"spam": {
         "sources": [{"source": "firehol"}],
-        "details": [{"source": "firehol", "reliability": 0.60}]}}}}
+        "details": [{"source": "firehol", "reliability": 0.60,
+                      "verdict": "malicious"}]}}}}
     cand = {"1.1.1.1": {"classifications": {"spam": {
         "sources": [{"source": "firehol"}, {"source": "ipsum"}],
-        "details": [{"source": "firehol", "reliability": 0.60},
-                     {"source": "ipsum", "reliability": 0.60}]}}}}
+        "details": [{"source": "firehol", "reliability": 0.60,
+                      "verdict": "malicious"},
+                     {"source": "ipsum", "reliability": 0.60,
+                      "verdict": "malicious"}]}}}}
     m = cg(base, cand, "ipsum")
     assert m.value == 0                 # #522:纯 derived 互证不再亮旗
 
@@ -172,11 +190,14 @@ def test_cg_derived_pair_qualifying_zero_both_sides_still_zero():
     # 永不亮旗、加票不涨 cg」的钉子(#522)。
     base = {"1.1.1.1": {"classifications": {"blacklist": {
         "sources": [{"source": "greensnow"}],
-        "details": [{"source": "greensnow", "reliability": 0.60}]}}}}
+        "details": [{"source": "greensnow", "reliability": 0.60,
+                      "verdict": "malicious"}]}}}}
     cand = {"1.1.1.1": {"classifications": {"blacklist": {
         "sources": [{"source": "greensnow"}, {"source": "firehol"}],
-        "details": [{"source": "greensnow", "reliability": 0.60},
-                     {"source": "firehol", "reliability": 0.50}]}}}}
+        "details": [{"source": "greensnow", "reliability": 0.60,
+                      "verdict": "malicious"},
+                     {"source": "firehol", "reliability": 0.50,
+                      "verdict": "malicious"}]}}}}
     m = cg(base, cand, "firehol")
     assert m.value == 0
 
@@ -191,14 +212,21 @@ def test_effective_votes_informational_detail_not_counted():
                      "verdict": "informational"}]}}}}
     assert _effective_votes(snap, "1.1.1.1", "c2-server") == 1
 
-def test_effective_votes_missing_verdict_key_counts_as_malicious():
-    # 旧快照兼容:detail 缺 verdict 键 -> 兑底 malicious 仍计票
-    # (生产读路径 _registry.to_observation 同口径)。
+def test_effective_votes_missing_verdict_key_not_counted():
+    # #529 裁决 2026-11-28:detail 缺 verdict 键 = 不算指控(宁少算;
+    # 旧口径兑底 malicious,九处收成 accusation.is_accusation 后统一)。
     snap = {"1.1.1.1": {"classifications": {"c2-server": {
         "sources": [{"source": "threatfox"}, {"source": "urlhaus"}],
         "details": [{"source": "threatfox", "reliability": 0.60},
                     {"source": "urlhaus", "reliability": 0.60}]}}}}
-    assert _effective_votes(snap, "1.1.1.1", "c2-server") == 2
+    assert _effective_votes(snap, "1.1.1.1", "c2-server") == 0
+    # 混合组:显式 malicious 仍计,缺键的同组证人剔除后不拖累有效票
+    mixed = {"1.1.1.1": {"classifications": {"c2-server": {
+        "sources": [{"source": "threatfox"}, {"source": "urlhaus"}],
+        "details": [{"source": "threatfox", "reliability": 0.60,
+                      "verdict": "malicious"},
+                    {"source": "urlhaus", "reliability": 0.60}]}}}}
+    assert _effective_votes(mixed, "1.1.1.1", "c2-server") == 1
 
 def test_cg_pure_archive_cooccurrence_gains_nothing():
     # EV-F1:纯存档↔存档共现——有效票 0 -> 0,cg 无 gain;无过滤时
