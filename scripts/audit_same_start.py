@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
-"""same-start 碰撞全源审计(grill Q5,2026-10-11)。
+"""same-start 碰撞全源审计(grill Q5,2026-10-11;#480 起降为信息性)。
 
-`_lmdb.py` docstring 红线:每源必须 ZERO same-start 碰撞(同 start 异长
-CIDR 同键后写覆盖,超网剩余段静默丢失)。rebuild 写循环内绊线只查相邻对
+`_lmdb.py` 旧红线「每源必须 ZERO same-start 碰撞」已由 #480(2026-11-28
+裁决)取代:同起点不同前缀长度的记录,_flush 写前只留前缀最长的一条,
+同范围重复行维持后写胜——原始流里的碰撞不再是违例,本脚本照旧数出来,
+标成 COLLISION GROUPS(重建时将被过滤为最长前缀),退出码只对真错误
+(名字没登记/禁用、rebuild 抛错)非零。rebuild 写循环内绊线只查相邻对
 (流式 O(1) 内存预算);本脚本查全量:对注册表启用源(或 --sources 点名
 的源)拦截 rebuild_dual_family 的 records 流——每源真实 rebuild 前半程
 (parse/harvest 产物,零影子提取器,不随 harvester 漂移;自 #476 起是全仓
 唯一同起点审计,替代已退役的逐文件嗅探审计,退役记录见 CHANGELOG #476),
-按 start 分组,组内出现 >1 种 prefixlen 即违例。
+按 start 分组,组内出现 >1 种 prefixlen 即记一组碰撞。
 
 数据目录只读(fusion_replay_gate 同款保证):
   - IP_RADAR_POOL_CHILD=1:cleanup_stale 直返,不 rmtree 镜像(caida_asorg
@@ -18,7 +21,8 @@ CIDR 同键后写覆盖,超网剩余段静默丢失)。rebuild 写循环内绊�
 
 用法:python scripts/audit_same_start.py [--data DIR] [--sources 名1,名2]
 (主仓 venv:/home/huxiao/dev/pi-ip-lookup-tool/backend/.venv/bin/python)
-退出码:0 全过(含免疫)/ 1 有违例或错误 / 2 配置错误。
+退出码(#480 起信息性):0 全过(含免疫、含有碰撞组——碰撞由 _flush
+过滤裁决)/ 1 真错误(名字没登记或禁用、rebuild 抛错)/ 2 配置错误。
 """
 from __future__ import annotations
 
@@ -59,8 +63,8 @@ class _Collector:
             self.v4.append((start << 6) | net.prefixlen)
 
     def analyze(self) -> tuple[list[str], int]:
-        """→ (违例行, distinct start 键数 v4+v6)。每个违例 start 一行,
-        组内全部异长 CIDR 由短到长 '&' 连接。"""
+        """→ (碰撞组行, distinct start 键数 v4+v6)。#480 起是信息不是违例:
+        每个碰撞 start 一行,组内全部异长 CIDR 由短到长 '&' 连接。"""
         out: list[str] = []
         keys = len(self.v6)
         vals = sorted(self.v4)
@@ -191,14 +195,19 @@ def main() -> int:
         if viols:
             violators += 1
             print(f"{src.name}: rows={_last.rows} keys={keys} "
-                  f"VIOLATIONS={len(viols)}")
+                  f"COLLISION_GROUPS={len(viols)}"
+                  " (informational: rebuild keeps longest prefix, #480)")
             for v in viols:
                 print(f"    {v}")
         else:
             print(f"{src.name}: rows={_last.rows} keys={keys} CLEAN")
     print(f"--- summary: {len(audited)} enabled sources, "
-          f"{violators} with same-start violations, {errors} errored")
-    return 1 if (violators or errors) else 0
+          f"{violators} with same-start collision groups "
+          "(informational, filtered to longest prefix at rebuild, #480), "
+          f"{errors} errored")
+    # #480:碰撞组不再非零退出——过滤裁决在 _flush,审计只留痕。退出码
+    # 只对真错误(rebuild 抛错;名字没登记/禁用在上方已各自 return 1)。
+    return 1 if errors else 0
 
 
 if __name__ == "__main__":

@@ -22,11 +22,13 @@ v6 sidecar env (rebuild_lmdb(ip_version=6)): key = 16-byte big-endian;
 ends >2⁶⁴−1 are stored as JSON strings (orjson int ceiling), and
 lookup() requires the explicit ip_version=6 argument.
 
-Invariant (same-start collision): two CIDRs sharing the same start with
-different lengths (e.g. 1.0.0.0/24 vs 1.0.0.0/16) collide on the same key;
-the later write overwrites the earlier one, and the overlaid range's parent
-segment is permanently lost with no backscan rescue — every source migrated
-to this module MUST be audited to have ZERO same-start collisions.
+Same-start collision rule (#480, 2026-11-28 ruling; 取代旧「零碰撞红线」):
+two CIDRs sharing the same start collide on the same key (prefix length is
+not part of the key); _flush() keeps only the longest prefix (smaller end
+for aligned CIDRs — 前缀长者 end 更小), and equal-range duplicates keep
+last-write-wins. scripts/audit_same_start.py reports raw-stream collision
+groups informationally (#476; #480 起退出码只对真错误非零,不再是
+「零碰撞才算过」的门)。
 """
 import functools
 import hashlib
@@ -334,7 +336,14 @@ def rev_path(base: Path) -> Path:
 # 过滤/提交面,backend/ipdb/_sources/** 与 _base/_source_base 的 rebuild
 # 路径)必须 bump 此常量(单调 +1);存量族 .rev 缺失 = 不匹配 → 首跑
 # 一次全量重建自愈(部署注记见 CHANGELOG)。详见 docs/adr/0009。
-HARVEST_REV = 2
+HARVEST_REV = 3
+# gen-3 兑付(#480,2026-11-28):同起点不同前缀长度的记录,_flush 写前
+# 只留前缀最长的一条(裁决 2026-11-28)。这不是可延迟的口径刷新——存量
+# 纪元里输家记录已在 txn.put 时被同键覆盖丢弃,事后无从恢复(键序扫描
+# /O(n) 复查都看不到碰撞痕迹,#480 事实包 §1.2 落点 C 不成立),只能
+# 全量重收自愈:存量族 .rev=2 → 部署后全部族重建一遍(70 个源)。小机
+# (964MB)内存紧,_memory_valve 自动限流,部署挑低峰;重建时长没实测过,
+# 部署注记见 CHANGELOG。详见 docs/adr/0009。
 # gen-2 兑付(issue #240 判例执行,2026-11-15):#239 tweetfeed 接入
 # infra_noise_filter 未 bump 的欠账,与 #347 reportedip 同款接入同批在
 # gen-2 到位(单调 +1:1→2)。存量族 .rev=1/缺失 = 不匹配 → 首跑一次
@@ -660,6 +669,24 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
             try:
                 with env.begin(write=True) as txn:
                     for k, end_int, payload in batch:
+                        # #480(2026-11-28 裁决):同起点不同前缀长度的两条
+                        # CIDR 键逐字节相同(键=只有起点),put 缺省覆盖 →
+                        # 每起点恒剩一条。写前读旧值比 end:对齐 CIDR 里前缀
+                        # 长者 end 更小 → 只留 end 小者(= 前缀最长);end
+                        # 相同(同范围重复行)维持今天的后写胜。事务内读自己
+                        # 已写的值可见,batch 内重复键同样覆盖;跨 batch 靠已
+                        # 提交数据,天然正确。旧值 [end, ref_id] 免解码取
+                        # end(v6 超限端点以字符串落盘,int() 透明兼容,见
+                        # encode_value_ref)。被丢的宽条不进 interning,后续
+                        # payload 的 ref_id 会整体前移——字节级比对应在查询
+                        # 结果层,不是 env 字节层(#480 事实包 §1.2)。
+                        old = txn.get(k)
+                        if old is not None:
+                            old_end = int(orjson.loads(old)[0])
+                            if old_end < end_int:
+                                continue   # 旧值更窄(前缀更长),赢者已定
+                            # old_end > end_int:本条更窄,覆盖(走下方 put);
+                            # old_end == end_int:同范围重复行,后写胜(照常 put)
                         # 字典化:payload 首见入典(pidx 反查 + payloads 本体),
                         # 已见则复用其 ref_id;写入值一律 encode_value_ref
                         # 编码(写侧无裸标量 evidence,天然隔离读侧判定)
@@ -690,10 +717,11 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
     # 后扫,不影响正确性(key 序才是判定真相)。
     disjoint_ok = True
     max_end = -1
-    # same-start 绊线(grill Q5,2026-10-11):同 start 异 end = 同键后写覆
-    # 盖、超网剩余段静默丢失(docstring 红线,哲学1)。零行为变化(只告
-    # 警);相邻对检测保 O(1) 内存(流式写循环无 O(n) dict 预算),非相邻
-    # 同起点对由 scripts/audit_same_start.py 全量审计兜底。
+    # same-start 绊线(grill Q5,2026-10-11;#480 起改口径):同 start 异
+    # end 相邻对仍触发 WARNING,但不再是「后写覆盖、超网剩余段静默丢失」
+    # ——_flush 写前只留前缀最长者,绊线降为信息性(标记会被过滤裁决的
+    # 组)。相邻对检测保 O(1) 内存(流式写循环无 O(n) dict 预算),非相邻
+    # 同起点对由 scripts/audit_same_start.py 全量审计兜底(同样信息性)。
     prev: tuple[int, int, str] | None = None   # (start, end, cidr) 上一条
     for cidr, evidence in records:
         try:

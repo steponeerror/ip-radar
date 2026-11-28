@@ -508,6 +508,8 @@ export function gateCommandsFor({ stem, modelFace, fixturesDir }) {
     // 点名候选源;名字没登记/禁用 → 脚本 ERROR + rc1 = 门红)。注意:这判据只在
     // 名字层面成立——沙箱 backend/data 没有候选源的数据文件,轮内实际走 SKIPPED
     // 放行(评审①查实:旧门历史六轮同样空转),这道门在轮内实际不审,补法见 #479。
+    // #480 起碰撞组是信息性(COLLISION_GROUPS + rc0):重建时 _flush 过滤裁决
+    // 只留最长前缀,审计只留痕;门红只剩真错误(名字没登记/禁用、rebuild 抛错)。
     { args: ["scripts/audit_same_start.py", "--sources", stem], cwd: "" },
   ];
 }

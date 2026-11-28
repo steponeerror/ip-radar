@@ -120,8 +120,10 @@ class FireholBlocklistSource(IpListSource):
         (ipinfo_lite 惯例):非流式列表先 build acc(位掩码),流式列表
         行级直吐、撞 acc 就地置位——保证同 CIDR 跨列表证据零丢失
         (先物化后流式的顺序是正确性要求)。
-        同起止不同长度 CIDR 仍依赖同起点审计零冲突
-        (scripts/audit_same_start.py,拦截 records 流;#476 起唯一审计)。
+        同起点不同前缀长度的 CIDR 由 _flush 写前过滤只留最长(#480,
+        2026-11-28 裁决);审计(scripts/audit_same_start.py,拦截 records
+        流;#476 起唯一审计)#480 起为信息性,碰撞组照旧数出、退出码只对
+        真错误非零。
         """
         import ipaddress as _ipa
         from ._lmdb import rebuild_dual_family, Auto

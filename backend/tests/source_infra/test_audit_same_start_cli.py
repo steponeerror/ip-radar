@@ -8,7 +8,9 @@
   在轮内实际不审,补法见 #479);
 - `--sources` 给了但切出空清单(如 `,`)→ ERROR 行 + 退出码 2,不回落全量;
 - 点名单源时输出里只有这一个源的数据行,其余源零行(不被重建);
-- 同起点碰撞(同 start 异 prefixlen)→ VIOLATIONS + 退出码 1;
+- 同起点碰撞(同 start 异 prefixlen)→ COLLISION_GROUPS + 退出 0
+  (#480:碰撞由 _flush 过滤裁决为最长前缀,审计信息性,退出码只对
+  真错误非零);
 - 不给 `--sources` 时全部登记源都出现在输出里(缺省行为不变)。
 """
 import os
@@ -85,15 +87,17 @@ def test_sources_single_scopes_rebuild(tmp_path):
     assert sorted(p.name for p in tmp_path.iterdir()) == [_PLAIN_FILE]
 
 
-def test_same_start_collision_rc1(tmp_path):
-    """同 start 异 prefixlen 两行 → VIOLATIONS + rc1(接入关的碰撞样本形态:
-    逐行解析源的数据文件里同起点两行长短不一)。"""
+def test_same_start_collision_informational_rc0(tmp_path):
+    """同 start 异 prefixlen 两行 → COLLISION_GROUPS + rc0(#480:碰撞不再
+    是门,重建时 _flush 过滤裁决只留最长前缀;审计照旧数出来标成
+    「将被过滤为最长前缀」,退出码只对真错误非零)。"""
     (tmp_path / _PLAIN_FILE).write_text(
         "203.0.113.0/24\n203.0.113.0/25\n", encoding="utf-8")
     r = _run(tmp_path, "--sources", _PLAIN_SOURCE)
-    assert r.returncode == 1
-    assert "VIOLATIONS" in r.stdout
+    assert r.returncode == 0
+    assert "COLLISION_GROUPS=1" in r.stdout
     assert "203.0.113.0/24 & 203.0.113.0/25" in r.stdout
+    assert "informational" in r.stdout
 
 
 def test_no_sources_flag_lists_all_registered(tmp_path):
