@@ -220,5 +220,10 @@ async function main() {
 // #579:入口第一件事=开库独占锁(withDbLock 代理/拒跑;锁内才跑原 CLI 体;退出码
 // 三路自洽:held=业务体自置、proxied=透传、refused=16)。
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  await withDbLock(main);
+  try {
+    await withDbLock(main);
+  } catch (e) {
+    process.stderr.write(`${e.stack ?? e}\n`);
+    process.exitCode = 3; // 3=T5 冻结:launcher 自身异常(锁代理面:锁文件目录不可建等;ENVELOPE.md 码表)
+  }
 }
