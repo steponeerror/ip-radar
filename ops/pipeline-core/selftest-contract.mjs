@@ -125,10 +125,47 @@ await t("表:SPAWN_CONTRACT_ENV 名集=规格 16 项+…(增补链见 agent.mjs 
     "OPS_PIPELINE_MAX_MODEL_CALLS", "OPS_PIPELINE_TOKEN_BUDGET", "OPS_PIPELINE_WALL_CLOCK_S",
     "OPS_PIPELINE_SPEND_CAP_CNY", "OPS_PIPELINE_MONTHLY_CAP_CNY", "OPS_PIPELINE_DUP_CALL_LIMIT",
     "OPS_DISCOVER_MAX_MODEL_CALLS", "OPS_DISCOVER_WALL_CLOCK_S", "OPS_DISCOVER_SPEND_CAP_CNY", // #207 T1 发现轮三旋钮
+    "OPS_DISCOVER_WEB_SEARCH_PER_ROUND", "OPS_DISCOVER_WEB_READ_PER_ROUND", "OPS_DISCOVER_RSS_PARSE_PER_ROUND", // #528 发现通道每轮帽三旋钮(tools/shared.mjs B 单源)
     "OPS_BREAKER_THRESHOLD", "OPS_BREAKER_COOLDOWN_S", // #199 交付B:tools/breaker.mjs readBreakerKnobs 单源实读
     "OPS_GH_REPO", // #348 修法 A:gh 开票仓址定向(finding-exit.mjs 透传 --repo)
     "OPS_MODEL_MAX_INFLIGHT", "OPS_MODEL_RETRY_BACKOFF_S" // #490:模型并发闸/退避(model-errors.mjs 单源实读)
   ].sort());
+});
+
+// #528:发现通道每轮帽三旋钮缺省锁(读 tools/shared.mjs B 实值,非表面字串;
+// 缺省改掉即红——旋钮化但缺省不变=行为不变的钉子面)
+await t("#528:发现通道每轮帽缺省 6/8/6(B 单源实读;旋钮化不改缺省)", async () => {
+  const { B } = await import("./tools/shared.mjs");
+  assert.equal(B.webSearchPerRound, 6, "webSearchPerRound 缺省须仍 6");
+  assert.equal(B.webReadPerRound, 8, "webReadPerRound 缺省须仍 8");
+  assert.equal(B.rssParsePerRound, 6, "rssParsePerRound 缺省须仍 6");
+});
+
+// #528 返工(评审必改 1,主会话裁规则 1;建议 5 顺带钉「旋钮真能调」):三帽 import 期读一次,
+// 进程内改不动 → 子进程四态。不设=安静缺省(import 期常态不告警,见 shared.mjs discoverCapKnob 注);
+// 空串/abc=缺省+stderr 告警(空串一元加号变 0、非数 NaN 比帽恒 false,两面都在评审报告);
+// 3=真调得动(DEFAULT_DISCOVERY_BUDGETS 攺回写死数字时此例红)。
+await t("#528:帽旋钮读法子进程四态(不设/空串/abc/3 → 8/6/6、8/6/6+告警、8/6/6+告警、3/3/3)", async () => {
+  const mod = JSON.stringify("file://" + path.join(AGENT, "tools", "shared.mjs").replaceAll("\\", "/"));
+  const script = `import(${mod}).then(({ B }) => process.stdout.write(JSON.stringify([B.webReadPerRound, B.webSearchPerRound, B.rssParsePerRound])))`;
+  const KEYMAP = { read: "OPS_DISCOVER_WEB_READ_PER_ROUND", search: "OPS_DISCOVER_WEB_SEARCH_PER_ROUND", rss: "OPS_DISCOVER_RSS_PARSE_PER_ROUND" };
+  const mkEnv = (vals = {}) => { // 三键先删净再注入(execFile 下空串=「设了但为空」态,不设=键不存在,两态要分)
+    const e = { ...process.env };
+    for (const k of Object.values(KEYMAP)) delete e[k];
+    for (const [s, k] of Object.entries(KEYMAP)) if (s in vals) e[k] = vals[s];
+    return e;
+  };
+  const run = (vals) => execFileP(process.execPath, ["-e", script], { timeout: 30_000, env: mkEnv(vals) })
+    .then(({ stdout }) => JSON.parse(stdout))
+    .catch((e) => { throw new Error(`子进程败:${e.stderr?.slice(0, 200) ?? e.message}`); });
+  assert.deepEqual(await run(), [8, 6, 6], "不设=缺省(import 期常态不告警)");
+  assert.deepEqual(await run({ read: "", search: "", rss: "" }), [8, 6, 6], "空串≠0(Number(\"\")===0 的暗面),缺省");
+  const bad = await execFileP(process.execPath, ["-e", script],
+    { timeout: 30_000, env: mkEnv({ read: "abc", search: "abc", rss: "abc" }) });
+  assert.deepEqual(JSON.parse(bad.stdout), [8, 6, 6], "非数字=缺省非 NaN");
+  assert.match(bad.stderr, /\[knob\] OPS_DISCOVER_WEB_READ_PER_ROUND/, "非法值 stderr 一行告警");
+  assert.match(bad.stderr, /\[knob\] OPS_DISCOVER_RSS_PARSE_PER_ROUND/, "三帽各自告警(rss)");
+  assert.deepEqual(await run({ read: "3", search: "3", rss: "3" }), [3, 3, 3], "旋钮真能调(评审建议 5:DEFAULT_DISCOVERY_BUDGETS 改回写死时此例红)");
 });
 
 await t("表:元素形状 {name,default,consumer,phase}/phase 闭集/名唯一", () => {

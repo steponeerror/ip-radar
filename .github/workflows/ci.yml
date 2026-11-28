@@ -91,6 +91,10 @@ jobs:
       - name: Daily digest unit tests
         working-directory: .
         run: node --test scripts/test_daily_digest.mjs
+      # #528:镜像 needs 面 COPY 针子(读 Dockerfile 文本;docker build 不在门内,部署层验证留部署时看)
+      - name: Dockerfile NEEDS.md copy unit test
+        working-directory: .
+        run: node --test scripts/test_dockerfile_needs_copy.mjs
 
   backend:
     # needs frontend: SPA fallback tests assert on frontend/dist contents

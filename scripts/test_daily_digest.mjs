@@ -22,6 +22,9 @@ import {
   plainClock,
   plainRedItem,
   renderDigestPush,
+  discoverConversion,
+  discoverConversionLine,
+  parseSshSections,
 } from "./daily-digest.mjs";
 
 // —— 轮 id 钟面与 24h 窗 ——
@@ -121,6 +124,55 @@ test("summarizeServerRound:enqueue 工件读 issues_opened/issues_failed/候选�
   const h = summarizeServerRound("2026-11-22-0300-health", { records: [] }, null, null);
   assert.equal(h.issues_opened, 0);
   assert.deepEqual(h.issue_candidates, []);
+});
+
+// —— #528:发现轮转化四数 + needs 面留痕 ——
+
+const convArtifacts = {
+  scan: { round_id: "d", needs_file: "missing (/app/NEEDS.md)", candidates: [] },
+  shortlist: { candidates: [{ name: "a" }, { name: "b" }] },
+  d4: { n_enqueued: 1, n_skipped: 2 },
+  budget: { readings: { discover_channels: { channels: {
+    web_search: { calls: 6, ok: 5, failed: 1, blocked: 0 },
+    web_read: { calls: 8, ok: 7, failed: 1, blocked: 0 },
+  }, calls_total: 14, blocked_total: 0 } } },
+};
+
+test("discoverConversion:四数真源(通道计数/入围/入队)+ needs 留痕透传+缺件名单(#528)", () => {
+  const c = discoverConversion(convArtifacts);
+  assert.deepEqual([c.search, c.reads, c.candidates, c.enqueued], [6, 8, 2, 1]);
+  assert.equal(c.needs_file_missing, "missing (/app/NEEDS.md)");
+  assert.deepEqual(c.missing, [], "三件齐=缺件名单空");
+  const empty = discoverConversion({});
+  assert.deepEqual([empty.search, empty.reads, empty.candidates, empty.enqueued], [0, 0, 0, 0], "缺工件数值面退零(渲染面不写四个 0,见行测试)");
+  assert.deepEqual(empty.missing, ["09-budget.json", "d2-shortlist.json", "d4-enqueue.json"], "缺件名单逐件点名(#528 返工评审建议 1)");
+  const partial = discoverConversion({ shortlist: { candidates: [] }, d4: { n_enqueued: 0 } });
+  assert.deepEqual(partial.missing, ["09-budget.json"], "缺通道真源单件点名(旧轮无 discover_channels 形同判缺)");
+  assert.equal(empty.needs_file_missing, null);
+});
+
+test("summarizeServerRound:发现轮挂 discover_conv;健康轮不挂;旧发现轮缺工件=零面(#528)", () => {
+  const d = summarizeServerRound("2026-11-22-2200-discover", { records: [] }, null, null, convArtifacts);
+  assert.equal(d.discover_conv.search, 6);
+  const h = summarizeServerRound("2026-11-22-0300-health", { records: [] }, null, null, convArtifacts);
+  assert.equal(h.discover_conv, undefined, "健康轮不挂转化面");
+  const old = summarizeServerRound("2026-11-22-2200-discover", { records: [] }, null, null);
+  assert.deepEqual(old.discover_conv, { search: 0, reads: 0, candidates: 0, enqueued: 0, missing: ["09-budget.json", "d2-shortlist.json", "d4-enqueue.json"], needs_file_missing: null });
+});
+
+test("discoverConversionLine:四数行+needs ⚠ 同行;零候选照实「候选 0」;缺件=⚠ 不写四数;健康轮=null(#528+返工)", () => {
+  const r = summarizeServerRound("2026-11-22-2200-discover", { records: [] }, null, null, convArtifacts);
+  assert.equal(discoverConversionLine(r),
+    "搜 6 次,读 8 页,候选 2 条,入队 1 条;⚠ NEEDS.md 读不到(/app/NEEDS.md)"); // 返工建议 4:去 missing 前缀不套括号
+  const zero = discoverConversionLine(summarizeServerRound("2026-11-22-2200-discover", { records: [] }, null, null,
+    { budget: { readings: { discover_channels: { channels: { web_search: { calls: 3, ok: 3, failed: 0, blocked: 0 } } } } }, shortlist: { candidates: [] }, d4: { n_enqueued: 0 } }));
+  assert.match(zero, /搜 3 次,读 0 页,候选 0 条/);
+  assert.ok(!zero.includes("⚠"), "无留痕不带 ⚠");
+  const missingArt = discoverConversionLine(summarizeServerRound("2026-11-22-2200-discover", { records: [] }, null, null, {}));
+  assert.match(missingArt, /⚠ 转化读数读不到\(缺 09-budget\.json、d2-shortlist\.json、d4-enqueue\.json;轮没跑完或采集出错\)/, "缺件行不写四 0(返工建议 1)");
+  assert.ok(!missingArt.includes("搜 0 次"), "缺件行不得出现四个 0");
+  assert.equal(discoverConversionLine(summarizeServerRound("2026-11-22-0300-health", { records: [] }, null, null, convArtifacts)), null);
+  assert.equal(discoverConversionLine(null), null);
 });
 
 // —— 影子零增轮 ——
@@ -299,6 +351,79 @@ test("renderDigest:两源合并出稿,≤30 行,绿日标题无 ⚠", () => {
   assert.match(body, /演化:未熄火\(stall=1\),当日轮 1914\(无信封,未收口\);花费 ¥26\.19\/¥200/);
   assert.match(body, /fleet add 1\/1 绿:1000✓;月帽 ¥0\.31\/¥30/);
   assert.ok(body.split("\n").length <= 30, `行数 ${body.split("\n").length}`);
+});
+
+test("renderDigest/renderDigestPush:发现轮转化行(最近一轮;技术面+大白话面;≤30 行)#528", () => {
+  const server = greenServer();
+  const dr = server.rounds.find((r) => r.round_id.endsWith("-discover"));
+  Object.assign(dr, { discover_conv: { search: 6, reads: 8, candidates: 0, enqueued: 0, needs_file_missing: null } });
+  const local = greenLocal();
+  const reds = collectRedItems({ server, local });
+  const { body } = renderDigest({ dateLabel: "2026-11-20", server, local, reds });
+  assert.match(body, /- 发现轮转化\(最近一轮 2200\):搜 6 次,读 8 页,候选 0 条,入队 0 条/);
+  assert.ok(body.split("\n").length <= 30, `行数 ${body.split("\n").length}`);
+  const push = renderDigestPush({ dateLabel: "2026-11-20", server, local, reds });
+  assert.match(push.body, /发现轮转化\(最近一轮 22:00[^)]*\):搜了 6 次网、读了 8 页,选出候选 0 条、入队 0 条/);
+  // needs 缺文件留痕同行 ⚠(两渲染面;返工建议 4:只露路径,去 missing 前缀不括号套括号)
+  Object.assign(dr, { discover_conv: { search: 0, reads: 0, candidates: 0, enqueued: 0, missing: [], needs_file_missing: "missing (/app/NEEDS.md)" } });
+  const reds2 = collectRedItems({ server, local });
+  assert.ok(reds2.some((x) => x === "2026-11-20-2200-discover NEEDS.md 读不到(/app/NEEDS.md)"), "needs 缺文件进红项(返工建议 2)");
+  const tech = renderDigest({ dateLabel: "2026-11-20", server, local, reds: reds2 });
+  assert.match(tech.body, /⚠ NEEDS\.md 读不到\(\/app\/NEEDS\.md\)/);
+  const plain = renderDigestPush({ dateLabel: "2026-11-20", server, local, reds: reds2 });
+  assert.match(plain.body, /需求清单\(NEEDS\.md\)读不到\(\/app\/NEEDS\.md\)/);
+  assert.match(plain.body, /⚠ 需求清单[\s\S]*登服务器看 \/app\/NEEDS\.md 在不在/, "push 版红项两件套带下一步(返工建议 2)");
+});
+
+test("plainRedItem:NEEDS.md 读不到红项大白话两件套(#528 返工建议 2)", () => {
+  const plain = plainRedItem("2026-11-20-2200-discover NEEDS.md 读不到(/app/NEEDS.md)", "2026-11-20");
+  assert.match(plain, /需求清单 NEEDS\.md 读不到\(\/app\/NEEDS\.md\)/);
+  assert.match(plain, /登服务器看 \/app\/NEEDS\.md 在不在/);
+  assert.match(plain, /镜像没带进去/);
+});
+
+test("parseSshSections:手写 ssh 样本七标记逐节对号(#528 返工建议 7)", () => {
+  // 样本=SSH_INNER 协议形:节头(__ROUNDS__/__LEDGER__/__SHADOW__)+ 逐轮七内容标记
+  // (ROUND/GATES/EXITS/ENQUEUE/D1/D2/D4/BUDGET;健康轮四件=空串)。JSON 坋 tr -d "\n" 压单行。
+  const sample = [
+    "__ROUNDS__",
+    "2026-11-19-2200-discover",
+    "2026-11-20-0300-health",
+    "__ROUND__2026-11-19-2200-discover",
+    '__GATES__{"records":[{"name":"G_SCAN","pass":true}]}',
+    '__EXITS__{"triggered":false,"findings_n":0}',
+    '__ENQUEUE__{"issues_opened":1,"issues":[{"candidate":"rdns","status":"created"}]}',
+    '__D1__{"candidates":[],"needs_file":"missing (/app/NEEDS.md)"}',
+    '__D2__{"candidates":[{"name":"rdns"}]}',
+    '__D4__{"n_enqueued":1,"n_skipped":0}',
+    '__BUDGET__{"readings":{"discover_channels":{"channels":{"web_search":{"calls":6}}}}}',
+    "__ROUND__2026-11-20-0300-health",
+    '__GATES__{"records":[]}',
+    "__EXITS__",
+    "__ENQUEUE__",
+    "__D1__",
+    "__D2__",
+    "__D4__",
+    "__BUDGET__",
+    "__LEDGER__",
+    "| 2026-11-20 | discover | m | cost=0.5 | pipeline:2026-11-19-2200-discover |",
+    "__SHADOW__",
+  ].join("\n");
+  const sec = parseSshSections(sample);
+  const d = sec.get("ROUND:2026-11-19-2200-discover");
+  assert.equal(JSON.parse(d.gates).records[0].name, "G_SCAN", "GATES 标记");
+  assert.equal(JSON.parse(d.exits).findings_n, 0, "EXITS 标记");
+  assert.equal(JSON.parse(d.enqueue).issues_opened, 1, "ENQUEUE 标记");
+  assert.equal(JSON.parse(d.d1).needs_file, "missing (/app/NEEDS.md)", "D1 标记");
+  assert.equal(JSON.parse(d.d2).candidates.length, 1, "D2 标记");
+  assert.equal(JSON.parse(d.d4).n_enqueued, 1, "D4 标记");
+  assert.equal(JSON.parse(d.budget).readings.discover_channels.channels.web_search.calls, 6, "BUDGET 标记");
+  const h = sec.get("ROUND:2026-11-20-0300-health");
+  assert.equal(h.gates, '{"records":[]}', "健康轮 gates 照读");
+  assert.equal(h.d1, "", "健康轮四件缺席=空串");
+  assert.equal(h.budget, "");
+  assert.ok(sec.get("LEDGER").some((l) => l.includes("cost=0.5")), "LEDGER 节");
+  assert.deepEqual(sec.get("SHADOW"), [], "SHADOW 节(样本无尾行=空清单;消费面 trim 过滤)");
 });
 
 test("renderDigest:空数据日=「当日无轮」且不发红", () => {

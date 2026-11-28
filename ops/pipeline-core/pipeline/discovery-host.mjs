@@ -29,8 +29,8 @@ import { ARTIFACTS as A, DISCOVER_SHORTLIST_TRANSCRIPT } from "../artifacts.mjs"
 // 发现宿主工具闭集(=BREAKER_CHANNELS 的 web 三员;gh_search 留 legacy 面,spec T3)
 export const DISCOVERY_TOOLS = Object.freeze(["web_read", "web_search", "rss_parse"]);
 // 每轮帽缺省=tools/shared.mjs B 常量单源(与 legacy discover 轮 ToolHost budgets 同源,
-// tools.mjs:31——两宿主同一事实,不另立数字);T1 合流时如需 OPS_DISCOVER_* 旋钮化,
-// 经 opts.budgets 注入,缺省面不动。
+// tools.mjs:31——两宿主同一事实,不另立数字);#528 B 三值已旋钮化(OPS_DISCOVER_*_PER_ROUND,
+// 缺省 搜索 6 / 读页 8 / 解析 6 不变=import 期读 env);显式覆盖仍走 opts.budgets 注入。
 export const DEFAULT_DISCOVERY_BUDGETS = Object.freeze({
   web_read: B.webReadPerRound,
   web_search: B.webSearchPerRound,

@@ -47,12 +47,18 @@ export function reportNameOf(roundId) {
 }
 
 // ── 分型读数(现读轮目录工件;缺席条目跳过=宁少算,缺席≠零 ──
-function discoverReadings(dir) {
+// 导出(#528 返工评审建议 3 同批):selftest-pipeline 缺 NEEDS.md 用例直接钉渲染面,
+// 不为测试走完整 writeRoundReport 装配。
+export function discoverReadings(dir) {
   const out = [];
   const d1 = j(path.join(dir, "d1-scan.json"));
   if (d1) {
     const ch = d1.channels ?? {};
-    const parts = ["registry", "needs", "web"].filter((k) => ch[k]).map((k) => `${k}=${ch[k].n ?? 0}`);
+    // #528 返工(评审建议 3):needs 渠道缺文件留痕显形——人看报告不再只见 needs=0 与真零缺口不可分
+    const cell = (k) => (k === "needs" && ch[k]?.status === "missing"
+      ? `needs=${ch[k]?.n ?? 0}(缺 NEEDS.md)`
+      : `${k}=${ch[k]?.n ?? 0}`);
+    const parts = ["registry", "needs", "web"].filter((k) => ch[k]).map(cell);
     out.push(`- 候选宇宙:${(d1.candidates ?? []).length}${parts.length ? `(${parts.join(" ")})` : ""} — d1-scan.json`);
   }
   const d2 = j(path.join(dir, "d2-shortlist.json"));
