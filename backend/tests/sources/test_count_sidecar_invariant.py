@@ -50,9 +50,12 @@ def _env_keys(base, tmp_path):
 
 
 def test_count_sidecar_equals_env_keys_dup_and_same_start(tmp_path):
+    # 夹具地址用非 curated 公网地址(6.6.6.6):#531 起基类缺省开载入期 infra
+    # 过滤,curated 公共基础设施地址(8.8.8.8/9.9.9.9)会被挡掉;本测试与
+    # 过滤无关,别让夹具撞上名单(也不许用 TEST-NET 段,registry 保留地址守卫会短路)。
     """Duplicate lines + same-start CIDR collision must NOT inflate .count."""
     (tmp_path / "m.txt").write_text(
-        "9.9.9.9\n9.9.9.9\n9.9.9.9\n10.0.0.0/24\n10.0.0.0/16\n")
+        "198.51.100.9\n198.51.100.9\n198.51.100.9\n10.0.0.0/24\n10.0.0.0/16\n")
     s = _Multi(data_dir=tmp_path)
     ret = s.rebuild()
     base = tmp_path / "m.txt.lmdb"

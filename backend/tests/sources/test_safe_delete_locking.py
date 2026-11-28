@@ -40,7 +40,7 @@ def test_iplist_rebuild_calls_covered_ip_count_once(tmp_path, monkeypatch):
         return real(cidrs, **kw)
 
     monkeypatch.setattr(lmdb_mod, "covered_ip_count", spy)
-    s = _tmp_iplist(tmp_path, "8.8.8.8\n1.2.3.0/24\n10.0.0.0/16\n")
+    s = _tmp_iplist(tmp_path, "198.51.100.8\n1.2.3.0/24\n10.0.0.0/16\n")
     s.rebuild()
     assert calls["n"] == 2
     assert sorted(calls["vers"]) == [4, 6]
@@ -63,6 +63,8 @@ def test_csv_rebuild_calls_covered_ip_count_once(tmp_path, monkeypatch):
     assert sorted(calls["vers"]) == [4, 6]
 
 
+# 夹具地址用 TEST-NET(198.51.100.x):#531 起基类缺省开载入期 infra 过滤,
+# curated 公共基础设施地址(8.8.8.8)会被挡掉;本文件测试与过滤无关,别让夹具撞名单。
 def test_source_base_rebuild_does_not_call_covered_ip_count(tmp_path, monkeypatch):
     """#6 Source (single_evidence path): covered=Auto 迁移后重建不再调
     covered_ip_count — 覆盖数在写库循环内统计(预扫描已删,harvest 4→2 次)。
@@ -83,7 +85,7 @@ def test_source_base_rebuild_does_not_call_covered_ip_count(tmp_path, monkeypatc
         single_evidence = True
 
         def harvest(self):
-            yield "8.8.8.8", Evidence(classification_type="x", verdict="m")
+            yield "198.51.100.8", Evidence(classification_type="x", verdict="m")
 
     (tmp_path / "t.txt").write_text("marker\n")
     src = _S(data_dir=tmp_path)
@@ -146,7 +148,7 @@ def _assert_new_layout_intact(tmp_path, filename: str):
 def test_rebuild_removes_legacy_mmdb_and_sidecars(tmp_path):
     """IpListSource rebuild:旧命名 .mmdb/.count/.cov 清除,新 lmdb 布局完好。"""
     _seed_legacy_files(tmp_path, "t.txt")
-    s = _tmp_iplist(tmp_path, "8.8.8.8\n1.2.3.0/24\n")
+    s = _tmp_iplist(tmp_path, "198.51.100.8\n1.2.3.0/24\n")
     n = s.rebuild()
     assert n == 2
     assert not (tmp_path / "t.txt.mmdb").exists()
@@ -176,7 +178,7 @@ def test_source_base_rebuild_removes_legacy_mmdb(tmp_path):
         single_evidence = True
 
         def harvest(self):
-            yield "8.8.8.8", Evidence(classification_type="x", verdict="m")
+            yield "198.51.100.8", Evidence(classification_type="x", verdict="m")
 
     (tmp_path / "t.txt").write_text("marker\n")
     _seed_legacy_files(tmp_path, "t.txt")
@@ -190,7 +192,7 @@ def test_legacy_cleanup_spares_other_sources_and_unrelated_mmdb(tmp_path):
     """精确名构造:只删本源的旧命名文件,不误删其他源的 .mmdb 或无关文件。"""
     (tmp_path / "_bench.mmdb").write_text("bench artifact")
     (tmp_path / "other.txt.mmdb").write_text("another source's legacy file")
-    s = _tmp_iplist(tmp_path, "8.8.8.8\n")
+    s = _tmp_iplist(tmp_path, "198.51.100.8\n")
     assert s.rebuild() == 1
     assert (tmp_path / "_bench.mmdb").exists()
     assert (tmp_path / "other.txt.mmdb").exists()
