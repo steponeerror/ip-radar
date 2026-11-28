@@ -9,7 +9,8 @@
 //   --content  轮次输入(骨架期必填;真实轮次内容/任务由 T3/T4 的 defineTask 接管)
 //   --db       SQLite 库路径(缺省见 resolveDbPath;测试/复跑同库同 requestId)
 //   --crash-after-submit  submit 承认即 SIGKILL 自杀(resume 演示/测试面)
-// 退出码:0=settled done;1=settled unanswered;2=用法错。
+// 退出码:0=settled done;1=settled unanswered;2=用法错;16=库锁冲突拒跑(db-lock.mjs,
+// #579;stdout 零信封,消息走 stderr)。
 // 契约:stdout 末行单行 JSON 轮次信封(骨架形状,T5 冻结对齐旧契约);进度走 stderr。
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -17,6 +18,7 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { Harness } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { loadModels, parseModelRef } from "./models.mjs";
+import { withDbLock } from "./db-lock.mjs"; // #579:开库独占锁入口助手(CLI 面第一件事)
 import { buildRegistry } from "./registry.mjs";
 import { admitRound, postModelCall, preModelCall, stepBoundary, sumUsageState } from "./tasks/budget-guard.mjs"; // 票 #226 双点执法接线(定案 3:entry/tasks 层,不 hook 化)
 import { writeFaultedMirror as discoverFaultedMirror, DISCOVER_TASK_NAME } from "./tasks/discover-round.mjs"; // #445:framework 判 faulted 的镜像出口(按任务名分派)
@@ -215,6 +217,13 @@ async function main() {
 }
 
 // 直接执行(非 import)才跑 CLI;测试 import runRound/openHarness 不触发。
+// #579:入口第一件事=开库独占锁(withDbLock 代理/拒跑;锁内才跑原 CLI 体;退出码
+// 三路自洽:held=业务体自置、proxied=透传、refused=16)。
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  await main();
+  try {
+    await withDbLock(main);
+  } catch (e) {
+    process.stderr.write(`${e.stack ?? e}\n`);
+    process.exitCode = 3; // 3=T5 冻结:launcher 自身异常(锁代理面:锁文件目录不可建等;ENVELOPE.md 码表)
+  }
 }

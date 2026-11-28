@@ -13,12 +13,14 @@
 // 防回环的结构保证,勿并回。
 // 事故与裁决:2026-10-24 判例 2026-10-24-discover-dual-channel-dead 同日;
 // 回归测试 = selftest-contract「委派可落定」spawn 探针(usage 前置 throw,零网)。
-// 闭集 15 词(#199 交付A 9→13:budget_exceeded/wall_clock_exceeded=A1 四界,budget_monthly
+// 闭集 16 词(#199 交付A 9→13:budget_exceeded/wall_clock_exceeded=A1 四界,budget_monthly
 // =A2 月度准入,repeat_storm=A4 同参拦;#199 交付B 13→14:channel_open=跨轮熔断开断拦,
 // 同 repeat_storm 形=beforeToolCall 结构化拦非轮终态错;#490 14→15:account_rate_limited=
 // 模型账户级限流(429/1302,2026-11-27 实测同账户并发上限),不可重试,分类单源在
-// ops/agent-v2/tasks/model-errors.mjs)。
+// ops/agent-v2/tasks/model-errors.mjs;#579 15→16:db_locked=引擎开库独占锁冲突拒跑
+// (另一引擎进程持 <db>.lock;手动侧当场拒,cron 侧等 900s 上限),退出码 16、stdout 零
+// 信封、诊断在 stderr(db-lock.mjs;词面入表=错误码闭集单源,不在轮信封内出现)。
 export const ERROR_CODES = ["bad_round", "model_face", "empty_text", "foreign_tool", "closure_check",
   "ledger_failed", "verify_failed", "sandbox_violation", "infra",
   "budget_exceeded", "wall_clock_exceeded", "budget_monthly", "repeat_storm", "channel_open",
-  "account_rate_limited"];
+  "account_rate_limited", "db_locked"];

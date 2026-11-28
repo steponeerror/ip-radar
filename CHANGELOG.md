@@ -6,6 +6,8 @@
 
 ### 新增 Added
 
+  - **ops 新引擎开库独占锁(#579)**:健康轮、发现轮、加源轮和命令行四个入口启动时先拿库文件锁(一个库只有一个座位);拿不到时手动跑立刻退出并在 stderr 写明谁在跑,cron 跑最多等 15 分钟;退出码 16「库锁冲突」进错误码闭集;进程退出或被杀后锁自动放掉;flock 起不来或锁文件打不开时退出 3(运行期异常)。要停就停引擎那条 node 进程或整条链一起停,不要只杀 flock——见 `ops/agent-v2/SHADOW-RUNBOOK.md`。
+  - **ops: exclusive database lock for the v2 engine (#579)**: the four entry points (health round, discover round, add round, CLI) take a file lock on the database at startup — one seat per database. A manual run that cannot get it exits immediately and names the holder on stderr; a cron run waits up to 15 minutes. Exit code 16 "database locked" joins the closed error-code set; the lock is released when the process exits or is killed; a missing `flock` or an unopenable lock file exits 3 (runtime failure). To stop a round, stop the engine `node` process or the whole chain — never kill only `flock`; see `ops/agent-v2/SHADOW-RUNBOOK.md`.
   - **月轮加一条「质量契约」腿:变异自检与事故回放随月轮自动跑(#550,2026-11-28)**:契约表不合法时整轮失败;行级失败记在腿状态里(红态可见,不挡轮)。北星的锚集全绿率按月读数,同一月多份锚集件只算一轮。质量报告随月轮推到生产卷,服务器上的健康轮从 12 月起能看到上次运行时间。
   - **Monthly round gains a quality-contract leg: mutation self-check and incident replays run with every monthly round (#550, 2026-11-28)**: an invalid contract table fails the whole round; row-level failures are recorded as leg-red without blocking. The north-star anchor-green reading dedupes anchor artifacts per month. Quality reports are pushed to the production volume so the server-side health round can see the last run.
   - **每日日报新增「节拍」两行(#550,2026-11-28)**:月轮心跳龄(超 30 天标红)与质量契约上次运行(超 35 天或从没跑过标红)。红项带人工补救命令(带 `IP_RADAR_EVAL_ENV=monthly`,否则报告落错目录)。

@@ -17,13 +17,15 @@
 #
 # env 面逐键白名单(#364 裁定同判例;「逐键白名单,不笼统同环境」):
 #   设:DOCS_ROOT/OPS_AUTH/OPS_EVAL_PY/OPS_DATA_DIR/PI_CODING_AGENT_DIR/LANG
+#       /OPS_V2_DB_LOCK_WAIT_S(#579 cron 侧等锁上限 900s;手动面不设=当场拒)
 #       /OPS_MODEL_DISCOVER(agent-config 现读;发现轮面不注 OPS_MODEL_HEALTH);
 #   unset:IP_RADAR_ADMIN_PASSWORD/IP_RADAR_API_JWT_SECRET(管理密钥,C4 判例);
 #   继承不摘:GH_TOKEN/IP_RADAR_ALERT_URLS(出口契约员)+PATH/HOME 等运行必需面;
 #   不设:OPS_SWEEP_DRY_RUN(finding 出口生产语义真开,#184)。
 #
 # 退出码透传 v2 信封面(ENVELOPE.md):0=completed;1=failed/refused/parked(月帽拒启
-# budget_monthly 同码,属业务面留给观察面复盘);2=用法错;3=运行期异常。cron 面不
+# budget_monthly 同码,属业务面留给观察面复盘);2=用法错;3=运行期异常;16=库锁冲突
+# 拒跑(#579;锁面自身故障 flock 缺席/锁文件打不开也归 3)。cron 面不
 # 重试——次日窗自然重来(同 ops-cron.sh 判例)。
 set -u
 CONTAINER="${OPS_V2_CONTAINER:-ip-lookup-tool-ipradar-1}"
@@ -62,6 +64,9 @@ docker exec "$CONTAINER" sh -c '
   # 管理密钥摘除(C4 判例:docker exec 继承容器全量 env,管理密钥不带进模型进程)。
   # GH_TOKEN/IP_RADAR_ALERT_URLS 不摘——finding 出口契约员(#364 裁定,见头注)
   unset IP_RADAR_ADMIN_PASSWORD IP_RADAR_API_JWT_SECRET
+  # #579 cron 侧等锁上限(秒):引擎开库独占锁(db-lock.mjs)拿不到时最多等 900s(每
+  # 15s 一步重试),等不到 exit 16 下窗自愈(ADR 0012 定案 5 同律);手动面不设此键=当场拒。
+  export OPS_V2_DB_LOCK_WAIT_S=900
   export OPS_MODEL_DISCOVER="$MODEL_DISCOVER"
   exec node --max-old-space-size=256 ops/agent-v2/run-discover.mjs "$(date -u +%Y-%m-%d-%H%M)-discover" --model "$MODEL_DISCOVER"
 '

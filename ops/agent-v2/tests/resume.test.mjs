@@ -49,7 +49,7 @@ test("kill -9 后 entry 复跑:同 requestId 续跑完成;再复跑幂等零新�
   try {
     // phase 1:子进程跑到 submit 承认即自杀(SIGKILL;信封必未产出)
     const crashed = await runChild([ROUND_ID, "--db", dbPath, "--content", PROMPT, "--crash-after-submit"]);
-    assert.equal(crashed.signal, "SIGKILL", `崩溃相不对:code=${crashed.code} signal=${crashed.signal} err=${crashed.err}`);
+    assert.ok(crashed.signal === "SIGKILL" || crashed.code === 137, `崩溃相不对(#579 锁代理:SIGKILL 可显 137):code=${crashed.code} signal=${crashed.signal} err=${crashed.err}`);
 
     // phase 2:复跑(同库同 requestId)→ resume 续跑完成
     const env1 = await runRound({ roundId: ROUND_ID, content: PROMPT, dbPath });
