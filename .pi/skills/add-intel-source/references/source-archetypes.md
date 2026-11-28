@@ -110,6 +110,9 @@ LMDB sidecar 两形态：epoch 目录 rmtree、ptr/count/cov 文件 unlink）。
 并集）；per-list tags 归属 + mtime 门控看 `firehol.py`。
 **实现后必跑：** `python scripts/audit_same_start.py --sources <源名>`（**从仓库根**，
 脚本在 `scripts/` 不在 `backend/`；目录源是 same-start CIDR 冲突的已知高发面）。
+#480 起碰撞组是信息性（输出行 COLLISION_GROUPS=… + 退出 0——重建时 _flush 过滤
+裁决只留最长前缀），退出码只对真错误非零：名字没登记/禁用或 rebuild 抛错
+= rc1，数据目录不存在或 --sources 切出空清单 = rc2（与脚本头注同口径）。
 输出 `SKIPPED no raw file` 等于没审到，不算过；原始文件不在默认的 `backend/data`
 时要加 `--data <数据目录>`（`--data` 会覆盖 `IP_RADAR_DATA_DIR`）。
 

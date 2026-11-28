@@ -622,6 +622,9 @@ test("实现摘要形状:双文件+红绿双观察+stem 名;缺观察=拒(TDD �
 });
 
 test("门命令集:真实面=逐源测试+source_infra(跳过探测清单同步检查,#456)+同起点审计三连(定案 8 GATE 行,#476 起只审候选源);faux 面=罐装清单", () => {
+  // #480:审计退出码语义变了——碰撞组是信息性(COLLISION_GROUPS + rc0,
+  // 重建时 _flush 过滤裁决只留最长前缀),门红只剩真错误(名字没登记/禁用
+  // → rc1)。命令集本身不变,仍以 rc≠0 判红(gateFail 同款判据)。
   const real = gateCommandsFor({ stem: "sample_block_list", modelFace: "real", fixturesDir: null });
   assert.deepEqual(real.map((c) => c.args), [
     ["-m", "pytest", "tests/sources/test_sample_block_list.py", "-q"],
