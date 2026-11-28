@@ -28,9 +28,10 @@ verbatim ISO-Z (decay axis). ``services``/``attack`` (ATT&CK, ICS techniques
 included)/``sensors``/``networks`` ride in ``extra``; ``cves``/``kev`` only
 when non-empty/true (kev=true ⟺ cves non-empty in observed data).
 
-No ``infra_noise_filter``: upstream excludes public resolvers/root servers and
-first-party ranges (Cloudflare/Akamai/Apple/Microsoft 365/Google/GitHub)
-before publishing — the #347 incident class is filtered at the source.
+``infra_noise_filter = False`` (explicit, #531 contract): upstream already
+excludes public resolvers/root servers and first-party ranges
+(Cloudflare/Akamai/Apple/Microsoft 365/Google/GitHub) before publishing —
+the #347 incident class is filtered at the source.
 """
 import csv
 import logging
@@ -97,6 +98,7 @@ class MirageFeedSource(Source):
     authoritative_for = ()
     provenance_tier = "A"           # official first-party feed (S21)
     honeypot_methodology = True     # honeypot fleet (S33; binarydefense/knock_knock precedent)
+    infra_noise_filter = False         # 显式关:存量源行为不变(#531;基类默认已翻 True)
 
     def harvest(self):
         """Yield (ip, Evidence) per row, one Evidence per distinct canonical

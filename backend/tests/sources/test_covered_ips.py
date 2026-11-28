@@ -4,6 +4,8 @@ from ipdb._source_base import Source
 from ipdb._evidence import Evidence
 
 
+# 夹具地址用 TEST-NET(198.51.100.x):#531 起基类缺省开载入期 infra 过滤,
+# curated 公共基础设施地址(8.8.8.8)会被挡掉;本文件测试与过滤无关,别让夹具撞名单。
 def test_source_base_covered_ips_mixed_prefixes(tmp_path):
     class _S(Source):
         name = "t"
@@ -11,7 +13,7 @@ def test_source_base_covered_ips_mixed_prefixes(tmp_path):
         fields = ("is_malicious",)
 
         def harvest(self):
-            for cidr in ["8.8.8.8", "1.2.3.0/24", "10.0.0.0/16"]:
+            for cidr in ["198.51.100.8", "1.2.3.0/24", "10.0.0.0/16"]:
                 yield cidr, Evidence(classification_type="x", verdict="malicious")
 
     (tmp_path / "t.txt").write_text("marker\n")   # _path must exist; harvest ignores it
@@ -26,7 +28,7 @@ def test_iplist_covered_ips_mixed_prefixes(tmp_path):
     class _S(IpListSource):
         name, filename, fields = "t", "t.txt", ("is_malicious",)
 
-    (tmp_path / "t.txt").write_text("8.8.8.8\n1.2.3.0/24\n10.0.0.0/16\n")
+    (tmp_path / "t.txt").write_text("198.51.100.8\n1.2.3.0/24\n10.0.0.0/16\n")
     s = _S(data_dir=tmp_path)
     s.rebuild()
     assert s.health().covered_ips == 1 + 256 + 65536
@@ -58,7 +60,7 @@ def test_csv_covered_ips_mixed_across_cidrs(tmp_path):
         def parse_row(self, row):
             return {"_ip": row[0], "classification_type": "x", "verdict": "m"}
 
-    (tmp_path / "c.csv").write_text("8.8.8.8\n1.2.3.0/24\n")
+    (tmp_path / "c.csv").write_text("198.51.100.8\n1.2.3.0/24\n")
     s = _S(data_dir=tmp_path)
     s.rebuild()
     assert s.health().covered_ips == 1 + 256

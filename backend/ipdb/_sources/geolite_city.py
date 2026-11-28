@@ -31,6 +31,7 @@ class GeoLiteCitySource(Source):
     reliability = 0.85
     authoritative_for = ()
     single_evidence = True
+    infra_noise_filter = False         # 良性源用不上;显式声明是 #531 契约(基类默认已翻 True)
 
     def download(self, token=None) -> None:
         from ._download import download_file

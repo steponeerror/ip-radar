@@ -152,6 +152,7 @@ class RirAbuseSource(Source):
     stale_days = 7                # 夜更,一周余量(重扫档案)
     reliability = 0.85            # 注册局一手,但占位 role 实测存在(重扫 quality 扣 1)
     single_evidence = True        # 数 M CIDR → stream load(OOM 守卫)
+    infra_noise_filter = False         # 显式关:存量源行为不变(#531;基类默认已翻 True)
 
     def download(self, token=None) -> None:
         """两家逐个:fetch → scratch → 流式解压守卫 → os.replace 原子落地

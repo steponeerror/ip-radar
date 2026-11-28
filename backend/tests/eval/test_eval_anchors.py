@@ -144,9 +144,12 @@ def test_anchors_cli_persists_but_stdout_envelope_unchanged(
 
 def test_public_resolver_anchors_pinned():
     # 发现固化(ADR 0008;STANDARD.md 金标层 G-2):114DNS(cps+ziyadnz 假印证
-    # 事故)/223.5.5.5(阿里公共 DNS)/9.9.9.4(Quad9 未过滤变体,与 9.9.9.9
-    # 区分——干净面必须覆盖未过滤腿)三新员入 clean 面。
-    for ip in ("114.114.114.114", "223.5.5.5", "9.9.9.4"):
+    # 事故)/223.5.5.5(阿里公共 DNS)/Quad9 官方 Unsecured 档 9.9.9.10 与
+    # 149.112.112.10(#439,2026-11-28:原锚 9.9.9.4 不在 Quad9 官方服务
+    # 地址表里,换员;出处
+    # https://quad9.net/service/service-addresses-and-features/)入 clean 面
+    # ——干净面必须覆盖「不过滤」的公共解析器。
+    for ip in ("114.114.114.114", "223.5.5.5", "9.9.9.10", "149.112.112.10"):
         assert (ip, "clean") in ANCHORS, f"公共解析器锚缺:{ip}"
 
 

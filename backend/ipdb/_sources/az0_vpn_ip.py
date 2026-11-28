@@ -28,6 +28,7 @@ class Az0VpnIpSource(IpListSource):
     stale_days = 7                     # Actions auto-update, daily-or-better cadence
     reliability = 0.70                 # community curated, same tier as x4bnet_vpn
     authoritative_for = ()             # witness; is_vpn 展示层权威不在此
+    infra_noise_filter = False         # 良性源用不上;显式声明是 #531 契约(基类默认已翻 True)
 
     def parse_raw(self, raw: bytes) -> list[str]:
         """Default IpListSource parse keeps inline '# provider' tags; strip

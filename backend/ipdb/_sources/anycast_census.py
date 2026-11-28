@@ -40,6 +40,7 @@ class AnycastCensusSource(Source):
 
     # 2026-10-10 实测 41,382 行;200-OK 空/形状漂移不落地(fail-closed)
     _MIN_ROWS = 1_000
+    infra_noise_filter = False         # 良性源用不上;显式声明是 #531 契约(基类默认已翻 True)
 
     def download(self, token: CancelToken | None = None) -> None:
         gz = self._data_dir / (self.filename + ".gz")

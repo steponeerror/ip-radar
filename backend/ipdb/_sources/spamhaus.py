@@ -17,6 +17,7 @@ class SpamhausSource(IpListSource):
     provenance_tier = "A"                 # A=官方一手(S21):Spamhaus DROP 官方发布
 
     _V6_URL = "https://www.spamhaus.org/drop/dropv6.txt"
+    infra_noise_filter = False         # 显式关:存量源行为不变(#531;基类默认已翻 True)
 
     def download(self, token=None) -> None:
         """双 URL 拉取拼接单文件(spec §5.1)。F-4:任一兄弟失败 → 不写
