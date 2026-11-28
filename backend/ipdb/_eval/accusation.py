@@ -6,7 +6,9 @@
 (metrics._effective_votes / layered._accusing_sources / exclusive.
 flagged_sources / matrix_scan._detail_sources / sentinel.
 _own_accusing_ctypes),四处缺键即滤(anchors / agg_share /
-anchor_readouts / sinkhole_probe)——分叉旧账见 metrics.py 旧注释。
+anchor_readouts / sinkhole_probe)。旧口径的说明已随本票在
+metrics.py 里被新说明取代;回放门 scripts/fusion_replay_gate.py 的镜像
+跟的是生产读路径,不跟本函数。
 现网弃权源都不带分类类型,不进观测,本统一只影响评测口径,不动
 线上计分(_merge/_logodds 未改;_ACCUSING 定义未改)。"""
 from .._types import _ACCUSING

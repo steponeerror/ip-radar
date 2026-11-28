@@ -136,7 +136,8 @@ def accuser_pool(entries: Iterable[tuple[str, float, str | None]
     指控章判定(verdict ∈ _ACCUSING)留在调用方执行——判定面各异,
     不许吞:
     ① eval detail 级滤(agg_share/sinkhole_probe/anchor_readouts);
-    ② metrics 缺 verdict 键兜底 malicious(旧快照兼容);
+    ② eval 证据级一律调 _eval.accusation.is_accusation,缺 verdict 键
+       不算指控(#529,2026-11-28;旧「兑底 malicious」口径已废);
     ③ 生产 _merge voters-else-回退池调用方预滤(纯存档组退回全量
     Σ,决策 5/乙——回退池含非指控观测,不可在本函数再滤);
     ④ 生产 _types.threat_summary 组级 + detail 级双滤(跨组池化)。
