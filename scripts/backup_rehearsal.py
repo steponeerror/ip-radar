@@ -132,6 +132,7 @@ def lookup_probe(data_dir: Path, samples: int, seed: int,
     os.environ["IP_RADAR_DATA_DIR"] = str(data_dir)
     sys.path.insert(0, str(REPO / "backend"))
     import ipdb._registry as registry  # noqa: PLC0415  (env 设好后才能 import)
+    from ipdb._sources import _lmdb  # noqa: PLC0415  (同上;幂等 opener 见下)
 
     fails: list[str] = []
     registry.load_db()
@@ -151,23 +152,35 @@ def lookup_probe(data_dir: Path, samples: int, seed: int,
         return fails + ["抽样池空:无健康族可抽地址"]
     rng = random.Random(seed)
     picked: list[str] = []
-    for i in range(samples):
+    # 重抽上限:非数据键(payloads 登记记录键字面 b"payloads" 排在多数
+    # IP 键之后;#550 真镜像演练实测 20 抽中 2 次落在它上面)不算样本,
+    # 重抽到够数;上限防异常族把抽样拖死(全跳过时具名失败,不装绿)。
+    max_tries = samples * 10
+    tries = 0
+    while len(picked) < samples and tries < max_tries:
+        tries += 1
         fam = pool[rng.randrange(len(pool))]
         klen = 16 if fam["v6"] else 4
-        env = open_readonly(fam["env_dir"])
-        try:
-            with env.begin() as txn:
-                cur = txn.cursor()
-                want = (struct.pack(">QQ", rng.getrandbits(64), rng.getrandbits(64))
-                        if klen == 16 else struct.pack(">I", rng.getrandbits(32)))
-                if not cur.set_range(want) or not cur.key():
-                    cur.first()
-                key = cur.key()
-        finally:
-            env.close()
+        # 复用查询侧幂等 opener(_lmdb.open_env_read,进程内同路径缓存):
+        # 同族被抽中多次/registry 已开同路径 env 时,raw lmdb.open 二次开
+        # 同一进程同一 env 报 "already open in this process"(#550 真镜像
+        # 演练实录:首版 i%len(v4) 恰好前 20 族不重复才没踩;随机抽样
+        # 必然会重复)。env 归 registry 句柄表管,不 close(显式 close
+        # 会作废 registry 名下同路径句柄,open_env_read docstring 明令)。
+        env = _lmdb.open_env_read(fam["env_dir"])
+        with env.begin() as txn:
+            cur = txn.cursor()
+            want = (struct.pack(">QQ", rng.getrandbits(64), rng.getrandbits(64))
+                    if klen == 16 else struct.pack(">I", rng.getrandbits(32)))
+            if not cur.set_range(want) or not cur.key():
+                cur.first()
+            key = cur.key()
         if len(key) != klen:
-            continue  # 族里混进异常键长:跳过不猜,样本数由实抽数报
+            continue  # 落在 payloads 登记键/异常键长:重抽,不计样本
         picked.append(str(ipaddress.ip_address(key)))
+    if len(picked) < samples:
+        fails.append(f"抽样不足: {len(picked)}/{samples}"
+                     f"({tries} 次重抽仍拿不够合法数据键)")
 
     ok_n = with_evidence = 0
     for ip in picked:
@@ -182,8 +195,8 @@ def lookup_probe(data_dir: Path, samples: int, seed: int,
         ok_n += 1
         if res.classifications or res.attributes:
             with_evidence += 1
-    if ok_n < samples:
-        fails.append(f"lookup 成功 {ok_n}/{samples}(须全过)")
+    if ok_n < len(picked):
+        fails.append(f"lookup 成功 {ok_n}/{len(picked)}(须全过)")
     # #550 评审建议改2:查得到还要查得「有内容」—— 全不带证人/陈述判失败
     # (骨架键查得出但零佐证 = 半残镜像,不装绿;逐条计数原样保留留证)
     if ok_n and with_evidence == 0:
