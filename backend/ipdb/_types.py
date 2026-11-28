@@ -128,8 +128,28 @@ class LookupResult:
         One-line answer for downstream integrations (fail2ban action, Graylog
         lookup table, Wazuh script): verdict + confidence + detected types,
         plus the CDN/service flag so consumers can skip bans on infra edges.
+
+        first_hand_source_count(#521 出海数字统一,裁决 2026-11-28):去掉
+        派生聚合器(_logodds.DERIVED_SOURCES)后的去重源数 —— detected
+        且指控(verdict in _ACCUSING)的组里,detail 级指控证人的源名。
+        声明了 republishes 的非派生源各算一票(裁决只说派生聚合器;
+        与印证旗的谱系去重不是同一个底,见 #522);未 detected 组的指控
+        明细不计入(与网页旧口径 sources.size 同底)。纯展示口径,不进
+        评分、不随置信度走;网页徽标和黑名单导出读这个源数,CSV、
+        fail2ban 读的是同一个置信度。sources 名单照旧列全(证据不灭失)。
         """
         detected = [v for v in self.classifications.values() if v.detected]
+        # 第一手指控源(#521,定义见 docstring):detected 指控组 +
+        # detail 级指控证人,只去 DERIVED_SOURCES 这一层,不做谱系锚剔除 —— 源数
+        # 是展示口径,不去任何「仍在桌上」的证据;detected 为空时集合为空,
+        # 与 confidence 走哪条分支无关。
+        first_hand = {
+            d["source"]
+            for v in self.classifications.values()
+            if v.detected and v.verdict in _ACCUSING
+            for d in v.details
+            if d.get("verdict") in _ACCUSING
+        } - _lo.DERIVED_SOURCES
         if detected:
             worst = min(detected, key=lambda v: self._VERDICT_PRECEDENCE.get(v.verdict, 99))
             verdict = worst.verdict
@@ -179,6 +199,7 @@ class LookupResult:
             "confidence": confidence,
             "types": sorted(v.type for v in detected),
             "is_cdn": is_cdn,
+            "first_hand_source_count": len(first_hand),
         }
 
     def to_dict(self) -> dict:

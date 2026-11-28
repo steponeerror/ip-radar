@@ -70,7 +70,7 @@ Every lookup returns one fused verdict — `benign`, `suspicious`, `malicious`, 
 
 ![A malicious lookup: verdict, per-type tags, per-field confidences](assets/manual/02-result-malicious.png)
 
-The **Tags** cell carries the classification types that fired (`Abuse reports · Spam · Blacklist · Scanner · … · C2·cobalt_strike`), the number of distinct sources that hit (`14src`), whether any evidence comes from the decay archive (`incl. archive` = some sightings are old enough to be decayed, but they're still on the table), and malware families where a source named one.
+The **Tags** cell carries the classification types that fired (`Abuse reports · Spam · Blacklist · Scanner · … · C2·cobalt_strike`), the number of distinct first-hand accusing sources (`14src` — derived aggregators that republish other feeds are not double-counted), whether any evidence comes from the decay archive (`incl. archive` = some sightings are old enough to be decayed, but they're still on the table), and malware families where a source named one.
 
 ![A clean lookup: benign verdict, geo/ASN enrichment](assets/manual/03-result-clean.png)
 
