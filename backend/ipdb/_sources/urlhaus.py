@@ -121,6 +121,7 @@ class URLhausSource(Source):
     stale_days = 1
     reliability = 0.55            # abuse.ch — curated/confirmed malware URLs
     authoritative_for = ()
+    infra_noise_filter = False         # 显式关:存量源行为不变(#531;基类默认已翻 True)
 
     def download(self, token: CancelToken | None = None) -> None:
         """v2 认证端点(票 #159):keyed URL → scratch 下载 → 200-OK-坏体守卫

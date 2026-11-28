@@ -45,6 +45,7 @@ class ThreatClusterSource(CsvSource):
     reliability = 0.70                   # human-curated, high-confidence
     authoritative_for = ()
     skip_lines = 1   # header: type,value,confidence,first_seen,last_seen,source_count,sources,reason
+    infra_noise_filter = False         # 显式关:存量源行为不变(#531;基类默认已翻 True)
 
     def parse_row(self, row: list[str]) -> dict | None:
         if len(row) < 2:

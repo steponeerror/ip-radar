@@ -17,6 +17,7 @@ class IPsumSource(CsvSource):
     authoritative_for = ()
     delimiter = "\t"          # IPsum is tab-separated: "<ip>\t<count>"
     _min_count: int = 3
+    infra_noise_filter = False         # 显式关:存量源行为不变(#531;基类默认已翻 True)
 
     def __init__(self, data_dir, min_count: int = 3):
         self._min_count = min_count

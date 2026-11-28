@@ -22,3 +22,4 @@ class GreensnowSource(IpListSource):
     derived = True                        # 聚合器:谱系去重用(spec 2026-08-29 §3.3)
     provenance_tier = "C"                 # C=聚合派生(S21):OC=1.0 w/ firehol
     authoritative_for = ()
+    infra_noise_filter = False         # 显式关:存量源行为不变(#531;基类默认已翻 True)

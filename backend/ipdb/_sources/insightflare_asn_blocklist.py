@@ -50,6 +50,7 @@ class InsightflareAsnBlocklistSource(Source):
     lmdb_backed = False
     # 2026-11-15 实抓 2,957 行;200-OK 空/坏页(HTML 错误页)不落地(fail-closed)
     _MIN_ASN_ROWS = 1_000
+    infra_noise_filter = False         # 显式关:存量源行为不变(#531;基类默认已翻 True)
 
     def __init__(self, data_dir: Path):
         super().__init__(data_dir)

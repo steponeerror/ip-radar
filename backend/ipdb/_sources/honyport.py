@@ -113,6 +113,7 @@ class HonyportSource(CsvSource):
     honeypot_methodology = True
     eval_excluded = True     # 评估面恒禁用(spec §3;查询池照常成员)
     skip_lines = 6           # §2.1 头:5 注释行 + 1 列头行
+    infra_noise_filter = False         # 显式关:存量源行为不变(#531;基类默认已翻 True)
 
     def download(self, token=None) -> None:
         """挂载目录双件取件原子拷入 data_dir(§2.3 + 二期 §3,不走 HTTP)。

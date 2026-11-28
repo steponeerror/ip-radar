@@ -1,10 +1,12 @@
 # backend/ipdb/_eval/agg_share.py
 """印证对聚合器占比披露(spec #180 Q4 租户 / issue #183)。
 
-v0 只披露,不改 corroborated 语义:纯 derived 组互证(两个聚合器互投,
-如 2026-10-24 114.114.114.114 cps+ziyadnz 事故)仍是裁定内现状 ——
-grill Q2 2026-10-11 后语义,tests/eval/test_eval_metrics.py::
-test_cg_two_derived_alone_corroborate 钉死;改语义须另票过回放闸门。
+corroborated 语义已改(#522,2026-11-28 丙口径:「非派生且系数大于 0」
+的源 ≥2 才算印证,判式单一真源 _logodds.corroborated_after_dedup,
+取代 grill Q2 2026-10-11「纯 derived 组互证仍算 corroborated」的旧
+现状):纯 derived 组不再亮旗,本披露的分母由此缩小;纯聚合器互证
+作为事故机制已在新判式下结构性不可亮旗(n_pure_derived_groups 恒 0,
+字段保留作测量面)。本模块仍只测量不持门(exit 恒 0)。
 
 口径(全部既有原语,零新机制):
 - 探针语料 = 启用指控源 raw 文件的稳定采样(corpus.sample_source_ips,
@@ -26,7 +28,7 @@ import json
 
 from .corpus import sample_source_ips, stable_seed
 from .exclusive import DEFAULT_SEED, sample_keys
-from .._logodds import DERIVED_SOURCES, accuser_pool
+from .._logodds import DERIVED_SOURCES, accuser_pool, corroborated_after_dedup
 from .._types import _ACCUSING
 
 SAMPLE_PER_SOURCE = 100      # 每指控源采样上限(raw 文件口径)
@@ -40,6 +42,8 @@ def corroboration_agg_share(lookup_fn, probe_ips: list[str]) -> dict:
     n_probe = 0
     n_corr = 0                # 印证组数(分母)
     n_pure = 0                # 纯 derived 互证组数(事故机制正身)
+    n_mismatch = 0            # 生产旗与镜像重算不一致的组数(防漂移腿,
+                              # 评审 #572:#10 原先静默丢弃不计数)
     votes_total = 0
     votes_derived = 0
     examples: list[dict] = []
@@ -49,8 +53,6 @@ def corroboration_agg_share(lookup_fn, probe_ips: list[str]) -> dict:
         for ctype, ca in (payload.get("classifications") or {}).items():
             if ca.get("verdict") not in _ACCUSING:
                 continue
-            if not ca.get("corroborated"):
-                continue
             # 指控池重算(生产 _merge 同款:同源取 max 系数 → dedup_lineage;
             # 循环体单源化 issue #244 —— _logodds.accuser_pool)
             deduped = accuser_pool(
@@ -58,8 +60,11 @@ def corroboration_agg_share(lookup_fn, probe_ips: list[str]) -> dict:
                  for d in ca.get("details") or ()
                  if d.get("verdict") in _ACCUSING and d.get("source")),
                 ctype)
-            if len(deduped) < 2:
-                continue      # corroborated 旗与镜像重算不一致 → 不计入
+            mirror_cor = corroborated_after_dedup(deduped)
+            if bool(ca.get("corroborated")) != mirror_cor:
+                n_mismatch += 1   # 旗与镜像重算不一致:漂移显形,不静默
+            if not mirror_cor:
+                continue          # 不一致组不计入分母(防漂移腿)
             accusers = {s for s, _ in deduped}
             derived = {s for s in accusers if s in DERIVED_SOURCES}
             n_corr += 1
@@ -74,15 +79,17 @@ def corroboration_agg_share(lookup_fn, probe_ips: list[str]) -> dict:
         "kind": "agg_share",
         "n_probe": n_probe,
         "n_corroborated_groups": n_corr,
+        "n_flag_mismatch_groups": n_mismatch,
         "n_pure_derived_groups": n_pure,
         "derived_vote_share": (votes_derived / votes_total
                                if votes_total else None),
         "derived_sources": sorted(DERIVED_SOURCES),
         "examples": examples,
-        # 现状注记(披露面自带,读数不依赖注释)
-        "note": ("corroborated semantics unchanged in v0: pure-derived "
-                 "mutual corroboration still counts (grill Q2 2026-10-11); "
-                 "disclosure only (issue #183)"),
+        # 现状注记(披露面自带,读数不依赖注释;#522 起旗判式见
+        # _logodds.corroborated_after_dedup)
+        "note": ("corroborated = >=2 non-derived, non-zero-coefficient "
+                 "sources (issue #522, 2026-11-28); pure-derived mutual "
+                 "corroboration no longer flags"),
     }
 
 

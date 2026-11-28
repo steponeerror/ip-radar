@@ -127,7 +127,7 @@ Each classification type (IntelMQ vocabulary: `blacklist`, `c2-server`, `malware
 }
 ```
 
-The fields worth knowing: `corroborated` (more than one independent source agrees), `reporter_total` (how many human reporters, where a source counts them), `verdict_conflict` (sources actively disagree on direction — e.g. one says malicious, another benign), `malware_names` (families, e.g. `win.cobalt_strike`), `native_confidence` / `native_categories` / `tags` / `extra` (the upstream's own labels, preserved verbatim — nothing is lost in translation to the shared vocabulary).
+The fields worth knowing: `corroborated` (at least two independent non-aggregator sources with positive score contribution agree; aggregators and reliability-0.5 sources do not count as votes), `reporter_total` (how many human reporters, where a source counts them), `verdict_conflict` (sources actively disagree on direction — e.g. one says malicious, another benign), `malware_names` (families, e.g. `win.cobalt_strike`), `native_confidence` / `native_categories` / `tags` / `extra` (the upstream's own labels, preserved verbatim — nothing is lost in translation to the shared vocabulary).
 
 ### Attributes & short-circuits
 

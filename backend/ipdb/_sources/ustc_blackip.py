@@ -41,3 +41,4 @@ class UstcBlackipSource(IpListSource):
     # (评审 B3)。比两原创均弱(r .55 对 .90/.85),同场即回声剔除
     # (宁少算,哲学 3)。
     republishes = ("spamhaus", "emerging_threats")
+    infra_noise_filter = False         # 显式关:存量源行为不变(#531;基类默认已翻 True)

@@ -29,6 +29,7 @@ class F3cSystemsSource(CsvSource):
     authoritative_for = ()
     delimiter = ","
     skip_lines = 1   # header: ip,first_seen,last_seen,scan_count,country,scanner_types
+    infra_noise_filter = False         # 显式关:存量源行为不变(#531;基类默认已翻 True)
 
     def parse_row(self, row: list[str]) -> dict | None:
         if len(row) < 6:
