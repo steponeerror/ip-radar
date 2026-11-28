@@ -42,7 +42,7 @@ def _run(data_dir: Path, *extra: str) -> subprocess.CompletedProcess:
 
 def _data_lines(out: str) -> list[str]:
     """输出里的逐源数据行:排除表头(auditing…)、汇总(--- summary)、
-    违例明细(四空格缩进)与脚本级 ERROR 行,余下都是「源名: …」行。"""
+    碰撞组明细(四空格缩进)与脚本级 ERROR 行,余下都是「源名: …」行。"""
     return [l for l in out.splitlines()
             if l.strip()
             and not l.startswith(("auditing", "--- summary", "ERROR:"))
@@ -118,3 +118,15 @@ def test_sources_empty_list_rc2(tmp_path):
     assert "ERROR" in r.stdout
     # 没回落:连审计表头都不该出现。
     assert "auditing" not in r.stdout
+
+
+def test_rebuild_error_rc1(tmp_path):
+    """rebuild 抛错 → rc1 + ERROR 行(返回值那行 `return 1 if errors else 0`
+    的 errors 腿;与名字没登记/禁用的提前 return 1 是两条不同路径)。原始
+    _path 造成目录:exists() 为真、rebuild() 读目录抛 IsADirectoryError。"""
+    (tmp_path / _PLAIN_FILE).mkdir()
+    r = _run(tmp_path, "--sources", _PLAIN_SOURCE)
+    assert r.returncode == 1
+    assert "ERROR" in r.stdout
+    assert "IsADirectoryError" in r.stdout
+    assert "--- summary" in r.stdout and "1 errored" in r.stdout

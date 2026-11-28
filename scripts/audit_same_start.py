@@ -38,7 +38,7 @@ BACKEND_DIR = REPO_ROOT / "backend"
 
 
 class _Collector:
-    """单源 records 流 → (start, prefixlen) 紧凑收集,后置分组判违例。
+    """单源 records 流 → (start, prefixlen) 紧凑收集,后置分组判碰撞组。
 
     v4 打包 array('Q')((start<<6)|plen,排序分组;ipinfo_lite 3.3M 行
     ~27MB,内存平坦);v6 的 128-bit start 装不进 Q,但 v6 源全是小表,
@@ -176,7 +176,7 @@ def main() -> int:
     print(f"auditing {len(audited)} enabled sources under {data_dir}"
           + (f" ({len(disabled)} disabled skipped: {','.join(disabled)})"
              if disabled else ""))
-    violators = errors = 0
+    collision_srcs = errors = 0
     for src in audited:
         _last = None
         if not src._path.exists():
@@ -193,7 +193,7 @@ def main() -> int:
             continue
         viols, keys = _last.analyze()
         if viols:
-            violators += 1
+            collision_srcs += 1
             print(f"{src.name}: rows={_last.rows} keys={keys} "
                   f"COLLISION_GROUPS={len(viols)}"
                   " (informational: rebuild keeps longest prefix, #480)")
@@ -202,7 +202,7 @@ def main() -> int:
         else:
             print(f"{src.name}: rows={_last.rows} keys={keys} CLEAN")
     print(f"--- summary: {len(audited)} enabled sources, "
-          f"{violators} with same-start collision groups "
+          f"{collision_srcs} with same-start collision groups "
           "(informational, filtered to longest prefix at rebuild, #480), "
           f"{errors} errored")
     # #480:碰撞组不再非零退出——过滤裁决在 _flush,审计只留痕。退出码

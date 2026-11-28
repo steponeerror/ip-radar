@@ -8,7 +8,7 @@ def _build(tmp_path, records, name="t"):
 
 DISJOINT = [("10.0.0.0/8", {"a": 1}), ("20.0.0.0/16", {"a": 2}), ("30.0.0.0/24", {"a": 3})]
 NESTED   = [("10.0.0.0/8", {"a": 1}), ("10.1.0.0/16", {"a": 2}), ("10.1.2.0/24", {"a": 3})]
-SAME_START = [("10.0.0.0/8", {"a": 1}), ("10.0.0.0/16", {"a": 2})]   # 审计上不存在;写入时坍缩为单记录
+SAME_START = [("10.0.0.0/8", {"a": 1}), ("10.0.0.0/16", {"a": 2})]   # 同起点碰撞组;落盘坍缩为单记录(#480:留前缀最长)
 
 def test_detect_disjoint_true(tmp_path):
     base, _ = _build(tmp_path, DISJOINT)
@@ -25,8 +25,8 @@ def test_detect_disjoint_nested(tmp_path):
 
 def test_detect_disjoint_same_start_collapses_to_single_record(tmp_path):
     # 存储层坍缩:LMDB key 即 start int,两条 CIDR 落同一 key(10.0.0.0),
-    # 后写覆盖前写(模块不变量 "zero same-start collisions",见 _lmdb.py 模块
-    # docstring —— 每源迁移审计的前置条件)。detect_disjoint 扫描的是坍缩后
+    # 同起点碰撞组落盘坍缩(#480:同键只留前缀最长的一条,旧「zero
+    # same-start collisions」红线已废)。detect_disjoint 扫描的是坍缩后
     # 的落盘数据,单记录平凡 disjoint,故为 True。
     base, _ = _build(tmp_path, SAME_START)
     from ipdb._sources._lmdb import PAYLOADS_NAME, open_env_read, read_ptr

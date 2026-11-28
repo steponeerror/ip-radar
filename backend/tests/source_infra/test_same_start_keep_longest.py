@@ -10,7 +10,9 @@
 本来就被同键合并,一条都不少,#480 事实包 §1.4)。
 """
 import ipaddress
+import itertools
 
+import lmdb
 import pytest
 
 import ipdb._sources._lmdb as lmdb_mod
@@ -75,9 +77,8 @@ def test_narrower_prefix_survives_wide_written_first(tmp_path):
 
 
 @pytest.mark.parametrize("order", [
-    ("10.0.0.0/22", "10.0.0.0/23", "10.0.0.0/24"),
-    ("10.0.0.0/24", "10.0.0.0/23", "10.0.0.0/22"),
-    ("10.0.0.0/23", "10.0.0.0/24", "10.0.0.0/22"),
+    pytest.param(p, id=">".join(p))
+    for p in itertools.permutations(["10.0.0.0/22", "10.0.0.0/23", "10.0.0.0/24"])
 ])
 def test_triple_nesting_any_order_longest_wins(tmp_path, order):
     """③ 三重嵌套 /22+/23+/24 任意顺序 → /24 胜。"""
@@ -155,6 +156,31 @@ def test_ipv6_same_start_pair_same_rule(tmp_path, order):
     end, payload = _survivor(env, "2001:db8::", ip_version=6)
     assert end == _end("2001:db8::/48")   # >2⁶⁴−1,v4 侧不受影响
     assert b"2001:db8::/48" in payload
+
+
+def test_ipv6_int_form_endpoints_same_rule(tmp_path):
+    """⑥b int 形态 v6 端点(≤2⁶⁴−1,不走 encode_value_ref 的字符串分支,
+    评审建议 8):::/120 对 ::/121 两种顺序 → /121 胜。"""
+    for order in (("::/120", "::/121"), ("::/121", "::/120")):
+        payloads = {c: {"tag": c} for c in order}
+        _, env, n_keys = _rebuild(tmp_path, [(c, payloads[c]) for c in order],
+                                  ip_version=6)
+        assert n_keys == 1
+        end, payload = _survivor(env, "::", ip_version=6)
+        assert end == _end("::/121")
+        assert b"::/121" in payload
+        env.close()   # 下一轮 rebuild 会推进 epoch,先关句柄
+
+
+def test_pidx_descriptor_key_collision_guarded(tmp_path):
+    """评审计一笔 1(主会话裁决 A):PIDX_NAME=b"pidx"(0x70696478)是 4 字节,
+    与 v4 键同宽——起点 112.105.100.120 的记录在建库期撞字典描述符键。
+    本用例钉住的是**已有缺陷**(隔离实验:pidx 子库开着时,对主库写这个键
+    py-lmdb 抛 lmdb.IncompatibleError/MDB_INCOMPATIBLE;改前的无条件 put
+    同样在这条上炸,不是本票引入)——含该地址的源改前改后都无法重建,
+    响的失败;根治(把字典挪出主库键空间)记 #575 设计输入。"""
+    with pytest.raises(lmdb.IncompatibleError):
+        _rebuild(tmp_path, [("112.105.100.120/32", {"tag": "pidx-collision"})])
 
 
 # ── sidecar / 提交序不回归(⑦⑧)─────────────────────────────────────
@@ -242,13 +268,17 @@ def test_real_fixture_collision_group_keeps_longest(tmp_path, group):
         epoch = read_ptr(base)
         env = open_env_read(tmp_path / f"{base.name}.{epoch}")
         end, _ = _survivor(env, start)
+        env.close()   # 下一轮 rebuild 会删旧纪元目录,先关句柄(评审建议 6)
         assert end == _end(narrow), f"{group} order={order}: survivor != {narrow}"
 
 
 def test_ziyadnz_semantic_conflict_resolves_by_prefix(tmp_path):
-    """ziyadnz 语义翻判组钉死:/32 attacker 与 /24 infrastructure 同起点,
-    修后 .0 = /32 那条(attacker),.1-.255 无证据——按前缀裁决、不看
-    语义。用 CsvSource 真解析路径(原始行是 9 列 csv,不是裸 CIDR 行)。"""
+    """ziyadnz 语义翻判组钉死:同起点的 /32 行(sources=RTBH (Turkiye))与
+    /24 行(sources=Spamhaus DROP)同起点,修后 .0 的证据从 Spamhaus DROP
+    行换成 RTBH (Turkiye) 行,.1-.255 无证据——按前缀裁决、不看语义
+    (classification 恒 blacklist,native_categories 存原始值,「attacker」
+    是 category 原文不是落库分类)。用 CsvSource 真解析路径(原始行是
+    9 列 csv,不是裸 CIDR 行)。"""
     (tmp_path / "z.csv").write_text(
         "2.57.122.0,ipv4,False,RTBH (Turkiye),1,government-feed,20,"
         "2026-11-23T21:25:56Z,2026-11-23T21:25:56Z\n"

@@ -1,10 +1,9 @@
-"""same-start 碰撞绊线(grill Q5,2026-10-11)。
+"""same-start 碰撞绊线(grill Q5,2026-10-11;#480 起改口径)。
 
-`_lmdb.py` 模块 docstring 红线「every source MUST be audited to have
-ZERO same-start collisions」此前纯纪律零机器守卫;同 start 异长 CIDR 同键
-后写覆盖,超网剩余段静默丢失(哲学1)。绊线 = rebuild 写循环内同 start
-异 end 相邻对 WARNING(零行为变化,records 顺序/写入语义零动);全量
-(含非相邻对)审计走 scripts/audit_same_start.py。
+绊线 = rebuild 写循环内同 start 异 end 相邻对 WARNING。#480 起同起点
+碰撞不再是丢失事故——_flush 写前只留前缀最长的一条,绊线降为信息性
+(标记将被过滤裁决的碰撞组);全量(含非相邻对)审计走
+scripts/audit_same_start.py(同样信息性)。
 """
 import logging
 
@@ -27,7 +26,7 @@ def _same_start_warnings(caplog):
 
 def test_same_start_pair_warns_with_both_cidrs_and_base(tmp_path, caplog):
     caplog.set_level(logging.WARNING, logger="ipdb._sources._lmdb")
-    # 行为零变化旁证:同 start 两条归并为单键(后写覆盖,既有语义)
+    # 碰撞组归并为单键:同 start 只剩前缀最长的一条(#480 裁决)
     assert _rebuild(tmp_path, ["10.0.0.0/24", "10.0.0.0/16"]) == 1
     warns = _same_start_warnings(caplog)
     assert len(warns) == 1

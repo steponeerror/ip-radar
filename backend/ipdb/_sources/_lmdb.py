@@ -688,18 +688,30 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
                         # 长者 end 更小 → 只留 end 小者(= 前缀最长);end
                         # 相同(同范围重复行)维持今天的后写胜。事务内读自己
                         # 已写的值可见,batch 内重复键同样覆盖;跨 batch 靠已
-                        # 提交数据,天然正确。旧值 [end, ref_id] 免解码取
-                        # end(v6 超限端点以字符串落盘,int() 透明兼容,见
-                        # encode_value_ref)。被丢的宽条不进 interning,后续
+                        # 提交数据,天然正确。旧值用读侧现成的 _end_int()
+                        # 免解码取 end(首个逗号切片,v6 超限端点的字符串
+                        # 形态同样处理,与 lookup/detect_disjoint 同法)。
+                        # 守卫(评审计一笔 1,主会话裁决 A):pidx 建库期在
+                        # 主库落一个 4 字节描述符键 PIDX_NAME=b"pidx",与 v4
+                        # 键同宽——起点 112.105.100.120(0x70696478)的记录
+                        # 会撞上它。k == PIDX_NAME 时跳过写前读直接 put(保
+                        # 持改前无条件覆盖路径)。真实成因(隔离实验钉死):
+                        # pidx 子库开着时,对主库写这个键 py-lmdb 直接抛
+                        # lmdb.IncompatibleError(MDB_INCOMPATIBLE)——改前
+                        # 同样在这条 put 上炸,是早就存在的响的失败,不是本
+                        # 票引入(test_pidx_descriptor_key_collision_guarded
+                        # 钉住);根治(把字典挪出主库键空间)记 #575 设计
+                        # 输入。被丢的宽条不进 interning,后续
                         # payload 的 ref_id 会整体前移——字节级比对应在查询
                         # 结果层,不是 env 字节层(#480 事实包 §1.2)。
-                        old = txn.get(k)
-                        if old is not None:
-                            old_end = int(orjson.loads(old)[0])
-                            if old_end < end_int:
-                                continue   # 旧值更窄(前缀更长),赢者已定
-                            # old_end > end_int:本条更窄,覆盖(走下方 put);
-                            # old_end == end_int:同范围重复行,后写胜(照常 put)
+                        if k != PIDX_NAME:
+                            old = txn.get(k)
+                            if old is not None:
+                                old_end = _end_int(old)
+                                if old_end < end_int:
+                                    continue   # 旧值更窄(前缀更长),赢者已定
+                                # old_end > end_int:本条更窄,覆盖(走下方 put);
+                                # old_end == end_int:同范围重复行,后写胜(照常 put)
                         # 字典化:payload 首见入典(pidx 反查 + payloads 本体),
                         # 已见则复用其 ref_id;写入值一律 encode_value_ref
                         # 编码(写侧无裸标量 evidence,天然隔离读侧判定)
@@ -749,8 +761,8 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
         s = int(net.network_address)
         e = int(net.broadcast_address)
         if prev is not None and s == prev[0] and e != prev[1]:
-            logger.warning("[same-start] base=%s: %s overlapped by %s "
-                           "(audit source; docstring red line)",
+            logger.warning("[same-start] base=%s: %s collided with %s "
+                           "(collision group; #480: flush keeps longest prefix)",
                            base.name, prev[2], cidr)
         prev = (s, e, cidr)
         if disjoint_ok and s <= max_end:
