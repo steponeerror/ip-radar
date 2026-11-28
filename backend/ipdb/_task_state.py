@@ -20,7 +20,8 @@ _tasks.py ↔ _scheduler.py 互相引用成环)。本模块只依赖标准库。
        下游(_settle 记账、on_terminal、调度器按 failed 升退避、告警渲染)
        都按终态消费,覆盖会造出一条假 failed 告警;其余非法写入**照写**
        ——非终态任务若不写可能被留在在飞态,查询门和批次都会卡住。
-       cancelled 有登记的竞态出边(见转移表),维持照写。
+       cancelled 曾因取消竞态登记过四条出边(#488 修后已清空,见转移表);
+       它不在 NO_WRITE_FROM 拒写清单里的口径不变。
 4. 类别闸(返工评审第 4 条):写入口再按任务类别限一道——运营轮任务
    (source_name == OPS_ROUND_SOURCE)的新状态只许 running 或终态;源任务
    的新状态不许是 running(否则退出在飞集合,查询门放行、轮次互斥失效)。
@@ -105,27 +106,16 @@ TASK_TRANSITIONS: dict[str, frozenset[str]] = {
     "running": frozenset({"done", "failed", "cancelled"}),
     "done": frozenset(),
     "failed": frozenset(),
-    # cancelled 的出边全部是取消竞态的现行路径——登记 = 记录现状,不是设计
-    # 意图。根因:cancel() 的排队中分支「读态 → 写 cancelled」不持 self._lock
-    # (#411 锁序:该路径不得碰 cv),与 worker 起跑之间没有互斥(#1 cancel race
-    # 的残余窗口):
-    #   → downloading / loading / failed
-    #       worker 已过 _queue_cv 内的复查、卡在 _run_task 开头的主机锁/源锁
-    #       上(状态仍是 queued,用户看到的就是排队中)时 cancel 落了
-    #       cancelled;worker 拿到锁后照常翻相位,随后靠已取消的 token 落回
-    #       cancelled(下载抛 CancelledError / 重建返回后查 token)。主机锁
-    #       争用时这条窗口不窄,是普通「取消排队中任务」的真实路径。
-    #   → cancelled
-    #       cancel 读到 queued 之后、写之前,worker 已翻 downloading 并进入
-    #       下载;cancel 落 cancelled 并取消 token,下载抛 CancelledError 再
-    #       落一次 cancelled(终态重入:事件重发一次,_settle 幂等)。窗口只有
-    #       几条字节码,偶发。
-    # 不登记的后果:生产对普通的取消记错误日志(误报),严格模式下测试偶发
-    # 红。修根因另票 #488(起跑前查 token,不加锁、不碰 #411 锁序;2026-11-27
-    # 评审补:宽窗口比上面写的还宽——worker 出队后卡在 _run_task 开头的
-    # 主机锁/源锁上,同主机源排队时要等前一个源整个下载完,这一整段时间
-    # 任务状态都还是 queued,期间的取消都会走竞态路径)。
-    "cancelled": frozenset({"downloading", "loading", "failed", "cancelled"}),
+    # cancelled 终态,无出边(#488 修后「终态出不去」在此状态重新成立):
+    # _run_task 起跑前查取消标记直接返回(宽窗口根修),各写 cancelled 的
+    # 位置已 cancelled 就不再写(窄窗口防重写)。2026-11-27 评审曾登记四条
+    # 竞态出边(downloading / loading / failed / cancelled):取消排队中
+    # 任务与 worker 起跑之间没有互斥,worker 卡在 _run_task 开头的主机锁/
+    # 源锁上时 cancel 先落 cancelled,worker 拿到锁后把状态翻回在飞,随后
+    # 靠已取消的 token 落回 cancelled——窗口分析与成因见 #484 评审、#488
+    # 工单。根修后这四条都不再发生——再现即新竞态形状,修代码,不是
+    # 回填登记。
+    "cancelled": frozenset(),
 }
 
 BATCH_TRANSITIONS: dict[str, frozenset[str]] = {
@@ -166,8 +156,10 @@ def _transition_error(kind: str, table: dict[str, frozenset[str]],
 ILLEGAL_TRANSITION_LOG_PREFIX = "illegal-state-transition"
 
 # 记录模式下「拒写」的出发态(返工评审第 2 条):只拒 done/failed。cancelled
-# 不在列——它有登记的竞态出边(转移表),生产路径依赖照写;非终态出发的
-# 非法写入也照写,否则任务可能被留在在飞态卡住查询门和批次。
+# 不在列——它的竞态出边已随 #488 清空,现行代码不再从它出发写状态(写点
+# 条件是正门);万一残余竞态再写,记录模式照写 + 计数(日志可见),重写的
+# 目标值同为终态/在飞不产生额外卡死面。非终态出发的非法写入也照写,否则
+# 任务可能被留在在飞态卡住查询门和批次。
 NO_WRITE_FROM: frozenset[str] = frozenset({"done", "failed"})
 
 # 类别闸的允许新状态集(返工评审第 4 条):源任务不可进 running(退出在飞
