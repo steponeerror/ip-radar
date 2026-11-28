@@ -169,3 +169,30 @@ def test_same_source_judged_per_observation_and_variants_kept():
     assert a.malware_names == ["unknown_rat", "win.vidar"]
     assert ["malware_name" in d for d in a.details] == [False, True, True]
     assert a.details[0]["extra"]["malware_printable"] == "Unknown malware"
+
+
+# ── 印证旗判式 #522(2026-11-28 丙口径):非派生且系数非零 ≥2 ──
+
+def test_pure_derived_mutual_corroboration_no_flag():
+    """#522 情形①:两聚合器互投不再亮旗(旧 grill Q2 2026-10-11 语义
+    被取代)。变异③(判式回退只数源数)→ 本测试红。"""
+    grp = [_obs("otx", reliability=0.55), _obs("otx_subscribed", reliability=0.55)]
+    a = _assess_classification(grp)
+    assert a.corroborated is False
+
+
+def test_zero_coefficient_first_hands_no_flag():
+    """#522 情形②:两个 r=0.5 的第一手源(系数恒 0)互相抬不起旗。
+    变异②(去掉「系数非零」条件)→ 本测试红。"""
+    grp = [_obs("threatfox", reliability=0.50), _obs("tweetfeed", reliability=0.50)]
+    assert _assess_classification(grp).corroborated is False
+    # 1 个非零第一手 + 1 个零系数第一手:同样不足两票
+    grp2 = [_obs("threatfox", reliability=0.85), _obs("tweetfeed", reliability=0.50)]
+    assert _assess_classification(grp2).corroborated is False
+
+
+def test_first_hand_plus_stronger_derived_survivor_no_flag():
+    """1 个第一手非零 + 更强派生(dedup 幸存)不足两票(读数①形)。"""
+    grp = [_obs("abuseipdb", reliability=0.80), _obs("ziyadnz", reliability=0.90)]
+    a = _assess_classification(grp)
+    assert a.corroborated is False

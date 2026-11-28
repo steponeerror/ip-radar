@@ -152,6 +152,30 @@ def accuser_pool(entries: Iterable[tuple[str, float, str | None]
     return dedup_lineage(sorted(by_source.items()))
 
 
+def corroborated_after_dedup(deduped: list[tuple[str, float]]) -> bool:
+    """印证旗判式单一真源(生产 _merge 与评测重算共用,禁止各算各的):
+    谱系去重后的池里「非派生(不在 DERIVED_SOURCES)且系数非零」的源
+    ≥2 才算印证(工单 #522,2026-11-28 所有者裁丙口径;取代 grill Q2
+    2026-10-11「纯 derived 组互证仍算 corroborated」的旧语义——该语义
+    此前只披露不改,注明「改语义须另票」,本票即那张票)。三口径全量
+    读数(镜像 2026-11-25,docs/reports/2026-11-26-arch-r4-landing/
+    _prep/读数-卡5-追加口径A′.md):印证组 198,571 个丢旗 64,889 个
+    (32.7%),conf≥70 只丢 56 个。
+
+    挡两类回声(哲学 3「宁少算,回声不是印证」):
+    ① 纯派生源(聚合器)互相印证——两个聚合器抄的是同一批上游,
+      不是两票(62,237 组);
+    ② 零系数源给第一手源抬旗——可靠性声明 0.5 → logit(0.5)=0 →
+      系数恒 0,与钟无关(hookzof/thespeedx/proxyscrape/tweetfeed,
+      1,073 组)。
+
+    先后关系:入参必须是 dedup_lineage / accuser_pool 的输出(谱系去重
+    在前,本判式只做资格过滤,不再去重);conf/Σ 照旧由全池系数算,
+    本判式只决定旗,不进置信度(旗是独立字段)。"""
+    return sum(1 for s, c in deduped
+               if s not in DERIVED_SOURCES and c != 0.0) >= 2
+
+
 def assertion_confidence(coeffs: list[float]) -> int:
     """σ(Σcoeff) → 0-100;空列表 = 50(中立)。"""
     s = sum(coeffs)

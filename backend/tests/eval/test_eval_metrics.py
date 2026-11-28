@@ -56,9 +56,12 @@ def test_cg_shadowed_derived_candidate_gains_nothing():
     m = cg(base, cand, "firehol")
     assert m.value == 0
 
-def test_cg_stronger_derived_candidate_survives_dedup():
-    # Production semantics: a derived source strictly stronger than the best
-    # non-derived survives dedup_lineage and DOES corroborate.
+def test_cg_zero_coeff_first_hand_plus_derived_echo_gains_nothing():
+    # #522(2026-11-28 丙口径):第一手源 r=0.50 系数恒 0,不抬旗;
+    # 更强的派生源(firehol 0.90,dedup_lineage 幸存)也不算票——旗仍
+    # False,cg=0。旧判式(谱系去重后源数 1->2,本测试曾钉 cg=1)被
+    # #522 取代。变异②(去掉「系数非零」条件)或③(去掉「非派生」
+    # 条件)任一 → 本测试红。
     base = {"1.1.1.1": {"classifications": {"spam": {
         "sources": [{"source": "spamhaus"}],
         "details": [{"source": "spamhaus", "reliability": 0.50}]}}}}
@@ -67,7 +70,7 @@ def test_cg_stronger_derived_candidate_survives_dedup():
         "details": [{"source": "spamhaus", "reliability": 0.50},
                      {"source": "firehol", "reliability": 0.90}]}}}}
     m = cg(base, cand, "firehol")
-    assert m.value == 1
+    assert m.value == 0                 # #522:零系数第一手 + 派生回声 ≠ 印证
 
 def test_cg_no_gain_when_already_corroborated():
     # Pair already at 2 independent votes: a third vote adds no NEW
@@ -85,11 +88,12 @@ def test_cg_no_gain_when_already_corroborated():
     m = cg(base, cand, "urlhaus")
     assert m.value == 0
 
-def test_cg_two_derived_alone_corroborate():
-    # All-derived pair WITHOUT an anchor: still 2 effective votes (matches
-    # production `corroborated` semantics for all-derived groups).
-    # grill Q2 翻案(2026-10-11):「全 derived 全保留」不再无条件成立——
-    # 锚对(firehol+greensnow 镜像)例外,见 test_cg_mirror_pair_no_corroboration。
+def test_cg_two_derived_alone_not_corroborated():
+    # All-derived pair WITHOUT an anchor: 旧语义(grill Q2 2026-10-11
+    # 「纯 derived 组互证仍算 corroborated」,本测试曾钉 cg=1)被 #522
+    # (2026-11-28 丙口径)取代——两个聚合器抄同一批上游,不是两票;
+    # 生产旗判式 = _logodds.corroborated_after_dedup。变异③(去掉
+    # 「非派生」条件)→ 本测试红。
     base = {"1.1.1.1": {"classifications": {"spam": {
         "sources": [{"source": "firehol"}],
         "details": [{"source": "firehol", "reliability": 0.60}]}}}}
@@ -98,13 +102,42 @@ def test_cg_two_derived_alone_corroborate():
         "details": [{"source": "firehol", "reliability": 0.60},
                      {"source": "ipsum", "reliability": 0.60}]}}}}
     m = cg(base, cand, "ipsum")
-    assert m.value == 1
+    assert m.value == 0                 # #522:纯 derived 互证不再亮旗
+
+
+def test_eval_corroborated_flag_matches_production():
+    """对拍钉子(#522 变异④):评测侧 cg 的旗判式 = 生产 _assess_
+    classification 的 corroborated,评测与生产不许各算各的。四景:
+    两第一手 / 纯派生互证 / 零系数抬旗 / 第一手+派生回声。"""
+    from datetime import datetime, timezone, timedelta
+    from ipdb._logodds import accuser_pool, corroborated_after_dedup
+    from ipdb._merge import _assess_classification
+    from ipdb._types import EvidenceObservation
+    fs = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+
+    def obs(src, r):
+        return EvidenceObservation(source=src, classification_type="spam",
+                                   verdict="malicious", reliability=r,
+                                   first_seen=fs, confidence=None,
+                                   malware_name=None, extra={})
+
+    scenarios = {
+        "two_first_hand": [obs("threatfox", 0.85), obs("abuseipdb", 0.75)],
+        "pure_derived": [obs("otx", 0.55), obs("otx_subscribed", 0.55)],
+        "zero_coeff_lift": [obs("threatfox", 0.50), obs("tweetfeed", 0.50)],
+        "first_hand_plus_derived": [obs("abuseipdb", 0.80), obs("ziyadnz", 0.90)],
+    }
+    for name, grp in scenarios.items():
+        ca = _assess_classification(grp)
+        pool = accuser_pool(((o.source, o.reliability, o.first_seen)
+                             for o in grp), "spam")
+        assert corroborated_after_dedup(pool) == ca.corroborated, name
 
 
 def test_cg_mirror_pair_no_corroboration():
     # grill Q2 翻案(2026-10-11):firehol+greensnow 镜像对(OC=1.0,
     # 包含度 ≥0.9)=同一出版方——firehol(r=.5,系数恒 0)不再是第二票:
-    # 加它不涨有效票,cg=0(生产 dedup_lineage 经 _effective_votes)。
+    # 加它不涨旗,cg=0(旗判式 = corroborated_after_dedup,#522)。
     base = {"1.1.1.1": {"classifications": {"blacklist": {
         "sources": [{"source": "greensnow"}],
         "details": [{"source": "greensnow", "reliability": 0.60}]}}}}

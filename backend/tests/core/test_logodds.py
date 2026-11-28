@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from ipdb._logodds import (
     logit, decay_factor, coefficient, dedup_lineage, accuser_pool,
     assertion_confidence, multicategory_posterior, asof_to_now,
+    corroborated_after_dedup,
 )
 
 
@@ -326,3 +327,49 @@ def test_dedup_lineage_never_empties_nonempty_pool():
             assert out, f"非空池被剔空: {pool}"
             shrank += len(out) < len(pool)
     assert shrank > 0                  # 现行表下确有剔除发生(断言非平凡)
+
+
+# ── 印证旗判式单一真源(#522,2026-11-28 丙口径)──
+
+def test_corroborated_after_dedup_two_first_hand_true():
+    """两个非派生且系数非零的源 ≥2 → True(旗的本义不变)。"""
+    assert corroborated_after_dedup(
+        [("threatfox", 1.7), ("abuseipdb", 1.1)]) is True
+
+
+def test_corroborated_after_dedup_pure_derived_pair_false():
+    """#522 情形①:两个聚合器抄同一批上游,不是两票(62,237 组的病
+    理)。变异③(去掉「非派生」条件)→ 本测试红。"""
+    assert corroborated_after_dedup(
+        [("otx", 0.2), ("otx_subscribed", 0.4)]) is False
+    assert corroborated_after_dedup(
+        [("ziyadnz", 0.1872), ("cps_collected_iocs", 0.0)]) is False
+
+
+def test_corroborated_after_dedup_zero_coeff_does_not_lift():
+    """#522 情形②:r=0.5 → logit=0 → 系数恒 0,第一手源也不抬旗
+    (hookzof/thespeedx/proxyscrape/tweetfeed,1,073 组)。变异②(去掉
+    「系数非零」条件)→ 本测试红。"""
+    assert corroborated_after_dedup(
+        [("threatfox", 0.0), ("tweetfeed", 0.0)]) is False
+    assert corroborated_after_dedup(
+        [("threatfox", 1.7), ("tweetfeed", 0.0)]) is False
+
+
+def test_corroborated_after_dedup_first_hand_plus_derived_echo_false():
+    """1 个第一手非零 + 派生回声(即使派生更强、dedup 幸存)不足两票
+    (读数①形 157 组)。"""
+    assert corroborated_after_dedup(
+        [("abuseipdb", 1.386), ("ziyadnz", 2.197)]) is False
+
+
+def test_corroborated_after_dedup_empty_and_solo_false():
+    assert corroborated_after_dedup([]) is False
+    assert corroborated_after_dedup([("threatfox", 1.7)]) is False
+
+
+def test_corroborated_after_dedup_derived_stronger_still_counts_first_hands():
+    """派生源在场不稀释:非派生非零 ≥2 照样 True(派生幸存票只进占比
+    披露,不影响旗)。"""
+    assert corroborated_after_dedup(
+        [("abuseipdb", 1.386), ("spamhaus", 1.0), ("ziyadnz", 2.197)]) is True
