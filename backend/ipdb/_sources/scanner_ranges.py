@@ -142,6 +142,7 @@ class ScannerRangesSource(Source):
     # 按本声明识别自报段源:不入采样宇宙 + 载入段前缀供分层剔除。
     # 同型新源声明此 flag 即入同车道,无需改 corpus.py。
     self_declared_ranges = True
+    infra_noise_filter = False         # 显式关:存量源行为不变(#531;基类默认已翻 True)
 
     def download(self, token=None) -> None:
         self._data_dir.mkdir(parents=True, exist_ok=True)

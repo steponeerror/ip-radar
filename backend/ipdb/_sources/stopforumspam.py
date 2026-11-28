@@ -78,6 +78,7 @@ class StopForumSpamSource(Source):
     # 多证据,不可同批声明;若 feed 出现重复行须撤此声明(covered=Auto
     # 按行计会虚增 .cov,见 test_single_evidence_dual_path_equivalence)。
     single_evidence = True
+    infra_noise_filter = False         # 显式关:存量源行为不变(#531;基类默认已翻 True)
 
     def load(self) -> int:
         self._cleanup_legacy_txt()

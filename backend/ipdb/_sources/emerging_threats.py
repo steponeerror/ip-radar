@@ -30,3 +30,4 @@ class EmergingThreatsSource(IpListSource):
     # 封同一批地址;判式只在同场地址起作用,方向不受影响)。/12 巨块
     # 回声审计实证(DQ-1,2026-10-06):在场且系数不低即剔,宁少算。
     republishes = ("spamhaus",)
+    infra_noise_filter = False         # 显式关:存量源行为不变(#531;基类默认已翻 True)
