@@ -40,6 +40,7 @@ import lmdb
 from ipdb._registry import LookupResult, fuse_items
 from ipdb._sources._lmdb import (
     PAYLOADS_NAME,
+    key_start,
     # 下三个私有名是扫描侧借用(#500 卡 14 选项 C):_end_int/_payloads_db
     # 只读;_PAYLOAD_DB_CACHE 会被本文件 pop 掉同路径缓存项(见
     # _open_envs/close 处注释)。动存储内核的私有名字时要一起看(改名单/
@@ -420,7 +421,7 @@ class UnitScanner:
                 if cur.key() == PAYLOADS_NAME:
                     ok = cur.next()
                     continue
-                start = int.from_bytes(cur.key(), "big")
+                start = int.from_bytes(key_start(cur.key()), "big")   # #575:新格式键去尾部 plen 字节,旧格式原样
                 raw = cur.value()
                 end = _end_int(raw)
                 if not st.disjoint:

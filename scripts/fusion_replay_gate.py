@@ -184,7 +184,7 @@ class BenignIndex:
 def iter_source_starts(source):
     """单个指控源 LMDB v4 键起点流(CIDR 起点;跳过 payloads 描述符键)。
     复用 registry 已打开的 _reader(py-lmdb 同进程禁双开)。"""
-    from ipdb._sources._lmdb import PAYLOADS_NAME
+    from ipdb._sources._lmdb import PAYLOADS_NAME, key_start
     env = source._reader
     with env.begin() as txn:                             # 长只读事务:全程无写者,安全
         cur = txn.cursor()
@@ -192,7 +192,9 @@ def iter_source_starts(source):
         while ok:
             key = cur.key()
             if key != PAYLOADS_NAME:
-                yield int.from_bytes(key, "big")
+                # #575 步 1:键长双形态(4B 旧 / 5B 新含 plen 尾字节),取起点段;
+                # 旧格式 epoch 上 key_start 原样返回,行为不变(超集代表论证仍成立)
+                yield int.from_bytes(key_start(key), "big")
             ok = cur.next()
 
 

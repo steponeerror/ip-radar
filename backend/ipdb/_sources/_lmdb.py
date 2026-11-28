@@ -129,6 +129,26 @@ def encode_key6(start_int: int) -> bytes:
     return start_int.to_bytes(16, "big")
 
 
+# 数据键宽集合(#575 步 1:读侧双形态):旧格式 = 起点整键 4/16 字节;
+# 新格式 = 起点 + 前缀长度尾字节 5/17 字节。命名库描述符键(b"payloads")
+# 宽 8,与四种数据键宽都不等。
+_DATA_KEY_WIDTHS = frozenset({4, 16, 5, 17})
+
+
+def key_start(key: bytes) -> bytes:
+    """数据键的起点段(#575 步 1)。旧格式键即起点整键,原样返回;新格式
+    键去尾部的 plen 字节。键长即格式标签:epoch 建后不可变,一个 epoch
+    恒一格式,而月轮镜像/导出器引擎镜像会长期持有旧 epoch —— 「读者认得
+    两种键」从此是存储接口面的一部分(设计稿 §3)。所有「从键取起点」的
+    读点(detect_disjoint/_scan._iter_family/fusion_replay_gate)统一走
+    这里,一个概念一个拼写。"""
+    if len(key) == 5:
+        return key[:4]
+    if len(key) == 17:
+        return key[:16]
+    return key
+
+
 _JSON_INT_MAX = 2**64 - 1   # orjson 整数上限:v6 区间端点(128-bit)超限需字符串编码
 
 # 值字典(payload interning)sub-db 名:PAYLOADS = ref_id(8B big-endian)
@@ -224,12 +244,15 @@ def _payloads_db(env, txn=None):
 
 
 def _prev_record(cur) -> bool:
-    """回退一步到真实数据记录:prev() 跳过 payloads 命名库描述符键。
-    LMDB 把 sub-db 注册项落在主库键空间(键=库名 b"payloads",值=二进制
-    描述符),它不是 [end, ref] 布局——回扫落上去 _end_int 直接炸。
+    """回退一步到真实数据记录:prev() 跳过非数据键。LMDB 把 sub-db 注册
+    项落在主库键空间(键=库名 b"payloads" 8 字节,值=二进制描述符),它
+    不是 [end, ref] 布局——回扫落上去 _end_int 直接炸。数据键宽恒 4/16
+    (旧格式)或 5/17(新格式 #575),描述符键宽 8 与它们都不等宽,按键
+    宽判在两种格式下都与原「键名 ≠ b"payloads"」判断等价(设计稿 §2:
+    精确匹配跳过继续有效;§5:新格式 5/17B 键与 8B 描述符永不相等)。
     (pidx 在提交前已 drop,可读 env 中不可能出现,无需防御。)"""
     while cur.prev():
-        if cur.key() != PAYLOADS_NAME:
+        if len(cur.key()) in _DATA_KEY_WIDTHS:
             return True
     return False
 
@@ -248,19 +271,27 @@ def lookup(env, ip_int: int, *, disjoint: bool = False,
     同构,完备且有界,替换旧 16 步线性回扫 — 深嵌套不再漏命中,实测
     geolite_city 的 8.8.8.8 城市网曾被 Google 段兄弟网淹死)。
 
+    返回形状按键格式分(#575 步 1):旧格式(键 4/16B)单条 dict 原样;
+    新格式(键 5/17B = 起点+plen 尾字节)同起点可多条,恒返回 list、
+    窄在前(probe 序 = 前缀长降序)。步 1 合并时库里尚无新格式数据,
+    新分支恒不走,行为零变化。
+
     族必须显式声明:小 v6 整数(::,::1,::2)数值上落在 v4 范围,按数值
     分派会错编 4 字节 key(16 字节 key 环境下排序错乱→假命中/假漏,F1)
     """
     key_enc = (encode_key6 if ip_version == 6 else encode_key)
     bits = 128 if ip_version == 6 else 32
+    key_w = bits // 8               # 旧格式整键宽 4/16 字节;新格式(#575)= +1
     with env.begin() as txn:
         cur = txn.cursor()
         if disjoint:
             key = key_enc(ip_int)
             found = cur.set_range(key)
             if found:
-                if cur.key() == key:
-                    pass
+                k = cur.key()
+                if k == key or (len(k) == key_w + 1 and k[:key_w] == key):
+                    pass    # exact start:旧=整键相等;新=起点段相等(组内
+                            # 落点是最小 plen 键,disjoint 库无嵌套即单条)
                 else:
                     if not _prev_record(cur):
                         return None
@@ -274,16 +305,35 @@ def lookup(env, ip_int: int, *, disjoint: bool = False,
                     ev = resolve_evidence(txn, ev, _payloads_db(env, txn))
                 return ev
             return None
+        # 嵌套库前缀探测。#575 步 1 起按键长分支:旧格式(键宽 key_w)行为
+        # 逐字节不变——该前缀层起点精确命中即返回;新格式(键宽 key_w+1,
+        # 键 = 起点 + plen 尾字节,同起点组按键序 plen 升序相邻)该前缀层
+        # 的记录按精确键 key+plen 取(set_range(起点段) 会落在同起点最小
+        # plen 键上,按起点段相等收会重复收同一宽条),命中不再早退而是收
+        # 进 hits 跑满循环——probe 序 = 前缀长降序 = 窄在前、顺序稳定,融合
+        # 层同源多观测不复合规则兜住置信度(_merge.py:300-310,设计稿 §4.1)。
+        # 步 1 合并时库里尚无新格式数据,新分支恒不走。
+        hits: list = []
         for plen in range(bits, -1, -1):
             mask = (1 << (bits - plen)) - 1
             key = key_enc((ip_int | mask) ^ mask)   # = ip & ~mask(对齐起点)
-            if cur.set_range(key) and cur.key() == key \
-                    and ip_int <= _end_int(cur.value()):
+            if not cur.set_range(key):
+                continue
+            k = cur.key()
+            if len(k) == key_w + 1:                 # 新格式
+                exact = key + bytes((plen,))
+                if cur.set_range(exact) and cur.key() == exact \
+                        and ip_int <= _end_int(cur.value()):
+                    ev = decode_value(cur.value())[1]
+                    if isinstance(ev, int):
+                        ev = resolve_evidence(txn, ev, _payloads_db(env, txn))
+                    hits.append(ev)
+            elif k == key and ip_int <= _end_int(cur.value()):  # 旧格式(原样)
                 ev = decode_value(cur.value())[1]
                 if isinstance(ev, int):     # 惰性:_payloads_db 仅在解引用时取
                     ev = resolve_evidence(txn, ev, _payloads_db(env, txn))
                 return ev
-        return None
+        return hits or None
 
 
 def detect_disjoint(env) -> bool:
@@ -296,7 +346,7 @@ def detect_disjoint(env) -> bool:
             if cur.key() == PAYLOADS_NAME:   # 命名库描述符键:非数据记录,跳过
                 ok = cur.next()
                 continue
-            if int.from_bytes(cur.key(), "big") <= prev_end:
+            if int.from_bytes(key_start(cur.key()), "big") <= prev_end:
                 return False
             prev_end = _end_int(cur.value())
             ok = cur.next()
