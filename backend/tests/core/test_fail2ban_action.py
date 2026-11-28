@@ -69,6 +69,16 @@ def test_mal_requires_malicious_verdict_and_threshold():
     assert _run(_payload(85, "malicious"), threshold=80) == "MAL 85"
 
 
+def test_missing_or_null_threat_outputs_ok_0():
+    """载荷没有 threat 键(或 threat: null)→ OK 0(无证据即 0,非清白;
+    片段的 d.get("threat") or {} 兔饮空字典路径)。评审5 加。"""
+    no_key = {"classifications": {}, "attributes": {}}
+    assert _run(no_key) == "OK 0"
+    null_threat = _payload(None, None)
+    null_threat["threat"] = None
+    assert _run(null_threat) == "OK 0"
+
+
 def test_cdn_and_service_edge_branch_unchanged():
     """CDN / 服务边缘先于 MAL/OK 判定(原样行为,#521 不动这一段)。
     片段只认字符串「cdn」(原样口径;bool True 不触发是现存行为,本测试

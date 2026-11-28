@@ -338,3 +338,14 @@ class TestThreatSummaryFirstHandSourceCount:
             {"source": "abuseipdb", "verdict": "malicious", "reliability": 0.9}])
         t = _lr({"scanner": g1, "abuse-reports": g2}).threat_summary()
         assert t["first_hand_source_count"] == 1
+
+    def test_declared_republisher_non_derived_counts_separately(self):
+        """现状钉死(评审3;裁决只剔派生聚合器):emerging_threats 自己不是
+        派生源、却声明转载 spamhaus —— 源数照算两票。这与置信度侧的谱系
+        去重(dedup_lineage)不同底,可能出现「2源」而不带印证旗;要不要连
+        声明转载的也剔,NEEDS.md 已记,待所有者裁(#522 相邻)。"""
+        g = _ca("blacklist", "malicious", 90, [
+            {"source": "spamhaus", "verdict": "malicious", "reliability": 0.9},
+            {"source": "emerging_threats", "verdict": "malicious", "reliability": 0.9}])
+        t = _lr({"blacklist": g}).threat_summary()
+        assert t["first_hand_source_count"] == 2

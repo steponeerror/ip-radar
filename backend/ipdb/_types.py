@@ -129,13 +129,14 @@ class LookupResult:
         lookup table, Wazuh script): verdict + confidence + detected types,
         plus the CDN/service flag so consumers can skip bans on infra edges.
 
-        first_hand_source_count(#521 出海数字统一,裁决 2026-11-28):
-        几个互不相干的第一手源在指控 —— detected 且指控(verdict in
-        _ACCUSING)的组里,detail 级指控证人的源名,去掉派生聚合器
-        (_logodds.DERIVED_SOURCES,转载不重复点票)后去重计数。未
-        detected 组的指控明细不计入(与网页旧口径 sources.size 同底,
-        纯展示口径,不进评分、不随置信度走;网页 / CSV / fail2ban /
-        黑名单导出都读这一个数。sources 名单照旧列全(证据不灭失)。
+        first_hand_source_count(#521 出海数字统一,裁决 2026-11-28):去掉
+        派生聚合器(_logodds.DERIVED_SOURCES)后的去重源数 —— detected
+        且指控(verdict in _ACCUSING)的组里,detail 级指控证人的源名。
+        声明了 republishes 的非派生源各算一票(裁决只说派生聚合器;
+        与印证旗的谱系去重不是同一个底,见 #522);未 detected 组的指控
+        明细不计入(与网页旧口径 sources.size 同底)。纯展示口径,不进
+        评分、不随置信度走;网页徽标和黑名单导出读这个源数,CSV、
+        fail2ban 读的是同一个置信度。sources 名单照旧列全(证据不灭失)。
         """
         detected = [v for v in self.classifications.values() if v.detected]
         # 第一手指控源(#521,定义见 docstring):detected 指控组 +

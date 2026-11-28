@@ -87,7 +87,8 @@ describe("threatDisplay", () => {
       threat: { verdict: "malicious", confidence: 94, types: ["c2_server"], is_cdn: false },
     };
     const s = threatSummary(withThreat);
-    expect(s.sourceCount).toBe(2);
+    // 字段不在 = 旧后端 → 0(评审后裁决,退路已删;本地 sources.size 不再兜底)
+    expect(s.sourceCount).toBe(0);
     expect(s.corroborated).toBe(true);
     expect(s.conflict).toBe(true);
     expect(s.archive).toBe(false);
@@ -100,12 +101,13 @@ describe("threatDisplay", () => {
         is_cdn: false, first_hand_source_count: 3 },
     };
     expect(threatSummary(withCount).sourceCount).toBe(3);
-    // 旧缓存 payload 无此字段 → 本地 sources.size 原样回退
+    // 字段不在 = 旧后端 → 当 0(评审后裁决:退路删掉;ResultTable 对 0
+    // 不显示徽标,不会把另一个口径的数挂在「N源」标签下)
     const legacy: LookupResult = {
       ...dirty,
       threat: { verdict: "malicious", confidence: 94, types: ["c2_server"], is_cdn: false },
     };
-    expect(threatSummary(legacy).sourceCount).toBe(2);
+    expect(threatSummary(legacy).sourceCount).toBe(0);
   });
   it("无指控组但 threat 在场:verdict/confidence 同样取后端,旗标照旧本地", () => {
     const cleanWithThreat: LookupResult = {

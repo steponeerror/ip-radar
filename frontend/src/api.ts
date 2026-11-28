@@ -79,9 +79,10 @@ export interface ThreatSummary {
   confidence: number;
   types: string[];
   is_cdn: boolean;
-  // 第一手指控源数(#521 出海数字统一,裁决 2026-11-28):指控组去
-  // DERIVED_SOURCES 后的去重源数。可选:旧缓存 payload 无此字段,
-  // 前端回退本地 sources.size。
+  // 第一手指控源数(#521 出海数字统一,裁决 2026-11-28;评审后裁决退路删掉):
+  // 指控组去 DERIVED_SOURCES 后的去重源数。字段保持可选但语义硬:
+  // 字段不在 = 旧后端 → 前端当 0(ResultTable 对 0 不显示徽标),
+  // 不再退回本地 sources.size(两个口径不能共用同一个「N源」标签)。
   first_hand_source_count?: number;
 }
 

@@ -110,19 +110,21 @@ export function familyShort(name: string): string {
 }
 
 // 单一真相(2026-10-04):后端 threat 在场 → verdict/confidence 取后端值(证据级重融合,
-// 见 backend/ipdb/_types.py threat_summary),旗标照旧本地;threat 缺失(旧缓存 payload /
-// 防御性路径)→ 本地推导原样回退。源数同法(#521 出海数字统一):后端
-// first_hand_source_count 在场(第一手指控源,去派生聚合器)→ 直接用;
-// 旧 payload 无此字段 → 本地 sources.size 原样回退。
+// 见 backend/ipdb/_types.py threat_summary),旗标照旧本地;threat 缺失(防御性路径)
+// → 本地推导原样回退。源数同法(#521 出海数字统一,评审后裁决:退路删掉):
+// first_hand_source_count 字段不在 = 旧后端,当 0(ResultTable 对 0 本来就不
+// 显示徽标;前端与后端打在同一镜像里,生产走不到这个分支)。
 function consumeBackendThreat(
   local: ReturnType<typeof threatSummary>,
   threat?: ThreatSummary,
 ): ReturnType<typeof threatSummary> {
   if (!threat) return local;
-  const sourceCount = typeof threat.first_hand_source_count === "number"
-    ? threat.first_hand_source_count
-    : local.sourceCount;
-  return { ...local, verdict: threat.verdict, confidence: threat.confidence, sourceCount };
+  return {
+    ...local,
+    verdict: threat.verdict,
+    confidence: threat.confidence,
+    sourceCount: threat.first_hand_source_count ?? 0,
+  };
 }
 
 export function threatSummary(r: LookupResult): {
