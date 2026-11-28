@@ -19,3 +19,4 @@ class SiberKapanSource(IpListSource):
     stale_days = 1
     reliability = 0.60                   # sensor-sourced: automated but evidence-based
     authoritative_for = ()
+    infra_noise_filter = False         # 显式关:存量源行为不变(#531;基类默认已翻 True)

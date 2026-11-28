@@ -175,6 +175,7 @@ class EchelonSource(IpListSource):
     authoritative_for = ()
     provenance_tier = "A"     # A=官方一手(S21):Echelon Labs 官方 API 直接发布
     honeypot_methodology = True   # 蜜罐传感网采集(S33;k_nonhoneypot 剔除)
+    infra_noise_filter = False         # 显式关:存量源行为不变(#531;基类默认已翻 True)
 
     def __init__(self, data_dir: Path, selected_tags: list[str] | None = None):
         self._tags = selected_tags or list(_SLUGS)

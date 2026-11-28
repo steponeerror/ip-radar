@@ -38,6 +38,7 @@ class CdnEdgesSource(Source):
     authoritative_for = ("service",)
     stale_days = 7                      # bulky, slow-changing range lists (cf. ip2proxy/iptoasn)
     reliability = 0.95                  # publisher-self-published edge ranges (cf. tor_exits)
+    infra_noise_filter = False         # 良性源用不上;显式声明是 #531 契约(基类默认已翻 True)
 
     def download(self, token=None) -> None:
         self._data_dir.mkdir(parents=True, exist_ok=True)

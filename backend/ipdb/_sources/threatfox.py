@@ -69,6 +69,7 @@ class ThreatFoxSource(Source):
     authoritative_for = ()               # SM-F1:is_malicious 无证据键生产者(幻影轴),不声明
     provenance_tier = "A"                 # A=官方一手(S21):abuse.ch 运营方直接发布
     skip_lines = 9
+    infra_noise_filter = False         # 显式关:存量源行为不变(#531;基类默认已翻 True)
 
     def _keyed_url(self, auth_key: str) -> str:
         # url attr 是无 key 占位(…/exports/full.csv.zip);v2 端点把 Auth-Key
