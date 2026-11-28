@@ -62,6 +62,51 @@ const SCAN_MS = 48 * 3600 * 1000; // 终局补报带扫描窗(P1-3);分带见 sp
 const EVOLVE_CAP_CNY = Number(process.env.EVOLVE_SPEND_CAP_CNY || 200);
 const MAX_LINES = 30; // 票面:markdown ≤30 行
 
+// —— #550 节拍读数阈(日报是人的通道,阈值独立于机器告警)——
+// 月轮心跳:生产机器告警阈 35 天(backend/ipdb/_alerts.py _EVAL_ROUND_THRESHOLD_H);
+// 日报 30 天提前喊人。质量契约(变异自检+事故回放,--quality-contract 报告
+// quality-report-*.json 的 mtime):与机器告警同阈 35 天。
+export const HEARTBEAT_RED_H = 30 * 24;
+export const QUALITY_RED_H = 35 * 24;
+
+// 节拍两行(#550):月轮心跳龄 + 质量契约上次运行。小时数;超阈标红;
+// 读不到不算绿:心跳读不到=红(生产侧 35 天告警是机器兜底,日报提前喊人);
+// 质量契约没文件=「从没跑过」红;目录读不了=「读不到」红(与「从没跑过」
+// 分开显形——无证据≠清白)。heartbeatReadError=true(ssh 整体失败)时只出注记
+// 行不出红(读取失败已另有红项,不双计同一证据,哲学 3)。
+export function summarizeCadence({ heartbeatMtimeMs, heartbeatReadError = false,
+                                   qualityMtimeMs, qualityUnreadable = false,
+                                   nowMs }) {
+  const lines = [];
+  const reds = [];
+  const ageH = (t) => Math.max(0, Math.floor((nowMs - t) / 3_600_000));
+  if (heartbeatReadError) lines.push("- 月轮心跳:读不到(服务器读取失败,见红项)");
+  else if (heartbeatMtimeMs == null) {
+    lines.push("- ⚠ 月轮心跳:读不到");
+    reds.push("月轮心跳读不到(服务器 eval-heartbeat 缺席)");
+  } else {
+    const h = ageH(heartbeatMtimeMs);
+    if (h > HEARTBEAT_RED_H) {
+      lines.push(`- ⚠ 月轮心跳龄 ${h}h(超 ${Math.round(HEARTBEAT_RED_H / 24)} 天)`);
+      reds.push(`月轮心跳龄 ${h}h 超 30 天`);
+    } else lines.push(`- 月轮心跳龄 ${h}h`);
+  }
+  if (qualityUnreadable) {
+    lines.push("- ⚠ 质量契约:读不到");
+    reds.push("质量契约上次运行读不到");
+  } else if (qualityMtimeMs == null) {
+    lines.push("- ⚠ 质量契约:从没跑过");
+    reds.push("质量契约从没跑过(变异自检+事故回放无基线)");
+  } else {
+    const h = ageH(qualityMtimeMs);
+    if (h > QUALITY_RED_H) {
+      lines.push(`- ⚠ 质量契约上次运行 ${h}h 前(超 ${Math.round(QUALITY_RED_H / 24)} 天)`);
+      reds.push(`质量契约上次运行 ${h}h 前(超 35 天)`);
+    } else lines.push(`- 质量契约上次运行 ${h}h 前`);
+  }
+  return { lines, reds };
+}
+
 // —— 纯函数面(scripts/test_daily_digest.mjs 钉)——
 
 // 轮 id `YYYY-MM-DD-HHMM-<kind>` → epoch ms;utcOffsetMin=id 钟面对 UTC 的偏移量
@@ -254,7 +299,9 @@ const mark = (r) => (r.ok === true ? "✓" : r.ok === false ? "✗" : "?");
 
 // 渲染:markdown ≤30 行(票面);无轮日=「当日无轮」一行(验收:全空也发一行)。
 // 红项列表超帽时截断,余量指落盘件(证据永不灭失,推送面保行数帽)。
-export function renderDigest({ dateLabel, server, local, reds }) {
+// cadence(#550 节拍两行):由 main 用 summarizeCadence 产物传入;缺省(旧测试
+// 直接调 renderDigest 不带节拍)不出「节拍」节,字节不变。
+export function renderDigest({ dateLabel, server, local, reds, cadence }) {
   const lines = [];
   lines.push(`# ip-radar 日报 ${dateLabel}${reds.length ? ` ⚠(${reds.length} 红项)` : ""}`);
   lines.push("");
@@ -313,6 +360,11 @@ export function renderDigest({ dateLabel, server, local, reds }) {
     ...overdueRoundLines("fleet", local.overdue_add_rounds).notes,
   ];
   if (localOd.length) lines.push(`- 终局补报:${localOd.join("、")}`);
+  if (cadence?.lines?.length) {
+    lines.push("");
+    lines.push("## 节拍");
+    lines.push(...cadence.lines);
+  }
   if (reds.length) {
     lines.push("");
     lines.push("## 红项");
@@ -365,6 +417,9 @@ export const RED_ADVICE = Object.freeze({
   fleetVerifyClock: "多半是本机时钟抖动,重放一次通常就过;同一源连败 2 次会自动跳过并另行告警", // #377 时钟步进判例(验证门偶发红=时钟族 flake,重试即过)+ #366 连败 2 跳过
   fleetGate: "等下一拍自动重试;同一源连败 2 次会自动跳过并另行告警,那时再人工复盘", // #366:失败不重试同轮,下一拍另起
   fleetMonthly: "不用动,预算护栏正常工作;想继续跑由人裁抬帽(env OPS_PIPELINE_MONTHLY_CAP_CNY)或等下月", // #366:月帽拒启未起跑不计失败
+  monthlyHeartbeat: "先查本机月轮定时器(systemctl --user status ipradar-monthly-eval,journalctl --user -u ipradar-monthly-eval);跑不动就手动跑一次 scripts/monthly_eval.sh,别等服务器 35 天告警", // #550:月轮心跳 35 天阈值告警是机器兜底,日报 30 天提前喊人
+  qualityContract: "在开发机主检出跑一次质量契约留基线(python -m ipdb._eval --quality-contract,变异自检+事故回放);月轮里已有 quality-contract 腿(#550),连着两月没跑就是月轮腿坏了查 monthly/logs/ 腿日志", // #550
+  qualityContractUnreadable: "大概率是文件被挪走或权限变了:去 backend/data/eval/monthly/model/ 看 quality-report-* 还在不在", // #550
   sshFail: "偶发网络问题等明天自动恢复;连续几天失败再人工登服务器排查 ssh 和容器", // #368:失败可见优于静默空面
   missedNote: "等下一轮;连续出现再人工查服务器轮目录", // #368 两日 glob 兜底注记
 });
@@ -429,6 +484,16 @@ const RED_PLAIN_RULES = [
     (m) => `服务器:日报连不上服务器,读不到今天的轮数据(${m[1]})——读不到不等于一切正常。下一步:${RED_ADVICE.sshFail}。`],
   [/^窗内轮未读到信封:(.*)$/,
     (m) => `服务器:窗内有轮但没读到它的信封(${m[1]})。下一步:${RED_ADVICE.missedNote}。`],
+  [/^月轮心跳龄 (\d+)h 超 30 天$/,
+    (m) => `月轮:全源评测已经 ${Math.round(Number(m[1]) / 24)} 天没有成功跑完一轮(心跳龄 ${m[1]} 小时,超 30 天)。下一步:${RED_ADVICE.monthlyHeartbeat}。`],
+  [/^月轮心跳读不到.*/,
+    () => `月轮:服务器数据卷上找不到月轮心跳文件——月轮从来没成功推过心跳,或文件被删了。下一步:${RED_ADVICE.monthlyHeartbeat}。`],
+  [/^质量契约上次运行 (\d+)h 前\(超 35 天\)$/,
+    (m) => `质量契约:变异自检+事故回放已经 ${Math.round(Number(m[1]) / 24)} 天没跑了(上次运行 ${m[1]} 小时前,超 35 天)。下一步:${RED_ADVICE.qualityContract}。`],
+  [/^质量契约从没跑过.*/,
+    () => `质量契约:变异自检+事故回放从来没有跑过(一份报告都没有),融合核心没有变异基线。下一步:${RED_ADVICE.qualityContract}。`],
+  [/^质量契约上次运行读不到$/,
+    () => `质量契约:上次运行的报告目录读不到(读不到不等于没跑过,也不等于正常)。下一步:${RED_ADVICE.qualityContractUnreadable}。`],
 ];
 
 // 单条红项 → 大白话(未命中规则=未知失败类型,兜底指路不编造)
@@ -441,7 +506,7 @@ export function plainRedItem(red, dateLabel) {
 }
 
 // lark 推送版渲染(#383:标题/三段骨架同技术面,行文案大白话;≤30 行帽保留,单行可变长)
-export function renderDigestPush({ dateLabel, server, local, reds }) {
+export function renderDigestPush({ dateLabel, server, local, reds, cadence }) {
   const timeMark = (r) => {
     const m = /^(?:\d{4}-\d{2}-\d{2}-)(\d{2})(\d{2})-/.exec(String(r.round_id || ""));
     return m ? `${m[1]}:${m[2]}${mark(r)}` : `${shortId(r.round_id)}${mark(r)}`;
@@ -504,6 +569,11 @@ export function renderDigestPush({ dateLabel, server, local, reds }) {
     ...(local.overdue_add_rounds ?? []).filter((r) => r.ok === null).map((r) => `${plainClock(r.round_id)}(fleet)`),
   ];
   if (localOd.length) lines.push(`- 昨天的轮还没收口(在跑或没成绩单,不算红):${localOd.join("、")}`);
+  if (cadence?.lines?.length) {
+    lines.push("");
+    lines.push("## 节拍");
+    lines.push(...cadence.lines);
+  }
   if (reds.length) {
     lines.push("");
     lines.push("## 红项");
@@ -538,6 +608,9 @@ const SSH_INNER = [
   "done;",
   `echo __LEDGER__; cat ${OPS_LEDGER} 2>/dev/null;`,
   `echo __SHADOW__; ls ${SHADOW_ROUNDS} 2>/dev/null;`,
+  // #550:月轮心跳 mtime(容器 /app/data/eval-heartbeat;月轮 scripts/monthly_eval.sh 写,
+  // 生产 _alerts 只认 mtime 同一文件)。stat 失败=空值(读不到,不算绿)
+  `echo "__HEARTBEAT__$(stat -c %Y /app/data/eval-heartbeat 2>/dev/null)";`,
 ].join("\n");
 
 function parseSshSections(text) {
@@ -553,6 +626,8 @@ function parseSshSections(text) {
       if (cur?.startsWith("ROUND:")) sections.get(cur).exits = line.slice("__EXITS__".length);
     } else if (line.startsWith("__ENQUEUE__")) {
       if (cur?.startsWith("ROUND:")) sections.get(cur).enqueue = line.slice("__ENQUEUE__".length);
+    } else if (line.startsWith("__HEARTBEAT__")) {
+      sections.set("HEARTBEAT", [line.slice("__HEARTBEAT__".length)]); // #550 单行标记:值同行
     } else if (/^__(ROUNDS|LEDGER|SHADOW)__\s*$/.test(line)) {
       cur = line.slice(2, -2);
       sections.set(cur, []);
@@ -610,6 +685,12 @@ async function readServerFace(nowMs) {
     refusals: ledger.refusals,
     shadow_new: shadowNewRounds(shadowIds),
     missed_note: missed.length ? `窗内轮未读到信封:${missed.join("、")}` : null,
+    // #550 节拍:月轮心跳 mtime(秒→ms;读不到/非数字=null,不算绿)
+    heartbeat_mtime_ms: (() => {
+      const raw = (sec.get("HEARTBEAT") ?? [""])[0].trim();
+      const s = Number(raw);
+      return Number.isFinite(s) && raw !== "" ? s * 1000 : null;
+    })(),
   };
 }
 
@@ -678,7 +759,24 @@ function readLocalFace(root, nowMs) {
       readJsonSafe(path.join(addRoundsDir, id, "gates.json")),
     ),
   );
-  return { evolve, add_rounds, overdue_add_rounds };
+  // #550 节拍:质量契约上次运行 = 最新 quality-report-*.json 的 mtime(--quality-contract
+  // 落 backend/data/eval/monthly/model/,contract.py run_contract)。目录读不了与
+  // 「没文件」分开显形(读不到≠从没跑过,无证据≠清白)。
+  const qualityDir = path.join(root, "backend", "data", "eval", "monthly", "model");
+  let quality_mtime_ms = null;
+  let quality_unreadable = false;
+  try {
+    const qnames = fs.readdirSync(qualityDir)
+      .filter((n) => /^quality-report-\d{8}-\d{6}\.(json|md)$/.test(n));
+    for (const n of qnames) {
+      const t = fs.statSync(path.join(qualityDir, n)).mtimeMs;
+      if (t > (quality_mtime_ms ?? 0)) quality_mtime_ms = t;
+    }
+  } catch {
+    quality_unreadable = true;
+  }
+  return { evolve, add_rounds, overdue_add_rounds,
+           quality_mtime_ms, quality_unreadable };
 }
 
 // apprise 推送:--body 走 execFile 参数数组(无 shell,免转义;body ≤30 行远小于
@@ -722,8 +820,18 @@ async function main() {
   const local = readLocalFace(root, nowMs);
   const reds = collectRedItems({ server, local });
   if (server.missed_note) reds.push(server.missed_note);
-  const { fileBody } = renderDigest({ dateLabel, server, local, reds });
-  const pushFace = renderDigestPush({ dateLabel, server, local, reds }); // #383:lark 吃大白话版
+  // #550 节拍两行:红项入 reds(lark 推送面/红项计数同管道);ssh 整体失败时心跳
+  // 只出注记不出红(读取失败已另有红项,同一证据不双计)。
+  const cadence = summarizeCadence({
+    heartbeatMtimeMs: server.heartbeat_mtime_ms,
+    heartbeatReadError: Boolean(server.error),
+    qualityMtimeMs: local.quality_mtime_ms,
+    qualityUnreadable: local.quality_unreadable,
+    nowMs,
+  });
+  reds.push(...cadence.reds);
+  const { fileBody } = renderDigest({ dateLabel, server, local, reds, cadence });
+  const pushFace = renderDigestPush({ dateLabel, server, local, reds, cadence }); // #383:lark 吃大白话版
 
   const digestDir = path.join(root, "dev/ops-digest");
   fs.mkdirSync(digestDir, { recursive: true });
