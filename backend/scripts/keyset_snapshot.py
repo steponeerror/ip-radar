@@ -76,8 +76,11 @@ def collect(args) -> int:
                     src = d.get("source")
                     if not src:
                         continue
-                    keysets.setdefault(src, set()).add(f"{unit.ip}|{ctype}")
-                    n_lines += 1
+                    line = f"{unit.ip}|{ctype}"
+                    keyset = keysets.setdefault(src, set())
+                    if line not in keyset:   # 同源同单元同类型去重(逐源集合内去重,不同源不互吞)
+                        keyset.add(line)
+                        n_lines += 1         # = 各源文件数据行总数(去重后)
             if args.limit is not None and n_lines >= args.limit:
                 break                   # 冒烟:收够即停(规格同 scan-equiv --limit)
         # 纪元要等扫描结束才齐(sc.epochs 在 _open_envs 钉死)
@@ -135,8 +138,8 @@ def main(argv=None) -> int:
                     help="快照根目录;产物落 <out-dir>/<run_id>/")
     ap.add_argument("--spill-dir", default=None)
     ap.add_argument("--limit", type=int, default=None,
-                    help="收够这么多条(单元×类型)就停(冒烟用;按单元"
-                         "粒度检查,可越过 limit 一个单元的明细条数)")
+                    help="收够这么多条(源×单元×类型去重后)就停(冒烟"
+                         "用;按明细粒度检查,可越过 limit 一个明细的条数)")
     args = ap.parse_args(argv)
     return collect(args)
 
