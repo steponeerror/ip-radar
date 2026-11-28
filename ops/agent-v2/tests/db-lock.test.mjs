@@ -81,8 +81,9 @@ test("①锁冲突拒跑:库有在飞任务+锁被人持,B 另一入口 exit 16,
     rw.prepare("UPDATE tasks SET status = 'running', record = ? WHERE id = ?").run(
       JSON.stringify({ ...task.rec, state: { ...task.rec.state, status: "running", startedAt } }), task.r.id);
     rw.close();
-    // 第三步:裸 flock 持锁(模拟另一引擎在跑;锁文件 flock O_CREAT 自建)
-    holder = spawn("flock", [dbLockPath(db), "sleep", "30"]);
+    // 第三步:裸 flock -s 持锁(变异①靶:持锁人也拿共享——若引擎侧也被改成共享锁,
+    // B 与持锁人共存,B 就不会拒跑,本测必红;独占引擎对共享持锁人照撞冲突)
+    holder = spawn("flock", ["-s", dbLockPath(db), "sleep", "30"]);
     await new Promise((r) => setTimeout(r, 400)); // 持锁人拿稳
     // B:同库另一入口(无 roundId——锁面先于用法校验,拒跑必 16 非用法 2;--db 对准同一把锁)
     const b = await awaitClose(await cli(["--db", db], w.env));
