@@ -685,14 +685,19 @@ async function SCAN(def, ctx) {
       return;
     }
   }
-  const repoRoot = path.resolve(AGENT_DIR, "..", "..");
+  // #528:repoRoot 测试缝(生产 ctx 恒无此键=路径不变;selftest 用 tmp 树钉 needs_file 留痕)
+  const repoRoot = typeof ctx.repoRoot === "string" ? path.resolve(ctx.repoRoot) : path.resolve(AGENT_DIR, "..", "..");
   const registry = fs.existsSync(path.join(repoRoot, "backend", "ipdb", "_sources"))
     ? fs.readdirSync(path.join(repoRoot, "backend", "ipdb", "_sources")).filter((f) => f.endsWith(".py") && !f.startsWith("_")).sort()
       .map((f) => ({ name: f.replace(/\.py$/, ""), url: null, evidence_ptr: `backend/ipdb/_sources/${f}`, source_channel: "source_registry", status: "integrated" }))
     : [];
   const needsRows = [];
   const needsFile = path.join(repoRoot, "NEEDS.md");
-  if (fs.existsSync(needsFile)) {
+  // #528:读不到显式留痕(原静默记 0=「无证据≠清白」破口:缺文件与真零缺口不可分);
+  // 步产物顶层 needs_file: missing (<路径>) + channels.needs.status=missing——日报
+  // discoverConversion 消费(scan.needs_file 前缀 missing 面)。文件在场时不写此键(字节不变)。
+  const needsMissing = fs.existsSync(needsFile) ? null : `missing (${needsFile})`;
+  if (!needsMissing) {
     const lines = fs.readFileSync(needsFile, "utf8").split("\n");
     for (let i = 0; i < lines.length; i++) {
       const cells = lines[i].split("|").map((c) => c.trim());
@@ -704,8 +709,10 @@ async function SCAN(def, ctx) {
     }
   }
   writeJson(path.join(ctx.dir, A.DISCOVER_SCAN), { round_id: ctx.roundId, generated_at: new Date().toISOString(),
+    ...(needsMissing ? { needs_file: needsMissing } : {}),
     candidates: [...registry, ...needsRows],
-    channels: { registry: { status: "ok", n: registry.length }, needs: { status: "ok", n: needsRows.length },
+    channels: { registry: { status: "ok", n: registry.length },
+      needs: needsMissing ? { status: "missing", n: 0, note: needsMissing } : { status: "ok", n: needsRows.length },
       web: { status: "placeholder", n: 0, note: "T3 #209 接线(PR3a web_search 渠道;T1 只留占位留痕)" } } });
 }
 

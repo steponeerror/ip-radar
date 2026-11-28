@@ -2242,6 +2242,21 @@ await t("T2-SCAN 真面直调(#208):modelFace 非 faux=扫真仓(registry ≥40+
   assert.equal(GATES.G_SCAN(ctx).pass, true, "真面工件过 G_SCAN");
 });
 
+await t("#528 SCAN needs 面读不到=显式留痕:tmp repoRoot 无 NEEDS.md → d1 顶层 needs_file: missing + channels.needs.status=missing(G_SCAN 仍过:渠道留痕必在场、计数相符)", async () => {
+  const tr = mkTree("scan-needs-missing");
+  const dir = path.join(tr.root, "ops", "rounds", "2026-11-28-0900-discover"); fs.mkdirSync(dir, { recursive: true });
+  const ctx = { type: "discover", roundId: "2026-11-28-0900-discover", dir, opsRoot: path.join(tr.root, "ops"), env: tr.env, fixturesDir: DEFAULT_FIXTURES_DIR, log: () => {}, usage: { input: 0, output: 0, totalTokens: 0, cost: 0 }, repoRoot: tr.root }; // repoRoot=测试缝(tmp 树无 NEEDS.md;生产 ctx 无此键=读真仓)
+  await (await import("./pipeline/steps.mjs")).runStage({ name: "SCAN" }, ctx);
+  const { ARTIFACTS } = await import("./artifacts.mjs");
+  const s = j(path.join(dir, ARTIFACTS.DISCOVER_SCAN));
+  assert.match(s.needs_file, /^missing \(.+NEEDS\.md\)$/, "顶层 needs_file 留痕(缺文件可定位)");
+  assert.equal(s.channels.needs.status, "missing", "渠道留痕 status=missing(非 ok 假绿)");
+  assert.equal(s.channels.needs.n, 0, "缺文件 n=0");
+  assert.ok(!s.candidates.some((c) => c.source_channel === "needs"), "缺文件=零 needs 候选");
+  const { GATES } = await import("./pipeline/gates.mjs");
+  assert.equal(GATES.G_SCAN(ctx).pass, true, "留痕形态仍过 G_SCAN(渠道留痕必在场+计数相符)");
+});
+
 await t("SHORTLIST 解析失败降级(#207 T1):canned 文本非 JSON → 轮仍全绿(不炸轮),d2-shortlist 候选空+degraded 留痕,MEASURE 零行,ENQUEUE 零入队", async () => {
   const fx = path.join(TMP, "fx-degrade"); fs.mkdirSync(fx, { recursive: true });
   fs.writeFileSync(path.join(fx, "shortlist.json"), JSON.stringify({ turns: [{ role: "assistant", content: [{ type: "text", text: "本回合模型输出非 JSON(罐装解析失败面)" }], stopReason: "stop" }] }));

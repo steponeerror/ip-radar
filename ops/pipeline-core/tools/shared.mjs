@@ -34,9 +34,12 @@ export const B = {
   anchorSweepTimeoutMs: +(process.env.OPS_ANCHOR_SWEEP_TIMEOUT_MS ?? 300_000), // #182:19 锚直调 lookup 远轻于 matrix 全扫(20min);5min 兑底
   hitCap: 8, // 铁律⑦:判例注入与检索命中上限 8(检索深度伤害决策)
   zeroAssetKb: 32,
-  webReadPerRound: 8, // 发现通道三件预算行:防失控非省钱(2026-10-24 裁定,DESIGN §6;预算四界另批)
-  webSearchPerRound: 6,
-  rssParsePerRound: 6,
+  // 发现通道三件预算行:防失控非省钱(2026-10-24 裁定,DESIGN §6;预算四界另批)。
+  // #528:三值旋钮化(OPS_DISCOVER_* 命名惯例;缺省仍 8/6/6=行为不变;消费面双宿主同源:
+  // legacy ToolHost budgets tools.mjs:36 + agent-v2 discovery-host.mjs DEFAULT_DISCOVERY_BUDGETS)
+  webReadPerRound: +(process.env.OPS_DISCOVER_WEB_READ_PER_ROUND ?? 8),
+  webSearchPerRound: +(process.env.OPS_DISCOVER_WEB_SEARCH_PER_ROUND ?? 6),
+  rssParsePerRound: +(process.env.OPS_DISCOVER_RSS_PARSE_PER_ROUND ?? 6),
   webReadTimeoutMs: 20_000, // r.jina.ai 正文面 20s(票面;上游可 10s+)
   webSearchTimeoutMs: 40_000, // pi-web-access MCP:握手 ~1s + DDG 内部 30s 上限(pi-web-access 0.44.0)
 };

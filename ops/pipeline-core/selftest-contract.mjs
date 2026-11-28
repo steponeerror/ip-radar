@@ -125,10 +125,20 @@ await t("表:SPAWN_CONTRACT_ENV 名集=规格 16 项+…(增补链见 agent.mjs 
     "OPS_PIPELINE_MAX_MODEL_CALLS", "OPS_PIPELINE_TOKEN_BUDGET", "OPS_PIPELINE_WALL_CLOCK_S",
     "OPS_PIPELINE_SPEND_CAP_CNY", "OPS_PIPELINE_MONTHLY_CAP_CNY", "OPS_PIPELINE_DUP_CALL_LIMIT",
     "OPS_DISCOVER_MAX_MODEL_CALLS", "OPS_DISCOVER_WALL_CLOCK_S", "OPS_DISCOVER_SPEND_CAP_CNY", // #207 T1 发现轮三旋钮
+    "OPS_DISCOVER_WEB_SEARCH_PER_ROUND", "OPS_DISCOVER_WEB_READ_PER_ROUND", "OPS_DISCOVER_RSS_PARSE_PER_ROUND", // #528 发现通道每轮帽三旋钮(tools/shared.mjs B 单源)
     "OPS_BREAKER_THRESHOLD", "OPS_BREAKER_COOLDOWN_S", // #199 交付B:tools/breaker.mjs readBreakerKnobs 单源实读
     "OPS_GH_REPO", // #348 修法 A:gh 开票仓址定向(finding-exit.mjs 透传 --repo)
     "OPS_MODEL_MAX_INFLIGHT", "OPS_MODEL_RETRY_BACKOFF_S" // #490:模型并发闸/退避(model-errors.mjs 单源实读)
   ].sort());
+});
+
+// #528:发现通道每轮帽三旋钮缺省锁(读 tools/shared.mjs B 实值,非表面字串;
+// 缺省改掉即红——旋钮化但缺省不变=行为不变的钉子面)
+await t("#528:发现通道每轮帽缺省 6/8/6(B 单源实读;旋钮化不改缺省)", async () => {
+  const { B } = await import("./tools/shared.mjs");
+  assert.equal(B.webSearchPerRound, 6, "webSearchPerRound 缺省须仍 6");
+  assert.equal(B.webReadPerRound, 8, "webReadPerRound 缺省须仍 8");
+  assert.equal(B.rssParsePerRound, 6, "rssParsePerRound 缺省须仍 6");
 });
 
 await t("表:元素形状 {name,default,consumer,phase}/phase 闭集/名唯一", () => {

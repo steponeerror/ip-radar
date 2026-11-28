@@ -69,6 +69,9 @@ COPY ops/ ./ops/
 COPY --from=opsagent /opsagent/node_modules ./ops/node_modules
 COPY --from=opsagent /usr/local/bin/node /usr/local/bin/node
 COPY .gitignore ./.gitignore
+# #528:发现轮 SCAN needs 面真源(steps.mjs SCAN 经 repoRoot=AGENT_DIR/../.. 解析出 /app/NEEDS.md;
+# 缺文件时步产物留 needs_file: missing——留痕可留,证据面不能因镜像缺文件而恒缺)
+COPY NEEDS.md ./NEEDS.md
 # 版本自描述:构建上下文含 .git(.dockerignore 已放行)
 COPY .git /app/.git
 # 版本串不带 --dirty:构建树天生不完整(frontend/ 源码在最后阶段不拷入镜像、backend/tests/
