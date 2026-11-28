@@ -102,9 +102,9 @@ def test_abuseipdb_json_rebuild_stores_last_seen(tmp_path):
     assert "last_seen" not in rec          # 空值键缺席
 
 
-def test_abuseipdb_json_rebuild_stores_first_seen(tmp_path):
-    """single-timestamp double-fill:first_seen 驱动逐源衰减(同 sfs/dataplane
-    先例)。缺失则该源证据永不衰减——违背 spec 2026-08-29 §3.1 逐源衰减。"""
+def test_abuseipdb_json_rebuild_stores_last_seen_only(tmp_path):
+    """#523 裁决 Q27(取代旧 double-fill):lastReportedAt 只写 last_seen,
+    first_seen 键不再出现;时钟按 last_seen 优先,分数与旧双填同值。"""
     payload = json.dumps({"meta": {}, "data": [
         {"ipAddress": "1.2.3.4", "abuseConfidenceScore": 100,
          "lastReportedAt": "2026-08-14T10:00:00+00:00"},
@@ -114,8 +114,11 @@ def test_abuseipdb_json_rebuild_stores_first_seen(tmp_path):
     (tmp_path / "abuseipdb.txt").write_text(payload)
     s = AbuseIPDBSource(data_dir=tmp_path)
     assert s.rebuild() == 2
-    assert s.query("1.2.3.4")[0]["first_seen"] == "2026-08-14T10:00:00+00:00"
-    assert "first_seen" not in s.query("5.6.7.8")[0]   # 空值键缺席
+    rec = s.query("1.2.3.4")[0]
+    assert rec["last_seen"] == "2026-08-14T10:00:00+00:00"
+    assert "first_seen" not in rec
+    assert s.single_timestamp_means == "last_seen"
+    assert "last_seen" not in s.query("5.6.7.8")[0]   # 空值键缺席
 
 
 def test_abuseipdb_rebuild_stores_reporter_count(tmp_path):

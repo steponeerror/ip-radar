@@ -12,7 +12,8 @@ Per-record grading (2026-09-03): last_seen within 90 days → verdict=suspicious
 (active spammer); the stale tail keeps informational (commit ffae4caf rationale
 — reputation context must not drive accusation). Advisory 0-100 score rides in
 Evidence.confidence (native_confidence display slot); fusion confidence stays
-the log-odds posterior over reliability + first_seen decay, untouched.
+the log-odds posterior over reliability + recency decay (last_seen preferred,
+falling back to first_seen; #523), untouched.
 """
 import csv
 import datetime
@@ -61,6 +62,9 @@ class StopForumSpamSource(Source):
     # real feed ≈15 MB; cap leaves headroom while stopping zip bombs.
     MAX_INNER_BYTES = 256 * 1024 * 1024
     name = "stopforumspam"
+    # 上游唯一时间 = 最近一次出现(#523 裁决 Q27):只写 last_seen,
+    # 时钟按它算(分数与旧双填同值);不再写 first_seen。
+    single_timestamp_means = "last_seen"
     category = "threat"
     url = "https://www.stopforumspam.com/downloads/listed_ip_365_all.zip"
     filename = "stopforumspam.csv"
@@ -158,6 +162,5 @@ class StopForumSpamSource(Source):
                     verdict=verdict,
                     confidence=score,
                     reporter_count=total,
-                    first_seen=last_seen,   # single-timestamp double-fill → decay
-                    last_seen=last_seen,
+                    last_seen=last_seen,   # 单时间源只写 last_seen(#523;时钟按它)
                 )

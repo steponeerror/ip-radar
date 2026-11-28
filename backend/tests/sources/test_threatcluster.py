@@ -6,7 +6,7 @@ timestamps ISO-8601 with +00:00 — see plan 2026-10-14-threatcluster-feedcsv).
 """
 from datetime import datetime, timezone
 
-from ipdb._logodds import parse_first_seen
+from ipdb._logodds import parse_ts
 from pathlib import Path
 
 from ipdb._sources.threatcluster import ThreatClusterSource
@@ -113,7 +113,7 @@ def test_parse_row_absent_branches():
 
 def test_first_seen_shape_feeds_decay_parser():
     """⚠ 钉住 first_seen 形状决定:feed.csv 的 ISO-8601 T+00:00 形直传,
-    因为时间衰减解析器 parse_first_seen(datetime.fromisoformat)原生认它
+    因为时间衰减解析器 parse_ts(datetime.fromisoformat)原生认它
     (2026-10-14 py3.12 venv 实测),且正是 EvidenceObservation.first_seen
     的规范形状(ISO-8601 +00:00)。往返断言:解析结果逐位等于原时刻。"""
     s = ThreatClusterSource(data_dir=Path("/tmp"))
@@ -121,10 +121,10 @@ def test_first_seen_shape_feeds_decay_parser():
         ["ipv4", "108.165.147.64", "high", "2026-10-13T17:33:11+00:00",
          "2026-10-14T03:31:37.389774+00:00", "2",
          "www.volexity.com:2026-10-14", "reason"])
-    assert parse_first_seen(out["first_seen"]) == datetime(
+    assert parse_ts(out["first_seen"]) == datetime(
         2026, 10, 13, 17, 33, 11, tzinfo=timezone.utc)
     # last_seen 带微秒的 ISO-8601 形同样可解析
-    assert parse_first_seen(out["last_seen"]) == datetime(
+    assert parse_ts(out["last_seen"]) == datetime(
         2026, 10, 14, 3, 31, 37, 389774, tzinfo=timezone.utc)
 
 

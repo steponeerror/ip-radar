@@ -5,6 +5,8 @@ demo account's subscription cart (4 authors, 83 pulses): pr0viehh's live SSH
 honeypot (role="bruteforce"), ladarrellmiller's TSEC weeklies, CyberHunter
 mirrors (Malware Filter / URLHaus / Twitter), BotnetExposer S3# scanners.
 """
+import csv
+
 from ipdb._classification import normalize
 from ipdb._sources.otx_subscribed import OTX_SUBSCRIBED_ROLE_MAP
 from ipdb._sources.otx_subscribed import _classify_row, OtxSubscribedSource
@@ -104,6 +106,50 @@ class TestOtxSubscribedConfig:
         # 12h slot grid (stale_days<=1 → SLOT_GRID 43200s): honeypot Live
         # pulse + CyberHunter dailies both refresh intraday.
         assert OtxSubscribedSource.stale_days == 1
+
+
+class TestTimestampFallback:
+    """#523 裁决 Q28:指标自己的 created 优先;缺席退所属脉冲 modified
+    (字段名同 otx.py);两处都没有才留空。回退在 download() 写 CSV 时
+    做完,harvest() 直接用列值。monkeypatch _fetch_json_page 喂三页:
+    两页有脉冲 + 两连空页收尾(订阅库尽头判据)。"""
+
+    @staticmethod
+    def _pulse(modified, indicators):
+        return {"author_name": "pr0viehh", "name": "SSH Brute-Force Honeypot Live",
+                "modified": modified, "indicators": indicators}
+
+    def test_created_preferred_then_pulse_modified_then_blank(self, monkeypatch, tmp_path):
+        pages = {
+            1: {"results": [self._pulse("2026-10-01T00:00:00+00:00", [
+                {"type": "IPv4", "indicator": "82.165.104.10",
+                 "role": "bruteforce", "created": "2026-09-29T20:38:49",
+                 "description": "ssh attempt"}])]},
+            2: {"results": [self._pulse("2026-10-05T12:00:00+00:00", [
+                # created 缺席 → 退脉冲 modified
+                {"type": "IPv4", "indicator": "1.2.3.4",
+                 "role": "bruteforce", "description": "no created"}])]},
+            3: {"results": [self._pulse(None, [
+                # 两处都没有 → 留空
+                {"type": "IPv4", "indicator": "5.6.7.8",
+                 "role": "bruteforce", "description": "nothing"}])]},
+            4: {"results": []},
+            5: {"results": []},
+        }
+        s = OtxSubscribedSource(tmp_path)
+        monkeypatch.setattr(s, "_fetch_json_page",
+                            lambda page, headers: pages.get(page))
+        monkeypatch.setenv("OTX_API_KEY", "test-key")
+        s.download()
+        rows = {r[0]: r for r in
+                (list(csv.reader(open(s._path, newline="", encoding="utf-8"))))}
+        assert rows["82.165.104.10"][5] == "2026-09-29T20:38:49"   # 指标 created 优先
+        assert rows["1.2.3.4"][5] == "2026-10-05T12:00:00+00:00"   # 退脉冲 modified
+        assert rows["5.6.7.8"][5] == ""                            # 两处都没有才留空
+        evs = {ip: ev for ip, ev in s.harvest()}
+        assert evs["82.165.104.10"].first_seen == "2026-09-29T20:38:49"
+        assert evs["1.2.3.4"].first_seen == "2026-10-05T12:00:00+00:00"
+        assert evs["5.6.7.8"].first_seen is None
 
 
 class TestHarvest:
