@@ -26,48 +26,58 @@ def _class_attrs(cls: ast.ClassDef) -> set[str]:
     return names
 
 
+def _declares_infra_noise_filter(cls: ast.ClassDef) -> bool:
+    """类体里有带值的 `infra_noise_filter = ...`(纯赋值,或带值的注解赋值)。
+    只写注解不带值(`infra_noise_filter: bool`)不算:运行时没有这个属性,
+    源实际继承基类缺省,正是契约不许的情形。"""
+    for st in cls.body:
+        if isinstance(st, ast.Assign) and any(
+                isinstance(t, ast.Name) and t.id == "infra_noise_filter"
+                for t in st.targets):
+            return True
+        if (isinstance(st, ast.AnnAssign) and isinstance(st.target, ast.Name)
+                and st.target.id == "infra_noise_filter" and st.value is not None):
+            return True
+    return False
+
+
 def _registered_classes():
-    """(文件名, 类名, 是否声明 infra_noise_filter)——登记判据与
+    """(文件名, 类名, 行号, 是否声明 infra_noise_filter)——登记判据与
     _discover_sources 对齐:模块内定义、类体自带 name 与 fields。"""
     found = []
     for p in sorted(SOURCES_DIR.glob("*.py")):
         if p.stem.startswith("_"):        # 私有基类/工具模块不登记
             continue
-        tree = ast.parse(p.read_text())
+        tree = ast.parse(p.read_bytes())   # 让解析器按 UTF-8 读(源文件带中文注释)
         for node in ast.walk(tree):
             if not isinstance(node, ast.ClassDef):
                 continue
             attrs = _class_attrs(node)
             if "name" in attrs and "fields" in attrs:
-                found.append((p.name, node.name,
-                              "infra_noise_filter" in attrs))
+                found.append((p.name, node.name, node.lineno,
+                              _declares_infra_noise_filter(node)))
     return found
 
 
 def test_every_registered_source_declares_infra_noise_filter():
-    missing = [f"{fname}:{cls}" for fname, cls, declared
+    missing = [f"{fname}:{lineno}:{cls}" for fname, cls, lineno, declared
                in _registered_classes() if not declared]
     assert not missing, (
-        "infra_noise_filter 契约(#531)违反:以下源类类体缺显式声明"
-        "(不许继承基类缺省)——新源缺省开,要关必须显式写 "
-        "infra_noise_filter = False 并注明理由:"
+        "infra_noise_filter 契约(#531)违反:以下源类类体缺带值的显式声明"
+        "(不许继承基类缺省)——想开写 infra_noise_filter = True;要关写 "
+        "infra_noise_filter = False 并注明理由(只写注解不算声明):"
         + ", ".join(missing))
 
 
-def test_registered_class_count_unchanged():
-    """登记判据漂移哨兵:AST 面找到的登记类数与运行时发现数一致
-    (#531 时点 71)。判据变了(name/fields 之外的新登记途径)这里红。"""
+def test_ast_registration_matches_runtime_discovery():
+    """登记判据漂移哨兵:AST 面找到的登记类集合与运行时发现集合一致
+    (#531 时点 71)。判据变了(name/fields 之外的新登记途径)这里红。
+    不关日志:某个源 __init__ 抛错被跳过时,原因只在那条 warning 里。"""
     import ipdb._registry as reg
-    import logging
-    logging.disable(logging.CRITICAL)
-    try:
-        import tempfile
-        with tempfile.TemporaryDirectory() as td:
-            runtime = {type(s).__name__ for s in
-                       reg._discover_sources(Path(td))}
-    finally:
-        logging.disable(logging.NOTSET)
-    ast_found = {cls for _, cls, _ in _registered_classes()}
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        runtime = {type(s).__name__ for s in reg._discover_sources(Path(td))}
+    ast_found = {cls for _, cls, _, _ in _registered_classes()}
     assert ast_found == runtime, (
         f"AST 登记判据与 _discover_sources 不一致:仅 AST 有 "
         f"{sorted(ast_found - runtime)},仅运行时有 {sorted(runtime - ast_found)}")

@@ -56,7 +56,7 @@ class InfraServicesSource(Source):
     authoritative_for = ("service",)
     stale_days = 36500            # curated static; never stale
     reliability = 0.95
-    infra_noise_filter = False         # 良性源用不上;显式声明是 #531 契约(基类默认已翻 True)
+    infra_noise_filter = False         # 名单源自己:数据就是 curated 名单,开着会被全滤空,必须关;显式声明是 #531 契约
     # no `url` — download() materializes the embedded CSV locally, not a fetch
 
     def download(self, token=None) -> None:

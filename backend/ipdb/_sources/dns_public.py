@@ -91,7 +91,7 @@ class DnsPublicSource(Source):
     reliability = 0.9
     authoritative_for = ("service",)
     provenance_tier = "A"                 # A=自采策展(S21):各公共 DNS 运营方一手地址
-    infra_noise_filter = False         # 良性源用不上;显式声明是 #531 契约(基类默认已翻 True)
+    infra_noise_filter = False         # 名单源自己:数据就是 curated 名单,开着会被全滤空,必须关;显式声明是 #531 契约
 
     def download(self, token=None) -> None:
         """GET public-resolvers.md → 校验 → 原子落盘。

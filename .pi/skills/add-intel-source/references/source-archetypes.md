@@ -14,14 +14,15 @@ grep "def " backend/ipdb/_source_base.py         # 生命周期钩子（download
 ls backend/ipdb/_sources/                        # 全部真实范例
 ```
 
-> **例外:** `ipinfo_lite` 是无基类独立类(load-bearing 遗留 geo/ASN 骨干,
-> 返回非 Evidence dict)。不是模板——新源一律用 `Source` 子类。
+> **例外：** `ipinfo_lite` 是无基类独立类（load-bearing 遗留 geo/ASN 骨干，
+> 返回非 Evidence dict）。不是模板——新源一律用 `Source` 子类。
 
 > **载入期基础设施过滤(每个源必须显式声明,#531 裁决 2026-11-28):**
 > 基类缺省 `infra_noise_filter = True`(新源默认开:curated 公共基础设施
 > 单址集在 rebuild 载入面被挡,误报形状判例 114DNS/ControlD/1.0.0.1)。
-> 要关必须在类体显式写 `infra_noise_filter = False` 并注明理由(良性/
-> 资产类源注「良性源用不上」);缺声明由契约测试
+> 想开写 `infra_noise_filter = True`,要关才写 `infra_noise_filter = False`
+> 并注明理由(只产网段的地理类源、以及名单本身这类源写 `False`;其余
+> 新源写 `True`;存量范例带的都是 `False`,别照抄);缺声明由契约测试
 > `backend/tests/source_infra/test_infra_noise_filter_contract.py` fail-loud。
 
 ## 1. IpListSource — 纯 IP/CIDR 列表

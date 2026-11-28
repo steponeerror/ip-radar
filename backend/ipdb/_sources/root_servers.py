@@ -43,7 +43,7 @@ class RootServersSource(Source):
     reliability = 0.99
     authoritative_for = ("service",)
     provenance_tier = "A"                 # A=自采策展(S21):根服务器运营方官方参数
-    infra_noise_filter = False         # 良性源用不上;显式声明是 #531 契约(基类默认已翻 True)
+    infra_noise_filter = False         # 名单源自己:数据就是 curated 名单,开着会被全滤空,必须关;显式声明是 #531 契约
 
     def download(self, token=None) -> None:
         """GET named.root → 校验 → 原子落盘。
