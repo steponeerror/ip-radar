@@ -28,6 +28,7 @@ from .corpus import sample_source_ips, stable_seed
 from .exclusive import DEFAULT_SEED, sample_keys
 from .._logodds import DERIVED_SOURCES, accuser_pool
 from .._types import _ACCUSING
+from .accusation import is_accusation
 
 SAMPLE_PER_SOURCE = 100      # 每指控源采样上限(raw 文件口径)
 TOTAL_CAP = 1000             # 探针并集上限(月轮巡检量级;lookup ~ms 级)
@@ -56,7 +57,7 @@ def corroboration_agg_share(lookup_fn, probe_ips: list[str]) -> dict:
             deduped = accuser_pool(
                 ((d["source"], d.get("reliability", 0.5), d.get("first_seen"))
                  for d in ca.get("details") or ()
-                 if d.get("verdict") in _ACCUSING and d.get("source")),
+                 if is_accusation(d) and d.get("source")),
                 ctype)
             if len(deduped) < 2:
                 continue      # corroborated 旗与镜像重算不一致 → 不计入

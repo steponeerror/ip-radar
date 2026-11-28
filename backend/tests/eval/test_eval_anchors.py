@@ -312,3 +312,21 @@ def test_anchor_sweep_cli_load_fail_envelope(monkeypatch, capsys, tmp_path):
         M.main(["--anchor-sweep", "--json"])
     d = json.loads(capsys.readouterr().out)
     assert d["error"]["code"] == "internal" and e.value.code == 1
+
+
+def test_anchor_sweep_accusers_missing_verdict_detail_not_counted():
+    """#529 裁决 2026-11-28:detail 缺 verdict 键 = 不算指控证人(旧口径
+    缺键即滤本就同向;现统一走 accusation.is_accusation 防漂移)。"""
+    from ipdb._eval.anchors import anchor_sweep
+
+    def lk(ip):
+        return {"classifications": {"blacklist": {
+            "type": "blacklist", "verdict": "malicious", "detected": True,
+            "confidence": 55, "corroborated": False,
+            "details": [{"source": "nokey"},
+                        {"source": "yes", "verdict": "malicious"}]}},
+            "is_reserved": False, "attributes": {}}
+
+    sweep = anchor_sweep(lk)
+    assert sweep["results"]          # ANCHORS 全集非空
+    assert all(r["accusers"] == ["yes"] for r in sweep["results"])

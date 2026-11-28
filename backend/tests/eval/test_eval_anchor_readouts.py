@@ -298,3 +298,25 @@ def test_anchor_readouts_cli_exit_zero(monkeypatch, capsys, tmp_path):
     kinds = {f.name.split("-20")[0]
              for f in (tmp_path / "model").glob("*.json")}
     assert kinds == {"anchor-fp", "scanner-recall"}
+
+
+def test_clean_anchor_fp_missing_verdict_detail_not_accusing():
+    """#529 裁决 2026-11-28:detail 缺 verdict 键 = 不算指控(旧口径缺键
+    即滤本就同向;现统一走 accusation.is_accusation 防漂移)。"""
+    anchors = [("8.8.8.8", "clean")]
+
+    def lk(ip):
+        return {"classifications": {"blacklist": {
+            "type": "blacklist", "verdict": "malicious", "detected": True,
+            "confidence": 55, "corroborated": False,
+            "verdict_conflict": False,
+            "details": [{"source": "nokey", "reliability": 0.80},
+                        {"source": "yes", "reliability": 0.80,
+                         "verdict": "malicious"}]}},
+            "is_reserved": False, "attributes": {}}
+
+    res = clean_anchor_fp(lk, anchors)
+    assert res["k"] == 1
+    assert res["accused"][0]["accusers"] == ["yes"]
+    assert [d["source"]
+            for d in res["accused"][0]["groups"][0]["raw_accusers"]] == ["yes"]

@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 
 from .._types import _ACCUSING   # 指控章单一口径(EV-F1 同款借道,A2 遗留收口)
+from .accusation import is_accusation   # detail 级判定(#529 九处收成一处)
 
 ANCHORS: list[tuple[str, str]] = [
     # public DNS/resolver infra — must stay clean
@@ -98,7 +99,7 @@ def anchor_sweep(lookup_fn) -> dict:
         accusers = sorted({d["source"]
                            for ca in (res.get("classifications") or {}).values()
                            for d in (ca.get("details") or [])
-                           if d.get("verdict") in _ACCUSING and d.get("source")})
+                           if is_accusation(d) and d.get("source")})
         conflict = any(ca.get("verdict_conflict")
                        for ca in (res.get("classifications") or {}).values())
         results.append({"ip": ip, "expect": expect, "ok": why is None,

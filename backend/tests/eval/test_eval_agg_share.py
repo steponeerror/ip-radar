@@ -142,3 +142,15 @@ def test_agg_share_cli_lands_report_and_exits_zero(
     files = list((tmp_path / "model").glob("agg-share-*.json"))
     assert len(files) == 1
     assert json.loads(files[0].read_text())["kind"] == "agg_share"
+
+
+def test_missing_verdict_details_not_counted_as_accusation():
+    """#529 裁决 2026-11-28:detail 缺 verdict 键 = 不算指控(旧口径缺键
+    即滤本就同向;现统一走 accusation.is_accusation 防漂移)。缺键后镜像
+    重算池 <2 票 → 组不计入(corroborated 旗与重算不一致时不计)。"""
+    pay = _payload([("blacklist", "malicious", True,
+                     [("a", 0.80, "malicious"), ("b", 0.80, "malicious")])])
+    for d in pay["classifications"]["blacklist"]["details"]:
+        del d["verdict"]
+    res = corroboration_agg_share(lambda ip: pay, ["203.0.113.7"])
+    assert res["n_corroborated_groups"] == 0

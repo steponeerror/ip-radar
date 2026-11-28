@@ -456,3 +456,15 @@ def test_stix_mirror_channel_matches_real_export():
         stix_labels - {"asset", "clean"}
     addr = next(o for o in bundle["objects"] if o["type"].startswith("ipv"))
     assert ("x_ipradar_attributes" in addr) == ("asset" in stix_labels)
+
+
+def test_detail_sources_missing_verdict_not_accusing():
+    """#529 裁决 2026-11-28:detail 缺 verdict 键 = 不算指控(score 通道
+    证据面;旧口径兑底 malicious,判定收成 accusation.is_accusation)。"""
+    from ipdb._eval.matrix_scan import _detail_sources
+    groups = [{"verdict": "malicious",
+               "details": [{"source": "nokey"},
+                           {"source": "yes", "verdict": "malicious"}]}]
+    assert _detail_sources(groups, accusing_only=True) == {"yes"}
+    # UI 通道(accusing_only=False)不受指控判定影响:全证人可见
+    assert _detail_sources(groups, accusing_only=False) == {"nokey", "yes"}
