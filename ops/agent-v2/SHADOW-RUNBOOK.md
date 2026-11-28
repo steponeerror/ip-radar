@@ -8,6 +8,14 @@ spec 定案 2 安全轨的运维面:旧管线原地不动,v2 在 `ops/agent-v2/`
 
 影子轮工件根(导航,2026-11-15 retro 立):服务器容器 `/app/data/ops-shadow/docs/ops/`——轮工件 `rounds/<id>-health/`(含 `05-deep-*-transcript.jsonl`)、轮末 retro 件 `retro/`、台账 `ledger.md` 与判例/条目库同根;注意双层 `docs/ops/` 嵌套易摸错(当日三轮探查实测)。
 
+## 同一时刻只许一个引擎进程(#579,2026-11-28)
+
+**为什么**:pi-durable 1.4.0 没有跨进程互斥——第二个进程一开库会把库里所有正在跑的任务改回待跑并重跑一遍(框架崩溃恢复语义),cron 在跑时手触=两边同时跑同一轮。所以引擎开库前先拿独占文件锁:`<库文件>.lock`(如 `agent-v2.sqlite.lock`,与库同目录;库落位与 `resolveDbPath()` 同源),做法 = spawn util-linux `flock(1)` 重拉自己(`ops/agent-v2/db-lock.mjs`;进程死锁自动释放,无残锁协议)。入口闭集 = `run-health.mjs`/`run-discover.mjs`/`run-add.mjs`/`entry.mjs` 命令行,四个口第一件事都调 `withDbLock()`(tests/db-lock.test.mjs 静态钉)。
+
+**手动 vs cron**:手动面(直接 `node run-*.mjs …`,无 `OPS_V2_DB_LOCK_WAIT_S`)拿不到锁当场拒,退出码 16、stdout 零信封、stderr 一句话(含只读查得的在飞任务:类型/轮号/开始时间;查不到就写「查不到」,不猜);cron 面(`deploy/ops-cron-v2*.sh` 出口 900 秒)每 15 秒试一次,等不到 exit 16,下个定时点照常。
+
+**被拒了怎么办**:先看 stderr 里报的在飞任务是不是自己认识的那轮——是,等它跑完再手触;不是(残窗/不明进程),上服务器 `ps aux | grep -E 'flock|agent-v2'` 找持锁进程,确认身份后再杀(锁随进程死自动释放,不用删锁文件)。**孤儿轮(上次进程硬杀后停在半路的任务)锁不管**——那是框架恢复语义(#558 启动恢复读库另案),被拒消息里如实显示。
+
 ## 观察面(每轮 cron 后)
 
 ```bash

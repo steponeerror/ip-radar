@@ -156,11 +156,11 @@ await t("表对拍:OPS_*|ZAI_*|DOCS_ROOT/PRECEDENTS_DIR/LEDGER_FILE 读取 ∈ �
   assert.ok(!tableNames().has("PI_BIN") && !tableNames().has("RUN_PI_RAW_OUT"), "fixture 面名字不得入表");
 });
 
-await t("表:error.code 闭集 15 词(ERROR_CODES 导出面;#199 交付A 9→13,交付B 13→14 channel_open,#490 14→15 account_rate_limited)", () => {
+await t("表:error.code 闭集 16 词(ERROR_CODES 导出面;#199 交付A 9→13,交付B 13→14 channel_open,#490 14→15 account_rate_limited,#579 15→16 db_locked)", () => {
   assert.deepEqual([...ERROR_CODES].sort(), ["bad_round", "closure_check", "empty_text", "foreign_tool", "infra",
     "ledger_failed", "model_face", "sandbox_violation", "verify_failed",
     "budget_exceeded", "wall_clock_exceeded", "budget_monthly", "repeat_storm", "channel_open",
-    "account_rate_limited"].sort());
+    "account_rate_limited", "db_locked"].sort());
 });
 
 // ── b. in-process main(faux provider,golden 同型;零 API)──────────────────

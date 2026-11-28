@@ -17,6 +17,7 @@
 #
 # env 面逐键白名单(#364 裁定同判例;「逐键白名单,不笼统同环境」):
 #   设:DOCS_ROOT/OPS_AUTH/OPS_EVAL_PY/OPS_DATA_DIR/PI_CODING_AGENT_DIR/LANG
+#       /OPS_V2_DB_LOCK_WAIT_S(#579 cron 侧等锁上限 900s;手动面不设=当场拒)
 #       /OPS_MODEL_DISCOVER(agent-config 现读;发现轮面不注 OPS_MODEL_HEALTH);
 #   unset:IP_RADAR_ADMIN_PASSWORD/IP_RADAR_API_JWT_SECRET(管理密钥,C4 判例);
 #   继承不摘:GH_TOKEN/IP_RADAR_ALERT_URLS(出口契约员)+PATH/HOME 等运行必需面;
@@ -62,6 +63,9 @@ docker exec "$CONTAINER" sh -c '
   # 管理密钥摘除(C4 判例:docker exec 继承容器全量 env,管理密钥不带进模型进程)。
   # GH_TOKEN/IP_RADAR_ALERT_URLS 不摘——finding 出口契约员(#364 裁定,见头注)
   unset IP_RADAR_ADMIN_PASSWORD IP_RADAR_API_JWT_SECRET
+  # #579 cron 侧等锁上限(秒):引擎开库独占锁(db-lock.mjs)拿不到时最多等 900s(每
+  # 15s 一步重试),等不到 exit 16 下窗自愈(ADR 0012 定案 5 同律);手动面不设此键=当场拒。
+  export OPS_V2_DB_LOCK_WAIT_S=900
   export OPS_MODEL_DISCOVER="$MODEL_DISCOVER"
   exec node --max-old-space-size=256 ops/agent-v2/run-discover.mjs "$(date -u +%Y-%m-%d-%H%M)-discover" --model "$MODEL_DISCOVER"
 '
