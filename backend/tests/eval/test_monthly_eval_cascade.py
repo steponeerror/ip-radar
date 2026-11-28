@@ -825,7 +825,8 @@ def test_keysets_full_red_cascades_nonzero_and_later_legs_run(tmp_path):
 
 def test_keysets_full_dry_run_prints_but_does_not_execute(tmp_path):
     """#569:干跑回显命令但零执行(桩子调用记录文件不存在)、零目录
-    (keysets-full/ 与 logs/ 都在报告根下,由报告根不存在覆盖)。"""
+    (keysets-full/ 与 logs/ 都不得建;报告根不存在只覆盖全局,这里
+    钉住单腿:mkdir 挪到 return 前也会红,S2 评审 2026-11-28)。"""
     repo = _make_repo(tmp_path)
     stubs = _make_stubs(tmp_path)
     rc, out = _run_monthly(repo, stubs, tmp_path, "--dry-run")
@@ -833,6 +834,9 @@ def test_keysets_full_dry_run_prints_but_does_not_execute(tmp_path):
     assert "==> keysets-full:" in out, out
     assert not (tmp_path / "keysets-full-calls.log").exists(), \
         "干跑不得执行 keyset_snapshot"
+    root = _report_root(repo)
+    assert not (root / "keysets-full").exists(), "干跑不得建 keysets-full/"
+    assert not (root / "logs").exists(), "干跑不得建 logs/"
 
 
 def test_scan_equiv_single_every_passthrough(tmp_path):
