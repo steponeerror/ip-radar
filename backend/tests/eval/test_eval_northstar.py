@@ -149,6 +149,26 @@ def test_load_anchor_green_skips_bad_shape_and_empty_dir(tmp_path):
     assert load_anchor_green(tmp_path / "no-such-dir") == []
 
 
+def test_load_anchor_green_same_month_two_artifacts_dedup_to_one(tmp_path):
+    """#550 评审必须改1(甲):同月两份 anchors 件(月轮 --anchors 腿 +
+    quality-contract 的 fp-restraint-anchors 子进程各落一份)→ 去重成一
+    轮、取末件 —— 北星月环比仍跨轮,anchor_prev 不指向腿自己那份
+    (「同月手跑两轮只算一轮」的语义变化,人裁已接受)。变异①=去掉
+    按月去重(逐件入列),本测试红。"""
+    d = tmp_path / "model"
+    d.mkdir()
+    (d / "anchors-20261101-000000.json").write_text(json.dumps(
+        {"kind": "anchors", "eval_env": "monthly",
+         "generated_at": "2026-11-01", "n_total": 19, "failures": []}))
+    (d / "anchors-20261128-120000.json").write_text(json.dumps(
+        {"kind": "anchors", "eval_env": "monthly",
+         "generated_at": "2026-11-28", "n_total": 19,
+         "failures": [{"ip": "8.8.8.8"}]}))
+    hist = load_anchor_green(d)
+    assert [h["artifact"] for h in hist] == ["anchors-20261128-120000.json"]
+    assert hist[0]["n_total"] == 19 and hist[0]["n_fail"] == 1
+
+
 # ── load_prev_northstar: 上轮北星件 ────────────────────────────
 
 

@@ -2,8 +2,12 @@
 
 契约(TDD 先行,#193 C5 全腿版,承 2026-10-24 F4 anchors 判例推广):
   ① 任一腿红(model/all/anchors/dsem/agg-share/sinkhole-probe/
-     anchor-readouts/truth-v2/truth-v2-readout/audit/temporal/readout)
-     不中止后续腿,工件照写留证(证据不灭);
+     anchor-readouts/truth-v2/truth-v2-readout/audit/temporal/
+     quality-contract/readout)不中止后续腿,工件照写留证(证据不灭);
+     quality-contract 的红分两样(#550 评审返工必须改2):rc 2=契约表
+     不合法,进结尾聚合退出码(挡轮);行级失败收报告 failures 面,腿
+     状态记红但整轮不受影响(rc 只反映「报告产出与否」;contract.py
+     :214-217 oracle=none 行是 no-reading 不是失败,腿不会一上来就红);
   ② 红态可见三面:运行日志红态行 + 腿级状态件 leg-status-*.json
      (机器可读,报告根)+ 结尾以腿序首个非零 rc 退出(红态外显不吞);
   ③ 心跳照推:腿级红≠缺员,报告族齐全(工件在场)即活;缺员即死
@@ -52,6 +56,13 @@ PY_STUB = textwrap.dedent(
       exec "${MIRROR_SYNC_REAL_PY:?}" "$@"
     fi
     if [[ "$*" == *"ipdb._eval.mirror_check"* ]]; then exit 0; fi
+    # #550 评审返工必须改2:行级失败读数桩 —— 月轮壳以 `python3 - <model目录>
+    # <start_s> quality-fail-n` 读本轮 quality-report 的 failures 条数;桩按
+    # QUALITY_CONTRACT_FAILURES 环境变量直接回显(与写者桩同源,不解析 JSON)
+    if [ "$4" = "quality-fail-n" ]; then
+      printf '%s\\n' "${QUALITY_CONTRACT_FAILURES:-0}"
+      exit 0
+    fi
     # #500 scan_equiv_check.py 调用桩:scan-equiv 腿的 collect/compare 各记
     # 一行「argv|PYTHONHASHSEED=…|IP_RADAR_DATA_DIR=…」到 SCAN_EQUIV_LOG(rsync/ssh 桩同做法),
     # 两步同 asof、同 PYTHONHASHSEED=0 由测试对记录断言;collect 顺带按
@@ -122,6 +133,17 @@ PY_STUB = textwrap.dedent(
     if leg dsem;      then printf '{"kind":"dsem"}'       > "$out/model/dsem-$ts.json"; DSEM_RC="${DSEM_MODE:-0}"; fi
     if leg audit;     then printf '{"kind":"audit"}'      > "$out/model/audit-$ts.json"; AUDIT_RC="${AUDIT_MODE:-0}"; fi
     if leg temporal;  then printf '{"kind":"temporal"}'   > "$out/temporal-$ts.json"; TEMPORAL_RC="${TEMPORAL_MODE:-0}"; fi
+    # #550 quality-contract 腿写者桩:真实现 run_contract 落
+    # model/quality-report-<ts>.json(rc 0=报告产出,腿级失败留在报告内);
+    # 红形态(契约表不合法 rc=2/崩溃)由 QUALITY_CONTRACT_MODE 模拟;
+    # 行级失败条数由 QUALITY_CONTRACT_FAILURES 模拟(failures 数组 N 条,
+    # 真实形状 = 报告根 failures 数组;0=全绿报告)
+    if leg quality-contract; then
+      n="${QUALITY_CONTRACT_FAILURES:-0}"; items=""; sep=""; i=0
+      while [ "$i" -lt "$n" ]; do items="$items$sep{\"id\":\"f$i\"}"; sep=","; i=$((i + 1)); done
+      printf '{"kind":"quality-report","failures":[%s]}' "$items" > "$out/model/quality-report-$ts.json"
+      QUALITY_CONTRACT_RC="${QUALITY_CONTRACT_MODE:-0}"
+    fi
     if leg readout;   then printf '# monthly\\n'          > "$out/monthly-$ts.md"
                         printf '{"kind":"northstar"}'     > "$out/northstar-$ts.json"; READOUT_RC="${READOUT_MODE:-0}"; fi
     if leg anchors; then
@@ -136,7 +158,7 @@ PY_STUB = textwrap.dedent(
     # 运行天然免疫,生产脚本 -newermt 面无需改动)。
     find "$out" -type f -exec touch -d "@$(( $(date +%s) + 300 ))" {} + 2>/dev/null || true
     # 腿 rc 聚合退出(红腿外显自身 rc;#193 各腿不再互断)
-    for v in MODEL_RC ALL_RC ANCHORS_RC DSEM_RC SINKHOLE_PROBE_RC ANCHOR_READOUTS_RC TRUTH_V2_RC TRUTH_V2_READOUT_RC AUDIT_RC TEMPORAL_RC READOUT_RC; do
+    for v in MODEL_RC ALL_RC ANCHORS_RC DSEM_RC SINKHOLE_PROBE_RC ANCHOR_READOUTS_RC TRUTH_V2_RC TRUTH_V2_READOUT_RC AUDIT_RC TEMPORAL_RC QUALITY_CONTRACT_RC READOUT_RC; do
       [ "${!v:-0}" = 0 ] || exit "${!v}"
     done
     exit 0
@@ -156,6 +178,14 @@ RSYNC_STUB = textwrap.dedent(
     last="${@: -1}"
     if [[ "$last" == *:* ]]; then
       if [ "${RSYNC_PUSH_MODE:-0}" != 0 ]; then exit "$RSYNC_PUSH_MODE"; fi
+      # #550 评审必须改5:推送清单可断言 —— 把 files-from 清单原文抄进
+      # PUSH_LOG(没设=丢 /dev/null,既有用例零感知)
+      {
+        printf '%s\\n' "rsync $*"
+        ff_re='--files-from=([^ ]+)'
+        [[ "$*" =~ $ff_re ]] && cat "${BASH_REMATCH[1]}"
+        true
+      } >> "${PUSH_LOG:-/dev/null}" 2>/dev/null
       touch "${PUSH_MARKER:?}"
       exit 0
     fi
@@ -249,6 +279,8 @@ def _run_monthly(repo: Path, stubs: Path, tmp_path: Path, *args: str,
                  scan_equiv_mode: str = "0",
                  scan_equiv_compare_mode: str = "0",
                  scan_equiv_single_every: str = "",
+                 quality_contract_mode: str = "0",
+                 quality_contract_failures: str = "0",
                  rsync_pull_mode: str = "0",
                  honyport_probe_mode: str = "1",
                  ) -> tuple[int, str]:
@@ -257,6 +289,7 @@ def _run_monthly(repo: Path, stubs: Path, tmp_path: Path, *args: str,
     env["EVAL_DATA_DIR"] = str(tmp_path / "data")
     env["HEARTBEAT_MARKER"] = str(tmp_path / "heartbeat-marker")
     env["PUSH_MARKER"] = str(tmp_path / "push-marker")   # #453 推送发生标记
+    env["PUSH_LOG"] = str(tmp_path / "push-list.log")   # #550 评审必须改5:推送清单原文(断言 quality-report 在列)
     env["SSH_MKDIR_MARKER"] = str(tmp_path / "ssh-mkdir-marker")   # #453 推送前建目录标记
     env["DATE_COUNTER"] = str(tmp_path / "date-counter")   # #468 date 桩计数文件
     env["RSYNC_PUSH_MODE"] = rsync_push_mode
@@ -283,6 +316,8 @@ def _run_monthly(repo: Path, stubs: Path, tmp_path: Path, *args: str,
     env["SCAN_EQUIV_MODE"] = scan_equiv_mode          # #500 collect 步 rc
     env["SCAN_EQUIV_COMPARE_MODE"] = scan_equiv_compare_mode  # #500 compare 步 rc
     env["SCAN_EQUIV_LOG"] = str(tmp_path / "scan-equiv-calls.log")  # #500 桩调用记录
+    env["QUALITY_CONTRACT_MODE"] = quality_contract_mode          # #550 quality-contract 腿 rc
+    env["QUALITY_CONTRACT_FAILURES"] = quality_contract_failures  # #550 行级失败条数(报告 failures 面)
     if scan_equiv_single_every:  # #500 评审返工 7:覆盖抽样密度(校验在脚本侧)
         env["IP_RADAR_SCAN_EQUIV_SINGLE_EVERY"] = scan_equiv_single_every
     env["TMPDIR"] = str(tmp_path)   # #500:样本体落测试临时目录,断言「比完即删」不碰真 /tmp
@@ -410,7 +445,7 @@ def test_green_round_writes_leg_status_with_all_legs(tmp_path):
     for name in ("model", "all", "anchors", "dsem", "agg-share",
                  "sinkhole-probe", "anchor-readouts", "truth-v2",
                  "truth-v2-readout",
-                 "audit", "temporal", "readout"):
+                 "audit", "temporal", "quality-contract", "readout"):
         assert leg["legs"][name] == 0, f"{name} 腿绿轮须 rc=0: {leg}"
     assert leg["legs"]["scan-equiv"] == 0, leg  # 评审返工 8:非旗标腿也进腿级状态
     assert any("scan-equiv=rc0" in ln for ln in _render_leg_status(leg)), \
@@ -808,6 +843,88 @@ def test_scan_equiv_compare_crash_points_at_log(tmp_path):
     assert "多半是崩溃" in out, out
     cmp_ = sorted(_report_root(repo).glob("scan-equiv/compare-*.json"))
     assert cmp_ and cmp_[-1].read_text(encoding="utf-8") == "", cmp_
+
+
+# ── #550:quality-contract 腿(变异自检+事故回放;入 LEG_ORDER 但不持门)──────
+
+def test_quality_contract_leg_in_leg_order(tmp_path):
+    """#550:quality-contract 腿在 LEG_ORDER 里(腿级状态件/红态行迭代
+    共用该清单,缺员即静默)且真跑一条 `--quality-contract` 命令,工件
+    quality-report-*.json 落 model/(run_contract 真实落件位置)。"""
+    repo = _make_repo(tmp_path)
+    stubs = _make_stubs(tmp_path)
+    rc, out = _run_monthly(repo, stubs, tmp_path)
+    assert rc == 0, out
+    assert "quality-contract" in _script_leg_order(), _script_leg_order()
+    assert "==> quality-contract:" in out, out
+    assert list(_report_root(repo).glob("model/quality-report-*.json")), \
+        "quality-report 工件缺席"
+    assert list(_report_root(repo).glob("logs/quality-contract-*.log")), \
+        "quality-contract 腿日志缺席"
+
+
+def test_quality_contract_rc2_fails_round(tmp_path):
+    """#550 评审必须改2:腿挡轮 —— rc=2(契约表不合法;contract.py:341-343
+    仅 ContractError 上抛;:214-217 oracle=none 行是 no-reading 不是失败,
+    腿不会一上来就红)进结尾 AGG_RC,整轮失败;后续腿照跑、心跳照推、
+    红态可见三面(模块 docstring 契约①「不中止后续腿」不变)。
+    变异②=把结尾的挡轮排除加回去,本测试红。"""
+    repo = _make_repo(tmp_path)
+    stubs = _make_stubs(tmp_path)
+    rc, out = _run_monthly(repo, stubs, tmp_path, quality_contract_mode="2")
+    assert rc == 2, f"rc=2 须让整轮失败,实得 rc={rc}\n{out}"
+    assert "!! quality-contract 腿 rc=2" in out, "红态行缺席\n" + out
+    assert "==> readout:" in out, "quality-contract 红中止了 readout\n" + out
+    assert "完成" in out, out
+    leg = _latest_leg_status(_report_root(repo))
+    assert leg["legs"]["quality-contract"] == 2, leg
+    assert (tmp_path / "heartbeat-marker").exists(), "腿级红≠缺员,须照推心跳"
+    # 渲染面读得出红腿(monthly.py render_leg_status 按 legs 字典通用)
+    assert any("quality-contract" in ln for ln in _render_leg_status(leg)), \
+        _render_leg_status(leg)
+
+
+def test_quality_contract_row_failures_red_not_round_failure(tmp_path):
+    """#550 评审必须改2:行级失败记红 —— 报告 failures 面 N 条
+    (QUALITY_CONTRACT_FAILURES 桩)→ CLI rc 仍 0(行级失败收报告不改 rc,
+    contract.py:254-257/:341-343),整轮不受影响;但腿级状态记红(0→1)、
+    红态行打印条数、月报腿级行可见。变异③=去掉 failures 判定(write_leg_status
+    argv 特例与行级红态行),本测试红。"""
+    repo = _make_repo(tmp_path)
+    stubs = _make_stubs(tmp_path)
+    rc, out = _run_monthly(repo, stubs, tmp_path, quality_contract_failures="3")
+    assert rc == 0, out
+    assert "!! quality-contract 行级失败 3 条" in out, "行级失败红态行缺席\n" + out
+    leg = _latest_leg_status(_report_root(repo))
+    assert leg["legs"]["quality-contract"] == 1, leg
+    assert (tmp_path / "heartbeat-marker").exists(), "行级失败≠缺员,须照推心跳"
+    assert any("quality-contract" in ln for ln in _render_leg_status(leg)), \
+        _render_leg_status(leg)
+
+
+def test_quality_contract_leg_green_records_zero(tmp_path):
+    """#550:quality-contract 腿绿(报告产出且零 failures)→ 腿级状态件记
+    rc=0(腿状态进 write_leg_status,日报/月报才读得到)。"""
+    repo = _make_repo(tmp_path)
+    stubs = _make_stubs(tmp_path)
+    rc, out = _run_monthly(repo, stubs, tmp_path)
+    assert rc == 0, out
+    leg = _latest_leg_status(_report_root(repo))
+    assert leg["legs"]["quality-contract"] == 0, leg
+
+
+def test_quality_report_in_push_list(tmp_path):
+    """#550 评审必须改5:质量报告进推送清单 —— 服务器健康轮
+    (ops/agent-v2/tasks/health-round.mjs)读生产卷 model/quality-report-*.json
+    判 mutation_check_due,不推则提醒永远「未见上次运行——首跑即到期」。
+    rsync 桩把 --files-from 清单原文抄进 PUSH_LOG,断言 quality-report 在列。"""
+    repo = _make_repo(tmp_path)
+    stubs = _make_stubs(tmp_path)
+    rc, out = _run_monthly(repo, stubs, tmp_path)
+    assert rc == 0, out
+    push_log = (tmp_path / "push-list.log").read_text(encoding="utf-8")
+    assert re.search(r"^model/quality-report-\d{8}-\d{6}\.json$",
+                     push_log, re.M), push_log
 
 
 def test_pull_rsync_command_matches_python_contract(tmp_path):
