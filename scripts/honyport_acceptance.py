@@ -179,7 +179,8 @@ def check_1_known_ip(fixtures: Path | None, scanner_ranges: Path | None,
         detail.append(f"真夹具缺席({KNOWN_IP} 全链未跑)→ 降级跑 pytest 钉件"
                       f" test_query_evidence_shape: {tail}")
         return ("FAIL" if not ok else "SKIP"), detail
-    asof = max(hpa.DAILY_STEM_RE.match(p.name).group(1) for p in dailies)
+    # #588 起正则用命名组(sensor 可选缺席时为 None),日期恒取 day 组
+    asof = max(hpa.DAILY_STEM_RE.match(p.name).group("day") for p in dailies)
     detail.append(f"夹具 {len(dailies)} 份日 CSV,聚合生成日 = {asof}")
     scan = scanner_ranges or _default_scanner_table(tmp, detail)
     agg = run_aggregate(fixtures, tmp / "agg", scan, asof)   # type: ignore

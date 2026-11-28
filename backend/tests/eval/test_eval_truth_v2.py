@@ -528,7 +528,8 @@ def _hp_csv(hp_dir, day: date, rows: list[tuple], name: str | None = None):
     """写一份合成 honyport 日 CSV(逐字照服务器 exporter 实测格式 #265:
     六列表头 ip,service,protocol,events,first_seen,last_seen, 时间戳
     ISO 8601 Z;文件名 honeypot_attackers-<YYYY-MM-DD>.csv, 采集日取自
-    文件名而非表头)。rows=六元组, 离线合成不碰真数据。"""
+    文件名而非表头;#588 起机器段可选: honeypot_attackers-<机器id>-
+    <YYYY-MM-DD>.csv)。rows=六元组, 离线合成不碰真数据。"""
     hp_dir.mkdir(parents=True, exist_ok=True)
     p = hp_dir / (name or f"honeypot_attackers-{day.isoformat()}.csv")
     p.write_text(
@@ -557,6 +558,17 @@ def test_parse_honyport_day_from_filename_events_accumulate(tmp_path):
     day, rows = parse_honyport_csv(p)
     assert day == date(2026, 11, 1)
     assert rows == {"60.20.14.95": 53, "202.175.115.114": 2}
+
+
+def test_parse_honyport_sensor_prefixed_name_day_is_last_segment(tmp_path):
+    """多台蜜罐机(#588):取数机把别机日表落地成
+    honeypot_attackers-<机器id>-<YYYY-MM-DD>.csv;采集日仍取文件名最后一段。"""
+    from ipdb._eval.truth_v2 import parse_honyport_csv
+    p = _hp_csv(tmp_path, date(2026, 11, 28), [_hp_row("60.20.14.95", events=3)],
+                name="honeypot_attackers-dr1-2026-11-28.csv")
+    day, rows = parse_honyport_csv(p)
+    assert day == date(2026, 11, 28)
+    assert rows == {"60.20.14.95": 3}
 
 
 def test_parse_honyport_quoted_service_field_survives(tmp_path):
