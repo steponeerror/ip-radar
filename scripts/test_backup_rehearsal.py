@@ -9,6 +9,9 @@
   目录缺席都要具名红——「去掉记录数对账」的变异(票面变异证据③)在
   test_script_reports_count_mismatch 红:夹具故意 .count=2 / env=3,脚本
   输出必须含「≠ env entries」明细,删掉对账步骤该明细消失、断言红;
+  「改回 stat() 计数」的变异(评审建议改3)也在同一条红:夹具 env 带
+  payloads 命名子库(主库多一条键字面 b"payloads" 的登记记录),stat()
+  = 逐键数+1,与 .count 对不上;
 - 演练脚本对好夹具的第 1/3 样零失败(check_envs 直接断言)。
 第 2 样(真查询)走真镜像,夹具造不出 70 源全绿的 registry——绿证据 =
 在真 .eval-prod-data 上实跑一次,输出贴 impl-report(票面要求)。
@@ -30,10 +33,16 @@ SCRIPT = Path(__file__).resolve().parent / "backup_rehearsal.py"
 def _make_family(data_dir: Path, name: str, epoch: int, keys: int,
                  count: int | None) -> Path:
     """造一族:<name>.lmdb.<epoch>/ 真 LMDB env(keys 个 4 字节键)+
-    <name>.lmdb.ptr + <name>.lmdb.count 旁证(count=None = 不写旁证)。"""
+    <name>.lmdb.ptr + <name>.lmdb.count 旁证(count=None = 不写旁证)。
+    env 带 payloads 命名子库并放一条记录(#550 评审建议改3):真写方
+    (_sources/_lmdb.py)提交时主库含键字面 b"payloads" 的登记记录,
+    .count 同律减 1 —— 夹具同形,「改回 stat() 计数」的变异才会红。"""
     base = data_dir / name
     env_dir = data_dir / f"{name}.{epoch}"
     env = lmdb.open(str(env_dir), map_size=1 << 20, subdir=True, max_dbs=2)
+    psub = env.open_db(b"payloads")  # 登记记录落在主库(键字面 b"payloads")
+    with env.begin(write=True, db=psub) as txn:
+        txn.put(struct.pack(">I", 99_000), struct.pack(">I", 99_001))
     with env.begin(write=True) as txn:
         for i in range(keys):
             txn.put(struct.pack(">I", 10_000 + i), struct.pack(">I", 20_000 + i))

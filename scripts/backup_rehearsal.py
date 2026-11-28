@@ -3,9 +3,11 @@
 
 背景(#550 / 调研 #549 表第 19 行):月轮 scripts/monthly_eval.sh 每月把生产
 数据卷 rsync 到本机 `.eval-prod-data`(经 backend/ipdb/_eval/gate_mirror.py
-SYNC_FACES 三面),这是全项目唯一的备份,但在本脚本之前没有任何地方把它叫
-备份,也从未验证过能从它恢复。本脚本 = 恢复演练:证明「镜像目录当
-IP_RADAR_DATA_DIR 起一个只读查询进程」这条恢复路是通的。
+SYNC_FACES 三面),这是全项目唯一的自动异地副本 —— 范围 = LMDB 源数据;
+SQLite 热拷贝可能撕裂,不在本验证范围(MANUAL「备份与恢复」同款界线)。
+但在本脚本之前没有任何地方把它叫备份,也从未验证过能从它恢复。本脚本 =
+恢复演练:证明「镜像目录当 IP_RADAR_DATA_DIR 起一个只读查询进程」这条恢复
+路是通的。
 
 核对三样(票面口径,逐条落 `REHEARSAL ok|fail` 尾行,退出码 0/1):
   1. 镜像清单里的源都能打开:每个 `<base>.lmdb.ptr` 指向的当前纪元 env
@@ -23,8 +25,12 @@ IP_RADAR_DATA_DIR 起一个只读查询进程」这条恢复路是通的。
 用法(解释器必须带 lmdb,即 backend venv):
   backend/.venv/bin/python scripts/backup_rehearsal.py <镜像目录> \
       [--samples 20] [--seed 20261128]
-只读纪律:全程 IP_RADAR_POOL_CHILD=1(防 Source.load 的 cleanup_stale 删
-镜像旧纪元,scripts/fusion_replay_gate.py 文件头同款),不写镜像目录。
+只读纪律:全程 IP_RADAR_POOL_CHILD=1(硬设,不用 setdefault —— 预置成空
+串会静默失效,scripts/audit_same_start.py:137 先例;该开关只挡 cleanup_stale
+/drop_staging,_sources/_lmdb.py:466/:504;另有两处条件写:infra_services
+投影不一致重物化 _sources/infra_services.py:88-94、stopforumspam 删旧 .txt
+_sources/stopforumspam.py:83-106 —— 除两处条件写外零写),
+scripts/fusion_replay_gate.py 文件头同款。
 
 测试:scripts/test_backup_rehearsal.py(夹具=手工造的迷你数据目录;变异
 证据③=去掉第 3 样核对后,对不上的夹具不再红)。
@@ -116,11 +122,13 @@ def check_envs(data_dir: Path) -> tuple[list[dict], list[str]]:
     return opened, fails
 
 
-def lookup_probe(data_dir: Path, samples: int, seed: int) -> list[str]:
+def lookup_probe(data_dir: Path, samples: int, seed: int,
+                 opened: list[dict]) -> list[str]:
     """第 2 样:镜像当数据目录只读起真实查询(load_db + 逐源 load_error 检查
     + 随机抽地址 lookup)。返回失败明细(空=过)。须在设好 IP_RADAR_DATA_DIR
-    后由 main 调用(import ipdb 前置,数据目录单一真源)。"""
-    os.environ.setdefault("IP_RADAR_POOL_CHILD", "1")  # 防 cleanup_stale 删镜像旧纪元
+    后由 main 调用(import ipdb 前置,数据目录单一真源)。opened = main 里
+    check_envs 已得的健康族清单(传参复用,不重跑全库逐键数)。"""
+    os.environ["IP_RADAR_POOL_CHILD"] = "1"  # 硬设;理由见模块 docstring 只读纪律
     os.environ["IP_RADAR_DATA_DIR"] = str(data_dir)
     sys.path.insert(0, str(REPO / "backend"))
     import ipdb._registry as registry  # noqa: PLC0415  (env 设好后才能 import)
@@ -134,28 +142,31 @@ def lookup_probe(data_dir: Path, samples: int, seed: int) -> list[str]:
                      f"{', '.join(sorted(broken)[:8])}"
                      f"{'…' if len(broken) > 8 else ''}")
 
-    # 抽样池:打开第 1 样里健康的 v4 族,从键空间随机抽(键=4 字节大端
-    # start_ip;set_range 到随机 4 字节取首个 ≥ 键 = 均匀覆盖键空间的抽法)
-    opened, _ = check_envs(data_dir)
-    v4 = [f for f in opened if not f["v6"] and f["entries"] > 0]
-    if not v4:
-        return fails + ["抽样池空:无健康 v4 族可抽地址"]
+    # 抽样池:第 1 样里健康的族(v4+v6 都入池),随机取族 —— 首版固定
+    # i%len(v4) 只抽字典序前 20 个 v4 族,其余 v4 与全部 v6 族永不入查
+    # (#550 评审建议改1)。键 = 定长大端 start_ip;set_range 到随机键取
+    # 首个 ≥ 键 = 均匀覆盖键空间的抽法
+    pool = [f for f in opened if f["entries"] > 0]
+    if not pool:
+        return fails + ["抽样池空:无健康族可抽地址"]
     rng = random.Random(seed)
     picked: list[str] = []
     for i in range(samples):
-        fam = v4[i % len(v4)]
+        fam = pool[rng.randrange(len(pool))]
+        klen = 16 if fam["v6"] else 4
         env = open_readonly(fam["env_dir"])
         try:
             with env.begin() as txn:
                 cur = txn.cursor()
-                want = struct.pack(">I", rng.getrandbits(32))
+                want = (struct.pack(">QQ", rng.getrandbits(64), rng.getrandbits(64))
+                        if klen == 16 else struct.pack(">I", rng.getrandbits(32)))
                 if not cur.set_range(want) or not cur.key():
                     cur.first()
                 key = cur.key()
         finally:
             env.close()
-        if len(key) != 4:
-            continue  # v4 族里混进异常键长:跳过不猜,样本数由实抽数报
+        if len(key) != klen:
+            continue  # 族里混进异常键长:跳过不猜,样本数由实抽数报
         picked.append(str(ipaddress.ip_address(key)))
 
     ok_n = with_evidence = 0
@@ -173,8 +184,16 @@ def lookup_probe(data_dir: Path, samples: int, seed: int) -> list[str]:
             with_evidence += 1
     if ok_n < samples:
         fails.append(f"lookup 成功 {ok_n}/{samples}(须全过)")
+    # #550 评审建议改2:查得到还要查得「有内容」—— 全不带证人/陈述判失败
+    # (骨架键查得出但零佐证 = 半残镜像,不装绿;逐条计数原样保留留证)
+    if ok_n and with_evidence == 0:
+        fails.append(f"lookup {ok_n} 条全不带证人/陈述(镜像可能只有骨架键)")
+    lmdb_n = sum(1 for s in registry._sources
+                 if getattr(s, "lmdb_backed", True))
     print(f"-- lookup 抽样(seed={seed}): {ok_n}/{len(picked)} 成功,"
           f"其中 {with_evidence} 条带证人/陈述")
+    print(f"-- 面对账: 注册表 LMDB 源 {lmdb_n} ↔ 镜像族 {len(opened)}"
+          "(供人比对;逐族 .count 键数对账在第 3 样已判)")
     return fails
 
 
@@ -196,14 +215,14 @@ def main() -> int:
 
     # os.environ 先于一切 ipdb import(数据目录单一真源);check_envs 不依赖
     # ipdb,lookup_probe 内部才 import。
-    os.environ.setdefault("IP_RADAR_POOL_CHILD", "1")
+    os.environ["IP_RADAR_POOL_CHILD"] = "1"  # 硬设;理由见模块 docstring 只读纪律
     os.environ["IP_RADAR_DATA_DIR"] = str(data_dir)
-    _, env_fails = check_envs(data_dir)
+    opened, env_fails = check_envs(data_dir)
     for f in env_fails:
         print(f"  FAIL {f}")
     fails = list(env_fails)
 
-    fails += lookup_probe(data_dir, args.samples, args.seed)
+    fails += lookup_probe(data_dir, args.samples, args.seed, opened)
 
     if fails:
         print(f"REHEARSAL fail({len(fails)} 项不达标):")

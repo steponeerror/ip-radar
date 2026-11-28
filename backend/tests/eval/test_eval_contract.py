@@ -376,6 +376,29 @@ def test_cli_quality_contract_json(tmp_path, monkeypatch, capsys):
     assert len(artifacts) == 2          # .json + .md 两件
 
 
+def test_report_artifact_names_match_downstream_globs(tmp_path, monkeypatch, capsys):
+    """#550 评审建议改4:真实落件名守桩 —— 三处写死同一个名:日报读侧正则
+    (scripts/daily-digest.mjs readLocalFace 的
+    /^quality-report-\d{8}-\d{6}\.(json|md)$/)与级联桩字面
+    (backend/tests/eval/test_monthly_eval_cascade.py PY_STUB 的
+    quality-report-$ts.json,ts=date -u +%Y%m%d-%H%M%S)。真实现改名时只
+    有本文件红、读侧与桩不会跟 —— 本条把漂移提前显形(改落件名必须连带
+    核另两处)。"""
+    import re
+    from ipdb._eval import __main__ as M
+    table = _write(tmp_path, _doc([
+        _row(id="ok", oracle={"kind": "subprocess", "argv": PY_OK}),
+    ]), name="cli-contract.json")
+    monkeypatch.setattr(M, "REPORT_DIR", tmp_path / "rep")
+    M.main(["--quality-contract", "--contract-path", str(table), "--json"])
+    artifacts = sorted(
+        p.name for p in (tmp_path / "rep" / "model").glob("quality-report-*"))
+    assert len(artifacts) == 2          # .json + .md 两件
+    pat = re.compile(r"^quality-report-\d{8}-\d{6}\.(json|md)$")
+    for name in artifacts:
+        assert pat.match(name), f"{name} 不匹配下游 glob(日报读侧/级联桩字面)"
+
+
 def test_cli_quality_contract_human_face(tmp_path, monkeypatch, capsys):
     from ipdb._eval import __main__ as M
     table = _write(tmp_path, _doc([

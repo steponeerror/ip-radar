@@ -65,7 +65,8 @@ const MAX_LINES = 30; // 票面:markdown ≤30 行
 // —— #550 节拍读数阈(日报是人的通道,阈值独立于机器告警)——
 // 月轮心跳:生产机器告警阈 35 天(backend/ipdb/_alerts.py _EVAL_ROUND_THRESHOLD_H);
 // 日报 30 天提前喊人。质量契约(变异自检+事故回放,--quality-contract 报告
-// quality-report-*.json 的 mtime):与机器告警同阈 35 天。
+// quality-report-*.json 的 mtime):没有机器告警(_alerts.py 只有月轮心跳告警),
+// 日报是唯一通道;阈值取同一个数 35 天(#550 评审建议改6 措辞订正)。
 export const HEARTBEAT_RED_H = 30 * 24;
 export const QUALITY_RED_H = 35 * 24;
 
@@ -418,8 +419,8 @@ export const RED_ADVICE = Object.freeze({
   fleetGate: "等下一拍自动重试;同一源连败 2 次会自动跳过并另行告警,那时再人工复盘", // #366:失败不重试同轮,下一拍另起
   fleetMonthly: "不用动,预算护栏正常工作;想继续跑由人裁抬帽(env OPS_PIPELINE_MONTHLY_CAP_CNY)或等下月", // #366:月帽拒启未起跑不计失败
   monthlyHeartbeat: "先查本机月轮定时器(systemctl --user status ipradar-monthly-eval,journalctl --user -u ipradar-monthly-eval);跑不动就手动跑一次 scripts/monthly_eval.sh,别等服务器 35 天告警", // #550:月轮心跳 35 天阈值告警是机器兜底,日报 30 天提前喊人
-  qualityContract: "在开发机主检出跑一次质量契约留基线(python -m ipdb._eval --quality-contract,变异自检+事故回放);月轮里已有 quality-contract 腿(#550),连着两月没跑就是月轮腿坏了查 monthly/logs/ 腿日志", // #550
-  qualityContractUnreadable: "大概率是文件被挪走或权限变了:去 backend/data/eval/monthly/model/ 看 quality-report-* 还在不在", // #550
+  qualityContract: "在开发机主检出跑一次质量契约留基线(cd backend && IP_RADAR_EVAL_ENV=monthly .venv/bin/python -m ipdb._eval --quality-contract,变异自检+事故回放;不带 IP_RADAR_EVAL_ENV=monthly 会落 dev/,日报只读 monthly,#550 评审必须改3);月轮里已有 quality-contract 腿(#550),连着两月没跑就是月轮腿坏了查 monthly/logs/ 腿日志", // #550
+  qualityContractUnreadable: "大概率是文件被挪走或权限变了(目录不存在已归入「从没跑过」,#550 评审建议改6):去 backend/data/eval/monthly/model/ 看 quality-report-* 还在不在、读不读得了", // #550
   sshFail: "偶发网络问题等明天自动恢复;连续几天失败再人工登服务器排查 ssh 和容器", // #368:失败可见优于静默空面
   missedNote: "等下一轮;连续出现再人工查服务器轮目录", // #368 两日 glob 兜底注记
 });
@@ -772,8 +773,11 @@ function readLocalFace(root, nowMs) {
       const t = fs.statSync(path.join(qualityDir, n)).mtimeMs;
       if (t > (quality_mtime_ms ?? 0)) quality_mtime_ms = t;
     }
-  } catch {
-    quality_unreadable = true;
+  } catch (err) {
+    // 目录不存在(新检出/还没跑过)=「从没跑过」(ENOENT 归 never,#550 评审
+    // 建议改6:让「从没跑过」语义覆盖新检出;其余读错(权限等)才归「读不到」
+    // —— 无证据≠清白)
+    if (err?.code !== "ENOENT") quality_unreadable = true;
   }
   return { evolve, add_rounds, overdue_add_rounds,
            quality_mtime_ms, quality_unreadable };

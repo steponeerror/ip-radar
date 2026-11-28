@@ -343,6 +343,8 @@ The `ipradar-data` volume stays put — no data migration on upgrades. The publi
 
 All state lives in one named volume (`ipradar-data` → `/app/data`): per-source raw downloads, LMDB epoch dirs with their `.ptr/.count/.cov/.disjoint` sidecars, and the SQLite pair `auth.db`/`alerts.db`. Rebuilds never write in place — a fresh epoch lands, then the pointer flips atomically.
 
+The dev machine also keeps a monthly auto-synced mirror of the production volume (pushed by the monthly eval round). It is declared as the only automatic offsite copy (LMDB source data only) and its restore path is rehearsed via `scripts/backup_rehearsal.py` — see the "备份 = 月轮镜像同步" section in `deploy/ops-cron.md`.
+
 **Stopped copy (simplest, always consistent):**
 
 ```bash

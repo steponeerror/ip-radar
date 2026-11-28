@@ -179,15 +179,18 @@ curl -X PUT http://127.0.0.1:8000/api/ops/agent-config \
 
 ## 备份 = 月轮镜像同步(#550,2026-11-28)
 
-全项目唯一的备份 = 月轮 `scripts/monthly_eval.sh` 每月一次把生产数据卷 rsync
-到**开发机主检出**的 `.eval-prod-data/`(经 `backend/ipdb/_eval/gate_mirror.py`
-SYNC_FACES 三面:主卷 + truth-v2 周快照面 + honyport 日 CSV 面;触发 = 开发机
-systemd 用户定时器 `ipradar-monthly-eval.timer`,每月 1 日 10:04)。在此之前
-它只被当评估镜像,没有被声明成备份——本节就是声明。
+全项目唯一的自动异地副本(范围 = LMDB 源数据;SQLite 热拷贝可能撕裂,
+不在验证范围,#550 评审建议改7)= 月轮 `scripts/monthly_eval.sh` 每月一次
+把生产数据卷 rsync 到**开发机主检出**的 `.eval-prod-data/`(经
+`backend/ipdb/_eval/gate_mirror.py` SYNC_FACES 三面:主卷 + truth-v2 周快照面
++ honyport 日 CSV 面;触发 = 开发机 systemd 用户定时器
+`ipradar-monthly-eval.timer`,每月 1 日 10:04)。在此之前它只被当评估镜像,
+没有被声明成备份——本节就是声明。
 
 - **备份在哪**:开发机主检出 `/home/huxiao/dev/pi-ip-lookup-tool/.eval-prod-data/`
-  (约 55GB,已 gitignore)。缺一档的上界 = 一个月(月频同步,最多丢一个月增量)。
-  alerts.db、ops sqlite、eval 报告都在生产卷里,随主卷面一起进来。
+  (约 55GB——尺寸沿 monthly_eval.sh 旧注释,未实测;已 gitignore)。缺一档的上界
+  = 一个月(月频同步,最多丢一个月增量)。alerts.db、ops sqlite、eval 报告都在
+  生产卷里,随主卷面一起进来(SQLite 是热拷贝,可能撕裂,不在演练验证范围)。
 - **怎么演练**:每月同步完跑一次恢复演练,证明「镜像目录当数据目录起一个只读
   查询进程」这条路是通的:
 
@@ -195,30 +198,43 @@ systemd 用户定时器 `ipradar-monthly-eval.timer`,每月 1 日 10:04)。在�
   backend/.venv/bin/python scripts/backup_rehearsal.py .eval-prod-data
   ```
 
-  脚本核对三样:①每族 `<base>.lmdb.ptr` 指向的纪元 env 只读打开成功;
-  ②随机抽 20 个地址真查(`ipdb._registry.load_db` + lookup,只读,全程
-  `IP_RADAR_POOL_CHILD=1`);③每族 `.count` 旁证与 LMDB env 实际键数逐一对账。
-  尾行 `REHEARSAL ok` = 恢复路通;非零退出 = 有不达标项,逐条具名。
-- **怎么恢复**:把镜像目录当 `IP_RADAR_DATA_DIR` 起一个容器即可(引擎对数据
-  目录的契约只有目录形状,与生产卷同构):
+  脚本核对三样(#550 评审建议改7 收紧后):①每族 `<base>.lmdb.ptr` 指向的纪元
+  env 只读打开成功;②随机抽 20 个地址真查(v4/v6 族都入池,`ipdb._registry.load_db`
+  + lookup,只读,全程 `IP_RADAR_POOL_CHILD=1`;查到的地址全不带证人/陈述判失败);
+  ③每族 `.count` 旁证与 LMDB env 实际键数逐一对账。另打印一行「注册表 LMDB 源数
+  ↔ 镜像族数」供人比对。尾行 `REHEARSAL ok` = 恢复路通;非零退出 = 有不达标项,
+  逐条具名。
+- **怎么恢复**:已验证的只有演练脚本的进程内查询(上面的脚本);容器级启动
+  **没演练过**——要验证先把镜像目录拷一份、去掉只读再试(SQLite `:ro` 挂载下
+  打不开,见 MANUAL「备份与恢复」):
 
   ```sh
-  docker run -e IP_RADAR_DATA_DIR=/data -v /path/to/.eval-prod-data:/data:ro \
-      <镜像> # 只读验证;转正为生产数据目录时去掉 :ro
+  docker run -e IP_RADAR_DATA_DIR=/data -e IP_RADAR_POOL_CHILD=1 \
+      -v /path/to/.eval-prod-data:/data:ro <镜像> # 只读验证;转正时去 :ro
   ```
 
-  注意:镜像经 `IP_RADAR_POOL_CHILD=1` 只读使用时零写;**转正为生产数据目录
-  时必须去掉只读挂载**(引擎 rebuild 要建新纪元目录)。不写服务器操作步骤
-  以外的承诺:恢复到哪台机器、用什么镜像 tag,届时人裁。
+  注意(#550 评审必须改4 措辞):镜像只读使用时**除两处条件写外零写**——
+  `IP_RADAR_POOL_CHILD=1` 只挡 `cleanup_stale`/`drop_staging`(`_lmdb.py:466`、
+  `:504`);`infra_services` 投影 csv 内容与代码不一致会重物化
+  (`backend/ipdb/_sources/infra_services.py:88-94`),`stopforumspam` 会删旧 .txt
+  (`backend/ipdb/_sources/stopforumspam.py:83-106`)。**转正为生产数据目录时必须
+  去掉只读挂载**(引擎 rebuild 要建新纪元目录)。不写服务器操作步骤以外的承诺:
+  恢复到哪台机器、用什么镜像 tag,届时人裁。
+
+另:`scripts/fusion_replay_gate.py` 是没有节拍的手动工具(融合回放门,按需手动
+跑;无 cron/timer,#550 评审裁决保留)。
 
 ## 不在本仓里的节拍(#550,2026-11-28)
 
 服务器(root@203.88.124.85)root crontab / systemd 里三件定时任务不在本仓,
-仓内零引用(rg 核实);只记事实备查,不改任何服务器文件。原始事实采集
-2026-11-27(`_prep/节拍现状-原始事实-20261127.md`)。
+仓内零引用(rg 核实);只记事实备查,不改任何服务器文件。按票面(#550)只记
+上面三件;服务器还有 weekly_snapshot(`/opt/ip-truth-capture`,周日 04:17)、
+honyport 四行、`ops-cron-v2-discover`(06:00)、docker prune(每月 1 日 05:00)、
+acme.sh 等,见原始事实件。原始事实采集 2026-11-27
+(`_prep/节拍现状-原始事实-20261127.md`)。
 
 | 节拍 | 做什么 | 什么时候跑 | 文件在哪 | 坏了去哪看 |
 |---|---|---|---|---|
 | `glm-anchor.timer` | 仓内无引用,用途要看服务器侧 unit 文件(`systemctl cat glm-anchor`);名字与 GLM 模型面锚点冒烟相关(仓内有同族工具 `scripts/glm-smoke.py`,是否同一件事未核) | 每天 00:00 CET | 服务器 systemd system unit(glm-anchor.service/.timer) | `systemctl status glm-anchor` / `journalctl -u glm-anchor` |
 | `upstream-probe` | 仓内无引用,用途不明(名字指上游探测);脚本在服务器 `/root/upstream-probe/probe_round.sh` | 每小时第 17 分(root crontab `17 * * * *`) | 服务器 `/root/upstream-probe/probe_round.sh` | crontab 该行无重定向,失败走 cron 邮件;脚本自身日志去 `/root/upstream-probe/` 里找 |
-| `ipradar-blocklist.timer` | 黑名单导出器:独立仓 `/opt/ip-radar-blocklist`,日更产物发 GitHub Release(消费端与引擎共用同一套打分代码;断更成因与恢复步骤见 `docs/research/2026-11-24-blocklist-scan-export-spec.md` §7、§140-147) | 每天 22:00 CET(systemd system timer) | 服务器独立仓 `/opt/ip-radar-blocklist` | `journalctl -u ipradar-blocklist`;产物新鲜度查 GitHub Release 最新日期(2026-11-16→11-25 有过一次断更) |
+| `ipradar-blocklist.timer` | 黑名单导出器:独立仓 `/opt/ip-radar-blocklist`,日更产物发 GitHub Release(消费端与引擎共用同一套打分代码;断更成因与恢复步骤见 `docs/research/2026-11-24-blocklist-scan-export-spec.md` §7(约第 140-147 行)) | 每天 22:00 CET(systemd system timer) | 服务器独立仓 `/opt/ip-radar-blocklist` | `journalctl -u ipradar-blocklist`;产物新鲜度查 GitHub Release 最新日期(2026-11-16→11-25 有过一次断更) |

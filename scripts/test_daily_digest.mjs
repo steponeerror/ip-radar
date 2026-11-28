@@ -493,10 +493,12 @@ test("renderDigest/renderDigestPush:cadence 传入时出「节拍」节两行;�
   const push = renderDigestPush({ dateLabel: "2026-11-20", server, local, reds: [...reds, ...cadence.reds], cadence });
   assert.match(push.body, /## 节拍/);
   assert.match(push.body, /从没跑过.*变异基线|变异自检\+事故回放从来没有跑过/);
-  // 节拍红项走大白话规则(非兜底):两件套齐
+  // 节拍红项走大白话规则(非兜底):两件套齐;补救命令带
+  // IP_RADAR_EVAL_ENV=monthly(#550 评审必须改3:不带会落 dev/,红项不会消)
   const plain = plainRedItem(cadence.reds[0], "2026-11-20");
   assert.match(plain, /从来没有跑过/);
   assert.match(plain, /--quality-contract/);
+  assert.match(plain, /IP_RADAR_EVAL_ENV=monthly/);
 });
 
 // —— #383 lark 推送面大白话版(标题/骨架同技术面;落盘面字节不变由上方既有断言钉)——
