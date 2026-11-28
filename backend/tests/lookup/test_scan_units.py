@@ -27,6 +27,7 @@ import pytest
 import lmdb
 
 import ipaddress
+from datetime import datetime, timezone
 
 from ipdb import _registry
 from ipdb._scan import open_unit_scanner
@@ -519,6 +520,73 @@ def test_equiv_check_tool_on_fixture(scan_env, monkeypatch, capsys, tmp_path):
     head_path.write_text(_json.dumps(head))
     assert mod.main(["compare", "--asof", str(ASOF),
                      "--sample", out]) == 2          # 样本的纪元号对不上
+    for s in scan_env["insts"]:
+        s._reader = None
+        s._reader6 = None
+
+
+def test_keyset_snapshot_tool_on_fixture(scan_env, monkeypatch, tmp_path):
+    """⑲每源全量键集快照工具(#569)在夹具上走一遍:指控口径(detail 级
+    verdict ∈ _ACCUSING,#529)归账、资产源不产单元的地址不进集、纪元对
+    == read_ptr 独立读数(验收②)、行排序后写(拆掉排序即红:变异 B)、
+    同输入两遍字节相同(验收③夹具级)、--limit 冒烟能停。"""
+    import importlib.util
+    import gzip
+    import sys
+    from pathlib import Path as _P
+    from ipdb._sources._lmdb import read_ptr
+    spec = importlib.util.spec_from_file_location(
+        "keyset_snapshot",
+        _P(__file__).resolve().parents[2] / "scripts" / "keyset_snapshot.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    monkeypatch.setenv("IP_RADAR_POOL_CHILD", "1")
+    out_dir = tmp_path / "snap"
+
+    rc = mod.main(["collect", "--asof", str(ASOF), "--out-dir", str(out_dir),
+                   "--spill-dir", str(tmp_path / "spill")])
+    assert rc == 0
+    run_id = datetime.fromtimestamp(ASOF, tz=timezone.utc).strftime(
+        "%Y%m%dT%H%M%SZ")   # run_id 由 asof 推(UTC)
+    run_dir = out_dir / run_id
+    sys.path.insert(0, str(_P(__file__).resolve().parents[2] / "scripts"))
+    from keyset_reader import load_keyset, load_keyset_pairs, load_meta  # noqa: E402
+
+    meta = load_meta(run_dir)
+    # 纪元对 == 扫描器看到的纪元(验收②):独立经 read_ptr 读 ptr 文件
+    want_epochs = {s.name: [read_ptr(s._lmdb_base), read_ptr(s._lmdb6_base)]
+                   for s in scan_env["insts"]}
+    assert meta["epochs"] == want_epochs
+    # 指控口径:9.9.9.9 三源(abuseipdb malicious + blocklist_de malicious
+    # + danmeuk_tor suspicious)各成一队;verdict 全指控 → 全进
+    for src, ctype in (("abuseipdb", "abuse-reports"),
+                       ("blocklist_de", "blacklist"),
+                       ("danmeuk_tor", "tor")):
+        assert ("9.9.9.9", ctype) in load_keyset_pairs(run_dir, src), src
+    # 资产类源不产单元:5.5.5.5 只有 danmeuk_tor 断言 → 不进任何队
+    assert "5.5.5.5" not in load_keyset(run_dir, "danmeuk_tor", "tor")
+    # 四栏进同一文件,v6 网段单元用网络地址文本
+    assert "2a00:1450:4001::/48" in load_keyset(run_dir, "abuseipdb",
+                                                "abuse-reports")
+    # 行排序后写:读回序列 == sorted 自身(拆掉写前排序即红,变异 B;
+    # 不靠 PYTHONHASHSEED —— 测试进程内集合序不保证同种子两轮同序)
+    with gzip.open(run_dir / "abuseipdb.txt.gz", "rt") as gz:
+        lines = [ln.rstrip("\n") for ln in gz]
+    assert lines == sorted(lines)
+    # 同输入两遍字节相同(验收③夹具级):gz mtime=0 + 排序 → 逐文件 cmp
+    out2 = tmp_path / "snap2"
+    assert mod.main(["collect", "--asof", str(ASOF), "--out-dir", str(out2),
+                     "--spill-dir", str(tmp_path / "spill")]) == 0
+    run2 = out2 / run_dir.name
+    for name in ("abuseipdb.txt.gz", "danmeuk_tor.txt.gz", "meta.json"):
+        assert (run_dir / name).read_bytes() == (run2 / name).read_bytes(), name
+    # --limit 冒烟:按单元粒度封顶(可越过 limit 一个单元的明细条数,
+    # 同 scan-equiv --limit 的粒度),必须早停(≪ 全量 26 条)
+    out3 = tmp_path / "snap3"
+    assert mod.main(["collect", "--asof", str(ASOF), "--out-dir", str(out3),
+                     "--spill-dir", str(tmp_path / "spill"), "--limit", "5"]) == 0
+    meta3 = load_meta(out3 / run_dir.name)
+    assert 0 < sum(meta3["counts"].values()) < 26
     for s in scan_env["insts"]:
         s._reader = None
         s._reader6 = None
