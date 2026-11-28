@@ -58,7 +58,6 @@ def collect(args) -> int:
     run_id = datetime.fromtimestamp(args.asof, tz=timezone.utc).strftime(
         "%Y%m%dT%H%M%SZ")
     run_dir = Path(args.out_dir) / run_id
-    run_dir.mkdir(parents=True, exist_ok=True)
     keysets: dict[str, set[str]] = {}      # 源 → {「单元|分类类型」行}
     units_by_class: Counter = Counter()
     n_units = 0
@@ -85,6 +84,16 @@ def collect(args) -> int:
         epochs = {k: list(v) for k, v in sc.epochs.items()}
         stats = {k: sc.stats[k] for k in ("skipped_anomalies",
                                           "anomalous_records")}
+    if not any(e != (None, None) for e in sc.epochs.values()) or n_units == 0:
+        # 库里一个纪元都没有 = 数据目录没指对(空库):不写「长得像
+        # 成功」的空快照,直接红(无证据即无话;2026-11-28 实测漏加
+        # --data-dir 时曾静默落空件)。真库里源可能临时全空,但
+        # 60 个源连一个纪元都没有只可能是路径/装载事故。
+        print("库里没有任何纪元/单元(units=%d):数据目录没指对或库未"
+              "装载,拒绝落空快照——核对 --data-dir/IP_RADAR_DATA_DIR"
+              % n_units, file=sys.stderr)
+        return 2
+    run_dir.mkdir(parents=True, exist_ok=True)
     # 排序后写(确定性,见模块 docstring):哈希种子不进字节。
     counts: dict[str, int] = {}
     for src in sorted(keysets):

@@ -71,6 +71,15 @@ PY_STUB = textwrap.dedent(
       printf '{"mode": "compare", "asof": 1765000000, "sampled": 2, "mismatches": 0}\n'
       exit "${SCAN_EQUIV_COMPARE_MODE:-0}"
     fi
+    # #569 keyset_snapshot.py 调用桩:keysets-full 腿记一行
+    # 「argv|PYTHONHASHSEED=…|IP_RADAR_DATA_DIR=…」到 KEYSETS_FULL_LOG,
+    # 打印与真脚本同形的 JSON 尾行(mode 键)供腿侧摘取落 keysets-full/
+    # 工件;rc 按 KEYSETS_FULL_MODE。
+    if [[ "$*" == *"keyset_snapshot.py"* ]]; then
+      printf '%s|PYTHONHASHSEED=%s|IP_RADAR_DATA_DIR=%s\n' "$*" "${PYTHONHASHSEED:-unset}" "${IP_RADAR_DATA_DIR:-unset}" >> "${KEYSETS_FULL_LOG:?}"
+      printf '{"mode": "collect", "run_id": "20200101T000000Z", "asof": 1765000000, "units_scanned": 2, "n_sources": 2, "lines": 2}\n'
+      exit "${KEYSETS_FULL_MODE:-0}"
+    fi
     # #193 腿级状态件写手桩:shell 侧 write_leg_status 经 python3 heredoc
     # 调用(无 -m ipdb._eval);模拟真写手 argv 形状(path 腿 rc ...)落 JSON
     # python3 - args 调用形:$1="-" $2=path —— 守卫查 $2
@@ -248,6 +257,7 @@ def _run_monthly(repo: Path, stubs: Path, tmp_path: Path, *args: str,
                  rsync_push_mode: str = "0",
                  scan_equiv_mode: str = "0",
                  scan_equiv_compare_mode: str = "0",
+                 keysets_full_mode: str = "0",
                  scan_equiv_single_every: str = "",
                  rsync_pull_mode: str = "0",
                  honyport_probe_mode: str = "1",
@@ -283,6 +293,8 @@ def _run_monthly(repo: Path, stubs: Path, tmp_path: Path, *args: str,
     env["SCAN_EQUIV_MODE"] = scan_equiv_mode          # #500 collect 步 rc
     env["SCAN_EQUIV_COMPARE_MODE"] = scan_equiv_compare_mode  # #500 compare 步 rc
     env["SCAN_EQUIV_LOG"] = str(tmp_path / "scan-equiv-calls.log")  # #500 桩调用记录
+    env["KEYSETS_FULL_MODE"] = keysets_full_mode      # #569 keysets-full 腿 rc
+    env["KEYSETS_FULL_LOG"] = str(tmp_path / "keysets-full-calls.log")  # #569 桩调用记录
     if scan_equiv_single_every:  # #500 评审返工 7:覆盖抽样密度(校验在脚本侧)
         env["IP_RADAR_SCAN_EQUIV_SINGLE_EVERY"] = scan_equiv_single_every
     env["TMPDIR"] = str(tmp_path)   # #500:样本体落测试临时目录,断言「比完即删」不碰真 /tmp
@@ -647,7 +659,7 @@ def test_leg_logs_land_in_report_tree_one_timestamp_per_round(tmp_path):
     assert rc == 0, out
     logs = _report_root(repo) / "logs"
     assert logs.is_dir(), f"腿日志目录缺席\n{out}"
-    leg_names = _script_leg_order() + ["scan-equiv"]  # #500:非旗标腿同样落一份腿日志
+    leg_names = _script_leg_order() + ["scan-equiv", "keysets-full"]  # #500/#569:非旗标腿同样落一份腿日志
     assert len(list(logs.iterdir())) == len(leg_names), \
         f"每腿一份日志(LEG_ORDER + scan-equiv),实得 {len(list(logs.iterdir()))} 份\n{out}"
     stamps = set()
@@ -763,6 +775,64 @@ def test_scan_equiv_stale_sample_says_rerun(tmp_path):
     assert leg["legs"]["scan-equiv"] == 2, leg  # 评审返工 8:红也进腿级状态
     assert any("scan-equiv(rc2)" in ln for ln in _render_leg_status(leg)), \
         _render_leg_status(leg)
+
+
+# ── #569:keysets-full 腿(每源全量键集快照;非 LEG_ORDER 旗标腿,接线同 scan-equiv)──
+
+def test_keysets_full_leg_runs_before_audit(tmp_path):
+    """#569:keysets-full 腿真跑一次 keyset_snapshot.py(PYTHONHASHSEED=0、
+    IP_RADAR_DATA_DIR 与其他腿同源),执行序在 audit 腿之前;尾行 JSON
+    摘要摘取落 keysets-full/collect-*.json;腿级状态件带 keysets-full=0;
+    腿日志落 logs/。"""
+    repo = _make_repo(tmp_path)
+    stubs = _make_stubs(tmp_path)
+    rc, out = _run_monthly(repo, stubs, tmp_path)
+    assert rc == 0, out
+    assert out.index("==> keysets-full:") < out.index("==> audit: "), \
+        "keysets-full 须排在 audit 腿之前"
+    calls = (tmp_path / "keysets-full-calls.log").read_text(
+        encoding="utf-8").strip().splitlines()
+    assert len(calls) == 1, f"keyset_snapshot.py 恰跑一次,实得 {calls}"
+    assert " collect " in calls[0], calls[0]
+    assert "--out-dir " in calls[0], calls[0]
+    fields = dict(kv.split("=", 1) for kv in calls[0].split("|")[1:])
+    assert fields["PYTHONHASHSEED"] == "0", fields
+    assert fields["IP_RADAR_DATA_DIR"] == _data_dir(tmp_path), fields
+    root = _report_root(repo)
+    col = sorted(root.glob("keysets-full/collect-*.json"))
+    assert col, f"留证 JSON 缺席: {sorted(p.name for p in root.glob('keysets-full/*'))}"
+    assert '"mode": "collect"' in col[-1].read_text(encoding="utf-8")
+    assert list(root.glob("logs/keysets-full-*.log")), "腿日志缺席"
+    leg = _latest_leg_status(root)
+    assert leg["legs"]["keysets-full"] == 0, leg  # 非旗标腿也进腿级状态
+
+
+def test_keysets_full_red_cascades_nonzero_and_later_legs_run(tmp_path):
+    """#569:keysets-full 腿红 → 红态行外显、结尾以该 rc 非零退出(持门
+    同 scan-equiv);腿级红≠中止,后续 audit 腿照跑、工件照写(证据不灭);
+    红也进腿级状态件。"""
+    repo = _make_repo(tmp_path)
+    stubs = _make_stubs(tmp_path)
+    rc, out = _run_monthly(repo, stubs, tmp_path, keysets_full_mode="3")
+    assert rc == 3, f"keysets-full 红(3)须外显为结尾 rc,实得 {rc}\n{out}"
+    assert "!! keysets-full 腿 rc=3" in out, out
+    assert sorted(p.name for p in _report_root(repo).glob("model/audit-*.json")), \
+        "腿级红≠中止,后续 audit 腿须照跑"
+    assert (tmp_path / "heartbeat-marker").exists(), "腿级红≠缺员,须照推心跳"
+    leg = _latest_leg_status(_report_root(repo))
+    assert leg["legs"]["keysets-full"] == 3, leg
+
+
+def test_keysets_full_dry_run_prints_but_does_not_execute(tmp_path):
+    """#569:干跑回显命令但零执行(桩子调用记录文件不存在)、零目录
+    (keysets-full/ 与 logs/ 都在报告根下,由报告根不存在覆盖)。"""
+    repo = _make_repo(tmp_path)
+    stubs = _make_stubs(tmp_path)
+    rc, out = _run_monthly(repo, stubs, tmp_path, "--dry-run")
+    assert rc == 0, out
+    assert "==> keysets-full:" in out, out
+    assert not (tmp_path / "keysets-full-calls.log").exists(), \
+        "干跑不得执行 keyset_snapshot"
 
 
 def test_scan_equiv_single_every_passthrough(tmp_path):

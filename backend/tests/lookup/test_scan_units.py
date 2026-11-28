@@ -644,3 +644,27 @@ def test_geo_sources_are_not_read(scan_env):
         stats = dict(sc.stats)
     assert stats["skipped_geo_sources"] == ["metowolf_iplist"]
     assert "metowolf_iplist" not in stats["records"]
+
+
+def test_keyset_snapshot_empty_db_refuses(tmp_path, monkeypatch):
+    """⑳空库(一个纪元都没有 = 数据目录没指对)拒绝落空快照:rc=2、
+    不建 run 目录、尾行 JSON 不吐(2026-11-28 实测漏 --data-dir 曾静默
+    落空件,无证据即无话)。"""
+    import importlib.util
+    import sys
+    from pathlib import Path as _P
+    spec = importlib.util.spec_from_file_location(
+        "keyset_snapshot",
+        _P(__file__).resolve().parents[2] / "scripts" / "keyset_snapshot.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    proto = {s.name: type(s) for s in _registry._sources}["abuseipdb"]
+    inst = proto(tmp_path / "empty-db")     # 不建库:无 ptr → 无纪元
+    monkeypatch.setattr(_registry, "_sources", [inst])
+    _registry._enabled_cache["entry"] = None
+    _registry._loaded_cache["entry"] = None
+    out_dir = tmp_path / "snap-empty"
+    rc = mod.main(["collect", "--asof", str(ASOF), "--out-dir", str(out_dir),
+                   "--spill-dir", str(tmp_path / "spill")])
+    assert rc == 2
+    assert not out_dir.exists(), "拒绝时不得落 run 目录"

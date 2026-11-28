@@ -32,6 +32,12 @@
 # `python3 -m ipdb._eval <旗标>` 腿,本腿跑的是独立工具件;rc 经
 # LEG_RC[scan-equiv] 单列接线(红态行+结尾 AGG_RC,见对应注释)。抽样密度
 # 缺省与实测依据见 run_scan_equiv 内注释。
+# ④″ keysets-full(#569 第一步):每源全量键集快照腿(keyset_snapshot.py
+# 单步跑;UnitScanner 全库扫一遍,指控明细按源归账落
+# keysets-full/<run_id>/ 逐源排序压缩件+meta.json;快照留本机不推)。
+# 不在 LEG_ORDER 同 scan-equiv 理由;rc 经 LEG_RC[keysets-full] 四处接线
+# (红态行/腿级状态件/结尾 AGG_RC/执行序在 audit 腿前),持门同 scan-equiv
+# (1=崩溃,正常出口只有 0)。
 # ⑤ 每命令打印尾行摘要(腿日志全文落 monthly/logs/,#468) ⑥ 报告族齐全校验 → 评估报告推送(#453:rsync
 # 本轮逐源 verdict 件+model/model-*.json 到生产卷 eval/monthly/,推失败
 # 记红态心跳照写结尾非零)→ 生产 volume 心跳推送(S5)。
@@ -172,6 +178,38 @@ run_scan_equiv() {  # #500 全库扫描↔查询对拍腿:scan_equiv_check.py �
   return "$rc"
 }
 
+run_keysets_full() {  # #569 每源全量键集快照腿:keyset_snapshot.py 单步跑
+  # 不进 LEG_ORDER(同 scan-equiv #500:那个数组的每一项=一条 `python3 -m
+  # ipdb._eval <旗标>` 腿,本腿跑独立工具件);rc 进 LEG_RC[keysets-full],
+  # 接线四处照 run_scan_equiv:红态行、腿级状态件(write_leg_status)、
+  # 结尾 AGG_RC、执行序(在 audit 腿之前——audit PR-2 起要读最新快照)。
+  # 产物落 <报告根>/keysets-full/<run_id>/(run_id 由 asof 推,脚本内定;
+  # 快照留本机不推,推送清单不动 #569);尾行 JSON 摘要从腿日志摘一行落
+  # keysets-full/collect-<ts>.json(scan-equiv 同款留证)。
+  # PYTHONHASHSEED=0 与 scan-equiv 同底线(快照行排序后写,种子不进字节,
+  # 但对拍工具件口径统一);数据目录与其他腿同源:同一 IP_RADAR_DATA_DIR。
+  local label=keysets-full
+  local log="$LOG_DIR/$label-$ROUND_TS.log"
+  local json_dir="$REPORT_ROOT/keysets-full"
+  local rc=0
+  local asof; asof=$(date +%s)   # run_id 由 asof 推,一次取定
+  echo
+  echo "==> $label: PYTHONHASHSEED=0 python3 backend/scripts/keyset_snapshot.py collect --asof $asof --out-dir $json_dir"
+  if [ "$DRY_RUN" = 1 ]; then return 0; fi  # 干跑只打印不执行不建目录(#468)
+  mkdir -p "$LOG_DIR" "$json_dir"
+  ( cd "$REPO/backend" && \
+      IP_RADAR_DATA_DIR="$DATA_DIR" \
+      PYTHONHASHSEED=0 \
+      python3 "$REPO/backend/scripts/keyset_snapshot.py" collect \
+      --asof "$asof" --out-dir "$json_dir" ) \
+      2>&1 | tee "$log" || rc=$?
+  # 摘取留证(scan-equiv 同款;空文件=脚本没吐 JSON 摘要,本身即异常信号,
+  # 不以 grep 失败持门——步骤 rc 已持门)
+  grep -m1 '^{"mode": "collect"' "$log" > "$json_dir/collect-$ROUND_TS.json" || :
+  echo "-- [$label 尾行] $(tail -n 2 "$log" | tr '\n' ' ')"
+  return "$rc"
+}
+
 echo
 # #489:主卷镜像拉取收口单源入口。旗标、容忍集、留痕文案见
 # gate_mirror.SYNC_FACES;回显行在入口内逐字同改前;实跑前自建目录。
@@ -265,6 +303,7 @@ LEG_ORDER=(model all anchors dsem agg-share sinkhole-probe anchor-readouts truth
 declare -A LEG_RC=()
 for _leg in "${LEG_ORDER[@]}"; do LEG_RC[$_leg]=0; done
 LEG_RC[scan-equiv]=0  # #500:非 LEG_ORDER 腿的 rc 槽(接线见红态行、write_leg_status 与 AGG_RC 处)
+LEG_RC[keysets-full]=0  # #569:非 LEG_ORDER 腿的 rc 槽(接线同 scan-equiv 四处)
 # #500 scan-equiv 抽样密度(--single-every 缺省)。2026-11-27 生产镜像实测
 # (dev 机 .eval-prod-data 只读,PYTHONHASHSEED=0,/usr/bin/time -v;读数全文
 # 在 docs/reports/2026-11-26-arch-r4-landing/14-月轮加扫描查询对拍腿/
@@ -302,6 +341,7 @@ run_step truth-v2 --truth-v2 \
   --ops-allowlist "$TRUTH_V2_CAPTURE_DIR/ops_allowlist.txt" \
   || LEG_RC[truth-v2]=$?  # 真值语料 v2 构建腿(ADR 0017/#260 T1;published/哨兵两态均落 model/truth-v2-build-*.json + report_dir/truth-v2/<version>/)
 run_step truth-v2-readout --truth-v2-readout || LEG_RC[truth-v2-readout]=$?  # v2 读数腿一腿三工件(#261 T2 附录 + #262 T3 并排对照/换卷触发;只观测不持门)
+run_keysets_full || LEG_RC[keysets-full]=$?  # #569 每源全量键集快照(执行序在 audit 前;持门同 scan-equiv)
 run_step audit    --audit    || LEG_RC[audit]=$?      # 谱系前向流审计(读 model 历史)
 run_step temporal --temporal || LEG_RC[temporal]=$?   # λ_s 确认率(读 model 历史,须 ≥2 轮)
 run_scan_equiv || LEG_RC[scan-equiv]=$?  # #500 全库扫描↔查询对拍(持门同 anchors;两步见 run_scan_equiv)
@@ -324,6 +364,7 @@ write_leg_status() {  # write_leg_status <readout_rc|null> — 腿级状态件(#
     if [ "$leg" = readout ]; then argv+=("$leg" "$1"); else argv+=("$leg" "${LEG_RC[$leg]}"); fi
   done
   argv+=("scan-equiv" "${LEG_RC[scan-equiv]}")  # #500:非旗标腿也进腿级状态(评审返工 8;渲染按 legs 字典通用)
+  argv+=("keysets-full" "${LEG_RC[keysets-full]}")  # #569:同上
   python3 - "${argv[@]}" <<'PYEOF'
 import json, sys
 from datetime import datetime, timezone
@@ -359,6 +400,10 @@ done
 # #500 scan-equiv 腿红态行(不在 LEG_ORDER,单列外显;工件=scan-equiv/ 两行 JSON+腿日志)
 if [ "$DRY_RUN" != 1 ] && [ "${LEG_RC[scan-equiv]}" != 0 ]; then
   echo "!! scan-equiv 腿 rc=${LEG_RC[scan-equiv]}:红态记录(工件照写留证)——红态记录≠管线中止,腿级状态入 leg-status 工件,结尾外显此 rc"
+fi
+# #569 keysets-full 腿红态行(不在 LEG_ORDER,单列外显;工件=keysets-full/ 摘取 JSON+腿日志)
+if [ "$DRY_RUN" != 1 ] && [ "${LEG_RC[keysets-full]}" != 0 ]; then
+  echo "!! keysets-full 腿 rc=${LEG_RC[keysets-full]}:红态记录(工件照写留证)——红态记录≠管线中止,腿级状态入 leg-status 工件,结尾外显此 rc"
 fi
 
 # ── S5(裁决 A / spec §4.1):报告族齐全校验 → 心跳推送 ──
@@ -485,7 +530,7 @@ fi
 
 echo
 
-echo "完成。报告目录: $REPORT_ROOT(model/ 逐轮累积;腿日志 logs/<腿名>-<时间戳>.log;scan-equiv/ 全库对拍两行 JSON,#500)"
+echo "完成。报告目录: $REPORT_ROOT(model/ 逐轮累积;腿日志 logs/<腿名>-<时间戳>.log;scan-equiv/ 全库对拍两行 JSON,#500;keysets-full/ 每源全量键集快照,#569)"
 # 结尾退出码(#193 C5):腿序首个非零外显(完成≠全绿;cron/操作员以
 # 非零退出码感知腿级红;红腿明细在 leg-status 工件与月报腿级行)。
 AGG_RC=0
@@ -496,6 +541,7 @@ done
 # LEG_ORDER 各腿全绿才轮到它——任一 eval 旗标腿红(含执行序在它后面的
 # readout)都优先于 scan-equiv 红,按 LEG_ORDER 序、不按执行序
 if [ "$AGG_RC" = 0 ] && [ "${LEG_RC[scan-equiv]}" != 0 ]; then AGG_RC=${LEG_RC[scan-equiv]}; fi
+if [ "$AGG_RC" = 0 ] && [ "${LEG_RC[keysets-full]}" != 0 ]; then AGG_RC=${LEG_RC[keysets-full]}; fi  # #569
 # #453:推送红态经同一出口外显(腿级红优先;腿全绿时结尾取推送 rc)
 if [ "$AGG_RC" = 0 ] && [ "$PUSH_RC" != 0 ]; then AGG_RC="$PUSH_RC"; fi
 exit "$AGG_RC"
