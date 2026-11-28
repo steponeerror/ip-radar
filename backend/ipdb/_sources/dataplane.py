@@ -70,6 +70,8 @@ DATAPLANE_MAP = {
 
 class DataplaneSource(Source):
     name = "dataplane"
+    # 上游唯一时间 = 最近一次出现(#523 裁决 Q27):只写 last_seen,不写 first_seen。
+    single_timestamp_means = "last_seen"
     category = "threat"
     url = "https://dataplane.org/"
     filename = "dataplane.txt"
@@ -149,8 +151,7 @@ class DataplaneSource(Source):
                 yield f"{ip}/{128 if ':' in ip else 32}", Evidence(
                     classification_type=ctype,
                     verdict=self.verdict,
-                    first_seen=last_seen,
-                    last_seen=last_seen,
+                    last_seen=last_seen,   # 单时间源只写 last_seen(#523;时钟按它)
                     asn=asn,
                     as_name=as_name or None,
                     native_categories=[category],

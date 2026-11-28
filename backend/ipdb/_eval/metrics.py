@@ -59,7 +59,8 @@ def _effective_votes(snapshot: Snapshot, ip: str, ctype: str) -> int:
     ca = (snapshot.get(ip, {}).get("classifications") or {}).get(ctype, {})
     # 边缘差异(兑底 malicious)显式留在调用点:accuser_pool 不做指控章判定
     return len(accuser_pool(
-        ((d["source"], d.get("reliability", 0.5), d.get("first_seen"))
+        ((d["source"], d.get("reliability", 0.5), d.get("first_seen"),
+          ctype, d.get("last_seen"))   # 末位 last_seen(#523 时钟同生产)
          for d in ca.get("details", [])
          if d.get("verdict", "malicious") in _ACCUSING and d.get("source")),
         ctype))

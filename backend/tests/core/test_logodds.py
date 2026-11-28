@@ -235,6 +235,46 @@ def test_accuser_pool_per_entry_ctype_cross_group(monkeypatch):
     assert out[0][1] > out[1][1] == out[2][1]
 
 
+def test_last_seen_clock_preferred_over_first_seen():
+    """#523 裁决 Q26:时钟按 last_seen 优先,可解析才用,算不出退
+    first_seen。手工推导锚:last_seen 新于 first_seen 时系数按
+    last_seen 一枝;last_seen 脏值时与旧路径(按 first_seen)逐位
+    相同——旧记录零漂移。"""
+    now = datetime(2026, 8, 29, tzinfo=timezone.utc)
+    fs = "2026-05-31T00:00:00+00:00"      # 龄 90d
+    ls = "2026-08-28T00:00:00+00:00"      # 龄 1d
+    fresh = coefficient(0.85, fs, now=now, last_seen=ls)
+    assert fresh == logit(0.85) * 2 ** (-1 / 60)
+    assert fresh > coefficient(0.85, fs, now=now)
+    # 脏 last_seen → 退 first_seen,与不传 last_seen 逐位相同(旧镜像里
+    # 双填同值,这是「五源分数不变」读数的函数级依据)
+    assert coefficient(0.85, fs, now=now, last_seen="junk") \
+        == coefficient(0.85, fs, now=now)
+    # 两处都缺 → None 龄不衰减
+    assert coefficient(0.85, None, now=now) == logit(0.85)
+
+
+def test_accuser_pool_5tuple_last_seen(monkeypatch):
+    """#523 五元组:第 4 元仍是逐条 ctype,末位才是 last_seen;老写法
+    (3/4 元)继续可用。注入 scanner 半衰期 600d 让「ctype 生效」与
+    「last_seen 生效」都可分辨。"""
+    now = datetime(2026, 10, 31, tzinfo=timezone.utc)
+    fs = "2026-07-02T00:00:00+00:00"       # 龄 120d
+    ls = "2026-10-30T00:00:00+00:00"       # 龄 1d
+    monkeypatch.setattr("ipdb._logodds.DECAY_OVERRIDES", {"scanner": 600.0})
+    out = accuser_pool(
+        [("abuseipdb", 0.9, fs, "scanner", ls)], now=now)
+    assert out == [("abuseipdb", coefficient(0.9, fs, "scanner", now=now,
+                                              last_seen=ls))]
+    assert out[0][1] > coefficient(0.9, fs, "scanner", now=now)   # 时钟变年轻
+    # 四元老写法仍可用(末位缺席 → 时钟退 first_seen,零漂移)
+    assert accuser_pool([("x", 0.9, fs, "scanner")], now=now) == \
+        [("x", coefficient(0.9, fs, "scanner", now=now))]
+    # 三元老写法仍可用(组级 ctype 形参)
+    assert accuser_pool([("x", 0.9, fs)], "scanner", now=now) == \
+        [("x", coefficient(0.9, fs, "scanner", now=now))]
+
+
 def test_accuser_pool_cross_group_with_asof_anchor():
     """跨组池化 × asof 时钟锚(F2/S37)联合直断——生产 _types.threat_summary
     的调用形态(4 元组 + now=asof_to_now(asof)):锚回拨 → 证据更

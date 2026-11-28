@@ -9,7 +9,15 @@ from collections.abc import Iterable
 from datetime import datetime, timezone
 
 DEFAULT_HALF_LIFE_DAYS: float = 60.0
-# Phase 2 从数据估(MISP §VI 方法);本期空表 = 全类型统一 60d(spec §3.1)
+# 按类型的半衰期表继续空着 = 全类型统一 60d(spec §3.1;#523 裁决 2026-11-28
+# 「Q29:空着,注释写明原因」)。不为它估数的三个理由:
+# ① 留存率读数(#350/#540)量的是「记录在上游名单里待多久」,不是
+#    「指控多久失效」——前者直接填表会混淆两个不同的量;
+# ② 各类型的证据年龄分布差一个数量级(调研-540 读数:扫描/暴力破解/
+#    漏洞利用/出口网络中位约 3.5 天;垃圾帖/拒绝服务约 120 天;命令控制
+#    45 天),统一 60d 对哪一端都在错配,但没有阳性锚(下条)就不该猜;
+# ③ 没有阳性锚可以校准——表填错方向比不填更糟(宁少算哲学;票 #350)。
+# 填表要过的流程(口径、数据、人裁点)见工单 #543。
 DECAY_OVERRIDES: dict[str, float] = {}
 # 谱系去重的派生源集合(R1-F1):种子 = 无 _registry 导入时的兜底;
 # _registry 导入时按源 class attr(derived=True)fill-in-place 覆盖
@@ -50,9 +58,10 @@ def decay_factor(age_days: float | None,
     return 2.0 ** (-age_days / half_life_days)
 
 
-def parse_first_seen(value) -> datetime | None:
-    """ISO 解析 first_seen(Z 后缀容忍,naive 视作 UTC);缺失/不可解析
-    → None。打分期(_age_days)与 rebuild 绊线(_source_base)共用同一口径
+def parse_ts(value) -> datetime | None:
+    """ISO 解析时间戳(Z 后缀容忍,naive 视作 UTC);缺失/不可解析
+    → None。first_seen 与 last_seen(#523)两个时间共用同一套解析;
+    打分期(_age_days)与 rebuild 绊线(_source_base)也走同一口径
     ——同一函数,免得两边判法漂移。"""
     if not value:
         return None
@@ -65,8 +74,20 @@ def parse_first_seen(value) -> datetime | None:
     return ts
 
 
-def _age_days(first_seen, now: datetime | None) -> float | None:
-    ts = parse_first_seen(first_seen)
+# 旧名别名(#523 改名前的唯一拼写;_source_base 绊线与既有测试仍按它
+# 引用。两个名字指向同一函数,不许再分叉出第二套解析)。
+parse_first_seen = parse_ts
+
+
+def _age_days(first_seen, now: datetime | None,
+              last_seen=None) -> float | None:
+    """时钟按「最近见到」(#523 裁决 Q26,2026-11-28):有 last_seen 且
+    可解析就按它算年龄,算不出(缺/脏)退回 first_seen——旧记录(上游
+    名单还列着、首见很久)不再被首见时间过度打折;两个时间都缺失或都
+    不可解析 → None(不衰减,同旧行为)。"""
+    ts = parse_ts(last_seen)
+    if ts is None:
+        ts = parse_ts(first_seen)
     if ts is None:
         return None
     now = now or datetime.now(timezone.utc)
@@ -84,9 +105,13 @@ def asof_to_now(asof: float | None) -> datetime | None:
 
 
 def coefficient(r: float, first_seen: str | None, ctype: str | None = None,
-                now: datetime | None = None) -> float:
-    """证据系数 = logit(r) × 2^(−age/h);符号随证据方向保留(B3)。"""
-    age = _age_days(first_seen, now)
+                now: datetime | None = None, *,
+                last_seen: str | None = None) -> float:
+    """证据系数 = logit(r) × 2^(−age/h);符号随证据方向保留(B3)。
+    年龄时钟按 last_seen 优先(#523,裁决 Q26):last_seen 可解析按它,
+    否则退 first_seen。last_seen 仅关键字参数——既有位置调用面
+    (coefficient(r, fs, ctype, now))零漂移。"""
+    age = _age_days(first_seen, now, last_seen)
     return logit(r) * decay_factor(age, half_life_for(ctype))
 
 
@@ -119,7 +144,9 @@ def dedup_lineage(coeffs: list[tuple[str, float]]) -> list[tuple[str, float]]:
 
 
 def accuser_pool(entries: Iterable[tuple[str, float, str | None]
-                                   | tuple[str, float, str | None, str | None]],
+                                   | tuple[str, float, str | None, str | None]
+                                   | tuple[str, float, str | None, str | None,
+                                           str | None]],
                  ctype: str | None = None, *,
                  now: datetime | None = None) -> list[tuple[str, float]]:
     """指控池核心循环,单源化(issue #244;GLOSSARY「指控池」「k 族」):
@@ -133,6 +160,9 @@ def accuser_pool(entries: Iterable[tuple[str, float, str | None]
     指控组的 detail 池进一个池,逐 detail 携所属组 ctype——衰减按
     各证据自己类型的半衰期;第 4 元缺省回退形参 ctype。组内单
     ctype 调用面(_merge/eval 五面)仍走三元组 + ctype 形参)。
+    五元组末位再带 last_seen(#523 时钟改「最近见到」优先):第 4 元
+    是逐条类型的位置不变,新元素只许放最后;三/四元老写法继续可用
+    (无 last_seen → 时钟退 first_seen,旧快照/合成用例零漂移)。
     指控章判定(verdict ∈ _ACCUSING)留在调用方执行——判定面各异,
     不许吞:
     ① eval detail 级滤(agg_share/sinkhole_probe/anchor_readouts);
@@ -146,7 +176,8 @@ def accuser_pool(entries: Iterable[tuple[str, float, str | None]
     by_source: dict[str, float] = {}
     for src, r, first_seen, *per_entry in entries:
         c = coefficient(r, first_seen, per_entry[0] if per_entry else ctype,
-                        now=now)
+                        now=now,
+                        last_seen=per_entry[1] if len(per_entry) > 1 else None)
         if src not in by_source or c > by_source[src]:
             by_source[src] = c
     return dedup_lineage(sorted(by_source.items()))

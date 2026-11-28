@@ -191,7 +191,11 @@ class OtxSubscribedSource(Source):
                 value = ind.get("indicator", "").strip()
                 if not value:
                     continue
-                created = str(ind.get("created") or "")
+                # 指标自己的 created 优先(#523 裁决 Q28);缺席退所属脉冲的
+                # modified(字段名同 otx.py 用的「modified」);两处都没有
+                # 才留空——CSV 的 created 列写的就是这个回退后的值,
+                # harvest() 无需再回退。
+                created = str(ind.get("created") or pulse.get("modified") or "")
                 ctype, tag = _classify_row(
                     str(ind.get("role") or ""), pname)
                 # 同 (IP, 分类) 重复观测保 created 最新行;异分类互不覆盖
@@ -237,7 +241,9 @@ class OtxSubscribedSource(Source):
         """Yield (ip_or_cidr, Evidence) per CSV row download() wrote.
 
         列 = [indicator, ctype, tag, author, pulse, created, description];
-        created → first_seen(观测时间,接时间衰减),tag → native_categories,
+        created → first_seen(观测时间,接时间衰减;download 面已做过
+        「指标 created 缺席退脉冲 modified」的回退,#523,这里直接用
+        列值),tag → native_categories,
         author/pulse/description → extra(无损)。reliability 留 None 走类级 0.6。
         """
         with open(self._path, "r", newline="", encoding="utf-8") as f:

@@ -86,7 +86,8 @@ def fusion_pool(result, accuser_pool, asof_to_now, accusing_verdicts):
     返回 dedup+sorted 后池列表(池非空 ⟹ dedup 非空:现行谱系表下
     最强非 derived 源必存活)。"""
     return accuser_pool(
-        ((d["source"], d["reliability"], d.get("first_seen"), v.type)
+        ((d["source"], d["reliability"], d.get("first_seen"), v.type,
+          d.get("last_seen"))   # 末位 last_seen(#523,与 _types.threat_summary 同步)
          for v in result.classifications.values()
          if v.verdict in accusing_verdicts
          for d in v.details

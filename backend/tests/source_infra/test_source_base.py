@@ -57,18 +57,43 @@ class _DemoBadFirstSeen(Source):
                                       verdict="malicious", first_seen="31/12/2026 junk")
 
 
-def test_rebuild_warns_on_unparseable_first_seen(tmp_path: Path, caplog):
-    """绊线(2026-05-09 IntelMQ 审计):脏 first_seen 在打分期静默按无衰减
-    计(decay_factor(None)=1.0=最大权重)。rebuild 中央检查按 distinct 值
-    去重告警——一处代码覆盖全部源,单/双遍 harvest(factory 双调用)不双计。"""
+class _DemoBadLastSeen(Source):
+    """#523:脏 last_seen 同样要出声——时钟改「最近见到」优先后,
+    last_seen 也是时钟,静默 = 该行按无衰减计(最大权重)。"""
+    name = "demo_badls"; fields = ("is_malicious",); stale_days = 7; reliability = 0.6
+    def harvest(self):
+        yield "10.0.2.0/24", Evidence(classification_type="blacklist",
+                                      verdict="malicious", first_seen="2026-09-01T00:00:00",
+                                      last_seen="not/a/date")
+
+
+def test_rebuild_warns_on_unparseable_timestamps(tmp_path: Path, caplog):
+    """绊线(2026-05-09 IntelMQ 审计;#523 扩到 last_seen):脏 first_seen/
+    last_seen 在打分期静默按无衰减计(decay_factor(None)=1.0=最大权重)。
+    rebuild 中央检查按 distinct 值去重告警——一处代码覆盖全部源,单/双遍
+    harvest(factory 双调用)不双计。"""
     import logging as _logging
     s = _DemoBadFirstSeen(data_dir=tmp_path)
     s._path = tmp_path / "demo.dat"
     (tmp_path / "demo.dat").write_text("x\n")
     with caplog.at_level(_logging.WARNING, logger="ipdb._source_base"):
         assert s.rebuild() == 2
-    bad = [r for r in caplog.records if "unparseable first_seen" in r.message]
+    bad = [r for r in caplog.records if "unparseable timestamp" in r.message]
     assert len(bad) == 1 and "31/12/2026 junk" in bad[0].getMessage()
+
+
+def test_rebuild_warns_on_unparseable_last_seen(tmp_path: Path, caplog):
+    """#523 绊线扩面:last_seen 现在是时钟(可解析优先于 first_seen),
+    脏值不许静默——同一绊线按字段去重出声。"""
+    import logging as _logging
+    s = _DemoBadLastSeen(data_dir=tmp_path)
+    s._path = tmp_path / "demo.dat"
+    (tmp_path / "demo.dat").write_text("x\n")
+    with caplog.at_level(_logging.WARNING, logger="ipdb._source_base"):
+        assert s.rebuild() == 1
+    bad = [r for r in caplog.records if "unparseable timestamp" in r.message]
+    assert len(bad) == 1 and "not/a/date" in bad[0].getMessage()
+    assert "('last_seen', 'not/a/date')" in bad[0].getMessage()
 
 
 def test_http_get_and_default_download_warn_on_redirect(tmp_path: Path, caplog):

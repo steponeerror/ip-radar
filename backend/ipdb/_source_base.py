@@ -159,13 +159,15 @@ class Source(SourceBase):
         里 close 掉的其实是现役 reader(自残)。旧 epoch 目录的磁盘清理由
         rebuild_lmdb 的 prune rmtree 负责(Linux 上 fd 未关亦可删)。"""
         from ._sources._lmdb import Auto, rebuild_dual_family
-        from ._logodds import parse_first_seen
+        from ._logodds import parse_ts
         if not self._path.exists():
             return 0
-        # 绊线(2026-09-05 IntelMQ 审计):脏 first_seen 在打分期静默按无
-        # 衰减计(decay_factor(None)=1.0=最大权重)。中央检查按 distinct 值
-        # 去重,单/双遍 harvest(factory 被 rebuild_dual_family 调两次)不双计。
-        bad_fs: set[str] = set()
+        # 绊线(2026-09-05 IntelMQ 审计;#523 扩到 last_seen):脏时间戳
+        # 在打分期静默按无衰减计(decay_factor(None)=1.0=最大权重);
+        # #523 起时钟按 last_seen 优先——它现在是时钟,脏值同 first_seen
+        # 一样要出声,不许静默。中央检查按 distinct 值去重,单/双遍
+        # harvest(factory 被 rebuild_dual_family 调两次)不双计。
+        bad_ts: set[tuple[str, str]] = set()
         # 载入期 infra 噪声排除(issue #183;harvest 车道,与
         # _sources/_base.py 的 IpListSource/CsvSource 车道平行):排除只挡
         # 投影,数据文件零改写;宁少算 = 仅 curated 单址精确指控,更大
@@ -185,9 +187,10 @@ class Source(SourceBase):
                         net = None
                     if net is not None and gate.blocks(net):
                         continue
-                fs = getattr(ev, "first_seen", None)
-                if fs and parse_first_seen(fs) is None:
-                    bad_fs.add(str(fs))
+                for fld in ("first_seen", "last_seen"):
+                    v = getattr(ev, fld, None)
+                    if v and parse_ts(v) is None:
+                        bad_ts.add((fld, str(v)))
                 yield cidr, ev
 
         if self.single_evidence:
@@ -226,9 +229,9 @@ class Source(SourceBase):
         self._count6 = n6
         self._loaded_at = time.time()
         gate.flush()
-        if bad_fs:
+        if bad_ts:
             logger.warning(
-                "%s: %d distinct unparseable first_seen value(s), e.g. %s — "
-                "time-decay silently disabled for those rows",
-                self.name, len(bad_fs), sorted(bad_fs)[:3])
+                "%s: %d distinct unparseable timestamp value(s) (first_seen/last_seen), "
+                "e.g. %s — time-decay silently disabled for those rows",
+                self.name, len(bad_ts), sorted(bad_ts)[:3])
         return n4

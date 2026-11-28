@@ -103,7 +103,8 @@ def sinkhole_probe(lookup_fn, probe_ips: list[str],
             # 循环体单源化 issue #244 —— _logodds.accuser_pool —— 裸用
             # detail.source 镜像对双计)
             accusers_ip |= {s for s, _ in accuser_pool(
-                ((d["source"], d.get("reliability", 0.5), d.get("first_seen"))
+                ((d["source"], d.get("reliability", 0.5), d.get("first_seen"),
+                  ctype, d.get("last_seen"))   # 末位 last_seen(#523 时钟同生产)
                  for d in ca.get("details") or ()
                  if d.get("verdict") in _ACCUSING and d.get("source")),
                 ctype)}
