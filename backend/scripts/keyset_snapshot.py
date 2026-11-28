@@ -26,13 +26,14 @@ run_id 由 asof 推(UTC %Y%m%dT%H%M%SZ),产物落 <out-dir>/<run_id>/:
 逐源 <源>.txt.gz + meta.json;尾行打一行 JSON 摘要(mode 键,月轮腿
 按 scan-equiv 同款摘取留证)。
 
-退出码:0 = 成功;非 0 = 用法错或崩溃(与 scan-equiv collect 同语义:
-正常出口只有 0)。
+退出码:0 = 成功;2 = 库里没有任何纪元或单元,拒绝落空快照;
+其他非 0 = 崩溃或用法错。
 """
 import argparse
 import gzip
 import json
 import os
+import shutil
 import sys
 import time
 from collections import Counter
@@ -53,15 +54,21 @@ def collect(args) -> int:
         os.environ["IP_RADAR_DATA_DIR"] = args.data_dir
     from ipdb._eval.accusation import is_accusation
     from ipdb._scan import open_unit_scanner
+    from ipdb._types import _ACCUSING
     from keyset_reader import unit_class
 
     run_id = datetime.fromtimestamp(args.asof, tz=timezone.utc).strftime(
         "%Y%m%dT%H%M%SZ")
-    run_dir = Path(args.out_dir) / run_id
     keysets: dict[str, set[str]] = {}      # 源 → {「单元|分类类型」行}
     units_by_class: Counter = Counter()
     n_units = 0
     n_lines = 0
+    # S4(评审 2026-11-28):实现只做 detail 级一层,设计稿引的那行
+    # (_types.py threat_summary)是「组级 detected ∧ 组级 verdict 指控 ∧
+    # detail 级指控」三层——差多少没人量过。两个计数不改行为,第一轮真
+    # 月轮(2026-12-01)跑完看数,再决定 PR-2 要不要收紧口径。
+    n_accusing_details = 0      # 明细级判定为指控的行数(去重前)
+    n_accusing_strict = 0       # 按「组级+明细级」三层口径算出来的行数
     t0 = time.perf_counter()
     with open_unit_scanner(asof=args.asof, spill_dir=args.spill_dir) as sc:
         for unit in sc:
@@ -76,6 +83,9 @@ def collect(args) -> int:
                     src = d.get("source")
                     if not src:
                         continue
+                    n_accusing_details += 1
+                    if ca.detected and ca.verdict in _ACCUSING:
+                        n_accusing_strict += 1
                     line = f"{unit.ip}|{ctype}"
                     keyset = keysets.setdefault(src, set())
                     if line not in keyset:   # 同源同单元同类型去重(逐源集合内去重,不同源不互吞)
@@ -90,35 +100,64 @@ def collect(args) -> int:
     if not any(e != (None, None) for e in sc.epochs.values()) or n_units == 0:
         # 库里一个纪元都没有 = 数据目录没指对(空库):不写「长得像
         # 成功」的空快照,直接红(无证据即无话;2026-11-28 实测漏加
-        # --data-dir 时曾静默落空件)。真库里源可能临时全空,但
-        # 装载事故:登记表派生的全部源连一个纪元都没有,只可能是路径/装载事故。
+        # --data-dir 时曾静默落空件)。真库里单个源临时全空是正常的;
+        # 登记表派生的全部源连一个纪元都没有,只可能是路径或装载出了事。
         print("库里没有任何纪元/单元(units=%d):数据目录没指对或库未"
               "装载,拒绝落空快照——核对 --data-dir/IP_RADAR_DATA_DIR"
               % n_units, file=sys.stderr)
         return 2
-    run_dir.mkdir(parents=True, exist_ok=True)
+    # 先写 <run_id>.partial/,全部写完再整目录改名(S5,评审 2026-11-28):
+    # 进程中途被杀只留 *.partial(一眼可知是半截),第二步按最新 run 目录
+    # 找快照不会踩到「meta.json 缺席」的半截目录。同 run_id 重跑整目录替换
+    # (快照可复算,不保留旧件)。
+    run_dir = Path(args.out_dir) / run_id
+    partial_dir = Path(args.out_dir) / f"{run_id}.partial"
+    partial_dir.mkdir(parents=True, exist_ok=True)
     # 排序后写(确定性,见模块 docstring):哈希种子不进字节。
     counts: dict[str, int] = {}
     for src in sorted(keysets):
         lines = sorted(keysets[src])
         counts[src] = len(lines)
-        with open(run_dir / f"{src}.txt.gz", "wb") as f:
+        with open(partial_dir / f"{src}.txt.gz", "wb") as f:
             with gzip.GzipFile(filename="", fileobj=f, mode="wb",
                                mtime=0) as gz:
                 gz.write(("\n".join(lines) + "\n").encode("utf-8"))
     meta = {
         "run_id": run_id,
         "asof": args.asof,
+        # 口径随件走(S3,评审 2026-11-28;设计稿 §2.4「口径细节写进
+        # meta.json 和报告」):拿到快照目录的人不必翻脚本 docstring 就
+        # 知道它是什么口径、哪个版本写的。改口径先升 version。
+        "schema": {
+            "version": 1,
+            "sources": "扫描器读集(#444):启用、非私、非地理,类别不限;"
+                       "只落非空源(缺源 = 该源本轮零指控条目)",
+            "accusation": "仅收 detail 级 verdict ∈ {malicious, suspicious}"
+                          "的明细(#529 口径:缺 verdict 不算,宁少算);"
+                          "同源同单元同类型去重,不同源不互吞",
+            "line_format": "行 = <单元>|<分类类型>,码位排序后 gzip 写"
+                           "(filename='' mtime=0)",
+            "unit_classes": "四栏 v4_single/v4_cidr/v6_single/v6_cidr"
+                            "(units_by_class)",
+            "epochs": "各源 [ptr 纪元号, 单元数],扫描循环结束后取",
+            "determinism": "同输入同环境两遍逐字节相同(排序+固定 gzip 头"
+                           "+meta sort_keys);时间只进 stdout 的 seconds",
+        },
         "epochs": epochs,
         "units_total": n_units,
         "units_by_class": dict(sorted(units_by_class.items())),
         "n_sources": len(counts),
         "counts": counts,
-        "stats": stats,
+        "stats": {**stats,
+                  "accusing_details": n_accusing_details,
+                  "accusing_strict": n_accusing_strict},
     }
-    (run_dir / "meta.json").write_text(
+    (partial_dir / "meta.json").write_text(
         json.dumps(meta, indent=2, sort_keys=True, ensure_ascii=False),
         encoding="utf-8")
+    if run_dir.exists():
+        shutil.rmtree(run_dir)
+    partial_dir.rename(run_dir)
     print(json.dumps({"mode": "collect", "run_id": run_id,
                       "asof": args.asof, "units_scanned": n_units,
                       "units_by_class": dict(sorted(units_by_class.items())),

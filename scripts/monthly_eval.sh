@@ -37,7 +37,7 @@
 # keysets-full/<run_id>/ 逐源排序压缩件+meta.json;快照留本机不推)。
 # 不在 LEG_ORDER 同 scan-equiv 理由;rc 经 LEG_RC[keysets-full] 四处接线
 # (红态行/腿级状态件/结尾 AGG_RC/执行序在 audit 腿前),持门同 scan-equiv
-# (1=崩溃,正常出口只有 0)。
+# (0=成功;2=库里没有任何纪元或单元,拒绝落空快照;其他非 0=崩溃或用法错)。
 # ⑤ 每命令打印尾行摘要(腿日志全文落 monthly/logs/,#468) ⑥ 报告族齐全校验 → 评估报告推送(#453:rsync
 # 本轮逐源 verdict 件+model/model-*.json 到生产卷 eval/monthly/,推失败
 # 记红态心跳照写结尾非零)→ 生产 volume 心跳推送(S5)。
