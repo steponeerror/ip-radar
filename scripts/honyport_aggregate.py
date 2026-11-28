@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """honyport 日 CSV → 30 天窗聚合件(查询源专用,issue #271)。
 
+输入文件名两段式(带不带机器段都收),规则见 DAILY_STEM_RE 上方注释。
+
 规格: docs/research/2026-11-02-honyport-query-source-spec.md §2.1/§2.2
 (格式冻结, #271/#272 共同契约)。读蜜罐日 CSV 目录(exporter 03:05 出件,
 cron 03:10 跑本件),产出 honeypot-observed-YYYY-MM-DD.csv(生成日=文件名日)
@@ -50,7 +52,13 @@ from pathlib import Path
 WINDOW_DAYS = 30
 OUT_TMPL = "honeypot-observed-{d}.csv"
 DAILY_GLOB = "honeypot_attackers-*.csv"
-DAILY_STEM_RE = re.compile(r"^honeypot_attackers-(\d{4}-\d{2}-\d{2})\.csv$")
+# 文件名两段式(2026-11-28 #588): 带机器段的是取数机从别的蜜罐机拉
+# 回来、落地时改名的日表,机器 id 只许小写字母开头、后面接小写字母或
+# 数字(honyport 仓 ADR 0003);不带机器段的老名字指取数机本机。两种
+# 都按日期段归窗、同一张表累加(同一个 IP 被两台机看到: 事件数相加,
+# 首见取最早、末见取最晚 —— 现有逐行累加逻辑,没有新规则)。
+DAILY_STEM_RE = re.compile(
+    r"^honeypot_attackers-(?:(?P<sensor>[a-z][a-z0-9]*)-)?(?P<day>\d{4}-\d{2}-\d{2})\.csv$")
 DAILY_HEADER = ["ip", "service", "protocol", "events", "first_seen",
                 "last_seen"]
 OUT_HEADER = ["ip", "first_seen", "last_seen", "services", "total_events"]
@@ -153,11 +161,11 @@ def find_daily_files(input_dir: Path) -> list[Path]:
             raise ValueError(
                 f"{p}: 文件名缺 -YYYY-MM-DD 日期段")
         try:
-            date.fromisoformat(m.group(1))
+            date.fromisoformat(m.group("day"))
         except ValueError:
             raise ValueError(
-                f"{p}: 文件名日期段非法(应 honeypot_attackers-YYYY-MM-DD"
-                f".csv)") from None
+                f"{p}: 文件名日期段非法(应 honeypot_attackers-[<机器id>-]"
+                f"YYYY-MM-DD.csv)") from None
     if not files:
         raise ValueError(f"{input_dir}: 无日 CSV(honeypot_attackers-*.csv)"
                          f"—— 空输入拒绝产出静默空聚合件")

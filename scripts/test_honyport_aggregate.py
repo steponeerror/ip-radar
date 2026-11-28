@@ -6,7 +6,8 @@
 本套件全部用合成夹具钉契约;真实件手跑产出贴 reports/hp271-REPORT.md。
 覆盖矩阵对准规格 §2.1: 注释头逐字/引号 service 往返/跨日累计/窗边界
 (起止含两端、超窗剔,门在 last_seen)/扫描段滤除行计数/白名单滤除/
-坏行·坏表头·坏文件名·空目录 fail-loud/CLI 退非零。
+坏行·坏表头·坏文件名·空目录 fail-loud/CLI 退非零/带机器段文件名
+(#588)/机器段坏名字仍报错(#588)。
 
 约定: 聚合生成日 D=2026-11-30 → 窗 [2026-11-01, 2026-11-30] 含两端
 (window_days=30: D-29d..D,窗止按日历日收全天)。
@@ -30,9 +31,10 @@ SCANNER_LINES = ["203.0.113.0/24,Test Vendor",
                  "198.51.100.9/32,Single Probe"]
 
 
-def write_daily(d: Path, day: str, rows) -> Path:
-    """写一份日 CSV。rows = [(ip, service, events, first, last), ...]。"""
-    p = d / f"honeypot_attackers-{day}.csv"
+def write_daily(d: Path, day: str, rows, sensor: str = "") -> Path:
+    """写一份日 CSV。rows = [(ip, service, events, first, last), ...]。
+    sensor 非空时文件名带机器段(#588 取数机改名形态)。"""
+    p = d / f"honeypot_attackers-{sensor + '-' if sensor else ''}{day}.csv"
     with open(p, "w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh, lineterminator="\n")
         w.writerow(DAILY_HEADER.split(","))
@@ -154,6 +156,39 @@ def test_quoted_service_roundtrip(env):
     assert rows[0]["services"] == svc
     raw = [ln for ln in lines if ln.startswith("8.8.8.8,")][0]
     assert f'"{svc}"' in raw  # 含逗号字段被 csv 引号包裹
+
+
+def test_sensor_prefixed_file_merges_with_unprefixed(env):
+    # 多台蜜罐机(#588): 取数机把别机日表落地成带机器段的名字,与本机
+    # 老名字同日并存。两种按日期段归同一张表逐行累加: 8.8.8.8 事件数
+    # 相加、first 取最早、last 取最晚;9.9.9.9 只在 dr1 件里;两份文件
+    # 都计入 source_files。
+    write_daily(env["out"], D,
+                [("8.8.8.8", "beelzebub/ssh", 1,
+                  f"{D}T01:00:00Z", f"{D}T01:00:01Z")])
+    write_daily(env["out"], D,
+                [("8.8.8.8", "beelzebub/ssh", 2,
+                  f"{D}T02:00:00Z", f"{D}T02:00:05Z"),
+                 ("9.9.9.9", "beelzebub/Redis 7.0.12", 5,
+                  f"{D}T03:00:00Z", f"{D}T03:00:09Z")],
+                sensor="dr1")
+    hdr, rows, _ = run_agg(env)
+    assert hdr["source_files"] == "2"
+    by_ip = {r["ip"]: r for r in rows}
+    assert by_ip["8.8.8.8"]["total_events"] == "3"
+    assert by_ip["8.8.8.8"]["first_seen"] == f"{D}T01:00:00Z"
+    assert by_ip["8.8.8.8"]["last_seen"] == f"{D}T02:00:05Z"
+    assert by_ip["9.9.9.9"]["total_events"] == "5"
+
+
+def test_sensor_prefixed_bad_date_fails(env):
+    # 机器段可选,日期段照旧必须合法(#588)
+    write_daily(env["out"], "2026-02-30",
+                [("8.8.8.8", "beelzebub/ssh", 1,
+                  "2026-11-02T01:00:00Z", "2026-11-02T01:00:01Z")],
+                sensor="dr1")
+    with pytest.raises(ValueError):
+        run_agg(env)
 
 
 def test_ip_sorted_numerically(env):
@@ -286,7 +321,11 @@ def test_bad_header_fails(env):
 
 
 @pytest.mark.parametrize("name", ["honeypot_attackers-2026-02-30.csv",
-                                  "honeypot_attackers-daily.csv"])
+                                  "honeypot_attackers-daily.csv",
+                                  "honeypot_attackers-DR1-2026-11-30.csv",
+                                  "honeypot_attackers--2026-11-30.csv",
+                                  "honeypot_attackers-2026-11-30-2.csv",
+                                  "honeypot_attackers-dr-1-2026-11-30.csv"])
 def test_bad_filename_fails(env, name):
     (env["out"] / name).write_text(
         DAILY_HEADER + "\n8.8.8.8,beelzebub/ssh,,1,"
