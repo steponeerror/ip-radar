@@ -103,8 +103,9 @@ class SourceBase:
     # 时间时,这个时间是「首次见到」(first_seen,默认)还是「最近一次
     # 见到」(last_seen)。声明 last_seen 的源只写 last_seen、不写
     # first_seen(时钟按最近见到,分数与旧双填完全同值,只是证据里
-    # 不再出现 first_seen 键);AST 契约测试钉住声明与写法一致
-    # (tests/source_infra/test_single_timestamp_contract.py)。
+    # 不再出现 first_seen 键);双时间源两个都可解析时取较晚的当最近
+    # 见到(返工裁决 2026-11-28,_age_days 取小年龄)。AST 契约测试
+    # 钉住声明与写法一致(tests/source_infra/test_single_timestamp_contract.py)。
     single_timestamp_means: str = "first_seen"
 
     def __init__(self, data_dir: Path):

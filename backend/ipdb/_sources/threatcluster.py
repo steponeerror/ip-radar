@@ -18,7 +18,7 @@ Field routing (feed.csv header:
   (无证据即无话 — no invented number).
 - ``first_seen``/``last_seen`` pass through verbatim: the feed's ISO-8601
   ``T``+``+00:00`` shape is natively accepted by the time-decay parser
-  ``parse_first_seen`` (``datetime.fromisoformat``, ipdb/_logodds.py —
+  ``parse_ts`` (``datetime.fromisoformat``, ipdb/_logodds.py —
   threatfox's space-separated form feeds the same parser), and is exactly
   the canonical ``EvidenceObservation.first_seen`` contract shape
   ("ISO-8601 +00:00"; verified 2026-10-14 on py3.12 venv: both

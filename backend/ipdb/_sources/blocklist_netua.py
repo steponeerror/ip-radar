@@ -14,7 +14,8 @@ CSV 4 列 ``IP;BAN_DATE;UNBAN_DATE;"REASON"``(分号分隔,REASON 带引号俄/�
 flood 族、сканирование scanner 族、брутфорс/подбор brute 族、спам spam
 族),全 miss → 兜底 blacklist(活性封禁的基类分类,urlhaus 先例);
 REASON 原文进 native_categories。first_seen = BAN_DATE(unix→ISO-Z,首见
-语义;衰减轴只读 first_seen)。
+语义;衰减轴时钟按「最近见到」优先,#523——本源只给 first_seen 时
+实际用 first_seen)。
 
 download 截断防护:上游 2022-08 才修过文件截断 bug——原子写前校验非空 +
 首行是表头(截断半截数据拒收,旧文件字节级保留,insightflare 同款形状)。

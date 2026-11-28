@@ -12,7 +12,8 @@ Per-record grading (2026-09-03): last_seen within 90 days → verdict=suspicious
 (active spammer); the stale tail keeps informational (commit ffae4caf rationale
 — reputation context must not drive accusation). Advisory 0-100 score rides in
 Evidence.confidence (native_confidence display slot); fusion confidence stays
-the log-odds posterior over reliability + first_seen decay, untouched.
+the log-odds posterior over reliability + recency decay (last_seen preferred,
+falling back to first_seen; #523), untouched.
 """
 import csv
 import datetime

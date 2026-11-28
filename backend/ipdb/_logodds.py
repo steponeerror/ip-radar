@@ -13,11 +13,13 @@ DEFAULT_HALF_LIFE_DAYS: float = 60.0
 # 「Q29:空着,注释写明原因」)。不为它估数的三个理由:
 # ① 留存率读数(#350/#540)量的是「记录在上游名单里待多久」,不是
 #    「指控多久失效」——前者直接填表会混淆两个不同的量;
-# ② 各类型的证据年龄分布差一个数量级(调研-540 读数:扫描/暴力破解/
-#    漏洞利用/出口网络中位约 3.5 天;垃圾帖/拒绝服务约 120 天;命令控制
-#    45 天),统一 60d 对哪一端都在错配,但没有阳性锚(下条)就不该猜;
+# ② 各类型的证据年龄分布差一到两个数量级(调研-538 混合口径,#540
+#    §2.3 转引:扫描/暴力破解/漏洞利用/出口网络中位约 3.5 天;垃圾帖/
+#    拒绝服务约 120 天;命令控制 45 天),统一 60d 对哪一端都在错配,
+#    但没有阳性锚(下条)就不该猜;
 # ③ 没有阳性锚可以校准——表填错方向比不填更糟(宁少算哲学;票 #350)。
-# 填表要过的流程(口径、数据、人裁点)见工单 #543。
+# 钟已在 #523 修(这些中位数是旧 first_seen 时钟下量的),重扫(约
+# 11 分钟)前不估;填表要过的流程(口径、数据、人裁点)见工单 #543。
 DECAY_OVERRIDES: dict[str, float] = {}
 # 谱系去重的派生源集合(R1-F1):种子 = 无 _registry 导入时的兜底;
 # _registry 导入时按源 class attr(derived=True)fill-in-place 覆盖
@@ -74,30 +76,35 @@ def parse_ts(value) -> datetime | None:
     return ts
 
 
-# 旧名别名(#523 改名前的唯一拼写;_source_base 绊线与既有测试仍按它
-# 引用。两个名字指向同一函数,不许再分叉出第二套解析)。
-parse_first_seen = parse_ts
+    # 旧名已删(#523 改名;返工评审 7:唯一旧名消费方 test_threatcluster
+    # 已改 parse_ts,别名理由不成立,留双拼写只会分叉)。
 
 
 def _age_days(first_seen, now: datetime | None,
               last_seen=None) -> float | None:
-    """时钟按「最近见到」(#523 裁决 Q26,2026-11-28):有 last_seen 且
-    可解析就按它算年龄,算不出(缺/脏)退回 first_seen——旧记录(上游
-    名单还列着、首见很久)不再被首见时间过度打折;两个时间都缺失或都
-    不可解析 → None(不衰减,同旧行为)。"""
-    ts = parse_ts(last_seen)
-    if ts is None:
-        ts = parse_ts(first_seen)
-    if ts is None:
+    """时钟按「最近见到」(#523 裁决 Q26,2026-11-28;返工裁决 2026-11-28:
+    两个时间都可解析时取较晚的那个——「最近见到」逻辑上不会早于
+    「首次见到」,上游给错时保守退回首见时钟,量级只有极少几条):
+    两个年龄都算出来取小;只有一个可解析就用那一个;两个都缺失或都
+    不可解析 → None(不衰减,同旧行为)。旧记录(上游名单还列着、
+    首见很久)不再被首见时间过度打折。"""
+    ts_fs, ts_ls = parse_ts(first_seen), parse_ts(last_seen)
+    if ts_fs is None and ts_ls is None:
         return None
     now = now or datetime.now(timezone.utc)
+    if ts_fs is None:
+        ts = ts_ls
+    elif ts_ls is None:
+        ts = ts_fs
+    else:
+        ts = max(ts_fs, ts_ls)          # 较晚的时间 = 较小的年龄
     return max(0.0, (now - ts).total_seconds() / 86400.0)
 
 
 def asof_to_now(asof: float | None) -> datetime | None:
     """F2/S37 时钟锚:asof epoch 秒 → UTC datetime;None → None(=墙钟,
     默认路径逐位不变)。打分期两处 coefficient 消费点(_merge 组级 /
-    _types threat 重融合)共用本换算,免得口径漂移(parse_first_seen
+    _types threat 重融合)共用本换算,免得口径漂移(parse_ts
     同款纪律)。"""
     if asof is None:
         return None
@@ -108,9 +115,9 @@ def coefficient(r: float, first_seen: str | None, ctype: str | None = None,
                 now: datetime | None = None, *,
                 last_seen: str | None = None) -> float:
     """证据系数 = logit(r) × 2^(−age/h);符号随证据方向保留(B3)。
-    年龄时钟按 last_seen 优先(#523,裁决 Q26):last_seen 可解析按它,
-    否则退 first_seen。last_seen 仅关键字参数——既有位置调用面
-    (coefficient(r, fs, ctype, now))零漂移。"""
+    年龄时钟按「最近见到」(#523,裁决 Q26;返工裁决:两个时间都可
+    解析时取较晚的,见 _age_days)。last_seen 仅关键字参数——既有
+    位置调用面(coefficient(r, fs, ctype, now))零漂移。"""
     age = _age_days(first_seen, now, last_seen)
     return logit(r) * decay_factor(age, half_life_for(ctype))
 
@@ -159,8 +166,9 @@ def accuser_pool(entries: Iterable[tuple[str, float, str | None]
     ctype 的四元组(issue #246 跨组池化:_types.threat_summary 把多个
     指控组的 detail 池进一个池,逐 detail 携所属组 ctype——衰减按
     各证据自己类型的半衰期;第 4 元缺省回退形参 ctype。组内单
-    ctype 调用面(_merge/eval 五面)仍走三元组 + ctype 形参)。
-    五元组末位再带 last_seen(#523 时钟改「最近见到」优先):第 4 元
+    ctype 调用面仍可走三元组/四元组 + ctype 形参,五元组见下)。
+    五元组末位再带 last_seen(#523 时钟改「最近见到」,返工裁决:
+    两时间都可解析取较晚):第 4 元
     是逐条类型的位置不变,新元素只许放最后;三/四元老写法继续可用
     (无 last_seen → 时钟退 first_seen,旧快照/合成用例零漂移)。
     指控章判定(verdict ∈ _ACCUSING)留在调用方执行——判定面各异,
