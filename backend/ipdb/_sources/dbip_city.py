@@ -73,6 +73,7 @@ class DbIpCitySource(Source):
     reliability = 0.80
     single_evidence = True           # ~4M rows → stream load (OOM guard, cf. geolite)
     authoritative_for = ()
+    infra_noise_filter = False         # 良性源用不上;显式声明是 #531 契约(基类默认已翻 True)
 
     def __init__(self, data_dir):
         super().__init__(data_dir=data_dir)

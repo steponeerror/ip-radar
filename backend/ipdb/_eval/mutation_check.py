@@ -89,7 +89,7 @@ def _doc_ips(n: int) -> list[str]:
 def _build_universe(d: Path, *, ipsum_rows: list[str],
                     bd_lines: list[str]) -> list:
     """沙箱宇宙:两真实源类(ipsum 派生聚合器 + binarydefense 独立列表,
-    均无 infra_noise_filter——缺陷须能到达门面,过滤车道是 #351 回放面)。
+    均显式 infra_noise_filter = False(#531)——缺陷须能到达门面,过滤车道是 #351 回放面)。
     落 raw → 实例化 → rebuild(提交 LMDB 家族 sidecar,manifest 真实形)。
     """
     from .._sources.binarydefense import BinaryDefenseSource

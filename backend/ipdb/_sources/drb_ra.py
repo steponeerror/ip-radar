@@ -25,6 +25,7 @@ class DrbRaSource(CsvSource):
     derived = True                       # aggregator: lineage dedup (spec 2026-08-29 §3.3)
     provenance_tier = "C"                # C=聚合派生(S21):搜索衍生镜像 tracker
     authoritative_for = ()
+    infra_noise_filter = False         # 显式关:存量源行为不变(#531;基类默认已翻 True)
 
     def parse_row(self, row: list[str]) -> dict | None:
         if not row or row[0].lstrip().startswith("#"):
