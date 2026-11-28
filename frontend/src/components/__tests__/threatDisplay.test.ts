@@ -92,6 +92,21 @@ describe("threatDisplay", () => {
     expect(s.conflict).toBe(true);
     expect(s.archive).toBe(false);
   });
+  it("threat 在场时 sourceCount 取后端 first_hand_source_count(#521 第一手口径)", () => {
+    // 后端数 3 ≠ 本地 sources.size 2:源数也走后端单一真相
+    const withCount: LookupResult = {
+      ...dirty,
+      threat: { verdict: "malicious", confidence: 94, types: ["c2_server"],
+        is_cdn: false, first_hand_source_count: 3 },
+    };
+    expect(threatSummary(withCount).sourceCount).toBe(3);
+    // 旧缓存 payload 无此字段 → 本地 sources.size 原样回退
+    const legacy: LookupResult = {
+      ...dirty,
+      threat: { verdict: "malicious", confidence: 94, types: ["c2_server"], is_cdn: false },
+    };
+    expect(threatSummary(legacy).sourceCount).toBe(2);
+  });
   it("无指控组但 threat 在场:verdict/confidence 同样取后端,旗标照旧本地", () => {
     const cleanWithThreat: LookupResult = {
       ...dirty,

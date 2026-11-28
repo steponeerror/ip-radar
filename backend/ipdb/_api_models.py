@@ -42,6 +42,10 @@ class ThreatSummaryOut(_Out):
     confidence: Any
     types: list[str]
     is_cdn: bool
+    # 第一手指控源数(#521 出海数字统一,裁决 2026-11-28):指控组里去
+    # DERIVED_SOURCES 后的去重源数;网页/CSV/fail2ban/黑名单导出读同
+    # 一个数。ge=0:无指控证据时为 0(无证据即 0,非清白声明)。
+    first_hand_source_count: int = Field(ge=0)
 
 
 class ClassificationOut(_Out):
