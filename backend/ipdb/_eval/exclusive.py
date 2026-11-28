@@ -6,8 +6,8 @@
   ABORT——数据面没信该信的东西,继续跑就是假零/回声(哲学 2 无证据即无话),
   不出任何数字;
 - 指控口径:任一 classification detail 的 verdict ∈ _types._ACCUSING
-  (单一真源 live 导入,勿硬编码;缺 verdict 键兑底 malicious,layered
-  _accusing_sources 同款);排他 = 池内无任何指控 detail;
+  (单一真源,经 accusation.is_accusation 判定,#529 裁决:缺 verdict
+  键不算指控——旧口径兑底 malicious);排他 = 池内无任何指控 detail;
 - 采样 random.Random(seed).shuffle(uniq)[:300],同 seed 逐字节可复现;
 - 单个 lookup 失败即抛,不 except-continue(2026-10-10 假零判例)。
 """
@@ -16,7 +16,7 @@ from collections import Counter
 from pathlib import Path
 
 from .corpus import _IP_RE
-from .._types import _ACCUSING
+from .accusation import is_accusation
 
 SAMPLE_N = 300
 DEFAULT_SEED = 20261018             # 两起翻案探针同 seed,历史数字可逐位复算
@@ -46,12 +46,13 @@ def sample_keys(uniq: list[str], seed: int, n: int = SAMPLE_N) -> list[str]:
 
 def flagged_sources(ip: str, lookup) -> set[str]:
     """池指控源集:任一 classification detail 的 verdict ∈ _ACCUSING,
-    归因到 detail.source;lookup 失败原样上抛,绝不吞。"""
+    归因到 detail.source(缺 verdict 键不算指控,#529);
+    lookup 失败原样上抛,绝不吞。"""
     payload = lookup(ip)
     out: set[str] = set()
     for ca in (payload.get("classifications") or {}).values():
         for d in ca.get("details") or ():
-            if d.get("verdict", "malicious") in _ACCUSING and d.get("source"):
+            if is_accusation(d) and d.get("source"):
                 out.add(d["source"])
     return out
 
