@@ -91,17 +91,27 @@ def check_envs(data_dir: Path) -> tuple[list[dict], list[str]]:
             fails.append(f"{label}: env 打不开({e})")
             continue
         try:
-            entries = env.stat()["entries"]
+            # 主库实键数逐键游标数(排除 payloads 命名子库的登记记录,键字面
+            # b"payloads" 8 字节,与 4/16 字节 IP 键不可能撞):不用 stat()-1——
+            # .count 写方同律减 1(_sources/_lmdb.py:830),但那支 premised on
+            # 提交 env 恒带 payloads 子库;演练面对的目录可能来自任意历史纪元,
+            # 逐键数才是无前提的对账口径。键序 memcmp,IP 键 4/16 字节定长。
+            n_keys = 0
+            with env.begin() as txn:
+                cur = txn.cursor()
+                for k, _ in cur:
+                    if k != b"payloads":
+                        n_keys += 1
         finally:
             env.close()
-        opened.append({**fam, "entries": entries})
+        opened.append({**fam, "entries": n_keys})
         try:
             counted = int(fam["count_path"].read_text().strip())
         except (OSError, ValueError):
-            fails.append(f"{label}: .count 旁证缺席/不可读(entries={entries})")
+            fails.append(f"{label}: .count 旁证缺席/不可读(entries={n_keys})")
             continue
-        if counted != entries:
-            fails.append(f"{label}: .count={counted} ≠ env entries={entries}"
+        if counted != n_keys:
+            fails.append(f"{label}: .count={counted} ≠ env entries={n_keys}"
                          "(记录数对不上)")
     return opened, fails
 
