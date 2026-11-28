@@ -22,8 +22,9 @@
   114.114.114.114)是防线 curated 集真实成员,必须原样在夹具里才能
   验证防线,与 tests/sources/test_infra_noise_filter.py 同款纪律。
 - 已知无门面如实入 known_gap 字段(报告单可见,不发明门):事故②的
-  纯 derived 互证 corroborated 语义是 grill Q2 2026-10-11 人裁现状,
-  只披露(_eval/agg_share.py)不持门,改语义须另票。
+  纯 derived 互证 corroborated 语义曾是 grill Q2 2026-10-11 人裁现状
+  (只披露 _eval/agg_share.py 不持门);该缺口已由 #522(2026-11-28
+  丙口径)关闭,known_gap 改记关闭出处。
 - 腿读数 = {"pass": bool, ...证据明细};runner gate 腿按 pass 持门。
 - IP_RADAR_INFRA_NOISE_FILTER 显式关 = 防线被人为关闭,腿红是正确
   信号,不在本模块内强行扳回(不造假绿)。
@@ -151,9 +152,10 @@ def replay_dns114_false_corroboration() -> dict:
         "cps_collected_iocs.py);评分面:_logodds.dedup_lineage"
         "(DERIVED_SOURCES 派生剔除)",
         checks,
-        known_gap="纯 derived 组互证仍算 corroborated(grill Q2 2026-10-11 "
-        "人裁现状,_merge.py corroborated 判式钉死;无语义门,披露面="
-        "_eval/agg_share.py,改语义须另票过回放闸门=改前后同数据重跑比对)")
+        known_gap="旧缺口「纯 derived 组互证仍算 corroborated」(grill Q2 "
+        "2026-10-11 人裁现状)已由 #522(2026-11-28 丙口径)关闭:判式="
+        "_logodds.corroborated_after_dedup,纯派生互证与零系数抬旗不再"
+        "亮旗;历史披露面=_eval/agg_share.py(占比披露保留作测量面)")
 
 
 # ── 事故③:cps+ziyadnz 聚合器翻案(2026-10-18) ──────────────────────

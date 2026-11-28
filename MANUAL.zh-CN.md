@@ -127,7 +127,7 @@
 }
 ```
 
-值得记住的字段:`corroborated`(不止一个独立源同意)、`reporter_total`(源统计人工举报数时的合计)、`verdict_conflict`(源在方向上真吵架——一个说恶意另一个说良性)、`malware_names`(家族,如 `win.cobalt_strike`)、`native_confidence` / `native_categories` / `tags` / `extra`(上游自己的标签原样保留——翻成共享词表的过程零损失)。
+值得记住的字段:`corroborated`(至少两个互不相干的非聚合器、且对分数有正贡献的源同意;聚合器之间、可靠性 0.5 的源不算票)、`reporter_total`(源统计人工举报数时的合计)、`verdict_conflict`(源在方向上真吵架——一个说恶意另一个说良性)、`malware_names`(家族,如 `win.cobalt_strike`)、`native_confidence` / `native_categories` / `tags` / `extra`(上游自己的标签原样保留——翻成共享词表的过程零损失)。
 
 ### 属性与短路
 
