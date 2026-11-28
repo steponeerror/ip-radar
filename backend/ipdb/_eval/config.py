@@ -4,7 +4,8 @@
 # ALSO shows the portfolio percentile for advisory context.
 THRESHOLDS = {
     "MC": 0.02,        # marginal coverage >= 2% of corpus (ip,type) pairs
-    "CG": 5,           # >= 5 corroboration upgrades (1 -> >=2 indep sources)
+    "CG": 5,           # >= 5 corroboration flips (flag False->True by the
+                       # #522 predicate: >=2 non-derived, positive-coeff sources)
     "conflict": 3,     # >= 3 conflict-introduced pairs
     "fp": 0.05,        # >= 5% benign-infrastructure hit rate
     "other": 0.50,     # >= 50% rows map to 'other' (reuses existing FLAG)

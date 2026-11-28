@@ -30,11 +30,18 @@ def _payload(groups):
 
 # 事故形状(2026-10-24 114DNS 机制正身):纯 derived 组互证(ziyadnz
 # 0.55 + cps 0.50)。#522 起生产不再给这类组亮旗(qualifying=0);此处
-# 保留 corroborated=True 旧载荷,钉「镜像重算不一致 → 不计入」的防漂
-# 移腿(若生产回退旧判式,本 fixture 会重新计入 → 测试红)。
+# 保留 corroborated=True 旧载荷,钉「镜像重算不一致 → 计数显形、不计入」
+# 的防漂移腿(若生产回退旧判式,本 fixture 会重新计入 → 测试红)。
 _INCIDENT = _payload([("blacklist", "malicious", True, [
     ("ziyadnz", 0.55, "malicious"),
     ("cps_collected_iocs", 0.50, "malicious"),
+])])
+# 纯 derived 双源且两个都非零(评审 #572 #10):agg_share 单独去掉
+# 「非派生」条件时,_INCIDENT(cps 系数 0)仍会被旧判式拒,本对不会——
+# 钉死「去掉非派生」这类漂移也要红。
+_PURE_DERIVED_NZ = _payload([("blacklist", "malicious", True, [
+    ("ziyadnz", 0.55, "malicious"),
+    ("otx", 0.55, "malicious"),
 ])])
 # 混合印证:两个非 derived 证人 + 更强的聚合器票(derived 系数 ≤ 最强
 # 非 derived 会被 dedup_lineage 剔,更强则幸存——幸存派生票不算印证
@@ -53,12 +60,48 @@ _SINGLE = _payload([("blacklist", "malicious", False, [
 def test_pure_derived_group_no_longer_corroborated():
     """#522 丙口径:纯 derived 互证(qualifying=0)不再算印证——即使
     载荷仍带旧旗 corroborated=True,镜像重算(corroborated_after_dedup)
-    判不一致 → 不计入分母、不产例。生产若回退旧判式,本测试红。"""
-    res = corroboration_agg_share(lambda ip: _INCIDENT, ["203.0.113.7"])
-    assert res["n_probe"] == 1
+    判不一致 → 计数显形、不计入分母、不产例。生产若回退旧判式,本
+    测试红。变异①(共享函数回退 len>=2)→ 红;agg_share 单独去掉
+    「非派生」条件 → _PURE_DERIVED_NZ 那半也红。"""
+    res = corroboration_agg_share(
+        lambda ip: _INCIDENT if ip.endswith(".7") else _PURE_DERIVED_NZ,
+        ["203.0.113.7", "203.0.113.8"])
+    assert res["n_probe"] == 2
     assert res["n_corroborated_groups"] == 0
+    assert res["n_flag_mismatch_groups"] == 2       # 漂移显形,不静默(评审 #10)
     assert res["n_pure_derived_groups"] == 0
     assert res["examples"] == []
+
+
+def test_flag_mismatch_counter_catches_production_drift():
+    """防漂移腿端到端(评审 #10):载荷经生产 _assess_classification 现算,
+    一致组计数 0;把生产 _merge.py:330 改回旧判式(len>=2)→ 纯派生/
+    零系数景的生产旗翻 True,计数 > 0 → 本测试红。"""
+    from datetime import datetime, timezone, timedelta
+    from ipdb._merge import _assess_classification
+    from ipdb._types import EvidenceObservation
+    fs = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+
+    def obs(src, r):
+        return EvidenceObservation(source=src, classification_type="spam",
+                                   verdict="malicious", reliability=r,
+                                   first_seen=fs, confidence=None,
+                                   malware_name=None, extra={})
+
+    payloads = []
+    for grp in ([obs("otx", 0.55), obs("otx_subscribed", 0.55)],
+                [obs("threatfox", 0.50), obs("tweetfeed", 0.50)],
+                [obs("threatfox", 0.85), obs("abuseipdb", 0.75)]):
+        ca = _assess_classification(grp)
+        payloads.append({"classifications": {"spam": {
+            "type": "spam", "verdict": ca.verdict, "detected": True,
+            "corroborated": ca.corroborated, "details": ca.details}}})
+    it = iter(payloads)
+    res = corroboration_agg_share(lambda ip: next(it),
+                                  ["203.0.113.1", "203.0.113.2",
+                                   "203.0.113.3"])
+    assert res["n_flag_mismatch_groups"] == 0
+    assert res["n_corroborated_groups"] == 1
 
 
 def test_mixed_corroboration_counts_votes_not_echo():
@@ -77,6 +120,7 @@ def test_uncorroborated_and_clean_not_counted():
         ["203.0.113.7", "203.0.113.8", "203.0.113.9"])
     assert res["n_probe"] == 3
     assert res["n_corroborated_groups"] == 1        # 单源/clean 不进分母
+    assert res["n_flag_mismatch_groups"] == 0
     assert res["n_pure_derived_groups"] == 0
 
 
