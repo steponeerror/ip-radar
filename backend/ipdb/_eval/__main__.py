@@ -676,7 +676,7 @@ def main(argv=None):
                         "①附录读数——对出版 v2 语料逐成员查池, 试算 θ̂ 与"
                         "独有指控核查, 落 model/truth-v2-readout-<ts>.json, "
                         "月报 readout 腿读最新件嵌附录节;②并排对照——同轮"
-                        "对 Hornet 现行卷与 v2 卷各实算 θ̂/k 记分+32 锚回归"
+                        "对 Hornet 现行卷与 v2 卷各实算 θ̂/k 记分+33 锚回归"
                         "(#262), 落 model/truth-v2-parallel-<ts>.json;③换卷"
                         "触发判定——逐轮锚回归工件判连续两轮全绿(人裁执行"
                         "不自动换), 落 model/truth-v2-swap-<ts>.json。全部只"
@@ -1146,7 +1146,7 @@ def main(argv=None):
         # readouts 一腿双工件先例): ①附录读数 model/truth-v2-readout-
         # <ts>.json(run_readout 读最新件嵌月报附录节, northstar 读 anchors
         # 工件同律: 件先于月报落盘);②并排对照 model/truth-v2-parallel-
-        # <ts>.json(同轮 Hornet/v2 双卷实算 + 32 锚回归单跑共用);③换卷
+        # <ts>.json(同轮 Hornet/v2 双卷实算 + 33 锚回归单跑共用);③换卷
         # 触发判定 model/truth-v2-swap-<ts>.json(输入=逐轮锚回归工件,
         # 判定不触发任何自动动作, 人裁执行)。构建/读数两腿已入
         # monthly_eval.sh LEG_ORDER(2026-11-01 #262 T3 接线, 腿序注释
