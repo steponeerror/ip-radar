@@ -18,7 +18,10 @@ diff」、ops 的 roster download_host),放在「地址名单」上会被读成�
 _DATA 比对);data/ 下 csv 与 LMDB 都是它的投影(grill Q6 裁决
 2026-10-11)。名单内容缺口归各票:2026-11-28 #439 扩员 Quad9 两档——
 官方 Unsecured 档 9.9.9.10 / 149.112.112.10(同批把巡检锚里无出处的
-9.9.9.4 换成这两员)+ Secured w/ECS 档四地址,名单 56→62 行;出处
+9.9.9.4 换成这两员)+ Secured w/ECS 档四地址,名单 56→62 行;同日
+#577 补 Unsecured 档的 IPv6 两员 2620:fe::10 / 2620:fe::fe:10(与
+Unsecured 档两个 IPv4 对齐,名单 62→64 行;HARVEST_REV 不动,沿用
+#439 的做法:六新址生产零指控,不需要清存量);出处
 https://quad9.net/service/service-addresses-and-features/(2026-11-28 核)。
 """
 import csv
@@ -58,6 +61,8 @@ CURATED_CSV = """\
 2620:fe::9,dns,Quad9
 9.9.9.10,dns,Quad9 Unsecured
 149.112.112.10,dns,Quad9 Unsecured
+2620:fe::10,dns,Quad9 Unsecured
+2620:fe::fe:10,dns,Quad9 Unsecured
 9.9.9.11,dns,Quad9 Secured w/ECS
 149.112.112.11,dns,Quad9 Secured w/ECS
 2620:fe::11,dns,Quad9 Secured w/ECS
