@@ -88,6 +88,7 @@ class BlocklistNetUaSource(Source):
     reliability = 0.70                   # 社区第一方基础设施封禁(自运营 WAF 面)
     authoritative_for = ()
     provenance_tier = "B"                # B=社区(S21;第三方自有封禁面非自采,sblam 同档)
+    infra_noise_filter = False         # 显式关:存量源行为不变(#531;基类默认已翻 True)
 
     def download(self, token=None) -> None:
         """GET + 截断防护(表头校验)→ 原子写。失败/拒收时旧文件字节级

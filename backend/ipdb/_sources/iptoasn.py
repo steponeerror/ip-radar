@@ -21,6 +21,7 @@ class IPtoASNSource(Source):
     stale_days = 7
     reliability = 0.90
     single_evidence = True   # one evidence per CIDR → stream load() (OOM guard)
+    infra_noise_filter = False         # 良性源用不上;显式声明是 #531 契约(基类默认已翻 True)
 
     def __init__(self, data_dir: Path):
         super().__init__(data_dir)

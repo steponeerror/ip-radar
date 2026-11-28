@@ -34,6 +34,7 @@ class IPinfoLiteSource(SourceBase):
     # country/asn/as_name/ip_range/as_domain,is_mobile 更不在 ASSET_SLOTS;
     # is_hosting 真生产者是 ip2proxy(DCH)/cloud_ranges(未声明,有意不扩面)。
     authoritative_for = ()
+    infra_noise_filter = False         # 良性源用不上;显式声明是 #531 契约(基类默认已翻 True)
     # eval 元数据(S21/S33):默认 B/False 随源底座继承(原手抄同款值)。
 
     def __init__(self, data_dir: Path):

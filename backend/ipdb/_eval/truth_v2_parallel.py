@@ -200,7 +200,7 @@ def run_truth_v2_parallel(registry, out_dir=None, *,
     res["anchors"] = {
         "n_total": len(ANCHORS), "n_fail": len(fails),
         "all_green": not fails, "failures": fails,
-        "note": ("32 锚回归=引擎判定门(run_anchors), 与真值卷无关;同轮"
+        "note": (f"{len(ANCHORS)} 锚回归=引擎判定门(run_anchors), 与真值卷无关;同轮"
                  "单跑, 两卷共用此读数(宁少算);判定门退出码归 --anchors 腿"),
     }
 

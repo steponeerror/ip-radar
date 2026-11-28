@@ -20,3 +20,4 @@ class BinaryDefenseSource(IpListSource):
     reliability = 0.65                   # honeypot-sourced: automated but evidence-based
     authoritative_for = ()               # contributes to corroboration only (SM-F1:veto 机制不存在,措辞如实)
     honeypot_methodology = True          # 蜜罐法采集(S33):k_nonhoneypot 剔除
+    infra_noise_filter = False         # 显式关:存量源行为不变(#531;基类默认已翻 True)

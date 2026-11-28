@@ -205,3 +205,15 @@ def test_sinkhole_probe_cli_lands_report_and_exits_zero(
     files = list((tmp_path / "model").glob("sinkhole-probe-*.json"))
     assert len(files) == 1
     assert json.loads(files[0].read_text())["kind"] == "sinkhole_probe"
+
+
+def test_missing_verdict_details_not_attributed():
+    """#529 裁决 2026-11-28:detail 缺 verdict 键 = 不算指控(旧口径缺键
+    即滤本就同向;现统一走 accusation.is_accusation 防漂移)。"""
+    pay = _payload([("blacklist", [("a", 0.80, "malicious")])])
+    for d in pay["classifications"]["blacklist"]["details"]:
+        del d["verdict"]
+    res = sinkhole_probe(lambda ip: pay, ["192.0.2.10"], _RANGES)
+    assert res["n_members"] == 1
+    assert res["polluted_sources"] == {}
+    assert res["evidence"] == []

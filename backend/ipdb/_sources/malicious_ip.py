@@ -47,6 +47,7 @@ class MaliciousIPSource(Source):
     # 百万行:base rebuild() 的 single_evidence 路即 rebuild_dual_family 零参
     # factory 流式(covered=Auto;firehol/ipinfo_lite 大表纪律),不物化 acc。
     single_evidence = True
+    infra_noise_filter = False         # 显式关:存量源行为不变(#531;基类默认已翻 True)
 
     @property
     def download_host(self) -> str | None:

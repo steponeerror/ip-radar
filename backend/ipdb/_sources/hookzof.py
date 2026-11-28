@@ -20,6 +20,7 @@ class HookzofSource(IpListSource):
     stale_days = 1
     reliability = 0.50
     authoritative_for = ()
+    infra_noise_filter = False         # 良性源用不上;显式声明是 #531 契约(基类默认已翻 True)
 
     def parse_raw(self, raw: bytes) -> list[str]:
         """``ip:port`` → bare IPs (port is structural noise for lookups)."""

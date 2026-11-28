@@ -82,7 +82,7 @@ class ClassificationAssessment:
     confidence: int                          # 0-100, log-odds 后验;仅由指控章(malicious/suspicious)源求和,纯存档组退回全量(spec 2026-09-06)
     algorithm: str
     sources: list  # list[SourceAttribution]
-    corroborated: bool                       # >=2 independent sources(现状注记:纯 derived 组互证仍算印证,grill Q2 2026-10-11;披露面 _eval/agg_share.py,issue #183)
+    corroborated: bool                       # 「非派生且系数非零」的独立源 ≥2(#522,2026-11-28;判式=_logodds.corroborated_after_dedup,取代旧「谱系去重后源数 ≥2」及纯 derived 组互证算印证的 grill Q2 2026-10-11 语义)
     reporter_total: int = 0
     verdict_conflict: bool = False           # 真对立:benign × 指控同场(spec 2026-09-06;benign②源接入 #188 起真实产出:infra_services 良性断言与指控同场即 True,如 223.5.5.5)
     has_archive: bool = False                # 组内存档章在场(informational;只展示不计分,黄灯数据源)

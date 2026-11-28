@@ -324,13 +324,13 @@ def _assess_classification(
          for o in pool),
         ctype, now=_now)
     confidence = _lo.assertion_confidence([c for _, c in deduped])
-    # 已印证只数指控源(决策 8):谱系去重后的独立投票源 ≥2。
-    # 现状注记(issue #183,2026-10-24):纯 derived 组互证(如 ziyadnz+
-    # cps 两聚合器互投)仍算 corroborated —— grill Q2 2026-10-11 裁定内
-    # 语义,tests/eval/test_eval_metrics.py::test_cg_two_derived_alone_
-    # corroborate 钉死;v0 只披露不改语义(`_eval/agg_share.py` 占比披露,
-    # CLI --agg-share),改语义须另票过回放闸门。
-    corroborated = bool(voters) and len({s for s, _ in deduped}) >= 2
+    # 已印证只数指控源(决策 8)。判式(#522,2026-11-28 丙口径,单一
+    # 真源 _logodds.corroborated_after_dedup,评测重算同调一份):谱系
+    # 去重后「非派生且系数非零」的独立投票源 ≥2。旧判式「谱系去重后
+    # 源数 ≥2」及其现状注记(issue #183,2026-10-24;grill Q2 2026-10-11
+    # 裁定内「纯 derived 组互证仍算 corroborated」,_eval/agg_share.py
+    # 占比披露)被 #522 取代——纯派生互证与零系数源抬旗不再亮旗。
+    corroborated = bool(voters) and _lo.corroborated_after_dedup(deduped)
     # 存档在场提示(黄灯):组内存在 informational 观测(未知 verdict 不触发)。
     has_archive = any(o.verdict == "informational" for o in obs)
     distinct_sources = {o.source for o in obs}

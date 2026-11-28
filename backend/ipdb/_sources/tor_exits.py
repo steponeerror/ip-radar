@@ -26,6 +26,7 @@ class TorExitSource(IpListSource):
     reliability = 0.95
     authoritative_for = ("is_tor",)
     provenance_tier = "A"                 # A=官方一手(S21):Tor Project 官方出口列表
+    infra_noise_filter = False         # 良性源用不上;显式声明是 #531 契约(基类默认已翻 True)
 
     def parse_raw(self, raw: bytes) -> list[str]:
         ips = []

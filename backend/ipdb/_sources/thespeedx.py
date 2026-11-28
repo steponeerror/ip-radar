@@ -19,6 +19,7 @@ class TheSpeedXSource(IpListSource):
     stale_days = 1
     reliability = 0.50
     authoritative_for = ()
+    infra_noise_filter = False         # 显式关:存量源行为不变(#531;基类默认已翻 True)
 
     def parse_raw(self, raw: bytes) -> list[str]:
         """``ip:port`` → bare IPs (port is structural noise for lookups)."""

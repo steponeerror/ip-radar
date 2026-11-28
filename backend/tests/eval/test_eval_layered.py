@@ -274,3 +274,15 @@ def test_epsilon_sensitivity_deterministic_drop_counts():
         epsilon_sensitivity(hits, n=0, seed=7)
     with pytest.raises(TypeError):                   # seed 必填(significance 同款纪律)
         epsilon_sensitivity(hits, n=200)
+
+
+def test_accusing_sources_missing_verdict_detail_not_counted():
+    """#529 裁决 2026-11-28:detail 缺 verdict 键 = 不算指控(旧口径兑底
+    malicious 与其余消费面「缺键即滤」分叉,现收成 accusation.is_accusation
+    单一口径;本函数是 canary/sentinel 借道源,行为随之统一)。"""
+    from ipdb._eval.layered import _accusing_sources
+    payload = {"classifications": {"blacklist": {
+        "verdict": "malicious",
+        "details": [{"source": "nokey"},
+                    {"source": "yes", "verdict": "malicious"}]}}}
+    assert _accusing_sources(payload) == {"yes"}

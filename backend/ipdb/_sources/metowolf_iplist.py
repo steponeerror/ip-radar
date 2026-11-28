@@ -24,6 +24,7 @@ class MetowolfIplistSource(Source):
     reliability = 0.75                 # community aggregation of official APNIC data
     provenance_tier = "C"              # derived/aggregated, not publisher-self
     single_evidence = True             # one evidence per CIDR, each yielded once
+    infra_noise_filter = False         # 良性源用不上;显式声明是 #531 契约(基类默认已翻 True)
     def harvest(self) -> Iterator[tuple[str, Evidence]]:
         import ipaddress as _ipa
         with open(self._path, "r", encoding="utf-8", errors="ignore") as f:

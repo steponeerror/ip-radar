@@ -174,7 +174,8 @@ def accuser_pool(entries: Iterable[tuple[str, float, str | None]
     指控章判定(verdict ∈ _ACCUSING)留在调用方执行——判定面各异,
     不许吞:
     ① eval detail 级滤(agg_share/sinkhole_probe/anchor_readouts);
-    ② metrics 缺 verdict 键兜底 malicious(旧快照兼容);
+    ② eval 证据级一律调 _eval.accusation.is_accusation,缺 verdict 键
+       不算指控(#529,2026-11-28;旧「兑底 malicious」口径已废);
     ③ 生产 _merge voters-else-回退池调用方预滤(纯存档组退回全量
     Σ,决策 5/乙——回退池含非指控观测,不可在本函数再滤);
     ④ 生产 _types.threat_summary 组级 + detail 级双滤(跨组池化)。
@@ -189,6 +190,37 @@ def accuser_pool(entries: Iterable[tuple[str, float, str | None]
         if src not in by_source or c > by_source[src]:
             by_source[src] = c
     return dedup_lineage(sorted(by_source.items()))
+
+
+def corroborated_after_dedup(deduped: list[tuple[str, float]]) -> bool:
+    """印证旗判式单一真源(生产 _merge 与评测重算共用,禁止各算各的):
+    谱系去重后的池里「非派生(不在 DERIVED_SOURCES)且系数 > 0」的源
+    ≥2 才算印证(工单 #522,2026-11-28 所有者裁丙口径;取代 grill Q2
+    2026-10-11「纯 derived 组互证仍算 corroborated」的旧语义——该语义
+    此前只披露不改,注明「改语义须另票」,本票即那张票;2026-11-28 评
+    审后主会话裁「非零」收窄为「大于 0」:可靠性校准可把系数压到 0.5
+    以下为负(dshield 0.01→logit≈-4.6),负系数是对分数的反向贡献,
+    不算一票;另衰减半衰 60 天、恰好衰到 0 需约 176 年,实际够不着,
+    「> 0」不会误伤正常正票)。三口径全量读数(本票自扫 2026-11-28,
+    dev/arch-r4-scan/i522_corrob_pinned.json,含 CIDR):丢旗 65,300
+    = 纯派生互证 64,044 + 两个可靠性 0.5 源互证 938 + 一票第一手配
+    零系数/派生回声 318;conf≥70 只丢 56。
+
+    挡三类回声 + 一条负系数边(哲学 3「宁少算,回声不是印证」;
+    分桶与扫描件 drop_reason 对齐):
+    ① 纯派生源(聚合器)互相印证——两个聚合器抄的是同一批上游,
+      不是两票(64,044 组);
+    ② 零系数源互证/抬旗——可靠性声明 0.5 → logit(0.5)=0 →
+      系数恒 0,与钟无关(hookzof/thespeedx/proxyscrape/tweetfeed,
+      938 组);
+    ③ 恰一个真第一手票,其余是零系数源或派生回声——一票不足两票
+      (318 组,conf≥70 的 56 组全在这里)。
+
+    先后关系:入参必须是 dedup_lineage / accuser_pool 的输出(谱系去重
+    在前,本判式只做资格过滤,不再去重);conf/Σ 照旧由全池系数算,
+    本判式只决定旗,不进置信度(旗是独立字段)。"""
+    return sum(1 for s, c in deduped
+               if s not in DERIVED_SOURCES and c > 0.0) >= 2
 
 
 def assertion_confidence(coeffs: list[float]) -> int:

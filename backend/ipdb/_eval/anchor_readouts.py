@@ -40,6 +40,7 @@ from .model import beta_ppf
 from .truth_layer import apply_scanner_filter
 from .._logodds import accuser_pool
 from .._types import _ACCUSING
+from .accusation import is_accusation
 
 CP_LEVEL = 0.95                      # 精确界置信水平(统计约定,非门阈值)
 SCANNER_PROBE_N = 300                # 段成员采样容量帽(exclusive.SAMPLE_N 同量级,lookup ~ms)
@@ -90,7 +91,7 @@ def _group_accusers(ca: dict, ctype: str) -> dict:
     raw: list[dict] = []
     entries: list[tuple[str, float, str | None, str | None, str | None]] = []
     for d in ca.get("details") or ():
-        if d.get("verdict") not in _ACCUSING:
+        if not is_accusation(d):
             continue
         src = d.get("source")
         if not src:

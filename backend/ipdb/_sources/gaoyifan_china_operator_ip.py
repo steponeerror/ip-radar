@@ -40,6 +40,7 @@ class GaoyifanChinaOperatorIPSource(Source):
     provenance_tier = "B"           # 社区
     authoritative_for = ()          # corroboration only(country_code 投票)
     single_evidence = True          # ~10k CIDR 单证据流式,OOM 守卫
+    infra_noise_filter = False         # 良性源用不上;显式声明是 #531 契约(基类默认已翻 True)
 
     def download(self, token: CancelToken | None = None) -> None:
         """v4+v6 双 URL 拼接单文件(x4bnet_vpn 同型):v6 失败保旧不覆写,
