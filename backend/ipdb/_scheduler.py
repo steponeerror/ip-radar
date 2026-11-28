@@ -408,20 +408,64 @@ class RefreshScheduler:
         return getattr(source, "last_partial_failure", None) or None
 
     @staticmethod
+    def _data_files_or_legacy(source) -> list:
+        """内容输入集(#501 起指纹用,#509 起修改时间同走这份):有
+        _data_files() 钩子的源返回钩子声明的清单;无钩子的自定义源/
+        测试桩退回旧口径——_path 是文件 → [文件],是目录 → 目录内全部
+        普通文件(暂存件照吃,旧行为原样);_path 缺失或列目录失败 →
+        [](两个消费面算空集同为「算不出」:newest_mtime → None、
+        content_fingerprint → None)。_data_files() 抛异常 → 记 warning
+        (带源名与异常类型)后退回旧口径,输入集不因钩子故障硬丢。
+        清单里出现目录(目录型 _path 不覆写钩子时,基类默认返回的就是
+        目录自己)→ 记 warning(带源名与目录项)后退回旧口径:「有钩子」
+        ≠「清单可信」,拿目录自身 mtime 当内容新鲜度会回到 #465 卡16
+        的「46 天误报」(#509 评审记一笔 8)。
+        """
+        from pathlib import Path
+        data_files = getattr(source, "_data_files", None)
+        if data_files is not None:
+            try:
+                declared = list(data_files())
+                dir_items = [str(f) for f in declared if Path(f).is_dir()]
+                if not dir_items:
+                    return declared
+                logger.warning(
+                    "scheduler: _data_files() for %s lists directory "
+                    "item(s) [%s]; falling back to legacy path listing",
+                    getattr(source, "name", "?"), ", ".join(dir_items))
+            except Exception as e:      # 钩子故障不丢记账:退回旧口径
+                logger.warning(
+                    "scheduler: _data_files() failed for %s (%s); "
+                    "falling back to legacy path listing",
+                    getattr(source, "name", "?"), type(e).__name__)
+        p = getattr(source, "_path", None)
+        if p is None:
+            return []
+        path = Path(p)
+        try:
+            if path.is_dir():
+                return [c for c in path.iterdir() if c.is_file()]
+            return [path]
+        except OSError:
+            return []
+
+    @staticmethod
     def _content_fingerprint_of(source) -> Optional[str]:
         """#467:源数据文件字节指纹;经 observe_update 的 content_hash_of 延迟
         调用,只在落新事件时进本函数(平时扫描不算指纹,零开销)。
 
-        输入集(#501,还 #465 卡16 的挂账):有 _data_files() 钩子的源走
+        输入集 = _data_files_or_legacy(#501,还 #465 卡16 的挂账;#509
+        起 _read_mtime 同走这份输入集):有 _data_files() 钩子的源走
         钩子返回的声明清单——与 health()、/api/sources 的 content_age_h
         同一输入集,下载暂存件(.dl、.dl.tmp、cn_isp 的 .tmp)不再混进
-        指纹。#455 评审 R-2 的窗口只关掉一半:「暂存件进指纹」这一半
-        关了;「扫描落在下载途中多记一条」那一半还在(_read_mtime 仍列
-        目录内全部文件),那一条的指纹与上一条相同,读数按 _alerts.py
-        头注的读数注意②剔除。无钩子的自定义源/测试桩退回旧口径:
-        _path 是文件 → 单文件;是目录 → 目录内文件列表(排序由
-        _alerts.content_fingerprint 内部做,这里不排)。_path 缺失、
-        列目录失败、目录空 → None(指纹列落 NULL,事件照记)。
+        指纹。#455 评审 R-2 的窗口两半都已关(对有 _data_files() 覆写
+        的源;钩子抛异常退回旧口径时,对那一个源重新打开,有 warning):
+        「暂存件进指纹」这一半 #501 关了;「扫描落在下载途中多记一条」
+        那一半 #509 关了(_read_mtime 不再看暂存件,那条假事件不再产生;
+        存量库历史区间的读数仍按 _alerts.py 头注的读数注意②剔除)。无钩子的自定义
+        源/测试桩退回旧口径:_path 是文件 → 单文件;是目录 → 目录内
+        文件列表(排序由 _alerts.content_fingerprint 内部做,这里不排)。
+        _path 缺失、列目录失败、目录空 → None(指纹列落 NULL,事件照记)。
 
         缺席裁决(#501 主会话定):声明清单里任一文件不存在 → 整次指纹
         None——None 在读数时按「不可比」剔除,永远不会被算成「没变」
@@ -432,35 +476,26 @@ class RefreshScheduler:
         _data_files() 调用抛异常 → 退回旧口径并记 warning(带源名与
         异常类型),指纹不因钩子故障硬丢。
         """
-        from pathlib import Path
-        data_files = getattr(source, "_data_files", None)
-        if data_files is not None:
-            try:
-                paths = list(data_files())
-            except Exception as e:      # 钩子故障不丢记账:退回旧口径
-                logger.warning(
-                    "scheduler: _data_files() failed for %s (%s); "
-                    "falling back to legacy path listing",
-                    getattr(source, "name", "?"), type(e).__name__)
-            else:
-                # 缺席/空清单 → None(content_fingerprint 的 OSError/空
-                # 列表规则,#501 裁决);排序在 content_fingerprint 内部做
-                return _alerts.content_fingerprint(paths)
-        p = getattr(source, "_path", None)
-        if p is None:
-            return None
-        path = Path(p)
-        try:
-            if path.is_dir():
-                paths = [c for c in path.iterdir() if c.is_file()]
-            else:
-                paths = [path]
-        except OSError:
-            return None
-        return _alerts.content_fingerprint(paths)
+        return _alerts.content_fingerprint(
+            RefreshScheduler._data_files_or_legacy(source))
 
     @staticmethod
     def _read_mtime(source) -> Optional[float]:
+        """内容修改时间:更新账本水位(#455)、slot 到期(scan)、告警
+        content_age_h、超龄探测器(ops_detectors)的共同信号源。
+
+        #509:目录分支的输入集与 _content_fingerprint_of 同走
+        _data_files_or_legacy——有 _data_files() 钩子的源取声明清单的
+        最新 mtime,下载暂存件(.dl、.dl.tmp、cn_isp 的 .tmp)不再被
+        当成「源刚更新过」。清单里的文件全都不存在 → 返回 None:和
+        「下载失败的残缺」同一处理(None = 立即到期,见 scan() 的 slot
+        注释)——声明文件全缺席 = 完整性未恢复,宁可立即重抓,也不拿
+        暂存件的「刚写入」冒充内容新鲜度(暂存件一出现就算更新过、被
+        改名或清掉 mtime 又变回去,_reconcile 会把这种波动误判成下载
+        落地,即 #455 评审 R-2 窗口的成因)。无钩子源退回旧口径(目录
+        内全部普通文件取最新);_path 是文件的源完全不变(直接 stat
+        的 mtime,与指纹的 [_path] 输入集天然一致)。
+        """
         from pathlib import Path
         import stat as _stat
         p = getattr(source, "_path", None)
@@ -469,14 +504,15 @@ class RefreshScheduler:
         try:
             st = Path(p).stat()
             if _stat.S_ISDIR(st.st_mode):
-                # 目录型源(cn_isp isp/、cloud_ranges/):内容 mtime = 目录内
-                # 最新文件。重写文件不改目录 mtime(线上实证:isp/ 目录停在
-                # 首建日 08-18,文件当天 10-03 刚刷新),只看目录会把新鲜
-                # 多 feed 源误判 46 天过期。#465 卡16:取最大收 _freshness
-                # 单源点,输入集不变(目录内全部普通文件)。
+                # 目录型源(cn_isp isp/、cloud_ranges/):内容 mtime = 数据
+                # 文件清单里最新的。重写文件不改目录 mtime(线上实证:isp/
+                # 目录停在首建日 08-18,文件当天 10-03 刚刷新),只看目录
+                # 会把新鲜多 feed 源误判 46 天过期。#465 卡16:取最大收
+                # _freshness 单源点;#509:输入集改走声明清单(暂存件
+                # 不参与;清单全缺席 → None,裁决见 docstring)。
                 from ._sources import _freshness
                 return _freshness.newest_mtime(
-                    c for c in Path(p).iterdir() if c.is_file())
+                    RefreshScheduler._data_files_or_legacy(source))
             return st.st_mtime
         except OSError:
             return None
